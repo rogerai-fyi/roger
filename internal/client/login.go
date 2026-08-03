@@ -3,6 +3,7 @@ package client
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -60,7 +61,28 @@ func saveAuth(a authState) error {
 // Login runs the GitHub device flow with the public client id, then binds the
 // resulting identity to the local signing pubkey via the broker's POST /auth/github.
 // Owners log in to monetize; consumers never need this.
+// Login signs in through RogerAI, letting the person choose their provider on our page.
+//
+// It falls back to the old GitHub device flow only if the broker does not offer the
+// brokered one, so a CLI built after this change still works against a broker deployed
+// before it. That fallback goes away once every broker has the routes.
 func Login(broker, clientID string) error {
+	login, err := DeviceLoginRun(broker)
+	if err == nil {
+		fmt.Printf("\nsigned in as @%s, wallet ready - this keypair now shares one wallet with your account (and can earn as a provider).\n", login)
+		fmt.Println("  + $1 starter credit on your wallet - enough to try a paid model. `roger topup` adds more.")
+		return nil
+	}
+	// A denial or an expiry is the person's decision, not a reason to try another route.
+	if errors.Is(err, ErrLoginDenied) || errors.Is(err, ErrLoginExpired) {
+		return err
+	}
+	return legacyGitHubLogin(broker, clientID)
+}
+
+// legacyGitHubLogin is the original provider-direct device flow, kept only so a new CLI
+// keeps working against a broker that predates the brokered routes.
+func legacyGitHubLogin(broker, clientID string) error {
 	if clientID == "" {
 		return fmt.Errorf("no GitHub client id configured (set GITHUB_OAUTH_CLIENT_ID or build with the default)")
 	}

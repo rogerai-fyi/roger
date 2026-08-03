@@ -101,7 +101,10 @@ func (b *broker) authAppleWebCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	login := appleWebLogin(claims.Email, claims.Sub)
 	exp := time.Now().Add(24 * time.Hour).Unix()
-	b.setWebSessionWallet(w, login, 0, wallet, exp)
+	// Carry the sub: it is what lets this browser session approve a CLI device login,
+	// which is the only place an Apple account can gain an owner row (a browser alone has
+	// no device pubkey to bind).
+	b.setWebSessionFull(w, login, 0, wallet, claims.Sub, exp)
 	clearCookie(w, appleStateCookie)
 	clearCookie(w, appleNonceCookie)
 	http.Redirect(w, r, dashboardURL(), http.StatusFound)

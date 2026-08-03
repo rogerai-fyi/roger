@@ -73,7 +73,8 @@ const CSS_BUNDLES = {
   "payouts.html":   [...CSS_ACCOUNT, "payouts.css"],
   "usage.html":     [...CSS_ACCOUNT, "metrics.css"],
   "dashboard.html": [...CSS_ACCOUNT, "dashboard.css"],
-  "stations.html":  [...CSS_ACCOUNT, "stations.css"],  // operator station roll-up: status, usage, chain evidence
+  "stations.html":  [...CSS_ACCOUNT, "stations.css"],
+  "device.html":    [...CSS_ACCOUNT, "device.css"],    // CLI sign-in approval  // operator station roll-up: status, usage, chain evidence
   "console.html":   [...CSS_ACCOUNT, "console.css"],
   "private.html":   [...CSS_ACCOUNT, "console.css", "private.css"], // reuses the cn-table; rc-* is its own
   "r.html":         [...CSS_ACCOUNT],                    // link handler: shared chrome only

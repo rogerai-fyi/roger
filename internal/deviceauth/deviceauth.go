@@ -270,6 +270,19 @@ func (f *Flow) claimAttempt(userCode, submitter string) (*login, error) {
 	return l, nil
 }
 
+// BoundKey returns the key a pending or just-approved login is bound to. It is how the
+// approval path learns WHICH key to bind - the key is never taken from the approving
+// request, only from the record made at issue.
+func (f *Flow) BoundKey(userCode string) (string, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	l, ok := f.byUser[userCode]
+	if !ok {
+		return "", false
+	}
+	return l.boundKey, true
+}
+
 // Describe is what the approval screen may render.
 //
 // It spends a guess-budget slot exactly like Approve. Without that it would be a free

@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"rogerai.fm/roger/v5/internal/client"
 	"rogerai.fm/roger/v5/internal/tower"
 	"rogerai.fm/roger/v5/internal/towerjoin"
 )
@@ -345,25 +346,12 @@ func cmdRoute(args []string, out io.Writer) error {
 	return nil
 }
 
-// cmdLogin signs the operator in.
+// cmdLogin signs the operator in through RogerAI.
 //
-// It is refused in standalone mode because an account would do nothing there. In joined
-// mode it currently reports that the flow is not available yet, and that is deliberate
-// rather than a stub left half-done:
-//
-//   - Wiring the CLIENT's GitHub device flow here would reach github.com directly with a
-//     client id that does not exist in this binary (the public default lives in the roger
-//     client's own package), so a released roger-tower would fail with a confusing
-//     "no GitHub client id configured" for every operator.
-//   - It would also bind the account to the CLIENT's key in the user config directory,
-//     not to this Tower's identity - and under the shipped systemd unit (ProtectHome=yes,
-//     a system user with no home) that write has nowhere valid to go.
-//   - It would contradict features/auth/broker_mediated_login.feature, written in the same
-//     pass, which exists precisely so a Tower never reaches a third-party host.
-//
-// The broker-mediated flow (internal/deviceauth) is built and tested; it needs the broker
-// routes and the /device approval page before this command can use it. Saying so is more
-// useful than a command that fails obscurely.
+// The broker-mediated flow means this binary reaches only our broker - no provider
+// endpoint, no client id compiled in - and the operator picks whichever sign-in their
+// account supports on our page. That is why roger-tower can have a login at all: the
+// provider-direct flow would have needed a client id this binary does not carry.
 func cmdLogin(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("login", flag.ContinueOnError)
 	fs.SetOutput(out)
@@ -379,9 +367,21 @@ func cmdLogin(args []string, out io.Writer) error {
 	if st.Mode != tower.ModeJoined {
 		return fmt.Errorf("this Tower is standalone and needs no account: nothing it does leaves this machine")
 	}
-	return fmt.Errorf("signing in is not available yet: it needs the broker-mediated login flow, " +
-		"which ships with the joined-Tower protocol (Phase 2). Standalone mode works today and needs no account")
+	login, err := deviceLogin(envOr("ROGERAI_BROKER", "https://broker.rogerai.fm"))
+	if err != nil {
+		return err
+	}
+	if err := towerjoin.SaveAccount(st.Dir(), towerjoin.Account{Login: login}); err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "signed in as @%s\n", login)
+	fmt.Fprintf(out, "next: roger-tower register --dir %s\n", *dir)
+	return nil
 }
+
+// deviceLogin is the brokered sign-in, behind a seam so the rest of cmdLogin is testable
+// without a network round trip.
+var deviceLogin = client.DeviceLoginRun
 
 func cmdLogout(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("logout", flag.ContinueOnError)

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -388,20 +389,47 @@ func TestUsageExplainsTheAccountLine(t *testing.T) {
 	require.Contains(t, out, "accountable")
 }
 
-// Joined login must say plainly that the flow is not available yet. Wiring the client's
-// GitHub device flow here would fail in a released binary (no client id), bind the wrong
-// key, and contradict the broker-mediated login spec.
-func TestJoinedLoginSaysTheFlowIsNotAvailableYet(t *testing.T) {
+// A joined Tower signs in through the broker and records the account. No provider name
+// appears anywhere in the path - that is the point of the brokered flow.
+func TestJoinedLoginSignsInAndPointsAtRegister(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "j")
 	_, err := runCLI(t, "init", "--dir", dir, "--mode", "joined")
 	require.NoError(t, err)
 
-	_, err = runCLI(t, "login", "--dir", dir)
+	prev := deviceLogin
+	deviceLogin = func(string) (string, error) { return "alice", nil }
+	t.Cleanup(func() { deviceLogin = prev })
+
+	out, err := runCLI(t, "login", "--dir", dir)
+	require.NoError(t, err)
+	require.Contains(t, out, "signed in as @alice")
+	require.Contains(t, out, "register --dir")
+
+	// Now signed in, register reaches enrollment - which honestly reports Phase 2.
+	_, err = runCLI(t, "register", "--dir", dir)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "not available yet")
-	require.Contains(t, err.Error(), "Standalone mode works today")
-	require.NotContains(t, err.Error(), "GitHub", "the operator must not meet a provider error")
+	require.Contains(t, err.Error(), "not implemented yet")
 }
+
+func TestJoinedLoginSurfacesAFailure(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "j")
+	_, err := runCLI(t, "init", "--dir", dir, "--mode", "joined")
+	require.NoError(t, err)
+
+	prev := deviceLogin
+	deviceLogin = func(string) (string, error) { return "", errLoginRefused }
+	t.Cleanup(func() { deviceLogin = prev })
+
+	_, err = runCLI(t, "login", "--dir", dir)
+	require.ErrorIs(t, err, errLoginRefused)
+
+	// A failed sign-in stores nothing, so register still refuses.
+	_, err = runCLI(t, "register", "--dir", dir)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "sign in first")
+}
+
+var errLoginRefused = errors.New("the sign-in was denied")
 
 func TestEnvOrPrefersTheEnvironment(t *testing.T) {
 	require.Equal(t, "fallback", envOr("ROGER_TOWER_TEST_UNSET_VAR", "fallback"))

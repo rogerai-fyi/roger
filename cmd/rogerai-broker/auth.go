@@ -177,8 +177,14 @@ func (b *broker) setWebSessionCookies(w http.ResponseWriter, login string, id, e
 // non-GitHub login (Sign in with Apple: githubID=0, wallet=u_apple_<…>) gets the same signed
 // session credential + readable signed-in hint the GitHub callback issues.
 func (b *broker) setWebSessionWallet(w http.ResponseWriter, login string, githubID int64, wallet string, exp int64) {
+	b.setWebSessionFull(w, login, githubID, wallet, "", exp)
+}
+
+// setWebSessionFull additionally records the Apple sub, which device-login approval needs
+// to create the owner row binding a CLI key to an Apple account.
+func (b *broker) setWebSessionFull(w http.ResponseWriter, login string, githubID int64, wallet, appleSub string, exp int64) {
 	http.SetCookie(w, &http.Cookie{
-		Name: sessionCookie, Value: b.signSessionWallet(login, githubID, wallet, exp), Path: "/",
+		Name: sessionCookie, Value: b.signSessionFull(login, githubID, wallet, appleSub, exp), Path: "/",
 		Expires: time.Unix(exp, 0), HttpOnly: true, Secure: true, SameSite: http.SameSiteNoneMode,
 	})
 	http.SetCookie(w, &http.Cookie{
@@ -222,7 +228,21 @@ func (b *broker) signSession(login string, githubID, exp int64) string {
 // - without the cookie reader having to know how to derive it. GitHub sessions keep
 // wallet=u_gh_<githubID>, so their behavior is unchanged.
 func (b *broker) signSessionWallet(login string, githubID int64, wallet string, exp int64) string {
+	return b.signSessionFull(login, githubID, wallet, "", exp)
+}
+
+// signSessionFull additionally carries the Apple SUB.
+//
+// It exists for one reason: device-login approval. The Apple web flow deliberately binds
+// no owner row, because a browser has no device pubkey to bind - but a device approval
+// DOES have one (the CLI's), and creating that owner row needs the sub. The session
+// carries only a hash of it in the wallet, which is irreversible, so without this an
+// Apple user could never sign a CLI in. Empty for GitHub sessions, which key on githubID.
+func (b *broker) signSessionFull(login string, githubID int64, wallet, appleSub string, exp int64) string {
 	payload := login + "|" + strconv.FormatInt(githubID, 10) + "|" + wallet + "|" + strconv.FormatInt(exp, 10)
+	if appleSub != "" {
+		payload += "|" + appleSub
+	}
 	mac := hmac.New(sha256.New, b.sessionKey())
 	mac.Write([]byte(payload))
 	return base64.RawURLEncoding.EncodeToString([]byte(payload)) + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
@@ -232,33 +252,44 @@ func (b *broker) signSessionWallet(login string, githubID int64, wallet string, 
 // the session's wallet id. (A pre-wallet cookie - 3 fields - fails the len check and is
 // treated as invalid, so old sessions simply re-login; no security impact.)
 func (b *broker) verifySession(val string) (login string, githubID int64, wallet string, ok bool) {
+	login, githubID, wallet, _, ok = b.verifySessionFull(val)
+	return login, githubID, wallet, ok
+}
+
+// verifySessionFull additionally returns the Apple sub when the cookie carries one.
+// It accepts BOTH the four-field and five-field payloads, so sessions minted before the
+// sub was added keep working - they simply report no sub.
+func (b *broker) verifySessionFull(val string) (login string, githubID int64, wallet, appleSub string, ok bool) {
 	parts := strings.SplitN(val, ".", 2)
 	if len(parts) != 2 {
-		return "", 0, "", false
+		return "", 0, "", "", false
 	}
 	payload, err := base64.RawURLEncoding.DecodeString(parts[0])
 	if err != nil {
-		return "", 0, "", false
+		return "", 0, "", "", false
 	}
 	sig, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil {
-		return "", 0, "", false
+		return "", 0, "", "", false
 	}
 	mac := hmac.New(sha256.New, b.sessionKey())
 	mac.Write(payload)
 	if !hmac.Equal(sig, mac.Sum(nil)) {
-		return "", 0, "", false
+		return "", 0, "", "", false
 	}
 	f := strings.Split(string(payload), "|")
-	if len(f) != 4 {
-		return "", 0, "", false
+	if len(f) != 4 && len(f) != 5 {
+		return "", 0, "", "", false
 	}
 	gid, _ := strconv.ParseInt(f[1], 10, 64)
 	exp, _ := strconv.ParseInt(f[3], 10, 64)
 	if time.Now().Unix() > exp {
-		return "", 0, "", false
+		return "", 0, "", "", false
 	}
-	return f[0], gid, f[2], true
+	if len(f) == 5 {
+		appleSub = f[4]
+	}
+	return f[0], gid, f[2], appleSub, true
 }
 
 // authGitHubLogin handles GET /auth/github/login: 302 to GitHub authorize with a
