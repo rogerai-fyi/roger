@@ -1,0 +1,460 @@
+// Command roger-tower is the self-hosted RogerAI relay.
+//
+// Two modes, chosen once per data directory and never changed in place:
+//
+//	standalone  a self-governed local network with its own trust root. No RogerAI
+//	            discovery, settlement, or advertisement - structurally, not by setting.
+//	joined      an untrusted child relay of the public RogerAI network. Roger Core
+//	            stays the admission, routing, settlement and revocation authority.
+//
+// Phase 1 of docs/tower-network-plan.md ships standalone first; the joined protocol is
+// Phase 2. Commands that need the joined protocol say so plainly rather than pretending.
+package main
+
+import (
+	"flag"
+	"fmt"
+	"io"
+	"os"
+	"strings"
+	"time"
+
+	"rogerai.fm/roger/v5/internal/tower"
+	"rogerai.fm/roger/v5/internal/towerjoin"
+)
+
+const usage = `roger-tower - the self-hosted RogerAI relay
+
+usage:
+  roger-tower init --dir DIR --mode joined|standalone
+  roger-tower config validate --config FILE
+  roger-tower config print --config FILE [--redact]
+  roger-tower doctor --config FILE
+  roger-tower invite --dir DIR --client KEYHASH [--ttl 15m] [--attempts 5]
+  roger-tower admit  --dir DIR --client KEYHASH --id ID --code CODE
+  roger-tower attach --dir DIR --station ID --key KEYHASH --models a,b
+  roger-tower stations --dir DIR
+  roger-tower route --dir DIR --client KEYHASH --model NAME
+  roger-tower status --dir DIR
+  roger-tower login  --dir DIR        (joined mode only)
+  roger-tower logout --dir DIR
+  roger-tower register --dir DIR      (joined mode only; requires login)
+  roger-tower version
+
+Standalone needs NO account: nothing leaves your machine. Joining the public network
+needs one, because a joined Tower relays other people's traffic and must stay
+accountable.
+
+A data directory is initialized as ONE mode for life. To change mode, initialize a new
+data directory: nothing is copied automatically, because an identity, trust root, or
+Station registry must never cross that boundary.
+`
+
+// version is set at build time by the release pipeline.
+var version = "dev"
+
+func main() {
+	if err := run(os.Args[1:], os.Stdout); err != nil {
+		fmt.Fprintln(os.Stderr, "roger-tower:", err)
+		os.Exit(1)
+	}
+}
+
+// run is the whole CLI, taking its args and output so it is testable without a process.
+func run(args []string, out io.Writer) error {
+	if len(args) == 0 {
+		fmt.Fprint(out, usage)
+		return nil
+	}
+	switch args[0] {
+	case "init":
+		return cmdInit(args[1:], out)
+	case "config":
+		return cmdConfig(args[1:], out)
+	case "doctor":
+		return cmdDoctor(args[1:], out)
+	case "invite":
+		return cmdInvite(args[1:], out)
+	case "admit":
+		return cmdAdmit(args[1:], out)
+	case "attach":
+		return cmdAttach(args[1:], out)
+	case "stations":
+		return cmdStations(args[1:], out)
+	case "route":
+		return cmdRoute(args[1:], out)
+	case "login":
+		return cmdLogin(args[1:], out)
+	case "logout":
+		return cmdLogout(args[1:], out)
+	case "register":
+		return cmdRegister(args[1:], out)
+	case "status":
+		return cmdStatus(args[1:], out)
+	case "version":
+		fmt.Fprintln(out, version)
+		return nil
+	case "help", "-h", "--help":
+		fmt.Fprint(out, usage)
+		return nil
+	case "serve", "drain", "revoke":
+		return fmt.Errorf("%q needs the joined-Tower protocol, which is not implemented yet (Phase 2 of the Tower plan)", args[0])
+	default:
+		return fmt.Errorf("unknown command %q\n\n%s", args[0], usage)
+	}
+}
+
+func cmdInit(args []string, out io.Writer) error {
+	fs := flag.NewFlagSet("init", flag.ContinueOnError)
+	fs.SetOutput(out)
+	dir := fs.String("dir", "", "Tower data directory (must be empty)")
+	mode := fs.String("mode", "", "joined or standalone")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *dir == "" {
+		return fmt.Errorf("--dir is required")
+	}
+	m, err := tower.ParseMode(*mode)
+	if err != nil {
+		return fmt.Errorf("--mode: %w", err)
+	}
+	st, err := tower.Init(*dir, m)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "initialized %s Tower in %s\n", st.Mode, *dir)
+	fmt.Fprintf(out, "tower id: %s\n", st.TowerID)
+	if st.LocalNetworkID != "" {
+		fmt.Fprintf(out, "local network: %s (separate from the public RogerAI network)\n", st.LocalNetworkID)
+	}
+	return nil
+}
+
+func cmdConfig(args []string, out io.Writer) error {
+	if len(args) == 0 {
+		return fmt.Errorf("config needs a subcommand: validate or print")
+	}
+	sub := args[0]
+	fs := flag.NewFlagSet("config", flag.ContinueOnError)
+	fs.SetOutput(out)
+	path := fs.String("config", "", "path to the Tower configuration file")
+	redact := fs.Bool("redact", true, "never read or print secret file contents")
+	if err := fs.Parse(args[1:]); err != nil {
+		return err
+	}
+	c, err := loadConfig(*path)
+	if err != nil {
+		return err
+	}
+	switch sub {
+	case "validate":
+		fmt.Fprintf(out, "configuration is valid for %s mode\n", c.Mode)
+		return nil
+	case "print":
+		if !*redact {
+			// There is no unredacted print. A flag that could dump key material is a
+			// flag someone will eventually run in a shared terminal.
+			return fmt.Errorf("--redact=false is not supported: configuration is always printed secret-safe")
+		}
+		fmt.Fprint(out, c.PrintRedacted())
+		return nil
+	default:
+		return fmt.Errorf("unknown config subcommand %q", sub)
+	}
+}
+
+func cmdDoctor(args []string, out io.Writer) error {
+	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
+	fs.SetOutput(out)
+	path := fs.String("config", "", "path to the Tower configuration file")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	c, err := loadConfig(*path)
+	if err != nil {
+		return err
+	}
+	rep := tower.Doctor(c)
+	fmt.Fprint(out, rep.String())
+	if !rep.OK {
+		return fmt.Errorf("doctor found %d problem(s)", len(rep.Problems))
+	}
+	return nil
+}
+
+func cmdStatus(args []string, out io.Writer) error {
+	fs := flag.NewFlagSet("status", flag.ContinueOnError)
+	fs.SetOutput(out)
+	dir := fs.String("dir", "", "Tower data directory")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *dir == "" {
+		return fmt.Errorf("--dir is required")
+	}
+	st, err := tower.Open(*dir)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "mode: %s\n", st.Mode)
+	fmt.Fprintf(out, "tower id: %s\n", st.TowerID)
+	if st.LocalNetworkID != "" {
+		fmt.Fprintf(out, "local network: %s\n", st.LocalNetworkID)
+	} else {
+		fmt.Fprintf(out, "network: RogerAI public\n")
+	}
+	return nil
+}
+
+// cmdInvite mints the one-time bootstrap code that turns the first local client into
+// this network's operator. The plaintext is printed ONCE, here, and never again: it is
+// not stored, not logged, and not retrievable from the invitation record.
+func cmdInvite(args []string, out io.Writer) error {
+	fs := flag.NewFlagSet("invite", flag.ContinueOnError)
+	fs.SetOutput(out)
+	dir := fs.String("dir", "", "Tower data directory")
+	client := fs.String("client", "", "hash of the requesting client's public key")
+	ttl := fs.Duration("ttl", 15*time.Minute, "how long the code stays valid")
+	attempts := fs.Int("attempts", 5, "how many wrong guesses are allowed before lockout")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	st, release, err := openDir(*dir)
+	if err != nil {
+		return err
+	}
+	defer release()
+	inv, code, err := st.CreateInvitation(*client, *ttl, *attempts)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "invitation: %s\n", inv.ID)
+	fmt.Fprintf(out, "code: %s\n", code)
+	fmt.Fprintf(out, "expires in %s, %d attempts\n", *ttl, *attempts)
+	fmt.Fprintf(out, "\nThis code is shown once. It is not stored and cannot be printed again.\n")
+	return nil
+}
+
+// cmdAdmit consumes a bootstrap code. Every failure reports the same thing, because a
+// distinguishable error would tell an attacker which part they got right.
+func cmdAdmit(args []string, out io.Writer) error {
+	fs := flag.NewFlagSet("admit", flag.ContinueOnError)
+	fs.SetOutput(out)
+	dir := fs.String("dir", "", "Tower data directory")
+	client := fs.String("client", "", "hash of the client's public key")
+	id := fs.String("id", "", "invitation id")
+	code := fs.String("code", "", "bootstrap code")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	st, release, err := openDir(*dir)
+	if err != nil {
+		return err
+	}
+	defer release()
+	cred, err := st.ConsumeInvitation(*id, *code, *client)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "admitted as %s\n", cred.Role)
+	fmt.Fprintf(out, "network: %s\n", cred.NetworkID)
+	fmt.Fprintf(out, "pinned offline-root fingerprint: %s\n", cred.RootFingerprint)
+	return nil
+}
+
+// cmdAttach admits a local Station. Standalone routes only to Stations it admitted.
+func cmdAttach(args []string, out io.Writer) error {
+	fs := flag.NewFlagSet("attach", flag.ContinueOnError)
+	fs.SetOutput(out)
+	dir := fs.String("dir", "", "Tower data directory")
+	station := fs.String("station", "", "Station id")
+	key := fs.String("key", "", "hash of the Station's public key")
+	models := fs.String("models", "", "comma-separated models this Station serves")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	st, release, err := openDir(*dir)
+	if err != nil {
+		return err
+	}
+	defer release()
+	var list []string
+	for _, m := range strings.Split(*models, ",") {
+		if m = strings.TrimSpace(m); m != "" {
+			list = append(list, m)
+		}
+	}
+	s, err := st.AttachStation(*station, *key, list)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "attached station %s on local network %s\n", s.ID, s.NetworkID)
+	fmt.Fprintf(out, "models: %s\n", strings.Join(s.Models, ", "))
+	return nil
+}
+
+func cmdStations(args []string, out io.Writer) error {
+	fs := flag.NewFlagSet("stations", flag.ContinueOnError)
+	fs.SetOutput(out)
+	dir := fs.String("dir", "", "Tower data directory")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	st, release, err := openDir(*dir)
+	if err != nil {
+		return err
+	}
+	defer release()
+	list, err := st.Stations()
+	if err != nil {
+		return err
+	}
+	if len(list) == 0 {
+		fmt.Fprintln(out, "no stations attached")
+		return nil
+	}
+	for _, s := range list {
+		fmt.Fprintf(out, "%s  models=%s  attached=%s\n",
+			s.ID, strings.Join(s.Models, ","), time.Unix(s.AttachedAt, 0).Format(time.RFC3339))
+	}
+	return nil
+}
+
+// cmdRoute picks a Station for a model and prints the LOCAL receipt. The wording is
+// part of the contract: it names the local network and claims nothing about RogerAI.
+func cmdRoute(args []string, out io.Writer) error {
+	fs := flag.NewFlagSet("route", flag.ContinueOnError)
+	fs.SetOutput(out)
+	dir := fs.String("dir", "", "Tower data directory")
+	client := fs.String("client", "", "hash of the admitted client's public key")
+	model := fs.String("model", "", "model to route")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	st, release, err := openDir(*dir)
+	if err != nil {
+		return err
+	}
+	defer release()
+	rec, err := st.Route(*client, *model)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintln(out, rec.String())
+	return nil
+}
+
+// cmdLogin signs the operator in.
+//
+// It is refused in standalone mode because an account would do nothing there. In joined
+// mode it currently reports that the flow is not available yet, and that is deliberate
+// rather than a stub left half-done:
+//
+//   - Wiring the CLIENT's GitHub device flow here would reach github.com directly with a
+//     client id that does not exist in this binary (the public default lives in the roger
+//     client's own package), so a released roger-tower would fail with a confusing
+//     "no GitHub client id configured" for every operator.
+//   - It would also bind the account to the CLIENT's key in the user config directory,
+//     not to this Tower's identity - and under the shipped systemd unit (ProtectHome=yes,
+//     a system user with no home) that write has nowhere valid to go.
+//   - It would contradict features/auth/broker_mediated_login.feature, written in the same
+//     pass, which exists precisely so a Tower never reaches a third-party host.
+//
+// The broker-mediated flow (internal/deviceauth) is built and tested; it needs the broker
+// routes and the /device approval page before this command can use it. Saying so is more
+// useful than a command that fails obscurely.
+func cmdLogin(args []string, out io.Writer) error {
+	fs := flag.NewFlagSet("login", flag.ContinueOnError)
+	fs.SetOutput(out)
+	dir := fs.String("dir", "", "Tower data directory")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	st, release, err := openDir(*dir)
+	if err != nil {
+		return err
+	}
+	defer release()
+	if st.Mode != tower.ModeJoined {
+		return fmt.Errorf("this Tower is standalone and needs no account: nothing it does leaves this machine")
+	}
+	return fmt.Errorf("signing in is not available yet: it needs the broker-mediated login flow, " +
+		"which ships with the joined-Tower protocol (Phase 2). Standalone mode works today and needs no account")
+}
+
+func cmdLogout(args []string, out io.Writer) error {
+	fs := flag.NewFlagSet("logout", flag.ContinueOnError)
+	fs.SetOutput(out)
+	dir := fs.String("dir", "", "Tower data directory")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	st, release, err := openDir(*dir)
+	if err != nil {
+		return err
+	}
+	defer release()
+	if err := towerjoin.SignOut(st.Dir()); err != nil {
+		return err
+	}
+	fmt.Fprintln(out, "signed out; this Tower's identity and data directory are untouched")
+	return nil
+}
+
+// cmdRegister submits the Tower for admission. Both refusals - wrong mode, not signed in
+// - happen before any network call.
+func cmdRegister(args []string, out io.Writer) error {
+	fs := flag.NewFlagSet("register", flag.ContinueOnError)
+	fs.SetOutput(out)
+	dir := fs.String("dir", "", "Tower data directory")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	st, release, err := openDir(*dir)
+	if err != nil {
+		return err
+	}
+	defer release()
+	acct, _ := towerjoin.LoadAccount(st.Dir())
+	return towerjoin.Register(st, acct)
+}
+
+func envOr(k, def string) string {
+	if v := os.Getenv(k); v != "" {
+		return v
+	}
+	return def
+}
+
+// openDir opens a Tower data directory AND takes its lock.
+//
+// The lock is what makes "exactly one local operator for the life of the network" true
+// across processes: without it two concurrent `admit` runs both read "no operator yet",
+// both write a credential, and both are admitted. The in-process mutex cannot see the
+// other process.
+func openDir(dir string) (*tower.State, func() error, error) {
+	if dir == "" {
+		return nil, nil, fmt.Errorf("--dir is required")
+	}
+	st, err := tower.Open(dir)
+	if err != nil {
+		return nil, nil, err
+	}
+	release, err := st.Lock()
+	if err != nil {
+		return nil, nil, err
+	}
+	return st, release, nil
+}
+
+func loadConfig(path string) (*tower.Config, error) {
+	if path == "" {
+		return nil, fmt.Errorf("--config is required")
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return tower.ParseConfig(b)
+}

@@ -1,0 +1,76 @@
+# systemd unit for a self-hosted RogerAI Tower.
+#
+#   sudo install -m0644 roger-tower.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now roger-tower
+#
+# ---------------------------------------------------------------------------
+# DO NOT ENABLE THIS UNIT YET.
+#
+# `roger-tower serve` is not implemented - the long-running server lands with the
+# joined-Tower protocol (Phase 2). Enabling this today gives you a crash loop every
+# RestartSec, because ExecStart exits 1 immediately.
+#
+# The unit ships now so the hardening below can be reviewed alongside the code it will
+# protect. Until `serve` exists, drive a standalone Tower with the one-shot commands
+# (init / invite / admit / attach / route) - see README.md.
+# ---------------------------------------------------------------------------
+#
+# The hardening below is not decoration. A Tower runs unattended and, in joined mode,
+# relays other people's traffic, so it runs as its own unprivileged user with no ability
+# to write outside its data directory, gain privilege, or see the rest of the filesystem.
+
+[Unit]
+Description=RogerAI Tower (self-hosted relay)
+Documentation=https://rogerai.fm/tower.html
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=roger-tower
+Group=roger-tower
+ExecStart=/usr/local/bin/roger-tower serve --config /etc/roger-tower/tower.yaml
+Restart=on-failure
+RestartSec=5s
+
+# The ONLY writable path. Identity keys and local admission state live here, owner-only.
+StateDirectory=roger-tower
+StateDirectoryMode=0700
+ReadWritePaths=/var/lib/roger-tower
+
+# Least privilege. A relay needs to move bytes; it does not need a device, a kernel
+# module, a new privilege, or the rest of the disk.
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources @obsolete
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+# A STANDALONE Tower talks to nothing beyond this machine and its private network. If you
+# run standalone, uncomment these two lines: they make the isolation a kernel-enforced
+# fact rather than only a property of the code.
+#IPAddressDeny=any
+#IPAddressAllow=localhost link-local 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16
+#
+# A JOINED Tower must reach the public network, so it cannot use the deny-by-default rule
+# above. Leave both commented in joined mode.
+
+[Install]
+WantedBy=multi-user.target
