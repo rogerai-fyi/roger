@@ -485,6 +485,20 @@ type Store interface {
 	// so the broker can refresh its in-memory ban cache. Idempotent.
 	ExpireNodeBans(olderThan time.Time) (cleared []string, err error)
 
+	// --- per-node receipt chain continuity (DETECT-AND-RECORD) ----------------
+	// ChainHead returns the last recorded chain head for a node ("" when unknown).
+	ChainHead(nodeID string) (string, error)
+	// AdvanceChain compares prevHash against the node's stored head and ALWAYS
+	// advances the head to newHash, reporting whether the chain was continuous.
+	// It never refuses: chain continuity is an audit property, so a break accrues
+	// evidence rather than blocking money. Re-applying a receipt whose hash is
+	// already the head is idempotent and reports continuous, so settlement retries
+	// do not manufacture breaks.
+	AdvanceChain(nodeID, prevHash, newHash string) (ChainResult, error)
+	// ChainStatus reports a node's recorded chain state for the owner's station page.
+	// A node the broker has never seen a receipt from returns a zero status.
+	ChainStatus(nodeID string) (ChainStatus, error)
+
 	// --- owner-keyed durable bans + strikes (anti-abuse, OWNER not node_id) ----
 	//
 	// A node_id is a cheap-to-rotate callsign; enforcement that must SURVIVE rotation
@@ -575,6 +589,23 @@ type Store interface {
 	Close() error
 }
 
+// ChainResult is the outcome of comparing one receipt against a node's recorded
+// chain head. Continuous=false means the receipt did not follow from Expected - a
+// break, fork, omission, or restart. Head is the head AFTER the call.
+type ChainResult struct {
+	Continuous bool   `json:"continuous"`
+	Expected   string `json:"expected,omitempty"` // the head the broker held (set on a break)
+	Head       string `json:"head"`               // the head after this call
+}
+
+// ChainStatus is a node's recorded receipt-chain state, surfaced to its owner. Breaks
+// is an AUDIT signal in the detect-and-record stage - it never bans or withholds.
+type ChainStatus struct {
+	Head      string `json:"head,omitempty"`
+	Breaks    int64  `json:"breaks"`
+	CheckedAt int64  `json:"checked_at,omitempty"` // unix seconds; 0 = never checked
+}
+
 // Strike is one evidence-bound anti-abuse mark against an owner account. The
 // evidence is provable (the operator's own node-signed claim vs the broker's recount
 // / the empty body / the impossible byte-floor) so the operator can be SHOWN exactly
@@ -592,6 +623,13 @@ const (
 	StrikeImpossibleInput    = "impossible-input"    // claimed prompt tokens > body bytes (zero-doubt)
 	StrikeEmptyOutput        = "empty-output"        // billed input but produced no usable output (voided)
 	StrikeRecountDiscrepancy = "recount-discrepancy" // node over-reported past the recount tolerance
+	// StrikeReceiptUnbound: the node returned a signature-valid receipt naming a
+	// DIFFERENT job than the one dispatched (foreign, empty, or replayed request id).
+	// Settlement keys the hold on the receipt's request id, so an unbound receipt would
+	// clear the wrong row and strand the real hold. The relay refuses it, which means
+	// the work is served and never billed - without a strike a broken or hostile node
+	// could do that indefinitely with only a log line.
+	StrikeReceiptUnbound = "receipt-unbound"
 )
 
 // Appeal is one operator-filed self-serve appeal against an anti-abuse action (a node
@@ -659,16 +697,19 @@ type NodeRecord struct {
 
 // Mem is the in-memory implementation (single-process, non-durable).
 type Mem struct {
-	mu         sync.Mutex
-	wallet     map[string]float64
-	seedRemain map[string]float64 // per-wallet UNSPENT seed (free) credits; drained first on spend
-	earnings   map[string]float64
-	spend      map[string]float64
-	entries    []Entry
-	processed  map[string]bool
-	owners     map[string]Owner // keyed by pubkey
-	policy     PayoutPolicy
-	monthlyCap map[string]float64 // wallet -> explicit monthly spend cap ($); absent = env default
+	mu          sync.Mutex
+	chainHead   map[string]string // nodeID -> last recorded receipt-chain head
+	chainBreaks map[string]int64
+	chainSeen   map[string]int64
+	wallet      map[string]float64
+	seedRemain  map[string]float64 // per-wallet UNSPENT seed (free) credits; drained first on spend
+	earnings    map[string]float64
+	spend       map[string]float64
+	entries     []Entry
+	processed   map[string]bool
+	owners      map[string]Owner // keyed by pubkey
+	policy      PayoutPolicy
+	monthlyCap  map[string]float64 // wallet -> explicit monthly spend cap ($); absent = env default
 
 	ledger   []LedgerRow     // append-only money events
 	ledgerID int64           // monotonic ledger id
@@ -760,7 +801,62 @@ func NewMem() *Mem {
 		overrides: map[string]OfferOverride{},
 		banned:    map[string]string{}, bannedAt: map[string]int64{}, bannedOwners: map[string]string{}, accountHold: map[string]int64{},
 		pendingReversals: map[string]PendingReversal{},
+		chainHead:        map[string]string{},
+		chainBreaks:      map[string]int64{},
+		chainSeen:        map[string]int64{},
 	}
+}
+
+// ChainHead returns the node's last recorded chain head ("" when the broker has
+// never seen a receipt from it).
+func (m *Mem) ChainHead(nodeID string) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.chainHead[nodeID], nil
+}
+
+// AdvanceChain implements the detect-and-record contract. See the Store interface.
+func (m *Mem) AdvanceChain(nodeID, prevHash, newHash string) (ChainResult, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cur, seen := m.chainHead[nodeID]
+	if !seen {
+		// FIRST SIGHTING. The broker has no head to compare against, so this receipt
+		// establishes the baseline - it is not a break. Without this every node that
+		// already had an in-process chain before head tracking shipped would be counted
+		// as broken on its very first settled receipt.
+		m.chainHead[nodeID] = newHash
+		m.chainSeen[nodeID] = time.Now().Unix()
+		return ChainResult{Continuous: true, Head: newHash}, nil
+	}
+	switch {
+	case newHash == cur:
+		// Idempotent replay of the receipt that already set this head. Stamp the check
+		// time so the two backends agree on ChainStatus.
+		m.chainSeen[nodeID] = time.Now().Unix()
+		return ChainResult{Continuous: true, Head: cur}, nil
+	case prevHash == cur:
+		m.chainHead[nodeID] = newHash
+		m.chainSeen[nodeID] = time.Now().Unix()
+		return ChainResult{Continuous: true, Head: newHash}, nil
+	default:
+		// Advance anyway so a single break is not reported on every later receipt.
+		m.chainHead[nodeID] = newHash
+		m.chainBreaks[nodeID]++
+		m.chainSeen[nodeID] = time.Now().Unix()
+		return ChainResult{Continuous: false, Expected: cur, Head: newHash}, nil
+	}
+}
+
+// ChainStatus reports the node's recorded chain state (zero when never seen).
+func (m *Mem) ChainStatus(nodeID string) (ChainStatus, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return ChainStatus{
+		Head:      m.chainHead[nodeID],
+		Breaks:    m.chainBreaks[nodeID],
+		CheckedAt: m.chainSeen[nodeID],
+	}, nil
 }
 
 // appendLedgerLocked records one append-only money event. Caller holds m.mu. A

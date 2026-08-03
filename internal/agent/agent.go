@@ -82,10 +82,33 @@ type Config struct {
 	Speed float64
 }
 
+// The receipt hash chain is PER NODE. Keying it by node ID matters whenever one
+// process serves more than one node (the TUI booth plus a headless share, say): a
+// single process-wide head would interleave unrelated nodes into one chain, so every
+// link would point at another node's receipt and the chain would prove nothing about
+// either node's own history.
 var (
 	mu       sync.Mutex
-	lastHash string
+	lastHash = map[string]string{}
 )
+
+// chainSign links rec into nodeID's chain, signs it, and advances that node's head.
+// It is the single place the chain is read and advanced, so the two serve paths cannot
+// drift apart.
+func chainSign(nodeID string, rec *protocol.UsageReceipt, priv ed25519.PrivateKey) {
+	mu.Lock()
+	defer mu.Unlock()
+	rec.PrevHash = lastHash[nodeID]
+	rec.SignNode(priv)
+	lastHash[nodeID] = rec.Hash()
+}
+
+// resetChains clears every node's chain head. Test-only seam.
+func resetChains() {
+	mu.Lock()
+	defer mu.Unlock()
+	lastHash = map[string]string{}
+}
 
 // heartbeatInterval is how often the node heartbeats the broker to stay on-air. It
 // is a var (not a const) only so tests can lower it; production uses ~10s, well
@@ -653,11 +676,7 @@ func serveStream(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey,
 		PriceIn: offer.PriceIn, PriceOut: offer.PriceOut, TS: time.Now().Unix(),
 		LineageMethod: "p0-upstream-usage-stream",
 	}
-	mu.Lock()
-	rec.PrevHash = lastHash
-	rec.SignNode(priv)
-	lastHash = rec.Hash()
-	mu.Unlock()
+	chainSign(cfg.NodeID, &rec, priv)
 	postResult(client, cfg, token, protocol.JobResult{ID: job.ID, Status: resp.StatusCode, Receipt: rec})
 	return rec
 }
@@ -784,11 +803,7 @@ func serve(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey, up *h
 		PriceIn: offer.PriceIn, PriceOut: offer.PriceOut, TS: time.Now().Unix(),
 		LineageMethod: "p0-upstream-usage",
 	}
-	mu.Lock()
-	rec.PrevHash = lastHash
-	rec.SignNode(priv)
-	lastHash = rec.Hash()
-	mu.Unlock()
+	chainSign(cfg.NodeID, &rec, priv)
 	return protocol.JobResult{ID: job.ID, Status: resp.StatusCode, Body: respBody, Receipt: rec}
 }
 

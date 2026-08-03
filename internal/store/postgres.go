@@ -37,6 +37,15 @@ ALTER TABLE rogerai.receipts ADD COLUMN IF NOT EXISTS owner_share DOUBLE PRECISI
 CREATE INDEX IF NOT EXISTS receipts_usr_ts  ON rogerai.receipts (usr, ts DESC);
 CREATE INDEX IF NOT EXISTS receipts_node_ts ON rogerai.receipts (node, ts DESC);
 CREATE TABLE IF NOT EXISTS rogerai.processed_events (key TEXT PRIMARY KEY, at TIMESTAMPTZ DEFAULT now());
+-- Per-node receipt-chain head (DETECT-AND-RECORD). The broker records where each
+-- node's hash chain was so a break, fork, omission, or restart is visible. Purely
+-- additive: no existing row or column changes, and an absent row simply means the
+-- broker has not seen a receipt from that node yet.
+CREATE TABLE IF NOT EXISTS rogerai.node_chain (
+    node       TEXT PRIMARY KEY,
+    head       TEXT NOT NULL,
+    breaks     BIGINT NOT NULL DEFAULT 0,
+    checked_at TIMESTAMPTZ NOT NULL DEFAULT now());
 CREATE TABLE IF NOT EXISTS rogerai.owners (
     pubkey TEXT PRIMARY KEY,                    -- hex ed25519 user pubkey (the binding key)
     github_id BIGINT NOT NULL,
@@ -2123,4 +2132,83 @@ func (p *Postgres) MarkReversalAttempt(key string, success bool, errMsg string, 
 		    dead_letter=($4>0 AND attempts+1>=$4)
 		WHERE key=$1 AND done=false AND dead_letter=false`, key, now.Unix(), errMsg, maxAttempts)
 	return err
+}
+
+// ChainHead returns the node's last recorded receipt-chain head ("" when unknown).
+func (p *Postgres) ChainHead(nodeID string) (string, error) {
+	var head string
+	err := p.db.QueryRow(`SELECT head FROM rogerai.node_chain WHERE node=$1`, nodeID).Scan(&head)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return head, nil
+}
+
+// AdvanceChain implements the detect-and-record contract. It runs in one transaction
+// with a row lock so a concurrent settle for the same node cannot interleave the read
+// and the write; the lock is per node, so it never serialises unrelated traffic.
+func (p *Postgres) AdvanceChain(nodeID, prevHash, newHash string) (ChainResult, error) {
+	tx, err := p.db.Begin()
+	if err != nil {
+		return ChainResult{}, err
+	}
+	defer tx.Rollback()
+
+	var prior string
+	err = tx.QueryRow(`SELECT head FROM rogerai.node_chain WHERE node=$1 FOR UPDATE`, nodeID).Scan(&prior)
+	firstSighting := err == sql.ErrNoRows
+	if err != nil && !firstSighting {
+		return ChainResult{}, err
+	}
+
+	res := ChainResult{Head: newHash}
+	switch {
+	case firstSighting:
+		// The broker has no head to compare against, so this receipt establishes the
+		// baseline rather than breaking a chain that was never tracked.
+		res.Continuous = true
+	case prior == newHash:
+		res.Continuous = true // idempotent replay of the receipt that set this head
+	case prior == prevHash:
+		res.Continuous = true
+	default:
+		res.Expected = prior // a break: record it, but advance so it is not reported forever
+	}
+
+	breakInc := 0
+	if !res.Continuous {
+		breakInc = 1
+	}
+	if _, err := tx.Exec(`
+        INSERT INTO rogerai.node_chain (node, head, breaks, checked_at)
+        VALUES ($1, $2, $3, now())
+        ON CONFLICT (node) DO UPDATE
+          SET head = EXCLUDED.head,
+              breaks = rogerai.node_chain.breaks + $3,
+              checked_at = now()`, nodeID, newHash, breakInc); err != nil {
+		return ChainResult{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return ChainResult{}, err
+	}
+	return res, nil
+}
+
+// ChainStatus reports the node's recorded chain state (zero when never seen).
+func (p *Postgres) ChainStatus(nodeID string) (ChainStatus, error) {
+	var st ChainStatus
+	var checked time.Time
+	err := p.db.QueryRow(`SELECT head, breaks, checked_at FROM rogerai.node_chain WHERE node=$1`, nodeID).
+		Scan(&st.Head, &st.Breaks, &checked)
+	if err == sql.ErrNoRows {
+		return ChainStatus{}, nil
+	}
+	if err != nil {
+		return ChainStatus{}, err
+	}
+	st.CheckedAt = checked.Unix()
+	return st, nil
 }

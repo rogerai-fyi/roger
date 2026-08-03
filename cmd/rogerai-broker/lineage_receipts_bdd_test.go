@@ -68,7 +68,8 @@ type lrState struct {
 	offerPriceOut float64 // the broker's active out-price
 	ctx           int
 	maxTokens     int
-	errStore      bool // failsafe: wrap the ledger so Finalize errors
+	errStore      bool   // failsafe: wrap the ledger so Finalize errors
+	unbind        string // E3: make the node return a receipt that does NOT bind to the dispatched job
 
 	// served-relay results
 	code       int
@@ -103,6 +104,7 @@ func (s *lrState) reset() {
 	s.offerPriceIn, s.offerPriceOut = 1.0, 1.0
 	s.ctx, s.maxTokens = 4096, 100
 	s.errStore = false
+	s.unbind = ""
 	s.code, s.hdrReceipt, s.hdrCost = 0, "", ""
 	s.balBefore, s.balAfter, s.spend, s.earn, s.hold = 0, 0, 0, 0, 0
 	s.brokerPub = nil
@@ -338,12 +340,25 @@ func (s *lrState) runServedRelay() error {
 	}
 	status, body := s.nodeStatus, s.nodeBody
 	cp, cc, npo := s.claimPrompt, s.claimComp, s.nodePriceOut
+	unbind := s.unbind
 	go func() {
 		job := <-tun.jobs
 		rec := protocol.UsageReceipt{
 			RequestID: job.ID, NodeID: "n1", Model: "m",
 			PromptTokens: cp, CompletionTokens: cc, PriceIn: 1.0, PriceOut: npo,
 			TS: time.Now().Unix(),
+		}
+		// E3: the receipt stays perfectly signature-valid; only its job identity is
+		// wrong, so ONLY the binding guard can catch it.
+		switch unbind {
+		case "another request":
+			rec.RequestID = "req-FOREIGN"
+		case "an empty request id":
+			rec.RequestID = ""
+		case "another node":
+			rec.NodeID = "n-OTHER"
+		case "an empty node id":
+			rec.NodeID = ""
 		}
 		rec.SignNode(signKey)
 		res := protocol.JobResult{ID: job.ID, Status: status, Body: []byte(body), Receipt: rec}
@@ -405,22 +420,6 @@ func (s *lrState) brokerCosigns() error {
 	return nil
 }
 
-func (s *lrState) bothSigsVerify() error {
-	if !s.rec.VerifyNode(hex.EncodeToString(s.nodePub)) {
-		return fmt.Errorf("the co-signed receipt's NODE signature does not verify")
-	}
-	// Verify the BROKER sig over the SAME canonical bytes by routing it through VerifyNode
-	// (ed25519.Verify(pub, signingBytes, sig)) against the broker's pubkey - signingBytes
-	// zeroes BOTH sigs, so moving BrokerSig into NodeSig checks the broker sig without
-	// re-implementing the unexported signingBytes.
-	probe := s.rec
-	probe.NodeSig = probe.BrokerSig
-	if !probe.VerifyNode(hex.EncodeToString(s.brokerPub)) {
-		return fmt.Errorf("the broker signature does not verify over the canonical bytes")
-	}
-	return nil
-}
-
 func (s *lrState) receiptHeaderReturned() error {
 	if s.hdrReceipt == "" {
 		return fmt.Errorf("the co-signed receipt must ride the X-RogerAI-Receipt header")
@@ -431,7 +430,12 @@ func (s *lrState) receiptHeaderReturned() error {
 // --- forged receipt ---------------------------------------------------------
 
 func (s *lrState) forgedReceipt() error { s.signWrong = true; return nil }
-func (s *lrState) relayProcess() error  { return s.runServedRelay() }
+
+// unboundReceipt makes the node return a receipt that is perfectly signature-valid but
+// names a different job, so ONLY the binding guard in the relay can reject it. The
+// assertions that follow read the REAL ledger, so removing the guard fails this test.
+func (s *lrState) unboundReceipt(defect string) error { s.unbind = defect; return nil }
+func (s *lrState) relayProcess() error                { return s.runServedRelay() }
 
 func (s *lrState) noSettlementNoEarning() error {
 	if s.spend != 0 {
@@ -716,6 +720,8 @@ func TestLineageReceiptsBDD(t *testing.T) {
 				return ctx, nil
 			})
 
+			lrRegisterSigCoverageSteps(sc, st)
+
 			sc.Step(`^a registered node with an ed25519 keypair$`, st.bgNode)
 			sc.Step(`^a funded consumer with a pre-authorized hold$`, st.bgConsumer)
 
@@ -746,11 +752,11 @@ func TestLineageReceiptsBDD(t *testing.T) {
 			// settle binding - co-sign
 			sc.Step(`^the broker relays a request whose returned receipt verifies$`, st.relayReturnsVerified)
 			sc.Step(`^the broker counter-signs it \(BrokerSig\)$`, st.brokerCosigns)
-			sc.Step(`^both the node and broker signatures verify over the same canonical bytes$`, st.bothSigsVerify)
 			sc.Step(`^the co-signed receipt is returned on the X-RogerAI-Receipt header$`, st.receiptHeaderReturned)
 
 			// forged
 			sc.Step(`^the node returns a receipt signed with the WRONG key$`, st.forgedReceipt)
+			sc.Step(`^the node returns a validly signed receipt naming "([^"]*)"$`, st.unboundReceipt)
 			sc.Step(`^the broker relays the request$`, st.relayProcess)
 			sc.Step(`^settlement does not run and no earning is minted$`, st.noSettlementNoEarning)
 			sc.Step(`^the consumer's pre-authorized hold is refunded in full$`, st.holdRefundedFull)

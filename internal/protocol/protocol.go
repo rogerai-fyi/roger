@@ -406,39 +406,60 @@ type UsageReceipt struct {
 	// public-market traffic), so the owner's dashboard can group usage per grant.
 	// Broker-set after the node signs (the node never sees the grant), so it is
 	// excluded from the node-signed bytes; see signingBytes.
-	GrantID   string `json:"grant_id,omitempty"`
-	NodeSig   string `json:"node_sig,omitempty"`
-	BrokerSig string `json:"broker_sig,omitempty"`
+	GrantID string `json:"grant_id,omitempty"`
+	// SigVersion records WHICH canonical form BrokerSig was made over, so receipts
+	// co-signed before the coverage repair stay verifiable instead of reading as
+	// forged. Absent/0 = legacy (the node form, which did NOT cover the broker-set
+	// billing fields); 1 = the broker form, which does. It is broker-set and lives
+	// inside the broker-signed bytes, so a v1 receipt cannot be downgraded to the
+	// legacy rule and then edited freely.
+	SigVersion int    `json:"sig_version,omitempty"`
+	NodeSig    string `json:"node_sig,omitempty"`
+	BrokerSig  string `json:"broker_sig,omitempty"`
 }
 
-// signingBytes is the canonical form signed by both parties (sigs excluded). The
-// broker-set GrantID is also excluded: the node signs before the broker resolves
-// the grant (the node never sees it), so including it would break node-sig
-// verification. The grant tag is a billing/dashboard annotation, not lineage.
+// BrokerSigVersion is the current broker-signature canonical form.
+const BrokerSigVersion = 1
+
+// The node and the broker sign DIFFERENT canonical forms, because they sign at
+// different moments and are accountable for different fields.
 //
-// BrokerPromptTokens + BrokerCompletionTokens are the broker's own re-counts,
-// assigned AFTER the node signs and BEFORE the broker counter-signs. They MUST be
-// zeroed here for the same reason as GrantID: they are not present when the node
-// computes its NodeSig, so leaving them in would break VerifyNode. The broker's
-// SignBroker (called after they are set) DOES cover them - it re-includes them via
-// the same zeroing applied symmetrically, so a broker sig is over the same canonical
-// shape but is computed once the broker counts are stable. (The broker counts live
-// in the receipt JSON for the audit/lineage trail; they are simply excluded from the
-// signed canonical bytes so both signatures verify regardless of count order.)
-func (r UsageReceipt) signingBytes() []byte {
+// nodeSigningBytes is what the SERVING NODE signs. GrantID, BrokerPromptTokens, and
+// BrokerCompletionTokens are excluded: the node signs before the broker resolves the
+// grant or runs its own re-count, so including them would break VerifyNode.
+//
+// brokerSigningBytes is what the BROKER counter-signs, and it is a superset - it
+// excludes only the two signature fields. This matters for money: billedTokens()
+// charges the consumer and credits the provider on
+// min(claim, BrokerPromptTokens/BrokerCompletionTokens), so those two fields decide
+// the bill. Signing them is what makes the co-signed receipt evidence of the amount
+// rather than an unauthenticated annotation. GrantID is covered for the same reason:
+// it attributes the spend to an owner grant.
+func (r UsageReceipt) nodeSigningBytes() []byte {
 	c := r
 	c.GrantID = ""
 	c.BrokerPromptTokens = 0
 	c.BrokerCompletionTokens = 0
+	c.SigVersion = 0 // broker-set, and absent when the node signs
 	c.NodeSig = ""
 	c.BrokerSig = ""
 	b, _ := json.Marshal(c)
 	return b
 }
 
-// Hash is the receipt's content hash (used as the next receipt's PrevHash).
+func (r UsageReceipt) brokerSigningBytes() []byte {
+	c := r
+	c.NodeSig = ""
+	c.BrokerSig = ""
+	b, _ := json.Marshal(c)
+	return b
+}
+
+// Hash is the receipt's content hash (used as the next receipt's PrevHash). It is
+// deliberately over the NODE form: the node computes its PrevHash link before any
+// broker field exists, so the per-node chain must not depend on them.
 func (r UsageReceipt) Hash() string {
-	h := sha256.Sum256(r.signingBytes())
+	h := sha256.Sum256(r.nodeSigningBytes())
 	return hex.EncodeToString(h[:])
 }
 
@@ -464,23 +485,81 @@ func (r UsageReceipt) CostWith(completionTokens int) float64 {
 }
 
 func (r *UsageReceipt) SignNode(priv ed25519.PrivateKey) {
-	r.NodeSig = hex.EncodeToString(ed25519.Sign(priv, r.signingBytes()))
+	r.NodeSig = hex.EncodeToString(ed25519.Sign(priv, r.nodeSigningBytes()))
 }
 
+// SignBroker must be called AFTER BrokerPromptTokens, BrokerCompletionTokens, and
+// GrantID are assigned - the broker form covers them, so signing earlier would sign
+// zeros and then fail to verify.
 func (r *UsageReceipt) SignBroker(priv ed25519.PrivateKey) {
-	r.BrokerSig = hex.EncodeToString(ed25519.Sign(priv, r.signingBytes()))
+	r.SigVersion = BrokerSigVersion
+	r.BrokerSig = signHex(priv, r.brokerSigningBytes())
+}
+
+func signHex(priv ed25519.PrivateKey, msg []byte) string {
+	return hex.EncodeToString(ed25519.Sign(priv, msg))
 }
 
 func (r UsageReceipt) VerifyNode(pubHex string) bool {
+	return verifySig(pubHex, r.NodeSig, r.nodeSigningBytes())
+}
+
+// BindsTo reports whether this receipt actually describes the job the broker
+// dispatched. A valid node signature proves only that the node signed these bytes -
+// it says nothing about WHICH request they describe.
+//
+// This matters because settlement claims the hold keyed on the receipt's own
+// RequestID. A receipt naming a foreign, empty, or already-settled request makes the
+// broker clear the wrong hold row: the real hold is never captured and is later swept
+// back to the payer, so the work is served and never billed. Requiring an exact match
+// against the dispatched identity closes the mismatch, empty-id, and replay cases
+// together, because a replayed receipt necessarily names an earlier request.
+//
+// Empty authoritative values never bind, so a caller that has not resolved its own
+// job identity fails closed instead of matching every empty receipt.
+func (r UsageReceipt) BindsTo(requestID, nodeID string) bool {
+	if requestID == "" || nodeID == "" {
+		return false
+	}
+	return r.RequestID == requestID && r.NodeID == nodeID
+}
+
+// VerifyBroker confirms the broker counter-signed this exact receipt. Prefer
+// VerifyBrokerCoverage when the answer matters for money: a legacy signature verifies
+// without covering the billed counts, and only the two-value form can tell you that.
+func (r UsageReceipt) VerifyBroker(pubHex string) bool {
+	ok, _ := r.VerifyBrokerCoverage(pubHex)
+	return ok
+}
+
+// VerifyBrokerCoverage verifies BrokerSig and reports whether that signature actually
+// COVERS the broker-set billing fields.
+//
+// covers=false means the receipt predates the coverage repair: the signature is
+// genuine, but BrokerPromptTokens, BrokerCompletionTokens, and GrantID were outside
+// the signed bytes, so it is not evidence of the amount billed. Callers must not treat
+// a legacy pass as proof of the counts.
+func (r UsageReceipt) VerifyBrokerCoverage(pubHex string) (ok, covers bool) {
+	switch r.SigVersion {
+	case 0: // legacy: signed over the node form
+		return verifySig(pubHex, r.BrokerSig, r.nodeSigningBytes()), false
+	case BrokerSigVersion:
+		return verifySig(pubHex, r.BrokerSig, r.brokerSigningBytes()), true
+	default: // an unknown version is not a form we can reason about
+		return false, false
+	}
+}
+
+func verifySig(pubHex, sigHex string, msg []byte) bool {
 	pub, err := hex.DecodeString(pubHex)
 	if err != nil || len(pub) != ed25519.PublicKeySize {
 		return false
 	}
-	sig, err := hex.DecodeString(r.NodeSig)
-	if err != nil {
+	sig, err := hex.DecodeString(sigHex)
+	if err != nil || len(sig) != ed25519.SignatureSize {
 		return false
 	}
-	return ed25519.Verify(ed25519.PublicKey(pub), r.signingBytes(), sig)
+	return ed25519.Verify(ed25519.PublicKey(pub), msg, sig)
 }
 
 // Job is a relayed inference request the broker hands to a polling node.

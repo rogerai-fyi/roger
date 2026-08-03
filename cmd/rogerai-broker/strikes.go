@@ -99,6 +99,51 @@ func (b *broker) ownerOf(nodeID string) (account string, ok bool) {
 	return nodeID, false
 }
 
+// strikeUnboundReceipt records the receipt-binding violation: the node returned a
+// signature-valid receipt naming a DIFFERENT job than the one dispatched. The relay
+// refuses it, so the work is served and cannot be billed. Not zero-doubt: a broken
+// node is far likelier than a hostile one, so it escalates through the normal warn/ban
+// thresholds rather than banning on the first occurrence. Idempotent per dispatched
+// request, so one bad request cannot stack strikes on a retry.
+func (b *broker) strikeUnboundReceipt(nodeID, wantRequestID string, rec protocol.UsageReceipt) {
+	b.strike(nodeID, store.StrikeReceiptUnbound, "unbound:"+wantRequestID, false, map[string]any{
+		"dispatched_request": wantRequestID,
+		"dispatched_node":    nodeID,
+		"returned_request":   rec.RequestID,
+		"returned_node":      rec.NodeID,
+	})
+}
+
+// checkChain records the node's receipt-chain continuity.
+//
+// DETECT-AND-RECORD, and deliberately NOT a strike. A strike freezes the owner's
+// earning lots and escalates toward a ban - that is enforcement, and enforcement on
+// chain continuity is wrong today for two reasons: the node-side chain does not yet
+// survive a restart, so an honest node that restarts would be punished; and the
+// broker has only just begun recording heads, so every existing node's first receipt
+// after this ships legitimately fails to continue a chain nobody was tracking.
+//
+// The evidence is the durable per-node break counter in the store plus this log, which
+// the owner's station page surfaces. Enforcement is a later stage with its own spec,
+// once the node-side chain is durable and a baseline of real break rates exists.
+//
+// A store failure records nothing rather than a false break: the money path must never
+// depend on chain bookkeeping.
+func (b *broker) checkChain(nodeID, requestID string, rec protocol.UsageReceipt) {
+	if b.db == nil {
+		return
+	}
+	res, err := b.db.AdvanceChain(nodeID, rec.PrevHash, rec.Hash())
+	if err != nil {
+		log.Printf("chain: AdvanceChain(node=%s) failed, continuity unknown: %v", nodeID, err)
+		return
+	}
+	if !res.Continuous {
+		log.Printf("chain BREAK node=%s request=%s expected_head=%s got_prev=%s (recorded as evidence; not enforced)",
+			nodeID, requestID, res.Expected, rec.PrevHash)
+	}
+}
+
 // strike records ONE evidence-bound strike against the node's owner account, holds the
 // owner's earning lots from promotion (survives node rotation), and escalates: at the
 // warn threshold it logs a warning the dashboard surfaces; at the ban threshold (or
