@@ -37,6 +37,19 @@ builds:
     goarch: [amd64, arm64]
     flags: [-trimpath]
     ldflags: ["-s -w -X main.Version={{.Version}}"]
+  # roger-tower: the self-hosted relay an operator downloads and runs. Linux only for
+  # now, which is deliberate rather than an oversight - a Tower is a long-running server
+  # process, and the standalone MVP targets an ordinary Linux host, container runtime,
+  # or Kubernetes. macOS and Windows builds would ship a binary nobody should run as a
+  # production relay, so they wait until there is a reason.
+  - id: roger-tower
+    main: ./cmd/roger-tower
+    binary: roger-tower
+    env: [CGO_ENABLED=0]
+    goos: [linux]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags: ["-s -w -X main.version={{.Version}}"]
 
 # ---- macOS code signing + notarization -----------------------------------------------
 # Signs + notarizes the darwin binaries so the OFFICIAL Homebrew cask route
@@ -77,6 +90,12 @@ archives:
     ids: [roger-unix, roger-win]
     formats: [binary]
     name_template: "roger-{{ .Os }}-{{ .Arch }}"
+  # roger-tower ships as a raw binary too, so the Tower installer fetches an asset by a
+  # predictable name and verifies it against the SAME checksums.txt as the client.
+  - id: tower
+    ids: [roger-tower]
+    formats: [binary]
+    name_template: "roger-tower-{{ .Os }}-{{ .Arch }}"
   # A Windows-only zip, ADDITIONALLY, purely so Scoop has an archive to point at.
   # Produces roger-windows-amd64.zip alongside the .exe (both in the release + checksums).
   - id: winzip

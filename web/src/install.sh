@@ -12,8 +12,18 @@
 set -eu
 
 REPO="rogerai-fyi/roger"
-BIN="roger"
-ALIAS="rogerai"
+# Which component to install. The default is the `roger` client. Set ROGERAI_COMPONENT=tower
+# to install `roger-tower`, the self-hosted relay:
+#   curl -fsSL https://rogerai.fm/install.sh | ROGERAI_COMPONENT=tower sh
+# Everything below - platform detection, release resolution, checksum verification, the
+# fail-closed behaviour on a missing asset - is shared, so the Tower install inherits the
+# same guarantees as the client rather than getting a second, less-tested script.
+COMPONENT="${ROGERAI_COMPONENT:-client}"
+case "$COMPONENT" in
+  client) BIN="roger";       ALIAS="rogerai"; SRC_PKG="./cmd/rogerai" ;;
+  tower)  BIN="roger-tower"; ALIAS="";        SRC_PKG="./cmd/roger-tower" ;;
+  *) printf '%s\n' "unknown ROGERAI_COMPONENT: $COMPONENT (want: client or tower)" >&2; exit 1 ;;
+esac
 INSTALL_DIR="${ROGERAI_INSTALL_DIR:-$HOME/.local/bin}"
 # Override the version with:  ROGERAI_VERSION=v0.2.0 sh install.sh
 VERSION="${ROGERAI_VERSION:-latest}"
@@ -62,6 +72,13 @@ case "$os" in
   *) die "unsupported OS: $os. See https://github.com/$REPO/releases" ;;
 esac
 
+# A Tower is a long-running server process; the standalone MVP targets an ordinary Linux
+# host, container runtime, or Kubernetes. Say so rather than fetching an asset that was
+# deliberately never built.
+if [ "$COMPONENT" = "tower" ] && [ "$OS" != "linux" ]; then
+  die "roger-tower ships for Linux only (a Tower is a server process). Your platform: ${OS}."
+fi
+
 # ---- detect arch ----------------------------------------------------
 arch="$(uname -m 2>/dev/null || echo unknown)"
 case "$arch" in
@@ -97,7 +114,7 @@ if [ -z "${TAG:-}" ]; then
   say "  RogerAI is brand new - releases are on their way. In the meantime:"
   say "    ${C_DIM}# build from source (needs Go)${C_RESET}"
   say "    git clone https://github.com/$REPO && cd roger"
-  say "    go build -o ~/.local/bin/$BIN ./cmd/rogerai"
+  say "    go build -o ~/.local/bin/$BIN $SRC_PKG"
   say ""
   say "  Watch ${C_VOLT}https://github.com/$REPO/releases${C_RESET} for prebuilt binaries."
   say ""
@@ -192,7 +209,7 @@ ok "installed ${C_BOLD}${BIN}${C_RESET} → ${DEST}"
 # (and any scripts) keep working. Prefer a symlink; fall back to a copy on
 # filesystems/OSes where symlinks aren't available (e.g. some Windows setups).
 ALIAS_DEST="$INSTALL_DIR/$ALIAS$EXT"
-if [ "$ALIAS_DEST" != "$DEST" ]; then
+if [ -n "$ALIAS" ] && [ "$ALIAS_DEST" != "$DEST" ]; then
   if ln -sf "$BIN$EXT" "$ALIAS_DEST" 2>/dev/null || cp -f "$DEST" "$ALIAS_DEST" 2>/dev/null; then
     ok "aliased ${C_BOLD}${ALIAS}${C_RESET} → ${BIN}"
   fi

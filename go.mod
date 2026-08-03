@@ -16,11 +16,13 @@ require (
 	github.com/mattn/go-isatty v0.0.20
 	github.com/muesli/termenv v0.16.0
 	github.com/redis/go-redis/v9 v9.21.0
+	github.com/rivo/uniseg v0.4.7
 	github.com/stretchr/testify v1.11.1
 	github.com/tiktoken-go/tokenizer v0.6.1
 	golang.org/x/crypto v0.17.0
 	golang.org/x/sync v0.17.0
 	golang.org/x/text v0.29.0
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
@@ -58,7 +60,6 @@ require (
 	github.com/muesli/ansi v0.0.0-20230316100256-276c6243b2f6 // indirect
 	github.com/muesli/cancelreader v0.2.2 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
-	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/rogpeppe/go-internal v1.15.0 // indirect
 	github.com/spf13/pflag v1.0.7 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
@@ -67,5 +68,4 @@ require (
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/sys v0.38.0 // indirect
 	google.golang.org/protobuf v1.33.0 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
