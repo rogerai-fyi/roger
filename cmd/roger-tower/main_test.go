@@ -494,3 +494,50 @@ func TestReadyRequiresAConfig(t *testing.T) {
 	_, err := runCLI(t, "ready")
 	require.Error(t, err)
 }
+
+// --- store selection -------------------------------------------------------
+
+func TestStoreForUsesTheDataDirectoryWhenNoDatabaseIsConfigured(t *testing.T) {
+	dir := initStandalone(t)
+	st, err := tower.Open(dir)
+	require.NoError(t, err)
+
+	c, err := tower.ParseConfig([]byte(standaloneYAML))
+	require.NoError(t, err)
+
+	got, closeFn, err := storeFor(c, st)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	require.NoError(t, closeFn())
+}
+
+func TestStoreForRefusesAnUnreadableDatabaseSecret(t *testing.T) {
+	dir := initStandalone(t)
+	st, err := tower.Open(dir)
+	require.NoError(t, err)
+
+	c, err := tower.ParseConfig([]byte(standaloneYAML + "storage:\n  urlFile: /nonexistent/db-url\n"))
+	require.NoError(t, err)
+
+	_, _, err = storeFor(c, st)
+	require.Error(t, err, "a Tower must not start against a database secret it cannot read")
+	require.Contains(t, err.Error(), "database URL file")
+}
+
+// The allowlist applies to the database too: a Tower pointed at a hosted database is no
+// longer the standalone thing it claims to be.
+func TestStoreForRefusesAPublicDatabase(t *testing.T) {
+	dir := initStandalone(t)
+	st, err := tower.Open(dir)
+	require.NoError(t, err)
+
+	secret := filepath.Join(t.TempDir(), "db-url")
+	require.NoError(t, os.WriteFile(secret, []byte("postgres://u:p@db.example.com:5432/tower"), 0o600))
+
+	c, err := tower.ParseConfig([]byte(standaloneYAML + "storage:\n  urlFile: " + secret + "\n"))
+	require.NoError(t, err)
+
+	_, _, err = storeFor(c, st)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "allowlist")
+}

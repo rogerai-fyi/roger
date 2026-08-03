@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"encoding/base32"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -113,50 +112,21 @@ type bootstrapState struct {
 // goroutines cannot both consume one invitation.
 var bootstrapMu sync.Mutex
 
-func (s *State) bootstrapPath() string { return filepath.Join(s.dir, bootstrapFile) }
-
-func (s *State) loadBootstrap() (*bootstrapState, error) {
-	b, err := os.ReadFile(s.bootstrapPath())
-	if os.IsNotExist(err) {
-		key, kerr := randomHex(32)
-		if kerr != nil {
-			return nil, kerr
-		}
-		return &bootstrapState{HMACKey: key, Invitations: map[string]*Invitation{}}, nil
+// store is the persistence seam. A State opened from a data directory uses the file
+// store; a durable deployment can supply a database-backed one without this package
+// gaining the ability to dial anything.
+func (s *State) store() Store {
+	if s.st != nil {
+		return s.st
 	}
-	if err != nil {
-		return nil, err
-	}
-	var bs bootstrapState
-	if err := json.Unmarshal(b, &bs); err != nil {
-		return nil, err
-	}
-	if bs.Invitations == nil {
-		bs.Invitations = map[string]*Invitation{}
-	}
-	return &bs, nil
+	return NewFileStore(s.dir)
 }
 
-// saveBootstrap writes the whole admission state atomically: a temp file beside the
-// target, then a rename.
-//
-// This is what makes "a crash cannot leave both a reusable code and an issued
-// credential" true rather than aspirational, and it holds for a simple reason - the
-// consumed flag and the issued operator live in the SAME file. A rename either lands or
-// it does not, so the two facts persist together or not at all. A crash before the
-// rename leaves the prior state, in which the code is unused and no credential exists:
-// consistent, and safe in the direction that matters.
-func (s *State) saveBootstrap(bs *bootstrapState) error {
-	b, err := json.MarshalIndent(bs, "", "  ")
-	if err != nil {
-		return err
-	}
-	tmp := s.bootstrapPath() + ".tmp"
-	// os.WriteFile with keyPerm; the file holds the HMAC verifier secret.
-	if err := os.WriteFile(tmp, b, keyPerm); err != nil {
-		return err
-	}
-	return os.Rename(tmp, s.bootstrapPath())
+func (s *State) loadBootstrap() (*Snapshot, error) { return s.store().Load() }
+
+func (s *State) saveBootstrap(bs *Snapshot) error {
+	_, err := s.store().Save(bs)
+	return err
 }
 
 // CreateInvitation mints a one-time bootstrap code. The plaintext is returned exactly
