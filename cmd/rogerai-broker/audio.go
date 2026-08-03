@@ -498,6 +498,18 @@ func (b *broker) audioRelayCore(w http.ResponseWriter, r *http.Request, spec aud
 			jsonErr(w, http.StatusInternalServerError, "station error: station receipt failed verification") // hold refunds via defer
 			return
 		}
+		// A valid signature does not prove the receipt is FOR this job. Settlement
+		// claims the hold keyed on rec.RequestID, so an unbound receipt would clear the
+		// wrong row and strand this request's hold. Fail closed: the deferred release
+		// refunds the payer in full.
+		if !rec.BindsTo(requestID, node.NodeID) {
+			log.Printf("audio receipt does not bind to dispatched job user=%s node=%s want_req=%s got_req=%s got_node=%s",
+				user, node.NodeID, requestID, rec.RequestID, rec.NodeID)
+			b.strikeUnboundReceipt(node.NodeID, requestID, rec)
+			jsonErr(w, http.StatusInternalServerError, "station error: station receipt did not match the dispatched request") // hold refunds via defer
+			return
+		}
+		b.checkChain(node.NodeID, requestID, rec)
 		rec.PriceIn, rec.GrantID = pin, grantID
 		rec.SignBroker(b.priv)
 

@@ -1788,7 +1788,22 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	case res := <-resCh:
 		b.exitInflight(node.NodeID, res.Status < 500)
 		rec := res.Receipt
-		if rec.VerifyNode(node.PubKey) {
+		// A valid signature does not prove the receipt is FOR this job. Settlement
+		// claims the hold keyed on rec.RequestID, so an unbound receipt would clear the
+		// wrong row and strand this request's hold (later swept back to the payer, i.e.
+		// served-but-unbilled work). Treated exactly like a failed signature: nothing
+		// settles and the deferred release refunds in full.
+		recOK := rec.VerifyNode(node.PubKey)
+		if recOK && !rec.BindsTo(requestID, node.NodeID) {
+			log.Printf("relay receipt does not bind to dispatched job user=%s node=%s want_req=%s got_req=%s got_node=%s",
+				user, node.NodeID, requestID, rec.RequestID, rec.NodeID)
+			b.strikeUnboundReceipt(node.NodeID, requestID, rec)
+			recOK = false
+		}
+		if recOK {
+			// Chain continuity is recorded once per accepted receipt, covering both the
+			// settled and the $0-void path below. Detect-and-record: never blocks money.
+			b.checkChain(node.NodeID, requestID, rec)
 			// Resolve the billed price for this request. Free/self -> 0/0 (metering
 			// only). Grant -> the grant's price. Public -> the price the user was
 			// first quoted for this node+model (lockWin), so owners can't raise
@@ -2144,7 +2159,17 @@ func (b *broker) relayStream(w http.ResponseWriter, t *nodeTunnel, node protocol
 		case res := <-resCh:
 			b.exitInflight(node.NodeID, res.Status < 500)
 			rec := res.Receipt
-			if rec.VerifyNode(node.PubKey) {
+			// Same binding gate as the non-stream relay: a signature-valid receipt that
+			// names another (or no) request would settle against the wrong hold row.
+			recOK := rec.VerifyNode(node.PubKey)
+			if recOK && !rec.BindsTo(job.ID, node.NodeID) {
+				log.Printf("stream receipt does not bind to dispatched job node=%s want_req=%s got_req=%s got_node=%s",
+					node.NodeID, job.ID, rec.RequestID, rec.NodeID)
+				b.strikeUnboundReceipt(node.NodeID, job.ID, rec)
+				recOK = false
+			}
+			if recOK {
+				b.checkChain(node.NodeID, job.ID, rec)
 				var pin, pout float64
 				if pricing.fixed {
 					pin, pout = pricing.in, pricing.out
