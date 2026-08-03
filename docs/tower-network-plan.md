@@ -2104,6 +2104,76 @@ and `internal/towerstore` 90.5%. The gate failed this work first at 89.6% and 77
 is what forced the store seam and the driver failure paths to be covered rather than
 assumed.
 
+### Session: Phase 2.1, the admission registry (2026-08-03)
+
+`internal/toweradmit` is Roger Core's record of which joined Towers exist, who owns them,
+and what each may do right now. Everything else in Phase 2 - certificates, the outbound
+link, dispatch leases, execution grants - hangs off that question, so it is the first
+increment.
+
+One idea runs through the whole package: Roger Core alone decides a Tower's state. No
+function accepts a state from the Tower. `RecordClaim` exists precisely so a Tower that
+asserts a state it does not hold has that recorded as evidence (`FalseClaims`) rather than
+applied. Enforcement on those counts is a separate, approved decision - the same
+detect-and-record posture the founder chose for the receipt chain.
+
+The properties the tests pin, each mutation-verified (the guard was deleted or neutered and
+the suite was confirmed to fail):
+
+- A Tower's own claim cannot change its state (4 tests fail when the claim is applied).
+- `revoked` and `expired` are terminal (5 tests fail when revoked can return to active).
+- An expired lease takes no new work even while the state still reads `active` (4 tests
+  fail when the lease check is dropped) - the lease is what bounds offline drift.
+
+Admission always starts in `quarantine`. Having an account proves who is accountable, not
+that the Tower behaves; promotion is earned from centrally observed evidence. Enrollment
+tokens are one-time and account-bound, one identity key binds to exactly one Tower (else a
+suspension would stop only one of a machine's several admissions), and a rejected
+enrollment creates nothing at all - no partial identity for a later attempt to adopt as
+real, and no burnt token for the legitimate holder.
+
+`internal/toweradmit` (Core side) and `internal/towerjoin` (Tower side) are complementary,
+not duplicated. `towerjoin.enroll` is still a stub; it is the seam this registry will
+answer once the Core-side route exists.
+
+A fresh-context reviewer ran an 18-mutation campaign and caught that the first version of
+this package had been built from memory rather than from the spec's table. Four edges were
+wrong, and two of them mattered:
+
+- `suspended -> active` was implemented AND blessed by a test. The spec's only way out of
+  suspension is back to `quarantine`, on explicit review clearance and fresh probes. As
+  written, a Tower suspended for a security decision could resume full public traffic with
+  no re-quarantine and no probe evidence. A test locking in a spec violation is the worst
+  version of this bug, because it looks like coverage.
+- `expired` was treated as terminal. The spec re-admits a lapsed Tower through quarantine
+  on fresh key proof and fresh probes; only revocation is final. Combined with the quota
+  bug below, an expired Tower was permanently dead and its key permanently burned.
+
+Also fixed, all from the same review: `Renew` silently resurrected a lapsed lease (routing
+around the entire re-admission control); revoked and expired Towers consumed their owner's
+quota forever, so an operator who revoked their Towers was locked out of running any; the
+enrollment-token map was never pruned, which an account holder could grow without bound;
+a state outside the enum was scored as a false claim instead of refused.
+
+The lesson for the rest of Phase 2: the transition table is now enumerated exhaustively in
+the test - all 49 pairs asserted against the spec's own edges - rather than sampled. It was
+sampling that let four wrong edges through, and the samples all passed.
+
+The reviewer also showed the concurrency claim was fiction. `TestATokenIsOneTimeAndConcurrentUseAdmitsOne`
+called `Enroll` twice sequentially, so deleting the mutex left the suite green. It is now
+16 goroutines racing one token under `-race`, asserting exactly one admission - the spec's
+headline race - plus a concurrent read/write sweep over the whole surface.
+
+Validation: `make cover-gate` PASS at 91.6% total, `internal/toweradmit` 96.0%, green under
+`-race`. Nine mutations were re-run against the corrected guards and eight were killed;
+the ninth was a no-op mutation of mine (returning `Tower` by value makes the copy property
+a type-system guarantee, so that test documents the signature rather than guarding it).
+
+Open item for the founder: `features/tower/public_enrollment.feature` still carries the
+`PROPOSED SPEC` banner. This package now conforms to that table exactly, which is strictly
+safer than the invented one it replaced, but the banner should be cleared or the table
+revised before Phase 2 builds further on it.
+
 ### Next action queue
 
 1. Founder approves or revises the recommended per-settlement program-cap interpretation in
