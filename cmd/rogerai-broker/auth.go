@@ -302,6 +302,7 @@ func (b *broker) authGitHubLogin(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusServiceUnavailable, "web GitHub login not configured")
 		return
 	}
+	setNextCookie(w, r)
 	state := randState()
 	http.SetCookie(w, &http.Cookie{
 		Name: "roger_oauth_state", Value: state, Path: "/", MaxAge: 600,
@@ -357,7 +358,7 @@ func (b *broker) authGitHubCallback(w http.ResponseWriter, r *http.Request) {
 	b.setWebSessionCookies(w, gu.Login, gu.ID, exp)
 	// Clear the state cookie.
 	http.SetCookie(w, &http.Cookie{Name: "roger_oauth_state", Value: "", Path: "/", MaxAge: -1})
-	http.Redirect(w, r, dashboardURL(), http.StatusFound)
+	http.Redirect(w, r, takeNextCookie(w, r), http.StatusFound)
 }
 
 // exchangeCode swaps an authorization code for a GitHub access token using the

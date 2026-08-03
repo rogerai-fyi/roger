@@ -153,6 +153,12 @@ type Device struct {
 // lets the in-TUI login render its own clean panel rather than printing to the
 // terminal hidden behind it.
 func LoginBegin(broker, clientID string) (Device, error) {
+	// The brokered flow first, so the TUI shows the same page and the same choice of
+	// provider as `roger login`. Two different sign-ins in one product is how a person
+	// ends up with two accounts.
+	if d, err := DeviceLoginBegin(broker); err == nil {
+		return Device{VerificationURI: d.VerificationURI, UserCode: d.UserCode, Handle: d}, nil
+	}
 	if clientID == "" {
 		return Device{}, fmt.Errorf("no GitHub client id configured (set GITHUB_OAUTH_CLIENT_ID or build with the default)")
 	}
@@ -168,6 +174,11 @@ func LoginBegin(broker, clientID string) (Device, error) {
 // key via the broker and persists it. It returns the linked GitHub login. d.Handle
 // must be the value returned by LoginBegin.
 func LoginPoll(broker, clientID string, d Device) (string, error) {
+	// A brokered handle polls the broker; a legacy handle polls the provider. The handle
+	// records which flow began, so the two can never be crossed.
+	if bd, ok := d.Handle.(DeviceLogin); ok {
+		return DeviceLoginComplete(broker, bd)
+	}
 	dev, ok := d.Handle.(deviceFlow)
 	if !ok {
 		return "", fmt.Errorf("invalid login handle")
