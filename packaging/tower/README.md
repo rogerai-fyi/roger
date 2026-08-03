@@ -93,6 +93,28 @@ Three things the config will not let you do, by design:
 `roger-tower config print --config FILE` shows every effective value including defaults,
 with secret *paths* shown and their contents never read. There is no unredacted mode.
 
+### Durability
+
+```yaml
+storage:
+  profile: durable        # or "development" (the default)
+```
+
+**development** is the default and says so on every `ready` and `status`: identity,
+admission state and attached Stations may be lost on restart. Fine for trying it out,
+never quiet about what it is.
+
+**durable** promises the state survives a restart, so `roger-tower ready` checks every
+dependency that promise rests on - the identity volume, the pinned offline root, the local
+signing key, and the database secret if one is configured - and **exits non-zero** when any
+is missing, naming the repair for each. Put it in an `ExecStartPre` or a readiness probe:
+a Tower that cannot keep its state should refuse to serve rather than serve and lose it.
+
+One thing the durable profile does *not* yet mean: Tower state still lives in the data
+directory rather than in PostgreSQL. The profile verifies the dependencies; moving the
+state itself is separate work, and claiming otherwise would be exactly the silent loss the
+preflight exists to prevent.
+
 ## Run it as a service
 
 **Not yet.** The unit runs `roger-tower serve`, which lands with the joined protocol

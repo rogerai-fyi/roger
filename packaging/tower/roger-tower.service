@@ -29,6 +29,10 @@ Wants=network-online.target
 Type=simple
 User=roger-tower
 Group=roger-tower
+# Refuse to start rather than serve and silently lose state. `ready` exits non-zero when
+# a durable Tower's identity volume, trust root, signing key or database secret is
+# missing, and prints the repair for each.
+ExecStartPre=/usr/local/bin/roger-tower ready --config /etc/roger-tower/tower.yaml
 ExecStart=/usr/local/bin/roger-tower serve --config /etc/roger-tower/tower.yaml
 Restart=on-failure
 RestartSec=5s

@@ -74,6 +74,11 @@ type Config struct {
 	Storage         *StorageConfig `yaml:"storage,omitempty"`
 	Payout          *PayoutConfig  `yaml:"payout,omitempty"`
 
+	// RequireOperator makes readiness insist this network has admitted its local
+	// operator. Off by default so a freshly initialized durable Tower can be checked
+	// before anyone has been admitted.
+	RequireOperator bool `yaml:"requireOperator,omitempty"`
+
 	// PublicAdvertisement is expressible only so it can be REJECTED in standalone mode
 	// with a clear error. A standalone Tower has no public advertisement path at all.
 	PublicAdvertisement bool `yaml:"publicAdvertisement,omitempty"`
@@ -116,6 +121,10 @@ type LimitsConfig struct {
 }
 
 type StorageConfig struct {
+	// Profile is the durability contract: "development" (state may be lost) or
+	// "durable" (checked before the Tower will serve). Empty means development, so an
+	// operator who says nothing gets the honest label rather than an unearned promise.
+	Profile string `yaml:"profile,omitempty"`
 	URLFile string `yaml:"urlFile,omitempty"`
 	// URL exists only to reject a DSN carrying an inline password.
 	URL string `yaml:"url,omitempty"`
@@ -149,6 +158,13 @@ func ParseConfig(b []byte) (*Config, error) {
 	}
 	if err := c.validateForMode(); err != nil {
 		return nil, err
+	}
+	if c.Storage != nil && c.Storage.Profile != "" {
+		switch Profile(c.Storage.Profile) {
+		case ProfileDevelopment, ProfileDurable:
+		default:
+			return nil, fmt.Errorf("storage.profile must be %q or %q", ProfileDevelopment, ProfileDurable)
+		}
 	}
 	c.applyDefaults()
 	return &c, nil
@@ -273,6 +289,7 @@ func (c *Config) PrintRedacted() string {
 	fmt.Fprintf(&b, "adminListener.address: %s\n", c.AdminListener.Address)
 	fmt.Fprintf(&b, "observability.metricsAddress: %s\n", c.Observability.MetricsAddress)
 	fmt.Fprintf(&b, "observability.logFormat: %s\n", c.Observability.LogFormat)
+	fmt.Fprintf(&b, "storage.profile: %s\n", c.Profile())
 	fmt.Fprintf(&b, "publicAdvertisement: %v\n", c.AdvertisesPublicly())
 	if c.Storage != nil && c.Storage.URLFile != "" {
 		fmt.Fprintf(&b, "storage.urlFile: %s (contents not read)\n", c.Storage.URLFile)

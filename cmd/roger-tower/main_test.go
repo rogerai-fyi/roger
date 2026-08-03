@@ -455,3 +455,42 @@ func TestASecondProcessCannotOwnTheSameDataDirectory(t *testing.T) {
 	_, err = runCLI(t, "invite", "--dir", dir, "--client", "k1")
 	require.NoError(t, err, "once released, the directory is usable again")
 }
+
+// --- durable startup preflight --------------------------------------------
+
+func TestReadyWarnsLoudlyOnTheDevelopmentProfile(t *testing.T) {
+	p := writeConfig(t, standaloneYAML)
+	out, err := runCLI(t, "ready", "--config", p)
+	require.NoError(t, err, "a development Tower is usable")
+	require.Contains(t, out, "NOT DURABLE")
+	require.Contains(t, out, "READY")
+}
+
+// The point of the preflight: it must FAIL, not warn, when a durable Tower's state
+// cannot be kept - and it must say what to do about it.
+func TestReadyFailsClosedWithARepairInstruction(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "no-volume")
+	p := writeConfig(t, standaloneYAML+"storage:\n  profile: durable\nidentity:\n  dir: "+missing+"\n")
+
+	out, err := runCLI(t, "ready", "--config", p)
+	require.Error(t, err, "a durable Tower with no identity volume must refuse to serve")
+	require.Contains(t, out, "NOT READY")
+	require.Contains(t, out, "identity volume")
+	require.Contains(t, out, "repair:")
+}
+
+func TestReadyPassesForACompleteDurableTower(t *testing.T) {
+	dir := initStandalone(t)
+	p := writeConfig(t, standaloneYAML+"storage:\n  profile: durable\nidentity:\n  dir: "+dir+"\n")
+
+	out, err := runCLI(t, "ready", "--config", p)
+	require.NoError(t, err)
+	require.Contains(t, out, "profile: durable")
+	require.Contains(t, out, "READY")
+	require.NotContains(t, out, "NOT READY")
+}
+
+func TestReadyRequiresAConfig(t *testing.T) {
+	_, err := runCLI(t, "ready")
+	require.Error(t, err)
+}
