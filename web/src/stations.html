@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- include: head.html title="Your stations - RogerAI" theme=external css=chrome robots=noindex -->
+</head>
+<body class="auth">
+  <!-- include: nav.html variant=lean home=/ scrolled=1 -->
+  <div class="authwrap">
+  <main class="card" id="card" hidden>
+    <h1>Your stations</h1>
+    <p class="sub">Signed in as <b id="who">-</b> &middot; every station registered to your account</p>
+
+    <p class="ds-state" id="stLoading">Loading your stations...</p>
+    <p class="ds-state" id="stError" hidden>Could not load your stations. Try again shortly.</p>
+
+    <section class="panel" id="stEmpty" hidden>
+      <h2>No stations yet</h2>
+      <p>Nothing is registered to your account. Put a GPU on air and it will appear here with its status, usage and earnings.</p>
+      <pre class="cmd">roger share</pre>
+      <p class="fine">A station is a machine serving a model through the network. Registration binds it to this account, so only you can see its numbers.</p>
+    </section>
+
+    <dl class="stats ds-tiles" id="stTiles" hidden>
+      <div><dt>Stations</dt><dd id="tileCount">-</dd></div>
+      <div><dt>On air</dt><dd id="tileOnAir">-</dd></div>
+      <div><dt>Earned</dt><dd id="tileEarned">-</dd></div>
+      <div><dt>Recent requests</dt><dd id="tileServed">-</dd></div>
+    </dl>
+
+    <section class="panel" id="stList" hidden>
+      <h2>Stations</h2>
+      <div id="stRows"></div>
+    </section>
+
+    <section class="panel" id="stEvidence" hidden>
+      <h2>Account evidence</h2>
+      <p class="fine">
+        Marks recorded against your account, each with the evidence that produced it.
+        These are shown to you in full because they can affect payouts - if you think one
+        is wrong, you can appeal it.
+      </p>
+      <div id="stStrikes"></div>
+      <p class="fine"><a href="/account.html">Account settings</a> &middot; <a href="/payouts.html">Payouts</a></p>
+    </section>
+
+    <section class="panel" id="stChainHelp" hidden>
+      <h2>About the receipt chain</h2>
+      <p>
+        Every request your station serves produces a signed receipt, and each receipt
+        links to the one before it. The network records where your station's chain was,
+        so a gap is visible rather than silent.
+      </p>
+      <p class="fine">
+        A break is an <b>audit signal, not a penalty</b>. Restarting your station starts
+        a new chain, which reads as a break today - that is expected and does not affect
+        your earnings or standing.
+      </p>
+    </section>
+  </main>
+  </div>
+  <!-- include: footer.html -->
+  <script src="/js/fmt.js"></script>
+  <script src="/js/auth.js"></script>
+  <script src="/js/stations.js"></script>
+</body>
+</html>

@@ -657,6 +657,7 @@ func (b *broker) routes() *http.ServeMux {
 	mux.HandleFunc("/balance", b.balance)
 	mux.HandleFunc("/me", b.me)                                        // consumer dashboard: balance, spend, recent
 	mux.HandleFunc("/earnings", b.earnings)                            // owner dashboard: accrued earnings, recent
+	mux.HandleFunc("/stations", b.stations)                            // owner dashboard: every station they run + status/usage/evidence
 	mux.HandleFunc("/market", b.market)                                // per-model market metrics + signal
 	mux.HandleFunc("/promo", b.promo)                                  // public: free-credit seed promo state (seeds_remaining; auto-hide at 0)
 	mux.HandleFunc("/auth/github", b.authGitHub)                       // bind a GitHub owner to the signing pubkey (CLI device flow)
