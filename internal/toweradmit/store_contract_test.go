@@ -185,9 +185,10 @@ func TestRecordClaimIgnoresAnUnknownTowerAndAnUnparseableState(t *testing.T) {
 }
 
 func TestEnrollRefusesWhenTheTowerCannotBeRecorded(t *testing.T) {
-	// The token is already spent at this point, which is the safe direction: the operator
-	// asks for a fresh one rather than an unrecorded Tower believing it is admitted.
-	s := &putFailingStore{Store: NewMemStore()}
+	// Admission is one transaction, so a Tower that cannot be written takes the token
+	// consumption down with it. The operator's next attempt uses the SAME token, rather
+	// than needing a fresh one for a failure that was ours.
+	s := &admitFailingStore{Store: NewMemStore()}
 	r := NewWithStore(Config{}, s)
 
 	tok, err := r.IssueToken("acct-1")
@@ -200,18 +201,27 @@ func TestEnrollRefusesWhenTheTowerCannotBeRecorded(t *testing.T) {
 	_, ok, err := s.TowerByKey("key-1")
 	require.NoError(t, err)
 	require.False(t, ok, "nothing partial is left behind for a later attempt to adopt as real")
+
+	_, ok, err = s.GetToken(tok)
+	require.NoError(t, err)
+	require.True(t, ok, "and the token rolls back with the Tower")
+
+	s.fail = false
+	tw, err := r.Enroll(tok, "key-1")
+	require.NoError(t, err, "so the retry succeeds on the same token")
+	require.NotEmpty(t, tw.ID)
 }
 
-type putFailingStore struct {
+type admitFailingStore struct {
 	Store
 	fail bool
 }
 
-func (p *putFailingStore) PutTower(tw Tower) error {
-	if p.fail {
-		return ErrUnavailable
+func (a *admitFailingStore) Admit(tokenID string, tw Tower) (bool, error) {
+	if a.fail {
+		return false, ErrUnavailable
 	}
-	return p.Store.PutTower(tw)
+	return a.Store.Admit(tokenID, tw)
 }
 
 func TestIssueTokenRefusesWhenItCannotBeRecorded(t *testing.T) {
