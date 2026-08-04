@@ -1,4 +1,5 @@
-# PROPOSED SPEC — founder approval is required before step definitions or implementation.
+# APPROVED SPEC - founder approved 2026-08-03. Changes to an approved scenario need
+# re-approval; they are not a diff to be reviewed.
 #
 # Scope: honest meanings of enrollment, signatures, artifact verification, observed
 # behavior, claimed metadata, optional attestation, and public trust labels.

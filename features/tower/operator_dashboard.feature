@@ -1,4 +1,5 @@
-# PROPOSED SPEC — founder approval is required before step definitions or implementation.
+# APPROVED SPEC - founder approved 2026-08-03. Changes to an approved scenario need
+# re-approval; they are not a diff to be reviewed.
 #
 # Scope: what a TOWER operator sees about the Tower they host — its identity and
 # admission state, its certificate and lease lifecycle, the Stations attached to it, the

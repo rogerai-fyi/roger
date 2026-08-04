@@ -1,4 +1,5 @@
-# PROPOSED SPEC — founder approval is required before step definitions or implementation.
+# APPROVED SPEC - founder approved 2026-08-03. Changes to an approved scenario need
+# re-approval; they are not a diff to be reviewed.
 #
 # Scope: provider-neutral authentication and reconciliation for external cash and payout-rail
 # events used by Tower compensation. No provider webhook, Tower, Station, or client is money
