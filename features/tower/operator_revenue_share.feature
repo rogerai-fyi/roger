@@ -1,4 +1,5 @@
-# PROPOSED SPEC — founder approval is required before step definitions or implementation.
+# APPROVED SPEC - founder approved 2026-08-03. Changes to an approved scenario need
+# re-approval; they are not a diff to be reviewed.
 #
 # Scope: the compensated-Tower program — an opt-in tier in which a joined Tower operator
 # earns a founder-set revenue share (initially 10%) of the platform's net revenue on token

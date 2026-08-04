@@ -1,4 +1,5 @@
-# PROPOSED SPEC — founder approval is required before step definitions or implementation.
+# APPROVED SPEC - founder approved 2026-08-03. Changes to an approved scenario need
+# re-approval; they are not a diff to be reviewed.
 #
 # Scope: purpose-separated Roger Core, Tower, Station, session, and local-network keys;
 # cross-purpose rejection, rotation, failure behavior, and compromise blast radius.

@@ -1,4 +1,5 @@
-# PROPOSED SPEC — founder approval is required before step definitions or implementation.
+# APPROVED SPEC - founder approved 2026-08-03. Changes to an approved scenario need
+# re-approval; they are not a diff to be reviewed.
 #
 # Scope: version negotiation, Tower/Station inventory, central directory ownership,
 # exact leaf selection, dispatch origin, and isolation from the trusted replica bus.
