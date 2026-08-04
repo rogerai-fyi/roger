@@ -2492,9 +2492,38 @@ enrollment to have spent the token; the transaction rolls the consumption back t
 operator retries on the same token rather than needing a fresh one for a failure that was
 ours.
 
-Remaining in 2.3, in order: the enrollment protocol itself (challenge, proof of possession,
-CSR binding, idempotent retry, and the 23-row invalid-enrollment table), then the outbound
-multiplexed link, inner Station sessions, inventory revisions, and receipt v2.
+**Enrollment itself** (`internal/towerenroll`). Three independent proofs, and holding any
+one of them is not enough: the token proves an operator was approved, the challenge
+signature proves the machine holds the identity key it claims (knowing a public key proves
+nothing - it is public), and the CSR proves it holds a SEPARATE channel key. The two keys
+may not be the same one, because sharing them means rotating a certificate rotates the
+Tower's identity and a stolen channel key becomes proof of who the Tower is.
+
+The challenge is spent BEFORE its signature is checked. A nonce spent only on success lets
+an attacker probe one challenge repeatedly, and the signature stays valid forever - the
+one-time nonce is the only thing stopping a replay.
+
+A MISSING CONTROL, found by checking what each rejection actually failed ON rather than
+that it failed. Three rows of the 23-row table were caught by an earlier check and never
+reached the control they were named for, and one of those controls did not exist: the
+enrollment token is a bearer credential and nothing bound the request to the authenticated
+account, so anyone holding a leaked token could enroll a Tower onto somebody else's account
+and be paid for it. Requests now carry the operator the broker authenticated, compared
+against the token owner in constant time. The other two rows now have tests that reach
+their checks instead of tripping an earlier one. A test that passes for the wrong reason
+proves nothing, and this is the second time this week that reading the actual failure - not
+the pass/fail - is what found the bug.
+
+**KNOWN GAP, named rather than deferred.** `towercert.NewAuthority` mints a FRESH root each
+call. That is correct for tests and first-run bootstrap, and wrong for production: a
+restart would issue a new root, and every certificate already in operators' hands would
+stop authenticating. `NewAuthorityFrom` exists and takes a persisted root, key, and
+revocation set - so the shape is right - but nothing loads one yet, and the root key is
+material that wants a deliberate custody decision rather than a default. That decision, and
+the HTTP surface that reaches enrollment, are the next slice.
+
+Remaining in 2.3, in order: the enrollment HTTP surface plus CA-root custody (above), the
+outbound multiplexed link, inner Station sessions, inventory revisions, and receipt v2.
 
 ### Next action queue
 
