@@ -2457,6 +2457,45 @@ connection footprint and give the registry a lifecycle of its own to get wrong.
 Still open: the registry has no HTTP surface, so nothing reaches it from outside yet. That
 surface is the first half of Phase 2.3.
 
+### Session: Phase 2.3 begins - the credential, and an atomic admission (2026-08-04)
+
+Two slices, both shipped and gated.
+
+**The certificate a joined Tower speaks with** (`internal/towercert`). Everything downstream
+trusts the Tower ID a certificate asserts, so the package answers exactly one question: can
+a machine end up speaking as a Tower it is not? It names exactly one Tower (two identities
+is an ambiguity an attacker resolves), carries no authority beyond the channel (it may not
+issue, and it is client-auth only, so a Tower can never become a second admission
+authority), and is short-lived, because a certificate cannot be recalled once handed out -
+expiry is the ordinary end, revocation the urgent one.
+
+Two places the standard library is not enough on its own, and the code says so: x509.Verify
+accepts a CA as a leaf, and it only checks that the requested key usage is PRESENT, so a
+certificate carrying extra powers still passes. Both re-checked. What Verify does give free
+is rejecting critical extensions it cannot evaluate - the spec's "unsupported critical
+constraint" row. The revocation set is a constructor parameter, not accumulated state, so a
+revocation cannot be undone by the next deploy.
+
+**The admission bundle is one transaction.** Enrollment consumed the token and then inserted
+the Tower; a crash between them spends the token while no Tower exists, leaving the operator
+holding a receipt for an admission that never happened. `Admit` does both in one
+transaction - DELETE ... RETURNING then insert - which also makes concurrent admissions
+serialise on the row lock rather than on luck. Eight racers against a real database confirm
+one token admits one Tower.
+
+The other bundle members live on the Tower ROW rather than in tables beside it, so one write
+commits all of them: any window where they disagree is a window where a Tower holds a
+certificate the registry has no lease for.
+
+This came out BETTER than the approved scenario required. The spec allowed a failed
+enrollment to have spent the token; the transaction rolls the consumption back too, so the
+operator retries on the same token rather than needing a fresh one for a failure that was
+ours.
+
+Remaining in 2.3, in order: the enrollment protocol itself (challenge, proof of possession,
+CSR binding, idempotent retry, and the 23-row invalid-enrollment table), then the outbound
+multiplexed link, inner Station sessions, inventory revisions, and receipt v2.
+
 ### Next action queue
 
 1. Tower Phase 2.3 against the already-approved specs: outbound multiplexed link, inner
