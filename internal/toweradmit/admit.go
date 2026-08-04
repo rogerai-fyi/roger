@@ -279,6 +279,16 @@ func (r *Registry) AdmitBundle(tokenID string, tw Tower) (Tower, error) {
 	return tw, nil
 }
 
+// Token reads an unspent enrollment token without consuming it, so a caller can check who
+// it belongs to and whether it is live before doing the work an admission needs.
+func (r *Registry) Token(id string) (Token, bool, error) {
+	tok, ok, err := r.store.GetToken(id)
+	if err != nil {
+		return Token{}, false, unavailable(err)
+	}
+	return tok, ok, nil
+}
+
 // Get returns a Tower by id.
 func (r *Registry) Get(id string) (Tower, bool) {
 	tw, ok, err := r.store.TowerByID(id)
