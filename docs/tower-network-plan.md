@@ -2174,6 +2174,93 @@ Open item for the founder: `features/tower/public_enrollment.feature` still carr
 safer than the invented one it replaced, but the banner should be cleared or the table
 revised before Phase 2 builds further on it.
 
+### Session: Phase 2.2, purpose-separated keys (2026-08-03)
+
+The founder approved the Tower spec set on 2026-08-03; the PROPOSED banner is cleared
+across all 24 feature files.
+
+`internal/keypurpose` gives every Roger Core signature and secret exactly one named
+authority role. The property it exists for is the one the spec opens with: compromising a
+relay, a cookie, a pseudonym, an admin channel, or any single signer cannot silently
+become settlement authority. A valid signature from the wrong role is not a weaker
+credential, it is no credential.
+
+This comes before certificates, dispatch leases, execution grants and settlement because
+each of those names the purpose it requires. Building any of them first would mean
+inventing that vocabulary twice.
+
+The role enum is READ FROM the approved feature file at test time rather than restated in
+Go. Two tests assert both directions - every role the spec names is a known purpose, and
+every known purpose is named by the spec - so a hand-copied list cannot drift. On a table
+of 57 roles, a quietly missing row is a quietly missing control.
+
+The Cartesian invariant is asserted over all 57x57 ordered pairs, not sampled. That choice
+is a direct consequence of Phase 2.1, where sampling a transition table let four wrong
+edges through and every sample passed.
+
+Three layers defend the same property in `Verify`: the envelope's claimed purpose, the
+key's own purpose, and the purpose bound into the signed bytes. Mutation testing showed
+the honest picture - deleting any ONE left the suite green, because each is subsumed by
+the others. Two now have isolating tests (a relabelled envelope, and domain separation of
+the signed bytes). The third, the envelope check, is strictly subsumed and CANNOT be
+isolated; it is kept as a fail-fast layer on the money path and both the code and the test
+say so plainly, rather than implying a test proves it.
+
+Also pinned by mutation: the distinctness check catches all four ways one root wears
+several hats (shared public key, shared managed-key alias, shared derivation root, shared
+fallback), a missing role fails startup rather than the first signature, a missing key
+never mints a replacement or borrows another role's, a retired key stops signing when its
+overlap ends while its history stays verifiable, and no rendering carries private key
+material, symmetric secrets, or a derivation root.
+
+A fresh-context review then ran an 18-mutation campaign and found a genuine forgery
+bypass plus a spec property that was true only of a test.
+
+**The bypass.** `Verify` decoded the signature with `hex.DecodeString` and checked the
+error. A mutation dropping that error check SURVIVED the whole suite - and it is not a
+redundant guard, because Go returns the successfully decoded PREFIX alongside the error.
+Confirmed against Go's actual behaviour rather than assumed: a valid 128-character
+signature with `zz` appended decodes to 64 intact bytes plus an error. Ignoring the error
+means an attacker appends two characters to any valid signature and verification passes.
+The guard was correct; the test used `"not hex at all"`, which fails on length instead and
+proved nothing. The test now includes trailing-garbage and odd-length cases.
+
+**The property that was only true of a test.** The spec says a retired private key stops
+signing after its overlap. `canSignWith` knew that - and had NO production caller. It
+existed so the tests could assert the property that `Sign` did not enforce. `Sign` now
+consults it, and also enforces the key's own `NotBefore`/`NotAfter`, which nothing checked
+at all: an expired key signed indefinitely, making "bounded validity interval" decorative.
+
+Five more real defects, all fixed and mutation-pinned:
+
+- Distinctness compared `KeyID`, a 64-bit exported display label a config loader can set
+  independently of the key it names. Two roles could load the IDENTICAL private key under
+  different labels and validate - exactly the one-root-many-hats case the check exists to
+  stop. It now compares the raw public key.
+- `Validate` demanded an offline-root private key in the runtime ring, so a correctly
+  operated Core - root in a vault, per the spec - could not start. Roles now carry a
+  held-at-runtime classification.
+- `Verify` returned a distinguishable error for an unknown key ID, a key-enumeration
+  oracle the spec explicitly forbids. The two cases are now indistinguishable.
+- `Rotate` returned a pointer to the live record that `Validate` and `Describe` read under
+  the lock, inviting an unsynchronised write from the first production caller.
+- Retired keys were exempt from distinctness while still resolving during verification, so
+  a collision made key lookup nondeterministic.
+
+Two process fixes came out of it. `ed25519.Verify` PANICS on a wrong-size public key, and a
+panic report is exactly the surface that must never carry key material, so a malformed
+public key is now refused as a bad signature. And `-race` ran nowhere in this repo -
+Makefile, cover gate, and CI were all plain `go test` - which meant every concurrency test
+in the module, here and in `internal/toweradmit`, asserted nothing as actually run. `make
+test` now runs `-race`; the whole `internal/...` tree is clean under it today.
+
+Four test-only helpers were living in the production file, and one of them was the
+`canSignWith` above. They moved to `export_test.go`, because a seam that looks like
+production code is how a spec property comes to be enforced only in tests.
+
+Validation: `internal/keypurpose` 97.6%, `make cover-gate` PASS at 91.6%, green under
+`-race`, and all eleven re-run mutations killed.
+
 ### Next action queue
 
 1. Founder approves or revises the recommended per-settlement program-cap interpretation in

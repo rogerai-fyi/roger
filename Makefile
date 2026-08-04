@@ -35,8 +35,12 @@ site-serve: site
 
 # Run the full test suite (ledger/payouts/account etc. live in internal/store +
 # cmd/rogerai-broker).
+#
+# -race is on by default here. Concurrency tests that only fail under the detector are
+# decoration without it, and a review found we had several: the keyring and the Tower
+# admission registry both assert properties that the plain runner cannot observe.
 test:
-	go test ./...
+	go test -race ./...
 
 # ---- spec-first TDD / coverage (see TDD-WORKFLOW.md) -------------------------
 # cover: full self-coverage profile across the module + the total line.
