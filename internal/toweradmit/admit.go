@@ -109,6 +109,30 @@ type Tower struct {
 	// Rev is the revision this record was read at. A write applies only if the stored
 	// revision still matches, so two callers acting on one read cannot both win.
 	Rev int64
+
+	// --- the rest of the admission bundle ---------------------------------
+	//
+	// The spec requires the token, lifecycle event, certificate, and lease to "commit
+	// atomically or none do". They live on the Tower row rather than beside it precisely
+	// so that is one write: separate tables would need a transaction to stay consistent,
+	// and a window where they disagree is a window where a Tower holds a certificate the
+	// registry has no lease for.
+
+	// TLSKeyHash is the channel key, kept apart from KeyHash (the persistent identity)
+	// so rotating a certificate never touches who the Tower IS, and a stolen TLS key
+	// proves nothing about its identity.
+	TLSKeyHash string
+	// LifecycleRevision and LifecycleHash identify the TowerLifecycleEventV1 that admitted
+	// this Tower. The lease binds the hash, which is what makes the bundle acyclic:
+	// lifecycle first, then the certificate and lease that reference it.
+	LifecycleRevision int64
+	LifecycleHash     string
+	// CertSerial is what revocation names.
+	CertSerial string
+	// LeaseSequence is the TowerAdmissionLeaseV1 sequence; enrollment issues sequence 1.
+	LeaseSequence   int64
+	ProtocolVersion int
+	Capabilities    []string
 }
 
 // Config bounds the registry.
@@ -217,17 +241,6 @@ func (r *Registry) Enroll(tokenID, keyHash string) (Tower, error) {
 		return Tower{}, fmt.Errorf("this account already runs %d Towers", r.cfg.MaxTowersPerOwner)
 	}
 
-	// Spend the token LAST, and atomically. Of two concurrent enrollments that both pass
-	// every check above, exactly one can consume it - which is the one-time property -
-	// while a failed check never reaches here at all.
-	spent, err := r.store.ConsumeToken(tokenID)
-	if err != nil {
-		return Tower{}, unavailable(err)
-	}
-	if !spent {
-		return Tower{}, errors.New("that enrollment token is not valid")
-	}
-
 	id, err := randomHex(12)
 	if err != nil {
 		return Tower{}, err
@@ -241,10 +254,27 @@ func (r *Registry) Enroll(tokenID, keyHash string) (Tower, error) {
 		EnrolledAt:   now,
 		LeaseExpires: now.Add(r.cfg.LeaseTTL),
 	}
-	if err := r.store.PutTower(tw); err != nil {
-		// The token is already spent, which is the safe direction to fail: an operator
-		// asks for a fresh token rather than an unrecorded Tower believing it is admitted.
-		return Tower{}, unavailable(err)
+	return r.AdmitBundle(tokenID, tw)
+}
+
+// AdmitBundle commits an assembled admission: the token is spent and the Tower recorded in
+// ONE transaction, so the bundle the spec describes either happens or does not.
+//
+// It is exported because enrollment assembles the rest of the bundle - the lifecycle event,
+// the certificate, and the lease - before there is anything to commit, and those are not
+// this package's job. This is the commit point they all arrive at.
+func (r *Registry) AdmitBundle(tokenID string, tw Tower) (Tower, error) {
+	admitted, err := r.store.Admit(tokenID, tw)
+	if err != nil {
+		// A rejected admission rolls back the token with it, so the operator's next
+		// attempt is still possible.
+		if errors.Is(err, ErrUnavailable) {
+			return Tower{}, unavailable(err)
+		}
+		return Tower{}, err
+	}
+	if !admitted {
+		return Tower{}, errors.New("that enrollment token is not valid")
 	}
 	return tw, nil
 }

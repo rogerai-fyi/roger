@@ -15,6 +15,7 @@ package toweradmit
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -44,6 +45,23 @@ CREATE TABLE IF NOT EXISTS rogerai.tower_admissions (
     false_claims  INT         NOT NULL DEFAULT 0,
     rev           BIGINT      NOT NULL DEFAULT 1
 );
+
+-- The rest of the admission bundle, on the same row so it commits in the same write.
+-- Additive and NULLable: a registry written before this keeps loading.
+ALTER TABLE rogerai.tower_admissions ADD COLUMN IF NOT EXISTS tls_key_hash TEXT;
+ALTER TABLE rogerai.tower_admissions ADD COLUMN IF NOT EXISTS lifecycle_revision BIGINT;
+ALTER TABLE rogerai.tower_admissions ADD COLUMN IF NOT EXISTS lifecycle_hash TEXT;
+ALTER TABLE rogerai.tower_admissions ADD COLUMN IF NOT EXISTS cert_serial TEXT;
+ALTER TABLE rogerai.tower_admissions ADD COLUMN IF NOT EXISTS lease_sequence BIGINT;
+ALTER TABLE rogerai.tower_admissions ADD COLUMN IF NOT EXISTS protocol_version INT;
+-- Capabilities as JSON rather than a native array: the repo's driver is pgx and nothing
+-- here queries INSIDE the list, so a text[] would mean taking on a second Postgres driver
+-- purely to marshal one column.
+ALTER TABLE rogerai.tower_admissions ADD COLUMN IF NOT EXISTS capabilities JSONB;
+-- One TLS key admits one Tower, for the same reason the identity key does. Partial, so the
+-- NULLs of rows written before this column existed do not collide with each other.
+CREATE UNIQUE INDEX IF NOT EXISTS tower_admissions_tls_key_uniq
+    ON rogerai.tower_admissions (tls_key_hash) WHERE tls_key_hash IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS tower_admissions_owner_idx ON rogerai.tower_admissions (owner);
 `
@@ -112,13 +130,7 @@ func (p *PGStore) ConsumeToken(id string) (bool, error) {
 }
 
 func (p *PGStore) PutTower(tw Tower) error {
-	_, err := p.db.Exec(
-		`INSERT INTO rogerai.tower_admissions
-		   (id,owner,key_hash,state,enrolled_at,lease_expires,false_claims,rev)
-		 VALUES($1,$2,$3,$4,$5,$6,$7,1)`,
-		tw.ID, tw.Owner, tw.KeyHash, string(tw.State),
-		tw.EnrolledAt.UTC(), tw.LeaseExpires.UTC(), tw.FalseClaims)
-	if err != nil {
+	if err := insertTowerIn(p.db, tw); err != nil {
 		return wrap("put tower", err)
 	}
 	return nil
@@ -145,15 +157,114 @@ func (p *PGStore) CASTower(tw Tower) (bool, error) {
 	return n == 1, nil
 }
 
-const towerCols = `id,owner,key_hash,state,enrolled_at,lease_expires,false_claims,rev`
+const towerCols = `id,owner,key_hash,state,enrolled_at,lease_expires,false_claims,rev,` +
+	`tls_key_hash,lifecycle_revision,lifecycle_hash,cert_serial,lease_sequence,protocol_version,capabilities`
 
 func scanTower(row interface{ Scan(...any) error }) (Tower, error) {
 	var tw Tower
 	var state string
+	var tlsKey, lifecycleHash, certSerial sql.NullString
+	var lifecycleRev, leaseSeq sql.NullInt64
+	var protocolVersion sql.NullInt32
+	var capabilities []byte
 	err := row.Scan(&tw.ID, &tw.Owner, &tw.KeyHash, &state,
-		&tw.EnrolledAt, &tw.LeaseExpires, &tw.FalseClaims, &tw.Rev)
+		&tw.EnrolledAt, &tw.LeaseExpires, &tw.FalseClaims, &tw.Rev,
+		&tlsKey, &lifecycleRev, &lifecycleHash, &certSerial, &leaseSeq, &protocolVersion, &capabilities)
 	tw.State = State(state)
+	tw.TLSKeyHash = tlsKey.String
+	tw.LifecycleRevision = lifecycleRev.Int64
+	tw.LifecycleHash = lifecycleHash.String
+	tw.CertSerial = certSerial.String
+	tw.LeaseSequence = leaseSeq.Int64
+	tw.ProtocolVersion = int(protocolVersion.Int32)
+	if len(capabilities) > 0 {
+		// A capability list we cannot read is not a reason to hand back a Tower with no
+		// capabilities, which would read as "this Tower may do nothing" - the caller sees
+		// the decode failure instead.
+		if jsonErr := json.Unmarshal(capabilities, &tw.Capabilities); jsonErr != nil && err == nil {
+			return tw, jsonErr
+		}
+	}
 	return tw, err
+}
+
+// insertTowerIn writes a Tower through whatever executor it is handed, so the same
+// statement serves both the plain insert and the admission transaction.
+func insertTowerIn(x interface {
+	Exec(string, ...any) (sql.Result, error)
+}, tw Tower) error {
+	_, err := x.Exec(
+		`INSERT INTO rogerai.tower_admissions
+		   (id,owner,key_hash,state,enrolled_at,lease_expires,false_claims,rev,
+		    tls_key_hash,lifecycle_revision,lifecycle_hash,cert_serial,lease_sequence,
+		    protocol_version,capabilities)
+		 VALUES($1,$2,$3,$4,$5,$6,$7,1,$8,$9,$10,$11,$12,$13,$14)`,
+		tw.ID, tw.Owner, tw.KeyHash, string(tw.State),
+		tw.EnrolledAt.UTC(), tw.LeaseExpires.UTC(), tw.FalseClaims,
+		nullString(tw.TLSKeyHash), nullInt64(tw.LifecycleRevision), nullString(tw.LifecycleHash),
+		nullString(tw.CertSerial), nullInt64(tw.LeaseSequence), tw.ProtocolVersion,
+		capabilitiesJSON(tw.Capabilities))
+	return err
+}
+
+// capabilitiesJSON renders the list for storage. An empty list is NULL rather than "[]" so
+// a row written before this column existed and a Tower that requested nothing read alike.
+func capabilitiesJSON(caps []string) any {
+	if len(caps) == 0 {
+		return nil
+	}
+	b, err := json.Marshal(caps)
+	if err != nil {
+		return nil
+	}
+	return b
+}
+
+func nullString(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
+func nullInt64(n int64) any {
+	if n == 0 {
+		return nil
+	}
+	return n
+}
+
+// Admit consumes the token and inserts the Tower in ONE transaction: the whole bundle
+// commits or none of it does. A failed insert rolls the token consumption back with it,
+// so a rejected attempt leaves the token usable for the operator's next try.
+func (p *PGStore) Admit(tokenID string, tw Tower) (bool, error) {
+	tx, err := p.db.Begin()
+	if err != nil {
+		return false, wrap("admit", err)
+	}
+	defer tx.Rollback() //nolint:errcheck // no-op once committed
+
+	// DELETE ... RETURNING is the consume and the check in one statement, and the row lock
+	// it takes is what makes concurrent admissions on one token serialise: the second
+	// transaction blocks here and then finds nothing.
+	var owner string
+	err = tx.QueryRow(
+		`DELETE FROM rogerai.tower_enrollment_tokens WHERE id=$1 RETURNING owner`, tokenID).
+		Scan(&owner)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil // already spent, or never existed
+	}
+	if err != nil {
+		return false, wrap("admit", err)
+	}
+	if err := insertTowerIn(tx, tw); err != nil {
+		// Rolls back the token consumption too.
+		return false, fmt.Errorf("that Tower could not be admitted: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return false, wrap("admit", err)
+	}
+	return true, nil
 }
 
 func (p *PGStore) TowerByID(id string) (Tower, bool, error) {

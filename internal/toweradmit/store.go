@@ -52,6 +52,16 @@ type Store interface {
 	// concurrent enrollments that both validate, exactly one can consume.
 	ConsumeToken(id string) (bool, error)
 
+	// Admit consumes the enrollment token AND writes the Tower in ONE transaction, and
+	// reports whether THIS call did it.
+	//
+	// The pair has to be atomic. Consuming the token and then inserting the Tower is fine
+	// until the process dies between them - and then the token is spent while no Tower
+	// exists, so the operator holds a receipt for an admission that never happened and
+	// has no way to retry. A write failure rolls the token consumption back with it, so a
+	// rejected attempt leaves the token usable, as an approved scenario requires.
+	Admit(tokenID string, tw Tower) (bool, error)
+
 	// PutTower writes a Tower record. Rev carries the revision the caller read; a write
 	// against a superseded revision is refused by CAS below.
 	PutTower(tw Tower) error
@@ -115,6 +125,28 @@ func (m *memStore) ConsumeToken(id string) (bool, error) {
 		return false, nil
 	}
 	delete(m.tokens, id)
+	return true, nil
+}
+
+func (m *memStore) Admit(tokenID string, tw Tower) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.tokens[tokenID]; !ok {
+		return false, nil
+	}
+	// Every rejection is checked BEFORE anything is written, which is this store's
+	// equivalent of a rollback: with the lock held there is no partial state to undo.
+	if _, exists := m.byKey[tw.KeyHash]; exists {
+		return false, errors.New("that identity key is already admitted")
+	}
+	if _, exists := m.towers[tw.ID]; exists {
+		return false, errors.New("that Tower ID already exists")
+	}
+	delete(m.tokens, tokenID)
+	m.nextRev++
+	tw.Rev = m.nextRev
+	m.towers[tw.ID] = tw
+	m.byKey[tw.KeyHash] = tw.ID
 	return true, nil
 }
 
