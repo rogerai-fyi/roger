@@ -71,7 +71,7 @@ func TestTheSymmetricRolesAreExactlyTheOnesTheSpecNames(t *testing.T) {
 		require.Equal(t, KindSymmetric, KindOf(p), "%s must be a symmetric role", p)
 		named[p] = true
 	}
-	for _, p := range AllPurposes() {
+	for _, p := range PurposesIn(RealmCore) {
 		if KindOf(p) == KindSymmetric {
 			require.True(t, named[p], "%s is symmetric but the spec never names it as a secret", p)
 		}
@@ -84,7 +84,7 @@ func TestTheSymmetricRolesAreExactlyTheOnesTheSpecNames(t *testing.T) {
 func TestTheTwoKindsDoNotInterchange(t *testing.T) {
 	r := testRing(t)
 
-	for _, p := range AllPurposes() {
+	for _, p := range PurposesIn(RealmCore) {
 		switch KindOf(p) {
 		case KindSymmetric:
 			_, err := r.Sign(p, []byte("x"))
@@ -104,7 +104,7 @@ func TestAMACFromOneSecretDoesNotAuthenticateAnother(t *testing.T) {
 	msg := []byte("authenticate me")
 
 	var symmetric []Purpose
-	for _, p := range AllPurposes() {
+	for _, p := range PurposesIn(RealmCore) {
 		if KindOf(p) == KindSymmetric {
 			symmetric = append(symmetric, p)
 		}
@@ -134,7 +134,7 @@ func TestNoSymmetricSecretIsDerivableFromAnother(t *testing.T) {
 	r := testRing(t)
 
 	seen := map[string]Purpose{}
-	for _, p := range AllPurposes() {
+	for _, p := range PurposesIn(RealmCore) {
 		if KindOf(p) != KindSymmetric {
 			continue
 		}
@@ -302,7 +302,7 @@ func TestAnEmptyKeyHasNoMaterialCommitment(t *testing.T) {
 // either - the commitments are namespaced so a digest can never equal a public key.
 func TestSigningAndSymmetricCommitmentsCannotCollide(t *testing.T) {
 	r := testRing(t)
-	for _, p := range AllPurposes() {
+	for _, p := range PurposesIn(RealmCore) {
 		c := r.keys[p].materialCommitment()
 		require.NotEmpty(t, c)
 		if KindOf(p) == KindSymmetric {

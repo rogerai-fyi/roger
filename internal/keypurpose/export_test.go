@@ -87,7 +87,7 @@ func shareSecretForTest(r *Ring, a, b Purpose) {
 // do not own.
 func ringFromSecretForTest(p Purpose, secret []byte) *Ring {
 	now := time.Now()
-	r := &Ring{keys: map[Purpose]*Key{}, retired: map[string]*Key{}}
+	r := &Ring{realm: RealmOf(p), keys: map[Purpose]*Key{}, retired: map[string]*Key{}}
 	r.keys[p] = &Key{
 		Purpose: p, KeyID: "stolen", secret: secret,
 		NotBefore: now, NotAfter: now.Add(time.Hour),

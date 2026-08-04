@@ -94,8 +94,8 @@ const (
 	PurposeEvidenceEncryption                    Purpose = "evidence-encryption"
 )
 
-// allPurposes is the closed set, in the spec's order.
-var allPurposes = []Purpose{
+// allCorePurposes is Roger Core's closed set, in the spec's order.
+var allCorePurposes = []Purpose{
 	PurposeOfflineRoot,
 	PurposeRogerCoreTLSServiceIdentity,
 	PurposeTowerCertificateIssuer,
@@ -154,6 +154,17 @@ var allPurposes = []Purpose{
 	PurposeAdminAuthentication,
 	PurposeEvidenceEncryption}
 
+// allPurposes is every role on every trust root. Roger Core's are only one realm's worth:
+// a standalone Tower, a joined Tower and a Station each run their own authorities, and
+// none of them are the public network's.
+var allPurposes = func() []Purpose {
+	out := append([]Purpose(nil), allCorePurposes...)
+	for _, realm := range []Realm{RealmStandalone, RealmTower, RealmStation} {
+		out = append(out, realmPurposes[realm]...)
+	}
+	return out
+}()
+
 var purposeSet = func() map[Purpose]bool {
 	m := make(map[Purpose]bool, len(allPurposes))
 	for _, p := range allPurposes {
@@ -182,6 +193,9 @@ var symmetricPurposes = map[Purpose]bool{
 	PurposePaymentWebhookAuthentication: true,
 	PurposePaymentReconciliationAPI:     true,
 	PurposePayoutRailAPI:                true,
+	// A standalone Tower's own shared secrets.
+	PurposeStandaloneBootstrapVerifierHMAC: true,
+	PurposeStandaloneBackupEncryption:      true,
 }
 
 // KindOf reports whether a purpose signs or holds a shared secret.
@@ -209,7 +223,10 @@ const (
 // process. The offline root is the whole example: a correctly operated Core keeps it in a
 // vault and issues routine certificates through a bounded replaceable intermediate, so a
 // ring that DEMANDED it would fail exactly the deployments that are doing it right.
-var heldAtRuntime = map[Purpose]bool{PurposeOfflineRoot: false}
+var heldAtRuntime = map[Purpose]bool{
+	PurposeOfflineRoot:                 false,
+	PurposeStandalonePinnedOfflineRoot: false,
+}
 
 // HeldAtRuntime reports whether an ordinary serving process is expected to hold this
 // role's private key.
@@ -243,6 +260,10 @@ var (
 	ErrKeyUnavailable = errors.New("no usable key is loaded for this purpose")
 	// ErrBadSignature is an unverifiable signature.
 	ErrBadSignature = errors.New("the signature does not verify")
+	// ErrWrongRealm is material from one trust root presented under another. A standalone
+	// Tower's root, a joined Tower's key, a Station's key and Roger Core's own authority
+	// are four separate networks, and none of them vouches for the others.
+	ErrWrongRealm = errors.New("this key belongs to another network and trust root")
 	// ErrWrongKeyKind is a signing key asked to authenticate, or a shared secret asked to
 	// sign. The bytes of one must never do the work of the other.
 	ErrWrongKeyKind = errors.New("this purpose is not that kind of key")
@@ -317,17 +338,42 @@ type Signature struct {
 
 // Ring holds the current key for every purpose, plus retired keys kept for verification.
 type Ring struct {
-	mu      sync.RWMutex
-	keys    map[Purpose]*Key
+	mu    sync.RWMutex
+	realm Realm
+	keys  map[Purpose]*Key
+	// retired keys are kept for verification only.
 	retired map[string]*Key // key ID -> retired key
 }
 
-// NewGeneratedRing mints a fresh, fully populated ring. Used by tests and by a first-run
-// standalone initialization; production loads its keys instead.
-func NewGeneratedRing() (*Ring, error) {
-	r := &Ring{keys: map[Purpose]*Key{}, retired: map[string]*Key{}}
+// Realm reports which trust root this ring serves.
+func (r *Ring) Realm() Realm { return r.realm }
+
+// inRealm refuses a role that belongs to another network. Asking a standalone Tower to
+// sign with a Roger Core purpose is a configuration error, not a signature that happens
+// not to check out, and it must say so.
+func (r *Ring) inRealm(p Purpose) error {
+	if got := RealmOf(p); got != r.realm {
+		return fmt.Errorf("%w: %s is a %s role, and this is a %s keyring",
+			ErrWrongRealm, p, got, r.realm)
+	}
+	return nil
+}
+
+// NewGeneratedRing mints a fresh, fully populated Roger Core ring. Used by tests and by a
+// first-run initialization; production loads its keys instead.
+func NewGeneratedRing() (*Ring, error) { return NewGeneratedRingFor(RealmCore) }
+
+// NewGeneratedRingFor mints a ring for one trust root, holding that realm's roles and no
+// others. A ring never carries another network's keys: material that is never held cannot
+// be stolen, and the realm check is not the only thing standing between the two.
+func NewGeneratedRingFor(realm Realm) (*Ring, error) {
+	roles := realmPurposes[realm]
+	if len(roles) == 0 {
+		return nil, fmt.Errorf("%w: %q", ErrWrongRealm, realm)
+	}
+	r := &Ring{realm: realm, keys: map[Purpose]*Key{}, retired: map[string]*Key{}}
 	now := time.Now()
-	for _, p := range allPurposes {
+	for _, p := range roles {
 		k, err := generateKey(p, now)
 		if err != nil {
 			return nil, err
@@ -371,7 +417,8 @@ func (r *Ring) Validate() error {
 	defer r.mu.RUnlock()
 
 	var problems []string
-	for _, p := range allPurposes {
+	realmRoles := realmPurposes[r.realm]
+	for _, p := range realmRoles {
 		k := r.keys[p]
 		if k == nil && HeldAtRuntime(p) {
 			problems = append(problems, fmt.Sprintf("no key is configured for %q", p))
@@ -399,7 +446,7 @@ func (r *Ring) Validate() error {
 		{"fallback key", func(k *Key) string { return k.Fallback }},
 	} {
 		seen := map[string][]Purpose{}
-		for _, p := range allPurposes {
+		for _, p := range realmRoles {
 			k := r.keys[p]
 			if k == nil {
 				continue
@@ -428,7 +475,7 @@ func (r *Ring) Validate() error {
 	// Retired keys still resolve during verification, so a retired entry colliding with a
 	// current one would make key lookup nondeterministic.
 	for id, old := range r.retired {
-		for _, p := range allPurposes {
+		for _, p := range realmRoles {
 			if cur := r.keys[p]; cur != nil && cur.KeyID == id && cur != old {
 				problems = append(problems, fmt.Sprintf(
 					"retired key %s collides with the current key for %q", id, p))
@@ -448,6 +495,9 @@ func (r *Ring) Validate() error {
 func (r *Ring) MarkUnloadable(p Purpose, why LoadFailure) error {
 	if !Known(p) {
 		return fmt.Errorf("%w: %q", ErrUnknownPurpose, p)
+	}
+	if err := r.inRealm(p); err != nil {
+		return err
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -492,6 +542,9 @@ func (r *Ring) Sign(p Purpose, msg []byte) (Signature, error) {
 	if !Known(p) {
 		return Signature{}, fmt.Errorf("%w: %q", ErrUnknownPurpose, p)
 	}
+	if err := r.inRealm(p); err != nil {
+		return Signature{}, err
+	}
 	if KindOf(p) != KindSigning {
 		return Signature{}, fmt.Errorf("%w: %s is a shared secret, not a signer", ErrWrongKeyKind, p)
 	}
@@ -526,6 +579,19 @@ func (r *Ring) Sign(p Purpose, msg []byte) (Signature, error) {
 func (r *Ring) Verify(required Purpose, msg []byte, sig Signature) error {
 	if !Known(required) {
 		return fmt.Errorf("%w: %q", ErrUnknownPurpose, required)
+	}
+	if err := r.inRealm(required); err != nil {
+		return err
+	}
+	// The PRESENTED material's trust root, checked before its purpose. Material from
+	// another network is refused as foreign rather than as a wrong-purpose key: those are
+	// different problems, and an operator needs to see which one they have.
+	if got := RealmOf(sig.Purpose); got != r.realm {
+		return fmt.Errorf("%w: a %s signature was presented to a %s keyring",
+			ErrWrongRealm, got, r.realm)
+	}
+	if KindOf(required) != KindSigning {
+		return fmt.Errorf("%w: %s is a shared secret, not a signer", ErrWrongKeyKind, required)
 	}
 	// A fail-fast layer, before the ring is even consulted. It is strictly subsumed by
 	// the key-purpose check below - deleting it leaves the suite green, and that is
@@ -577,6 +643,9 @@ func (r *Ring) MAC(p Purpose, msg []byte) (Signature, error) {
 	if !Known(p) {
 		return Signature{}, fmt.Errorf("%w: %q", ErrUnknownPurpose, p)
 	}
+	if err := r.inRealm(p); err != nil {
+		return Signature{}, err
+	}
 	if KindOf(p) != KindSymmetric {
 		return Signature{}, fmt.Errorf("%w: %s is a signer, not a shared secret", ErrWrongKeyKind, p)
 	}
@@ -600,6 +669,13 @@ func (r *Ring) MAC(p Purpose, msg []byte) (Signature, error) {
 func (r *Ring) VerifyMAC(required Purpose, msg []byte, sig Signature) error {
 	if !Known(required) {
 		return fmt.Errorf("%w: %q", ErrUnknownPurpose, required)
+	}
+	if err := r.inRealm(required); err != nil {
+		return err
+	}
+	if got := RealmOf(sig.Purpose); got != r.realm {
+		return fmt.Errorf("%w: a %s tag was presented to a %s keyring",
+			ErrWrongRealm, got, r.realm)
 	}
 	if KindOf(required) != KindSymmetric {
 		return fmt.Errorf("%w: %s is a signer, not a shared secret", ErrWrongKeyKind, required)
@@ -644,6 +720,9 @@ func (r *Ring) Rotate(p Purpose, overlap time.Duration) (*Key, error) {
 	if !Known(p) {
 		return nil, fmt.Errorf("%w: %q", ErrUnknownPurpose, p)
 	}
+	if err := r.inRealm(p); err != nil {
+		return nil, err
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -675,6 +754,9 @@ func (r *Ring) Rotate(p Purpose, overlap time.Duration) (*Key, error) {
 }
 
 func (r *Ring) canSignWithLocked(k *Key) bool {
+	if k == nil {
+		return false
+	}
 	now := time.Now()
 	if cur := r.keys[k.Purpose]; cur != nil && cur.KeyID == k.KeyID {
 		// The current key still has to be inside its own bounded validity interval; an
@@ -689,7 +771,8 @@ func (r *Ring) canSignWithLocked(k *Key) bool {
 func (r *Ring) String() string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	return fmt.Sprintf("keyring with %d of %d purposes configured", len(r.keys), len(allPurposes))
+	return fmt.Sprintf("%s keyring with %d of %d purposes configured",
+		r.realm, len(r.keys), len(realmPurposes[r.realm]))
 }
 
 // Describe lists each configured role and its public key ID. Public key IDs and expiry may
@@ -699,7 +782,7 @@ func (r *Ring) Describe() string {
 	defer r.mu.RUnlock()
 
 	var b strings.Builder
-	for _, p := range allPurposes {
+	for _, p := range realmPurposes[r.realm] {
 		k := r.keys[p]
 		if k == nil {
 			fmt.Fprintf(&b, "%s: no key configured\n", p)
