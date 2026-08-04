@@ -136,8 +136,10 @@ func TestEveryOrderedPairOfDistinctRolesIsRejected(t *testing.T) {
 	r := testRing(t)
 	msg := []byte("an object requiring one exact purpose")
 
-	for _, required := range AllPurposes() {
-		for _, presented := range AllPurposes() {
+	// Signing roles. The symmetric ones are covered by the matching Cartesian test in
+	// symmetric_test.go, and the two kinds are proven not to interchange there too.
+	for _, required := range signingPurposes() {
+		for _, presented := range signingPurposes() {
 			sig, err := r.Sign(presented, msg)
 			require.NoError(t, err)
 
@@ -283,10 +285,11 @@ func TestRotationCannotChangePurpose(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, PurposeSessionHMAC, next.Purpose)
 
-	// A rotated key is still rejected for every other role.
-	sig, err := r.Sign(PurposeSessionHMAC, []byte("x"))
+	// A rotated key is still rejected for every other role. (Both of these are symmetric
+	// roles, so they authenticate rather than sign.)
+	mac, err := r.MAC(PurposeSessionHMAC, []byte("x"))
 	require.NoError(t, err)
-	require.ErrorIs(t, r.Verify(PurposeAdminAuthentication, []byte("x"), sig), ErrPurposeMismatch)
+	require.ErrorIs(t, r.VerifyMAC(PurposeAdminAuthentication, []byte("x"), mac), ErrPurposeMismatch)
 }
 
 // A ring stays valid across rotation: the replacement must not collide with another role.
@@ -316,11 +319,29 @@ func TestSecretMaterialIsAbsentFromEveryRendering(t *testing.T) {
 func requireNoSecrets(t *testing.T, r *Ring, out string) {
 	t.Helper()
 	for _, k := range r.keys {
-		require.NotContains(t, out, k.secretHexForTest(), "private key material must never be rendered")
+		// A key whose material was dropped renders as the empty string, and every output
+		// contains that - so skip it rather than assert a tautology.
+		if secret := k.secretHexForTest(); secret != "" {
+			require.NotContains(t, out, secret, "key material must never be rendered")
+		}
+		if len(k.secret) > 0 {
+			require.NotContains(t, out, string(k.secret), "a raw shared secret must never be rendered")
+		}
 		if k.DerivedFrom != "" {
 			require.NotContains(t, out, k.DerivedFrom, "a derived-key root is secret material")
 		}
 	}
+}
+
+// signingPurposes is every role that signs.
+func signingPurposes() []Purpose {
+	var out []Purpose
+	for _, p := range AllPurposes() {
+		if KindOf(p) == KindSigning {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // --- helpers ---------------------------------------------------------------
@@ -591,6 +612,7 @@ func TestACurrentKeyMaySign(t *testing.T) {
 	r := testRing(t)
 	for _, p := range AllPurposes() {
 		require.True(t, r.canSignWith(r.keys[p]), "%s is current and inside its window", p)
+		_ = KindOf(p)
 	}
 }
 

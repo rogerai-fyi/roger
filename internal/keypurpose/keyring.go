@@ -15,6 +15,10 @@ package keypurpose
 
 import (
 	"crypto/ed25519"
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -158,6 +162,49 @@ var purposeSet = func() map[Purpose]bool {
 	return m
 }()
 
+// Kind separates roles that SIGN from roles that are a shared secret. A session cookie,
+// a pseudonym, an admin token, an evidence key, a webhook secret and two API credentials
+// are not signers, and treating them as one would let the same bytes do double duty while
+// "one purpose per key" stayed true of the name only.
+type Kind string
+
+const (
+	KindSigning   Kind = "signing"
+	KindSymmetric Kind = "symmetric"
+)
+
+// symmetricPurposes is the set the spec names as secrets rather than signers.
+var symmetricPurposes = map[Purpose]bool{
+	PurposeSessionHMAC:                  true,
+	PurposePseudonymHMAC:                true,
+	PurposeAdminAuthentication:          true,
+	PurposeEvidenceEncryption:           true,
+	PurposePaymentWebhookAuthentication: true,
+	PurposePaymentReconciliationAPI:     true,
+	PurposePayoutRailAPI:                true,
+}
+
+// KindOf reports whether a purpose signs or holds a shared secret.
+func KindOf(p Purpose) Kind {
+	if symmetricPurposes[p] {
+		return KindSymmetric
+	}
+	return KindSigning
+}
+
+// LoadFailure is why a role's key is unusable. The spec's failure scenario names five, and
+// they are distinguished because an operator repairing a malformed key does something
+// different from one whose key is merely unavailable.
+type LoadFailure string
+
+const (
+	LoadMissing     LoadFailure = "missing"
+	LoadMalformed   LoadFailure = "malformed"
+	LoadUnreadable  LoadFailure = "unreadable"
+	LoadDuplicated  LoadFailure = "duplicated across roles"
+	LoadUnavailable LoadFailure = "unavailable"
+)
+
 // heldAtRuntime is false for roles whose private key must NOT be in an ordinary serving
 // process. The offline root is the whole example: a correctly operated Core keeps it in a
 // vault and issues routine certificates through a bounded replaceable intermediate, so a
@@ -196,6 +243,9 @@ var (
 	ErrKeyUnavailable = errors.New("no usable key is loaded for this purpose")
 	// ErrBadSignature is an unverifiable signature.
 	ErrBadSignature = errors.New("the signature does not verify")
+	// ErrWrongKeyKind is a signing key asked to authenticate, or a shared secret asked to
+	// sign. The bytes of one must never do the work of the other.
+	ErrWrongKeyKind = errors.New("this purpose is not that kind of key")
 )
 
 // Key is one purpose-bound signing key.
@@ -225,6 +275,30 @@ type Key struct {
 
 	pub  ed25519.PublicKey
 	priv ed25519.PrivateKey
+	// secret backs a symmetric role. Exactly one of priv/secret is ever set.
+	secret []byte
+	// failure records why this role could not be loaded. A non-empty value fails every
+	// use of the role closed; it is cleared only by an explicit repair, never as a side
+	// effect of rotating.
+	failure LoadFailure
+}
+
+// materialCommitment identifies a key's underlying material without revealing it. For a
+// signer that is its public key; for a shared secret it is a one-way digest, so the
+// distinctness check can compare secrets that must never be rendered.
+//
+// Symmetric roles used to fall out of that check entirely: they have no public key, and
+// the check skips empty values, so every secret role could have shared one secret and
+// validated.
+func (k *Key) materialCommitment() string {
+	if len(k.pub) > 0 {
+		return "pub:" + string(k.pub)
+	}
+	if len(k.secret) > 0 {
+		sum := sha256.Sum256(k.secret)
+		return "sec:" + string(sum[:])
+	}
+	return ""
 }
 
 // String names the key without its secret.
@@ -264,18 +338,28 @@ func NewGeneratedRing() (*Ring, error) {
 }
 
 func generateKey(p Purpose, now time.Time) (*Key, error) {
+	k := &Key{Purpose: p, NotBefore: now, NotAfter: now.Add(90 * 24 * time.Hour)}
+
+	if KindOf(p) == KindSymmetric {
+		// Independent material per role. Deriving these from one root would be exactly
+		// the "cross-role key derived from the possessed bytes" the spec forbids.
+		k.secret = make([]byte, 32)
+		if _, err := rand.Read(k.secret); err != nil {
+			return nil, err
+		}
+		// A one-way commitment, so a secret role still has a public identifier that can
+		// appear in logs and errors without exposing anything.
+		sum := sha256.Sum256(k.secret)
+		k.KeyID = hex.EncodeToString(sum[:8])
+		return k, nil
+	}
+
 	pub, priv, err := ed25519.GenerateKey(nil)
 	if err != nil {
 		return nil, err
 	}
-	return &Key{
-		Purpose:   p,
-		KeyID:     hex.EncodeToString(pub[:8]),
-		NotBefore: now,
-		NotAfter:  now.Add(90 * 24 * time.Hour),
-		pub:       pub,
-		priv:      priv,
-	}, nil
+	k.KeyID, k.pub, k.priv = hex.EncodeToString(pub[:8]), pub, priv
+	return k, nil
 }
 
 // Validate checks the ring before anything is signed.
@@ -288,8 +372,13 @@ func (r *Ring) Validate() error {
 
 	var problems []string
 	for _, p := range allPurposes {
-		if r.keys[p] == nil && HeldAtRuntime(p) {
+		k := r.keys[p]
+		if k == nil && HeldAtRuntime(p) {
 			problems = append(problems, fmt.Sprintf("no key is configured for %q", p))
+			continue
+		}
+		if k != nil && k.failure != "" {
+			problems = append(problems, fmt.Sprintf("the key for %q is %s", p, k.failure))
 		}
 	}
 
@@ -299,11 +388,12 @@ func (r *Ring) Validate() error {
 		what string
 		of   func(*Key) string
 	}{
-		// The RAW public key, not KeyID. KeyID is an exported display field a config
+		// The underlying MATERIAL, not KeyID. KeyID is an exported display field a config
 		// loader can set independently of the key it names, so comparing it would let two
 		// roles load the identical private key under different labels and validate -
-		// precisely the one-root-many-hats case this check exists to stop.
-		{"public key", func(k *Key) string { return string(k.pub) }},
+		// precisely the one-root-many-hats case this check exists to stop. For a shared
+		// secret the commitment is a digest, so secrets are compared without being held.
+		{"public key", func(k *Key) string { return k.materialCommitment() }},
 		{"managed-key alias", func(k *Key) string { return k.Alias }},
 		{"derived-key root", func(k *Key) string { return k.DerivedFrom }},
 		{"fallback key", func(k *Key) string { return k.Fallback }},
@@ -353,6 +443,41 @@ func (r *Ring) Validate() error {
 	return fmt.Errorf("the key configuration is unsafe: %s", strings.Join(problems, "; "))
 }
 
+// MarkUnloadable records that a role's key could not be loaded. Every use of the role
+// then fails closed, and startup fails, until the role is repaired explicitly.
+func (r *Ring) MarkUnloadable(p Purpose, why LoadFailure) error {
+	if !Known(p) {
+		return fmt.Errorf("%w: %q", ErrUnknownPurpose, p)
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	k := r.keys[p]
+	if k == nil {
+		k = &Key{Purpose: p}
+		r.keys[p] = k
+	}
+	k.failure = why
+	// The material is dropped, not kept beside a failure flag: a key that is malformed or
+	// duplicated must not remain usable by any path that forgets to check the flag.
+	k.priv, k.secret = nil, nil
+	return nil
+}
+
+// usableLocked resolves the key for a purpose, or explains why there is none.
+func (r *Ring) usableLocked(p Purpose) (*Key, error) {
+	k := r.keys[p]
+	if k == nil {
+		return nil, fmt.Errorf("%w: %s", ErrKeyUnavailable, p)
+	}
+	if k.failure != "" {
+		// Named, so an operator repairs the right thing. Nothing is minted to cover the
+		// gap and no other role's key is reached for - either would turn a missing
+		// authority into a silent one.
+		return nil, fmt.Errorf("%w: the %s key is %s", ErrKeyUnavailable, p, k.failure)
+	}
+	return k, nil
+}
+
 // signingBytes binds the purpose into what is signed, so a signature cannot be relabelled
 // by editing the envelope. Without this the purpose tag would be a claim, not a binding.
 func signingBytes(p Purpose, msg []byte) []byte {
@@ -367,13 +492,17 @@ func (r *Ring) Sign(p Purpose, msg []byte) (Signature, error) {
 	if !Known(p) {
 		return Signature{}, fmt.Errorf("%w: %q", ErrUnknownPurpose, p)
 	}
+	if KindOf(p) != KindSigning {
+		return Signature{}, fmt.Errorf("%w: %s is a shared secret, not a signer", ErrWrongKeyKind, p)
+	}
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	k := r.keys[p]
-	if k == nil || k.priv == nil {
-		// Fail closed. Nothing is generated to paper over the gap, and no other role's
-		// key is borrowed - either would turn a missing authority into a silent one.
+	k, err := r.usableLocked(p)
+	if err != nil {
+		return Signature{}, err
+	}
+	if k.priv == nil {
 		return Signature{}, fmt.Errorf("%w: %s", ErrKeyUnavailable, p)
 	}
 	// The validity window is enforced HERE, on the production path. It previously lived
@@ -443,6 +572,72 @@ func (r *Ring) findLocked(keyID string) *Key {
 	return r.retired[keyID]
 }
 
+// MAC authenticates a message under a shared-secret role.
+func (r *Ring) MAC(p Purpose, msg []byte) (Signature, error) {
+	if !Known(p) {
+		return Signature{}, fmt.Errorf("%w: %q", ErrUnknownPurpose, p)
+	}
+	if KindOf(p) != KindSymmetric {
+		return Signature{}, fmt.Errorf("%w: %s is a signer, not a shared secret", ErrWrongKeyKind, p)
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	k, err := r.usableLocked(p)
+	if err != nil {
+		return Signature{}, err
+	}
+	if len(k.secret) == 0 {
+		return Signature{}, fmt.Errorf("%w: %s", ErrKeyUnavailable, p)
+	}
+	if !r.canSignWithLocked(k) {
+		return Signature{}, fmt.Errorf("%w: the %s secret is outside its window", ErrKeyUnavailable, p)
+	}
+	return Signature{Purpose: p, KeyID: k.KeyID, Sig: hex.EncodeToString(macBytes(k.secret, p, msg))}, nil
+}
+
+// VerifyMAC checks a message under a shared-secret role, and only that role.
+func (r *Ring) VerifyMAC(required Purpose, msg []byte, sig Signature) error {
+	if !Known(required) {
+		return fmt.Errorf("%w: %q", ErrUnknownPurpose, required)
+	}
+	if KindOf(required) != KindSymmetric {
+		return fmt.Errorf("%w: %s is a signer, not a shared secret", ErrWrongKeyKind, required)
+	}
+	if sig.Purpose != required {
+		return fmt.Errorf("%w: %s presented for %s", ErrPurposeMismatch, sig.Purpose, required)
+	}
+
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	k, err := r.usableLocked(required)
+	if err != nil {
+		return err
+	}
+	if len(k.secret) == 0 {
+		return fmt.Errorf("%w: %s", ErrKeyUnavailable, required)
+	}
+
+	got, decErr := hex.DecodeString(sig.Sig)
+	// The error must be checked: hex.DecodeString returns the successfully decoded prefix
+	// alongside it, so ignoring it would accept a valid tag with garbage appended.
+	if decErr != nil {
+		return ErrBadSignature
+	}
+	// Constant time, so a wrong tag reveals nothing about how much of it was right.
+	if subtle.ConstantTimeCompare(got, macBytes(k.secret, required, msg)) != 1 {
+		return ErrBadSignature
+	}
+	return nil
+}
+
+// macBytes binds the purpose into the tag exactly as signingBytes does for a signature.
+func macBytes(secret []byte, p Purpose, msg []byte) []byte {
+	m := hmac.New(sha256.New, secret)
+	m.Write(signingBytes(p, msg))
+	return m.Sum(nil)
+}
+
 // Rotate replaces a purpose's key, keeping the purpose. The retired key may finish
 // in-flight work for the overlap and verifies forever after.
 func (r *Ring) Rotate(p Purpose, overlap time.Duration) (*Key, error) {
@@ -451,6 +646,14 @@ func (r *Ring) Rotate(p Purpose, overlap time.Duration) (*Key, error) {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
+	if k := r.keys[p]; k != nil && k.failure != "" {
+		// Repairing a role is an explicit act. Rotating over a failure would clear it as
+		// a side effect of asking for a new key, which is how a known-bad role quietly
+		// returns to service.
+		return nil, fmt.Errorf("%w: the %s key is %s and must be repaired, not rotated",
+			ErrKeyUnavailable, p, k.failure)
+	}
 
 	now := time.Now()
 	next, err := generateKey(p, now)
