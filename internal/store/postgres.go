@@ -68,6 +68,18 @@ ALTER TABLE rogerai.owners ADD COLUMN IF NOT EXISTS welcomed_at TIMESTAMPTZ;
 -- github_id, multiple device pubkeys may bind the SAME apple_sub and all resolve to one
 -- u_apple_ wallet (multi-device wallet sharing) - a unique index would reject the 2nd device.
 ALTER TABLE rogerai.owners ADD COLUMN IF NOT EXISTS apple_sub TEXT;
+-- First-party sign-in: the moment somebody PROVED they hold owners.email, by accepting a
+-- code mailed to it. NULL = the address is self-asserted profile text and is not an
+-- identity. Kept separate from the email column precisely because that one is editable:
+-- resolving a login against it would let anyone who can type an address claim the account
+-- it belongs to. Additive + NULLable, so every existing owner is unaffected.
+ALTER TABLE rogerai.owners ADD COLUMN IF NOT EXISTS email_verified_at TIMESTAMPTZ;
+-- One VERIFIED address belongs to at most one live account. Partial, so the unlimited
+-- unverified/NULL emails and the anonymized rows of deleted accounts are untouched - a
+-- deleted account's address must be reusable by a new one, not held hostage forever.
+CREATE UNIQUE INDEX IF NOT EXISTS owners_verified_email_uniq
+    ON rogerai.owners (lower(email))
+    WHERE email_verified_at IS NOT NULL AND NOT COALESCE(anonymized,false);
 -- node -> operator account (owner pubkey) binding, so a node's earnings attribute
 -- to an account at payout/Connect time. TOFU: first account to bind a node wins.
 CREATE TABLE IF NOT EXISTS rogerai.node_owner (
@@ -1133,35 +1145,58 @@ func (p *Postgres) BindOwner(o Owner) error {
 	// zero), existing) on each provider id fills only what the incoming bind sets, so binding
 	// one provider never drops the other's link on the same pubkey (dual-link). A GitHub
 	// re-login still updates login (its EXCLUDED.login is non-empty), matching prior behavior.
-	_, err := p.db.Exec(`INSERT INTO rogerai.owners(pubkey,github_id,login,apple_sub,name,email) VALUES($1,$2,$3,NULLIF($4,''),$5,$6)
+	// email_verified_at follows the same fill-don't-clobber rule, with one asymmetry: a
+	// VERIFIED address outranks whatever the incoming bind carries, and a proof already
+	// given is never withdrawn by a later bind that carries none (a GitHub re-bind on the
+	// same device must not un-verify an address).
+	var verified any
+	if o.EmailVerifiedAt != 0 {
+		verified = time.Unix(o.EmailVerifiedAt, 0).UTC()
+	}
+	_, err := p.db.Exec(`INSERT INTO rogerai.owners(pubkey,github_id,login,apple_sub,name,email,email_verified_at) VALUES($1,$2,$3,NULLIF($4,''),$5,$6,$7)
 		ON CONFLICT (pubkey) DO UPDATE SET
 			github_id=COALESCE(NULLIF(EXCLUDED.github_id,0), rogerai.owners.github_id),
 			login=COALESCE(NULLIF(EXCLUDED.login,''), rogerai.owners.login),
 			apple_sub=COALESCE(EXCLUDED.apple_sub, rogerai.owners.apple_sub),
 			name=COALESCE(NULLIF(rogerai.owners.name,''), $5),
-			email=COALESCE(NULLIF(rogerai.owners.email,''), $6)`,
-		o.Pubkey, o.GitHubID, o.Login, o.AppleSub, o.Name, o.Email)
+			email=CASE
+				WHEN rogerai.owners.email_verified_at IS NOT NULL THEN rogerai.owners.email
+				WHEN EXCLUDED.email_verified_at IS NOT NULL THEN EXCLUDED.email
+				ELSE COALESCE(NULLIF(rogerai.owners.email,''), $6) END,
+			email_verified_at=COALESCE(EXCLUDED.email_verified_at, rogerai.owners.email_verified_at)`,
+		o.Pubkey, o.GitHubID, o.Login, o.AppleSub, o.Name, o.Email, verified)
 	return err
 }
 
 func (p *Postgres) OwnerByPubkey(pubkey string) (Owner, bool, error) {
-	return p.scanOwner(`SELECT pubkey,github_id,login,created_at,email,stripe_connect_id,connect_status,deleted_at,anonymized,name,welcomed_at,apple_sub
+	return p.scanOwner(`SELECT pubkey,github_id,login,created_at,email,stripe_connect_id,connect_status,deleted_at,anonymized,name,welcomed_at,apple_sub,email_verified_at
 		FROM rogerai.owners WHERE pubkey=$1`, pubkey)
 }
 
 func (p *Postgres) OwnerByLogin(login string) (Owner, bool, error) {
-	return p.scanOwner(`SELECT pubkey,github_id,login,created_at,email,stripe_connect_id,connect_status,deleted_at,anonymized,name,welcomed_at,apple_sub
+	return p.scanOwner(`SELECT pubkey,github_id,login,created_at,email,stripe_connect_id,connect_status,deleted_at,anonymized,name,welcomed_at,apple_sub,email_verified_at
 		FROM rogerai.owners WHERE login=$1 AND NOT COALESCE(anonymized,false)`, login)
+}
+
+// OwnerByVerifiedEmail resolves the account that PROVED it holds this address.
+//
+// The email_verified_at guard is the security boundary: owners.email alone is
+// user-editable profile text, so matching on it would let anyone who can type an address
+// claim the account it belongs to. lower() matches the partial unique index, so the
+// lookup uses it rather than scanning.
+func (p *Postgres) OwnerByVerifiedEmail(email string) (Owner, bool, error) {
+	return p.scanOwner(`SELECT pubkey,github_id,login,created_at,email,stripe_connect_id,connect_status,deleted_at,anonymized,name,welcomed_at,apple_sub,email_verified_at
+		FROM rogerai.owners WHERE lower(email)=lower($1) AND email_verified_at IS NOT NULL AND NOT COALESCE(anonymized,false)`, email)
 }
 
 // scanOwner runs a single-row owner query, mapping NULL columns to zero values.
 func (p *Postgres) scanOwner(query string, arg string) (Owner, bool, error) {
 	var o Owner
-	var created, deleted, welcomed sql.NullTime
+	var created, deleted, welcomed, emailVerified sql.NullTime
 	var email, connectID, connectStatus, name, appleSub sql.NullString
 	var anon sql.NullBool
 	err := p.db.QueryRow(query, arg).Scan(
-		&o.Pubkey, &o.GitHubID, &o.Login, &created, &email, &connectID, &connectStatus, &deleted, &anon, &name, &welcomed, &appleSub)
+		&o.Pubkey, &o.GitHubID, &o.Login, &created, &email, &connectID, &connectStatus, &deleted, &anon, &name, &welcomed, &appleSub, &emailVerified)
 	if err == sql.ErrNoRows {
 		return Owner{}, false, nil
 	}
@@ -1176,6 +1211,9 @@ func (p *Postgres) scanOwner(query string, arg string) (Owner, bool, error) {
 	}
 	if welcomed.Valid {
 		o.WelcomedAt = welcomed.Time.Unix()
+	}
+	if emailVerified.Valid {
+		o.EmailVerifiedAt = emailVerified.Time.Unix()
 	}
 	o.Email = email.String
 	o.Name = name.String

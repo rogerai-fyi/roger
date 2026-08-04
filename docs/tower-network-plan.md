@@ -2375,18 +2375,84 @@ guard is a way to get a false reading from it.
 Validation: `internal/keypurpose` 96.0%, `make cover-gate` PASS at 91.6%, `internal/...`
 clean under `-race`.
 
+### Session: a login of our own, and state that outlives the process (2026-08-03)
+
+Founder direction: make sure nothing is left, that persistence is real, and that sign-in is
+managed by us the way other AI products manage theirs. Auditing against that turned up three
+places where state that decides who you are lived only in one process's memory.
+
+**Device login could not complete behind more than one instance.** `deviceauth.Flow` kept
+every pending login in process-local maps and never touched the shared store the rest of the
+broker already uses. Behind a load balancer the CLI polls one instance while the human
+approves on another, so the approval was written to one map and the poll read another's -
+the flow was not degraded, it was uncompletable, and it failed looking like an attack rather
+than a bug. A restart had the same shape with a worse message: the login was dropped and
+reported with the uniform "that code is not valid", which is the rejection meant for a
+guesser aimed at a person whose code was fine.
+
+The flow now runs over a `Store` seam - in-process by default, Valkey-backed when one is
+wired, with the CAS done in a Lua script so consumption is ONE atomic decision. That last
+part is what makes "a code is spent once across the deployment" true rather than likely: two
+instances each reading "not consumed yet" is the classic double-spend. Records carry only
+hashes now; in memory the codes were reachable by one process, but in a shared store they
+are reachable by a backup, a replica, and anything that can run a scan.
+
+Deliberately NOT following the house `sharedStore` rule that every call site falls back to
+memory on error. Every other user of that store is an accelerator whose local answer is
+merely less accurate; a pending login is the authority on whether somebody approved
+something, and a per-instance fallback is exactly the split-brain being removed. So a store
+outage REFUSES to issue a login rather than issuing one it will lose, and a poll during an
+outage is retryable rather than invalid - which needed a fix on the CLI side too, where any
+non-200 used to end the login outright.
+
+**Sign-in is now ours.** Every identity in the system was borrowed - an owner row keyed on a
+GitHub id or an Apple sub - so anyone holding neither could not sign in at all, two third
+parties could lock a customer out of an account holding a wallet balance, and provider
+outage was total sign-in outage. `internal/emailauth` adds a RogerAI account keyed on a
+VERIFIED email, entered with a mailed code. GitHub and Apple remain, unchanged.
+
+Two decisions worth recording. The package never consults an account store, so it cannot
+tell a known address from an unknown one - the strongest form of enumeration resistance is
+having no branch to leak rather than two branches carefully matched. And the mail carries no
+one-click link: a followed link authenticates whoever followed it, in whatever browser
+followed it, including a mail scanner that fetches every URL it sees. Typing the code back
+into the session that asked is what ties the person who requested to the person who arrives.
+
+Auto-linking is gated on BOTH sides being verified. Linking on a provider's unverified
+address is full account takeover: anyone who can set an arbitrary email at a provider could
+claim a RogerAI account holding a balance. And linking is never merging - an email account
+that also holds a GitHub link keeps the wallet it already had.
+
+**One real leak, found by reading this flow's own test output.** The mailer logged the full
+recipient address, and the sign-in subject carried the code - so an ordinary log line held a
+live credential next to the address it belonged to. Logs are shipped, retained, searched and
+pasted into tickets, with none of the account store's protections. The address is masked in
+logs now and the code never enters a subject at all, which is safe by construction rather
+than by remembering. Both are permanent regression tests.
+
+Still open, and named rather than deferred: `toweradmit.Registry` - Roger Core's record of
+which Towers are admitted, their leases, their lifecycle states and their accumulated
+false-claim evidence - is also process-local memory with no persistence. A restart forgets
+the whole public network's admission state. It has no HTTP surface yet, so nothing is
+broken in production today, but it cannot carry real operators as it stands.
+
 ### Next action queue
 
-1. Founder approves or revises the recommended per-settlement program-cap interpretation in
+1. Persist `toweradmit.Registry` before any joined Tower is admitted (above).
+2. Tower Phase 2.3 against the already-approved specs: outbound multiplexed link, inner
+   Station sessions, inventory revisions, signed grants, exact result binding, receipt v2.
+   214 approved scenarios across five feature files; `towerjoin.enroll` and
+   `roger-tower serve --joined` are the two stubs it replaces.
+3. Founder approves or revises the recommended per-settlement program-cap interpretation in
    decision 1 and decisions 2 through 10, thereby approving the proposed scenarios.
-1a. Before step definitions are written, run the step-vocabulary unification pass and finish
+3a. Before step definitions are written, run the step-vocabulary unification pass and finish
    the field-table conversions; at 97.7% distinct phrasings the suite is otherwise roughly
    50,000 lines of glue and will not get written.
-2. Add red tests for Phase-0 exact job/receipt binding first, against real persistent money
+4. Add red tests for Phase-0 exact job/receipt binding first, against real persistent money
    dependencies for chat, stream, and audio.
-3. Add red canonicalization/key-directory tests for receipt v2.
-4. Only after the red evidence, implement the smallest Phase-0 trust repair.
-5. Re-run the complete suite, coverage gate, and fresh-context security/minimization review.
+5. Add red canonicalization/key-directory tests for receipt v2.
+6. Only after the red evidence, implement the smallest Phase-0 trust repair.
+7. Re-run the complete suite, coverage gate, and fresh-context security/minimization review.
 
 ## Evidence ledger
 

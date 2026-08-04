@@ -7,6 +7,7 @@ package store
 import (
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -195,7 +196,17 @@ type Store interface {
 	OwnerByLogin(login string) (Owner, bool, error)
 	// UpdateAccount applies user-editable profile fields (email) to the owner with
 	// the given login. Returns the updated owner.
+	//
+	// It sets the PROFILE email only and never stamps EmailVerifiedAt: what a person
+	// types about themselves is not proof they hold the address.
 	UpdateAccount(login, email string) (Owner, bool, error)
+	// OwnerByVerifiedEmail returns the owner who has PROVEN they hold this address
+	// (EmailVerifiedAt != 0), ok=false if none. An address that is merely recorded on a
+	// profile never resolves here, and neither does an anonymized (deleted) account - so
+	// signing in with a deleted account's old address creates a new account rather than
+	// resurrecting the old one. The caller passes an already-normalized address; the
+	// comparison is case-insensitive so a stray spelling cannot mint a second account.
+	OwnerByVerifiedEmail(email string) (Owner, bool, error)
 	// ClaimWelcome atomically stamps the owner's WelcomedAt (now) IFF it is unset,
 	// returning whether THIS call claimed it. It is the once-only guard for the welcome
 	// email: a true result means the caller (and only the caller) should send it.
@@ -673,11 +684,21 @@ type Owner struct {
 	WelcomedAt int64 `json:"welcomed_at,omitempty"`
 	// Account-hub fields (ACCOUNT-PAYOUTS-DESIGN). Additive; the consume/wallet
 	// paths ignore them.
-	Email         string `json:"email,omitempty"`
-	ConnectID     string `json:"stripe_connect_id,omitempty"`
-	ConnectStatus string `json:"connect_status,omitempty"` // none|onboarding|active|restricted
-	DeletedAt     int64  `json:"deleted_at,omitempty"`
-	Anonymized    bool   `json:"anonymized,omitempty"`
+	Email string `json:"email,omitempty"`
+	// EmailVerifiedAt is the unix time somebody PROVED they hold Email, by accepting a
+	// code mailed to it (internal/emailauth). Zero means the address is self-asserted
+	// profile text and nothing more.
+	//
+	// The distinction is the entire security story of first-party sign-in. owners.email
+	// has always been user-editable, so resolving a login against it would let anyone who
+	// can type an address into their profile claim the account that address belongs to -
+	// including one holding a wallet balance. Only a verified address is an identity, and
+	// only a verified address may auto-link to an account a provider created.
+	EmailVerifiedAt int64  `json:"email_verified_at,omitempty"`
+	ConnectID       string `json:"stripe_connect_id,omitempty"`
+	ConnectStatus   string `json:"connect_status,omitempty"` // none|onboarding|active|restricted
+	DeletedAt       int64  `json:"deleted_at,omitempty"`
+	Anonymized      bool   `json:"anonymized,omitempty"`
 }
 
 // NodeRecord is a persisted node registration - the durable copy of the broker's
@@ -1395,8 +1416,18 @@ func (m *Mem) BindOwner(o Owner) error {
 		// Email: NEVER clobber a user-set email on re-login. GitHub only fills it when
 		// the account has none on file yet (existing empty); a value the user set via
 		// PATCH /account always wins over whatever GitHub hands us at the next login.
-		if existing.Email != "" {
+		//
+		// A VERIFIED address is stronger still: it outranks whatever the incoming bind
+		// carries, because it is the one address somebody has actually proven they hold.
+		if existing.EmailVerifiedAt != 0 {
 			o.Email = existing.Email
+		} else if existing.Email != "" && o.EmailVerifiedAt == 0 {
+			o.Email = existing.Email
+		}
+		// A proof already given is never withdrawn by a later bind that carries none - a
+		// GitHub re-bind on the same device must not un-verify an address.
+		if o.EmailVerifiedAt == 0 {
+			o.EmailVerifiedAt = existing.EmailVerifiedAt
 		}
 		// Name: same fill-if-empty so a once-captured display name is stable across
 		// logins (and a later GitHub name change doesn't silently overwrite it).
@@ -1426,6 +1457,17 @@ func (m *Mem) OwnerByLogin(login string) (Owner, bool, error) {
 	defer m.mu.Unlock()
 	for _, o := range m.owners {
 		if o.Login == login && !o.Anonymized {
+			return o, true, nil
+		}
+	}
+	return Owner{}, false, nil
+}
+
+func (m *Mem) OwnerByVerifiedEmail(email string) (Owner, bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, o := range m.owners {
+		if o.EmailVerifiedAt != 0 && !o.Anonymized && strings.EqualFold(o.Email, email) {
 			return o, true, nil
 		}
 	}

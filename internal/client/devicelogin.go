@@ -69,6 +69,13 @@ func DeviceLoginPoll(broker string, d DeviceLogin) (string, error) {
 		time.Sleep(interval)
 		var out devicePoll
 		if err := signedJSON(broker+"/auth/device/token", map[string]any{"device_code": d.DeviceCode}, &out); err != nil {
+			if worthRetrying(err) {
+				// The broker could not answer; that is not a verdict on this code. Keep
+				// polling to the deadline rather than ending a login that is still valid -
+				// a person is typically away finding their mail while this runs, and a
+				// single blip should not cost them the whole flow.
+				continue
+			}
 			return "", err
 		}
 		switch out.Status {
@@ -143,9 +150,33 @@ func signedJSON(url string, in any, out any) error {
 		if e.Error == "" {
 			e.Error = fmt.Sprintf("the broker replied %d", resp.StatusCode)
 		}
-		return errors.New(e.Error)
+		return &httpError{status: resp.StatusCode, msg: e.Error}
 	}
 	return json.Unmarshal(raw, out)
+}
+
+// httpError carries the STATUS alongside the message, so a caller can tell "your request
+// was wrong" from "we are briefly unable to answer". Without the status the two are one
+// opaque string, and the poll loop below has to treat them alike.
+type httpError struct {
+	status int
+	msg    string
+}
+
+func (e *httpError) Error() string { return e.msg }
+
+// worthRetrying reports whether an error is the broker being momentarily unable to answer
+// rather than a verdict on this login. It defers to the failover policy already used for
+// relay outcomes (failover.go): a 5xx or a transport failure is worth waiting out, a 4xx is
+// the caller's fault and retrying it only spins until the code expires.
+func worthRetrying(err error) bool {
+	var he *httpError
+	if errors.As(err, &he) {
+		return retryable(he.status, nil)
+	}
+	// A transport failure never reached the broker at all, so it says nothing about the
+	// login. A person mid-approval should not lose it to one dropped connection.
+	return retryable(0, err)
 }
 
 func max(a, b int) int {
