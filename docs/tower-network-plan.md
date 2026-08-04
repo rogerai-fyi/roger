@@ -2310,6 +2310,71 @@ clean under `-race`.
 Still out of scope by the founder-approved phasing: the standalone local-role set, the
 certificate objects themselves, and the offline-root ceremony.
 
+### FOUNDER RULING 2026-08-03: security is never out of scope
+
+> "nothing is out of scope if it's enhancing or making better security in our product"
+
+Phase boundaries sequence features; they do not gate security. Nothing that hardens the
+product waits its turn, and shipping a partial separation model is itself the risk. If a
+security item is genuinely blocked - a founder decision, an external dependency, a ceremony
+that cannot be automated - it is BLOCKED and the blocker is named. It is never "out of
+scope".
+
+This ruling reversed my own framing from the previous session, where I listed the
+standalone local-role set, the Tower/Station separation, and the offline-root handling as
+deferred by the approved phasing.
+
+### Session: a key belongs to a network, not only to a role (2026-08-03)
+
+Four separate scenarios in the approved spec turned out to be one property:
+
+- a standalone trust root has no public-network validity;
+- a public RogerAI key has no implicit local admin power;
+- a joined Tower key cannot exercise central or leaf authority;
+- a Station key cannot exercise Tower or central authority.
+
+Each says the same thing: material issued under one trust root carries no authority under
+another. So they are implemented as ONE realm check rather than four bespoke rejection
+lists. That matters more than the line count - a role added later inherits the separation
+automatically, instead of depending on somebody remembering to extend a fifth list.
+
+Four realms now exist: Roger Core (57 roles), a standalone Tower (20), a joined Tower (4),
+and a Station (3). A ring is built for exactly one and holds no other realm's keys at all,
+because material that is never held cannot be stolen - the realm check is not the only
+thing standing between two networks. Cross-realm material is refused as FOREIGN rather
+than as a wrong-purpose key: those are different problems and an operator needs to see
+which one they have.
+
+The standalone role list is parsed out of the spec's prose scenario, as the Core table
+already was. Twenty roles hand-copied is twenty chances to drop a control silently.
+
+The 19 standalone rows of the key-loading failure table are now in scope too, per the
+ruling above. The table test covers 71 of its 73 rows across all five failure modes - 355
+subtests. The two remaining rows name a Tower's and a Station's own identity keys, which
+live in those realms' rings and are covered by their own tests; they are declared by name,
+so an unmapped row still fails the suite.
+
+Also closed here: a Tower's persistent identity-statement key is separate from its rotating
+TLS key, so rotating a certificate never touches who the Tower is and a stolen TLS key
+proves nothing about its identity; a Station's provider-assertion key is separate from its
+secure-session TLS key; and a Tower's local bridge authorities are distinct from each
+other, from Tower identity and TLS, and hold nothing centrally. Both offline roots are
+absent from ordinary runtime and neither absence blocks startup.
+
+Fourteen realm mutations, all killed. Two needed isolating tests: the check on the
+PRESENTED material's realm is subsumed by the required-role check unless a foreign
+signature is aimed at a role the ring genuinely holds, and `LookupIn` ignoring its realm
+argument only shows up when a name from one network is resolved against another.
+
+One real bug found by that campaign rather than by the tests: an edit had silently applied
+twice, leaving a duplicated realm block in `VerifyMAC`. It was harmless in behaviour, but
+it made the first mutation look like it survived - the second copy was still enforcing.
+Worth recording, because "the mutation survived" is a signal I act on, and a duplicated
+guard is a way to get a false reading from it.
+
+Validation: `internal/keypurpose` 96.0%, `make cover-gate` PASS at 91.6%, `internal/...`
+clean under `-race`.
+
 ### Next action queue
 
 1. Founder approves or revises the recommended per-settlement program-cap interpretation in

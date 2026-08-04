@@ -59,11 +59,40 @@ var specRowAliases = map[string]Purpose{
 	"Station admission/origin signer": PurposeStationAdmissionOriginSigner,
 }
 
-// outOfScopeRows are rows that are not Roger Core roles at all. They are listed explicitly
-// so that "unmapped" always means "someone needs to look", never "silently skipped".
+// standaloneRowPurposes maps the failure table's standalone rows onto the standalone
+// realm's roles.
+//
+// FOUNDER RULING 2026-08-03: nothing is out of scope if it improves security. These rows
+// were previously skipped as "a later phase"; a standalone Tower is a real network people
+// run, and a load failure there fails open just as badly as one on the public side.
+var standaloneRowPurposes = map[string]Purpose{
+	"standalone pinned offline root":                        PurposeStandalonePinnedOfflineRoot,
+	"standalone trust-document or trust-publication signer": PurposeStandaloneTrustDocument,
+	"standalone policy signer":                              PurposeStandalonePolicy,
+	"standalone client-admission signer":                    PurposeStandaloneClientAdmission,
+	"standalone client-certificate issuer":                  PurposeStandaloneClientCertificate,
+	"standalone local_bootstrap_verifier_authority signer":  PurposeStandaloneBootstrapVerifierAuth,
+	"standalone local_operator_set signer":                  PurposeStandaloneOperatorSet,
+	"standalone Station-admission signer":                   PurposeStandaloneStationAdmission,
+	"standalone Station-certificate issuer":                 PurposeStandaloneStationCertificate,
+	"standalone local_station_bridge_authority signer":      PurposeStandaloneBridgeAuthority,
+	"standalone local_station_bridge_certificate issuer":    PurposeStandaloneBridgeCertificate,
+	"standalone grant signer":                               PurposeStandaloneGrant,
+	"standalone administrator-audit signer":                 PurposeStandaloneAdministratorAudit,
+	"standalone receipt-ledger signer":                      PurposeStandaloneReceiptLedger,
+	"standalone local_key_escrow_authorization signer":      PurposeStandaloneKeyEscrowAuthorization,
+	"standalone local_key_escrow_result signer":             PurposeStandaloneKeyEscrowResult,
+	"standalone bootstrap-verifier HMAC":                    PurposeStandaloneBootstrapVerifierHMAC,
+	"standalone backup-encryption key":                      PurposeStandaloneBackupEncryption,
+	"standalone local-service-TLS key":                      PurposeStandaloneTLS,
+}
+
+// outOfScopeRows are rows naming a key that Roger Core and a standalone Tower genuinely
+// never hold - they belong to a Tower's or Station's own ring, which has its own realm and
+// its own tests. Listed explicitly so "unmapped" always means someone needs to look.
 var outOfScopeRows = map[string]string{
-	"Tower identity key":   "a Tower-side key; Roger Core never holds it",
-	"Station identity key": "a Station-side key; Roger Core never holds it",
+	"Tower identity key":   "a Tower-side key, covered by the joined-Tower realm",
+	"Station identity key": "a Station-side key, covered by the Station realm",
 }
 
 // rowPurpose resolves one table row, or explains why it is out of scope.
@@ -71,8 +100,8 @@ func rowPurpose(row string) (Purpose, bool, string) {
 	if why, ok := outOfScopeRows[row]; ok {
 		return "", false, why
 	}
-	if strings.HasPrefix(row, "standalone") {
-		return "", false, "a standalone-Tower local role; not part of the Roger Core ring"
+	if p, ok := standaloneRowPurposes[row]; ok {
+		return p, true, ""
 	}
 	if p, ok := specRowAliases[row]; ok {
 		return p, true, ""
@@ -102,7 +131,8 @@ func TestEveryFailureTableRowIsAccountedFor(t *testing.T) {
 		}
 	}
 	require.Empty(t, unmapped, "these spec rows name no known purpose and no stated reason")
-	require.Greater(t, inScope, 40, "most of the table must be in scope, or the mapping is wrong")
+	require.Greater(t, inScope, 70,
+		"every row but the two Tower/Station ones is in scope; a lower count means a mapping was lost")
 }
 
 // The keyring's half of every row, for every failure mode the Given names.
@@ -118,7 +148,8 @@ func TestAnyLoadFailureFailsClosedWithoutMintingOrBorrowing(t *testing.T) {
 		}
 		for _, mode := range failures {
 			t.Run(row+"/"+string(mode), func(t *testing.T) {
-				r := testRing(t)
+				r, rErr := NewGeneratedRingFor(RealmOf(p))
+				require.NoError(t, rErr)
 				before := r.keyIDForTest(p)
 				require.NoError(t, r.MarkUnloadable(p, mode))
 
@@ -135,7 +166,7 @@ func TestAnyLoadFailureFailsClosedWithoutMintingOrBorrowing(t *testing.T) {
 
 				// It never falls back to another role's key: no other role's signature
 				// can satisfy this purpose.
-				for _, other := range AllPurposes() {
+				for _, other := range PurposesIn(r.Realm()) {
 					if other == p || KindOf(other) != KindOf(p) {
 						continue
 					}
@@ -149,7 +180,7 @@ func TestAnyLoadFailureFailsClosedWithoutMintingOrBorrowing(t *testing.T) {
 				}
 
 				// And the failure is scoped: unrelated roles still work.
-				for _, other := range AllPurposes() {
+				for _, other := range PurposesIn(r.Realm()) {
 					if other == p || KindOf(other) != KindOf(p) {
 						continue
 					}

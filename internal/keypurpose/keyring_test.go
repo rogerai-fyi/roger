@@ -69,7 +69,7 @@ func TestEveryKnownPurposeIsNamedBySpec(t *testing.T) {
 		require.True(t, ok)
 		named[string(p)] = true
 	}
-	for _, p := range AllPurposes() {
+	for _, p := range PurposesIn(RealmCore) {
 		require.True(t, named[string(p)], "purpose %q is not named by the approved spec", p)
 	}
 }
@@ -295,7 +295,7 @@ func TestRotationCannotChangePurpose(t *testing.T) {
 // A ring stays valid across rotation: the replacement must not collide with another role.
 func TestARotatedRingStillValidates(t *testing.T) {
 	r := testRing(t)
-	for _, p := range AllPurposes() {
+	for _, p := range PurposesIn(RealmCore) {
 		_, err := r.Rotate(p, time.Millisecond)
 		require.NoError(t, err)
 	}
@@ -334,9 +334,11 @@ func requireNoSecrets(t *testing.T, r *Ring, out string) {
 }
 
 // signingPurposes is every role that signs.
+// signingPurposes is every Roger Core role that signs. Other realms have their own rings
+// and their own tests; a Core ring holds none of their keys.
 func signingPurposes() []Purpose {
 	var out []Purpose
-	for _, p := range AllPurposes() {
+	for _, p := range PurposesIn(RealmCore) {
 		if KindOf(p) == KindSigning {
 			out = append(out, p)
 		}
@@ -610,10 +612,13 @@ func TestSignRefusesAKeyOutsideItsWindow(t *testing.T) {
 // A current key is signable; the retired-key branch is not the only one that matters.
 func TestACurrentKeyMaySign(t *testing.T) {
 	r := testRing(t)
-	for _, p := range AllPurposes() {
+	for _, p := range PurposesIn(RealmCore) {
 		require.True(t, r.canSignWith(r.keys[p]), "%s is current and inside its window", p)
-		_ = KindOf(p)
 	}
+
+	// A ring must answer "no" for a role it does not hold, rather than dereferencing a
+	// key that is not there.
+	require.False(t, r.canSignWith(nil))
 }
 
 // Retiring a signer must not invalidate what it lawfully signed, even though it can no
