@@ -1,0 +1,210 @@
+package toweradmit
+
+// pgstore.go is the durable admission registry.
+//
+// This is Roger Core state, not a cache, so it belongs in the authoritative database
+// rather than in the shared Valkey layer the broker uses for accelerators. Two of the
+// things recorded here are decisions we must never silently forget:
+//
+//   - a REVOCATION, which is the only thing standing between an abusive Tower and the
+//     public network, and which also burns that Tower's identity key;
+//   - FALSE-CLAIM EVIDENCE, which is only evidence if it accumulates across deploys.
+//
+// A lease and a lifecycle state matter for the same reason: they bound what a Tower may do
+// while nobody is watching it closely.
+
+import (
+	"database/sql"
+	"errors"
+	"fmt"
+	"time"
+)
+
+// schema is applied on first use. Additive and idempotent, so opening against an existing
+// database never destroys what is there.
+const schema = `
+CREATE SCHEMA IF NOT EXISTS rogerai;
+
+CREATE TABLE IF NOT EXISTS rogerai.tower_enrollment_tokens (
+    id      TEXT PRIMARY KEY,
+    owner   TEXT        NOT NULL,
+    expires TIMESTAMPTZ NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS rogerai.tower_admissions (
+    id            TEXT PRIMARY KEY,
+    owner         TEXT        NOT NULL,
+    -- UNIQUE is the one-key-one-Tower rule enforced by the database rather than by a
+    -- read-then-check in application code: two concurrent enrollments presenting the same
+    -- identity key cannot both win, whatever the callers happen to observe.
+    key_hash      TEXT        NOT NULL UNIQUE,
+    state         TEXT        NOT NULL,
+    enrolled_at   TIMESTAMPTZ NOT NULL,
+    lease_expires TIMESTAMPTZ NOT NULL,
+    false_claims  INT         NOT NULL DEFAULT 0,
+    rev           BIGINT      NOT NULL DEFAULT 1
+);
+
+CREATE INDEX IF NOT EXISTS tower_admissions_owner_idx ON rogerai.tower_admissions (owner);
+`
+
+// PGStore is the database-backed Store.
+type PGStore struct{ db *sql.DB }
+
+// NewPGStore wraps an already-open handle.
+//
+// It deliberately does NOT open its own connection: the broker already holds a pool to the
+// authoritative database, and a second pool to the same server would double the connection
+// footprint and give the registry a lifecycle of its own to get wrong. Whoever owns the
+// pool closes it.
+func NewPGStore(db *sql.DB) (*PGStore, error) {
+	if db == nil {
+		return nil, errors.New("a durable admission registry needs a database handle")
+	}
+	if _, err := db.Exec(schema); err != nil {
+		return nil, err
+	}
+	return &PGStore{db: db}, nil
+}
+
+func wrap(op string, err error) error {
+	return fmt.Errorf("%w: %s: %v", ErrUnavailable, op, err)
+}
+
+func (p *PGStore) PutToken(t Token) error {
+	_, err := p.db.Exec(
+		`INSERT INTO rogerai.tower_enrollment_tokens(id,owner,expires) VALUES($1,$2,$3)
+		 ON CONFLICT (id) DO NOTHING`,
+		t.ID, t.Owner, t.Expires.UTC())
+	if err != nil {
+		return wrap("put token", err)
+	}
+	return nil
+}
+
+func (p *PGStore) GetToken(id string) (Token, bool, error) {
+	var t Token
+	err := p.db.QueryRow(
+		`SELECT id,owner,expires FROM rogerai.tower_enrollment_tokens WHERE id=$1`, id).
+		Scan(&t.ID, &t.Owner, &t.Expires)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Token{}, false, nil
+	}
+	if err != nil {
+		return Token{}, false, wrap("get token", err)
+	}
+	return t, true, nil
+}
+
+// ConsumeToken is a single DELETE whose row count IS the decision. Of two concurrent
+// enrollments that both validated, exactly one deletes the row and the other sees zero -
+// which is the one-time property, decided by the database rather than by a race.
+func (p *PGStore) ConsumeToken(id string) (bool, error) {
+	res, err := p.db.Exec(`DELETE FROM rogerai.tower_enrollment_tokens WHERE id=$1`, id)
+	if err != nil {
+		return false, wrap("consume token", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, wrap("consume token", err)
+	}
+	return n == 1, nil
+}
+
+func (p *PGStore) PutTower(tw Tower) error {
+	_, err := p.db.Exec(
+		`INSERT INTO rogerai.tower_admissions
+		   (id,owner,key_hash,state,enrolled_at,lease_expires,false_claims,rev)
+		 VALUES($1,$2,$3,$4,$5,$6,$7,1)`,
+		tw.ID, tw.Owner, tw.KeyHash, string(tw.State),
+		tw.EnrolledAt.UTC(), tw.LeaseExpires.UTC(), tw.FalseClaims)
+	if err != nil {
+		return wrap("put tower", err)
+	}
+	return nil
+}
+
+// CASTower applies a write only against the revision the caller read. Losing is not an
+// error: it means somebody else moved this Tower first, and one of the things they may
+// have moved it to is revoked.
+func (p *PGStore) CASTower(tw Tower) (bool, error) {
+	res, err := p.db.Exec(
+		`UPDATE rogerai.tower_admissions
+		    SET owner=$2, key_hash=$3, state=$4, enrolled_at=$5,
+		        lease_expires=$6, false_claims=$7, rev=rev+1
+		  WHERE id=$1 AND rev=$8`,
+		tw.ID, tw.Owner, tw.KeyHash, string(tw.State),
+		tw.EnrolledAt.UTC(), tw.LeaseExpires.UTC(), tw.FalseClaims, tw.Rev)
+	if err != nil {
+		return false, wrap("cas tower", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, wrap("cas tower", err)
+	}
+	return n == 1, nil
+}
+
+const towerCols = `id,owner,key_hash,state,enrolled_at,lease_expires,false_claims,rev`
+
+func scanTower(row interface{ Scan(...any) error }) (Tower, error) {
+	var tw Tower
+	var state string
+	err := row.Scan(&tw.ID, &tw.Owner, &tw.KeyHash, &state,
+		&tw.EnrolledAt, &tw.LeaseExpires, &tw.FalseClaims, &tw.Rev)
+	tw.State = State(state)
+	return tw, err
+}
+
+func (p *PGStore) TowerByID(id string) (Tower, bool, error) {
+	tw, err := scanTower(p.db.QueryRow(
+		`SELECT `+towerCols+` FROM rogerai.tower_admissions WHERE id=$1`, id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return Tower{}, false, nil
+	}
+	if err != nil {
+		return Tower{}, false, wrap("tower by id", err)
+	}
+	return tw, true, nil
+}
+
+func (p *PGStore) TowerByKey(keyHash string) (Tower, bool, error) {
+	tw, err := scanTower(p.db.QueryRow(
+		`SELECT `+towerCols+` FROM rogerai.tower_admissions WHERE key_hash=$1`, keyHash))
+	if errors.Is(err, sql.ErrNoRows) {
+		return Tower{}, false, nil
+	}
+	if err != nil {
+		return Tower{}, false, wrap("tower by key", err)
+	}
+	return tw, true, nil
+}
+
+func (p *PGStore) TowersByOwner(owner string) ([]Tower, error) {
+	rows, err := p.db.Query(
+		`SELECT `+towerCols+` FROM rogerai.tower_admissions WHERE owner=$1 ORDER BY enrolled_at`, owner)
+	if err != nil {
+		return nil, wrap("towers by owner", err)
+	}
+	defer rows.Close()
+	var out []Tower
+	for rows.Next() {
+		tw, err := scanTower(rows)
+		if err != nil {
+			return nil, wrap("towers by owner", err)
+		}
+		out = append(out, tw)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, wrap("towers by owner", err)
+	}
+	return out, nil
+}
+
+func (p *PGStore) ReapTokens(now time.Time) error {
+	_, err := p.db.Exec(`DELETE FROM rogerai.tower_enrollment_tokens WHERE expires < $1`, now.UTC())
+	if err != nil {
+		return wrap("reap tokens", err)
+	}
+	return nil
+}
