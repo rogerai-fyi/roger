@@ -36,6 +36,7 @@ import (
 
 	"golang.org/x/sync/singleflight"
 	"rogerai.fm/roger/v5/internal/deviceauth"
+	"rogerai.fm/roger/v5/internal/emailauth"
 	"rogerai.fm/roger/v5/internal/protocol"
 	"rogerai.fm/roger/v5/internal/store"
 )
@@ -51,9 +52,13 @@ var openapiSpec string
 
 type broker struct {
 	// devices is the broker-mediated device-login state machine (see deviceauth.go).
-	// One per process: pending logins are short-lived and in-memory by design, so a
-	// restart simply asks the operator to start a new login.
+	// Pending logins live in the shared store when one is wired (see devicestore.go), so
+	// a login survives a restart and completes across instances; otherwise in-process.
 	devices *deviceauth.Flow
+
+	// emails is the first-party sign-in state machine: a RogerAI account of our own,
+	// entered with a code we mail (see emaillogin.go).
+	emails *emailauth.Flow
 
 	mu           sync.Mutex
 	nodes        map[string]protocol.NodeRegistration
@@ -587,6 +592,15 @@ func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, loc
 	// the per-identity b.rl + the per-grant b.grantRL) so one limit is enforced across
 	// instances, not 2x. Liveness sharing is handled by markSeen + syncLiveness.
 	b.shared = openSharedStore()
+	// A pending device login is authoritative state, not an accelerator: the CLI polls one
+	// instance while the human approves on another, so the record has to live outside both
+	// or the flow cannot complete at all. Rebuild the flow over the shared store now that
+	// it exists - buildBroker ran before openSharedStore, so the flow it made is in-process
+	// only, and no login can have been issued yet.
+	if ds := newValkeyDeviceStore(b.shared); ds != nil {
+		b.devices = newDeviceFlowWithStore(ds)
+		log.Printf("device login: pending logins are shared across instances")
+	}
 	if b.shared != nil {
 		// name each shared limiter so limiters keyed on the same value get DISTINCT Valkey
 		// buckets (rogerai:rl:<name>:<key>) rather than colliding on one key with mismatched
@@ -673,6 +687,8 @@ func (b *broker) routes() *http.ServeMux {
 	mux.HandleFunc("/auth/apple/web/callback", b.authAppleWebCallback) // web: form_post id_token -> Apple-wallet session
 	mux.HandleFunc("/auth/github/login", b.authGitHubLogin)            // web: 302 to GitHub authorize
 	mux.HandleFunc("/auth/github/callback", b.authGitHubCallback)      // web: code exchange + session cookie
+	mux.HandleFunc("/auth/email/start", b.emailStart)                  // web: mail a first-party sign-in code
+	mux.HandleFunc("/auth/email/verify", b.emailVerify)                // web: accept the code -> session
 	mux.HandleFunc("/auth/device/start", b.deviceStart)                // CLI: begin a broker-mediated login (signed)
 	mux.HandleFunc("/auth/device/token", b.deviceToken)                // CLI: poll it (signed)
 	mux.HandleFunc("/auth/device/pending", b.devicePending)            // web: what the approval screen shows
@@ -1089,6 +1105,12 @@ func accountWalletForOwner(o store.Owner) (string, bool) {
 	}
 	if o.AppleSub != "" {
 		return walletForAppleSub(o.AppleSub), true
+	}
+	// A first-party (email) account resolves LAST, so an account that also holds a GitHub
+	// or Apple link keeps the wallet it already had. Adding an email must never move
+	// somebody's balance - linking is not merging.
+	if o.EmailVerifiedAt != 0 && o.Email != "" {
+		return walletForEmail(o.Email), true
 	}
 	return "", false
 }

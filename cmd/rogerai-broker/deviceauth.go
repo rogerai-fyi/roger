@@ -18,6 +18,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strconv"
@@ -44,13 +45,22 @@ func (b *broker) deviceFlow() *deviceauth.Flow {
 	return b.devices
 }
 
-func newDeviceFlow() *deviceauth.Flow {
-	return deviceauth.New(deviceauth.Config{
+func newDeviceFlow() *deviceauth.Flow { return newDeviceFlowWithStore(nil) }
+
+// newDeviceFlowWithStore builds the flow over an explicit store. A nil store keeps the
+// in-process default, which is the single-instance deployment: no new dependency and no
+// configuration change.
+func newDeviceFlowWithStore(st deviceauth.Store) *deviceauth.Flow {
+	cfg := deviceauth.Config{
 		TTL:             10 * time.Minute,
 		Interval:        5 * time.Second,
 		MaxWrongCodes:   10,
 		VerificationURI: deviceVerificationURI(),
-	})
+	}
+	if st == nil {
+		return deviceauth.New(cfg)
+	}
+	return deviceauth.NewWithStore(cfg, st)
 }
 
 // deviceStart handles POST /auth/device/start. The request MUST be signed: the signing
@@ -76,6 +86,12 @@ func (b *broker) deviceStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p, err := b.deviceFlow().Start(pubkey)
+	if errors.Is(err, deviceauth.ErrUnavailable) {
+		// Refusing beats issuing a code we know we will lose: the person otherwise walks
+		// away, finds the mail, approves - and only then learns none of it counted.
+		jsonErr(w, http.StatusServiceUnavailable, "sign-in is temporarily unavailable - try again in a moment")
+		return
+	}
 	if err != nil {
 		jsonErr(w, http.StatusInternalServerError, "could not start a login")
 		return
@@ -113,6 +129,13 @@ func (b *broker) deviceToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	res, err := b.deviceFlow().Poll(req.DeviceCode, r.Header.Get("X-Roger-Pubkey"))
+	if errors.Is(err, deviceauth.ErrUnavailable) || errors.Is(err, deviceauth.ErrCorruptRecord) {
+		// NOT the uniform rejection. That rejection exists to deny a guesser any signal;
+		// aimed at a legitimate CLI whose code is fine, it says the credential is bad when
+		// the truth is our backend blinked. This one is retryable and says so.
+		jsonErr(w, http.StatusServiceUnavailable, "sign-in is temporarily unavailable - keep polling")
+		return
+	}
 	if err != nil {
 		// Uniform: an unknown code and a code belonging to another key must look alike.
 		jsonErr(w, http.StatusBadRequest, "that login is not valid")
@@ -130,16 +153,20 @@ func (b *broker) deviceToken(w http.ResponseWriter, r *http.Request) {
 
 // deviceApprover resolves the signed-in human from the session cookie. It returns the
 // display login, and the provider identity needed to create the owner row.
-func (b *broker) deviceApprover(r *http.Request) (login string, gid int64, appleSub string, ok bool) {
+func (b *broker) deviceApprover(r *http.Request) (login string, gid int64, appleSub, wallet string, ok bool) {
 	c, err := r.Cookie(sessionCookie)
 	if err != nil || c.Value == "" {
-		return "", 0, "", false
+		return "", 0, "", "", false
 	}
-	login, gid, _, appleSub, vok := b.verifySessionFull(c.Value)
+	login, gid, wallet, appleSub, vok := b.verifySessionFull(c.Value)
 	if !vok {
-		return "", 0, "", false
+		return "", 0, "", "", false
 	}
-	return login, gid, appleSub, true
+	// The wallet is carried out so the caller can recognize a FIRST-PARTY (email) session.
+	// Its identity is the verified address in `login`, and it has neither a github id nor
+	// an Apple sub - so without the wallet it would be indistinguishable from the older
+	// Apple session that genuinely cannot bind a device.
+	return login, gid, appleSub, wallet, true
 }
 
 // devicePending handles GET /auth/device/pending: what the approval screen may render.
@@ -154,7 +181,7 @@ func (b *broker) devicePending(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	corsCreds(w, r)
-	login, _, _, ok := b.deviceApprover(r)
+	login, _, _, _, ok := b.deviceApprover(r)
 	if !ok {
 		jsonErr(w, http.StatusUnauthorized, "sign in to review a device request")
 		return
@@ -183,7 +210,7 @@ func (b *broker) deviceApprove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	corsCreds(w, r)
-	login, gid, appleSub, ok := b.deviceApprover(r)
+	login, gid, appleSub, wallet, ok := b.deviceApprover(r)
 	if !ok {
 		jsonErr(w, http.StatusUnauthorized, "sign in to approve a device request")
 		return
@@ -196,13 +223,19 @@ func (b *broker) deviceApprove(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusBadRequest, "user_code required")
 		return
 	}
-	if gid == 0 && appleSub == "" {
+	if gid == 0 && appleSub == "" && !isEmailWallet(wallet) {
 		// An older Apple session predating the sub. It can sign in on the web but has
 		// nothing to bind a device to, so say what to do rather than failing opaquely.
 		jsonErr(w, http.StatusConflict, "please sign out and sign in again, then retry this approval")
 		return
 	}
 	if err := b.deviceFlow().Approve(req.UserCode, login); err != nil {
+		if errors.Is(err, deviceauth.ErrUnavailable) {
+			// The approval did not land, so it must not read as though it did - the CLI's
+			// next poll will not report an approval either.
+			jsonErr(w, http.StatusServiceUnavailable, "could not record that approval - try again in a moment")
+			return
+		}
 		jsonErr(w, http.StatusBadRequest, "that code is not valid")
 		return
 	}
@@ -211,7 +244,7 @@ func (b *broker) deviceApprove(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusBadRequest, "that code is not valid")
 		return
 	}
-	if err := b.bindApprovedDevice(pubkey, login, gid, appleSub); err != nil {
+	if err := b.bindApprovedDevice(pubkey, login, gid, appleSub, wallet); err != nil {
 		jsonErr(w, http.StatusInternalServerError, "could not link this device to your account")
 		return
 	}
@@ -222,15 +255,23 @@ func (b *broker) deviceApprove(w http.ResponseWriter, r *http.Request) {
 // approver's account, and seeds the account wallet once. Provider-agnostic by design:
 // GitHub binds on its numeric id, Apple on its sub, and BindOwner preserves whichever
 // link the row already had so linking one provider never drops the other.
-func (b *broker) bindApprovedDevice(pubkey, login string, gid int64, appleSub string) error {
+func (b *broker) bindApprovedDevice(pubkey, login string, gid int64, appleSub, sessWallet string) error {
 	o := store.Owner{Pubkey: pubkey}
 	wallet := ""
-	if gid != 0 {
+	switch {
+	case gid != 0:
 		o.GitHubID, o.Login = gid, login
 		wallet = "u_gh_" + strconv.FormatInt(gid, 10)
-	} else {
+	case appleSub != "":
 		o.AppleSub = appleSub
 		wallet = walletForAppleSub(appleSub)
+	default:
+		// A first-party account. `login` IS the verified address - it is what the session
+		// was minted with once the person proved they hold it, so the proof is already
+		// done and this bind records it rather than re-asserting it.
+		o.Login, o.Email, o.EmailVerifiedAt = login, login, time.Now().Unix()
+		wallet = walletForEmail(login)
+		_ = sessWallet
 	}
 	if err := b.db.BindOwner(o); err != nil {
 		return err
@@ -253,7 +294,7 @@ func (b *broker) deviceDeny(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	corsCreds(w, r)
-	login, _, _, ok := b.deviceApprover(r)
+	login, _, _, _, ok := b.deviceApprover(r)
 	if !ok {
 		jsonErr(w, http.StatusUnauthorized, "sign in to deny a device request")
 		return
@@ -267,6 +308,10 @@ func (b *broker) deviceDeny(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := b.deviceFlow().Deny(req.UserCode, login); err != nil {
+		if errors.Is(err, deviceauth.ErrUnavailable) {
+			jsonErr(w, http.StatusServiceUnavailable, "could not record that denial - try again in a moment")
+			return
+		}
 		jsonErr(w, http.StatusBadRequest, "that code is not valid")
 		return
 	}

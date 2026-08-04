@@ -23,6 +23,7 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"math/big"
 	"sync"
 	"time"
@@ -85,35 +86,25 @@ type Info struct {
 	DeviceCode  string // always empty; present so the omission is explicit, not accidental
 }
 
-type login struct {
-	deviceCode string
-	userCode   string
-	boundKey   string // recorded at issue; never re-read from a later request
-	account    string
-	status     Status
-	requested  time.Time
-	expires    time.Time
-	lastPoll   time.Time
-	interval   time.Duration
-	consumed   bool
-}
-
-// Flow is the device-login state machine.
+// Flow is the device-login state machine. It holds no login state of its own: everything
+// lives in the Store, so a login belongs to the DEPLOYMENT rather than to whichever
+// process happened to issue it. See store.go for why that matters.
 type Flow struct {
-	mu     sync.Mutex
 	cfg    Config
-	byDev  map[string]*login
-	byUser map[string]*login
-	// wrong counts bad user codes PER SUBMITTER. It must not be one global counter:
-	// a shared budget lets a single attacker exhaust it and lock every other person
-	// out of signing in, turning an anti-guessing control into a denial of service.
-	wrong  map[string]int
+	store  Store
+	mu     sync.Mutex // guards offset only
 	now    func() time.Time
 	offset time.Duration
 }
 
-// New builds a flow with sensible floors, so a zero Config is still safe.
-func New(cfg Config) *Flow {
+// New builds a flow over the in-process store, with sensible floors so a zero Config is
+// still safe. This is the single-instance default: no new dependency, no configuration.
+func New(cfg Config) *Flow { return NewWithStore(cfg, NewMemStore()) }
+
+// NewWithStore builds a flow over an explicit store. Behind more than one broker instance
+// this is what makes the flow completable at all: approval and polling reach different
+// processes, so the state they share has to be outside both.
+func NewWithStore(cfg Config, store Store) *Flow {
 	if cfg.TTL <= 0 {
 		cfg.TTL = 10 * time.Minute
 	}
@@ -126,9 +117,18 @@ func New(cfg Config) *Flow {
 	if cfg.VerificationURI == "" {
 		cfg.VerificationURI = "https://rogerai.fm/device"
 	}
-	f := &Flow{cfg: cfg, byDev: map[string]*login{}, byUser: map[string]*login{}, wrong: map[string]int{}}
-	f.now = func() time.Time { return time.Now().Add(f.offset) }
+	if store == nil {
+		store = NewMemStore()
+	}
+	f := &Flow{cfg: cfg, store: store}
+	f.now = func() time.Time { return time.Now().Add(f.readOffset()) }
 	return f
+}
+
+func (f *Flow) readOffset() time.Duration {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.offset
 }
 
 // advance moves the flow's clock. Test-only seam: the alternative is sleeping through
@@ -139,14 +139,26 @@ func (f *Flow) advance(d time.Duration) {
 	f.offset += d
 }
 
+// unavailable wraps a store failure. It is deliberately NOT errRejected: see ErrUnavailable.
+func unavailable(err error) error {
+	if errors.Is(err, ErrCorruptRecord) {
+		return ErrCorruptRecord
+	}
+	return fmt.Errorf("%w: %v", ErrUnavailable, err)
+}
+
 // Start issues a code pair bound to pubKey.
+//
+// If the store cannot record the login, Start REFUSES rather than returning a code pair it
+// knows it will lose. Issuing a code we cannot durably record is worse than refusing: the
+// person walks away, finds the mail, approves - and only then learns none of it counted.
 func (f *Flow) Start(pubKey string) (Pending, error) {
 	if pubKey == "" {
 		return Pending{}, errors.New("a login must be started by a signed request")
 	}
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.reapLocked()
+	if err := f.store.Reap(f.now()); err != nil {
+		return Pending{}, unavailable(err)
+	}
 
 	dev, err := randomToken(32)
 	if err != nil {
@@ -157,13 +169,18 @@ func (f *Flow) Start(pubKey string) (Pending, error) {
 		return Pending{}, err
 	}
 	now := f.now()
-	l := &login{
-		deviceCode: dev, userCode: user, boundKey: pubKey,
-		status: StatusPending, requested: now, expires: now.Add(f.cfg.TTL),
-		interval: f.cfg.Interval,
+	rec := Record{
+		DevHash:   hashCode(dev),
+		UserHash:  hashCode(user),
+		BoundKey:  pubKey,
+		Status:    StatusPending,
+		Requested: now,
+		Expires:   now.Add(f.cfg.TTL),
+		Interval:  f.cfg.Interval,
 	}
-	f.byDev[dev] = l
-	f.byUser[user] = l
+	if err := f.store.Create(rec); err != nil {
+		return Pending{}, unavailable(err)
+	}
 	return Pending{
 		DeviceCode:       dev,
 		UserCode:         user,
@@ -174,45 +191,61 @@ func (f *Flow) Start(pubKey string) (Pending, error) {
 }
 
 // Poll reports progress. It refuses any key other than the one recorded at issue, so a
-// leaked device code is still not redeemable by anyone else.
+// leaked device code is still not redeemable by anyone else - and it re-checks that against
+// the STORED record, so a store an operator can edit is not a way to redirect a login.
 func (f *Flow) Poll(deviceCode, pubKey string) (Result, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-
-	l, ok := f.byDev[deviceCode]
-	if !ok || l.consumed {
+	rec, ok, err := f.store.ByDevice(hashCode(deviceCode))
+	if err != nil {
+		return Result{}, unavailable(err)
+	}
+	if !ok || rec.Consumed {
 		return Result{}, errRejected
 	}
-	if subtle.ConstantTimeCompare([]byte(l.boundKey), []byte(pubKey)) != 1 {
+	if subtle.ConstantTimeCompare([]byte(rec.BoundKey), []byte(pubKey)) != 1 {
 		return Result{}, errRejected
 	}
 	now := f.now()
-	if now.After(l.expires) {
+	if now.After(rec.Expires) {
 		return Result{Status: StatusExpired}, nil
 	}
 	// Polling faster than the interval slows the caller down rather than failing them.
 	// The penalty is CAPPED and the poll is recorded: an uncapped, unrecorded penalty
 	// grows on every call, so a tight loop could push the interval past the TTL and
 	// permanently strand the legitimate CLI from its own login.
-	if !l.lastPoll.IsZero() && now.Sub(l.lastPoll) < l.interval {
-		l.interval += f.cfg.Interval
-		if max := f.cfg.TTL / 4; l.interval > max {
-			l.interval = max
+	if !rec.LastPoll.IsZero() && now.Sub(rec.LastPoll) < rec.Interval {
+		rec.Interval += f.cfg.Interval
+		if max := f.cfg.TTL / 4; rec.Interval > max {
+			rec.Interval = max
 		}
-		l.lastPoll = now
-		return Result{Status: StatusSlowDown, IntervalSeconds: int(l.interval.Seconds())}, nil
+		rec.LastPoll = now
+		if _, err := f.store.CAS(rec); err != nil {
+			return Result{}, unavailable(err)
+		}
+		return Result{Status: StatusSlowDown, IntervalSeconds: int(rec.Interval.Seconds())}, nil
 	}
-	l.lastPoll = now
+	rec.LastPoll = now
 
-	switch l.status {
+	switch rec.Status {
 	case StatusApproved:
-		// First successful poll after approval consumes the code.
-		l.consumed = true
-		return Result{Status: StatusApproved, Account: l.account, BoundKey: l.boundKey}, nil
+		// The first successful poll after approval consumes the code. Consumption is the
+		// CAS itself, not a read followed by a write: with two instances polling the same
+		// approved login, exactly one may win, or the code is redeemable twice.
+		rec.Consumed = true
+		won, err := f.store.CAS(rec)
+		if err != nil {
+			return Result{}, unavailable(err)
+		}
+		if !won {
+			return Result{}, errRejected
+		}
+		return Result{Status: StatusApproved, Account: rec.Account, BoundKey: rec.BoundKey}, nil
 	case StatusDenied:
 		return Result{Status: StatusDenied}, nil
 	default:
-		return Result{Status: StatusPending, IntervalSeconds: int(l.interval.Seconds())}, nil
+		if _, err := f.store.CAS(rec); err != nil {
+			return Result{}, unavailable(err)
+		}
+		return Result{Status: StatusPending, IntervalSeconds: int(rec.Interval.Seconds())}, nil
 	}
 }
 
@@ -226,61 +259,75 @@ func (f *Flow) Approve(userCode, account string) error {
 	if account == "" {
 		return errRejected // an approval with no identity binds nobody to nothing
 	}
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	l, err := f.claimAttempt(userCode, account)
-	if err != nil {
-		return err
-	}
-	if l.status != StatusPending {
-		return errRejected
-	}
-	l.status = StatusApproved
-	l.account = account
-	return nil
+	return f.settle(userCode, account, StatusApproved)
 }
 
 // Deny closes a pending login permanently.
 func (f *Flow) Deny(userCode, account string) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	l, err := f.claimAttempt(userCode, account)
+	return f.settle(userCode, account, StatusDenied)
+}
+
+// settle is the one path by which a pending login stops being pending. Approval and denial
+// differ only in the state they write, and routing both through a single CAS is what makes
+// "it never reports both" true when they race on different instances.
+func (f *Flow) settle(userCode, submitter string, to Status) error {
+	rec, err := f.claimAttempt(userCode, submitter)
 	if err != nil {
 		return err
 	}
-	if l.status != StatusPending {
+	if rec.Status != StatusPending {
 		return errRejected
 	}
-	l.status = StatusDenied
+	rec.Status = to
+	if to == StatusApproved {
+		rec.Account = submitter
+	}
+	won, err := f.store.CAS(rec)
+	if err != nil {
+		return unavailable(err)
+	}
+	if !won {
+		// Somebody else settled this login between our read and our write. Their outcome
+		// stands; ours never happened.
+		return errRejected
+	}
 	return nil
 }
 
-// claimAttempt spends a guessing budget slot BEFORE looking the code up, so a wrong
-// guess costs the attacker whether or not it was close. The budget is PER SUBMITTER:
-// a global counter would let one attacker lock everyone else out. Caller holds f.mu.
-func (f *Flow) claimAttempt(userCode, submitter string) (*login, error) {
-	if f.wrong[submitter] >= f.cfg.MaxWrongCodes {
-		return nil, errRejected
+// claimAttempt spends a guessing budget slot BEFORE looking the code up, so a wrong guess
+// costs the attacker whether or not it was close. The budget is PER SUBMITTER: a global
+// counter would let one attacker lock everyone else out. It lives in the store, so it is
+// neither refilled by a restart nor multiplied by spreading guesses across instances.
+func (f *Flow) claimAttempt(userCode, submitter string) (Record, error) {
+	spent, err := f.store.Budget(submitter)
+	if err != nil {
+		return Record{}, unavailable(err)
 	}
-	l, ok := f.byUser[userCode]
-	if !ok || l.consumed || f.now().After(l.expires) {
-		f.wrong[submitter]++
-		return nil, errRejected
+	if spent >= f.cfg.MaxWrongCodes {
+		return Record{}, errRejected
 	}
-	return l, nil
+	rec, ok, err := f.store.ByUser(hashCode(userCode))
+	if err != nil {
+		return Record{}, unavailable(err)
+	}
+	if !ok || rec.Consumed || f.now().After(rec.Expires) {
+		if _, err := f.store.Penalize(submitter, f.cfg.TTL); err != nil {
+			return Record{}, unavailable(err)
+		}
+		return Record{}, errRejected
+	}
+	return rec, nil
 }
 
 // BoundKey returns the key a pending or just-approved login is bound to. It is how the
 // approval path learns WHICH key to bind - the key is never taken from the approving
 // request, only from the record made at issue.
 func (f *Flow) BoundKey(userCode string) (string, bool) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	l, ok := f.byUser[userCode]
-	if !ok {
+	rec, ok, err := f.store.ByUser(hashCode(userCode))
+	if err != nil || !ok {
 		return "", false
 	}
-	return l.boundKey, true
+	return rec.BoundKey, true
 }
 
 // Describe is what the approval screen may render.
@@ -290,25 +337,13 @@ func (f *Flow) BoundKey(userCode string) (string, bool) {
 // at zero cost and then spend a single Approve on a confirmed hit, never touching the
 // budget the guessing defence relies on.
 func (f *Flow) Describe(userCode, viewer string) (Info, bool) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	l, err := f.claimAttempt(userCode, viewer)
-	if err != nil || l.status != StatusPending {
+	rec, err := f.claimAttempt(userCode, viewer)
+	if err != nil || rec.Status != StatusPending {
 		return Info{}, false
 	}
-	return Info{UserCode: l.userCode, RequestedAt: l.requested}, true
-}
-
-// reapLocked drops logins that can no longer be used. Without it the maps only grow,
-// and any signed caller could raise broker memory without bound. Caller holds f.mu.
-func (f *Flow) reapLocked() {
-	now := f.now()
-	for code, l := range f.byUser {
-		if l.consumed || now.After(l.expires) {
-			delete(f.byUser, code)
-			delete(f.byDev, l.deviceCode)
-		}
-	}
+	// The plaintext user code is echoed from the ARGUMENT, never from the record: the
+	// record holds only its hash, which is the point.
+	return Info{UserCode: userCode, RequestedAt: rec.Requested}, true
 }
 
 func randomToken(n int) (string, error) {

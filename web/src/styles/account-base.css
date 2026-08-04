@@ -339,3 +339,64 @@ body.auth {
   color: var(--ink-900);
   margin-bottom: var(--s-2);
 }
+
+/* ---- first-party sign-in (login.html): the email + code form that sits ABOVE the
+   provider buttons, because a RogerAI account is now the primary way in and the
+   providers are alternatives to it. ---- */
+.emailform { margin: var(--s-5) 0 0; text-align: left; }
+.emailform .lbl {
+  display: block;
+  font-family: var(--font-ui);
+  font-size: var(--t-xs);
+  font-weight: var(--weight-medium);
+  color: var(--ink-700);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin-bottom: var(--s-2);
+}
+.emailform input {
+  width: 100%;
+  padding: 12px 14px;
+  margin-bottom: var(--s-3);
+  background: var(--paper);
+  color: var(--ink-900);
+  border: 1px solid var(--hairline-2);
+  border-radius: var(--r-sm);
+  font-family: var(--font-ui);
+  font-size: var(--t-sm);
+}
+.emailform input:focus-visible {
+  outline: 2px solid var(--live);
+  outline-offset: 1px;
+  border-color: var(--ink-900);
+}
+/* The code is read off a phone and typed back, so it gets room to breathe. */
+#code-input {
+  font-family: var(--font-mono, monospace);
+  font-size: var(--t-lg);
+  letter-spacing: 0.35em;
+  text-align: center;
+}
+.emailform .gh { cursor: pointer; }
+.emailform .primary { background: var(--ink-900); color: var(--paper); }
+.emailform .primary:hover { background: var(--ink-700); }
+.emailform .err { color: var(--live); }
+
+/* A labelled rule between the first-party form and the providers. */
+.or {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  margin: var(--s-5) 0;
+  color: var(--ink-400);
+  font-family: var(--font-ui);
+  font-size: var(--t-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.or::before, .or::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--hairline-2);
+}
