@@ -344,29 +344,150 @@ func drain(ch chan map[string]any, wait time.Duration) int {
 	}
 }
 
-// Found in the 2026-08-01 migration re-audit. Outbound transactional mail (alerts,
-// receipts, payout notices) goes through Resend, and Resend will only send from a
-// domain it has VERIFIED via a published `resend._domainkey` TXT record.
+// Originally found in the 2026-08-01 migration re-audit, and still the same invariant
+// after the 2026-08-03 move to ZeptoMail: a provider will only send from a domain IT
+// has VERIFIED with ITS OWN published DKIM key. Pointing one provider at the other's
+// domain is either rejected outright or, worse, accepted unsigned and then failed by
+// the recipient's DMARC check.
 //
-// rogerai.fyi has that record. rogerai.fm does NOT - it has only the bounce
-// subdomain and its SPF. So a From address on .fm is not merely off-policy
-// ([[domain-usage-policy]] keeps mail on .fyi deliberately), it is a domain Resend
-// would REJECT. Production works today only because RESEND_FROM is overridden in the
-// deployed environment; the built-in default pointed at the unverified domain, so
-// losing that one env var would have silently killed every outbound mail.
-func TestMailerDefaultSenderUsesTheVerifiedMailDomain(t *testing.T) {
-	t.Setenv("RESEND_FROM", "")
+//	ZeptoMail verified rogerai.fm   (3121226783._domainkey.rogerai.fm, published 2026-08-03)
+//	Resend    verified rogerai.fyi  (resend._domainkey.rogerai.fyi)
+//
+// So the default sender MUST track the selected provider. Losing that coupling would
+// silently kill every outbound mail, which is exactly the failure this test exists to
+// prevent.
+func TestMailerDefaultSenderMatchesTheProvidersVerifiedDomain(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		zeptoKey   string
+		wantDomain string
+	}{
+		{"zeptomail sends from the .fm domain it verified", "zepto_test_key", "@rogerai.fm"},
+		{"resend fallback sends from the .fyi domain it verified", "", "@rogerai.fyi"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("ZEPTOMAIL_API_KEY", tc.zeptoKey)
+			t.Setenv("MAIL_FROM", "")
+			t.Setenv("RESEND_FROM", "")
+			m := loadMailer()
+			if !strings.Contains(m.from, tc.wantDomain) {
+				t.Fatalf("default From = %q, want the provider-verified domain %s. "+
+					"If mail has genuinely moved, publish that provider's DKIM record and "+
+					"verify the domain FIRST, then change this default.", m.from, tc.wantDomain)
+			}
+		})
+	}
+}
+
+// ZeptoMail must win when both keys are present, so a half-finished cutover cannot
+// leave production silently sending through the old provider.
+func TestMailerPrefersZeptoMailWhenBothKeysAreSet(t *testing.T) {
+	t.Setenv("ZEPTOMAIL_API_KEY", "zepto_test_key")
+	t.Setenv("RESEND_API_KEY", "re_test_key")
 	m := loadMailer()
-	if !strings.Contains(m.from, "@rogerai.fyi") {
-		t.Fatalf("default From = %q, want the Resend-verified mail domain (@rogerai.fyi). "+
-			"If mail has genuinely moved to .fm, publish resend._domainkey.rogerai.fm FIRST, "+
-			"verify the domain in Resend, and only then change this default.", m.from)
+	if m.provider != providerZepto {
+		t.Fatalf("provider = %q, want %q", m.provider, providerZepto)
+	}
+	if m.endpoint != zeptoEndpoint {
+		t.Fatalf("endpoint = %q, want %q", m.endpoint, zeptoEndpoint)
 	}
 }
 
 func TestMailerSenderStillHonoursTheEnvironment(t *testing.T) {
+	t.Setenv("ZEPTOMAIL_API_KEY", "")
+	t.Setenv("MAIL_FROM", "")
 	t.Setenv("RESEND_FROM", "RogerAI <ops@example.test>")
 	if got := loadMailer().from; got != "RogerAI <ops@example.test>" {
 		t.Fatalf("From = %q, want the environment value to win", got)
+	}
+}
+
+// MAIL_FROM is the provider-neutral override and must beat the legacy RESEND_FROM.
+func TestMailFromBeatsLegacyResendFrom(t *testing.T) {
+	t.Setenv("ZEPTOMAIL_API_KEY", "")
+	t.Setenv("MAIL_FROM", "RogerAI <new@example.test>")
+	t.Setenv("RESEND_FROM", "RogerAI <old@example.test>")
+	if got := loadMailer().from; got != "RogerAI <new@example.test>" {
+		t.Fatalf("From = %q, want MAIL_FROM to win", got)
+	}
+}
+
+func TestSplitFrom(t *testing.T) {
+	for _, tc := range []struct{ in, wantName, wantAddr string }{
+		{"RogerAI <noreply@rogerai.fm>", "RogerAI", "noreply@rogerai.fm"},
+		{"noreply@rogerai.fm", "", "noreply@rogerai.fm"},
+		{"  Spaced Name  <a@b.test>  ", "Spaced Name", "a@b.test"},
+	} {
+		name, addr := splitFrom(tc.in)
+		if name != tc.wantName || addr != tc.wantAddr {
+			t.Errorf("splitFrom(%q) = (%q,%q), want (%q,%q)", tc.in, name, addr, tc.wantName, tc.wantAddr)
+		}
+	}
+}
+
+// The ZeptoMail wire format differs from Resend in BOTH the auth scheme and the body
+// shape. This pins it against their documented API so a regression is caught here and
+// not by a silent production 401.
+func TestMailerBuildsZeptoMailRequest(t *testing.T) {
+	var gotAuth, gotURL string
+	var gotBody map[string]any
+	m := &mailer{
+		apiKey:   "zepto_raw_key",
+		provider: providerZepto,
+		from:     "RogerAI <noreply@rogerai.fm>",
+		endpoint: zeptoEndpoint,
+		timeout:  5 * time.Second,
+		sentCaps: map[string]bool{},
+		httpDo: func(r *http.Request) (*http.Response, error) {
+			gotAuth = r.Header.Get("Authorization")
+			gotURL = r.URL.String()
+			b, _ := io.ReadAll(r.Body)
+			_ = json.Unmarshal(b, &gotBody)
+			return &http.Response{StatusCode: 201, Body: io.NopCloser(strings.NewReader(`{}`))}, nil
+		},
+	}
+	m.deliver("op@example.com", "Subject", "<b>hi</b>", "hi")
+
+	if want := "Zoho-enczapikey zepto_raw_key"; gotAuth != want {
+		t.Errorf("auth = %q, want %q", gotAuth, want)
+	}
+	if gotURL != zeptoEndpoint {
+		t.Errorf("url = %q, want %q", gotURL, zeptoEndpoint)
+	}
+	from, ok := gotBody["from"].(map[string]any)
+	if !ok || from["address"] != "noreply@rogerai.fm" || from["name"] != "RogerAI" {
+		t.Errorf("from = %#v, want split address/name object", gotBody["from"])
+	}
+	if gotBody["htmlbody"] != "<b>hi</b>" || gotBody["textbody"] != "hi" {
+		t.Errorf("body fields = %#v, want ZeptoMail htmlbody/textbody naming", gotBody)
+	}
+	to, ok := gotBody["to"].([]any)
+	if !ok || len(to) != 1 {
+		t.Fatalf("to = %#v, want a single-element array", gotBody["to"])
+	}
+	ea, ok := to[0].(map[string]any)["email_address"].(map[string]any)
+	if !ok || ea["address"] != "op@example.com" {
+		t.Errorf("to[0] = %#v, want nested email_address.address", to[0])
+	}
+}
+
+// A key pasted from the console screen that already includes the scheme prefix must
+// not end up double-prefixed.
+func TestMailerDoesNotDoublePrefixZeptoKey(t *testing.T) {
+	var gotAuth string
+	m := &mailer{
+		apiKey:   "Zoho-enczapikey already_prefixed",
+		provider: providerZepto,
+		from:     "noreply@rogerai.fm",
+		endpoint: zeptoEndpoint,
+		sentCaps: map[string]bool{},
+		httpDo: func(r *http.Request) (*http.Response, error) {
+			gotAuth = r.Header.Get("Authorization")
+			return &http.Response{StatusCode: 201, Body: io.NopCloser(strings.NewReader(`{}`))}, nil
+		},
+	}
+	m.deliver("op@example.com", "s", "h", "t")
+	if want := "Zoho-enczapikey already_prefixed"; gotAuth != want {
+		t.Errorf("auth = %q, want %q (no double prefix)", gotAuth, want)
 	}
 }
