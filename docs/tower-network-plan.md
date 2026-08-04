@@ -2261,6 +2261,55 @@ production code is how a spec property comes to be enforced only in tests.
 Validation: `internal/keypurpose` 97.6%, `make cover-gate` PASS at 91.6%, green under
 `-race`, and all eleven re-run mutations killed.
 
+### Session: closing the in-scope key_separation gaps (2026-08-03)
+
+Three scenarios the previous increment left unimplemented are now done, and the spec file
+is the input to all three rather than my reading of it.
+
+**The key-loading failure table.** 73 rows, of which exactly one was exercised. Its
+`<result>` column describes what each failure stops at a higher layer ("no new joined job
+can be issued"), which belongs to the component consuming the purpose - but the second
+half of the scenario is the keyring's, and it is the half that matters: *it never silently
+generates a new production authority or falls back to another role's key*. That is now
+asserted for all 52 in-scope rows across all five failure modes the Given names - 260
+subtests. Rows are resolved from the feature file, with the handful of wording differences
+between the two spec tables written out as an explicit alias map, and the two Tower/Station
+rows declared out of scope by name. A row matching neither fails the suite, so "unmapped"
+always means someone must look rather than silently skipped.
+
+Only *missing* had any representation before. `LoadFailure` now distinguishes missing,
+malformed, unreadable, duplicated-across-roles and unavailable, because an operator
+repairing a malformed key does something different from one whose key is merely
+unavailable. A failed role drops its material rather than keeping it beside a flag, fails
+startup, and cannot be rotated over - repair is an explicit act, not a side effect of
+asking for a new key, which is how a known-bad role quietly returns to service.
+
+**Symmetric secrets.** Seven roles are not signers: a session cookie, a pseudonym, an
+admin token, an evidence key, a webhook secret and two API credentials. The ring only did
+ed25519, so the spec's actual claim about them had no implementation. Now `Kind` separates
+the two, the kinds do not interchange in either direction, and each secret is independent
+material - deriving them from one root would be precisely the "cross-role key derived from
+the possessed bytes" the spec forbids. The concrete test builds an attacker's ring from a
+stolen session secret and confirms it authenticates nothing as administrator.
+
+That work exposed a real hole in the existing distinctness check: symmetric roles have no
+public key, and the check skips empty values, so **every secret role could have shared one
+secret and validated**. Distinctness now compares a material commitment - the public key
+for a signer, a one-way digest for a secret - so secrets are compared without ever being
+held or rendered.
+
+Fourteen new guards, all mutation-pinned. One needed isolating: the purpose binding inside
+the MAC is redundant *given* independent secrets, so no mutation could kill it until a test
+put the ring into the state where it is the only remaining defence - two roles sharing one
+secret. Validate refuses that at startup, but a running ring can be put into it, and at
+that point only the binding stops a session cookie authenticating as a pseudonym.
+
+Validation: `internal/keypurpose` 96.1%, `make cover-gate` PASS at 91.6%, `internal/...`
+clean under `-race`.
+
+Still out of scope by the founder-approved phasing: the standalone local-role set, the
+certificate objects themselves, and the offline-root ceremony.
+
 ### Next action queue
 
 1. Founder approves or revises the recommended per-settlement program-cap interpretation in
