@@ -2430,20 +2430,41 @@ pasted into tickets, with none of the account store's protections. The address i
 logs now and the code never enters a subject at all, which is safe by construction rather
 than by remembering. Both are permanent regression tests.
 
-Still open, and named rather than deferred: `toweradmit.Registry` - Roger Core's record of
-which Towers are admitted, their leases, their lifecycle states and their accumulated
-false-claim evidence - is also process-local memory with no persistence. A restart forgets
-the whole public network's admission state. It has no HTTP surface yet, so nothing is
-broken in production today, but it cannot carry real operators as it stands.
+**The admission registry is durable now too.** `toweradmit.Registry` - Roger Core's record
+of which Towers are admitted, their leases, their lifecycle states, and the false-claim
+evidence against them - was also process-local memory. Two of the consequences were not
+merely inconvenient: a REVOCATION was undone by the next deploy, which also un-burned the
+identity key revocation exists to burn, and FALSE-CLAIM EVIDENCE was erased, so a Tower
+that lies about its state reset its record every time we shipped.
+
+It runs over the same Store seam, with a PostgreSQL implementation because this is
+authoritative Core state rather than an accelerator, and every state change applied by
+compare-and-swap so a decision made from a state we never saw cannot overwrite one we did.
+Two rules the database now enforces rather than application code: a UNIQUE key_hash, so
+two concurrent enrollments presenting one identity key cannot both win, and a single DELETE
+whose row count IS the redemption decision, so one token admits exactly one Tower.
+
+Writing it caught a regression against an approved scenario. Consuming the token as it was
+read made redemption atomic but burned a valid token on a REJECTED attempt - which the
+existing suite refused, correctly: the legitimate holder still needs it. The token is read
+without consuming, and spent last, once every other check has passed. Both properties hold,
+and the approved test is what caught it rather than a reviewer.
+
+Also removed rather than kept: an Open() that dialled its own connection. The broker
+already holds a pool to the authoritative database, so a second one would double the
+connection footprint and give the registry a lifecycle of its own to get wrong.
+
+Still open: the registry has no HTTP surface, so nothing reaches it from outside yet. That
+surface is the first half of Phase 2.3.
 
 ### Next action queue
 
-1. Persist `toweradmit.Registry` before any joined Tower is admitted (above).
-2. Tower Phase 2.3 against the already-approved specs: outbound multiplexed link, inner
+1. Tower Phase 2.3 against the already-approved specs: outbound multiplexed link, inner
    Station sessions, inventory revisions, signed grants, exact result binding, receipt v2.
    214 approved scenarios across five feature files; `towerjoin.enroll` and
-   `roger-tower serve --joined` are the two stubs it replaces.
-3. Founder approves or revises the recommended per-settlement program-cap interpretation in
+   `roger-tower serve --joined` are the two stubs it replaces, and the durable admission
+   registry is already behind it waiting for its HTTP surface.
+2. Founder approves or revises the recommended per-settlement program-cap interpretation in
    decision 1 and decisions 2 through 10, thereby approving the proposed scenarios.
 3a. Before step definitions are written, run the step-vocabulary unification pass and finish
    the field-table conversions; at 97.7% distinct phrasings the suite is otherwise roughly
