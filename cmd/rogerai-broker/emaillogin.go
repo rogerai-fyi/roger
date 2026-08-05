@@ -47,9 +47,24 @@ func (b *broker) emailFlow() *emailauth.Flow {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.emails == nil {
-		b.emails = emailauth.New(emailauth.Config{TTL: 10 * time.Minute})
+		b.emails = newEmailFlowWithStore(nil)
 	}
 	return b.emails
+}
+
+// emailCodeTTL is how long a mailed code stays usable. Long enough to find the mail on a
+// phone, short enough that a code left in an inbox is not a standing credential.
+const emailCodeTTL = 10 * time.Minute
+
+// newEmailFlowWithStore builds the sign-in flow over an explicit store. A nil store keeps
+// the in-process default, which is the single-instance deployment: no new dependency and
+// no configuration change.
+func newEmailFlowWithStore(st emailauth.Store) *emailauth.Flow {
+	cfg := emailauth.Config{TTL: emailCodeTTL}
+	if st == nil {
+		return emailauth.New(cfg)
+	}
+	return emailauth.NewWithStore(cfg, st)
 }
 
 // emailStart handles POST /auth/email/start: mail a sign-in code.
@@ -96,7 +111,7 @@ func (b *broker) emailStart(w http.ResponseWriter, r *http.Request) {
 	}
 
 	addr := emailauth.Normalize(req.Email)
-	b.mail.sendSignInCode(addr, code, int(10*time.Minute/time.Minute))
+	b.mail.sendSignInCode(addr, code, int(emailCodeTTL/time.Minute))
 	// Deliberately uninformative, and identical for a brand-new address and a known one.
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }

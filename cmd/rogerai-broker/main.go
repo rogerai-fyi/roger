@@ -601,6 +601,14 @@ func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, loc
 		b.devices = newDeviceFlowWithStore(ds)
 		log.Printf("device login: pending logins are shared across instances")
 	}
+	// The same for first-party sign-in, and for the same reason: /auth/email/start lands on
+	// one instance and /auth/email/verify on another, so an outstanding code has to live
+	// outside both. It also puts the per-address and per-source budgets on ONE counter -
+	// per-instance limits would multiply the mail-flood allowance by the fleet size.
+	if es := newValkeyEmailStore(b.shared); es != nil {
+		b.emails = newEmailFlowWithStore(es)
+		log.Printf("email login: outstanding codes and their budgets are shared across instances")
+	}
 	if b.shared != nil {
 		// name each shared limiter so limiters keyed on the same value get DISTINCT Valkey
 		// buckets (rogerai:rl:<name>:<key>) rather than colliding on one key with mismatched
