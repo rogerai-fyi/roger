@@ -2525,9 +2525,50 @@ the HTTP surface that reaches enrollment, are the next slice.
 Remaining in 2.3, in order: the enrollment HTTP surface plus CA-root custody (above), the
 outbound multiplexed link, inner Station sessions, inventory revisions, and receipt v2.
 
+### Session: registration works end to end, and the root has somewhere to live (2026-08-05)
+
+Founder direction: make this deployable, for production and as open source.
+
+**The CA root gap is closed.** `NewAuthority` minted a fresh root per call, so a restart
+would have invalidated every certificate on the network. Three ways to get one now, in
+priority order - injected as PEM from a secret store, persisted from an earlier start, or
+generated once and logged loudly. A HALF-configured root is refused rather than falling
+through to generation: a missing environment variable must not be able to make us issue
+under a root nobody chose. Both halves are checked against each other at startup, so a
+mismatch reads as a configuration error rather than as every Tower being rejected later.
+
+**Admission is OFF unless it can be durable.** No database means no registry, no persisted
+root, no committed-enrollment record - so an admitted Tower would be forgotten by the next
+deploy and a revocation would undo itself. The routes refuse plainly instead. Standalone is
+unaffected.
+
+**Four routes and a client**, so `roger-tower register` now walks the whole path: mint a
+one-time token, take a challenge, enroll, read back your own Towers. The exact bytes to sign
+come from the broker rather than being rebuilt client-side; getting that framing subtly
+wrong would surface as "invalid enrollment" for a problem that was never the operator's.
+The transaction id is generated once and kept across failures, so an interrupted
+registration retries as the same enrollment - a test fails the first attempt and asserts
+exactly one Tower was ever issued.
+
+**Two production defects found by reviewing rather than by testing.** Email sign-in had been
+wired to the in-process store, so it could not complete behind more than one instance and
+its rate limits were multiplied by the fleet size. Tower enrollment kept its challenge and
+its idempotency record in maps, and losing the second means a spent token with nothing
+remembering what it bought - unrecoverable without an administrator. Both now sit behind
+their stores. That is three times this week the bug was found by asking what happens in
+production rather than by a red test.
+
+**Open source.** A live DKIM selector, our provider-migration rationale, and our cache
+inventory were in the public repo against the working agreement. Removed, while keeping
+everything a self-hoster needs to configure their own providers. The self-host path is
+verified: no Redis, no Postgres for auth, and no mail provider required to run the broker.
+
+Remaining in 2.3: the outbound multiplexed link (which is what `serve`, `drain` and `revoke`
+still wait on), inner Station sessions, inventory revisions, and receipt v2.
+
 ### Next action queue
 
-1. Tower Phase 2.3 against the already-approved specs: outbound multiplexed link, inner
+1. Tower Phase 2.3 - the outbound multiplexed link next against the already-approved specs: outbound multiplexed link, inner
    Station sessions, inventory revisions, signed grants, exact result binding, receipt v2.
    214 approved scenarios across five feature files; `towerjoin.enroll` and
    `roger-tower serve --joined` are the two stubs it replaces, and the durable admission
