@@ -202,3 +202,56 @@ func TestNoSharedStoreKeepsEmailSignInInProcess(t *testing.T) {
 	require.Nil(t, newValkeyEmailStore(nil))
 	require.Nil(t, newValkeyEmailStore(&memStore{}))
 }
+
+// --- the outage branches, and the edges the happy path skips ---------------
+
+func TestSharedEmailStoreReportsAnOutageOnEveryPath(t *testing.T) {
+	// Each of these decides whether a person is told "your code is wrong" or "we cannot
+	// answer right now". Getting any one of them backwards sends somebody to support with
+	// the wrong problem.
+	s, mr := newSharedEmailStore(t)
+	now := time.Now()
+	rec := emailauth.Record{
+		AddrHash: "addr-1", CodeHash: "code-1", Issued: now, Expires: now.Add(time.Minute),
+	}
+	require.NoError(t, s.Put(rec))
+	read, _, err := s.ByAddress("addr-1")
+	require.NoError(t, err)
+
+	mr.Close()
+
+	_, err = s.Consume(read)
+	require.ErrorIs(t, err, emailauth.ErrUnavailable)
+
+	_, err = s.Penalize("addr-1", time.Minute)
+	require.ErrorIs(t, err, emailauth.ErrUnavailable)
+
+	_, err = s.AllowRequest("addr-1", "src-1", 5, 5, time.Hour, now)
+	require.ErrorIs(t, err, emailauth.ErrUnavailable)
+
+	_, err = s.AllowSubmit("src-1", 5, time.Hour, now)
+	require.ErrorIs(t, err, emailauth.ErrUnavailable)
+}
+
+func TestPenalizingAnAddressWithNoOutstandingCodeIsHarmless(t *testing.T) {
+	// A guess against an address that has no code has nothing to charge on the record. The
+	// per-source budget above it is what makes that guess costly.
+	s, _ := newSharedEmailStore(t)
+	n, err := s.Penalize("addr-nothing", time.Minute)
+	require.NoError(t, err)
+	require.Zero(t, n)
+}
+
+func TestReapIsAServerSideNoOp(t *testing.T) {
+	// Every key carries its own expiry, so there is nothing to scan for - and a SCAN across
+	// a shared instance is exactly what this layer forbids.
+	s, _ := newSharedEmailStore(t)
+	require.NoError(t, s.Reap(time.Now()))
+}
+
+func TestAnAlreadyExpiredRecordStillLands(t *testing.T) {
+	// A record whose deadline has already passed must not be written with a zero or
+	// negative TTL, which some servers read as "no expiry" - that would make it permanent.
+	require.Positive(t, emailTTLFor(emailauth.Record{Expires: time.Now().Add(-time.Hour)}))
+	require.Positive(t, emailTTLFor(emailauth.Record{Expires: time.Now().Add(time.Hour)}))
+}

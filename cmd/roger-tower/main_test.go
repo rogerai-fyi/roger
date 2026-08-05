@@ -59,13 +59,16 @@ func TestUnknownCommandFails(t *testing.T) {
 	require.Contains(t, err.Error(), "unknown command")
 }
 
-// Commands that need the joined protocol must say so, not fail obscurely or pretend to
-// work. Phase 2 has not shipped.
-func TestJoinedOnlyCommandsSayTheyAreNotImplemented(t *testing.T) {
+// Commands that need the joined RELAY LINK must say so, not fail obscurely or pretend to
+// work - and they must not imply that registration is missing too, because it is not.
+// Telling an operator "not implemented" about the whole of joined mode would send them
+// looking for a workaround they do not need.
+func TestJoinedOnlyCommandsNameTheMissingHalf(t *testing.T) {
 	for _, c := range []string{"serve", "drain", "revoke"} {
 		_, err := runCLI(t, c)
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "not implemented yet")
+		require.Contains(t, err.Error(), "relay link", "it names what is missing")
+		require.Contains(t, err.Error(), "register", "and what already works")
 	}
 }
 
@@ -405,10 +408,14 @@ func TestJoinedLoginSignsInAndPointsAtRegister(t *testing.T) {
 	require.Contains(t, out, "signed in as @alice")
 	require.Contains(t, out, "register --dir")
 
-	// Now signed in, register reaches enrollment - which honestly reports Phase 2.
+	// Now signed in, register really attempts enrollment against the broker. With no broker
+	// reachable it fails on the CALL rather than on a placeholder - which is the point: the
+	// path is wired, and the error a person sees is about the network, not about a feature
+	// that does not exist.
 	_, err = runCLI(t, "register", "--dir", dir)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "not implemented yet")
+	require.NotContains(t, err.Error(), "not implemented",
+		"registration is implemented; a failure here must describe the real problem")
 }
 
 func TestJoinedLoginSurfacesAFailure(t *testing.T) {

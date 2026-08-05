@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 )
 
@@ -202,6 +203,35 @@ func newKeyFile(path string) (ed25519.PublicKey, error) {
 		return nil, err
 	}
 	return pub, nil
+}
+
+// IdentityKey returns the Tower's persistent identity key: who this Tower IS. It is the
+// key an enrollment challenge is signed with, and it is separate from the TLS key so
+// rotating a certificate never touches the Tower's identity.
+func (s *State) IdentityKey() (ed25519.PrivateKey, error) { return s.readKey(identityKey) }
+
+// TLSKey returns the Tower's channel key. A certificate is issued over this one, so it
+// rotates on the certificate's schedule rather than the Tower's lifetime.
+func (s *State) TLSKey() (ed25519.PrivateKey, error) { return s.readKey(tlsKey) }
+
+// readKey loads private material from the data directory. Reading a local file is not
+// egress, so this stays inside the package the no-network gate covers.
+func (s *State) readKey(name string) (ed25519.PrivateKey, error) {
+	raw, err := os.ReadFile(filepath.Join(s.dir, name))
+	if err != nil {
+		return nil, err
+	}
+	priv, err := hex.DecodeString(strings.TrimSpace(string(raw)))
+	if err != nil {
+		return nil, fmt.Errorf("%s is not readable key material", name)
+	}
+	if len(priv) != ed25519.PrivateKeySize {
+		// A truncated or replaced key file must not be used as though it were a key: the
+		// signature it produced would simply never verify, and the failure would surface
+		// far from its cause.
+		return nil, fmt.Errorf("%s is not a complete key", name)
+	}
+	return ed25519.PrivateKey(priv), nil
 }
 
 func randomHex(n int) (string, error) {

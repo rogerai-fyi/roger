@@ -60,6 +60,10 @@ type broker struct {
 	// entered with a code we mail (see emaillogin.go).
 	emails *emailauth.Flow
 
+	// tower is joined-Tower admission, or nil when it cannot be durable (see tower.go).
+	// Nil is a supported state: standalone Towers need nothing from us.
+	tower *towerSubsystem
+
 	mu           sync.Mutex
 	nodes        map[string]protocol.NodeRegistration
 	tunnels      map[string]*nodeTunnel
@@ -591,6 +595,10 @@ func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, loc
 	// no crash). When set, ALL request limiters get the shared bucket (anon + concierge +
 	// the per-identity b.rl + the per-grant b.grantRL) so one limit is enforced across
 	// instances, not 2x. Liveness sharing is handled by markSeen + syncLiveness.
+	// Joined-Tower admission, wired only when it can be durable. Nil disables the routes
+	// rather than issuing credentials that a redeploy would invalidate.
+	b.tower = loadTowerSubsystem(b, db)
+
 	b.shared = openSharedStore()
 	// A pending device login is authoritative state, not an accelerator: the CLI polls one
 	// instance while the human approves on another, so the record has to live outside both
@@ -695,6 +703,10 @@ func (b *broker) routes() *http.ServeMux {
 	mux.HandleFunc("/auth/apple/web/callback", b.authAppleWebCallback) // web: form_post id_token -> Apple-wallet session
 	mux.HandleFunc("/auth/github/login", b.authGitHubLogin)            // web: 302 to GitHub authorize
 	mux.HandleFunc("/auth/github/callback", b.authGitHubCallback)      // web: code exchange + session cookie
+	mux.HandleFunc("/tower/token", b.towerToken)                       // operator: mint a one-time enrollment token
+	mux.HandleFunc("/tower/enroll/challenge", b.towerChallenge)        // Tower: get the nonce to sign
+	mux.HandleFunc("/tower/enroll", b.towerEnroll)                     // Tower: admission itself
+	mux.HandleFunc("/tower/status", b.towerStatus)                     // operator: my Towers
 	mux.HandleFunc("/auth/email/start", b.emailStart)                  // web: mail a first-party sign-in code
 	mux.HandleFunc("/auth/email/verify", b.emailVerify)                // web: accept the code -> session
 	mux.HandleFunc("/auth/device/start", b.deviceStart)                // CLI: begin a broker-mediated login (signed)

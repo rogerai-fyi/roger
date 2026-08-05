@@ -77,11 +77,19 @@ func TestRegisteringWithAnAccountReachesEnrollment(t *testing.T) {
 
 // Phase 2 does not exist, so the real enrollment path must say so rather than failing
 // obscurely or pretending to have registered something.
-func TestRealEnrollmentSaysItNeedsPhase2(t *testing.T) {
+func TestRealEnrollmentReachesTheNetwork(t *testing.T) {
+	// Registration is implemented, so this proves the path is WIRED: with the broker
+	// pointed somewhere nothing answers, the failure is about reaching RogerAI rather than
+	// about a feature that does not exist. An operator's next step differs completely
+	// between those two messages.
+	t.Setenv("ROGER_BROKER", "http://127.0.0.1:1")
+	t.Setenv("ROGER_CONFIG_DIR", t.TempDir())
+
 	st := joinedTower(t)
 	err := Register(st, Account{Login: "alice"})
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "not implemented yet")
+	require.NotContains(t, err.Error(), "not implemented")
+	require.Contains(t, err.Error(), "could not reach RogerAI")
 }
 
 // --- credential storage ----------------------------------------------------
