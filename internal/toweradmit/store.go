@@ -77,9 +77,16 @@ type Store interface {
 	// own view.
 	TowersByOwner(owner string) ([]Tower, error)
 
-	// ReapTokens removes tokens that can no longer be redeemed, so the token space cannot
-	// be grown without bound by anybody holding an account.
+	// ReapTokens removes tokens that can no longer be redeemed.
 	ReapTokens(now time.Time) error
+
+	// LiveTokens lists an owner's unspent, unexpired tokens.
+	//
+	// Reaping alone does NOT bound the token space: it clears expired tokens, and says
+	// nothing about a burst of live ones. Without this an authenticated account could mint
+	// in a loop and grow the table without limit for a whole TTL window - a
+	// database-filling vector behind nothing but a free registration.
+	LiveTokens(owner string, now time.Time) ([]string, error)
 }
 
 // --- the in-process implementation ----------------------------------------
@@ -199,6 +206,18 @@ func (m *memStore) TowersByOwner(owner string) ([]Tower, error) {
 	for _, tw := range m.towers {
 		if tw.Owner == owner {
 			out = append(out, tw)
+		}
+	}
+	return out, nil
+}
+
+func (m *memStore) LiveTokens(owner string, now time.Time) ([]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []string
+	for id, t := range m.tokens {
+		if t.Owner == owner && !now.After(t.Expires) {
+			out = append(out, id)
 		}
 	}
 	return out, nil

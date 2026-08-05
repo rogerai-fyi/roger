@@ -75,6 +75,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS tower_admissions_tls_key_uniq
     ON rogerai.tower_admissions (tls_key_hash) WHERE tls_key_hash IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS tower_admissions_owner_idx ON rogerai.tower_admissions (owner);
+-- The mint path checks how many live tokens an account already holds on every call, so that
+-- lookup must not be a table scan.
+CREATE INDEX IF NOT EXISTS tower_enrollment_tokens_owner_idx
+    ON rogerai.tower_enrollment_tokens (owner);
 `
 
 // PGStore is the database-backed Store.
@@ -319,6 +323,30 @@ func (p *PGStore) TowersByOwner(owner string) ([]Tower, error) {
 	}
 	if err := rows.Err(); err != nil {
 		return nil, wrap("towers by owner", err)
+	}
+	return out, nil
+}
+
+// LiveTokens lists an owner's unspent, unexpired tokens. Indexed by owner so the cap check
+// on the mint path stays a cheap lookup rather than a scan.
+func (p *PGStore) LiveTokens(owner string, now time.Time) ([]string, error) {
+	rows, err := p.db.Query(
+		`SELECT id FROM rogerai.tower_enrollment_tokens WHERE owner=$1 AND expires >= $2`,
+		owner, now.UTC())
+	if err != nil {
+		return nil, wrap("live tokens", err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, wrap("live tokens", err)
+		}
+		out = append(out, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, wrap("live tokens", err)
 	}
 	return out, nil
 }

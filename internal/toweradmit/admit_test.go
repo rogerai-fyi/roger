@@ -551,7 +551,10 @@ func TestAConsumedTokenIsForgotten(t *testing.T) {
 
 // Two tokens must be independent and unguessable.
 func TestTokensAreDistinct(t *testing.T) {
-	r := newTestRegistry(t)
+	// The quota is raised out of the way: this asserts on the token SOURCE, and the
+	// live-token cap is exercised by its own test. Fifty outstanding tokens is not a thing
+	// a real account may hold.
+	r := NewWithStore(Config{MaxOpenTokensPerOwner: 1000}, NewMemStore())
 	seen := map[string]bool{}
 	for i := 0; i < 50; i++ {
 		tok, err := r.IssueToken(ownerA)
