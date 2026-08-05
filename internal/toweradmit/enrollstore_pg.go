@@ -16,6 +16,8 @@ import (
 	"database/sql"
 	"errors"
 	"time"
+
+	"rogerai.fm/roger/v5/internal/pgmigrate"
 )
 
 const enrollSchema = `
@@ -63,7 +65,7 @@ func NewPGCustody(db *sql.DB) (*PGCustody, error) {
 	if db == nil {
 		return nil, errors.New("CA custody needs a database handle")
 	}
-	if err := applySchema(db, schema+enrollSchema); err != nil {
+	if err := pgmigrate.Apply(db, schema+enrollSchema); err != nil {
 		return nil, err
 	}
 	return &PGCustody{db: db}, nil
@@ -132,7 +134,7 @@ func NewPGEnrollStore(db *sql.DB) (*PGEnrollStore, error) {
 	if db == nil {
 		return nil, errors.New("enrollment state needs a database handle")
 	}
-	if err := applySchema(db, schema+enrollSchema); err != nil {
+	if err := pgmigrate.Apply(db, schema+enrollSchema); err != nil {
 		return nil, err
 	}
 	return &PGEnrollStore{db: db}, nil

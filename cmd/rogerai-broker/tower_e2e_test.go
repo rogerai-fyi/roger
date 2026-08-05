@@ -362,8 +362,9 @@ func TestAdmissionIsOffWithoutADatabase(t *testing.T) {
 	// The production decision: no durable store means no joined Towers, rather than
 	// credentials that evaporate on the next deploy.
 	b := testBrokerWithDB(store.NewMem())
-	require.Nil(t, loadTowerSubsystem(b, store.NewMem()),
-		"an in-memory deployment must not admit Towers")
+	ts, err := loadTowerSubsystem(b, store.NewMem())
+	require.NoError(t, err)
+	require.Nil(t, ts, "an in-memory deployment must not admit Towers")
 }
 
 func TestTheCertificateLifetimeIsConfigurableAndBounded(t *testing.T) {
@@ -463,4 +464,33 @@ func TestWrongMethodsAreRefused(t *testing.T) {
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.NotEqual(t, http.StatusOK, resp.StatusCode)
+}
+
+// --- configured-but-broken must not look like not-configured ---------------
+
+func TestAnUnconfiguredDeploymentIsQuietAndAMisconfiguredOneIsNot(t *testing.T) {
+	// This distinction is what let a real bug hide. The tower migration used to fail on
+	// every least-privilege deployment, and because a failed setup just turned admission
+	// OFF, the broker started healthily and logged one line - the first person to notice
+	// would have been an operator whose registration did not work.
+	//
+	// No database means joined Towers are legitimately unavailable: quiet is correct.
+	// A database that IS present means somebody intended Towers to work, so a failure to
+	// set them up is a broken deployment and must be loud.
+	b := testBrokerWithDB(store.NewMem())
+
+	ts, err := loadTowerSubsystem(b, store.NewMem())
+	require.NoError(t, err, "no database is not an error - standalone Towers need nothing from us")
+	require.Nil(t, ts)
+}
+
+func TestAHalfConfiguredCARootFailsTheDeployment(t *testing.T) {
+	// Somebody explicitly supplied a root. Turning admission off and carrying on would
+	// mean starting under a configuration nobody asked for, and the operator would have to
+	// discover it from a log line they were not watching.
+	b := testBrokerWithDB(store.NewMem())
+	_, err := newTowerSubsystem(b,
+		toweradmit.NewMemStore(), towercert.NewMemCustody(), towerenroll.NewMemStore(),
+		towercert.Config{TTL: time.Hour, RootKeyPEM: []byte("-----BEGIN PRIVATE KEY-----\nbad\n-----END PRIVATE KEY-----")})
+	require.Error(t, err)
 }

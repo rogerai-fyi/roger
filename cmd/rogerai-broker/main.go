@@ -596,8 +596,14 @@ func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, loc
 	// the per-identity b.rl + the per-grant b.grantRL) so one limit is enforced across
 	// instances, not 2x. Liveness sharing is handled by markSeen + syncLiveness.
 	// Joined-Tower admission, wired only when it can be durable. Nil disables the routes
-	// rather than issuing credentials that a redeploy would invalidate.
-	b.tower = loadTowerSubsystem(b, db)
+	// rather than issuing credentials that a redeploy would invalidate - but a deployment
+	// that CONFIGURED Towers and could not start them fails here rather than coming up
+	// with the feature quietly missing.
+	tower, err := loadTowerSubsystem(b, db)
+	if err != nil {
+		log.Fatalf("tower: %v", err)
+	}
+	b.tower = tower
 
 	b.shared = openSharedStore()
 	// A pending device login is authoritative state, not an accelerator: the CLI polls one

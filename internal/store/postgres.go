@@ -8,6 +8,7 @@ import (
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
+	"rogerai.fm/roger/v5/internal/pgmigrate"
 	"rogerai.fm/roger/v5/internal/protocol"
 )
 
@@ -419,7 +420,10 @@ func NewPostgres(dsn string) (*Postgres, error) {
 	if err := db.Ping(); err != nil {
 		return nil, err
 	}
-	if _, err := db.Exec(schema); err != nil {
+	// Retried once: two instances starting together can have one lose a catalog race on an
+	// IF NOT EXISTS create, and refusing to start here would fail a rolling deploy. See
+	// internal/pgmigrate for why the retry is exactly one and unconditional.
+	if err := pgmigrate.Apply(db, schema); err != nil {
 		return nil, err
 	}
 	return &Postgres{db: db, policy: LoadPayoutPolicy()}, nil
