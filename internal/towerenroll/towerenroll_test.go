@@ -249,7 +249,15 @@ func TestInvalidEnrollmentCreatesNoPartialAuthority(t *testing.T) {
 			req.Signature = ed25519.Sign(attacker.identityPriv, []byte("whatever"))
 		},
 		"a modified challenge": func(_ *testing.T, _ *harness, req *Request, _ towerKeys) {
-			req.Nonce = req.Nonce[:len(req.Nonce)-1] + "0"
+			// Flip the last character to something it certainly was not. Substituting a
+			// FIXED character is a one-in-sixteen no-op on a hex nonce, and a test that
+			// sometimes modifies nothing sometimes proves nothing.
+			last := req.Nonce[len(req.Nonce)-1]
+			replacement := byte('a')
+			if last == 'a' {
+				replacement = 'b'
+			}
+			req.Nonce = req.Nonce[:len(req.Nonce)-1] + string(replacement)
 		},
 		"an unknown nonce": func(_ *testing.T, _ *harness, req *Request, _ towerKeys) {
 			req.Nonce = "nonce-never-issued"

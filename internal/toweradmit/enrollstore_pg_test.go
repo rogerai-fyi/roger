@@ -26,8 +26,11 @@ func pgHandle(t *testing.T) *sql.DB {
 	require.NoError(t, err)
 	require.NoError(t, db.Ping())
 	t.Cleanup(func() { db.Close() })
-	_, err = db.Exec(`CREATE SCHEMA IF NOT EXISTS rogerai`)
-	require.NoError(t, err)
+	// Best effort, and deliberately not asserted. Against a throwaway superuser database
+	// this provisions the schema; against a least-privilege role - the production shape -
+	// it is refused, and the schema is expected to already exist. Requiring it here would
+	// mean the tests only ever run against a permission set production never has.
+	_, _ = db.Exec(`CREATE SCHEMA IF NOT EXISTS rogerai`)
 	return db
 }
 
