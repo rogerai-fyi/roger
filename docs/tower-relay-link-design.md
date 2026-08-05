@@ -1,6 +1,7 @@
 # The joined relay link: how a Tower carries traffic
 
-Status: **proposed for founder approval. No implementation is authorized by this document.**
+Status: **founder approved 2026-08-05.** Section 6 records the decisions and the two
+investigations they asked for.
 
 Registration is shipped: a Tower is admitted, holds a certificate, and sits in quarantine.
 This is the design for the part that makes it carry work, written against the already-
@@ -215,17 +216,84 @@ Each of these is a session or more, and each leaves the tree green and deployabl
 Rolling out in this order means quarantine Towers can connect and be observed - real traffic,
 real disconnects, real clock skew - long before any money depends on the link.
 
-## 6. Decisions requested
+## 6. Decisions, as taken
 
-1. **Transport.** Proposal: HTTP/2 over mTLS, streams as the multiplexing primitive. It
-   traverses corporate networks that block anything exotic, and the standard library already
-   implements it - no new dependency for the most security-critical path we have.
-2. **Heartbeat interval and freshness window.** Proposal: 30s heartbeat, 90s freshness. A
-   Tower that dies is out of routing within 90s without anybody polling.
-3. **Certificate lifetime and renewal point.** Proposal: keep 24h, renew at 16h. Renewal
-   failures then have 8h of runway before anything is interrupted.
-4. **Quarantine promotion.** Who decides, on what evidence, and is it manual for the first
-   external operators? The spec says promotion is an explicit central decision; it does not
-   say who signs it.
-5. **Inventory size ceiling.** A cap per Tower bounds both memory and the cost of a resync.
-   Proposal: a signed policy value, defaulting to something well above a plausible fleet.
+1. **Transport: HTTP/2 over mTLS.** Streams are the multiplexing primitive. No new
+   dependency on the most security-critical path we have.
+
+2. **Heartbeat 60s, freshness window 180s.** Doubled from the proposal. A dead Tower leaves
+   routing within three minutes, and the cost is one small frame per Tower per minute -
+   1,000 Towers is ~17 frames a second across the fleet, which is nothing.
+
+3. **Certificate 24h, renewal at 16h.** Eight hours of runway before a failed renewal
+   interrupts anything.
+
+4. **Promotion out of quarantine is automated** - see §7, which is where the care goes.
+
+5. **Inventory ceiling: 10,000 leaves per Tower**, as a signed policy value so a specific
+   operator can be raised without a release. Measured rather than guessed: see §8.
+
+---
+
+## 7. Automated promotion
+
+Automating this is the right call for scale and the most dangerous thing in this document,
+because it is the moment a machine we do not control starts receiving real customer work
+without a human having looked at it. Four properties keep it safe.
+
+**Only evidence Core observed itself counts.** Not one input to the decision comes from what
+the Tower says about itself. The gates are: how long WE have held its session open, probes
+WE dispatched and scored, signatures WE verified, and state claims WE compared against the
+registry. A Tower cannot make itself look good by reporting that it is good.
+
+**Promotion is graduated, not binary.** "Active" is not a single state a Tower jumps into.
+It receives a bounded share of traffic first, and the share widens on continued clean
+evidence. A Tower that fails at 1% of traffic fails 1% of traffic; a binary promotion would
+have failed all of it. This costs nothing to build now and cannot be retrofitted after the
+first incident.
+
+**Demotion is automatic, immediate, and cheaper than promotion.** Any attempted
+substitution, signature failure, or false state claim returns the Tower to quarantine at
+once, without waiting for a threshold. The asymmetry is deliberate: earning trust is slow
+and losing it is instant, because the cost of being wrong is asymmetric in exactly that way.
+
+**Rate-limited per account, so identity churn does not scale.** An account may have at most
+one Tower promoted per window. Enrollment is already account-bound and quota-limited, and
+its key is burned on revocation - this closes the last cheap path, which was enrolling many
+Towers under one account and having them all promote together.
+
+Plus the escape hatch the approved plan already requires: **one signed policy switch returns
+promotion to manual**, without a release. If automated promotion turns out to be wrong, it
+is one switch, not a deploy.
+
+The specific thresholds - observation hours, probe counts, success rates, share ladder - are
+policy values rather than code, so they can be tightened from evidence during the pilot
+instead of being guessed now and frozen.
+
+## 8. What the sizing measurement changed
+
+Measured against the real offer type: **538 bytes per leaf on the wire**, ~1.6 KB retained.
+
+| Leaves per Tower | Snapshot | Retained |
+|---|---|---|
+| 1,000 | 0.5 MB | 1.6 MB |
+| 10,000 | 5.4 MB | 16 MB |
+| 50,000 | 27 MB | 81 MB |
+
+A large operator - 100 machines, ten models each - is about 1,000 leaves, so **10,000 is ten
+times a plausible fleet** and costs 16 MB of memory. 50,000 was rejected: 81 MB for one
+operator is not a sensible thing to let a single account do.
+
+**The measurement changed the reconnect design, which is the part I had wrong.** A 5.4 MB
+snapshot is fine once. It is not fine when a thousand Towers reconnect together after we
+redeploy - that is 5.4 GB arriving at once, a self-inflicted thundering herd at the worst
+possible moment.
+
+So a reconnect does NOT send a snapshot. It sends the Tower's current head revision and
+hash - about a hundred bytes. Core replies "matches, carry on" or "resync", and asks for a
+full snapshot only when the head genuinely diverged. A Tower whose fleet did not change
+while it was disconnected - the overwhelmingly common case, especially during OUR restart -
+transfers a hundred bytes instead of five megabytes.
+
+Reconnects are also jittered, so a fleet that lost us at the same instant does not return at
+the same instant.
