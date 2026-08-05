@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -65,10 +66,40 @@ func httpGet(url string) (*http.Response, error) {
 	return c.Do(req)
 }
 
-// latestReleaseURL builds the GitHub "latest release" API URL. It is a package var so
+// latestReleaseURL builds the GitHub "latest release" API URL. It is a swappable seam so
 // tests can point the release check at a local httptest server (no network).
-var latestReleaseURL = func() string {
-	return "https://api.github.com/repos/" + Repo + "/releases/latest"
+//
+// GUARDED, because CachedNotice starts a fire-and-forget goroutine that outlives its
+// caller: a test that swaps the seam and restores it on cleanup races that goroutine still
+// reading it. Under -race that is a hard failure, which makes the race detector unusable as
+// a release gate for the whole module - so the seam is made safe rather than the detector
+// worked around.
+var (
+	releaseURLMu sync.RWMutex
+	releaseURLFn = func() string {
+		return "https://api.github.com/repos/" + Repo + "/releases/latest"
+	}
+)
+
+func latestReleaseURL() string {
+	releaseURLMu.RLock()
+	defer releaseURLMu.RUnlock()
+	return releaseURLFn()
+}
+
+// setLatestReleaseURL swaps the seam and returns a function restoring the previous one.
+// Returning the restore rather than exposing the variable means a caller cannot forget to
+// capture the original, and cannot restore it with an unguarded assignment.
+func setLatestReleaseURL(fn func() string) func() {
+	releaseURLMu.Lock()
+	prev := releaseURLFn
+	releaseURLFn = fn
+	releaseURLMu.Unlock()
+	return func() {
+		releaseURLMu.Lock()
+		releaseURLFn = prev
+		releaseURLMu.Unlock()
+	}
 }
 
 // Injectable seams (package vars) so the platform-specific + self-mutating paths are

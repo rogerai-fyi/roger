@@ -49,9 +49,7 @@ func TestHTTPGetBadURL(t *testing.T) {
 // TestLatestHTTPGetError covers latest()'s httpGet-error branch (line 87) by pointing
 // the release URL at a control-char URL so the request cannot even be built.
 func TestLatestHTTPGetError(t *testing.T) {
-	orig := latestReleaseURL
-	latestReleaseURL = func() string { return "http://exa\x00mple/releases" }
-	defer func() { latestReleaseURL = orig }()
+	defer setLatestReleaseURL(func() string { return "http://exa\x00mple/releases" })()
 	if _, err := latest(); err == nil {
 		t.Fatal("latest() should surface the httpGet transport/build error")
 	}
@@ -127,9 +125,7 @@ func TestRefreshCacheLatestError(t *testing.T) {
 		http.Error(w, "boom", http.StatusInternalServerError)
 	}))
 	defer bad.Close()
-	orig := latestReleaseURL
-	latestReleaseURL = func() string { return bad.URL }
-	defer func() { latestReleaseURL = orig }()
+	defer setLatestReleaseURL(func() string { return bad.URL })()
 
 	refreshCache("1.0.0")
 	if _, err := os.Stat(cachePath()); !os.IsNotExist(err) {
@@ -143,9 +139,7 @@ func TestUpgradeLatestError(t *testing.T) {
 		http.Error(w, "down", http.StatusBadGateway)
 	}))
 	defer bad.Close()
-	orig := latestReleaseURL
-	latestReleaseURL = func() string { return bad.URL }
-	defer func() { latestReleaseURL = orig }()
+	defer setLatestReleaseURL(func() string { return bad.URL })()
 
 	err := Upgrade("1.0.0", io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "could not reach GitHub") {

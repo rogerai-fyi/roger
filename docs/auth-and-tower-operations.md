@@ -102,6 +102,21 @@ held forever.
 - If injecting a CA root, **both** variables are set and the halves belong together. A
   mismatch is refused at startup with an explicit message rather than at the first handshake.
 
+## Standalone Towers and PostgreSQL 15+
+
+A standalone Tower with a durable store creates its table in whatever schema its DSN
+resolves to - `public` by default. **PostgreSQL 15 and later no longer let a non-owner
+create tables in `public`**, so a Tower running as a dedicated least-privilege role fails at
+startup with "permission denied for schema public". Either grant it:
+
+```sql
+GRANT CREATE ON SCHEMA public TO <tower_user>;
+```
+
+or point the DSN at a schema that user owns. The startup error says this too - it is called
+out here because it is a trap a self-hoster meets on a fresh modern PostgreSQL and nowhere
+else.
+
 ## Rolling deploys
 
 Migrations are safe to run concurrently. `CREATE TABLE`/`CREATE INDEX` with `IF NOT EXISTS`

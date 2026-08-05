@@ -206,9 +206,12 @@ func TestNoLogLineCarriesTheAddressOrTheCode(t *testing.T) {
 	// held a live credential next to the address it belonged to. Logs are shipped,
 	// retained, searched and pasted into tickets; none of that has the account store's
 	// protections. Permanent regression scenario.
-	var logged strings.Builder
+	// The mailer sends in a goroutine, so the capture has to be safe to write from another
+	// goroutine while this one reads it. A plain Builder here is a data race, and the race
+	// detector is right to say so.
+	logged := &lockedBuffer{}
 	restore := log.Writer()
-	log.SetOutput(&logged)
+	log.SetOutput(logged)
 	defer log.SetOutput(restore)
 
 	b, cap := emailTestBroker(t)
@@ -322,4 +325,22 @@ func TestAnEmailSessionMayApproveADeviceLogin(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, ok)
 	require.Equal(t, "cli-pubkey", o.Pubkey)
+}
+
+// lockedBuffer is a writer safe to share with the mailer's send goroutine.
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf strings.Builder
+}
+
+func (l *lockedBuffer) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.buf.Write(p)
+}
+
+func (l *lockedBuffer) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.buf.String()
 }

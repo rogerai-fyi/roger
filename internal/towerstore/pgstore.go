@@ -115,7 +115,15 @@ func (p *PGStore) connect() (*sql.DB, error) {
 	// have one lose a catalog race on an IF NOT EXISTS create. See internal/pgmigrate.
 	if err := pgmigrate.Apply(execCtx{ctx: ctx, db: db}, schema); err != nil {
 		db.Close()
-		return nil, fmt.Errorf("cannot apply the Tower schema: %w", err)
+		// PostgreSQL 15 stopped letting non-owners create in `public`, and this table is
+		// unqualified, so a dedicated least-privilege role hits exactly that. The bare
+		// driver error ("permission denied for schema public") is accurate and tells an
+		// operator nothing about what to do, so say it here.
+		return nil, fmt.Errorf("cannot apply the Tower schema: %w\n"+
+			"If this says permission denied for schema public: PostgreSQL 15 and later do not let a\n"+
+			"non-owner create tables there. Grant it to this Tower's database user, or point the DSN\n"+
+			"at a schema it owns:\n"+
+			"    GRANT CREATE ON SCHEMA public TO <tower_user>;", err)
 	}
 	p.db = db
 	return db, nil
