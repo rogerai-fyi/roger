@@ -54,8 +54,12 @@ test("the homepage Labs card presents Wave Micro as a program, not a download", 
 test("the Company preview carries factual origin and component-specific openness", () => {
   const section = visible(read("index.html").match(/<section\b[^>]*id="company"[\s\S]*?<\/section>/)?.[0] || "");
   assert.match(section, /Orange County, California/);
-  assert.match(section, /independently owned/i);
-  assert.match(section, /not venture funded/i);
+  // These assertions guard a FACTUAL CLAIM about the company, so they track the copy
+  // rather than the other way round. The claim narrowed from "independently owned and not
+  // venture funded" to "founder-led", which is a weaker statement: a founder-led company
+  // can still be externally funded. Kept as an assertion so the page cannot quietly stop
+  // saying what kind of company this is.
+  assert.match(section, /founder[- ]led/i);
   assert.match(section, /open model and runtime work/i);
   assert.match(section, /PolyForm Perimeter/i);
 });

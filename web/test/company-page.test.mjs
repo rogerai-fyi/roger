@@ -43,8 +43,9 @@ test("the company page states what kind of company this is", () => {
   assert.match(page, /research/i);
   assert.match(page, /infrastructure/i);
   assert.match(page, /Orange County, California/);
-  assert.match(page, /independently owned/i);
-  assert.match(page, /not venture[- ]funded|no venture funding|without venture/i);
+  // The page states its ownership character in its own words. "founder-led" replaced
+  // "independently owned and not venture funded" - see the note in the homepage test.
+  assert.match(page, /founder[- ]led/i);
 });
 
 test("the company page invents no traction", () => {
