@@ -19,7 +19,7 @@ import (
 // default: when ROGERAI_REDIS_URL is unset, sharedStore is nil everywhere and the
 // broker behaves byte-for-byte as it does today (the in-memory maps + the existing
 // token-bucket rateLimiter). When the flag is set, the SAFE state is mirrored to a
-// Redis-protocol store (DigitalOcean Valkey):
+// Redis-protocol store (Valkey):
 //
 //  1. The per-IP / anon / concierge rate-limit buckets - so a limit is enforced
 //     ACROSS instances, not per-instance (see rateLimiter.allowAt).
@@ -32,10 +32,9 @@ import (
 //   - inflight concurrency counters (in-memory only; reset-on-restart is acceptable
 //     and they are read on the hot pick path under metricsMu).
 //
-// SHARED-INSTANCE NOTE: the Valkey instance (db-halo-cache) is SHARED across other
-// DO projects, so EVERY key this layer writes MUST carry the keyPrefix below. Never
-// issue an un-prefixed command (no FLUSHDB, no un-prefixed SCAN), or we collide with
-// another project's data.
+// SHARED-INSTANCE NOTE: the Valkey instance may be SHARED with other tenants, so EVERY
+// key this layer writes MUST carry the keyPrefix below. Never issue an un-prefixed
+// command (no FLUSHDB, no un-prefixed SCAN), or we collide with somebody else's data.
 const keyPrefix = "rogerai:"
 
 // sharedStore is the swappable shared-state abstraction. There are two impls:
@@ -409,9 +408,9 @@ func (m *memStore) dropSharedNode(string) error                        { return 
 // back), so this just keeps memStore's no-op explicit.
 var errNoSharedStore = redis.Nil
 
-// valkeyStore backs the SAFE state with a Redis-protocol server (DigitalOcean
-// Valkey). All keys are namespaced under keyPrefix so they never collide with the
-// other projects on the shared db-halo-cache instance.
+// valkeyStore backs the SAFE state with a Redis-protocol server (Valkey). All keys are
+// namespaced under keyPrefix so they never collide with another tenant sharing the
+// instance.
 type valkeyStore struct {
 	rdb *redis.Client
 

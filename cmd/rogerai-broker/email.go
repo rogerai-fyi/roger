@@ -23,12 +23,17 @@ import (
 //
 // TWO PROVIDERS are supported so a swap is a config change, not a code change:
 //
-//	ZEPTOMAIL_API_KEY set -> ZeptoMail (Zoho). Sends as @rogerai.fm.
-//	RESEND_API_KEY set    -> Resend (legacy). Sends as @rogerai.fyi.
+//	ZEPTOMAIL_API_KEY set -> the ZeptoMail REST API
+//	RESEND_API_KEY   set  -> the Resend REST API
 //
-// ZeptoMail WINS when both are set, because mail is moving to .fm alongside the rest
-// of the brand. Each provider signs with its OWN DKIM key on its OWN verified domain,
-// so the sender address and the provider must move together - see loadMailer.
+// ZeptoMail takes precedence when both are set. Which provider a given deployment uses,
+// and from which domain, is that deployment's configuration - set MAIL_FROM.
+//
+// THE SENDER DOMAIN AND THE PROVIDER MOVE TOGETHER. A provider will only accept a From
+// address on a domain IT has verified with ITS own published DKIM key, so pointing one
+// provider at another's domain gets the send rejected - or, worse, accepted unsigned and
+// failing DMARC at the receiver. That is why selecting a provider also selects the
+// default From.
 const (
 	// resendEndpoint is the Resend send-email API.
 	resendEndpoint = "https://api.resend.com/emails"
@@ -62,22 +67,15 @@ type mailer struct {
 // loadMailer builds the mailer from the environment. NO provider key set => the mailer
 // is disabled (enabled()==false) and every send is a logged-once no-op.
 //
-// THE SENDER DOMAIN AND THE PROVIDER MOVE TOGETHER. Each provider will only accept a
-// From address on a domain IT has verified with ITS own published DKIM key:
-//
-//	ZeptoMail verified rogerai.fm    (3121226783._domainkey.rogerai.fm)
-//	Resend    verified rogerai.fyi   (resend._domainkey.rogerai.fyi)
-//
-// So the default From follows the selected provider. Do not point one provider at the
-// other's domain: the send is rejected, or worse it is accepted unsigned and fails DMARC
-// at the receiver. MAIL_FROM overrides the default; RESEND_FROM is still honoured for
-// backward compatibility with existing deployments.
+// The default From follows the selected provider, because the provider must be the one
+// that verified the sending domain (see the package comment). Any deployment that has
+// verified a different domain sets MAIL_FROM; RESEND_FROM is still honoured for backward
+// compatibility with existing deployments.
 func loadMailer() *mailer {
 	m := &mailer{
 		timeout:  15 * time.Second,
 		sentCaps: map[string]bool{},
 	}
-	// ZeptoMail wins when both keys are present: mail is moving to .fm with the brand.
 	if k := os.Getenv("ZEPTOMAIL_API_KEY"); k != "" {
 		m.apiKey = k
 		m.provider = providerZepto
