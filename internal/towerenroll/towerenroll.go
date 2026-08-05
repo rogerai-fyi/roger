@@ -25,7 +25,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"sync"
 	"time"
 
 	"rogerai.fm/roger/v5/internal/keypurpose"
@@ -67,6 +66,9 @@ type Config struct {
 	MaxSkew time.Duration
 	// ChallengeTTL bounds how long a challenge may go unanswered.
 	ChallengeTTL time.Duration
+	// Store holds in-flight enrollment state. Nil keeps the in-process default, which is
+	// the single-instance deployment.
+	Store Store
 }
 
 // Challenge is the nonce a Tower must sign to prove it holds its identity key.
@@ -114,17 +116,11 @@ type Result struct {
 	Certificate *x509.Certificate
 }
 
-// Enroller admits Towers.
+// Enroller admits Towers. It holds no in-flight state of its own: see store.go for why a
+// challenge and a committed outcome both have to outlive the process that made them.
 type Enroller struct {
-	cfg Config
-
-	mu sync.Mutex
-	// challenges are one-time. A signature stays valid forever, so what stops a replay is
-	// the nonce being spendable once.
-	challenges map[string]Challenge
-	// committed remembers completed enrollments by transaction, so a retry after a lost
-	// response returns the SAME identity instead of failing as a consumed token.
-	committed map[string]Result
+	cfg   Config
+	store Store
 }
 
 // New builds an enroller. Every dependency is required: enrollment without a registry
@@ -148,11 +144,11 @@ func New(cfg Config) (*Enroller, error) {
 	if cfg.ChallengeTTL <= 0 {
 		cfg.ChallengeTTL = defaultChallengeTTL
 	}
-	return &Enroller{
-		cfg:        cfg,
-		challenges: map[string]Challenge{},
-		committed:  map[string]Result{},
-	}, nil
+	store := cfg.Store
+	if store == nil {
+		store = NewMemStore()
+	}
+	return &Enroller{cfg: cfg, store: store}, nil
 }
 
 // Challenge issues a fresh nonce for a live enrollment token.
@@ -175,19 +171,16 @@ func (e *Enroller) Challenge(tokenID string) (Challenge, error) {
 		TokenID: tokenID,
 		Expires: time.Now().Add(e.cfg.ChallengeTTL),
 	}
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	e.reapLocked(time.Now())
-	e.challenges[ch.Nonce] = ch
-	return ch, nil
-}
-
-func (e *Enroller) reapLocked(now time.Time) {
-	for nonce, ch := range e.challenges {
-		if now.After(ch.Expires) {
-			delete(e.challenges, nonce)
-		}
+	// Reaping here bounds the nonce space: anyone holding a token can mint these.
+	if err := e.store.Reap(time.Now()); err != nil {
+		return Challenge{}, err
 	}
+	if err := e.store.PutChallenge(ch); err != nil {
+		// A challenge we cannot record is one nobody can answer: the Tower would sign it,
+		// send it, and be told it is unknown.
+		return Challenge{}, err
+	}
+	return ch, nil
 }
 
 // Enroll admits a Tower, or refuses without leaving anything behind.
@@ -199,30 +192,48 @@ func (e *Enroller) Enroll(req Request) (Result, error) {
 	// A retry of something already committed returns the original outcome. It re-proves
 	// the identity key first: a transaction id observed on the wire must not become a way
 	// to have somebody else's Tower re-issued to your key.
-	if done, ok := e.completed(req.TransactionID); ok {
-		if subtle.ConstantTimeCompare(hashKey(req.IdentityKey), []byte(done.Tower.KeyHash)) != 1 {
+	done, ok, err := e.store.Committed(req.TransactionID)
+	if err != nil {
+		return Result{}, err
+	}
+	if ok {
+		if subtle.ConstantTimeCompare(hashKey(req.IdentityKey), []byte(done.KeyHash)) != 1 {
 			return Result{}, errRejected
 		}
-		return done, nil
+		return e.rehydrate(done)
 	}
 
 	tw, cert, err := e.validateAndAdmit(req)
 	if err != nil {
 		return Result{}, err
 	}
-	res := Result{TowerID: tw.ID, Tower: tw, Certificate: cert}
-
-	e.mu.Lock()
-	e.committed[req.TransactionID] = res
-	e.mu.Unlock()
-	return res, nil
+	// Recorded BEFORE the response goes out, because the whole point is the case where the
+	// response never arrives.
+	if err := e.store.PutCommitted(req.TransactionID, Committed{
+		TowerID: tw.ID, KeyHash: tw.KeyHash, CertDER: cert.Raw,
+	}); err != nil {
+		return Result{}, err
+	}
+	return Result{TowerID: tw.ID, Tower: tw, Certificate: cert}, nil
 }
 
-func (e *Enroller) completed(txn string) (Result, bool) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	r, ok := e.committed[txn]
-	return r, ok
+// rehydrate rebuilds the original outcome for a retry. The certificate is re-parsed from
+// the stored DER rather than re-issued: issuing a second one would give a Tower that
+// already holds a credential another, and only one of them could ever be revoked by
+// serial.
+func (e *Enroller) rehydrate(done Committed) (Result, error) {
+	cert, err := x509.ParseCertificate(done.CertDER)
+	if err != nil {
+		return Result{}, err
+	}
+	tw, ok := e.cfg.Registry.Get(done.TowerID)
+	if !ok {
+		// The outcome says a Tower exists and the registry disagrees. That is not a retry
+		// we can honour, and inventing one would hand out a certificate for a Tower the
+		// network does not know.
+		return Result{}, errRejected
+	}
+	return Result{TowerID: done.TowerID, Tower: tw, Certificate: cert}, nil
 }
 
 // validateAndAdmit runs every rejection before the single write at the end.
@@ -355,13 +366,10 @@ func (e *Enroller) validateAndAdmit(req Request) (toweradmit.Tower, *x509.Certif
 
 // spendChallenge takes a nonce out of circulation and reports whether it was live.
 func (e *Enroller) spendChallenge(nonce string, now time.Time) (Challenge, bool) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	ch, ok := e.challenges[nonce]
-	if !ok {
+	ch, ok, err := e.store.TakeChallenge(nonce)
+	if err != nil || !ok {
 		return Challenge{}, false
 	}
-	delete(e.challenges, nonce)
 	if now.After(ch.Expires) {
 		return Challenge{}, false
 	}
