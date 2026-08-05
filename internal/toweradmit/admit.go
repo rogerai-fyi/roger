@@ -160,6 +160,16 @@ type Config struct {
 	TokenTTL          time.Duration
 	LeaseTTL          time.Duration
 	MaxTowersPerOwner int
+	// MaxOpenTokensPerOwner bounds how many UNSPENT tokens one account may hold at once.
+	//
+	// Deliberately NOT tied to the Tower quota. Reaping clears expired tokens and says
+	// nothing about a burst of live ones, so without a cap an authenticated account could
+	// mint in a loop and grow the table for a whole TTL window - a database-filling vector
+	// behind nothing but a free registration. But the cap must not obstruct legitimate use:
+	// an operator who mislays a token, or asks again before the first expires, is doing
+	// something ordinary. So this is a small constant with room to retry, rather than the
+	// Tower quota - which would mean an operator allowed one Tower could never re-mint.
+	MaxOpenTokensPerOwner int
 }
 
 // Registry is Roger Core's record of every joined Tower. It holds no admission state of
@@ -185,6 +195,9 @@ func NewWithStore(cfg Config, store Store) *Registry {
 	if cfg.MaxTowersPerOwner <= 0 {
 		cfg.MaxTowersPerOwner = 10
 	}
+	if cfg.MaxOpenTokensPerOwner <= 0 {
+		cfg.MaxOpenTokensPerOwner = 10
+	}
 	if store == nil {
 		store = NewMemStore()
 	}
@@ -206,16 +219,27 @@ func (r *Registry) IssueToken(owner string) (string, error) {
 	if owner == "" {
 		return "", errors.New("an enrollment token must belong to an account")
 	}
-	// Reaping here is what bounds the token space: anyone with an account can mint these,
-	// so something has to remove the ones that can no longer be redeemed.
-	if err := r.store.ReapTokens(time.Now()); err != nil {
+	// Reaping clears tokens that can no longer be redeemed. It does NOT bound the space on
+	// its own - it says nothing about a burst of LIVE tokens - so the cap below is what
+	// actually stops an authenticated account minting in a loop.
+	now := time.Now()
+	if err := r.store.ReapTokens(now); err != nil {
 		return "", unavailable(err)
+	}
+	live, err := r.store.LiveTokens(owner, now)
+	if err != nil {
+		return "", unavailable(err)
+	}
+	// Per account, so one operator hoarding cannot stop anybody else enrolling.
+	if len(live) >= r.cfg.MaxOpenTokensPerOwner {
+		return "", fmt.Errorf("this account already holds %d unused enrollment tokens; "+
+			"use one or let it expire before asking for another", len(live))
 	}
 	id, err := randomHex(24)
 	if err != nil {
 		return "", err
 	}
-	if err := r.store.PutToken(Token{ID: id, Owner: owner, Expires: time.Now().Add(r.cfg.TokenTTL)}); err != nil {
+	if err := r.store.PutToken(Token{ID: id, Owner: owner, Expires: now.Add(r.cfg.TokenTTL)}); err != nil {
 		// A token we could not record would be refused at redemption, so handing it to an
 		// operator is handing them a guaranteed failure later instead of an error now.
 		return "", unavailable(err)
@@ -546,6 +570,12 @@ func (r *Registry) openTokensForTest() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return len(m.tokens)
+}
+
+// OpenTokensForTest lists an owner's live tokens.
+func (r *Registry) OpenTokensForTest(owner string) []string {
+	live, _ := r.store.LiveTokens(owner, time.Now())
+	return live
 }
 
 func randomHex(n int) (string, error) {

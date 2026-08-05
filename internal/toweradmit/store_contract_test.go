@@ -331,3 +331,63 @@ func TestForcingLeaseExpiryIsTestOnlyAndRefusesUnknownTowers(t *testing.T) {
 	r, _ := newRegistry(t, Config{})
 	require.Error(t, r.ForceLeaseExpiryForTest("tw-nobody"))
 }
+
+// --- an account cannot mint tokens without bound ---------------------------
+
+func TestAnAccountMayNotHoardLiveEnrollmentTokens(t *testing.T) {
+	// Reaping bounds the token space against EXPIRED tokens. It does nothing about a burst
+	// of live ones: an authenticated account could call the mint route in a loop and grow
+	// the table without limit for a whole TTL window. Any signed-in account can do it, so
+	// it is a database-filling vector behind nothing but a free registration.
+	//
+	// The cap is its own setting rather than the Tower quota: an operator who mislays a
+	// token, or asks again before the first expires, is doing something ordinary, and an
+	// account allowed one Tower must still be able to re-mint.
+	r, _ := newRegistry(t, Config{MaxOpenTokensPerOwner: 3})
+
+	for i := 0; i < 3; i++ {
+		_, err := r.IssueToken("acct-1")
+		require.NoError(t, err, "token %d", i)
+	}
+	_, err := r.IssueToken("acct-1")
+	require.Error(t, err, "a fourth live token is refused")
+
+	// It bounds the HOARD, not the account: spending one frees a slot.
+	tokens := r.OpenTokensForTest("acct-1")
+	require.Len(t, tokens, 3)
+	_, err = r.Enroll(tokens[0], "key-1")
+	require.NoError(t, err)
+	_, err = r.IssueToken("acct-1")
+	require.NoError(t, err, "spending a token makes room for another")
+}
+
+func TestOneAccountsTokensDoNotBlockAnother(t *testing.T) {
+	// The cap must be per account, or one operator hoarding tokens stops everybody else
+	// enrolling - an anti-abuse control turned into a denial of service.
+	r, _ := newRegistry(t, Config{MaxOpenTokensPerOwner: 2})
+	for i := 0; i < 2; i++ {
+		_, err := r.IssueToken("acct-loud")
+		require.NoError(t, err)
+	}
+	_, err := r.IssueToken("acct-loud")
+	require.Error(t, err)
+
+	_, err = r.IssueToken("acct-quiet")
+	require.NoError(t, err, "an unrelated account is unaffected")
+}
+
+func TestExpiredTokensDoNotCountAgainstTheCap(t *testing.T) {
+	// A token that can no longer be redeemed is not a hoard, and holding one against an
+	// operator would lock them out an hour after a mistyped command.
+	r, s := newRegistry(t, Config{MaxOpenTokensPerOwner: 1, TokenTTL: 20 * time.Millisecond})
+	_, err := r.IssueToken("acct-1")
+	require.NoError(t, err)
+	_, err = r.IssueToken("acct-1")
+	require.Error(t, err)
+
+	time.Sleep(40 * time.Millisecond)
+	require.NoError(t, s.ReapTokens(time.Now()))
+
+	_, err = r.IssueToken("acct-1")
+	require.NoError(t, err, "an expired token frees its slot")
+}
