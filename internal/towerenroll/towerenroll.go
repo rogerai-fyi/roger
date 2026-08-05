@@ -64,6 +64,10 @@ type Config struct {
 	// MaxSkew is how far a Tower's clock may differ from ours. It bounds how stale a
 	// replayed request can be.
 	MaxSkew time.Duration
+	// MinRenewInterval floors how often one Tower may renew. Without it a Tower could
+	// renew in a loop and mint unbounded live certificates, each valid to its own expiry
+	// and each one a credential somebody has to keep track of.
+	MinRenewInterval time.Duration
 	// ChallengeTTL bounds how long a challenge may go unanswered.
 	ChallengeTTL time.Duration
 	// Store holds in-flight enrollment state. Nil keeps the in-process default, which is
@@ -71,20 +75,36 @@ type Config struct {
 	Store Store
 }
 
+// Purposes a challenge may be issued for. They are DOMAIN SEPARATED in the signed bytes:
+// without that, a signature collected for one flow satisfies the other, and enrollment and
+// renewal stop being independent - a challenge taken to renew would admit a new Tower.
+const (
+	PurposeEnroll = "enroll"
+	PurposeRenew  = "renew"
+)
+
 // Challenge is the nonce a Tower must sign to prove it holds its identity key.
 type Challenge struct {
-	Nonce   string
-	TokenID string
+	Nonce string
+	// Subject is what this challenge is bound to: the enrollment token for an enrollment,
+	// the Tower ID for a renewal.
+	Subject string
+	Purpose string
 	Expires time.Time
 }
 
+// TokenID is the enrollment subject, kept as a name because that is what it means on the
+// enrollment path.
+func (c Challenge) TokenID() string { return c.Subject }
+
 // SigningInput is exactly what the Tower signs.
 //
-// It binds the nonce to the TOKEN, so a challenge collected for one enrollment cannot be
-// answered for another - without that, an eavesdropper could pair a captured signature
-// with their own token.
+// It binds the nonce to its PURPOSE and its SUBJECT, so a challenge collected for one
+// enrollment cannot be answered for another, and one collected to renew cannot be answered
+// to enroll. Without the subject an eavesdropper could pair a captured signature with their
+// own token; without the purpose they could pair it with the other flow entirely.
 func (c Challenge) SigningInput() []byte {
-	return []byte("rogerai-tower-enroll-v1\x00" + c.TokenID + "\x00" + c.Nonce)
+	return []byte("rogerai-tower-" + c.Purpose + "-v1\x00" + c.Subject + "\x00" + c.Nonce)
 }
 
 // Request is one enrollment attempt.
@@ -144,6 +164,9 @@ func New(cfg Config) (*Enroller, error) {
 	if cfg.ChallengeTTL <= 0 {
 		cfg.ChallengeTTL = defaultChallengeTTL
 	}
+	if cfg.MinRenewInterval < 0 {
+		cfg.MinRenewInterval = 0
+	}
 	store := cfg.Store
 	if store == nil {
 		store = NewMemStore()
@@ -162,16 +185,24 @@ func (e *Enroller) Challenge(tokenID string) (Challenge, error) {
 	if _, ok, err := e.cfg.Registry.Token(tokenID); err != nil || !ok {
 		return Challenge{}, errRejected
 	}
+	return e.issueChallenge(tokenID, PurposeEnroll)
+}
+
+// issueChallenge mints and records a nonce for a subject and purpose. Shared by enrollment
+// and renewal so the two cannot drift in how a challenge is made - only in what may be
+// answered with it, which is exactly what the purpose is for.
+func (e *Enroller) issueChallenge(subject, purpose string) (Challenge, error) {
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
 		return Challenge{}, err
 	}
 	ch := Challenge{
 		Nonce:   hex.EncodeToString(raw),
-		TokenID: tokenID,
+		Subject: subject,
+		Purpose: purpose,
 		Expires: time.Now().Add(e.cfg.ChallengeTTL),
 	}
-	// Reaping here bounds the nonce space: anyone holding a token can mint these.
+	// Reaping here bounds the nonce space: anyone holding a token or a Tower can mint these.
 	if err := e.store.Reap(time.Now()); err != nil {
 		return Challenge{}, err
 	}
@@ -274,7 +305,7 @@ func (e *Enroller) validateAndAdmit(req Request) (toweradmit.Tower, *x509.Certif
 	if !live {
 		return fail("unknown, spent, or expired challenge")
 	}
-	if ch.TokenID != req.TokenID {
+	if ch.Purpose != PurposeEnroll || ch.Subject != req.TokenID {
 		return fail("that challenge was issued for another enrollment")
 	}
 	if len(req.Signature) != ed25519.SignatureSize ||

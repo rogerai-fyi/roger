@@ -69,6 +69,22 @@ CREATE INDEX IF NOT EXISTS tower_admissions_owner_idx ON rogerai.tower_admission
 // PGStore is the database-backed Store.
 type PGStore struct{ db *sql.DB }
 
+// applySchema runs a migration, tolerating the one race Postgres genuinely has here.
+//
+// CREATE SCHEMA IF NOT EXISTS is NOT atomic against a concurrent CREATE: two instances
+// starting at the same moment can both find the schema absent and both try to create it,
+// and one gets a unique-violation on the catalog. That is not a real failure - the schema
+// exists by the time the loser sees the error - so a single retry resolves it. Failing
+// startup here would mean a deploy that rolls two pods at once refuses to come up.
+func applySchema(db *sql.DB, ddl string) error {
+	if _, err := db.Exec(ddl); err != nil {
+		if _, retry := db.Exec(ddl); retry != nil {
+			return retry
+		}
+	}
+	return nil
+}
+
 // NewPGStore wraps an already-open handle.
 //
 // It deliberately does NOT open its own connection: the broker already holds a pool to the
@@ -79,7 +95,7 @@ func NewPGStore(db *sql.DB) (*PGStore, error) {
 	if db == nil {
 		return nil, errors.New("a durable admission registry needs a database handle")
 	}
-	if _, err := db.Exec(schema); err != nil {
+	if err := applySchema(db, schema); err != nil {
 		return nil, err
 	}
 	return &PGStore{db: db}, nil

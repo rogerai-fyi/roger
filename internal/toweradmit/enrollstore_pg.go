@@ -40,6 +40,11 @@ CREATE TABLE IF NOT EXISTS rogerai.tower_enroll_challenges (
     token_id TEXT        NOT NULL,
     expires  TIMESTAMPTZ NOT NULL
 );
+-- What the challenge may be answered for. Domain separation between enrolling and
+-- renewing: a signature collected for one must not satisfy the other. Additive and
+-- defaulted, so rows written before this column keep their original meaning.
+ALTER TABLE rogerai.tower_enroll_challenges
+    ADD COLUMN IF NOT EXISTS purpose TEXT NOT NULL DEFAULT 'enroll';
 
 CREATE TABLE IF NOT EXISTS rogerai.tower_enroll_committed (
     txn_id   TEXT PRIMARY KEY,
@@ -58,7 +63,7 @@ func NewPGCustody(db *sql.DB) (*PGCustody, error) {
 	if db == nil {
 		return nil, errors.New("CA custody needs a database handle")
 	}
-	if _, err := db.Exec(schema + enrollSchema); err != nil {
+	if err := applySchema(db, schema+enrollSchema); err != nil {
 		return nil, err
 	}
 	return &PGCustody{db: db}, nil
@@ -127,7 +132,7 @@ func NewPGEnrollStore(db *sql.DB) (*PGEnrollStore, error) {
 	if db == nil {
 		return nil, errors.New("enrollment state needs a database handle")
 	}
-	if _, err := db.Exec(schema + enrollSchema); err != nil {
+	if err := applySchema(db, schema+enrollSchema); err != nil {
 		return nil, err
 	}
 	return &PGEnrollStore{db: db}, nil
@@ -137,14 +142,15 @@ func NewPGEnrollStore(db *sql.DB) (*PGEnrollStore, error) {
 // package must not import it, because towerenroll already imports this one.
 type ChallengeRow struct {
 	Nonce   string
-	TokenID string
+	Subject string
+	Purpose string
 	Expires time.Time
 }
 
-func (p *PGEnrollStore) PutChallengeRow(nonce, tokenID string, expires time.Time) error {
+func (p *PGEnrollStore) PutChallengeRow(nonce, subject, purpose string, expires time.Time) error {
 	_, err := p.db.Exec(
-		`INSERT INTO rogerai.tower_enroll_challenges(nonce,token_id,expires) VALUES($1,$2,$3)
-		 ON CONFLICT (nonce) DO NOTHING`, nonce, tokenID, expires.UTC())
+		`INSERT INTO rogerai.tower_enroll_challenges(nonce,token_id,purpose,expires) VALUES($1,$2,$3,$4)
+		 ON CONFLICT (nonce) DO NOTHING`, nonce, subject, purpose, expires.UTC())
 	if err != nil {
 		return wrap("put challenge", err)
 	}
@@ -157,8 +163,8 @@ func (p *PGEnrollStore) TakeChallengeRow(nonce string) (ChallengeRow, bool, erro
 	var row ChallengeRow
 	err := p.db.QueryRow(
 		`DELETE FROM rogerai.tower_enroll_challenges WHERE nonce=$1
-		 RETURNING nonce, token_id, expires`, nonce).
-		Scan(&row.Nonce, &row.TokenID, &row.Expires)
+		 RETURNING nonce, token_id, purpose, expires`, nonce).
+		Scan(&row.Nonce, &row.Subject, &row.Purpose, &row.Expires)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ChallengeRow{}, false, nil
 	}

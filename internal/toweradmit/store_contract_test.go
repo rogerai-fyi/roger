@@ -256,3 +256,78 @@ func TestReapFailureStopsTokenIssuance(t *testing.T) {
 type reapFailingStore struct{ Store }
 
 func (r *reapFailingStore) ReapTokens(time.Time) error { return ErrUnavailable }
+
+// --- certificate renewal, at the registry ----------------------------------
+
+func TestRecordRenewalMovesOnlyWhatARenewalMayMove(t *testing.T) {
+	// A renewal reissues a credential. It must never be a way to change who a Tower is,
+	// who owns it, or what lifecycle state it is in.
+	r, _ := newRegistry(t, Config{LeaseTTL: time.Hour})
+	tok, _ := r.IssueToken("acct-1")
+	tw, err := r.Enroll(tok, "key-1")
+	require.NoError(t, err)
+	require.NoError(t, r.Transition(tw.ID, StateActive))
+
+	before, _ := r.Get(tw.ID)
+	updated, err := r.RecordRenewal(tw.ID, Renewal{
+		CertSerial: "999", TLSKeyHash: "tls-2", At: time.Now(),
+	})
+	require.NoError(t, err)
+
+	require.Equal(t, "999", updated.CertSerial)
+	require.Equal(t, "tls-2", updated.TLSKeyHash)
+	require.Equal(t, before.KeyHash, updated.KeyHash, "the identity is untouched")
+	require.Equal(t, before.Owner, updated.Owner, "and so is the owner")
+	require.Equal(t, StateActive, updated.State, "renewing is not a promotion")
+}
+
+func TestRenewalCarriesTheLeaseForwardButNeverBackward(t *testing.T) {
+	// A connected Tower should not lose its lease for staying up. It also must not have a
+	// lease somebody is relying on quietly SHORTENED by a renewal.
+	r, _ := newRegistry(t, Config{LeaseTTL: time.Hour})
+	tok, _ := r.IssueToken("acct-1")
+	tw, err := r.Enroll(tok, "key-1")
+	require.NoError(t, err)
+	before, _ := r.Get(tw.ID)
+
+	updated, err := r.RecordRenewal(tw.ID, Renewal{
+		CertSerial: "1", TLSKeyHash: "tls", At: time.Now().Add(30 * time.Minute),
+	})
+	require.NoError(t, err)
+	require.True(t, updated.LeaseExpires.After(before.LeaseExpires), "forward")
+
+	// A renewal stamped in the past must not pull the lease back.
+	pulled, err := r.RecordRenewal(tw.ID, Renewal{
+		CertSerial: "2", TLSKeyHash: "tls", At: time.Now().Add(-time.Hour),
+	})
+	require.NoError(t, err)
+	require.Equal(t, updated.LeaseExpires, pulled.LeaseExpires, "never backward")
+}
+
+func TestRecordRenewalRefusesAnUnknownTowerAndAConcurrentChange(t *testing.T) {
+	base := NewMemStore()
+	inter := &interposingStore{Store: base}
+	r := NewWithStore(Config{LeaseTTL: time.Hour}, inter)
+
+	_, err := r.RecordRenewal("tw-nobody", Renewal{At: time.Now()})
+	require.Error(t, err)
+
+	tok, _ := r.IssueToken("acct-1")
+	tw, err := r.Enroll(tok, "key-1")
+	require.NoError(t, err)
+
+	// Somebody revokes between our read and our write. The renewal must lose, or it would
+	// overwrite a revocation with a fresh credential.
+	inter.after = func() { moveTowerBehindTheCaller(t, base, tw.ID, StateRevoked) }
+	_, err = r.RecordRenewal(tw.ID, Renewal{CertSerial: "9", TLSKeyHash: "t", At: time.Now()})
+	require.Error(t, err)
+
+	got, _ := r.Get(tw.ID)
+	require.Equal(t, StateRevoked, got.State, "the revocation stands")
+	require.NotEqual(t, "9", got.CertSerial, "and no certificate was recorded against it")
+}
+
+func TestForcingLeaseExpiryIsTestOnlyAndRefusesUnknownTowers(t *testing.T) {
+	r, _ := newRegistry(t, Config{})
+	require.Error(t, r.ForceLeaseExpiryForTest("tw-nobody"))
+}

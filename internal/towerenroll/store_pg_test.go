@@ -41,12 +41,12 @@ func durableStore(t *testing.T) Store {
 func TestDurableChallengeRoundTripAndOneTimeUse(t *testing.T) {
 	s := durableStore(t)
 	exp := time.Now().Add(time.Minute)
-	require.NoError(t, s.PutChallenge(Challenge{Nonce: "n1", TokenID: "tok-1", Expires: exp}))
+	require.NoError(t, s.PutChallenge(Challenge{Nonce: "n1", Subject: "tok-1", Purpose: PurposeEnroll, Expires: exp}))
 
 	ch, ok, err := s.TakeChallenge("n1")
 	require.NoError(t, err)
 	require.True(t, ok)
-	require.Equal(t, "tok-1", ch.TokenID)
+	require.Equal(t, "tok-1", ch.Subject)
 	require.WithinDuration(t, exp, ch.Expires, time.Second)
 
 	_, ok, err = s.TakeChallenge("n1")
@@ -73,8 +73,8 @@ func TestDurableCommittedRoundTrip(t *testing.T) {
 func TestDurableReapDropsOnlyDeadChallenges(t *testing.T) {
 	s := durableStore(t)
 	now := time.Now()
-	require.NoError(t, s.PutChallenge(Challenge{Nonce: "dead", TokenID: "t", Expires: now.Add(-time.Minute)}))
-	require.NoError(t, s.PutChallenge(Challenge{Nonce: "live", TokenID: "t", Expires: now.Add(time.Minute)}))
+	require.NoError(t, s.PutChallenge(Challenge{Nonce: "dead", Subject: "t", Purpose: PurposeEnroll, Expires: now.Add(-time.Minute)}))
+	require.NoError(t, s.PutChallenge(Challenge{Nonce: "live", Subject: "t", Purpose: PurposeEnroll, Expires: now.Add(time.Minute)}))
 
 	require.NoError(t, s.Reap(now))
 
@@ -104,7 +104,7 @@ func TestAStorageFailureIsUnavailableNotARejection(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, db.Close())
 
-	require.ErrorIs(t, s.PutChallenge(Challenge{Nonce: "n", TokenID: "t", Expires: time.Now()}), ErrUnavailable)
+	require.ErrorIs(t, s.PutChallenge(Challenge{Nonce: "n", Subject: "t", Purpose: PurposeEnroll, Expires: time.Now()}), ErrUnavailable)
 
 	_, _, err = s.TakeChallenge("n")
 	require.ErrorIs(t, err, ErrUnavailable)

@@ -133,6 +133,26 @@ type Tower struct {
 	LeaseSequence   int64
 	ProtocolVersion int
 	Capabilities    []string
+	// RenewedAt is when this Tower last had its certificate reissued. It exists to floor
+	// how often that may happen: a Tower renewing in a loop would mint unbounded live
+	// certificates, each valid to its own expiry and each one a credential to track.
+	RenewedAt time.Time
+}
+
+// Renewal is what a certificate reissue changes about a Tower. Deliberately narrow: a
+// renewal may move the channel key, the serial, and the lease, and nothing else. It may
+// never touch the identity, the owner, or the lifecycle state.
+//
+// It carries no lease deadline. The LEASE and the CERTIFICATE are different grants with
+// different lifetimes - the certificate is short because it cannot be recalled, the lease
+// is long because it is the thing we can change at any time - so the registry extends the
+// lease by its OWN configured term rather than inheriting the certificate's. Deriving one
+// from the other also silently loses sub-second renewals, because x509 serialises validity
+// to whole seconds.
+type Renewal struct {
+	CertSerial string
+	TLSKeyHash string
+	At         time.Time
 }
 
 // Config bounds the registry.
@@ -277,6 +297,53 @@ func (r *Registry) AdmitBundle(tokenID string, tw Tower) (Tower, error) {
 		return Tower{}, errors.New("that enrollment token is not valid")
 	}
 	return tw, nil
+}
+
+// RecordRenewal applies a certificate reissue to a Tower.
+//
+// It is a CAS like every other state change, so a renewal racing a revocation cannot
+// overwrite it - the losing writer is told to re-read rather than silently winning. The
+// fields it may change are fixed by the Renewal type: an identity, an owner, or a lifecycle
+// state can never be moved by renewing.
+func (r *Registry) RecordRenewal(id string, rn Renewal) (Tower, error) {
+	tw, ok, err := r.store.TowerByID(id)
+	if err != nil {
+		return Tower{}, unavailable(err)
+	}
+	if !ok {
+		return Tower{}, errors.New("no such Tower")
+	}
+	tw.CertSerial = rn.CertSerial
+	tw.TLSKeyHash = rn.TLSKeyHash
+	tw.RenewedAt = rn.At
+	// A connected, healthy Tower should not lose its lease for the crime of staying up, and
+	// renewal is the natural moment to carry it forward. Forward only: a renewal must never
+	// shorten a lease somebody is already relying on.
+	if next := rn.At.Add(r.cfg.LeaseTTL); next.After(tw.LeaseExpires) {
+		tw.LeaseExpires = next
+	}
+	won, err := r.store.CASTower(tw)
+	if err != nil {
+		return Tower{}, unavailable(err)
+	}
+	if !won {
+		return Tower{}, errors.New("this Tower changed state concurrently; re-read it and retry")
+	}
+	return tw, nil
+}
+
+// ForceLeaseExpiryForTest lapses a lease without waiting for the clock, so the expiry path
+// can be exercised.
+func (r *Registry) ForceLeaseExpiryForTest(id string) error {
+	tw, ok, err := r.store.TowerByID(id)
+	if err != nil || !ok {
+		return errors.New("no such Tower")
+	}
+	tw.LeaseExpires = time.Now().Add(-time.Second)
+	if _, err := r.store.CASTower(tw); err != nil {
+		return err
+	}
+	return nil
 }
 
 // Token reads an unspent enrollment token without consuming it, so a caller can check who
