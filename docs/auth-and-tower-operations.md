@@ -6,10 +6,33 @@ and nothing describes any particular deployment.
 
 ## The rule everything follows
 
-**Every one of these subsystems degrades to something safe when its backing store is
-absent, and none of them silently degrades to something unsafe.** A single-instance broker
-with no database and no cache runs sign-in and refuses joined Towers. It never issues a
-credential it cannot remember.
+**Not configured and misconfigured are different, and they end differently.**
+
+A subsystem you did not configure degrades to something safe and says so. A single-instance
+broker with no database and no cache runs sign-in and refuses joined Towers; it never issues
+a credential it cannot remember.
+
+A subsystem you DID configure and that cannot start takes the process down at startup. That
+is deliberate, and it is new in this release. Turning a configured feature off and carrying
+on means the deployment comes up healthy with something missing, and the first person to
+find out is a user it did not work for - which is exactly how a migration bug that failed on
+every least-privilege deployment stayed hidden here.
+
+## Prerequisite: the `rogerai` schema must already exist
+
+The broker's migrations create TABLES inside `rogerai` and never the schema itself, because
+the app's database user is expected to have no DB-level CREATE. Provision it once, as an
+admin, before the first start:
+
+```sql
+CREATE SCHEMA rogerai AUTHORIZATION <app_user>;
+GRANT USAGE, CREATE ON SCHEMA rogerai TO <app_user>;
+```
+
+If the schema is missing, startup fails with a clear error rather than coming up without
+Tower admission. `CREATE SCHEMA IF NOT EXISTS` is deliberately NOT in the migration:
+PostgreSQL checks CREATE-on-database before the IF-NOT-EXISTS short-circuit, so it fails
+with "permission denied for database" even when the schema is already there.
 
 ## Configuration
 
@@ -26,7 +49,7 @@ credential it cannot remember.
 
 | Variable | Required | Without it |
 |---|---|---|
-| `DATABASE_URL` | **yes** | Joined-Tower admission is **OFF**. The routes refuse with a plain message. Standalone Towers are unaffected - they need nothing from us. |
+| `DATABASE_URL` | **yes** | Joined-Tower admission is **OFF** and the routes refuse with a plain message. Standalone Towers are unaffected - they need nothing from us. If `DATABASE_URL` IS set and admission cannot start, the broker exits instead: you configured it, so a silent absence is not an outcome we may choose for you. |
 | `ROGERAI_TOWER_CA_KEY_PEM` + `ROGERAI_TOWER_CA_CERT_PEM` | recommended | A root is generated on first start and stored in the database, with a warning in the log. Supply both to keep the root in your secret store instead. **Supply both or neither**: half a root is refused rather than quietly generating one, because issuing under a root nobody chose makes every certificate on the network unverifiable. |
 | `ROGERAI_TOWER_CERT_TTL` | no | Issued Tower certificates live 24h. The lease in the registry is the long-lived grant; the certificate is deliberately short because it cannot be recalled once handed out. |
 
@@ -78,6 +101,13 @@ held forever.
   another.
 - If injecting a CA root, **both** variables are set and the halves belong together. A
   mismatch is refused at startup with an explicit message rather than at the first handshake.
+
+## Rolling deploys
+
+Migrations are safe to run concurrently. `CREATE TABLE`/`CREATE INDEX` with `IF NOT EXISTS`
+are not atomic against a concurrent create, so two pods starting together can have one lose
+on a system-catalog unique violation; every migration retries once, which settles it. A
+second failure is surfaced rather than retried, so a real problem still stops the deploy.
 
 ## Post-deploy checks
 
