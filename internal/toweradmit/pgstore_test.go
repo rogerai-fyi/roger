@@ -10,6 +10,7 @@ package toweradmit
 import (
 	"database/sql"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -290,4 +291,25 @@ func TestDurableRegistryReportsAnOutageRatherThanAnAnswer(t *testing.T) {
 func TestNewPGStoreRefusesANilHandle(t *testing.T) {
 	_, err := NewPGStore(nil)
 	require.Error(t, err)
+}
+
+func TestTheMigrationNeverCreatesTheSchemaItself(t *testing.T) {
+	// The `rogerai` schema is admin-provisioned and the app's database user has no
+	// DB-level CREATE. CREATE SCHEMA IF NOT EXISTS reads as harmless but is not: PostgreSQL
+	// checks CREATE-on-database BEFORE the IF-NOT-EXISTS short-circuit, so it fails with
+	// "permission denied for database" even when the schema is already there.
+	//
+	// Verified against a real least-privilege role. The symptom in production would have
+	// been joined-Tower admission logging that it was OFF while every other subsystem
+	// started normally - which is a bad thing to discover from an operator's bug report,
+	// so this guards it permanently.
+	for name, ddl := range map[string]string{
+		"registry":   schema,
+		"enrollment": enrollSchema,
+	} {
+		t.Run(name, func(t *testing.T) {
+			require.NotContains(t, strings.ToUpper(ddl), "CREATE SCHEMA",
+				"migrations create tables inside the schema, never the schema")
+		})
+	}
 }

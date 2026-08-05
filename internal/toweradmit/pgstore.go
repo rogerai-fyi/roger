@@ -23,9 +23,18 @@ import (
 
 // schema is applied on first use. Additive and idempotent, so opening against an existing
 // database never destroys what is there.
+//
+// It creates TABLES and never the schema. The `rogerai` schema is provisioned by an admin
+// and owned by the app's database user - least privilege, exactly as the money store
+// documents: the user has no DB-level CREATE, only rights inside its own schema.
+//
+// CREATE SCHEMA IF NOT EXISTS is not safe here even though it reads as harmless. PostgreSQL
+// checks CREATE-on-database BEFORE the IF-NOT-EXISTS short-circuit, so it fails with
+// "permission denied for database" even when the schema is already there. Verified against
+// a least-privilege role rather than reasoned about: it would have taken joined-Tower
+// admission offline in production while every other subsystem started normally, and the
+// only symptom would have been a log line saying admission was OFF.
 const schema = `
-CREATE SCHEMA IF NOT EXISTS rogerai;
-
 CREATE TABLE IF NOT EXISTS rogerai.tower_enrollment_tokens (
     id      TEXT PRIMARY KEY,
     owner   TEXT        NOT NULL,
@@ -71,11 +80,12 @@ type PGStore struct{ db *sql.DB }
 
 // applySchema runs a migration, tolerating the one race Postgres genuinely has here.
 //
-// CREATE SCHEMA IF NOT EXISTS is NOT atomic against a concurrent CREATE: two instances
-// starting at the same moment can both find the schema absent and both try to create it,
-// and one gets a unique-violation on the catalog. That is not a real failure - the schema
-// exists by the time the loser sees the error - so a single retry resolves it. Failing
-// startup here would mean a deploy that rolls two pods at once refuses to come up.
+// CREATE TABLE / CREATE INDEX with IF NOT EXISTS are NOT atomic against a concurrent
+// CREATE: two instances starting at the same moment can both find an object absent and both
+// try to create it, and the loser gets a unique-violation on the system catalog. That is not
+// a real failure - the object exists by the time the loser sees the error - so a single
+// retry resolves it. Failing startup here would mean a deploy that rolls two pods at once
+// refuses to come up.
 func applySchema(db *sql.DB, ddl string) error {
 	if _, err := db.Exec(ddl); err != nil {
 		if _, retry := db.Exec(ddl); retry != nil {
