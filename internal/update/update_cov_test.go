@@ -106,9 +106,7 @@ func fakeReleaseServer(t *testing.T, rel release) {
 		_ = json.NewEncoder(w).Encode(rel)
 	}))
 	t.Cleanup(srv.Close)
-	orig := latestReleaseURL
-	latestReleaseURL = func() string { return srv.URL }
-	t.Cleanup(func() { latestReleaseURL = orig })
+	t.Cleanup(setLatestReleaseURL(func() string { return srv.URL }))
 }
 
 // TestCheckViaInjectedURL covers latest()+Check() against a local release server: a
@@ -307,9 +305,7 @@ func TestLatestErrorPaths(t *testing.T) {
 		http.Error(w, "boom", http.StatusInternalServerError)
 	}))
 	defer bad.Close()
-	orig := latestReleaseURL
-	latestReleaseURL = func() string { return bad.URL }
-	defer func() { latestReleaseURL = orig }()
+	defer setLatestReleaseURL(func() string { return bad.URL })()
 	if res, err := Check("1.0.0"); err == nil || res.Available {
 		t.Errorf("Check on a 500 = %+v/%v, want error + not available", res, err)
 	}
@@ -318,7 +314,7 @@ func TestLatestErrorPaths(t *testing.T) {
 		_, _ = w.Write([]byte("{not json"))
 	}))
 	defer garbage.Close()
-	latestReleaseURL = func() string { return garbage.URL }
+	defer setLatestReleaseURL(func() string { return garbage.URL })()
 	if _, err := Check("1.0.0"); err == nil {
 		t.Error("Check on undecodable JSON should error")
 	}
