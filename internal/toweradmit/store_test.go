@@ -269,6 +269,13 @@ func (b *brokenAdmitStore) PutToken(t Token) error {
 	return b.Store.PutToken(t)
 }
 
+func (b *brokenAdmitStore) PutTokenCapped(t Token, max int) (bool, error) {
+	if b.down {
+		return false, ErrUnavailable
+	}
+	return b.Store.PutTokenCapped(t, max)
+}
+
 func (b *brokenAdmitStore) GetToken(id string) (Token, bool, error) {
 	if b.down {
 		return Token{}, false, ErrUnavailable

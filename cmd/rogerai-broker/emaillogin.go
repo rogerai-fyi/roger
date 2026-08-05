@@ -79,6 +79,9 @@ func (b *broker) emailStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	corsCreds(w, r)
+	if !b.requireWebOrigin(w, r) {
+		return
+	}
 
 	if !b.mail.enabled() {
 		// Say so plainly rather than claiming a code was sent. A person waiting for mail
@@ -124,6 +127,12 @@ func (b *broker) emailVerify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	corsCreds(w, r)
+	// /auth/email/verify SETS a session, so an unguarded one is login CSRF: an attacker
+	// page could silently sign a victim's browser into the ATTACKER's account, and
+	// everything the victim then did would land there.
+	if !b.requireWebOrigin(w, r) {
+		return
+	}
 
 	body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<16))
 	var req struct {

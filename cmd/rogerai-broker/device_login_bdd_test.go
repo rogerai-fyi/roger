@@ -83,6 +83,7 @@ func (s *blState) anApprovedLogin() error {
 func (s *blState) approveWith(cookie string) error {
 	body, _ := json.Marshal(map[string]string{"user_code": s.d.UserCode})
 	r := httptest.NewRequest(http.MethodPost, "/auth/device/approve", strings.NewReader(string(body)))
+	r.Header.Set("Origin", testWebOrigin)
 	r.AddCookie(&http.Cookie{Name: sessionCookie, Value: cookie})
 	w := httptest.NewRecorder()
 	s.b.deviceApprove(w, r)
@@ -123,6 +124,7 @@ func (s *blState) aProviderApproves(provider string) error {
 func (s *blState) someoneApprovesSignedOut() error {
 	body, _ := json.Marshal(map[string]string{"user_code": s.d.UserCode})
 	r := httptest.NewRequest(http.MethodPost, "/auth/device/approve", strings.NewReader(string(body)))
+	r.Header.Set("Origin", testWebOrigin)
 	w := httptest.NewRecorder()
 	s.b.deviceApprove(w, r)
 	s.approveC = w.Code
@@ -137,6 +139,7 @@ func (s *blState) denyIt() error {
 	}
 	body, _ := json.Marshal(map[string]string{"user_code": s.d.UserCode})
 	r := httptest.NewRequest(http.MethodPost, "/auth/device/deny", strings.NewReader(string(body)))
+	r.Header.Set("Origin", testWebOrigin)
 	r.AddCookie(&http.Cookie{Name: sessionCookie, Value: githubSession(s.b, "alice", 4242)})
 	w := httptest.NewRecorder()
 	s.b.deviceDeny(w, r)

@@ -239,6 +239,10 @@ type tokenPutFailingStore struct {
 
 func (t *tokenPutFailingStore) PutToken(Token) error { return ErrUnavailable }
 
+func (t *tokenPutFailingStore) PutTokenCapped(Token, int) (bool, error) {
+	return false, ErrUnavailable
+}
+
 func TestIssueTokenRequiresAnAccount(t *testing.T) {
 	r, _ := newRegistry(t, Config{})
 	_, err := r.IssueToken("")

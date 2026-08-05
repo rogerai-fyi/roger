@@ -69,6 +69,9 @@ ALTER TABLE rogerai.tower_admissions ADD COLUMN IF NOT EXISTS protocol_version I
 -- here queries INSIDE the list, so a text[] would mean taking on a second Postgres driver
 -- purely to marshal one column.
 ALTER TABLE rogerai.tower_admissions ADD COLUMN IF NOT EXISTS capabilities JSONB;
+-- When this Tower last had its certificate reissued. It floors how often that may happen,
+-- so a column that does not exist means the rate limit silently does not apply.
+ALTER TABLE rogerai.tower_admissions ADD COLUMN IF NOT EXISTS renewed_at TIMESTAMPTZ;
 -- One TLS key admits one Tower, for the same reason the identity key does. Partial, so the
 -- NULLs of rows written before this column existed do not collide with each other.
 CREATE UNIQUE INDEX IF NOT EXISTS tower_admissions_tls_key_uniq
@@ -115,6 +118,43 @@ func (p *PGStore) PutToken(t Token) error {
 	return nil
 }
 
+// PutTokenCapped serialises minting PER OWNER with a transaction-scoped advisory lock, then
+// counts and inserts inside it.
+//
+// A conditional INSERT alone is not enough under READ COMMITTED: two transactions can both
+// evaluate the count subquery before either commits, and both insert. The advisory lock is
+// keyed on the owner, so it costs nothing across accounts and only ever serialises one
+// account minting against itself - which is exactly the abuse being bounded.
+func (p *PGStore) PutTokenCapped(t Token, max int) (bool, error) {
+	tx, err := p.db.Begin()
+	if err != nil {
+		return false, wrap("put token", err)
+	}
+	defer tx.Rollback() //nolint:errcheck // no-op once committed
+
+	if _, err := tx.Exec(`SELECT pg_advisory_xact_lock(hashtext($1))`, "tower-token:"+t.Owner); err != nil {
+		return false, wrap("put token", err)
+	}
+	var live int
+	if err := tx.QueryRow(
+		`SELECT count(*) FROM rogerai.tower_enrollment_tokens WHERE owner=$1 AND expires >= $2`,
+		t.Owner, time.Now().UTC()).Scan(&live); err != nil {
+		return false, wrap("put token", err)
+	}
+	if live >= max {
+		return false, nil
+	}
+	if _, err := tx.Exec(
+		`INSERT INTO rogerai.tower_enrollment_tokens(id,owner,expires) VALUES($1,$2,$3)
+		 ON CONFLICT (id) DO NOTHING`, t.ID, t.Owner, t.Expires.UTC()); err != nil {
+		return false, wrap("put token", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return false, wrap("put token", err)
+	}
+	return true, nil
+}
+
 func (p *PGStore) GetToken(id string) (Token, bool, error) {
 	var t Token
 	err := p.db.QueryRow(
@@ -154,14 +194,28 @@ func (p *PGStore) PutTower(tw Tower) error {
 // CASTower applies a write only against the revision the caller read. Losing is not an
 // error: it means somebody else moved this Tower first, and one of the things they may
 // have moved it to is revoked.
+// CASTower writes EVERY mutable column, not just the lifecycle ones.
+//
+// It previously listed seven, so a renewal against Postgres left the registry naming the
+// OLD certificate serial - and a Tower cannot be revoked by a serial the registry does not
+// hold. The memory store keeps the whole struct, so the two implementations disagreed and
+// the renewal tests passed against both by asserting on the returned value rather than
+// re-reading. Any column added to Tower has to be added here too; the contract test now
+// re-reads, so forgetting one fails.
 func (p *PGStore) CASTower(tw Tower) (bool, error) {
 	res, err := p.db.Exec(
 		`UPDATE rogerai.tower_admissions
 		    SET owner=$2, key_hash=$3, state=$4, enrolled_at=$5,
-		        lease_expires=$6, false_claims=$7, rev=rev+1
+		        lease_expires=$6, false_claims=$7, rev=rev+1,
+		        tls_key_hash=$9, lifecycle_revision=$10, lifecycle_hash=$11,
+		        cert_serial=$12, lease_sequence=$13, protocol_version=$14,
+		        capabilities=$15, renewed_at=$16
 		  WHERE id=$1 AND rev=$8`,
 		tw.ID, tw.Owner, tw.KeyHash, string(tw.State),
-		tw.EnrolledAt.UTC(), tw.LeaseExpires.UTC(), tw.FalseClaims, tw.Rev)
+		tw.EnrolledAt.UTC(), tw.LeaseExpires.UTC(), tw.FalseClaims, tw.Rev,
+		nullString(tw.TLSKeyHash), nullInt64(tw.LifecycleRevision), nullString(tw.LifecycleHash),
+		nullString(tw.CertSerial), nullInt64(tw.LeaseSequence), tw.ProtocolVersion,
+		capabilitiesJSON(tw.Capabilities), nullTime(tw.RenewedAt))
 	if err != nil {
 		return false, wrap("cas tower", err)
 	}
@@ -173,7 +227,7 @@ func (p *PGStore) CASTower(tw Tower) (bool, error) {
 }
 
 const towerCols = `id,owner,key_hash,state,enrolled_at,lease_expires,false_claims,rev,` +
-	`tls_key_hash,lifecycle_revision,lifecycle_hash,cert_serial,lease_sequence,protocol_version,capabilities`
+	`tls_key_hash,lifecycle_revision,lifecycle_hash,cert_serial,lease_sequence,protocol_version,capabilities,renewed_at`
 
 func scanTower(row interface{ Scan(...any) error }) (Tower, error) {
 	var tw Tower
@@ -182,9 +236,10 @@ func scanTower(row interface{ Scan(...any) error }) (Tower, error) {
 	var lifecycleRev, leaseSeq sql.NullInt64
 	var protocolVersion sql.NullInt32
 	var capabilities []byte
+	var renewedAt sql.NullTime
 	err := row.Scan(&tw.ID, &tw.Owner, &tw.KeyHash, &state,
 		&tw.EnrolledAt, &tw.LeaseExpires, &tw.FalseClaims, &tw.Rev,
-		&tlsKey, &lifecycleRev, &lifecycleHash, &certSerial, &leaseSeq, &protocolVersion, &capabilities)
+		&tlsKey, &lifecycleRev, &lifecycleHash, &certSerial, &leaseSeq, &protocolVersion, &capabilities, &renewedAt)
 	tw.State = State(state)
 	tw.TLSKeyHash = tlsKey.String
 	tw.LifecycleRevision = lifecycleRev.Int64
@@ -192,6 +247,9 @@ func scanTower(row interface{ Scan(...any) error }) (Tower, error) {
 	tw.CertSerial = certSerial.String
 	tw.LeaseSequence = leaseSeq.Int64
 	tw.ProtocolVersion = int(protocolVersion.Int32)
+	if renewedAt.Valid {
+		tw.RenewedAt = renewedAt.Time
+	}
 	if len(capabilities) > 0 {
 		// A capability list we cannot read is not a reason to hand back a Tower with no
 		// capabilities, which would read as "this Tower may do nothing" - the caller sees
@@ -212,13 +270,13 @@ func insertTowerIn(x interface {
 		`INSERT INTO rogerai.tower_admissions
 		   (id,owner,key_hash,state,enrolled_at,lease_expires,false_claims,rev,
 		    tls_key_hash,lifecycle_revision,lifecycle_hash,cert_serial,lease_sequence,
-		    protocol_version,capabilities)
-		 VALUES($1,$2,$3,$4,$5,$6,$7,1,$8,$9,$10,$11,$12,$13,$14)`,
+		    protocol_version,capabilities,renewed_at)
+		 VALUES($1,$2,$3,$4,$5,$6,$7,1,$8,$9,$10,$11,$12,$13,$14,$15)`,
 		tw.ID, tw.Owner, tw.KeyHash, string(tw.State),
 		tw.EnrolledAt.UTC(), tw.LeaseExpires.UTC(), tw.FalseClaims,
 		nullString(tw.TLSKeyHash), nullInt64(tw.LifecycleRevision), nullString(tw.LifecycleHash),
 		nullString(tw.CertSerial), nullInt64(tw.LeaseSequence), tw.ProtocolVersion,
-		capabilitiesJSON(tw.Capabilities))
+		capabilitiesJSON(tw.Capabilities), nullTime(tw.RenewedAt))
 	return err
 }
 
@@ -240,6 +298,13 @@ func nullString(s string) any {
 		return nil
 	}
 	return s
+}
+
+func nullTime(t time.Time) any {
+	if t.IsZero() {
+		return nil
+	}
+	return t.UTC()
 }
 
 func nullInt64(n int64) any {

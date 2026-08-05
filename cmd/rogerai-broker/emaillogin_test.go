@@ -66,6 +66,8 @@ func postJSON(t *testing.T, h http.HandlerFunc, path string, in any) *httptest.R
 	require.NoError(t, err)
 	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(string(body)))
 	req.Header.Set("Content-Type", "application/json")
+	// Browsers send Origin on every cross-origin call, and these routes now require it.
+	req.Header.Set("Origin", testWebOrigin)
 	rec := httptest.NewRecorder()
 	h(rec, req)
 	return rec
@@ -309,6 +311,7 @@ func TestAnEmailSessionMayApproveADeviceLogin(t *testing.T) {
 
 	body, _ := json.Marshal(map[string]string{"user_code": pending.UserCode})
 	req := httptest.NewRequest(http.MethodPost, "/auth/device/approve", strings.NewReader(string(body)))
+	req.Header.Set("Origin", testWebOrigin)
 	req.AddCookie(session)
 	rec := httptest.NewRecorder()
 	b.deviceApprove(rec, req)

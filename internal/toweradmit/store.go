@@ -43,6 +43,15 @@ type Token struct {
 type Store interface {
 	// PutToken records an unspent enrollment token.
 	PutToken(t Token) error
+
+	// PutTokenCapped records a token ONLY if the owner is under max live tokens, and
+	// reports whether it was written.
+	//
+	// The cap has to be enforced where the write happens. Counting first and inserting
+	// after is a check-then-act: concurrent mints all read the same count, all pass, and
+	// all insert - overshooting by the caller's concurrency, once per TTL window. A cap
+	// that only holds when nobody is trying is not a cap.
+	PutTokenCapped(t Token, max int) (bool, error)
 	// GetToken reads a token WITHOUT consuming it, so a rejected enrollment does not burn
 	// the token its legitimate holder still needs.
 	GetToken(id string) (Token, bool, error)
@@ -116,6 +125,25 @@ func (m *memStore) PutToken(t Token) error {
 	defer m.mu.Unlock()
 	m.tokens[t.ID] = t
 	return nil
+}
+
+// PutTokenCapped counts and writes under one lock, so the check and the act cannot be
+// separated by another goroutine.
+func (m *memStore) PutTokenCapped(t Token, max int) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	now := time.Now()
+	live := 0
+	for _, existing := range m.tokens {
+		if existing.Owner == t.Owner && !now.After(existing.Expires) {
+			live++
+		}
+	}
+	if live >= max {
+		return false, nil
+	}
+	m.tokens[t.ID] = t
+	return true, nil
 }
 
 func (m *memStore) GetToken(id string) (Token, bool, error) {

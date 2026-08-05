@@ -157,7 +157,7 @@ func (m *mailer) deliver(to, subject, htmlBody, textBody string) {
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
-		log.Printf("email: marshal failed (to=%s subj=%q): %v", to, subject, err)
+		log.Printf("email: marshal failed (to=%s subj=%q): %v", maskAddr(to), subject, err)
 		return
 	}
 
@@ -167,7 +167,7 @@ func (m *mailer) deliver(to, subject, htmlBody, textBody string) {
 	}
 	req, err := http.NewRequest(http.MethodPost, m.endpoint, bytes.NewReader(body))
 	if err != nil {
-		log.Printf("email: build request failed (to=%s): %v", to, err)
+		log.Printf("email: build request failed (to=%s): %v", maskAddr(to), err)
 		return
 	}
 	// ZeptoMail uses its own scheme, NOT Bearer. The key issued by Zoho already begins
@@ -191,16 +191,27 @@ func (m *mailer) deliver(to, subject, htmlBody, textBody string) {
 	}
 	resp, err := do(req)
 	if err != nil {
-		log.Printf("email: send failed (to=%s subj=%q): %v", to, subject, err)
+		log.Printf("email: send failed (to=%s subj=%q): %v", maskAddr(to), subject, err)
 		return
 	}
 	rb, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
 	resp.Body.Close()
 	if resp.StatusCode >= 300 {
-		log.Printf("email: %s error %d (to=%s subj=%q): %s", m.provider, resp.StatusCode, maskAddr(to), subject, rb)
+		// The provider's body is truncated: it commonly echoes the address back, which
+		// would put in the log the very thing masking just took out.
+		log.Printf("email: %s error %d (to=%s subj=%q): %s",
+			m.provider, resp.StatusCode, maskAddr(to), subject, truncate(string(rb), 200))
 		return
 	}
 	log.Printf("email: sent %q to %s", subject, maskAddr(to))
+}
+
+// truncate bounds an untrusted provider response before it reaches a log line.
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "...(truncated)"
 }
 
 // maskAddr renders an address for a LOG without disclosing it. Logs are shipped, retained,

@@ -524,9 +524,13 @@ func (r UsageReceipt) BindsTo(requestID, nodeID string) bool {
 	return r.RequestID == requestID && r.NodeID == nodeID
 }
 
-// VerifyBroker confirms the broker counter-signed this exact receipt. Prefer
-// VerifyBrokerCoverage when the answer matters for money: a legacy signature verifies
-// without covering the billed counts, and only the two-value form can tell you that.
+// VerifyBroker confirms the broker counter-signed this exact receipt.
+//
+// Deprecated: use VerifyBrokerCoverage. This form DISCARDS the coverage answer, so a
+// legacy v0 signature - genuine, but signed over bytes that excluded the billed counts -
+// returns true and reads as proof of an amount it does not cover. The two-value form is
+// the only one that can tell the difference, and on a money path that difference is the
+// whole question. Nothing outside tests calls this.
 func (r UsageReceipt) VerifyBroker(pubHex string) bool {
 	ok, _ := r.VerifyBrokerCoverage(pubHex)
 	return ok

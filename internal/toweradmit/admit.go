@@ -226,23 +226,23 @@ func (r *Registry) IssueToken(owner string) (string, error) {
 	if err := r.store.ReapTokens(now); err != nil {
 		return "", unavailable(err)
 	}
-	live, err := r.store.LiveTokens(owner, now)
-	if err != nil {
-		return "", unavailable(err)
-	}
-	// Per account, so one operator hoarding cannot stop anybody else enrolling.
-	if len(live) >= r.cfg.MaxOpenTokensPerOwner {
-		return "", fmt.Errorf("this account already holds %d unused enrollment tokens; "+
-			"use one or let it expire before asking for another", len(live))
-	}
 	id, err := randomHex(24)
 	if err != nil {
 		return "", err
 	}
-	if err := r.store.PutToken(Token{ID: id, Owner: owner, Expires: now.Add(r.cfg.TokenTTL)}); err != nil {
+	// The cap is enforced by the WRITE, not by a count before it. Counting first and
+	// inserting after is a check-then-act, and concurrent mints all pass it - which is how
+	// the first version of this cap could be overshot by an attacker's concurrency.
+	written, err := r.store.PutTokenCapped(
+		Token{ID: id, Owner: owner, Expires: now.Add(r.cfg.TokenTTL)}, r.cfg.MaxOpenTokensPerOwner)
+	if err != nil {
 		// A token we could not record would be refused at redemption, so handing it to an
 		// operator is handing them a guaranteed failure later instead of an error now.
 		return "", unavailable(err)
+	}
+	if !written {
+		return "", fmt.Errorf("this account already holds %d unused enrollment tokens; "+
+			"use one or let it expire before asking for another", r.cfg.MaxOpenTokensPerOwner)
 	}
 	return id, nil
 }
