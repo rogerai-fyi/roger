@@ -18,6 +18,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -85,34 +86,47 @@ func newTowerSubsystem(b *broker, registryStore toweradmit.Store, custody towerc
 }
 
 // loadTowerSubsystem wires admission if - and only if - it can be durable.
-func loadTowerSubsystem(b *broker, db store.Store) *towerSubsystem {
+//
+// IT DISTINGUISHES NOT-CONFIGURED FROM MISCONFIGURED, and that distinction is the whole
+// point of the signature. No database means joined Towers are legitimately unavailable, so
+// this returns (nil, nil) and the broker carries on - standalone Towers need nothing from
+// us. But a database that IS present means somebody intended Towers to work, so anything
+// that then fails is a BROKEN DEPLOYMENT and comes back as an error the caller treats as
+// fatal.
+//
+// The earlier version turned admission off for both cases. That is how a migration bug
+// that failed on every least-privilege deployment stayed hidden: the broker started
+// healthily, served everything else, and logged one line about admission being
+// unavailable. The first person to notice would have been an operator whose registration
+// did not work.
+func loadTowerSubsystem(b *broker, db store.Store) (*towerSubsystem, error) {
 	pg, ok := db.(*store.Postgres)
 	if !ok {
 		log.Printf("tower: joined-Tower admission is OFF (no database). " +
 			"Standalone Towers are unaffected; they need nothing from us.")
-		return nil
+		return nil, nil
 	}
 	sqlDB := pg.DB()
 
+	fail := func(err error) (*towerSubsystem, error) {
+		return nil, fmt.Errorf("joined-Tower admission is configured but could not start: %w", err)
+	}
+
 	registryStore, err := toweradmit.NewPGStore(sqlDB)
 	if err != nil {
-		log.Printf("tower: joined-Tower admission is OFF: %v", err)
-		return nil
+		return fail(err)
 	}
 	custody, err := toweradmit.NewPGCustody(sqlDB)
 	if err != nil {
-		log.Printf("tower: joined-Tower admission is OFF: %v", err)
-		return nil
+		return fail(err)
 	}
 	enrollStore, err := toweradmit.NewPGEnrollStore(sqlDB)
 	if err != nil {
-		log.Printf("tower: joined-Tower admission is OFF: %v", err)
-		return nil
+		return fail(err)
 	}
 	enrollDurable, err := towerenroll.NewPGStore(enrollStore)
 	if err != nil {
-		log.Printf("tower: joined-Tower admission is OFF: %v", err)
-		return nil
+		return fail(err)
 	}
 
 	ts, err := newTowerSubsystem(b, registryStore, custody, enrollDurable, towercert.Config{
@@ -123,11 +137,10 @@ func loadTowerSubsystem(b *broker, db store.Store) *towerSubsystem {
 	if err != nil {
 		// A misconfigured root is a REFUSAL, not a reason to generate one: issuing under a
 		// root nobody chose is how every certificate on the network becomes unverifiable.
-		log.Printf("tower: joined-Tower admission is OFF - %v", err)
-		return nil
+		return fail(err)
 	}
 	log.Printf("tower: joined-Tower admission is ON (protocol v%d-%d)", towerProtocolMin, towerProtocolMax)
-	return ts
+	return ts, nil
 }
 
 // towerCertTTL is how long an issued Tower certificate lives. Short by intent: the lease in

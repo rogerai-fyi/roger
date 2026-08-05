@@ -19,6 +19,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"rogerai.fm/roger/v5/internal/pgmigrate"
 )
 
 // schema is applied on first use. Additive and idempotent, so opening against an existing
@@ -78,23 +80,6 @@ CREATE INDEX IF NOT EXISTS tower_admissions_owner_idx ON rogerai.tower_admission
 // PGStore is the database-backed Store.
 type PGStore struct{ db *sql.DB }
 
-// applySchema runs a migration, tolerating the one race Postgres genuinely has here.
-//
-// CREATE TABLE / CREATE INDEX with IF NOT EXISTS are NOT atomic against a concurrent
-// CREATE: two instances starting at the same moment can both find an object absent and both
-// try to create it, and the loser gets a unique-violation on the system catalog. That is not
-// a real failure - the object exists by the time the loser sees the error - so a single
-// retry resolves it. Failing startup here would mean a deploy that rolls two pods at once
-// refuses to come up.
-func applySchema(db *sql.DB, ddl string) error {
-	if _, err := db.Exec(ddl); err != nil {
-		if _, retry := db.Exec(ddl); retry != nil {
-			return retry
-		}
-	}
-	return nil
-}
-
 // NewPGStore wraps an already-open handle.
 //
 // It deliberately does NOT open its own connection: the broker already holds a pool to the
@@ -105,7 +90,7 @@ func NewPGStore(db *sql.DB) (*PGStore, error) {
 	if db == nil {
 		return nil, errors.New("a durable admission registry needs a database handle")
 	}
-	if err := applySchema(db, schema); err != nil {
+	if err := pgmigrate.Apply(db, schema); err != nil {
 		return nil, err
 	}
 	return &PGStore{db: db}, nil

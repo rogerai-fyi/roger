@@ -22,8 +22,21 @@ import (
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib" // database/sql driver
+	"rogerai.fm/roger/v5/internal/pgmigrate"
 	"rogerai.fm/roger/v5/internal/tower"
 )
+
+// execCtx carries the caller's deadline into the shared migration helper, which speaks the
+// plain Exec shape. Without it a Tower with an unreachable database would hang on startup
+// instead of failing inside its connect timeout.
+type execCtx struct {
+	ctx context.Context
+	db  *sql.DB
+}
+
+func (e execCtx) Exec(query string, args ...any) (sql.Result, error) {
+	return e.db.ExecContext(e.ctx, query, args...)
+}
 
 // schema is applied on first use. It is additive and idempotent, so starting a Tower
 // against an existing database never destroys what is there.
@@ -98,7 +111,9 @@ func (p *PGStore) connect() (*sql.DB, error) {
 		db.Close()
 		return nil, fmt.Errorf("cannot reach the Tower database: %w", err)
 	}
-	if _, err := db.ExecContext(ctx, schema); err != nil {
+	// Retried once: an operator running two Tower processes against one local database can
+	// have one lose a catalog race on an IF NOT EXISTS create. See internal/pgmigrate.
+	if err := pgmigrate.Apply(execCtx{ctx: ctx, db: db}, schema); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("cannot apply the Tower schema: %w", err)
 	}
