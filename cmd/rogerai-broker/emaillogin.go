@@ -25,7 +25,6 @@ import (
 	"time"
 
 	"rogerai.fm/roger/v5/internal/emailauth"
-	"rogerai.fm/roger/v5/internal/store"
 )
 
 // walletForEmail is the email account-wallet namespace, mirroring u_gh_<id> and
@@ -171,23 +170,6 @@ func (b *broker) emailVerify(w http.ResponseWriter, r *http.Request) {
 	b.setWebSessionWallet(w, login, 0, wallet, exp)
 
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "next": safeNext(req.Next)})
-}
-
-// bindEmailOwner records the owner row for an email account at device-approval time - the
-// first moment a key exists to bind one to.
-func (b *broker) bindEmailOwner(pubkey, addr string) error {
-	o := store.Owner{
-		Pubkey: pubkey, Login: addr,
-		Email: addr, EmailVerifiedAt: time.Now().Unix(),
-	}
-	if err := b.db.BindOwner(o); err != nil {
-		return err
-	}
-	b.invalidateOwnerWallet(pubkey)
-	if _, seeded, _ := b.db.SeedOnce(walletForEmail(addr), b.seedFunds); seeded {
-		b.invalidateSeedRemaining()
-	}
-	return nil
 }
 
 // --- the mail itself ------------------------------------------------------

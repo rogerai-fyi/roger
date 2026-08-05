@@ -509,6 +509,14 @@ func (p *Postgres) realEarnShareTx(tx *sql.Tx, wallet string, cost, ownerShare f
 	return ownerShare * realFrac, nil
 }
 
+// DB exposes the connection pool so a subsystem that owns its OWN tables in the same
+// database can share this one rather than opening a second.
+//
+// It is deliberately not a general escape hatch into the money schema: the caller applies
+// its own migrations and touches only its own tables. Sharing the pool keeps the connection
+// footprint honest and means one place decides the database's lifecycle.
+func (p *Postgres) DB() *sql.DB { return p.db }
+
 func (p *Postgres) SetSeedLimit(limit int) { p.seedLimit = limit }
 
 // SeedStatus reads the authoritative seed_counter (the durable count of distinct

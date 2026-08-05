@@ -99,6 +99,11 @@ func towerIDFromURI(u *url.URL) (string, bool) {
 // Config tunes the authority.
 type Config struct {
 	TTL time.Duration
+	// RootKeyPEM and RootCertPEM inject an existing root, so the deployment's secret store
+	// owns it rather than the application database. Supply BOTH or neither: see custody.go
+	// for why a half-configured root is refused instead of generated.
+	RootKeyPEM  []byte
+	RootCertPEM []byte
 }
 
 // Authority is Roger Core's issuer for joined-Tower credentials.
@@ -109,6 +114,9 @@ type Authority struct {
 
 	mu      sync.RWMutex
 	revoked map[string]bool // serial (decimal string) -> revoked
+	// custody persists revocations as they are made. Nil means this authority keeps them
+	// only in memory, which is correct for a test and never for a deployment.
+	custody Custody
 }
 
 // NewAuthority mints a fresh root and returns an authority over it. Production loads a
@@ -234,6 +242,19 @@ func (a *Authority) issueForTest(towerID string, pub crypto.PublicKey, mutate fu
 func (a *Authority) Revoke(serial *big.Int) error {
 	if serial == nil {
 		return errors.New("revocation names a serial")
+	}
+	a.mu.Lock()
+	custody := a.custody
+	a.mu.Unlock()
+
+	// Persisted FIRST, and the failure is reported. A revocation we could not record would
+	// be undone by the next restart, and an operator who was told it succeeded would have
+	// no reason to look again - so an in-memory-only revocation must never be reported as
+	// done.
+	if custody != nil {
+		if err := custody.SaveRevoked(serial.String()); err != nil {
+			return fmt.Errorf("that revocation could not be recorded, so it has NOT taken effect: %w", err)
+		}
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()

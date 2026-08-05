@@ -1,6 +1,7 @@
 package tower
 
 import (
+	"crypto/ed25519"
 	"os"
 	"path/filepath"
 	"testing"
@@ -150,4 +151,49 @@ func TestOneProcessOwnsTheIdentityDirectory(t *testing.T) {
 func TestOpenRejectsADirectoryThatIsNotATower(t *testing.T) {
 	_, err := Open(t.TempDir())
 	require.Error(t, err)
+}
+
+func TestTheTowersKeysAreDistinctAndReadable(t *testing.T) {
+	// Identity and TLS are separate powers from the first moment the directory exists, so
+	// rotating a certificate never touches who the Tower is, and a stolen channel key
+	// proves nothing about its identity.
+	dir := filepath.Join(t.TempDir(), "t")
+	st, err := Init(dir, ModeJoined)
+	require.NoError(t, err)
+
+	identity, err := st.IdentityKey()
+	require.NoError(t, err)
+	require.Len(t, identity, ed25519.PrivateKeySize)
+
+	channel, err := st.TLSKey()
+	require.NoError(t, err)
+	require.Len(t, channel, ed25519.PrivateKeySize)
+
+	require.NotEqual(t, identity, channel, "one key doing both jobs is the thing this avoids")
+
+	// They round-trip: a signature made with the loaded key verifies against the stored
+	// public half, so what is read back really is the key that was written.
+	msg := []byte("proof")
+	require.True(t, ed25519.Verify(identity.Public().(ed25519.PublicKey), msg, ed25519.Sign(identity, msg)))
+}
+
+func TestATruncatedOrMissingKeyIsRefusedRatherThanUsed(t *testing.T) {
+	// A partial key would produce signatures that simply never verify, and the failure
+	// would surface far from its cause - as the network appearing to reject this Tower.
+	dir := filepath.Join(t.TempDir(), "t")
+	st, err := Init(dir, ModeJoined)
+	require.NoError(t, err)
+
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "identity.key"), []byte("aabb"), 0o600))
+	_, err = st.IdentityKey()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "complete")
+
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "tls.key"), []byte("not hex at all"), 0o600))
+	_, err = st.TLSKey()
+	require.Error(t, err)
+
+	require.NoError(t, os.Remove(filepath.Join(dir, "identity.key")))
+	_, err = st.IdentityKey()
+	require.Error(t, err, "an absent key is not an empty key")
 }

@@ -108,11 +108,3 @@ func Register(st *tower.State, a Account) error {
 	}
 	return enrollFn(st, a)
 }
-
-// enroll is the real admission call. Phase 2 - the joined protocol, its short-lived
-// certificates, dispatch leases and receipt contract - has not shipped, so this reports
-// that plainly instead of failing obscurely or pretending a Tower was registered.
-func enroll(_ *tower.State, _ Account) error {
-	return errors.New("public Tower enrollment is not implemented yet (Phase 2 of the Tower plan): " +
-		"standalone mode is available today and needs no account")
-}
