@@ -80,12 +80,13 @@ func TestAChallengeIsTakenExactlyOnce(t *testing.T) {
 	_, err = db.Exec(`TRUNCATE rogerai.tower_enroll_challenges`)
 	require.NoError(t, err)
 
-	require.NoError(t, s.PutChallengeRow("n1", "tok-1", time.Now().Add(time.Minute)))
+	require.NoError(t, s.PutChallengeRow("n1", "tok-1", "enroll", time.Now().Add(time.Minute)))
 
 	row, ok, err := s.TakeChallengeRow("n1")
 	require.NoError(t, err)
 	require.True(t, ok)
-	require.Equal(t, "tok-1", row.TokenID)
+	require.Equal(t, "tok-1", row.Subject)
+	require.Equal(t, "enroll", row.Purpose)
 
 	_, ok, err = s.TakeChallengeRow("n1")
 	require.NoError(t, err)
@@ -104,8 +105,8 @@ func TestExpiredChallengesAreReaped(t *testing.T) {
 	require.NoError(t, err)
 
 	now := time.Now()
-	require.NoError(t, s.PutChallengeRow("dead", "tok-1", now.Add(-time.Minute)))
-	require.NoError(t, s.PutChallengeRow("live", "tok-1", now.Add(time.Minute)))
+	require.NoError(t, s.PutChallengeRow("dead", "tok-1", "enroll", now.Add(-time.Minute)))
+	require.NoError(t, s.PutChallengeRow("live", "tok-1", "enroll", now.Add(time.Minute)))
 
 	require.NoError(t, s.ReapChallenges(now))
 
@@ -171,7 +172,7 @@ func TestTheDurableCAAndEnrollmentTablesReportOutages(t *testing.T) {
 	require.ErrorIs(t, err, ErrUnavailable)
 	require.ErrorIs(t, custody.SaveRevoked("1"), ErrUnavailable)
 
-	require.ErrorIs(t, enroll.PutChallengeRow("n", "t", time.Now()), ErrUnavailable)
+	require.ErrorIs(t, enroll.PutChallengeRow("n", "t", "enroll", time.Now()), ErrUnavailable)
 	_, _, err = enroll.TakeChallengeRow("n")
 	require.ErrorIs(t, err, ErrUnavailable)
 	require.ErrorIs(t, enroll.ReapChallenges(time.Now()), ErrUnavailable)

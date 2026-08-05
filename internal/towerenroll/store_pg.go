@@ -25,7 +25,7 @@ func NewPGStore(inner *toweradmit.PGEnrollStore) (Store, error) {
 }
 
 func (p *pgStore) PutChallenge(c Challenge) error {
-	if err := p.inner.PutChallengeRow(c.Nonce, c.TokenID, c.Expires); err != nil {
+	if err := p.inner.PutChallengeRow(c.Nonce, c.Subject, c.Purpose, c.Expires); err != nil {
 		return unavailableStore(err)
 	}
 	return nil
@@ -39,7 +39,9 @@ func (p *pgStore) TakeChallenge(nonce string) (Challenge, bool, error) {
 	if !ok {
 		return Challenge{}, false, nil
 	}
-	return Challenge{Nonce: row.Nonce, TokenID: row.TokenID, Expires: row.Expires}, true, nil
+	return Challenge{
+		Nonce: row.Nonce, Subject: row.Subject, Purpose: row.Purpose, Expires: row.Expires,
+	}, true, nil
 }
 
 func (p *pgStore) Committed(txnID string) (Committed, bool, error) {

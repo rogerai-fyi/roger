@@ -48,7 +48,7 @@ func twoInstances(t *testing.T) (*Enroller, *Enroller, *toweradmit.Registry, Sto
 func requestFor(t *testing.T, reg *toweradmit.Registry, ch Challenge, owner, txn string, k towerKeys) Request {
 	t.Helper()
 	return Request{
-		Operator: owner, TokenID: ch.TokenID, TransactionID: txn,
+		Operator: owner, TokenID: ch.Subject, TransactionID: txn,
 		Nonce: ch.Nonce, IdentityKey: k.identityPub,
 		Signature: ed25519.Sign(k.identityPriv, ch.SigningInput()),
 		CSR:       csrFor(t, k.tls), ProtocolVersion: 1,
@@ -162,10 +162,10 @@ func TestAnExpiredChallengeIsReapedFromSharedState(t *testing.T) {
 	s := NewMemStore()
 	now := time.Now()
 	require.NoError(t, s.PutChallenge(Challenge{
-		Nonce: "n1", TokenID: "tok-1", Expires: now.Add(-time.Minute),
+		Nonce: "n1", Subject: "tok-1", Purpose: PurposeEnroll, Expires: now.Add(-time.Minute),
 	}))
 	require.NoError(t, s.PutChallenge(Challenge{
-		Nonce: "n2", TokenID: "tok-1", Expires: now.Add(time.Minute),
+		Nonce: "n2", Subject: "tok-1", Purpose: PurposeEnroll, Expires: now.Add(time.Minute),
 	}))
 
 	require.NoError(t, s.Reap(now))
@@ -182,7 +182,7 @@ func TestAnExpiredChallengeIsReapedFromSharedState(t *testing.T) {
 func TestTakeChallengeIsOneTime(t *testing.T) {
 	s := NewMemStore()
 	require.NoError(t, s.PutChallenge(Challenge{
-		Nonce: "n1", TokenID: "tok-1", Expires: time.Now().Add(time.Minute),
+		Nonce: "n1", Subject: "tok-1", Purpose: PurposeEnroll, Expires: time.Now().Add(time.Minute),
 	}))
 
 	_, ok, err := s.TakeChallenge("n1")
