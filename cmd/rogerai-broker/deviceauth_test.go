@@ -55,11 +55,19 @@ func pollDevice(t *testing.T, b *broker, priv ed25519.PrivateKey, deviceCode str
 }
 
 // approveAs posts an approval carrying a web session cookie, as the /device page does.
+// testWebOrigin is one of the first-party origins originAllowed accepts by default.
+const testWebOrigin = "https://rogerai.fm"
+
 func approveAs(t *testing.T, b *broker, cookie, userCode string) (int, string) {
 	t.Helper()
 	body, err := json.Marshal(map[string]string{"user_code": userCode})
 	require.NoError(t, err)
 	r := httptest.NewRequest(http.MethodPost, "/auth/device/approve", strings.NewReader(string(body)))
+	// A real browser always sends Origin here: the site and the broker are different
+	// origins, so every credentialed call from the page is cross-origin. The routes now
+	// require it (CSRF defence), and a test that omitted it was modelling a request no
+	// browser makes.
+	r.Header.Set("Origin", testWebOrigin)
 	if cookie != "" {
 		r.AddCookie(&http.Cookie{Name: sessionCookie, Value: cookie})
 	}
@@ -177,6 +185,7 @@ func TestDenyIsFinal(t *testing.T) {
 
 	body, _ := json.Marshal(map[string]string{"user_code": start["user_code"].(string)})
 	r := httptest.NewRequest(http.MethodPost, "/auth/device/deny", strings.NewReader(string(body)))
+	r.Header.Set("Origin", testWebOrigin)
 	r.AddCookie(&http.Cookie{Name: sessionCookie, Value: githubSession(b, "alice", 1234)})
 	w := httptest.NewRecorder()
 	b.deviceDeny(w, r)
@@ -197,6 +206,7 @@ func TestDescribeShowsTheApproverWhatTheyNeedAndNothingMore(t *testing.T) {
 	start := startDevice(t, b, priv)
 
 	r := httptest.NewRequest(http.MethodGet, "/auth/device/pending?user_code="+start["user_code"].(string), nil)
+	r.Header.Set("Origin", testWebOrigin)
 	r.AddCookie(&http.Cookie{Name: sessionCookie, Value: githubSession(b, "alice", 1234)})
 	w := httptest.NewRecorder()
 	b.devicePending(w, r)

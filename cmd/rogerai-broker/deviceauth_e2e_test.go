@@ -96,6 +96,7 @@ func TestEndToEndDenialIsReportedPlainly(t *testing.T) {
 
 	body, _ := json.Marshal(map[string]string{"user_code": d.UserCode})
 	r := httptest.NewRequest(http.MethodPost, "/auth/device/deny", strings.NewReader(string(body)))
+	r.Header.Set("Origin", testWebOrigin)
 	r.AddCookie(&http.Cookie{Name: sessionCookie, Value: githubSession(b, "alice", 4242)})
 	w := httptest.NewRecorder()
 	b.deviceDeny(w, r)

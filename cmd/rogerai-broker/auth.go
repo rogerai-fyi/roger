@@ -570,6 +570,29 @@ func originAllowed(r *http.Request) bool {
 	return false
 }
 
+// requireWebOrigin REJECTS a credentialed browser request that did not come from one of our
+// own origins, and reports whether the caller may proceed.
+//
+// corsCreds is not this. It only ADDS response headers when the origin is allowed - it
+// never refuses the request, and the browser's refusal to let an attacker READ the response
+// is no defence when the request ITSELF is the attack. The session cookie is SameSite=None
+// because the broker lives on a different origin from the site, so a browser attaches it to
+// requests from any page in the world.
+//
+// Without this, an attacker page could POST to a cookie-authenticated route with a victim's
+// session riding along. On /auth/device/approve that is account takeover: the attacker
+// submits their own user code and has their key bound to the victim's account and wallet.
+//
+// It belongs ONLY on surfaces that authenticate from a cookie. A signed CLI request carries
+// no Origin and must not be judged by one.
+func (b *broker) requireWebOrigin(w http.ResponseWriter, r *http.Request) bool {
+	if originAllowed(r) {
+		return true
+	}
+	jsonErr(w, http.StatusForbidden, "this request must come from the RogerAI site")
+	return false
+}
+
 // corsCredsPreflight answers a credentialed OPTIONS preflight (204 + the explicit
 // web-origin CORS headers) for the session/dashboard endpoints. Returns true when
 // it handled the request so the caller can stop.

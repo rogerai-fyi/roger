@@ -154,6 +154,13 @@ func (b *broker) deviceToken(w http.ResponseWriter, r *http.Request) {
 // deviceApprover resolves the signed-in human from the session cookie. It returns the
 // display login, and the provider identity needed to create the owner row.
 func (b *broker) deviceApprover(r *http.Request) (login string, gid int64, appleSub, wallet string, ok bool) {
+	// The origin check lives HERE, where the cookie is read, rather than in each route.
+	// Every caller of this function is by definition a credentialed browser surface, so a
+	// route added later cannot forget it - which is exactly how the CSRF hole this closes
+	// came to exist.
+	if !originAllowed(r) {
+		return "", 0, "", "", false
+	}
 	c, err := r.Cookie(sessionCookie)
 	if err != nil || c.Value == "" {
 		return "", 0, "", "", false
@@ -266,11 +273,25 @@ func (b *broker) bindApprovedDevice(pubkey, login string, gid int64, appleSub, s
 		o.AppleSub = appleSub
 		wallet = walletForAppleSub(appleSub)
 	default:
-		// A first-party account. `login` IS the verified address - it is what the session
-		// was minted with once the person proved they hold it, so the proof is already
-		// done and this bind records it rather than re-asserting it.
-		o.Login, o.Email, o.EmailVerifiedAt = login, login, time.Now().Unix()
+		// A first-party account. `login` IS the verified address - the session was minted
+		// with it once the person proved they hold it, so this records the proof rather
+		// than re-asserting it.
+		o.Email, o.EmailVerifiedAt = login, time.Now().Unix()
 		wallet = walletForEmail(login)
+
+		// ...unless this key ALREADY belongs to a provider-linked account. Adding an email
+		// to an existing account must not rename it or move its money: overwriting Login
+		// would replace a GitHub handle with an address, and seeding walletForEmail while
+		// the owner still resolves to u_gh_* would put the credit in a wallet nothing can
+		// reach. Linking is not merging.
+		if existing, found, err := b.db.OwnerByPubkey(pubkey); err == nil && found &&
+			(existing.GitHubID != 0 || existing.AppleSub != "") {
+			if w, ok := accountWalletForOwner(existing); ok {
+				wallet = w
+			}
+		} else {
+			o.Login = login
+		}
 		_ = sessWallet
 	}
 	if err := b.db.BindOwner(o); err != nil {

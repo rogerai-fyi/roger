@@ -313,3 +313,76 @@ func TestTheMigrationNeverCreatesTheSchemaItself(t *testing.T) {
 		})
 	}
 }
+
+func TestARenewalIsVisibleAfterReReadingFromPostgres(t *testing.T) {
+	// Found by the pre-push audit. CASTower's UPDATE listed the lifecycle columns but not
+	// cert_serial or tls_key_hash, so a renewal against Postgres left the registry naming
+	// the OLD certificate - and a Tower cannot be revoked by a serial the registry does not
+	// have. The memory store keeps the whole struct, so mem and PG silently disagreed.
+	//
+	// The renewal test that already existed asserted on the RETURNED struct, which is why
+	// it passed on both. This one re-reads.
+	s := pgStore(t)
+	tw := sampleAdmission("tw-renew", "key-renew")
+	require.NoError(t, s.PutToken(Token{ID: "tok-renew", Owner: "acct-1", Expires: time.Now().Add(time.Hour)}))
+	ok, err := s.Admit("tok-renew", tw)
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	read, found, err := s.TowerByID("tw-renew")
+	require.NoError(t, err)
+	require.True(t, found)
+
+	read.CertSerial = "77777"
+	read.TLSKeyHash = "tls-rotated"
+	read.LeaseSequence = 2
+	read.LifecycleRevision = 3
+	read.LifecycleHash = "lifecycle-3"
+	read.RenewedAt = time.Now()
+	read.Capabilities = []string{"relay", "vision"}
+	won, err := s.CASTower(read)
+	require.NoError(t, err)
+	require.True(t, won)
+
+	after, _, err := s.TowerByID("tw-renew")
+	require.NoError(t, err)
+	require.Equal(t, "77777", after.CertSerial, "revocation names this; it must survive the write")
+	require.Equal(t, "tls-rotated", after.TLSKeyHash)
+	require.EqualValues(t, 2, after.LeaseSequence)
+	require.EqualValues(t, 3, after.LifecycleRevision)
+	require.Equal(t, "lifecycle-3", after.LifecycleHash)
+	require.False(t, after.RenewedAt.IsZero(), "the renewal timestamp is what floors the rate limit")
+	require.Equal(t, []string{"relay", "vision"}, after.Capabilities)
+}
+
+func TestTheTokenCapHoldsUnderConcurrentMinting(t *testing.T) {
+	// Found by the pre-push audit. The cap was Reap -> count -> insert with nothing between
+	// them, so concurrent mints all read the same count, all passed, and all inserted -
+	// overshooting by the attacker's concurrency, once per TTL window. A cap that only
+	// holds when nobody is trying is not a cap.
+	s := pgStore(t)
+	r := NewWithStore(Config{MaxOpenTokensPerOwner: 3, TokenTTL: time.Hour}, s)
+
+	const racers = 20
+	start := make(chan struct{})
+	done := make(chan bool, racers)
+	for i := 0; i < racers; i++ {
+		go func() {
+			<-start
+			_, err := r.IssueToken("acct-race")
+			done <- err == nil
+		}()
+	}
+	close(start)
+	minted := 0
+	for i := 0; i < racers; i++ {
+		if <-done {
+			minted++
+		}
+	}
+
+	live, err := s.LiveTokens("acct-race", time.Now())
+	require.NoError(t, err)
+	require.LessOrEqual(t, len(live), 3, "the database must hold the cap, whoever races")
+	require.LessOrEqual(t, minted, 3, "and no caller may be told it succeeded beyond it")
+}

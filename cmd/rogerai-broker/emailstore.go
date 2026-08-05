@@ -84,6 +84,7 @@ func emailTTLFor(r emailauth.Record) time.Duration {
 // because the first mail was slow must not leave a live spare in their inbox.
 var putScript = redis.NewScript(`
 redis.call('HSET', KEYS[1], 'rec', ARGV[1], 'rev', ARGV[2])
+redis.call('HDEL', KEYS[1], 'attempts')
 redis.call('PEXPIRE', KEYS[1], ARGV[3])
 return 1
 `)

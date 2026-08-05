@@ -255,3 +255,35 @@ func TestAnAlreadyExpiredRecordStillLands(t *testing.T) {
 	require.Positive(t, emailTTLFor(emailauth.Record{Expires: time.Now().Add(-time.Hour)}))
 	require.Positive(t, emailTTLFor(emailauth.Record{Expires: time.Now().Add(time.Hour)}))
 }
+
+func TestAFreshCodeGetsAFreshGuessingBudget(t *testing.T) {
+	// Found by the pre-push audit. Penalize increments an `attempts` hash field for
+	// atomicity; the replace script rewrote only `rec` and left that field behind, so a
+	// newly mailed code inherited the previous code's spent budget. Someone guessing at
+	// your address could have stopped you signing in at all - and the in-process store
+	// resets on Put, so the two disagreed.
+	s, _ := newSharedEmailStore(t)
+	now := time.Now()
+	require.NoError(t, s.Put(emailauth.Record{
+		AddrHash: "addr-1", CodeHash: "old", Issued: now, Expires: now.Add(time.Minute),
+	}))
+	for i := 0; i < 5; i++ {
+		_, err := s.Penalize("addr-1", time.Minute)
+		require.NoError(t, err)
+	}
+	spent, _, err := s.ByAddress("addr-1")
+	require.NoError(t, err)
+	require.Equal(t, 5, spent.Attempts)
+
+	// A new code is a new start.
+	require.NoError(t, s.Put(emailauth.Record{
+		AddrHash: "addr-1", CodeHash: "new", Issued: now, Expires: now.Add(time.Minute),
+	}))
+	fresh, _, err := s.ByAddress("addr-1")
+	require.NoError(t, err)
+	require.Zero(t, fresh.Attempts, "a fresh code carries a fresh budget")
+
+	n, err := s.Penalize("addr-1", time.Minute)
+	require.NoError(t, err)
+	require.Equal(t, 1, n, "and counting restarts from one, not from six")
+}

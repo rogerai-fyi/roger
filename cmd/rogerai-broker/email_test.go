@@ -345,17 +345,14 @@ func drain(ch chan map[string]any, wait time.Duration) int {
 }
 
 // Originally found in the 2026-08-01 migration re-audit, and still the same invariant
-// after the 2026-08-03 move to ZeptoMail: a provider will only send from a domain IT
-// has VERIFIED with ITS OWN published DKIM key. Pointing one provider at the other's
-// domain is either rejected outright or, worse, accepted unsigned and then failed by
-// the recipient's DMARC check.
-//
-//	ZeptoMail verified rogerai.fm   (3121226783._domainkey.rogerai.fm, published 2026-08-03)
-//	Resend    verified rogerai.fyi  (resend._domainkey.rogerai.fyi)
+// A provider will only send from a domain IT has verified with ITS OWN published DKIM key.
+// Pointing one provider at another's domain is either rejected outright or, worse, accepted
+// unsigned and then failed by the recipient's DMARC check.
 //
 // So the default sender MUST track the selected provider. Losing that coupling would
 // silently kill every outbound mail, which is exactly the failure this test exists to
-// prevent.
+// prevent. Which domains a given deployment has verified, and with whom, is its own
+// configuration - MAIL_FROM - and deliberately not recorded here.
 func TestMailerDefaultSenderMatchesTheProvidersVerifiedDomain(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
