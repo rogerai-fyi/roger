@@ -65,6 +65,28 @@ services:
       - key: ROGERAI_REQUIRE_BROKER_KEY # refuse to boot with an ephemeral key
         scope: RUN_TIME
         value: "1"
+      # The first-party web origins. PINNED rather than left to the built-in default,
+      # because as of v5.6.0 this list decides whether SIGN-IN WORKS AT ALL, not just
+      # which CORS header goes out: /auth/device/{pending,approve,deny} and
+      # /auth/email/{start,verify} authenticate from a SameSite=None cookie and now
+      # refuse any request whose Origin is not on it (CSRF defence - without it an
+      # attacker page could bind its own key to a victim's account).
+      #
+      # Pinned here so a hostname change fails in REVIEW rather than as a 403 at sign-in.
+      #
+      # Singular = the PRIMARY origin; it is the Domain of the JS-readable signed-in hint
+      # cookie, so it must be exactly one host.
+      - key: ROGERAI_WEB_ORIGIN
+        scope: RUN_TIME
+        value: https://rogerai.fm
+      # Plural = the full allow-list. It must include every origin a browser can actually
+      # be on. The www hosts 301 to their apex today, so a browser never presents them -
+      # they are listed anyway because if that redirect ever stops, the failure is a silent
+      # 403 on sign-in rather than anything that looks like a DNS change. Both migration
+      # domains stay listed until .fyi is retired: dropping one signs those visitors out.
+      - key: ROGERAI_WEB_ORIGINS
+        scope: RUN_TIME
+        value: https://rogerai.fm,https://www.rogerai.fm,https://rogerai.fyi,https://www.rogerai.fyi
       # --- money ---
       - key: STRIPE_SECRET_KEY
         scope: RUN_TIME
