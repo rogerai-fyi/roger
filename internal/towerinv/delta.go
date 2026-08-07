@@ -39,8 +39,12 @@ func (s *Set) AcceptDelta(channelTowerID string, towerKey ed25519.PublicKey, raw
 		// A body we cannot parse, a schema we do not recognise, or a signature that does not
 		// verify all leave us unable to place this delta - which is a resync, not a
 		// rejection. Identity faults are the exception and stay rejections.
+		//
+		// openSigned hands back a BARE cause precisely so this choice is ours to make. An
+		// error carrying both sentinels would answer errors.Is affirmatively either way,
+		// and a caller asking "must I resend a snapshot?" would get yes and no at once.
 		if errors.Is(err, errIdentity) {
-			return Result{}, err
+			return Result{}, reject(err)
 		}
 		return Result{}, resync(err)
 	}

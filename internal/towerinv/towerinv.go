@@ -333,7 +333,7 @@ func (s *Set) AcceptFull(channelTowerID string, towerKey ed25519.PublicKey, raw 
 		"network", "tower_id", "revision", "prev_hash", "lease_head", "lifecycle_head",
 		"issued", "expires", "leaves", sigMember)
 	if err != nil {
-		return Result{}, err
+		return Result{}, reject(err)
 	}
 
 	revision, err := s.fullSequence(inv, channelTowerID)
@@ -431,35 +431,40 @@ func (s *Set) install(towerID string, next *state) {
 
 // openSigned performs the checks every signed Tower object shares: canonical bytes, the
 // closed schema, the network, the channel identity, and the Tower's signature.
+//
+// It returns BARE causes, never ErrRejected/ErrResync. Which of those a failure means is
+// the caller's decision - a snapshot rejects, a delta usually resyncs - and an error that
+// arrived pre-wrapped would satisfy errors.Is for both sentinels at once, which makes the
+// distinction the package rests on unaskable.
 func (s *Set) openSigned(channelTowerID string, towerKey ed25519.PublicKey, objType string, raw []byte, allowed ...string) (obj, error) {
 	if len(raw) > s.cfg.MaxBytes {
-		return nil, reject(fmt.Errorf("%d encoded bytes is above the limit of %d", len(raw), s.cfg.MaxBytes))
+		return nil, fmt.Errorf("%d encoded bytes is above the limit of %d", len(raw), s.cfg.MaxBytes)
 	}
 	o, err := canonicalObject(raw)
 	if err != nil {
-		return nil, reject(err)
+		return nil, err
 	}
 	if err := o.closed(allowed...); err != nil {
-		return nil, reject(err)
+		return nil, err
 	}
 	network, err := o.str("network")
 	if err != nil {
-		return nil, reject(err)
+		return nil, err
 	}
 	if network != s.cfg.Network {
-		return nil, reject(fmt.Errorf("%w: network %q is not %q", errIdentity, network, s.cfg.Network))
+		return nil, fmt.Errorf("%w: network %q is not %q", errIdentity, network, s.cfg.Network)
 	}
 	towerID, err := o.str("tower_id")
 	if err != nil {
-		return nil, reject(err)
+		return nil, err
 	}
 	// The object must name the Tower whose certificate opened this channel. Without this a
 	// Tower could relay another Tower's inventory and inherit its fleet.
 	if towerID != channelTowerID {
-		return nil, reject(fmt.Errorf("%w: tower_id %q is not the channel identity %q", errIdentity, towerID, channelTowerID))
+		return nil, fmt.Errorf("%w: tower_id %q is not the channel identity %q", errIdentity, towerID, channelTowerID)
 	}
 	if err := towerobj.Verify(towerKey, s.cfg.Network, objType, Version, raw, sigMember); err != nil {
-		return nil, reject(fmt.Errorf("Tower signature: %w", err))
+		return nil, fmt.Errorf("Tower signature: %w", err)
 	}
 	return o, nil
 }

@@ -182,6 +182,11 @@ func TestAnAmbiguousDeltaCausesResynchronization(t *testing.T) {
 
 			_, err := h.set.AcceptDelta(towerA, h.towerPub(), h.delta(row.spec(h, base)))
 			require.ErrorIs(t, err, ErrResync, "condition %q must force a resync", row.condition)
+			// The two sentinels have to be mutually exclusive or asking which one this is
+			// gets yes for both. Found by the pre-push audit: openSigned used to hand back
+			// an already-rejected error that the delta path then wrapped as a resync.
+			require.NotErrorIs(t, err, ErrRejected,
+				"condition %q must be a resync and NOT also a rejection", row.condition)
 			if row.want != "" {
 				require.Contains(t, err.Error(), row.want,
 					"condition %q was caught by a different check than the one it names", row.condition)
@@ -330,6 +335,7 @@ func TestMalformedOperationsForceAResync(t *testing.T) {
 				base: 40, revision: 41, prevHash: base.Hash, ops: []any{tc.op},
 			}))
 			require.ErrorIs(t, err, ErrResync)
+			require.NotErrorIs(t, err, ErrRejected)
 		})
 	}
 }
@@ -352,6 +358,7 @@ func TestADeltaWithAMalformedSequenceForcesAResync(t *testing.T) {
 				base: 40, revision: 41, prevHash: base.Hash, pre: tc.pre,
 			}))
 			require.ErrorIs(t, err, ErrResync)
+			require.NotErrorIs(t, err, ErrRejected)
 		})
 	}
 }
