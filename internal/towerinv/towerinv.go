@@ -363,7 +363,12 @@ func (s *Set) AcceptFull(channelTowerID string, towerKey ed25519.PublicKey, raw 
 	}
 
 	next := &state{byOffer: make(map[string]Leaf, len(rawLeaves))}
+	// stations and offers record what was SUBMITTED, not what was admitted. Checking
+	// uniqueness against the admitted set instead would let a duplicate ride in behind an
+	// excluded leaf: the first occurrence never lands, so the second looks unique, and a
+	// revision with two claims on one offer ID is accepted.
 	stations := map[string]bool{}
+	offers := map[string]bool{}
 	caps := map[string]bool{}
 	var excluded []Exclusion
 
@@ -381,10 +386,10 @@ func (s *Set) AcceptFull(channelTowerID string, towerKey ed25519.PublicKey, raw 
 		if stations[ident.stationID] {
 			return Result{}, reject(fmt.Errorf("Station %s appears twice", ident.stationID))
 		}
-		if _, dup := next.byOffer[ident.offerID]; dup {
+		if offers[ident.offerID] {
 			return Result{}, reject(fmt.Errorf("offer %s appears twice", ident.offerID))
 		}
-		stations[ident.stationID] = true
+		stations[ident.stationID], offers[ident.offerID] = true, true
 
 		leaf, why := s.admitLeaf(channelTowerID, lo)
 		if why != "" {
@@ -488,6 +493,13 @@ func (s *Set) fullSequence(o obj, towerID string) (int64, error) {
 	if err != nil {
 		return 0, reject(err)
 	}
+	// prev_hash is required on EVERY snapshot, including the first. The schema is closed
+	// and complete: a member that is only sometimes required is a member a Tower can drop,
+	// and "we could not check it this time" must not become "it need not be there".
+	prev, err := o.str("prev_hash")
+	if err != nil {
+		return 0, reject(err)
+	}
 	prior, havePrior := s.towers[towerID]
 	if !havePrior {
 		return revision, nil
@@ -497,10 +509,6 @@ func (s *Set) fullSequence(o obj, towerID string) (int64, error) {
 		return 0, reject(fmt.Errorf("revision %d does not advance on the accepted %d", revision, prior.revision))
 	case revision != prior.revision+1:
 		return 0, reject(fmt.Errorf("revision %d skips %d", revision, prior.revision+1))
-	}
-	prev, err := o.str("prev_hash")
-	if err != nil {
-		return 0, reject(err)
 	}
 	if prev != prior.hash {
 		return 0, reject(errors.New("prev_hash is not the accepted head"))
