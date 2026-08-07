@@ -47,6 +47,20 @@ func TestOrderingIsByUTF16CodeUnitAsJCSRequires(t *testing.T) {
 	require.NoError(t, err)
 	// a < z < é(U+00E9) < 😀(surrogate pair D83D DE00)
 	require.Equal(t, `{"a":"a","z":"z","é":"e","😀":"emoji"}`, string(out))
+
+	// The vector above does NOT discriminate, which the pre-push audit caught: those four
+	// keys sort identically under UTF-16 code units and under Go's byte order, so a
+	// byte-wise implementation passes it - and byte-wise is exactly the bug this test's
+	// name claims to catch.
+	//
+	// This pair does discriminate. U+FFFD is a single code unit FFFD; the emoji is the
+	// surrogate pair D83D DE00, and D83D < FFFD, so UTF-16 puts the EMOJI FIRST. In UTF-8
+	// bytes it is the other way round - U+FFFD is EF BF BD, the emoji is F0 9F 98 80, and
+	// EF < F0 - so a byte-wise sort produces the opposite order and fails here.
+	out, err = Canonical([]byte(`{"�":"replacement","😀":"emoji"}`))
+	require.NoError(t, err)
+	require.Equal(t, "{\"\U0001F600\":\"emoji\",\"�\":\"replacement\"}", string(out),
+		"a byte-wise sort puts U+FFFD first; JCS puts the astral-plane key first")
 }
 
 func TestWhitespaceIsRemoved(t *testing.T) {
