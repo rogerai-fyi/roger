@@ -188,9 +188,12 @@ func (h *harness) inventory(spec invSpec) []byte {
 		"expires":        h.unix(spec.expires),
 		"leaves":         leaves,
 	}
-	if spec.prevHash != "" {
-		m["prev_hash"] = spec.prevHash
+	// Always present, even on a cold start: prev_hash is a required member whose VALUE is
+	// unverifiable before there is a head to compare it against.
+	if spec.prevHash == "" {
+		spec.prevHash = "genesis"
 	}
+	m["prev_hash"] = spec.prevHash
 	return h.finish(m, TypeInventory, spec.pre, spec.post, spec.rawPost, spec.signer, spec.unsigned)
 }
 
@@ -660,9 +663,40 @@ func TestAFullSnapshotMissingItsChainLinkIsRejected(t *testing.T) {
 	h.baseline()
 	_, err := h.set.AcceptFull(towerA, h.towerPub(), h.inventory(invSpec{
 		revision: 41, leaves: []map[string]any{h.offer(stationA, "offer-1", offerSpec{})},
+		pre: func(m map[string]any) { delete(m, "prev_hash") },
 	}))
 	require.ErrorIs(t, err, ErrRejected)
 	require.Contains(t, err.Error(), `missing required member "prev_hash"`)
+
+	// And on a cold start too, where its value cannot be checked. Found by the pre-push
+	// audit: the member was read only inside the chained branch, so the very first snapshot
+	// from a Tower could omit it entirely and the closed schema quietly stopped being
+	// complete.
+	fresh := newHarness(t)
+	_, err = fresh.set.AcceptFull(towerA, fresh.towerPub(), fresh.inventory(invSpec{
+		pre: func(m map[string]any) { delete(m, "prev_hash") },
+	}))
+	require.ErrorIs(t, err, ErrRejected)
+	require.Contains(t, err.Error(), `missing required member "prev_hash"`)
+}
+
+func TestADuplicateOfferHidingBehindAnExcludedLeafStillSinksTheRevision(t *testing.T) {
+	// Found by the pre-push audit. Uniqueness was checked against the ADMITTED leaves, so a
+	// first occurrence that got excluded never registered - and the second claim on the
+	// same offer ID sailed through as unique. The revision then carried two claims on one
+	// offer while the exclusion list simultaneously reported that offer as dropped.
+	h := newHarness(t)
+	banned := h.pol.stations[stationA]
+	banned.Banned = true
+	h.pol.stations[stationA] = banned
+
+	_, err := h.set.AcceptFull(towerA, h.towerPub(), h.inventory(invSpec{leaves: []map[string]any{
+		h.offer(stationA, "offer-x", offerSpec{}), // excluded: banned Station
+		h.offer(stationB, "offer-x", offerSpec{}), // and yet the offer ID is taken
+	}}))
+	require.ErrorIs(t, err, ErrRejected)
+	require.Contains(t, err.Error(), "offer offer-x appears twice")
+	require.Nil(t, h.set.Routable(towerA))
 }
 
 func TestMalformedLeafMembersExcludeTheLeaf(t *testing.T) {
@@ -734,7 +768,7 @@ func TestAStationBehindTwoTowersDoesNotGetCountedTwice(t *testing.T) {
 	viaB := h.offer(stationA, "offer-2", offerSpec{pre: func(m map[string]any) { m["tower_id"] = towerB }})
 	rawB := h.finish(map[string]any{
 		"network": PublicNetwork, "tower_id": towerB, "revision": "1",
-		"lease_head": "lease-1", "lifecycle_head": "life-1",
+		"prev_hash": "genesis", "lease_head": "lease-1", "lifecycle_head": "life-1",
 		"issued": h.unix(0), "expires": h.unix(30 * time.Minute),
 		"leaves": []any{viaB},
 	}, TypeInventory, nil, nil, nil, h.towerKey, false)
@@ -761,7 +795,7 @@ func TestForgettingATowerReleasesItsStations(t *testing.T) {
 	viaB := h.offer(stationA, "offer-2", offerSpec{pre: func(m map[string]any) { m["tower_id"] = towerB }})
 	rawB := h.finish(map[string]any{
 		"network": PublicNetwork, "tower_id": towerB, "revision": "1",
-		"lease_head": "lease-1", "lifecycle_head": "life-1",
+		"prev_hash": "genesis", "lease_head": "lease-1", "lifecycle_head": "life-1",
 		"issued": h.unix(0), "expires": h.unix(30 * time.Minute),
 		"leaves": []any{viaB},
 	}, TypeInventory, nil, nil, nil, h.towerKey, false)
