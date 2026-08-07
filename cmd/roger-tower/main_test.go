@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +13,22 @@ import (
 	"github.com/stretchr/testify/require"
 	"rogerai.fm/roger/v5/internal/tower"
 )
+
+// TestMain makes it impossible for a test in this package to reach a live service.
+//
+// towerjoin's broker base defaults to https://broker.rogerai.fm - PRODUCTION - whenever
+// ROGER_BROKER is unset, so any test that exercises `register` without pinning it posts a
+// real enrollment to the live network. Worse, such a test's result depends on whether the
+// machine running it happens to have a route: it "passes" on a sealed CI box because the
+// call fails, and fails on a connected laptop because the call SUCCEEDS.
+//
+// The default here is a loopback port nothing listens on, so forgetting to pin the broker
+// costs an instant connection refusal instead of a call to production. Tests that want a
+// broker stand one up with httptest and override this.
+func TestMain(m *testing.M) {
+	os.Setenv("ROGER_BROKER", "http://127.0.0.1:1")
+	os.Exit(m.Run())
+}
 
 func runCLI(t *testing.T, args ...string) (string, error) {
 	t.Helper()
@@ -408,12 +426,30 @@ func TestJoinedLoginSignsInAndPointsAtRegister(t *testing.T) {
 	require.Contains(t, out, "signed in as @alice")
 	require.Contains(t, out, "register --dir")
 
-	// Now signed in, register really attempts enrollment against the broker. With no broker
-	// reachable it fails on the CALL rather than on a placeholder - which is the point: the
-	// path is wired, and the error a person sees is about the network, not about a feature
-	// that does not exist.
+	// Now signed in, register really attempts enrollment. The point is that the path is
+	// WIRED: a real request goes to the broker's real endpoint, and the error a person sees
+	// describes the broker's real answer rather than a feature that does not exist.
+	//
+	// The broker here is a local stub, and that is the whole fix. This assertion used to run
+	// against whatever the broker base defaulted to, which is production. It "passed" only
+	// where the broker was unreachable; on a connected machine the enrollment SUCCEEDED, so
+	// the expected error never came - a unit test that called the live network and whose
+	// verdict depended on the network conditions of whoever ran it.
+	var hit string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hit = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"error":"this account may not run a Tower"}`))
+	}))
+	t.Cleanup(srv.Close)
+	t.Setenv("ROGER_BROKER", srv.URL)
+
 	_, err = runCLI(t, "register", "--dir", dir)
 	require.Error(t, err)
+	require.Equal(t, "/tower/token", hit,
+		"registration must actually call the broker - an error from anywhere else would satisfy "+
+			"the assertion below without the path being wired at all")
 	require.NotContains(t, err.Error(), "not implemented",
 		"registration is implemented; a failure here must describe the real problem")
 }
