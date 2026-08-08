@@ -89,7 +89,15 @@ func (s *Server) handlePrivate(w http.ResponseWriter, r *http.Request) {
 	case res.AtLimit:
 		resp.Message = "at the on-air limit — take one off air first"
 	case res.Err != nil:
-		resp.Message = "could not change " + req.Model + " visibility: " + res.Err.Error()
+		// Same shape as the TUI status line: the broker's reason leads, then whether the
+		// row survived the failed flip. The browser has room for the full chain, but the
+		// off-air fact is the one an operator must not have to infer.
+		resp.Message = "could not change " + req.Model + " visibility: " + node.ErrReason(res.Err)
+		if res.Restored {
+			resp.Message += " — " + req.Model + " is still on air, unchanged"
+		} else {
+			resp.Message += " — " + req.Model + " went off air"
+		}
 	case !res.NowPrivate:
 		resp.Message = "back on the open market — " + req.Model + " is public again"
 	default:
