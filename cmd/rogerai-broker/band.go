@@ -153,13 +153,34 @@ func (b *broker) bandsByID(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusNotFound, "no such band")
 		return
 	}
+	// PROVE POSSESSION OF THE KEY, do not merely accept its name.
+	//
+	// requireOwner resolves an owner from the X-Roger-Pubkey header and verifies NO
+	// signature, so on its own it treats a PUBLIC key as a bearer credential: anyone who
+	// learns an owner's pubkey could burn their band's code or repoint it at a model they
+	// control. Both mutations here are destructive - a revoke can never be undone, and a
+	// move silently redirects everyone already tuned in.
+	//
+	// identityOf verifies the Ed25519 signature over method + path + body, and rejects a
+	// request that offers a signature which does not verify. The clients have been signing
+	// all along (internal/client/rc.go RevokeBand/MoveBand both use signedDo), so this
+	// closes a gap between what the design documents and what the code enforced rather than
+	// changing any caller's contract.
+	//
+	// The body is read HERE because the signature covers it, and moveBand is handed the
+	// same bytes - re-reading r.Body after this point yields nothing.
+	body, _ := io.ReadAll(io.LimitReader(r.Body, 16<<10))
+	if _, authed, iok := b.identityOf(r, body); !iok || !authed {
+		jsonErr(w, http.StatusForbidden, "managing private bands requires a signed request - run `roger login`")
+		return
+	}
 	owner, ok := b.requireOwner(r)
 	if !ok {
 		jsonErr(w, http.StatusForbidden, "managing private bands requires a GitHub-linked owner - run `roger login`")
 		return
 	}
 	if r.Method == http.MethodPatch {
-		b.moveBand(w, r, owner, id)
+		b.moveBand(w, r, owner, id, body)
 		return
 	}
 	if r.Method != http.MethodDelete {
@@ -201,9 +222,8 @@ type moveBandReq struct {
 //
 // A band belonging to another owner answers exactly like one that does not exist, so this
 // endpoint can never be used to enumerate other people's band ids.
-func (b *broker) moveBand(w http.ResponseWriter, r *http.Request, owner store.Owner, id string) {
+func (b *broker) moveBand(w http.ResponseWriter, r *http.Request, owner store.Owner, id string, body []byte) {
 	var req moveBandReq
-	body, _ := io.ReadAll(io.LimitReader(r.Body, 16<<10))
 	if err := json.Unmarshal(body, &req); err != nil {
 		jsonErr(w, http.StatusBadRequest, "invalid JSON body")
 		return

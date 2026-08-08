@@ -20,11 +20,12 @@ func brokerWithOwner(t *testing.T) (*broker, store.Owner) {
 	_, bpriv, _ := ed25519.GenerateKey(nil)
 	b := &broker{db: mem, priv: bpriv, pubOfUser: map[string]string{}}
 	b.bill.creditUSD = 1
-	pub, _, _ := ed25519.GenerateKey(nil)
+	pub, opriv, _ := ed25519.GenerateKey(nil)
 	o := store.Owner{GitHubID: 7, Login: "octocat", Pubkey: hex.EncodeToString(pub), Email: "o@x.com"}
 	if err := mem.BindOwner(o); err != nil {
 		t.Fatal(err)
 	}
+	rememberTestOwnerKey(o.Pubkey, opriv)
 	return b, o
 }
 
@@ -141,6 +142,7 @@ func TestBandsHandlers(t *testing.T) {
 	// Revoke an unknown id -> 404.
 	rNo := httptest.NewRequest(http.MethodDelete, "/bands/nope", nil)
 	rNo.Header.Set("X-Roger-Pubkey", o.Pubkey)
+	signAsTestOwner(rNo, o.Pubkey, nil)
 	wNo := httptest.NewRecorder()
 	b.bandsByID(wNo, rNo)
 	if wNo.Code != http.StatusNotFound {
@@ -150,6 +152,7 @@ func TestBandsHandlers(t *testing.T) {
 	// Revoke the owner's band -> 200.
 	rDel := httptest.NewRequest(http.MethodDelete, "/bands/band_1", nil)
 	rDel.Header.Set("X-Roger-Pubkey", o.Pubkey)
+	signAsTestOwner(rDel, o.Pubkey, nil)
 	wDel := httptest.NewRecorder()
 	b.bandsByID(wDel, rDel)
 	if wDel.Code != http.StatusOK {
