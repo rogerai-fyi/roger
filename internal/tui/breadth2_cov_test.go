@@ -138,7 +138,7 @@ func TestAgentModelPickerKeys(t *testing.T) {
 	}
 
 	// enter selects the highlighted candidate + closes the picker.
-	selModel := asModel(pmm).agentPickerRows[1]
+	selModel := asModel(pmm).agentPickerRows[1].model
 	var navm tea.Model = pm
 	navm, _ = navm.Update(tea.KeyMsg{Type: tea.KeyDown})
 	navm, _ = navm.Update(tea.KeyMsg{Type: tea.KeyEnter})

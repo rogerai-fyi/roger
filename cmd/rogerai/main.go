@@ -595,10 +595,15 @@ func tuiHooks(cfg config) tui.Hooks {
 			}
 			out := make([]tui.BandRow, 0, len(bands))
 			for _, b := range bands {
-				out = append(out, tui.BandRow{ID: b.ID, Display: b.Display, Label: b.Label, Status: b.Status})
+				// NodeID rides along so BASE STATION can say WHICH model (and which machine)
+				// a band is on. Without it a band parked on another box is indistinguishable
+				// from a local one - exactly how the founder lost their one free slot.
+				out = append(out, tui.BandRow{ID: b.ID, Display: b.Display, Label: b.Label, Status: b.Status, NodeID: b.NodeID})
 			}
 			return out, nil
 		},
+		BandRevoke: func(broker, bandID string) error { return client.RevokeBand(broker, bandID) },
+		BandMove:   func(broker, bandID, nodeID string) error { return client.MoveBand(broker, bandID, nodeID) },
 		RCAttach: func(broker, code string) (string, string, string, error) {
 			res, err := client.AttachRC(broker, code)
 			return res.AttachToken, res.SessionID, res.Name, err
@@ -831,6 +836,8 @@ func dispatch(cfg config, args []string) error {
 		return cmdLimit(cfg, args[1:])
 	case "payout", "payouts", "cashout":
 		return cmdPayout(cfg, args[1:])
+	case "bands", "band":
+		return cmdBands(cfg, args[1:])
 	case "grant":
 		return cmdGrant(cfg, args[1:])
 	case "context":
@@ -2202,6 +2209,7 @@ providers (share your GPU):
   roger share <model>         go on air - FREE by default, no login (auto-detects your model)
   roger login                 link GitHub - only needed to EARN
   roger payout                cash out your earnings (status · onboard · request · history)
+  roger bands                 your private bands: list · move · revoke
   roger grant create --name my-bots   a free private key for your bots/family
   roger drphil                diagnose why your node isn't earning (auto-fixes config)
   roger appeal --reason "..." contest a strike/ban (self-serve; "appeal status" to track)

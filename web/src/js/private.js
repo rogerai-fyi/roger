@@ -86,10 +86,29 @@
     }).catch(function () { hide("loading"); show("error"); });
   }
 
+  // A FAILURE IS NOT AN EMPTY LIST. This used to map every non-ok response (and every
+  // thrown error) to renderBands([]), so a 403 rendered "No private bands yet" - the page
+  // confidently told owners they owned nothing when it had simply failed to ask properly.
+  // Say which one actually happened.
   function loadBands() {
-    api("/bands").then(function (r) { return r.ok ? r.json() : { bands: [] }; })
+    api("/bands").then(function (r) {
+      if (r.ok) { return r.json(); }
+      throw new Error(r.status === 401 || r.status === 403
+        ? "sign in to see your private bands"
+        : "could not load your private bands (" + r.status + ")");
+    })
       .then(function (data) { renderBands((data && data.bands) || []); })
-      .catch(function () { renderBands([]); });
+      .catch(function (e) { bandsFailed(e && e.message ? e.message : "could not load your private bands"); });
+  }
+
+  // bandsFailed shows the REASON in the bands panel, rather than an empty-state that would
+  // read as "you have none".
+  function bandsFailed(msg) {
+    var body = $("bandRows");
+    if (body) { body.textContent = ""; }
+    hide("bandsTable");
+    var empty = $("bandsEmpty");
+    if (empty) { empty.textContent = msg; empty.hidden = false; }
   }
 
   function renderSessions(sessions) {
