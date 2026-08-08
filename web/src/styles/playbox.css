@@ -88,6 +88,10 @@
 .pg-bench__name { color: var(--ink-900); font-size: var(--t-xs); font-weight: var(--weight-semi); letter-spacing: 0.28em; }
 .pg-bench__type { color: var(--ink-400); font-size: var(--t-micro); }
 .pg-bench__serial { color: var(--ink-400); font-size: var(--t-micro); }
+/* the operator's own callsign on the plate - present only when signed in */
+.pg-bench__op { color: var(--live); font-size: var(--t-micro); letter-spacing: var(--tracking-label); }
+.pg-bench__op[hidden] { display: none; }
+@media (max-width: 900px) { .pg-bench__op { display: none; } }
 .pg-bench__status {
   margin-left: auto; display: inline-flex; align-items: center; gap: 8px;
   font-size: var(--t-micro); color: var(--ink-400);
@@ -204,7 +208,7 @@
 .dk__text:focus-visible { outline: 2px solid var(--live); outline-offset: 1px; border-color: var(--live); }
 .dk__surfnote { margin: 0; color: var(--ink-400); font-size: var(--t-xs); line-height: var(--lh-body); }
 
-.dk__cards { display: grid; gap: 8px; }
+.dk__cards { display: grid; gap: 8px; max-height: 340px; overflow: auto; padding-right: 2px; scrollbar-width: thin; }
 .dk__card {
   appearance: none; text-align: left; cursor: pointer; position: relative;
   border: 1px solid var(--hairline-2); border-left: 2px solid var(--hairline-2);
@@ -240,6 +244,9 @@
 .dk__device--pump::before { background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28"><circle cx="12" cy="16" r="7" fill="none" stroke="%23777" stroke-width="2"/><path d="M12 9V4h9M19 16h6" stroke="%23777" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="16" r="2" fill="%23E0231C"/></svg>'); }
 .dk__device--sensor::before { background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28"><rect x="8" y="12" width="12" height="12" rx="2" fill="none" stroke="%23777" stroke-width="2"/><path d="M14 12V7" stroke="%23777" stroke-width="2"/><path d="M9 6c3-3 7-3 10 0" fill="none" stroke="%23E0231C" stroke-width="2" stroke-linecap="round"/><path d="M11 8.5c1.8-1.8 4.2-1.8 6 0" fill="none" stroke="%23E0231C" stroke-width="1.6" stroke-linecap="round"/></svg>'); }
 .dk__device--esp32::before { background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28"><rect x="6" y="6" width="16" height="16" rx="2" fill="none" stroke="%23777" stroke-width="2"/><rect x="11" y="11" width="6" height="6" fill="%23E0231C"/><path d="M9 6V3M14 6V3M19 6V3M9 25v-3M14 25v-3M19 25v-3M6 9H3M6 14H3M6 19H3M25 9h-3M25 14h-3M25 19h-3" stroke="%23777" stroke-width="1.6"/></svg>'); }
+.dk__device--camera::before { background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28"><rect x="3" y="7" width="22" height="15" rx="3" fill="none" stroke="%23777" stroke-width="2"/><circle cx="14" cy="14.5" r="5" fill="none" stroke="%23E0231C" stroke-width="2"/><path d="M7 7l2-3h10l2 3" fill="none" stroke="%23777" stroke-width="2"/></svg>'); }
+.dk__device--handheld::before { background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28"><rect x="7" y="3" width="14" height="22" rx="3" fill="none" stroke="%23777" stroke-width="2"/><rect x="10" y="7" width="8" height="10" fill="none" stroke="%23777"/><circle cx="14" cy="21" r="1.8" fill="%23E0231C"/></svg>'); }
+.dk__device--plc::before { background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28"><rect x="4" y="4" width="20" height="20" rx="2" fill="none" stroke="%23777" stroke-width="2"/><path d="M9 8v12M14 8v12M19 8v12" stroke="%23777"/><circle cx="9" cy="8" r="2" fill="%23E0231C"/><circle cx="14" cy="8" r="2" fill="%23777"/><circle cx="19" cy="8" r="2" fill="%23777"/></svg>'); }
 
 /* ---------- the cassette bay -------------------------------------- */
 .dk__baycol { display: grid; grid-template-rows: auto auto 1fr auto; gap: var(--s-4); }
@@ -322,6 +329,27 @@
 }
 .dk__cap.is-on { color: var(--live); border-color: var(--live); opacity: 1; }
 
+/* the J-card: the paper insert that comes with the tape. Machine truth in mono,
+   two columns, hairline-ruled - it reads as a spec sheet, not decoration. */
+.dk__jcard {
+  margin: var(--s-3) auto 0; max-width: min(420px, 92%);
+  display: grid; grid-template-columns: auto 1fr; gap: 0 var(--s-3);
+  border: 1px solid var(--hairline-2); border-radius: var(--r-md);
+  background: var(--paper); padding: var(--s-3) var(--s-4);
+  font-family: var(--font-mono); font-size: 10px; line-height: 1.7;
+}
+.dk__jcard:empty { display: none; }
+.dk__jcard dt {
+  color: var(--ink-400); letter-spacing: 0.16em; text-transform: uppercase;
+  white-space: nowrap;
+}
+.dk__jcard dd {
+  margin: 0; color: var(--ink-900); text-align: right;
+  overflow: hidden; text-overflow: ellipsis;
+}
+/* a row whose value is an honest absence reads quieter than a measured one */
+.dk__jcard dd:has(+ dt) { border-bottom: 0; }
+
 /* transport */
 .dk__transport { display: flex; gap: 8px; justify-content: center; }
 .dk__tbtn {
@@ -341,6 +369,45 @@
   display: inline-block; padding: 1px 6px;
   border: 1px solid currentColor; border-radius: 3px;
   font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.1em;
+}
+
+/* ---- bay lamps + peak meter ------------------------------------------
+   Real indicators: each lamp is lit by a state the deck actually holds, and
+   the peak meter is fed by arriving tokens rather than an animation timer. */
+.dk__lamps { display: inline-flex; gap: 5px; margin-left: var(--s-3); }
+.dk__lamp {
+  font-family: var(--font-mono); font-size: 8px; letter-spacing: 0.12em;
+  font-style: normal; padding: 1px 5px; border-radius: 2px;
+  border: 1px solid var(--hairline-2); color: var(--ink-400);
+  background: var(--paper); opacity: 0.45;
+  transition: color var(--d-2) var(--ease-standard), border-color var(--d-2) var(--ease-standard);
+}
+.dk__lamp.is-lit { opacity: 1; color: var(--live); border-color: var(--live);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--live) 28%, transparent); }
+.dk__lamp[data-lamp="rec"].is-lit { color: var(--ink-900); border-color: var(--ink-400);
+  box-shadow: none; }
+.dk__lamp.is-blink { animation: dk-lampblink 1.1s steps(2, end) infinite; }
+@keyframes dk-lampblink { 50% { opacity: 0.35; } }
+
+/* the peak meter: eight segments, driven by real token arrival */
+.dk__peak { display: inline-flex; gap: 2px; align-items: flex-end; height: 12px; margin-left: 8px; }
+.dk__peak b {
+  width: 3px; height: 3px; background: var(--ink-400); opacity: 0.35;
+  transition: height 90ms linear, opacity 90ms linear, background 90ms linear;
+}
+.dk__peak b.is-hot { background: var(--live); opacity: 1; }
+
+/* the printed key legend: engraved caps on the faceplate, quiet until wanted */
+.dk__keys {
+  margin: var(--s-2) 0 0; text-align: center;
+  font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.1em;
+  color: var(--ink-400); line-height: 2;
+}
+.dk__keys kbd {
+  display: inline-block; min-width: 14px; padding: 1px 5px; margin: 0 2px;
+  border: 1px solid var(--hairline-2); border-bottom-width: 2px; border-radius: 3px;
+  background: var(--paper); color: var(--ink-700, #444);
+  font-family: var(--font-mono); font-size: 9px;
 }
 
 /* the shelf: a row of tape spines */
@@ -393,6 +460,9 @@
   border: 1px solid var(--live); color: var(--live);
 }
 .dk__mode[data-mode="recorded"] { border-style: dashed; color: var(--ink-500); border-color: var(--ink-400); }
+.dk__mode[data-mode="ready"], .dk__mode[data-mode="draft"] {
+  border-style: dashed; color: var(--ink-500); border-color: var(--hairline-2);
+}
 
 /* the S-meter (real needle over real data, shared with the bench spec) */
 .pg-smeter { display: inline-flex; align-items: flex-end; gap: 6px; }
@@ -407,6 +477,11 @@
 }
 .pg-smeter__pivot { fill: var(--ink-900); }
 .pg-smeter__read { color: var(--ink-500); font-size: 10px; letter-spacing: var(--tracking-label); padding-bottom: 2px; }
+.pg-smeter[data-state="unmetered"] svg { display: none; }
+.pg-smeter[data-state="unmetered"] .pg-smeter__read {
+  padding: 4px 8px; border: 1px solid var(--hairline); border-radius: 3px;
+  color: var(--ink-400); letter-spacing: 0.14em;
+}
 
 /* the logbook: ruled paper, entries ON the rules, UTC time column */
 .pg-log {
@@ -441,6 +516,19 @@
 }
 /* explicit display must never defeat the hidden attribute (render-caught twice) */
 .dk__printer[hidden], .pg-log[hidden] { display: none; }
+.pg-verdict[hidden] { display: none; }
+.dk__standby[hidden] { display: none; }
+.dk__standby {
+  min-height: 300px; border: 1px dashed var(--hairline-2); border-radius: var(--r-md);
+  display: grid; place-content: center; justify-items: center; gap: var(--s-2);
+  padding: var(--s-5); text-align: center; background: var(--paper);
+}
+.dk__standbyicon {
+  width: 38px; height: 38px; display: grid; place-items: center;
+  border: 1px solid var(--hairline-2); border-radius: 50%; color: var(--live);
+}
+.dk__standby b { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.18em; color: var(--ink-700); }
+.dk__standby p { margin: 0; color: var(--ink-400); font-size: var(--t-xs); line-height: var(--lh-body); }
 .dk__printhead {
   display: flex; align-items: center; justify-content: space-between; gap: var(--s-3);
   font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.16em;
@@ -547,6 +635,20 @@
 .sc-scaleb rect { fill: url(#scHot); opacity: 0.8; }
 
 /* bring your own: file + microphone */
+.dk__service {
+  display: grid; grid-template-columns: 1fr auto; gap: 3px var(--s-2);
+  padding: 9px 10px; border: 1px solid var(--hairline); border-left: 2px solid var(--ink-400);
+  border-radius: var(--r-md); background: var(--paper-2);
+  font-family: var(--font-mono); text-transform: uppercase;
+}
+.dk__service span, .dk__service b { font-size: 9px; letter-spacing: 0.13em; }
+.dk__service span { color: var(--ink-400); }
+.dk__service b { color: var(--ink-500); font-weight: var(--weight-medium); text-align: right; }
+.dk__service small { grid-column: 1 / -1; color: var(--ink-400); font: 400 9px/1.45 var(--font-mono); text-transform: none; }
+.dk__service[data-state="live"] { border-left-color: var(--live); }
+.dk__service[data-state="live"] b { color: var(--live); }
+.dk__service[data-state="off"] { border-style: dashed; }
+
 .dk__own {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   padding-top: 2px;
@@ -560,6 +662,7 @@
   display: inline-flex; align-items: center; gap: 7px;
 }
 .dk__ownbtn:hover { border-color: var(--live); color: var(--live); }
+.dk__ownbtn[disabled] { opacity: 0.42; cursor: not-allowed; border-color: var(--hairline-2); color: var(--ink-400); }
 .dk__file { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 .dk__ownstate {
   font-family: var(--font-mono); font-size: 9px; color: var(--ink-400);
@@ -580,6 +683,27 @@
 .dk__hear:hover { border-color: var(--live); }
 .dk__hear.is-busy { animation: dk-rec 0.8s ease-in-out infinite; }
 .dk__hear:focus-visible { outline: 2px solid var(--live); outline-offset: 1px; }
+
+/* custom tool / device / guard input builders */
+.dk__builder { border-top: 1px dashed var(--hairline); padding-top: var(--s-2); }
+.dk__builder summary {
+  cursor: pointer; color: var(--ink-700); font: 500 10px/1.4 var(--font-mono);
+  letter-spacing: 0.12em; text-transform: uppercase; list-style-position: outside;
+}
+.dk__builder[open] summary { color: var(--live); margin-bottom: var(--s-3); }
+.dk__builderbody { display: grid; gap: var(--s-3); }
+.dk__field { display: grid; gap: 5px; color: var(--ink-500); font: 500 9px/1.4 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; }
+.dk__field input, .dk__field textarea, .dk__field select {
+  width: 100%; border: 1px solid var(--hairline-2); border-radius: var(--r-md);
+  background: var(--paper-2); color: var(--ink-900); padding: 9px 10px;
+  font: 400 12px/1.5 var(--font-mono); letter-spacing: 0; text-transform: none;
+}
+.dk__field textarea { resize: vertical; min-height: 60px; }
+.dk__field input:focus-visible, .dk__field textarea:focus-visible, .dk__field select:focus-visible {
+  outline: 2px solid var(--live); outline-offset: 1px; border-color: var(--live);
+}
+.dk__field [aria-invalid="true"] { border-color: var(--live); }
+.dk__builderfoot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
 /* the one honest line under the deck */
 .dk__realnote {

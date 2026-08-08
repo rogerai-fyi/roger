@@ -57,6 +57,61 @@ Feature: The Playbox cassette deck
       alert, or verdict) labelled RECORDED, never presented as live
     And embed presents the device the model rides in (pump, sensor, ESP32)
 
+  # Founder ask, 2026-08-02: the deck should feel like an operator console under the
+  # hands, not a web page you click at.
+  Scenario: the deck is playable from the keyboard
+    Given a tape is loaded and an input is ready
+    Then space plays, escape stops, and the arrow keys change tape
+    And the number keys select the input positions in order
+    And a key pressed while typing a message reaches the message, never the transport
+
+  Scenario: the console shows its own keys
+    Then the deck prints its shortcuts on the faceplate, engraved like key caps
+    And each printed key is one the deck actually honours
+
+  Scenario: the deck remembers the tape you left in it
+    Given a visitor loaded a tape and chose an input position
+    When they come back to the page later
+    Then the same tape is loaded and the same position is selected
+    And a tape that has since gone off air is not silently swapped for another
+
+  # THE SIGNED-IN OPERATOR (founder ask 2026-08-02, reshaped by a validation pass).
+  # Signing in only ADDS capability and visibility - it never removes, hides, or
+  # degrades anything a signed-out visitor can see or do.
+  #
+  # Deliberately NOT here, and why:
+  #   - No wallet or balance on the deck. It already lives in the site header.
+  #   - No "these are your own stations" marking. /discover is a public, shared,
+  #     cached read with no owner field, so ownership is not knowable in the
+  #     browser; and a browser session is a github-scoped wallet, which can never
+  #     satisfy the pubkey-derived self-use test - so playing your own station from
+  #     the web bills at market price. Marking it "yours, free" would be a false
+  #     claim about money.
+  Scenario: the plate carries the operator's handle, and only the handle
+    Given a visitor is signed in with a handle
+    Then the maker's plate shows that handle beside the serial number
+    And it never shows the wallet identifier, balance, spend, or request history
+    And an account with no handle leaves the plate exactly as it is signed out
+
+  Scenario: an expired session stops asserting an identity
+    Given the deck is showing a signed-in handle
+    When the relay or the audio path refuses the session as expired
+    Then the deck stops claiming that identity
+    And any surface it had unlocked is locked again
+
+  Scenario: a price is stated as the floor it is, never as a per-turn total
+    Given a tape whose stations charge for output
+    Then the card states the price it is charged in, per million units
+    And it is drawn from the cheapest station carrying the tape, marked "from"
+    And a voice tape says its unit is characters, not tokens
+    And a scheduled price says that it varies by time of day
+    And no per-turn total is ever shown, because the output length is unknowable
+      before the turn runs
+
+  Scenario: the free path is unchanged by signing in
+    Then every free tape, recorded surface, and honesty label is identical
+      whether or not the visitor is signed in
+
   Scenario: reduced motion and honesty pins carry over
     Then reduced motion stops reels and load animation with the deck legible
     And the quiet-band, unreachable-broker, and relay-error states remain distinct
