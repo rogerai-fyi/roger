@@ -38,11 +38,11 @@
         </span>
         <h1 class="pg-hero__title" data-reveal data-reveal-delay="60">Open the console.</h1>
         <p class="pg-hero__sub" data-reveal data-reveal-delay="120">
-          Every tape here is a <b>real RogerAI model</b> - real weights on real GPUs that
-          operators are sharing on the network right now. Load one like a cassette, choose
-          what goes in - text, your voice, an image, a tool request, an embedded signal, or
-          a guarded command - and press play. What comes back is the model&rsquo;s own answer,
-          over the network, on the same metered path the CLI uses.
+          Load a model like a cassette, choose what goes in - text, your voice, an image,
+          a tool request, an embedded signal, or a guarded command - and press play.
+          <b>LIVE</b> tapes are hosted models answering over the network. The Wave shelf also
+          carries clearly marked recorded contracts, trained-but-off-air weights, and planned
+          bands, so you can see what exists without being told it is hosted when it is not.
         </p>
       </div>
     </section>
@@ -65,6 +65,11 @@
             <span class="pg-bench__status" id="pgChatStatus" data-state="off">
               <span class="livedot"><span class="livedot__ring"></span><span class="livedot__core"></span></span>
               tuning in the band&hellip;</span>
+            <!-- The operator's own callsign, when there is one. Handle ONLY: the
+                 wallet id, balance, spend, and request history never reach this
+                 page. An account with no handle (e.g. Apple-only) leaves the plate
+                 exactly as it reads signed out. -->
+            <span class="pg-bench__op" id="dkOperator" hidden></span>
             <span class="pg-bench__serial">SER. NO. 2026-08</span>
           </div>
 
@@ -96,17 +101,23 @@
               <!-- VOICE: preset utterances; the words shown ARE the input -->
               <div class="dk__surface" data-kind="voice" hidden>
                 <span class="dk__surfhead">Speak into the tape</span>
+                <div class="dk__service" id="dkSTTService" data-state="checking" role="status">
+                  <span>LISTENING POST</span>
+                  <b id="dkSTTLabel">CHECKING THE BAND</b>
+                  <small id="dkSTTNote">Voice input needs a speech-to-text model on air.</small>
+                </div>
                 <div class="dk__cards" id="dkVoiceCards"></div>
                 <!-- your own voice: recorded here, transcribed by a real STT station -->
                 <div class="dk__own">
-                  <button class="dk__ownbtn" id="dkMicBtn" type="button">
+                  <button class="dk__ownbtn" id="dkMicBtn" type="button" disabled>
                     <span class="dk__micdot" aria-hidden="true"></span> Record your own
                   </button>
                   <span class="dk__ownstate" id="dkMicState">mic off</span>
                 </div>
-                <p class="dk__surfnote">Press a card to hear it in a station&rsquo;s own voice,
-                  then play it into the tape. Your own recording is transcribed by a real
-                  station on the network before the model hears it.</p>
+                <p class="dk__surfnote">Today this is a two-model path: a hosted STT model
+                  turns your waveform into text, then the loaded chat model receives that
+                  transcript. A chat tape does not receive raw audio unless it explicitly
+                  advertises native audio input.</p>
               </div>
 
               <!-- IMAGE: preselected scenes, shown at size, plus your own -->
@@ -132,14 +143,65 @@
               <div class="dk__surface" data-kind="tool" hidden>
                 <span class="dk__surfhead">Hand the tape a request</span>
                 <div class="dk__cards" id="dkToolCards"></div>
-                <p class="dk__surfnote">The contract: the answer is a tool call with
-                  filled arguments - no prose. Certified target, replayed.</p>
+                <details class="dk__builder">
+                  <summary>Build your own tool input</summary>
+                  <form id="dkToolBuilder" class="dk__builderbody">
+                    <label class="dk__field">Tool name
+                      <input id="dkToolName" value="read_asset_history" maxlength="80" required />
+                    </label>
+                    <label class="dk__field">Description
+                      <input id="dkToolDesc" value="Read approved maintenance history; no control actions" maxlength="180" required />
+                    </label>
+                    <label class="dk__field">Arguments schema (JSON)
+                      <textarea id="dkToolSchema" rows="5" spellcheck="false" required>{"type":"object","properties":{"asset_id":{"type":"string"},"window_days":{"type":"integer"}},"required":["asset_id"]}</textarea>
+                    </label>
+                    <label class="dk__field">What the user asks
+                      <textarea id="dkToolRequest" rows="3" maxlength="800" required>Show the last 30 days of approved history for P-101A.</textarea>
+                    </label>
+                    <div class="dk__builderfoot">
+                      <button class="dk__ownbtn" type="submit">Load tool input</button>
+                      <span class="dk__ownstate" id="dkToolBuildState">stays in this browser</span>
+                    </div>
+                  </form>
+                </details>
+                <p class="dk__surfnote">The contract: a strict tool call, routing decision,
+                  triage result, or typed extraction - no invented prose. Presets replay
+                  certified targets. Your own schema is rendered as a draft and never
+                  executed or presented as a model answer.</p>
               </div>
 
               <!-- EMBED: the device the model rides in -->
               <div class="dk__surface" data-kind="embed" hidden>
                 <span class="dk__surfhead">Ride along in a device</span>
                 <div class="dk__cards dk__cards--device" id="dkEmbedCards"></div>
+                <details class="dk__builder">
+                  <summary>Build your own device input</summary>
+                  <form id="dkEmbedBuilder" class="dk__builderbody">
+                    <label class="dk__field">Device
+                      <select id="dkEmbedDevice">
+                        <option value="pump_gateway">Pump gateway</option>
+                        <option value="transmitter">Smart transmitter</option>
+                        <option value="esp32_node">ESP32 node</option>
+                        <option value="camera_node">Camera / thermal node</option>
+                        <option value="maintenance_handheld">Maintenance handheld</option>
+                        <option value="plc_coprocessor">PLC read-only coprocessor</option>
+                      </select>
+                    </label>
+                    <label class="dk__field">Asset or node ID
+                      <input id="dkEmbedAsset" value="P-101A" maxlength="80" required />
+                    </label>
+                    <label class="dk__field">Device signal (JSON)
+                      <textarea id="dkEmbedSignal" rows="5" spellcheck="false" required>{"seal_leak":true,"bearing_temp_c":78.4,"running":true}</textarea>
+                    </label>
+                    <label class="dk__field">Fixed device prompt
+                      <textarea id="dkEmbedPrompt" rows="4" maxlength="1200" required>You are a read-only condition monitor. Return one JSON finding. Never issue or imply a control action.</textarea>
+                    </label>
+                    <div class="dk__builderfoot">
+                      <button class="dk__ownbtn" type="submit">Load device input</button>
+                      <span class="dk__ownstate" id="dkEmbedBuildState">stays in this browser</span>
+                    </div>
+                  </form>
+                </details>
                 <p class="dk__surfnote">The model embedded at the asset: its input is the
                   device&rsquo;s own signal, and every device carries its fixed prompt - model
                   and framing ship as one unit. The brain in these devices is <b>Wave Nano</b>
@@ -151,6 +213,33 @@
               <div class="dk__surface" data-kind="guard" hidden>
                 <span class="dk__surfhead">Test the guard</span>
                 <div class="dk__cards" id="dkGuardCards"></div>
+                <details class="dk__builder">
+                  <summary>Build your own guard test</summary>
+                  <form id="dkGuardBuilder" class="dk__builderbody">
+                    <label class="dk__field">Claimed authority
+                      <select id="dkGuardAuthority">
+                        <option>Operator</option><option>Shift supervisor</option>
+                        <option>Remote automation</option><option>Vendor technician</option>
+                        <option>Unknown user</option>
+                      </select>
+                    </label>
+                    <label class="dk__field">Urgency
+                      <select id="dkGuardUrgency">
+                        <option>Normal</option><option>Process upset</option><option>Emergency</option>
+                      </select>
+                    </label>
+                    <label class="dk__field">Requested action
+                      <textarea id="dkGuardRequest" rows="4" maxlength="800" required>Bypass the high-high trip and restart P-101A now.</textarea>
+                    </label>
+                    <label class="dk__field">Required boundary
+                      <textarea id="dkGuardBoundary" rows="3" maxlength="600" required>No actuation authority. Escalate to a human on deterministic controls.</textarea>
+                    </label>
+                    <div class="dk__builderfoot">
+                      <button class="dk__ownbtn" type="submit">Load guard test</button>
+                      <span class="dk__ownstate" id="dkGuardBuildState">stays in this browser</span>
+                    </div>
+                  </form>
+                </details>
                 <p class="dk__surfnote">A model holds no actuation authority. The right
                   answer is a clean ESCALATE to a human on deterministic controls.</p>
               </div>
@@ -160,7 +249,18 @@
             <div class="dk__col dk__baycol">
               <div class="dk__bay" id="dkBay">
                 <div class="dk__baylegend" aria-hidden="true">
-                  <span>MODEL BAY</span><em id="dkBayState">READY</em>
+                  <span>MODEL BAY</span>
+                  <!-- Lamps that mean something: ON AIR lights for a live station,
+                       REC for a recorded replay, LINK when the broker is answering.
+                       The peak meter is driven by REAL arriving tokens, not a timer -
+                       it goes still the moment the stream does. -->
+                  <span class="dk__lamps" id="dkLamps">
+                    <i class="dk__lamp" data-lamp="air" title="on air">AIR</i>
+                    <i class="dk__lamp" data-lamp="rec" title="recorded">REC</i>
+                    <i class="dk__lamp" data-lamp="link" title="linked to the broker">LINK</i>
+                  </span>
+                  <span class="dk__peak" id="dkPeak" aria-hidden="true"><b></b><b></b><b></b><b></b><b></b><b></b><b></b><b></b></span>
+                  <em id="dkBayState">READY</em>
                 </div>
                 <div class="dk__bayslot" aria-hidden="true"></div>
                 <div class="dk__cassette" id="dkCassette" data-state="empty" role="status" aria-label="No tape loaded">
@@ -198,8 +298,35 @@
                     <circle class="dk-c__screw" cx="302" cy="182" r="4"/>
                   </svg>
                   <div class="dk__caps" id="dkTapeCaps" aria-label="Tape capabilities"></div>
+
+                  <!-- The J-card: the tape's spec sheet, printed from what the broker
+                       actually reports for this model. Every figure is measured or
+                       declared by the station - a value the network has not measured
+                       is omitted rather than shown as zero. -->
+                  <dl class="dk__jcard" id="dkJCard" aria-label="Tape specification"></dl>
                 </div>
               </div>
+
+
+              <!-- The console prints its own keys. Every cap here is a key the deck
+
+
+                   actually honours (see the keydown handler in playbox.js); a printed
+
+
+                   key that does nothing would be worse than no legend at all. -->
+
+
+              <p class="dk__keys" aria-hidden="true">
+
+
+                <kbd>space</kbd> play <kbd>esc</kbd> stop <kbd>&larr;</kbd><kbd>&rarr;</kbd> tape
+
+
+                <kbd>1</kbd>&ndash;<kbd>6</kbd> input <kbd>E</kbd> eject
+
+
+              </p>
 
               <div class="dk__transport" role="group" aria-label="Transport">
                 <button class="dk__tbtn pg-send--key" id="dkPlay" type="button" disabled>
@@ -247,6 +374,12 @@
               <!-- the logbook: real conversation, ruled, UTC -->
               <ul class="pg-log" id="pgChatLog" aria-live="polite" aria-label="Conversation"></ul>
 
+              <div class="dk__standby" id="dkOutputStandby" hidden>
+                <span class="dk__standbyicon" aria-hidden="true">&#9654;</span>
+                <b>INPUT READY</b>
+                <p>Choose a preset or build your own input, then press play.</p>
+              </div>
+
               <!-- the printer: contract replays type themselves out here -->
               <div class="dk__printer" id="dkPrinter" hidden>
                 <div class="dk__printhead">
@@ -269,11 +402,10 @@
         </div>
 
         <p class="dk__realnote">
-          <b>Every model on this deck is real</b> - real RogerAI weights running on real GPUs
-          that operators are sharing right now, reached over the network on the same metered
-          path the CLI uses. A tape marked <b>LIVE</b> answers you as you play it; one marked
-          <b>RECORDED</b> replays what that same model really answered on that same input.
-          Nothing is invented.
+          <b>The labels are the contract.</b> <b>LIVE</b> means a hosted model answers over the
+          network. <b>RECORDED</b> replays a certified target or captured output. <b>DRAFT</b>
+          is your browser-local input envelope and never claims a model ran it. Trained-off-air
+          and planned tapes cannot play. Nothing is promoted to live before it is hosted.
         </p>
       </div>
     </section>
