@@ -100,3 +100,23 @@ func TestMissingWorkdirCanBeExplicitlyReboundIncludingSpaces(t *testing.T) {
 	require.Equal(t, root, got.agent.loop.Root)
 	require.Contains(t, got.agentTranscriptText(), "tools now use")
 }
+
+// A RESUMED SESSION MUST SIZE ITS TOOL BUDGET.
+//
+// Found by the pre-push audit. The resume path sets agent.model directly and never called
+// applyToolBudget, so the loop kept MaxToolOutput at its zero value: a resumed session had
+// no per-tool-result cap at all, which is exactly the shape of the 8K context-overflow
+// incident that budget exists to prevent. applyToolBudget is documented as something that
+// "must be called wherever agent.model changes" - resume was the path that did not.
+//
+// A model with no known window is fine: ToolOutputBudget(0) falls back to the historical
+// flat cap rather than guessing. What is not fine is no cap at all.
+func TestAResumedSessionSizesItsToolBudget(t *testing.T) {
+	m, err := NewResumedWithHooksController("broker", "user", nil, Hooks{}, NewController("broker", Hooks{}), resumedFixture())
+	require.NoError(t, err)
+	require.NotNil(t, m.agent)
+	require.NotNil(t, m.agent.loop)
+	require.Positive(t, m.agent.loop.MaxToolOutput,
+		"a resumed session must carry a per-tool-result cap - an unbounded result is what "+
+			"overflowed the window before")
+}

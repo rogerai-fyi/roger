@@ -200,11 +200,17 @@ func (b *broker) bandsByID(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "revoked": true})
 }
 
-// moveBandReq is the PATCH /bands/{id} body. Only node_id is honoured today; label is
-// accepted because Band.Label has always been rendered by the clients and never writable.
+// moveBandReq is the PATCH /bands/{id} body.
+//
+// node_id is the only member, deliberately. A `label` field used to sit here and was parsed
+// and then discarded - accepting a value and silently dropping it is worse than not
+// accepting it, because a caller has no way to tell the difference from a write that
+// worked. Band.Label is rendered by the clients and still has no write path anywhere in the
+// store; the spec lists one as in scope, and it should arrive WITH its store method rather
+// than as a field that pretends. Unknown JSON members are ignored by encoding/json, so a
+// client that still sends `label` behaves exactly as it did.
 type moveBandReq struct {
 	NodeID string `json:"node_id"`
-	Label  string `json:"label"`
 }
 
 // moveBand handles PATCH /bands/{id} - repointing a band at a different node.

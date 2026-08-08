@@ -172,8 +172,15 @@ func (m *Mem) MoveBand(id, owner, nodeID string) (bool, error) {
 	if b.NodeID == nodeID {
 		return true, nil // idempotent: already where it was asked to go
 	}
-	if occupantID, taken := m.bs.byNode[nodeID]; taken {
-		if occupant, ok := m.bs.bands[occupantID]; ok && !occupant.Revoked {
+	// SCAN, do not consult byNode. byNode holds ONE id per node and CreateBand overwrites
+	// it, so on a node that has carried two bands the index can point at a REVOKED one
+	// while a LIVE band is still there - and this check would wave the move through, put
+	// two live bands on one node, and break the invariant it exists to enforce. Postgres
+	// asks EXISTS(node_id=$1 AND revoked=false), which sees every row; this is the same
+	// question, asked the same way. The band being moved is not on nodeID (the self-move
+	// case returned above), so it cannot match itself.
+	for _, occupant := range m.bs.bands {
+		if occupant.NodeID == nodeID && !occupant.Revoked {
 			return false, ErrBandNodeOccupied
 		}
 	}

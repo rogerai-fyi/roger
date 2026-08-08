@@ -103,12 +103,21 @@
 
   // bandsFailed shows the REASON in the bands panel, rather than an empty-state that would
   // read as "you have none".
+  // bandsEmptyDefault holds the "no bands yet" copy this panel started with. The copy lives
+  // in the HTML (one source of truth), so it is captured the first time bandsFailed borrows
+  // the element rather than duplicated here.
+  var bandsEmptyDefault = "";
+
   function bandsFailed(msg) {
     var body = $("bandRows");
     if (body) { body.textContent = ""; }
     hide("bandsTable");
     var empty = $("bandsEmpty");
-    if (empty) { empty.textContent = msg; empty.hidden = false; }
+    if (empty) {
+      if (!bandsEmptyDefault) { bandsEmptyDefault = empty.textContent; }
+      empty.textContent = msg;
+      empty.hidden = false;
+    }
   }
 
   function renderSessions(sessions) {
@@ -137,7 +146,17 @@
     var body = $("bandRows");
     if (!body) return;
     body.textContent = "";
-    if (!bands.length) { show("bandsEmpty"); hide("bandsTable"); return; }
+    if (!bands.length) {
+      // Restore the copy first: bandsFailed writes a failure REASON into this same element,
+      // and without this a later successful-but-empty load shows that stale error where
+      // "No private bands yet." belongs - telling an owner their bands failed to load when
+      // they simply have none.
+      var empty = $("bandsEmpty");
+      if (empty && bandsEmptyDefault) { empty.textContent = bandsEmptyDefault; }
+      show("bandsEmpty");
+      hide("bandsTable");
+      return;
+    }
     hide("bandsEmpty"); show("bandsTable");
     bands.forEach(function (b) {
       var live = b.status === "active";

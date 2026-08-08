@@ -466,6 +466,11 @@ func (m *model) refreshAgentModel() {
 		return
 	}
 	m.agent.model = want
+	// The ENDPOINT has to follow the model as well as the budget. pickAgentModel binds
+	// here too; this path (a channel tuned on top of an explicit pick) did not, so a local
+	// pick stayed bound and every turn went to 127.0.0.1 under the new band's name - the
+	// exact thing agentRuntime.localChat promises cannot happen.
+	m.bindAgentEndpoint(want)
 	m.applyToolBudget() // the window changed with the model; the tool cap must follow it
 	switch {
 	case want != "":
