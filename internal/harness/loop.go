@@ -106,6 +106,15 @@ type Loop struct {
 	// last assistant text as the final answer.
 	MaxSteps int
 
+	// MaxToolOutput caps the bytes ONE tool result may add to the conversation, sized to
+	// the model's context window (see toolOutputBudget). It exists because the tools' own
+	// 16 KiB clip is a rounding error on a 128K band and HALF THE WINDOW on an 8K one: an
+	// Apple `foundation` turn died with "Exceeded model context window size" after a single
+	// ~10KB web_fetch. Enforcing it HERE, where every tool result funnels through, means a
+	// tool that forgets to clip internally - or one added later - still cannot blow the
+	// window. Zero means unbounded, so callers that never set it behave exactly as before.
+	MaxToolOutput int
+
 	// turnStart marks where the CURRENT turn begins in messages, so sources are derived
 	// from this turn's retrievals only (a citation list must not accumulate across turns).
 	turnStart int
@@ -333,6 +342,10 @@ func (l *Loop) runOne(ctx context.Context, call ToolCall, emit func(Event)) {
 		l.appendToolResult(call, res)
 		return
 	}
+	// Clip to the model's budget BEFORE it enters the conversation. The UI still emits the
+	// clipped text, so what the operator sees is what the model saw - a result that silently
+	// differed between the two would make a truncation-caused answer impossible to explain.
+	out = clipTo(out, l.MaxToolOutput)
 	emit(Event{Kind: EventToolResult, Tool: name, Result: out})
 	l.appendToolResult(call, out)
 }

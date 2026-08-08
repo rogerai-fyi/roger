@@ -33,8 +33,71 @@ type Tool struct {
 }
 
 // maxToolOutput caps a tool result fed back to the model so a huge file or command
-// output can't blow the context (and the bill). Truncated results are marked.
+// output can't blow the context (and the bill). Truncated results are marked. This is the
+// ABSOLUTE ceiling; toolOutputBudget lowers it for a model whose window is too small to
+// swallow it.
 const maxToolOutput = 16 << 10 // 16 KiB
+
+// The context-aware tool-output budget.
+//
+// THE INCIDENT (2026-08-07, Apple's on-device `foundation` band, 8192-token window): a
+// single web_fetch returned ~10KB and the station answered "Exceeded model context window
+// size". 16 KiB is a rounding error on a 128K band and HALF THE WINDOW on an 8K one, so a
+// flat cap cannot be right for both. The budget scales with the window and is bounded on
+// both sides:
+//
+//   - bytesPerToken is a deliberately CONSERVATIVE bytes-per-token estimate. Real English
+//     runs ~4 bytes/token, but code, JSON and non-Latin scripts are denser, and guessing
+//     high here is what caused the incident - so we assume the pessimistic 3.
+//   - the share (1/4) leaves the other three quarters for the system prompt, the persona,
+//     the conversation so far, and the model's own answer. A tool result that fills the
+//     window leaves nothing to reason with.
+//   - minToolOutput is the floor: below ~2 KiB a tool result is too mutilated to be worth
+//     the call, so a very small band gets a usable slice rather than a useless sliver.
+const (
+	bytesPerToken      = 3
+	toolOutputShareNum = 1
+	toolOutputShareDen = 4
+	minToolOutput      = 2 << 10 // 2 KiB
+)
+
+// ToolOutputBudget is toolOutputBudget for callers outside the package (the TUI sizes a
+// Loop from the tuned band's reported context window).
+func ToolOutputBudget(ctx int) int { return toolOutputBudget(ctx) }
+
+// toolOutputBudget returns the byte cap for ONE tool result on a model with the given
+// context window (in tokens). A ctx of 0 or less means "unknown" - the broker did not
+// report one - and keeps the historical flat cap rather than guessing a smaller one.
+func toolOutputBudget(ctx int) int {
+	if ctx <= 0 {
+		return maxToolOutput
+	}
+	b := ctx * bytesPerToken * toolOutputShareNum / toolOutputShareDen
+	if b > maxToolOutput {
+		return maxToolOutput
+	}
+	if b < minToolOutput {
+		return minToolOutput
+	}
+	return b
+}
+
+// clipTo truncates s to budget bytes, marking the truncation so the model knows the result
+// was cut and does not treat a partial file as complete. A budget of 0 or less means
+// unbounded (the caller has no context information). It never splits a multi-byte rune -
+// handing a model invalid UTF-8 corrupts the very text it is meant to read.
+func clipTo(s string, budget int) string {
+	if budget <= 0 || len(s) <= budget {
+		return s
+	}
+	cut := budget
+	// Walk forward off a continuation byte (10xxxxxx) to the next rune boundary, so the
+	// kept prefix is always at least the budget and always valid UTF-8.
+	for cut < len(s) && s[cut]&0xC0 == 0x80 {
+		cut++
+	}
+	return s[:cut] + "\n... (truncated)"
+}
 
 // shellTimeout bounds run_shell so a runaway command can't hang the turn. It is a
 // var (defaulting to 60s) only so a test can shorten it to exercise the timeout
