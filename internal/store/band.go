@@ -1,6 +1,7 @@
 package store
 
 import (
+	"errors"
 	"sync"
 	"time"
 
@@ -55,6 +56,12 @@ func (b Band) ModelDenied(model string) bool {
 	}
 	return true
 }
+
+// ErrBandNodeOccupied is returned by MoveBand when the destination node already carries a
+// live band. It is a distinct sentinel (not a bare false) because the remedy is specific
+// and worth telling the operator: that node already has its own band, so move THAT one or
+// revoke it first. Callers map it to a 409.
+var ErrBandNodeOccupied = errors.New("that model already carries its own private band")
 
 // BandQuota is the number of ACTIVE private bands an owner may hold for free.
 // Phase 1 is a flat 1; Phase 2 ($5 packs) adds purchased slots here (owner-keyed),
@@ -139,6 +146,45 @@ func (m *Mem) SetBandRevoked(id, owner string, revoked bool) (bool, error) {
 	}
 	b.Revoked = revoked
 	m.bs.bands[id] = b
+	return true, nil
+}
+
+// MoveBand rebinds a LIVE band to a different node, owner-scoped. It is the only write
+// path Band.NodeID has ever had: until now NodeID was set once at CreateBand, and since a
+// node id is "<station>-<model>" that meant a band was hard-bound to ONE model for life.
+// Moving it is what lets an owner point their band at a different model WITHOUT rotating
+// the secret - the code, its hash and its display are untouched, so everyone already tuned
+// in keeps working.
+//
+// It reports whether the band moved. It refuses (false, nil) an unknown id, another
+// owner's band, and a REVOKED band - whose code is permanently burnt, so moving it would
+// resurrect a dead code at a new node. Moving onto a node that already carries a LIVE band
+// returns ErrBandNodeOccupied: a node carries at most one band, and silently displacing
+// the other one would take a station off air its owner never touched. Moving a band to the
+// node it already sits on is an idempotent success, so a retried request is not an error.
+func (m *Mem) MoveBand(id, owner, nodeID string) (bool, error) {
+	m.bs.mu.Lock()
+	defer m.bs.mu.Unlock()
+	b, ok := m.bs.bands[id]
+	if !ok || b.Owner != owner || b.Revoked {
+		return false, nil
+	}
+	if b.NodeID == nodeID {
+		return true, nil // idempotent: already where it was asked to go
+	}
+	if occupantID, taken := m.bs.byNode[nodeID]; taken {
+		if occupant, ok := m.bs.bands[occupantID]; ok && !occupant.Revoked {
+			return false, ErrBandNodeOccupied
+		}
+	}
+	// The source must stop resolving, or the node that lost the band would keep serving on
+	// it - privacy fails closed.
+	delete(m.bs.byNode, b.NodeID)
+	b.NodeID = nodeID
+	m.bs.bands[id] = b
+	if nodeID != "" {
+		m.bs.byNode[nodeID] = id
+	}
 	return true, nil
 }
 

@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"log"
 	"net/http"
@@ -39,7 +40,7 @@ func (b *broker) mintBandForNode(owner store.Owner, nodeID string) (store.Band, 
 		return store.Band{}, "", "could not check your band quota"
 	}
 	if active >= store.BandQuota(owner.Pubkey) {
-		return store.Band{}, "", "private band limit reached (free plan allows 1) - revoke an existing band first"
+		return store.Band{}, "", b.quotaRefusal(owner, now)
 	}
 	code, display, tail := protocol.NewBandCode()
 	band := store.Band{
@@ -50,6 +51,34 @@ func (b *broker) mintBandForNode(owner store.Owner, nodeID string) (store.Band, 
 		return store.Band{}, "", "could not create the private band"
 	}
 	return band, code, ""
+}
+
+// quotaRefusal explains WHY a mint was refused by naming the band that is in the way.
+//
+// THE INCIDENT (2026-08-07): the old copy was "private band limit reached (free plan
+// allows 1) - revoke an existing band first". Every word of that is true and none of it is
+// usable: it names an action no client could perform at the time, and it never says WHICH
+// band is holding the slot. The founder's blocking band turned out to be on a model on a
+// different machine entirely - a fact no surface could have told them.
+//
+// So: name the node holding the slot, and lead with MOVE (which keeps the frequency code
+// alive) rather than revoke (which burns it). It deliberately never mentions buying more
+// bands: there is no purchase path, and inventing one in an error message would be a lie.
+// Only the caller's OWN bands are ever named, so this can never leak another owner's node.
+func (b *broker) quotaRefusal(owner store.Owner, now time.Time) string {
+	const base = "private band limit reached (free plan allows 1)"
+	held, err := b.db.BandsByOwner(owner.Pubkey)
+	if err != nil {
+		return base + " - move or revoke your existing band first"
+	}
+	for _, bd := range held {
+		if !bd.Active(now) {
+			continue // a revoked or expired band is not what is blocking them
+		}
+		return base + " - yours is on " + bd.NodeID +
+			". Move it to this model to keep the same frequency code, or revoke it first"
+	}
+	return base + " - move or revoke your existing band first"
 }
 
 // remaskExistingBands runs the one-time, IDEMPOTENT band-display re-mask migration at
@@ -85,7 +114,10 @@ func (b *broker) bands(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	corsCreds(w, r)
-	owner, ok := b.requireOwner(r)
+	// A READ, so a browser session cookie is accepted alongside the signed key - the
+	// website has no signing key, which is why this list was empty for every owner.
+	// Revoke/move (bandsByID) stay on requireOwner: a cookie can read, never mutate.
+	owner, ok := b.requireOwnerRead(r)
 	if !ok {
 		jsonErr(w, http.StatusForbidden, "managing private bands requires a GitHub-linked owner - run `roger login`")
 		return
@@ -126,8 +158,12 @@ func (b *broker) bandsByID(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusForbidden, "managing private bands requires a GitHub-linked owner - run `roger login`")
 		return
 	}
+	if r.Method == http.MethodPatch {
+		b.moveBand(w, r, owner, id)
+		return
+	}
 	if r.Method != http.MethodDelete {
-		w.Header().Set("Allow", "DELETE")
+		w.Header().Set("Allow", "DELETE, PATCH")
 		jsonErr(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
@@ -141,6 +177,58 @@ func (b *broker) bandsByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "revoked": true})
+}
+
+// moveBandReq is the PATCH /bands/{id} body. Only node_id is honoured today; label is
+// accepted because Band.Label has always been rendered by the clients and never writable.
+type moveBandReq struct {
+	NodeID string `json:"node_id"`
+	Label  string `json:"label"`
+}
+
+// moveBand handles PATCH /bands/{id} - repointing a band at a different node.
+//
+// This is what makes a band a DURABLE IDENTITY rather than a side effect of one model.
+// Because a node id is "<station>-<model>", a band was previously welded to the model it
+// was minted for: the only way to serve a different model privately was to revoke and
+// re-mint, which rotates the secret and cuts off everyone already tuned in. A move keeps
+// the code, the hash and the display, so nobody has to be re-told anything.
+//
+// It deliberately does NOT require the destination node to exist or be on air. The band
+// binds when that model next registers privately: tunnel.go's register path reuses an
+// existing unrevoked band owned by the same owner instead of minting, so the move is
+// picked up with no new code and no quota consumed.
+//
+// A band belonging to another owner answers exactly like one that does not exist, so this
+// endpoint can never be used to enumerate other people's band ids.
+func (b *broker) moveBand(w http.ResponseWriter, r *http.Request, owner store.Owner, id string) {
+	var req moveBandReq
+	body, _ := io.ReadAll(io.LimitReader(r.Body, 16<<10))
+	if err := json.Unmarshal(body, &req); err != nil {
+		jsonErr(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	// An empty node_id would unbind the band from every node, leaving a live code that
+	// resolves to nothing and no way to re-bind it. Refuse rather than strand it.
+	if strings.TrimSpace(req.NodeID) == "" {
+		jsonErr(w, http.StatusBadRequest, "node_id is required - name the model's node to move this band to")
+		return
+	}
+	moved, err := b.db.MoveBand(id, owner.Pubkey, req.NodeID)
+	switch {
+	case errors.Is(err, store.ErrBandNodeOccupied):
+		jsonErr(w, http.StatusConflict, "that model already carries its own private band - move or revoke that one first")
+		return
+	case err != nil:
+		jsonErr(w, http.StatusInternalServerError, "store error")
+		return
+	case !moved:
+		// Unknown, revoked, or another owner's band - all indistinguishable on purpose.
+		jsonErr(w, http.StatusNotFound, "no such band")
+		return
+	}
+	log.Printf("band %s moved to node %s by owner %s", id, req.NodeID, owner.Login)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "moved": true, "node_id": req.NodeID})
 }
 
 // bandView is the public (secret-free) JSON shape of a band. NEVER includes the code

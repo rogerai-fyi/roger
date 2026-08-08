@@ -395,6 +395,12 @@ type Store interface {
 	// SetBandRevoked flips a band's revoked flag, owner-scoped (an owner can never
 	// touch another owner's band). ok=false if the band doesn't exist for that owner.
 	SetBandRevoked(id, owner string, revoked bool) (bool, error)
+	// MoveBand rebinds a live band to a different node, owner-scoped - the only write
+	// path for Band.NodeID, and so the only way to point a band at a different model
+	// WITHOUT rotating its secret code. ok=false for an unknown id, another owner's
+	// band, or a revoked one; ErrBandNodeOccupied when the destination already carries
+	// a live band. Moving to its current node is an idempotent success.
+	MoveBand(id, owner, nodeID string) (bool, error)
 	// CountActiveBands counts an owner's live (non-revoked, non-expired) bands as of
 	// now - the free-cap enforcement point (compared against BandQuota at register).
 	CountActiveBands(owner string, now time.Time) (int, error)

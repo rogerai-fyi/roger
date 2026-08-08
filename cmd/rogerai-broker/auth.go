@@ -122,6 +122,29 @@ func (b *broker) authGitHub(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "github_login": gu.Login, "github_id": gu.ID})
 }
 
+// requireOwnerRead resolves the owner for a READ-ONLY owner-scoped request, accepting
+// EITHER the signed pubkey (CLI/TUI) OR a logged-in browser session cookie.
+//
+// A browser holds the cookie, never the Ed25519 signing key, so a cookie-only surface can
+// never satisfy requireOwner. That is why the website's private-band list 403'd for every
+// owner, and why its `.catch` then rendered a confident "No private bands yet" - the page
+// told people they owned nothing. READS accept the cookie; MUTATIONS deliberately do NOT
+// (they keep calling requireOwner), so a cookie alone can never revoke or move a band.
+func (b *broker) requireOwnerRead(r *http.Request) (store.Owner, bool) {
+	if o, ok := b.requireOwner(r); ok {
+		return o, true
+	}
+	login, _, ok := b.webSession(r)
+	if !ok || login == "" {
+		return store.Owner{}, false
+	}
+	o, found, err := b.db.OwnerByLogin(login)
+	if err != nil || !found {
+		return store.Owner{}, false
+	}
+	return o, true
+}
+
 // requireOwner reports whether the signed pubkey on r is bound to a GitHub owner.
 // Earning operations gate on this; consume/free paths never call it.
 func (b *broker) requireOwner(r *http.Request) (store.Owner, bool) {
