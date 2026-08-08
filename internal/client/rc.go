@@ -94,13 +94,68 @@ func ListRC(broker string) ([]RCSessionInfo, error) {
 }
 
 // RCBandInfo is one private band (metadata only) for the BASE STATION bands list.
+// NodeID is what tells an operator WHICH model (and which machine) a band is on -
+// "<station>-<model>" - the fact that was missing when the founder hit the quota wall with
+// their one band parked on a model on another box.
 type RCBandInfo struct {
-	ID      string `json:"id"`
-	Display string `json:"display"`
-	Label   string `json:"label"`
-	NodeID  string `json:"node_id"`
-	Status  string `json:"status"`
-	Revoked bool   `json:"revoked"`
+	ID        string `json:"id"`
+	Display   string `json:"display"`
+	Label     string `json:"label"`
+	NodeID    string `json:"node_id"`
+	Status    string `json:"status"`
+	Revoked   bool   `json:"revoked"`
+	CreatedAt int64  `json:"created_at"`
+}
+
+// RevokeBand permanently revokes a band (DELETE /bands/{id}, owner-signed). The frequency
+// code stops resolving for everyone immediately and can never be revived - the row is kept
+// precisely so the burnt code stays burnt. It frees the owner's quota slot.
+func RevokeBand(broker, id string) error {
+	resp, err := signedDo(http.MethodDelete, broker, "/bands/"+id, nil)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrBrokerUnreachable, err)
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return bandErr(resp.StatusCode, raw)
+	}
+	return nil
+}
+
+// MoveBand repoints a band at another node (PATCH /bands/{id}, owner-signed) so an owner
+// can put their band on a different model WITHOUT rotating the secret: the code, its hash
+// and its display all survive, so everyone already tuned in keeps working. nodeID is the
+// destination "<station>-<model>" (see agent.ShareNodeID); it need not be on air yet - the
+// band binds when that model next goes private.
+func MoveBand(broker, id, nodeID string) error {
+	body, _ := json.Marshal(map[string]string{"node_id": nodeID})
+	resp, err := signedDo(http.MethodPatch, broker, "/bands/"+id, body)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrBrokerUnreachable, err)
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return bandErr(resp.StatusCode, raw)
+	}
+	return nil
+}
+
+// bandErr decodes a broker refusal into the SENTENCE the broker wrote. The band handlers
+// reply {"error":{"message":"..."}} (jsonErr), a shape payoutErr's {"error":"..."} does
+// NOT match - so payoutErr would hand the raw JSON envelope, braces and all, to a status
+// line the operator is meant to read and act on. Falls back to payoutErr for other shapes.
+func bandErr(status int, raw []byte) error {
+	var e struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if json.Unmarshal(raw, &e) == nil && strings.TrimSpace(e.Error.Message) != "" {
+		return fmt.Errorf("%s", strings.TrimSpace(e.Error.Message))
+	}
+	return payoutErr(status, raw)
 }
 
 // ListBands fetches the owner's private bands (GET /bands, signed) for BASE STATION.

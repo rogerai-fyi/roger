@@ -91,6 +91,53 @@ func (p *Postgres) SetBandRevoked(id, owner string, revoked bool) (bool, error) 
 	return n > 0, nil
 }
 
+// MoveBand rebinds a live band to a different node, owner-scoped. See the Mem
+// implementation for the full contract. The occupancy check and the update run in ONE
+// transaction with the band row locked: without it two concurrent moves onto the same free
+// node could each see it empty and both bind, breaking the "at most one band per node"
+// invariant in the durable store, and a concurrent revoke could slip between the check and
+// the update - moving a band whose code was just burnt.
+func (p *Postgres) MoveBand(id, owner, nodeID string) (bool, error) {
+	tx, err := p.db.Begin()
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback() //nolint:errcheck // a no-op once committed
+
+	var curNode string
+	var revoked bool
+	err = tx.QueryRow(`SELECT node_id, revoked FROM rogerai.private_bands
+		WHERE id=$1 AND owner=$2 FOR UPDATE`, id, owner).Scan(&curNode, &revoked)
+	if err == sql.ErrNoRows {
+		return false, nil // unknown id or another owner's band - indistinguishable, on purpose
+	}
+	if err != nil {
+		return false, err
+	}
+	if revoked {
+		return false, nil // a burnt code must never be resurrected at a new node
+	}
+	if curNode == nodeID {
+		return true, tx.Commit() // idempotent retry
+	}
+	var occupied bool
+	if err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM rogerai.private_bands
+		WHERE node_id=$1 AND revoked=false)`, nodeID).Scan(&occupied); err != nil {
+		return false, err
+	}
+	if occupied {
+		return false, ErrBandNodeOccupied
+	}
+	res, err := tx.Exec(`UPDATE rogerai.private_bands SET node_id=$3 WHERE id=$1 AND owner=$2`, id, owner, nodeID)
+	if err != nil {
+		return false, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return false, nil
+	}
+	return true, tx.Commit()
+}
+
 func (p *Postgres) CountActiveBands(owner string, now time.Time) (int, error) {
 	var n int
 	err := p.db.QueryRow(`SELECT COUNT(*) FROM rogerai.private_bands
