@@ -45,6 +45,14 @@ import (
 type agentRuntime struct {
 	loop  *harness.Loop
 	model string // the TUNED-IN channel model the agent runs on ("" = nothing tuned in)
+	// localChat / localKey bind the agent to a model on THIS machine: when localChat is
+	// set the turn goes DIRECT to that OpenAI-compatible server (harness.LocalCompleter)
+	// and never touches the broker - nothing registers, nothing is metered, the weights
+	// stay home. Empty means the ordinary marketplace relay. Set by pickAgentModel and
+	// CLEARED whenever a broker band is picked, so a turn can never silently keep going
+	// to a local server under a broker model's name.
+	localChat string
+	localKey  string
 	// events carries streamed steps of the in-flight turn (assistant text, tool calls,
 	// results, the final answer, errors). Buffered so the loop goroutine never blocks
 	// on a slow UI frame.
@@ -318,6 +326,9 @@ func (m model) enterAgent() (tea.Model, tea.Cmd) {
 	if m.agent == nil {
 		m.agent = m.newAgentRuntime()
 		m.agentMaxSteps = m.agent.loop.MaxSteps
+		// Size the tool-output cap to the band we are entering ON, so the very first turn
+		// is bounded - not only turns after a /model switch.
+		m.applyToolBudget()
 		if m.agent.model != "" {
 			m.agentLines = append(m.agentLines,
 				stDim.Render("· ")+stDim.Render("AGENT on air - running on ")+stKey.Render(m.agent.model)+stDim.Render(" · dj.md persona · local session history"),
@@ -341,7 +352,7 @@ func (m model) enterAgent() (tea.Model, tea.Cmd) {
 			m.autoTuning = true
 			m.agentIn.Focus()
 			m.status = stDim.Render("AGENT ready · esc exits")
-			return m, tea.Batch(textinput.Blink, operatorScanCmd(), autoTuneCmd(m.broker, m.scanned))
+			return m, tea.Batch(textinput.Blink, operatorScanCmd(), localModelsCmd(), autoTuneCmd(m.broker, m.scanned))
 		} else {
 			// A proxy holder exists but no model resolves (a disconnected / oddly-seeded
 			// session): keep the honest up-front hint - the turn is still allowed and falls
@@ -375,7 +386,7 @@ func (m model) enterAgent() (tea.Model, tea.Cmd) {
 	}
 	// Async desk scan (Guest Operators): LookPath + bounded version probes off the event
 	// loop, landing as operatorDetectedMsg - the same pattern as onSharesDetected.
-	return m, tea.Batch(textinput.Blink, operatorScanCmd())
+	return m, tea.Batch(textinput.Blink, operatorScanCmd(), localModelsCmd())
 }
 
 // agentBandToolsWarning returns the entry lines warning that the tuned band cannot drive
@@ -455,6 +466,7 @@ func (m *model) refreshAgentModel() {
 		return
 	}
 	m.agent.model = want
+	m.applyToolBudget() // the window changed with the model; the tool cap must follow it
 	switch {
 	case want != "":
 		m.agentLines = append(m.agentLines, stDim.Render("· ")+stDim.Render("the agent now runs on ")+stKey.Render(want))
@@ -505,7 +517,48 @@ func (m *model) pickAgentModel(mdl string) {
 		return
 	}
 	m.agent.model = mdl
-	m.agentLines = append(m.agentLines, stDim.Render("· ")+stDim.Render("switched - the agent now runs on ")+stKey.Render(mdl))
+	m.bindAgentEndpoint(mdl)
+	m.applyToolBudget()
+	note := stDim.Render("switched - the agent now runs on ") + stKey.Render(mdl)
+	if m.agent.localChat != "" {
+		// Say plainly where the turns are going now. "local" is the whole point of the
+		// choice, and an operator who thinks they are on the marketplace would misread
+		// both the speed and the (absent) cost.
+		note += stDim.Render(" · on this machine, not the network")
+	}
+	m.agentLines = append(m.agentLines, stDim.Render("· ")+note)
+}
+
+// bindAgentEndpoint points the runtime at a LOCAL server when the picked model is one of
+// this machine's, and clears that binding otherwise. The clear is the load-bearing half:
+// without it, switching from a local model back to a broker band would keep sending turns
+// to the local server under the band's name.
+func (m *model) bindAgentEndpoint(mdl string) {
+	if m.agent == nil {
+		return
+	}
+	m.agent.localChat, m.agent.localKey = "", ""
+	if r, ok := m.rowForModel(mdl); ok && r.local {
+		m.agent.localChat, m.agent.localKey = r.chat, r.key
+	}
+}
+
+// applyToolBudget sizes the loop's per-tool-result cap to the context window of the model
+// the agent is CURRENTLY running on. It must be called wherever agent.model changes: a
+// switch from a 128K band down to an 8K one that kept the roomy budget would reproduce the
+// original overflow exactly. A model that is not on the current dial reports no window,
+// and ToolOutputBudget(0) keeps the historical flat cap rather than guessing a smaller one.
+func (m *model) applyToolBudget() {
+	if m.agent == nil || m.agent.loop == nil {
+		return
+	}
+	ctx := 0
+	if b, ok := m.bandForModel(m.agent.model); ok && b.cheapest != nil {
+		ctx = b.cheapest.Ctx
+	} else if r, ok := m.rowForModel(m.agent.model); ok {
+		ctx = r.ctx // a local model is on no band; its window comes from detect
+	}
+	m.agent.loop.MaxToolOutput = harness.ToolOutputBudget(ctx)
 }
 
 // newAgentRuntime builds the harness loop + bridge channels. The completer relays
@@ -561,6 +614,11 @@ func (m model) newAgentRuntime() *agentRuntime {
 			rt.callStart, rt.callSoft, rt.callExtend = time.Time{}, time.Time{}, nil
 			rt.callMu.Unlock()
 		}()
+		// A local model is reached DIRECTLY: no signing, no price cap, no metering - it is
+		// the operator's own hardware, and the cost is genuinely zero.
+		if rt.localChat != "" {
+			return harness.LocalCompleter(rt.localChat, rt.localKey, rt.model)(cctx, messages, tools)
+		}
 		return harness.BrokerCompleterWithTimeout(m.broker, m.user, rt.model, m.confidentialOnly, maxOut, costFn, 0)(cctx, messages, tools)
 	}
 	confirmer := func(tool string, args map[string]any) bool {
@@ -677,7 +735,7 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "enter":
 			if m.agentPickerCursor >= 0 && m.agentPickerCursor < len(m.agentPickerRows) {
-				m.pickAgentModel(m.agentPickerRows[m.agentPickerCursor])
+				m.pickAgentModel(m.agentPickerRows[m.agentPickerCursor].model)
 			}
 			m.agentPicker = false
 			m.agentPickerRows = nil
@@ -1478,7 +1536,7 @@ func (m model) runAgentCommand(line string) (tea.Model, tea.Cmd) {
 // hint rather than an empty picker. The candidate set is the recent / last-tuned
 // model(s) plus any band currently on air in the discover list (agentModelCandidates).
 func (m model) openAgentModelPicker() (tea.Model, tea.Cmd) {
-	cands := m.agentModelCandidates()
+	cands := m.agentPickerCandidates()
 	switch len(cands) {
 	case 0:
 		m.agentLines = append(m.agentLines,
@@ -1487,7 +1545,7 @@ func (m model) openAgentModelPicker() (tea.Model, tea.Cmd) {
 		return m, nil
 	case 1:
 		// Exactly one candidate: just use it (obvious - no prompt).
-		m.pickAgentModel(cands[0])
+		m.pickAgentModel(cands[0].model)
 		return m, nil
 	default:
 		m.agentPicker = true
@@ -1496,7 +1554,7 @@ func (m model) openAgentModelPicker() (tea.Model, tea.Cmd) {
 		// Start the cursor on the model we are already running on, if it is in the list,
 		// so enter-without-moving is a no-op rather than a surprise switch.
 		for i, c := range cands {
-			if m.agent != nil && c == m.agent.model {
+			if m.agent != nil && c.model == m.agent.model {
 				m.agentPickerCursor = i
 				break
 			}
@@ -2043,9 +2101,22 @@ func (m model) agentView(w int) string {
 	// real choice. NO_COLOR / narrow safe (shared styles + per-line clip).
 	if m.agentPicker {
 		b.WriteString("\n" + truncVisible("  "+stSelText.Render("pick a model")+stDim.Render(" - the agent will run on it"), w) + "\n")
-		for i, mdl := range m.agentPickerRows {
-			row := pad(mdl, 28)
-			tail := m.modelBadgeTail(mdl)
+		localHeaded := false
+		for i, r := range m.agentPickerRows {
+			// The local models sit under their own heading, so "runs on my box, costs
+			// nothing, never leaves" is legible at a glance rather than inferred from a badge.
+			if r.local && !localHeaded {
+				localHeaded = true
+				b.WriteString(truncVisible("  "+stDim.Render("  LOCAL · your machine · direct, not through the network"), w) + "\n")
+			}
+			row := pad(r.model, 28)
+			// A local row's tail names the server it is served by; a band's names its flags.
+			// A local model is deliberately NEVER priced: there is no price, and printing one
+			// would be a false claim about money.
+			tail := m.modelBadgeTail(r.model)
+			if r.local {
+				tail = r.via
+			}
 			if i == m.agentPickerCursor {
 				line := " ▸ " + row
 				if tail != "" {
@@ -2631,8 +2702,40 @@ func hintTuneOrShare(narrow bool) string {
 func failureHint(raw, model string, narrow bool) []string {
 	return []string{
 		stRed.Render("✕ ") + stEmber.Render(shortFailure(raw, model)),
-		hintTuneOrShare(narrow),
+		remedyFor(raw, narrow),
 	}
+}
+
+// isContextOverflow spots the station saying the CONVERSATION no longer fits the model's
+// context window (Apple's on-device foundation model says "Exceeded model context window
+// size"; llama.cpp / vLLM / OpenAI-compatible servers phrase it as "context length
+// exceeded", "maximum context length", "too many tokens", or a full "kv cache"). Matched
+// on the lowered raw text so every server's spelling lands on the same remedy.
+func isContextOverflow(low string) bool {
+	return strings.Contains(low, "context window") ||
+		strings.Contains(low, "context length") ||
+		strings.Contains(low, "context_length_exceeded") ||
+		strings.Contains(low, "maximum context") ||
+		strings.Contains(low, "too many tokens") ||
+		strings.Contains(low, "kv cache")
+}
+
+// remedyFor picks the actionable second line for a failure. Most relay failures mean
+// nobody is serving the band, and [2]/[1] are the right moves - but a CONTEXT-WINDOW
+// overflow is the one shape where that advice is actively WRONG: the band is healthy and
+// answering, the conversation simply outgrew it. Putting another station on air or tuning
+// elsewhere changes nothing, and telling an operator to do so sends them to fix a node
+// that was never broken. That case gets the two moves that DO help - clear the transcript,
+// or move to a model with a bigger window.
+func remedyFor(raw string, narrow bool) string {
+	if isContextOverflow(strings.ToLower(raw)) {
+		if narrow {
+			return stDim.Render("    ") + stKey.Render("/clear") + stDim.Render(" · ") + stKey.Render("/model")
+		}
+		return stDim.Render("    start a fresh session with ") + stKey.Render("/clear") +
+			stDim.Render(", or pick a roomier model with ") + stKey.Render("/model")
+	}
+	return hintTuneOrShare(narrow)
 }
 
 // shortFailure maps a raw relay error to a tight, plain first clause. It recognises
@@ -2648,6 +2751,15 @@ func shortFailure(raw, model string) string {
 	// model right now" - the broker had nobody to relay to. Name the model so the bare
 	// code becomes an actionable sentence.
 	switch {
+	// Checked BEFORE the no-station shapes: a context overflow is a healthy station
+	// refusing an oversized conversation, and must never be reported as nobody being on
+	// air. Name the model, because WHICH window was outgrown is the whole point - a small
+	// on-device band (Apple foundation, 8K) fills where a big one would not.
+	case isContextOverflow(low):
+		if model != "" {
+			return "the conversation outgrew " + model + "'s context window"
+		}
+		return "the conversation outgrew this model's context window"
 	case strings.Contains(low, "no station") || strings.Contains(low, "no node") || strings.Contains(low, "not on air") || strings.Contains(low, "no model is tuned in"):
 		return noStationServing(model) + statusSuffix(s)
 	case strings.Contains(low, "no reply") || strings.Contains(low, "within ") && strings.Contains(low, "slow or offline"):

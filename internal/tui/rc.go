@@ -419,12 +419,22 @@ func (m model) privateView(w int) string {
 	if len(m.rcBands) == 0 {
 		line(stDim.Render("none yet — roger share --private mints one (a one-time frequency code)"))
 	}
-	for _, bd := range m.rcBands {
+	for i, bd := range m.rcBands {
 		mark := stDim.Render("· ")
 		if bd.Status == "active" {
 			mark = stRed.Render(glyphOnAir + " ")
 		}
-		line(mark + fmt.Sprintf("%-16s", trimName(bd.Label)) + " " + stDim.Render(bd.Display))
+		cursor := "  "
+		if m.rcCursor == len(m.rcSessions)+i {
+			cursor = stKey.Render("▸ ")
+		}
+		// The node id names the model (and the machine) a band is on. Without it an operator
+		// cannot tell WHICH band is holding their one free slot - the founder's dead end.
+		line(cursor + mark + fmt.Sprintf("%-16s", trimName(bandName(bd))) + " " +
+			stDim.Render(bd.Display) + "  " + stDim.Render(bandWhere(bd)))
+	}
+	if len(m.rcBands) > 0 {
+		b.WriteString("\n  " + stDim.Render("⏎ manage a band (move · revoke)") + "\n")
 	}
 	b.WriteString("\n  " + stDim.Render("tune a code from elsewhere ") + stKey.Render("[~]") + "\n")
 	if m.rcErr != "" {
@@ -451,7 +461,9 @@ func (m model) onPrivateKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "down", "j":
-		if m.rcCursor < len(m.rcSessions)-1 {
+		// The cursor runs over BOTH lists: sessions first, then bands. Bands used to be
+		// rendered but unreachable, which is why nothing in the product could revoke one.
+		if m.rcCursor < len(m.rcSessions)+len(m.rcBands)-1 {
 			m.rcCursor++
 		}
 		return m, nil
@@ -467,10 +479,17 @@ func (m model) onPrivateKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.rcCursor >= 0 && m.rcCursor < len(m.rcSessions) {
 			return m.enterRemoteSession(m.rcSessions[m.rcCursor])
 		}
+		if i := m.bandCursorIndex(); i >= 0 {
+			return m.openBandManage(m.rcBands[i]), nil
+		}
 		return m, nil
 	case "x", "X":
 		if m.rcCursor >= 0 && m.rcCursor < len(m.rcSessions) {
 			return m, m.revokeRemoteSession(m.rcSessions[m.rcCursor].ID)
+		}
+		// A band revoke burns its code forever, so it always goes through the confirm.
+		if i := m.bandCursorIndex(); i >= 0 {
+			return m.openBandRevokeConfirm(m.rcBands[i]), nil
 		}
 		return m, nil
 	}

@@ -1,0 +1,175 @@
+package main
+
+import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+)
+
+// `roger bands` - the CLI half of private-band management.
+//
+// THE GAP: `roger share --private` MINTS a band from the CLI, but there was no CLI verb to
+// see, move or revoke one afterwards. An operator who minted from a terminal had no way to
+// find out what they held, and the broker's own quota refusal told them to "revoke an
+// existing band first" - an action the CLI could not perform.
+// Spec: features/sharing/band_management.feature.
+
+// bandsBroker stands up a broker stub covering the three band endpoints, recording what
+// the CLI actually sent.
+func bandsBroker(t *testing.T, bands string) (*httptest.Server, *[]string) {
+	t.Helper()
+	var calls []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls = append(calls, r.Method+" "+r.URL.Path)
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/bands":
+			_, _ = w.Write([]byte(bands))
+		case r.Method == http.MethodDelete:
+			_, _ = w.Write([]byte(`{"ok":true,"revoked":true}`))
+		case r.Method == http.MethodPatch:
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			calls = append(calls, "node_id="+strings_(body["node_id"]))
+			_, _ = w.Write([]byte(`{"ok":true,"moved":true}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv, &calls
+}
+
+func strings_(v any) string { s, _ := v.(string); return s }
+
+const oneBand = `{"bands":[{"id":"band_1","display":"145.225 MHz · ••••-••••",
+	"node_id":"roggentoo-gemma-4-31b","status":"active","created_at":1000}]}`
+
+func TestBandsListPrintsWhatYouHoldAndWhereItLives(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	srv, _ := bandsBroker(t, oneBand)
+	cfg := config{Broker: srv.URL, User: "u_gh_1"}
+
+	out := captureStdout(t, func() {
+		if err := cmdBands(cfg, []string{"list"}); err != nil {
+			t.Fatalf("bands list: %v", err)
+		}
+	})
+
+	// The node id is the fact an operator cannot get anywhere else: which model, and which
+	// machine, is holding their one free slot.
+	if !strings.Contains(out, "roggentoo-gemma-4-31b") {
+		t.Errorf("the list must say which model the band is on, got:\n%s", out)
+	}
+	if !strings.Contains(out, "145.225 MHz") {
+		t.Errorf("the list must show the masked display, got:\n%s", out)
+	}
+	if !strings.Contains(out, "active") {
+		t.Errorf("the list must show status, got:\n%s", out)
+	}
+	// It must never print a secret - the code was shown once at mint and never stored.
+	for _, leak := range []string{"code_hash", "8F3K"} {
+		if strings.Contains(out, leak) {
+			t.Errorf("the list leaked %q", leak)
+		}
+	}
+}
+
+// An empty list must say the ONE thing that gets you a band, not just "none".
+func TestBandsListEmptySaysHowToMintOne(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	srv, _ := bandsBroker(t, `{"bands":[]}`)
+	cfg := config{Broker: srv.URL, User: "u_gh_1"}
+
+	out := captureStdout(t, func() {
+		if err := cmdBands(cfg, []string{"list"}); err != nil {
+			t.Fatalf("bands list: %v", err)
+		}
+	})
+	if !strings.Contains(out, "--private") {
+		t.Errorf("an empty list should name the command that mints one, got:\n%s", out)
+	}
+}
+
+// Revoke is irreversible, so the CLI must require the band id explicitly - never revoke
+// "the only one" implicitly.
+func TestBandsRevokeNeedsAnExplicitID(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	srv, calls := bandsBroker(t, oneBand)
+	cfg := config{Broker: srv.URL, User: "u_gh_1"}
+
+	if err := cmdBands(cfg, []string{"revoke"}); err == nil {
+		t.Error("revoke with no id must error rather than guess which band to burn")
+	}
+	for _, c := range *calls {
+		if strings.HasPrefix(c, "DELETE") {
+			t.Fatal("a revoke was sent despite no band id being given")
+		}
+	}
+}
+
+func TestBandsRevokeCallsTheBroker(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	srv, calls := bandsBroker(t, oneBand)
+	cfg := config{Broker: srv.URL, User: "u_gh_1"}
+
+	if err := cmdBands(cfg, []string{"revoke", "band_1"}); err != nil {
+		t.Fatalf("bands revoke: %v", err)
+	}
+	if !containsCall(*calls, "DELETE /bands/band_1") {
+		t.Errorf("calls = %v, want DELETE /bands/band_1", *calls)
+	}
+}
+
+// Move is the one that keeps the code alive, so it must be reachable from the CLI too.
+func TestBandsMoveSendsTheStationScopedNodeID(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	srv, calls := bandsBroker(t, oneBand)
+	cfg := config{Broker: srv.URL, User: "u_gh_1", Station: "eager-puma-54"}
+
+	if err := cmdBands(cfg, []string{"move", "band_1", "qwen3-vl-8b"}); err != nil {
+		t.Fatalf("bands move: %v", err)
+	}
+	if !containsCall(*calls, "PATCH /bands/band_1") {
+		t.Errorf("calls = %v, want PATCH /bands/band_1", *calls)
+	}
+	// It must send "<station>-<model>", the id the share path registers - not a bare model.
+	if !containsCall(*calls, "node_id=eager-puma-54-qwen3-vl-8b") {
+		t.Errorf("calls = %v, want the station-scoped node id", *calls)
+	}
+}
+
+func TestBandsMoveNeedsBothArguments(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	srv, _ := bandsBroker(t, oneBand)
+	cfg := config{Broker: srv.URL, User: "u_gh_1", Station: "s"}
+
+	if err := cmdBands(cfg, []string{"move"}); err == nil {
+		t.Error("move with no args must error")
+	}
+	if err := cmdBands(cfg, []string{"move", "band_1"}); err == nil {
+		t.Error("move with no destination model must error")
+	}
+}
+
+// Usage and unknown-subcommand behaviour, matching `roger grant`.
+func TestBandsUsageAndUnknown(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	cfg := config{Broker: "https://b", User: "u"}
+	if err := cmdBands(cfg, nil); err != nil {
+		t.Errorf("cmdBands(nil) = %v, want nil (usage)", err)
+	}
+	if err := cmdBands(cfg, []string{"bogus"}); err == nil {
+		t.Error("an unknown bands subcommand should error")
+	}
+}
+
+func containsCall(calls []string, want string) bool {
+	for _, c := range calls {
+		if c == want {
+			return true
+		}
+	}
+	return false
+}

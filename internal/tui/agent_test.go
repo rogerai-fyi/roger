@@ -552,7 +552,7 @@ func TestSlashModelManyOpensPickerAndSelects(t *testing.T) {
 	if !strings.Contains(out, "pick a model") {
 		t.Errorf("picker view should render the prompt:\n%s", out)
 	}
-	want := gm.agentPickerRows[1]
+	want := gm.agentPickerRows[1].model
 	var pm tea.Model = gm
 	pm, _ = pm.Update(keyMsg2(tea.KeyDown)) // move to the second row
 	pm, _ = pm.Update(keyMsg2(tea.KeyEnter))
@@ -629,8 +629,14 @@ func TestSlashModelPickerChatOnly(t *testing.T) {
 			if gm.agentPicker != tc.wantPicker {
 				t.Fatalf("picker open = %v, want %v (rows=%v)", gm.agentPicker, tc.wantPicker, gm.agentPickerRows)
 			}
-			if tc.wantPicker && !reflect.DeepEqual(gm.agentPickerRows, tc.wantRows) {
-				t.Errorf("picker rows = %v, want chat-only %v", gm.agentPickerRows, tc.wantRows)
+			// The picker now carries a row struct (local models are on no band and must
+			// bring their own endpoint), so compare the model ids the rows name.
+			gotRows := make([]string, 0, len(gm.agentPickerRows))
+			for _, r := range gm.agentPickerRows {
+				gotRows = append(gotRows, r.model)
+			}
+			if tc.wantPicker && !reflect.DeepEqual(gotRows, tc.wantRows) {
+				t.Errorf("picker rows = %v, want chat-only %v", gotRows, tc.wantRows)
 			}
 			if !tc.wantPicker && agentModelOf(gm) != tc.wantModel {
 				t.Errorf("agent model after /model = %q, want %q", agentModelOf(gm), tc.wantModel)
@@ -642,7 +648,11 @@ func TestSlashModelPickerChatOnly(t *testing.T) {
 			}
 			// A voice station must never surface as an agent brain - not as a picker row
 			// and not as an auto-selected model.
-			for _, mdl := range append(append([]string{}, gm.agentPickerRows...), agentModelOf(gm)) {
+			names := []string{agentModelOf(gm)}
+			for _, r := range gm.agentPickerRows {
+				names = append(names, r.model)
+			}
+			for _, mdl := range names {
 				if mdl == "voice" || mdl == "whisper-1" {
 					t.Errorf("voice station %q offered as an agent brain", mdl)
 				}

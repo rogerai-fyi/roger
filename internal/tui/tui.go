@@ -129,6 +129,12 @@ type Hooks struct {
 	RCRevoke func(broker, sessionID string) error
 	// BandList fetches the owner's private bands for the BASE STATION bands list.
 	BandList func(broker string) ([]BandRow, error)
+	// BandRevoke permanently revokes a band. The frequency code stops resolving for
+	// everyone and can never be revived; it frees the owner's quota slot.
+	BandRevoke func(broker, bandID string) error
+	// BandMove repoints a band at another node ("<station>-<model>") WITHOUT rotating its
+	// secret, so everyone already tuned in keeps working.
+	BandMove func(broker, bandID, nodeID string) error
 	// RCAttach exchanges a link code for a per-device attach token, so the TUI can view a
 	// session hosted on ANOTHER machine. Returns (attachToken, sessionID, name).
 	RCAttach func(broker, code string) (attach, sessionID, name string, err error)
@@ -145,8 +151,11 @@ type Hooks struct {
 }
 
 // BandRow is a compact private-band summary for BASE STATION (metadata only, no secret).
+// NodeID ("<station>-<model>") is what lets the list say WHICH model - and which machine -
+// a band is on: the fact an operator otherwise has no way to discover.
 type BandRow struct {
 	ID, Display, Label, Status string
+	NodeID                     string
 }
 
 // GrantRow is a compact grant summary for the in-TUI /grant list.
@@ -519,28 +528,31 @@ const (
 	modeCommand
 	modeChat
 	modeHelp
-	modeConnectConfirm // 3.2 cost confirmation (default DENY)
-	modeConnecting     // staged scan/lock/handshake/CHANNEL-OPEN sequence (the web's tune-in)
-	modeOverLimit      // 3.3 over-limit + inline edit-your-max
-	modeLimits         // 3.4 per-model spend limits
-	modeShare          // k9s-style provider table: list local models, toggle on/off-air
-	modeBandCard       // private band code card: shows the one-time frequency code after going private
-	modeShareEditor    // per-model pricing + time-of-use schedule editor (login-gated)
-	modeShareSetup     // guided fallback: no local model detected, pick a tool / paste a URL
-	modeQuitConfirm    // on-air quit-guard: confirm before going off air on quit
-	modeAgent          // [0] AGENT: the embedded tool-capable agent harness (dj.md persona)
-	modeLogin          // [L] confirmable login/logout panel (never an instant action)
-	modeBandDetail     // [i] expanded per-station QSL view: every station's real metrics + the signal-term breakdown
-	modeFreqEntry      // [~] small input to ENTER a private frequency code (tune off the OPEN MARKET onto a hidden band)
-	modePingWorld      // [z] / `/ping`: the fullscreen Ping World screensaver; any key wakes back to prevMode
-	modeLog            // /log: the captured node + broker log buffer (any key closes)
-	modeVoicePreview   // a VOICE band (tts/stt): a sample-play/preview panel, NOT a chat channel (voice.go)
-	modeVoiceBooth     // THE DJ BOOTH: the tts voices lineup, a CHILD screen of THE BAND (esc returns). Voice is a dim footnote off the LLM list, never a peer section (voice.go)
-	modeListeningPost  // THE LISTENING POST: the stt info/how-to screen, drilled into FROM the Booth (esc returns to the Booth). Info only — no preview, no chat (voice.go)
-	modeShareVoice     // SHARE VOICE BOOTH: the operator's voice-sharing wizard, reached via `p` on a tts share row — same depth as the chat price editor (voicebooth_share.go)
-	modeVoicePicker    // SHARE VOICE BOOTH picker popover: pick a Kokoro voice (local list + bundled fallback), audition free (voicebooth_share.go)
-	modePrivate        // [p] BASE STATION: your private side of the dial — remote agent sessions + private bands, a CHILD screen of THE BAND (esc returns) (rc.go)
-	modeRemoteSession  // a live remote-control session view: continue a chat running on another machine, streamed + labeled private (rc.go)
+	modeConnectConfirm    // 3.2 cost confirmation (default DENY)
+	modeConnecting        // staged scan/lock/handshake/CHANNEL-OPEN sequence (the web's tune-in)
+	modeOverLimit         // 3.3 over-limit + inline edit-your-max
+	modeLimits            // 3.4 per-model spend limits
+	modeShare             // k9s-style provider table: list local models, toggle on/off-air
+	modeBandCard          // private band code card: shows the one-time frequency code after going private
+	modeShareEditor       // per-model pricing + time-of-use schedule editor (login-gated)
+	modeShareSetup        // guided fallback: no local model detected, pick a tool / paste a URL
+	modeQuitConfirm       // on-air quit-guard: confirm before going off air on quit
+	modeAgent             // [0] AGENT: the embedded tool-capable agent harness (dj.md persona)
+	modeLogin             // [L] confirmable login/logout panel (never an instant action)
+	modeBandDetail        // [i] expanded per-station QSL view: every station's real metrics + the signal-term breakdown
+	modeFreqEntry         // [~] small input to ENTER a private frequency code (tune off the OPEN MARKET onto a hidden band)
+	modeBandManage        // BASE STATION: the actions card for ONE of your own bands (move / revoke) (rc.go)
+	modeBandMove          // BASE STATION: pick which local model to MOVE a band to - the code survives (rc.go)
+	modeBandRevokeConfirm // BASE STATION: the explicit y/N confirm before burning a band's code forever (rc.go)
+	modePingWorld         // [z] / `/ping`: the fullscreen Ping World screensaver; any key wakes back to prevMode
+	modeLog               // /log: the captured node + broker log buffer (any key closes)
+	modeVoicePreview      // a VOICE band (tts/stt): a sample-play/preview panel, NOT a chat channel (voice.go)
+	modeVoiceBooth        // THE DJ BOOTH: the tts voices lineup, a CHILD screen of THE BAND (esc returns). Voice is a dim footnote off the LLM list, never a peer section (voice.go)
+	modeListeningPost     // THE LISTENING POST: the stt info/how-to screen, drilled into FROM the Booth (esc returns to the Booth). Info only — no preview, no chat (voice.go)
+	modeShareVoice        // SHARE VOICE BOOTH: the operator's voice-sharing wizard, reached via `p` on a tts share row — same depth as the chat price editor (voicebooth_share.go)
+	modeVoicePicker       // SHARE VOICE BOOTH picker popover: pick a Kokoro voice (local list + bundled fallback), audition free (voicebooth_share.go)
+	modePrivate           // [p] BASE STATION: your private side of the dial — remote agent sessions + private bands, a CHILD screen of THE BAND (esc returns) (rc.go)
+	modeRemoteSession     // a live remote-control session view: continue a chat running on another machine, streamed + labeled private (rc.go)
 )
 
 // Limit is the per-model spend ceiling (mirrors cmd/rogerai's config.Limit).
@@ -899,9 +911,14 @@ type model struct {
 	// "I switched to deepseek and the next ask snapped back to Qwen"). Only tuning a
 	// DIFFERENT channel afterwards re-points the agent. "" = nothing was open at pick time.
 	agentPickedOver   string
-	agentPicker       bool     // the /model picker modal is open
-	agentPickerRows   []string // candidate models in the open picker
-	agentPickerCursor int      // selected row in the picker
+	agentPicker       bool             // the /model picker modal is open
+	agentPickerRows   []agentPickerRow // candidate models in the open picker
+	agentPickerCursor int              // selected row in the picker
+	// localFound is the last BACKGROUND scan of OpenAI-compatible servers on THIS machine
+	// (detect.DetectFull). It is a cache and is never fetched on picker-open: detect probes
+	// ~12 ports at 1.5s each, and /model is instant today precisely because it reads only
+	// in-memory state. See localModelsCmd.
+	localFound []detect.Found
 	// Guest Operators (Phase 2, THE DESK): the async desk-scan result, the /operator
 	// picker modal, and the live handoff state. See operator.go.
 	operatorDetections []operator.Detection // detected guest CLIs (registry order)
@@ -962,9 +979,15 @@ type model struct {
 	rcInfo     RemoteInfo
 	rcSessions []RemoteSessionRow
 	rcBands    []BandRow
-	rcCursor   int
-	rcErr      string
-	rcPrevMode mode // where 'esc' returns from modePrivate / modeRemoteSession
+	// Band management (modeBandManage / modeBandMove / modeBandRevokeConfirm): which band
+	// the card is acting on, and the cursor in the move picker's local-model list.
+	bandManageID   string
+	bandManageDisp string
+	bandManageNode string
+	bandMoveCursor int
+	rcCursor       int
+	rcErr          string
+	rcPrevMode     mode // where 'esc' returns from modePrivate / modeRemoteSession
 	// modeRemoteSession (the in-TUI viewer): the session being viewed + its streamed lines.
 	rsRow    RemoteSessionRow
 	rsAttach string   // this device's attach token for rsRow
@@ -1762,11 +1785,28 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = stLive.Render(plural(len(m.grantList), "grant") + " - see the panel")
 		}
 		return m, nil
+	case bandActionMsg:
+		// A move/revoke landed. Either way we return to BASE STATION and re-fetch the
+		// roster, so the list reflects what actually happened rather than what we hoped.
+		m.mode = modePrivate
+		switch {
+		case msg.err != "":
+			m.status = stEmber.Render("! " + msg.err)
+			return m, nil
+		case msg.moved:
+			m.status = stLive.Render("moved - ") + stKey.Render(msg.model) +
+				stDim.Render(" now answers on the same frequency code")
+		case msg.revoked:
+			m.status = stDim.Render("revoked - that frequency code no longer resolves")
+		}
+		return m, m.fetchRemoteRoster()
 	case flowErrMsg:
 		m.status = stEmber.Render("! " + string(msg))
 		return m, nil
 	case agentEventMsg:
 		return m.onAgentEvent(msg)
+	case localModelsMsg: // a background scan of THIS machine's model servers landed
+		return m.onLocalModels(msg)
 	case operatorDetectedMsg: // an async desk scan landed (Guest Operators)
 		return m.onOperatorDetected(msg)
 	case operatorExecMsg: // the staged PATCHING paint elapsed - issue the exec
@@ -2192,6 +2232,12 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.onVoicePickerKey(k)
 	case modePrivate:
 		return m.onPrivateKey(k)
+	case modeBandManage:
+		return m.onBandManageKey(k)
+	case modeBandMove:
+		return m.onBandMoveKey(k)
+	case modeBandRevokeConfirm:
+		return m.onBandRevokeConfirmKey(k)
 	case modeRemoteSession:
 		return m.onRemoteSessionKey(k)
 	case modeBandDetail:
@@ -2912,7 +2958,21 @@ func (m *model) togglePrivateAt(i int) {
 	case res.AtLimit:
 		m.status = m.onAirLimitMsg()
 	case res.Err != nil:
-		m.status = stEmber.Render("! could not change " + model + " visibility: " + res.Err.Error())
+		// Lead with the broker's OWN reason (node.ErrReason drops the "register with
+		// <url>: broker rejected registration (403):" frames that used to eat the whole
+		// status line), then say what the row is doing NOW - an operator who just failed
+		// to go private most needs to know whether they are still broadcasting.
+		state := stEmber.Render(" - " + model + " went off air")
+		if res.Restored {
+			state = stDim.Render(" - " + model + " is still on air, unchanged")
+		}
+		reason := node.ErrReason(res.Err)
+		// A quota refusal is the one failure the operator can fix themselves, so point at
+		// the surface that can fix it rather than leaving them at a dead end.
+		if strings.Contains(strings.ToLower(reason), "band limit reached") {
+			state = stDim.Render(" - " + bandQuotaHint())
+		}
+		m.status = stEmber.Render("! "+reason) + state
 	case !res.NowPrivate:
 		m.status = stDim.Render("back on the OPEN MARKET - ") + stKey.Render(model) + stDim.Render(" is public again")
 	case res.Code != "":
@@ -4683,6 +4743,12 @@ func (m model) View() string {
 		b.WriteString(m.voicePickerView(w))
 	case modePrivate:
 		b.WriteString(m.privateView(w))
+	case modeBandManage:
+		b.WriteString(m.bandManageView(w))
+	case modeBandMove:
+		b.WriteString(m.bandMoveView(w))
+	case modeBandRevokeConfirm:
+		b.WriteString(m.bandRevokeConfirmView(w))
 	case modeRemoteSession:
 		b.WriteString(m.remoteSessionView(w))
 	case modeFreqEntry:
@@ -8793,7 +8859,10 @@ func (m model) compactFooter(w int) string {
 	line := truncVisible("  "+hint, w)
 	st := ""
 	if m.status != "" {
-		st = "\n" + truncVisible("  "+m.status, w)
+		// Tail-ellipsis, not a hard cut: a status line is where broker rejections land,
+		// and a bare clip ("...: brok") reads as a corrupted message rather than a
+		// truncated one - the operator cannot tell there is more to know.
+		st = "\n" + truncVisibleTail("  "+m.status, w)
 	}
 	return rule + "\n" + line + st
 }
