@@ -339,6 +339,45 @@ func TestAgentBDD(t *testing.T) {
 			// scenario 6
 			sc.Step(`^the agent completes a turn$`, st.agentCompletesTurn)
 			sc.Step(`^that turn's tokens in/out, throughput, latency, and cost are recorded \(same receipts as chat\)$`, st.turnReceiptsRecorded)
+			// the tool-output budget (ctxbudget_bdd_test.go): a tool result must fit the
+			// band the agent runs on. Each scenario gets a fresh state + temp sandbox root.
+			tb := &toolBudgetState{}
+			root := t.TempDir()
+			sc.Step(`^the agent is running on a small-context band$`, tb.givenSmallContextBand)
+			sc.Step(`^a tool returns more than that window can hold$`, func() error { return tb.whenToolReturnsMoreThanFits(root) })
+			sc.Step(`^the result is cut to a share of the window before it enters the conversation$`, tb.thenCutToAShareOfTheWindow)
+			sc.Step(`^it is marked as truncated, so a partial file is never read as complete$`, tb.thenMarkedTruncated)
+			sc.Step(`^a roomy band is unaffected, because this is a floor-and-ceiling, not a downgrade$`, func() error { return tb.thenRoomyBandUnaffected(root) })
+			sc.Step(`^the agent moves from a roomy band to a small one$`, tb.givenMovesToSmallBand)
+			sc.Step(`^the tool cap shrinks with it, rather than keeping the roomy budget$`, tb.thenCapShrinks)
+			sc.Step(`^the broker reports no context window for the tuned model$`, tb.givenNoReportedWindow)
+			sc.Step(`^the flat 16 KiB cap applies, because a guess could be worse than the status quo$`, tb.thenFlatCapApplies)
+			sc.Step(`^a tool result is truncated$`, func() error {
+				if err := tb.givenSmallContextBand(); err != nil {
+					return err
+				}
+				return tb.whenToolReturnsMoreThanFits(root)
+			})
+			sc.Step(`^the transcript shows the truncated text, not the full one$`, tb.thenTranscriptShowsTruncated)
+			// local models (local_bdd_test.go): your own model, without sharing it.
+			lm := &localModelState{}
+			sc.After(func(ctx context.Context, _ *godog.Scenario, _ error) (context.Context, error) {
+				lm.stop()
+				return ctx, nil
+			})
+			sc.Step(`^an OpenAI-compatible server is running locally$`, lm.givenLocalServerRunning)
+			sc.Step(`^its chat models appear in /model under their own heading, marked local$`, lm.thenLocalModelsAppearMarked)
+			sc.Step(`^a local voice model is never offered, because it cannot run a tool loop$`, lm.thenVoiceModelNeverOffered)
+			sc.Step(`^a local model shows no price, because there is none to show$`, lm.thenNoPriceShown)
+			sc.Step(`^the agent is running on a local model$`, lm.givenAgentOnLocalModel)
+			sc.Step(`^it takes a turn$`, lm.whenItTakesATurn)
+			sc.Step(`^the request goes straight to that server$`, lm.thenStraightToThatServer)
+			sc.Step(`^it carries no signature, no price cap, and no broker user$`, lm.thenNoMarketplaceHeaders)
+			sc.Step(`^nothing is registered, metered, or billed$`, lm.thenNothingBilled)
+			sc.Step(`^the agent was running on a local model$`, lm.givenWasOnLocalModel)
+			sc.Step(`^the operator picks a broker band$`, lm.whenOperatorPicksABand)
+			sc.Step(`^the turn relays through the broker again, not the local server$`, lm.thenRelaysThroughBrokerAgain)
+			sc.Step(`^/model opens from memory, and a background scan folds its results in when it lands$`, lm.thenPickerOpensFromMemory)
 		},
 		Options: &godog.Options{
 			Format:   "pretty",

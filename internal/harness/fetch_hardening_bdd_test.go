@@ -602,10 +602,19 @@ func (s *fetchState) validUTF8() error {
 // Adding a file here is the thing a reviewer must object to: it exempts that file from
 // the "no network around the guard" rule.
 // guardedFetchFiles are the ONLY package files allowed to open a socket for a
-// MODEL-SUPPLIED URL. broker.go (the metered relay to the broker) and search.go (the
-// operator-configured provider endpoint) reach the network too, but neither ever dials an
-// address the model chose, so they are not part of this guard's surface.
-var guardedFetchFiles = map[string]bool{"fetch.go": true, "broker.go": true, "search.go": true}
+// MODEL-SUPPLIED URL. broker.go (the metered relay to the broker), search.go (the
+// operator-configured provider endpoint) and local.go (a model server on the operator's
+// OWN machine, discovered by internal/detect and chosen explicitly in /model) reach the
+// network too, but none of them ever dials an address the model chose, so they are not
+// part of this guard's surface.
+//
+// local.go is the one to think twice about, because it dials LOOPBACK - exactly what this
+// guard exists to stop web_fetch from reaching. The distinction is provenance, not
+// destination: its URL comes from the operator's own detection and their explicit pick,
+// and there is no path by which a model can influence it (LocalCompleter takes the chat
+// URL as a parameter and never reads one from the conversation). A model-supplied URL
+// still has only one way to the network, and it is fetch.go's vetted dialer.
+var guardedFetchFiles = map[string]bool{"fetch.go": true, "broker.go": true, "search.go": true, "local.go": true}
 
 func (s *fetchState) oneFetchImplementation() error {
 	files, err := filepath.Glob("*.go")
