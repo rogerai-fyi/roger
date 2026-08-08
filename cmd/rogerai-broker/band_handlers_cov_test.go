@@ -14,6 +14,8 @@ import (
 func ownerReq(method, path, pubkey string) *http.Request {
 	r := httptest.NewRequest(method, path, nil)
 	r.Header.Set("X-Roger-Pubkey", pubkey)
+	// Band mutations verify the signature, not just the header - see band_signature_test.go.
+	signAsTestOwner(r, pubkey, nil)
 	return r
 }
 

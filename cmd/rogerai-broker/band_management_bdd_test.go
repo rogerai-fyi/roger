@@ -46,6 +46,10 @@ func (s *bandMgmtState) reset() {
 	s.b, s.userPriv, s.nodePriv, s.nodePub = b, userPriv, nodePriv, nodePub
 	o, _, _ := b.db.OwnerByLogin("owner")
 	s.owner = o
+	// The band mutations verify a signature, so the scenarios must send real ones -
+	// otherwise every "refused" step here would pass on a missing signature rather than on
+	// the rule it names. See band_signature_test.go.
+	rememberTestOwnerKey(o.Pubkey, userPriv)
 	s.bandID, s.moveCode, s.moveBody, s.refusal = "", 0, "", ""
 	s.before, s.regCode, s.regBody, s.mintResp = store.Band{}, 0, nil, nil
 }
@@ -67,6 +71,7 @@ func (s *bandMgmtState) patchBand(id, nodeID, asPubkey string) (int, string) {
 	body := `{"node_id":"` + nodeID + `"}`
 	r := httptest.NewRequest(http.MethodPatch, "/bands/"+id, strings.NewReader(body))
 	r.Header.Set("X-Roger-Pubkey", asPubkey)
+	signAsTestOwner(r, asPubkey, []byte(body))
 	w := httptest.NewRecorder()
 	s.b.bandsByID(w, r)
 	return w.Code, w.Body.String()
@@ -219,9 +224,12 @@ func (s *bandMgmtState) bothBandsUnchanged() error {
 
 func (s *bandMgmtState) aStrangerTriesToMove() error {
 	s.createBand("band_a", "station-model-a", "h_a")
-	strangerPub, _, _ := ed25519.GenerateKey(nil)
+	strangerPub, strangerPriv, _ := ed25519.GenerateKey(nil)
 	stranger := hex.EncodeToString(strangerPub)
 	_ = s.b.db.BindOwner(store.Owner{GitHubID: 99, Login: "stranger", Pubkey: stranger})
+	// A real stranger holds a real key: the refusal must come from OWNERSHIP, not from a
+	// missing signature, or this scenario would pass for the wrong reason.
+	rememberTestOwnerKey(stranger, strangerPriv)
 	s.moveCode, s.moveBody = s.patchBand("band_a", "their-node", stranger)
 	return nil
 }

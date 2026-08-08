@@ -19,6 +19,7 @@ func ownerPatch(path, pubkey, body string) *http.Request {
 	r := httptest.NewRequest(http.MethodPatch, path, strings.NewReader(body))
 	r.Header.Set("X-Roger-Pubkey", pubkey)
 	r.Header.Set("Content-Type", "application/json")
+	signAsTestOwner(r, pubkey, []byte(body))
 	return r
 }
 
