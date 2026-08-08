@@ -6958,6 +6958,9 @@ func (m *model) runAutoTune() tea.Cmd {
 			return nil
 		}
 		m.agent.model = o.Model
+		// Same rule as refreshAgentModel: the endpoint follows the model, or an earlier
+		// local pick keeps swallowing turns under this band's name.
+		m.bindAgentEndpoint(o.Model)
 		m.agentPicked = false
 		m.agentPickedOver = ""
 		// Keep focus where it is: if the user is on the FOCUSED desk (a guest scan landed

@@ -159,3 +159,39 @@ func TestLocalScanFoldsInWhilePickerOpen(t *testing.T) {
 		t.Errorf("the cursor left the row range after a scan landed: %d", gm.agentPickerCursor)
 	}
 }
+
+// PICK LOCAL, THEN TUNE A CHANNEL: the local endpoint must let go.
+//
+// Found by the pre-push audit. pickAgentModel calls bindAgentEndpoint, so pick->pick was
+// safe and TestPickingLocalRoutesAwayFromTheBroker covered it. refreshAgentModel - the path
+// taken when a channel is tuned on top of an explicit pick - reassigned agent.model and
+// called only applyToolBudget. The local binding survived, so every turn kept going to
+// 127.0.0.1 while the UI, the transcript and the receipts all named the broker band.
+//
+// That is precisely the invariant agentRuntime documents at agent.go:48-56: localChat is
+// "CLEARED whenever a broker band is picked, so a turn can never silently keep going to a
+// local server under a broker model's name". It held for one of the two paths.
+func TestTuningAChannelOverALocalPickReleasesTheLocalEndpoint(t *testing.T) {
+	m0 := agentWithLocals(t)
+	pm, _ := m0.openAgentModelPicker()
+	m := asModel(pm)
+
+	m.pickAgentModel("qwen3-vl-8b")
+	if m.agent.localChat == "" {
+		t.Fatal("precondition: the local pick must bind a local endpoint")
+	}
+
+	// Now a channel is tuned on top of the pick - a different one, so refreshAgentModel
+	// follows it rather than letting the pick win.
+	m.connected = &offer{NodeID: "roggentoo", Model: "grok-4.3", Online: true}
+	m.refreshAgentModel()
+
+	if m.agent.model != "grok-4.3" {
+		t.Fatalf("the agent should have followed the new channel, got %q", m.agent.model)
+	}
+	if m.agent.localChat != "" || m.agent.localKey != "" {
+		t.Errorf("tuning a broker band left the local endpoint bound (chat=%q key=%q) - "+
+			"turns would go to the local server under the band's name",
+			m.agent.localChat, m.agent.localKey)
+	}
+}

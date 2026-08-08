@@ -56,6 +56,11 @@ func NewResumedWithHooksController(
 	if err := m.agent.loop.RestoreConversation(history); err != nil {
 		return model{}, err
 	}
+	// The tool cap follows the model here as everywhere else. Without this a resumed
+	// session ran with MaxToolOutput at its zero value - no per-result cap at all, which is
+	// the shape of the context overflow the budget was introduced to stop. A model whose
+	// window is unknown falls back to the historical flat cap rather than to nothing.
+	m.applyToolBudget()
 	m.agentMaxSteps = m.agent.loop.MaxSteps
 	m.agentLandingLines = len(m.agentLines)
 	m.agentIn.Focus()

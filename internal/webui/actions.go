@@ -94,9 +94,9 @@ func (s *Server) handlePrivate(w http.ResponseWriter, r *http.Request) {
 		// off-air fact is the one an operator must not have to infer.
 		resp.Message = "could not change " + req.Model + " visibility: " + node.ErrReason(res.Err)
 		if res.Restored {
-			resp.Message += " — " + req.Model + " is still on air, unchanged"
+			resp.Message += " - " + req.Model + " is still on air, unchanged"
 		} else {
-			resp.Message += " — " + req.Model + " went off air"
+			resp.Message += " - " + req.Model + " went off air"
 		}
 	case !res.NowPrivate:
 		resp.Message = "back on the open market — " + req.Model + " is public again"

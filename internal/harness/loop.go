@@ -306,9 +306,8 @@ func (l *Loop) runOne(ctx context.Context, call ToolCall, emit func(Event)) {
 
 	tool, ok := l.toolByName[name]
 	if !ok {
-		res := fmt.Sprintf("unknown tool %q", name)
+		res := l.appendToolResult(call, fmt.Sprintf("unknown tool %q", name))
 		emit(Event{Kind: EventToolResult, Tool: name, Result: res, IsError: true})
-		l.appendToolResult(call, res)
 		return
 	}
 
@@ -318,9 +317,8 @@ func (l *Loop) runOne(ctx context.Context, call ToolCall, emit func(Event)) {
 	if tool.Mutating {
 		approved := l.confirm != nil && l.confirm(name, args)
 		if !approved {
-			res := "user denied this " + name + " call - it was not run"
+			res := l.appendToolResult(call, "user denied this "+name+" call - it was not run")
 			emit(Event{Kind: EventToolResult, Tool: name, Result: res, IsError: true, Denied: true})
-			l.appendToolResult(call, res)
 			return
 		}
 	}
@@ -330,33 +328,29 @@ func (l *Loop) runOne(ctx context.Context, call ToolCall, emit func(Event)) {
 	if over := l.chargeRetrieval(name); over != "" {
 		// Not IsError: an exhausted budget is information the model acts on, not a failure
 		// (features/answers/answers_mode.feature - "budget-exhausted is information").
-		emit(Event{Kind: EventToolResult, Tool: name, Result: over})
-		l.appendToolResult(call, over)
+		emit(Event{Kind: EventToolResult, Tool: name, Result: l.appendToolResult(call, over)})
 		return
 	}
 
 	out, err := tool.Run(ctx, l.Root, args)
 	if err != nil {
-		res := "error: " + err.Error()
+		res := l.appendToolResult(call, "error: "+err.Error())
 		emit(Event{Kind: EventToolResult, Tool: name, Result: res, IsError: true})
-		l.appendToolResult(call, res)
 		return
 	}
 	// Clip to the model's budget BEFORE it enters the conversation. The UI still emits the
 	// clipped text, so what the operator sees is what the model saw - a result that silently
 	// differed between the two would make a truncation-caused answer impossible to explain.
-	out = clipTo(out, l.MaxToolOutput)
+	out = l.appendToolResult(call, out)
 	emit(Event{Kind: EventToolResult, Tool: name, Result: out})
-	l.appendToolResult(call, out)
 }
 
 // cancelRemaining records a queued call the turn was cancelled before reaching: nothing
 // runs, nothing is confirmed, but the call gets its result so the transcript stays
 // well-formed for the next turn.
 func (l *Loop) cancelRemaining(call ToolCall, emit func(Event)) {
-	res := "turn cancelled by the user - this " + call.Function.Name + " call was not run"
+	res := l.appendToolResult(call, "turn cancelled by the user - this "+call.Function.Name+" call was not run")
 	emit(Event{Kind: EventToolResult, Tool: call.Function.Name, Result: res, IsError: true})
-	l.appendToolResult(call, res)
 }
 
 // chargeRetrieval charges one retrieval against this turn's budget, returning "" when the
@@ -379,13 +373,23 @@ func (l *Loop) chargeRetrieval(name string) string {
 
 // appendToolResult records a tool-role message tying result back to the originating
 // call id, the OpenAI contract for feeding a tool outcome to the next turn.
-func (l *Loop) appendToolResult(call ToolCall, result string) {
+// It is also the ONE place a result is clipped to the model's budget. The cap used to live
+// on the success path only, so the unknown-tool, denied, budget-exhausted, tool-error and
+// cancelled paths each appended whatever they had built - and two of those interpolate
+// attacker-influenced text (the tool NAME the model chose, and a tool's error, which can
+// carry an upstream body). Clipping here means a future sixth path cannot forget it. The
+// clipped text is RETURNED so the caller emits exactly what was recorded: a result that
+// differed between the operator's screen and the model's context would make a
+// truncation-caused answer impossible to explain.
+func (l *Loop) appendToolResult(call ToolCall, result string) string {
+	result = clipTo(result, l.MaxToolOutput)
 	l.messages = append(l.messages, Message{
 		Role:       "tool",
 		ToolCallID: call.ID,
 		Name:       call.Function.Name,
 		Content:    result,
 	})
+	return result
 }
 
 // lastAssistantText returns the most recent assistant message's text (used when the

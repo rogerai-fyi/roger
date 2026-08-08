@@ -119,3 +119,32 @@ test("frameLine: an enriched status frame renders op/model/spend and degrades cl
     { cls: "rc-status", text: "◉ guest has the mic: opencode" },
   );
 });
+
+// A FAILED LOAD MUST NOT LEAVE ITS ERROR SITTING IN THE EMPTY STATE.
+//
+// Found by the pre-push audit. bandsFailed writes the failure reason into #bandsEmpty -
+// deliberately, so a 403 does not read as "you have none". But renderBands' empty branch
+// only calls show("bandsEmpty"), never restoring the copy, so the NEXT successful load that
+// happens to return zero bands displays the stale error where "No private bands yet."
+// belongs. The owner is told their bands failed to load when in fact they simply have none.
+//
+// This is the same class of bug as the incident that started the whole band feature: the
+// page confidently telling an owner something untrue about their own bands.
+test("private: an empty band list restores its own copy after a failure", () => {
+  const failed = SRC.slice(SRC.indexOf("function bandsFailed"));
+  const failedFn = failed.slice(0, failed.indexOf("\n  }") + 4);
+  assert.ok(
+    failedFn.includes("bandsEmptyDefault"),
+    "bandsFailed must remember the copy it is about to overwrite",
+  );
+
+  const render = SRC.slice(SRC.indexOf("function renderBands"));
+  const renderFn = render.slice(0, render.indexOf("\n  }") + 4);
+  const restore = renderFn.indexOf("bandsEmptyDefault");
+  const showEmpty = renderFn.indexOf('show("bandsEmpty")');
+  assert.ok(restore !== -1, "the empty branch must restore the default copy");
+  assert.ok(
+    restore < showEmpty,
+    "the copy must be restored BEFORE the empty state is shown, or a stale error flashes",
+  );
+});
