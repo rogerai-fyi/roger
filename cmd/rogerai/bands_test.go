@@ -173,3 +173,120 @@ func containsCall(calls []string, want string) bool {
 	}
 	return false
 }
+
+// The paths that only run when something goes wrong. They are the ones an operator meets on
+// their worst day, so a broker refusal must reach them intact rather than being swallowed
+// or reworded into something they cannot act on.
+
+func TestBandsHelpPrintsUsage(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	cfg := config{Broker: "https://b", User: "u"}
+	for _, arg := range []string{"help", "--help", "-h"} {
+		out := captureStdout(t, func() {
+			if err := cmdBands(cfg, []string{arg}); err != nil {
+				t.Fatalf("bands %s: %v", arg, err)
+			}
+		})
+		// The usage must name how a band is CREATED, because there is no `bands create` -
+		// a band is only born by putting a model on air privately.
+		if !strings.Contains(out, "--private") {
+			t.Errorf("bands %s should name `share --private`, got:\n%s", arg, out)
+		}
+		if !strings.Contains(out, "move") || !strings.Contains(out, "revoke") {
+			t.Errorf("bands %s should list move and revoke, got:\n%s", arg, out)
+		}
+	}
+}
+
+// A broker refusal must surface verbatim. The 409 the operator is most likely to hit says
+// the destination already carries a band - reworded or swallowed, they cannot act on it.
+func TestBandsMoveSurfacesTheBrokerRefusal(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	const refusal = "that model already carries its own private band - move or revoke that one first"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusConflict)
+		_, _ = w.Write([]byte(`{"error":{"message":"` + refusal + `"}}`))
+	}))
+	defer srv.Close()
+	cfg := config{Broker: srv.URL, User: "u_gh_1", Station: "eager-puma-54"}
+
+	err := cmdBands(cfg, []string{"move", "band_1", "qwen3-vl-8b"})
+	if err == nil {
+		t.Fatal("a 409 must reach the operator as an error")
+	}
+	if err.Error() != refusal {
+		t.Errorf("error = %q,\nwant the broker's sentence %q", err.Error(), refusal)
+	}
+}
+
+func TestBandsRevokeSurfacesTheBrokerRefusal(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"error":{"message":"no such band"}}`))
+	}))
+	defer srv.Close()
+	cfg := config{Broker: srv.URL, User: "u_gh_1"}
+
+	err := cmdBands(cfg, []string{"revoke", "band_gone"})
+	if err == nil || err.Error() != "no such band" {
+		t.Errorf("err = %v, want the bare sentence \"no such band\"", err)
+	}
+}
+
+func TestBandsListSurfacesTheBrokerRefusal(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"error":{"message":"managing private bands requires a GitHub-linked owner - run ` + "`roger login`" + `"}}`))
+	}))
+	defer srv.Close()
+	cfg := config{Broker: srv.URL, User: "u_gh_1"}
+
+	err := cmdBands(cfg, []string{"list"})
+	if err == nil {
+		t.Fatal("a 403 must reach the operator as an error, never an empty list")
+	}
+	// The remedy must survive - this is the same failure that made the WEBSITE render a
+	// confident "No private bands yet" to every owner.
+	if !strings.Contains(err.Error(), "roger login") {
+		t.Errorf("the refusal lost its remedy: %q", err)
+	}
+}
+
+// A move needs a station callsign to build "<station>-<model>". Without one it must refuse
+// rather than send a bare model id the broker would bind to a node nothing registers.
+func TestBandsMoveWithoutAStationRefuses(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	srv, calls := bandsBroker(t, oneBand)
+	cfg := config{Broker: srv.URL, User: "u_gh_1"} // no Station
+
+	err := cmdBands(cfg, []string{"move", "band_1", "qwen3-vl-8b"})
+	if err == nil {
+		t.Fatal("a move with no station callsign must refuse")
+	}
+	if !strings.Contains(err.Error(), "station") {
+		t.Errorf("the refusal should name the missing callsign, got %q", err)
+	}
+	for _, c := range *calls {
+		if strings.HasPrefix(c, "PATCH") {
+			t.Fatal("a move was sent despite having no station to scope the node id with")
+		}
+	}
+}
+
+// A band with no node bound renders a placeholder rather than an empty column.
+func TestBandsListRendersAnUnboundBand(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	srv, _ := bandsBroker(t, `{"bands":[{"id":"band_x","display":"150 MHz","status":"active","node_id":""}]}`)
+	cfg := config{Broker: srv.URL, User: "u_gh_1"}
+
+	out := captureStdout(t, func() {
+		if err := cmdBands(cfg, []string{"list"}); err != nil {
+			t.Fatalf("bands list: %v", err)
+		}
+	})
+	if !strings.Contains(out, "band_x") {
+		t.Errorf("the band is missing from the list:\n%s", out)
+	}
+}
