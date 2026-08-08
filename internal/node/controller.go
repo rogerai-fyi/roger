@@ -27,6 +27,50 @@ import (
 // per-owner cap is the real backstop.
 const DefaultMaxOnAir = 5
 
+// ErrReason strips the transport-level wrapping off a start/registration failure so the
+// clause an operator can ACT on comes FIRST.
+//
+// A rejected share arrives as a nest of three frames:
+//
+//	register with https://broker.example: broker rejected registration (403): private band limit reached (free plan allows 1)
+//	└─ who we called ──────────────────┘ └─ that it was refused ─────────┘ └─ WHY, the only actionable part ──────────────┘
+//
+// Front-ends render this on a ONE-LINE status bar, so the leading two frames - which say
+// nothing the operator did not already know (they just asked this broker to share) - push
+// the remedy off the right edge and the line reads "...: brok". Dropping them puts the
+// broker's own sentence first, where it survives the clip. The status code is kept only
+// when the broker sent no message, since then it is all we have.
+func ErrReason(err error) string {
+	if err == nil {
+		return ""
+	}
+	s := strings.TrimSpace(err.Error())
+	// "register with <broker>: ..." - the URL is noise on a status line.
+	if rest, ok := cutAfter(s, "register with "); ok {
+		if i := strings.Index(rest, ": "); i >= 0 {
+			s = strings.TrimSpace(rest[i+2:])
+		}
+	}
+	// "broker rejected registration (403): <reason>" - keep the reason, drop the frame.
+	if rest, ok := cutAfter(s, "broker rejected registration ("); ok {
+		if i := strings.Index(rest, "): "); i >= 0 {
+			if reason := strings.TrimSpace(rest[i+3:]); reason != "" {
+				return reason
+			}
+		}
+	}
+	return s
+}
+
+// cutAfter returns what follows the first occurrence of sep, and whether sep was present.
+func cutAfter(s, sep string) (string, bool) {
+	i := strings.Index(s, sep)
+	if i < 0 {
+		return s, false
+	}
+	return s[i+len(sep):], true
+}
+
 // SchedWindow is one editable time-of-use price window (times "HH:MM" UTC). Free
 // zeroes the in-window price.
 type SchedWindow struct {
@@ -326,6 +370,11 @@ type PrivateResult struct {
 	AtLimit     bool
 	LoginNeeded bool
 	Err         error
+	// Restored reports that Err came from a FAILED visibility change whose previous
+	// session was put back on air unharmed - so the front-ends can say "nothing
+	// changed" instead of leaving the operator to guess whether they are still
+	// broadcasting. False alongside a non-nil Err means the row really did go dark.
+	Restored bool
 }
 
 // TogglePrivate flips a row's PRIVATE-band state, (re)starting its session with the new
@@ -359,7 +408,19 @@ func (c *Controller) TogglePrivate(model string) PrivateResult {
 	p := c.pricingForLocked(model)
 	sess, err := c.startLocked(row, p, goPrivate)
 	if err != nil {
+		// The visibility change is a STOP-then-START, so a rejected start (the broker
+		// refusing a private registration, say) would otherwise leave a model that was
+		// happily on air a moment ago silently OFF AIR - the operator asked to change how
+		// the row is listed, never to take it down. Put the previous session back at its
+		// previous visibility so a failed toggle is a no-op, and report whether that
+		// restore actually succeeded.
 		res.Err = err
+		if wasOn {
+			if back, rerr := c.startLocked(row, p, !goPrivate); rerr == nil {
+				c.sessions[model] = back
+				res.Restored = true
+			}
+		}
 		return res
 	}
 	c.sessions[model] = sess
