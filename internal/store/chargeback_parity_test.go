@@ -146,9 +146,9 @@ func TestChargebackPaidLotReversalParity(t *testing.T) {
 			}
 			// One $30 lot, no fee (cost==gross==30), then pay it out so it is PAID.
 			spend(t, db, "u", "n", "r1", 30, 30, 1000)
-			pay, ok, _, err := db.RequestPayout("acct1", now, 25)
+			pay, ok, reason, err := db.RequestPayout("acct1", now, 25)
 			if err != nil || !ok {
-				t.Fatalf("[%s] RequestPayout ok=%v err=%v", name, ok, err)
+				t.Fatalf("[%s] RequestPayout ok=%v reason=%q err=%v", name, ok, reason, err)
 			}
 			if err := db.SettlePayout(pay.ID, "tr_paid_1"); err != nil {
 				t.Fatalf("[%s] SettlePayout: %v", name, err)

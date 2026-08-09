@@ -1,13 +1,13 @@
 package store
 
 // ledger_bdd_test.go makes features/money/ledger.feature an EXECUTABLE Cucumber suite against
-// the REAL production Postgres store (no mocks): a fresh ephemeral Postgres via the shared
-// ROGERAI_TEST_DATABASE_URL the cover-gate provisions. It pins that the Postgres ledger holds
+// the REAL production Postgres store (no mocks): a fresh ephemeral Postgres via the private
+// per-package database derived from ROGERAI_TEST_DATABASE_URL. It pins that the ledger holds
 // (never overdraws), Hold+Finalize/Settle debit exactly the cost and mint only the REAL
 // operator earning (seed-funded spend mints none), and ChargebackLineage claws only the
 // operator's share + is idempotent on the dispute id — the SAME guarantees the in-memory
 // reference store upholds. Lives in package store so it runs SERIALLY with the other store
-// tests (freshLedgerPG TRUNCATEs the shared DB, safe only intra-package) and reuses NewPostgres.
+// tests (freshLedgerPG TRUNCATEs the store package's private DB) and reuses NewPostgres.
 // Skipped (like every Postgres path here) when ROGERAI_TEST_DATABASE_URL is unset.
 
 import (
@@ -371,6 +371,9 @@ func TestLedgerBDD(t *testing.T) {
 	if dsn == "" {
 		t.Skip("ledger.feature requires ROGERAI_TEST_DATABASE_URL (a real Postgres) - skipping")
 	}
+	// Package test binaries run concurrently under `go test ./...`. Never let this
+	// scenario's per-case TRUNCATE erase broker-package fixtures in the shared database.
+	dsn = storePrivateDSN(t, dsn)
 	suite := godog.TestSuite{
 		ScenarioInitializer: func(sc *godog.ScenarioContext) {
 			st := &lgState{dsn: dsn}

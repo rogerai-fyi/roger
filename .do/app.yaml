@@ -65,6 +65,11 @@ services:
       - key: ROGERAI_REQUIRE_BROKER_KEY # refuse to boot with an ephemeral key
         scope: RUN_TIME
         value: "1"
+      # Platform-provided exact source revision. /version validates and exposes it so
+      # a running broker can be matched to source during deploy and rollback audits.
+      - key: ROGERAI_BUILD_COMMIT
+        scope: RUN_TIME
+        value: ${_self.COMMIT_HASH}
       # The first-party web origins. PINNED rather than left to the built-in default,
       # because as of v5.6.0 this list decides whether SIGN-IN WORKS AT ALL, not just
       # which CORS header goes out: /auth/device/{pending,approve,deny} and

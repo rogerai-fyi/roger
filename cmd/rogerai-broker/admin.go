@@ -148,6 +148,9 @@ func (b *broker) adminLive(w http.ResponseWriter, r *http.Request) {
 		"total_requests": b.totalReqs.Load(),
 		"db":             "ok",
 	}
+	if commit := brokerCommit(); commit != "" {
+		health["commit"] = commit
+	}
 	if b.db == nil {
 		health["db"] = "nil"
 		health["ready"] = false

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: RogerAI Broker API
-  version: 0.1.0
+  version: 5.7.1
   description: |
     The RogerAI broker - the only public component of the RogerAI marketplace.
     It is an OpenAI-compatible relay plus a registry, wallet, and metering layer
@@ -36,6 +36,19 @@ tags:
   - { name: provider, description: Node registration + the outbound job tunnel }
 
 paths:
+  /version:
+    get:
+      tags: [meta]
+      summary: Running broker release and exact source revision
+      responses:
+        "200":
+          description: Build identity; commit is omitted when the platform did not supply a valid full SHA
+          headers:
+            Cache-Control: { schema: { type: string, const: no-store } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VersionInfo' }
+
   /health:
     get:
       tags: [meta]
@@ -968,6 +981,13 @@ components:
       schema: { type: integer, default: 20, minimum: 1, maximum: 100 }
       description: Max history rows to return (default 20, clamped to 100).
   schemas:
+    VersionInfo:
+      type: object
+      required: [version]
+      properties:
+        version: { type: string, example: 5.7.1 }
+        commit: { type: string, pattern: '^[0-9a-f]{40}$', description: Exact deployed source revision when available }
+
     ServiceInfo:
       type: object
       properties:
