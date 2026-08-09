@@ -19,6 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GOTOOLCHAIN: local
+      ROGERAI_RELEASE_GATE: "1"
       ROGERAI_TEST_DATABASE_URL: postgres://postgres:test@localhost:5432/roger_test?sslmode=disable
       # Real Valkey for the multi-instance/shared-state suites (liveness churn +
       # cross-instance relay run against the real protocol server, not only miniredis).

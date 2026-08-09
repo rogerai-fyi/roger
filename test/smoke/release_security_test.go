@@ -1,44 +1,12 @@
 package smoke
 
 import (
-	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
-	"time"
-
-	"golang.org/x/text/unicode/norm"
 )
-
-// TestInvalidUTF8NormalizationTerminates pins GO-2026-5970 / CVE-2026-56852 at the
-// dependency boundary. The vulnerable x/text release loops forever on this exact upstream
-// regression input, so the dangerous call runs in a child process that the parent can kill
-// and report cleanly instead of hanging the entire suite.
-func TestInvalidUTF8NormalizationTerminates(t *testing.T) {
-	if os.Getenv("ROGERAI_XTEXT_INVALID_UTF8_HELPER") == "1" {
-		var iter norm.Iter
-		iter.InitString(norm.NFC, "\xf3\xcc\x80")
-		for !iter.Done() {
-			_ = iter.Next()
-		}
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestInvalidUTF8NormalizationTerminates$")
-	cmd.Env = append(os.Environ(), "ROGERAI_XTEXT_INVALID_UTF8_HELPER=1")
-	err := cmd.Run()
-	if ctx.Err() == context.DeadlineExceeded {
-		t.Fatal("Unicode normalization hung on invalid UTF-8 (GO-2026-5970)")
-	}
-	if err != nil {
-		t.Fatalf("normalization helper failed: %v", err)
-	}
-}
 
 func TestBrokerAndClientFallbackVersionsMatch(t *testing.T) {
 	root := repoRoot(t)
@@ -52,8 +20,12 @@ func TestBrokerAndClientFallbackVersionsMatch(t *testing.T) {
 	}
 }
 
+// Keep the publication wiring independently testable without network access. The
+// @release_gate Godog scenario executes the scanner in CI; this test still reaches
+// both workflow assertions if that networked scenario fails first.
 func TestVulnerabilityGateRunsOnMainAndTags(t *testing.T) {
 	root := repoRoot(t)
+	const exactGate = "go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./..."
 	for _, rel := range []string{
 		filepath.Join(".github", "workflows", "coverage.yml"),
 		filepath.Join(".github", "workflows", "release.yml"),
@@ -62,8 +34,8 @@ func TestVulnerabilityGateRunsOnMainAndTags(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read %s: %v", rel, err)
 		}
-		if !strings.Contains(string(b), "golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...") {
-			t.Errorf("%s does not gate publication on govulncheck v1.6.0", rel)
+		if !strings.Contains(string(b), exactGate) {
+			t.Errorf("%s does not use the approved vulnerability gate %q", rel, exactGate)
 		}
 	}
 }

@@ -20,6 +20,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GOTOOLCHAIN: local
+      # Enables the networked vulnerability scenario in the executable release spec.
+      ROGERAI_RELEASE_GATE: "1"
       # Real Postgres for the store money path (postgres.go) so its coverage is HONEST -
       # without this, ~half of internal/store counts as uncovered and can never hit the bar.
       ROGERAI_TEST_DATABASE_URL: postgres://postgres:test@localhost:5432/roger_test?sslmode=disable

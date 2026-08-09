@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -51,5 +53,22 @@ func TestPublicVersionOmitsInvalidCommitAndRejectsWrites(t *testing.T) {
 	(&broker{}).routes().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/version", nil))
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("POST /version = %d, want 405", rec.Code)
+	}
+}
+
+func TestMalformedBuildCommitIsVisibleWithoutLeakingItsValue(t *testing.T) {
+	const malformed = "not-a-commit-secret"
+	t.Setenv("ROGERAI_BUILD_COMMIT", malformed)
+	var logs bytes.Buffer
+	old := log.Writer()
+	log.SetOutput(&logs)
+	t.Cleanup(func() { log.SetOutput(old) })
+
+	logBrokerCommitStatus()
+	if !strings.Contains(logs.String(), "omitting it from /version") {
+		t.Fatalf("invalid build identity was silent: %q", logs.String())
+	}
+	if strings.Contains(logs.String(), malformed) {
+		t.Fatalf("build metadata value leaked into logs: %q", logs.String())
 	}
 }
