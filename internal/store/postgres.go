@@ -191,6 +191,10 @@ CREATE TABLE IF NOT EXISTS rogerai.private_bands (
     created_at   BIGINT NOT NULL);
 CREATE INDEX IF NOT EXISTS private_bands_owner ON rogerai.private_bands (owner);
 CREATE INDEX IF NOT EXISTS private_bands_node ON rogerai.private_bands (node_id);
+-- The application pre-check produces a useful 409, but only a database constraint can
+-- serialize two different source rows racing toward the same free destination.
+CREATE UNIQUE INDEX IF NOT EXISTS private_bands_live_node ON rogerai.private_bands (node_id)
+    WHERE revoked=false AND node_id<>'';
 -- remote-control sessions (BASE STATION, v5.0.0). ROSTER ONLY — metadata, never a
 -- transcript or a frame (the broker is a content-blind relay; the HOST owns the chat).
 -- Every secret is stored as a sha256 HASH: code_hash (the link tail, rotatable),

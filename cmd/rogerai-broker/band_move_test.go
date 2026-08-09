@@ -63,6 +63,56 @@ func TestBandMoveKeepsTheCode(t *testing.T) {
 	}
 }
 
+func TestBandPatchWritesALabelWithoutMoving(t *testing.T) {
+	b, o := brokerWithOwner(t)
+	_ = b.db.CreateBand(store.Band{
+		ID: "band_x", Owner: o.Pubkey, CodeHash: "hash_x", Label: "old",
+		CodeDisplay: "147.520 MHz · ••••-••••", NodeID: "amber-fox-model-a",
+	})
+
+	w := httptest.NewRecorder()
+	b.bandsByID(w, ownerPatch("/bands/band_x", o.Pubkey, `{"label":"family"}`))
+	if w.Code != http.StatusOK {
+		t.Fatalf("label PATCH = %d, want 200 (%s)", w.Code, w.Body.String())
+	}
+	var resp map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["label"] != "family" || resp["node_id"] != "amber-fox-model-a" {
+		t.Errorf("response = %+v, want the written label and unchanged node", resp)
+	}
+	got, ok, err := b.db.BandByCodeHash("hash_x")
+	if err != nil || !ok || got.Label != "family" || got.NodeID != "amber-fox-model-a" {
+		t.Fatalf("persisted band = %+v, ok=%v err=%v", got, ok, err)
+	}
+}
+
+func TestBandPatchRequiresAtLeastOneSupportedField(t *testing.T) {
+	b, o := brokerWithOwner(t)
+	_ = b.db.CreateBand(store.Band{ID: "band_x", Owner: o.Pubkey, CodeHash: "hash_x", NodeID: "n-a"})
+	w := httptest.NewRecorder()
+	b.bandsByID(w, ownerPatch("/bands/band_x", o.Pubkey, `{}`))
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("empty PATCH = %d, want 400 (%s)", w.Code, w.Body.String())
+	}
+}
+
+func TestBandPatchValidatesLabel(t *testing.T) {
+	b, o := brokerWithOwner(t)
+	_ = b.db.CreateBand(store.Band{ID: "band_x", Owner: o.Pubkey, CodeHash: "hash_x", NodeID: "n-a"})
+	for name, body := range map[string]string{
+		"too long": `{"label":"` + strings.Repeat("x", 65) + `"}`,
+		"control":  `{"label":"line\nbreak"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			b.bandsByID(w, ownerPatch("/bands/band_x", o.Pubkey, body))
+			if w.Code != http.StatusBadRequest {
+				t.Fatalf("label PATCH = %d, want 400 (%s)", w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
 func TestBandMoveRejectsOccupiedDestination(t *testing.T) {
 	b, o := brokerWithOwner(t)
 	_ = b.db.CreateBand(store.Band{ID: "band_x", Owner: o.Pubkey, CodeHash: "h1", NodeID: "n-a"})

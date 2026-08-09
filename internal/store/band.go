@@ -34,6 +34,24 @@ type Band struct {
 	CreatedAt   int64    `json:"created_at"`
 }
 
+// BandPatch is the editable part of a private band. Nil means "leave unchanged"; an
+// explicit empty Label clears the human label. NodeID and Label are updated atomically so
+// a refused move can never leave half of the requested patch behind.
+type BandPatch struct {
+	NodeID *string `json:"node_id,omitempty"`
+	Label  *string `json:"label,omitempty"`
+}
+
+func (b Band) applyPatch(p BandPatch) Band {
+	if p.NodeID != nil {
+		b.NodeID = *p.NodeID
+	}
+	if p.Label != nil {
+		b.Label = *p.Label
+	}
+	return b
+}
+
 // Expired reports whether the band has passed its expiry (0 = never).
 func (b Band) Expired(now time.Time) bool {
 	return b.ExpiresAt != 0 && now.Unix() >= b.ExpiresAt
@@ -80,26 +98,27 @@ type bandStore struct {
 	mu     sync.Mutex
 	bands  map[string]Band   // id -> band
 	byHash map[string]string // code_hash -> id (the resolve lookup)
-	byNode map[string]string // node_id -> id (idempotent re-register: one band per node)
 }
 
 func newBandStore() *bandStore {
-	return &bandStore{
-		bands: map[string]Band{}, byHash: map[string]string{}, byNode: map[string]string{},
-	}
+	return &bandStore{bands: map[string]Band{}, byHash: map[string]string{}}
 }
 
 func (m *Mem) CreateBand(b Band) error {
 	m.bs.mu.Lock()
 	defer m.bs.mu.Unlock()
+	if b.NodeID != "" && !b.Revoked {
+		for _, occupant := range m.bs.bands {
+			if occupant.NodeID == b.NodeID && !occupant.Revoked {
+				return ErrBandNodeOccupied
+			}
+		}
+	}
 	if b.CreatedAt == 0 {
 		b.CreatedAt = time.Now().Unix()
 	}
 	m.bs.bands[b.ID] = b
 	m.bs.byHash[b.CodeHash] = b.ID
-	if b.NodeID != "" {
-		m.bs.byNode[b.NodeID] = b.ID
-	}
 	return nil
 }
 
@@ -117,12 +136,20 @@ func (m *Mem) BandByCodeHash(hash string) (Band, bool, error) {
 func (m *Mem) BandByNode(nodeID string) (Band, bool, error) {
 	m.bs.mu.Lock()
 	defer m.bs.mu.Unlock()
-	id, ok := m.bs.byNode[nodeID]
-	if !ok {
-		return Band{}, false, nil
+	// A node may retain revoked history. Match Postgres: prefer a live row, then the
+	// newest row within the same state. Scanning is intentional: a node can retain multiple
+	// revoked history rows beside its one live binding.
+	var best Band
+	found := false
+	for _, b := range m.bs.bands {
+		if b.NodeID != nodeID {
+			continue
+		}
+		if !found || (best.Revoked && !b.Revoked) || best.Revoked == b.Revoked && b.CreatedAt > best.CreatedAt {
+			best, found = b, true
+		}
 	}
-	b, ok := m.bs.bands[id]
-	return b, ok, nil
+	return best, found, nil
 }
 
 func (m *Mem) BandsByOwner(owner string) ([]Band, error) {
@@ -144,9 +171,43 @@ func (m *Mem) SetBandRevoked(id, owner string, revoked bool) (bool, error) {
 	if !ok || b.Owner != owner { // owner-scoped: never touch another owner's band
 		return false, nil
 	}
+	if !revoked && b.Revoked && b.NodeID != "" {
+		for otherID, occupant := range m.bs.bands {
+			if otherID != id && occupant.NodeID == b.NodeID && !occupant.Revoked {
+				return false, ErrBandNodeOccupied
+			}
+		}
+	}
 	b.Revoked = revoked
 	m.bs.bands[id] = b
 	return true, nil
+}
+
+// UpdateBand applies the owner-editable label and node binding atomically. A label-only
+// patch may annotate revoked history; a patch that moves a revoked band is refused because
+// moving it would resurrect a burnt code at a new node.
+func (m *Mem) UpdateBand(id, owner string, patch BandPatch) (Band, bool, error) {
+	m.bs.mu.Lock()
+	defer m.bs.mu.Unlock()
+	b, ok := m.bs.bands[id]
+	if !ok || b.Owner != owner {
+		return Band{}, false, nil
+	}
+	if patch.NodeID != nil {
+		if b.Revoked {
+			return Band{}, false, nil
+		}
+		if *patch.NodeID != b.NodeID {
+			for otherID, occupant := range m.bs.bands {
+				if otherID != id && occupant.NodeID == *patch.NodeID && !occupant.Revoked {
+					return Band{}, false, ErrBandNodeOccupied
+				}
+			}
+		}
+	}
+	b = b.applyPatch(patch)
+	m.bs.bands[id] = b
+	return b, true, nil
 }
 
 // MoveBand rebinds a LIVE band to a different node, owner-scoped. It is the only write
@@ -163,36 +224,8 @@ func (m *Mem) SetBandRevoked(id, owner string, revoked bool) (bool, error) {
 // the other one would take a station off air its owner never touched. Moving a band to the
 // node it already sits on is an idempotent success, so a retried request is not an error.
 func (m *Mem) MoveBand(id, owner, nodeID string) (bool, error) {
-	m.bs.mu.Lock()
-	defer m.bs.mu.Unlock()
-	b, ok := m.bs.bands[id]
-	if !ok || b.Owner != owner || b.Revoked {
-		return false, nil
-	}
-	if b.NodeID == nodeID {
-		return true, nil // idempotent: already where it was asked to go
-	}
-	// SCAN, do not consult byNode. byNode holds ONE id per node and CreateBand overwrites
-	// it, so on a node that has carried two bands the index can point at a REVOKED one
-	// while a LIVE band is still there - and this check would wave the move through, put
-	// two live bands on one node, and break the invariant it exists to enforce. Postgres
-	// asks EXISTS(node_id=$1 AND revoked=false), which sees every row; this is the same
-	// question, asked the same way. The band being moved is not on nodeID (the self-move
-	// case returned above), so it cannot match itself.
-	for _, occupant := range m.bs.bands {
-		if occupant.NodeID == nodeID && !occupant.Revoked {
-			return false, ErrBandNodeOccupied
-		}
-	}
-	// The source must stop resolving, or the node that lost the band would keep serving on
-	// it - privacy fails closed.
-	delete(m.bs.byNode, b.NodeID)
-	b.NodeID = nodeID
-	m.bs.bands[id] = b
-	if nodeID != "" {
-		m.bs.byNode[nodeID] = id
-	}
-	return true, nil
+	_, ok, err := m.UpdateBand(id, owner, BandPatch{NodeID: &nodeID})
+	return ok, err
 }
 
 // CountActiveBands counts an owner's non-revoked, non-expired bands as of now -

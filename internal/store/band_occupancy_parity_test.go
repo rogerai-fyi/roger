@@ -8,20 +8,20 @@ import (
 
 // ONE LIVE BAND PER NODE, decided the same way by both backends.
 //
-// Found by the pre-push audit. The two implementations answer "is this node occupied?"
-// differently:
+// Found by the pre-push audit. Before the fix, the two implementations answered "is this
+// node occupied?" differently:
 //
 //	Mem        looks up bs.byNode[nodeID], a ONE-ENTRY index, and checks whether that
 //	           single band is revoked.
 //	Postgres   runs EXISTS(SELECT 1 ... WHERE node_id=$1 AND revoked=false), which sees
 //	           every row.
 //
-// They agree while a node has carried at most one band ever. They diverge the moment a node
+// They agreed while a node had carried at most one band ever. They diverged the moment a node
 // has carried two, because CreateBand overwrites byNode[node] - so the index can point at a
-// REVOKED band while a LIVE one is still sitting on that node. Mem then reads "occupied by
+// REVOKED band while a LIVE one is still sitting on that node. Mem then read "occupied by
 // something revoked, go ahead", and admits a second live band onto a node that already has
-// one. Postgres refuses. Mem breaks its own stated invariant, and only on the durable path
-// does the rule actually hold.
+// one. Postgres refused. Mem broke its own stated invariant, and only on the durable path
+// did the rule actually hold.
 //
 // This is the failure mode the parity suite exists for: neither backend is obviously wrong
 // in isolation, and only running one scenario against both shows the disagreement.
@@ -37,11 +37,8 @@ func TestOneLiveBandPerNodeHoldsWhenANodeAlsoCarriesARevokedBand(t *testing.T) {
 			}))
 			require.NoError(t, s.CreateBand(Band{
 				ID: "band_dead", Owner: "owner_pub", CodeHash: "h_dead",
-				NodeID: "shared-node", CreatedAt: 1001,
+				NodeID: "shared-node", CreatedAt: 1001, Revoked: true,
 			}))
-			ok, err := s.SetBandRevoked("band_dead", "owner_pub", true)
-			require.NoError(t, err)
-			require.True(t, ok)
 
 			// A third band, elsewhere, tries to move onto that node.
 			require.NoError(t, s.CreateBand(Band{
@@ -60,6 +57,12 @@ func TestOneLiveBandPerNodeHoldsWhenANodeAlsoCarriesARevokedBand(t *testing.T) {
 			require.NoError(t, err)
 			require.True(t, found)
 			require.Equal(t, "band_mover", got.ID, "a refused move must leave the band alone")
+
+			got, found, err = s.BandByNode("shared-node")
+			require.NoError(t, err)
+			require.True(t, found)
+			require.Equal(t, "band_live", got.ID,
+				"node lookup must prefer the live band over newer revoked history")
 		})
 	}
 }

@@ -100,6 +100,16 @@ func (s *bandSecrecyState) givenLegacyBand() error {
 	if protocol.CanonicalBandTail(s.legacyCode) == "" {
 		return fmt.Errorf("legacy display %q is not recoverable - test premise wrong", s.legacyCode)
 	}
+	// reset() registered today's band only to give the scenario a live hidden node. The
+	// legacy scenario replaces that binding; it must not manufacture the now-invalid state
+	// of two live bands on one node merely to seed an old display format.
+	current, ok, err := s.b.db.BandByNode("priv1")
+	if err != nil || !ok {
+		return fmt.Errorf("current private binding: ok=%v err=%v", ok, err)
+	}
+	if revoked, err := s.b.db.SetBandRevoked(current.ID, current.Owner, true); err != nil || !revoked {
+		return fmt.Errorf("retire current binding before legacy fixture: revoked=%v err=%v", revoked, err)
+	}
 	return s.b.db.CreateBand(store.Band{
 		ID: "band_legacy", CodeHash: protocol.BandCodeHash(s.legacyCode),
 		CodeDisplay: s.legacyCode, Owner: "legacy-owner", NodeID: "priv1",

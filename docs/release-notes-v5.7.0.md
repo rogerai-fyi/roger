@@ -47,6 +47,8 @@ different model on a different machine, and nothing in any interface could have 
 - **`roger bands`** — list, move and revoke. `roger bands move <band> <model>` repoints a
   band at another model **keeping the frequency code**, so everyone already tuned in stays
   connected. A move is not a mint: the quota is untouched.
+- **`PATCH /bands/{id}` now persists `label`**, either alone or atomically with `node_id`.
+  An occupied destination leaves both the old binding and old label untouched.
 - **BASE STATION `[p]`** — bands are selectable, with move and revoke on the keymap.
 - **The quota refusal now names the band in the way**, the machine it is on, and offers to
   move it. It never suggests buying more bands, because no purchase path exists.
@@ -56,7 +58,8 @@ different model on a different machine, and nothing in any interface could have 
 
 One node carries at most one live band, and both store backends now decide that the same
 way — the in-memory store could previously be talked into putting two live bands on one node
-when that node had also carried a revoked one.
+when that node had also carried a revoked one. PostgreSQL now enforces that invariant with a
+partial unique index too, so two simultaneous moves cannot both claim an empty destination.
 
 ## Models that never leave the box
 

@@ -3,8 +3,10 @@ package store
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"rogerai.fm/roger/v5/internal/protocol"
 )
 
@@ -22,6 +24,17 @@ func (p *Postgres) CreateBand(b Band) error {
 		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
 		b.ID, b.CodeHash, b.CodeDisplay, b.Owner, b.Label, b.NodeID, jsonStrSlice(b.Models),
 		b.ExpiresAt, b.Revoked, b.CreatedAt)
+	return bandNodeError(err)
+}
+
+// bandNodeError translates the durable uniqueness backstop into the store contract. The
+// preflight EXISTS gives callers an early human refusal; this mapping closes the race where
+// two transactions both observed a free destination before either committed.
+func bandNodeError(err error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "private_bands_live_node" {
+		return ErrBandNodeOccupied
+	}
 	return err
 }
 
@@ -85,57 +98,61 @@ func (p *Postgres) BandsByOwner(owner string) ([]Band, error) {
 func (p *Postgres) SetBandRevoked(id, owner string, revoked bool) (bool, error) {
 	res, err := p.db.Exec(`UPDATE rogerai.private_bands SET revoked=$3 WHERE id=$1 AND owner=$2`, id, owner, revoked)
 	if err != nil {
-		return false, err
+		return false, bandNodeError(err)
 	}
 	n, _ := res.RowsAffected()
 	return n > 0, nil
 }
 
-// MoveBand rebinds a live band to a different node, owner-scoped. See the Mem
-// implementation for the full contract. The occupancy check and the update run in ONE
-// transaction with the band row locked: without it two concurrent moves onto the same free
-// node could each see it empty and both bind, breaking the "at most one band per node"
-// invariant in the durable store, and a concurrent revoke could slip between the check and
-// the update - moving a band whose code was just burnt.
-func (p *Postgres) MoveBand(id, owner, nodeID string) (bool, error) {
+// UpdateBand applies label and node changes in one owner-scoped transaction. The unique
+// partial index is the concurrency backstop; the EXISTS check supplies the ordinary fast
+// refusal without relying on a constraint error for control flow.
+func (p *Postgres) UpdateBand(id, owner string, patch BandPatch) (Band, bool, error) {
 	tx, err := p.db.Begin()
 	if err != nil {
-		return false, err
+		return Band{}, false, err
 	}
-	defer tx.Rollback() //nolint:errcheck // a no-op once committed
-
-	var curNode string
-	var revoked bool
-	err = tx.QueryRow(`SELECT node_id, revoked FROM rogerai.private_bands
-		WHERE id=$1 AND owner=$2 FOR UPDATE`, id, owner).Scan(&curNode, &revoked)
+	defer tx.Rollback() //nolint:errcheck // no-op after commit
+	b, err := p.scanBand(tx.QueryRow(`SELECT `+bandCols+` FROM rogerai.private_bands
+		WHERE id=$1 AND owner=$2 FOR UPDATE`, id, owner))
 	if err == sql.ErrNoRows {
-		return false, nil // unknown id or another owner's band - indistinguishable, on purpose
+		return Band{}, false, nil
 	}
 	if err != nil {
-		return false, err
+		return Band{}, false, err
 	}
-	if revoked {
-		return false, nil // a burnt code must never be resurrected at a new node
+	if patch.NodeID != nil {
+		if b.Revoked {
+			return Band{}, false, nil
+		}
+		if *patch.NodeID != b.NodeID {
+			var occupied bool
+			if err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM rogerai.private_bands
+				WHERE node_id=$1 AND revoked=false AND id<>$2)`, *patch.NodeID, id).Scan(&occupied); err != nil {
+				return Band{}, false, err
+			}
+			if occupied {
+				return Band{}, false, ErrBandNodeOccupied
+			}
+		}
 	}
-	if curNode == nodeID {
-		return true, tx.Commit() // idempotent retry
+	b = b.applyPatch(patch)
+	if _, err := tx.Exec(`UPDATE rogerai.private_bands SET node_id=$3,label=$4
+		WHERE id=$1 AND owner=$2`, id, owner, b.NodeID, b.Label); err != nil {
+		return Band{}, false, bandNodeError(err)
 	}
-	var occupied bool
-	if err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM rogerai.private_bands
-		WHERE node_id=$1 AND revoked=false)`, nodeID).Scan(&occupied); err != nil {
-		return false, err
+	if err := tx.Commit(); err != nil {
+		return Band{}, false, bandNodeError(err)
 	}
-	if occupied {
-		return false, ErrBandNodeOccupied
-	}
-	res, err := tx.Exec(`UPDATE rogerai.private_bands SET node_id=$3 WHERE id=$1 AND owner=$2`, id, owner, nodeID)
-	if err != nil {
-		return false, err
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return false, nil
-	}
-	return true, tx.Commit()
+	return b, true, nil
+}
+
+// MoveBand is the node-only compatibility wrapper around UpdateBand. The source-row lock
+// serializes a concurrent revoke; the partial unique index serializes different source rows
+// racing for one destination.
+func (p *Postgres) MoveBand(id, owner, nodeID string) (bool, error) {
+	_, ok, err := p.UpdateBand(id, owner, BandPatch{NodeID: &nodeID})
+	return ok, err
 }
 
 func (p *Postgres) CountActiveBands(owner string, now time.Time) (int, error) {
