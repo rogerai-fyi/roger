@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"rogerai.fm/roger/v5/internal/protocol"
 	"rogerai.fm/roger/v5/internal/store"
@@ -200,20 +202,16 @@ func (b *broker) bandsByID(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "revoked": true})
 }
 
-// moveBandReq is the PATCH /bands/{id} body.
-//
-// node_id is the only member, deliberately. A `label` field used to sit here and was parsed
-// and then discarded - accepting a value and silently dropping it is worse than not
-// accepting it, because a caller has no way to tell the difference from a write that
-// worked. Band.Label is rendered by the clients and still has no write path anywhere in the
-// store; the spec lists one as in scope, and it should arrive WITH its store method rather
-// than as a field that pretends. Unknown JSON members are ignored by encoding/json, so a
-// client that still sends `label` behaves exactly as it did.
+// moveBandReq is the PATCH /bands/{id} body. Pointer fields distinguish an omitted member
+// from an explicit empty label (which clears it). node_id and label are committed together:
+// an occupied destination cannot leave a new label behind on the old binding.
 type moveBandReq struct {
-	NodeID string `json:"node_id"`
+	NodeID *string `json:"node_id"`
+	Label  *string `json:"label"`
 }
 
-// moveBand handles PATCH /bands/{id} - repointing a band at a different node.
+// moveBand handles PATCH /bands/{id}: repointing a band, assigning its human label, or
+// doing both atomically.
 //
 // This is what makes a band a DURABLE IDENTITY rather than a side effect of one model.
 // Because a node id is "<station>-<model>", a band was previously welded to the model it
@@ -234,13 +232,30 @@ func (b *broker) moveBand(w http.ResponseWriter, r *http.Request, owner store.Ow
 		jsonErr(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
-	// An empty node_id would unbind the band from every node, leaving a live code that
-	// resolves to nothing and no way to re-bind it. Refuse rather than strand it.
-	if strings.TrimSpace(req.NodeID) == "" {
-		jsonErr(w, http.StatusBadRequest, "node_id is required - name the model's node to move this band to")
+	if req.NodeID == nil && req.Label == nil {
+		jsonErr(w, http.StatusBadRequest, "provide node_id, label, or both")
 		return
 	}
-	moved, err := b.db.MoveBand(id, owner.Pubkey, req.NodeID)
+	patch := store.BandPatch{}
+	if req.NodeID != nil {
+		// An empty node_id would unbind the band from every node, leaving a live code that
+		// resolves to nothing and no way to re-bind it. Refuse rather than strand it.
+		nodeID := strings.TrimSpace(*req.NodeID)
+		if nodeID == "" {
+			jsonErr(w, http.StatusBadRequest, "node_id is required - name the model's node to move this band to")
+			return
+		}
+		patch.NodeID = &nodeID
+	}
+	if req.Label != nil {
+		label := strings.TrimSpace(*req.Label)
+		if utf8.RuneCountInString(label) > 64 || strings.IndexFunc(label, unicode.IsControl) >= 0 {
+			jsonErr(w, http.StatusBadRequest, "label must be 64 characters or fewer and contain no control characters")
+			return
+		}
+		patch.Label = &label
+	}
+	updated, ok, err := b.db.UpdateBand(id, owner.Pubkey, patch)
 	switch {
 	case errors.Is(err, store.ErrBandNodeOccupied):
 		jsonErr(w, http.StatusConflict, "that model already carries its own private band - move or revoke that one first")
@@ -248,13 +263,15 @@ func (b *broker) moveBand(w http.ResponseWriter, r *http.Request, owner store.Ow
 	case err != nil:
 		jsonErr(w, http.StatusInternalServerError, "store error")
 		return
-	case !moved:
+	case !ok:
 		// Unknown, revoked, or another owner's band - all indistinguishable on purpose.
 		jsonErr(w, http.StatusNotFound, "no such band")
 		return
 	}
-	log.Printf("band %s moved to node %s by owner %s", id, req.NodeID, owner.Login)
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "moved": true, "node_id": req.NodeID})
+	log.Printf("band %s updated by owner %s", id, owner.Login)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok": true, "moved": req.NodeID != nil, "node_id": updated.NodeID, "label": updated.Label,
+	})
 }
 
 // bandView is the public (secret-free) JSON shape of a band. NEVER includes the code

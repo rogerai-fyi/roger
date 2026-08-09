@@ -179,8 +179,8 @@ func TestMoveBandToItsOwnNodeIsIdempotent(t *testing.T) {
 
 // A REVOKED band on the destination does not block a move: its code is dead, so the node is
 // free. This separates "occupied" from "carries an old tombstone", and the backends decide
-// it differently - Mem checks the occupant's Revoked flag through byNode, Postgres filters
-// revoked=false in the EXISTS - so it is worth pinning on both.
+// it through independent implementations - a locked map scan and a SQL predicate - so it
+// is worth pinning on both.
 func TestMoveBandRevokedOccupantDoesNotBlock(t *testing.T) {
 	eachBandStore(t, func(t *testing.T, s Store) {
 		b := bandFixture(t, s)
