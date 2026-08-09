@@ -41,8 +41,10 @@ import (
 	"rogerai.fm/roger/v5/internal/store"
 )
 
-// version is the broker's reported version (also in ServiceInfo + logs).
-const version = "0.1.0"
+// version is the broker's reported version (also in ServiceInfo + logs). Keep a
+// truthful source-build fallback; release builders may override it with
+// -ldflags "-X main.version=<tag>".
+var version = "5.7.1"
 
 // openapiSpec is the served API contract (see openapi.yaml). Single source of
 // truth for the broker's HTTP surface.
@@ -689,6 +691,7 @@ func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, loc
 // exercised by a test that drives requests through the returned handler.
 func (b *broker) routes() *http.ServeMux {
 	mux := http.NewServeMux()
+	mux.HandleFunc("/version", b.versionInfo) // public: release + exact deployed commit
 	mux.HandleFunc("/nodes/register", b.register)
 	mux.HandleFunc("/nodes/challenge", b.attestChallenge) // TEE attestation nonce (anti-replay binding)
 	mux.HandleFunc("/nodes/heartbeat", b.heartbeat)

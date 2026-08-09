@@ -20,13 +20,13 @@ package capsule
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/hkdf"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"io"
 
-	"golang.org/x/crypto/hkdf"
 	"rogerai.fm/roger/v5/internal/protocol"
 )
 
@@ -81,10 +81,9 @@ func transportKey(code string) []byte {
 	if tail == "" {
 		return nil
 	}
-	info := []byte(protocol.BandCodeHash(code)) // public; binds the key to this exact lookup
-	r := hkdf.New(sha256.New, []byte(tail), []byte(transportSalt), info)
-	key := make([]byte, transportKeyLen)
-	if _, err := io.ReadFull(r, key); err != nil {
+	info := protocol.BandCodeHash(code) // public; binds the key to this exact lookup
+	key, err := hkdf.Key(sha256.New, []byte(tail), []byte(transportSalt), info, transportKeyLen)
+	if err != nil {
 		return nil // HKDF over sha256 never under-delivers 32 bytes; defensive only
 	}
 	return key

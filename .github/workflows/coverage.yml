@@ -55,6 +55,10 @@ jobs:
           go-version: '1.25'
           cache: true
 
+      # Reject vulnerabilities that are reachable from RogerAI before main can go green.
+      - name: reachable vulnerability gate
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...
+
       # Provision the `rogerai` schema (prod provisions it out-of-band; NewPostgres only
       # owns the tables inside it, by design / least privilege).
       - name: create schema

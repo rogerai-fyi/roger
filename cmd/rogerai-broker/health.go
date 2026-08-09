@@ -1,6 +1,11 @@
 package main
 
-import "net/http"
+import (
+	"encoding/hex"
+	"net/http"
+	"os"
+	"strings"
+)
 
 // health.go is the liveness/readiness split. /health stays a cheap static "ok" (the
 // process is up and serving), used as a liveness probe. /ready is a REAL readiness
@@ -8,6 +13,35 @@ import "net/http"
 // optional shared state layer (b.shared), and only returns 200 when both are reachable,
 // else 503 with a small JSON status so a broker whose Postgres just dropped is pulled
 // out of rotation instead of black-holing requests.
+
+// brokerCommit returns the exact source revision injected by the deployment
+// platform. Refuse malformed or abbreviated values: /version is an audit surface,
+// so an absent identity is better than asserting one that cannot name a commit.
+func brokerCommit() string {
+	commit := strings.ToLower(strings.TrimSpace(os.Getenv("ROGERAI_BUILD_COMMIT")))
+	if len(commit) != 40 {
+		return ""
+	}
+	if _, err := hex.DecodeString(commit); err != nil {
+		return ""
+	}
+	return commit
+}
+
+// versionInfo reports the human release and exact deployed revision. no-store is
+// intentional: during a rolling deployment two healthy instances may briefly run
+// different commits, and an intermediary must not conceal that fact.
+func (b *broker) versionInfo(w http.ResponseWriter, r *http.Request) {
+	if !allow(w, r, http.MethodGet) {
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	info := map[string]any{"version": version}
+	if commit := brokerCommit(); commit != "" {
+		info["commit"] = commit
+	}
+	writeJSON(w, http.StatusOK, info)
+}
 
 // ready reports broker readiness as JSON. Healthy => 200 {"ready":true,...}; a failed
 // dependency => 503 {"ready":false,...} naming which dependency is down. The shared

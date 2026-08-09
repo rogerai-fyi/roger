@@ -51,6 +51,8 @@ jobs:
         with:
           go-version: '1.25'
           cache: true
+      - name: reachable vulnerability gate
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...
       - name: create schema
         run: psql "$ROGERAI_TEST_DATABASE_URL" -c "CREATE SCHEMA IF NOT EXISTS rogerai;"
       - name: test + coverage

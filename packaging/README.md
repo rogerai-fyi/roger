@@ -77,7 +77,7 @@ tap formula for Linux / anyone who wants it.
 winget needs a **first manual submission**, then the workflow keeps it updated:
 
 - [x] `bownux/winget-pkgs` fork created (winget-releaser opens PRs from it).
-- [ ] Add secret **`WINGET_TOKEN`** = a classic PAT on the **bownux** account with
+- [x] Add secret **`WINGET_TOKEN`** = a classic PAT on the **bownux** account with
   `public_repo` scope: `gh secret set WINGET_TOKEN --repo rogerai-fyi/roger --body <TOKEN>`.
   (The fork owner and the PAT owner must match - both `bownux`.)
 - [ ] Bootstrap the package id `RogerAI.Roger` once (after a real release exists):
@@ -85,7 +85,7 @@ winget needs a **first manual submission**, then the workflow keeps it updated:
   wingetcreate new https://github.com/rogerai-fyi/roger/releases/download/vX.Y.Z/roger-windows-amd64.exe
   ```
   Set `PackageIdentifier: RogerAI.Roger`, installer type **portable**. Submit the PR.
-- Flip repo **variable** `PUBLISH_WINGET=true`. From then on each release auto-opens an
+- [ ] Flip repo **variable** `PUBLISH_WINGET=true`. From then on each release auto-opens an
   update PR (Microsoft moderation runs before it merges; pre-release tags with a `-` are
   skipped).
 
