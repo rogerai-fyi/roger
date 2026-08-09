@@ -15,6 +15,7 @@ import (
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -49,8 +50,12 @@ func TestDeviceLoginPollSurvivesATemporaryOutage(t *testing.T) {
 func TestDeviceLoginPollStillStopsOnARealRejection(t *testing.T) {
 	// The retry must not swallow the answers that genuinely end a flow. A 4xx is the
 	// caller's fault and retrying it is how a CLI spins until expiry against a code that
-	// will never work.
+	// will never work. Pin the classification directly: a handler-call count is not this
+	// invariant, because net/http may replay a rewindable request after a connection-level
+	// failure before it delivers any response to DeviceLoginPoll.
 	t.Setenv("ROGER_CONFIG_DIR", t.TempDir())
+	require.False(t, worthRetrying(&httpError{status: http.StatusBadRequest, msg: "rejected"}),
+		"a delivered 4xx response must never enter the poll retry path")
 
 	var polls atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -60,11 +65,14 @@ func TestDeviceLoginPollStillStopsOnARealRejection(t *testing.T) {
 	}))
 	defer srv.Close()
 
+	started := time.Now()
 	_, err := DeviceLoginPoll(srv.URL, DeviceLogin{
 		DeviceCode: "dev-code", Interval: 1, ExpiresIn: 5,
 	})
-	require.Error(t, err)
-	require.EqualValues(t, 1, polls.Load(), "a rejection ends the flow on the first answer")
+	require.EqualError(t, err, "that login is not valid")
+	require.Less(t, time.Since(started), 5*time.Second,
+		"a rejection must return promptly, not poll until the 60-second minimum expiry")
+	require.GreaterOrEqual(t, polls.Load(), int32(1), "the broker must receive the poll")
 }
 
 func TestDeviceLoginPollReportsDenialAndExpiry(t *testing.T) {
