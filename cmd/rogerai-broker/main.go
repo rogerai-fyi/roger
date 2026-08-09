@@ -394,6 +394,7 @@ func main() {
 // watcher - byte-for-byte the old in-main behavior, just serving via Serve(ln) (the
 // exact same path ListenAndServe takes after its own net.Listen).
 func runServe(ln net.Listener, fee, seed float64, lock time.Duration, stop <-chan struct{}) error {
+	logBrokerCommitStatus()
 	if v := os.Getenv("ROGERAI_FEE"); v != "" {
 		if f, err := strconv.ParseFloat(v, 64); err == nil {
 			fee = f

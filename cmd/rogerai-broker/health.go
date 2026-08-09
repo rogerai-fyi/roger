@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/hex"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -26,6 +27,16 @@ func brokerCommit() string {
 		return ""
 	}
 	return commit
+}
+
+// logBrokerCommitStatus makes a deployment wiring error observable without
+// echoing the supplied value. Keep brokerCommit strict: an abbreviated hash is
+// useful for display, but it is not the exact auditable source identity promised
+// by this endpoint.
+func logBrokerCommitStatus() {
+	if strings.TrimSpace(os.Getenv("ROGERAI_BUILD_COMMIT")) != "" && brokerCommit() == "" {
+		log.Printf("build identity: ROGERAI_BUILD_COMMIT is not a full 40-character hexadecimal commit; omitting it from /version")
+	}
 }
 
 // versionInfo reports the human release and exact deployed revision. no-store is

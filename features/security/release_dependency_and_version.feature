@@ -3,6 +3,7 @@
 
 Feature: Release dependency and broker identity gates
 
+  @release_gate
   Scenario: A release is refused when Go code reaches a known vulnerability
     Given the complete module is built with the release Go toolchain
     When the current Go vulnerability database is evaluated against every package
@@ -22,11 +23,18 @@ Feature: Release dependency and broker identity gates
     And it contains the complete lowercase source commit
     And the response cannot be served from a stale cache
 
-  Scenario: Missing or malformed build metadata is not asserted
-    Given the broker has no valid hexadecimal source commit
+  Scenario: Missing build metadata is not asserted
+    Given the broker has no source commit metadata
     When a client requests GET /version
     Then the semantic version is still reported
     And no source commit is claimed
+
+  Scenario: Malformed build metadata is rejected visibly
+    Given the broker has malformed non-empty source commit metadata
+    When a client requests GET /version
+    Then the semantic version is still reported
+    And no source commit is claimed
+    And malformed non-empty build metadata is visible to the operator
 
   Scenario: Version discovery is read-only
     When a client sends a non-GET request to /version
