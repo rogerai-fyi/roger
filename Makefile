@@ -1,4 +1,4 @@
-.PHONY: build demo clean kill test check site site-serve smoke smoke-live beta cover cover-html cover-gate cover-gate-fast tdd
+.PHONY: build demo clean kill test check site site-serve smoke smoke-live beta cover cover-html cover-gate cover-gate-fast tdd reach
 GOTOOLCHAIN := local
 export GOTOOLCHAIN
 
@@ -106,13 +106,24 @@ tdd:
 	@command -v gotestsum >/dev/null 2>&1 || go install gotest.tools/gotestsum@latest
 	gotestsum --watch --format testname -- -count=1 $(PKG)
 
-# The CI gate: build, vet, test, and a gofmt cleanliness check.
+# The CI gate: build, vet, test, gofmt, and a reachability check.
 check:
 	go build ./...
 	go vet ./...
 	go test ./...
 	@out=$$(gofmt -l cmd internal); if [ -n "$$out" ]; then echo "gofmt needed:"; echo "$$out"; exit 1; fi
+	@$(MAKE) --no-print-directory reach
 	@echo "check: ok"
+
+# reach: what is in the binary that nothing in the binary calls.
+#
+# Coverage says a function is EXERCISED, never that anything USES it, and the two come
+# apart in the worst direction: a helper tested to 100% and wired to nothing looks
+# healthier than the code that runs. `storeFor` - the Tower's whole durable-storage
+# wiring - shipped that way, so a durable-profile Tower silently kept state on local disk.
+.PHONY: reach
+reach:
+	@scripts/reachability.sh
 
 # The RELEASE GATE. Run this green before every `git tag`. It runs build + vet +
 # gofmt + the regression suite, then builds web/dist, serves it, asserts every

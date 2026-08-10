@@ -2,14 +2,18 @@ package main
 
 import (
 	"bytes"
+	"database/sql"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
+	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/stretchr/testify/require"
 	"rogerai.fm/roger/v5/internal/tower"
 )
@@ -600,4 +604,141 @@ func TestStoreForRefusesAPublicDatabase(t *testing.T) {
 	_, _, err = storeFor(c, st)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "allowlist")
+}
+
+// --- durable storage is actually WIRED IN ----------------------------------
+//
+// storeFor was written, tested, and called by nothing. A Tower configured with the durable
+// storage profile silently kept its state in the data directory - the one deployment shape
+// the profile exists for, a node whose disk is not durable - and nothing failed. The tests
+// below are the ones that were missing: they exercise the COMMANDS, not the helper.
+
+// commandsThatTouchState lists every command that reads or writes local-admission state,
+// with enough arguments to get past its own flag parsing. A new one that forgets --config
+// fails here rather than in a deployment.
+func commandsThatTouchState(dir, cfg string) [][]string {
+	return [][]string{
+		{"invite", "--dir", dir, "--config", cfg, "--client", "abc"},
+		{"admit", "--dir", dir, "--config", cfg, "--client", "abc", "--id", "i", "--code", "c"},
+		{"attach", "--dir", dir, "--config", cfg, "--station", "s1", "--key", "k", "--models", "m"},
+		{"stations", "--dir", dir, "--config", cfg},
+		{"route", "--dir", dir, "--config", cfg, "--client", "abc", "--model", "m"},
+		{"serve", "--dir", dir, "--config", cfg},
+	}
+}
+
+// Every state-touching command must FAIL CLOSED when the configured database secret cannot
+// be read. Falling back to the data directory is what made this bug invisible: the operator
+// gets a Tower that looks configured and loses its operator credential, verifier secret and
+// Station registry the first time the node is replaced.
+func TestEveryStateCommandRefusesAnUnreadableDatabaseSecret(t *testing.T) {
+	dir := initStandalone(t)
+	cfg := writeConfig(t, standaloneYAML+"storage:\n  urlFile: /nonexistent/db-url\n")
+
+	for _, args := range commandsThatTouchState(dir, cfg) {
+		out, err := runCLI(t, args...)
+		require.Error(t, err, "%s ignored --config", args[0])
+		require.Contains(t, err.Error(), "database URL file",
+			"%s failed for the wrong reason", args[0])
+		require.NotContains(t, out, "invitation:", "%s did work before failing", args[0])
+	}
+}
+
+// The same commands must refuse a database that is not local. A Tower pointed at a hosted
+// database is not the standalone thing it claims to be, and the check is worthless if the
+// commands never reach it.
+func TestEveryStateCommandRefusesAPublicDatabase(t *testing.T) {
+	dir := initStandalone(t)
+	secret := filepath.Join(t.TempDir(), "db-url")
+	require.NoError(t, os.WriteFile(secret, []byte("postgres://u:p@db.example.com:5432/tower"), 0o600))
+	cfg := writeConfig(t, standaloneYAML+"storage:\n  urlFile: "+secret+"\n")
+
+	for _, args := range commandsThatTouchState(dir, cfg) {
+		_, err := runCLI(t, args...)
+		require.Error(t, err, "%s ignored --config", args[0])
+		require.Contains(t, err.Error(), "allowlist", "%s failed for the wrong reason", args[0])
+	}
+}
+
+// Without --config nothing changes: the data directory is still the store, which is correct
+// for a single node and is what every existing deployment does.
+func TestWithoutAConfigTheDataDirectoryIsStillTheStore(t *testing.T) {
+	dir := initStandalone(t)
+	out, err := runCLI(t, "invite", "--dir", dir, "--client", "abc")
+	require.NoError(t, err)
+	require.Contains(t, out, "invitation:")
+}
+
+// END TO END against a real database: state written with --config lands THERE, and is not
+// in the data directory. Asserting both halves is the point - a test that only checked the
+// happy path would pass just as well against the silent file-store fallback this fixes.
+func TestDurableStorageKeepsStateInTheDatabaseAndNotOnDisk(t *testing.T) {
+	dsn := os.Getenv("ROGERAI_TEST_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("set ROGERAI_TEST_DATABASE_URL to exercise the durable store")
+	}
+	dir := initStandalone(t)
+	secret := filepath.Join(t.TempDir(), "db-url")
+	require.NoError(t, os.WriteFile(secret, []byte(privateDSN(t, dsn)), 0o600))
+	cfg := writeConfig(t, standaloneYAML+"storage:\n  urlFile: "+secret+"\n")
+
+	// Bootstrap the local operator first - a network with none may not attach Stations. Doing
+	// it through the CLI is deliberate: it means the invitation, its one-use consumption and
+	// the Station all have to survive the round trip through the database, which is three
+	// separate read-modify-write cycles rather than one.
+	out, err := runCLI(t, "invite", "--dir", dir, "--config", cfg, "--client", "kh-op")
+	require.NoError(t, err)
+	id, code := parseInvite(t, out)
+
+	_, err = runCLI(t, "admit", "--dir", dir, "--config", cfg,
+		"--client", "kh-op", "--id", id, "--code", code)
+	require.NoError(t, err)
+
+	_, err = runCLI(t, "attach", "--dir", dir, "--config", cfg,
+		"--station", "st-durable", "--key", "kh-1", "--models", "m1")
+	require.NoError(t, err)
+
+	out, err = runCLI(t, "stations", "--dir", dir, "--config", cfg)
+	require.NoError(t, err)
+	require.Contains(t, out, "st-durable", "the database did not keep what we wrote")
+
+	// And the data directory knows nothing about it. If this passes with the Station also on
+	// disk, the command is writing both and the durable profile is decorative.
+	out, err = runCLI(t, "stations", "--dir", dir)
+	require.NoError(t, err)
+	require.NotContains(t, out, "st-durable", "the Station was written to local disk as well")
+}
+
+// privateDSN redirects THIS package's Postgres test to its own database.
+//
+// `go test ./...` runs PACKAGES in parallel against the one shared
+// ROGERAI_TEST_DATABASE_URL, and a Tower snapshot written into the shared database is a row
+// some other package's suite is not expecting. internal/store and internal/towercore/attach
+// both hit this and solved it the same way; it cost a long diagnosis the first time, because
+// the failure surfaces in the OTHER package as something inexplicable.
+//
+// A DSN that does not parse as a URL keeps the shared-database behaviour.
+var privateDBOnce sync.Once
+
+func privateDSN(t *testing.T, dsn string) string {
+	t.Helper()
+	u, err := url.Parse(dsn)
+	if err != nil || u.Path == "" || u.Path == "/" {
+		return dsn
+	}
+	name := strings.TrimPrefix(u.Path, "/") + "_rogertower"
+	privateDBOnce.Do(func() {
+		admin, aerr := sql.Open("pgx", dsn)
+		if aerr != nil {
+			t.Fatalf("private db: open admin: %v", aerr)
+		}
+		defer admin.Close()
+		// No CREATE DATABASE IF NOT EXISTS in PostgreSQL: create and tolerate "already exists".
+		if _, cerr := admin.Exec(`CREATE DATABASE "` + name + `"`); cerr != nil &&
+			!strings.Contains(cerr.Error(), "already exists") {
+			t.Fatalf("private db: create %s: %v", name, cerr)
+		}
+	})
+	u.Path = "/" + name
+	return u.String()
 }

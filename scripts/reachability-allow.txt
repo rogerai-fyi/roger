@@ -1,0 +1,198 @@
+# reachability-allow.txt — unreachable functions we have LOOKED AT and kept.
+#
+# One `package/path.Func` per line; blank lines and # comments ignored. Keyed by name, not
+# line number, so ordinary edits above a function do not read as new findings.
+#
+# Adding a line here is a claim: "this is not called by the binary, and that is correct."
+# Make the claim out loud, with the reason, or the file becomes a place findings go to die.
+# See scripts/reachability.sh for the three bugs that prompted this.
+
+# --- Tower: reference implementations held against the durable stores -------
+# Each parity suite runs one scenario against BOTH the memory store and the Postgres one
+# and requires the same answer, and the two are written deliberately differently - a held
+# mutex against a locked row and a CAS, a Go comparison against a conditional upsert, a
+# scan against a partial unique index - so agreement is a result rather than a tautology.
+# The broker never builds a memory store (loadTowerSubsystem returns nil without a
+# database), so they are unreachable by construction. Deleting them would delete the only
+# thing that can tell you the durable store is wrong; that has already caught mem/PG
+# divergence on re-attachment, live-key uniqueness, duplicate ids and a cap's expiry.
+internal/towercore/attach.memStore.Admit
+internal/towercore/attach.memStore.Authorization
+internal/towercore/attach.memStore.ByAssertionKey
+internal/towercore/attach.memStore.BySessionKey
+internal/towercore/attach.memStore.ByStation
+internal/towercore/attach.memStore.CountLiveAttachments
+internal/towercore/attach.memStore.PutAuthorization
+internal/towercore/attach.memStore.PutAuthorizationCapped
+internal/towercore/attach.memStore.Reap
+internal/towercore/attach.memStore.SetState
+internal/towercore/attach.NewMemStore
+internal/towercore/head.memStore.Forget
+internal/towercore/head.memStore.Head
+internal/towercore/head.NewMemStore
+internal/towercore/head.memStore.Record
+
+# --- Tower: the offline root ceremony and its in-memory custody -------------
+# Minting a CA root and exporting both halves as PEM is how an operator produces the key
+# material for the CA environment before the first broker ever starts - which is how this
+# deployment's root was made. The broker does not call them because by the time it runs,
+# the ceremony is over. memCustody is the parity partner for the durable custody.
+internal/towercore/cert.LoadOrCreateFrom
+internal/towercore/cert.memCustody.LoadRevoked
+internal/towercore/cert.memCustody.LoadRoot
+internal/towercore/cert.memCustody.SaveRevoked
+internal/towercore/cert.memCustody.SaveRoot
+internal/towercore/cert.NewMemCustody
+# LoadOrCreateFrom attaches durable custody to an already-built authority. Its one real use
+# is testing the path where PERSISTING a revocation fails: LoadOrCreate cannot build that
+# case, because it refuses a custody it cannot write the root to in the first place.
+
+# --- Tower: test seams, deliberately in the production file -----------------
+# Moving these to export_test.go would need the unexported state they reach exported, which
+# trades a seam nothing can call in production for a field anything can.
+internal/towercore/admit.Registry.forceStateForTest
+internal/towercore/admit.Registry.openTokensForTest
+internal/towercore/link.Sessions.advance
+internal/towerjoin.setEnrollForTest
+
+# --- Tower: convenience constructor over the in-process store ---------------
+# admit.New(cfg) is NewWithStore(cfg, nil). Production always passes an explicit store,
+# because a broker that silently ran on an in-process registry would lose every admission
+# on restart.
+internal/towercore/admit.New
+
+# --- Tower: a refusal, not a function ---------------------------------------
+# AllowRequestTarget ALWAYS returns an error. A standalone Tower does not fetch a target
+# chosen by a client or Station: with the caller picking the destination, no allowlist can
+# stop it being an egress proxy. It is unreachable because the route it refuses does not
+# exist - and it should stay here, so that adding such a route has something to trip over.
+internal/tower.EgressGuard.AllowRequestTarget
+
+# ============================================================================
+# PRE-EXISTING, NOT YET REVIEWED
+#
+# Everything below predates this check and is allowlisted ONLY so the check can be turned
+# on today and catch NEW unreachable code. None of it has been through the two-answer
+# question above. Do not read a line here as "reviewed and fine" - read it as a backlog.
+#
+# The one worth looking at first: internal/keypurpose. Its entire Ring API - Sign, Verify,
+# MAC, Rotate, Validate - is unreachable. Production imports the package for one constant.
+# A key-separation ring that nothing signs through is not enforcing key separation.
+# ============================================================================
+cmd/rogerai-broker.attestRegistry.setVerifier
+cmd/rogerai-broker.broker.rcGCOnce
+cmd/rogerai-broker.broker.signSession
+cmd/rogerai-broker.broker.signSessionWallet
+cmd/rogerai-broker.memStore.allNodes
+cmd/rogerai-broker.memStore.allPrivateNodes
+cmd/rogerai-broker.memStore.busClaimJob
+cmd/rogerai-broker.memStore.busNextRCSeq
+cmd/rogerai-broker.memStore.busPopRCIn
+cmd/rogerai-broker.memStore.busPublishJob
+cmd/rogerai-broker.memStore.busPublishRCIn
+cmd/rogerai-broker.memStore.busPublishRCOut
+cmd/rogerai-broker.memStore.busPublishResult
+cmd/rogerai-broker.memStore.busPublishStreamChunk
+cmd/rogerai-broker.memStore.busPublishStreamDone
+cmd/rogerai-broker.memStore.busSubscribeJobs
+cmd/rogerai-broker.memStore.busSubscribeRCIn
+cmd/rogerai-broker.memStore.busSubscribeRCOut
+cmd/rogerai-broker.memStore.busSubscribeResult
+cmd/rogerai-broker.memStore.busSubscribeStream
+cmd/rogerai-broker.memStore.cacheDel
+cmd/rogerai-broker.memStore.cacheGet
+cmd/rogerai-broker.memStore.cacheSet
+cmd/rogerai-broker.memStore.clearToolsVerified
+cmd/rogerai-broker.memStore.Close
+cmd/rogerai-broker.memStore.counterGet
+cmd/rogerai-broker.memStore.counterIncr
+cmd/rogerai-broker.memStore.counterSet
+cmd/rogerai-broker.memStore.dropSharedNode
+cmd/rogerai-broker.memStore.getNode
+cmd/rogerai-broker.memStore.getPrivateNode
+cmd/rogerai-broker.memStore.healthy
+cmd/rogerai-broker.memStore.inflightByNode
+cmd/rogerai-broker.memStore.liveInstances
+cmd/rogerai-broker.memStore.liveness
+cmd/rogerai-broker.memStore.markInflight
+cmd/rogerai-broker.memStore.markInstance
+cmd/rogerai-broker.memStore.markSeen
+cmd/rogerai-broker.memStore.markToolsVerified
+cmd/rogerai-broker.memStore.putCapsule
+cmd/rogerai-broker.memStore.putNode
+cmd/rogerai-broker.memStore.putPrivateNode
+cmd/rogerai-broker.memStore.rateAllow
+cmd/rogerai-broker.memStore.setIfAbsent
+cmd/rogerai-broker.memStore.takeCapsule
+cmd/rogerai-broker.memStore.toolsVerified
+cmd/rogerai-broker.newMemStore
+cmd/rogerai.onAirLockPath
+cmd/rogerai.processAlive
+internal/agent.resetChains
+internal/catalog.AssessFit
+internal/catalog.Entry.Validate
+internal/catalog.Fit.String
+internal/catalog.isSHA256
+internal/catalog.Merge
+internal/catalog.NewManifest
+internal/catalog.Shareable.ReadyToBroadcast
+internal/client.PickBest
+internal/client.PublishCapsule
+internal/client.SignRequestWith
+internal/deviceauth.Flow.advance
+internal/emailauth.Flow.advance
+internal/harness.BrokerCompleter
+internal/keypurpose.AllPurposes
+internal/keypurpose.AllRealms
+internal/keypurpose.generateKey
+internal/keypurpose.HeldAtRuntime
+internal/keypurpose.Key.materialCommitment
+internal/keypurpose.Key.String
+internal/keypurpose.KindOf
+internal/keypurpose.Known
+internal/keypurpose.Lookup
+internal/keypurpose.LookupIn
+internal/keypurpose.macBytes
+internal/keypurpose.NewGeneratedRing
+internal/keypurpose.NewGeneratedRingFor
+internal/keypurpose.PurposesIn
+internal/keypurpose.RealmOf
+internal/keypurpose.Ring.canSignWithLocked
+internal/keypurpose.Ring.Describe
+internal/keypurpose.Ring.findLocked
+internal/keypurpose.Ring.inRealm
+internal/keypurpose.Ring.MAC
+internal/keypurpose.Ring.MarkUnloadable
+internal/keypurpose.Ring.Realm
+internal/keypurpose.Ring.Rotate
+internal/keypurpose.Ring.Sign
+internal/keypurpose.Ring.String
+internal/keypurpose.Ring.usableLocked
+internal/keypurpose.Ring.Validate
+internal/keypurpose.Ring.Verify
+internal/keypurpose.Ring.VerifyMAC
+internal/keypurpose.signingBytes
+internal/tui.cornerFrameFor
+internal/tui.countOnline
+internal/tui.ctxCell
+internal/tui.linkBadge
+internal/tui.model.atOnAirLimit
+internal/tui.model.previewNeedsConfirm
+internal/tui.model.refreshShareHeadline
+internal/tui.model.resolveStrangerRecall
+internal/tui.model.sectionName
+internal/tui.model.setBlendFromString
+internal/tui.model.setShareRows
+internal/tui.New
+internal/tui.NewWith
+internal/tui.NewWithHooks
+internal/tui.renderTubePing
+internal/tui.shortPath
+internal/tui.sMeterLegend
+internal/tui.tintEyeLineDepth
+internal/tui.vbFieldIndex
+internal/tui.workdirAvailable
+internal/tui.worldBuffer
+internal/tui.worldPingX
+internal/update.setLatestReleaseURL
+internal/webui.Server.Token

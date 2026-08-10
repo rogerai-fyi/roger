@@ -186,11 +186,14 @@ func localOffers(_ *tower.State) ([]json.RawMessage, error) {
 // cmdServe is the `roger-tower serve` entry point.
 func cmdServe(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
-	dir := fs.String("dir", "", "Tower data directory")
+	dir, cfg := dirAndConfig(fs)
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	st, release, err := openDir(*dir)
+	// serve takes --config for the same reason the state commands do, and it matters MORE
+	// here: an operator whose `attach` wrote to the database while `serve` read local disk
+	// would be relaying an inventory that does not describe their fleet.
+	st, release, err := openDirWith(*dir, *cfg)
 	if err != nil {
 		return err
 	}

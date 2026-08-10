@@ -48,6 +48,10 @@ usage:
   roger-tower serve  --dir DIR        (joined mode only; holds the relay link)
   roger-tower version
 
+invite, admit, attach, stations, route and serve also take --config FILE. Pass it
+whenever the configuration selects durable storage: without it the command keeps state
+in the data directory, which is the wrong answer for a node whose disk is not durable.
+
 Standalone needs NO account: nothing leaves your machine. Joining the public network
 needs one, because a joined Tower relays other people's traffic and must stay
 accountable.
@@ -250,14 +254,14 @@ func cmdStatus(args []string, out io.Writer) error {
 func cmdInvite(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("invite", flag.ContinueOnError)
 	fs.SetOutput(out)
-	dir := fs.String("dir", "", "Tower data directory")
+	dir, cfg := dirAndConfig(fs)
 	client := fs.String("client", "", "hash of the requesting client's public key")
 	ttl := fs.Duration("ttl", 15*time.Minute, "how long the code stays valid")
 	attempts := fs.Int("attempts", 5, "how many wrong guesses are allowed before lockout")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	st, release, err := openDir(*dir)
+	st, release, err := openDirWith(*dir, *cfg)
 	if err != nil {
 		return err
 	}
@@ -278,14 +282,14 @@ func cmdInvite(args []string, out io.Writer) error {
 func cmdAdmit(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("admit", flag.ContinueOnError)
 	fs.SetOutput(out)
-	dir := fs.String("dir", "", "Tower data directory")
+	dir, cfg := dirAndConfig(fs)
 	client := fs.String("client", "", "hash of the client's public key")
 	id := fs.String("id", "", "invitation id")
 	code := fs.String("code", "", "bootstrap code")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	st, release, err := openDir(*dir)
+	st, release, err := openDirWith(*dir, *cfg)
 	if err != nil {
 		return err
 	}
@@ -304,14 +308,14 @@ func cmdAdmit(args []string, out io.Writer) error {
 func cmdAttach(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("attach", flag.ContinueOnError)
 	fs.SetOutput(out)
-	dir := fs.String("dir", "", "Tower data directory")
+	dir, cfg := dirAndConfig(fs)
 	station := fs.String("station", "", "Station id")
 	key := fs.String("key", "", "hash of the Station's public key")
 	models := fs.String("models", "", "comma-separated models this Station serves")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	st, release, err := openDir(*dir)
+	st, release, err := openDirWith(*dir, *cfg)
 	if err != nil {
 		return err
 	}
@@ -334,11 +338,11 @@ func cmdAttach(args []string, out io.Writer) error {
 func cmdStations(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("stations", flag.ContinueOnError)
 	fs.SetOutput(out)
-	dir := fs.String("dir", "", "Tower data directory")
+	dir, cfg := dirAndConfig(fs)
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	st, release, err := openDir(*dir)
+	st, release, err := openDirWith(*dir, *cfg)
 	if err != nil {
 		return err
 	}
@@ -363,13 +367,13 @@ func cmdStations(args []string, out io.Writer) error {
 func cmdRoute(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("route", flag.ContinueOnError)
 	fs.SetOutput(out)
-	dir := fs.String("dir", "", "Tower data directory")
+	dir, cfg := dirAndConfig(fs)
 	client := fs.String("client", "", "hash of the admitted client's public key")
 	model := fs.String("model", "", "model to route")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	st, release, err := openDir(*dir)
+	st, release, err := openDirWith(*dir, *cfg)
 	if err != nil {
 		return err
 	}
@@ -488,7 +492,21 @@ func storeFor(c *tower.Config, st *tower.State) (*tower.State, func() error, err
 	return st.WithStore(pg), pg.Close, nil
 }
 
-func openDir(dir string) (*tower.State, func() error, error) {
+func openDir(dir string) (*tower.State, func() error, error) { return openDirWith(dir, "") }
+
+// openDirWith opens a data directory and, when a config asks for durable storage, opens that
+// too. Every command that touches local-admission state goes through here.
+//
+// THIS WIRING WAS MISSING. storeFor existed, was tested, and was called by nothing: a Tower
+// configured with the durable storage profile silently kept its state on local disk, which is
+// the exact deployment the profile exists for - one whose disk is not durable. Nothing failed;
+// the operator got a Tower that looked configured and would lose its operator credential, its
+// verifier secret and its Station registry on the first replacement of the node. A reachability
+// pass over the binary found it.
+//
+// It fails CLOSED: if the config asks for a database and the database cannot be opened, the
+// command stops. Falling back to the file store is what caused the problem in the first place.
+func openDirWith(dir, configPath string) (*tower.State, func() error, error) {
 	if dir == "" {
 		return nil, nil, fmt.Errorf("--dir is required")
 	}
@@ -500,7 +518,37 @@ func openDir(dir string) (*tower.State, func() error, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	return st, release, nil
+	if configPath == "" {
+		return st, release, nil
+	}
+	c, err := loadConfig(configPath)
+	if err != nil {
+		_ = release()
+		return nil, nil, err
+	}
+	stored, closeStore, err := storeFor(c, st)
+	if err != nil {
+		_ = release()
+		return nil, nil, err
+	}
+	// Release in the reverse order of acquisition, and report the FIRST failure: a database
+	// that will not close cleanly matters more than the lock file, and swallowing it would
+	// hide a half-written snapshot.
+	return stored, func() error {
+		cerr := closeStore()
+		rerr := release()
+		if cerr != nil {
+			return cerr
+		}
+		return rerr
+	}, nil
+}
+
+// dirAndConfig registers the two flags every state-touching command shares.
+func dirAndConfig(fs *flag.FlagSet) (*string, *string) {
+	dir := fs.String("dir", "", "Tower data directory")
+	cfg := fs.String("config", "", "Tower configuration file (required for durable storage)")
+	return dir, cfg
 }
 
 func loadConfig(path string) (*tower.Config, error) {
