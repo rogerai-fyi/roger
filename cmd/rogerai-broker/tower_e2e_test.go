@@ -22,10 +22,12 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"rogerai.fm/roger/v5/internal/protocol"
+	"rogerai.fm/roger/v5/internal/stationattach"
 	"rogerai.fm/roger/v5/internal/store"
 	"rogerai.fm/roger/v5/internal/toweradmit"
 	"rogerai.fm/roger/v5/internal/towercert"
 	"rogerai.fm/roger/v5/internal/towerenroll"
+	"rogerai.fm/roger/v5/internal/towerhead"
 )
 
 // towerTestBroker wires the real subsystem over in-process stores and serves the real mux.
@@ -34,7 +36,8 @@ func towerTestBroker(t *testing.T) (*broker, *httptest.Server) {
 	b := testBrokerWithDB(store.NewMem())
 	ts, err := newTowerSubsystem(b,
 		toweradmit.NewMemStore(), towercert.NewMemCustody(), towerenroll.NewMemStore(),
-		towercert.Config{TTL: time.Hour})
+		towercert.Config{TTL: time.Hour},
+		linkDeps{stations: stationattach.NewMemStore(), heads: towerhead.NewMemStore()})
 	require.NoError(t, err)
 	b.tower = ts
 
@@ -43,6 +46,11 @@ func towerTestBroker(t *testing.T) (*broker, *httptest.Server) {
 	mux.HandleFunc("/tower/enroll/challenge", b.towerChallenge)
 	mux.HandleFunc("/tower/enroll", b.towerEnroll)
 	mux.HandleFunc("/tower/status", b.towerStatus)
+	mux.HandleFunc("/tower/session", b.towerSessionOpen)
+	mux.HandleFunc("/tower/session/heartbeat", b.towerHeartbeat)
+	mux.HandleFunc("/tower/session/close", b.towerSessionClose)
+	mux.HandleFunc("/tower/inventory", b.towerInventory(false))
+	mux.HandleFunc("/tower/inventory/delta", b.towerInventory(true))
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return b, srv
@@ -352,7 +360,8 @@ func TestAdmissionRefusesToStartWithAMisconfiguredRoot(t *testing.T) {
 	b := testBrokerWithDB(store.NewMem())
 	_, err := newTowerSubsystem(b,
 		toweradmit.NewMemStore(), towercert.NewMemCustody(), towerenroll.NewMemStore(),
-		towercert.Config{TTL: time.Hour, RootKeyPEM: []byte("-----BEGIN PRIVATE KEY-----\nbad\n-----END PRIVATE KEY-----")})
+		towercert.Config{TTL: time.Hour, RootKeyPEM: []byte("-----BEGIN PRIVATE KEY-----\nbad\n-----END PRIVATE KEY-----")},
+		linkDeps{stations: stationattach.NewMemStore(), heads: towerhead.NewMemStore()})
 	require.Error(t, err)
 }
 
@@ -491,6 +500,7 @@ func TestAHalfConfiguredCARootFailsTheDeployment(t *testing.T) {
 	b := testBrokerWithDB(store.NewMem())
 	_, err := newTowerSubsystem(b,
 		toweradmit.NewMemStore(), towercert.NewMemCustody(), towerenroll.NewMemStore(),
-		towercert.Config{TTL: time.Hour, RootKeyPEM: []byte("-----BEGIN PRIVATE KEY-----\nbad\n-----END PRIVATE KEY-----")})
+		towercert.Config{TTL: time.Hour, RootKeyPEM: []byte("-----BEGIN PRIVATE KEY-----\nbad\n-----END PRIVATE KEY-----")},
+		linkDeps{stations: stationattach.NewMemStore(), heads: towerhead.NewMemStore()})
 	require.Error(t, err)
 }

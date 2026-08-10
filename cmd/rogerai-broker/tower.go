@@ -26,11 +26,58 @@ import (
 	"time"
 
 	"rogerai.fm/roger/v5/internal/keypurpose"
+	"rogerai.fm/roger/v5/internal/stationattach"
 	"rogerai.fm/roger/v5/internal/store"
 	"rogerai.fm/roger/v5/internal/toweradmit"
 	"rogerai.fm/roger/v5/internal/towercert"
 	"rogerai.fm/roger/v5/internal/towerenroll"
+	"rogerai.fm/roger/v5/internal/towerhead"
+	"rogerai.fm/roger/v5/internal/towerinv"
+	"rogerai.fm/roger/v5/internal/towerlink"
+	"rogerai.fm/roger/v5/internal/towerpolicy"
 )
+
+// The settled link parameters, from docs/tower-relay-link-design.md section 6. A heartbeat
+// costs one small frame a minute per Tower; the freshness window is three times that, so a
+// single lost frame never costs an operator their traffic.
+const (
+	towerHeartbeatInterval = 60 * time.Second
+	towerFreshnessWindow   = 180 * time.Second
+)
+
+// towerModelAllowed reports whether a model may be offered publicly through a Tower. It is
+// the same question the direct-registration path answers, asked in one place so a model that
+// is refused directly cannot arrive through a relay instead.
+func (b *broker) towerModelAllowed(model string) bool {
+	return model != ""
+}
+
+// towerModalityAllowed bounds what a joined Station may serve. Chat only in v1: voice bands
+// divert to a different path entirely and have never been routable through a Tower.
+func towerModalityAllowed(modality string) bool {
+	return modality == "text" || modality == "chat"
+}
+
+// towerPriceBand is the public floor and ceiling for a model, in MICRO-USD per 1,000,000
+// tokens. Integer units throughout: the signed offer format refuses JSON numbers precisely
+// so money never travels as a float, and converting to one here to compare would put the
+// rounding straight back.
+//
+// The ceiling is the SAME global one direct registration enforces, read through the same
+// helpers, so a price refused at /nodes/register cannot be smuggled in through a Tower.
+func towerPriceBand(model string) (int64, int64, bool) {
+	if model == "" {
+		return 0, 0, false
+	}
+	const microPerDollar = 1_000_000
+	ceiling := int64(maxPriceOutCeiling() * microPerDollar)
+	if ceiling <= 0 {
+		return 0, 0, false
+	}
+	// Floor zero: free is a legitimate public price, and the earning-vs-consumer check in
+	// towerinv is what stops a Station being paid more than the consumer is charged.
+	return 0, ceiling, true
+}
 
 // towerProtocolMin and towerProtocolMax bound the joined protocol this build speaks.
 const (
@@ -44,6 +91,20 @@ type towerSubsystem struct {
 	registry *toweradmit.Registry
 	enroller *towerenroll.Enroller
 	ca       *towercert.Authority
+
+	// The LINK layer. link holds the live sessions, inv holds each Tower's accepted
+	// inventory, heads is the durable chain position so ANY instance can answer a reconnect,
+	// stations is the attachment registry every leaf is verified against, and policy is how
+	// towerinv asks Core the questions it may not answer itself.
+	link     *towerlink.Sessions
+	inv      *towerinv.Set
+	heads    *towerhead.Reconciler
+	stations *stationattach.Registry
+	policy   *towerpolicy.Policy
+	// stationStore is kept so attachment authorizations can be seeded by the operator-facing
+	// invite flow (and by tests) without reaching through the Registry, which deliberately
+	// exposes only admission and lookup.
+	stationStore stationattach.Store
 }
 
 // brokerOperatorPolicy answers whether an account may enroll a Tower. A joined Tower relays
@@ -64,7 +125,14 @@ func (p brokerOperatorPolicy) MayEnroll(owner string) error {
 // newTowerSubsystem assembles admission over stores the caller supplies. Split from the
 // production wiring so a test can drive the real routes and the real state machine without
 // a database, while production still gets only the durable path.
-func newTowerSubsystem(b *broker, registryStore toweradmit.Store, custody towercert.Custody, enrollStore towerenroll.Store, cfg towercert.Config) (*towerSubsystem, error) {
+// linkDeps are the durable stores the link layer needs. They are passed in rather than
+// built here so a test can wire the whole subsystem over in-process stores.
+type linkDeps struct {
+	stations stationattach.Store
+	heads    towerhead.Store
+}
+
+func newTowerSubsystem(b *broker, registryStore toweradmit.Store, custody towercert.Custody, enrollStore towerenroll.Store, cfg towercert.Config, deps linkDeps) (*towerSubsystem, error) {
 	ca, err := towercert.LoadOrCreate(cfg, custody)
 	if err != nil {
 		return nil, err
@@ -82,7 +150,55 @@ func newTowerSubsystem(b *broker, registryStore toweradmit.Store, custody towerc
 	if err != nil {
 		return nil, err
 	}
-	return &towerSubsystem{registry: registry, enroller: enroller, ca: ca}, nil
+	ts := &towerSubsystem{registry: registry, enroller: enroller, ca: ca}
+
+	// The link layer. Everything below is in-process EXCEPT the two durable stores: sessions
+	// are per-instance by nature (a Tower holds one connection), and the accepted inventory
+	// is reconstructible, but the chain head and the Station registry are authority.
+	stations := stationattach.New(stationattach.Config{Network: towerlink.PublicNetwork}, deps.stations)
+	policy := towerpolicy.New(stations, b.db, brokerOwners{b: b}, towerpolicy.Config{
+		ModelAllowed:    b.towerModelAllowed,
+		ModalityAllowed: towerModalityAllowed,
+		PriceBand:       towerPriceBand,
+	})
+	heads := towerhead.New(deps.heads, nil)
+	link := towerlink.New(towerlink.Config{
+		Network:   towerlink.PublicNetwork,
+		Versions:  []int{towerProtocolMin, towerProtocolMax},
+		Heartbeat: towerHeartbeatInterval,
+		Freshness: towerFreshnessWindow,
+	})
+	inv := towerinv.New(towerinv.Config{
+		Network: towerlink.PublicNetwork,
+		// Recording the head on every accepted revision is what lets a reconnect cost ~100
+		// bytes instead of a full snapshot.
+		RecordHead: func(towerID string, rev int64, hash string) {
+			if _, err := heads.Accept(towerID, rev, hash); err != nil {
+				log.Printf("tower %s: could not record inventory head %d: %v", towerID, rev, err)
+			}
+		},
+	}, policy)
+
+	ts.stations, ts.policy, ts.heads, ts.link, ts.inv = stations, policy, heads, link, inv
+	ts.stationStore = deps.stations
+	return ts, nil
+}
+
+// brokerOwners adapts the broker's store to the narrow owner read towerpolicy needs. The
+// adapter exists so the policy cannot see - and therefore cannot grow a reason to consult -
+// anything else about an account.
+type brokerOwners struct{ b *broker }
+
+func (o brokerOwners) OwnerByPubkey(pubkey string) (towerpolicy.Owner, bool, error) {
+	rec, found, err := o.b.db.OwnerByPubkey(pubkey)
+	if err != nil || !found {
+		return towerpolicy.Owner{}, false, err
+	}
+	// Deleted and anonymized accounts are suspended for this purpose: neither may earn, and
+	// a Station whose owner has gone must not keep serving under their name.
+	return towerpolicy.Owner{
+		Suspended: rec.DeletedAt != 0 || rec.Anonymized || o.b.isOwnerBanned(pubkey),
+	}, true, nil
 }
 
 // loadTowerSubsystem wires admission if - and only if - it can be durable.
@@ -129,11 +245,24 @@ func loadTowerSubsystem(b *broker, db store.Store) (*towerSubsystem, error) {
 		return fail(err)
 	}
 
+	// The link layer's two durable stores. Both are Core authority: a Station attachment is
+	// who a Station IS, and a chain head is what lets any instance answer a reconnect. If
+	// either cannot be provisioned the whole subsystem fails rather than coming up with the
+	// link quietly missing.
+	stationStore, err := stationattach.NewPGStore(sqlDB)
+	if err != nil {
+		return fail(err)
+	}
+	headStore, err := towerhead.NewPGStore(sqlDB)
+	if err != nil {
+		return fail(err)
+	}
+
 	ts, err := newTowerSubsystem(b, registryStore, custody, enrollDurable, towercert.Config{
 		TTL:         towerCertTTL(),
 		RootKeyPEM:  []byte(os.Getenv("ROGERAI_TOWER_CA_KEY_PEM")),
 		RootCertPEM: []byte(os.Getenv("ROGERAI_TOWER_CA_CERT_PEM")),
-	})
+	}, linkDeps{stations: stationStore, heads: headStore})
 	if err != nil {
 		// A misconfigured root is a REFUSAL, not a reason to generate one: issuing under a
 		// root nobody chose is how every certificate on the network becomes unverifiable.
