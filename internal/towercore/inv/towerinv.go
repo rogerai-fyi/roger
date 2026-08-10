@@ -322,6 +322,13 @@ func (s *Set) releaseOrigins(towerID string) {
 // whole Tower would do. The leaf itself stops being routable through policy - the attachment
 // is revoked, so the next revision refuses it - and this releases only the one-origin claim
 // so the Station can attach somewhere else.
+//
+// HOW LONG THE SAVING LASTS, stated honestly: the revision and hash are deliberately left
+// alone, so this instance's leaf set now differs from what the Tower believes we hold. The
+// chain hash is over the delta bytes, not over the leaf set, so nothing detects that
+// divergence - until the Tower next sends a remove or replace naming this offer, which finds
+// it absent and forces a resync. The siblings are spared everything up to that point, which
+// is the common case, but this is not a permanent economy.
 func (s *Set) ReleaseStation(stationID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

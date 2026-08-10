@@ -232,6 +232,13 @@ func (b *broker) banOwner(accountID, reason, evidenceJSON string) {
 	already := b.bannedOwners[accountID]
 	b.bannedOwners[accountID] = true
 	b.metricsMu.Unlock()
+	// The Tower policy keeps its own cached ban set so a ten-thousand-leaf inventory does not
+	// become ten thousand queries. Drop it here rather than letting a ban wait out the
+	// refresh window: a banned operator's Stations must stop being routable on the next
+	// revision, not up to thirty seconds later.
+	if b.tower != nil && b.tower.policy != nil {
+		b.tower.policy.Invalidate()
+	}
 	if !already {
 		// Cross-instance: bump the shared rev so the PEER re-pulls this owner ban on its next
 		// sync tick (so a banned operator stops being picked + settled on B too). ONLY when the

@@ -433,3 +433,140 @@ func TestParityALoserLearnsItIsPermanent(t *testing.T) {
 				"that will never change")
 	})
 }
+
+// capOwner keeps these tests off the fixture's owner, which already holds one seeded
+// invitation - counting it would make every cap here off by one for a reason that has
+// nothing to do with the cap.
+const capOwner = "cap-owner-pub"
+
+// --- the invitation cap, in both stores -------------------------------------
+
+// THE CAP IS ENFORCED BY THE WRITE, not by counting first.
+//
+// Counting and then inserting is a check-then-act: concurrent calls all read the same count,
+// all pass, and all insert - overshooting by the caller's concurrency once per TTL window. A
+// cap that only holds when nobody is trying is not a cap. Postgres takes a per-owner advisory
+// lock; the memory store counts under the same held mutex it writes with.
+func TestParityTheInvitationCapHoldsUnderConcurrency(t *testing.T) {
+	eachStore(t, func(t *testing.T, s Store, _ *Registry, now time.Time) {
+		const max = 5
+		const racers = 20
+
+		var wg sync.WaitGroup
+		wrote := make([]bool, racers)
+		start := make(chan struct{})
+		for i := 0; i < racers; i++ {
+			wg.Add(1)
+			go func(i int) {
+				defer wg.Done()
+				a, _, err := NewInvite(Authorization{
+					ID: fmt.Sprintf("inv-%d", i), Network: net,
+					StationID: fmt.Sprintf("st-%d", i), Owner: capOwner,
+					Origin:       Origin{Kind: OriginJoined, TowerID: tower},
+					AssertionKey: fmt.Sprintf("A%d", i), SessionKey: fmt.Sprintf("K%d", i),
+				}, time.Hour, now)
+				if err != nil {
+					return
+				}
+				<-start
+				wrote[i], _ = s.PutAuthorizationCapped(a, max)
+			}(i)
+		}
+		close(start)
+		wg.Wait()
+
+		got := 0
+		for _, w := range wrote {
+			if w {
+				got++
+			}
+		}
+		require.Equal(t, max, got,
+			"exactly the cap may be written, however many callers arrive at once")
+	})
+}
+
+// A different owner has their own allowance: the cap bounds an account, not the table.
+func TestParityTheCapIsPerOwner(t *testing.T) {
+	eachStore(t, func(t *testing.T, s Store, _ *Registry, now time.Time) {
+		mint := func(who, id string) bool {
+			a, _, err := NewInvite(Authorization{
+				ID: id, Network: net, StationID: "st-" + id, Owner: who,
+				Origin:       Origin{Kind: OriginJoined, TowerID: tower},
+				AssertionKey: "A" + id, SessionKey: "K" + id,
+			}, time.Hour, now)
+			require.NoError(t, err)
+			ok, err := s.PutAuthorizationCapped(a, 1)
+			require.NoError(t, err)
+			return ok
+		}
+		require.True(t, mint(capOwner, "one"))
+		require.False(t, mint(capOwner, "two"), "the owner is at their cap")
+		require.True(t, mint("someone-else", "three"), "another account is unaffected")
+	})
+}
+
+// A spent or expired invitation frees allowance - otherwise an operator who uses the feature
+// as designed eventually cannot invite at all.
+func TestParityConsumedAndExpiredInvitationsDoNotCountAgainstTheCap(t *testing.T) {
+	eachStore(t, func(t *testing.T, s Store, _ *Registry, now time.Time) {
+		spent, _, err := NewInvite(Authorization{
+			ID: "spent", Network: net, StationID: "st-a", Owner: capOwner,
+			Origin: Origin{Kind: OriginJoined, TowerID: tower}, AssertionKey: "Aa", SessionKey: "Ka",
+		}, time.Hour, now)
+		require.NoError(t, err)
+		spent.Consumed, spent.ConsumedBy = true, "st-a"
+		require.NoError(t, s.PutAuthorization(spent))
+
+		stale, _, err := NewInvite(Authorization{
+			ID: "stale", Network: net, StationID: "st-b", Owner: capOwner,
+			Origin: Origin{Kind: OriginJoined, TowerID: tower}, AssertionKey: "Ab", SessionKey: "Kb",
+		}, time.Minute, now.Add(-2*time.Hour))
+		require.NoError(t, err)
+		require.NoError(t, s.PutAuthorization(stale))
+
+		fresh, _, err := NewInvite(Authorization{
+			ID: "fresh", Network: net, StationID: "st-c", Owner: capOwner,
+			Origin: Origin{Kind: OriginJoined, TowerID: tower}, AssertionKey: "Ac", SessionKey: "Kc",
+		}, time.Hour, now)
+		require.NoError(t, err)
+		ok, err := s.PutAuthorizationCapped(fresh, 1)
+		require.NoError(t, err)
+		require.True(t, ok, "neither a spent nor an expired invitation occupies the allowance")
+	})
+}
+
+// Reaping clears expired unredeemed invitations and keeps the consumed ones that answer a
+// lost-response retry. Both stores, because a reaper that behaves differently on the durable
+// side is a reaper nobody can reason about.
+func TestParityReapDropsTheStaleAndKeepsTheAnswerable(t *testing.T) {
+	eachStore(t, func(t *testing.T, s Store, _ *Registry, now time.Time) {
+		stale, _, err := NewInvite(Authorization{
+			ID: "stale", Network: net, StationID: "st-a", Owner: capOwner,
+			Origin: Origin{Kind: OriginJoined, TowerID: tower}, AssertionKey: "Aa", SessionKey: "Ka",
+		}, time.Minute, now.Add(-2*time.Hour))
+		require.NoError(t, err)
+		require.NoError(t, s.PutAuthorization(stale))
+
+		spent := stale
+		spent.ID, spent.Consumed, spent.ConsumedBy = "spent", true, "st-a"
+		require.NoError(t, s.PutAuthorization(spent))
+
+		live, _, err := NewInvite(Authorization{
+			ID: "live", Network: net, StationID: "st-c", Owner: capOwner,
+			Origin: Origin{Kind: OriginJoined, TowerID: tower}, AssertionKey: "Ac", SessionKey: "Kc",
+		}, time.Hour, now)
+		require.NoError(t, err)
+		require.NoError(t, s.PutAuthorization(live))
+
+		n, err := s.Reap(now)
+		require.NoError(t, err)
+		require.Equal(t, int64(1), n)
+
+		for id, want := range map[string]bool{"stale": false, "spent": true, "live": true} {
+			_, ok, err := s.Authorization(id)
+			require.NoError(t, err)
+			require.Equal(t, want, ok, "invitation %q", id)
+		}
+	})
+}

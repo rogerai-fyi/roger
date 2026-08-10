@@ -143,6 +143,49 @@ func (p *PGStore) PutAuthorization(a Authorization) error {
 	return nil
 }
 
+// PutAuthorizationCapped serialises minting PER OWNER with a transaction-scoped advisory
+// lock, then counts and inserts inside it.
+//
+// A conditional INSERT alone is not enough under READ COMMITTED: two transactions can both
+// evaluate the count before either commits, and both insert. The lock is keyed on the owner,
+// so it costs nothing across accounts and only ever serialises one account against itself -
+// which is exactly the abuse being bounded.
+func (p *PGStore) PutAuthorizationCapped(a Authorization, max int) (bool, error) {
+	tx, err := p.db.Begin()
+	if err != nil {
+		return false, pgwrap("put invitation", err)
+	}
+	defer tx.Rollback() //nolint:errcheck // a no-op once committed
+
+	if _, err := tx.Exec(`SELECT pg_advisory_xact_lock(hashtext($1))`,
+		"station-invite:"+a.Owner); err != nil {
+		return false, pgwrap("put invitation", err)
+	}
+	var live int
+	if err := tx.QueryRow(`SELECT count(*) FROM rogerai.station_authorizations
+	                        WHERE owner=$1 AND NOT consumed AND expires_at >= $2`,
+		a.Owner, a.IssuedAt.UTC()).Scan(&live); err != nil {
+		return false, pgwrap("put invitation", err)
+	}
+	if live >= max {
+		return false, nil
+	}
+	if _, err := tx.Exec(`
+		INSERT INTO rogerai.station_authorizations
+		  (id,network,station_id,owner,origin_kind,origin_tower,assertion_key,session_key,
+		   ceiling_hash,secret_hash,role,issued_at,expires_at,consumed,consumed_by)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,false,'')`,
+		a.ID, a.Network, a.StationID, a.Owner, a.Origin.Kind, a.Origin.TowerID,
+		a.AssertionKey, a.SessionKey, a.CeilingHash, a.SecretHash, a.Role,
+		a.IssuedAt.UTC(), a.ExpiresAt.UTC()); err != nil {
+		return false, pgwrap("put invitation", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return false, pgwrap("put invitation", err)
+	}
+	return true, nil
+}
+
 func (p *PGStore) Authorization(id string) (Authorization, bool, error) {
 	var a Authorization
 	err := p.db.QueryRow(`

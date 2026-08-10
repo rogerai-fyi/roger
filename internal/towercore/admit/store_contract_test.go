@@ -333,7 +333,7 @@ func TestRecordRenewalRefusesAnUnknownTowerAndAConcurrentChange(t *testing.T) {
 
 func TestForcingLeaseExpiryIsTestOnlyAndRefusesUnknownTowers(t *testing.T) {
 	r, _ := newRegistry(t, Config{})
-	require.Error(t, r.ForceLeaseExpiryForTest("tw-nobody"))
+	require.Error(t, r.ExpireLease("tw-nobody"))
 }
 
 // --- an account cannot mint tokens without bound ---------------------------

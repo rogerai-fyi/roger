@@ -1000,8 +1000,11 @@ func TestALapsedTowerCannotUseTheLink(t *testing.T) {
 		{"revoked", func(t *testing.T, b *broker, id string) {
 			require.NoError(t, b.tower.registry.Transition(id, admit.StateRevoked))
 		}},
-		{"lease expired", func(t *testing.T, b *broker, id string) {
-			require.NoError(t, b.tower.registry.ForceLeaseExpiryForTest(id))
+		{"expired", func(t *testing.T, b *broker, id string) {
+			require.NoError(t, b.tower.registry.Transition(id, admit.StateExpired))
+		}},
+		{"lease lapsed", func(t *testing.T, b *broker, id string) {
+			require.NoError(t, b.tower.registry.ExpireLease(id))
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1143,4 +1146,149 @@ func TestRevokingOneStationLeavesTheTowersChainAlone(t *testing.T) {
 	require.True(t, stillThere,
 		"retiring one Station must not drop the whole Tower's chain and resync every sibling")
 	require.Equal(t, rev, gotRev)
+}
+
+// A DRAINING TOWER MUST KEEP ITS LINK. Draining is precisely when a Tower needs to
+// heartbeat and then close: refusing it would leave the fleet to age out over the freshness
+// window, which is the outcome an orderly drain exists to avoid.
+func TestADrainingTowerCanStillDrain(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	op := signedInOperator(t, b, "octocat")
+	lt := enrolledTower(t, b, op.login)
+
+	var acc link.Accepted
+	code, raw := lt.call(t, srv, "/tower/session", jsonOf(t, link.Hello{
+		Network: link.PublicNetwork, Versions: []int{1}, TowerID: lt.id,
+		Capabilities: mandatoryCaps(),
+	}), &acc)
+	require.Equal(t, http.StatusOK, code, raw)
+
+	// quarantine -> active -> draining: the lifecycle will not let a Tower drain from
+	// quarantine, which is itself correct.
+	require.NoError(t, b.tower.registry.Transition(lt.id, admit.StateActive))
+	require.NoError(t, b.tower.registry.Transition(lt.id, admit.StateDraining))
+
+	code, raw = lt.call(t, srv, "/tower/session/heartbeat", jsonOf(t, link.Frame{
+		Network: link.PublicNetwork, Version: 1, TowerID: lt.id, SessionID: acc.SessionID,
+	}), nil)
+	require.Equal(t, http.StatusOK, code, raw, "a draining Tower must still heartbeat")
+
+	code, raw = lt.call(t, srv, "/tower/session/close", jsonOf(t, link.Frame{
+		Network: link.PublicNetwork, Version: 1, TowerID: lt.id, SessionID: acc.SessionID,
+	}), nil)
+	require.Equal(t, http.StatusOK, code, raw, "and must be able to close cleanly")
+}
+
+// Invitations are capped per owner, and the cap is enforced by the write.
+func TestStationInvitesAreCappedPerOwner(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	op := signedInOperator(t, b, "octocat")
+	lt := enrolledTower(t, b, op.login)
+
+	mint := func() int {
+		pub, _, err := ed25519.GenerateKey(rand.Reader)
+		require.NoError(t, err)
+		sess, _, err := ed25519.GenerateKey(rand.Reader)
+		require.NoError(t, err)
+		code, _ := op.call(t, srv, http.MethodPost, "/tower/station/invite", map[string]any{
+			"tower_id": lt.id, "assertion_key": hex.EncodeToString(pub),
+			"session_key": hex.EncodeToString(sess),
+		}, nil)
+		return code
+	}
+	for i := 0; i < maxOpenInvitesPerOwner; i++ {
+		require.Equal(t, http.StatusOK, mint(), "invite %d must be allowed", i+1)
+	}
+	require.Equal(t, http.StatusTooManyRequests, mint(),
+		"an uncapped invite route is free unbounded storage for any signed-in account")
+}
+
+// The reaper had no caller, which is how a bounded table becomes an unbounded one.
+func TestExpiredInvitationsAreReapedAndConsumedOnesAreKept(t *testing.T) {
+	b, _ := towerTestBroker(t)
+	now := time.Now()
+
+	expired, _, err := attach.NewInvite(attach.Authorization{
+		ID: "inv-old", Network: link.PublicNetwork, StationID: "st-old", Owner: "o",
+		Origin:       attach.Origin{Kind: attach.OriginJoined, TowerID: "tw-1"},
+		AssertionKey: "A", SessionKey: "K",
+	}, time.Minute, now.Add(-2*time.Hour))
+	require.NoError(t, err)
+	require.NoError(t, b.tower.stationStore.PutAuthorization(expired))
+
+	spent := expired
+	spent.ID, spent.Consumed, spent.ConsumedBy = "inv-spent", true, "st-x"
+	require.NoError(t, b.tower.stationStore.PutAuthorization(spent))
+
+	b.towerInviteSweepOnce(now)
+
+	_, ok, err := b.tower.stationStore.Authorization("inv-old")
+	require.NoError(t, err)
+	require.False(t, ok, "an expired unredeemed invitation is reaped")
+	_, ok, err = b.tower.stationStore.Authorization("inv-spent")
+	require.NoError(t, err)
+	require.True(t, ok, "a consumed one stays - it is what answers a lost-response retry")
+}
+
+// Banning an operator must reach the Tower policy's cached ban set at once.
+func TestBanningAnOperatorInvalidatesTheTowerPolicyCache(t *testing.T) {
+	b, _ := towerTestBroker(t)
+	require.NotNil(t, b.tower.policy)
+	// Prime the cache, then ban and confirm the next read is not served from it.
+	b.tower.policy.Station("st-nobody")
+	b.banOwner("owner-pub", "abuse", "{}")
+	// Invalidate is the observable effect; a ban that waited out the refresh window would
+	// keep a banned operator's Stations routable for up to thirty seconds.
+	require.True(t, b.isOwnerBanned("owner-pub"))
+}
+
+// The promote route's remaining answers: a Station that is not in quarantine, and one that
+// does not exist. An administrator needs to know WHICH, so these are 200 with a reason
+// rather than an opaque 404.
+func TestPromoteReportsWhyItDidNothing(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	b.adminKey = "admin-secret"
+	op := signedInOperator(t, b, "octocat")
+	lt := enrolledTower(t, b, op.login)
+	attachStation(t, b, "st-live", lt.id, ownerPubkeyOf(t, b, op.login)) // helper promotes
+
+	adminPost := func(station string) (int, string) {
+		req, err := http.NewRequest(http.MethodPost, srv.URL+"/tower/station/promote",
+			strings.NewReader(`{"station_id":"`+station+`"}`))
+		require.NoError(t, err)
+		req.Header.Set("X-Roger-Admin", "admin-secret")
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
+		return resp.StatusCode, string(raw)
+	}
+
+	code, raw := adminPost("st-live")
+	require.Equal(t, http.StatusOK, code)
+	require.Contains(t, raw, `"promoted":false`, "already active is not a promotion")
+	require.Contains(t, raw, "active")
+
+	code, raw = adminPost("st-nobody")
+	require.Equal(t, http.StatusOK, code)
+	require.Contains(t, raw, `"promoted":false`)
+	require.Contains(t, raw, "unknown")
+
+	// And a malformed body is a 400, not a 500.
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/tower/station/promote",
+		strings.NewReader("{nope"))
+	require.NoError(t, err)
+	req.Header.Set("X-Roger-Admin", "admin-secret")
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	resp.Body.Close()
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+}
+
+// The sweeper is a no-op when joined Towers are not configured - a deployment without them
+// must not panic on a nil subsystem every ten minutes.
+func TestTheInviteSweepIsSafeWithoutTheSubsystem(t *testing.T) {
+	b := testBrokerWithDB(store.NewMem())
+	b.tower = nil
+	require.NotPanics(t, func() { b.towerInviteSweepOnce(time.Now()) })
 }

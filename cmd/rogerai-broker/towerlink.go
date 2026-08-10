@@ -28,6 +28,7 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -92,7 +93,10 @@ func (b *broker) towerCaller(r *http.Request, body []byte, claimedID string) (ad
 	// Tower out of the network it was just admitted to.
 	//
 	// The link asks a different question: may this Tower be HERE at all? That is any
-	// non-terminal state with a live lease.
+	// non-terminal state with a live lease - and DRAINING counts, because draining is
+	// precisely when a Tower needs its link: it has to heartbeat while it winds down and
+	// then POST /tower/session/close. Refusing it would leave the fleet to age out over the
+	// freshness window instead, which is the outcome the drain exists to avoid.
 	if !towerMayHoldLink(tw) {
 		return admit.Tower{}, nil, false
 	}
@@ -109,6 +113,9 @@ func (b *broker) towerCaller(r *http.Request, body []byte, claimedID string) (ad
 func towerMayHoldLink(tw admit.Tower) bool {
 	if time.Now().After(tw.LeaseExpires) {
 		return false
+	}
+	if tw.State == admit.StateDraining {
+		return true // winding down still needs the link to wind down ON
 	}
 	return admit.EligibleFor(tw.State) != admit.EligibilityNone
 }
@@ -444,8 +451,20 @@ func (b *broker) towerStationInvite(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := ts.stationStore.PutAuthorization(auth); err != nil {
+	// CAPPED PER OWNER. Without this any signed-in free account could loop this route and
+	// grow rogerai.station_authorizations without bound for a full TTL - the same
+	// database-filling vector the enrollment-token layer already closed
+	// (admit.PutTokenCapped). The cap is enforced by the write, not by counting first:
+	// concurrent calls would all read the same count and all insert.
+	wrote, err := ts.stationStore.PutAuthorizationCapped(auth, maxOpenInvitesPerOwner)
+	if err != nil {
 		jsonErr(w, http.StatusServiceUnavailable, "could not record the invitation - try again in a moment")
+		return
+	}
+	if !wrote {
+		jsonErr(w, http.StatusTooManyRequests, fmt.Sprintf(
+			"you already have %d unredeemed Station invitations - redeem or wait for one to expire",
+			maxOpenInvitesPerOwner))
 		return
 	}
 
@@ -608,9 +627,15 @@ func (b *broker) towerStationRevoke(w http.ResponseWriter, r *http.Request) {
 // 7, and note that the same design requires exactly this switch as the escape hatch for when
 // automated promotion turns out to be wrong.
 func (b *broker) towerStationPromote(w http.ResponseWriter, r *http.Request) {
+	if corsCredsPreflight(w, r) {
+		return
+	}
 	if !allow(w, r, http.MethodPost) {
 		return
 	}
+	corsCreds(w, r)
+	// requireAdmin accepts a browser session as well as the header, so this route is
+	// reachable from the console and needs the same CORS preamble its siblings carry.
 	if b.requireAdmin(w, r) {
 		return
 	}
@@ -653,6 +678,11 @@ func (b *broker) towerStationPromote(w http.ResponseWriter, r *http.Request) {
 // stops mattering quickly.
 const stationInviteTTL = time.Hour
 
+// maxOpenInvitesPerOwner bounds unredeemed invitations per account. Generous enough that an
+// operator attaching a rack of Stations never notices; low enough that the table cannot be
+// used as free storage.
+const maxOpenInvitesPerOwner = 25
+
 func newStationID() string { return "st-" + randomHex(12) }
 func newInviteID() string  { return "sinv-" + randomHex(12) }
 
@@ -664,4 +694,49 @@ func randomHex(n int) string {
 		panic("crypto/rand unavailable: " + err.Error())
 	}
 	return hex.EncodeToString(raw)
+}
+
+// --- housekeeping -----------------------------------------------------------
+
+// towerInviteSweepInterval paces the invitation reaper. Well under the TTL, so an expired
+// invitation never lingers for long, and rare enough to be invisible.
+const towerInviteSweepInterval = 10 * time.Minute
+
+// towerInviteSweep deletes expired UNREDEEMED Station invitations.
+//
+// The reaper existed and nothing called it, which is how a bounded table becomes an
+// unbounded one: the per-owner cap stops any single account running away, but without a
+// sweep the rows only ever accumulate, and an operator who invites and never redeems
+// eventually cannot invite at all. Consumed invitations are deliberately KEPT - they are
+// what answers a lost-response retry.
+func (b *broker) towerInviteSweep(stop <-chan struct{}) {
+	if b.tower == nil || b.tower.stationStore == nil {
+		return
+	}
+	t := time.NewTicker(towerInviteSweepInterval)
+	defer t.Stop()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-t.C:
+			b.towerInviteSweepOnce(time.Now())
+		}
+	}
+}
+
+// towerInviteSweepOnce is one iteration, split out so the reaping is testable without a
+// ticker - the same shape the hold sweeper uses.
+func (b *broker) towerInviteSweepOnce(now time.Time) {
+	if b.tower == nil || b.tower.stationStore == nil {
+		return
+	}
+	n, err := b.tower.stationStore.Reap(now)
+	if err != nil {
+		log.Printf("station invites: sweep failed: %v", err)
+		return
+	}
+	if n > 0 {
+		log.Printf("station invites: reaped %d expired unredeemed invitation(s)", n)
+	}
 }

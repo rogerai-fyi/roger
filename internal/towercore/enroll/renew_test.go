@@ -169,7 +169,7 @@ func TestAnExpiredTowerCannotRenew(t *testing.T) {
 
 	tw, ok := h.registry.Get(res.TowerID)
 	require.True(t, ok)
-	require.NoError(t, h.registry.ForceLeaseExpiryForTest(tw.ID))
+	require.NoError(t, h.registry.ExpireLease(tw.ID))
 	require.NoError(t, h.registry.Expire(tw.ID))
 
 	_, err := h.enroller.Renew(req)

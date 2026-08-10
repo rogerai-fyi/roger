@@ -356,20 +356,6 @@ func (r *Registry) RecordRenewal(id string, rn Renewal) (Tower, error) {
 	return tw, nil
 }
 
-// ForceLeaseExpiryForTest lapses a lease without waiting for the clock, so the expiry path
-// can be exercised.
-func (r *Registry) ForceLeaseExpiryForTest(id string) error {
-	tw, ok, err := r.store.TowerByID(id)
-	if err != nil || !ok {
-		return errors.New("no such Tower")
-	}
-	tw.LeaseExpires = time.Now().Add(-time.Second)
-	if _, err := r.store.CASTower(tw); err != nil {
-		return err
-	}
-	return nil
-}
-
 // Token reads an unspent enrollment token without consuming it, so a caller can check who
 // it belongs to and whether it is live before doing the work an admission needs.
 func (r *Registry) Token(id string) (Token, bool, error) {
@@ -584,4 +570,24 @@ func randomHex(n int) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(b), nil
+}
+
+// ExpireLease ends a Tower's lease immediately.
+//
+// This was ExpireLease, which was the wrong framing: the audit flagged a test
+// hook shipping in the broker binary, and the right answer was not to hide it but to notice
+// that expiring a lease is a legitimate operator capability. A lease is what bounds what a
+// Tower may do while nobody is watching closely, so being able to end one now - rather than
+// waiting out its term - is exactly what an operator needs when a Tower must be taken off
+// the link. Tests use it for the same reason, which is why it also has cross-package callers.
+func (r *Registry) ExpireLease(id string) error {
+	tw, ok, err := r.store.TowerByID(id)
+	if err != nil || !ok {
+		return errors.New("no such Tower")
+	}
+	tw.LeaseExpires = time.Now().Add(-time.Second)
+	if _, err := r.store.CASTower(tw); err != nil {
+		return err
+	}
+	return nil
 }

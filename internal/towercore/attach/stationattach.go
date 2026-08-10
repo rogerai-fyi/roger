@@ -181,6 +181,18 @@ type Proof struct {
 type Store interface {
 	// PutAuthorization records a fresh invitation.
 	PutAuthorization(a Authorization) error
+	// PutAuthorizationCapped records one ONLY if the owner is under max live invitations,
+	// and reports whether it was written.
+	//
+	// The cap is enforced WHERE THE WRITE HAPPENS. Counting first and inserting after is a
+	// check-then-act: concurrent calls all read the same count, all pass, and all insert -
+	// overshooting by the caller's concurrency once per TTL window. A cap that only holds
+	// when nobody is trying is not a cap. The enrollment-token layer learned this already
+	// (admit.PutTokenCapped) and this is the same shape, for the same reason.
+	PutAuthorizationCapped(a Authorization, max int) (bool, error)
+	// Reap deletes expired UNCONSUMED invitations. Consumed ones are kept: they are what
+	// answers a lost-response retry.
+	Reap(before time.Time) (int64, error)
 	// Authorization reads one back.
 	Authorization(id string) (Authorization, bool, error)
 	// Admit consumes authID and records at, in ONE transaction. It returns false with no
