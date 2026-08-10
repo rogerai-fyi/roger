@@ -297,20 +297,56 @@ func TestInvalidateMakesABanEffectiveImmediately(t *testing.T) {
 	require.True(t, p.Station(stationID).Banned, "a fresh ban must not wait out the cache")
 }
 
-// A recovered database ends the refusal: fail-closed must not be fail-forever.
-func TestARecoveredBanSourceStopsRefusing(t *testing.T) {
+// A recovered database ends the refusal: fail-closed must not be fail-forever. But the
+// retry is PACED, because the alternative is worse than waiting.
+func TestARecoveredBanSourceStopsRefusingAfterTheBackoff(t *testing.T) {
 	at, _ := liveAttachment(t)
 	bans := &fakeBans{oerr: errors.New("db down"), nodes: map[string]string{}}
-	p := newPolicy(t, &fakeStations{at: at, ok: true}, bans, &fakeOwners{ok: true})
+	now := time.Unix(1_700_000_000, 0)
+	p := newPolicy(t, &fakeStations{at: at, ok: true}, bans, &fakeOwners{ok: true},
+		func(c *Config) { c.Now = func() time.Time { return now }; c.BanRefresh = time.Minute })
 
 	require.True(t, p.Station(stationID).Unavailable)
+	callsAfterFirstFailure := bans.calls
 
+	// THE BACKOFF. A failed load used to make the cache permanently non-fresh, so every leaf
+	// of a ten-thousand-leaf inventory issued two more queries against a database that was
+	// already failing. Refusing is right; stampeding is not.
+	for i := 0; i < 500; i++ {
+		require.True(t, p.Station(stationID).Unavailable)
+	}
+	require.Equal(t, callsAfterFirstFailure, bans.calls,
+		"a failed load must not turn every leaf into two more queries")
+
+	// Recovery is not instant, and that is the trade: at most one refresh window of
+	// unnecessary refusal, in exchange for not making an outage worse.
 	bans.oerr, bans.owners = nil, map[string]string{}
+	require.True(t, p.Station(stationID).Unavailable, "still inside the backoff")
+
+	now = now.Add(2 * time.Minute)
 	reg := p.Station(stationID)
 	require.False(t, reg.Unavailable,
-		"once the source answers again the network must come back on its own")
+		"once the window passes and the source answers, the network comes back on its own")
 	require.False(t, reg.Banned)
 	require.True(t, reg.Known, "and the Station is readable again")
+}
+
+// An operator making a ban is a reason to try the store again immediately, whatever it did
+// last time - the backoff must not delay a revocation.
+func TestInvalidateClearsTheFailureBackoff(t *testing.T) {
+	at, _ := liveAttachment(t)
+	bans := &fakeBans{oerr: errors.New("db down"), nodes: map[string]string{}}
+	now := time.Unix(1_700_000_000, 0)
+	p := newPolicy(t, &fakeStations{at: at, ok: true}, bans, &fakeOwners{ok: true},
+		func(c *Config) { c.Now = func() time.Time { return now }; c.BanRefresh = time.Hour })
+
+	require.True(t, p.Station(stationID).Unavailable)
+	bans.oerr, bans.owners = nil, map[string]string{}
+	require.True(t, p.Station(stationID).Unavailable, "paced, so still refusing")
+
+	p.Invalidate()
+	require.False(t, p.Station(stationID).Unavailable,
+		"a fresh ban must not wait out the failure backoff")
 }
 
 func TestAnEmptyStationIDIsNotBanned(t *testing.T) {

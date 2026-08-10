@@ -23,6 +23,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"rogerai.fm/roger/v5/internal/keypurpose"
@@ -45,11 +46,19 @@ const (
 	towerFreshnessWindow   = 180 * time.Second
 )
 
-// towerModelAllowed reports whether a model may be offered publicly through a Tower. It is
-// the same question the direct-registration path answers, asked in one place so a model that
-// is refused directly cannot arrive through a relay instead.
-func (b *broker) towerModelAllowed(model string) bool {
-	return model != ""
+// towerModelAllowed reports whether a model may be offered publicly through a Tower.
+//
+// It is a NAME CHECK ONLY today, and the comment here used to claim it was "the same
+// question direct registration answers, asked in one place" - which it was not. There is no
+// central model allow-list to consult: /nodes/register accepts whatever a node advertises
+// and lets price, policy and probes decide. Saying otherwise made a gap read like a
+// guarantee.
+//
+// The real ceiling on a Tower leaf is the price band and the earning-vs-consumer rule in
+// towercore/inv, both of which DO bind. When a public model allow-list exists, this is where
+// it gets asked.
+func towerModelAllowed(model string) bool {
+	return strings.TrimSpace(model) != ""
 }
 
 // towerModalityAllowed bounds what a joined Station may serve. Chat only in v1: voice bands
@@ -161,7 +170,7 @@ func newTowerSubsystem(b *broker, registryStore admit.Store, custody cert.Custod
 	// unrelated.
 	stations := attach.New(attach.Config{Network: link.PublicNetwork}, deps.stations)
 	pol := policy.New(stations, b.db, brokerOwners{b: b}, policy.Config{
-		ModelAllowed:    b.towerModelAllowed,
+		ModelAllowed:    towerModelAllowed,
 		ModalityAllowed: towerModalityAllowed,
 		PriceBand:       towerPriceBand,
 	})

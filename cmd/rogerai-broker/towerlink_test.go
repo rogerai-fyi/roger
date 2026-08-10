@@ -4,11 +4,13 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
@@ -116,6 +118,12 @@ func attachStation(t *testing.T, b *broker, stationID, towerID, owner string) ed
 		Origin:       attach.Origin{Kind: attach.OriginJoined, TowerID: towerID},
 		AssertionKey: assertion, SessionKey: session,
 	})
+	require.NoError(t, err)
+	// Promoted, because this helper exists to produce a Station that WORKS. Attachment admits
+	// into quarantine and quarantine withholds eligibility, so a test that wants a routable
+	// offer has to pass that gate - see TestAnInvitationCanActuallyBeRedeemed for the gate
+	// itself.
+	_, err = b.tower.stations.Promote(stationID)
 	require.NoError(t, err)
 	return priv
 }
@@ -490,7 +498,13 @@ func TestTheSubsystemLoadsAgainstARealDatabase(t *testing.T) {
 	if dsn == "" {
 		t.Skip("no ROGERAI_TEST_DATABASE_URL")
 	}
-	pg, err := store.NewPostgres(dsn)
+	// A PRIVATE database, for the same reason internal/store keeps one: packages run in
+	// parallel against one ROGERAI_TEST_DATABASE_URL, and this test loads the CA from
+	// rogerai.tower_ca_root - a table another package's custody test seeds with the
+	// placeholder "key-pem". Reading somebody else's fixture made this fail with "the Tower
+	// CA key is not a usable PEM private key", which is a true statement about a root this
+	// deployment never wrote.
+	pg, err := store.NewPostgres(brokerPrivateDSN(t, dsn))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = pg.Close() })
 
@@ -520,6 +534,29 @@ func TestTheSubsystemLoadsAgainstARealDatabase(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, ok, "a second instance must see the head the first recorded")
 	require.Equal(t, int64(7), h.Revision)
+}
+
+// brokerPrivateDSN gives this test its own database on the same server.
+func brokerPrivateDSN(t *testing.T, dsn string) string {
+	t.Helper()
+	u, err := url.Parse(dsn)
+	if err != nil || u.Path == "" || u.Path == "/" {
+		return dsn
+	}
+	name := strings.TrimPrefix(u.Path, "/") + "_towerlink"
+	admin, aerr := sql.Open("pgx", dsn)
+	require.NoError(t, aerr)
+	defer admin.Close()
+	if _, cerr := admin.Exec(`CREATE DATABASE "` + name + `"`); cerr != nil &&
+		!strings.Contains(cerr.Error(), "already exists") {
+		t.Fatalf("private broker db: %v", cerr)
+	}
+	u.Path = "/" + name
+	own, oerr := sql.Open("pgx", u.String())
+	require.NoError(t, oerr)
+	defer own.Close()
+	_, _ = own.Exec(`CREATE SCHEMA IF NOT EXISTS rogerai`)
+	return u.String()
 }
 
 // No database is NOT a misconfiguration: standalone Towers need nothing from us, so the
@@ -581,7 +618,10 @@ func TestAnOperatorInvitesAStationAndItsOfferBecomesRoutable(t *testing.T) {
 		AssertionKey: hex.EncodeToString(stPub), SessionKey: hex.EncodeToString(sessPub),
 	})
 	require.NoError(t, err)
-	require.Equal(t, attach.StateQuarantine, at.State)
+	require.Equal(t, attach.StateQuarantine, at.State, "attachment admits into quarantine")
+	promoted, err := b.tower.stations.Promote(invited.StationID)
+	require.NoError(t, err)
+	require.True(t, promoted)
 
 	// And now a leaf signed by that Station verifies all the way through.
 	var acc link.Accepted
@@ -673,4 +713,268 @@ func TestAnAlreadyAttachedStationCannotBeReinvited(t *testing.T) {
 	}, nil)
 	require.Equal(t, http.StatusConflict, code, raw)
 	require.Contains(t, raw, "already attached")
+}
+
+// THE LOOP CLOSES: invite -> attach -> promote -> routable, all over real routes.
+//
+// The audit's headline finding was that /tower/station/invite handed out a one-time secret
+// nothing could redeem, so the registry stayed empty and every leaf was refused as unknown -
+// the exact condition the invite claimed to end. This walks the whole thing.
+func TestAnInvitationCanActuallyBeRedeemed(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	op := signedInOperator(t, b, "octocat")
+	lt := enrolledTower(t, b, op.login)
+	ownerPub := ownerPubkeyOf(t, b, op.login)
+
+	stPub, stPriv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	sessPub, _, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+
+	var invited struct {
+		InvitationID string `json:"invitation_id"`
+		StationID    string `json:"station_id"`
+		Secret       string `json:"secret"`
+	}
+	code, raw := op.call(t, srv, http.MethodPost, "/tower/station/invite", map[string]any{
+		"tower_id": lt.id, "assertion_key": hex.EncodeToString(stPub),
+		"session_key": hex.EncodeToString(sessPub),
+	}, &invited)
+	require.Equal(t, http.StatusOK, code, raw)
+
+	// The Station redeems it THROUGH THE TOWER, over the route.
+	var att struct {
+		StationID string `json:"station_id"`
+		State     string `json:"state"`
+		Note      string `json:"note"`
+	}
+	code, raw = lt.call(t, srv, "/tower/station/attach", jsonOf(t, map[string]any{
+		"tower_id": lt.id, "invitation_id": invited.InvitationID, "secret": invited.Secret,
+		"station_id": invited.StationID, "owner": ownerPub,
+		"assertion_key": hex.EncodeToString(stPub), "session_key": hex.EncodeToString(sessPub),
+	}), &att)
+	require.Equal(t, http.StatusOK, code, raw)
+	require.Equal(t, invited.StationID, att.StationID)
+	require.Equal(t, attach.StateQuarantine, att.State, "attachment is identity, not eligibility")
+	require.Contains(t, att.Note, "quarantine")
+
+	// Quarantined: the offer verifies but is NOT routable yet.
+	var acc link.Accepted
+	code, raw = lt.call(t, srv, "/tower/session", jsonOf(t, link.Hello{
+		Network: link.PublicNetwork, Versions: []int{1}, TowerID: lt.id,
+		Capabilities: mandatoryCaps(),
+	}), &acc)
+	require.Equal(t, http.StatusOK, code, raw)
+
+	var res struct {
+		Routable int `json:"routable"`
+		Excluded []struct {
+			Reason string `json:"reason"`
+		} `json:"excluded"`
+	}
+	code, raw = lt.call(t, srv, "/tower/inventory",
+		signedInventory(t, lt, stPriv, invited.StationID, 1, "genesis"), &res)
+	require.Equal(t, http.StatusOK, code, raw)
+	require.Zero(t, res.Routable, "a quarantined Station carries no public work")
+	require.Len(t, res.Excluded, 1)
+	require.Contains(t, res.Excluded[0].Reason, "quarantine")
+
+	// Promoted: now it does.
+	promoted, err := b.tower.stations.Promote(invited.StationID)
+	require.NoError(t, err)
+	require.True(t, promoted)
+
+	code, raw = lt.call(t, srv, "/tower/inventory",
+		signedInventory(t, lt, stPriv, invited.StationID, 2, res2Hash(t, b, lt.id)), &res)
+	require.Equal(t, http.StatusOK, code, raw)
+	require.Equal(t, 1, res.Routable, "a promoted Station's offer is routable: %+v", res.Excluded)
+}
+
+// res2Hash reads the accepted head so the next revision can chain from it.
+func res2Hash(t *testing.T, b *broker, towerID string) string {
+	t.Helper()
+	_, hash, ok := b.tower.inv.Head(towerID)
+	require.True(t, ok)
+	return hash
+}
+
+// An attach with the wrong secret is refused, and refused UNIFORMLY - which check said no is
+// not something a Station gets to probe for.
+func TestAttachRefusesAWrongSecretWithoutSayingWhy(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	op := signedInOperator(t, b, "octocat")
+	lt := enrolledTower(t, b, op.login)
+	ownerPub := ownerPubkeyOf(t, b, op.login)
+
+	stPub, _, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	sessPub, _, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+
+	var invited struct {
+		InvitationID string `json:"invitation_id"`
+		StationID    string `json:"station_id"`
+	}
+	code, raw := op.call(t, srv, http.MethodPost, "/tower/station/invite", map[string]any{
+		"tower_id": lt.id, "assertion_key": hex.EncodeToString(stPub),
+		"session_key": hex.EncodeToString(sessPub),
+	}, &invited)
+	require.Equal(t, http.StatusOK, code, raw)
+
+	code, raw = lt.call(t, srv, "/tower/station/attach", jsonOf(t, map[string]any{
+		"tower_id": lt.id, "invitation_id": invited.InvitationID, "secret": "wrong",
+		"station_id": invited.StationID, "owner": ownerPub,
+		"assertion_key": hex.EncodeToString(stPub), "session_key": hex.EncodeToString(sessPub),
+	}), nil)
+	require.Equal(t, http.StatusForbidden, code, raw)
+	require.Contains(t, raw, "cannot be redeemed")
+
+	_, found, err := b.tower.stations.Station(invited.StationID)
+	require.NoError(t, err)
+	require.False(t, found, "a refused attach records nothing")
+}
+
+// A Tower cannot attach a Station onto somebody else's origin: the origin comes from the
+// authenticated caller, never from the request body.
+func TestATowerCannotAttachOntoAnotherTowersOrigin(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	op := signedInOperator(t, b, "octocat")
+	mine := enrolledTower(t, b, op.login)
+	other := enrolledTower(t, b, op.login)
+	ownerPub := ownerPubkeyOf(t, b, op.login)
+
+	stPub, _, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	sessPub, _, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+
+	// Invitation is for `mine`.
+	var invited struct {
+		InvitationID string `json:"invitation_id"`
+		StationID    string `json:"station_id"`
+		Secret       string `json:"secret"`
+	}
+	code, raw := op.call(t, srv, http.MethodPost, "/tower/station/invite", map[string]any{
+		"tower_id": mine.id, "assertion_key": hex.EncodeToString(stPub),
+		"session_key": hex.EncodeToString(sessPub),
+	}, &invited)
+	require.Equal(t, http.StatusOK, code, raw)
+
+	// `other` tries to redeem it, naming itself.
+	code, raw = other.call(t, srv, "/tower/station/attach", jsonOf(t, map[string]any{
+		"tower_id": other.id, "invitation_id": invited.InvitationID, "secret": invited.Secret,
+		"station_id": invited.StationID, "owner": ownerPub,
+		"assertion_key": hex.EncodeToString(stPub), "session_key": hex.EncodeToString(sessPub),
+	}), nil)
+	require.Equal(t, http.StatusForbidden, code, raw)
+}
+
+// The action the invite's conflict message names must exist.
+func TestAnOperatorCanRevokeTheirOwnStation(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	op := signedInOperator(t, b, "octocat")
+	lt := enrolledTower(t, b, op.login)
+	ownerPub := ownerPubkeyOf(t, b, op.login)
+	attachStation(t, b, "st-mine", lt.id, ownerPub)
+
+	code, raw := op.call(t, srv, http.MethodPost, "/tower/station/revoke",
+		map[string]any{"station_id": "st-mine"}, nil)
+	require.Equal(t, http.StatusOK, code, raw)
+
+	at, found, err := b.tower.stations.Station("st-mine")
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, attach.StateRevoked, at.State)
+
+	// Somebody else's Station answers exactly like one that does not exist.
+	stranger := signedInOperator(t, b, "hubot")
+	code, raw = stranger.call(t, srv, http.MethodPost, "/tower/station/revoke",
+		map[string]any{"station_id": "st-mine"}, nil)
+	require.Equal(t, http.StatusNotFound, code, raw)
+}
+
+// A fresh instance holding the durable head but NOT the inventory must still ask for a full
+// snapshot. Reporting resume on the head alone promised something it could not honour: the
+// body is never stored, so the first delta touching an unknown leaf 409s anyway.
+func TestAFreshInstanceWithTheHeadStillAsksForEverything(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	op := signedInOperator(t, b, "octocat")
+	lt := enrolledTower(t, b, op.login)
+
+	// The head store knows this Tower; this broker's inventory does not.
+	_, err := b.tower.heads.Accept(lt.id, 7, "hash-7")
+	require.NoError(t, err)
+
+	var acc link.Accepted
+	code, raw := lt.call(t, srv, "/tower/session", jsonOf(t, link.Hello{
+		Network: link.PublicNetwork, Versions: []int{1}, TowerID: lt.id,
+		Capabilities: mandatoryCaps(), HeadRevision: 7, HeadHash: "hash-7",
+	}), &acc)
+	require.Equal(t, http.StatusOK, code, raw)
+	require.True(t, acc.NeedFullInventory,
+		"the head agrees, but this instance holds no leaves - resuming would promise a delta "+
+			"it must then refuse")
+}
+
+func TestAttachAndRevokeGuardMethodBodyAndAvailability(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	op := signedInOperator(t, b, "octocat")
+	lt := enrolledTower(t, b, op.login)
+
+	t.Run("wrong method", func(t *testing.T) {
+		for _, path := range []string{"/tower/station/attach", "/tower/station/revoke"} {
+			resp, err := http.Get(srv.URL + path)
+			require.NoError(t, err)
+			resp.Body.Close()
+			require.Equal(t, http.StatusMethodNotAllowed, resp.StatusCode, path)
+		}
+	})
+
+	t.Run("malformed body", func(t *testing.T) {
+		code, raw := lt.call(t, srv, "/tower/station/attach", []byte("{nope"), nil)
+		require.Equal(t, http.StatusBadRequest, code, raw)
+		code, raw = op.call(t, srv, http.MethodPost, "/tower/station/revoke", "not-an-object", nil)
+		require.Equal(t, http.StatusBadRequest, code, raw)
+	})
+
+	t.Run("attach needs a registered Tower", func(t *testing.T) {
+		resp, err := http.Post(srv.URL+"/tower/station/attach", "application/json",
+			strings.NewReader(`{"tower_id":"tw-nope"}`))
+		require.NoError(t, err)
+		resp.Body.Close()
+		require.Equal(t, http.StatusForbidden, resp.StatusCode)
+	})
+
+	t.Run("revoke needs a signed-in account", func(t *testing.T) {
+		resp, err := http.Post(srv.URL+"/tower/station/revoke", "application/json",
+			strings.NewReader(`{"station_id":"st-1"}`))
+		require.NoError(t, err)
+		resp.Body.Close()
+		require.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+	})
+
+	t.Run("revoking an unknown Station is a not-found", func(t *testing.T) {
+		code, raw := op.call(t, srv, http.MethodPost, "/tower/station/revoke",
+			map[string]any{"station_id": "st-never"}, nil)
+		require.Equal(t, http.StatusNotFound, code, raw)
+	})
+}
+
+// A deployment without joined Towers answers 503 rather than panicking.
+func TestStationRoutesAreUnavailableWithoutTheSubsystem(t *testing.T) {
+	b := testBrokerWithDB(store.NewMem())
+	b.tower = nil
+	mux := http.NewServeMux()
+	mux.HandleFunc("/tower/station/attach", b.towerStationAttach)
+	mux.HandleFunc("/tower/station/invite", b.towerStationInvite)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	resp, err := http.Post(srv.URL+"/tower/station/attach", "application/json",
+		strings.NewReader("{}"))
+	require.NoError(t, err)
+	resp.Body.Close()
+	// Unauthenticated first for attach (the Tower check runs before availability), so assert
+	// it simply does not 500.
+	require.NotEqual(t, http.StatusInternalServerError, resp.StatusCode)
 }

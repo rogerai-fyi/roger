@@ -446,3 +446,26 @@ func TestTheSecretIsCheckedAfterTheCheapRefusals(t *testing.T) {
 	require.Contains(t, err.Error(), "another Station",
 		"the cheap mismatch is reported; the secret comparison is not reached")
 }
+
+// A consumed invitation replayed with the WRONG secret must not answer.
+//
+// Found by audit. replay compared station, owner, keys and origin but never the secret, so
+// the constant-time check in validate was bypassed entirely for consumed authorizations.
+// Holding the authorization id and the two PUBLIC keys was enough to confirm an attachment
+// existed and read its record - a probing oracle, even though nothing could be minted.
+func TestAReplayWithTheWrongSecretIsRefused(t *testing.T) {
+	r, _, _ := fixture(t)
+	first, err := r.Admit(goodProof())
+	require.NoError(t, err)
+
+	p := goodProof()
+	p.Secret = "not-the-secret"
+	_, err = r.Admit(p)
+	require.ErrorIs(t, err, ErrRejected,
+		"the secret is part of identical proof, on the replay path too")
+
+	// The genuine holder still gets their answer.
+	again, err := r.Admit(goodProof())
+	require.NoError(t, err)
+	require.Equal(t, first, again)
+}

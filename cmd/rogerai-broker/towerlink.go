@@ -118,14 +118,26 @@ func (b *broker) towerSessionOpen(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// The DURABLE head decides whether a full snapshot is needed, not just this instance's
-	// memory. Without it a Tower reconnecting to a fresh instance always resends everything.
+	// THE DURABLE HEAD DETECTS; IT DOES NOT RESUME. This is the correction the audit forced,
+	// and it matters because the wrong version was worse than useless.
+	//
+	// A head records a revision and a hash - never the inventory BODY, by design: the body is
+	// large and reconstructible. So an instance that has the head but not the leaves cannot
+	// accept a delta: the first op touching a leaf it does not hold sends towercore/inv
+	// straight to "there is no accepted revision to amend". Reporting Resume on the strength
+	// of the durable head alone therefore promised something this instance could not honour,
+	// and cost the Tower an extra failed round trip before the snapshot it needed anyway.
+	//
+	// So resume requires BOTH: our recorded head agrees, AND this instance is actually
+	// holding that chain. What the durable head buys is the other thing - seeing a replay or
+	// a fork from any instance, including one that has never met this Tower.
 	if ts.heads != nil {
 		out, herr := ts.heads.Reconcile(tw.ID, hello.HeadRevision, hello.HeadHash)
 		if herr != nil {
 			log.Printf("tower %s: head store unavailable, asking for a full inventory: %v", tw.ID, herr)
 		}
-		acc.NeedFullInventory = out.NeedsFullInventory()
+		_, _, holdsChain := ts.inv.Head(tw.ID)
+		acc.NeedFullInventory = out.NeedsFullInventory() || !holdsChain
 		if out.Suspicious() {
 			// Evidence, not a penalty. One fork is a bug; a pattern of them is an operator
 			// worth removing, and that is a separate approved decision made on accumulated
@@ -412,6 +424,128 @@ func (b *broker) towerStationInvite(w http.ResponseWriter, r *http.Request) {
 		"secret":     secret,
 		"expires_in": int(stationInviteTTL.Seconds()),
 	})
+}
+
+// towerStationAttach handles POST /tower/station/attach: the Station redeeming the
+// invitation its operator was given.
+//
+// WITHOUT THIS ROUTE THE INVITE WAS A DEAD END. The audit put it plainly: /tower/station/
+// invite handed out a one-time secret and a TTL for something nothing could redeem, so the
+// registry every leaf is verified against stayed empty and towercore/inv refused every offer
+// as unknown - the exact condition the invite was introduced to end.
+//
+// The caller here is the TOWER, not the operator and not the Station: a Station reaches Core
+// through the Tower relaying it, and the Tower is the party holding an admitted identity we
+// can authenticate. What stops the Tower attaching a Station of its own invention is that
+// the invitation pins the Station ID, the owner and BOTH keys, and it can only have come
+// from an operator who owns this Tower.
+func (b *broker) towerStationAttach(w http.ResponseWriter, r *http.Request) {
+	if !allow(w, r, http.MethodPost) {
+		return
+	}
+	ts := b.towerAvailable(w)
+	if ts == nil {
+		return
+	}
+	body := readTowerBody(r)
+
+	var req struct {
+		TowerID      string `json:"tower_id"`
+		InvitationID string `json:"invitation_id"`
+		Secret       string `json:"secret"`
+		StationID    string `json:"station_id"`
+		Owner        string `json:"owner"`
+		AssertionKey string `json:"assertion_key"`
+		SessionKey   string `json:"session_key"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		jsonErr(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	tw, _, ok := b.towerCaller(r, body, req.TowerID)
+	if !ok {
+		jsonErr(w, http.StatusForbidden, "attaching a Station requires a registered Tower's own signed request")
+		return
+	}
+
+	at, err := ts.stations.Admit(attach.Proof{
+		AuthID: req.InvitationID, Secret: req.Secret,
+		Network: link.PublicNetwork, StationID: req.StationID, Owner: req.Owner,
+		// The origin is not taken from the request: it is THIS Tower, the one that
+		// authenticated. A Tower cannot attach a Station onto somebody else's origin.
+		Origin:       attach.Origin{Kind: attach.OriginJoined, TowerID: tw.ID},
+		AssertionKey: req.AssertionKey, SessionKey: req.SessionKey,
+	})
+	switch {
+	case errors.Is(err, attach.ErrUnavailable):
+		jsonErr(w, http.StatusServiceUnavailable, "could not record the attachment - try again in a moment")
+		return
+	case err != nil:
+		// Every refusal reads the same to the caller. Which check refused it is an oracle a
+		// Station has no business probing, and attach.ErrRejected is deliberately uniform.
+		jsonErr(w, http.StatusForbidden, "that invitation cannot be redeemed")
+		return
+	}
+
+	log.Printf("station %s attached to tower %s (state %s)", at.StationID, tw.ID, at.State)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok": true, "station_id": at.StationID, "state": at.State, "epoch": at.Epoch,
+		// Said plainly, because it is the next thing the operator will ask: attachment is
+		// identity, not eligibility.
+		"note": "attached in quarantine - it carries no public work until Core's own evidence promotes it",
+	})
+}
+
+// towerStationRevoke handles POST /tower/station/revoke: the operator retiring a Station
+// identity terminally. It is the action the invite route's conflict message names, and
+// naming an action no route exposes is the failure this whole feature exists to correct.
+func (b *broker) towerStationRevoke(w http.ResponseWriter, r *http.Request) {
+	if corsCredsPreflight(w, r) {
+		return
+	}
+	if !allow(w, r, http.MethodPost) {
+		return
+	}
+	corsCreds(w, r)
+	body := readTowerBody(r)
+
+	owner, ok := b.towerOperator(r, body)
+	if !ok {
+		jsonErr(w, http.StatusUnauthorized, "revoking a Station requires a signed-in account - run `roger-tower login`")
+		return
+	}
+	ts := b.towerAvailable(w)
+	if ts == nil {
+		return
+	}
+	var req struct {
+		StationID string `json:"station_id"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		jsonErr(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	// Only the owner who holds it. Answered identically for a Station that does not exist,
+	// so this cannot enumerate other people's Stations.
+	at, found, err := ts.stations.Station(req.StationID)
+	if err != nil {
+		jsonErr(w, http.StatusServiceUnavailable, "could not read the Station registry - try again in a moment")
+		return
+	}
+	ownerPubkey := r.Header.Get("X-Roger-Pubkey")
+	if !found || at.Owner != ownerPubkey {
+		jsonErr(w, http.StatusNotFound, "no such Station on this account")
+		return
+	}
+	if _, err := ts.stations.Revoke(req.StationID); err != nil {
+		jsonErr(w, http.StatusServiceUnavailable, "could not revoke - try again in a moment")
+		return
+	}
+	// The leaf must stop being routable now, not at the next inventory expiry.
+	ts.inv.Forget(at.Origin.TowerID)
+	log.Printf("station %s revoked by %s", req.StationID, owner)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "revoked": true})
 }
 
 // stationInviteTTL bounds how long an invitation may sit unredeemed. Long enough for an

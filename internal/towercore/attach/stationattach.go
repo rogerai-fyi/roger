@@ -283,7 +283,7 @@ func (r *Registry) Admit(p Proof) (Attachment, error) {
 
 	// Uniqueness, read before the commit. The commit itself is what settles a race; these
 	// give a clear refusal in the ordinary case.
-	if err := r.checkBindings(p); err != nil {
+	if err := r.checkBindings(auth.ID, p); err != nil {
 		return Attachment{}, err
 	}
 
@@ -330,7 +330,14 @@ func (r *Registry) replay(auth Authorization, p Proof) (Attachment, error) {
 	if !ok {
 		return Attachment{}, reject(errors.New("this invitation has already been used"))
 	}
-	same := at.StationID == p.StationID &&
+	// The secret is part of "identical proof". Without it, holding the authorization id and
+	// the two PUBLIC keys is enough to confirm an attachment exists and read its record -
+	// a probing oracle, even though no attachment can be minted this way.
+	sum := sha256.Sum256([]byte(p.Secret))
+	secretOK := auth.SecretHash != "" &&
+		subtle.ConstantTimeCompare([]byte(hex.EncodeToString(sum[:])), []byte(auth.SecretHash)) == 1
+	same := secretOK &&
+		at.StationID == p.StationID &&
 		at.Owner == p.Owner &&
 		at.AssertionKey == p.AssertionKey &&
 		at.SessionKey == p.SessionKey &&
@@ -400,12 +407,20 @@ func (r *Registry) validate(auth Authorization, p Proof, now time.Time) error {
 }
 
 // checkBindings enforces the uniqueness rules and the immutability of origin kind.
-func (r *Registry) checkBindings(p Proof) error {
+func (r *Registry) checkBindings(authID string, p Proof) error {
 	existing, ok, err := r.store.ByStation(p.StationID)
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrUnavailable, err)
 	}
 	if ok {
+		// A racer that read the invitation BEFORE the winner committed arrives here after it
+		// did. That is a retry, not a conflict: the attachment in front of us is the one this
+		// very invitation produced, and refusing it would turn a lost response into a
+		// permanent failure. Let it through to the store, which reports the authorization
+		// already consumed, and the replay path answers with the committed outcome.
+		if existing.AuthID == authID {
+			return nil
+		}
 		switch {
 		case existing.Origin.Kind != p.Origin.Kind:
 			// The whole point of v1's immutability rule. Earnings lineage, capacity and held
@@ -418,6 +433,12 @@ func (r *Registry) checkBindings(p Proof) error {
 			return reject(errors.New("this Station ID is already bound to another assertion key"))
 		case !existing.Live():
 			return reject(errors.New("this Station ID has been retired and cannot be reattached"))
+		default:
+			// Already attached and still live. Two invitations can exist for one Station ID -
+			// the invite route only refuses one whose Station is ALREADY attached - so
+			// redeeming the second must be refused here rather than silently replacing the
+			// first, which would reset its state, epoch and lineage.
+			return reject(errors.New("this Station is already attached"))
 		}
 	}
 

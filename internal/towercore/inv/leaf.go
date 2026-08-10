@@ -115,6 +115,10 @@ func (s *Set) admitLeaf(channelTowerID string, lo map[string]any) (Leaf, string)
 		return Leaf{}, "the Station has no owner, which public admission requires"
 	case reg.OwnerSuspended:
 		return Leaf{}, "the Station's owner is suspended"
+	case reg.Quarantined:
+		// Not a fault, and worth saying so plainly: the operator has done everything right
+		// and is waiting on evidence Core has to gather itself.
+		return Leaf{}, "the Station is in quarantine and not yet eligible for public work"
 	}
 
 	// One Station has one active origin. A Station already being relayed by a live Tower

@@ -52,6 +52,8 @@ func towerTestBroker(t *testing.T) (*broker, *httptest.Server) {
 	mux.HandleFunc("/tower/inventory", b.towerInventory(false))
 	mux.HandleFunc("/tower/inventory/delta", b.towerInventory(true))
 	mux.HandleFunc("/tower/station/invite", b.towerStationInvite)
+	mux.HandleFunc("/tower/station/attach", b.towerStationAttach)
+	mux.HandleFunc("/tower/station/revoke", b.towerStationRevoke)
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return b, srv

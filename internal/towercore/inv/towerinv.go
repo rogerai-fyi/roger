@@ -108,6 +108,12 @@ type Registration struct {
 	KeyRevoked     bool
 	OwnerPresent   bool
 	OwnerSuspended bool
+	// Quarantined means the Station is attached and verifiable but has NOT yet earned
+	// eligibility. Admission proves who a Station is; it never proves it is any good, and
+	// the spec requires a freshly attached Station to be quarantine inventory until central
+	// probes and policy say otherwise. Without this, admission and eligibility collapse into
+	// one step and anyone who can attach is immediately carrying customer traffic.
+	Quarantined bool
 	// Unavailable means Core could not READ its own state for this Station - a ban list it
 	// could not load, an account it could not resolve. The leaf is refused either way, but
 	// the reason must not be one of the others: reporting "not registered" would send an

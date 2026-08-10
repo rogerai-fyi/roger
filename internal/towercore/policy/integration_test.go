@@ -143,6 +143,11 @@ func (c *chain) accept() (inv.Result, error) {
 func TestAnAttachedStationsOfferBecomesRoutable(t *testing.T) {
 	c := newChain(t)
 	c.owners.owner, c.owners.ok = Owner{}, true
+	// Attachment admits into QUARANTINE. Eligibility is a second, evidence-driven decision,
+	// so a Station has to be promoted before its offer can carry public work.
+	promoted, err := c.reg.Promote("st-1")
+	require.NoError(t, err)
+	require.True(t, promoted)
 
 	res, err := c.accept()
 	require.NoError(t, err)
@@ -223,20 +228,41 @@ func TestATowerCannotSignItsStationsOffer(t *testing.T) {
 	require.Contains(t, res.Excluded[0].Reason, "signature")
 }
 
-// Attachment alone is not eligibility: a quarantined Station is attached and verifiable, and
-// promotion is a separate, evidence-driven decision. Here it is already routable at the
-// inventory layer, which is correct - quarantine is enforced by the promotion ladder, not by
-// refusing to record the leaf. Pinned so a later change to that division is deliberate.
-func TestQuarantineIsNotEnforcedAtTheInventoryLayer(t *testing.T) {
+// ATTACHMENT IS NOT ELIGIBILITY, and the inventory layer is where that is enforced.
+//
+// This test previously asserted the opposite - that a quarantined Station's leaf was
+// routable and the promotion ladder would gate traffic later - and said it was "pinned so a
+// later change to that division is deliberate". The audit was right that this contradicted
+// the spec: features/tower/station_attachment.feature requires a freshly attached Station to
+// be quarantine inventory "until central probes and policy make its offer eligible". With
+// the old division, anyone who could attach was immediately carrying customer traffic, and
+// Promote had no caller so the gate was both unenforced and unopenable.
+func TestAQuarantinedStationIsNotYetRoutable(t *testing.T) {
 	c := newChain(t)
 	at, ok, err := c.reg.Station("st-1")
 	require.NoError(t, err)
 	require.True(t, ok)
-	require.Equal(t, attach.StateQuarantine, at.State)
+	require.Equal(t, attach.StateQuarantine, at.State, "attachment admits into quarantine")
 
 	res, err := c.accept()
 	require.NoError(t, err)
-	require.Equal(t, 1, res.Routable,
-		"the inventory records a quarantined Station's leaf; the promotion ladder decides "+
-			"whether it receives traffic")
+	require.Zero(t, res.Routable, "a quarantined Station must not receive public work")
+	require.Len(t, res.Excluded, 1)
+	require.Contains(t, res.Excluded[0].Reason, "quarantine")
+	require.NotContains(t, res.Excluded[0].Reason, "banned",
+		"the operator has done nothing wrong and the message must not imply they have")
+
+}
+
+// The other half of the gate: promotion is what opens it. A fresh chain, because a revision
+// number is spent once - re-accepting revision 1 is refused by the chain rule, not by policy.
+func TestPromotionOpensTheGate(t *testing.T) {
+	c := newChain(t)
+	promoted, err := c.reg.Promote("st-1")
+	require.NoError(t, err)
+	require.True(t, promoted)
+
+	res, err := c.accept()
+	require.NoError(t, err)
+	require.Equal(t, 1, res.Routable, "a promoted Station carries work: %+v", res.Excluded)
 }

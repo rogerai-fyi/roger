@@ -1,7 +1,17 @@
 package attach
 
 import (
+	"errors"
 	"sync"
+)
+
+// The refusals a store raises when its own invariants would be broken. They are REFUSALS,
+// not outages: a Station ID that is already attached, or a key another live Station holds,
+// is a permanent answer. Reporting either as a transient failure invites a caller to retry
+// forever against something that will never change.
+var (
+	errAlreadyAttached  = errors.New("that Station is already attached")
+	errKeyHeldByAnother = errors.New("that key is already held by another live Station")
 )
 
 // memStore is the in-process Store. It exists so the contract can be exercised without a
@@ -47,6 +57,24 @@ func (m *memStore) Admit(authID string, at Attachment) (bool, error) {
 	a, ok := m.auths[authID]
 	if !ok || a.Consumed {
 		return false, nil // lost the race, or never existed
+	}
+	// THE SAME INVARIANTS THE DATABASE ENFORCES, enforced here too.
+	//
+	// Postgres has a station_id primary key and partial unique indexes on each live key.
+	// Without the equivalent under this mutex the two stores disagree exactly where it
+	// matters: two concurrent Admits under DISTINCT authorizations sharing a session key
+	// both win in memory while Postgres rejects one. checkBindings hides that sequentially,
+	// which is why a sequential parity test cannot see it.
+	if existing, taken := m.byID[at.StationID]; taken && existing.Live() && existing.AuthID != authID {
+		return false, errAlreadyAttached
+	}
+	for _, other := range m.byID {
+		if other.StationID == at.StationID || !other.Live() {
+			continue
+		}
+		if other.AssertionKey == at.AssertionKey || other.SessionKey == at.SessionKey {
+			return false, errKeyHeldByAnother
+		}
 	}
 	a.Consumed, a.ConsumedBy = true, at.StationID
 	m.auths[authID] = a

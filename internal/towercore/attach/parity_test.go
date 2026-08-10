@@ -315,3 +315,92 @@ func TestReapKeepsWhatAnswersARetry(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, ok)
 }
+
+// --- the audit's findings, pinned in both stores ----------------------------
+
+// A LIVE Station ID cannot be re-attached under a second invitation.
+//
+// Found by audit. memStore.Admit used to overwrite the record - silently resetting state
+// active->quarantine, epoch to 1, and the authorization lineage - while Postgres hit the
+// station_id primary key and reported ErrUnavailable, a permanent refusal dressed as a
+// transient one that invites an infinite retry. Reachable because the invite route only
+// refuses a Station that is ALREADY attached, so two invitations can exist for one ID.
+func TestParityALiveStationCannotBeReattached(t *testing.T) {
+	eachStore(t, func(t *testing.T, s Store, r *Registry, now time.Time) {
+		first, err := r.Admit(goodProof())
+		require.NoError(t, err)
+		_, err = r.Promote(station)
+		require.NoError(t, err)
+
+		second, secret, err := NewInvite(Authorization{
+			ID: "auth-2", Network: net, StationID: station, Owner: owner,
+			Origin:       Origin{Kind: OriginJoined, TowerID: tower},
+			AssertionKey: keyA, SessionKey: keyK,
+		}, time.Hour, now.Add(-time.Minute))
+		require.NoError(t, err)
+		require.NoError(t, s.PutAuthorization(second))
+
+		p := goodProof()
+		p.AuthID, p.Secret = "auth-2", secret
+		_, err = r.Admit(p)
+		require.ErrorIs(t, err, ErrRejected,
+			"a second invitation must not replace a live attachment")
+		require.NotErrorIs(t, err, ErrUnavailable,
+			"and it is a permanent answer, not a blip to retry against forever")
+
+		// The original is untouched, including the state promotion moved it to.
+		got, ok, err := s.ByStation(station)
+		require.NoError(t, err)
+		require.True(t, ok)
+		require.Equal(t, StateActive, got.State, "the live attachment kept its state")
+		require.Equal(t, first.AuthID, got.AuthID, "and its lineage")
+	})
+}
+
+// Two DISTINCT invitations sharing a key, redeemed concurrently. Postgres refuses one via a
+// partial unique index; the memory store must refuse one too, or the stores disagree exactly
+// where it matters. A sequential test cannot see this - checkBindings catches it first.
+func TestParityConcurrentAttachmentsCannotShareAKey(t *testing.T) {
+	eachStore(t, func(t *testing.T, s Store, r *Registry, now time.Time) {
+		second, secret, err := NewInvite(Authorization{
+			ID: "auth-2", Network: net, StationID: "st-2", Owner: owner,
+			Origin: Origin{Kind: OriginJoined, TowerID: tower},
+			// A DIFFERENT Station, the SAME secure-session key.
+			AssertionKey: "A2", SessionKey: keyK,
+		}, time.Hour, now.Add(-time.Minute))
+		require.NoError(t, err)
+		require.NoError(t, s.PutAuthorization(second))
+
+		var wg sync.WaitGroup
+		results := make([]error, 2)
+		start := make(chan struct{})
+		proofs := []Proof{goodProof(), {
+			AuthID: "auth-2", Secret: secret, Network: net, StationID: "st-2", Owner: owner,
+			Origin: Origin{Kind: OriginJoined, TowerID: tower}, AssertionKey: "A2", SessionKey: keyK,
+		}}
+		for i := range proofs {
+			wg.Add(1)
+			go func(i int) { defer wg.Done(); <-start; _, results[i] = r.Admit(proofs[i]) }(i)
+		}
+		close(start)
+		wg.Wait()
+
+		wins := 0
+		for _, err := range results {
+			if err == nil {
+				wins++
+			}
+		}
+		require.Equal(t, 1, wins,
+			"exactly one may hold a secure-session key, whichever store is underneath")
+
+		// And the loser left nothing behind.
+		live := 0
+		for _, id := range []string{station, "st-2"} {
+			if at, ok, err := s.ByStation(id); err == nil && ok && at.Live() {
+				live++
+			}
+		}
+		require.Equal(t, 1, live)
+	})
+}

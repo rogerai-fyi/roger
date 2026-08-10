@@ -25,7 +25,10 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"rogerai.fm/roger/v5/internal/pgmigrate"
 )
@@ -100,6 +103,18 @@ func NewPGStore(db *sql.DB) (*PGStore, error) {
 		return nil, err
 	}
 	return &PGStore{db: db}, nil
+}
+
+// isConstraintViolation reports whether Postgres refused the write because it would break
+// an invariant, rather than because it could not do the write. SQLSTATE class 23 is
+// integrity-constraint violation; 23505 is unique_violation, which covers both the primary
+// key and the partial unique indexes.
+func isConstraintViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return strings.HasPrefix(pgErr.Code, "23")
+	}
+	return false
 }
 
 func pgwrap(op string, err error) error {
@@ -189,9 +204,15 @@ func (p *PGStore) Admit(authID string, at Attachment) (bool, error) {
 		at.StationID, at.Owner, at.AssertionKey, at.SessionKey, at.Origin.Kind,
 		at.Origin.TowerID, at.Epoch, at.CeilingHash, at.State, at.AttachedAt.UTC(),
 		at.AuthID); err != nil {
-		// A partial unique index rejection here means another live Station holds one of these
-		// keys. Rolling back leaves the invitation UNSPENT, which is the behaviour the spec
-		// asks for: a refused attachment must not cost the owner their invitation.
+		// A constraint violation here is a PERMANENT answer, not a blip: the station_id
+		// primary key means that Station is already attached, and a partial unique index
+		// means another live Station holds one of these keys. Reporting either as an outage
+		// invites a caller to retry forever against something that will never change.
+		// Rolling back leaves the invitation UNSPENT, which is what the spec asks for: a
+		// refused attachment must not cost the owner their invitation.
+		if isConstraintViolation(err) {
+			return false, reject(errors.New("that Station ID or key is already attached"))
+		}
 		return false, pgwrap("record attachment", err)
 	}
 	if err := tx.Commit(); err != nil {

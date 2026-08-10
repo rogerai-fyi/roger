@@ -94,10 +94,16 @@ type Policy struct {
 	owners   Owners
 	cfg      Config
 
-	mu        sync.RWMutex
-	banned    map[string]bool // owner pubkey or node id -> banned
-	loadedAt  time.Time
-	loadFaild bool // the last refresh failed: refuse everything until one succeeds
+	mu       sync.RWMutex
+	banned   map[string]bool // owner pubkey or node id -> banned
+	loadedAt time.Time
+	// loadFailed marks the last refresh as failed, so callers refuse. failedAt paces the
+	// RETRY: without it a failed load makes the cache permanently non-fresh, and every leaf
+	// of a ten-thousand-leaf inventory issues two more queries against a database that is
+	// already failing - exactly the per-leaf lookup pattern this cache exists to prevent,
+	// arriving at the worst possible moment.
+	loadFailed bool
+	failedAt   time.Time
 }
 
 // New builds the policy. A zero Config is SAFE but useless - it refuses everything, which is
@@ -109,7 +115,7 @@ func New(s Stations, b Bans, o Owners, cfg Config) *Policy {
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
-	return &Policy{stations: s, bans: b, owners: o, cfg: cfg, loadFaild: true}
+	return &Policy{stations: s, bans: b, owners: o, cfg: cfg, loadFailed: true}
 }
 
 // Station is the read towerinv makes for every leaf.
@@ -146,6 +152,10 @@ func (p *Policy) Station(stationID string) inv.Registration {
 		Key:        ed25519.PublicKey(key),
 		Banned:     banned || ownerBanned,
 		KeyRevoked: at.State == attach.StateRevoked,
+		// Quarantine is the state a Station is ADMITTED into, so this is the common case for
+		// anything new rather than an edge. It is reported separately from Banned because the
+		// operator has done nothing wrong and the message they see should say so.
+		Quarantined: at.State == attach.StateQuarantine,
 	}
 
 	// Detached is not revoked - the key is not burnt - but it is not serving either, so it
@@ -206,11 +216,16 @@ func (p *Policy) isBanned(id string) (bool, bool) {
 		return false, true
 	}
 	p.mu.RLock()
-	fresh := !p.loadFaild && p.cfg.Now().Sub(p.loadedAt) < p.cfg.BanRefresh
-	if fresh {
+	now := p.cfg.Now()
+	if !p.loadFailed && now.Sub(p.loadedAt) < p.cfg.BanRefresh {
 		b := p.banned[id]
 		p.mu.RUnlock()
 		return b, true
+	}
+	// Failed recently: keep refusing, but do NOT hammer the store once per leaf.
+	if p.loadFailed && !p.failedAt.IsZero() && now.Sub(p.failedAt) < p.cfg.BanRefresh {
+		p.mu.RUnlock()
+		return false, false
 	}
 	p.mu.RUnlock()
 	return p.refreshAndCheck(id)
@@ -220,14 +235,18 @@ func (p *Policy) refreshAndCheck(id string) (bool, bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	// Another goroutine may have refreshed while we waited for the write lock.
-	if !p.loadFaild && p.cfg.Now().Sub(p.loadedAt) < p.cfg.BanRefresh {
+	// Another goroutine may have refreshed - or failed - while we waited for the write lock.
+	now := p.cfg.Now()
+	if !p.loadFailed && now.Sub(p.loadedAt) < p.cfg.BanRefresh {
 		return p.banned[id], true
+	}
+	if p.loadFailed && !p.failedAt.IsZero() && now.Sub(p.failedAt) < p.cfg.BanRefresh {
+		return false, false
 	}
 	if p.bans == nil {
 		// No ban source configured. That is a misconfiguration, not an empty ban list, and it
 		// must not read as "nobody is banned".
-		p.loadFaild = true
+		p.loadFailed, p.failedAt = true, now
 		return false, false
 	}
 
@@ -237,7 +256,7 @@ func (p *Policy) refreshAndCheck(id string) (bool, bool) {
 		// Keep whatever we had, but mark the load failed so callers refuse. A ban set that is
 		// merely STALE would be tolerable; one we have never successfully loaded is not, and
 		// distinguishing them here would be a subtlety with a catastrophic failure mode.
-		p.loadFaild = true
+		p.loadFailed, p.failedAt = true, now
 		return false, false
 	}
 
@@ -248,7 +267,7 @@ func (p *Policy) refreshAndCheck(id string) (bool, bool) {
 	for k := range nodes {
 		set[k] = true
 	}
-	p.banned, p.loadedAt, p.loadFaild = set, p.cfg.Now(), false
+	p.banned, p.loadedAt, p.loadFailed, p.failedAt = set, now, false, time.Time{}
 	return set[id], true
 }
 
@@ -257,5 +276,7 @@ func (p *Policy) refreshAndCheck(id string) (bool, bool) {
 func (p *Policy) Invalidate() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.loadedAt = time.Time{}
+	// Clear the failure pacing too: an operator making a ban is a reason to try the store
+	// again immediately, whatever it did last time.
+	p.loadedAt, p.failedAt = time.Time{}, time.Time{}
 }

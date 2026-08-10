@@ -131,7 +131,7 @@ func TestValidateRejectsSharedKeyMaterialAcrossRoles(t *testing.T) {
 // A valid signature from the wrong role is rejected. This is the property the whole
 // package exists for, so it is asserted over every ordered pair rather than sampled -
 // sampling a transition table is exactly what let four wrong edges through in
-// internal/admit.
+// internal/towercore/admit.
 func TestEveryOrderedPairOfDistinctRolesIsRejected(t *testing.T) {
 	r := testRing(t)
 	msg := []byte("an object requiring one exact purpose")
