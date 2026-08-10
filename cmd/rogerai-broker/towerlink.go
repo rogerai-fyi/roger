@@ -702,6 +702,11 @@ func randomHex(n int) string {
 // invitation never lingers for long, and rare enough to be invisible.
 const towerInviteSweepInterval = 10 * time.Minute
 
+// inviteRetryHorizon is how long a CONSUMED invitation is kept after it expires, so a Station
+// retrying after a lost response still gets its committed answer. Past this, no plausible
+// retry is still in flight and the row is only storage.
+const inviteRetryHorizon = 24 * time.Hour
+
 // towerInviteSweep deletes expired UNREDEEMED Station invitations.
 //
 // The reaper existed and nothing called it, which is how a bounded table becomes an
@@ -731,7 +736,7 @@ func (b *broker) towerInviteSweepOnce(now time.Time) {
 	if b.tower == nil || b.tower.stationStore == nil {
 		return
 	}
-	n, err := b.tower.stationStore.Reap(now)
+	n, err := b.tower.stationStore.Reap(now, inviteRetryHorizon)
 	if err != nil {
 		log.Printf("station invites: sweep failed: %v", err)
 		return
@@ -739,4 +744,46 @@ func (b *broker) towerInviteSweepOnce(now time.Time) {
 	if n > 0 {
 		log.Printf("station invites: reaped %d expired unredeemed invitation(s)", n)
 	}
+}
+
+// towerLeaseExpire handles POST /tower/lease/expire: an administrator taking a Tower off the
+// link now rather than at the end of its lease term.
+//
+// This route is why admit.ExpireLease exists in the production binary at all. It was
+// previously a test hook that shipped, and renaming it to sound like an operation did not
+// change that - an audit pointed out, correctly, that a capability nothing exposes is not a
+// capability. towerMayHoldLink keys off the lease, so ending one is the immediate,
+// reversible-by-renewal way to stop a Tower holding sessions and pushing inventory, short of
+// the terminal states.
+func (b *broker) towerLeaseExpire(w http.ResponseWriter, r *http.Request) {
+	if corsCredsPreflight(w, r) {
+		return
+	}
+	if !allow(w, r, http.MethodPost) {
+		return
+	}
+	corsCreds(w, r)
+	if b.requireAdmin(w, r) {
+		return
+	}
+	ts := b.towerAvailable(w)
+	if ts == nil {
+		return
+	}
+	var req struct {
+		TowerID string `json:"tower_id"`
+	}
+	if err := json.Unmarshal(readTowerBody(r), &req); err != nil {
+		jsonErr(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if err := ts.registry.ExpireLease(req.TowerID); err != nil {
+		jsonErr(w, http.StatusNotFound, "no such Tower")
+		return
+	}
+	// Its sessions and inventory go with it: leaving leaves routable after the lease is gone
+	// is the immortal-inventory failure by another route.
+	ts.inv.Forget(req.TowerID)
+	log.Printf("tower %s: lease expired by an administrator", req.TowerID)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "expired": true})
 }

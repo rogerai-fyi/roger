@@ -24,6 +24,7 @@ import (
 	"rogerai.fm/roger/v5/internal/towercore/attach"
 	"rogerai.fm/roger/v5/internal/towercore/inv"
 	"rogerai.fm/roger/v5/internal/towercore/link"
+	towerpolicy "rogerai.fm/roger/v5/internal/towercore/policy"
 	"rogerai.fm/roger/v5/internal/towerobj"
 )
 
@@ -1230,16 +1231,35 @@ func TestExpiredInvitationsAreReapedAndConsumedOnesAreKept(t *testing.T) {
 	require.True(t, ok, "a consumed one stays - it is what answers a lost-response retry")
 }
 
-// Banning an operator must reach the Tower policy's cached ban set at once.
+// Banning an operator must reach the Tower policy's CACHED ban set at once.
+//
+// The previous version of this test primed the cache, banned, and then asserted
+// b.isOwnerBanned - a plain map read that passed identically with the Invalidate call
+// deleted. An audit called it vacuous and it was: the test was named for a fix it never
+// touched. This one sets the refresh window to an hour, so ONLY an invalidation can make the
+// second read see the ban.
 func TestBanningAnOperatorInvalidatesTheTowerPolicyCache(t *testing.T) {
 	b, _ := towerTestBroker(t)
-	require.NotNil(t, b.tower.policy)
-	// Prime the cache, then ban and confirm the next read is not served from it.
-	b.tower.policy.Station("st-nobody")
-	b.banOwner("owner-pub", "abuse", "{}")
-	// Invalidate is the observable effect; a ban that waited out the refresh window would
-	// keep a banned operator's Stations routable for up to thirty seconds.
-	require.True(t, b.isOwnerBanned("owner-pub"))
+	op := signedInOperator(t, b, "octocat")
+	lt := enrolledTower(t, b, op.login)
+	ownerPub := ownerPubkeyOf(t, b, op.login)
+	attachStation(t, b, "st-1", lt.id, ownerPub)
+
+	// A long window: without an invalidation the ban could not be visible for an hour.
+	b.tower.policy = towerpolicy.New(b.tower.stations, b.db, brokerOwners{b: b}, towerpolicy.Config{
+		ModelAllowed:    towerModelAllowed,
+		ModalityAllowed: towerModalityAllowed,
+		PriceBand:       towerPriceBand,
+		BanRefresh:      time.Hour,
+	})
+
+	require.False(t, b.tower.policy.Station("st-1").Banned, "not banned yet, and now cached")
+
+	b.banOwner(ownerPub, "abuse", "{}")
+
+	require.True(t, b.tower.policy.Station("st-1").Banned,
+		"a ban must reach the cached set at once - with the Invalidate call removed this "+
+			"read would still be served from an hour-long cache")
 }
 
 // The promote route's remaining answers: a Station that is not in quarantine, and one that
@@ -1291,4 +1311,57 @@ func TestTheInviteSweepIsSafeWithoutTheSubsystem(t *testing.T) {
 	b := testBrokerWithDB(store.NewMem())
 	b.tower = nil
 	require.NotPanics(t, func() { b.towerInviteSweepOnce(time.Now()) })
+}
+
+// The admin routes answer a CORS preflight like their siblings, since requireAdmin accepts a
+// browser session and the console can reach them.
+func TestAdminTowerRoutesAnswerAPreflight(t *testing.T) {
+	_, srv := towerTestBroker(t)
+	for _, path := range []string{"/tower/station/promote", "/tower/lease/expire"} {
+		req, err := http.NewRequest(http.MethodOptions, srv.URL+path, nil)
+		require.NoError(t, err)
+		req.Header.Set("Origin", "https://rogerai.fm")
+		req.Header.Set("Access-Control-Request-Method", "POST")
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		resp.Body.Close()
+		require.Equal(t, "https://rogerai.fm", resp.Header.Get("Access-Control-Allow-Origin"), path)
+		require.Equal(t, "true", resp.Header.Get("Access-Control-Allow-Credentials"), path)
+	}
+}
+
+// Ending a lease takes a Tower off the link now, which is the whole reason ExpireLease is in
+// the production binary rather than a test file.
+func TestAnAdminCanEndATowersLease(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	b.adminKey = "admin-secret"
+	op := signedInOperator(t, b, "octocat")
+	lt := enrolledTower(t, b, op.login)
+
+	code, raw := lt.call(t, srv, "/tower/session", jsonOf(t, link.Hello{
+		Network: link.PublicNetwork, Versions: []int{1}, TowerID: lt.id,
+		Capabilities: mandatoryCaps(),
+	}), nil)
+	require.Equal(t, http.StatusOK, code, raw)
+
+	// An operator cannot do this to their own Tower, and certainly not to anyone else's.
+	code, raw = op.call(t, srv, http.MethodPost, "/tower/lease/expire",
+		map[string]any{"tower_id": lt.id}, nil)
+	require.Equal(t, http.StatusForbidden, code, raw)
+
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/tower/lease/expire",
+		strings.NewReader(`{"tower_id":"`+lt.id+`"}`))
+	require.NoError(t, err)
+	req.Header.Set("X-Roger-Admin", "admin-secret")
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	// And the link is gone: towerMayHoldLink keys off the lease.
+	code, raw = lt.call(t, srv, "/tower/session", jsonOf(t, link.Hello{
+		Network: link.PublicNetwork, Versions: []int{1}, TowerID: lt.id,
+		Capabilities: mandatoryCaps(),
+	}), nil)
+	require.Equal(t, http.StatusForbidden, code, raw)
 }

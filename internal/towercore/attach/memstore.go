@@ -49,25 +49,48 @@ func (m *memStore) PutAuthorizationCapped(a Authorization, max int) (bool, error
 	defer m.mu.Unlock()
 	live := 0
 	for _, existing := range m.auths {
-		if existing.Owner == a.Owner && !existing.Consumed && existing.ExpiresAt.After(a.IssuedAt) {
+		if existing.Owner == a.Owner && !existing.Consumed && !existing.ExpiresAt.Before(a.IssuedAt) {
 			live++
 		}
 	}
 	if live >= max {
 		return false, nil
 	}
+	// Postgres has a primary key here; without the same check the stores disagree on a
+	// duplicate id - one silently overwrites, the other refuses.
+	if _, exists := m.auths[a.ID]; exists {
+		return false, fmt.Errorf("%w: that invitation id already exists", ErrRejected)
+	}
 	m.auths[a.ID] = a
 	return true, nil
 }
 
 // Reap drops expired UNCONSUMED invitations, keeping the consumed ones that answer retries.
-func (m *memStore) Reap(before time.Time) (int64, error) {
+func (m *memStore) Reap(before time.Time, retryHorizon time.Duration) (int64, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	var n int64
 	for id, a := range m.auths {
-		if !a.Consumed && a.ExpiresAt.Before(before) {
-			delete(m.auths, id)
+		if a.ExpiresAt.After(before) {
+			continue // still live
+		}
+		// Consumed rows answer a lost-response retry, so they linger past expiry - but only
+		// until no plausible retry could still arrive.
+		if a.Consumed && a.ExpiresAt.After(before.Add(-retryHorizon)) {
+			continue
+		}
+		delete(m.auths, id)
+		n++
+	}
+	return n, nil
+}
+
+func (m *memStore) CountLiveAttachments(owner string) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	n := 0
+	for _, at := range m.byID {
+		if at.Owner == owner && at.Live() {
 			n++
 		}
 	}

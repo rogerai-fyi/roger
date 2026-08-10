@@ -68,7 +68,7 @@ func TestAClosedPoolReportsAnOutageOnEveryPath(t *testing.T) {
 	_, err = pg.SetState("st-closed", StateRevoked)
 	require.ErrorIs(t, err, ErrUnavailable)
 
-	_, err = pg.Reap(now)
+	_, err = pg.Reap(now, 24*time.Hour)
 	require.ErrorIs(t, err, ErrUnavailable)
 
 	// And none of them is a refusal - an operator must never be told their keys are wrong

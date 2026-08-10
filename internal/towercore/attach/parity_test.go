@@ -304,7 +304,7 @@ func TestReapKeepsWhatAnswersARetry(t *testing.T) {
 		})))
 	}
 
-	n, err := pg.Reap(now)
+	n, err := pg.Reap(now, 24*time.Hour)
 	require.NoError(t, err)
 	require.Equal(t, int64(1), n, "only the unspent expired invitation is reaped")
 
@@ -559,7 +559,7 @@ func TestParityReapDropsTheStaleAndKeepsTheAnswerable(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, s.PutAuthorization(live))
 
-		n, err := s.Reap(now)
+		n, err := s.Reap(now, 24*time.Hour)
 		require.NoError(t, err)
 		require.Equal(t, int64(1), n)
 
@@ -568,5 +568,96 @@ func TestParityReapDropsTheStaleAndKeepsTheAnswerable(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, want, ok, "invitation %q", id)
 		}
+	})
+}
+
+// A consumed invitation is kept for retries and then it is NOT kept forever. Without a
+// horizon, an operator looping invite -> redeem grows the table without bound - the same
+// vector the per-owner cap closes for unredeemed rows, left open behind it.
+func TestParityConsumedInvitationsAreKeptOnlyForTheRetryWindow(t *testing.T) {
+	eachStore(t, func(t *testing.T, s Store, _ *Registry, now time.Time) {
+		recent, _, err := NewInvite(Authorization{
+			ID: "recent", Network: net, StationID: "st-r", Owner: capOwner,
+			Origin: Origin{Kind: OriginJoined, TowerID: tower}, AssertionKey: "Ar", SessionKey: "Kr",
+		}, time.Minute, now.Add(-2*time.Hour))
+		require.NoError(t, err)
+		recent.Consumed, recent.ConsumedBy = true, "st-r"
+		require.NoError(t, s.PutAuthorization(recent))
+
+		ancient, _, err := NewInvite(Authorization{
+			ID: "ancient", Network: net, StationID: "st-a", Owner: capOwner,
+			Origin: Origin{Kind: OriginJoined, TowerID: tower}, AssertionKey: "Aa", SessionKey: "Ka",
+		}, time.Minute, now.Add(-90*24*time.Hour))
+		require.NoError(t, err)
+		ancient.Consumed, ancient.ConsumedBy = true, "st-a"
+		require.NoError(t, s.PutAuthorization(ancient))
+
+		_, err = s.Reap(now, 24*time.Hour)
+		require.NoError(t, err)
+
+		_, ok, err := s.Authorization("recent")
+		require.NoError(t, err)
+		require.True(t, ok, "a retry could still plausibly arrive for this one")
+		_, ok, err = s.Authorization("ancient")
+		require.NoError(t, err)
+		require.False(t, ok, "no retry is still in flight after ninety days - this is storage")
+	})
+}
+
+// Live attachments are capped per owner, enforced on the Admit path.
+func TestParityLiveAttachmentsAreCappedPerOwner(t *testing.T) {
+	for name, s := range parityStores(t) {
+		t.Run(name, func(t *testing.T) {
+			now := time.Unix(1_700_000_000, 0).UTC()
+			r := New(Config{
+				Network: net, MaxLiveStationsPerOwner: 1,
+				Now: func() time.Time { return now },
+			}, s)
+
+			seed := func(id string) error {
+				a, secret, err := NewInvite(Authorization{
+					ID: "inv-" + id, Network: net, StationID: id, Owner: capOwner,
+					Origin:       Origin{Kind: OriginJoined, TowerID: tower},
+					AssertionKey: "A" + id, SessionKey: "K" + id,
+				}, time.Hour, now.Add(-time.Minute))
+				require.NoError(t, err)
+				require.NoError(t, s.PutAuthorization(a))
+				_, aerr := r.Admit(Proof{
+					AuthID: "inv-" + id, Secret: secret, Network: net, StationID: id, Owner: capOwner,
+					Origin:       Origin{Kind: OriginJoined, TowerID: tower},
+					AssertionKey: "A" + id, SessionKey: "K" + id,
+				})
+				return aerr
+			}
+			require.NoError(t, seed("st-one"))
+			err := seed("st-two")
+			require.ErrorIs(t, err, ErrRejected,
+				"capping only the invitation leaves invite -> redeem as an unbounded loop")
+			require.Contains(t, err.Error(), "already holds")
+
+			// Retiring one frees the allowance.
+			_, err = r.Revoke("st-one")
+			require.NoError(t, err)
+			require.NoError(t, seed("st-three"))
+		})
+	}
+}
+
+// A duplicate invitation id is refused the same way by both stores. Postgres has a primary
+// key; the memory store used to overwrite silently.
+func TestParityADuplicateInvitationIDIsRefusedByBoth(t *testing.T) {
+	eachStore(t, func(t *testing.T, s Store, _ *Registry, now time.Time) {
+		a, _, err := NewInvite(Authorization{
+			ID: "dupe", Network: net, StationID: "st-d", Owner: capOwner,
+			Origin: Origin{Kind: OriginJoined, TowerID: tower}, AssertionKey: "Ad", SessionKey: "Kd",
+		}, time.Hour, now)
+		require.NoError(t, err)
+		ok, err := s.PutAuthorizationCapped(a, 10)
+		require.NoError(t, err)
+		require.True(t, ok)
+
+		_, err = s.PutAuthorizationCapped(a, 10)
+		require.ErrorIs(t, err, ErrRejected,
+			"a duplicate id is a permanent answer, and both stores must give it")
 	})
 }

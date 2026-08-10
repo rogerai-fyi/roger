@@ -729,6 +729,7 @@ func (b *broker) routes() *http.ServeMux {
 	mux.HandleFunc("/tower/station/attach", b.towerStationAttach)    // Tower: redeem a Station invitation
 	mux.HandleFunc("/tower/station/revoke", b.towerStationRevoke)    // operator: retire a Station identity
 	mux.HandleFunc("/tower/station/promote", b.towerStationPromote)  // admin: open the quarantine gate
+	mux.HandleFunc("/tower/lease/expire", b.towerLeaseExpire)        // admin: take a Tower off the link now
 	mux.HandleFunc("/auth/email/start", b.emailStart)                // web: mail a first-party sign-in code
 	mux.HandleFunc("/auth/email/verify", b.emailVerify)              // web: accept the code -> session
 	mux.HandleFunc("/auth/device/start", b.deviceStart)              // CLI: begin a broker-mediated login (signed)

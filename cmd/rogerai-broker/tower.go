@@ -44,6 +44,11 @@ import (
 const (
 	towerHeartbeatInterval = 60 * time.Second
 	towerFreshnessWindow   = 180 * time.Second
+
+	// maxLiveStationsPerOwner bounds attached Stations per account. The invitation cap alone
+	// only raises the price of growing the tables from one request to two; this is the half
+	// that bounds them.
+	maxLiveStationsPerOwner = 250
 )
 
 // towerModelAllowed reports whether a model may be offered publicly through a Tower.
@@ -168,7 +173,11 @@ func newTowerSubsystem(b *broker, registryStore admit.Store, custody cert.Custod
 	// rather than `link`, `inventory` rather than `inv`. A local that shadows its own package
 	// compiles until the moment you need another symbol from it, and then fails somewhere
 	// unrelated.
-	stations := attach.New(attach.Config{Network: link.PublicNetwork}, deps.stations)
+	stations := attach.New(attach.Config{
+		Network: link.PublicNetwork,
+		// Generous for a real fleet, bounded so the table cannot be used as free storage.
+		MaxLiveStationsPerOwner: maxLiveStationsPerOwner,
+	}, deps.stations)
 	pol := policy.New(stations, b.db, brokerOwners{b: b}, policy.Config{
 		ModelAllowed:    towerModelAllowed,
 		ModalityAllowed: towerModalityAllowed,

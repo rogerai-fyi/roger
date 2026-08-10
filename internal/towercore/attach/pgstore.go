@@ -178,6 +178,10 @@ func (p *PGStore) PutAuthorizationCapped(a Authorization, max int) (bool, error)
 		a.ID, a.Network, a.StationID, a.Owner, a.Origin.Kind, a.Origin.TowerID,
 		a.AssertionKey, a.SessionKey, a.CeilingHash, a.SecretHash, a.Role,
 		a.IssuedAt.UTC(), a.ExpiresAt.UTC()); err != nil {
+		if isConstraintViolation(err) {
+			// A duplicate id is a permanent answer, and the memory store says the same.
+			return false, reject(errors.New("that invitation id already exists"))
+		}
 		return false, pgwrap("put invitation", err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -320,12 +324,25 @@ func (p *PGStore) SetState(stationID, state string) (bool, error) {
 	return n > 0, nil
 }
 
+// CountLiveAttachments counts an owner's attached Stations in the states that carry work.
+func (p *PGStore) CountLiveAttachments(owner string) (int, error) {
+	var n int
+	if err := p.db.QueryRow(`SELECT count(*) FROM rogerai.station_attachments
+	                          WHERE owner=$1 AND state IN ('quarantine','active')`, owner).
+		Scan(&n); err != nil {
+		return 0, pgwrap("count attachments", err)
+	}
+	return n, nil
+}
+
 // Reap deletes authorizations that expired long enough ago to be beyond any retry. Consumed
 // ones are KEPT: they are the record that answers a lost-response retry, and forgetting one
 // turns a harmless duplicate into a refusal.
-func (p *PGStore) Reap(before time.Time) (int64, error) {
+func (p *PGStore) Reap(before time.Time, retryHorizon time.Duration) (int64, error) {
 	res, err := p.db.Exec(`DELETE FROM rogerai.station_authorizations
-	                        WHERE NOT consumed AND expires_at < $1`, before.UTC())
+	                        WHERE expires_at < $1
+	                          AND (NOT consumed OR expires_at < $2)`,
+		before.UTC(), before.Add(-retryHorizon).UTC())
 	if err != nil {
 		return 0, pgwrap("reap", err)
 	}

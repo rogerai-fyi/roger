@@ -574,12 +574,19 @@ func randomHex(n int) (string, error) {
 
 // ExpireLease ends a Tower's lease immediately.
 //
-// This was ExpireLease, which was the wrong framing: the audit flagged a test
+// This was ForceLeaseExpiryForTest, which was the wrong framing: the audit flagged a test
 // hook shipping in the broker binary, and the right answer was not to hide it but to notice
 // that expiring a lease is a legitimate operator capability. A lease is what bounds what a
 // Tower may do while nobody is watching closely, so being able to end one now - rather than
 // waiting out its term - is exactly what an operator needs when a Tower must be taken off
 // the link. Tests use it for the same reason, which is why it also has cross-package callers.
+//
+// Renaming it was NOT the fix, and an audit said so: the same body with the same test-only
+// callers still shipped in the binary, and "legitimate operator capability" is an assertion
+// nobody could check while no route exposed it. It is now reachable at POST
+// /tower/lease/expire behind requireAdmin, which is what makes the justification true rather
+// than merely stated. towerMayHoldLink keys off the lease, so this is the switch that takes
+// a Tower off the link now instead of at the end of its term.
 func (r *Registry) ExpireLease(id string) error {
 	tw, ok, err := r.store.TowerByID(id)
 	if err != nil || !ok {

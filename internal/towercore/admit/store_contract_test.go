@@ -331,7 +331,7 @@ func TestRecordRenewalRefusesAnUnknownTowerAndAConcurrentChange(t *testing.T) {
 	require.NotEqual(t, "9", got.CertSerial, "and no certificate was recorded against it")
 }
 
-func TestForcingLeaseExpiryIsTestOnlyAndRefusesUnknownTowers(t *testing.T) {
+func TestExpireLeaseRefusesUnknownTowers(t *testing.T) {
 	r, _ := newRegistry(t, Config{})
 	require.Error(t, r.ExpireLease("tw-nobody"))
 }

@@ -190,9 +190,17 @@ type Store interface {
 	// when nobody is trying is not a cap. The enrollment-token layer learned this already
 	// (admit.PutTokenCapped) and this is the same shape, for the same reason.
 	PutAuthorizationCapped(a Authorization, max int) (bool, error)
-	// Reap deletes expired UNCONSUMED invitations. Consumed ones are kept: they are what
-	// answers a lost-response retry.
-	Reap(before time.Time) (int64, error)
+	// Reap deletes expired UNCONSUMED invitations immediately, and consumed ones once they
+	// are past retryHorizon.
+	//
+	// Consumed rows are what answer a lost-response retry, so they cannot go at once - but
+	// "cannot go at once" is not "must be kept forever". Without a horizon an operator
+	// looping invite -> redeem grows the table without bound, which is the same vector the
+	// per-owner cap closes for UNREDEEMED rows and would otherwise leave open behind it.
+	Reap(before time.Time, retryHorizon time.Duration) (int64, error)
+	// CountLiveAttachments reports how many live Stations an owner holds, so the attach path
+	// can be capped by the write the same way minting is.
+	CountLiveAttachments(owner string) (int, error)
 	// Authorization reads one back.
 	Authorization(id string) (Authorization, bool, error)
 	// Admit consumes authID and records at, in ONE transaction. It returns false with no
@@ -241,7 +249,12 @@ type Config struct {
 	Network string
 	// Skew is how far ahead of us an issue time may sit before we call it a forgery.
 	Skew time.Duration
-	Now  func() time.Time
+	// MaxLiveStationsPerOwner bounds how many attached Stations one account may hold. Zero
+	// disables the cap, which is right for a focused test and wrong for a deployment: capping
+	// only the INVITATION narrows the growth vector without closing it, because an operator
+	// can loop invite -> redeem and grow the attachment table instead.
+	MaxLiveStationsPerOwner int
+	Now                     func() time.Time
 }
 
 func (c *Config) defaults() {
@@ -297,6 +310,20 @@ func (r *Registry) Admit(p Proof) (Attachment, error) {
 	// give a clear refusal in the ordinary case.
 	if err := r.checkBindings(auth.ID, p); err != nil {
 		return Attachment{}, err
+	}
+
+	// A CAP ON LIVE ATTACHMENTS, not just on invitations. Capping the mint alone narrows the
+	// growth vector without closing it: an operator can loop invite -> redeem and grow the
+	// attachment table instead, one Tower and two requests at a time.
+	if r.cfg.MaxLiveStationsPerOwner > 0 {
+		live, cerr := r.store.CountLiveAttachments(p.Owner)
+		if cerr != nil {
+			return Attachment{}, fmt.Errorf("%w: %v", ErrUnavailable, cerr)
+		}
+		if live >= r.cfg.MaxLiveStationsPerOwner {
+			return Attachment{}, reject(fmt.Errorf(
+				"this account already holds %d attached Stations", live))
+		}
 	}
 
 	at := Attachment{
