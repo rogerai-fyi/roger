@@ -1,6 +1,8 @@
 package stationattach
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"sync"
 	"testing"
 	"time"
@@ -30,23 +32,34 @@ const (
 	authorID = "auth-1"
 )
 
+// inviteSecret is the plaintext an operator would hand a Station. Tests mint invitations
+// carrying its verifier so the secret check is exercised on every path rather than bypassed.
+const inviteSecret = "test-invite-secret-0123456789"
+
+// withSecret stamps the one-use verifier onto a hand-built invitation.
+func withSecret(a Authorization) Authorization {
+	sum := sha256.Sum256([]byte(inviteSecret))
+	a.SecretHash = hex.EncodeToString(sum[:])
+	return a
+}
+
 func fixture(t *testing.T) (*Registry, Store, time.Time) {
 	t.Helper()
 	now := time.Unix(1_700_000_000, 0).UTC()
 	s := NewMemStore()
 	r := New(Config{Network: net, Now: func() time.Time { return now }}, s)
-	require.NoError(t, s.PutAuthorization(Authorization{
+	require.NoError(t, s.PutAuthorization(withSecret(Authorization{
 		ID: authorID, Network: net, StationID: station, Owner: owner,
 		Origin:       Origin{Kind: OriginJoined, TowerID: tower},
 		AssertionKey: keyA, SessionKey: keyK, CeilingHash: "ceil-1",
 		IssuedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Hour),
-	}))
+	})))
 	return r, s, now
 }
 
 func goodProof() Proof {
 	return Proof{
-		AuthID: authorID, Network: net, StationID: station, Owner: owner,
+		AuthID: authorID, Secret: inviteSecret, Network: net, StationID: station, Owner: owner,
 		Origin: Origin{Kind: OriginJoined, TowerID: tower}, AssertionKey: keyA, SessionKey: keyK,
 	}
 }
@@ -215,11 +228,11 @@ func TestOriginKindIsImmutable(t *testing.T) {
 	require.NoError(t, err)
 
 	// A second, perfectly valid invitation for the SAME Station under the other kind.
-	require.NoError(t, s.PutAuthorization(Authorization{
+	require.NoError(t, s.PutAuthorization(withSecret(Authorization{
 		ID: "auth-2", Network: net, StationID: station, Owner: owner,
 		Origin: Origin{Kind: OriginDirect}, AssertionKey: keyA, SessionKey: keyK,
 		IssuedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Hour),
-	}))
+	})))
 	p := goodProof()
 	p.AuthID, p.Origin = "auth-2", Origin{Kind: OriginDirect}
 
@@ -254,12 +267,12 @@ func TestAKeyCannotBeSharedBetweenTwoStations(t *testing.T) {
 				IssuedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Hour),
 			}
 			p := Proof{
-				AuthID: "auth-2", Network: net, StationID: "st-2", Owner: owner,
+				AuthID: "auth-2", Secret: inviteSecret, Network: net, StationID: "st-2", Owner: owner,
 				Origin:       Origin{Kind: OriginJoined, TowerID: tower},
 				AssertionKey: keyA, SessionKey: keyK,
 			}
 			tc.mutate(&auth, &p)
-			require.NoError(t, s.PutAuthorization(auth))
+			require.NoError(t, s.PutAuthorization(withSecret(auth)))
 
 			_, err = r.Admit(p)
 			require.ErrorIs(t, err, ErrRejected)
@@ -278,11 +291,11 @@ func TestARevokedStationCannotBeReattached(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, ok)
 
-	require.NoError(t, s.PutAuthorization(Authorization{
+	require.NoError(t, s.PutAuthorization(withSecret(Authorization{
 		ID: "auth-2", Network: net, StationID: station, Owner: owner,
 		Origin: Origin{Kind: OriginJoined, TowerID: tower}, AssertionKey: keyA, SessionKey: keyK,
 		IssuedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Hour),
-	}))
+	})))
 	p := goodProof()
 	p.AuthID = "auth-2"
 
@@ -322,4 +335,114 @@ func TestAZeroConfigIsSafe(t *testing.T) {
 	require.Equal(t, "roger-public", r.cfg.Network)
 	require.Positive(t, r.cfg.Skew)
 	require.NotNil(t, r.cfg.Now)
+}
+
+// --- the one-use invitation secret ------------------------------------------
+//
+// Possession of the two keys is not proof of invitation: the OPERATOR chose those keys at
+// invite time, so anyone who learned them and the authorization id could otherwise attach in
+// the Station's place. The secret is what proves the presenter was actually handed this
+// invitation. It is shown once and stored only as a verifier, so reading the table cannot
+// give anybody an attachment.
+
+func TestNewInviteMintsAVerifierAndShowsTheSecretOnce(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0).UTC()
+	auth, secret, err := NewInvite(Authorization{
+		ID: "auth-9", Network: net, StationID: "st-9", Owner: owner,
+		Origin: Origin{Kind: OriginJoined, TowerID: tower}, AssertionKey: keyA, SessionKey: keyK,
+	}, time.Hour, now)
+	require.NoError(t, err)
+
+	require.NotEmpty(t, secret)
+	require.NotEqual(t, secret, auth.SecretHash, "the stored value is a verifier, not the secret")
+	sum := sha256.Sum256([]byte(secret))
+	require.Equal(t, hex.EncodeToString(sum[:]), auth.SecretHash)
+	require.Equal(t, now, auth.IssuedAt)
+	require.Equal(t, now.Add(time.Hour), auth.ExpiresAt)
+	require.False(t, auth.Consumed, "a fresh invitation is unspent whatever was passed in")
+
+	// Two invitations never share a secret.
+	_, second, err := NewInvite(auth, time.Hour, now)
+	require.NoError(t, err)
+	require.NotEqual(t, secret, second)
+}
+
+func TestNewInviteRefusesAnIncoherentRequest(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0).UTC()
+	base := Authorization{
+		ID: "auth-9", Network: net, StationID: "st-9", Owner: owner,
+		Origin: Origin{Kind: OriginJoined, TowerID: tower}, AssertionKey: keyA, SessionKey: keyK,
+	}
+	for _, tc := range []struct {
+		name   string
+		mutate func(a *Authorization)
+		ttl    time.Duration
+	}{
+		{"no id", func(a *Authorization) { a.ID = "" }, time.Hour},
+		{"no network", func(a *Authorization) { a.Network = "" }, time.Hour},
+		{"no Station", func(a *Authorization) { a.StationID = "" }, time.Hour},
+		{"no owner", func(a *Authorization) { a.Owner = "" }, time.Hour},
+		{"only one key", func(a *Authorization) { a.SessionKey = "" }, time.Hour},
+		{"one key for both purposes", func(a *Authorization) { a.SessionKey = a.AssertionKey }, time.Hour},
+		{"a joined origin with no Tower", func(a *Authorization) { a.Origin = Origin{Kind: OriginJoined} }, time.Hour},
+		{"no lifetime", func(a *Authorization) {}, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a := base
+			tc.mutate(&a)
+			_, _, err := NewInvite(a, tc.ttl, now)
+			require.Error(t, err, "an invitation that cannot be redeemed must not be minted")
+		})
+	}
+}
+
+func TestTheWrongSecretIsRefusedAndCostsNothing(t *testing.T) {
+	r, s, _ := fixture(t)
+
+	p := goodProof()
+	p.Secret = "not-the-secret"
+	_, err := r.Admit(p)
+	require.ErrorIs(t, err, ErrRejected)
+	require.Contains(t, err.Error(), "invitation secret does not match")
+
+	// And the invitation is still spendable - a wrong guess must not lock the owner out.
+	auth, ok, err := s.Authorization(authorID)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.False(t, auth.Consumed)
+
+	at, err := r.Admit(goodProof())
+	require.NoError(t, err)
+	require.Equal(t, station, at.StationID)
+}
+
+// A row that lost its verifier must not become an invitation anyone can redeem. Fail closed:
+// no verifier means unusable, not open.
+func TestAnInvitationWithNoVerifierCannotBeRedeemed(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0).UTC()
+	s := NewMemStore()
+	require.NoError(t, s.PutAuthorization(Authorization{
+		ID: authorID, Network: net, StationID: station, Owner: owner,
+		Origin: Origin{Kind: OriginJoined, TowerID: tower}, AssertionKey: keyA, SessionKey: keyK,
+		IssuedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Hour),
+	}))
+	r := New(Config{Network: net, Now: func() time.Time { return now }}, s)
+
+	_, err := r.Admit(goodProof())
+	require.ErrorIs(t, err, ErrRejected)
+	require.Contains(t, err.Error(), "no verifier")
+}
+
+// The secret is checked LAST, after everything cheap. A caller who gets the Station wrong
+// learns that before the secret is ever compared, so the comparison is not a probing oracle
+// for anything else.
+func TestTheSecretIsCheckedAfterTheCheapRefusals(t *testing.T) {
+	r, _, _ := fixture(t)
+	p := goodProof()
+	p.Secret, p.StationID = "wrong-secret", "st-other"
+
+	_, err := r.Admit(p)
+	require.ErrorIs(t, err, ErrRejected)
+	require.Contains(t, err.Error(), "another Station",
+		"the cheap mismatch is reported; the secret comparison is not reached")
 }

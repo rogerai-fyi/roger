@@ -50,6 +50,10 @@ CREATE TABLE IF NOT EXISTS rogerai.station_authorizations (
     assertion_key TEXT        NOT NULL,
     session_key   TEXT        NOT NULL,
     ceiling_hash  TEXT        NOT NULL DEFAULT '',
+    -- sha256 of the one-use invitation secret. The plaintext is shown once at invite and
+    -- never stored, so reading this table cannot hand anybody an attachment.
+    secret_hash   TEXT        NOT NULL DEFAULT '',
+    role          TEXT        NOT NULL DEFAULT '',
     issued_at     TIMESTAMPTZ NOT NULL,
     expires_at    TIMESTAMPTZ NOT NULL,
     -- consumed/consumed_by are the one-use spend. consumed_by is the Station that resulted,
@@ -106,17 +110,18 @@ func (p *PGStore) PutAuthorization(a Authorization) error {
 	_, err := p.db.Exec(`
 		INSERT INTO rogerai.station_authorizations
 		  (id,network,station_id,owner,origin_kind,origin_tower,assertion_key,session_key,
-		   ceiling_hash,issued_at,expires_at,consumed,consumed_by)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+		   ceiling_hash,secret_hash,role,issued_at,expires_at,consumed,consumed_by)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
 		ON CONFLICT (id) DO UPDATE SET
 		  network=EXCLUDED.network, station_id=EXCLUDED.station_id, owner=EXCLUDED.owner,
 		  origin_kind=EXCLUDED.origin_kind, origin_tower=EXCLUDED.origin_tower,
 		  assertion_key=EXCLUDED.assertion_key, session_key=EXCLUDED.session_key,
-		  ceiling_hash=EXCLUDED.ceiling_hash, issued_at=EXCLUDED.issued_at,
+		  ceiling_hash=EXCLUDED.ceiling_hash, secret_hash=EXCLUDED.secret_hash,
+		  role=EXCLUDED.role, issued_at=EXCLUDED.issued_at,
 		  expires_at=EXCLUDED.expires_at`,
 		a.ID, a.Network, a.StationID, a.Owner, a.Origin.Kind, a.Origin.TowerID,
-		a.AssertionKey, a.SessionKey, a.CeilingHash, a.IssuedAt.UTC(), a.ExpiresAt.UTC(),
-		a.Consumed, a.ConsumedBy)
+		a.AssertionKey, a.SessionKey, a.CeilingHash, a.SecretHash, a.Role,
+		a.IssuedAt.UTC(), a.ExpiresAt.UTC(), a.Consumed, a.ConsumedBy)
 	if err != nil {
 		return pgwrap("put authorization", err)
 	}
@@ -127,11 +132,11 @@ func (p *PGStore) Authorization(id string) (Authorization, bool, error) {
 	var a Authorization
 	err := p.db.QueryRow(`
 		SELECT id,network,station_id,owner,origin_kind,origin_tower,assertion_key,session_key,
-		       ceiling_hash,issued_at,expires_at,consumed,consumed_by
+		       ceiling_hash,secret_hash,role,issued_at,expires_at,consumed,consumed_by
 		  FROM rogerai.station_authorizations WHERE id=$1`, id).
 		Scan(&a.ID, &a.Network, &a.StationID, &a.Owner, &a.Origin.Kind, &a.Origin.TowerID,
-			&a.AssertionKey, &a.SessionKey, &a.CeilingHash, &a.IssuedAt, &a.ExpiresAt,
-			&a.Consumed, &a.ConsumedBy)
+			&a.AssertionKey, &a.SessionKey, &a.CeilingHash, &a.SecretHash, &a.Role,
+			&a.IssuedAt, &a.ExpiresAt, &a.Consumed, &a.ConsumedBy)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Authorization{}, false, nil
 	}

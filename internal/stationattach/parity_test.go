@@ -3,7 +3,9 @@ package stationattach
 import (
 	"database/sql"
 	"fmt"
+	"net/url"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -25,6 +27,41 @@ import (
 // Postgres half is skipped when ROGERAI_TEST_DATABASE_URL is unset; cover-gate always
 // provisions one.
 
+// privateDSN redirects THIS package's Postgres tests to their own database.
+//
+// WHY: the parity harness TRUNCATEs its tables, which is safe within one package because its
+// tests run sequentially - but `go test ./...` runs PACKAGES in parallel against the ONE
+// shared ROGERAI_TEST_DATABASE_URL. Without this, a truncate here wipes rows the broker
+// suite is mid-scenario on, and the failure surfaces over there as something inexplicable.
+// internal/store hit exactly this and solved it the same way; the comment there is the
+// standing record of how long it took to diagnose.
+//
+// A DSN that does not parse as a URL keeps the old shared-database behaviour.
+var privateOnce sync.Once
+
+func privateDSN(t *testing.T, dsn, suffix string) string {
+	t.Helper()
+	u, err := url.Parse(dsn)
+	if err != nil || u.Path == "" || u.Path == "/" {
+		return dsn
+	}
+	name := strings.TrimPrefix(u.Path, "/") + "_" + suffix
+	privateOnce.Do(func() {
+		admin, aerr := sql.Open("pgx", dsn)
+		if aerr != nil {
+			t.Fatalf("private db: open admin: %v", aerr)
+		}
+		defer admin.Close()
+		// No CREATE DATABASE IF NOT EXISTS in PostgreSQL: create and tolerate "already exists".
+		if _, cerr := admin.Exec(`CREATE DATABASE "` + name + `"`); cerr != nil &&
+			!strings.Contains(cerr.Error(), "already exists") {
+			t.Fatalf("private db: create %s: %v", name, cerr)
+		}
+	})
+	u.Path = "/" + name
+	return u.String()
+}
+
 func parityStores(t *testing.T) map[string]Store {
 	t.Helper()
 	out := map[string]Store{"mem": NewMemStore()}
@@ -32,7 +69,7 @@ func parityStores(t *testing.T) map[string]Store {
 	if dsn == "" {
 		return out
 	}
-	db, err := sql.Open("pgx", dsn)
+	db, err := sql.Open("pgx", privateDSN(t, dsn, "stationattach"))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 
@@ -54,12 +91,12 @@ func eachStore(t *testing.T, fn func(t *testing.T, s Store, r *Registry, now tim
 		t.Run(name, func(t *testing.T) {
 			now := time.Unix(1_700_000_000, 0).UTC()
 			r := New(Config{Network: net, Now: func() time.Time { return now }}, s)
-			require.NoError(t, s.PutAuthorization(Authorization{
+			require.NoError(t, s.PutAuthorization(withSecret(Authorization{
 				ID: authorID, Network: net, StationID: station, Owner: owner,
 				Origin:       Origin{Kind: OriginJoined, TowerID: tower},
 				AssertionKey: keyA, SessionKey: keyK, CeilingHash: "ceil-1",
 				IssuedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Hour),
-			}))
+			})))
 			fn(t, s, r, now)
 		})
 	}
@@ -149,14 +186,14 @@ func TestParityAKeyIsHeldByOneLiveStationOnly(t *testing.T) {
 		require.NoError(t, err)
 
 		// A second Station presenting the SAME secure-session key.
-		require.NoError(t, s.PutAuthorization(Authorization{
+		require.NoError(t, s.PutAuthorization(withSecret(Authorization{
 			ID: "auth-2", Network: net, StationID: "st-2", Owner: owner,
 			Origin:       Origin{Kind: OriginJoined, TowerID: tower},
 			AssertionKey: "A2", SessionKey: keyK,
 			IssuedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Hour),
-		}))
+		})))
 		p := Proof{
-			AuthID: "auth-2", Network: net, StationID: "st-2", Owner: owner,
+			AuthID: "auth-2", Secret: inviteSecret, Network: net, StationID: "st-2", Owner: owner,
 			Origin: Origin{Kind: OriginJoined, TowerID: tower}, AssertionKey: "A2", SessionKey: keyK,
 		}
 		_, err = r.Admit(p)
@@ -192,14 +229,14 @@ func TestParityARetiredStationReleasesItsKeys(t *testing.T) {
 
 		// And the freed key may be attached to a genuinely new Station ID - which is exactly
 		// the path the spec requires for a cross-kind migration.
-		require.NoError(t, s.PutAuthorization(Authorization{
+		require.NoError(t, s.PutAuthorization(withSecret(Authorization{
 			ID: "auth-2", Network: net, StationID: "st-2", Owner: owner,
 			Origin:       Origin{Kind: OriginJoined, TowerID: tower},
 			AssertionKey: keyA, SessionKey: keyK,
 			IssuedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Hour),
-		}))
+		})))
 		at, err := r.Admit(Proof{
-			AuthID: "auth-2", Network: net, StationID: "st-2", Owner: owner,
+			AuthID: "auth-2", Secret: inviteSecret, Network: net, StationID: "st-2", Owner: owner,
 			Origin: Origin{Kind: OriginJoined, TowerID: tower}, AssertionKey: keyA, SessionKey: keyK,
 		})
 		require.NoError(t, err)
@@ -245,7 +282,7 @@ func TestReapKeepsWhatAnswersARetry(t *testing.T) {
 	if dsn == "" {
 		t.Skip("no ROGERAI_TEST_DATABASE_URL")
 	}
-	db, err := sql.Open("pgx", dsn)
+	db, err := sql.Open("pgx", privateDSN(t, dsn, "stationattach"))
 	require.NoError(t, err)
 	defer db.Close()
 	_, _ = db.Exec(`CREATE SCHEMA IF NOT EXISTS rogerai`)
@@ -259,12 +296,12 @@ func TestReapKeepsWhatAnswersARetry(t *testing.T) {
 		id       string
 		consumed bool
 	}{{"stale-unspent", false}, {"stale-spent", true}} {
-		require.NoError(t, pg.PutAuthorization(Authorization{
+		require.NoError(t, pg.PutAuthorization(withSecret(Authorization{
 			ID: spec.id, Network: net, StationID: fmt.Sprintf("st-%d", i), Owner: owner,
 			Origin: Origin{Kind: OriginJoined, TowerID: tower}, AssertionKey: "A", SessionKey: "K",
 			IssuedAt: now.Add(-2 * time.Hour), ExpiresAt: now.Add(-time.Hour),
 			Consumed: spec.consumed, ConsumedBy: "st-x",
-		}))
+		})))
 	}
 
 	n, err := pg.Reap(now)

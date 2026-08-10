@@ -71,11 +71,11 @@ func armed(t *testing.T, op string) (*Registry, *refusingStore) {
 	t.Helper()
 	now := time.Unix(1_700_000_000, 0).UTC()
 	base := NewMemStore()
-	require.NoError(t, base.PutAuthorization(Authorization{
+	require.NoError(t, base.PutAuthorization(withSecret(Authorization{
 		ID: authorID, Network: net, StationID: station, Owner: owner,
 		Origin: Origin{Kind: OriginJoined, TowerID: tower}, AssertionKey: keyA, SessionKey: keyK,
 		IssuedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Hour),
-	}))
+	})))
 	rs := &refusingStore{Store: base, fail: op}
 	return New(Config{Network: net, Now: func() time.Time { return now }}, rs), rs
 }
@@ -136,12 +136,12 @@ func TestALostRaceWithAnUnreadableWinnerReportsAnOutage(t *testing.T) {
 func TestAConsumedAuthorizationWithNoRecordIsRefused(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0).UTC()
 	s := NewMemStore()
-	require.NoError(t, s.PutAuthorization(Authorization{
+	require.NoError(t, s.PutAuthorization(withSecret(Authorization{
 		ID: authorID, Network: net, StationID: station, Owner: owner,
 		Origin: Origin{Kind: OriginJoined, TowerID: tower}, AssertionKey: keyA, SessionKey: keyK,
 		IssuedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Hour),
 		Consumed: true, ConsumedBy: "st-vanished",
-	}))
+	})))
 	r := New(Config{Network: net, Now: func() time.Time { return now }}, s)
 
 	_, err := r.Admit(goodProof())
@@ -154,11 +154,11 @@ func TestAConsumedAuthorizationWithNoRecordIsRefused(t *testing.T) {
 func TestAnInvitationFromTheFutureIsRefused(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0).UTC()
 	s := NewMemStore()
-	require.NoError(t, s.PutAuthorization(Authorization{
+	require.NoError(t, s.PutAuthorization(withSecret(Authorization{
 		ID: authorID, Network: net, StationID: station, Owner: owner,
 		Origin: Origin{Kind: OriginJoined, TowerID: tower}, AssertionKey: keyA, SessionKey: keyK,
 		IssuedAt: now.Add(10 * time.Minute), ExpiresAt: now.Add(time.Hour),
-	}))
+	})))
 	r := New(Config{Network: net, Now: func() time.Time { return now }}, s)
 
 	_, err := r.Admit(goodProof())
@@ -172,11 +172,11 @@ func TestAnInvitationFromTheFutureIsRefused(t *testing.T) {
 func TestAMalformedInvitationOriginIsRefusedEvenWithATidyProof(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0).UTC()
 	s := NewMemStore()
-	require.NoError(t, s.PutAuthorization(Authorization{
+	require.NoError(t, s.PutAuthorization(withSecret(Authorization{
 		ID: authorID, Network: net, StationID: station, Owner: owner,
 		Origin: Origin{Kind: "sideways", TowerID: tower}, AssertionKey: keyA, SessionKey: keyK,
 		IssuedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Hour),
-	}))
+	})))
 	r := New(Config{Network: net, Now: func() time.Time { return now }}, s)
 
 	_, err := r.Admit(goodProof())
@@ -191,11 +191,11 @@ func TestRebindingAStationToAnotherAssertionKeyIsRefused(t *testing.T) {
 	_, err := r.Admit(goodProof())
 	require.NoError(t, err)
 
-	require.NoError(t, s.PutAuthorization(Authorization{
+	require.NoError(t, s.PutAuthorization(withSecret(Authorization{
 		ID: "auth-2", Network: net, StationID: station, Owner: owner,
 		Origin: Origin{Kind: OriginJoined, TowerID: tower}, AssertionKey: "A_new", SessionKey: "K_new",
 		IssuedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Hour),
-	}))
+	})))
 	p := goodProof()
 	p.AuthID, p.AssertionKey, p.SessionKey = "auth-2", "A_new", "K_new"
 

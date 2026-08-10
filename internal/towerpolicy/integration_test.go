@@ -68,14 +68,15 @@ func newChain(t *testing.T) *chain {
 	sessKey := hex.EncodeToString([]byte("secure-session-key-distinct"))
 	assertionKey := hex.EncodeToString(stPub)
 
-	require.NoError(t, astore.PutAuthorization(stationattach.Authorization{
+	auth, secret, err := stationattach.NewInvite(stationattach.Authorization{
 		ID: "auth-1", Network: netName, StationID: "st-1", Owner: ownerPub,
 		Origin:       stationattach.Origin{Kind: stationattach.OriginJoined, TowerID: towerID},
 		AssertionKey: assertionKey, SessionKey: sessKey,
-		IssuedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Hour),
-	}))
+	}, time.Hour, now.Add(-time.Minute))
+	require.NoError(t, err)
+	require.NoError(t, astore.PutAuthorization(auth))
 	_, err = reg.Admit(stationattach.Proof{
-		AuthID: "auth-1", Network: netName, StationID: "st-1", Owner: ownerPub,
+		AuthID: "auth-1", Secret: secret, Network: netName, StationID: "st-1", Owner: ownerPub,
 		Origin:       stationattach.Origin{Kind: stationattach.OriginJoined, TowerID: towerID},
 		AssertionKey: assertionKey, SessionKey: sessKey,
 	})

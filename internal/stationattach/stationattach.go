@@ -46,6 +46,10 @@
 package stationattach
 
 import (
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -119,8 +123,14 @@ type Authorization struct {
 	AssertionKey string
 	SessionKey   string
 	CeilingHash  string
-	IssuedAt     time.Time
-	ExpiresAt    time.Time
+	// SecretHash is sha256 of the one-use invitation secret, hex encoded. The plaintext is
+	// shown to the operator ONCE at invite and never stored, so a database read cannot hand
+	// somebody an attachment they were not given. An authorization with no verifier is
+	// unusable rather than open - see validate.
+	SecretHash string
+	Role       string
+	IssuedAt   time.Time
+	ExpiresAt  time.Time
 	// Consumed and ConsumedBy record the spend. ConsumedBy is the Station ID that resulted,
 	// which is what makes a lost-response retry answerable.
 	Consumed   bool
@@ -152,7 +162,12 @@ func (a Attachment) Live() bool {
 // Proof is what a Station presents. Every field must match the authorization exactly; this
 // type exists so the comparison is explicit rather than a pile of arguments.
 type Proof struct {
-	AuthID       string
+	AuthID string
+	// Secret is the one-use invitation material the operator handed over. It proves the
+	// presenter was GIVEN this invitation, which possession of the two keys does not: the
+	// operator chose those keys at invite time, so anyone who learned them and the
+	// authorization id could otherwise attach in the Station's place.
+	Secret       string
 	Network      string
 	StationID    string
 	Owner        string
@@ -178,6 +193,35 @@ type Store interface {
 	BySessionKey(key string) (Attachment, bool, error)
 	// SetState moves an attachment through its lifecycle.
 	SetState(stationID, state string) (bool, error)
+}
+
+// NewInvite mints a one-use invitation and returns it alongside the PLAINTEXT secret, which
+// is the only time that value exists outside the caller. Store the Authorization; show the
+// secret once; never write it down.
+func NewInvite(a Authorization, ttl time.Duration, now time.Time) (Authorization, string, error) {
+	if err := a.Origin.check(); err != nil {
+		return Authorization{}, "", err
+	}
+	switch {
+	case a.ID == "", a.Network == "", a.StationID == "", a.Owner == "":
+		return Authorization{}, "", errors.New("an invitation needs an id, a network, a Station and an owner")
+	case a.AssertionKey == "" || a.SessionKey == "":
+		return Authorization{}, "", errors.New("an invitation names both keys or it names neither")
+	case a.AssertionKey == a.SessionKey:
+		return Authorization{}, "", errors.New("the assertion and secure-session keys must be different keys")
+	case ttl <= 0:
+		return Authorization{}, "", errors.New("an invitation needs a positive lifetime")
+	}
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		return Authorization{}, "", err
+	}
+	secret := hex.EncodeToString(raw)
+	sum := sha256.Sum256([]byte(secret))
+	a.SecretHash = hex.EncodeToString(sum[:])
+	a.IssuedAt, a.ExpiresAt = now, now.Add(ttl)
+	a.Consumed, a.ConsumedBy = false, ""
+	return a, secret, nil
 }
 
 // Config bounds the admission.
@@ -339,6 +383,18 @@ func (r *Registry) validate(auth Authorization, p Proof, now time.Time) error {
 	}
 	if p.AssertionKey == p.SessionKey {
 		return reject(errors.New("the assertion and secure-session keys must be different keys"))
+	}
+
+	// The one-use secret, checked last because it is the most expensive to get wrong: a
+	// timing signal here would let somebody walk the verifier a byte at a time. An
+	// authorization stored WITHOUT a verifier is unusable rather than open - a row that lost
+	// its hash must not become an invitation anyone can redeem.
+	if auth.SecretHash == "" {
+		return reject(errors.New("this invitation has no verifier and cannot be redeemed"))
+	}
+	sum := sha256.Sum256([]byte(p.Secret))
+	if subtle.ConstantTimeCompare([]byte(hex.EncodeToString(sum[:])), []byte(auth.SecretHash)) != 1 {
+		return reject(errors.New("the invitation secret does not match"))
 	}
 	return nil
 }

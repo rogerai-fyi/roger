@@ -724,6 +724,7 @@ func (b *broker) routes() *http.ServeMux {
 	mux.HandleFunc("/tower/session/close", b.towerSessionClose)      // Tower: orderly drain
 	mux.HandleFunc("/tower/inventory", b.towerInventory(false))      // Tower: full signed revision
 	mux.HandleFunc("/tower/inventory/delta", b.towerInventory(true)) // Tower: chained amendment
+	mux.HandleFunc("/tower/station/invite", b.towerStationInvite)    // operator: authorize a Station to attach
 	mux.HandleFunc("/auth/email/start", b.emailStart)                // web: mail a first-party sign-in code
 	mux.HandleFunc("/auth/email/verify", b.emailVerify)              // web: accept the code -> session
 	mux.HandleFunc("/auth/device/start", b.deviceStart)              // CLI: begin a broker-mediated login (signed)

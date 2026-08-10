@@ -23,6 +23,7 @@ package main
 
 import (
 	"crypto/ed25519"
+	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
@@ -30,9 +31,12 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strings"
+	"time"
 
 	"errors"
 
+	"rogerai.fm/roger/v5/internal/stationattach"
 	"rogerai.fm/roger/v5/internal/toweradmit"
 	"rogerai.fm/roger/v5/internal/towerinv"
 	"rogerai.fm/roger/v5/internal/towerlink"
@@ -281,4 +285,149 @@ func excludedView(ex []towerinv.Exclusion) []map[string]string {
 		})
 	}
 	return out
+}
+
+// --- Station invitations ----------------------------------------------------
+
+// towerStationInvite handles POST /tower/station/invite: the operator saying "this Station,
+// with these two keys, may attach to my Tower".
+//
+// IT IS THE ONLY THING THAT CREATES ATTACHMENT AUTHORITY, exactly as /tower/token is the
+// only thing that creates admission authority. Without it the Station registry can only ever
+// be empty, and towerinv refuses every leaf with "not consistent with any registered key" -
+// which is precisely the state this whole subsystem was in before this route existed.
+//
+// The invitation is bound to the OPERATOR'S OWN Tower. An operator who names somebody else's
+// Tower is refused: attaching a Station is capacity and earnings, and neither belongs to a
+// person who merely knows a Tower ID.
+//
+// The plaintext secret is returned ONCE and never stored - only its verifier is. A database
+// read therefore cannot hand anybody an attachment they were not given.
+func (b *broker) towerStationInvite(w http.ResponseWriter, r *http.Request) {
+	if corsCredsPreflight(w, r) {
+		return
+	}
+	if !allow(w, r, http.MethodPost) {
+		return
+	}
+	corsCreds(w, r)
+	body := readTowerBody(r)
+
+	owner, ok := b.towerOperator(r, body)
+	if !ok {
+		jsonErr(w, http.StatusUnauthorized, "inviting a Station requires a signed-in account - run `roger-tower login`")
+		return
+	}
+	// TWO DIFFERENT NOTIONS OF "OWNER", and conflating them is a real bug this route hit.
+	//
+	// Tower ownership is recorded by LOGIN (toweradmit), but an attachment records the
+	// account PUBKEY, because that is what towerpolicy resolves when it asks whether the
+	// owner is present and in good standing. Storing the login here produced an attachment
+	// that verified perfectly and was then refused for "no owner, which public admission
+	// requires" - a leaf rejected for a reason that had nothing to do with the leaf.
+	//
+	// The pubkey is taken from the request that was already authenticated, not from the
+	// body: it is the key that signed, which is the key bound to this account.
+	ownerPubkey := r.Header.Get("X-Roger-Pubkey")
+	if _, found, oerr := b.db.OwnerByPubkey(ownerPubkey); oerr != nil || !found {
+		jsonErr(w, http.StatusUnauthorized, "inviting a Station requires a signed-in account - run `roger-tower login`")
+		return
+	}
+	ts := b.towerAvailable(w)
+	if ts == nil {
+		return
+	}
+
+	var req struct {
+		TowerID      string `json:"tower_id"`
+		StationID    string `json:"station_id"`
+		AssertionKey string `json:"assertion_key"`
+		SessionKey   string `json:"session_key"`
+		Role         string `json:"role"`
+		CeilingHash  string `json:"capability_ceiling_hash"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		jsonErr(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	// The Tower must be one THIS operator holds. Checked against the registry rather than
+	// taken from the request: a Tower ID is not a secret and knowing one proves nothing.
+	tw, found := ts.registry.Get(req.TowerID)
+	if !found || tw.Owner != owner {
+		// Indistinguishable from "no such Tower" on purpose, so this cannot be used to
+		// enumerate other people's Towers.
+		jsonErr(w, http.StatusNotFound, "no such Tower on this account")
+		return
+	}
+
+	// Both keys are checked for SHAPE here, before anything is stored. towerinv will later
+	// verify signatures against the assertion key, and a key that is not a key would produce
+	// a confusing refusal at that distance from the mistake.
+	for name, k := range map[string]string{"assertion_key": req.AssertionKey, "session_key": req.SessionKey} {
+		raw, derr := hex.DecodeString(k)
+		if derr != nil || len(raw) != ed25519.PublicKeySize {
+			jsonErr(w, http.StatusBadRequest, name+" must be a hex-encoded Ed25519 public key")
+			return
+		}
+	}
+
+	stationID := strings.TrimSpace(req.StationID)
+	if stationID == "" {
+		stationID = newStationID()
+	}
+	// A Station ID that is already attached cannot be re-invited: the attachment path would
+	// refuse it anyway, and saying so here costs the operator nothing to fix.
+	if _, exists, serr := ts.stations.Station(stationID); serr != nil {
+		jsonErr(w, http.StatusServiceUnavailable, "could not check the Station registry - try again in a moment")
+		return
+	} else if exists {
+		jsonErr(w, http.StatusConflict, "that Station is already attached - revoke it before attaching a new identity")
+		return
+	}
+
+	auth, secret, err := stationattach.NewInvite(stationattach.Authorization{
+		ID: newInviteID(), Network: towerlink.PublicNetwork, StationID: stationID, Owner: ownerPubkey,
+		Origin:       stationattach.Origin{Kind: stationattach.OriginJoined, TowerID: tw.ID},
+		AssertionKey: req.AssertionKey, SessionKey: req.SessionKey,
+		Role: req.Role, CeilingHash: req.CeilingHash,
+	}, stationInviteTTL, time.Now())
+	if err != nil {
+		jsonErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := ts.stationStore.PutAuthorization(auth); err != nil {
+		jsonErr(w, http.StatusServiceUnavailable, "could not record the invitation - try again in a moment")
+		return
+	}
+
+	log.Printf("station invite %s issued for Station %s on Tower %s by %s",
+		auth.ID, stationID, tw.ID, owner)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"invitation_id": auth.ID,
+		"station_id":    stationID,
+		"tower_id":      tw.ID,
+		// Shown ONCE. It is not stored and cannot be shown again; a lost invitation is
+		// re-issued, never recovered.
+		"secret":     secret,
+		"expires_in": int(stationInviteTTL.Seconds()),
+	})
+}
+
+// stationInviteTTL bounds how long an invitation may sit unredeemed. Long enough for an
+// operator to paste it into a machine they are standing at; short enough that a leaked one
+// stops mattering quickly.
+const stationInviteTTL = time.Hour
+
+func newStationID() string { return "st-" + randomHex(12) }
+func newInviteID() string  { return "sinv-" + randomHex(12) }
+
+func randomHex(n int) string {
+	raw := make([]byte, n)
+	if _, err := rand.Read(raw); err != nil {
+		// crypto/rand failing is not something to paper over with a predictable id: an id an
+		// attacker can guess is an invitation they can try to redeem.
+		panic("crypto/rand unavailable: " + err.Error())
+	}
+	return hex.EncodeToString(raw)
 }
