@@ -83,6 +83,11 @@ func (s *Set) admitLeaf(channelTowerID string, lo map[string]any) (Leaf, string)
 	// Core's own record, consulted before any signature: a signature is only meaningful
 	// once we know which key it must be by.
 	reg := s.policy.Station(ident.stationID)
+	// Checked BEFORE Known: an unreadable central state is not an unregistered Station, and
+	// saying so would send the operator to fix something that is not broken.
+	if reg.Unavailable {
+		return Leaf{}, "central state for this Station is temporarily unavailable"
+	}
 	if !reg.Known || len(reg.Key) == 0 {
 		return Leaf{}, "Station ID is not consistent with any registered key"
 	}

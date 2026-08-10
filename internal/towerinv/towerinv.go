@@ -108,6 +108,14 @@ type Registration struct {
 	KeyRevoked     bool
 	OwnerPresent   bool
 	OwnerSuspended bool
+	// Unavailable means Core could not READ its own state for this Station - a ban list it
+	// could not load, an account it could not resolve. The leaf is refused either way, but
+	// the reason must not be one of the others: reporting "not registered" would send an
+	// operator off to re-attach a Station that is fine, and reporting "banned" would accuse
+	// them of something that did not happen. Found by the first end-to-end test of the
+	// attachment -> policy -> inventory chain, where an unreadable ban set surfaced as
+	// "Station ID is not consistent with any registered key".
+	Unavailable bool
 }
 
 // Policy is the central authority towerinv consults for everything it cannot verify with
