@@ -1,7 +1,7 @@
 package attach
 
 import (
-	"errors"
+	"fmt"
 	"sync"
 )
 
@@ -10,8 +10,8 @@ import (
 // is a permanent answer. Reporting either as a transient failure invites a caller to retry
 // forever against something that will never change.
 var (
-	errAlreadyAttached  = errors.New("that Station is already attached")
-	errKeyHeldByAnother = errors.New("that key is already held by another live Station")
+	errAlreadyAttached  = fmt.Errorf("%w: that Station is already attached", ErrRejected)
+	errKeyHeldByAnother = fmt.Errorf("%w: that key is already held by another live Station", ErrRejected)
 )
 
 // memStore is the in-process Store. It exists so the contract can be exercised without a

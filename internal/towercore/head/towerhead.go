@@ -15,8 +15,12 @@
 //
 // THE THREE THINGS A STORED HEAD LETS US SEE, which an empty instance cannot:
 //
-//   - RESUME. Same revision, same hash. Nothing changed while we were away, and the Tower
-//     sends ~100 bytes instead of a snapshot. This is the case that pays for the table.
+//   - RESUME. Same revision, same hash - a NECESSARY condition, not a sufficient one. The
+//     body is never stored here, so an instance holding this head but no leaves still cannot
+//     accept a delta; the caller must also check that ITS OWN inventory is at this position
+//     (cmd/rogerai-broker/towerlink.go does). Resume across instances is therefore not what
+//     this table buys, and an earlier version of this doc overstated it as "~100 bytes
+//     instead of 5.4 MB".
 //
 //   - REPLAY. The Tower claims a revision at or below one we already accepted, with
 //     different bytes, or claims to be behind where we know it was. Either it lost state, or
@@ -27,6 +31,11 @@
 //     it means the Tower signed two different objects as the same revision, which the hash
 //     chain exists to make impossible to do quietly. It is recorded as evidence, because one
 //     fork is a bug and a pattern of them is an operator worth removing.
+//
+// WHAT THIS TABLE ACTUALLY BUYS is the other two: seeing a REPLAY or a FORK from any
+// instance, including one that has never met this Tower before. Without it a fresh instance
+// has nothing to compare a claim against and cannot tell an honest reconnect from a Tower
+// re-presenting old history.
 //
 // Every outcome except an exact match ends in a full snapshot. The distinctions matter for
 // what we RECORD, not for what we accept: treating a fork as ordinary drift would throw away

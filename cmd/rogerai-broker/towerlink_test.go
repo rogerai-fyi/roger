@@ -20,6 +20,7 @@ import (
 
 	"rogerai.fm/roger/v5/internal/protocol"
 	"rogerai.fm/roger/v5/internal/store"
+	"rogerai.fm/roger/v5/internal/towercore/admit"
 	"rogerai.fm/roger/v5/internal/towercore/attach"
 	"rogerai.fm/roger/v5/internal/towercore/inv"
 	"rogerai.fm/roger/v5/internal/towercore/link"
@@ -977,4 +978,169 @@ func TestStationRoutesAreUnavailableWithoutTheSubsystem(t *testing.T) {
 	// Unauthenticated first for attach (the Tower check runs before availability), so assert
 	// it simply does not 500.
 	require.NotEqual(t, http.StatusInternalServerError, resp.StatusCode)
+}
+
+// --- the second audit's findings --------------------------------------------
+
+// A SUSPENDED, REVOKED OR LAPSED TOWER MUST NOT DRIVE THE LINK.
+//
+// Missed by two audit passes. towerCaller proved identity - registry presence plus key hash
+// - and stopped there, so a Tower Core had suspended still held a perfectly valid key and
+// could open sessions, push inventory, and redeem Station invitations. MayTakeWork is the
+// registry's own answer (eligible state AND an unexpired lease) and existed all along, used
+// only to render a status page.
+func TestALapsedTowerCannotUseTheLink(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		lapse func(t *testing.T, b *broker, id string)
+	}{
+		{"suspended", func(t *testing.T, b *broker, id string) {
+			require.NoError(t, b.tower.registry.Transition(id, admit.StateSuspended))
+		}},
+		{"revoked", func(t *testing.T, b *broker, id string) {
+			require.NoError(t, b.tower.registry.Transition(id, admit.StateRevoked))
+		}},
+		{"lease expired", func(t *testing.T, b *broker, id string) {
+			require.NoError(t, b.tower.registry.ForceLeaseExpiryForTest(id))
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b, srv := towerTestBroker(t)
+			op := signedInOperator(t, b, "octocat")
+			lt := enrolledTower(t, b, op.login)
+
+			// It works before the lapse.
+			code, raw := lt.call(t, srv, "/tower/session", jsonOf(t, link.Hello{
+				Network: link.PublicNetwork, Versions: []int{1}, TowerID: lt.id,
+				Capabilities: mandatoryCaps(),
+			}), nil)
+			require.Equal(t, http.StatusOK, code, raw)
+
+			tc.lapse(t, b, lt.id)
+
+			for _, path := range []string{"/tower/session", "/tower/station/attach"} {
+				code, raw = lt.call(t, srv, path, jsonOf(t, map[string]any{
+					"network": link.PublicNetwork, "versions": []int{1}, "tower_id": lt.id,
+					"capabilities": mandatoryCaps(),
+				}), nil)
+				require.Equal(t, http.StatusForbidden, code,
+					"%s must be refused for a %s Tower: %s", path, tc.name, raw)
+			}
+		})
+	}
+}
+
+// Resume needs the position to match on THIS instance, not merely that it holds some chain.
+func TestResumeRequiresThisInstanceToBeAtTheSamePosition(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	op := signedInOperator(t, b, "octocat")
+	lt := enrolledTower(t, b, op.login)
+	stPriv := attachStation(t, b, "st-1", lt.id, ownerPubkeyOf(t, b, op.login))
+
+	var acc link.Accepted
+	_, _ = lt.call(t, srv, "/tower/session", jsonOf(t, link.Hello{
+		Network: link.PublicNetwork, Versions: []int{1}, TowerID: lt.id,
+		Capabilities: mandatoryCaps(),
+	}), &acc)
+	code, raw := lt.call(t, srv, "/tower/inventory",
+		signedInventory(t, lt, stPriv, "st-1", 1, "genesis"), nil)
+	require.Equal(t, http.StatusOK, code, raw)
+
+	// The Tower claims a revision AHEAD of what this instance holds, and the durable head
+	// would agree if it had been recorded elsewhere. Presence alone would have said Resume.
+	_, err := b.tower.heads.Accept(lt.id, 9, "hash-9")
+	require.NoError(t, err)
+	code, raw = lt.call(t, srv, "/tower/session", jsonOf(t, link.Hello{
+		Network: link.PublicNetwork, Versions: []int{1}, TowerID: lt.id,
+		Capabilities: mandatoryCaps(), HeadRevision: 9, HeadHash: "hash-9",
+	}), &acc)
+	require.Equal(t, http.StatusOK, code, raw)
+	require.True(t, acc.NeedFullInventory,
+		"this instance is at revision 1; resuming at 9 would promise a delta it must refuse")
+}
+
+// The quarantine gate has an opener, and only an administrator may throw it.
+func TestOnlyAnAdminCanPromoteOutOfQuarantine(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	b.adminKey = "admin-secret"
+	op := signedInOperator(t, b, "octocat")
+	lt := enrolledTower(t, b, op.login)
+	ownerPub := ownerPubkeyOf(t, b, op.login)
+
+	stPub, _, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	sessPub, _, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	var invited struct {
+		InvitationID, StationID, Secret string
+	}
+	code, raw := op.call(t, srv, http.MethodPost, "/tower/station/invite", map[string]any{
+		"tower_id": lt.id, "assertion_key": hex.EncodeToString(stPub),
+		"session_key": hex.EncodeToString(sessPub),
+	}, &struct {
+		InvitationID *string `json:"invitation_id"`
+		StationID    *string `json:"station_id"`
+		Secret       *string `json:"secret"`
+	}{&invited.InvitationID, &invited.StationID, &invited.Secret})
+	require.Equal(t, http.StatusOK, code, raw)
+
+	code, raw = lt.call(t, srv, "/tower/station/attach", jsonOf(t, map[string]any{
+		"tower_id": lt.id, "invitation_id": invited.InvitationID, "secret": invited.Secret,
+		"station_id": invited.StationID, "owner": ownerPub,
+		"assertion_key": hex.EncodeToString(stPub), "session_key": hex.EncodeToString(sessPub),
+	}), nil)
+	require.Equal(t, http.StatusOK, code, raw)
+
+	// The OPERATOR cannot promote their own Station - that would collapse admission and
+	// eligibility back into one decision and the gate would mean nothing.
+	code, raw = op.call(t, srv, http.MethodPost, "/tower/station/promote",
+		map[string]any{"station_id": invited.StationID}, nil)
+	require.Equal(t, http.StatusForbidden, code, raw)
+	at, _, err := b.tower.stations.Station(invited.StationID)
+	require.NoError(t, err)
+	require.Equal(t, attach.StateQuarantine, at.State)
+
+	// An administrator can.
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/tower/station/promote",
+		strings.NewReader(`{"station_id":"`+invited.StationID+`"}`))
+	require.NoError(t, err)
+	req.Header.Set("X-Roger-Admin", "admin-secret")
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	at, _, err = b.tower.stations.Station(invited.StationID)
+	require.NoError(t, err)
+	require.Equal(t, attach.StateActive, at.State)
+}
+
+// Retiring one Station must not cost its siblings a full resync.
+func TestRevokingOneStationLeavesTheTowersChainAlone(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	op := signedInOperator(t, b, "octocat")
+	lt := enrolledTower(t, b, op.login)
+	ownerPub := ownerPubkeyOf(t, b, op.login)
+	stPriv := attachStation(t, b, "st-1", lt.id, ownerPub)
+	attachStation(t, b, "st-2", lt.id, ownerPub)
+
+	var acc link.Accepted
+	_, _ = lt.call(t, srv, "/tower/session", jsonOf(t, link.Hello{
+		Network: link.PublicNetwork, Versions: []int{1}, TowerID: lt.id,
+		Capabilities: mandatoryCaps(),
+	}), &acc)
+	code, raw := lt.call(t, srv, "/tower/inventory",
+		signedInventory(t, lt, stPriv, "st-1", 1, "genesis"), nil)
+	require.Equal(t, http.StatusOK, code, raw)
+	rev, _, ok := b.tower.inv.Head(lt.id)
+	require.True(t, ok)
+
+	code, raw = op.call(t, srv, http.MethodPost, "/tower/station/revoke",
+		map[string]any{"station_id": "st-2"}, nil)
+	require.Equal(t, http.StatusOK, code, raw)
+
+	gotRev, _, stillThere := b.tower.inv.Head(lt.id)
+	require.True(t, stillThere,
+		"retiring one Station must not drop the whole Tower's chain and resync every sibling")
+	require.Equal(t, rev, gotRev)
 }

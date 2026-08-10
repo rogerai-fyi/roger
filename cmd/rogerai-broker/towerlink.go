@@ -78,7 +78,39 @@ func (b *broker) towerCaller(r *http.Request, body []byte, claimedID string) (ad
 	if subtle.ConstantTimeCompare([]byte(hex.EncodeToString(sum[:])), []byte(tw.KeyHash)) != 1 {
 		return admit.Tower{}, nil, false
 	}
+
+	// IDENTITY IS NOT ENTITLEMENT, and two audit passes missed this. Proving you are the
+	// Tower Core admitted says nothing about whether Core still wants you: a suspended,
+	// revoked or lease-expired Tower holds a perfectly valid key, and without this check
+	// could open sessions, push inventory, and redeem Station invitations.
+	//
+	// NOT MayTakeWork, though that is the obvious reach. MayTakeWork asks whether a Tower may
+	// take WORK, and a quarantined Tower may not - EligibleFor(quarantine) is "probes or
+	// bounded beta only". But quarantine is exactly the state a Tower is admitted INTO, and
+	// the whole point of it is that the Tower connects, stays connected and is visible while
+	// Core gathers evidence. Gating the link on MayTakeWork would lock every newly admitted
+	// Tower out of the network it was just admitted to.
+	//
+	// The link asks a different question: may this Tower be HERE at all? That is any
+	// non-terminal state with a live lease.
+	if !towerMayHoldLink(tw) {
+		return admit.Tower{}, nil, false
+	}
 	return tw, ed25519.PublicKey(raw), true
+}
+
+// towerMayHoldLink reports whether a Tower may hold a session and push inventory.
+//
+// Deliberately broader than MayTakeWork (which gates DISPATCH) and narrower than "the key
+// verifies" (which gates nothing at all). Quarantine passes, because that is the state
+// admission puts a Tower in and it must be able to connect. Suspended, revoked, expired and
+// pending do not, and neither does a lapsed lease - the lease is what bounds what a Tower may
+// do while nobody is watching it closely.
+func towerMayHoldLink(tw admit.Tower) bool {
+	if time.Now().After(tw.LeaseExpires) {
+		return false
+	}
+	return admit.EligibleFor(tw.State) != admit.EligibilityNone
 }
 
 // readTowerBody reads a bounded body once, so the signature check and the handler see the
@@ -136,8 +168,12 @@ func (b *broker) towerSessionOpen(w http.ResponseWriter, r *http.Request) {
 		if herr != nil {
 			log.Printf("tower %s: head store unavailable, asking for a full inventory: %v", tw.ID, herr)
 		}
-		_, _, holdsChain := ts.inv.Head(tw.ID)
-		acc.NeedFullInventory = out.NeedsFullInventory() || !holdsChain
+		// Presence is not enough: an instance holding an OLDER revision would report Resume
+		// and then refuse the delta that followed. The position has to match on this
+		// instance as well as in the durable record.
+		ourRev, ourHash, holdsChain := ts.inv.Head(tw.ID)
+		inStep := holdsChain && ourRev == hello.HeadRevision && ourHash == hello.HeadHash
+		acc.NeedFullInventory = out.NeedsFullInventory() || !inStep
 		if out.Suspicious() {
 			// Evidence, not a penalty. One fork is a bug; a pattern of them is an operator
 			// worth removing, and that is a separate approved decision made on accumulated
@@ -542,10 +578,74 @@ func (b *broker) towerStationRevoke(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusServiceUnavailable, "could not revoke - try again in a moment")
 		return
 	}
-	// The leaf must stop being routable now, not at the next inventory expiry.
-	ts.inv.Forget(at.Origin.TowerID)
+	// The revoked Station stops being routable at once - policy refuses it on the next
+	// revision, and the origin claim is released so it can attach elsewhere.
+	//
+	// Deliberately NOT inv.Forget(tower): dropping the whole Tower's inventory to retire one
+	// Station forces every sibling leaf through a full resync, and for a direct-origin
+	// attachment the Tower ID is empty so it would forget nothing at all while looking like
+	// it had. The leaf itself goes when the Tower next pushes, and policy refuses it in the
+	// meantime because the attachment is revoked.
+	ts.inv.ReleaseStation(req.StationID)
 	log.Printf("station %s revoked by %s", req.StationID, owner)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "revoked": true})
+}
+
+// towerStationPromote handles POST /tower/station/promote: the manual opener for the
+// quarantine gate.
+//
+// IT IS ADMIN-GATED, NOT OPERATOR-GATED, and that is the whole design of it. Quarantine
+// exists so that admission (proving who you are) and eligibility (being trusted with
+// customer traffic) are separate decisions. An operator who could promote their own Station
+// would collapse them back into one and the gate would mean nothing - the person asking to
+// be trusted cannot also be the person granting it.
+//
+// This is the MANUAL path, and it is deliberately the only one that exists today. The
+// approved design has promotion driven by evidence Core observed itself - session uptime it
+// held, probes it dispatched, signatures it verified - graduating through a bounded share of
+// traffic. None of that is built, so pretending an automatic ladder exists would be worse
+// than an explicit switch a human has to throw. See docs/tower-relay-link-design.md section
+// 7, and note that the same design requires exactly this switch as the escape hatch for when
+// automated promotion turns out to be wrong.
+func (b *broker) towerStationPromote(w http.ResponseWriter, r *http.Request) {
+	if !allow(w, r, http.MethodPost) {
+		return
+	}
+	if b.requireAdmin(w, r) {
+		return
+	}
+	ts := b.towerAvailable(w)
+	if ts == nil {
+		return
+	}
+	var req struct {
+		StationID string `json:"station_id"`
+	}
+	if err := json.Unmarshal(readTowerBody(r), &req); err != nil {
+		jsonErr(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	promoted, err := ts.stations.Promote(req.StationID)
+	if err != nil {
+		jsonErr(w, http.StatusServiceUnavailable, "could not promote - try again in a moment")
+		return
+	}
+	if !promoted {
+		// Unknown, already promoted, or terminal. Said plainly rather than as a 404, because
+		// the caller here is an administrator who needs to know which.
+		at, found, ferr := ts.stations.Station(req.StationID)
+		state := "unknown"
+		if ferr == nil && found {
+			state = at.State
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ok": false, "promoted": false, "state": state,
+			"reason": "only a Station in quarantine can be promoted",
+		})
+		return
+	}
+	log.Printf("station %s promoted out of quarantine by an administrator", req.StationID)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "promoted": true, "state": attach.StateActive})
 }
 
 // stationInviteTTL bounds how long an invitation may sit unredeemed. Long enough for an

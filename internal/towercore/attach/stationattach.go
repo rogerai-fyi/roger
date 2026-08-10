@@ -302,6 +302,13 @@ func (r *Registry) Admit(p Proof) (Attachment, error) {
 
 	won, err := r.store.Admit(auth.ID, at)
 	if err != nil {
+		// A store REFUSAL passes through unchanged. Wrapping everything as an outage is the
+		// bug this fix was supposed to close and then reinstated one layer up: the handler
+		// answers "try again in a moment" to a Station ID that is already attached, and the
+		// caller retries forever against something that will never change.
+		if errors.Is(err, ErrRejected) {
+			return Attachment{}, err
+		}
 		return Attachment{}, fmt.Errorf("%w: %v", ErrUnavailable, err)
 	}
 	if !won {

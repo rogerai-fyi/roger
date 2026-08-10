@@ -315,6 +315,26 @@ func (s *Set) releaseOrigins(towerID string) {
 	}
 }
 
+// ReleaseStation drops one Station's origin claim, without disturbing any Tower's accepted
+// chain.
+//
+// Retiring a Station must not cost its siblings a full resync, which is what forgetting the
+// whole Tower would do. The leaf itself stops being routable through policy - the attachment
+// is revoked, so the next revision refuses it - and this releases only the one-origin claim
+// so the Station can attach somewhere else.
+func (s *Set) ReleaseStation(stationID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.origins, stationID)
+	for _, st := range s.towers {
+		for offerID, leaf := range st.byOffer {
+			if leaf.StationID == stationID {
+				delete(st.byOffer, offerID)
+			}
+		}
+	}
+}
+
 // Routable is the eligibility snapshot routing takes. Past the accepted revision's expiry
 // it is empty - the revision stays recorded, because its head is still what a delta must
 // chain from, but nothing behind it receives new work.

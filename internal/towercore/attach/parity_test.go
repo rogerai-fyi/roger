@@ -404,3 +404,32 @@ func TestParityConcurrentAttachmentsCannotShareAKey(t *testing.T) {
 		require.Equal(t, 1, live)
 	})
 }
+
+// A store refusal must reach the caller AS a refusal.
+//
+// Found by the second audit: Registry.Admit wrapped every store error as ErrUnavailable with
+// %v, which flattened the sentinel - so the permanent refusals the stores had just learned to
+// raise arrived at the handler as "try again in a moment", reinstating the infinite-retry bug
+// the previous fix claimed to close. A test that only counts winners cannot see this.
+func TestParityALoserLearnsItIsPermanent(t *testing.T) {
+	eachStore(t, func(t *testing.T, s Store, r *Registry, now time.Time) {
+		_, err := r.Admit(goodProof())
+		require.NoError(t, err)
+
+		second, secret, err := NewInvite(Authorization{
+			ID: "auth-2", Network: net, StationID: station, Owner: owner,
+			Origin:       Origin{Kind: OriginJoined, TowerID: tower},
+			AssertionKey: keyA, SessionKey: keyK,
+		}, time.Hour, now.Add(-time.Minute))
+		require.NoError(t, err)
+		require.NoError(t, s.PutAuthorization(second))
+
+		p := goodProof()
+		p.AuthID, p.Secret = "auth-2", secret
+		_, err = r.Admit(p)
+		require.ErrorIs(t, err, ErrRejected, "a permanent answer must arrive as a refusal")
+		require.NotErrorIs(t, err, ErrUnavailable,
+			"reporting it as an outage invites a caller to retry forever against something "+
+				"that will never change")
+	})
+}
