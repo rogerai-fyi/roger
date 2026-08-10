@@ -1365,3 +1365,105 @@ func TestAnAdminCanEndATowersLease(t *testing.T) {
 	}), nil)
 	require.Equal(t, http.StatusForbidden, code, raw)
 }
+
+// inv.Routable finally has a production reader, and this is it.
+//
+// The audit's closing observation across four rounds was that inventory was verified,
+// chained, persisted and reconciled - and then nothing read it. An operator could not tell a
+// Station that was carrying nothing from a Station Core had refused, because the exclusion
+// reasons were computed at admission and then discarded.
+func TestTowerStatusShowsWhatCoreActuallyBelieves(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	op := signedInOperator(t, b, "octocat")
+	lt := enrolledTower(t, b, op.login)
+	ownerPub := ownerPubkeyOf(t, b, op.login)
+	stPriv := attachStation(t, b, "st-live", lt.id, ownerPub) // helper promotes
+
+	var acc link.Accepted
+	code, raw := lt.call(t, srv, "/tower/session", jsonOf(t, link.Hello{
+		Network: link.PublicNetwork, Versions: []int{1}, TowerID: lt.id,
+		Capabilities: mandatoryCaps(),
+	}), &acc)
+	require.Equal(t, http.StatusOK, code, raw)
+	code, raw = lt.call(t, srv, "/tower/inventory",
+		signedInventory(t, lt, stPriv, "st-live", 1, "genesis"), nil)
+	require.Equal(t, http.StatusOK, code, raw)
+
+	var status struct {
+		Towers []struct {
+			TowerID  string `json:"tower_id"`
+			LinkLive bool   `json:"link_live"`
+			Revision int64  `json:"inventory_revision"`
+			Carries  bool   `json:"carries_traffic"`
+			Note     string `json:"note"`
+			Routable []struct {
+				StationID string `json:"station_id"`
+				Model     string `json:"model"`
+			} `json:"routable"`
+		} `json:"towers"`
+	}
+	code, raw = op.call(t, srv, http.MethodGet, "/tower/status", nil, &status)
+	require.Equal(t, http.StatusOK, code, raw)
+	require.Len(t, status.Towers, 1)
+	got := status.Towers[0]
+	require.Equal(t, lt.id, got.TowerID)
+	require.True(t, got.LinkLive, "the operator can see the link is up")
+	require.Equal(t, int64(1), got.Revision, "and which revision Core accepted")
+	require.Len(t, got.Routable, 1, "and which of their Stations is eligible")
+	require.Equal(t, "st-live", got.Routable[0].StationID)
+	require.Equal(t, "roger-1", got.Routable[0].Model)
+
+	// Said plainly rather than inferred from an empty list.
+	require.False(t, got.Carries, "nothing dispatches off these leaves yet")
+	require.Contains(t, got.Note, "not shipped yet")
+}
+
+// A quarantined Station is attached and verified but NOT routable, and the operator can see
+// exactly that rather than guessing why their fleet is idle.
+func TestTowerStatusDistinguishesQuarantineFromRoutable(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	op := signedInOperator(t, b, "octocat")
+	lt := enrolledTower(t, b, op.login)
+	ownerPub := ownerPubkeyOf(t, b, op.login)
+
+	stPub, stPriv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	sessPub, _, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	auth, secret, err := attach.NewInvite(attach.Authorization{
+		ID: "inv-q", Network: link.PublicNetwork, StationID: "st-quarantined", Owner: ownerPub,
+		Origin:       attach.Origin{Kind: attach.OriginJoined, TowerID: lt.id},
+		AssertionKey: hex.EncodeToString(stPub), SessionKey: hex.EncodeToString(sessPub),
+	}, time.Hour, time.Now().Add(-time.Minute))
+	require.NoError(t, err)
+	require.NoError(t, b.tower.stationStore.PutAuthorization(auth))
+	_, err = b.tower.stations.Admit(attach.Proof{
+		AuthID: "inv-q", Secret: secret, Network: link.PublicNetwork,
+		StationID: "st-quarantined", Owner: ownerPub,
+		Origin:       attach.Origin{Kind: attach.OriginJoined, TowerID: lt.id},
+		AssertionKey: hex.EncodeToString(stPub), SessionKey: hex.EncodeToString(sessPub),
+	})
+	require.NoError(t, err) // left in quarantine on purpose
+
+	var acc link.Accepted
+	_, _ = lt.call(t, srv, "/tower/session", jsonOf(t, link.Hello{
+		Network: link.PublicNetwork, Versions: []int{1}, TowerID: lt.id,
+		Capabilities: mandatoryCaps(),
+	}), &acc)
+	code, raw := lt.call(t, srv, "/tower/inventory",
+		signedInventory(t, lt, stPriv, "st-quarantined", 1, "genesis"), nil)
+	require.Equal(t, http.StatusOK, code, raw)
+
+	var status struct {
+		Towers []struct {
+			Routable []struct {
+				StationID string `json:"station_id"`
+			} `json:"routable"`
+		} `json:"towers"`
+	}
+	code, raw = op.call(t, srv, http.MethodGet, "/tower/status", nil, &status)
+	require.Equal(t, http.StatusOK, code, raw)
+	require.Len(t, status.Towers, 1)
+	require.Empty(t, status.Towers[0].Routable,
+		"a quarantined Station is attached and verified, and still not eligible")
+}

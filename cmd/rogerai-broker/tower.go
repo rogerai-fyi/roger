@@ -498,13 +498,49 @@ func (b *broker) towerStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	out := []map[string]any{}
 	for _, tw := range ts.registry.ByOwner(owner) {
-		out = append(out, map[string]any{
+		// THE FIRST READER OF inv.Routable. Until now the inventory was verified, chained,
+		// persisted and reconciled - and then nothing looked at it, which meant an operator
+		// had no way to tell a Station that was carrying nothing from a Station Core had
+		// refused. The exclusion reasons are already computed at admission time; this is
+		// where they become answerable.
+		//
+		// It is deliberately an OPERATOR view and not a consumer one. Nothing dispatches off
+		// these leaves yet, so listing them on /discover or /market would advertise offers
+		// that cannot be taken up. Telling the person who runs the Tower what Core currently
+		// believes about their fleet costs nobody anything and is the question they actually
+		// have.
+		leaves := ts.inv.Routable(tw.ID)
+		stations := make([]map[string]any, 0, len(leaves))
+		for _, leaf := range leaves {
+			stations = append(stations, map[string]any{
+				"station_id": leaf.StationID,
+				"offer_id":   leaf.OfferID,
+				"model":      leaf.Model,
+				"modality":   leaf.Modality,
+				"capacity":   leaf.Capacity,
+			})
+		}
+		rev, hash, haveChain := ts.inv.Head(tw.ID)
+		entry := map[string]any{
 			"tower_id":      tw.ID,
 			"state":         string(tw.State),
 			"enrolled_at":   tw.EnrolledAt.Unix(),
 			"lease_expires": tw.LeaseExpires.Unix(),
 			"may_take_work": ts.registry.MayTakeWork(tw.ID),
-		})
+			"link_live":     ts.link.Live(tw.ID),
+			"routable":      stations,
+		}
+		if haveChain {
+			entry["inventory_revision"] = rev
+			entry["inventory_hash"] = hash
+		}
+		// Said plainly rather than left to be inferred from an empty list: a Tower can be
+		// admitted, connected and pushing a perfectly good inventory and still carry no
+		// traffic, because dispatch is not built. An operator seeing zero routable Stations
+		// deserves to know which of those it is.
+		entry["carries_traffic"] = false
+		entry["note"] = "Stations shown here are admitted and eligible; routing Tower-backed work is not shipped yet"
+		out = append(out, entry)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"towers": out})
 }

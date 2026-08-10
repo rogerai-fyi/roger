@@ -45,7 +45,24 @@
 //	policy   the seam through which inv asks Core the questions it may not answer alone -
 //	         bans, owners, revoked keys, allowed models, price bands. Fails closed.
 //
-// THE DIRECTION OF TRUST, which every package here is written around: a Tower TRANSPORTS,
+// # WHY THE IN-MEMORY STORES LOOK LIKE DEAD CODE AND ARE NOT
+//
+// admit.NewMemStore, attach.NewMemStore, enroll.NewMemStore, head.NewMemStore and
+// cert.NewMemCustody have no production callers - loadTowerSubsystem returns nil without a
+// database, so the broker never builds one. A dead-code sweep will find them every time.
+//
+// They are the REFERENCE IMPLEMENTATION each durable store is held against. The parity
+// suites run one scenario against both and require the same answer, and the two are written
+// deliberately differently - a held mutex against a locked row and a CAS, a Go comparison
+// against a conditional upsert, a scan against a partial unique index - so agreement between
+// them is a real result rather than a tautology. That has already paid for itself: the band
+// occupancy bug in internal/store shipped precisely because a covered memory store sat beside
+// an uncovered durable one, and this module has since caught mem/PG divergence on
+// re-attachment, on live-key uniqueness, on duplicate ids and on a cap's expiry boundary.
+//
+// Deleting them would delete the only thing that can tell you the durable store is wrong.
+//
+// # THE DIRECTION OF TRUST, which every package here is written around: a Tower TRANSPORTS,
 // it does not DECIDE. Nothing in towercore may take a Tower's word for eligibility, price,
 // capacity, or identity. Where a package looks like it is trusting the Tower, it is
 // comparing the Tower's claim against something Core recorded for itself.
