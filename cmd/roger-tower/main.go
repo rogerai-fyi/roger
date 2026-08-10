@@ -7,8 +7,11 @@
 //	joined      an untrusted child relay of the public RogerAI network. Roger Core
 //	            stays the admission, routing, settlement and revocation authority.
 //
-// Phase 1 of docs/tower-network-plan.md ships standalone first; the joined protocol is
-// Phase 2. Commands that need the joined protocol say so plainly rather than pretending.
+// Phase 1 of docs/tower-network-plan.md shipped standalone first; the joined protocol is
+// Phase 2, and its relay link now holds - `serve` opens a session, pushes a signed
+// inventory, heartbeats and drains. It carries no customer traffic yet, because dispatch is
+// not built. The commands that still need something unbuilt say so plainly rather than
+// pretending, and name the one that covers the ordinary case.
 package main
 
 import (
@@ -42,6 +45,7 @@ usage:
   roger-tower login  --dir DIR        (joined mode only)
   roger-tower logout --dir DIR
   roger-tower register --dir DIR      (joined mode only; requires login)
+  roger-tower serve  --dir DIR        (joined mode only; holds the relay link)
   roger-tower version
 
 Standalone needs NO account: nothing leaves your machine. Joining the public network
@@ -102,13 +106,14 @@ func run(args []string, out io.Writer) error {
 	case "help", "-h", "--help":
 		fmt.Fprint(out, usage)
 		return nil
-	case "serve", "drain", "revoke":
-		// Registration works: a Tower can be admitted, is issued a certificate, and sits in
-		// quarantine. Carrying public traffic needs the joined relay link, which is the next
-		// piece - so this says which half is missing rather than implying neither works.
-		return fmt.Errorf("%q needs the joined relay link, which has not shipped yet. "+
-			"`roger-tower register` works today: your Tower is admitted and holds its certificate, "+
-			"and it will start taking work once the link ships. Standalone mode serves now", args[0])
+	case "serve":
+		return cmdServe(args[1:], out)
+	case "drain", "revoke":
+		// The link ships; these two do not yet. `serve` drains on exit, which covers the
+		// ordinary case - a separate drain command is for draining a Tower you are not
+		// standing in front of, and revoke needs the operator surface.
+		return fmt.Errorf("%q has not shipped yet - `roger-tower serve` holds the relay link "+
+			"and drains it cleanly when you stop it", args[0])
 	default:
 		return fmt.Errorf("unknown command %q\n\n%s", args[0], usage)
 	}

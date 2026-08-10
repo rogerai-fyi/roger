@@ -13,6 +13,7 @@ docs-internal
 dist/
 /rogerai-broker
 /rogerai
+/roger-tower
 *.exe
 CLAUDE.md
 

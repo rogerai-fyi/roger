@@ -142,8 +142,26 @@ browser; run `roger-tower login` and `roger-tower register` and confirm the Towe
 `quarantine`. Quarantine is the expected state - a new Tower is never trusted on arrival,
 and promotion is a separate, deliberate decision.
 
+## The relay link
+
+`roger-tower serve` holds it. A joined Tower opens a session, pushes a signed inventory,
+heartbeats, and drains on shutdown so Core drops its inventory at once rather than letting it
+age out over the freshness window.
+
+Two things it deliberately does not do, said here so nobody goes looking for them:
+
+- **It carries no customer traffic.** Dispatch is not built.
+- **It relays no Station offers.** A Station signs its own offers with its assertion key,
+  which the Tower does not hold and must never hold — if a Tower could sign for a Station,
+  "signed by the Station" would mean nothing. No Station-side software exists to produce them
+  yet, so a joined Tower pushes a valid inventory of zero leaves: "I am here and I have
+  nothing."
+
+A Tower also stays in quarantine until it is promoted. That is not a missing feature; a new
+Tower is never trusted on arrival.
+
 ## What is not shipped yet
 
-`roger-tower serve`, `drain`, and `revoke` need the joined relay link, which has not shipped.
-Registration is complete: a Tower is admitted, holds its certificate, and sits in quarantine
-until the link lands. Standalone Towers serve today and need none of this.
+`drain` and `revoke`. `serve` drains on exit, which covers the ordinary case — a separate
+drain command is for draining a Tower you are not standing in front of, and revoke needs the
+operator surface. Standalone Towers serve today and need none of this.

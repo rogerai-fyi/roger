@@ -65,6 +65,9 @@ func TestUsageAndVersion(t *testing.T) {
 	out, err = runCLI(t, "help")
 	require.NoError(t, err)
 	require.Contains(t, out, "standalone")
+	// A command that ships and is not in the usage text may as well not exist. `serve` was
+	// missing from it for exactly as long as it was unshipped, and stayed missing after.
+	require.Contains(t, out, "serve", "every shipped command is discoverable")
 
 	out, err = runCLI(t, "version")
 	require.NoError(t, err)
@@ -77,16 +80,30 @@ func TestUnknownCommandFails(t *testing.T) {
 	require.Contains(t, err.Error(), "unknown command")
 }
 
-// Commands that need the joined RELAY LINK must say so, not fail obscurely or pretend to
-// work - and they must not imply that registration is missing too, because it is not.
-// Telling an operator "not implemented" about the whole of joined mode would send them
-// looking for a workaround they do not need.
-func TestJoinedOnlyCommandsNameTheMissingHalf(t *testing.T) {
-	for _, c := range []string{"serve", "drain", "revoke"} {
+// `serve` HOLDS THE RELAY LINK NOW. This test used to assert the opposite - that serve was
+// unshipped and said so - and it is kept, inverted, because the inversion is the point: the
+// link gaining a Tower-side participant is what changed, and a regression that took serve
+// back to a message would otherwise pass silently.
+//
+// Asking to serve without a data directory must fail on the missing directory, not on a
+// missing feature.
+func TestServeShipsAndAsksForItsDataDirectory(t *testing.T) {
+	_, err := runCLI(t, "serve")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "--dir", "it asks for what it needs")
+	require.NotContains(t, err.Error(), "not shipped", "serve ships")
+}
+
+// Drain and revoke still do not, and must say so without implying joined mode as a whole is
+// missing - it is not, and an operator told "not implemented" would go looking for a
+// workaround they do not need. Each names the command covering the ordinary case.
+func TestTheJoinedCommandsThatHaveNotShippedNameWhatDoes(t *testing.T) {
+	for _, c := range []string{"drain", "revoke"} {
 		_, err := runCLI(t, c)
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "relay link", "it names what is missing")
-		require.Contains(t, err.Error(), "register", "and what already works")
+		require.Contains(t, err.Error(), "not shipped", "it is honest about being absent")
+		require.Contains(t, err.Error(), "serve", "and points at what covers the ordinary case")
+		require.Contains(t, err.Error(), "relay link", "naming what serve actually holds")
 	}
 }
 
