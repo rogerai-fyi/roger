@@ -47,9 +47,14 @@
 //
 // # WHY THE IN-MEMORY STORES LOOK LIKE DEAD CODE AND ARE NOT
 //
-// admit.NewMemStore, attach.NewMemStore, enroll.NewMemStore, head.NewMemStore and
-// cert.NewMemCustody have no production callers - loadTowerSubsystem returns nil without a
-// database, so the broker never builds one. A dead-code sweep will find them every time.
+// The in-memory store constructors and the CA's NewAuthority/ExportRoot have no callers
+// inside the broker binary. loadTowerSubsystem returns nil without a database, so the broker
+// never builds a memory store; and the CA is loaded through LoadOrCreate, never minted
+// directly. A dead-code sweep will find all of them, every time.
+//
+// (If you are running such a sweep: exclude comment lines. Naming these symbols in this very
+// paragraph was enough to make one report them as having a production caller, which is a
+// cheerful reminder that a check you cannot see the workings of is a check you do not have.)
 //
 // They are the REFERENCE IMPLEMENTATION each durable store is held against. The parity
 // suites run one scenario against both and require the same answer, and the two are written
@@ -61,6 +66,12 @@
 // re-attachment, on live-key uniqueness, on duplicate ids and on a cap's expiry boundary.
 //
 // Deleting them would delete the only thing that can tell you the durable store is wrong.
+//
+// cert.NewAuthority and cert.ExportRoot are the same shape for a different reason: they are
+// the OFFLINE ROOT CEREMONY. Minting a Tower CA root and exporting both halves as PEM is how
+// an operator produces the key material for ROGERAI_TOWER_CA_{KEY,CERT}_PEM before the first
+// broker ever starts - which is exactly how this deployment's root was made. The broker does
+// not call them because by the time it runs, the ceremony is over.
 //
 // # THE DIRECTION OF TRUST, which every package here is written around: a Tower TRANSPORTS,
 // it does not DECIDE. Nothing in towercore may take a Tower's word for eligibility, price,
