@@ -17,10 +17,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"rogerai.fm/roger/v5/internal/protocol"
-	"rogerai.fm/roger/v5/internal/stationattach"
 	"rogerai.fm/roger/v5/internal/store"
-	"rogerai.fm/roger/v5/internal/towerinv"
-	"rogerai.fm/roger/v5/internal/towerlink"
+	"rogerai.fm/roger/v5/internal/towercore/attach"
+	"rogerai.fm/roger/v5/internal/towercore/inv"
+	"rogerai.fm/roger/v5/internal/towercore/link"
 	"rogerai.fm/roger/v5/internal/towerobj"
 )
 
@@ -83,7 +83,7 @@ func (lt linkTower) call(t *testing.T, srv *httptest.Server, path string, body [
 // features: without the first a modified frame is indistinguishable from an honest one, and
 // without the second the Tower could read the traffic it is carrying.
 func mandatoryCaps() []string {
-	return []string{towerlink.CapIntegrity, towerlink.CapInnerSession}
+	return []string{link.CapIntegrity, link.CapInnerSession}
 }
 
 func jsonOf(t *testing.T, v any) []byte {
@@ -101,19 +101,19 @@ func attachStation(t *testing.T, b *broker, stationID, towerID, owner string) ed
 	assertion := hex.EncodeToString(pub)
 	session := hex.EncodeToString([]byte(stationID + "-session-key"))
 
-	auth, secret, err := stationattach.NewInvite(stationattach.Authorization{
-		ID: "auth-" + stationID, Network: towerlink.PublicNetwork, StationID: stationID,
+	auth, secret, err := attach.NewInvite(attach.Authorization{
+		ID: "auth-" + stationID, Network: link.PublicNetwork, StationID: stationID,
 		Owner:        owner,
-		Origin:       stationattach.Origin{Kind: stationattach.OriginJoined, TowerID: towerID},
+		Origin:       attach.Origin{Kind: attach.OriginJoined, TowerID: towerID},
 		AssertionKey: assertion, SessionKey: session,
 	}, time.Hour, time.Now())
 	require.NoError(t, err)
 	require.NoError(t, b.tower.stationStore.PutAuthorization(auth))
-	_, err = b.tower.stations.Admit(stationattach.Proof{
+	_, err = b.tower.stations.Admit(attach.Proof{
 		AuthID: "auth-" + stationID, Secret: secret,
-		Network: towerlink.PublicNetwork, StationID: stationID,
+		Network: link.PublicNetwork, StationID: stationID,
 		Owner:        owner,
-		Origin:       stationattach.Origin{Kind: stationattach.OriginJoined, TowerID: towerID},
+		Origin:       attach.Origin{Kind: attach.OriginJoined, TowerID: towerID},
 		AssertionKey: assertion, SessionKey: session,
 	})
 	require.NoError(t, err)
@@ -125,28 +125,28 @@ func signedInventory(t *testing.T, lt linkTower, stPriv ed25519.PrivateKey, stat
 	t.Helper()
 	now := time.Now()
 	leaf := map[string]any{
-		"network": towerlink.PublicNetwork, "tower_id": lt.id, "station_id": stationID,
+		"network": link.PublicNetwork, "tower_id": lt.id, "station_id": stationID,
 		"offer_id": "offer-" + stationID, "model": "roger-1", "modality": "text",
 		"price_in": "1000", "price_out": "2000", "earn_in": "800", "earn_out": "1600",
 		"capacity": "4", "capabilities": []any{"chat"},
 		"expires": towerobj.FormatInt(now.Add(30 * time.Minute).Unix()),
 	}
-	signedLeaf, err := towerobj.Sign(stPriv, towerlink.PublicNetwork, towerinv.TypeOffer,
-		towerinv.Version, jsonOf(t, leaf), "station_sig")
+	signedLeaf, err := towerobj.Sign(stPriv, link.PublicNetwork, inv.TypeOffer,
+		inv.Version, jsonOf(t, leaf), "station_sig")
 	require.NoError(t, err)
 	var leafObj map[string]any
 	require.NoError(t, json.Unmarshal(signedLeaf, &leafObj))
 
-	inv := map[string]any{
-		"network": towerlink.PublicNetwork, "tower_id": lt.id,
+	invObj := map[string]any{
+		"network": link.PublicNetwork, "tower_id": lt.id,
 		"revision": towerobj.FormatInt(rev), "prev_hash": prev,
 		"lease_head": "lease-1", "lifecycle_head": "life-1",
 		"issued":  towerobj.FormatInt(now.Unix()),
 		"expires": towerobj.FormatInt(now.Add(30 * time.Minute).Unix()),
 		"leaves":  []any{leafObj},
 	}
-	signed, err := towerobj.Sign(lt.priv, towerlink.PublicNetwork, towerinv.TypeInventory,
-		towerinv.Version, jsonOf(t, inv), "sig")
+	signed, err := towerobj.Sign(lt.priv, link.PublicNetwork, inv.TypeInventory,
+		inv.Version, jsonOf(t, invObj), "sig")
 	require.NoError(t, err)
 	return signed
 }
@@ -158,10 +158,10 @@ func TestATowerOpensALinkAndPushesInventory(t *testing.T) {
 	stPriv := attachStation(t, b, "st-1", lt.id, ownerPubkeyOf(t, b, op.login))
 
 	// A first connect has no head to resume from, so a full snapshot is demanded.
-	var acc towerlink.Accepted
+	var acc link.Accepted
 	code, raw := lt.call(t, srv, "/tower/session",
-		jsonOf(t, towerlink.Hello{
-			Network: towerlink.PublicNetwork, Versions: []int{1}, TowerID: lt.id,
+		jsonOf(t, link.Hello{
+			Network: link.PublicNetwork, Versions: []int{1}, TowerID: lt.id,
 			Capabilities: mandatoryCaps(),
 		}), &acc)
 	require.Equal(t, http.StatusOK, code, raw)
@@ -193,15 +193,15 @@ func TestATowerOpensALinkAndPushesInventory(t *testing.T) {
 
 	// Heartbeat keeps it alive.
 	code, raw = lt.call(t, srv, "/tower/session/heartbeat",
-		jsonOf(t, towerlink.Frame{
-			Network: towerlink.PublicNetwork, Version: 1, TowerID: lt.id, SessionID: acc.SessionID,
+		jsonOf(t, link.Frame{
+			Network: link.PublicNetwork, Version: 1, TowerID: lt.id, SessionID: acc.SessionID,
 		}), nil)
 	require.Equal(t, http.StatusOK, code, raw)
 
 	// A reconnect quoting the recorded head RESUMES - the whole reason the head is stored.
 	code, raw = lt.call(t, srv, "/tower/session",
-		jsonOf(t, towerlink.Hello{
-			Network: towerlink.PublicNetwork, Versions: []int{1}, TowerID: lt.id,
+		jsonOf(t, link.Hello{
+			Network: link.PublicNetwork, Versions: []int{1}, TowerID: lt.id,
 			Capabilities: mandatoryCaps(),
 			HeadRevision: h.Revision, HeadHash: h.Hash,
 		}), &acc)
@@ -217,8 +217,8 @@ func TestAnOperatorKeyCannotDriveTheLink(t *testing.T) {
 	op := signedInOperator(t, b, "octocat")
 	lt := enrolledTower(t, b, op.login)
 
-	code, _ := op.call(t, srv, http.MethodPost, "/tower/session", towerlink.Hello{
-		Network: towerlink.PublicNetwork, Versions: []int{1}, TowerID: lt.id,
+	code, _ := op.call(t, srv, http.MethodPost, "/tower/session", link.Hello{
+		Network: link.PublicNetwork, Versions: []int{1}, TowerID: lt.id,
 		Capabilities: mandatoryCaps(),
 	}, nil)
 	require.Equal(t, http.StatusForbidden, code,
@@ -235,8 +235,8 @@ func TestATowerCannotSpeakForAnother(t *testing.T) {
 
 	// The attacker signs, but claims the victim's ID.
 	code, _ := attacker.call(t, srv, "/tower/session",
-		jsonOf(t, towerlink.Hello{
-			Network: towerlink.PublicNetwork, Versions: []int{1}, TowerID: victim.id,
+		jsonOf(t, link.Hello{
+			Network: link.PublicNetwork, Versions: []int{1}, TowerID: victim.id,
 			Capabilities: mandatoryCaps(),
 		}), nil)
 	require.Equal(t, http.StatusForbidden, code)
@@ -263,23 +263,23 @@ func TestAnUnplaceableDeltaAsksForAFullSnapshot(t *testing.T) {
 	lt := enrolledTower(t, b, op.login)
 	attachStation(t, b, "st-1", lt.id, ownerPubkeyOf(t, b, op.login))
 
-	var acc towerlink.Accepted
+	var acc link.Accepted
 	code, raw := lt.call(t, srv, "/tower/session",
-		jsonOf(t, towerlink.Hello{
-			Network: towerlink.PublicNetwork, Versions: []int{1}, TowerID: lt.id,
+		jsonOf(t, link.Hello{
+			Network: link.PublicNetwork, Versions: []int{1}, TowerID: lt.id,
 			Capabilities: mandatoryCaps(),
 		}), &acc)
 	require.Equal(t, http.StatusOK, code, raw)
 
 	delta := map[string]any{
-		"network": towerlink.PublicNetwork, "tower_id": lt.id,
+		"network": link.PublicNetwork, "tower_id": lt.id,
 		"base_revision": "40", "revision": "41", "prev_hash": "nothing-we-accepted",
 		"issued":  towerobj.FormatInt(time.Now().Unix()),
 		"expires": towerobj.FormatInt(time.Now().Add(30 * time.Minute).Unix()),
 		"ops":     []any{},
 	}
-	signed, err := towerobj.Sign(lt.priv, towerlink.PublicNetwork, towerinv.TypeDelta,
-		towerinv.Version, jsonOf(t, delta), "sig")
+	signed, err := towerobj.Sign(lt.priv, link.PublicNetwork, inv.TypeDelta,
+		inv.Version, jsonOf(t, delta), "sig")
 	require.NoError(t, err)
 
 	var out struct {
@@ -297,10 +297,10 @@ func TestClosingTheSessionDrainsTheInventory(t *testing.T) {
 	lt := enrolledTower(t, b, op.login)
 	stPriv := attachStation(t, b, "st-1", lt.id, ownerPubkeyOf(t, b, op.login))
 
-	var acc towerlink.Accepted
+	var acc link.Accepted
 	_, _ = lt.call(t, srv, "/tower/session",
-		jsonOf(t, towerlink.Hello{
-			Network: towerlink.PublicNetwork, Versions: []int{1}, TowerID: lt.id,
+		jsonOf(t, link.Hello{
+			Network: link.PublicNetwork, Versions: []int{1}, TowerID: lt.id,
 			Capabilities: mandatoryCaps(),
 		}), &acc)
 	code, raw := lt.call(t, srv, "/tower/inventory",
@@ -309,8 +309,8 @@ func TestClosingTheSessionDrainsTheInventory(t *testing.T) {
 	require.Len(t, b.tower.inv.Routable(lt.id), 1)
 
 	code, raw = lt.call(t, srv, "/tower/session/close",
-		jsonOf(t, towerlink.Frame{
-			Network: towerlink.PublicNetwork, Version: 1, TowerID: lt.id, SessionID: acc.SessionID,
+		jsonOf(t, link.Frame{
+			Network: link.PublicNetwork, Version: 1, TowerID: lt.id, SessionID: acc.SessionID,
 		}), nil)
 	require.Equal(t, http.StatusOK, code, raw)
 	require.Empty(t, b.tower.inv.Routable(lt.id),
@@ -398,8 +398,8 @@ func TestAHeartbeatWithoutASessionIsRefused(t *testing.T) {
 	lt := enrolledTower(t, b, op.login)
 
 	code, raw := lt.call(t, srv, "/tower/session/heartbeat",
-		jsonOf(t, towerlink.Frame{
-			Network: towerlink.PublicNetwork, Version: 1, TowerID: lt.id, SessionID: "sess-nope",
+		jsonOf(t, link.Frame{
+			Network: link.PublicNetwork, Version: 1, TowerID: lt.id, SessionID: "sess-nope",
 		}), nil)
 	require.Equal(t, http.StatusConflict, code, raw)
 }
@@ -439,10 +439,10 @@ func TestARejectedInventoryIsAFourHundred(t *testing.T) {
 	lt := enrolledTower(t, b, op.login)
 	attachStation(t, b, "st-1", lt.id, ownerPubkeyOf(t, b, op.login))
 
-	var acc towerlink.Accepted
+	var acc link.Accepted
 	code, raw := lt.call(t, srv, "/tower/session",
-		jsonOf(t, towerlink.Hello{
-			Network: towerlink.PublicNetwork, Versions: []int{1}, TowerID: lt.id,
+		jsonOf(t, link.Hello{
+			Network: link.PublicNetwork, Versions: []int{1}, TowerID: lt.id,
 			Capabilities: mandatoryCaps(),
 		}), &acc)
 	require.Equal(t, http.StatusOK, code, raw)
@@ -468,8 +468,8 @@ func TestANegotiationFailureIsTheTowersToFix(t *testing.T) {
 	lt := enrolledTower(t, b, op.login)
 
 	code, raw := lt.call(t, srv, "/tower/session",
-		jsonOf(t, towerlink.Hello{
-			Network: towerlink.PublicNetwork, Versions: []int{99}, TowerID: lt.id,
+		jsonOf(t, link.Hello{
+			Network: link.PublicNetwork, Versions: []int{99}, TowerID: lt.id,
 			Capabilities: mandatoryCaps(),
 		}), nil)
 	require.Equal(t, http.StatusBadRequest, code, raw)
@@ -550,7 +550,7 @@ func TestAnOperatorInvitesAStationAndItsOfferBecomesRoutable(t *testing.T) {
 	sessPub, _, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
 
-	var inv struct {
+	var invited struct {
 		InvitationID string `json:"invitation_id"`
 		StationID    string `json:"station_id"`
 		Secret       string `json:"secret"`
@@ -559,35 +559,35 @@ func TestAnOperatorInvitesAStationAndItsOfferBecomesRoutable(t *testing.T) {
 		"tower_id":      lt.id,
 		"assertion_key": hex.EncodeToString(stPub),
 		"session_key":   hex.EncodeToString(sessPub),
-	}, &inv)
+	}, &invited)
 	require.Equal(t, http.StatusOK, code, raw)
-	require.NotEmpty(t, inv.InvitationID)
-	require.NotEmpty(t, inv.StationID)
-	require.NotEmpty(t, inv.Secret, "the plaintext is shown once, here")
+	require.NotEmpty(t, invited.InvitationID)
+	require.NotEmpty(t, invited.StationID)
+	require.NotEmpty(t, invited.Secret, "the plaintext is shown once, here")
 
 	// The secret is NOT recoverable from what was stored.
-	stored, ok, err := b.tower.stationStore.Authorization(inv.InvitationID)
+	stored, ok, err := b.tower.stationStore.Authorization(invited.InvitationID)
 	require.NoError(t, err)
 	require.True(t, ok)
-	require.NotEqual(t, inv.Secret, stored.SecretHash, "only a verifier is kept")
+	require.NotEqual(t, invited.Secret, stored.SecretHash, "only a verifier is kept")
 	require.Equal(t, ownerPubkeyOf(t, b, op.login), stored.Owner,
 		"an attachment records the account PUBKEY - that is what towerpolicy resolves")
 
 	// The Station redeems it.
-	at, err := b.tower.stations.Admit(stationattach.Proof{
-		AuthID: inv.InvitationID, Secret: inv.Secret,
-		Network: towerlink.PublicNetwork, StationID: inv.StationID, Owner: ownerPubkeyOf(t, b, op.login),
-		Origin:       stationattach.Origin{Kind: stationattach.OriginJoined, TowerID: lt.id},
+	at, err := b.tower.stations.Admit(attach.Proof{
+		AuthID: invited.InvitationID, Secret: invited.Secret,
+		Network: link.PublicNetwork, StationID: invited.StationID, Owner: ownerPubkeyOf(t, b, op.login),
+		Origin:       attach.Origin{Kind: attach.OriginJoined, TowerID: lt.id},
 		AssertionKey: hex.EncodeToString(stPub), SessionKey: hex.EncodeToString(sessPub),
 	})
 	require.NoError(t, err)
-	require.Equal(t, stationattach.StateQuarantine, at.State)
+	require.Equal(t, attach.StateQuarantine, at.State)
 
 	// And now a leaf signed by that Station verifies all the way through.
-	var acc towerlink.Accepted
+	var acc link.Accepted
 	code, raw = lt.call(t, srv, "/tower/session",
-		jsonOf(t, towerlink.Hello{
-			Network: towerlink.PublicNetwork, Versions: []int{1}, TowerID: lt.id,
+		jsonOf(t, link.Hello{
+			Network: link.PublicNetwork, Versions: []int{1}, TowerID: lt.id,
 			Capabilities: mandatoryCaps(),
 		}), &acc)
 	require.Equal(t, http.StatusOK, code, raw)
@@ -597,7 +597,7 @@ func TestAnOperatorInvitesAStationAndItsOfferBecomesRoutable(t *testing.T) {
 		Excluded []struct{ Reason string } `json:"excluded"`
 	}
 	code, raw = lt.call(t, srv, "/tower/inventory",
-		signedInventory(t, lt, stPriv, inv.StationID, 1, "genesis"), &res)
+		signedInventory(t, lt, stPriv, invited.StationID, 1, "genesis"), &res)
 	require.Equal(t, http.StatusOK, code, raw)
 	require.Equal(t, 1, res.Routable,
 		"an invited, attached Station's offer must be routable: %+v", res.Excluded)

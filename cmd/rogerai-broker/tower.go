@@ -26,15 +26,15 @@ import (
 	"time"
 
 	"rogerai.fm/roger/v5/internal/keypurpose"
-	"rogerai.fm/roger/v5/internal/stationattach"
 	"rogerai.fm/roger/v5/internal/store"
-	"rogerai.fm/roger/v5/internal/toweradmit"
-	"rogerai.fm/roger/v5/internal/towercert"
-	"rogerai.fm/roger/v5/internal/towerenroll"
-	"rogerai.fm/roger/v5/internal/towerhead"
-	"rogerai.fm/roger/v5/internal/towerinv"
-	"rogerai.fm/roger/v5/internal/towerlink"
-	"rogerai.fm/roger/v5/internal/towerpolicy"
+	"rogerai.fm/roger/v5/internal/towercore/admit"
+	"rogerai.fm/roger/v5/internal/towercore/attach"
+	"rogerai.fm/roger/v5/internal/towercore/cert"
+	"rogerai.fm/roger/v5/internal/towercore/enroll"
+	"rogerai.fm/roger/v5/internal/towercore/head"
+	"rogerai.fm/roger/v5/internal/towercore/inv"
+	"rogerai.fm/roger/v5/internal/towercore/link"
+	"rogerai.fm/roger/v5/internal/towercore/policy"
 )
 
 // The settled link parameters, from docs/tower-relay-link-design.md section 6. A heartbeat
@@ -88,23 +88,23 @@ const (
 // towerSubsystem is everything joined-Tower admission needs, or nil when it cannot be
 // durable.
 type towerSubsystem struct {
-	registry *toweradmit.Registry
-	enroller *towerenroll.Enroller
-	ca       *towercert.Authority
+	registry *admit.Registry
+	enroller *enroll.Enroller
+	ca       *cert.Authority
 
 	// The LINK layer. link holds the live sessions, inv holds each Tower's accepted
 	// inventory, heads is the durable chain position so ANY instance can answer a reconnect,
 	// stations is the attachment registry every leaf is verified against, and policy is how
 	// towerinv asks Core the questions it may not answer itself.
-	link     *towerlink.Sessions
-	inv      *towerinv.Set
-	heads    *towerhead.Reconciler
-	stations *stationattach.Registry
-	policy   *towerpolicy.Policy
+	link     *link.Sessions
+	inv      *inv.Set
+	heads    *head.Reconciler
+	stations *attach.Registry
+	policy   *policy.Policy
 	// stationStore is kept so attachment authorizations can be seeded by the operator-facing
 	// invite flow (and by tests) without reaching through the Registry, which deliberately
 	// exposes only admission and lookup.
-	stationStore stationattach.Store
+	stationStore attach.Store
 }
 
 // brokerOperatorPolicy answers whether an account may enroll a Tower. A joined Tower relays
@@ -128,21 +128,21 @@ func (p brokerOperatorPolicy) MayEnroll(owner string) error {
 // linkDeps are the durable stores the link layer needs. They are passed in rather than
 // built here so a test can wire the whole subsystem over in-process stores.
 type linkDeps struct {
-	stations stationattach.Store
-	heads    towerhead.Store
+	stations attach.Store
+	heads    head.Store
 }
 
-func newTowerSubsystem(b *broker, registryStore toweradmit.Store, custody towercert.Custody, enrollStore towerenroll.Store, cfg towercert.Config, deps linkDeps) (*towerSubsystem, error) {
-	ca, err := towercert.LoadOrCreate(cfg, custody)
+func newTowerSubsystem(b *broker, registryStore admit.Store, custody cert.Custody, enrollStore enroll.Store, cfg cert.Config, deps linkDeps) (*towerSubsystem, error) {
+	ca, err := cert.LoadOrCreate(cfg, custody)
 	if err != nil {
 		return nil, err
 	}
-	registry := toweradmit.NewWithStore(toweradmit.Config{
+	registry := admit.NewWithStore(admit.Config{
 		TokenTTL:          time.Hour,
 		LeaseTTL:          24 * time.Hour,
 		MaxTowersPerOwner: 10,
 	}, registryStore)
-	enroller, err := towerenroll.New(towerenroll.Config{
+	enroller, err := enroll.New(enroll.Config{
 		Registry: registry, Authority: ca, Policy: brokerOperatorPolicy{b: b},
 		MinVersion: towerProtocolMin, MaxVersion: towerProtocolMax,
 		MaxSkew: 5 * time.Minute, Store: enrollStore,
@@ -155,21 +155,25 @@ func newTowerSubsystem(b *broker, registryStore toweradmit.Store, custody towerc
 	// The link layer. Everything below is in-process EXCEPT the two durable stores: sessions
 	// are per-instance by nature (a Tower holds one connection), and the accepted inventory
 	// is reconstructible, but the chain head and the Station registry are authority.
-	stations := stationattach.New(stationattach.Config{Network: towerlink.PublicNetwork}, deps.stations)
-	policy := towerpolicy.New(stations, b.db, brokerOwners{b: b}, towerpolicy.Config{
+	// Local names deliberately differ from the package names they are built from: `sessions`
+	// rather than `link`, `inventory` rather than `inv`. A local that shadows its own package
+	// compiles until the moment you need another symbol from it, and then fails somewhere
+	// unrelated.
+	stations := attach.New(attach.Config{Network: link.PublicNetwork}, deps.stations)
+	pol := policy.New(stations, b.db, brokerOwners{b: b}, policy.Config{
 		ModelAllowed:    b.towerModelAllowed,
 		ModalityAllowed: towerModalityAllowed,
 		PriceBand:       towerPriceBand,
 	})
-	heads := towerhead.New(deps.heads, nil)
-	link := towerlink.New(towerlink.Config{
-		Network:   towerlink.PublicNetwork,
+	heads := head.New(deps.heads, nil)
+	sessions := link.New(link.Config{
+		Network:   link.PublicNetwork,
 		Versions:  []int{towerProtocolMin, towerProtocolMax},
 		Heartbeat: towerHeartbeatInterval,
 		Freshness: towerFreshnessWindow,
 	})
-	inv := towerinv.New(towerinv.Config{
-		Network: towerlink.PublicNetwork,
+	inventory := inv.New(inv.Config{
+		Network: link.PublicNetwork,
 		// Recording the head on every accepted revision is what lets a reconnect cost ~100
 		// bytes instead of a full snapshot.
 		RecordHead: func(towerID string, rev int64, hash string) {
@@ -177,9 +181,9 @@ func newTowerSubsystem(b *broker, registryStore toweradmit.Store, custody towerc
 				log.Printf("tower %s: could not record inventory head %d: %v", towerID, rev, err)
 			}
 		},
-	}, policy)
+	}, pol)
 
-	ts.stations, ts.policy, ts.heads, ts.link, ts.inv = stations, policy, heads, link, inv
+	ts.stations, ts.policy, ts.heads, ts.link, ts.inv = stations, pol, heads, sessions, inventory
 	ts.stationStore = deps.stations
 	return ts, nil
 }
@@ -189,14 +193,14 @@ func newTowerSubsystem(b *broker, registryStore toweradmit.Store, custody towerc
 // anything else about an account.
 type brokerOwners struct{ b *broker }
 
-func (o brokerOwners) OwnerByPubkey(pubkey string) (towerpolicy.Owner, bool, error) {
+func (o brokerOwners) OwnerByPubkey(pubkey string) (policy.Owner, bool, error) {
 	rec, found, err := o.b.db.OwnerByPubkey(pubkey)
 	if err != nil || !found {
-		return towerpolicy.Owner{}, false, err
+		return policy.Owner{}, false, err
 	}
 	// Deleted and anonymized accounts are suspended for this purpose: neither may earn, and
 	// a Station whose owner has gone must not keep serving under their name.
-	return towerpolicy.Owner{
+	return policy.Owner{
 		Suspended: rec.DeletedAt != 0 || rec.Anonymized || o.b.isOwnerBanned(pubkey),
 	}, true, nil
 }
@@ -228,19 +232,19 @@ func loadTowerSubsystem(b *broker, db store.Store) (*towerSubsystem, error) {
 		return nil, fmt.Errorf("joined-Tower admission is configured but could not start: %w", err)
 	}
 
-	registryStore, err := toweradmit.NewPGStore(sqlDB)
+	registryStore, err := admit.NewPGStore(sqlDB)
 	if err != nil {
 		return fail(err)
 	}
-	custody, err := toweradmit.NewPGCustody(sqlDB)
+	custody, err := admit.NewPGCustody(sqlDB)
 	if err != nil {
 		return fail(err)
 	}
-	enrollStore, err := toweradmit.NewPGEnrollStore(sqlDB)
+	enrollStore, err := admit.NewPGEnrollStore(sqlDB)
 	if err != nil {
 		return fail(err)
 	}
-	enrollDurable, err := towerenroll.NewPGStore(enrollStore)
+	enrollDurable, err := enroll.NewPGStore(enrollStore)
 	if err != nil {
 		return fail(err)
 	}
@@ -249,16 +253,16 @@ func loadTowerSubsystem(b *broker, db store.Store) (*towerSubsystem, error) {
 	// who a Station IS, and a chain head is what lets any instance answer a reconnect. If
 	// either cannot be provisioned the whole subsystem fails rather than coming up with the
 	// link quietly missing.
-	stationStore, err := stationattach.NewPGStore(sqlDB)
+	stationStore, err := attach.NewPGStore(sqlDB)
 	if err != nil {
 		return fail(err)
 	}
-	headStore, err := towerhead.NewPGStore(sqlDB)
+	headStore, err := head.NewPGStore(sqlDB)
 	if err != nil {
 		return fail(err)
 	}
 
-	ts, err := newTowerSubsystem(b, registryStore, custody, enrollDurable, towercert.Config{
+	ts, err := newTowerSubsystem(b, registryStore, custody, enrollDurable, cert.Config{
 		TTL:         towerCertTTL(),
 		RootKeyPEM:  []byte(os.Getenv("ROGERAI_TOWER_CA_KEY_PEM")),
 		RootCertPEM: []byte(os.Getenv("ROGERAI_TOWER_CA_CERT_PEM")),
@@ -427,14 +431,14 @@ func (b *broker) towerEnroll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res, err := ts.enroller.Enroll(towerenroll.Request{
+	res, err := ts.enroller.Enroll(enroll.Request{
 		Operator: owner, TokenID: req.Token, TransactionID: req.TransactionID,
 		Nonce: req.Nonce, IdentityKey: identity, Signature: sig, CSR: csr,
 		ProtocolVersion: req.Version, Realm: keypurpose.RealmTower,
 		Capabilities: req.Capabilities, Now: time.Now(),
 	})
 	if err != nil {
-		if errors.Is(err, towerenroll.ErrUnavailable) {
+		if errors.Is(err, enroll.ErrUnavailable) {
 			jsonErr(w, http.StatusServiceUnavailable, "enrollment is temporarily unavailable - retry with the same transaction id")
 			return
 		}

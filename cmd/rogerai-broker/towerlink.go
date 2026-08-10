@@ -1,6 +1,6 @@
 package main
 
-// towerlink.go is the joined-Tower LINK: the session a registered Tower holds open, and the
+// link.go is the joined-Tower LINK: the session a registered Tower holds open, and the
 // inventory it pushes over it. Registration proved who a Tower is; this is where it starts
 // telling us what it has.
 //
@@ -14,12 +14,12 @@ package main
 // THE PUBLIC KEY THAT AUTHENTICATED THE REQUEST IS THE ONE THE INVENTORY IS VERIFIED WITH.
 // That is deliberate and it is the whole reason no key is stored: the request signature
 // proves possession, the hash comparison proves it is the admitted Tower's key, and only
-// then is it handed to towerinv. A key taken from the message body instead would make
+// then is it handed to inv. A key taken from the message body instead would make
 // "signed by the Tower" mean "signed by whoever wrote the message".
 //
 // The durable head is consulted on every session open, so a Tower reconnecting to an
 // instance that has never seen it can still resume - and so a replay or a fork is visible to
-// whichever instance happens to take the connection. See internal/towerhead.
+// whichever instance happens to take the connection. See internal/head.
 
 import (
 	"crypto/ed25519"
@@ -36,10 +36,10 @@ import (
 
 	"errors"
 
-	"rogerai.fm/roger/v5/internal/stationattach"
-	"rogerai.fm/roger/v5/internal/toweradmit"
-	"rogerai.fm/roger/v5/internal/towerinv"
-	"rogerai.fm/roger/v5/internal/towerlink"
+	"rogerai.fm/roger/v5/internal/towercore/admit"
+	"rogerai.fm/roger/v5/internal/towercore/attach"
+	"rogerai.fm/roger/v5/internal/towercore/inv"
+	"rogerai.fm/roger/v5/internal/towercore/link"
 )
 
 // maxInventoryBody bounds what a Tower may push in one request. towerinv enforces its own
@@ -53,30 +53,30 @@ const maxInventoryBody = 8 << 20
 // claimedID is the Tower ID the message names. It is checked rather than trusted: the
 // registered key hash for THAT id must match the key that actually signed, so naming another
 // Tower gets you nothing.
-func (b *broker) towerCaller(r *http.Request, body []byte, claimedID string) (toweradmit.Tower, ed25519.PublicKey, bool) {
+func (b *broker) towerCaller(r *http.Request, body []byte, claimedID string) (admit.Tower, ed25519.PublicKey, bool) {
 	if claimedID == "" {
-		return toweradmit.Tower{}, nil, false
+		return admit.Tower{}, nil, false
 	}
 	if _, authed, ok := b.identityOf(r, body); !ok || !authed {
-		return toweradmit.Tower{}, nil, false
+		return admit.Tower{}, nil, false
 	}
 	raw, err := hex.DecodeString(r.Header.Get("X-Roger-Pubkey"))
 	if err != nil || len(raw) != ed25519.PublicKeySize {
-		return toweradmit.Tower{}, nil, false
+		return admit.Tower{}, nil, false
 	}
 	ts := b.tower
 	if ts == nil {
-		return toweradmit.Tower{}, nil, false
+		return admit.Tower{}, nil, false
 	}
 	tw, ok := ts.registry.Get(claimedID)
 	if !ok {
-		return toweradmit.Tower{}, nil, false
+		return admit.Tower{}, nil, false
 	}
 	sum := sha256.Sum256(raw)
 	// Constant time, like the enrollment path: a key-hash comparison that leaks timing is a
 	// key-hash comparison an attacker can walk.
 	if subtle.ConstantTimeCompare([]byte(hex.EncodeToString(sum[:])), []byte(tw.KeyHash)) != 1 {
-		return toweradmit.Tower{}, nil, false
+		return admit.Tower{}, nil, false
 	}
 	return tw, ed25519.PublicKey(raw), true
 }
@@ -100,7 +100,7 @@ func (b *broker) towerSessionOpen(w http.ResponseWriter, r *http.Request) {
 	}
 	body := readTowerBody(r)
 
-	var hello towerlink.Hello
+	var hello link.Hello
 	if err := json.Unmarshal(body, &hello); err != nil {
 		jsonErr(w, http.StatusBadRequest, "invalid JSON body")
 		return
@@ -152,7 +152,7 @@ func (b *broker) towerHeartbeat(w http.ResponseWriter, r *http.Request) {
 	}
 	body := readTowerBody(r)
 
-	var f towerlink.Frame
+	var f link.Frame
 	if err := json.Unmarshal(body, &f); err != nil {
 		jsonErr(w, http.StatusBadRequest, "invalid JSON body")
 		return
@@ -181,7 +181,7 @@ func (b *broker) towerSessionClose(w http.ResponseWriter, r *http.Request) {
 	}
 	body := readTowerBody(r)
 
-	var f towerlink.Frame
+	var f link.Frame
 	if err := json.Unmarshal(body, &f); err != nil {
 		jsonErr(w, http.StatusBadRequest, "invalid JSON body")
 		return
@@ -203,7 +203,7 @@ func (b *broker) towerSessionClose(w http.ResponseWriter, r *http.Request) {
 // POST /tower/inventory/delta (a hash-chained amendment).
 //
 // The Tower ID comes from the AUTHENTICATED caller, never from the object, and the object's
-// own tower_id is checked against it inside towerinv. Two independent places agreeing is the
+// own tower_id is checked against it inside inv. Two independent places agreeing is the
 // point: one of them being wrong should not be enough.
 func (b *broker) towerInventory(delta bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -236,7 +236,7 @@ func (b *broker) towerInventory(delta bool) http.HandlerFunc {
 			return
 		}
 
-		var res towerinv.Result
+		var res inv.Result
 		var err error
 		if delta {
 			res, err = ts.inv.AcceptDelta(tw.ID, key, body)
@@ -273,11 +273,11 @@ func (b *broker) towerInventory(delta bool) http.HandlerFunc {
 // errorIsResync reports whether towerinv is asking for a full snapshot rather than refusing
 // the push. The two are answered with different status codes because they need different
 // things from the Tower, and a Tower that cannot tell them apart will retry the wrong one.
-func errorIsResync(err error) bool { return errors.Is(err, towerinv.ErrResync) }
+func errorIsResync(err error) bool { return errors.Is(err, inv.ErrResync) }
 
 // excludedView reports WHY each leaf was dropped, so an operator can see which of their
 // Stations is not earning without Core having to accept it in order to tell them.
-func excludedView(ex []towerinv.Exclusion) []map[string]string {
+func excludedView(ex []inv.Exclusion) []map[string]string {
 	out := make([]map[string]string, 0, len(ex))
 	for _, e := range ex {
 		out = append(out, map[string]string{
@@ -386,9 +386,9 @@ func (b *broker) towerStationInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	auth, secret, err := stationattach.NewInvite(stationattach.Authorization{
-		ID: newInviteID(), Network: towerlink.PublicNetwork, StationID: stationID, Owner: ownerPubkey,
-		Origin:       stationattach.Origin{Kind: stationattach.OriginJoined, TowerID: tw.ID},
+	auth, secret, err := attach.NewInvite(attach.Authorization{
+		ID: newInviteID(), Network: link.PublicNetwork, StationID: stationID, Owner: ownerPubkey,
+		Origin:       attach.Origin{Kind: attach.OriginJoined, TowerID: tw.ID},
 		AssertionKey: req.AssertionKey, SessionKey: req.SessionKey,
 		Role: req.Role, CeilingHash: req.CeilingHash,
 	}, stationInviteTTL, time.Now())

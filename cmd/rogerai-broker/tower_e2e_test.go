@@ -22,12 +22,12 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"rogerai.fm/roger/v5/internal/protocol"
-	"rogerai.fm/roger/v5/internal/stationattach"
 	"rogerai.fm/roger/v5/internal/store"
-	"rogerai.fm/roger/v5/internal/toweradmit"
-	"rogerai.fm/roger/v5/internal/towercert"
-	"rogerai.fm/roger/v5/internal/towerenroll"
-	"rogerai.fm/roger/v5/internal/towerhead"
+	"rogerai.fm/roger/v5/internal/towercore/admit"
+	"rogerai.fm/roger/v5/internal/towercore/attach"
+	"rogerai.fm/roger/v5/internal/towercore/cert"
+	"rogerai.fm/roger/v5/internal/towercore/enroll"
+	"rogerai.fm/roger/v5/internal/towercore/head"
 )
 
 // towerTestBroker wires the real subsystem over in-process stores and serves the real mux.
@@ -35,9 +35,9 @@ func towerTestBroker(t *testing.T) (*broker, *httptest.Server) {
 	t.Helper()
 	b := testBrokerWithDB(store.NewMem())
 	ts, err := newTowerSubsystem(b,
-		toweradmit.NewMemStore(), towercert.NewMemCustody(), towerenroll.NewMemStore(),
-		towercert.Config{TTL: time.Hour},
-		linkDeps{stations: stationattach.NewMemStore(), heads: towerhead.NewMemStore()})
+		admit.NewMemStore(), cert.NewMemCustody(), enroll.NewMemStore(),
+		cert.Config{TTL: time.Hour},
+		linkDeps{stations: attach.NewMemStore(), heads: head.NewMemStore()})
 	require.NoError(t, err)
 	b.tower = ts
 
@@ -360,9 +360,9 @@ func TestAdmissionRefusesToStartWithAMisconfiguredRoot(t *testing.T) {
 	// deploy that read the configuration correctly.
 	b := testBrokerWithDB(store.NewMem())
 	_, err := newTowerSubsystem(b,
-		toweradmit.NewMemStore(), towercert.NewMemCustody(), towerenroll.NewMemStore(),
-		towercert.Config{TTL: time.Hour, RootKeyPEM: []byte("-----BEGIN PRIVATE KEY-----\nbad\n-----END PRIVATE KEY-----")},
-		linkDeps{stations: stationattach.NewMemStore(), heads: towerhead.NewMemStore()})
+		admit.NewMemStore(), cert.NewMemCustody(), enroll.NewMemStore(),
+		cert.Config{TTL: time.Hour, RootKeyPEM: []byte("-----BEGIN PRIVATE KEY-----\nbad\n-----END PRIVATE KEY-----")},
+		linkDeps{stations: attach.NewMemStore(), heads: head.NewMemStore()})
 	require.Error(t, err)
 }
 
@@ -500,8 +500,8 @@ func TestAHalfConfiguredCARootFailsTheDeployment(t *testing.T) {
 	// discover it from a log line they were not watching.
 	b := testBrokerWithDB(store.NewMem())
 	_, err := newTowerSubsystem(b,
-		toweradmit.NewMemStore(), towercert.NewMemCustody(), towerenroll.NewMemStore(),
-		towercert.Config{TTL: time.Hour, RootKeyPEM: []byte("-----BEGIN PRIVATE KEY-----\nbad\n-----END PRIVATE KEY-----")},
-		linkDeps{stations: stationattach.NewMemStore(), heads: towerhead.NewMemStore()})
+		admit.NewMemStore(), cert.NewMemCustody(), enroll.NewMemStore(),
+		cert.Config{TTL: time.Hour, RootKeyPEM: []byte("-----BEGIN PRIVATE KEY-----\nbad\n-----END PRIVATE KEY-----")},
+		linkDeps{stations: attach.NewMemStore(), heads: head.NewMemStore()})
 	require.Error(t, err)
 }
