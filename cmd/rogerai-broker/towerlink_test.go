@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -1317,7 +1318,7 @@ func TestTheInviteSweepIsSafeWithoutTheSubsystem(t *testing.T) {
 // browser session and the console can reach them.
 func TestAdminTowerRoutesAnswerAPreflight(t *testing.T) {
 	_, srv := towerTestBroker(t)
-	for _, path := range []string{"/tower/station/promote", "/tower/lease/expire"} {
+	for _, path := range []string{"/tower/station/promote", "/tower/lease/expire", "/tower/lifecycle"} {
 		req, err := http.NewRequest(http.MethodOptions, srv.URL+path, nil)
 		require.NoError(t, err)
 		req.Header.Set("Origin", "https://rogerai.fm")
@@ -1466,4 +1467,275 @@ func TestTowerStatusDistinguishesQuarantineFromRoutable(t *testing.T) {
 	require.Len(t, status.Towers, 1)
 	require.Empty(t, status.Towers[0].Routable,
 		"a quarantined Station is attached and verified, and still not eligible")
+}
+
+// --- Tower lifecycle: the quarantine gate ----------------------------------
+//
+// EVERY ENROLLED TOWER WAS STUCK. The state machine has the quarantine->active edge and
+// Registry.Transition enforces the whole approved table, but nothing in the broker ever
+// called it: there was no route, no admin control, nothing. A Tower could enroll, hold the
+// link, push inventory - and never become eligible for a single request, forever. Nothing
+// failed and no test noticed, because every test that cared about eligibility set the state
+// directly.
+
+// The gate opens: an administrator promotes a quarantined Tower and it becomes eligible.
+func TestAnAdminCanPromoteATowerOutOfQuarantine(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	b.adminKey = "admin-secret"
+	op := signedInOperator(t, b, "octocat")
+	lt := enrolledTower(t, b, op.login)
+
+	tw, ok := b.tower.registry.Get(lt.id)
+	require.True(t, ok)
+	require.Equal(t, admit.StateQuarantine, tw.State, "a new Tower starts in quarantine")
+	require.False(t, b.tower.registry.MayTakeWork(lt.id), "and may not take work")
+
+	code, raw := adminTowerPost(t, srv, "/tower/lifecycle",
+		`{"tower_id":"`+lt.id+`","state":"active"}`)
+	require.Equal(t, http.StatusOK, code, raw)
+	require.Contains(t, raw, `"ok":true`)
+	require.Contains(t, raw, `"state":"active"`)
+
+	require.True(t, b.tower.registry.MayTakeWork(lt.id),
+		"a promoted Tower is eligible for ordinary work")
+}
+
+// Promotion is ADMIN-gated, not operator-gated, for the same reason Station promotion is:
+// admission and eligibility are separate decisions, and the person asking to be trusted
+// cannot also be the one granting it. An operator promoting their own Tower would collapse
+// the two and quarantine would mean nothing.
+func TestAnOperatorCannotPromoteTheirOwnTower(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	b.adminKey = "admin-secret"
+	op := signedInOperator(t, b, "octocat")
+	lt := enrolledTower(t, b, op.login)
+
+	code, _ := op.call(t, srv, http.MethodPost, "/tower/lifecycle",
+		map[string]string{"tower_id": lt.id, "state": "active"}, nil)
+	require.NotEqual(t, http.StatusOK, code, "an operator may not promote their own Tower")
+	require.False(t, b.tower.registry.MayTakeWork(lt.id))
+}
+
+// The route applies the APPROVED TABLE rather than a state string. Suspended does not go
+// straight back to active - clearing a suspension returns a Tower to quarantine, where it
+// must pass fresh probes - and an illegal jump is refused with the reason.
+func TestTheLifecycleRouteRefusesAnIllegalTransition(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	b.adminKey = "admin-secret"
+	op := signedInOperator(t, b, "octocat")
+	lt := enrolledTower(t, b, op.login)
+
+	code, raw := adminTowerPost(t, srv, "/tower/lifecycle",
+		`{"tower_id":"`+lt.id+`","state":"suspended"}`)
+	require.Equal(t, http.StatusOK, code, raw)
+
+	// suspended -> active is NOT an edge. It must go back through quarantine.
+	code, raw = adminTowerPost(t, srv, "/tower/lifecycle",
+		`{"tower_id":"`+lt.id+`","state":"active"}`)
+	require.Equal(t, http.StatusConflict, code, raw)
+	require.Contains(t, raw, "cannot become")
+	require.False(t, b.tower.registry.MayTakeWork(lt.id), "the refusal took effect")
+
+	// Back through quarantine, then active, is allowed.
+	code, raw = adminTowerPost(t, srv, "/tower/lifecycle",
+		`{"tower_id":"`+lt.id+`","state":"quarantine"}`)
+	require.Equal(t, http.StatusOK, code, raw)
+	code, raw = adminTowerPost(t, srv, "/tower/lifecycle",
+		`{"tower_id":"`+lt.id+`","state":"active"}`)
+	require.Equal(t, http.StatusOK, code, raw)
+	require.True(t, b.tower.registry.MayTakeWork(lt.id))
+}
+
+// Suspending an ACTIVE Tower takes it off public traffic at once. This is the control an
+// operator on call reaches for, so it must not need a deploy.
+func TestSuspendingAnActiveTowerStopsItTakingWork(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	b.adminKey = "admin-secret"
+	op := signedInOperator(t, b, "octocat")
+	lt := enrolledTower(t, b, op.login)
+
+	_, _ = adminTowerPost(t, srv, "/tower/lifecycle", `{"tower_id":"`+lt.id+`","state":"active"}`)
+	require.True(t, b.tower.registry.MayTakeWork(lt.id))
+
+	code, raw := adminTowerPost(t, srv, "/tower/lifecycle",
+		`{"tower_id":"`+lt.id+`","state":"suspended"}`)
+	require.Equal(t, http.StatusOK, code, raw)
+	require.False(t, b.tower.registry.MayTakeWork(lt.id), "a suspended Tower takes nothing")
+}
+
+// The remaining answers, each said plainly: an unknown Tower, a state that is not a state,
+// and a malformed body. None of them is a 500.
+func TestTheLifecycleRouteAnswersItsBadInputsPlainly(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	b.adminKey = "admin-secret"
+
+	code, raw := adminTowerPost(t, srv, "/tower/lifecycle",
+		`{"tower_id":"tw-nobody","state":"active"}`)
+	require.Equal(t, http.StatusNotFound, code, raw)
+
+	code, raw = adminTowerPost(t, srv, "/tower/lifecycle",
+		`{"tower_id":"tw-1","state":"marvellous"}`)
+	require.Equal(t, http.StatusBadRequest, code, raw)
+	require.Contains(t, raw, "not a Tower state")
+
+	code, _ = adminTowerPost(t, srv, "/tower/lifecycle", "{nope")
+	require.Equal(t, http.StatusBadRequest, code)
+
+	code, _ = adminTowerPost(t, srv, "/tower/lifecycle", `{"state":"active"}`)
+	require.Equal(t, http.StatusBadRequest, code, "a lifecycle change needs a Tower")
+}
+
+func adminTowerPost(t *testing.T, srv *httptest.Server, path, body string) (int, string) {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodPost, srv.URL+path, strings.NewReader(body))
+	require.NoError(t, err)
+	req.Header.Set("X-Roger-Admin", "admin-secret")
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
+	return resp.StatusCode, string(raw)
+}
+
+// The admin routes' shared preamble: the wrong method is refused, and a deployment with no
+// joined-Tower subsystem answers "unavailable" rather than dereferencing a nil.
+func TestTheAdminTowerRoutesRefuseTheWrongMethodAndAMissingSubsystem(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	b.adminKey = "admin-secret"
+
+	for _, path := range []string{"/tower/lifecycle", "/tower/lease/expire"} {
+		req, err := http.NewRequest(http.MethodGet, srv.URL+path, nil)
+		require.NoError(t, err)
+		req.Header.Set("X-Roger-Admin", "admin-secret")
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		resp.Body.Close()
+		require.Equal(t, http.StatusMethodNotAllowed, resp.StatusCode, path)
+	}
+
+	// A broker built without joined Towers must say so. Every one of these routes reaches
+	// through b.tower, and a nil there is a deployment choice, not a fault.
+	b.tower = nil
+	code, raw := adminTowerPost(t, srv, "/tower/lifecycle", `{"tower_id":"tw-1","state":"active"}`)
+	require.Equal(t, http.StatusServiceUnavailable, code, raw)
+	code, _ = adminTowerPost(t, srv, "/tower/lease/expire", `{"tower_id":"tw-1"}`)
+	require.Equal(t, http.StatusServiceUnavailable, code)
+}
+
+// Ending a lease answers its bad inputs the same way: a malformed body is a 400 and an
+// unknown Tower a 404, neither of them a 500.
+func TestEndingALeaseAnswersItsBadInputsPlainly(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	b.adminKey = "admin-secret"
+
+	code, _ := adminTowerPost(t, srv, "/tower/lease/expire", "{nope")
+	require.Equal(t, http.StatusBadRequest, code)
+
+	code, raw := adminTowerPost(t, srv, "/tower/lease/expire", `{"tower_id":"tw-nobody"}`)
+	require.Equal(t, http.StatusNotFound, code, raw)
+}
+
+// UNSIGNED CALLS REACH NOTHING. Every link route authenticates the Tower itself, and the
+// refusal must come before the route does any work - a session it would otherwise close, an
+// inventory it would otherwise accept. Asserting it per-route rather than once is the point:
+// these checks are copied per handler, so they are exactly the kind that goes missing from
+// one of them.
+func TestEveryLinkRouteRefusesAnUnsignedCaller(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	op := signedInOperator(t, b, "octocat")
+	lt := enrolledTower(t, b, op.login)
+
+	for _, path := range []string{
+		"/tower/session", "/tower/session/heartbeat", "/tower/session/close",
+		"/tower/inventory", "/tower/inventory/delta",
+	} {
+		resp, err := http.Post(srv.URL+path, "application/json",
+			strings.NewReader(`{"tower_id":"`+lt.id+`","session_id":"s-1","network":"rogerai-public","version":1}`))
+		require.NoError(t, err)
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
+		resp.Body.Close()
+		require.Equal(t, http.StatusForbidden, resp.StatusCode, "%s: %s", path, raw)
+		require.Contains(t, string(raw), "signed request", path)
+	}
+}
+
+// The invitation sweeper's LOOP, as opposed to the one-shot it calls. A stop signal has to
+// end it: a goroutine that outlives its broker keeps a database handle alive for the life of
+// the process.
+func TestTheInviteSweepLoopStopsWhenTold(t *testing.T) {
+	b, _ := towerTestBroker(t)
+	stop := make(chan struct{})
+	close(stop)
+	done := make(chan struct{})
+	go func() { b.towerInviteSweep(stop); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the sweep loop ignored its stop signal")
+	}
+}
+
+// --- the Station registry being DOWN ---------------------------------------
+//
+// Every Station route reads or writes the attachment registry, and each one has a branch for
+// "the registry did not answer". Those branches are the fail-closed contract: an unreadable
+// registry must never be treated as an empty one, because an empty registry says "this
+// Station is not attached" and that is a different, wrong, and confidently-stated answer.
+//
+// They were all untested, which is the usual state of an error path nobody can trigger by
+// hand. This store breaks on demand so they can be.
+
+// brokenAttachStore fails every call that reaches storage.
+type brokenAttachStore struct{ attach.Store }
+
+var errRegistryDown = errors.New("the Station registry is unreachable")
+
+func (brokenAttachStore) PutAuthorizationCapped(attach.Authorization, int) (bool, error) {
+	return false, errRegistryDown
+}
+func (brokenAttachStore) Authorization(string) (attach.Authorization, bool, error) {
+	return attach.Authorization{}, false, errRegistryDown
+}
+func (brokenAttachStore) ByStation(string) (attach.Attachment, bool, error) {
+	return attach.Attachment{}, false, errRegistryDown
+}
+func (brokenAttachStore) SetState(string, string) (bool, error) { return false, errRegistryDown }
+func (brokenAttachStore) CountLiveAttachments(string) (int, error) {
+	return 0, errRegistryDown
+}
+
+func TestTheStationRoutesRefuseWhenTheRegistryIsDown(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	b.adminKey = "admin-secret"
+	op := signedInOperator(t, b, "octocat")
+	lt := enrolledTower(t, b, op.login)
+
+	broken := brokenAttachStore{Store: attach.NewMemStore()}
+	b.tower.stationStore = broken
+	b.tower.stations = attach.New(attach.Config{
+		Network:                 link.PublicNetwork,
+		MaxLiveStationsPerOwner: maxLiveStationsPerOwner,
+	}, broken)
+
+	// Minting an invitation cannot be recorded, so it is not reported as minted. Handing an
+	// operator a code that was never stored would send them to a Station with a secret that
+	// can never be redeemed.
+	ak, _, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	sk, _, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	code, raw := op.call(t, srv, http.MethodPost, "/tower/station/invite", map[string]any{
+		"tower_id": lt.id, "station_id": "st-x",
+		"assertion_key": hex.EncodeToString(ak), "session_key": hex.EncodeToString(sk),
+	}, nil)
+	require.Equal(t, http.StatusServiceUnavailable, code, raw)
+
+	// Revoking cannot be confirmed, so it is not confirmed. "Revoked" is a safety claim.
+	code, raw = op.call(t, srv, http.MethodPost, "/tower/station/revoke",
+		map[string]string{"station_id": "st-x"}, nil)
+	require.Equal(t, http.StatusServiceUnavailable, code, raw)
+
+	// And promotion, which is the one that would otherwise silently do nothing.
+	code, raw = adminTowerPost(t, srv, "/tower/station/promote", `{"station_id":"st-x"}`)
+	require.Equal(t, http.StatusServiceUnavailable, code, raw)
 }

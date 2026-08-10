@@ -696,6 +696,87 @@ func randomHex(n int) string {
 	return hex.EncodeToString(raw)
 }
 
+// towerLifecycle handles POST /tower/lifecycle: move a Tower through the approved state
+// table. This is the quarantine gate, and its absence was a hard stop.
+//
+// EVERY TOWER WAS STUCK. Enrollment puts a Tower in quarantine, which by design takes no
+// ordinary work. The state machine has the quarantine->active edge and Registry.Transition
+// enforces the whole approved table under a CAS - but nothing in the broker ever called it.
+// There was no route and no admin control, so a Tower could enroll, hold the link and push
+// inventory, and never become eligible for a single request. Nothing failed. No test
+// noticed, because every test that cared about eligibility set the state directly.
+//
+// ADMIN-GATED, NOT OPERATOR-GATED, for the reason Station promotion is: admission (proving
+// who you are) and eligibility (being trusted with customer traffic) are separate decisions,
+// and the person asking to be trusted cannot also be the one granting it.
+//
+// It applies the TABLE rather than the caller's string. Suspended does not go straight back
+// to active - clearing a suspension returns a Tower to quarantine for fresh probes - and
+// Transition refuses whatever the table does not permit. That refusal is a 409: the request
+// was well formed and the answer is "not from where this Tower is standing".
+//
+// This is the MANUAL path, and deliberately the only one. The approved design promotes on
+// evidence Core observed itself - session uptime it held, probes it dispatched, signatures
+// it verified - through a bounded share of traffic. None of that is built, and pretending an
+// automatic ladder exists would be worse than a switch a human has to throw. The same design
+// requires exactly this switch anyway, as the escape hatch for when the automatic one is
+// wrong.
+func (b *broker) towerLifecycle(w http.ResponseWriter, r *http.Request) {
+	if corsCredsPreflight(w, r) {
+		return
+	}
+	if !allow(w, r, http.MethodPost) {
+		return
+	}
+	corsCreds(w, r)
+	if b.requireAdmin(w, r) {
+		return
+	}
+	ts := b.towerAvailable(w)
+	if ts == nil {
+		return
+	}
+	var req struct {
+		TowerID string `json:"tower_id"`
+		State   string `json:"state"`
+	}
+	if err := json.Unmarshal(readTowerBody(r), &req); err != nil {
+		jsonErr(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if req.TowerID == "" {
+		jsonErr(w, http.StatusBadRequest, "tower_id is required")
+		return
+	}
+	to := admit.State(req.State)
+	// Checked HERE as well as inside Transition so an unknown state is a 400 (the caller
+	// sent nonsense) and a refused edge is a 409 (the caller sent something real that the
+	// table would not allow). An administrator acts on those two differently.
+	if !admit.Valid(to) {
+		jsonErr(w, http.StatusBadRequest, fmt.Sprintf("%q is not a Tower state", req.State))
+		return
+	}
+	before, found := ts.registry.Get(req.TowerID)
+	if !found {
+		jsonErr(w, http.StatusNotFound, "no such Tower")
+		return
+	}
+	if err := ts.registry.Transition(req.TowerID, to); err != nil {
+		jsonErr(w, http.StatusConflict, err.Error())
+		return
+	}
+	// Eligibility is cached by the inventory policy, so a Tower that just lost it must stop
+	// being routable now rather than whenever the cache next happens to refresh.
+	if ts.policy != nil {
+		ts.policy.Invalidate()
+	}
+	log.Printf("tower %s moved %s -> %s by an administrator", req.TowerID, before.State, to)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok": true, "tower_id": req.TowerID, "was": string(before.State), "state": string(to),
+		"eligibility": string(admit.EligibleFor(to)),
+	})
+}
+
 // --- housekeeping -----------------------------------------------------------
 
 // towerInviteSweepInterval paces the invitation reaper. Well under the TTL, so an expired
@@ -786,4 +867,33 @@ func (b *broker) towerLeaseExpire(w http.ResponseWriter, r *http.Request) {
 	ts.inv.Forget(req.TowerID)
 	log.Printf("tower %s: lease expired by an administrator", req.TowerID)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "expired": true})
+}
+
+// registerTowerRoutes mounts every /tower/ route.
+//
+// It is ONE function called by both the production mux and the test server, because it used
+// to be two lists. They diverged the moment a route was added: /tower/lifecycle went into
+// production and the tests kept 404ing against a mux that had never heard of it. A test
+// harness that mounts its own approximation of the routes is testing the approximation.
+func (b *broker) registerTowerRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("/tower/token", b.towerToken)                // operator: mint a one-time enrollment token
+	mux.HandleFunc("/tower/enroll/challenge", b.towerChallenge) // Tower: get the nonce to sign
+	mux.HandleFunc("/tower/enroll", b.towerEnroll)              // Tower: admission itself
+	mux.HandleFunc("/tower/status", b.towerStatus)              // operator: my Towers
+
+	// The LINK: the Tower itself talking, authenticated by its admitted identity key rather
+	// than by an operator account. Session first, then inventory over it.
+	mux.HandleFunc("/tower/session", b.towerSessionOpen)             // Tower: open the link
+	mux.HandleFunc("/tower/session/heartbeat", b.towerHeartbeat)     // Tower: still here
+	mux.HandleFunc("/tower/session/close", b.towerSessionClose)      // Tower: orderly drain
+	mux.HandleFunc("/tower/inventory", b.towerInventory(false))      // Tower: full signed revision
+	mux.HandleFunc("/tower/inventory/delta", b.towerInventory(true)) // Tower: chained amendment
+
+	mux.HandleFunc("/tower/station/invite", b.towerStationInvite)   // operator: authorize a Station to attach
+	mux.HandleFunc("/tower/station/attach", b.towerStationAttach)   // Tower: redeem a Station invitation
+	mux.HandleFunc("/tower/station/revoke", b.towerStationRevoke)   // operator: retire a Station identity
+	mux.HandleFunc("/tower/station/promote", b.towerStationPromote) // admin: open the Station quarantine gate
+
+	mux.HandleFunc("/tower/lease/expire", b.towerLeaseExpire) // admin: take a Tower off the link now
+	mux.HandleFunc("/tower/lifecycle", b.towerLifecycle)      // admin: the Tower quarantine gate
 }

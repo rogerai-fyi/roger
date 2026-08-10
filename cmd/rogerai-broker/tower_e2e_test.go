@@ -41,21 +41,9 @@ func towerTestBroker(t *testing.T) (*broker, *httptest.Server) {
 	require.NoError(t, err)
 	b.tower = ts
 
+	// The PRODUCTION route table, not a copy of it - see registerTowerRoutes.
 	mux := http.NewServeMux()
-	mux.HandleFunc("/tower/token", b.towerToken)
-	mux.HandleFunc("/tower/enroll/challenge", b.towerChallenge)
-	mux.HandleFunc("/tower/enroll", b.towerEnroll)
-	mux.HandleFunc("/tower/status", b.towerStatus)
-	mux.HandleFunc("/tower/session", b.towerSessionOpen)
-	mux.HandleFunc("/tower/session/heartbeat", b.towerHeartbeat)
-	mux.HandleFunc("/tower/session/close", b.towerSessionClose)
-	mux.HandleFunc("/tower/inventory", b.towerInventory(false))
-	mux.HandleFunc("/tower/inventory/delta", b.towerInventory(true))
-	mux.HandleFunc("/tower/station/invite", b.towerStationInvite)
-	mux.HandleFunc("/tower/station/attach", b.towerStationAttach)
-	mux.HandleFunc("/tower/station/revoke", b.towerStationRevoke)
-	mux.HandleFunc("/tower/station/promote", b.towerStationPromote)
-	mux.HandleFunc("/tower/lease/expire", b.towerLeaseExpire)
+	b.registerTowerRoutes(mux)
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return b, srv
