@@ -104,15 +104,34 @@ func runLink(st *tower.State, out io.Writer, stop <-chan struct{}, ticker func(t
 	if beat <= 0 {
 		beat = 60 * time.Second
 	}
-	beats, stopTicking := ticker(beat)
-	defer stopTicking()
-	fmt.Fprintf(out, "holding the link (heartbeat every %s) - ctrl-c to drain and exit\n", beat)
+	beats, stopBeats := ticker(beat)
+	defer stopBeats()
+
+	// AND THE INVENTORY REFRESH, which is not optional. A pushed revision EXPIRES, and once
+	// it does Core has nothing routable for this Tower - while the heartbeats keep
+	// succeeding and everything keeps looking healthy. Without this the loop pushed once and
+	// went dark half an hour later, silently, in production only.
+	refreshes, stopRefresh := ticker(inventoryRefresh)
+	defer stopRefresh()
+
+	fmt.Fprintf(out, "holding the link (heartbeat every %s, inventory refresh every %s) - "+
+		"ctrl-c to drain and exit\n", beat, inventoryRefresh)
 
 	for {
 		select {
 		case <-stop:
 			fmt.Fprintln(out, "\nstopping")
 			return nil
+		case <-refreshes:
+			// A refusal here is NOT fatal: the inventory we already pushed is good until it
+			// expires, so there is time for the next refresh to succeed. Tearing the link
+			// down over one bad push would turn a blip into an outage.
+			next, nextHead, rerr := pushInventory(st, out, revision, head)
+			if rerr != nil {
+				fmt.Fprintf(out, "could not refresh the inventory (%v) - will retry\n", rerr)
+				continue
+			}
+			revision, head = next, nextHead
 		case <-beats:
 			if err := sess.SendHeartbeat(st); err == nil {
 				continue
@@ -138,6 +157,14 @@ func runLink(st *tower.State, out io.Writer, stop <-chan struct{}, ticker func(t
 		}
 	}
 }
+
+// inventoryRefresh is how often the fleet is re-pushed.
+//
+// DERIVED from the lifetime, deliberately: a hardcoded interval beside it is how the two
+// drift apart when one changes, and the failure that produces is invisible - every heartbeat
+// still succeeds while Core quietly has nothing routable. A third leaves room for one push
+// to fail and the next to still land inside the window.
+const inventoryRefresh = towerjoin.InventoryLifetime / 3
 
 // pushInventory sends the current fleet and returns the new chain position.
 func pushInventory(st *tower.State, out io.Writer, revision int64, head towerjoin.Head) (int64, towerjoin.Head, error) {

@@ -156,7 +156,7 @@ func PushFullInventory(st *tower.State, revision int64, prevHash string, leaves 
 		// the schema is closed and an absent member is a refusal.
 		"lease_head": "genesis", "lifecycle_head": "genesis",
 		"issued":  towerobj.FormatInt(now.Unix()),
-		"expires": towerobj.FormatInt(now.Add(inventoryLifetime).Unix()),
+		"expires": towerobj.FormatInt(now.Add(InventoryLifetime).Unix()),
 		"leaves":  rawLeaves(leaves),
 	}
 	raw, err := json.Marshal(body)
@@ -178,10 +178,15 @@ func PushFullInventory(st *tower.State, revision int64, prevHash string, leaves 
 	return out, nil
 }
 
-// inventoryLifetime is how long a pushed revision is good for. Comfortably longer than the
+// InventoryLifetime is how long a pushed revision is good for. Comfortably longer than the
 // heartbeat, so an inventory never expires under a Tower that is plainly still here, and
 // short enough that a Tower which vanishes without draining ages out on its own.
-const inventoryLifetime = 30 * time.Minute
+//
+// EXPORTED because the serve loop has to refresh inside it, and the interval it refreshes on
+// must be DERIVED from this rather than written down beside it. A second constant that drifts
+// when this one changes is how a Tower silently stops being routable while every heartbeat
+// still succeeds - which is exactly the bug this replaced.
+const InventoryLifetime = 30 * time.Minute
 
 // rawLeaves keeps Station signatures intact by never decoding them.
 func rawLeaves(leaves []json.RawMessage) []any {

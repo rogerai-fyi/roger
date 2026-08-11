@@ -31,7 +31,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"rogerai.fm/roger/v5/internal/station"
@@ -57,9 +59,15 @@ offer options:
   --caps a,b             capabilities this Station supports
   --ttl 30m              how long the offer is good for
   --out FILE             write here instead of stdout
+  --refresh              keep --out current by re-signing until stopped (run it as a service)
 
 RUN THIS ON THE STATION. It holds private keys that must never reach the Tower relaying
 for it - if the relay could sign, "signed by the Station" would mean nothing.
+
+AN OFFER EXPIRES. A file does not refresh itself, so a Station that publishes once
+drops off the network when its TTL passes - the Tower goes on relaying the stale file
+and Roger Core goes on excluding it, with every part reporting itself healthy. Run
+offer --refresh as a service, writing straight into the Tower's offers directory.
 
 An offer is a signed file. Copy it to the Tower's offers directory (see
 ` + "`roger-tower serve`" + `); the Tower relays it byte for byte and cannot alter it.
@@ -167,6 +175,7 @@ func cmdOffer(args []string, out io.Writer) error {
 	caps := fs.String("caps", "", "comma-separated capabilities")
 	ttl := fs.Duration("ttl", 30*time.Minute, "how long the offer is good for")
 	outFile := fs.String("out", "", "write the signed offer here instead of stdout")
+	refresh := fs.Bool("refresh", false, "keep --out fresh: re-sign on an interval until stopped")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -177,7 +186,7 @@ func cmdOffer(args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	raw, err := s.SignOffer(station.Offer{
+	job := offerJob{station: s, path: *outFile, offer: station.Offer{
 		// The public network, not a flag. A Station signing for a network it was told about
 		// on the command line is a Station that can be pointed at the wrong one by a typo,
 		// and the signature would be perfectly valid for it.
@@ -192,32 +201,140 @@ func cmdOffer(args []string, out io.Writer) error {
 		Capacity:     *capacity,
 		Capabilities: splitCaps(*caps),
 		TTL:          *ttl,
-	}, time.Now())
-	if err != nil {
-		return err
-	}
-	// Pretty-printed for the human who has to look at it before copying it to a relay. The
-	// SIGNATURE is over the canonical form, not these bytes, so indentation cannot break it.
-	var pretty any
-	if err := json.Unmarshal(raw, &pretty); err != nil {
-		return err
-	}
-	indented, err := json.MarshalIndent(pretty, "", "  ")
-	if err != nil {
-		return err
-	}
-	indented = append(indented, '\n')
+	}}
 
-	if *outFile == "" {
-		_, err = out.Write(indented)
+	if *refresh {
+		if *outFile == "" {
+			// Refreshing to stdout would scroll a signed object past the operator every few
+			// minutes and leave the Tower with nothing to read.
+			return fmt.Errorf("--refresh needs --out FILE: it keeps that file current")
+		}
+		return refreshOffers(job, out, waitForInterrupt(), realTicker)
+	}
+	raw, err := job.sign(time.Now())
+	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(*outFile, indented, 0o644); err != nil {
+	if *outFile == "" {
+		_, err = out.Write(raw)
+		return err
+	}
+	if err := job.write(raw); err != nil {
 		return err
 	}
 	fmt.Fprintf(out, "signed offer written to %s\n", *outFile)
 	fmt.Fprintf(out, "copy it into the Tower's offers directory; it is relayed byte for byte.\n")
 	return nil
+}
+
+// offerJob is one offer this Station publishes, and everything needed to re-sign it.
+type offerJob struct {
+	station *station.Station
+	path    string
+	offer   station.Offer
+}
+
+func (j offerJob) sign(now time.Time) ([]byte, error) {
+	raw, err := j.station.SignOffer(j.offer, now)
+	if err != nil {
+		return nil, err
+	}
+	// Pretty-printed for the human who has to look at it before trusting it to a relay. The
+	// SIGNATURE covers the canonical form, not these bytes, so indentation cannot break it.
+	var pretty any
+	if err := json.Unmarshal(raw, &pretty); err != nil {
+		return nil, err
+	}
+	indented, err := json.MarshalIndent(pretty, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	return append(indented, '\n'), nil
+}
+
+// write replaces the file ATOMICALLY - a temporary file and a rename.
+//
+// The Tower reads this directory on its own schedule, and a plain overwrite gives it a
+// window in which the file is half a signed object. It would skip it as invalid JSON and
+// say so, which is survivable but is a warning nobody should have to see, on a timer.
+func (j offerJob) write(raw []byte) error {
+	tmp := j.path + ".tmp"
+	if err := os.WriteFile(tmp, raw, 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, j.path)
+}
+
+// refreshEvery is how often an offer with this TTL must be re-signed.
+//
+// DERIVED from the TTL rather than configured beside it. Two numbers that have to agree and
+// are written down separately eventually disagree, and this failure is invisible: the file
+// is there, the Tower relays it, and Core drops it for "the offer has expired" in a reply
+// only the Tower sees. A third leaves room for one missed refresh.
+func refreshEvery(ttl time.Duration) time.Duration {
+	d := ttl / 3
+	if d <= 0 {
+		d = time.Second
+	}
+	return d
+}
+
+// refreshOffers keeps the offer file current until stopped.
+//
+// AN OFFER EXPIRES AND A FILE DOES NOT REFRESH ITSELF. Without this a Station published
+// once and silently dropped off the network when the TTL passed: the Tower kept relaying the
+// stale file, Core kept excluding it, and every component reported itself healthy. The Tower
+// re-reads its offers directory on every push, so a fresh file is picked up on its own.
+func refreshOffers(job offerJob, out io.Writer, stop <-chan struct{}, ticker func(time.Duration) (<-chan time.Time, func())) error {
+	every := refreshEvery(job.offer.TTL)
+	write := func() error {
+		raw, err := job.sign(time.Now())
+		if err != nil {
+			return err
+		}
+		return job.write(raw)
+	}
+	// Immediately, so the Tower has something to relay without waiting out an interval.
+	if err := write(); err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "keeping %s fresh (re-signing every %s, offers valid %s) - ctrl-c to stop\n",
+		job.path, every, job.offer.TTL)
+
+	ticks, stopTicking := ticker(every)
+	defer stopTicking()
+	for {
+		select {
+		case <-stop:
+			fmt.Fprintln(out, "\nstopped; the last offer written stays valid until it expires")
+			return nil
+		case <-ticks:
+			if err := write(); err != nil {
+				// Not fatal: the offer already on disk is good until it expires, so there is
+				// time for the next attempt. Exiting would guarantee the outage instead.
+				fmt.Fprintf(out, "could not re-sign the offer (%v) - will retry\n", err)
+			}
+		}
+	}
+}
+
+// realTicker is the clock in production; a test passes one it can fire on demand.
+func realTicker(d time.Duration) (<-chan time.Time, func()) {
+	t := time.NewTicker(d)
+	return t.C, t.Stop
+}
+
+// waitForInterrupt turns ctrl-c into the loop's plain stop channel.
+func waitForInterrupt() <-chan struct{} {
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
+	stopped := make(chan struct{})
+	go func() {
+		<-sig
+		signal.Stop(sig)
+		close(stopped)
+	}()
+	return stopped
 }
 
 // splitCaps turns the flag into the list the offer carries. An empty flag is an empty LIST,

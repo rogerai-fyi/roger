@@ -6,7 +6,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"rogerai.fm/roger/v5/internal/station"
@@ -231,4 +233,186 @@ func TestSplitCapsIgnoresBlanksAndPadding(t *testing.T) {
 	require.Equal(t, []string{}, splitCaps(" , , "))
 	require.Equal(t, []string{"a", "b"}, splitCaps(" a , b "))
 	require.Equal(t, []string{"a"}, splitCaps(strings.Join([]string{"a", ""}, ",")))
+}
+
+// AN OFFER EXPIRES, AND A FILE DOES NOT REFRESH ITSELF.
+//
+// The Tower re-reads its offers directory on every push, so a fresh file is picked up
+// automatically - but nothing was writing one. A Station published once and dropped off the
+// network when its offer's TTL passed, with the Tower still relaying the stale file and Core
+// still excluding it for "the offer has expired". Every part looked healthy.
+//
+// --refresh is the other half: it rewrites the file on an interval derived from the TTL, so
+// what the Tower relays is always current.
+func TestRefreshingRewritesTheOfferBeforeItExpires(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "st")
+	_, err := runCLI(t, "init", "--dir", dir)
+	require.NoError(t, err)
+	path := filepath.Join(t.TempDir(), "offer.json")
+
+	ticks := make(chan time.Time, 1)
+	stop := make(chan struct{})
+	var b syncOut
+	done := make(chan error, 1)
+	go func() {
+		done <- refreshOffers(offerJob{
+			station: mustOpen(t, dir), path: path,
+			offer: station.Offer{
+				Network: "roger-public", TowerID: "tw-1", Model: "m1", Modality: "text",
+				Capacity: 1, TTL: 30 * time.Minute,
+			},
+		}, &b, stop, func(time.Duration) (<-chan time.Time, func()) { return ticks, func() {} })
+	}()
+
+	require.Eventually(t, func() bool { _, serr := os.Stat(path); return serr == nil },
+		2*time.Second, 5*time.Millisecond, "the first offer is written immediately")
+	first, err := os.ReadFile(path)
+	require.NoError(t, err)
+
+	ticks <- time.Now()
+	require.Eventually(t, func() bool {
+		got, rerr := os.ReadFile(path)
+		return rerr == nil && string(got) != string(first)
+	}, 2*time.Second, 5*time.Millisecond, "the offer must be re-signed before it expires")
+
+	close(stop)
+	require.NoError(t, <-done)
+
+	// And what it wrote last is still a valid signed offer, not a truncated one.
+	last, err := os.ReadFile(path)
+	require.NoError(t, err)
+	s := mustOpen(t, dir)
+	require.NoError(t, towerobj.Verify(s.AssertionPub(), link.PublicNetwork,
+		inv.TypeOffer, inv.Version, last, "station_sig"))
+}
+
+// The interval is DERIVED from the TTL rather than set beside it. Two numbers that have to
+// agree and are written down separately are two numbers that will eventually disagree, and
+// the failure is invisible: the file is there, the Tower relays it, Core drops it.
+func TestTheRefreshIntervalLeavesRoomForARetry(t *testing.T) {
+	for _, ttl := range []time.Duration{time.Minute, 30 * time.Minute, 24 * time.Hour} {
+		got := refreshEvery(ttl)
+		require.Less(t, got, ttl, "a refresh at or after the expiry is not a refresh")
+		require.LessOrEqual(t, got*2, ttl, "one missed refresh must not be enough to expire")
+		require.Positive(t, got)
+	}
+}
+
+// --refresh needs somewhere to write. Refreshing to stdout would scroll a signed object past
+// an operator every few minutes and leave the Tower reading nothing.
+func TestRefreshingRequiresAnOutputFile(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "st")
+	_, err := runCLI(t, "init", "--dir", dir)
+	require.NoError(t, err)
+
+	_, err = runCLI(t, "offer", "--dir", dir, "--tower", "tw-1", "--model", "m1", "--refresh")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "--out")
+}
+
+func mustOpen(t *testing.T, dir string) *station.Station {
+	t.Helper()
+	s, err := station.Open(dir)
+	require.NoError(t, err)
+	return s
+}
+
+// syncOut is a locked writer: the refresh loop runs in its own goroutine.
+type syncOut struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (s *syncOut) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.Write(p)
+}
+
+// A refresh it cannot write is reported and the loop KEEPS GOING: the offer already on disk
+// is good until it expires, so there is time for the next attempt. Exiting would guarantee
+// the outage this whole mechanism exists to prevent.
+func TestAFailedRefreshIsReportedAndTheLoopContinues(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "st")
+	_, err := runCLI(t, "init", "--dir", dir)
+	require.NoError(t, err)
+
+	// A path whose parent does not exist: every write fails, including the first.
+	job := offerJob{
+		station: mustOpen(t, dir),
+		path:    filepath.Join(t.TempDir(), "nope", "offer.json"),
+		offer: station.Offer{
+			Network: "roger-public", TowerID: "tw-1", Model: "m1", Modality: "text",
+			Capacity: 1, TTL: 30 * time.Minute,
+		},
+	}
+	ticks := make(chan time.Time, 1)
+	var b syncOut
+	// The FIRST write failing is fatal - there is nothing on disk yet, so continuing would
+	// leave a "keeping it fresh" message next to a Station that published nothing.
+	err = refreshOffers(job, &b, closedStop(),
+		func(time.Duration) (<-chan time.Time, func()) { return ticks, func() {} })
+	require.Error(t, err)
+
+	// But once one write has landed, a later failure only warns.
+	good := filepath.Join(t.TempDir(), "offer.json")
+	job.path = good
+	stop := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		done <- refreshOffers(job, &b, stop, func(time.Duration) (<-chan time.Time, func()) { return ticks, func() {} })
+	}()
+	require.Eventually(t, func() bool { _, serr := os.Stat(good); return serr == nil },
+		2*time.Second, 5*time.Millisecond)
+
+	require.NoError(t, os.Chmod(filepath.Dir(good), 0o500)) // no more writes here
+	t.Cleanup(func() { _ = os.Chmod(filepath.Dir(good), 0o700) })
+	if os.Geteuid() != 0 {
+		ticks <- time.Now()
+		require.Eventually(t, func() bool { return strings.Contains(b.read(), "could not re-sign") },
+			2*time.Second, 5*time.Millisecond)
+	}
+	close(stop)
+	require.NoError(t, <-done)
+}
+
+// The production clock and signal wiring, which nothing else reaches.
+func TestTheRealTickerAndInterruptChannelAreWiredUp(t *testing.T) {
+	c, stop := realTicker(time.Millisecond)
+	defer stop()
+	select {
+	case <-c:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the production ticker never fired")
+	}
+
+	// The interrupt channel exists and is NOT already closed - a stop signal that fires on
+	// its own would end the refresh loop the moment it started.
+	sig := waitForInterrupt()
+	select {
+	case <-sig:
+		t.Fatal("the interrupt channel fired without a signal")
+	default:
+	}
+}
+
+// The usage says an offer expires and what to do about it. An operator who reads only the
+// help text must not end up publishing once and wondering where their Station went.
+func TestUsageWarnsThatOffersExpire(t *testing.T) {
+	out, err := runCLI(t)
+	require.NoError(t, err)
+	require.Contains(t, out, "AN OFFER EXPIRES")
+	require.Contains(t, out, "--refresh")
+}
+
+func closedStop() <-chan struct{} {
+	c := make(chan struct{})
+	close(c)
+	return c
+}
+
+func (s *syncOut) read() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.String()
 }

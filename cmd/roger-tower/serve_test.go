@@ -157,9 +157,25 @@ func servingTower(t *testing.T) *tower.State {
 	return st
 }
 
-// manualTicker fires only when a test says so.
+// manualTicker fires HEARTBEATS only when a test says so, and never fires the inventory
+// refresh. The loop asks for two tickers; handing back one channel for both meant a
+// heartbeat tick could be taken by the refresh branch instead, so the tests that care about
+// heartbeats became a coin flip the moment the refresh existed.
 func manualTicker(ch <-chan time.Time) func(time.Duration) (<-chan time.Time, func()) {
-	return func(time.Duration) (<-chan time.Time, func()) { return ch, func() {} }
+	return tickerFor(ch, nil)
+}
+
+// tickerFor hands out a DIFFERENT channel per interval, so a test can fire the heartbeat and
+// the inventory refresh independently. The loop asks for two tickers and they must not be
+// the same one: a test that could only fire both together could not tell which of them did
+// the work.
+func tickerFor(beats, refresh <-chan time.Time) func(time.Duration) (<-chan time.Time, func()) {
+	return func(d time.Duration) (<-chan time.Time, func()) {
+		if d == inventoryRefresh {
+			return refresh, func() {}
+		}
+		return beats, func() {}
+	}
 }
 
 // closedStop is a stop signal that has already fired.
@@ -556,4 +572,83 @@ func TestAPushCarriesTheStationsOffers(t *testing.T) {
 	_, _, err := pushInventory(st, &b, 0, towerjoin.Head{})
 	require.NoError(t, err)
 	require.Contains(t, b.String(), "1 of 1 Station offer(s) eligible")
+}
+
+// THE TOWER GOES DARK AFTER THIRTY MINUTES, and nothing says so.
+//
+// A pushed revision carries an expiry, and inv.Routable returns NOTHING once it passes. The
+// loop pushed once at session open and then only heartbeated, so a Tower left running
+// overnight stopped being routable half an hour in while reporting a perfectly healthy live
+// link: the heartbeats kept succeeding, the operator's status kept saying "link live", and
+// no request could ever reach it again.
+//
+// It is the worst shape of bug this command can have - it passes every test that runs for
+// less than the lifetime, and fails silently in production only.
+func TestTheInventoryIsRepushedBeforeItExpires(t *testing.T) {
+	core := newCoreStub(t)
+	st := servingTower(t)
+
+	beats := make(chan time.Time, 1)
+	refresh := make(chan time.Time, 1)
+	stop := make(chan struct{})
+	b := &syncBuffer{}
+	done := make(chan error, 1)
+	go func() { done <- runLink(st, b, stop, tickerFor(beats, refresh)) }()
+
+	require.Eventually(t, func() bool { return core.called("/tower/inventory") == 1 },
+		2*time.Second, 5*time.Millisecond, "the first push")
+
+	refresh <- time.Now()
+	require.Eventually(t, func() bool { return core.called("/tower/inventory") >= 2 },
+		2*time.Second, 5*time.Millisecond, "the inventory must be refreshed before it expires")
+
+	close(stop)
+	require.NoError(t, <-done)
+	require.Equal(t, 1, core.called("/tower/session"), "refreshing is not reconnecting")
+}
+
+// The refresh interval must be derived from the lifetime, not guessed alongside it. A
+// hardcoded interval that drifts when the lifetime changes is precisely how this bug comes
+// back, and it comes back silently.
+func TestTheRefreshIntervalLeavesRoomForARetry(t *testing.T) {
+	require.Less(t, inventoryRefresh, towerjoin.InventoryLifetime,
+		"a refresh at or after the expiry is not a refresh")
+	require.LessOrEqual(t, inventoryRefresh*2, towerjoin.InventoryLifetime,
+		"one lost refresh must not be enough to go dark")
+}
+
+// A refresh that Core refuses is reported and does NOT tear the link down: the current
+// inventory is still good until it expires, so there is time to retry.
+func TestAFailedRefreshIsReportedAndTheLinkSurvives(t *testing.T) {
+	core := newCoreStub(t)
+	st := servingTower(t)
+	core.reply["/tower/inventory"] = func(w http.ResponseWriter, call int) bool {
+		if call >= 2 {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"error":{"message":"try later"}}`))
+			return true
+		}
+		return false
+	}
+
+	beats := make(chan time.Time, 1)
+	refresh := make(chan time.Time, 1)
+	stop := make(chan struct{})
+	b := &syncBuffer{}
+	done := make(chan error, 1)
+	go func() { done <- runLink(st, b, stop, tickerFor(beats, refresh)) }()
+
+	require.Eventually(t, func() bool { return core.called("/tower/inventory") == 1 },
+		2*time.Second, 5*time.Millisecond)
+	refresh <- time.Now()
+	require.Eventually(t, func() bool { return strings.Contains(b.String(), "could not refresh") },
+		2*time.Second, 5*time.Millisecond)
+
+	// Still alive: a heartbeat still goes, so one bad refresh has not cost the session.
+	beats <- time.Now()
+	require.Eventually(t, func() bool { return core.called("/tower/session/heartbeat") > 0 },
+		2*time.Second, 5*time.Millisecond)
+
+	close(stop)
+	require.NoError(t, <-done)
 }
