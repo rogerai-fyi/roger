@@ -1,5 +1,12 @@
 # Towers, Stations and Roger Core: who does what
 
+**Two paths now exist.** This document describes the **Core-relayed** path, which is what
+carries work today. The **edge** path - consumers connecting to a Tower directly, with Core
+reduced to authorizing and settling - is in `docs/tower-edge-design.md`, and its first two
+build steps have landed (`internal/relay`, `roger-station serve --tls`). Where this document
+says a Tower does not reduce Core's load, that is true of the path described here and is
+exactly what the edge path exists to change.
+
 Written because the roles are easy to get wrong in a way that only shows up as a security or
 billing surprise. Grounded in `features/tower/job_and_settlement.feature` and
 `features/tower/attempt_lifecycle.feature`, both founder-approved, and in what the code
@@ -103,11 +110,12 @@ The work that gets offloaded is **inference** — the GPU time — and that is o
 **Station**, which is what should be compensated for it. The Tower operator is compensated for
 relaying and for standing behind the fleet, which is a different and smaller contribution.
 
-If the goal is to reduce Core's own bandwidth and connection load, Towers as specified do not
-do it, and the reason they cannot is the content-inspection requirement above, not an
-implementation shortcut. That would need a different design — consumers connecting to Towers
-directly, with Core reduced to issuing grants and accepting receipts — and it would give up
-pre-dispatch screening and Core-observed transit, which is what settlement currently rests on.
+If the goal is to reduce Core's own bandwidth and connection load, Towers **on this path** do
+not do it, and the reason is the content-inspection requirement above rather than an
+implementation shortcut. The different design that does — consumers connecting to Towers
+directly, with Core reduced to issuing grants and accepting receipts, giving up pre-dispatch
+screening and Core-observed transit — was taken up and is specified in
+`docs/tower-edge-design.md`.
 
 ## The workflow, end to end
 
@@ -172,10 +180,13 @@ something reconstructed from logs when somebody disputes it.
 1. **No inner TLS session.** Content is sealed (above), so a Tower cannot read it, but the
    channel-level binding and forward secrecy of the spec's version are not there.
 2. **No compensation.** The attempt ledger is in; the funding-source ledger is not.
-3. **No streaming to Towers.** A `stream: true` request is never routed to one, because a
+3. **The edge path is half-built.** The blind relay and the Station's own TLS identity have
+   landed; the grant, acknowledgement and settlement changes are specified in
+   `features/tower/edge_dispatch.feature` and await approval.
+4. **No streaming to Towers.** A `stream: true` request is never routed to one, because a
    streamed answer can only be verified after the consumer already has the bytes. The inner
    session is what fixes this properly.
-4. **Polling, not a multiplexed link.** The spec's Tower holds one persistent outbound
+5. **Polling, not a multiplexed link.** The spec's Tower holds one persistent outbound
    multiplexed connection; today it long-polls. Correct but chattier, and it is why a Tower's
    work has to be found in a shared store rather than pushed down the link it is already
    holding.
