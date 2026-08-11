@@ -232,6 +232,15 @@ func towerPost(st *tower.State, path string, body []byte, out any) error {
 		}
 		return fmt.Errorf("%w: %s", ErrRefused, strings.TrimSpace(string(raw)))
 	case resp.StatusCode == http.StatusForbidden:
+		// CORE'S OWN SENTENCE FIRST. This used to answer every 403 with "this Tower may not
+		// hold a link right now", which is true of the session routes and actively
+		// misleading everywhere else: a refused Station attachment is not a lapsed lease,
+		// and an operator sent to check their Tower's lifecycle because they mistyped an
+		// invitation secret is an operator debugging the wrong thing. The canned line is the
+		// fallback for a 403 that carries nothing, not the answer to all of them.
+		if msg, ok := envelopeMessage(raw); ok {
+			return fmt.Errorf("%w: %s", ErrRefused, msg)
+		}
 		return fmt.Errorf("%w: this Tower may not hold a link right now (suspended, revoked, or its lease lapsed)", ErrRefused)
 	case resp.StatusCode < 200 || resp.StatusCode >= 300:
 		return fmt.Errorf("%w: %s", ErrRefused, bandOrRawError(raw))
@@ -244,15 +253,42 @@ func towerPost(st *tower.State, path string, body []byte, out any) error {
 	return nil
 }
 
-// bandOrRawError pulls the sentence Core wrote out of its error envelope.
-func bandOrRawError(raw []byte) string {
+// envelopeMessage pulls the sentence Core wrote out of its {"error":{"message":...}}
+// envelope, reporting whether there WAS one.
+//
+// The boolean is the whole point. Callers substitute Core's sentence for their own only when
+// Core actually wrote one - an HTML gateway page or a bare "nope" is not a message, and
+// treating it as one loses the status code, which is then the only thing left to go on.
+func envelopeMessage(raw []byte) (string, bool) {
 	var env struct {
-		Error struct {
-			Message string `json:"message"`
-		} `json:"error"`
+		Error json.RawMessage `json:"error"`
 	}
-	if err := json.Unmarshal(raw, &env); err == nil && env.Error.Message != "" {
-		return env.Error.Message
+	if err := json.Unmarshal(raw, &env); err != nil || len(env.Error) == 0 {
+		return "", false
+	}
+	// BOTH SHAPES. The broker writes {"error":{"message":...}} everywhere, but a bare
+	// {"error":"..."} is the shape a hand-written handler reaches for first, and reading
+	// only one of the two is exactly how this went wrong: the client understood the string
+	// form, the server has always sent the object form, and the test stub sent the string -
+	// so the tests passed while every real refusal reached the operator as a bare status.
+	var msg string
+	if err := json.Unmarshal(env.Error, &msg); err == nil && msg != "" {
+		return msg, true
+	}
+	var obj struct {
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal(env.Error, &obj); err == nil && obj.Message != "" {
+		return obj.Message, true
+	}
+	return "", false
+}
+
+// bandOrRawError is envelopeMessage with the raw body as a last resort, for the cases where
+// SOMETHING is better than nothing because the status is already in the caller's message.
+func bandOrRawError(raw []byte) string {
+	if msg, ok := envelopeMessage(raw); ok {
+		return msg
 	}
 	return string(raw)
 }

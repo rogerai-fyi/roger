@@ -19,7 +19,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"path/filepath"
+
 	"rogerai.fm/roger/v5/internal/protocol"
+	"rogerai.fm/roger/v5/internal/station"
 	"rogerai.fm/roger/v5/internal/store"
 	"rogerai.fm/roger/v5/internal/towercore/admit"
 	"rogerai.fm/roger/v5/internal/towercore/attach"
@@ -1738,4 +1741,146 @@ func TestTheStationRoutesRefuseWhenTheRegistryIsDown(t *testing.T) {
 	// And promotion, which is the one that would otherwise silently do nothing.
 	code, raw = adminTowerPost(t, srv, "/tower/station/promote", `{"station_id":"st-x"}`)
 	require.Equal(t, http.StatusServiceUnavailable, code, raw)
+}
+
+// --- the whole chain, with a REAL Station -----------------------------------
+//
+// Every other test in this file hands Core a leaf it built itself. These start from
+// `roger-station`'s actual key custody and its actual signing path, so the two halves of the
+// contract are exercised against each other rather than against a shared assumption.
+//
+// They are the tests that could not exist before: there was no Station-side software, so no
+// joined Tower could produce a leaf, so Core's nineteen-row verification path had nothing
+// real to verify and "routable" was structurally always zero.
+
+// wrapLeaves signs an inventory around leaves that were signed ELSEWHERE - by a real
+// Station, rather than by this file. That is the point of it: signedInventory builds both
+// halves itself, so it can only ever prove Core agrees with the test's own idea of a leaf.
+func wrapLeaves(t *testing.T, lt linkTower, rev int64, prev string, leaves []json.RawMessage) []byte {
+	t.Helper()
+	now := time.Now()
+	objs := make([]any, 0, len(leaves))
+	for _, l := range leaves {
+		var o any
+		require.NoError(t, json.Unmarshal(l, &o))
+		objs = append(objs, o)
+	}
+	invObj := map[string]any{
+		"network": link.PublicNetwork, "tower_id": lt.id,
+		"revision": towerobj.FormatInt(rev), "prev_hash": prev,
+		"lease_head": "lease-1", "lifecycle_head": "life-1",
+		"issued":  towerobj.FormatInt(now.Unix()),
+		"expires": towerobj.FormatInt(now.Add(30 * time.Minute).Unix()),
+		"leaves":  objs,
+	}
+	signed, err := towerobj.Sign(lt.priv, link.PublicNetwork, inv.TypeInventory,
+		inv.Version, jsonOf(t, invObj), "sig")
+	require.NoError(t, err)
+	return signed
+}
+
+// attachReal attaches a REAL Station (its own keys, its own directory) under this account,
+// and promotes it out of quarantine.
+func attachReal(t *testing.T, b *broker, authID, towerID, owner string) *station.Station {
+	t.Helper()
+	stn, err := station.Init(filepath.Join(t.TempDir(), "st"))
+	require.NoError(t, err)
+	auth, secret, err := attach.NewInvite(attach.Authorization{
+		ID: authID, Network: link.PublicNetwork, StationID: stn.StationID, Owner: owner,
+		Origin:       attach.Origin{Kind: attach.OriginJoined, TowerID: towerID},
+		AssertionKey: stn.Assertion, SessionKey: stn.Session,
+	}, time.Hour, time.Now())
+	require.NoError(t, err)
+	require.NoError(t, b.tower.stationStore.PutAuthorization(auth))
+	_, err = b.tower.stations.Admit(attach.Proof{
+		AuthID: authID, Secret: secret, Network: link.PublicNetwork,
+		StationID: stn.StationID, Owner: owner,
+		Origin:       attach.Origin{Kind: attach.OriginJoined, TowerID: towerID},
+		AssertionKey: stn.Assertion, SessionKey: stn.Session,
+	})
+	require.NoError(t, err)
+	// A Station is not eligible on arrival; these tests are about the signature path, and
+	// the gate has its own.
+	promoted, err := b.tower.stations.Promote(stn.StationID)
+	require.NoError(t, err)
+	require.True(t, promoted)
+	return stn
+}
+
+func openLink(t *testing.T, srv *httptest.Server, lt linkTower) {
+	t.Helper()
+	code, raw := lt.call(t, srv, "/tower/session",
+		jsonOf(t, link.Hello{
+			Network: link.PublicNetwork, Versions: []int{1}, TowerID: lt.id,
+			Capabilities: mandatoryCaps(),
+		}), nil)
+	require.Equal(t, http.StatusOK, code, raw)
+}
+
+func TestARealStationsSignedOfferBecomesRoutable(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	op := signedInOperator(t, b, "octocat")
+	lt := enrolledTower(t, b, op.login)
+	stn := attachReal(t, b, "auth-real", lt.id, ownerPubkeyOf(t, b, op.login))
+	openLink(t, srv, lt)
+
+	signed, err := stn.SignOffer(station.Offer{
+		Network: link.PublicNetwork, TowerID: lt.id, Model: "roger-1", Modality: "text",
+		PriceIn: 1000, PriceOut: 2000, EarnIn: 800, EarnOut: 1600, Capacity: 4,
+		Capabilities: []string{"chat"}, TTL: time.Hour,
+	}, time.Now())
+	require.NoError(t, err)
+
+	var out struct {
+		Routable int `json:"routable"`
+		Excluded []struct {
+			StationID string `json:"station_id"`
+			Reason    string `json:"reason"`
+		} `json:"excluded"`
+	}
+	code, raw := lt.call(t, srv, "/tower/inventory",
+		wrapLeaves(t, lt, 1, "genesis", []json.RawMessage{signed}), &out)
+	require.Equal(t, http.StatusOK, code, raw)
+	require.Empty(t, out.Excluded, "Core excluded a leaf a real Station really signed")
+	require.Equal(t, 1, out.Routable, "a real Station's real offer must be routable")
+}
+
+// THE OTHER HALF OF THE SAME PROOF: a leaf the relay altered after the Station signed it is
+// refused. Without this, the test above would pass just as well if Core were not checking
+// the signature at all.
+func TestARelayCannotAlterWhatTheStationSigned(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	op := signedInOperator(t, b, "octocat")
+	lt := enrolledTower(t, b, op.login)
+	stn := attachReal(t, b, "auth-real2", lt.id, ownerPubkeyOf(t, b, op.login))
+	openLink(t, srv, lt)
+
+	signed, err := stn.SignOffer(station.Offer{
+		Network: link.PublicNetwork, TowerID: lt.id, Model: "roger-1", Modality: "text",
+		PriceIn: 1000, PriceOut: 2000, EarnIn: 800, EarnOut: 1600, Capacity: 4,
+		Capabilities: []string{"chat"}, TTL: time.Hour,
+	}, time.Now())
+	require.NoError(t, err)
+
+	// The relay raises what the Station said it would earn - the most profitable edit
+	// available to it, and the one the whole signature scheme exists to prevent.
+	var leaf map[string]any
+	require.NoError(t, json.Unmarshal(signed, &leaf))
+	leaf["earn_out"] = "2000"
+	tampered, err := json.Marshal(leaf)
+	require.NoError(t, err)
+
+	var out struct {
+		Routable int `json:"routable"`
+		Excluded []struct {
+			StationID string `json:"station_id"`
+			Reason    string `json:"reason"`
+		} `json:"excluded"`
+	}
+	code, raw := lt.call(t, srv, "/tower/inventory",
+		wrapLeaves(t, lt, 1, "genesis", []json.RawMessage{tampered}), &out)
+	require.Equal(t, http.StatusOK, code, raw)
+	require.Zero(t, out.Routable, "an altered offer must not be routable")
+	require.Len(t, out.Excluded, 1)
+	require.Contains(t, out.Excluded[0].Reason, "signature")
 }

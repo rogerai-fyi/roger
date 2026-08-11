@@ -139,17 +139,39 @@ func TestTheClientTellsResendApartFromRefuse(t *testing.T) {
 			"the sentence Core wrote is what an operator needs, not the JSON envelope")
 	})
 
-	t.Run("403 says the Tower may not hold a link", func(t *testing.T) {
+	// A 403 CARRYING A REASON REPORTS THAT REASON.
+	//
+	// This subtest previously asserted the opposite - that every 403 became "this Tower may
+	// not hold a link (suspended, revoked, or its lease lapsed)" - and that was wrong in a
+	// way only visible once a second route started answering 403. It is the right sentence
+	// for the session routes and a misdirection everywhere else: a Station attachment
+	// refused over a mistyped invitation secret would send its operator off to investigate
+	// their Tower's lifecycle, which is fine. The canned line is the FALLBACK below, not the
+	// answer to every 403.
+	t.Run("403 reports the reason Core gave", func(t *testing.T) {
 		core := newLinkCore(t)
 		st := registeredTower(t)
 		core.reply["/tower/session"] = func(w http.ResponseWriter) {
 			w.WriteHeader(http.StatusForbidden)
-			_, _ = w.Write([]byte(`{"error":{"message":"nope"}}`))
+			_, _ = w.Write([]byte(`{"error":{"message":"this link requires a registered Tower's own signed request"}}`))
 		}
 		_, err := OpenSession(st, Head{})
 		require.ErrorIs(t, err, ErrRefused)
-		require.Contains(t, err.Error(), "lease lapsed",
-			"the three reasons an admitted Tower is refused are worth naming")
+		require.Contains(t, err.Error(), "own signed request",
+			"the sentence Core wrote is what an operator can act on")
+	})
+
+	// And when Core says nothing at all, the three reasons an admitted Tower gets turned
+	// away are still worth naming: an operator staring at a bare 403 has nowhere to start.
+	t.Run("403 with no reason names the three that are possible", func(t *testing.T) {
+		core := newLinkCore(t)
+		st := registeredTower(t)
+		core.reply["/tower/session"] = func(w http.ResponseWriter) {
+			w.WriteHeader(http.StatusForbidden)
+		}
+		_, err := OpenSession(st, Head{})
+		require.ErrorIs(t, err, ErrRefused)
+		require.Contains(t, err.Error(), "lease lapsed")
 	})
 }
 

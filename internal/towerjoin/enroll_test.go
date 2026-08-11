@@ -248,7 +248,12 @@ func TestRegisterSurfacesABrokerRefusal(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/tower/token", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "this account may not run a Tower"})
+		// The BROKER'S envelope, not a convenient one: jsonErr writes
+		// {"error":{"message":...}}. This stub used to send {"error":"..."}, which the
+		// client happened to understand and the server has never sent - so this test
+		// passed while every real refusal reached an operator as a bare status code.
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"error": map[string]string{"message": "this account may not run a Tower"}})
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()

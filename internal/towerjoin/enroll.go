@@ -216,14 +216,14 @@ func signedPost(url string, _ ed25519.PrivateKey, body []byte, out any) error {
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode != http.StatusOK {
-		var e struct {
-			Error string `json:"error"`
+		// THE BROKER'S ENVELOPE IS {"error":{"message":...}} - an OBJECT. This decoded a
+		// STRING, so the unmarshal failed silently on every refusal and the operator got
+		// "the broker replied 429": the one piece of information that tells them nothing,
+		// while the sentence saying what to do about it sat unread in the body.
+		if msg, ok := envelopeMessage(raw); ok {
+			return errors.New(msg)
 		}
-		_ = json.Unmarshal(raw, &e)
-		if e.Error == "" {
-			e.Error = fmt.Sprintf("the broker replied %d", resp.StatusCode)
-		}
-		return errors.New(e.Error)
+		return fmt.Errorf("the broker replied %d", resp.StatusCode)
 	}
 	if out == nil {
 		return nil

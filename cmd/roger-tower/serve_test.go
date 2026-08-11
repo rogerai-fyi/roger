@@ -24,6 +24,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"rogerai.fm/roger/v5/internal/tower"
+	"rogerai.fm/roger/v5/internal/towerjoin"
 )
 
 // coreStub is Roger Core's link surface, as much of it as the loop touches.
@@ -36,8 +37,11 @@ type coreStub struct {
 	t   *testing.T
 	srv *httptest.Server
 
-	mu          sync.Mutex
-	seen        []string
+	mu   sync.Mutex
+	seen []string
+	// keys records the public key that signed each path, so a test can assert that the
+	// operator's account key and the Tower's identity key are not the same key.
+	keys        map[string]string
 	sessions    int
 	inventories int
 	// reply overrides the canned answer for a path; the func returns true when it handled it.
@@ -46,7 +50,8 @@ type coreStub struct {
 
 func newCoreStub(t *testing.T) *coreStub {
 	t.Helper()
-	c := &coreStub{t: t, reply: map[string]func(http.ResponseWriter, int) bool{}}
+	c := &coreStub{t: t, reply: map[string]func(http.ResponseWriter, int) bool{},
+		keys: map[string]string{}}
 	c.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Every link call is the MACHINE talking, and Core authenticates it by the Tower's
 		// key. An unsigned call would be refused in production; catching it here is the only
@@ -55,6 +60,7 @@ func newCoreStub(t *testing.T) *coreStub {
 
 		c.mu.Lock()
 		c.seen = append(c.seen, r.URL.Path)
+		c.keys[r.URL.Path] = r.Header.Get("X-Roger-Pubkey")
 		n := 0
 		for _, p := range c.seen {
 			if p == r.URL.Path {
@@ -413,14 +419,55 @@ func TestAFailedDrainWarnsRatherThanPassingQuietly(t *testing.T) {
 	require.Contains(t, b.String(), "could not drain cleanly")
 }
 
-// A Tower whose Stations have not been built yet relays nothing, and localOffers says so
-// with an empty slice rather than a stub error - a Tower with no Stations is a valid state,
-// not a failure.
-func TestATowerWithNoStationsRelaysNothing(t *testing.T) {
+// A Tower with no offers directory relays nothing - the ordinary state of one whose Stations
+// have not been set up yet. It is a valid state, not a failure.
+func TestATowerWithNoOffersRelaysNothing(t *testing.T) {
 	st := servingTower(t)
-	leaves, err := localOffers(st)
+	var b bytes.Buffer
+	leaves, err := localOffers(st, &b)
 	require.NoError(t, err)
 	require.Empty(t, leaves)
+	require.Empty(t, b.String())
+}
+
+// STATION OFFERS ARE RELAYED BYTE FOR BYTE. A Tower that re-encoded one could change what
+// the Station signed, so the bytes that arrive are the bytes that leave.
+func TestStationSignedOffersAreRelayedVerbatim(t *testing.T) {
+	st := servingTower(t)
+	dir := filepath.Join(st.Dir(), offersDir)
+	require.NoError(t, os.MkdirAll(dir, 0o700))
+
+	// Deliberately ugly: odd spacing and member order survive if nothing re-encodes them.
+	signed := `{ "offer_id":"off-1",   "station_id":"st-1",
+ "station_sig":"abc" }`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "a.json"), []byte(signed), 0o600))
+
+	var b bytes.Buffer
+	leaves, err := localOffers(st, &b)
+	require.NoError(t, err)
+	require.Len(t, leaves, 1)
+	require.Equal(t, signed, string(leaves[0]), "the relay altered what the Station signed")
+}
+
+// One unreadable file must not take a whole fleet off the network - and must not vanish
+// quietly either, because a silent skip is how an operator ends up staring at a Station that
+// never appears.
+func TestABadOfferFileIsNamedAndSkippedRatherThanFatal(t *testing.T) {
+	st := servingTower(t)
+	dir := filepath.Join(st.Dir(), offersDir)
+	require.NoError(t, os.MkdirAll(dir, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "good.json"), []byte(`{"offer_id":"o1"}`), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "bad.json"), []byte("{not json"), 0o600))
+	// Not an offer at all, and not announced: a stray file is not an operator mistake.
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "notes.txt"), []byte("hello"), 0o600))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "subdir.json"), 0o700))
+
+	var b bytes.Buffer
+	leaves, err := localOffers(st, &b)
+	require.NoError(t, err)
+	require.Len(t, leaves, 1, "the good offer still goes")
+	require.Contains(t, b.String(), "bad.json")
+	require.NotContains(t, b.String(), "notes.txt")
 }
 
 // The real clock is wired up in serveJoined and nothing else asserts it fires.
@@ -456,4 +503,57 @@ func TestServeJoinedWiresTheRealSignalAndClock(t *testing.T) {
 	require.NoError(t, err)
 	defer release()
 	require.Error(t, serveJoined(st, &b))
+}
+
+// An offers directory that cannot be listed is FATAL, unlike a single bad file inside it.
+// The difference matters: one unreadable offer is a fleet minus one, but an unreadable
+// directory means we have no idea what this Tower is meant to be relaying, and pushing an
+// empty inventory in that state would silently take the whole fleet off the network.
+func TestAnUnreadableOffersDirectoryStopsThePush(t *testing.T) {
+	st := servingTower(t)
+	// A regular file where the directory should be: ReadDir fails with ENOTDIR.
+	require.NoError(t, os.WriteFile(filepath.Join(st.Dir(), offersDir), []byte("x"), 0o600))
+
+	var b bytes.Buffer
+	_, err := localOffers(st, &b)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "offers directory")
+}
+
+// A single offer file that cannot be READ is named and skipped, the same as one that is not
+// JSON - the operator needs to know which file, and the rest of the fleet still goes.
+func TestAnUnreadableOfferFileIsNamedAndSkipped(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores the permission bits this test relies on")
+	}
+	st := servingTower(t)
+	dir := filepath.Join(st.Dir(), offersDir)
+	require.NoError(t, os.MkdirAll(dir, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "good.json"), []byte(`{"offer_id":"o1"}`), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "locked.json"), []byte(`{}`), 0o000))
+
+	var b bytes.Buffer
+	leaves, err := localOffers(st, &b)
+	require.NoError(t, err)
+	require.Len(t, leaves, 1)
+	require.Contains(t, b.String(), "locked.json")
+}
+
+// And the whole point, end to end through the push: a Station-signed offer reaches Core.
+func TestAPushCarriesTheStationsOffers(t *testing.T) {
+	core := newCoreStub(t)
+	st := servingTower(t)
+	dir := filepath.Join(st.Dir(), offersDir)
+	require.NoError(t, os.MkdirAll(dir, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "a.json"),
+		[]byte(`{"offer_id":"off-1","station_id":"st-1","station_sig":"abc"}`), 0o600))
+	core.reply["/tower/inventory"] = func(w http.ResponseWriter, call int) bool {
+		_ = json.NewEncoder(w).Encode(map[string]any{"revision": 1, "hash": "h1", "routable": 1})
+		return true
+	}
+
+	var b bytes.Buffer
+	_, _, err := pushInventory(st, &b, 0, towerjoin.Head{})
+	require.NoError(t, err)
+	require.Contains(t, b.String(), "1 of 1 Station offer(s) eligible")
 }

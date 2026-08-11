@@ -7,12 +7,16 @@ package main
 // participant. This is the other one.
 //
 // WHAT SERVING MEANS TODAY, said plainly here so the command can say it plainly too: the
-// Tower registers, opens a session, pushes a signed inventory, heartbeats, and drains
-// cleanly on shutdown. It does NOT carry customer traffic, because dispatch is not built and
-// because a Station signs its own offers and no Station-side software exists to do that yet.
-// A Tower with nothing attached pushes a valid inventory of zero leaves, which is the honest
-// statement "I am here and I have nothing" and is what makes the link real before Stations
-// can sign.
+// Tower registers, opens a session, pushes a signed inventory of whatever its Stations have
+// signed, heartbeats, and drains cleanly on shutdown. It does NOT carry customer traffic:
+// dispatch is not built.
+//
+// The offers it pushes come from FILES its Stations produced (`roger-station offer`), and
+// are relayed byte for byte. A Tower cannot make one up, because it does not hold a Station's
+// assertion key and must never hold one - if it could sign for a Station, "signed by the
+// Station" would mean "signed by the relay". A Tower with nothing in its offers directory
+// pushes a valid inventory of zero leaves, which is the honest "I am here and I have
+// nothing".
 
 import (
 	"encoding/json"
@@ -22,6 +26,8 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -135,7 +141,7 @@ func runLink(st *tower.State, out io.Writer, stop <-chan struct{}, ticker func(t
 
 // pushInventory sends the current fleet and returns the new chain position.
 func pushInventory(st *tower.State, out io.Writer, revision int64, head towerjoin.Head) (int64, towerjoin.Head, error) {
-	leaves, err := localOffers(st)
+	leaves, err := localOffers(st, out)
 	if err != nil {
 		return revision, head, err
 	}
@@ -173,14 +179,54 @@ func pushInventory(st *tower.State, out io.Writer, revision int64, head towerjoi
 	return next, towerjoin.Head{Revision: res.Revision, Hash: res.Hash}, nil
 }
 
+// offersDir is where a Tower looks for the offers its Stations signed. One file per offer,
+// produced by `roger-station offer` ON THE STATION and copied here by whatever the operator
+// already trusts to move a file.
+const offersDir = "offers"
+
 // localOffers reads the Station-signed offers this Tower is relaying.
 //
-// It returns nothing today, and that is a statement rather than a stub: a Station signs its
-// own offers with its assertion key, which this Tower does not hold and must never hold - if
-// it could sign for a Station, "signed by the Station" would mean nothing. Until Station-side
-// software exists to produce them, a joined Tower has nothing to relay and says so.
-func localOffers(_ *tower.State) ([]json.RawMessage, error) {
-	return nil, nil
+// RELAYED VERBATIM. The bytes are passed through untouched and are never decoded and
+// re-encoded, because a Station signs its own offers with an assertion key this Tower does
+// not hold and must never hold. Re-encoding one would invalidate the signature at best and,
+// at worst, quietly change what the Station said. That is also why this reads FILES rather
+// than building offers from the Tower's own configuration: there is no configuration a Tower
+// could hold that would let it produce a leaf Core accepts, and that is by design.
+//
+// A file that is not JSON is REPORTED AND SKIPPED rather than fatal. One bad file should not
+// take a whole fleet off the network - but a silent skip is how an operator ends up staring
+// at a Station that never appears, so it is named on the way past. Core applies its own
+// nineteen-row rejection table to every leaf that does get through and reports what it
+// excluded, which is the answer to "why is my Station idle".
+func localOffers(st *tower.State, out io.Writer) ([]json.RawMessage, error) {
+	dir := filepath.Join(st.Dir(), offersDir)
+	entries, err := os.ReadDir(dir)
+	if os.IsNotExist(err) {
+		// Not an error, and not silent either: a Tower with no offers directory is the
+		// ordinary state of one whose Stations have not been set up yet.
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("cannot read the offers directory %s: %w", dir, err)
+	}
+	var leaves []json.RawMessage
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
+		path := filepath.Join(dir, e.Name())
+		raw, rerr := os.ReadFile(path)
+		if rerr != nil {
+			fmt.Fprintf(out, "warning: skipping %s: %v\n", e.Name(), rerr)
+			continue
+		}
+		if !json.Valid(raw) {
+			fmt.Fprintf(out, "warning: skipping %s: it is not valid JSON\n", e.Name())
+			continue
+		}
+		leaves = append(leaves, json.RawMessage(raw))
+	}
+	return leaves, nil
 }
 
 // cmdServe is the `roger-tower serve` entry point.

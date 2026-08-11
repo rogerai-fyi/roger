@@ -46,6 +46,7 @@ usage:
   roger-tower logout --dir DIR
   roger-tower register --dir DIR      (joined mode only; requires login)
   roger-tower serve  --dir DIR        (joined mode only; holds the relay link)
+  roger-tower station invite|attach   (joined mode only; Stations on the public network)
   roger-tower version
 
 invite, admit, attach, stations, route and serve also take --config FILE. Pass it
@@ -112,6 +113,8 @@ func run(args []string, out io.Writer) error {
 		return nil
 	case "serve":
 		return cmdServe(args[1:], out)
+	case "station":
+		return cmdStation(args[1:], out)
 	case "drain", "revoke":
 		// The link ships; these two do not yet. `serve` drains on exit, which covers the
 		// ordinary case - a separate drain command is for draining a Tower you are not
