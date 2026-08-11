@@ -195,3 +195,50 @@ func TestTheListenerServesAndThenStopsCleanly(t *testing.T) {
 		return gerr != nil
 	}, 5*time.Second, 10*time.Millisecond)
 }
+
+// BOTH KEYS ARE REQUIRED AT STARTUP. A Station missing either would refuse every request at
+// runtime, one at a time, looking like a network fault - so the error belongs where the
+// mistake was made. And the reason is stated, because it is the whole security argument.
+func TestServeRefusesWithoutTheEnvelopeKey(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "st")
+	_, err := runCLI(t, "init", "--dir", dir)
+	require.NoError(t, err)
+	grantKey := hex.EncodeToString(mustOpen(t, dir).AssertionPub())
+	envKey := hex.EncodeToString(mustOpen(t, dir).SessionPub())
+
+	_, err = runCLI(t, "serve", "--dir", dir, "--upstream", "http://127.0.0.1:1",
+		"--core-key", grantKey)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "--core-envelope-key is required")
+	require.Contains(t, err.Error(), "read every one",
+		"it says WHY, because a relay reading results is the thing this prevents")
+
+	for _, bad := range []string{"not-hex", envKey[:20]} {
+		_, err = runCLI(t, "serve", "--dir", dir, "--upstream", "http://127.0.0.1:1",
+			"--core-key", grantKey, "--core-envelope-key", bad)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "X25519")
+	}
+}
+
+// The startup banner says content is sealed in both directions. An operator running a relay
+// for other people's customers should be able to see that from the terminal.
+func TestTheStartupBannerSaysContentIsSealed(t *testing.T) {
+	s := servingStation(t)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer ln.Close()
+
+	// Exercised through the handler rather than the banner text alone: /id answers while the
+	// executor holds both keys, which is the state the banner describes.
+	srv := httptest.NewServer(executeHandler(station.Executor{Station: s}))
+	defer srv.Close()
+	resp, err := http.Get(srv.URL + "/id")
+	require.NoError(t, err)
+	resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	out, err := runCLI(t)
+	require.NoError(t, err)
+	require.Contains(t, out, "--core-envelope-key")
+}

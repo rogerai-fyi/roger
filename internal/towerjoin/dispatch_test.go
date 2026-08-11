@@ -24,13 +24,14 @@ func TestPollingReturnsTheWorkCoreHandedOut(t *testing.T) {
 	core := newStationCore(t)
 	st := registeredTower(t)
 	core.replies["/tower/dispatch"] = func(w http.ResponseWriter) {
-		_, _ = w.Write([]byte(`{"attempt_id":"att-1","grant":{"station_id":"st-1"},"request":{"m":1}}`))
+		_, _ = w.Write([]byte(`{"attempt_id":"att-1","grant":{"station_id":"st-1"},` +
+			`"envelope":{"epk":"AAA","nonce":"BBB","ct":"CCC"}}`))
 	}
 	got, err := PollDispatch(st, nil)
 	require.NoError(t, err)
 	require.Equal(t, "att-1", got.AttemptID)
 	require.JSONEq(t, `{"station_id":"st-1"}`, string(got.Grant))
-	require.JSONEq(t, `{"m":1}`, string(got.Request))
+	require.JSONEq(t, `{"epk":"AAA","nonce":"BBB","ct":"CCC"}`, string(got.Envelope))
 	require.Equal(t, "tw-1", core.bodies["/tower/dispatch"]["tower_id"])
 }
 
@@ -80,16 +81,16 @@ func TestTheResultIsReturnedByteForByte(t *testing.T) {
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	}
 
-	body := json.RawMessage(`{"answer":"  keep   my   spacing  ","n":1}`)
+	body := json.RawMessage(`{"ct":"  keep   my   spacing  ","nonce":"n"}`)
 	require.NoError(t, ReturnResult(st, "att-1", station.ExecuteResponse{
-		Receipt: &dispatch.Receipt{AttemptID: "att-1", ResponseDigest: "d"},
-		Body:    body,
+		Receipt:  &dispatch.Receipt{AttemptID: "att-1", ResponseDigest: "d"},
+		Envelope: body,
 	}))
 
 	sent := core.bodies["/tower/dispatch/result"]
 	require.Equal(t, "att-1", sent["attempt_id"])
 	require.Equal(t, "tw-1", sent["tower_id"])
-	got, err := json.Marshal(sent["body"])
+	got, err := json.Marshal(sent["envelope"])
 	require.NoError(t, err)
 	require.Contains(t, string(got), "  keep   my   spacing  ")
 	require.NotContains(t, sent, "failure")
@@ -109,9 +110,9 @@ func TestAFailureIsReportedAsOneAndNeverAsAResult(t *testing.T) {
 	require.Equal(t, "the model is not loaded", core.bodies["/tower/dispatch/result"]["failure"])
 	require.NotContains(t, core.bodies["/tower/dispatch/result"], "receipt")
 
-	// A body with no receipt is not a result: signing is what makes it one.
+	// An envelope with no receipt is not a result: signing is what makes it one.
 	require.NoError(t, ReturnResult(st, "att-2", station.ExecuteResponse{
-		Body: json.RawMessage(`{"answer":"unsigned"}`),
+		Envelope: json.RawMessage(`{"ct":"unsigned"}`),
 	}))
 	failure, _ := core.bodies["/tower/dispatch/result"]["failure"].(string)
 	require.Contains(t, failure, "no receipt")
@@ -125,26 +126,26 @@ func TestTheStationSeesExactlyWhatCoreSent(t *testing.T) {
 	var saw station.ExecuteRequest
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.NoError(t, json.NewDecoder(r.Body).Decode(&saw))
-		_, _ = w.Write([]byte(`{"receipt":{"attempt_id":"att-1"},"body":{"ok":true}}`))
+		_, _ = w.Write([]byte(`{"receipt":{"attempt_id":"att-1"},"envelope":{"ct":"sealed"}}`))
 	}))
 	defer srv.Close()
 
 	work := Work{
 		AttemptID: "att-1",
 		Grant:     json.RawMessage(`{"station_id":"st-1","nonce":"abc"}`),
-		Request:   json.RawMessage(`{"model":"m1","messages":[]}`),
+		Envelope:  json.RawMessage(`{"epk":"e","nonce":"n","ct":"sealed"}`),
 	}
 	resp := RelayToStation(srv.URL, work, nil)
 	require.Empty(t, resp.Failure)
 	require.NotNil(t, resp.Receipt)
 	require.JSONEq(t, string(work.Grant), string(saw.Grant))
-	require.Equal(t, string(work.Request), string(saw.Request))
+	require.Equal(t, string(work.Envelope), string(saw.Envelope))
 }
 
 // EVERY WAY THE STATION LEG CAN FAIL becomes a Failure, never a dropped attempt. Core is
 // waiting on the other side, and a fast honest failure beats a deadline.
 func TestEveryStationFailureBecomesAReportableOne(t *testing.T) {
-	work := Work{AttemptID: "att-1", Grant: json.RawMessage(`{}`), Request: json.RawMessage(`{}`)}
+	work := Work{AttemptID: "att-1", Grant: json.RawMessage(`{}`), Envelope: json.RawMessage(`{}`)}
 
 	t.Run("unreachable", func(t *testing.T) {
 		resp := RelayToStation("http://127.0.0.1:1/execute", work, nil)

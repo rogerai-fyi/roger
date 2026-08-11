@@ -96,32 +96,35 @@ func TestTheTowerCarriesBothDirectionsUnchanged(t *testing.T) {
 	core := newDispatchCore(t)
 	st := servingTower(t)
 
-	var sawGrant, sawRequest json.RawMessage
+	var sawGrant, sawEnvelope json.RawMessage
 	stationSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var in station.ExecuteRequest
 		require.NoError(t, json.NewDecoder(r.Body).Decode(&in))
-		sawGrant, sawRequest = in.Grant, in.Request
+		sawGrant, sawEnvelope = in.Grant, in.Envelope
 		_, _ = w.Write([]byte(`{"receipt":{"attempt_id":"att-1","response_digest":"d","signed":"c2ln"},` +
-			`"body":{"answer":"  spaced  ","n":1}}`))
+			`"envelope":{"ct":"  spaced  ","nonce":"n"}}`))
 	}))
 	defer stationSrv.Close()
 
 	grant := grantNaming("st-1")
-	request := json.RawMessage(`{"model":"m1","messages":[{"role":"user","content":"hi"}]}`)
-	core.queue(map[string]any{"attempt_id": "att-1", "grant": grant, "request": request})
+	// A SEALED envelope, because that is all a Tower ever holds. The Tower relays it without
+	// being able to read it, which is the property this whole leg is built around.
+	sealedRequest := json.RawMessage(`{"epk":"ZQ","nonce":"bm9uY2U","ct":"c2VhbGVk"}`)
+	core.queue(map[string]any{"attempt_id": "att-1", "grant": grant, "envelope": sealedRequest})
 
 	runOnce(t, st, stationEndpoints{"st-1": stationSrv.URL + "/execute"})
 
 	require.JSONEq(t, string(grant), string(sawGrant))
-	require.Equal(t, string(request), string(sawRequest), "the request reached the Station unchanged")
+	require.Equal(t, string(sealedRequest), string(sawEnvelope),
+		"the sealed request reached the Station unchanged")
 
 	results := core.got()
 	require.Len(t, results, 1)
 	require.Equal(t, "att-1", results[0]["attempt_id"])
 	require.NotNil(t, results[0]["receipt"])
-	// The body survives with its own spacing: a Tower that decoded and re-encoded it would
-	// change the digest the Station signed and invalidate a perfectly good result.
-	body, err := json.Marshal(results[0]["body"])
+	// The sealed result survives byte for byte: a Tower that decoded and re-encoded it would
+	// break what Core opens and look exactly like tampering.
+	body, err := json.Marshal(results[0]["envelope"])
 	require.NoError(t, err)
 	require.Contains(t, string(body), "  spaced  ")
 }
@@ -166,7 +169,7 @@ func TestEveryWayAnAttemptFailsIsStillReported(t *testing.T) {
 		"the Station returns no receipt": {
 			stations: func(url string) stationEndpoints { return stationEndpoints{"st-1": url + "/execute"} },
 			handler: func(w http.ResponseWriter, _ *http.Request) {
-				_, _ = w.Write([]byte(`{"body":{"answer":"hi"}}`))
+				_, _ = w.Write([]byte(`{"envelope":{"ct":"sealed"}}`))
 			},
 			expect: "no receipt",
 		},
@@ -182,7 +185,7 @@ func TestEveryWayAnAttemptFailsIsStillReported(t *testing.T) {
 			}
 			core.queue(map[string]any{
 				"attempt_id": "att-1", "grant": grantNaming("st-1"),
-				"request": json.RawMessage(`{"m":1}`),
+				"envelope": json.RawMessage(`{"ct":"sealed","nonce":"n"}`),
 			})
 			runOnce(t, st, tc.stations(url))
 
@@ -219,11 +222,12 @@ func TestAFailedPollBacksOffAndKeepsGoing(t *testing.T) {
 	core.pollFail = 1
 	core.mu.Unlock()
 	core.queue(map[string]any{
-		"attempt_id": "att-1", "grant": grantNaming("st-1"), "request": json.RawMessage(`{"m":1}`),
+		"attempt_id": "att-1", "grant": grantNaming("st-1"),
+		"envelope": json.RawMessage(`{"ct":"sealed","nonce":"n"}`),
 	})
 
 	stationSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"receipt":{"attempt_id":"att-1"},"body":{"ok":true}}`))
+		_, _ = w.Write([]byte(`{"receipt":{"attempt_id":"att-1"},"envelope":{"ct":"sealed"}}`))
 	}))
 	defer stationSrv.Close()
 

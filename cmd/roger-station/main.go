@@ -46,7 +46,8 @@ usage:
   roger-station init  --dir DIR                 (mint this Station's two keys, once)
   roger-station keys  --dir DIR                 (print the public keys for an invitation)
   roger-station offer --dir DIR --tower TOWER --model NAME [options]
-  roger-station serve --dir DIR --core-key HEX --upstream URL [--listen 127.0.0.1:8730]
+  roger-station serve --dir DIR --core-key HEX --core-envelope-key HEX --upstream URL
+                      [--listen 127.0.0.1:8730]
   roger-station status --dir DIR
   roger-station version
 

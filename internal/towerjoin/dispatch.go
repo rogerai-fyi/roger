@@ -31,7 +31,9 @@ import (
 type Work struct {
 	AttemptID string          `json:"attempt_id"`
 	Grant     json.RawMessage `json:"grant"`
-	Request   json.RawMessage `json:"request"`
+	// Envelope is the request, sealed to the Station. THIS TOWER CANNOT READ IT, which is
+	// the point: it carries content for somebody else's customers.
+	Envelope json.RawMessage `json:"envelope"`
 }
 
 // ErrNoWork is Core saying there is nothing to do right now. It is not a failure: an idle
@@ -70,7 +72,7 @@ func ReturnResult(st *tower.State, attemptID string, resp station.ExecuteRespons
 		return errors.New("this Tower is not registered yet")
 	}
 	out := map[string]any{"tower_id": adm.TowerID, "attempt_id": attemptID}
-	if resp.Failure != "" || resp.Receipt == nil {
+	if resp.Failure != "" || resp.Receipt == nil || len(resp.Envelope) == 0 {
 		failure := resp.Failure
 		if failure == "" {
 			failure = "the Station returned no receipt"
@@ -78,11 +80,10 @@ func ReturnResult(st *tower.State, attemptID string, resp station.ExecuteRespons
 		out["failure"] = failure
 	} else {
 		out["receipt"] = resp.Receipt
-		// RELAYED VERBATIM. json.RawMessage all the way through: the digest the Station signed
-		// is over these exact bytes, so any re-encoding here - a map round trip, a re-indent -
-		// would invalidate a perfectly good result and look like tampering, which is precisely
-		// what it would be.
-		out["body"] = resp.Body
+		// RELAYED VERBATIM, and unreadable to this Tower. json.RawMessage all the way through:
+		// the sealed bytes are what Core opens, so any re-encoding here would break a
+		// perfectly good result and look exactly like tampering - which it would be.
+		out["envelope"] = resp.Envelope
 	}
 	body, err := json.Marshal(out)
 	if err != nil {
@@ -93,7 +94,7 @@ func ReturnResult(st *tower.State, attemptID string, resp station.ExecuteRespons
 
 // RelayToStation hands the work to the Station and returns whatever it says.
 func RelayToStation(endpoint string, w Work, client *http.Client) station.ExecuteResponse {
-	payload, err := json.Marshal(station.ExecuteRequest{Grant: w.Grant, Request: w.Request})
+	payload, err := json.Marshal(station.ExecuteRequest{Grant: w.Grant, Envelope: w.Envelope})
 	if err != nil {
 		return station.ExecuteResponse{Failure: "could not frame the request for the Station"}
 	}

@@ -165,15 +165,25 @@ roger-tower serve --dir DIR --station st-abc123=http://127.0.0.1:8730/execute
 and on the Station:
 
 ```
+KEYS=$(curl -s https://BROKER/tower/dispatch/key)
 roger-station serve --dir DIR --upstream http://127.0.0.1:11434/v1/chat/completions \
-    --core-key $(curl -s https://BROKER/tower/dispatch/key | jq -r .dispatch_key)
+    --core-key          $(jq -r .dispatch_key <<<"$KEYS") \
+    --core-envelope-key $(jq -r .envelope_key <<<"$KEYS")
 ```
 
-The Station verifies that Roger Core signed the grant, that it names **this** Station, and
-that the request is the one the grant commits to — then executes and signs for exactly what
-it returns. The Tower is a courier: it cannot alter the request (the grant commits to a
-digest, and the Station checks) and cannot alter the answer (the receipt commits to a digest,
-and Core checks).
+Two keys, pinned out of band, because a Station only ever talks to its Tower — which is
+exactly the party a forged grant would come from, so fetching them over that channel would
+prove nothing. `dispatch_key` is what proves a grant came from Core. `envelope_key` is what
+results are sealed to.
+
+The Station opens the sealed request, verifies that Core signed the grant, that it names
+**this** Station, and that the request inside is the one the grant commits to — then executes
+and signs for exactly what it returns, sealed back to Core.
+
+The Tower is a courier and **cannot read either direction**: it holds an ephemeral key, a
+nonce and ciphertext. It cannot alter the request (the grant commits to a digest of the
+plaintext, and the Station checks after opening) and cannot alter the answer (the receipt
+commits to a digest, and Core checks after opening).
 
 Two things worth knowing before you wonder why a healthy Station is idle:
 

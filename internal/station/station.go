@@ -41,6 +41,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"rogerai.fm/roger/v5/internal/towercore/envelope"
 	"rogerai.fm/roger/v5/internal/towercore/inv"
 	"rogerai.fm/roger/v5/internal/towerobj"
 )
@@ -61,9 +62,12 @@ type Station struct {
 	Assertion string `json:"assertion_key"`
 	Session   string `json:"session_key"`
 
-	dir            string
-	assertionPriv  ed25519.PrivateKey
-	sessionPrivRaw ed25519.PrivateKey
+	dir           string
+	assertionPriv ed25519.PrivateKey
+	// sessionPriv is X25519, not Ed25519, because its job is KEY AGREEMENT rather than
+	// signing: it is what Roger Core seals a request to so the Tower relaying it cannot
+	// read the content. The assertion key signs; this one receives.
+	sessionPriv []byte
 }
 
 // AssertionPub is the key Core verifies this Station's offers with.
@@ -71,10 +75,19 @@ func (s *Station) AssertionPub() ed25519.PublicKey {
 	return s.assertionPriv.Public().(ed25519.PublicKey)
 }
 
-// SessionPub is the key that terminates this Station's end of the inner channel.
-func (s *Station) SessionPub() ed25519.PublicKey {
-	return s.sessionPrivRaw.Public().(ed25519.PublicKey)
+// SessionPub is the key Core seals this Station's requests to.
+func (s *Station) SessionPub() []byte {
+	pub, err := envelope.PublicKeyOf(s.sessionPriv)
+	if err != nil {
+		// Only reachable if the stored key is not an X25519 key, which Open refuses.
+		panic("station: the secure-session key is unusable: " + err.Error())
+	}
+	return pub
 }
+
+// SessionPriv is the private half, for opening what Core sealed. Unexported elsewhere: it
+// leaves this package only to the executor in it.
+func (s *Station) SessionPriv() []byte { return s.sessionPriv }
 
 // Dir is the data directory this Station was loaded from.
 func (s *Station) Dir() string { return s.dir }
@@ -97,17 +110,21 @@ func Init(dir string) (*Station, error) {
 	if err != nil {
 		return nil, err
 	}
-	session, err := writeFreshKey(filepath.Join(dir, sessionKeyFile))
+	sessionPub, sessionPriv, err := envelope.NewKey()
 	if err != nil {
 		return nil, err
 	}
+	if err := os.WriteFile(filepath.Join(dir, sessionKeyFile),
+		[]byte(hex.EncodeToString(sessionPriv)), 0o600); err != nil {
+		return nil, err
+	}
 	s := &Station{
-		StationID:      "st-" + randomHex(12),
-		Assertion:      hex.EncodeToString(assertion.Public().(ed25519.PublicKey)),
-		Session:        hex.EncodeToString(session.Public().(ed25519.PublicKey)),
-		dir:            dir,
-		assertionPriv:  assertion,
-		sessionPrivRaw: session,
+		StationID:     "st-" + randomHex(12),
+		Assertion:     hex.EncodeToString(assertion.Public().(ed25519.PublicKey)),
+		Session:       hex.EncodeToString(sessionPub),
+		dir:           dir,
+		assertionPriv: assertion,
+		sessionPriv:   sessionPriv,
 	}
 	return s, s.save()
 }
@@ -126,7 +143,7 @@ func Open(dir string) (*Station, error) {
 	if s.assertionPriv, err = readKey(filepath.Join(dir, assertionKeyFile)); err != nil {
 		return nil, err
 	}
-	if s.sessionPrivRaw, err = readKey(filepath.Join(dir, sessionKeyFile)); err != nil {
+	if s.sessionPriv, err = readSessionKey(filepath.Join(dir, sessionKeyFile)); err != nil {
 		return nil, err
 	}
 	return &s, nil
@@ -245,6 +262,22 @@ func writeFreshKey(path string) (ed25519.PrivateKey, error) {
 		return nil, err
 	}
 	return priv, nil
+}
+
+// readSessionKey reads the X25519 half.
+func readSessionKey(path string) ([]byte, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("this Station's secure-session key is unreadable: %w", err)
+	}
+	dec, err := hex.DecodeString(string(raw))
+	if err != nil || len(dec) != 32 {
+		return nil, fmt.Errorf("%s is not a Station secure-session key", path)
+	}
+	if _, err := envelope.PublicKeyOf(dec); err != nil {
+		return nil, fmt.Errorf("%s is not an X25519 key", path)
+	}
+	return dec, nil
 }
 
 func readKey(path string) (ed25519.PrivateKey, error) {

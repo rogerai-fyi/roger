@@ -62,6 +62,7 @@ import (
 	"rogerai.fm/roger/v5/internal/towercore/attempt"
 	"rogerai.fm/roger/v5/internal/towercore/cert"
 	"rogerai.fm/roger/v5/internal/towercore/dispatch"
+	"rogerai.fm/roger/v5/internal/towercore/envelope"
 	"rogerai.fm/roger/v5/internal/towercore/fleet"
 	"rogerai.fm/roger/v5/internal/towercore/link"
 	"rogerai.fm/roger/v5/internal/towerobj"
@@ -130,9 +131,10 @@ func deriveKeyFrom(ca *cert.Authority, label string) (ed25519.PrivateKey, error)
 type towerWork struct {
 	AttemptID string          `json:"attempt_id"`
 	Grant     json.RawMessage `json:"grant"`
-	// Request is the exact body the grant's digest commits to. The Tower relays it
-	// unchanged; changing one byte makes the Station's own check fail.
-	Request json.RawMessage `json:"request"`
+	// Envelope is the request SEALED to the Station's secure-session key. The Tower relays it
+	// and cannot read it; the grant commits to a digest of the plaintext inside, so altering
+	// either the envelope or the grant is caught at the Station.
+	Envelope json.RawMessage `json:"envelope"`
 
 	// towerID is the queue key, and is deliberately NOT serialized. The Tower does not need
 	// to be told its own ID, and keeping it off the wire means the key cannot be influenced
@@ -250,7 +252,19 @@ func (b *broker) tryTowerDispatch(w http.ResponseWriter, r *http.Request, model 
 	// be transmitted before that commit". A grant sitting in the queue IS transmitted the
 	// moment a Tower polls, so it is published only after the attempt is recorded - and if
 	// the ledger refuses, nothing was ever collectable and no work happens.
+	// MINTED OVER THE PLAINTEXT, PUBLISHED AS THE SEALED ENVELOPE. The grant commits to a
+	// digest of what the Station will actually serve, so the Station checks the plaintext it
+	// opens; what travels is the envelope, which the Tower cannot read.
 	grant, err := ts.dispatch.Mint(target, body)
+	if err != nil {
+		return false
+	}
+	sealed, err := envelope.SealTo(target.SessionKey, body, grant.AttemptID)
+	if err != nil {
+		log.Printf("tower dispatch: could not seal the request for %s: %v", grant.AttemptID, err)
+		return false
+	}
+	envRaw, err := sealed.Marshal()
 	if err != nil {
 		return false
 	}
@@ -259,7 +273,7 @@ func (b *broker) tryTowerDispatch(w http.ResponseWriter, r *http.Request, model 
 			grant.AttemptID, err)
 		return false
 	}
-	if err := ts.dispatch.Publish(grant, target, body); err != nil {
+	if err := ts.dispatch.Publish(grant, target, envRaw); err != nil {
 		log.Printf("tower dispatch: could not queue attempt %s: %v", grant.AttemptID, err)
 		return false
 	}
@@ -476,9 +490,17 @@ func (b *broker) targetFor(towerID, stationID, model, modality string) (dispatch
 	if kerr != nil || len(key) != ed25519.PublicKeySize {
 		return dispatch.Target{}, false
 	}
+	// The SECURE-SESSION key, from the same attachment record. A Station whose recorded
+	// session key is unusable is not dispatchable: the alternative would be relaying its
+	// content in the clear, which is the thing this is for.
+	session, serr := hex.DecodeString(at.SessionKey)
+	if serr != nil || len(session) != 32 {
+		return dispatch.Target{}, false
+	}
 	return dispatch.Target{
 		TowerID: towerID, StationID: stationID, StationEpoch: at.Epoch,
 		Model: model, Modality: modality, AssertionKey: ed25519.PublicKey(key),
+		SessionKey: session,
 	}, true
 }
 
@@ -537,7 +559,7 @@ func (b *broker) towerDispatchPoll(wr http.ResponseWriter, r *http.Request) {
 				Kind: attempt.KindDispatchAccepted, EvidenceHash: grant.AttemptID,
 			})
 			writeJSON(wr, http.StatusOK, towerWork{
-				AttemptID: grant.AttemptID, Grant: grant.Signed, Request: request,
+				AttemptID: grant.AttemptID, Grant: grant.Signed, Envelope: request,
 			})
 			return
 		}
@@ -570,8 +592,9 @@ func (b *broker) towerDispatchResult(wr http.ResponseWriter, r *http.Request) {
 		TowerID   string           `json:"tower_id"`
 		AttemptID string           `json:"attempt_id"`
 		Receipt   dispatch.Receipt `json:"receipt"`
-		Body      json.RawMessage  `json:"body"`
-		Failure   string           `json:"failure"`
+		// Envelope is the result sealed to Core. The Tower carries it unopened.
+		Envelope json.RawMessage `json:"envelope"`
+		Failure  string          `json:"failure"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		jsonErr(wr, http.StatusBadRequest, "invalid JSON body")
@@ -601,7 +624,20 @@ func (b *broker) towerDispatchResult(wr http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := ts.dispatch.Complete(req.AttemptID, req.Receipt, req.Body); err != nil {
+	// OPENED FIRST. The receipt commits to a digest of the PLAINTEXT, so there is nothing to
+	// verify until the envelope is open - and an envelope that will not open is a result this
+	// broker cannot vouch for, whoever sealed it.
+	sealed, perr := envelope.Parse(req.Envelope)
+	if perr != nil {
+		jsonErr(wr, http.StatusBadRequest, perr.Error())
+		return
+	}
+	body, oerr := envelope.OpenWith(ts.envelopeKey, sealed, req.AttemptID)
+	if oerr != nil {
+		jsonErr(wr, http.StatusBadRequest, oerr.Error())
+		return
+	}
+	if _, err := ts.dispatch.Complete(req.AttemptID, req.Receipt, body); err != nil {
 		// Every one of these is a refusal to accept the answer, and the caller gets nothing.
 		// 409 for a state problem, 400 for a binding one - an operator debugging a Tower
 		// needs to know whether to look at timing or at bytes.
@@ -626,14 +662,14 @@ func (b *broker) towerDispatchResult(wr http.ResponseWriter, r *http.Request) {
 		Reason: "settled uncompensated",
 	})
 
-	if ts.queue.deliver(req.AttemptID, towerResult{body: req.Body}) {
+	if ts.queue.deliver(req.AttemptID, towerResult{body: body}) {
 		writeJSON(wr, http.StatusOK, map[string]any{"ok": true, "delivered": true})
 		return
 	}
 	// Nobody is waiting HERE. On a fleet that is the ordinary case rather than an error - the
 	// caller is parked on the instance that issued the grant, and this is whichever one the
 	// Tower happened to reach. Publishing hands it across.
-	if b.publishTowerResult(req.AttemptID, req.Body) {
+	if b.publishTowerResult(req.AttemptID, body) {
 		writeJSON(wr, http.StatusOK, map[string]any{"ok": true, "delivered": true})
 		return
 	}
@@ -676,8 +712,10 @@ func (b *broker) towerDispatchKey(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"network":      link.PublicNetwork,
 		"dispatch_key": fmt.Sprintf("%x", ts.dispatchPub),
-		"note": "pin this into a Station with `roger-station trust --core-key`; " +
-			"it is what proves a grant came from Roger Core rather than from the relay",
+		"envelope_key": fmt.Sprintf("%x", ts.envelopePub),
+		"note": "pin BOTH into a Station. dispatch_key is what proves a grant came from Roger " +
+			"Core rather than from the relay; envelope_key is what a result is sealed to so " +
+			"the relay cannot read it on the way back.",
 	})
 }
 
@@ -728,8 +766,26 @@ func (b *broker) forgetRoutable(towerID string) {
 // most want to rewrite.
 const attemptKeyLabel = "rogerai tower attempt state signer v1"
 
+// envelopeKeyLabel domain-separates the key results are sealed to. X25519 rather than
+// Ed25519: this one receives rather than signs.
+const envelopeKeyLabel = "rogerai tower envelope recipient v1"
+
 func deriveAttemptKey(ca *cert.Authority) (ed25519.PrivateKey, error) {
 	return deriveKeyFrom(ca, attemptKeyLabel)
+}
+
+// deriveEnvelopeKey produces the X25519 key a Station seals results to.
+//
+// Derived like the others, so it is stable across restarts - which matters because a Station
+// PINS it - and so any instance can open a result whichever one dispatched the request.
+func deriveEnvelopeKey(ca *cert.Authority) ([]byte, error) {
+	seed, err := deriveKeyFrom(ca, envelopeKeyLabel)
+	if err != nil {
+		return nil, err
+	}
+	// An Ed25519 private key's first 32 bytes are its seed, which is uniform HKDF output
+	// here; X25519 clamps what it is given, so using it as a scalar is safe.
+	return seed.Seed(), nil
 }
 
 // nextAttemptSequence assigns the independently-assigned Core ordering.

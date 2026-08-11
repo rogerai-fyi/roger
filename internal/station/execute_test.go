@@ -14,6 +14,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"rogerai.fm/roger/v5/internal/towercore/dispatch"
+	"rogerai.fm/roger/v5/internal/towercore/envelope"
 )
 
 const execNetwork = "roger-public"
@@ -55,6 +56,24 @@ func (c *core) grantFor(t *testing.T, s *Station, request []byte) dispatch.Grant
 	return g
 }
 
+// coreEnvelope is the keypair results come home to, as Core holds it.
+func coreEnvelope(t *testing.T) (pub, priv []byte) {
+	t.Helper()
+	pub, priv, err := envelope.NewKey()
+	require.NoError(t, err)
+	return pub, priv
+}
+
+// sealFor is what Core does before handing work to a Tower.
+func sealFor(t *testing.T, s *Station, attemptID string, request []byte) json.RawMessage {
+	t.Helper()
+	sealed, err := envelope.SealTo(s.SessionPub(), request, attemptID)
+	require.NoError(t, err)
+	raw, err := sealed.Marshal()
+	require.NoError(t, err)
+	return raw
+}
+
 func execStation(t *testing.T) *Station {
 	t.Helper()
 	s, err := Init(filepath.Join(t.TempDir(), "st"))
@@ -72,19 +91,29 @@ func TestAnAuthorizedRequestIsServedAndSignedForAcceptably(t *testing.T) {
 	_, err := c.reg.Claim(g.AttemptID, "tw-1")
 	require.NoError(t, err)
 
+	envPub, envPriv := coreEnvelope(t)
 	up := &stubUpstream{body: []byte(`{"choices":[{"message":{"content":"hello"}}]}`)}
-	got := Executor{Station: s, CoreKey: c.pub, Network: execNetwork, Upstream: up}.
-		Execute(context.Background(), ExecuteRequest{Grant: g.Signed, Request: request})
+	got := Executor{
+		Station: s, CoreKey: c.pub, CoreEnvelopeKey: envPub, Network: execNetwork, Upstream: up,
+	}.Execute(context.Background(), ExecuteRequest{
+		Grant: g.Signed, Envelope: sealFor(t, s, g.AttemptID, request),
+	})
 
 	require.Empty(t, got.Failure)
 	require.NotNil(t, got.Receipt)
-	require.Equal(t, up.body, []byte(got.Body))
 	require.Equal(t, request, up.saw, "the model was given exactly what the grant authorized")
+
+	// Core opens the result and only then checks it.
+	sealed, err := envelope.Parse(got.Envelope)
+	require.NoError(t, err)
+	body, err := envelope.OpenWith(envPriv, sealed, g.AttemptID)
+	require.NoError(t, err)
+	require.Equal(t, up.body, body)
 
 	// CORE ACCEPTS IT. Verified through Core's own Complete rather than by re-checking the
 	// signature here: a receipt this package is happy with and Core is not would be worth
 	// nothing, and only this assertion can tell the two apart.
-	_, err = c.reg.Complete(g.AttemptID, *got.Receipt, got.Body)
+	_, err = c.reg.Complete(g.AttemptID, *got.Receipt, body)
 	require.NoError(t, err)
 }
 
@@ -98,7 +127,9 @@ func TestAStationWithNoPinnedKeyRefusesEverything(t *testing.T) {
 	up := &stubUpstream{body: []byte(`{}`)}
 
 	got := Executor{Station: s, Network: execNetwork, Upstream: up}.
-		Execute(context.Background(), ExecuteRequest{Grant: g.Signed, Request: request})
+		Execute(context.Background(), ExecuteRequest{
+			Grant: g.Signed, Envelope: sealFor(t, s, g.AttemptID, request),
+		})
 	require.Contains(t, got.Failure, "no pinned Roger Core key")
 	require.Nil(t, got.Receipt)
 	require.Nil(t, up.saw, "and it did not run the request while deciding")
@@ -114,19 +145,24 @@ func TestARefusedRequestIsNeverRunAndNeverSigned(t *testing.T) {
 	request := []byte(`{"x":1}`)
 	g := c.grantFor(t, s, request)
 
+	envPub, _ := coreEnvelope(t)
 	for name, in := range map[string]struct {
-		key     ed25519.PublicKey
-		grant   json.RawMessage
-		request json.RawMessage
+		key      ed25519.PublicKey
+		grant    json.RawMessage
+		envelope json.RawMessage
 	}{
-		"a grant Core did not sign":     {other.pub, g.Signed, request},
-		"a request the grant disowns":   {c.pub, g.Signed, []byte(`{"x":2}`)},
-		"something that is not a grant": {c.pub, json.RawMessage(`{nope`), request},
+		"a grant Core did not sign":       {other.pub, g.Signed, sealFor(t, s, g.AttemptID, request)},
+		"a request the grant disowns":     {c.pub, g.Signed, sealFor(t, s, g.AttemptID, []byte(`{"x":2}`))},
+		"something that is not a grant":   {c.pub, json.RawMessage(`{nope`), sealFor(t, s, g.AttemptID, request)},
+		"an envelope that is not one":     {c.pub, g.Signed, json.RawMessage(`{"nope":1}`)},
+		"an envelope for another attempt": {c.pub, g.Signed, sealFor(t, s, "att-somebody-else", request)},
 	} {
 		t.Run(name, func(t *testing.T) {
 			up := &stubUpstream{body: []byte(`{}`)}
-			got := Executor{Station: s, CoreKey: in.key, Network: execNetwork, Upstream: up}.
-				Execute(context.Background(), ExecuteRequest{Grant: in.grant, Request: in.request})
+			got := Executor{
+				Station: s, CoreKey: in.key, CoreEnvelopeKey: envPub,
+				Network: execNetwork, Upstream: up,
+			}.Execute(context.Background(), ExecuteRequest{Grant: in.grant, Envelope: in.envelope})
 			require.NotEmpty(t, got.Failure)
 			require.Nil(t, got.Receipt, "a refusal must not be signable as a result")
 			require.Nil(t, up.saw, "a refused request must not reach the model")
@@ -142,9 +178,13 @@ func TestAGrantForAnotherStationIsRefused(t *testing.T) {
 	request := []byte(`{"x":1}`)
 	g := c.grantFor(t, theirs, request)
 
+	envPub, _ := coreEnvelope(t)
 	up := &stubUpstream{body: []byte(`{}`)}
-	got := Executor{Station: mine, CoreKey: c.pub, Network: execNetwork, Upstream: up}.
-		Execute(context.Background(), ExecuteRequest{Grant: g.Signed, Request: request})
+	got := Executor{
+		Station: mine, CoreKey: c.pub, CoreEnvelopeKey: envPub, Network: execNetwork, Upstream: up,
+	}.Execute(context.Background(), ExecuteRequest{
+		Grant: g.Signed, Envelope: sealFor(t, mine, g.AttemptID, request),
+	})
 	require.Contains(t, got.Failure, "not this one")
 	require.Nil(t, up.saw)
 }
@@ -157,9 +197,13 @@ func TestAModelFailureIsReportedWithoutAReceipt(t *testing.T) {
 	request := []byte(`{"x":1}`)
 	g := c.grantFor(t, s, request)
 
+	envPub, _ := coreEnvelope(t)
 	up := &stubUpstream{err: errors.New("out of memory")}
-	got := Executor{Station: s, CoreKey: c.pub, Network: execNetwork, Upstream: up}.
-		Execute(context.Background(), ExecuteRequest{Grant: g.Signed, Request: request})
+	got := Executor{
+		Station: s, CoreKey: c.pub, CoreEnvelopeKey: envPub, Network: execNetwork, Upstream: up,
+	}.Execute(context.Background(), ExecuteRequest{
+		Grant: g.Signed, Envelope: sealFor(t, s, g.AttemptID, request),
+	})
 	require.Contains(t, got.Failure, "out of memory")
 	require.Nil(t, got.Receipt)
 }
@@ -170,8 +214,11 @@ func TestAStationWithNoUpstreamSaysSo(t *testing.T) {
 	request := []byte(`{"x":1}`)
 	g := c.grantFor(t, s, request)
 
-	got := Executor{Station: s, CoreKey: c.pub, Network: execNetwork}.
-		Execute(context.Background(), ExecuteRequest{Grant: g.Signed, Request: request})
+	envPub, _ := coreEnvelope(t)
+	got := Executor{Station: s, CoreKey: c.pub, CoreEnvelopeKey: envPub, Network: execNetwork}.
+		Execute(context.Background(), ExecuteRequest{
+			Grant: g.Signed, Envelope: sealFor(t, s, g.AttemptID, request),
+		})
 	require.Contains(t, got.Failure, "no upstream model")
 }
 
@@ -183,11 +230,14 @@ func TestAnExpiredGrantIsRefusedBeforeSpendingAnything(t *testing.T) {
 	request := []byte(`{"x":1}`)
 	g := c.grantFor(t, s, request)
 
+	envPub, _ := coreEnvelope(t)
 	up := &stubUpstream{body: []byte(`{}`)}
 	got := Executor{
-		Station: s, CoreKey: c.pub, Network: execNetwork, Upstream: up,
+		Station: s, CoreKey: c.pub, CoreEnvelopeKey: envPub, Network: execNetwork, Upstream: up,
 		Now: func() time.Time { return g.Deadline.Add(time.Second) },
-	}.Execute(context.Background(), ExecuteRequest{Grant: g.Signed, Request: request})
+	}.Execute(context.Background(), ExecuteRequest{
+		Grant: g.Signed, Envelope: sealFor(t, s, g.AttemptID, request),
+	})
 	require.NotEmpty(t, got.Failure)
 	require.Nil(t, up.saw)
 }

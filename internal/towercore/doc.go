@@ -44,6 +44,9 @@
 //	         replay or a fork rather than guessing.
 //	policy   the seam through which inv asks Core the questions it may not answer alone -
 //	         bans, owners, revoked keys, allowed models, price bands. Fails closed.
+//	envelope what makes the content a Tower relays opaque TO it: a request sealed to the
+//	         Station's secure-session key and a result sealed back to Core's, so a relay
+//	         carries ciphertext and digests and reads neither end.
 //	attempt  the single authoritative state of one public attempt and its signed, chained
 //	         history. Two objects: the Core-private AttemptEventV1 carrying the hold and the
 //	         funding reservation, and the disclosure-safe AttemptIssueCommitmentV1 that is

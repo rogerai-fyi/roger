@@ -35,6 +35,7 @@ import (
 	"rogerai.fm/roger/v5/internal/towercore/cert"
 	"rogerai.fm/roger/v5/internal/towercore/dispatch"
 	"rogerai.fm/roger/v5/internal/towercore/enroll"
+	"rogerai.fm/roger/v5/internal/towercore/envelope"
 	"rogerai.fm/roger/v5/internal/towercore/fleet"
 	"rogerai.fm/roger/v5/internal/towercore/head"
 	"rogerai.fm/roger/v5/internal/towercore/inv"
@@ -139,6 +140,11 @@ type towerSubsystem struct {
 	// attemptKey is the attempt-state signer, kept so the purpose separation that makes the
 	// ledger worth trusting can be asserted: it must not be the key that signs grants.
 	attemptKey ed25519.PrivateKey
+	// envelopeKey is the X25519 private half results are sealed to; envelopePub is what a
+	// Station pins. Any instance holding it can open a result, which is what lets the answer
+	// come back to a different broker than the one that dispatched.
+	envelopeKey []byte
+	envelopePub []byte
 }
 
 // brokerOperatorPolicy answers whether an account may enroll a Tower. A joined Tower relays
@@ -219,6 +225,10 @@ func newTowerSubsystem(b *broker, registryStore admit.Store, custody cert.Custod
 	if err != nil {
 		return nil, err
 	}
+	envelopeKey, err := deriveEnvelopeKey(ca)
+	if err != nil {
+		return nil, err
+	}
 
 	pol := policy.New(stations, b.db, brokerOwners{b: b}, policy.Config{
 		ModelAllowed:    towerModelAllowed,
@@ -266,6 +276,12 @@ func newTowerSubsystem(b *broker, registryStore admit.Store, custody cert.Custod
 		Sequence: b.nextAttemptSequence,
 	}, deps.events)
 	ts.attemptKey = attemptKey
+	ts.envelopeKey = envelopeKey
+	pub, err := envelope.PublicKeyOf(envelopeKey)
+	if err != nil {
+		return nil, err
+	}
+	ts.envelopePub = pub
 	ts.dispatchPub = grantKey.Public().(ed25519.PublicKey)
 	return ts, nil
 }

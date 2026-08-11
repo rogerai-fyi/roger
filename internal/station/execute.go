@@ -38,20 +38,24 @@ import (
 	"time"
 
 	"rogerai.fm/roger/v5/internal/towercore/dispatch"
+	"rogerai.fm/roger/v5/internal/towercore/envelope"
 )
 
 // ExecuteRequest is what a Tower hands a Station.
 type ExecuteRequest struct {
 	// Grant is Core's signed authorization, relayed verbatim.
 	Grant json.RawMessage `json:"grant"`
-	// Request is the body to serve, which the grant commits to by digest.
-	Request json.RawMessage `json:"request"`
+	// Envelope is the request, SEALED to this Station's secure-session key. The Tower carries
+	// it and cannot read it; the grant commits to a digest of what is inside.
+	Envelope json.RawMessage `json:"envelope"`
 }
 
 // ExecuteResponse is what the Station hands back.
 type ExecuteResponse struct {
 	Receipt *dispatch.Receipt `json:"receipt,omitempty"`
-	Body    json.RawMessage   `json:"body,omitempty"`
+	// Envelope is the result, SEALED to Roger Core's envelope key. The receipt commits to a
+	// digest of the PLAINTEXT inside it, so Core checks after opening.
+	Envelope json.RawMessage `json:"envelope,omitempty"`
 	// Failure is set when the Station could not serve. It carries NO receipt: a failure is
 	// not a result, and must never be capable of settling one.
 	Failure string `json:"failure,omitempty"`
@@ -70,10 +74,13 @@ type Executor struct {
 	// CoreKey is Core's grant-signing public key, pinned by the operator. Without it nothing
 	// can be verified and the Station refuses everything - which is the correct behaviour for
 	// a Station that does not know who is allowed to give it work.
-	CoreKey  []byte
-	Network  string
-	Upstream Upstream
-	Now      func() time.Time
+	CoreKey []byte
+	// CoreEnvelopeKey is the X25519 key results are sealed to, pinned alongside CoreKey. A
+	// Station cannot reach Core directly, so both come from the operator out of band.
+	CoreEnvelopeKey []byte
+	Network         string
+	Upstream        Upstream
+	Now             func() time.Time
 }
 
 func (e Executor) now() time.Time {
@@ -90,8 +97,28 @@ func (e Executor) Execute(ctx context.Context, in ExecuteRequest) ExecuteRespons
 		// relay wrote, and serving anyway would make every check below theatre.
 		return ExecuteResponse{Failure: "this Station has no pinned Roger Core key, so it cannot verify a grant"}
 	}
+	if len(e.CoreEnvelopeKey) == 0 {
+		// Without it a result could only be returned in the clear, past the relay this whole
+		// mechanism exists to keep content away from.
+		return ExecuteResponse{Failure: "this Station has no pinned Roger Core envelope key, " +
+			"so it cannot return a result the relay cannot read"}
+	}
+	// OPENED HERE AND NOWHERE ELSE. The attempt id is the additional data, so an envelope for
+	// another attempt will not open even though the relay may hold both.
+	attemptID := attemptOf(in.Grant)
+	sealed, err := envelope.Parse(in.Envelope)
+	if err != nil {
+		return ExecuteResponse{Failure: err.Error()}
+	}
+	request, err := envelope.OpenWith(e.Station.SessionPriv(), sealed, attemptID)
+	if err != nil {
+		return ExecuteResponse{Failure: err.Error()}
+	}
+	// The grant is checked against the PLAINTEXT, which is what it committed to. Checking the
+	// ciphertext would bind the envelope rather than the request, and a relay could then
+	// re-seal the same bytes under a different attempt.
 	grant, err := dispatch.ParseGrant(in.Grant, e.CoreKey, e.Network,
-		e.Station.StationID, in.Request, e.now())
+		e.Station.StationID, request, e.now())
 	if err != nil {
 		return ExecuteResponse{Failure: err.Error()}
 	}
@@ -99,7 +126,7 @@ func (e Executor) Execute(ctx context.Context, in ExecuteRequest) ExecuteRespons
 		return ExecuteResponse{Failure: "this Station has no upstream model configured"}
 	}
 
-	body, err := e.Upstream.Serve(ctx, in.Request)
+	body, err := e.Upstream.Serve(ctx, request)
 	if err != nil {
 		// The upstream's own words, not a reinterpretation of them: an operator debugging a
 		// Station needs what the model actually said.
@@ -112,7 +139,32 @@ func (e Executor) Execute(ctx context.Context, in ExecuteRequest) ExecuteRespons
 	if err != nil {
 		return ExecuteResponse{Failure: "this Station could not sign its result: " + err.Error()}
 	}
-	return ExecuteResponse{Receipt: &rec, Body: body}
+	// Sealed to CORE, so the answer crosses the relay unreadable too. The receipt commits to
+	// the plaintext digest, so Core verifies what it opens rather than what it received.
+	out, err := envelope.SealTo(e.CoreEnvelopeKey, body, grant.AttemptID)
+	if err != nil {
+		return ExecuteResponse{Failure: "this Station could not seal its result: " + err.Error()}
+	}
+	raw, err := out.Marshal()
+	if err != nil {
+		return ExecuteResponse{Failure: err.Error()}
+	}
+	return ExecuteResponse{Receipt: &rec, Envelope: raw}
+}
+
+// attemptOf reads the attempt id out of a grant WITHOUT verifying it.
+//
+// Only used as the envelope's additional data, and a wrong value simply means the envelope
+// does not open - which is a refusal, not a bypass. The grant's real verification happens
+// immediately afterwards against the plaintext it protects.
+func attemptOf(grant []byte) string {
+	var obj struct {
+		AttemptID string `json:"attempt_id"`
+	}
+	if err := json.Unmarshal(grant, &obj); err != nil {
+		return ""
+	}
+	return obj.AttemptID
 }
 
 // HTTPUpstream serves from an OpenAI-compatible endpoint - the shape every local runner

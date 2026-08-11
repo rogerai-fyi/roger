@@ -37,6 +37,7 @@ func cmdServe(args []string, out io.Writer) error {
 	dir := fs.String("dir", "", "Station data directory")
 	listen := fs.String("listen", "127.0.0.1:8730", "address to listen on for this Station's Tower")
 	coreKey := fs.String("core-key", "", "Roger Core's grant key, hex (GET /tower/dispatch/key)")
+	envKey := fs.String("core-envelope-key", "", "Roger Core's envelope key, hex (same endpoint)")
 	upstream := fs.String("upstream", "", "the local model endpoint, OpenAI-compatible")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -55,9 +56,13 @@ func cmdServe(args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
+	sealTo, err := parseEnvelopeKey(*envKey)
+	if err != nil {
+		return err
+	}
 
 	exec := station.Executor{
-		Station: s, CoreKey: key, Network: link.PublicNetwork,
+		Station: s, CoreKey: key, CoreEnvelopeKey: sealTo, Network: link.PublicNetwork,
 		Upstream: station.HTTPUpstream{URL: *upstream},
 	}
 	ln, err := net.Listen("tcp", *listen)
@@ -67,7 +72,9 @@ func cmdServe(args []string, out io.Writer) error {
 	fmt.Fprintf(out, "station %s serving on %s\n", s.StationID, ln.Addr())
 	fmt.Fprintf(out, "upstream model: %s\n", *upstream)
 	fmt.Fprint(out, "every request must carry a grant signed by the pinned Roger Core key;\n"+
-		"anything else is refused without reaching the model.\n")
+		"anything else is refused without reaching the model. Requests arrive SEALED to this\n"+
+		"Station and results go back sealed to Roger Core, so the Tower relaying them reads\n"+
+		"neither.\n")
 	return serveStation(exec, ln, out, waitForInterrupt())
 }
 
@@ -111,6 +118,25 @@ func parseCoreKey(s string) ([]byte, error) {
 	raw, err := hex.DecodeString(s)
 	if err != nil || len(raw) != 32 {
 		return nil, fmt.Errorf("--core-key must be a hex-encoded Ed25519 public key")
+	}
+	return raw, nil
+}
+
+// parseEnvelopeKey requires the key results are sealed to.
+//
+// Required for the same reason the grant key is: a Station without it could only return
+// results in the clear, past the very relay this mechanism exists to keep content away from.
+// Refusing at startup puts the error where the mistake was made rather than one failed job
+// at a time.
+func parseEnvelopeKey(s string) ([]byte, error) {
+	if s == "" {
+		return nil, fmt.Errorf("--core-envelope-key is required: without it this Station would " +
+			"have to hand its results back in the clear, and the Tower relaying them would " +
+			"read every one.\nFetch it from the broker's /tower/dispatch/key alongside --core-key")
+	}
+	raw, err := hex.DecodeString(s)
+	if err != nil || len(raw) != 32 {
+		return nil, fmt.Errorf("--core-envelope-key must be a hex-encoded X25519 public key")
 	}
 	return raw, nil
 }

@@ -91,6 +91,9 @@ type Target struct {
 	// against, and taking it from anywhere else would make "signed by the Station" mean
 	// "signed by whoever told us which key to use".
 	AssertionKey ed25519.PublicKey
+	// SessionKey is the Station's X25519 secure-session key, also from the attachment record.
+	// It is what the request is sealed to, so the Tower carrying it cannot read the content.
+	SessionKey []byte
 }
 
 // Grant authorizes one attempt.

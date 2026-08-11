@@ -20,6 +20,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -35,6 +36,7 @@ import (
 	"rogerai.fm/roger/v5/internal/towercore/cert"
 	"rogerai.fm/roger/v5/internal/towercore/dispatch"
 	"rogerai.fm/roger/v5/internal/towercore/enroll"
+	"rogerai.fm/roger/v5/internal/towercore/envelope"
 	"rogerai.fm/roger/v5/internal/towercore/fleet"
 	"rogerai.fm/roger/v5/internal/towercore/head"
 	"rogerai.fm/roger/v5/internal/towercore/link"
@@ -82,9 +84,7 @@ func TestARequestReachesAStationAndTheAnswerComesBackVerified(t *testing.T) {
 	lt, stn := dispatchable(t, b, srv, op)
 
 	model := &stubModel{body: []byte(`{"choices":[{"message":{"content":"hello from the station"}}]}`)}
-	exec := station.Executor{
-		Station: stn, CoreKey: b.tower.dispatchPub, Network: link.PublicNetwork, Upstream: model,
-	}
+	exec := stationExec(b, stn, model)
 
 	// The Tower's side, driven directly: poll, relay, return.
 	done := make(chan struct{})
@@ -92,7 +92,7 @@ func TestARequestReachesAStationAndTheAnswerComesBackVerified(t *testing.T) {
 		defer close(done)
 		work := pollForWork(t, srv, lt)
 		resp := exec.Execute(context.Background(), station.ExecuteRequest{
-			Grant: work.Grant, Request: work.Request,
+			Grant: work.Grant, Envelope: work.Envelope,
 		})
 		require.Empty(t, resp.Failure)
 		returnResult(t, srv, lt, work.AttemptID, resp)
@@ -123,20 +123,25 @@ func TestATowerCannotChangeTheStationsAnswer(t *testing.T) {
 	lt, stn := dispatchable(t, b, srv, op)
 
 	model := &stubModel{body: []byte(`{"content":"the real answer"}`)}
-	exec := station.Executor{
-		Station: stn, CoreKey: b.tower.dispatchPub, Network: link.PublicNetwork, Upstream: model,
-	}
+	exec := stationExec(b, stn, model)
 
 	work := issueWork(t, b, "roger-1", []byte(`{"model":"roger-1"}`))
 	resp := exec.Execute(context.Background(), station.ExecuteRequest{
-		Grant: work.Grant, Request: work.Request,
+		Grant: work.Grant, Envelope: work.Envelope,
 	})
 	require.Empty(t, resp.Failure)
 
 	// The relay rewrites the body, keeping the Station's perfectly valid receipt.
+	// The relay reseals a body of its own choosing to Core's PUBLIC key - which it can do,
+	// since that key is published - keeping the Station's perfectly valid receipt.
+	forged, err := envelope.SealTo(b.tower.envelopePub,
+		[]byte(`{"content":"a cheaper answer"}`), work.AttemptID)
+	require.NoError(t, err)
+	forgedRaw, err := forged.Marshal()
+	require.NoError(t, err)
 	code, raw := postResult(t, srv, lt, map[string]any{
 		"tower_id": lt.id, "attempt_id": work.AttemptID,
-		"receipt": resp.Receipt, "body": json.RawMessage(`{"content":"a cheaper answer"}`),
+		"receipt": resp.Receipt, "envelope": json.RawMessage(forgedRaw),
 	})
 	require.Equal(t, http.StatusBadRequest, code, raw)
 	require.Contains(t, raw, "response digest")
@@ -157,10 +162,14 @@ func TestATowerCannotFabricateAResult(t *testing.T) {
 	forged, err := dispatch.SignReceipt(forgerPriv, link.PublicNetwork,
 		dispatch.Grant{AttemptID: work.AttemptID, StationID: "st-x"}, body)
 	require.NoError(t, err)
+	sealed, err := envelope.SealTo(b.tower.envelopePub, body, work.AttemptID)
+	require.NoError(t, err)
+	sealedRaw, err := sealed.Marshal()
+	require.NoError(t, err)
 
 	code, raw := postResult(t, srv, lt, map[string]any{
 		"tower_id": lt.id, "attempt_id": work.AttemptID,
-		"receipt": forged, "body": json.RawMessage(body),
+		"receipt": forged, "envelope": json.RawMessage(sealedRaw),
 	})
 	require.Equal(t, http.StatusBadRequest, code, raw)
 	require.Contains(t, raw, "assertion key")
@@ -301,7 +310,7 @@ func returnResult(t *testing.T, srv *httptest.Server, lt linkTower, attemptID st
 		payload["failure"] = resp.Failure
 	} else {
 		payload["receipt"] = resp.Receipt
-		payload["body"] = resp.Body
+		payload["envelope"] = resp.Envelope
 	}
 	code, raw := postResult(t, srv, lt, payload)
 	require.Equal(t, http.StatusOK, code, raw)
@@ -318,11 +327,17 @@ func offerWork(t *testing.T, b *broker, model string, request []byte) towerWork 
 	t.Helper()
 	target, ok := b.pickTowerStation(model)
 	require.True(t, ok, "no routable Station for %s", model)
-	g, err := b.tower.dispatch.Issue(target, request)
+	g, err := b.tower.dispatch.Mint(target, request)
 	require.NoError(t, err)
-	// Issue already made it pending in the store, which IS the queue - nothing else to do.
+	// Sealed to the Station exactly as the dispatch path does, so a test's work is the same
+	// shape a Tower would really be handed.
+	sealed, err := envelope.SealTo(target.SessionKey, request, g.AttemptID)
+	require.NoError(t, err)
+	env, err := sealed.Marshal()
+	require.NoError(t, err)
+	require.NoError(t, b.tower.dispatch.Publish(g, target, env))
 	return towerWork{
-		AttemptID: g.AttemptID, Grant: g.Signed, Request: request, towerID: target.TowerID,
+		AttemptID: g.AttemptID, Grant: g.Signed, Envelope: env, towerID: target.TowerID,
 	}
 }
 
@@ -399,8 +414,10 @@ func TestWorkCreatedOnOneBrokerIsCollectedFromTheOther(t *testing.T) {
 	require.Equal(t, http.StatusOK, code, raw)
 	require.Equal(t, work.AttemptID, got.AttemptID)
 	require.NotEmpty(t, got.Grant, "the signed grant travelled with it")
-	require.JSONEq(t, `{"model":"roger-1"}`, string(got.Request),
-		"and so did the request, or the other broker would have nothing to relay")
+	require.NotEmpty(t, got.Envelope,
+		"and so did the sealed request, or the other broker would have nothing to relay")
+	require.NotContains(t, string(got.Envelope), "roger-1",
+		"and the broker handing it over cannot read it either")
 
 	// And A will not hand it out again: the claim is shared, not per-instance.
 	code, _ = lt.call(t, aSrv, "/tower/dispatch", []byte(`{"tower_id":"`+lt.id+`"}`), nil)
@@ -452,18 +469,15 @@ func TestAResultCannotBeSettledTwiceAcrossBrokers(t *testing.T) {
 	lt, stn := dispatchable(t, a, aSrv, op)
 
 	work := issueWork(t, a, "roger-1", []byte(`{"model":"roger-1"}`))
-	exec := station.Executor{
-		Station: stn, CoreKey: a.tower.dispatchPub, Network: link.PublicNetwork,
-		Upstream: &stubModel{body: []byte(`{"content":"answer"}`)},
-	}
+	exec := stationExec(a, stn, &stubModel{body: []byte(`{"content":"answer"}`)})
 	resp := exec.Execute(context.Background(), station.ExecuteRequest{
-		Grant: work.Grant, Request: work.Request,
+		Grant: work.Grant, Envelope: work.Envelope,
 	})
 	require.Empty(t, resp.Failure)
 
 	payload := map[string]any{
 		"tower_id": lt.id, "attempt_id": work.AttemptID,
-		"receipt": resp.Receipt, "body": resp.Body,
+		"receipt": resp.Receipt, "envelope": resp.Envelope,
 	}
 	code, raw := postResult(t, aSrv, lt, payload)
 	require.Equal(t, http.StatusOK, code, raw)
@@ -494,11 +508,10 @@ func TestBothBrokersSignGrantsTheSameStationAccepts(t *testing.T) {
 	g, err := c.tower.dispatch.Issue(target, request)
 	require.NoError(t, err)
 
-	exec := station.Executor{
-		Station: stn, CoreKey: a.tower.dispatchPub, Network: link.PublicNetwork,
-		Upstream: &stubModel{body: []byte(`{"content":"ok"}`)},
-	}
-	got := exec.Execute(context.Background(), station.ExecuteRequest{Grant: g.Signed, Request: request})
+	exec := stationExec(a, stn, &stubModel{body: []byte(`{"content":"ok"}`)})
+	got := exec.Execute(context.Background(), station.ExecuteRequest{
+		Grant: g.Signed, Envelope: sealForStation(t, stn, g.AttemptID, request),
+	})
 	require.Empty(t, got.Failure)
 	require.NotNil(t, got.Receipt)
 }
@@ -585,9 +598,7 @@ func TestAnAnswerReturnedToOneBrokerReachesTheCallerOnTheOther(t *testing.T) {
 	lt, stn := dispatchable(t, a, aSrv, op)
 
 	model := &stubModel{body: []byte(`{"choices":[{"message":{"content":"across brokers"}}]}`)}
-	exec := station.Executor{
-		Station: stn, CoreKey: a.tower.dispatchPub, Network: link.PublicNetwork, Upstream: model,
-	}
+	exec := stationExec(a, stn, model)
 
 	// The Tower polls C and returns its answer to C.
 	done := make(chan struct{})
@@ -600,7 +611,7 @@ func TestAnAnswerReturnedToOneBrokerReachesTheCallerOnTheOther(t *testing.T) {
 		}, 10*time.Second, 20*time.Millisecond)
 
 		resp := exec.Execute(context.Background(), station.ExecuteRequest{
-			Grant: work.Grant, Request: work.Request,
+			Grant: work.Grant, Envelope: work.Envelope,
 		})
 		require.Empty(t, resp.Failure)
 		returnResult(t, cSrv, lt, work.AttemptID, resp)
@@ -629,18 +640,15 @@ func TestAnAnswerNobodyIsWaitingForIsStillAccepted(t *testing.T) {
 	lt, stn := dispatchable(t, a, aSrv, op)
 
 	work := issueWork(t, a, "roger-1", []byte(`{"model":"roger-1"}`))
-	exec := station.Executor{
-		Station: stn, CoreKey: a.tower.dispatchPub, Network: link.PublicNetwork,
-		Upstream: &stubModel{body: []byte(`{"content":"nobody home"}`)},
-	}
+	exec := stationExec(a, stn, &stubModel{body: []byte(`{"content":"nobody home"}`)})
 	resp := exec.Execute(context.Background(), station.ExecuteRequest{
-		Grant: work.Grant, Request: work.Request,
+		Grant: work.Grant, Envelope: work.Envelope,
 	})
 	require.Empty(t, resp.Failure)
 
 	code, raw := postResult(t, cSrv, lt, map[string]any{
 		"tower_id": lt.id, "attempt_id": work.AttemptID,
-		"receipt": resp.Receipt, "body": resp.Body,
+		"receipt": resp.Receipt, "envelope": resp.Envelope,
 	})
 	require.Equal(t, http.StatusOK, code, raw)
 	require.Contains(t, raw, `"ok":true`)
@@ -847,9 +855,7 @@ func TestAServedRequestLeavesASettledAttemptHistory(t *testing.T) {
 	lt, stn := dispatchable(t, b, srv, op)
 
 	model := &stubModel{body: []byte(`{"content":"hello"}`)}
-	exec := station.Executor{
-		Station: stn, CoreKey: b.tower.dispatchPub, Network: link.PublicNetwork, Upstream: model,
-	}
+	exec := stationExec(b, stn, model)
 	var attemptID string
 	done := make(chan struct{})
 	go func() {
@@ -857,7 +863,7 @@ func TestAServedRequestLeavesASettledAttemptHistory(t *testing.T) {
 		work := pollForWork(t, srv, lt)
 		attemptID = work.AttemptID
 		resp := exec.Execute(context.Background(), station.ExecuteRequest{
-			Grant: work.Grant, Request: work.Request,
+			Grant: work.Grant, Envelope: work.Envelope,
 		})
 		require.Empty(t, resp.Failure)
 		returnResult(t, srv, lt, work.AttemptID, resp)
@@ -957,4 +963,179 @@ func TestTheAttemptSignerIsNotTheGrantSigner(t *testing.T) {
 	again, err := deriveAttemptKey(b.tower.ca)
 	require.NoError(t, err)
 	require.Equal(t, []byte(attemptPub), []byte(again.Public().(ed25519.PublicKey)))
+}
+
+// stationExec builds the Station's executor with both keys it must pin.
+func stationExec(b *broker, stn *station.Station, up station.Upstream) station.Executor {
+	return station.Executor{
+		Station: stn, CoreKey: b.tower.dispatchPub, CoreEnvelopeKey: b.tower.envelopePub,
+		Network: link.PublicNetwork, Upstream: up,
+	}
+}
+
+// sealForStation is what Core does before handing work to a Tower.
+func sealForStation(t *testing.T, stn *station.Station, attemptID string, request []byte) json.RawMessage {
+	t.Helper()
+	sealed, err := envelope.SealTo(stn.SessionPub(), request, attemptID)
+	require.NoError(t, err)
+	raw, err := sealed.Marshal()
+	require.NoError(t, err)
+	return raw
+}
+
+// --- what the Tower can see ---------------------------------------------------
+//
+// The spec: "packet capture and Tower logs reveal no prompt, tool argument, image, audio,
+// transcript, or completion plaintext". This is the test for it, and it is deliberately
+// written against the bytes the RELAY actually holds rather than against the crypto - a
+// confidentiality property checked by asking the encryption whether it encrypted is a
+// property that can pass while the plaintext travels beside it.
+
+func TestATowerCannotReadWhatItRelays(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	op := signedInOperator(t, b, "octocat")
+	lt, stn := dispatchable(t, b, srv, op)
+
+	const prompt = "the patient's diagnosis is confidential"
+	const completion = "and so is this answer"
+	request := []byte(`{"model":"roger-1","messages":[{"role":"user","content":"` + prompt + `"}]}`)
+	exec := stationExec(b, stn, &stubModel{body: []byte(`{"content":"` + completion + `"}`)})
+
+	// EVERYTHING THE TOWER TOUCHES, captured as it goes past.
+	var relayed [][]byte
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		work := pollForWork(t, srv, lt)
+		relayed = append(relayed, work.Grant, work.Envelope)
+
+		resp := exec.Execute(context.Background(), station.ExecuteRequest{
+			Grant: work.Grant, Envelope: work.Envelope,
+		})
+		require.Empty(t, resp.Failure)
+		relayed = append(relayed, resp.Envelope)
+		returnResult(t, srv, lt, work.AttemptID, resp)
+	}()
+
+	rec := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(string(request)))
+	require.True(t, b.tryTowerDispatch(rec, r, "roger-1", request, false))
+	<-done
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Contains(t, rec.Body.String(), completion, "the consumer still got their answer")
+
+	for _, seen := range relayed {
+		require.NotContains(t, string(seen), prompt, "the Tower could read the prompt")
+		require.NotContains(t, string(seen), completion, "the Tower could read the completion")
+		require.NotContains(t, string(seen), "messages", "the request's shape leaked to the Tower")
+	}
+}
+
+// A TOWER CANNOT SUBSTITUTE A REQUEST IT CANNOT READ. It could always be caught altering one
+// - the grant commits to a digest - but now it cannot even produce a well-formed envelope for
+// the Station, because sealing one needs the Station's session key.
+func TestATowerCannotSubstituteTheRequest(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	op := signedInOperator(t, b, "octocat")
+	lt, stn := dispatchable(t, b, srv, op)
+	exec := stationExec(b, stn, &stubModel{body: []byte(`{"content":"ok"}`)})
+
+	work := issueWork(t, b, "roger-1", []byte(`{"model":"roger-1"}`))
+
+	// The relay seals a request of its own to the Station - which it CAN do, the session key
+	// is public - and presents it with the real grant.
+	swapped, err := envelope.SealTo(stn.SessionPub(), []byte(`{"model":"roger-1","evil":true}`),
+		work.AttemptID)
+	require.NoError(t, err)
+	swappedRaw, err := swapped.Marshal()
+	require.NoError(t, err)
+
+	got := exec.Execute(context.Background(), station.ExecuteRequest{
+		Grant: work.Grant, Envelope: json.RawMessage(swappedRaw),
+	})
+	require.NotEmpty(t, got.Failure, "the grant commits to the request it authorized")
+	require.Contains(t, got.Failure, "does not match what this grant authorizes")
+	require.Nil(t, got.Receipt)
+	_ = lt
+}
+
+// Core publishes BOTH pinned keys, because a Station needs both: one to know a grant is real,
+// one to seal its answer where only Core can read it.
+func TestCorePublishesBothPinnedKeys(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	resp, err := http.Get(srv.URL + "/tower/dispatch/key")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	var out struct {
+		DispatchKey string `json:"dispatch_key"`
+		EnvelopeKey string `json:"envelope_key"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+
+	grantKey, err := hex.DecodeString(out.DispatchKey)
+	require.NoError(t, err)
+	require.Equal(t, []byte(b.tower.dispatchPub), grantKey)
+
+	envKey, err := hex.DecodeString(out.EnvelopeKey)
+	require.NoError(t, err)
+	require.Equal(t, b.tower.envelopePub, envKey)
+	require.NotEqual(t, grantKey, envKey, "signing and receiving are different keys")
+
+	// The envelope key is STABLE across restarts, like the others - a Station pins it, and a
+	// key that moved would strand every Station on the network.
+	again, err := deriveEnvelopeKey(b.tower.ca)
+	require.NoError(t, err)
+	againPub, err := envelope.PublicKeyOf(again)
+	require.NoError(t, err)
+	require.Equal(t, b.tower.envelopePub, againPub)
+}
+
+// A Station whose recorded session key is unusable is not dispatched to. The alternative
+// would be relaying its content in the clear, which is the thing this exists to prevent.
+func TestAStationWithNoUsableSessionKeyIsNotDispatchedTo(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	op := signedInOperator(t, b, "octocat")
+	lt := enrolledTower(t, b, op.login)
+	require.NoError(t, b.tower.registry.Transition(lt.id, admit.StateActive))
+
+	// Attached with an assertion key that is fine and a session key that is not a key.
+	stn, err := station.Init(filepath.Join(t.TempDir(), "st"))
+	require.NoError(t, err)
+	owner := ownerPubkeyOf(t, b, op.login)
+	auth, secret, err := attach.NewInvite(attach.Authorization{
+		ID: "auth-nosession", Network: link.PublicNetwork, StationID: stn.StationID,
+		Owner:  owner,
+		Origin: attach.Origin{Kind: attach.OriginJoined, TowerID: lt.id},
+		// 32 bytes so it passes the shape check at invite, but not a usable X25519 point
+		// once dispatch needs it.
+		AssertionKey: stn.Assertion, SessionKey: strings.Repeat("00", 32),
+	}, time.Hour, time.Now())
+	require.NoError(t, err)
+	require.NoError(t, b.tower.stationStore.PutAuthorization(auth))
+	_, err = b.tower.stations.Admit(attach.Proof{
+		AuthID: "auth-nosession", Secret: secret, Network: link.PublicNetwork,
+		StationID: stn.StationID, Owner: owner,
+		Origin:       attach.Origin{Kind: attach.OriginJoined, TowerID: lt.id},
+		AssertionKey: stn.Assertion, SessionKey: strings.Repeat("00", 32),
+	})
+	require.NoError(t, err)
+	_, err = b.tower.stations.Promote(stn.StationID)
+	require.NoError(t, err)
+	openLink(t, srv, lt)
+
+	signed, err := stn.SignOffer(station.Offer{
+		Network: link.PublicNetwork, TowerID: lt.id, Model: "roger-1", Modality: "text",
+		PriceIn: 1000, PriceOut: 2000, EarnIn: 800, EarnOut: 1600, Capacity: 4,
+		Capabilities: []string{"chat"}, TTL: time.Hour,
+	}, time.Now())
+	require.NoError(t, err)
+	code, raw := lt.call(t, srv, "/tower/inventory",
+		wrapLeaves(t, lt, 1, "genesis", []json.RawMessage{signed}), nil)
+	require.Equal(t, http.StatusOK, code, raw)
+
+	// Routable on paper, and still not dispatched to: there is nowhere safe to send it.
+	rec := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader("{}"))
+	require.False(t, b.tryTowerDispatch(rec, r, "roger-1", []byte(`{"model":"roger-1"}`), false))
 }
