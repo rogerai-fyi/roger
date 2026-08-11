@@ -896,4 +896,10 @@ func (b *broker) registerTowerRoutes(mux *http.ServeMux) {
 
 	mux.HandleFunc("/tower/lease/expire", b.towerLeaseExpire) // admin: take a Tower off the link now
 	mux.HandleFunc("/tower/lifecycle", b.towerLifecycle)      // admin: the Tower quarantine gate
+
+	// DISPATCH. The Tower collects work for its Stations and returns the answer; the key is
+	// public so a Station can pin what a real grant is signed by.
+	mux.HandleFunc("/tower/dispatch", b.towerDispatchPoll)          // Tower: collect work
+	mux.HandleFunc("/tower/dispatch/result", b.towerDispatchResult) // Tower: return the answer
+	mux.HandleFunc("/tower/dispatch/key", b.towerDispatchKey)       // public: Core's grant key
 }

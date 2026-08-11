@@ -38,7 +38,7 @@ import (
 // serveJoined runs the link until the process is interrupted. It supplies the two things the
 // loop cannot invent for itself - a real signal and a real clock - and then gets out of the
 // way; everything that can go wrong is in runLink, where a test can reach it.
-func serveJoined(st *tower.State, out io.Writer) error {
+func serveJoined(st *tower.State, out io.Writer, stations stationEndpoints) error {
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(stop)
@@ -52,8 +52,14 @@ func serveJoined(st *tower.State, out io.Writer) error {
 		close(stopped)
 	}()
 
-	return runLink(st, out, stopped, realTicker)
+	return runLink(st, out, stopped, realTicker, stations)
 }
+
+// multiFlag collects a repeatable flag.
+type multiFlag []string
+
+func (m *multiFlag) String() string     { return "" }
+func (m *multiFlag) Set(v string) error { *m = append(*m, v); return nil }
 
 // realTicker is the clock in production. A test passes one that fires on demand, which is
 // what makes the heartbeat path testable without a test that sleeps - and a test that sleeps
@@ -63,8 +69,14 @@ func realTicker(d time.Duration) (<-chan time.Time, func()) {
 	return t.C, t.Stop
 }
 
-// runLink is the link loop proper: open, push, heartbeat, re-open on refusal, drain on exit.
-func runLink(st *tower.State, out io.Writer, stop <-chan struct{}, ticker func(time.Duration) (<-chan time.Time, func())) error {
+// runLink is the link loop proper: open, push, heartbeat, collect work, re-open on refusal,
+// drain on exit.
+//
+// stations may be empty, and then this Tower relays its Stations' offers without collecting
+// any work for them - which is the right behaviour for a Tower whose Stations are attached
+// but not yet reachable, and is what every test that is about the LINK rather than about
+// dispatch passes.
+func runLink(st *tower.State, out io.Writer, stop <-chan struct{}, ticker func(time.Duration) (<-chan time.Time, func()), stations stationEndpoints) error {
 	if st.Mode != tower.ModeJoined {
 		return errors.New(
 			"this Tower is standalone: it serves its own local network and needs nothing from " +
@@ -116,6 +128,15 @@ func runLink(st *tower.State, out io.Writer, stop <-chan struct{}, ticker func(t
 
 	fmt.Fprintf(out, "holding the link (heartbeat every %s, inventory refresh every %s) - "+
 		"ctrl-c to drain and exit\n", beat, inventoryRefresh)
+
+	// DISPATCH runs alongside, in its own goroutine: a heartbeat is a short call on a timer
+	// and a poll is a long wait, and folding them together would mean one starving the other.
+	// It is stopped by the same signal and waited for on the way out, so a Tower never exits
+	// while it is mid-relay on somebody's request.
+	if len(stations) > 0 {
+		waitForDispatch := runDispatchInBackground(st, out, stations, stop)
+		defer waitForDispatch()
+	}
 
 	for {
 		select {
@@ -260,7 +281,13 @@ func localOffers(st *tower.State, out io.Writer) ([]json.RawMessage, error) {
 func cmdServe(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	dir, cfg := dirAndConfig(fs)
+	var stationFlags multiFlag
+	fs.Var(&stationFlags, "station", "a Station this Tower serves, as ID=URL (repeatable)")
 	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	stations, err := parseStationEndpoints(stationFlags)
+	if err != nil {
 		return err
 	}
 	// serve takes --config for the same reason the state commands do, and it matters MORE
@@ -271,5 +298,5 @@ func cmdServe(args []string, out io.Writer) error {
 		return err
 	}
 	defer release()
-	return serveJoined(st, out)
+	return serveJoined(st, out, stations)
 }

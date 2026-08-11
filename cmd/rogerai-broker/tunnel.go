@@ -1609,6 +1609,16 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	t := b.tunnels[node.NodeID]
 	b.mu.Unlock()
 	if !ok || t == nil {
+		// NO DIRECT NODE. Before refusing, see whether a Station behind a Tower can serve it.
+		//
+		// This is the ONLY place Tower dispatch is entered, and that is the whole safety
+		// argument for it: every request a direct node can serve reaches this line having
+		// already been routed, so nothing about Tower-backed work can change how the existing
+		// fleet is used. The Tower path is also free and returns before any pricing, wallet,
+		// hold or settlement code - see towerdispatch.go.
+		if b.tryTowerDispatch(w, r, req.Model, body, req.Stream) {
+			return
+		}
 		msg := "no node offers " + req.Model
 		if gok {
 			msg = "no node of this grant's owner is serving " + req.Model + " right now"

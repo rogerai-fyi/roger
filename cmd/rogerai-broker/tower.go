@@ -15,6 +15,7 @@ package main
 // against, so a leaked token cannot be redeemed by somebody else.
 
 import (
+	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -31,6 +32,7 @@ import (
 	"rogerai.fm/roger/v5/internal/towercore/admit"
 	"rogerai.fm/roger/v5/internal/towercore/attach"
 	"rogerai.fm/roger/v5/internal/towercore/cert"
+	"rogerai.fm/roger/v5/internal/towercore/dispatch"
 	"rogerai.fm/roger/v5/internal/towercore/enroll"
 	"rogerai.fm/roger/v5/internal/towercore/head"
 	"rogerai.fm/roger/v5/internal/towercore/inv"
@@ -119,6 +121,13 @@ type towerSubsystem struct {
 	// invite flow (and by tests) without reaching through the Registry, which deliberately
 	// exposes only admission and lookup.
 	stationStore attach.Store
+
+	// DISPATCH: the attempt registry that issues one-use signed grants, the in-process queue
+	// a Tower collects work from, and the public half of the grant key a Station pins so it
+	// can tell a real grant from one its own relay made up.
+	dispatch    *dispatch.Registry
+	queue       *dispatchQueue
+	dispatchPub ed25519.PublicKey
 }
 
 // brokerOperatorPolicy answers whether an account may enroll a Tower. A joined Tower relays
@@ -178,6 +187,14 @@ func newTowerSubsystem(b *broker, registryStore admit.Store, custody cert.Custod
 		// Generous for a real fleet, bounded so the table cannot be used as free storage.
 		MaxLiveStationsPerOwner: maxLiveStationsPerOwner,
 	}, deps.stations)
+	// The grant signer is DERIVED from the CA root (see deriveDispatchKey): stable across
+	// restarts, which a Station pinning it depends on, and domain-separated from certificate
+	// issuance so the two uses cannot be confused for one another.
+	grantKey, err := deriveDispatchKey(ca)
+	if err != nil {
+		return nil, err
+	}
+
 	pol := policy.New(stations, b.db, brokerOwners{b: b}, policy.Config{
 		ModelAllowed:    towerModelAllowed,
 		ModalityAllowed: towerModalityAllowed,
@@ -203,6 +220,13 @@ func newTowerSubsystem(b *broker, registryStore admit.Store, custody cert.Custod
 
 	ts.stations, ts.policy, ts.heads, ts.link, ts.inv = stations, pol, heads, sessions, inventory
 	ts.stationStore = deps.stations
+	ts.dispatch = dispatch.New(dispatch.Config{
+		Network:  link.PublicNetwork,
+		Signer:   grantKey,
+		Lifetime: towerAttemptLifetime,
+	})
+	ts.queue = newDispatchQueue()
+	ts.dispatchPub = grantKey.Public().(ed25519.PublicKey)
 	return ts, nil
 }
 

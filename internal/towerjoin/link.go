@@ -202,13 +202,21 @@ func rawLeaves(leaves []json.RawMessage) []any {
 
 // towerPost signs as the TOWER and classifies the answer.
 func towerPost(st *tower.State, path string, body []byte, out any) error {
+	_, err := towerPostStatus(st, path, body, out, nil)
+	return err
+}
+
+// towerPostStatus is towerPost with the status code, for the one caller that needs to tell
+// "nothing to do" (204) apart from "here is your work" (200). Folding that into towerPost
+// would make every other caller carry a status they have no use for.
+func towerPostStatus(st *tower.State, path string, body []byte, out any, client *http.Client) (int, error) {
 	identity, err := st.IdentityKey()
 	if err != nil {
-		return fmt.Errorf("this Tower's identity key is unreadable: %w", err)
+		return 0, fmt.Errorf("this Tower's identity key is unreadable: %w", err)
 	}
 	req, err := http.NewRequest(http.MethodPost, brokerBase()+path, bytes.NewReader(body))
 	if err != nil {
-		return err
+		return 0, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	pub, ts, sig := protocol.SignRequest(identity, http.MethodPost, path, body)
@@ -216,9 +224,12 @@ func towerPost(st *tower.State, path string, body []byte, out any) error {
 	req.Header.Set(protocol.HeaderTS, strconv.FormatInt(ts, 10))
 	req.Header.Set(protocol.HeaderSig, sig)
 
-	resp, err := httpClient.Do(req)
+	if client == nil {
+		client = httpClient
+	}
+	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("%w: %v", ErrUnreachable, err)
+		return 0, fmt.Errorf("%w: %v", ErrUnreachable, err)
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
@@ -233,9 +244,9 @@ func towerPost(st *tower.State, path string, body []byte, out any) error {
 		}
 		_ = json.Unmarshal(raw, &conflict)
 		if conflict.NeedFull {
-			return fmt.Errorf("%w: %s", ErrNeedFullInventory, conflict.Error)
+			return resp.StatusCode, fmt.Errorf("%w: %s", ErrNeedFullInventory, conflict.Error)
 		}
-		return fmt.Errorf("%w: %s", ErrRefused, strings.TrimSpace(string(raw)))
+		return resp.StatusCode, fmt.Errorf("%w: %s", ErrRefused, strings.TrimSpace(string(raw)))
 	case resp.StatusCode == http.StatusForbidden:
 		// CORE'S OWN SENTENCE FIRST. This used to answer every 403 with "this Tower may not
 		// hold a link right now", which is true of the session routes and actively
@@ -244,18 +255,18 @@ func towerPost(st *tower.State, path string, body []byte, out any) error {
 		// invitation secret is an operator debugging the wrong thing. The canned line is the
 		// fallback for a 403 that carries nothing, not the answer to all of them.
 		if msg, ok := envelopeMessage(raw); ok {
-			return fmt.Errorf("%w: %s", ErrRefused, msg)
+			return resp.StatusCode, fmt.Errorf("%w: %s", ErrRefused, msg)
 		}
-		return fmt.Errorf("%w: this Tower may not hold a link right now (suspended, revoked, or its lease lapsed)", ErrRefused)
+		return resp.StatusCode, fmt.Errorf("%w: this Tower may not hold a link right now (suspended, revoked, or its lease lapsed)", ErrRefused)
 	case resp.StatusCode < 200 || resp.StatusCode >= 300:
-		return fmt.Errorf("%w: %s", ErrRefused, bandOrRawError(raw))
+		return resp.StatusCode, fmt.Errorf("%w: %s", ErrRefused, bandOrRawError(raw))
 	}
-	if out != nil {
+	if out != nil && len(raw) > 0 {
 		if err := json.Unmarshal(raw, out); err != nil {
-			return fmt.Errorf("could not read Roger Core's reply: %w", err)
+			return resp.StatusCode, fmt.Errorf("could not read Roger Core's reply: %w", err)
 		}
 	}
-	return nil
+	return resp.StatusCode, nil
 }
 
 // envelopeMessage pulls the sentence Core wrote out of its {"error":{"message":...}}

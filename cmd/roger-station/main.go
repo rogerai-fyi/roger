@@ -46,6 +46,7 @@ usage:
   roger-station init  --dir DIR                 (mint this Station's two keys, once)
   roger-station keys  --dir DIR                 (print the public keys for an invitation)
   roger-station offer --dir DIR --tower TOWER --model NAME [options]
+  roger-station serve --dir DIR --core-key HEX --upstream URL [--listen 127.0.0.1:8730]
   roger-station status --dir DIR
   roger-station version
 
@@ -97,6 +98,8 @@ func run(args []string, out io.Writer) error {
 		return cmdOffer(args[1:], out)
 	case "status":
 		return cmdStatus(args[1:], out)
+	case "serve":
+		return cmdServe(args[1:], out)
 	case "version":
 		fmt.Fprintln(out, version)
 		return nil

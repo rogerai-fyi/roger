@@ -44,6 +44,9 @@
 //	         replay or a fork rather than guessing.
 //	policy   the seam through which inv asks Core the questions it may not answer alone -
 //	         bans, owners, revoked keys, allowed models, price bands. Fails closed.
+//	dispatch one unit of work handed to one Station and one verifiable answer back: a
+//	         one-use grant Core signs, and a receipt the Station signs over the exact bytes
+//	         it returned. Carries no money - Tower-backed work is uncompensated in v1.
 //
 // # WHY THE IN-MEMORY STORES LOOK LIKE DEAD CODE AND ARE NOT
 //
