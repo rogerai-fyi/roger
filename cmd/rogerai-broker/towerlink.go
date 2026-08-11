@@ -791,6 +791,112 @@ func (b *broker) towerLifecycle(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// operatorMayMove is what an operator may do to a Tower THEY OWN, keyed by the state it is
+// IN as well as the state they are asking for.
+//
+//	active   -> draining   pause my own hardware. Keeps the link, takes no new work.
+//	draining -> active     un-pause it.
+//	anything -> revoked    retire it. Terminal, and it is their hardware.
+//
+// THE "FROM" IS THE WHOLE SECURITY PROPERTY, and the first version of this got it wrong.
+// It allowed `active` as a DESTINATION and reasoned that the approved transition table would
+// refuse it out of quarantine - but quarantine->active is exactly the edge an administrator
+// uses to promote, so it is legal, and an operator could promote themselves out of quarantine
+// in one call. The admission gate would have meant nothing.
+//
+// Resuming from DRAINING is returning a Tower to a state an administrator already granted.
+// Leaving QUARANTINE is that grant. They are different decisions and only the pair makes
+// them distinguishable.
+//
+// Suspension is absent for the same class of reason: it is a decision ABOUT an operator, and
+// self-service suspend-then-reinstate would clear a Tower that is under review. Expired and
+// pending are absent because neither is a thing anybody decides - they are things that happen.
+var operatorMayMove = map[admit.State]map[admit.State]bool{
+	admit.StateActive:     {admit.StateDraining: true, admit.StateRevoked: true},
+	admit.StateDraining:   {admit.StateActive: true, admit.StateRevoked: true},
+	admit.StateQuarantine: {admit.StateRevoked: true},
+	admit.StateSuspended:  {admit.StateRevoked: true},
+	admit.StateExpired:    {admit.StateRevoked: true},
+	admit.StatePending:    {admit.StateRevoked: true},
+}
+
+// towerSelfLifecycle handles POST /tower/self/lifecycle: an operator pausing, resuming or
+// retiring a Tower they own.
+//
+// SEPARATE FROM THE ADMIN ROUTE, with its own authentication and its own allowlist, rather
+// than one handler that decides which caller it has. Mixing the two would put "is this an
+// administrator" and "may this state be set" in the same branch, and getting that wrong is
+// how an operator promotes themselves out of quarantine.
+//
+// What makes this safe is not the allowlist alone but the approved TABLE underneath it: even
+// with `active` permitted here, Transition refuses quarantine->active, so the one decision an
+// operator must not make about themselves is refused by the state machine rather than by a
+// list somebody has to remember to keep short.
+func (b *broker) towerSelfLifecycle(w http.ResponseWriter, r *http.Request) {
+	if corsCredsPreflight(w, r) {
+		return
+	}
+	if !allow(w, r, http.MethodPost) {
+		return
+	}
+	corsCreds(w, r)
+	ts := b.towerAvailable(w)
+	if ts == nil {
+		return
+	}
+	body := readTowerBody(r)
+	owner, ok := b.towerOperator(r, body)
+	if !ok {
+		jsonErr(w, http.StatusUnauthorized, "this needs a signed-in account - run `roger-tower login`")
+		return
+	}
+	var req struct {
+		TowerID string `json:"tower_id"`
+		State   string `json:"state"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		jsonErr(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if req.TowerID == "" {
+		jsonErr(w, http.StatusBadRequest, "tower_id is required")
+		return
+	}
+	to := admit.State(req.State)
+	// THE TOWER MUST BE THEIRS. Checked against the registry rather than taken from the
+	// request, and answered exactly like a Tower that does not exist - otherwise this route
+	// would tell a stranger which Tower IDs are real. It is read BEFORE the permission check
+	// because what an operator may do depends on the state their Tower is in.
+	before, found := ts.registry.Get(req.TowerID)
+	if !found || before.Owner != owner {
+		jsonErr(w, http.StatusNotFound, "no such Tower on this account")
+		return
+	}
+	if !operatorMayMove[before.State][to] {
+		jsonErr(w, http.StatusForbidden, fmt.Sprintf(
+			"an operator may drain, resume or retire their own Tower; moving it from %s to %q "+
+				"is an administrator's decision", before.State, req.State))
+		return
+	}
+	if err := ts.registry.Transition(req.TowerID, to); err != nil {
+		jsonErr(w, http.StatusConflict, err.Error())
+		return
+	}
+	if ts.policy != nil {
+		ts.policy.Invalidate()
+	}
+	// A Tower that has stopped taking work must stop being OFFERED, on every instance, now.
+	// Leaving the fleet view up would keep sending requests at a Tower that is refusing them
+	// for the rest of the freshness window.
+	if admit.EligibleFor(to) != admit.EligibilityEligible {
+		b.forgetRoutable(req.TowerID)
+	}
+	log.Printf("tower %s moved %s -> %s by its operator %s", req.TowerID, before.State, to, owner)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok": true, "tower_id": req.TowerID, "was": string(before.State), "state": string(to),
+	})
+}
+
 // --- housekeeping -----------------------------------------------------------
 
 // towerInviteSweepInterval paces the invitation reaper. Well under the TTL, so an expired
@@ -909,8 +1015,9 @@ func (b *broker) registerTowerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/tower/station/revoke", b.towerStationRevoke)   // operator: retire a Station identity
 	mux.HandleFunc("/tower/station/promote", b.towerStationPromote) // admin: open the Station quarantine gate
 
-	mux.HandleFunc("/tower/lease/expire", b.towerLeaseExpire) // admin: take a Tower off the link now
-	mux.HandleFunc("/tower/lifecycle", b.towerLifecycle)      // admin: the Tower quarantine gate
+	mux.HandleFunc("/tower/lease/expire", b.towerLeaseExpire)     // admin: take a Tower off the link now
+	mux.HandleFunc("/tower/lifecycle", b.towerLifecycle)          // admin: the Tower quarantine gate
+	mux.HandleFunc("/tower/self/lifecycle", b.towerSelfLifecycle) // operator: drain/resume/retire my own
 
 	// DISPATCH. The Tower collects work for its Stations and returns the answer; the key is
 	// public so a Station can pin what a real grant is signed by.

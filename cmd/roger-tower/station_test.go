@@ -290,3 +290,101 @@ func TestRevokingAStationSaysWhatElseToDo(t *testing.T) {
 	_, err = runCLI(t, "station", "revoke", "--wat")
 	require.Error(t, err)
 }
+
+// --- pausing, resuming and retiring this Tower ------------------------------
+
+func TestDrainingAndResumingTellCoreAndSayWhatChanged(t *testing.T) {
+	core := newCoreStub(t)
+	dir := joinedRegisteredTower(t)
+	var sent []string
+	core.reply["/tower/self/lifecycle"] = func(w http.ResponseWriter, _ int) bool {
+		_, _ = w.Write([]byte(`{"ok":true}`))
+		return true
+	}
+
+	out, err := runCLI(t, "drain", "--dir", dir)
+	require.NoError(t, err)
+	require.Contains(t, out, "no new work")
+	require.Contains(t, out, "In-flight", "it says what happens to work already running")
+	require.Contains(t, out, "resume", "and how to undo it")
+
+	out, err = runCLI(t, "resume", "--dir", dir)
+	require.NoError(t, err)
+	require.Contains(t, out, "back in service")
+
+	core.mu.Lock()
+	sent = append(sent, core.seen...)
+	core.mu.Unlock()
+	require.Equal(t, 2, countOf(sent, "/tower/self/lifecycle"))
+}
+
+// REVOKING IS TERMINAL, so it refuses without an explicit confirmation and says what is
+// permanent about it BEFORE doing it - there is no path back from revoked, and a replacement
+// enrolls as an entirely new Tower.
+func TestRevokingRefusesWithoutConfirmationAndReachesNothing(t *testing.T) {
+	core := newCoreStub(t)
+	dir := joinedRegisteredTower(t)
+
+	_, err := runCLI(t, "revoke", "--dir", dir)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "--yes")
+	require.Contains(t, err.Error(), "NEW Tower")
+	require.Zero(t, core.reached(), "an unconfirmed revoke reaches nothing at all")
+}
+
+func TestRevokingWithConfirmationRetiresTheTower(t *testing.T) {
+	core := newCoreStub(t)
+	dir := joinedRegisteredTower(t)
+	core.reply["/tower/self/lifecycle"] = func(w http.ResponseWriter, _ int) bool {
+		_, _ = w.Write([]byte(`{"ok":true}`))
+		return true
+	}
+	out, err := runCLI(t, "revoke", "--dir", dir, "--yes")
+	require.NoError(t, err)
+	require.Contains(t, out, "retired")
+	require.Contains(t, out, "init")
+	require.Equal(t, 1, core.called("/tower/self/lifecycle"))
+}
+
+// Each needs a data directory and a registered Tower, and a refusal from Core reaches the
+// operator as the sentence Core wrote.
+func TestTheLifecycleCommandsFailUsefully(t *testing.T) {
+	core := newCoreStub(t)
+	dir := joinedRegisteredTower(t)
+
+	for _, c := range []string{"drain", "resume"} {
+		_, err := runCLI(t, c)
+		require.Error(t, err, c)
+		_, err = runCLI(t, c, "--wat")
+		require.Error(t, err, c)
+	}
+	_, err := runCLI(t, "revoke", "--wat")
+	require.Error(t, err)
+
+	core.reply["/tower/self/lifecycle"] = func(w http.ResponseWriter, _ int) bool {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"error":{"message":"moving it from quarantine is an administrator's decision"}}`))
+		return true
+	}
+	_, err = runCLI(t, "resume", "--dir", dir)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "administrator")
+
+	// And an unregistered Tower is told which command fixes it.
+	fresh := filepath.Join(t.TempDir(), "tw")
+	var b bytes.Buffer
+	require.NoError(t, run([]string{"init", "--dir", fresh, "--mode", "joined"}, &b))
+	_, err = runCLI(t, "drain", "--dir", fresh)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "register")
+}
+
+func countOf(all []string, want string) int {
+	n := 0
+	for _, s := range all {
+		if s == want {
+			n++
+		}
+	}
+	return n
+}

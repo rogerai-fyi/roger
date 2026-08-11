@@ -175,3 +175,73 @@ func cmdStationRevoke(args []string, out io.Writer) error {
 		"Tower's offers directory so the next inventory stops carrying it.\n")
 	return nil
 }
+
+// cmdDrain pauses this Tower: no new work, link kept so in-flight work can finish.
+//
+// Distinct from stopping `serve`, which drops the inventory and goes. Draining leaves the
+// Tower connected and visible, which is what an operator wants before a disk swap or an
+// upgrade - and it is reversible with `resume`.
+func cmdDrain(args []string, out io.Writer) error {
+	return setOwnState(args, out, "drain", "draining",
+		"draining: Roger Core will send no new work.\n"+
+			"In-flight work finishes on its own deadlines, and the link stays up.\n"+
+			"Run `roger-tower resume --dir DIR` to take work again.\n")
+}
+
+// cmdResume puts a drained Tower back into service.
+//
+// It can only return a Tower to a state it already held. Leaving QUARANTINE is an
+// administrator's decision and this cannot make it - see operatorMayMove on the server.
+func cmdResume(args []string, out io.Writer) error {
+	return setOwnState(args, out, "resume", "active",
+		"back in service: Roger Core may route work to this Tower's Stations again.\n")
+}
+
+// cmdRevoke retires this Tower's identity, for good.
+func cmdRevoke(args []string, out io.Writer) error {
+	fs := flag.NewFlagSet("revoke", flag.ContinueOnError)
+	fs.SetOutput(out)
+	dir := fs.String("dir", "", "Tower data directory")
+	confirm := fs.Bool("yes", false, "confirm: this cannot be undone")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if !*confirm {
+		// TERMINAL AND UNRECOVERABLE. There is no path back from revoked - the Tower must
+		// enroll again as a NEW identity, and everything attached to the old one goes with
+		// it. A flag is a small price for a decision with no undo.
+		return fmt.Errorf("revoking retires this Tower's identity permanently: it cannot be " +
+			"un-revoked, and a replacement enrolls as a NEW Tower with new Stations.\n" +
+			"Re-run with --yes if that is what you mean")
+	}
+	st, release, err := openDir(*dir)
+	if err != nil {
+		return err
+	}
+	defer release()
+	if err := towerjoin.SetOwnState(st, "revoked"); err != nil {
+		return err
+	}
+	fmt.Fprint(out, "revoked: this Tower is retired and can no longer hold a link.\n"+
+		"Its data directory is now inert; a replacement must `init` and `register` afresh.\n")
+	return nil
+}
+
+func setOwnState(args []string, out io.Writer, name, state, note string) error {
+	fs := flag.NewFlagSet(name, flag.ContinueOnError)
+	fs.SetOutput(out)
+	dir := fs.String("dir", "", "Tower data directory")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	st, release, err := openDir(*dir)
+	if err != nil {
+		return err
+	}
+	defer release()
+	if err := towerjoin.SetOwnState(st, state); err != nil {
+		return err
+	}
+	fmt.Fprint(out, note)
+	return nil
+}

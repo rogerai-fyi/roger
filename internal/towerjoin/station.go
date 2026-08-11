@@ -209,3 +209,20 @@ func RevokeStation(st *tower.State, stationID string) error {
 	}
 	return signedPost(brokerBase()+"/tower/station/revoke", nil, body, nil)
 }
+
+// SetOwnState asks Core to drain, resume or retire a Tower this account owns.
+//
+// Signed by the ACCOUNT, not the Tower. Retiring hardware has to work when the Tower itself
+// is the thing that has gone wrong, and a control that needed a healthy relay would be
+// unavailable in exactly the situation it exists for.
+func SetOwnState(st *tower.State, state string) error {
+	adm, ok := LoadAdmission(st.Dir())
+	if !ok || adm.TowerID == "" {
+		return errors.New("this Tower is not registered yet - run `roger-tower register` first")
+	}
+	body, err := json.Marshal(map[string]string{"tower_id": adm.TowerID, "state": state})
+	if err != nil {
+		return err
+	}
+	return signedPost(brokerBase()+"/tower/self/lifecycle", nil, body, nil)
+}

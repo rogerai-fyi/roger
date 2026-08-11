@@ -1890,3 +1890,145 @@ func TestARelayCannotAlterWhatTheStationSigned(t *testing.T) {
 	require.Len(t, out.Excluded, 1)
 	require.Contains(t, out.Excluded[0].Reason, "signature")
 }
+
+// --- an operator's control over their OWN Tower ------------------------------
+//
+// Distinct from the admin gate, and deliberately so. Promotion out of quarantine is a
+// decision about whether an operator may be trusted, and they cannot make it about
+// themselves. Pausing, resuming and retiring hardware they own is not that decision - it is
+// the ordinary operation of a machine they run, and needing an administrator for it means
+// nobody can take their own Tower out of service to swap a disk.
+
+// Draining stops new work AND keeps the link, which is the whole point: in-flight work needs
+// somewhere to finish.
+func TestAnOperatorCanDrainTheirOwnTower(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	b.adminKey = "admin-secret"
+	op := signedInOperator(t, b, "octocat")
+	lt := enrolledTower(t, b, op.login)
+	_, _ = adminTowerPost(t, srv, "/tower/lifecycle", `{"tower_id":"`+lt.id+`","state":"active"}`)
+	require.True(t, b.tower.registry.MayTakeWork(lt.id))
+
+	code, raw := op.call(t, srv, http.MethodPost, "/tower/self/lifecycle",
+		map[string]string{"tower_id": lt.id, "state": "draining"}, nil)
+	require.Equal(t, http.StatusOK, code, raw)
+
+	require.False(t, b.tower.registry.MayTakeWork(lt.id), "a draining Tower takes no new work")
+	tw, ok := b.tower.registry.Get(lt.id)
+	require.True(t, ok)
+	require.True(t, towerMayHoldLink(tw), "and it keeps the link so in-flight work can finish")
+}
+
+// And can put it back. Draining is otherwise a one-way trip that needs an administrator to
+// undo, which would make it useless for the thing it is for - swapping a disk.
+func TestAnOperatorCanResumeTheirOwnDrainedTower(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	b.adminKey = "admin-secret"
+	op := signedInOperator(t, b, "octocat")
+	lt := enrolledTower(t, b, op.login)
+	_, _ = adminTowerPost(t, srv, "/tower/lifecycle", `{"tower_id":"`+lt.id+`","state":"active"}`)
+
+	code, _ := op.call(t, srv, http.MethodPost, "/tower/self/lifecycle",
+		map[string]string{"tower_id": lt.id, "state": "draining"}, nil)
+	require.Equal(t, http.StatusOK, code)
+
+	code, raw := op.call(t, srv, http.MethodPost, "/tower/self/lifecycle",
+		map[string]string{"tower_id": lt.id, "state": "active"}, nil)
+	require.Equal(t, http.StatusOK, code, raw)
+	require.True(t, b.tower.registry.MayTakeWork(lt.id))
+}
+
+// AN OPERATOR CANNOT PROMOTE THEMSELVES, and this is the test that caught it.
+//
+// The first version of the route allowed `active` as a DESTINATION, reasoning that the
+// approved transition table would refuse it out of quarantine. It does not:
+// quarantine->active is precisely the edge an administrator uses to promote, so it is legal,
+// and an operator could leave quarantine in one call. The admission gate would have meant
+// nothing at all.
+//
+// Refused as a PERMISSION (403) rather than a state conflict (409), because that is what it
+// is: the move is legal for an administrator to make and is not this caller's to make.
+// Resuming from DRAINING is returning a Tower to a state somebody already granted; leaving
+// QUARANTINE is the grant. Only the from-and-to pair tells them apart.
+func TestAnOperatorCannotUseSelfServiceToLeaveQuarantine(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	op := signedInOperator(t, b, "octocat")
+	lt := enrolledTower(t, b, op.login)
+
+	code, raw := op.call(t, srv, http.MethodPost, "/tower/self/lifecycle",
+		map[string]string{"tower_id": lt.id, "state": "active"}, nil)
+	require.Equal(t, http.StatusForbidden, code, raw)
+	require.Contains(t, raw, "administrator")
+	require.False(t, b.tower.registry.MayTakeWork(lt.id),
+		"quarantine is the administrator's gate and stays that way")
+}
+
+// Retiring is terminal and is the operator's to make: it is their hardware.
+func TestAnOperatorCanRetireTheirOwnTower(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	op := signedInOperator(t, b, "octocat")
+	lt := enrolledTower(t, b, op.login)
+
+	code, raw := op.call(t, srv, http.MethodPost, "/tower/self/lifecycle",
+		map[string]string{"tower_id": lt.id, "state": "revoked"}, nil)
+	require.Equal(t, http.StatusOK, code, raw)
+
+	tw, ok := b.tower.registry.Get(lt.id)
+	require.True(t, ok)
+	require.Equal(t, admit.StateRevoked, tw.State)
+	require.False(t, towerMayHoldLink(tw), "a retired Tower may not even hold the link")
+}
+
+// SOMEBODY ELSE'S TOWER IS NOT YOURS TO DRAIN. Answered as "no such Tower on this account",
+// the same as one that does not exist, so this cannot be used to enumerate other people's.
+func TestAnOperatorCannotDrainSomebodyElsesTower(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	owner := signedInOperator(t, b, "octocat")
+	lt := enrolledTower(t, b, owner.login)
+	stranger := signedInOperator(t, b, "hubot")
+
+	code, raw := stranger.call(t, srv, http.MethodPost, "/tower/self/lifecycle",
+		map[string]string{"tower_id": lt.id, "state": "draining"}, nil)
+	require.Equal(t, http.StatusNotFound, code, raw)
+
+	code, raw = stranger.call(t, srv, http.MethodPost, "/tower/self/lifecycle",
+		map[string]string{"tower_id": "tw-nobody", "state": "draining"}, nil)
+	require.Equal(t, http.StatusNotFound, code, raw)
+}
+
+// The states an operator may NOT set on themselves, and the other refusals.
+func TestSelfServiceLifecycleRefusesWhatIsNotItsToDecide(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	op := signedInOperator(t, b, "octocat")
+	lt := enrolledTower(t, b, op.login)
+
+	// Suspension is a decision ABOUT an operator; letting them set it on themselves would
+	// let a Tower under review clear itself by suspending and being reinstated.
+	for _, state := range []string{"suspended", "quarantine", "expired", "pending"} {
+		code, raw := op.call(t, srv, http.MethodPost, "/tower/self/lifecycle",
+			map[string]string{"tower_id": lt.id, "state": state}, nil)
+		require.Equal(t, http.StatusForbidden, code, "%s: %s", state, raw)
+		require.Contains(t, raw, "administrator")
+	}
+
+	code, raw := op.call(t, srv, http.MethodPost, "/tower/self/lifecycle",
+		map[string]string{"tower_id": lt.id, "state": "marvellous"}, nil)
+	require.Equal(t, http.StatusForbidden, code, raw)
+
+	code, _ = op.call(t, srv, http.MethodPost, "/tower/self/lifecycle",
+		map[string]string{"state": "draining"}, nil)
+	require.Equal(t, http.StatusBadRequest, code)
+
+	// Signed out entirely.
+	resp, err := http.Post(srv.URL+"/tower/self/lifecycle", "application/json",
+		strings.NewReader(`{"tower_id":"`+lt.id+`","state":"draining"}`))
+	require.NoError(t, err)
+	resp.Body.Close()
+	require.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+
+	// And the wrong method.
+	getResp, err := http.Get(srv.URL + "/tower/self/lifecycle")
+	require.NoError(t, err)
+	getResp.Body.Close()
+	require.Equal(t, http.StatusMethodNotAllowed, getResp.StatusCode)
+}

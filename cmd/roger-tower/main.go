@@ -48,6 +48,9 @@ usage:
   roger-tower register --dir DIR      (joined mode only; requires login)
   roger-tower serve  --dir DIR [--station ID=URL ...]  (holds the link; serves work)
   roger-tower station invite|attach|revoke   (joined mode; Stations on the public network)
+  roger-tower drain  --dir DIR        (stop taking new work; keep the link)
+  roger-tower resume --dir DIR        (take work again)
+  roger-tower revoke --dir DIR --yes  (retire this Tower for good)
   roger-tower version
 
 invite, admit, attach, stations, route and serve also take --config FILE. Pass it
@@ -116,12 +119,12 @@ func run(args []string, out io.Writer) error {
 		return cmdServe(args[1:], out)
 	case "station":
 		return cmdStation(args[1:], out)
-	case "drain", "revoke":
-		// The link ships; these two do not yet. `serve` drains on exit, which covers the
-		// ordinary case - a separate drain command is for draining a Tower you are not
-		// standing in front of, and revoke needs the operator surface.
-		return fmt.Errorf("%q has not shipped yet - `roger-tower serve` holds the relay link "+
-			"and drains it cleanly when you stop it", args[0])
+	case "drain":
+		return cmdDrain(args[1:], out)
+	case "resume":
+		return cmdResume(args[1:], out)
+	case "revoke":
+		return cmdRevoke(args[1:], out)
 	default:
 		return fmt.Errorf("unknown command %q\n\n%s", args[0], usage)
 	}

@@ -233,6 +233,26 @@ record what it was told at enrollment and go stale the moment anything changes.
 `roger-tower station revoke --dir DIR --station-id ID` retires a Station. It is signed by the
 account, not the Tower, so it still works when the Tower is the thing that has gone wrong.
 
+## Pausing, resuming and retiring your own Tower
+
+```
+roger-tower drain  --dir DIR        # stop taking new work; keep the link up
+roger-tower resume --dir DIR        # take work again
+roger-tower revoke --dir DIR --yes  # retire this Tower permanently
+```
+
+Draining is not the same as stopping `serve`. Stopping drops the inventory and goes;
+draining leaves the Tower connected and visible while Roger Core stops routing new work to
+it, so in-flight work finishes on its own deadlines. That is what you want before a disk
+swap or an upgrade, and it is reversible.
+
+These are signed by your **account**, not by the Tower, so retiring hardware still works when
+the Tower itself is the thing that has gone wrong.
+
+`resume` can only return a Tower to a state it already held. Leaving **quarantine** is an
+administrator's decision and none of these commands can make it — the permission check is
+keyed on the state the Tower is in, not only the state you are asking for.
+
 ## Quarantine
 
 Both Towers and Stations are admitted **into quarantine**. That is not a missing feature and
@@ -264,7 +284,6 @@ than a switch a human has to throw.
   `stream: true` request is never routed to a Tower.
 - **Multi-instance dispatch.** The pending-work queue is in-process, so a Tower must poll the
   broker instance that issued its work.
-- **`drain` and `revoke`** as Tower commands. `serve` drains on exit, which covers the
-  ordinary case; a separate drain is for a Tower you are not standing in front of.
+- Nothing else on this list. Draining, resuming and retiring shipped — see below.
 
 Standalone Towers serve today and need none of this.

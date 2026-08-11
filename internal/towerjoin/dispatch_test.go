@@ -183,3 +183,37 @@ func TestTheDispatchClientOutwaitsCoresPoll(t *testing.T) {
 // here rather than imported because the two are separate programs: a Tower cannot read
 // Core's constant, and the relationship still has to hold.
 const dispatchPollWaitUpperBound = 30 * time.Second
+
+// --- pausing, resuming and retiring, from the operator's side ---------------
+
+func TestSettingOwnStateIsSignedByTheAccount(t *testing.T) {
+	core := newStationCore(t)
+	st := registeredTower(t)
+	core.replies["/tower/self/lifecycle"] = func(w http.ResponseWriter) {
+		_, _ = w.Write([]byte(`{"ok":true,"state":"draining"}`))
+	}
+	require.NoError(t, SetOwnState(st, "draining"))
+
+	sent := core.bodies["/tower/self/lifecycle"]
+	require.Equal(t, "tw-1", sent["tower_id"], "the Tower comes from our own admission record")
+	require.Equal(t, "draining", sent["state"])
+	// Signed by the ACCOUNT, because retiring hardware has to work when the Tower itself is
+	// the thing that has gone wrong.
+	require.NotEmpty(t, core.pubkeys["/tower/self/lifecycle"])
+}
+
+func TestSettingOwnStateReportsARefusalAndNeedsRegistration(t *testing.T) {
+	core := newStationCore(t)
+	st := registeredTower(t)
+	core.replies["/tower/self/lifecycle"] = func(w http.ResponseWriter) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"error":{"message":"moving it from quarantine to \"active\" is an administrator's decision"}}`))
+	}
+	err := SetOwnState(st, "active")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "administrator")
+
+	err = SetOwnState(joinedTower(t), "draining")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "register")
+}

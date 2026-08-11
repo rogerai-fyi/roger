@@ -98,16 +98,30 @@ func TestServeShipsAndAsksForItsDataDirectory(t *testing.T) {
 	require.NotContains(t, err.Error(), "not shipped", "serve ships")
 }
 
-// Drain and revoke still do not, and must say so without implying joined mode as a whole is
-// missing - it is not, and an operator told "not implemented" would go looking for a
-// workaround they do not need. Each names the command covering the ordinary case.
-func TestTheJoinedCommandsThatHaveNotShippedNameWhatDoes(t *testing.T) {
-	for _, c := range []string{"drain", "revoke"} {
+// DRAIN, RESUME AND REVOKE SHIP TOO. This asserted the opposite for both drain and revoke,
+// and is inverted rather than deleted because the inversion is the change: each now fails on
+// its own missing arguments, not on being absent.
+func TestTheOperatorLifecycleCommandsShip(t *testing.T) {
+	for _, c := range []string{"drain", "resume"} {
 		_, err := runCLI(t, c)
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "not shipped", "it is honest about being absent")
-		require.Contains(t, err.Error(), "serve", "and points at what covers the ordinary case")
-		require.Contains(t, err.Error(), "relay link", "naming what serve actually holds")
+		require.Error(t, err, c)
+		require.Contains(t, err.Error(), "--dir", "%s asks for what it needs", c)
+		require.NotContains(t, err.Error(), "not shipped", "%s ships", c)
+	}
+
+	// Revoke is TERMINAL, so it refuses before it asks for anything else. An operator who
+	// mistypes a command name must not retire their Tower by accident.
+	_, err := runCLI(t, "revoke", "--dir", t.TempDir())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "--yes")
+	require.Contains(t, err.Error(), "cannot be un-revoked",
+		"it says what is permanent about it before doing it")
+
+	// And the usage lists all three, or an operator cannot find them.
+	out, err := runCLI(t, "help")
+	require.NoError(t, err)
+	for _, c := range []string{"drain", "resume", "revoke"} {
+		require.Contains(t, out, "roger-tower "+c, c)
 	}
 }
 
