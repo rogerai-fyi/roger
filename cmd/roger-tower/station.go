@@ -30,6 +30,7 @@ const stationUsage = `roger-tower station - Stations on the public network
   roger-tower station invite --dir DIR --assertion-key HEX --session-key HEX [--station-id ID]
   roger-tower station attach --dir DIR --invitation ID --secret S \
                              --assertion-key HEX --session-key HEX [--station-id ID]
+  roger-tower station revoke --dir DIR --station-id ID
 
 Run ` + "`roger-station init`" + ` ON THE STATION first: it mints the two keys and prints
 their public halves, which are what these commands carry. The Station keeps the private
@@ -52,6 +53,8 @@ func cmdStation(args []string, out io.Writer) error {
 		return cmdStationInvite(args[1:], out)
 	case "attach":
 		return cmdStationAttach(args[1:], out)
+	case "revoke":
+		return cmdStationRevoke(args[1:], out)
 	case "help", "-h", "--help":
 		fmt.Fprint(out, stationUsage)
 		return nil
@@ -139,5 +142,36 @@ func cmdStationAttach(args []string, out io.Writer) error {
 		"  roger-station offer --dir DIR --tower TOWER --model NAME ... --out offer.json\n"+
 		"then copy offer.json into this Tower's `offers` directory. `roger-tower serve`\n"+
 		"relays it byte for byte.\n")
+	return nil
+}
+
+// cmdStationRevoke retires a Station identity.
+//
+// Signed by the ACCOUNT rather than the Tower, so an operator can still do it when the Tower
+// is the thing that has gone wrong. A revocation that needed a healthy relay would be
+// unavailable in precisely the situation it exists for.
+func cmdStationRevoke(args []string, out io.Writer) error {
+	fs := flag.NewFlagSet("station revoke", flag.ContinueOnError)
+	fs.SetOutput(out)
+	dir := fs.String("dir", "", "Tower data directory")
+	id := fs.String("station-id", "", "the Station to retire")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	st, release, err := openDir(*dir)
+	if err != nil {
+		return err
+	}
+	defer release()
+
+	if err := towerjoin.RevokeStation(st, *id); err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "revoked station %s\n", *id)
+	// The leaf goes when the Tower next pushes; until then policy refuses it because the
+	// attachment is revoked. Saying so stops an operator concluding the revocation did not
+	// take when they see the Station in their own offers directory a moment later.
+	fmt.Fprint(out, "Its offers stop being routable immediately. Remove its file from this\n"+
+		"Tower's offers directory so the next inventory stops carrying it.\n")
 	return nil
 }

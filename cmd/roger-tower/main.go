@@ -46,7 +46,7 @@ usage:
   roger-tower logout --dir DIR
   roger-tower register --dir DIR      (joined mode only; requires login)
   roger-tower serve  --dir DIR        (joined mode only; holds the relay link)
-  roger-tower station invite|attach   (joined mode only; Stations on the public network)
+  roger-tower station invite|attach|revoke   (joined mode; Stations on the public network)
   roger-tower version
 
 invite, admit, attach, stations, route and serve also take --config FILE. Pass it
@@ -245,8 +245,70 @@ func cmdStatus(args []string, out io.Writer) error {
 	fmt.Fprintf(out, "tower id: %s\n", st.TowerID)
 	if st.LocalNetworkID != "" {
 		fmt.Fprintf(out, "local network: %s\n", st.LocalNetworkID)
-	} else {
-		fmt.Fprintf(out, "network: RogerAI public\n")
+		return nil
+	}
+	fmt.Fprintf(out, "network: RogerAI public\n")
+	return printCoreStatus(st, out)
+}
+
+// printCoreStatus reports what ROGER CORE believes about this Tower.
+//
+// The local files answer a different and much weaker question. They record what this Tower
+// was TOLD at enrollment, and go stale the instant an administrator promotes, suspends or
+// revokes it, or a lease lapses - none of which the Tower is notified about. An operator
+// asking "why is nothing happening" needs Core's answer, and until now no binary could get
+// it: /tower/status existed and nothing called it.
+//
+// A Tower that has not registered, or a Core that cannot be reached, is REPORTED AND NOT
+// FATAL. The local half above is still worth having, and `status` failing outright because
+// the network is down is the opposite of useful at the moment somebody runs it.
+func printCoreStatus(st *tower.State, out io.Writer) error {
+	adm, ok := towerjoin.LoadAdmission(st.Dir())
+	if !ok {
+		fmt.Fprint(out, "not registered yet - run `roger-tower register`\n")
+		return nil
+	}
+	towers, err := towerjoin.FetchStatus(st)
+	if err != nil {
+		fmt.Fprintf(out, "could not ask RogerAI for this Tower's state: %v\n", err)
+		return nil
+	}
+	for _, tw := range towers {
+		// An account may hold several Towers. Only this data directory's is being asked
+		// about, and printing the others would invite acting on the wrong one.
+		//
+		// Matched on the ADMISSION id, not st.TowerID: those are two different identifiers.
+		// st.TowerID is the local identity minted by `init` before this Tower had ever heard
+		// of Roger Core, and Core's id is allocated at enrollment. Comparing them silently
+		// matched nothing and printed an empty report - which reads exactly like a Tower Core
+		// has never seen.
+		if adm.TowerID != "" && tw.TowerID != adm.TowerID {
+			continue
+		}
+		fmt.Fprint(out, "\nRoger Core says:\n")
+		fmt.Fprintf(out, "  state:         %s\n", tw.State)
+		fmt.Fprintf(out, "  may take work: %t\n", tw.MayTakeWork)
+		fmt.Fprintf(out, "  link live:     %t\n", tw.LinkLive)
+		if tw.InventoryRevision > 0 {
+			fmt.Fprintf(out, "  inventory:     revision %d\n", tw.InventoryRevision)
+		}
+		if len(tw.Routable) == 0 {
+			fmt.Fprint(out, "  routable:      none\n")
+		}
+		for _, s := range tw.Routable {
+			fmt.Fprintf(out, "  routable:      %s %s (%s, capacity %d)\n",
+				s.StationID, s.Model, s.Modality, s.Capacity)
+		}
+		if tw.State == "quarantine" {
+			// The most common state, and the most commonly misread. Nothing is broken.
+			fmt.Fprint(out, "\nQuarantine is the state a Tower is admitted INTO. It is not a fault:\n"+
+				"eligibility is a separate decision from admission, and Roger Core makes it.\n")
+		}
+		if !tw.CarriesTraffic && tw.Note != "" {
+			// Core saying routing is not shipped answers "everything looks right and nothing
+			// is happening", which is otherwise an unanswerable question.
+			fmt.Fprintf(out, "\nnote: %s\n", tw.Note)
+		}
 	}
 	return nil
 }

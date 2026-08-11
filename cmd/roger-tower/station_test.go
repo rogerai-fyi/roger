@@ -186,3 +186,107 @@ func TestARefusedInvitationSaysWhy(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "no such Tower on this account")
 }
+
+// `status` on a joined Tower reports what CORE believes, not what the Tower's own files
+// remember. The distinction is the whole value of it: the local record is what this Tower
+// was told at enrollment, and it goes stale the moment an administrator changes anything.
+func TestStatusReportsCoresViewOfAJoinedTower(t *testing.T) {
+	core := newCoreStub(t)
+	dir := joinedRegisteredTower(t)
+	core.reply["/tower/status"] = func(w http.ResponseWriter, _ int) bool {
+		_, _ = w.Write([]byte(`{"towers":[{
+			"tower_id":"tw-1","state":"active","may_take_work":true,"link_live":true,
+			"inventory_revision":3,"carries_traffic":false,
+			"note":"routing Tower-backed work is not shipped yet",
+			"routable":[{"station_id":"st-9","model":"m1","modality":"text","capacity":4}]
+		}]}`))
+		return true
+	}
+
+	out, err := runCLI(t, "status", "--dir", dir)
+	require.NoError(t, err)
+	require.Contains(t, out, "Roger Core says")
+	require.Contains(t, out, "state:         active")
+	require.Contains(t, out, "may take work: true")
+	require.Contains(t, out, "revision 3")
+	require.Contains(t, out, "st-9 m1")
+	// The answer to "everything looks right and nothing is happening".
+	require.Contains(t, out, "not shipped yet")
+}
+
+// Quarantine is named as expected rather than left to be read as a failure.
+func TestStatusSaysQuarantineIsNotAFault(t *testing.T) {
+	core := newCoreStub(t)
+	dir := joinedRegisteredTower(t)
+	core.reply["/tower/status"] = func(w http.ResponseWriter, _ int) bool {
+		_, _ = w.Write([]byte(`{"towers":[{"tower_id":"tw-1","state":"quarantine"}]}`))
+		return true
+	}
+	out, err := runCLI(t, "status", "--dir", dir)
+	require.NoError(t, err)
+	require.Contains(t, out, "not a fault")
+	require.Contains(t, out, "routable:      none")
+}
+
+// A Core that cannot be reached must not fail the command: the local half is still worth
+// having, and `status` erroring out because the network is down is the opposite of useful
+// at the moment somebody runs it.
+func TestStatusStillWorksWhenCoreCannotBeReached(t *testing.T) {
+	dir := joinedRegisteredTower(t)
+	t.Setenv("ROGER_BROKER", "http://127.0.0.1:1")
+
+	out, err := runCLI(t, "status", "--dir", dir)
+	require.NoError(t, err)
+	require.Contains(t, out, "mode: joined", "the local half still reports")
+	require.Contains(t, out, "could not ask RogerAI")
+}
+
+// And an unregistered joined Tower is told which command fixes it, rather than being shown
+// an empty report it has to interpret.
+func TestStatusTellsAnUnregisteredTowerToRegister(t *testing.T) {
+	newCoreStub(t)
+	dir := filepath.Join(t.TempDir(), "tw")
+	var b bytes.Buffer
+	require.NoError(t, run([]string{"init", "--dir", dir, "--mode", "joined"}, &b))
+
+	out, err := runCLI(t, "status", "--dir", dir)
+	require.NoError(t, err)
+	require.Contains(t, out, "not registered yet")
+	require.Contains(t, out, "roger-tower register")
+}
+
+// A standalone Tower asks Core nothing at all - it has no account and no Core to ask.
+func TestStatusOnAStandaloneTowerReachesNothing(t *testing.T) {
+	core := newCoreStub(t)
+	dir := filepath.Join(t.TempDir(), "tw")
+	var b bytes.Buffer
+	require.NoError(t, run([]string{"init", "--dir", dir, "--mode", "standalone"}, &b))
+
+	out, err := runCLI(t, "status", "--dir", dir)
+	require.NoError(t, err)
+	require.Contains(t, out, "local network:")
+	require.NotContains(t, out, "Roger Core says")
+	require.Zero(t, core.reached())
+}
+
+// Revoking is the operator's, signed by the account, and it says what to do next - the leaf
+// only leaves the inventory when the Tower next pushes without it.
+func TestRevokingAStationSaysWhatElseToDo(t *testing.T) {
+	core := newCoreStub(t)
+	dir := joinedRegisteredTower(t)
+	core.reply["/tower/station/revoke"] = func(w http.ResponseWriter, _ int) bool {
+		_, _ = w.Write([]byte(`{"ok":true,"revoked":true}`))
+		return true
+	}
+	out, err := runCLI(t, "station", "revoke", "--dir", dir, "--station-id", "st-9")
+	require.NoError(t, err)
+	require.Contains(t, out, "revoked station st-9")
+	require.Contains(t, out, "offers directory")
+
+	_, err = runCLI(t, "station", "revoke", "--dir", dir)
+	require.Error(t, err, "revoking needs a Station")
+	_, err = runCLI(t, "station", "revoke")
+	require.Error(t, err)
+	_, err = runCLI(t, "station", "revoke", "--wat")
+	require.Error(t, err)
+}

@@ -148,20 +148,90 @@ and promotion is a separate, deliberate decision.
 heartbeats, and drains on shutdown so Core drops its inventory at once rather than letting it
 age out over the freshness window.
 
-Two things it deliberately does not do, said here so nobody goes looking for them:
+It relays the offers its **Stations** signed, byte for byte. It cannot make one up: a Station
+signs with an assertion key the Tower does not hold and must never hold, because a relay that
+could sign would make "signed by the Station" mean "signed by whoever is relaying". A Tower
+with nothing in its offers directory pushes a valid inventory of zero leaves — "I am here and
+I have nothing."
 
-- **It carries no customer traffic.** Dispatch is not built.
-- **It relays no Station offers.** A Station signs its own offers with its assertion key,
-  which the Tower does not hold and must never hold — if a Tower could sign for a Station,
-  "signed by the Station" would mean nothing. No Station-side software exists to produce them
-  yet, so a joined Tower pushes a valid inventory of zero leaves: "I am here and I have
-  nothing."
+It carries **no customer traffic**. Dispatch is not built.
 
-A Tower also stays in quarantine until it is promoted. That is not a missing feature; a new
-Tower is never trusted on arrival.
+## Attaching a Station
+
+Three machines, three steps, and the key never moves.
+
+**On the Station** — `roger-station` is a separate binary for exactly this reason; running it
+on the Tower would put a Station's private keys on the relay.
+
+```
+roger-station init --dir /var/lib/roger-station
+# prints: station id, assertion key, session key
+```
+
+**On your workstation, signed in** (`roger-tower login`):
+
+```
+roger-tower station invite --dir DIR --assertion-key HEX --session-key HEX [--station-id ID]
+# prints an invitation id and a ONE-TIME secret, and the exact attach command
+```
+
+**On the Tower**, redeeming as the Tower:
+
+```
+roger-tower station attach --dir DIR --invitation ID --secret S \
+    --assertion-key HEX --session-key HEX --station-id ID
+```
+
+The two calls are signed by different keys deliberately. `invite` is your **account** —
+authorizing a machine to serve under it is an account decision, and the account is what a
+suspension acts on. `attach` is the **Tower** — Core takes the Station's origin from whoever
+signed, so a relay cannot attach a Station behind somebody else's.
+
+Then, back on the Station, publish an offer and copy it across:
+
+```
+roger-station offer --dir DIR --tower TOWER-ID --model NAME \
+    --price-in N --price-out N --earn-in N --earn-out N --capacity N \
+    --out offer.json
+# copy offer.json into the Tower's `offers` directory
+```
+
+`roger-tower status` reports what **Core** believes: state, whether the link is live, and
+which Stations are routable. That is the only trustworthy answer — the Tower's own files
+record what it was told at enrollment and go stale the moment anything changes.
+
+`roger-tower station revoke --dir DIR --station-id ID` retires a Station. It is signed by the
+account, not the Tower, so it still works when the Tower is the thing that has gone wrong.
+
+## Quarantine
+
+Both Towers and Stations are admitted **into quarantine**. That is not a missing feature and
+not a fault: admission (proving who you are) and eligibility (being trusted with customer
+traffic) are separate decisions on purpose.
+
+Opening either gate is an administrator's call, not an operator's — the party asking to be
+trusted cannot also be the one granting it:
+
+```
+POST /tower/lifecycle          {"tower_id":"...","state":"active"}      # admin
+POST /tower/station/promote    {"station_id":"..."}                     # admin
+POST /tower/lease/expire       {"tower_id":"..."}                       # admin
+```
+
+Each takes the admin credential. `/tower/lifecycle` applies the approved transition table, so
+a suspended Tower returns through quarantine rather than straight to active.
+
+Promotion is manual and deliberately the only path today. The approved design promotes on
+evidence Core gathered itself — session uptime it held, probes it dispatched, signatures it
+verified — and none of that is built; an automatic ladder that does not exist would be worse
+than a switch a human has to throw.
 
 ## What is not shipped yet
 
-`drain` and `revoke`. `serve` drains on exit, which covers the ordinary case — a separate
-drain command is for draining a Tower you are not standing in front of, and revoke needs the
-operator surface. Standalone Towers serve today and need none of this.
+- **Dispatch.** Nothing routes customer traffic to a Tower-backed Station, so a Station can be
+  attached, promoted and routable and still serve nothing. `/tower/status` says
+  `carries_traffic: false` for exactly this reason.
+- **`drain` and `revoke`** as Tower commands. `serve` drains on exit, which covers the
+  ordinary case; a separate drain is for a Tower you are not standing in front of.
+
+Standalone Towers serve today and need none of this.

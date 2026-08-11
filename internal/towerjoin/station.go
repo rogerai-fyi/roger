@@ -150,3 +150,62 @@ func AttachStation(st *tower.State, invite Invitation) (Attachment, error) {
 	}
 	return out, nil
 }
+
+// TowerStatus is what Core believes about one Tower.
+//
+// It is the only trustworthy answer to "what state am I in". A Tower's own admission file
+// records what it was TOLD at enrollment and goes stale the instant an administrator
+// promotes, suspends or revokes it - the state lives on Core, and asking is the only way to
+// know it.
+type TowerStatus struct {
+	TowerID           string `json:"tower_id"`
+	State             string `json:"state"`
+	MayTakeWork       bool   `json:"may_take_work"`
+	LinkLive          bool   `json:"link_live"`
+	LeaseExpires      int64  `json:"lease_expires"`
+	InventoryRevision int64  `json:"inventory_revision"`
+	// CarriesTraffic is Core saying whether Tower-backed routing is shipped. False is
+	// INFORMATION, not a fault: it is the difference between "my Station is broken" and
+	// "this part is not built yet", and an operator who cannot tell those apart will spend
+	// an afternoon on the wrong one.
+	CarriesTraffic bool   `json:"carries_traffic"`
+	Note           string `json:"note"`
+	Routable       []struct {
+		StationID string `json:"station_id"`
+		OfferID   string `json:"offer_id"`
+		Model     string `json:"model"`
+		Modality  string `json:"modality"`
+		Capacity  int64  `json:"capacity"`
+	} `json:"routable"`
+}
+
+// FetchStatus asks Core what it believes about this account's Towers.
+func FetchStatus(st *tower.State) ([]TowerStatus, error) {
+	var out struct {
+		Towers []TowerStatus `json:"towers"`
+	}
+	if err := signedGet(brokerBase()+"/tower/status", &out); err != nil {
+		return nil, err
+	}
+	return out.Towers, nil
+}
+
+// RevokeStation retires a Station identity, as the operator.
+//
+// Signed by the ACCOUNT rather than the Tower: retiring an identity is an account decision,
+// and an operator must be able to make it when the Tower itself is the thing that has gone
+// wrong - a revocation that required a healthy relay to perform would be unavailable in
+// exactly the situation it exists for.
+func RevokeStation(st *tower.State, stationID string) error {
+	if stationID == "" {
+		return errors.New("revoking needs the Station id")
+	}
+	if _, ok := LoadAdmission(st.Dir()); !ok {
+		return errors.New("this Tower is not registered yet - run `roger-tower register` first")
+	}
+	body, err := json.Marshal(map[string]string{"station_id": stationID})
+	if err != nil {
+		return err
+	}
+	return signedPost(brokerBase()+"/tower/station/revoke", nil, body, nil)
+}

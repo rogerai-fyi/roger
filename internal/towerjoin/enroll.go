@@ -267,3 +267,33 @@ func brokerBase() string {
 	}
 	return "https://broker.rogerai.fm"
 }
+
+// signedGet is signedPost's read-only twin. Kept separate rather than folded in behind a
+// method parameter because the signature covers the METHOD: signing a GET as though it were
+// a POST produces a valid-looking request the server refuses for reasons that have nothing
+// to do with what the operator asked.
+func signedGet(url string, out any) error {
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return err
+	}
+	if err := signAsOperator(req, nil); err != nil {
+		return err
+	}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("could not reach RogerAI: %w", err)
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode != http.StatusOK {
+		if msg, ok := envelopeMessage(raw); ok {
+			return errors.New(msg)
+		}
+		return fmt.Errorf("the broker replied %d", resp.StatusCode)
+	}
+	if out == nil {
+		return nil
+	}
+	return json.Unmarshal(raw, out)
+}

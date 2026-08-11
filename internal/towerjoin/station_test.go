@@ -33,6 +33,7 @@ type stationCore struct {
 	seen     []string
 	bodies   map[string]map[string]any
 	pubkeys  map[string]string
+	methods  map[string]string
 	replies  map[string]func(w http.ResponseWriter)
 	inviteID string
 }
@@ -41,11 +42,13 @@ func newStationCore(t *testing.T) *stationCore {
 	t.Helper()
 	c := &stationCore{
 		t: t, bodies: map[string]map[string]any{}, pubkeys: map[string]string{},
-		replies: map[string]func(http.ResponseWriter){}, inviteID: "sinv-1",
+		replies: map[string]func(http.ResponseWriter){}, methods: map[string]string{},
+		inviteID: "sinv-1",
 	}
 	c.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		c.seen = append(c.seen, r.URL.Path)
 		c.pubkeys[r.URL.Path] = r.Header.Get("X-Roger-Pubkey")
+		c.methods[r.URL.Path] = r.Method
 		require.NotEmpty(c.t, r.Header.Get("X-Roger-Sig"), "%s was unsigned", r.URL.Path)
 
 		var body map[string]any
@@ -302,4 +305,122 @@ func TestAnInviteWithoutAStationIDAdoptsCoresAllocation(t *testing.T) {
 	got, err := InviteStation(st, StationKeys{AssertionKey: "aa", SessionKey: "bb"})
 	require.NoError(t, err)
 	require.Equal(t, "st-1", got.Keys.StationID)
+}
+
+// --- what Core believes about this Tower ------------------------------------
+//
+// /tower/status had no client either, so an operator had no way to ask the only question
+// that matters after registering: what state am I in, and is anything of mine routable? The
+// answer lives entirely on Core - a Tower's own files record what it was told at enrollment
+// and go stale the moment an administrator promotes or suspends it.
+
+func TestStatusReportsWhatCoreBelieves(t *testing.T) {
+	core := newStationCore(t)
+	st := registeredTower(t)
+	core.replies["/tower/status"] = func(w http.ResponseWriter) {
+		_, _ = w.Write([]byte(`{"towers":[{
+			"tower_id":"tw-1","state":"active","may_take_work":true,"link_live":true,
+			"carries_traffic":false,"inventory_revision":7,
+			"note":"routing Tower-backed work is not shipped yet",
+			"routable":[{"station_id":"st-9","model":"m1","modality":"text","capacity":4}]
+		}]}`))
+	}
+
+	got, err := FetchStatus(st)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	require.Equal(t, "tw-1", got[0].TowerID)
+	require.Equal(t, "active", got[0].State)
+	require.True(t, got[0].MayTakeWork)
+	require.True(t, got[0].LinkLive)
+	require.Equal(t, int64(7), got[0].InventoryRevision)
+	require.Len(t, got[0].Routable, 1)
+	require.Equal(t, "st-9", got[0].Routable[0].StationID)
+
+	// Core saying it does not carry traffic yet is information, not an error, and it must
+	// survive to the operator - it is the difference between "my Station is broken" and
+	// "this part is not built".
+	require.False(t, got[0].CarriesTraffic)
+	require.Contains(t, got[0].Note, "not shipped")
+}
+
+// It is a GET. Sending it as a POST would be refused with a method error that tells the
+// operator nothing about their Tower.
+func TestStatusIsASignedGET(t *testing.T) {
+	core := newStationCore(t)
+	st := registeredTower(t)
+	core.replies["/tower/status"] = func(w http.ResponseWriter) {
+		_, _ = w.Write([]byte(`{"towers":[]}`))
+	}
+	_, err := FetchStatus(st)
+	require.NoError(t, err)
+	require.Equal(t, http.MethodGet, core.methods["/tower/status"])
+	require.NotEmpty(t, core.pubkeys["/tower/status"], "and it is signed as the operator")
+}
+
+func TestStatusReportsARefusalRatherThanAnEmptyFleet(t *testing.T) {
+	core := newStationCore(t)
+	st := registeredTower(t)
+	core.replies["/tower/status"] = func(w http.ResponseWriter) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":{"message":"sign in first"}}`))
+	}
+	// An empty list would read as "you have no Towers", which is a different and wrong
+	// answer to "we could not tell you".
+	_, err := FetchStatus(st)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "sign in first")
+}
+
+// Revoking a Station retires the identity. It is the operator's call, signed by the account,
+// and it had no client - so the only way to retire a compromised Station was a hand-rolled
+// HTTP request.
+func TestRevokingAStationIsSignedByTheAccount(t *testing.T) {
+	core := newStationCore(t)
+	st := registeredTower(t)
+	core.replies["/tower/station/revoke"] = func(w http.ResponseWriter) {
+		_, _ = w.Write([]byte(`{"ok":true,"revoked":true}`))
+	}
+	require.NoError(t, RevokeStation(st, "st-9"))
+	require.Equal(t, "st-9", core.bodies["/tower/station/revoke"]["station_id"])
+	require.NotEmpty(t, core.pubkeys["/tower/station/revoke"])
+}
+
+func TestRevokingNeedsAStation(t *testing.T) {
+	core := newStationCore(t)
+	st := registeredTower(t)
+	require.Error(t, RevokeStation(st, ""))
+	require.Empty(t, core.seen)
+}
+
+func TestRevokingReportsARefusal(t *testing.T) {
+	core := newStationCore(t)
+	st := registeredTower(t)
+	core.replies["/tower/station/revoke"] = func(w http.ResponseWriter) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"error":{"message":"no such Station on this account"}}`))
+	}
+	err := RevokeStation(st, "st-nobody")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "no such Station")
+}
+
+// Neither read nor revoke is worth attempting from a Tower that never registered, and an
+// unreachable Core is transport rather than an answer about the fleet.
+func TestStatusAndRevokeFailUsefullyWhenTheyCannotAsk(t *testing.T) {
+	st := registeredTower(t)
+	t.Setenv("ROGER_BROKER", "http://127.0.0.1:1")
+
+	_, err := FetchStatus(st)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "could not reach")
+
+	err = RevokeStation(st, "st-9")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "could not reach")
+
+	// And an unregistered Tower is told which command fixes it.
+	err = RevokeStation(joinedTower(t), "st-9")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "register")
 }
