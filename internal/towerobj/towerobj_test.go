@@ -407,3 +407,61 @@ func TestADuplicateNestedInsideAnArrayIsCaught(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, `{"a":"a","b":{"a":"a"},"xs":["a","a"]}`, string(out))
 }
+
+// --- canonical lists --------------------------------------------------------
+//
+// Several stable identities in the Tower specs derive from "strict JCS [tag, network, id,
+// revision]" - a JSON ARRAY. Canonical refuses anything that is not an object, deliberately,
+// so this is the same writer applied to the other shape.
+
+func TestACanonicalListIsOrderedAndEscapedLikeEverythingElse(t *testing.T) {
+	got, err := CanonicalList([]string{"AttemptEventV1-id-v1", "roger-public", "att-1", "1"})
+	require.NoError(t, err)
+	require.Equal(t, `["AttemptEventV1-id-v1","roger-public","att-1","1"]`, string(got))
+
+	// ORDER IS MEANING in a list, unlike an object's members. Reversing it must produce a
+	// different identity, or two different attempts could share one.
+	other, err := CanonicalList([]string{"roger-public", "AttemptEventV1-id-v1", "att-1", "1"})
+	require.NoError(t, err)
+	require.NotEqual(t, string(got), string(other))
+}
+
+// The escaping is the SAME escaping the object writer uses. A list that escaped differently
+// would derive identities another implementation could not reproduce - and the whole point of
+// a deterministic id is that both sides compute it.
+func TestListEscapingMatchesTheObjectWriter(t *testing.T) {
+	const tricky = `a"b\c<d>e&f` + "\n\t"
+	list, err := CanonicalList([]string{tricky})
+	require.NoError(t, err)
+
+	obj, err := Canonical([]byte(`{"k":` + string(list[1:len(list)-1]) + `}`))
+	require.NoError(t, err)
+	require.Equal(t, `{"k":`+string(list[1:len(list)-1])+`}`, string(obj),
+		"a string canonicalizes identically in a list and in an object")
+}
+
+func TestHashListIsStableAndDistinguishing(t *testing.T) {
+	a, err := HashList([]string{"tag", "net", "att-1", "1"})
+	require.NoError(t, err)
+	again, err := HashList([]string{"tag", "net", "att-1", "1"})
+	require.NoError(t, err)
+	require.Equal(t, a, again, "the same parts always derive the same identity")
+
+	// Every part participates: changing any one changes the identity.
+	for i := range []int{0, 1, 2, 3} {
+		parts := []string{"tag", "net", "att-1", "1"}
+		parts[i] += "x"
+		other, herr := HashList(parts)
+		require.NoError(t, herr)
+		require.NotEqual(t, a, other, "part %d did not affect the identity", i)
+	}
+}
+
+// A string that is not valid for a signed object is not valid in a list either - the same
+// rejections, because it is the same format.
+func TestACanonicalListRefusesWhatAnObjectWould(t *testing.T) {
+	_, err := CanonicalList([]string{string([]byte{0xff, 0xfe})})
+	require.Error(t, err)
+	_, err = HashList([]string{string([]byte{0xff, 0xfe})})
+	require.Error(t, err)
+}

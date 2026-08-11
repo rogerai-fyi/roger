@@ -31,6 +31,7 @@ import (
 	"rogerai.fm/roger/v5/internal/store"
 	"rogerai.fm/roger/v5/internal/towercore/admit"
 	"rogerai.fm/roger/v5/internal/towercore/attach"
+	"rogerai.fm/roger/v5/internal/towercore/attempt"
 	"rogerai.fm/roger/v5/internal/towercore/cert"
 	"rogerai.fm/roger/v5/internal/towercore/dispatch"
 	"rogerai.fm/roger/v5/internal/towercore/enroll"
@@ -830,4 +831,130 @@ func towerAttemptLifetimeForTest(t *testing.T, d time.Duration) func() {
 	was := towerAttemptLifetime
 	towerAttemptLifetime = d
 	return func() { towerAttemptLifetime = was }
+}
+
+// --- the attempt ledger, driven by real dispatch ----------------------------
+//
+// The ledger is the record money will be decided from, so what matters is not that it can
+// hold a chain but that the REAL dispatch path writes the right one. These drive actual
+// requests and then read the history back.
+
+// A served request leaves a complete, terminal history: issued, leased, evidence_complete,
+// settled - each binding the one before it.
+func TestAServedRequestLeavesASettledAttemptHistory(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	op := signedInOperator(t, b, "octocat")
+	lt, stn := dispatchable(t, b, srv, op)
+
+	model := &stubModel{body: []byte(`{"content":"hello"}`)}
+	exec := station.Executor{
+		Station: stn, CoreKey: b.tower.dispatchPub, Network: link.PublicNetwork, Upstream: model,
+	}
+	var attemptID string
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		work := pollForWork(t, srv, lt)
+		attemptID = work.AttemptID
+		resp := exec.Execute(context.Background(), station.ExecuteRequest{
+			Grant: work.Grant, Request: work.Request,
+		})
+		require.Empty(t, resp.Failure)
+		returnResult(t, srv, lt, work.AttemptID, resp)
+	}()
+
+	request := []byte(`{"model":"roger-1"}`)
+	rec := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(string(request)))
+	require.True(t, b.tryTowerDispatch(rec, r, "roger-1", request, false))
+	<-done
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	state, revision, ok, err := b.tower.attempts.State(attemptID)
+	require.NoError(t, err)
+	require.True(t, ok, "the attempt was recorded")
+	require.Equal(t, attempt.StateSettled, state)
+	require.Equal(t, int64(4), revision,
+		"issued, leased, evidence_complete, settled - four links, no shortcuts")
+	require.True(t, attempt.Terminal(state))
+}
+
+// A Station that fails leaves a FAILED attempt, and the hold is released rather than
+// captured. Nothing about a failed attempt may look settleable afterwards.
+func TestAFailedRequestLeavesAFailedAttempt(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	op := signedInOperator(t, b, "octocat")
+	lt, _ := dispatchable(t, b, srv, op)
+
+	var attemptID string
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		work := pollForWork(t, srv, lt)
+		attemptID = work.AttemptID
+		returnResult(t, srv, lt, work.AttemptID,
+			station.ExecuteResponse{Failure: "the model is not loaded"})
+	}()
+
+	rec := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader("{}"))
+	require.True(t, b.tryTowerDispatch(rec, r, "roger-1", []byte(`{"model":"roger-1"}`), false))
+	<-done
+
+	state, _, ok, err := b.tower.attempts.State(attemptID)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, attempt.StateFailed, state)
+
+	// And it cannot then be settled - a terminal attempt is not revivable by anyone.
+	_, err = b.tower.attempts.Commit(attemptID, attempt.Observation{
+		Kind: attempt.KindSettlementCommitted, EvidenceHash: "e", Reason: "sneaky",
+	})
+	require.ErrorIs(t, err, attempt.ErrTerminal)
+}
+
+// THE GRANT IS NOT TRANSMITTED BEFORE THE ATTEMPT COMMITS. "the lease or grant cannot be
+// transmitted before that commit" - an attempt nobody recorded is work whose outcome cannot
+// be established afterwards, so a ledger that refuses means nothing is dispatched.
+func TestNothingIsDispatchedIfTheAttemptCannotBeRecorded(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	op := signedInOperator(t, b, "octocat")
+	lt, _ := dispatchable(t, b, srv, op)
+	b.tower.attempts = attempt.New(attempt.Config{
+		Network: link.PublicNetwork, Signer: b.tower.attemptKey,
+	}, brokenAttemptChain{})
+
+	rec := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader("{}"))
+	require.False(t, b.tryTowerDispatch(rec, r, "roger-1", []byte(`{"model":"roger-1"}`), false),
+		"no attempt, no dispatch")
+
+	// And the Tower is offered nothing, so the Station never sees work Core did not record.
+	shortPolls(t)
+	code, raw := lt.call(t, srv, "/tower/dispatch", []byte(`{"tower_id":"`+lt.id+`"}`), nil)
+	require.Equal(t, http.StatusNoContent, code, raw)
+}
+
+// brokenAttemptChain refuses to record anything.
+type brokenAttemptChain struct{ attempt.Store }
+
+func (brokenAttemptChain) Append(attempt.Record, int64) error {
+	return errors.New("the attempt ledger is unreachable")
+}
+func (brokenAttemptChain) Head(string) (attempt.Record, bool, error) {
+	return attempt.Record{}, false, errors.New("the attempt ledger is unreachable")
+}
+
+// The attempt-state signer is a DIFFERENT key from the dispatch signer. A compromise of the
+// one that signs authorizations must not be able to forge the record money is decided from.
+func TestTheAttemptSignerIsNotTheGrantSigner(t *testing.T) {
+	b, _ := towerTestBroker(t)
+	attemptPub := b.tower.attemptKey.Public().(ed25519.PublicKey)
+	require.NotEqual(t, []byte(b.tower.dispatchPub), []byte(attemptPub),
+		"attempt state and dispatch authorization must not share a key")
+
+	// Both are still stable across restarts, which is what makes a chain verifiable later.
+	again, err := deriveAttemptKey(b.tower.ca)
+	require.NoError(t, err)
+	require.Equal(t, []byte(attemptPub), []byte(again.Public().(ed25519.PublicKey)))
 }

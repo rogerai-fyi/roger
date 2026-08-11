@@ -31,6 +31,7 @@ import (
 	"rogerai.fm/roger/v5/internal/store"
 	"rogerai.fm/roger/v5/internal/towercore/admit"
 	"rogerai.fm/roger/v5/internal/towercore/attach"
+	"rogerai.fm/roger/v5/internal/towercore/attempt"
 	"rogerai.fm/roger/v5/internal/towercore/cert"
 	"rogerai.fm/roger/v5/internal/towercore/dispatch"
 	"rogerai.fm/roger/v5/internal/towercore/enroll"
@@ -132,6 +133,12 @@ type towerSubsystem struct {
 	// routable is the fleet-wide view of servable Stations, so an instance that is NOT
 	// holding a Tower's link can still route to it.
 	routable fleet.Store
+	// attempts is THE record money is decided from: which attempt executed, exactly once,
+	// and what its one terminal outcome was.
+	attempts *attempt.Ledger
+	// attemptKey is the attempt-state signer, kept so the purpose separation that makes the
+	// ledger worth trusting can be asserted: it must not be the key that signs grants.
+	attemptKey ed25519.PrivateKey
 }
 
 // brokerOperatorPolicy answers whether an account may enroll a Tower. A joined Tower relays
@@ -161,6 +168,8 @@ type linkDeps struct {
 	// NOT holding a Tower's link can still route to it. Nil means in-process, which makes a
 	// Tower's capacity visible only through the one broker it happens to be connected to.
 	routable fleet.Store
+	// events is the durable attempt chain.
+	events attempt.Store
 	// attempts is the durable dispatch store. Nil means in-process, which is correct for one
 	// broker and wrong for two: the one-use claim would be enforced by each instance over its
 	// own half, and a Tower polling either would be handed the same work twice.
@@ -206,6 +215,10 @@ func newTowerSubsystem(b *broker, registryStore admit.Store, custody cert.Custod
 	if err != nil {
 		return nil, err
 	}
+	attemptKey, err := deriveAttemptKey(ca)
+	if err != nil {
+		return nil, err
+	}
 
 	pol := policy.New(stations, b.db, brokerOwners{b: b}, policy.Config{
 		ModelAllowed:    towerModelAllowed,
@@ -242,6 +255,17 @@ func newTowerSubsystem(b *broker, registryStore admit.Store, custody cert.Custod
 	if ts.routable == nil {
 		ts.routable = fleet.NewMemStore()
 	}
+	// The attempt-state signer is its own key, derived from the CA root the same way the
+	// grant signer is and with its own label. The spec calls for a purpose-separated
+	// attempt-state service; at minimum it is a separate key, so a compromise of the
+	// dispatch signer cannot forge attempt state - and attempt state is what money is
+	// decided from.
+	ts.attempts = attempt.New(attempt.Config{
+		Network:  link.PublicNetwork,
+		Signer:   attemptKey,
+		Sequence: b.nextAttemptSequence,
+	}, deps.events)
+	ts.attemptKey = attemptKey
 	ts.dispatchPub = grantKey.Public().(ed25519.PublicKey)
 	return ts, nil
 }
@@ -332,13 +356,19 @@ func loadTowerSubsystem(b *broker, db store.Store) (*towerSubsystem, error) {
 	if err != nil {
 		return fail(err)
 	}
+	// And the attempt chain, which is the strongest authority of the three: settlement,
+	// earnings and any dispute afterwards read this and nothing else.
+	eventStore, err := attempt.NewPGStore(sqlDB)
+	if err != nil {
+		return fail(err)
+	}
 
 	ts, err := newTowerSubsystem(b, registryStore, custody, enrollDurable, cert.Config{
 		TTL:         towerCertTTL(),
 		RootKeyPEM:  []byte(os.Getenv("ROGERAI_TOWER_CA_KEY_PEM")),
 		RootCertPEM: []byte(os.Getenv("ROGERAI_TOWER_CA_CERT_PEM")),
 	}, linkDeps{stations: stationStore, heads: headStore, attempts: attemptStore,
-		routable: routableStore})
+		routable: routableStore, events: eventStore})
 	if err != nil {
 		// A misconfigured root is a REFUSAL, not a reason to generate one: issuing under a
 		// root nobody chose is how every certificate on the network becomes unverifiable.

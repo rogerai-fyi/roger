@@ -68,6 +68,41 @@ func Canonical(raw []byte) ([]byte, error) {
 	return []byte(b.String()), nil
 }
 
+// CanonicalList canonicalizes an ORDERED LIST of strings.
+//
+// The spec derives several stable identities from "strict JCS [tag, network, id, revision]" -
+// a JSON ARRAY, not an object - and Canonical above deliberately refuses anything that is not
+// an object, because a signed object is always one. This is the same canonical writer applied
+// to the other shape, so there stays exactly ONE implementation of what canonical means.
+//
+// Two implementations of that would be two implementations of every identity derived from it,
+// and a disagreement about an identity is a disagreement about which attempt is which.
+func CanonicalList(items []string) ([]byte, error) {
+	vals := make([]any, 0, len(items))
+	for _, it := range items {
+		if err := checkString(it); err != nil {
+			return nil, err
+		}
+		vals = append(vals, it)
+	}
+	var b strings.Builder
+	if err := writeValue(&b, vals); err != nil {
+		return nil, err
+	}
+	return []byte(b.String()), nil
+}
+
+// HashList is the digest of a canonical list, which is how a deterministic identity is
+// derived from its parts.
+func HashList(items []string) (string, error) {
+	c, err := CanonicalList(items)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(c)
+	return b64.EncodeToString(sum[:]), nil
+}
+
 // parseStrict decodes with every ambiguity refused.
 func parseStrict(raw []byte) (any, error) {
 	if len(raw) == 0 {

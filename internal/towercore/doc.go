@@ -44,6 +44,10 @@
 //	         replay or a fork rather than guessing.
 //	policy   the seam through which inv asks Core the questions it may not answer alone -
 //	         bans, owners, revoked keys, allowed models, price bands. Fails closed.
+//	attempt  the single authoritative state of one public attempt and its signed, chained
+//	         history. Two objects: the Core-private AttemptEventV1 carrying the hold and the
+//	         funding reservation, and the disclosure-safe AttemptIssueCommitmentV1 that is
+//	         the only one a Tower or Station ever sees. Money is decided from this.
 //	fleet    the fleet-wide view of which Stations are routable, so a broker that is not
 //	         holding a Tower's link can still route to it. A read model over inv, never
 //	         authority: every dispatch re-checks the attachment before issuing anything.

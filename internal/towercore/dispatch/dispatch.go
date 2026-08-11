@@ -230,8 +230,28 @@ func NewWithStore(cfg Config, store Store) *Registry {
 	return &Registry{cfg: cfg, store: store}
 }
 
-// Issue mints a grant for one request on one Station.
+// Issue mints a grant and makes it collectable in one step.
+//
+// Callers that must do something BETWEEN those two - recording the attempt, which has to
+// commit before a grant may be transmitted - use Mint and Publish instead.
 func (r *Registry) Issue(t Target, request []byte) (Grant, error) {
+	g, err := r.Mint(t, request)
+	if err != nil {
+		return Grant{}, err
+	}
+	if err := r.Publish(g, t, request); err != nil {
+		return Grant{}, err
+	}
+	return g, nil
+}
+
+// Mint builds and signs a grant WITHOUT making it collectable.
+//
+// Nothing can be claimed against a minted grant, which is the point: the attempt has to be
+// recorded first. "the lease or grant cannot be transmitted before that commit" - and a
+// grant sitting in a queue is transmitted the moment a Tower polls, whatever the caller
+// intended to do next.
+func (r *Registry) Mint(t Target, request []byte) (Grant, error) {
 	switch {
 	case t.TowerID == "" || t.StationID == "":
 		return Grant{}, errors.New("a grant names exactly one Tower and one Station")
@@ -281,16 +301,17 @@ func (r *Registry) Issue(t Target, request []byte) (Grant, error) {
 		return Grant{}, err
 	}
 	g.Signed = signed
+	return g, nil
+}
 
-	if err := r.store.Put(Record{
+// Publish makes a minted grant collectable.
+func (r *Registry) Publish(g Grant, t Target, request []byte) error {
+	return r.store.Put(Record{
 		AttemptID: g.AttemptID, JobID: g.JobID, TowerID: g.TowerID, StationID: g.StationID,
 		StationEpoch: g.StationEpoch, Model: g.Model, Modality: g.Modality,
 		RequestDigest: g.RequestDigest, Nonce: g.Nonce, Deadline: g.Deadline,
-		Grant: signed, Request: request, AssertionKey: t.AssertionKey, State: StateIssued,
-	}); err != nil {
-		return Grant{}, err
-	}
-	return g, nil
+		Grant: g.Signed, Request: request, AssertionKey: t.AssertionKey, State: StateIssued,
+	})
 }
 
 // Claim takes an issued attempt, exactly once.

@@ -59,10 +59,12 @@ import (
 
 	"golang.org/x/crypto/hkdf"
 
+	"rogerai.fm/roger/v5/internal/towercore/attempt"
 	"rogerai.fm/roger/v5/internal/towercore/cert"
 	"rogerai.fm/roger/v5/internal/towercore/dispatch"
 	"rogerai.fm/roger/v5/internal/towercore/fleet"
 	"rogerai.fm/roger/v5/internal/towercore/link"
+	"rogerai.fm/roger/v5/internal/towerobj"
 )
 
 // dispatchPollWait is how long a Tower's poll waits before answering "nothing yet". Short
@@ -97,6 +99,11 @@ const dispatchKeyLabel = "rogerai tower dispatch grant signer v1"
 // the other means. HKDF with a fixed label gives a stable key across restarts - which
 // matters, because a Station pins this public key - while keeping the two uses separate.
 func deriveDispatchKey(ca *cert.Authority) (ed25519.PrivateKey, error) {
+	return deriveKeyFrom(ca, dispatchKeyLabel)
+}
+
+// deriveKeyFrom is the one derivation, used with a different label per purpose.
+func deriveKeyFrom(ca *cert.Authority, label string) (ed25519.PrivateKey, error) {
 	// The CA root is ECDSA P-256 (that is what certificates are signed with), and grants are
 	// Ed25519 like every other object in this protocol. So the ROOT'S SECRET SCALAR is the
 	// HKDF input and the output is an Ed25519 seed - the two key types never meet, which is
@@ -113,7 +120,7 @@ func deriveDispatchKey(ca *cert.Authority) (ed25519.PrivateKey, error) {
 	root.D.FillBytes(scalar)
 
 	seed := make([]byte, ed25519.SeedSize)
-	if _, err := io.ReadFull(hkdf.New(sha256.New, scalar, nil, []byte(dispatchKeyLabel)), seed); err != nil {
+	if _, err := io.ReadFull(hkdf.New(sha256.New, scalar, nil, []byte(label)), seed); err != nil {
 		return nil, err
 	}
 	return ed25519.NewKeyFromSeed(seed), nil
@@ -239,8 +246,21 @@ func (b *broker) tryTowerDispatch(w http.ResponseWriter, r *http.Request, model 
 	if !ok {
 		return false
 	}
-	grant, err := ts.dispatch.Issue(target, body)
+	// MINTED, NOT YET COLLECTABLE. The order below is the spec's: "the lease or grant cannot
+	// be transmitted before that commit". A grant sitting in the queue IS transmitted the
+	// moment a Tower polls, so it is published only after the attempt is recorded - and if
+	// the ledger refuses, nothing was ever collectable and no work happens.
+	grant, err := ts.dispatch.Mint(target, body)
 	if err != nil {
+		return false
+	}
+	if err := b.openAttempt(grant, target); err != nil {
+		log.Printf("tower dispatch: could not record attempt %s, so nothing was dispatched: %v",
+			grant.AttemptID, err)
+		return false
+	}
+	if err := ts.dispatch.Publish(grant, target, body); err != nil {
+		log.Printf("tower dispatch: could not queue attempt %s: %v", grant.AttemptID, err)
 		return false
 	}
 
@@ -285,10 +305,71 @@ func (b *broker) tryTowerDispatch(w http.ResponseWriter, r *http.Request, model 
 		_, _ = w.Write(raw)
 		return true
 	case <-time.After(towerAttemptLifetime):
+		// The signed deadline sweep wins: terminal, hold released exactly once.
+		b.noteAttempt(grant.AttemptID, attempt.Observation{
+			Kind: attempt.KindDeadlineSwept, EvidenceHash: grant.AttemptID,
+			Reason:    "the Station did not answer before the deadline",
+			ReleaseID: "release-" + grant.AttemptID,
+		})
 		jsonErr(w, http.StatusGatewayTimeout, "the Station did not answer in time")
 		return true
 	case <-r.Context().Done():
 		return true
+	}
+}
+
+// openAttempt records revision 1 of the attempt behind a grant.
+//
+// UNCOMPENSATED, and it says so in the members a real hold uses rather than by leaving them
+// out: the amount reserved really is zero. When the funding-source ledger exists the
+// reservation hashes get filled in here and nothing else about this changes.
+func (b *broker) openAttempt(g dispatch.Grant, target dispatch.Target) error {
+	ts := b.tower
+	if ts == nil || ts.attempts == nil {
+		return nil
+	}
+	origin := attempt.OriginJoined
+	grantHash, err := towerobj.Hash(g.Signed)
+	if err != nil {
+		return err
+	}
+	_, _, err = ts.attempts.Issue(attempt.IssueSpec{
+		Network: link.PublicNetwork, JobID: g.JobID, RequestID: g.JobID,
+		AttemptID: g.AttemptID, Origin: origin,
+		GrantHash: grantHash,
+		// A joined attempt is dispatched under a lease. The dispatch lease object is not
+		// built yet, so the grant stands in for it - and it is named rather than omitted,
+		// because omitting it would make a joined attempt look like a direct one, which is a
+		// different origin with a different authorization shape.
+		LeaseHash:       grantHash,
+		Hold:            attempt.NoHold(g.AttemptID),
+		StationRevision: target.StationEpoch,
+		Deadline:        g.Deadline,
+		// Nothing settles after the deadline, so the finalization ceiling is strictly after
+		// it - the spec's rule, and the reason a slow settlement fails on its own clock
+		// rather than looking like an expired attempt.
+		FinalizationCeiling: g.Deadline.Add(towerFinalizationGrace),
+	})
+	return err
+}
+
+// towerFinalizationGrace is how long after the execution deadline settlement may still
+// commit. Strictly after the deadline, per the spec: evidence that arrived in time must not
+// fail because our own settlement was slow.
+const towerFinalizationGrace = 2 * time.Minute
+
+// noteAttempt records an observation against an attempt, best effort.
+//
+// The state change is the ledger's business and a failure to record it must not change what
+// the caller is told about their request - the attempt's own deadline sweep is what
+// eventually closes a chain that missed an event.
+func (b *broker) noteAttempt(attemptID string, obs attempt.Observation) {
+	ts := b.tower
+	if ts == nil || ts.attempts == nil {
+		return
+	}
+	if _, err := ts.attempts.Commit(attemptID, obs); err != nil {
+		log.Printf("attempt %s: could not record %s: %v", attemptID, obs.Kind, err)
 	}
 }
 
@@ -451,6 +532,10 @@ func (b *broker) towerDispatchPoll(wr http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if got {
+			// The lease was accepted for dispatch: issued -> leased.
+			b.noteAttempt(grant.AttemptID, attempt.Observation{
+				Kind: attempt.KindDispatchAccepted, EvidenceHash: grant.AttemptID,
+			})
 			writeJSON(wr, http.StatusOK, towerWork{
 				AttemptID: grant.AttemptID, Grant: grant.Signed, Request: request,
 			})
@@ -505,6 +590,12 @@ func (b *broker) towerDispatchResult(wr http.ResponseWriter, r *http.Request) {
 	// is NOT a way to settle: nothing is accepted as a result, the caller is told the
 	// Station failed, and the attempt is closed so it cannot also be answered.
 	if req.Failure != "" {
+		// Terminal, and the hold is released exactly once. Recorded before the caller is
+		// told, so the attempt's own history says what happened rather than a log line.
+		b.noteAttempt(req.AttemptID, attempt.Observation{
+			Kind: attempt.KindExecutionFailed, EvidenceHash: req.AttemptID,
+			Reason: req.Failure, ReleaseID: "release-" + req.AttemptID,
+		})
 		ts.queue.deliver(req.AttemptID, towerResult{err: errors.New(req.Failure)})
 		writeJSON(wr, http.StatusOK, map[string]any{"ok": true, "recorded": "failure"})
 		return
@@ -523,6 +614,18 @@ func (b *broker) towerDispatchResult(wr http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	// The receipt verified, so the evidence is complete - and with nothing to charge, the
+	// settlement that follows captures zero. Both events are recorded rather than one
+	// combined step, because the spec's table has them as two and a settled attempt that
+	// never passed through evidence_complete would be a state nobody could audit.
+	b.noteAttempt(req.AttemptID, attempt.Observation{
+		Kind: attempt.KindEvidenceObserved, EvidenceHash: req.Receipt.ResponseDigest,
+	})
+	b.noteAttempt(req.AttemptID, attempt.Observation{
+		Kind: attempt.KindSettlementCommitted, EvidenceHash: req.Receipt.ResponseDigest,
+		Reason: "settled uncompensated",
+	})
+
 	if ts.queue.deliver(req.AttemptID, towerResult{body: req.Body}) {
 		writeJSON(wr, http.StatusOK, map[string]any{"ok": true, "delivered": true})
 		return
@@ -615,3 +718,22 @@ func (b *broker) forgetRoutable(towerID string) {
 		log.Printf("tower %s: could not withdraw the routable fleet: %v", towerID, err)
 	}
 }
+
+// attemptKeyLabel domain-separates the attempt-state signer from every other use of the CA
+// root, including the grant signer.
+//
+// The spec asks for a purpose-separated attempt-state SERVICE. This is not that yet, but it
+// is its own key with its own label - so a compromise of the dispatch signer cannot forge
+// attempt state, which is the record money is decided from and the one an operator would
+// most want to rewrite.
+const attemptKeyLabel = "rogerai tower attempt state signer v1"
+
+func deriveAttemptKey(ca *cert.Authority) (ed25519.PrivateKey, error) {
+	return deriveKeyFrom(ca, attemptKeyLabel)
+}
+
+// nextAttemptSequence assigns the independently-assigned Core ordering.
+//
+// Monotonic and concurrency-safe, which Config.Sequence requires: two attempts handed the
+// same position are two attempts nothing downstream can put in order.
+func (b *broker) nextAttemptSequence() int64 { return b.attemptSeq.Add(1) }

@@ -137,6 +137,10 @@ type broker struct {
 	// totalReqs is a broker-wide relay counter for the UCB exploration radius
 	// (ln(1+totalReqs)). Atomic so the hot relay path bumps it without metricsMu.
 	totalReqs atomic.Int64
+	// attemptSeq is the independently-assigned ordering for the attempt ledger. Atomic
+	// because the ledger calls it from whichever goroutine is committing, and two attempts
+	// handed one position are two attempts nothing downstream can put in order.
+	attemptSeq atomic.Int64
 	// startTime is the process boot instant, set once in main, read by the admin HEALTH
 	// tile for uptime. Read-only after startup (no lock needed).
 	startTime time.Time
