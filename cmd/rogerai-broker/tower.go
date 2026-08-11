@@ -558,12 +558,17 @@ func (b *broker) towerStatus(w http.ResponseWriter, r *http.Request) {
 			entry["inventory_revision"] = rev
 			entry["inventory_hash"] = hash
 		}
-		// Said plainly rather than left to be inferred from an empty list: a Tower can be
-		// admitted, connected and pushing a perfectly good inventory and still carry no
-		// traffic, because dispatch is not built. An operator seeing zero routable Stations
-		// deserves to know which of those it is.
-		entry["carries_traffic"] = false
-		entry["note"] = "Stations shown here are admitted and eligible; routing Tower-backed work is not shipped yet"
+		// DISPATCH SHIPS NOW, so this no longer says it does not - a status line claiming a
+		// working feature is missing sends an operator to debug something that is fine.
+		//
+		// What it says instead is the two things that are still true and are still the most
+		// likely reasons an eligible Station sees no traffic: Tower-backed work is only
+		// reached when no direct node can serve the model, and it is uncompensated.
+		entry["carries_traffic"] = true
+		entry["compensated"] = false
+		entry["note"] = "Stations shown here are admitted, eligible and routable. " +
+			"Tower-backed work is used when no direct node offers the model, and is " +
+			"currently UNCOMPENSATED: nothing is charged for it and nothing is earned."
 		out = append(out, entry)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"towers": out})

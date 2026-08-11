@@ -1395,12 +1395,13 @@ func TestTowerStatusShowsWhatCoreActuallyBelieves(t *testing.T) {
 
 	var status struct {
 		Towers []struct {
-			TowerID  string `json:"tower_id"`
-			LinkLive bool   `json:"link_live"`
-			Revision int64  `json:"inventory_revision"`
-			Carries  bool   `json:"carries_traffic"`
-			Note     string `json:"note"`
-			Routable []struct {
+			TowerID     string `json:"tower_id"`
+			LinkLive    bool   `json:"link_live"`
+			Revision    int64  `json:"inventory_revision"`
+			Carries     bool   `json:"carries_traffic"`
+			Compensated bool   `json:"compensated"`
+			Note        string `json:"note"`
+			Routable    []struct {
 				StationID string `json:"station_id"`
 				Model     string `json:"model"`
 			} `json:"routable"`
@@ -1417,9 +1418,14 @@ func TestTowerStatusShowsWhatCoreActuallyBelieves(t *testing.T) {
 	require.Equal(t, "st-live", got.Routable[0].StationID)
 	require.Equal(t, "roger-1", got.Routable[0].Model)
 
-	// Said plainly rather than inferred from an empty list.
-	require.False(t, got.Carries, "nothing dispatches off these leaves yet")
-	require.Contains(t, got.Note, "not shipped yet")
+	// DISPATCH SHIPS, and the status says so. This assertion used to be the opposite, and is
+	// inverted rather than deleted because the inversion is the change: a status line that
+	// still claimed the feature was missing would send an operator to debug something fine.
+	require.True(t, got.Carries, "Tower-backed work is dispatched now")
+	require.False(t, got.Compensated, "and is still uncompensated, which must stay explicit")
+	require.Contains(t, got.Note, "UNCOMPENSATED")
+	require.Contains(t, got.Note, "no direct node",
+		"the most likely reason an eligible Station still sees nothing")
 }
 
 // A quarantined Station is attached and verified but NOT routable, and the operator can see

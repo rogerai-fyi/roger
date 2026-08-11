@@ -154,7 +154,37 @@ could sign would make "signed by the Station" mean "signed by whoever is relayin
 with nothing in its offers directory pushes a valid inventory of zero leaves — "I am here and
 I have nothing."
 
-It carries **no customer traffic**. Dispatch is not built.
+### Serving work
+
+Given `--station ID=URL`, `serve` also collects work for its Stations:
+
+```
+roger-tower serve --dir DIR --station st-abc123=http://127.0.0.1:8730/execute
+```
+
+and on the Station:
+
+```
+roger-station serve --dir DIR --upstream http://127.0.0.1:11434/v1/chat/completions \
+    --core-key $(curl -s https://BROKER/tower/dispatch/key | jq -r .dispatch_key)
+```
+
+The Station verifies that Roger Core signed the grant, that it names **this** Station, and
+that the request is the one the grant commits to — then executes and signs for exactly what
+it returns. The Tower is a courier: it cannot alter the request (the grant commits to a
+digest, and the Station checks) and cannot alter the answer (the receipt commits to a digest,
+and Core checks).
+
+Two things worth knowing before you wonder why a healthy Station is idle:
+
+- **Tower-backed work is a fallback.** It is routed only when no directly-registered node
+  offers the model.
+- **It is uncompensated.** Nothing is charged for it and nothing is earned. Responses carry
+  `X-RogerAI-Cost: 0`. Paid Tower work waits on the compensation ledger.
+
+The `--core-key` is pinned out of band on purpose. A Station only ever talks to its Tower —
+which is exactly the party a forged grant would come from — so fetching the key over that
+channel would prove nothing.
 
 ## Attaching a Station
 
@@ -228,9 +258,12 @@ than a switch a human has to throw.
 
 ## What is not shipped yet
 
-- **Dispatch.** Nothing routes customer traffic to a Tower-backed Station, so a Station can be
-  attached, promoted and routable and still serve nothing. `/tower/status` says
-  `carries_traffic: false` for exactly this reason.
+- **Compensation.** Tower-backed work earns nothing yet; the funding-reservation and
+  attempt-ledger machinery the signed grant contract binds to does not exist.
+- **Streaming** through a Tower. A streamed answer needs the inner Station session, so a
+  `stream: true` request is never routed to a Tower.
+- **Multi-instance dispatch.** The pending-work queue is in-process, so a Tower must poll the
+  broker instance that issued its work.
 - **`drain` and `revoke`** as Tower commands. `serve` drains on exit, which covers the
   ordinary case; a separate drain is for a Tower you are not standing in front of.
 

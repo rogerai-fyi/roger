@@ -8,10 +8,11 @@
 //	            stays the admission, routing, settlement and revocation authority.
 //
 // Phase 1 of docs/tower-network-plan.md shipped standalone first; the joined protocol is
-// Phase 2, and its relay link now holds - `serve` opens a session, pushes a signed
-// inventory, heartbeats and drains. It carries no customer traffic yet, because dispatch is
-// not built. The commands that still need something unbuilt say so plainly rather than
-// pretending, and name the one that covers the ordinary case.
+// Phase 2. `serve` holds the relay link - session, signed inventory, heartbeat, clean drain -
+// and, given `--station ID=URL`, collects work for its Stations and carries the answers back.
+// That work is UNCOMPENSATED and is only routed here when no direct node offers the model.
+// The commands that still need something unbuilt say so plainly rather than pretending, and
+// name the one that covers the ordinary case.
 package main
 
 import (
@@ -45,7 +46,7 @@ usage:
   roger-tower login  --dir DIR        (joined mode only)
   roger-tower logout --dir DIR
   roger-tower register --dir DIR      (joined mode only; requires login)
-  roger-tower serve  --dir DIR        (joined mode only; holds the relay link)
+  roger-tower serve  --dir DIR [--station ID=URL ...]  (holds the link; serves work)
   roger-tower station invite|attach|revoke   (joined mode; Stations on the public network)
   roger-tower version
 
