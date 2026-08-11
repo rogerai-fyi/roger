@@ -153,6 +153,10 @@ func (p brokerOperatorPolicy) MayEnroll(owner string) error {
 type linkDeps struct {
 	stations attach.Store
 	heads    head.Store
+	// attempts is the durable dispatch store. Nil means in-process, which is correct for one
+	// broker and wrong for two: the one-use claim would be enforced by each instance over its
+	// own half, and a Tower polling either would be handed the same work twice.
+	attempts dispatch.Store
 }
 
 func newTowerSubsystem(b *broker, registryStore admit.Store, custody cert.Custody, enrollStore enroll.Store, cfg cert.Config, deps linkDeps) (*towerSubsystem, error) {
@@ -220,11 +224,11 @@ func newTowerSubsystem(b *broker, registryStore admit.Store, custody cert.Custod
 
 	ts.stations, ts.policy, ts.heads, ts.link, ts.inv = stations, pol, heads, sessions, inventory
 	ts.stationStore = deps.stations
-	ts.dispatch = dispatch.New(dispatch.Config{
+	ts.dispatch = dispatch.NewWithStore(dispatch.Config{
 		Network:  link.PublicNetwork,
 		Signer:   grantKey,
 		Lifetime: towerAttemptLifetime,
-	})
+	}, deps.attempts)
 	ts.queue = newDispatchQueue()
 	ts.dispatchPub = grantKey.Public().(ed25519.PublicKey)
 	return ts, nil
@@ -303,12 +307,19 @@ func loadTowerSubsystem(b *broker, db store.Store) (*towerSubsystem, error) {
 	if err != nil {
 		return fail(err)
 	}
+	// The attempt store is authority too: "at most one attempt executes" and "at most one
+	// result settles" are only true if every instance agrees, and they cannot agree from
+	// separate maps in separate processes.
+	attemptStore, err := dispatch.NewPGStore(sqlDB)
+	if err != nil {
+		return fail(err)
+	}
 
 	ts, err := newTowerSubsystem(b, registryStore, custody, enrollDurable, cert.Config{
 		TTL:         towerCertTTL(),
 		RootKeyPEM:  []byte(os.Getenv("ROGERAI_TOWER_CA_KEY_PEM")),
 		RootCertPEM: []byte(os.Getenv("ROGERAI_TOWER_CA_CERT_PEM")),
-	}, linkDeps{stations: stationStore, heads: headStore})
+	}, linkDeps{stations: stationStore, heads: headStore, attempts: attemptStore})
 	if err != nil {
 		// A misconfigured root is a REFUSAL, not a reason to generate one: issuing under a
 		// root nobody chose is how every certificate on the network becomes unverifiable.

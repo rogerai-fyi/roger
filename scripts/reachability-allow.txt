@@ -196,3 +196,10 @@ internal/tui.worldBuffer
 internal/tui.worldPingX
 internal/update.setLatestReleaseURL
 internal/webui.Server.Token
+
+# --- Tower: convenience constructor over the in-process attempt store -------
+# dispatch.New(cfg) is NewWithStore(cfg, nil). The broker always passes the durable store,
+# because "at most one attempt executes" and "at most one result settles" cannot be enforced
+# from separate maps in separate processes. The in-process one is correct for a single broker
+# and is what the tests exercise.
+internal/towercore/dispatch.New

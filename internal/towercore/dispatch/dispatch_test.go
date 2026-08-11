@@ -501,8 +501,12 @@ func TestAStationRefusesAGrantItCannotTrust(t *testing.T) {
 	})
 
 	t.Run("for another network", func(t *testing.T) {
+		// Refused by the SIGNATURE rather than by a field comparison: towerobj binds the
+		// network into the signed bytes, so a grant for another network cannot verify here
+		// at all.
 		_, err := ParseGrant(g.Signed, corePub, "some-other-network", "st-1", request, now)
 		require.Error(t, err)
+		require.Contains(t, err.Error(), "not signed by Roger Core")
 	})
 
 	t.Run("past its deadline", func(t *testing.T) {

@@ -26,11 +26,21 @@ package main
 // channel and a Tower is an untrusted relay. This queue is its own thing, and a Tower can
 // only ever see work addressed to its own Tower ID.
 //
-// # SINGLE INSTANCE
+// # IT WORKS ACROSS BROKERS
 //
-// The queue is in-process, so a Tower must poll the instance that issued its work. Stated as
-// a limit rather than left to be discovered: multi-instance needs this behind the shared
-// store, exactly as node dispatch already is.
+// Production runs more than one. Two things follow, and both used to be wrong:
+//
+//   - THE ATTEMPT STORE IS THE QUEUE. A Tower reaches whichever instance the load balancer
+//     chose, which is very often not the one that created its work, so pending work lives in
+//     the durable store and a poll is a conditional UPDATE that claims one row. Single
+//     delivery is not something this file arranges - it falls out of the compare-and-swap.
+//   - THE RESULT CROSSES BACK over the broker's own pub/sub, because the caller is waiting
+//     on the instance that issued and the answer arrives at whichever one the Tower reached.
+//
+// That pub/sub is Core-internal and the Tower never touches it - a Tower speaks HTTP and
+// nothing else, which is what the plan means by dispatching without sharing the trusted
+// replica bus. The channel namespace is distinct from node dispatch so the two cannot meet
+// even by accident.
 
 import (
 	"context"
@@ -63,9 +73,17 @@ import (
 // assertion, and a slow test is a test people stop running.
 var dispatchPollWait = 25 * time.Second
 
+// dispatchPollTick is how often a waiting poll re-asks the store. It is the worst-case delay
+// on work created by ANOTHER instance; work created here wakes the poll immediately, so this
+// is a ceiling on the cross-instance case rather than a latency everything pays.
+const dispatchPollTick = 250 * time.Millisecond
+
 // towerAttemptLifetime bounds one attempt. It is what stops a Station holding work whose
 // caller gave up long ago, and it is deliberately shorter than the relay's own patience.
-const towerAttemptLifetime = 60 * time.Second
+//
+// A var only so a test can shorten it; production never assigns it. Asserting the timeout
+// with the real value would mean a test that takes a minute to prove one branch.
+var towerAttemptLifetime = 60 * time.Second
 
 // dispatchKeyLabel domain-separates Core's grant key from every other use of the CA root.
 const dispatchKeyLabel = "rogerai tower dispatch grant signer v1"
@@ -120,80 +138,62 @@ type towerResult struct {
 	err  error
 }
 
-// dispatchQueue holds pending work per Tower and pending answers per attempt.
+// dispatchQueue is what remains in process: who is WAITING for an answer, and a nudge so a
+// poller on this instance does not sit out its tick when work was created right here.
+//
+// The pending work itself is in the durable store - see the package comment. What cannot go
+// there is a Go channel belonging to an in-flight HTTP handler, which is precisely what is
+// left here.
 type dispatchQueue struct {
-	mu      sync.Mutex
-	pending map[string][]towerWork
-	// wake is closed to nudge a waiting poller. A channel per Tower rather than a shared
-	// condition variable, so one busy Tower never wakes every other poller in the process.
+	mu sync.Mutex
+	// wake is closed to nudge this instance's poller for a Tower. A channel per Tower rather
+	// than one shared signal, so a busy Tower never wakes every other poller in the process.
 	wake    map[string]chan struct{}
 	results map[string]chan towerResult
 }
 
 func newDispatchQueue() *dispatchQueue {
 	return &dispatchQueue{
-		pending: map[string][]towerWork{},
 		wake:    map[string]chan struct{}{},
 		results: map[string]chan towerResult{},
 	}
 }
 
-// offer queues work for a Tower and returns the channel its answer will arrive on.
+// await registers this caller as the one waiting for an attempt's answer.
 //
-// The result channel is registered BEFORE the work is visible to a poller. A Tower that is
-// fast enough to answer between the two would otherwise deliver into nothing, and the caller
-// would wait out the whole deadline for a result that already came back.
-func (q *dispatchQueue) offer(w towerWork) <-chan towerResult {
+// Registered BEFORE the work becomes visible to any poller. A Station fast enough to answer
+// in between would otherwise deliver into nothing, and the caller would wait out the whole
+// deadline for a result that already came back.
+func (q *dispatchQueue) await(attemptID string) <-chan towerResult {
 	res := make(chan towerResult, 1)
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	q.results[w.AttemptID] = res
-	q.pending[w.towerID] = append(q.pending[w.towerID], w)
-	if ch, ok := q.wake[w.towerID]; ok {
-		close(ch)
-		delete(q.wake, w.towerID)
-	}
+	q.results[attemptID] = res
 	return res
 }
 
-// take removes the next piece of work for a Tower, if any.
-func (q *dispatchQueue) take(towerID string) (towerWork, bool) {
+// nudge wakes this instance's poller for a Tower, so work created HERE is picked up at once
+// rather than on the next tick. Purely an accelerator: the tick would find it anyway, which
+// is what makes the cross-instance case correct without any signalling at all.
+func (q *dispatchQueue) nudge(towerID string) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	queued := q.pending[towerID]
-	if len(queued) == 0 {
-		return towerWork{}, false
+	if ch, ok := q.wake[towerID]; ok {
+		close(ch)
+		delete(q.wake, towerID)
 	}
-	next := queued[0]
-	if len(queued) == 1 {
-		delete(q.pending, towerID)
-	} else {
-		q.pending[towerID] = queued[1:]
-	}
-	return next, true
 }
 
-// waitFor blocks until this Tower has work or the context ends.
-func (q *dispatchQueue) waitFor(ctx context.Context, towerID string) (towerWork, bool) {
-	for {
-		if w, ok := q.take(towerID); ok {
-			return w, true
-		}
-		q.mu.Lock()
-		ch, ok := q.wake[towerID]
-		if !ok {
-			ch = make(chan struct{})
-			q.wake[towerID] = ch
-		}
-		q.mu.Unlock()
-
-		select {
-		case <-ch:
-			// Work arrived (or another poller was woken); loop and try to take it.
-		case <-ctx.Done():
-			return towerWork{}, false
-		}
+// waiter returns the channel to sleep on until this Tower might have work.
+func (q *dispatchQueue) waiter(towerID string) <-chan struct{} {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	ch, ok := q.wake[towerID]
+	if !ok {
+		ch = make(chan struct{})
+		q.wake[towerID] = ch
 	}
+	return ch
 }
 
 // deliver hands an answer to whoever is waiting for this attempt.
@@ -243,12 +243,20 @@ func (b *broker) tryTowerDispatch(w http.ResponseWriter, r *http.Request, model 
 		return false
 	}
 
-	work := towerWork{
-		AttemptID: grant.AttemptID, Grant: grant.Signed, Request: body,
-		towerID: target.TowerID,
-	}
-	res := ts.queue.offer(work)
+	// Waiting FIRST, issuing second: a Station fast enough to answer in between would
+	// otherwise deliver into nothing.
+	res := ts.queue.await(grant.AttemptID)
 	defer ts.queue.abandon(grant.AttemptID)
+
+	// And subscribe to the cross-instance channel too, because the Tower will reach whichever
+	// broker the load balancer picked and that is very often not this one.
+	remote, stopRemote := b.subscribeTowerResult(r.Context(), grant.AttemptID)
+	defer stopRemote()
+
+	// Issue already recorded it as pending in the store, which IS the queue - so it is
+	// visible to every instance from this point. The nudge only makes THIS instance's poller
+	// notice without waiting for its tick.
+	ts.queue.nudge(target.TowerID)
 
 	select {
 	case got := <-res:
@@ -265,12 +273,47 @@ func (b *broker) tryTowerDispatch(w http.ResponseWriter, r *http.Request, model 
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(got.body)
 		return true
+	case raw := <-remote:
+		// The same answer, arriving from the instance the Tower actually reached. It has
+		// already been VERIFIED and settled there - a broker only ever publishes a result it
+		// accepted - so this side relays bytes rather than re-deciding.
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-RogerAI-Origin", "tower")
+		w.Header().Set("X-RogerAI-Cost", "0")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(raw)
+		return true
 	case <-time.After(towerAttemptLifetime):
 		jsonErr(w, http.StatusGatewayTimeout, "the Station did not answer in time")
 		return true
 	case <-r.Context().Done():
 		return true
 	}
+}
+
+// towerResultChannel namespaces Tower answers away from node dispatch. A Tower attempt id
+// and a node job id could not collide today, and a prefix means they cannot collide tomorrow
+// either - the two are different trust domains and should not share a name space by luck.
+func towerResultChannel(attemptID string) string { return "twatt:" + attemptID }
+
+// subscribeTowerResult listens for an answer settled on ANOTHER instance.
+//
+// Returns a nil channel on a single-instance deployment, which is not a failure: a nil
+// channel simply never fires in a select, and there is no other instance for an answer to
+// arrive from.
+func (b *broker) subscribeTowerResult(ctx context.Context, attemptID string) (<-chan []byte, func()) {
+	if !b.multiInstance || b.shared == nil {
+		return nil, func() {}
+	}
+	ch, cancel, err := b.shared.busSubscribeResult(ctx, towerResultChannel(attemptID))
+	if err != nil {
+		// The local channel still works, so a bus that is unavailable costs cross-instance
+		// delivery rather than the request. Worth neither failing nor pretending: the caller
+		// will time out if the Tower reached a different broker.
+		log.Printf("tower dispatch: cannot subscribe for %s: %v", attemptID, err)
+		return nil, func() {}
+	}
+	return ch, cancel
 }
 
 // pickTowerStation chooses a routable Station for a model.
@@ -355,27 +398,36 @@ func (b *broker) towerDispatchPoll(wr http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), dispatchPollWait)
 	defer cancel()
 	for {
-		work, got := ts.queue.waitFor(ctx, tw.ID)
-		if !got {
-			// Nothing to do. 204 rather than an empty 200 so a Tower can tell "no work" from
-			// "a job with an empty body" without inspecting anything.
+		// HANDING WORK OUT IS THE CLAIM, in one conditional UPDATE. That is the one-use
+		// guarantee and it is why this asks the STORE rather than a list in this process:
+		// two brokers polled at the same moment both see the attempt, and exactly one swap
+		// wins it. Claiming later - when the result arrives - would mean both had already
+		// executed, which is what "at most one attempt reaches executing state" forbids.
+		grant, request, got, err := ts.dispatch.ClaimNext(tw.ID)
+		if err != nil {
+			// An unreadable store is not an empty one. Saying "no work" here would be a
+			// confident wrong answer, and the Tower would poll a broken broker forever.
+			jsonErr(wr, http.StatusServiceUnavailable, "could not read pending work - try again")
+			return
+		}
+		if got {
+			writeJSON(wr, http.StatusOK, towerWork{
+				AttemptID: grant.AttemptID, Grant: grant.Signed, Request: request,
+			})
+			return
+		}
+
+		// Nothing waiting. Sleep until this instance creates some (the nudge) or until the
+		// next tick, which is what finds work created on ANOTHER instance.
+		select {
+		case <-ts.queue.waiter(tw.ID):
+		case <-time.After(dispatchPollTick):
+		case <-ctx.Done():
+			// 204 rather than an empty 200, so a Tower can tell "no work" from "a job with an
+			// empty body" without inspecting anything.
 			wr.WriteHeader(http.StatusNoContent)
 			return
 		}
-		// HANDING WORK OUT IS THE CLAIM, and it happens HERE rather than when the result
-		// arrives. That ordering is the one-use guarantee: two polls racing for the same
-		// attempt both take it off a queue, and only the one that wins the claim is given it.
-		// Doing it at result time instead would mean both had already executed, which is
-		// precisely what "at most one attempt reaches executing state" forbids.
-		if _, err := ts.dispatch.Claim(work.AttemptID, tw.ID); err != nil {
-			// Expired, or already claimed by a racing poll. Neither is this poller's problem:
-			// look for the next piece of work rather than reporting a failure for somebody
-			// else's attempt.
-			log.Printf("tower %s: skipping attempt %s: %v", tw.ID, work.AttemptID, err)
-			continue
-		}
-		writeJSON(wr, http.StatusOK, work)
-		return
 	}
 }
 
@@ -431,13 +483,32 @@ func (b *broker) towerDispatchResult(wr http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	if !ts.queue.deliver(req.AttemptID, towerResult{body: req.Body}) {
-		// Verified, but nobody is waiting: the caller gave up. Accepted rather than an error,
-		// because the Station did its job and re-sending would not help.
-		writeJSON(wr, http.StatusOK, map[string]any{"ok": true, "delivered": false})
+	if ts.queue.deliver(req.AttemptID, towerResult{body: req.Body}) {
+		writeJSON(wr, http.StatusOK, map[string]any{"ok": true, "delivered": true})
 		return
 	}
-	writeJSON(wr, http.StatusOK, map[string]any{"ok": true, "delivered": true})
+	// Nobody is waiting HERE. On a fleet that is the ordinary case rather than an error - the
+	// caller is parked on the instance that issued the grant, and this is whichever one the
+	// Tower happened to reach. Publishing hands it across.
+	if b.publishTowerResult(req.AttemptID, req.Body) {
+		writeJSON(wr, http.StatusOK, map[string]any{"ok": true, "delivered": true})
+		return
+	}
+	// Verified, and nobody anywhere is waiting: the caller gave up. Accepted rather than
+	// refused, because the Station did its job and re-sending would not help.
+	writeJSON(wr, http.StatusOK, map[string]any{"ok": true, "delivered": false})
+}
+
+// publishTowerResult hands a settled answer to whichever instance is waiting for it.
+func (b *broker) publishTowerResult(attemptID string, body []byte) bool {
+	if !b.multiInstance || b.shared == nil {
+		return false
+	}
+	if err := b.shared.busPublishResult(towerResultChannel(attemptID), body); err != nil {
+		log.Printf("tower dispatch: cannot publish the result for %s: %v", attemptID, err)
+		return false
+	}
+	return true
 }
 
 // towerDispatchKey handles GET /tower/dispatch/key: Core's grant-signing public key.

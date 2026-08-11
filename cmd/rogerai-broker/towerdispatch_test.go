@@ -16,16 +16,25 @@ import (
 	"crypto/ed25519"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/stretchr/testify/require"
 	"rogerai.fm/roger/v5/internal/station"
+	"rogerai.fm/roger/v5/internal/store"
 	"rogerai.fm/roger/v5/internal/towercore/admit"
+	"rogerai.fm/roger/v5/internal/towercore/attach"
+	"rogerai.fm/roger/v5/internal/towercore/cert"
 	"rogerai.fm/roger/v5/internal/towercore/dispatch"
+	"rogerai.fm/roger/v5/internal/towercore/enroll"
+	"rogerai.fm/roger/v5/internal/towercore/head"
 	"rogerai.fm/roger/v5/internal/towercore/link"
 )
 
@@ -309,9 +318,10 @@ func offerWork(t *testing.T, b *broker, model string, request []byte) towerWork 
 	require.True(t, ok, "no routable Station for %s", model)
 	g, err := b.tower.dispatch.Issue(target, request)
 	require.NoError(t, err)
-	w := towerWork{AttemptID: g.AttemptID, Grant: g.Signed, Request: request, towerID: target.TowerID}
-	b.tower.queue.offer(w)
-	return w
+	// Issue already made it pending in the store, which IS the queue - nothing else to do.
+	return towerWork{
+		AttemptID: g.AttemptID, Grant: g.Signed, Request: request, towerID: target.TowerID,
+	}
 }
 
 // issueWork is offerWork plus the claim, standing in for the poll that would have handed it
@@ -333,4 +343,445 @@ func shortPolls(t *testing.T) {
 	was := dispatchPollWait
 	dispatchPollWait = 150 * time.Millisecond
 	t.Cleanup(func() { dispatchPollWait = was })
+}
+
+// --- two brokers ------------------------------------------------------------
+//
+// Production runs more than one, and everything below is a property that was silently FALSE
+// while the attempt table lived in each process: a Tower reaches whichever instance the load
+// balancer chose, and that is very often not the one holding its work.
+
+// twoBrokers builds two instances over ONE set of stores - which is what a real fleet is.
+// The CA custody is shared too, so both derive the same grant key and a Station pinning it
+// can verify a grant whichever broker issued it.
+func twoBrokers(t *testing.T) (*broker, *httptest.Server, *broker, *httptest.Server) {
+	t.Helper()
+	registry, custody, enrollment := admit.NewMemStore(), cert.NewMemCustody(), enroll.NewMemStore()
+	stations, heads, attempts := attach.NewMemStore(), head.NewMemStore(), dispatch.NewMemStore()
+	shared := store.NewMem()
+
+	build := func() (*broker, *httptest.Server) {
+		b := testBrokerWithDB(shared)
+		ts, err := newTowerSubsystem(b, registry, custody, enrollment, cert.Config{TTL: time.Hour},
+			linkDeps{stations: stations, heads: heads, attempts: attempts})
+		require.NoError(t, err)
+		b.tower = ts
+		mux := http.NewServeMux()
+		b.registerTowerRoutes(mux)
+		srv := httptest.NewServer(mux)
+		t.Cleanup(srv.Close)
+		return b, srv
+	}
+	a, aSrv := build()
+	c, cSrv := build()
+	return a, aSrv, c, cSrv
+}
+
+// WORK CREATED ON ONE BROKER IS COLLECTED FROM THE OTHER. Without this a Tower is served only
+// when the load balancer happens to send its poll to the instance holding its work - so half
+// the requests time out, and nothing anywhere reports an error.
+func TestWorkCreatedOnOneBrokerIsCollectedFromTheOther(t *testing.T) {
+	shortPolls(t)
+	a, aSrv, c, cSrv := twoBrokers(t)
+	op := signedInOperator(t, a, "octocat")
+	lt, _ := dispatchable(t, a, aSrv, op)
+
+	// Issued on A.
+	work := offerWork(t, a, "roger-1", []byte(`{"model":"roger-1"}`))
+
+	// Collected from C, which never saw it created.
+	ltOnC := lt
+	var got towerWork
+	code, raw := ltOnC.call(t, cSrv, "/tower/dispatch", []byte(`{"tower_id":"`+lt.id+`"}`), &got)
+	require.Equal(t, http.StatusOK, code, raw)
+	require.Equal(t, work.AttemptID, got.AttemptID)
+	require.NotEmpty(t, got.Grant, "the signed grant travelled with it")
+	require.JSONEq(t, `{"model":"roger-1"}`, string(got.Request),
+		"and so did the request, or the other broker would have nothing to relay")
+
+	// And A will not hand it out again: the claim is shared, not per-instance.
+	code, _ = lt.call(t, aSrv, "/tower/dispatch", []byte(`{"tower_id":"`+lt.id+`"}`), nil)
+	require.Equal(t, http.StatusNoContent, code, "one claim, one delivery, across brokers")
+	_ = c
+}
+
+// TWO BROKERS POLLED AT ONCE HAND OUT ONE ATTEMPT ONCE. This is the guarantee that used to
+// hold per-instance and therefore not at all.
+func TestTwoBrokersPolledTogetherServeAnAttemptOnce(t *testing.T) {
+	shortPolls(t)
+	a, aSrv, _, cSrv := twoBrokers(t)
+	op := signedInOperator(t, a, "octocat")
+	lt, _ := dispatchable(t, a, aSrv, op)
+	offerWork(t, a, "roger-1", []byte(`{"model":"roger-1"}`))
+
+	type outcome struct {
+		code int
+		id   string
+	}
+	results := make(chan outcome, 2)
+	var wg sync.WaitGroup
+	for _, srv := range []*httptest.Server{aSrv, cSrv} {
+		wg.Add(1)
+		go func(s *httptest.Server) {
+			defer wg.Done()
+			var got towerWork
+			code, _ := lt.call(t, s, "/tower/dispatch", []byte(`{"tower_id":"`+lt.id+`"}`), &got)
+			results <- outcome{code, got.AttemptID}
+		}(srv)
+	}
+	wg.Wait()
+	close(results)
+
+	served := 0
+	for r := range results {
+		if r.code == http.StatusOK && r.id != "" {
+			served++
+		}
+	}
+	require.Equal(t, 1, served, "exactly one broker may hand the attempt out")
+}
+
+// A RESULT POSTED TO THE OTHER BROKER IS STILL REFUSED ONCE SETTLED. Both instances share the
+// one-use rule, so a Tower cannot get a second answer accepted by asking the other one.
+func TestAResultCannotBeSettledTwiceAcrossBrokers(t *testing.T) {
+	a, aSrv, _, cSrv := twoBrokers(t)
+	op := signedInOperator(t, a, "octocat")
+	lt, stn := dispatchable(t, a, aSrv, op)
+
+	work := issueWork(t, a, "roger-1", []byte(`{"model":"roger-1"}`))
+	exec := station.Executor{
+		Station: stn, CoreKey: a.tower.dispatchPub, Network: link.PublicNetwork,
+		Upstream: &stubModel{body: []byte(`{"content":"answer"}`)},
+	}
+	resp := exec.Execute(context.Background(), station.ExecuteRequest{
+		Grant: work.Grant, Request: work.Request,
+	})
+	require.Empty(t, resp.Failure)
+
+	payload := map[string]any{
+		"tower_id": lt.id, "attempt_id": work.AttemptID,
+		"receipt": resp.Receipt, "body": resp.Body,
+	}
+	code, raw := postResult(t, aSrv, lt, payload)
+	require.Equal(t, http.StatusOK, code, raw)
+
+	// The same result, posted to the OTHER broker.
+	code, raw = postResult(t, cSrv, lt, payload)
+	require.Equal(t, http.StatusConflict, code, raw)
+	require.Contains(t, raw, "already settled")
+}
+
+// BOTH BROKERS SIGN GRANTS A STATION WILL ACCEPT. They share a CA root, so they derive the
+// same grant key - a Station pins one key and must not care which instance it reached.
+func TestBothBrokersSignGrantsTheSameStationAccepts(t *testing.T) {
+	a, aSrv, c, _ := twoBrokers(t)
+	require.Equal(t, []byte(a.tower.dispatchPub), []byte(c.tower.dispatchPub),
+		"a Station pins ONE key; two brokers signing differently would break half its work")
+
+	op := signedInOperator(t, a, "octocat")
+	_, stn := dispatchable(t, a, aSrv, op)
+	request := []byte(`{"model":"roger-1"}`)
+
+	// A grant minted by C for the same Station, verified by a Station that pinned the key
+	// published by A. The target is taken from A because C cannot SELECT one yet - see
+	// TestABrokerCannotYetRouteToATowerConnectedElsewhere - but C signs it, which is what
+	// this test is about.
+	target, ok := a.pickTowerStation("roger-1")
+	require.True(t, ok)
+	g, err := c.tower.dispatch.Issue(target, request)
+	require.NoError(t, err)
+
+	exec := station.Executor{
+		Station: stn, CoreKey: a.tower.dispatchPub, Network: link.PublicNetwork,
+		Upstream: &stubModel{body: []byte(`{"content":"ok"}`)},
+	}
+	got := exec.Execute(context.Background(), station.ExecuteRequest{Grant: g.Signed, Request: request})
+	require.Empty(t, got.Failure)
+	require.NotNil(t, got.Receipt)
+}
+
+// A KNOWN LIMIT, pinned so it is a decision rather than a surprise.
+//
+// Selecting a Tower Station needs two things that are still per-instance: the live LINK
+// SESSION (a Tower holds one connection, to one broker) and the ACCEPTED INVENTORY. So a
+// broker that is not the one holding a Tower's link cannot currently choose it, and the
+// request falls back to the ordinary "no node offers this model" refusal.
+//
+// Nothing is served twice and no wrong answer is produced - this costs OPPORTUNITY, not
+// correctness, which is why it is a test rather than a blocker. What it needs is the routable
+// leaves in a place both brokers can read, the way node registrations already are.
+func TestABrokerCannotYetRouteToATowerConnectedElsewhere(t *testing.T) {
+	a, aSrv, c, _ := twoBrokers(t)
+	op := signedInOperator(t, a, "octocat")
+	_, _ = dispatchable(t, a, aSrv, op)
+
+	_, ok := a.pickTowerStation("roger-1")
+	require.True(t, ok, "the broker holding the link can route to it")
+
+	_, ok = c.pickTowerStation("roger-1")
+	require.False(t, ok, "and the other one cannot - yet")
+
+	// It declines rather than erring, so the caller gets the ordinary refusal.
+	rec := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader("{}"))
+	require.False(t, c.tryTowerDispatch(rec, r, "roger-1", []byte(`{"model":"roger-1"}`), false))
+}
+
+// THE ANSWER CROSSES BACK. The caller waits on the broker that issued the grant, and the
+// Tower returns the result to whichever broker it reached - very often a different one. This
+// is the other half of multi-instance: without it the work is dispatched perfectly and the
+// caller times out anyway.
+func TestAnAnswerReturnedToOneBrokerReachesTheCallerOnTheOther(t *testing.T) {
+	mr := miniredis.RunT(t)
+	a, aSrv, c, cSrv := twoBrokersOnBus(t, mr)
+	op := signedInOperator(t, a, "octocat")
+	lt, stn := dispatchable(t, a, aSrv, op)
+
+	model := &stubModel{body: []byte(`{"choices":[{"message":{"content":"across brokers"}}]}`)}
+	exec := station.Executor{
+		Station: stn, CoreKey: a.tower.dispatchPub, Network: link.PublicNetwork, Upstream: model,
+	}
+
+	// The Tower polls C and returns its answer to C.
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		var work towerWork
+		require.Eventually(t, func() bool {
+			code, _ := lt.call(t, cSrv, "/tower/dispatch", []byte(`{"tower_id":"`+lt.id+`"}`), &work)
+			return code == http.StatusOK && work.AttemptID != ""
+		}, 10*time.Second, 20*time.Millisecond)
+
+		resp := exec.Execute(context.Background(), station.ExecuteRequest{
+			Grant: work.Grant, Request: work.Request,
+		})
+		require.Empty(t, resp.Failure)
+		returnResult(t, cSrv, lt, work.AttemptID, resp)
+	}()
+
+	// The caller is on A.
+	request := []byte(`{"model":"roger-1","messages":[]}`)
+	rec := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(string(request)))
+	require.True(t, a.tryTowerDispatch(rec, r, "roger-1", request, false))
+	<-done
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.JSONEq(t, string(model.body), rec.Body.String(),
+		"the answer settled on one broker reached the caller parked on the other")
+	require.Equal(t, "0", rec.Header().Get("X-RogerAI-Cost"), "and it is still free")
+	_ = c
+}
+
+// A result nobody is waiting for anywhere is ACCEPTED rather than refused: the Station did
+// its job, the caller gave up, and re-sending would not help.
+func TestAnAnswerNobodyIsWaitingForIsStillAccepted(t *testing.T) {
+	mr := miniredis.RunT(t)
+	a, aSrv, _, cSrv := twoBrokersOnBus(t, mr)
+	op := signedInOperator(t, a, "octocat")
+	lt, stn := dispatchable(t, a, aSrv, op)
+
+	work := issueWork(t, a, "roger-1", []byte(`{"model":"roger-1"}`))
+	exec := station.Executor{
+		Station: stn, CoreKey: a.tower.dispatchPub, Network: link.PublicNetwork,
+		Upstream: &stubModel{body: []byte(`{"content":"nobody home"}`)},
+	}
+	resp := exec.Execute(context.Background(), station.ExecuteRequest{
+		Grant: work.Grant, Request: work.Request,
+	})
+	require.Empty(t, resp.Failure)
+
+	code, raw := postResult(t, cSrv, lt, map[string]any{
+		"tower_id": lt.id, "attempt_id": work.AttemptID,
+		"receipt": resp.Receipt, "body": resp.Body,
+	})
+	require.Equal(t, http.StatusOK, code, raw)
+	require.Contains(t, raw, `"ok":true`)
+}
+
+// twoBrokersOnBus is twoBrokers with a real shared bus between them.
+func twoBrokersOnBus(t *testing.T, mr *miniredis.Miniredis) (*broker, *httptest.Server, *broker, *httptest.Server) {
+	t.Helper()
+	a, aSrv, c, cSrv := twoBrokers(t)
+	for _, b := range []*broker{a, c} {
+		vs, err := newValkeyStore("redis://" + mr.Addr())
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = vs.Close() })
+		b.shared, b.multiInstance = vs, true
+	}
+	return a, aSrv, c, cSrv
+}
+
+// --- the shared refusals ----------------------------------------------------
+//
+// Both dispatch routes carry the same preamble, copied per handler - which is exactly the
+// kind of check that goes missing from one of them. Asserted per route rather than once.
+
+func TestTheDispatchRoutesRefuseTheirBadInputs(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	op := signedInOperator(t, b, "octocat")
+	lt := enrolledTower(t, b, op.login)
+	require.NoError(t, b.tower.registry.Transition(lt.id, admit.StateActive))
+
+	for _, path := range []string{"/tower/dispatch", "/tower/dispatch/result"} {
+		// The wrong method.
+		resp, err := http.Get(srv.URL + path)
+		require.NoError(t, err)
+		resp.Body.Close()
+		require.Equal(t, http.StatusMethodNotAllowed, resp.StatusCode, path)
+
+		// A malformed body is a 400, never a 500.
+		code, raw := lt.call(t, srv, path, []byte("{nope"), nil)
+		require.Equal(t, http.StatusBadRequest, code, "%s: %s", path, raw)
+
+		// AN UNSIGNED CALLER REACHES NOTHING. Work and results are both Tower-authenticated;
+		// either one open would let anybody collect somebody else's jobs or answer them.
+		unsigned, err := http.Post(srv.URL+path, "application/json",
+			strings.NewReader(`{"tower_id":"`+lt.id+`","attempt_id":"att-1"}`))
+		require.NoError(t, err)
+		body, _ := io.ReadAll(unsigned.Body)
+		unsigned.Body.Close()
+		require.Equal(t, http.StatusForbidden, unsigned.StatusCode, "%s: %s", path, body)
+	}
+
+	// GET-only for the key, and it is public - a Station's operator has to fetch it before
+	// they have any credential at all.
+	resp, err := http.Post(srv.URL+"/tower/dispatch/key", "application/json", strings.NewReader("{}"))
+	require.NoError(t, err)
+	resp.Body.Close()
+	require.Equal(t, http.StatusMethodNotAllowed, resp.StatusCode)
+}
+
+// A deployment with no joined-Tower subsystem answers "unavailable" on every dispatch route
+// rather than dereferencing a nil.
+func TestTheDispatchRoutesNeedTheSubsystem(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	op := signedInOperator(t, b, "octocat")
+	lt := enrolledTower(t, b, op.login)
+	b.tower = nil
+
+	for _, path := range []string{"/tower/dispatch", "/tower/dispatch/result"} {
+		code, raw := lt.call(t, srv, path, []byte(`{"tower_id":"x"}`), nil)
+		require.Equal(t, http.StatusServiceUnavailable, code, "%s: %s", path, raw)
+	}
+	resp, err := http.Get(srv.URL + "/tower/dispatch/key")
+	require.NoError(t, err)
+	resp.Body.Close()
+	require.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
+}
+
+// A broker whose dispatch machinery was never built says so rather than pretending there is
+// no work - "nothing to do" is an answer a Tower acts on, and it would be a wrong one.
+func TestADeploymentWithoutDispatchSaysSoRatherThanSayingNoWork(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	op := signedInOperator(t, b, "octocat")
+	lt := enrolledTower(t, b, op.login)
+	require.NoError(t, b.tower.registry.Transition(lt.id, admit.StateActive))
+	b.tower.queue = nil
+
+	code, raw := lt.call(t, srv, "/tower/dispatch", []byte(`{"tower_id":"`+lt.id+`"}`), nil)
+	require.Equal(t, http.StatusServiceUnavailable, code, raw)
+	code, raw = lt.call(t, srv, "/tower/dispatch/result",
+		[]byte(`{"tower_id":"`+lt.id+`","attempt_id":"att-1"}`), nil)
+	require.Equal(t, http.StatusServiceUnavailable, code, raw)
+}
+
+// AN UNREADABLE ATTEMPT STORE IS NOT AN EMPTY ONE. Answering "no work" would be a confident
+// wrong answer, and the Tower would poll a broken broker forever while its Stations idled.
+func TestABrokenAttemptStoreIsReportedRatherThanReadAsIdle(t *testing.T) {
+	shortPolls(t)
+	b, srv := towerTestBroker(t)
+	op := signedInOperator(t, b, "octocat")
+	lt := enrolledTower(t, b, op.login)
+	require.NoError(t, b.tower.registry.Transition(lt.id, admit.StateActive))
+	b.tower.dispatch = dispatch.NewWithStore(dispatch.Config{Network: link.PublicNetwork},
+		brokenAttemptStore{})
+
+	code, raw := lt.call(t, srv, "/tower/dispatch", []byte(`{"tower_id":"`+lt.id+`"}`), nil)
+	require.Equal(t, http.StatusServiceUnavailable, code, raw)
+	require.Contains(t, raw, "could not read pending work")
+}
+
+// brokenAttemptStore fails the read the poll depends on.
+type brokenAttemptStore struct{ dispatch.Store }
+
+func (brokenAttemptStore) ClaimNext(string, time.Time) (dispatch.Record, bool, error) {
+	return dispatch.Record{}, false, errors.New("the attempt store is unreachable")
+}
+
+// An idle Tower waits out its poll and is told there is nothing, rather than being left
+// hanging or handed an empty job.
+func TestAnIdleTowerIsToldThereIsNothing(t *testing.T) {
+	shortPolls(t)
+	b, srv := towerTestBroker(t)
+	op := signedInOperator(t, b, "octocat")
+	lt, _ := dispatchable(t, b, srv, op)
+
+	start := time.Now()
+	code, raw := lt.call(t, srv, "/tower/dispatch", []byte(`{"tower_id":"`+lt.id+`"}`), nil)
+	require.Equal(t, http.StatusNoContent, code, raw)
+	require.GreaterOrEqual(t, time.Since(start), dispatchPollWait,
+		"it waits for work rather than returning immediately and re-polling in a loop")
+}
+
+// A Station that never answers costs the caller its deadline and no more. Without the
+// timeout the relay would hold the connection until the client gave up, which looks to a
+// consumer exactly like the broker having hung.
+func TestAStationThatNeverAnswersTimesOut(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	op := signedInOperator(t, b, "octocat")
+	_, _ = dispatchable(t, b, srv, op)
+
+	was := towerAttemptLifetimeForTest(t, 200*time.Millisecond)
+	defer was()
+
+	rec := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader("{}"))
+	require.True(t, b.tryTowerDispatch(rec, r, "roger-1", []byte(`{"model":"roger-1"}`), false))
+	require.Equal(t, http.StatusGatewayTimeout, rec.Code)
+	require.Contains(t, rec.Body.String(), "did not answer in time")
+}
+
+// A caller that goes away mid-flight is not an error and produces no write to a dead
+// connection.
+func TestACallerThatGivesUpIsNotAnError(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	op := signedInOperator(t, b, "octocat")
+	_, _ = dispatchable(t, b, srv, op)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	rec := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader("{}")).WithContext(ctx)
+	go func() { time.Sleep(50 * time.Millisecond); cancel() }()
+
+	require.True(t, b.tryTowerDispatch(rec, r, "roger-1", []byte(`{"model":"roger-1"}`), false))
+	// A recorder reports 200 whether or not anything was written, so the BODY is what says
+	// so: nothing was sent to a connection that had already gone.
+	require.Zero(t, rec.Body.Len(), "nothing was written to a connection that had gone")
+	require.Empty(t, rec.Header().Get("X-RogerAI-Origin"))
+}
+
+// A Station whose attachment is not live is not a candidate, however routable its offer
+// looks: dispatching to one whose recorded key we cannot read means accepting a receipt we
+// have no way to check.
+func TestARevokedStationStopsBeingACandidate(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	op := signedInOperator(t, b, "octocat")
+	_, stn := dispatchable(t, b, srv, op)
+
+	_, ok := b.pickTowerStation("roger-1")
+	require.True(t, ok)
+
+	_, err := b.tower.stations.Revoke(stn.StationID)
+	require.NoError(t, err)
+	_, ok = b.pickTowerStation("roger-1")
+	require.False(t, ok, "a revoked Station must not be dispatched to")
+}
+
+// towerAttemptLifetimeForTest shortens the attempt deadline and returns the restore.
+func towerAttemptLifetimeForTest(t *testing.T, d time.Duration) func() {
+	t.Helper()
+	was := towerAttemptLifetime
+	towerAttemptLifetime = d
+	return func() { towerAttemptLifetime = was }
 }

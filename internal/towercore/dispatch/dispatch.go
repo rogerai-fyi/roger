@@ -52,7 +52,6 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
-	"sync"
 	"time"
 
 	"rogerai.fm/roger/v5/internal/towerobj"
@@ -131,36 +130,104 @@ type Config struct {
 	Now      func() time.Time
 }
 
-type state int
-
+// The three states an attempt passes through, in order. They are strings because they are
+// written to a durable store and read back by another process, where an integer would be a
+// number nobody can interpret from a psql prompt at three in the morning.
 const (
-	issued state = iota
-	claimed
-	settled
+	StateIssued  = "issued"
+	StateClaimed = "claimed"
+	StateSettled = "settled"
 )
 
-type attempt struct {
-	grant    Grant
-	target   Target
-	state    state
-	deadline time.Time
+// Record is one attempt as a store holds it.
+//
+// It carries the Station's assertion key because the RECEIPT is verified against it, and the
+// instance verifying is very often not the instance that issued: taking the key from the
+// attempt Core recorded is what keeps "signed by the Station" true across a fleet of brokers.
+type Record struct {
+	AttemptID     string
+	JobID         string
+	TowerID       string
+	StationID     string
+	StationEpoch  int64
+	Model         string
+	Modality      string
+	RequestDigest string
+	Nonce         string
+	Deadline      time.Time
+	Grant         []byte
+	// Request is the exact body the grant commits to by digest.
+	//
+	// Stored, not merely hashed, because ANY instance may have to hand this work out and the
+	// Tower needs the bytes rather than a promise about them. Keeping only the digest would
+	// make cross-instance dispatch impossible: the instance holding the request would be the
+	// only one that could serve the poll, which is the single-broker assumption this store
+	// exists to remove.
+	Request      []byte
+	AssertionKey []byte
+	State        string
+}
+
+func (r Record) grant() Grant {
+	return Grant{
+		JobID: r.JobID, AttemptID: r.AttemptID, TowerID: r.TowerID, StationID: r.StationID,
+		StationEpoch: r.StationEpoch, Model: r.Model, Modality: r.Modality,
+		RequestDigest: r.RequestDigest, Deadline: r.Deadline, Nonce: r.Nonce, Signed: r.Grant,
+	}
+}
+
+// Store is where attempts live.
+//
+// THE STATE TRANSITIONS ARE THE WHOLE INTERFACE, and each is a COMPARE-AND-SWAP rather than
+// a read followed by a write. That is not a performance choice: "at most one attempt reaches
+// executing state" and "at most one result can settle" are the two guarantees this package
+// exists for, and a check-then-act cannot provide either - two callers both read "issued",
+// both proceed, and the work happens twice.
+//
+// It is an interface because a single broker can hold this in memory and a fleet of them
+// cannot. With more than one instance the guarantee has to be enforced somewhere both can
+// see, or each enforces it over its own half and neither enforces it at all.
+type Store interface {
+	// Put records a freshly issued attempt.
+	Put(Record) error
+	// ClaimByID moves ONE named attempt from issued to claimed, for this Tower.
+	ClaimByID(attemptID, towerID string, now time.Time) (Record, error)
+	// ClaimNext takes any issued attempt for this Tower and claims it in the same step.
+	//
+	// This is also the QUEUE. A separate list of pending work would need its own single-
+	// delivery rule; taking the claim as the act of dequeuing means the guarantee is already
+	// there and there is only one thing to get right.
+	ClaimNext(towerID string, now time.Time) (Record, bool, error)
+	// Get reads one back.
+	Get(attemptID string) (Record, bool, error)
+	// Settle moves claimed to settled, once.
+	Settle(attemptID string, now time.Time) (Record, error)
+	// Reap drops attempts past their deadline.
+	Reap(before time.Time) (int64, error)
 }
 
 // Registry issues grants and admits exactly one result for each.
 type Registry struct {
-	cfg Config
-	mu  sync.Mutex
-	by  map[string]*attempt
+	cfg   Config
+	store Store
 }
 
-func New(cfg Config) *Registry {
+// New builds a registry over the in-process store. Correct for one broker, and see Store for
+// why that is not correct for two.
+func New(cfg Config) *Registry { return NewWithStore(cfg, nil) }
+
+// NewWithStore builds a registry over an explicit store.
+func NewWithStore(cfg Config, store Store) *Registry {
 	if cfg.Lifetime <= 0 {
 		cfg.Lifetime = 2 * time.Minute
 	}
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
-	return &Registry{cfg: cfg, by: map[string]*attempt{}}
+	if store == nil {
+		store = NewMemStore()
+	}
+	return &Registry{cfg: cfg, store: store}
 }
 
 // Issue mints a grant for one request on one Station.
@@ -215,9 +282,14 @@ func (r *Registry) Issue(t Target, request []byte) (Grant, error) {
 	}
 	g.Signed = signed
 
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.by[g.AttemptID] = &attempt{grant: g, target: t, state: issued, deadline: g.Deadline}
+	if err := r.store.Put(Record{
+		AttemptID: g.AttemptID, JobID: g.JobID, TowerID: g.TowerID, StationID: g.StationID,
+		StationEpoch: g.StationEpoch, Model: g.Model, Modality: g.Modality,
+		RequestDigest: g.RequestDigest, Nonce: g.Nonce, Deadline: g.Deadline,
+		Grant: signed, Request: request, AssertionKey: t.AssertionKey, State: StateIssued,
+	}); err != nil {
+		return Grant{}, err
+	}
 	return g, nil
 }
 
@@ -227,45 +299,44 @@ func (r *Registry) Issue(t Target, request []byte) (Grant, error) {
 // produce at most one execution, and a check followed by a separate write is not that - both
 // would read "issued" and both would proceed.
 func (r *Registry) Claim(attemptID, towerID string) (Grant, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	rec, err := r.store.ClaimByID(attemptID, towerID, r.cfg.Now())
+	if err != nil {
+		return Grant{}, err
+	}
+	return rec.grant(), nil
+}
 
-	a, ok := r.by[attemptID]
-	// A grant issued for another Tower is answered as NOT FOUND rather than as forbidden. An
-	// attempt id is not a secret, and distinguishing the two would turn this into an oracle
-	// for which attempts exist.
-	if !ok || a.grant.TowerID != towerID {
-		return Grant{}, ErrNotFound
+// ClaimNext hands this Tower any one attempt waiting for it, claiming it in the same step.
+//
+// This is what a Tower's poll calls, and taking the claim AS the dequeue is what makes it
+// safe for two brokers to be polled at once: both may see the same attempt, and exactly one
+// compare-and-swap wins it.
+func (r *Registry) ClaimNext(towerID string) (Grant, []byte, bool, error) {
+	rec, ok, err := r.store.ClaimNext(towerID, r.cfg.Now())
+	if err != nil || !ok {
+		return Grant{}, nil, false, err
 	}
-	if !r.cfg.Now().Before(a.deadline) {
-		return Grant{}, ErrExpired
-	}
-	switch a.state {
-	case claimed:
-		return Grant{}, ErrAlreadyClaimed
-	case settled:
-		return Grant{}, ErrAlreadySettled
-	}
-	a.state = claimed
-	return a.grant, nil
+	// The REQUEST comes back with the grant. A Tower handed an authorization without the
+	// bytes it authorizes has nothing to relay, and this instance may never have seen them.
+	return rec.grant(), rec.Request, true, nil
 }
 
 // Complete admits the one result an attempt may have.
 func (r *Registry) Complete(attemptID string, rec Receipt, body []byte) (Grant, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	a, ok := r.by[attemptID]
+	a, ok, err := r.store.Get(attemptID)
+	if err != nil {
+		return Grant{}, err
+	}
 	if !ok {
 		return Grant{}, ErrNotFound
 	}
-	switch a.state {
-	case issued:
+	switch a.State {
+	case StateIssued:
 		return Grant{}, ErrNotClaimed
-	case settled:
+	case StateSettled:
 		return Grant{}, ErrAlreadySettled
 	}
-	if !r.cfg.Now().Before(a.deadline) {
+	if !r.cfg.Now().Before(a.Deadline) {
 		return Grant{}, ErrExpired
 	}
 	// THE RECEIPT NAMES ITS ATTEMPT. A perfectly signed receipt for a different attempt is a
@@ -276,7 +347,7 @@ func (r *Registry) Complete(attemptID string, rec Receipt, body []byte) (Grant, 
 	}
 	// Verified against the ATTACHMENT's key, before the digest: a signature by anyone else
 	// makes the digest it commits to meaningless.
-	if err := towerobj.Verify(a.target.AssertionKey, r.cfg.Network, TypeReceipt, Version,
+	if err := towerobj.Verify(a.AssertionKey, r.cfg.Network, TypeReceipt, Version,
 		rec.Signed, "station_sig"); err != nil {
 		return Grant{}, ErrReceiptSignature
 	}
@@ -285,15 +356,24 @@ func (r *Registry) Complete(attemptID string, rec Receipt, body []byte) (Grant, 
 	if rec.ResponseDigest == "" || rec.ResponseDigest != digestOf(body) {
 		return Grant{}, ErrResultMismatch
 	}
-	a.state = settled
-	return a.grant, nil
+	// THE STATE CHANGE IS LAST AND IS A CAS. Verification above is side-effect free and can
+	// safely run twice; this cannot, and it is what makes "at most one result settles" true
+	// when two brokers are handed the same result at once. Losing the swap means somebody
+	// else settled it first, which is an answer rather than an error in our own logic.
+	settled, err := r.store.Settle(attemptID, r.cfg.Now())
+	if err != nil {
+		return Grant{}, err
+	}
+	return settled.grant(), nil
 }
 
 // Pending reports how many attempts are still held.
 func (r *Registry) Pending() int {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return len(r.by)
+	n, _ := r.store.(interface{ Len() int })
+	if n == nil {
+		return 0
+	}
+	return n.Len()
 }
 
 // Reap drops attempts past their deadline, and reports how many went.
@@ -301,17 +381,11 @@ func (r *Registry) Pending() int {
 // An attempt table that only grows is a memory leak with a deadline attached; the deadline
 // is exactly what makes dropping them safe, because nothing may settle after it anyway.
 func (r *Registry) Reap() int {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	now := r.cfg.Now()
-	n := 0
-	for id, a := range r.by {
-		if !now.Before(a.deadline) {
-			delete(r.by, id)
-			n++
-		}
+	n, err := r.store.Reap(r.cfg.Now())
+	if err != nil {
+		return 0
 	}
-	return n
+	return int(n)
 }
 
 // SignReceipt is what a STATION produces. It lives here so both sides use one definition of
@@ -370,8 +444,11 @@ func ParseGrant(raw []byte, coreKey ed25519.PublicKey, network, stationID string
 	if err := towerobj.Verify(coreKey, network, TypeGrant, Version, raw, "core_sig"); err != nil {
 		return Grant{}, fmt.Errorf("this grant is not signed by Roger Core: %w", err)
 	}
+	// No network check below: towerobj.Verify BINDS the network into the signature, so a
+	// grant for another network has already failed above. A second comparison here would be
+	// a branch no input can reach, which is worse than no check - it reads as protection and
+	// protects nothing.
 	var obj struct {
-		Network       string `json:"network"`
 		JobID         string `json:"job_id"`
 		AttemptID     string `json:"attempt_id"`
 		TowerID       string `json:"tower_id"`
@@ -385,9 +462,6 @@ func ParseGrant(raw []byte, coreKey ed25519.PublicKey, network, stationID string
 	}
 	if err := json.Unmarshal(raw, &obj); err != nil {
 		return Grant{}, fmt.Errorf("this grant cannot be read: %w", err)
-	}
-	if obj.Network != network {
-		return Grant{}, fmt.Errorf("this grant is for network %q, not %q", obj.Network, network)
 	}
 	// A grant for another Station is somebody else's authorization. A relay holding one and
 	// pointing it at this Station is the attack this check exists for.
