@@ -46,8 +46,10 @@ usage:
   roger-station init  --dir DIR                 (mint this Station's two keys, once)
   roger-station keys  --dir DIR                 (print the public keys for an invitation)
   roger-station offer --dir DIR --tower TOWER --model NAME [options]
+  roger-station csr   --dir DIR --name NAME     (request a certificate for the edge path)
+  roger-station install-cert --dir DIR --cert FILE
   roger-station serve --dir DIR --core-key HEX --core-envelope-key HEX --upstream URL
-                      [--listen 127.0.0.1:8730]
+                      [--listen 127.0.0.1:8730] [--tls]
   roger-station status --dir DIR
   roger-station version
 
@@ -70,6 +72,11 @@ AN OFFER EXPIRES. A file does not refresh itself, so a Station that publishes on
 drops off the network when its TTL passes - the Tower goes on relaying the stale file
 and Roger Core goes on excluding it, with every part reporting itself healthy. Run
 offer --refresh as a service, writing straight into the Tower's offers directory.
+
+THE EDGE PATH. With --tls this Station terminates the CONSUMER's session itself, so a
+Tower in front of it relays ciphertext rather than content. That rests on the TLS private
+key never leaving this machine: ` + "`csr`" + ` mints it here and emits only a public request,
+and ` + "`install-cert`" + ` takes back only a public certificate. Nothing exports the key.
 
 An offer is a signed file. Copy it to the Tower's offers directory (see
 ` + "`roger-tower serve`" + `); the Tower relays it byte for byte and cannot alter it.
@@ -99,6 +106,10 @@ func run(args []string, out io.Writer) error {
 		return cmdOffer(args[1:], out)
 	case "status":
 		return cmdStatus(args[1:], out)
+	case "csr":
+		return cmdCSR(args[1:], out)
+	case "install-cert":
+		return cmdInstallCert(args[1:], out)
 	case "serve":
 		return cmdServe(args[1:], out)
 	case "version":

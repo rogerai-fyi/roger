@@ -13,6 +13,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -39,6 +40,7 @@ func cmdServe(args []string, out io.Writer) error {
 	coreKey := fs.String("core-key", "", "Roger Core's grant key, hex (GET /tower/dispatch/key)")
 	envKey := fs.String("core-envelope-key", "", "Roger Core's envelope key, hex (same endpoint)")
 	upstream := fs.String("upstream", "", "the local model endpoint, OpenAI-compatible")
+	useTLS := fs.Bool("tls", false, "terminate the CONSUMER's TLS session here, using the installed certificate")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -68,6 +70,22 @@ func cmdServe(args []string, out io.Writer) error {
 	ln, err := net.Listen("tcp", *listen)
 	if err != nil {
 		return err
+	}
+	if *useTLS {
+		// THE EDGE PATH. The consumer's session terminates here and nowhere earlier, so the
+		// Tower splicing the bytes in front of this port holds ciphertext it has no key for.
+		// That property is exactly as strong as this key staying on this machine.
+		cert, cerr := s.TLSCertificate()
+		if cerr != nil {
+			_ = ln.Close()
+			return cerr
+		}
+		ln = tls.NewListener(ln, &tls.Config{
+			Certificates: []tls.Certificate{cert},
+			MinVersion:   tls.VersionTLS12,
+		})
+		fmt.Fprint(out, "terminating consumer TLS here: any Tower in front of this port relays\n"+
+			"ciphertext it cannot read, because the private key never left this machine.\n")
 	}
 	fmt.Fprintf(out, "station %s serving on %s\n", s.StationID, ln.Addr())
 	fmt.Fprintf(out, "upstream model: %s\n", *upstream)
