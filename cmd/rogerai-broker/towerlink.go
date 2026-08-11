@@ -251,6 +251,9 @@ func (b *broker) towerSessionClose(w http.ResponseWriter, r *http.Request) {
 	// own, but leaving leaves routable after the operator SAID they were going is the
 	// "immortal inventory" failure the design calls out by name.
 	ts.inv.Forget(tw.ID)
+	// Draining is the point at which a fleet stops being offered AT ONCE rather than aging
+	// out over the freshness window - which is only true if every broker stops offering it.
+	b.forgetRoutable(tw.ID)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "drained": true})
 }
 
@@ -309,6 +312,14 @@ func (b *broker) towerInventory(delta bool) http.HandlerFunc {
 				}
 			}
 			ts.link.RecordHead(tw.ID, res.Revision, res.Hash)
+			// PUBLISH THE FLEET VIEW, so a broker that is NOT holding this Tower's link can
+			// still route to its Stations. Without it a Tower's capacity is visible only
+			// through the one instance it happens to be connected to, and with two brokers
+			// roughly half the requests miss capacity that is sitting right there.
+			//
+			// After the head, and never instead of it: this is a read model, and a failure
+			// to publish costs reachability rather than correctness.
+			b.publishRoutable(tw.ID)
 			writeJSON(w, http.StatusOK, map[string]any{
 				"ok": true, "revision": res.Revision, "hash": res.Hash,
 				"routable": res.Routable, "excluded": excludedView(res.Excluded),
@@ -606,6 +617,9 @@ func (b *broker) towerStationRevoke(w http.ResponseWriter, r *http.Request) {
 	// it had. The leaf itself goes when the Tower next pushes, and policy refuses it in the
 	// meantime because the attachment is revoked.
 	ts.inv.ReleaseStation(req.StationID)
+	// Re-publish rather than forget: only this Station is retired, and the rest of the
+	// Tower's fleet must go on being routable from every instance.
+	b.publishRoutable(at.Origin.TowerID)
 	log.Printf("station %s revoked by %s", req.StationID, owner)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "revoked": true})
 }
@@ -865,6 +879,7 @@ func (b *broker) towerLeaseExpire(w http.ResponseWriter, r *http.Request) {
 	// Its sessions and inventory go with it: leaving leaves routable after the lease is gone
 	// is the immortal-inventory failure by another route.
 	ts.inv.Forget(req.TowerID)
+	b.forgetRoutable(req.TowerID)
 	log.Printf("tower %s: lease expired by an administrator", req.TowerID)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "expired": true})
 }

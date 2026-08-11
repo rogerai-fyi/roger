@@ -61,6 +61,7 @@ import (
 
 	"rogerai.fm/roger/v5/internal/towercore/cert"
 	"rogerai.fm/roger/v5/internal/towercore/dispatch"
+	"rogerai.fm/roger/v5/internal/towercore/fleet"
 	"rogerai.fm/roger/v5/internal/towercore/link"
 )
 
@@ -338,27 +339,66 @@ func (b *broker) pickTowerStation(model string) (dispatch.Target, bool) {
 			if leaf.Model != model {
 				continue
 			}
-			at, found, err := ts.stations.Station(leaf.StationID)
-			if err != nil || !found || !at.Live() {
-				// An unreadable attachment is not an eligible one: dispatching to a Station
-				// whose recorded key we could not read means accepting a receipt we have no
-				// way to check.
-				continue
+			if target, ok := b.targetFor(towerID, leaf.StationID, leaf.Model, leaf.Modality); ok {
+				return target, true
 			}
-			key, kerr := hex.DecodeString(at.AssertionKey)
-			if kerr != nil || len(key) != ed25519.PublicKeySize {
-				continue
-			}
-			return dispatch.Target{
-				TowerID: towerID, StationID: leaf.StationID, StationEpoch: at.Epoch,
-				Model: leaf.Model, Modality: leaf.Modality,
-				// The key from the ATTACHMENT record - never from the offer, and never from
-				// anything the request carried.
-				AssertionKey: ed25519.PublicKey(key),
-			}, true
+		}
+	}
+
+	// NOTHING LOCAL. A Tower holds its link to ONE broker, so the Stations behind every OTHER
+	// Tower on the network are invisible from here - and with more than one instance that is
+	// most of them. The fleet view is the projection every broker can read.
+	if ts.routable == nil {
+		return dispatch.Target{}, false
+	}
+	rows, err := ts.routable.Candidates(model, time.Now())
+	if err != nil {
+		// An unreadable projection is not an empty fleet, but there is nothing to do about it
+		// here beyond declining: the caller falls back to its ordinary refusal, which is the
+		// same answer it would have given a moment ago.
+		log.Printf("tower dispatch: cannot read the routable fleet: %v", err)
+		return dispatch.Target{}, false
+	}
+	for _, row := range rows {
+		// EVERY CHECK IS RE-RUN against authority. The projection says a Station was routable
+		// a moment ago on some instance; whether it may be dispatched to NOW is decided here,
+		// from the admission registry and the attachment - never from the read model.
+		if !ts.registry.MayTakeWork(row.TowerID) {
+			continue
+		}
+		if target, ok := b.targetFor(row.TowerID, row.StationID, row.Model, row.Modality); ok {
+			return target, true
 		}
 	}
 	return dispatch.Target{}, false
+}
+
+// targetFor resolves one Station against the ATTACHMENT record, which is the only place its
+// key may come from.
+//
+// Taking the key from the offer, the request, or the fleet projection would each turn "signed
+// by the Station" into "signed by whoever told us which key to check" - and the projection in
+// particular is a cache, which is exactly the wrong kind of thing to trust a key from.
+func (b *broker) targetFor(towerID, stationID, model, modality string) (dispatch.Target, bool) {
+	at, found, err := b.tower.stations.Station(stationID)
+	if err != nil || !found || !at.Live() {
+		// An unreadable attachment is not an eligible one: dispatching to a Station whose
+		// recorded key we could not read means accepting a receipt we cannot check.
+		return dispatch.Target{}, false
+	}
+	// And it must still be behind THIS Tower. A Station that has been rehomed since the
+	// projection was written must not be dispatched to through its old origin.
+	if at.Origin.TowerID != towerID {
+		return dispatch.Target{}, false
+	}
+	key, kerr := hex.DecodeString(at.AssertionKey)
+	if kerr != nil || len(key) != ed25519.PublicKeySize {
+		return dispatch.Target{}, false
+	}
+	return dispatch.Target{
+		TowerID: towerID, StationID: stationID, StationEpoch: at.Epoch,
+		Model: model, Modality: modality, AssertionKey: ed25519.PublicKey(key),
+	}, true
 }
 
 // towerDispatchPoll handles POST /tower/dispatch: a Tower collecting work for its Stations.
@@ -536,4 +576,42 @@ func (b *broker) towerDispatchKey(w http.ResponseWriter, r *http.Request) {
 		"note": "pin this into a Station with `roger-station trust --core-key`; " +
 			"it is what proves a grant came from Roger Core rather than from the relay",
 	})
+}
+
+// publishRoutable mirrors this Tower's accepted, routable leaves so every instance can see
+// them.
+//
+// Best effort by design. It is a READ MODEL - the inventory, its signatures and its chain
+// were decided by the instance that accepted them, and nothing reads this to make a security
+// decision: a dispatch still re-checks the attachment before it issues a grant. So a failure
+// here costs REACHABILITY (a Tower routable only through the broker it is connected to,
+// which is what the whole system did until now) rather than correctness, and taking the push
+// down over it would be trading a real outage for a partial one.
+func (b *broker) publishRoutable(towerID string) {
+	ts := b.tower
+	if ts == nil || ts.routable == nil {
+		return
+	}
+	leaves := ts.inv.Routable(towerID)
+	rows := make([]fleet.Station, 0, len(leaves))
+	for _, l := range leaves {
+		rows = append(rows, fleet.Station{
+			TowerID: towerID, StationID: l.StationID, OfferID: l.OfferID,
+			Model: l.Model, Modality: l.Modality, Capacity: l.Capacity, Expires: l.Expires,
+		})
+	}
+	if err := ts.routable.Replace(towerID, rows); err != nil {
+		log.Printf("tower %s: could not publish the routable fleet: %v", towerID, err)
+	}
+}
+
+// forgetRoutable withdraws a Tower's fleet everywhere at once, for a drain or a revocation.
+func (b *broker) forgetRoutable(towerID string) {
+	ts := b.tower
+	if ts == nil || ts.routable == nil {
+		return
+	}
+	if err := ts.routable.Forget(towerID); err != nil {
+		log.Printf("tower %s: could not withdraw the routable fleet: %v", towerID, err)
+	}
 }

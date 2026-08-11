@@ -34,6 +34,7 @@ import (
 	"rogerai.fm/roger/v5/internal/towercore/cert"
 	"rogerai.fm/roger/v5/internal/towercore/dispatch"
 	"rogerai.fm/roger/v5/internal/towercore/enroll"
+	"rogerai.fm/roger/v5/internal/towercore/fleet"
 	"rogerai.fm/roger/v5/internal/towercore/head"
 	"rogerai.fm/roger/v5/internal/towercore/inv"
 	"rogerai.fm/roger/v5/internal/towercore/link"
@@ -128,6 +129,9 @@ type towerSubsystem struct {
 	dispatch    *dispatch.Registry
 	queue       *dispatchQueue
 	dispatchPub ed25519.PublicKey
+	// routable is the fleet-wide view of servable Stations, so an instance that is NOT
+	// holding a Tower's link can still route to it.
+	routable fleet.Store
 }
 
 // brokerOperatorPolicy answers whether an account may enroll a Tower. A joined Tower relays
@@ -153,6 +157,10 @@ func (p brokerOperatorPolicy) MayEnroll(owner string) error {
 type linkDeps struct {
 	stations attach.Store
 	heads    head.Store
+	// routable is the fleet-wide view of which Stations are servable, so an instance that is
+	// NOT holding a Tower's link can still route to it. Nil means in-process, which makes a
+	// Tower's capacity visible only through the one broker it happens to be connected to.
+	routable fleet.Store
 	// attempts is the durable dispatch store. Nil means in-process, which is correct for one
 	// broker and wrong for two: the one-use claim would be enforced by each instance over its
 	// own half, and a Tower polling either would be handed the same work twice.
@@ -230,6 +238,10 @@ func newTowerSubsystem(b *broker, registryStore admit.Store, custody cert.Custod
 		Lifetime: towerAttemptLifetime,
 	}, deps.attempts)
 	ts.queue = newDispatchQueue()
+	ts.routable = deps.routable
+	if ts.routable == nil {
+		ts.routable = fleet.NewMemStore()
+	}
 	ts.dispatchPub = grantKey.Public().(ed25519.PublicKey)
 	return ts, nil
 }
@@ -314,12 +326,19 @@ func loadTowerSubsystem(b *broker, db store.Store) (*towerSubsystem, error) {
 	if err != nil {
 		return fail(err)
 	}
+	// And the routable projection, for the same reason: a Tower connected to one broker must
+	// be reachable through the other, or half the requests miss capacity that is right there.
+	routableStore, err := fleet.NewPGStore(sqlDB)
+	if err != nil {
+		return fail(err)
+	}
 
 	ts, err := newTowerSubsystem(b, registryStore, custody, enrollDurable, cert.Config{
 		TTL:         towerCertTTL(),
 		RootKeyPEM:  []byte(os.Getenv("ROGERAI_TOWER_CA_KEY_PEM")),
 		RootCertPEM: []byte(os.Getenv("ROGERAI_TOWER_CA_CERT_PEM")),
-	}, linkDeps{stations: stationStore, heads: headStore, attempts: attemptStore})
+	}, linkDeps{stations: stationStore, heads: headStore, attempts: attemptStore,
+		routable: routableStore})
 	if err != nil {
 		// A misconfigured root is a REFUSAL, not a reason to generate one: issuing under a
 		// root nobody chose is how every certificate on the network becomes unverifiable.

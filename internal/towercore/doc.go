@@ -44,6 +44,9 @@
 //	         replay or a fork rather than guessing.
 //	policy   the seam through which inv asks Core the questions it may not answer alone -
 //	         bans, owners, revoked keys, allowed models, price bands. Fails closed.
+//	fleet    the fleet-wide view of which Stations are routable, so a broker that is not
+//	         holding a Tower's link can still route to it. A read model over inv, never
+//	         authority: every dispatch re-checks the attachment before issuing anything.
 //	dispatch one unit of work handed to one Station and one verifiable answer back: a
 //	         one-use grant Core signs, and a receipt the Station signs over the exact bytes
 //	         it returned. Carries no money - Tower-backed work is uncompensated in v1.

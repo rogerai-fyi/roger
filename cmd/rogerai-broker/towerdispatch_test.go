@@ -34,6 +34,7 @@ import (
 	"rogerai.fm/roger/v5/internal/towercore/cert"
 	"rogerai.fm/roger/v5/internal/towercore/dispatch"
 	"rogerai.fm/roger/v5/internal/towercore/enroll"
+	"rogerai.fm/roger/v5/internal/towercore/fleet"
 	"rogerai.fm/roger/v5/internal/towercore/head"
 	"rogerai.fm/roger/v5/internal/towercore/link"
 )
@@ -358,12 +359,13 @@ func twoBrokers(t *testing.T) (*broker, *httptest.Server, *broker, *httptest.Ser
 	t.Helper()
 	registry, custody, enrollment := admit.NewMemStore(), cert.NewMemCustody(), enroll.NewMemStore()
 	stations, heads, attempts := attach.NewMemStore(), head.NewMemStore(), dispatch.NewMemStore()
+	routable := fleet.NewMemStore()
 	shared := store.NewMem()
 
 	build := func() (*broker, *httptest.Server) {
 		b := testBrokerWithDB(shared)
 		ts, err := newTowerSubsystem(b, registry, custody, enrollment, cert.Config{TTL: time.Hour},
-			linkDeps{stations: stations, heads: heads, attempts: attempts})
+			linkDeps{stations: stations, heads: heads, attempts: attempts, routable: routable})
 		require.NoError(t, err)
 		b.tower = ts
 		mux := http.NewServeMux()
@@ -500,17 +502,16 @@ func TestBothBrokersSignGrantsTheSameStationAccepts(t *testing.T) {
 	require.NotNil(t, got.Receipt)
 }
 
-// A KNOWN LIMIT, pinned so it is a decision rather than a surprise.
+// A BROKER CAN ROUTE TO A TOWER CONNECTED ELSEWHERE.
 //
-// Selecting a Tower Station needs two things that are still per-instance: the live LINK
-// SESSION (a Tower holds one connection, to one broker) and the ACCEPTED INVENTORY. So a
-// broker that is not the one holding a Tower's link cannot currently choose it, and the
-// request falls back to the ordinary "no node offers this model" refusal.
+// A Tower holds ONE link, to ONE broker, and its accepted inventory lives in that instance's
+// memory - so every other broker used to be unable to see the Station at all and fell back
+// to "no node offers this model". With two brokers a perfectly healthy Tower served roughly
+// half the requests it should have, and nothing anywhere reported a problem.
 //
-// Nothing is served twice and no wrong answer is produced - this costs OPPORTUNITY, not
-// correctness, which is why it is a test rather than a blocker. What it needs is the routable
-// leaves in a place both brokers can read, the way node registrations already are.
-func TestABrokerCannotYetRouteToATowerConnectedElsewhere(t *testing.T) {
+// This assertion was the inverse until the fleet projection existed; it is inverted rather
+// than deleted because the inversion is the change.
+func TestABrokerCanRouteToATowerConnectedElsewhere(t *testing.T) {
 	a, aSrv, c, _ := twoBrokers(t)
 	op := signedInOperator(t, a, "octocat")
 	_, _ = dispatchable(t, a, aSrv, op)
@@ -518,13 +519,58 @@ func TestABrokerCannotYetRouteToATowerConnectedElsewhere(t *testing.T) {
 	_, ok := a.pickTowerStation("roger-1")
 	require.True(t, ok, "the broker holding the link can route to it")
 
-	_, ok = c.pickTowerStation("roger-1")
-	require.False(t, ok, "and the other one cannot - yet")
+	target, ok := c.pickTowerStation("roger-1")
+	require.True(t, ok, "and so can the one that has never seen this Tower's link")
+	require.NotEmpty(t, target.StationID)
+	require.NotEmpty(t, target.AssertionKey,
+		"with the key from the ATTACHMENT, never from the projection")
+}
 
-	// It declines rather than erring, so the caller gets the ordinary refusal.
-	rec := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader("{}"))
-	require.False(t, c.tryTowerDispatch(rec, r, "roger-1", []byte(`{"model":"roger-1"}`), false))
+// THE PROJECTION IS A HINT, NOT AUTHORITY. Every check is re-run against the registry and
+// the attachment before a grant is issued, so a Station that has since been revoked - or a
+// Tower that has since been suspended - is not dispatched to however fresh the row looks.
+func TestTheFleetViewNeverOverridesAuthority(t *testing.T) {
+	a, aSrv, c, _ := twoBrokers(t)
+	op := signedInOperator(t, a, "octocat")
+	lt, stn := dispatchable(t, a, aSrv, op)
+
+	_, ok := c.pickTowerStation("roger-1")
+	require.True(t, ok)
+
+	// Suspended on A. C's projection still lists the Station.
+	require.NoError(t, a.tower.registry.Transition(lt.id, admit.StateSuspended))
+	_, ok = c.pickTowerStation("roger-1")
+	require.False(t, ok, "a suspended Tower's rows must not be dispatched to")
+
+	// Back in service, then the STATION is revoked.
+	require.NoError(t, a.tower.registry.Transition(lt.id, admit.StateQuarantine))
+	require.NoError(t, a.tower.registry.Transition(lt.id, admit.StateActive))
+	_, ok = c.pickTowerStation("roger-1")
+	require.True(t, ok)
+
+	_, err := a.tower.stations.Revoke(stn.StationID)
+	require.NoError(t, err)
+	_, ok = c.pickTowerStation("roger-1")
+	require.False(t, ok, "a revoked Station must not be dispatched to")
+}
+
+// A DRAIN WITHDRAWS THE FLEET EVERYWHERE. That is the whole difference between draining and
+// walking away: the capacity stops being offered at once rather than aging out.
+func TestDrainingWithdrawsTheFleetFromEveryBroker(t *testing.T) {
+	a, aSrv, c, _ := twoBrokers(t)
+	op := signedInOperator(t, a, "octocat")
+	lt, _ := dispatchable(t, a, aSrv, op)
+
+	_, ok := c.pickTowerStation("roger-1")
+	require.True(t, ok)
+
+	code, raw := lt.call(t, aSrv, "/tower/session/close", jsonOf(t, link.Frame{
+		Network: link.PublicNetwork, Version: 1, TowerID: lt.id,
+	}), nil)
+	require.Equal(t, http.StatusOK, code, raw)
+
+	_, ok = c.pickTowerStation("roger-1")
+	require.False(t, ok, "a drained Tower is offered by nobody")
 }
 
 // THE ANSWER CROSSES BACK. The caller waits on the broker that issued the grant, and the
