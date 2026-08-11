@@ -38,7 +38,7 @@ import (
 // serveJoined runs the link until the process is interrupted. It supplies the two things the
 // loop cannot invent for itself - a real signal and a real clock - and then gets out of the
 // way; everything that can go wrong is in runLink, where a test can reach it.
-func serveJoined(st *tower.State, out io.Writer, stations stationEndpoints) error {
+func serveJoined(st *tower.State, out io.Writer, stations stationEndpoints, relayAddr string, routes relayRoutes) error {
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(stop)
@@ -52,6 +52,14 @@ func serveJoined(st *tower.State, out io.Writer, stations stationEndpoints) erro
 		close(stopped)
 	}()
 
+	// THE DATA PLANE, alongside the link. It is what takes load off Roger Core, and it runs
+	// independently: a Tower whose link is briefly down is still carrying sessions that were
+	// already authorized, and cutting them off would turn a control-plane blip into a
+	// customer-visible outage.
+	if relayAddr != "" {
+		waitForRelay := runRelayInBackground(relayAddr, routes, out, stopped)
+		defer waitForRelay()
+	}
 	return runLink(st, out, stopped, realTicker, stations)
 }
 
@@ -281,14 +289,23 @@ func localOffers(st *tower.State, out io.Writer) ([]json.RawMessage, error) {
 func cmdServe(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	dir, cfg := dirAndConfig(fs)
-	var stationFlags multiFlag
+	var stationFlags, relayFlags multiFlag
 	fs.Var(&stationFlags, "station", "a Station this Tower serves, as ID=URL (repeatable)")
+	fs.Var(&relayFlags, "relay-station", "a Station this Tower RELAYS to, as ID=HOST:PORT (repeatable)")
+	relayAddr := fs.String("relay", "", "address to relay consumer traffic on, e.g. :8443")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	stations, err := parseStationEndpoints(stationFlags)
 	if err != nil {
 		return err
+	}
+	routes, err := parseRelayRoutes(relayFlags)
+	if err != nil {
+		return err
+	}
+	if *relayAddr != "" && len(routes) == 0 {
+		return fmt.Errorf("--relay needs at least one --relay-station ID=HOST:PORT to route to")
 	}
 	// serve takes --config for the same reason the state commands do, and it matters MORE
 	// here: an operator whose `attach` wrote to the database while `serve` read local disk
@@ -298,5 +315,5 @@ func cmdServe(args []string, out io.Writer) error {
 		return err
 	}
 	defer release()
-	return serveJoined(st, out, stations)
+	return serveJoined(st, out, stations, *relayAddr, routes)
 }
