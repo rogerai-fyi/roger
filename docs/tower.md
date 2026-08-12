@@ -384,6 +384,10 @@ the settlement, or settlement must be derived from the ledger rather than mirror
 | Station TLS identity, CSR/install, HTTPS serving | built |
 | Edge grant (scope-bounded), consumer ack, corroborated settlement | built |
 | Certificate + lease renewal (Core route and Tower schedule) | built |
+| Reputation ledger (per-Tower outcomes, rate, flag/suspend) | built |
+| Canaries (Core probes a Tower by using it) | built |
+| Sampled transcript audit (Station-signed, checked against receipt digests) | built |
+| Core-issued edge TLS certificates (`/tower/station/edge-cert`) | built |
 | First-party edge consumer (`internal/edgeclient`, `roger-tower probe`) | built |
 | Mutual TLS on the link, and therefore certificate revocation | **not built** — the Tower authenticates by signed requests instead |
 | Canaries | **not built** |
