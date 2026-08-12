@@ -259,3 +259,55 @@ func TestADeadDatabaseIsReportedRatherThanReadAsAnEmptyFleet(t *testing.T) {
 	_, err = s.Reap(now)
 	require.Error(t, err)
 }
+
+// RoutableTowers lists distinct Towers that could carry an edge attempt - those with an
+// unexpired endpoint row - on both stores, so a canary sweep probes the same fleet either way.
+func TestParityRoutableTowers(t *testing.T) {
+	now := time.Now()
+	exp := now.Add(time.Hour)
+	for name, s := range stores(t) {
+		t.Run(name, func(t *testing.T) {
+			// tw-edge has an endpoint; tw-relayonly is routable but has no data plane; tw-stale
+			// has an endpoint that has expired.
+			withEndpoint := row("tw-edge", "st-1", "of-1", "m", exp)
+			require.NoError(t, s.Replace("tw-edge", []Station{withEndpoint}))
+
+			noEndpoint := row("tw-relayonly", "st-2", "of-2", "m", exp)
+			noEndpoint.Endpoint = ""
+			require.NoError(t, s.Replace("tw-relayonly", []Station{noEndpoint}))
+
+			stale := row("tw-stale", "st-3", "of-3", "m", now.Add(-time.Minute))
+			require.NoError(t, s.Replace("tw-stale", []Station{stale}))
+
+			towers, err := s.RoutableTowers(now)
+			require.NoError(t, err)
+			require.Equal(t, []string{"tw-edge"}, towers,
+				"only a Tower with an unexpired data plane can be canaried")
+		})
+	}
+}
+
+// ByTower is a Tower's own unexpired rows - the canary's window into what it can probe -
+// on both stores.
+func TestParityByTower(t *testing.T) {
+	now := time.Now()
+	for name, s := range stores(t) {
+		t.Run(name, func(t *testing.T) {
+			require.NoError(t, s.Replace("tw-1", []Station{
+				row("tw-1", "st-a", "of-a", "m", now.Add(time.Hour)),
+				func() Station { r := row("tw-1", "st-old", "of-old", "m", now.Add(-time.Minute)); return r }(),
+			}))
+			require.NoError(t, s.Replace("tw-2", []Station{row("tw-2", "st-b", "of-b", "m", now.Add(time.Hour))}))
+
+			mine, err := s.ByTower("tw-1", now)
+			require.NoError(t, err)
+			require.Len(t, mine, 1, "only this Tower's unexpired rows")
+			require.Equal(t, "st-a", mine[0].StationID)
+			require.Equal(t, "203.0.113.7:8443", mine[0].Endpoint)
+
+			none, err := s.ByTower("tw-nobody", now)
+			require.NoError(t, err)
+			require.Empty(t, none)
+		})
+	}
+}

@@ -176,6 +176,11 @@ func (c *Client) Do(ctx context.Context, auth Authorization, path string, body [
 	}, nil
 }
 
+// Receipt is the base64 Station receipt that came back in the response header, for a caller
+// that verifies it itself - a canary checks the receipt is a valid Station signature over the
+// bytes, which is how it tells a Tower that served from one that returned nothing.
+func (r Result) Receipt() string { return r.receipt }
+
 // Ack tells Core what was actually received. Best effort by design: a consumer that cannot
 // reach Core has still been served, and the attempt settles uncorroborated without it.
 func (c *Client) Ack(ctx context.Context, auth Authorization, res Result) error {

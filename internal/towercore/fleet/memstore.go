@@ -69,3 +69,36 @@ func (m *memStore) Reap(now time.Time) (int64, error) {
 	}
 	return n, nil
 }
+
+// RoutableTowers lists distinct Towers with an unexpired endpoint row.
+func (m *memStore) RoutableTowers(now time.Time) ([]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	seen := map[string]bool{}
+	var out []string
+	for tower, rows := range m.by {
+		for _, r := range rows {
+			if r.Endpoint != "" && now.Before(r.Expires) {
+				if !seen[tower] {
+					seen[tower] = true
+					out = append(out, tower)
+				}
+				break
+			}
+		}
+	}
+	return out, nil
+}
+
+// ByTower is a Tower's unexpired rows.
+func (m *memStore) ByTower(towerID string, now time.Time) ([]Station, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []Station
+	for _, r := range m.by[towerID] {
+		if now.Before(r.Expires) {
+			out = append(out, r)
+		}
+	}
+	return out, nil
+}

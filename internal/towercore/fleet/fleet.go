@@ -56,4 +56,11 @@ type Store interface {
 	Forget(towerID string) error
 	// Reap drops expired rows.
 	Reap(now time.Time) (int64, error)
+	// RoutableTowers is the distinct Towers that have at least one unexpired row with a data
+	// plane, so Core can canary each one that could actually carry an edge attempt. A Tower
+	// with routable Stations but no endpoint is not listed: there is nothing to probe.
+	RoutableTowers(now time.Time) ([]string, error)
+	// ByTower is a Tower's own unexpired rows, so a canary can find a Station to probe behind
+	// exactly that Tower without depending on which instance holds its link.
+	ByTower(towerID string, now time.Time) ([]Station, error)
 }

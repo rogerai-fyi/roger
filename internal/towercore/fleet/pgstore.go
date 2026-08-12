@@ -103,6 +103,48 @@ func (p *PGStore) Forget(towerID string) error {
 	return err
 }
 
+// RoutableTowers lists distinct Towers with an unexpired endpoint row.
+func (p *PGStore) RoutableTowers(now time.Time) ([]string, error) {
+	rows, err := p.db.Query(`
+		SELECT DISTINCT tower_id FROM rogerai.tower_routable
+		 WHERE endpoint <> '' AND expires > $1`, now.UTC())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
+// ByTower is a Tower's unexpired rows.
+func (p *PGStore) ByTower(towerID string, now time.Time) ([]Station, error) {
+	rows, err := p.db.Query(`
+		SELECT tower_id, station_id, offer_id, model, modality, capacity, expires, endpoint
+		  FROM rogerai.tower_routable WHERE tower_id = $1 AND expires > $2`, towerID, now.UTC())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Station
+	for rows.Next() {
+		var st Station
+		if err := rows.Scan(&st.TowerID, &st.StationID, &st.OfferID, &st.Model, &st.Modality,
+			&st.Capacity, &st.Expires, &st.Endpoint); err != nil {
+			return nil, err
+		}
+		st.Expires = st.Expires.UTC()
+		out = append(out, st)
+	}
+	return out, rows.Err()
+}
+
 func (p *PGStore) Reap(now time.Time) (int64, error) {
 	res, err := p.db.Exec(`DELETE FROM rogerai.tower_routable WHERE expires <= $1`, now)
 	if err != nil {

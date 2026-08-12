@@ -451,6 +451,7 @@ func runServe(ln net.Listener, fee, seed float64, lock time.Duration, stop <-cha
 	go b.recountHoldSweep(stop)       // auto-expire recount holds past the review window (operator recourse)
 	go b.nodeBanSweep(stop)           // auto-lift report-origin node suspensions past the review window (reversible bans)
 	go b.towerInviteSweep(stop)       // delete expired unredeemed Station invitations (consumed ones answer retries)
+	go b.towerCanarySweep(stop)       // probe each Tower with a data plane; a Tower serving nothing is caught here
 	go b.reversalRetrySweep(stop)     // re-attempt failed Stripe transfer-reversals (silent-money-leak guard)
 	go b.pruneStaleNodesSweep(stop)   // remove long-dead node registrations (old hostname ids that never re-register)
 	go b.refPriceSync(stop)           // refresh same-model external reference prices for the buyer-facing $-tier

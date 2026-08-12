@@ -19,6 +19,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -1359,5 +1360,98 @@ func TestATranscriptForAGoneStationIsRefused(t *testing.T) {
 	require.NoError(t, err)
 	var out map[string]any
 	code, _ := tw.call(t, srv, "/tower/audit/transcript", body, &out)
+	require.Equal(t, http.StatusServiceUnavailable, code)
+}
+
+// evaluateTower on a Tower that is already off logs the failed move rather than panicking:
+// the evidence still stands, and a Tower cannot be suspended out of a terminal state.
+func TestEvaluatingAnAlreadyRevokedTowerIsHarmless(t *testing.T) {
+	b, _ := towerTestBroker(t)
+	tw := enrolledTower(t, b, "owner-1")
+	require.NoError(t, b.tower.registry.Transition(tw.id, admit.StateRevoked))
+
+	b.recordOutcome(tw.id, "att-bad", reputation.AuditMismatch)
+	require.Equal(t, reputation.Quarantine, b.evaluateTower(tw.id),
+		"the verdict stands even when the Tower cannot be moved")
+	got, _ := b.tower.registry.Get(tw.id)
+	require.Equal(t, admit.StateRevoked, got.State, "a revoked Tower stays revoked")
+}
+
+// A settlement records its outcome even when evaluation finds nothing to act on - the ledger
+// is written on every attempt, which is what makes the rate meaningful.
+func TestEverySettlementIsRecordedNotJustTheBadOnes(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	tw := enrolledTower(t, b, "owner-1")
+	stationPriv := attachStation(t, b, "st-1", tw.id, "owner-1")
+	require.NoError(t, b.tower.registry.Transition(tw.id, admit.StateActive))
+
+	for i := 0; i < 3; i++ {
+		id := "att-" + string(rune('a'+i))
+		issuedAttempt(t, b, id, tw.id, "st-1")
+		body, err := json.Marshal(map[string]any{
+			"tower_id": tw.id, "station_id": "st-1", "attempt_id": id,
+			"receipt": signedReceipt(t, stationPriv, id, "st-1", []byte("a"), dispatch.Usage{In: 1, Out: 1}),
+		})
+		require.NoError(t, err)
+		var out map[string]any
+		code, _ := tw.call(t, srv, "/tower/edge/settle", body, &out)
+		require.Equal(t, http.StatusOK, code)
+	}
+	tally, err := b.tower.outcomes.Tally(tw.id, time.Now().Add(-time.Hour))
+	require.NoError(t, err)
+	require.Equal(t, 3, tally.Total)
+	got, _ := b.tower.registry.Get(tw.id)
+	require.Equal(t, admit.StateActive, got.State, "ordinary settlement does not touch the Tower")
+}
+
+// --- fault injection: the error branches that guard every store call ----------
+
+type failingOutcomes struct{}
+
+func (failingOutcomes) Record(reputation.Event) error { return assertErr2 }
+func (failingOutcomes) Tally(string, time.Time) (reputation.Tally, error) {
+	return reputation.Tally{}, assertErr2
+}
+func (failingOutcomes) FleetTally(time.Time) (reputation.Tally, error) {
+	return reputation.Tally{}, assertErr2
+}
+func (failingOutcomes) Reap(time.Time) (int64, error) { return 0, assertErr2 }
+
+type failingAudit struct{}
+
+func (failingAudit) Want(audit.Wanted) error { return assertErr2 }
+func (failingAudit) Pending(string, time.Time) ([]audit.Wanted, error) {
+	return nil, assertErr2
+}
+func (failingAudit) Resolve(string) error                      { return assertErr2 }
+func (failingAudit) Overdue(time.Time) ([]audit.Wanted, error) { return nil, assertErr2 }
+
+var assertErr2 = errors.New("store is down")
+
+// A store that will not answer must never panic and never gate the money: every helper logs
+// and carries on, because a reputation or audit write is downstream of a committed settlement.
+func TestStoreFailuresAreLoggedNotFatal(t *testing.T) {
+	b, _ := towerTestBroker(t)
+	tw := enrolledTower(t, b, "owner-1")
+	require.NoError(t, b.tower.registry.Transition(tw.id, admit.StateActive))
+	b.tower.outcomes = failingOutcomes{}
+	b.tower.auditWanted = failingAudit{}
+
+	require.NotPanics(t, func() { b.recordOutcome(tw.id, "att", reputation.Uncorroborated) })
+	// evaluateTower cannot read the tally, so it declines to act rather than acting on nothing.
+	require.Equal(t, reputation.Clean, b.evaluateTower(tw.id))
+	require.NotPanics(t, func() { b.selectForAudit(tw.id, "st-1", "att", "rq", "rs") })
+	require.NotPanics(t, func() { b.sweepAuditOverdue(time.Now()) })
+}
+
+// The wanted-list endpoint answers a store failure with unavailable, not a panic.
+func TestTheWantedEndpointHandlesAStoreFailure(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	tw := enrolledTower(t, b, "owner-1")
+	b.tower.auditWanted = failingAudit{}
+	body, err := json.Marshal(map[string]any{"tower_id": tw.id})
+	require.NoError(t, err)
+	var out map[string]any
+	code, _ := tw.call(t, srv, "/tower/audit/wanted", body, &out)
 	require.Equal(t, http.StatusServiceUnavailable, code)
 }
