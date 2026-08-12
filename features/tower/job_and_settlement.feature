@@ -1,6 +1,10 @@
 # APPROVED SPEC - founder approved 2026-08-03. Changes to an approved scenario need
 # re-approval; they are not a diff to be reviewed.
 #
+# BUILD STATUS: PARTIAL. Approval is not implementation - this line says which.
+# Enforced by internal/towercore/featurestatus_test.go against the "Contract:"
+# references in the code. Changing the status without changing the code fails.
+#
 # Scope: outer/inner transport security, execution-grant integrity, exact job/result
 # context binding, replay/failure behavior, and the authoritative settlement transition.
 # Receipt object canonicalization and public verification are in receipt_v2.feature.

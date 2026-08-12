@@ -1,6 +1,10 @@
 # APPROVED SPEC - founder approved 2026-08-03. Changes to an approved scenario need
 # re-approval; they are not a diff to be reviewed.
 #
+# BUILD STATUS: NOT BUILT. Approval is not implementation - this line says which.
+# Enforced by internal/towercore/featurestatus_test.go against the "Contract:"
+# references in the code. Changing the status without changing the code fails.
+#
 # Scope: standalone/private client lifecycle, Station routing, local policy, request replay,
 # grant/result integrity, free accounting, receipt verification, retry, and failure. It has no
 # RogerAI public membership, credits, holds, settlement, or compensation.

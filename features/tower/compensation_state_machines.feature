@@ -1,6 +1,10 @@
 # APPROVED SPEC - founder approved 2026-08-03. Changes to an approved scenario need
 # re-approval; they are not a diff to be reviewed.
 #
+# BUILD STATUS: NOT BUILT. Approval is not implementation - this line says which.
+# Enforced by internal/towercore/featurestatus_test.go against the "Contract:"
+# references in the code. Changing the status without changing the code fails.
+#
 # Scope: exact immutable candidate, cumulative entitlement, program control totals,
 # payout-lot, reservation, and operator-debt states for the founder-approved compensated
 # Tower tier. Arithmetic and external-event authentication are specified in

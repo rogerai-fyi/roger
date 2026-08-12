@@ -1,5 +1,9 @@
 # DRAFT SPEC - NOT YET APPROVED. Written for the founder approval gate.
 #
+# BUILD STATUS: NOT BUILT. Approval is not implementation - this line says which.
+# Enforced by internal/towercore/featurestatus_test.go against the "Contract:"
+# references in the code. Changing the status without changing the code fails.
+#
 # Supersedes four scenarios in job_and_settlement.feature, listed at the end of this file
 # and in docs/tower-edge-design.md. Those four rest on Roger Core seeing the request before
 # dispatch and observing the bytes in transit. On the edge path it does neither, which is

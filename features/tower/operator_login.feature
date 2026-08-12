@@ -1,6 +1,10 @@
 # APPROVED SPEC - founder approved 2026-08-03. Changes to an approved scenario need
 # re-approval; they are not a diff to be reviewed.
 #
+# BUILD STATUS: PARTIAL. Approval is not implementation - this line says which.
+# Enforced by internal/towercore/featurestatus_test.go against the "Contract:"
+# references in the code. Changing the status without changing the code fails.
+#
 # Scope: the operator-facing account flow for `roger-tower` — when an account is needed,
 # when it is not, and what the operator sees. The enrollment PROTOCOL (tokens, CSRs,
 # certificates, lifecycle) is public_enrollment.feature; this is the human half.

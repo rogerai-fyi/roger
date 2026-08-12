@@ -1,6 +1,10 @@
 # APPROVED SPEC - founder approved 2026-08-03. Changes to an approved scenario need
 # re-approval; they are not a diff to be reviewed.
 #
+# BUILD STATUS: PARTIAL. Approval is not implementation - this line says which.
+# Enforced by internal/towercore/featurestatus_test.go against the "Contract:"
+# references in the code. Changing the status without changing the code fails.
+#
 # Scope: account-bound joined-Tower enrollment, proof of possession, short-lived identity,
 # lifecycle, certificate rotation, revocation, and public-advertisement authority.
 

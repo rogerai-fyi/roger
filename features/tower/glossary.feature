@@ -1,6 +1,10 @@
 # APPROVED SPEC - founder approved 2026-08-03. Changes to an approved scenario need
 # re-approval; they are not a diff to be reviewed.
 #
+# BUILD STATUS: REFERENCE. Approval is not implementation - this line says which.
+# Enforced by internal/towercore/featurestatus_test.go against the "Contract:"
+# references in the code. Changing the status without changing the code fails.
+#
 # Scope: the normative definitions of the load-bearing vocabulary used by every other
 # features/tower/*.feature file. This file is the SOURCE OF TRUTH for what these terms mean.
 # Where another file uses one of these terms, it inherits the meaning pinned here and must

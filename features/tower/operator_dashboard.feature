@@ -1,6 +1,10 @@
 # APPROVED SPEC - founder approved 2026-08-03. Changes to an approved scenario need
 # re-approval; they are not a diff to be reviewed.
 #
+# BUILD STATUS: NOT BUILT. Approval is not implementation - this line says which.
+# Enforced by internal/towercore/featurestatus_test.go against the "Contract:"
+# references in the code. Changing the status without changing the code fails.
+#
 # Scope: what a TOWER operator sees about the Tower they host — its identity and
 # admission state, its certificate and lease lifecycle, the Stations attached to it, the
 # traffic it actually relayed, and its compensation. This is the operator-facing twin of
