@@ -12,7 +12,9 @@ package main
 // Tower cannot settle for a Station behind somebody else's origin.
 
 import (
+	"crypto/ecdsa"
 	"crypto/ed25519"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/x509"
@@ -30,6 +32,7 @@ import (
 	"rogerai.fm/roger/v5/internal/protocol"
 	"rogerai.fm/roger/v5/internal/store"
 	"rogerai.fm/roger/v5/internal/towercore/admit"
+	"rogerai.fm/roger/v5/internal/towercore/attach"
 	"rogerai.fm/roger/v5/internal/towercore/audit"
 	"rogerai.fm/roger/v5/internal/towercore/dispatch"
 	"rogerai.fm/roger/v5/internal/towercore/fleet"
@@ -1454,4 +1457,239 @@ func TestTheWantedEndpointHandlesAStoreFailure(t *testing.T) {
 	var out map[string]any
 	code, _ := tw.call(t, srv, "/tower/audit/wanted", body, &out)
 	require.Equal(t, http.StatusServiceUnavailable, code)
+}
+
+// --- edge certificate issuance -----------------------------------------------
+
+// The operator gets their Station an edge TLS certificate, for the name Core chose, over the
+// key the CSR proved possession of.
+func TestAnOperatorGetsTheirStationAnEdgeCertificate(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	op := signedInOperator(t, b, "alice")
+	opPub := hexOf(op.priv.Public().(ed25519.PublicKey))
+	tw := enrolledTower(t, b, "owner-1")
+	// Attach a Station owned by this operator's pubkey.
+	attachStationOwned(t, b, "st-1", tw.id, opPub)
+
+	// The Station's TLS key and CSR, exactly as `roger-station csr` produces.
+	stKey, err := ecdsaKey(t)
+	require.NoError(t, err)
+	csrDER := csrFor(t, stKey, "whatever-name-the-station-put")
+
+	code, msg := op.call(t, srv, http.MethodPost, "/tower/station/edge-cert", map[string]any{
+		"station_id": "st-1", "csr": base64.StdEncoding.EncodeToString(csrDER),
+	}, nil)
+	require.Equal(t, http.StatusOK, code, msg)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal([]byte(msg), &out))
+	require.Equal(t, "st-1."+relayDomain(), out["relay_name"],
+		"Core chooses the name, not the CSR")
+	certDER, err := base64.StdEncoding.DecodeString(out["certificate"].(string))
+	require.NoError(t, err)
+	leaf, err := x509parse(certDER)
+	require.NoError(t, err)
+	require.Equal(t, []string{"st-1." + relayDomain()}, leaf.DNSNames)
+	// The cert binds the key the CSR carried - re-issuing over a fresh CSR key would not match.
+	require.True(t, stKey.PublicKey.Equal(leaf.PublicKey))
+}
+
+// A Station that is not this account's is refused, indistinguishably from one that does not
+// exist - the endpoint cannot enumerate other people's Stations.
+func TestEdgeCertRefusesAStationNotYours(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	op := signedInOperator(t, b, "alice")
+	tw := enrolledTower(t, b, "owner-1")
+	attachStationOwned(t, b, "st-1", tw.id, "somebody-elses-pubkey")
+
+	stKey, err := ecdsaKey(t)
+	require.NoError(t, err)
+	code, _ := op.call(t, srv, http.MethodPost, "/tower/station/edge-cert", map[string]any{
+		"station_id": "st-1", "csr": base64.StdEncoding.EncodeToString(csrFor(t, stKey, "x")),
+	}, nil)
+	require.Equal(t, http.StatusNotFound, code)
+}
+
+// A CSR whose signature does not check out is refused - a certificate over a key the caller
+// does not hold authenticates the wrong party.
+func TestEdgeCertRefusesAnUnsignedCSR(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	op := signedInOperator(t, b, "alice")
+	opPub := hexOf(op.priv.Public().(ed25519.PublicKey))
+	tw := enrolledTower(t, b, "owner-1")
+	attachStationOwned(t, b, "st-1", tw.id, opPub)
+
+	code, _ := op.call(t, srv, http.MethodPost, "/tower/station/edge-cert", map[string]any{
+		"station_id": "st-1", "csr": base64.StdEncoding.EncodeToString([]byte("not a csr")),
+	}, nil)
+	require.Equal(t, http.StatusBadRequest, code)
+}
+
+func TestEdgeCertNeedsASignedAccountAndArguments(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	// Unsigned.
+	resp, err := http.Post(srv.URL+"/tower/station/edge-cert", "application/json",
+		strings.NewReader(`{"station_id":"st-1","csr":"x"}`))
+	require.NoError(t, err)
+	resp.Body.Close()
+	require.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+
+	// Signed but missing fields.
+	op := signedInOperator(t, b, "alice")
+	code, _ := op.call(t, srv, http.MethodPost, "/tower/station/edge-cert",
+		map[string]any{"station_id": "st-1"}, nil)
+	require.Equal(t, http.StatusBadRequest, code)
+}
+
+// attachStationOwned attaches a Station under a given owner pubkey.
+func attachStationOwned(t *testing.T, b *broker, stationID, towerID, owner string) {
+	t.Helper()
+	_, apub, err := ed25519.GenerateKey(rand.Reader)
+	_ = apub
+	require.NoError(t, err)
+	pub, _, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	sessionRaw := make([]byte, 32)
+	copy(sessionRaw, stationID)
+	assertion := hexOf(pub)
+	sess := hexOf(ed25519.PublicKey(sessionRaw))
+	authObj, secret, err := attach.NewInvite(attach.Authorization{
+		ID: "auth-" + stationID, Network: link.PublicNetwork, StationID: stationID, Owner: owner,
+		Origin:       attach.Origin{Kind: attach.OriginJoined, TowerID: towerID},
+		AssertionKey: assertion, SessionKey: sess,
+	}, time.Hour, time.Now())
+	require.NoError(t, err)
+	require.NoError(t, b.tower.stationStore.PutAuthorization(authObj))
+	_, err = b.tower.stations.Admit(attach.Proof{
+		AuthID: "auth-" + stationID, Secret: secret, Network: link.PublicNetwork,
+		StationID: stationID, Owner: owner,
+		Origin:       attach.Origin{Kind: attach.OriginJoined, TowerID: towerID},
+		AssertionKey: assertion, SessionKey: sess,
+	})
+	require.NoError(t, err)
+	_, err = b.tower.stations.Promote(stationID)
+	require.NoError(t, err)
+}
+
+func ecdsaKey(t *testing.T) (*ecdsa.PrivateKey, error) {
+	t.Helper()
+	return ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+}
+
+func csrFor(t *testing.T, key *ecdsa.PrivateKey, name string) []byte {
+	t.Helper()
+	der, err := x509.CreateCertificateRequest(rand.Reader,
+		&x509.CertificateRequest{Subject: pkix.Name{CommonName: name}, DNSNames: []string{name}}, key)
+	require.NoError(t, err)
+	return der
+}
+
+func x509parse(der []byte) (*x509.Certificate, error) { return x509.ParseCertificate(der) }
+
+// Edge-cert refusals for the remaining malformed inputs and store faults.
+func TestEdgeCertRemainingRefusals(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	op := signedInOperator(t, b, "alice")
+	opPub := hexOf(op.priv.Public().(ed25519.PublicKey))
+	tw := enrolledTower(t, b, "owner-1")
+	attachStationOwned(t, b, "st-1", tw.id, opPub)
+
+	// Bad base64 CSR.
+	code, _ := op.call(t, srv, http.MethodPost, "/tower/station/edge-cert",
+		map[string]any{"station_id": "st-1", "csr": "!!!not base64"}, nil)
+	require.Equal(t, http.StatusBadRequest, code)
+
+	// A CSR that is valid base64 but not a CSR.
+	code, _ = op.call(t, srv, http.MethodPost, "/tower/station/edge-cert",
+		map[string]any{"station_id": "st-1", "csr": base64.StdEncoding.EncodeToString([]byte("not a csr"))}, nil)
+	require.Equal(t, http.StatusBadRequest, code)
+
+	// A Station id for one that does not exist at all - same 404 as one that is not ours.
+	stKey, err := ecdsaKey(t)
+	require.NoError(t, err)
+	code, _ = op.call(t, srv, http.MethodPost, "/tower/station/edge-cert",
+		map[string]any{"station_id": "st-ghost", "csr": base64.StdEncoding.EncodeToString(csrFor(t, stKey, "x"))}, nil)
+	require.Equal(t, http.StatusNotFound, code)
+}
+
+// An operator signed in but whose account is unknown to Core is refused.
+func TestEdgeCertRefusesAnUnboundAccount(t *testing.T) {
+	_, srv := towerTestBroker(t)
+	// An operator who signs but was never bound as an owner.
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	op := operator{priv: priv, login: "ghost"}
+	code, _ := op.call(t, srv, http.MethodPost, "/tower/station/edge-cert",
+		map[string]any{"station_id": "st-1", "csr": "AAAA"}, nil)
+	require.Equal(t, http.StatusUnauthorized, code)
+}
+
+// settleStore claims fine but fails to Settle, to hit the "claimed but not committed" branch.
+type settleFailStore struct{ dispatch.Store }
+
+func (s settleFailStore) Settle(string, time.Time) (dispatch.Record, error) {
+	return dispatch.Record{}, assertErr2
+}
+
+// A store that claims an attempt but cannot commit the settlement answers 503 rather than
+// pretending the attempt settled - the claim already succeeded, so this is a fault, not a race.
+func TestASettlementThatCannotCommitIsReported(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	tw := enrolledTower(t, b, "owner-1")
+	stationPriv := attachStation(t, b, "st-1", tw.id, "owner-1")
+	// Seed a real issued attempt in the underlying mem store, then wrap it so Settle fails.
+	base := b.tower.dispatch.Store()
+	require.NoError(t, base.Put(dispatch.Record{
+		AttemptID: "att-1", JobID: "j", TowerID: tw.id, StationID: "st-1", Model: "m",
+		Modality: "text", Nonce: "n", Deadline: time.Now().Add(time.Hour), State: dispatch.StateIssued,
+	}))
+	b.tower.dispatch = dispatch.NewWithStore(dispatch.Config{
+		Network: link.PublicNetwork, Lifetime: time.Minute,
+	}, settleFailStore{base})
+
+	body, err := json.Marshal(map[string]any{
+		"tower_id": tw.id, "station_id": "st-1", "attempt_id": "att-1",
+		"receipt": signedReceipt(t, stationPriv, "att-1", "st-1", []byte("a"), dispatch.Usage{In: 1, Out: 1}),
+	})
+	require.NoError(t, err)
+	var out map[string]any
+	code, _ := tw.call(t, srv, "/tower/edge/settle", body, &out)
+	require.Equal(t, http.StatusServiceUnavailable, code)
+}
+
+// Edge-cert issuance refuses when the CA is unavailable.
+func TestEdgeCertRefusesWithoutACA(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	op := signedInOperator(t, b, "alice")
+	opPub := hexOf(op.priv.Public().(ed25519.PublicKey))
+	tw := enrolledTower(t, b, "owner-1")
+	attachStationOwned(t, b, "st-1", tw.id, opPub)
+	b.tower.ca = nil
+
+	stKey, err := ecdsaKey(t)
+	require.NoError(t, err)
+	code, _ := op.call(t, srv, http.MethodPost, "/tower/station/edge-cert",
+		map[string]any{"station_id": "st-1", "csr": base64.StdEncoding.EncodeToString(csrFor(t, stKey, "x"))}, nil)
+	require.Equal(t, http.StatusServiceUnavailable, code)
+}
+
+// Renewal refuses malformed base64 in any of its fields.
+func TestRenewalRefusesMalformedFields(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	tw := enrolledTower(t, b, "owner-1")
+
+	body, err := json.Marshal(map[string]any{"tower_id": tw.id})
+	require.NoError(t, err)
+	var ch map[string]any
+	code, _ := tw.call(t, srv, "/tower/renew/challenge", body, &ch)
+	require.Equal(t, http.StatusOK, code, ch)
+
+	body, err = json.Marshal(map[string]any{
+		"tower_id": tw.id, "nonce": ch["nonce"],
+		"identity_key": "!!!not base64", "signature": "AAAA", "csr": "AAAA",
+	})
+	require.NoError(t, err)
+	var out map[string]any
+	code, _ = tw.call(t, srv, "/tower/renew", body, &out)
+	require.Equal(t, http.StatusBadRequest, code)
 }

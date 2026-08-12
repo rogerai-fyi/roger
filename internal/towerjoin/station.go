@@ -24,6 +24,7 @@ package towerjoin
 // and cannot be re-read: a lost invitation is re-issued, never recovered.
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -225,4 +226,48 @@ func SetOwnState(st *tower.State, state string) error {
 		return err
 	}
 	return signedPost(brokerBase()+"/tower/self/lifecycle", nil, body, nil)
+}
+
+// EdgeCert is a Station's issued edge certificate, as Core returned it.
+type EdgeCert struct {
+	StationID   string
+	RelayName   string
+	Certificate []byte // DER
+	CA          []byte // DER
+	NotAfter    int64
+}
+
+// RequestEdgeCert submits a Station's CSR to Core and returns the signed certificate.
+//
+// Operator-authenticated, like invite and revoke: getting a Station a public-facing
+// certificate under Roger Core's domain is an account decision, and the account is what Core
+// checks owns the Station.
+func RequestEdgeCert(stationID string, csrDER []byte) (EdgeCert, error) {
+	body, err := json.Marshal(map[string]any{
+		"station_id": stationID,
+		"csr":        base64.StdEncoding.EncodeToString(csrDER),
+	})
+	if err != nil {
+		return EdgeCert{}, err
+	}
+	var out struct {
+		StationID   string `json:"station_id"`
+		RelayName   string `json:"relay_name"`
+		Certificate string `json:"certificate"`
+		CA          string `json:"ca"`
+		NotAfter    int64  `json:"not_after"`
+	}
+	if err := signedPost(brokerBase()+"/tower/station/edge-cert", nil, body, &out); err != nil {
+		return EdgeCert{}, err
+	}
+	cert, err := base64.StdEncoding.DecodeString(out.Certificate)
+	if err != nil {
+		return EdgeCert{}, errors.New("Roger Core returned a certificate that could not be read")
+	}
+	ca, err := base64.StdEncoding.DecodeString(out.CA)
+	if err != nil {
+		return EdgeCert{}, errors.New("Roger Core returned an issuer certificate that could not be read")
+	}
+	return EdgeCert{StationID: out.StationID, RelayName: out.RelayName,
+		Certificate: cert, CA: ca, NotAfter: out.NotAfter}, nil
 }

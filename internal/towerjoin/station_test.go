@@ -18,10 +18,12 @@ package towerjoin
 //	        somebody else's origin, because the origin is taken from who signed.
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -423,4 +425,51 @@ func TestStatusAndRevokeFailUsefullyWhenTheyCannotAsk(t *testing.T) {
 	err = RevokeStation(joinedTower(t), "st-9")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "register")
+}
+
+// RequestEdgeCert submits a CSR and decodes the certificate Core returns.
+func TestRequestingAnEdgeCertificateReturnsIt(t *testing.T) {
+	core := newStationCore(t)
+	core.replies["/tower/station/edge-cert"] = func(w http.ResponseWriter) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"station_id":  "st-1",
+			"relay_name":  "st-1.relay.example",
+			"certificate": base64.StdEncoding.EncodeToString([]byte("cert-der")),
+			"ca":          base64.StdEncoding.EncodeToString([]byte("ca-der")),
+			"not_after":   time.Now().Add(time.Hour).Unix(),
+		})
+	}
+	_ = registeredTower(t)
+
+	got, err := RequestEdgeCert("st-1", []byte("csr-der"))
+	require.NoError(t, err)
+	require.Equal(t, "st-1.relay.example", got.RelayName)
+	require.Equal(t, []byte("cert-der"), got.Certificate)
+	require.Equal(t, []byte("ca-der"), got.CA)
+	require.Contains(t, core.seen, "/tower/station/edge-cert")
+	// The request was signed - it is an account decision.
+	require.NotEmpty(t, core.pubkeys["/tower/station/edge-cert"])
+}
+
+// A certificate Core returns as unreadable base64 is an error, not silent garbage.
+func TestAnUnreadableIssuedCertificateIsRejected(t *testing.T) {
+	core := newStationCore(t)
+	core.replies["/tower/station/edge-cert"] = func(w http.ResponseWriter) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"station_id": "st-1", "relay_name": "n", "certificate": "!!!", "ca": "AAAA",
+		})
+	}
+	_ = registeredTower(t)
+	_, err := RequestEdgeCert("st-1", []byte("csr"))
+	require.ErrorContains(t, err, "could not be read")
+}
+
+func TestAFailedEdgeCertRequestSurfaces(t *testing.T) {
+	core := newStationCore(t)
+	core.replies["/tower/station/edge-cert"] = func(w http.ResponseWriter) {
+		http.Error(w, `{"error":{"message":"no such Station on this account"}}`, http.StatusNotFound)
+	}
+	_ = registeredTower(t)
+	_, err := RequestEdgeCert("st-1", []byte("csr"))
+	require.ErrorContains(t, err, "no such Station")
 }

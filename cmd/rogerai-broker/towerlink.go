@@ -1027,10 +1027,11 @@ func (b *broker) registerTowerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/tower/inventory", b.towerInventory(false))      // Tower: full signed revision
 	mux.HandleFunc("/tower/inventory/delta", b.towerInventory(true)) // Tower: chained amendment
 
-	mux.HandleFunc("/tower/station/invite", b.towerStationInvite)   // operator: authorize a Station to attach
-	mux.HandleFunc("/tower/station/attach", b.towerStationAttach)   // Tower: redeem a Station invitation
-	mux.HandleFunc("/tower/station/revoke", b.towerStationRevoke)   // operator: retire a Station identity
-	mux.HandleFunc("/tower/station/promote", b.towerStationPromote) // admin: open the Station quarantine gate
+	mux.HandleFunc("/tower/station/invite", b.towerStationInvite)      // operator: authorize a Station to attach
+	mux.HandleFunc("/tower/station/attach", b.towerStationAttach)      // Tower: redeem a Station invitation
+	mux.HandleFunc("/tower/station/edge-cert", b.towerStationEdgeCert) // operator: get a Station its edge TLS certificate
+	mux.HandleFunc("/tower/station/revoke", b.towerStationRevoke)      // operator: retire a Station identity
+	mux.HandleFunc("/tower/station/promote", b.towerStationPromote)    // admin: open the Station quarantine gate
 
 	mux.HandleFunc("/tower/lease/expire", b.towerLeaseExpire)     // admin: take a Tower off the link now
 	mux.HandleFunc("/tower/lifecycle", b.towerLifecycle)          // admin: the Tower quarantine gate

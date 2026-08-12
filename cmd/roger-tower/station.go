@@ -18,9 +18,12 @@ package main
 // has no record of.
 
 import (
+	"encoding/pem"
 	"flag"
 	"fmt"
 	"io"
+	"os"
+	"time"
 
 	"rogerai.fm/roger/v5/internal/towerjoin"
 )
@@ -31,6 +34,7 @@ const stationUsage = `roger-tower station - Stations on the public network
   roger-tower station attach --dir DIR --invitation ID --secret S \
                              --assertion-key HEX --session-key HEX [--station-id ID]
   roger-tower station revoke --dir DIR --station-id ID
+  roger-tower station edge-cert --station-id ID --csr FILE [--out FILE]
 
 Run ` + "`roger-station init`" + ` ON THE STATION first: it mints the two keys and prints
 their public halves, which are what these commands carry. The Station keeps the private
@@ -55,6 +59,8 @@ func cmdStation(args []string, out io.Writer) error {
 		return cmdStationAttach(args[1:], out)
 	case "revoke":
 		return cmdStationRevoke(args[1:], out)
+	case "edge-cert":
+		return cmdStationEdgeCert(args[1:], out)
 	case "help", "-h", "--help":
 		fmt.Fprint(out, stationUsage)
 		return nil
@@ -243,5 +249,56 @@ func setOwnState(args []string, out io.Writer, name, state, note string) error {
 		return err
 	}
 	fmt.Fprint(out, note)
+	return nil
+}
+
+// cmdStationEdgeCert submits a Station's CSR to Roger Core and writes back the signed
+// certificate, so the Station can serve consumers on the edge path.
+//
+// The CSR comes from `roger-station csr` on the Station itself - the Station mints the key and
+// this only carries the public request. What comes back is installed with
+// `roger-station install-cert`. The key never travels.
+func cmdStationEdgeCert(args []string, out io.Writer) error {
+	fs := flag.NewFlagSet("station edge-cert", flag.ContinueOnError)
+	fs.SetOutput(out)
+	stationID := fs.String("station-id", "", "the Station's id")
+	csrFile := fs.String("csr", "", "the PEM or DER CSR file from `roger-station csr`")
+	outFile := fs.String("out", "", "write the certificate PEM here instead of stdout")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *stationID == "" {
+		return fmt.Errorf("--station-id is required")
+	}
+	if *csrFile == "" {
+		return fmt.Errorf("--csr is required: the request `roger-station csr` produced")
+	}
+	raw, err := os.ReadFile(*csrFile)
+	if err != nil {
+		return err
+	}
+	// Accept either PEM (what `roger-station csr` prints) or raw DER.
+	csrDER := raw
+	if block, _ := pem.Decode(raw); block != nil {
+		csrDER = block.Bytes
+	}
+
+	cert, err := towerjoin.RequestEdgeCert(*stationID, csrDER)
+	if err != nil {
+		return err
+	}
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Certificate})
+	if *outFile != "" {
+		if werr := os.WriteFile(*outFile, certPEM, 0o644); werr != nil {
+			return werr
+		}
+		fmt.Fprintf(out, "certificate for %s written to %s\n", cert.RelayName, *outFile)
+	} else {
+		fmt.Fprintf(out, "%s", certPEM)
+	}
+	fmt.Fprintf(out, "\nissued for %s, valid until %s.\n", cert.RelayName,
+		time.Unix(cert.NotAfter, 0).Format(time.RFC3339))
+	fmt.Fprint(out, "install it on the Station with `roger-station install-cert --cert FILE`, "+
+		"then serve with --edge.\n")
 	return nil
 }

@@ -9,8 +9,11 @@ package main
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -387,4 +390,53 @@ func countOf(all []string, want string) int {
 		}
 	}
 	return n
+}
+
+// The edge-cert command validates its arguments and reads either PEM or DER before it goes
+// near the network.
+func TestStationEdgeCertValidatesArguments(t *testing.T) {
+	_, err := runCLI(t, "station", "edge-cert")
+	require.ErrorContains(t, err, "--station-id")
+	_, err = runCLI(t, "station", "edge-cert", "--station-id", "st-1")
+	require.ErrorContains(t, err, "--csr")
+	_, err = runCLI(t, "station", "edge-cert", "--station-id", "st-1", "--csr", "/no/such/file")
+	require.Error(t, err)
+}
+
+// It reads a PEM CSR, submits it, and writes the returned certificate.
+func TestStationEdgeCertFetchesAndWrites(t *testing.T) {
+	t.Setenv("ROGER_CONFIG_DIR", t.TempDir())
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/tower/station/edge-cert" {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"station_id": "st-1", "relay_name": "st-1.relay.example",
+				"certificate": base64.StdEncoding.EncodeToString([]byte("issued-cert-der")),
+				"ca":          base64.StdEncoding.EncodeToString([]byte("ca-der")),
+				"not_after":   1,
+			})
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+	t.Setenv("ROGER_BROKER", srv.URL)
+
+	// A PEM CSR blob, as `roger-station csr` prints.
+	csrPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: []byte("der")})
+	csrPath := filepath.Join(t.TempDir(), "req.pem")
+	require.NoError(t, os.WriteFile(csrPath, csrPEM, 0o644))
+	outPath := filepath.Join(t.TempDir(), "cert.pem")
+
+	out, err := runCLI(t, "station", "edge-cert", "--station-id", "st-1", "--csr", csrPath, "--out", outPath)
+	require.NoError(t, err)
+	require.Contains(t, out, "st-1.relay.example")
+	written, err := os.ReadFile(outPath)
+	require.NoError(t, err)
+	require.Contains(t, string(written), "BEGIN CERTIFICATE")
+}
+
+func TestStationUsageListsEdgeCert(t *testing.T) {
+	out, err := runCLI(t, "station")
+	require.NoError(t, err)
+	require.Contains(t, out, "edge-cert")
 }
