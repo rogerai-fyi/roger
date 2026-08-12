@@ -940,10 +940,18 @@ func (b *broker) towerInviteSweepOnce(now time.Time) {
 	n, err := b.tower.stationStore.Reap(now, inviteRetryHorizon)
 	if err != nil {
 		log.Printf("station invites: sweep failed: %v", err)
-		return
-	}
-	if n > 0 {
+	} else if n > 0 {
 		log.Printf("station invites: reaped %d expired unredeemed invitation(s)", n)
+	}
+	// Reputation evidence ages out of the window it is judged in, so a table that kept every
+	// outcome forever would grow without bound while nothing older than the window is ever
+	// read. Reap past the window, on the same sweep - one fewer ticker to keep alive.
+	if b.tower.outcomes != nil {
+		if r, rerr := b.tower.outcomes.Reap(now.Add(-reputationWindow)); rerr != nil {
+			log.Printf("tower outcomes: sweep failed: %v", rerr)
+		} else if r > 0 {
+			log.Printf("tower outcomes: reaped %d aged-out outcome(s)", r)
+		}
 	}
 }
 

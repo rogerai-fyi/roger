@@ -57,6 +57,11 @@
 //	dispatch one unit of work handed to one Station and one verifiable answer back: a
 //	         one-use grant Core signs, and a receipt the Station signs over the exact bytes
 //	         it returned. Carries no money - Tower-backed work is uncompensated in v1.
+//	reputation what became of each edge attempt, per Tower, over a moving window:
+//	         corroborated, uncorroborated, disputed, canary pass/fail, audit mismatch. It
+//	         records facts and computes rates; the decision to flag or suspend is a policy
+//	         read over them, kept separate so a threshold can move without touching evidence,
+//	         and so no rate ever reverses a settlement.
 //
 // # WHY THE IN-MEMORY STORES LOOK LIKE DEAD CODE AND ARE NOT
 //

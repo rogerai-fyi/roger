@@ -36,9 +36,11 @@ import (
 	"time"
 
 	"rogerai.fm/roger/v5/internal/protocol"
+	"rogerai.fm/roger/v5/internal/towercore/admit"
 	"rogerai.fm/roger/v5/internal/towercore/attempt"
 	"rogerai.fm/roger/v5/internal/towercore/dispatch"
 	"rogerai.fm/roger/v5/internal/towercore/link"
+	"rogerai.fm/roger/v5/internal/towercore/reputation"
 	"rogerai.fm/roger/v5/internal/towerobj"
 )
 
@@ -433,6 +435,10 @@ func (b *broker) towerEdgeSettle(w http.ResponseWriter, r *http.Request) {
 			Reason: err.Error(), ReleaseID: "release-" + req.AttemptID,
 		})
 		if errors.Is(err, dispatch.ErrDigestMismatch) {
+			// A disagreement about the bytes is attributable to the relay, and it is exactly
+			// the kind of thing the rate exists to surface across a Tower's attempts.
+			b.recordOutcome(req.TowerID, req.AttemptID, reputation.Disputed)
+			b.evaluateTower(req.TowerID)
 			jsonErr(w, http.StatusConflict,
 				"the Station and the consumer signed for different responses - "+
 					"the only party between them is the relay")
@@ -456,10 +462,89 @@ func (b *broker) towerEdgeSettle(w http.ResponseWriter, r *http.Request) {
 	b.noteAttempt(req.AttemptID, attempt.Observation{
 		Kind: attempt.KindSettlementCommitted, EvidenceHash: receipt.ResponseDigest,
 	})
+	// AND THE REPUTATION LEDGER, so the RATE this Tower is judged on reflects this attempt.
+	// The outcome is a fact about what settled; whether the rate warrants action is decided
+	// separately, in evaluateTower, on evidence this records.
+	outcome := reputation.Uncorroborated
+	if settled.Corroborated {
+		outcome = reputation.Corroborated
+	}
+	b.recordOutcome(req.TowerID, req.AttemptID, outcome)
+	// Judged AFTER the outcome is recorded, so this attempt is in the window. The verdict may
+	// quarantine the Tower on strong evidence; it never touches THIS settlement, which has
+	// already committed - the money is decided, the reputation is a separate consequence.
+	b.evaluateTower(req.TowerID)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"attempt_id":   settled.AttemptID,
 		"corroborated": settled.Corroborated,
 		"billable_in":  settled.Billable.In,
 		"billable_out": settled.Billable.Out,
 	})
+}
+
+// recordOutcome writes what became of an edge attempt to the reputation ledger, best effort.
+//
+// Best effort DELIBERATELY: a lost outcome under-counts a Tower's evidence, which is the safe
+// direction - it can only ever make a Tower look BETTER than it is, never worse, so a dropped
+// write cannot manufacture a penalty nobody earned. The settlement it describes has already
+// committed; the reputation write is downstream of the money, never a gate on it.
+func (b *broker) recordOutcome(towerID, attemptID string, o reputation.Outcome) {
+	ts := b.tower
+	if ts == nil || ts.outcomes == nil {
+		return
+	}
+	if err := ts.outcomes.Record(reputation.Event{
+		TowerID: towerID, AttemptID: attemptID, Outcome: o, At: time.Now(),
+	}); err != nil {
+		log.Printf("tower %s: could not record outcome %s for %s: %v", towerID, o, attemptID, err)
+	}
+}
+
+// reputationWindow is how far back a Tower is judged. Long enough that a rate is a pattern
+// rather than a moment, short enough that a Tower that cleaned up its act is not held to last
+// month forever.
+const reputationWindow = 24 * time.Hour
+
+// evaluateTower reads a Tower's recent outcomes against the fleet and acts on the verdict.
+//
+// It is called after evidence is recorded, and it ACTS - quarantine on strong evidence - but
+// it never reverses a settlement: "individual attempts already settled are not reversed by
+// the rate alone" is enforced by this only ever moving lifecycle state, never money.
+func (b *broker) evaluateTower(towerID string) reputation.Verdict {
+	ts := b.tower
+	if ts == nil || ts.outcomes == nil {
+		return reputation.Clean
+	}
+	since := time.Now().Add(-reputationWindow)
+	tower, err := ts.outcomes.Tally(towerID, since)
+	if err != nil {
+		log.Printf("tower %s: could not read outcomes: %v", towerID, err)
+		return reputation.Clean
+	}
+	fleet, err := ts.outcomes.FleetTally(since)
+	if err != nil {
+		log.Printf("could not read fleet outcomes: %v", err)
+		return reputation.Clean
+	}
+	// The baseline is the REST of the fleet, this Tower removed. A Tower compared to a fleet
+	// it is part of can never look unusual relative to itself, which on a small network is
+	// most of the fleet.
+	verdict := ts.repPolicy.Evaluate(tower, fleet.Without(tower))
+	if verdict == reputation.Quarantine {
+		// SUSPENDED, not quarantine: quarantine is the post-enrollment holding pen and an
+		// ACTIVE Tower cannot legally move there, while suspend is exactly "stop an active
+		// Tower now, keep its identity, reversible". Both withhold work (EligibilityNone);
+		// suspend is the one the transition table allows from active.
+		//
+		// Best effort: a Tower that cannot be moved right now is re-evaluated on its next
+		// attempt and the evidence does not go away. A Tower already off gets a harmless
+		// no-op refusal.
+		if terr := ts.registry.Transition(towerID, admit.StateSuspended); terr != nil {
+			log.Printf("tower %s: evidence warrants suspension but the move failed: %v", towerID, terr)
+		} else {
+			log.Printf("tower %s: suspended on reputation evidence", towerID)
+			b.forgetRoutable(towerID)
+		}
+	}
+	return verdict
 }

@@ -31,6 +31,7 @@ import (
 	"rogerai.fm/roger/v5/internal/towercore/dispatch"
 	"rogerai.fm/roger/v5/internal/towercore/fleet"
 	"rogerai.fm/roger/v5/internal/towercore/link"
+	"rogerai.fm/roger/v5/internal/towercore/reputation"
 )
 
 // consumerCall signs as the CONSUMER, which is what the ack route authenticates.
@@ -818,4 +819,231 @@ func TestEdgeRoutesOnABrokerWithoutTheSubsystem(t *testing.T) {
 		resp.Body.Close()
 		require.Equal(t, http.StatusServiceUnavailable, resp.StatusCode, path)
 	}
+}
+
+// --- reputation --------------------------------------------------------------
+//
+// Contract: features/tower/edge_dispatch.feature.
+
+// Settling records an outcome, and the rate the Tower is judged on reflects it. A
+// corroborated attempt and an uncorroborated one land in different columns.
+func TestSettlementFeedsTheReputationLedger(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	tw := enrolledTower(t, b, "owner-1")
+	stationPriv := attachStation(t, b, "st-1", tw.id, "owner-1")
+
+	// One uncorroborated (no ack), one corroborated (matching ack).
+	issuedAttempt(t, b, "att-uncorr", tw.id, "st-1")
+	settleUncorr, err := json.Marshal(map[string]any{
+		"tower_id": tw.id, "station_id": "st-1", "attempt_id": "att-uncorr",
+		"receipt": signedReceipt(t, stationPriv, "att-uncorr", "st-1", []byte("a"),
+			dispatch.Usage{In: 1, Out: 1}),
+	})
+	require.NoError(t, err)
+	var out map[string]any
+	code, _ := tw.call(t, srv, "/tower/edge/settle", settleUncorr, &out)
+	require.Equal(t, http.StatusOK, code)
+
+	issuedAttempt(t, b, "att-corr", tw.id, "st-1")
+	answer := []byte("the answer")
+	_, consumerPriv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	code, _ = consumerCall(t, srv, consumerPriv, "/tower/edge/ack", map[string]any{
+		"attempt_id": "att-corr",
+		"ack":        signedAck(t, consumerPriv, "att-corr", answer, dispatch.Usage{In: 1, Out: 1}),
+	})
+	require.Equal(t, http.StatusOK, code)
+	settleCorr, err := json.Marshal(map[string]any{
+		"tower_id": tw.id, "station_id": "st-1", "attempt_id": "att-corr",
+		"receipt": signedReceipt(t, stationPriv, "att-corr", "st-1", answer, dispatch.Usage{In: 1, Out: 1}),
+	})
+	require.NoError(t, err)
+	code, _ = tw.call(t, srv, "/tower/edge/settle", settleCorr, &out)
+	require.Equal(t, http.StatusOK, code)
+
+	tally, err := b.tower.outcomes.Tally(tw.id, time.Now().Add(-time.Hour))
+	require.NoError(t, err)
+	require.Equal(t, 1, tally.Uncorroborated)
+	require.Equal(t, 1, tally.Corroborated)
+}
+
+// A digest disagreement records a DISPUTED outcome - the rate exists to surface exactly this
+// across a Tower's attempts.
+func TestADisagreementIsRecordedAgainstTheTower(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	tw := enrolledTower(t, b, "owner-1")
+	stationPriv := attachStation(t, b, "st-1", tw.id, "owner-1")
+	issuedAttempt(t, b, "att-1", tw.id, "st-1")
+
+	_, consumerPriv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	code, _ := consumerCall(t, srv, consumerPriv, "/tower/edge/ack", map[string]any{
+		"attempt_id": "att-1",
+		"ack":        signedAck(t, consumerPriv, "att-1", []byte("consumer saw this"), dispatch.Usage{In: 1, Out: 1}),
+	})
+	require.Equal(t, http.StatusOK, code)
+
+	settle, err := json.Marshal(map[string]any{
+		"tower_id": tw.id, "station_id": "st-1", "attempt_id": "att-1",
+		"receipt": signedReceipt(t, stationPriv, "att-1", "st-1",
+			[]byte("station returned this"), dispatch.Usage{In: 1, Out: 1}),
+	})
+	require.NoError(t, err)
+	var out map[string]any
+	code, _ = tw.call(t, srv, "/tower/edge/settle", settle, &out)
+	require.Equal(t, http.StatusConflict, code)
+
+	tally, err := b.tower.outcomes.Tally(tw.id, time.Now().Add(-time.Hour))
+	require.NoError(t, err)
+	require.Equal(t, 1, tally.Disputed)
+}
+
+// The rate is a FINDING, not a reversal: an evaluation that flags a Tower does not undo any
+// settlement it already made.
+func TestFlaggingNeverReversesASettlement(t *testing.T) {
+	b, _ := towerTestBroker(t)
+	tw := enrolledTower(t, b, "owner-1")
+	require.NoError(t, b.tower.registry.Transition(tw.id, admit.StateActive))
+
+	// Enough uncorroborated attempts, against no fleet baseline, to flag.
+	for i := 0; i < 30; i++ {
+		b.recordOutcome(tw.id, "att-"+string(rune('a'+i%26))+string(rune('0'+i/26)),
+			reputation.Uncorroborated)
+	}
+	verdict := b.evaluateTower(tw.id)
+	require.Equal(t, reputation.Investigate, verdict)
+
+	// Investigate does NOT quarantine: the Tower is still active, still takes work.
+	got, ok := b.tower.registry.Get(tw.id)
+	require.True(t, ok)
+	require.Equal(t, admit.StateActive, got.State,
+		"a rate flags for a human; it does not take the Tower off by itself")
+}
+
+// A single audit mismatch quarantines - and withdraws the fleet at once.
+func TestAnAuditMismatchQuarantinesTheTower(t *testing.T) {
+	b, _ := towerTestBroker(t)
+	tw := enrolledTower(t, b, "owner-1")
+	require.NoError(t, b.tower.registry.Transition(tw.id, admit.StateActive))
+
+	b.recordOutcome(tw.id, "att-bad", reputation.AuditMismatch)
+	require.Equal(t, reputation.Quarantine, b.evaluateTower(tw.id))
+
+	// An ACTIVE Tower is SUSPENDED - the legal "take it off now" move - not put back in
+	// quarantine, which is the post-enrollment pen it cannot legally return to.
+	got, ok := b.tower.registry.Get(tw.id)
+	require.True(t, ok)
+	require.Equal(t, admit.StateSuspended, got.State)
+	require.Equal(t, admit.EligibilityNone, admit.EligibleFor(got.State),
+		"a suspended Tower takes no work")
+}
+
+// The sweep ages out reputation evidence past the window, so the ledger does not grow forever.
+func TestTheSweepReapsAgedOutcomes(t *testing.T) {
+	b, _ := towerTestBroker(t)
+	tw := enrolledTower(t, b, "owner-1")
+
+	require.NoError(t, b.tower.outcomes.Record(reputation.Event{
+		TowerID: tw.id, AttemptID: "old", Outcome: reputation.Corroborated,
+		At: time.Now().Add(-48 * time.Hour),
+	}))
+	require.NoError(t, b.tower.outcomes.Record(reputation.Event{
+		TowerID: tw.id, AttemptID: "new", Outcome: reputation.Corroborated, At: time.Now(),
+	}))
+	b.towerInviteSweepOnce(time.Now())
+
+	tally, err := b.tower.outcomes.Tally(tw.id, time.Now().Add(-1000*time.Hour))
+	require.NoError(t, err)
+	require.Equal(t, 1, tally.Total, "the aged-out outcome is gone")
+}
+
+// The reputation helpers are safe on a broker with no Tower subsystem: they no-op rather
+// than panic, because a reputation write is downstream of the money and must never be a gate.
+func TestReputationHelpersAreSafeWithoutTheSubsystem(t *testing.T) {
+	b := testBrokerWithDB(store.NewMem())
+	require.NotPanics(t, func() { b.recordOutcome("tw", "att", reputation.Uncorroborated) })
+	require.Equal(t, reputation.Clean, b.evaluateTower("tw"))
+}
+
+// A Tower with too little evidence is left alone, and stays active - the guard that keeps a
+// single closed laptop from being a finding.
+func TestATowerWithLittleEvidenceIsLeftActive(t *testing.T) {
+	b, _ := towerTestBroker(t)
+	tw := enrolledTower(t, b, "owner-1")
+	require.NoError(t, b.tower.registry.Transition(tw.id, admit.StateActive))
+
+	for i := 0; i < 3; i++ {
+		b.recordOutcome(tw.id, "att-"+string(rune('a'+i)), reputation.Uncorroborated)
+	}
+	require.Equal(t, reputation.Clean, b.evaluateTower(tw.id))
+	got, _ := b.tower.registry.Get(tw.id)
+	require.Equal(t, admit.StateActive, got.State)
+}
+
+// Repeated canary failures suspend an active Tower - the "serving nothing at all" attack,
+// caught by evidence rather than by reading the traffic.
+func TestRepeatedCanaryFailuresSuspend(t *testing.T) {
+	b, _ := towerTestBroker(t)
+	tw := enrolledTower(t, b, "owner-1")
+	require.NoError(t, b.tower.registry.Transition(tw.id, admit.StateActive))
+
+	for i := 0; i < 8; i++ {
+		b.recordOutcome(tw.id, "canary-"+string(rune('a'+i)), reputation.CanaryFail)
+	}
+	require.Equal(t, reputation.Quarantine, b.evaluateTower(tw.id))
+	got, _ := b.tower.registry.Get(tw.id)
+	require.Equal(t, admit.StateSuspended, got.State)
+}
+
+// A routable row whose Station is not actually attached is skipped: the projection is a hint,
+// the attachment is authority, and a hint without backing yields the uniform refusal.
+func TestAuthorizeSkipsARowWithNoAttachment(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	tw := enrolledTower(t, b, "owner-1")
+	require.NoError(t, b.tower.registry.Transition(tw.id, admit.StateActive))
+	// A routable row for a Station that was never attached.
+	require.NoError(t, b.tower.routable.Replace(tw.id, []fleet.Station{{
+		TowerID: tw.id, StationID: "st-ghost", OfferID: "of-1", Model: "m",
+		Modality: "text", Expires: time.Now().Add(time.Hour), Endpoint: "203.0.113.7:8443",
+	}}))
+	_, consumerPriv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	code, _ := consumerCall(t, srv, consumerPriv, "/tower/edge/authorize", map[string]any{"model": "m"})
+	require.Equal(t, http.StatusServiceUnavailable, code)
+}
+
+// A caller asking for zero or negative bounds gets the ceiling, not a grant that authorizes
+// nothing (or everything).
+func TestAuthorizeDefaultsAbsentBounds(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	tw := enrolledTower(t, b, "owner-1")
+	attachStation(t, b, "st-1", tw.id, "owner-1")
+	routableEdge(t, b, tw.id, "st-1", "m", "203.0.113.7:8443")
+	_, consumerPriv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+
+	code, out := consumerCall(t, srv, consumerPriv, "/tower/edge/authorize",
+		map[string]any{"model": "m", "max_in": 0, "max_out": -5})
+	require.Equal(t, http.StatusOK, code, out)
+	require.Equal(t, float64(edgeMaxBytes), out["max_in"])
+	require.Equal(t, float64(edgeMaxBytes), out["max_out"])
+}
+
+// A settle for an attempt this Tower never had is "no such attempt", not a panic or a leak of
+// whether it belongs to somebody else.
+func TestSettleForAnUnknownAttempt(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	tw := enrolledTower(t, b, "owner-1")
+	stationPriv := attachStation(t, b, "st-1", tw.id, "owner-1")
+
+	body, err := json.Marshal(map[string]any{
+		"tower_id": tw.id, "station_id": "st-1", "attempt_id": "att-never",
+		"receipt": signedReceipt(t, stationPriv, "att-never", "st-1", []byte("a"),
+			dispatch.Usage{In: 1, Out: 1}),
+	})
+	require.NoError(t, err)
+	var out map[string]any
+	code, msg := tw.call(t, srv, "/tower/edge/settle", body, &out)
+	require.Equal(t, http.StatusNotFound, code)
+	require.Contains(t, msg, "no such attempt")
 }

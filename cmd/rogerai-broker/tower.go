@@ -41,6 +41,7 @@ import (
 	"rogerai.fm/roger/v5/internal/towercore/inv"
 	"rogerai.fm/roger/v5/internal/towercore/link"
 	"rogerai.fm/roger/v5/internal/towercore/policy"
+	"rogerai.fm/roger/v5/internal/towercore/reputation"
 )
 
 // The settled link parameters, from docs/tower-relay-link-design.md section 6. A heartbeat
@@ -140,6 +141,11 @@ type towerSubsystem struct {
 	// acks holds consumer acknowledgements until the attempt they belong to settles. It is
 	// the only claim about an edge attempt that does not come from the party being paid.
 	acks dispatch.AckStore
+	// outcomes records what became of each edge attempt, per Tower, so a pattern can be seen
+	// that no single attempt shows - the "signal is in the rate" the spec rests on.
+	outcomes reputation.Store
+	// repPolicy is the threshold set the outcomes are judged against.
+	repPolicy reputation.Policy
 	// attemptKey is the attempt-state signer, kept so the purpose separation that makes the
 	// ledger worth trusting can be asserted: it must not be the key that signs grants.
 	attemptKey ed25519.PrivateKey
@@ -189,6 +195,9 @@ type linkDeps struct {
 	// the Tower reached. Honest attempts would settle uncorroborated for reasons that have
 	// nothing to do with the operator whose rate it shows up in.
 	acks dispatch.AckStore
+	// outcomes is the durable reputation ledger, shared for the same reason: a rate computed
+	// per-process would see each broker's fraction of the evidence and mistake it for all.
+	outcomes reputation.Store
 }
 
 func newTowerSubsystem(b *broker, registryStore admit.Store, custody cert.Custody, enrollStore enroll.Store, cfg cert.Config, deps linkDeps) (*towerSubsystem, error) {
@@ -288,6 +297,11 @@ func newTowerSubsystem(b *broker, registryStore admit.Store, custody cert.Custod
 	if ts.acks == nil {
 		ts.acks = dispatch.NewAckMemStore()
 	}
+	ts.outcomes = deps.outcomes
+	if ts.outcomes == nil {
+		ts.outcomes = reputation.NewMemStore()
+	}
+	ts.repPolicy = reputation.DefaultPolicy()
 	ts.attemptKey = attemptKey
 	ts.envelopeKey = envelopeKey
 	pub, err := envelope.PublicKeyOf(envelopeKey)
@@ -401,13 +415,19 @@ func loadTowerSubsystem(b *broker, db store.Store) (*towerSubsystem, error) {
 	if err != nil {
 		return fail(err)
 	}
+	// And the reputation ledger. Durable and shared for the same reason as the ack store: a
+	// rate computed per broker would judge each instance on its own fraction of the evidence.
+	outcomeStore, err := reputation.NewPGStore(sqlDB)
+	if err != nil {
+		return fail(err)
+	}
 
 	ts, err := newTowerSubsystem(b, registryStore, custody, enrollDurable, cert.Config{
 		TTL:         towerCertTTL(),
 		RootKeyPEM:  []byte(os.Getenv("ROGERAI_TOWER_CA_KEY_PEM")),
 		RootCertPEM: []byte(os.Getenv("ROGERAI_TOWER_CA_CERT_PEM")),
 	}, linkDeps{stations: stationStore, heads: headStore, attempts: attemptStore,
-		routable: routableStore, events: eventStore, acks: ackStore})
+		routable: routableStore, events: eventStore, acks: ackStore, outcomes: outcomeStore})
 	if err != nil {
 		// A misconfigured root is a REFUSAL, not a reason to generate one: issuing under a
 		// root nobody chose is how every certificate on the network becomes unverifiable.
