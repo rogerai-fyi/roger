@@ -13,11 +13,6 @@ import (
 	"time"
 )
 
-// earningsWindow is how far back an owed-balance read looks by default, and the floor Reap
-// keeps accruals for. Long enough that a monthly payout cycle can always still read the
-// attempts it is paying for.
-const earningsWindow = 90 * 24 * time.Hour
-
 // towerEarningsOwed answers what the signed-in operator is owed.
 //
 // Authenticated as the OWNER, not as a Tower: earnings belong to the account that owns the
@@ -55,7 +50,10 @@ func (b *broker) towerEarningsOwed(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusServiceUnavailable, "the funding ledger is not available")
 		return
 	}
-	owed, err := ts.earnings.OwedTo(ownerPubkey, time.Now().Add(-earningsWindow))
+	// ALL-TIME, deliberately: the net balance is only trustworthy over the full history (a
+	// windowed read can net a payout against accruals other than the ones it discharged - see
+	// Store.OwedTo). The operator is shown their true standing, not a recent slice of it.
+	owed, err := ts.earnings.OwedTo(ownerPubkey, time.Time{})
 	if err != nil {
 		jsonErr(w, http.StatusServiceUnavailable, "could not read the funding ledger - try again in a moment")
 		return

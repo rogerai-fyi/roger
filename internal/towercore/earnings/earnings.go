@@ -94,17 +94,26 @@ type Store interface {
 	// RecordPayout records that an amount was disbursed to an owner. Keyed by a caller-supplied
 	// idempotency id so a retried disbursement is not double-counted against the debt.
 	RecordPayout(owner, payoutID string, micros int64, at time.Time) error
-	// OwedTo sums an owner's accruals and payouts since a time.
+	// OwedTo sums an owner's accruals and payouts.
+	//
+	// A ZERO `since` means all-time, and that is the ONLY value from which the net Owed() is
+	// trustworthy. A non-zero `since` filters both accruals and payouts by timestamp for a
+	// "recent activity" view - but a payout is stamped later than the accrual it discharges, so
+	// a window can hold a payout while excluding the accrual it paid, netting it against newer
+	// unrelated accruals and UNDER-REPORTING the true debt. Any code that decides a
+	// disbursement must therefore call this with a zero `since`; the window is for display only.
 	OwedTo(owner string, since time.Time) (OwedByOwner, error)
-	// Reap drops accruals older than a cutoff, once they are beyond any payout window that
-	// could still read them. A funding ledger is not a permanent audit log; that is the
-	// attempt chain's job.
+	// Reap drops accruals and payouts older than a cutoff. It is NOT a timer job: an accrual is
+	// money owed until a payout discharges it, so pruning on age alone would discard undischarged
+	// debt. It exists for a future reconciliation pass that deletes only what has been settled;
+	// until disbursement exists, nothing calls it in production.
 	Reap(before time.Time) (int64, error)
 }
 
 var (
 	errPayout         = errors.New("a payout names an owner and a payout id")
 	errNegativePayout = errors.New("a payout cannot be negative")
+	errPayoutConflict = errors.New("a payout with this id already exists for a different owner or amount")
 )
 
 func checkAccrual(a Accrual) error {

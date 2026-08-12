@@ -187,3 +187,38 @@ func TestNewPGStoreNeedsADatabase(t *testing.T) {
 	_, err := NewPGStore(nil)
 	require.Error(t, err)
 }
+
+// The review's finding 2: a windowed read can net a payout against accruals other than the ones
+// it discharged and UNDER-REPORT the debt. An all-time (zero since) read must always be correct.
+// Scenario: A1 paid by P1 (net 0), then A2 is new unpaid work - the true owed is A2.
+func TestParityAllTimeOwedIsCorrectAcrossPaidAndNewWork(t *testing.T) {
+	base := time.Unix(1_700_000_000, 0)
+	for name, s := range stores(t) {
+		t.Run(name, func(t *testing.T) {
+			require.NoError(t, s.Accrue(accrual("op-1", "A1", 1000, base)))
+			require.NoError(t, s.RecordPayout("op-1", "P1", 1000, base.Add(50*time.Hour)))
+			require.NoError(t, s.Accrue(accrual("op-1", "A2", 500, base.Add(85*time.Hour))))
+
+			// All-time: 1500 accrued - 1000 paid = 500 owed. The truth.
+			owed, err := s.OwedTo("op-1", time.Time{})
+			require.NoError(t, err)
+			require.Equal(t, int64(1500), owed.Accrued)
+			require.Equal(t, int64(1000), owed.Paid)
+			require.Equal(t, int64(500), owed.Owed(), "the new unpaid work is owed, not hidden")
+		})
+	}
+}
+
+// The review's finding 4: a payout id reused for a DIFFERENT owner or amount is not a retry -
+// swallowing it would lose a real debt reduction. A matching retry stays idempotent.
+func TestParityAReusedPayoutIDWithDifferentContentIsRejected(t *testing.T) {
+	base := time.Unix(1_700_000_000, 0)
+	for name, s := range stores(t) {
+		t.Run(name, func(t *testing.T) {
+			require.NoError(t, s.RecordPayout("op-1", "pay-1", 100, base))
+			require.NoError(t, s.RecordPayout("op-1", "pay-1", 100, base), "a matching retry is idempotent")
+			require.Error(t, s.RecordPayout("op-1", "pay-1", 200, base), "different amount, same id")
+			require.Error(t, s.RecordPayout("op-2", "pay-1", 100, base), "different owner, same id")
+		})
+	}
+}

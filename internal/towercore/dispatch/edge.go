@@ -255,3 +255,45 @@ func ParseEdgeGrant(raw []byte, coreKey ed25519.PublicKey, network, stationID st
 		Deadline: deadline, Nonce: obj.Nonce, ConsumerKey: consumerKey, Signed: raw,
 	}, nil
 }
+
+// EdgeGrantCeiling reads the usage bounds a Core-signed edge grant authorized.
+//
+// It exists for SETTLEMENT, which happens after the deadline and carries no request, so it
+// cannot use ParseEdgeGrant (whose deadline and request-size checks are meaningless here and
+// would reject a perfectly good settlement). It still verifies the signature - the ceiling is
+// only meaningful because Core set it - and that the grant is an edge grant for this Station,
+// so a substituted or wrong-Station grant cannot pass a bogus ceiling into the money path.
+//
+// WHY THE CEILING MATTERS AT SETTLEMENT: on the no-acknowledgement path the billable usage is
+// the Station's own signed figure, and the Station's operator is the party being paid. Without
+// this bound, an operator could sign a receipt claiming any amount and be owed it. The grant
+// is the one number in the exchange that the payee did not choose; clamping billable to it is
+// what keeps "computed from billable" from meaning "computed from a number the payee invented".
+func EdgeGrantCeiling(raw []byte, coreKey ed25519.PublicKey, network, stationID string) (maxIn, maxOut int64, err error) {
+	if err := towerobj.Verify(coreKey, network, TypeEdgeGrant, Version, raw, "core_sig"); err != nil {
+		return 0, 0, fmt.Errorf("this grant is not signed by Roger Core: %w", err)
+	}
+	var obj struct {
+		StationID string `json:"station_id"`
+		MaxIn     string `json:"max_in"`
+		MaxOut    string `json:"max_out"`
+	}
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return 0, 0, fmt.Errorf("this grant cannot be read: %w", err)
+	}
+	if obj.StationID != stationID {
+		return 0, 0, fmt.Errorf("this grant is for Station %q, not this one", obj.StationID)
+	}
+	maxIn, err = strconv.ParseInt(obj.MaxIn, 10, 64)
+	if err != nil {
+		return 0, 0, errors.New("this grant's input ceiling is not a number")
+	}
+	maxOut, err = strconv.ParseInt(obj.MaxOut, 10, 64)
+	if err != nil {
+		return 0, 0, errors.New("this grant's output ceiling is not a number")
+	}
+	if maxIn <= 0 || maxOut <= 0 {
+		return 0, 0, errors.New("this grant carries no usable ceiling")
+	}
+	return maxIn, maxOut, nil
+}

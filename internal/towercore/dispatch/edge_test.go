@@ -207,3 +207,31 @@ func TestAnUnreadableEdgeGrantIsRefusedRatherThanGuessedAt(t *testing.T) {
 	_, err := ParseEdgeGrant([]byte("{not json"), core, "roger-public", "st-1", nil, now)
 	require.Error(t, err)
 }
+
+// EdgeGrantCeiling reads the authorized bounds at settlement - after the deadline, with no
+// request - so it must verify the signature and Station without ParseEdgeGrant's deadline or
+// size checks, which would reject a perfectly good settlement.
+func TestEdgeGrantCeilingReadsBoundsAfterTheDeadline(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	r, core := edgeRegistry(t, now)
+	tgt, _ := edgeTarget(t)
+	tgt.MaxIn, tgt.MaxOut = 111, 222
+	g, err := r.MintEdge(tgt)
+	require.NoError(t, err)
+
+	// Well past the deadline, which is exactly when settlement runs.
+	maxIn, maxOut, err := EdgeGrantCeiling(g.Signed, core, "roger-public", "st-1")
+	require.NoError(t, err)
+	require.Equal(t, int64(111), maxIn)
+	require.Equal(t, int64(222), maxOut)
+
+	// A grant for another Station cannot pass its ceiling into this Station's money path.
+	_, _, err = EdgeGrantCeiling(g.Signed, core, "roger-public", "st-OTHER")
+	require.ErrorContains(t, err, "not this one")
+
+	// Nor one Core did not sign.
+	impostor, _, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	_, _, err = EdgeGrantCeiling(g.Signed, impostor, "roger-public", "st-1")
+	require.Error(t, err)
+}

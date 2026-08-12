@@ -73,12 +73,33 @@ func (p *PGStore) RecordPayout(owner, payoutID string, micros int64, at time.Tim
 	if micros < 0 {
 		return errNegativePayout
 	}
-	_, err := p.db.Exec(`
+	// ON CONFLICT DO NOTHING keeps a retried disbursement idempotent, but a no-op could also
+	// mean a DIFFERENT payout reused this id - which would silently lose a real debt reduction.
+	// So we detect the no-op (RETURNING yields no row) and, only then, read the existing row: a
+	// match is an idempotent retry (fine); a mismatch is a collision to surface, not swallow.
+	var inserted string
+	err := p.db.QueryRow(`
 		INSERT INTO rogerai.tower_payouts (payout_id, owner, micros, at)
 		VALUES ($1,$2,$3,$4)
-		ON CONFLICT (payout_id) DO NOTHING`,
-		payoutID, owner, micros, at.UTC())
-	return err
+		ON CONFLICT (payout_id) DO NOTHING
+		RETURNING payout_id`,
+		payoutID, owner, micros, at.UTC()).Scan(&inserted)
+	if err == nil {
+		return nil // inserted fresh
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	var priorOwner string
+	var priorMicros int64
+	if serr := p.db.QueryRow(`SELECT owner, micros FROM rogerai.tower_payouts WHERE payout_id = $1`,
+		payoutID).Scan(&priorOwner, &priorMicros); serr != nil {
+		return serr
+	}
+	if priorOwner != owner || priorMicros != micros {
+		return errPayoutConflict
+	}
+	return nil
 }
 
 func (p *PGStore) OwedTo(owner string, since time.Time) (OwedByOwner, error) {

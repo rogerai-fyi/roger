@@ -977,16 +977,13 @@ func (b *broker) towerInviteSweepOnce(now time.Time) {
 			log.Printf("tower outcomes: reaped %d aged-out outcome(s)", r)
 		}
 	}
-	// And the funding ledger, past the window any payout cycle could still read: it is a
-	// funding record, not the permanent audit log - that is the attempt chain's job - so it is
-	// reaped like the reputation evidence rather than kept forever.
-	if b.tower.earnings != nil {
-		if r, rerr := b.tower.earnings.Reap(now.Add(-earningsWindow)); rerr != nil {
-			log.Printf("tower earnings: sweep failed: %v", rerr)
-		} else if r > 0 {
-			log.Printf("tower earnings: reaped %d aged-out accrual(s)", r)
-		}
-	}
+	// The funding ledger is DELIBERATELY NOT reaped here. A reputation outcome past its window
+	// is worthless, but an accrual is money owed until it is paid, and a timer that deleted it
+	// on age alone would silently discard debt no payout had discharged - the safe direction for
+	// the house and the wrong one for the operator. Pruning is a reconciliation concern that
+	// belongs with disbursement (delete only what a payout has settled), not a blind sweep; the
+	// Reap method exists for that future use and is not wired to the clock.
+	//
 	// And transcripts that were selected for audit and never arrived: a Station that cannot
 	// show its work for a sampled attempt is the spec's quarantine trigger.
 	b.sweepAuditOverdue(now)

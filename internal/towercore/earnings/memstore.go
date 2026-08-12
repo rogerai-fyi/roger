@@ -44,8 +44,15 @@ func (m *memStore) RecordPayout(owner, payoutID string, micros int64, at time.Ti
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if _, exists := m.payouts[payoutID]; exists {
-		return nil // idempotent: a retried disbursement is not a second debt reduction
+	if prior, exists := m.payouts[payoutID]; exists {
+		// Idempotent on a MATCH: a retried disbursement is not a second debt reduction. But a
+		// reused id with a different owner or amount is not a retry - it is two distinct payouts
+		// colliding on one key, and silently dropping the second would lose a real debt reduction
+		// (over-paying next cycle). That is an error to surface, not a duplicate to swallow.
+		if prior.owner != owner || prior.micros != micros {
+			return errPayoutConflict
+		}
+		return nil
 	}
 	m.payouts[payoutID] = payoutRow{owner: owner, micros: micros, at: at}
 	return nil
@@ -55,14 +62,15 @@ func (m *memStore) OwedTo(owner string, since time.Time) (OwedByOwner, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	out := OwedByOwner{Owner: owner}
+	all := since.IsZero()
 	for _, a := range m.accruals {
-		if a.Owner == owner && !a.At.Before(since) {
+		if a.Owner == owner && (all || !a.At.Before(since)) {
 			out.Accrued += a.Micros
 			out.Attempts++
 		}
 	}
 	for _, p := range m.payouts {
-		if p.owner == owner && !p.at.Before(since) {
+		if p.owner == owner && (all || !p.at.Before(since)) {
 			out.Paid += p.micros
 		}
 	}

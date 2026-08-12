@@ -32,6 +32,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"math"
 	"net/http"
 	"os"
 	"strconv"
@@ -488,16 +489,37 @@ func (b *broker) towerEdgeSettle(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusServiceUnavailable, "could not commit this settlement - retry")
 		return
 	}
-	// THE FUNDING LEDGER, written after the one-use settlement has committed and keyed by this
-	// attempt id, so it accrues exactly once however this request is retried or raced. The
-	// amount is computed from the BILLABLE usage - the reconciled receipt/ack figure, never the
-	// Tower's own count - so a Tower cannot inflate what it is owed by lying in a message it
-	// forwards. Owner comes from the attachment record, not the message, for the same reason
-	// the key did. This records what is OWED; nothing here moves money.
+	// BOUND THE BILLABLE FIGURE TO WHAT THE GRANT AUTHORIZED. On the no-acknowledgement path
+	// (the common one) the billable usage is the Station's own signed number, and the Station's
+	// operator is the party being paid - so without this the amount owed is bounded only by the
+	// operator's own signature. The grant's ceiling is the one quantity in the exchange the
+	// payee did not choose; a receipt claiming more than it has exceeded its authorization, so
+	// the figure is clamped to the ceiling AND the attempt is treated as disputed and audited.
+	// This protects the consumer (who is charged the billable figure) as much as the fisc.
 	var model string
 	if rec, ok, gerr := ts.dispatch.Store().Get(req.AttemptID); gerr == nil && ok {
 		model = rec.Model
+		if maxIn, maxOut, cerr := dispatch.EdgeGrantCeiling(rec.Grant, ts.dispatchPub,
+			link.PublicNetwork, req.StationID); cerr == nil {
+			if settled.Billable.In > maxIn || settled.Billable.Out > maxOut {
+				log.Printf("edge settle: attempt %s billable (%d/%d) exceeds grant ceiling (%d/%d) - clamped and disputed",
+					req.AttemptID, settled.Billable.In, settled.Billable.Out, maxIn, maxOut)
+				settled.Billable.In = min(settled.Billable.In, maxIn)
+				settled.Billable.Out = min(settled.Billable.Out, maxOut)
+				disputed = true
+			}
+		} else {
+			// A grant we stored that will not yield its own ceiling is a fault worth seeing; the
+			// settlement still commits on the unclamped figure rather than trapping the operator's
+			// pay behind our bug, but it is logged so the bug is not silent.
+			log.Printf("edge settle: attempt %s grant ceiling unreadable (%v) - billable NOT clamped", req.AttemptID, cerr)
+		}
 	}
+	// THE FUNDING LEDGER, written after the one-use settlement has committed and keyed by this
+	// attempt id, so it accrues exactly once however this request is retried or raced. The
+	// amount is computed from the BILLABLE usage - now bounded by the grant ceiling above, and
+	// itself the reconciled receipt/ack figure, never the Tower's own count. Owner comes from
+	// the attachment record, not the message. This records what is OWED; nothing here moves money.
 	b.accrueEarnings(ts, req.TowerID, at.Owner, model, settled, now)
 	// The attempt chain hears about it AFTER the store's answer is final, mirroring the
 	// relayed path: evidence first, then the settlement commitment.
@@ -594,8 +616,38 @@ func (b *broker) accrueEarnings(ts *towerSubsystem, towerID, owner, model string
 // zero: the ledger records the billable usage on every attempt whatever the rate, so a rate set
 // later re-prices the same stored inputs. Integer millionths keep accrual exact - no rounding
 // error is ever carried forward.
+//
+// The arithmetic SATURATES rather than wraps. Billable is clamped to the grant ceiling before
+// it reaches here, but the rate is an arbitrary non-negative int64 an operator sets, and a
+// large rate times a large ceiling could overflow. A silent wrap would record a small, wrong
+// debt an adversary could steer; saturating to MaxInt64 instead records an obviously-capped
+// figure and logs it, so the misconfiguration is visible rather than exploitable. Inputs are
+// non-negative (checkAccrual and envMicros both guarantee it), so MaxInt64 is the only bound
+// that can be hit.
 func edgeAccrualMicros(in, out int64) int64 {
-	return in*edgeRateMicrosPerTokenIn() + out*edgeRateMicrosPerTokenOut()
+	return satAdd(satMul(in, edgeRateMicrosPerTokenIn()), satMul(out, edgeRateMicrosPerTokenOut()))
+}
+
+// satMul multiplies two non-negative int64s, saturating at MaxInt64 instead of overflowing.
+func satMul(a, b int64) int64 {
+	if a == 0 || b == 0 {
+		return 0
+	}
+	p := a * b
+	if p/b != a || p < 0 {
+		log.Printf("tower: accrual price overflowed (%d * %d); capped at MaxInt64", a, b)
+		return math.MaxInt64
+	}
+	return p
+}
+
+// satAdd adds two non-negative int64s, saturating at MaxInt64.
+func satAdd(a, b int64) int64 {
+	if a > math.MaxInt64-b {
+		log.Printf("tower: accrual sum overflowed (%d + %d); capped at MaxInt64", a, b)
+		return math.MaxInt64
+	}
+	return a + b
 }
 
 func edgeRateMicrosPerTokenIn() int64  { return envMicros("ROGERAI_TOWER_ACCRUAL_MICROS_IN") }

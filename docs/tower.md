@@ -377,7 +377,10 @@ somebody disputes it.
 
 When it lands, the measurable, Core-verifiable quantities are:
 
-- **bytes relayed** — from the agreed usage in the receipt/ack pair, never the Tower's word;
+- **bytes relayed** — from the agreed usage in the receipt/ack pair, never the Tower's word,
+  and **clamped to the grant's authorized ceiling**: on the no-acknowledgement path the billable
+  figure is the Station's own signed number, so the ceiling Core set is what stops an operator
+  being paid for more than it was authorized to do (an over-claim is clamped, disputed, audited);
 - **attempts corroborated** — a Tower whose attempts reconcile is worth more than one whose
   do not;
 - **availability** — canary success rate.
