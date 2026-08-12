@@ -1878,3 +1878,77 @@ func TestEdgeCertResponseCarriesTheNameAndNote(t *testing.T) {
 	require.Contains(t, msg, "st-1."+relayDomain())
 	require.Contains(t, msg, "install it on the Station")
 }
+
+// If the attempt cannot be recorded at authorize time, the consumer is told to try again -
+// an authorization nobody recorded could never settle.
+func TestAuthorizeReportsARecordFailure(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	tw := enrolledTower(t, b, "owner-1")
+	attachStation(t, b, "st-1", tw.id, "owner-1")
+	routableEdge(t, b, tw.id, "st-1", "m", "203.0.113.7:8443")
+	// A dispatch store that refuses Put, so openEdgeAttempt fails.
+	b.tower.dispatch = dispatch.NewWithStore(dispatch.Config{
+		Network: link.PublicNetwork, Signer: mintSigner(t, b), Lifetime: time.Minute,
+	}, putFailStore{dispatch.NewMemStore()})
+
+	_, consumerPriv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	code, _ := consumerCall(t, srv, consumerPriv, "/tower/edge/authorize", map[string]any{"model": "m"})
+	require.Equal(t, http.StatusServiceUnavailable, code)
+}
+
+type putFailStore struct{ dispatch.Store }
+
+func (putFailStore) Put(dispatch.Record) error { return assertErr2 }
+
+// A not-JSON ack body is a bad request.
+func TestAnAckWithANonJSONBodyIsRefused(t *testing.T) {
+	_, srv := towerTestBroker(t)
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	// Sign over a body that is valid to the signer but not JSON to the handler.
+	body := []byte("not json at all")
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/tower/edge/ack", strings.NewReader(string(body)))
+	require.NoError(t, err)
+	pub, ts, sig := protocol.SignRequest(priv, http.MethodPost, "/tower/edge/ack", body)
+	req.Header.Set(protocol.HeaderPubkey, pub)
+	req.Header.Set(protocol.HeaderTS, itoa64(ts))
+	req.Header.Set(protocol.HeaderSig, sig)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	resp.Body.Close()
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+}
+
+// If the ack store cannot record a well-formed, correctly-bound ack, the consumer is told to
+// retry rather than being told it succeeded.
+func TestAnAckThatCannotBeStoredIsUnavailable(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	tw := enrolledTower(t, b, "owner-1")
+	attachStation(t, b, "st-1", tw.id, "owner-1")
+	consumerPriv := issuedAttempt(t, b, "att-1", tw.id, "st-1")
+	b.tower.acks = failingAcks{}
+
+	code, _ := consumerCall(t, srv, consumerPriv, "/tower/edge/ack", map[string]any{
+		"attempt_id": "att-1",
+		"ack":        signedAck(t, consumerPriv, "att-1", []byte("x"), dispatch.Usage{In: 1, Out: 1}),
+	})
+	require.Equal(t, http.StatusServiceUnavailable, code)
+}
+
+type failingAcks struct{}
+
+func (failingAcks) Put(string, dispatch.Ack) error         { return assertErr2 }
+func (failingAcks) Get(string) (dispatch.Ack, bool, error) { return dispatch.Ack{}, false, nil }
+func (failingAcks) Reap(time.Time) (int64, error)          { return 0, nil }
+
+// mintSigner returns the broker's real dispatch signer so a swapped-in registry still mints
+// grants Core will accept.
+func mintSigner(t *testing.T, b *broker) ed25519.PrivateKey {
+	t.Helper()
+	// The broker exposes only the public half; for this test a store that fails Put is reached
+	// before any signature matters, so a throwaway signer is fine.
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	return priv
+}
