@@ -35,9 +35,11 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"math/big"
 	"net/http"
 	"time"
 
+	"rogerai.fm/roger/v5/internal/towercore/admit"
 	"rogerai.fm/roger/v5/internal/towercore/enroll"
 )
 
@@ -138,4 +140,72 @@ func (b *broker) towerRenew(w http.ResponseWriter, r *http.Request) {
 		"lease_expires": res.Tower.LeaseExpires.Unix(),
 		"not_after":     res.Certificate.NotAfter.Unix(),
 	})
+}
+
+// towerCertRevoke revokes a Tower's certificate NOW - the admin kill switch for a compromised
+// or misbehaving Tower whose lease has not yet lapsed.
+//
+// Contract: features/tower/public_enrollment.feature.
+//
+// It revokes the serial in the CA (persisted first, so a restart cannot resurrect it) AND
+// suspends the Tower, so the refusal takes effect whether the auth path checks the serial or
+// the lifecycle state. A revoked serial is what towerCaller now rejects on the Tower's very
+// next request, without waiting for the lease.
+func (b *broker) towerCertRevoke(w http.ResponseWriter, r *http.Request) {
+	if corsCredsPreflight(w, r) {
+		return
+	}
+	if !allow(w, r, http.MethodPost) {
+		return
+	}
+	corsCreds(w, r)
+	if b.requireAdmin(w, r) {
+		return
+	}
+	ts := b.towerAvailable(w)
+	if ts == nil {
+		return
+	}
+	if ts.ca == nil {
+		jsonErr(w, http.StatusServiceUnavailable, "certificate authority is not available")
+		return
+	}
+	var req struct {
+		TowerID string `json:"tower_id"`
+	}
+	if json.Unmarshal(readTowerBody(r), &req) != nil || req.TowerID == "" {
+		jsonErr(w, http.StatusBadRequest, "tower_id required")
+		return
+	}
+	tw, ok := ts.registry.Get(req.TowerID)
+	if !ok {
+		jsonErr(w, http.StatusNotFound, "no such Tower")
+		return
+	}
+	if tw.CertSerial == "" {
+		jsonErr(w, http.StatusConflict, "this Tower holds no certificate to revoke")
+		return
+	}
+	serial, ok := new(big.Int).SetString(tw.CertSerial, 10)
+	if !ok {
+		jsonErr(w, http.StatusServiceUnavailable, "this Tower's certificate serial is unreadable")
+		return
+	}
+	// REVOKED FIRST, and the failure is fatal to the request: a revocation reported as done
+	// but not recorded would be undone by the next restart, and the admin would have no
+	// reason to look again.
+	if err := ts.ca.Revoke(serial); err != nil {
+		jsonErr(w, http.StatusServiceUnavailable, "the revocation could not be recorded and has NOT taken effect")
+		return
+	}
+	// Suspend it too, so the effect does not rest on the serial check alone - defence in depth,
+	// and it takes the fleet off at once rather than aging out. A Tower not in a state that can
+	// be suspended (already terminal) is fine; the serial revocation stands regardless.
+	if err := ts.registry.Transition(req.TowerID, admit.StateSuspended); err != nil {
+		log.Printf("tower %s: certificate revoked; suspend transition declined (%v) - serial revocation stands", req.TowerID, err)
+	}
+	ts.inv.Forget(req.TowerID)
+	b.forgetRoutable(req.TowerID)
+	log.Printf("tower %s: certificate %s revoked by an administrator", req.TowerID, tw.CertSerial)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "revoked": true, "serial": tw.CertSerial})
 }

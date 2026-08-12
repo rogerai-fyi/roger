@@ -1952,3 +1952,71 @@ func mintSigner(t *testing.T, b *broker) ed25519.PrivateKey {
 	require.NoError(t, err)
 	return priv
 }
+
+// --- certificate revocation (security review) --------------------------------
+
+// adminRevoke posts a signed admin cert-revoke.
+func adminRevoke(t *testing.T, b *broker, srv *httptest.Server, towerID string) int {
+	t.Helper()
+	b.adminKey = "admin-secret"
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/tower/cert/revoke",
+		strings.NewReader(`{"tower_id":"`+towerID+`"}`))
+	require.NoError(t, err)
+	req.Header.Set("X-Roger-Admin", "admin-secret")
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	resp.Body.Close()
+	return resp.StatusCode
+}
+
+// A revoked certificate stops the Tower on its VERY NEXT request - the review's "revocation
+// not enforced" finding. It is enforced at the request-auth layer against the cert serial,
+// because this deployment authenticates by signed request rather than at a TLS handshake.
+func TestARevokedCertificateStopsTheTowerAtOnce(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	tw := enrolledTower(t, b, "owner-1")
+	require.NoError(t, b.tower.registry.Transition(tw.id, admit.StateActive))
+	// Give it a certificate serial, the way enrollment/renewal does, so there is something to
+	// revoke - the test helper admits a Tower without minting a real certificate.
+	_, err := b.tower.registry.RecordRenewal(tw.id, admit.Renewal{
+		CertSerial: "12345", TLSKeyHash: "hash", At: time.Now(),
+	})
+	require.NoError(t, err)
+
+	// Before revocation the Tower's own signed request is accepted (a session open).
+	body, err := json.Marshal(map[string]any{"tower_id": tw.id})
+	require.NoError(t, err)
+	var ch map[string]any
+	code, _ := tw.call(t, srv, "/tower/renew/challenge", body, &ch)
+	require.Equal(t, http.StatusOK, code, "accepted before revocation")
+
+	require.Equal(t, http.StatusOK, adminRevoke(t, b, srv, tw.id))
+
+	// After revocation the SAME signed request is refused - the key still signs, but the
+	// certificate it enrolled with is revoked.
+	code, _ = tw.call(t, srv, "/tower/renew/challenge", body, &ch)
+	require.Equal(t, http.StatusForbidden, code, "a revoked certificate stops the Tower")
+
+	// And it was suspended, and its fleet withdrawn.
+	got, _ := b.tower.registry.Get(tw.id)
+	require.Equal(t, admit.StateSuspended, got.State)
+}
+
+func TestCertRevokeRefusals(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	b.adminKey = "admin-secret"
+	// Unsigned (no admin header) is refused.
+	resp, err := http.Post(srv.URL+"/tower/cert/revoke", "application/json",
+		strings.NewReader(`{"tower_id":"tw-x"}`))
+	require.NoError(t, err)
+	resp.Body.Close()
+	require.Equal(t, http.StatusForbidden, resp.StatusCode)
+
+	// Admin, but an unknown Tower.
+	require.Equal(t, http.StatusNotFound, adminRevoke(t, b, srv, "tw-nobody"))
+
+	// Admin, a real Tower, but no certificate recorded yet.
+	tw := enrolledTower(t, b, "owner-1")
+	require.Equal(t, http.StatusConflict, adminRevoke(t, b, srv, tw.id),
+		"a Tower that has not been issued a certificate has none to revoke")
+}

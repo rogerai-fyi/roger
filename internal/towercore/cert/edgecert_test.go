@@ -5,6 +5,7 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/x509"
+	"math/big"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -69,4 +70,22 @@ func TestTheCADoesNotMintADangerousName(t *testing.T) {
 		_, err := a.IssueEdgeCert(bad, &key.PublicKey)
 		require.Error(t, err, "the CA must refuse %q", bad)
 	}
+}
+
+// SerialRevoked answers the request-auth layer: a revoked serial string is refused, an
+// unrevoked or empty one is not.
+func TestSerialRevokedTracksRevocation(t *testing.T) {
+	a := testAuthority(t)
+	require.False(t, a.SerialRevoked("999"))
+	require.False(t, a.SerialRevoked(""), "no serial recorded yet is not a revocation")
+	require.NoError(t, a.Revoke(bigFromString(t, "999")))
+	require.True(t, a.SerialRevoked("999"))
+	require.False(t, a.SerialRevoked("1000"))
+}
+
+func bigFromString(t *testing.T, s string) *big.Int {
+	t.Helper()
+	n, ok := new(big.Int).SetString(s, 10)
+	require.True(t, ok)
+	return n
 }

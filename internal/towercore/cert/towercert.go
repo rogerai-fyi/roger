@@ -273,6 +273,20 @@ func (a *Authority) RevokedSerials() []string {
 	return out
 }
 
+// SerialRevoked reports whether a certificate serial (as its decimal string, the form a Tower
+// record stores) has been revoked. It is what the request-auth layer checks so a revoked
+// certificate stops the Tower even though this deployment authenticates by signed request
+// rather than by presenting the certificate at a TLS handshake - the certificate serial is
+// bound to the Tower at enrollment, so revoking it is a per-Tower kill switch.
+func (a *Authority) SerialRevoked(serial string) bool {
+	if serial == "" {
+		return false // no serial recorded yet (pre-enrollment) is not a revocation
+	}
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.revoked[serial]
+}
+
 func (a *Authority) isRevoked(serial *big.Int) bool {
 	if serial == nil {
 		return true // a certificate with no serial cannot be checked, so it is not trusted

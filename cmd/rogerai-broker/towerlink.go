@@ -100,6 +100,14 @@ func (b *broker) towerCaller(r *http.Request, body []byte, claimedID string) (ad
 	if !towerMayHoldLink(tw) {
 		return admit.Tower{}, nil, false
 	}
+	// CERTIFICATE REVOCATION, enforced here. This deployment authenticates a Tower by its
+	// signed request rather than by a certificate presented at a TLS handshake, so a revoked
+	// certificate would otherwise be inert - the review's finding. The certificate serial is
+	// bound to the Tower at enrollment, so a revoked serial is a per-Tower kill switch that
+	// takes effect on the Tower's very next request, without waiting for its lease to lapse.
+	if ts.ca != nil && ts.ca.SerialRevoked(tw.CertSerial) {
+		return admit.Tower{}, nil, false
+	}
 	return tw, ed25519.PublicKey(raw), true
 }
 
@@ -1033,6 +1041,7 @@ func (b *broker) registerTowerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/tower/station/revoke", b.towerStationRevoke)      // operator: retire a Station identity
 	mux.HandleFunc("/tower/station/promote", b.towerStationPromote)    // admin: open the Station quarantine gate
 
+	mux.HandleFunc("/tower/cert/revoke", b.towerCertRevoke)       // admin: revoke a Tower certificate now
 	mux.HandleFunc("/tower/lease/expire", b.towerLeaseExpire)     // admin: take a Tower off the link now
 	mux.HandleFunc("/tower/lifecycle", b.towerLifecycle)          // admin: the Tower quarantine gate
 	mux.HandleFunc("/tower/self/lifecycle", b.towerSelfLifecycle) // operator: drain/resume/retire my own
