@@ -38,6 +38,10 @@ type Policy struct {
 	// sure, and a failure share above which a Tower is not carrying work.
 	MinCanaries       int
 	MaxCanaryFailRate float64
+	// DisputeMargin is how far above the FLEET's dispute rate a Tower's own may sit before it
+	// is flagged. A dispute cannot be attributed from one attempt - the consumer may be lying -
+	// so an unusual RATE is an Investigate (look closer), never an automatic Quarantine.
+	DisputeMargin float64
 }
 
 // DefaultPolicy is a starting point, not a law. The numbers are conservative: flag readily,
@@ -49,6 +53,7 @@ func DefaultPolicy() Policy {
 		UncorroboratedMargin: 0.30,
 		MinCanaries:          5,
 		MaxCanaryFailRate:    0.40,
+		DisputeMargin:        0.15,
 	}
 }
 
@@ -82,6 +87,19 @@ func (p Policy) Evaluate(tower, fleet Tally) Verdict {
 	}
 	if towerRate-fleetRate > p.UncorroboratedMargin {
 		return Investigate
+	}
+	// A DISPUTE RATE unlike the fleet's is a Tower whose relay may be altering responses. It
+	// is an Investigate, not a Quarantine, because a single dispute cannot be attributed - only
+	// the pattern is evidence, and even the pattern could be an unusually adversarial set of
+	// consumers rather than a bad relay. A human decides; the rate only points.
+	if towerDispute, known := tower.DisputeRate(); known {
+		fleetDispute, fleetKnown := fleet.DisputeRate()
+		if !fleetKnown {
+			fleetDispute = 0
+		}
+		if towerDispute-fleetDispute > p.DisputeMargin {
+			return Investigate
+		}
 	}
 	return Clean
 }

@@ -203,7 +203,7 @@ func TestAConsumerIsServedThroughARelayThatSeesNothing(t *testing.T) {
 	}, nil)
 	grant, err := reg.MintEdge(dispatch.EdgeTarget{
 		TowerID: "tw-1", StationID: s.StationID, Model: "m", Modality: "text",
-		RelayName: name, MaxIn: 4096, MaxOut: 4096, AssertionKey: s.AssertionPub(),
+		RelayName: name, MaxIn: 4096, MaxOut: 4096, AssertionKey: s.AssertionPub(), ConsumerKey: edgeConsumerKey(),
 	})
 	require.NoError(t, err)
 
@@ -332,4 +332,14 @@ func TestAConsumerIsServedThroughARelayThatSeesNothing(t *testing.T) {
 	<-relayDone
 	close(stop)
 	require.NoError(t, <-done)
+}
+
+// edgeConsumerKey is a valid consumer public key for a grant fixture. An edge grant is now
+// issued to a consumer, so a target that named none would be refused.
+func edgeConsumerKey() ed25519.PublicKey {
+	pub, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		panic(err)
+	}
+	return pub
 }

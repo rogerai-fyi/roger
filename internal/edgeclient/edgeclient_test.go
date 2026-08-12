@@ -120,7 +120,7 @@ func newEdgeWorld(t *testing.T, model, answer string) *edgeWorld {
 		require.NotEmpty(t, pub, "authorize must be signed")
 		g, err := reg.MintEdge(dispatch.EdgeTarget{
 			TowerID: "tw-1", StationID: st.StationID, Model: model, Modality: "text",
-			RelayName: relayName, MaxIn: 1 << 20, MaxOut: 1 << 20, AssertionKey: st.AssertionPub(),
+			RelayName: relayName, MaxIn: 1 << 20, MaxOut: 1 << 20, AssertionKey: st.AssertionPub(), ConsumerKey: edgeConsumerKey(),
 		})
 		require.NoError(t, err)
 		writeJSON(rw, map[string]any{
@@ -352,4 +352,14 @@ func TestTheDefaultHTTPClientIsBounded(t *testing.T) {
 	c := &Client{}
 	require.NotNil(t, c.httpClient())
 	require.Positive(t, c.httpClient().Timeout)
+}
+
+// edgeConsumerKey is a valid consumer public key for a grant fixture. An edge grant is now
+// issued to a consumer, so a target that named none would be refused.
+func edgeConsumerKey() ed25519.PublicKey {
+	pub, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		panic(err)
+	}
+	return pub
 }

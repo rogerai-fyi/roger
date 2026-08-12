@@ -39,6 +39,7 @@ package dispatch
 
 import (
 	"crypto/ed25519"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -72,6 +73,12 @@ type EdgeTarget struct {
 	// AssertionKey is the key from the ATTACHMENT record, carried for the same reason as on
 	// the relayed path: it is what the receipt is verified against.
 	AssertionKey ed25519.PublicKey
+	// ConsumerKey is the account the grant is issued TO. It is signed into the grant so that
+	// the acknowledgement, which settlement corroborates against, can only come from the
+	// consumer that was authorized - not any account that happens to learn the attempt id. A
+	// security review found the ack unbound, letting a third party file one for somebody
+	// else's attempt.
+	ConsumerKey ed25519.PublicKey
 }
 
 // EdgeGrant authorizes one edge attempt.
@@ -88,6 +95,9 @@ type EdgeGrant struct {
 	MaxOut       int64
 	Deadline     time.Time
 	Nonce        string
+	// ConsumerKey is the account this grant was issued to, hex in the signed body. The
+	// acknowledgement must come from it.
+	ConsumerKey ed25519.PublicKey
 	// Signed is the canonical signed object, handed to the CONSUMER rather than to a Tower.
 	Signed []byte
 }
@@ -112,6 +122,8 @@ func (r *Registry) MintEdge(t EdgeTarget) (EdgeGrant, error) {
 		return EdgeGrant{}, errors.New("an edge grant bounds input and output, and one of those bounds is missing")
 	case len(t.AssertionKey) != ed25519.PublicKeySize:
 		return EdgeGrant{}, errors.New("an edge grant needs the Station's attachment-recorded assertion key")
+	case len(t.ConsumerKey) != ed25519.PublicKeySize:
+		return EdgeGrant{}, errors.New("an edge grant is issued to a consumer, and none was named")
 	}
 
 	now := r.cfg.Now()
@@ -132,6 +144,7 @@ func (r *Registry) MintEdge(t EdgeTarget) (EdgeGrant, error) {
 		MaxOut:       t.MaxOut,
 		Deadline:     now.Add(life),
 		Nonce:        randomHex(16),
+		ConsumerKey:  t.ConsumerKey,
 	}
 	body, err := json.Marshal(map[string]any{
 		"network":       r.cfg.Network,
@@ -149,6 +162,7 @@ func (r *Registry) MintEdge(t EdgeTarget) (EdgeGrant, error) {
 		"max_out":       towerobj.FormatInt(g.MaxOut),
 		"deadline":      towerobj.FormatInt(g.Deadline.Unix()),
 		"nonce":         g.Nonce,
+		"consumer_key":  hex.EncodeToString(g.ConsumerKey),
 	})
 	if err != nil {
 		return EdgeGrant{}, err
@@ -195,9 +209,14 @@ func ParseEdgeGrant(raw []byte, coreKey ed25519.PublicKey, network, stationID st
 		MaxOut       string `json:"max_out"`
 		Deadline     string `json:"deadline"`
 		Nonce        string `json:"nonce"`
+		ConsumerKey  string `json:"consumer_key"`
 	}
 	if err := json.Unmarshal(raw, &obj); err != nil {
 		return EdgeGrant{}, fmt.Errorf("this grant cannot be read: %w", err)
+	}
+	consumerKey, err := hex.DecodeString(obj.ConsumerKey)
+	if err != nil {
+		return EdgeGrant{}, errors.New("this grant's consumer key is unreadable")
 	}
 	if obj.StationID != stationID {
 		return EdgeGrant{}, fmt.Errorf("this grant is for Station %q, not this one", obj.StationID)
@@ -233,6 +252,6 @@ func ParseEdgeGrant(raw []byte, coreKey ed25519.PublicKey, network, stationID st
 		JobID: obj.JobID, AttemptID: obj.AttemptID, TowerID: obj.TowerID,
 		StationID: obj.StationID, StationEpoch: epoch, Model: obj.Model,
 		Modality: obj.Modality, RelayName: obj.RelayName, MaxIn: maxIn, MaxOut: maxOut,
-		Deadline: deadline, Nonce: obj.Nonce, Signed: raw,
+		Deadline: deadline, Nonce: obj.Nonce, ConsumerKey: consumerKey, Signed: raw,
 	}, nil
 }

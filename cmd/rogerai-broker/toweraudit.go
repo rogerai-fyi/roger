@@ -73,6 +73,23 @@ func (b *broker) selectForAudit(towerID, stationID, attemptID, requestDigest, re
 	}
 }
 
+// forceAudit marks an attempt wanted regardless of the sample - used when settlement already
+// found something worth a closer look, like a disputed digest. The Station keeps everything
+// recent, so a forced audit lands on a transcript it should still hold.
+func (b *broker) forceAudit(towerID, stationID, attemptID, requestDigest, responseDigest string) {
+	ts := b.tower
+	if ts == nil || ts.auditWanted == nil {
+		return
+	}
+	if err := ts.auditWanted.Want(audit.Wanted{
+		TowerID: towerID, AttemptID: attemptID, StationID: stationID,
+		RequestDigest: requestDigest, ResponseDigest: responseDigest,
+		Deadline: time.Now().Add(auditDeadline),
+	}); err != nil {
+		log.Printf("audit: could not force-select %s: %v", attemptID, err)
+	}
+}
+
 func auditSampled(attemptID string) bool {
 	h := fnv.New32a()
 	_, _ = h.Write([]byte(attemptID))

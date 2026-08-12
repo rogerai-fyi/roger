@@ -33,8 +33,16 @@ func edgeTarget(t *testing.T) (EdgeTarget, ed25519.PrivateKey) {
 	return EdgeTarget{
 		TowerID: "tw-1", StationID: "st-1", StationEpoch: 3,
 		Model: "m", Modality: "text", RelayName: "st-1.relay.example",
-		MaxIn: 1000, MaxOut: 2000, AssertionKey: pub,
+		MaxIn: 1000, MaxOut: 2000, AssertionKey: pub, ConsumerKey: consumerPub(),
 	}, priv
+}
+
+func consumerPub() ed25519.PublicKey {
+	pub, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		panic(err)
+	}
+	return pub
 }
 
 // The load-bearing difference from a relayed grant: it authorizes a SCOPE, and there is no
@@ -98,6 +106,7 @@ func TestAnEdgeGrantWithoutItsBoundsIsRefused(t *testing.T) {
 		"no key":       func(g *EdgeTarget) { g.AssertionKey = nil },
 		"short key":    func(g *EdgeTarget) { g.AssertionKey = []byte{1, 2, 3} },
 		"negative out": func(g *EdgeTarget) { g.MaxOut = -5 },
+		"no consumer":  func(g *EdgeTarget) { g.ConsumerKey = nil },
 	} {
 		t.Run(name, func(t *testing.T) {
 			tgt := base

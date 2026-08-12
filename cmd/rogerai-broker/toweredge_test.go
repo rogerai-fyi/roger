@@ -65,13 +65,18 @@ func consumerCall(t *testing.T, srv *httptest.Server, priv ed25519.PrivateKey,
 // issuedAttempt seeds the shared store with an attempt Core would have recorded at
 // authorize time. Settlement is one-use against this record, so a test that skips it is a
 // test of an attempt that cannot exist.
-func issuedAttempt(t *testing.T, b *broker, attemptID, towerID, stationID string) {
+// issuedAttempt seeds an edge attempt bound to a fresh consumer key, and returns that key so
+// an ack test can sign as the authorized consumer. A settle-only test ignores the return.
+func issuedAttempt(t *testing.T, b *broker, attemptID, towerID, stationID string) ed25519.PrivateKey {
 	t.Helper()
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
 	require.NoError(t, b.tower.dispatch.Store().Put(dispatch.Record{
 		AttemptID: attemptID, JobID: "job-" + attemptID, TowerID: towerID,
 		StationID: stationID, Model: "m", Modality: "text", Nonce: "n-" + attemptID,
-		Deadline: time.Now().Add(time.Hour), State: dispatch.StateIssued,
+		Deadline: time.Now().Add(time.Hour), ConsumerKey: pub, State: dispatch.StateIssued,
 	}))
+	return priv
 }
 
 func signedAck(t *testing.T, priv ed25519.PrivateKey, attemptID string, response []byte,
@@ -99,10 +104,8 @@ func TestAnEdgeAttemptSettlesOnTwoOpposingAccounts(t *testing.T) {
 	tw := enrolledTower(t, b, "owner-1")
 	stationPriv := attachStation(t, b, "st-1", tw.id, "owner-1")
 
-	issuedAttempt(t, b, "att-1", tw.id, "st-1")
+	consumerPriv := issuedAttempt(t, b, "att-1", tw.id, "st-1")
 	response := []byte(`{"choices":[{"text":"hello"}]}`)
-	_, consumerPriv, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
 
 	code, out := consumerCall(t, srv, consumerPriv, "/tower/edge/ack", map[string]any{
 		"attempt_id": "att-1",
@@ -148,16 +151,18 @@ func TestAnEdgeAttemptWithNoAcknowledgementSettlesUncorroborated(t *testing.T) {
 	require.Equal(t, float64(7), settled["billable_out"], "the operator is still paid")
 }
 
-// TWO SIGNED DIGESTS WITH A RELAY BETWEEN THEM. A disagreement about the bytes is not a
-// rounding difference; it is attributable to the only party that saw both.
-func TestADisagreementAboutTheAnswerIsRefusedAndAttributed(t *testing.T) {
+// A DISAGREEMENT DOES NOT VOID SETTLEMENT. A review found the old handling dangerous: a
+// digest mismatch failed the attempt and blamed the Tower, so a lying consumer could deny
+// the Station its pay and frame a third party by signing a false digest. Now the attempt
+// SETTLES on the Station's receipt (uncorroborated), is marked disputed as a rate signal,
+// and is force-audited - none of which can be triggered against an honest Tower by one lie.
+func TestADisagreementSettlesOnTheReceiptAndIsFlagged(t *testing.T) {
 	b, srv := towerTestBroker(t)
 	tw := enrolledTower(t, b, "owner-1")
 	stationPriv := attachStation(t, b, "st-1", tw.id, "owner-1")
-	issuedAttempt(t, b, "att-1", tw.id, "st-1")
+	require.NoError(t, b.tower.registry.Transition(tw.id, admit.StateActive))
+	consumerPriv := issuedAttempt(t, b, "att-1", tw.id, "st-1")
 
-	_, consumerPriv, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
 	code, _ := consumerCall(t, srv, consumerPriv, "/tower/edge/ack", map[string]any{
 		"attempt_id": "att-1",
 		"ack": signedAck(t, consumerPriv, "att-1", []byte("what the consumer received"),
@@ -168,13 +173,28 @@ func TestADisagreementAboutTheAnswerIsRefusedAndAttributed(t *testing.T) {
 	body, err := json.Marshal(map[string]any{
 		"tower_id": tw.id, "station_id": "st-1", "attempt_id": "att-1",
 		"receipt": signedReceipt(t, stationPriv, "att-1", "st-1",
-			[]byte("what the Station returned"), dispatch.Usage{In: 1, Out: 1}),
+			[]byte("what the Station returned"), dispatch.Usage{In: 1, Out: 3}),
 	})
 	require.NoError(t, err)
 	var out map[string]any
-	code, msg := tw.call(t, srv, "/tower/edge/settle", body, &out)
-	require.Equal(t, http.StatusConflict, code)
-	require.Contains(t, msg, "the only party between them is the relay")
+	code, _ = tw.call(t, srv, "/tower/edge/settle", body, &out)
+	require.Equal(t, http.StatusOK, code, out)
+	require.Equal(t, true, out["disputed"])
+	require.Equal(t, false, out["corroborated"])
+	require.Equal(t, float64(3), out["billable_out"], "the Station is paid for what it signed")
+
+	// The dispute is recorded as a SIGNAL (feeds the rate), and one is not enough to suspend.
+	tally, err := b.tower.outcomes.Tally(tw.id, time.Now().Add(-time.Hour))
+	require.NoError(t, err)
+	require.Equal(t, 1, tally.Disputed)
+	got, _ := b.tower.registry.Get(tw.id)
+	require.Equal(t, admit.StateActive, got.State, "one dispute does not take a Tower off")
+
+	// And it was force-audited regardless of the sample.
+	pending, err := b.tower.auditWanted.Pending(tw.id, time.Now())
+	require.NoError(t, err)
+	require.Len(t, pending, 1)
+	require.Equal(t, "att-1", pending[0].AttemptID)
 }
 
 // UNSIGNED EVIDENCE SETTLES NOTHING. An acknowledgement that anybody could have filed is not
@@ -192,9 +212,12 @@ func TestAnUnsignedAcknowledgementIsRefused(t *testing.T) {
 // self-describing key would let anybody file an acknowledgement as anybody, which is the
 // cheapest possible way to manufacture corroboration - or to poison somebody else's.
 func TestAnAcknowledgementSignedByADifferentKeyThanTheRequestIsRefused(t *testing.T) {
-	_, srv := towerTestBroker(t)
-	_, requestPriv, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
+	b, srv := towerTestBroker(t)
+	tw := enrolledTower(t, b, "owner-1")
+	attachStation(t, b, "st-1", tw.id, "owner-1")
+	// Bind the attempt to the caller so it reaches the ack-object check (not the earlier
+	// consumer-binding refusal), then present an ack signed by a DIFFERENT key.
+	requestPriv := bindAttemptToConsumer(t, b, "att-1", tw.id, "st-1")
 	_, otherPriv, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
 
@@ -206,9 +229,10 @@ func TestAnAcknowledgementSignedByADifferentKeyThanTheRequestIsRefused(t *testin
 }
 
 func TestAMalformedAcknowledgementIsRefused(t *testing.T) {
-	_, srv := towerTestBroker(t)
-	_, priv, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
+	b, srv := towerTestBroker(t)
+	tw := enrolledTower(t, b, "owner-1")
+	attachStation(t, b, "st-1", tw.id, "owner-1")
+	priv := bindAttemptToConsumer(t, b, "att-1", tw.id, "st-1")
 
 	for name, in := range map[string]any{
 		"no attempt": map[string]any{"ack": "eyJ9"},
@@ -313,10 +337,11 @@ func TestEdgeRoutesRefuseTheWrongMethod(t *testing.T) {
 func TestSettlementReadsWhateverAcknowledgementIsRecorded(t *testing.T) {
 	b, _ := towerTestBroker(t)
 	// No acknowledgement recorded: uncorroborated, and the receipt's own claim stands.
-	s, err := b.settleEdgeAttempt("att-none",
+	s, disputed, err := b.settleEdgeAttempt("att-none",
 		dispatch.Receipt{AttemptID: "att-none", ResponseDigest: "d",
 			Usage: dispatch.Usage{In: 1, Out: 2}})
 	require.NoError(t, err)
+	require.False(t, disputed)
 	require.False(t, s.Corroborated)
 	require.Equal(t, dispatch.Usage{In: 1, Out: 2}, s.Billable)
 }
@@ -770,14 +795,15 @@ func TestASettlementAfterTheWindowIsRefusedByName(t *testing.T) {
 
 // A digest disagreement CLOSES the attempt as failed: evidence that broken does not get a
 // second try with a different story, so the replay after it is "already settled".
-func TestADisagreementClosesTheAttemptForGood(t *testing.T) {
+// A DISPUTED ATTEMPT STILL SETTLES EXACTLY ONCE. The disagreement no longer voids anything,
+// so the attempt settles (disputed) - and a replay after that loses the one-use swap, exactly
+// as an undisputed one would.
+func TestADisputedAttemptStillSettlesExactlyOnce(t *testing.T) {
 	b, srv := towerTestBroker(t)
 	tw := enrolledTower(t, b, "owner-1")
 	stationPriv := attachStation(t, b, "st-1", tw.id, "owner-1")
-	issuedAttempt(t, b, "att-1", tw.id, "st-1")
+	consumerPriv := issuedAttempt(t, b, "att-1", tw.id, "st-1")
 
-	_, consumerPriv, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
 	code, _ := consumerCall(t, srv, consumerPriv, "/tower/edge/ack", map[string]any{
 		"attempt_id": "att-1",
 		"ack": signedAck(t, consumerPriv, "att-1", []byte("what the consumer received"),
@@ -793,16 +819,11 @@ func TestADisagreementClosesTheAttemptForGood(t *testing.T) {
 	require.NoError(t, err)
 	var out map[string]any
 	code, _ = tw.call(t, srv, "/tower/edge/settle", settle, &out)
-	require.Equal(t, http.StatusConflict, code)
+	require.Equal(t, http.StatusOK, code)
+	require.Equal(t, true, out["disputed"])
 
-	// Trying again - same story or a corrected one - finds the attempt already claimed.
-	honest, err := json.Marshal(map[string]any{
-		"tower_id": tw.id, "station_id": "st-1", "attempt_id": "att-1",
-		"receipt": signedReceipt(t, stationPriv, "att-1", "st-1",
-			[]byte("what the consumer received"), dispatch.Usage{In: 1, Out: 1}),
-	})
-	require.NoError(t, err)
-	code, msg := tw.call(t, srv, "/tower/edge/settle", honest, &out)
+	// The replay loses the swap.
+	code, msg := tw.call(t, srv, "/tower/edge/settle", settle, &out)
 	require.Equal(t, http.StatusConflict, code)
 	require.Contains(t, msg, "already been settled")
 }
@@ -850,10 +871,8 @@ func TestSettlementFeedsTheReputationLedger(t *testing.T) {
 	code, _ := tw.call(t, srv, "/tower/edge/settle", settleUncorr, &out)
 	require.Equal(t, http.StatusOK, code)
 
-	issuedAttempt(t, b, "att-corr", tw.id, "st-1")
+	consumerPriv := issuedAttempt(t, b, "att-corr", tw.id, "st-1")
 	answer := []byte("the answer")
-	_, consumerPriv, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
 	code, _ = consumerCall(t, srv, consumerPriv, "/tower/edge/ack", map[string]any{
 		"attempt_id": "att-corr",
 		"ack":        signedAck(t, consumerPriv, "att-corr", answer, dispatch.Usage{In: 1, Out: 1}),
@@ -879,10 +898,8 @@ func TestADisagreementIsRecordedAgainstTheTower(t *testing.T) {
 	b, srv := towerTestBroker(t)
 	tw := enrolledTower(t, b, "owner-1")
 	stationPriv := attachStation(t, b, "st-1", tw.id, "owner-1")
-	issuedAttempt(t, b, "att-1", tw.id, "st-1")
+	consumerPriv := issuedAttempt(t, b, "att-1", tw.id, "st-1")
 
-	_, consumerPriv, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
 	code, _ := consumerCall(t, srv, consumerPriv, "/tower/edge/ack", map[string]any{
 		"attempt_id": "att-1",
 		"ack":        signedAck(t, consumerPriv, "att-1", []byte("consumer saw this"), dispatch.Usage{In: 1, Out: 1}),
@@ -897,11 +914,19 @@ func TestADisagreementIsRecordedAgainstTheTower(t *testing.T) {
 	require.NoError(t, err)
 	var out map[string]any
 	code, _ = tw.call(t, srv, "/tower/edge/settle", settle, &out)
-	require.Equal(t, http.StatusConflict, code)
+	require.Equal(t, http.StatusOK, code, "a dispute settles on the receipt, it does not fail")
+	require.Equal(t, true, out["disputed"])
 
 	tally, err := b.tower.outcomes.Tally(tw.id, time.Now().Add(-time.Hour))
 	require.NoError(t, err)
 	require.Equal(t, 1, tally.Disputed)
+}
+
+// bindAttemptToConsumer seeds an attempt bound to a specific consumer key it returns - used
+// where a test needs to reach the ack-OBJECT checks past the consumer-binding gate.
+func bindAttemptToConsumer(t *testing.T, b *broker, attemptID, towerID, stationID string) ed25519.PrivateKey {
+	t.Helper()
+	return issuedAttempt(t, b, attemptID, towerID, stationID)
 }
 
 // The rate is a FINDING, not a reversal: an evaluation that flags a Tower does not undo any
@@ -1692,4 +1717,164 @@ func TestRenewalRefusesMalformedFields(t *testing.T) {
 	var out map[string]any
 	code, _ = tw.call(t, srv, "/tower/renew", body, &out)
 	require.Equal(t, http.StatusBadRequest, code)
+}
+
+// --- ack binding (security review) -------------------------------------------
+
+// The ack is bound to the AUTHORIZED consumer: a different account cannot acknowledge
+// somebody else's attempt, even though it holds a valid account and knows the attempt id.
+func TestAThirdPartyCannotAcknowledgeSomebodyElsesAttempt(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	tw := enrolledTower(t, b, "owner-1")
+	attachStation(t, b, "st-1", tw.id, "owner-1")
+	_ = issuedAttempt(t, b, "att-1", tw.id, "st-1") // bound to a consumer key we discard
+
+	// A different, signed-in account tries to ack it.
+	_, intruder, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	code, _ := consumerCall(t, srv, intruder, "/tower/edge/ack", map[string]any{
+		"attempt_id": "att-1",
+		"ack":        signedAck(t, intruder, "att-1", []byte("x"), dispatch.Usage{In: 1, Out: 1}),
+	})
+	require.Equal(t, http.StatusNotFound, code,
+		"an account acknowledging work that is not theirs learns nothing, not even that it exists")
+}
+
+// An ack for an attempt that was never authorized is refused - this also stops an attacker
+// spraying acks at random ids to grow the store.
+func TestAnAckForAnUnknownAttemptIsRefused(t *testing.T) {
+	_, srv := towerTestBroker(t)
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	code, _ := consumerCall(t, srv, priv, "/tower/edge/ack", map[string]any{
+		"attempt_id": "att-never-authorized",
+		"ack":        signedAck(t, priv, "att-never-authorized", []byte("x"), dispatch.Usage{In: 1, Out: 1}),
+	})
+	require.Equal(t, http.StatusNotFound, code)
+}
+
+// getFailStore wraps a store so Get fails, to exercise the ack handler's read-failure branch.
+type getFailStore struct{ dispatch.Store }
+
+func (getFailStore) Get(string) (dispatch.Record, bool, error) {
+	return dispatch.Record{}, false, assertErr2
+}
+
+// If the attempt store cannot be read at ack time, the handler answers "try again" rather
+// than accepting an ack it could not bind.
+func TestAnAckWhenTheStoreCannotBeReadIsUnavailable(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	b.tower.dispatch = dispatch.NewWithStore(dispatch.Config{
+		Network: link.PublicNetwork, Lifetime: time.Minute,
+	}, getFailStore{dispatch.NewMemStore()})
+
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	code, _ := consumerCall(t, srv, priv, "/tower/edge/ack", map[string]any{
+		"attempt_id": "att-1",
+		"ack":        signedAck(t, priv, "att-1", []byte("x"), dispatch.Usage{In: 1, Out: 1}),
+	})
+	require.Equal(t, http.StatusServiceUnavailable, code)
+}
+
+// forceAudit and the audit helpers are safe without the subsystem, like the others.
+func TestForceAuditIsSafeWithoutTheSubsystem(t *testing.T) {
+	b := testBrokerWithDB(store.NewMem())
+	require.NotPanics(t, func() { b.forceAudit("tw", "st", "att", "rq", "rs") })
+}
+
+// A disputed settlement force-audits regardless of the sample, and records the outcome as a
+// signal - verified at the helper level so the store failure path is exercised too.
+func TestForceAuditWantsTheAttempt(t *testing.T) {
+	b, _ := towerTestBroker(t)
+	tw := enrolledTower(t, b, "owner-1")
+	b.forceAudit(tw.id, "st-1", "att-forced", "rq", "rs")
+	pending, err := b.tower.auditWanted.Pending(tw.id, time.Now())
+	require.NoError(t, err)
+	require.Len(t, pending, 1)
+	require.Equal(t, "att-forced", pending[0].AttemptID)
+
+	// And with a failing store it logs rather than panicking.
+	b.tower.auditWanted = failingAudit{}
+	require.NotPanics(t, func() { b.forceAudit(tw.id, "st-1", "att-2", "rq", "rs") })
+}
+
+// The consumer-binding gate: an ack whose caller key is not the recorded consumer key is
+// refused even when everything else is well-formed. (Covers the subtleConstEq mismatch path.)
+func TestTheConsumerBindingRefusesAWrongKeyCleanly(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	tw := enrolledTower(t, b, "owner-1")
+	attachStation(t, b, "st-1", tw.id, "owner-1")
+	_ = issuedAttempt(t, b, "att-1", tw.id, "st-1")
+
+	_, wrong, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	code, msg := consumerCall(t, srv, wrong, "/tower/edge/ack", map[string]any{
+		"attempt_id": "att-1",
+		"ack":        signedAck(t, wrong, "att-1", []byte("x"), dispatch.Usage{In: 1, Out: 1}),
+	})
+	require.Equal(t, http.StatusNotFound, code, msg)
+}
+
+// The edge-cert endpoint's third station-id gate: a Station attached before the invite-time
+// validation existed still cannot get a certificate for an injecting name.
+func TestEdgeCertRefusesAMalformedStationIDAtTheEndpoint(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	op := signedInOperator(t, b, "alice")
+	stKey, err := ecdsaKey(t)
+	require.NoError(t, err)
+	code, _ := op.call(t, srv, http.MethodPost, "/tower/station/edge-cert", map[string]any{
+		"station_id": "st-1.evil", // a dot: extra DNS label
+		"csr":        base64.StdEncoding.EncodeToString(csrFor(t, stKey, "x")),
+	}, nil)
+	require.Equal(t, http.StatusBadRequest, code)
+}
+
+// A settle whose receipt has usage the receipt-signer set negative is refused at parse, but a
+// hand-built one that slips past parse is caught in Reconcile - the settle handler's
+// malformed-receipt branch. Exercised at the helper level with a receipt Reconcile rejects.
+func TestSettleEdgeAttemptRejectsAnUnusableReceipt(t *testing.T) {
+	b, _ := towerTestBroker(t)
+	// An empty receipt: Reconcile needs the Station's receipt.
+	_, _, err := b.settleEdgeAttempt("att-x", dispatch.Receipt{})
+	require.Error(t, err)
+	// A negative-usage receipt: Reconcile refuses it.
+	_, _, err = b.settleEdgeAttempt("att-x",
+		dispatch.Receipt{AttemptID: "att-x", ResponseDigest: "d", Usage: dispatch.Usage{Out: -1}})
+	require.Error(t, err)
+}
+
+// The renew endpoint (not just the challenge) requires the Tower's own signed request.
+func TestRenewRequiresTheTowersOwnRequestOnBothRoutes(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	tw := enrolledTower(t, b, "owner-1")
+	other := enrolledTower(t, b, "owner-2")
+	// other Tower signs a renew for tw.
+	body, err := json.Marshal(map[string]any{
+		"tower_id": tw.id, "nonce": "n",
+		"identity_key": base64.StdEncoding.EncodeToString(make([]byte, 32)),
+		"signature":    base64.StdEncoding.EncodeToString(make([]byte, 64)),
+		"csr":          base64.StdEncoding.EncodeToString([]byte("x")),
+	})
+	require.NoError(t, err)
+	var out map[string]any
+	code, _ := other.call(t, srv, "/tower/renew", body, &out)
+	require.Equal(t, http.StatusForbidden, code)
+}
+
+// The edge-cert issued response carries the name and note, and the certificate is real.
+func TestEdgeCertResponseCarriesTheNameAndNote(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	op := signedInOperator(t, b, "alice")
+	opPub := hexOf(op.priv.Public().(ed25519.PublicKey))
+	tw := enrolledTower(t, b, "owner-1")
+	attachStationOwned(t, b, "st-1", tw.id, opPub)
+	stKey, err := ecdsaKey(t)
+	require.NoError(t, err)
+	code, msg := op.call(t, srv, http.MethodPost, "/tower/station/edge-cert", map[string]any{
+		"station_id": "st-1", "csr": base64.StdEncoding.EncodeToString(csrFor(t, stKey, "x")),
+	}, nil)
+	require.Equal(t, http.StatusOK, code)
+	require.Contains(t, msg, "st-1."+relayDomain())
+	require.Contains(t, msg, "install it on the Station")
 }

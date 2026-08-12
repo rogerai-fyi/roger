@@ -48,7 +48,7 @@ func edgeSetup(t *testing.T, now time.Time, mutate func(*dispatch.EdgeTarget)) (
 	tgt := dispatch.EdgeTarget{
 		TowerID: "tw-1", StationID: s.StationID, Model: "m", Modality: "text",
 		RelayName: "st.relay.example", MaxIn: 4096, MaxOut: 4096,
-		AssertionKey: s.AssertionPub(),
+		AssertionKey: s.AssertionPub(), ConsumerKey: edgeConsumerKey(),
 	}
 	if mutate != nil {
 		mutate(&tgt)
@@ -248,4 +248,14 @@ func TestTheExecutorSignsTranscriptsOnDemand(t *testing.T) {
 	_, ok, err = e.Transcript("anything")
 	require.NoError(t, err)
 	require.False(t, ok)
+}
+
+// edgeConsumerKey is a valid consumer public key for a grant fixture. An edge grant is now
+// issued to a consumer, so a target that named none would be refused.
+func edgeConsumerKey() ed25519.PublicKey {
+	pub, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		panic(err)
+	}
+	return pub
 }

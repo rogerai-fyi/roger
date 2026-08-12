@@ -78,6 +78,7 @@ CREATE INDEX IF NOT EXISTS tower_attempts_deadline
 -- a test database that had the earlier shape, which is exactly the situation a deployed
 -- broker would have been in.
 ALTER TABLE rogerai.tower_attempts ADD COLUMN IF NOT EXISTS request BYTEA NOT NULL DEFAULT '';
+ALTER TABLE rogerai.tower_attempts ADD COLUMN IF NOT EXISTS consumer_key BYTEA NOT NULL DEFAULT '';
 `
 
 // PGStore is the durable attempt store.
@@ -95,7 +96,8 @@ func NewPGStore(db *sql.DB) (*PGStore, error) {
 }
 
 const attemptColumns = `attempt_id, job_id, tower_id, station_id, station_epoch, model,
-	modality, request_digest, nonce, deadline, grant_signed, request, assertion_key, state`
+	modality, request_digest, nonce, deadline, grant_signed, request, assertion_key,
+	consumer_key, state`
 
 func (p *PGStore) Put(r Record) error {
 	// A nil request cannot happen through Issue, which refuses one - but nil and empty are
@@ -107,16 +109,19 @@ func (p *PGStore) Put(r Record) error {
 	if r.Grant == nil {
 		r.Grant = []byte{}
 	}
+	if r.ConsumerKey == nil {
+		r.ConsumerKey = []byte{}
+	}
 	_, err := p.db.Exec(`
 		INSERT INTO rogerai.tower_attempts (`+attemptColumns+`)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
 		-- An attempt id is minted from crypto/rand, so a collision is not a case to merge:
 		-- it is a case that does not happen, and DO NOTHING keeps a retry idempotent rather
 		-- than letting one attempt quietly overwrite another.
 		ON CONFLICT (attempt_id) DO NOTHING`,
 		r.AttemptID, r.JobID, r.TowerID, r.StationID, r.StationEpoch, r.Model, r.Modality,
 		r.RequestDigest, r.Nonce, r.Deadline, r.Grant, r.Request,
-		hex.EncodeToString(r.AssertionKey), r.State)
+		hex.EncodeToString(r.AssertionKey), r.ConsumerKey, r.State)
 	return err
 }
 
@@ -259,7 +264,7 @@ func scanAttempt(row scanner) (Record, bool, error) {
 	var keyHex string
 	err := row.Scan(&r.AttemptID, &r.JobID, &r.TowerID, &r.StationID, &r.StationEpoch,
 		&r.Model, &r.Modality, &r.RequestDigest, &r.Nonce, &r.Deadline, &r.Grant,
-		&r.Request, &keyHex, &r.State)
+		&r.Request, &keyHex, &r.ConsumerKey, &r.State)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Record{}, false, nil
 	}

@@ -178,7 +178,11 @@ type Record struct {
 	// exists to remove.
 	Request      []byte
 	AssertionKey []byte
-	State        string
+	// ConsumerKey is the account an EDGE grant was issued to, so the acknowledgement can be
+	// bound to the authorized consumer rather than accepted from anyone who learns the id.
+	// Empty on the relayed path, which has no consumer. A review found the ack unbound.
+	ConsumerKey []byte
+	State       string
 }
 
 func (r Record) grant() Grant {

@@ -110,3 +110,31 @@ func TestALoneTowerIsJudgedAgainstAnEmptyBaseline(t *testing.T) {
 	_, known := rest.UncorroboratedRate()
 	require.False(t, known, "the rest of a one-Tower fleet is nobody")
 }
+
+// A dispute rate unlike the fleet's is an Investigate - a Tower whose relay may be altering
+// responses - but never an automatic Quarantine, because a single dispute cannot be
+// attributed (the consumer may be lying).
+func TestAnUnusualDisputeRateIsInvestigated(t *testing.T) {
+	p := DefaultPolicy()
+	// 30 settled, 10 of them disputed (0.33), against a fleet near zero.
+	tower := Tally{Corroborated: 15, Uncorroborated: 5, Disputed: 10}
+	fleet := Tally{Corroborated: 950, Uncorroborated: 45, Disputed: 5}
+	require.Equal(t, Investigate, p.Evaluate(tower, fleet))
+}
+
+// Disputes near the fleet baseline are clean - a network with adversarial consumers has a
+// baseline that is nobody's fault.
+func TestADisputeRateNearTheBaselineIsClean(t *testing.T) {
+	p := DefaultPolicy()
+	tower := Tally{Corroborated: 80, Uncorroborated: 10, Disputed: 10}    // 0.10
+	fleet := Tally{Corroborated: 800, Uncorroborated: 100, Disputed: 100} // 0.10 baseline
+	require.Equal(t, Clean, p.Evaluate(tower, fleet))
+}
+
+func TestTheDisputeRateIsOverAllSettledAttempts(t *testing.T) {
+	rate, known := Tally{Corroborated: 8, Uncorroborated: 1, Disputed: 1}.DisputeRate()
+	require.True(t, known)
+	require.InDelta(t, 0.1, rate, 1e-9)
+	_, known = Tally{}.DisputeRate()
+	require.False(t, known)
+}

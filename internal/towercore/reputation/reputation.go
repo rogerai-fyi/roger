@@ -123,6 +123,19 @@ func (t Tally) CanaryFailRate() (rate float64, known bool) {
 	return float64(t.CanaryFail) / float64(canaries), true
 }
 
+// DisputeRate is the share of settled attempts the consumer's account of the bytes disagreed
+// with the Station's. It is deliberately a RATE, not a count: a single dispute is a consumer
+// who may be lying, and cannot be attributed; a Tower whose dispute share is unlike the
+// fleet's is a Tower whose relay may be altering responses. Over settled attempts plus the
+// disputes themselves, because a dispute IS a settled attempt (on the receipt alone).
+func (t Tally) DisputeRate() (rate float64, known bool) {
+	settled := t.Corroborated + t.Uncorroborated + t.Disputed
+	if settled == 0 {
+		return 0, false
+	}
+	return float64(t.Disputed) / float64(settled), true
+}
+
 // Store is where outcomes live.
 type Store interface {
 	// Record appends one outcome. Idempotent on (tower, attempt, outcome): an attempt has one

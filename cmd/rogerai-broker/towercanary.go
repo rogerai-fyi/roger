@@ -65,11 +65,20 @@ func (b *broker) RunCanary(towerID string) reputation.Outcome {
 		// there is nothing to canary - so nothing is recorded.
 		return ""
 	}
+	// Core is the consumer for a canary, so it holds an ephemeral consumer key - fresh per
+	// probe, so a canary is not tied to a standing account. The SAME key is bound into the
+	// grant and drives the request, so the acknowledgement (if the probe made one) would
+	// verify, exactly as a real consumer's does.
+	consumerPub, consumerKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return ""
+	}
 	grant, err := ts.dispatch.MintEdge(dispatch.EdgeTarget{
 		TowerID: target.TowerID, StationID: target.StationID, StationEpoch: target.StationEpoch,
 		Model: target.Model, Modality: target.Modality,
 		RelayName: target.StationID + "." + relayDomain(),
 		MaxIn:     edgeMaxBytes, MaxOut: edgeMaxBytes, AssertionKey: target.AssertionKey,
+		ConsumerKey: consumerPub,
 	})
 	if err != nil {
 		return ""
@@ -81,20 +90,16 @@ func (b *broker) RunCanary(towerID string) reputation.Outcome {
 		return ""
 	}
 
-	outcome := b.driveCanary(grant, target, endpoint)
+	outcome := b.driveCanary(grant, target, endpoint, consumerKey)
 	b.recordOutcome(towerID, grant.AttemptID, outcome)
 	b.evaluateTower(towerID)
 	return outcome
 }
 
 // driveCanary carries the request as a consumer and judges the answer.
-func (b *broker) driveCanary(grant dispatch.EdgeGrant, target dispatch.Target, endpoint string) reputation.Outcome {
+func (b *broker) driveCanary(grant dispatch.EdgeGrant, target dispatch.Target, endpoint string, consumerKey ed25519.PrivateKey) reputation.Outcome {
 	roots := x509.NewCertPool()
 	roots.AddCert(b.tower.ca.Root())
-	_, consumerKey, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		return reputation.CanaryFail
-	}
 	client := &edgeclient.Client{Key: consumerKey, Roots: roots, Network: link.PublicNetwork}
 	ctx, cancel := context.WithTimeout(context.Background(), canaryTimeout)
 	defer cancel()

@@ -26,6 +26,7 @@ package main
 // either party alone. Screening for edge traffic moves entirely to sampled post-hoc audit.
 
 import (
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -94,6 +95,11 @@ func (b *broker) towerEdgeAuthorize(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusUnauthorized, "an edge authorization needs a signed request")
 		return
 	}
+	// The account the grant is issued TO. Signed into the grant, so the acknowledgement can
+	// only come from this consumer - not any account that later learns the attempt id. The
+	// pubkey header is already validated: identityOf above verified a signature with it, so it
+	// is well-formed hex of the right length by the time we reach here.
+	consumerKey, _ := hex.DecodeString(r.Header.Get(protocol.HeaderPubkey))
 	var req struct {
 		Model  string `json:"model"`
 		MaxIn  int64  `json:"max_in,omitempty"`
@@ -127,6 +133,7 @@ func (b *broker) towerEdgeAuthorize(w http.ResponseWriter, r *http.Request) {
 		Model: target.Model, Modality: target.Modality,
 		RelayName: target.StationID + "." + relayDomain(),
 		MaxIn:     maxIn, MaxOut: maxOut, AssertionKey: target.AssertionKey,
+		ConsumerKey: consumerKey,
 	})
 	if err != nil {
 		jsonErr(w, http.StatusServiceUnavailable, "could not authorize this attempt - try again")
@@ -172,7 +179,8 @@ func (b *broker) openEdgeAttempt(g dispatch.EdgeGrant, target dispatch.Target) e
 		AttemptID: g.AttemptID, JobID: g.JobID, TowerID: g.TowerID, StationID: g.StationID,
 		StationEpoch: g.StationEpoch, Model: g.Model, Modality: g.Modality,
 		Nonce: g.Nonce, Deadline: g.Deadline.Add(edgeSettleGrace),
-		Grant: g.Signed, AssertionKey: target.AssertionKey, State: dispatch.StateIssued,
+		Grant: g.Signed, AssertionKey: target.AssertionKey, ConsumerKey: g.ConsumerKey,
+		State: dispatch.StateIssued,
 	}); err != nil {
 		return err
 	}
@@ -279,8 +287,28 @@ func (b *broker) towerEdgeAck(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusBadRequest, "this acknowledgement is not valid base64")
 		return
 	}
-	// VERIFIED AGAINST THE KEY THAT SIGNED THE REQUEST, not one named in the object. A
-	// self-describing key would let anybody file an acknowledgement as anybody.
+	// BOUND TO THE AUTHORIZED CONSUMER. The attempt must exist and its grant must have been
+	// issued to THIS caller's key - otherwise any signed-in account that learned an attempt id
+	// could file an acknowledgement for somebody else's work, and could spray them at random
+	// ids to grow the store. A review found the ack unbound. Answered the same for an unknown
+	// attempt and one issued to a different consumer, so this cannot probe which ids exist.
+	rec, found, gerr := ts.dispatch.Store().Get(req.AttemptID)
+	if gerr != nil {
+		jsonErr(w, http.StatusServiceUnavailable, "could not read the attempt - try again")
+		return
+	}
+	if !found {
+		jsonErr(w, http.StatusNotFound, "no such attempt to acknowledge")
+		return
+	}
+	if subtleConstEq(rec.ConsumerKey, pub) != 1 {
+		// Issued to a different consumer (or not an edge attempt at all). Answered the same as
+		// an unknown attempt: a caller acknowledging work that is not theirs learns nothing.
+		jsonErr(w, http.StatusNotFound, "no such attempt to acknowledge")
+		return
+	}
+	// VERIFIED AGAINST THE KEY THAT SIGNED THE REQUEST, not one named in the object, and that
+	// key is now known to be the authorized consumer's.
 	ack, err := dispatch.ParseAck(raw, pub, link.PublicNetwork, req.AttemptID)
 	if err != nil {
 		jsonErr(w, http.StatusBadRequest, err.Error())
@@ -304,7 +332,7 @@ func (b *broker) towerEdgeAck(w http.ResponseWriter, r *http.Request) {
 // uncorroborated. Customers close laptops mid-stream and third-party clients will never
 // acknowledge at all; an operator who lost money every time is an operator who leaves, and a
 // network with no operators is not more secure, it is empty. The signal is the RATE.
-func (b *broker) settleEdgeAttempt(attemptID string, receipt dispatch.Receipt) (dispatch.Settlement, error) {
+func (b *broker) settleEdgeAttempt(attemptID string, receipt dispatch.Receipt) (dispatch.Settlement, bool, error) {
 	ts := b.tower
 	var ack *dispatch.Ack
 	if ts != nil && ts.acks != nil {
@@ -315,7 +343,23 @@ func (b *broker) settleEdgeAttempt(attemptID string, receipt dispatch.Receipt) (
 		// acknowledgement" settles uncorroborated, which is the safe direction: it never
 		// invents corroboration that was not there.
 	}
-	return dispatch.Reconcile(receipt, ack)
+	settled, err := dispatch.Reconcile(receipt, ack)
+	if errors.Is(err, dispatch.ErrDigestMismatch) {
+		// THE ACK DISAGREES WITH THE RECEIPT ABOUT THE BYTES. A review found the old handling
+		// dangerous: it VOIDED the settlement and blamed the Tower, so a lying consumer could
+		// deny the Station its pay and frame a third party by signing a false digest - and Core
+		// cannot tell, from two digests, whether the relay tampered or the consumer lied.
+		//
+		// So the disagreement no longer voids anything. The attempt SETTLES on the Station's
+		// receipt (uncorroborated - the Station is paid for the work it signed), and the
+		// dispute is recorded as a SIGNAL that feeds the rate, not a single-attempt penalty.
+		// A Tower actually tampering shows an unusual dispute rate across many attempts; one
+		// consumer's lie shows up as one dispute and is lost in the noise. The transcript audit
+		// is what can look closer.
+		settled, err = dispatch.Reconcile(receipt, nil)
+		return settled, true, err
+	}
+	return settled, false, err
 }
 
 // towerEdgeSettle takes the Station's receipt, relayed by its Tower on the link it already
@@ -424,26 +468,14 @@ func (b *broker) towerEdgeSettle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	settled, err := b.settleEdgeAttempt(req.AttemptID, receipt)
+	settled, disputed, err := b.settleEdgeAttempt(req.AttemptID, receipt)
 	if err != nil {
-		// A digest disagreement is the one refusal that means something happened rather than
-		// something was malformed, so it is reported as a conflict and attributed - and the
-		// attempt is closed as FAILED rather than released: evidence this broken does not
-		// get a second try with a different story.
+		// A malformed or unusable receipt is a bad request; unlike a digest disagreement (which
+		// settleEdgeAttempt now resolves rather than errors on), this is the caller's mistake.
 		b.noteAttempt(req.AttemptID, attempt.Observation{
 			Kind: attempt.KindExecutionFailed, EvidenceHash: req.AttemptID,
 			Reason: err.Error(), ReleaseID: "release-" + req.AttemptID,
 		})
-		if errors.Is(err, dispatch.ErrDigestMismatch) {
-			// A disagreement about the bytes is attributable to the relay, and it is exactly
-			// the kind of thing the rate exists to surface across a Tower's attempts.
-			b.recordOutcome(req.TowerID, req.AttemptID, reputation.Disputed)
-			b.evaluateTower(req.TowerID)
-			jsonErr(w, http.StatusConflict,
-				"the Station and the consumer signed for different responses - "+
-					"the only party between them is the relay")
-			return
-		}
 		jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -469,11 +501,23 @@ func (b *broker) towerEdgeSettle(w http.ResponseWriter, r *http.Request) {
 	if settled.Corroborated {
 		outcome = reputation.Corroborated
 	}
+	if disputed {
+		// A signal, not a sentence: the dispute RATE is what an evaluation reads. One dispute
+		// is a consumer who may be lying; a Tower's unusual dispute rate is a Tower to look at.
+		outcome = reputation.Disputed
+	}
 	b.recordOutcome(req.TowerID, req.AttemptID, outcome)
-	// A sampled fraction is selected for post-hoc content review. The digests come from the
-	// receipt just verified, so an audit checks the transcript against exactly what settled.
-	b.selectForAudit(req.TowerID, req.StationID, req.AttemptID,
-		receipt.RequestDigest, receipt.ResponseDigest)
+	// A sampled fraction is selected for post-hoc content review, and a DISPUTED attempt is
+	// audited regardless of the sample - the transcript is the closest look available at
+	// whether the Station is self-consistent about the bytes it signed. The digests come from
+	// the receipt just verified.
+	if disputed {
+		b.forceAudit(req.TowerID, req.StationID, req.AttemptID,
+			receipt.RequestDigest, receipt.ResponseDigest)
+	} else {
+		b.selectForAudit(req.TowerID, req.StationID, req.AttemptID,
+			receipt.RequestDigest, receipt.ResponseDigest)
+	}
 	// Judged AFTER the outcome is recorded, so this attempt is in the window. The verdict may
 	// quarantine the Tower on strong evidence; it never touches THIS settlement, which has
 	// already committed - the money is decided, the reputation is a separate consequence.
@@ -481,6 +525,7 @@ func (b *broker) towerEdgeSettle(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"attempt_id":   settled.AttemptID,
 		"corroborated": settled.Corroborated,
+		"disputed":     disputed,
 		"billable_in":  settled.Billable.In,
 		"billable_out": settled.Billable.Out,
 	})
@@ -551,4 +596,14 @@ func (b *broker) evaluateTower(towerID string) reputation.Verdict {
 		}
 	}
 	return verdict
+}
+
+// subtleConstEq compares two keys in constant time and returns 1 on equal. A short-circuit
+// bytes.Equal would leak, by timing, how much of an authorized consumer key an attacker has
+// guessed - and the consumer key, while public, gates whose acknowledgement is accepted.
+func subtleConstEq(a, b []byte) int {
+	if len(a) != len(b) {
+		return 0
+	}
+	return subtle.ConstantTimeCompare(a, b)
 }
