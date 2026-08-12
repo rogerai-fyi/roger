@@ -22,8 +22,24 @@
 # Every finding is either a bug to fix or a decision to record in the allowlist beside this
 # script, WITH ITS REASON. Anything unreachable and unexplained fails the check.
 #
+# WHAT THIS CANNOT SEE, measured rather than assumed. deadcode does NOT report an exported
+# method whose receiver type is instantiated in production - it conservatively treats such a
+# method as potentially reachable. Confirmed with a controlled experiment: an uncalled plain
+# func on a live type's package IS reported, an uncalled exported method on *Registry is NOT.
+# Unexported methods and methods of never-instantiated types are reported normally.
+#
+# That blind spot hid a production-fatal bug. The whole certificate-and-lease RENEWAL path -
+# Core side and Tower side - was written, tested, and connected to no route, so every Tower
+# would have stopped working 24 hours after enrolling. `make reach` passed throughout.
+#
+# So the sweep below is run as well: exported methods in the Tower tree with no non-test
+# caller anywhere. It is a grep and it is cruder than a call graph - an interface-dispatched
+# call may read as absent - which is why its findings are a QUESTION rather than a failure,
+# and why it prints instead of exiting non-zero.
+#
 # Usage: scripts/reachability.sh          (fails on any unexplained unreachable function)
 #        scripts/reachability.sh --list   (prints everything unreachable, allowlisted or not)
+#        scripts/reachability.sh --methods (the exported-method sweep deadcode cannot do)
 set -uo pipefail
 
 cd "$(dirname "$0")/.."
@@ -40,6 +56,31 @@ fi
 # Reachable from any main(). NOT -test: a function reachable only from a test is exactly
 # what this is looking for.
 found="$("$BIN" ./... 2>/dev/null | sed -E 's/^(.*): unreachable func: (.*)$/\1|\2/')"
+
+# --- the exported-method sweep -------------------------------------------------------
+methods_sweep() {
+  local found=0
+  for pkg in internal/relay internal/station internal/tower internal/towerjoin \
+             internal/towerobj internal/towerstore internal/towercore/*/; do
+    pkg=${pkg%/}; [ -d "$pkg" ] || continue
+    grep -hoE '^func \([a-zA-Z_]+ \*?[A-Za-z0-9_]+\) [A-Z][A-Za-z0-9_]*' "$pkg"/*.go 2>/dev/null \
+      | sed -E 's/^func \([a-zA-Z_]+ \*?([A-Za-z0-9_]+)\) //' | sort -u | while read -r m; do
+      [ -z "$m" ] && continue
+      n=$(grep -rn "\.$m(" --include='*.go' . 2>/dev/null \
+            | grep -v '_test.go:' | grep -v "^\./$pkg/.*func (" | wc -l)
+      if [ "$n" -eq 0 ] && ! grep -qxF "method $pkg.$m" "$ALLOW" 2>/dev/null; then
+        echo "NO-CALLER    $pkg.$m"
+        found=1
+      fi
+    done
+  done
+  return $found
+}
+
+if [ "${1:-}" = "--methods" ]; then
+  methods_sweep
+  exit 0
+fi
 
 if [ "${1:-}" = "--list" ]; then
   printf '%s\n' "$found"
@@ -59,6 +100,18 @@ while IFS='|' read -r loc fn; do
   echo "             at $loc"
   fail=1
 done <<< "$found"
+
+# Advisory, printed after the hard check so it cannot be mistaken for one. These are the
+# methods deadcode structurally cannot rule on; each is a question, not a verdict.
+sweep="$(methods_sweep || true)"
+if [ -n "$sweep" ]; then
+  echo
+  echo "[reach] exported methods with no non-test caller — deadcode cannot see these."
+  echo "        Each is a question: wire it up, delete it, or record it in $ALLOW as"
+  echo "        'method <pkg>.<Name>' with the reason."
+  printf '%s\n' "$sweep"
+  echo
+fi
 
 if [ "$fail" = 0 ]; then
   echo "[reach] PASS — every unreachable function is accounted for in $ALLOW"

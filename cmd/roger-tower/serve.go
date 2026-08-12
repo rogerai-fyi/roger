@@ -60,6 +60,11 @@ func serveJoined(st *tower.State, out io.Writer, stations stationEndpoints, rela
 		waitForRelay := runRelayInBackground(relayAddr, routes, out, stopped)
 		defer waitForRelay()
 	}
+	// RENEWAL, alongside the link and the relay. Without it the certificate and the lease
+	// both lapse in a day and the Tower is finished - re-enrollment through quarantine, for
+	// an operator who did nothing wrong. It runs independently of the link for the same
+	// reason the relay does: a control-plane blip must not also cost the credential.
+	go towerjoin.KeepRenewed(st, out, stopped, realTicker)
 	return runLink(st, out, stopped, realTicker, stations)
 }
 

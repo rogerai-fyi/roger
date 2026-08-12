@@ -1002,6 +1002,12 @@ func (b *broker) registerTowerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/tower/enroll", b.towerEnroll)              // Tower: admission itself
 	mux.HandleFunc("/tower/status", b.towerStatus)              // operator: my Towers
 
+	// RENEWAL, signed by the Tower rather than the operator. Certificates and leases are
+	// short-lived, so this runs forever on a schedule and no human is involved - a human
+	// asked to re-authenticate their fleet daily acquires the habit a phishing mail needs.
+	mux.HandleFunc("/tower/renew/challenge", b.towerRenewChallenge)
+	mux.HandleFunc("/tower/renew", b.towerRenew)
+
 	// The LINK: the Tower itself talking, authenticated by its admitted identity key rather
 	// than by an operator account. Session first, then inventory over it.
 	mux.HandleFunc("/tower/session", b.towerSessionOpen)             // Tower: open the link

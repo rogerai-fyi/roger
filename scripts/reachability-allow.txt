@@ -217,3 +217,69 @@ internal/towercore/dispatch.SignAck
 # from separate maps in separate processes. The in-process one is correct for a single broker
 # and is what the tests exercise.
 internal/towercore/dispatch.New
+
+# ============================================================================
+# EXPORTED METHODS WITH NO NON-TEST CALLER
+#
+# deadcode cannot rule on these - see the note in reachability.sh. Each line below has been
+# looked at and kept, with the reason. `scripts/reachability.sh --methods` lists any that
+# are NOT here, and finding the renewal path in that list is what led to towerrenew.go.
+# ============================================================================
+
+# --- the certificate is not yet used to AUTHENTICATE anything ---------------
+# Nothing in production performs mutual TLS. A Tower authenticates by signing its HTTP
+# requests (towerCaller), which is real authentication and is not what the approved spec
+# describes: features/tower/job_and_settlement.feature has the outer channel mutually
+# authenticated by TLS 1.3 bound to the Tower's identity and session.
+#
+# So these four - and isRevoked with them - are the verifying half of a layer that has not
+# been built. CERTIFICATE revocation is therefore not enforced today. Tower revocation IS:
+# it is enforced in the admission registry, which is what gates dispatch, so a revoked Tower
+# gets no work. The gap is the channel layer, not the removal.
+#
+# Kept because they are the correct implementations to wire when mTLS lands, and deleting
+# them would mean rewriting the revocation check from scratch at that point.
+method internal/towercore/cert.AuthenticateAs
+method internal/towercore/cert.ProveMatches
+method internal/towercore/cert.RevokedSerials
+
+# --- store-interface methods used through their interface -------------------
+# Written for a Store interface and called through it, which the grep sweep cannot follow.
+# Real callers exist; the sweep is looking for a literal `.Name(` on a concrete value.
+method internal/towercore/admit.ConsumeToken
+method internal/towercore/admit.PutToken
+method internal/towercore/admit.PutTower
+method internal/towercore/admit.RecordClaim
+method internal/towercore/attach.PutAuthorization
+method internal/towercore/link.Adopt
+method internal/towercore/link.Check
+
+# --- test seams and accessors -----------------------------------------------
+method internal/towercore/admit.OpenTokensForTest
+# AssertionPub and SessionPub are what an operator reads off a Station to fill in an
+# invitation. They are printed by `roger-station keys`, which reaches the fields rather than
+# these accessors; kept because an accessor that exists only where the field is exported is
+# the shape every other caller will reasonably expect.
+method internal/station.AssertionPub
+method internal/station.SessionPub
+
+# --- the edge path, still being built ---------------------------------------
+# MintEdge issues an edge grant. Core has no authorize endpoint yet - that is the next build
+# step - so nothing calls it in production. ParseEdgeGrant, its counterpart, IS wired (the
+# Station verifies with it), which is why only this half shows up.
+method internal/towercore/dispatch.MintEdge
+
+# --- superseded by more specific callers ------------------------------------
+# Claim takes a named attempt; the poll path uses ClaimNext, and the direct-collect path uses
+# the store's ClaimByID. Pending is a read for an operator surface that does not exist yet.
+method internal/towercore/dispatch.Claim
+method internal/towercore/dispatch.Pending
+
+# --- standalone-mode surface ------------------------------------------------
+# A standalone Tower is configured by file and has no HTTP surface, so its config accessors
+# have no caller in the joined binary. AllowRequestTarget is the deliberate always-refuse
+# described further up this file.
+method internal/tower.AllowRequestTarget
+method internal/tower.Invitation
+method internal/tower.RequireMode
+method internal/towercore/enroll.TokenID

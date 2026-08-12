@@ -46,7 +46,17 @@ type stubCore struct {
 	badCertBytes bool // return something that is not a certificate
 }
 
+// newStubCore serves the enrollment routes. Built on newStubCoreMux so a test that needs
+// EXTRA routes - renewal, say - can add them before the server starts.
 func newStubCore(t *testing.T) (*stubCore, *httptest.Server) {
+	t.Helper()
+	c, mux := newStubCoreMux(t)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return c, srv
+}
+
+func newStubCoreMux(t *testing.T) (*stubCore, *http.ServeMux) {
 	t.Helper()
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
@@ -142,9 +152,25 @@ func newStubCore(t *testing.T) (*stubCore, *httptest.Server) {
 			"not_after":     time.Now().Add(time.Hour).Unix(),
 		})
 	})
-	srv := httptest.NewServer(mux)
-	t.Cleanup(srv.Close)
-	return c, srv
+	return c, mux
+}
+
+// issueLeaf mints a leaf under the stub CA with the lifetime a test asks for.
+func (c *stubCore) issueLeaf(t *testing.T, life time.Duration) []byte {
+	t.Helper()
+	pub, _, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	c.mu.Lock()
+	c.enrollments++
+	serial := int64(500 + c.enrollments)
+	c.mu.Unlock()
+	leaf := &x509.Certificate{
+		SerialNumber: big.NewInt(serial), Subject: pkix.Name{CommonName: "tw-stub"},
+		NotBefore: time.Now().Add(-time.Minute), NotAfter: time.Now().Add(life),
+	}
+	der, err := x509.CreateCertificate(rand.Reader, leaf, c.caCert, pub, c.caKey)
+	require.NoError(t, err)
+	return der
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

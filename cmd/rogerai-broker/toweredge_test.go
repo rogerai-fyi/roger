@@ -14,6 +14,8 @@ package main
 import (
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
@@ -291,4 +293,200 @@ func TestSettlementReadsWhateverAcknowledgementIsRecorded(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, s.Corroborated)
 	require.Equal(t, dispatch.Usage{In: 1, Out: 2}, s.Billable)
+}
+
+// --- renewal -----------------------------------------------------------------
+//
+// Contract: features/tower/public_enrollment.feature.
+//
+// These routes did not exist. The renewal logic behind them was complete and tested and
+// reachable from nothing, so every Tower's certificate and lease - both 24 hours by default -
+// would have lapsed a day after enrollment with re-enrollment through quarantine as the only
+// recovery. What is tested here is that the routes are MOUNTED and authenticated, which is
+// exactly what was missing.
+
+func TestRenewalRoutesExistAndAreMounted(t *testing.T) {
+	_, srv := towerTestBroker(t)
+	for _, path := range []string{"/tower/renew/challenge", "/tower/renew"} {
+		resp, err := http.Post(srv.URL+path, "application/json", strings.NewReader(`{}`))
+		require.NoError(t, err)
+		resp.Body.Close()
+		require.NotEqual(t, http.StatusNotFound, resp.StatusCode,
+			"%s must be mounted: without it every Tower expires in a day", path)
+	}
+}
+
+// Renewal is signed by the TOWER, not the operator: it spends no token, creates no Tower and
+// changes no identity. Requiring a human daily would build exactly the habit a phishing mail
+// needs.
+func TestRenewalRequiresTheTowersOwnSignedRequest(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	tw := enrolledTower(t, b, "owner-1")
+
+	// Unsigned.
+	resp, err := http.Post(srv.URL+"/tower/renew/challenge", "application/json",
+		strings.NewReader(`{"tower_id":"`+tw.id+`"}`))
+	require.NoError(t, err)
+	resp.Body.Close()
+	require.Equal(t, http.StatusForbidden, resp.StatusCode)
+
+	// Signed, but by a different Tower's key.
+	other := enrolledTower(t, b, "owner-2")
+	body, err := json.Marshal(map[string]any{"tower_id": tw.id})
+	require.NoError(t, err)
+	var out map[string]any
+	code, _ := other.call(t, srv, "/tower/renew/challenge", body, &out)
+	require.Equal(t, http.StatusForbidden, code,
+		"anyone who learned a Tower ID must not be able to ask for its renewal nonce")
+}
+
+func TestATowerCanGetItsRenewalChallenge(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	tw := enrolledTower(t, b, "owner-1")
+	body, err := json.Marshal(map[string]any{"tower_id": tw.id})
+	require.NoError(t, err)
+
+	var out map[string]any
+	code, _ := tw.call(t, srv, "/tower/renew/challenge", body, &out)
+	require.Equal(t, http.StatusOK, code, out)
+	require.NotEmpty(t, out["nonce"])
+	require.NotEmpty(t, out["signing_input"])
+}
+
+func TestRenewalRefusesWhatItCannotRead(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	tw := enrolledTower(t, b, "owner-1")
+
+	for name, tc := range map[string]struct {
+		path string
+		in   map[string]any
+	}{
+		"challenge with no tower": {"/tower/renew/challenge", map[string]any{}},
+		"renew with no tower":     {"/tower/renew", map[string]any{}},
+		"renew with bad base64":   {"/tower/renew", map[string]any{"tower_id": tw.id, "csr": "!!!"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			body, err := json.Marshal(tc.in)
+			require.NoError(t, err)
+			var out map[string]any
+			code, _ := tw.call(t, srv, tc.path, body, &out)
+			require.GreaterOrEqual(t, code, 400)
+			require.Less(t, code, 500)
+		})
+	}
+}
+
+// A renewal that does not prove possession of the key on record is refused. Without this,
+// anyone who learned a Tower ID could have a certificate for it issued to themselves.
+func TestARenewalWithoutAValidProofIsRefused(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	tw := enrolledTower(t, b, "owner-1")
+
+	body, err := json.Marshal(map[string]any{
+		"tower_id":     tw.id,
+		"nonce":        "not-a-real-nonce",
+		"identity_key": base64.StdEncoding.EncodeToString([]byte("not a key")),
+		"signature":    base64.StdEncoding.EncodeToString([]byte("not a signature")),
+		"csr":          base64.StdEncoding.EncodeToString([]byte("not a csr")),
+	})
+	require.NoError(t, err)
+	var out map[string]any
+	code, msg := tw.call(t, srv, "/tower/renew", body, &out)
+	require.Equal(t, http.StatusBadRequest, code)
+	require.Contains(t, msg, "not valid")
+}
+
+func TestRenewalRoutesRefuseTheWrongMethod(t *testing.T) {
+	_, srv := towerTestBroker(t)
+	for _, path := range []string{"/tower/renew/challenge", "/tower/renew"} {
+		resp, err := http.Get(srv.URL + path)
+		require.NoError(t, err)
+		resp.Body.Close()
+		require.Equal(t, http.StatusMethodNotAllowed, resp.StatusCode, path)
+	}
+}
+
+// THE HAPPY PATH, through the real handler: a Tower proves possession of the key already on
+// record and gets a genuinely new certificate with a later expiry. This is the test that
+// would have failed for the whole life of the bug - not because renewal computed the wrong
+// answer, but because there was nothing to call.
+func TestATowerActuallyRenewsAndGetsALaterExpiry(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	tw := enrolledTower(t, b, "owner-1")
+
+	body, err := json.Marshal(map[string]any{"tower_id": tw.id})
+	require.NoError(t, err)
+	var ch map[string]any
+	code, _ := tw.call(t, srv, "/tower/renew/challenge", body, &ch)
+	require.Equal(t, http.StatusOK, code, ch)
+
+	signingInput, err := base64.StdEncoding.DecodeString(ch["signing_input"].(string))
+	require.NoError(t, err)
+
+	// The CHANNEL key is a different key from the identity key, as enrollment requires.
+	channelPub, channelPriv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	_ = channelPub
+	csr, err := x509.CreateCertificateRequest(rand.Reader,
+		&x509.CertificateRequest{Subject: pkix.Name{CommonName: "roger-tower"}}, channelPriv)
+	require.NoError(t, err)
+
+	body, err = json.Marshal(map[string]any{
+		"tower_id":     tw.id,
+		"nonce":        ch["nonce"],
+		"identity_key": base64.StdEncoding.EncodeToString(tw.priv.Public().(ed25519.PublicKey)),
+		"signature":    base64.StdEncoding.EncodeToString(ed25519.Sign(tw.priv, signingInput)),
+		"csr":          base64.StdEncoding.EncodeToString(csr),
+	})
+	require.NoError(t, err)
+
+	var out map[string]any
+	code, msg := tw.call(t, srv, "/tower/renew", body, &out)
+	require.Equal(t, http.StatusOK, code, msg)
+
+	// A real, parseable certificate for this Tower.
+	certDER, err := base64.StdEncoding.DecodeString(out["certificate"].(string))
+	require.NoError(t, err)
+	leaf, err := x509.ParseCertificate(certDER)
+	require.NoError(t, err)
+	require.True(t, leaf.NotAfter.After(time.Now()), "a renewal must push the expiry out")
+
+	// And the lease moved with it - the thing that otherwise lapses at 24 hours.
+	require.Greater(t, out["lease_expires"].(float64), float64(time.Now().Unix()))
+}
+
+// A one-use nonce. Replaying a renewal must not mint a second certificate.
+func TestARenewalNonceCannotBeReplayed(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	tw := enrolledTower(t, b, "owner-1")
+
+	body, err := json.Marshal(map[string]any{"tower_id": tw.id})
+	require.NoError(t, err)
+	var ch map[string]any
+	code, _ := tw.call(t, srv, "/tower/renew/challenge", body, &ch)
+	require.Equal(t, http.StatusOK, code)
+	signingInput, err := base64.StdEncoding.DecodeString(ch["signing_input"].(string))
+	require.NoError(t, err)
+
+	_, channelPriv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	csr, err := x509.CreateCertificateRequest(rand.Reader,
+		&x509.CertificateRequest{Subject: pkix.Name{CommonName: "roger-tower"}}, channelPriv)
+	require.NoError(t, err)
+	renewal, err := json.Marshal(map[string]any{
+		"tower_id":     tw.id,
+		"nonce":        ch["nonce"],
+		"identity_key": base64.StdEncoding.EncodeToString(tw.priv.Public().(ed25519.PublicKey)),
+		"signature":    base64.StdEncoding.EncodeToString(ed25519.Sign(tw.priv, signingInput)),
+		"csr":          base64.StdEncoding.EncodeToString(csr),
+	})
+	require.NoError(t, err)
+
+	var out map[string]any
+	code, _ = tw.call(t, srv, "/tower/renew", renewal, &out)
+	require.Equal(t, http.StatusOK, code)
+
+	// The same request again.
+	code, _ = tw.call(t, srv, "/tower/renew", renewal, &out)
+	require.Equal(t, http.StatusBadRequest, code, "a renewal nonce is one-use")
 }

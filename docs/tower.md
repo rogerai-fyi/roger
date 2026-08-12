@@ -233,6 +233,14 @@ shipped.)
 | **quarantine** | admin | live-but-not-eligible; identity is fine, work is withheld |
 | **rehome (epoch bump)** | admin | fences in-flight work: the old origin's grants can no longer be completed |
 
+**Renewal.** Certificates and leases are both 24 hours by default, and a Tower renews at two
+thirds of that on its own — signed by the Tower, not the operator, because renewal spends no
+token, creates no Tower and changes no identity or lifecycle state. A human asked to
+re-authenticate a fleet daily acquires exactly the habit a phishing mail needs. The old
+certificate is not revoked at renewal: the overlap is the point, since revoking would cut the
+connection the renewal arrived on. A **revoked or expired** Tower cannot renew, which is what
+makes removal stick without needing to reach a process that may be hostile.
+
 Two things make removals real rather than advisory:
 
 - **Eligibility is checked at dispatch**, separately from identity. A quarantined or draining
@@ -289,13 +297,32 @@ is not more secure — it is empty.
 The signal is the **rate**, not the single attempt. A Tower whose uncorroborated share is
 unlike the fleet's is investigated; attempts already settled are not reversed by a rate alone.
 
+### An honest gap: the certificate does not yet authenticate anything
+
+Nothing in production performs mutual TLS. A Tower authenticates by **signing its HTTP
+requests** with the identity key recorded at enrollment — real authentication, and not what
+`job_and_settlement.feature` describes, which is a TLS 1.3 channel mutually authenticated and
+bound to the Tower's identity and session.
+
+The consequence worth stating: **certificate revocation is not enforced**, because
+certificates are not checked at a channel anywhere. Tower revocation *is* enforced — in the
+admission registry, which is what gates dispatch — so a revoked Tower gets no work. The gap
+is the channel layer, not the removal. `cert.Authenticate`, `AuthenticateAs`, `ProveMatches`
+and `RevokedSerials` are the verifying half of that unbuilt layer and are kept for when it
+lands.
+
 ### Structural enforcement (not runtime)
 
 - `internal/tower` (the standalone half) **may make no outbound network call**, and may not so
   much as *link* Core's code in — both enforced by tests.
 - `make reach` fails the build on any function nothing in the binary calls. This has caught
-  four real bugs, including the Tower's entire durable-storage wiring (`storeFor`), which
+  five real bugs, including the Tower's entire durable-storage wiring (`storeFor`), which
   shipped tested-but-unwired and silently kept state on local disk.
+- **What `make reach` cannot see**, measured rather than assumed: `deadcode` does not report
+  an exported method whose receiver type is instantiated in production. That blind spot hid
+  the entire renewal path — Core side and Tower side, written, tested, routed nowhere — which
+  would have expired every Tower 24 hours after enrollment. `scripts/reachability.sh
+  --methods` is the complementary sweep, and it runs as an advisory on every `make reach`.
 - Every durable store has a **mem/Postgres parity suite** written deliberately differently — a
   held mutex against a conditional UPDATE — so agreement is a result rather than the same code
   asserted twice. It has caught real divergence.
@@ -356,7 +383,9 @@ the settlement, or settlement must be derived from the ledger rather than mirror
 | Blind SNI relay (`internal/relay`) | built |
 | Station TLS identity, CSR/install, HTTPS serving | built |
 | Edge grant (scope-bounded), consumer ack, corroborated settlement | built |
+| Certificate + lease renewal (Core route and Tower schedule) | built |
 | Consumer-side ack in a first-party client | **not built** — no binary here is an edge consumer yet |
+| Mutual TLS on the link, and therefore certificate revocation | **not built** — the Tower authenticates by signed requests instead |
 | Canaries | **not built** |
 | Sampled transcript audit | **not built** |
 | Compensation / funding-source ledger | **not built** |
