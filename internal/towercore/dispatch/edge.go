@@ -115,6 +115,10 @@ func (r *Registry) MintEdge(t EdgeTarget) (EdgeGrant, error) {
 	}
 
 	now := r.cfg.Now()
+	life := r.cfg.EdgeLifetime
+	if life <= 0 {
+		life = r.cfg.Lifetime
+	}
 	g := EdgeGrant{
 		JobID:        "job-" + randomHex(12),
 		AttemptID:    "att-" + randomHex(12),
@@ -126,7 +130,7 @@ func (r *Registry) MintEdge(t EdgeTarget) (EdgeGrant, error) {
 		RelayName:    t.RelayName,
 		MaxIn:        t.MaxIn,
 		MaxOut:       t.MaxOut,
-		Deadline:     now.Add(r.cfg.Lifetime),
+		Deadline:     now.Add(life),
 		Nonce:        randomHex(16),
 	}
 	body, err := json.Marshal(map[string]any{

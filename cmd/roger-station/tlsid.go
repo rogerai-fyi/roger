@@ -73,6 +73,6 @@ func cmdInstallCert(args []string, out io.Writer) error {
 		return err
 	}
 	fmt.Fprintf(out, "certificate installed at %s\n", s.TLSCertPath())
-	fmt.Fprint(out, "serve with --tls to terminate consumer sessions here.\n")
+	fmt.Fprint(out, "serve with --edge ADDR to terminate consumer sessions here.\n")
 	return nil
 }

@@ -49,7 +49,7 @@ usage:
   roger-station csr   --dir DIR --name NAME     (request a certificate for the edge path)
   roger-station install-cert --dir DIR --cert FILE
   roger-station serve --dir DIR --core-key HEX --core-envelope-key HEX --upstream URL
-                      [--listen 127.0.0.1:8730] [--tls]
+                      [--listen 127.0.0.1:8730] [--edge ADDR]
   roger-station status --dir DIR
   roger-station version
 
@@ -73,8 +73,11 @@ drops off the network when its TTL passes - the Tower goes on relaying the stale
 and Roger Core goes on excluding it, with every part reporting itself healthy. Run
 offer --refresh as a service, writing straight into the Tower's offers directory.
 
-THE EDGE PATH. With --tls this Station terminates the CONSUMER's session itself, so a
-Tower in front of it relays ciphertext rather than content. That rests on the TLS private
+THE EDGE PATH. With --edge this Station ALSO serves consumers directly, over TLS, on a
+second port - the one the Tower's relay points at. The --listen port keeps facing the
+Tower alone (execute, and the receipt outbox); the split is a security boundary, because
+a consumer that could reach the outbox could erase the evidence it is billed on. The
+consumer's session terminates here, so the Tower relays ciphertext. That rests on the TLS private
 key never leaving this machine: ` + "`csr`" + ` mints it here and emits only a public request,
 and ` + "`install-cert`" + ` takes back only a public certificate. Nothing exports the key.
 

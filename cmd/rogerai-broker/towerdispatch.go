@@ -734,11 +734,18 @@ func (b *broker) publishRoutable(towerID string) {
 		return
 	}
 	leaves := ts.inv.Routable(towerID)
+	// The data-plane endpoint comes from the LIVE SESSION, stamped onto every row at publish
+	// time. Rows are published by the one instance holding the link - the only instance that
+	// knows the endpoint - and read by every other, which is exactly the hop the projection
+	// exists to carry. A Tower that advertises no endpoint publishes rows without one, and
+	// those rows are simply never offered to an edge consumer.
+	endpoint, _ := ts.link.RelayEndpoint(towerID)
 	rows := make([]fleet.Station, 0, len(leaves))
 	for _, l := range leaves {
 		rows = append(rows, fleet.Station{
 			TowerID: towerID, StationID: l.StationID, OfferID: l.OfferID,
 			Model: l.Model, Modality: l.Modality, Capacity: l.Capacity, Expires: l.Expires,
+			Endpoint: endpoint,
 		})
 	}
 	if err := ts.routable.Replace(towerID, rows); err != nil {

@@ -34,6 +34,11 @@ type Station struct {
 	Modality  string
 	Capacity  int64
 	Expires   time.Time
+	// Endpoint is where CONSUMERS reach this Tower's data plane, host:port, as the Tower
+	// advertised on its link. Empty means this Tower relays nothing, and its Stations are
+	// reachable only on the Core-relayed path - a row without an endpoint is simply never
+	// offered to an edge consumer.
+	Endpoint string
 }
 
 // Store is the projection.

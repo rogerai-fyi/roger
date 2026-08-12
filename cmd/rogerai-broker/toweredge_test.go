@@ -26,7 +26,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"rogerai.fm/roger/v5/internal/protocol"
+	"rogerai.fm/roger/v5/internal/store"
+	"rogerai.fm/roger/v5/internal/towercore/admit"
 	"rogerai.fm/roger/v5/internal/towercore/dispatch"
+	"rogerai.fm/roger/v5/internal/towercore/fleet"
 	"rogerai.fm/roger/v5/internal/towercore/link"
 )
 
@@ -52,6 +55,18 @@ func consumerCall(t *testing.T, srv *httptest.Server, priv ed25519.PrivateKey,
 	return resp.StatusCode, out
 }
 
+// issuedAttempt seeds the shared store with an attempt Core would have recorded at
+// authorize time. Settlement is one-use against this record, so a test that skips it is a
+// test of an attempt that cannot exist.
+func issuedAttempt(t *testing.T, b *broker, attemptID, towerID, stationID string) {
+	t.Helper()
+	require.NoError(t, b.tower.dispatch.Store().Put(dispatch.Record{
+		AttemptID: attemptID, JobID: "job-" + attemptID, TowerID: towerID,
+		StationID: stationID, Model: "m", Modality: "text", Nonce: "n-" + attemptID,
+		Deadline: time.Now().Add(time.Hour), State: dispatch.StateIssued,
+	}))
+}
+
 func signedAck(t *testing.T, priv ed25519.PrivateKey, attemptID string, response []byte,
 	u dispatch.Usage) string {
 	t.Helper()
@@ -62,10 +77,10 @@ func signedAck(t *testing.T, priv ed25519.PrivateKey, attemptID string, response
 }
 
 func signedReceipt(t *testing.T, priv ed25519.PrivateKey, attemptID, stationID string,
-	response []byte) string {
+	response []byte, u dispatch.Usage) string {
 	t.Helper()
 	rec, err := dispatch.SignReceipt(priv, link.PublicNetwork,
-		dispatch.Grant{AttemptID: attemptID, StationID: stationID}, response)
+		dispatch.Grant{AttemptID: attemptID, StationID: stationID}, response, u)
 	require.NoError(t, err)
 	return base64.StdEncoding.EncodeToString(rec.Signed)
 }
@@ -77,6 +92,7 @@ func TestAnEdgeAttemptSettlesOnTwoOpposingAccounts(t *testing.T) {
 	tw := enrolledTower(t, b, "owner-1")
 	stationPriv := attachStation(t, b, "st-1", tw.id, "owner-1")
 
+	issuedAttempt(t, b, "att-1", tw.id, "st-1")
 	response := []byte(`{"choices":[{"text":"hello"}]}`)
 	_, consumerPriv, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
@@ -88,12 +104,12 @@ func TestAnEdgeAttemptSettlesOnTwoOpposingAccounts(t *testing.T) {
 	require.Equal(t, http.StatusOK, code, out)
 	require.Equal(t, true, out["recorded"])
 
-	// The Station CLAIMS more output than the consumer saw.
+	// The Station CLAIMS more output than the consumer saw - in its own signed receipt,
+	// which is now the only place a claim can live.
 	body, err := json.Marshal(map[string]any{
 		"tower_id": tw.id, "station_id": "st-1", "attempt_id": "att-1",
-		"receipt":   signedReceipt(t, stationPriv, "att-1", "st-1", response),
-		"usage_in":  10,
-		"usage_out": 100,
+		"receipt": signedReceipt(t, stationPriv, "att-1", "st-1", response,
+			dispatch.Usage{In: 10, Out: 100}),
 	})
 	require.NoError(t, err)
 	var settled map[string]any
@@ -110,11 +126,12 @@ func TestAnEdgeAttemptWithNoAcknowledgementSettlesUncorroborated(t *testing.T) {
 	b, srv := towerTestBroker(t)
 	tw := enrolledTower(t, b, "owner-1")
 	stationPriv := attachStation(t, b, "st-1", tw.id, "owner-1")
+	issuedAttempt(t, b, "att-lonely", tw.id, "st-1")
 
 	body, err := json.Marshal(map[string]any{
 		"tower_id": tw.id, "station_id": "st-1", "attempt_id": "att-lonely",
-		"receipt":  signedReceipt(t, stationPriv, "att-lonely", "st-1", []byte("answer")),
-		"usage_in": 1, "usage_out": 7,
+		"receipt": signedReceipt(t, stationPriv, "att-lonely", "st-1", []byte("answer"),
+			dispatch.Usage{In: 1, Out: 7}),
 	})
 	require.NoError(t, err)
 	var settled map[string]any
@@ -130,6 +147,7 @@ func TestADisagreementAboutTheAnswerIsRefusedAndAttributed(t *testing.T) {
 	b, srv := towerTestBroker(t)
 	tw := enrolledTower(t, b, "owner-1")
 	stationPriv := attachStation(t, b, "st-1", tw.id, "owner-1")
+	issuedAttempt(t, b, "att-1", tw.id, "st-1")
 
 	_, consumerPriv, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
@@ -143,8 +161,7 @@ func TestADisagreementAboutTheAnswerIsRefusedAndAttributed(t *testing.T) {
 	body, err := json.Marshal(map[string]any{
 		"tower_id": tw.id, "station_id": "st-1", "attempt_id": "att-1",
 		"receipt": signedReceipt(t, stationPriv, "att-1", "st-1",
-			[]byte("what the Station returned")),
-		"usage_in": 1, "usage_out": 1,
+			[]byte("what the Station returned"), dispatch.Usage{In: 1, Out: 1}),
 	})
 	require.NoError(t, err)
 	var out map[string]any
@@ -205,12 +222,13 @@ func TestAReceiptSignedByAnybodyButTheStationIsRefused(t *testing.T) {
 	b, srv := towerTestBroker(t)
 	tw := enrolledTower(t, b, "owner-1")
 	attachStation(t, b, "st-1", tw.id, "owner-1")
+	issuedAttempt(t, b, "att-1", tw.id, "st-1")
 
 	_, impostor, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
 	body, err := json.Marshal(map[string]any{
 		"tower_id": tw.id, "station_id": "st-1", "attempt_id": "att-1",
-		"receipt": signedReceipt(t, impostor, "att-1", "st-1", []byte("answer")),
+		"receipt": signedReceipt(t, impostor, "att-1", "st-1", []byte("answer"), dispatch.Usage{In: 1, Out: 1}),
 	})
 	require.NoError(t, err)
 	var out map[string]any
@@ -225,10 +243,11 @@ func TestATowerCannotSettleForAStationThatIsNotItsOwn(t *testing.T) {
 	mine := enrolledTower(t, b, "owner-1")
 	theirs := enrolledTower(t, b, "owner-2")
 	stationPriv := attachStation(t, b, "st-theirs", theirs.id, "owner-2")
+	issuedAttempt(t, b, "att-1", theirs.id, "st-theirs")
 
 	body, err := json.Marshal(map[string]any{
 		"tower_id": mine.id, "station_id": "st-theirs", "attempt_id": "att-1",
-		"receipt": signedReceipt(t, stationPriv, "att-1", "st-theirs", []byte("answer")),
+		"receipt": signedReceipt(t, stationPriv, "att-1", "st-theirs", []byte("answer"), dispatch.Usage{In: 1, Out: 1}),
 	})
 	require.NoError(t, err)
 	var out map[string]any
@@ -250,19 +269,19 @@ func TestAMalformedSettlementIsRefused(t *testing.T) {
 	b, srv := towerTestBroker(t)
 	tw := enrolledTower(t, b, "owner-1")
 	stationPriv := attachStation(t, b, "st-1", tw.id, "owner-1")
-	good := signedReceipt(t, stationPriv, "att-1", "st-1", []byte("answer"))
+	issuedAttempt(t, b, "att-1", tw.id, "st-1")
+	good := signedReceipt(t, stationPriv, "att-1", "st-1", []byte("answer"), dispatch.Usage{In: 1, Out: 1})
 
 	for name, tc := range map[string]struct {
 		in   map[string]any
 		want int
 	}{
-		"no attempt":     {map[string]any{"tower_id": tw.id, "station_id": "st-1", "receipt": good}, http.StatusBadRequest},
-		"no station":     {map[string]any{"tower_id": tw.id, "attempt_id": "att-1", "receipt": good}, http.StatusBadRequest},
-		"no receipt":     {map[string]any{"tower_id": tw.id, "station_id": "st-1", "attempt_id": "att-1"}, http.StatusBadRequest},
-		"not base64":     {map[string]any{"tower_id": tw.id, "station_id": "st-1", "attempt_id": "att-1", "receipt": "!!!"}, http.StatusBadRequest},
-		"unknown statn":  {map[string]any{"tower_id": tw.id, "station_id": "st-nope", "attempt_id": "att-1", "receipt": good}, http.StatusNotFound},
-		"other attempt":  {map[string]any{"tower_id": tw.id, "station_id": "st-1", "attempt_id": "att-OTHER", "receipt": good}, http.StatusForbidden},
-		"negative usage": {map[string]any{"tower_id": tw.id, "station_id": "st-1", "attempt_id": "att-1", "receipt": good, "usage_out": -1}, http.StatusBadRequest},
+		"no attempt":    {map[string]any{"tower_id": tw.id, "station_id": "st-1", "receipt": good}, http.StatusBadRequest},
+		"no station":    {map[string]any{"tower_id": tw.id, "attempt_id": "att-1", "receipt": good}, http.StatusBadRequest},
+		"no receipt":    {map[string]any{"tower_id": tw.id, "station_id": "st-1", "attempt_id": "att-1"}, http.StatusBadRequest},
+		"not base64":    {map[string]any{"tower_id": tw.id, "station_id": "st-1", "attempt_id": "att-1", "receipt": "!!!"}, http.StatusBadRequest},
+		"unknown statn": {map[string]any{"tower_id": tw.id, "station_id": "st-nope", "attempt_id": "att-1", "receipt": good}, http.StatusNotFound},
+		"other attempt": {map[string]any{"tower_id": tw.id, "station_id": "st-1", "attempt_id": "att-OTHER", "receipt": good}, http.StatusForbidden},
 	} {
 		t.Run(name, func(t *testing.T) {
 			body, err := json.Marshal(tc.in)
@@ -286,10 +305,10 @@ func TestEdgeRoutesRefuseTheWrongMethod(t *testing.T) {
 
 func TestSettlementReadsWhateverAcknowledgementIsRecorded(t *testing.T) {
 	b, _ := towerTestBroker(t)
-	// No acknowledgement recorded: uncorroborated, and the Station's own count stands.
+	// No acknowledgement recorded: uncorroborated, and the receipt's own claim stands.
 	s, err := b.settleEdgeAttempt("att-none",
-		dispatch.Receipt{AttemptID: "att-none", ResponseDigest: "d"},
-		dispatch.Usage{In: 1, Out: 2})
+		dispatch.Receipt{AttemptID: "att-none", ResponseDigest: "d",
+			Usage: dispatch.Usage{In: 1, Out: 2}})
 	require.NoError(t, err)
 	require.False(t, s.Corroborated)
 	require.Equal(t, dispatch.Usage{In: 1, Out: 2}, s.Billable)
@@ -489,4 +508,314 @@ func TestARenewalNonceCannotBeReplayed(t *testing.T) {
 	// The same request again.
 	code, _ = tw.call(t, srv, "/tower/renew", renewal, &out)
 	require.Equal(t, http.StatusBadRequest, code, "a renewal nonce is one-use")
+}
+
+// --- authorize: the on-ramp ---------------------------------------------------
+
+// routableEdge publishes a fleet row WITH an endpoint, the way publishRoutable does when the
+// Tower's live session advertised one.
+func routableEdge(t *testing.T, b *broker, towerID, stationID, model, endpoint string) {
+	t.Helper()
+	// Out of quarantine: enrollment admits, an administrator promotes, and the projection is
+	// only a hint - authority is re-checked at authorize, so an unpromoted Tower gets no work
+	// however routable its rows look. Idempotent, because a test may re-publish rows.
+	if tw, ok := b.tower.registry.Get(towerID); ok && tw.State != admit.StateActive {
+		require.NoError(t, b.tower.registry.Transition(towerID, admit.StateActive))
+	}
+	require.NoError(t, b.tower.routable.Replace(towerID, []fleet.Station{{
+		TowerID: towerID, StationID: stationID, OfferID: "of-" + stationID,
+		Model: model, Modality: "text", Capacity: 4,
+		Expires: time.Now().Add(time.Hour), Endpoint: endpoint,
+	}}))
+}
+
+// THE ON-RAMP, end to end at the API: a signed consumer asks for a model, Core answers with
+// a grant, a relay name, and the Tower's advertised endpoint - and has recorded the attempt
+// before the grant left the building.
+func TestAConsumerIsAuthorizedOntoTheEdgePath(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	tw := enrolledTower(t, b, "owner-1")
+	attachStation(t, b, "st-1", tw.id, "owner-1")
+	routableEdge(t, b, tw.id, "st-1", "m", "203.0.113.7:8443")
+
+	_, consumerPriv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	code, out := consumerCall(t, srv, consumerPriv, "/tower/edge/authorize",
+		map[string]any{"model": "m"})
+	require.Equal(t, http.StatusOK, code, out)
+
+	require.NotEmpty(t, out["attempt_id"])
+	require.Equal(t, "203.0.113.7:8443", out["endpoint"])
+	require.Equal(t, "st-1."+relayDomain(), out["relay_name"],
+		"the relay name's leftmost label is how the Tower routes by SNI")
+
+	// The grant is real: it parses under the Station's rules, against Core's actual key.
+	raw, err := base64.StdEncoding.DecodeString(out["grant"].(string))
+	require.NoError(t, err)
+	g, err := dispatch.ParseEdgeGrant(raw, b.tower.dispatchPub, link.PublicNetwork, "st-1",
+		[]byte("any request within bounds"), time.Now())
+	require.NoError(t, err)
+	require.Equal(t, out["attempt_id"], g.AttemptID)
+	require.Equal(t, tw.id, g.TowerID)
+
+	// And the attempt was RECORDED before the grant was handed out: settlement can find it.
+	rec, found, err := b.tower.dispatch.Store().Get(g.AttemptID)
+	require.NoError(t, err)
+	require.True(t, found, "an authorization nobody recorded is work whose outcome cannot be established")
+	require.Equal(t, dispatch.StateIssued, rec.State)
+	require.True(t, rec.Deadline.After(g.Deadline),
+		"the record outlives the grant: the grant bounds execution, the record bounds evidence")
+}
+
+func TestAuthorizeRefusesWithoutASignedRequest(t *testing.T) {
+	_, srv := towerTestBroker(t)
+	resp, err := http.Post(srv.URL+"/tower/edge/authorize", "application/json",
+		strings.NewReader(`{"model":"m"}`))
+	require.NoError(t, err)
+	resp.Body.Close()
+	require.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+}
+
+// One refusal for every kind of "not here": unknown model, no endpoint, ineligible Tower.
+// Enumerating which Towers exist is nobody's business.
+func TestAuthorizeRefusalsAreUniform(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	tw := enrolledTower(t, b, "owner-1")
+	attachStation(t, b, "st-1", tw.id, "owner-1")
+	_, consumerPriv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+
+	// No fleet row at all.
+	code, _ := consumerCall(t, srv, consumerPriv, "/tower/edge/authorize", map[string]any{"model": "m"})
+	require.Equal(t, http.StatusServiceUnavailable, code)
+
+	// Routable, but the Tower advertises NO data plane: healthy on the relayed path,
+	// invisible on the edge.
+	routableEdge(t, b, tw.id, "st-1", "m", "")
+	code, _ = consumerCall(t, srv, consumerPriv, "/tower/edge/authorize", map[string]any{"model": "m"})
+	require.Equal(t, http.StatusServiceUnavailable, code)
+
+	// An endpoint, but the Tower is quarantined: the projection is a hint, authority decides.
+	routableEdge(t, b, tw.id, "st-1", "m", "203.0.113.7:8443")
+	require.NoError(t, b.tower.registry.Transition(tw.id, admit.StateDraining))
+	code, _ = consumerCall(t, srv, consumerPriv, "/tower/edge/authorize", map[string]any{"model": "m"})
+	require.Equal(t, http.StatusServiceUnavailable, code)
+
+	// And a malformed ask is its own, earlier refusal.
+	code, _ = consumerCall(t, srv, consumerPriv, "/tower/edge/authorize", map[string]any{})
+	require.Equal(t, http.StatusBadRequest, code)
+}
+
+// The caller may narrow the bounds, never widen them.
+func TestAuthorizeCapsWhatACallerMayAskFor(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	tw := enrolledTower(t, b, "owner-1")
+	attachStation(t, b, "st-1", tw.id, "owner-1")
+	routableEdge(t, b, tw.id, "st-1", "m", "203.0.113.7:8443")
+	_, consumerPriv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+
+	code, out := consumerCall(t, srv, consumerPriv, "/tower/edge/authorize",
+		map[string]any{"model": "m", "max_in": 512, "max_out": edgeMaxBytes * 100})
+	require.Equal(t, http.StatusOK, code, out)
+	require.Equal(t, float64(512), out["max_in"], "asking for less is honoured")
+	require.Equal(t, float64(edgeMaxBytes), out["max_out"], "asking for more is capped")
+}
+
+// AUTHORIZE THEN SETTLE, through the real store: the full control-plane lifecycle, and the
+// replay that must lose.
+func TestAnAuthorizedAttemptSettlesExactlyOnce(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	tw := enrolledTower(t, b, "owner-1")
+	stationPriv := attachStation(t, b, "st-1", tw.id, "owner-1")
+	routableEdge(t, b, tw.id, "st-1", "m", "203.0.113.7:8443")
+
+	_, consumerPriv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	code, out := consumerCall(t, srv, consumerPriv, "/tower/edge/authorize",
+		map[string]any{"model": "m"})
+	require.Equal(t, http.StatusOK, code, out)
+	attemptID := out["attempt_id"].(string)
+
+	settle, err := json.Marshal(map[string]any{
+		"tower_id": tw.id, "station_id": "st-1", "attempt_id": attemptID,
+		"receipt": signedReceipt(t, stationPriv, attemptID, "st-1", []byte("answer"),
+			dispatch.Usage{In: 3, Out: 5}),
+	})
+	require.NoError(t, err)
+
+	var settled map[string]any
+	code, _ = tw.call(t, srv, "/tower/edge/settle", settle, &settled)
+	require.Equal(t, http.StatusOK, code, settled)
+	require.Equal(t, float64(5), settled["billable_out"])
+
+	// THE REPLAY. A stale answer served twice, a duplicated forward, a Tower fishing for a
+	// second payment - all the same request, and all must lose the swap.
+	code, msg := tw.call(t, srv, "/tower/edge/settle", settle, &settled)
+	require.Equal(t, http.StatusConflict, code)
+	require.Contains(t, msg, "already been settled")
+
+	// And another Tower cannot settle an attempt granted through this one.
+	other := enrolledTower(t, b, "owner-2")
+	stolen, err := json.Marshal(map[string]any{
+		"tower_id": other.id, "station_id": "st-1", "attempt_id": attemptID,
+		"receipt": signedReceipt(t, stationPriv, attemptID, "st-1", []byte("answer"),
+			dispatch.Usage{In: 3, Out: 5}),
+	})
+	require.NoError(t, err)
+	code, _ = other.call(t, srv, "/tower/edge/settle", stolen, &settled)
+	require.Equal(t, http.StatusForbidden, code)
+}
+
+// The relay domain is Core's, and configurable, because a domain is deployment topology.
+func TestTheRelayDomainIsConfigurable(t *testing.T) {
+	t.Setenv("ROGERAI_TOWER_RELAY_DOMAIN", "relay.example.test")
+	require.Equal(t, "relay.example.test", relayDomain())
+	t.Setenv("ROGERAI_TOWER_RELAY_DOMAIN", "")
+	require.Equal(t, "relay.rogerai.fm", relayDomain())
+}
+
+func TestAuthorizeRefusesAnUnreadableBody(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	_ = b
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	// Signed but not JSON - identityOf passes, decode fails.
+	body := []byte("{not json")
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/tower/edge/authorize",
+		strings.NewReader(string(body)))
+	require.NoError(t, err)
+	pub, ts, sig := protocol.SignRequest(priv, http.MethodPost, "/tower/edge/authorize", body)
+	req.Header.Set(protocol.HeaderPubkey, pub)
+	req.Header.Set(protocol.HeaderTS, itoa64(ts))
+	req.Header.Set(protocol.HeaderSig, sig)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	resp.Body.Close()
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+}
+
+func TestEdgeRoutesPreflightForBrowsers(t *testing.T) {
+	_, srv := towerTestBroker(t)
+	for _, path := range []string{"/tower/edge/authorize", "/tower/edge/ack"} {
+		req, err := http.NewRequest(http.MethodOptions, srv.URL+path, nil)
+		require.NoError(t, err)
+		req.Header.Set("Origin", "https://app.example")
+		req.Header.Set("Access-Control-Request-Method", "POST")
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		resp.Body.Close()
+		require.Less(t, resp.StatusCode, 300, path)
+	}
+}
+
+// An acknowledgement whose REQUEST key is unreadable garbage is refused before anything is
+// parsed against it.
+func TestAnAckWithNoUsableKeyIsRefused(t *testing.T) {
+	_, srv := towerTestBroker(t)
+	body := []byte(`{"attempt_id":"att-1","ack":"eyJ9"}`)
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/tower/edge/ack",
+		strings.NewReader(string(body)))
+	require.NoError(t, err)
+	// Headers that pass identityOf's shape checks cannot carry a malformed pubkey - the
+	// signature would not verify - so this exercises the unauthenticated refusal instead.
+	req.Header.Set(protocol.HeaderPubkey, "zz-not-hex")
+	req.Header.Set(protocol.HeaderTS, "1")
+	req.Header.Set(protocol.HeaderSig, "zz")
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	resp.Body.Close()
+	require.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+}
+
+// A settle whose body is not JSON, and one from a Tower that exists but names no attempt.
+func TestSettleRefusesWhatItCannotRead(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	tw := enrolledTower(t, b, "owner-1")
+	var out map[string]any
+	code, _ := tw.call(t, srv, "/tower/edge/settle", []byte("{not json"), &out)
+	require.Equal(t, http.StatusBadRequest, code)
+}
+
+// The settlement window: the grant bounds execution, the record bounds evidence, and a
+// receipt arriving after even the record's deadline is closed by name.
+func TestASettlementAfterTheWindowIsRefusedByName(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	tw := enrolledTower(t, b, "owner-1")
+	stationPriv := attachStation(t, b, "st-1", tw.id, "owner-1")
+	require.NoError(t, b.tower.dispatch.Store().Put(dispatch.Record{
+		AttemptID: "att-late", JobID: "job-late", TowerID: tw.id, StationID: "st-1",
+		Model: "m", Modality: "text", Nonce: "n-late",
+		Deadline: time.Now().Add(-time.Minute), State: dispatch.StateIssued,
+	}))
+
+	body, err := json.Marshal(map[string]any{
+		"tower_id": tw.id, "station_id": "st-1", "attempt_id": "att-late",
+		"receipt": signedReceipt(t, stationPriv, "att-late", "st-1", []byte("answer"),
+			dispatch.Usage{In: 1, Out: 1}),
+	})
+	require.NoError(t, err)
+	var out map[string]any
+	code, msg := tw.call(t, srv, "/tower/edge/settle", body, &out)
+	require.Equal(t, http.StatusForbidden, code)
+	require.Contains(t, msg, "settlement window has closed")
+}
+
+// A digest disagreement CLOSES the attempt as failed: evidence that broken does not get a
+// second try with a different story, so the replay after it is "already settled".
+func TestADisagreementClosesTheAttemptForGood(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	tw := enrolledTower(t, b, "owner-1")
+	stationPriv := attachStation(t, b, "st-1", tw.id, "owner-1")
+	issuedAttempt(t, b, "att-1", tw.id, "st-1")
+
+	_, consumerPriv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	code, _ := consumerCall(t, srv, consumerPriv, "/tower/edge/ack", map[string]any{
+		"attempt_id": "att-1",
+		"ack": signedAck(t, consumerPriv, "att-1", []byte("what the consumer received"),
+			dispatch.Usage{In: 1, Out: 1}),
+	})
+	require.Equal(t, http.StatusOK, code)
+
+	settle, err := json.Marshal(map[string]any{
+		"tower_id": tw.id, "station_id": "st-1", "attempt_id": "att-1",
+		"receipt": signedReceipt(t, stationPriv, "att-1", "st-1",
+			[]byte("what the Station returned"), dispatch.Usage{In: 1, Out: 1}),
+	})
+	require.NoError(t, err)
+	var out map[string]any
+	code, _ = tw.call(t, srv, "/tower/edge/settle", settle, &out)
+	require.Equal(t, http.StatusConflict, code)
+
+	// Trying again - same story or a corrected one - finds the attempt already claimed.
+	honest, err := json.Marshal(map[string]any{
+		"tower_id": tw.id, "station_id": "st-1", "attempt_id": "att-1",
+		"receipt": signedReceipt(t, stationPriv, "att-1", "st-1",
+			[]byte("what the consumer received"), dispatch.Usage{In: 1, Out: 1}),
+	})
+	require.NoError(t, err)
+	code, msg := tw.call(t, srv, "/tower/edge/settle", honest, &out)
+	require.Equal(t, http.StatusConflict, code)
+	require.Contains(t, msg, "already been settled")
+}
+
+// Every edge and renewal route answers a broker with no Tower subsystem the same way:
+// unavailable, not a panic and not a 404 that would read as "wrong URL".
+func TestEdgeRoutesOnABrokerWithoutTheSubsystem(t *testing.T) {
+	b := testBrokerWithDB(store.NewMem())
+	mux := http.NewServeMux()
+	b.registerTowerRoutes(mux)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	for _, path := range []string{
+		"/tower/edge/authorize", "/tower/edge/ack", "/tower/edge/settle",
+		"/tower/renew/challenge", "/tower/renew",
+	} {
+		resp, err := http.Post(srv.URL+path, "application/json", strings.NewReader("{}"))
+		require.NoError(t, err)
+		resp.Body.Close()
+		require.Equal(t, http.StatusServiceUnavailable, resp.StatusCode, path)
+	}
 }

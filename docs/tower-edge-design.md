@@ -151,11 +151,18 @@ digests, attachment-recorded keys, quarantine, the lifecycle.
 
 ## Build order
 
-1. Station serves HTTPS directly, with a Core-provisioned certificate.
-2. Tower gains SNI-based TCP passthrough, replacing the poll/relay path for the data plane.
-3. Consumer flow: `authorize` → connect to Tower → `ack`.
-4. Client acknowledgement object and the corroboration rule in settlement.
-5. Canaries and sampled transcript audit.
+1. Station serves HTTPS directly, with a Core-provisioned certificate. **DONE.**
+2. Tower gains SNI-based TCP passthrough, replacing the poll/relay path. **DONE.**
+3. Consumer flow: `authorize` → connect to Tower → `ack`. **DONE** on the Core side
+   (authorize mints against the Tower-advertised endpoint; ack records; settle is one-use),
+   with the receipt travelling Station outbox → Tower courier → Core. A first-party edge
+   CONSUMER does not exist yet - `SignAck` still has no production caller.
+4. Client acknowledgement object and the corroboration rule in settlement. **DONE** - and
+   the Station's usage claim moved INSIDE the receipt's signature after an audit found the
+   settle route reading it from the Tower's POST body.
+5. Canaries and sampled transcript audit. Design note: both should ride the DATA PLANE as
+   ordinary consumers - Core dialling the Tower's advertised endpoint with a real grant -
+   so nothing in the path can distinguish them from customer traffic.
 6. Compensation, on the funding ledger, paying against corroborated usage.
 
 **Prerequisite for step 6, found in the audit.** There are two attempt state machines:

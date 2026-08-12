@@ -118,6 +118,10 @@ type ListenerConfig struct {
 // than a place secrets live.
 type RelayConfig struct {
 	Address string `yaml:"address,omitempty"`
+	// Public is the host:port CONSUMERS reach this relay at, advertised to Roger Core on the
+	// link. The listen address is very often not it - ":8443" is not dialable by anyone -
+	// and without a public address Core will not route edge consumers here at all.
+	Public string `yaml:"public,omitempty"`
 	// Stations maps a Station ID to where this Tower reaches it, as host:port.
 	Stations map[string]string `yaml:"stations,omitempty"`
 }

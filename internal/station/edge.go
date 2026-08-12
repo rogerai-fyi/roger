@@ -78,7 +78,11 @@ type EdgeExecutor struct {
 	CoreKey  []byte
 	Network  string
 	Upstream Upstream
-	Now      func() time.Time
+	// Outbox is where a copy of every receipt waits for the Tower to collect it. The
+	// consumer's copy rides the TLS session; this one is the copy that can actually reach
+	// settlement, because a Station cannot reach Core and the Tower can.
+	Outbox *Outbox
+	Now    func() time.Time
 }
 
 func (e EdgeExecutor) now() time.Time {
@@ -134,10 +138,20 @@ func (e EdgeExecutor) Serve(ctx context.Context, in EdgeRequest) EdgeResponse {
 	}
 	// Signed over what is being RETURNED, produced from the same bytes that go on the wire.
 	// Signing a re-encoding would leave a gap between what was attested and what was sent.
+	// The usage claim, measured from the exact bytes in and out. Byte counts rather than
+	// tokens, deliberately: bytes are what both ends can measure identically without sharing
+	// a tokenizer, and what the relay's own accounting can be compared against.
 	rec, err := dispatch.SignReceipt(e.Station.assertionPriv, e.Network,
-		dispatch.Grant{AttemptID: grant.AttemptID, StationID: grant.StationID}, body)
+		dispatch.Grant{AttemptID: grant.AttemptID, StationID: grant.StationID}, body,
+		dispatch.Usage{In: int64(len(in.Body)), Out: int64(len(body))})
 	if err != nil {
 		return fail(500, "this Station could not sign its result: "+err.Error())
+	}
+	if e.Outbox != nil {
+		// Queued BEFORE the consumer sees the answer, so a consumer that disconnects the
+		// moment it has its bytes cannot leave the evidence unqueued.
+		e.Outbox.Add(Evidence{AttemptID: grant.AttemptID, StationID: grant.StationID,
+			Receipt: rec.Signed})
 	}
 	return EdgeResponse{
 		Body:    body,

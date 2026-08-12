@@ -24,6 +24,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net"
 	"sync"
 	"time"
 )
@@ -80,6 +81,13 @@ type Hello struct {
 	// snapshot: see Accepted.NeedFullInventory.
 	HeadRevision int64  `json:"head_revision,omitempty"`
 	HeadHash     string `json:"head_hash,omitempty"`
+	// RelayEndpoint is where CONSUMERS reach this Tower's data plane, as host:port. It is
+	// how Core learns where to send an edge consumer: the Tower is the only party that
+	// knows its own public address, and a Tower that does not relay simply leaves it empty.
+	// It is advertised on the link rather than configured on Core because the address is
+	// the operator's to change, and a value Core had to be told out of band would go stale
+	// the first time an operator moved a box.
+	RelayEndpoint string `json:"relay_endpoint,omitempty"`
 }
 
 // Accepted is what Core replies with.
@@ -108,6 +116,9 @@ type session struct {
 	version  int
 	opened   time.Time
 	lastSeen time.Time
+	// relayEndpoint is the data-plane address the Tower advertised in its Hello, kept so
+	// the fleet projection can stamp it onto routable rows.
+	relayEndpoint string
 }
 
 type head struct {
@@ -184,6 +195,15 @@ func (s *Sessions) Open(h Hello, certTowerID string) (Accepted, error) {
 	if err := checkCapabilities(h.Capabilities); err != nil {
 		return Accepted{}, err
 	}
+	if h.RelayEndpoint != "" {
+		// Validated at the door rather than at dispatch: an unparseable endpoint accepted
+		// here would surface hours later as consumers failing to connect, attributed to the
+		// wrong component.
+		if _, _, err := net.SplitHostPort(h.RelayEndpoint); err != nil {
+			return Accepted{}, fmt.Errorf("%w: the relay endpoint must be host:port, got %q",
+				ErrNegotiation, h.RelayEndpoint)
+		}
+	}
 	version, ok := s.bestVersion(h.Versions)
 	if !ok {
 		return Accepted{}, fmt.Errorf("%w: no mutually supported protocol version", ErrNegotiation)
@@ -208,7 +228,8 @@ func (s *Sessions) Open(h Hello, certTowerID string) (Accepted, error) {
 		delete(s.byID, prev)
 	}
 	now := s.now()
-	s.byID[id] = &session{towerID: h.TowerID, version: version, opened: now, lastSeen: now}
+	s.byID[id] = &session{towerID: h.TowerID, version: version, opened: now, lastSeen: now,
+		relayEndpoint: h.RelayEndpoint}
 	s.byTower[h.TowerID] = id
 
 	need := true
@@ -225,6 +246,25 @@ func (s *Sessions) Open(h Hello, certTowerID string) (Accepted, error) {
 		FreshnessSeconds:  int(s.cfg.Freshness.Seconds()),
 		NeedFullInventory: need,
 	}, nil
+}
+
+// RelayEndpoint reports where a Tower's data plane is reachable, from its live session.
+//
+// From the SESSION rather than a durable record, deliberately: an endpoint is only worth
+// routing a consumer to while the Tower behind it is connected and heartbeating, and a
+// stored address for a Tower that went away is a timeout handed to a customer.
+func (s *Sessions) RelayEndpoint(towerID string) (string, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	id, ok := s.byTower[towerID]
+	if !ok {
+		return "", false
+	}
+	sess, ok := s.byID[id]
+	if !ok || sess.relayEndpoint == "" {
+		return "", false
+	}
+	return sess.relayEndpoint, true
 }
 
 // Adopt reports whether a session id may be claimed. It exists so a replayed session id is

@@ -263,12 +263,6 @@ method internal/towercore/admit.OpenTokensForTest
 method internal/station.AssertionPub
 method internal/station.SessionPub
 
-# --- the edge path, still being built ---------------------------------------
-# MintEdge issues an edge grant. Core has no authorize endpoint yet - that is the next build
-# step - so nothing calls it in production. ParseEdgeGrant, its counterpart, IS wired (the
-# Station verifies with it), which is why only this half shows up.
-method internal/towercore/dispatch.MintEdge
-
 # --- superseded by more specific callers ------------------------------------
 # Claim takes a named attempt; the poll path uses ClaimNext, and the direct-collect path uses
 # the store's ClaimByID. Pending is a read for an operator surface that does not exist yet.

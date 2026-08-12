@@ -121,12 +121,12 @@ func issueOver(t *testing.T, pub *ecdsa.PublicKey) []byte {
 	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
 }
 
-// A Station told to terminate TLS with nothing installed must refuse AT STARTUP. Starting
+// A Station told to serve consumers with nothing installed must refuse AT STARTUP. Starting
 // anyway would mean a Station that looks healthy and fails every handshake.
 func TestServingWithTLSAndNoCertificateRefusesAtStartup(t *testing.T) {
 	dir := initDir(t)
 	var b bytes.Buffer
-	err := run([]string{"serve", "--dir", dir, "--tls", "--listen", "127.0.0.1:0",
+	err := run([]string{"serve", "--dir", dir, "--edge", "127.0.0.1:0", "--listen", "127.0.0.1:0",
 		"--upstream", "http://127.0.0.1:1/v1",
 		"--core-key", strings.Repeat("ab", 32),
 		"--core-envelope-key", strings.Repeat("cd", 32)}, &b)

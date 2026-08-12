@@ -30,12 +30,199 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
+	"os"
+	"time"
 
 	"rogerai.fm/roger/v5/internal/protocol"
+	"rogerai.fm/roger/v5/internal/towercore/attempt"
 	"rogerai.fm/roger/v5/internal/towercore/dispatch"
 	"rogerai.fm/roger/v5/internal/towercore/link"
+	"rogerai.fm/roger/v5/internal/towerobj"
 )
+
+// edgeSettleGrace is how long after the grant's deadline a receipt may still settle. The
+// grant deadline bounds EXECUTION - the Station refuses work past it - but the receipt
+// travels by a slower road: Station outbox, Tower collection, one more hop to Core. Evidence
+// for work done in time must not fail because its courier ran on a schedule.
+const edgeSettleGrace = 10 * time.Minute
+
+// edgeMaxBytes caps what one grant may authorize in either direction, whatever the caller
+// asks for. It matches the Station's own request ceiling: a grant for more than a Station
+// will read is a promise the network cannot keep.
+const edgeMaxBytes = 8 << 20
+
+// relayDomain is the DNS suffix Station relay names live under. Core's to choose - a Station
+// that picked its own name could answer for another Station - and configurable because the
+// domain is deployment topology, not code.
+func relayDomain() string {
+	if v := os.Getenv("ROGERAI_TOWER_RELAY_DOMAIN"); v != "" {
+		return v
+	}
+	return "relay.rogerai.fm"
+}
+
+// towerEdgeAuthorize is the ON-RAMP: a consumer asks to be routed to a Station through a
+// Tower, and Core answers with a grant and a place to connect.
+//
+// This is the whole of Core's involvement in the request's data. What it hands back is a
+// few hundred constant-size bytes; the prompt and the completion will travel consumer to
+// Station through a relay that cannot read them, and Core will next hear about this attempt
+// when the evidence comes home. That asymmetry - two small messages here, the payload
+// elsewhere - is the entire reason Towers are worth paying for.
+func (b *broker) towerEdgeAuthorize(w http.ResponseWriter, r *http.Request) {
+	if corsCredsPreflight(w, r) {
+		return
+	}
+	if !allow(w, r, http.MethodPost) {
+		return
+	}
+	corsCreds(w, r)
+	ts := b.towerAvailable(w)
+	if ts == nil {
+		return
+	}
+	body := readTowerBody(r)
+	// SIGNED, because a grant is an authorization issued to somebody. An anonymous grant
+	// could not be tied to an account when its acknowledgement arrives - or when a policy
+	// violation is found in audit and somebody has to be answerable for it.
+	_, authed, ok := b.identityOf(r, body)
+	if !ok || !authed {
+		jsonErr(w, http.StatusUnauthorized, "an edge authorization needs a signed request")
+		return
+	}
+	var req struct {
+		Model  string `json:"model"`
+		MaxIn  int64  `json:"max_in,omitempty"`
+		MaxOut int64  `json:"max_out,omitempty"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil || req.Model == "" {
+		jsonErr(w, http.StatusBadRequest, "an edge authorization names the model it wants")
+		return
+	}
+	// The caller may ask for LESS than the ceiling, never more. The bounds are the only
+	// thing standing between one authorization and an unmetered Station.
+	maxIn, maxOut := req.MaxIn, req.MaxOut
+	if maxIn <= 0 || maxIn > edgeMaxBytes {
+		maxIn = edgeMaxBytes
+	}
+	if maxOut <= 0 || maxOut > edgeMaxBytes {
+		maxOut = edgeMaxBytes
+	}
+
+	target, endpoint, ok := b.edgeTargetFor(req.Model)
+	if !ok {
+		// The same refusal whether the model is unknown, every Station is busy, or no Tower
+		// carries a data plane: what a consumer needs to know is "not here, not now", and
+		// enumerating which Towers exist is nobody's business.
+		jsonErr(w, http.StatusServiceUnavailable, "no Station can take this on the edge path right now")
+		return
+	}
+
+	g, err := ts.dispatch.MintEdge(dispatch.EdgeTarget{
+		TowerID: target.TowerID, StationID: target.StationID, StationEpoch: target.StationEpoch,
+		Model: target.Model, Modality: target.Modality,
+		RelayName: target.StationID + "." + relayDomain(),
+		MaxIn:     maxIn, MaxOut: maxOut, AssertionKey: target.AssertionKey,
+	})
+	if err != nil {
+		jsonErr(w, http.StatusServiceUnavailable, "could not authorize this attempt - try again")
+		return
+	}
+	// RECORDED BEFORE IT IS HANDED OUT, on both ledgers, exactly as the relayed path does
+	// it: an authorization nobody recorded is work whose outcome cannot be established
+	// afterwards. The dispatch record is what makes the nonce one-use at settlement, and
+	// its deadline extends past the grant's by the settlement grace - the grant bounds
+	// execution, the record bounds evidence.
+	if err := b.openEdgeAttempt(g, target); err != nil {
+		log.Printf("edge authorize: could not record attempt %s: %v", g.AttemptID, err)
+		jsonErr(w, http.StatusServiceUnavailable, "could not record this attempt - try again")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"attempt_id": g.AttemptID,
+		"grant":      base64.StdEncoding.EncodeToString(g.Signed),
+		"relay_name": g.RelayName,
+		// Where to CONNECT: the Tower's data plane, as the Tower itself advertised on its
+		// link. The Station's own address appears nowhere - reachability is the Tower's
+		// contribution, and hiding the Station is part of what the operator provides.
+		"endpoint": endpoint,
+		"deadline": g.Deadline.Unix(),
+		"max_in":   g.MaxIn,
+		"max_out":  g.MaxOut,
+		"note": "connect to endpoint with TLS server name relay_name, send the grant in the " +
+			"X-Rogerai-Grant header, and acknowledge what you receive at /tower/edge/ack - an " +
+			"honest acknowledgement can only ever reduce what you are billed",
+	})
+}
+
+// openEdgeAttempt records the attempt behind an edge grant, on both ledgers, before the
+// grant leaves the building.
+//
+// The dispatch record is what later makes settlement one-use, and ITS deadline is the
+// grant's plus the settlement grace: the grant bounds execution, the record bounds evidence,
+// and a receipt for work done in time must not be refused because its courier - Station
+// outbox, Tower collection, one hop to Core - ran on a schedule.
+func (b *broker) openEdgeAttempt(g dispatch.EdgeGrant, target dispatch.Target) error {
+	ts := b.tower
+	if err := ts.dispatch.Store().Put(dispatch.Record{
+		AttemptID: g.AttemptID, JobID: g.JobID, TowerID: g.TowerID, StationID: g.StationID,
+		StationEpoch: g.StationEpoch, Model: g.Model, Modality: g.Modality,
+		Nonce: g.Nonce, Deadline: g.Deadline.Add(edgeSettleGrace),
+		Grant: g.Signed, AssertionKey: target.AssertionKey, State: dispatch.StateIssued,
+	}); err != nil {
+		return err
+	}
+	if ts.attempts == nil {
+		return nil
+	}
+	grantHash, err := towerobj.Hash(g.Signed)
+	if err != nil {
+		return err
+	}
+	_, _, err = ts.attempts.Issue(attempt.IssueSpec{
+		Network: link.PublicNetwork, JobID: g.JobID, RequestID: g.JobID,
+		AttemptID: g.AttemptID, Origin: attempt.OriginJoined,
+		GrantHash: grantHash, LeaseHash: grantHash,
+		Hold:                attempt.NoHold(g.AttemptID),
+		StationRevision:     g.StationEpoch,
+		Deadline:            g.Deadline,
+		FinalizationCeiling: g.Deadline.Add(edgeSettleGrace),
+	})
+	return err
+}
+
+// edgeTargetFor picks a Station that is reachable through a Tower's data plane.
+//
+// Every check re-runs against AUTHORITY: the fleet projection says a Station was routable a
+// moment ago on some instance, but whether it may serve NOW is decided by the admission
+// registry and the attachment record - never by the read model. And only rows with an
+// endpoint qualify: a Tower that relays nothing has no edge to route a consumer to, however
+// healthy its Stations are on the relayed path.
+func (b *broker) edgeTargetFor(model string) (dispatch.Target, string, bool) {
+	ts := b.tower
+	if ts == nil || ts.routable == nil {
+		return dispatch.Target{}, "", false
+	}
+	rows, err := ts.routable.Candidates(model, time.Now())
+	if err != nil {
+		log.Printf("edge authorize: cannot read the routable fleet: %v", err)
+		return dispatch.Target{}, "", false
+	}
+	for _, row := range rows {
+		if row.Endpoint == "" {
+			continue
+		}
+		if !ts.registry.MayTakeWork(row.TowerID) {
+			continue
+		}
+		if target, ok := b.targetFor(row.TowerID, row.StationID, row.Model, row.Modality); ok {
+			return target, row.Endpoint, true
+		}
+	}
+	return dispatch.Target{}, "", false
+}
 
 // towerEdgeAck accepts the consumer's signed statement about what it actually received.
 //
@@ -115,9 +302,7 @@ func (b *broker) towerEdgeAck(w http.ResponseWriter, r *http.Request) {
 // uncorroborated. Customers close laptops mid-stream and third-party clients will never
 // acknowledge at all; an operator who lost money every time is an operator who leaves, and a
 // network with no operators is not more secure, it is empty. The signal is the RATE.
-func (b *broker) settleEdgeAttempt(attemptID string, receipt dispatch.Receipt,
-	claimed dispatch.Usage) (dispatch.Settlement, error) {
-
+func (b *broker) settleEdgeAttempt(attemptID string, receipt dispatch.Receipt) (dispatch.Settlement, error) {
 	ts := b.tower
 	var ack *dispatch.Ack
 	if ts != nil && ts.acks != nil {
@@ -128,7 +313,7 @@ func (b *broker) settleEdgeAttempt(attemptID string, receipt dispatch.Receipt,
 		// acknowledgement" settles uncorroborated, which is the safe direction: it never
 		// invents corroboration that was not there.
 	}
-	return dispatch.Reconcile(receipt, claimed, ack)
+	return dispatch.Reconcile(receipt, ack)
 }
 
 // towerEdgeSettle takes the Station's receipt, relayed by its Tower on the link it already
@@ -159,14 +344,16 @@ func (b *broker) towerEdgeSettle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body := readTowerBody(r)
+	// NO USAGE FIELDS IN HERE, and their absence is the design. An earlier shape took
+	// usage_in/usage_out in this body - which the TOWER sends - and fed them to settlement.
+	// The claim the Station is paid on now lives inside the receipt's signature, where the
+	// party forwarding it cannot hold the pen.
 	var req struct {
 		TowerID   string `json:"tower_id"`
 		StationID string `json:"station_id"`
 		AttemptID string `json:"attempt_id"`
 		// Receipt is base64 of the Station's signed object, relayed verbatim.
-		Receipt  string `json:"receipt"`
-		UsageIn  int64  `json:"usage_in"`
-		UsageOut int64  `json:"usage_out"`
+		Receipt string `json:"receipt"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		jsonErr(w, http.StatusBadRequest, "invalid JSON body")
@@ -215,16 +402,36 @@ func (b *broker) towerEdgeSettle(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusForbidden, err.Error())
 		return
 	}
-	if req.UsageIn < 0 || req.UsageOut < 0 {
-		jsonErr(w, http.StatusBadRequest, "usage cannot be negative")
+	// ONE-USE, ENFORCED HERE, through the same shared store the relayed path uses. The claim
+	// is a compare-and-swap: a second settlement for this attempt - a replayed receipt, a
+	// stale answer served twice - loses the swap on whichever broker it reaches, and the
+	// refusal explains itself. This is also what ties the settling Tower to the attempt: the
+	// claim is keyed by Tower, so a Tower cannot close out an attempt granted through
+	// another.
+	now := time.Now()
+	if _, cerr := ts.dispatch.Store().ClaimByID(req.AttemptID, req.TowerID, now); cerr != nil {
+		if errors.Is(cerr, dispatch.ErrAlreadySettled) || errors.Is(cerr, dispatch.ErrAlreadyClaimed) {
+			jsonErr(w, http.StatusConflict, "this attempt has already been settled")
+			return
+		}
+		if errors.Is(cerr, dispatch.ErrExpired) {
+			jsonErr(w, http.StatusForbidden, "this attempt's settlement window has closed")
+			return
+		}
+		jsonErr(w, http.StatusNotFound, "no such attempt for this Tower")
 		return
 	}
 
-	settled, err := b.settleEdgeAttempt(req.AttemptID, receipt,
-		dispatch.Usage{In: req.UsageIn, Out: req.UsageOut})
+	settled, err := b.settleEdgeAttempt(req.AttemptID, receipt)
 	if err != nil {
 		// A digest disagreement is the one refusal that means something happened rather than
-		// something was malformed, so it is reported as a conflict and attributed.
+		// something was malformed, so it is reported as a conflict and attributed - and the
+		// attempt is closed as FAILED rather than released: evidence this broken does not
+		// get a second try with a different story.
+		b.noteAttempt(req.AttemptID, attempt.Observation{
+			Kind: attempt.KindExecutionFailed, EvidenceHash: req.AttemptID,
+			Reason: err.Error(), ReleaseID: "release-" + req.AttemptID,
+		})
 		if errors.Is(err, dispatch.ErrDigestMismatch) {
 			jsonErr(w, http.StatusConflict,
 				"the Station and the consumer signed for different responses - "+
@@ -234,6 +441,21 @@ func (b *broker) towerEdgeSettle(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if _, serr := ts.dispatch.Store().Settle(req.AttemptID, now); serr != nil {
+		// The claim above succeeded, so a failure here is a store fault rather than a race
+		// we lost - reported, and the attempt chain still records what the evidence said.
+		log.Printf("edge settle: attempt %s claimed but not settled: %v", req.AttemptID, serr)
+		jsonErr(w, http.StatusServiceUnavailable, "could not commit this settlement - retry")
+		return
+	}
+	// The attempt chain hears about it AFTER the store's answer is final, mirroring the
+	// relayed path: evidence first, then the settlement commitment.
+	b.noteAttempt(req.AttemptID, attempt.Observation{
+		Kind: attempt.KindEvidenceObserved, EvidenceHash: receipt.ResponseDigest,
+	})
+	b.noteAttempt(req.AttemptID, attempt.Observation{
+		Kind: attempt.KindSettlementCommitted, EvidenceHash: receipt.ResponseDigest,
+	})
 	writeJSON(w, http.StatusOK, map[string]any{
 		"attempt_id":   settled.AttemptID,
 		"corroborated": settled.Corroborated,

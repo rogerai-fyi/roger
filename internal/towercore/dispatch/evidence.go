@@ -190,10 +190,15 @@ var ErrDigestMismatch = errors.New("the Station and the consumer signed for diff
 // The receipt is required and the acknowledgement is not, which is the asymmetry the whole
 // design rests on: the Station is the party being paid and must always have signed for its
 // work, while the consumer is a party that may simply have gone away.
-func Reconcile(receipt Receipt, claimed Usage, ack *Ack) (Settlement, error) {
+//
+// The Station's claimed usage comes FROM THE RECEIPT, never as a separate argument. An
+// earlier version took it as a parameter, and its one caller filled it from the Tower's POST
+// body - which handed the party being audited the pen that writes the number being audited.
+func Reconcile(receipt Receipt, ack *Ack) (Settlement, error) {
 	if receipt.AttemptID == "" {
 		return Settlement{}, errors.New("a settlement needs the Station's receipt")
 	}
+	claimed := receipt.Usage
 	if claimed.In < 0 || claimed.Out < 0 {
 		return Settlement{}, errors.New("the Station's receipt reports negative usage")
 	}
@@ -238,6 +243,8 @@ func ParseReceipt(raw []byte, assertionKey ed25519.PublicKey, network, attemptID
 		AttemptID      string `json:"attempt_id"`
 		StationID      string `json:"station_id"`
 		ResponseDigest string `json:"response_digest"`
+		UsageIn        string `json:"usage_in"`
+		UsageOut       string `json:"usage_out"`
 	}
 	if err := json.Unmarshal(raw, &obj); err != nil {
 		return Receipt{}, fmt.Errorf("this receipt cannot be read: %w", err)
@@ -254,5 +261,20 @@ func ParseReceipt(raw []byte, assertionKey ed25519.PublicKey, network, attemptID
 		// A receipt committing to nothing would corroborate any answer at all.
 		return Receipt{}, errors.New("this receipt commits to no response")
 	}
-	return Receipt{AttemptID: obj.AttemptID, ResponseDigest: obj.ResponseDigest, Signed: raw}, nil
+	// USAGE IS REQUIRED HERE. This parser serves the edge path, where the receipt's own
+	// figure is what the Station is paid on; a receipt without one would have to be settled
+	// at a number somebody else supplied, and the only somebody in the path is the relay.
+	in, err := strconv.ParseInt(obj.UsageIn, 10, 64)
+	if err != nil {
+		return Receipt{}, errors.New("this receipt's input usage is missing or not a number")
+	}
+	out, err := strconv.ParseInt(obj.UsageOut, 10, 64)
+	if err != nil {
+		return Receipt{}, errors.New("this receipt's output usage is missing or not a number")
+	}
+	if in < 0 || out < 0 {
+		return Receipt{}, errors.New("this receipt claims negative usage")
+	}
+	return Receipt{AttemptID: obj.AttemptID, ResponseDigest: obj.ResponseDigest,
+		Usage: Usage{In: in, Out: out}, Signed: raw}, nil
 }

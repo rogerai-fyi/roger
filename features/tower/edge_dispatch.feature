@@ -1,9 +1,11 @@
 # DRAFT SPEC - NOT YET APPROVED. Written for the founder approval gate.
 #
 # BUILD STATUS: PARTIAL. Approval is not implementation - this line says which.
-# Built: the blind relay (internal/relay), the Station's own TLS identity, the edge grant,
-# the consumer acknowledgement, and the corroboration rule. Not built: Core's authorize and
-# ack endpoints, canaries, sampled transcript audit, compensation.
+# Built: the blind relay (internal/relay), the Station's own TLS identity and two-surface
+# serving, the edge grant with signed usage in the receipt, Core's authorize/ack/settle
+# endpoints with one-use settlement, endpoint advertisement on the link, and the receipt
+# outbox + Tower courier. Not built: a first-party edge consumer, canaries, sampled
+# transcript audit, compensation.
 # Enforced by internal/towercore/featurestatus_test.go against the "Contract:"
 # references in the code. Changing the status without changing the code fails.
 #

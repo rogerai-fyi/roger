@@ -1034,6 +1034,7 @@ func (b *broker) registerTowerRoutes(mux *http.ServeMux) {
 	// THE EDGE PATH. Core's whole involvement in a Tower-served request: it authorized one
 	// earlier, and here it takes the consumer's account of what came back. The payload went
 	// nowhere near this process.
-	mux.HandleFunc("/tower/edge/ack", b.towerEdgeAck)       // consumer: what I actually received
-	mux.HandleFunc("/tower/edge/settle", b.towerEdgeSettle) // Tower: the Station's receipt
+	mux.HandleFunc("/tower/edge/authorize", b.towerEdgeAuthorize) // consumer: route me to a Station
+	mux.HandleFunc("/tower/edge/ack", b.towerEdgeAck)             // consumer: what I actually received
+	mux.HandleFunc("/tower/edge/settle", b.towerEdgeSettle)       // Tower: the Station's receipt
 }

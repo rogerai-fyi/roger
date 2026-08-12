@@ -40,7 +40,7 @@ func cmdServe(args []string, out io.Writer) error {
 	coreKey := fs.String("core-key", "", "Roger Core's grant key, hex (GET /tower/dispatch/key)")
 	envKey := fs.String("core-envelope-key", "", "Roger Core's envelope key, hex (same endpoint)")
 	upstream := fs.String("upstream", "", "the local model endpoint, OpenAI-compatible")
-	useTLS := fs.Bool("tls", false, "terminate the CONSUMER's TLS session here, using the installed certificate")
+	edgeAddr := fs.String("edge", "", "ALSO serve consumers directly on this address, over TLS, using the installed certificate")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -63,6 +63,7 @@ func cmdServe(args []string, out io.Writer) error {
 		return err
 	}
 
+	outbox := station.NewOutbox(0)
 	exec := station.Executor{
 		Station: s, CoreKey: key, CoreEnvelopeKey: sealTo, Network: link.PublicNetwork,
 		Upstream: station.HTTPUpstream{URL: *upstream},
@@ -70,12 +71,20 @@ func cmdServe(args []string, out io.Writer) error {
 	edge := station.EdgeExecutor{
 		Station: s, CoreKey: key, Network: link.PublicNetwork,
 		Upstream: station.HTTPUpstream{URL: *upstream},
+		Outbox:   outbox,
 	}
+	// TWO SURFACES, TWO PORTS, and the split is a security boundary rather than tidiness.
+	// The plain listener faces the TOWER: execute, and the receipt outbox. The TLS listener
+	// faces CONSUMERS, through the relay. If the outbox routes were reachable from the
+	// consumer port, any consumer could call /receipts/settled with its own attempt id and
+	// erase the evidence it is billed on - the relay forwards whatever path it is asked for,
+	// because it cannot read paths at all.
 	ln, err := net.Listen("tcp", *listen)
 	if err != nil {
 		return err
 	}
-	if *useTLS {
+	var edgeLn net.Listener
+	if *edgeAddr != "" {
 		// THE EDGE PATH. The consumer's session terminates here and nowhere earlier, so the
 		// Tower splicing the bytes in front of this port holds ciphertext it has no key for.
 		// That property is exactly as strong as this key staying on this machine.
@@ -84,12 +93,18 @@ func cmdServe(args []string, out io.Writer) error {
 			_ = ln.Close()
 			return cerr
 		}
-		ln = tls.NewListener(ln, &tls.Config{
+		raw, lerr := net.Listen("tcp", *edgeAddr)
+		if lerr != nil {
+			_ = ln.Close()
+			return lerr
+		}
+		edgeLn = tls.NewListener(raw, &tls.Config{
 			Certificates: []tls.Certificate{cert},
 			MinVersion:   tls.VersionTLS12,
 		})
-		fmt.Fprint(out, "terminating consumer TLS here: any Tower in front of this port relays\n"+
-			"ciphertext it cannot read, because the private key never left this machine.\n")
+		fmt.Fprintf(out, "serving consumers on %s over TLS: any Tower in front of that port\n"+
+			"relays ciphertext it cannot read, because the private key never left this machine.\n",
+			raw.Addr())
 	}
 	fmt.Fprintf(out, "station %s serving on %s\n", s.StationID, ln.Addr())
 	fmt.Fprintf(out, "upstream model: %s\n", *upstream)
@@ -97,7 +112,7 @@ func cmdServe(args []string, out io.Writer) error {
 		"anything else is refused without reaching the model. Requests arrive SEALED to this\n"+
 		"Station and results go back sealed to Roger Core, so the Tower relaying them reads\n"+
 		"neither.\n")
-	return serveStationWithEdge(exec, edge, ln, out, waitForInterrupt())
+	return serveStationSplit(exec, edge, outbox, ln, edgeLn, out, waitForInterrupt())
 }
 
 // serveStation runs the listener until stopped.
@@ -106,11 +121,28 @@ func cmdServe(args []string, out io.Writer) error {
 // something a test can do. A serve loop that can only be ended by signalling the test process
 // is a serve loop whose shutdown is never tested - and an unclean shutdown means a request
 // cut off mid-flight, which Core sees as a Station that failed.
-func serveStationWithEdge(exec station.Executor, edge station.EdgeExecutor, ln net.Listener,
-	out io.Writer, stop <-chan struct{}) error {
-	srv := &http.Server{
-		Handler:           executeHandler(exec, edge),
+// serveStationSplit runs the Tower-facing listener, and the consumer-facing one when there
+// is one, until stopped.
+func serveStationSplit(exec station.Executor, edge station.EdgeExecutor, outbox *station.Outbox,
+	ln, edgeLn net.Listener, out io.Writer, stop <-chan struct{}) error {
+	towerSrv := &http.Server{
+		Handler:           towerFacingHandler(exec, edge, outbox, edgeLn == nil),
 		ReadHeaderTimeout: 10 * time.Second,
+	}
+	var edgeSrv *http.Server
+	done := make(chan error, 2)
+	if edgeLn != nil {
+		edgeSrv = &http.Server{
+			Handler:           http.HandlerFunc(edgeHandler(edge)),
+			ReadHeaderTimeout: 10 * time.Second,
+		}
+		go func() {
+			if err := edgeSrv.Serve(edgeLn); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				done <- err
+				return
+			}
+			done <- nil
+		}()
 	}
 	go func() {
 		<-stop
@@ -118,10 +150,19 @@ func serveStationWithEdge(exec station.Executor, edge station.EdgeExecutor, ln n
 		// request mid-execution costs its caller the whole deadline.
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		_ = srv.Shutdown(ctx)
+		_ = towerSrv.Shutdown(ctx)
+		if edgeSrv != nil {
+			_ = edgeSrv.Shutdown(ctx)
+		}
 	}()
-	if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+	err := towerSrv.Serve(ln)
+	if err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
+	}
+	if edgeSrv != nil {
+		if eerr := <-done; eerr != nil {
+			return eerr
+		}
 	}
 	fmt.Fprintln(out, "\nstopped")
 	return nil
@@ -165,13 +206,56 @@ func parseEnvelopeKey(s string) ([]byte, error) {
 }
 
 // executeHandler is the one route a Station exposes.
-func executeHandler(exec station.Executor, edge station.EdgeExecutor) http.Handler {
+// towerFacingHandler is the surface the TOWER talks to. The receipt outbox lives here and
+// only here: reachable from the consumer port, /receipts/settled would let any consumer
+// erase the evidence it is billed on, because the relay forwards whatever path it is asked
+// for and cannot read paths at all.
+//
+// combined mounts the edge catch-all too, for a single-port Station - a private network
+// where the operator accepts that boundary, and the shape every pre-split test speaks.
+func towerFacingHandler(exec station.Executor, edge station.EdgeExecutor,
+	outbox *station.Outbox, combined bool) http.Handler {
 	mux := http.NewServeMux()
-	// THE EDGE PATH. Everything not claimed by a route below is a consumer call: an
-	// OpenAI-compatible client picks its own path (/v1/chat/completions, /v1/embeddings,
-	// /v1/audio/...), and a Station that only answered one of them would work for exactly one
-	// kind of client. The grant is what authorizes, not the path.
-	mux.HandleFunc("/", edgeHandler(edge))
+	if combined {
+		// THE EDGE PATH. Everything not claimed by a route below is a consumer call: an
+		// OpenAI-compatible client picks its own path (/v1/chat/completions, /v1/embeddings,
+		// /v1/audio/...), and a Station that only answered one of them would work for exactly
+		// one kind of client. The grant is what authorizes, not the path.
+		mux.HandleFunc("/", edgeHandler(edge))
+	}
+	if outbox != nil {
+		// The Tower collecting its Stations' evidence. Collect hands out copies; only a
+		// confirmation removes - see internal/station/outbox.go for why money does not ride
+		// an at-most-once protocol.
+		mux.HandleFunc("/receipts/collect", func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPost {
+				http.Error(w, "POST only", http.StatusMethodNotAllowed)
+				return
+			}
+			writeJSON(w, map[string]any{"receipts": outbox.Collect(64)})
+		})
+		mux.HandleFunc("/receipts/settled", func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPost {
+				http.Error(w, "POST only", http.StatusMethodNotAllowed)
+				return
+			}
+			raw, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+			if err != nil {
+				http.Error(w, "unreadable", http.StatusBadRequest)
+				return
+			}
+			var req struct {
+				AttemptIDs []string `json:"attempt_ids"`
+			}
+			if err := json.Unmarshal(raw, &req); err != nil {
+				http.Error(w, "invalid JSON body", http.StatusBadRequest)
+				return
+			}
+			outbox.Settled(req.AttemptIDs)
+			pending, dropped := outbox.Stats()
+			writeJSON(w, map[string]any{"pending": pending, "dropped": dropped})
+		})
+	}
 	mux.HandleFunc("/execute", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "POST only", http.StatusMethodNotAllowed)

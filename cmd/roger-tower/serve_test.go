@@ -203,7 +203,7 @@ func TestServingAStandaloneTowerRefusesAndExplainsWhy(t *testing.T) {
 	require.NoError(t, err)
 	defer release()
 
-	err = runLink(st, &b, closedStop(), manualTicker(nil), nil)
+	err = runLink(st, &b, closedStop(), manualTicker(nil), nil, "")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "standalone")
 	require.Contains(t, err.Error(), "--mode joined", "it says how to get a Tower that can")
@@ -221,7 +221,7 @@ func TestTheLinkOpensPushesHeartbeatsAndDrains(t *testing.T) {
 
 	b := &syncBuffer{}
 	done := make(chan error, 1)
-	go func() { done <- runLink(st, b, stop, manualTicker(beats), nil) }()
+	go func() { done <- runLink(st, b, stop, manualTicker(beats), nil, "") }()
 
 	beats <- time.Now()
 	require.Eventually(t, func() bool { return core.called("/tower/session/heartbeat") > 0 },
@@ -261,7 +261,7 @@ func TestALostHeartbeatDoesNotTearTheSessionDown(t *testing.T) {
 	stop := make(chan struct{})
 	b := &syncBuffer{}
 	done := make(chan error, 1)
-	go func() { done <- runLink(st, b, stop, manualTicker(beats), nil) }()
+	go func() { done <- runLink(st, b, stop, manualTicker(beats), nil, "") }()
 
 	beats <- time.Now()
 	require.Eventually(t, func() bool { return strings.Contains(b.String(), "will retry") },
@@ -303,7 +303,7 @@ func TestARefusedHeartbeatReopensTheSessionAndRepushes(t *testing.T) {
 	stop := make(chan struct{})
 	b := &syncBuffer{}
 	done := make(chan error, 1)
-	go func() { done <- runLink(st, b, stop, manualTicker(beats), nil) }()
+	go func() { done <- runLink(st, b, stop, manualTicker(beats), nil, "") }()
 
 	beats <- time.Now()
 	require.Eventually(t, func() bool { return core.called("/tower/inventory") >= 2 },
@@ -338,7 +338,7 @@ func TestAFailedReopenStopsAndStillDrains(t *testing.T) {
 	beats := make(chan time.Time, 1)
 	var b bytes.Buffer
 	beats <- time.Now()
-	err := runLink(st, &b, nil, manualTicker(beats), nil)
+	err := runLink(st, &b, nil, manualTicker(beats), nil, "")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "may not hold a link")
 	require.Equal(t, 1, core.called("/tower/session/close"), "it drained on the way out")
@@ -354,7 +354,7 @@ func TestAnUnopenableSessionFailsBeforePushing(t *testing.T) {
 		return true
 	}
 	var b bytes.Buffer
-	err := runLink(st, &b, closedStop(), manualTicker(nil), nil)
+	err := runLink(st, &b, closedStop(), manualTicker(nil), nil, "")
 	require.Error(t, err)
 	require.Zero(t, core.called("/tower/inventory"))
 	require.Zero(t, core.called("/tower/session/close"), "nothing to drain")
@@ -371,7 +371,7 @@ func TestARefusedInventoryStopsTheLoop(t *testing.T) {
 		return true
 	}
 	var b bytes.Buffer
-	err := runLink(st, &b, closedStop(), manualTicker(nil), nil)
+	err := runLink(st, &b, closedStop(), manualTicker(nil), nil, "")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "never verify")
 }
@@ -394,7 +394,7 @@ func TestBeingAskedForAFullInventoryRestartsTheChain(t *testing.T) {
 	stop := make(chan struct{})
 	close(stop)
 	var b bytes.Buffer
-	require.NoError(t, runLink(st, &b, stop, manualTicker(nil), nil))
+	require.NoError(t, runLink(st, &b, stop, manualTicker(nil), nil, ""))
 	require.Equal(t, 2, core.called("/tower/inventory"), "it resent from genesis")
 	require.Contains(t, b.String(), "revision 1 accepted")
 }
@@ -413,7 +413,7 @@ func TestARefusedRestartAfterANeedFullIsReported(t *testing.T) {
 		return true
 	}
 	var b bytes.Buffer
-	err := runLink(st, &b, closedStop(), manualTicker(nil), nil)
+	err := runLink(st, &b, closedStop(), manualTicker(nil), nil, "")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "still no")
 }
@@ -431,7 +431,7 @@ func TestAFailedDrainWarnsRatherThanPassingQuietly(t *testing.T) {
 	stop := make(chan struct{})
 	close(stop)
 	var b bytes.Buffer
-	require.NoError(t, runLink(st, &b, stop, manualTicker(nil), nil))
+	require.NoError(t, runLink(st, &b, stop, manualTicker(nil), nil, ""))
 	require.Contains(t, b.String(), "could not drain cleanly")
 }
 
@@ -518,7 +518,7 @@ func TestServeJoinedWiresTheRealSignalAndClock(t *testing.T) {
 	st, release, err := openDir(dir)
 	require.NoError(t, err)
 	defer release()
-	require.Error(t, serveJoined(st, &b, nil, "", nil))
+	require.Error(t, serveJoined(st, &b, nil, "", nil, ""))
 }
 
 // An offers directory that cannot be listed is FATAL, unlike a single bad file inside it.
@@ -593,7 +593,7 @@ func TestTheInventoryIsRepushedBeforeItExpires(t *testing.T) {
 	stop := make(chan struct{})
 	b := &syncBuffer{}
 	done := make(chan error, 1)
-	go func() { done <- runLink(st, b, stop, tickerFor(beats, refresh), nil) }()
+	go func() { done <- runLink(st, b, stop, tickerFor(beats, refresh), nil, "") }()
 
 	require.Eventually(t, func() bool { return core.called("/tower/inventory") == 1 },
 		2*time.Second, 5*time.Millisecond, "the first push")
@@ -636,7 +636,7 @@ func TestAFailedRefreshIsReportedAndTheLinkSurvives(t *testing.T) {
 	stop := make(chan struct{})
 	b := &syncBuffer{}
 	done := make(chan error, 1)
-	go func() { done <- runLink(st, b, stop, tickerFor(beats, refresh), nil) }()
+	go func() { done <- runLink(st, b, stop, tickerFor(beats, refresh), nil, "") }()
 
 	require.Eventually(t, func() bool { return core.called("/tower/inventory") == 1 },
 		2*time.Second, 5*time.Millisecond)

@@ -74,6 +74,37 @@ func row(tower, station, offer, model string, expires time.Time) Station {
 	return Station{
 		TowerID: tower, StationID: station, OfferID: offer, Model: model,
 		Modality: "text", Capacity: 4, Expires: expires,
+		// The data-plane endpoint rides in every parity row so a store that DROPS it fails
+		// loudly here rather than as edge consumers silently never being routed anywhere.
+		Endpoint: "203.0.113.7:8443",
+	}
+}
+
+// The endpoint must survive the round trip through BOTH stores: it is what an edge consumer
+// is told to connect to, and a store that loses it demotes every Station behind that Tower
+// to the Core-relayed path without anything failing.
+func TestParityTheEndpointSurvivesTheRoundTrip(t *testing.T) {
+	for name, s := range stores(t) {
+		t.Run(name, func(t *testing.T) {
+			exp := time.Now().Add(time.Hour)
+			require.NoError(t, s.Replace("tw-1", []Station{row("tw-1", "st-1", "of-1", "m", exp)}))
+			got, err := s.Candidates("m", time.Now())
+			require.NoError(t, err)
+			require.Len(t, got, 1)
+			require.Equal(t, "203.0.113.7:8443", got[0].Endpoint)
+
+			// And a Tower with NO endpoint stays that way rather than inheriting one.
+			bare := row("tw-2", "st-2", "of-2", "m", exp)
+			bare.Endpoint = ""
+			require.NoError(t, s.Replace("tw-2", []Station{bare}))
+			got, err = s.Candidates("m", time.Now())
+			require.NoError(t, err)
+			for _, r := range got {
+				if r.TowerID == "tw-2" {
+					require.Empty(t, r.Endpoint)
+				}
+			}
+		})
 	}
 }
 

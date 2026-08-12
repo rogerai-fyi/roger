@@ -335,3 +335,44 @@ func TestReapDropsAgedSessions(t *testing.T) {
 }
 
 func mandatory() []string { return []string{CapIntegrity, CapInnerSession} }
+
+// The relay endpoint travels Hello -> session -> here, and only while the session lives:
+// an endpoint for a Tower that went away is a timeout handed to a customer.
+func TestTheRelayEndpointLivesAndDiesWithTheSession(t *testing.T) {
+	s := New(Config{Network: "roger-public", Versions: []int{1},
+		Heartbeat: time.Minute, Freshness: 5 * time.Minute})
+
+	// Before any session: nothing.
+	_, ok := s.RelayEndpoint("tw-1")
+	require.False(t, ok)
+
+	acc, err := s.Open(Hello{Network: "roger-public", Versions: []int{1}, TowerID: "tw-1",
+		Capabilities:  []string{CapIntegrity, CapInnerSession},
+		RelayEndpoint: "203.0.113.7:8443"}, "tw-1")
+	require.NoError(t, err)
+
+	got, ok := s.RelayEndpoint("tw-1")
+	require.True(t, ok)
+	require.Equal(t, "203.0.113.7:8443", got)
+
+	// A Tower that advertises nothing reports nothing - and a reconnect REPLACES the old
+	// session, so its endpoint replaces too rather than lingering.
+	_, err = s.Open(Hello{Network: "roger-public", Versions: []int{1}, TowerID: "tw-1",
+		Capabilities: []string{CapIntegrity, CapInnerSession}}, "tw-1")
+	require.NoError(t, err)
+	_, ok = s.RelayEndpoint("tw-1")
+	require.False(t, ok, "the new session advertised no endpoint, so there is none")
+
+	s.Close(acc.SessionID, "tw-1")
+}
+
+// An endpoint that is not host:port is refused AT THE DOOR. Accepted here, it would surface
+// hours later as consumers failing to connect, attributed to the wrong component.
+func TestAnUnparseableRelayEndpointIsRefusedAtTheDoor(t *testing.T) {
+	s := New(Config{Network: "roger-public", Versions: []int{1},
+		Heartbeat: time.Minute, Freshness: 5 * time.Minute})
+	_, err := s.Open(Hello{Network: "roger-public", Versions: []int{1}, TowerID: "tw-1",
+		Capabilities:  []string{CapIntegrity, CapInnerSession},
+		RelayEndpoint: "not-an-endpoint"}, "tw-1")
+	require.ErrorContains(t, err, "host:port")
+}

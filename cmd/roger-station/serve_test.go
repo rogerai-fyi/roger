@@ -16,6 +16,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -175,7 +176,7 @@ func TestTheListenerServesAndThenStopsCleanly(t *testing.T) {
 	var b bytes.Buffer
 	done := make(chan error, 1)
 	go func() {
-		done <- serveStationWithEdge(station.Executor{Station: s}, station.EdgeExecutor{Station: s}, ln, &b, stop)
+		done <- serveStationSplit(station.Executor{Station: s}, station.EdgeExecutor{Station: s}, nil, ln, nil, &b, stop)
 	}()
 
 	require.Eventually(t, func() bool {
@@ -248,5 +249,169 @@ func TestTheStartupBannerSaysContentIsSealed(t *testing.T) {
 // handlerFor keeps these tests about the relayed /execute route. The edge route is covered
 // in edge_test.go, where a consumer-shaped call is what is actually being asserted.
 func handlerFor(exec station.Executor) http.Handler {
-	return executeHandler(exec, station.EdgeExecutor{Station: exec.Station})
+	return towerFacingHandler(exec, station.EdgeExecutor{Station: exec.Station}, nil, true)
+}
+
+// THE BOUNDARY THE TWO PORTS EXIST FOR: the consumer-facing surface must not carry the
+// outbox routes. A consumer that could POST /receipts/settled through the relay - and the
+// relay forwards whatever path it is asked for, since it cannot read paths at all - would
+// erase the evidence it is billed on.
+func TestAConsumerCannotReachTheReceiptOutbox(t *testing.T) {
+	s := servingStation(t)
+	outbox := station.NewOutbox(10)
+	outbox.Add(station.Evidence{AttemptID: "att-victim", StationID: s.StationID,
+		Receipt: []byte("signed")})
+
+	// The consumer-facing surface: the edge handler alone, exactly as the --edge listener
+	// mounts it.
+	edgeSrv := httptest.NewServer(http.HandlerFunc(edgeHandler(
+		station.EdgeExecutor{Station: s, CoreKey: make([]byte, 32)})))
+	defer edgeSrv.Close()
+
+	resp, err := http.Post(edgeSrv.URL+"/receipts/settled", "application/json",
+		strings.NewReader(`{"attempt_ids":["att-victim"]}`))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	// The path lands in the edge catch-all and is judged as an unauthorized edge request -
+	// it never comes near the outbox.
+	require.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+
+	got := outbox.Collect(10)
+	require.Len(t, got, 1, "the evidence must still be there")
+	require.Equal(t, "att-victim", got[0].AttemptID)
+
+	// And collection is equally out of reach.
+	resp, err = http.Post(edgeSrv.URL+"/receipts/collect", "application/json", strings.NewReader("{}"))
+	require.NoError(t, err)
+	resp.Body.Close()
+	require.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+}
+
+// The Tower-facing surface serves the outbox: collect copies, confirm removes.
+func TestTheTowerFacingSurfaceServesTheOutbox(t *testing.T) {
+	s := servingStation(t)
+	outbox := station.NewOutbox(10)
+	outbox.Add(station.Evidence{AttemptID: "att-1", StationID: s.StationID, Receipt: []byte("r1")})
+	outbox.Add(station.Evidence{AttemptID: "att-2", StationID: s.StationID, Receipt: []byte("r2")})
+
+	srv := httptest.NewServer(towerFacingHandler(station.Executor{Station: s},
+		station.EdgeExecutor{Station: s}, outbox, false))
+	defer srv.Close()
+
+	resp, err := http.Post(srv.URL+"/receipts/collect", "application/json", strings.NewReader("{}"))
+	require.NoError(t, err)
+	var got struct {
+		Receipts []station.Evidence `json:"receipts"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
+	resp.Body.Close()
+	require.Len(t, got.Receipts, 2)
+
+	// Collect again: still two. Copies, never a drain.
+	resp, err = http.Post(srv.URL+"/receipts/collect", "application/json", strings.NewReader("{}"))
+	require.NoError(t, err)
+	got.Receipts = nil
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
+	resp.Body.Close()
+	require.Len(t, got.Receipts, 2)
+
+	// Confirm one; one remains.
+	resp, err = http.Post(srv.URL+"/receipts/settled", "application/json",
+		strings.NewReader(`{"attempt_ids":["att-1"]}`))
+	require.NoError(t, err)
+	resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.Len(t, outbox.Collect(10), 1)
+
+	// And with no edge catch-all mounted, an unknown path is a plain 404 rather than an
+	// edge refusal: this surface is for the Tower, which speaks exact paths.
+	resp, err = http.Get(srv.URL + "/nothing-here")
+	require.NoError(t, err)
+	resp.Body.Close()
+	require.Equal(t, http.StatusNotFound, resp.StatusCode)
+}
+
+func TestTheOutboxRoutesRefuseTheWrongMethodAndBadBodies(t *testing.T) {
+	s := servingStation(t)
+	outbox := station.NewOutbox(10)
+	srv := httptest.NewServer(towerFacingHandler(station.Executor{Station: s},
+		station.EdgeExecutor{Station: s}, outbox, false))
+	defer srv.Close()
+
+	for _, path := range []string{"/receipts/collect", "/receipts/settled"} {
+		resp, err := http.Get(srv.URL + path)
+		require.NoError(t, err)
+		resp.Body.Close()
+		require.Equal(t, http.StatusMethodNotAllowed, resp.StatusCode, path)
+	}
+	resp, err := http.Post(srv.URL+"/receipts/settled", "application/json",
+		strings.NewReader("{not json"))
+	require.NoError(t, err)
+	resp.Body.Close()
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+}
+
+// The split-serve loop, both listeners, ending cleanly: the shape `--edge` actually runs.
+func TestBothListenersServeAndStopCleanly(t *testing.T) {
+	s := servingStation(t)
+	outbox := station.NewOutbox(10)
+	towerLn, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	edgeLn, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+
+	stop := make(chan struct{})
+	done := make(chan error, 1)
+	var b bytes.Buffer
+	go func() {
+		done <- serveStationSplit(station.Executor{Station: s},
+			station.EdgeExecutor{Station: s, CoreKey: make([]byte, 32)},
+			outbox, towerLn, edgeLn, &b, stop)
+	}()
+
+	// The Tower-facing port answers /id; the consumer-facing port judges edge requests.
+	require.Eventually(t, func() bool {
+		resp, gerr := http.Get("http://" + towerLn.Addr().String() + "/id")
+		if gerr != nil {
+			return false
+		}
+		resp.Body.Close()
+		return resp.StatusCode == http.StatusOK
+	}, 5*time.Second, 10*time.Millisecond)
+	require.Eventually(t, func() bool {
+		resp, gerr := http.Post("http://"+edgeLn.Addr().String()+"/v1/chat/completions",
+			"application/json", strings.NewReader("{}"))
+		if gerr != nil {
+			return false
+		}
+		defer resp.Body.Close()
+		return resp.StatusCode == http.StatusUnauthorized // no grant: judged, not 404
+	}, 5*time.Second, 10*time.Millisecond)
+
+	close(stop)
+	require.NoError(t, <-done)
+	require.Contains(t, b.String(), "stopped")
+}
+
+// `serve --edge` needs a certificate and a second listenable address, and refuses each
+// mistake at startup by name.
+func TestServeEdgeRefusalsHappenAtStartup(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "st")
+	_, err := runCLI(t, "init", "--dir", dir)
+	require.NoError(t, err)
+
+	// A certificate is installed, but the edge address is not listenable.
+	var b bytes.Buffer
+	require.NoError(t, run([]string{"csr", "--dir", dir, "--name", "st-a.relay.example"}, &b))
+	chain := certForStationKey(t, dir)
+	certPath := filepath.Join(t.TempDir(), "chain.pem")
+	require.NoError(t, os.WriteFile(certPath, chain, 0o644))
+	b.Reset()
+	require.NoError(t, run([]string{"install-cert", "--dir", dir, "--cert", certPath}, &b))
+
+	err = run([]string{"serve", "--dir", dir, "--edge", "127.0.0.1:-1",
+		"--listen", "127.0.0.1:0", "--upstream", "http://127.0.0.1:1/v1",
+		"--core-key", strings.Repeat("ab", 32),
+		"--core-envelope-key", strings.Repeat("cd", 32)}, &b)
+	require.Error(t, err)
 }

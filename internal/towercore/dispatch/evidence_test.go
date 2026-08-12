@@ -23,11 +23,11 @@ func consumer(t *testing.T) (ed25519.PublicKey, ed25519.PrivateKey) {
 	return pub, priv
 }
 
-func stationReceipt(t *testing.T, attemptID string, response []byte) Receipt {
+func stationReceipt(t *testing.T, attemptID string, response []byte, u Usage) Receipt {
 	t.Helper()
 	_, priv, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
-	rec, err := SignReceipt(priv, "roger-public", Grant{AttemptID: attemptID, StationID: "st-1"}, response)
+	rec, err := SignReceipt(priv, "roger-public", Grant{AttemptID: attemptID, StationID: "st-1"}, response, u)
 	require.NoError(t, err)
 	return rec
 }
@@ -93,7 +93,6 @@ func TestAnUnreadableAcknowledgementIsRefused(t *testing.T) {
 // reporting less than it received. Taking the minimum means neither profits by lying.
 func TestSettlementTakesTheLowerOfTwoOpposingClaims(t *testing.T) {
 	response := []byte("the answer")
-	rec := stationReceipt(t, "att-1", response)
 	pub, priv := consumer(t)
 	a, err := SignAck(priv, "roger-public", "att-1", response, Usage{In: 10, Out: 90},
 		time.Now(), time.Now())
@@ -101,15 +100,16 @@ func TestSettlementTakesTheLowerOfTwoOpposingClaims(t *testing.T) {
 	parsed, err := ParseAck(a.Signed, pub, "roger-public", "att-1")
 	require.NoError(t, err)
 
-	// The Station claims MORE output than the consumer saw.
-	s, err := Reconcile(rec, Usage{In: 10, Out: 100}, &parsed)
+	// The Station claims MORE output than the consumer saw - in its own signed receipt,
+	// because that is now the only place a claim can live.
+	s, err := Reconcile(stationReceipt(t, "att-1", response, Usage{In: 10, Out: 100}), &parsed)
 	require.NoError(t, err)
 	require.True(t, s.Corroborated)
 	require.Equal(t, Usage{In: 10, Out: 90}, s.Billable,
 		"the Station must not profit from its own count")
 
-	// And the other direction: a consumer understating input does not raise the bill.
-	s, err = Reconcile(rec, Usage{In: 4, Out: 90}, &parsed)
+	// And the other direction: a Station understating input does not raise the bill.
+	s, err = Reconcile(stationReceipt(t, "att-1", response, Usage{In: 4, Out: 90}), &parsed)
 	require.NoError(t, err)
 	require.Equal(t, Usage{In: 4, Out: 90}, s.Billable)
 }
@@ -118,7 +118,7 @@ func TestSettlementTakesTheLowerOfTwoOpposingClaims(t *testing.T) {
 // Tower that altered the answer, and it must REFUSE rather than settle at the lower figure -
 // a disagreement about the bytes is not a rounding difference, it is attributable.
 func TestAResponseTheTwoEndsDisagreeAboutIsRefusedRatherThanSettled(t *testing.T) {
-	rec := stationReceipt(t, "att-1", []byte("what the Station returned"))
+	rec := stationReceipt(t, "att-1", []byte("what the Station returned"), Usage{In: 1, Out: 1})
 	pub, priv := consumer(t)
 	a, err := SignAck(priv, "roger-public", "att-1", []byte("what the consumer received"),
 		Usage{In: 1, Out: 1}, time.Now(), time.Now())
@@ -126,7 +126,7 @@ func TestAResponseTheTwoEndsDisagreeAboutIsRefusedRatherThanSettled(t *testing.T
 	parsed, err := ParseAck(a.Signed, pub, "roger-public", "att-1")
 	require.NoError(t, err)
 
-	_, err = Reconcile(rec, Usage{In: 1, Out: 1}, &parsed)
+	_, err = Reconcile(rec, &parsed)
 	require.ErrorIs(t, err, ErrDigestMismatch)
 }
 
@@ -134,9 +134,9 @@ func TestAResponseTheTwoEndsDisagreeAboutIsRefusedRatherThanSettled(t *testing.T
 // clients will never ack at all; an operator who lost money for that is an operator who
 // leaves, and a network with no operators is not more secure, it is empty.
 func TestAnAttemptWithNoAcknowledgementStillSettlesAndSaysSo(t *testing.T) {
-	rec := stationReceipt(t, "att-1", []byte("the answer"))
+	rec := stationReceipt(t, "att-1", []byte("the answer"), Usage{In: 10, Out: 100})
 
-	s, err := Reconcile(rec, Usage{In: 10, Out: 100}, nil)
+	s, err := Reconcile(rec, nil)
 	require.NoError(t, err)
 	require.False(t, s.Corroborated, "the rate is the signal, so this has to be recorded")
 	require.Equal(t, Usage{In: 10, Out: 100}, s.Billable)
@@ -144,22 +144,24 @@ func TestAnAttemptWithNoAcknowledgementStillSettlesAndSaysSo(t *testing.T) {
 }
 
 func TestSettlementNeedsTheStationsReceipt(t *testing.T) {
-	_, err := Reconcile(Receipt{}, Usage{}, nil)
+	_, err := Reconcile(Receipt{}, nil)
 	require.ErrorContains(t, err, "needs the Station's receipt")
 
-	_, err = Reconcile(stationReceipt(t, "att-1", []byte("x")), Usage{Out: -1}, nil)
+	// A hand-built receipt claiming negative usage - impossible through SignReceipt, which
+	// is exactly why Reconcile must not assume its inputs came through SignReceipt.
+	_, err = Reconcile(Receipt{AttemptID: "att-1", ResponseDigest: "d", Usage: Usage{Out: -1}}, nil)
 	require.ErrorContains(t, err, "negative usage")
 }
 
 // Reconcile is the last line before money moves, so it re-checks the pairing rather than
 // trusting that whoever assembled the two objects got it right.
 func TestReconcileRefusesAMismatchedPairing(t *testing.T) {
-	rec := stationReceipt(t, "att-1", []byte("x"))
+	rec := stationReceipt(t, "att-1", []byte("x"), Usage{In: 1, Out: 1})
 	_, priv := consumer(t)
 	a, err := SignAck(priv, "roger-public", "att-2", []byte("x"), Usage{}, time.Now(), time.Now())
 	require.NoError(t, err)
 
-	_, err = Reconcile(rec, Usage{}, &a)
+	_, err = Reconcile(rec, &a)
 	require.ErrorContains(t, err, "and the receipt for")
 }
 
@@ -214,13 +216,15 @@ func TestAReceiptIsVerifiedAgainstTheAttachmentRecordedKey(t *testing.T) {
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
 	rec, err := SignReceipt(priv, "roger-public", Grant{AttemptID: "att-1", StationID: "st-1"},
-		[]byte("the answer"))
+		[]byte("the answer"), Usage{In: 7, Out: 10})
 	require.NoError(t, err)
 
 	got, err := ParseReceipt(rec.Signed, pub, "roger-public", "att-1", "st-1")
 	require.NoError(t, err)
 	require.Equal(t, "att-1", got.AttemptID)
 	require.Equal(t, rec.ResponseDigest, got.ResponseDigest)
+	require.Equal(t, Usage{In: 7, Out: 10}, got.Usage,
+		"the usage claim must survive the round trip - it is what settlement bills from")
 	require.Equal(t, rec.Signed, got.Signed)
 }
 
@@ -228,7 +232,7 @@ func TestAReceiptSignedByAnybodyElseIsRefused(t *testing.T) {
 	_, priv, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
 	rec, err := SignReceipt(priv, "roger-public", Grant{AttemptID: "att-1", StationID: "st-1"},
-		[]byte("x"))
+		[]byte("x"), Usage{In: 1, Out: 1})
 	require.NoError(t, err)
 
 	impostor, _, err := ed25519.GenerateKey(rand.Reader)
@@ -244,7 +248,7 @@ func TestAReceiptForAnotherContextIsRefused(t *testing.T) {
 	require.NoError(t, err)
 	pub := priv.Public().(ed25519.PublicKey)
 	rec, err := SignReceipt(priv, "roger-public", Grant{AttemptID: "att-1", StationID: "st-1"},
-		[]byte("x"))
+		[]byte("x"), Usage{In: 1, Out: 1})
 	require.NoError(t, err)
 
 	_, err = ParseReceipt(rec.Signed, pub, "roger-public", "att-OTHER", "st-1")

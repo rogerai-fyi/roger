@@ -118,6 +118,9 @@ type Receipt struct {
 	AttemptID string `json:"attempt_id"`
 	// ResponseDigest is over the exact bytes the Station produced.
 	ResponseDigest string `json:"response_digest"`
+	// Usage is what the Station claims it spent, IN THE SIGNATURE. It is the claim the
+	// Station is paid on, so it must not be alterable by the relay carrying the receipt.
+	Usage Usage `json:"usage"`
 	// Signed is the canonical Station-signed object.
 	Signed []byte `json:"signed"`
 }
@@ -130,7 +133,11 @@ type Config struct {
 	// Lifetime bounds an attempt. It is the only thing limiting how long a Station may hold
 	// work that nobody is waiting for any more.
 	Lifetime time.Duration
-	Now      func() time.Time
+	// EdgeLifetime bounds an EDGE attempt, which lives on a different clock: the grant has
+	// to survive the consumer receiving it, dialling the Tower, and the model completing -
+	// not just a queue hop. Zero means Lifetime.
+	EdgeLifetime time.Duration
+	Now          func() time.Time
 }
 
 // The three states an attempt passes through, in order. They are strings because they are
@@ -307,6 +314,11 @@ func (r *Registry) Mint(t Target, request []byte) (Grant, error) {
 	return g, nil
 }
 
+// Store exposes the attempt store, for callers that enforce one-use on paths the Registry
+// itself does not walk - the edge settlement, where the claim and the settle happen in one
+// place rather than at collection and result time.
+func (r *Registry) Store() Store { return r.store }
+
 // Publish makes a minted grant collectable.
 func (r *Registry) Publish(g Grant, t Target, request []byte) error {
 	return r.store.Put(Record{
@@ -415,8 +427,16 @@ func (r *Registry) Reap() int {
 // SignReceipt is what a STATION produces. It lives here so both sides use one definition of
 // the signed bytes - two implementations of "what is signed" is two implementations that
 // will eventually disagree, and the disagreement looks exactly like an attack.
-func SignReceipt(priv ed25519.PrivateKey, network string, g Grant, body []byte) (Receipt, error) {
-	rec := Receipt{AttemptID: g.AttemptID, ResponseDigest: digestOf(body)}
+// The receipt carries the Station's OWN usage claim, signed in. On the relayed path Core
+// observed the bytes itself and this is corroboration; on the edge path it is the claim the
+// Station is paid on, and it must be inside the signature - a usage figure carried beside
+// the receipt would be writable by the Tower forwarding it, and "settlement never reads the
+// Tower's numbers" is the whole point of the evidence design.
+func SignReceipt(priv ed25519.PrivateKey, network string, g Grant, body []byte, u Usage) (Receipt, error) {
+	if u.In < 0 || u.Out < 0 {
+		return Receipt{}, errors.New("a receipt cannot claim negative usage")
+	}
+	rec := Receipt{AttemptID: g.AttemptID, ResponseDigest: digestOf(body), Usage: u}
 	raw, err := json.Marshal(map[string]any{
 		"network":         network,
 		"type":            TypeReceipt,
@@ -424,6 +444,8 @@ func SignReceipt(priv ed25519.PrivateKey, network string, g Grant, body []byte) 
 		"attempt_id":      rec.AttemptID,
 		"station_id":      g.StationID,
 		"response_digest": rec.ResponseDigest,
+		"usage_in":        towerobj.FormatInt(u.In),
+		"usage_out":       towerobj.FormatInt(u.Out),
 	})
 	if err != nil {
 		return Receipt{}, err

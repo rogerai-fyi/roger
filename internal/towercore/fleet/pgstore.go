@@ -25,6 +25,8 @@ CREATE TABLE IF NOT EXISTS rogerai.tower_routable (
 );
 -- The routing lookup: candidates for a model, without scanning every Tower's history.
 CREATE INDEX IF NOT EXISTS tower_routable_model ON rogerai.tower_routable (model, expires);
+-- ADDITIVE: a column in the CREATE body never reaches a table that already exists.
+ALTER TABLE rogerai.tower_routable ADD COLUMN IF NOT EXISTS endpoint TEXT NOT NULL DEFAULT '';
 `
 
 // PGStore is the durable fleet view.
@@ -60,13 +62,13 @@ func (p *PGStore) Replace(towerID string, rows []Station) error {
 	for _, r := range rows {
 		if _, err := tx.Exec(`
 			INSERT INTO rogerai.tower_routable
-				(tower_id, station_id, offer_id, model, modality, capacity, expires)
-			VALUES ($1,$2,$3,$4,$5,$6,$7)
+				(tower_id, station_id, offer_id, model, modality, capacity, expires, endpoint)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
 			ON CONFLICT (tower_id, offer_id) DO UPDATE SET
 				station_id = EXCLUDED.station_id, model = EXCLUDED.model,
 				modality = EXCLUDED.modality, capacity = EXCLUDED.capacity,
-				expires = EXCLUDED.expires`,
-			towerID, r.StationID, r.OfferID, r.Model, r.Modality, r.Capacity, r.Expires); err != nil {
+				expires = EXCLUDED.expires, endpoint = EXCLUDED.endpoint`,
+			towerID, r.StationID, r.OfferID, r.Model, r.Modality, r.Capacity, r.Expires, r.Endpoint); err != nil {
 			return err
 		}
 	}
@@ -75,7 +77,7 @@ func (p *PGStore) Replace(towerID string, rows []Station) error {
 
 func (p *PGStore) Candidates(model string, now time.Time) ([]Station, error) {
 	rows, err := p.db.Query(`
-		SELECT tower_id, station_id, offer_id, model, modality, capacity, expires
+		SELECT tower_id, station_id, offer_id, model, modality, capacity, expires, endpoint
 		  FROM rogerai.tower_routable
 		 WHERE model = $1 AND expires > $2`, model, now)
 	if err != nil {
@@ -87,7 +89,7 @@ func (p *PGStore) Candidates(model string, now time.Time) ([]Station, error) {
 	for rows.Next() {
 		var s Station
 		if err := rows.Scan(&s.TowerID, &s.StationID, &s.OfferID, &s.Model, &s.Modality,
-			&s.Capacity, &s.Expires); err != nil {
+			&s.Capacity, &s.Expires, &s.Endpoint); err != nil {
 			return nil, err
 		}
 		s.Expires = s.Expires.UTC()

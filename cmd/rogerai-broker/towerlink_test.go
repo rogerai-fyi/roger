@@ -107,7 +107,12 @@ func attachStation(t *testing.T, b *broker, stationID, towerID, owner string) ed
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
 	assertion := hex.EncodeToString(pub)
-	session := hex.EncodeToString([]byte(stationID + "-session-key"))
+	// A REAL 32-byte session key. targetFor refuses anything else - a Station whose recorded
+	// session key is unusable is not dispatchable - so a placeholder here quietly excluded
+	// every test Station from selection.
+	sessionRaw := make([]byte, 32)
+	copy(sessionRaw, stationID)
+	session := hex.EncodeToString(sessionRaw)
 
 	auth, secret, err := attach.NewInvite(attach.Authorization{
 		ID: "auth-" + stationID, Network: link.PublicNetwork, StationID: stationID,

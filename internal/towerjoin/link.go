@@ -68,7 +68,11 @@ type Head struct {
 }
 
 // OpenSession starts (or resumes) the link.
-func OpenSession(st *tower.State, head Head) (Session, error) {
+//
+// relayEndpoint is where consumers reach this Tower's data plane, or "" for a Tower that
+// relays nothing. It rides in the Hello because the Tower is the only party that knows its
+// own public address, and Core needs it to route edge consumers here.
+func OpenSession(st *tower.State, head Head, relayEndpoint string) (Session, error) {
 	adm, ok := LoadAdmission(st.Dir())
 	if !ok || adm.TowerID == "" {
 		return Session{}, errors.New("this Tower is not registered yet - run `roger-tower register` first")
@@ -80,9 +84,10 @@ func OpenSession(st *tower.State, head Head) (Session, error) {
 		// Both are integrity properties rather than features, and Core refuses a session
 		// without them: without the first a modified frame is indistinguishable from an
 		// honest one, and without the second Core's traffic would be readable by us.
-		Capabilities: []string{link.CapIntegrity, link.CapInnerSession},
-		HeadRevision: head.Revision,
-		HeadHash:     head.Hash,
+		Capabilities:  []string{link.CapIntegrity, link.CapInnerSession},
+		HeadRevision:  head.Revision,
+		HeadHash:      head.Hash,
+		RelayEndpoint: relayEndpoint,
 	})
 	if err != nil {
 		return Session{}, err

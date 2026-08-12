@@ -24,10 +24,12 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -38,7 +40,7 @@ import (
 // serveJoined runs the link until the process is interrupted. It supplies the two things the
 // loop cannot invent for itself - a real signal and a real clock - and then gets out of the
 // way; everything that can go wrong is in runLink, where a test can reach it.
-func serveJoined(st *tower.State, out io.Writer, stations stationEndpoints, relayAddr string, routes relayRoutes) error {
+func serveJoined(st *tower.State, out io.Writer, stations stationEndpoints, relayAddr string, routes relayRoutes, relayPublic string) error {
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(stop)
@@ -47,9 +49,11 @@ func serveJoined(st *tower.State, out io.Writer, stations stationEndpoints, rela
 	// "stop" came from and a test does not have to send its own process a signal to exercise
 	// the shutdown path. A test that did would be racing the Go runtime for the delivery.
 	stopped := make(chan struct{})
+	var once sync.Once
+	windDown := func() { once.Do(func() { close(stopped) }) }
 	go func() {
 		<-stop
-		close(stopped)
+		windDown()
 	}()
 
 	// THE DATA PLANE, alongside the link. It is what takes load off Roger Core, and it runs
@@ -65,7 +69,13 @@ func serveJoined(st *tower.State, out io.Writer, stations stationEndpoints, rela
 	// an operator who did nothing wrong. It runs independently of the link for the same
 	// reason the relay does: a control-plane blip must not also cost the credential.
 	go towerjoin.KeepRenewed(st, out, stopped, realTicker)
-	return runLink(st, out, stopped, realTicker, stations)
+	err := runLink(st, out, stopped, realTicker, stations, relayPublic)
+	// THE LINK RETURNING WINDS EVERYTHING DOWN, error or not. Without this, a serve whose
+	// link failed at startup - not registered, wrong mode - HUNG forever: the deferred
+	// relay-wait was waiting on a stop signal only ctrl-c could send, over a loop whose
+	// error had already been decided. Found by a test that timed out instead of failing.
+	windDown()
+	return err
 }
 
 // multiFlag collects a repeatable flag.
@@ -89,7 +99,7 @@ func realTicker(d time.Duration) (<-chan time.Time, func()) {
 // any work for them - which is the right behaviour for a Tower whose Stations are attached
 // but not yet reachable, and is what every test that is about the LINK rather than about
 // dispatch passes.
-func runLink(st *tower.State, out io.Writer, stop <-chan struct{}, ticker func(time.Duration) (<-chan time.Time, func()), stations stationEndpoints) error {
+func runLink(st *tower.State, out io.Writer, stop <-chan struct{}, ticker func(time.Duration) (<-chan time.Time, func()), stations stationEndpoints, relayEndpoint string) error {
 	if st.Mode != tower.ModeJoined {
 		return errors.New(
 			"this Tower is standalone: it serves its own local network and needs nothing from " +
@@ -102,7 +112,7 @@ func runLink(st *tower.State, out io.Writer, stop <-chan struct{}, ticker func(t
 	head := towerjoin.Head{}
 	var revision int64
 
-	sess, err := towerjoin.OpenSession(st, head)
+	sess, err := towerjoin.OpenSession(st, head, relayEndpoint)
 	if err != nil {
 		return err
 	}
@@ -149,6 +159,11 @@ func runLink(st *tower.State, out io.Writer, stop <-chan struct{}, ticker func(t
 	if len(stations) > 0 {
 		waitForDispatch := runDispatchInBackground(st, out, stations, stop)
 		defer waitForDispatch()
+		// THE RECEIPT COURIER, for the edge path: a receipt travels to the consumer inside
+		// TLS this Tower cannot read, so settlement's copy comes from the Stations' outboxes,
+		// through here. Withholding them costs exactly one party - this operator, who is paid
+		// on what settles - so the courier is the incentive-aligned half of getting paid.
+		go towerjoin.KeepCollecting(st, stations, out, stop, ticker)
 	}
 
 	for {
@@ -178,7 +193,7 @@ func runLink(st *tower.State, out io.Writer, stop <-chan struct{}, ticker func(t
 			// Refused: the session is gone (Core restarted, or our lease lapsed). Re-open and
 			// find out which, rather than heartbeating into nothing.
 			fmt.Fprintln(out, "the session was refused - re-opening")
-			sess, err = towerjoin.OpenSession(st, head)
+			sess, err = towerjoin.OpenSession(st, head, relayEndpoint)
 			if err != nil {
 				return err
 			}
@@ -298,6 +313,7 @@ func cmdServe(args []string, out io.Writer) error {
 	fs.Var(&stationFlags, "station", "a Station this Tower serves, as ID=URL (repeatable)")
 	fs.Var(&relayFlags, "relay-station", "a Station this Tower RELAYS to, as ID=HOST:PORT (repeatable)")
 	relayAddr := fs.String("relay", "", "address to relay consumer traffic on, e.g. :8443")
+	relayPublic := fs.String("relay-public", "", "the PUBLIC host:port consumers reach the relay at (advertised to Roger Core)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -314,6 +330,14 @@ func cmdServe(args []string, out io.Writer) error {
 	// happens to complain about first.
 	if *cfg == "" && *relayAddr != "" && len(routes) == 0 {
 		return fmt.Errorf("--relay needs at least one --relay-station ID=HOST:PORT to route to")
+	}
+	if *relayPublic != "" {
+		if _, _, aerr := net.SplitHostPort(*relayPublic); aerr != nil {
+			return fmt.Errorf("--relay-public must be a dialable host:port, got %q", *relayPublic)
+		}
+	}
+	if *cfg == "" && *relayPublic != "" && *relayAddr == "" {
+		return fmt.Errorf("--relay-public advertises a data plane, but no --relay is serving one")
 	}
 	// serve takes --config for the same reason the state commands do, and it matters MORE
 	// here: an operator whose `attach` wrote to the database while `serve` read local disk
@@ -338,6 +362,9 @@ func cmdServe(args []string, out io.Writer) error {
 		if *relayAddr == "" && c.Relay != nil {
 			*relayAddr = c.Relay.Address
 		}
+		if *relayPublic == "" && c.Relay != nil {
+			*relayPublic = c.Relay.Public
+		}
 		if len(routes) == 0 && c.Relay != nil {
 			routes, err = relayRoutesFrom(c.Relay.Stations)
 			if err != nil {
@@ -349,5 +376,16 @@ func cmdServe(args []string, out io.Writer) error {
 		return fmt.Errorf("a relay address needs at least one Station to route to: " +
 			"pass --relay-station ID=HOST:PORT, or set relay.stations in the config")
 	}
-	return serveJoined(st, out, stations, *relayAddr, routes)
+	// The PUBLIC address is what Core hands to consumers, and the listen address is very
+	// often not it - ":8443" is not dialable by anyone. A relay with no public address still
+	// carries traffic for consumers who were told about it some other way, but Core will not
+	// route anyone new here, and the operator should know that is what they asked for.
+	if *relayPublic != "" && *relayAddr == "" {
+		return fmt.Errorf("--relay-public advertises a data plane, but no --relay is serving one")
+	}
+	if *relayAddr != "" && *relayPublic == "" {
+		fmt.Fprint(out, "NOTE: the relay has no --relay-public address, so Roger Core will not "+
+			"route edge consumers to this Tower.\n")
+	}
+	return serveJoined(st, out, stations, *relayAddr, routes, *relayPublic)
 }

@@ -11,6 +11,9 @@ import (
 	"io"
 	"math/big"
 	"net"
+	"os"
+	"path/filepath"
+	"rogerai.fm/roger/v5/internal/tower"
 	"strings"
 	"sync"
 	"testing"
@@ -248,4 +251,61 @@ func TestNoRoutesMeansNoRoutes(t *testing.T) {
 	routes, err := relayRoutesFrom(nil)
 	require.NoError(t, err)
 	require.Empty(t, routes)
+}
+
+// Every startup mistake around the public endpoint is refused at the flag stage, by name,
+// before the data directory is touched.
+func TestRelayPublicRefusalsHappenBeforeAnythingElse(t *testing.T) {
+	var b bytes.Buffer
+	// Not host:port.
+	err := run([]string{"serve", "--dir", t.TempDir(), "--relay", ":0",
+		"--relay-station", "st-a=127.0.0.1:1", "--relay-public", "not-an-endpoint"}, &b)
+	require.ErrorContains(t, err, "--relay-public")
+	// Advertising a data plane nobody is serving.
+	err = run([]string{"serve", "--dir", t.TempDir(),
+		"--relay-station", "st-a=127.0.0.1:1", "--relay-public", "203.0.113.7:8443"}, &b)
+	require.ErrorContains(t, err, "no --relay is serving one")
+}
+
+// A config-declared relay carries its public endpoint too - the file and the flags describe
+// the same machine, so both must be able to say where consumers arrive.
+func TestTheConfigCanDeclareThePublicEndpoint(t *testing.T) {
+	c, err := tower.ParseConfig([]byte(minimalRelayYAML))
+	require.NoError(t, err)
+	require.Equal(t, "203.0.113.7:8443", c.Relay.Public)
+}
+
+const minimalRelayYAML = `apiVersion: tower.rogerai.fm/v1alpha1
+kind: Tower
+mode: standalone
+relay:
+  address: 127.0.0.1:8443
+  public: 203.0.113.7:8443
+  stations:
+    st-a: 127.0.0.1:9001
+`
+
+// The whole config-merge path in cmdServe: a file declaring the relay, its public address
+// and its stations, honoured without a single relay flag. The serve then fails at the link
+// (a standalone Tower refuses), which is fine - what is being pinned is that the file was
+// READ and MERGED, not that the network works.
+func TestServeMergesTheRelayDeclarationFromTheConfig(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "tw")
+	var b bytes.Buffer
+	require.NoError(t, run([]string{"init", "--dir", dir, "--mode", "standalone"}, &b))
+	cfgPath := filepath.Join(t.TempDir(), "tower.yaml")
+	require.NoError(t, os.WriteFile(cfgPath, []byte(minimalRelayYAML), 0o644))
+
+	b.Reset()
+	err := cmdServe([]string{"--dir", dir, "--config", cfgPath}, &b)
+	require.Error(t, err, "a standalone Tower refuses the joined link")
+	require.Contains(t, err.Error(), "standalone",
+		"it must get PAST the relay merge and fail at the link, not before")
+
+	// And a config whose public endpoint has no address to serve is refused by the same
+	// rule as the flags - one rule, wherever the declaration came from.
+	bad := strings.Replace(minimalRelayYAML, "  address: 127.0.0.1:8443\n", "", 1)
+	require.NoError(t, os.WriteFile(cfgPath, []byte(bad), 0o644))
+	err = cmdServe([]string{"--dir", dir, "--config", cfgPath}, &b)
+	require.Error(t, err)
 }

@@ -16,7 +16,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
-	"encoding/json"
 	"encoding/pem"
 	"io"
 	"net"
@@ -63,7 +62,7 @@ func TestAConsumerReachesTheStationThroughARelayThatCannotRead(t *testing.T) {
 	done := make(chan error, 1)
 	var sb bytes.Buffer
 	go func() {
-		done <- serveStationWithEdge(station.Executor{Station: s}, station.EdgeExecutor{Station: s}, ln, &sb, stop)
+		done <- serveStationSplit(station.Executor{Station: s}, station.EdgeExecutor{Station: s}, station.EdgeExecutor{Station: s}.Outbox, ln, nil, &sb, stop)
 	}()
 
 	// A relay in front of it, with a tap on every byte it carries.
@@ -236,7 +235,7 @@ func TestAConsumerIsServedThroughARelayThatSeesNothing(t *testing.T) {
 		Now:      func() time.Time { return now },
 	}
 	go func() {
-		done <- serveStationWithEdge(station.Executor{Station: s}, edge, ln, &sb, stop)
+		done <- serveStationSplit(station.Executor{Station: s}, edge, edge.Outbox, ln, nil, &sb, stop)
 	}()
 
 	// A Tower in front of it, with a tap on every byte it carries.
@@ -305,28 +304,27 @@ func TestAConsumerIsServedThroughARelayThatSeesNothing(t *testing.T) {
 	require.NotContains(t, seen, grant.AttemptID, "not even which attempt this was")
 	require.NotContains(t, seen, "v1/chat/completions")
 
-	// And the two ends reconcile: the consumer's acknowledgement agrees with the Station's
-	// receipt about the bytes, so the attempt settles corroborated.
+	// And the two ends reconcile: the receipt that rode back through the relay verifies
+	// against the Station's real assertion key, carries the Station's own signed usage
+	// claim, and agrees with the consumer's acknowledgement about the bytes.
 	rawReceipt, err := base64.StdEncoding.DecodeString(receipt)
 	require.NoError(t, err)
-	var rec struct {
-		ResponseDigest string `json:"response_digest"`
-		AttemptID      string `json:"attempt_id"`
-	}
-	require.NoError(t, json.Unmarshal(rawReceipt, &rec))
-	require.Equal(t, grant.AttemptID, rec.AttemptID)
+	rec, err := dispatch.ParseReceipt(rawReceipt, s.AssertionPub(), "roger-public",
+		grant.AttemptID, s.StationID)
+	require.NoError(t, err)
+	require.Equal(t, int64(len(body)), rec.Usage.Out,
+		"the Station's claim must be the bytes it actually returned")
 
 	_, consumerPriv, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
+	// The consumer observed LESS output than the Station claims - a short read, say.
 	ack, err := dispatch.SignAck(consumerPriv, "roger-public", grant.AttemptID, body,
-		dispatch.Usage{In: 3, Out: 9}, now, now)
+		dispatch.Usage{In: rec.Usage.In, Out: rec.Usage.Out - 2}, now, now)
 	require.NoError(t, err)
-	settled, err := dispatch.Reconcile(
-		dispatch.Receipt{AttemptID: rec.AttemptID, ResponseDigest: rec.ResponseDigest},
-		dispatch.Usage{In: 3, Out: 11}, &ack)
+	settled, err := dispatch.Reconcile(rec, &ack)
 	require.NoError(t, err)
 	require.True(t, settled.Corroborated)
-	require.Equal(t, dispatch.Usage{In: 3, Out: 9}, settled.Billable,
+	require.Equal(t, rec.Usage.Out-2, settled.Billable.Out,
 		"the Station must not be paid on its own count alone")
 
 	cancel()
