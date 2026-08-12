@@ -4,8 +4,8 @@
 # Built: the blind relay (internal/relay), the Station's own TLS identity and two-surface
 # serving, the edge grant with signed usage in the receipt, Core's authorize/ack/settle
 # endpoints with one-use settlement, endpoint advertisement on the link, and the receipt
-# outbox + Tower courier. Not built: a first-party edge consumer, canaries, sampled
-# transcript audit, compensation.
+# outbox + Tower courier, and a first-party edge consumer (internal/edgeclient, driven by
+# `roger-tower probe`). Not built: canaries, sampled transcript audit, compensation.
 # Enforced by internal/towercore/featurestatus_test.go against the "Contract:"
 # references in the code. Changing the status without changing the code fails.
 #

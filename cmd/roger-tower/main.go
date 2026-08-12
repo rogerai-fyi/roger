@@ -45,6 +45,7 @@ usage:
   roger-tower status --dir DIR
   roger-tower login  --dir DIR        (joined mode only)
   roger-tower logout --dir DIR
+  roger-tower probe    --model NAME [--broker URL]   (drive the edge path as a consumer)
   roger-tower register --dir DIR      (joined mode only; requires login)
   roger-tower serve  --dir DIR [--station ID=URL ...]  (holds the link; serves work)
   roger-tower station invite|attach|revoke   (joined mode; Stations on the public network)
@@ -107,6 +108,8 @@ func run(args []string, out io.Writer) error {
 		return cmdLogout(args[1:], out)
 	case "register":
 		return cmdRegister(args[1:], out)
+	case "probe":
+		return cmdProbe(args[1:], out)
 	case "status":
 		return cmdStatus(args[1:], out)
 	case "version":
