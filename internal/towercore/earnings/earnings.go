@@ -41,6 +41,7 @@ package earnings
 
 import (
 	"errors"
+	"math"
 	"time"
 )
 
@@ -115,6 +116,21 @@ var (
 	errNegativePayout = errors.New("a payout cannot be negative")
 	errPayoutConflict = errors.New("a payout with this id already exists for a different owner or amount")
 )
+
+// satAddMicros sums two non-negative micro amounts, saturating at MaxInt64 rather than wrapping.
+//
+// A summed balance can only overflow if individual accruals were themselves priced up near
+// MaxInt64 (a grossly misconfigured rate; the pricing already saturates there), but a wrap would
+// turn the memory store's balance NEGATIVE and, once floored, hide the debt entirely - while the
+// Postgres store's numeric SUM would error instead. Saturating here keeps the two stores in
+// agreement (both cap at MaxInt64) and keeps an overflow visible as an absurd balance rather than
+// a silent zero. Inputs are non-negative by construction (checkAccrual / RecordPayout).
+func satAddMicros(a, b int64) int64 {
+	if a > math.MaxInt64-b {
+		return math.MaxInt64
+	}
+	return a + b
+}
 
 func checkAccrual(a Accrual) error {
 	switch {

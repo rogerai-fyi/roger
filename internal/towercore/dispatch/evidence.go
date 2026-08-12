@@ -178,6 +178,11 @@ type Settlement struct {
 	// Corroborated is false when no acknowledgement arrived. Not a failure - see the file
 	// comment - but it is carried through to settlement so a rate can be computed from it.
 	Corroborated bool
+	// UsageDisputed is set when the receipt and acknowledgement agree on the response DIGEST but
+	// report different USAGE. Because usage is byte-exact, matching digests force matching usage;
+	// a disagreement is one party lying about the length of bytes both signed for. The caller
+	// treats it as a dispute (rate signal + force audit), same as a digest mismatch.
+	UsageDisputed bool
 }
 
 // ErrDigestMismatch is the one disagreement that is not a rounding difference: the Station
@@ -216,7 +221,20 @@ func Reconcile(receipt Receipt, ack *Ack) (Settlement, error) {
 		return Settlement{}, ErrDigestMismatch
 	}
 	s.Corroborated = true
+	// USAGE MUST AGREE WHEN THE DIGESTS DO. Usage is byte-exact (len of the bytes), and a
+	// matching response digest means both parties committed to the IDENTICAL response bytes -
+	// so their usage_out is a deterministic function of the same bytes and must be equal. If it
+	// is not, one side signed a correct digest and a false length: provable misconduct, not a
+	// rounding difference. A consumer that acks usage 0 against the true digest is trying to
+	// zero an honest operator's pay while looking corroborated; without this it succeeded
+	// silently. We settle CONSERVATIVELY on the lower figure (never overpay on either party's
+	// inflation) but mark it disputed so it feeds the rate and is force-audited - the audit has
+	// the bytes and can attribute the lie. A tight per-attempt correction is future work; being
+	// flagged rather than silently clean is the fix.
 	s.Billable = Usage{In: minInt64(claimed.In, ack.Usage.In), Out: minInt64(claimed.Out, ack.Usage.Out)}
+	if claimed.In != ack.Usage.In || claimed.Out != ack.Usage.Out {
+		s.UsageDisputed = true
+	}
 	return s, nil
 }
 

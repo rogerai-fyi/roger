@@ -175,3 +175,76 @@ func TestAnUnreadableGrantSettlesButIsFlaggedForAudit(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, pending, 1, "force-audited")
 }
+
+// Review finding 2: a consumer that acks the CORRECT response digest but a lower usage (e.g. 0)
+// must not silently zero an honest operator's pay marked "corroborated/clean". Usage is
+// byte-exact, so matching digests force matching usage; the contradiction is flagged and audited.
+func TestAConsumerCannotSilentlyZeroThePayWithAMatchingDigest(t *testing.T) {
+	t.Setenv("ROGERAI_TOWER_ACCRUAL_MICROS_OUT", "1")
+	b, srv := towerTestBroker(t)
+	op := signedInOperator(t, b, "octocat")
+	owner := ownerPubkeyOf(t, b, op.login)
+	tw := enrolledTower(t, b, op.login)
+	stationPriv := attachStation(t, b, "st-aa", tw.id, owner)
+	consumerPriv := issuedAttempt(t, b, "att-1", tw.id, "st-aa")
+	response := []byte("a real forty-ish byte answer from the model")
+
+	// The consumer signs the TRUE response digest but claims usage 0 - a provable lie.
+	code, _ := consumerCall(t, srv, consumerPriv, "/tower/edge/ack", map[string]any{
+		"attempt_id": "att-1",
+		"ack":        signedAck(t, consumerPriv, "att-1", response, dispatch.Usage{In: 0, Out: 0}),
+	})
+	require.Equal(t, http.StatusOK, code)
+
+	body, err := json.Marshal(map[string]any{
+		"tower_id": tw.id, "station_id": "st-aa", "attempt_id": "att-1",
+		"receipt": signedReceipt(t, stationPriv, "att-1", "st-aa", response,
+			dispatch.Usage{In: 5, Out: int64(len(response))}),
+	})
+	require.NoError(t, err)
+	var out map[string]any
+	code, _ = tw.call(t, srv, "/tower/edge/settle", body, &out)
+	require.Equal(t, http.StatusOK, code, out)
+	require.Equal(t, true, out["disputed"], "a usage-vs-digest contradiction is flagged, not clean")
+
+	// And it was force-audited (the audit has the bytes and can attribute the lie).
+	pending, err := b.tower.auditWanted.Pending(tw.id, time.Now())
+	require.NoError(t, err)
+	require.Len(t, pending, 1)
+}
+
+// Review finding 3: a settlement whose one-use claim landed but whose commit was interrupted
+// (transient store fault or crash, leaving the attempt stranded "claimed") must be recoverable
+// by a retry, not permanently 409'd with the operator's pay lost.
+func TestAStrandedClaimCanBeReDriven(t *testing.T) {
+	t.Setenv("ROGERAI_TOWER_ACCRUAL_MICROS_OUT", "1")
+	b, srv := towerTestBroker(t)
+	op := signedInOperator(t, b, "octocat")
+	owner := ownerPubkeyOf(t, b, op.login)
+	tw := enrolledTower(t, b, op.login)
+	stationPriv := attachStation(t, b, "st-aa", tw.id, owner)
+	issuedAttempt(t, b, "att-1", tw.id, "st-aa")
+
+	// Simulate an interrupted prior settle: the attempt is claimed but never settled.
+	_, cerr := b.tower.dispatch.Store().ClaimByID("att-1", tw.id, time.Now())
+	require.NoError(t, cerr)
+
+	body, err := json.Marshal(map[string]any{
+		"tower_id": tw.id, "station_id": "st-aa", "attempt_id": "att-1",
+		"receipt": signedReceipt(t, stationPriv, "att-1", "st-aa", []byte("answer"),
+			dispatch.Usage{In: 1, Out: 6}),
+	})
+	require.NoError(t, err)
+	var out map[string]any
+	code, _ := tw.call(t, srv, "/tower/edge/settle", body, &out)
+	require.Equal(t, http.StatusOK, code, "a stranded claim re-drives to a real settlement")
+	require.Equal(t, float64(6), out["billable_out"])
+
+	owed, err := b.tower.earnings.OwedTo(owner, time.Time{})
+	require.NoError(t, err)
+	require.Equal(t, int64(6), owed.Accrued, "the recovered settlement accrues exactly once")
+
+	// A further retry is now a genuine double-settle and is refused.
+	code, _ = tw.call(t, srv, "/tower/edge/settle", body, &out)
+	require.Equal(t, http.StatusConflict, code)
+}

@@ -103,16 +103,22 @@ func (p *PGStore) RecordPayout(owner, payoutID string, micros int64, at time.Tim
 }
 
 func (p *PGStore) OwedTo(owner string, since time.Time) (OwedByOwner, error) {
+	// LEAST(SUM, MaxInt64) caps the total the same way the memory store's saturating add does.
+	// SUM over bigint is numeric and can exceed int64; without the cap a huge total would fail to
+	// scan into int64 here while the memory store saturated - a parity divergence on an
+	// overflowed ledger. Both now cap at MaxInt64. It only bites on a grossly misconfigured rate.
 	out := OwedByOwner{Owner: owner}
 	err := p.db.QueryRow(`
-		SELECT COALESCE(SUM(micros),0), COUNT(*) FROM rogerai.tower_earnings
-		 WHERE owner = $1 AND at >= $2`, owner, since.UTC()).Scan(&out.Accrued, &out.Attempts)
+		SELECT LEAST(COALESCE(SUM(micros),0), 9223372036854775807)::bigint, COUNT(*)
+		  FROM rogerai.tower_earnings WHERE owner = $1 AND at >= $2`,
+		owner, since.UTC()).Scan(&out.Accrued, &out.Attempts)
 	if err != nil {
 		return OwedByOwner{}, err
 	}
 	err = p.db.QueryRow(`
-		SELECT COALESCE(SUM(micros),0) FROM rogerai.tower_payouts
-		 WHERE owner = $1 AND at >= $2`, owner, since.UTC()).Scan(&out.Paid)
+		SELECT LEAST(COALESCE(SUM(micros),0), 9223372036854775807)::bigint
+		  FROM rogerai.tower_payouts WHERE owner = $1 AND at >= $2`,
+		owner, since.UTC()).Scan(&out.Paid)
 	if err != nil {
 		return OwedByOwner{}, err
 	}

@@ -9,6 +9,7 @@ package earnings
 
 import (
 	"database/sql"
+	"math"
 	"net/url"
 	"os"
 	"strings"
@@ -219,6 +220,22 @@ func TestParityAReusedPayoutIDWithDifferentContentIsRejected(t *testing.T) {
 			require.NoError(t, s.RecordPayout("op-1", "pay-1", 100, base), "a matching retry is idempotent")
 			require.Error(t, s.RecordPayout("op-1", "pay-1", 200, base), "different amount, same id")
 			require.Error(t, s.RecordPayout("op-2", "pay-1", 100, base), "different owner, same id")
+		})
+	}
+}
+
+// Review finding 4: an overflowed balance must not wrap NEGATIVE in memory (which floors to a
+// zero Owed that hides the debt) while Postgres errors. Both saturate at MaxInt64.
+func TestParityAnOverflowedBalanceSaturatesRatherThanWrapping(t *testing.T) {
+	base := time.Unix(1_700_000_000, 0)
+	for name, s := range stores(t) {
+		t.Run(name, func(t *testing.T) {
+			require.NoError(t, s.Accrue(accrual("op-1", "a1", math.MaxInt64, base)))
+			require.NoError(t, s.Accrue(accrual("op-1", "a2", math.MaxInt64, base)))
+			owed, err := s.OwedTo("op-1", time.Time{})
+			require.NoError(t, err)
+			require.Equal(t, int64(math.MaxInt64), owed.Accrued, "saturated, not wrapped negative")
+			require.Equal(t, int64(math.MaxInt64), owed.Owed())
 		})
 	}
 }

@@ -362,7 +362,10 @@ func (b *broker) settleEdgeAttempt(attemptID string, receipt dispatch.Receipt) (
 		settled, err = dispatch.Reconcile(receipt, nil)
 		return settled, true, err
 	}
-	return settled, false, err
+	// A usage contradiction under matching digests is also a dispute: the digests agree on the
+	// bytes, so the usage must too, and one party lied about the length of what both signed for.
+	// Settled conservatively (the lower figure) by Reconcile; flagged here so it is audited.
+	return settled, settled.UsageDisputed, err
 }
 
 // towerEdgeSettle takes the Station's receipt, relayed by its Tower on the link it already
@@ -476,24 +479,13 @@ func (b *broker) towerEdgeSettle(w http.ResponseWriter, r *http.Request) {
 	// refusal explains itself. This is also what ties the settling Tower to the attempt: the
 	// claim is keyed by Tower, so a Tower cannot close out an attempt granted through
 	// another.
-	now := time.Now()
-	if _, cerr := ts.dispatch.Store().ClaimByID(req.AttemptID, req.TowerID, now); cerr != nil {
-		if errors.Is(cerr, dispatch.ErrAlreadySettled) || errors.Is(cerr, dispatch.ErrAlreadyClaimed) {
-			jsonErr(w, http.StatusConflict, "this attempt has already been settled")
-			return
-		}
-		if errors.Is(cerr, dispatch.ErrExpired) {
-			jsonErr(w, http.StatusForbidden, "this attempt's settlement window has closed")
-			return
-		}
-		jsonErr(w, http.StatusNotFound, "no such attempt for this Tower")
-		return
-	}
-
+	// RECONCILE FIRST - it is read-only. An earlier order claimed the attempt and only then
+	// reconciled, so a receipt that could not be reconciled (e.g. it reports negative usage)
+	// returned 400 having already moved the attempt to `claimed`, where a retry can never
+	// re-settle it and the operator's pay is lost. Reconciling before the claim means a bad
+	// receipt is refused without consuming the one-use claim.
 	settled, disputed, err := b.settleEdgeAttempt(req.AttemptID, receipt)
 	if err != nil {
-		// A malformed or unusable receipt is a bad request; unlike a digest disagreement (which
-		// settleEdgeAttempt now resolves rather than errors on), this is the caller's mistake.
 		b.noteAttempt(req.AttemptID, attempt.Observation{
 			Kind: attempt.KindExecutionFailed, EvidenceHash: req.AttemptID,
 			Reason: err.Error(), ReleaseID: "release-" + req.AttemptID,
@@ -501,10 +493,46 @@ func (b *broker) towerEdgeSettle(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+
+	// ONE-USE, ENFORCED HERE, through the same shared store the relayed path uses. The claim is
+	// a compare-and-swap keyed by Tower, so a Tower cannot close out an attempt granted through
+	// another, and a replayed receipt loses the swap on whichever broker it reaches.
+	//
+	// RECOVERABLE, deliberately: claim and settle are two swaps, and a fault or crash between
+	// them (or a Settle that failed transiently) leaves the attempt stranded in `claimed`. An
+	// edge attempt has no other reason to sit claimed - unlike the relayed path there is no
+	// dispatched work in flight - so a retry from the same Tower RE-DRIVES it through Settle
+	// rather than being refused forever. A stranded settlement no longer permanently loses the
+	// operator's pay to one bad moment. A genuine double-settle still loses the Settle swap
+	// below, and the accrual keyed by attempt id cannot double-count whichever path commits.
+	now := time.Now()
+	if _, cerr := ts.dispatch.Store().ClaimByID(req.AttemptID, req.TowerID, now); cerr != nil {
+		switch {
+		case errors.Is(cerr, dispatch.ErrAlreadySettled):
+			jsonErr(w, http.StatusConflict, "this attempt has already been settled")
+			return
+		case errors.Is(cerr, dispatch.ErrAlreadyClaimed):
+			// Stranded from a prior interrupted settle - fall through and re-drive Settle.
+		case errors.Is(cerr, dispatch.ErrExpired):
+			jsonErr(w, http.StatusForbidden, "this attempt's settlement window has closed")
+			return
+		default:
+			jsonErr(w, http.StatusNotFound, "no such attempt for this Tower")
+			return
+		}
+	}
 	if _, serr := ts.dispatch.Store().Settle(req.AttemptID, now); serr != nil {
-		// The claim above succeeded, so a failure here is a store fault rather than a race
-		// we lost - reported, and the attempt chain still records what the evidence said.
-		log.Printf("edge settle: attempt %s claimed but not settled: %v", req.AttemptID, serr)
+		if errors.Is(serr, dispatch.ErrAlreadySettled) {
+			// Another settle (a concurrent re-drive) won and has already accrued; this is a
+			// duplicate, not a fault.
+			jsonErr(w, http.StatusConflict, "this attempt has already been settled")
+			return
+		}
+		if errors.Is(serr, dispatch.ErrExpired) {
+			jsonErr(w, http.StatusForbidden, "this attempt's settlement window has closed")
+			return
+		}
+		log.Printf("edge settle: attempt %s reconciled but not committed: %v", req.AttemptID, serr)
 		jsonErr(w, http.StatusServiceUnavailable, "could not commit this settlement - retry")
 		return
 	}
