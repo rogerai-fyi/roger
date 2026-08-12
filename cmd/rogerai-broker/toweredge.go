@@ -419,6 +419,25 @@ func (b *broker) towerEdgeSettle(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusBadRequest, "a settlement names its attempt and Station and carries the receipt")
 		return
 	}
+	// BIND THE SETTLEMENT TO THE STATION THE GRANT COMMITTED TO. The record names the Station
+	// this attempt was granted for; the request names a Station too, and the two must be the
+	// same. Without this, a Tower running more than one attached Station (the ordinary
+	// multi-GPU case) could settle attempt X - granted for Station Z - with a receipt its OWN
+	// Station Y signed, closing the attempt against Y and accruing Y's owner for work X never
+	// authorized. It would also slip the ceiling check, which reads the grant's Station and
+	// would find it was for Z, not Y. Everything below therefore uses the request's Station id
+	// only after it is proven equal to the granted one.
+	rec, recFound, recErr := ts.dispatch.Store().Get(req.AttemptID)
+	if recErr != nil {
+		jsonErr(w, http.StatusServiceUnavailable, "could not read this attempt - try again in a moment")
+		return
+	}
+	if !recFound || rec.StationID != req.StationID {
+		// Uniform with "no such attempt": a settlement naming the wrong Station for a real
+		// attempt must not be distinguishable from one naming an attempt that does not exist.
+		jsonErr(w, http.StatusNotFound, "no such attempt for this Station")
+		return
+	}
 	raw, err := base64.StdEncoding.DecodeString(req.Receipt)
 	if err != nil {
 		jsonErr(w, http.StatusBadRequest, "this receipt is not valid base64")
@@ -496,24 +515,30 @@ func (b *broker) towerEdgeSettle(w http.ResponseWriter, r *http.Request) {
 	// payee did not choose; a receipt claiming more than it has exceeded its authorization, so
 	// the figure is clamped to the ceiling AND the attempt is treated as disputed and audited.
 	// This protects the consumer (who is charged the billable figure) as much as the fisc.
-	var model string
-	if rec, ok, gerr := ts.dispatch.Store().Get(req.AttemptID); gerr == nil && ok {
-		model = rec.Model
-		if maxIn, maxOut, cerr := dispatch.EdgeGrantCeiling(rec.Grant, ts.dispatchPub,
-			link.PublicNetwork, req.StationID); cerr == nil {
-			if settled.Billable.In > maxIn || settled.Billable.Out > maxOut {
-				log.Printf("edge settle: attempt %s billable (%d/%d) exceeds grant ceiling (%d/%d) - clamped and disputed",
-					req.AttemptID, settled.Billable.In, settled.Billable.Out, maxIn, maxOut)
-				settled.Billable.In = min(settled.Billable.In, maxIn)
-				settled.Billable.Out = min(settled.Billable.Out, maxOut)
-				disputed = true
-			}
-		} else {
-			// A grant we stored that will not yield its own ceiling is a fault worth seeing; the
-			// settlement still commits on the unclamped figure rather than trapping the operator's
-			// pay behind our bug, but it is logged so the bug is not silent.
-			log.Printf("edge settle: attempt %s grant ceiling unreadable (%v) - billable NOT clamped", req.AttemptID, cerr)
+	// The record was fetched and its Station bound to the request above; reuse it. The ceiling
+	// is read from the grant against rec.StationID - the Station the grant actually names -
+	// which equals req.StationID by the gate above, so no attacker-chosen value reaches it.
+	//
+	// COARSE BY CONSTRUCTION: the grant's Max is a BYTE ceiling (capped at edgeMaxBytes) and
+	// billable is a TOKEN count. A token is at least a byte, so token usage is already under the
+	// byte ceiling for honest traffic and this clamp only ever catches a gross over-claim, not a
+	// tight per-attempt bound. A tight bound would need a token ceiling in the grant; until then
+	// this stops runaway/overflow-scale claims rather than modest padding.
+	model := rec.Model
+	if maxIn, maxOut, cerr := dispatch.EdgeGrantCeiling(rec.Grant, ts.dispatchPub,
+		link.PublicNetwork, rec.StationID); cerr == nil {
+		if settled.Billable.In > maxIn || settled.Billable.Out > maxOut {
+			log.Printf("edge settle: attempt %s billable (%d/%d) exceeds grant ceiling (%d/%d) - clamped and disputed",
+				req.AttemptID, settled.Billable.In, settled.Billable.Out, maxIn, maxOut)
+			settled.Billable.In = min(settled.Billable.In, maxIn)
+			settled.Billable.Out = min(settled.Billable.Out, maxOut)
+			disputed = true
 		}
+	} else {
+		// A grant we stored that will not yield its own ceiling is a fault worth seeing; the
+		// settlement still commits on the unclamped figure rather than trapping the operator's
+		// pay behind our bug, but it is logged so the bug is not silent.
+		log.Printf("edge settle: attempt %s grant ceiling unreadable (%v) - billable NOT clamped", req.AttemptID, cerr)
 	}
 	// THE FUNDING LEDGER, written after the one-use settlement has committed and keyed by this
 	// attempt id, so it accrues exactly once however this request is retried or raced. The

@@ -109,3 +109,36 @@ func TestAccrualPricingSaturates(t *testing.T) {
 	require.Equal(t, int64(math.MaxInt64), edgeAccrualMicros(1000, 1000))
 	require.Equal(t, int64(0), edgeAccrualMicros(0, 0))
 }
+
+// The station-substitution attack a review found: a Tower running two attached Stations must
+// not settle an attempt granted for Station Z with a receipt its own Station Y signed. That
+// would close the attempt against Y, accrue Y's owner, and slip the grant ceiling (which names
+// Z). The settlement is bound to the granted Station and refused.
+func TestASettlementForTheWrongStationIsRefused(t *testing.T) {
+	t.Setenv("ROGERAI_TOWER_ACCRUAL_MICROS_OUT", "2")
+	b, srv := towerTestBroker(t)
+	op := signedInOperator(t, b, "octocat")
+	owner := ownerPubkeyOf(t, b, op.login)
+	tw := enrolledTower(t, b, op.login)
+	// Two Stations, same owner, same Tower - the ordinary multi-GPU case.
+	attachStation(t, b, "st-aa", tw.id, owner)
+	yPriv := attachStation(t, b, "st-bb", tw.id, owner)
+	// The attempt was granted for Z, with a low ceiling.
+	issuedEdgeGrant(t, b, "att-1", tw.id, "st-aa", 1000, 50)
+
+	// The operator settles it with Y's receipt, over the ceiling.
+	body, err := json.Marshal(map[string]any{
+		"tower_id": tw.id, "station_id": "st-bb", "attempt_id": "att-1",
+		"receipt": signedReceipt(t, yPriv, "att-1", "st-bb", []byte("answer"),
+			dispatch.Usage{In: 10, Out: 5000}),
+	})
+	require.NoError(t, err)
+	var out map[string]any
+	code, _ := tw.call(t, srv, "/tower/edge/settle", body, &out)
+	require.Equal(t, http.StatusNotFound, code, "a receipt for the wrong Station cannot settle")
+
+	// Nothing accrued to anyone, and the attempt is still open (not consumed by the bad settle).
+	owed, err := b.tower.earnings.OwedTo(owner, time.Time{})
+	require.NoError(t, err)
+	require.Equal(t, int64(0), owed.Accrued)
+}

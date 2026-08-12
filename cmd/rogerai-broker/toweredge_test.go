@@ -312,7 +312,9 @@ func TestAMalformedSettlementIsRefused(t *testing.T) {
 		"no receipt":    {map[string]any{"tower_id": tw.id, "station_id": "st-1", "attempt_id": "att-1"}, http.StatusBadRequest},
 		"not base64":    {map[string]any{"tower_id": tw.id, "station_id": "st-1", "attempt_id": "att-1", "receipt": "!!!"}, http.StatusBadRequest},
 		"unknown statn": {map[string]any{"tower_id": tw.id, "station_id": "st-nope", "attempt_id": "att-1", "receipt": good}, http.StatusNotFound},
-		"other attempt": {map[string]any{"tower_id": tw.id, "station_id": "st-1", "attempt_id": "att-OTHER", "receipt": good}, http.StatusForbidden},
+		// A settlement for an attempt that does not exist, and one that names the wrong Station
+		// for a real attempt, are the SAME uniform 404 - neither confirms which of the two it was.
+		"other attempt": {map[string]any{"tower_id": tw.id, "station_id": "st-1", "attempt_id": "att-OTHER", "receipt": good}, http.StatusNotFound},
 	} {
 		t.Run(name, func(t *testing.T) {
 			body, err := json.Marshal(tc.in)
