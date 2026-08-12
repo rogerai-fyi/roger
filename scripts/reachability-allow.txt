@@ -197,6 +197,20 @@ internal/tui.worldPingX
 internal/update.setLatestReleaseURL
 internal/webui.Server.Token
 
+# --- Tower: the CONSUMER's half of the edge path ----------------------------
+# SignAck produces the acknowledgement a consumer sends Roger Core about what it actually
+# received. It is unreachable because no binary in this repo is yet an edge CONSUMER: the
+# broker verifies acknowledgements (ParseAck) and settles on them (Reconcile), and the
+# Station and Tower must never produce one - a Tower signing the consumer's account of the
+# bytes would destroy the entire opposing-interest property that makes the evidence worth
+# anything.
+#
+# So this is a genuine gap rather than a wiring miss, and it is the next build step: the
+# rogerai client does not yet speak the edge path. Exercised end to end by
+# cmd/roger-station/edge_test.go, which signs an acknowledgement over bytes that really
+# crossed a real relay and reconciles it against the Station's real receipt.
+internal/towercore/dispatch.SignAck
+
 # --- Tower: convenience constructor over the in-process attempt store -------
 # dispatch.New(cfg) is NewWithStore(cfg, nil). The broker always passes the durable store,
 # because "at most one attempt executes" and "at most one result settles" cannot be enforced

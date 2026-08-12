@@ -137,6 +137,9 @@ type towerSubsystem struct {
 	// attempts is THE record money is decided from: which attempt executed, exactly once,
 	// and what its one terminal outcome was.
 	attempts *attempt.Ledger
+	// acks holds consumer acknowledgements until the attempt they belong to settles. It is
+	// the only claim about an edge attempt that does not come from the party being paid.
+	acks dispatch.AckStore
 	// attemptKey is the attempt-state signer, kept so the purpose separation that makes the
 	// ledger worth trusting can be asserted: it must not be the key that signs grants.
 	attemptKey ed25519.PrivateKey
@@ -180,6 +183,12 @@ type linkDeps struct {
 	// broker and wrong for two: the one-use claim would be enforced by each instance over its
 	// own half, and a Tower polling either would be handed the same work twice.
 	attempts dispatch.Store
+	// acks is the durable consumer-acknowledgement store. Nil means in-process, which on a
+	// multi-instance deployment would lose almost every acknowledgement: the consumer acks
+	// whichever instance the load balancer picked and the receipt arrives at whichever one
+	// the Tower reached. Honest attempts would settle uncorroborated for reasons that have
+	// nothing to do with the operator whose rate it shows up in.
+	acks dispatch.AckStore
 }
 
 func newTowerSubsystem(b *broker, registryStore admit.Store, custody cert.Custody, enrollStore enroll.Store, cfg cert.Config, deps linkDeps) (*towerSubsystem, error) {
@@ -275,6 +284,10 @@ func newTowerSubsystem(b *broker, registryStore admit.Store, custody cert.Custod
 		Signer:   attemptKey,
 		Sequence: b.nextAttemptSequence,
 	}, deps.events)
+	ts.acks = deps.acks
+	if ts.acks == nil {
+		ts.acks = dispatch.NewAckMemStore()
+	}
 	ts.attemptKey = attemptKey
 	ts.envelopeKey = envelopeKey
 	pub, err := envelope.PublicKeyOf(envelopeKey)
@@ -379,12 +392,22 @@ func loadTowerSubsystem(b *broker, db store.Store) (*towerSubsystem, error) {
 		return fail(err)
 	}
 
+	// And the acknowledgement store. Durable for a reason that only shows up in production:
+	// the consumer acks whichever instance the load balancer chose and the Station's receipt
+	// arrives at whichever one its Tower reached, so an in-process map would lose almost
+	// every pairing. Nothing would error - honest attempts would simply settle uncorroborated
+	// and an operator's rate would look suspicious for reasons that were never theirs.
+	ackStore, err := dispatch.NewAckPGStore(sqlDB)
+	if err != nil {
+		return fail(err)
+	}
+
 	ts, err := newTowerSubsystem(b, registryStore, custody, enrollDurable, cert.Config{
 		TTL:         towerCertTTL(),
 		RootKeyPEM:  []byte(os.Getenv("ROGERAI_TOWER_CA_KEY_PEM")),
 		RootCertPEM: []byte(os.Getenv("ROGERAI_TOWER_CA_CERT_PEM")),
 	}, linkDeps{stations: stationStore, heads: headStore, attempts: attemptStore,
-		routable: routableStore, events: eventStore})
+		routable: routableStore, events: eventStore, acks: ackStore})
 	if err != nil {
 		// A misconfigured root is a REFUSAL, not a reason to generate one: issuing under a
 		// root nobody chose is how every certificate on the network becomes unverifiable.

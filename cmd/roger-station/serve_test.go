@@ -41,7 +41,7 @@ func TestARefusalIsAnEnvelopeRatherThanAnHTTPError(t *testing.T) {
 	s := servingStation(t)
 	pub, _, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
-	srv := httptest.NewServer(executeHandler(station.Executor{
+	srv := httptest.NewServer(handlerFor(station.Executor{
 		Station: s, CoreKey: pub, Network: link.PublicNetwork,
 	}))
 	defer srv.Close()
@@ -63,7 +63,7 @@ func TestUnreadableInputIsAnsweredAsAFailure(t *testing.T) {
 	s := servingStation(t)
 	pub, _, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
-	srv := httptest.NewServer(executeHandler(station.Executor{
+	srv := httptest.NewServer(handlerFor(station.Executor{
 		Station: s, CoreKey: pub, Network: link.PublicNetwork,
 	}))
 	defer srv.Close()
@@ -88,7 +88,7 @@ func TestUnreadableInputIsAnsweredAsAFailure(t *testing.T) {
 // rather than from a job that fails much later for a reason that looks like tampering.
 func TestTheStationSaysWhoItIs(t *testing.T) {
 	s := servingStation(t)
-	srv := httptest.NewServer(executeHandler(station.Executor{Station: s}))
+	srv := httptest.NewServer(handlerFor(station.Executor{Station: s}))
 	defer srv.Close()
 
 	resp, err := http.Get(srv.URL + "/id")
@@ -174,7 +174,9 @@ func TestTheListenerServesAndThenStopsCleanly(t *testing.T) {
 	stop := make(chan struct{})
 	var b bytes.Buffer
 	done := make(chan error, 1)
-	go func() { done <- serveStation(station.Executor{Station: s}, ln, &b, stop) }()
+	go func() {
+		done <- serveStationWithEdge(station.Executor{Station: s}, station.EdgeExecutor{Station: s}, ln, &b, stop)
+	}()
 
 	require.Eventually(t, func() bool {
 		resp, gerr := http.Get("http://" + ln.Addr().String() + "/id")
@@ -231,7 +233,7 @@ func TestTheStartupBannerSaysContentIsSealed(t *testing.T) {
 
 	// Exercised through the handler rather than the banner text alone: /id answers while the
 	// executor holds both keys, which is the state the banner describes.
-	srv := httptest.NewServer(executeHandler(station.Executor{Station: s}))
+	srv := httptest.NewServer(handlerFor(station.Executor{Station: s}))
 	defer srv.Close()
 	resp, err := http.Get(srv.URL + "/id")
 	require.NoError(t, err)
@@ -241,4 +243,10 @@ func TestTheStartupBannerSaysContentIsSealed(t *testing.T) {
 	out, err := runCLI(t)
 	require.NoError(t, err)
 	require.Contains(t, out, "--core-envelope-key")
+}
+
+// handlerFor keeps these tests about the relayed /execute route. The edge route is covered
+// in edge_test.go, where a consumer-shaped call is what is actually being asserted.
+func handlerFor(exec station.Executor) http.Handler {
+	return executeHandler(exec, station.EdgeExecutor{Station: exec.Station})
 }

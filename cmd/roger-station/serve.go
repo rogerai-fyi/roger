@@ -67,6 +67,10 @@ func cmdServe(args []string, out io.Writer) error {
 		Station: s, CoreKey: key, CoreEnvelopeKey: sealTo, Network: link.PublicNetwork,
 		Upstream: station.HTTPUpstream{URL: *upstream},
 	}
+	edge := station.EdgeExecutor{
+		Station: s, CoreKey: key, Network: link.PublicNetwork,
+		Upstream: station.HTTPUpstream{URL: *upstream},
+	}
 	ln, err := net.Listen("tcp", *listen)
 	if err != nil {
 		return err
@@ -93,7 +97,7 @@ func cmdServe(args []string, out io.Writer) error {
 		"anything else is refused without reaching the model. Requests arrive SEALED to this\n"+
 		"Station and results go back sealed to Roger Core, so the Tower relaying them reads\n"+
 		"neither.\n")
-	return serveStation(exec, ln, out, waitForInterrupt())
+	return serveStationWithEdge(exec, edge, ln, out, waitForInterrupt())
 }
 
 // serveStation runs the listener until stopped.
@@ -102,9 +106,10 @@ func cmdServe(args []string, out io.Writer) error {
 // something a test can do. A serve loop that can only be ended by signalling the test process
 // is a serve loop whose shutdown is never tested - and an unclean shutdown means a request
 // cut off mid-flight, which Core sees as a Station that failed.
-func serveStation(exec station.Executor, ln net.Listener, out io.Writer, stop <-chan struct{}) error {
+func serveStationWithEdge(exec station.Executor, edge station.EdgeExecutor, ln net.Listener,
+	out io.Writer, stop <-chan struct{}) error {
 	srv := &http.Server{
-		Handler:           executeHandler(exec),
+		Handler:           executeHandler(exec, edge),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	go func() {
@@ -160,8 +165,13 @@ func parseEnvelopeKey(s string) ([]byte, error) {
 }
 
 // executeHandler is the one route a Station exposes.
-func executeHandler(exec station.Executor) http.Handler {
+func executeHandler(exec station.Executor, edge station.EdgeExecutor) http.Handler {
 	mux := http.NewServeMux()
+	// THE EDGE PATH. Everything not claimed by a route below is a consumer call: an
+	// OpenAI-compatible client picks its own path (/v1/chat/completions, /v1/embeddings,
+	// /v1/audio/...), and a Station that only answered one of them would work for exactly one
+	// kind of client. The grant is what authorizes, not the path.
+	mux.HandleFunc("/", edgeHandler(edge))
 	mux.HandleFunc("/execute", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "POST only", http.StatusMethodNotAllowed)
@@ -185,6 +195,36 @@ func executeHandler(exec station.Executor) http.Handler {
 		writeJSON(w, map[string]string{"station_id": exec.Station.StationID})
 	})
 	return mux
+}
+
+// edgeHandler serves a consumer directly. The body it returns is the model's own, so an
+// unmodified client never learns any of this happened.
+func edgeHandler(edge station.EdgeExecutor) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST only", http.StatusMethodNotAllowed)
+			return
+		}
+		raw, err := io.ReadAll(io.LimitReader(r.Body, maxExecuteBody))
+		if err != nil {
+			http.Error(w, "the request could not be read", http.StatusBadRequest)
+			return
+		}
+		resp := edge.Serve(r.Context(), station.EdgeRequest{
+			Grant: r.Header.Get(station.GrantHeader),
+			Body:  raw,
+		})
+		if resp.Failure != "" {
+			// A CONSUMER NEEDS AN ERROR TO LOOK LIKE AN ERROR, unlike the relayed path where a
+			// refusal is a result the Tower relays to Core for that attempt.
+			http.Error(w, resp.Failure, resp.Status)
+			return
+		}
+		// The evidence rides alongside; the body stays exactly what the model produced.
+		w.Header().Set(station.ReceiptHeader, resp.Receipt)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(resp.Body)
+	}
 }
 
 // writeExecute always answers 200 with the envelope.

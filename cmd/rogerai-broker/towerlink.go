@@ -1024,4 +1024,10 @@ func (b *broker) registerTowerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/tower/dispatch", b.towerDispatchPoll)          // Tower: collect work
 	mux.HandleFunc("/tower/dispatch/result", b.towerDispatchResult) // Tower: return the answer
 	mux.HandleFunc("/tower/dispatch/key", b.towerDispatchKey)       // public: Core's grant key
+
+	// THE EDGE PATH. Core's whole involvement in a Tower-served request: it authorized one
+	// earlier, and here it takes the consumer's account of what came back. The payload went
+	// nowhere near this process.
+	mux.HandleFunc("/tower/edge/ack", b.towerEdgeAck)       // consumer: what I actually received
+	mux.HandleFunc("/tower/edge/settle", b.towerEdgeSettle) // Tower: the Station's receipt
 }
