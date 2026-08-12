@@ -142,3 +142,36 @@ func TestASettlementForTheWrongStationIsRefused(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int64(0), owed.Accrued)
 }
+
+// A stored attempt whose grant will not yield its ceiling (our own bug, or a tampered record)
+// must not settle UNFLAGGED on an unclamped figure: it still settles - we do not trap an honest
+// operator's pay behind our fault - but it is marked disputed and force-audited so a human sees
+// it. A money bound that cannot be checked gets a second look, never a silent pass.
+func TestAnUnreadableGrantSettlesButIsFlaggedForAudit(t *testing.T) {
+	t.Setenv("ROGERAI_TOWER_ACCRUAL_MICROS_OUT", "1")
+	b, srv := towerTestBroker(t)
+	op := signedInOperator(t, b, "octocat")
+	owner := ownerPubkeyOf(t, b, op.login)
+	tw := enrolledTower(t, b, op.login)
+	stationPriv := attachStation(t, b, "st-aa", tw.id, owner)
+	// A record with a GARBAGE grant - EdgeGrantCeiling cannot verify it.
+	require.NoError(t, b.tower.dispatch.Store().Put(dispatch.Record{
+		AttemptID: "att-1", JobID: "job-1", TowerID: tw.id, StationID: "st-aa",
+		Model: "m", Modality: "text", Nonce: "n-1", Deadline: time.Now().Add(time.Hour),
+		Grant: []byte("not a signed grant"), State: dispatch.StateIssued,
+	}))
+	body, err := json.Marshal(map[string]any{
+		"tower_id": tw.id, "station_id": "st-aa", "attempt_id": "att-1",
+		"receipt": signedReceipt(t, stationPriv, "att-1", "st-aa", []byte("answer"),
+			dispatch.Usage{In: 1, Out: 7}),
+	})
+	require.NoError(t, err)
+	var out map[string]any
+	code, _ := tw.call(t, srv, "/tower/edge/settle", body, &out)
+	require.Equal(t, http.StatusOK, code, out)
+	require.Equal(t, true, out["disputed"], "an uncheckable bound is flagged, not passed")
+
+	pending, err := b.tower.auditWanted.Pending(tw.id, time.Now())
+	require.NoError(t, err)
+	require.Len(t, pending, 1, "force-audited")
+}

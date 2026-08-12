@@ -519,11 +519,13 @@ func (b *broker) towerEdgeSettle(w http.ResponseWriter, r *http.Request) {
 	// is read from the grant against rec.StationID - the Station the grant actually names -
 	// which equals req.StationID by the gate above, so no attacker-chosen value reaches it.
 	//
-	// COARSE BY CONSTRUCTION: the grant's Max is a BYTE ceiling (capped at edgeMaxBytes) and
-	// billable is a TOKEN count. A token is at least a byte, so token usage is already under the
-	// byte ceiling for honest traffic and this clamp only ever catches a gross over-claim, not a
-	// tight per-attempt bound. A tight bound would need a token ceiling in the grant; until then
-	// this stops runaway/overflow-scale claims rather than modest padding.
+	// EXACT, not coarse: billable usage and the grant ceiling are in the SAME unit - bytes.
+	// The Station measures usage as len(bytes) in and out (internal/station/edge.go), precisely
+	// because bytes are what both ends can count identically without sharing a tokenizer, and
+	// the grant's MaxIn/MaxOut are byte ceilings. So clamping billable to the ceiling caps the
+	// claim at exactly what was authorized - a Station is held to the last byte, not a loose
+	// approximation. (The Station also refuses to PRODUCE past MaxOut at execution time; this is
+	// the trustworthy backstop, since the Station is the party being paid.)
 	model := rec.Model
 	if maxIn, maxOut, cerr := dispatch.EdgeGrantCeiling(rec.Grant, ts.dispatchPub,
 		link.PublicNetwork, rec.StationID); cerr == nil {
@@ -535,10 +537,15 @@ func (b *broker) towerEdgeSettle(w http.ResponseWriter, r *http.Request) {
 			disputed = true
 		}
 	} else {
-		// A grant we stored that will not yield its own ceiling is a fault worth seeing; the
-		// settlement still commits on the unclamped figure rather than trapping the operator's
-		// pay behind our bug, but it is logged so the bug is not silent.
-		log.Printf("edge settle: attempt %s grant ceiling unreadable (%v) - billable NOT clamped", req.AttemptID, cerr)
+		// A grant we stored that will not yield its own ceiling should never happen - openEdgeAttempt
+		// always stores a valid Core-signed grant - so reaching here means either our own bug or a
+		// tampered record. We do NOT trap the operator's pay behind it (the settlement still commits
+		// on the unclamped figure, the safe direction for an honest operator caught by our fault),
+		// but we refuse to let an unbounded figure through UNFLAGGED: it is marked disputed and
+		// force-audited below, so a human sees every settlement whose bound we could not apply. A
+		// money bound that cannot be checked is a money bound that gets a second look, not a pass.
+		log.Printf("edge settle: attempt %s grant ceiling unreadable (%v) - billable NOT clamped, flagged for audit", req.AttemptID, cerr)
+		disputed = true
 	}
 	// THE FUNDING LEDGER, written after the one-use settlement has committed and keyed by this
 	// attempt id, so it accrues exactly once however this request is retried or raced. The

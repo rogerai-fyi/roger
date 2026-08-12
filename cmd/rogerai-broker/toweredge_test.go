@@ -67,14 +67,27 @@ func consumerCall(t *testing.T, srv *httptest.Server, priv ed25519.PrivateKey,
 // test of an attempt that cannot exist.
 // issuedAttempt seeds an edge attempt bound to a fresh consumer key, and returns that key so
 // an ack test can sign as the authorized consumer. A settle-only test ignores the return.
+// issuedAttempt records an edge attempt with a REAL Core-signed grant carrying a generous byte
+// ceiling (edgeMaxBytes), so the settle path can read the ceiling (as it does in production,
+// where openEdgeAttempt always stores a valid grant) and small test usages settle well under it
+// without being clamped. Returns the consumer private key so a caller can sign an ack.
 func issuedAttempt(t *testing.T, b *broker, attemptID, towerID, stationID string) ed25519.PrivateKey {
 	t.Helper()
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
+	apub, _, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	g, err := b.tower.dispatch.MintEdge(dispatch.EdgeTarget{
+		TowerID: towerID, StationID: stationID, StationEpoch: 1, Model: "m", Modality: "text",
+		RelayName: stationID + ".relay.example", MaxIn: 8 << 20, MaxOut: 8 << 20,
+		AssertionKey: apub, ConsumerKey: pub,
+	})
+	require.NoError(t, err)
 	require.NoError(t, b.tower.dispatch.Store().Put(dispatch.Record{
 		AttemptID: attemptID, JobID: "job-" + attemptID, TowerID: towerID,
 		StationID: stationID, Model: "m", Modality: "text", Nonce: "n-" + attemptID,
-		Deadline: time.Now().Add(time.Hour), ConsumerKey: pub, State: dispatch.StateIssued,
+		Deadline: time.Now().Add(time.Hour), Grant: g.Signed, ConsumerKey: pub,
+		State: dispatch.StateIssued,
 	}))
 	return priv
 }
