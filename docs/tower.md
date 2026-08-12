@@ -56,7 +56,7 @@ costs Core *slightly more* than one served by a directly-registered node. There 
 here worth paying an operator for, and that is a fact about the design rather than an
 implementation shortcut: Core cannot leave the path while it is required to inspect content.
 
-### The edge path (built through settlement; canaries, audit and compensation remain)
+### The edge path (built end to end; only disbursement of earnings remains)
 
 ```
                  ┌────── control plane: two small, constant-size messages ──────┐
@@ -355,10 +355,25 @@ observation and stronger than trusting either alone**.
 
 ## 9. Compensation
 
-Not yet built. The attempt ledger exists so that *which attempt executed, exactly once, and
-what its one terminal outcome was* is recorded before money moves, rather than reconstructed
-from logs when somebody disputes it. Today Tower-backed work is free and says so
-(`X-RogerAI-Cost: 0`).
+**The funding ledger is built; disbursement is not.** `internal/towercore/earnings` records
+what each operator is *owed*: one durable row per settled attempt, keyed by attempt id, written
+after the one-use settlement commits. Two properties follow from that key — it accrues **exactly
+once** however the settle is retried or raced, and the amount is a **pure function of the
+billable usage** stored with the receipt, so a dropped accrual under-pays (the safe direction)
+and can be re-derived, never invented. The operator reads their balance on
+`/tower/earnings/owed`, scoped to the account key that signs the request.
+
+Moving that money — the transfer to an operator's account — is deliberately **not** in this
+process. It plugs into the payment rails behind its own authorization, kept separate so the
+ledger can be accrued, read, disputed and reconciled without anything here being able to move a
+cent, and so a bug is a wrong *number* rather than a wrong *payment*. Today Tower-backed work is
+still free and says so (`X-RogerAI-Cost: 0`); the ledger accrues at whatever rate operations
+sets (`ROGERAI_TOWER_ACCRUAL_MICROS_IN`/`_OUT`, defaulting to zero, re-priceable from the stored
+usage).
+
+The attempt ledger exists so that *which attempt executed, exactly once, and what its one
+terminal outcome was* is recorded before money moves, rather than reconstructed from logs when
+somebody disputes it.
 
 When it lands, the measurable, Core-verifiable quantities are:
 
@@ -370,12 +385,15 @@ When it lands, the measurable, Core-verifiable quantities are:
 Earnings can be withheld on the same evidence that detects misbehaviour, which is what points
 the incentive the right way.
 
-**Prerequisite, from the audit:** there are two attempt state machines — `towercore/dispatch`
-(the operational queue) and `towercore/attempt` (the hash-chained ledger). The broker keeps
-them in step with a **best-effort** write that logs and swallows failures. Correct today, when
-no money moves; a landmine at compensation, when a dropped settlement event means work served
-and unpayable, or the reverse. The ledger write must become part of the same transaction as
-the settlement, or settlement must be derived from the ledger rather than mirrored into it.
+**How the audit's prerequisite was met:** there are two attempt state machines —
+`towercore/dispatch` (the operational queue) and `towercore/attempt` (the hash-chained ledger),
+kept in step by a **best-effort** write that logs and swallows failures. The audit warned that
+compensation must not be built on that mirror: a dropped event there would mean work served and
+unpayable, or the reverse. So earnings are **not** derived from it. The accrual is its own
+durable, idempotent write, keyed by attempt id and committed *after* the one-use settlement, and
+its amount is re-derivable from the billable usage stored with the receipt. A lost accrual
+therefore under-pays and can be back-filled; it can never double-pay or invent a debt. The
+best-effort mirror still records evidence for the audit chain, but no money rests on it.
 
 ---
 
@@ -398,9 +416,9 @@ the settlement, or settlement must be derived from the ledger rather than mirror
 | Sampled transcript audit (Station-signed, checked against receipt digests) | built |
 | Core-issued edge TLS certificates (`/tower/station/edge-cert`) | built |
 | First-party edge consumer (`internal/edgeclient`, `roger-tower probe`) | built |
-| Mutual TLS on the link, and therefore certificate revocation | **not built** — the Tower authenticates by signed requests instead |
-| Canaries | **not built** |
-| Sampled transcript audit | **not built** |
-| Compensation / funding-source ledger | **not built** |
+| Mutual TLS on the link + certificate revocation enforcement | built — a revoked serial is refused on the Tower's next request, and the link authenticates the client cert when one is presented |
+| Compensation: funding-accrual ledger (accrual on settlement + operator "owed" read) | built — one idempotent row per settled attempt, priced on billable usage; `internal/towercore/earnings` |
+| Compensation: disbursement (moving money to an operator) | **not built** — behind the payment rails and its own authorization; nothing in this process moves a cent |
+| Compensation: the revenue-share PROGRAM (eligibility, funded-work verification, maturity, payout authority, clawback, self-dealing) | **not built** — its own approved spec corpus (`operator_revenue_share`, `compensation_state_machines`, `payment_authority`); the ledger above is substrate, not this |
 | Streaming to Towers | **not built** — a streamed answer can only be verified after the consumer has the bytes |
 | Multiplexed link (today it long-polls) | **not built** — correct but chattier |

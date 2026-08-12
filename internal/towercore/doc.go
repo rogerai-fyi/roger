@@ -66,6 +66,10 @@
 //	         records facts and computes rates; the decision to flag or suspend is a policy
 //	         read over them, kept separate so a threshold can move without touching evidence,
 //	         and so no rate ever reverses a settlement.
+//	earnings the funding-accrual ledger: what each operator is owed for traffic carried, one
+//	         durable idempotent row per settled attempt, priced on billable usage. It records
+//	         what is OWED and nothing more - disbursement and the wider revenue-share program
+//	         live elsewhere, so a bug here is a wrong number rather than a wrong payment.
 //
 // # WHY THE IN-MEMORY STORES LOOK LIKE DEAD CODE AND ARE NOT
 //

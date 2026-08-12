@@ -260,3 +260,11 @@ method internal/tower.AllowRequestTarget
 method internal/tower.Invitation
 method internal/tower.RequireMode
 method internal/towercore/enroll.TokenID
+
+# --- funding ledger: disbursement is deliberately unbuilt --------------------
+# The earnings ledger ACCRUES what an operator is owed (wired into settlement) and is READ by
+# the operator's owed-balance route. RecordPayout is the debt-reduction side, called only when
+# money is actually disbursed - and disbursement is deliberately not built here: it plugs into
+# the payment rails behind its own authorization, kept out so a bug in this process can never
+# move a cent. The method is the seam that side will call; it is exercised by the parity tests.
+method internal/towercore/earnings.RecordPayout

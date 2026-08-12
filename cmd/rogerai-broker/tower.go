@@ -35,6 +35,7 @@ import (
 	"rogerai.fm/roger/v5/internal/towercore/audit"
 	"rogerai.fm/roger/v5/internal/towercore/cert"
 	"rogerai.fm/roger/v5/internal/towercore/dispatch"
+	"rogerai.fm/roger/v5/internal/towercore/earnings"
 	"rogerai.fm/roger/v5/internal/towercore/enroll"
 	"rogerai.fm/roger/v5/internal/towercore/envelope"
 	"rogerai.fm/roger/v5/internal/towercore/fleet"
@@ -145,6 +146,10 @@ type towerSubsystem struct {
 	// outcomes records what became of each edge attempt, per Tower, so a pattern can be seen
 	// that no single attempt shows - the "signal is in the rate" the spec rests on.
 	outcomes reputation.Store
+	// earnings is the funding ledger: what each operator is owed for the traffic they carried,
+	// one durable idempotent row per settled attempt. It records what is OWED; it never moves
+	// money - disbursement is a separate concern behind the payment rails.
+	earnings earnings.Store
 	// repPolicy is the threshold set the outcomes are judged against.
 	repPolicy reputation.Policy
 	// auditWanted is the set of settled attempts Core has selected to check the content of.
@@ -205,6 +210,10 @@ type linkDeps struct {
 	// auditWanted is the durable audit list, shared: an attempt is marked wanted on whichever
 	// instance settled it and its transcript arrives at whichever the Tower reached.
 	auditWanted audit.Store
+	// earnings is the durable funding ledger, shared: an attempt settles on whichever instance
+	// the Tower reached, and a payout is decided by whichever runs the disbursement - the debt
+	// and its repayment must agree across the fleet.
+	earnings earnings.Store
 }
 
 func newTowerSubsystem(b *broker, registryStore admit.Store, custody cert.Custody, enrollStore enroll.Store, cfg cert.Config, deps linkDeps) (*towerSubsystem, error) {
@@ -312,6 +321,10 @@ func newTowerSubsystem(b *broker, registryStore admit.Store, custody cert.Custod
 	ts.auditWanted = deps.auditWanted
 	if ts.auditWanted == nil {
 		ts.auditWanted = audit.NewMemStore()
+	}
+	ts.earnings = deps.earnings
+	if ts.earnings == nil {
+		ts.earnings = earnings.NewMemStore()
 	}
 	ts.attemptKey = attemptKey
 	ts.envelopeKey = envelopeKey
@@ -438,6 +451,13 @@ func loadTowerSubsystem(b *broker, db store.Store) (*towerSubsystem, error) {
 	if err != nil {
 		return fail(err)
 	}
+	// And the funding ledger. Durable and shared: an attempt accrues on whichever instance the
+	// Tower reached, and a payout is decided by whichever runs the disbursement - the debt and
+	// its repayment must agree across the fleet or one instance pays what another already paid.
+	earningStore, err := earnings.NewPGStore(sqlDB)
+	if err != nil {
+		return fail(err)
+	}
 
 	ts, err := newTowerSubsystem(b, registryStore, custody, enrollDurable, cert.Config{
 		TTL:         towerCertTTL(),
@@ -445,7 +465,7 @@ func loadTowerSubsystem(b *broker, db store.Store) (*towerSubsystem, error) {
 		RootCertPEM: []byte(os.Getenv("ROGERAI_TOWER_CA_CERT_PEM")),
 	}, linkDeps{stations: stationStore, heads: headStore, attempts: attemptStore,
 		routable: routableStore, events: eventStore, acks: ackStore, outcomes: outcomeStore,
-		auditWanted: auditStore})
+		auditWanted: auditStore, earnings: earningStore})
 	if err != nil {
 		// A misconfigured root is a REFUSAL, not a reason to generate one: issuing under a
 		// root nobody chose is how every certificate on the network becomes unverifiable.

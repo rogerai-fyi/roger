@@ -34,12 +34,14 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
 	"rogerai.fm/roger/v5/internal/protocol"
 	"rogerai.fm/roger/v5/internal/towercore/admit"
 	"rogerai.fm/roger/v5/internal/towercore/attempt"
 	"rogerai.fm/roger/v5/internal/towercore/dispatch"
+	"rogerai.fm/roger/v5/internal/towercore/earnings"
 	"rogerai.fm/roger/v5/internal/towercore/link"
 	"rogerai.fm/roger/v5/internal/towercore/reputation"
 	"rogerai.fm/roger/v5/internal/towerobj"
@@ -486,6 +488,17 @@ func (b *broker) towerEdgeSettle(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusServiceUnavailable, "could not commit this settlement - retry")
 		return
 	}
+	// THE FUNDING LEDGER, written after the one-use settlement has committed and keyed by this
+	// attempt id, so it accrues exactly once however this request is retried or raced. The
+	// amount is computed from the BILLABLE usage - the reconciled receipt/ack figure, never the
+	// Tower's own count - so a Tower cannot inflate what it is owed by lying in a message it
+	// forwards. Owner comes from the attachment record, not the message, for the same reason
+	// the key did. This records what is OWED; nothing here moves money.
+	var model string
+	if rec, ok, gerr := ts.dispatch.Store().Get(req.AttemptID); gerr == nil && ok {
+		model = rec.Model
+	}
+	b.accrueEarnings(ts, req.TowerID, at.Owner, model, settled, now)
 	// The attempt chain hears about it AFTER the store's answer is final, mirroring the
 	// relayed path: evidence first, then the settlement commitment.
 	b.noteAttempt(req.AttemptID, attempt.Observation{
@@ -547,6 +560,58 @@ func (b *broker) recordOutcome(towerID, attemptID string, o reputation.Outcome) 
 	}); err != nil {
 		log.Printf("tower %s: could not record outcome %s for %s: %v", towerID, o, attemptID, err)
 	}
+}
+
+// accrueEarnings records what the Station's operator is owed for one settled attempt.
+//
+// It runs AFTER the one-use settlement has committed, so the attempt it accrues for really
+// executed exactly once. The write is idempotent on the attempt id, so a retried or raced
+// settle accrues once regardless. A failure is logged, not returned: the money is decided by
+// the settlement that already committed, and the amount is a pure function of the billable
+// usage stored with the receipt, so a dropped accrual under-pays (the safe direction) and can
+// be re-derived later - it can never be double-counted or invented.
+//
+// The amount is computed from settled.Billable - the reconciled receipt/ack usage - never from
+// anything the relaying Tower put in a message. Nothing here moves money.
+func (b *broker) accrueEarnings(ts *towerSubsystem, towerID, owner, model string, settled dispatch.Settlement, at time.Time) {
+	if ts == nil || ts.earnings == nil || owner == "" {
+		return
+	}
+	micros := edgeAccrualMicros(settled.Billable.In, settled.Billable.Out)
+	if err := ts.earnings.Accrue(earnings.Accrual{
+		TowerID: towerID, Owner: owner, AttemptID: settled.AttemptID, Model: model,
+		UsageIn: settled.Billable.In, UsageOut: settled.Billable.Out, Micros: micros,
+		Corroborated: settled.Corroborated, At: at,
+	}); err != nil {
+		log.Printf("tower %s: could not accrue earnings for %s: %v", towerID, settled.AttemptID, err)
+	}
+}
+
+// edgeAccrualMicros prices one attempt's billable usage.
+//
+// The rate is millionths of the settlement currency's minor unit per token, read from the
+// environment so pricing is an operations decision rather than a code change, and defaulting to
+// zero: the ledger records the billable usage on every attempt whatever the rate, so a rate set
+// later re-prices the same stored inputs. Integer millionths keep accrual exact - no rounding
+// error is ever carried forward.
+func edgeAccrualMicros(in, out int64) int64 {
+	return in*edgeRateMicrosPerTokenIn() + out*edgeRateMicrosPerTokenOut()
+}
+
+func edgeRateMicrosPerTokenIn() int64  { return envMicros("ROGERAI_TOWER_ACCRUAL_MICROS_IN") }
+func edgeRateMicrosPerTokenOut() int64 { return envMicros("ROGERAI_TOWER_ACCRUAL_MICROS_OUT") }
+
+func envMicros(name string) int64 {
+	v := os.Getenv(name)
+	if v == "" {
+		return 0
+	}
+	n, err := strconv.ParseInt(v, 10, 64)
+	if err != nil || n < 0 {
+		log.Printf("tower: %s is not a non-negative integer (%q); pricing that side at zero", name, v)
+		return 0
+	}
+	return n
 }
 
 // reputationWindow is how far back a Tower is judged. Long enough that a rate is a pattern

@@ -977,6 +977,16 @@ func (b *broker) towerInviteSweepOnce(now time.Time) {
 			log.Printf("tower outcomes: reaped %d aged-out outcome(s)", r)
 		}
 	}
+	// And the funding ledger, past the window any payout cycle could still read: it is a
+	// funding record, not the permanent audit log - that is the attempt chain's job - so it is
+	// reaped like the reputation evidence rather than kept forever.
+	if b.tower.earnings != nil {
+		if r, rerr := b.tower.earnings.Reap(now.Add(-earningsWindow)); rerr != nil {
+			log.Printf("tower earnings: sweep failed: %v", rerr)
+		} else if r > 0 {
+			log.Printf("tower earnings: reaped %d aged-out accrual(s)", r)
+		}
+	}
 	// And transcripts that were selected for audit and never arrived: a Station that cannot
 	// show its work for a sampled attempt is the spec's quarantine trigger.
 	b.sweepAuditOverdue(now)
@@ -1079,4 +1089,8 @@ func (b *broker) registerTowerRoutes(mux *http.ServeMux) {
 	// path. The courier asks what is wanted and forwards the Station-signed transcripts.
 	mux.HandleFunc("/tower/audit/wanted", b.towerAuditWanted)         // Tower: what do I owe you?
 	mux.HandleFunc("/tower/audit/transcript", b.towerAuditTranscript) // Tower: here it is
+
+	// EARNINGS: the operator's read of the funding ledger. Read-only here; disbursement lives
+	// behind the payment rails, not in this process.
+	mux.HandleFunc("/tower/earnings/owed", b.towerEarningsOwed) // operator: what am I owed?
 }
