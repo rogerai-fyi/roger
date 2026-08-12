@@ -1107,12 +1107,15 @@ func signedTranscript(t *testing.T, priv ed25519.PrivateKey, attemptID string, r
 		base64.StdEncoding.EncodeToString(req), base64.StdEncoding.EncodeToString(resp)
 }
 
-// wantAudit seeds the wanted list the way settlement would, with the receipt's digests.
+// wantAudit seeds the wanted list the way settlement would, with the receipt's digests and the
+// usage the Station claimed - here the HONEST length of the bytes, so a matching transcript
+// passes both the digest and the usage-length check.
 func wantAudit(t *testing.T, b *broker, tw, station, attempt string, req, resp []byte) {
 	t.Helper()
 	require.NoError(t, b.tower.auditWanted.Want(audit.Wanted{
 		TowerID: tw, AttemptID: attempt, StationID: station,
 		RequestDigest: digestLike(req), ResponseDigest: digestLike(resp),
+		UsageIn: int64(len(req)), UsageOut: int64(len(resp)),
 		Deadline: time.Now().Add(time.Hour),
 	}))
 }
@@ -1279,7 +1282,7 @@ func TestSelectionSamplesAFraction(t *testing.T) {
 	wanted := 0
 	for i := 0; i < 200; i++ {
 		id := "att-" + string(rune('a'+i%26)) + string(rune('0'+i/26))
-		b.selectForAudit(tw.id, "st-1", id, "rq", "rs")
+		b.selectForAudit(tw.id, "st-1", id, "rq", "rs", 0, 0)
 	}
 	p, err := b.tower.auditWanted.Pending(tw.id, time.Now())
 	require.NoError(t, err)
@@ -1379,7 +1382,7 @@ func TestTranscriptBytesMustHashToTheSignedDigests(t *testing.T) {
 // The audit helpers are safe on a broker with no Tower subsystem.
 func TestAuditHelpersAreSafeWithoutTheSubsystem(t *testing.T) {
 	b := testBrokerWithDB(store.NewMem())
-	require.NotPanics(t, func() { b.selectForAudit("tw", "st", "att", "rq", "rs") })
+	require.NotPanics(t, func() { b.selectForAudit("tw", "st", "att", "rq", "rs", 0, 0) })
 	require.NotPanics(t, func() { b.sweepAuditOverdue(time.Now()) })
 }
 
@@ -1483,7 +1486,7 @@ func TestStoreFailuresAreLoggedNotFatal(t *testing.T) {
 	require.NotPanics(t, func() { b.recordOutcome(tw.id, "att", reputation.Uncorroborated) })
 	// evaluateTower cannot read the tally, so it declines to act rather than acting on nothing.
 	require.Equal(t, reputation.Clean, b.evaluateTower(tw.id))
-	require.NotPanics(t, func() { b.selectForAudit(tw.id, "st-1", "att", "rq", "rs") })
+	require.NotPanics(t, func() { b.selectForAudit(tw.id, "st-1", "att", "rq", "rs", 0, 0) })
 	require.NotPanics(t, func() { b.sweepAuditOverdue(time.Now()) })
 }
 
@@ -1795,7 +1798,7 @@ func TestAnAckWhenTheStoreCannotBeReadIsUnavailable(t *testing.T) {
 // forceAudit and the audit helpers are safe without the subsystem, like the others.
 func TestForceAuditIsSafeWithoutTheSubsystem(t *testing.T) {
 	b := testBrokerWithDB(store.NewMem())
-	require.NotPanics(t, func() { b.forceAudit("tw", "st", "att", "rq", "rs") })
+	require.NotPanics(t, func() { b.forceAudit("tw", "st", "att", "rq", "rs", 0, 0) })
 }
 
 // A disputed settlement force-audits regardless of the sample, and records the outcome as a
@@ -1803,7 +1806,7 @@ func TestForceAuditIsSafeWithoutTheSubsystem(t *testing.T) {
 func TestForceAuditWantsTheAttempt(t *testing.T) {
 	b, _ := towerTestBroker(t)
 	tw := enrolledTower(t, b, "owner-1")
-	b.forceAudit(tw.id, "st-1", "att-forced", "rq", "rs")
+	b.forceAudit(tw.id, "st-1", "att-forced", "rq", "rs", 0, 0)
 	pending, err := b.tower.auditWanted.Pending(tw.id, time.Now())
 	require.NoError(t, err)
 	require.Len(t, pending, 1)
@@ -1811,7 +1814,7 @@ func TestForceAuditWantsTheAttempt(t *testing.T) {
 
 	// And with a failing store it logs rather than panicking.
 	b.tower.auditWanted = failingAudit{}
-	require.NotPanics(t, func() { b.forceAudit(tw.id, "st-1", "att-2", "rq", "rs") })
+	require.NotPanics(t, func() { b.forceAudit(tw.id, "st-1", "att-2", "rq", "rs", 0, 0) })
 }
 
 // The consumer-binding gate: an ack whose caller key is not the recorded consumer key is

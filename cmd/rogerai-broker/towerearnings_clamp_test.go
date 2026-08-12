@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"rogerai.fm/roger/v5/internal/towercore/admit"
+	"rogerai.fm/roger/v5/internal/towercore/audit"
 	"rogerai.fm/roger/v5/internal/towercore/dispatch"
 )
 
@@ -247,4 +249,41 @@ func TestAStrandedClaimCanBeReDriven(t *testing.T) {
 	// A further retry is now a genuine double-settle and is refused.
 	code, _ = tw.call(t, srv, "/tower/edge/settle", body, &out)
 	require.Equal(t, http.StatusConflict, code)
+}
+
+// Review finding 1 backstop: on the unacknowledged path the billable usage is the Station's own
+// signed byte count, bounded only by the grant ceiling. The sampled audit re-derives the true
+// length from the transcript bytes (which must hash to the signed digest) and holds the claim to
+// it: a Station that billed more bytes than it signed for is caught as a usage misreport and
+// quarantined - attributable, because it signed both the receipt's usage and the transcript.
+func TestAuditCatchesAUsageMisreport(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	tw := enrolledTower(t, b, "owner-1")
+	stationPriv := attachStation(t, b, "st-1", tw.id, "owner-1")
+	require.NoError(t, b.tower.registry.Transition(tw.id, admit.StateActive))
+
+	req, resp := []byte("the prompt"), []byte("a short real answer")
+	// Settlement recorded the digests of the REAL bytes but a receipt that CLAIMED far more
+	// output than those bytes are long - the inflation an unacknowledged attempt could hide.
+	require.NoError(t, b.tower.auditWanted.Want(audit.Wanted{
+		TowerID: tw.id, AttemptID: "att-1", StationID: "st-1",
+		RequestDigest: digestLike(req), ResponseDigest: digestLike(resp),
+		UsageIn: int64(len(req)), UsageOut: 999999,
+		Deadline: time.Now().Add(time.Hour),
+	}))
+	// The transcript carries the real bytes (they hash to the signed digest) - so the digests
+	// match, but their length contradicts the 999999 the receipt billed.
+	obj, reqB64, respB64 := signedTranscript(t, stationPriv, "att-1", req, resp)
+	body, err := json.Marshal(map[string]any{
+		"tower_id": tw.id, "attempt_id": "att-1", "available": true,
+		"transcript": obj, "request": reqB64, "response": respB64,
+	})
+	require.NoError(t, err)
+	var out map[string]any
+	code, _ := tw.call(t, srv, "/tower/audit/transcript", body, &out)
+	require.Equal(t, http.StatusOK, code)
+	require.Equal(t, false, out["matched"], "a usage misreport fails the audit")
+
+	got, _ := b.tower.registry.Get(tw.id)
+	require.Equal(t, admit.StateSuspended, got.State, "an audit mismatch takes the Tower off (suspended)")
 }

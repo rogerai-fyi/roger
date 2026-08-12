@@ -380,7 +380,11 @@ When it lands, the measurable, Core-verifiable quantities are:
 - **bytes relayed** — from the agreed usage in the receipt/ack pair, never the Tower's word,
   and **clamped to the grant's authorized ceiling**: on the no-acknowledgement path the billable
   figure is the Station's own signed number, so the ceiling Core set is what stops an operator
-  being paid for more than it was authorized to do (an over-claim is clamped, disputed, audited);
+  being paid for more than it was authorized to do (an over-claim is clamped, disputed, audited).
+  The **sampled audit** is the post-hoc backstop for that figure: it holds the transcript bytes
+  (which must hash to the signed digest) against the receipt's claimed usage, so a Station that
+  billed more bytes than it signed for is caught as a usage misreport and taken off — the one
+  number Core cannot check at settlement time it re-derives from the real content afterwards;
 - **attempts corroborated** — a Tower whose attempts reconcile is worth more than one whose
   do not;
 - **availability** — canary success rate.

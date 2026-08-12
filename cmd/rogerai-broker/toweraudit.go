@@ -25,6 +25,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"hash/fnv"
 	"log"
 	"net/http"
@@ -56,7 +57,7 @@ const auditDeadline = 30 * time.Minute
 // Best effort, and downstream of settlement: a failure to enqueue an audit under-samples,
 // which reviews slightly less content, never more - it cannot wrongly accuse anyone, so it is
 // never a gate on the money.
-func (b *broker) selectForAudit(towerID, stationID, attemptID, requestDigest, responseDigest string) {
+func (b *broker) selectForAudit(towerID, stationID, attemptID, requestDigest, responseDigest string, usageIn, usageOut int64) {
 	ts := b.tower
 	if ts == nil || ts.auditWanted == nil {
 		return
@@ -67,6 +68,7 @@ func (b *broker) selectForAudit(towerID, stationID, attemptID, requestDigest, re
 	if err := ts.auditWanted.Want(audit.Wanted{
 		TowerID: towerID, AttemptID: attemptID, StationID: stationID,
 		RequestDigest: requestDigest, ResponseDigest: responseDigest,
+		UsageIn: usageIn, UsageOut: usageOut,
 		Deadline: time.Now().Add(auditDeadline),
 	}); err != nil {
 		log.Printf("audit: could not select %s: %v", attemptID, err)
@@ -76,7 +78,7 @@ func (b *broker) selectForAudit(towerID, stationID, attemptID, requestDigest, re
 // forceAudit marks an attempt wanted regardless of the sample - used when settlement already
 // found something worth a closer look, like a disputed digest. The Station keeps everything
 // recent, so a forced audit lands on a transcript it should still hold.
-func (b *broker) forceAudit(towerID, stationID, attemptID, requestDigest, responseDigest string) {
+func (b *broker) forceAudit(towerID, stationID, attemptID, requestDigest, responseDigest string, usageIn, usageOut int64) {
 	ts := b.tower
 	if ts == nil || ts.auditWanted == nil {
 		return
@@ -84,6 +86,7 @@ func (b *broker) forceAudit(towerID, stationID, attemptID, requestDigest, respon
 	if err := ts.auditWanted.Want(audit.Wanted{
 		TowerID: towerID, AttemptID: attemptID, StationID: stationID,
 		RequestDigest: requestDigest, ResponseDigest: responseDigest,
+		UsageIn: usageIn, UsageOut: usageOut,
 		Deadline: time.Now().Add(auditDeadline),
 	}); err != nil {
 		log.Printf("audit: could not force-select %s: %v", attemptID, err)
@@ -210,6 +213,17 @@ func (b *broker) towerAuditTranscript(w http.ResponseWriter, r *http.Request) {
 		if verr := tr.VerifyBytes(reqBytes, respBytes); verr != nil {
 			matches = false
 			result.Reason = verr.Error()
+		} else if int64(len(reqBytes)) != wanted.UsageIn || int64(len(respBytes)) != wanted.UsageOut {
+			// USAGE MUST EQUAL THE BYTES THE STATION SIGNED FOR. This is the post-hoc backstop for
+			// the one figure Core cannot verify at settlement: on an unacknowledged attempt the
+			// billable usage is the Station's own number, bounded only by the grant ceiling. Here
+			// Core has the actual bytes (they hash to the signed digest), so it re-derives the true
+			// length and holds the receipt's claim to it. A Station that billed more (or fewer)
+			// bytes than it signed for has misreported usage - attributable, because it signed both
+			// the receipt's usage and the transcript's bytes - and is treated as an audit mismatch.
+			matches = false
+			result.Reason = fmt.Sprintf("usage misreported: receipt claimed in=%d out=%d, transcript bytes in=%d out=%d",
+				wanted.UsageIn, wanted.UsageOut, len(reqBytes), len(respBytes))
 		}
 	}
 

@@ -604,14 +604,16 @@ func (b *broker) towerEdgeSettle(w http.ResponseWriter, r *http.Request) {
 	b.recordOutcome(req.TowerID, req.AttemptID, outcome)
 	// A sampled fraction is selected for post-hoc content review, and a DISPUTED attempt is
 	// audited regardless of the sample - the transcript is the closest look available at
-	// whether the Station is self-consistent about the bytes it signed. The digests come from
-	// the receipt just verified.
+	// whether the Station is self-consistent about the bytes it signed. The digests AND the
+	// Station's CLAIMED usage come from the receipt just verified: the audit re-checks that
+	// claim against the true length of the transcript bytes, which is what catches an
+	// unacknowledged attempt whose operator inflated its own usage_out.
 	if disputed {
 		b.forceAudit(req.TowerID, req.StationID, req.AttemptID,
-			receipt.RequestDigest, receipt.ResponseDigest)
+			receipt.RequestDigest, receipt.ResponseDigest, receipt.Usage.In, receipt.Usage.Out)
 	} else {
 		b.selectForAudit(req.TowerID, req.StationID, req.AttemptID,
-			receipt.RequestDigest, receipt.ResponseDigest)
+			receipt.RequestDigest, receipt.ResponseDigest, receipt.Usage.In, receipt.Usage.Out)
 	}
 	// Judged AFTER the outcome is recorded, so this attempt is in the window. The verdict may
 	// quarantine the Tower on strong evidence; it never touches THIS settlement, which has

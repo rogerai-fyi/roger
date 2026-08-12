@@ -39,6 +39,12 @@ type Wanted struct {
 	// must match to pass.
 	RequestDigest  string
 	ResponseDigest string
+	// UsageIn and UsageOut are the byte counts the STATION claimed in its receipt. The audit
+	// checks them against the true length of the transcript bytes: usage is byte-exact, so a
+	// claim that does not equal the length of the bytes the Station also signed for is a usage
+	// misreport - the one over-billing an honest-looking, unacknowledged attempt could hide.
+	UsageIn  int64
+	UsageOut int64
 	// Deadline is when an unproduced transcript becomes a "cannot produce" finding.
 	Deadline time.Time
 }
