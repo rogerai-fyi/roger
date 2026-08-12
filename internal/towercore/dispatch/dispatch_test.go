@@ -364,7 +364,7 @@ func TestSettledAndExpiredAttemptsAreReaped(t *testing.T) {
 // the exact bytes it is returning.
 func receiptFor(t *testing.T, priv ed25519.PrivateKey, g Grant, body []byte) Receipt {
 	t.Helper()
-	rec, err := SignReceipt(priv, network, g, body, Usage{In: 1, Out: int64(len(body))})
+	rec, err := SignReceipt(priv, network, g, []byte("req-"+"x"), body, Usage{In: 1, Out: int64(len(body))})
 	require.NoError(t, err)
 	return rec
 }
@@ -447,7 +447,7 @@ func TestSigningAReceiptNeedsARealKey(t *testing.T) {
 	g, err := r.Issue(target(stPub), []byte(`x`))
 	require.NoError(t, err)
 
-	require.Panics(t, func() { _, _ = SignReceipt(ed25519.PrivateKey("short"), network, g, []byte(`a`), Usage{}) },
+	require.Panics(t, func() { _, _ = SignReceipt(ed25519.PrivateKey("short"), network, g, []byte(`r`), []byte(`a`), Usage{}) },
 		"ed25519 panics on a malformed key; catching it here names the cause")
 }
 

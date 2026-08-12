@@ -953,6 +953,9 @@ func (b *broker) towerInviteSweepOnce(now time.Time) {
 			log.Printf("tower outcomes: reaped %d aged-out outcome(s)", r)
 		}
 	}
+	// And transcripts that were selected for audit and never arrived: a Station that cannot
+	// show its work for a sampled attempt is the spec's quarantine trigger.
+	b.sweepAuditOverdue(now)
 }
 
 // towerLeaseExpire handles POST /tower/lease/expire: an administrator taking a Tower off the
@@ -1045,4 +1048,9 @@ func (b *broker) registerTowerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/tower/edge/authorize", b.towerEdgeAuthorize) // consumer: route me to a Station
 	mux.HandleFunc("/tower/edge/ack", b.towerEdgeAck)             // consumer: what I actually received
 	mux.HandleFunc("/tower/edge/settle", b.towerEdgeSettle)       // Tower: the Station's receipt
+
+	// AUDIT: the post-hoc content review that replaces pre-dispatch screening on the edge
+	// path. The courier asks what is wanted and forwards the Station-signed transcripts.
+	mux.HandleFunc("/tower/audit/wanted", b.towerAuditWanted)         // Tower: what do I owe you?
+	mux.HandleFunc("/tower/audit/transcript", b.towerAuditTranscript) // Tower: here it is
 }

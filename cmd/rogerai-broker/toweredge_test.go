@@ -14,6 +14,7 @@ package main
 import (
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/base64"
@@ -28,6 +29,7 @@ import (
 	"rogerai.fm/roger/v5/internal/protocol"
 	"rogerai.fm/roger/v5/internal/store"
 	"rogerai.fm/roger/v5/internal/towercore/admit"
+	"rogerai.fm/roger/v5/internal/towercore/audit"
 	"rogerai.fm/roger/v5/internal/towercore/dispatch"
 	"rogerai.fm/roger/v5/internal/towercore/fleet"
 	"rogerai.fm/roger/v5/internal/towercore/link"
@@ -81,7 +83,7 @@ func signedReceipt(t *testing.T, priv ed25519.PrivateKey, attemptID, stationID s
 	response []byte, u dispatch.Usage) string {
 	t.Helper()
 	rec, err := dispatch.SignReceipt(priv, link.PublicNetwork,
-		dispatch.Grant{AttemptID: attemptID, StationID: stationID}, response, u)
+		dispatch.Grant{AttemptID: attemptID, StationID: stationID}, []byte("req-"+attemptID), response, u)
 	require.NoError(t, err)
 	return base64.StdEncoding.EncodeToString(rec.Signed)
 }
@@ -1046,4 +1048,316 @@ func TestSettleForAnUnknownAttempt(t *testing.T) {
 	code, msg := tw.call(t, srv, "/tower/edge/settle", body, &out)
 	require.Equal(t, http.StatusNotFound, code)
 	require.Contains(t, msg, "no such attempt")
+}
+
+// --- sampled transcript audit ------------------------------------------------
+//
+// Contract: features/tower/edge_dispatch.feature.
+
+// signedTranscript stands in for what a Station's /transcripts/get returns.
+func signedTranscript(t *testing.T, priv ed25519.PrivateKey, attemptID string, req, resp []byte) (obj, reqB64, respB64 string) {
+	t.Helper()
+	tr, err := dispatch.SignTranscript(priv, link.PublicNetwork, attemptID, req, resp)
+	require.NoError(t, err)
+	return base64.StdEncoding.EncodeToString(tr.Signed),
+		base64.StdEncoding.EncodeToString(req), base64.StdEncoding.EncodeToString(resp)
+}
+
+// wantAudit seeds the wanted list the way settlement would, with the receipt's digests.
+func wantAudit(t *testing.T, b *broker, tw, station, attempt string, req, resp []byte) {
+	t.Helper()
+	require.NoError(t, b.tower.auditWanted.Want(audit.Wanted{
+		TowerID: tw, AttemptID: attempt, StationID: station,
+		RequestDigest: digestLike(req), ResponseDigest: digestLike(resp),
+		Deadline: time.Now().Add(time.Hour),
+	}))
+}
+
+// digestLike mirrors dispatch.digestOf: base64url-raw of the SHA-256, NOT hex. A wanted
+// entry seeded with the wrong encoding would never match a real receipt.
+func digestLike(b []byte) string {
+	h := sha256.Sum256(b)
+	return base64.RawURLEncoding.EncodeToString(h[:])
+}
+
+// A matching transcript resolves the audit and leaves the Tower clean - the content was
+// provably what both ends signed, and Core can screen it.
+func TestAMatchingTranscriptPassesTheAudit(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	tw := enrolledTower(t, b, "owner-1")
+	stationPriv := attachStation(t, b, "st-1", tw.id, "owner-1")
+	require.NoError(t, b.tower.registry.Transition(tw.id, admit.StateActive))
+
+	req, resp := []byte("the prompt"), []byte("the completion")
+	wantAudit(t, b, tw.id, "st-1", "att-1", req, resp)
+	obj, reqB64, respB64 := signedTranscript(t, stationPriv, "att-1", req, resp)
+
+	body, err := json.Marshal(map[string]any{
+		"tower_id": tw.id, "attempt_id": "att-1", "available": true,
+		"transcript": obj, "request": reqB64, "response": respB64,
+	})
+	require.NoError(t, err)
+	var out map[string]any
+	code, _ := tw.call(t, srv, "/tower/audit/transcript", body, &out)
+	require.Equal(t, http.StatusOK, code)
+	require.Equal(t, true, out["matched"])
+
+	got, _ := b.tower.registry.Get(tw.id)
+	require.Equal(t, admit.StateActive, got.State, "a passing audit does not touch the Tower")
+
+	// Resolved: a second submission finds nothing wanted.
+	code, _ = tw.call(t, srv, "/tower/audit/transcript", body, &out)
+	require.Equal(t, http.StatusOK, code)
+	require.Equal(t, true, out["resolved"])
+}
+
+// A transcript whose digests do not match the receipt is attributed to the Station and
+// suspends the Tower - the audit found content that is not what was signed for.
+func TestAMismatchedTranscriptFailsAndSuspends(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	tw := enrolledTower(t, b, "owner-1")
+	stationPriv := attachStation(t, b, "st-1", tw.id, "owner-1")
+	require.NoError(t, b.tower.registry.Transition(tw.id, admit.StateActive))
+
+	// Core wanted a transcript for these digests; the Station signs a DIFFERENT response.
+	wantAudit(t, b, tw.id, "st-1", "att-1", []byte("the prompt"), []byte("the real answer"))
+	obj, reqB64, respB64 := signedTranscript(t, stationPriv, "att-1",
+		[]byte("the prompt"), []byte("a substituted answer"))
+
+	body, err := json.Marshal(map[string]any{
+		"tower_id": tw.id, "attempt_id": "att-1", "available": true,
+		"transcript": obj, "request": reqB64, "response": respB64,
+	})
+	require.NoError(t, err)
+	var out map[string]any
+	code, _ := tw.call(t, srv, "/tower/audit/transcript", body, &out)
+	require.Equal(t, http.StatusOK, code)
+	require.Equal(t, false, out["matched"])
+
+	got, _ := b.tower.registry.Get(tw.id)
+	require.Equal(t, admit.StateSuspended, got.State)
+}
+
+// A Station that cannot produce a sampled transcript is the spec's quarantine trigger.
+func TestAStationThatCannotProduceIsSuspended(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	tw := enrolledTower(t, b, "owner-1")
+	attachStation(t, b, "st-1", tw.id, "owner-1")
+	require.NoError(t, b.tower.registry.Transition(tw.id, admit.StateActive))
+	wantAudit(t, b, tw.id, "st-1", "att-1", []byte("q"), []byte("a"))
+
+	body, err := json.Marshal(map[string]any{
+		"tower_id": tw.id, "attempt_id": "att-1", "available": false,
+	})
+	require.NoError(t, err)
+	var out map[string]any
+	code, _ := tw.call(t, srv, "/tower/audit/transcript", body, &out)
+	require.Equal(t, http.StatusOK, code)
+
+	got, _ := b.tower.registry.Get(tw.id)
+	require.Equal(t, admit.StateSuspended, got.State)
+}
+
+// A transcript a Tower forged (wrong signer) is refused - it cannot resolve an audit with
+// something the Station never signed.
+func TestAForgedTranscriptIsRefused(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	tw := enrolledTower(t, b, "owner-1")
+	attachStation(t, b, "st-1", tw.id, "owner-1")
+	wantAudit(t, b, tw.id, "st-1", "att-1", []byte("q"), []byte("a"))
+
+	_, impostor, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	obj, reqB64, respB64 := signedTranscript(t, impostor, "att-1", []byte("q"), []byte("a"))
+	body, err := json.Marshal(map[string]any{
+		"tower_id": tw.id, "attempt_id": "att-1", "available": true,
+		"transcript": obj, "request": reqB64, "response": respB64,
+	})
+	require.NoError(t, err)
+	var out map[string]any
+	code, msg := tw.call(t, srv, "/tower/audit/transcript", body, &out)
+	require.Equal(t, http.StatusBadRequest, code)
+	require.Contains(t, msg, "not signed by the recorded Station key")
+}
+
+// The wanted list is the Tower's own, signed - a stranger cannot read what Core is auditing.
+func TestTheAuditListNeedsTheTowersOwnRequest(t *testing.T) {
+	_, srv := towerTestBroker(t)
+	resp, err := http.Post(srv.URL+"/tower/audit/wanted", "application/json",
+		strings.NewReader(`{"tower_id":"tw-x"}`))
+	require.NoError(t, err)
+	resp.Body.Close()
+	require.Equal(t, http.StatusForbidden, resp.StatusCode)
+}
+
+func TestTheAuditListReturnsPendingWork(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	tw := enrolledTower(t, b, "owner-1")
+	attachStation(t, b, "st-1", tw.id, "owner-1")
+	wantAudit(t, b, tw.id, "st-1", "att-1", []byte("q"), []byte("a"))
+
+	body, err := json.Marshal(map[string]any{"tower_id": tw.id})
+	require.NoError(t, err)
+	var out map[string]any
+	code, _ := tw.call(t, srv, "/tower/audit/wanted", body, &out)
+	require.Equal(t, http.StatusOK, code)
+	wanted, _ := out["wanted"].([]any)
+	require.Len(t, wanted, 1)
+	first := wanted[0].(map[string]any)
+	require.Equal(t, "att-1", first["attempt_id"])
+	require.Equal(t, "st-1", first["station_id"])
+	// The digests are NOT handed out - that would tell a Tower what a passing transcript needs.
+	_, hasDigest := first["response_digest"]
+	require.False(t, hasDigest)
+}
+
+// An overdue transcript that never arrived is swept into a finding.
+func TestTheSweepTurnsOverdueAuditsIntoFindings(t *testing.T) {
+	b, _ := towerTestBroker(t)
+	tw := enrolledTower(t, b, "owner-1")
+	attachStation(t, b, "st-1", tw.id, "owner-1")
+	require.NoError(t, b.tower.registry.Transition(tw.id, admit.StateActive))
+	require.NoError(t, b.tower.auditWanted.Want(audit.Wanted{
+		TowerID: tw.id, AttemptID: "att-late", StationID: "st-1",
+		RequestDigest: "rq", ResponseDigest: "rs", Deadline: time.Now().Add(-time.Minute),
+	}))
+
+	b.towerInviteSweepOnce(time.Now())
+	got, _ := b.tower.registry.Get(tw.id)
+	require.Equal(t, admit.StateSuspended, got.State,
+		"a Station that never produced a sampled transcript is suspended")
+}
+
+// Selection samples: over enough attempts, some are wanted and some are not, deterministically.
+func TestSelectionSamplesAFraction(t *testing.T) {
+	b, _ := towerTestBroker(t)
+	tw := enrolledTower(t, b, "owner-1")
+	wanted := 0
+	for i := 0; i < 200; i++ {
+		id := "att-" + string(rune('a'+i%26)) + string(rune('0'+i/26))
+		b.selectForAudit(tw.id, "st-1", id, "rq", "rs")
+	}
+	p, err := b.tower.auditWanted.Pending(tw.id, time.Now())
+	require.NoError(t, err)
+	wanted = len(p)
+	require.Greater(t, wanted, 5, "some attempts are sampled")
+	require.Less(t, wanted, 100, "not all attempts are sampled")
+}
+
+func TestAuditRoutesRefuseWithoutTheSubsystem(t *testing.T) {
+	b := testBrokerWithDB(store.NewMem())
+	mux := http.NewServeMux()
+	b.registerTowerRoutes(mux)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	for _, path := range []string{"/tower/audit/wanted", "/tower/audit/transcript"} {
+		resp, err := http.Post(srv.URL+path, "application/json", strings.NewReader("{}"))
+		require.NoError(t, err)
+		resp.Body.Close()
+		require.Equal(t, http.StatusServiceUnavailable, resp.StatusCode, path)
+	}
+}
+
+// A transcript for an attempt Core never wanted (or already resolved) is a no-op "resolved",
+// not an error - it stops a Tower re-opening a closed audit.
+func TestATranscriptForAnUnwantedAttemptIsResolved(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	tw := enrolledTower(t, b, "owner-1")
+	attachStation(t, b, "st-1", tw.id, "owner-1")
+
+	body, err := json.Marshal(map[string]any{
+		"tower_id": tw.id, "attempt_id": "att-unwanted", "available": false,
+	})
+	require.NoError(t, err)
+	var out map[string]any
+	code, _ := tw.call(t, srv, "/tower/audit/transcript", body, &out)
+	require.Equal(t, http.StatusOK, code)
+	require.Equal(t, true, out["resolved"])
+}
+
+// A malformed audit submission is refused by name.
+func TestAMalformedAuditSubmissionIsRefused(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	tw := enrolledTower(t, b, "owner-1")
+	attachStation(t, b, "st-1", tw.id, "owner-1")
+	wantAudit(t, b, tw.id, "st-1", "att-1", []byte("q"), []byte("a"))
+
+	for name, in := range map[string]any{
+		"no attempt": map[string]any{"tower_id": tw.id},
+		"bad base64": map[string]any{"tower_id": tw.id, "attempt_id": "att-1", "available": true, "transcript": "!!!"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			body, err := json.Marshal(in)
+			require.NoError(t, err)
+			var out map[string]any
+			code, _ := tw.call(t, srv, "/tower/audit/transcript", body, &out)
+			require.Equal(t, http.StatusBadRequest, code)
+		})
+	}
+	// Not JSON at all.
+	var out map[string]any
+	code, _ := tw.call(t, srv, "/tower/audit/transcript", []byte("{nope"), &out)
+	require.Equal(t, http.StatusBadRequest, code)
+	// And the wanted list with a malformed body.
+	code, _ = tw.call(t, srv, "/tower/audit/wanted", []byte("{nope"), &out)
+	require.Equal(t, http.StatusBadRequest, code)
+}
+
+// Bytes that do not hash to the signed digests are a mismatch even when the digests match the
+// receipt - the content handed over is not the content that was attested.
+func TestTranscriptBytesMustHashToTheSignedDigests(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	tw := enrolledTower(t, b, "owner-1")
+	stationPriv := attachStation(t, b, "st-1", tw.id, "owner-1")
+	require.NoError(t, b.tower.registry.Transition(tw.id, admit.StateActive))
+
+	req, resp := []byte("q"), []byte("a")
+	wantAudit(t, b, tw.id, "st-1", "att-1", req, resp)
+	obj, _, _ := signedTranscript(t, stationPriv, "att-1", req, resp)
+
+	// The object is honest, but the carried bytes are tampered.
+	body, err := json.Marshal(map[string]any{
+		"tower_id": tw.id, "attempt_id": "att-1", "available": true,
+		"transcript": obj,
+		"request":    base64.StdEncoding.EncodeToString([]byte("tampered")),
+		"response":   base64.StdEncoding.EncodeToString(resp),
+	})
+	require.NoError(t, err)
+	var out map[string]any
+	code, _ := tw.call(t, srv, "/tower/audit/transcript", body, &out)
+	require.Equal(t, http.StatusOK, code)
+	require.Equal(t, false, out["matched"])
+
+	got, _ := b.tower.registry.Get(tw.id)
+	require.Equal(t, admit.StateSuspended, got.State)
+}
+
+// The audit helpers are safe on a broker with no Tower subsystem.
+func TestAuditHelpersAreSafeWithoutTheSubsystem(t *testing.T) {
+	b := testBrokerWithDB(store.NewMem())
+	require.NotPanics(t, func() { b.selectForAudit("tw", "st", "att", "rq", "rs") })
+	require.NotPanics(t, func() { b.sweepAuditOverdue(time.Now()) })
+}
+
+// A transcript whose wanted Station's key cannot be read is refused rather than checked
+// against a key we could not decode.
+func TestATranscriptForAGoneStationIsRefused(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	tw := enrolledTower(t, b, "owner-1")
+	stationPriv := attachStation(t, b, "st-1", tw.id, "owner-1")
+	// Wanted names a Station that is not attached.
+	require.NoError(t, b.tower.auditWanted.Want(audit.Wanted{
+		TowerID: tw.id, AttemptID: "att-1", StationID: "st-gone",
+		RequestDigest: digestLike([]byte("q")), ResponseDigest: digestLike([]byte("a")),
+		Deadline: time.Now().Add(time.Hour),
+	}))
+	obj, reqB64, respB64 := signedTranscript(t, stationPriv, "att-1", []byte("q"), []byte("a"))
+	body, err := json.Marshal(map[string]any{
+		"tower_id": tw.id, "attempt_id": "att-1", "available": true,
+		"transcript": obj, "request": reqB64, "response": respB64,
+	})
+	require.NoError(t, err)
+	var out map[string]any
+	code, _ := tw.call(t, srv, "/tower/audit/transcript", body, &out)
+	require.Equal(t, http.StatusServiceUnavailable, code)
 }

@@ -14,6 +14,7 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -64,14 +65,16 @@ func cmdServe(args []string, out io.Writer) error {
 	}
 
 	outbox := station.NewOutbox(0)
+	transcripts := station.NewTranscripts(0, 0)
 	exec := station.Executor{
 		Station: s, CoreKey: key, CoreEnvelopeKey: sealTo, Network: link.PublicNetwork,
 		Upstream: station.HTTPUpstream{URL: *upstream},
 	}
 	edge := station.EdgeExecutor{
 		Station: s, CoreKey: key, Network: link.PublicNetwork,
-		Upstream: station.HTTPUpstream{URL: *upstream},
-		Outbox:   outbox,
+		Upstream:    station.HTTPUpstream{URL: *upstream},
+		Outbox:      outbox,
+		Transcripts: transcripts,
 	}
 	// TWO SURFACES, TWO PORTS, and the split is a security boundary rather than tidiness.
 	// The plain listener faces the TOWER: execute, and the receipt outbox. The TLS listener
@@ -256,6 +259,46 @@ func towerFacingHandler(exec station.Executor, edge station.EdgeExecutor,
 			writeJSON(w, map[string]any{"pending": pending, "dropped": dropped})
 		})
 	}
+	// The Tower collecting a transcript for an audit Core asked for. Tower-facing, like the
+	// outbox, and NOT gated on the outbox: a Station can be asked to show its work whether or
+	// not it also queues receipts here. A consumer must never be able to pull another
+	// consumer's transcript, and the relay forwards whatever path it is handed - which is why
+	// this lives on the Tower surface and never the edge one.
+	mux.HandleFunc("/transcripts/get", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST only", http.StatusMethodNotAllowed)
+			return
+		}
+		raw, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+		if err != nil {
+			http.Error(w, "unreadable", http.StatusBadRequest)
+			return
+		}
+		var req struct {
+			AttemptID string `json:"attempt_id"`
+		}
+		if err := json.Unmarshal(raw, &req); err != nil || req.AttemptID == "" {
+			http.Error(w, "attempt_id required", http.StatusBadRequest)
+			return
+		}
+		tr, ok, terr := edge.Transcript(req.AttemptID)
+		if terr != nil {
+			http.Error(w, "could not sign the transcript", http.StatusInternalServerError)
+			return
+		}
+		if !ok {
+			// Not "not found" as a leak - the Tower asked, and the honest answer is that this
+			// Station did not keep it. Core treats an unproduced sampled attempt as a failure.
+			writeJSON(w, map[string]any{"available": false})
+			return
+		}
+		writeJSON(w, map[string]any{
+			"available":  true,
+			"transcript": base64.StdEncoding.EncodeToString(tr.Signed),
+			"request":    base64.StdEncoding.EncodeToString(tr.Request),
+			"response":   base64.StdEncoding.EncodeToString(tr.Response),
+		})
+	})
 	mux.HandleFunc("/execute", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "POST only", http.StatusMethodNotAllowed)
@@ -276,7 +319,14 @@ func towerFacingHandler(exec station.Executor, edge station.EdgeExecutor,
 	// A liveness probe that says who is answering, so an operator pointing a Tower at the
 	// wrong port finds out from the port rather than from a failed job.
 	mux.HandleFunc("/id", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, map[string]string{"station_id": exec.Station.StationID})
+		out := map[string]any{"station_id": exec.Station.StationID}
+		if edge.Transcripts != nil {
+			// How many transcripts this Station is holding for a possible audit. Zero is a
+			// signal worth seeing: a Station keeping none can never pass an audit and will be
+			// quarantined the first time Core samples one of its attempts.
+			out["transcripts_kept"] = edge.Transcripts.Len()
+		}
+		writeJSON(w, out)
 	})
 	return mux
 }

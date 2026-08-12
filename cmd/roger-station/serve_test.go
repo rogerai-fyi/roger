@@ -415,3 +415,61 @@ func TestServeEdgeRefusalsHappenAtStartup(t *testing.T) {
 		"--core-envelope-key", strings.Repeat("cd", 32)}, &b)
 	require.Error(t, err)
 }
+
+// The Tower-facing surface serves signed transcripts for audit; the consumer surface does not.
+func TestTheTowerFacingSurfaceServesTranscripts(t *testing.T) {
+	s := servingStation(t)
+	transcripts := station.NewTranscripts(10, 1)
+	transcripts.Keep(station.Transcript{AttemptID: "att-1", Request: []byte("q"), Response: []byte("a")})
+	edge := station.EdgeExecutor{Station: s, Network: "roger-public", Transcripts: transcripts}
+
+	srv := httptest.NewServer(towerFacingHandler(station.Executor{Station: s}, edge, nil, false))
+	defer srv.Close()
+
+	// A kept transcript comes back available and signed.
+	resp, err := http.Post(srv.URL+"/transcripts/get", "application/json",
+		strings.NewReader(`{"attempt_id":"att-1"}`))
+	require.NoError(t, err)
+	var got map[string]any
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
+	resp.Body.Close()
+	require.Equal(t, true, got["available"])
+	require.NotEmpty(t, got["transcript"])
+
+	// One never kept is "not available", not an error - the audit records cannot-produce.
+	resp, err = http.Post(srv.URL+"/transcripts/get", "application/json",
+		strings.NewReader(`{"attempt_id":"att-never"}`))
+	require.NoError(t, err)
+	got = nil
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
+	resp.Body.Close()
+	require.Equal(t, false, got["available"])
+
+	// Wrong method and a missing attempt id are refused.
+	resp, err = http.Get(srv.URL + "/transcripts/get")
+	require.NoError(t, err)
+	resp.Body.Close()
+	require.Equal(t, http.StatusMethodNotAllowed, resp.StatusCode)
+	resp, err = http.Post(srv.URL+"/transcripts/get", "application/json", strings.NewReader(`{}`))
+	require.NoError(t, err)
+	resp.Body.Close()
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+}
+
+// The /id probe reports how many transcripts a Station is holding - zero is a signal that it
+// can never pass an audit.
+func TestTheIdProbeReportsTranscriptsKept(t *testing.T) {
+	s := servingStation(t)
+	transcripts := station.NewTranscripts(10, 1)
+	transcripts.Keep(station.Transcript{AttemptID: "att-1", Request: []byte("q"), Response: []byte("a")})
+	edge := station.EdgeExecutor{Station: s, Transcripts: transcripts}
+
+	srv := httptest.NewServer(towerFacingHandler(station.Executor{Station: s}, edge, nil, true))
+	defer srv.Close()
+	resp, err := http.Get(srv.URL + "/id")
+	require.NoError(t, err)
+	var got map[string]any
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
+	resp.Body.Close()
+	require.Equal(t, float64(1), got["transcripts_kept"])
+}

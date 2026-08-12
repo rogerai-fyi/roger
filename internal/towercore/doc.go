@@ -57,6 +57,10 @@
 //	dispatch one unit of work handed to one Station and one verifiable answer back: a
 //	         one-use grant Core signs, and a receipt the Station signs over the exact bytes
 //	         it returned. Carries no money - Tower-backed work is uncompensated in v1.
+//	audit    the sampled post-hoc content review that replaces pre-dispatch screening on the
+//	         edge path: the set of settled attempts Core selected to check, whose
+//	         Station-signed transcripts the courier forwards and Core verifies against the
+//	         digests both ends signed. A missing or mismatched transcript is attributable.
 //	reputation what became of each edge attempt, per Tower, over a moving window:
 //	         corroborated, uncorroborated, disputed, canary pass/fail, audit mismatch. It
 //	         records facts and computes rates; the decision to flag or suspend is a policy

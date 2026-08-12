@@ -9,6 +9,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -207,4 +208,44 @@ func TestTheEdgeExecutorHasARealClockByDefault(t *testing.T) {
 	e, _, _ := edgeSetup(t, time.Now(), nil)
 	e.Now = nil
 	require.WithinDuration(t, time.Now(), e.now(), time.Minute)
+}
+
+// The executor signs a transcript on demand for an attempt it kept, and reports "not kept"
+// for one it did not - which the audit treats as cannot-produce.
+func TestTheExecutorSignsTranscriptsOnDemand(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	e, _, grant := edgeSetup(t, now, nil)
+	e.Transcripts = NewTranscripts(10, 1)
+
+	resp := e.Serve(ctxTODO(), EdgeRequest{Grant: grant, Body: []byte(`{"p":"x"}`)})
+	require.Equal(t, 200, resp.Status)
+
+	// The attempt id is inside the grant; recover it from the receipt for the lookup.
+	rawReceipt, err := base64.StdEncoding.DecodeString(resp.Receipt)
+	require.NoError(t, err)
+	var rec struct {
+		AttemptID      string `json:"attempt_id"`
+		RequestDigest  string `json:"request_digest"`
+		ResponseDigest string `json:"response_digest"`
+	}
+	require.NoError(t, json.Unmarshal(rawReceipt, &rec))
+
+	tr, ok, err := e.Transcript(rec.AttemptID)
+	require.NoError(t, err)
+	require.True(t, ok)
+	// The transcript's digests match the receipt's, by construction - both hash the same bytes.
+	require.Equal(t, rec.RequestDigest, tr.RequestDigest)
+	require.Equal(t, rec.ResponseDigest, tr.ResponseDigest)
+	require.NoError(t, tr.VerifyBytes([]byte(`{"p":"x"}`), resp.Body))
+
+	// One it never kept.
+	_, ok, err = e.Transcript("att-never")
+	require.NoError(t, err)
+	require.False(t, ok)
+
+	// And with no transcript store at all, it simply produces nothing.
+	e.Transcripts = nil
+	_, ok, err = e.Transcript("anything")
+	require.NoError(t, err)
+	require.False(t, ok)
 }

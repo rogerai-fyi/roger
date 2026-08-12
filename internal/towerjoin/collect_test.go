@@ -249,3 +249,262 @@ func TestARefusedConfirmationIsNoisyRatherThanStuck(t *testing.T) {
 	require.Equal(t, 1, moved, "Core settled it even though the Station could not be told")
 	require.Contains(t, out.String(), "could not confirm")
 }
+
+// --- audit courier -----------------------------------------------------------
+
+// auditWorld stands up a Station serving transcripts and a Core answering wanted/transcript.
+type auditWorld struct {
+	mu         sync.Mutex
+	wanted     []wantedItem
+	received   []map[string]any
+	stationURL string
+}
+
+func newAuditWorld(t *testing.T) (*auditWorld, string) {
+	t.Helper()
+	w := &auditWorld{}
+
+	// The Station: a couple of transcripts it will serve.
+	stationMux := http.NewServeMux()
+	stationMux.HandleFunc("/transcripts/get", func(rw http.ResponseWriter, r *http.Request) {
+		var req struct {
+			AttemptID string `json:"attempt_id"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		if req.AttemptID == "att-have" {
+			writeJSON(rw, map[string]any{"available": true, "transcript": "dHI=",
+				"request": "cQ==", "response": "YQ=="})
+			return
+		}
+		writeJSON(rw, map[string]any{"available": false})
+	})
+	stationSrv := httptest.NewServer(stationMux)
+	t.Cleanup(stationSrv.Close)
+	w.stationURL = stationSrv.URL
+	return w, stationSrv.URL
+}
+
+func auditCore(t *testing.T, w *auditWorld) {
+	t.Helper()
+	t.Setenv("ROGER_CONFIG_DIR", t.TempDir())
+	_, mux := newStubCoreMux(t)
+	mux.HandleFunc("/tower/audit/wanted", func(rw http.ResponseWriter, r *http.Request) {
+		w.mu.Lock()
+		defer w.mu.Unlock()
+		writeJSON(rw, map[string]any{"wanted": w.wanted})
+	})
+	mux.HandleFunc("/tower/audit/transcript", func(rw http.ResponseWriter, r *http.Request) {
+		var got map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&got)
+		w.mu.Lock()
+		w.received = append(w.received, got)
+		w.mu.Unlock()
+		writeJSON(rw, map[string]any{"resolved": true})
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	t.Setenv("ROGER_BROKER", srv.URL)
+}
+
+// The courier fetches wanted transcripts from the right Station and forwards them.
+func TestTheAuditCourierFetchesAndForwards(t *testing.T) {
+	w, stationURL := newAuditWorld(t)
+	auditCore(t, w)
+	st := joinedTower(t)
+	require.NoError(t, Register(st, Account{Login: "alice"}))
+	w.wanted = []wantedItem{{AttemptID: "att-have", StationID: "st-1"}}
+
+	var out syncWriter
+	n, err := CollectAudits(st, map[string]string{"st-1": stationURL}, &out)
+	require.NoError(t, err)
+	require.Equal(t, 1, n)
+
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	require.Len(t, w.received, 1)
+	require.Equal(t, "att-have", w.received[0]["attempt_id"])
+	require.Equal(t, true, w.received[0]["available"])
+}
+
+// A transcript the Station did not keep is forwarded as "not available" - Core needs the
+// answer to record a "cannot produce" rather than waiting out the deadline.
+func TestTheAuditCourierForwardsUnavailable(t *testing.T) {
+	w, stationURL := newAuditWorld(t)
+	auditCore(t, w)
+	st := joinedTower(t)
+	require.NoError(t, Register(st, Account{Login: "alice"}))
+	w.wanted = []wantedItem{{AttemptID: "att-missing", StationID: "st-1"}}
+
+	var out syncWriter
+	_, err := CollectAudits(st, map[string]string{"st-1": stationURL}, &out)
+	require.NoError(t, err)
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	require.Len(t, w.received, 1)
+	require.Equal(t, false, w.received[0]["available"])
+}
+
+// Core wanting a transcript from a Station this Tower does not carry is forwarded as
+// unavailable rather than silently dropped.
+func TestAnAuditForAnUnknownStationIsAnswered(t *testing.T) {
+	w, _ := newAuditWorld(t)
+	auditCore(t, w)
+	st := joinedTower(t)
+	require.NoError(t, Register(st, Account{Login: "alice"}))
+	w.wanted = []wantedItem{{AttemptID: "att-x", StationID: "st-gone"}}
+
+	var out syncWriter
+	_, err := CollectAudits(st, map[string]string{"st-1": "http://127.0.0.1:1"}, &out)
+	require.NoError(t, err)
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	require.Len(t, w.received, 1)
+	require.Equal(t, false, w.received[0]["available"])
+	require.Contains(t, out.String(), "unknown Station")
+}
+
+func TestAnUnregisteredTowerCannotAnswerAudits(t *testing.T) {
+	t.Setenv("ROGER_CONFIG_DIR", t.TempDir())
+	st := joinedTower(t)
+	_, err := CollectAudits(st, map[string]string{"st-1": "http://127.0.0.1:1"}, &syncWriter{})
+	require.ErrorContains(t, err, "not registered")
+}
+
+func TestTheAuditLoopRunsAndStops(t *testing.T) {
+	w, stationURL := newAuditWorld(t)
+	auditCore(t, w)
+	st := joinedTower(t)
+	require.NoError(t, Register(st, Account{Login: "alice"}))
+	w.wanted = []wantedItem{{AttemptID: "att-have", StationID: "st-1"}}
+
+	tick := make(chan time.Time, 1)
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	var out syncWriter
+	go func() {
+		defer close(done)
+		KeepAuditing(st, map[string]string{"st-1": stationURL}, &out, stop,
+			func(time.Duration) (<-chan time.Time, func()) { return tick, func() {} })
+	}()
+	tick <- time.Now()
+	require.Eventually(t, func() bool {
+		w.mu.Lock()
+		defer w.mu.Unlock()
+		return len(w.received) > 0
+	}, 5*time.Second, 10*time.Millisecond)
+	close(stop)
+	<-done
+}
+
+// A Core that refuses the wanted list surfaces as an error the loop reports.
+func TestFetchingWantedCanFail(t *testing.T) {
+	t.Setenv("ROGER_CONFIG_DIR", t.TempDir())
+	_, mux := newStubCoreMux(t)
+	mux.HandleFunc("/tower/audit/wanted", func(rw http.ResponseWriter, r *http.Request) {
+		http.Error(rw, `{"error":{"message":"no"}}`, http.StatusServiceUnavailable)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	t.Setenv("ROGER_BROKER", srv.URL)
+	st := joinedTower(t)
+	require.NoError(t, Register(st, Account{Login: "alice"}))
+
+	_, err := CollectAudits(st, map[string]string{"st-1": "http://127.0.0.1:1"}, &syncWriter{})
+	require.Error(t, err)
+}
+
+// A Station that errors on a transcript fetch is reported and skipped, not fatal.
+func TestATranscriptFetchErrorIsSkipped(t *testing.T) {
+	w, _ := newAuditWorld(t)
+	auditCore(t, w)
+	st := joinedTower(t)
+	require.NoError(t, Register(st, Account{Login: "alice"}))
+	w.wanted = []wantedItem{{AttemptID: "att-have", StationID: "st-1"}}
+
+	// A Station whose /transcripts/get 500s.
+	mux := http.NewServeMux()
+	mux.HandleFunc("/transcripts/get", func(rw http.ResponseWriter, r *http.Request) {
+		http.Error(rw, "boom", http.StatusInternalServerError)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	var out syncWriter
+	n, err := CollectAudits(st, map[string]string{"st-1": srv.URL}, &out)
+	require.NoError(t, err)
+	require.Zero(t, n)
+	require.Contains(t, out.String(), "could not fetch transcript")
+}
+
+func TestForwardingATranscriptCanFail(t *testing.T) {
+	w, stationURL := newAuditWorld(t)
+	t.Setenv("ROGER_CONFIG_DIR", t.TempDir())
+	_, mux := newStubCoreMux(t)
+	mux.HandleFunc("/tower/audit/wanted", func(rw http.ResponseWriter, r *http.Request) {
+		w.mu.Lock()
+		defer w.mu.Unlock()
+		writeJSON(rw, map[string]any{"wanted": w.wanted})
+	})
+	mux.HandleFunc("/tower/audit/transcript", func(rw http.ResponseWriter, r *http.Request) {
+		http.Error(rw, `{"error":{"message":"no"}}`, http.StatusServiceUnavailable)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	t.Setenv("ROGER_BROKER", srv.URL)
+	st := joinedTower(t)
+	require.NoError(t, Register(st, Account{Login: "alice"}))
+	w.wanted = []wantedItem{{AttemptID: "att-have", StationID: "st-1"}}
+
+	var out syncWriter
+	n, err := CollectAudits(st, map[string]string{"st-1": stationURL}, &out)
+	require.NoError(t, err)
+	require.Zero(t, n)
+	require.Contains(t, out.String(), "could not forward transcript")
+}
+
+// The audit loop stands down immediately with no Stations.
+func TestTheAuditLoopStandsDownWithNoStations(t *testing.T) {
+	t.Setenv("ROGER_CONFIG_DIR", t.TempDir())
+	st := joinedTower(t)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		KeepAuditing(st, nil, &syncWriter{}, nil,
+			func(time.Duration) (<-chan time.Time, func()) { return nil, func() {} })
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the audit loop should have stood down")
+	}
+}
+
+// A failed audit round is reported by the loop rather than killing it.
+func TestTheAuditLoopSurvivesAFailedRound(t *testing.T) {
+	t.Setenv("ROGER_CONFIG_DIR", t.TempDir())
+	_, mux := newStubCoreMux(t)
+	mux.HandleFunc("/tower/audit/wanted", func(rw http.ResponseWriter, r *http.Request) {
+		http.Error(rw, "no", http.StatusServiceUnavailable)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	t.Setenv("ROGER_BROKER", srv.URL)
+	st := joinedTower(t)
+	require.NoError(t, Register(st, Account{Login: "alice"}))
+
+	tick := make(chan time.Time, 1)
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	var out syncWriter
+	go func() {
+		defer close(done)
+		KeepAuditing(st, map[string]string{"st-1": "http://127.0.0.1:1"}, &out, stop,
+			func(time.Duration) (<-chan time.Time, func()) { return tick, func() {} })
+	}()
+	tick <- time.Now()
+	require.Eventually(t, func() bool { return len(out.String()) > 0 },
+		5*time.Second, 10*time.Millisecond)
+	close(stop)
+	<-done
+	require.Contains(t, out.String(), "audit collection failed")
+}

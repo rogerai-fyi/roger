@@ -242,6 +242,7 @@ func ParseReceipt(raw []byte, assertionKey ed25519.PublicKey, network, attemptID
 	var obj struct {
 		AttemptID      string `json:"attempt_id"`
 		StationID      string `json:"station_id"`
+		RequestDigest  string `json:"request_digest"`
 		ResponseDigest string `json:"response_digest"`
 		UsageIn        string `json:"usage_in"`
 		UsageOut       string `json:"usage_out"`
@@ -275,6 +276,6 @@ func ParseReceipt(raw []byte, assertionKey ed25519.PublicKey, network, attemptID
 	if in < 0 || out < 0 {
 		return Receipt{}, errors.New("this receipt claims negative usage")
 	}
-	return Receipt{AttemptID: obj.AttemptID, ResponseDigest: obj.ResponseDigest,
-		Usage: Usage{In: in, Out: out}, Signed: raw}, nil
+	return Receipt{AttemptID: obj.AttemptID, RequestDigest: obj.RequestDigest,
+		ResponseDigest: obj.ResponseDigest, Usage: Usage{In: in, Out: out}, Signed: raw}, nil
 }

@@ -135,7 +135,7 @@ func (e Executor) Execute(ctx context.Context, in ExecuteRequest) ExecuteRespons
 	// SIGNED OVER WHAT IS BEING RETURNED, and produced from the same bytes that go on the
 	// wire. Signing anything else - a re-encoding, a copy made earlier - would leave a gap
 	// between what was attested and what was sent.
-	rec, err := dispatch.SignReceipt(e.Station.assertionPriv, e.Network, grant, body,
+	rec, err := dispatch.SignReceipt(e.Station.assertionPriv, e.Network, grant, request, body,
 		dispatch.Usage{In: int64(len(request)), Out: int64(len(body))})
 	if err != nil {
 		return ExecuteResponse{Failure: "this Station could not sign its result: " + err.Error()}

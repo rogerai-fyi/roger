@@ -82,7 +82,11 @@ type EdgeExecutor struct {
 	// consumer's copy rides the TLS session; this one is the copy that can actually reach
 	// settlement, because a Station cannot reach Core and the Tower can.
 	Outbox *Outbox
-	Now    func() time.Time
+	// Transcripts keeps a bounded, sampled record of exact bytes for post-hoc audit - the
+	// only route by which Tower-served content is reviewed, since Core never saw it. Nil
+	// means this Station keeps none, which is legal and means it can never pass an audit.
+	Transcripts *Transcripts
+	Now         func() time.Time
 }
 
 func (e EdgeExecutor) now() time.Time {
@@ -142,7 +146,7 @@ func (e EdgeExecutor) Serve(ctx context.Context, in EdgeRequest) EdgeResponse {
 	// tokens, deliberately: bytes are what both ends can measure identically without sharing
 	// a tokenizer, and what the relay's own accounting can be compared against.
 	rec, err := dispatch.SignReceipt(e.Station.assertionPriv, e.Network,
-		dispatch.Grant{AttemptID: grant.AttemptID, StationID: grant.StationID}, body,
+		dispatch.Grant{AttemptID: grant.AttemptID, StationID: grant.StationID}, in.Body, body,
 		dispatch.Usage{In: int64(len(in.Body)), Out: int64(len(body))})
 	if err != nil {
 		return fail(500, "this Station could not sign its result: "+err.Error())
@@ -153,6 +157,11 @@ func (e EdgeExecutor) Serve(ctx context.Context, in EdgeRequest) EdgeResponse {
 		e.Outbox.Add(Evidence{AttemptID: grant.AttemptID, StationID: grant.StationID,
 			Receipt: rec.Signed})
 	}
+	if e.Transcripts != nil {
+		// Kept for a possible audit. The store samples and bounds itself, so this is a hint
+		// to remember rather than a promise to; a Station that keeps none simply fails audits.
+		e.Transcripts.Keep(Transcript{AttemptID: grant.AttemptID, Request: in.Body, Response: body})
+	}
 	return EdgeResponse{
 		Body:    body,
 		Receipt: base64.StdEncoding.EncodeToString(rec.Signed),
@@ -162,4 +171,26 @@ func (e EdgeExecutor) Serve(ctx context.Context, in EdgeRequest) EdgeResponse {
 
 func fail(status int, msg string) EdgeResponse {
 	return EdgeResponse{Failure: msg, Status: status}
+}
+
+// Transcript signs the stored bytes for one attempt, for an audit Core asked for.
+//
+// Signed HERE, on demand, so the assertion key never leaves the executor and the plaintext
+// store holds only bytes - a store that also held signatures would be a store whose theft
+// yielded forgeable attestations. The bool is false when this Station did not keep the
+// attempt (never sampled, or aged out), which the audit treats as "cannot produce".
+func (e EdgeExecutor) Transcript(attemptID string) (dispatch.SignedTranscript, bool, error) {
+	if e.Transcripts == nil {
+		return dispatch.SignedTranscript{}, false, nil
+	}
+	t, ok := e.Transcripts.Get(attemptID)
+	if !ok {
+		return dispatch.SignedTranscript{}, false, nil
+	}
+	signed, err := dispatch.SignTranscript(e.Station.assertionPriv, e.Network,
+		attemptID, t.Request, t.Response)
+	if err != nil {
+		return dispatch.SignedTranscript{}, false, err
+	}
+	return signed, true, nil
 }

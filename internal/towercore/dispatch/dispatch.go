@@ -116,6 +116,9 @@ type Grant struct {
 // Receipt is the Station's signed statement about what it returned.
 type Receipt struct {
 	AttemptID string `json:"attempt_id"`
+	// RequestDigest is over the exact request bytes the Station received. It is what a
+	// sampled transcript audit checks the stored request against.
+	RequestDigest string `json:"request_digest"`
 	// ResponseDigest is over the exact bytes the Station produced.
 	ResponseDigest string `json:"response_digest"`
 	// Usage is what the Station claims it spent, IN THE SIGNATURE. It is the claim the
@@ -432,17 +435,24 @@ func (r *Registry) Reap() int {
 // Station is paid on, and it must be inside the signature - a usage figure carried beside
 // the receipt would be writable by the Tower forwarding it, and "settlement never reads the
 // Tower's numbers" is the whole point of the evidence design.
-func SignReceipt(priv ed25519.PrivateKey, network string, g Grant, body []byte, u Usage) (Receipt, error) {
+func SignReceipt(priv ed25519.PrivateKey, network string, g Grant, request, body []byte, u Usage) (Receipt, error) {
 	if u.In < 0 || u.Out < 0 {
 		return Receipt{}, errors.New("a receipt cannot claim negative usage")
 	}
-	rec := Receipt{AttemptID: g.AttemptID, ResponseDigest: digestOf(body), Usage: u}
+	// The REQUEST digest is committed to as well as the response, and it is what makes a
+	// sampled transcript checkable at BOTH ends: an audit hashes the stored request and
+	// response and both must match what the Station signed here. On the relayed path the
+	// grant already carried a request digest, but the receipt did not commit to it - so a
+	// Station could have served a different request than the grant authorized and nothing
+	// downstream of the grant check would notice. Here it signs for exactly the bytes it saw.
+	rec := Receipt{AttemptID: g.AttemptID, RequestDigest: digestOf(request), ResponseDigest: digestOf(body), Usage: u}
 	raw, err := json.Marshal(map[string]any{
 		"network":         network,
 		"type":            TypeReceipt,
 		"version":         towerobj.FormatInt(Version),
 		"attempt_id":      rec.AttemptID,
 		"station_id":      g.StationID,
+		"request_digest":  rec.RequestDigest,
 		"response_digest": rec.ResponseDigest,
 		"usage_in":        towerobj.FormatInt(u.In),
 		"usage_out":       towerobj.FormatInt(u.Out),

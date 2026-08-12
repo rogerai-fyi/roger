@@ -32,6 +32,7 @@ import (
 	"rogerai.fm/roger/v5/internal/towercore/admit"
 	"rogerai.fm/roger/v5/internal/towercore/attach"
 	"rogerai.fm/roger/v5/internal/towercore/attempt"
+	"rogerai.fm/roger/v5/internal/towercore/audit"
 	"rogerai.fm/roger/v5/internal/towercore/cert"
 	"rogerai.fm/roger/v5/internal/towercore/dispatch"
 	"rogerai.fm/roger/v5/internal/towercore/enroll"
@@ -146,6 +147,9 @@ type towerSubsystem struct {
 	outcomes reputation.Store
 	// repPolicy is the threshold set the outcomes are judged against.
 	repPolicy reputation.Policy
+	// auditWanted is the set of settled attempts Core has selected to check the content of.
+	// Post-hoc sampling is what replaces pre-dispatch screening on the edge path.
+	auditWanted audit.Store
 	// attemptKey is the attempt-state signer, kept so the purpose separation that makes the
 	// ledger worth trusting can be asserted: it must not be the key that signs grants.
 	attemptKey ed25519.PrivateKey
@@ -198,6 +202,9 @@ type linkDeps struct {
 	// outcomes is the durable reputation ledger, shared for the same reason: a rate computed
 	// per-process would see each broker's fraction of the evidence and mistake it for all.
 	outcomes reputation.Store
+	// auditWanted is the durable audit list, shared: an attempt is marked wanted on whichever
+	// instance settled it and its transcript arrives at whichever the Tower reached.
+	auditWanted audit.Store
 }
 
 func newTowerSubsystem(b *broker, registryStore admit.Store, custody cert.Custody, enrollStore enroll.Store, cfg cert.Config, deps linkDeps) (*towerSubsystem, error) {
@@ -302,6 +309,10 @@ func newTowerSubsystem(b *broker, registryStore admit.Store, custody cert.Custod
 		ts.outcomes = reputation.NewMemStore()
 	}
 	ts.repPolicy = reputation.DefaultPolicy()
+	ts.auditWanted = deps.auditWanted
+	if ts.auditWanted == nil {
+		ts.auditWanted = audit.NewMemStore()
+	}
 	ts.attemptKey = attemptKey
 	ts.envelopeKey = envelopeKey
 	pub, err := envelope.PublicKeyOf(envelopeKey)
@@ -421,13 +432,20 @@ func loadTowerSubsystem(b *broker, db store.Store) (*towerSubsystem, error) {
 	if err != nil {
 		return fail(err)
 	}
+	// And the audit list. Durable and shared for the same reason as the rest of the edge
+	// stores - the select happens on one instance, the transcript arrives at another.
+	auditStore, err := audit.NewPGStore(sqlDB)
+	if err != nil {
+		return fail(err)
+	}
 
 	ts, err := newTowerSubsystem(b, registryStore, custody, enrollDurable, cert.Config{
 		TTL:         towerCertTTL(),
 		RootKeyPEM:  []byte(os.Getenv("ROGERAI_TOWER_CA_KEY_PEM")),
 		RootCertPEM: []byte(os.Getenv("ROGERAI_TOWER_CA_CERT_PEM")),
 	}, linkDeps{stations: stationStore, heads: headStore, attempts: attemptStore,
-		routable: routableStore, events: eventStore, acks: ackStore, outcomes: outcomeStore})
+		routable: routableStore, events: eventStore, acks: ackStore, outcomes: outcomeStore,
+		auditWanted: auditStore})
 	if err != nil {
 		// A misconfigured root is a REFUSAL, not a reason to generate one: issuing under a
 		// root nobody chose is how every certificate on the network becomes unverifiable.

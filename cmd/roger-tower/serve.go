@@ -164,6 +164,11 @@ func runLink(st *tower.State, out io.Writer, stop <-chan struct{}, ticker func(t
 		// through here. Withholding them costs exactly one party - this operator, who is paid
 		// on what settles - so the courier is the incentive-aligned half of getting paid.
 		go towerjoin.KeepCollecting(st, stations, out, stop, ticker)
+		// AND THE AUDIT COURIER, on the same timer: Core samples a fraction of settled
+		// attempts for content review, and the transcripts travel the road only the Tower
+		// holds. Withholding them is itself a finding, so carrying them is the operator's
+		// interest as much as the receipts are.
+		go towerjoin.KeepAuditing(st, stations, out, stop, ticker)
 	}
 
 	for {

@@ -470,6 +470,10 @@ func (b *broker) towerEdgeSettle(w http.ResponseWriter, r *http.Request) {
 		outcome = reputation.Corroborated
 	}
 	b.recordOutcome(req.TowerID, req.AttemptID, outcome)
+	// A sampled fraction is selected for post-hoc content review. The digests come from the
+	// receipt just verified, so an audit checks the transcript against exactly what settled.
+	b.selectForAudit(req.TowerID, req.StationID, req.AttemptID,
+		receipt.RequestDigest, receipt.ResponseDigest)
 	// Judged AFTER the outcome is recorded, so this attempt is in the window. The verdict may
 	// quarantine the Tower on strong evidence; it never touches THIS settlement, which has
 	// already committed - the money is decided, the reputation is a separate consequence.

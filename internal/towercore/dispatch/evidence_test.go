@@ -27,7 +27,7 @@ func stationReceipt(t *testing.T, attemptID string, response []byte, u Usage) Re
 	t.Helper()
 	_, priv, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
-	rec, err := SignReceipt(priv, "roger-public", Grant{AttemptID: attemptID, StationID: "st-1"}, response, u)
+	rec, err := SignReceipt(priv, "roger-public", Grant{AttemptID: attemptID, StationID: "st-1"}, []byte("req"), response, u)
 	require.NoError(t, err)
 	return rec
 }
@@ -216,7 +216,7 @@ func TestAReceiptIsVerifiedAgainstTheAttachmentRecordedKey(t *testing.T) {
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
 	rec, err := SignReceipt(priv, "roger-public", Grant{AttemptID: "att-1", StationID: "st-1"},
-		[]byte("the answer"), Usage{In: 7, Out: 10})
+		[]byte("req"), []byte("the answer"), Usage{In: 7, Out: 10})
 	require.NoError(t, err)
 
 	got, err := ParseReceipt(rec.Signed, pub, "roger-public", "att-1", "st-1")
@@ -232,7 +232,7 @@ func TestAReceiptSignedByAnybodyElseIsRefused(t *testing.T) {
 	_, priv, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
 	rec, err := SignReceipt(priv, "roger-public", Grant{AttemptID: "att-1", StationID: "st-1"},
-		[]byte("x"), Usage{In: 1, Out: 1})
+		[]byte("req"), []byte("x"), Usage{In: 1, Out: 1})
 	require.NoError(t, err)
 
 	impostor, _, err := ed25519.GenerateKey(rand.Reader)
@@ -248,7 +248,7 @@ func TestAReceiptForAnotherContextIsRefused(t *testing.T) {
 	require.NoError(t, err)
 	pub := priv.Public().(ed25519.PublicKey)
 	rec, err := SignReceipt(priv, "roger-public", Grant{AttemptID: "att-1", StationID: "st-1"},
-		[]byte("x"), Usage{In: 1, Out: 1})
+		[]byte("req"), []byte("x"), Usage{In: 1, Out: 1})
 	require.NoError(t, err)
 
 	_, err = ParseReceipt(rec.Signed, pub, "roger-public", "att-OTHER", "st-1")

@@ -193,3 +193,131 @@ func KeepCollecting(st *tower.State, stations map[string]string, out io.Writer,
 		}
 	}
 }
+
+// CollectAudits does one audit round: ask Core what transcripts it wants, fetch each from its
+// Station, and forward it.
+//
+// Contract: features/tower/edge_dispatch.feature.
+//
+// A separate round from receipt collection, on the same timer, because the two are different
+// obligations: a receipt is the operator's own pay and they carry it eagerly; a transcript is
+// Core's audit and the operator carries it because withholding it is itself a finding. Folding
+// them together would let a courier bug in one silently stop the other.
+func CollectAudits(st *tower.State, stations map[string]string, out io.Writer) (int, error) {
+	adm, ok := LoadAdmission(st.Dir())
+	if !ok || adm.TowerID == "" {
+		return 0, errors.New("this Tower is not registered, so it cannot answer audits")
+	}
+	wanted, err := fetchWanted(st, adm.TowerID)
+	if err != nil {
+		return 0, err
+	}
+	forwarded := 0
+	for _, wnt := range wanted {
+		base, known := stations[wnt.StationID]
+		if !known {
+			// Core wants a transcript from a Station this Tower does not carry. Report it and
+			// forward "not available" so Core does not wait out the deadline for nothing.
+			fmt.Fprintf(out, "audit wants %s from unknown Station %s\n", wnt.AttemptID, wnt.StationID)
+			if ferr := forwardTranscript(st, adm.TowerID, wnt.AttemptID, transcriptReply{}); ferr == nil {
+				forwarded++
+			}
+			continue
+		}
+		reply, gerr := fetchTranscript(base, wnt.AttemptID)
+		if gerr != nil {
+			fmt.Fprintf(out, "could not fetch transcript %s from %s: %v\n", wnt.AttemptID, wnt.StationID, gerr)
+			continue
+		}
+		if ferr := forwardTranscript(st, adm.TowerID, wnt.AttemptID, reply); ferr != nil {
+			fmt.Fprintf(out, "could not forward transcript %s: %v\n", wnt.AttemptID, ferr)
+			continue
+		}
+		forwarded++
+	}
+	return forwarded, nil
+}
+
+type wantedItem struct {
+	AttemptID string `json:"attempt_id"`
+	StationID string `json:"station_id"`
+}
+
+func fetchWanted(st *tower.State, towerID string) ([]wantedItem, error) {
+	body, err := json.Marshal(map[string]any{"tower_id": towerID})
+	if err != nil {
+		return nil, err
+	}
+	var out struct {
+		Wanted []wantedItem `json:"wanted"`
+	}
+	if err := towerPost(st, "/tower/audit/wanted", body, &out); err != nil {
+		return nil, err
+	}
+	return out.Wanted, nil
+}
+
+type transcriptReply struct {
+	Available  bool   `json:"available"`
+	Transcript string `json:"transcript"`
+	Request    string `json:"request"`
+	Response   string `json:"response"`
+}
+
+func fetchTranscript(base, attemptID string) (transcriptReply, error) {
+	body, _ := json.Marshal(map[string]any{"attempt_id": attemptID})
+	resp, err := httpClient.Post(strings.TrimRight(base, "/")+"/transcripts/get",
+		"application/json", strings.NewReader(string(body)))
+	if err != nil {
+		return transcriptReply{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return transcriptReply{}, fmt.Errorf("the Station answered %d", resp.StatusCode)
+	}
+	var out transcriptReply
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 16<<20)).Decode(&out); err != nil {
+		return transcriptReply{}, err
+	}
+	return out, nil
+}
+
+func forwardTranscript(st *tower.State, towerID, attemptID string, reply transcriptReply) error {
+	body, err := json.Marshal(map[string]any{
+		"tower_id": towerID, "attempt_id": attemptID,
+		"available":  reply.Available,
+		"transcript": reply.Transcript,
+		"request":    reply.Request,
+		"response":   reply.Response,
+	})
+	if err != nil {
+		return err
+	}
+	return towerPost(st, "/tower/audit/transcript", body, nil)
+}
+
+// KeepAuditing runs the audit round on the same timer as receipt collection.
+func KeepAuditing(st *tower.State, stations map[string]string, out io.Writer,
+	stop <-chan struct{}, ticker func(time.Duration) (<-chan time.Time, func())) {
+
+	if len(stations) == 0 {
+		return
+	}
+	tick, cancel := ticker(collectEvery)
+	defer cancel()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-tick:
+			n, err := CollectAudits(st, stations, out)
+			if err != nil {
+				fmt.Fprintf(out, "audit collection failed: %v\n", err)
+				continue
+			}
+			if n > 0 {
+				fmt.Fprintf(out, "answered %d audit(s)\n", n)
+			}
+		}
+	}
+}
