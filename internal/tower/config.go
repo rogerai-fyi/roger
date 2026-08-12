@@ -69,6 +69,7 @@ type Config struct {
 	Standalone      *LocalConfig   `yaml:"standalone,omitempty"`
 	StationListener ListenerConfig `yaml:"stationListener"`
 	AdminListener   ListenerConfig `yaml:"adminListener"`
+	Relay           *RelayConfig   `yaml:"relay,omitempty"`
 	Observability   ObservConfig   `yaml:"observability"`
 	Limits          LimitsConfig   `yaml:"limits"`
 	Storage         *StorageConfig `yaml:"storage,omitempty"`
@@ -107,6 +108,18 @@ type LocalConfig struct {
 
 type ListenerConfig struct {
 	Address string `yaml:"address,omitempty"`
+}
+
+// RelayConfig is the DATA PLANE: the port consumers connect to, and the Stations behind it.
+//
+// This is the only listener this build actually binds, and it is the one most likely to be
+// public - so it is the one an operator most needs `doctor` to talk about. See relay.go in
+// cmd/roger-tower: nothing here terminates TLS, so the address is a routing decision rather
+// than a place secrets live.
+type RelayConfig struct {
+	Address string `yaml:"address,omitempty"`
+	// Stations maps a Station ID to where this Tower reaches it, as host:port.
+	Stations map[string]string `yaml:"stations,omitempty"`
 }
 
 type ObservConfig struct {
@@ -215,6 +228,12 @@ func (c *Config) validateForMode() error {
 
 // applyDefaults fills the effective values a redacted print must be able to show. Every
 // default is loopback: nothing becomes reachable because a field was omitted.
+// applyDefaults fills in what an operator left unsaid.
+//
+// The defaults stay for the fields this build does not yet enforce, so that a configuration
+// written against the full spec still round-trips and `doctor` can show what WOULD be used.
+// Unenforced is what keeps that from reading as a promise: a field left at its default is
+// not reported as ignored, because the operator did not ask for anything.
 func (c *Config) applyDefaults() {
 	if c.StationListener.Address == "" {
 		c.StationListener.Address = DefaultStationAddress
@@ -230,14 +249,54 @@ func (c *Config) applyDefaults() {
 	}
 }
 
-// ListenAddresses is every address this Tower will bind, so a caller (and `doctor`) can
-// assert the loopback guarantee without reaching into each listener.
+// ListenAddresses is every address this Tower ACTUALLY BINDS.
+//
+// It used to return the station, admin and metrics addresses. This build binds none of
+// those - see Unenforced - and `doctor` was giving a loopback verdict on three listeners
+// that did not exist while saying nothing about the relay, which does exist and is meant to
+// face the public internet. A security assessment of imaginary ports is worse than none,
+// because an operator reads "all listeners loopback" and stops looking.
 func (c *Config) ListenAddresses() []string {
-	return []string{
-		c.StationListener.Address,
-		c.AdminListener.Address,
-		c.Observability.MetricsAddress,
+	if c.Relay == nil || c.Relay.Address == "" {
+		return nil
 	}
+	return []string{c.Relay.Address}
+}
+
+// Unenforced names every field this build decodes and validates but does not act on.
+//
+// IT IS A TABLE RATHER THAN PROSE so it cannot drift from the truth quietly: wiring one of
+// these up means deleting its line here, and the test that pins this list fails until
+// somebody does. A configuration control that is accepted, echoed back by `doctor`, and
+// then ignored is worse than one that is missing - the operator believes a limit is in
+// force and stops thinking about it.
+func (c *Config) Unenforced() []string {
+	var out []string
+	add := func(cond bool, name, what string) {
+		if cond {
+			out = append(out, name+": "+what)
+		}
+	}
+	add(c.StationListener.Address != "" && c.StationListener.Address != DefaultStationAddress,
+		"stationListener.address", "not bound by this build; a joined Tower dials out and does not accept Station connections")
+	add(c.AdminListener.Address != "" && c.AdminListener.Address != DefaultAdminAddress,
+		"adminListener.address", "not bound by this build; there is no admin API yet")
+	add(c.Observability.MetricsAddress != "" && c.Observability.MetricsAddress != DefaultMetricsAddress,
+		"observability.metricsAddress", "not bound by this build; no metrics endpoint is served")
+	add(c.Observability.LogFormat != "" && c.Observability.LogFormat != "json",
+		"observability.logFormat", "not applied by this build; logs are plain lines")
+	add(c.Limits.MaxStations > 0, "limits.maxStations", "not enforced by this build")
+	add(c.Limits.MaxInflight > 0, "limits.maxInflight", "not enforced by this build")
+	add(c.Limits.MaxAudioInflight > 0, "limits.maxAudioInflight", "not enforced by this build")
+	if c.Payout != nil {
+		add(c.Payout.Wallet != "", "payout.wallet", "not used by this build; Tower work is not yet compensated")
+	}
+	if c.Standalone != nil {
+		add(c.Standalone.OfflineRootFile != "", "standalone.offlineRootFile", "not read by this build")
+		add(c.Standalone.TrustPublicationFile != "", "standalone.trustPublicationFile", "not read by this build")
+		add(c.Standalone.SettlementSignerFile != "", "standalone.settlementSignerFile", "not read by this build")
+	}
+	return out
 }
 
 // PublicAuthority is the RogerAI endpoint this Tower will dial, or "" when there is

@@ -226,3 +226,26 @@ func TestAnUnreachableStationIsLoggedAsAFault(t *testing.T) {
 	close(stop)
 	wait()
 }
+
+// A relay declared in the CONFIG must be honoured. This is the whole audit finding in one
+// test: the rest of the schema - limits, listeners, metrics, payout - was decoded,
+// validated, echoed back by `doctor`, and then ignored, and nothing failed when that was
+// true. Something has to fail when it becomes true again.
+func TestARelayDeclaredInTheConfigIsUsed(t *testing.T) {
+	routes, err := relayRoutesFrom(map[string]string{"st-a": "127.0.0.1:9001"})
+	require.NoError(t, err)
+	require.Equal(t, relayRoutes{"st-a": "127.0.0.1:9001"}, routes)
+}
+
+// A config cannot express a route the command line would have refused: both go through the
+// same parser, so there is no second, laxer way in.
+func TestAConfigRouteIsValidatedExactlyAsAFlagIs(t *testing.T) {
+	_, err := relayRoutesFrom(map[string]string{"st-a": "nowhere"})
+	require.ErrorContains(t, err, "--relay-station")
+}
+
+func TestNoRoutesMeansNoRoutes(t *testing.T) {
+	routes, err := relayRoutesFrom(nil)
+	require.NoError(t, err)
+	require.Empty(t, routes)
+}

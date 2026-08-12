@@ -218,13 +218,32 @@ func TestConfigSubcommandErrors(t *testing.T) {
 }
 
 func TestDoctorReportsLocalStandalone(t *testing.T) {
-	p := writeConfig(t, standaloneYAML)
+	p := writeConfig(t, standaloneYAML+"relay:\n  address: 127.0.0.1:8443\n")
 	out, err := runCLI(t, "doctor", "--config", p)
 	require.NoError(t, err)
 	require.Contains(t, out, "mode: standalone")
 	require.Contains(t, out, "no connection")
 	require.Contains(t, strings.ToLower(out), "loopback only")
 	require.Contains(t, out, "doctor: OK")
+}
+
+// A Tower that declares no data plane is told it relays nothing - and is NOT told its
+// listeners are safely on loopback, because it has none and the question was never asked.
+func TestDoctorSaysWhenThereIsNothingToRelay(t *testing.T) {
+	p := writeConfig(t, standaloneYAML)
+	out, err := runCLI(t, "doctor", "--config", p)
+	require.NoError(t, err)
+	require.Contains(t, out, "listeners: none")
+	require.Contains(t, out, "takes no load off Roger Core")
+	require.NotContains(t, strings.ToLower(out), "loopback only")
+}
+
+// Every control this build ignores is named, at the command line an operator actually runs.
+func TestDoctorNamesIgnoredControls(t *testing.T) {
+	p := writeConfig(t, standaloneYAML+"limits:\n  maxInflight: 8\n")
+	out, err := runCLI(t, "doctor", "--config", p)
+	require.NoError(t, err)
+	require.Contains(t, out, "IGNORED: limits.maxInflight")
 }
 
 func TestDoctorReportsJoinedReachability(t *testing.T) {
@@ -235,7 +254,7 @@ func TestDoctorReportsJoinedReachability(t *testing.T) {
 }
 
 func TestDoctorFlagsANonLoopbackBind(t *testing.T) {
-	p := writeConfig(t, standaloneYAML+"stationListener:\n  address: 0.0.0.0:7070\n")
+	p := writeConfig(t, standaloneYAML+"relay:\n  address: 0.0.0.0:8443\n")
 	out, err := runCLI(t, "doctor", "--config", p)
 	require.NoError(t, err)
 	require.Contains(t, out, "NOT loopback")

@@ -128,16 +128,41 @@ func TestSecretSuppliedAsAScalarIsRejected(t *testing.T) {
 	}
 }
 
-// Standalone defaults must be loopback: a fresh config that names no address must not
-// silently listen on every interface.
-func TestStandaloneDefaultsToLoopback(t *testing.T) {
+// A configured listener must be loopback by default: a fresh config that names no address
+// must not silently listen on every interface.
+//
+// THIS TEST USED TO ASSERT THE OPPOSITE MISTAKE. It required ListenAddresses to be
+// non-empty for a config that declares no listener at all, which passed only because the
+// three addresses it returned were the station, admin and metrics ports - none of which
+// this build binds. It was checking that we had invented some listeners, not that the real
+// ones were safe.
+func TestAConfiguredDataPlaneDefaultsToLoopback(t *testing.T) {
 	c, err := ParseConfig([]byte(minimalStandalone))
 	require.NoError(t, err)
-	for _, addr := range c.ListenAddresses() {
-		require.True(t, strings.HasPrefix(addr, "127.0.0.1:") || strings.HasPrefix(addr, "[::1]:"),
-			"standalone default listener %q must be loopback", addr)
-	}
-	require.NotEmpty(t, c.ListenAddresses())
+	require.Empty(t, c.ListenAddresses(),
+		"a Tower that configures no data plane binds nothing, and must not claim otherwise")
+
+	c, err = ParseConfig([]byte(minimalStandalone + "relay:\n  address: 127.0.0.1:8443\n"))
+	require.NoError(t, err)
+	require.Equal(t, []string{"127.0.0.1:8443"}, c.ListenAddresses())
+}
+
+// Every field this build decodes but does not act on must be NAMED. A control that is
+// accepted and then ignored is worse than one that is missing: the operator believes the
+// limit is in force and stops thinking about it.
+func TestConfiguredControlsThisBuildIgnoresAreNamed(t *testing.T) {
+	c, err := ParseConfig([]byte(minimalStandalone))
+	require.NoError(t, err)
+	require.Empty(t, c.Unenforced(), "defaults are not a promise the operator asked for")
+
+	y := minimalStandalone + "limits:\n  maxStations: 4\n  maxInflight: 8\n" +
+		"observability:\n  metricsAddress: 0.0.0.0:9090\n"
+	c, err = ParseConfig([]byte(y))
+	require.NoError(t, err)
+	joined := strings.Join(c.Unenforced(), "\n")
+	require.Contains(t, joined, "limits.maxStations")
+	require.Contains(t, joined, "limits.maxInflight")
+	require.Contains(t, joined, "observability.metricsAddress")
 }
 
 func TestStandaloneHasNoPublicNetworkReachability(t *testing.T) {

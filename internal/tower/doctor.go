@@ -17,9 +17,12 @@ type Report struct {
 	PublicAuthority      string
 	AllListenersLoopback bool
 	Listeners            []string
-	Problems             []string
-	Notes                []string
-	OK                   bool
+	// Unenforced is every configured field this build ignores. Reported so an operator is
+	// never silently overruled by their own configuration file.
+	Unenforced []string
+	Problems   []string
+	Notes      []string
+	OK         bool
 }
 
 // Doctor inspects effective configuration and reports what it will do when started.
@@ -31,7 +34,12 @@ func Doctor(c *Config) Report {
 		AllListenersLoopback: true,
 	}
 	r.ReachesPublicNetwork = r.PublicAuthority != "" || c.AdvertisesPublicly()
+	r.Unenforced = c.Unenforced()
 
+	if len(r.Listeners) == 0 {
+		r.Notes = append(r.Notes, "no data plane configured: this Tower relays no consumer "+
+			"traffic, so it takes no load off Roger Core and earns nothing for its operator")
+	}
 	for _, addr := range r.Listeners {
 		if !isLoopback(addr) {
 			r.AllListenersLoopback = false
@@ -65,13 +73,21 @@ func (r Report) String() string {
 	} else {
 		fmt.Fprintf(&b, "public network: no connection (this Tower is fully local)\n")
 	}
-	if r.AllListenersLoopback {
+	switch {
+	case len(r.Listeners) == 0:
+		fmt.Fprintf(&b, "listeners: none\n")
+	case r.AllListenersLoopback:
 		fmt.Fprintf(&b, "listeners: loopback only\n")
-	} else {
+	default:
 		fmt.Fprintf(&b, "listeners: some are NOT loopback\n")
 	}
 	for _, l := range r.Listeners {
 		fmt.Fprintf(&b, "  - %s\n", l)
+	}
+	// LOUD, and above the notes. An operator who configured a limit and is not getting one
+	// has to trip over it rather than find it in a list they skim.
+	for _, u := range r.Unenforced {
+		fmt.Fprintf(&b, "IGNORED: %s\n", u)
 	}
 	for _, n := range r.Notes {
 		fmt.Fprintf(&b, "note: %s\n", n)

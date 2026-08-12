@@ -37,7 +37,7 @@ func TestDoctorReportsJoinedReachability(t *testing.T) {
 // A non-loopback bind is legitimate (LAN and cluster serving are supported) but must be
 // reported, so an operator never exposes a Tower without being told.
 func TestDoctorFlagsANonLoopbackBindAsDeliberate(t *testing.T) {
-	y := minimalStandalone + "stationListener:\n  address: 0.0.0.0:7070\n"
+	y := minimalStandalone + "relay:\n  address: 0.0.0.0:8443\n"
 	c, err := ParseConfig([]byte(y))
 	require.NoError(t, err)
 	rep := Doctor(c)
@@ -46,15 +46,39 @@ func TestDoctorFlagsANonLoopbackBindAsDeliberate(t *testing.T) {
 	require.True(t, rep.OK, "explicit LAN serving is supported, not an error")
 	require.NotEmpty(t, rep.Notes, "a non-loopback bind must be called out to the operator")
 	joined := strings.Join(rep.Notes, " ")
-	require.Contains(t, joined, "0.0.0.0:7070")
+	require.Contains(t, joined, "0.0.0.0:8443")
 }
 
 func TestDoctorRendersHumanReadably(t *testing.T) {
-	c, err := ParseConfig([]byte(minimalStandalone))
+	c, err := ParseConfig([]byte(minimalStandalone + "relay:\n  address: 127.0.0.1:8443\n"))
 	require.NoError(t, err)
 	out := Doctor(c).String()
 
 	require.Contains(t, out, "mode: standalone")
 	require.Contains(t, out, "public network")
 	require.Contains(t, strings.ToLower(out), "loopback")
+}
+
+// A Tower with no data plane is legal and useless, and saying so is the point: it relays
+// nothing, so it takes no load off Core and earns its operator nothing.
+func TestDoctorSaysWhenThereIsNoDataPlane(t *testing.T) {
+	c, err := ParseConfig([]byte(minimalStandalone))
+	require.NoError(t, err)
+	out := Doctor(c).String()
+
+	require.Contains(t, out, "listeners: none")
+	require.Contains(t, out, "takes no load off Roger Core")
+	require.NotContains(t, out, "loopback only",
+		"a loopback verdict on zero listeners tells an operator their ports are safe when "+
+			"the question was never asked")
+}
+
+// An ignored control is reported LOUDLY and by name.
+func TestDoctorNamesEveryControlItIgnores(t *testing.T) {
+	c, err := ParseConfig([]byte(minimalStandalone + "limits:\n  maxInflight: 8\n"))
+	require.NoError(t, err)
+	rep := Doctor(c)
+
+	require.NotEmpty(t, rep.Unenforced)
+	require.Contains(t, rep.String(), "IGNORED: limits.maxInflight")
 }

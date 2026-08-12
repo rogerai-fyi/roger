@@ -304,7 +304,10 @@ func cmdServe(args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if *relayAddr != "" && len(routes) == 0 {
+	// Checked BEFORE the data directory is touched when there is no config to fill the gap:
+	// a flag mistake should be reported as a flag mistake, not as whatever the directory
+	// happens to complain about first.
+	if *cfg == "" && *relayAddr != "" && len(routes) == 0 {
 		return fmt.Errorf("--relay needs at least one --relay-station ID=HOST:PORT to route to")
 	}
 	// serve takes --config for the same reason the state commands do, and it matters MORE
@@ -315,5 +318,31 @@ func cmdServe(args []string, out io.Writer) error {
 		return err
 	}
 	defer release()
+	// THE CONFIG IS NOT DECORATION. A relay declared in the file and then ignored because
+	// the operator did not also pass flags is the exact failure this audit found across the
+	// rest of the schema; flags win when both are given, because a flag is the more
+	// deliberate of the two.
+	if *cfg != "" {
+		c, cerr := loadConfig(*cfg)
+		if cerr != nil {
+			return cerr
+		}
+		for _, u := range c.Unenforced() {
+			fmt.Fprintf(out, "IGNORED: %s\n", u)
+		}
+		if *relayAddr == "" && c.Relay != nil {
+			*relayAddr = c.Relay.Address
+		}
+		if len(routes) == 0 && c.Relay != nil {
+			routes, err = relayRoutesFrom(c.Relay.Stations)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	if *relayAddr != "" && len(routes) == 0 {
+		return fmt.Errorf("a relay address needs at least one Station to route to: " +
+			"pass --relay-station ID=HOST:PORT, or set relay.stations in the config")
+	}
 	return serveJoined(st, out, stations, *relayAddr, routes)
 }

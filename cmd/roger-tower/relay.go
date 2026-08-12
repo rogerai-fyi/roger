@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"sort"
 	"strings"
 	"time"
 
@@ -58,6 +59,19 @@ func (r relayRoutes) Upstream(serverName string) (string, bool) {
 	}
 	addr, ok := r[label]
 	return addr, ok
+}
+
+// relayRoutesFrom takes the routes a configuration file declares.
+//
+// Validated exactly as the flags are, by the same function, so a config cannot express a
+// route the command line would have refused.
+func relayRoutesFrom(m map[string]string) (relayRoutes, error) {
+	var flat []string
+	for id, addr := range m {
+		flat = append(flat, id+"="+addr)
+	}
+	sort.Strings(flat) // deterministic errors: the same bad file names the same field first
+	return parseRelayRoutes(flat)
 }
 
 // runRelay serves the data plane until stopped.
