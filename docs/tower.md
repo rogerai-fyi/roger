@@ -283,6 +283,13 @@ that needs a counterweight. That counterweight is the **consumer's acknowledgeme
 - billed usage is `min(station_claim, consumer_claim)`. Each party's incentive runs one way —
   the Station gains by over-reporting, the consumer by under-reporting — so the minimum means
   **neither profits by lying**;
+- a **response-digest disagreement does not void settlement**. Core cannot tell from two
+  conflicting digests whether the relay tampered or the consumer lied, so the attempt settles
+  on the Station's receipt (uncorroborated), is marked *disputed* as a rate signal, and is
+  force-audited — a single disagreement cannot deny the Station its pay or penalise the Tower;
+- the **acknowledgement is bound to the authorized consumer**: the grant carries the consumer
+  key, and an ack from any other account (or for an attempt that was never authorized) is
+  refused, so a third party cannot void or dispute somebody else's attempt;
 - because both ends signed a digest, **neither can produce a different transcript afterwards**,
   which is what makes sampled audit possible at all.
 
