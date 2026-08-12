@@ -304,19 +304,21 @@ is not more secure — it is empty.
 The signal is the **rate**, not the single attempt. A Tower whose uncorroborated share is
 unlike the fleet's is investigated; attempts already settled are not reversed by a rate alone.
 
-### An honest gap: the certificate does not yet authenticate anything
+### Certificate revocation and mutual TLS
 
-Nothing in production performs mutual TLS. A Tower authenticates by **signing its HTTP
-requests** with the identity key recorded at enrollment — real authentication, and not what
-`job_and_settlement.feature` describes, which is a TLS 1.3 channel mutually authenticated and
-bound to the Tower's identity and session.
+A Tower authenticates by **signing its HTTP requests** with the identity key recorded at
+enrollment. On top of that:
 
-The consequence worth stating: **certificate revocation is not enforced**, because
-certificates are not checked at a channel anywhere. Tower revocation *is* enforced — in the
-admission registry, which is what gates dispatch — so a revoked Tower gets no work. The gap
-is the channel layer, not the removal. `cert.Authenticate`, `AuthenticateAs`, `ProveMatches`
-and `RevokedSerials` are the verifying half of that unbuilt layer and are kept for when it
-lands.
+- **Certificate revocation is enforced.** The certificate serial is bound to the Tower at
+  enrollment and checked in the request-auth path, so a revoked serial refuses the Tower on
+  its next request — without waiting for its lease to lapse. `POST /tower/cert/revoke` is the
+  admin kill switch (revokes the serial, suspends the Tower, withdraws its fleet).
+- **Mutual TLS is enforced verify-if-presented.** When a Tower connects over TLS with a
+  client certificate, the broker verifies it chains to the tower CA, is not revoked, and
+  names the signing Tower — binding the *connection* to the identity, so a stolen request
+  signature replayed over a different channel is refused. A Tower on plain HTTP still
+  authenticates by signature alone, so this rolls out without a flag day; a deployment that
+  requires client certs gets the full mutual-TLS guarantee the spec describes.
 
 ### Structural enforcement (not runtime)
 

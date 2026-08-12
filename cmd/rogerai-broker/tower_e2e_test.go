@@ -33,6 +33,19 @@ import (
 // towerTestBroker wires the real subsystem over in-process stores and serves the real mux.
 func towerTestBroker(t *testing.T) (*broker, *httptest.Server) {
 	t.Helper()
+	b := towerTestBrokerNoServer(t)
+	// The PRODUCTION route table, not a copy of it - see registerTowerRoutes.
+	mux := http.NewServeMux()
+	b.registerTowerRoutes(mux)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return b, srv
+}
+
+// towerTestBrokerNoServer builds the broker + tower subsystem without starting an HTTP server,
+// for tests that need to stand up their own listener (e.g. a TLS one for mutual TLS).
+func towerTestBrokerNoServer(t *testing.T) *broker {
+	t.Helper()
 	b := testBrokerWithDB(store.NewMem())
 	ts, err := newTowerSubsystem(b,
 		admit.NewMemStore(), cert.NewMemCustody(), enroll.NewMemStore(),
@@ -40,13 +53,7 @@ func towerTestBroker(t *testing.T) (*broker, *httptest.Server) {
 		linkDeps{stations: attach.NewMemStore(), heads: head.NewMemStore()})
 	require.NoError(t, err)
 	b.tower = ts
-
-	// The PRODUCTION route table, not a copy of it - see registerTowerRoutes.
-	mux := http.NewServeMux()
-	b.registerTowerRoutes(mux)
-	srv := httptest.NewServer(mux)
-	t.Cleanup(srv.Close)
-	return b, srv
+	return b
 }
 
 // operator is a signed-in account holding a CLI key, exactly as `roger-tower login` leaves it.

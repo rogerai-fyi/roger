@@ -108,6 +108,22 @@ func (b *broker) towerCaller(r *http.Request, body []byte, claimedID string) (ad
 	if ts.ca != nil && ts.ca.SerialRevoked(tw.CertSerial) {
 		return admit.Tower{}, nil, false
 	}
+	// MUTUAL TLS, the channel-binding half, enforced when the Tower connected over TLS and
+	// presented a client certificate. The signed request above proves possession of the
+	// admitted identity KEY; this additionally binds the CONNECTION to the admitted
+	// certificate, so a stolen request signature replayed over a different channel is refused,
+	// and a revoked certificate is caught at the handshake as well as by the serial check.
+	//
+	// Verify-if-presented rather than require: a Tower that connects over plain HTTP (or a test
+	// harness) still authenticates by its signed request alone, so this can be rolled out
+	// without a flag day. A deployment that terminates TLS at the broker and requires client
+	// certs gets the full mutual-TLS guarantee the spec describes; one that does not still has
+	// the object-signature guarantee it always had.
+	if ts.ca != nil && r.TLS != nil && len(r.TLS.PeerCertificates) > 0 {
+		if err := ts.ca.AuthenticateAs(r.TLS.PeerCertificates[0], tw.ID); err != nil {
+			return admit.Tower{}, nil, false
+		}
+	}
 	return tw, ed25519.PublicKey(raw), true
 }
 

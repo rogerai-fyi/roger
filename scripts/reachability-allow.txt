@@ -212,20 +212,17 @@ internal/towercore/dispatch.New
 # are NOT here, and finding the renewal path in that list is what led to towerrenew.go.
 # ============================================================================
 
-# --- the certificate is not yet used to AUTHENTICATE anything ---------------
-# Nothing in production performs mutual TLS. A Tower authenticates by signing its HTTP
-# requests (towerCaller), which is real authentication and is not what the approved spec
-# describes: features/tower/job_and_settlement.feature has the outer channel mutually
-# authenticated by TLS 1.3 bound to the Tower's identity and session.
+# --- certificate authentication: mostly wired now ---------------------------
+# AuthenticateAs is now called by towerCaller: mutual TLS is enforced verify-if-presented, so
+# a Tower connecting over TLS with a client certificate has that certificate bound to its
+# admitted identity. Certificate REVOCATION is enforced (SerialRevoked in towerCaller, and
+# the admin /tower/cert/revoke route).
 #
-# So these four - and isRevoked with them - are the verifying half of a layer that has not
-# been built. CERTIFICATE revocation is therefore not enforced today. Tower revocation IS:
-# it is enforced in the admission registry, which is what gates dispatch, so a revoked Tower
-# gets no work. The gap is the channel layer, not the removal.
-#
-# Kept because they are the correct implementations to wire when mTLS lands, and deleting
-# them would mean rewriting the revocation check from scratch at that point.
-method internal/towercore/cert.AuthenticateAs
+# ProveMatches proves a certificate binds a given key; it is the check for a
+# certificate-signing-request flow that presents both, which this deployment does not use for
+# the Tower channel (the CSR flow is the STATION edge cert, which verifies the CSR signature
+# directly). Kept as the correct implementation for when a Tower presents proof-of-possession
+# separately from a signature. RevokedSerials is used by custody persistence.
 method internal/towercore/cert.ProveMatches
 method internal/towercore/cert.RevokedSerials
 
