@@ -469,3 +469,36 @@ func TestAReplayWithTheWrongSecretIsRefused(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, first, again)
 }
+
+// A Station ID that could inject into a certificate name is refused at invitation - the
+// wildcard-cert review's fix, at the door it enters by.
+func TestAnInvitationRefusesADangerousStationID(t *testing.T) {
+	base := Authorization{
+		ID: "auth-1", Network: "roger-public", Owner: "owner",
+		Origin:       Origin{Kind: OriginJoined, TowerID: "tw-1"},
+		AssertionKey: "aa", SessionKey: "bb",
+	}
+	for _, bad := range []string{"*", "*.evil", "st-1.relay", "st-UP", "st- ", "station", "st-", "st-a/b"} {
+		a := base
+		a.StationID = bad
+		_, _, err := NewInvite(a, time.Hour, time.Now())
+		require.Error(t, err, "must refuse Station ID %q", bad)
+	}
+	// The minted shape and ordinary ids still pass.
+	for _, ok := range []string{"st-abc123", "st-x", "st-9"} {
+		a := base
+		a.StationID = ok
+		_, _, err := NewInvite(a, time.Hour, time.Now())
+		require.NoError(t, err, "must accept Station ID %q", ok)
+	}
+}
+
+func TestValidStationIDShape(t *testing.T) {
+	require.True(t, ValidStationID("st-deadbeef"))
+	require.True(t, ValidStationID("st-x"))
+	require.False(t, ValidStationID("*"))
+	require.False(t, ValidStationID("st-1.relay"))
+	require.False(t, ValidStationID("st-"))
+	require.False(t, ValidStationID("STATION"))
+	require.False(t, ValidStationID(""))
+}

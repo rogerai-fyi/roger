@@ -30,6 +30,7 @@ import (
 	"crypto/x509/pkix"
 	"errors"
 	"fmt"
+	"regexp"
 	"time"
 )
 
@@ -41,9 +42,28 @@ import (
 // answer (it holds the attachment) and the CA must not grow an opinion about attachment it
 // would then have to keep in step. The CA's job is narrow: bind this name to this key under
 // our root, as a server certificate, for a bounded life.
+// validEdgeName is what IssueEdgeCert will sign: at least two dot-separated labels, each a
+// plain DNS label, no wildcard. It is deliberately stricter than "a valid DNS name" - Core
+// issues under a domain it controls, so a legitimate relay name is always several labels of
+// [a-z0-9-], and anything else is a caller doing something it should not.
+func validEdgeName(name string) bool {
+	return edgeNamePattern.MatchString(name)
+}
+
+var edgeNamePattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$`)
+
 func (a *Authority) IssueEdgeCert(relayName string, pub crypto.PublicKey) (*x509.Certificate, error) {
 	if relayName == "" {
 		return nil, errors.New("an edge certificate needs the relay name it is for")
+	}
+	// FAIL CLOSED ON A NAME THE CA WOULD NOT WANT TO SIGN, independently of whatever validated
+	// the caller. A wildcard, a bare label, whitespace or a control character in a certificate
+	// SAN is how one Station's certificate comes to cover another's name - the exact break a
+	// review found upstream of here - so the CA refuses it even though the broker also should
+	// never send one. Two gates, because the cost of the second is a regexp and the cost of a
+	// mis-issued wildcard is the whole edge confidentiality model.
+	if !validEdgeName(relayName) {
+		return nil, fmt.Errorf("%q is not a name this authority will issue for", relayName)
 	}
 	if pub == nil {
 		return nil, errors.New("an edge certificate must bind a public key")

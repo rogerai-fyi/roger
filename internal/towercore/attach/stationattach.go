@@ -224,7 +224,14 @@ func NewInvite(a Authorization, ttl time.Duration, now time.Time) (Authorization
 	}
 	switch {
 	case a.ID == "", a.Network == "", a.StationID == "", a.Owner == "":
+		// (a general presence check; the specific Station-ID shape is enforced just below,
+		// because an ill-formed id is a different and more dangerous failure than a missing one)
 		return Authorization{}, "", errors.New("an invitation needs an id, a network, a Station and an owner")
+	case !ValidStationID(a.StationID):
+		// THE NAME-INJECTION GATE. A Station ID flows into the edge certificate's DNS name, so
+		// anything but the minted shape - a dot, a wildcard, whitespace - is refused here,
+		// before it can ever reach the CA. See stationid.go for the wildcard-cert review.
+		return Authorization{}, "", errors.New("a Station ID must be of the form st-<hex>")
 	case a.AssertionKey == "" || a.SessionKey == "":
 		return Authorization{}, "", errors.New("an invitation names both keys or it names neither")
 	case a.AssertionKey == a.SessionKey:

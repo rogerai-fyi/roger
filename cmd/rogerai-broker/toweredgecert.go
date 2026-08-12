@@ -26,6 +26,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
+
+	"rogerai.fm/roger/v5/internal/towercore/attach"
 )
 
 // towerStationEdgeCert handles POST /tower/station/edge-cert.
@@ -63,6 +65,14 @@ func (b *broker) towerStationEdgeCert(w http.ResponseWriter, r *http.Request) {
 	}
 	if json.Unmarshal(body, &req) != nil || req.StationID == "" || req.CSR == "" {
 		jsonErr(w, http.StatusBadRequest, "an edge certificate request names its Station and carries a CSR")
+		return
+	}
+	// A THIRD GATE on the name-injection path, at the endpoint that derives the certificate
+	// name. Invitation refuses a malformed id, and the CA refuses a malformed name, but a
+	// Station attached before this validation existed could still carry one - so refuse here
+	// too rather than derive a relay name from it.
+	if !attach.ValidStationID(req.StationID) {
+		jsonErr(w, http.StatusBadRequest, "that is not a well-formed Station ID")
 		return
 	}
 

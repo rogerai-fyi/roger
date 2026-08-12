@@ -2037,3 +2037,27 @@ func TestSelfServiceLifecycleRefusesWhatIsNotItsToDecide(t *testing.T) {
 	getResp.Body.Close()
 	require.Equal(t, http.StatusMethodNotAllowed, getResp.StatusCode)
 }
+
+// SECURITY: an operator cannot invite a Station whose id would inject into the edge
+// certificate's name - the wildcard-cert review. A "*" id would otherwise be issued a
+// certificate covering every Station's relay name.
+func TestAnInviteRefusesAWildcardStationID(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	op := signedInOperator(t, b, "octocat")
+	lt := enrolledTower(t, b, op.login)
+
+	stPub, _, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	sessPub, _, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+
+	for _, bad := range []string{"*", "*.relay", "st-1.relay", "st-EVIL", "st-a b"} {
+		code, raw := op.call(t, srv, http.MethodPost, "/tower/station/invite", map[string]any{
+			"tower_id":      lt.id,
+			"station_id":    bad,
+			"assertion_key": hex.EncodeToString(stPub),
+			"session_key":   hex.EncodeToString(sessPub),
+		}, nil)
+		require.Equal(t, http.StatusBadRequest, code, "must refuse Station ID %q: %s", bad, raw)
+	}
+}
