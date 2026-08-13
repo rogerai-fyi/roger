@@ -450,173 +450,89 @@
          streams. Neither ships with mock data. -->
     <section class="pg-mesh" id="pgMeshView" role="tabpanel" aria-labelledby="pgModeMesh" hidden>
       <div class="wrap wrap--deck">
-        <span class="fig">FIG. 2 - THE WAVE MESH &middot; DEVICES / WIRE FORMATS</span>
+        <span class="fig">FIG. 2 - THE WAVE MESH &middot; PATCH SHEET</span>
 
         <div class="pg-bench wm">
           <div class="pg-bench__plate" aria-hidden="true">
             <span class="pg-bench__name">WAVE MESH</span>
-            <span class="pg-bench__type">ENGINEERING DECK &middot; M1 DEVICE BROWSER + WIRE BENCH</span>
+            <span class="pg-bench__type">ENGINEERING DECK &middot; PATCH SHEET</span>
           </div>
 
-          <p class="wm-lede">
-            RogerAI builds <b>LLMs for machines</b>: models that read what devices actually
-            emit - Modbus registers, Sparkplug B, OPC UA, Prometheus, syslog, raw signal
-            summaries - and assert typed, cited, margin-scored facts about them. Start with
-            the machines.
-          </p>
 
-          <div class="wm__grid">
+          <!-- ================= THE PATCH SHEET =================
+               Top half: wire a machine to a model. Devices sit at the bottom,
+               models above, a person at the top; escalation only travels up,
+               so geometry is semantics and a wire can never point backwards.
+               Tap a port, it arms, tap the target - the same state machine
+               the keyboard uses. Bottom half: what the patch produced.
 
-            <aside class="wm-rail" aria-label="Device browser">
-              <div class="wm-rail__head">
-                <b>DEVICES</b>
-                <span class="wm-rail__count" id="wmDeviceCount">loading&hellip;</span>
-              </div>
-              <div class="wm-devices" id="wmDevices"></div>
-              <p class="wm-note">
-                Every device type the simulation suite models, plus the live box. Pick one to
-                see its channels, the root causes it can develop, and the sensor faults its
-                instruments can suffer.
-              </p>
-            </aside>
+               Everything replayed here is a RECORDED run. No model executes
+               in this browser, so a packet may only move on a wire because a
+               real record moved on it. -->
+          <div class="wp-bar">
+            <button class="wp-run" id="wpRun" type="button">RUN</button>
+            <span class="wp-tag">REPLAY &middot; RECORDED</span>
+            <span class="wp-note" id="wpProv" style="margin:0"></span>
+          </div>
 
-            <div class="wm-detail" id="wmDetail">
-              <h3 class="wm-detail__name">Pick a device</h3>
-              <p class="wm-detail__src">
-                Each one exposes its channels as outputs. In the finished deck you patch those
-                into Wave model tiles; today this shows you what a machine actually offers a
-                model to read.
-              </p>
+          <div class="wp-shelf" id="wpShelf" role="group" aria-label="Patch templates"></div>
+
+          <div class="wp-sheetwrap">
+            <div class="wp-sheet" id="wpSheet">
+              <svg class="wp-wires" id="wpWires" aria-hidden="true">
+                <defs>
+                  <!-- one marker: the palette is monochrome, so context-stroke
+                       (which Safari has never shipped) is never needed -->
+                  <marker id="wpArrow" viewBox="0 0 8 8" refX="4" refY="4"
+                          markerWidth="7" markerHeight="7" markerUnits="userSpaceOnUse"
+                          orient="auto-start-reverse">
+                    <path d="M1 1 L7 4 L1 7 z" fill="currentColor" />
+                  </marker>
+                </defs>
+              </svg>
             </div>
+          </div>
+          <p class="wp-say" id="wpSay" role="status" aria-live="polite"></p>
 
-            <div class="wm-bench">
-              <div class="wm-bench__head">
-                <b>ONE TRUTH, EIGHT DIALECTS</b>
-                <span class="wm-tag wm-tag--rec">RECORDED</span>
+          <details class="wp-note">
+            <summary>View this patch as a list</summary>
+            <ol class="wp-mirror" id="wpMirror"></ol>
+          </details>
+
+          <!-- ================= THE RESULTS ================= -->
+          <div class="wp-results">
+            <div class="wp-panel">
+              <div class="wp-panel__head">
+                <b>The signal</b>
+                <span class="wp-tag">RECORDED</span>
               </div>
-              <p class="wm-note">
-                The same channel - a cavitating pump whose vibration sensor sticks partway
-                through - rendered into every wire format a plant might speak. Real renderer
-                output, captured. Deterministic: re-run the spec and you get these bytes back.
-              </p>
-              <code class="wm-spec" id="wmSpec"></code>
-
-              <div class="wm-dialects" id="wmDialects" role="group" aria-label="Wire format"></div>
-              <pre class="wm-wire" id="wmWire" tabindex="0" aria-label="Rendered wire format"></pre>
-
-              <div class="wm-transport">
-                <div class="wm-transport__head">
-                  <b>TRANSPORT</b>
-                  <span class="wm-step" id="wmStepT">t=0</span>
+              <svg class="wp-scope" id="wpScope" viewBox="0 0 520 96" role="img"
+                   aria-label="The channel trace, with the fault onset marked"></svg>
+              <div class="wp-gauges">
+                <div class="wp-gauge">
+                  <span class="wp-gauge__k">macro recall</span>
+                  <span class="wp-gauge__v" id="wpMacro">-</span>
+                  <span class="wp-gauge__s" id="wpRaw"></span>
                 </div>
-                <label class="wm-scrub__label" for="wmScrub">Scrub the window</label>
-                <input class="wm-scrub" id="wmScrub" type="range" min="0" max="0" value="0" step="1" />
-                <div class="wm-meters">
-                  <div class="wm-meter">
-                    <span class="wm-meter__k">longest identical run</span>
-                    <span class="wm-meter__v" id="wmRun">-</span>
-                    <span class="wm-meter__track">
-                      <span class="wm-meter__bar" id="wmRunBar" role="progressbar"
-                            aria-valuemin="0" aria-valuemax="32" aria-valuenow="0"></span>
-                    </span>
-                  </div>
-                  <div class="wm-meter">
-                    <span class="wm-meter__k">tail deviation</span>
-                    <span class="wm-meter__v" id="wmSd">-</span>
-                  </div>
+                <div class="wp-gauge">
+                  <span class="wp-gauge__k">escalated</span>
+                  <span class="wp-gauge__v" id="wpEsc">-</span>
+                  <span class="wp-gauge__s" id="wpConfig"></span>
                 </div>
-                <p class="wm-verdict" id="wmVerdict"></p>
-                <p class="wm-note wm-note--tight">
-                  This describes the signal, not a model&rsquo;s conclusion - no model has run
-                  on this page. Watching a fault become visible is the point: at t=0 nothing
-                  looks wrong.
-                </p>
+                <div class="wp-gauge">
+                  <span class="wp-gauge__k">compute vs parent-everywhere</span>
+                  <span class="wp-gauge__v" id="wpCost">-</span>
+                  <span class="wp-gauge__s">residency proxy</span>
+                </div>
               </div>
+              <p class="wp-note" id="wpCostNote"></p>
             </div>
-          </div>
 
-
-          <!-- ================= THE MESH BENCH =================
-               The economic argument for a mesh, as a slider rather than a slogan.
-               Every figure is read from a real fleet_sim run; the child, the parent
-               and the bench are named on the panel so the numbers belong to
-               something rather than floating. -->
-          <div class="wm-mesh">
-            <div class="wm-bench__head">
-              <b>THE MESH BENCH &middot; WHAT A FLOOR BUYS</b>
-              <span class="wm-tag wm-tag--meas">MEASURED</span>
+            <div class="wp-panel">
+              <div class="wp-panel__head"><b>What it asserted</b></div>
+              <ol class="wp-feed" id="wpFeed"></ol>
+              <div id="wpInspect"></div>
             </div>
-            <p class="wm-note" id="wmMeshProv"></p>
-
-            <label class="wm-scrub__label" for="wmFloor">Margin floor</label>
-            <input class="wm-scrub" id="wmFloor" type="range" min="0" max="0" value="0" step="1" />
-            <div class="wm-config" id="wmConfig">-</div>
-
-            <div class="wm-meters wm-meters--mesh">
-              <div class="wm-meter">
-                <span class="wm-meter__k">accuracy (macro recall)</span>
-                <span class="wm-meter__v" id="wmMacro">-</span>
-                <span class="wm-meter__track">
-                  <span class="wm-meter__bar" id="wmMacroBar" role="progressbar"
-                        aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"></span>
-                </span>
-              </div>
-              <div class="wm-meter">
-                <span class="wm-meter__k">escalated to the parent</span>
-                <span class="wm-meter__v" id="wmEsc">-</span>
-                <span class="wm-meter__track">
-                  <span class="wm-meter__bar wm-meter__bar--esc" id="wmEscBar" role="progressbar"
-                        aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"></span>
-                </span>
-              </div>
-              <div class="wm-meter">
-                <span class="wm-meter__k">cost vs asking the parent everything</span>
-                <span class="wm-meter__v" id="wmCost">-</span>
-                <span class="wm-meter__track">
-                  <span class="wm-meter__bar wm-meter__bar--cost" id="wmCostBar" role="progressbar"
-                        aria-valuemin="0" aria-valuemax="150" aria-valuenow="0"></span>
-                </span>
-              </div>
-            </div>
-            <p class="wm-verdict" id="wmMeshVerdict"></p>
-
-            <!-- the per-frame redlines: a tile's floor depends on its frame -->
-            <div class="wm-frames" id="wmFrames"></div>
-          </div>
-
-          <!-- ================= THE ALERT FEED =================
-               Real child and parent predictions from the same run, rendered in the
-               frozen record schema. `kind` is derived from the margin against the
-               floor above - which is exactly what a tile does at runtime - so the
-               slider changes what escalates in front of you. -->
-          <div class="wm-feed">
-            <div class="wm-bench__head">
-              <b>ASSERTION FEED</b>
-              <span class="wm-lamp" id="wmLamp" role="status"></span>
-            </div>
-            <p class="wm-note" id="wmFeedNote"></p>
-            <ol class="wm-records" id="wmRecords"></ol>
-          </div>
-
-          <!-- ================= QUANTIZATION =================
-               The Q4 lesson as UX: a tile never implies numbers it has not earned. -->
-          <div class="wm-quants">
-            <div class="wm-bench__head"><b>ACCURACY AT EVERY SIZE</b></div>
-            <div class="wm-quantrow" id="wmQuants"></div>
-            <p class="wm-note" id="wmQuantNote"></p>
-          </div>
-
-          <div class="wm-pending">
-            <b>NOT ON THIS DECK YET</b>
-            <p>
-              The <b>rack</b> of Wave model tiles. A tile&rsquo;s faceplate is meant to be
-              literally its GGUF birth certificate - tier, scope, model digest, tasks, margin
-              floor - and while the schema for those keys is now frozen, the actual values for
-              the Wave Pico release candidate have not been exported yet. A faceplate that is
-              supposed to BE a birth certificate will not ship with an invented digest, so the
-              rack waits. The assertion feed above no longer waits: those are real predictions
-              and real margins from a recorded run.
-            </p>
           </div>
 
           <p class="wm-attrib">Designed by RogerAI in Orange County, California.</p>
@@ -636,7 +552,7 @@
   <script src="js/site.js" defer></script>
   <script src="js/session.js" defer></script>
   <script src="js/playbox.js" defer></script>
-  <script src="js/wave-mesh.js" defer></script>
+  <script src="js/wave-patch.js" defer></script>
   <script src="js/promo.js" defer></script>
 </body>
 </html>

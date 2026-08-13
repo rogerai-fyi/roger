@@ -14,7 +14,7 @@ const SRC = path.join(path.dirname(fileURLToPath(import.meta.url)), "../src");
 const read = (p) => readFileSync(path.join(SRC, p), "utf8");
 
 const js = read("js/playbox.js");
-const js2 = read("js/wave-mesh.js");
+const js2 = read("js/wave-patch.js");
 const html = read("playbox.html");
 const css = read("styles/playbox.css");
 const nav = read("_partials/nav.html");
