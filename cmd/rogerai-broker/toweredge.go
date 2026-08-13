@@ -137,7 +137,15 @@ func (b *broker) towerEdgeAuthorize(w http.ResponseWriter, r *http.Request) {
 	// of a key; this proves the key belongs to a real, non-anonymized account that accepted the
 	// terms. It is the consent gate for charging real money, checked before any Station is chosen
 	// or any hold is placed.
-	if o, found, oerr := b.db.OwnerByPubkey(hex.EncodeToString(consumerKey)); oerr != nil || !found || o.Anonymized {
+	o, found, oerr := b.db.OwnerByPubkey(hex.EncodeToString(consumerKey))
+	if oerr != nil || !found || o.Anonymized {
+		jsonErr(w, http.StatusForbidden, "tower inference requires a signed-in account that has accepted the terms of service")
+		return
+	}
+	// A banned account is signed in but not entitled to be served or charged. The refusal is the
+	// same 403 as an absent account, so a ban is not distinguishable from "not signed in" to a
+	// prober.
+	if b.isOwnerBanned(o.Pubkey) {
 		jsonErr(w, http.StatusForbidden, "tower inference requires a signed-in account that has accepted the terms of service")
 		return
 	}

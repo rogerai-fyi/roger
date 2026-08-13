@@ -249,3 +249,26 @@ func TestEdgeAuthorizeRequiresASignedInAccount(t *testing.T) {
 	code, _ = consumerCall(t, srv, member, "/tower/edge/authorize", map[string]any{"model": "m"})
 	require.Equal(t, http.StatusOK, code)
 }
+
+// A banned account is signed in but must not be served or charged - refused with the same 403 as
+// an unknown account, so a ban cannot be distinguished from "not signed in".
+func TestEdgeAuthorizeRefusesABannedAccount(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	op := signedInOperator(t, b, "octocat")
+	tw := enrolledTower(t, b, op.login)
+	attachStation(t, b, "st-1", tw.id, ownerPubkeyOf(t, b, op.login))
+	routableEdge(t, b, tw.id, "st-1", "m", "203.0.113.7:8443")
+
+	member := signedInConsumer(t, b)
+	memberPub := hexOf(member.Public().(ed25519.PublicKey))
+	// Ban that account.
+	b.metricsMu.Lock()
+	if b.bannedOwners == nil {
+		b.bannedOwners = map[string]bool{}
+	}
+	b.bannedOwners[memberPub] = true
+	b.metricsMu.Unlock()
+
+	code, _ := consumerCall(t, srv, member, "/tower/edge/authorize", map[string]any{"model": "m"})
+	require.Equal(t, http.StatusForbidden, code, "a banned account is refused")
+}
