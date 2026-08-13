@@ -1143,8 +1143,18 @@
     var low = t.toLowerCase();
     for (var i = 0; i < TEMPLATES.length; i++) {
       var tpl = TEMPLATES[i];
-      var assetWords = tpl.asset.split("_").concat(tpl.cause.split("_"));
-      var hit = assetWords.filter(function (w) { return w.length > 3 && low.indexOf(w) >= 0; });
+      // Stems, not whole words: the founder's own phrasing is "cavitating pump",
+      // and "cavitating" does not contain "cavitation" - but both contain
+      // "cavita". Six characters of stem is enough to be specific in this
+      // catalogue, and the fault vocabulary counts too ("stuck vibration").
+      var words = tpl.asset.split("_")
+        .concat(tpl.cause.split("_"))
+        .concat([tpl.fault.kind, tpl.fault.channel.split("_")[0]]);
+      var hit = words.filter(function (w) {
+        if (w.length <= 3) return false;
+        var stem = w.length > 6 ? w.slice(0, 6) : w;
+        return low.indexOf(stem) >= 0;
+      });
       if (hit.length >= 2) return { kind: "scenario", template: tpl, evidence: hit };
     }
     for (var name in cat) {
