@@ -479,15 +479,15 @@
           </div>
 
 
-          <!-- ================= THE REACTIVE BENCH =================
-               The sheet starts as just the signal. Drag models in and the
-               cables draw THEMSELVES - the sheet knows the only topology
-               that exists (feed fans out to Picos, Picos roll up to the
-               Nano, the Nano briefs the operator), so there is nothing to
-               mis-wire, only things to learn. Each Pico carries a rotary
-               FLOOR knob whose detents are exactly the four measured
-               sweep points; the chain physically ends in a lamp window
-               and a chart strip that narrate every move.
+          <!-- ================= THE SIGNAL BENCH =================
+               A wall of recorded sensors on the left, each with a big
+               ON/OFF lever and a CONDITION dial whose positions are exactly
+               the conditions recorded for that channel - the dial cannot
+               ask for an unrecorded condition. A radio in the middle: seat
+               ANY Wave family model; only the two slots with a recorded run
+               on this bench can speak. A console on the right that prints
+               what the model SAID (the recorded prediction), under the
+               founder-mandated green/yellow/red lamp.
 
                Everything replayed here is a RECORDED run. No model executes
                in this browser, so a lamp may only change colour because a
@@ -498,36 +498,27 @@
           </div>
 
           <div class="wp-bar wp-bar--rail">
-            <span class="wp-rail__k">Modules &mdash; drag onto the sheet</span>
-            <div class="wp-rail" id="wpRail"></div>
+            <span class="wp-rail__k">The Wave family &mdash; tap to seat</span>
+            <div class="wp-rail" id="wpShelf2" role="group" aria-label="Model shelf"></div>
           </div>
 
-          <div class="wp-bench2">
-            <div class="wp-sheetwrap">
-              <div class="wp-sheet" id="wpSheet">
-                <svg class="wp-wires" id="wpWires" aria-hidden="true">
-                  <defs>
-                    <!-- one marker: the palette is monochrome, so context-stroke
-                         (which Safari has never shipped) is never needed -->
-                    <marker id="wpArrow" viewBox="0 0 8 8" refX="4" refY="4"
-                            markerWidth="7" markerHeight="7" markerUnits="userSpaceOnUse"
-                            orient="auto-start-reverse">
-                      <path d="M1 1 L7 4 L1 7 z" fill="currentColor" />
-                    </marker>
-                  </defs>
-                </svg>
-              </div>
-            </div>
+          <div class="wb-bench" id="wbBench">
+            <div class="wb-wall" id="wbWall" role="group" aria-label="Sensor wall"></div>
+
+            <div class="wb-mid" id="wbMid"></div>
 
             <!-- The status console: where the chain ends. The lamp window is
                  the founder-mandated green/yellow/red verdict (NE-107-style
-                 shapes ride along for colour-blind readers); the strip below
-                 it is a chart recorder narrating how the bench reacted to the
-                 last thing you did. Both are RECOUNTS of recorded records. -->
+                 shapes ride along for colour-blind readers); WHAT IT SAYS is
+                 the per-sensor replay of the recorded predictions; the strip
+                 is a chart recorder narrating every move. All RECOUNTS. -->
             <aside class="wp-console" aria-label="Fleet status">
               <span class="wp-console__k">FLEET STATUS</span>
               <div class="wp-lampwin" id="wpLamp2" data-state="off"></div>
               <p class="wp-why" id="wpWhy"></p>
+              <div class="wp-console__op" id="wbOp"></div>
+              <span class="wp-console__k">WHAT IT SAYS &middot; RECORDED</span>
+              <ol class="wp-reads" id="wpReads"></ol>
               <span class="wp-console__k">CHART STRIP</span>
               <ol class="wp-strip" id="wpStrip"></ol>
             </aside>
@@ -574,24 +565,16 @@
             <ol class="wp-mirror" id="wpMirror"></ol>
           </details>
 
-          <!-- ================= THE RESULTS =================
+          <!-- ================= THE INSPECTOR =================
                No gauge wall: the measured numbers live where the controls
-               are - on the knob's tooltip and in each tile's inspector -
+               are - on the knob's tooltip, in WHAT IT SAYS, and here -
                because a bench engineer reads an instrument, not a report. -->
-          <div class="wp-results">
-            <div class="wp-panel">
-              <div class="wp-panel__head">
-                <b>What it asserted</b>
-                <span class="wp-tag">RECORDED</span>
-              </div>
-              <ol class="wp-feed" id="wpFeed"></ol>
-            </div>
-
+          <div class="wp-results wp-results--one">
             <div class="wp-panel">
               <div class="wp-panel__head"><b>Inspector</b></div>
               <div id="wpInspect">
-                <p class="wp-inspect__placeholder">Click a tile, a cable, or a result bubble -
-                  its certificate, its bytes, or its envelope appears here.</p>
+                <p class="wp-inspect__placeholder">Tap a sensor or the radio -
+                  its record, its certificate, or its envelope appears here.</p>
               </div>
             </div>
           </div>

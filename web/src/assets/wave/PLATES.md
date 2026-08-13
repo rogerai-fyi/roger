@@ -21,6 +21,9 @@ where redness = R−max(G,B) > 28, MedianFilter 3). Spot plates must stay < 16 K
 | `gearbox-cutaway-*` | Gearbox cutaway, sectioned housing + helical gear, no red | 640×448 | 131 KB / 1.2 KB (empty) | 42 | `fecdcad803d5` | Template-card art for drivetrain/mechanical templates (tonally the heaviest plate — use on roomy cards) |
 | `tape-reader-*` | Paper-tape reader feeding punched tape into a small radio; red lamp on the radio | 768×448 | 87 KB / 1.8 KB | 7 | `7ec73decc69b` | The "paste your plant's bytes in" intake/paste vignette |
 | `mast-ladder-*` | Four lattice masts, tiny → tall, linked by wires; red beacon on the tallest | 1408×480 | 59 KB / 2.9 KB | 1337 | `06445fe7b9b6` | Tier-ladder plate (pico → nano → micro → core) for pricing/broadcast-article headers |
+| `sensor-gauge-*` | Round-dial process sensor on a transmitter box, no red | 190×312 | 33 KB / 0.3 KB (empty) | 42 | `p-sensor.txt` sha256 n/a - prompt archived in session scratchpad | The signal bench's sensor-wall cards (wired) |
+| `radio-reader-*` | Compact 1950s tabletop radio, red lamp on the VU meter | 580×380 | 131 KB / 1.4 KB | 42 | (cropped from plate-reader raw; knob-label microtext zapped) | The signal bench's READER radio (wired) |
+| `radio-senior-*` | Tall rack-mounted radio console, three stacked panels, no red | 512×640 | 147 KB / 1.3 KB (empty) | 42 | (from plate-senior raw) | The signal bench's SENIOR rack (wired) |
 
 Notes:
 - Raw Flux outputs live in the ComfyUI output dir (`plate-*` prefixes); prompt

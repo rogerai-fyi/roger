@@ -15,81 +15,7 @@
 
 /* ---- the shelf of templates ------------------------------------------ */
 
-/* ---- the sheet -------------------------------------------------------- */
-.wp-sheetwrap { position: relative; overflow-x: auto; overflow-y: hidden; display: flex; justify-content: center; }
-.wp-sheet {
-  position: relative; flex: none;
-  background: var(--paper);
-  /* A drafting grid, one hairline, very faint. It is the only "texture" here
-     and it earns its place by making the snap pitch legible. */
-  background-image:
-    linear-gradient(to right, var(--hairline) 1px, transparent 1px),
-    linear-gradient(to bottom, var(--hairline) 1px, transparent 1px);
-  background-size: 28px 28px;
-  border: 1px solid var(--hairline-2); border-radius: 10px;
-  touch-action: none;  /* the sheet owns its gestures; no scroll-stealing */
-}
-.wp-wires { position: absolute; inset: 0; pointer-events: none; overflow: visible; }
 
-/* ---- wires ------------------------------------------------------------
-   Orthogonal with small quadratic corners. An escalation is an exception
-   route, so it is DOTTED - the visitor sees the exception path before
-   anything travels it. */
-.wp-wire__line {
-  fill: none; stroke: var(--ink-300); stroke-width: 1.5;
-  vector-effect: non-scaling-stroke;
-}
-.wp-wire--escalate .wp-wire__line { stroke-dasharray: 4 4; stroke: var(--ink-400); }
-/* The hit target: zero stroke OPACITY (not stroke:none) so visibleStroke
-   still hit-tests it. 20px pointer, 32px on coarse. */
-.wp-wire__hit {
-  fill: none; stroke: #000; stroke-opacity: 0; stroke-width: 20;
-  pointer-events: visibleStroke; cursor: pointer;
-}
-@media (pointer: coarse) { .wp-wire__hit { stroke-width: 32; } }
-.wp-wire:hover .wp-wire__line { stroke: var(--ink-700); }
-
-/* the one packet, on a run */
-.wp-packet { fill: var(--live); offset-rotate: auto; animation: wp-travel 900ms linear; }
-@keyframes wp-travel { from { offset-distance: 0%; } to { offset-distance: 100%; } }
-@media (prefers-reduced-motion: reduce) { .wp-packet { display: none; } }
-
-/* ---- tiles ------------------------------------------------------------ */
-.wp-tile {
-  position: absolute; box-sizing: border-box;
-  background: var(--paper); border: 1px solid var(--ink-300); border-radius: 8px;
-  padding: .45rem .55rem; cursor: pointer;
-  display: flex; flex-direction: column; gap: .25rem;
-}
-/* the screw heads, same trick the bench plate uses - it costs nothing and it
-   is most of what makes a rectangle read as equipment */
-.wp-tile::before, .wp-tile::after {
-  content: ""; position: absolute; top: 5px; width: 5px; height: 5px; border-radius: 50%;
-  background: linear-gradient(45deg, var(--ink-300) 45%, var(--paper-3) 45% 55%, var(--ink-300) 55%);
-}
-.wp-tile::before { left: 5px; }
-.wp-tile::after  { right: 5px; }
-.wp-tile:hover { border-color: var(--ink-500); }
-/* Selection is a halo, not a border-colour change - it does not spend the
-   accent, and it survives on any background (Node-RED 5.0's call). */
-.wp-tile.is-sel { box-shadow: 0 0 0 3px var(--paper-3), 0 0 0 4px var(--ink-300); }
-.wp-tile:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
-.wp-tile--human { border-style: dashed; }
-.wp-tile.is-live { border-color: var(--live); }
-
-.wp-tile__plate {
-  display: flex; align-items: baseline; gap: .35rem; justify-content: center;
-  border-bottom: 1px solid var(--hairline); padding-bottom: .2rem;
-}
-.wp-tile__name {
-  font-family: var(--font-mono); font-size: var(--t-micro, .66rem);
-  letter-spacing: .14em; text-transform: uppercase; color: var(--ink-900);
-}
-.wp-tile__tier, .wp-tile__live {
-  font-family: var(--font-mono); font-size: .56rem; letter-spacing: .1em; color: var(--ink-400);
-}
-.wp-tile__live { color: var(--live); }
-.wp-tile__meta { font-size: var(--t-micro, .68rem); color: var(--ink-500); text-align: center; }
 
 /* tile lamps speak NE-107: ok / check / failure - coloured to match the
    window's founder-mandated signal hues */
@@ -126,18 +52,6 @@
 .wp-scope__onset { stroke: var(--live); stroke-width: 1; stroke-dasharray: 3 3; }
 
 
-.wp-feed { list-style: none; margin: 0; padding: 0; max-height: 15rem; overflow-y: auto;
-  display: flex; flex-direction: column; gap: .15rem; }
-.wp-rec {
-  display: flex; gap: .4rem; align-items: baseline; flex-wrap: wrap;
-  font-family: var(--font-mono); font-size: .62rem;
-  padding: .22rem .35rem; border-bottom: 1px solid var(--hairline);
-}
-.wp-rec__kind { color: var(--ink-400); letter-spacing: .08em; text-transform: uppercase; font-size: .54rem; }
-.wp-rec--esc .wp-rec__kind, .wp-rec--esc .wp-rec__adj { color: var(--live); }
-.wp-rec__id { color: var(--ink-400); }
-.wp-rec__pred { color: var(--ink-900); }
-.wp-rec__m { color: var(--ink-500); font-variant-numeric: tabular-nums; }
 
 .wp-note { font-size: var(--t-micro, .7rem); color: var(--ink-500); line-height: 1.5; margin: .5rem 0 0; }
 .wp-cert { display: grid; grid-template-columns: auto 1fr; gap: .1rem .6rem; margin: .4rem 0 0;
@@ -182,64 +96,7 @@
   font-size: .58rem; line-height: 1.45; white-space: pre; color: var(--ink-700);
 }
 
-/* ---- the module rail: drag onto the sheet, snap into a column ---------- */
-.wp-rail { display: flex; gap: .5rem; align-items: stretch; }
-.wp-rail__k {
-  font-family: var(--font-mono); font-size: .58rem; letter-spacing: .12em;
-  color: var(--ink-400); align-self: center; text-transform: uppercase;
-}
-.wp-mod {
-  display: flex; gap: .5rem; align-items: center;
-  padding: .45rem .7rem .45rem .5rem; border-radius: 8px; cursor: grab;
-  border: 1px solid var(--ink-300); background: var(--paper);
-  font: inherit; color: inherit; touch-action: none;
-  box-shadow: 0 1px 0 var(--hairline-2);
-}
-.wp-mod:active { cursor: grabbing; }
-.wp-mod__grip { font-style: normal; color: var(--ink-300); font-size: .8rem; }
-.wp-mod__body { display: flex; flex-direction: column; gap: .05rem; text-align: left; }
-.wp-mod__body b { font-family: var(--font-mono); font-size: .66rem; letter-spacing: .1em; text-transform: uppercase; }
-.wp-mod__body span { font-size: .62rem; color: var(--ink-400); }
-.wp-mod:hover { border-color: var(--ink-500); }
-.wp-mod:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
 
-/* ---- drag states: lift, ghost, snap ------------------------------------ */
-body.wp-dragging { cursor: grabbing; user-select: none; }
-.wp-ghost {
-  position: fixed; z-index: 40; pointer-events: none;
-  padding: .5rem .8rem; border-radius: 8px;
-  font-family: var(--font-mono); font-size: .66rem; letter-spacing: .1em; text-transform: uppercase;
-  background: var(--paper); border: 1px solid var(--ink-700); color: var(--ink-900);
-  box-shadow: 0 6px 18px rgba(0,0,0,.18);
-}
-/* the landing slot: a dashed socket that appears where the module will snap */
-.wp-snap {
-  position: absolute; display: none; pointer-events: none;
-  border: 1.5px dashed var(--live); border-radius: 10px;
-  background: var(--live-wash);
-}
-.wp-tile.is-lift { opacity: .35; }
-
-/* column headings engraved into the sheet */
-.wp-colhead {
-  position: absolute; top: 8px; text-align: center;
-  font-family: var(--font-mono); font-size: .56rem; letter-spacing: .22em;
-  color: var(--ink-300); pointer-events: none; text-transform: uppercase;
-}
-
-/* ---- depth: the tiles sit ON the sheet, not in it ---------------------- */
-.wp-tile {
-  box-shadow: 0 1px 0 var(--hairline-2), 0 3px 10px rgba(0,0,0,.07);
-  transition: box-shadow .15s ease, transform .15s ease;
-}
-.wp-tile:hover { box-shadow: 0 1px 0 var(--hairline-2), 0 6px 16px rgba(0,0,0,.12); }
-@media (prefers-reduced-motion: reduce) { .wp-tile { transition: none; } }
-
-/* the wire's under-stroke: cable body without a filter */
-.wp-wire__under {
-  fill: none; stroke: var(--ink-900); stroke-opacity: .06; stroke-width: 5;
-  vector-effect: non-scaling-stroke;
-}
 
 .wp-remove {
   margin-top: .5rem; padding: .3rem .6rem; border-radius: 6px; cursor: pointer;
@@ -277,11 +134,6 @@ body.wp-dragging { cursor: grabbing; user-select: none; }
 }
 
 /* ---- INTAKE: the translation shim -------------------------------------- */
-.wp-tile--intake { border-style: dashed; }
-.wp-tile__badge {
-  font-family: var(--font-mono); font-size: .52rem; letter-spacing: .06em;
-  color: var(--ink-400); text-align: center;
-}
 .wp-intake {
   margin-top: var(--s-3, .75rem); padding: .8rem;
   border: 1px dashed var(--hairline-2); border-radius: 10px;
@@ -382,24 +234,7 @@ body.wp-dragging { cursor: grabbing; user-select: none; }
    THE REACTIVE BENCH - knobs, faders, jacks, the lamp window, the strip
    ===================================================================== */
 
-/* passive jacks: the sheet wires itself, so a jack is equipment texture,
-   not a control - no focus ring, no hand cursor, no state machine */
-.wp-jack {
-  width: 10px; height: 10px; border-radius: 50%;
-  border: 1.5px solid var(--ink-500); background: var(--ink-700);
-  display: inline-block;
-}
-.wp-jack--in  { position: absolute; left: -6px; top: 50%; transform: translateY(-50%); background: var(--paper); }
-.wp-jack--out { position: absolute; right: -6px; top: 50%; transform: translateY(-50%); }
-.wp-jack.is-dark { background: var(--paper-3); border-color: var(--ink-300); }
 
-/* the tile's inner bench row: control on the left, lamp + minis on the right */
-.wp-tile__row { display: flex; align-items: center; justify-content: space-between; gap: .4rem; }
-.wp-tile__side { display: flex; flex-direction: column; align-items: flex-end; gap: .15rem; }
-.wp-tile__mini {
-  font-family: var(--font-mono); font-size: .56rem; color: var(--ink-500);
-  font-variant-numeric: tabular-nums; white-space: nowrap;
-}
 
 /* ---- the floor KNOB -----------------------------------------------------
    A rotary with FOUR detents, because four floors is all that was measured.
@@ -418,19 +253,7 @@ body.wp-dragging { cursor: grabbing; user-select: none; }
   color: var(--ink-400); text-transform: uppercase;
 }
 
-/* ---- the feed FADER ------------------------------------------------------ */
-.wp-fader { display: flex; flex-direction: column; gap: .1rem; width: 100%; }
-.wp-fader__slide { width: 100%; accent-color: var(--ink-700); cursor: ew-resize; }
-.wp-fader__slide:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
-.wp-fader__k {
-  font-family: var(--font-mono); font-size: .54rem; letter-spacing: .1em;
-  color: var(--ink-400); text-transform: uppercase;
-}
-.wp-fader__v { font-family: var(--font-mono); font-size: .6rem; color: var(--ink-900); font-variant-numeric: tabular-nums; }
 
-/* ---- the bench: sheet + status console side by side --------------------- */
-.wp-bench2 { display: grid; grid-template-columns: 1fr 15rem; gap: var(--s-4, 1rem); align-items: stretch; }
-@media (max-width: 900px) { .wp-bench2 { grid-template-columns: 1fr; } }
 .wp-console {
   display: flex; flex-direction: column; gap: .45rem;
   border: 1px solid var(--hairline-2); border-radius: 10px;
@@ -475,7 +298,176 @@ body.wp-dragging { cursor: grabbing; user-select: none; }
 .wp-strip__line { color: var(--ink-500); }
 .wp-strip__t { color: var(--ink-300); flex: none; }
 
-/* a channel the visitor patched in themselves rides a marked wire: dotted,
-   because a DRAFT never carries a packet */
-.wp-wire--user .wp-wire__line { stroke-dasharray: 2 3; stroke: var(--ink-400); }
+/* =====================================================================
+   THE SIGNAL BENCH - the wall, the radio, the console
+   ===================================================================== */
+
+/* the shelf rail: the family in one row, wrapping on small screens */
+.wp-rail { display: flex; gap: .5rem; align-items: stretch; flex-wrap: wrap; }
+.wp-rail__k {
+  font-family: var(--font-mono); font-size: .56rem; letter-spacing: .16em;
+  color: var(--ink-400); text-transform: uppercase; align-self: center;
+}
+
+/* the bench: wall | radio | console */
+.wb-bench {
+  position: relative;
+  display: grid; grid-template-columns: 15.5rem 1fr 17rem;
+  gap: var(--s-4, 1rem); align-items: start;
+}
+@media (max-width: 1080px) { .wb-bench { grid-template-columns: 13rem 1fr 15rem; } }
+@media (max-width: 860px) { .wb-bench { grid-template-columns: 1fr; } }
+
+/* the cables draw themselves over the bench, never catching a tap */
+.wb-cables { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
+.wb-cable {
+  fill: none; stroke: var(--ink-700); stroke-width: 1.6;
+  vector-effect: non-scaling-stroke;
+}
+.wb-cable--esc { stroke-dasharray: 4 4; stroke: var(--ink-400); }
+
+/* ---- the sensor wall ---------------------------------------------------- */
+.wb-wall { display: flex; flex-direction: column; gap: .6rem; }
+.wb-sensor {
+  position: relative; border: 1px solid var(--hairline-2); border-radius: 10px;
+  background: var(--paper-2); padding: .6rem .7rem;
+  display: grid; grid-template-columns: 3.2rem 1fr auto; grid-template-rows: auto auto;
+  gap: .2rem .6rem; align-items: center;
+  opacity: .62; transition: opacity .2s ease, border-color .2s ease;
+}
+.wb-sensor.is-on { opacity: 1; border-color: var(--ink-300); }
+@media (prefers-reduced-motion: reduce) { .wb-sensor { transition: none; } }
+
+/* the sensor's engraved instrument, re-inked per theme (illustration only) */
+.wb-sensor__art { grid-row: 1 / 3; width: 3.2rem; height: 3.6rem; position: relative; }
+.wb-sensor__art .wb-plate__ink {
+  position: absolute; inset: 0; background: var(--ink-900);
+  -webkit-mask-image: url("../assets/wave/sensor-gauge-ink.png");
+  mask-image: url("../assets/wave/sensor-gauge-ink.png");
+  -webkit-mask-size: contain; mask-size: contain;
+  -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+  -webkit-mask-position: center; mask-position: center;
+}
+.wb-sensor__art--tape .wb-plate__ink {
+  -webkit-mask-image: url("../assets/wave/tape-reader-ink.png");
+  mask-image: url("../assets/wave/tape-reader-ink.png");
+}
+.wb-sensor__head { display: flex; flex-direction: column; gap: .1rem; min-width: 0; }
+.wb-sensor__head b {
+  font-family: var(--font-mono); font-size: .68rem; letter-spacing: .12em;
+}
+.wb-sensor__ch { font-size: .6rem; color: var(--ink-400); font-family: var(--font-mono); }
+.wb-sensor__dial { grid-column: 3; grid-row: 1 / 3; }
+.wb-sensor__dial.is-dim { opacity: .45; }
+.wb-sensor--intake { border-style: dashed; cursor: pointer; grid-template-rows: auto; }
+.wb-sensor--intake:hover { border-color: var(--ink-500); }
+.wb-sensor--intake:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
+
+/* ---- the lever: a big honest ON/OFF switch ------------------------------ */
+.wb-lever {
+  grid-column: 2; display: inline-flex; align-items: center; gap: .45rem;
+  padding: .28rem .5rem; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--hairline-2); background: var(--paper);
+  font: inherit; color: var(--ink-500); width: fit-content;
+}
+.wb-lever__k {
+  font-family: var(--font-mono); font-size: .56rem; letter-spacing: .12em;
+}
+.wb-lever__pip {
+  width: 1.7rem; height: .9rem; border-radius: 999px; position: relative;
+  border: 1px solid var(--ink-300); background: var(--paper-3); flex: none;
+}
+.wb-lever__pip::after {
+  content: ""; position: absolute; top: 1px; left: 1px;
+  width: .74rem; height: .74rem; border-radius: 50%;
+  background: var(--ink-400); transition: left .15s ease, background .15s ease;
+}
+.wb-lever.is-on { color: var(--ink-900); border-color: var(--ink-500); }
+.wb-lever.is-on .wb-lever__pip::after { left: calc(100% - .78rem); background: var(--ink-900); }
+@media (prefers-reduced-motion: reduce) { .wb-lever__pip::after { transition: none; } }
+.wb-lever:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
+
+/* ---- the radio ----------------------------------------------------------- */
+.wb-mid { display: flex; flex-direction: column; gap: .8rem; align-items: center; position: relative; z-index: 2; }
+.wb-radio {
+  width: 100%; max-width: 26rem; border: 1px solid var(--hairline-2); border-radius: 12px;
+  background: var(--paper-2); padding: .8rem; cursor: pointer;
+  display: flex; flex-direction: column; gap: .5rem; align-items: center;
+}
+.wb-radio.is-seated { border-color: var(--ink-300); }
+.wb-radio__art { width: 100%; aspect-ratio: 580 / 380; max-height: 14rem; position: relative; }
+.wb-radio__art .wb-plate__ink, .wb-radio__art .wb-plate__spot {
+  position: absolute; inset: 0;
+  -webkit-mask-size: contain; mask-size: contain;
+  -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+  -webkit-mask-position: center; mask-position: center;
+}
+.wb-radio__art .wb-plate__ink {
+  background: var(--ink-900);
+  -webkit-mask-image: url("../assets/wave/radio-reader-ink.png");
+  mask-image: url("../assets/wave/radio-reader-ink.png");
+}
+/* the radio's one red glint: the recorded lamp on the engraved faceplate */
+.wb-radio__art .wb-plate__spot {
+  background: var(--live);
+  -webkit-mask-image: url("../assets/wave/radio-reader-spot.png");
+  mask-image: url("../assets/wave/radio-reader-spot.png");
+}
+.wb-radio__face { display: flex; flex-direction: column; gap: .25rem; align-items: center; text-align: center; }
+.wb-radio__face b { font-family: var(--font-mono); font-size: .78rem; letter-spacing: .14em; }
+.wb-radio__sub { font-family: var(--font-mono); font-size: .6rem; color: var(--ink-400); }
+
+/* the senior's rack, when a Pico reader is seated */
+.wb-senior {
+  width: 100%; max-width: 15rem; border: 1px dashed var(--hairline-2); border-radius: 10px;
+  background: var(--paper-2); padding: .6rem; text-align: center;
+  display: flex; flex-direction: column; gap: .3rem; align-items: center;
+  opacity: .6;
+}
+.wb-senior.is-seated { opacity: 1; border-style: solid; border-color: var(--ink-300); }
+.wb-senior b { font-family: var(--font-mono); font-size: .64rem; letter-spacing: .12em; }
+.wb-senior__art { width: 4.4rem; aspect-ratio: 512 / 640; position: relative; }
+.wb-senior__art .wb-plate__ink {
+  position: absolute; inset: 0; background: var(--ink-900);
+  -webkit-mask-image: url("../assets/wave/radio-senior-ink.png");
+  mask-image: url("../assets/wave/radio-senior-ink.png");
+  -webkit-mask-size: contain; mask-size: contain;
+  -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+  -webkit-mask-position: center; mask-position: center;
+}
+
+/* ---- the shelf chips ------------------------------------------------------ */
+.wb-chip {
+  display: flex; flex-direction: column; gap: .05rem; align-items: flex-start;
+  padding: .4rem .7rem; border-radius: 8px; cursor: pointer;
+  border: 1px solid var(--hairline-2); background: var(--paper); font: inherit;
+  color: var(--ink-500); text-align: left;
+}
+.wb-chip b { font-family: var(--font-mono); font-size: .64rem; letter-spacing: .1em; color: var(--ink-900); }
+.wb-chip span { font-family: var(--font-mono); font-size: .54rem; }
+.wb-chip:hover { border-color: var(--ink-500); }
+.wb-chip.is-seated { border-color: var(--ink-900); background: var(--paper-2); }
+.wb-chip:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
+
+/* ---- WHAT IT SAYS: the recorded predictions, one line per sensor -------- */
+.wp-reads {
+  list-style: none; margin: 0; padding: .5rem .6rem;
+  border: 1px solid var(--hairline-2); border-radius: 8px; background: var(--paper);
+  font-family: var(--font-mono); font-size: .6rem; line-height: 1.6;
+  max-height: 13rem; overflow-y: auto;
+}
+.wp-read { display: flex; gap: .45rem; align-items: baseline; padding: .1rem 0; flex-wrap: wrap; }
+.wp-read + .wp-read { border-top: 1px dotted var(--hairline-2); }
+.wp-read b { flex: none; color: var(--ink-900); }
+.wp-read__cond { color: var(--ink-400); flex: none; letter-spacing: .06em; }
+.wp-read__said { color: var(--ink-700); }
+.wp-read__m { color: var(--ink-400); font-variant-numeric: tabular-nums; }
+.wp-read__mark { margin-left: auto; letter-spacing: .08em; }
+.wp-read__mark--ok { color: #1E7A3C; }
+.wp-read__mark--bad { color: var(--live); }
+.wp-read__mark--dead { color: #C99700; }
+.wp-read--esc .wp-read__cond { color: var(--ink-500); }
+.wp-read--quiet { color: var(--ink-400); }
+.wp-console__op { display: flex; }
+.wp-console__op .wb-lever { grid-column: auto; }
 
