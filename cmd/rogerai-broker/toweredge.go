@@ -144,7 +144,10 @@ func (b *broker) towerEdgeAuthorize(w http.ResponseWriter, r *http.Request) {
 	}
 	// A banned account is signed in but not entitled to be served or charged. The refusal is the
 	// same 403 as an absent account, so a ban is not distinguishable from "not signed in" to a
-	// prober.
+	// prober. The ban is checked per DEVICE KEY, matching the direct serving path (tunnel.go); a
+	// per-ACCOUNT ban (one that follows every device key an account holds, as self-dealing
+	// detection already does via sameAccount) is a system-wide model change to make deliberately,
+	// not something the edge path should do unilaterally and inconsistently with the rest.
 	if b.isOwnerBanned(o.Pubkey) {
 		jsonErr(w, http.StatusForbidden, "tower inference requires a signed-in account that has accepted the terms of service")
 		return
