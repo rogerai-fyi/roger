@@ -479,43 +479,58 @@
           </div>
 
 
-          <!-- ================= THE PATCH SHEET =================
-               Top half: wire a machine to a model. Devices sit at the bottom,
-               models above, a person at the top; escalation only travels up,
-               so geometry is semantics and a wire can never point backwards.
-               Tap a port, it arms, tap the target - the same state machine
-               the keyboard uses. Bottom half: what the patch produced.
+          <!-- ================= THE REACTIVE BENCH =================
+               The sheet starts as just the signal. Drag models in and the
+               cables draw THEMSELVES - the sheet knows the only topology
+               that exists (feed fans out to Picos, Picos roll up to the
+               Nano, the Nano briefs the operator), so there is nothing to
+               mis-wire, only things to learn. Each Pico carries a rotary
+               FLOOR knob whose detents are exactly the four measured
+               sweep points; the chain physically ends in a lamp window
+               and a chart strip that narrate every move.
 
                Everything replayed here is a RECORDED run. No model executes
-               in this browser, so a packet may only move on a wire because a
-               real record moved on it. -->
+               in this browser, so a lamp may only change colour because a
+               recount of real records changed it. -->
           <div class="wp-bar">
-            <button class="wp-run" id="wpRun" type="button">RUN</button>
             <span class="wp-tag">REPLAY &middot; RECORDED</span>
             <span class="wp-note" id="wpProv" style="margin:0"></span>
           </div>
-
-          <div class="wp-shelf" id="wpShelf" role="group" aria-label="Patch templates"></div>
 
           <div class="wp-bar wp-bar--rail">
             <span class="wp-rail__k">Modules &mdash; drag onto the sheet</span>
             <div class="wp-rail" id="wpRail"></div>
           </div>
 
-          <div class="wp-sheetwrap">
-            <div class="wp-sheet" id="wpSheet">
-              <svg class="wp-wires" id="wpWires" aria-hidden="true">
-                <defs>
-                  <!-- one marker: the palette is monochrome, so context-stroke
-                       (which Safari has never shipped) is never needed -->
-                  <marker id="wpArrow" viewBox="0 0 8 8" refX="4" refY="4"
-                          markerWidth="7" markerHeight="7" markerUnits="userSpaceOnUse"
-                          orient="auto-start-reverse">
-                    <path d="M1 1 L7 4 L1 7 z" fill="currentColor" />
-                  </marker>
-                </defs>
-              </svg>
+          <div class="wp-bench2">
+            <div class="wp-sheetwrap">
+              <div class="wp-sheet" id="wpSheet">
+                <svg class="wp-wires" id="wpWires" aria-hidden="true">
+                  <defs>
+                    <!-- one marker: the palette is monochrome, so context-stroke
+                         (which Safari has never shipped) is never needed -->
+                    <marker id="wpArrow" viewBox="0 0 8 8" refX="4" refY="4"
+                            markerWidth="7" markerHeight="7" markerUnits="userSpaceOnUse"
+                            orient="auto-start-reverse">
+                      <path d="M1 1 L7 4 L1 7 z" fill="currentColor" />
+                    </marker>
+                  </defs>
+                </svg>
+              </div>
             </div>
+
+            <!-- The status console: where the chain ends. The lamp window is
+                 the founder-mandated green/yellow/red verdict (NE-107-style
+                 shapes ride along for colour-blind readers); the strip below
+                 it is a chart recorder narrating how the bench reacted to the
+                 last thing you did. Both are RECOUNTS of recorded records. -->
+            <aside class="wp-console" aria-label="Fleet status">
+              <span class="wp-console__k">FLEET STATUS</span>
+              <div class="wp-lampwin" id="wpLamp2" data-state="off"></div>
+              <p class="wp-why" id="wpWhy"></p>
+              <span class="wp-console__k">CHART STRIP</span>
+              <ol class="wp-strip" id="wpStrip"></ol>
+            </aside>
           </div>
           <p class="wp-say" id="wpSay" role="status" aria-live="polite"></p>
           <!-- ================= INTAKE - THE TRANSLATION SHIM =================
@@ -559,37 +574,11 @@
             <ol class="wp-mirror" id="wpMirror"></ol>
           </details>
 
-          <!-- ================= THE RESULTS ================= -->
+          <!-- ================= THE RESULTS =================
+               No gauge wall: the measured numbers live where the controls
+               are - on the knob's tooltip and in each tile's inspector -
+               because a bench engineer reads an instrument, not a report. -->
           <div class="wp-results">
-            <div class="wp-panel">
-              <div class="wp-panel__head">
-                <b>The signal</b>
-                <span class="wp-tag">RECORDED</span>
-              </div>
-              <svg class="wp-scope" id="wpScope" viewBox="0 0 520 96" role="img"
-                   aria-label="The channel trace, with the fault onset marked"></svg>
-              <p class="wp-note" id="wpScopeNote"></p>
-              <div class="wp-gauges">
-                <div class="wp-gauge">
-                  <span class="wp-gauge__k">macro recall</span>
-                  <span class="wp-gauge__v" id="wpMacro">-</span>
-                  <span class="wp-gauge__s" id="wpRaw"></span>
-                </div>
-                <div class="wp-gauge">
-                  <span class="wp-gauge__k">escalated</span>
-                  <span class="wp-gauge__v" id="wpEsc">-</span>
-                  <span class="wp-gauge__s" id="wpConfig"></span>
-                </div>
-                <div class="wp-gauge">
-                  <span class="wp-gauge__k">compute vs parent-everywhere</span>
-                  <span class="wp-gauge__v" id="wpCost">-</span>
-                  <span class="wp-gauge__s">residency proxy</span>
-                </div>
-              </div>
-              <p class="wp-unmeasured" id="wpUnmeasured" role="status"></p>
-              <p class="wp-note" id="wpCostNote"></p>
-            </div>
-
             <div class="wp-panel">
               <div class="wp-panel__head">
                 <b>What it asserted</b>

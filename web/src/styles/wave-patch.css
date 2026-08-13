@@ -14,18 +14,6 @@
    ===================================================================== */
 
 /* ---- the shelf of templates ------------------------------------------ */
-.wp-shelf { display: flex; gap: var(--s-2, .5rem); flex-wrap: wrap; margin: 0 0 var(--s-4, 1rem); }
-.wp-card {
-  display: flex; flex-direction: column; gap: .1rem; align-items: flex-start;
-  padding: .5rem .8rem; border-radius: 8px; cursor: pointer; text-align: left;
-  border: 1px solid var(--hairline-2); background: var(--paper);
-  font: inherit; color: inherit;
-}
-.wp-card b { font-size: var(--t-xs, .8rem); }
-.wp-card span { font-size: var(--t-micro, .68rem); color: var(--ink-400); }
-.wp-card:hover { border-color: var(--ink-300); }
-.wp-card[aria-pressed="true"] { border-color: var(--ink-900); background: var(--paper-2); }
-.wp-card:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
 
 /* ---- the sheet -------------------------------------------------------- */
 .wp-sheetwrap { position: relative; overflow-x: auto; overflow-y: hidden; display: flex; justify-content: center; }
@@ -103,69 +91,17 @@
 .wp-tile__live { color: var(--live); }
 .wp-tile__meta { font-size: var(--t-micro, .68rem); color: var(--ink-500); text-align: center; }
 
-/* ---- ports: two shapes, two fills, zero hue --------------------------- */
-.wp-tile__ports { display: flex; gap: .3rem; justify-content: center; flex-wrap: wrap; }
-.wp-port {
-  width: 13px; height: 13px; padding: 0; cursor: pointer;
-  background: var(--paper); border: 1.5px solid var(--ink-700);
-  position: relative;
-}
-/* a channel is round; an assertion record is square */
-.wp-port--chan { border-radius: 50%; }
-.wp-port--rec  { border-radius: 2px; }
-/* an OUTPUT is filled, an INPUT is hollow - direction readable without hue */
-.wp-port--out, .wp-port--up { background: var(--ink-700); }
-.wp-port--in { background: var(--paper); }
-/* the in/out ports sit on the tile edges so a wire meets them perpendicular:
-   signal flows left to right, so inputs are the LEFT edge, outputs the RIGHT */
-.wp-port--in  { position: absolute; left: -7px; top: 50%; transform: translateY(-50%); }
-.wp-port--up  { position: absolute; right: -7px; top: 50%; transform: translateY(-50%); }
-/* a device's channel outs stack on its right edge, one jack per moved channel */
-.wp-tile--device .wp-tile__ports {
-  position: absolute; right: -7px; top: 50%; transform: translateY(-50%);
-  display: flex; flex-direction: column; gap: .35rem;
-}
-.wp-port:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
-/* Once a wire is armed, where it can land becomes a perception task. */
-.wp-port.is-ok { border-color: var(--live); animation: wp-pulse 1.1s ease-in-out infinite; }
-.wp-port.is-no { opacity: .25; }
-@keyframes wp-pulse { 0%, 100% { box-shadow: 0 0 0 0 var(--live-wash); } 50% { box-shadow: 0 0 0 5px transparent; } }
-@media (prefers-reduced-motion: reduce) {
-  .wp-port.is-ok { animation: none; box-shadow: 0 0 0 3px var(--live-wash); }
-}
-body.wp-arming { cursor: crosshair; }
-
-/* ---- the margin VU, with the floor as a redline ----------------------- */
-.wp-vu { display: flex; flex-direction: column; gap: .12rem; }
-.wp-vu__track {
-  position: relative; display: block; height: 6px; border-radius: 2px;
-  background: var(--paper-3); border: 1px solid var(--hairline-2);
-}
-.wp-vu__bar { display: block; height: 100%; width: 0; background: var(--ink-700); }
-/* the floor is a hard tick, not a colour change; it MOVES when frame changes */
-.wp-vu__red { position: absolute; top: -2px; bottom: -2px; width: 1px; background: var(--live); }
-.wp-vu__k {
-  font-family: var(--font-mono); font-size: .56rem; color: var(--ink-400);
-  font-variant-numeric: tabular-nums slashed-zero;
-}
-
-/* ---- status lamps: shape carries the state ---------------------------- */
+/* tile lamps speak NE-107: ok / check / failure - coloured to match the
+   window's founder-mandated signal hues */
 .wp-lamp {
-  font-family: var(--font-mono); font-size: .58rem; letter-spacing: .06em;
-  color: var(--ink-500); text-align: center;
+  font-family: var(--font-mono); font-size: .56rem; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--ink-500); white-space: nowrap;
 }
-.wp-lamp[data-state="escalate"] { color: var(--live); }
+.wp-lamp[data-state="ok"]      { color: #1E7A3C; }
+.wp-lamp[data-state="check"]   { color: #C99700; }
+.wp-lamp[data-state="failure"] { color: var(--live); }
 
 /* ---- Make-style run bubbles: the result sits on its own tile ---------- */
-.wp-bubble {
-  position: absolute; top: -12px; right: -8px;
-  font-family: var(--font-mono); font-size: .56rem; line-height: 1;
-  padding: .22rem .4rem; border-radius: 9px; cursor: pointer;
-  background: var(--paper); border: 1px solid var(--ink-300); color: var(--ink-700);
-  white-space: nowrap;
-}
-.wp-bubble--esc { border-color: var(--live); color: var(--live); }
-.wp-bubble:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
 
 /* ---- the results half ------------------------------------------------- */
 .wp-results {
@@ -189,17 +125,6 @@ body.wp-arming { cursor: crosshair; }
 .wp-scope__line { fill: none; stroke: var(--ink-900); stroke-width: 1.2; vector-effect: non-scaling-stroke; }
 .wp-scope__onset { stroke: var(--live); stroke-width: 1; stroke-dasharray: 3 3; }
 
-.wp-gauges { display: flex; gap: 1.1rem; flex-wrap: wrap; margin-top: .6rem; }
-.wp-gauge { display: flex; flex-direction: column; gap: .05rem; min-width: 6.5rem; }
-.wp-gauge__k {
-  font-family: var(--font-mono); font-size: .56rem; letter-spacing: .07em; color: var(--ink-400);
-  text-transform: uppercase;
-}
-.wp-gauge__v {
-  font-size: 1.15rem; color: var(--ink-900);
-  font-variant-numeric: tabular-nums slashed-zero;
-}
-.wp-gauge__s { font-family: var(--font-mono); font-size: .58rem; color: var(--ink-400); }
 
 .wp-feed { list-style: none; margin: 0; padding: 0; max-height: 15rem; overflow-y: auto;
   display: flex; flex-direction: column; gap: .15rem; }
@@ -235,10 +160,11 @@ body.wp-arming { cursor: crosshair; }
 .wp-mirror { margin: .6rem 0 0; padding-left: 1.1rem; font-size: var(--t-micro, .7rem); color: var(--ink-500); }
 /* Visible AND announced: the old version was screen-reader-only, which left a
    sighted visitor with no feedback at all when a patch was refused. */
+/* the announcer: the CHART STRIP is the visible narrator now, so this line
+   is screen-reader-only - printing it twice would just be an echo */
 .wp-say {
-  display: block; min-height: 1.2em; margin: .4rem 0 0;
-  font-family: var(--font-mono); font-size: .62rem; letter-spacing: .04em;
-  color: var(--ink-500);
+  position: absolute; width: 1px; height: 1px; overflow: hidden;
+  clip-path: inset(50%); white-space: nowrap;
 }
 
 /* ---- cable inspection: the same truth in eight dialects ---------------- */
@@ -321,7 +247,6 @@ body.wp-dragging { cursor: grabbing; user-select: none; }
   border: 1px solid var(--hairline-2); background: var(--paper); color: var(--ink-500);
 }
 .wp-remove:hover { border-color: var(--ink-500); color: var(--ink-900); }
-.wp-unmeasured { font-family: var(--font-mono); font-size: .62rem; color: var(--ink-500); margin: .4rem 0 0; }
 
 /* ---- the masthead: an engraved plate that RE-INKS itself per theme ------
    Spot-colour printing, done in CSS. The illustration ships as two alpha
@@ -418,16 +343,6 @@ body.wp-dragging { cursor: grabbing; user-select: none; }
 .pg-mode[aria-selected="true"] b { color: var(--live); }
 .pg-mode:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
 
-/* the intake's jacks sit on its right edge like any other source */
-.wp-tile--intake .wp-tile__ports {
-  position: absolute; right: -7px; top: 50%; transform: translateY(-50%);
-  display: flex; flex-direction: column; gap: .35rem;
-}
-
-/* the ARMED port is the page's canonical red glint - the Heathkit rule:
-   the second colour marks only the current step */
-.wp-port.is-armed { background: var(--live); border-color: var(--live); }
-.wp-port.is-ok { border-width: 2px; background: var(--live-wash); }
 
 /* the inspector is a first-class panel, never an unlabeled div */
 .wp-inspect__placeholder { color: var(--ink-400); font-size: var(--t-micro, .7rem); }
@@ -457,11 +372,110 @@ body.wp-dragging { cursor: grabbing; user-select: none; }
   mask-image: url("../assets/wave/tape-reader-spot.png");
 }
 
-/* the needle sweeps on an explicit RUN (and only then) */
-.wp-vu__bar { transition: width .5s ease-out; }
-@media (prefers-reduced-motion: reduce) { .wp-vu__bar { transition: none; } }
 
 /* results: three panels on wide screens once the inspector is its own */
 @media (min-width: 1100px) {
   .wp-results { grid-template-columns: 1.3fr 1fr 1fr; }
 }
+
+/* =====================================================================
+   THE REACTIVE BENCH - knobs, faders, jacks, the lamp window, the strip
+   ===================================================================== */
+
+/* passive jacks: the sheet wires itself, so a jack is equipment texture,
+   not a control - no focus ring, no hand cursor, no state machine */
+.wp-jack {
+  width: 10px; height: 10px; border-radius: 50%;
+  border: 1.5px solid var(--ink-500); background: var(--ink-700);
+  display: inline-block;
+}
+.wp-jack--in  { position: absolute; left: -6px; top: 50%; transform: translateY(-50%); background: var(--paper); }
+.wp-jack--out { position: absolute; right: -6px; top: 50%; transform: translateY(-50%); }
+.wp-jack.is-dark { background: var(--paper-3); border-color: var(--ink-300); }
+
+/* the tile's inner bench row: control on the left, lamp + minis on the right */
+.wp-tile__row { display: flex; align-items: center; justify-content: space-between; gap: .4rem; }
+.wp-tile__side { display: flex; flex-direction: column; align-items: flex-end; gap: .15rem; }
+.wp-tile__mini {
+  font-family: var(--font-mono); font-size: .56rem; color: var(--ink-500);
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+
+/* ---- the floor KNOB -----------------------------------------------------
+   A rotary with FOUR detents, because four floors is all that was measured.
+   The knob physically cannot ask for an unmeasured number. */
+.wp-knob { display: flex; flex-direction: column; align-items: center; gap: .1rem; }
+.wp-knob { cursor: ns-resize; touch-action: none; }
+.wp-knob:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; border-radius: 8px; }
+.wp-knob__svg { display: block; width: 52px; height: 52px; }
+.wp-knob__ring { fill: var(--paper-2); stroke: var(--ink-500); stroke-width: 1.5; }
+.wp-knob__tick { stroke: var(--ink-400); stroke-width: 1.5; stroke-linecap: round; }
+.wp-knob__tick.is-on { stroke: var(--ink-900); }
+.wp-knob__cap { fill: var(--paper); stroke: var(--ink-700); stroke-width: 1.5; }
+.wp-knob__needle { stroke: var(--ink-900); stroke-width: 2.5; stroke-linecap: round; }
+.wp-knob__k {
+  font-family: var(--font-mono); font-size: .54rem; letter-spacing: .1em;
+  color: var(--ink-400); text-transform: uppercase;
+}
+
+/* ---- the feed FADER ------------------------------------------------------ */
+.wp-fader { display: flex; flex-direction: column; gap: .1rem; width: 100%; }
+.wp-fader__slide { width: 100%; accent-color: var(--ink-700); cursor: ew-resize; }
+.wp-fader__slide:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
+.wp-fader__k {
+  font-family: var(--font-mono); font-size: .54rem; letter-spacing: .1em;
+  color: var(--ink-400); text-transform: uppercase;
+}
+.wp-fader__v { font-family: var(--font-mono); font-size: .6rem; color: var(--ink-900); font-variant-numeric: tabular-nums; }
+
+/* ---- the bench: sheet + status console side by side --------------------- */
+.wp-bench2 { display: grid; grid-template-columns: 1fr 15rem; gap: var(--s-4, 1rem); align-items: stretch; }
+@media (max-width: 900px) { .wp-bench2 { grid-template-columns: 1fr; } }
+.wp-console {
+  display: flex; flex-direction: column; gap: .45rem;
+  border: 1px solid var(--hairline-2); border-radius: 10px;
+  padding: .8rem; background: var(--paper-2);
+}
+.wp-console__k {
+  font-family: var(--font-mono); font-size: .56rem; letter-spacing: .16em;
+  color: var(--ink-400);
+}
+
+/* ---- the LAMP WINDOW -----------------------------------------------------
+   FOUNDER MANDATE (2026-08): the chain ends in a small window that is green,
+   yellow or red. tokens.css deliberately carries no green/yellow - the brand
+   is monochrome + one red - so these three signal colours are LITERALS, used
+   nowhere else, and the NE-107-style shapes ride along so the verdict never
+   depends on hue alone. */
+.wp-lampwin {
+  display: flex; align-items: center; justify-content: center; gap: .5rem;
+  min-height: 3.4rem; border-radius: 8px;
+  border: 1px solid var(--hairline-2); background: var(--paper-3);
+  font-family: var(--font-mono); letter-spacing: .1em;
+  color: var(--ink-400);
+}
+.wp-lampwin__sym { font-size: 1.15rem; line-height: 1; }
+.wp-lampwin__label { font-size: .62rem; }
+.wp-lampwin[data-state="green"]  { background: #1E7A3C; border-color: #1E7A3C; color: #FDFBF7; }
+.wp-lampwin[data-state="yellow"] { background: #C99700; border-color: #C99700; color: #14130F; }
+.wp-lampwin[data-state="red"]    { background: var(--live); border-color: var(--live); color: #FDFBF7; }
+.wp-why { font-size: var(--t-micro, .68rem); color: var(--ink-500); line-height: 1.5; margin: 0; }
+
+/* ---- the CHART STRIP -----------------------------------------------------
+   A chart recorder: one printed line per reaction, newest on top. */
+.wp-strip {
+  list-style: none; margin: 0; padding: .5rem .6rem;
+  border: 1px solid var(--hairline-2); border-radius: 8px; background: var(--paper);
+  font-family: var(--font-mono); font-size: .6rem; line-height: 1.55;
+  min-height: 7.2rem; flex: 1;
+}
+.wp-strip__line { display: flex; gap: .5rem; align-items: baseline; padding: .12rem 0; }
+.wp-strip__line + .wp-strip__line { border-top: 1px dotted var(--hairline-2); }
+.wp-strip__line:first-child { color: var(--ink-900); }
+.wp-strip__line { color: var(--ink-500); }
+.wp-strip__t { color: var(--ink-300); flex: none; }
+
+/* a channel the visitor patched in themselves rides a marked wire: dotted,
+   because a DRAFT never carries a packet */
+.wp-wire--user .wp-wire__line { stroke-dasharray: 2 3; stroke: var(--ink-400); }
+
