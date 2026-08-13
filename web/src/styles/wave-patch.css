@@ -391,3 +391,77 @@ body.wp-dragging { cursor: grabbing; user-select: none; }
   cursor: not-allowed;
 }
 .wp-tag--draft { color: var(--ink-500); display: inline-block; margin-top: .5rem; }
+
+/* ---- the deck switcher --------------------------------------------------
+   REGRESSION FIX: these styles lived in wave-mesh.css and died with it when
+   that module was retired - leaving the front door to the whole feature as
+   unstyled run-in text. The switcher is two engraved tabs on one bench. */
+.pg-modes { margin: var(--s-5, 1.4rem) auto 0; }
+.pg-modes__tabs {
+  display: flex; gap: .5rem; flex-wrap: wrap;
+  border-bottom: 1px solid var(--hairline-2);
+  padding-bottom: .6rem;
+}
+.pg-mode {
+  display: flex; flex-direction: column; gap: .15rem; align-items: flex-start;
+  padding: .55rem .95rem; border-radius: 8px;
+  background: transparent; border: 1px solid transparent;
+  font: inherit; color: inherit; cursor: pointer; text-align: left;
+}
+.pg-mode b {
+  font-family: var(--font-mono); font-size: var(--t-xs, .8rem);
+  letter-spacing: .12em;
+}
+.pg-mode span { font-size: var(--t-micro, .72rem); color: var(--ink-400); }
+.pg-mode:hover { background: var(--paper-2); }
+.pg-mode[aria-selected="true"] { border-color: var(--hairline-2); background: var(--paper-2); }
+.pg-mode[aria-selected="true"] b { color: var(--live); }
+.pg-mode:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
+
+/* the intake's jacks sit on its right edge like any other source */
+.wp-tile--intake .wp-tile__ports {
+  position: absolute; right: -7px; top: 50%; transform: translateY(-50%);
+  display: flex; flex-direction: column; gap: .35rem;
+}
+
+/* the ARMED port is the page's canonical red glint - the Heathkit rule:
+   the second colour marks only the current step */
+.wp-port.is-armed { background: var(--live); border-color: var(--live); }
+.wp-port.is-ok { border-width: 2px; background: var(--live-wash); }
+
+/* the inspector is a first-class panel, never an unlabeled div */
+.wp-inspect__placeholder { color: var(--ink-400); font-size: var(--t-micro, .7rem); }
+#wpInspect b {
+  display: block; font-family: var(--font-mono); font-size: var(--t-micro, .66rem);
+  letter-spacing: .12em; text-transform: uppercase; color: var(--ink-500);
+  margin: .2rem 0 .3rem;
+}
+
+/* the masthead crops instead of pushing the deck below the fold. Height is
+   FIXED and width fills the bench - aspect-ratio + max-height would shrink
+   the width instead of cropping, leaving the plate floating at half-bench. */
+.wm-masthead { width: 100%; height: 232px; aspect-ratio: auto; }
+.wm-masthead__ink, .wm-masthead__spot {
+  -webkit-mask-size: cover; mask-size: cover;
+  -webkit-mask-position: center; mask-position: center;
+}
+/* the console deck's own plate: the tape reader feeding a radio - its story */
+.wm-masthead--tape { height: 208px; }
+.wm-masthead--tape .wm-masthead__ink,
+.wm-masthead--tape .wm-masthead__spot {
+  -webkit-mask-image: url("../assets/wave/tape-reader-ink.png");
+  mask-image: url("../assets/wave/tape-reader-ink.png");
+}
+.wm-masthead--tape .wm-masthead__spot {
+  -webkit-mask-image: url("../assets/wave/tape-reader-spot.png");
+  mask-image: url("../assets/wave/tape-reader-spot.png");
+}
+
+/* the needle sweeps on an explicit RUN (and only then) */
+.wp-vu__bar { transition: width .5s ease-out; }
+@media (prefers-reduced-motion: reduce) { .wp-vu__bar { transition: none; } }
+
+/* results: three panels on wide screens once the inspector is its own */
+@media (min-width: 1100px) {
+  .wp-results { grid-template-columns: 1.3fr 1fr 1fr; }
+}

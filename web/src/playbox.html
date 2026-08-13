@@ -81,6 +81,16 @@
          a certified contract or captured output, and it is always labelled. -->
     <section class="pg-console" id="pgConsoleView" role="tabpanel" aria-labelledby="pgModeConsole">
       <div class="wrap wrap--deck">
+        <!-- The console's own catalogue plate: a tape transport feeding a small
+             radio, one red lamp - bytes arriving at a model, which is this deck's
+             story. Same two-plate mask mechanism as the mesh masthead, so it
+             re-inks per theme. Without it the two decks read as different
+             products; with it they are two instruments on one bench. -->
+        <figure class="wm-masthead wm-masthead--tape" role="img"
+                aria-label="Engraved illustration: a punched-tape reader feeding a small radio receiver with a red lamp lit">
+          <span class="wm-masthead__ink" aria-hidden="true"></span>
+          <span class="wm-masthead__spot" aria-hidden="true"></span>
+        </figure>
         <span class="fig">FIG. 1 - THE DECK &middot; INPUT / TAPE / OUTPUT</span>
         <div class="pg-deck pg-bench dk">
           <!-- the engraved maker's plate: the deck is one piece of equipment -->
@@ -581,9 +591,19 @@
             </div>
 
             <div class="wp-panel">
-              <div class="wp-panel__head"><b>What it asserted</b></div>
+              <div class="wp-panel__head">
+                <b>What it asserted</b>
+                <span class="wp-tag">RECORDED</span>
+              </div>
               <ol class="wp-feed" id="wpFeed"></ol>
-              <div id="wpInspect"></div>
+            </div>
+
+            <div class="wp-panel">
+              <div class="wp-panel__head"><b>Inspector</b></div>
+              <div id="wpInspect">
+                <p class="wp-inspect__placeholder">Click a tile, a cable, or a result bubble -
+                  its certificate, its bytes, or its envelope appears here.</p>
+              </div>
             </div>
           </div>
 

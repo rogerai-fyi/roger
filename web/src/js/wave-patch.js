@@ -81,19 +81,23 @@
   /* =====================================================================
      TEMPLATES - the sheet is never empty
      ===================================================================== */
+  // Each template runs the SAME recorded records at a DIFFERENT margin floor -
+  // all inside the measured 0.5-2.0 sweep - so six cards give six genuinely
+  // different readings (escalation rate, gauges, needle) without inventing a
+  // single number. Only the pump has committed wire renders; it keeps 2.0.
   var TEMPLATES = [
     { id: "pump",    label: "Cavitating pump",     asset: "centrifugal_pump", cause: "cavitation",
       fault: { channel: "vibration", kind: "stuck", severity: 0.9, onset: 0.4 }, floor: 2.0 },
     { id: "gearbox", label: "Gearbox running dry", asset: "gearbox", cause: "lubrication_loss",
-      fault: { channel: "oil_temp", kind: "drifting", severity: 0.8, onset: 0.3 }, floor: 2.0 },
+      fault: { channel: "oil_temp", kind: "drifting", severity: 0.8, onset: 0.3 }, floor: 1.5 },
     { id: "agv",     label: "AGV battery aging",   asset: "agv", cause: "battery_aging",
-      fault: { channel: "battery_volt", kind: "noisy", severity: 0.7, onset: 0.2 }, floor: 2.0 },
+      fault: { channel: "battery_volt", kind: "noisy", severity: 0.7, onset: 0.2 }, floor: 1.0 },
     { id: "spindle", label: "CNC spindle chatter", asset: "cnc_spindle", cause: "chatter",
-      fault: { channel: "vibration", kind: "railed", severity: 0.85, onset: 0.5 }, floor: 2.0 },
+      fault: { channel: "vibration", kind: "railed", severity: 0.85, onset: 0.5 }, floor: 0.5 },
     { id: "motor",   label: "Motor phase imbalance", asset: "induction_motor", cause: "phase_imbalance",
-      fault: { channel: "current_a", kind: "dropout", severity: 0.8, onset: 0.35 }, floor: 2.0 },
+      fault: { channel: "current_a", kind: "dropout", severity: 0.8, onset: 0.35 }, floor: 1.5 },
     { id: "chiller", label: "Chiller losing charge", asset: "chiller", cause: "refrigerant_loss",
-      fault: { channel: "suction_press", kind: "stuck", severity: 0.75, onset: 0.45 }, floor: 2.0 },
+      fault: { channel: "suction_press", kind: "stuck", severity: 0.75, onset: 0.45 }, floor: 1.0 },
   ];
 
   /* ---- the module rail: what can be added to the sheet ----------------- */
@@ -133,19 +137,19 @@
       return { name: c, dir: effects[c], unit: (asset.channels[c] || {}).unit || "" };
     });
 
-    var dev = tile("device", "device", 1, {
+    var dev = tile("device", "device", 0, {
       asset: tpl.asset, label: labelOf(tpl.asset), cause: tpl.cause,
       channels: channels, fault: tpl.fault, live: asset.source === "live",
     });
-    var pico = tile("model", "pico", 1, { label: "Wave Pico", tier: "pico", floor: tpl.floor, frame: "A" });
-    var nano = tile("model", "nano", 1, { label: "Wave Nano", tier: "nano", floor: 2.5, frame: "B" });
-    var human = tile("human", "human", 1, { label: "Operator" });
+    var pico = tile("model", "pico", 0, { label: "Wave Pico", tier: "pico", floor: tpl.floor, frame: "A" });
+    var nano = tile("model", "nano", 0, { label: "Wave Nano", tier: "nano", floor: 2.5, frame: "B" });
+    var human = tile("human", "human", 0, { label: "Operator" });
     // The intake: a permanent slot in the source column for the visitor's OWN
     // bytes. The truthful statement about a Wave model is that it has no other
     // input path - human input enters the graph the same way a device does.
     // A template switch KEEPS the paste (destroying a visitor's own data on an
     // unrelated click would be hostile); the wire has to be remade, and we say so.
-    var intake = tile("intake", "device", 2,
+    var intake = tile("intake", "device", 1,
       PATCH.keptIntake || { label: "Your Data", channels: [] });
     if (PATCH.keptIntake) {
       setTimeout(function () {
@@ -236,9 +240,13 @@
   function sheetSize() {
     var maxSlot = 1;
     PATCH.tiles.forEach(function (t) { if (t.slot > maxSlot) maxSlot = t.slot; });
+    // One spare row BELOW the content: an inviting drop zone at the bottom
+    // reads as room to build; a dead band between the column heads and the
+    // tiles read as a rendering mistake.
+    var rows = Math.min(MAX_SLOTS, maxSlot + 2);
     return {
       w: PAD_X * 2 + COLS.length * COL_PITCH - GAP_X,
-      h: PAD_Y * 2 + (maxSlot + 1) * SLOT_PITCH - GAP_Y,
+      h: PAD_Y * 2 + rows * SLOT_PITCH - GAP_Y,
     };
   }
 
@@ -254,6 +262,10 @@
     var dim = sheetSize();
     sheet.style.width = dim.w + "px";
     sheet.style.height = dim.h + "px";
+    // The drafting grid divides the snap pitch, so the grid IS the snap - a
+    // 28px texture that ignored the 260x118 pitch was decoration lying about
+    // being structure.
+    sheet.style.backgroundSize = (COL_PITCH / 2) + "px " + (SLOT_PITCH / 2) + "px";
     wires.setAttribute("viewBox", "0 0 " + dim.w + " " + dim.h);
     wires.setAttribute("width", dim.w);
     wires.setAttribute("height", dim.h);
@@ -371,7 +383,21 @@
       // The needle reads the median margin the model actually produced in the
       // replay - a meter pegged at zero on an instrumentation deck would be
       // self-refuting. Scale 0-4 (observed margins ~0.4-2.6, floors 2.0-2.5).
-      if (t.margin != null) bar.style.width = Math.min(100, (t.margin / 4) * 100) + "%";
+      if (t.margin != null) {
+        var w = Math.min(100, (t.margin / 4) * 100) + "%";
+        if (PATCH.sweep) {
+          // On an explicit RUN the needle sweeps up from zero - the one moment
+          // the big red button visibly does something. Two frames, no timers.
+          bar.style.width = "0%";
+          (function (b2, target) {
+            requestAnimationFrame(function () { requestAnimationFrame(function () {
+              b2.style.width = target;
+            }); });
+          })(bar, w);
+        } else {
+          bar.style.width = w;
+        }
+      }
       track.appendChild(bar);
       var red = el("span", "wp-vu__red");
       red.style.left = (Math.min(1, t.data.floor / 4) * 100) + "%";
@@ -554,8 +580,10 @@
       ghost.style.top = (ev.clientY + 12) + "px";
 
       var r = sheet.getBoundingClientRect();
+      var maxSlotNow = 1;
+      PATCH.tiles.forEach(function (x) { if (x.slot > maxSlotNow) maxSlotNow = x.slot; });
       var slot = Math.round((ev.clientY - r.top - PAD_Y) / SLOT_PITCH);
-      slot = Math.max(0, Math.min(MAX_SLOTS - 1, slot));
+      slot = Math.max(0, Math.min(Math.min(MAX_SLOTS - 1, maxSlotNow + 1), slot));
       var over = ev.clientX >= r.left && ev.clientX <= r.right &&
                  ev.clientY >= r.top && ev.clientY <= r.bottom;
       var taken = PATCH.tiles.some(function (x) {
@@ -578,6 +606,10 @@
       if (ghost) ghost.remove();
       if (snap) snap.remove();
       sheet.querySelectorAll(".is-lift").forEach(function (x) { x.classList.remove("is-lift"); });
+      // The click-suppression latch clears ITSELF next tick. Left to "the next
+      // click", it ate the visitor's first legitimate tap after every drag -
+      // including the exact tap our own instruction told them to make.
+      setTimeout(function () { PATCH.dragMoved = false; }, 0);
       if (!commit || !moved) return;
       if (slot < 0) { say("Dropped outside a free slot - nothing changed."); return; }
       if (what.mod) {
@@ -601,6 +633,15 @@
   function armPort(tileId, port, chan) {
     PATCH.armed = { tileId: tileId, port: port, chan: chan };
     document.body.classList.add("wp-arming");
+    // The armed port fills red - the page's one accent marking the current
+    // step, which is precisely what it is for.
+    var sheet = $("wpSheet");
+    if (sheet) {
+      var sel = '.wp-tile[data-tile="' + tileId + '"] .wp-port[data-port="' + port + '"]' +
+        (chan ? '[data-chan="' + chan + '"]' : "");
+      var node = sheet.querySelector(sel);
+      if (node) node.classList.add("is-armed");
+    }
     markCompatible();
     say(port === "out" ? "Channel output armed. Tap a model's input, or press Escape."
                        : "Escalation output armed. Tap the next tier's input, or press Escape.");
@@ -611,7 +652,7 @@
     document.body.classList.remove("wp-arming");
     var sheet = $("wpSheet");
     if (sheet) sheet.querySelectorAll(".wp-port").forEach(function (p) {
-      p.classList.remove("is-ok", "is-no");
+      p.classList.remove("is-ok", "is-no", "is-armed");
     });
   }
 
@@ -683,7 +724,7 @@
     return { devWire: devWire, escWire: escWire, userSource: !!(src && src.kind === "intake") };
   }
 
-  function run() { replay(false); }
+  function run() { PATCH.sweep = !REDUCED; replay(false); PATCH.sweep = false; }
 
   function replay(quiet) {
     var m = PATCH.measured;
@@ -826,6 +867,11 @@
     // trace under an AGV template would label one device's data as another's -
     // the same refusal the wire inspector keeps.
     var onScene = PATCH.template && PATCH.template.asset === sc.asset_type;
+    if (chainOf().userSource) {
+      if (note) note.textContent = "Your bytes are not a recorded scene - there is no trace " +
+        "to draw. The request envelope is on the Wave Pico tile.";
+      return;
+    }
     if (!onScene) {
       if (note) note.textContent = "No recorded signal for this device yet - the trace exists " +
         "for the cavitating pump scene only. Load that template to see it.";
@@ -878,10 +924,15 @@
     });
   }
 
+  function revealInspector(box) {
+    if (box.scrollIntoView) box.scrollIntoView({ block: "nearest", behavior: REDUCED ? "auto" : "smooth" });
+  }
+
   function inspectTile(t) {
     var box = $("wpInspect");
     if (!box) return;
     box.textContent = "";
+    revealInspector(box);
     box.appendChild(el("b", null, t.data.label || t.kind));
     if (t.kind === "model") {
       // The faceplate IS the birth certificate: fields we have are shown, and
@@ -936,6 +987,7 @@
     var box = $("wpInspect");
     if (!box) return;
     box.textContent = "";
+    revealInspector(box);
     if (wire.kind === "escalate") {
       box.appendChild(el("b", null, "Escalation link"));
       box.appendChild(el("p", "wp-note",
@@ -1112,7 +1164,8 @@
       var b = el("button", "wp-card");
       b.type = "button";
       b.appendChild(el("b", null, tpl.label));
-      b.appendChild(el("span", null, tpl.fault.kind + " " + tpl.fault.channel.replace(/_/g, " ")));
+      b.appendChild(el("span", null, tpl.fault.kind + " on " + tpl.fault.channel.replace(/_/g, " ") +
+        " · floor " + tpl.floor.toFixed(1)));
       b.addEventListener("click", function () {
         shelf.querySelectorAll(".wp-card").forEach(function (n) { n.setAttribute("aria-pressed", "false"); });
         b.setAttribute("aria-pressed", "true");

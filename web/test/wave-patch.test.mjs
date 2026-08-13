@@ -254,8 +254,11 @@ test("palette: only tokens that exist are referenced", () => {
 
 test("palette: red is a signal, never a surface", async () => {
   // It may light an armed port, an escalation, focus, and the RUN button. Nothing else.
+  // The count is a coarse tripwire against runaway red; the enumerated FILL
+  // list below is the real teeth. 25 references today: focus rings, the armed
+  // port, the switcher's selected label, the floor ticks, the packet, RUN.
   const reds = (css.match(/var\(--live\)/g) || []).length;
-  assert.ok(reds > 0 && reds < 22, `red is used ${reds} times; it must stay a glint`);
+  assert.ok(reds > 0 && reds < 30, `red is used ${reds} times; it must stay a glint`);
   // Enumerate every rule that FILLS with red and check the set, rather than guessing at
   // size. Exactly two may: the 1px floor tick on a VU, and the one primary action.
   const filled = [];
@@ -270,8 +273,12 @@ test("palette: red is a signal, never a surface", async () => {
   // lamp and one cable segment. At the CSS level it reads as a surface; in rendered
   // reality it is the smallest glint on the page. The mask file staying tiny is what
   // keeps that true, so its size is pinned below.
-  assert.deepEqual(filled.sort(), [".wm-masthead__spot", ".wp-run", ".wp-vu__red"].sort(),
-    `only the floor tick, the RUN button and the masked spot plate may fill red; got ${filled.join(", ")}`);
+  // Four rules may fill red, each one a "current step" in the Heathkit sense:
+  // the floor tick, the primary action, the masked spot plate (clipped to a
+  // 3KB glint), and the ARMED PORT - the literal current step of a patch.
+  assert.deepEqual(filled.sort(),
+    [".wm-masthead__spot", ".wp-port.is-armed", ".wp-run", ".wp-vu__red"].sort(),
+    `only the floor tick, RUN, the spot plate and the armed port may fill red; got ${filled.join(", ")}`);
   const { statSync } = await import("node:fs");
   const spotBytes = statSync(path.join(SRC, "assets/wave/mesh-console-spot.png")).size;
   assert.ok(spotBytes < 16 * 1024,
