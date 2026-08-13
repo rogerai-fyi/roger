@@ -163,6 +163,14 @@ func (b *broker) towerEdgeAuthorize(w http.ResponseWriter, r *http.Request) {
 	// execution, the record bounds evidence.
 	if err := b.openEdgeAttempt(g, target); err != nil {
 		log.Printf("edge authorize: could not record attempt %s: %v", g.AttemptID, err)
+		// If a hold was placed just above, release it: the attempt does not exist, so it will
+		// never settle to capture it, and leaving it would strand the consumer's funds until the
+		// orphan sweep. Idempotent and a no-op when no hold was placed (unpriced traffic).
+		if edgePriceCredits(maxIn, maxOut) > 0 {
+			if _, rerr := b.db.ReleaseHoldFor(protocol.UserIDFromPubkey(hex.EncodeToString(consumerKey)), g.AttemptID); rerr != nil {
+				log.Printf("edge authorize: could not release hold for orphaned attempt %s: %v", g.AttemptID, rerr)
+			}
+		}
 		jsonErr(w, http.StatusServiceUnavailable, "could not record this attempt - try again")
 		return
 	}
@@ -736,19 +744,15 @@ func (b *broker) accrueEarnings(ts *towerSubsystem, towerID, owner, model string
 // credits are clawed back together if the request is refunded. FREE (unpriced) edge traffic does
 // nothing here - billing turns on only when a per-byte edge price is configured.
 func (b *broker) settleEdgeMoney(ts *towerSubsystem, towerID, stationID, stationOwner string, rec dispatch.Record, settled dispatch.Settlement, now time.Time) {
+	if !edgePricingOn() {
+		return // no edge pricing configured: no holds were ever placed, nothing to settle
+	}
+	// SettleEdge charges against the AUTHORIZE-TIME reservation, using its exact recorded amount
+	// and no-op-ing if none exists - so we do not recompute or pass a held figure here, and a
+	// config change or a swept hold cannot produce a wrong refund. We call it even at cost 0 (an
+	// empty result, or pricing turned OFF after this attempt was held): that CAPTURES the hold at
+	// zero cost, refunding the full reservation, rather than stranding it for the orphan sweep.
 	cost := edgePriceCredits(settled.Billable.In, settled.Billable.Out)
-	if cost <= 0 {
-		return
-	}
-	// The consumer's authorize-time hold reserved the price of the grant's CEILING; recompute it
-	// from the same grant so the capture returns exactly the unused remainder. Billable is clamped
-	// to the ceiling upstream, so cost <= held always; the guard is defensive.
-	held := cost
-	if maxIn, maxOut, err := dispatch.EdgeGrantCeiling(rec.Grant, ts.dispatchPub, link.PublicNetwork, stationID); err == nil {
-		if h := edgePriceCredits(maxIn, maxOut); h > held {
-			held = h
-		}
-	}
 	consumerWallet := protocol.UserIDFromPubkey(hex.EncodeToString(rec.ConsumerKey))
 	stationShare := cost * (1 - b.feeRate)
 	towerShare := cost * b.feeRate * edgeTowerRate()
@@ -762,7 +766,7 @@ func (b *broker) settleEdgeMoney(ts *towerSubsystem, towerID, stationID, station
 		PromptTokens: int(settled.Billable.In), CompletionTokens: int(settled.Billable.Out), TS: now.Unix(),
 	}
 	if _, err := b.db.SettleEdge(consumerWallet, stationID, stationOwner, towerID, towerAcct,
-		held, cost, stationShare, towerShare, r); err != nil {
+		cost, stationShare, towerShare, r); err != nil {
 		log.Printf("edge settle: could not bill attempt %s: %v", settled.AttemptID, err)
 	}
 }
@@ -869,6 +873,13 @@ const edgeTowerRateDefault = 0.10
 func edgePriceCredits(inBytes, outBytes int64) float64 {
 	return float64(inBytes)*envCredits("ROGERAI_TOWER_EDGE_PRICE_IN") +
 		float64(outBytes)*envCredits("ROGERAI_TOWER_EDGE_PRICE_OUT")
+}
+
+// edgePricingOn reports whether edge traffic is billed at all - either per-byte price is set.
+// When off, no holds are placed and settlement does no wallet work; when on, every priced
+// attempt holds at authorize and captures at settle (even a zero-cost capture releases the hold).
+func edgePricingOn() bool {
+	return envCredits("ROGERAI_TOWER_EDGE_PRICE_IN") > 0 || envCredits("ROGERAI_TOWER_EDGE_PRICE_OUT") > 0
 }
 
 // edgeTowerRate is the Tower's fraction of platform revenue, defaulting to 10% and clamped to

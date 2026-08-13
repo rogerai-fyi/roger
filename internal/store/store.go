@@ -112,7 +112,7 @@ type Store interface {
 	// the relaying Tower's operator in one transaction, each scaled by the same real-paid
 	// fraction (seed credits earn neither). Both are explicit-account lots keyed by the requestID,
 	// so a refund/chargeback of that request claws both. towerAcct/towerShare may be zero.
-	SettleEdge(user, stationNode, stationAcct, towerNode, towerAcct string, held, cost, stationShare, towerShare float64, rec protocol.UsageReceipt) (newBalance float64, err error)
+	SettleEdge(user, stationNode, stationAcct, towerNode, towerAcct string, cost, stationShare, towerShare float64, rec protocol.UsageReceipt) (newBalance float64, err error)
 	// ReleaseHold returns a full reservation to the user (request failed, no charge).
 	ReleaseHold(user string, held float64) (newBalance float64, err error)
 	// HoldFor is Hold with a requestID so the reservation is TRACKED in the pending-hold
@@ -1304,13 +1304,26 @@ func (m *Mem) Finalize(user, node string, held, cost, ownerShare float64, rec pr
 // binding - and both lots are keyed by the requestID, so a refund or chargeback of that request
 // claws both back. This is how a Tower earns its share of net platform revenue on relayed traffic
 // through the one wallet. towerAcct/towerShare may be zero (a non-compensated Tower earns nothing).
-func (m *Mem) SettleEdge(user, stationNode, stationAcct, towerNode, towerAcct string, held, cost, stationShare, towerShare float64, rec protocol.UsageReceipt) (float64, error) {
+func (m *Mem) SettleEdge(user, stationNode, stationAcct, towerNode, towerAcct string, cost, stationShare, towerShare float64, rec protocol.UsageReceipt) (float64, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if rec.RequestID != "" && m.settled[rec.RequestID] {
+		return m.wallet[user], nil // idempotent: no double capture / lot drift
+	}
+	// The reservation is the AUTHORITY on what to charge: bill only against a hold that actually
+	// exists, using its EXACT recorded amount. If no hold is tracked - the attempt was authorized
+	// while edge billing was off, or its hold was already swept/released - nothing is billed and
+	// no lot mints, so a config change or a late settle can never conjure a debit, free money, or
+	// a wrong refund. This is what makes the capture safe without trusting a caller-passed amount.
+	ph, ok := m.pendingHolds[rec.RequestID]
+	if !ok {
+		return m.wallet[user], nil
+	}
+	held := ph.amount
+	if cost > held {
+		cost = held // never charge more than was reserved (billable is clamped upstream; defensive)
+	}
 	if rec.RequestID != "" {
-		if m.settled[rec.RequestID] {
-			return m.wallet[user], nil // idempotent: no double capture / lot drift
-		}
 		m.settled[rec.RequestID] = true
 	}
 	delete(m.pendingHolds, rec.RequestID)

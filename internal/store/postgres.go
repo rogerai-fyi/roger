@@ -1045,22 +1045,38 @@ func (p *Postgres) Finalize(user, node string, held, cost, ownerShare float64, r
 // SettleEdge is the Postgres twin of the mem SettleEdge: capture the consumer's hold and credit
 // both the Station owner and the Tower operator, each scaled by the one real-paid fraction, as
 // explicit-account lots keyed by the requestID. See the mem doc for the rationale.
-func (p *Postgres) SettleEdge(user, stationNode, stationAcct, towerNode, towerAcct string, held, cost, stationShare, towerShare float64, rec protocol.UsageReceipt) (float64, error) {
+func (p *Postgres) SettleEdge(user, stationNode, stationAcct, towerNode, towerAcct string, cost, stationShare, towerShare float64, rec protocol.UsageReceipt) (float64, error) {
 	tx, err := p.db.Begin()
 	if err != nil {
 		return 0, err
 	}
 	defer tx.Rollback()
+	// Idempotency FIRST, so a re-driven settle returns before it can consume the hold a second
+	// time. The receipt row is the lock.
 	if won, bal, err := p.claimReceipt(tx, user, stationNode, cost, rec); err != nil {
 		return 0, err
 	} else if !won {
 		return bal, tx.Commit()
 	}
-	var bal float64
-	if err := tx.QueryRow(`UPDATE rogerai.wallet SET balance=balance+$2 WHERE usr=$1 RETURNING balance`, user, held-cost).Scan(&bal); err != nil {
+	// The tracked reservation is the authority on what to charge: DELETE...RETURNING both reads
+	// the exact held amount and consumes the hold in one step. No hold row means the attempt was
+	// authorized while billing was off, or its hold was already swept - nothing is billed and no
+	// lot mints, so a config change or a late settle can never conjure a debit, free money, or a
+	// wrong refund. (The receipt is claimed above, so this no-op path still records the attempt as
+	// settled - correct, because with no reservation there is nothing to bill for it, ever.)
+	var held float64
+	switch err := tx.QueryRow(`DELETE FROM rogerai.pending_holds WHERE request_id=$1 RETURNING amount`, rec.RequestID).Scan(&held); err {
+	case sql.ErrNoRows:
+		return 0, tx.Commit() // no hold: no-op
+	case nil:
+	default:
 		return 0, err
 	}
-	if _, err := tx.Exec(`DELETE FROM rogerai.pending_holds WHERE request_id=$1`, rec.RequestID); err != nil {
+	if cost > held {
+		cost = held // never charge more than was reserved
+	}
+	var bal float64
+	if err := tx.QueryRow(`UPDATE rogerai.wallet SET balance=balance+$2 WHERE usr=$1 RETURNING balance`, user, held-cost).Scan(&bal); err != nil {
 		return 0, err
 	}
 	// Seed consumed EXACTLY ONCE; the returned fraction scales both shares.

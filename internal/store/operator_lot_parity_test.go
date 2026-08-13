@@ -94,7 +94,7 @@ func TestSettleEdgeParity(t *testing.T) {
 				t.Fatalf("HoldFor: ok=%v err=%v", ok, err)
 			}
 			bal, err := db.SettleEdge("alice", "st-1", "station-owner", "tw-1", "tower-operator",
-				100, 100, 70, 3, protocol.UsageReceipt{RequestID: "req-1", Model: "m", PromptTokens: 1, CompletionTokens: 1, TS: now.Unix()})
+				100, 70, 3, protocol.UsageReceipt{RequestID: "req-1", Model: "m", PromptTokens: 1, CompletionTokens: 1, TS: now.Unix()})
 			if err != nil {
 				t.Fatalf("SettleEdge: %v", err)
 			}
@@ -138,7 +138,7 @@ func TestSettleEdgeSeedFundedMintsNothing(t *testing.T) {
 				t.Fatalf("HoldFor: ok=%v err=%v", ok, err)
 			}
 			if _, err := db.SettleEdge("bob", "st-1", "station-owner", "tw-1", "tower-operator",
-				100, 100, 70, 3, protocol.UsageReceipt{RequestID: "req-2", Model: "m", PromptTokens: 1, CompletionTokens: 1, TS: now.Unix()}); err != nil {
+				100, 70, 3, protocol.UsageReceipt{RequestID: "req-2", Model: "m", PromptTokens: 1, CompletionTokens: 1, TS: now.Unix()}); err != nil {
 				t.Fatalf("SettleEdge: %v", err)
 			}
 			if s, _ := db.EarningSplitOf("station-owner", now); s.Payable != 0 || s.Held != 0 {
@@ -146,6 +146,37 @@ func TestSettleEdgeSeedFundedMintsNothing(t *testing.T) {
 			}
 			if s, _ := db.EarningSplitOf("tower-operator", now); s.Payable != 0 || s.Held != 0 {
 				t.Errorf("[%s] tower earned on seed money: %+v", name, s)
+			}
+		})
+	}
+}
+
+// SettleEdge charges ONLY against an existing reservation. With no prior hold - the attempt was
+// authorized while edge billing was off, or its hold was already swept - it is a strict no-op:
+// no debit, no refund, no lot. This closes the config-change hole where a wallet with no reserved
+// hold could otherwise be credited held-cost (free money) or debited for work it never reserved.
+func TestSettleEdgeWithoutAHoldIsANoOp(t *testing.T) {
+	t.Setenv("ROGERAI_PAYOUT_HOLD_DAYS", "0")
+	t.Setenv("ROGERAI_PAYOUT_RESERVE", "0")
+	for name, db := range parityStores(t) {
+		t.Run(name, func(t *testing.T) {
+			now := time.Now()
+			if _, err := db.AddCredits("alice", 1000); err != nil {
+				t.Fatal(err)
+			}
+			// No HoldFor for req-x. SettleEdge must do nothing.
+			if _, err := db.SettleEdge("alice", "st-1", "station-owner", "tw-1", "tower-operator",
+				50, 35, 3, protocol.UsageReceipt{RequestID: "req-x", Model: "m", PromptTokens: 1, CompletionTokens: 1, TS: now.Unix()}); err != nil {
+				t.Fatalf("SettleEdge: %v", err)
+			}
+			if bal, _ := db.PeekBalance("alice"); !approx(bal, 1000) {
+				t.Errorf("[%s] balance = %v, want 1000 (no debit/credit without a hold)", name, bal)
+			}
+			if s, _ := db.EarningSplitOf("station-owner", now); s.Payable != 0 {
+				t.Errorf("[%s] station minted without a hold: %+v", name, s)
+			}
+			if s, _ := db.EarningSplitOf("tower-operator", now); s.Payable != 0 {
+				t.Errorf("[%s] tower minted without a hold: %+v", name, s)
 			}
 		})
 	}
