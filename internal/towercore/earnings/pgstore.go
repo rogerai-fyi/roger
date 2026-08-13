@@ -18,8 +18,10 @@ CREATE TABLE IF NOT EXISTS rogerai.tower_earnings (
     usage_out    BIGINT      NOT NULL DEFAULT 0,
     micros       BIGINT      NOT NULL,
     corroborated BOOLEAN     NOT NULL DEFAULT false,
+    self_dealing BOOLEAN     NOT NULL DEFAULT false,
     at           TIMESTAMPTZ NOT NULL
 );
+ALTER TABLE rogerai.tower_earnings ADD COLUMN IF NOT EXISTS self_dealing BOOLEAN NOT NULL DEFAULT false;
 CREATE INDEX IF NOT EXISTS tower_earnings_owner ON rogerai.tower_earnings (owner, at);
 CREATE INDEX IF NOT EXISTS tower_earnings_at ON rogerai.tower_earnings (at);
 
@@ -58,11 +60,11 @@ func (p *PGStore) Accrue(a Accrual) error {
 	// guarantee the whole design rests on - the money cannot be accrued twice for one attempt.
 	_, err := p.db.Exec(`
 		INSERT INTO rogerai.tower_earnings
-		    (attempt_id, tower_id, owner, model, usage_in, usage_out, micros, corroborated, at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+		    (attempt_id, tower_id, owner, model, usage_in, usage_out, micros, corroborated, self_dealing, at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
 		ON CONFLICT (attempt_id) DO NOTHING`,
 		a.AttemptID, a.TowerID, a.Owner, a.Model, a.UsageIn, a.UsageOut, a.Micros,
-		a.Corroborated, a.At.UTC())
+		a.Corroborated, a.SelfDealing, a.At.UTC())
 	return err
 }
 
@@ -108,10 +110,15 @@ func (p *PGStore) OwedTo(owner string, since time.Time) (OwedByOwner, error) {
 	// scan into int64 here while the memory store saturated - a parity divergence on an
 	// overflowed ledger. Both now cap at MaxInt64. It only bites on a grossly misconfigured rate.
 	out := OwedByOwner{Owner: owner}
+	// Payable (non-self-dealing) micros go to Accrued; self-dealing micros go to SelfDealt and
+	// are never owed. Attempts counts both - a self-dealing row is still an attempt that happened.
 	err := p.db.QueryRow(`
-		SELECT LEAST(COALESCE(SUM(micros),0), 9223372036854775807)::bigint, COUNT(*)
+		SELECT
+		  LEAST(COALESCE(SUM(micros) FILTER (WHERE NOT self_dealing),0), 9223372036854775807)::bigint,
+		  LEAST(COALESCE(SUM(micros) FILTER (WHERE self_dealing),0), 9223372036854775807)::bigint,
+		  COUNT(*)
 		  FROM rogerai.tower_earnings WHERE owner = $1 AND at >= $2`,
-		owner, since.UTC()).Scan(&out.Accrued, &out.Attempts)
+		owner, since.UTC()).Scan(&out.Accrued, &out.SelfDealt, &out.Attempts)
 	if err != nil {
 		return OwedByOwner{}, err
 	}

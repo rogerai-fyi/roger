@@ -64,6 +64,8 @@ func (b *broker) towerEarningsOwed(w http.ResponseWriter, r *http.Request) {
 		"paid":     owed.Paid,
 		"owed":     owed.Owed(),
 		"attempts": owed.Attempts,
+		// Amount excluded as self-dealing (own traffic through own Station) - recorded, never owed.
+		"self_dealt": owed.SelfDealt,
 		// The unit is stated so nobody reads a raw integer as whole currency. Millionths of the
 		// settlement currency's minor unit - the exact accrual, no rounding applied.
 		"unit": "micros",

@@ -580,7 +580,7 @@ func (b *broker) towerEdgeSettle(w http.ResponseWriter, r *http.Request) {
 	// amount is computed from the BILLABLE usage - now bounded by the grant ceiling above, and
 	// itself the reconciled receipt/ack figure, never the Tower's own count. Owner comes from
 	// the attachment record, not the message. This records what is OWED; nothing here moves money.
-	b.accrueEarnings(ts, req.TowerID, at.Owner, model, settled, now)
+	b.accrueEarnings(ts, req.TowerID, at.Owner, model, rec.ConsumerKey, settled, now)
 	// The attempt chain hears about it AFTER the store's answer is final, mirroring the
 	// relayed path: evidence first, then the settlement commitment.
 	b.noteAttempt(req.AttemptID, attempt.Observation{
@@ -657,18 +657,62 @@ func (b *broker) recordOutcome(towerID, attemptID string, o reputation.Outcome) 
 //
 // The amount is computed from settled.Billable - the reconciled receipt/ack usage - never from
 // anything the relaying Tower put in a message. Nothing here moves money.
-func (b *broker) accrueEarnings(ts *towerSubsystem, towerID, owner, model string, settled dispatch.Settlement, at time.Time) {
+func (b *broker) accrueEarnings(ts *towerSubsystem, towerID, owner, model string, consumerKey []byte, settled dispatch.Settlement, at time.Time) {
 	if ts == nil || ts.earnings == nil || owner == "" {
 		return
+	}
+	// SELF-DEALING: an operator routing their OWN traffic through their OWN Station to farm a
+	// revenue share on their own spend. Core cannot distinguish a fabricated attempt from a real
+	// one cryptographically - a colluding consumer account signs a perfectly good ack over real
+	// model output - so the defence is at the ACCOUNT level: if the consumer and the Station's
+	// owner are the same account, the attempt earns nothing. The row is still recorded (the usage
+	// is evidence), just excluded from what is owed. This catches the same-account case; sybil
+	// accounts funded from one source are caught by the funded-work and linkage checks that
+	// belong to the revenue-share program, not here.
+	selfDealing := len(consumerKey) > 0 && b.sameAccount(hex.EncodeToString(consumerKey), owner)
+	if selfDealing {
+		log.Printf("tower %s: attempt %s is self-dealing (consumer owns the Station) - recorded, not owed",
+			towerID, settled.AttemptID)
 	}
 	micros := edgeAccrualMicros(settled.Billable.In, settled.Billable.Out)
 	if err := ts.earnings.Accrue(earnings.Accrual{
 		TowerID: towerID, Owner: owner, AttemptID: settled.AttemptID, Model: model,
 		UsageIn: settled.Billable.In, UsageOut: settled.Billable.Out, Micros: micros,
-		Corroborated: settled.Corroborated, At: at,
+		Corroborated: settled.Corroborated, SelfDealing: selfDealing, At: at,
 	}); err != nil {
 		log.Printf("tower %s: could not accrue earnings for %s: %v", towerID, settled.AttemptID, err)
 	}
+}
+
+// sameAccount reports whether two user pubkeys belong to the same account. Two pubkeys are the
+// same account if they are literally equal, or if they resolve to owner records that share a
+// binding identity - the GitHub id, the Apple subject, or the login. A person may hold several
+// device keys under one account, so comparing raw pubkeys alone would miss the operator who
+// consumes on one key and runs a Station under another.
+func (b *broker) sameAccount(pubA, pubB string) bool {
+	if pubA == "" || pubB == "" {
+		return false
+	}
+	if pubA == pubB {
+		return true
+	}
+	oa, foundA, err := b.db.OwnerByPubkey(pubA)
+	if err != nil || !foundA {
+		return false
+	}
+	ob, foundB, err := b.db.OwnerByPubkey(pubB)
+	if err != nil || !foundB {
+		return false
+	}
+	switch {
+	case oa.GitHubID != 0 && oa.GitHubID == ob.GitHubID:
+		return true
+	case oa.AppleSub != "" && oa.AppleSub == ob.AppleSub:
+		return true
+	case oa.Login != "" && oa.Login == ob.Login:
+		return true
+	}
+	return false
 }
 
 // edgeAccrualMicros prices one attempt's billable usage.

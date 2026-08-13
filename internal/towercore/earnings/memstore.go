@@ -65,8 +65,12 @@ func (m *memStore) OwedTo(owner string, since time.Time) (OwedByOwner, error) {
 	all := since.IsZero()
 	for _, a := range m.accruals {
 		if a.Owner == owner && (all || !a.At.Before(since)) {
-			out.Accrued = satAddMicros(out.Accrued, a.Micros)
 			out.Attempts++
+			if a.SelfDealing {
+				out.SelfDealt = satAddMicros(out.SelfDealt, a.Micros)
+				continue // recorded as evidence, never owed
+			}
+			out.Accrued = satAddMicros(out.Accrued, a.Micros)
 		}
 	}
 	for _, p := range m.payouts {

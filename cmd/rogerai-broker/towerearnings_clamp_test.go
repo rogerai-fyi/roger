@@ -287,3 +287,47 @@ func TestAuditCatchesAUsageMisreport(t *testing.T) {
 	got, _ := b.tower.registry.Get(tw.id)
 	require.Equal(t, admit.StateSuspended, got.State, "an audit mismatch takes the Tower off (suspended)")
 }
+
+// Self-dealing defence, end to end: an operator who routes their OWN traffic through their OWN
+// Station (consumer account == Station owner) earns nothing. The attempt still settles and is
+// recorded - the usage is evidence - but it is excluded from what is owed and surfaced as
+// self-dealt. This is the account-level first line against wash-trading a revenue share.
+func TestSelfDealingEarnsNothing(t *testing.T) {
+	t.Setenv("ROGERAI_TOWER_ACCRUAL_MICROS_OUT", "10")
+	b, srv := towerTestBroker(t)
+	op := signedInOperator(t, b, "octocat")
+	owner := ownerPubkeyOf(t, b, op.login)
+	opPub := op.priv.Public().(ed25519.PublicKey) // the operator's own account key
+	tw := enrolledTower(t, b, op.login)
+	stationPriv := attachStation(t, b, "st-aa", tw.id, owner)
+
+	// An attempt whose CONSUMER is the operator's own account, served by the operator's Station.
+	g, err := b.tower.dispatch.MintEdge(dispatch.EdgeTarget{
+		TowerID: tw.id, StationID: "st-aa", StationEpoch: 1, Model: "m", Modality: "text",
+		RelayName: "st-aa.relay.example", MaxIn: 1000, MaxOut: 1000,
+		AssertionKey: opPub, ConsumerKey: opPub,
+	})
+	require.NoError(t, err)
+	require.NoError(t, b.tower.dispatch.Store().Put(dispatch.Record{
+		AttemptID: "att-1", JobID: g.JobID, TowerID: tw.id, StationID: "st-aa",
+		StationEpoch: 1, Model: "m", Modality: "text", Nonce: g.Nonce,
+		Deadline: time.Now().Add(time.Hour), Grant: g.Signed, ConsumerKey: opPub,
+		State: dispatch.StateIssued,
+	}))
+
+	body, err := json.Marshal(map[string]any{
+		"tower_id": tw.id, "station_id": "st-aa", "attempt_id": "att-1",
+		"receipt": signedReceipt(t, stationPriv, "att-1", "st-aa", []byte("answer"),
+			dispatch.Usage{In: 5, Out: 50}),
+	})
+	require.NoError(t, err)
+	var out map[string]any
+	code, _ := tw.call(t, srv, "/tower/edge/settle", body, &out)
+	require.Equal(t, http.StatusOK, code, out)
+
+	owed, err := b.tower.earnings.OwedTo(owner, time.Time{})
+	require.NoError(t, err)
+	require.Equal(t, int64(0), owed.Owed(), "self-dealing earns nothing")
+	require.Equal(t, int64(500), owed.SelfDealt, "but it is recorded and surfaced (50*10)")
+	require.Equal(t, 1, owed.Attempts)
+}

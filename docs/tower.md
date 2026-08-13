@@ -392,6 +392,32 @@ When it lands, the measurable, Core-verifiable quantities are:
 Earnings can be withheld on the same evidence that detects misbehaviour, which is what points
 the incentive the right way.
 
+### The threat the crypto cannot reach: fabrication and self-dealing
+
+Everything above stops a Station lying about a **real** attempt: a real consumer's ack pins the
+bytes, and the audit holds the claimed usage to the real transcript length. What none of it can
+reach is a **fabricated** attempt — an operator who routes their *own* traffic through their
+*own* Station, signs a perfectly good receipt (and even a real ack, from a consumer account they
+control) over genuine model output, and settles it to farm a revenue share. Core is blind to the
+payload, and a colluding consumer account produces cryptographically valid evidence, so **no
+digest, canary, or content check can distinguish this from real demand.** This is an economic
+attack and the defences are economic, in layers:
+
+1. **Pay less than you charge.** A revenue share is a *fraction of net revenue actually
+   collected*, so a wash trade — pay full price as the consumer, get a fraction back as the
+   operator — is a net loss. This is the single most important defence and it lives in the
+   revenue-share program (`operator_revenue_share`), not in this substrate.
+2. **Funded-work only, with maturity and clawback** (`payment_authority`): earn only on consumer
+   funds actually received and past a chargeback window, so a reversal claws the earning back.
+3. **Self-dealing / linkage.** The account-level first line is built here: an attempt whose
+   consumer account is the **same account** that owns the Station earns **nothing** — it is
+   recorded (the usage is evidence) but excluded from what is owed and surfaced as `self_dealt`.
+   Sybil accounts funded from one source are the funded-work and identity program's job.
+4. **Statistical + content audit** as backstops (reputation rate, sampled review) — already built.
+
+Layers 1–2 are the real fix and are deliberately unbuilt behind the founder/money gate. Layer 3's
+same-account check is in `accrueEarnings`; it is a floor, not the whole defence.
+
 **How the audit's prerequisite was met:** there are two attempt state machines —
 `towercore/dispatch` (the operational queue) and `towercore/attempt` (the hash-chained ledger),
 kept in step by a **best-effort** write that logs and swallows failures. The audit warned that

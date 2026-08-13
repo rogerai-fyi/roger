@@ -239,3 +239,25 @@ func TestParityAnOverflowedBalanceSaturatesRatherThanWrapping(t *testing.T) {
 		})
 	}
 }
+
+// A self-dealing accrual is RECORDED (the usage is evidence) but never owed: OwedTo counts it
+// under SelfDealt and excludes it from Accrued, on both stores.
+func TestParitySelfDealingIsRecordedbutNotOwed(t *testing.T) {
+	base := time.Unix(1_700_000_000, 0)
+	for name, s := range stores(t) {
+		t.Run(name, func(t *testing.T) {
+			a := accrual("op-1", "real", 300, base)
+			require.NoError(t, s.Accrue(a))
+			wash := accrual("op-1", "wash", 1000, base)
+			wash.SelfDealing = true
+			require.NoError(t, s.Accrue(wash))
+
+			owed, err := s.OwedTo("op-1", time.Time{})
+			require.NoError(t, err)
+			require.Equal(t, int64(300), owed.Accrued, "only the real attempt is owed")
+			require.Equal(t, int64(1000), owed.SelfDealt, "the wash trade is surfaced, not owed")
+			require.Equal(t, int64(300), owed.Owed())
+			require.Equal(t, 2, owed.Attempts, "both happened")
+		})
+	}
+}

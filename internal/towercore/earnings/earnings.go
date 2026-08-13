@@ -65,18 +65,29 @@ type Accrual struct {
 	// attempts still earn (an operator who lost money to every closed laptop would leave), but
 	// the flag is carried so a payout policy can weight or hold them if it chooses.
 	Corroborated bool
-	At           time.Time
+	// SelfDealing marks an attempt whose consumer account is the SAME account that owns the
+	// Station - a wash trade, where an operator routes their own traffic through their own
+	// Station to farm a revenue share on their own spend. The row is still RECORDED (the work
+	// happened; the usage is evidence) but it earns nothing: OwedTo excludes it from what is
+	// owed. This is the account-level first line against self-dealing; the funded-work and
+	// linkage checks that catch sybil-account wash trading live in the revenue-share program.
+	SelfDealing bool
+	At          time.Time
 }
 
 // OwedByOwner is what one operator is owed and has been paid.
 type OwedByOwner struct {
 	Owner string
-	// Accrued is the sum of every accrual in the window. Paid is the sum of recorded payouts.
-	// Owed is Accrued - Paid, floored at zero: a payout ledger that recorded more than was
-	// accrued is a bug to surface, not a debt to the operator.
+	// Accrued is the sum of every PAYABLE accrual in the window - self-dealing rows are excluded.
+	// Paid is the sum of recorded payouts. Owed is Accrued - Paid, floored at zero: a payout
+	// ledger that recorded more than was accrued is a bug to surface, not a debt to the operator.
 	Accrued  int64
 	Paid     int64
 	Attempts int
+	// SelfDealt is the amount that WOULD have accrued on self-dealing attempts, surfaced for
+	// review rather than paid. A non-zero figure here is an account routing its own traffic
+	// through its own Station.
+	SelfDealt int64
 }
 
 // Owed is Accrued - Paid, never negative.
