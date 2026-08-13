@@ -105,3 +105,62 @@ func TestEdgeBillingIsDormantWhenUnpriced(t *testing.T) {
 	s, _ := b.db.EarningSplitOf(towerAcct, time.Now())
 	require.Equal(t, float64(0), s.Payable, "unpriced edge traffic mints no wallet earnings")
 }
+
+// Review finding 1: the dispatch one-use Settle and the wallet capture are separate commits. If
+// the first attempt faulted AFTER the dispatch settle but BEFORE billing, a retry must COMPLETE
+// the billing, not 409 and leave the consumer's hold to be swept (free work) with the operators
+// unpaid. Simulate the crash by pre-settling the dispatch attempt, then settling through the
+// endpoint: it must pay both parties.
+func TestSettleCompletesBillingAfterAStrandedDispatchSettle(t *testing.T) {
+	t.Setenv("ROGERAI_TOWER_EDGE_PRICE_OUT", "1")
+	t.Setenv("ROGERAI_PAYOUT_HOLD_DAYS", "0")
+	t.Setenv("ROGERAI_PAYOUT_RESERVE", "0")
+	b, srv := towerTestBroker(t)
+	b.feeRate = 0.30
+	op := signedInOperator(t, b, "tower-op")
+	towerAcct := ownerPubkeyOf(t, b, op.login)
+	tw := enrolledTower(t, b, op.login)
+	stPub, _, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	stationOwner := hexOf(stPub)
+	require.NoError(t, b.db.BindOwner(store.Owner{Pubkey: stationOwner, Login: "station-op", Email: "s@x.test", EmailVerifiedAt: time.Now().Unix()}))
+	stationPriv := attachStation(t, b, "st-1", tw.id, stationOwner)
+	cpub := issuedEdgeGrant(t, b, "att-1", tw.id, "st-1", 1000, 1000)
+	consumerWallet := protocol.UserIDFromPubkey(hex.EncodeToString(cpub))
+	_, _ = b.db.AddCredits(consumerWallet, 100000)
+	ok, err := b.db.HoldFor(consumerWallet, "att-1", 1000)
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	// Simulate a crash AFTER the dispatch settle but BEFORE billing: pre-claim + settle the
+	// dispatch attempt so the endpoint sees ErrAlreadySettled.
+	now := time.Now()
+	_, err = b.tower.dispatch.Store().ClaimByID("att-1", tw.id, now)
+	require.NoError(t, err)
+	_, err = b.tower.dispatch.Store().Settle("att-1", now)
+	require.NoError(t, err)
+
+	body, err := json.Marshal(map[string]any{
+		"tower_id": tw.id, "station_id": "st-1", "attempt_id": "att-1",
+		"receipt": signedReceipt(t, stationPriv, "att-1", "st-1", []byte("answer"), dispatch.Usage{In: 0, Out: 50}),
+	})
+	require.NoError(t, err)
+	var out map[string]any
+	code, _ := tw.call(t, srv, "/tower/edge/settle", body, &out)
+	require.Equal(t, http.StatusConflict, code, "an already-settled attempt still 409s, but completes billing first")
+
+	sSt, _ := b.db.EarningSplitOf(stationOwner, now)
+	require.InDelta(t, 35, sSt.Payable, 0.001, "station paid on the completion")
+	sTw, _ := b.db.EarningSplitOf(towerAcct, now)
+	require.InDelta(t, 1.5, sTw.Payable, 0.001, "tower paid on the completion")
+	bal, _ := b.db.PeekBalance(consumerWallet)
+	require.InDelta(t, 100000-50, bal, 0.001, "consumer charged the actual cost")
+
+	// And a SECOND retry is a clean idempotent no-op (no double-charge / double-pay).
+	code, _ = tw.call(t, srv, "/tower/edge/settle", body, &out)
+	require.Equal(t, http.StatusConflict, code)
+	sSt, _ = b.db.EarningSplitOf(stationOwner, now)
+	require.InDelta(t, 35, sSt.Payable, 0.001, "no double-pay on a second retry")
+	bal, _ = b.db.PeekBalance(consumerWallet)
+	require.InDelta(t, 100000-50, bal, 0.001, "no double-charge on a second retry")
+}

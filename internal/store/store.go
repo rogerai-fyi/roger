@@ -2274,44 +2274,63 @@ func (m *Mem) recoverLineageLocked(id, consumerKind, consumerRefPrefix, wallet, 
 	var res ChargebackResult
 	recovered := 0.0    // operator GROSS clawed/reversed - what is actually recovered from operators
 	remaining := amount // CONSUMER cost still to recover (wallet-recency path); caps the claw
+
+	// GROUP BY REQUEST. A request may have MORE THAN ONE lot (an edge request pays both the
+	// Station owner and the Tower operator), and the consumer paid its `cost` ONCE. Iterating
+	// per-lot would deduct that cost once per lot - draining `remaining` at 2x and stopping the
+	// claw early, so the platform absorbed a loss it should have recovered from the consumer's
+	// other lots. So we claw a whole request's lots together, at one pro-rata fraction, and
+	// deduct its consumer cost exactly once. Requests stay in recency order (order is presorted).
+	seen := map[string]bool{}
+	var reqOrder []string
+	lotsByReq := map[string][]int{}
 	for _, i := range order {
+		r := m.lots[i].RequestID
+		if !seen[r] {
+			seen[r] = true
+			reqOrder = append(reqOrder, r)
+		}
+		lotsByReq[r] = append(lotsByReq[r], i)
+	}
+	for _, r := range reqOrder {
 		if requestID == "" && remaining <= 1e-9 {
 			break
 		}
-		l := &m.lots[i]
-		// PRO-RATA on the lot that would overshoot: if this lot's consumer cost exceeds the
-		// disputed cost still remaining, recover only the operator's PROPORTIONAL share
-		// (gross * remaining/cost) so the operator is NEVER clawed beyond the disputed
-		// amount; the rest of the lot stays theirs. A full dispute claws whole lots (frac=1)
-		// exactly as before. Explicit-requestID path always claws whole (no amount cap).
+		// PRO-RATA on the request that would overshoot: if its consumer cost exceeds the disputed
+		// cost still remaining, recover only the operators' PROPORTIONAL share so no operator is
+		// ever clawed beyond the disputed amount. A full dispute claws whole (frac=1). The
+		// explicit-requestID path has empty reqCost, so frac stays 1 and it always claws whole.
 		frac := 1.0
-		cost := reqCost[l.RequestID]
+		cost := reqCost[r]
 		if requestID == "" && cost > 0 && cost > remaining {
 			frac = remaining / cost
 		}
-		clawGross := l.Gross * frac
-		switch l.State {
-		case LotPaid:
-			// Already paid out: reverse the (proportional) operator share via Stripe (6.4
-			// step 4) + a payout_reversed ledger row.
-			m.appendLedgerLocked(l.AccountID, "operator", KindPayoutReversed, -clawGross, "reverse:"+id+":"+l.RequestID, StatePosted, id, now.Unix())
-			res.Reversals = append(res.Reversals, Reversal{
-				DisputeID: id, LotID: l.ID, AccountID: l.AccountID,
-				TransferID: transferOf(l.PayoutID), Amount: clawGross,
-			})
-		default: // held / payable: claw in place, no Stripe action.
-			m.appendLedgerLocked(l.AccountID, "operator", KindAdjustment, -clawGross, "claw:"+id+":"+l.RequestID, StatePosted, id, now.Unix())
-			res.Clawed += clawGross
+		for _, i := range lotsByReq[r] {
+			l := &m.lots[i]
+			clawGross := l.Gross * frac
+			switch l.State {
+			case LotPaid:
+				// Already paid out: reverse the (proportional) operator share via Stripe (6.4
+				// step 4) + a payout_reversed ledger row.
+				m.appendLedgerLocked(l.AccountID, "operator", KindPayoutReversed, -clawGross, "reverse:"+id+":"+l.RequestID, StatePosted, id, now.Unix())
+				res.Reversals = append(res.Reversals, Reversal{
+					DisputeID: id, LotID: l.ID, AccountID: l.AccountID,
+					TransferID: transferOf(l.PayoutID), Amount: clawGross,
+				})
+			default: // held / payable: claw in place, no Stripe action.
+				m.appendLedgerLocked(l.AccountID, "operator", KindAdjustment, -clawGross, "claw:"+id+":"+l.RequestID, StatePosted, id, now.Unix())
+				res.Clawed += clawGross
+			}
+			recovered += clawGross
+			if frac >= 1.0 {
+				l.State = LotClawed
+			} else {
+				// Partial claw: keep the lot, reduce its gross + reserve by the clawed fraction.
+				l.Gross -= clawGross
+				l.Reserve -= l.Reserve * frac
+			}
 		}
-		recovered += clawGross
-		if frac >= 1.0 {
-			l.State = LotClawed
-		} else {
-			// Partial claw: keep the lot, reduce its gross + reserve by the clawed fraction.
-			l.Gross -= clawGross
-			l.Reserve -= l.Reserve * frac
-		}
-		remaining -= cost * frac // == min(cost, remaining); reaches 0 on the partial lot
+		remaining -= cost * frac // the request's consumer cost, deducted ONCE
 	}
 
 	// Any disputed amount NOT covered by this consumer's lots is a PLATFORM LOSS - the

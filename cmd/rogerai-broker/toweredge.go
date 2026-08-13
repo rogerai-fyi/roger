@@ -49,11 +49,29 @@ import (
 	"rogerai.fm/roger/v5/internal/towerobj"
 )
 
-// edgeSettleGrace is how long after the grant's deadline a receipt may still settle. The
-// grant deadline bounds EXECUTION - the Station refuses work past it - but the receipt
-// travels by a slower road: Station outbox, Tower collection, one more hop to Core. Evidence
-// for work done in time must not fail because its courier ran on a schedule.
-const edgeSettleGrace = 10 * time.Minute
+// maxEdgeSettleGrace is how long after the grant's deadline a receipt may still settle. The
+// grant deadline bounds EXECUTION - the Station refuses work past it - but the receipt travels
+// by a slower road: Station outbox, Tower collection, one more hop to Core. Evidence for work
+// done in time must not fail because its courier ran on a schedule.
+const maxEdgeSettleGrace = 10 * time.Minute
+
+// edgeSettleGrace keeps the settlement window strictly INSIDE the pre-auth hold's lifetime when
+// edge billing is on. A consumer's hold is reclaimed by the orphan sweep after holdTTL; if the
+// settlement window (grant lifetime + this grace) outran that, a late-but-valid receipt would
+// find its hold already swept and settle for free with the operator unpaid. So the grace is
+// capped a few minutes under holdTTL, so the hold always outlives the deadline it guards. With a
+// generous holdTTL it is just maxEdgeSettleGrace; a short holdTTL shortens the courier window
+// rather than silently losing the money.
+func edgeSettleGrace() time.Duration {
+	g := holdTTL() - 3*time.Minute // margin over the (sub-2m) grant lifetime
+	if g > maxEdgeSettleGrace {
+		g = maxEdgeSettleGrace
+	}
+	if g < time.Minute {
+		g = time.Minute
+	}
+	return g
+}
 
 // edgeMaxBytes caps what one grant may authorize in either direction, whatever the caller
 // asks for. It matches the Station's own request ceiling: a grant for more than a Station
@@ -203,7 +221,7 @@ func (b *broker) openEdgeAttempt(g dispatch.EdgeGrant, target dispatch.Target) e
 	if err := ts.dispatch.Store().Put(dispatch.Record{
 		AttemptID: g.AttemptID, JobID: g.JobID, TowerID: g.TowerID, StationID: g.StationID,
 		StationEpoch: g.StationEpoch, Model: g.Model, Modality: g.Modality,
-		Nonce: g.Nonce, Deadline: g.Deadline.Add(edgeSettleGrace),
+		Nonce: g.Nonce, Deadline: g.Deadline.Add(edgeSettleGrace()),
 		Grant: g.Signed, AssertionKey: target.AssertionKey, ConsumerKey: g.ConsumerKey,
 		State: dispatch.StateIssued,
 	}); err != nil {
@@ -223,7 +241,7 @@ func (b *broker) openEdgeAttempt(g dispatch.EdgeGrant, target dispatch.Target) e
 		Hold:                attempt.NoHold(g.AttemptID),
 		StationRevision:     g.StationEpoch,
 		Deadline:            g.Deadline,
-		FinalizationCeiling: g.Deadline.Add(edgeSettleGrace),
+		FinalizationCeiling: g.Deadline.Add(edgeSettleGrace()),
 	})
 	return err
 }
@@ -528,11 +546,17 @@ func (b *broker) towerEdgeSettle(w http.ResponseWriter, r *http.Request) {
 	// operator's pay to one bad moment. A genuine double-settle still loses the Settle swap
 	// below, and the accrual keyed by attempt id cannot double-count whichever path commits.
 	now := time.Now()
+	alreadySettled := false
 	if _, cerr := ts.dispatch.Store().ClaimByID(req.AttemptID, req.TowerID, now); cerr != nil {
 		switch {
 		case errors.Is(cerr, dispatch.ErrAlreadySettled):
-			jsonErr(w, http.StatusConflict, "this attempt has already been settled")
-			return
+			// The one-use dispatch settle already committed, but the wallet capture and evidence
+			// writes that FOLLOW it are separate, non-atomic, and idempotent. A prior attempt that
+			// faulted after the settle but before the capture would otherwise be refused here and
+			// leave the consumer's hold to be swept (free work) and the operators unpaid. So we do
+			// not 409: we skip the (already-done) Settle and re-run the post-settlement steps,
+			// every one of which is idempotent, to COMPLETE a half-finished settlement.
+			alreadySettled = true
 		case errors.Is(cerr, dispatch.ErrAlreadyClaimed):
 			// Stranded from a prior interrupted settle - fall through and re-drive Settle.
 		case errors.Is(cerr, dispatch.ErrExpired):
@@ -543,20 +567,21 @@ func (b *broker) towerEdgeSettle(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if _, serr := ts.dispatch.Store().Settle(req.AttemptID, now); serr != nil {
-		if errors.Is(serr, dispatch.ErrAlreadySettled) {
-			// Another settle (a concurrent re-drive) won and has already accrued; this is a
-			// duplicate, not a fault.
-			jsonErr(w, http.StatusConflict, "this attempt has already been settled")
-			return
+	if !alreadySettled {
+		if _, serr := ts.dispatch.Store().Settle(req.AttemptID, now); serr != nil {
+			if errors.Is(serr, dispatch.ErrAlreadySettled) {
+				// A concurrent re-drive won the settle; complete the idempotent post-processing
+				// rather than 409, so billing still finishes if that winner faulted before it.
+				alreadySettled = true
+			} else if errors.Is(serr, dispatch.ErrExpired) {
+				jsonErr(w, http.StatusForbidden, "this attempt's settlement window has closed")
+				return
+			} else {
+				log.Printf("edge settle: attempt %s reconciled but not committed: %v", req.AttemptID, serr)
+				jsonErr(w, http.StatusServiceUnavailable, "could not commit this settlement - retry")
+				return
+			}
 		}
-		if errors.Is(serr, dispatch.ErrExpired) {
-			jsonErr(w, http.StatusForbidden, "this attempt's settlement window has closed")
-			return
-		}
-		log.Printf("edge settle: attempt %s reconciled but not committed: %v", req.AttemptID, serr)
-		jsonErr(w, http.StatusServiceUnavailable, "could not commit this settlement - retry")
-		return
 	}
 	// BOUND THE BILLABLE FIGURE TO WHAT THE GRANT AUTHORIZED. On the no-acknowledgement path
 	// (the common one) the billable usage is the Station's own signed number, and the Station's
@@ -645,6 +670,15 @@ func (b *broker) towerEdgeSettle(w http.ResponseWriter, r *http.Request) {
 	// quarantine the Tower on strong evidence; it never touches THIS settlement, which has
 	// already committed - the money is decided, the reputation is a separate consequence.
 	b.evaluateTower(req.TowerID)
+	if alreadySettled {
+		// The dispatch settle had already committed; we re-ran the idempotent billing and evidence
+		// above only to COMPLETE a settlement whose money side may have been interrupted (see the
+		// ClaimByID handling). The one-use CONTRACT is unchanged: a replay is still a conflict, not
+		// a second payment - and nothing above double-charged or double-paid (every step is keyed
+		// idempotent). The courier treats 409 and 200 alike (done), so this loses no evidence.
+		jsonErr(w, http.StatusConflict, "this attempt has already been settled")
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"attempt_id":   settled.AttemptID,
 		"corroborated": settled.Corroborated,
@@ -745,13 +779,19 @@ func (b *broker) accrueEarnings(ts *towerSubsystem, towerID, owner, model string
 // nothing here - billing turns on only when a per-byte edge price is configured.
 func (b *broker) settleEdgeMoney(ts *towerSubsystem, towerID, stationID, stationOwner string, rec dispatch.Record, settled dispatch.Settlement, now time.Time) {
 	if !edgePricingOn() {
-		return // no edge pricing configured: no holds were ever placed, nothing to settle
+		// Edge pricing is off, so no holds were placed and there is nothing to capture. We
+		// deliberately do NOT call SettleEdge here: it would claim a consumer receipt for free
+		// traffic that was never billed. If pricing was toggled OFF between this attempt's
+		// authorize and settle (a live env change without a restart - rare, self-inflicted), its
+		// hold is not captured here; the pending-hold sweep refunds it, so the consumer is made
+		// whole (the operator simply earns nothing on that in-flight attempt).
+		return
 	}
 	// SettleEdge charges against the AUTHORIZE-TIME reservation, using its exact recorded amount
 	// and no-op-ing if none exists - so we do not recompute or pass a held figure here, and a
-	// config change or a swept hold cannot produce a wrong refund. We call it even at cost 0 (an
-	// empty result, or pricing turned OFF after this attempt was held): that CAPTURES the hold at
-	// zero cost, refunding the full reservation, rather than stranding it for the orphan sweep.
+	// swept hold or a changed price cannot produce a wrong refund. We still call it at cost 0 (an
+	// empty result while pricing remains on): that CAPTURES the hold at zero cost, refunding the
+	// full reservation, rather than stranding it.
 	cost := edgePriceCredits(settled.Billable.In, settled.Billable.Out)
 	consumerWallet := protocol.UserIDFromPubkey(hex.EncodeToString(rec.ConsumerKey))
 	stationShare := cost * (1 - b.feeRate)
