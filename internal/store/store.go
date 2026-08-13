@@ -60,6 +60,12 @@ type Store interface {
 	// Settle atomically debits the user by cost, credits the node's owner share,
 	// and appends the lineage receipt. Returns the user's new balance.
 	Settle(user, node string, cost, ownerShare float64, rec protocol.UsageReceipt) (newBalance float64, err error)
+	// AddOperatorLot mints an earning lot for an EXPLICIT account (not resolved from a node
+	// binding) on a given requestID - how the Tower operator earns a share of revenue on traffic
+	// relayed through their Tower, in the same wallet lifecycle (held->payable->paid, reserve,
+	// payout) and clawed back by a refund/chargeback of the same request. No-op on empty account
+	// or non-positive gross.
+	AddOperatorLot(node, accountID, requestID string, gross float64, now time.Time) error
 	// EarningsOf returns a node's accrued (unpaid) owner credits.
 	EarningsOf(node string) (float64, error)
 	// SpendOf returns a user's lifetime total spend (sum of settled costs).
@@ -915,6 +921,29 @@ func (m *Mem) addLotLocked(node, requestID string, ownerShare float64, now time.
 	if !ok || ownerShare <= 0 {
 		return
 	}
+	m.addLotForAccountLocked(node, acct, requestID, ownerShare, now)
+}
+
+// AddOperatorLot mints an earning lot for an EXPLICIT account rather than one resolved from a
+// node binding. It is how an operator who is not the serving node's owner - the Tower operator,
+// who earns a share of revenue on traffic RELAYED through their Tower - receives credit in the
+// same wallet, so the lot flows through the identical held->payable->paid lifecycle, rolling
+// reserve, payout, and refund/chargeback clawback. `node` is carried for provenance/rollups only;
+// the payee is `accountID`. Keyed like every other lot by requestID, so a refund of that request
+// claws this lot back alongside the serving node's.
+func (m *Mem) AddOperatorLot(node, accountID, requestID string, gross float64, now time.Time) error {
+	if accountID == "" || gross <= 0 {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.addLotForAccountLocked(node, accountID, requestID, gross, now)
+	return nil
+}
+
+// addLotForAccountLocked is the shared mint: one lot + earn/reserve ledger rows for an explicit
+// payee account. Caller holds m.mu and has already checked gross > 0.
+func (m *Mem) addLotForAccountLocked(node, acct, requestID string, ownerShare float64, now time.Time) {
 	reserve := ownerShare * m.policy.Reserve
 	rel := now.Add(m.policy.holdDuration())
 	m.lotID++

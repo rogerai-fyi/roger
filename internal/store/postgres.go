@@ -464,6 +464,30 @@ func (p *Postgres) addLot(tx *sql.Tx, node, requestID string, ownerShare float64
 	if err != nil {
 		return err
 	}
+	return p.addLotForAccount(tx, node, acct, requestID, ownerShare, now)
+}
+
+// AddOperatorLot mints an earning lot for an EXPLICIT account (the Tower operator, who earns on
+// traffic relayed through their Tower and is not the serving node's owner), in the same wallet
+// lifecycle as every other lot. See the mem twin for the full rationale.
+func (p *Postgres) AddOperatorLot(node, accountID, requestID string, gross float64, now time.Time) error {
+	if accountID == "" || gross <= 0 {
+		return nil
+	}
+	tx, err := p.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := p.addLotForAccount(tx, node, accountID, requestID, gross, now); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// addLotForAccount is the shared mint: one lot + earn/reserve ledger rows for an explicit payee
+// account inside the caller's transaction.
+func (p *Postgres) addLotForAccount(tx *sql.Tx, node, acct, requestID string, ownerShare float64, now time.Time) error {
 	reserve := ownerShare * p.policy.Reserve
 	rel := now.Add(p.policy.holdDuration()).Unix()
 	if _, err := tx.Exec(`INSERT INTO rogerai.earning_lots
