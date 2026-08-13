@@ -487,6 +487,13 @@ func (p *Postgres) AddOperatorLot(node, accountID, requestID string, gross float
 
 // addLotForAccount is the shared mint: one lot + earn/reserve ledger rows for an explicit payee
 // account inside the caller's transaction.
+//
+// INVARIANT the caller must uphold: lock the wallet row (the UPDATE ... rogerai.wallet in Settle/
+// Finalize/SettleEdge) BEFORE this mint. That serializes concurrent same-wallet settles so a
+// request's lots get contiguous, commit-ordered ids - which is what makes the wallet-recency
+// clawback's "l.id DESC" recency order identical to the mem store's, and therefore claw the same
+// operator on both backends. Minting a lot before taking the wallet lock would let two requests'
+// lot ids interleave under concurrency and silently reintroduce backend-divergent attribution.
 func (p *Postgres) addLotForAccount(tx *sql.Tx, node, acct, requestID string, ownerShare float64, now time.Time) error {
 	reserve := ownerShare * p.policy.Reserve
 	rel := now.Add(p.policy.holdDuration()).Unix()

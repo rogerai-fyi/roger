@@ -204,3 +204,22 @@ func TestAReplayDoesNotReopenAResolvedAudit(t *testing.T) {
 	pending, _ = b.tower.auditWanted.Pending(tw.id, time.Now())
 	require.Len(t, pending, 0, "the resolved audit was NOT re-opened by the replay")
 }
+
+// The consumer's pre-auth hold is reclaimed by the sweep after holdTTL, and the edge settlement
+// window is grantLifetime + edgeSettleGrace(). If the window ever outran holdTTL, a late-but-valid
+// receipt would find its hold already swept and settle for FREE with the operator unpaid. That
+// coupling is arithmetic (edgeSettleGrace derives from holdTTL) and easy to break with a future
+// change to the grant lifetime, the grace, or the margin - so it is asserted here across the
+// realistic holdTTL range, default included.
+func TestEdgeSettleWindowStaysInsideTheHoldTTL(t *testing.T) {
+	check := func(t *testing.T) {
+		window := towerAttemptLifetime + edgeSettleGrace()
+		require.Less(t, window, holdTTL(),
+			"edge settle window %v must stay strictly under holdTTL %v so a hold always outlives its attempt's deadline",
+			window, holdTTL())
+	}
+	t.Run("default", check) // no ROGERAI_HOLD_TTL set
+	for _, ttl := range []string{"6m", "10m", "15m", "30m", "1h"} {
+		t.Run(ttl, func(t *testing.T) { t.Setenv("ROGERAI_HOLD_TTL", ttl); check(t) })
+	}
+}
