@@ -242,7 +242,7 @@ test("palette: only tokens that exist are referenced", () => {
   }
 });
 
-test("palette: red is a signal, never a surface", () => {
+test("palette: red is a signal, never a surface", async () => {
   // It may light an armed port, an escalation, focus, and the RUN button. Nothing else.
   const reds = (css.match(/var\(--live\)/g) || []).length;
   assert.ok(reds > 0 && reds < 22, `red is used ${reds} times; it must stay a glint`);
@@ -255,8 +255,17 @@ test("palette: red is a signal, never a surface", () => {
       filled.push(sel);
     }
   }
-  assert.deepEqual(filled.sort(), [".wp-run", ".wp-vu__red"].sort(),
-    `only the floor tick and the RUN button may be filled red; got ${filled.join(", ")}`);
+  // Three rules may fill with red: the 1px floor tick, the one primary action, and the
+  // masthead's SPOT PLATE - whose fill is clipped by a 3KB alpha mask to the engraving's
+  // lamp and one cable segment. At the CSS level it reads as a surface; in rendered
+  // reality it is the smallest glint on the page. The mask file staying tiny is what
+  // keeps that true, so its size is pinned below.
+  assert.deepEqual(filled.sort(), [".wm-masthead__spot", ".wp-run", ".wp-vu__red"].sort(),
+    `only the floor tick, the RUN button and the masked spot plate may fill red; got ${filled.join(", ")}`);
+  const { statSync } = await import("node:fs");
+  const spotBytes = statSync(path.join(SRC, "assets/wave/mesh-console-spot.png")).size;
+  assert.ok(spotBytes < 16 * 1024,
+    `the spot mask is ${spotBytes} bytes; if it grows past ~16KB it has stopped being a glint`);
 });
 
 // ---------- accessibility -----------------------------------------------------
