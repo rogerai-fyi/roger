@@ -200,7 +200,16 @@ test("interaction: connecting is click-to-connect, not HTML5 drag and drop", () 
   // the finger doing it. Click-to-connect is also the keyboard path, so there is one
   // state machine instead of three.
   assert.ok(js.includes("armPort") && js.includes("tryConnect"));
-  assert.ok(!/dragstart|dataTransfer/.test(js), "no HTML5 drag and drop");
+  // HTML5 DnD is banned for WIRING (it is unusable on touch and needs a second
+  // state machine). Being a drop TARGET for external text/files on the intake
+  // is the one thing the API is actually for, so dataTransfer may appear only
+  // in the intake's drop handler - and dragstart, which would mean we INITIATE
+  // HTML5 drags, may not appear at all.
+  assert.ok(!/dragstart/.test(js), "we never initiate HTML5 drags");
+  const dndUses = (js.match(/dataTransfer/g) || []).length;
+  const dropBlock = js.slice(js.indexOf('addEventListener("drop"'), js.indexOf('addEventListener("drop"') + 600);
+  assert.ok(dndUses > 0 && dndUses === (dropBlock.match(/dataTransfer/g) || []).length,
+    "dataTransfer appears only in the intake's external-drop handler");
   assert.ok(/Escape/.test(js), "Escape must cancel an armed wire");
 });
 
@@ -373,4 +382,69 @@ test("shim: the intake drawer exists and the samples are the recorded renders", 
     assert.ok(htmlFlat.includes(`id="${id}"`), `${id} must exist`);
   }
   assert.ok(js.includes("sc.renders[mo]"), "samples load the committed renderer output, not mock text");
+});
+
+// ---------- the classifier, EXECUTED (not grepped) -----------------------------
+// Static greps let two classification bugs ship: the spec's own scenario phrase
+// classified as small talk, and a shelf template was denied by its own drawer.
+// These tests run the real classify() under a stub DOM.
+
+function loadClassifier() {
+  const stubEl = () => ({ addEventListener() {}, setAttribute() {}, style: {}, classList: { add() {}, remove() {}, toggle() {} }, appendChild() {}, textContent: "", hidden: true, focus() {}, dataset: {} });
+  const sandbox = {
+    window: { matchMedia: () => ({ matches: true }), localStorage: { getItem: () => null, setItem() {} }, location: { hash: "" } },
+    document: {
+      readyState: "complete", addEventListener() {}, removeEventListener() {},
+      getElementById: () => null, querySelector: () => null, querySelectorAll: () => [],
+      createElement: stubEl, createElementNS: stubEl, body: { classList: { add() {}, remove() {} }, appendChild() {} },
+      activeElement: null,
+    },
+    fetch: () => new Promise(() => {}),
+    setTimeout: (fn) => 0,
+  };
+  sandbox.window.document = sandbox.document;
+  const fn = new Function("window", "document", "fetch", "setTimeout", js + "; return window.__wavePatchTest;");
+  const hook = fn(sandbox.window, sandbox.document, sandbox.fetch, sandbox.setTimeout);
+  hook.setScene(scene, catalog);
+  return hook.classify;
+}
+
+test("classifier: every committed render classifies as its own dialect", () => {
+  const classify = loadClassifier();
+  for (const [mo, text] of Object.entries(scene.renders)) {
+    const v = classify(text);
+    assert.equal(v.kind, "blob", `${mo} must classify as a wire blob`);
+    assert.equal(v.mod, mo, `${mo} must be recognised as itself`);
+  }
+});
+
+test("classifier: headerless bodies still classify - real plants do not send our banners", () => {
+  const classify = loadClassifier();
+  // the tail half of each render, header stripped
+  let recognised = 0;
+  for (const [mo, text] of Object.entries(scene.renders)) {
+    const tail = text.split("\n").slice(2).join("\n");
+    const v = classify(tail);
+    if (v.kind === "blob" && v.mod === mo) recognised++;
+    assert.notEqual(v.kind, "talk",
+      `${mo}'s own body must never be lectured about corpus dreams`);
+  }
+  assert.ok(recognised >= 5, `want most headerless bodies recognised, got ${recognised}/8`);
+});
+
+test("classifier: the spec's own phrases route correctly", () => {
+  const classify = loadClassifier();
+  assert.equal(classify("cavitating pump with a stuck vibration sensor").kind, "scenario",
+    "handoff 3 case 3's own example");
+  assert.equal(classify("gearbox running dry").kind, "scenario",
+    "a shelf card's own label must never be told no template carries it");
+  assert.equal(classify("71.2, 71.3, 71.1, 71.4, 71.2, 71.3, 71.5, 71.2").kind, "numbers",
+    "the founder's bare list");
+  const withUnit = classify("71.2 mm/s, 71.3 mm/s, 71.1 mm/s, 71.4 mm/s, 71.2 mm/s, 71.3 mm/s, 71.5 mm/s, 71.2 mm/s");
+  assert.equal(withUnit.kind, "numbers", "volunteering the unit must not be punished");
+  assert.equal(withUnit.unit, "mm/s", "and the stated unit is carried, not invented");
+  assert.equal(classify("71.2, 71.3, 71.1").kind, "few-numbers",
+    "a short series says it needs more, instead of falling to talk");
+  assert.equal(classify("hi").kind, "talk");
+  assert.equal(classify("what are you").kind, "talk");
 });

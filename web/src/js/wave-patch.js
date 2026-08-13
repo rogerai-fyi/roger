@@ -114,6 +114,8 @@
 
   function loadTemplate(tpl) {
     PATCH.template = tpl;
+    var keptIntake = PATCH.tiles.filter(function (x) { return x.kind === "intake"; })[0];
+    PATCH.keptIntake = keptIntake && keptIntake.data.body ? keptIntake.data : null;
     PATCH.tiles = [];
     PATCH.wires = [];
     PATCH.seq = 1;
@@ -141,7 +143,15 @@
     // The intake: a permanent slot in the source column for the visitor's OWN
     // bytes. The truthful statement about a Wave model is that it has no other
     // input path - human input enters the graph the same way a device does.
-    var intake = tile("intake", "device", 2, { label: "Your Data", channels: [] });
+    // A template switch KEEPS the paste (destroying a visitor's own data on an
+    // unrelated click would be hostile); the wire has to be remade, and we say so.
+    var intake = tile("intake", "device", 2,
+      PATCH.keptIntake || { label: "Your Data", channels: [] });
+    if (PATCH.keptIntake) {
+      setTimeout(function () {
+        say("Template loaded. Your pasted channel is still on the sheet - rewire it to a model.");
+      }, 0);
+    }
     PATCH.tiles = [dev, pico, nano, human, intake];
 
     connect(dev.id, "out", pico.id, "in", "channel");
@@ -388,7 +398,12 @@
     if (t.kind === "intake") {
       if (t.data.channels.length) {
         n.appendChild(el("div", "wp-tile__meta", "PASTED · " + (t.data.modality || "").toUpperCase()));
-        n.appendChild(el("div", "wp-tile__badge", "NOT SIMULATED · YOUR BYTES"));
+        // A pressed sample chip is OUR recorded bytes, and the badge must not
+        // call them the visitor's - that would be the deck lying about the one
+        // thing it exists to be honest about.
+        n.appendChild(el("div", "wp-tile__badge", t.data.recognised
+          ? "RECORDED SAMPLE · OUR BYTES"
+          : "NOT SIMULATED · YOUR BYTES"));
         var uports = el("div", "wp-tile__ports");
         t.data.channels.forEach(function (c) {
           var up2 = el("button", "wp-port wp-port--chan wp-port--out");
@@ -404,6 +419,20 @@
         n.appendChild(el("div", "wp-tile__meta", "▤ paste / drop"));
         n.appendChild(el("div", "wp-tile__badge", "your plant's bytes, read by the shim"));
       }
+      // "drop" on the tile is real, not copy: dropped text (or a text file)
+      // lands in the drawer with the classifier already run on it.
+      n.addEventListener("dragover", function (e) { e.preventDefault(); });
+      n.addEventListener("drop", function (e) {
+        e.preventDefault();
+        var txt = e.dataTransfer.getData("text");
+        if (txt) { intakeWith(txt); return; }
+        var f = e.dataTransfer.files && e.dataTransfer.files[0];
+        if (f && f.size < 1 << 20) {
+          var rd = new FileReader();
+          rd.onload = function () { intakeWith(String(rd.result || "")); };
+          rd.readAsText(f);
+        }
+      });
     }
 
     if (t.kind === "human") {
@@ -710,7 +739,11 @@
     render();
     if (esc.length && !quiet && chain.escWire && !chain.userSource) flyPacket(chain.escWire);
     paintResults();
-    if (!quiet) say("Replayed " + recs.length + " recorded records. " + esc.length + " escalated.");
+    if (!quiet) {
+      say(chain.userSource
+        ? "Nothing ran - your bytes are a draft. Open Wave Pico for the request envelope."
+        : "Replayed " + recs.length + " recorded records. " + esc.length + " escalated.");
+    }
   }
 
   function median(xs) {
@@ -760,8 +793,13 @@
     } else {
       ["wpMacro", "wpEsc", "wpCost"].forEach(function (id) { setText(id, "—"); });
       setText("wpRaw", ""); setText("wpConfig", "");
-      if (un) un.textContent = "This patch is not one of the measured configurations - " +
-        "the sweep covers floors 0.5 to 2.0. The tiles above still show the recorded run.";
+      if (un) {
+        un.textContent = chainOf().userSource
+          ? "Your bytes were never in the measured sweep - nothing here may claim them. " +
+            "The request envelope is on the Wave Pico tile."
+          : "This patch is not one of the measured configurations - the sweep covers " +
+            "floors 0.5 to 2.0. The tiles above still show the recorded run.";
+      }
     }
     var prov = $("wpProv");
     if (prov) {
@@ -819,6 +857,15 @@
     var pico = chain.devWire ? tileById(chain.devWire.toId) : null;
     var floor = pico ? pico.data.floor : 2.0;
     list.textContent = "";
+    // A draft has no assertions. Recorded rows under "what it asserted" while the
+    // source is the visitor's un-run bytes would leak run-shaped numbers into a
+    // state whose whole point is that nothing ran.
+    if (chain.userSource) {
+      list.appendChild(el("li", "wp-note",
+        "Your bytes have not been run - there are no assertions to show. " +
+        "The request envelope is on the Wave Pico tile."));
+      return;
+    }
     m.records.slice(0, 14).forEach(function (r) {
       var esc = r.child.margin < floor;
       var li = el("li", "wp-rec" + (esc ? " wp-rec--esc" : ""));
@@ -865,7 +912,7 @@
             "No model was called - this stayed in your browser. This is the exact request " +
             "your bytes become on a stock llama-server; run it yourself, or wait for the " +
             "in-browser tier (Q4, ~65MB, certified)."));
-          var pre2 = el("pre", "wp-wirebytes", envelopeFor(t, src.data.body));
+          var pre2 = el("pre", "wp-wirebytes", envelopeFor(t, src));
           box.appendChild(pre2);
         }
       }
@@ -980,12 +1027,26 @@
   }
 
   function onKey(e) {
-    if (e.key === "Escape" && PATCH.armed) { disarm(); say("Cancelled."); return; }
+    if (e.key === "Escape") {
+      var drawer = $("wpIntake");
+      if (drawer && !drawer.hidden) {
+        closeIntake();
+        var back = document.querySelector(".wp-tile--intake");
+        if (back) back.focus();
+        return;
+      }
+      if (PATCH.armed) { disarm(); say("Cancelled."); return; }
+    }
     var host = document.activeElement && document.activeElement.closest
       && document.activeElement.closest(".wp-tile");
     if (!host) return;
     var t = tileById(host.dataset.tile);
     if (!t) return;
+    if ((e.key === "Enter" || e.key === " ") && t.kind === "intake" && !PATCH.armed) {
+      e.preventDefault();
+      openIntake();
+      return;
+    }
     if (e.key === "c" || e.key === "C") {
       e.preventDefault();
       if (t.kind === "device") armPort(t.id, "out", t.data.channels[0] && t.data.channels[0].name);
@@ -1104,14 +1165,34 @@
     { mod: "signal",     probes: ["channel=", "range=[", "slope_per_min"] },
   ];
 
+  // Body-shape probes: real plant bytes do not carry our renderer's decorative
+  // headers, so each modality is also recognisable by the SHAPE of its lines -
+  // an Influx line-protocol row, an OPC UA value/status pair, a Modbus register
+  // row. A header probe and a shape probe each count one hit.
+  var SHAPES = {
+    modbus:     /\b4[0-9]{4}\b\s+0x[0-9A-Fa-f]{4}/,
+    opcua:      /value=\S+\s+status=\w+/,
+    prometheus: /^[a-z_][a-z0-9_]*(\{[^}]*\})? [0-9.eE+-]+$/m,
+    sparkplug:  /"(alias|timestamp)"\s*:\s*\d{10,}/,
+    syslog:     /^<\d{2,3}>1 \d{4}-\d{2}-\d{2}T/m,
+    influx:     /^\w[\w-]*,\S+=\S+ \S+=\S+ \d{15,19}$/m,
+    datadog:    /"points"|"resources"\s*:/,
+    signal:     /\b(longest_run|sd_tail|repeat_frac)=/,
+  };
+
   function classify(text) {
     var t = text.trim();
     if (!t) return null;
 
-    // wire blob: count fingerprint hits per modality
+    // wire blob: header fingerprints plus line-shape probes per modality
     var scores = FINGERPRINTS.map(function (f) {
       var hits = f.probes.filter(function (pr) { return t.indexOf(pr) >= 0; });
-      return { mod: f.mod, hits: hits.length, evidence: hits };
+      var ev = hits.slice();
+      if (SHAPES[f.mod] && SHAPES[f.mod].test(t)) {
+        ev.push("line shape");
+        hits = ev;
+      }
+      return { mod: f.mod, hits: ev.length, evidence: ev };
     }).sort(function (a, b) { return b.hits - a.hits; });
     var best = scores[0], second = scores[1];
 
@@ -1131,11 +1212,23 @@
       return { kind: "blob", mod: best.mod, evidence: best.evidence, tag: tag, recognised: recognised };
     }
 
-    // raw numbers: mostly numeric tokens
+    // raw numbers: mostly numeric tokens. A REPEATED trailing unit token is
+    // stripped before the ratio - "71.2 mm/s, 71.3 mm/s" must not be punished
+    // for volunteering the unit this deck moralises about.
     var tokens = t.split(/[\s,;]+/).filter(Boolean);
+    var unitGuess = null;
+    var nonNum = tokens.filter(function (x) { return !/^-?\d+(\.\d+)?$/.test(x); });
+    if (nonNum.length >= 2 && nonNum.every(function (x) { return x === nonNum[0]; })) {
+      unitGuess = nonNum[0];
+      tokens = tokens.filter(function (x) { return x !== unitGuess; });
+    }
     var nums = tokens.filter(function (x) { return /^-?\d+(\.\d+)?$/.test(x); });
     if (nums.length >= 8 && nums.length / tokens.length >= 0.6) {
-      return { kind: "numbers", n: nums.length, samples: nums.slice(0, 96).map(Number) };
+      return { kind: "numbers", n: nums.length, unit: unitGuess,
+               samples: nums.slice(0, 96).map(Number) };
+    }
+    if (nums.length >= 3 && nums.length / Math.max(1, tokens.length) >= 0.6) {
+      return { kind: "few-numbers", n: nums.length };
     }
 
     // scenario in words: a catalogue token lookup, not NLU
@@ -1158,10 +1251,27 @@
       if (hit.length >= 2) return { kind: "scenario", template: tpl, evidence: hit };
     }
     for (var name in cat) {
-      var words = name.split("_").filter(function (w) { return w.length > 3; });
-      if (words.length && words.every(function (w) { return low.indexOf(w) >= 0; })) {
-        return { kind: "scenario-asset", asset: name, evidence: words };
+      var nameWords = name.split("_").filter(function (w) { return w.length > 3; });
+      if (nameWords.length && nameWords.every(function (w) { return low.indexOf(w) >= 0; })) {
+        // If a template already carries this asset, say THAT - telling someone
+        // "no template carries the gearbox yet" while a gearbox card sits on the
+        // shelf would be a false statement about our own page.
+        for (var k = 0; k < TEMPLATES.length; k++) {
+          if (TEMPLATES[k].asset === name) {
+            return { kind: "scenario", template: TEMPLATES[k], evidence: nameWords };
+          }
+        }
+        return { kind: "scenario-asset", asset: name, evidence: nameWords };
       }
+    }
+
+    // Machine-shaped but unrecognised is NOT conversation: an engineer who
+    // pasted real telemetry we failed to read must never be lectured about
+    // corpus dreams. Heuristic: several similar-length lines, digit-heavy.
+    var lines = t.split("\n").filter(function (l) { return l.trim(); });
+    var digits = (t.match(/[0-9]/g) || []).length;
+    if (lines.length >= 3 && digits / t.length > 0.15) {
+      return { kind: "machine-unknown", lines: lines.length };
     }
 
     // anything else is conversation, and it never reaches a model
@@ -1199,10 +1309,24 @@
       shape.textContent = "—"; frame.textContent = "—";
       note.textContent = "The shim refuses to guess on thin evidence. That is the real system's behaviour too.";
     } else if (v.kind === "numbers") {
-      mod.textContent = "raw numbers  ↳ " + v.n + " numeric samples";
-      shape.textContent = "one channel · unit NOT STATED IN THE WIRE - a defaulted unit would be an invented fact";
+      mod.textContent = "raw numbers  ↳ " + v.n + " numeric samples" +
+        (v.unit ? " · unit stated: " + v.unit : "");
+      shape.textContent = v.unit
+        ? "one channel · " + v.unit + " (you stated it - it was not in the wire)"
+        : "one channel · unit NOT STATED IN THE WIRE - a defaulted unit would be an invented fact";
       frame.textContent = "T01 sensor-health · frame text — pending export —";
       send.disabled = false;
+    } else if (v.kind === "few-numbers") {
+      mod.textContent = "looks numeric - " + v.n + " sample" + (v.n === 1 ? "" : "s");
+      shape.textContent = "a window needs at least 8 samples to say anything about a signal";
+      frame.textContent = "—";
+      note.textContent = "Paste more of the series and the shim will build the channel.";
+    } else if (v.kind === "machine-unknown") {
+      mod.textContent = "machine-shaped, but not a dialect the shim recognises";
+      shape.textContent = v.lines + " lines, digit-heavy - this looks like telemetry";
+      frame.textContent = "—";
+      note.textContent = "The shim reads eight dialects and their line shapes; this matched " +
+        "none well enough to wrap honestly. Try including the header lines of the dump.";
     } else if (v.kind === "scenario" || v.kind === "scenario-asset") {
       mod.textContent = "a scenario, in words  ↳ matched " + v.evidence.join(", ");
       shape.textContent = "words are never sent to a Wave model";
@@ -1241,11 +1365,14 @@
     if (!t) return;
     if (v.kind === "blob") {
       t.data.modality = v.mod;
+      t.data.recognised = v.recognised || null;
       t.data.channels = [{ name: v.tag || "your channel", unit: "" }];
       t.data.body = INTAKE.text;
     } else if (v.kind === "numbers") {
       t.data.modality = "raw numbers";
-      t.data.channels = [{ name: "your channel", unit: "" }];
+      t.data.recognised = null;
+      t.data.unit = v.unit || null;
+      t.data.channels = [{ name: "your channel", unit: v.unit || "" }];
       t.data.body = INTAKE.text;
     } else {
       return;
@@ -1253,6 +1380,16 @@
     closeIntake();
     render();
     say("Your data is on the sheet. Tap its filled port, then Wave Pico's input, to wire it in.");
+  }
+
+  function intakeWith(text) {
+    openIntake();
+    var ta = $("wpPaste");
+    if (!ta) return;
+    ta.value = text.slice(0, 1 << 18); // a megabyte of paste is not a channel window
+    INTAKE.text = ta.value;
+    INTAKE.verdict = classify(ta.value);
+    paintDetect();
   }
 
   function openIntake() {
@@ -1307,27 +1444,41 @@
      excluded, leading space, cache_prompt true. All of that is measured and
      documented; the one thing NOT invented here is the task frame text,
      which has not been exported - so its slot says so, like the digest. */
-  function envelopeFor(t, body) {
+  function envelopeFor(t, src) {
+    var body = src.data.body || "";
+    var isNumbers = src.data.modality === "raw numbers";
     var cat = (PATCH.catalog && PATCH.catalog.catalog) || {};
     var anyAsset = cat[Object.keys(cat)[0]] || {};
     var candidates = (anyAsset.sensor_faults && anyAsset.sensor_faults.length)
       ? anyAsset.sensor_faults : ["ok", "stuck", "dropout", "noisy", "drifting", "railed"];
-    var lines = [
-      "# one request PER CANDIDATE - grammar locks the reply to that candidate;",
-      "# margin = best logprob sum - runner-up (EOG token excluded, leading space)",
-      "POST ${LLAMA_SERVER}/completion",
+    var req = [
       "{",
-      '  "prompt": <task frame — pending export — + your input body below>,',
-      '  "grammar": "root ::= \\" ' + candidates[1] + '\\"",   # and one per candidate:',
-      "  # " + candidates.map(function (c) { return '"root ::= \\" ' + c + '\\""'; }).join(", "),
+      '  "prompt": "<task frame — pending export — followed by the input body>",',
+      '  "grammar": "root ::= \\" ' + candidates[1] + '\\"",',
       '  "n_predict": 16,',
-      '  "n_probs": 1,',
-      '  "cache_prompt": true   # candidates share one prompt eval',
+      '  "cache_prompt": true',
       "}",
+    ].join("\n");
+    var notes = [
+      "# POST ${LLAMA_SERVER}/completion - ONE REQUEST PER CANDIDATE, each with its",
+      "# grammar locked to that candidate: " + candidates.map(function (c) { return '" ' + c + '"'; }).join(", "),
+      "# cache_prompt shares one prompt eval across the candidates.",
+      "# Request token logprobs per your llama-server build; the harness sums the",
+      "# returned tokens' logprob fields, EXCLUDING the trailing end-of-generation",
+      "# token. margin = best sum - runner-up sum.",
       "",
-      "# input body - your bytes, verbatim (" + body.length + " chars):",
+      req,
+      "",
     ];
-    return lines.join("\n") + "\n" + body;
+    if (isNumbers) {
+      notes.push("# input body: the task frame wraps a FEATURES RENDER of your " +
+        (src.data.channels.length ? "" : "") + "samples (mean, sd, slope," );
+      notes.push("# longest_run, ...) - the in-browser features port is pending, so the render");
+      notes.push("# is not shown here. Your raw samples, verbatim (" + body.length + " chars):");
+    } else {
+      notes.push("# input body - your bytes, verbatim (" + body.length + " chars):");
+    }
+    return notes.join("\n") + "\n" + body;
   }
 
   /* =====================================================================
@@ -1407,6 +1558,14 @@
   function maybeBoot() {
     var v = $("pgMeshView");
     if (v && !v.hidden && !PATCH.booted && $("wpSheet")) { PATCH.booted = true; boot(); }
+  }
+
+  // Pure-function hook so tests can EXECUTE the classifier instead of grepping
+  // for its strings - the gap that let two classification bugs ship.
+  if (typeof window !== "undefined") {
+    window.__wavePatchTest = { classify: classify, setScene: function (sc, cat) {
+      PATCH.scene = sc; PATCH.catalog = cat;
+    } };
   }
 
   function start() { wireModeSwitch(); maybeBoot(); }
