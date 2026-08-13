@@ -70,6 +70,12 @@
 //	         durable idempotent row per settled attempt, priced on billable usage. It records
 //	         what is OWED and nothing more - disbursement and the wider revenue-share program
 //	         live elsewhere, so a bug here is a wrong number rather than a wrong payment.
+//	comp     the canonical integer money arithmetic the compensated-Tower revenue-share program
+//	         is built on: the rate_ppm wire form, the parts-per-million share (floor), the
+//	         reserve split that conserves every atom, the exposure cap that never inverts, and a
+//	         checked add/subtract/multiply/sum that refuse to overflow. Pure - no time, no store,
+//	         no money movement, just integers that behave - so the ledger built on it can trust
+//	         its floor. The foundation-first slice of a large subsystem being built bottom-up.
 //
 // # WHY THE IN-MEMORY STORES LOOK LIKE DEAD CODE AND ARE NOT
 //

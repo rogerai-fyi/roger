@@ -1,9 +1,16 @@
 # APPROVED SPEC - founder approved 2026-08-03. Changes to an approved scenario need
 # re-approval; they are not a diff to be reviewed.
 #
-# BUILD STATUS: NOT BUILT. Approval is not implementation - this line says which.
-# Enforced by internal/towercore/featurestatus_test.go against the "Contract:"
-# references in the code. Changing the status without changing the code fails.
+# BUILD STATUS: PARTIAL. Approval is not implementation - this line says which.
+# Built: the canonical money arithmetic this whole program rests on - the rate_ppm wire form and
+# its boundary validation, the parts-per-million share application (floor), the rolling-reserve
+# split with exact atom conservation, the per-operator exposure cap that never inverts, and the
+# checked add/subtract/multiply/sum that refuse to overflow (internal/towercore/comp). NOT built:
+# eligibility, funds verification, the entitlement aggregate and its CAS state machine, payout
+# lots, the double-entry journal, dust/debt/enforcement, and payout - the entitlement layer and
+# beyond (docs/tower-compensation-roadmap.md). Enforced by
+# internal/towercore/featurestatus_test.go against the "Contract:" references in the code.
+# Changing the status without changing the code fails.
 #
 # Scope: the compensated-Tower program — an opt-in tier in which a joined Tower operator
 # earns a founder-set revenue share (initially 10%) of the platform's net revenue on token

@@ -43,6 +43,8 @@ import (
 	"errors"
 	"math"
 	"time"
+
+	"rogerai.fm/roger/v5/internal/towercore/comp"
 )
 
 // Accrual is one attempt's earning for one Tower operator.
@@ -135,12 +137,14 @@ var (
 // turn the memory store's balance NEGATIVE and, once floored, hide the debt entirely - while the
 // Postgres store's numeric SUM would error instead. Saturating here keeps the two stores in
 // agreement (both cap at MaxInt64) and keeps an overflow visible as an absurd balance rather than
-// a silent zero. Inputs are non-negative by construction (checkAccrual / RecordPayout).
+// a silent zero. The checked add lives in the canonical comp arithmetic; this is the read-side's
+// deliberate saturate-and-continue wrapper, so a balance display never wedges on one bad rate.
 func satAddMicros(a, b int64) int64 {
-	if a > math.MaxInt64-b {
+	sum, err := comp.CheckedAdd(a, b)
+	if err != nil {
 		return math.MaxInt64
 	}
-	return a + b
+	return sum
 }
 
 func checkAccrual(a Accrual) error {

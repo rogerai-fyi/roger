@@ -41,6 +41,7 @@ import (
 	"rogerai.fm/roger/v5/internal/protocol"
 	"rogerai.fm/roger/v5/internal/towercore/admit"
 	"rogerai.fm/roger/v5/internal/towercore/attempt"
+	"rogerai.fm/roger/v5/internal/towercore/comp"
 	"rogerai.fm/roger/v5/internal/towercore/dispatch"
 	"rogerai.fm/roger/v5/internal/towercore/earnings"
 	"rogerai.fm/roger/v5/internal/towercore/link"
@@ -734,13 +735,13 @@ func edgeAccrualMicros(in, out int64) int64 {
 	return satAdd(satMul(in, edgeRateMicrosPerTokenIn()), satMul(out, edgeRateMicrosPerTokenOut()))
 }
 
-// satMul multiplies two non-negative int64s, saturating at MaxInt64 instead of overflowing.
+// satMul multiplies two non-negative int64s, saturating at MaxInt64 instead of overflowing. The
+// checked multiply is the canonical comp arithmetic; this is the accrual path's deliberate
+// saturate-and-log wrapper, so one misconfigured rate records an absurd (visible) number rather
+// than wedging settlement or wrapping to a small, steerable one.
 func satMul(a, b int64) int64 {
-	if a == 0 || b == 0 {
-		return 0
-	}
-	p := a * b
-	if p/b != a || p < 0 {
+	p, err := comp.CheckedMul(a, b)
+	if err != nil {
 		log.Printf("tower: accrual price overflowed (%d * %d); capped at MaxInt64", a, b)
 		return math.MaxInt64
 	}
@@ -749,11 +750,12 @@ func satMul(a, b int64) int64 {
 
 // satAdd adds two non-negative int64s, saturating at MaxInt64.
 func satAdd(a, b int64) int64 {
-	if a > math.MaxInt64-b {
+	sum, err := comp.CheckedAdd(a, b)
+	if err != nil {
 		log.Printf("tower: accrual sum overflowed (%d + %d); capped at MaxInt64", a, b)
 		return math.MaxInt64
 	}
-	return a + b
+	return sum
 }
 
 func edgeRateMicrosPerTokenIn() int64  { return envMicros("ROGERAI_TOWER_ACCRUAL_MICROS_IN") }

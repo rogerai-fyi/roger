@@ -268,3 +268,19 @@ method internal/towercore/enroll.TokenID
 # the payment rails behind its own authorization, kept out so a bug in this process can never
 # move a cent. The method is the seam that side will call; it is exercised by the parity tests.
 method internal/towercore/earnings.RecordPayout
+
+# --- compensation arithmetic foundation (built ahead of its consumer) --------
+# internal/towercore/comp is the canonical integer money math the compensated-Tower revenue-share
+# program (operator_revenue_share / compensation_state_machines) is built on. The checked add and
+# multiply already have production callers (the earnings ledger and the accrual path use them to
+# saturate-and-log). The rest - checked subtract/sum, the ppm share application, the reserve
+# split, and the exposure-cap accrual - are the entitlement layer's vocabulary; that layer is the
+# next roadmap milestone (docs/tower-compensation-roadmap.md). They are the foundation-first half
+# of a large subsystem being built bottom-up, exercised exhaustively by comp's own tests.
+internal/towercore/comp.CheckedSub
+internal/towercore/comp.CheckedSum
+internal/towercore/comp.ApplyPPM
+internal/towercore/comp.ReserveSplit
+internal/towercore/comp.AccrueUnderCap
+internal/towercore/comp.ParsePPM
+internal/towercore/comp.canonicalUint
