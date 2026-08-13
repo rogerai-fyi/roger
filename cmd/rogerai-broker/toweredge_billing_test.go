@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"rogerai.fm/roger/v5/internal/protocol"
 	"rogerai.fm/roger/v5/internal/store"
+	"rogerai.fm/roger/v5/internal/towercore/admit"
 	"rogerai.fm/roger/v5/internal/towercore/dispatch"
 )
 
@@ -163,4 +164,43 @@ func TestSettleCompletesBillingAfterAStrandedDispatchSettle(t *testing.T) {
 	require.InDelta(t, 35, sSt.Payable, 0.001, "no double-pay on a second retry")
 	bal, _ = b.db.PeekBalance(consumerWallet)
 	require.InDelta(t, 100000-50, bal, 0.001, "no double-charge on a second retry")
+}
+
+// Review finding 2: the already-settled completion path must NOT re-run audit selection - the
+// audit's Resolve deletes the wanted row when the transcript arrives, so re-selecting would
+// re-open a resolved audit and make the Tower re-serve a transcript it already proved.
+func TestAReplayDoesNotReopenAResolvedAudit(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	tw := enrolledTower(t, b, "owner-1")
+	stationPriv := attachStation(t, b, "st-1", tw.id, "owner-1")
+	require.NoError(t, b.tower.registry.Transition(tw.id, admit.StateActive))
+	issuedEdgeGrant(t, b, "att-1", tw.id, "st-1", 1000, 50) // low out ceiling forces a dispute+audit
+
+	body, err := json.Marshal(map[string]any{
+		"tower_id": tw.id, "station_id": "st-1", "attempt_id": "att-1",
+		"receipt": signedReceipt(t, stationPriv, "att-1", "st-1", []byte("answer"),
+			dispatch.Usage{In: 0, Out: 5000}), // over the 50 ceiling -> disputed -> force-audited
+	})
+	require.NoError(t, err)
+	var out map[string]any
+	code, _ := tw.call(t, srv, "/tower/edge/settle", body, &out)
+	require.Equal(t, http.StatusOK, code, out)
+	require.Equal(t, true, out["disputed"])
+
+	// The attempt is wanted for audit.
+	pending, err := b.tower.auditWanted.Pending(tw.id, time.Now())
+	require.NoError(t, err)
+	require.Len(t, pending, 1)
+
+	// The transcript arrives and RESOLVES the audit (delete the wanted row).
+	require.NoError(t, b.tower.auditWanted.Resolve("att-1"))
+	pending, _ = b.tower.auditWanted.Pending(tw.id, time.Now())
+	require.Len(t, pending, 0)
+
+	// A REPLAY of the settle (the dispatch attempt is already settled) must complete idempotently
+	// and 409 - WITHOUT re-opening the resolved audit.
+	code, _ = tw.call(t, srv, "/tower/edge/settle", body, &out)
+	require.Equal(t, http.StatusConflict, code, "a replay is a conflict")
+	pending, _ = b.tower.auditWanted.Pending(tw.id, time.Now())
+	require.Len(t, pending, 0, "the resolved audit was NOT re-opened by the replay")
 }

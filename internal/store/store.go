@@ -2256,8 +2256,18 @@ func (m *Mem) recoverLineageLocked(id, consumerKind, consumerRefPrefix, wallet, 
 				order = append(order, i)
 			}
 		}
+		// Newest request first, and - CRUCIALLY - break a same-timestamp tie by lot ID DESCENDING,
+		// exactly as the Postgres path does (ORDER BY r.ts DESC, l.id DESC). Timestamps are only
+		// second-granular, so high-frequency traffic for one wallet produces ties; without an
+		// identical tiebreak, an overshoot claw would recover from a DIFFERENT operator on mem
+		// than on Postgres. Totals are conserved either way, but which honest operator is clawed
+		// must not depend on the backend.
 		sort.SliceStable(order, func(a, b int) bool {
-			return reqTS[m.lots[order[a]].RequestID] > reqTS[m.lots[order[b]].RequestID]
+			ta, tb := reqTS[m.lots[order[a]].RequestID], reqTS[m.lots[order[b]].RequestID]
+			if ta != tb {
+				return ta > tb
+			}
+			return m.lots[order[a]].ID > m.lots[order[b]].ID
 		})
 	}
 

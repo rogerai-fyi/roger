@@ -632,6 +632,16 @@ func (b *broker) towerEdgeSettle(w http.ResponseWriter, r *http.Request) {
 	// pays the Station owner and the Tower operator their shares through the same EarningLot
 	// lifecycle as direct-node serving. Free (unpriced) traffic is a no-op here.
 	b.settleEdgeMoney(ts, req.TowerID, req.StationID, at.Owner, rec, settled, now)
+	if alreadySettled {
+		// A replay or a completion of an interrupted settle. The MONEY above is idempotent and now
+		// finished; we stop here rather than re-running the evidence/reputation/AUDIT steps below.
+		// Audit selection is the one non-idempotent step: its Resolve deletes the wanted row when
+		// the transcript arrives, so re-selecting would RE-OPEN a resolved audit and make a Tower
+		// re-serve a transcript it already proved. The fresh settle recorded those; a replay must
+		// not disturb them. The one-use contract answers 409, which the courier treats as done.
+		jsonErr(w, http.StatusConflict, "this attempt has already been settled")
+		return
+	}
 	// The attempt chain hears about it AFTER the store's answer is final, mirroring the
 	// relayed path: evidence first, then the settlement commitment.
 	b.noteAttempt(req.AttemptID, attempt.Observation{
@@ -670,15 +680,6 @@ func (b *broker) towerEdgeSettle(w http.ResponseWriter, r *http.Request) {
 	// quarantine the Tower on strong evidence; it never touches THIS settlement, which has
 	// already committed - the money is decided, the reputation is a separate consequence.
 	b.evaluateTower(req.TowerID)
-	if alreadySettled {
-		// The dispatch settle had already committed; we re-ran the idempotent billing and evidence
-		// above only to COMPLETE a settlement whose money side may have been interrupted (see the
-		// ClaimByID handling). The one-use CONTRACT is unchanged: a replay is still a conflict, not
-		// a second payment - and nothing above double-charged or double-paid (every step is keyed
-		// idempotent). The courier treats 409 and 200 alike (done), so this loses no evidence.
-		jsonErr(w, http.StatusConflict, "this attempt has already been settled")
-		return
-	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"attempt_id":   settled.AttemptID,
 		"corroborated": settled.Corroborated,
