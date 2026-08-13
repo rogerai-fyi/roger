@@ -82,8 +82,9 @@ test("honesty: the escalation packet fires on a run, never as a stream", () => {
   // contrib that does ships a warning. Here it is also the honesty rail: a continuous
   // animation would imply live inference.
   assert.ok(js.includes("flyPacket"), "there is a single packet animation");
-  assert.ok(/if \(esc\.length && !quiet && chain\.escWire\) flyPacket\(chain\.escWire\)/.test(js),
-    "it must fire only on an explicit run that actually escalated, on the wire that carried it");
+  assert.ok(/if \(esc\.length && !quiet && chain\.escWire && !chain\.userSource\) flyPacket\(chain\.escWire\)/.test(js),
+    "it must fire only on an explicit run that actually escalated, on the wire that carried " +
+    "it - and NEVER for the visitor's own pasted bytes, which are a draft, not a run");
   assert.ok(!/setInterval/.test(js), "nothing may animate continuously");
 });
 
@@ -317,4 +318,59 @@ test("deck: the wire inspector only shows bytes for the scene that has them", ()
   // template's cable with those bytes would attribute one device's data to another.
   assert.ok(/PATCH.template.asset === sc.asset_type/.test(js),
     "the inspector must check the loaded template matches the recorded scene");
+});
+
+// ---------- the translation shim (handoff 3) ----------------------------------
+
+test("shim: pasted bytes earn an envelope, never a result", () => {
+  // A margin is a logprob difference; nothing in a browser can compute one. The single
+  // most tempting dishonesty in this feature is a plausible JS "preview" margin - so the
+  // draft path must set NO margin, fly NO packet, and light NO lamp.
+  assert.ok(js.includes("DRAFT · NOT RUN"), "the draft state is named on the bubble");
+  const draft = js.slice(js.indexOf("chain.userSource) {"), js.indexOf("} else if (pico) {"));
+  assert.ok(!/margin =/.test(draft), "a draft must never set a margin");
+  assert.ok(/pico.lamp = "idle"/.test(draft), "a draft lights no status lamp");
+  assert.ok(js.includes("envelopeFor"), "what a paste earns is the request envelope");
+  assert.ok(/pending export/.test(js.slice(js.indexOf("function envelopeFor"))),
+    "the task frame text is not invented - its slot says pending, like the digest");
+});
+
+test("shim: the classifier shows its evidence and refuses thin guesses", () => {
+  assert.ok(js.includes("FINGERPRINTS"), "detection is fingerprint-based");
+  assert.ok(/matched/.test(js), "each detection row prints what it matched");
+  assert.ok(js.includes('"ambiguous"'), "near-ties are surfaced, not silently resolved");
+  assert.ok(/refuses to guess on thin evidence/.test(js),
+    "and the refusal is stated as the real system's behaviour");
+});
+
+test("shim: raw numbers never get a defaulted unit", () => {
+  // A defaulted unit is an invented fact - and units are precisely what the OPC UA
+  // substitute-value and Modbus byte-order traps are about.
+  assert.ok(/NOT STATED IN THE WIRE/.test(js), "the unit's absence is stated, not papered over");
+  assert.ok(!/unit: "Cel"|unit: "mm\/s"/.test(js.slice(js.indexOf("INTAKE"))),
+    "no unit is ever assumed for pasted data");
+});
+
+test("shim: conversation never reaches a model", () => {
+  assert.ok(js.includes('"talk"'), "small talk is a classified case");
+  assert.ok(/answered by this interface, from the faceplate/.test(js),
+    "and is answered by the interface");
+  assert.ok(/never reaches a model/.test(js), "stated plainly");
+});
+
+test("shim: scenario words load a template, never free text to a model", () => {
+  assert.ok(js.includes('"scenario"'), "a described scenario is a classified case");
+  assert.ok(/words are never sent to a Wave model/.test(js));
+});
+
+test("shim: a user-source chain is excluded from the measured gauges", () => {
+  assert.ok(/chain.userSource\) return null/.test(js),
+    "your bytes were never in the measured sweep, so the gauges must not claim them");
+});
+
+test("shim: the intake drawer exists and the samples are the recorded renders", () => {
+  for (const id of ["wpIntake", "wpPaste", "wpDetMod", "wpDetShape", "wpDetFrame", "wpSend", "wpSamples"]) {
+    assert.ok(htmlFlat.includes(`id="${id}"`), `${id} must exist`);
+  }
+  assert.ok(js.includes("sc.renders[mo]"), "samples load the committed renderer output, not mock text");
 });

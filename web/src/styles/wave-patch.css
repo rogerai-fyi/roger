@@ -350,3 +350,44 @@ body.wp-dragging { cursor: grabbing; user-select: none; }
   mask-image: url("../assets/wave/mesh-console-spot.png");
   background: var(--live);
 }
+
+/* ---- INTAKE: the translation shim -------------------------------------- */
+.wp-tile--intake { border-style: dashed; }
+.wp-tile__badge {
+  font-family: var(--font-mono); font-size: .52rem; letter-spacing: .06em;
+  color: var(--ink-400); text-align: center;
+}
+.wp-intake {
+  margin-top: var(--s-3, .75rem); padding: .8rem;
+  border: 1px dashed var(--hairline-2); border-radius: 10px;
+  background: var(--paper-2);
+}
+.wp-intake__grid {
+  display: grid; gap: var(--s-4, 1rem);
+  grid-template-columns: minmax(320px, 1.5fr) minmax(260px, 1fr);
+}
+@media (max-width: 860px) { .wp-intake__grid { grid-template-columns: 1fr; } }
+.wp-paste {
+  width: 100%; box-sizing: border-box; resize: vertical;
+  font-family: var(--font-mono); font-size: .66rem; line-height: 1.5;
+  padding: .6rem; border-radius: 8px;
+  border: 1px solid var(--hairline-2); background: var(--paper); color: var(--ink-900);
+}
+.wp-paste:focus-visible { outline: 2px solid var(--live); outline-offset: 1px; }
+.wp-samples { display: flex; flex-wrap: wrap; gap: .3rem; align-items: center; margin-top: .5rem; }
+
+/* the detect column reads like a protocol analyser: each row prints the
+   evidence for its own guess - showing the evidence is what replaces a mode
+   dropdown, and it is the answer to "what if it is wrong" */
+.wp-detect {
+  display: grid; grid-template-columns: auto 1fr; gap: .3rem .7rem; margin: 0;
+  font-family: var(--font-mono); font-size: .62rem;
+}
+.wp-detect dt { color: var(--ink-400); letter-spacing: .1em; }
+.wp-detect dd { margin: 0; color: var(--ink-900); overflow-wrap: anywhere; }
+.wp-run--send { margin-top: .8rem; }
+.wp-run--send:disabled {
+  background: var(--paper-3); border-color: var(--hairline-2); color: var(--ink-400);
+  cursor: not-allowed;
+}
+.wp-tag--draft { color: var(--ink-500); display: inline-block; margin-top: .5rem; }

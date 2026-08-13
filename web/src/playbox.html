@@ -508,6 +508,41 @@
             </div>
           </div>
           <p class="wp-say" id="wpSay" role="status" aria-live="polite"></p>
+          <!-- ================= INTAKE - THE TRANSLATION SHIM =================
+               Handoff 3: Wave models cannot be free-chatted - a task-native base
+               model given "hi" dreams a Modbus register table. So every human
+               input is CLASSIFIED and WRAPPED into the protocol, and the shim
+               shows its work: each detection row prints the evidence for its own
+               guess, and thin evidence refuses to guess rather than guessing.
+
+               Nothing pasted here is ever "run": no model executes in a browser,
+               and a margin is a logprob difference nothing here can compute. What
+               a paste earns is the REQUEST ENVELOPE - the exact bytes that would
+               go to a stock llama-server - marked DRAFT · NOT RUN. -->
+          <section class="wp-intake" id="wpIntake" hidden aria-label="Intake - the translation shim">
+            <div class="wp-panel__head">
+              <b>INTAKE &middot; THE TRANSLATION SHIM</b>
+              <button class="wp-remove" id="wpIntakeClose" type="button">close</button>
+            </div>
+            <div class="wp-intake__grid">
+              <div class="wp-intake__left">
+                <label class="wp-scrub__label" for="wpPaste">Paste what your plant emits</label>
+                <textarea class="wp-paste" id="wpPaste" rows="9" spellcheck="false"
+                  placeholder="Paste what your plant emits - a Modbus dump, OPC UA notifications, Prometheus text, raw numbers - or press a sample below."></textarea>
+                <div class="wp-samples" id="wpSamples" role="group" aria-label="Recorded samples"></div>
+              </div>
+              <div class="wp-intake__right">
+                <dl class="wp-detect" id="wpDetect">
+                  <dt>MODALITY</dt><dd id="wpDetMod">paste something - the shim reads as you type</dd>
+                  <dt>SHAPE</dt><dd id="wpDetShape">&mdash;</dd>
+                  <dt>FRAME</dt><dd id="wpDetFrame">&mdash;</dd>
+                </dl>
+                <p class="wp-note" id="wpDetNote"></p>
+                <button class="wp-run wp-run--send" id="wpSend" type="button" disabled>SEND TO THE SHEET &rarr;</button>
+              </div>
+            </div>
+          </section>
+
 
           <details class="wp-note">
             <summary>View this patch as a list</summary>

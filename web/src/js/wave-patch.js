@@ -138,7 +138,11 @@
     var pico = tile("model", "pico", 1, { label: "Wave Pico", tier: "pico", floor: tpl.floor, frame: "A" });
     var nano = tile("model", "nano", 1, { label: "Wave Nano", tier: "nano", floor: 2.5, frame: "B" });
     var human = tile("human", "human", 1, { label: "Operator" });
-    PATCH.tiles = [dev, pico, nano, human];
+    // The intake: a permanent slot in the source column for the visitor's OWN
+    // bytes. The truthful statement about a Wave model is that it has no other
+    // input path - human input enters the graph the same way a device does.
+    var intake = tile("intake", "device", 2, { label: "Your Data", channels: [] });
+    PATCH.tiles = [dev, pico, nano, human, intake];
 
     connect(dev.id, "out", pico.id, "in", "channel");
     connect(pico.id, "up", nano.id, "in", "escalate");
@@ -381,6 +385,27 @@
       n.appendChild(up);
     }
 
+    if (t.kind === "intake") {
+      if (t.data.channels.length) {
+        n.appendChild(el("div", "wp-tile__meta", "PASTED · " + (t.data.modality || "").toUpperCase()));
+        n.appendChild(el("div", "wp-tile__badge", "NOT SIMULATED · YOUR BYTES"));
+        var uports = el("div", "wp-tile__ports");
+        t.data.channels.forEach(function (c) {
+          var up2 = el("button", "wp-port wp-port--chan wp-port--out");
+          up2.type = "button";
+          up2.dataset.port = "out";
+          up2.dataset.chan = c.name;
+          up2.title = c.name + (c.unit ? " · " + c.unit : " · unit not stated in the wire");
+          up2.setAttribute("aria-label", "channel out: " + c.name);
+          uports.appendChild(up2);
+        });
+        n.appendChild(uports);
+      } else {
+        n.appendChild(el("div", "wp-tile__meta", "▤ paste / drop"));
+        n.appendChild(el("div", "wp-tile__badge", "your plant's bytes, read by the shim"));
+      }
+    }
+
     if (t.kind === "human") {
       n.appendChild(el("div", "wp-tile__meta", "the ladder ends with a person"));
       var hin = el("button", "wp-port wp-port--rec wp-port--in");
@@ -425,6 +450,11 @@
     if (t.kind === "model") {
       return t.data.label + ", tier " + t.data.tier + ", margin floor " + t.data.floor +
         ", status " + (LAMPS[t.lamp] || LAMPS.idle).label;
+    }
+    if (t.kind === "intake") {
+      return t.data.channels.length
+        ? "Your data, pasted, " + t.data.channels.length + " channel(s) out"
+        : "Your data - activate to paste what your plant emits";
     }
     return t.data.label + ", the operator, end of the ladder";
   }
@@ -611,7 +641,8 @@
     for (var i = 0; i < PATCH.wires.length; i++) {
       var w = PATCH.wires[i];
       var f = tileById(w.fromId), t = tileById(w.toId);
-      if (!devWire && w.kind === "channel" && f && f.kind === "device" && t && t.tier === "pico") devWire = w;
+      if (!devWire && w.kind === "channel" && f && (f.kind === "device" || f.kind === "intake") &&
+          t && t.tier === "pico") devWire = w;
     }
     if (devWire) {
       for (var j = 0; j < PATCH.wires.length; j++) {
@@ -619,7 +650,8 @@
         if (w2.kind === "escalate" && w2.fromId === devWire.toId) { escWire = w2; break; }
       }
     }
-    return { devWire: devWire, escWire: escWire };
+    var src = devWire ? tileById(devWire.fromId) : null;
+    return { devWire: devWire, escWire: escWire, userSource: !!(src && src.kind === "intake") };
   }
 
   function run() { replay(false); }
@@ -641,13 +673,26 @@
     var esc = recs.filter(function (r) { return r.child.margin < floor; });
     var asserted = recs.length - esc.length;
 
-    if (pico) {
+    if (pico && chain.userSource) {
+      // The visitor's own bytes: no model runs in a browser, and a margin is a
+      // logprob difference nothing here can compute. What the paste earns is
+      // the request envelope, and the bubble says exactly that.
+      pico.inRun = true;
+      pico.lamp = "idle";
+      pico.bubble = { text: "DRAFT · NOT RUN - open the envelope", esc: false };
+      pico.draft = true;
+    } else if (pico) {
       pico.inRun = true;
       pico.lamp = esc.length ? "escalate" : "ok";
       pico.bubble = { text: asserted + " asserted · " + esc.length + " escalated", esc: !!esc.length };
       pico.margin = median(recs.map(function (r) { return r.child.margin; }));
+      pico.draft = false;
     }
-    if (nano) {
+    if (nano && chain.userSource) {
+      nano.inRun = true;
+      nano.lamp = "idle";
+      nano.bubble = null;
+    } else if (nano) {
       nano.inRun = true;
       var fixed = esc.filter(function (r) { return r.parent.prediction === r.truth; }).length;
       nano.lamp = esc.length ? "ok" : "idle";
@@ -663,7 +708,7 @@
     });
 
     render();
-    if (esc.length && !quiet && chain.escWire) flyPacket(chain.escWire);
+    if (esc.length && !quiet && chain.escWire && !chain.userSource) flyPacket(chain.escWire);
     paintResults();
     if (!quiet) say("Replayed " + recs.length + " recorded records. " + esc.length + " escalated.");
   }
@@ -693,6 +738,7 @@
     var chain = chainOf();
     var pico = chain.devWire ? tileById(chain.devWire.toId) : null;
     var hasParent = !!chain.escWire;
+    if (chain.userSource) return null; // your bytes were never in the measured sweep
     var name = !pico ? "parent-direct" : (!hasParent ? "child-only" : "child+parent@" + pico.data.floor.toFixed(1));
     // NO silent fallback: an unmapped topology says so, because quietly showing
     // child-only's numbers would have the gauges contradict the tiles.
@@ -801,6 +847,28 @@
                           row[1] == null ? "pending export" : row[1]));
       });
       box.appendChild(dl);
+      // The envelope appears whenever the visitor's bytes are wired into THIS
+      // tile - even alongside a simulated device. The recorded replay still
+      // owns the bubble (it IS the recorded run); the draft owns the envelope.
+      var userWire = PATCH.wires.filter(function (w) {
+        var f = tileById(w.fromId);
+        return w.toId === t.id && f && f.kind === "intake" && f.data.body;
+      })[0];
+      if (t.draft || userWire) {
+        var src = userWire ? tileById(userWire.fromId) : (function () {
+          var c2 = chainOf();
+          return c2.devWire ? tileById(c2.devWire.fromId) : null;
+        })();
+        if (src && src.kind === "intake" && src.data.body) {
+          box.appendChild(el("p", "wp-tag wp-tag--draft", "DRAFT · NOT RUN"));
+          box.appendChild(el("p", "wp-note",
+            "No model was called - this stayed in your browser. This is the exact request " +
+            "your bytes become on a stock llama-server; run it yourself, or wait for the " +
+            "in-browser tier (Q4, ~65MB, certified)."));
+          var pre2 = el("pre", "wp-wirebytes", envelopeFor(t, src.data.body));
+          box.appendChild(pre2);
+        }
+      }
       if (PATCH.tiles.indexOf(t) > 3) {
         var rm = el("button", "wp-remove", "remove this module");
         rm.type = "button";
@@ -900,6 +968,7 @@
     if (host) {
       var tt = tileById(host.dataset.tile);
       if (PATCH.armed) { tryConnect(tt.id); return; }
+      if (tt.kind === "intake") { openIntake(); return; }
       PATCH.selected = tt.id;
       PATCH.focusId = tt.id;
       PATCH.refocus = true;
@@ -995,6 +1064,262 @@
     if (first) first.setAttribute("aria-pressed", "true");
   }
 
+
+  /* =====================================================================
+     INTAKE - THE TRANSLATION SHIM (handoff 3)
+
+     A task-native base model given "hi" dreams a Modbus register table -
+     free-sampling a Wave child produces corpus dreams, not conversation,
+     BY DESIGN. So every human input is classified and wrapped:
+
+       wire blob    -> pass through verbatim: this is the model's native food
+       raw numbers  -> a channel dict; the UNIT IS NOT DEFAULTED - a defaulted
+                       unit is an invented fact, and units are precisely what
+                       the OPC UA substitute-value trap is about
+       scenario     -> mapped to a template, never sent as words to a model
+       small talk   -> answered by the interface from the faceplate; it
+                       never reaches a model
+
+     The classifier SHOWS ITS EVIDENCE per row, and refuses to guess when
+     the top two candidates are within one fingerprint of each other - a
+     shim that asks is a better demo than a shim that is always right.
+
+     What a paste earns is the REQUEST ENVELOPE: the exact request that
+     would go to a stock llama-server (the R.45/R.55 enum+margin protocol),
+     marked DRAFT · NOT RUN. Never a result - a margin is a logprob
+     difference, and nothing in a browser can compute one.
+     ===================================================================== */
+  var INTAKE = { text: "", verdict: null };
+
+  // Fingerprints are derived from the committed renderer outputs, so detection
+  // can never drift from what the wire bench actually displays.
+  var FINGERPRINTS = [
+    { mod: "modbus",     probes: ["MODBUS holding", "function 03", "scale factor"] },
+    { mod: "opcua",      probes: ["ns=2;s=", "MonitoredItem", "status=Good"] },
+    { mod: "prometheus", probes: ["# TYPE", "# HELP", "gauge"] },
+    { mod: "sparkplug",  probes: ["spBv1.0/", "\"metrics\"", "DDATA"] },
+    { mod: "syslog",     probes: ["<134>1 ", "RFC5424", "ioscan"] },
+    { mod: "influx",     probes: ["line protocol", "INFLUXDB"] },
+    { mod: "datadog",    probes: ["\"series\"", "\"metric\""] },
+    { mod: "signal",     probes: ["channel=", "range=[", "slope_per_min"] },
+  ];
+
+  function classify(text) {
+    var t = text.trim();
+    if (!t) return null;
+
+    // wire blob: count fingerprint hits per modality
+    var scores = FINGERPRINTS.map(function (f) {
+      var hits = f.probes.filter(function (pr) { return t.indexOf(pr) >= 0; });
+      return { mod: f.mod, hits: hits.length, evidence: hits };
+    }).sort(function (a, b) { return b.hits - a.hits; });
+    var best = scores[0], second = scores[1];
+
+    if (best.hits >= 2) {
+      // thin evidence: if the runner-up is within one hit, the shim asks.
+      if (second && second.hits >= best.hits - 1 && second.hits >= 2) {
+        return { kind: "ambiguous", a: best, b: second };
+      }
+      var tag = (t.match(/[A-Z][A-Z0-9]*_[A-Z0-9_]+/) || [])[0] || null;
+      var recognised = null;
+      if (PATCH.scene && PATCH.scene.renders) {
+        var norm = t.replace(/\s+/g, " ");
+        for (var mo in PATCH.scene.renders) {
+          if (PATCH.scene.renders[mo].replace(/\s+/g, " ") === norm) { recognised = mo; break; }
+        }
+      }
+      return { kind: "blob", mod: best.mod, evidence: best.evidence, tag: tag, recognised: recognised };
+    }
+
+    // raw numbers: mostly numeric tokens
+    var tokens = t.split(/[\s,;]+/).filter(Boolean);
+    var nums = tokens.filter(function (x) { return /^-?\d+(\.\d+)?$/.test(x); });
+    if (nums.length >= 8 && nums.length / tokens.length >= 0.6) {
+      return { kind: "numbers", n: nums.length, samples: nums.slice(0, 96).map(Number) };
+    }
+
+    // scenario in words: a catalogue token lookup, not NLU
+    var cat = (PATCH.catalog && PATCH.catalog.catalog) || {};
+    var low = t.toLowerCase();
+    for (var i = 0; i < TEMPLATES.length; i++) {
+      var tpl = TEMPLATES[i];
+      var assetWords = tpl.asset.split("_").concat(tpl.cause.split("_"));
+      var hit = assetWords.filter(function (w) { return w.length > 3 && low.indexOf(w) >= 0; });
+      if (hit.length >= 2) return { kind: "scenario", template: tpl, evidence: hit };
+    }
+    for (var name in cat) {
+      var words = name.split("_").filter(function (w) { return w.length > 3; });
+      if (words.length && words.every(function (w) { return low.indexOf(w) >= 0; })) {
+        return { kind: "scenario-asset", asset: name, evidence: words };
+      }
+    }
+
+    // anything else is conversation, and it never reaches a model
+    return { kind: "talk" };
+  }
+
+  function paintDetect() {
+    var v = INTAKE.verdict;
+    var mod = $("wpDetMod"), shape = $("wpDetShape"), frame = $("wpDetFrame");
+    var note = $("wpDetNote"), send = $("wpSend");
+    if (!mod) return;
+    send.disabled = true;
+    send.textContent = "SEND TO THE SHEET →";
+    note.textContent = "";
+
+    if (!v) {
+      mod.textContent = "paste something - the shim reads as you type";
+      shape.textContent = "—"; frame.textContent = "—";
+      return;
+    }
+    if (v.kind === "blob") {
+      mod.textContent = v.mod + "  ↳ matched " + v.evidence.map(function (e) {
+        return JSON.stringify(e.length > 18 ? e.slice(0, 18) + "…" : e);
+      }).join(", ");
+      shape.textContent = (v.tag ? "tag " + v.tag + " · " : "") + "pass-through: the blob IS the input body";
+      frame.textContent = "T01 sensor-health · frame text — pending export —";
+      if (v.recognised) {
+        note.textContent = "Recognised: byte-identical to the recorded pump scene's " +
+          v.recognised + " render. These are our recorded bytes - paste your own for the real test.";
+      }
+      send.disabled = false;
+    } else if (v.kind === "ambiguous") {
+      mod.textContent = "unclear: " + v.a.mod + " (" + v.a.hits + " marks) vs " +
+        v.b.mod + " (" + v.b.hits + ") - add more of the payload";
+      shape.textContent = "—"; frame.textContent = "—";
+      note.textContent = "The shim refuses to guess on thin evidence. That is the real system's behaviour too.";
+    } else if (v.kind === "numbers") {
+      mod.textContent = "raw numbers  ↳ " + v.n + " numeric samples";
+      shape.textContent = "one channel · unit NOT STATED IN THE WIRE - a defaulted unit would be an invented fact";
+      frame.textContent = "T01 sensor-health · frame text — pending export —";
+      send.disabled = false;
+    } else if (v.kind === "scenario" || v.kind === "scenario-asset") {
+      mod.textContent = "a scenario, in words  ↳ matched " + v.evidence.join(", ");
+      shape.textContent = "words are never sent to a Wave model";
+      frame.textContent = "—";
+      if (v.kind === "scenario") {
+        note.textContent = "This maps to the \"" + v.template.label + "\" template.";
+        send.textContent = "LOAD " + v.template.label.toUpperCase() + " →";
+        send.disabled = false;
+      } else {
+        note.textContent = "That device is in the catalogue (" + labelOf(v.asset) +
+          ") but no template carries it yet.";
+      }
+    } else {
+      mod.textContent = "conversation";
+      shape.textContent = "answered by this interface, from the faceplate - it never reaches a model";
+      frame.textContent = "—";
+      note.textContent = "Wave models are task-native, not chat models. Free-sampled, this " +
+        "input would produce a corpus dream, not an answer. Tier pico · floor 2.0 · " +
+        "digest pending export. For conversation, the CONSOLE deck hosts chat models.";
+    }
+  }
+
+  function intakeSend() {
+    var v = INTAKE.verdict;
+    if (!v) return;
+    if (v.kind === "scenario") {
+      var shelf = $("wpShelf");
+      var cards = shelf ? shelf.querySelectorAll(".wp-card") : [];
+      for (var i = 0; i < cards.length; i++) {
+        if (cards[i].textContent.indexOf(v.template.label) >= 0) { cards[i].click(); break; }
+      }
+      closeIntake();
+      return;
+    }
+    var t = PATCH.tiles.filter(function (x) { return x.kind === "intake"; })[0];
+    if (!t) return;
+    if (v.kind === "blob") {
+      t.data.modality = v.mod;
+      t.data.channels = [{ name: v.tag || "your channel", unit: "" }];
+      t.data.body = INTAKE.text;
+    } else if (v.kind === "numbers") {
+      t.data.modality = "raw numbers";
+      t.data.channels = [{ name: "your channel", unit: "" }];
+      t.data.body = INTAKE.text;
+    } else {
+      return;
+    }
+    closeIntake();
+    render();
+    say("Your data is on the sheet. Tap its filled port, then Wave Pico's input, to wire it in.");
+  }
+
+  function openIntake() {
+    var d = $("wpIntake");
+    if (!d) return;
+    d.hidden = false;
+    renderSamples();
+    var ta = $("wpPaste");
+    if (ta) ta.focus();
+  }
+  function closeIntake() {
+    var d = $("wpIntake");
+    if (d) d.hidden = true;
+  }
+
+  function renderSamples() {
+    var host = $("wpSamples");
+    if (!host || host.childNodes.length) return;
+    var sc = PATCH.scene;
+    if (!sc || !sc.renders) return;
+    host.appendChild(el("span", "wp-rail__k", "samples · recorded"));
+    Object.keys(sc.renders).forEach(function (mo) {
+      var b = el("button", "wp-dialect", mo);
+      b.type = "button";
+      b.addEventListener("click", function () {
+        var ta = $("wpPaste");
+        if (!ta) return;
+        ta.value = sc.renders[mo];
+        INTAKE.text = ta.value;
+        INTAKE.verdict = classify(ta.value);
+        paintDetect();
+      });
+      host.appendChild(b);
+    });
+  }
+
+  function wireIntake() {
+    var ta = $("wpPaste"), send = $("wpSend"), close = $("wpIntakeClose");
+    if (!ta) return;
+    ta.addEventListener("input", function () {
+      INTAKE.text = ta.value;
+      INTAKE.verdict = classify(ta.value);
+      paintDetect();
+    });
+    if (send) send.addEventListener("click", intakeSend);
+    if (close) close.addEventListener("click", closeIntake);
+  }
+
+  /* ---- the request envelope: what a paste earns -------------------------
+     The exact request the R.45/R.55 protocol sends to a stock llama-server:
+     one request per candidate with a locked grammar, logprob sums, EOG
+     excluded, leading space, cache_prompt true. All of that is measured and
+     documented; the one thing NOT invented here is the task frame text,
+     which has not been exported - so its slot says so, like the digest. */
+  function envelopeFor(t, body) {
+    var cat = (PATCH.catalog && PATCH.catalog.catalog) || {};
+    var anyAsset = cat[Object.keys(cat)[0]] || {};
+    var candidates = (anyAsset.sensor_faults && anyAsset.sensor_faults.length)
+      ? anyAsset.sensor_faults : ["ok", "stuck", "dropout", "noisy", "drifting", "railed"];
+    var lines = [
+      "# one request PER CANDIDATE - grammar locks the reply to that candidate;",
+      "# margin = best logprob sum - runner-up (EOG token excluded, leading space)",
+      "POST ${LLAMA_SERVER}/completion",
+      "{",
+      '  "prompt": <task frame — pending export — + your input body below>,',
+      '  "grammar": "root ::= \\" ' + candidates[1] + '\\"",   # and one per candidate:',
+      "  # " + candidates.map(function (c) { return '"root ::= \\" ' + c + '\\""'; }).join(", "),
+      '  "n_predict": 16,',
+      '  "n_probs": 1,',
+      '  "cache_prompt": true   # candidates share one prompt eval',
+      "}",
+      "",
+      "# input body - your bytes, verbatim (" + body.length + " chars):",
+    ];
+    return lines.join("\n") + "\n" + body;
+  }
+
   /* =====================================================================
      THE MODE SWITCH - console / mesh
      ===================================================================== */
@@ -1060,6 +1385,7 @@
       document.addEventListener("keydown", onKey);
       var runBtn = $("wpRun");
       if (runBtn) runBtn.addEventListener("click", run);
+      wireIntake();
     }).catch(fail);
   }
 
