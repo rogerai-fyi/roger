@@ -108,6 +108,11 @@ type Store interface {
 	// held amount), refunds held-cost to the user, credits the owner share, and
 	// records the receipt. Returns the new balance.
 	Finalize(user, node string, held, cost, ownerShare float64, rec protocol.UsageReceipt) (newBalance float64, err error)
+	// SettleEdge captures an edge attempt's hold and credits BOTH the serving Station's owner and
+	// the relaying Tower's operator in one transaction, each scaled by the same real-paid
+	// fraction (seed credits earn neither). Both are explicit-account lots keyed by the requestID,
+	// so a refund/chargeback of that request claws both. towerAcct/towerShare may be zero.
+	SettleEdge(user, stationNode, stationAcct, towerNode, towerAcct string, held, cost, stationShare, towerShare float64, rec protocol.UsageReceipt) (newBalance float64, err error)
 	// ReleaseHold returns a full reservation to the user (request failed, no charge).
 	ReleaseHold(user string, held float64) (newBalance float64, err error)
 	// HoldFor is Hold with a requestID so the reservation is TRACKED in the pending-hold
@@ -1289,6 +1294,49 @@ func (m *Mem) Finalize(user, node string, held, cost, ownerShare float64, rec pr
 	m.appendLedgerLocked(user, "consumer", KindSpend, -cost, "spend:"+rec.RequestID, StatePosted, rec.RequestID, rec.TS)
 	m.appendAdjustLocked(user, rec, cost)
 	m.addLotLocked(node, rec.RequestID, earnShare, time.Now())
+	return m.wallet[user], nil
+}
+
+// SettleEdge captures an edge attempt: it finalizes the consumer's hold and credits BOTH the
+// serving Station's owner and the relaying Tower's operator in one transaction, each scaled by
+// the SAME real-paid fraction (seed/free credits mint no earning, exactly as the direct path).
+// Both credits go to EXPLICIT accounts - an edge Station and its Tower are not in the node->owner
+// binding - and both lots are keyed by the requestID, so a refund or chargeback of that request
+// claws both back. This is how a Tower earns its share of net platform revenue on relayed traffic
+// through the one wallet. towerAcct/towerShare may be zero (a non-compensated Tower earns nothing).
+func (m *Mem) SettleEdge(user, stationNode, stationAcct, towerNode, towerAcct string, held, cost, stationShare, towerShare float64, rec protocol.UsageReceipt) (float64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if rec.RequestID != "" {
+		if m.settled[rec.RequestID] {
+			return m.wallet[user], nil // idempotent: no double capture / lot drift
+		}
+		m.settled[rec.RequestID] = true
+	}
+	delete(m.pendingHolds, rec.RequestID)
+	m.wallet[user] += held - cost // refund the unused reservation
+	m.spend[user] += cost
+	// Consume seed EXACTLY ONCE and reuse the resulting real fraction for both shares, so a
+	// seed-funded (free) attempt earns neither the Station nor the Tower a payable lot.
+	realFrac := m.realEarnShare(user, cost, 1.0)
+	stationEarn := stationShare * realFrac
+	towerEarn := towerShare * realFrac
+	m.earnings[stationNode] += stationEarn
+	bpt, bct := billedTokens(rec)
+	m.entries = append(m.entries, Entry{
+		RequestID: rec.RequestID, User: user, Node: stationNode, Model: rec.Model,
+		PromptTokens: bpt, CompletionTokens: bct,
+		Cost: cost, OwnerShare: stationEarn, TS: rec.TS,
+	})
+	m.appendLedgerLocked(user, "consumer", KindHoldRelease, held, "", StatePosted, rec.RequestID, rec.TS)
+	m.appendLedgerLocked(user, "consumer", KindSpend, -cost, "spend:"+rec.RequestID, StatePosted, rec.RequestID, rec.TS)
+	m.appendAdjustLocked(user, rec, cost)
+	if stationAcct != "" && stationEarn > 0 {
+		m.addLotForAccountLocked(stationNode, stationAcct, rec.RequestID, stationEarn, time.Now())
+	}
+	if towerAcct != "" && towerEarn > 0 {
+		m.addLotForAccountLocked(towerNode, towerAcct, rec.RequestID, towerEarn, time.Now())
+	}
 	return m.wallet[user], nil
 }
 

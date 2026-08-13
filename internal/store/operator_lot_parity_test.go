@@ -75,3 +75,78 @@ func TestAddOperatorLotNoOps(t *testing.T) {
 		})
 	}
 }
+
+// SettleEdge captures a billed edge attempt: the consumer is charged, and BOTH the Station owner
+// and the Tower operator are credited from the SAME real-paid fraction, as clawable lots. Run on
+// both stores.
+func TestSettleEdgeParity(t *testing.T) {
+	t.Setenv("ROGERAI_PAYOUT_HOLD_DAYS", "0")
+	t.Setenv("ROGERAI_PAYOUT_RESERVE", "0")
+	for name, db := range parityStores(t) {
+		t.Run(name, func(t *testing.T) {
+			now := time.Now()
+			if _, err := db.AddCredits("alice", 1000); err != nil {
+				t.Fatal(err)
+			}
+			// Hold the ceiling (100), then settle at actual cost 100. Station share 70 (30% fee),
+			// Tower share = 10% of the platform's 30 = 3.
+			if ok, err := db.HoldFor("alice", "req-1", 100); err != nil || !ok {
+				t.Fatalf("HoldFor: ok=%v err=%v", ok, err)
+			}
+			bal, err := db.SettleEdge("alice", "st-1", "station-owner", "tw-1", "tower-operator",
+				100, 100, 70, 3, protocol.UsageReceipt{RequestID: "req-1", Model: "m", PromptTokens: 1, CompletionTokens: 1, TS: now.Unix()})
+			if err != nil {
+				t.Fatalf("SettleEdge: %v", err)
+			}
+			if !approx(bal, 900) {
+				t.Errorf("[%s] balance = %v, want 900 (charged 100)", name, bal)
+			}
+			if s, _ := db.EarningSplitOf("station-owner", now); !approx(s.Payable, 70) {
+				t.Errorf("[%s] station payable = %v, want 70", name, s.Payable)
+			}
+			if s, _ := db.EarningSplitOf("tower-operator", now); !approx(s.Payable, 3) {
+				t.Errorf("[%s] tower payable = %v, want 3", name, s.Payable)
+			}
+			// Refund of req-1 claws both.
+			if _, _, err := db.RefundLineage("rf-1", []string{"req-1"}, "alice", "req-1", 100, now); err != nil {
+				t.Fatalf("RefundLineage: %v", err)
+			}
+			if s, _ := db.EarningSplitOf("station-owner", now); !approx(s.Payable, 0) {
+				t.Errorf("[%s] station payable after refund = %v, want 0", name, s.Payable)
+			}
+			if s, _ := db.EarningSplitOf("tower-operator", now); !approx(s.Payable, 0) {
+				t.Errorf("[%s] tower payable after refund = %v, want 0", name, s.Payable)
+			}
+		})
+	}
+}
+
+// Seed-funded (free) edge traffic charges the consumer's seed but mints NO earning for either the
+// Station or the Tower - the "only real money pays" rule, applied to both shares from one seed
+// consumption.
+func TestSettleEdgeSeedFundedMintsNothing(t *testing.T) {
+	t.Setenv("ROGERAI_PAYOUT_HOLD_DAYS", "0")
+	t.Setenv("ROGERAI_PAYOUT_RESERVE", "0")
+	for name, db := range parityStores(t) {
+		t.Run(name, func(t *testing.T) {
+			now := time.Now()
+			// Seed the wallet with 100 free credits (no real money in).
+			if _, _, err := db.SeedOnce("bob", 100); err != nil {
+				t.Fatal(err)
+			}
+			if ok, err := db.HoldFor("bob", "req-2", 100); err != nil || !ok {
+				t.Fatalf("HoldFor: ok=%v err=%v", ok, err)
+			}
+			if _, err := db.SettleEdge("bob", "st-1", "station-owner", "tw-1", "tower-operator",
+				100, 100, 70, 3, protocol.UsageReceipt{RequestID: "req-2", Model: "m", PromptTokens: 1, CompletionTokens: 1, TS: now.Unix()}); err != nil {
+				t.Fatalf("SettleEdge: %v", err)
+			}
+			if s, _ := db.EarningSplitOf("station-owner", now); s.Payable != 0 || s.Held != 0 {
+				t.Errorf("[%s] station earned on seed money: %+v", name, s)
+			}
+			if s, _ := db.EarningSplitOf("tower-operator", now); s.Payable != 0 || s.Held != 0 {
+				t.Errorf("[%s] tower earned on seed money: %+v", name, s)
+			}
+		})
+	}
+}

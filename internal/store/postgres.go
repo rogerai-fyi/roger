@@ -1042,6 +1042,63 @@ func (p *Postgres) Finalize(user, node string, held, cost, ownerShare float64, r
 	return bal, tx.Commit()
 }
 
+// SettleEdge is the Postgres twin of the mem SettleEdge: capture the consumer's hold and credit
+// both the Station owner and the Tower operator, each scaled by the one real-paid fraction, as
+// explicit-account lots keyed by the requestID. See the mem doc for the rationale.
+func (p *Postgres) SettleEdge(user, stationNode, stationAcct, towerNode, towerAcct string, held, cost, stationShare, towerShare float64, rec protocol.UsageReceipt) (float64, error) {
+	tx, err := p.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	if won, bal, err := p.claimReceipt(tx, user, stationNode, cost, rec); err != nil {
+		return 0, err
+	} else if !won {
+		return bal, tx.Commit()
+	}
+	var bal float64
+	if err := tx.QueryRow(`UPDATE rogerai.wallet SET balance=balance+$2 WHERE usr=$1 RETURNING balance`, user, held-cost).Scan(&bal); err != nil {
+		return 0, err
+	}
+	if _, err := tx.Exec(`DELETE FROM rogerai.pending_holds WHERE request_id=$1`, rec.RequestID); err != nil {
+		return 0, err
+	}
+	// Seed consumed EXACTLY ONCE; the returned fraction scales both shares.
+	realFrac, err := p.realEarnShareTx(tx, user, cost, 1.0)
+	if err != nil {
+		return 0, err
+	}
+	stationEarn := stationShare * realFrac
+	towerEarn := towerShare * realFrac
+	if _, err := tx.Exec(`INSERT INTO rogerai.earnings(node,balance) VALUES($1,$2)
+		ON CONFLICT (node) DO UPDATE SET balance=rogerai.earnings.balance+$2`, stationNode, stationEarn); err != nil {
+		return 0, err
+	}
+	if err := p.fillEarnShare(tx, user, stationNode, cost, rec, stationEarn); err != nil {
+		return 0, err
+	}
+	if err := appendLedger(tx, user, "consumer", KindHoldRelease, held, "release:"+rec.RequestID, StatePosted, rec.RequestID, rec.TS); err != nil {
+		return 0, err
+	}
+	if err := appendLedger(tx, user, "consumer", KindSpend, -cost, "spend:"+rec.RequestID, StatePosted, rec.RequestID, rec.TS); err != nil {
+		return 0, err
+	}
+	if err := appendAdjust(tx, user, rec, cost); err != nil {
+		return 0, err
+	}
+	if stationAcct != "" && stationEarn > 0 {
+		if err := p.addLotForAccount(tx, stationNode, stationAcct, rec.RequestID, stationEarn, time.Now()); err != nil {
+			return 0, err
+		}
+	}
+	if towerAcct != "" && towerEarn > 0 {
+		if err := p.addLotForAccount(tx, towerNode, towerAcct, rec.RequestID, towerEarn, time.Now()); err != nil {
+			return 0, err
+		}
+	}
+	return bal, tx.Commit()
+}
+
 // appendAdjust writes the KindAdjust audit row inside tx when the broker billed less
 // than the node claimed on either axis (the postgres twin of appendAdjustLocked). $0
 // money delta; idempotent on the request id (a redelivery is a no-op).
