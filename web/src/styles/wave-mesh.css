@@ -145,3 +145,68 @@
 .wm-pending b { font-size: .7rem; letter-spacing: .1em; opacity: .75; }
 .wm-pending p { font-size: .76rem; opacity: .72; line-height: 1.55; margin: .35rem 0 0; }
 .wm-attrib { margin: 1rem 0 0; font-size: .72rem; opacity: .6; }
+
+/* ---- the mesh bench, the feed, the quant badges ----------------------- */
+.wm-mesh, .wm-feed, .wm-quants {
+  margin-top: 1rem; padding: .8rem; border-radius: 10px;
+  border: 1px solid var(--rule, rgba(128,128,128,.24));
+  background: color-mix(in srgb, currentColor 3%, transparent);
+}
+.wm-tag--meas { color: var(--red, #e0231c); }
+.wm-config {
+  font-size: .8rem; font-variant-numeric: tabular-nums; margin: .35rem 0 .2rem;
+  letter-spacing: .04em;
+}
+.wm-meters--mesh .wm-meter { min-width: 12rem; flex: 1 1 12rem; }
+.wm-meter__bar--esc  { background: var(--amber, #c98a00); }
+.wm-meter__bar--cost { background: color-mix(in srgb, currentColor 45%, transparent); }
+
+/* per-frame redlines */
+.wm-frames { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; margin-top: .8rem; }
+.wm-frames__k { font-size: .66rem; letter-spacing: .08em; opacity: .55; }
+.wm-frame {
+  display: inline-flex; gap: .4rem; align-items: baseline; font-size: .72rem;
+  padding: .2rem .5rem; border-radius: 6px;
+  border: 1px solid var(--rule, rgba(128,128,128,.24));
+}
+.wm-frame__floor { color: var(--red, #e0231c); font-variant-numeric: tabular-nums; }
+.wm-frame__acc { opacity: .6; font-variant-numeric: tabular-nums; }
+
+/* the assertion feed */
+.wm-lamp { font-size: .68rem; opacity: .75; }
+.wm-lamp[data-state="ok"]   { color: var(--red, #e0231c); }
+.wm-lamp[data-state="warn"] { color: var(--amber, #c98a00); }
+.wm-records {
+  list-style: none; margin: .6rem 0 0; padding: 0;
+  max-height: 18rem; overflow-y: auto;
+  display: flex; flex-direction: column; gap: .2rem;
+}
+.wm-rec {
+  display: flex; gap: .5rem; align-items: baseline; flex-wrap: wrap;
+  font-size: .72rem; padding: .3rem .45rem; border-radius: 6px;
+  border: 1px solid var(--rule, rgba(128,128,128,.18));
+}
+.wm-rec--esc { border-color: color-mix(in srgb, var(--amber, #c98a00) 55%, transparent); }
+.wm-rec__kind {
+  font-size: .6rem; letter-spacing: .09em; text-transform: uppercase;
+  padding: .08rem .34rem; border-radius: 4px; border: 1px solid currentColor; opacity: .8;
+}
+.wm-rec--esc .wm-rec__kind { color: var(--amber, #c98a00); }
+.wm-rec__node { opacity: .6; }
+.wm-rec__pred { font-weight: 600; }
+.wm-rec__margin { opacity: .6; font-variant-numeric: tabular-nums; }
+.wm-rec__adj { color: var(--red, #e0231c); }
+
+/* quantization badges */
+.wm-quantrow { display: flex; flex-wrap: wrap; gap: .5rem; }
+.wm-quant {
+  display: inline-flex; flex-direction: column; gap: .1rem;
+  padding: .4rem .7rem; border-radius: 8px;
+  border: 1px solid var(--rule, rgba(128,128,128,.24));
+}
+.wm-quant__v { font-size: 1rem; font-variant-numeric: tabular-nums; }
+.wm-quant__k { font-size: .64rem; opacity: .55; }
+/* A quant that lost most of its skill is marked, so a small file size can never
+   read as a free win. */
+.wm-quant--bad { border-color: var(--amber, #c98a00); }
+.wm-quant--bad .wm-quant__v { color: var(--amber, #c98a00); }

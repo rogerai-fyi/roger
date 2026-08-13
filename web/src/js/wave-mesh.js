@@ -48,7 +48,7 @@
     return n;
   }
 
-  var MESH = { catalog: null, scene: null, dialect: "signal", step: 0, device: null };
+  var MESH = { catalog: null, scene: null, measured: null, dialect: "signal", step: 0, device: null, floor: 0 };
 
   /* =====================================================================
      THE MODE SWITCH - console / mesh
@@ -116,11 +116,14 @@
     Promise.all([
       fetch("data/wave-catalog.json").then(function (r) { return r.ok ? r.json() : null; }),
       fetch("data/wave-scene-recorded.json").then(function (r) { return r.ok ? r.json() : null; }),
+      fetch("data/wave-measured.json").then(function (r) { return r.ok ? r.json() : null; }),
     ]).then(function (res) {
       MESH.catalog = res[0];
       MESH.scene = res[1];
+      MESH.measured = res[2];
       renderBrowser();
       renderBench();
+      renderMeasured();
     }).catch(function () {
       // Degrade to an honest resting state - never an empty frame that looks like
       // "no devices exist".
@@ -351,6 +354,217 @@
         : s.longest_run > 1
           ? "repeating samples are accumulating in the window"
           : "the channel is still varying normally";
+    }
+  }
+
+
+  /* =====================================================================
+     THE MESH BENCH - what a margin floor buys, measured
+
+     Dragging the floor is the argument. A child alone is cheap and wrong more
+     often; asking the parent about everything is accurate and expensive; the
+     mesh is the curve between them, and it is a real curve from a real run.
+     ===================================================================== */
+  function renderMeasured() {
+    var m = MESH.measured;
+    if (!m) return;
+
+    var prov = $("wmMeshProv");
+    if (prov) {
+      var e = m.escalation;
+      // Say WHOSE numbers these are. A figure with no run behind it is decoration.
+      prov.textContent = "Child " + short(e.child) + " under parent " + short(e.parent) +
+        ", " + e.n + " items on " + short(e.bench) + " (" + m._provenance.suite + ").";
+    }
+
+    var slider = $("wmFloor");
+    if (slider && !slider.dataset.wired) {
+      slider.max = String(m.escalation.configs.length - 1);
+      // Open on the floor the frames actually recommend, not at zero: the interesting
+      // reading is the one a plant would ship with.
+      MESH.floor = defaultFloorIndex(m);
+      slider.value = String(MESH.floor);
+      slider.dataset.wired = "1";
+      slider.addEventListener("input", function () {
+        MESH.floor = parseInt(slider.value, 10) || 0;
+        paintMesh();
+        paintRecords();
+      });
+    }
+    renderFrames();
+    renderQuants();
+    paintMesh();
+    paintRecords();
+  }
+
+  function short(p) { return String(p || "").split("/").pop(); }
+
+  function defaultFloorIndex(m) {
+    var i = m.escalation.configs.findIndex(function (c) { return /@2\.0$/.test(c.config); });
+    return i >= 0 ? i : 0;
+  }
+
+  function pct(x) { return (x * 100).toFixed(1) + "%"; }
+
+  function paintMesh() {
+    var m = MESH.measured;
+    if (!m) return;
+    var c = m.escalation.configs[MESH.floor];
+    if (!c) return;
+
+    setText("wmConfig", c.config);
+    setText("wmMacro", pct(c.macro_recall));
+    setText("wmEsc", pct(c.escalation_rate));
+    setText("wmCost", c.pct_of_parent_everywhere == null ? "-" : pct(c.pct_of_parent_everywhere));
+
+    bar("wmMacroBar", c.macro_recall * 100, 100);
+    bar("wmEscBar", c.escalation_rate * 100, 100);
+    bar("wmCostBar", (c.pct_of_parent_everywhere || 0) * 100, 150);
+
+    var direct = m.escalation.configs.filter(function (x) { return x.config === "parent-direct"; })[0];
+    var v = $("wmMeshVerdict");
+    if (v && direct) {
+      if (c.config === "parent-direct") {
+        v.textContent = "Every item goes to the parent. The most accurate reading here, and the " +
+          "one every other row is measured against for cost.";
+      } else if (c.escalation_rate === 0) {
+        v.textContent = "Nothing escalates: the child answers alone at " +
+          pct(c.pct_of_parent_everywhere) + " of the cost, and gets " +
+          pts(direct.macro_recall - c.macro_recall) + " less macro recall for it.";
+      } else {
+        v.textContent = pct(c.escalation_rate) + " of items escalate. That recovers " +
+          pts(c.macro_recall - m.escalation.configs[0].macro_recall) +
+          " of macro recall over the child alone, for " + pct(c.pct_of_parent_everywhere) +
+          " of what asking the parent about everything would cost.";
+      }
+    }
+  }
+
+  function pts(d) { return (d * 100).toFixed(1) + " points"; }
+
+  function bar(id, value, max) {
+    var n = $(id);
+    if (!n) return;
+    n.style.width = Math.max(0, Math.min(100, (value / max) * 100)) + "%";
+    n.setAttribute("aria-valuenow", String(Math.round(value)));
+    if (REDUCED) n.style.transition = "none";
+  }
+
+  function setText(id, t) { var n = $(id); if (n) n.textContent = t; }
+
+  /* ---- per-frame redlines -------------------------------------------------
+     A tile's floor is not one number: frame-matched picos have sharper margins
+     than frame-mixed, so each frame carries its own redline. */
+  function renderFrames() {
+    var box = $("wmFrames");
+    var m = MESH.measured;
+    if (!box || !m || !m.frames) return;
+    box.textContent = "";
+    box.appendChild(el("span", "wm-frames__k", "per-frame redlines"));
+    Object.keys(m.frames).forEach(function (name) {
+      var f = m.frames[name];
+      var chip = el("span", "wm-frame");
+      chip.appendChild(el("b", null, "frame " + name));
+      chip.appendChild(el("span", "wm-frame__floor", "floor " + f.floor));
+      chip.appendChild(el("span", "wm-frame__acc", pct(f.acc) + " on n=" + f.n));
+      chip.title = "median margin when correct " + f.median_margin_correct +
+        ", when wrong " + f.median_margin_wrong;
+      box.appendChild(chip);
+    });
+  }
+
+  /* ---- the assertion feed --------------------------------------------------
+     Real predictions and real margins. `kind` is DERIVED from the margin against
+     the floor, which is what a tile does at runtime - so moving the slider
+     changes what escalates, in front of you. */
+  function paintRecords() {
+    var m = MESH.measured;
+    var list = $("wmRecords");
+    if (!m || !list) return;
+    var floorVal = floorOf(m.escalation.configs[MESH.floor]);
+
+    list.textContent = "";
+    var shown = m.records.slice(0, 24);
+    var escalated = 0, overturned = 0, corrected = 0;
+
+    shown.forEach(function (r) {
+      var isEsc = floorVal != null && r.child.margin < floorVal;
+      if (isEsc) {
+        escalated++;
+        if (r.parent.prediction !== r.child.prediction) {
+          overturned++;
+          if (r.parent.prediction === r.truth) corrected++;
+        }
+      }
+      var li = el("li", "wm-rec" + (isEsc ? " wm-rec--esc" : ""));
+      li.appendChild(el("span", "wm-rec__kind", isEsc ? "escalate" : "assert"));
+      li.appendChild(el("code", "wm-rec__node", r.node_id));
+      li.appendChild(el("span", "wm-rec__pred", r.child.prediction));
+      li.appendChild(el("span", "wm-rec__margin", "margin " + r.child.margin.toFixed(2)));
+      if (isEsc) {
+        var adj = el("span", "wm-rec__adj");
+        adj.textContent = "→ parent: " + r.parent.prediction;
+        li.appendChild(adj);
+      }
+      list.appendChild(li);
+    });
+
+    var note = $("wmFeedNote");
+    if (note) {
+      note.textContent = "Real predictions and margins from the run above, in the frozen record " +
+        "schema. Whether a record is an assert or an escalate is derived from its margin " +
+        "against the floor you set" + (floorVal == null ? "" : " (" + floorVal + ")") +
+        " - the same decision a tile makes. Escalations here carry no evidence dict: the " +
+        "recorded export does not include one, and inventing a plausible-looking blob would " +
+        "defeat the point.";
+    }
+
+    var lamp = $("wmLamp");
+    if (lamp) {
+      // Computed live from what is on screen, and described exactly. The measured
+      // faithfulness result is a different, cited claim - it is not this number.
+      lamp.textContent = escalated === 0
+        ? "no escalations at this floor"
+        : overturned + " of " + escalated + " escalations overturned the child, " +
+          corrected + " of those matched the truth";
+      lamp.dataset.state = escalated === 0 ? "idle" : (corrected > 0 ? "ok" : "warn");
+    }
+  }
+
+  function floorOf(config) {
+    if (!config) return null;
+    var m = /@([0-9.]+)$/.exec(config.config);
+    if (m) return parseFloat(m[1]);
+    if (config.config === "child-only") return 0;             // nothing ever escalates
+    return Infinity;                                          // parent sees everything
+  }
+
+  /* ---- quantization badges -------------------------------------------------
+     A tile must never imply numbers it has not earned. The Q4 collapse is the
+     lesson, so it is stated rather than hidden. */
+  function renderQuants() {
+    var m = MESH.measured;
+    var row = $("wmQuants");
+    if (!row || !m || !m.quants) return;
+    row.textContent = "";
+    var best = m.quants.reduce(function (a, b) {
+      return a.fault_id_macro >= b.fault_id_macro ? a : b;
+    });
+    m.quants.forEach(function (q) {
+      var bad = q.fault_id_macro < best.fault_id_macro * 0.6;
+      var chip = el("span", "wm-quant" + (bad ? " wm-quant--bad" : ""));
+      chip.appendChild(el("b", null, q.quant));
+      chip.appendChild(el("span", "wm-quant__v", pct(q.fault_id_macro)));
+      chip.appendChild(el("span", "wm-quant__k", "fault-ID macro, n=" + q.n));
+      row.appendChild(chip);
+    });
+    var note = $("wmQuantNote");
+    if (note) {
+      var ex = (m._provenance.excluded || {}).Q8;
+      note.textContent = "Small models are quantization-fragile: the same weights at Q4_K_M " +
+        "lose most of their fault-ID skill. Numbers are per quantization and measured on " +
+        m._provenance.suite + "; a tile never shows a figure its own build has not earned." +
+        (ex ? " Q8 is deliberately absent - " + ex + "." : "");
     }
   }
 

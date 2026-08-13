@@ -198,3 +198,130 @@ test("deck: the catalogue is fetched same-origin, not from a third party", () =>
     assert.ok(!/https?:\/\//.test(f), `${f} must be same-origin - the deck works with no network`);
   }
 });
+
+// ---------- the measured bundle (handoff 2) ----------------------------------
+
+const measured = JSON.parse(read("data/wave-measured.json"));
+
+test("measured: every figure carries the run and suite it came from", () => {
+  const p = measured._provenance;
+  assert.ok(p, "the bundle must record its provenance");
+  assert.equal(p.suite, "IEB-Signals v1.2", "the suite version is the citation");
+  for (const k of ["frames", "escalation", "records", "quants"]) {
+    assert.ok(p.sources[k], `${k} must name its source file`);
+  }
+  // The deck names whose numbers these are; a figure with no run behind it is decoration.
+  assert.ok(measured.escalation.child && measured.escalation.parent,
+    "the sweep must name the child and the parent that produced it");
+  assert.ok(measured.escalation.bench, "the bench must be named");
+});
+
+test("measured: the escalation sweep is a real curve, not a slogan", () => {
+  const c = measured.escalation.configs;
+  assert.ok(c.length >= 4, "there must be a curve to drag along");
+  const childOnly = c.find((x) => x.config === "child-only");
+  const direct = c.find((x) => x.config === "parent-direct");
+  assert.ok(childOnly && direct, "both ends of the argument must be present");
+  // The whole claim of a mesh: the parent alone is more accurate, and escalating only
+  // low-margin items buys most of that back for less. If this inverted, the deck would be
+  // arguing for something the measurements do not support.
+  assert.ok(direct.macro_recall > childOnly.macro_recall,
+    "the parent must actually be more accurate than the child alone");
+  const mid = c.find((x) => /@2\.0$/.test(x.config));
+  assert.ok(mid, "the recommended floor must be one of the measured configs");
+  assert.ok(mid.macro_recall > childOnly.macro_recall,
+    "escalating at the floor must beat the child alone");
+  assert.ok(mid.pct_of_parent_everywhere < 1,
+    "and it must cost less than asking the parent about everything");
+});
+
+test("measured: the per-frame redlines match the measured floors", () => {
+  // R.48: A 2.0 / B 2.5 / C 2.5. These are the VU meter's redlines, so a drift here
+  // would mis-draw every tile's escalation threshold.
+  assert.deepEqual(
+    Object.fromEntries(Object.entries(measured.frames).map(([k, v]) => [k, v.floor])),
+    { A: 2.0, B: 2.5, C: 2.5 });
+  for (const [name, f] of Object.entries(measured.frames)) {
+    assert.ok(f.n > 0, `frame ${name} must report the n it was measured on`);
+    assert.ok(f.median_margin_correct > f.median_margin_wrong,
+      `frame ${name}: a correct answer must carry a wider margin than a wrong one, ` +
+      "or the margin gate has nothing to gate on");
+  }
+});
+
+test("measured: the records are real predictions, with truth to check them against", () => {
+  assert.ok(measured.records.length >= 20, "there must be enough records to read");
+  for (const r of measured.records) {
+    assert.ok(r.node_id && r.truth, "each record identifies a node and its truth");
+    assert.equal(typeof r.child.margin, "number", "child margins are real numbers");
+    assert.equal(typeof r.parent.margin, "number", "parent margins are real numbers");
+  }
+  // At least one escalation must actually be overturned by the parent, or the feed would
+  // show a mesh that never earns its second tier.
+  const overturned = measured.records.filter((r) => r.parent.prediction !== r.child.prediction);
+  assert.ok(overturned.length > 0, "the recorded run must contain real adjudications");
+});
+
+test("honesty: no evidence dict is invented for escalations", () => {
+  // The frozen schema carries one; this export does not have it. A plausible-looking
+  // evidence blob on a deck whose claim is "this is real" is the worst kind of lie.
+  for (const r of measured.records) {
+    assert.ok(!("evidence" in r), "records must not carry a fabricated evidence dict");
+  }
+  assert.ok(/carry no evidence dict/i.test(js),
+    "the feed must say the evidence dict is absent rather than quietly omitting it");
+});
+
+test("honesty: Q8 is excluded, with the reason recorded", () => {
+  // Its exported result is indistinguishable from Q4 (1199/1200 identical predictions),
+  // which is not a plausible outcome for two quantizations four bits apart. Publishing it
+  // would put "Q8 collapses too" on the page as a measured fact.
+  const quants = measured.quants.map((q) => q.quant);
+  assert.ok(!quants.some((q) => /q8/i.test(q)), "Q8 must not be published yet");
+  assert.ok(measured._provenance.excluded && measured._provenance.excluded.Q8,
+    "the exclusion must be recorded, not silent");
+  assert.ok(/indistinguishable|identical/i.test(measured._provenance.excluded.Q8),
+    "the reason must say what was wrong with it");
+});
+
+test("honesty: the quantization badges state what shrinking costs", () => {
+  const f16 = measured.quants.find((q) => q.quant === "f16");
+  const q4 = measured.quants.find((q) => /q4/i.test(q.quant));
+  assert.ok(f16 && q4, "both the reference and the shrunk build must be shown");
+  // The lesson is that this is NOT free. If a future export made them comparable, the copy
+  // below would be wrong and this test should fail loudly.
+  assert.ok(q4.fault_id_macro < f16.fault_id_macro * 0.6,
+    "the Q4 collapse is the lesson; if it stops collapsing, rewrite the copy");
+  assert.ok(js.includes("quantization-fragile"), "the deck states the lesson in words too");
+});
+
+test("feed: assert vs escalate is derived from the margin, not stored", () => {
+  // A tile decides this at runtime by comparing its margin to its floor. If the deck
+  // rendered a canned kind instead, moving the floor slider would be theatre.
+  assert.ok(js.includes("r.child.margin < floorVal"),
+    "the record's kind must be computed from its margin against the floor");
+  assert.ok(js.includes("floorOf"), "the floor must be read from the selected config");
+});
+
+test("feed: the honesty lamp describes exactly what it counted", () => {
+  // It is computed from the visible records. It must not be confused with the measured
+  // faithfulness result, which is a different, separately cited claim.
+  assert.ok(/overturned the child/.test(js), "the lamp states what it counted");
+  assert.ok(/matched the truth/.test(js), "and whether those adjudications were right");
+});
+
+test("deck: the mesh bench, feed and quant panels exist", () => {
+  for (const id of ["wmFloor", "wmConfig", "wmMacro", "wmEsc", "wmCost", "wmMeshVerdict",
+    "wmFrames", "wmRecords", "wmLamp", "wmQuants"]) {
+    assert.ok(htmlFlat.includes(`id="${id}"`), `the ${id} surface must exist`);
+  }
+  assert.ok(htmlFlat.includes('for="wmFloor"'), "the floor slider must be labelled");
+});
+
+test("deck: no measured number is hardcoded into the markup", () => {
+  // Every figure must come from the bundle, so it moves when the measurements move.
+  const body = htmlFlat.replace(/<!--[\s\S]*?-->/g, "");
+  for (const n of ["72.6", "22.3", "62.3%", "43.0%", "0.999"]) {
+    assert.ok(!body.includes(n), `${n} must be rendered from the measured bundle, not typed in`);
+  }
+});

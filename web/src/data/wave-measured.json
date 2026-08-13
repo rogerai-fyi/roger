@@ -1,0 +1,1693 @@
+{
+ "_provenance": {
+  "exported": "2026-08-13",
+  "hierarchy": "~/ai/computer-scientist/build/roger-wave/hierarchy",
+  "suite": "IEB-Signals v1.2",
+  "sources": {
+   "frames": "out/margin-per-frame.json",
+   "escalation": "out/fleet-sim-v4.json",
+   "records": "out/fleet-sim-v4.json (per_item)",
+   "quants": [
+    "out/iebs12-pico-scratch-v2.json",
+    "out/iebs12-pico-scratch-v2-q4.json"
+   ]
+  },
+  "excluded": {
+   "Q8": "out/iebs12-pico-scratch-v2-q8.json is indistinguishable from the Q4 run (1199/1200 identical predictions); not published until re-measured"
+  },
+  "note": "Regenerate with: node scripts/export-wave-measured.mjs"
+ },
+ "frames": {
+  "A": {
+   "n": 250,
+   "acc": 0.72,
+   "floor": 2,
+   "median_margin_correct": 2,
+   "median_margin_wrong": 1.5
+  },
+  "B": {
+   "n": 250,
+   "acc": 0.712,
+   "floor": 2.5,
+   "median_margin_correct": 2.5,
+   "median_margin_wrong": 1.75
+  },
+  "C": {
+   "n": 250,
+   "acc": 0.72,
+   "floor": 2.5,
+   "median_margin_correct": 2.62,
+   "median_margin_wrong": 1.87
+  }
+ },
+ "escalation": {
+  "bench": "out/mm-hard-signal.jsonl",
+  "n": 800,
+  "child": "runs/wave-child-unified-v14-270m",
+  "parent": "runs/wave-nano-unified-v1",
+  "cost_note": "mean_params_per_item = residency proxy; enum eval runs n_choices forwards, production uses 1 constrained decode",
+  "configs": [
+   {
+    "config": "child-only",
+    "macro_recall": 0.296989516388145,
+    "raw": 0.6225,
+    "escalation_rate": 0,
+    "abstain_rate": 0,
+    "params_per_item": 270000000,
+    "pct_of_parent_everywhere": 0.3375
+   },
+   {
+    "config": "child+parent@0.5",
+    "macro_recall": 0.38644216099318246,
+    "raw": 0.6675,
+    "escalation_rate": 0.0875,
+    "abstain_rate": 0,
+    "params_per_item": 340000000,
+    "pct_of_parent_everywhere": 0.425
+   },
+   {
+    "config": "child+parent@1.0",
+    "macro_recall": 0.4827294877727022,
+    "raw": 0.71875,
+    "escalation_rate": 0.18375,
+    "abstain_rate": 0,
+    "params_per_item": 417000000,
+    "pct_of_parent_everywhere": 0.52125
+   },
+   {
+    "config": "child+parent@1.5",
+    "macro_recall": 0.5606921045314178,
+    "raw": 0.75875,
+    "escalation_rate": 0.285,
+    "abstain_rate": 0,
+    "params_per_item": 498000000,
+    "pct_of_parent_everywhere": 0.6225
+   },
+   {
+    "config": "child+parent@2.0",
+    "macro_recall": 0.6230804475548489,
+    "raw": 0.79125,
+    "escalation_rate": 0.43,
+    "abstain_rate": 0,
+    "params_per_item": 614000000,
+    "pct_of_parent_everywhere": 0.7675
+   },
+   {
+    "config": "parent-adjudicate-all",
+    "macro_recall": 0.7158590862166633,
+    "raw": 0.8375,
+    "escalation_rate": 1,
+    "abstain_rate": 0,
+    "params_per_item": 1070000000,
+    "pct_of_parent_everywhere": 1.3375
+   },
+   {
+    "config": "parent-direct",
+    "macro_recall": 0.7757878897002753,
+    "raw": 0.86875,
+    "escalation_rate": 0,
+    "abstain_rate": 0,
+    "params_per_item": 800000000,
+    "pct_of_parent_everywhere": 1
+   }
+  ]
+ },
+ "records": [
+  {
+   "scene_id": "s00003",
+   "node_id": "s00003c00",
+   "truth": "dropout",
+   "child": {
+    "prediction": "noisy",
+    "margin": 0.375
+   },
+   "parent": {
+    "prediction": "dropout",
+    "margin": 0.75
+   }
+  },
+  {
+   "scene_id": "s00003",
+   "node_id": "s00003c01",
+   "truth": "drifting",
+   "child": {
+    "prediction": "none",
+    "margin": 1.25
+   },
+   "parent": {
+    "prediction": "drifting",
+    "margin": 8.25
+   }
+  },
+  {
+   "scene_id": "s00003",
+   "node_id": "s00003c02",
+   "truth": "stuck",
+   "child": {
+    "prediction": "none",
+    "margin": 3
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 5.625
+   }
+  },
+  {
+   "scene_id": "s00003",
+   "node_id": "s00003c03",
+   "truth": "noisy",
+   "child": {
+    "prediction": "noisy",
+    "margin": 2.125
+   },
+   "parent": {
+    "prediction": "noisy",
+    "margin": 8.375
+   }
+  },
+  {
+   "scene_id": "s00003",
+   "node_id": "s00003c04",
+   "truth": "noisy",
+   "child": {
+    "prediction": "none",
+    "margin": 0.625
+   },
+   "parent": {
+    "prediction": "noisy",
+    "margin": 1.625
+   }
+  },
+  {
+   "scene_id": "s00003",
+   "node_id": "s00003c05",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 2.875
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 4.5
+   }
+  },
+  {
+   "scene_id": "s00004",
+   "node_id": "s00004c00",
+   "truth": "dropout",
+   "child": {
+    "prediction": "noisy",
+    "margin": 1.125
+   },
+   "parent": {
+    "prediction": "noisy",
+    "margin": 3.5
+   }
+  },
+  {
+   "scene_id": "s00004",
+   "node_id": "s00004c01",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 1.75
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 5.25
+   }
+  },
+  {
+   "scene_id": "s00004",
+   "node_id": "s00004c02",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 3.25
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 6.5
+   }
+  },
+  {
+   "scene_id": "s00004",
+   "node_id": "s00004c03",
+   "truth": "drifting",
+   "child": {
+    "prediction": "none",
+    "margin": 2
+   },
+   "parent": {
+    "prediction": "drifting",
+    "margin": 0.5
+   }
+  },
+  {
+   "scene_id": "s00004",
+   "node_id": "s00004c04",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 2.125
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 5.125
+   }
+  },
+  {
+   "scene_id": "s00004",
+   "node_id": "s00004c05",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 2.625
+   },
+   "parent": {
+    "prediction": "stuck",
+    "margin": 0.375
+   }
+  },
+  {
+   "scene_id": "s00010",
+   "node_id": "s00010c00",
+   "truth": "drifting",
+   "child": {
+    "prediction": "none",
+    "margin": 1.875
+   },
+   "parent": {
+    "prediction": "stuck",
+    "margin": 0.875
+   }
+  },
+  {
+   "scene_id": "s00010",
+   "node_id": "s00010c01",
+   "truth": "railed",
+   "child": {
+    "prediction": "noisy",
+    "margin": 0.5
+   },
+   "parent": {
+    "prediction": "noisy",
+    "margin": 0.25
+   }
+  },
+  {
+   "scene_id": "s00010",
+   "node_id": "s00010c02",
+   "truth": "railed",
+   "child": {
+    "prediction": "noisy",
+    "margin": 1.875
+   },
+   "parent": {
+    "prediction": "railed",
+    "margin": 1.5
+   }
+  },
+  {
+   "scene_id": "s00010",
+   "node_id": "s00010c03",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 1.375
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 2.875
+   }
+  },
+  {
+   "scene_id": "s00010",
+   "node_id": "s00010c04",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 2.125
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 1.625
+   }
+  },
+  {
+   "scene_id": "s00010",
+   "node_id": "s00010c05",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 2.25
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 3.875
+   }
+  },
+  {
+   "scene_id": "s00013",
+   "node_id": "s00013c00",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 3
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 6.375
+   }
+  },
+  {
+   "scene_id": "s00013",
+   "node_id": "s00013c01",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 2.625
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 5.5
+   }
+  },
+  {
+   "scene_id": "s00013",
+   "node_id": "s00013c02",
+   "truth": "noisy",
+   "child": {
+    "prediction": "none",
+    "margin": 2.125
+   },
+   "parent": {
+    "prediction": "noisy",
+    "margin": 0.25
+   }
+  },
+  {
+   "scene_id": "s00013",
+   "node_id": "s00013c03",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 4
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 6.375
+   }
+  },
+  {
+   "scene_id": "s00013",
+   "node_id": "s00013c04",
+   "truth": "stuck",
+   "child": {
+    "prediction": "none",
+    "margin": 1.875
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 0.875
+   }
+  },
+  {
+   "scene_id": "s00013",
+   "node_id": "s00013c05",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 3.125
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 6
+   }
+  },
+  {
+   "scene_id": "s00025",
+   "node_id": "s00025c00",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 2.25
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 5.125
+   }
+  },
+  {
+   "scene_id": "s00025",
+   "node_id": "s00025c01",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 3.375
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 6.625
+   }
+  },
+  {
+   "scene_id": "s00025",
+   "node_id": "s00025c02",
+   "truth": "railed",
+   "child": {
+    "prediction": "none",
+    "margin": 0.125
+   },
+   "parent": {
+    "prediction": "railed",
+    "margin": 3
+   }
+  },
+  {
+   "scene_id": "s00025",
+   "node_id": "s00025c03",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 5
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 5.25
+   }
+  },
+  {
+   "scene_id": "s00025",
+   "node_id": "s00025c04",
+   "truth": "dropout",
+   "child": {
+    "prediction": "noisy",
+    "margin": 0.25
+   },
+   "parent": {
+    "prediction": "dropout",
+    "margin": 2.125
+   }
+  },
+  {
+   "scene_id": "s00025",
+   "node_id": "s00025c05",
+   "truth": "dropout",
+   "child": {
+    "prediction": "none",
+    "margin": 2.625
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 3.625
+   }
+  },
+  {
+   "scene_id": "s00029",
+   "node_id": "s00029c00",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 2.75
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 5.75
+   }
+  },
+  {
+   "scene_id": "s00029",
+   "node_id": "s00029c01",
+   "truth": "stuck",
+   "child": {
+    "prediction": "none",
+    "margin": 2.75
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 3.625
+   }
+  },
+  {
+   "scene_id": "s00029",
+   "node_id": "s00029c02",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 2.375
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 4.875
+   }
+  },
+  {
+   "scene_id": "s00029",
+   "node_id": "s00029c03",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 1.25
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 5.375
+   }
+  },
+  {
+   "scene_id": "s00029",
+   "node_id": "s00029c04",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 0.625
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 2
+   }
+  },
+  {
+   "scene_id": "s00029",
+   "node_id": "s00029c05",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 2.875
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 5.375
+   }
+  },
+  {
+   "scene_id": "s00030",
+   "node_id": "s00030c00",
+   "truth": "railed",
+   "child": {
+    "prediction": "noisy",
+    "margin": 1.375
+   },
+   "parent": {
+    "prediction": "noisy",
+    "margin": 5.375
+   }
+  },
+  {
+   "scene_id": "s00030",
+   "node_id": "s00030c01",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 1.5
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 4.625
+   }
+  },
+  {
+   "scene_id": "s00030",
+   "node_id": "s00030c02",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 2.875
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 4.125
+   }
+  },
+  {
+   "scene_id": "s00030",
+   "node_id": "s00030c03",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 1.75
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 4.75
+   }
+  },
+  {
+   "scene_id": "s00030",
+   "node_id": "s00030c04",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 2.25
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 5.875
+   }
+  },
+  {
+   "scene_id": "s00030",
+   "node_id": "s00030c05",
+   "truth": "noisy",
+   "child": {
+    "prediction": "noisy",
+    "margin": 1.625
+   },
+   "parent": {
+    "prediction": "noisy",
+    "margin": 8.688
+   }
+  },
+  {
+   "scene_id": "s00033",
+   "node_id": "s00033c00",
+   "truth": "dropout",
+   "child": {
+    "prediction": "noisy",
+    "margin": 0
+   },
+   "parent": {
+    "prediction": "noisy",
+    "margin": 0.125
+   }
+  },
+  {
+   "scene_id": "s00033",
+   "node_id": "s00033c01",
+   "truth": "noisy",
+   "child": {
+    "prediction": "none",
+    "margin": 1.875
+   },
+   "parent": {
+    "prediction": "noisy",
+    "margin": 1.75
+   }
+  },
+  {
+   "scene_id": "s00033",
+   "node_id": "s00033c02",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 2.125
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 6.375
+   }
+  },
+  {
+   "scene_id": "s00033",
+   "node_id": "s00033c03",
+   "truth": "dropout",
+   "child": {
+    "prediction": "noisy",
+    "margin": 1
+   },
+   "parent": {
+    "prediction": "dropout",
+    "margin": 1.625
+   }
+  },
+  {
+   "scene_id": "s00033",
+   "node_id": "s00033c04",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 2.625
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 4.875
+   }
+  },
+  {
+   "scene_id": "s00033",
+   "node_id": "s00033c05",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 1.75
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 5.625
+   }
+  },
+  {
+   "scene_id": "s00040",
+   "node_id": "s00040c00",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 2.625
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 6.75
+   }
+  },
+  {
+   "scene_id": "s00040",
+   "node_id": "s00040c01",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 2.375
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 5.25
+   }
+  },
+  {
+   "scene_id": "s00040",
+   "node_id": "s00040c02",
+   "truth": "stuck",
+   "child": {
+    "prediction": "none",
+    "margin": 2.875
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 3.375
+   }
+  },
+  {
+   "scene_id": "s00040",
+   "node_id": "s00040c03",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 4.375
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 3.25
+   }
+  },
+  {
+   "scene_id": "s00040",
+   "node_id": "s00040c04",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 1.625
+   },
+   "parent": {
+    "prediction": "stuck",
+    "margin": 0.125
+   }
+  },
+  {
+   "scene_id": "s00040",
+   "node_id": "s00040c05",
+   "truth": "drifting",
+   "child": {
+    "prediction": "none",
+    "margin": 1
+   },
+   "parent": {
+    "prediction": "drifting",
+    "margin": 6.625
+   }
+  },
+  {
+   "scene_id": "s00042",
+   "node_id": "s00042c00",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 2.625
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 4.5
+   }
+  },
+  {
+   "scene_id": "s00042",
+   "node_id": "s00042c01",
+   "truth": "dropout",
+   "child": {
+    "prediction": "noisy",
+    "margin": 0
+   },
+   "parent": {
+    "prediction": "dropout",
+    "margin": 2.5
+   }
+  },
+  {
+   "scene_id": "s00042",
+   "node_id": "s00042c02",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 2.125
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 4.25
+   }
+  },
+  {
+   "scene_id": "s00042",
+   "node_id": "s00042c03",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 2.25
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 6.375
+   }
+  },
+  {
+   "scene_id": "s00042",
+   "node_id": "s00042c04",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 1.375
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 6.25
+   }
+  },
+  {
+   "scene_id": "s00042",
+   "node_id": "s00042c05",
+   "truth": "stuck",
+   "child": {
+    "prediction": "none",
+    "margin": 2.375
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 3.75
+   }
+  },
+  {
+   "scene_id": "s00046",
+   "node_id": "s00046c00",
+   "truth": "noisy",
+   "child": {
+    "prediction": "none",
+    "margin": 2.25
+   },
+   "parent": {
+    "prediction": "noisy",
+    "margin": 4.375
+   }
+  },
+  {
+   "scene_id": "s00046",
+   "node_id": "s00046c01",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 3
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 6.25
+   }
+  },
+  {
+   "scene_id": "s00046",
+   "node_id": "s00046c02",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 2.75
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 5.875
+   }
+  },
+  {
+   "scene_id": "s00046",
+   "node_id": "s00046c03",
+   "truth": "stuck",
+   "child": {
+    "prediction": "none",
+    "margin": 0.5
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 4.625
+   }
+  },
+  {
+   "scene_id": "s00046",
+   "node_id": "s00046c04",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 2.625
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 4.25
+   }
+  },
+  {
+   "scene_id": "s00046",
+   "node_id": "s00046c05",
+   "truth": "stuck",
+   "child": {
+    "prediction": "none",
+    "margin": 2.5
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 3.75
+   }
+  },
+  {
+   "scene_id": "s00047",
+   "node_id": "s00047c00",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 2.25
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 4.25
+   }
+  },
+  {
+   "scene_id": "s00047",
+   "node_id": "s00047c01",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 3.625
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 5.375
+   }
+  },
+  {
+   "scene_id": "s00047",
+   "node_id": "s00047c02",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 3
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 3.125
+   }
+  },
+  {
+   "scene_id": "s00047",
+   "node_id": "s00047c03",
+   "truth": "stuck",
+   "child": {
+    "prediction": "none",
+    "margin": 1.875
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 5.75
+   }
+  },
+  {
+   "scene_id": "s00047",
+   "node_id": "s00047c04",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 2.125
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 4.25
+   }
+  },
+  {
+   "scene_id": "s00047",
+   "node_id": "s00047c05",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 2.625
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 5.75
+   }
+  },
+  {
+   "scene_id": "s00051",
+   "node_id": "s00051c00",
+   "truth": "railed",
+   "child": {
+    "prediction": "dropout",
+    "margin": 0.375
+   },
+   "parent": {
+    "prediction": "railed",
+    "margin": 5.875
+   }
+  },
+  {
+   "scene_id": "s00051",
+   "node_id": "s00051c01",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 3.5
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 5.375
+   }
+  },
+  {
+   "scene_id": "s00051",
+   "node_id": "s00051c02",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 2.25
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 6.125
+   }
+  },
+  {
+   "scene_id": "s00051",
+   "node_id": "s00051c03",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 2.625
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 3.625
+   }
+  },
+  {
+   "scene_id": "s00051",
+   "node_id": "s00051c04",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 3.25
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 5.375
+   }
+  },
+  {
+   "scene_id": "s00051",
+   "node_id": "s00051c05",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 2.375
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 4.875
+   }
+  },
+  {
+   "scene_id": "s00068",
+   "node_id": "s00068c00",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 2.875
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 6.375
+   }
+  },
+  {
+   "scene_id": "s00068",
+   "node_id": "s00068c01",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 2.5
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 5.875
+   }
+  },
+  {
+   "scene_id": "s00068",
+   "node_id": "s00068c02",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 3.75
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 5.625
+   }
+  },
+  {
+   "scene_id": "s00068",
+   "node_id": "s00068c03",
+   "truth": "noisy",
+   "child": {
+    "prediction": "noisy",
+    "margin": 0.5
+   },
+   "parent": {
+    "prediction": "noisy",
+    "margin": 7.625
+   }
+  },
+  {
+   "scene_id": "s00068",
+   "node_id": "s00068c04",
+   "truth": "drifting",
+   "child": {
+    "prediction": "none",
+    "margin": 0.25
+   },
+   "parent": {
+    "prediction": "drifting",
+    "margin": 1.75
+   }
+  },
+  {
+   "scene_id": "s00068",
+   "node_id": "s00068c05",
+   "truth": "railed",
+   "child": {
+    "prediction": "dropout",
+    "margin": 0.875
+   },
+   "parent": {
+    "prediction": "dropout",
+    "margin": 0.375
+   }
+  },
+  {
+   "scene_id": "s00069",
+   "node_id": "s00069c00",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 2.25
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 3.875
+   }
+  },
+  {
+   "scene_id": "s00069",
+   "node_id": "s00069c01",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 2.625
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 5.75
+   }
+  },
+  {
+   "scene_id": "s00069",
+   "node_id": "s00069c02",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 2.25
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 4.125
+   }
+  },
+  {
+   "scene_id": "s00069",
+   "node_id": "s00069c03",
+   "truth": "noisy",
+   "child": {
+    "prediction": "noisy",
+    "margin": 0.75
+   },
+   "parent": {
+    "prediction": "noisy",
+    "margin": 0.625
+   }
+  },
+  {
+   "scene_id": "s00069",
+   "node_id": "s00069c04",
+   "truth": "noisy",
+   "child": {
+    "prediction": "none",
+    "margin": 1.375
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 0.25
+   }
+  },
+  {
+   "scene_id": "s00069",
+   "node_id": "s00069c05",
+   "truth": "stuck",
+   "child": {
+    "prediction": "none",
+    "margin": 2.25
+   },
+   "parent": {
+    "prediction": "stuck",
+    "margin": 0.5
+   }
+  },
+  {
+   "scene_id": "s00070",
+   "node_id": "s00070c00",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 2.25
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 6.5
+   }
+  },
+  {
+   "scene_id": "s00070",
+   "node_id": "s00070c01",
+   "truth": "drifting",
+   "child": {
+    "prediction": "none",
+    "margin": 2.875
+   },
+   "parent": {
+    "prediction": "drifting",
+    "margin": 0.5
+   }
+  },
+  {
+   "scene_id": "s00070",
+   "node_id": "s00070c02",
+   "truth": "dropout",
+   "child": {
+    "prediction": "dropout",
+    "margin": 0.625
+   },
+   "parent": {
+    "prediction": "dropout",
+    "margin": 3.5
+   }
+  },
+  {
+   "scene_id": "s00070",
+   "node_id": "s00070c03",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 1
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 4.75
+   }
+  },
+  {
+   "scene_id": "s00070",
+   "node_id": "s00070c04",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 2.75
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 4.5
+   }
+  },
+  {
+   "scene_id": "s00070",
+   "node_id": "s00070c05",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 2.375
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 4.5
+   }
+  },
+  {
+   "scene_id": "s00075",
+   "node_id": "s00075c00",
+   "truth": "stuck",
+   "child": {
+    "prediction": "none",
+    "margin": 1.875
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 2
+   }
+  },
+  {
+   "scene_id": "s00075",
+   "node_id": "s00075c01",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 3.125
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 6.375
+   }
+  },
+  {
+   "scene_id": "s00075",
+   "node_id": "s00075c02",
+   "truth": "dropout",
+   "child": {
+    "prediction": "dropout",
+    "margin": 0.125
+   },
+   "parent": {
+    "prediction": "dropout",
+    "margin": 7.375
+   }
+  },
+  {
+   "scene_id": "s00075",
+   "node_id": "s00075c03",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 1
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 2.125
+   }
+  },
+  {
+   "scene_id": "s00075",
+   "node_id": "s00075c04",
+   "truth": "drifting",
+   "child": {
+    "prediction": "none",
+    "margin": 1.125
+   },
+   "parent": {
+    "prediction": "drifting",
+    "margin": 7.25
+   }
+  },
+  {
+   "scene_id": "s00075",
+   "node_id": "s00075c05",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 2.25
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 6.5
+   }
+  },
+  {
+   "scene_id": "s00077",
+   "node_id": "s00077c00",
+   "truth": "drifting",
+   "child": {
+    "prediction": "none",
+    "margin": 1.125
+   },
+   "parent": {
+    "prediction": "drifting",
+    "margin": 4.375
+   }
+  },
+  {
+   "scene_id": "s00077",
+   "node_id": "s00077c01",
+   "truth": "stuck",
+   "child": {
+    "prediction": "none",
+    "margin": 2.875
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 3
+   }
+  },
+  {
+   "scene_id": "s00077",
+   "node_id": "s00077c02",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 1.5
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 5.25
+   }
+  },
+  {
+   "scene_id": "s00077",
+   "node_id": "s00077c03",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 1.375
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 4.875
+   }
+  },
+  {
+   "scene_id": "s00077",
+   "node_id": "s00077c04",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 1.75
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 4
+   }
+  },
+  {
+   "scene_id": "s00077",
+   "node_id": "s00077c05",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 2.5
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 3.875
+   }
+  },
+  {
+   "scene_id": "s00079",
+   "node_id": "s00079c00",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 1.75
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 6.25
+   }
+  },
+  {
+   "scene_id": "s00079",
+   "node_id": "s00079c01",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 2.875
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 6
+   }
+  },
+  {
+   "scene_id": "s00079",
+   "node_id": "s00079c02",
+   "truth": "dropout",
+   "child": {
+    "prediction": "dropout",
+    "margin": 0.375
+   },
+   "parent": {
+    "prediction": "dropout",
+    "margin": 7.375
+   }
+  },
+  {
+   "scene_id": "s00079",
+   "node_id": "s00079c03",
+   "truth": "drifting",
+   "child": {
+    "prediction": "drifting",
+    "margin": 0.125
+   },
+   "parent": {
+    "prediction": "drifting",
+    "margin": 8
+   }
+  },
+  {
+   "scene_id": "s00079",
+   "node_id": "s00079c04",
+   "truth": "drifting",
+   "child": {
+    "prediction": "none",
+    "margin": 1.125
+   },
+   "parent": {
+    "prediction": "drifting",
+    "margin": 2.75
+   }
+  },
+  {
+   "scene_id": "s00079",
+   "node_id": "s00079c05",
+   "truth": "dropout",
+   "child": {
+    "prediction": "dropout",
+    "margin": 1
+   },
+   "parent": {
+    "prediction": "dropout",
+    "margin": 3.875
+   }
+  },
+  {
+   "scene_id": "s00083",
+   "node_id": "s00083c00",
+   "truth": "drifting",
+   "child": {
+    "prediction": "none",
+    "margin": 1.625
+   },
+   "parent": {
+    "prediction": "stuck",
+    "margin": 0
+   }
+  },
+  {
+   "scene_id": "s00083",
+   "node_id": "s00083c01",
+   "truth": "noisy",
+   "child": {
+    "prediction": "noisy",
+    "margin": 1.25
+   },
+   "parent": {
+    "prediction": "noisy",
+    "margin": 5.75
+   }
+  },
+  {
+   "scene_id": "s00083",
+   "node_id": "s00083c02",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 2.875
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 4.75
+   }
+  },
+  {
+   "scene_id": "s00083",
+   "node_id": "s00083c03",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 1.75
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 4.75
+   }
+  },
+  {
+   "scene_id": "s00083",
+   "node_id": "s00083c04",
+   "truth": "none",
+   "child": {
+    "prediction": "none",
+    "margin": 2.5
+   },
+   "parent": {
+    "prediction": "none",
+    "margin": 4.625
+   }
+  },
+  {
+   "scene_id": "s00083",
+   "node_id": "s00083c05",
+   "truth": "drifting",
+   "child": {
+    "prediction": "none",
+    "margin": 2.125
+   },
+   "parent": {
+    "prediction": "drifting",
+    "margin": 7.125
+   }
+  }
+ ],
+ "quants": [
+  {
+   "quant": "f16",
+   "source": "iebs12-pico-scratch-v2.json",
+   "fault_id_macro": 0.725964277674179,
+   "fault_id_raw": 0.76,
+   "n": 250
+  },
+  {
+   "quant": "Q4_K_M",
+   "source": "iebs12-pico-scratch-v2-q4.json",
+   "fault_id_macro": 0.2226675285498815,
+   "fault_id_raw": 0.21333333333333335,
+   "n": 150
+  }
+ ]
+}

@@ -535,14 +535,87 @@
             </div>
           </div>
 
+
+          <!-- ================= THE MESH BENCH =================
+               The economic argument for a mesh, as a slider rather than a slogan.
+               Every figure is read from a real fleet_sim run; the child, the parent
+               and the bench are named on the panel so the numbers belong to
+               something rather than floating. -->
+          <div class="wm-mesh">
+            <div class="wm-bench__head">
+              <b>THE MESH BENCH &middot; WHAT A FLOOR BUYS</b>
+              <span class="wm-tag wm-tag--meas">MEASURED</span>
+            </div>
+            <p class="wm-note" id="wmMeshProv"></p>
+
+            <label class="wm-scrub__label" for="wmFloor">Margin floor</label>
+            <input class="wm-scrub" id="wmFloor" type="range" min="0" max="0" value="0" step="1" />
+            <div class="wm-config" id="wmConfig">-</div>
+
+            <div class="wm-meters wm-meters--mesh">
+              <div class="wm-meter">
+                <span class="wm-meter__k">accuracy (macro recall)</span>
+                <span class="wm-meter__v" id="wmMacro">-</span>
+                <span class="wm-meter__track">
+                  <span class="wm-meter__bar" id="wmMacroBar" role="progressbar"
+                        aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"></span>
+                </span>
+              </div>
+              <div class="wm-meter">
+                <span class="wm-meter__k">escalated to the parent</span>
+                <span class="wm-meter__v" id="wmEsc">-</span>
+                <span class="wm-meter__track">
+                  <span class="wm-meter__bar wm-meter__bar--esc" id="wmEscBar" role="progressbar"
+                        aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"></span>
+                </span>
+              </div>
+              <div class="wm-meter">
+                <span class="wm-meter__k">cost vs asking the parent everything</span>
+                <span class="wm-meter__v" id="wmCost">-</span>
+                <span class="wm-meter__track">
+                  <span class="wm-meter__bar wm-meter__bar--cost" id="wmCostBar" role="progressbar"
+                        aria-valuemin="0" aria-valuemax="150" aria-valuenow="0"></span>
+                </span>
+              </div>
+            </div>
+            <p class="wm-verdict" id="wmMeshVerdict"></p>
+
+            <!-- the per-frame redlines: a tile's floor depends on its frame -->
+            <div class="wm-frames" id="wmFrames"></div>
+          </div>
+
+          <!-- ================= THE ALERT FEED =================
+               Real child and parent predictions from the same run, rendered in the
+               frozen record schema. `kind` is derived from the margin against the
+               floor above - which is exactly what a tile does at runtime - so the
+               slider changes what escalates in front of you. -->
+          <div class="wm-feed">
+            <div class="wm-bench__head">
+              <b>ASSERTION FEED</b>
+              <span class="wm-lamp" id="wmLamp" role="status"></span>
+            </div>
+            <p class="wm-note" id="wmFeedNote"></p>
+            <ol class="wm-records" id="wmRecords"></ol>
+          </div>
+
+          <!-- ================= QUANTIZATION =================
+               The Q4 lesson as UX: a tile never implies numbers it has not earned. -->
+          <div class="wm-quants">
+            <div class="wm-bench__head"><b>WHAT SHRINKING THE MODEL COSTS</b></div>
+            <div class="wm-quantrow" id="wmQuants"></div>
+            <p class="wm-note" id="wmQuantNote"></p>
+          </div>
+
           <div class="wm-pending">
             <b>NOT ON THIS DECK YET</b>
             <p>
-              The <b>rack</b> of Wave model tiles and the <b>alert feed</b> are next. A tile&rsquo;s
-              faceplate is meant to be literally its GGUF birth certificate - tier, scope,
-              model digest, tasks, margin floor - and the feed shows typed assertions with
-              their citations. Both need real exports, which have been requested. Neither will
-              ship with invented digests or mock assertions.
+              The <b>rack</b> of Wave model tiles. A tile&rsquo;s faceplate is meant to be
+              literally its GGUF birth certificate - tier, scope, model digest, tasks, margin
+              floor - and while the schema for those keys is now frozen, the actual values for
+              the Wave Pico release candidate have not been exported yet. A faceplate that is
+              supposed to BE a birth certificate will not ship with an invented digest, so the
+              rack waits. The assertion feed above no longer waits: those are real predictions
+              and real margins from a recorded run.
             </p>
           </div>
 
