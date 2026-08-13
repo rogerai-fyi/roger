@@ -116,9 +116,15 @@
 /* an OUTPUT is filled, an INPUT is hollow - direction readable without hue */
 .wp-port--out, .wp-port--up { background: var(--ink-700); }
 .wp-port--in { background: var(--paper); }
-/* the in/out ports sit on the tile edges so a wire meets them perpendicular */
-.wp-port--in  { position: absolute; bottom: -7px; left: 50%; transform: translateX(-50%); }
-.wp-port--up  { position: absolute; top: -7px; left: 50%; transform: translateX(-50%); }
+/* the in/out ports sit on the tile edges so a wire meets them perpendicular:
+   signal flows left to right, so inputs are the LEFT edge, outputs the RIGHT */
+.wp-port--in  { position: absolute; left: -7px; top: 50%; transform: translateY(-50%); }
+.wp-port--up  { position: absolute; right: -7px; top: 50%; transform: translateY(-50%); }
+/* a device's channel outs stack on its right edge, one jack per moved channel */
+.wp-tile--device .wp-tile__ports {
+  position: absolute; right: -7px; top: 50%; transform: translateY(-50%);
+  display: flex; flex-direction: column; gap: .35rem;
+}
 .wp-port:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
 /* Once a wire is armed, where it can land becomes a perception task. */
 .wp-port.is-ok { border-color: var(--live); animation: wp-pulse 1.1s ease-in-out infinite; }
@@ -227,9 +233,12 @@ body.wp-arming { cursor: crosshair; }
 .wp-bar { display: flex; align-items: center; gap: .8rem; margin: 0 0 var(--s-3, .75rem); flex-wrap: wrap; }
 
 .wp-mirror { margin: .6rem 0 0; padding-left: 1.1rem; font-size: var(--t-micro, .7rem); color: var(--ink-500); }
+/* Visible AND announced: the old version was screen-reader-only, which left a
+   sighted visitor with no feedback at all when a patch was refused. */
 .wp-say {
-  position: absolute; width: 1px; height: 1px; overflow: hidden;
-  clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
+  display: block; min-height: 1.2em; margin: .4rem 0 0;
+  font-family: var(--font-mono); font-size: .62rem; letter-spacing: .04em;
+  color: var(--ink-500);
 }
 
 /* ---- cable inspection: the same truth in eight dialects ---------------- */
@@ -246,3 +255,84 @@ body.wp-arming { cursor: crosshair; }
   background: var(--paper-2); border: 1px solid var(--hairline);
   font-size: .58rem; line-height: 1.45; white-space: pre; color: var(--ink-700);
 }
+
+/* ---- the module rail: drag onto the sheet, snap into a column ---------- */
+.wp-rail { display: flex; gap: .5rem; align-items: stretch; }
+.wp-rail__k {
+  font-family: var(--font-mono); font-size: .58rem; letter-spacing: .12em;
+  color: var(--ink-400); align-self: center; text-transform: uppercase;
+}
+.wp-mod {
+  display: flex; gap: .5rem; align-items: center;
+  padding: .45rem .7rem .45rem .5rem; border-radius: 8px; cursor: grab;
+  border: 1px solid var(--ink-300); background: var(--paper);
+  font: inherit; color: inherit; touch-action: none;
+  box-shadow: 0 1px 0 var(--hairline-2);
+}
+.wp-mod:active { cursor: grabbing; }
+.wp-mod__grip { font-style: normal; color: var(--ink-300); font-size: .8rem; }
+.wp-mod__body { display: flex; flex-direction: column; gap: .05rem; text-align: left; }
+.wp-mod__body b { font-family: var(--font-mono); font-size: .66rem; letter-spacing: .1em; text-transform: uppercase; }
+.wp-mod__body span { font-size: .62rem; color: var(--ink-400); }
+.wp-mod:hover { border-color: var(--ink-500); }
+.wp-mod:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
+
+/* ---- drag states: lift, ghost, snap ------------------------------------ */
+body.wp-dragging { cursor: grabbing; user-select: none; }
+.wp-ghost {
+  position: fixed; z-index: 40; pointer-events: none;
+  padding: .5rem .8rem; border-radius: 8px;
+  font-family: var(--font-mono); font-size: .66rem; letter-spacing: .1em; text-transform: uppercase;
+  background: var(--paper); border: 1px solid var(--ink-700); color: var(--ink-900);
+  box-shadow: 0 6px 18px rgba(0,0,0,.18);
+}
+/* the landing slot: a dashed socket that appears where the module will snap */
+.wp-snap {
+  position: absolute; display: none; pointer-events: none;
+  border: 1.5px dashed var(--live); border-radius: 10px;
+  background: var(--live-wash);
+}
+.wp-tile.is-lift { opacity: .35; }
+
+/* column headings engraved into the sheet */
+.wp-colhead {
+  position: absolute; top: 8px; text-align: center;
+  font-family: var(--font-mono); font-size: .56rem; letter-spacing: .22em;
+  color: var(--ink-300); pointer-events: none; text-transform: uppercase;
+}
+
+/* ---- depth: the tiles sit ON the sheet, not in it ---------------------- */
+.wp-tile {
+  box-shadow: 0 1px 0 var(--hairline-2), 0 3px 10px rgba(0,0,0,.07);
+  transition: box-shadow .15s ease, transform .15s ease;
+}
+.wp-tile:hover { box-shadow: 0 1px 0 var(--hairline-2), 0 6px 16px rgba(0,0,0,.12); }
+@media (prefers-reduced-motion: reduce) { .wp-tile { transition: none; } }
+
+/* the wire's under-stroke: cable body without a filter */
+.wp-wire__under {
+  fill: none; stroke: var(--ink-900); stroke-opacity: .06; stroke-width: 5;
+  vector-effect: non-scaling-stroke;
+}
+
+.wp-remove {
+  margin-top: .5rem; padding: .3rem .6rem; border-radius: 6px; cursor: pointer;
+  font-family: var(--font-mono); font-size: .6rem; letter-spacing: .06em;
+  border: 1px solid var(--hairline-2); background: var(--paper); color: var(--ink-500);
+}
+.wp-remove:hover { border-color: var(--ink-500); color: var(--ink-900); }
+.wp-unmeasured { font-family: var(--font-mono); font-size: .62rem; color: var(--ink-500); margin: .4rem 0 0; }
+
+/* ---- the masthead: an engraved plate, not a data surface --------------- */
+.wm-masthead {
+  margin: 0 0 var(--s-4, 1rem); border-radius: 10px; overflow: hidden;
+  border: 1px solid var(--hairline-2);
+  /* the illustration is cream-on-cream; the hairline is what makes it a PLATE */
+}
+.wm-masthead img { display: block; width: 100%; height: auto; }
+/* In dark mode the plate stays a lit paper card - that is what an engraving in a
+   dark room looks like - just dimmed enough not to glare. */
+@media (prefers-color-scheme: dark) {
+  .wm-masthead img { filter: brightness(.9); }
+}
+:root[data-theme="dark"] .wm-masthead img { filter: brightness(.9); }

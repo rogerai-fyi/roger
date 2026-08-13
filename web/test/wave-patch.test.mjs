@@ -82,8 +82,8 @@ test("honesty: the escalation packet fires on a run, never as a stream", () => {
   // contrib that does ships a warning. Here it is also the honesty rail: a continuous
   // animation would imply live inference.
   assert.ok(js.includes("flyPacket"), "there is a single packet animation");
-  assert.ok(/if \(esc\.length && !quiet\) flyPacket\(\)/.test(js),
-    "it must fire only on an explicit run that actually escalated");
+  assert.ok(/if \(esc\.length && !quiet && chain\.escWire\) flyPacket\(chain\.escWire\)/.test(js),
+    "it must fire only on an explicit run that actually escalated, on the wire that carried it");
   assert.ok(!/setInterval/.test(js), "nothing may animate continuously");
 });
 
@@ -145,12 +145,32 @@ test("attribution: the Orange County line is present", () => {
 
 // ---------- the graph model ---------------------------------------------------
 
-test("graph: wires can only ever go up a tier", () => {
-  // Geometry is the rule. An illegal patch is unreachable rather than explained.
-  assert.ok(/LANES.indexOf\(to.tier\) < LANES.indexOf\(from.tier\)/.test(js),
-    "connection legality must be decided by tier order");
-  assert.ok(/LANES = \["human", "nano", "pico", "device"\]/.test(js),
-    "the ladder runs device -> pico -> nano -> human");
+// AMENDED 2026-08-13 (founder direction): the ladder rotated from bottom-up to
+// LEFT-TO-RIGHT - source on the left, operator on the right, like every signal chain an
+// engineer already reads. The invariant is unchanged: geometry decides legality, and a
+// wire can never point backwards.
+test("graph: wires can only ever flow rightward up the ladder", () => {
+  assert.ok(/COLS.indexOf\(to.tier\) > COLS.indexOf\(from.tier\)/.test(js),
+    "connection legality must be decided by column order");
+  assert.ok(/COLS = \["device", "pico", "nano", "human"\]/.test(js),
+    "the ladder runs device -> pico -> nano -> human, left to right");
+});
+
+test("graph: modules snap to typed columns, never a free canvas", () => {
+  // The snap preview may only ever appear in the module's own column - a pico cannot be
+  // dropped in the nano column, because the column IS the type. And the slot pitch equals
+  // tile + gap (n8n's invariant), so a dropped tile lands where a tidy-up would put it.
+  assert.ok(/colX\(tierOf\(\)\)/.test(js), "the snap ghost is pinned to the module's own column");
+  assert.ok(/SLOT_PITCH = TILE_H \+ GAP_Y/.test(js), "slot pitch = tile + gap, so tidy-up is a no-op");
+  assert.ok(/pointercancel/.test(js), "drags clean up on pointercancel, where stuck-drag bugs live");
+  assert.ok(/< 6\)/.test(js), "6px of drift before a press becomes a drag");
+});
+
+test("graph: added tiles outside the recorded chain never invent numbers", () => {
+  // The recorded run has ONE child under ONE parent. A second pico the visitor adds must
+  // say it was not part of the run, not display figures nothing measured.
+  assert.ok(/not in the recorded run/.test(js),
+    "a tile outside the replayed chain says so plainly");
 });
 
 test("graph: a parent takes at most one assertion input", () => {

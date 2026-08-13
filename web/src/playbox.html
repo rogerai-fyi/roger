@@ -453,6 +453,15 @@
         <span class="fig">FIG. 2 - THE WAVE MESH &middot; PATCH SHEET</span>
 
         <div class="pg-bench wm">
+          <!-- The masthead: the deck's own story as an engraved catalogue plate -
+               a signal source patched left-to-right through radio units to an
+               operator. Generated in-house (Flux, seed 42), shipped static; it is
+               ILLUSTRATION, and sits only on this non-data surface. -->
+          <figure class="wm-masthead">
+            <img src="assets/wave/mesh-console.webp" width="1408" height="480"
+                 alt="Engraved illustration: an industrial pump wired left to right through two radio units - one with a red lamp lit - to a headphone-wearing operator" />
+          </figure>
+
           <div class="pg-bench__plate" aria-hidden="true">
             <span class="pg-bench__name">WAVE MESH</span>
             <span class="pg-bench__type">ENGINEERING DECK &middot; PATCH SHEET</span>
@@ -476,6 +485,11 @@
           </div>
 
           <div class="wp-shelf" id="wpShelf" role="group" aria-label="Patch templates"></div>
+
+          <div class="wp-bar wp-bar--rail">
+            <span class="wp-rail__k">Modules &mdash; drag onto the sheet</span>
+            <div class="wp-rail" id="wpRail"></div>
+          </div>
 
           <div class="wp-sheetwrap">
             <div class="wp-sheet" id="wpSheet">
@@ -508,6 +522,7 @@
               </div>
               <svg class="wp-scope" id="wpScope" viewBox="0 0 520 96" role="img"
                    aria-label="The channel trace, with the fault onset marked"></svg>
+              <p class="wp-note" id="wpScopeNote"></p>
               <div class="wp-gauges">
                 <div class="wp-gauge">
                   <span class="wp-gauge__k">macro recall</span>
@@ -525,6 +540,7 @@
                   <span class="wp-gauge__s">residency proxy</span>
                 </div>
               </div>
+              <p class="wp-unmeasured" id="wpUnmeasured" role="status"></p>
               <p class="wp-note" id="wpCostNote"></p>
             </div>
 
