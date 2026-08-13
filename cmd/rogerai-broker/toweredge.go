@@ -36,6 +36,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"rogerai.fm/roger/v5/internal/protocol"
@@ -72,6 +73,16 @@ func edgeSettleGrace() time.Duration {
 	}
 	return g
 }
+
+// towerNodePrefix tags an earning lot's node as a Tower-RELAY share, so the earnings surface can
+// split "serving" (a node ran the model) from "relaying" (a Tower carried the traffic) for one
+// operator. IsTowerNode reads it back.
+const towerNodePrefix = "tower:"
+
+func towerNode(towerID string) string { return towerNodePrefix + towerID }
+
+// IsTowerNode reports whether an earning-rollup node key is a Tower-relay share.
+func IsTowerNode(node string) bool { return strings.HasPrefix(node, towerNodePrefix) }
 
 // edgeMaxBytes caps what one grant may authorize in either direction, whatever the caller
 // asks for. It matches the Station's own request ceiling: a grant for more than a Station
@@ -827,7 +838,11 @@ func (b *broker) settleEdgeMoney(ts *towerSubsystem, towerID, stationID, station
 		RequestID: settled.AttemptID, Model: rec.Model,
 		PromptTokens: int(settled.Billable.In), CompletionTokens: int(settled.Billable.Out), TS: now.Unix(),
 	}
-	if _, err := b.db.SettleEdge(consumerWallet, stationID, stationOwner, towerID, towerAcct,
+	// The Tower lot is tagged with a "tower:" node prefix so the earnings surface can tell a
+	// Tower-RELAY share apart from a node-SERVING share for the same operator (the dashboard shows
+	// them separately). It is provenance only - clawback and payout key on the account and request,
+	// not the node - so the prefix changes no money.
+	if _, err := b.db.SettleEdge(consumerWallet, stationID, stationOwner, towerNode(towerID), towerAcct,
 		cost, stationShare, towerShare, r); err != nil {
 		log.Printf("edge settle: could not bill attempt %s: %v", settled.AttemptID, err)
 	}

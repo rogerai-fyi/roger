@@ -674,6 +674,17 @@ func (b *broker) payoutsEarnings(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	byModel, byNode, _ := b.db.EarningRollups(o.Pubkey)
+	// Split the lifetime attributed total into SERVING (a node ran the model) and RELAYING (a
+	// Tower carried the traffic), so the dashboard can show the two revenue streams apart. Tower
+	// lots are tagged with a "tower:" node prefix at settlement.
+	var towerRelay, serving float64
+	for _, rr := range byNode {
+		if IsTowerNode(rr.Key) {
+			towerRelay += rr.Amount
+		} else {
+			serving += rr.Amount
+		}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"held":         round6(split.Held),
 		"reserved":     round6(split.Reserved),
@@ -683,6 +694,9 @@ func (b *broker) payoutsEarnings(w http.ResponseWriter, r *http.Request) {
 		"releases":     releases,
 		"by_model":     roundRollups(byModel),
 		"by_node":      roundRollups(byNode),
+		// Lifetime attributed earnings split by how they were earned.
+		"tower_relay": round6(towerRelay),
+		"serving":     round6(serving),
 	})
 }
 

@@ -272,3 +272,49 @@ func TestEdgeAuthorizeRefusesABannedAccount(t *testing.T) {
 	code, _ := consumerCall(t, srv, member, "/tower/edge/authorize", map[string]any{"model": "m"})
 	require.Equal(t, http.StatusForbidden, code, "a banned account is refused")
 }
+
+// The Tower operator's earning is tagged with a "tower:" node prefix so the earnings dashboard can
+// show the RELAY share apart from a node-SERVING share. It changes no money (payout/clawback key on
+// the account + request), only provenance.
+func TestTowerRelayEarningsAreTaggedForTheDashboard(t *testing.T) {
+	require.True(t, IsTowerNode("tower:tw-ams"))
+	require.False(t, IsTowerNode("gpu-01"))
+
+	t.Setenv("ROGERAI_TOWER_EDGE_PRICE_IN", "0")
+	t.Setenv("ROGERAI_TOWER_EDGE_PRICE_OUT", "1000000")
+	t.Setenv("ROGERAI_PAYOUT_HOLD_DAYS", "0")
+	t.Setenv("ROGERAI_PAYOUT_RESERVE", "0")
+	b, srv := towerTestBroker(t)
+	b.feeRate = 0.30
+	op := signedInOperator(t, b, "tower-op")
+	towerAcct := ownerPubkeyOf(t, b, op.login)
+	tw := enrolledTower(t, b, op.login)
+	stPub, _, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	stationOwner := hexOf(stPub)
+	require.NoError(t, b.db.BindOwner(store.Owner{Pubkey: stationOwner, Login: "station-op2", Email: "s2@x.test", EmailVerifiedAt: time.Now().Unix()}))
+	stationPriv := attachStation(t, b, "st-1", tw.id, stationOwner)
+	cpub := issuedEdgeGrant(t, b, "att-1", tw.id, "st-1", 1000, 1000)
+	consumerWallet := protocol.UserIDFromPubkey(hex.EncodeToString(cpub))
+	_, _ = b.db.AddCredits(consumerWallet, 100000)
+	ok, err := b.db.HoldFor(consumerWallet, "att-1", 1000)
+	require.NoError(t, err)
+	require.True(t, ok)
+	body, _ := json.Marshal(map[string]any{
+		"tower_id": tw.id, "station_id": "st-1", "attempt_id": "att-1",
+		"receipt": signedReceipt(t, stationPriv, "att-1", "st-1", []byte("answer"), dispatch.Usage{In: 0, Out: 50}),
+	})
+	var out map[string]any
+	code, _ := tw.call(t, srv, "/tower/edge/settle", body, &out)
+	require.Equal(t, http.StatusOK, code, out)
+
+	// The tower operator's only earning is the relay lot, tagged "tower:".
+	_, byNode, err := b.db.EarningRollups(towerAcct)
+	require.NoError(t, err)
+	require.Len(t, byNode, 1)
+	require.True(t, IsTowerNode(byNode[0].Key), "the tower operator's earning is tagged as a relay share")
+	// The station owner's is an ordinary serving lot (not tower-tagged).
+	_, stNode, _ := b.db.EarningRollups(stationOwner)
+	require.Len(t, stNode, 1)
+	require.False(t, IsTowerNode(stNode[0].Key), "the station owner's earning is a serving share")
+}
