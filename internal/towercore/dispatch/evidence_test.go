@@ -100,18 +100,45 @@ func TestSettlementTakesTheLowerOfTwoOpposingClaims(t *testing.T) {
 	parsed, err := ParseAck(a.Signed, pub, "roger-public", "att-1")
 	require.NoError(t, err)
 
-	// The Station claims MORE output than the consumer saw - in its own signed receipt,
-	// because that is now the only place a claim can live.
+	// The Station claims MORE output than the consumer saw - in its own signed receipt. Output
+	// is witnessed by both parties (both commit to the response digest), so it settles on the
+	// lower figure: the Station must not profit from its own count.
 	s, err := Reconcile(stationReceipt(t, "att-1", response, Usage{In: 10, Out: 100}), &parsed)
 	require.NoError(t, err)
 	require.True(t, s.Corroborated)
-	require.Equal(t, Usage{In: 10, Out: 90}, s.Billable,
-		"the Station must not profit from its own count")
+	require.Equal(t, int64(90), s.Billable.Out, "output settles on the lower of the two claims")
 
-	// And the other direction: a Station understating input does not raise the bill.
-	s, err = Reconcile(stationReceipt(t, "att-1", response, Usage{In: 4, Out: 90}), &parsed)
+	// INPUT comes from the receipt, not the ack. The acknowledgement commits only to the
+	// response digest - it does not attest the request - so input is the Station's count
+	// (bounded by the grant ceiling and re-checked against the transcript at audit), whatever
+	// the ack's input field says. Here the ack claims In 10 and the receipt In 25; billable In
+	// is the receipt's 25, not min'd down by an input figure the consumer never truly attested.
+	s, err = Reconcile(stationReceipt(t, "att-1", response, Usage{In: 25, Out: 90}), &parsed)
 	require.NoError(t, err)
-	require.Equal(t, Usage{In: 4, Out: 90}, s.Billable)
+	require.Equal(t, int64(25), s.Billable.In, "input is the receipt's, not reconciled against the ack")
+	require.False(t, s.UsageDisputed, "an input difference is not a dispute - the ack cannot attest input")
+}
+
+// THE PRODUCTION CLIENT SIGNS usage_in = 0 (its ack carries no request digest, so it has
+// nothing to attest input with). Input must therefore NOT be reconciled against the ack, or
+// every honest corroborated attempt would zero the operator's input pay and be falsely
+// disputed. Output, which the ack does attest, still reconciles normally.
+func TestAnAckThatCannotAttestInputDoesNotZeroOrDisputeInput(t *testing.T) {
+	response := []byte("a real response body")
+	pub, priv := consumer(t)
+	// The shape internal/edgeclient signs: In 0, Out the true response length.
+	a, err := SignAck(priv, "roger-public", "att-1", response, Usage{In: 0, Out: int64(len(response))},
+		time.Now(), time.Now())
+	require.NoError(t, err)
+	parsed, err := ParseAck(a.Signed, pub, "roger-public", "att-1")
+	require.NoError(t, err)
+
+	s, err := Reconcile(stationReceipt(t, "att-1", response, Usage{In: 100, Out: int64(len(response))}), &parsed)
+	require.NoError(t, err)
+	require.True(t, s.Corroborated)
+	require.Equal(t, int64(100), s.Billable.In, "input pay is not zeroed by an ack that says In 0")
+	require.Equal(t, int64(len(response)), s.Billable.Out)
+	require.False(t, s.UsageDisputed, "the honest corroborated path is not disputed")
 }
 
 // TWO SIGNED DIGESTS WITH A RELAY BETWEEN THEM. This is the whole mechanism for detecting a

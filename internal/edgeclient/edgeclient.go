@@ -189,6 +189,11 @@ func (c *Client) Ack(ctx context.Context, auth Authorization, res Result) error 
 		// an error body would be signing a claim about an answer that was not one.
 		return nil
 	}
+	// In is 0 and that is not a false claim: the acknowledgement commits only to the RESPONSE
+	// digest, so it cannot attest the request, and Core does not reconcile input against it -
+	// input billing rests on the Station's receipt, bounded by the grant ceiling and checked at
+	// audit. Out is the one figure the consumer genuinely witnesses (it holds the bytes), so it
+	// is signed truthfully and is what corroborates - or, if the Station lied, disputes - output.
 	a, err := dispatch.SignAck(c.Key, c.network(), auth.AttemptID, res.Body,
 		dispatch.Usage{In: 0, Out: int64(len(res.Body))}, res.firstByte, res.completed)
 	if err != nil {

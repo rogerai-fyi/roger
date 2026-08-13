@@ -221,18 +221,24 @@ func Reconcile(receipt Receipt, ack *Ack) (Settlement, error) {
 		return Settlement{}, ErrDigestMismatch
 	}
 	s.Corroborated = true
-	// USAGE MUST AGREE WHEN THE DIGESTS DO. Usage is byte-exact (len of the bytes), and a
-	// matching response digest means both parties committed to the IDENTICAL response bytes -
-	// so their usage_out is a deterministic function of the same bytes and must be equal. If it
-	// is not, one side signed a correct digest and a false length: provable misconduct, not a
-	// rounding difference. A consumer that acks usage 0 against the true digest is trying to
-	// zero an honest operator's pay while looking corroborated; without this it succeeded
-	// silently. We settle CONSERVATIVELY on the lower figure (never overpay on either party's
-	// inflation) but mark it disputed so it feeds the rate and is force-audited - the audit has
-	// the bytes and can attribute the lie. A tight per-attempt correction is future work; being
-	// flagged rather than silently clean is the fix.
-	s.Billable = Usage{In: minInt64(claimed.In, ack.Usage.In), Out: minInt64(claimed.Out, ack.Usage.Out)}
-	if claimed.In != ack.Usage.In || claimed.Out != ack.Usage.Out {
+	// THE ACK ATTESTS THE RESPONSE, NOT THE REQUEST. It commits to the response digest and
+	// nothing else - it carries no request digest, and a consumer cannot count the bytes the
+	// Station received on its behalf - so only the OUTPUT is independently witnessed by two
+	// parties. Input billing therefore rests on the receipt (the Station's count, bounded by the
+	// grant's MaxIn ceiling and re-checked against the transcript length at audit), exactly as
+	// output does on the no-acknowledgement path. Reconciling INPUT against the ack would be
+	// unsound: the first-party client signs usage_in = 0 because it has nothing to attest it
+	// with, so a min() there would zero every honest operator's input pay and a difference there
+	// would falsely dispute every corroborated attempt.
+	s.Billable = Usage{In: claimed.In, Out: minInt64(claimed.Out, ack.Usage.Out)}
+	// OUTPUT, by contrast, is byte-forced: a matching response digest means both parties
+	// committed to the IDENTICAL response bytes, so their usage_out is a function of the same
+	// bytes and must be equal. If it is not, one side signed a correct digest and a false length -
+	// provable misconduct, e.g. a consumer acking usage_out 0 against the true digest to zero an
+	// honest operator's pay. We settle CONSERVATIVELY on the lower figure (never overpaying
+	// either party's inflation) but flag it disputed so it feeds the rate and is force-audited;
+	// the audit has the bytes and can attribute the lie.
+	if claimed.Out != ack.Usage.Out {
 		s.UsageDisputed = true
 	}
 	return s, nil
