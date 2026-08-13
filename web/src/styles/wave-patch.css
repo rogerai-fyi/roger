@@ -323,16 +323,30 @@ body.wp-dragging { cursor: grabbing; user-select: none; }
 .wp-remove:hover { border-color: var(--ink-500); color: var(--ink-900); }
 .wp-unmeasured { font-family: var(--font-mono); font-size: .62rem; color: var(--ink-500); margin: .4rem 0 0; }
 
-/* ---- the masthead: an engraved plate, not a data surface --------------- */
+/* ---- the masthead: an engraved plate that RE-INKS itself per theme ------
+   Spot-colour printing, done in CSS. The illustration ships as two alpha
+   PLATES - an ink mask and a spot mask - and the colours come from the
+   theme's own tokens via mask-image. In light mode it is ink on paper; in
+   dark mode the SAME engraving prints in light ink on the dark bench, and
+   the red stays byte-exact #E0231C in both, because nothing filters it.
+   (A brightness/invert filter could never do this: invert is linear,
+   hue-rotate is perceptual, and the red does not survive the round trip.) */
 .wm-masthead {
-  margin: 0 0 var(--s-4, 1rem); border-radius: 10px; overflow: hidden;
-  border: 1px solid var(--hairline-2);
-  /* the illustration is cream-on-cream; the hairline is what makes it a PLATE */
+  position: relative; margin: 0 0 var(--s-4, 1rem);
+  aspect-ratio: 1408 / 480;
+  background: var(--paper-2);
+  border: 1px solid var(--hairline-2); border-radius: 10px; overflow: hidden;
 }
-.wm-masthead img { display: block; width: 100%; height: auto; }
-/* In dark mode the plate stays a lit paper card - that is what an engraving in a
-   dark room looks like - just dimmed enough not to glare. */
-@media (prefers-color-scheme: dark) {
-  .wm-masthead img { filter: brightness(.9); }
+.wm-masthead__ink, .wm-masthead__spot {
+  position: absolute; inset: 0;
+  -webkit-mask-image: url("../assets/wave/mesh-console-ink.png");
+  mask-image: url("../assets/wave/mesh-console-ink.png");
+  -webkit-mask-size: 100% 100%; mask-size: 100% 100%;
+  -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
 }
-:root[data-theme="dark"] .wm-masthead img { filter: brightness(.9); }
+.wm-masthead__ink { background: var(--ink-900); }
+.wm-masthead__spot {
+  -webkit-mask-image: url("../assets/wave/mesh-console-spot.png");
+  mask-image: url("../assets/wave/mesh-console-spot.png");
+  background: var(--live);
+}
