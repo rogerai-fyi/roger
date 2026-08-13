@@ -37,10 +37,10 @@ func TestAddOperatorLotParity(t *testing.T) {
 			}
 
 			// The tower operator's lot is payable to THEIR account, separate from the station's.
-			if s, _ := db.EarningSplitOf("tower-operator", now); !approx(s.Payable, 3) {
+			if s, _ := db.EarningSplitOf("tower-operator", now.Add(time.Hour)); !approx(s.Payable, 3) {
 				t.Errorf("[%s] tower-operator payable = %v, want 3", name, s.Payable)
 			}
-			if s, _ := db.EarningSplitOf("station-owner", now); !approx(s.Payable, 70) {
+			if s, _ := db.EarningSplitOf("station-owner", now.Add(time.Hour)); !approx(s.Payable, 70) {
 				t.Errorf("[%s] station-owner payable = %v, want 70", name, s.Payable)
 			}
 
@@ -48,10 +48,10 @@ func TestAddOperatorLotParity(t *testing.T) {
 			if _, _, err := db.RefundLineage("rf-1", []string{"req-1"}, "alice", "req-1", 100, now); err != nil {
 				t.Fatalf("RefundLineage: %v", err)
 			}
-			if s, _ := db.EarningSplitOf("tower-operator", now); !approx(s.Payable, 0) {
+			if s, _ := db.EarningSplitOf("tower-operator", now.Add(time.Hour)); !approx(s.Payable, 0) {
 				t.Errorf("[%s] tower-operator payable after refund = %v, want 0 (clawed)", name, s.Payable)
 			}
-			if s, _ := db.EarningSplitOf("station-owner", now); !approx(s.Payable, 0) {
+			if s, _ := db.EarningSplitOf("station-owner", now.Add(time.Hour)); !approx(s.Payable, 0) {
 				t.Errorf("[%s] station-owner payable after refund = %v, want 0 (clawed)", name, s.Payable)
 			}
 		})
@@ -69,7 +69,7 @@ func TestAddOperatorLotNoOps(t *testing.T) {
 			if err := db.AddOperatorLot("tw", "op", "r", 0, now); err != nil {
 				t.Fatalf("zero gross: %v", err)
 			}
-			if s, _ := db.EarningSplitOf("op", now); s.Payable != 0 || s.Held != 0 {
+			if s, _ := db.EarningSplitOf("op", now.Add(time.Hour)); s.Payable != 0 || s.Held != 0 {
 				t.Errorf("[%s] nothing should have minted: %+v", name, s)
 			}
 		})
@@ -101,20 +101,20 @@ func TestSettleEdgeParity(t *testing.T) {
 			if !approx(bal, 900) {
 				t.Errorf("[%s] balance = %v, want 900 (charged 100)", name, bal)
 			}
-			if s, _ := db.EarningSplitOf("station-owner", now); !approx(s.Payable, 70) {
+			if s, _ := db.EarningSplitOf("station-owner", now.Add(time.Hour)); !approx(s.Payable, 70) {
 				t.Errorf("[%s] station payable = %v, want 70", name, s.Payable)
 			}
-			if s, _ := db.EarningSplitOf("tower-operator", now); !approx(s.Payable, 3) {
+			if s, _ := db.EarningSplitOf("tower-operator", now.Add(time.Hour)); !approx(s.Payable, 3) {
 				t.Errorf("[%s] tower payable = %v, want 3", name, s.Payable)
 			}
 			// Refund of req-1 claws both.
 			if _, _, err := db.RefundLineage("rf-1", []string{"req-1"}, "alice", "req-1", 100, now); err != nil {
 				t.Fatalf("RefundLineage: %v", err)
 			}
-			if s, _ := db.EarningSplitOf("station-owner", now); !approx(s.Payable, 0) {
+			if s, _ := db.EarningSplitOf("station-owner", now.Add(time.Hour)); !approx(s.Payable, 0) {
 				t.Errorf("[%s] station payable after refund = %v, want 0", name, s.Payable)
 			}
-			if s, _ := db.EarningSplitOf("tower-operator", now); !approx(s.Payable, 0) {
+			if s, _ := db.EarningSplitOf("tower-operator", now.Add(time.Hour)); !approx(s.Payable, 0) {
 				t.Errorf("[%s] tower payable after refund = %v, want 0", name, s.Payable)
 			}
 		})
@@ -141,10 +141,10 @@ func TestSettleEdgeSeedFundedMintsNothing(t *testing.T) {
 				100, 70, 3, protocol.UsageReceipt{RequestID: "req-2", Model: "m", PromptTokens: 1, CompletionTokens: 1, TS: now.Unix()}); err != nil {
 				t.Fatalf("SettleEdge: %v", err)
 			}
-			if s, _ := db.EarningSplitOf("station-owner", now); s.Payable != 0 || s.Held != 0 {
+			if s, _ := db.EarningSplitOf("station-owner", now.Add(time.Hour)); s.Payable != 0 || s.Held != 0 {
 				t.Errorf("[%s] station earned on seed money: %+v", name, s)
 			}
-			if s, _ := db.EarningSplitOf("tower-operator", now); s.Payable != 0 || s.Held != 0 {
+			if s, _ := db.EarningSplitOf("tower-operator", now.Add(time.Hour)); s.Payable != 0 || s.Held != 0 {
 				t.Errorf("[%s] tower earned on seed money: %+v", name, s)
 			}
 		})
@@ -172,10 +172,10 @@ func TestSettleEdgeWithoutAHoldIsANoOp(t *testing.T) {
 			if bal, _ := db.PeekBalance("alice"); !approx(bal, 1000) {
 				t.Errorf("[%s] balance = %v, want 1000 (no debit/credit without a hold)", name, bal)
 			}
-			if s, _ := db.EarningSplitOf("station-owner", now); s.Payable != 0 {
+			if s, _ := db.EarningSplitOf("station-owner", now.Add(time.Hour)); s.Payable != 0 {
 				t.Errorf("[%s] station minted without a hold: %+v", name, s)
 			}
-			if s, _ := db.EarningSplitOf("tower-operator", now); s.Payable != 0 {
+			if s, _ := db.EarningSplitOf("tower-operator", now.Add(time.Hour)); s.Payable != 0 {
 				t.Errorf("[%s] tower minted without a hold: %+v", name, s)
 			}
 		})
@@ -220,13 +220,13 @@ func TestWalletRecencyClawGroupsEdgeLotsPerRequest(t *testing.T) {
 			if !approx(clawed, 73) {
 				t.Errorf("[%s] clawed = %v, want 73 (station 70 + tower 3 of the ONE refunded request)", name, clawed)
 			}
-			if s, _ := db.EarningSplitOf("station-owner", now); !approx(s.Payable, 0) {
+			if s, _ := db.EarningSplitOf("station-owner", now.Add(time.Hour)); !approx(s.Payable, 0) {
 				t.Errorf("[%s] station payable = %v, want 0 (clawed)", name, s.Payable)
 			}
-			if s, _ := db.EarningSplitOf("tower-op", now); !approx(s.Payable, 0) {
+			if s, _ := db.EarningSplitOf("tower-op", now.Add(time.Hour)); !approx(s.Payable, 0) {
 				t.Errorf("[%s] tower payable = %v, want 0 (clawed together with the station lot)", name, s.Payable)
 			}
-			if s, _ := db.EarningSplitOf("node-owner", now); !approx(s.Payable, 70) {
+			if s, _ := db.EarningSplitOf("node-owner", now.Add(time.Hour)); !approx(s.Payable, 70) {
 				t.Errorf("[%s] node-owner payable = %v, want 70 (older unrelated request untouched)", name, s.Payable)
 			}
 			led, _ := db.LedgerOf("platform", []string{KindPlatformLoss}, 10)
