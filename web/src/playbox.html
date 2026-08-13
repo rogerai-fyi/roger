@@ -34,27 +34,52 @@
           <span class="onair" aria-hidden="true">((<span class="onair__dot">&bull;</span>))</span>
           <span class="hero__callsign">THE PLAYBOX</span>
           <span class="hero__sep" aria-hidden="true">&middot;</span>
-          open the console
+          <span id="pgHeroKicker">open the console</span>
         </span>
-        <h1 class="pg-hero__title" data-reveal data-reveal-delay="60">Open the console.</h1>
-        <p class="pg-hero__sub" data-reveal data-reveal-delay="120">
+        <h1 class="pg-hero__title" data-reveal data-reveal-delay="60" id="pgHeroTitle">Open the console.</h1>
+        <p class="pg-hero__sub" data-reveal data-reveal-delay="120" id="pgHeroConsole">
           Load a model like a cassette, choose what goes in - text, your voice, an image,
           a tool request, an embedded signal, or a guarded command - and press play.
           <b>LIVE</b> tapes are hosted models answering over the network. The Wave shelf also
           carries clearly marked recorded contracts, trained-but-off-air weights, and planned
           bands, so you can see what exists without being told it is hosted when it is not.
         </p>
+        <p class="pg-hero__sub" id="pgHeroMesh" hidden>
+          RogerAI builds <b>LLMs for machines</b>. Wire a device to a model, play the signal,
+          and watch what it asserts. Every device, channel and wire format on this deck is a
+          committed export of the simulation suite the models are actually trained and
+          measured against - not an illustration of one.
+        </p>
       </div>
     </section>
 
+    <!-- ===================== THE MODE SWITCH =====================
+         Two decks on one page. CONSOLE is the cassette deck (chat, voice,
+         image, tools, embeds) - unchanged. WAVE MESH is the engineering deck:
+         devices, wire formats, and the mesh that reads them. The Playbox is
+         where you FEEL what a model does, and RogerAI's models read machines,
+         so the machine deck belongs here rather than on a page of its own. -->
+    <div class="wrap pg-modes">
+      <div class="pg-modes__tabs" role="tablist" aria-label="Playbox decks">
+        <button class="pg-mode" id="pgModeConsole" type="button" role="tab"
+                aria-selected="true" aria-controls="pgConsoleView" tabindex="0">
+          <b>CONSOLE</b><span>load a model, press play</span>
+        </button>
+        <button class="pg-mode" id="pgModeMesh" type="button" role="tab"
+                aria-selected="false" aria-controls="pgMeshView" tabindex="-1">
+          <b>WAVE MESH</b><span>devices, wire formats, the mesh that reads them</span>
+        </button>
+      </div>
+    </div>
+
     <!-- ============================ THE DECK ============================
-         Playbox v2 (features/web/playbox_deck.feature): ONE view, no tabs.
+         Playbox v2 (features/web/playbox_deck.feature): the CONSOLE view.
          Left: the input console (rotary selector, one input kind at a time).
          Center: the cassette bay - the model IS the tape - over the shelf.
          Right: the output monitor (real chat via the Tower; RECORDED replays).
          Honesty contract unchanged: LIVE means a real endpoint; RECORDED means
          a certified contract or captured output, and it is always labelled. -->
-    <section class="pg-console">
+    <section class="pg-console" id="pgConsoleView" role="tabpanel" aria-labelledby="pgModeConsole">
       <div class="wrap wrap--deck">
         <span class="fig">FIG. 1 - THE DECK &middot; INPUT / TAPE / OUTPUT</span>
         <div class="pg-deck pg-bench dk">
@@ -410,6 +435,122 @@
       </div>
     </section>
 
+    <!-- ======================= THE WAVE MESH DECK =======================
+         M1: the device browser and the wire bench. Every number and every
+         string on this screen comes from a committed export of the real
+         simulation suite (web/scripts/export-wave-catalog.mjs) - the catalogue
+         is pure data from wavesim.catalog(), the wire formats are real Python
+         renderer output for one deterministic scene, and the transport steps
+         are wavesim.windows() over that same scene.
+
+         The RACK is deliberately absent. A Wave unit tile's faceplate is meant
+         to BE its GGUF birth certificate (wave.tier / wave.model_digest /
+         wave.tasks / wave.margin_floor), and those have been requested rather
+         than invented. Same for the alert feed, which needs recorded assertion
+         streams. Neither ships with mock data. -->
+    <section class="pg-mesh" id="pgMeshView" role="tabpanel" aria-labelledby="pgModeMesh" hidden>
+      <div class="wrap wrap--deck">
+        <span class="fig">FIG. 2 - THE WAVE MESH &middot; DEVICES / WIRE FORMATS</span>
+
+        <div class="pg-bench wm">
+          <div class="pg-bench__plate" aria-hidden="true">
+            <span class="pg-bench__name">WAVE MESH</span>
+            <span class="pg-bench__type">ENGINEERING DECK &middot; M1 DEVICE BROWSER + WIRE BENCH</span>
+          </div>
+
+          <p class="wm-lede">
+            RogerAI builds <b>LLMs for machines</b>: models that read what devices actually
+            emit - Modbus registers, Sparkplug B, OPC UA, Prometheus, syslog, raw signal
+            summaries - and assert typed, cited, margin-scored facts about them. Start with
+            the machines.
+          </p>
+
+          <div class="wm__grid">
+
+            <aside class="wm-rail" aria-label="Device browser">
+              <div class="wm-rail__head">
+                <b>DEVICES</b>
+                <span class="wm-rail__count" id="wmDeviceCount">loading&hellip;</span>
+              </div>
+              <div class="wm-devices" id="wmDevices"></div>
+              <p class="wm-note">
+                Every device type the simulation suite models, plus the live box. Pick one to
+                see its channels, the root causes it can develop, and the sensor faults its
+                instruments can suffer.
+              </p>
+            </aside>
+
+            <div class="wm-detail" id="wmDetail">
+              <h3 class="wm-detail__name">Pick a device</h3>
+              <p class="wm-detail__src">
+                Each one exposes its channels as outputs. In the finished deck you patch those
+                into Wave model tiles; today this shows you what a machine actually offers a
+                model to read.
+              </p>
+            </div>
+
+            <div class="wm-bench">
+              <div class="wm-bench__head">
+                <b>ONE TRUTH, EIGHT DIALECTS</b>
+                <span class="wm-tag wm-tag--rec">RECORDED</span>
+              </div>
+              <p class="wm-note">
+                The same channel - a cavitating pump whose vibration sensor sticks partway
+                through - rendered into every wire format a plant might speak. Real renderer
+                output, captured. Deterministic: re-run the spec and you get these bytes back.
+              </p>
+              <code class="wm-spec" id="wmSpec"></code>
+
+              <div class="wm-dialects" id="wmDialects" role="group" aria-label="Wire format"></div>
+              <pre class="wm-wire" id="wmWire" tabindex="0" aria-label="Rendered wire format"></pre>
+
+              <div class="wm-transport">
+                <div class="wm-transport__head">
+                  <b>TRANSPORT</b>
+                  <span class="wm-step" id="wmStepT">t=0</span>
+                </div>
+                <label class="wm-scrub__label" for="wmScrub">Scrub the window</label>
+                <input class="wm-scrub" id="wmScrub" type="range" min="0" max="0" value="0" step="1" />
+                <div class="wm-meters">
+                  <div class="wm-meter">
+                    <span class="wm-meter__k">longest identical run</span>
+                    <span class="wm-meter__v" id="wmRun">-</span>
+                    <span class="wm-meter__track">
+                      <span class="wm-meter__bar" id="wmRunBar" role="progressbar"
+                            aria-valuemin="0" aria-valuemax="32" aria-valuenow="0"></span>
+                    </span>
+                  </div>
+                  <div class="wm-meter">
+                    <span class="wm-meter__k">tail deviation</span>
+                    <span class="wm-meter__v" id="wmSd">-</span>
+                  </div>
+                </div>
+                <p class="wm-verdict" id="wmVerdict"></p>
+                <p class="wm-note wm-note--tight">
+                  This describes the signal, not a model&rsquo;s conclusion - no model has run
+                  on this page. Watching a fault become visible is the point: at t=0 nothing
+                  looks wrong.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div class="wm-pending">
+            <b>NOT ON THIS DECK YET</b>
+            <p>
+              The <b>rack</b> of Wave model tiles and the <b>alert feed</b> are next. A tile&rsquo;s
+              faceplate is meant to be literally its GGUF birth certificate - tier, scope,
+              model digest, tasks, margin floor - and the feed shows typed assertions with
+              their citations. Both need real exports, which have been requested. Neither will
+              ship with invented digests or mock assertions.
+            </p>
+          </div>
+
+          <p class="wm-attrib">Designed by RogerAI in Orange County, California.</p>
+        </div>
+      </div>
+    </section>
+
   </main>
 
   <!-- the Edge dataset: real inputs + certified contracts + captured samples,
@@ -422,6 +563,7 @@
   <script src="js/site.js" defer></script>
   <script src="js/session.js" defer></script>
   <script src="js/playbox.js" defer></script>
+  <script src="js/wave-mesh.js" defer></script>
   <script src="js/promo.js" defer></script>
 </body>
 </html>

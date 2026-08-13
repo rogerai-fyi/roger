@@ -1,0 +1,147 @@
+/* =====================================================================
+   THE WAVE MESH ENGINEERING DECK (Playbox, MESH tab)
+
+   Rides on playbox.css's bench chrome (.pg-bench, .pg-bench__plate, .fig) so
+   the two decks read as the same piece of equipment with two faces, rather
+   than two pages that happen to share a nav.
+
+   The palette is inherited from tokens.css - nothing new is invented here.
+   Reduced motion is honoured: the only transition is the run bar's width, and
+   wave-mesh.js clears it when the visitor asks for less motion.
+   ===================================================================== */
+
+/* ---- the mode switch ------------------------------------------------ */
+.pg-modes { margin: 1.4rem auto 0; }
+.pg-modes__tabs {
+  display: flex; gap: .5rem; flex-wrap: wrap;
+  border-bottom: 1px solid var(--rule, rgba(128,128,128,.28));
+  padding-bottom: .6rem;
+}
+.pg-mode {
+  display: flex; flex-direction: column; gap: .15rem; align-items: flex-start;
+  padding: .55rem .9rem; border-radius: 8px;
+  background: transparent; border: 1px solid transparent;
+  font: inherit; color: inherit; cursor: pointer; text-align: left;
+}
+.pg-mode b { font-size: .82rem; letter-spacing: .09em; }
+.pg-mode span { font-size: .74rem; opacity: .62; }
+.pg-mode:hover { background: color-mix(in srgb, currentColor 6%, transparent); }
+.pg-mode[aria-selected="true"] {
+  border-color: var(--rule, rgba(128,128,128,.3));
+  background: color-mix(in srgb, currentColor 8%, transparent);
+}
+.pg-mode[aria-selected="true"] b { color: var(--red, #e0231c); }
+.pg-mode:focus-visible { outline: 2px solid var(--red, #e0231c); outline-offset: 2px; }
+
+/* ---- the deck ------------------------------------------------------- */
+.wm-lede { max-width: 62ch; margin: .9rem 0 1.2rem; line-height: 1.55; }
+
+.wm__grid {
+  display: grid; gap: 1rem;
+  grid-template-columns: minmax(210px, 1fr) minmax(240px, 1.15fr) minmax(300px, 1.6fr);
+  align-items: start;
+}
+@media (max-width: 1080px) { .wm__grid { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 720px)  { .wm__grid { grid-template-columns: 1fr; } }
+
+.wm-rail, .wm-detail, .wm-bench {
+  border: 1px solid var(--rule, rgba(128,128,128,.24));
+  border-radius: 10px; padding: .8rem;
+  background: color-mix(in srgb, currentColor 3%, transparent);
+}
+.wm-rail__head, .wm-bench__head, .wm-transport__head {
+  display: flex; justify-content: space-between; align-items: baseline; gap: .5rem;
+  font-size: .74rem; letter-spacing: .09em; margin-bottom: .6rem;
+}
+.wm-rail__count { opacity: .6; font-variant-numeric: tabular-nums; }
+
+/* ---- device browser ------------------------------------------------- */
+.wm-devices { display: flex; flex-direction: column; gap: .35rem; max-height: 30rem; overflow-y: auto; }
+.wm-dev {
+  display: flex; flex-direction: column; gap: .12rem; width: 100%;
+  padding: .5rem .6rem; border-radius: 8px; text-align: left; cursor: pointer;
+  border: 1px solid var(--rule, rgba(128,128,128,.2));
+  background: transparent; font: inherit; color: inherit;
+}
+.wm-dev:hover { background: color-mix(in srgb, currentColor 6%, transparent); }
+.wm-dev.is-on { border-color: var(--red, #e0231c); background: color-mix(in srgb, currentColor 8%, transparent); }
+.wm-dev:focus-visible { outline: 2px solid var(--red, #e0231c); outline-offset: 2px; }
+.wm-dev__head { display: flex; justify-content: space-between; align-items: baseline; gap: .5rem; }
+.wm-dev__name { font-size: .86rem; } /* casing is decided in wave-mesh.js, so AGV/CNC/VFD survive */
+.wm-dev__src { font-size: .62rem; letter-spacing: .07em; opacity: .55; white-space: nowrap; }
+.wm-dev__meta { font-size: .72rem; opacity: .6; font-variant-numeric: tabular-nums; }
+
+/* The live box is the one real machine on the page; it should not look like the other 16. */
+.wm-dev--live { border-color: var(--red, #e0231c); }
+.wm-dev--live .wm-dev__src { color: var(--red, #e0231c); opacity: .9; }
+.wm-dev__truth { font-size: .68rem; opacity: .7; font-style: italic; }
+
+/* ---- device detail --------------------------------------------------- */
+.wm-detail__name { margin: 0 0 .35rem; font-size: 1rem; }
+.wm-detail__src { font-size: .78rem; opacity: .72; line-height: 1.5; margin: 0 0 .7rem; }
+.wm-detail__sub { margin: .8rem 0 .35rem; font-size: .7rem; letter-spacing: .09em; opacity: .7; }
+.wm-chans, .wm-causes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .22rem; }
+.wm-chan, .wm-cause { display: flex; gap: .4rem; align-items: baseline; font-size: .78rem; flex-wrap: wrap; }
+.wm-chan__jack { opacity: .5; }
+.wm-chan__unit, .wm-cause__eff { opacity: .6; font-size: .72rem; }
+.wm-detail__faults { font-size: .76rem; opacity: .72; margin: 0; }
+
+/* ---- the wire bench -------------------------------------------------- */
+.wm-tag {
+  font-size: .62rem; letter-spacing: .1em; padding: .12rem .4rem;
+  border-radius: 4px; border: 1px solid currentColor; opacity: .8;
+}
+.wm-tag--rec { color: var(--amber, #c98a00); }
+.wm-spec {
+  display: block; font-size: .68rem; opacity: .68; margin: .3rem 0 .6rem;
+  word-break: break-all; line-height: 1.45;
+}
+.wm-dialects { display: flex; flex-wrap: wrap; gap: .3rem; margin-bottom: .5rem; }
+.wm-dialect {
+  padding: .28rem .55rem; border-radius: 6px; cursor: pointer;
+  border: 1px solid var(--rule, rgba(128,128,128,.24));
+  background: transparent; font: inherit; font-size: .72rem; color: inherit;
+}
+.wm-dialect:hover { background: color-mix(in srgb, currentColor 6%, transparent); }
+.wm-dialect[aria-pressed="true"] { border-color: var(--red, #e0231c); color: var(--red, #e0231c); }
+.wm-dialect:focus-visible { outline: 2px solid var(--red, #e0231c); outline-offset: 2px; }
+
+/* The wire text is the point of the panel: give it room and let it scroll on its own. */
+.wm-wire {
+  margin: 0; padding: .7rem; border-radius: 8px; max-height: 20rem;
+  overflow: auto; font-size: .7rem; line-height: 1.5; white-space: pre;
+  background: color-mix(in srgb, currentColor 6%, transparent);
+  border: 1px solid var(--rule, rgba(128,128,128,.2));
+}
+.wm-wire:focus-visible { outline: 2px solid var(--red, #e0231c); outline-offset: 2px; }
+
+/* ---- transport ------------------------------------------------------- */
+.wm-transport { margin-top: .9rem; border-top: 1px solid var(--rule, rgba(128,128,128,.2)); padding-top: .7rem; }
+.wm-step { font-variant-numeric: tabular-nums; opacity: .7; }
+.wm-scrub__label {
+  position: absolute; width: 1px; height: 1px; overflow: hidden;
+  clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
+}
+.wm-scrub { width: 100%; accent-color: var(--red, #e0231c); }
+.wm-meters { display: flex; gap: 1.2rem; flex-wrap: wrap; margin-top: .5rem; }
+.wm-meter { display: flex; flex-direction: column; gap: .15rem; min-width: 9rem; }
+.wm-meter__k { font-size: .66rem; letter-spacing: .06em; opacity: .6; }
+.wm-meter__v { font-size: 1.05rem; font-variant-numeric: tabular-nums; }
+.wm-meter__track {
+  display: block; height: 5px; border-radius: 3px; overflow: hidden;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+}
+.wm-meter__bar { display: block; height: 100%; width: 0; background: var(--red, #e0231c); transition: width .18s linear; }
+@media (prefers-reduced-motion: reduce) { .wm-meter__bar { transition: none; } }
+.wm-verdict { font-size: .78rem; margin: .5rem 0 0; opacity: .85; }
+
+/* ---- notes, pending, attribution ------------------------------------- */
+.wm-note { font-size: .72rem; opacity: .64; line-height: 1.5; margin: .6rem 0 0; }
+.wm-note--tight { margin-top: .4rem; }
+.wm-pending {
+  margin-top: 1rem; padding: .75rem .9rem; border-radius: 9px;
+  border: 1px dashed var(--rule, rgba(128,128,128,.34));
+}
+.wm-pending b { font-size: .7rem; letter-spacing: .1em; opacity: .75; }
+.wm-pending p { font-size: .76rem; opacity: .72; line-height: 1.55; margin: .35rem 0 0; }
+.wm-attrib { margin: 1rem 0 0; font-size: .72rem; opacity: .6; }

@@ -15,9 +15,15 @@ Feature: The Playbox cassette deck
   As a Playbox visitor
   I want one deck where I load a model like a tape and play inputs through it
 
-  Scenario: one view, no tabs
+  # AMENDED 2026-08-12 (founder decision, UI-HANDOFF-PLAYBOX-WAVE-MESH): the page now
+  # carries TWO decks - the CONSOLE (this spec) and the WAVE MESH engineering deck - behind
+  # a page-level switch. The guarantee below is unchanged and is what it always meant: no
+  # tabbing between input, cassette and output. Choosing which DECK you are at is a
+  # different act from hunting a capability inside one.
+  Scenario: one view, no tabs within the console
     Then the deck presents input, cassette, and output side by side
-    And no tab navigation is required to reach any capability
+    And no tab navigation is required to reach any console capability
+    And the page-level switch offers exactly two decks, console and wave mesh
 
   Scenario: the shelf is the live band plus labelled demo tapes
     Given the broker is reachable

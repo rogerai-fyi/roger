@@ -1,0 +1,1075 @@
+{
+ "_provenance": {
+  "source": "wavesim.catalog()",
+  "hierarchy": "~/ai/computer-scientist/build/roger-wave/hierarchy",
+  "exported": "2026-08-13",
+  "assets": 17,
+  "channels": 95,
+  "note": "Committed snapshot. Regenerate with: node scripts/export-wave-catalog.mjs"
+ },
+ "catalog": {
+  "robot_arm": {
+   "source": "simulated",
+   "channels": {
+    "joint_temp": {
+     "quantity": "temp",
+     "unit": "Cel"
+    },
+    "servo_current": {
+     "quantity": "elec-current",
+     "unit": "A"
+    },
+    "vibration": {
+     "quantity": "vibration-velocity",
+     "unit": "mm/s"
+    },
+    "joint_speed": {
+     "quantity": "speed",
+     "unit": "m/s"
+    },
+    "gripper_force": {
+     "quantity": "torque",
+     "unit": "N.m"
+    },
+    "supply_volt": {
+     "quantity": "elec-volt",
+     "unit": "V"
+    }
+   },
+   "root_causes": {
+    "healthy": {},
+    "servo_degradation": {
+     "servo_current": "rises",
+     "joint_temp": "rises",
+     "joint_speed": "falls"
+    },
+    "joint_backlash": {
+     "vibration": "rises",
+     "joint_speed": "falls"
+    },
+    "gripper_wear": {
+     "gripper_force": "falls",
+     "servo_current": "rises"
+    },
+    "supply_brownout": {
+     "supply_volt": "falls",
+     "servo_current": "rises",
+     "joint_speed": "falls"
+    }
+   },
+   "sensor_faults": [
+    "ok",
+    "stuck",
+    "dropout",
+    "noisy",
+    "drifting",
+    "railed"
+   ],
+   "modalities": [
+    "signal",
+    "modbus",
+    "sparkplug",
+    "prometheus",
+    "datadog",
+    "influx",
+    "syslog",
+    "opcua"
+   ]
+  },
+  "cnc_spindle": {
+   "source": "simulated",
+   "channels": {
+    "spindle_speed": {
+     "quantity": "rotational-speed",
+     "unit": "rpm"
+    },
+    "spindle_temp": {
+     "quantity": "temp",
+     "unit": "Cel"
+    },
+    "cutting_torque": {
+     "quantity": "torque",
+     "unit": "N.m"
+    },
+    "vibration": {
+     "quantity": "vibration-velocity",
+     "unit": "mm/s"
+    },
+    "coolant_flow": {
+     "quantity": "flow",
+     "unit": "m3/h"
+    },
+    "motor_current": {
+     "quantity": "elec-current",
+     "unit": "A"
+    }
+   },
+   "root_causes": {
+    "healthy": {},
+    "tool_wear": {
+     "cutting_torque": "rises",
+     "vibration": "rises",
+     "motor_current": "rises"
+    },
+    "spindle_bearing_wear": {
+     "spindle_temp": "rises",
+     "vibration": "rises",
+     "spindle_speed": "falls"
+    },
+    "coolant_loss": {
+     "coolant_flow": "falls",
+     "spindle_temp": "rises"
+    },
+    "chatter": {
+     "vibration": "rises",
+     "cutting_torque": "rises"
+    }
+   },
+   "sensor_faults": [
+    "ok",
+    "stuck",
+    "dropout",
+    "noisy",
+    "drifting",
+    "railed"
+   ],
+   "modalities": [
+    "signal",
+    "modbus",
+    "sparkplug",
+    "prometheus",
+    "datadog",
+    "influx",
+    "syslog",
+    "opcua"
+   ]
+  },
+  "agv": {
+   "source": "simulated",
+   "channels": {
+    "battery_volt": {
+     "quantity": "elec-volt",
+     "unit": "V"
+    },
+    "drive_current": {
+     "quantity": "elec-current",
+     "unit": "A"
+    },
+    "wheel_speed": {
+     "quantity": "speed",
+     "unit": "m/s"
+    },
+    "motor_temp": {
+     "quantity": "temp",
+     "unit": "Cel"
+    },
+    "vibration": {
+     "quantity": "vibration-velocity",
+     "unit": "mm/s"
+    }
+   },
+   "root_causes": {
+    "healthy": {},
+    "battery_aging": {
+     "battery_volt": "falls",
+     "drive_current": "rises"
+    },
+    "drive_wear": {
+     "drive_current": "rises",
+     "motor_temp": "rises",
+     "wheel_speed": "falls"
+    },
+    "wheel_damage": {
+     "vibration": "rises",
+     "wheel_speed": "falls"
+    },
+    "overload": {
+     "drive_current": "rises",
+     "motor_temp": "rises",
+     "battery_volt": "falls"
+    }
+   },
+   "sensor_faults": [
+    "ok",
+    "stuck",
+    "dropout",
+    "noisy",
+    "drifting",
+    "railed"
+   ],
+   "modalities": [
+    "signal",
+    "modbus",
+    "sparkplug",
+    "prometheus",
+    "datadog",
+    "influx",
+    "syslog",
+    "opcua"
+   ]
+  },
+  "industrial_oven": {
+   "source": "simulated",
+   "channels": {
+    "zone1_temp": {
+     "quantity": "temp",
+     "unit": "Cel"
+    },
+    "zone2_temp": {
+     "quantity": "temp",
+     "unit": "Cel"
+    },
+    "heater_current": {
+     "quantity": "elec-current",
+     "unit": "A"
+    },
+    "exhaust_flow": {
+     "quantity": "flow",
+     "unit": "m3/h"
+    },
+    "belt_speed": {
+     "quantity": "speed",
+     "unit": "m/s"
+    }
+   },
+   "root_causes": {
+    "healthy": {},
+    "heater_element_fail": {
+     "zone1_temp": "falls",
+     "heater_current": "falls"
+    },
+    "insulation_loss": {
+     "heater_current": "rises",
+     "zone2_temp": "falls"
+    },
+    "exhaust_blockage": {
+     "exhaust_flow": "falls",
+     "zone1_temp": "rises",
+     "zone2_temp": "rises"
+    },
+    "belt_slip": {
+     "belt_speed": "falls"
+    }
+   },
+   "sensor_faults": [
+    "ok",
+    "stuck",
+    "dropout",
+    "noisy",
+    "drifting",
+    "railed"
+   ],
+   "modalities": [
+    "signal",
+    "modbus",
+    "sparkplug",
+    "prometheus",
+    "datadog",
+    "influx",
+    "syslog",
+    "opcua"
+   ]
+  },
+  "centrifugal_pump": {
+   "source": "simulated",
+   "channels": {
+    "bearing_temp": {
+     "quantity": "temp",
+     "unit": "Cel"
+    },
+    "vibration": {
+     "quantity": "vibration-velocity",
+     "unit": "mm/s"
+    },
+    "motor_current": {
+     "quantity": "elec-current",
+     "unit": "A"
+    },
+    "flow": {
+     "quantity": "flow",
+     "unit": "m3/h"
+    },
+    "suction_press": {
+     "quantity": "pressure",
+     "unit": "kPa"
+    },
+    "discharge_press": {
+     "quantity": "pressure",
+     "unit": "kPa"
+    },
+    "shaft_speed": {
+     "quantity": "rotational-speed",
+     "unit": "rpm"
+    },
+    "seal_temp": {
+     "quantity": "temp",
+     "unit": "Cel"
+    }
+   },
+   "root_causes": {
+    "healthy": {},
+    "bearing_degradation": {
+     "bearing_temp": "rises",
+     "vibration": "rises",
+     "motor_current": "rises"
+    },
+    "cavitation": {
+     "suction_press": "falls",
+     "vibration": "rises",
+     "flow": "falls",
+     "discharge_press": "falls"
+    },
+    "impeller_wear": {
+     "flow": "falls",
+     "discharge_press": "falls",
+     "motor_current": "falls"
+    },
+    "seal_failure": {
+     "seal_temp": "rises",
+     "flow": "falls"
+    },
+    "blocked_suction": {
+     "suction_press": "falls",
+     "flow": "falls",
+     "motor_current": "falls"
+    }
+   },
+   "sensor_faults": [
+    "ok",
+    "stuck",
+    "dropout",
+    "noisy",
+    "drifting",
+    "railed"
+   ],
+   "modalities": [
+    "signal",
+    "modbus",
+    "sparkplug",
+    "prometheus",
+    "datadog",
+    "influx",
+    "syslog",
+    "opcua"
+   ]
+  },
+  "gearbox": {
+   "source": "simulated",
+   "channels": {
+    "oil_temp": {
+     "quantity": "temp",
+     "unit": "Cel"
+    },
+    "vibration": {
+     "quantity": "vibration-velocity",
+     "unit": "mm/s"
+    },
+    "input_speed": {
+     "quantity": "rotational-speed",
+     "unit": "rpm"
+    },
+    "output_speed": {
+     "quantity": "rotational-speed",
+     "unit": "rpm"
+    },
+    "torque": {
+     "quantity": "torque",
+     "unit": "N.m"
+    },
+    "oil_press": {
+     "quantity": "pressure",
+     "unit": "kPa"
+    }
+   },
+   "root_causes": {
+    "healthy": {},
+    "tooth_wear": {
+     "vibration": "rises",
+     "torque": "rises",
+     "oil_temp": "rises"
+    },
+    "lubrication_loss": {
+     "oil_press": "falls",
+     "oil_temp": "rises",
+     "vibration": "rises"
+    },
+    "misalignment": {
+     "vibration": "rises",
+     "oil_temp": "rises"
+    }
+   },
+   "sensor_faults": [
+    "ok",
+    "stuck",
+    "dropout",
+    "noisy",
+    "drifting",
+    "railed"
+   ],
+   "modalities": [
+    "signal",
+    "modbus",
+    "sparkplug",
+    "prometheus",
+    "datadog",
+    "influx",
+    "syslog",
+    "opcua"
+   ]
+  },
+  "heat_exchanger": {
+   "source": "simulated",
+   "channels": {
+    "inlet_temp": {
+     "quantity": "temp",
+     "unit": "Cel"
+    },
+    "outlet_temp": {
+     "quantity": "temp",
+     "unit": "Cel"
+    },
+    "shell_press": {
+     "quantity": "pressure",
+     "unit": "kPa"
+    },
+    "tube_press": {
+     "quantity": "pressure",
+     "unit": "kPa"
+    },
+    "flow": {
+     "quantity": "flow",
+     "unit": "m3/h"
+    },
+    "dp": {
+     "quantity": "pressure",
+     "unit": "kPa"
+    }
+   },
+   "root_causes": {
+    "healthy": {},
+    "fouling": {
+     "dp": "rises",
+     "outlet_temp": "rises",
+     "flow": "falls"
+    },
+    "tube_leak": {
+     "shell_press": "rises",
+     "tube_press": "falls"
+    },
+    "bypass_open": {
+     "outlet_temp": "rises",
+     "dp": "falls"
+    }
+   },
+   "sensor_faults": [
+    "ok",
+    "stuck",
+    "dropout",
+    "noisy",
+    "drifting",
+    "railed"
+   ],
+   "modalities": [
+    "signal",
+    "modbus",
+    "sparkplug",
+    "prometheus",
+    "datadog",
+    "influx",
+    "syslog",
+    "opcua"
+   ]
+  },
+  "induction_motor": {
+   "source": "simulated",
+   "channels": {
+    "winding_temp": {
+     "quantity": "temp",
+     "unit": "Cel"
+    },
+    "current_a": {
+     "quantity": "elec-current",
+     "unit": "A"
+    },
+    "current_b": {
+     "quantity": "elec-current",
+     "unit": "A"
+    },
+    "current_c": {
+     "quantity": "elec-current",
+     "unit": "A"
+    },
+    "vibration": {
+     "quantity": "vibration-velocity",
+     "unit": "mm/s"
+    },
+    "speed": {
+     "quantity": "rotational-speed",
+     "unit": "rpm"
+    },
+    "supply_volt": {
+     "quantity": "elec-volt",
+     "unit": "V"
+    }
+   },
+   "root_causes": {
+    "healthy": {},
+    "phase_imbalance": {
+     "current_a": "rises",
+     "current_c": "falls",
+     "winding_temp": "rises"
+    },
+    "rotor_bar_fault": {
+     "vibration": "rises",
+     "current_a": "rises",
+     "speed": "falls"
+    },
+    "overload": {
+     "winding_temp": "rises",
+     "current_a": "rises",
+     "current_b": "rises",
+     "current_c": "rises",
+     "speed": "falls"
+    },
+    "undervoltage": {
+     "supply_volt": "falls",
+     "current_a": "rises",
+     "current_b": "rises",
+     "current_c": "rises"
+    }
+   },
+   "sensor_faults": [
+    "ok",
+    "stuck",
+    "dropout",
+    "noisy",
+    "drifting",
+    "railed"
+   ],
+   "modalities": [
+    "signal",
+    "modbus",
+    "sparkplug",
+    "prometheus",
+    "datadog",
+    "influx",
+    "syslog",
+    "opcua"
+   ]
+  },
+  "conveyor": {
+   "source": "simulated",
+   "channels": {
+    "belt_speed": {
+     "quantity": "rotational-speed",
+     "unit": "rpm"
+    },
+    "motor_current": {
+     "quantity": "elec-current",
+     "unit": "A"
+    },
+    "bearing_temp": {
+     "quantity": "temp",
+     "unit": "Cel"
+    },
+    "vibration": {
+     "quantity": "vibration-velocity",
+     "unit": "mm/s"
+    },
+    "tension": {
+     "quantity": "torque",
+     "unit": "N.m"
+    }
+   },
+   "root_causes": {
+    "healthy": {},
+    "belt_slip": {
+     "belt_speed": "falls",
+     "motor_current": "rises",
+     "tension": "falls"
+    },
+    "roller_seizure": {
+     "bearing_temp": "rises",
+     "motor_current": "rises",
+     "vibration": "rises"
+    },
+    "overload": {
+     "motor_current": "rises",
+     "belt_speed": "falls",
+     "tension": "rises"
+    }
+   },
+   "sensor_faults": [
+    "ok",
+    "stuck",
+    "dropout",
+    "noisy",
+    "drifting",
+    "railed"
+   ],
+   "modalities": [
+    "signal",
+    "modbus",
+    "sparkplug",
+    "prometheus",
+    "datadog",
+    "influx",
+    "syslog",
+    "opcua"
+   ]
+  },
+  "chiller": {
+   "source": "simulated",
+   "channels": {
+    "evap_temp": {
+     "quantity": "temp",
+     "unit": "Cel"
+    },
+    "cond_temp": {
+     "quantity": "temp",
+     "unit": "Cel"
+    },
+    "suction_press": {
+     "quantity": "pressure",
+     "unit": "kPa"
+    },
+    "discharge_press": {
+     "quantity": "pressure",
+     "unit": "kPa"
+    },
+    "compressor_current": {
+     "quantity": "elec-current",
+     "unit": "A"
+    },
+    "flow": {
+     "quantity": "flow",
+     "unit": "m3/h"
+    }
+   },
+   "root_causes": {
+    "healthy": {},
+    "refrigerant_loss": {
+     "suction_press": "falls",
+     "evap_temp": "rises",
+     "compressor_current": "falls"
+    },
+    "condenser_fouling": {
+     "cond_temp": "rises",
+     "discharge_press": "rises",
+     "compressor_current": "rises"
+    },
+    "evap_flow_loss": {
+     "flow": "falls",
+     "evap_temp": "falls"
+    }
+   },
+   "sensor_faults": [
+    "ok",
+    "stuck",
+    "dropout",
+    "noisy",
+    "drifting",
+    "railed"
+   ],
+   "modalities": [
+    "signal",
+    "modbus",
+    "sparkplug",
+    "prometheus",
+    "datadog",
+    "influx",
+    "syslog",
+    "opcua"
+   ]
+  },
+  "boiler": {
+   "source": "simulated",
+   "channels": {
+    "steam_press": {
+     "quantity": "pressure",
+     "unit": "kPa"
+    },
+    "feedwater_flow": {
+     "quantity": "flow",
+     "unit": "m3/h"
+    },
+    "stack_temp": {
+     "quantity": "temp",
+     "unit": "Cel"
+    },
+    "drum_level": {
+     "quantity": "level",
+     "unit": "%"
+    },
+    "fuel_flow": {
+     "quantity": "flow",
+     "unit": "m3/h"
+    },
+    "o2_pct": {
+     "quantity": "concentration",
+     "unit": "%"
+    }
+   },
+   "root_causes": {
+    "healthy": {},
+    "scaling": {
+     "stack_temp": "rises",
+     "fuel_flow": "rises",
+     "steam_press": "falls"
+    },
+    "feedwater_fault": {
+     "feedwater_flow": "falls",
+     "drum_level": "falls"
+    },
+    "burner_drift": {
+     "o2_pct": "rises",
+     "stack_temp": "rises",
+     "fuel_flow": "rises"
+    }
+   },
+   "sensor_faults": [
+    "ok",
+    "stuck",
+    "dropout",
+    "noisy",
+    "drifting",
+    "railed"
+   ],
+   "modalities": [
+    "signal",
+    "modbus",
+    "sparkplug",
+    "prometheus",
+    "datadog",
+    "influx",
+    "syslog",
+    "opcua"
+   ]
+  },
+  "vfd_drive": {
+   "source": "simulated",
+   "channels": {
+    "output_freq": {
+     "quantity": "freq",
+     "unit": "Hz"
+    },
+    "dc_bus_volt": {
+     "quantity": "elec-volt",
+     "unit": "V"
+    },
+    "output_current": {
+     "quantity": "elec-current",
+     "unit": "A"
+    },
+    "heatsink_temp": {
+     "quantity": "temp",
+     "unit": "Cel"
+    },
+    "motor_speed": {
+     "quantity": "rotational-speed",
+     "unit": "rpm"
+    }
+   },
+   "root_causes": {
+    "healthy": {},
+    "dc_bus_sag": {
+     "dc_bus_volt": "falls",
+     "output_current": "rises",
+     "motor_speed": "falls"
+    },
+    "cooling_fault": {
+     "heatsink_temp": "rises",
+     "output_current": "falls"
+    },
+    "load_increase": {
+     "output_current": "rises",
+     "heatsink_temp": "rises",
+     "motor_speed": "falls"
+    }
+   },
+   "sensor_faults": [
+    "ok",
+    "stuck",
+    "dropout",
+    "noisy",
+    "drifting",
+    "railed"
+   ],
+   "modalities": [
+    "signal",
+    "modbus",
+    "sparkplug",
+    "prometheus",
+    "datadog",
+    "influx",
+    "syslog",
+    "opcua"
+   ]
+  },
+  "cooling_tower": {
+   "source": "simulated",
+   "channels": {
+    "basin_temp": {
+     "quantity": "temp",
+     "unit": "Cel"
+    },
+    "fan_speed": {
+     "quantity": "rotational-speed",
+     "unit": "rpm"
+    },
+    "water_flow": {
+     "quantity": "flow",
+     "unit": "m3/h"
+    },
+    "fan_current": {
+     "quantity": "elec-current",
+     "unit": "A"
+    },
+    "approach_temp": {
+     "quantity": "temp",
+     "unit": "Cel"
+    }
+   },
+   "root_causes": {
+    "healthy": {},
+    "fill_fouling": {
+     "approach_temp": "rises",
+     "basin_temp": "rises"
+    },
+    "fan_belt_slip": {
+     "fan_speed": "falls",
+     "fan_current": "falls",
+     "basin_temp": "rises"
+    },
+    "flow_restriction": {
+     "water_flow": "falls",
+     "basin_temp": "rises"
+    }
+   },
+   "sensor_faults": [
+    "ok",
+    "stuck",
+    "dropout",
+    "noisy",
+    "drifting",
+    "railed"
+   ],
+   "modalities": [
+    "signal",
+    "modbus",
+    "sparkplug",
+    "prometheus",
+    "datadog",
+    "influx",
+    "syslog",
+    "opcua"
+   ]
+  },
+  "hydraulic_power_unit": {
+   "source": "simulated",
+   "channels": {
+    "system_press": {
+     "quantity": "pressure",
+     "unit": "kPa"
+    },
+    "reservoir_temp": {
+     "quantity": "temp",
+     "unit": "Cel"
+    },
+    "pump_current": {
+     "quantity": "elec-current",
+     "unit": "A"
+    },
+    "filter_dp": {
+     "quantity": "pressure",
+     "unit": "kPa"
+    },
+    "flow": {
+     "quantity": "flow",
+     "unit": "m3/h"
+    }
+   },
+   "root_causes": {
+    "healthy": {},
+    "filter_clog": {
+     "filter_dp": "rises",
+     "flow": "falls",
+     "pump_current": "rises"
+    },
+    "internal_leak": {
+     "system_press": "falls",
+     "reservoir_temp": "rises",
+     "flow": "falls"
+    },
+    "cooler_fault": {
+     "reservoir_temp": "rises"
+    }
+   },
+   "sensor_faults": [
+    "ok",
+    "stuck",
+    "dropout",
+    "noisy",
+    "drifting",
+    "railed"
+   ],
+   "modalities": [
+    "signal",
+    "modbus",
+    "sparkplug",
+    "prometheus",
+    "datadog",
+    "influx",
+    "syslog",
+    "opcua"
+   ]
+  },
+  "centrifuge": {
+   "source": "simulated",
+   "channels": {
+    "bowl_speed": {
+     "quantity": "rotational-speed",
+     "unit": "rpm"
+    },
+    "vibration": {
+     "quantity": "vibration-velocity",
+     "unit": "mm/s"
+    },
+    "motor_current": {
+     "quantity": "elec-current",
+     "unit": "A"
+    },
+    "bearing_temp": {
+     "quantity": "temp",
+     "unit": "Cel"
+    },
+    "feed_flow": {
+     "quantity": "flow",
+     "unit": "m3/h"
+    }
+   },
+   "root_causes": {
+    "healthy": {},
+    "imbalance": {
+     "vibration": "rises",
+     "motor_current": "rises"
+    },
+    "bearing_wear": {
+     "bearing_temp": "rises",
+     "vibration": "rises",
+     "bowl_speed": "falls"
+    },
+    "feed_upset": {
+     "feed_flow": "rises",
+     "motor_current": "rises"
+    }
+   },
+   "sensor_faults": [
+    "ok",
+    "stuck",
+    "dropout",
+    "noisy",
+    "drifting",
+    "railed"
+   ],
+   "modalities": [
+    "signal",
+    "modbus",
+    "sparkplug",
+    "prometheus",
+    "datadog",
+    "influx",
+    "syslog",
+    "opcua"
+   ]
+  },
+  "air_compressor": {
+   "source": "simulated",
+   "channels": {
+    "discharge_temp": {
+     "quantity": "temp",
+     "unit": "Cel"
+    },
+    "discharge_press": {
+     "quantity": "pressure",
+     "unit": "kPa"
+    },
+    "suction_press": {
+     "quantity": "pressure",
+     "unit": "kPa"
+    },
+    "motor_current": {
+     "quantity": "elec-current",
+     "unit": "A"
+    },
+    "vibration": {
+     "quantity": "vibration-velocity",
+     "unit": "mm/s"
+    },
+    "oil_temp": {
+     "quantity": "temp",
+     "unit": "Cel"
+    }
+   },
+   "root_causes": {
+    "healthy": {},
+    "valve_leak": {
+     "discharge_press": "falls",
+     "discharge_temp": "rises",
+     "motor_current": "rises"
+    },
+    "filter_blockage": {
+     "suction_press": "falls",
+     "motor_current": "rises"
+    },
+    "cooler_fouling": {
+     "discharge_temp": "rises",
+     "oil_temp": "rises"
+    }
+   },
+   "sensor_faults": [
+    "ok",
+    "stuck",
+    "dropout",
+    "noisy",
+    "drifting",
+    "railed"
+   ],
+   "modalities": [
+    "signal",
+    "modbus",
+    "sparkplug",
+    "prometheus",
+    "datadog",
+    "influx",
+    "syslog",
+    "opcua"
+   ]
+  },
+  "roggentoo": {
+   "source": "live",
+   "channels": {
+    "gpu{0..3}_temp/power/util/clock/vram/fan": {},
+    "cpu_load": {},
+    "mem_used": {}
+   },
+   "root_causes": {
+    "healthy": {},
+    "thermal_throttle": {},
+    "vram_leak": {},
+    "runaway_load": {}
+   },
+   "sensor_faults": [],
+   "modalities": [
+    "signal",
+    "modbus",
+    "sparkplug",
+    "prometheus",
+    "datadog",
+    "influx",
+    "syslog",
+    "opcua"
+   ]
+  }
+ }
+}

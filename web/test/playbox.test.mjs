@@ -14,6 +14,7 @@ const SRC = path.join(path.dirname(fileURLToPath(import.meta.url)), "../src");
 const read = (p) => readFileSync(path.join(SRC, p), "utf8");
 
 const js = read("js/playbox.js");
+const js2 = read("js/wave-mesh.js");
 const html = read("playbox.html");
 const css = read("styles/playbox.css");
 const nav = read("_partials/nav.html");
@@ -51,12 +52,40 @@ test("playbox: the social card and metadata use the Playbox name and address", (
 
 // ---------- one view (deck spec) ---------------------------------------------
 
+// AMENDED 2026-08-12: the page carries two DECKS behind a switch (console + wave mesh).
+// The guarantee this test has always protected is unchanged - you never tab between input,
+// cassette and output - so it is now asserted where it actually lives: inside the console
+// view. Picking a deck is a different act from hunting a capability inside one.
 test("deck: input, cassette, and output sit side by side with no tab navigation", () => {
   for (const col of ["dk__inputcol", "dk__baycol", "dk__outcol"]) {
     assert.ok(html.includes(col), `the ${col} column must exist`);
   }
-  assert.ok(!html.includes('role="tabpanel"'), "no tab panels - the deck is one view");
   assert.ok(html.includes("pg-bench__plate"), "the maker's plate survives on the deck");
+
+  // The console view is ONE panel: its three columns are not tabbed against each other.
+  const consoleView = htmlFlat.slice(
+    htmlFlat.indexOf('id="pgConsoleView"'),
+    htmlFlat.indexOf('id="pgMeshView"') >= 0 ? htmlFlat.indexOf('id="pgMeshView"') : undefined);
+  assert.equal((consoleView.match(/role="tabpanel"/g) || []).length, 1,
+    "the console is a single panel - no tabbing between input, cassette and output");
+  for (const col of ["dk__inputcol", "dk__baycol", "dk__outcol"]) {
+    assert.ok(consoleView.includes(col), `${col} must live inside the console view`);
+  }
+});
+
+test("deck: the page-level switch offers exactly two decks", () => {
+  assert.equal((htmlFlat.match(/class="pg-mode"/g) || []).length, 2,
+    "exactly two decks: console and wave mesh");
+  assert.ok(htmlFlat.includes('role="tablist"'), "the switch uses tablist semantics");
+  for (const [btn, panel] of [["pgModeConsole", "pgConsoleView"], ["pgModeMesh", "pgMeshView"]]) {
+    assert.ok(htmlFlat.includes(`id="${btn}"`), `${btn} must exist`);
+    assert.ok(htmlFlat.includes(`id="${panel}"`), `${panel} must exist`);
+    assert.ok(htmlFlat.includes(`aria-controls="${panel}"`), `${btn} must control ${panel}`);
+  }
+  assert.equal((htmlFlat.match(/class="pg-mode"[^>]*aria-selected="true"/g) || []).length, 1,
+    "exactly one deck starts selected");
+  assert.ok(js2.includes('e.key !== "ArrowLeft"'),
+    "the switch is arrow-key navigable, like the rotary selector");
 });
 
 test("deck: the rotary selector offers the six input kinds, one active at a time", () => {
