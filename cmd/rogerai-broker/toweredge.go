@@ -143,6 +143,19 @@ func (b *broker) towerEdgeAuthorize(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusServiceUnavailable, "could not authorize this attempt - try again")
 		return
 	}
+	// PAID EDGE TRAFFIC RESERVES FUNDS UP FRONT. When a per-byte edge price is configured, hold
+	// the price of the grant's CEILING against the consumer's wallet before the attempt is handed
+	// out, so the work is only authorized if the consumer can pay for the most it could cost; the
+	// settle-time capture refunds the unused remainder. Free (unpriced) edge traffic skips this.
+	// The grant was minted but is NOT recorded until the hold succeeds, so a refused hold leaves
+	// no usable attempt behind.
+	if maxCost := edgePriceCredits(maxIn, maxOut); maxCost > 0 {
+		consumerWallet := protocol.UserIDFromPubkey(hex.EncodeToString(consumerKey))
+		if ok, herr := b.db.HoldFor(consumerWallet, g.AttemptID, maxCost); herr != nil || !ok {
+			jsonErr(w, http.StatusPaymentRequired, "insufficient balance for this request")
+			return
+		}
+	}
 	// RECORDED BEFORE IT IS HANDED OUT, on both ledgers, exactly as the relayed path does
 	// it: an authorization nobody recorded is work whose outcome cannot be established
 	// afterwards. The dispatch record is what makes the nonce one-use at settlement, and
@@ -582,6 +595,10 @@ func (b *broker) towerEdgeSettle(w http.ResponseWriter, r *http.Request) {
 	// itself the reconciled receipt/ack figure, never the Tower's own count. Owner comes from
 	// the attachment record, not the message. This records what is OWED; nothing here moves money.
 	b.accrueEarnings(ts, req.TowerID, at.Owner, model, rec.ConsumerKey, settled, now)
+	// AND THE REAL WALLET: when edge traffic is priced, this captures the consumer's hold and
+	// pays the Station owner and the Tower operator their shares through the same EarningLot
+	// lifecycle as direct-node serving. Free (unpriced) traffic is a no-op here.
+	b.settleEdgeMoney(ts, req.TowerID, req.StationID, at.Owner, rec, settled, now)
 	// The attempt chain hears about it AFTER the store's answer is final, mirroring the
 	// relayed path: evidence first, then the settlement commitment.
 	b.noteAttempt(req.AttemptID, attempt.Observation{
@@ -635,6 +652,33 @@ func (b *broker) towerEdgeSettle(w http.ResponseWriter, r *http.Request) {
 // direction - it can only ever make a Tower look BETTER than it is, never worse, so a dropped
 // write cannot manufacture a penalty nobody earned. The settlement it describes has already
 // committed; the reputation write is downstream of the money, never a gate on it.
+// towerOperatorAccount resolves a Tower to its operator's WALLET account - the hex account key
+// (owner pubkey) the earnings/payout surface is keyed on (EarningSplitOf/RequestPayout use
+// o.Pubkey). This bridge exists because the Tower registry stores its owner as an account LOGIN
+// or a derived u_ id (towerOperator returns o.Login or UserIDFromPubkey), never the hex pubkey
+// the wallet lifecycle needs. A compensated operator has a verified account, so the login
+// resolves; if it cannot be resolved to a wallet account, the Tower earns nothing (logged) rather
+// than crediting a guess.
+func (b *broker) towerOperatorAccount(towerID string) (string, bool) {
+	ts := b.tower
+	if ts == nil {
+		return "", false
+	}
+	tw, ok := ts.registry.Get(towerID)
+	if !ok || tw.Owner == "" {
+		return "", false
+	}
+	// Already a wallet account key (an owner pubkey the store knows)?
+	if o, found, err := b.db.OwnerByPubkey(tw.Owner); err == nil && found && !o.Anonymized {
+		return o.Pubkey, true
+	}
+	// The usual case: the owner is a login; resolve it to the account's pubkey.
+	if o, found, err := b.db.OwnerByLogin(tw.Owner); err == nil && found && !o.Anonymized && o.Pubkey != "" {
+		return o.Pubkey, true
+	}
+	return "", false
+}
+
 func (b *broker) recordOutcome(towerID, attemptID string, o reputation.Outcome) {
 	ts := b.tower
 	if ts == nil || ts.outcomes == nil {
@@ -682,6 +726,44 @@ func (b *broker) accrueEarnings(ts *towerSubsystem, towerID, owner, model string
 		Corroborated: settled.Corroborated, SelfDealing: selfDealing, At: at,
 	}); err != nil {
 		log.Printf("tower %s: could not accrue earnings for %s: %v", towerID, settled.AttemptID, err)
+	}
+}
+
+// settleEdgeMoney bills a Tower-relayed attempt through the SHARED wallet - the same
+// EarningLot/payout/chargeback machinery that pays direct nodes - and splits it: the consumer is
+// charged, the serving Station's owner earns cost*(1-fee), and the relaying Tower's operator
+// earns its share of the platform's margin (cost*fee*towerRate, the founder-approved 10%). Both
+// credits are clawed back together if the request is refunded. FREE (unpriced) edge traffic does
+// nothing here - billing turns on only when a per-byte edge price is configured.
+func (b *broker) settleEdgeMoney(ts *towerSubsystem, towerID, stationID, stationOwner string, rec dispatch.Record, settled dispatch.Settlement, now time.Time) {
+	cost := edgePriceCredits(settled.Billable.In, settled.Billable.Out)
+	if cost <= 0 {
+		return
+	}
+	// The consumer's authorize-time hold reserved the price of the grant's CEILING; recompute it
+	// from the same grant so the capture returns exactly the unused remainder. Billable is clamped
+	// to the ceiling upstream, so cost <= held always; the guard is defensive.
+	held := cost
+	if maxIn, maxOut, err := dispatch.EdgeGrantCeiling(rec.Grant, ts.dispatchPub, link.PublicNetwork, stationID); err == nil {
+		if h := edgePriceCredits(maxIn, maxOut); h > held {
+			held = h
+		}
+	}
+	consumerWallet := protocol.UserIDFromPubkey(hex.EncodeToString(rec.ConsumerKey))
+	stationShare := cost * (1 - b.feeRate)
+	towerShare := cost * b.feeRate * edgeTowerRate()
+	towerAcct, ok := b.towerOperatorAccount(towerID)
+	if !ok {
+		log.Printf("edge settle: attempt %s - Tower %s operator has no resolvable wallet account; Tower earns nothing",
+			settled.AttemptID, towerID)
+	}
+	r := protocol.UsageReceipt{
+		RequestID: settled.AttemptID, Model: rec.Model,
+		PromptTokens: int(settled.Billable.In), CompletionTokens: int(settled.Billable.Out), TS: now.Unix(),
+	}
+	if _, err := b.db.SettleEdge(consumerWallet, stationID, stationOwner, towerID, towerAcct,
+		held, cost, stationShare, towerShare, r); err != nil {
+		log.Printf("edge settle: could not bill attempt %s: %v", settled.AttemptID, err)
 	}
 }
 
@@ -772,6 +854,49 @@ func envMicros(name string) int64 {
 		return 0
 	}
 	return n
+}
+
+// edgeTowerRateDefault is the Tower operator's share of NET PLATFORM REVENUE on a relayed
+// attempt - the founder-set 10%. Overridable by config; the split comes out of the platform's
+// margin, not the serving Station's share.
+const edgeTowerRateDefault = 0.10
+
+// edgePriceCredits prices an edge attempt's billable bytes in consumer credits. It is ZERO
+// unless a per-byte price is configured, so edge traffic is FREE by default and BILLING IT IS AN
+// EXPLICIT OPERATIONS DECISION (the founder-approved Tower revenue share turns on here). When a
+// price is set, the consumer is charged this, the Station owner earns cost*(1-fee), and the Tower
+// operator earns cost*fee*towerRate - all through the one wallet.
+func edgePriceCredits(inBytes, outBytes int64) float64 {
+	return float64(inBytes)*envCredits("ROGERAI_TOWER_EDGE_PRICE_IN") +
+		float64(outBytes)*envCredits("ROGERAI_TOWER_EDGE_PRICE_OUT")
+}
+
+// edgeTowerRate is the Tower's fraction of platform revenue, defaulting to 10% and clamped to
+// [0,1]; a bad value falls back to the default rather than paying an absurd share.
+func edgeTowerRate() float64 {
+	v := os.Getenv("ROGERAI_TOWER_REVENUE_RATE")
+	if v == "" {
+		return edgeTowerRateDefault
+	}
+	f, err := strconv.ParseFloat(v, 64)
+	if err != nil || f < 0 || f > 1 {
+		log.Printf("tower: ROGERAI_TOWER_REVENUE_RATE %q is not in [0,1]; using default %.2f", v, edgeTowerRateDefault)
+		return edgeTowerRateDefault
+	}
+	return f
+}
+
+func envCredits(name string) float64 {
+	v := os.Getenv(name)
+	if v == "" {
+		return 0
+	}
+	f, err := strconv.ParseFloat(v, 64)
+	if err != nil || f < 0 {
+		log.Printf("tower: %s is not a non-negative number (%q); pricing that side at zero", name, v)
+		return 0
+	}
+	return f
 }
 
 // reputationWindow is how far back a Tower is judged. Long enough that a rate is a pattern
