@@ -21,7 +21,8 @@ import (
 )
 
 func TestEdgeBillingPaysStationOwnerAndTowerOperator(t *testing.T) {
-	t.Setenv("ROGERAI_TOWER_EDGE_PRICE_OUT", "1") // 1 credit per output byte
+	t.Setenv("ROGERAI_TOWER_EDGE_PRICE_IN", "0")
+	t.Setenv("ROGERAI_TOWER_EDGE_PRICE_OUT", "1000000") // 1 credit per output byte (credits per 1M bytes)
 	t.Setenv("ROGERAI_PAYOUT_HOLD_DAYS", "0")
 	t.Setenv("ROGERAI_PAYOUT_RESERVE", "0")
 	b, srv := towerTestBroker(t)
@@ -82,9 +83,11 @@ func TestEdgeBillingPaysStationOwnerAndTowerOperator(t *testing.T) {
 	require.InDelta(t, 0, sTw.Payable, 0.001, "tower lot clawed on refund")
 }
 
-// With no edge price configured (the default), settling a relayed attempt bills nothing and
-// mints no wallet lots - edge traffic stays free until billing is explicitly turned on.
+// Billing is ON by default; an operator can turn it OFF by zeroing both rates. When off,
+// settling a relayed attempt bills nothing and mints no wallet lots - edge traffic is free again.
 func TestEdgeBillingIsDormantWhenUnpriced(t *testing.T) {
+	t.Setenv("ROGERAI_TOWER_EDGE_PRICE_IN", "0")
+	t.Setenv("ROGERAI_TOWER_EDGE_PRICE_OUT", "0")
 	b, srv := towerTestBroker(t)
 	b.feeRate = 0.30
 	op := signedInOperator(t, b, "tower-op")
@@ -113,7 +116,8 @@ func TestEdgeBillingIsDormantWhenUnpriced(t *testing.T) {
 // unpaid. Simulate the crash by pre-settling the dispatch attempt, then settling through the
 // endpoint: it must pay both parties.
 func TestSettleCompletesBillingAfterAStrandedDispatchSettle(t *testing.T) {
-	t.Setenv("ROGERAI_TOWER_EDGE_PRICE_OUT", "1")
+	t.Setenv("ROGERAI_TOWER_EDGE_PRICE_IN", "0")
+	t.Setenv("ROGERAI_TOWER_EDGE_PRICE_OUT", "1000000")
 	t.Setenv("ROGERAI_PAYOUT_HOLD_DAYS", "0")
 	t.Setenv("ROGERAI_PAYOUT_RESERVE", "0")
 	b, srv := towerTestBroker(t)
@@ -222,4 +226,26 @@ func TestEdgeSettleWindowStaysInsideTheHoldTTL(t *testing.T) {
 	for _, ttl := range []string{"6m", "10m", "15m", "30m", "1h"} {
 		t.Run(ttl, func(t *testing.T) { t.Setenv("ROGERAI_HOLD_TTL", ttl); check(t) })
 	}
+}
+
+// Tower inference requires a SIGNED-IN account (which is where the terms of service are accepted).
+// A validly-signed request from a key that is NOT bound to an account is refused before any
+// Station is chosen or any hold placed - the consent gate for charging real money.
+func TestEdgeAuthorizeRequiresASignedInAccount(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	op := signedInOperator(t, b, "octocat")
+	tw := enrolledTower(t, b, op.login)
+	attachStation(t, b, "st-1", tw.id, ownerPubkeyOf(t, b, op.login))
+	routableEdge(t, b, tw.id, "st-1", "m", "203.0.113.7:8443")
+
+	// A fresh key that signs correctly but belongs to no account.
+	_, strangerPriv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	code, _ := consumerCall(t, srv, strangerPriv, "/tower/edge/authorize", map[string]any{"model": "m"})
+	require.Equal(t, http.StatusForbidden, code, "a key not bound to an account is refused")
+
+	// The same request from a signed-in, funded account is authorized.
+	member := signedInConsumer(t, b)
+	code, _ = consumerCall(t, srv, member, "/tower/edge/authorize", map[string]any{"model": "m"})
+	require.Equal(t, http.StatusOK, code)
 }

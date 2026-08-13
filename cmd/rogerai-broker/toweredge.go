@@ -131,6 +131,16 @@ func (b *broker) towerEdgeAuthorize(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusBadRequest, "an edge authorization names the model it wants")
 		return
 	}
+	// TOWER INFERENCE REQUIRES A SIGNED-IN ACCOUNT. Being served - and billed - for
+	// tower-relayed inference is limited to accounts that signed in, which is where the terms of
+	// service (including that this traffic is charged) are accepted. A signature proves possession
+	// of a key; this proves the key belongs to a real, non-anonymized account that accepted the
+	// terms. It is the consent gate for charging real money, checked before any Station is chosen
+	// or any hold is placed.
+	if o, found, oerr := b.db.OwnerByPubkey(hex.EncodeToString(consumerKey)); oerr != nil || !found || o.Anonymized {
+		jsonErr(w, http.StatusForbidden, "tower inference requires a signed-in account that has accepted the terms of service")
+		return
+	}
 	// The caller may ask for LESS than the ceiling, never more. The bounds are the only
 	// thing standing between one authorization and an unmetered Station.
 	maxIn, maxOut := req.MaxIn, req.MaxOut
@@ -906,21 +916,46 @@ func envMicros(name string) int64 {
 // margin, not the serving Station's share.
 const edgeTowerRateDefault = 0.10
 
-// edgePriceCredits prices an edge attempt's billable bytes in consumer credits. It is ZERO
-// unless a per-byte price is configured, so edge traffic is FREE by default and BILLING IT IS AN
-// EXPLICIT OPERATIONS DECISION (the founder-approved Tower revenue share turns on here). When a
-// price is set, the consumer is charged this, the Station owner earns cost*(1-fee), and the Tower
-// operator earns cost*fee*towerRate - all through the one wallet.
+// Edge prices are expressed as CREDITS PER MILLION BYTES (1 credit = $1), mirroring the direct
+// path's $/1M tokens so the two surfaces read alike. Billing is ON by default at these rates; an
+// operator overrides them with ROGERAI_TOWER_EDGE_PRICE_IN/OUT (also credits per 1M bytes) or
+// sets both to 0 to make edge traffic free again. The defaults approximate a mid-range model
+// (~$0.50/1M tokens) at roughly four bytes per token, kept deliberately modest.
+const (
+	defaultEdgePricePerMBIn  = 0.05 // credits per 1,000,000 input bytes
+	defaultEdgePricePerMBOut = 0.15 // credits per 1,000,000 output bytes
+)
+
+// edgePriceCredits prices an edge attempt's billable bytes in consumer credits. The consumer is
+// charged this, the Station owner earns cost*(1-fee), and the Tower operator earns cost*fee*rate -
+// all through the one wallet.
 func edgePriceCredits(inBytes, outBytes int64) float64 {
-	return float64(inBytes)*envCredits("ROGERAI_TOWER_EDGE_PRICE_IN") +
-		float64(outBytes)*envCredits("ROGERAI_TOWER_EDGE_PRICE_OUT")
+	return (float64(inBytes)*edgeRatePerMB("ROGERAI_TOWER_EDGE_PRICE_IN", defaultEdgePricePerMBIn) +
+		float64(outBytes)*edgeRatePerMB("ROGERAI_TOWER_EDGE_PRICE_OUT", defaultEdgePricePerMBOut)) / 1e6
 }
 
-// edgePricingOn reports whether edge traffic is billed at all - either per-byte price is set.
-// When off, no holds are placed and settlement does no wallet work; when on, every priced
-// attempt holds at authorize and captures at settle (even a zero-cost capture releases the hold).
+// edgeRatePerMB reads a credits-per-1M-bytes rate from the environment, falling back to the given
+// default. A malformed or negative value logs and falls back rather than pricing at zero silently.
+func edgeRatePerMB(name string, def float64) float64 {
+	v := os.Getenv(name)
+	if v == "" {
+		return def
+	}
+	f, err := strconv.ParseFloat(v, 64)
+	if err != nil || f < 0 {
+		log.Printf("tower: %s is not a non-negative number (%q); using default %.4f", name, v, def)
+		return def
+	}
+	return f
+}
+
+// edgePricingOn reports whether edge traffic is billed at all. With the non-zero defaults it is
+// TRUE unless an operator sets both rates to 0. When off, no holds are placed and settlement does
+// no wallet work; when on, every attempt holds at authorize and captures at settle (even a
+// zero-cost capture releases the hold).
 func edgePricingOn() bool {
-	return envCredits("ROGERAI_TOWER_EDGE_PRICE_IN") > 0 || envCredits("ROGERAI_TOWER_EDGE_PRICE_OUT") > 0
+	return edgeRatePerMB("ROGERAI_TOWER_EDGE_PRICE_IN", defaultEdgePricePerMBIn) > 0 ||
+		edgeRatePerMB("ROGERAI_TOWER_EDGE_PRICE_OUT", defaultEdgePricePerMBOut) > 0
 }
 
 // edgeTowerRate is the Tower's fraction of platform revenue, defaulting to 10% and clamped to
@@ -934,19 +969,6 @@ func edgeTowerRate() float64 {
 	if err != nil || f < 0 || f > 1 {
 		log.Printf("tower: ROGERAI_TOWER_REVENUE_RATE %q is not in [0,1]; using default %.2f", v, edgeTowerRateDefault)
 		return edgeTowerRateDefault
-	}
-	return f
-}
-
-func envCredits(name string) float64 {
-	v := os.Getenv(name)
-	if v == "" {
-		return 0
-	}
-	f, err := strconv.ParseFloat(v, 64)
-	if err != nil || f < 0 {
-		log.Printf("tower: %s is not a non-negative number (%q); pricing that side at zero", name, v)
-		return 0
 	}
 	return f
 }

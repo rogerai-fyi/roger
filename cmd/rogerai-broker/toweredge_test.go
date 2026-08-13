@@ -585,8 +585,7 @@ func TestAConsumerIsAuthorizedOntoTheEdgePath(t *testing.T) {
 	attachStation(t, b, "st-1", tw.id, "owner-1")
 	routableEdge(t, b, tw.id, "st-1", "m", "203.0.113.7:8443")
 
-	_, consumerPriv, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
+	consumerPriv := signedInConsumer(t, b)
 	code, out := consumerCall(t, srv, consumerPriv, "/tower/edge/authorize",
 		map[string]any{"model": "m"})
 	require.Equal(t, http.StatusOK, code, out)
@@ -629,8 +628,7 @@ func TestAuthorizeRefusalsAreUniform(t *testing.T) {
 	b, srv := towerTestBroker(t)
 	tw := enrolledTower(t, b, "owner-1")
 	attachStation(t, b, "st-1", tw.id, "owner-1")
-	_, consumerPriv, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
+	consumerPriv := signedInConsumer(t, b)
 
 	// No fleet row at all.
 	code, _ := consumerCall(t, srv, consumerPriv, "/tower/edge/authorize", map[string]any{"model": "m"})
@@ -659,8 +657,7 @@ func TestAuthorizeCapsWhatACallerMayAskFor(t *testing.T) {
 	tw := enrolledTower(t, b, "owner-1")
 	attachStation(t, b, "st-1", tw.id, "owner-1")
 	routableEdge(t, b, tw.id, "st-1", "m", "203.0.113.7:8443")
-	_, consumerPriv, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
+	consumerPriv := signedInConsumer(t, b)
 
 	code, out := consumerCall(t, srv, consumerPriv, "/tower/edge/authorize",
 		map[string]any{"model": "m", "max_in": 512, "max_out": edgeMaxBytes * 100})
@@ -677,8 +674,7 @@ func TestAnAuthorizedAttemptSettlesExactlyOnce(t *testing.T) {
 	stationPriv := attachStation(t, b, "st-1", tw.id, "owner-1")
 	routableEdge(t, b, tw.id, "st-1", "m", "203.0.113.7:8443")
 
-	_, consumerPriv, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
+	consumerPriv := signedInConsumer(t, b)
 	code, out := consumerCall(t, srv, consumerPriv, "/tower/edge/authorize",
 		map[string]any{"model": "m"})
 	require.Equal(t, http.StatusOK, code, out)
@@ -1052,8 +1048,7 @@ func TestAuthorizeSkipsARowWithNoAttachment(t *testing.T) {
 		TowerID: tw.id, StationID: "st-ghost", OfferID: "of-1", Model: "m",
 		Modality: "text", Expires: time.Now().Add(time.Hour), Endpoint: "203.0.113.7:8443",
 	}}))
-	_, consumerPriv, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
+	consumerPriv := signedInConsumer(t, b)
 	code, _ := consumerCall(t, srv, consumerPriv, "/tower/edge/authorize", map[string]any{"model": "m"})
 	require.Equal(t, http.StatusServiceUnavailable, code)
 }
@@ -1065,8 +1060,7 @@ func TestAuthorizeDefaultsAbsentBounds(t *testing.T) {
 	tw := enrolledTower(t, b, "owner-1")
 	attachStation(t, b, "st-1", tw.id, "owner-1")
 	routableEdge(t, b, tw.id, "st-1", "m", "203.0.113.7:8443")
-	_, consumerPriv, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
+	consumerPriv := signedInConsumer(t, b)
 
 	code, out := consumerCall(t, srv, consumerPriv, "/tower/edge/authorize",
 		map[string]any{"model": "m", "max_in": 0, "max_out": -5})
@@ -1909,8 +1903,7 @@ func TestAuthorizeReportsARecordFailure(t *testing.T) {
 		Network: link.PublicNetwork, Signer: mintSigner(t, b), Lifetime: time.Minute,
 	}, putFailStore{dispatch.NewMemStore()})
 
-	_, consumerPriv, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
+	consumerPriv := signedInConsumer(t, b)
 	code, _ := consumerCall(t, srv, consumerPriv, "/tower/edge/authorize", map[string]any{"model": "m"})
 	require.Equal(t, http.StatusServiceUnavailable, code)
 }

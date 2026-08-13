@@ -17,7 +17,7 @@
     <h1>Terms of Service and Acceptable Use</h1>
     <p class="sub">The agreement between you and RogerAI ("we", "us"). By using the site, the
       CLI, the broker, or by going on air as an operator, you accept these Terms. If you do
-      not agree, do not use the service. Last updated 2026-07.
+      not agree, do not use the service. Last updated 2026-08.
       Money, payout, dispute, and refund terms are in sections 7 to 10; metering,
       billing-integrity, and anti-abuse terms are in section 11.</p>
 
@@ -29,6 +29,13 @@
         your requests, and we do not produce the output.</b> Node operators are independent
         third parties, not our employees or agents. We relay requests and responses, meter
         usage, and settle payment; we do not control what a node returns.</p>
+      <p><b>Towers.</b> Some requests reach a node through an independent third-party
+        <b>Tower</b> - a relay operator who provides network reach and bandwidth so a node need
+        not connect to us directly. A Tower cannot read the content it relays. When your request
+        is served through a Tower, it is billed to your wallet exactly like any other request
+        (section 7), and the Tower operator earns a share of the platform fee for the traffic they
+        carried (section 8). <b>Tower-relayed inference requires a signed-in account</b> - see
+        section 7.</p>
     </section>
 
     <section class="panel">
@@ -138,6 +145,12 @@
       <p><b>Credits are a prepaid balance, not a deposit or stored-value instrument.</b> Credits
         have no cash value except to pay for usage on RogerAI, do not earn interest, are not
         transferable between accounts, and are not redeemable for cash by a consumer.</p>
+      <p><b>Tower-relayed inference.</b> A request served through a Tower (section 1) is metered
+        and debited from your wallet on the same terms as any other request, and the same
+        automatic protections apply. Because this traffic is charged, <b>you must be signed in to
+        an account to use it</b>: signing in is where you accept these Terms, and an unauthenticated
+        key cannot be served or billed. When you are signed in and send such a request, you
+        authorize us to reserve and then charge your wallet for it.</p>
       <p><b>Refund policy.</b> Top-ups buy a service that is delivered as you spend, so top-ups
         are <b>generally non-refundable</b> once credited, except where a refund is required by
         law or where we choose to grant one at our discretion. Two automatic protections still
@@ -163,6 +176,17 @@
         platform fee. The 70/30 split is applied to RogerAI's authoritative metered figure
         (section 11). We may change the fee for future usage with notice; the fee in effect when
         a request is served governs that request's earning.</p>
+      <p><b>Tower operators.</b> When a request is relayed to a node through a Tower (section 1),
+        the Tower operator earns a <b>revenue share of the platform fee</b> for that request -
+        initially <b>10% of RogerAI's fee</b> - as compensation for the network reach and bandwidth
+        they provided. This share comes out of RogerAI's platform fee, not the serving node's
+        earning or your metered cost: the consumer pays the same, the node earns the same, and
+        RogerAI keeps the remainder of its fee. A Tower operator's earning moves through the same
+        lifecycle, hold, payout, and clawback rules as a node operator's, and requires the same
+        Stripe Connect onboarding and KYC before any payout. We may change the Tower revenue-share
+        rate for future usage with notice; the rate in effect when a request is served governs
+        that request's earning. Merely enrolling a Tower earns nothing - only relaying paid,
+        verified, funded traffic does.</p>
       <p><b>Earnings lifecycle.</b> An earning moves through <b>accrued &rarr; held &rarr;
         payable &rarr; paid</b>. Each earning is <b>held for 120 days</b> from the request's
         settlement before it becomes payable. <b>Why the hold exists:</b> a consumer card charge

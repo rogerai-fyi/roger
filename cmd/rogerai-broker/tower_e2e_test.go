@@ -74,6 +74,25 @@ func signedInOperator(t *testing.T, b *broker, login string) operator {
 	return operator{priv: priv, login: login}
 }
 
+// signedInConsumer returns a device key for a real, funded, SIGNED-IN account - what tower
+// inference now requires (an account that accepted the terms of service). It binds the pubkey as
+// an owner and funds its wallet, so both the authorize account gate and the pre-auth billing hold
+// pass.
+func signedInConsumer(t *testing.T, b *broker) ed25519.PrivateKey {
+	t.Helper()
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	pubHex := hexOf(pub)
+	require.NoError(t, b.db.BindOwner(store.Owner{
+		Pubkey: pubHex, Login: "consumer-" + pubHex[:8], Email: pubHex[:8] + "@x.test",
+		EmailVerifiedAt: time.Now().Unix(),
+	}))
+	if _, err := b.db.AddCredits(protocol.UserIDFromPubkey(pubHex), 1_000_000); err != nil {
+		t.Fatal(err)
+	}
+	return priv
+}
+
 func hexOf(pub ed25519.PublicKey) string {
 	const hexdigits = "0123456789abcdef"
 	out := make([]byte, 0, len(pub)*2)
