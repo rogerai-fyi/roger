@@ -547,24 +547,24 @@
     var row = $("wmQuants");
     if (!row || !m || !m.quants) return;
     row.textContent = "";
-    var best = m.quants.reduce(function (a, b) {
-      return a.fault_id_macro >= b.fault_id_macro ? a : b;
-    });
     m.quants.forEach(function (q) {
-      var bad = q.fault_id_macro < best.fault_id_macro * 0.6;
-      var chip = el("span", "wm-quant" + (bad ? " wm-quant--bad" : ""));
+      var chip = el("span", "wm-quant" + (q.role === "browser tier" ? " wm-quant--tier" : ""));
       chip.appendChild(el("b", null, q.quant));
       chip.appendChild(el("span", "wm-quant__v", pct(q.fault_id_macro)));
-      chip.appendChild(el("span", "wm-quant__k", "fault-ID macro, n=" + q.n));
+      chip.appendChild(el("span", "wm-quant__k",
+        "fault-ID macro, n=" + q.n + (q.size_mb ? " · ~" + q.size_mb + "MB" : "")));
+      if (q.role) chip.appendChild(el("span", "wm-quant__role", q.role));
       row.appendChild(chip);
     });
     var note = $("wmQuantNote");
     if (note) {
-      var ex = (m._provenance.excluded || {}).Q8;
-      note.textContent = "Small models are quantization-fragile: the same weights at Q4_K_M " +
-        "lose most of their fault-ID skill. Numbers are per quantization and measured on " +
-        m._provenance.suite + "; a tile never shows a figure its own build has not earned." +
-        (ex ? " Q8 is deliberately absent - " + ex + "." : "");
+      // The lesson is now the opposite of what it was this morning: an earlier export
+      // published a "Q4 collapse" that turned out to be a harness bug, caught because two
+      // quantizations returned impossible identical numbers. Re-measured, every size holds.
+      note.textContent = "The task-native 98M decodes with margins wide enough that greedy " +
+        "choices survive 4-bit, so accuracy holds all the way down to the browser tier. " +
+        "Figures are per quantization, " + (m.quant_note || "") + ", cited to " +
+        (m.quants[0] && m.quants[0].source ? m.quants[0].source : "the results log") + ".";
     }
   }
 

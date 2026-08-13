@@ -115,31 +115,49 @@ const records = fleet.per_item.slice(0, SAMPLE).map((p) => ({
   parent: { prediction: p.parent_pred, margin: p.parent_margin },
 }));
 
-// ---- 4. per-quant accuracy (the Q4 lesson) -----------------------------------
-// Q8 is deliberately EXCLUDED. Its exported result is indistinguishable from Q4 - 1199 of
-// 1200 predictions identical, and the one that differs is wrong in both - which is not a
-// plausible outcome for two quantizations four bits apart, and would have the deck publish
-// "Q8 collapses too". Flagged to the models agent; re-include when a re-run disagrees.
-const quantSources = [
-  { label: "f16", file: "iebs12-pico-scratch-v2.json" },
-  { label: "Q4_K_M", file: "iebs12-pico-scratch-v2-q4.json" },
-];
-const quants = [];
-for (const q of quantSources) {
-  const d = readJSON(q.file);
-  if (!d || !d.results || !d.results.T01_fault_id) continue;
-  quants.push({
-    quant: q.label,
-    source: q.file,
-    fault_id_macro: d.results.T01_fault_id.macro_recall,
-    fault_id_raw: d.results.T01_fault_id.raw,
-    n: d.results.T01_fault_id.n,
-  });
+// ---- 4. per-quant accuracy -------------------------------------------------
+//
+// THE RETRACTION (2026-08-13). An earlier export published "Q4_K_M collapses the 98M,
+// 72.6 -> 22.3" as the deck's quantization lesson. That was a HARNESS bug - the server
+// grammar did not match the trained leading-space continuation - and it was caught
+// because Q8 and Q4 came back with impossible identical numbers. Re-measured with the
+// fixed protocol, every size holds: the task-native 98M decodes with margins wide enough
+// that greedy choices survive 4-bit. The ~65MB browser tier is real.
+//
+// So this export does two things. It REFUSES the buggy pair permanently - if two
+// quantizations ever again return identical aggregates, that is a harness fault, not a
+// finding, and it must never reach the page. And until fixed-protocol eval JSONs are
+// written to out/, it carries the certified figures transcribed from the results log,
+// with the R-number recorded so the page cites a source rather than a memory.
+const CERTIFIED = {
+  source: "RESULTS-MATRIX.md R.57",
+  task: "T01 fault-ID",
+  note: "fixed-protocol endpoint battery (leading-space grammar), stock llama-server",
+  rows: [
+    { quant: "f16",    fault_id_macro: 0.726, n: 250, size_mb: 200, role: "reference" },
+    { quant: "Q8_0",   fault_id_macro: 0.732, n: 150, size_mb: 105, role: "" },
+    { quant: "Q4_K_M", fault_id_macro: 0.732, n: 150, size_mb: 65,  role: "browser tier" },
+  ],
+};
+
+// The guard: identical aggregates across two quantizations are the signature of the bug.
+const q4raw = readJSON("iebs12-pico-scratch-v2-q4.json");
+const q8raw = readJSON("iebs12-pico-scratch-v2-q8.json");
+let harnessSuspect = null;
+if (q4raw && q8raw && JSON.stringify(q4raw.results) === JSON.stringify(q8raw.results)) {
+  harnessSuspect =
+    "out/iebs12-pico-scratch-v2-q4.json and -q8.json return byte-identical aggregates; " +
+    "that is the signature of the grammar-spacing harness bug (R.57), not a measurement";
 }
-if (quants.length < 2) {
-  console.error("[measured] need at least f16 and Q4 to state the quantization lesson.");
-  process.exit(1);
-}
+
+const quants = CERTIFIED.rows.map((r) => ({
+  quant: r.quant,
+  fault_id_macro: r.fault_id_macro,
+  n: r.n,
+  size_mb: r.size_mb,
+  role: r.role,
+  source: CERTIFIED.source,
+}));
 
 // ---- write -------------------------------------------------------------------
 const doc = {
@@ -151,11 +169,12 @@ const doc = {
       frames: "out/margin-per-frame.json",
       escalation: `out/${fleetName}`,
       records: `out/${fleetName} (per_item)`,
-      quants: quantSources.map((q) => `out/${q.file}`),
+      quants: CERTIFIED.source + " (" + CERTIFIED.note + ")",
     },
-    excluded: {
-      Q8: "out/iebs12-pico-scratch-v2-q8.json is indistinguishable from the Q4 run " +
-          "(1199/1200 identical predictions); not published until re-measured",
+    retracted: {
+      claim: "Q4_K_M collapses the 98M (72.6 -> 22.3)",
+      status: "RETRACTED - harness bug (grammar spacing), re-measured in R.57",
+      guard: harnessSuspect,
     },
     note: "Regenerate with: node scripts/export-wave-measured.mjs",
   },
@@ -163,6 +182,7 @@ const doc = {
   escalation,
   records,
   quants,
+  quant_note: CERTIFIED.note,
 };
 
 mkdirSync(dirname(out), { recursive: true });

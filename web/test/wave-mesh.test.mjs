@@ -272,27 +272,44 @@ test("honesty: no evidence dict is invented for escalations", () => {
     "the feed must say the evidence dict is absent rather than quietly omitting it");
 });
 
-test("honesty: Q8 is excluded, with the reason recorded", () => {
-  // Its exported result is indistinguishable from Q4 (1199/1200 identical predictions),
-  // which is not a plausible outcome for two quantizations four bits apart. Publishing it
-  // would put "Q8 collapses too" on the page as a measured fact.
-  const quants = measured.quants.map((q) => q.quant);
-  assert.ok(!quants.some((q) => /q8/i.test(q)), "Q8 must not be published yet");
-  assert.ok(measured._provenance.excluded && measured._provenance.excluded.Q8,
-    "the exclusion must be recorded, not silent");
-  assert.ok(/indistinguishable|identical/i.test(measured._provenance.excluded.Q8),
-    "the reason must say what was wrong with it");
+test("honesty: the retracted Q4 collapse cannot come back", () => {
+  // THE RETRACTION (2026-08-13). This deck published "Q4_K_M collapses the 98M, 72.6 ->
+  // 22.3" as its quantization lesson. It was a harness bug - the server grammar did not
+  // match the trained leading-space continuation - and it was caught because Q8 and Q4
+  // returned impossible identical numbers. Re-measured (R.57) every size holds.
+  const r = measured._provenance.retracted;
+  assert.ok(r, "the retraction must be recorded, not quietly overwritten");
+  assert.match(r.status, /RETRACTED/, "the status must say so plainly");
+  assert.ok(/harness/i.test(r.status), "and name the cause, so it is not repeated");
+  // The number itself must never reappear on the deck.
+  const q4 = measured.quants.find((q) => /q4/i.test(q.quant));
+  assert.ok(q4.fault_id_macro > 0.6, "Q4 holds full accuracy; 0.223 was the bug");
 });
 
-test("honesty: the quantization badges state what shrinking costs", () => {
-  const f16 = measured.quants.find((q) => q.quant === "f16");
-  const q4 = measured.quants.find((q) => /q4/i.test(q.quant));
-  assert.ok(f16 && q4, "both the reference and the shrunk build must be shown");
-  // The lesson is that this is NOT free. If a future export made them comparable, the copy
-  // below would be wrong and this test should fail loudly.
-  assert.ok(q4.fault_id_macro < f16.fault_id_macro * 0.6,
-    "the Q4 collapse is the lesson; if it stops collapsing, rewrite the copy");
-  assert.ok(js.includes("quantization-fragile"), "the deck states the lesson in words too");
+test("honesty: identical aggregates across quantizations are refused as a harness fault", () => {
+  // This is the guard that caught the bug, made permanent. Two quantizations returning
+  // byte-identical results is a broken harness, never a finding, and must not reach a page.
+  const script = readFileSync(path.join(SRC, "../scripts/export-wave-measured.mjs"), "utf8");
+  assert.ok(/JSON.stringify\(q4raw.results\) === JSON.stringify\(q8raw.results\)/.test(script),
+    "the exporter must detect identical quantization aggregates");
+  assert.ok(/harness/i.test(script), "and name them as a harness fault rather than publishing them");
+});
+
+test("quants: every shipped size is shown with its accuracy and its weight", () => {
+  const by = Object.fromEntries(measured.quants.map((q) => [q.quant, q]));
+  for (const q of ["f16", "Q8_0", "Q4_K_M"]) {
+    assert.ok(by[q], `${q} must be shown - the ship matrix is the story`);
+    assert.ok(by[q].size_mb > 0, `${q} must carry its download size`);
+    assert.ok(by[q].source, `${q} must cite where its number came from`);
+  }
+  // The browser tier is the point: it must be the small one AND hold its accuracy.
+  const browser = measured.quants.find((q) => q.role === "browser tier");
+  assert.ok(browser, "one build must be marked as the browser tier");
+  assert.ok(browser.size_mb <= 80, "the browser tier must actually be small");
+  assert.ok(browser.fault_id_macro >= by.f16.fault_id_macro * 0.95,
+    "and must hold accuracy against the f16 reference, or it is not shippable");
+  assert.ok(!/quantization-fragile/.test(js),
+    "the retracted fragility copy must be gone");
 });
 
 test("feed: assert vs escalate is derived from the margin, not stored", () => {

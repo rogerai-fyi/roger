@@ -7,13 +7,12 @@
    "frames": "out/margin-per-frame.json",
    "escalation": "out/fleet-sim-v4.json",
    "records": "out/fleet-sim-v4.json (per_item)",
-   "quants": [
-    "out/iebs12-pico-scratch-v2.json",
-    "out/iebs12-pico-scratch-v2-q4.json"
-   ]
+   "quants": "RESULTS-MATRIX.md R.57 (fixed-protocol endpoint battery (leading-space grammar), stock llama-server)"
   },
-  "excluded": {
-   "Q8": "out/iebs12-pico-scratch-v2-q8.json is indistinguishable from the Q4 run (1199/1200 identical predictions); not published until re-measured"
+  "retracted": {
+   "claim": "Q4_K_M collapses the 98M (72.6 -> 22.3)",
+   "status": "RETRACTED - harness bug (grammar spacing), re-measured in R.57",
+   "guard": "out/iebs12-pico-scratch-v2-q4.json and -q8.json return byte-identical aggregates; that is the signature of the grammar-spacing harness bug (R.57), not a measurement"
   },
   "note": "Regenerate with: node scripts/export-wave-measured.mjs"
  },
@@ -1677,17 +1676,28 @@
  "quants": [
   {
    "quant": "f16",
-   "source": "iebs12-pico-scratch-v2.json",
-   "fault_id_macro": 0.725964277674179,
-   "fault_id_raw": 0.76,
-   "n": 250
+   "fault_id_macro": 0.726,
+   "n": 250,
+   "size_mb": 200,
+   "role": "reference",
+   "source": "RESULTS-MATRIX.md R.57"
+  },
+  {
+   "quant": "Q8_0",
+   "fault_id_macro": 0.732,
+   "n": 150,
+   "size_mb": 105,
+   "role": "",
+   "source": "RESULTS-MATRIX.md R.57"
   },
   {
    "quant": "Q4_K_M",
-   "source": "iebs12-pico-scratch-v2-q4.json",
-   "fault_id_macro": 0.2226675285498815,
-   "fault_id_raw": 0.21333333333333335,
-   "n": 150
+   "fault_id_macro": 0.732,
+   "n": 150,
+   "size_mb": 65,
+   "role": "browser tier",
+   "source": "RESULTS-MATRIX.md R.57"
   }
- ]
+ ],
+ "quant_note": "fixed-protocol endpoint battery (leading-space grammar), stock llama-server"
 }

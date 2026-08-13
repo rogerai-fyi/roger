@@ -206,7 +206,7 @@
 }
 .wm-quant__v { font-size: 1rem; font-variant-numeric: tabular-nums; }
 .wm-quant__k { font-size: .64rem; opacity: .55; }
-/* A quant that lost most of its skill is marked, so a small file size can never
-   read as a free win. */
-.wm-quant--bad { border-color: var(--amber, #c98a00); }
-.wm-quant--bad .wm-quant__v { color: var(--amber, #c98a00); }
+/* The build that runs in a browser is the one worth pointing at. */
+.wm-quant--tier { border-color: var(--live); }
+.wm-quant--tier .wm-quant__v { color: var(--live); }
+.wm-quant__role { font-size: .6rem; letter-spacing: .08em; color: var(--live); }
