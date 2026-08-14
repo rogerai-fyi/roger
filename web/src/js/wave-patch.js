@@ -145,10 +145,16 @@
         : def.suffixes.reduce(function (acc, s) { return acc.concat(bySuffix[s] || []); }, []);
       if (!idxs.length) return; // a type exists only if the records do
       idxs.sort(function (a, b) { return a - b; });
-      var recIdx = {};
+      var recIdx = {}, pickWhy = {};
+      var byTruth = {};
       idxs.forEach(function (i) {
         var t = m.records[i].truth;
-        if (!(t in recIdx)) recIdx[t] = i; // FIRST in file order - deterministic
+        (byTruth[t] = byTruth[t] || []).push(i);
+      });
+      Object.keys(byTruth).forEach(function (t) {
+        var pick = pickRecord(byTruth[t], t, m.records);
+        recIdx[t] = pick.idx;
+        pickWhy[t] = pick.why;
       });
       var conds = Object.keys(recIdx).sort(function (a, b) {
         if (a === "none") return -1;
@@ -156,9 +162,50 @@
         return a < b ? -1 : 1;
       });
       PATCH.types.push({ key: def.key, label: def.label, icon: def.icon,
-                         count: idxs.length, conds: conds, recIdx: recIdx });
+                         count: idxs.length, conds: conds, recIdx: recIdx, pickWhy: pickWhy });
     });
     if (!PATCH.typeKey && PATCH.types[0]) PATCH.typeKey = PATCH.types[0].key;
+  }
+
+  /* ---- the representative pick: per (type, condition), the RECORDED window
+     that shows the condition most clearly - chosen by a documented feature
+     criterion, deterministically, from that type's records only. The samples
+     are never touched; only WHICH record a pad replays is chosen.
+
+     NOTE on stuck: in this export every stuck window has longest_run = 1 -
+     the suite's "stuck" means the sensor stops TRACKING the process while
+     quantization jitter keeps neighbouring samples unequal. The honest
+     "clearest stuck" is therefore the FLATTEST window: minimum sd relative
+     to the window's own magnitude (tiebreak: max repeat_frac). */
+  var PICK = {
+    none:     { why: "calmest healthy window", score: function (w) { return -w.hf_energy; } },
+    stuck:    { why: "steadiest window", score: function (w) {
+                  return -(w.sd / Math.max(Math.abs(w.mean), 1e-9)) + (w.repeat_frac || 0) * 1e-6; } },
+    dropout:  { why: "most resets", score: function (w) { return w.n_resets + (w.max_drop || 0) * 1e-6; } },
+    noisy:    { why: "most high-frequency energy", score: function (w) { return w.hf_energy; } },
+    drifting: { why: "steepest trend", score: function (w) {
+                  return Math.abs(w.slope_per_min) + (w.monotonic_frac || 0) * 1e-6; } },
+    railed:   { why: "longest at the rail", score: function (w) { return w.at_max_frac; } },
+  };
+
+  function pickRecord(idxs, truth, records) {
+    var rule = PICK[truth] || PICK.none;
+    var best = idxs[0], bestScore = -Infinity;
+    idxs.forEach(function (i) {
+      var w = records[i].window || {};
+      var s = rule.score(w);
+      if (s > bestScore) { bestScore = s; best = i; }
+    });
+    var w2 = records[best].window || {};
+    var detail = truth === "stuck" ? "sd " + w2.sd + " over " + w2.n + " samples"
+      : truth === "dropout" ? w2.n_resets + " resets, max drop " + w2.max_drop
+      : truth === "noisy" ? "hf_energy " + w2.hf_energy
+      : truth === "drifting" ? "slope " + w2.slope_per_min + "/min"
+      : truth === "railed" ? "at the rail " + Math.round((w2.at_max_frac || 0) * 100) + "% of the window"
+      : "hf_energy " + w2.hf_energy;
+    return { idx: best,
+             why: "chosen as the clearest recorded " + (truth === "none" ? "OK" : truth.toUpperCase()) +
+                  ": " + rule.why + " (" + detail + ")" };
   }
 
   function typeOf(key) {
@@ -538,7 +585,8 @@
       pad.setAttribute("role", "radio");
       pad.setAttribute("aria-checked", PATCH.cond === c ? "true" : "false");
       var rr = PATCH.measured.records[t.recIdx[c]];
-      pad.title = "replays recorded record " + rr.node_id + " (scene " + rr.scene_id +
+      pad.title = (t.pickWhy && t.pickWhy[c] ? t.pickWhy[c] + " · " : "") +
+        "replays recorded record " + rr.node_id + " (scene " + rr.scene_id +
         ") - a pad is a recorded instance, selected, not simulated";
       var cap = el("span", "syn-pad__cap");
       var sp = sparkline(rr);
@@ -821,14 +869,36 @@
     return (PATCH.windows && r && PATCH.windows[r.node_id]) || null;
   }
 
-  function seriesPath(samples, W, H, pad, dup) {
+  /* HONEST SCALING. Autoscaling every window to its own min/max would blow a
+     steady window's quantization jitter up to full height - STUCK would look
+     noisy, and every condition would look alike. The display span therefore
+     has a FLOOR relative to the signal's own magnitude; the samples are
+     untouched, and the strip prints the DISPLAYED scale so the scale itself
+     is honest. */
+  function scaleOf(samples) {
     var lo = Math.min.apply(null, samples), hi = Math.max.apply(null, samples);
-    var span = (hi - lo) || 1;
+    var mean = 0;
+    for (var i = 0; i < samples.length; i++) mean += samples[i];
+    mean /= samples.length || 1;
+    // 3% of the signal's own magnitude, tuned by eye across the condition
+    // set: a stuck band flattens, a drift still ramps, noise still fills.
+    var span = Math.max(hi - lo, 0.03 * Math.abs(mean), 1e-9);
+    var mid = (hi + lo) / 2;
+    return { lo: mid - span / 2, hi: mid + span / 2, span: span, dataLo: lo, dataHi: hi };
+  }
+
+  function fmtN(x) {
+    var a = Math.abs(x);
+    return a >= 100 ? x.toFixed(1) : a >= 1 ? x.toFixed(2) : x.toFixed(4);
+  }
+
+  function seriesPath(samples, W, H, pad, dup, scale) {
+    var sc = scale || scaleOf(samples);
     var n = samples.length, reps = dup ? 2 : 1, d = "";
     for (var k = 0; k < reps; k++) {
       for (var i = 0; i < n; i++) {
         var x = ((k * n + i) / (reps * n - 1)) * W;
-        var y = pad + (1 - (samples[i] - lo) / span) * (H - pad * 2);
+        var y = pad + (1 - (samples[i] - sc.lo) / sc.span) * (H - pad * 2);
         d += (k === 0 && i === 0 ? "M" : "L") + x.toFixed(1) + " " + y.toFixed(1);
       }
     }
@@ -849,21 +919,28 @@
     head.appendChild(rec);
     wrap.appendChild(head);
     var W = 560, H = 96;
+    var sc = scaleOf(s.samples);
     var host = svg("svg", { class: "sn-strip__svg", viewBox: "0 0 " + W + " " + H,
       preserveAspectRatio: "none", role: "img",
       "aria-label": "the recorded sample series for this record, replayed in a loop" });
     if (REDUCED) {
       // no motion: the full recorded window, static
       host.appendChild(svg("path", { class: "sn-strip__line",
-        d: seriesPath(s.samples, W, H, 8, false) }));
+        d: seriesPath(s.samples, W, H, 8, false, sc) }));
     } else {
       var g = svg("g", { class: "sn-strip__scroll" });
       g.appendChild(svg("path", { class: "sn-strip__line",
-        d: seriesPath(s.samples, W * 2, H, 8, true) }));
+        d: seriesPath(s.samples, W * 2, H, 8, true, sc) }));
       host.appendChild(g);
     }
     wrap.appendChild(host);
     var w = r.window || {};
+    var legend = el("p", "sn-sub sn-strip__legend",
+      "display scale " + fmtN(sc.lo) + " … " + fmtN(sc.hi) +
+      (unitWordOf(r) ? " " + unitWordOf(r) : "") + " · data " + fmtN(sc.dataLo) + " … " + fmtN(sc.dataHi));
+    legend.title = "the scale floor keeps a steady window looking steady - the samples are untouched, " +
+      "and this line prints the scale actually drawn";
+    wrap.appendChild(legend);
     wrap.appendChild(el("p", "sn-sub",
       (w.tag || r.node_id) + " · " + s.samples.length + " recorded samples · period " +
       s.period_s + "s · replay speed is presentation, not the recorded rate"));
@@ -1228,6 +1305,15 @@
       return { kind: "few-numbers", n: nums.length };
     }
 
+    // a READING QUESTION: "what does the temperature read now?" - detected
+    // by documented stems (a question word + a reading word), never NLU. It
+    // is answered by the bench from the recorded window - see benchReading.
+    var QWORD = /(\bwhat\b|\bhow (much|high|low|hot|is)\b|right now|\blatest\b|\?)/i;
+    var RWORD = /(\bread(ing|s)?\b|\bvalue\b|\bmean\b|\bmeasur|temperature|\btemp\b|pressure|vibration|current draw|\bamps?\b|\blevel\b|\bnow\b)/i;
+    if (QWORD.test(t) && RWORD.test(t)) {
+      return { kind: "question", text: t };
+    }
+
     // scenario in words: a catalogue token lookup, not NLU. A partial asset
     // name ("pump" for centrifugal_pump) counts only when a FAULT word rides
     // along - "cavitating pump" is a scenario, a lone "pump" in chat is not.
@@ -1281,8 +1367,71 @@
     return null;
   }
 
-  function buildReply(text) {
-    var v = classify(text);
+  /* THE LIVE SEAM. When the hosted Roger models come on air, this is where
+     they plug in - the intended wiring, so it lands without a rebuild:
+       - transport: the Tower relay, the same path the CONSOLE deck's live
+         tapes stream through, addressed to a hosted wave band;
+       - enums (fault calls): the R.45/R.55 one-request-per-candidate grammar
+         protocol, margins from the shim's logprob sums;
+       - readings (free text): a single request to the band, if the models
+         agent confirms Nano free-texts (asked in
+         QUESTION-FOR-MODELS-AGENT-mesh-live-prompt.md, with a
+         recorded-transcript stopgap as fallback).
+     Until then it returns null and the BENCH answers from the recorded
+     window - and the reply is signed accordingly, never as the model. */
+  function liveAnswerer(v, ctx) {
+    return null; // not yet on air - no hosted band is reachable from this page
+  }
+
+  function liveCtx() {
+    return { record: currentRecord(), chain: PATCH.chain.slice(), floor: PATCH.floor };
+  }
+
+  // The bench's answer to a reading question: a template over the recorded
+  // window of the live selection. Signed THE BENCH - a model never said this.
+  function benchReading() {
+    var r = currentRecord();
+    if (!r) return { kind: "note", wired: "the bench", text: "No sensor is selected." };
+    var w = r.window || {};
+    var u = unitWordOf(r);
+    var chainLine;
+    var fam = lastModel();
+    var hasReader = PATCH.chain.some(function (id) {
+      var f = familyById(id); return f && f.status === "recorded";
+    });
+    if (!hasReader) {
+      chainLine = "Nobody is watching this channel - chain Wave Pico or Wave Nano to have it read.";
+    } else {
+      var sts = stages();
+      var nano = null, pico = null;
+      sts.forEach(function (st) { if (st.kind === "nano") nano = st; if (st.kind === "pico") pico = st; });
+      var isFault = r.truth !== "none";
+      if (nano) {
+        chainLine = 'Dialed condition: ' + (CONDW[PATCH.cond] || PATCH.cond.toUpperCase()) +
+          ' - the chain says " ' + nano.verdict + '" (margin ' + r.parent.margin.toFixed(2) + ").";
+      } else if (pico) {
+        chainLine = 'Dialed condition: ' + (CONDW[PATCH.cond] || PATCH.cond.toUpperCase()) +
+          (pico.esc ? " - the Pico doubts this window (margin " + pico.margin.toFixed(2) + ")."
+                    : ' - the chain says " ' + pico.said + '" (margin ' + pico.margin.toFixed(2) + ").");
+      } else {
+        chainLine = "";
+      }
+    }
+    return {
+      kind: "reading",
+      who: "THE BENCH · from the recorded window",
+      offAir: "a hosted Wave Nano will answer this live - not yet on air",
+      tag: w.tag || r.node_id,
+      meanLine: "reads mean " + fmtN(w.mean) + (u ? " " + u : "") + " over the recorded window",
+      detail: w.n + " samples · " + fmtN(w.lo) + " … " + fmtN(w.hi) + (u ? " " + u : "") +
+        " · trend " + w.slope_per_min + "/min",
+      chainLine: chainLine,
+    };
+  }
+
+  function buildReply(text, v) {
+    if (!v) v = classify(text);
+    if (v.kind === "question") return benchReading();
     var target = lastModel();
     var wired = target ? target.label : "the chain";
     if (v.kind === "blob" || v.kind === "numbers") {
@@ -1331,10 +1480,14 @@
   function promptSend(text) {
     text = String(text || "").trim();
     if (!text) return null;
-    PATCH.reply = buildReply(text);
+    var v = classify(text);
+    // the answerer chain: live first (off air today), then the bench
+    PATCH.reply = liveAnswerer(v, liveCtx()) || buildReply(text, v);
     paintMonitor();
     react(PATCH.reply.kind === "draft"
       ? "Draft envelope built for " + PATCH.reply.wired + " - NOT RUN; no model runs in a browser."
+      : PATCH.reply.kind === "reading"
+      ? "The bench answered from the recorded window - a hosted Nano will take this live."
       : "The shim answered from the faceplate.");
     return PATCH.reply;
   }
@@ -1342,7 +1495,8 @@
   function drawReply(rep) {
     var box = el("section", "sn-stage sn-stage--reply");
     var head = el("div", "sn-stage__head");
-    head.appendChild(el("b", null, "YOUR PROMPT → " + rep.wired.toUpperCase()));
+    head.appendChild(el("b", null, rep.kind === "reading"
+      ? rep.who : "YOUR PROMPT → " + rep.wired.toUpperCase()));
     if (rep.kind === "draft") head.appendChild(el("span", "wp-tag wp-tag--draft", "DRAFT · NOT RUN"));
     var x = el("button", "ws-resp__x");
     x.type = "button";
@@ -1351,6 +1505,18 @@
     x.addEventListener("click", function () { PATCH.reply = null; paintMonitor(); });
     head.appendChild(x);
     box.appendChild(head);
+    if (rep.kind === "reading") {
+      var rd = el("p", "sn-read");
+      rd.appendChild(el("b", null, rep.tag));
+      rd.appendChild(el("span", null, " " + rep.meanLine));
+      box.appendChild(rd);
+      box.appendChild(el("p", "sn-para", rep.detail));
+      if (rep.chainLine) box.appendChild(el("p", "sn-para", rep.chainLine));
+      var off = el("p", "sn-sub sn-read__offair", rep.offAir);
+      off.title = "the answer above is a recount of the recorded window - no model produced this sentence";
+      box.appendChild(off);
+      return box;
+    }
     if (rep.kind === "draft") {
       if (rep.recognised) {
         box.appendChild(el("p", "sn-sub", "Recognised: byte-identical to the recorded pump scene's " +
@@ -1597,6 +1763,7 @@
       derive: derive,
       envelopeFor: envelopeFor,
       promptSend: promptSend,
+      liveAnswerer: liveAnswerer,
       setWindows: function (w) { PATCH.windows = w; },
       seriesOf: seriesOf,
       state: PATCH,

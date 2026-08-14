@@ -217,15 +217,36 @@ test("selector: a type's pads are exactly the truths recorded for that type", ()
   }
 });
 
-test("selector: type + condition selects the FIRST matching record - deterministic", () => {
+test("selector: each pad replays the CLEAREST recorded window - documented criteria, executed", () => {
   const h = loadHook();
+  // the same criteria table the module documents, applied independently here.
+  // stuck = flattest window (min sd relative to magnitude) because in this
+  // export every stuck window has longest_run = 1 - the sensor stops
+  // TRACKING while quantization jitter keeps neighbours unequal.
+  const score = {
+    none: (w) => -w.hf_energy,
+    stuck: (w) => -(w.sd / Math.max(Math.abs(w.mean), 1e-9)),
+    dropout: (w) => w.n_resets + (w.max_drop || 0) * 1e-6,
+    noisy: (w) => w.hf_energy,
+    drifting: (w) => Math.abs(w.slope_per_min) + (w.monotonic_frac || 0) * 1e-6,
+    railed: (w) => w.at_max_frac,
+  };
   for (const t of h.state.types) {
     for (const c of t.conds) {
-      const first = measured.records.findIndex((r) =>
-        SUFFIX_TO_KEY[typeKeyOf(r.window.tag)] === t.key && r.truth === c);
-      assert.equal(t.recIdx[c], first, `${t.key}/${c}: the same pad always replays the same record`);
+      const mine = measured.records
+        .map((r, i) => ({ r, i }))
+        .filter(({ r }) => SUFFIX_TO_KEY[typeKeyOf(r.window.tag)] === t.key && r.truth === c);
+      assert.ok(mine.some(({ i }) => i === t.recIdx[c]),
+        `${t.key}/${c}: the pick comes from that type's own records`);
+      const bestScore = Math.max(...mine.map(({ r }) => score[c](r.window)));
+      const pickedScore = score[c](measured.records[t.recIdx[c]].window);
+      assert.ok(Math.abs(pickedScore - bestScore) < 1e-9,
+        `${t.key}/${c}: the pick maximises the documented criterion`);
+      assert.ok(/chosen as the clearest recorded/.test(t.pickWhy[c]),
+        "and the pad can say why it was chosen");
     }
   }
+  assert.ok(/longest_run = 1/.test(js), "the stuck-criterion deviation is documented in the source");
 });
 
 // ---------- 2) the chain --------------------------------------------------------
@@ -379,13 +400,15 @@ test("monitor: the ticker is capped, and the announcer is sr-only", () => {
   assert.ok(/screen-reader-only/.test(css), "the announcer is sr-only");
 });
 
-test("monitor: bezel-as-chrome - the engraving crowns the bar, output room wins", () => {
-  assert.ok(css.includes("glass-monitor-ink.png"), "the engraved CRT survives as the bar's emblem");
-  assert.ok(htmlFlat.includes('class="sn-mon2__emblem" aria-hidden="true"'),
-    "and is decoration to assistive tech");
-  assert.ok(/min-height: 2[0-9]rem/.test(css), "the glass screen is the dominant element");
+test("monitor: the output lives inside the wide TV's glass", () => {
+  assert.ok(css.includes("glass-monitor-wide-ink.png"), "the wide set frames the output");
+  assert.ok(/\.sn-tv__plate \{ position: absolute; inset: 0; pointer-events: none/.test(css),
+    "the plate never catches a tap - it frames data, it never is the data");
+  assert.ok(/aspect-ratio: 750 \/ 570/.test(css), "the TV keeps the engraving's true proportions");
   assert.ok(htmlFlat.includes('id="wpMonitor"'), "the screen is the output element");
-  assert.ok(css.includes("term-keys-ink.png"), "the keyboard engraving sits by the prompt");
+  assert.ok(/glass interior of the engraving/.test(css),
+    "the screen rect is documented against the plate's interior");
+  assert.ok(css.includes("term-keys-ink.png"), "the keyboard engraving sits by the prompt shelf");
 });
 
 // ---------- interaction ------------------------------------------------------------
@@ -728,6 +751,56 @@ test("monitor: stage tabs are channel buttons, honest to the stages that exist",
   assert.ok(/\{ id: "all", label: "ALL" \}/.test(js), "ALL keeps the whole cascade");
   assert.ok(/if \(!id \|\| seen\[id\]\) return;/.test(js),
     "a tab exists only for a stage that exists");
+});
+
+// ---------- v8: honest display scale + the reading prompt ----------------------------
+
+test("strip: the display scale has a documented floor, and prints itself", () => {
+  assert.ok(/Math.max\(hi - lo, 0.03 \* Math.abs\(mean\), 1e-9\)/.test(js),
+    "the span floor is a fixed, documented formula - never a per-condition fudge");
+  assert.ok(/display scale/.test(js), "the strip prints the scale actually drawn");
+  assert.ok(/samples are untouched/.test(js), "and states that the data is untouched");
+});
+
+test("prompt: a reading question is answered by THE BENCH, never signed as a model", () => {
+  const h = loadHook();
+  h.state.chain = ["pico", "nano"];
+  h.selectType("temp", "drifting");
+  const rep = h.promptSend("what does the temperature read right now?");
+  assert.equal(rep.kind, "reading");
+  assert.ok(/THE BENCH/.test(rep.who), "signed by the bench");
+  assert.ok(/from the recorded window/.test(rep.who), "with its source named");
+  assert.ok(/not yet on air/.test(rep.offAir), "and the live seam is stated, not faked");
+  const r = measured.records[h.state.types.find((t) => t.key === "temp").recIdx.drifting];
+  assert.ok(rep.tag === r.window.tag, "the answer is about the live selection");
+  assert.ok(rep.meanLine.includes("mean"), "and reads out the recorded mean");
+  const said = r.child.margin < 1.5 ? r.parent.prediction : r.child.prediction;
+  assert.ok(rep.chainLine.includes('" ' + said + '"'),
+    "the chain's word is the recorded prediction of whoever actually answered");
+  // with nobody watching, the bench still answers but says so
+  h.state.chain = [];
+  const rep2 = h.promptSend("what is the reading now?");
+  assert.ok(/Nobody is watching this channel/.test(rep2.chainLine));
+});
+
+test("prompt: the live seam exists, returns null today, and documents its wiring", () => {
+  const h = loadHook();
+  assert.equal(h.liveAnswerer({ kind: "question" }, {}), null,
+    "no hosted band is reachable from this page - the seam must say so by returning null");
+  assert.ok(/Tower relay/.test(js), "the intended transport is documented at the seam");
+  assert.ok(/one-request-per-candidate grammar/.test(js), "with the enum protocol");
+  assert.ok(/QUESTION-FOR-MODELS-AGENT-mesh-live-prompt/.test(js),
+    "and the open ask to the models agent is referenced");
+  assert.ok(/liveAnswerer\(v, liveCtx\(\)\) \|\| buildReply/.test(js),
+    "promptSend is an answerer chain: live first, bench fallback");
+});
+
+test("classifier: reading questions route to question, chatter still routes to talk", () => {
+  const { classify } = loadHook();
+  assert.equal(classify("what does the temperature read right now?").kind, "question");
+  assert.equal(classify("how is the pressure reading?").kind, "question");
+  assert.equal(classify("what are you").kind, "talk", "no reading word - still conversation");
+  assert.equal(classify("hi").kind, "talk");
 });
 
 // ---------- the engraved plates ------------------------------------------------------

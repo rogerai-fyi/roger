@@ -511,6 +511,9 @@
                 <div class="sn-chainrail" id="wsChain" role="group" aria-label="The model chain"></div>
                 <p class="sn-roadmap sn-roadmap--chain">In a real mesh one Pico reads many
                   channels; this bench shows one for clarity.</p>
+                <span class="sn-drop" aria-hidden="true">
+                  <svg viewBox="0 0 16 26" width="16" height="26"><path class="sn-rail__cable" d="M4 2 C 12 8, 12 18, 8 24"></path><circle class="sn-rail__plug" cx="4" cy="2" r="2.2"></circle><circle class="sn-rail__plug" cx="8" cy="24" r="2.2"></circle></svg>
+                </span>
                 <div id="wsChainMenu"></div>
 
                 <span class="wp-console__k">3 &middot; THE OUTPUT</span>
@@ -520,11 +523,18 @@
                      buttons choosing which stage's output to show. -->
                 <div class="sn-mon2">
                   <div class="sn-mon2__bar">
-                    <span class="sn-mon2__emblem" aria-hidden="true"><span class="wb-plate__ink"></span></span>
                     <div class="sn-tabs" id="wsTabs"></div>
                     <span class="wp-tag wp-tag--led">REPLAY &middot; RECORDED</span>
                   </div>
-                  <div class="sn-mon2__screen" id="wpMonitor" aria-label="The monitor - the output at each stage"></div>
+                  <!-- THE TV: the engraved wide set frames the output. The
+                       plate overlays the glass (never catching a tap); the
+                       screen div sits in its transparent interior. -->
+                  <div class="sn-tv">
+                    <span class="sn-tv__plate" aria-hidden="true">
+                      <span class="wb-plate__ink"></span>
+                    </span>
+                    <div class="sn-tv__screen" id="wpMonitor" aria-label="The monitor - the output at each stage"></div>
+                  </div>
                   <div class="sn-chips" id="wpChips"></div>
                   <form class="sn-prompt" id="wpPromptForm">
                     <span class="sn-prompt__keys" aria-hidden="true"><span class="wb-plate__ink"></span></span>

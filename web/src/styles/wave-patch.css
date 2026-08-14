@@ -756,15 +756,6 @@
   transform-origin: top center;
 }
 .sn-mon2__bar { display: flex; align-items: center; gap: .7rem; flex-wrap: wrap; }
-.sn-mon2__emblem { width: 2.4rem; height: 2.1rem; position: relative; flex: none; }
-.sn-mon2__emblem .wb-plate__ink {
-  position: absolute; inset: 0; background: var(--ink-900);
-  -webkit-mask-image: url("../assets/wave/glass-monitor-ink.png");
-  mask-image: url("../assets/wave/glass-monitor-ink.png");
-  -webkit-mask-size: contain; mask-size: contain;
-  -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
-  -webkit-mask-position: center; mask-position: center;
-}
 .sn-tabs { display: flex; gap: .35rem; flex-wrap: wrap; }
 .sn-tab {
   padding: .3rem .7rem; border-radius: 6px; cursor: pointer; font: inherit;
@@ -783,20 +774,9 @@
 }
 .sn-mon2__bar .wp-tag--led { margin-left: auto; }
 
-.sn-mon2__screen {
-  min-height: 26rem; max-height: 34rem; overflow-y: auto;
-  border-radius: 10px; padding: .8rem .9rem;
-  background: var(--paper-3);
-  /* glass: an inset well with the faintest scan texture and a sheen */
-  background-image:
-    linear-gradient(165deg, rgba(255, 255, 255, .18) 0%, transparent 22%),
-    repeating-linear-gradient(to bottom, transparent 0, transparent 3px, rgba(0, 0, 0, .012) 3px, rgba(0, 0, 0, .012) 4px);
-  box-shadow: inset 0 3px 14px rgba(0, 0, 0, .18), inset 0 0 0 1px var(--hairline-2);
-  display: flex; flex-direction: column; gap: .7rem;
-}
 /* the power-on sweep when the output changes - chrome, motion-gated */
 @media (prefers-reduced-motion: no-preference) {
-  .sn-mon2__screen.is-flip { animation: sn-power .3s ease-out; }
+  .sn-tv__screen.is-flip { animation: sn-power .3s ease-out; }
   @keyframes sn-power { from { opacity: .35; filter: brightness(1.25); } to { opacity: 1; filter: none; } }
 }
 
@@ -867,4 +847,49 @@
   padding: .15rem .5rem; background: var(--paper);
 }
 .sn-roadmap--chain { text-align: left; margin-top: .2rem; }
+
+/* =====================================================================
+   THE TV (v8) - the old set, wide and huge. The engraved plate overlays
+   the glass; the output lives in its transparent interior. The TV is the
+   biggest thing on the deck; the prompt is its console shelf.
+   ===================================================================== */
+.sn-tv {
+  position: relative; width: 100%; max-width: 58rem; margin: 0 auto;
+  aspect-ratio: 750 / 570;
+}
+.sn-tv__plate { position: absolute; inset: 0; pointer-events: none; z-index: 2; }
+/* the wide set's spot plate is empty (no red on this engraving) - ink only */
+.sn-tv__plate .wb-plate__ink {
+  position: absolute; inset: 0; background: var(--ink-900);
+  -webkit-mask-image: url("../assets/wave/glass-monitor-wide-ink.png");
+  mask-image: url("../assets/wave/glass-monitor-wide-ink.png");
+  -webkit-mask-size: contain; mask-size: contain;
+  -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+  -webkit-mask-position: center; mask-position: center;
+}
+/* the glass interior of the engraving: x 130->630, y 95->435 of 750x570 */
+.sn-tv__screen {
+  position: absolute; left: 17.6%; top: 17%; width: 66.2%; height: 59%;
+  overflow-y: auto; z-index: 1;
+  border-radius: 8px; padding: .7rem .8rem; box-sizing: border-box;
+  background: var(--paper-3);
+  background-image:
+    linear-gradient(165deg, rgba(255, 255, 255, .16) 0%, transparent 20%),
+    repeating-linear-gradient(to bottom, transparent 0, transparent 3px, rgba(0, 0, 0, .012) 3px, rgba(0, 0, 0, .012) 4px);
+  box-shadow: inset 0 3px 14px rgba(0, 0, 0, .2), inset 0 0 0 1px var(--hairline-2);
+  display: flex; flex-direction: column; gap: .7rem;
+}
+.sn-tv__screen .ws-log { font-size: .5rem; }
+.sn-tv__screen .sn-strip__svg { height: 76px; }
+
+/* the chain rail drops its cable into the console */
+/* the rail's tail cable drops toward the TV; anchored under the rail's
+   monitor stub rather than floating in the column's empty middle */
+.sn-drop { display: flex; justify-content: flex-start; margin: -.2rem 0 -.3rem; padding-left: 6.5rem; }
+
+/* the reading card: the bench answering a question, never the model */
+.sn-read { margin: .25rem 0 0; font-size: var(--t-sm, .9rem); color: var(--ink-900); line-height: 1.5; }
+.sn-read b { font-family: var(--font-mono); letter-spacing: .08em; }
+.sn-read__offair { font-style: italic; }
+.sn-strip__legend { font-variant-numeric: tabular-nums; }
 

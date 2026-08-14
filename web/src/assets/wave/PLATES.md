@@ -31,6 +31,7 @@ where redness = R−max(G,B) > 28, MedianFilter 3). Spot plates must stay < 16 K
 | `sensor-oilcan-*` | Oil sight glass + dial thermometer (captions erased), no red | 265×380 | 42 KB / empty | 42 | Selector OIL TEMP icon |
 | `sensor-junction-*` | Unmarked junction box, no red | 400×300 | 62 KB / empty | 42 | Selector UNNAMED CHANNEL icon (the Sparkplug alias with no name) |
 | `glass-monitor-*` | CRT glass-screen monitor, blank screen (interior stays transparent for live text overlay), no red | 605×550 | 189 KB / empty | 42 | THE MONITOR's engraved bezel on the v6 deck |
+| `glass-monitor-wide-*` | Wide laboratory video monitor, huge blank glass screen (interior transparent for live overlay; display-strip text filled, signature zapped), no red | 750×570 | see file | 42 | The v8 OUTPUT TV - screen interior ≈ x 130→630, y 95→435 in plate coords (~17%/17% to ~84%/76%) |
 | `term-keys-*` | Vintage terminal keyboard, coiled cable (bezel pseudo-text zapped, display strip filled solid), no red | 660×295 | see file | 42 | The v7 monitor's prompt-input emblem |
 
 Notes:

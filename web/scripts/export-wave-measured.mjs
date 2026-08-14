@@ -144,7 +144,22 @@ function windowOf(channelId) {
     lo: num(/range=\[([-\d.]+),/),
     hi: num(/range=\[[-\d.]+,([-\d.]+)\]/),
     mean: num(/mean=([-\d.]+)/),
+    sd: num(/sd=([-\d.]+)/),
     slope_per_min: num(/slope_per_min=([-\d.]+)/),
+    // the full fingerprint of HOW the window misbehaves - these let the deck
+    // pick, deterministically and by documented criterion, the recorded
+    // instance that most clearly EXPRESSES a condition (max longest_run for
+    // stuck, max gap_frac for dropout, ...), and to scale traces honestly
+    hf_energy: num(/hf_energy=([-\d.]+)/),
+    repeat_frac: num(/repeat_frac=([-\d.]+)/),
+    longest_run: num(/longest_run=(\d+)/),
+    zero_frac: num(/zero_frac=([-\d.]+)/),
+    at_max_frac: num(/at_max_frac=([-\d.]+)/),
+    gap_frac: num(/gap_frac=([-\d.]+)/),
+    monotonic_frac: num(/monotonic_frac=([-\d.]+)/),
+    n_resets: num(/n_resets=(\d+)/),
+    max_drop: num(/max_drop=([-\d.]+)/),
+    sign_changes: num(/sign_changes=(\d+)/),
     body, // the literal window the model read - the sensor's honest "log"
   };
 }
