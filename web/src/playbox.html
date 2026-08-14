@@ -479,19 +479,14 @@
           </div>
 
 
-          <!-- ================= THE SIGNAL BENCH - the instrument =================
-               The whole deck is ONE dark instrument: a bezel with its own scoped
-               palette sitting on the cream page like a piece of rack gear on a
-               workbench. Inside: an n8n-style node canvas (recorded sensors ->
-               models -> senior -> the output lamp, cables drawn from the same
-               coordinates the nodes are placed by), a channel strip with the
-               verdict lamp, an MPC-style pad row that dials the selected bay's
-               RECORDED conditions, and a phosphor terminal showing the literal
-               window the model read.
-
-               Everything replayed here is a RECORDED run. No model executes in
-               this browser, so a lamp may only change colour because a recount
-               of real records changed it. -->
+          <!-- ================= THE SIGNAL BENCH - one sentence ==============
+               [SENSOR SELECTOR] -> [MODEL CHAIN] -> [THE MONITOR]
+               Pick a recorded sensor type, dial a recorded condition, chain
+               models, and THE MONITOR - the hero - shows the output at every
+               stage as a readability cascade. Everything replayed here is a
+               RECORDED run: no model executes in a browser, so a lamp may
+               only change colour because a recount of real records changed
+               it, and every stage prints recorded fields only. -->
           <div class="syn" id="wbBench">
             <div class="syn__head">
               <span class="syn__screw" aria-hidden="true"></span>
@@ -501,55 +496,44 @@
               <span class="syn__screw" aria-hidden="true"></span>
             </div>
 
-            <div class="syn__main">
-              <div class="syn__canvaswrap">
-                <div class="syn__canvas">
-                  <svg class="wb-cables" id="wbCables" aria-hidden="true"></svg>
-                  <div class="ws-rack" id="wsRack" role="group" aria-label="The node canvas: sensors, models, senior, output"></div>
-                </div>
+            <div class="sn-deck">
+              <!-- 1) the sensor selector -->
+              <div class="sn-side">
+                <span class="wp-console__k">1 &middot; PICK A SENSOR</span>
+                <div class="sn-types" id="wsTypes"></div>
+                <div class="syn__pads sn-side__pads" id="wsPads"></div>
+                <button class="sn-paste" id="wsPaste" type="button">&#9636; PASTE YOUR OWN BYTES</button>
+                <p class="sn-roadmap">one sensor at a time &middot; more sensors soon</p>
               </div>
 
-              <!-- The channel strip: where the chain ends. The lamp window is
-                   the founder-mandated green/yellow/red verdict (NE-107-style
-                   shapes ride along); WHAT IT SAYS is the per-bay replay of
-                   the recorded predictions; the strip is a chart recorder
-                   narrating every move. All RECOUNTS. -->
-              <aside class="wp-console" aria-label="Fleet status">
-                <span class="wp-console__k">FLEET STATUS</span>
-                <div class="wp-lampwin" id="wpLamp2" data-state="off"></div>
-                <p class="wp-why" id="wpWhy"></p>
-                <span class="wp-console__k">SENIOR RACK</span>
-                <div id="wbSenior"></div>
-                <div class="wp-console__op" id="wbOp"></div>
-                <span class="wp-console__k">WHAT IT SAYS &middot; RECORDED</span>
-                <ol class="wp-reads" id="wpReads"></ol>
-                <span class="wp-console__k">CHART STRIP</span>
-                <ol class="wp-strip" id="wpStrip"></ol>
-              </aside>
-            </div>
+              <!-- 2) the chain, 3) the monitor -->
+              <div class="sn-flow">
+                <span class="wp-console__k">2 &middot; CHAIN MODELS</span>
+                <div class="sn-chainrail" id="wsChain" role="group" aria-label="The model chain"></div>
+                <div id="wsChainMenu"></div>
 
-            <div class="syn__lower">
-              <div class="syn__pads" id="wsPads"></div>
-              <div class="syn__term">
-                <span class="wp-console__k">TERMINAL &middot; THE SELECTED BAY</span>
-                <div id="wpInspect">
-                  <p class="wp-inspect__placeholder">Tap a node on the canvas -
-                    its record, its log, and its model's response print here.</p>
+                <span class="wp-console__k">3 &middot; THE OUTPUT</span>
+                <div class="sn-monitor">
+                  <span class="sn-monitor__plate" aria-hidden="true">
+                    <span class="wb-plate__ink"></span>
+                  </span>
+                  <div class="sn-monitor__screen" id="wpMonitor" aria-label="The monitor - the output at each stage"></div>
                 </div>
+
+                <div class="sn-foot">
+                  <div class="wp-lampwin" id="wpLamp2" data-state="off"></div>
+                  <p class="wp-why" id="wpWhy"></p>
+                  <div class="wp-console__op" id="wbOp"></div>
+                </div>
+                <ol class="wp-strip wp-strip--ticker" id="wpStrip"></ol>
+                <div id="wpCertHost"></div>
               </div>
             </div>
 
             <!-- ================= INTAKE - THE TRANSLATION SHIM =================
-                 Handoff 3: Wave models cannot be free-chatted - a task-native
-                 base model given "hi" dreams a Modbus register table. So every
-                 human input is CLASSIFIED and WRAPPED into the protocol, and
-                 the shim shows its work: each detection row prints the evidence
-                 for its own guess, and thin evidence refuses to guess.
-
-                 Nothing pasted here is ever "run": no model executes in a
-                 browser, and a margin is a logprob difference nothing here can
-                 compute. What a paste earns is the REQUEST ENVELOPE - the exact
-                 bytes that would go to a stock llama-server - DRAFT · NOT RUN. -->
+                 Handoff 3: Wave models cannot be free-chatted - every human
+                 input is CLASSIFIED and WRAPPED, the shim shows its evidence,
+                 and a paste earns the REQUEST ENVELOPE, DRAFT · NOT RUN. -->
             <section class="wp-intake" id="wpIntake" hidden aria-label="Intake - the translation shim">
               <div class="wp-panel__head">
                 <b>INTAKE &middot; THE TRANSLATION SHIM</b>

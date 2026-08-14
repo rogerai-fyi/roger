@@ -1,34 +1,26 @@
 /* =====================================================================
    RogerAI - THE SIGNAL BENCH (Playbox / WAVE MESH)
 
-   A rack of live recorded instruments. Each bay is a REAL sensor from
-   the measured fleet run - its tag, its stated unit, its window bounds,
-   and the literal log the model read. With no model attached, a sensor
-   does what sensors do: it writes to its log. Tap the [+] at the end of
-   a bay to attach a model - the whole Wave family is on the menu, sized
-   so you can SEE how big each one is - and the bay shows what the model
-   READS (the window, its bounds) and what it SAYS (the recorded
-   prediction, its margin, assert or escalate).
+   One sentence, left to right:
 
-   THE CONCEPT (founder direction 2026-08-13, fourth revision):
+     [SENSOR SELECTOR] -> [MODEL CHAIN] -> [THE MONITOR]
 
-   SENSORS THAT MAKE SENSE. Bays carry the recorded tags
-     (AIR003_DISCHARGE_TEMP, not c00), the stated unit - or "unit not
-     stated", because a defaulted unit is an invented fact - and a
-     bounds meter drawn from the recorded window. The CONDITION dial's
-     positions are exactly the conditions recorded for that channel;
-     each position replays one deterministic recorded instance.
+   Pick a sensor type - the types are derived from the recorded tags, so
+   the selector cannot offer a sensor nothing measured. Its pads dial a
+   RECORDED condition; type + condition select one deterministic record.
+   Then daisy-chain models into the rail: each stage transforms the
+   output, and THE MONITOR - the hero of the deck - shows the output at
+   every stage as a readability cascade: the raw wire, then the Pico's
+   protocol line, then the Nano's human-readable verdict. Adding a model
+   visibly adds a more-readable stage. That is the whole product.
 
-   MODELS YOU CAN SIZE AT A GLANCE. The attach menu draws every family
-     slot as an engraved radio scaled to its parameter count - a Pico is
-     a pocket set, a Nano a tabletop receiver, a Satellite a rack - with
-     what it runs on, in plain words. Only the two slots with a recorded
-     run on this bench can speak; the rest attach honestly as silent.
-
-   HONESTY, unchanged: no model executes in a browser. Every word in a
-     bay's response panel is a FIELD of a recorded record; the log
-     window is the byte-for-byte input body the model actually read;
-     the task frame is now EXPORTED, verbatim, from the bench file.
+   HONESTY, unchanged: no model executes in a browser. The raw stage is
+   the byte-for-byte recorded window; the Pico and Nano stages print
+   recorded fields only; the verdict paragraph is a fixed template over
+   recorded fields plus a STATIC fault-kind glossary (labelled as
+   glossary - documentation, not measurement). Unrecorded family members
+   chain in but their stage says "no recorded transcript - output
+   unchanged". A margin is a logprob difference nothing here computes.
    ===================================================================== */
 (function () {
   "use strict";
@@ -54,33 +46,36 @@
   var DETENTS = [0.5, 1.0, 1.5, 2.0];
   var TOP = DETENTS[DETENTS.length - 1];
 
-  /* ---- the model family: the whole shelf, honestly labelled -------------
-     Sizes, statuses and runs-on are the family page's own. Only two slots
-     have a recorded run on THIS bench: the reader the records call `child`
-     (deck name Wave Pico) and the senior they call `parent` (Wave Nano).
-     The icon scale is the size argument made visible: a pocket set, a
-     tabletop receiver, a rack. */
+  /* ---- the model family: sizes, statuses, runs-on from the family page.
+     `does` is each slot's transform, in plain words, for its chain card. */
   var FAMILY = [
     { id: "edge", label: "Roger Edge", size: "KB-10M", status: "in design",
       runs: "ESP32 · Cortex-M", icon: "pocket", px: 26,
+      does: "wake and sensing tier",
       blurb: "wake and sensing tier - in design" },
     { id: "pico", label: "Wave Pico", size: "270M", status: "recorded",
       runs: "gateway class", icon: "pocket", px: 38,
+      does: "classifies: asserts or escalates",
       blurb: "the recorded reader on this bench" },
     { id: "nano", label: "Wave Nano", size: "~350M", status: "recorded",
       runs: "phone · Pi · gateway", icon: "reader", px: 46,
+      does: "adjudicates and makes sense of it",
       blurb: "the recorded senior - adjudicates doubtful reads" },
     { id: "micro", label: "Wave Micro", size: "1-8B", status: "trained",
       runs: "laptop · edge computer", icon: "reader", px: 58,
+      does: "local reasoning tier",
       blurb: "trained, but has no recorded run on this bench" },
     { id: "core", label: "Wave Core", size: "8-30B", status: "planned",
       runs: "single GPU · control room", icon: "senior", px: 52,
+      does: "control-room synthesis tier",
       blurb: "planned slot" },
     { id: "station", label: "Wave Station", size: "30-70B", status: "planned",
       runs: "rack · plant server", icon: "senior", px: 62,
+      does: "plant-server tier",
       blurb: "planned slot" },
     { id: "satellite", label: "Wave Satellite", size: "~70B+", status: "planned",
       runs: "plant server room", icon: "senior", px: 74,
+      does: "plant-wide tier",
       blurb: "planned slot" },
   ];
   function familyById(id) {
@@ -88,234 +83,300 @@
     return null;
   }
 
+  /* ---- the fault-kind GLOSSARY. STATIC DOCUMENTATION, not measurement:
+     these are the standard sensor-health terms the suite labels with. The
+     monitor marks every use with a "glossary" microlabel so a fixed
+     dictionary can never read as a recorded fact. */
+  var GLOSSARY = {
+    none: "the channel reads as a healthy instrument should",
+    stuck: "the reading freezes at one value and stops responding",
+    dropout: "the reading intermittently vanishes",
+    noisy: "excess random variation swamps the signal",
+    drifting: "the reading slides steadily away from the truth",
+    railed: "the reading pins at the top or bottom of its range",
+  };
+
+  /* ---- sensor TYPES: derived from the recorded tags. A suffix like
+     _DISCHARGE_TEMP groups its records into a type; the AI_xxxx tags -
+     Sparkplug aliases with no name - group into UNNAMED CHANNEL, which is
+     kept on the selector deliberately: real plants are full of them. */
+  var TYPE_DEFS = [
+    { key: "temp", label: "DISCHARGE TEMP", icon: "thermo", suffixes: ["DISCHARGE_TEMP"] },
+    { key: "press", label: "PRESSURE", icon: "gauge", suffixes: ["DISCHARGE_PRESS", "SUCTION_PRESS"] },
+    { key: "vib", label: "VIBRATION", icon: "vibro", suffixes: ["VIBRATION"] },
+    { key: "amp", label: "MOTOR CURRENT", icon: "ammeter", suffixes: ["MOTOR_CURRENT"] },
+    { key: "oil", label: "OIL TEMP", icon: "oilcan", suffixes: ["OIL_TEMP"] },
+    { key: "unnamed", label: "UNNAMED CHANNEL", icon: "junction", suffixes: [] },
+  ];
+
   var UNIT_WORD = { Cel: "°C", kPa: "kPa", "mm/s": "mm/s", A: "A" };
+  var CONDW = { none: "OK" };
 
   var PATCH = {
     catalog: null, measured: null, scene: null,
-    sensors: [],          // the bays, built from the records at boot
-    senior: false,        // Wave Nano seated in the senior rack
-    operator: false,      // the console's ON SHIFT switch
+    types: [],            // built from the records at boot
+    typeKey: null,        // the selected sensor type
+    cond: "none",         // the dialed condition (a recorded truth)
+    yours: false,         // YOUR DATA selected instead of a recorded type
+    chain: [],            // family ids, in daisy-chain order
+    floor: 1.5,           // the Pico's margin floor (measured detents)
+    operator: false,      // the lever by the monitor footer
     yourData: null,       // the intake's pasted channel, if any
     verdict: null,
-    menuFor: null,        // bay ch whose attach menu is open
-    sel: null,            // the selected bay (its pads + terminal are shown)
+    menuFor: null,        // chain slot index whose attach menu is open
     booted: false,
-    step: 0,              // strip line counter
+    step: 0,
   };
 
-  /* ---- bays: built FROM the records, never beside them -------------------
-     Each bay is one recorded channel slot (c00..c05). Its dial positions
-     are the truths that actually occur for that slot in the 120-record
-     sample, each mapped to the FIRST record carrying it - deterministic,
-     so the same dial position always replays the same recorded instance.
-     Dialing changes which recorded machine's instrument sits in the bay,
-     so the bay RELABELS itself with the record's own tag. */
-  function buildSensors() {
+  function buildTypes() {
     var m = PATCH.measured;
     if (!m) return;
-    var byCh = {};
+    var bySuffix = {};
     m.records.forEach(function (r, i) {
-      var ch = r.node_id.slice(-3);
-      byCh[ch] = byCh[ch] || {};
-      if (!(r.truth in byCh[ch])) byCh[ch][r.truth] = i;
+      var tag = (r.window && r.window.tag) || "";
+      var key = /^AI_\d+$/.test(tag) ? "unnamed" : tag.replace(/^[A-Z]+\d+_/, "");
+      bySuffix[key] = bySuffix[key] || [];
+      bySuffix[key].push(i);
     });
-    PATCH.sensors = Object.keys(byCh).sort().map(function (ch, i) {
-      var conds = Object.keys(byCh[ch]).sort(function (a, b) {
+    PATCH.types = [];
+    TYPE_DEFS.forEach(function (def) {
+      var idxs = def.key === "unnamed" ? (bySuffix.unnamed || [])
+        : def.suffixes.reduce(function (acc, s) { return acc.concat(bySuffix[s] || []); }, []);
+      if (!idxs.length) return; // a type exists only if the records do
+      idxs.sort(function (a, b) { return a - b; });
+      var recIdx = {};
+      idxs.forEach(function (i) {
+        var t = m.records[i].truth;
+        if (!(t in recIdx)) recIdx[t] = i; // FIRST in file order - deterministic
+      });
+      var conds = Object.keys(recIdx).sort(function (a, b) {
         if (a === "none") return -1;
         if (b === "none") return 1;
         return a < b ? -1 : 1;
       });
-      return { ch: ch, n: i + 1, conds: conds, recIdx: byCh[ch],
-               on: i < 3, cond: "none", model: null, floor: 1.5 };
+      PATCH.types.push({ key: def.key, label: def.label, icon: def.icon,
+                         count: idxs.length, conds: conds, recIdx: recIdx });
     });
+    if (!PATCH.typeKey && PATCH.types[0]) PATCH.typeKey = PATCH.types[0].key;
   }
-  function liveSensors() {
-    return PATCH.sensors.filter(function (s) { return s.on; });
-  }
-  function recordOf(s) {
-    return PATCH.measured.records[s.recIdx[s.cond]];
-  }
-  var CONDW = { none: "OK" };
 
-  function tagOf(s) {
-    var w = recordOf(s).window;
-    return (w && w.tag) ? w.tag : ("CHANNEL " + s.ch);
+  function typeOf(key) {
+    for (var i = 0; i < PATCH.types.length; i++) if (PATCH.types[i].key === key) return PATCH.types[i];
+    return null;
   }
-  function unitOf(s) {
-    var w = recordOf(s).window;
-    if (!w || !w.unit) return null;
-    return UNIT_WORD[w.unit] || w.unit;
+  function currentType() { return typeOf(PATCH.typeKey); }
+
+  // The selected RECORD: type + condition, deterministically.
+  function currentRecord() {
+    if (PATCH.yours) return null;
+    var t = currentType();
+    if (!t || !PATCH.measured) return null;
+    var i = t.recIdx[PATCH.cond] != null ? t.recIdx[PATCH.cond] : t.recIdx[t.conds[0]];
+    return PATCH.measured.records[i];
+  }
+  function unitWordOf(r) {
+    var u = r && r.window && r.window.unit;
+    if (!u) return null;
+    return UNIT_WORD[u] || u;
+  }
+
+  /* ---- the chain, read for meaning ---------------------------------------
+     The FIRST recorded reader in the chain reads the wire (Pico asserts or
+     escalates at the floor; Nano reads direct). A Nano placed after a Pico
+     is the senior. Everything unrecorded is a pass-through: honestly
+     silent, output unchanged. */
+  function chainInfo() {
+    var picoAt = -1, nanoAt = -1;
+    PATCH.chain.forEach(function (id, i) {
+      if (id === "pico" && picoAt < 0) picoAt = i;
+      if (id === "nano" && nanoAt < 0) nanoAt = i;
+    });
+    return {
+      picoAt: picoAt, nanoAt: nanoAt,
+      senior: picoAt >= 0 && nanoAt > picoAt,
+      reader: picoAt >= 0 ? "pico" : (nanoAt >= 0 ? "nano" : null),
+    };
+  }
+
+  function selectType(key, cond) {
+    var t = typeOf(key);
+    if (!t) return;
+    PATCH.yours = false;
+    PATCH.typeKey = key;
+    PATCH.cond = (cond != null && t.recIdx[cond] != null) ? cond
+      : (t.recIdx[PATCH.cond] != null ? PATCH.cond : t.conds[0]);
   }
 
   /* =====================================================================
-     THE DERIVATION - one recorded record per live bay, recounted
+     THE CASCADE - the output at each stage, recorded fields only
      ===================================================================== */
-  function readOf(s) {
-    var r = recordOf(s);
-    var fam = familyById(s.model);
-    if (!fam) return { s: s, r: r, nodata: true, silent: "logging only" };
-    if (fam.status !== "recorded") {
-      return { s: s, r: r, nodata: true,
-               silent: fam.label + " has no recorded run on this bench" };
+  function stages() {
+    var out = [];
+    if (PATCH.yours && PATCH.yourData) {
+      out.push({ kind: "raw", who: "YOUR BYTES", body: PATCH.yourData.body || "",
+                 tag: "your channel", draft: true });
+      if (PATCH.chain.length) {
+        out.push({ kind: "draft", who: "THE CHAIN",
+                   envelope: envelopeFor(PATCH.yourData) });
+      }
+      return out;
     }
-    if (fam.id === "nano") {
-      // parent-direct: the measured config where the senior reads directly
-      return { s: s, r: r, said: r.parent.prediction, margin: r.parent.margin,
-               via: "reads direct", esc: false, ok: r.parent.prediction === r.truth };
+    var r = currentRecord();
+    if (!r) return out;
+    var w = r.window || {};
+    out.push({ kind: "raw", who: "RAW WIRE", body: w.body ||
+      "(this record's window was not exported - the log is absent, not invented)",
+      tag: w.tag, unit: unitWordOf(r), r: r });
+
+    var info = chainInfo();
+    var escalated = false, answered = false;
+    PATCH.chain.forEach(function (id, i) {
+      var fam = familyById(id);
+      if (!fam) return;
+      if (fam.status !== "recorded") {
+        out.push({ kind: "silent", who: fam.label.toUpperCase(), fam: fam });
+        return;
+      }
+      if (id === "pico" && i === info.picoAt) {
+        var esc = r.child.margin < PATCH.floor;
+        escalated = esc;
+        if (!esc) answered = true;
+        out.push({ kind: "pico", who: "WAVE PICO", esc: esc,
+                   said: r.child.prediction, margin: r.child.margin,
+                   floor: PATCH.floor, ok: r.child.prediction === r.truth, r: r });
+        return;
+      }
+      if (id === "nano") {
+        if (i === info.nanoAt && info.senior && !escalated) {
+          // the senior only speaks when a read reaches it
+          out.push({ kind: "quietSenior", who: "WAVE NANO",
+                     note: "the Pico asserted below - nothing escalated to the senior on this record" });
+          return;
+        }
+        answered = true;
+        out.push(nanoStage(r, w));
+        return;
+      }
+      // a second pico, or a nano before a pico: pass-through, stated
+      out.push({ kind: "silent", who: fam.label.toUpperCase(), fam: fam });
+    });
+    if (escalated && !answered) {
+      out.push({ kind: "deadend", who: "NOBODY",
+                 note: "the Pico escalated and no senior is in the chain - the doubt goes unheard" });
     }
-    // pico: assert or escalate at THIS bay's floor
-    if (r.child.margin >= s.floor) {
-      return { s: s, r: r, said: r.child.prediction, margin: r.child.margin,
-               via: "asserts", esc: false, ok: r.child.prediction === r.truth };
-    }
-    if (PATCH.senior) {
-      return { s: s, r: r, said: r.parent.prediction, margin: r.child.margin,
-               via: "doubts, senior says", esc: true, ok: r.parent.prediction === r.truth };
-    }
-    return { s: s, r: r, said: null, margin: r.child.margin,
-             via: "doubts - nobody to ask", esc: true, deadEnd: true, ok: false };
+    return out;
   }
 
+  // The Nano's stage: the human-readable verdict. A fixed TEMPLATE over
+  // recorded fields, plus the static glossary - never generated prose.
+  function nanoStage(r, w) {
+    var pred = r.parent.prediction;
+    var isFault = r.truth !== "none";
+    var predRight = pred === r.truth;
+    var outcome = predRight
+      ? (isFault ? "caught: the recorded truth is " + r.truth
+                 : "quiet: the recorded truth is none")
+      : (isFault ? "MISSED: the recorded truth is " + r.truth
+                 : "false alarm: the recorded truth is none");
+    var para = "On " + (w.tag || r.node_id) + ": " +
+      (w.n ? w.n + " samples, " : "") +
+      (w.lo != null ? w.lo + " … " + w.hi + (unitWordOf(r) ? " " + unitWordOf(r) : "") +
+        ", mean " + w.mean + ". " : "") +
+      'The senior read the window and said " ' + pred + '" (margin ' +
+      r.parent.margin.toFixed(2) + ") - " + outcome + ".";
+    return { kind: "nano", who: "WAVE NANO", verdict: pred,
+             gloss: GLOSSARY[pred] || null, para: para,
+             ok: predRight, isFault: isFault, r: r };
+  }
+
+  /* =====================================================================
+     THE DERIVATION - one record through one chain, recounted
+     ===================================================================== */
   function derive() {
     if (!PATCH.measured) return;
-    var live = liveSensors();
-    var reads = live.map(readOf);
-    var modeled = reads.filter(function (rd) { return !rd.nodata; });
-    var anyRecorded = PATCH.sensors.some(function (s) {
-      var f = familyById(s.model); return f && f.status === "recorded";
-    });
-
-    var t = { live: live.length, modeled: modeled.length, faults: 0, caught: 0,
-              missed: 0, fixable: 0, deadEnd: 0, falseAlarms: 0, escalated: 0 };
-    modeled.forEach(function (rd) {
-      var isFault = rd.r.truth !== "none";
-      if (isFault) t.faults++;
-      if (rd.esc) t.escalated++;
-      if (rd.deadEnd) { if (isFault) t.missed++; t.deadEnd++; return; }
-      if (rd.ok) { if (isFault) t.caught++; return; }
-      if (isFault) {
-        t.missed++;
-        // FIXABLE: a higher detent on that bay's knob would have escalated
-        // the read, and the recorded senior had the right answer. Everything
-        // else missed is the ladder's measured ceiling on this dialed set.
-        if (!rd.esc && rd.r.parent.prediction === rd.r.truth && rd.r.child.margin < TOP) {
-          t.fixable++;
-        }
-      } else {
-        t.falseAlarms++;
-      }
-    });
-
+    var st = stages();
     var state, why, label = null;
-    if (!anyRecorded) {
+
+    if (PATCH.yours) {
       state = "off";
-      why = PATCH.sensors.some(function (s) { return s.model; })
-        ? "The attached models have no recorded run on this bench - the lamp only glows " +
-          "for recounts of recorded records. Attach Wave Pico or Wave Nano."
-        : "Sensors are logging, nobody is reading. Tap the [+] at the end of a bay to attach a model.";
-    } else if (!t.modeled) {
-      state = "off"; why = "Every bay with a model is switched off. Flip a lever.";
-    } else if (t.deadEnd > 0 && t.missed > 0) {
-      state = "red";
-      why = t.missed + " dialed fault" + (t.missed === 1 ? "" : "s") + " missed and " +
-        t.deadEnd + " doubtful read" + (t.deadEnd === 1 ? "" : "s") + " with nobody to ask - " +
-        "seat Wave Nano in the senior rack.";
-    } else if (t.fixable > 0) {
-      state = "red";
-      why = t.fixable + " dialed fault" + (t.fixable === 1 ? "" : "s") + " missed that a higher " +
-        "floor would have escalated - and the recorded senior had the right answer. " +
-        "Raise the FLOOR knob on that bay.";
-    } else if (t.deadEnd > 0) {
-      state = "yellow";
-      why = t.deadEnd + " doubtful read" + (t.deadEnd === 1 ? "" : "s") + " with nobody to ask - " +
-        "seat Wave Nano in the senior rack.";
-    } else if (!PATCH.operator) {
-      state = "yellow";
-      why = "The chain works, but no operator is on shift - flip the console switch; " +
-        "the ladder should end with a person.";
-    } else if (t.missed === 0) {
-      state = "green";
-      why = t.faults
-        ? "Complete chain: every dialed fault caught, operator on shift."
-        : "All quiet: every read bay dialed OK, and the models agree.";
-    } else {
-      state = "green"; label = "AT CEILING";
-      why = "Complete chain at its measured ceiling: " + t.caught + " of " + t.faults +
-        " dialed faults caught. The remaining " + t.missed + " were missed by the recorded " +
-        "senior itself - no knob setting changes that.";
+      why = PATCH.chain.length
+        ? "Your bytes are a DRAFT - nothing ran, so the lamp has nothing honest to show. The monitor holds the request envelope."
+        : "Your bytes are on the bench. Chain a model to see the envelope it would earn.";
+      PATCH.verdict = { state: state, why: why, label: null, stages: st };
+      paintMonitor();
+      return;
     }
-    PATCH.verdict = { state: state, why: why, label: label, totals: t, reads: reads };
-    paintConsole();
-  }
 
-  /* ---- the status console: lamp, why, reads, strip ----------------------- */
-  var LAMP_FACE = {
-    off:    { sym: "·", label: "STANDING BY" },
-    green:  { sym: "●", label: "ALL CLEAR" },
-    yellow: { sym: "△", label: "DEGRADED" },
-    red:    { sym: "⊗", label: "FAULTS MISSED" },
-  };
-
-  function paintConsole() {
-    var v = PATCH.verdict;
-    if (!v) return;
-    var lamp = $("wpLamp2");
-    if (lamp) {
-      lamp.dataset.state = v.state;
-      var f = LAMP_FACE[v.state] || LAMP_FACE.off;
-      lamp.textContent = "";
-      lamp.appendChild(el("span", "wp-lampwin__sym", f.sym));
-      lamp.appendChild(el("span", "wp-lampwin__label", v.label || f.label));
-    }
-    var why = $("wpWhy");
-    if (why) why.textContent = v.why;
-    paintReads();
-  }
-
-  // WHAT IT SAYS: one printed line per read bay - the recorded prediction,
-  // its margin, and the outcome. A replay, never a run.
-  function paintReads() {
-    var host = $("wpReads");
-    if (!host) return;
-    host.textContent = "";
-    var v = PATCH.verdict;
-    if (!v) return;
-    var any = false;
-    v.reads.forEach(function (rd) {
-      if (rd.nodata) return;
-      any = true;
-      var li = el("li", "wp-read" + (rd.esc ? " wp-read--esc" : ""));
-      li.appendChild(el("b", null, "S" + rd.s.n));
-      li.appendChild(el("span", "wp-read__cond", CONDW[rd.s.cond] || rd.s.cond.toUpperCase()));
-      li.appendChild(el("span", "wp-read__said",
-        rd.via + " " + (rd.deadEnd ? '" ?"' : '" ' + rd.said + '"')));
-      li.appendChild(el("span", "wp-read__m", rd.margin.toFixed(2)));
-      var isFault = rd.r.truth !== "none";
-      var mark = rd.deadEnd ? "unheard"
-        : rd.ok ? (isFault ? "caught" : "quiet")
-        : (isFault ? "MISSED" : "false alarm");
-      li.appendChild(el("span", "wp-read__mark wp-read__mark--" + (rd.deadEnd ? "dead" : rd.ok ? "ok" : "bad"), mark));
-      li.title = "recorded record " + rd.r.node_id + " (scene " + rd.r.scene_id + ") · truth " +
-        rd.r.truth + " · child said " + rd.r.child.prediction + " (margin " +
-        rd.r.child.margin.toFixed(2) + ") · senior said " + rd.r.parent.prediction +
-        " (margin " + rd.r.parent.margin.toFixed(2) + ")";
-      host.appendChild(li);
+    var r = currentRecord();
+    var info = chainInfo();
+    var isFault = r && r.truth !== "none";
+    var hasRecorded = PATCH.chain.some(function (id) {
+      var f = familyById(id); return f && f.status === "recorded";
     });
-    if (!any) {
-      host.appendChild(el("li", "wp-read wp-read--quiet",
-        "— sensors are logging; attach a model to hear a reading —"));
+
+    if (!PATCH.chain.length) {
+      state = "off"; why = "The sensor is emitting raw wire. Tap [+] on the rail to chain a model.";
+    } else if (!hasRecorded || !info.reader) {
+      state = "off";
+      why = "Nothing in the chain has a recorded run on this bench - the lamp only glows " +
+        "for recounts of recorded records. Chain Wave Pico or Wave Nano.";
+    } else {
+      // walk the record through the chain
+      var missed = false, fixable = false, deadEnd = false, caught = false, falseAlarm = false;
+      if (info.reader === "nano" && info.picoAt < 0) {
+        var okN = r.parent.prediction === r.truth;
+        if (okN) { if (isFault) caught = true; }
+        else if (isFault) missed = true;
+        else falseAlarm = true;
+      } else {
+        var esc = r.child.margin < PATCH.floor;
+        if (!esc) {
+          var okC = r.child.prediction === r.truth;
+          if (okC) { if (isFault) caught = true; }
+          else if (isFault) {
+            missed = true;
+            if (r.parent.prediction === r.truth && r.child.margin < TOP) fixable = true;
+          } else falseAlarm = true;
+        } else if (info.senior) {
+          var okP = r.parent.prediction === r.truth;
+          if (okP) { if (isFault) caught = true; }
+          else if (isFault) missed = true;
+          else falseAlarm = true;
+        } else {
+          deadEnd = true;
+          if (isFault) missed = true;
+        }
+      }
+
+      if (deadEnd && missed) {
+        state = "red";
+        why = "The dialed fault went unheard - the Pico doubted, and there is no senior in the chain. Chain Wave Nano after it.";
+      } else if (fixable) {
+        state = "red";
+        why = "The dialed fault was missed - and a higher floor would have escalated it to a senior who, in the recorded run, had the right answer. Raise the FLOOR knob.";
+      } else if (deadEnd) {
+        state = "yellow";
+        why = "The Pico doubts this read and has nobody to ask - chain Wave Nano after it.";
+      } else if (!PATCH.operator) {
+        state = "yellow";
+        why = "The chain works, but no operator is on shift - flip the lever by the monitor; the ladder should end with a person.";
+      } else if (!missed) {
+        state = "green";
+        why = caught ? "Fault caught, operator on shift. Complete chain."
+          : falseAlarm ? "A false alarm - the chain cried fault on a healthy channel. The operator will read it."
+          : "All quiet: the channel is dialed OK and the chain agrees.";
+        if (falseAlarm) { state = "yellow"; }
+      } else {
+        state = "green"; label = "AT CEILING";
+        why = "This fault was missed by the recorded senior itself - no knob setting changes that. " +
+          "The chain is at its measured ceiling on this record.";
+      }
     }
-    if (PATCH.yourData) {
-      var li2 = el("li", "wp-read wp-read--quiet");
-      li2.appendChild(el("b", null, "YOU"));
-      li2.appendChild(el("span", "wp-read__said",
-        "your channel · DRAFT - nothing ran; open YOUR DATA's bay for the request envelope"));
-      host.appendChild(li2);
-    }
+    PATCH.verdict = { state: state, why: why, label: label, stages: st };
+    paintMonitor();
   }
 
-  // The strip is a chart recorder: one printed line per reaction, newest on
-  // top, capped. It narrates cause and effect as the switches flip.
+  /* ---- the announcer + one-line ticker ------------------------------------ */
   function react(msg) {
     var strip = $("wpStrip");
     if (strip) {
@@ -324,23 +385,10 @@
       li.appendChild(el("span", "wp-strip__t", String(PATCH.step).padStart(3, "0")));
       li.appendChild(el("span", null, msg));
       strip.insertBefore(li, strip.firstChild);
-      while (strip.childNodes.length > 6) strip.removeChild(strip.lastChild);
+      while (strip.childNodes.length > 2) strip.removeChild(strip.lastChild);
     }
     var say = $("wpSay");
     if (say) say.textContent = msg;
-  }
-
-  function reactStats() {
-    var v = PATCH.verdict;
-    if (!v || !v.totals.modeled) return;
-    var t = v.totals;
-    var bits = [t.modeled + " bay" + (t.modeled === 1 ? "" : "s") + " read"];
-    if (t.faults) bits.push(t.faults + " dialed fault" + (t.faults === 1 ? "" : "s"));
-    if (t.caught) bits.push(t.caught + " caught");
-    if (t.missed) bits.push(t.missed + " missed");
-    if (t.deadEnd) bits.push(t.deadEnd + " unheard");
-    if (t.falseAlarms) bits.push(t.falseAlarms + " false alarm" + (t.falseAlarms === 1 ? "" : "s"));
-    react(bits.join(" · "));
   }
 
   /* =====================================================================
@@ -430,37 +478,18 @@
   }
 
   /* =====================================================================
-     RENDER - the node canvas, the channel strip, the pads, the terminal
-
-     The deck is one dark INSTRUMENT: a bezel with its own scoped palette
-     (--syn-*), sitting on the cream page like a piece of rack gear on a
-     workbench. Inside: an n8n-style node canvas (sensors -> models ->
-     senior -> lamp, cables drawn from the same coordinates the nodes are
-     placed by, so they cannot drift), a channel strip with the verdict
-     lamp, and an MPC-style pad row that dials the SELECTED sensor's
-     condition - one backlit pad per RECORDED condition, nothing else.
+     RENDER
      ===================================================================== */
-  var ROW_H = 92, NODE_W = 190, NODE_H = 76;
-  var COL_X = { sensor: 14, model: 262, senior: 512, lamp: 716 };
-  var CANVAS_W = 866;
-
   function render() {
-    renderCanvas();
-    renderSenior();
-    renderOp();
+    renderSelector();
     renderPads();
-    renderTerm();
+    renderChain();
+    paintMonitor();
+    renderOp();
     renderMirror();
   }
 
-  function selected() {
-    var s = PATCH.sensors.filter(function (x) { return x.ch === PATCH.sel; })[0];
-    return s || PATCH.sensors[0] || null;
-  }
-
   function modelIcon(fam) {
-    // The size argument, drawn: an engraved set scaled to the slot's params,
-    // re-inked phosphor-light on the dark panel (the plates are alpha masks).
     var box = el("span", "ws-icon ws-icon--" + fam.icon);
     box.style.width = fam.px + "px";
     box.style.height = Math.round(fam.px * (fam.icon === "senior" ? 1.25 : fam.icon === "pocket" ? 1 : 0.66)) + "px";
@@ -469,397 +498,257 @@
     return box;
   }
 
-  /* ---- the canvas: nodes at computed coordinates, cables from the same
-     numbers - geometry is the single source of truth ---------------------- */
-  function nodeY(i) { return 18 + i * ROW_H; }
-
-  function renderCanvas() {
-    var host = $("wsRack");
+  /* ---- the sensor selector: one button per RECORDED type ----------------- */
+  function renderSelector() {
+    var host = $("wsTypes");
     if (!host) return;
     host.textContent = "";
-    var rows = PATCH.sensors.length + 1; // + YOUR DATA
-    var h = 18 + rows * ROW_H + 8;
-    host.style.height = h + "px";
-    host.style.minWidth = CANVAS_W + "px";
-
-    PATCH.sensors.forEach(function (s, i) {
-      host.appendChild(drawSensorNode(s, i));
-      if (s.model) host.appendChild(drawModelNode(s, i));
-    });
-    host.appendChild(drawIntakeNode(PATCH.sensors.length));
-
-    // the senior rack node appears on the canvas when seated
-    if (PATCH.senior) {
-      var mid = nodeY(Math.floor((PATCH.sensors.length - 1) / 2));
-      var sn = el("div", "syn-node syn-node--senior");
-      sn.style.left = COL_X.senior + "px";
-      sn.style.top = mid + "px";
-      var ic = modelIcon(familyById("nano"));
-      sn.appendChild(ic);
-      var t = el("div", "syn-node__body");
-      t.appendChild(el("b", null, "WAVE NANO"));
-      t.appendChild(el("span", "syn-node__sub", "senior · adjudicates doubtful reads"));
-      sn.appendChild(t);
-      sn.appendChild(el("span", "syn-node__port syn-node__port--in"));
-      sn.appendChild(el("span", "syn-node__port syn-node__port--out"));
-      host.appendChild(sn);
-    }
-
-    // the output lamp node: where every chain ends
-    var v = PATCH.verdict || { state: "off" };
-    var ln = el("div", "syn-node syn-node--lamp");
-    ln.style.left = COL_X.lamp + "px";
-    ln.style.top = nodeY(Math.floor((PATCH.sensors.length - 1) / 2)) + "px";
-    var lw = el("span", "wp-lampwin wp-lampwin--node");
-    lw.dataset.state = v.state;
-    var f = LAMP_FACE[v.state] || LAMP_FACE.off;
-    lw.appendChild(el("span", "wp-lampwin__sym", f.sym));
-    lw.appendChild(el("span", "wp-lampwin__label", v.label || f.label));
-    ln.appendChild(lw);
-    ln.appendChild(el("span", "syn-node__sub", "OUTPUT"));
-    ln.appendChild(el("span", "syn-node__port syn-node__port--in"));
-    host.appendChild(ln);
-
-    drawCables();
-  }
-
-  function drawSensorNode(s, i) {
-    var r = recordOf(s);
-    var w = r.window || {};
-    var n = el("div", "syn-node syn-node--sensor" + (s.on ? " is-on" : "") +
-      (PATCH.sel === s.ch ? " is-sel" : ""));
-    n.style.left = COL_X.sensor + "px";
-    n.style.top = nodeY(i) + "px";
-    n.dataset.sensor = s.ch;
-    n.tabIndex = 0;
-    n.setAttribute("role", "button");
-    n.setAttribute("aria-label", "Sensor bay " + s.n + ", " + tagOf(s) + ", " +
-      (s.on ? "on line, dialed " + (CONDW[s.cond] || s.cond) : "off") +
-      ". Activate to select; its pads and log appear below.");
-
-    // the power button: a real switch, top-right, like gear
-    var pwr = el("button", "syn-node__pwr" + (s.on ? " is-on" : ""));
-    pwr.type = "button";
-    pwr.setAttribute("role", "switch");
-    pwr.setAttribute("aria-checked", s.on ? "true" : "false");
-    pwr.setAttribute("aria-label", "Bay " + s.n + " on line");
-    pwr.title = s.on ? "on line - tap to switch off" : "off - tap to bring on line";
-    pwr.addEventListener("click", function (e) {
-      e.stopPropagation();
-      s.on = !s.on;
-      derive(); render();
-      react("Bay " + s.n + (s.on ? " on line - " + tagOf(s) + "." : " off line."));
-      reactStats();
-      refocusBay(s, ".syn-node__pwr");
-    });
-    n.appendChild(pwr);
-
-    var body = el("div", "syn-node__body");
-    var tagB = el("b", null, tagOf(s));
-    tagB.title = "the recorded tag of the instrument this bay is dialed to (scene " + r.scene_id + ")";
-    body.appendChild(tagB);
-    var u = unitOf(s);
-    var sub = el("span", "syn-node__sub",
-      (u ? u : "unit not stated") + " · " + (CONDW[s.cond] || s.cond.toUpperCase()));
-    if (!u) sub.title = "the wire did not state a unit - a defaulted unit would be an invented fact";
-    body.appendChild(sub);
-    var meter = drawMeter(w);
-    if (meter && s.on) body.appendChild(meter);
-    n.appendChild(body);
-
-    var led = el("span", "syn-node__led");
-    led.dataset.state = ledOf(s);
-    led.setAttribute("aria-hidden", "true");
-    n.appendChild(led);
-
-    n.appendChild(el("span", "syn-node__port syn-node__port--out"));
-
-    // the n8n plus-stub: an unconnected output invites a model
-    if (!s.model) {
-      var plus = el("button", "syn-plus");
-      plus.type = "button";
-      plus.style.left = (COL_X.sensor + NODE_W + 34) + "px";
-      plus.style.top = (nodeY(i) + NODE_H / 2 - 14) + "px";
-      plus.setAttribute("aria-expanded", PATCH.menuFor === s.ch ? "true" : "false");
-      plus.setAttribute("aria-label", "Attach a model to bay " + s.n);
-      plus.textContent = "+";
-      plus.addEventListener("click", function (e) {
-        e.stopPropagation();
-        PATCH.sel = s.ch;
-        PATCH.menuFor = PATCH.menuFor === s.ch ? null : s.ch;
-        render();
-        var menu = document.querySelector(".ws-menu button");
-        if (menu) menu.focus();
+    host.setAttribute("role", "radiogroup");
+    host.setAttribute("aria-label", "Sensor type - derived from the recorded tags");
+    PATCH.types.forEach(function (t) {
+      var sel = !PATCH.yours && PATCH.typeKey === t.key;
+      var b = el("button", "sn-type" + (sel ? " is-sel" : ""));
+      b.type = "button";
+      b.setAttribute("role", "radio");
+      b.setAttribute("aria-checked", sel ? "true" : "false");
+      var art = el("span", "sn-type__art sn-type__art--" + t.icon);
+      art.setAttribute("aria-hidden", "true");
+      art.appendChild(el("span", "wb-plate__ink"));
+      b.appendChild(art);
+      var txt = el("span", "sn-type__txt");
+      txt.appendChild(el("b", null, t.label));
+      txt.appendChild(el("span", null, t.count + " recorded"));
+      b.appendChild(txt);
+      b.title = t.key === "unnamed"
+        ? "Sparkplug aliases with no name - the wire never said what these measure. Real plants are full of them."
+        : "grouped from the recorded tags ending _" + t.label.replace(/ /g, "_");
+      b.addEventListener("click", function () {
+        selectType(t.key);
+        derive(); render();
+        var r = currentRecord();
+        react(t.label + " selected - emitting " + ((r.window && r.window.tag) || "its wire") + ".");
+        var again = document.querySelector(".sn-type.is-sel");
+        if (again) again.focus({ preventScroll: true });
       });
-      // the stub is a sibling of the node so the cable can reach it
-      var wrap = el("div");
-      wrap.appendChild(n);
-      wrap.appendChild(plus);
-      n.addEventListener("click", selectHandler(s));
-      n.addEventListener("keydown", keySelect(s));
-      return wrap;
-    }
-
-    n.addEventListener("click", selectHandler(s));
-    n.addEventListener("keydown", keySelect(s));
-    return n;
-  }
-
-  function selectHandler(s) {
-    return function (e) {
-      if (e.target.closest(".syn-node__pwr, .syn-plus, .ws-resp__x")) return;
-      PATCH.sel = s.ch;
-      PATCH.menuFor = null;
-      render();
-    };
-  }
-  function keySelect(s) {
-    return function (e) {
-      if (e.key === "Enter" || e.key === " ") {
-        if (e.target !== e.currentTarget) return;
-        e.preventDefault();
-        PATCH.sel = s.ch;
-        render();
-      }
-    };
-  }
-
-  function ledOf(s) {
-    if (!s.on) return "off";
-    var fam = familyById(s.model);
-    if (!fam) return "log";
-    if (fam.status !== "recorded") return "silent";
-    var rd = readOf(s);
-    if (rd.deadEnd) return "dead";
-    if (!rd.ok && rd.r.truth !== "none") return "missed";
-    return "ok";
-  }
-
-  function drawModelNode(s, i) {
-    var fam = familyById(s.model);
-    var n = el("div", "syn-node syn-node--model" +
-      (fam.status === "recorded" ? "" : " syn-node--quiet") +
-      (PATCH.sel === s.ch ? " is-sel" : ""));
-    n.style.left = COL_X.model + "px";
-    n.style.top = nodeY(i) + "px";
-    n.dataset.model = s.ch;
-    n.tabIndex = 0;
-    n.setAttribute("role", "button");
-    n.setAttribute("aria-label", fam.label + " on bay " + s.n + ". Activate to select.");
-
-    n.appendChild(modelIcon(fam));
-    var body = el("div", "syn-node__body");
-    body.appendChild(el("b", null, fam.label));
-    body.appendChild(el("span", "syn-node__sub", fam.size + " · " + fam.status +
-      (fam.id === "pico" ? " · floor " + s.floor.toFixed(1) : "")));
-    n.appendChild(body);
-
-    var x = el("button", "ws-resp__x");
-    x.type = "button";
-    x.setAttribute("aria-label", "Detach " + fam.label + " from bay " + s.n);
-    x.textContent = "×";
-    x.addEventListener("click", function (e) {
-      e.stopPropagation();
-      s.model = null;
-      derive(); render();
-      react(fam.label + " detached from bay " + s.n + " - the sensor writes to its log again.");
+      host.appendChild(b);
     });
-    n.appendChild(x);
-
-    n.appendChild(el("span", "syn-node__port syn-node__port--in"));
-    n.appendChild(el("span", "syn-node__port syn-node__port--out"));
-    n.addEventListener("click", selectHandler(s));
-    n.addEventListener("keydown", keySelect(s));
-    return n;
   }
 
-  function drawIntakeNode(i) {
-    var n = el("div", "syn-node syn-node--intake");
-    n.style.left = COL_X.sensor + "px";
-    n.style.top = nodeY(i) + "px";
-    n.tabIndex = 0;
-    n.setAttribute("role", "button");
-    n.setAttribute("aria-label", "Your data - paste what your plant emits");
-    var body = el("div", "syn-node__body");
-    body.appendChild(el("b", null, "YOUR DATA"));
-    body.appendChild(el("span", "syn-node__sub", PATCH.yourData
-      ? "PASTED · " + (PATCH.yourData.modality || "").toUpperCase() + " · DRAFT"
-      : "paste / drop - read by the shim"));
-    n.appendChild(body);
-    n.appendChild(el("span", "syn-node__port syn-node__port--out is-dark"));
-    n.addEventListener("click", function () {
-      if (PATCH.yourData) { inspectYourData(); } else { openIntake(); }
-    });
-    n.addEventListener("keydown", function (e) {
-      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openIntake(); }
-    });
-    n.addEventListener("dragover", function (e) { e.preventDefault(); });
-    n.addEventListener("drop", function (e) {
-      e.preventDefault();
-      var txt = e.dataTransfer.getData("text");
-      if (txt) { intakeWith(txt); return; }
-      var f2 = e.dataTransfer.files && e.dataTransfer.files[0];
-      if (f2 && f2.size < 1 << 20) {
-        var rd = new FileReader();
-        rd.onload = function () { intakeWith(String(rd.result || "")); };
-        rd.readAsText(f2);
-      }
-    });
-    return n;
-  }
-
-  // The bounds meter: the recorded window drawn as an instrument - the
-  // range is the scale, the mean is the pointer. Recorded numbers only.
-  function drawMeter(w) {
-    if (!w || w.lo == null || w.hi == null) return null;
-    var W = 168, H = 18;
-    var host = svg("svg", { class: "ws-meter", viewBox: "0 0 " + W + " " + H, role: "img",
-      "aria-label": "recorded window: " + w.lo + " to " + w.hi + (w.unit ? " " + w.unit : "") });
-    host.appendChild(svg("line", { class: "ws-meter__rail", x1: 4, x2: W - 4, y1: H - 5, y2: H - 5 }));
-    [4, W - 4].forEach(function (x) {
-      host.appendChild(svg("line", { class: "ws-meter__stop", x1: x, x2: x, y1: H - 10, y2: H } ));
-    });
-    var span = (w.hi - w.lo) || 1;
-    var mx = 4 + ((w.mean - w.lo) / span) * (W - 8);
-    host.appendChild(svg("path", { class: "ws-meter__needle",
-      d: "M" + mx + " " + (H - 5) + " L" + (mx - 3.4) + " " + (H - 13) + " L" + (mx + 3.4) + " " + (H - 13) + " z" }));
-    var t1 = svg("text", { class: "ws-meter__t", x: 4, y: 7, "text-anchor": "start" });
-    t1.textContent = String(w.lo);
-    var t2 = svg("text", { class: "ws-meter__t", x: W - 4, y: 7, "text-anchor": "end" });
-    t2.textContent = String(w.hi);
-    host.appendChild(t1); host.appendChild(t2);
-    host.setAttribute("title", "recorded window bounds, with the mean as the pointer");
-    return host;
-  }
-
-  /* ---- cables: computed from the SAME coordinates the nodes are placed
-     by. A cable exists only where a connection exists. --------------------- */
-  function cablePath(x1, y1, x2, y2) {
-    var mid = (x1 + x2) / 2;
-    return "M" + x1 + " " + y1 + " C" + mid + " " + y1 + ", " + mid + " " + y2 + ", " + x2 + " " + y2;
-  }
-
-  function drawCables() {
-    var cables = $("wbCables"), host = $("wsRack");
-    if (!cables || !host) return;
-    while (cables.lastChild) cables.removeChild(cables.lastChild);
-    var H = parseInt(host.style.height, 10) || 600;
-    cables.setAttribute("width", CANVAS_W);
-    cables.setAttribute("height", H);
-    cables.setAttribute("viewBox", "0 0 " + CANVAS_W + " " + H);
-
-    var midRow = nodeY(Math.floor((PATCH.sensors.length - 1) / 2));
-    var seniorIn = { x: COL_X.senior, y: midRow + NODE_H / 2 };
-    var seniorOut = { x: COL_X.senior + NODE_W, y: midRow + NODE_H / 2 };
-    var lampIn = { x: COL_X.lamp, y: midRow + NODE_H / 2 };
-    var anyToLamp = false;
-
-    PATCH.sensors.forEach(function (s, i) {
-      var oy = nodeY(i) + NODE_H / 2;
-      var out = { x: COL_X.sensor + NODE_W, y: oy };
-      if (!s.model) {
-        // sensor -> its plus-stub: the n8n invitation
-        cables.appendChild(svg("path", { class: "wb-cable wb-cable--stub",
-          d: cablePath(out.x, out.y, COL_X.sensor + NODE_W + 34, oy) }));
-        return;
-      }
-      if (!s.on) return;
-      cables.appendChild(svg("path", { class: "wb-cable",
-        d: cablePath(out.x, out.y, COL_X.model, oy) }));
-      var fam = familyById(s.model);
-      if (!fam || fam.status !== "recorded") return;
-      var mOut = { x: COL_X.model + NODE_W, y: oy };
-      var rd = readOf(s);
-      if (rd.esc && PATCH.senior) {
-        // the doubtful read rides the dashed escalation cable to the senior
-        cables.appendChild(svg("path", { class: "wb-cable wb-cable--esc",
-          d: cablePath(mOut.x, mOut.y, seniorIn.x, seniorIn.y) }));
-        anyToLamp = true;
-      } else if (!rd.deadEnd) {
-        cables.appendChild(svg("path", { class: "wb-cable wb-cable--thin",
-          d: cablePath(mOut.x, mOut.y, lampIn.x, lampIn.y) }));
-        anyToLamp = true;
-      }
-    });
-    if (PATCH.senior && anyToLamp) {
-      cables.appendChild(svg("path", { class: "wb-cable",
-        d: cablePath(seniorOut.x, seniorOut.y, lampIn.x, lampIn.y) }));
-    }
-  }
-
-  /* ---- the pads: MPC-style, one backlit pad per RECORDED condition ------- */
+  /* ---- the pads: one backlit pad per RECORDED condition of the type ------ */
   function renderPads() {
     var host = $("wsPads");
     if (!host) return;
     host.textContent = "";
-    var s = selected();
-    if (!s) return;
-
+    if (PATCH.yours) {
+      host.appendChild(el("p", "wp-note",
+        "Your pasted bytes are the sensor now. Pick a type above to go back to the recorded fleet."));
+      return;
+    }
+    var t = currentType();
+    if (!t) return;
     var head = el("div", "syn-pads__head");
-    head.appendChild(el("b", null, "CONDITION PADS"));
-    head.appendChild(el("span", "syn-node__sub", "bay " + s.n + " · " + tagOf(s) +
-      " · one pad per recorded condition - unrecorded conditions have no pad"));
+    head.appendChild(el("b", null, "CONDITION"));
+    head.appendChild(el("span", "sn-sub",
+      "one pad per recorded condition - unrecorded conditions have no pad"));
     host.appendChild(head);
-
     var row = el("div", "syn-pads__row");
     row.setAttribute("role", "radiogroup");
-    row.setAttribute("aria-label", "Bay " + s.n + " condition - each pad replays one recorded instance");
-    s.conds.forEach(function (c) {
-      var pad = el("button", "syn-pad" + (s.cond === c ? " is-lit" : "") +
+    row.setAttribute("aria-label", "Condition - each pad replays one recorded instance");
+    t.conds.forEach(function (c) {
+      var pad = el("button", "syn-pad" + (PATCH.cond === c ? " is-lit" : "") +
         (c === "none" ? " syn-pad--ok" : ""));
       pad.type = "button";
       pad.setAttribute("role", "radio");
-      pad.setAttribute("aria-checked", s.cond === c ? "true" : "false");
-      var rr = PATCH.measured.records[s.recIdx[c]];
+      pad.setAttribute("aria-checked", PATCH.cond === c ? "true" : "false");
+      var rr = PATCH.measured.records[t.recIdx[c]];
       pad.title = "replays recorded record " + rr.node_id + " (scene " + rr.scene_id +
         ") - a pad is a recorded instance, selected, not simulated";
       pad.appendChild(el("span", "syn-pad__cap"));
       pad.appendChild(el("span", "syn-pad__k", CONDW[c] || c.toUpperCase()));
       pad.addEventListener("click", function () {
-        s.cond = c;
-        if (!s.on) s.on = true;
+        PATCH.cond = c;
         derive(); render();
-        react("Bay " + s.n + " pad " + (CONDW[c] || c.toUpperCase()) +
-          " - now replaying " + tagOf(s) + ".");
-        reactStats();
-        var again = document.querySelector('.syn-pad.is-lit');
+        var r = currentRecord();
+        react("Condition " + (CONDW[c] || c.toUpperCase()) + " - replaying " +
+          ((r.window && r.window.tag) || r.node_id) + ".");
+        var again = document.querySelector(".syn-pad.is-lit");
         if (again) again.focus({ preventScroll: true });
       });
       row.appendChild(pad);
     });
     host.appendChild(row);
 
-    // the floor knob rides with the pads when the selected bay reads via pico
-    if (s.model === "pico") {
-      var kwrap = el("div", "syn-pads__knob");
-      kwrap.appendChild(drawDial({
+    // the selected record's identity, honest to the wire
+    var r = currentRecord();
+    if (r) {
+      var w = r.window || {};
+      var id = el("p", "sn-now");
+      id.appendChild(el("b", null, w.tag || r.node_id));
+      id.appendChild(el("span", null, " · " + (unitWordOf(r) || "unit not stated") +
+        (w.n ? " · " + w.n + " samples" : "")));
+      if (!unitWordOf(r)) id.title = "the wire did not state a unit - a defaulted unit would be an invented fact";
+      host.appendChild(id);
+      var vu = drawVU(w, unitWordOf(r));
+      if (vu) {
+        var vwrap = el("div", "sn-vuwell");
+        vwrap.appendChild(vu);
+        host.appendChild(vwrap);
+      }
+    }
+  }
+
+  /* ---- the chain rail: sensor -> slots -> monitor ------------------------- */
+  function renderChain() {
+    var host = $("wsChain");
+    if (!host) return;
+    host.textContent = "";
+
+    // the sensor end of the rail
+    var t = currentType();
+    var sens = el("div", "sn-slot sn-slot--sensor");
+    var art = el("span", "sn-type__art sn-type__art--" + (PATCH.yours ? "junction" : (t ? t.icon : "gauge")));
+    art.setAttribute("aria-hidden", "true");
+    art.appendChild(el("span", "wb-plate__ink"));
+    sens.appendChild(art);
+    sens.appendChild(el("b", null, PATCH.yours ? "YOUR BYTES" : (t ? t.label : "")));
+    sens.appendChild(el("span", "sn-sub", "emitting"));
+    host.appendChild(sens);
+
+    PATCH.chain.forEach(function (id, i) {
+      host.appendChild(railArrow());
+      host.appendChild(drawChainCard(id, i));
+    });
+
+    // the next empty slot: one big [+]
+    host.appendChild(railArrow());
+    var plus = el("button", "syn-plus syn-plus--slot");
+    plus.type = "button";
+    plus.setAttribute("aria-expanded", PATCH.menuFor === PATCH.chain.length ? "true" : "false");
+    plus.setAttribute("aria-label", "Add a model to the chain");
+    plus.textContent = "+";
+    plus.addEventListener("click", function (e) {
+      e.stopPropagation();
+      PATCH.menuFor = PATCH.menuFor === PATCH.chain.length ? null : PATCH.chain.length;
+      render();
+      var m = document.querySelector(".ws-menu button");
+      if (m) m.focus();
+    });
+    host.appendChild(plus);
+
+    host.appendChild(railArrow());
+    var mon = el("div", "sn-slot sn-slot--monitor");
+    mon.appendChild(el("b", null, "MONITOR"));
+    mon.appendChild(el("span", "sn-sub", "the output, below"));
+    host.appendChild(mon);
+
+    if (PATCH.menuFor != null) {
+      var wrap = $("wsChainMenu");
+      if (wrap) { wrap.textContent = ""; wrap.appendChild(drawMenu(PATCH.menuFor)); }
+    } else {
+      var wrap2 = $("wsChainMenu");
+      if (wrap2) wrap2.textContent = "";
+    }
+  }
+
+  function railArrow() {
+    // a short patch cable with a little sag - geometry as texture
+    var a = el("span", "sn-rail");
+    a.setAttribute("aria-hidden", "true");
+    var s = svg("svg", { viewBox: "0 0 30 16", width: 30, height: 16, class: "sn-rail__svg" });
+    s.appendChild(svg("path", { class: "sn-rail__cable", d: "M2 5 C 10 13, 20 13, 28 5" }));
+    s.appendChild(svg("circle", { class: "sn-rail__plug", cx: 2, cy: 5, r: 2.2 }));
+    s.appendChild(svg("circle", { class: "sn-rail__plug", cx: 28, cy: 5, r: 2.2 }));
+    a.appendChild(s);
+    return a;
+  }
+
+  // The bounds meter as a VU instrument: the recorded window's range is the
+  // scale, the mean is the needle. Recorded numbers only - an instrument
+  // face around them, never a number they did not bring.
+  function drawVU(w, unitWord) {
+    if (!w || w.lo == null || w.hi == null) return null;
+    var W = 150, H = 84, cx = W / 2, cy = H - 10, R = 58;
+    var host = svg("svg", { class: "sn-vu", viewBox: "0 0 " + W + " " + H, role: "img",
+      "aria-label": "recorded window: " + w.lo + " to " + w.hi + (unitWord ? " " + unitWord : "") +
+        ", mean " + w.mean });
+    function pt(frac, r) {
+      var a = (-140 + frac * 100) * Math.PI / 180; // -140deg .. -40deg
+      return [cx + Math.cos(a) * r, cy + Math.sin(a) * r];
+    }
+    var arc0 = pt(0, R), arc1 = pt(1, R);
+    host.appendChild(svg("path", { class: "sn-vu__arc",
+      d: "M" + arc0[0].toFixed(1) + " " + arc0[1].toFixed(1) +
+         " A" + R + " " + R + " 0 0 1 " + arc1[0].toFixed(1) + " " + arc1[1].toFixed(1) }));
+    for (var i = 0; i <= 10; i++) {
+      var frac = i / 10, len = (i % 5 === 0) ? 8 : 4;
+      var o = pt(frac, R), ii = pt(frac, R - len);
+      host.appendChild(svg("line", { class: "sn-vu__tick" + (i % 5 === 0 ? " is-major" : ""),
+        x1: o[0].toFixed(1), y1: o[1].toFixed(1), x2: ii[0].toFixed(1), y2: ii[1].toFixed(1) }));
+    }
+    var span = (w.hi - w.lo) || 1;
+    var nf = Math.max(0, Math.min(1, (w.mean - w.lo) / span));
+    var np = pt(nf, R - 6);
+    host.appendChild(svg("line", { class: "sn-vu__needle",
+      x1: cx, y1: cy, x2: np[0].toFixed(1), y2: np[1].toFixed(1) }));
+    host.appendChild(svg("circle", { class: "sn-vu__hub", cx: cx, cy: cy, r: 3.4 }));
+    var t1 = svg("text", { class: "sn-vu__t", x: 6, y: H - 2, "text-anchor": "start" });
+    t1.textContent = String(w.lo);
+    var t2 = svg("text", { class: "sn-vu__t", x: W - 6, y: H - 2, "text-anchor": "end" });
+    t2.textContent = String(w.hi);
+    var t3 = svg("text", { class: "sn-vu__t sn-vu__t--mean", x: cx, y: 12, "text-anchor": "middle" });
+    t3.textContent = "mean " + w.mean + (unitWord ? " " + unitWord : "");
+    host.appendChild(t1); host.appendChild(t2); host.appendChild(t3);
+    host.setAttribute("title", "recorded window bounds, with the mean as the needle");
+    return host;
+  }
+
+  function drawChainCard(id, i) {
+    var fam = familyById(id);
+    var card = el("div", "sn-slot sn-slot--model" +
+      (fam.status === "recorded" ? "" : " sn-slot--quiet"));
+    card.appendChild(modelIcon(fam));
+    var txt = el("span", "sn-slot__txt");
+    txt.appendChild(el("b", null, fam.label));
+    txt.appendChild(el("span", "sn-sub", fam.does));
+    txt.appendChild(el("span", "sn-sub sn-sub--dim", fam.size + " · " + fam.status));
+    card.appendChild(txt);
+    var x = el("button", "ws-resp__x");
+    x.type = "button";
+    x.setAttribute("aria-label", "Remove " + fam.label + " from the chain");
+    x.textContent = "×";
+    x.addEventListener("click", function () {
+      PATCH.chain.splice(i, 1);
+      PATCH.menuFor = null;
+      derive(); render();
+      react(fam.label + " removed from the chain.");
+    });
+    card.appendChild(x);
+
+    if (id === "pico") {
+      card.appendChild(drawDial({
         values: DETENTS.slice(),
         labels: DETENTS.map(function (d) { return "FLOOR " + d.toFixed(1); }),
-        index: Math.max(0, DETENTS.indexOf(s.floor)),
-        name: "Bay " + s.n + " margin floor",
-        size: 56,
-        tip: function (i) { return knobTip(DETENTS[i]); },
-        onset: function (i) {
-          s.floor = DETENTS[i];
+        index: Math.max(0, DETENTS.indexOf(PATCH.floor)),
+        name: "margin floor",
+        size: 44,
+        tip: function (k) { return knobTip(DETENTS[k]); },
+        onset: function (k) {
+          PATCH.floor = DETENTS[k];
           derive(); render();
-          react("Bay " + s.n + " floor set to " + s.floor.toFixed(1) +
-            " - margins below it now escalate.");
-          reactStats();
-          var again = document.querySelector(".syn-pads__knob .wp-knob");
+          react("Floor set to " + PATCH.floor.toFixed(1) + " - margins below it now escalate.");
+          var again = document.querySelector(".sn-slot--model .wp-knob");
           if (again) again.focus({ preventScroll: true });
         },
       }));
-      host.appendChild(kwrap);
     }
-
-    if (PATCH.menuFor === s.ch) host.appendChild(drawMenu(s));
+    return card;
   }
 
   // The attach menu: the whole family, sized so size is VISIBLE.
-  function drawMenu(s) {
+  function drawMenu(slotIdx) {
     var menu = el("div", "ws-menu");
     menu.setAttribute("role", "menu");
-    menu.setAttribute("aria-label", "Attach a model to bay " + s.n);
+    menu.setAttribute("aria-label", "Add a model to the chain");
     FAMILY.forEach(function (fam) {
       var b = el("button", "ws-menu__item" +
         (fam.status === "recorded" ? "" : " ws-menu__item--quiet"));
@@ -875,7 +764,7 @@
       b.title = fam.blurb;
       b.addEventListener("click", function (e) {
         e.stopPropagation();
-        attach(s, fam.id);
+        chainAdd(fam.id, slotIdx);
       });
       menu.appendChild(b);
     });
@@ -891,81 +780,28 @@
     return menu;
   }
 
-  function attach(s, id) {
+  function chainAdd(id, at) {
     var fam = familyById(id);
-    s.model = id;
-    if (!s.on) s.on = true;
+    if (PATCH.chain.indexOf(id) >= 0 && (id === "pico" || id === "nano")) {
+      react("One " + fam.label + " is the chain's shape here.");
+      PATCH.menuFor = null;
+      render();
+      return;
+    }
+    if (at == null || at > PATCH.chain.length) at = PATCH.chain.length;
+    PATCH.chain.splice(at, 0, id);
     PATCH.menuFor = null;
-    PATCH.sel = s.ch;
     derive(); render();
     if (fam.status === "recorded") {
-      react(fam.label + " attached to " + tagOf(s) + (id === "pico"
-        ? " - it reads the window and asserts or escalates at its floor."
-        : " - the senior reads this bay directly."));
+      var info = chainInfo();
+      react(fam.label + " in the chain - " + (id === "pico"
+        ? "it classifies each read: assert, or escalate at its floor."
+        : (info.senior ? "the senior now adjudicates every doubtful read, and the monitor gains a human-readable stage."
+                       : "it reads the wire directly, and the monitor gains a human-readable stage.")));
     } else {
-      react(fam.label + " (" + fam.size + ") attached to bay " + s.n + " - but it is " +
-        fam.status + ", with no recorded run on this bench. It stays honestly silent.");
+      react(fam.label + " (" + fam.size + ") in the chain - but it is " + fam.status +
+        ", with no recorded run on this bench. Its stage stays honestly silent.");
     }
-    reactStats();
-  }
-
-  function refocusBay(s, sel) {
-    var n = document.querySelector('.syn-node[data-sensor="' + s.ch + '"] ' + sel) ||
-            document.querySelector(sel);
-    if (n) n.focus({ preventScroll: true });
-  }
-
-  /* ---- the senior rack + operator, on the channel strip ------------------- */
-  function renderSenior() {
-    var host = $("wbSenior");
-    if (!host) return;
-    host.textContent = "";
-    var card = el("button", "ws-senior" + (PATCH.senior ? " is-seated" : ""));
-    card.type = "button";
-    card.setAttribute("role", "switch");
-    card.setAttribute("aria-checked", PATCH.senior ? "true" : "false");
-    card.setAttribute("aria-label", "Wave Nano in the senior rack");
-    var art = el("span", "ws-senior__art");
-    art.appendChild(el("span", "wb-plate__ink"));
-    art.setAttribute("aria-hidden", "true");
-    card.appendChild(art);
-    var t = el("span", "ws-senior__txt");
-    t.appendChild(el("b", null, PATCH.senior ? "WAVE NANO · SENIOR" : "SENIOR RACK · EMPTY"));
-    t.appendChild(el("span", null, PATCH.senior
-      ? "adjudicates every doubtful read"
-      : "tap to seat Wave Nano - doubtful reads need somewhere to go"));
-    card.appendChild(t);
-    card.addEventListener("click", function () {
-      PATCH.senior = !PATCH.senior;
-      derive(); render();
-      react(PATCH.senior
-        ? "Wave Nano seated in the senior rack - every doubtful read now has somewhere to go."
-        : "The senior rack is empty - doubtful reads go unheard.");
-      reactStats();
-    });
-    host.appendChild(card);
-  }
-
-  function renderOp() {
-    var host = $("wbOp");
-    if (!host) return;
-    host.textContent = "";
-    var sw = el("button", "wb-lever wb-lever--op" + (PATCH.operator ? " is-on" : ""));
-    sw.type = "button";
-    sw.setAttribute("role", "switch");
-    sw.setAttribute("aria-checked", PATCH.operator ? "true" : "false");
-    sw.setAttribute("aria-label", "Operator on shift");
-    sw.appendChild(el("span", "wb-lever__k", PATCH.operator ? "OPERATOR ON SHIFT" : "OPERATOR OFF SHIFT"));
-    sw.appendChild(el("span", "wb-lever__pip"));
-    sw.addEventListener("click", function () {
-      PATCH.operator = !PATCH.operator;
-      derive();
-      render(); // the canvas lamp node mirrors the verdict - repaint it too
-      react(PATCH.operator
-        ? "The operator is on shift, reading the rollups. The ladder ends with a person."
-        : "The operator went off shift.");
-    });
-    host.appendChild(sw);
   }
 
   /* ---- the measured figures live on the knob's tooltip ------------------- */
@@ -983,105 +819,144 @@
   }
 
   /* =====================================================================
-     THE TERMINAL - the selected bay, on the phosphor screen
-     The terminal IS the inspector (#wpInspect): selecting a node writes
-     its record, its log, and its model's response here.
+     THE MONITOR - the hero. The output at each stage, top to bottom.
      ===================================================================== */
-  function renderTerm() {
-    var s = selected();
-    if (s) inspectBay(s);
-  }
+  function paintMonitor() {
+    var host = $("wpMonitor");
+    if (!host) return;
+    host.textContent = "";
+    var v = PATCH.verdict;
+    var sts = v ? v.stages : stages();
 
-  function inspectBay(s) {
-    var box = $("wpInspect");
-    if (!box) return;
-    box.textContent = "";
-    var r = recordOf(s);
-    var w = r.window || {};
-
-    var head = el("div", "syn-term__head");
-    head.appendChild(el("b", null, "BAY " + s.n + " · " + tagOf(s)));
-    var rec = el("span", "ws-rec" + (REDUCED || !s.on ? "" : " is-live"));
-    rec.appendChild(el("span", "ws-rec__dot"));
-    rec.appendChild(el("span", null, s.on ? "MONITORING · REPLAY" : "BAY OFF"));
-    rec.title = "the recorded window, replayed - nothing here is live";
-    head.appendChild(rec);
-    box.appendChild(head);
-
-    if (s.on) {
-      var log = el("pre", "ws-log", w.body ||
-        "(this record's window was not exported - the log is absent, not invented)");
-      log.title = "byte-for-byte, the window the model read in the recorded run";
-      box.appendChild(log);
-    } else {
-      box.appendChild(el("pre", "ws-log ws-log--quiet", "— bay switched off —"));
-    }
-
-    var fam = familyById(s.model);
-    if (fam && s.on) {
-      if (fam.status !== "recorded") {
-        box.appendChild(el("p", "wp-note",
-          fam.label + " is attached, but " + fam.blurb + ". It attaches, but this bench can " +
-          "only replay recorded runs - so it stays honestly silent."));
-      } else {
-        var rd = readOf(s);
-        var reads = el("p", "ws-resp__reads");
-        reads.appendChild(el("span", "ws-resp__k", "READS "));
-        reads.appendChild(el("span", null, (w.n ? w.n + " samples · " : "") +
-          (w.lo != null ? "bounds " + w.lo + " … " + w.hi + (unitOf(s) ? " " + unitOf(s) : "") : "the window above")));
-        reads.title = "the recorded window is the model's entire input - it knows the bounds because they are IN the window";
-        box.appendChild(reads);
-        var says = el("p", "ws-resp__says");
-        says.appendChild(el("span", "ws-resp__k", "SAYS "));
-        says.appendChild(el("b", null, rd.deadEnd ? "…" : '" ' + rd.said + '"'));
-        says.appendChild(el("span", "wp-read__m", " " + rd.margin.toFixed(2)));
-        box.appendChild(says);
-        var isFault = rd.r.truth !== "none";
-        var outcome = rd.deadEnd ? "doubts - nobody to ask"
-          : rd.esc ? "doubted, senior answered - " + (rd.ok ? "caught" : (isFault ? "missed" : "false alarm"))
-          : (rd.ok ? (isFault ? "asserted - caught" : "asserted - quiet")
-                   : (isFault ? "asserted - MISSED" : "asserted - false alarm"));
-        box.appendChild(el("p", "ws-resp__mark wp-read__mark--" +
-          (rd.deadEnd ? "dead" : rd.ok ? "ok" : "bad"), outcome));
+    sts.forEach(function (st) {
+      var box = el("section", "sn-stage sn-stage--" + st.kind);
+      var head = el("div", "sn-stage__head");
+      head.appendChild(el("b", null, st.who));
+      if (st.kind === "raw") {
+        var rec = el("span", "ws-rec" + (REDUCED ? "" : " is-live"));
+        rec.appendChild(el("span", "ws-rec__dot"));
+        rec.appendChild(el("span", null, st.draft ? "DRAFT · NOT RUN" : "MONITORING · REPLAY"));
+        rec.title = st.draft ? "your bytes - nothing ran" : "the recorded window, replayed - nothing here is live";
+        head.appendChild(rec);
       }
-    }
+      box.appendChild(head);
 
-    var dl = el("dl", "wp-cert");
-    [["dialed", CONDW[s.cond] || s.cond],
-     ["record", r.node_id + " (scene " + r.scene_id + ")"],
-     ["unit", unitOf(s) || "not stated in the wire"],
-     ["window", w.lo != null ? w.lo + " … " + w.hi + " · mean " + w.mean : "—"],
-     ["truth", r.truth],
-     ["child said", r.child.prediction + " · margin " + r.child.margin.toFixed(2)],
-     ["senior said", r.parent.prediction + " · margin " + r.parent.margin.toFixed(2)],
-    ].forEach(function (row) {
-      dl.appendChild(el("dt", null, row[0]));
-      dl.appendChild(el("dd", null, row[1]));
+      if (st.kind === "raw") {
+        var log = el("pre", "ws-log", st.body);
+        log.title = st.draft ? "your bytes, verbatim"
+          : "byte-for-byte, the window the model read in the recorded run";
+        box.appendChild(log);
+      } else if (st.kind === "pico") {
+        var line = el("p", "sn-proto");
+        if (st.esc) {
+          line.appendChild(el("b", "sn-proto__esc", "ESCALATE ↑"));
+          line.appendChild(el("span", null, " margin " + st.margin.toFixed(2) +
+            " · below floor " + st.floor.toFixed(1) + " - too doubtful to assert"));
+        } else {
+          line.appendChild(el("b", null, "ASSERT " + '" ' + st.said + '"'));
+          line.appendChild(el("span", null, " · margin " + st.margin.toFixed(2)));
+        }
+        box.appendChild(line);
+        box.appendChild(el("p", "sn-sub", st.esc
+          ? "the wire protocol line - the Pico hands this read up"
+          : "the wire protocol line - machine-facing, one token of meaning"));
+      } else if (st.kind === "nano") {
+        var vw = el("p", "sn-verdict");
+        vw.appendChild(el("b", null, st.verdict.toUpperCase()));
+        if (st.gloss) {
+          var g = el("span", "sn-gloss");
+          g.appendChild(el("span", null, " - " + st.gloss + " "));
+          g.appendChild(el("i", "sn-gloss__k", "glossary"));
+          vw.appendChild(g);
+        }
+        box.appendChild(vw);
+        box.appendChild(el("p", "sn-para", st.para));
+      } else if (st.kind === "quietSenior") {
+        box.appendChild(el("p", "sn-sub", st.note));
+      } else if (st.kind === "deadend") {
+        box.appendChild(el("p", "sn-para sn-para--warn", st.note));
+      } else if (st.kind === "draft") {
+        box.appendChild(el("p", "wp-tag wp-tag--draft", "DRAFT · NOT RUN"));
+        box.appendChild(el("p", "sn-sub",
+          "no model executes in a browser, and a margin is a logprob difference nothing " +
+          "here can compute. This is the exact request that would go to a stock llama-server:"));
+        box.appendChild(el("pre", "wp-wirebytes", st.envelope));
+      } else if (st.kind === "silent") {
+        box.appendChild(el("p", "sn-sub",
+          st.fam.blurb + " - no recorded transcript, output unchanged."));
+      }
+      host.appendChild(box);
     });
-    box.appendChild(dl);
-    box.appendChild(el("p", "wp-note",
-      "The log above is byte-for-byte the window the model read in the recorded run. " +
-      "The pads are the conditions recorded for this channel slot - each pad replays " +
-      "one real record. The margins are recorded logprob differences; nothing in this " +
-      "browser computes one."));
-    if (PATCH.scene && r.scene_id === PATCH.scene.scene_id) {
-      drawScopeInto(box);
+
+    // the foot below the glass: the verdict lamp + why, always visible
+    var lampBig = $("wpLamp2"), why = $("wpWhy");
+    if (lampBig && v) {
+      lampBig.dataset.state = v.state;
+      var f2 = LAMP_FACE[v.state] || LAMP_FACE.off;
+      lampBig.textContent = "";
+      lampBig.appendChild(el("span", "wp-lampwin__sym", f2.sym));
+      lampBig.appendChild(el("span", "wp-lampwin__label", v.label || f2.label));
+    }
+    if (why && v) why.textContent = v.why;
+
+    var certHost = $("wpCertHost");
+    if (certHost) certHost.textContent = "";
+    var r = currentRecord();
+    if (r && !PATCH.yours && certHost) {
+      var det = el("details", "sn-cert");
+      var sum = el("summary", null, "record certificate");
+      det.appendChild(sum);
+      var w = r.window || {};
+      var dl = el("dl", "wp-cert");
+      [["record", r.node_id + " (scene " + r.scene_id + ")"],
+       ["unit", unitWordOf(r) || "not stated in the wire"],
+       ["window", w.lo != null ? w.lo + " … " + w.hi + " · mean " + w.mean : "—"],
+       ["truth", r.truth],
+       ["child said", r.child.prediction + " · margin " + r.child.margin.toFixed(2)],
+       ["senior said", r.parent.prediction + " · margin " + r.parent.margin.toFixed(2)],
+       ["digest", null],
+      ].forEach(function (row) {
+        dl.appendChild(el("dt", null, row[0]));
+        if (row[1] == null) dl.appendChild(el("dd", "wp-cert__pending", "— pending export —"));
+        else dl.appendChild(el("dd", null, row[1]));
+      });
+      det.appendChild(dl);
+      det.appendChild(el("p", "wp-note",
+        "The raw stage above is byte-for-byte the window the model read in the recorded " +
+        "run. Every stage prints recorded fields; the margins are recorded logprob " +
+        "differences - nothing in this browser computes one."));
+      if (PATCH.scene && r.scene_id === PATCH.scene.scene_id) drawScopeInto(det);
+      certHost.appendChild(det);
     }
   }
 
-  function inspectYourData(){
-    var box = $("wpInspect");
-    if (!box) return;
-    box.textContent = "";
-    var head = el("div", "syn-term__head");
-    head.appendChild(el("b", null, "YOUR DATA"));
-    head.appendChild(el("span", "wp-tag wp-tag--draft", "DRAFT · NOT RUN"));
-    box.appendChild(head);
-    box.appendChild(el("p", "wp-note",
-      "Your bytes are on the bench but nothing ran - no model executes in a browser, " +
-      "and a margin is a logprob difference nothing here can compute. This is the exact " +
-      "request that would go to a stock llama-server:"));
-    box.appendChild(el("pre", "wp-wirebytes", envelopeFor(PATCH.yourData)));
+  var LAMP_FACE = {
+    off:    { sym: "·", label: "STANDING BY" },
+    green:  { sym: "●", label: "ALL CLEAR" },
+    yellow: { sym: "△", label: "DEGRADED" },
+    red:    { sym: "⊗", label: "FAULTS MISSED" },
+  };
+
+  /* ---- the operator lever, by the monitor's foot -------------------------- */
+  function renderOp() {
+    var host = $("wbOp");
+    if (!host) return;
+    host.textContent = "";
+    var sw = el("button", "wb-lever wb-lever--op" + (PATCH.operator ? " is-on" : ""));
+    sw.type = "button";
+    sw.setAttribute("role", "switch");
+    sw.setAttribute("aria-checked", PATCH.operator ? "true" : "false");
+    sw.setAttribute("aria-label", "Operator on shift");
+    sw.appendChild(el("span", "wb-lever__k", PATCH.operator ? "OPERATOR ON SHIFT" : "OPERATOR OFF SHIFT"));
+    sw.appendChild(el("span", "wb-lever__pip"));
+    sw.addEventListener("click", function () {
+      PATCH.operator = !PATCH.operator;
+      derive(); render();
+      react(PATCH.operator
+        ? "The operator is on shift, reading the rollups. The ladder ends with a person."
+        : "The operator went off shift.");
+    });
+    host.appendChild(sw);
   }
 
   /* ---- the recorded pump trace, where it belongs ------------------------- */
@@ -1113,14 +988,21 @@
     var m = $("wpMirror");
     if (!m) return;
     m.textContent = "";
-    PATCH.sensors.forEach(function (s) {
-      var fam = familyById(s.model);
-      m.appendChild(el("li", null, "Bay " + s.n + " (" + tagOf(s) + "): " +
-        (s.on ? "on line, dialed " + (CONDW[s.cond] || s.cond) : "off") +
-        (fam ? ", reading: " + fam.label + (fam.id === "pico" ? " at floor " + s.floor.toFixed(1) : "")
-             : ", writing to log only")));
-    });
-    m.appendChild(el("li", null, "Senior rack: " + (PATCH.senior ? "Wave Nano seated" : "empty")));
+    var t = currentType();
+    var r = currentRecord();
+    m.appendChild(el("li", null, "Sensor: " + (PATCH.yours ? "your pasted bytes" :
+      (t ? t.label + ", condition " + (CONDW[PATCH.cond] || PATCH.cond) +
+        (r ? ", replaying " + ((r.window && r.window.tag) || r.node_id) : "") : "none"))));
+    if (!PATCH.chain.length) {
+      m.appendChild(el("li", null, "Chain: empty - the sensor writes raw wire"));
+    } else {
+      PATCH.chain.forEach(function (id, i) {
+        var fam = familyById(id);
+        m.appendChild(el("li", null, "Chain " + (i + 1) + ": " + fam.label +
+          (id === "pico" ? " at floor " + PATCH.floor.toFixed(1) : "") +
+          (fam.status === "recorded" ? "" : " (no recorded run - silent)")));
+      });
+    }
     m.appendChild(el("li", null, "Operator: " + (PATCH.operator ? "on shift" : "off shift")));
   }
 
@@ -1353,10 +1235,13 @@
     } else {
       return;
     }
+    PATCH.yours = true;
     closeIntake();
     derive();
     render();
-    react("Your channel is on the rack as a DRAFT - tap its bay for the request envelope.");
+    react(PATCH.chain.length
+      ? "Your bytes are the sensor now - the monitor holds the DRAFT request envelope."
+      : "Your bytes are the sensor now. Chain a model to see the envelope it would earn.");
   }
 
   // Drop or share text straight onto YOUR DATA: open the drawer with it read.
@@ -1534,13 +1419,30 @@
           shortName(PATCH.measured.escalation.bench) + " · " + PATCH.measured._provenance.suite +
           " · every reading here is a recount of these records";
       }
-      buildSensors();
-      if (PATCH.sensors[0]) PATCH.sel = PATCH.sensors[0].ch;
+      buildTypes();
       derive();
       render();
       react("The panel is live: " + PATCH.sensors.length + " recorded instruments, writing to " +
         "their logs. Tap a node's [+] stub to attach a model; tap a node to see its log.");
       document.addEventListener("keydown", onKey);
+      var pb = $("wsPaste");
+      if (pb) {
+        pb.addEventListener("click", function () { openIntake(); });
+        // dropping text or a small file on the button feeds the shim - the
+        // one place HTML5 DnD is welcome: being an external drop TARGET
+        pb.addEventListener("dragover", function (e) { e.preventDefault(); });
+        pb.addEventListener("drop", function (e) {
+          e.preventDefault();
+          var txt = e.dataTransfer.getData("text");
+          if (txt) { intakeWith(txt); return; }
+          var f2 = e.dataTransfer.files && e.dataTransfer.files[0];
+          if (f2 && f2.size < 1 << 20) {
+            var rd = new FileReader();
+            rd.onload = function () { intakeWith(String(rd.result || "")); };
+            rd.readAsText(f2);
+          }
+        });
+      }
       wireIntake();
     }).catch(fail);
   }
@@ -1550,7 +1452,7 @@
       var drawer = $("wpIntake");
       if (drawer && !drawer.hidden) {
         closeIntake();
-        var back = document.querySelector(".syn-node--intake");
+        var back = $("wsPaste") || document.body;
         if (back) back.focus();
         return;
       }
@@ -1565,13 +1467,13 @@
   }
 
   function fail() {
-    var s = $("wsRack");
+    var s = $("wpMonitor");
     if (s) s.appendChild(el("p", "wp-note", "The bench data did not load. Nothing here is live; reload to try again."));
   }
 
   function maybeBoot() {
     var v = $("pgMeshView");
-    if (v && !v.hidden && !PATCH.booted && $("wsRack")) { PATCH.booted = true; boot(); }
+    if (v && !v.hidden && !PATCH.booted && $("wpMonitor")) { PATCH.booted = true; boot(); }
   }
 
   // Pure-function hook so tests can EXECUTE the classifier and the derivation.
@@ -1580,14 +1482,16 @@
       classify: classify,
       setScene: function (sc, cat) { PATCH.scene = sc; PATCH.catalog = cat; },
       setMeasured: function (m) { PATCH.measured = m; },
-      buildSensors: buildSensors,
+      buildTypes: buildTypes,
+      selectType: selectType,
+      chainAdd: chainAdd,
+      stages: stages,
       derive: derive,
-      readOf: readOf,
-      attach: attach,
       envelopeFor: envelopeFor,
       state: PATCH,
       family: FAMILY,
       detents: DETENTS,
+      glossary: GLOSSARY,
     };
   }
 

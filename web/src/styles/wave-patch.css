@@ -501,101 +501,6 @@
 .syn__lower { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: .9rem; margin-top: .9rem; }
 @media (max-width: 980px) { .syn__lower { grid-template-columns: 1fr; } }
 
-/* ---- the canvas: dotted grid, nodes, cables ------------------------------ */
-.syn__canvaswrap {
-  overflow: auto; border-radius: 12px;
-  border: 1px solid var(--hairline-2);
-  background: var(--paper);
-  background-image: radial-gradient(circle, var(--ink-300) .8px, transparent .9px);
-  background-size: 22px 22px;
-  box-shadow: inset 0 2px 8px rgba(0, 0, 0, .06);
-}
-.syn__canvas { position: relative; }
-.ws-rack { position: relative; z-index: 1; }
-.wb-cables { position: absolute; inset: 0; pointer-events: none; z-index: 0; }
-.wb-cable { fill: none; stroke: var(--ink-700); stroke-width: 1.6; }
-.wb-cable--thin { stroke: var(--ink-300); stroke-width: 1.4; }
-.wb-cable--stub { stroke: var(--ink-300); stroke-width: 1.4; stroke-dasharray: 3 4; }
-/* the escalation cable: dashed, with a slow crawl that is CHROME - it
-   decorates a replay and claims nothing */
-.wb-cable--esc {
-  stroke: var(--ink-400); stroke-width: 1.8; stroke-dasharray: 5 5;
-  animation: syn-crawl 2.8s linear infinite;
-}
-@keyframes syn-crawl { to { stroke-dashoffset: -20; } }
-@media (prefers-reduced-motion: reduce) { .wb-cable--esc { animation: none; } }
-
-/* ---- nodes: rounded cards with equipment depth --------------------------- */
-.syn-node {
-  position: absolute; width: 190px; height: 76px;
-  display: flex; align-items: center; gap: .55rem;
-  padding: .55rem .7rem; box-sizing: border-box;
-  border-radius: 10px; cursor: pointer;
-  background: var(--paper);
-  border: 1px solid var(--hairline-2);
-  box-shadow: 0 1px 0 var(--hairline-2), 0 6px 14px rgba(0, 0, 0, .08);
-}
-.syn-node:hover { border-color: var(--ink-500); }
-.syn-node:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
-/* selection = a machined ring, not a hue (the Node-RED call) */
-.syn-node.is-sel { box-shadow: 0 0 0 3px var(--paper-3), 0 0 0 4px var(--ink-500), 0 6px 14px rgba(0, 0, 0, .08); }
-.syn-node--sensor:not(.is-on) { opacity: .55; }
-.syn-node__body { display: flex; flex-direction: column; gap: .18rem; min-width: 0; flex: 1; }
-.syn-node__body b {
-  font-family: var(--font-mono); font-size: .58rem; letter-spacing: .08em;
-  color: var(--ink-900); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.syn-node__sub {
-  font-family: var(--font-mono); font-size: .5rem; letter-spacing: .06em;
-  color: var(--ink-400); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.syn-node__pwr {
-  position: absolute; top: 7px; right: 7px; width: .8rem; height: .8rem;
-  border-radius: 50%; cursor: pointer; padding: 0;
-  border: 1px solid var(--ink-300); background: var(--paper-3);
-}
-.syn-node__pwr.is-on { background: var(--ink-900); border-color: var(--ink-900); }
-.syn-node__pwr:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
-/* the node LEDs speak lamp semantics, so they may use the fenced hues */
-.syn-node__led {
-  position: absolute; bottom: 8px; right: 8px; width: .5rem; height: .5rem;
-  border-radius: 50%; background: var(--paper-3); border: 1px solid var(--hairline-2);
-}
-.syn-node__led[data-state="log"]    { background: var(--ink-700); border-color: var(--ink-700); }
-.syn-node__led[data-state="silent"] { background: var(--ink-300); border-color: var(--ink-300); }
-.syn-node__led[data-state="ok"]     { background: #1E7A3C; border-color: #1E7A3C; }
-.syn-node__led[data-state="missed"] { background: var(--live); border-color: var(--live); }
-.syn-node__led[data-state="dead"]   { background: #C99700; border-color: #C99700; }
-.syn-node__port {
-  position: absolute; width: .55rem; height: .55rem; border-radius: 50%;
-  background: var(--ink-700); border: 2px solid var(--paper); top: 50%;
-  transform: translateY(-50%);
-}
-.syn-node__port--in  { left: -6px; }
-.syn-node__port--out { right: -6px; }
-.syn-node__port.is-dark { background: var(--paper-3); }
-.syn-node--model { background: var(--paper-2); }
-.syn-node--model .ws-resp__x { position: absolute; top: 5px; right: 5px; }
-.syn-node--quiet { border-style: dashed; opacity: .8; }
-.syn-node--senior { border-width: 2px; border-color: var(--ink-500); }
-.syn-node--intake { border-style: dashed; height: 64px; }
-.syn-node--lamp {
-  width: 136px; height: auto; flex-direction: column; gap: .3rem;
-  padding: .6rem; cursor: default;
-}
-.wp-lampwin--node { min-height: 2.5rem; width: 100%; border-radius: 6px; }
-
-/* the n8n plus-stub: an unconnected output, inviting */
-.syn-plus {
-  position: absolute; width: 28px; height: 28px; border-radius: 50%;
-  display: flex; align-items: center; justify-content: center;
-  font: 1.05rem/1 var(--font-mono); cursor: pointer; padding: 0;
-  color: var(--ink-700); background: var(--paper);
-  border: 1.5px dashed var(--ink-400);
-}
-.syn-plus:hover { border-style: solid; border-color: var(--ink-900); color: var(--ink-900); }
-.syn-plus:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
-.syn-plus[aria-expanded="true"] { border-style: solid; border-color: var(--ink-900); }
 
 /* ---- the pads: MPC-style, in cream ---------------------------------------
    A pad is a RECORDED condition. Lit = dialed. OK lights the lamp green;
@@ -651,4 +556,230 @@
 .syn .wp-intake { margin-top: .9rem; background: var(--paper); }
 .syn__mirror { padding: .2rem .2rem 0; }
 .syn__mirror summary { cursor: pointer; }
+
+/* =====================================================================
+   THE SENTENCE - selector -> chain -> monitor
+   ===================================================================== */
+.sn-deck { display: grid; grid-template-columns: 16rem minmax(0, 1fr); gap: 1rem; }
+@media (max-width: 900px) { .sn-deck { grid-template-columns: 1fr; } }
+.sn-side { display: flex; flex-direction: column; gap: .6rem; min-width: 0; }
+.sn-flow { display: flex; flex-direction: column; gap: .6rem; min-width: 0; }
+.sn-sub { font-family: var(--font-mono); font-size: .52rem; letter-spacing: .06em; color: var(--ink-400); }
+.sn-sub--dim { color: var(--ink-300); }
+
+/* ---- 1) the sensor selector: synth-patch buttons ------------------------- */
+.sn-types { display: flex; flex-direction: column; gap: .45rem; }
+.sn-type {
+  display: flex; gap: .7rem; align-items: center; text-align: left;
+  padding: .5rem .65rem; border-radius: 10px; cursor: pointer; font: inherit;
+  background: var(--paper); border: 1px solid var(--hairline-2);
+  box-shadow: 0 1px 0 var(--hairline-2);
+  transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease;
+}
+@media (prefers-reduced-motion: reduce) { .sn-type { transition: none; } }
+.sn-type:hover { border-color: var(--ink-500); }
+.sn-type:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
+.sn-type.is-sel {
+  border-color: var(--ink-900);
+  box-shadow: 0 0 0 3px var(--paper-3), 0 0 0 4px var(--ink-500), 0 4px 12px rgba(0, 0, 0, .1);
+  transform: translateX(2px);
+}
+.sn-type__art { width: 2.6rem; height: 2.6rem; position: relative; flex: none; }
+.sn-type__art .wb-plate__ink {
+  position: absolute; inset: 0; background: var(--ink-900);
+  -webkit-mask-size: contain; mask-size: contain;
+  -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+  -webkit-mask-position: center; mask-position: center;
+}
+.sn-type__art--thermo .wb-plate__ink   { -webkit-mask-image: url("../assets/wave/sensor-thermo-ink.png"); mask-image: url("../assets/wave/sensor-thermo-ink.png"); }
+.sn-type__art--gauge .wb-plate__ink    { -webkit-mask-image: url("../assets/wave/sensor-gauge-ink.png"); mask-image: url("../assets/wave/sensor-gauge-ink.png"); }
+.sn-type__art--vibro .wb-plate__ink    { -webkit-mask-image: url("../assets/wave/sensor-vibro-ink.png"); mask-image: url("../assets/wave/sensor-vibro-ink.png"); }
+.sn-type__art--ammeter .wb-plate__ink  { -webkit-mask-image: url("../assets/wave/sensor-ammeter-ink.png"); mask-image: url("../assets/wave/sensor-ammeter-ink.png"); }
+.sn-type__art--oilcan .wb-plate__ink   { -webkit-mask-image: url("../assets/wave/sensor-oilcan-ink.png"); mask-image: url("../assets/wave/sensor-oilcan-ink.png"); }
+.sn-type__art--junction .wb-plate__ink { -webkit-mask-image: url("../assets/wave/sensor-junction-ink.png"); mask-image: url("../assets/wave/sensor-junction-ink.png"); }
+.sn-type__txt { display: flex; flex-direction: column; gap: .12rem; min-width: 0; }
+.sn-type__txt b { font-family: var(--font-mono); font-size: .62rem; letter-spacing: .1em; color: var(--ink-900); }
+.sn-type__txt span { font-family: var(--font-mono); font-size: .52rem; color: var(--ink-400); }
+.sn-side__pads { padding: .65rem; }
+.sn-now { margin: .3rem 0 0; font-family: var(--font-mono); font-size: .56rem; color: var(--ink-500); overflow-wrap: anywhere; }
+.sn-now b { color: var(--ink-900); letter-spacing: .06em; }
+.sn-paste {
+  display: flex; gap: .5rem; align-items: center; justify-content: center;
+  padding: .5rem .7rem; border-radius: 8px; cursor: pointer; font: inherit;
+  font-family: var(--font-mono); font-size: .58rem; letter-spacing: .1em;
+  background: var(--paper); border: 1.5px dashed var(--ink-300); color: var(--ink-500);
+}
+.sn-paste:hover { border-color: var(--ink-900); color: var(--ink-900); }
+.sn-paste:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
+.sn-roadmap { margin: 0; font-family: var(--font-mono); font-size: .52rem; color: var(--ink-300); text-align: center; }
+
+/* ---- 2) the chain rail ----------------------------------------------------- */
+.sn-chainrail {
+  display: flex; align-items: center; gap: .35rem; flex-wrap: wrap;
+  padding: .7rem; border-radius: 12px;
+  border: 1px solid var(--hairline-2); background: var(--paper);
+  background-image: radial-gradient(circle, var(--ink-300) .8px, transparent .9px);
+  background-size: 22px 22px;
+}
+.sn-slot {
+  position: relative;
+  display: flex; gap: .5rem; align-items: center;
+  padding: .5rem .65rem; border-radius: 10px;
+  background: var(--paper); border: 1px solid var(--hairline-2);
+  box-shadow: inset 0 1px 0 var(--paper), 0 1px 0 var(--hairline-2), 0 5px 12px rgba(0, 0, 0, .09);
+}
+/* every slot is a node: in/out jacks on its edges */
+.sn-slot::before, .sn-slot::after {
+  content: ""; position: absolute; top: 50%; transform: translateY(-50%);
+  width: .5rem; height: .5rem; border-radius: 50%;
+  background: var(--ink-700); border: 2px solid var(--paper);
+}
+.sn-slot::before { left: -5px; }
+.sn-slot::after { right: -5px; }
+.sn-slot--sensor::before { display: none; }
+.sn-slot--monitor::after { display: none; }
+.sn-slot b { font-family: var(--font-mono); font-size: .56rem; letter-spacing: .08em; color: var(--ink-900); }
+.sn-slot--sensor { border-width: 2px; }
+.sn-slot--sensor .sn-type__art { width: 2rem; height: 2rem; }
+.sn-slot--monitor { border-style: dashed; }
+.sn-slot--model { position: relative; padding-right: 1.4rem; }
+.sn-slot--model .ws-resp__x { position: absolute; top: 4px; right: 4px; }
+.sn-slot--quiet { border-style: dashed; opacity: .8; }
+.sn-slot__txt { display: flex; flex-direction: column; gap: .1rem; }
+.sn-rail { display: inline-flex; align-items: center; flex: none; }
+.sn-rail__svg { display: block; }
+.sn-rail__cable { fill: none; stroke: var(--ink-700); stroke-width: 1.6; stroke-linecap: round; }
+.sn-rail__plug { fill: var(--ink-700); }
+/* the n8n plus-circle, now a slot in the rail */
+.syn-plus {
+  width: 30px; height: 30px; border-radius: 50%; flex: none;
+  display: inline-flex; align-items: center; justify-content: center;
+  font: 1.1rem/1 var(--font-mono); cursor: pointer; padding: 0;
+  color: var(--ink-700); background: var(--paper);
+  border: 1.5px dashed var(--ink-400);
+}
+.syn-plus:hover { border-style: solid; border-color: var(--ink-900); color: var(--ink-900); }
+.syn-plus:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
+.syn-plus[aria-expanded="true"] { border-style: solid; border-color: var(--ink-900); }
+
+/* ---- 3) THE MONITOR: the hero --------------------------------------------
+   The engraved CRT bezel frames a real, scrolling screen: the plate is an
+   alpha mask layered OVER the output (pointer-events none), and the
+   cascade lives in the glass interior (the engraving's screen area is
+   transparent). ILLUSTRATION frames data; it never is the data. -->     */
+.sn-monitor {
+  position: relative; width: 100%; max-width: 640px; margin: 0 auto;
+  aspect-ratio: 605 / 550;
+}
+.sn-monitor__plate { position: absolute; inset: 0; pointer-events: none; z-index: 2; }
+.sn-monitor__plate .wb-plate__ink {
+  position: absolute; inset: 0; background: var(--ink-900);
+  -webkit-mask-image: url("../assets/wave/glass-monitor-ink.png");
+  mask-image: url("../assets/wave/glass-monitor-ink.png");
+  -webkit-mask-size: contain; mask-size: contain;
+  -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+  -webkit-mask-position: center; mask-position: center;
+}
+.sn-monitor__screen {
+  position: absolute; left: 19%; top: 18.5%; width: 59%; height: 48%;
+  overflow-y: auto; z-index: 1;
+  background: var(--paper-3);
+  box-shadow: inset 0 2px 10px rgba(0, 0, 0, .16);
+  border-radius: 6px;
+  padding: .55rem .65rem; box-sizing: border-box;
+  display: flex; flex-direction: column; gap: .55rem;
+}
+
+/* the stages: each one labeled by who produced it, revealed alive */
+.sn-stage { border-left: 2px solid var(--hairline-2); padding-left: .55rem; }
+@media (prefers-reduced-motion: no-preference) {
+  .sn-stage { animation: sn-reveal .35s ease-out both; }
+  @keyframes sn-reveal { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+}
+.sn-stage__head { display: flex; gap: .6rem; align-items: baseline; flex-wrap: wrap; }
+.sn-stage__head b {
+  font-family: var(--font-mono); font-size: .54rem; letter-spacing: .16em;
+  color: var(--ink-400);
+}
+.sn-stage--nano { border-left-color: var(--ink-900); }
+.sn-stage .ws-log { font-size: .52rem; max-height: 9rem; overflow: auto; }
+.sn-proto { margin: .25rem 0 0; font-family: var(--font-mono); font-size: .66rem; color: var(--ink-900); }
+.sn-proto__esc { letter-spacing: .08em; }
+.sn-verdict { margin: .25rem 0 0; font-size: var(--t-sm, .95rem); color: var(--ink-900); line-height: 1.45; }
+.sn-verdict > b { font-family: var(--font-mono); letter-spacing: .12em; }
+.sn-gloss { color: var(--ink-500); }
+.sn-gloss__k {
+  font-style: normal; font-family: var(--font-mono); font-size: .5rem;
+  letter-spacing: .12em; color: var(--ink-300); text-transform: uppercase;
+  border: 1px solid var(--hairline-2); border-radius: 3px; padding: 0 .25rem;
+  vertical-align: middle;
+}
+.sn-para { margin: .3rem 0 0; font-size: var(--t-micro, .72rem); color: var(--ink-700); line-height: 1.55; }
+.sn-para--warn { color: var(--ink-900); }
+
+/* the foot: verdict lamp + why + the operator lever, always visible */
+.sn-foot { display: flex; gap: .8rem; align-items: center; flex-wrap: wrap; }
+.sn-foot .wp-lampwin { min-height: 2.6rem; flex: none; padding: 0 .9rem; }
+.sn-foot .wp-why { flex: 1; min-width: 12rem; margin: 0; }
+.wp-strip--ticker { min-height: auto; flex: none; }
+.sn-cert { font-size: var(--t-micro, .7rem); color: var(--ink-500); }
+.sn-cert summary { cursor: pointer; font-family: var(--font-mono); font-size: .56rem; letter-spacing: .1em; }
+
+/* =====================================================================
+   FACEPLATE CRAFT - the zones read as radio hardware, not admin boxes
+   ===================================================================== */
+/* corner screws on the hardware zones */
+.sn-side__pads, .sn-chainrail, .sn-foot { position: relative; }
+.sn-side__pads::before, .sn-chainrail::before, .sn-foot::before,
+.sn-side__pads::after, .sn-chainrail::after, .sn-foot::after {
+  content: ""; position: absolute; width: .5rem; height: .5rem; border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, var(--paper), var(--ink-300) 75%);
+  box-shadow: inset 0 0 0 1px var(--ink-400);
+  pointer-events: none;
+}
+.sn-side__pads::before, .sn-chainrail::before, .sn-foot::before { top: .4rem; left: .4rem; }
+.sn-side__pads::after, .sn-chainrail::after, .sn-foot::after { bottom: .4rem; right: .4rem; }
+
+/* the pad bay is RECESSED, like an MPC's pad well */
+.sn-side__pads {
+  background: var(--paper-3);
+  box-shadow: inset 0 2px 8px rgba(0, 0, 0, .12), inset 0 -1px 0 var(--paper);
+}
+.sn-side__pads .syn-pad__cap { background: var(--paper); }
+
+/* the foot is a faceplate strip: hairline grille behind the lamp */
+.sn-foot {
+  padding: .6rem .9rem; border-radius: 12px;
+  border: 1px solid var(--hairline-2);
+  background: var(--paper-2);
+  background-image: repeating-linear-gradient(
+    to bottom, transparent 0, transparent 3px, var(--paper-3) 3px, var(--paper-3) 4px);
+}
+
+/* the selector buttons: engraved icon in a recessed well, etched legend */
+.sn-type__art {
+  background: var(--paper-3); border-radius: 8px;
+  box-shadow: inset 0 1px 4px rgba(0, 0, 0, .12);
+  padding: .3rem; box-sizing: content-box;
+}
+.sn-type__txt b { letter-spacing: .14em; }
+
+/* the VU well under the pads */
+.sn-vuwell {
+  margin-top: .5rem; border-radius: 8px; background: var(--paper);
+  border: 1px solid var(--hairline-2);
+  box-shadow: inset 0 1px 4px rgba(0, 0, 0, .1);
+  display: flex; justify-content: center; padding: .3rem;
+}
+.sn-vu { display: block; }
+.sn-vu__arc { fill: none; stroke: var(--ink-300); stroke-width: 1.4; }
+.sn-vu__tick { stroke: var(--ink-400); stroke-width: 1; }
+.sn-vu__tick.is-major { stroke: var(--ink-700); stroke-width: 1.4; }
+.sn-vu__needle { stroke: var(--ink-900); stroke-width: 1.8; stroke-linecap: round; }
+.sn-vu__hub { fill: var(--ink-900); }
+.sn-vu__t { font-family: var(--font-mono); font-size: 7.5px; fill: var(--ink-400); }
+.sn-vu__t--mean { fill: var(--ink-700); }
+
+/* the chain menu inherits the bay treatment */
+#wsChainMenu .ws-menu { margin-top: .5rem; }
 

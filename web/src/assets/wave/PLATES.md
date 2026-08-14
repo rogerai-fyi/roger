@@ -25,6 +25,12 @@ where redness = R−max(G,B) > 28, MedianFilter 3). Spot plates must stay < 16 K
 | `radio-reader-*` | Compact 1950s tabletop radio, red lamp on the VU meter | 580×380 | 131 KB / 1.4 KB | 42 | (cropped from plate-reader raw; knob-label microtext zapped) | The signal bench's READER radio (wired) |
 | `radio-pocket-*` | Pocket transistor radio (palm-size set), no red | 370×310 | 59 KB / 0.5 KB (empty) | 42 | (cropped from plate-pocket raw; faceplate pseudo-text + signature zapped) | The attach menu's pico/edge-scale model icon (wired) |
 | `radio-senior-*` | Tall rack-mounted radio console, three stacked panels, no red | 512×640 | 147 KB / 1.3 KB (empty) | 42 | (from plate-senior raw) | The signal bench's SENIOR rack (wired) |
+| `sensor-thermo-*` | Industrial temperature probe (thermowell + head), no red | 150×432 | 11 KB / empty | 42 | The v6 sensor selector's TEMP type icon |
+| `sensor-vibro-*` | Vibration accelerometer puck with side cable, no red | 428×250 | 52 KB / empty | 42 | Selector VIBRATION icon |
+| `sensor-ammeter-*` | Panel ammeter, fan scale (face microtext zapped), no red | 325×285 | 40 KB / empty | 42 | Selector MOTOR CURRENT icon |
+| `sensor-oilcan-*` | Oil sight glass + dial thermometer (captions erased), no red | 265×380 | 42 KB / empty | 42 | Selector OIL TEMP icon |
+| `sensor-junction-*` | Unmarked junction box, no red | 400×300 | 62 KB / empty | 42 | Selector UNNAMED CHANNEL icon (the Sparkplug alias with no name) |
+| `glass-monitor-*` | CRT glass-screen monitor, blank screen (interior stays transparent for live text overlay), no red | 605×550 | 189 KB / empty | 42 | THE MONITOR's engraved bezel on the v6 deck |
 
 Notes:
 - Raw Flux outputs live in the ComfyUI output dir (`plate-*` prefixes); prompt

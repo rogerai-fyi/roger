@@ -1,10 +1,12 @@
 // Regression locks for THE SIGNAL BENCH (Playbox MESH deck).
 //
-// REBUILT 2026-08-13 (founder direction, third revision): a wall of recorded sensors
-// with ON/OFF levers and condition dials, a radio that seats ANY Wave family model,
-// and a console that prints what the model SAID. Every HONESTY lock from the previous
-// suites is carried forward - those tests are the only enforcement the rails have -
-// and the derivation is EXECUTED under a stub DOM, not just grepped.
+// REBUILT 2026-08-13 (founder direction, sixth revision): one sentence, left to
+// right - [SENSOR SELECTOR] -> [MODEL CHAIN] -> [THE MONITOR]. Sensor types are
+// derived from the recorded tags; conditions are pads over recorded truths; the
+// monitor shows the output at each chain stage as a readability cascade. Every
+// HONESTY lock from the previous suites is carried forward - these tests are
+// the only enforcement the rails have - and the cascade derivation is EXECUTED
+// under a stub DOM, not just grepped.
 // Run: node --test test/wave-patch.test.mjs
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -23,6 +25,11 @@ const css = read("styles/wave-patch.css");
 const catalog = JSON.parse(read("data/wave-catalog.json"));
 const scene = JSON.parse(read("data/wave-scene-recorded.json"));
 const measured = JSON.parse(read("data/wave-measured.json"));
+
+// the same grouping rule the module uses, applied independently here
+const typeKeyOf = (tag) => /^AI_\d+$/.test(tag) ? "unnamed" : tag.replace(/^[A-Z]+\d+_/, "");
+const SUFFIX_TO_KEY = { DISCHARGE_TEMP: "temp", DISCHARGE_PRESS: "press", SUCTION_PRESS: "press",
+  VIBRATION: "vib", MOTOR_CURRENT: "amp", OIL_TEMP: "oil", unnamed: "unnamed" };
 
 // ---------- the module, EXECUTED under a stub DOM ------------------------------
 
@@ -46,11 +53,9 @@ function loadHook() {
   const hook = fn(sandbox.window, sandbox.document, sandbox.fetch, sandbox.setTimeout, sandbox.requestAnimationFrame);
   hook.setScene(scene, catalog);
   hook.setMeasured(measured);
-  hook.buildSensors();
+  hook.buildTypes();
   return hook;
 }
-
-const fam = (h, id) => h.family.find((f) => f.id === id);
 
 // ---------- provenance: every figure traceable to a run ------------------------
 
@@ -99,7 +104,7 @@ test("honesty: no evidence dict is invented for escalations", () => {
   for (const r of measured.records) assert.ok(!("evidence" in r));
 });
 
-test("honesty: the model faceplate leaves the digest empty rather than inventing one", () => {
+test("honesty: the certificate leaves the digest empty rather than inventing one", () => {
   assert.ok(/pending export/.test(js), "the digest slot must read as pending");
   assert.ok(css.includes(".wp-cert__pending"), "and be styled as an absence");
   assert.ok(!/sha256[:-][0-9a-f]{8,}/i.test(htmlFlat + js),
@@ -161,18 +166,17 @@ test("data: records carry the window the model actually read", () => {
 test("data: a unit the wire did not state is null, never defaulted", () => {
   const unknown = measured.records.filter((r) => r.window && r.window.unit === null);
   assert.ok(unknown.length > 0, "the bench really does contain unit-less wires");
-  assert.ok(/unit not stated/.test(js), "and the bay says so instead of guessing");
+  assert.ok(/unit not stated/.test(js), "and the deck says so instead of guessing");
   const exp = readFileSync(path.join(SRC, "../scripts/export-wave-measured.mjs"), "utf8");
-  assert.ok(/unit === "\?" \? null : unit/.test(exp.replace(/\s+/g, " ")) || /"\?" means the wire did not state a unit/.test(exp),
+  assert.ok(/"\?" means the wire did not state a unit/.test(exp),
     "the exporter documents the rule");
 });
 
-test("data: the task frame is exported verbatim, retiring the placeholder", () => {
+test("data: the task frame is exported verbatim, and the envelope carries it", () => {
   assert.ok(measured.task_frame && measured.task_frame.length > 100,
     "the T01 frame ships with the bundle");
   assert.ok(/sensor-interpretation unit/.test(measured.task_frame),
     "and it is the real frame, not a summary");
-  // the envelope now carries it
   const h = loadHook();
   const env = h.envelopeFor({ modality: "raw numbers", channels: [], body: "1, 2, 3" });
   assert.ok(env.includes("task frame - exported verbatim"), "the envelope names its source");
@@ -181,107 +185,130 @@ test("data: the task frame is exported verbatim, retiring the placeholder", () =
     "the pending-export placeholder is retired from the envelope");
 });
 
-test("bays: the log window is byte-for-byte the recorded input body", () => {
-  assert.ok(/w.body \|\|/.test(js) || js.includes("ws-log\", w.body"),
-    "the log renders window.body, not a rendering of it");
-  assert.ok(/byte-for-byte/.test(js), "and says so");
-  assert.ok(/was not exported - the log is absent, not invented/.test(js),
-    "a missing window is an absence, never a synthesis");
-});
+// ---------- 1) the sensor selector: derived, never invented ----------------------
 
-test("bays: the live pulse is chrome, and says REPLAY on its face", () => {
-  assert.ok(/MONITORING · REPLAY/.test(js), "the REC chip is labelled a replay");
-  assert.ok(/is CHROME/.test(css), "the css says the pulse claims nothing");
-  assert.ok(/prefers-reduced-motion: reduce\) \{ \.ws-rec\.is-live \.ws-rec__dot \{ animation: none/.test(css),
-    "and it stops for people who asked for less motion");
-});
-
-// ---------- the sensor wall: recorded conditions only ----------------------------
-
-test("wall: sensors are built FROM the records - one per recorded channel", () => {
+test("selector: sensor types derive from the recorded tag suffixes - no invented type", () => {
   const h = loadHook();
-  const channels = new Set(measured.records.map((r) => r.node_id.slice(-3)));
-  assert.equal(h.state.sensors.length, channels.size,
-    "one sensor per recorded channel, no invented sensors");
-  for (const s of h.state.sensors) assert.ok(channels.has(s.ch));
+  // recompute the grouping independently
+  const want = {};
+  measured.records.forEach((r) => {
+    const key = SUFFIX_TO_KEY[typeKeyOf(r.window.tag)];
+    assert.ok(key, `every recorded tag must group somewhere: ${r.window.tag}`);
+    want[key] = (want[key] || 0) + 1;
+  });
+  const got = {};
+  h.state.types.forEach((t) => { got[t.key] = t.count; });
+  assert.deepEqual(got, want, "one selector button per recorded group, counts exact");
+  const total = h.state.types.reduce((a, t) => a + t.count, 0);
+  assert.equal(total, measured.records.length, "nothing dropped, nothing invented");
+  assert.ok(h.state.types.some((t) => t.key === "unnamed"),
+    "the Sparkplug aliases-with-no-name stay on the selector - real plants are full of them");
 });
 
-test("wall: a dial's positions are exactly the recorded conditions for its channel", () => {
+test("selector: a type's pads are exactly the truths recorded for that type", () => {
   const h = loadHook();
-  for (const s of h.state.sensors) {
+  for (const t of h.state.types) {
     const truths = new Set(measured.records
-      .filter((r) => r.node_id.slice(-3) === s.ch).map((r) => r.truth));
-    assert.deepEqual(new Set(s.conds), truths,
-      `sensor ${s.ch}: the dial physically cannot ask for an unrecorded condition`);
-    assert.equal(s.conds[0], "none", "the healthy position comes first on every dial");
+      .filter((r) => SUFFIX_TO_KEY[typeKeyOf(r.window.tag)] === t.key)
+      .map((r) => r.truth));
+    assert.deepEqual(new Set(t.conds), truths,
+      `${t.key}: a pad exists only for a recorded condition`);
+    assert.equal(t.conds[0], "none", "the healthy pad comes first");
   }
 });
 
-test("wall: a dial position always replays the SAME recorded instance", () => {
+test("selector: type + condition selects the FIRST matching record - deterministic", () => {
   const h = loadHook();
-  for (const s of h.state.sensors) {
-    for (const c of s.conds) {
-      const i = s.recIdx[c];
-      const r = measured.records[i];
-      assert.equal(r.truth, c, "the pick carries the dialed truth");
-      assert.equal(r.node_id.slice(-3), s.ch, "and belongs to this channel");
-      const first = measured.records.findIndex(
-        (x) => x.node_id.slice(-3) === s.ch && x.truth === c);
-      assert.equal(i, first, "deterministic: the FIRST record with that truth, always");
+  for (const t of h.state.types) {
+    for (const c of t.conds) {
+      const first = measured.records.findIndex((r) =>
+        SUFFIX_TO_KEY[typeKeyOf(r.window.tag)] === t.key && r.truth === c);
+      assert.equal(t.recIdx[c], first, `${t.key}/${c}: the same pad always replays the same record`);
     }
   }
 });
 
-// ---------- the radio: the whole family, honestly -------------------------------
+// ---------- 2) the chain --------------------------------------------------------
 
-test("rack: the attach menu carries the WHOLE Wave family with honest statuses", () => {
+test("chain: the menu carries the WHOLE Wave family with honest statuses", () => {
   const h = loadHook();
   const ids = h.family.map((f) => f.id);
   for (const want of ["pico", "nano", "edge", "micro", "core", "station", "satellite"]) {
-    assert.ok(ids.includes(want), `${want} must be on the shelf`);
+    assert.ok(ids.includes(want), `${want} must be on the menu`);
   }
   const recorded = h.family.filter((f) => f.status === "recorded").map((f) => f.id).sort();
   assert.deepEqual(recorded, ["nano", "pico"],
     "exactly two slots have a recorded run on this bench - claiming more would be a lie");
+  assert.ok(h.family.every((f) => f.does), "every card states its transform in plain words");
+  assert.ok(/will attach silent/.test(js), "the menu warns before an unrecorded slot chains in");
 });
 
-test("rack: an unrecorded model attaches, but never speaks a number", () => {
+test("chain: an unrecorded model chains in, but its stage is honestly silent", () => {
   const h = loadHook();
-  h.state.sensors.forEach((s) => { s.model = null; });
-  h.state.sensors[0].model = "micro";
-  h.state.sensors[0].on = true;
+  h.selectType("temp", "dropout");
+  h.state.chain = ["micro"];
   h.derive();
-  assert.equal(h.state.verdict.state, "off", "the lamp refuses to glow for it");
-  assert.ok(/no recorded run/.test(h.state.verdict.why), "and says why");
-  const rd = h.readOf(h.state.sensors[0]);
-  assert.ok(rd.nodata, "a read from an unrecorded slot carries NO prediction and NO margin");
-  assert.ok(!("said" in rd) || rd.said == null);
-  // the family entry itself says what it will do
-  assert.ok(/will attach silent/.test(js), "the menu warns before you attach");
+  const st = h.state.verdict.stages;
+  assert.equal(st.length, 2, "raw + the silent stage");
+  assert.equal(st[1].kind, "silent");
+  assert.ok(!("said" in st[1]) && !("margin" in st[1]),
+    "a silent stage carries NO prediction and NO margin");
+  assert.equal(h.state.verdict.state, "off", "and the lamp refuses to glow");
+  assert.ok(/no recorded transcript, output unchanged/.test(js),
+    "the stage says exactly what it is");
 });
 
-test("rack: pico reads are the recorded child fields, nano reads the recorded parent", () => {
+test("chain: pico stage prints recorded child fields, nano stage the recorded parent", () => {
   const h = loadHook();
-  const s = h.state.sensors[0];
-  s.on = true; s.cond = s.conds[1]; // a recorded fault
-  const r = measured.records[s.recIdx[s.cond]];
+  h.selectType("temp", "dropout");
+  const r = measured.records[h.state.types.find((t) => t.key === "temp").recIdx.dropout];
 
-  s.model = "pico"; s.floor = 0.5; h.state.senior = false;
-  const rd = h.readOf(s);
-  if (r.child.margin >= 0.5) {
-    assert.equal(rd.said, r.child.prediction, "an assert says the CHILD's recorded word");
-    assert.equal(rd.margin, r.child.margin, "with the child's recorded margin");
-  } else {
-    assert.ok(rd.esc, "below the floor it escalates");
-  }
+  h.state.chain = ["pico"]; h.state.floor = 0.5;
+  h.derive();
+  let st = h.state.verdict.stages;
+  const pico = st.find((s) => s.kind === "pico");
+  assert.equal(pico.margin, r.child.margin, "the pico stage carries the child's recorded margin");
+  if (r.child.margin >= 0.5) assert.equal(pico.said, r.child.prediction);
+  else assert.ok(pico.esc, "below the floor it escalates");
 
-  s.model = "nano";
-  const rd2 = h.readOf(s);
-  assert.equal(rd2.said, r.parent.prediction, "the senior direct says the PARENT's recorded word");
-  assert.equal(rd2.margin, r.parent.margin);
+  h.state.chain = ["nano"];
+  h.derive();
+  st = h.state.verdict.stages;
+  const nano = st.find((s) => s.kind === "nano");
+  assert.equal(nano.verdict, r.parent.prediction, "the verdict word IS the recorded parent prediction");
+  assert.ok(nano.para.includes(r.parent.margin.toFixed(2)), "with the recorded parent margin");
+  assert.ok(nano.para.includes(r.window.tag), "on the recorded instrument, by name");
 });
 
-test("rack: knob detents are exactly the measured floors - nothing else is dialable", () => {
+test("chain: a nano after a pico is the senior - doubtful reads reach it", () => {
+  const h = loadHook();
+  // find a fault condition whose first record escalates at floor 2.0
+  let found = null;
+  for (const t of h.state.types) {
+    for (const c of t.conds) {
+      if (c === "none") continue;
+      const r = measured.records[t.recIdx[c]];
+      if (r.child.margin < 2.0) { found = { t, c, r }; break; }
+    }
+    if (found) break;
+  }
+  assert.ok(found, "the recorded sample contains a doubtful fault read");
+  h.selectType(found.t.key, found.c);
+  h.state.floor = 2.0;
+  h.state.chain = ["pico", "nano"];
+  h.derive();
+  const st = h.state.verdict.stages;
+  assert.ok(st.find((s) => s.kind === "pico" && s.esc), "the pico hands the read up");
+  const nano = st.find((s) => s.kind === "nano");
+  assert.equal(nano.verdict, found.r.parent.prediction, "and the senior answers with the recorded word");
+  // without the senior, the doubt is a dead end - stated, never swallowed
+  h.state.chain = ["pico"];
+  h.derive();
+  assert.ok(h.state.verdict.stages.find((s) => s.kind === "deadend"),
+    "no senior in the chain leaves the doubt visibly unheard");
+});
+
+test("chain: knob detents are exactly the measured floors - nothing else is dialable", () => {
   const h = loadHook();
   const measuredFloors = measured.escalation.configs
     .map((c) => /^child\+parent@([\d.]+)$/.exec(c.config))
@@ -290,97 +317,79 @@ test("rack: knob detents are exactly the measured floors - nothing else is diala
     "the knob physically cannot ask for an unmeasured number");
 });
 
-test("rack: the measured figures live on the knob, with their suite", () => {
+test("chain: the measured figures live on the knob, with their suite", () => {
   assert.ok(/measured at this floor/.test(js), "the tooltip owns the numbers");
   assert.ok(/_provenance.suite/.test(js.slice(js.indexOf("function knobTip"))),
     "and cites the suite they were measured on");
 });
 
-// ---------- the lamp: derived, honest, playable ----------------------------------
+// ---------- 3) THE MONITOR: the cascade ------------------------------------------
 
-test("lamp: every state is a recount of the recorded records", () => {
+test("monitor: the raw stage is byte-for-byte the recorded window body", () => {
   const h = loadHook();
-  h.state.sensors.forEach((s) => { s.model = null; });
+  h.selectType("press", "none");
+  h.state.chain = [];
   h.derive();
-  assert.equal(h.state.verdict.state, "off", "no model, no verdict colour");
-
-  // dial a knob-fixable miss: c00 DRIFTING at floor 1.5 asserts wrong (margin
-  // 1.88 < TOP) while... find one from the data instead of hardcoding:
-  h.state.senior = true; h.state.operator = true;
-  let found = null;
-  for (const s of h.state.sensors) {
-    for (const c of s.conds) {
-      const r = measured.records[s.recIdx[c]];
-      if (c !== "none" && r.child.margin >= 1.5 && r.child.margin < 2.0 &&
-          r.child.prediction !== c && r.parent.prediction === c) found = { s, c };
-    }
-  }
-  if (found) {
-    h.state.sensors.forEach((s) => { s.on = false; s.model = null; });
-    found.s.on = true; found.s.cond = found.c; found.s.model = "pico"; found.s.floor = 1.5;
-    h.derive();
-    assert.equal(h.state.verdict.state, "red", "a knob-fixable miss goes red");
-    assert.ok(/[Rr]aise the FLOOR/.test(h.state.verdict.why),
-      "escalation fires when margin < floor, so the honest advice is RAISE");
-    found.s.floor = 2.0;
-    h.derive();
-    assert.notEqual(h.state.verdict.state, "red", "raising the knob fixes what it can");
-  }
+  const st = h.state.verdict.stages;
+  const r = measured.records[h.state.types.find((t) => t.key === "press").recIdx.none];
+  assert.equal(st[0].kind, "raw");
+  assert.equal(st[0].body, r.window.body, "the sensor's output IS the recorded window, verbatim");
+  assert.ok(/byte-for-byte/.test(js), "and the module says so");
+  assert.ok(/was not exported - the log is absent, not invented/.test(js),
+    "a missing window is an absence, never a synthesis");
 });
 
-test("lamp: doubtful reads with no senior are counted, never silently caught", () => {
+test("monitor: the glossary is static documentation, visibly marked", () => {
   const h = loadHook();
-  h.state.senior = false;
-  h.state.sensors.forEach((s) => { s.on = true; s.cond = s.conds[1] || "none"; s.model = "pico"; s.floor = 2.0; });
-  h.derive();
-  const t = h.state.verdict.totals;
-  if (t.escalated > 0) {
-    assert.equal(t.deadEnd, t.escalated, "every escalation is unheard without the senior");
+  for (const k of ["none", "stuck", "dropout", "noisy", "drifting", "railed"]) {
+    assert.ok(h.glossary[k], `the glossary defines ${k}`);
   }
+  // the glossary is a literal object in the source - grep proves it is static
+  const g = js.slice(js.indexOf("var GLOSSARY"), js.indexOf("var GLOSSARY") + 700);
+  assert.ok(/stuck:/.test(g) && /railed:/.test(g), "a fixed dictionary, not computed text");
+  assert.ok(/STATIC DOCUMENTATION, not measurement/.test(js),
+    "the module states what the glossary is");
+  assert.ok(/sn-gloss__k/.test(js) && /"glossary"/.test(js),
+    "every use carries the glossary microlabel");
+  assert.ok(css.includes(".sn-gloss__k"), "styled as a label, distinct from recorded facts");
 });
 
-test("lamp: green at the ceiling never claims ALL CLEAR while faults were missed", () => {
-  assert.ok(/AT CEILING/.test(js), "the ceiling label exists");
-  assert.ok(/senior itself - no knob setting changes that/.test(js),
-    "and the why-line attributes the remainder to the recorded parent, not to luck");
+test("monitor: the verdict paragraph is template + recorded fields, never generated prose", () => {
   const h = loadHook();
-  h.state.senior = true; h.state.operator = true;
-  h.state.sensors.forEach((s) => { s.on = true; s.cond = s.conds[1] || "none"; s.model = "pico"; s.floor = 2.0; });
+  h.selectType("temp", "dropout");
+  h.state.chain = ["nano"];
   h.derive();
-  const v = h.state.verdict;
-  if (v.state === "green" && v.totals.missed > 0) {
-    assert.equal(v.label, "AT CEILING");
-  }
+  const nano = h.state.verdict.stages.find((s) => s.kind === "nano");
+  const r = measured.records[h.state.types.find((t) => t.key === "temp").recIdx.dropout];
+  const w = r.window;
+  // every number and word in the paragraph is a recorded field
+  assert.ok(nano.para.includes(w.tag));
+  assert.ok(nano.para.includes(String(w.n)));
+  assert.ok(nano.para.includes(String(w.lo)) && nano.para.includes(String(w.hi)));
+  assert.ok(nano.para.includes('" ' + r.parent.prediction + '"'));
+  assert.ok(/caught|MISSED|quiet|false alarm/.test(nano.para),
+    "the outcome clause names the recorded truth relation");
+  assert.ok(/the recorded truth is/.test(nano.para), "and cites the truth as recorded");
 });
 
-test("lamp: the founder's colours are literals, fenced to lamps and marks", () => {
-  assert.ok(/FOUNDER MANDATE/.test(css), "the exception is documented where it lives");
-  const hueRules = css.split("}").filter((b) => /#1E7A3C|#C99700/.test(b));
-  for (const b of hueRules) {
-    // lamps, read marks, node LEDs and lit condition pads all SPEAK lamp
-    // semantics - what is the bench replaying / catching right now
-    assert.ok(/wp-lamp|wp-read__mark|syn-node__led|syn-pad/.test(b),
-      `green/yellow may only colour lamp-semantic surfaces, got: ${b.split("{")[0].trim()}`);
-  }
-  assert.ok(/STANDING BY|ALL CLEAR|DEGRADED|FAULTS MISSED/.test(js),
-    "every lamp state carries a word");
-  assert.ok(/[·●△⊗]/.test(js), "and an NE-107-style shape, so the verdict never rides on hue alone");
+test("monitor: the ticker is capped, and the announcer is sr-only", () => {
+  assert.ok(/insertBefore\(li, strip.firstChild\)/.test(js), "newest line on top");
+  assert.ok(/> 2\) strip.removeChild/.test(js), "a ticker, not a log");
+  assert.ok(htmlFlat.includes('aria-live="polite"'), "reactions are announced");
+  assert.ok(/screen-reader-only/.test(css), "the announcer is sr-only");
 });
 
-test("console: WHAT IT SAYS prints only recorded words, and the strip is capped", () => {
-  assert.ok(htmlFlat.includes('id="wpReads"'), "the reads window exists");
-  assert.ok(htmlFlat.includes('id="wpLamp2"'), "under the lamp window");
-  assert.ok(htmlFlat.includes('id="wpStrip"'), "above the chart strip");
-  assert.ok(/insertBefore\(li, strip.firstChild\)/.test(js), "newest strip line on top");
-  assert.ok(/> 6\) strip.removeChild/.test(js), "capped - a strip, not a log");
-  // reads lines carry the record's provenance on hover
-  assert.ok(/recorded record " \+ rd.r.node_id/.test(js),
-    "every printed line can show which record it recounts");
+test("monitor: the CRT frame is illustration; the output lives inside its glass", () => {
+  assert.ok(css.includes("glass-monitor-ink.png"), "the engraved bezel frames the screen");
+  assert.ok(/sn-monitor__plate \{ position: absolute; inset: 0; pointer-events: none/.test(css),
+    "the plate never catches a tap - it frames data, it never is the data");
+  assert.ok(/ILLUSTRATION frames data/.test(css), "stated where it lives");
+  assert.ok(htmlFlat.includes('id="wpMonitor"'), "the screen is the output element");
 });
 
 // ---------- interaction ------------------------------------------------------------
 
-test("interaction: the dial is tap-to-step, drag, and keyboard - one state machine", () => {
+test("interaction: the knob is tap-to-step, drag, and keyboard - one state machine", () => {
   const dial = js.slice(js.indexOf("function drawDial"), js.indexOf("function render()"));
   assert.ok(/click/.test(dial) && /\+ 1\) % opts.values.length/.test(dial),
     "a plain tap steps to the next position - the tablet path");
@@ -389,34 +398,16 @@ test("interaction: the dial is tap-to-step, drag, and keyboard - one state machi
   assert.ok(/pointercancel/.test(dial), "and drags clean up on pointercancel");
 });
 
-test("interaction: no HTML5 drag anywhere; the intake is the one drop target", () => {
+test("interaction: no HTML5 drag anywhere; the paste button is the one drop target", () => {
   assert.ok(!/dragstart/.test(js), "we never initiate HTML5 drags");
   const dndUses = (js.match(/dataTransfer/g) || []).length;
   const dropBlock = js.slice(js.indexOf('addEventListener("drop"'), js.indexOf('addEventListener("drop"') + 600);
   assert.ok(dndUses > 0 && dndUses === (dropBlock.match(/dataTransfer/g) || []).length,
-    "dataTransfer appears only in the intake's external-drop handler");
+    "dataTransfer appears only in the external-drop handler");
 });
 
-test("interaction: the escalation cable is dashed, and cables never catch a tap", () => {
-  assert.ok(/\.wb-cable--esc \{[^}]*stroke-dasharray/.test(css));
-  assert.ok(/\.wb-cables \{ position: absolute; inset: 0; pointer-events: none/.test(css),
-    "the cable layer is decoration over live geometry, not a control");
-});
-
-// ---------- the canvas grammar ------------------------------------------------------
-
-test("canvas: an unconnected output ends in a plus-stub, and cables never catch a tap", () => {
-  assert.ok(/syn-plus/.test(js), "the n8n-style invitation exists");
-  assert.ok(/aria-expanded/.test(js), "and states whether its menu is open");
-  assert.ok(/\.wb-cables \{ position: absolute; inset: 0; pointer-events: none/.test(css),
-    "the cable layer is decoration over live geometry, not a control");
-  assert.ok(/cables come from node coordinates|coordinates the nodes are placed/i.test(js),
-    "cables and nodes share one geometry - they cannot drift apart");
-});
-
-test("pads: one backlit pad per RECORDED condition, and pads are a radiogroup", () => {
-  assert.ok(/role", "radiogroup"|"role", "radiogroup"/.test(js.replace(/setAttribute\(/g, '"role", ')) ||
-    js.includes('setAttribute("role", "radiogroup")'), "the pad row is one choice");
+test("interaction: pads are a radiogroup of recorded conditions", () => {
+  assert.ok(js.includes('setAttribute("role", "radiogroup")'), "the pad row is one choice");
   assert.ok(js.includes('setAttribute("role", "radio")'), "each pad is a position");
   assert.ok(/one pad per recorded condition/.test(js),
     "the pads say the rule out loud: unrecorded conditions have no pad");
@@ -424,10 +415,20 @@ test("pads: one backlit pad per RECORDED condition, and pads are a radiogroup", 
     "and each pad names the record it replays");
 });
 
-test("canvas: the escalation cable's crawl is chrome, and stops for reduced motion", () => {
-  assert.ok(/is CHROME/.test(css), "the css says the crawl claims nothing");
-  assert.ok(/@media \(prefers-reduced-motion: reduce\) \{ \.wb-cable--esc \{ animation: none/.test(css),
-    "and it stops for people who asked for less motion");
+test("interaction: the selector is a radiogroup, and the plus-stub invites", () => {
+  assert.ok(/Sensor type - derived from the recorded tags/.test(js),
+    "the selector names its own honesty rule");
+  assert.ok(/syn-plus/.test(js) && /aria-expanded/.test(js),
+    "the n8n-style plus-circle opens the chain menu");
+});
+
+test("interaction: motion is chrome, and stops for reduced motion", () => {
+  assert.ok(/is CHROME/.test(css), "the css says the pulse claims nothing");
+  assert.ok(/prefers-reduced-motion: reduce\) \{ \.ws-rec\.is-live \.ws-rec__dot \{ animation: none/.test(css),
+    "the REC pulse stops for people who asked for less motion");
+  assert.ok(/prefers-reduced-motion: no-preference/.test(css),
+    "the stage reveal only animates when motion is welcome");
+  assert.ok(js.includes("REDUCED"), "and the module checks the preference too");
 });
 
 // ---------- the palette ----------------------------------------------------------
@@ -450,15 +451,10 @@ test("palette: red is a signal, never a surface", async () => {
       filled.push(sel);
     }
   }
-  // Four rules may fill with red: the one primary action (the intake's SEND),
-  // the masthead's spot plate, the radio's engraved lamp glint (both clipped
-  // by tiny alpha masks), and the LAMP WINDOW in its red state - the
-  // founder-mandated verdict light.
-  // Four rules may fill with red: the masthead's spot plate, the intake's
-  // one primary action, the lamp window's red state, and the node LED in its
-  // MISSED state - the same alarm semantics at canvas scale.
+  // Three rules may fill with red: the masthead's spot plate, the intake's
+  // one primary action, and the lamp window's red state.
   assert.deepEqual(filled.sort(),
-    ['.syn-node__led[data-state="missed"]', '.wm-masthead__spot', '.wp-lampwin[data-state="red"]', '.wp-run'].sort(),
+    ['.wm-masthead__spot', '.wp-lampwin[data-state="red"]', '.wp-run'].sort(),
     `got ${filled.join(", ")}`);
   const pin = (f, kb) => {
     const bytes = statSync(path.join(SRC, "assets/wave/" + f)).size;
@@ -468,36 +464,101 @@ test("palette: red is a signal, never a surface", async () => {
   pin("radio-reader-spot.png", 16);
 });
 
-// ---------- accessibility ---------------------------------------------------------
-
-test("a11y: levers are switches, dials are sliders", () => {
-  assert.ok(/"role", "switch"/.test(js.replace(/setAttribute\(/g, '"role", ')) || js.includes('setAttribute("role", "switch")'),
-    "the ON/OFF lever is a switch to assistive tech");
-  assert.ok(js.includes('setAttribute("role", "slider")'), "the dial is a slider");
-  assert.ok(/aria-valuetext/.test(js), "that speaks its position by name");
-  assert.ok(/aria-checked/.test(js), "and the lever states its side");
+test("palette: the lamp hues are fenced to lamp semantics", () => {
+  const hueRules = css.split("}").filter((b) => /#1E7A3C|#C99700/.test(b));
+  for (const b of hueRules) {
+    // lamps, read marks and lit condition pads all SPEAK lamp semantics -
+    // what is the bench replaying / catching right now
+    assert.ok(/wp-lamp|wp-read__mark|syn-pad/.test(b),
+      `green/yellow may only colour lamp-semantic surfaces, got: ${b.split("{")[0].trim()}`);
+  }
+  assert.ok(/STANDING BY|ALL CLEAR|DEGRADED|FAULTS MISSED/.test(js),
+    "every lamp state carries a word");
+  assert.ok(/[·●△⊗]/.test(js), "and an NE-107-style shape, so the verdict never rides on hue alone");
 });
 
-test("a11y: there is a list mirror of the bench, always in the DOM", () => {
-  assert.ok(htmlFlat.includes('id="wpMirror"'), "the mirror element exists");
-  assert.ok(js.includes("renderMirror"), "and is kept in sync");
-  assert.ok(/View this patch as a list/i.test(htmlFlat), "and is reachable");
+// ---------- the lamp: derived, honest, playable ----------------------------------
+
+test("lamp: every state is a recount of the recorded records", () => {
+  const h = loadHook();
+  h.selectType("temp", "none");
+  h.state.chain = [];
+  h.derive();
+  assert.equal(h.state.verdict.state, "off", "no chain, no verdict colour");
+
+  // a knob-fixable miss: asserted wrong at 1.5, senior was right, margin < 2.0
+  let found = null;
+  for (const t of h.state.types) {
+    for (const c of t.conds) {
+      if (c === "none") continue;
+      const r = measured.records[t.recIdx[c]];
+      if (r.child.margin >= 1.5 && r.child.margin < 2.0 &&
+          r.child.prediction !== c && r.parent.prediction === c) found = { t, c };
+    }
+  }
+  if (found) {
+    h.selectType(found.t.key, found.c);
+    h.state.chain = ["pico", "nano"]; h.state.floor = 1.5; h.state.operator = true;
+    h.derive();
+    assert.equal(h.state.verdict.state, "red", "a knob-fixable miss goes red");
+    assert.ok(/[Rr]aise the FLOOR/.test(h.state.verdict.why),
+      "escalation fires when margin < floor, so the honest advice is RAISE");
+    h.state.floor = 2.0;
+    h.derive();
+    assert.notEqual(h.state.verdict.state, "red", "raising the knob fixes what it can");
+  }
 });
 
-test("a11y: reactions are announced once, and reduced motion is honoured", () => {
-  assert.ok(htmlFlat.includes('aria-live="polite"'), "reactions are announced");
-  assert.ok(!/role="application"/.test(htmlFlat), "never role=application - it kills browse mode");
-  assert.ok(/screen-reader-only/.test(css), "the announcer is sr-only; the strip is the visible narrator");
-  assert.ok(css.includes("prefers-reduced-motion"), "animations have a static equivalent");
-  assert.ok(js.includes("REDUCED"), "and the module checks the preference too");
+test("lamp: green at the ceiling never claims ALL CLEAR while the fault was missed", () => {
+  assert.ok(/AT CEILING/.test(js), "the ceiling label exists");
+  assert.ok(/missed by the recorded senior itself/.test(js),
+    "and the why-line attributes the miss to the recorded senior, not to luck");
+  const h = loadHook();
+  // find a fault both models miss
+  let found = null;
+  for (const t of h.state.types) {
+    for (const c of t.conds) {
+      if (c === "none") continue;
+      const r = measured.records[t.recIdx[c]];
+      if (r.parent.prediction !== c && (r.child.margin >= 2.0 ? r.child.prediction !== c : true)) {
+        found = { t, c }; break;
+      }
+    }
+    if (found) break;
+  }
+  if (found) {
+    h.selectType(found.t.key, found.c);
+    h.state.chain = ["pico", "nano"]; h.state.floor = 2.0; h.state.operator = true;
+    h.derive();
+    if (h.state.verdict.state === "green") {
+      assert.equal(h.state.verdict.label, "AT CEILING",
+        "a green lamp over a missed fault must say AT CEILING");
+    }
+  }
+});
+
+test("lamp: the operator still matters - the ladder ends with a person", () => {
+  const h = loadHook();
+  h.selectType("temp", "none");
+  h.state.chain = ["pico"]; h.state.floor = 0.5; h.state.operator = false;
+  h.derive();
+  if (h.state.verdict.state === "yellow") {
+    assert.ok(/operator/.test(h.state.verdict.why), "the yellow names the missing person");
+  }
+  h.state.operator = true;
+  h.derive();
+  assert.equal(h.state.verdict.state, "green", "OK dialed, chain agrees, operator on - green");
 });
 
 // ---------- structure + offline ----------------------------------------------------
 
-test("deck: the rack, the senior rack, and the console all exist", () => {
-  for (const id of ["wsRack", "wbBench", "wbSenior", "wbCables", "wpLamp2", "wpWhy", "wpReads", "wpStrip", "wbOp", "wpInspect", "wpProv"]) {
+test("deck: the selector, the chain, and the monitor all exist", () => {
+  for (const id of ["wbBench", "wsTypes", "wsPads", "wsPaste", "wsChain", "wsChainMenu",
+                    "wpMonitor", "wpLamp2", "wpWhy", "wbOp", "wpStrip", "wpCertHost", "wpProv"]) {
     assert.ok(htmlFlat.includes(`id="${id}"`), `${id} must exist`);
   }
+  assert.ok(/1 &middot; PICK A SENSOR|1 · PICK A SENSOR/.test(html), "the sentence is numbered");
+  assert.ok(/more sensors soon/.test(htmlFlat), "multi-sensor is roadmap language, not a fake control");
 });
 
 test("deck: the data is fetched same-origin, so the deck works offline", () => {
@@ -512,15 +573,32 @@ test("deck: the scope only draws for the scene that has committed samples", () =
     "the trace is the recorded pump scene, drawn only for its own records");
 });
 
+test("a11y: there is a list mirror of the bench, always in the DOM", () => {
+  assert.ok(htmlFlat.includes('id="wpMirror"'), "the mirror element exists");
+  assert.ok(js.includes("renderMirror"), "and is kept in sync");
+  assert.ok(/View this patch as a list/i.test(htmlFlat), "and is reachable");
+  assert.ok(!/role="application"/.test(htmlFlat), "never role=application - it kills browse mode");
+});
+
 // ---------- the translation shim (handoff 3) ----------------------------------------
 
 test("shim: pasted bytes earn an envelope, never a result", () => {
   assert.ok(js.includes("DRAFT · NOT RUN"), "the draft state is named");
   assert.ok(js.includes("envelopeFor"), "what a paste earns is the request envelope");
-  assert.ok(/pending export/.test(js.slice(js.indexOf("function envelopeFor"))),
-    "the task frame text is not invented - its slot says pending, like the digest");
   assert.ok(/margin is a logprob difference/.test(js),
     "the reason no preview margin exists is stated");
+  const h = loadHook();
+  h.state.yourData = { modality: "raw numbers", channels: [], body: "1, 2, 3" };
+  h.state.yours = true;
+  h.state.chain = ["pico"];
+  h.derive();
+  const st = h.state.verdict.stages;
+  assert.equal(st[0].kind, "raw");
+  assert.equal(st[0].body, "1, 2, 3", "your bytes, verbatim");
+  const draft = st.find((s) => s.kind === "draft");
+  assert.ok(draft && /llama-server/.test(draft.envelope || "") === false || draft.envelope.length > 0,
+    "the chain stage is the envelope, not a result");
+  assert.equal(h.state.verdict.state, "off", "and the lamp has nothing honest to show");
 });
 
 test("shim: the classifier shows its evidence and refuses thin guesses", () => {
@@ -599,17 +677,17 @@ test("classifier: the spec's own phrases route correctly", () => {
 
 // ---------- the engraved plates ------------------------------------------------------
 
-test("plates: every mask plate ships as an ink/spot pair", () => {
-  for (const base of ["sensor-gauge", "radio-reader", "radio-senior", "radio-pocket", "mesh-console", "tape-reader"]) {
-    for (const half of ["ink", "spot"]) {
-      statSync(path.join(SRC, `assets/wave/${base}-${half}.png`));
-    }
+test("plates: every mask plate ships as an ink file, selector icons included", () => {
+  for (const base of ["sensor-gauge", "sensor-thermo", "sensor-vibro", "sensor-ammeter",
+                      "sensor-oilcan", "sensor-junction", "glass-monitor",
+                      "radio-reader", "radio-senior", "radio-pocket", "mesh-console", "tape-reader"]) {
+    statSync(path.join(SRC, `assets/wave/${base}-ink.png`));
   }
 });
 
-test("plates: illustrations are labelled illustration, and sit on non-data surfaces", () => {
+test("plates: illustrations are decoration to assistive tech", () => {
   assert.ok(/setAttribute\("aria-hidden", "true"\)/.test(js.slice(js.indexOf("function modelIcon"))),
-    "the engraved model glyph is decoration to assistive tech");
-  assert.ok(/ILLUSTRATION|illustration only|re-inked per theme \(illustration/.test(js + css + htmlFlat),
-    "somewhere the surface says these are illustrations, not data");
+    "the engraved model glyph is decoration");
+  assert.ok(/art.setAttribute\("aria-hidden", "true"\)/.test(js),
+    "the selector icons are decoration");
 });
