@@ -778,6 +778,22 @@
           if (again) again.focus({ preventScroll: true });
         },
       }));
+      // why task-native: the doctrine, one tap away
+      var wp = whyPop("why task-native?", "sn-why--card");
+      wp.appendChild(el("p", "sn-why__p",
+        "A chat model free-sampled on these bytes dreams a Modbus register table. " +
+        "A Wave model decodes a LOCKED ENUM with a MARGIN - the margin is the model " +
+        "saying how sure it is, and that calibrated doubt is what the escalation " +
+        "contract is built on. No prose, no dreaming: one token of meaning, scored."));
+      card.appendChild(wp);
+    }
+    if (id === "nano") {
+      var wn = whyPop("why a senior?", "sn-why--card");
+      wn.appendChild(el("p", "sn-why__p",
+        "The senior only pays attention when a reader is unsure - that is the whole " +
+        "economics of the mesh (open WHY NOT ONE BIG MODEL? below for the measured " +
+        "sweep). It runs on " + fam.runs + ", so the doubtful reads stay on-prem too."));
+      card.appendChild(wn);
     }
     return card;
   }
@@ -840,6 +856,117 @@
       react(fam.label + " (" + fam.size + ") in the chain - but it is " + fam.status +
         ", with no recorded run on this bench. Its stage stays honestly silent.");
     }
+  }
+
+  /* =====================================================================
+     THE WHY LAYER - the product story, one hover/tap away.
+     Surface stays minimal; every NUMBER in a pop is rendered from the
+     measured bundle with its citation. Qualitative lines are deployment
+     facts (runs-on) or the shim's own doctrine - never invented figures.
+     ===================================================================== */
+  function whyPop(label, cls) {
+    var det = el("details", "sn-why" + (cls ? " " + cls : ""));
+    var sum = el("summary", null, null);
+    sum.appendChild(el("span", "sn-why__i", "ⓘ"));
+    sum.appendChild(el("span", "sn-why__k", label));
+    det.appendChild(sum);
+    return det;
+  }
+
+  // WHY NOT ONE BIG MODEL? The measured sweep drawn as a picture: macro
+  // recall vs % of parent-everywhere compute, every point a real config.
+  function econChart() {
+    var m = PATCH.measured;
+    if (!m) return null;
+    var cfgs = m.escalation.configs.filter(function (c) {
+      return c.pct_of_parent_everywhere != null && c.macro_recall != null;
+    });
+    var W = 300, H = 150, padL = 34, padB = 26, padT = 12, padR = 12;
+    var host = svg("svg", { class: "sn-econ", viewBox: "0 0 " + W + " " + H, role: "img",
+      "aria-label": "measured sweep: macro recall against percent of parent-everywhere compute, one point per config" });
+    var x = function (p) { return padL + p * (W - padL - padR); };
+    var y = function (rec) { return H - padB - rec * (H - padB - padT); };
+    host.appendChild(svg("line", { class: "sn-econ__ax", x1: padL, y1: H - padB, x2: W - padR, y2: H - padB }));
+    host.appendChild(svg("line", { class: "sn-econ__ax", x1: padL, y1: padT, x2: padL, y2: H - padB }));
+    var tx = svg("text", { class: "sn-econ__t", x: (padL + W - padR) / 2, y: H - 4, "text-anchor": "middle" });
+    tx.textContent = "% of parent-everywhere compute";
+    var ty = svg("text", { class: "sn-econ__t", x: 8, y: (padT + H - padB) / 2,
+      transform: "rotate(-90 8 " + ((padT + H - padB) / 2) + ")", "text-anchor": "middle" });
+    ty.textContent = "macro recall";
+    host.appendChild(tx); host.appendChild(ty);
+    // the mesh points joined, so the trade reads as a curve
+    var mesh = cfgs.filter(function (c) { return /child\+parent@/.test(c.config); });
+    if (mesh.length > 1) {
+      var d = mesh.map(function (c, i) {
+        return (i ? "L" : "M") + x(c.pct_of_parent_everywhere).toFixed(1) + " " + y(c.macro_recall).toFixed(1);
+      }).join("");
+      host.appendChild(svg("path", { class: "sn-econ__curve", d: d }));
+    }
+    cfgs.forEach(function (c) {
+      var isMesh = /child\+parent@/.test(c.config);
+      var cx = x(c.pct_of_parent_everywhere), cy = y(c.macro_recall);
+      host.appendChild(svg("circle", { class: "sn-econ__pt" + (isMesh ? " is-mesh" : ""),
+        cx: cx.toFixed(1), cy: cy.toFixed(1), r: isMesh ? 3.4 : 2.6 }));
+      var flip = cx > W - 70; // keep the rightmost labels inside the frame
+      var lab = svg("text", { class: "sn-econ__pl", x: (flip ? cx - 4 : cx + 4).toFixed(1),
+        y: (cy - 4).toFixed(1), "text-anchor": flip ? "end" : "start" });
+      lab.textContent = c.config.replace("child+parent@", "@").replace("parent-adjudicate-all", "adjudicate-all");
+      host.appendChild(lab);
+    });
+    return host;
+  }
+
+  function browserTierQuant() {
+    var m = PATCH.measured;
+    if (!m || !m.quants) return null;
+    for (var i = 0; i < m.quants.length; i++) {
+      if (/browser/.test(m.quants[i].role || "")) return m.quants[i];
+    }
+    return null;
+  }
+
+  // The two standing questions, parked under the chain rail.
+  function renderWhys() {
+    var host = $("wsWhys");
+    if (!host || !PATCH.measured) return;
+    host.textContent = "";
+    var m = PATCH.measured;
+
+    var econ = whyPop("why not one big model?");
+    var chart = econChart();
+    if (chart) econ.appendChild(chart);
+    var best = m.escalation.configs.filter(function (c) { return c.config === "child+parent@1.5"; })[0];
+    if (best) {
+      econ.appendChild(el("p", "sn-why__p",
+        "The measured trade: at floor 1.5 the mesh reaches " + (best.macro_recall * 100).toFixed(1) +
+        " macro recall for " + (best.pct_of_parent_everywhere * 100).toFixed(0) +
+        "% of the compute of asking the senior about everything. Escalation buys most of the " +
+        "senior's judgment for a fraction of its residency."));
+    }
+    econ.appendChild(el("p", "sn-why__cite",
+      "measured: " + m.escalation.configs.map(function (c) { return c.config; }).join(" · ") +
+      " (" + m._provenance.suite + ")"));
+    host.appendChild(econ);
+
+    var tiny = whyPop("why so small?");
+    var ladder = el("span", "sn-ladder");
+    ladder.setAttribute("aria-hidden", "true");
+    ladder.appendChild(el("span", "wb-plate__ink"));
+    tiny.appendChild(ladder);
+    tiny.appendChild(el("p", "sn-why__p",
+      "The reading happens where the wire is. A chat model needs a datacenter and a " +
+      "round-trip; a Wave slot runs on the hardware the plant already owns - " +
+      FAMILY.filter(function (f) { return f.status !== "planned"; })
+        .map(function (f) { return f.label + " on " + f.runs; }).join(", ") +
+      " - so the bytes never leave the fence."));
+    var q = browserTierQuant();
+    if (q) {
+      tiny.appendChild(el("p", "sn-why__p",
+        "Small also survives quantization: the " + q.quant + " build is " + q.size_mb +
+        "MB at " + (q.fault_id_macro * 100).toFixed(1) + " fault-ID macro - small enough " +
+        "for a browser tab (" + q.source + ")."));
+    }
+    host.appendChild(tiny);
   }
 
   /* ---- the measured figures live on the knob's tooltip ------------------- */
@@ -905,6 +1032,64 @@
     return d;
   }
 
+  /* ---- the PHOSPHOR renderer: the same real samples, drawn with light.
+     A 2D-canvas oscilloscope beam sweeps the recorded window; a low-alpha
+     destination-out wash each frame gives the trail its decay. RENDERING
+     math only - the data path is seriesOf() and nothing else, and the
+     SVG strip below remains the reduced-motion / no-canvas fallback with
+     identical labels. */
+  var TRACE = { gen: 0 };
+  function drawStripCanvas(wrap, s, sc) {
+    var cv = document.createElement("canvas");
+    var ctx = cv.getContext && cv.getContext("2d");
+    if (!ctx) return false;
+    cv.className = "sn-strip__cv";
+    cv.setAttribute("role", "img");
+    cv.setAttribute("aria-label", "the recorded sample series for this record, replayed in a loop");
+    wrap.appendChild(cv);
+    var gen = ++TRACE.gen;
+    var W = 560, H = 96, dpr = Math.min(2, window.devicePixelRatio || 1);
+    cv.width = W * dpr; cv.height = H * dpr;
+    var samples = s.samples, n = samples.length;
+    var SWEEP_MS = 9000; // presentation speed, as labelled - not the recorded rate
+    var stroke = null, frame = 0, t0 = null, li = 0;
+    function yOf(v) { return 8 + (1 - (v - sc.lo) / sc.span) * (H - 16); }
+    function xOf(i) { return (i / (n - 1)) * W; }
+    function seg(a, b) {
+      ctx.beginPath();
+      ctx.moveTo(xOf(a), yOf(samples[Math.round(a)] != null ? samples[Math.round(a)] : samples[0]));
+      for (var i = Math.floor(a) + 1; i <= Math.floor(b); i++) ctx.lineTo(xOf(i), yOf(samples[i]));
+      ctx.lineTo(xOf(b), yOf(samples[Math.min(n - 1, Math.round(b))]));
+      ctx.stroke();
+    }
+    function step(ts) {
+      if (gen !== TRACE.gen || !cv.isConnected) return; // superseded or torn down
+      if (t0 == null) t0 = ts;
+      if (frame % 45 === 0) stroke = getComputedStyle(cv).color; // theme can flip mid-loop
+      frame++;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      // phosphor decay: fade what is already lit instead of clearing
+      ctx.globalCompositeOperation = "destination-out";
+      ctx.fillStyle = "rgba(0,0,0,0.045)";
+      ctx.fillRect(0, 0, W, H);
+      ctx.globalCompositeOperation = "source-over";
+      ctx.strokeStyle = stroke; ctx.fillStyle = stroke;
+      ctx.lineWidth = 1.5; ctx.lineJoin = "round"; ctx.lineCap = "round";
+      ctx.shadowColor = stroke; ctx.shadowBlur = 7;
+      var head = (((ts - t0) / SWEEP_MS) % 1) * (n - 1);
+      if (head < li) { seg(li, n - 1); li = 0; } // wrap: finish the window, restart the sweep
+      seg(li, head);
+      li = head;
+      // the beam head
+      ctx.beginPath();
+      ctx.arc(xOf(head), yOf(samples[Math.round(head)]), 1.8, 0, Math.PI * 2);
+      ctx.fill();
+      requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+    return true;
+  }
+
   function drawStrip(r) {
     var s = seriesOf(r);
     if (!s) return null;
@@ -920,20 +1105,25 @@
     wrap.appendChild(head);
     var W = 560, H = 96;
     var sc = scaleOf(s.samples);
-    var host = svg("svg", { class: "sn-strip__svg", viewBox: "0 0 " + W + " " + H,
-      preserveAspectRatio: "none", role: "img",
-      "aria-label": "the recorded sample series for this record, replayed in a loop" });
-    if (REDUCED) {
-      // no motion: the full recorded window, static
-      host.appendChild(svg("path", { class: "sn-strip__line",
-        d: seriesPath(s.samples, W, H, 8, false, sc) }));
-    } else {
-      var g = svg("g", { class: "sn-strip__scroll" });
-      g.appendChild(svg("path", { class: "sn-strip__line",
-        d: seriesPath(s.samples, W * 2, H, 8, true, sc) }));
-      host.appendChild(g);
+    // the phosphor beam when motion is welcome and canvas exists; the SVG
+    // strip is the reduced-motion / no-canvas fallback
+    var painted = !REDUCED && drawStripCanvas(wrap, s, sc);
+    if (!painted) {
+      var host = svg("svg", { class: "sn-strip__svg", viewBox: "0 0 " + W + " " + H,
+        preserveAspectRatio: "none", role: "img",
+        "aria-label": "the recorded sample series for this record, replayed in a loop" });
+      if (REDUCED) {
+        // no motion: the full recorded window, static
+        host.appendChild(svg("path", { class: "sn-strip__line",
+          d: seriesPath(s.samples, W, H, 8, false, sc) }));
+      } else {
+        var g = svg("g", { class: "sn-strip__scroll" });
+        g.appendChild(svg("path", { class: "sn-strip__line",
+          d: seriesPath(s.samples, W * 2, H, 8, true, sc) }));
+        host.appendChild(g);
+      }
+      wrap.appendChild(host);
     }
-    wrap.appendChild(host);
     var w = r.window || {};
     var legend = el("p", "sn-sub sn-strip__legend",
       "display scale " + fmtN(sc.lo) + " … " + fmtN(sc.hi) +
@@ -1045,7 +1235,8 @@
         }
         box.appendChild(line);
         box.appendChild(el("p", "sn-sub", st.esc
-          ? "the wire protocol line - the Pico hands this read up"
+          ? "the wire protocol line - the Pico hands this read up. The margin is the model " +
+            "saying 'I am not sure' - that honesty is the feature."
           : "the wire protocol line - machine-facing, one token of meaning"));
       } else if (st.kind === "nano") {
         var vw = el("p", "sn-verdict");
@@ -1110,6 +1301,17 @@
         "run; the live trace is its real sample series from the committed windows bundle. " +
         "Every stage prints recorded fields; the margins are recorded logprob " +
         "differences - nothing in this browser computes one."));
+      // the TRUST chip: the deck's one public mistake, worn as provenance.
+      var ret = PATCH.measured && PATCH.measured._provenance && PATCH.measured._provenance.retracted;
+      if (ret) {
+        var trust = whyPop("why trust these numbers?", "sn-why--trust");
+        trust.appendChild(el("p", "sn-why__p",
+          "This deck once published a wrong one: “" + ret.claim + "” - " + ret.status +
+          ". The impossible part (two quantizations returning identical aggregates) is what " +
+          "caught it, and the exporter now REFUSES that signature outright. Every figure here " +
+          "carries its run and suite so you can re-check us the same way."));
+        det.appendChild(trust);
+      }
       if (PATCH.scene && r.scene_id === PATCH.scene.scene_id) drawScopeInto(det);
       certHost.appendChild(det);
     }
@@ -1167,6 +1369,26 @@
   }
 
   function shortName(p) { return String(p || "").split("/").pop(); }
+
+  /* ---- the TV's parallax: bezel and glass on separate depths -------------
+     Pure chrome. No listeners are even attached under reduced motion. */
+  function wireTilt() {
+    if (REDUCED) return;
+    var tv = document.querySelector(".sn-tv");
+    if (!tv) return;
+    tv.addEventListener("pointermove", function (e) {
+      var b = tv.getBoundingClientRect();
+      if (!b.width || !b.height) return;
+      var dx = (e.clientX - b.left) / b.width - 0.5;
+      var dy = (e.clientY - b.top) / b.height - 0.5;
+      tv.style.setProperty("--tiltx", (dy * -1.5).toFixed(2) + "deg");
+      tv.style.setProperty("--tilty", (dx * 1.5).toFixed(2) + "deg");
+    });
+    tv.addEventListener("pointerleave", function () {
+      tv.style.setProperty("--tiltx", "0deg");
+      tv.style.setProperty("--tilty", "0deg");
+    });
+  }
 
   /* ---- the a11y mirror: the same bench as a list ------------------------- */
   function renderMirror() {
@@ -1718,6 +1940,8 @@
       render();
       react("The bench is live with the recommended chain: Pico reads, Nano adjudicates. " +
         "Pick a sensor, press a condition pad, and watch the monitor.");
+      renderWhys();
+      wireTilt();
       document.addEventListener("keydown", onKey);
       wirePrompt();
     }).catch(fail);

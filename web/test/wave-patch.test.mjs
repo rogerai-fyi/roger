@@ -402,7 +402,9 @@ test("monitor: the ticker is capped, and the announcer is sr-only", () => {
 
 test("monitor: the output lives inside the wide TV's glass", () => {
   assert.ok(css.includes("glass-monitor-wide-ink.png"), "the wide set frames the output");
-  assert.ok(/\.sn-tv__plate \{ position: absolute; inset: 0; pointer-events: none/.test(css),
+  // v9: the plate rule grew a parallax transform, so match within the block
+  const plateBlock = css.slice(css.indexOf(".sn-tv__plate {"), css.indexOf("}", css.indexOf(".sn-tv__plate {")));
+  assert.ok(/pointer-events: none/.test(plateBlock),
     "the plate never catches a tap - it frames data, it never is the data");
   assert.ok(/aspect-ratio: 750 \/ 570/.test(css), "the TV keeps the engraving's true proportions");
   assert.ok(htmlFlat.includes('id="wpMonitor"'), "the screen is the output element");
@@ -458,10 +460,17 @@ test("interaction: motion is chrome, and stops for reduced motion", () => {
 // ---------- the palette ----------------------------------------------------------
 
 test("palette: only tokens that exist are referenced", () => {
+  // The rule's purpose: no dangling var() that silently falls back to nothing.
+  // A reference is fine if (a) tokens.css defines it, or (b) EVERY use carries
+  // an explicit fallback (the v9 parallax vars --tiltx/--tilty, set by JS,
+  // consumed as var(--tiltx, 0deg) - the fallback IS the reduced state).
   const tokens = read("styles/tokens.css");
   const used = new Set((css.match(/var\(--[a-z0-9-]+/g) || []).map((v) => v.slice(4)));
   for (const name of used) {
-    assert.ok(tokens.includes(`${name}:`), `${name} must be a real token`);
+    if (tokens.includes(`${name}:`)) continue;
+    const bare = new RegExp(`var\\(${name}\\s*\\)`);
+    assert.ok(!bare.test(css),
+      `${name} is not a token, so every use must carry an explicit fallback`);
   }
 });
 
@@ -818,4 +827,74 @@ test("plates: illustrations are decoration to assistive tech", () => {
     "the engraved model glyph is decoration");
   assert.ok(/art.setAttribute\("aria-hidden", "true"\)/.test(js),
     "the selector icons are decoration");
+});
+
+// ---------- the WHY layer (v9) -----------------------------------------------------
+
+test("why: the economics chart is drawn from the measured configs, cited", () => {
+  const econ = js.slice(js.indexOf("function econChart"), js.indexOf("function browserTierQuant"));
+  assert.ok(/m.escalation.configs/.test(econ), "every point is a real config");
+  assert.ok(/pct_of_parent_everywhere/.test(econ) && /macro_recall/.test(econ),
+    "the axes are the measured trade");
+  const whys = js.slice(js.indexOf("function renderWhys"), js.indexOf("/* ---- the measured figures"));
+  assert.ok(/_provenance.suite/.test(whys), "the pop cites the suite");
+  assert.ok(/configs.map\(function \(c\) \{ return c.config; \}\)/.test(whys),
+    "and lists the config names it plotted");
+  assert.ok(!/["'](?:56\.1|62|72\.6|73\.2)["']/.test(whys),
+    "no measured number is typed into the why layer - all rendered from data");
+});
+
+test("why: the tiny story quotes the browser-tier quant with its source", () => {
+  assert.ok(/browserTierQuant/.test(js), "the quant row is looked up, not remembered");
+  const whys = js.slice(js.indexOf("function renderWhys"), js.indexOf("/* ---- the measured figures"));
+  assert.ok(/q.size_mb/.test(whys) && /q.source/.test(whys),
+    "size and citation both come from the quants row");
+  assert.ok(css.includes("mast-ladder-ink.png"), "the tier ladder emblem is the committed plate");
+  const ladder = css.slice(css.indexOf(".sn-ladder"));
+  assert.ok(!/mast-ladder-spot/.test(ladder),
+    "ink only - the ladder adds no new red fill to the palette");
+});
+
+test("why: the trust chip renders the retraction from provenance fields", () => {
+  const cert = js.slice(js.indexOf("// the TRUST chip"), js.indexOf("drawScopeInto(det)"));
+  assert.ok(/_provenance.retracted/.test(cert), "the story comes from the bundle");
+  assert.ok(/ret.claim/.test(cert) && /ret.status/.test(cert),
+    "claim and status are the recorded fields, not paraphrase");
+});
+
+test("why: the escalate stage states the margin doctrine", () => {
+  // the sentence is concatenation-split in source; match its unbroken tail
+  assert.ok(/saying 'I am not sure' - that honesty is the feature/.test(js));
+});
+
+test("why: pico and nano chain cards carry their story one tap away", () => {
+  assert.ok(/why task-native\?/.test(js), "the pico card asks the question");
+  assert.ok(/LOCKED ENUM with a MARGIN/.test(js), "and answers with the doctrine");
+  assert.ok(/why a senior\?/.test(js), "the nano card asks its own");
+});
+
+// ---------- the phosphor renderer (v9) ---------------------------------------------
+
+test("phosphor: the canvas draws only the recorded series, with the SVG fallback", () => {
+  const cvBlock = js.slice(js.indexOf("function drawStripCanvas"), js.indexOf("function drawStrip(r)"));
+  assert.ok(!/Math.random|Math.sin/.test(cvBlock),
+    "no synthesized data - rendering math only");
+  assert.ok(/s.samples/.test(cvBlock), "the beam plots the record's real samples");
+  const strip = js.slice(js.indexOf("function drawStrip(r)"), js.indexOf("function sparkline"));
+  assert.ok(/!REDUCED && drawStripCanvas/.test(strip),
+    "reduced motion never starts the beam");
+  assert.ok(/sn-strip__svg/.test(strip), "and the SVG strip remains as the fallback");
+  assert.ok(/getContext/.test(cvBlock) && /return false/.test(cvBlock),
+    "no canvas support degrades to the fallback, not to nothing");
+  assert.ok(/gen !== TRACE.gen \|\| !cv.isConnected/.test(cvBlock),
+    "a superseded or removed canvas stops its own loop");
+  assert.ok(/presentation speed, as labelled/.test(cvBlock),
+    "the sweep speed is declared presentation, not the recorded rate");
+});
+
+test("phosphor: the tilt is chrome - no listeners under reduced motion", () => {
+  const tilt = js.slice(js.indexOf("function wireTilt"), js.indexOf("function renderMirror"));
+  assert.ok(/if \(REDUCED\) return;/.test(tilt), "reduced motion attaches nothing");
+  assert.ok(/prefers-reduced-motion: reduce\) \{ \.sn-tv__plate \{ transition: none; transform: none/.test(css),
+    "and the CSS side goes static too");
 });
