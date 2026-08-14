@@ -1011,13 +1011,31 @@ test("prompt: the live seam - Ping for chat, null for protocol, wave band docume
   assert.equal(h.liveAnswerer(null, {}, "x"), null, "no verdict, no request");
   assert.equal(h.liveAnswerer({ kind: "scenario-asset" }, {}, "x"), null,
     "scenario words still never leave the deck");
-  assert.ok(/Comment briefly on what the paste shows; do not invent values/.test(js),
-    "the paste commentary request forbids invention");
+  // AMENDED 2026-08-14: the request to Ping is now written as prose rather than
+  // a machine-tagged dump, because the tagged form tripped the concierge's
+  // off-topic guardrail and got a decline where prose gets a real answer. The
+  // no-invention instruction is what this lock protects, so assert THAT, in
+  // whatever wording, on every request the deck sends.
+  assert.ok(/never invent a reading/.test(js), "requests to Ping forbid invention");
+  const pingMsgs = js.slice(js.indexOf("function liveAnswerer"), js.indexOf("function liveAnswerer") + 2200);
+  assert.ok(/Use only the numbers given/.test(pingMsgs) && /using only those numbers/.test(pingMsgs)
+    && /using only what is above/.test(pingMsgs),
+    "every branch - paste, fleet, question - is bounded to the numbers it was given");
+  assert.ok(!/\[WAVE MESH BENCH\]/.test(js),
+    "the machine-tagged prefix that drew a decline must not come back");
   const live = h.liveAnswerer({ kind: "question", text: "q" }, {}, "q");
   assert.ok(live && typeof live.then === "function",
     "chat and questions produce a real request (a promise), not a placeholder");
-  assert.ok(/\[WAVE MESH BENCH\]/.test(js),
-    "the message carries the bench-context prefix the broker persona recognises");
+  // SUPERSEDED 2026-08-14: this used to require the [WAVE MESH BENCH] prefix.
+  // Measured against the live concierge, that tagged form draws a decline
+  // ("that's outside my band, friend") while the same recorded numbers written
+  // as prose draw a real answer. What the lock is really for - the request
+  // must carry the recorded bench context, not just the visitor's question -
+  // is asserted directly instead.
+  assert.ok(/On the RogerAI Playbox, the Wave Mesh deck is replaying a recorded reading/.test(js),
+    "the message carries the recorded bench context, named as RogerAI's own");
+  assert.ok(/benchContext\(\)/.test(js.slice(js.indexOf("function liveAnswerer"))),
+    "and every question branch sends it");
   assert.ok(/Tower relay/.test(js), "the transport is documented at the seam");
   assert.ok(/one-request-per-candidate grammar/.test(js), "with the enum protocol for the wave band");
   assert.ok(/QUESTION-FOR-MODELS-AGENT-mesh-live-prompt/.test(js),
@@ -1029,8 +1047,13 @@ test("prompt: the live seam - Ping for chat, null for protocol, wave band docume
   h.selectType("temp", "drifting");
   const ctx = h.benchContext();
   const r = measured.records[h.state.types.find((x) => x.key === "temp").recIdx.drifting];
-  assert.ok(ctx.includes("tag=" + r.window.tag), "the context names the live selection");
-  assert.ok(ctx.includes("mean=" + r.window.mean), "with its recorded mean");
+  // the key=value shape became prose in the same change that fixed the decline;
+  // the guarantee is unchanged - the context must carry THIS record's fields
+  assert.ok(ctx.includes("sensor " + r.window.tag), "the context names the live selection");
+  assert.ok(ctx.includes("mean " + r.window.mean), "with its recorded mean");
+  assert.ok(ctx.includes(String(r.window.lo)) && ctx.includes(String(r.window.hi)),
+    "and its recorded range");
+  assert.ok(!/\bmean=\b/.test(ctx), "no machine-tagged key=value dump survives");
 });
 
 test("classifier: reading questions route to question, chatter still routes to talk", () => {

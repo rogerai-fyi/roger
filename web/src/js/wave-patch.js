@@ -2328,8 +2328,10 @@
      TODAY: chat and reading questions go to PING - the broker's concierge, a
      REAL model answering over the Tower relay (the same POST /concierge the
      CONSOLE deck's pingSend makes). Ping is the concierge, NOT a Wave model,
-     and its card says so; the message hands it the recorded bench context
-     (the [WAVE MESH BENCH] prefix the broker persona recognises) and the
+     and its card says so; the message hands it the recorded bench context as
+     PROSE that names RogerAI's own product and bench (see benchContext -
+     a machine-tagged dump reads to Ping's guardrail as off-topic and draws a
+     decline, where the same numbers in prose draw a real answer), and the
      reply is displayed VERBATIM, declines included - a real reply is a real
      reply. The bench's recorded reading always rides beneath a question's
      answer, so the visitor gets the numbers whatever Ping says.
@@ -2343,25 +2345,40 @@
      the DRAFT envelope, and no model runs in a browser. */
   var PING_URL = "https://broker.rogerai.fm/concierge"; // the ONE cross-origin call this deck makes
 
+  // Ping is a bounded radio-DJ concierge whose guardrail refuses anything that
+  // does not read as RogerAI's own business. A machine-tagged data dump reads
+  // to it as exactly that - off-topic - and it declines. The SAME reading,
+  // written as prose that names RogerAI's own product and its own bench, gets
+  // a real, useful answer (measured against the live endpoint: the tagged form
+  // gets "that's outside my band, friend"; the prose form gets "Wave Pico is
+  // saying that sensor looks steady enough..."). So the deck speaks to Ping the
+  // way a person would, and the facts stay exactly the recorded ones.
   function benchContext() {
     var r = currentRecord();
-    if (!r) return "no sensor selected.";
+    if (!r) return "The Wave Mesh deck has no sensor selected yet.";
     var w = r.window || {};
-    var bits = [];
+    var acts = [];
     stages().forEach(function (st) {
       if (st.kind === "pico") {
-        bits.push("Wave Pico " + (st.esc
-          ? "escalated (margin " + st.margin.toFixed(2) + " below floor " + st.floor.toFixed(1) + ")"
-          : 'asserted " ' + st.said + '" (margin ' + st.margin.toFixed(2) + " at floor " + st.floor.toFixed(1) + ")"));
+        acts.push(st.esc
+          ? "RogerAI's Wave Pico was not sure enough to answer alone (confidence gap " +
+            st.margin.toFixed(2) + ", it needs " + st.floor.toFixed(1) + "), so it asked for help"
+          : 'RogerAI\'s Wave Pico answered "' + st.said + '" on its own (confidence gap ' +
+            st.margin.toFixed(2) + ", above the " + st.floor.toFixed(1) + " it needs)");
       }
-      if (st.kind === "nano") bits.push('Wave Nano said " ' + st.verdict + '" (margin ' + st.r.parent.margin.toFixed(2) + ")");
-      if (st.kind === "deadend") bits.push("the escalation went unheard (no senior in the chain)");
+      if (st.kind === "nano") {
+        acts.push('the bigger Wave Nano answered "' + st.verdict +
+          '" (confidence gap ' + st.r.parent.margin.toFixed(2) + ")");
+      }
+      if (st.kind === "deadend") {
+        acts.push("nobody bigger was in the chain, so the doubt went unheard");
+      }
     });
-    return "recorded window: tag=" + (w.tag || r.node_id) +
-      ", unit=" + (unitWordOf(r) || "not stated") + ", n=" + w.n +
-      ", range=" + w.lo + "\u2013" + w.hi + ", mean=" + w.mean +
-      ", trend=" + w.slope_per_min + "/min. chain: " +
-      (bits.join("; ") || "no model chained") + ".";
+    return "On the RogerAI Playbox, the Wave Mesh deck is replaying a recorded reading from " +
+      "RogerAI's own eval bench: sensor " + (w.tag || r.node_id) + ", " + w.n + " samples, " +
+      "range " + w.lo + " to " + w.hi + " " + (unitWordOf(r) || "(unit not stated in the wire)") +
+      ", mean " + w.mean + ", trend " + w.slope_per_min + " per minute. " +
+      (acts.length ? acts.join(", and ") + "." : "No Wave model is reading it yet.");
   }
 
   function liveAnswerer(v, ctx, text) {
@@ -2382,15 +2399,20 @@
       } else {
         sum += ", values not decoded in-browser";
       }
-      msg = "[WAVE MESH BENCH] " + benchContext() +
-        " visitor pasted machine bytes: " + sum +
-        ". Comment briefly on what the paste shows; do not invent values.";
+      msg = benchContext() + " A listener has just pasted their own machine data into the " +
+        "deck: " + sum + ". In one or two sentences, in your DJ voice, say what that paste " +
+        "shows. Use only the numbers given - never invent a reading.";
     } else if (v.kind === "fleet-question") {
       var fl = benchFleet();
-      msg = "[WAVE MESH BENCH] the recorded fleet rollup: " +
-        (fl.lead || "no reader chained") + " visitor asks: " + text;
+      msg = "On the RogerAI Playbox, the Wave Mesh deck just replayed RogerAI's whole " +
+        "recorded eval fleet under the listener's current settings: " +
+        (fl.lead || "no Wave model is reading it yet") +
+        " A listener asks: \"" + text + "\". " +
+        "Answer them in one or two sentences using only those numbers - never invent a reading.";
     } else {
-      msg = "[WAVE MESH BENCH] " + benchContext() + " visitor asks: " + text;
+      msg = benchContext() + " A listener watching this asks: \"" + text + "\". Answer them " +
+        "in one or two sentences, in your DJ voice, using only what is above - never invent a " +
+        "reading. These are recorded replays of RogerAI's bench, not a live plant.";
     }
     return fetch(PING_URL, {
       method: "POST", headers: { "Content-Type": "application/json" },
