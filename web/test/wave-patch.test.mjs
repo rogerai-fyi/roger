@@ -931,3 +931,65 @@ test("phosphor: the tilt is chrome - no listeners under reduced motion", () => {
   assert.ok(/prefers-reduced-motion: reduce\) \{ \.sn-tv__plate \{ transition: none; transform: none/.test(css),
     "and the CSS side goes static too");
 });
+
+// ---------- v11: the adversarial pass ------------------------------------------
+
+test("v11: a prompt reply dies when its context moves", () => {
+  const h = loadHook();
+  h.state.chain = ["pico", "nano"];
+  h.promptSend("what does the temperature read right now?");
+  assert.equal(h.state.reply.kind, "reading", "a reading question earns a bench reading");
+  const before = h.state.reply;
+  const other = h.state.types.find((x) => x.key !== h.state.typeKey);
+  h.selectType(other.key);
+  assert.equal(h.state.reply, null,
+    "a reading card citing the previous sensor must not survive a type switch");
+  assert.ok(before.tag, "(the stale card really did carry the old tag)");
+  // chain moves kill it too - the DRAFT header names its addressee
+  h.promptSend("71.2, 71.3, 71.1, 71.4, 71.2, 71.3, 71.5, 71.2");
+  assert.equal(h.state.reply.kind, "draft");
+  h.chainAdd("micro");
+  assert.equal(h.state.reply, null, "a chain change retires the addressed draft");
+});
+
+test("v11: one of each family member per chain - no duplicate silent models", () => {
+  const h = loadHook();
+  h.state.chain = ["pico", "nano"];
+  h.chainAdd("micro");
+  h.chainAdd("micro");
+  h.chainAdd("micro");
+  assert.deepEqual(h.state.chain.filter((id) => id === "micro"), ["micro"],
+    "a fidgety tap chained four Micros once; never again");
+});
+
+test("v11: a giant paste's envelope truncates its DISPLAY honestly", () => {
+  const h = loadHook();
+  const big = "x 1 2 3\n".repeat(40000);
+  const env = h.envelopeFor({ modality: "raw numbers", channels: [], body: big });
+  assert.ok(env.length < 20000, "the display is capped");
+  assert.ok(/display truncated - [\d,]+ more bytes of your paste would be sent verbatim/.test(env),
+    "the cut is labeled, with the count - what would be SENT is stated, not hidden");
+  assert.ok(env.includes("(" + big.length + " chars)"),
+    "the stated byte count is the ORIGINAL paste, not the clipped display");
+});
+
+test("v11: the power-on sweep fires on content changes, not every repaint", () => {
+  assert.ok(/monSig !== PATCH._monSig/.test(js),
+    "the flip is gated on a content signature (operator toggles were strobing the glass)");
+});
+
+test("v11: the first-run nudge is one-shot and dies on the first pad press", () => {
+  assert.ok(/pb\.meshNudge/.test(js), "localStorage-gated like pb.mode");
+  assert.ok(/dismissNudge\(true\)/.test(js.slice(js.indexOf('pad.addEventListener'))),
+    "the first pad press retires it silently");
+  assert.ok(/sn-nudge__x/.test(js), "and it carries its own dismiss button");
+  assert.ok(/@media not \(prefers-reduced-motion: reduce\)/.test(css),
+    "any pulse on it is gated the right way around");
+});
+
+test("v11: the glass shows a scroll cue when the cascade runs past it", () => {
+  assert.ok(/sn-mon__fade/.test(js), "the fade is appended with the cascade");
+  assert.ok(/\.sn-mon__fade \{\n  position: sticky/.test(css) || /sn-mon__fade \{[^}]*position: sticky/.test(css),
+    "sticky, so it hugs the bottom edge only while content overflows");
+});
+

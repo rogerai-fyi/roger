@@ -245,9 +245,18 @@
     };
   }
 
+  // A prompt reply cites the selection (readings) and the chain (the DRAFT's
+  // addressee). When either moves, the card on screen would be describing a
+  // bench that no longer exists - so context moves dismiss it. (v11: caught
+  // live - a TEMP reading card survived a switch to VIBRATION.)
+  function contextMoved() {
+    PATCH.reply = null;
+  }
+
   function selectType(key, cond) {
     var t = typeOf(key);
     if (!t) return;
+    contextMoved();
     PATCH.typeKey = key;
     PATCH.cond = (cond != null && t.recIdx[cond] != null) ? cond
       : (t.recIdx[PATCH.cond] != null ? PATCH.cond : t.conds[0]);
@@ -564,6 +573,24 @@
   }
 
   /* ---- the pads: one backlit pad per RECORDED condition of the type ------ */
+  // The first-run nudge: one tiny dismissible hint pointing at the pads.
+  // localStorage-gated (like pb.mode); gone forever after dismissal or the
+  // first pad press. Static styling - any pulse is CSS, reduced-motion-gated.
+  function nudgeWanted() {
+    try { return !window.localStorage.getItem("pb.meshNudge"); }
+    catch (e) { return false; }
+  }
+  function dismissNudge(silent) {
+    if (!nudgeWanted()) return;
+    try { window.localStorage.setItem("pb.meshNudge", "seen"); } catch (e) { /* private mode */ }
+    var n = document.querySelector(".sn-nudge");
+    if (n && n.parentNode) n.parentNode.removeChild(n);
+    if (!silent) {
+      var ta = $("wpPrompt");
+      if (ta) ta.focus({ preventScroll: true });
+    }
+  }
+
   function renderPads() {
     var host = $("wsPads");
     if (!host) return;
@@ -594,7 +621,9 @@
       pad.appendChild(cap);
       pad.appendChild(el("span", "syn-pad__k", CONDW[c] || c.toUpperCase()));
       pad.addEventListener("click", function () {
+        contextMoved();
         PATCH.cond = c;
+        dismissNudge(true);
         derive(); render();
         var r = currentRecord();
         react("Condition " + (CONDW[c] || c.toUpperCase()) + " - replaying " +
@@ -605,6 +634,19 @@
       row.appendChild(pad);
     });
     host.appendChild(row);
+
+    if (nudgeWanted()) {
+      var nd = el("div", "sn-nudge");
+      nd.appendChild(el("span", "sn-nudge__arrow", "↑"));
+      nd.appendChild(el("span", null, "try: press DROPOUT - watch the trace and the chain react"));
+      var nx = el("button", "sn-nudge__x");
+      nx.type = "button";
+      nx.setAttribute("aria-label", "Dismiss this hint");
+      nx.textContent = "×";
+      nx.addEventListener("click", function (e) { e.stopPropagation(); dismissNudge(); });
+      nd.appendChild(nx);
+      host.appendChild(nd);
+    }
 
     // the selected record's identity, honest to the wire
     var r = currentRecord();
@@ -759,6 +801,7 @@
     x.setAttribute("aria-label", "Remove " + fam.label + " from the chain");
     x.textContent = "×";
     x.addEventListener("click", function () {
+      contextMoved();
       PATCH.chain.splice(i, 1);
       PATCH.menuFor = null;
       derive(); render();
@@ -840,12 +883,15 @@
 
   function chainAdd(id, at) {
     var fam = familyById(id);
-    if (PATCH.chain.indexOf(id) >= 0 && (id === "pico" || id === "nano")) {
+    if (PATCH.chain.indexOf(id) >= 0) {
+      // one of EACH - a duplicate silent model adds rail, not meaning
+      // (v11: a fidgety tap chained four Micros)
       react("One " + fam.label + " is the chain's shape here.");
       PATCH.menuFor = null;
       render();
       return;
     }
+    contextMoved();
     if (at == null || at > PATCH.chain.length) at = PATCH.chain.length;
     PATCH.chain.splice(at, 0, id);
     PATCH.menuFor = null;
@@ -1202,10 +1248,18 @@
     var host = $("wpMonitor");
     if (!host) return;
     host.textContent = "";
-    // the power-on sweep: retriggered chrome, guarded by reduced-motion in CSS
-    host.classList.remove("is-flip");
-    void host.offsetWidth;
-    host.classList.add("is-flip");
+    // the power-on sweep fires only when what the glass SHOWS changes -
+    // record, tab, chain or reply - not on every repaint (v11: operator
+    // toggles were strobing the screen). Chrome, reduced-motion-guarded.
+    var r0 = currentRecord();
+    var monSig = [r0 && r0.node_id, PATCH.cond, PATCH.tab,
+                  PATCH.chain.join(","), PATCH.reply ? PATCH.reply.kind : ""].join("|");
+    if (monSig !== PATCH._monSig) {
+      PATCH._monSig = monSig;
+      host.classList.remove("is-flip");
+      void host.offsetWidth;
+      host.classList.add("is-flip");
+    }
 
     var v = PATCH.verdict;
     var sts = v ? v.stages : stages();
@@ -1278,6 +1332,13 @@
 
     if (PATCH.reply) host.appendChild(drawReply(PATCH.reply));
 
+    // the glass tells you it scrolls: a sticky fade hugs the bottom edge
+    // whenever the cascade runs past it (v8 screenshots clipped the Nano
+    // paragraph invisibly)
+    var fade = el("div", "sn-mon__fade");
+    fade.setAttribute("aria-hidden", "true");
+    host.appendChild(fade);
+
     var lampBig = $("wpLamp2"), why = $("wpWhy");
     if (lampBig && v) {
       lampBig.dataset.state = v.state;
@@ -1292,9 +1353,15 @@
     if (why && v) why.textContent = v.why;
 
     var certHost = $("wpCertHost");
-    if (certHost) certHost.textContent = "";
+    var certWasOpen = false;
+    if (certHost) {
+      var prevCert = certHost.querySelector(".sn-cert");
+      certWasOpen = !!(prevCert && prevCert.open);
+      certHost.textContent = "";
+    }
     if (r && certHost) {
       var det = el("details", "sn-cert");
+      det.open = certWasOpen; // a pad press must not slam it shut (v11)
       var sum = el("summary", null, "record certificate");
       det.appendChild(sum);
       var w = r.window || {};
@@ -1721,6 +1788,8 @@
     var v = classify(text);
     // the answerer chain: live first (off air today), then the bench
     PATCH.reply = liveAnswerer(v, liveCtx()) || buildReply(text, v);
+    var ta = $("wpPrompt");
+    if (ta) ta.value = ""; // sent - the reply card carries what it earned
     paintMonitor();
     react(PATCH.reply.kind === "draft"
       ? "Draft envelope built for " + PATCH.reply.wired + " - NOT RUN; no model runs in a browser."
@@ -1835,8 +1904,18 @@
      excluded, leading space, cache_prompt true. All of that is measured and
      documented; the one thing NOT invented here is the task frame text,
      which has not been exported - so its slot says so, like the digest. */
+  var ENV_SHOW = 4000; // display cap for the envelope's body - the request
+                       // itself would carry the paste verbatim, and says so
   function envelopeFor(src) {
     var body = src.body || "";
+    var fullLen = body.length;
+    var clipped = null;
+    if (body.length > ENV_SHOW) {
+      clipped = body.length - ENV_SHOW;
+      body = body.slice(0, ENV_SHOW) +
+        "\n… [display truncated - " + clipped.toLocaleString() +
+        " more bytes of your paste would be sent verbatim]";
+    }
     var isNumbers = src.modality === "raw numbers";
     var cat = (PATCH.catalog && PATCH.catalog.catalog) || {};
     var anyAsset = cat[Object.keys(cat)[0]] || {};
@@ -1870,9 +1949,9 @@
       notes.push("# input body: the task frame wraps a FEATURES RENDER of your " +
         (src.channels.length ? "" : "") + "samples (mean, sd, slope," );
       notes.push("# longest_run, ...) - the in-browser features port is pending, so the render");
-      notes.push("# is not shown here. Your raw samples, verbatim (" + body.length + " chars):");
+      notes.push("# is not shown here. Your raw samples, verbatim (" + fullLen + " chars):");
     } else {
-      notes.push("# input body - your bytes, verbatim (" + body.length + " chars):");
+      notes.push("# input body - your bytes, verbatim (" + fullLen + " chars):");
     }
     var frameBlock = frame
       ? "# task frame - exported verbatim from the bench file:\n" + frame + "\n\n"

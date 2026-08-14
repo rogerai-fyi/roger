@@ -988,3 +988,36 @@
   -webkit-mask-position: center; mask-position: center;
 }
 
+/* =====================================================================
+   v11 - adversarial-pass additions
+   ===================================================================== */
+
+/* the glass's scroll cue: sticky fade that only shows when content runs
+   past the screen (when short, it hugs the content end over the same
+   glass colour - invisible) */
+.sn-mon__fade {
+  position: sticky; bottom: -0.7rem; height: 20px; flex: none;
+  margin-top: -20px; pointer-events: none;
+  background: linear-gradient(to bottom, transparent, var(--paper-3));
+}
+
+/* the first-run nudge: one tiny coach chip by the pads */
+.sn-nudge {
+  display: inline-flex; gap: .45rem; align-items: center; width: fit-content;
+  margin-top: .45rem; padding: .3rem .55rem; border-radius: 999px;
+  border: 1px dashed var(--ink-300); background: var(--paper);
+  font-family: var(--font-mono); font-size: .58rem; letter-spacing: .04em;
+  color: var(--ink-700);
+}
+.sn-nudge__arrow { color: var(--ink-400); }
+@media not (prefers-reduced-motion: reduce) {
+  .sn-nudge__arrow { animation: sn-nudge-bob 1.8s ease-in-out infinite; }
+  @keyframes sn-nudge-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-2px); } }
+}
+.sn-nudge__x {
+  border: 0; background: none; cursor: pointer; color: var(--ink-400);
+  font-size: .8rem; line-height: 1; padding: 0 .1rem;
+}
+.sn-nudge__x:hover { color: var(--ink-900); }
+.sn-nudge__x:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
+
