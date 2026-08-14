@@ -55,11 +55,11 @@
       blurb: "wake and sensing tier - in design" },
     { id: "pico", label: "Wave Pico", size: "270M", status: "recorded",
       runs: "gateway class", icon: "pocket", px: 38,
-      does: "classifies: asserts or escalates",
+      does: "asserts or escalates",
       blurb: "the recorded reader on this bench" },
     { id: "nano", label: "Wave Nano", size: "~350M", status: "recorded",
       runs: "phone · Pi · gateway", icon: "reader", px: 46,
-      does: "adjudicates and makes sense of it",
+      does: "adjudicates doubts",
       blurb: "the recorded senior - adjudicates doubtful reads" },
     { id: "micro", label: "Wave Micro", size: "1-8B", status: "trained",
       runs: "laptop · edge computer", icon: "reader", px: 58,
@@ -663,17 +663,21 @@
     });
     host.appendChild(plus);
 
-    if (PATCH.chain.length === 2 && PATCH.chain[0] === "pico" && PATCH.chain[1] === "nano") {
-      var badge = el("span", "sn-reco", "RECOMMENDED · PICO + NANO");
-      badge.title = "the measured deployment pattern: a small reader asserting at its floor, " +
-        "a senior adjudicating the doubtful reads";
-      host.appendChild(badge);
+    var badgeHost = $("wsChainBadge");
+    if (badgeHost) {
+      badgeHost.textContent = "";
+      if (PATCH.chain.length === 2 && PATCH.chain[0] === "pico" && PATCH.chain[1] === "nano") {
+        var badge = el("span", "sn-reco", "RECOMMENDED · PICO + NANO");
+        badge.title = "the measured deployment pattern: a small reader asserting at its floor, " +
+          "a senior adjudicating the doubtful reads";
+        badgeHost.appendChild(badge);
+      }
     }
 
     host.appendChild(railArrow());
     var mon = el("div", "sn-slot sn-slot--monitor");
     mon.appendChild(el("b", null, "MONITOR"));
-    mon.appendChild(el("span", "sn-sub", "the output, below"));
+    mon.title = "the chain ends at the monitor - the output, below";
     host.appendChild(mon);
 
     if (PATCH.menuFor != null) {
@@ -689,10 +693,10 @@
     // a short patch cable with a little sag - geometry as texture
     var a = el("span", "sn-rail");
     a.setAttribute("aria-hidden", "true");
-    var s = svg("svg", { viewBox: "0 0 30 16", width: 30, height: 16, class: "sn-rail__svg" });
-    s.appendChild(svg("path", { class: "sn-rail__cable", d: "M2 5 C 10 13, 20 13, 28 5" }));
+    var s = svg("svg", { viewBox: "0 0 22 16", width: 22, height: 16, class: "sn-rail__svg" });
+    s.appendChild(svg("path", { class: "sn-rail__cable", d: "M2 5 C 8 13, 14 13, 20 5" }));
     s.appendChild(svg("circle", { class: "sn-rail__plug", cx: 2, cy: 5, r: 2.2 }));
-    s.appendChild(svg("circle", { class: "sn-rail__plug", cx: 28, cy: 5, r: 2.2 }));
+    s.appendChild(svg("circle", { class: "sn-rail__plug", cx: 20, cy: 5, r: 2.2 }));
     a.appendChild(s);
     return a;
   }
@@ -768,7 +772,7 @@
         labels: DETENTS.map(function (d) { return "FLOOR " + d.toFixed(1); }),
         index: Math.max(0, DETENTS.indexOf(PATCH.floor)),
         name: "margin floor",
-        size: 44,
+        size: 38,
         tip: function (k) { return knobTip(DETENTS[k]); },
         onset: function (k) {
           PATCH.floor = DETENTS[k];
@@ -1052,7 +1056,7 @@
     cv.width = W * dpr; cv.height = H * dpr;
     var samples = s.samples, n = samples.length;
     var SWEEP_MS = 9000; // presentation speed, as labelled - not the recorded rate
-    var stroke = null, frame = 0, t0 = null, li = 0;
+    var stroke = null, blur = 2.5, frame = 0, t0 = null, li = 0;
     function yOf(v) { return 8 + (1 - (v - sc.lo) / sc.span) * (H - 16); }
     function xOf(i) { return (i / (n - 1)) * W; }
     function seg(a, b) {
@@ -1064,8 +1068,20 @@
     }
     function step(ts) {
       if (gen !== TRACE.gen || !cv.isConnected) return; // superseded or torn down
+      // idle while the mesh view is hidden (mode switch) - keep the ticker
+      // alive but do no canvas work; the sweep restarts clean on return.
+      // (Backgrounded tabs already stop: the browser suspends rAF itself.)
+      if (frame % 15 === 0 && cv.offsetParent === null) {
+        t0 = null; li = 0; frame = 0; // stays 0 -> re-check every idle tick
+        requestAnimationFrame(step);
+        return;
+      }
       if (t0 == null) t0 = ts;
-      if (frame % 45 === 0) stroke = getComputedStyle(cv).color; // theme can flip mid-loop
+      if (frame % 45 === 0) { // theme can flip mid-loop: re-read color + glow
+        var cs = getComputedStyle(cv);
+        stroke = cs.color;
+        blur = parseFloat(cs.getPropertyValue("--beam-blur")) || 2.5;
+      }
       frame++;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       // phosphor decay: fade what is already lit instead of clearing
@@ -1075,7 +1091,7 @@
       ctx.globalCompositeOperation = "source-over";
       ctx.strokeStyle = stroke; ctx.fillStyle = stroke;
       ctx.lineWidth = 1.5; ctx.lineJoin = "round"; ctx.lineCap = "round";
-      ctx.shadowColor = stroke; ctx.shadowBlur = 7;
+      ctx.shadowColor = stroke; ctx.shadowBlur = blur;
       var head = (((ts - t0) / SWEEP_MS) % 1) * (n - 1);
       if (head < li) { seg(li, n - 1); li = 0; } // wrap: finish the window, restart the sweep
       seg(li, head);
@@ -1746,7 +1762,7 @@
       }
       if (rep.unitNote) box.appendChild(el("p", "sn-sub", rep.unitNote));
       box.appendChild(el("p", "sn-sub",
-        "no model executes in a browser, and a margin is a logprob difference nothing here " +
+        "no model runs in a browser, and a margin is a logprob difference nothing here " +
         "can compute. This is the exact request that would go to a stock llama-server:"));
       box.appendChild(el("pre", "wp-wirebytes", rep.envelope));
     } else {

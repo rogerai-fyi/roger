@@ -675,6 +675,39 @@ test("shim: the prompt replaced the drawer, and its chips are the recorded rende
     "the line states its wiring and its ceiling");
 });
 
+// ---------- v10 polish locks ---------------------------------------------------
+
+test("v10: the chain rail is one sentence - never wraps, scrolls when narrow", () => {
+  const rail = css.slice(css.indexOf(".sn-chainrail {"), css.indexOf(".sn-chainrail {") + 400);
+  assert.ok(/flex-wrap: nowrap/.test(rail), "the rail never wraps to a second row");
+  assert.ok(/overflow-x: auto/.test(rail), "narrow widths scroll instead of stacking");
+  assert.ok(htmlFlat.includes('id="wsChainBadge"'), "the RECOMMENDED badge lives in the header");
+  assert.ok(/\$\("wsChainBadge"\)/.test(js), "and is rendered there, not into the rail");
+});
+
+test("v10: the beam's glow is a theme decision, and it idles when hidden", () => {
+  assert.ok(/--beam-blur: 2\.5/.test(css), "light: crisp near-dry beam");
+  assert.ok(/\[data-theme="dark"\] \.sn-strip__cv \{ --beam-blur: 7/.test(css),
+    "dark: the phosphor");
+  assert.ok(/getPropertyValue\("--beam-blur"\)/.test(js), "the renderer reads the theme's choice");
+  assert.ok(/cv.offsetParent === null/.test(js),
+    "the loop idles while the mesh view is hidden - no canvas work off-screen");
+});
+
+test("v10: narrow widths trade the engraving for output room", () => {
+  const m = css.slice(css.indexOf("@media (max-width: 700px)"));
+  assert.ok(/\.sn-tv__plate \{ display: none/.test(m), "the plate steps aside");
+  assert.ok(/\.sn-tv__screen \{[^}]*position: static/.test(m), "the screen becomes a full-width glass");
+});
+
+test("v10: one honest line, one announcer", () => {
+  assert.ok(!/no model executes in a browser, and a margin/.test(js),
+    "the visible copy uses ONE form: 'no model runs in a browser'");
+  const lives = (htmlFlat.match(/aria-live="polite"/g) || []).length;
+  // one for the mesh announcer, one for the console deck's chat log
+  assert.ok(lives <= 2, `aria-live regions must not multiply (got ${lives})`);
+});
+
 // ---------- the classifier, EXECUTED ------------------------------------------------
 
 test("classifier: every committed render classifies as its own dialect", () => {
