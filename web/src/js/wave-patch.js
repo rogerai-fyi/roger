@@ -109,6 +109,49 @@
     return null;
   }
 
+  /* ---- THE LINE: where each tier physically lives in a plant --------------
+     The founder's ask was to stop drawing an abstract rail and draw the
+     factory: sensors down the left, models across the top in the zone that
+     actually houses them. Every tier maps to exactly one band, so the line
+     IS the plant hierarchy and a read climbs it left to right. A band with
+     no model is not hidden - an empty zone is information too ("nothing is
+     watching the plant yet"), and it is where the [+] lives. */
+  var BANDS = [
+    { key: "machine",    label: "ON THE MACHINE", where: "one device",   tier: "pico" },
+    { key: "gateway",    label: "AT THE GATEWAY", where: "a fleet",      tier: "nano" },
+    { key: "site",       label: "ON SITE",        where: "a facility",   tier: "micro" },
+    { key: "plant",      label: "THE PLANT",      where: "a plant",      tier: "giga" },
+    { key: "enterprise", label: "ENTERPRISE",     where: "many plants",  tier: "tera" },
+    { key: "regional",   label: "REGIONAL",       where: "a region",     tier: "peta" },
+    { key: "frontier",   label: "FRONTIER",       where: "the teacher",  tier: "exa" },
+  ];
+  function bandOf(tierId) {
+    for (var i = 0; i < BANDS.length; i++) if (BANDS[i].tier === tierId) return BANDS[i];
+    return null;
+  }
+
+  /* ---- TIER COLOUR: the Spectrum's own hues, used as IDENTITY only --------
+     The founder's Wave Spectrum chart already assigns one colour per tier -
+     it is called a spectrum for a reason - so the deck adopts those exact
+     values rather than inventing a second scheme.
+
+     THE COLLISION RULE, which is why this is a comment and not just a token
+     list: this deck already spends colour on SEMANTICS (the fenced lamp
+     green/amber and the one --live red mean caught / doubtful / missed), and
+     Wave Pico's tier hue is a red. A red stripe must never be mistaken for
+     an alarm. So the two systems are kept in different PLACES, permanently:
+       tier colour  -> a 4px edge stripe, the model's NAME, a ~7%/13% wash.
+                       Never a badge, never a lamp, never a meter fill.
+       state colour -> the badge and the verdict word, which always carry
+                       their WORD as well, so hue is never the only signal.
+     A card therefore reads "Wave Pico" in its tier hue with a green
+     ANSWERED badge - identity and state never compete for the same pixel. */
+  function tierStyle(node, id) {
+    if (!node || !id) return node;
+    node.style.setProperty("--tc", "var(--tier-" + id + ")");
+    return node;
+  }
+
   /* ---- the fault-kind GLOSSARY. STATIC DOCUMENTATION, not measurement:
      these are the standard sensor-health terms the suite labels with. The
      monitor marks every use with a "glossary" microlabel so a fixed
@@ -155,6 +198,7 @@
                           // capability claim; a policy simulation over the
                           // same recorded outcomes.
     whyOpen: null,        // which why-panel is expanded (one at a time)
+    tour: -1,             // guided-tour step, -1 = not touring
     verdict: null,
     menuFor: null,        // chain slot index whose attach menu is open
     booted: false,
@@ -292,6 +336,66 @@
       senior: picoAt >= 0 && nanoAt > picoAt,
       reader: picoAt >= 0 ? "pico" : (nanoAt >= 0 ? "nano" : null),
     };
+  }
+
+  /* ---- ONE MODEL, MANY SENSORS - made visible ----------------------------
+     "In a real mesh one Pico reads many channels" was a caption for six
+     rounds; now every sensor lane on the left carries its own live dot, so
+     the fan-in is a thing you SEE rather than a thing you are told.
+
+     Each lane is recounted from its OWN record, independently - that is what
+     makes it honest. The SELECTED lane replays the condition you dialed; the
+     others replay their recorded OK window, because that is the only
+     condition every type is guaranteed to have and the alternative would be
+     picking a fault for a sensor the visitor never touched. The tooltip
+     names the record and the condition, so no dot is ever a mystery. */
+  function laneRead(t) {
+    if (!PATCH.measured || !t) return null;
+    var info = chainInfo();
+    if (!info.reader) return null;
+    var sel = t.key === PATCH.typeKey;
+    var cond = sel ? PATCH.cond : (t.recIdx.none != null ? "none" : t.conds[0]);
+    if (t.recIdx[cond] == null) cond = t.conds[0];
+    var r = PATCH.measured.records[t.recIdx[cond]];
+    if (!r) return null;
+    var isFault = r.truth !== "none";
+    var said, who, esc = false;
+    if (info.reader === "nano" && info.picoAt < 0) {
+      said = r.parent.prediction; who = "Wave Nano";
+    } else if (r.child.margin < PATCH.floor) {
+      esc = true;
+      if (info.senior) { said = r.parent.prediction; who = "Wave Nano"; }
+      else { said = null; who = null; }
+    } else {
+      said = r.child.prediction; who = "Wave Pico";
+    }
+    var cls = said == null ? "is-idle"
+      : (said === r.truth ? (isFault ? "is-ok" : "is-quiet") : (isFault ? "is-bad" : "is-warn"));
+    return { cond: cond, cLabel: CONDW[cond] || cond.toUpperCase(), esc: esc, said: said,
+             who: who, cls: cls, sel: sel, node: r.node_id,
+             tag: (r.window && r.window.tag) || r.node_id };
+  }
+
+  /* ---- THE ANSWER - what the chain finally said about this read -----------
+     The monitor was a wall of equally-weighted text (founder: "even though
+     the monitor is bigger it's still hard to see what is really happening").
+     The cure is hierarchy, and hierarchy needs a single most-important fact:
+     the last thing the chain actually said. Read off the printed stages, so
+     the headline can never disagree with the detail beneath it. */
+  function finalAnswer(sts) {
+    var out = null;
+    sts.forEach(function (st) {
+      if (st.kind === "nano") {
+        out = { word: st.verdict, who: "WAVE NANO", tier: "nano", ok: st.ok,
+                isFault: st.isFault, gloss: st.gloss, asked: true };
+      } else if (st.kind === "pico" && !st.esc) {
+        out = { word: st.said, who: "WAVE PICO", tier: "pico", ok: st.ok,
+                isFault: st.r.truth !== "none", gloss: GLOSSARY[st.said] || null, asked: false };
+      } else if (st.kind === "deadend") {
+        out = { word: null, who: "NOBODY", tier: null, note: st.note };
+      }
+    });
+    return out;
   }
 
   /* =====================================================================
@@ -661,6 +765,7 @@
     paintWire();
     renderOp();
     renderMirror();
+    paintTour();
   }
 
   /* ---- THE SCALE LADDER -------------------------------------------------
@@ -709,6 +814,7 @@
     if (!host) return;
     host.textContent = "";
     host.setAttribute("role", "radiogroup");
+    host.setAttribute("data-tour", "sensors");
     host.setAttribute("aria-label", "Sensor type - derived from the recorded tags");
     PATCH.types.forEach(function (t) {
       var sel = PATCH.typeKey === t.key;
@@ -724,7 +830,21 @@
       txt.appendChild(el("b", null, t.label));
       txt.appendChild(el("span", null, t.count + " recorded"));
       b.appendChild(txt);
-      b.title = t.key === "unnamed"
+      // the fan-in, made visible: every lane carries its own read under the
+      // same chain, recounted from its OWN record (see laneRead)
+      var lr = laneRead(t);
+      if (lr) {
+        var dot = el("span", "sn-type__dot " + lr.cls);
+        dot.setAttribute("aria-hidden", "true");
+        b.appendChild(dot);
+        var says = lr.said == null
+          ? "asked for help, and nothing bigger is chained"
+          : lr.who + ' said " ' + lr.said + '"';
+        b.setAttribute("aria-label", t.label + " - " + lr.cLabel + ", " + says);
+        b.title = lr.tag + " dialed " + lr.cLabel + " (record " + lr.node + ") - " + says +
+          (lr.sel ? " · this is the one on the monitor" : " · read by the same chain");
+      }
+      if (!lr) b.title = t.key === "unnamed"
         ? "Sparkplug aliases with no name - the wire never said what these measure. Real plants are full of them."
         : "grouped from the recorded tags ending _" + t.label.replace(/ /g, "_");
       b.addEventListener("click", function () {
@@ -739,29 +859,125 @@
     });
   }
 
-  /* ---- the pads: one backlit pad per RECORDED condition of the type ------ */
-  // The first-run nudge: one tiny dismissible hint pointing at the pads.
-  // localStorage-gated (like pb.mode); gone forever after dismissal or the
-  // first pad press. Static styling - any pulse is CSS, reduced-motion-gated.
-  function nudgeWanted() {
-    try { return !window.localStorage.getItem("pb.meshNudge"); }
+  /* ---- THE GUIDED TOUR ---------------------------------------------------
+     The founder kept saying the deck was "convoluted and hard to understand"
+     and asked to "navigate the user to what is happening". The nudge chip it
+     replaces was one hint pointing at one control; this walks the whole line
+     once - sensor, the model on the machine, the one it asks, the answer -
+     highlighting each zone as it names it.
+
+     One-shot and localStorage-gated like the mode switch: it never returns
+     after finishing or being skipped. Keyboard-operable throughout, and
+     under reduced motion it still works - only the transitions go. */
+  var TOUR = [
+    { at: "sensors", title: "1. A sensor sends numbers",
+      body: "These are real channels from our test bench. Each one is a recorded window - " +
+            "pick the machine you want to watch." },
+    { at: "pads", title: "2. Something happens to it",
+      body: "Press a condition. Every pad replays a real recorded reading, so a fault you " +
+            "press is a fault that really happened." },
+    { at: "machine", title: "3. A small model reads it, right on the machine",
+      body: "Wave Pico runs on the device itself. It answers with one word and how sure it " +
+            "was - and it only answers alone when it is sure enough." },
+    { at: "gateway", title: "4. When it is not sure, it asks",
+      body: "The read climbs to a bigger model at the gateway. That hand-off is the whole " +
+            "idea: small models everywhere, a big one only when it is needed." },
+    { at: "monitor", title: "5. This is what came out",
+      body: "The answer, and what each model did to get there. Change anything on the left " +
+            "and watch this change with it." },
+  ];
+  function tourWanted() {
+    try { return !window.localStorage.getItem("pb.meshTour"); }
     catch (e) { return false; }
   }
-  function dismissNudge(silent) {
-    if (!nudgeWanted()) return;
-    try { window.localStorage.setItem("pb.meshNudge", "seen"); } catch (e) { /* private mode */ }
-    var n = document.querySelector(".sn-nudge");
-    if (n && n.parentNode) n.parentNode.removeChild(n);
+  function tourEnd(silent) {
+    PATCH.tour = -1;
+    PATCH._tourFocused = null;
+    try { window.localStorage.setItem("pb.meshTour", "seen"); } catch (e) { /* private mode */ }
+    render();
     if (!silent) {
-      var ta = $("wpPrompt");
-      if (ta) ta.focus({ preventScroll: true });
+      var t0 = document.querySelector(".sn-type");
+      if (t0) t0.focus({ preventScroll: true });
+    }
+  }
+  function tourGo(i) {
+    if (i >= TOUR.length) { tourEnd(); return; }
+    PATCH.tour = i;
+    render();                       // paintTour focuses this step's action
+    var card = document.querySelector(".sn-tour");
+    if (card && card.scrollIntoView) {
+      card.scrollIntoView({ block: "nearest", behavior: REDUCED ? "auto" : "smooth" });
+    }
+  }
+  // the step's card is planted in the zone it is talking about, and the deck
+  // dims everything else, so "what is happening" has one answer at a time
+  function paintTour() {
+    var deck = document.querySelector(".syn");
+    if (!deck) return;
+    // clear the previous step completely: a card appended into a zone that
+    // does not re-render (the TV) would otherwise survive into the next step
+    deck.querySelectorAll(".sn-tour").forEach(function (n) {
+      if (n.parentNode) n.parentNode.removeChild(n);
+    });
+    deck.querySelectorAll(".is-tourlit").forEach(function (n) {
+      n.classList.remove("is-tourlit");
+    });
+    deck.classList.toggle("is-touring", PATCH.tour >= 0);
+    if (PATCH.tour < 0 || PATCH.tour >= TOUR.length) return;
+    var step = TOUR[PATCH.tour];
+    var target = deck.querySelector('[data-tour="' + step.at + '"]');
+    if (!target) return;
+    target.classList.add("is-tourlit");
+
+    var card = el("div", "sn-tour");
+    card.setAttribute("role", "dialog");
+    card.setAttribute("aria-label", "Guided tour, step " + (PATCH.tour + 1) + " of " + TOUR.length);
+    var dots = el("div", "sn-tour__dots");
+    TOUR.forEach(function (_, k) {
+      dots.appendChild(el("span", "sn-tour__dot" + (k === PATCH.tour ? " is-on" : "")));
+    });
+    card.appendChild(dots);
+    card.appendChild(el("b", "sn-tour__title", step.title));
+    card.appendChild(el("p", "sn-tour__body", step.body));
+    var row = el("div", "sn-tour__row");
+    var skip = el("button", "sn-tour__skip");
+    skip.type = "button";
+    skip.textContent = "skip";
+    skip.addEventListener("click", function (e) { e.stopPropagation(); tourEnd(); });
+    row.appendChild(skip);
+    var next = el("button", "sn-tour__next");
+    next.type = "button";
+    next.textContent = PATCH.tour === TOUR.length - 1 ? "got it" : "next";
+    next.addEventListener("click", function (e) { e.stopPropagation(); tourGo(PATCH.tour + 1); });
+    row.appendChild(next);
+    card.appendChild(row);
+    // the deck is the positioning context, so no zone's overflow can clip the
+    // card; it sits under its target, or above when there is no room below
+    deck.appendChild(card);
+    var db = deck.getBoundingClientRect(), tb = target.getBoundingClientRect();
+    var top = tb.bottom - db.top + 10;
+    var cardH = card.offsetHeight || 150;
+    if (top + cardH > deck.offsetHeight && tb.top - db.top - cardH - 10 > 0) {
+      top = tb.top - db.top - cardH - 10;
+    }
+    var left = Math.max(8, Math.min(tb.left - db.left, deck.offsetWidth - card.offsetWidth - 8));
+    card.style.top = Math.round(top) + "px";
+    card.style.left = Math.round(left) + "px";
+
+    // a step change moves focus to its action, so the whole tour is walkable
+    // with Enter; a plain repaint must NOT steal focus back from the visitor
+    if (PATCH._tourFocused !== PATCH.tour) {
+      PATCH._tourFocused = PATCH.tour;
+      if (next.focus) next.focus({ preventScroll: true });
     }
   }
 
+  /* ---- the pads: one backlit pad per RECORDED condition of the type ------ */
   function renderPads() {
     var host = $("wsPads");
     if (!host) return;
     host.textContent = "";
+    host.setAttribute("data-tour", "pads");
     var t = currentType();
     if (!t) return;
     var head = el("div", "syn-pads__head");
@@ -794,7 +1010,6 @@
       pad.addEventListener("click", function () {
         contextMoved();
         PATCH.cond = c;
-        dismissNudge(true);
         derive(); render();
         var r = currentRecord();
         react("Condition " + (CONDW[c] || c.toUpperCase()) + " - replaying " +
@@ -805,19 +1020,6 @@
       row.appendChild(pad);
     });
     host.appendChild(row);
-
-    if (nudgeWanted()) {
-      var nd = el("div", "sn-nudge");
-      nd.appendChild(el("span", "sn-nudge__arrow", "↑"));
-      nd.appendChild(el("span", null, "try: press DROPOUT - watch the trace and the chain react"));
-      var nx = el("button", "sn-nudge__x");
-      nx.type = "button";
-      nx.setAttribute("aria-label", "Dismiss this hint");
-      nx.textContent = "×";
-      nx.addEventListener("click", function (e) { e.stopPropagation(); dismissNudge(); });
-      nd.appendChild(nx);
-      host.appendChild(nd);
-    }
 
     // the selected record's identity, honest to the wire
     var r = currentRecord();
@@ -838,46 +1040,62 @@
     }
   }
 
-  /* ---- the chain rail: sensor -> slots -> monitor ------------------------- */
+  /* ---- THE LINE: bands across the top, a read climbing them --------------
+     Every band is always drawn, filled or not. An occupied band shows the
+     model card; an empty one shows a slim ghost that IS the [+] - so the
+     plant hierarchy is legible before a single model is chained, and adding
+     one is a click on the zone where it would live.
+
+     Honesty shapes this: only Pico and Nano have recorded runs, so the LINE
+     may show the whole plant while the DATA speaks for two tiers. Every
+     unrecorded band says so on its face, and its stage stays silent. */
   function renderChain() {
     var host = $("wsChain");
     if (!host) return;
     host.textContent = "";
 
-    // the sensor end of the rail
     var t = currentType();
+    var info = chainInfo();
+
+    // the sensor end: what is feeding the line
     var sens = el("div", "sn-slot sn-slot--sensor");
     var art = el("span", "sn-type__art sn-type__art--" + (t ? t.icon : "gauge"));
     art.setAttribute("aria-hidden", "true");
     art.appendChild(el("span", "wb-plate__ink"));
     sens.appendChild(art);
-    sens.appendChild(el("b", null, t ? t.label : ""));
-    sens.appendChild(el("span", "sn-sub", "emitting"));
+    var stxt = el("span", "sn-slot__txt");
+    stxt.appendChild(el("b", null, t ? t.label : ""));
+    var live = PATCH.types.filter(function (x) { return laneRead(x); }).length;
+    stxt.appendChild(el("span", "sn-sub", live > 1
+      ? "emitting · " + live + " sensors on the line"
+      : "emitting"));
+    sens.appendChild(stxt);
+    sens.title = live > 1
+      ? "every sensor on the left feeds the same chain - one model reads many channels"
+      : "the selected sensor feeds the line";
     host.appendChild(sens);
 
-    PATCH.chain.forEach(function (id, i) {
-      var st = slotState(id);
-      var acted = st && (st.cls === "is-ok" || st.cls === "is-esc");
-      // no verdict yet (no sensor read) leaves every cable neutral
-      host.appendChild(railArrow(st ? acted : undefined));
-      host.appendChild(drawChainCard(id, i));
-    });
+    BANDS.forEach(function (b, bi) {
+      var seated = PATCH.chain.indexOf(b.tier) >= 0;
+      var zone = el("div", "sn-band" + (seated ? " is-seated" : ""));
+      tierStyle(zone, b.tier);
+      zone.setAttribute("data-band", b.key);
+      if (b.tier === "pico") zone.setAttribute("data-tour", "machine");
+      if (b.tier === "nano") zone.setAttribute("data-tour", "gateway");
 
-    // the next empty slot: one big [+]
-    host.appendChild(railArrow());
-    var plus = el("button", "syn-plus syn-plus--slot");
-    plus.type = "button";
-    plus.setAttribute("aria-expanded", PATCH.menuFor === PATCH.chain.length ? "true" : "false");
-    plus.setAttribute("aria-label", "Add a model to the chain");
-    plus.textContent = "+";
-    plus.addEventListener("click", function (e) {
-      e.stopPropagation();
-      PATCH.menuFor = PATCH.menuFor === PATCH.chain.length ? null : PATCH.chain.length;
-      render();
-      var m = document.querySelector(".ws-menu button");
-      if (m) m.focus();
+      var cap = el("div", "sn-band__cap");
+      cap.appendChild(el("b", null, b.label));
+      cap.appendChild(el("span", null, b.where));
+      zone.appendChild(cap);
+
+      if (seated) {
+        zone.appendChild(drawChainCard(b.tier, PATCH.chain.indexOf(b.tier)));
+      } else {
+        zone.appendChild(emptyBand(b, bi));
+      }
+      host.appendChild(zone);
+      if (bi < BANDS.length - 1) host.appendChild(bandLink(b, BANDS[bi + 1], info));
     });
-    host.appendChild(plus);
 
     var badgeHost = $("wsChainBadge");
     if (badgeHost) {
@@ -890,12 +1108,6 @@
       }
     }
 
-    host.appendChild(railArrow());
-    var mon = el("div", "sn-slot sn-slot--monitor");
-    mon.appendChild(el("b", null, "MONITOR"));
-    mon.title = "the chain ends at the monitor - the output, below";
-    host.appendChild(mon);
-
     if (PATCH.menuFor != null) {
       var wrap = $("wsChainMenu");
       if (wrap) { wrap.textContent = ""; wrap.appendChild(drawMenu(PATCH.menuFor)); }
@@ -903,6 +1115,58 @@
       var wrap2 = $("wsChainMenu");
       if (wrap2) wrap2.textContent = "";
     }
+
+    // seven bands rarely fit a column; the edge fades while there is more line
+    var fade = el("span", "sn-linefade");
+    fade.setAttribute("aria-hidden", "true");
+    host.appendChild(fade);
+    var markMore = function () {
+      host.classList.toggle("is-more",
+        host.scrollWidth - host.clientWidth - host.scrollLeft > 4);
+    };
+    host.addEventListener("scroll", markMore);
+    requestAnimationFrame(markMore);
+  }
+
+  // an empty zone: the [+] IS the band, so adding a model is a click on the
+  // place it would physically live
+  function emptyBand(b, bi) {
+    var fam = familyById(b.tier);
+    var slot = el("button", "sn-band__empty");
+    slot.type = "button";
+    slot.setAttribute("aria-expanded", PATCH.menuFor === bi ? "true" : "false");
+    slot.setAttribute("aria-label", "Put a model " + b.label.toLowerCase() + " (" + fam.label + ")");
+    slot.appendChild(el("span", "sn-band__plus", "+"));
+    slot.appendChild(el("span", "sn-band__ghost", fam.label));
+    slot.title = fam.label + " lives here - " + fam.runs +
+      (fam.status === "recorded" ? "" : " · no recorded run on this bench, so it would chain in silent");
+    slot.addEventListener("click", function (e) {
+      e.stopPropagation();
+      // clicking a zone offers that zone's tier first, but the whole family
+      // stays available - the menu is the ladder
+      PATCH.menuFor = PATCH.menuFor === bi ? null : bi;
+      render();
+      var m = document.querySelector(".ws-menu button");
+      if (m) m.focus();
+    });
+    return slot;
+  }
+
+  // the cable between two zones. It carries only where a read actually
+  // travelled: both ends seated, and the upstream model handed something on.
+  function bandLink(from, to, info) {
+    var fromSeated = PATCH.chain.indexOf(from.tier) >= 0;
+    var toSeated = PATCH.chain.indexOf(to.tier) >= 0;
+    var st = PATCH.verdict && PATCH.verdict.stages;
+    var carrying;
+    if (!st || !fromSeated || !toSeated) carrying = undefined;
+    else if (from.tier === "pico" && to.tier === "nano") {
+      // the one link the data can speak for: did this read escalate?
+      var picoSt = null;
+      st.forEach(function (x) { if (x.kind === "pico") picoSt = x; });
+      carrying = picoSt ? !!picoSt.esc : undefined;
+    } else carrying = false;
+    return railArrow(carrying);
   }
 
   // carrying === false draws the cable stood down: the read never travelled
@@ -989,6 +1253,9 @@
     var card = el("div", "sn-slot sn-slot--model" +
       (fam.status === "recorded" ? "" : " sn-slot--quiet") +
       (stNow ? (acted ? " is-acted" : " is-standby") : ""));
+    // tier identity rides the card's edge and its name only - the state badge
+    // owns the semantic colour, so a red-hued Pico never reads as an alarm
+    tierStyle(card, id);
     card.title = fam.blurb + (fam.status === "recorded"
       ? " - its stage replays recorded fields only"
       : " - it chains in honestly silent: no recorded transcript");
@@ -997,7 +1264,7 @@
     card.appendChild(artWrap);
 
     var txt = el("span", "sn-slot__txt");
-    txt.appendChild(el("b", "sn-slot__name", fam.label));
+    txt.appendChild(el("b", "sn-slot__name sn-tiername", fam.label));
     txt.appendChild(el("span", "sn-slot__role", fam.does));
     if (stNow) {
       var badge = el("span", "sn-slot__state " + stNow.cls, stNow.word);
@@ -1062,6 +1329,7 @@
         (fam.status === "recorded" ? "" : " ws-menu__item--quiet"));
       b.type = "button";
       b.setAttribute("role", "menuitem");
+      tierStyle(b, fam.id);
       // the icon sits in a fixed cell on a common baseline, so scanning the
       // menu top to bottom IS the ladder: a chip, then a box, then a server,
       // then cabinets, then a hall. Choosing a model is choosing a size you
@@ -1070,8 +1338,10 @@
       cell.appendChild(modelIcon(fam));
       b.appendChild(cell);
       var txt = el("span", "ws-menu__txt");
-      txt.appendChild(el("b", null, fam.label));
-      txt.appendChild(el("span", null, fam.size + " · " + fam.reach));
+      txt.appendChild(el("b", "sn-tiername", fam.label));
+      var band = bandOf(fam.id);
+      txt.appendChild(el("span", null, fam.size + " · " +
+        (band ? band.label.toLowerCase() + " · " + band.where : fam.reach)));
       txt.appendChild(el("span", "ws-menu__runs", "runs on " + fam.runs));
       txt.appendChild(el("span", "ws-menu__status",
         fam.status === "recorded"
@@ -1779,6 +2049,8 @@
     var host = $("wpMonitor");
     if (!host) return;
     host.textContent = "";
+    var tv = host.parentNode;
+    if (tv && tv.setAttribute) tv.setAttribute("data-tour", "monitor");
     // the power-on sweep fires only when what the glass SHOWS changes -
     // record, tab, chain or reply - not on every repaint (v11: operator
     // toggles were strobing the screen). Chrome, reduced-motion-guarded.
@@ -1808,6 +2080,67 @@
       return;
     }
 
+    // THE ANSWER, first and biggest. The cascade used to open with a wall of
+    // feature numbers where every line weighed the same; now the glass leads
+    // with what the chain actually concluded and who concluded it, and the
+    // supporting stages sit beneath it. Read off the printed stages, so the
+    // headline can never disagree with the detail below.
+    if (PATCH.tab === "all") {
+      var ans = finalAnswer(sts);
+      if (ans) {
+        var ah = el("section", "sn-answer");
+        if (ans.tier) tierStyle(ah, ans.tier);
+        var akey = el("span", "sn-answer__k", ans.word == null ? "NO ANSWER" : "THE ANSWER");
+        ah.appendChild(akey);
+        if (ans.word == null) {
+          ah.appendChild(el("p", "sn-answer__none sn-live--esc", ans.note));
+        } else {
+          var aw = el("b", "sn-answer__word sn-vword " +
+            verdictTint(false, ans.ok, ans.isFault), ans.word.toUpperCase());
+          var aSig = ans.word + "|" + (ans.ok ? "ok" : "bad") + "|" + ans.who;
+          flashIfChanged(aw, "answer", aSig);
+          if (aSig !== PATCH._ansSig) { PATCH._scrollNode = ah; PATCH._ansSig = aSig; }
+          ah.appendChild(aw);
+          if (ans.gloss) {
+            var ag = el("span", "sn-answer__gloss");
+            ag.appendChild(el("span", null, ans.gloss + " "));
+            ag.appendChild(el("i", "sn-gloss__k", "glossary"));
+            ah.appendChild(ag);
+          }
+          var by = el("p", "sn-answer__by");
+          by.appendChild(el("span", "sn-tiername", ans.who));
+          by.appendChild(el("span", null, ans.asked
+            ? " answered, after the small model asked for help"
+            : " answered on its own, on the machine"));
+          ah.appendChild(by);
+        }
+        host.appendChild(ah);
+      }
+
+      // and one compact line per model: who did what, in chain order, each
+      // tagged with its own tier colour so the eye can follow the hand-off
+      var trail = el("ol", "sn-trail");
+      trail.setAttribute("aria-label", "what each model did with this read");
+      sts.forEach(function (st) {
+        var tier = st.kind === "pico" ? "pico"
+          : (st.kind === "nano" || st.kind === "quietSenior") ? "nano"
+          : (st.kind === "silent" && st.fam) ? st.fam.id : null;
+        if (!tier) return;
+        var li = el("li", "sn-trail__row");
+        tierStyle(li, tier);
+        li.appendChild(el("span", "sn-trail__dot"));
+        li.appendChild(el("b", "sn-tiername", st.who));
+        var did = st.kind === "pico"
+          ? (st.esc ? "not sure enough - asked for help" : 'answered " ' + st.said + '"')
+          : st.kind === "nano" ? 'answered " ' + st.verdict + '"'
+          : st.kind === "quietSenior" ? "not needed on this read"
+          : "silent - no recorded run here";
+        li.appendChild(el("span", "sn-trail__did", did));
+        trail.appendChild(li);
+      });
+      if (trail.childNodes.length) host.appendChild(trail);
+    }
+
     if (r && (PATCH.tab === "all" || PATCH.tab === "raw")) {
       var strip = drawStrip(r);
       if (strip) host.appendChild(strip);
@@ -1821,8 +2154,12 @@
       }
       var solo = PATCH.tab !== "all";
       var box = el("section", "sn-stage sn-stage--" + st.kind + (solo ? " sn-stage--solo" : ""));
+      var stTier = st.kind === "pico" ? "pico"
+        : (st.kind === "nano" || st.kind === "quietSenior") ? "nano"
+        : (st.kind === "silent" && st.fam) ? st.fam.id : null;
+      if (stTier) tierStyle(box, stTier);
       var head = el("div", "sn-stage__head");
-      head.appendChild(el("b", null, st.who));
+      head.appendChild(el("b", stTier ? "sn-tiername" : null, st.who));
       // the protocol name stays, one size down: plain word first, jargon kept
       // where a reader who knows it should still find it
       if (st.tech) head.appendChild(el("i", "sn-stage__tech", st.tech));
@@ -2974,6 +3311,8 @@
       buildTypes();
       // the recommended pattern boots pre-built: Pico reading, Nano adjudicating
       PATCH.chain = ["pico", "nano"];
+      // a first-time visitor gets walked down the line once, ever
+      if (tourWanted()) PATCH.tour = 0;
       derive();
       render();
       react("The bench is live with the recommended chain: Pico reads, Nano adjudicates. " +
@@ -2987,6 +3326,7 @@
 
   function onKey(e) {
     if (e.key !== "Escape") return;
+    if (PATCH.tour >= 0) { tourEnd(); return; }
     if (PATCH.menuFor != null) {
       PATCH.menuFor = null;
       render();
@@ -3029,6 +3369,8 @@
       buildTypes: buildTypes,
       selectType: selectType,
       chainAdd: chainAdd,
+      laneRead: laneRead,
+      finalAnswer: finalAnswer,
       stages: stages,
       derive: derive,
       envelopeFor: envelopeFor,

@@ -437,7 +437,21 @@
    semantics: the verdict window, the read marks, the node LEDs and the
    lit pads (FOUNDER MANDATE: the verdict is literally green/yellow/red).
    ===================================================================== */
+/* ---- TIER COLOUR: the Wave Spectrum's own hues ---------------------------
+   Values are the founder's chart verbatim (light / dark), scoped to this deck
+   so they cannot leak into the monochrome brand elsewhere.
+
+   These are IDENTITY, never STATE. They may colour a tier's edge stripe, its
+   name, and a faint wash - and nothing else. The semantic hues (the fenced
+   lamp green/amber and the one --live red) keep the badges, lamps and verdict
+   words to themselves, and every one of those still carries its word. That
+   separation is what lets Wave Pico wear a red-ish stripe without ever
+   reading as an alarm. */
 .syn {
+  --tier-pico: #b23a2a; --tier-nano: #c96a1c; --tier-micro: #b0891a;
+  --tier-giga: #2f8a52; --tier-tera: #1f8f8f; --tier-peta: #2f63bf;
+  --tier-exa:  #5b3fbf;
+  --tier-wash: 7%;
   position: relative;
   margin-top: var(--s-4, 1rem);
   border-radius: 16px;
@@ -1298,13 +1312,20 @@
 
 /* ACTED: this model handled the read - its edge firms up and the art
    comes to full strength */
-.sn-slot--model.is-acted { border-color: var(--ink-500); }
+.sn-slot--model.is-acted {
+  /* state firms the box; the leading edge stays the tier's, so identity
+     and state never fight for the same pixel */
+  border-top-color: var(--ink-500); border-right-color: var(--ink-500);
+  border-bottom-color: var(--ink-500);
+}
 .sn-slot--model.is-acted .sn-slot__art { opacity: 1; }
 /* STOOD DOWN: nothing reached it on this read. Dimmed and dashed, never
    hidden - the visitor still needs to see it is in the chain, waiting. */
-.sn-slot--model.is-standby { border-style: dashed; }
+.sn-slot--model.is-standby {
+  border-top-style: dashed; border-right-style: dashed; border-bottom-style: dashed;
+}
 .sn-slot--model.is-standby .sn-slot__art { opacity: .45; }
-.sn-slot--model.is-standby .sn-slot__name { color: var(--ink-500); }
+.sn-slot--model.is-standby .sn-slot__name { opacity: .6; }
 
 /* the cable's own state: a stood-down link is faint and dotted, so the
    path the read actually took is the one you see */
@@ -1346,3 +1367,176 @@
 /* the ladder is the point, so the rows stay in one column even on wide
    screens - two columns would break the staircase into two half-stories */
 @media (min-width: 1200px) { .ws-menu { grid-template-columns: 1fr; } }
+
+
+/* ===================================================================== */
+/* v17 - THE LINE, TIER COLOUR, THE TOUR, THE ANSWER                     */
+/* ===================================================================== */
+
+[data-theme="dark"] .syn {
+  --tier-pico: #e6604f; --tier-nano: #e88b3c; --tier-micro: #d4aa2e;
+  --tier-giga: #48b873; --tier-tera: #39b7b7; --tier-peta: #5b8ee6;
+  --tier-exa:  #8a6df0;
+  --tier-wash: 13%;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .syn {
+    --tier-pico: #e6604f; --tier-nano: #e88b3c; --tier-micro: #d4aa2e;
+    --tier-giga: #48b873; --tier-tera: #39b7b7; --tier-peta: #5b8ee6;
+    --tier-exa:  #8a6df0;
+    --tier-wash: 13%;
+  }
+}
+/* the tier's name, wherever it appears - identity, never state */
+.sn-tiername { color: var(--tc, var(--ink-900)); }
+
+/* ---- the line: deployment bands across the top ------------------------- */
+.sn-band {
+  position: relative; flex: none;
+  display: flex; flex-direction: column; gap: .3rem;
+  padding: .3rem .3rem .35rem; border-radius: 12px;
+  border: 1px dashed var(--hairline-2);
+}
+.sn-band.is-seated {
+  border-style: solid;
+  /* deliberately gentle: the zone is TINTED by its tier, not outlined in it,
+     so a red-hued Pico zone can never be mistaken for a red alarm - the
+     badge inside it is where state actually speaks */
+  border-color: color-mix(in srgb, var(--tc, var(--ink-500)) 26%, var(--hairline-2));
+  background: color-mix(in srgb, var(--tc, transparent) var(--tier-wash), transparent);
+}
+.sn-band__cap {
+  display: flex; flex-direction: column; gap: 0; padding: 0 .15rem;
+  font-family: var(--font-mono); line-height: 1.25;
+}
+.sn-band__cap b {
+  font-size: .48rem; letter-spacing: .14em; color: var(--tc, var(--ink-500));
+}
+.sn-band__cap span { font-size: .44rem; letter-spacing: .06em; color: var(--ink-300); }
+.sn-band:not(.is-seated) .sn-band__cap b { color: var(--ink-300); }
+
+/* an empty zone IS the add button - you click where the model would live */
+.sn-band__empty {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: .1rem; min-width: 4.6rem; min-height: 3.5rem; cursor: pointer; font: inherit;
+  border: 1px dashed var(--ink-300); border-radius: 9px; background: transparent;
+  color: var(--ink-400);
+  transition: border-color .15s ease, color .15s ease, background .15s ease;
+}
+@media (prefers-reduced-motion: reduce) { .sn-band__empty { transition: none; } }
+.sn-band__empty:hover {
+  border-color: var(--tc, var(--ink-500)); color: var(--tc, var(--ink-900));
+  background: color-mix(in srgb, var(--tc, var(--ink-500)) 6%, transparent);
+}
+.sn-band__empty:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
+.sn-band__plus { font-size: 1rem; line-height: 1; }
+.sn-band__ghost {
+  font-family: var(--font-mono); font-size: .44rem; letter-spacing: .08em;
+  text-align: center;
+}
+
+/* the seated card wears its tier on its leading edge only */
+.sn-slot--model { border-left: 4px solid var(--tc, var(--hairline-2)); }
+.ws-menu__item { border-left: 4px solid var(--tc, var(--hairline-2)); }
+.ws-menu__item:hover { border-color: var(--ink-500); border-left-color: var(--tc, var(--ink-500)); }
+
+/* ---- one model, many sensors: a live dot per lane ---------------------- */
+.sn-type { position: relative; }
+.sn-type__dot {
+  position: absolute; top: .45rem; right: .45rem;
+  width: .42rem; height: .42rem; border-radius: 50%;
+  background: var(--ink-300);
+}
+/* hue AND shape, so the lane state never rides on colour alone: a caught
+   fault is a filled circle, a quiet channel a hollow one, a missed fault a
+   filled diamond, an unheard question a hollow diamond. Every lane also
+   carries the same state in its aria-label and title, in words. */
+.sn-type__dot.is-ok { background: #1E7A3C; }
+.sn-type__dot.is-quiet { background: transparent; border: 1.5px solid var(--ink-400); }
+.sn-type__dot.is-warn { background: #C99700; border-radius: 1px; }
+.sn-type__dot.is-bad { background: var(--live); border-radius: 1px; transform: rotate(45deg); }
+.sn-type__dot.is-idle {
+  background: transparent; border: 1.5px solid #C99700; border-radius: 1px;
+  transform: rotate(45deg);
+}
+
+/* ---- THE GUIDED TOUR ---------------------------------------------------- */
+.syn.is-touring .sn-deck > * { opacity: .38; transition: opacity .2s ease; }
+.syn.is-touring .is-tourlit,
+.syn.is-touring .sn-deck > *:has(.is-tourlit) { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .syn.is-touring .sn-deck > * { transition: none; } }
+.is-tourlit {
+  position: relative; z-index: 3;
+  outline: 2px solid var(--live); outline-offset: 3px; border-radius: 10px;
+}
+.sn-tour {
+  position: absolute; z-index: 6; width: min(19rem, 78vw);
+  display: flex; flex-direction: column; gap: .35rem;
+  padding: .7rem .8rem; border-radius: 10px;
+  background: var(--paper); border: 1px solid var(--ink-500);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .22);
+  text-align: left;
+}
+.sn-tour__dots { display: flex; gap: .25rem; }
+.sn-tour__dot {
+  width: .3rem; height: .3rem; border-radius: 50%; background: var(--ink-300);
+}
+.sn-tour__dot.is-on { background: var(--ink-900); }
+.sn-tour__title {
+  font-family: var(--font-mono); font-size: .6rem; letter-spacing: .06em; color: var(--ink-900);
+}
+.sn-tour__body { margin: 0; font-size: .68rem; line-height: 1.5; color: var(--ink-700); }
+.sn-tour__row { display: flex; gap: .4rem; align-items: center; justify-content: flex-end; }
+.sn-tour__skip, .sn-tour__next {
+  font: inherit; cursor: pointer; border-radius: 7px; padding: .25rem .7rem;
+  font-family: var(--font-mono); font-size: .56rem; letter-spacing: .08em;
+}
+.sn-tour__skip { background: transparent; border: 1px solid var(--hairline-2); color: var(--ink-400); }
+.sn-tour__next { background: var(--ink-900); border: 1px solid var(--ink-900); color: var(--paper); }
+.sn-tour__skip:focus-visible, .sn-tour__next:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
+
+/* ---- THE ANSWER: the biggest thing on the glass ------------------------- */
+.sn-answer {
+  display: flex; flex-direction: column; gap: .15rem;
+  padding: .5rem .6rem .55rem; margin-bottom: .5rem;
+  border-radius: 8px; border-left: 4px solid var(--tc, var(--ink-500));
+  background: color-mix(in srgb, var(--tc, transparent) var(--tier-wash), transparent);
+}
+.sn-answer__k {
+  font-family: var(--font-mono); font-size: .46rem; letter-spacing: .18em; color: var(--ink-400);
+}
+.sn-answer__word {
+  font-family: var(--font-mono); font-size: 1.5rem; line-height: 1.05; letter-spacing: .04em;
+}
+.sn-answer__gloss { font-size: .68rem; color: var(--ink-500); line-height: 1.45; }
+.sn-answer__by { margin: .1rem 0 0; font-size: .6rem; color: var(--ink-500); }
+.sn-answer__none { margin: 0; font-size: .84rem; font-family: var(--font-mono); }
+
+/* the hand-off, one line per model, in chain order */
+.sn-trail {
+  list-style: none; margin: 0 0 .55rem; padding: 0;
+  display: flex; flex-direction: column; gap: .12rem;
+}
+.sn-trail__row {
+  display: flex; gap: .4rem; align-items: baseline;
+  font-family: var(--font-mono); font-size: .56rem;
+}
+.sn-trail__dot {
+  width: .38rem; height: .38rem; border-radius: 50%; flex: none;
+  background: var(--tc, var(--ink-400)); transform: translateY(-1px);
+}
+.sn-trail__did { color: var(--ink-500); }
+
+/* the line runs past the panel on narrow columns - say so, the same way the
+   glass does, instead of hiding bands with no cue */
+.sn-chainrail { position: relative; scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { .sn-chainrail { scroll-behavior: auto; } }
+.sn-flow { position: relative; }
+.sn-linefade {
+  position: absolute; top: 0; bottom: 0; right: 0; width: 2.2rem;
+  pointer-events: none; opacity: 0; transition: opacity .2s ease;
+  background: linear-gradient(90deg, transparent, var(--paper));
+  border-radius: 0 12px 12px 0;
+}
+.sn-chainrail.is-more .sn-linefade { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .sn-linefade { transition: none; } }

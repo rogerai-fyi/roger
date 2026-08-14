@@ -478,13 +478,26 @@ test("palette: only tokens that exist are referenced", () => {
   // A reference is fine if (a) tokens.css defines it, or (b) EVERY use carries
   // an explicit fallback (the v9 parallax vars --tiltx/--tilty, set by JS,
   // consumed as var(--tiltx, 0deg) - the fallback IS the reduced state).
+  // v17 widens (c): this stylesheet now DEFINES its own scoped properties -
+  // the Wave Spectrum tier hues (--tier-pico ... --tier-exa, --tier-wash) on
+  // the deck root. A property defined here is not dangling, so it satisfies
+  // the rule the same way a tokens.css entry does. --tc, which JS sets per
+  // tier, is NOT defined in CSS and therefore still owes every use a
+  // fallback - which is what keeps a tier-less stage rendering sanely.
   const tokens = read("styles/tokens.css");
   const used = new Set((css.match(/var\(--[a-z0-9-]+/g) || []).map((v) => v.slice(4)));
   for (const name of used) {
     if (tokens.includes(`${name}:`)) continue;
+    if (new RegExp(`^\\s*${name}:`, "m").test(css)) continue;  // defined here
     const bare = new RegExp(`var\\(${name}\\s*\\)`);
     assert.ok(!bare.test(css),
       `${name} is not a token, so every use must carry an explicit fallback`);
+  }
+  // and the tier hues really are defined, in both themes
+  for (const tier of ["pico", "nano", "micro", "giga", "tera", "peta", "exa"]) {
+    assert.ok(new RegExp(`--tier-${tier}:\\s*#`).test(css), `--tier-${tier} is defined`);
+    assert.ok((css.match(new RegExp(`--tier-${tier}:`, "g")) || []).length >= 2,
+      `--tier-${tier} has a dark-theme value too`);
   }
 });
 
@@ -498,10 +511,14 @@ test("palette: red is a signal, never a surface", async () => {
       filled.push(sel);
     }
   }
-  // Three rules may fill with red: the masthead's spot plate, the intake's
-  // one primary action, and the lamp window's red state.
+  // Four rules may fill with red: the masthead's spot plate, the intake's one
+  // primary action, the lamp window's red state, and (v17) the sensor lane's
+  // missed-fault dot - a 0.42rem diamond meaning exactly what --live means,
+  // on the one surface that reports a fault the chain did not catch. It is
+  // the smallest red on the deck and it is alarm semantics, not decoration.
   assert.deepEqual(filled.sort(),
-    ['.wm-masthead__spot', '.wp-lampwin[data-state="red"]', '.wp-run'].sort(),
+    ['.sn-type__dot.is-bad', '.wm-masthead__spot',
+     '.wp-lampwin[data-state="red"]', '.wp-run'].sort(),
     `got ${filled.join(", ")}`);
   const pin = (f, kb) => {
     const bytes = statSync(path.join(SRC, "assets/wave/" + f)).size;
@@ -522,12 +539,26 @@ test("palette: the lamp hues are fenced to lamp semantics", () => {
     // v15 adds the chain card's state badge (ANSWERED / ASKED FOR HELP /
     // WAITING) - it reports what the chain did with the read now on the
     // monitor, and it always carries the WORD, so hue is never the only signal.
-    assert.ok(/wp-lamp|wp-read__mark|syn-pad|sn-live|sn-fm__|sn-slot__state/.test(b),
+    // v17 adds the sensor lane dot (sn-type__dot): it reports what the chain
+    // said about THAT lane's own record - the same semantics, one per sensor,
+    // which is how "one model reads many channels" became visible. Colour is
+    // not its only signal: each state also has a distinct SHAPE (filled or
+    // hollow, circle or diamond) and spells itself out in the lane's
+    // aria-label and title - both asserted below.
+    assert.ok(/wp-lamp|wp-read__mark|syn-pad|sn-live|sn-fm__|sn-slot__state|sn-type__dot/.test(b),
       `green/yellow may only colour lamp-semantic surfaces, got: ${b.split("{")[0].trim()}`);
   }
   assert.ok(/STANDING BY|ALL CLEAR|DEGRADED|FAULTS MISSED/.test(js),
     "every lamp state carries a word");
   assert.ok(/[·●△⊗]/.test(js), "and an NE-107-style shape, so the verdict never rides on hue alone");
+  // the lane dots follow the same discipline: shape as well as hue, and the
+  // state written out for anyone who cannot see either
+  assert.ok(/\.sn-type__dot\.is-bad[^}]*transform: rotate/.test(css),
+    "a missed fault is a different SHAPE, not just a different colour");
+  assert.ok(/\.sn-type__dot\.is-quiet[^}]*background: transparent/.test(css),
+    "a quiet lane is hollow, not just grey");
+  assert.ok(/setAttribute\("aria-label", t.label \+ " - " \+ lr.cLabel/.test(js),
+    "and every lane says its state in words");
 });
 
 // ---------- the lamp: derived, honest, playable ----------------------------------
@@ -1207,13 +1238,117 @@ test("v11: the power-on sweep fires on content changes, not every repaint", () =
     "the flip is gated on a content signature (operator toggles were strobing the glass)");
 });
 
-test("v11: the first-run nudge is one-shot and dies on the first pad press", () => {
-  assert.ok(/pb\.meshNudge/.test(js), "localStorage-gated like pb.mode");
-  assert.ok(/dismissNudge\(true\)/.test(js.slice(js.indexOf('pad.addEventListener'))),
-    "the first pad press retires it silently");
-  assert.ok(/sn-nudge__x/.test(js), "and it carries its own dismiss button");
-  assert.ok(/@media not \(prefers-reduced-motion: reduce\)/.test(css),
-    "any pulse on it is gated the right way around");
+test("v17: the line is the plant - every tier lives in exactly one band", () => {
+  const h = loadHook();
+  const bands = js.slice(js.indexOf("var BANDS = ["), js.indexOf("function bandOf"));
+  const tiers = [...bands.matchAll(/tier: "([a-z]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(tiers, h.family.map((f) => f.id),
+    "one band per tier, in ladder order - the line IS the hierarchy");
+  assert.equal(new Set(tiers).size, tiers.length, "and no tier lives in two places");
+  // the honesty the layout could otherwise blur: the LINE may show the whole
+  // plant while the DATA speaks for two tiers, and each silent band says so
+  const recorded = h.family.filter((f) => f.status === "recorded").map((f) => f.id);
+  assert.deepEqual(recorded, ["pico", "nano"], "still only two recorded runs");
+  assert.ok(/no recorded run on this bench, so it would chain in silent/.test(js),
+    "an empty band for an unrecorded tier says what chaining it would mean");
+});
+
+test("v17: tier colour is identity, never state", () => {
+  // the collision this guards: Wave Pico's Spectrum hue is a red, and this
+  // deck already spends red on alarm. They are kept apart by PLACE - tier
+  // colour on an edge/name/wash, state colour in the badge - so neither can
+  // be read as the other.
+  for (const block of css.split("}")) {
+    if (!/var\(--tc/.test(block)) continue;
+    const sel = (block.split("{")[0] || "").trim().split("\n").pop().trim();
+    assert.ok(!/state|lamp|__mark|syn-pad/.test(sel),
+      `tier colour must not touch a state surface, got: ${sel}`);
+    // and it may only tint - never flood a surface at full strength. The one
+    // enumerated exception is the trail's 0.38rem legend dot, which is the
+    // same idea as the tier's NAME being coloured: a marker saying "this line
+    // belongs to that model". Enumerated rather than pattern-matched, so a
+    // future full-strength fill has to be argued for here.
+    const bg = /background:\s*var\(--tc/.test(block);
+    if (bg) {
+      assert.equal(sel, ".sn-trail__dot",
+        `tier colour may wash (color-mix) but only one marker may fill, got: ${sel}`);
+    }
+  }
+  assert.ok(/\.sn-trail__dot[^}]*width: \.38rem/.test(css),
+    "and that marker stays a dot - if it grows, this rule should be revisited");
+  assert.ok(/color-mix\(in srgb, var\(--tc[^)]*\) var\(--tier-wash\)/.test(css),
+    "the wash is the chart's own ~7%/13%, not a flat fill");
+});
+
+test("v17: one model, many sensors - every lane reads its own record", () => {
+  const h = loadHook();
+  h.state.chain = ["pico", "nano"];
+  h.selectType("temp", "none");
+  h.derive();
+  const lanes = h.state.types.map((t) => ({ key: t.key, read: h.laneRead(t) }));
+  assert.ok(lanes.every((l) => l.read), "with a reader chained, every lane reports");
+  for (const l of lanes) {
+    const t = h.state.types.find((x) => x.key === l.key);
+    const rec = measured.records[t.recIdx[l.read.cond]];
+    assert.equal(l.read.node, rec.node_id, `${l.key} reports its OWN record, not the selected one`);
+    if (l.read.said != null) {
+      const fromChild = rec.child.prediction, fromParent = rec.parent.prediction;
+      assert.ok(l.read.said === fromChild || l.read.said === fromParent,
+        "and what it says is a recorded prediction, never a synthesis");
+    }
+  }
+  // no reader, no dots: the lanes cannot report a read that never happened
+  h.state.chain = [];
+  h.derive();
+  assert.equal(h.laneRead(h.state.types[0]), null, "no model chained, no lane state");
+});
+
+test("v17: the monitor leads with the answer, and it agrees with the stages", () => {
+  const h = loadHook();
+  h.state.chain = ["pico", "nano"];
+  h.state.floor = 2.0;                       // low confidence -> asks for help
+  h.selectType("temp", "dropout");
+  h.derive();
+  const sts = h.state.verdict.stages;
+  const ans = h.finalAnswer(sts);
+  const nano = sts.find((s) => s.kind === "nano");
+  assert.ok(nano, "this read reaches the senior");
+  assert.equal(ans.word, nano.verdict, "the headline IS the last stage's verdict");
+  assert.equal(ans.who, "WAVE NANO", "and it names who said it");
+  assert.equal(ans.asked, true, "and remembers the small model asked first");
+  // when the small model is sure, the headline is its own answer
+  h.state.floor = 0.5;
+  h.selectType("temp", "none");
+  h.derive();
+  const ans2 = h.finalAnswer(h.state.verdict.stages);
+  assert.equal(ans2.who, "WAVE PICO");
+  assert.equal(ans2.asked, false, "nothing was asked, so nothing claims it was");
+});
+
+test("v17: the guided tour is one-shot, skippable and walks the whole line", () => {
+  // SUPERSEDES the v11 nudge, which was one hint pointing at one control.
+  // The founder asked to "navigate the user to what is happening", so the
+  // tour walks the line end to end instead. Same one-shot discipline.
+  assert.ok(/pb\.meshTour/.test(js), "localStorage-gated like pb.mode");
+  assert.ok(!/pb\.meshNudge/.test(js), "the nudge it replaces is gone, not left dangling");
+  const tour = js.slice(js.indexOf("var TOUR = ["), js.indexOf("function tourWanted"));
+  const steps = (tour.match(/at: "/g) || []).length;
+  assert.ok(steps >= 3 && steps <= 5, `a tour is 3-5 steps, got ${steps}`);
+  // every step must point at a zone that actually exists in the render
+  const targets = [...tour.matchAll(/at: "([a-z]+)"/g)].map((m) => m[1]);
+  for (const at of targets) {
+    assert.ok(new RegExp(`data-tour", "${at}"|data-tour="${at}"`).test(js),
+      `step "${at}" highlights a zone the deck actually renders`);
+  }
+  assert.ok(/sn-tour__skip/.test(js), "it can be skipped");
+  assert.ok(/PATCH._tourFocused !== PATCH.tour/.test(js),
+    "a step change moves focus to its action, so Enter walks the whole tour");
+  assert.ok(/PATCH.tour >= 0\) \{ tourEnd\(\); return; \}/.test(js),
+    "and Escape ends it, before any other Escape handling");
+  assert.ok(/localStorage.setItem\("pb.meshTour"/.test(js.slice(js.indexOf("function tourEnd"))),
+    "ending it is what writes the flag - it never returns");
+  assert.ok(/REDUCED \? "auto" : "smooth"/.test(js.slice(js.indexOf("function tourGo"))),
+    "reduced motion still gets the tour, without the glide");
 });
 
 test("v11: the glass shows a scroll cue when the cascade runs past it", () => {
@@ -1490,7 +1625,9 @@ test("v16: a card that acted is visibly not a card that stood down", () => {
   // the mesh's whole argument is that the senior is only bothered when the
   // small model is unsure - so "nothing reached Wave Nano" has to be visible.
   assert.ok(/is-acted/.test(js) && /is-standby/.test(js), "the two states exist");
-  assert.ok(/st.cls === "is-ok" \|\| st.cls === "is-esc"/.test(js),
+  // v17: the rail became the banded line, so the card is the only place that
+  // derives this now - same derivation, one caller instead of two
+  assert.ok(/stNow.cls === "is-ok" \|\| stNow.cls === "is-esc"/.test(js),
     "acted is derived from the same stage verdicts the monitor prints");
   assert.ok(/\.sn-slot--model\.is-acted/.test(css) && /\.sn-slot--model\.is-standby/.test(css),
     "and each state has its own treatment");
