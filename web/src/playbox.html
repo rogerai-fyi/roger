@@ -494,9 +494,16 @@
               <span class="syn__screw" aria-hidden="true"></span>
               <span class="syn__brand">WAVE MESH <i>SIGNAL BENCH</i></span>
               <span class="wp-tag wp-tag--led">REPLAY &middot; RECORDED</span>
-              <span class="syn__prov" id="wpProv"></span>
+              <details class="syn__provfold">
+                <summary>where these numbers come from</summary>
+                <span class="syn__prov" id="wpProv"></span>
+              </details>
               <span class="syn__screw" aria-hidden="true"></span>
             </div>
+
+            <p class="sn-lede">A sensor sends numbers. A small model reads them and says
+              what is wrong - or asks a bigger one when it is not sure.
+              <b>Pick a sensor, then press a condition</b> to see what each model makes of it.</p>
 
             <div class="sn-deck">
               <!-- 1) the sensor selector -->
@@ -509,7 +516,7 @@
 
               <!-- 2) the chain, 3) the monitor -->
               <div class="sn-flow">
-                <span class="wp-console__k">2 &middot; CHAIN MODELS
+                <span class="wp-console__k">2 &middot; ADD MODELS
                   <span id="wsChainBadge"></span></span>
                 <div class="sn-chainrail" id="wsChain" role="group" aria-label="The model chain"></div>
                 <p class="sn-roadmap sn-roadmap--chain">In a real mesh one Pico reads many
@@ -521,7 +528,7 @@
                 <div class="sn-whys" id="wsWhys"></div>
                 <div id="wsChainMenu"></div>
 
-                <span class="wp-console__k">3 &middot; THE OUTPUT</span>
+                <span class="wp-console__k">3 &middot; WHAT THEY SAID</span>
                 <!-- THE MONITOR, bezel-as-chrome: output room wins over the
                      engraved plate, which crowns the bar as an emblem. The
                      screen is a large CSS glass; the tabs are channel

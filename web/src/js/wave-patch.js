@@ -63,43 +63,43 @@
     { id: "pico", label: "Wave Pico", size: "270M", band: "250-300M", status: "recorded",
       recipe: "scratch", reach: "edge · single device",
       runs: "Pi / ESP32 · ~50ms · no GPU", icon: "pocket", px: 30,
-      does: "asserts or escalates",
+      does: "reads the sensor, answers or asks for help",
       blurb: "the edge child - reads one machine's telemetry and asserts, with margins; " +
              "the recorded reader on this bench (270M, in the 250-300M tier band)" },
     { id: "nano", label: "Wave Nano", size: "0.8-1.5B", band: "0.8-1.5B", status: "recorded",
       recipe: "scratch", reach: "gateway · a fleet",
       runs: "a gateway / concentrator", icon: "reader", px: 42,
-      does: "adjudicates doubts",
+      does: "answers when the small one is unsure",
       blurb: "the fleet gateway - rolls up many children and resolves conflicts; " +
              "the recorded senior on this bench (run params pending export)" },
     { id: "micro", label: "Wave Micro", size: "7-8B", status: "base+specialize",
       recipe: "base+specialize", reach: "site · a facility",
       runs: "an on-site server", icon: "reader", px: 54,
-      does: "the site brain",
+      does: "reasons across a whole facility",
       blurb: "multi-fleet reasoning across a facility - general-capable AND industrial; " +
              "no recorded run on this bench" },
     { id: "giga", label: "Wave Giga", size: "27-35B", status: "base+specialize",
       recipe: "base+specialize", reach: "a plant",
       runs: "a plant datacenter", icon: "senior", px: 50,
-      does: "full-plant reasoning",
+      does: "reasons across a whole plant",
       blurb: "the plant - full-plant reasoning, competitive on general benchmarks as well " +
              "as machines; no recorded run on this bench" },
     { id: "tera", label: "Wave Tera", size: "80-120B", status: "base+specialize",
       recipe: "base+specialize", reach: "enterprise · many plants",
       runs: "an enterprise cloud", icon: "senior", px: 60,
-      does: "cross-site correlation",
+      does: "connects faults across many plants",
       blurb: "cross-site enterprise - correlates faults and trends across many plants at " +
              "once; no recorded run on this bench" },
     { id: "peta", label: "Wave Peta", size: "150-200B", status: "expert-pruned",
       recipe: "expert-pruned", reach: "a region",
       runs: "a regional cloud", icon: "senior", px: 70,
-      does: "a leaner giant",
+      does: "regional scale, pruned smaller",
       blurb: "regional scale - a leaner giant, distilled and pruned down from the " +
              "frontier; no recorded run on this bench" },
     { id: "exa", label: "Wave Exa", size: "~284B", status: "frontier",
       recipe: "frontier", reach: "the family teacher",
       runs: "an exascale datacenter", icon: "senior", px: 82,
-      does: "teaches the family",
+      does: "the flagship the others learn from",
       blurb: "the flagship - exascale-class frontier capability (DeepSeek-V4-Flash " +
              "class · MTP), and the teacher the whole family learns from; no recorded " +
              "run on this bench" },
@@ -389,7 +389,7 @@
     var r = currentRecord();
     if (!r) return out;
     var w = r.window || {};
-    out.push({ kind: "raw", who: "RAW WIRE", body: w.body ||
+    out.push({ kind: "raw", who: "WHAT THE SENSOR SENT", tech: "raw wire", body: w.body ||
       "(this record's window was not exported - the log is absent, not invented)",
       tag: w.tag, unit: unitWordOf(r), r: r });
 
@@ -406,7 +406,7 @@
         var esc = r.child.margin < PATCH.floor;
         escalated = esc;
         if (!esc) answered = true;
-        out.push({ kind: "pico", who: "WAVE PICO", esc: esc,
+        out.push({ kind: "pico", who: "WAVE PICO", role: "the small model on the machine", esc: esc,
                    said: r.child.prediction, margin: r.child.margin,
                    floor: PATCH.floor, ok: r.child.prediction === r.truth, r: r });
         return;
@@ -414,8 +414,8 @@
       if (id === "nano") {
         if (i === info.nanoAt && info.senior && !escalated) {
           // the senior only speaks when a read reaches it
-          out.push({ kind: "quietSenior", who: "WAVE NANO",
-                     note: "the Pico asserted below - nothing escalated to the senior on this record" });
+          out.push({ kind: "quietSenior", who: "WAVE NANO", role: "the bigger model it can ask",
+                     note: "Wave Pico answered on its own, so nothing reached Wave Nano on this read." });
           return;
         }
         answered = true;
@@ -426,8 +426,8 @@
       out.push({ kind: "silent", who: fam.label.toUpperCase(), fam: fam });
     });
     if (escalated && !answered) {
-      out.push({ kind: "deadend", who: "NOBODY",
-                 note: "the Pico escalated and no senior is in the chain - the doubt goes unheard" });
+      out.push({ kind: "deadend", who: "NOBODY WAS LISTENING",
+                 note: "Wave Pico asked for help, but there is no bigger model in the chain - so nobody answered." });
     }
     return out;
   }
@@ -447,9 +447,9 @@
       (w.n ? w.n + " samples, " : "") +
       (w.lo != null ? w.lo + " … " + w.hi + (unitWordOf(r) ? " " + unitWordOf(r) : "") +
         ", mean " + w.mean + ". " : "") +
-      'The senior read the window and said " ' + pred + '" (margin ' +
-      r.parent.margin.toFixed(2) + ") - " + outcome + ".";
-    return { kind: "nano", who: "WAVE NANO", verdict: pred,
+      'Wave Nano read the same numbers and said " ' + pred + '" - it was ' +
+      r.parent.margin.toFixed(2) + " clear of its next guess - " + outcome + ".";
+    return { kind: "nano", who: "WAVE NANO", role: "the bigger model it can ask", verdict: pred,
              gloss: GLOSSARY[pred] || null, para: para,
              ok: predRight, isFault: isFault, r: r };
   }
@@ -505,13 +505,14 @@
 
       if (deadEnd && missed) {
         state = "red";
-        why = "The dialed fault went unheard - the Pico doubted, and there is no senior in the chain. Chain Wave Nano after it.";
+        why = "Wave Pico was not sure and had nobody to ask, so this fault went unheard. Add Wave Nano behind it.";
       } else if (fixable) {
         state = "red";
-        why = "The dialed fault was missed - and a higher floor would have escalated it to a senior who, in the recorded run, had the right answer. Raise the FLOOR knob.";
+        why = "Wave Pico answered alone and got this one wrong. Raise the SURE ENOUGH knob: " +
+          "ask for help sooner, and Wave Nano - which had the right answer in the recorded run - would have caught it.";
       } else if (deadEnd) {
         state = "yellow";
-        why = "The Pico doubts this read and has nobody to ask - chain Wave Nano after it.";
+        why = "Wave Pico is not sure about this read and has nobody to ask. Add Wave Nano behind it.";
       } else if (!PATCH.operator) {
         // UNATTENDED AUTHORITY: with the senior aboard and the policy granted,
         // the no-operator state is not DEGRADED but PROVISIONAL - the chain
@@ -520,26 +521,26 @@
         // are the same recorded records either way.
         var seniorAboard = PATCH.chain.indexOf("nano") >= 0;
         if (PATCH.authority && seniorAboard) {
-          state = "green"; label = "PROVISIONAL"; sym = "◐";
-          why = "The senior is acting unattended - this record's decision is queued for human " +
-            "review. Whether a model is big enough to take a shift is a POLICY you set, " +
-            "not a measurement; the ladder should still end with a person.";
+          state = "green"; label = "ACTING ALONE"; sym = "◐";
+          why = "Nobody is on shift, so Wave Nano is acting on its own and this decision is " +
+            "queued for a person to review later. Whether a model is big enough to take a " +
+            "shift is a POLICY you set, not a measurement.";
         } else {
           state = "yellow";
-          why = "The chain works, but no operator is on shift - flip the lever by the monitor; " +
-            "the ladder should end with a person." +
-            (seniorAboard ? " (Or grant UNATTENDED AUTHORITY and let the senior act provisionally.)" : "");
+          why = "The models agree, but nobody is watching. Set WHO'S WATCHING to a person - " +
+            "the chain should end with one." +
+            (seniorAboard ? " (Or let Wave Nano act alone, with its decisions queued for review.)" : "");
         }
       } else if (!missed) {
         state = "green";
-        why = caught ? "Fault caught, operator on shift. Complete chain."
-          : falseAlarm ? "A false alarm - the chain cried fault on a healthy channel. The operator will read it."
-          : "All quiet: the channel is dialed OK and the chain agrees.";
+        why = caught ? "The fault was caught and a person is watching. Nothing to fix."
+          : falseAlarm ? "False alarm - the chain called a fault on a healthy sensor. The person on shift will see it."
+          : "All quiet: the sensor is healthy and the models agree.";
         if (falseAlarm) { state = "yellow"; }
       } else {
-        state = "green"; label = "AT CEILING";
-        why = "This fault was missed by the recorded senior itself - no knob setting changes that. " +
-          "The chain is at its measured ceiling on this record.";
+        state = "green"; label = "BEST THIS CHAIN CAN DO";
+        why = "Wave Nano itself got this one wrong in the recorded run, so no knob setting " +
+          "catches it. This chain has done everything it can on this read.";
       }
     }
     PATCH.verdict = { state: state, why: why, label: label, sym: sym, stages: st };
@@ -733,9 +734,13 @@
     var t = currentType();
     if (!t) return;
     var head = el("div", "syn-pads__head");
-    head.appendChild(el("b", null, "CONDITION"));
-    head.appendChild(el("span", "sn-sub",
-      "one pad per recorded condition - unrecorded conditions have no pad"));
+    head.appendChild(el("b", null, "WHAT'S HAPPENING TO IT"));
+    // the honesty rule stays ON the surface, in plain words: a pad exists only
+    // where we have a real recording, so nobody reads the row as "all faults"
+    var padSub = el("span", "sn-sub",
+      "press one - each pad replays a real recorded reading, so a condition we never recorded has no pad");
+    padSub.title = "one pad per recorded condition for this sensor - nothing here is simulated";
+    head.appendChild(padSub);
     host.appendChild(head);
     var row = el("div", "syn-pads__row");
     row.setAttribute("role", "radiogroup");
@@ -918,6 +923,25 @@
     return host;
   }
 
+  // the card's live state, in three words, from the stage this model produced
+  function slotState(id) {
+    var v = PATCH.verdict;
+    if (!v || !v.stages) return null;
+    for (var k = 0; k < v.stages.length; k++) {
+      var st = v.stages[k];
+      if (id === "pico" && st.kind === "pico") {
+        return st.esc ? { word: "ASKED FOR HELP", cls: "is-esc" }
+                      : { word: "ANSWERED", cls: "is-ok" };
+      }
+      if (id === "nano" && st.kind === "nano") return { word: "ANSWERED", cls: "is-ok" };
+      if (id === "nano" && st.kind === "quietSenior") return { word: "WAITING", cls: "is-idle" };
+      if (st.kind === "silent" && st.fam && st.fam.id === id) {
+        return { word: "QUIET", cls: "is-idle" };
+      }
+    }
+    return null;
+  }
+
   function drawChainCard(id, i) {
     var fam = familyById(id);
     var card = el("div", "sn-slot sn-slot--model" +
@@ -925,16 +949,26 @@
     card.title = fam.blurb + (fam.status === "recorded"
       ? " - its stage replays recorded fields only"
       : " - it chains in honestly silent: no recorded transcript");
-    card.appendChild(modelIcon(fam));
+    // a roomy artwork slot: the engraved per-tier scale art lands here in a
+    // follow-up round, so the frame is sized for it now
+    var artWrap = el("span", "sn-slot__art");
+    artWrap.appendChild(modelIcon(fam));
+    card.appendChild(artWrap);
+
     var txt = el("span", "sn-slot__txt");
-    txt.appendChild(el("b", null, fam.label));
-    txt.appendChild(el("span", "sn-sub", fam.does));
-    txt.appendChild(el("span", "sn-sub sn-sub--dim", fam.size + " · " + fam.status));
-    if (runOf(id)) {
-      var runLine = el("span", "sn-sub sn-sub--run", "run " + runOf(id));
-      runLine.title = "the exact recorded artifact this stage replays - the run name is ground truth; the tier label is a deck name";
-      txt.appendChild(runLine);
+    txt.appendChild(el("b", "sn-slot__name", fam.label));
+    txt.appendChild(el("span", "sn-slot__role", fam.does));
+    var stNow = slotState(id);
+    if (stNow) {
+      var badge = el("span", "sn-slot__state " + stNow.cls, stNow.word);
+      badge.title = "what this model did with the read now on the monitor";
+      txt.appendChild(badge);
     }
+    // params, recipe and the run name are for the curious, not the first glance
+    var meta = fam.size + " · " + fam.status + (runOf(id) ? " · run " + runOf(id) : "");
+    var metaLine = el("span", "sn-slot__meta", fam.size);
+    metaLine.title = meta + " - the run name is ground truth; the tier label is a deck name";
+    txt.appendChild(metaLine);
     card.appendChild(txt);
     var x = el("button", "ws-resp__x");
     x.type = "button";
@@ -952,15 +986,18 @@
     if (id === "pico") {
       card.appendChild(drawDial({
         values: DETENTS.slice(),
-        labels: DETENTS.map(function (d) { return "FLOOR " + d.toFixed(1); }),
+        // "SURE ENOUGH" is what the knob DOES; the margin floor is what it is
+        // called. Plain word on the faceplate, the term in the tooltip.
+        labels: DETENTS.map(function (d) { return "SURE ENOUGH " + d.toFixed(1); }),
         index: Math.max(0, DETENTS.indexOf(PATCH.floor)),
-        name: "margin floor",
+        name: "how sure Wave Pico must be to answer alone (margin floor)",
         size: 38,
         tip: function (k) { return knobTip(DETENTS[k]); },
         onset: function (k) {
           PATCH.floor = DETENTS[k];
           derive(); render();
-          react("Floor set to " + PATCH.floor.toFixed(1) + " - margins below it now escalate.");
+          react("Wave Pico now needs to be " + PATCH.floor.toFixed(1) +
+            " sure to answer alone - anything less it hands to Wave Nano.");
           var again = document.querySelector(".sn-slot--model .wp-knob");
           if (again) again.focus({ preventScroll: true });
         },
@@ -1277,8 +1314,10 @@
     var c = m.escalation.configs.filter(function (x) {
       return x.config === "child+parent@" + floor.toFixed(1);
     })[0];
-    if (!c) return "floor " + floor.toFixed(1);
-    return "measured at this floor: " + (c.macro_recall * 100).toFixed(1) + " macro recall · " +
+    if (!c) return "needs " + floor.toFixed(1) + " to answer alone";
+    return "How sure Wave Pico must be to answer alone; below " + floor.toFixed(1) +
+      " it asks Wave Nano instead (the margin floor). " +
+      "Measured at this floor: " + (c.macro_recall * 100).toFixed(1) + " macro recall · " +
       (c.escalation_rate * 100).toFixed(1) + "% escalate · " +
       (c.pct_of_parent_everywhere * 100).toFixed(0) + "% of parent-everywhere compute, a residency proxy (" +
       m._provenance.suite + ")";
@@ -1292,8 +1331,8 @@
     var W = 230, H = 30, max = Math.max(TOP + 0.6, margin + 0.4);
     var x = function (v) { return 8 + (v / max) * (W - 16); };
     var host = svg("svg", { class: "sn-fm", viewBox: "0 0 " + W + " " + H, role: "img",
-      "aria-label": "recorded margin " + margin.toFixed(2) + " against floor " + floor.toFixed(1) +
-        (margin < floor ? " - below the floor, so it escalates" : " - at or above the floor, so it asserts") });
+      "aria-label": "this read was " + margin.toFixed(2) + " sure; the setting needs " + floor.toFixed(1) +
+        (margin < floor ? " - not sure enough, so it asked for help" : " - sure enough, so it answered alone") });
     host.appendChild(svg("line", { class: "sn-fm__track", x1: 8, y1: 19, x2: W - 8, y2: 19 }));
     // every measured detent is a notch, so the knob's stations are visible
     DETENTS.forEach(function (d) {
@@ -1308,13 +1347,14 @@
     host.appendChild(svg("line", { class: "sn-fm__floor",
       x1: x(floor).toFixed(1), y1: 8, x2: x(floor).toFixed(1), y2: 26 }));
     var fl = svg("text", { class: "sn-fm__t", x: x(floor).toFixed(1), y: 6, "text-anchor": "middle" });
-    fl.textContent = "floor " + floor.toFixed(1);
+    fl.textContent = "needs " + floor.toFixed(1);
     var ml = svg("text", { class: "sn-fm__t sn-fm__t--m",
       x: Math.min(W - 8, Math.max(24, x(margin))).toFixed(1), y: 29, "text-anchor": "middle" });
-    ml.textContent = "margin " + margin.toFixed(2);
+    ml.textContent = "this read " + margin.toFixed(2);
     host.appendChild(fl); host.appendChild(ml);
     host.setAttribute("title",
-      "the floor is the doubt threshold - margins below it escalate; the measured sweep numbers ride the knob");
+      "The bar is how sure the model was on this read (its margin). The line is your setting " +
+      "(the margin floor): anything left of it gets handed up instead of answered.");
     return host;
   }
 
@@ -1662,7 +1702,7 @@
         : (st.kind === "nano" || st.kind === "quietSenior") ? "nano" : null;
       if (!id || seen[id]) return;
       seen[id] = true;
-      tabs.push({ id: id, label: id === "raw" ? "RAW WIRE" : id === "pico" ? "WAVE PICO" : "WAVE NANO" });
+      tabs.push({ id: id, label: id === "raw" ? "SENSOR DATA" : id === "pico" ? "WAVE PICO" : "WAVE NANO" });
     });
     tabs.push({ id: "fleet", label: "FLEET" });
     if (!tabs.some(function (t) { return t.id === PATCH.tab; })) PATCH.tab = "all";
@@ -1672,9 +1712,10 @@
       b.setAttribute("role", "tab");
       b.setAttribute("aria-selected", PATCH.tab === t.id ? "true" : "false");
       b.textContent = t.label;
-      b.title = t.id === "all" ? "the whole cascade, every stage in order"
-        : t.id === "fleet" ? "the whole recorded fleet replayed under your current settings"
-        : "show only this stage's output, large";
+      b.title = t.id === "all" ? "everything at once: the sensor, then what each model said"
+        : t.id === "fleet" ? "all 120 recorded sensors replayed under your current settings"
+        : t.id === "raw" ? "just the numbers the sensor sent"
+        : "just what this model said, large";
       b.addEventListener("click", function () {
         PATCH.tab = t.id;
         paintMonitor();
@@ -1733,6 +1774,10 @@
       var box = el("section", "sn-stage sn-stage--" + st.kind + (solo ? " sn-stage--solo" : ""));
       var head = el("div", "sn-stage__head");
       head.appendChild(el("b", null, st.who));
+      // the protocol name stays, one size down: plain word first, jargon kept
+      // where a reader who knows it should still find it
+      if (st.tech) head.appendChild(el("i", "sn-stage__tech", st.tech));
+      if (st.role) head.appendChild(el("i", "sn-stage__role", st.role));
       if (st.kind === "raw") {
         var rec = el("span", "ws-rec");
         rec.appendChild(el("span", "ws-rec__dot"));
@@ -1750,28 +1795,42 @@
 
       if (st.kind === "raw") {
         var log = el("pre", "ws-log", st.body);
-        log.title = "byte-for-byte, the window the model read in the recorded run";
-        box.appendChild(log);
+        log.title = "byte-for-byte, the numbers the model read in the recorded run";
+        if (solo) {
+          box.appendChild(log);
+        } else {
+          // combined view: the numbers are one click away, never gone
+          var d = el("details", "sn-rawfold");
+          var sm = el("summary", null, "the exact numbers the model read");
+          d.appendChild(sm);
+          d.appendChild(log);
+          box.appendChild(d);
+        }
       } else if (st.kind === "pico") {
         var isFaultP = st.r.truth !== "none";
         var line = el("p", "sn-proto");
         // the verdict word carries a semantic tint (word + shape still carry
         // the meaning without colour) and flashes when it CHANGES
         var vb = el("b", "sn-vword " + (st.esc ? "sn-proto__esc sn-live--esc" : verdictTint(false, st.ok, isFaultP)),
-          st.esc ? "ESCALATE ↑" : "ASSERT " + '" ' + st.said + '"');
+          st.esc ? "ASKED FOR HELP ↑" : 'ANSWERED " ' + st.said + '"');
         flashIfChanged(vb, "pico", (st.esc ? "esc" : "as|" + st.said) + "|" + st.margin);
         line.appendChild(vb);
         // margin vs floor, ALWAYS both numbers - the knob's effect is
         // visible on every detent, not only when the verdict flips
-        line.appendChild(el("span", null, st.esc
-          ? " · margin " + st.margin.toFixed(2) + " < floor " + st.floor.toFixed(1) + " - too doubtful to assert"
-          : " · margin " + st.margin.toFixed(2) + " ≥ floor " + st.floor.toFixed(1) + " - sure enough to assert"));
+        var howSure = el("span", null, st.esc
+          ? " · " + st.margin.toFixed(2) + " sure, needs " + st.floor.toFixed(1) + " to answer alone - so it asked"
+          : " · " + st.margin.toFixed(2) + " sure, needs " + st.floor.toFixed(1) + " to answer alone");
+        howSure.title = "how sure = the gap between the model's best answer and its next one " +
+          "(the margin). The setting is the margin floor on the knob.";
+        line.appendChild(howSure);
+        line.appendChild(el("i", "sn-stage__tech", st.esc ? "escalate" : "assert"));
         box.appendChild(line);
         box.appendChild(floorMeter(st.margin, st.floor));
         box.appendChild(el("p", "sn-sub", st.esc
-          ? "the wire protocol line - the Pico hands this read up. The margin is the model " +
-            "saying 'I am not sure' - that honesty is the feature."
-          : "the wire protocol line - machine-facing, one token of meaning"));
+          ? "This is all the model sends: one word and how sure it was. Being able to say " +
+            "'I am not sure' is the point - that is what sends the read up the chain."
+          : "This is all the model sends: one word and how sure it was - built for machines to " +
+            "read, not people."));
       } else if (st.kind === "nano") {
         var vw = el("p", "sn-verdict");
         var nb = el("b", "sn-vword " + verdictTint(false, st.ok, st.isFault),
@@ -1794,7 +1853,7 @@
         box.appendChild(dn);
       } else if (st.kind === "silent") {
         box.appendChild(el("p", "sn-sub",
-          st.fam.blurb + " - no recorded transcript, output unchanged."));
+          st.fam.blurb + " - it has no recorded run on this bench, so it stays quiet."));
       }
       host.appendChild(box);
     });
@@ -1909,47 +1968,61 @@
     red:    { sym: "⊗", label: "FAULTS MISSED" },
   };
 
-  /* ---- the operator lever, by the monitor's foot -------------------------- */
+  /* ---- WHO'S WATCHING: one question, three answers ----------------------
+     Two toggles (OPERATOR ON SHIFT + UNATTENDED AUTHORITY) asked the visitor
+     to reason about a combination before they knew either word. The states
+     underneath are unchanged - operator, and the policy that lets the senior
+     act unwatched - but they are now the three answers to one plain question,
+     each spelled out instead of computed. -------------------------------- */
+  var WATCHERS = [
+    { id: "person", label: "A PERSON",
+      hint: "someone is on shift reading what the models say" },
+    { id: "nobody", label: "NOBODY",
+      hint: "no one is on shift, and the models may not act without one" },
+    { id: "alone",  label: "THE MODEL, ALONE",
+      hint: "no one is on shift, and you have allowed Wave Nano to act anyway - " +
+            "its decisions queue for a person to review later. This is a POLICY " +
+            "you set, not a measurement." },
+  ];
+
+  function watcherNow() {
+    if (PATCH.operator) return "person";
+    return PATCH.authority ? "alone" : "nobody";
+  }
+
   function renderOp() {
     var host = $("wbOp");
     if (!host) return;
     host.textContent = "";
-    var sw = el("button", "wb-lever wb-lever--op" + (PATCH.operator ? " is-on" : ""));
-    sw.type = "button";
-    sw.setAttribute("role", "switch");
-    sw.setAttribute("aria-checked", PATCH.operator ? "true" : "false");
-    sw.setAttribute("aria-label", "Operator on shift");
-    sw.appendChild(el("span", "wb-lever__k", PATCH.operator ? "OPERATOR ON SHIFT" : "OPERATOR OFF SHIFT"));
-    sw.appendChild(el("span", "wb-lever__pip"));
-    sw.addEventListener("click", function () {
-      PATCH.operator = !PATCH.operator;
-      derive(); render();
-      react(PATCH.operator
-        ? "The operator is on shift, reading the rollups. The ladder ends with a person."
-        : "The operator went off shift.");
+    var now = watcherNow();
+    var wrap = el("div", "sn-watch");
+    wrap.appendChild(el("span", "sn-watch__k", "WHO'S WATCHING?"));
+    var row = el("div", "sn-watch__row");
+    row.setAttribute("role", "radiogroup");
+    row.setAttribute("aria-label", "Who is watching what the models decide");
+    WATCHERS.forEach(function (w) {
+      var b = el("button", "sn-watch__opt" + (now === w.id ? " is-on" : ""));
+      b.type = "button";
+      b.setAttribute("role", "radio");
+      b.setAttribute("aria-checked", now === w.id ? "true" : "false");
+      b.title = w.hint;
+      b.textContent = w.label;
+      b.addEventListener("click", function () {
+        PATCH.operator = w.id === "person";
+        PATCH.authority = w.id === "alone";
+        derive(); render();
+        react(w.id === "person"
+          ? "A person is on shift - the chain ends with someone reading it."
+          : w.id === "nobody"
+          ? "Nobody is watching now."
+          : "Wave Nano may act with nobody watching - its decisions queue for review.");
+        var again = document.querySelector(".sn-watch__opt.is-on");
+        if (again) again.focus({ preventScroll: true });
+      });
+      row.appendChild(b);
     });
-    host.appendChild(sw);
-
-    // the policy lever: UNATTENDED AUTHORITY. A policy the visitor sets -
-    // never a capability claim - and the lamp answers with PROVISIONAL,
-    // not ALL CLEAR, when it is exercised.
-    var au = el("button", "wb-lever wb-lever--auth" + (PATCH.authority ? " is-on" : ""));
-    au.type = "button";
-    au.setAttribute("role", "switch");
-    au.setAttribute("aria-checked", PATCH.authority ? "true" : "false");
-    au.setAttribute("aria-label", "Unattended authority - the senior may act with no operator on shift");
-    au.title = "let the senior act with no operator on shift - decisions queue for human review. " +
-      "Whether a model is big enough to take a shift is a POLICY you set, not a measurement.";
-    au.appendChild(el("span", "wb-lever__k", "UNATTENDED AUTHORITY"));
-    au.appendChild(el("span", "wb-lever__pip"));
-    au.addEventListener("click", function () {
-      PATCH.authority = !PATCH.authority;
-      derive(); render();
-      react(PATCH.authority
-        ? "Unattended authority granted - with a senior aboard and nobody on shift, decisions queue for human review."
-        : "Unattended authority revoked - with nobody on shift the chain reads DEGRADED again.");
-    });
-    host.appendChild(au);
+    wrap.appendChild(row);
+    host.appendChild(wrap);
   }
 
   /* ---- the recorded pump trace, where it belongs ------------------------- */

@@ -284,7 +284,7 @@ test("chain: an unrecorded model chains in, but its stage is honestly silent", (
   assert.ok(!("said" in st[1]) && !("margin" in st[1]),
     "a silent stage carries NO prediction and NO margin");
   assert.equal(h.state.verdict.state, "off", "and the lamp refuses to glow");
-  assert.ok(/no recorded transcript, output unchanged/.test(js),
+  assert.ok(/no recorded run on this bench, so it stays quiet/.test(js),
     "the stage says exactly what it is");
 });
 
@@ -348,7 +348,8 @@ test("chain: knob detents are exactly the measured floors - nothing else is dial
 });
 
 test("chain: the measured figures live on the knob, with their suite", () => {
-  assert.ok(/measured at this floor/.test(js), "the tooltip owns the numbers");
+  assert.ok(/Measured at this floor/.test(js), "the tooltip owns the measured numbers");
+  assert.ok(/must be to answer alone/.test(js), "and says in plain words what the knob does");
   assert.ok(/_provenance.suite/.test(js.slice(js.indexOf("function knobTip"))),
     "and cites the suite they were measured on");
 });
@@ -444,8 +445,12 @@ test("interaction: no HTML5 drag anywhere; the paste button is the one drop targ
 test("interaction: pads are a radiogroup of recorded conditions", () => {
   assert.ok(js.includes('setAttribute("role", "radiogroup")'), "the pad row is one choice");
   assert.ok(js.includes('setAttribute("role", "radio")'), "each pad is a position");
-  assert.ok(/one pad per recorded condition/.test(js),
+  // v15: same rule, plainer words, still on the visible subtitle (not demoted
+  // to a tooltip - a touch visitor never sees a title attribute).
+  assert.ok(/a condition we never recorded has no pad/.test(js),
     "the pads say the rule out loud: unrecorded conditions have no pad");
+  assert.ok(/each pad replays a real recorded reading/.test(js),
+    "and the visible line says the pads are recordings, not simulations");
   assert.ok(/a pad is a recorded instance, selected, not simulated/.test(js),
     "and each pad names the record it replays");
 });
@@ -514,7 +519,10 @@ test("palette: the lamp hues are fenced to lamp semantics", () => {
     // v12 adds: verdict-word tints (sn-live), the margin/floor meter's bar
     // (green asserts / amber escalates), and the LIVE dot (green = on air).
     // All of them SPEAK lamp semantics; none is decoration.
-    assert.ok(/wp-lamp|wp-read__mark|syn-pad|sn-live|sn-fm__/.test(b),
+    // v15 adds the chain card's state badge (ANSWERED / ASKED FOR HELP /
+    // WAITING) - it reports what the chain did with the read now on the
+    // monitor, and it always carries the WORD, so hue is never the only signal.
+    assert.ok(/wp-lamp|wp-read__mark|syn-pad|sn-live|sn-fm__|sn-slot__state/.test(b),
       `green/yellow may only colour lamp-semantic surfaces, got: ${b.split("{")[0].trim()}`);
   }
   assert.ok(/STANDING BY|ALL CLEAR|DEGRADED|FAULTS MISSED/.test(js),
@@ -546,8 +554,12 @@ test("lamp: every state is a recount of the recorded records", () => {
     h.state.chain = ["pico", "nano"]; h.state.floor = 1.5; h.state.operator = true;
     h.derive();
     assert.equal(h.state.verdict.state, "red", "a knob-fixable miss goes red");
-    assert.ok(/[Rr]aise the FLOOR/.test(h.state.verdict.why),
-      "escalation fires when margin < floor, so the honest advice is RAISE");
+    // v15: the knob is labelled SURE ENOUGH now, but the DIRECTION is the
+    // load-bearing part - a read is handed up BELOW the setting, so raising it
+    // asks for help sooner. The advice must still say raise, never lower.
+    assert.ok(/[Rr]aise the SURE ENOUGH knob/.test(h.state.verdict.why),
+      "a read escalates below the setting, so the honest advice is RAISE");
+    assert.ok(!/lower the/i.test(h.state.verdict.why), "and never says lower");
     h.state.floor = 2.0;
     h.derive();
     assert.notEqual(h.state.verdict.state, "red", "raising the knob fixes what it can");
@@ -555,8 +567,11 @@ test("lamp: every state is a recount of the recorded records", () => {
 });
 
 test("lamp: green at the ceiling never claims ALL CLEAR while the fault was missed", () => {
-  assert.ok(/AT CEILING/.test(js), "the ceiling label exists");
-  assert.ok(/missed by the recorded senior itself/.test(js),
+  // v15: "AT CEILING" read as jargon. Same guarantee, plain words: a green lamp
+  // over a missed fault must say the chain is finished AND blame the recorded
+  // senior rather than implying luck.
+  assert.ok(/BEST THIS CHAIN CAN DO/.test(js), "the ceiling label exists, in plain words");
+  assert.ok(/Wave Nano itself got this one wrong in the recorded run/.test(js),
     "and the why-line attributes the miss to the recorded senior, not to luck");
   const h = loadHook();
   // find a fault both models miss
@@ -576,8 +591,8 @@ test("lamp: green at the ceiling never claims ALL CLEAR while the fault was miss
     h.state.chain = ["pico", "nano"]; h.state.floor = 2.0; h.state.operator = true;
     h.derive();
     if (h.state.verdict.state === "green") {
-      assert.equal(h.state.verdict.label, "AT CEILING",
-        "a green lamp over a missed fault must say AT CEILING");
+      assert.equal(h.state.verdict.label, "BEST THIS CHAIN CAN DO",
+        "a green lamp over a missed fault must say the chain is finished, not ALL CLEAR");
     }
   }
 });
@@ -588,7 +603,8 @@ test("lamp: the operator still matters - the ladder ends with a person", () => {
   h.state.chain = ["pico"]; h.state.floor = 0.5; h.state.operator = false;
   h.derive();
   if (h.state.verdict.state === "yellow") {
-    assert.ok(/operator/.test(h.state.verdict.why), "the yellow names the missing person");
+    assert.ok(/nobody is watching/i.test(h.state.verdict.why),
+      "the yellow names the missing person");
   }
   h.state.operator = true;
   h.derive();
@@ -1078,7 +1094,7 @@ test("why: the trust chip renders the retraction from provenance fields", () => 
 
 test("why: the escalate stage states the margin doctrine", () => {
   // the sentence is concatenation-split in source; match its unbroken tail
-  assert.ok(/saying 'I am not sure' - that honesty is the feature/.test(js));
+  assert.ok(/'I am not sure' is the point - that is what sends the read up the chain/.test(js));
 });
 
 test("why: every why expands IN PLACE below the rail - one at a time, never clipped", () => {
@@ -1186,14 +1202,17 @@ test("v11: the glass shows a scroll cue when the cascade runs past it", () => {
 // ---------- v12: the founder's review round ------------------------------------
 
 test("v12: the knob's effect is visible every turn - margin AND floor, plus the meter", () => {
-  assert.ok(/margin " \+ st.margin.toFixed\(2\) \+ " < floor/.test(js) ||
-    /< floor " \+ st.floor.toFixed\(1\)/.test(js),
-    "the escalate line prints both numbers");
-  assert.ok(/≥ floor/.test(js), "and so does the assert line - the comparison is explicit");
+  // v15: same guarantee in plain words - BOTH numbers on screen every turn, so
+  // the knob's effect is visible even when the verdict does not flip.
+  assert.ok(/" sure, needs " \+ st.floor.toFixed\(1\) \+ " to answer alone - so it asked"/.test(js),
+    "the asked-for-help line prints how sure it was AND the setting");
+  assert.ok(/" sure, needs " \+ st.floor.toFixed\(1\) \+ " to answer alone"/.test(js),
+    "and so does the answered-alone line - the comparison is explicit");
   assert.ok(/function floorMeter/.test(js), "the margin-vs-floor meter exists");
   const fm = js.slice(js.indexOf("function floorMeter"), js.indexOf("function verdictTint"));
   assert.ok(/DETENTS.forEach/.test(fm), "every measured detent is a notch on the meter");
-  assert.ok(/doubt threshold/.test(fm), "and the meter explains itself");
+  assert.ok(/anything left of it gets handed up instead of answered/.test(fm),
+    "and the meter explains itself");
   assert.ok(!/Math.random|Math.sin/.test(fm), "recorded margin + chosen floor only");
   assert.ok(/floorMeter\(st.margin, st.floor\)/.test(js), "the pico stage carries it");
 });
@@ -1239,21 +1258,24 @@ test("v12: UNATTENDED AUTHORITY is a policy, and the lamp answers PROVISIONAL", 
   h.state.authority = true;
   h.derive();
   assert.equal(h.state.verdict.state, "green", "authority granted: the chain acts");
-  assert.equal(h.state.verdict.label, "PROVISIONAL", "but never claims ALL CLEAR");
+  assert.equal(h.state.verdict.label, "ACTING ALONE",
+    "but never claims ALL CLEAR - the lamp says the model is acting unwatched");
   assert.equal(h.state.verdict.sym, "◐", "with its own half-lamp shape");
-  assert.ok(/queued for human\s+review/.test(h.state.verdict.why.replace(/\s+/g, " ")),
+  // v15: plainer phrasing ("queued for a person to review later"); the guarantee
+  // is that the state names a QUEUE and a PERSON, never an unreviewed decision.
+  assert.ok(/queued for a person to review/.test(h.state.verdict.why.replace(/\s+/g, " ")),
     "decisions queue for a person");
   assert.ok(/POLICY you set,\s*not a measurement/.test(h.state.verdict.why.replace(/\s+/g, " ")),
     "and the why-line says it is policy, not measurement");
   // authority without a senior changes nothing - a lone Pico takes no shift
   h.state.chain = ["pico"]; h.state.floor = 0.5;
   h.derive();
-  assert.notEqual(h.state.verdict.label, "PROVISIONAL",
+  assert.notEqual(h.state.verdict.label, "ACTING ALONE",
     "no senior aboard: the policy has nobody qualified to exercise it");
   // and with the operator ON, authority is moot
   h.state.chain = ["pico", "nano"]; h.state.operator = true;
   h.derive();
-  assert.notEqual(h.state.verdict.label, "PROVISIONAL", "a person on shift outranks the policy");
+  assert.notEqual(h.state.verdict.label, "ACTING ALONE", "a person on shift outranks the policy");
 });
 
 test("v12: the ladder runs up - a backwards chain cannot be constructed", () => {
@@ -1327,4 +1349,74 @@ test("v14: the specialist-vs-dual story is cited, and stays qualitative where un
     "the unpublished roster figures never reach the deck");
   assert.ok(/tier-scaling strategy, [\s\S]{0,8}2026-08-14/.test(topics),
     "the scaling-law nugget cites the strategy doc");
+});
+
+// ---------- v15: the plain-language pass ------------------------------------
+// The founder's read: "the terms floor and ceiling are confusing... it's still
+// a bit too complicated and easy to dismiss because it looks too hard to
+// understand." These lock the translation so the jargon cannot creep back.
+
+test("v15: the deck opens with a plain sentence and an instruction", () => {
+  assert.ok(/A sensor sends numbers/.test(htmlFlat),
+    "the first line says what the bench IS, in words with no jargon in them");
+  assert.ok(/Pick a sensor, then press a condition/.test(htmlFlat),
+    "and tells a newcomer the one thing to do first");
+  // the provenance line - run names and a suite version - is the receipt, not
+  // the opening. It must still be one click away.
+  assert.ok(/where these numbers come from/.test(htmlFlat), "the receipt has a way in");
+  assert.ok(/id="wpProv"/.test(htmlFlat), "and still exists to be filled");
+});
+
+test("v15: the model's decision is a plain word, with the protocol word kept beside it", () => {
+  assert.ok(/'ANSWERED " ' \+ st.said/.test(js), "answering alone says ANSWERED");
+  assert.ok(/"ASKED FOR HELP ↑"/.test(js), "handing up says ASKED FOR HELP");
+  // the protocol words survive as the small technical tag - a reader who knows
+  // them still finds them, and the wire/envelope surfaces stay verbatim
+  assert.ok(/sn-stage__tech", st.esc \? "escalate" : "assert"/.test(js),
+    "assert/escalate are kept as the technical tag, not deleted");
+  assert.ok(js.includes('"grammar": "root ::='),
+    "and the wire envelope is still verbatim protocol");
+});
+
+test("v15: how-sure and the setting are plain, and the knob says what it does", () => {
+  assert.ok(/" sure, needs "/.test(js), "the stage reads 'X sure, needs Y to answer alone'");
+  assert.ok(/"SURE ENOUGH " \+ d.toFixed\(1\)/.test(js), "the knob is labelled by its job");
+  assert.ok(/margin floor/.test(js), "and the technical name survives in the label/tooltip");
+  assert.ok(/needs " \+ floor.toFixed\(1\)/.test(js), "the meter's line is 'needs N'");
+  assert.ok(/"this read " \+ margin.toFixed\(2\)/.test(js), "and its bar is 'this read N'");
+});
+
+test("v15: WHO'S WATCHING is one question with three spelled-out answers", () => {
+  assert.ok(/WHO'S WATCHING\?/.test(js), "the control asks a question");
+  for (const a of ["A PERSON", "NOBODY", "THE MODEL, ALONE"]) {
+    assert.ok(js.includes(a), `${a} is spelled out, not computed from two toggles`);
+  }
+  // the underlying policy is unchanged: person => operator, alone => authority
+  assert.ok(/PATCH.operator = w.id === "person"/.test(js), "a person on shift is the operator");
+  assert.ok(/PATCH.authority = w.id === "alone"/.test(js), "acting alone is the policy flag");
+  assert.ok(/POLICY\s+you set, not a measurement/.test(js.replace(/\s+/g, " ")),
+    "and the policy is still never claimed as a measurement");
+});
+
+test("v15: the feature dump folds away in the combined view, never disappears", () => {
+  assert.ok(/sn-rawfold/.test(js) && /the exact numbers the model read/.test(js),
+    "the raw window is one click away in the combined view");
+  assert.ok(/if \(solo\) \{\s*box.appendChild\(log\);/.test(js),
+    "and the SENSOR DATA tab shows it open");
+  assert.ok(/SENSOR DATA/.test(js), "the tab is named in plain words");
+});
+
+test("v15: a chain card answers what/doing/decided at a glance", () => {
+  assert.ok(/sn-slot__name/.test(js) && /sn-slot__role/.test(js) && /sn-slot__state/.test(js),
+    "name, role and live state each have their own line");
+  assert.ok(/reads the sensor, answers or asks for help/.test(js),
+    "the role is what it does for you, not what the protocol calls it");
+  assert.ok(/function slotState/.test(js), "the state is read off the same stages the monitor shows");
+  const ss = js.slice(js.indexOf("function slotState"), js.indexOf("function drawChainCard"));
+  for (const w of ["ASKED FOR HELP", "ANSWERED", "WAITING", "QUIET"]) {
+    assert.ok(ss.includes(w), `${w} is one of the states a card can report`);
+  }
+  // params/recipe/run name are for the curious - demoted, never dropped
+  assert.ok(/sn-slot__meta/.test(js) && /the run name is ground truth/.test(js),
+    "the run name stays reachable on the card's metadata");
 });

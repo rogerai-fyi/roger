@@ -867,7 +867,7 @@
 }
 /* the glass interior of the engraving: x 130->630, y 95->435 of 750x570 */
 .sn-tv__screen {
-  position: absolute; left: 17.6%; top: 17%; width: 66.2%; height: 59%;
+  position: absolute; left: 17.6%; top: 16%; width: 66.2%; height: 61%;
   transform: rotateX(var(--tiltx, 0deg)) rotateY(var(--tilty, 0deg));
   transition: transform .25s ease-out;
   overflow-y: auto; z-index: 1;
@@ -886,7 +886,7 @@
   .sn-tv { aspect-ratio: auto; perspective: none; }
   .sn-tv__plate { display: none; }
   .sn-tv__screen {
-    position: static; width: 100%; height: auto; min-height: 14rem;
+    position: static; width: 100%; height: auto; min-height: 18rem;
     transform: none;
     border: 1px solid var(--hairline-2);
   }
@@ -1165,4 +1165,118 @@
 
 /* v14 rhythm: the left column breathes without the roadmap line */
 .sn-side .sn-types { margin-bottom: .55rem; }
+
+/* =====================================================================
+   v15 - THE PLAIN-LANGUAGE PASS
+   The founder's read: "too complicated and easy to dismiss because it
+   looks too hard to understand." Jargon moved behind plain words, and
+   the first screen now states what the bench is before it states its
+   provenance. These rules carry that hierarchy.
+   ===================================================================== */
+
+/* the opening sentence: the first thing read, and the only instruction
+   a newcomer needs before touching anything */
+.sn-lede {
+  margin: 0 0 var(--s-3, .75rem); max-width: 62ch;
+  font-size: var(--t-sm, .82rem); line-height: 1.6; color: var(--ink-500);
+}
+.sn-lede b { color: var(--ink-900); font-weight: 500; }
+
+/* the receipt, one click away instead of first in line */
+.syn__provfold { margin-left: auto; }
+.syn__provfold > summary {
+  cursor: pointer; list-style: none;
+  font-family: var(--font-mono); font-size: .54rem; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--ink-400);
+}
+.syn__provfold > summary::-webkit-details-marker { display: none; }
+.syn__provfold > summary::before { content: "▸ "; }
+.syn__provfold[open] > summary::before { content: "▾ "; }
+.syn__provfold > summary:hover { color: var(--ink-900); }
+.syn__provfold[open] { flex-basis: 100%; }
+
+/* a stage says its plain name big, its protocol name small, its job quietly */
+.sn-stage__tech {
+  margin-left: .4rem;
+  font-family: var(--font-mono); font-size: .5rem; letter-spacing: .1em;
+  text-transform: lowercase; color: var(--ink-300); font-style: normal;
+  border: 1px solid var(--hairline-2); border-radius: 4px; padding: 0 .28rem;
+}
+.sn-stage__role {
+  font-family: var(--font-body, inherit); font-size: .56rem; color: var(--ink-400);
+  font-style: normal; letter-spacing: 0; text-transform: none;
+}
+
+/* the raw feature dump folds away in the combined view - it is the most
+   intimidating thing on the deck and a newcomer does not need it to
+   follow the story. One click, always, and the SENSOR DATA tab shows it open. */
+.sn-rawfold > summary {
+  cursor: pointer; list-style: none;
+  font-family: var(--font-mono); font-size: .54rem; letter-spacing: .06em;
+  color: var(--ink-400);
+}
+.sn-rawfold > summary::-webkit-details-marker { display: none; }
+.sn-rawfold > summary::before { content: "▸ "; }
+.sn-rawfold[open] > summary::before { content: "▾ "; }
+.sn-rawfold > summary:hover { color: var(--ink-900); }
+.sn-rawfold .ws-log { margin-top: .35rem; }
+
+/* WHO'S WATCHING: one question, three spelled-out answers, replacing two
+   toggles whose combination the visitor had to work out */
+.sn-watch { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+.sn-watch__k {
+  font-family: var(--font-mono); font-size: .54rem; letter-spacing: .12em;
+  color: var(--ink-400); text-transform: uppercase;
+}
+.sn-watch__row {
+  display: inline-flex; border: 1px solid var(--hairline-2); border-radius: 999px;
+  background: var(--paper); padding: 2px;
+}
+.sn-watch__opt {
+  border: 0; background: transparent; cursor: pointer; color: var(--ink-500);
+  font-family: var(--font-mono); font-size: .54rem; letter-spacing: .08em;
+  padding: .3rem .6rem; border-radius: 999px;
+}
+.sn-watch__opt:hover { color: var(--ink-900); }
+.sn-watch__opt.is-on {
+  background: var(--paper-3); color: var(--ink-900);
+  box-shadow: inset 0 0 0 1px var(--hairline-2);
+}
+.sn-watch__opt:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
+
+/* the chain card, restacked: name big, job in plain words, live state visible,
+   everything else in the tooltip. The art slot is sized for the engraved
+   per-tier scale artwork landing in a follow-up round. */
+.sn-slot__art {
+  flex: none; width: 64px; height: 64px;
+  display: flex; align-items: center; justify-content: center;
+}
+.sn-slot--model .sn-slot__art .ws-icon { max-height: 56px; max-width: 60px; }
+/* the role line wraps instead of stretching the card - a rail that scrolls
+   past the edge cannot be read at a glance, which is the whole point of it */
+.sn-slot--model .sn-slot__txt { max-width: 8rem; }
+/* the knob's label wraps under its dial rather than widening the whole card */
+.sn-slot--model .wp-knob { max-width: 4.1rem; }
+/* the sensor slot's label needn't be as wide as a model card's */
+.sn-slot--sensor .sn-slot__txt, .sn-slot--sensor b { max-width: 8rem; }
+.sn-slot--sensor { padding-right: .3rem; }
+.sn-slot--model .wp-knob__k { white-space: normal; line-height: 1.15; text-align: center; }
+.sn-slot__name {
+  font-family: var(--font-mono); font-size: .74rem !important; letter-spacing: .06em;
+  color: var(--ink-900); line-height: 1.1;
+}
+.sn-slot__role { font-size: .6rem; color: var(--ink-500); line-height: 1.25; }
+.sn-slot__state {
+  align-self: flex-start; margin-top: .12rem;
+  font-family: var(--font-mono); font-size: .5rem; letter-spacing: .1em;
+  padding: .1rem .3rem; border-radius: 4px; border: 1px solid var(--hairline-2);
+  color: var(--ink-500);
+}
+.sn-slot__state.is-ok { color: #1E7A3C; border-color: #1E7A3C; }
+.sn-slot__state.is-esc { color: #C99700; border-color: #C99700; }
+.sn-slot__state.is-idle { color: var(--ink-300); }
+.sn-slot__meta {
+  font-family: var(--font-mono); font-size: .5rem; color: var(--ink-300);
+  cursor: help;
+}
 
