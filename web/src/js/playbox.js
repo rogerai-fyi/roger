@@ -235,7 +235,7 @@
   // The demo tape carries the RECORDED kinds. Framing rule (models-agent,
   // measured twice): Wave contract models are never offered as raw free chat.
   var DEMO_TAPE = {
-    demo: true, model: "wave-nano", label: "WAVE NANO", sub: "350M · edge contracts",
+    demo: true, model: "wave-nano", label: "WAVE NANO", sub: "gateway tier · edge contracts",
     kinds: { image: true, tool: true, embed: true, guard: true }
   };
   var PING_TAPE = {
@@ -459,7 +459,10 @@
   function jcardRows(t) {
     var rows = [];
     if (t.demo) {
-      return [["CLASS", "350M \u00b7 edge contract model"],
+      // SPECTRUM (2026-08-14): the tier band is the locked ladder's; this run's
+      // exact parameter count is unexported, so it is stated as pending, not guessed.
+      return [["CLASS", "gateway tier \u00b7 0.8-1.5B target \u00b7 edge contract model"],
+              ["PARAMS", "pending export"],
               ["SOURCE", "recorded \u00b7 certified contracts"]];
     }
     if (t.ping) {
