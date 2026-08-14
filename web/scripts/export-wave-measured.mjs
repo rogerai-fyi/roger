@@ -107,10 +107,53 @@ const escalation = {
 // says so. kind is not stored either - it is DERIVED from the margin against the floor,
 // which is exactly what a tile does at runtime.
 const SAMPLE = 120;
+
+// The bench file carries what the model actually READ per item: the sensor's
+// tag, its stated unit ("?" when the wire did not state one - kept as null,
+// never defaulted), and the feature-summary window (range, mean, slope, ...).
+// Joining it in lets the deck show real instrument names and real bounds
+// instead of bare channel ids - and lets the sensor's "log" be the literal
+// input body, not an invention. The shared task frame is exported once.
+const benchPath = join(OUTDIR, String(fleet.bench || "").split("/").pop() || "mm-hard-signal.jsonl");
+let benchRows = new Map();
+let taskFrame = null;
+if (existsSync(benchPath)) {
+  for (const line of readFileSync(benchPath, "utf8").split("\n")) {
+    if (!line.trim()) continue;
+    const r = JSON.parse(line);
+    benchRows.set(r.channel_id, r);
+    if (!taskFrame && r.prompt) taskFrame = r.prompt.split("Input:")[0].trimEnd();
+  }
+} else {
+  console.error(`[measured] ${benchPath} missing; records will carry no tags or windows.`);
+}
+
+function windowOf(channelId) {
+  const row = benchRows.get(channelId);
+  if (!row || !row.prompt) return null;
+  const body = (row.prompt.split("Input:\n")[1] || "").split("\nAssertion:")[0].trimEnd();
+  if (!body) return null;
+  const grab = (re) => { const m = re.exec(body); return m ? m[1] : null; };
+  const num = (re) => { const v = grab(re); return v == null ? null : Number(v); };
+  const unit = grab(/stated_unit=(\S+)/);
+  return {
+    tag: grab(/tag=(\S+)/),
+    // "?" means the wire did not state a unit. null, not a default.
+    unit: unit === "?" ? null : unit,
+    n: num(/\bn=(\d+)/),
+    lo: num(/range=\[([-\d.]+),/),
+    hi: num(/range=\[[-\d.]+,([-\d.]+)\]/),
+    mean: num(/mean=([-\d.]+)/),
+    slope_per_min: num(/slope_per_min=([-\d.]+)/),
+    body, // the literal window the model read - the sensor's honest "log"
+  };
+}
+
 const records = fleet.per_item.slice(0, SAMPLE).map((p) => ({
   scene_id: p.scene_id,
   node_id: p.channel_id,
   truth: p.truth,
+  window: windowOf(p.channel_id),
   child: { prediction: p.child_pred, margin: p.child_margin },
   parent: { prediction: p.parent_pred, margin: p.parent_margin },
 }));
@@ -168,7 +211,7 @@ const doc = {
     sources: {
       frames: "out/margin-per-frame.json",
       escalation: `out/${fleetName}`,
-      records: `out/${fleetName} (per_item)`,
+      records: `out/${fleetName} (per_item) ⋈ out/${String(fleet.bench || "").split("/").pop()} (tags, units, windows, task frame)`,
       quants: CERTIFIED.source + " (" + CERTIFIED.note + ")",
     },
     retracted: {
@@ -180,6 +223,9 @@ const doc = {
   },
   frames,
   escalation,
+  // The T01 task frame, verbatim from the bench file. This retires the
+  // "frame text - pending export" placeholder the deck carried.
+  task_frame: taskFrame,
   records,
   quants,
   quant_note: CERTIFIED.note,

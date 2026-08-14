@@ -142,6 +142,60 @@ test("attribution: the Orange County line is present", () => {
   assert.ok(htmlFlat.includes("Designed by RogerAI in Orange County, California."));
 });
 
+// ---------- the exported windows: tags, units, bounds, the frame -----------------
+
+test("data: records carry the window the model actually read", () => {
+  const withW = measured.records.filter((r) => r.window);
+  assert.ok(withW.length === measured.records.length,
+    "every record joins its bench row - tags and bounds are data, not decoration");
+  for (const r of withW) {
+    assert.ok(r.window.tag, "a recorded tag");
+    assert.ok(r.window.body.includes("range=["), "and the literal window body");
+    assert.ok(r.window.lo <= r.window.mean && r.window.mean <= r.window.hi,
+      "bounds parsed from the body must contain the mean");
+    assert.ok(r.window.body.includes(String(r.window.tag)),
+      "parsed fields must come FROM the body, never beside it");
+  }
+});
+
+test("data: a unit the wire did not state is null, never defaulted", () => {
+  const unknown = measured.records.filter((r) => r.window && r.window.unit === null);
+  assert.ok(unknown.length > 0, "the bench really does contain unit-less wires");
+  assert.ok(/unit not stated/.test(js), "and the bay says so instead of guessing");
+  const exp = readFileSync(path.join(SRC, "../scripts/export-wave-measured.mjs"), "utf8");
+  assert.ok(/unit === "\?" \? null : unit/.test(exp.replace(/\s+/g, " ")) || /"\?" means the wire did not state a unit/.test(exp),
+    "the exporter documents the rule");
+});
+
+test("data: the task frame is exported verbatim, retiring the placeholder", () => {
+  assert.ok(measured.task_frame && measured.task_frame.length > 100,
+    "the T01 frame ships with the bundle");
+  assert.ok(/sensor-interpretation unit/.test(measured.task_frame),
+    "and it is the real frame, not a summary");
+  // the envelope now carries it
+  const h = loadHook();
+  const env = h.envelopeFor({ modality: "raw numbers", channels: [], body: "1, 2, 3" });
+  assert.ok(env.includes("task frame - exported verbatim"), "the envelope names its source");
+  assert.ok(env.includes(measured.task_frame.slice(0, 60)), "and carries the frame itself");
+  assert.ok(!/frame text — pending export/.test(env),
+    "the pending-export placeholder is retired from the envelope");
+});
+
+test("bays: the log window is byte-for-byte the recorded input body", () => {
+  assert.ok(/w.body \|\|/.test(js) || js.includes("ws-log\", w.body"),
+    "the log renders window.body, not a rendering of it");
+  assert.ok(/byte-for-byte/.test(js), "and says so");
+  assert.ok(/was not exported - the log is absent, not invented/.test(js),
+    "a missing window is an absence, never a synthesis");
+});
+
+test("bays: the live pulse is chrome, and says REPLAY on its face", () => {
+  assert.ok(/MONITORING · REPLAY/.test(js), "the REC chip is labelled a replay");
+  assert.ok(/is CHROME/.test(css), "the css says the pulse claims nothing");
+  assert.ok(/prefers-reduced-motion: reduce\) \{ \.ws-rec\.is-live \.ws-rec__dot \{ animation: none/.test(css),
+    "and it stops for people who asked for less motion");
+});
+
 // ---------- the sensor wall: recorded conditions only ----------------------------
 
 test("wall: sensors are built FROM the records - one per recorded channel", () => {
@@ -180,7 +234,7 @@ test("wall: a dial position always replays the SAME recorded instance", () => {
 
 // ---------- the radio: the whole family, honestly -------------------------------
 
-test("radio: the shelf carries the WHOLE Wave family with honest statuses", () => {
+test("rack: the attach menu carries the WHOLE Wave family with honest statuses", () => {
   const h = loadHook();
   const ids = h.family.map((f) => f.id);
   for (const want of ["pico", "nano", "edge", "micro", "core", "station", "satellite"]) {
@@ -191,24 +245,28 @@ test("radio: the shelf carries the WHOLE Wave family with honest statuses", () =
     "exactly two slots have a recorded run on this bench - claiming more would be a lie");
 });
 
-test("radio: an unrecorded model seats, but never speaks a number", () => {
+test("rack: an unrecorded model attaches, but never speaks a number", () => {
   const h = loadHook();
-  h.state.reader = "micro";
+  h.state.sensors.forEach((s) => { s.model = null; });
+  h.state.sensors[0].model = "micro";
+  h.state.sensors[0].on = true;
   h.derive();
   assert.equal(h.state.verdict.state, "off", "the lamp refuses to glow for it");
   assert.ok(/no recorded run/.test(h.state.verdict.why), "and says why");
   const rd = h.readOf(h.state.sensors[0]);
   assert.ok(rd.nodata, "a read from an unrecorded slot carries NO prediction and NO margin");
   assert.ok(!("said" in rd) || rd.said == null);
+  // the family entry itself says what it will do
+  assert.ok(/will attach silent/.test(js), "the menu warns before you attach");
 });
 
-test("radio: pico reads are the recorded child fields, nano reads the recorded parent", () => {
+test("rack: pico reads are the recorded child fields, nano reads the recorded parent", () => {
   const h = loadHook();
   const s = h.state.sensors[0];
   s.on = true; s.cond = s.conds[1]; // a recorded fault
   const r = measured.records[s.recIdx[s.cond]];
 
-  h.state.reader = "pico"; h.state.floor = 0.5; h.state.senior = false;
+  s.model = "pico"; s.floor = 0.5; h.state.senior = false;
   const rd = h.readOf(s);
   if (r.child.margin >= 0.5) {
     assert.equal(rd.said, r.child.prediction, "an assert says the CHILD's recorded word");
@@ -217,13 +275,13 @@ test("radio: pico reads are the recorded child fields, nano reads the recorded p
     assert.ok(rd.esc, "below the floor it escalates");
   }
 
-  h.state.reader = "nano";
+  s.model = "nano";
   const rd2 = h.readOf(s);
   assert.equal(rd2.said, r.parent.prediction, "the senior direct says the PARENT's recorded word");
   assert.equal(rd2.margin, r.parent.margin);
 });
 
-test("radio: knob detents are exactly the measured floors - nothing else is dialable", () => {
+test("rack: knob detents are exactly the measured floors - nothing else is dialable", () => {
   const h = loadHook();
   const measuredFloors = measured.escalation.configs
     .map((c) => /^child\+parent@([\d.]+)$/.exec(c.config))
@@ -232,7 +290,7 @@ test("radio: knob detents are exactly the measured floors - nothing else is dial
     "the knob physically cannot ask for an unmeasured number");
 });
 
-test("radio: the measured figures live on the knob, with their suite", () => {
+test("rack: the measured figures live on the knob, with their suite", () => {
   assert.ok(/measured at this floor/.test(js), "the tooltip owns the numbers");
   assert.ok(/_provenance.suite/.test(js.slice(js.indexOf("function knobTip"))),
     "and cites the suite they were measured on");
@@ -242,13 +300,13 @@ test("radio: the measured figures live on the knob, with their suite", () => {
 
 test("lamp: every state is a recount of the recorded records", () => {
   const h = loadHook();
-  h.state.reader = null;
+  h.state.sensors.forEach((s) => { s.model = null; });
   h.derive();
   assert.equal(h.state.verdict.state, "off", "no model, no verdict colour");
 
   // dial a knob-fixable miss: c00 DRIFTING at floor 1.5 asserts wrong (margin
   // 1.88 < TOP) while... find one from the data instead of hardcoding:
-  h.state.reader = "pico"; h.state.senior = true; h.state.operator = true;
+  h.state.senior = true; h.state.operator = true;
   let found = null;
   for (const s of h.state.sensors) {
     for (const c of s.conds) {
@@ -258,14 +316,13 @@ test("lamp: every state is a recount of the recorded records", () => {
     }
   }
   if (found) {
-    h.state.sensors.forEach((s) => { s.on = false; });
-    found.s.on = true; found.s.cond = found.c;
-    h.state.floor = 1.5;
+    h.state.sensors.forEach((s) => { s.on = false; s.model = null; });
+    found.s.on = true; found.s.cond = found.c; found.s.model = "pico"; found.s.floor = 1.5;
     h.derive();
     assert.equal(h.state.verdict.state, "red", "a knob-fixable miss goes red");
     assert.ok(/[Rr]aise the FLOOR/.test(h.state.verdict.why),
       "escalation fires when margin < floor, so the honest advice is RAISE");
-    h.state.floor = 2.0;
+    found.s.floor = 2.0;
     h.derive();
     assert.notEqual(h.state.verdict.state, "red", "raising the knob fixes what it can");
   }
@@ -273,8 +330,8 @@ test("lamp: every state is a recount of the recorded records", () => {
 
 test("lamp: doubtful reads with no senior are counted, never silently caught", () => {
   const h = loadHook();
-  h.state.reader = "pico"; h.state.senior = false; h.state.floor = 2.0;
-  h.state.sensors.forEach((s, i) => { s.on = true; s.cond = s.conds[1] || "none"; });
+  h.state.senior = false;
+  h.state.sensors.forEach((s) => { s.on = true; s.cond = s.conds[1] || "none"; s.model = "pico"; s.floor = 2.0; });
   h.derive();
   const t = h.state.verdict.totals;
   if (t.escalated > 0) {
@@ -287,8 +344,8 @@ test("lamp: green at the ceiling never claims ALL CLEAR while faults were missed
   assert.ok(/senior itself - no knob setting changes that/.test(js),
     "and the why-line attributes the remainder to the recorded parent, not to luck");
   const h = loadHook();
-  h.state.reader = "pico"; h.state.senior = true; h.state.operator = true; h.state.floor = 2.0;
-  h.state.sensors.forEach((s) => { s.on = true; s.cond = s.conds[1] || "none"; });
+  h.state.senior = true; h.state.operator = true;
+  h.state.sensors.forEach((s) => { s.on = true; s.cond = s.conds[1] || "none"; s.model = "pico"; s.floor = 2.0; });
   h.derive();
   const v = h.state.verdict;
   if (v.state === "green" && v.totals.missed > 0) {
@@ -369,7 +426,7 @@ test("palette: red is a signal, never a surface", async () => {
   // by tiny alpha masks), and the LAMP WINDOW in its red state - the
   // founder-mandated verdict light.
   assert.deepEqual(filled.sort(),
-    ['.wb-radio__art .wb-plate__spot', '.wm-masthead__spot', '.wp-lampwin[data-state="red"]', '.wp-run'].sort(),
+    ['.wm-masthead__spot', '.wp-lampwin[data-state="red"]', '.wp-run'].sort(),
     `got ${filled.join(", ")}`);
   const pin = (f, kb) => {
     const bytes = statSync(path.join(SRC, "assets/wave/" + f)).size;
@@ -405,8 +462,8 @@ test("a11y: reactions are announced once, and reduced motion is honoured", () =>
 
 // ---------- structure + offline ----------------------------------------------------
 
-test("deck: the wall, the radio, and the console all exist", () => {
-  for (const id of ["wbWall", "wbMid", "wbBench", "wpShelf2", "wpLamp2", "wpWhy", "wpReads", "wpStrip", "wbOp", "wpInspect", "wpProv"]) {
+test("deck: the rack, the senior rack, and the console all exist", () => {
+  for (const id of ["wsRack", "wbBench", "wbSenior", "wbCables", "wpLamp2", "wpWhy", "wpReads", "wpStrip", "wbOp", "wpInspect", "wpProv"]) {
     assert.ok(htmlFlat.includes(`id="${id}"`), `${id} must exist`);
   }
 });
@@ -511,7 +568,7 @@ test("classifier: the spec's own phrases route correctly", () => {
 // ---------- the engraved plates ------------------------------------------------------
 
 test("plates: every mask plate ships as an ink/spot pair", () => {
-  for (const base of ["sensor-gauge", "radio-reader", "radio-senior", "mesh-console", "tape-reader"]) {
+  for (const base of ["sensor-gauge", "radio-reader", "radio-senior", "radio-pocket", "mesh-console", "tape-reader"]) {
     for (const half of ["ink", "spot"]) {
       statSync(path.join(SRC, `assets/wave/${base}-${half}.png`));
     }
@@ -519,7 +576,7 @@ test("plates: every mask plate ships as an ink/spot pair", () => {
 });
 
 test("plates: illustrations are labelled illustration, and sit on non-data surfaces", () => {
-  assert.ok(/aria-hidden/.test(js.slice(js.indexOf("wb-sensor__art"))),
+  assert.ok(/aria-hidden/.test(js.slice(js.indexOf("ws-bay__art"))),
     "the sensor engraving is decoration to assistive tech");
   assert.ok(/ILLUSTRATION|illustration only|re-inked per theme \(illustration/.test(js + css + htmlFlat),
     "somewhere the surface says these are illustrations, not data");

@@ -1,12 +1,12 @@
 {
  "_provenance": {
-  "exported": "2026-08-13",
+  "exported": "2026-08-14",
   "hierarchy": "~/ai/computer-scientist/build/roger-wave/hierarchy",
   "suite": "IEB-Signals v1.2",
   "sources": {
    "frames": "out/margin-per-frame.json",
    "escalation": "out/fleet-sim-v4.json",
-   "records": "out/fleet-sim-v4.json (per_item)",
+   "records": "out/fleet-sim-v4.json (per_item) ⋈ out/mm-hard-signal.jsonl (tags, units, windows, task frame)",
    "quants": "RESULTS-MATRIX.md R.57 (fixed-protocol endpoint battery (leading-space grammar), stock llama-server)"
   },
   "retracted": {
@@ -111,11 +111,22 @@
    }
   ]
  },
+ "task_frame": "You are a sensor-interpretation unit. The same channel may arrive as a feature summary, as Modbus registers, as a Sparkplug B payload, or as Prometheus exposition. Read what is actually there.\n  - If the rendering destroys the values (e.g. undocumented byte order), ABSTAIN.\n  - If the metric cannot be identified (e.g. a Sparkplug alias with no name), the quantity is unknown, but the values may still show an instrument fault.\n  - Metric names lie. A `_total` suffix does not make a series a counter; check whether the values actually increase monotonically.",
  "records": [
   {
    "scene_id": "s00003",
    "node_id": "s00003c00",
    "truth": "dropout",
+   "window": {
+    "tag": "AIR003_DISCHARGE_TEMP",
+    "unit": "Cel",
+    "n": 96,
+    "lo": 139.159,
+    "hi": 162.566,
+    "mean": 159.141,
+    "slope_per_min": -0.1661,
+    "body": "channel=s00003c00 tag=AIR003_DISCHARGE_TEMP stated_unit=Cel period_s=5.73 n=96\n  range=[139.159,162.566] mean=159.141 sd=7.5181 first=162.069 last=162.187\n  slope_per_min=-0.1661 sign_changes=65 hf_energy=0.4146\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=6.6139 sd_tail=7.5231\n  monotonic_frac=0.568 n_resets=41 max_drop=22.947 gap_frac=0.0"
+   },
    "child": {
     "prediction": "noisy",
     "margin": 0.375
@@ -129,6 +140,16 @@
    "scene_id": "s00003",
    "node_id": "s00003c01",
    "truth": "drifting",
+   "window": {
+    "tag": "AIR003_DISCHARGE_PRESS",
+    "unit": "kPa",
+    "n": 96,
+    "lo": 99.394,
+    "hi": 101.333,
+    "mean": 100.102,
+    "slope_per_min": 0.3264,
+    "body": "channel=s00003c01 tag=AIR003_DISCHARGE_PRESS stated_unit=kPa period_s=3.64 n=96\n  range=[99.394,101.333] mean=100.102 sd=0.5884 first=99.619 last=101.325\n  slope_per_min=0.3264 sign_changes=55 hf_energy=0.0811\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.0796 sd_tail=0.2929\n  monotonic_frac=0.568 n_resets=41 max_drop=0.244 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 1.25
@@ -142,6 +163,16 @@
    "scene_id": "s00003",
    "node_id": "s00003c02",
    "truth": "stuck",
+   "window": {
+    "tag": "AI_2041",
+    "unit": null,
+    "n": 96,
+    "lo": 104.214,
+    "hi": 105.102,
+    "mean": 104.623,
+    "slope_per_min": -0.0594,
+    "body": "channel=s00003c02 tag=AI_2041 stated_unit=? period_s=7.48 n=96\n  range=[104.214,105.102] mean=104.623 sd=0.2138 first=105.003 last=104.214\n  slope_per_min=-0.0594 sign_changes=62 hf_energy=0.1424\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.0896 sd_tail=0.0872\n  monotonic_frac=0.421 n_resets=55 max_drop=0.239 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 3
@@ -155,6 +186,16 @@
    "scene_id": "s00003",
    "node_id": "s00003c03",
    "truth": "noisy",
+   "window": {
+    "tag": "AI_2042",
+    "unit": null,
+    "n": 96,
+    "lo": 118.552,
+    "hi": 151.961,
+    "mean": 131.808,
+    "slope_per_min": 1.2137,
+    "body": "channel=s00003c03 tag=AI_2042 stated_unit=? period_s=6.52 n=96\n  range=[118.552,151.961] mean=131.808 sd=5.9875 first=126.555 last=137.711\n  slope_per_min=1.2137 sign_changes=57 hf_energy=0.1551\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=1.933 sd_tail=8.2406\n  monotonic_frac=0.526 n_resets=45 max_drop=16.618 gap_frac=0.0"
+   },
    "child": {
     "prediction": "noisy",
     "margin": 2.125
@@ -168,6 +209,16 @@
    "scene_id": "s00003",
    "node_id": "s00003c04",
    "truth": "noisy",
+   "window": {
+    "tag": "AIR003_OIL_TEMP",
+    "unit": "mm/s",
+    "n": 96,
+    "lo": 17.864,
+    "hi": 19.735,
+    "mean": 18.814,
+    "slope_per_min": -0.0044,
+    "body": "channel=s00003c04 tag=AIR003_OIL_TEMP stated_unit=mm/s period_s=5.77 n=96\n  range=[17.864,19.735] mean=18.814 sd=0.2702 first=18.769 last=18.309\n  slope_per_min=-0.0044 sign_changes=68 hf_energy=0.1967\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.0844 sd_tail=0.345\n  monotonic_frac=0.516 n_resets=46 max_drop=0.858 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 0.625
@@ -181,6 +232,16 @@
    "scene_id": "s00003",
    "node_id": "s00003c05",
    "truth": "none",
+   "window": {
+    "tag": "AI_2044",
+    "unit": null,
+    "n": 96,
+    "lo": 169.36,
+    "hi": 170.291,
+    "mean": 169.845,
+    "slope_per_min": -0.007,
+    "body": "channel=s00003c05 tag=AI_2044 stated_unit=? period_s=4.82 n=96\n  range=[169.36,170.291] mean=169.845 sd=0.1941 first=169.961 last=169.643\n  slope_per_min=-0.007 sign_changes=68 hf_energy=0.4772\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.2017 sd_tail=0.1806\n  monotonic_frac=0.495 n_resets=48 max_drop=0.691 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 2.875
@@ -194,6 +255,16 @@
    "scene_id": "s00004",
    "node_id": "s00004c00",
    "truth": "dropout",
+   "window": {
+    "tag": "AIR004_DISCHARGE_TEMP",
+    "unit": "Cel",
+    "n": 96,
+    "lo": 140.253,
+    "hi": 176.191,
+    "mean": 169.794,
+    "slope_per_min": 1.4834,
+    "body": "channel=s00004c00 tag=AIR004_DISCHARGE_TEMP stated_unit=Cel period_s=3.44 n=96\n  range=[140.253,176.191] mean=169.794 sd=5.4142 first=164.76 last=140.253\n  slope_per_min=1.4834 sign_changes=55 hf_energy=0.061\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=1.1685 sd_tail=8.3131\n  monotonic_frac=0.663 n_resets=32 max_drop=35.467 gap_frac=0.0"
+   },
    "child": {
     "prediction": "noisy",
     "margin": 1.125
@@ -207,6 +278,16 @@
    "scene_id": "s00004",
    "node_id": "s00004c01",
    "truth": "none",
+   "window": {
+    "tag": "AI_2053",
+    "unit": null,
+    "n": 96,
+    "lo": 95.656,
+    "hi": 100.307,
+    "mean": 97.989,
+    "slope_per_min": -0.3702,
+    "body": "channel=s00004c01 tag=AI_2053 stated_unit=? period_s=7.85 n=96\n  range=[95.656,100.307] mean=97.989 sd=1.3444 first=100.21 last=95.656\n  slope_per_min=-0.3702 sign_changes=55 hf_energy=0.0315\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.4762 sd_tail=0.4614\n  monotonic_frac=0.326 n_resets=64 max_drop=0.263 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 1.75
@@ -220,6 +301,16 @@
    "scene_id": "s00004",
    "node_id": "s00004c02",
    "truth": "none",
+   "window": {
+    "tag": "AI_2054",
+    "unit": null,
+    "n": 96,
+    "lo": 97.45,
+    "hi": 97.793,
+    "mean": 97.625,
+    "slope_per_min": -0.0025,
+    "body": "channel=s00004c02 tag=AI_2054 stated_unit=? period_s=5.44 n=96\n  range=[97.45,97.793] mean=97.625 sd=0.0799 first=97.674 last=97.501\n  slope_per_min=-0.0025 sign_changes=57 hf_energy=0.4341\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.0723 sd_tail=0.076\n  monotonic_frac=0.547 n_resets=43 max_drop=0.277 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 3.25
@@ -233,6 +324,16 @@
    "scene_id": "s00004",
    "node_id": "s00004c03",
    "truth": "drifting",
+   "window": {
+    "tag": "AIR004_DISCHARGE_PRESS",
+    "unit": "A",
+    "n": 96,
+    "lo": 134.287,
+    "hi": 180.229,
+    "mean": 164.289,
+    "slope_per_min": 4.7512,
+    "body": "channel=s00004c03 tag=AIR004_DISCHARGE_PRESS stated_unit=A period_s=6.23 n=96\n  range=[134.287,180.229] mean=164.289 sd=14.3062 first=134.287 last=180.229\n  slope_per_min=4.7512 sign_changes=52 hf_energy=0.0467\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=6.3857 sd_tail=1.007\n  monotonic_frac=0.621 n_resets=36 max_drop=2.818 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 2
@@ -246,6 +347,16 @@
    "scene_id": "s00004",
    "node_id": "s00004c04",
    "truth": "none",
+   "window": {
+    "tag": "AIR004_VIBRATION",
+    "unit": "mm/s",
+    "n": 96,
+    "lo": 15.361,
+    "hi": 15.833,
+    "mean": 15.602,
+    "slope_per_min": 0.0047,
+    "body": "channel=s00004c04 tag=AIR004_VIBRATION stated_unit=mm/s period_s=6.43 n=96\n  range=[15.361,15.833] mean=15.602 sd=0.1001 first=15.71 last=15.536\n  slope_per_min=0.0047 sign_changes=60 hf_energy=0.3998\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.1064 sd_tail=0.1016\n  monotonic_frac=0.484 n_resets=49 max_drop=0.401 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 2.125
@@ -259,6 +370,16 @@
    "scene_id": "s00004",
    "node_id": "s00004c05",
    "truth": "none",
+   "window": {
+    "tag": "AIR004_OIL_TEMP",
+    "unit": "Cel",
+    "n": 96,
+    "lo": 157.827,
+    "hi": 158.708,
+    "mean": 158.25,
+    "slope_per_min": 0.0077,
+    "body": "channel=s00004c05 tag=AIR004_OIL_TEMP stated_unit=Cel period_s=8.38 n=96\n  range=[157.827,158.708] mean=158.25 sd=0.1703 first=158.708 last=158.357\n  slope_per_min=0.0077 sign_changes=63 hf_energy=0.3697\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.1917 sd_tail=0.1394\n  monotonic_frac=0.474 n_resets=50 max_drop=0.537 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 2.625
@@ -272,6 +393,16 @@
    "scene_id": "s00010",
    "node_id": "s00010c00",
    "truth": "drifting",
+   "window": {
+    "tag": "AIR010_DISCHARGE_TEMP",
+    "unit": "Cel",
+    "n": 96,
+    "lo": 166.275,
+    "hi": 168.564,
+    "mean": 167.576,
+    "slope_per_min": 0.146,
+    "body": "channel=s00010c00 tag=AIR010_DISCHARGE_TEMP stated_unit=Cel period_s=7.31 n=96\n  range=[166.275,168.564] mean=167.576 sd=0.6066 first=166.326 last=167.782\n  slope_per_min=0.146 sign_changes=63 hf_energy=0.161\n  repeat_frac=0.011 longest_run=2 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.3337 sd_tail=0.1855\n  monotonic_frac=0.568 n_resets=41 max_drop=0.768 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 1.875
@@ -285,6 +416,16 @@
    "scene_id": "s00010",
    "node_id": "s00010c01",
    "truth": "railed",
+   "window": {
+    "tag": "AIR010_DISCHARGE_PRESS",
+    "unit": "kPa",
+    "n": 96,
+    "lo": 102.28,
+    "hi": 112.088,
+    "mean": 105.588,
+    "slope_per_min": 0.0926,
+    "body": "channel=s00010c01 tag=AIR010_DISCHARGE_PRESS stated_unit=kPa period_s=9.71 n=96\n  range=[102.28,112.088] mean=105.588 sd=4.0724 first=103.743 last=102.28\n  slope_per_min=0.0926 sign_changes=58 hf_energy=0.0508\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.131 sd_tail=3.7301\n  monotonic_frac=0.421 n_resets=55 max_drop=9.374 gap_frac=0.0"
+   },
    "child": {
     "prediction": "noisy",
     "margin": 0.5
@@ -298,6 +439,16 @@
    "scene_id": "s00010",
    "node_id": "s00010c02",
    "truth": "railed",
+   "window": {
+    "tag": "AI_2132",
+    "unit": null,
+    "n": 96,
+    "lo": 102.924,
+    "hi": 110.752,
+    "mean": 103.851,
+    "slope_per_min": 0.1194,
+    "body": "channel=s00010c02 tag=AI_2132 stated_unit=? period_s=7.61 n=96\n  range=[102.924,110.752] mean=103.851 sd=2.2159 first=102.924 last=103.271\n  slope_per_min=0.1194 sign_changes=58 hf_energy=0.0555\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.0797 sd_tail=2.761\n  monotonic_frac=0.495 n_resets=48 max_drop=7.593 gap_frac=0.0"
+   },
    "child": {
     "prediction": "noisy",
     "margin": 1.875
@@ -311,6 +462,16 @@
    "scene_id": "s00010",
    "node_id": "s00010c03",
    "truth": "none",
+   "window": {
+    "tag": "AI_2133",
+    "unit": null,
+    "n": 96,
+    "lo": 193.719,
+    "hi": 212.853,
+    "mean": 203.302,
+    "slope_per_min": 2.077,
+    "body": "channel=s00010c03 tag=AI_2133 stated_unit=? period_s=5.41 n=96\n  range=[193.719,212.853] mean=203.302 sd=5.3062 first=194.581 last=212.853\n  slope_per_min=2.077 sign_changes=62 hf_energy=0.126\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=2.1328 sd_tail=1.8813\n  monotonic_frac=0.516 n_resets=46 max_drop=3.908 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 1.375
@@ -324,6 +485,16 @@
    "scene_id": "s00010",
    "node_id": "s00010c04",
    "truth": "none",
+   "window": {
+    "tag": "AI_2134",
+    "unit": null,
+    "n": 96,
+    "lo": 17.444,
+    "hi": 17.982,
+    "mean": 17.692,
+    "slope_per_min": 0.0098,
+    "body": "channel=s00010c04 tag=AI_2134 stated_unit=? period_s=3.68 n=96\n  range=[17.444,17.982] mean=17.692 sd=0.1011 first=17.679 last=17.717\n  slope_per_min=0.0098 sign_changes=58 hf_energy=0.3131\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.0793 sd_tail=0.1119\n  monotonic_frac=0.474 n_resets=50 max_drop=0.314 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 2.125
@@ -337,6 +508,16 @@
    "scene_id": "s00010",
    "node_id": "s00010c05",
    "truth": "none",
+   "window": {
+    "tag": "AIR010_OIL_TEMP",
+    "unit": "Cel",
+    "n": 96,
+    "lo": 173.795,
+    "hi": 174.711,
+    "mean": 174.242,
+    "slope_per_min": 0.0064,
+    "body": "channel=s00010c05 tag=AIR010_OIL_TEMP stated_unit=Cel period_s=2.77 n=96\n  range=[173.795,174.711] mean=174.242 sd=0.1892 first=174.054 last=174.084\n  slope_per_min=0.0064 sign_changes=63 hf_energy=0.3877\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.2065 sd_tail=0.1607\n  monotonic_frac=0.505 n_resets=47 max_drop=0.694 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 2.25
@@ -350,6 +531,16 @@
    "scene_id": "s00013",
    "node_id": "s00013c00",
    "truth": "none",
+   "window": {
+    "tag": "AIR013_MOTOR_CURRENT",
+    "unit": "Cel",
+    "n": 96,
+    "lo": 173.892,
+    "hi": 182.299,
+    "mean": 178.359,
+    "slope_per_min": 1.2471,
+    "body": "channel=s00013c00 tag=AIR013_MOTOR_CURRENT stated_unit=Cel period_s=4.22 n=96\n  range=[173.892,182.299] mean=178.359 sd=2.4406 first=173.892 last=182.297\n  slope_per_min=1.2471 sign_changes=56 hf_energy=0.0516\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.8329 sd_tail=0.8203\n  monotonic_frac=0.621 n_resets=36 max_drop=0.755 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 3
@@ -363,6 +554,16 @@
    "scene_id": "s00013",
    "node_id": "s00013c01",
    "truth": "none",
+   "window": {
+    "tag": "AIR013_DISCHARGE_PRESS",
+    "unit": "kPa",
+    "n": 96,
+    "lo": 96.647,
+    "hi": 100.062,
+    "mean": 98.326,
+    "slope_per_min": -0.2196,
+    "body": "channel=s00013c01 tag=AIR013_DISCHARGE_PRESS stated_unit=kPa period_s=9.78 n=96\n  range=[96.647,100.062] mean=98.326 sd=0.9953 first=100.062 last=96.668\n  slope_per_min=-0.2196 sign_changes=62 hf_energy=0.0476\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.3425 sd_tail=0.3306\n  monotonic_frac=0.379 n_resets=59 max_drop=0.329 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 2.625
@@ -376,6 +577,16 @@
    "scene_id": "s00013",
    "node_id": "s00013c02",
    "truth": "noisy",
+   "window": {
+    "tag": "AIR013_SUCTION_PRESS",
+    "unit": "kPa",
+    "n": 96,
+    "lo": 101.409,
+    "hi": 102.471,
+    "mean": 101.758,
+    "slope_per_min": 0.0013,
+    "body": "channel=s00013c02 tag=AIR013_SUCTION_PRESS stated_unit=kPa period_s=5.84 n=96\n  range=[101.409,102.471] mean=101.758 sd=0.1645 first=101.867 last=101.773\n  slope_per_min=0.0013 sign_changes=60 hf_energy=0.2578\n  repeat_frac=0.011 longest_run=2 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.0992 sd_tail=0.2145\n  monotonic_frac=0.495 n_resets=48 max_drop=0.741 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 2.125
@@ -389,6 +600,16 @@
    "scene_id": "s00013",
    "node_id": "s00013c03",
    "truth": "none",
+   "window": {
+    "tag": "AIR013_MOTOR_CURRENT",
+    "unit": "A",
+    "n": 96,
+    "lo": 198.883,
+    "hi": 246.371,
+    "mean": 222.895,
+    "slope_per_min": 3.3378,
+    "body": "channel=s00013c03 tag=AIR013_MOTOR_CURRENT stated_unit=A period_s=8.93 n=96\n  range=[198.883,246.371] mean=222.895 sd=13.8165 first=198.883 last=246.371\n  slope_per_min=3.3378 sign_changes=58 hf_energy=0.0464\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=4.7942 sd_tail=4.7288\n  monotonic_frac=0.621 n_resets=36 max_drop=4.52 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 4
@@ -402,6 +623,16 @@
    "scene_id": "s00013",
    "node_id": "s00013c04",
    "truth": "stuck",
+   "window": {
+    "tag": "AIR013_VIBRATION",
+    "unit": "mm/s",
+    "n": 96,
+    "lo": 10.797,
+    "hi": 11.353,
+    "mean": 11.081,
+    "slope_per_min": 0.0077,
+    "body": "channel=s00013c04 tag=AIR013_VIBRATION stated_unit=mm/s period_s=4.1 n=96\n  range=[10.797,11.353] mean=11.081 sd=0.1061 first=11.121 last=11.045\n  slope_per_min=0.0077 sign_changes=60 hf_energy=0.3553\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.1045 sd_tail=0.086\n  monotonic_frac=0.474 n_resets=50 max_drop=0.309 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 1.875
@@ -415,6 +646,16 @@
    "scene_id": "s00013",
    "node_id": "s00013c05",
    "truth": "none",
+   "window": {
+    "tag": "AIR013_OIL_TEMP",
+    "unit": "Cel",
+    "n": 96,
+    "lo": 166.169,
+    "hi": 167.112,
+    "mean": 166.605,
+    "slope_per_min": -0.0026,
+    "body": "channel=s00013c05 tag=AIR013_OIL_TEMP stated_unit=Cel period_s=3.16 n=96\n  range=[166.169,167.112] mean=166.605 sd=0.1903 first=166.66 last=166.831\n  slope_per_min=-0.0026 sign_changes=59 hf_energy=0.3685\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.1578 sd_tail=0.2322\n  monotonic_frac=0.526 n_resets=45 max_drop=0.647 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 3.125
@@ -428,6 +669,16 @@
    "scene_id": "s00025",
    "node_id": "s00025c00",
    "truth": "none",
+   "window": {
+    "tag": "AIR025_DISCHARGE_TEMP",
+    "unit": "Cel",
+    "n": 96,
+    "lo": 155.073,
+    "hi": 156.157,
+    "mean": 155.457,
+    "slope_per_min": 0.0159,
+    "body": "channel=s00025c00 tag=AIR025_DISCHARGE_TEMP stated_unit=Cel period_s=4.39 n=96\n  range=[155.073,156.157] mean=155.457 sd=0.2105 first=155.461 last=155.396\n  slope_per_min=0.0159 sign_changes=66 hf_energy=0.3761\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.1865 sd_tail=0.2617\n  monotonic_frac=0.516 n_resets=46 max_drop=0.843 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 2.25
@@ -441,6 +692,16 @@
    "scene_id": "s00025",
    "node_id": "s00025c01",
    "truth": "none",
+   "window": {
+    "tag": "AIR025_DISCHARGE_PRESS",
+    "unit": "kPa",
+    "n": 96,
+    "lo": 98.554,
+    "hi": 98.971,
+    "mean": 98.779,
+    "slope_per_min": -0.0056,
+    "body": "channel=s00025c01 tag=AIR025_DISCHARGE_PRESS stated_unit=kPa period_s=6.0 n=96\n  range=[98.554,98.971] mean=98.779 sd=0.0813 first=98.859 last=98.707\n  slope_per_min=-0.0056 sign_changes=66 hf_energy=0.3642\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.0833 sd_tail=0.0842\n  monotonic_frac=0.505 n_resets=47 max_drop=0.234 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 3.375
@@ -454,6 +715,16 @@
    "scene_id": "s00025",
    "node_id": "s00025c02",
    "truth": "railed",
+   "window": {
+    "tag": "AIR025_SUCTION_PRESS",
+    "unit": "kPa",
+    "n": 96,
+    "lo": 100.375,
+    "hi": 110.557,
+    "mean": 104.072,
+    "slope_per_min": 0.1908,
+    "body": "channel=s00025c02 tag=AIR025_SUCTION_PRESS stated_unit=kPa period_s=4.31 n=96\n  range=[100.375,110.557] mean=104.072 sd=4.7883 first=100.558 last=100.519\n  slope_per_min=0.1908 sign_changes=61 hf_energy=0.049\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.0808 sd_tail=3.3123\n  monotonic_frac=0.516 n_resets=46 max_drop=10.002 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 0.125
@@ -467,6 +738,16 @@
    "scene_id": "s00025",
    "node_id": "s00025c03",
    "truth": "none",
+   "window": {
+    "tag": "AIR025_MOTOR_CURRENT",
+    "unit": "A",
+    "n": 96,
+    "lo": 133.694,
+    "hi": 139.527,
+    "mean": 136.362,
+    "slope_per_min": 0.0249,
+    "body": "channel=s00025c03 tag=AIR025_MOTOR_CURRENT stated_unit=A period_s=9.41 n=96\n  range=[133.694,139.527] mean=136.362 sd=1.1328 first=136.19 last=136.637\n  slope_per_min=0.0249 sign_changes=70 hf_energy=0.4381\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=1.2325 sd_tail=1.1022\n  monotonic_frac=0.474 n_resets=50 max_drop=3.371 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 5
@@ -480,6 +761,16 @@
    "scene_id": "s00025",
    "node_id": "s00025c04",
    "truth": "dropout",
+   "window": {
+    "tag": "AI_2329",
+    "unit": null,
+    "n": 96,
+    "lo": 0.114,
+    "hi": 13.54,
+    "mean": 12.599,
+    "slope_per_min": -0.0934,
+    "body": "channel=s00025c04 tag=AI_2329 stated_unit=? period_s=3.64 n=96\n  range=[0.114,13.54] mean=12.599 sd=2.9211 first=13.29 last=13.276\n  slope_per_min=-0.0934 sign_changes=71 hf_energy=0.2247\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=3.1811 sd_tail=3.8334\n  monotonic_frac=0.526 n_resets=45 max_drop=13.297 gap_frac=0.0"
+   },
    "child": {
     "prediction": "noisy",
     "margin": 0.25
@@ -493,6 +784,16 @@
    "scene_id": "s00025",
    "node_id": "s00025c05",
    "truth": "dropout",
+   "window": {
+    "tag": "AIR025_OIL_TEMP",
+    "unit": "Cel",
+    "n": 96,
+    "lo": 159.197,
+    "hi": 160.295,
+    "mean": 159.751,
+    "slope_per_min": 0.0061,
+    "body": "channel=s00025c05 tag=AIR025_OIL_TEMP stated_unit=Cel period_s=7.26 n=96\n  range=[159.197,160.295] mean=159.751 sd=0.1934 first=160.023 last=159.772\n  slope_per_min=0.0061 sign_changes=62 hf_energy=0.3447\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.2022 sd_tail=0.1588\n  monotonic_frac=0.547 n_resets=43 max_drop=0.774 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 2.625
@@ -506,6 +807,16 @@
    "scene_id": "s00029",
    "node_id": "s00029c00",
    "truth": "none",
+   "window": {
+    "tag": "AIR029_DISCHARGE_TEMP",
+    "unit": "Cel",
+    "n": 96,
+    "lo": 167.477,
+    "hi": 168.474,
+    "mean": 167.976,
+    "slope_per_min": -0.0042,
+    "body": "channel=s00029c00 tag=AIR029_DISCHARGE_TEMP stated_unit=Cel period_s=2.78 n=96\n  range=[167.477,168.474] mean=167.976 sd=0.187 first=168.474 last=168.29\n  slope_per_min=-0.0042 sign_changes=67 hf_energy=0.3623\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.1813 sd_tail=0.1838\n  monotonic_frac=0.453 n_resets=52 max_drop=0.972 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 2.75
@@ -519,6 +830,16 @@
    "scene_id": "s00029",
    "node_id": "s00029c01",
    "truth": "stuck",
+   "window": {
+    "tag": "AIR029_SUCTION_PRESS",
+    "unit": "kPa",
+    "n": 96,
+    "lo": 101.362,
+    "hi": 101.75,
+    "mean": 101.539,
+    "slope_per_min": -0.0018,
+    "body": "channel=s00029c01 tag=AIR029_SUCTION_PRESS stated_unit=kPa period_s=3.68 n=96\n  range=[101.362,101.75] mean=101.539 sd=0.0696 first=101.563 last=101.596\n  slope_per_min=-0.0018 sign_changes=63 hf_energy=0.3796\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.0742 sd_tail=0.0646\n  monotonic_frac=0.495 n_resets=48 max_drop=0.293 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 2.75
@@ -532,6 +853,16 @@
    "scene_id": "s00029",
    "node_id": "s00029c02",
    "truth": "none",
+   "window": {
+    "tag": "AI_2379",
+    "unit": null,
+    "n": 96,
+    "lo": 95.309,
+    "hi": 100.131,
+    "mean": 97.761,
+    "slope_per_min": -0.3701,
+    "body": "channel=s00029c02 tag=AI_2379 stated_unit=? period_s=7.96 n=96\n  range=[95.309,100.131] mean=97.761 sd=1.363 first=100.131 last=95.309\n  slope_per_min=-0.3701 sign_changes=56 hf_energy=0.0327\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.446 sd_tail=0.4826\n  monotonic_frac=0.326 n_resets=64 max_drop=0.28 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 2.375
@@ -545,6 +876,16 @@
    "scene_id": "s00029",
    "node_id": "s00029c03",
    "truth": "none",
+   "window": {
+    "tag": "AIR029_MOTOR_CURRENT",
+    "unit": "A",
+    "n": 96,
+    "lo": 194.183,
+    "hi": 262.364,
+    "mean": 228.364,
+    "slope_per_min": 16.1185,
+    "body": "channel=s00029c03 tag=AIR029_MOTOR_CURRENT stated_unit=A period_s=2.55 n=96\n  range=[194.183,262.364] mean=228.364 sd=19.0134 first=197.946 last=262.364\n  slope_per_min=16.1185 sign_changes=55 hf_energy=0.0291\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=6.4896 sd_tail=6.8783\n  monotonic_frac=0.695 n_resets=29 max_drop=3.763 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 1.25
@@ -558,6 +899,16 @@
    "scene_id": "s00029",
    "node_id": "s00029c04",
    "truth": "none",
+   "window": {
+    "tag": "AIR029_VIBRATION",
+    "unit": "mm/s",
+    "n": 96,
+    "lo": 9.898,
+    "hi": 10.519,
+    "mean": 10.244,
+    "slope_per_min": -0.0026,
+    "body": "channel=s00029c04 tag=AIR029_VIBRATION stated_unit=mm/s period_s=6.12 n=96\n  range=[9.898,10.519] mean=10.244 sd=0.1038 first=10.171 last=10.357\n  slope_per_min=-0.0026 sign_changes=55 hf_energy=0.2624\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.1124 sd_tail=0.0978\n  monotonic_frac=0.495 n_resets=48 max_drop=0.392 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 0.625
@@ -571,6 +922,16 @@
    "scene_id": "s00029",
    "node_id": "s00029c05",
    "truth": "none",
+   "window": {
+    "tag": "AI_2382",
+    "unit": null,
+    "n": 96,
+    "lo": 168.634,
+    "hi": 169.72,
+    "mean": 169.175,
+    "slope_per_min": -0.0225,
+    "body": "channel=s00029c05 tag=AI_2382 stated_unit=? period_s=3.89 n=96\n  range=[168.634,169.72] mean=169.175 sd=0.1998 first=169.525 last=168.82\n  slope_per_min=-0.0225 sign_changes=60 hf_energy=0.3308\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.1846 sd_tail=0.237\n  monotonic_frac=0.537 n_resets=44 max_drop=0.785 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 2.875
@@ -584,6 +945,16 @@
    "scene_id": "s00030",
    "node_id": "s00030c00",
    "truth": "railed",
+   "window": {
+    "tag": "AIR030_OIL_TEMP",
+    "unit": "Cel",
+    "n": 96,
+    "lo": 173.84,
+    "hi": 191.981,
+    "mean": 178.623,
+    "slope_per_min": 1.1675,
+    "body": "channel=s00030c00 tag=AIR030_OIL_TEMP stated_unit=Cel period_s=5.95 n=96\n  range=[173.84,191.981] mean=178.623 sd=4.7302 first=173.84 last=181.281\n  slope_per_min=1.1675 sign_changes=60 hf_energy=0.0469\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.7244 sd_tail=5.4056\n  monotonic_frac=0.642 n_resets=34 max_drop=12.066 gap_frac=0.0"
+   },
    "child": {
     "prediction": "noisy",
     "margin": 1.375
@@ -597,6 +968,16 @@
    "scene_id": "s00030",
    "node_id": "s00030c01",
    "truth": "none",
+   "window": {
+    "tag": "AIR030_DISCHARGE_TEMP",
+    "unit": "kPa",
+    "n": 96,
+    "lo": 94.434,
+    "hi": 97.381,
+    "mean": 95.864,
+    "slope_per_min": -0.193,
+    "body": "channel=s00030c01 tag=AIR030_DISCHARGE_TEMP stated_unit=kPa period_s=9.34 n=96\n  range=[94.434,97.381] mean=95.864 sd=0.8362 first=97.291 last=94.511\n  slope_per_min=-0.193 sign_changes=64 hf_energy=0.0562\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.301 sd_tail=0.283\n  monotonic_frac=0.421 n_resets=55 max_drop=0.305 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 1.5
@@ -610,6 +991,16 @@
    "scene_id": "s00030",
    "node_id": "s00030c02",
    "truth": "none",
+   "window": {
+    "tag": "AIR030_SUCTION_PRESS",
+    "unit": "kPa",
+    "n": 96,
+    "lo": 97.401,
+    "hi": 97.824,
+    "mean": 97.626,
+    "slope_per_min": 0.0029,
+    "body": "channel=s00030c02 tag=AIR030_SUCTION_PRESS stated_unit=kPa period_s=4.39 n=96\n  range=[97.401,97.824] mean=97.626 sd=0.0763 first=97.75 last=97.703\n  slope_per_min=0.0029 sign_changes=60 hf_energy=0.3375\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.0782 sd_tail=0.0682\n  monotonic_frac=0.484 n_resets=49 max_drop=0.207 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 2.875
@@ -623,6 +1014,16 @@
    "scene_id": "s00030",
    "node_id": "s00030c03",
    "truth": "none",
+   "window": {
+    "tag": "AIR030_DISCHARGE_TEMP",
+    "unit": "A",
+    "n": 96,
+    "lo": 139.819,
+    "hi": 180.04,
+    "mean": 159.772,
+    "slope_per_min": 2.6499,
+    "body": "channel=s00030c03 tag=AIR030_DISCHARGE_TEMP stated_unit=A period_s=9.41 n=96\n  range=[139.819,180.04] mean=159.772 sd=11.5717 first=140.996 last=180.04\n  slope_per_min=2.6499 sign_changes=56 hf_energy=0.0554\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=3.8634 sd_tail=4.1459\n  monotonic_frac=0.6 n_resets=38 max_drop=3.641 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 1.75
@@ -636,6 +1037,16 @@
    "scene_id": "s00030",
    "node_id": "s00030c04",
    "truth": "none",
+   "window": {
+    "tag": "AIR030_DISCHARGE_TEMP",
+    "unit": "mm/s",
+    "n": 96,
+    "lo": 16.862,
+    "hi": 17.399,
+    "mean": 17.134,
+    "slope_per_min": 0.0057,
+    "body": "channel=s00030c04 tag=AIR030_DISCHARGE_TEMP stated_unit=mm/s period_s=2.76 n=96\n  range=[16.862,17.399] mean=17.134 sd=0.1103 first=17.15 last=17.277\n  slope_per_min=0.0057 sign_changes=65 hf_energy=0.4316\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.1034 sd_tail=0.1036\n  monotonic_frac=0.474 n_resets=50 max_drop=0.334 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 2.25
@@ -649,6 +1060,16 @@
    "scene_id": "s00030",
    "node_id": "s00030c05",
    "truth": "noisy",
+   "window": {
+    "tag": "AI_2395",
+    "unit": null,
+    "n": 96,
+    "lo": 170.72,
+    "hi": 177.968,
+    "mean": 174.912,
+    "slope_per_min": -0.0452,
+    "body": "channel=s00030c05 tag=AI_2395 stated_unit=? period_s=7.61 n=96\n  range=[170.72,177.968] mean=174.912 sd=1.278 first=175.036 last=170.72\n  slope_per_min=-0.0452 sign_changes=64 hf_energy=0.3161\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.1523 sd_tail=1.609\n  monotonic_frac=0.484 n_resets=49 max_drop=5.073 gap_frac=0.0"
+   },
    "child": {
     "prediction": "noisy",
     "margin": 1.625
@@ -662,6 +1083,16 @@
    "scene_id": "s00033",
    "node_id": "s00033c00",
    "truth": "dropout",
+   "window": {
+    "tag": "AI_2429",
+    "unit": null,
+    "n": 96,
+    "lo": 139.248,
+    "hi": 180.624,
+    "mean": 175.438,
+    "slope_per_min": -0.2016,
+    "body": "channel=s00033c00 tag=AI_2429 stated_unit=? period_s=5.0 n=96\n  range=[139.248,180.624] mean=175.438 sd=7.7696 first=173.801 last=180.624\n  slope_per_min=-0.2016 sign_changes=64 hf_energy=0.125\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.6932 sd_tail=13.2642\n  monotonic_frac=0.611 n_resets=37 max_drop=41.005 gap_frac=0.0"
+   },
    "child": {
     "prediction": "noisy",
     "margin": 0
@@ -675,6 +1106,16 @@
    "scene_id": "s00033",
    "node_id": "s00033c01",
    "truth": "noisy",
+   "window": {
+    "tag": "AI_2430",
+    "unit": null,
+    "n": 96,
+    "lo": 100.952,
+    "hi": 101.969,
+    "mean": 101.493,
+    "slope_per_min": -0.0045,
+    "body": "channel=s00033c01 tag=AI_2430 stated_unit=? period_s=4.01 n=96\n  range=[100.952,101.969] mean=101.493 sd=0.1544 first=101.487 last=101.349\n  slope_per_min=-0.0045 sign_changes=54 hf_energy=0.2805\n  repeat_frac=0.011 longest_run=2 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.0747 sd_tail=0.2305\n  monotonic_frac=0.474 n_resets=50 max_drop=0.811 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 1.875
@@ -688,6 +1129,16 @@
    "scene_id": "s00033",
    "node_id": "s00033c02",
    "truth": "none",
+   "window": {
+    "tag": "AIR033_DISCHARGE_TEMP",
+    "unit": "kPa",
+    "n": 96,
+    "lo": 105.075,
+    "hi": 105.477,
+    "mean": 105.272,
+    "slope_per_min": -0.002,
+    "body": "channel=s00033c02 tag=AIR033_DISCHARGE_TEMP stated_unit=kPa period_s=7.65 n=96\n  range=[105.075,105.477] mean=105.272 sd=0.0855 first=105.36 last=105.401\n  slope_per_min=-0.002 sign_changes=61 hf_energy=0.4249\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.0808 sd_tail=0.0913\n  monotonic_frac=0.495 n_resets=48 max_drop=0.23 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 2.125
@@ -701,6 +1152,16 @@
    "scene_id": "s00033",
    "node_id": "s00033c03",
    "truth": "dropout",
+   "window": {
+    "tag": "AIR033_DISCHARGE_TEMP",
+    "unit": "A",
+    "n": 96,
+    "lo": 14.572,
+    "hi": 108.114,
+    "mean": 99.891,
+    "slope_per_min": -2.1959,
+    "body": "channel=s00033c03 tag=AIR033_DISCHARGE_TEMP stated_unit=A period_s=2.34 n=96\n  range=[14.572,108.114] mean=99.891 sd=21.6766 first=105.066 last=105.045\n  slope_per_min=-2.1959 sign_changes=62 hf_energy=0.2536\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=15.494 sd_tail=26.1779\n  monotonic_frac=0.421 n_resets=55 max_drop=90.383 gap_frac=0.0"
+   },
    "child": {
     "prediction": "noisy",
     "margin": 1
@@ -714,6 +1175,16 @@
    "scene_id": "s00033",
    "node_id": "s00033c04",
    "truth": "none",
+   "window": {
+    "tag": "AIR033_VIBRATION",
+    "unit": "mm/s",
+    "n": 96,
+    "lo": 18.479,
+    "hi": 19.081,
+    "mean": 18.771,
+    "slope_per_min": -0.0162,
+    "body": "channel=s00033c04 tag=AIR033_VIBRATION stated_unit=mm/s period_s=2.68 n=96\n  range=[18.479,19.081] mean=18.771 sd=0.118 first=18.811 last=18.889\n  slope_per_min=-0.0162 sign_changes=54 hf_energy=0.3293\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.1139 sd_tail=0.1074\n  monotonic_frac=0.495 n_resets=48 max_drop=0.323 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 2.625
@@ -727,6 +1198,16 @@
    "scene_id": "s00033",
    "node_id": "s00033c05",
    "truth": "none",
+   "window": {
+    "tag": "AIR033_OIL_TEMP",
+    "unit": "Cel",
+    "n": 96,
+    "lo": 165.098,
+    "hi": 172.042,
+    "mean": 168.527,
+    "slope_per_min": 0.5343,
+    "body": "channel=s00033c05 tag=AIR033_OIL_TEMP stated_unit=Cel period_s=7.97 n=96\n  range=[165.098,172.042] mean=168.527 sd=1.9748 first=165.098 last=171.816\n  slope_per_min=0.5343 sign_changes=49 hf_energy=0.0478\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.7462 sd_tail=0.6731\n  monotonic_frac=0.6 n_resets=38 max_drop=0.444 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 1.75
@@ -740,6 +1221,16 @@
    "scene_id": "s00040",
    "node_id": "s00040c00",
    "truth": "none",
+   "window": {
+    "tag": "AIR040_DISCHARGE_TEMP",
+    "unit": "Cel",
+    "n": 96,
+    "lo": 170.16,
+    "hi": 174.921,
+    "mean": 172.561,
+    "slope_per_min": 1.0771,
+    "body": "channel=s00040c00 tag=AIR040_DISCHARGE_TEMP stated_unit=Cel period_s=2.69 n=96\n  range=[170.16,174.921] mean=172.561 sd=1.3516 first=170.595 last=174.733\n  slope_per_min=1.0771 sign_changes=61 hf_energy=0.0805\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.4791 sd_tail=0.4862\n  monotonic_frac=0.589 n_resets=39 max_drop=0.58 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 2.625
@@ -753,6 +1244,16 @@
    "scene_id": "s00040",
    "node_id": "s00040c01",
    "truth": "none",
+   "window": {
+    "tag": "AIR040_DISCHARGE_PRESS",
+    "unit": "kPa",
+    "n": 96,
+    "lo": 101.57,
+    "hi": 101.937,
+    "mean": 101.73,
+    "slope_per_min": 0.0001,
+    "body": "channel=s00040c01 tag=AIR040_DISCHARGE_PRESS stated_unit=kPa period_s=4.85 n=96\n  range=[101.57,101.937] mean=101.73 sd=0.0758 first=101.694 last=101.807\n  slope_per_min=0.0001 sign_changes=62 hf_energy=0.4197\n  repeat_frac=0.011 longest_run=2 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.0795 sd_tail=0.076\n  monotonic_frac=0.463 n_resets=51 max_drop=0.232 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 2.375
@@ -766,6 +1267,16 @@
    "scene_id": "s00040",
    "node_id": "s00040c02",
    "truth": "stuck",
+   "window": {
+    "tag": "AIR040_SUCTION_PRESS",
+    "unit": "kPa",
+    "n": 96,
+    "lo": 98.115,
+    "hi": 98.471,
+    "mean": 98.308,
+    "slope_per_min": 0.0021,
+    "body": "channel=s00040c02 tag=AIR040_SUCTION_PRESS stated_unit=kPa period_s=9.14 n=96\n  range=[98.115,98.471] mean=98.308 sd=0.0765 first=98.298 last=98.241\n  slope_per_min=0.0021 sign_changes=63 hf_energy=0.4253\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.0846 sd_tail=0.0654\n  monotonic_frac=0.484 n_resets=49 max_drop=0.291 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 2.875
@@ -779,6 +1290,16 @@
    "scene_id": "s00040",
    "node_id": "s00040c03",
    "truth": "none",
+   "window": {
+    "tag": "AIR040_MOTOR_CURRENT",
+    "unit": "A",
+    "n": 96,
+    "lo": 181.321,
+    "hi": 186.301,
+    "mean": 183.654,
+    "slope_per_min": -0.0396,
+    "body": "channel=s00040c03 tag=AIR040_MOTOR_CURRENT stated_unit=A period_s=8.43 n=96\n  range=[181.321,186.301] mean=183.654 sd=1.083 first=183.317 last=184.792\n  slope_per_min=-0.0396 sign_changes=64 hf_energy=0.4574\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=1.058 sd_tail=1.1251\n  monotonic_frac=0.526 n_resets=45 max_drop=4.038 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 4.375
@@ -792,6 +1313,16 @@
    "scene_id": "s00040",
    "node_id": "s00040c04",
    "truth": "none",
+   "window": {
+    "tag": "AI_2524",
+    "unit": null,
+    "n": 96,
+    "lo": 11.233,
+    "hi": 11.787,
+    "mean": 11.512,
+    "slope_per_min": 0.0031,
+    "body": "channel=s00040c04 tag=AI_2524 stated_unit=? period_s=7.83 n=96\n  range=[11.233,11.787] mean=11.512 sd=0.1181 first=11.387 last=11.408\n  slope_per_min=0.0031 sign_changes=63 hf_energy=0.4235\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.1301 sd_tail=0.0964\n  monotonic_frac=0.526 n_resets=45 max_drop=0.408 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 1.625
@@ -805,6 +1336,16 @@
    "scene_id": "s00040",
    "node_id": "s00040c05",
    "truth": "drifting",
+   "window": {
+    "tag": "AIR040_OIL_TEMP",
+    "unit": "Cel",
+    "n": 96,
+    "lo": 156.605,
+    "hi": 165.429,
+    "mean": 160.048,
+    "slope_per_min": 1.4547,
+    "body": "channel=s00040c05 tag=AIR040_OIL_TEMP stated_unit=Cel period_s=3.56 n=96\n  range=[156.605,165.429] mean=160.048 sd=2.4832 first=157.064 last=165.429\n  slope_per_min=1.4547 sign_changes=57 hf_energy=0.0487\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.5066 sd_tail=1.2945\n  monotonic_frac=0.611 n_resets=37 max_drop=0.64 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 1
@@ -818,6 +1359,16 @@
    "scene_id": "s00042",
    "node_id": "s00042c00",
    "truth": "none",
+   "window": {
+    "tag": "AIR042_DISCHARGE_TEMP",
+    "unit": "Cel",
+    "n": 96,
+    "lo": 158.446,
+    "hi": 159.281,
+    "mean": 158.867,
+    "slope_per_min": -0.0037,
+    "body": "channel=s00042c00 tag=AIR042_DISCHARGE_TEMP stated_unit=Cel period_s=6.13 n=96\n  range=[158.446,159.281] mean=158.867 sd=0.1757 first=158.501 last=158.946\n  slope_per_min=-0.0037 sign_changes=62 hf_energy=0.4161\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.1725 sd_tail=0.158\n  monotonic_frac=0.474 n_resets=50 max_drop=0.577 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 2.625
@@ -831,6 +1382,16 @@
    "scene_id": "s00042",
    "node_id": "s00042c01",
    "truth": "dropout",
+   "window": {
+    "tag": "AIR042_DISCHARGE_PRESS",
+    "unit": "kPa",
+    "n": 96,
+    "lo": 90.842,
+    "hi": 102.433,
+    "mean": 102.082,
+    "slope_per_min": -0.0257,
+    "body": "channel=s00042c01 tag=AIR042_DISCHARGE_PRESS stated_unit=kPa period_s=9.3 n=96\n  range=[90.842,102.433] mean=102.082 sd=1.1567 first=102.243 last=102.125\n  slope_per_min=-0.0257 sign_changes=68 hf_energy=0.0564\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.0889 sd_tail=1.9774\n  monotonic_frac=0.463 n_resets=51 max_drop=11.379 gap_frac=0.0"
+   },
    "child": {
     "prediction": "noisy",
     "margin": 0
@@ -844,6 +1405,16 @@
    "scene_id": "s00042",
    "node_id": "s00042c02",
    "truth": "none",
+   "window": {
+    "tag": "AIR042_DISCHARGE_PRESS",
+    "unit": "kPa",
+    "n": 96,
+    "lo": 95.938,
+    "hi": 97.831,
+    "mean": 96.82,
+    "slope_per_min": -0.2367,
+    "body": "channel=s00042c02 tag=AIR042_DISCHARGE_PRESS stated_unit=kPa period_s=4.66 n=96\n  range=[95.938,97.831] mean=96.82 sd=0.5161 first=97.589 last=95.964\n  slope_per_min=-0.2367 sign_changes=58 hf_energy=0.0801\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.2161 sd_tail=0.1669\n  monotonic_frac=0.453 n_resets=52 max_drop=0.286 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 2.125
@@ -857,6 +1428,16 @@
    "scene_id": "s00042",
    "node_id": "s00042c03",
    "truth": "none",
+   "window": {
+    "tag": "AI_2549",
+    "unit": null,
+    "n": 96,
+    "lo": 136.842,
+    "hi": 162.406,
+    "mean": 149.524,
+    "slope_per_min": 1.8133,
+    "body": "channel=s00042c03 tag=AI_2549 stated_unit=? period_s=8.37 n=96\n  range=[136.842,162.406] mean=149.524 sd=7.0857 first=138.255 last=161.712\n  slope_per_min=1.8133 sign_changes=65 hf_energy=0.0774\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=2.7542 sd_tail=2.5431\n  monotonic_frac=0.547 n_resets=43 max_drop=2.878 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 2.25
@@ -870,6 +1451,16 @@
    "scene_id": "s00042",
    "node_id": "s00042c04",
    "truth": "none",
+   "window": {
+    "tag": "AIR042_MOTOR_CURRENT",
+    "unit": "mm/s",
+    "n": 96,
+    "lo": 14.968,
+    "hi": 15.608,
+    "mean": 15.222,
+    "slope_per_min": -0.0018,
+    "body": "channel=s00042c04 tag=AIR042_MOTOR_CURRENT stated_unit=mm/s period_s=6.68 n=96\n  range=[14.968,15.608] mean=15.222 sd=0.1195 first=15.323 last=15.176\n  slope_per_min=-0.0018 sign_changes=67 hf_energy=0.3787\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.1127 sd_tail=0.1296\n  monotonic_frac=0.474 n_resets=50 max_drop=0.568 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 1.375
@@ -883,6 +1474,16 @@
    "scene_id": "s00042",
    "node_id": "s00042c05",
    "truth": "stuck",
+   "window": {
+    "tag": "AI_2551",
+    "unit": null,
+    "n": 96,
+    "lo": 168.67,
+    "hi": 169.379,
+    "mean": 169.022,
+    "slope_per_min": 0.009,
+    "body": "channel=s00042c05 tag=AI_2551 stated_unit=? period_s=9.45 n=96\n  range=[168.67,169.379] mean=169.022 sd=0.155 first=169.117 last=169.085\n  slope_per_min=0.009 sign_changes=58 hf_energy=0.4567\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.157 sd_tail=0.1456\n  monotonic_frac=0.505 n_resets=47 max_drop=0.651 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 2.375
@@ -896,6 +1497,16 @@
    "scene_id": "s00046",
    "node_id": "s00046c00",
    "truth": "noisy",
+   "window": {
+    "tag": "AIR046_DISCHARGE_TEMP",
+    "unit": "Cel",
+    "n": 96,
+    "lo": 154.609,
+    "hi": 157.745,
+    "mean": 155.794,
+    "slope_per_min": 0.016,
+    "body": "channel=s00046c00 tag=AIR046_DISCHARGE_TEMP stated_unit=Cel period_s=3.85 n=96\n  range=[154.609,157.745] mean=155.794 sd=0.4712 first=155.705 last=155.593\n  slope_per_min=0.016 sign_changes=65 hf_energy=0.2534\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.1642 sd_tail=0.7782\n  monotonic_frac=0.463 n_resets=51 max_drop=2.363 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 2.25
@@ -909,6 +1520,16 @@
    "scene_id": "s00046",
    "node_id": "s00046c01",
    "truth": "none",
+   "window": {
+    "tag": "AI_2599",
+    "unit": null,
+    "n": 96,
+    "lo": 98.968,
+    "hi": 99.364,
+    "mean": 99.224,
+    "slope_per_min": 0.001,
+    "body": "channel=s00046c01 tag=AI_2599 stated_unit=? period_s=9.27 n=96\n  range=[98.968,99.364] mean=99.224 sd=0.0781 first=99.272 last=99.087\n  slope_per_min=0.001 sign_changes=62 hf_energy=0.3755\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.0607 sd_tail=0.075\n  monotonic_frac=0.484 n_resets=49 max_drop=0.25 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 3
@@ -922,6 +1543,16 @@
    "scene_id": "s00046",
    "node_id": "s00046c02",
    "truth": "none",
+   "window": {
+    "tag": "AIR046_SUCTION_PRESS",
+    "unit": "kPa",
+    "n": 96,
+    "lo": 95.407,
+    "hi": 98.967,
+    "mean": 97.165,
+    "slope_per_min": -0.4683,
+    "body": "channel=s00046c02 tag=AIR046_SUCTION_PRESS stated_unit=kPa period_s=4.53 n=96\n  range=[95.407,98.967] mean=97.165 sd=0.9823 first=98.967 last=95.505\n  slope_per_min=-0.4683 sign_changes=49 hf_energy=0.0368\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.3374 sd_tail=0.3497\n  monotonic_frac=0.295 n_resets=67 max_drop=0.303 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 2.75
@@ -935,6 +1566,16 @@
    "scene_id": "s00046",
    "node_id": "s00046c03",
    "truth": "stuck",
+   "window": {
+    "tag": "AIR046_VIBRATION",
+    "unit": "A",
+    "n": 96,
+    "lo": 135.443,
+    "hi": 177.994,
+    "mean": 157.589,
+    "slope_per_min": 15.2281,
+    "body": "channel=s00046c03 tag=AIR046_VIBRATION stated_unit=A period_s=1.63 n=96\n  range=[135.443,177.994] mean=157.589 sd=11.5168 first=137.423 last=177.856\n  slope_per_min=15.2281 sign_changes=59 hf_energy=0.0516\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=4.2308 sd_tail=3.8765\n  monotonic_frac=0.6 n_resets=38 max_drop=3.859 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 0.5
@@ -948,6 +1589,16 @@
    "scene_id": "s00046",
    "node_id": "s00046c04",
    "truth": "none",
+   "window": {
+    "tag": "AI_2602",
+    "unit": null,
+    "n": 96,
+    "lo": 17.977,
+    "hi": 18.582,
+    "mean": 18.293,
+    "slope_per_min": 0.0041,
+    "body": "channel=s00046c04 tag=AI_2602 stated_unit=? period_s=6.97 n=96\n  range=[17.977,18.582] mean=18.293 sd=0.117 first=18.26 last=18.33\n  slope_per_min=0.0041 sign_changes=60 hf_energy=0.4155\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.1209 sd_tail=0.1001\n  monotonic_frac=0.474 n_resets=50 max_drop=0.474 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 2.625
@@ -961,6 +1612,16 @@
    "scene_id": "s00046",
    "node_id": "s00046c05",
    "truth": "stuck",
+   "window": {
+    "tag": "AIR046_OIL_TEMP",
+    "unit": "Cel",
+    "n": 96,
+    "lo": 172.551,
+    "hi": 173.341,
+    "mean": 172.938,
+    "slope_per_min": 0.0013,
+    "body": "channel=s00046c05 tag=AIR046_OIL_TEMP stated_unit=Cel period_s=7.03 n=96\n  range=[172.551,173.341] mean=172.938 sd=0.1574 first=173.083 last=172.851\n  slope_per_min=0.0013 sign_changes=63 hf_energy=0.3801\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.1588 sd_tail=0.1402\n  monotonic_frac=0.526 n_resets=45 max_drop=0.69 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 2.5
@@ -974,6 +1635,16 @@
    "scene_id": "s00047",
    "node_id": "s00047c00",
    "truth": "none",
+   "window": {
+    "tag": "AIR047_DISCHARGE_TEMP",
+    "unit": "Cel",
+    "n": 96,
+    "lo": 171.384,
+    "hi": 175.842,
+    "mean": 173.685,
+    "slope_per_min": 0.4667,
+    "body": "channel=s00047c00 tag=AIR047_DISCHARGE_TEMP stated_unit=Cel period_s=5.98 n=96\n  range=[171.384,175.842] mean=173.685 sd=1.3012 first=171.675 last=175.842\n  slope_per_min=0.4667 sign_changes=61 hf_energy=0.0763\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.4639 sd_tail=0.4078\n  monotonic_frac=0.579 n_resets=40 max_drop=0.596 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 2.25
@@ -987,6 +1658,16 @@
    "scene_id": "s00047",
    "node_id": "s00047c01",
    "truth": "none",
+   "window": {
+    "tag": "AI_2612",
+    "unit": null,
+    "n": 96,
+    "lo": 96.778,
+    "hi": 98.703,
+    "mean": 97.708,
+    "slope_per_min": -0.4326,
+    "body": "channel=s00047c01 tag=AI_2612 stated_unit=? period_s=2.68 n=96\n  range=[96.778,98.703] mean=97.708 sd=0.5423 first=98.416 last=96.778\n  slope_per_min=-0.4326 sign_changes=67 hf_energy=0.1001\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.1971 sd_tail=0.1973\n  monotonic_frac=0.484 n_resets=49 max_drop=0.358 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 3.625
@@ -1000,6 +1681,16 @@
    "scene_id": "s00047",
    "node_id": "s00047c02",
    "truth": "none",
+   "window": {
+    "tag": "AIR047_SUCTION_PRESS",
+    "unit": "kPa",
+    "n": 96,
+    "lo": 103.311,
+    "hi": 103.687,
+    "mean": 103.481,
+    "slope_per_min": -0.0013,
+    "body": "channel=s00047c02 tag=AIR047_SUCTION_PRESS stated_unit=kPa period_s=6.41 n=96\n  range=[103.311,103.687] mean=103.481 sd=0.0801 first=103.414 last=103.534\n  slope_per_min=-0.0013 sign_changes=62 hf_energy=0.4283\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.0869 sd_tail=0.0645\n  monotonic_frac=0.474 n_resets=50 max_drop=0.271 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 3
@@ -1013,6 +1704,16 @@
    "scene_id": "s00047",
    "node_id": "s00047c03",
    "truth": "stuck",
+   "window": {
+    "tag": "AIR047_MOTOR_CURRENT",
+    "unit": "A",
+    "n": 96,
+    "lo": 193.056,
+    "hi": 216.924,
+    "mean": 205.541,
+    "slope_per_min": 7.7901,
+    "body": "channel=s00047c03 tag=AIR047_MOTOR_CURRENT stated_unit=A period_s=1.88 n=96\n  range=[193.056,216.924] mean=205.541 sd=6.8511 first=196.143 last=215.974\n  slope_per_min=7.7901 sign_changes=62 hf_energy=0.0953\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=2.3851 sd_tail=2.132\n  monotonic_frac=0.568 n_resets=41 max_drop=4.157 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 1.875
@@ -1026,6 +1727,16 @@
    "scene_id": "s00047",
    "node_id": "s00047c04",
    "truth": "none",
+   "window": {
+    "tag": "AIR047_VIBRATION",
+    "unit": "mm/s",
+    "n": 96,
+    "lo": 13.153,
+    "hi": 13.812,
+    "mean": 13.467,
+    "slope_per_min": 0.0019,
+    "body": "channel=s00047c04 tag=AIR047_VIBRATION stated_unit=mm/s period_s=9.61 n=96\n  range=[13.153,13.812] mean=13.467 sd=0.1315 first=13.581 last=13.563\n  slope_per_min=0.0019 sign_changes=59 hf_energy=0.3299\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.1066 sd_tail=0.1531\n  monotonic_frac=0.474 n_resets=50 max_drop=0.352 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 2.125
@@ -1039,6 +1750,16 @@
    "scene_id": "s00047",
    "node_id": "s00047c05",
    "truth": "none",
+   "window": {
+    "tag": "AIR047_DISCHARGE_TEMP",
+    "unit": "Cel",
+    "n": 96,
+    "lo": 161.962,
+    "hi": 162.863,
+    "mean": 162.402,
+    "slope_per_min": -0.0092,
+    "body": "channel=s00047c05 tag=AIR047_DISCHARGE_TEMP stated_unit=Cel period_s=9.36 n=96\n  range=[161.962,162.863] mean=162.402 sd=0.1936 first=162.418 last=161.962\n  slope_per_min=-0.0092 sign_changes=57 hf_energy=0.3469\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.211 sd_tail=0.2099\n  monotonic_frac=0.495 n_resets=48 max_drop=0.539 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 2.625
@@ -1052,6 +1773,16 @@
    "scene_id": "s00051",
    "node_id": "s00051c00",
    "truth": "railed",
+   "window": {
+    "tag": "AIR051_DISCHARGE_TEMP",
+    "unit": "Cel",
+    "n": 96,
+    "lo": 172.159,
+    "hi": 190.458,
+    "mean": 177.896,
+    "slope_per_min": 3.4929,
+    "body": "channel=s00051c00 tag=AIR051_DISCHARGE_TEMP stated_unit=Cel period_s=1.87 n=96\n  range=[172.159,190.458] mean=177.896 sd=8.2267 first=172.732 last=172.654\n  slope_per_min=3.4929 sign_changes=65 hf_energy=0.0564\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.1885 sd_tail=8.8988\n  monotonic_frac=0.463 n_resets=51 max_drop=17.811 gap_frac=0.0"
+   },
    "child": {
     "prediction": "dropout",
     "margin": 0.375
@@ -1065,6 +1796,16 @@
    "scene_id": "s00051",
    "node_id": "s00051c01",
    "truth": "none",
+   "window": {
+    "tag": "AI_2664",
+    "unit": null,
+    "n": 96,
+    "lo": 101.449,
+    "hi": 101.862,
+    "mean": 101.694,
+    "slope_per_min": -0.001,
+    "body": "channel=s00051c01 tag=AI_2664 stated_unit=? period_s=5.7 n=96\n  range=[101.449,101.862] mean=101.694 sd=0.081 first=101.815 last=101.749\n  slope_per_min=-0.001 sign_changes=57 hf_energy=0.3563\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.0789 sd_tail=0.0702\n  monotonic_frac=0.579 n_resets=40 max_drop=0.253 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 3.5
@@ -1078,6 +1819,16 @@
    "scene_id": "s00051",
    "node_id": "s00051c02",
    "truth": "none",
+   "window": {
+    "tag": "AI_2665",
+    "unit": null,
+    "n": 96,
+    "lo": 101.846,
+    "hi": 102.226,
+    "mean": 102.05,
+    "slope_per_min": 0.0094,
+    "body": "channel=s00051c02 tag=AI_2665 stated_unit=? period_s=1.59 n=96\n  range=[101.846,102.226] mean=102.05 sd=0.0865 first=102.066 last=102.195\n  slope_per_min=0.0094 sign_changes=67 hf_energy=0.4932\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.0833 sd_tail=0.0966\n  monotonic_frac=0.505 n_resets=47 max_drop=0.238 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 2.25
@@ -1091,6 +1842,16 @@
    "scene_id": "s00051",
    "node_id": "s00051c03",
    "truth": "none",
+   "window": {
+    "tag": "AIR051_MOTOR_CURRENT",
+    "unit": "A",
+    "n": 96,
+    "lo": 118.862,
+    "hi": 124.161,
+    "mean": 121.737,
+    "slope_per_min": 0.0146,
+    "body": "channel=s00051c03 tag=AIR051_MOTOR_CURRENT stated_unit=A period_s=6.75 n=96\n  range=[118.862,124.161] mean=121.737 sd=1.0193 first=121.383 last=121.866\n  slope_per_min=0.0146 sign_changes=57 hf_energy=0.3529\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=1.0269 sd_tail=0.9634\n  monotonic_frac=0.474 n_resets=50 max_drop=3.389 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 2.625
@@ -1104,6 +1865,16 @@
    "scene_id": "s00051",
    "node_id": "s00051c04",
    "truth": "none",
+   "window": {
+    "tag": "AIR051_VIBRATION",
+    "unit": "mm/s",
+    "n": 96,
+    "lo": 19.087,
+    "hi": 19.605,
+    "mean": 19.296,
+    "slope_per_min": 0.0034,
+    "body": "channel=s00051c04 tag=AIR051_VIBRATION stated_unit=mm/s period_s=6.41 n=96\n  range=[19.087,19.605] mean=19.296 sd=0.1075 first=19.363 last=19.253\n  slope_per_min=0.0034 sign_changes=60 hf_energy=0.4151\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.0938 sd_tail=0.0929\n  monotonic_frac=0.526 n_resets=45 max_drop=0.337 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 3.25
@@ -1117,6 +1888,16 @@
    "scene_id": "s00051",
    "node_id": "s00051c05",
    "truth": "none",
+   "window": {
+    "tag": "AIR051_OIL_TEMP",
+    "unit": "Cel",
+    "n": 96,
+    "lo": 164.813,
+    "hi": 165.907,
+    "mean": 165.379,
+    "slope_per_min": 0.0028,
+    "body": "channel=s00051c05 tag=AIR051_OIL_TEMP stated_unit=Cel period_s=5.56 n=96\n  range=[164.813,165.907] mean=165.379 sd=0.2026 first=165.363 last=165.023\n  slope_per_min=0.0028 sign_changes=66 hf_energy=0.3432\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.2043 sd_tail=0.1966\n  monotonic_frac=0.495 n_resets=48 max_drop=0.698 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 2.375
@@ -1130,6 +1911,16 @@
    "scene_id": "s00068",
    "node_id": "s00068c00",
    "truth": "none",
+   "window": {
+    "tag": "AI_2884",
+    "unit": null,
+    "n": 96,
+    "lo": 160.214,
+    "hi": 161.456,
+    "mean": 160.827,
+    "slope_per_min": 0,
+    "body": "channel=s00068c00 tag=AI_2884 stated_unit=? period_s=5.23 n=96\n  range=[160.214,161.456] mean=160.827 sd=0.2042 first=160.774 last=160.709\n  slope_per_min=0.0 sign_changes=61 hf_energy=0.3384\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.1729 sd_tail=0.2263\n  monotonic_frac=0.505 n_resets=47 max_drop=0.705 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 2.875
@@ -1143,6 +1934,16 @@
    "scene_id": "s00068",
    "node_id": "s00068c01",
    "truth": "none",
+   "window": {
+    "tag": "AIR068_DISCHARGE_PRESS",
+    "unit": "kPa",
+    "n": 96,
+    "lo": 100.83,
+    "hi": 101.171,
+    "mean": 100.966,
+    "slope_per_min": -0.0104,
+    "body": "channel=s00068c01 tag=AIR068_DISCHARGE_PRESS stated_unit=kPa period_s=2.24 n=96\n  range=[100.83,101.171] mean=100.966 sd=0.0676 first=101.025 last=100.993\n  slope_per_min=-0.0104 sign_changes=61 hf_energy=0.3816\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.0594 sd_tail=0.0653\n  monotonic_frac=0.495 n_resets=48 max_drop=0.309 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 2.5
@@ -1156,6 +1957,16 @@
    "scene_id": "s00068",
    "node_id": "s00068c02",
    "truth": "none",
+   "window": {
+    "tag": "AIR068_SUCTION_PRESS",
+    "unit": "kPa",
+    "n": 96,
+    "lo": 99.508,
+    "hi": 99.852,
+    "mean": 99.671,
+    "slope_per_min": -0.001,
+    "body": "channel=s00068c02 tag=AIR068_SUCTION_PRESS stated_unit=kPa period_s=7.65 n=96\n  range=[99.508,99.852] mean=99.671 sd=0.0729 first=99.64 last=99.852\n  slope_per_min=-0.001 sign_changes=64 hf_energy=0.4662\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.0766 sd_tail=0.0741\n  monotonic_frac=0.516 n_resets=46 max_drop=0.258 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 3.75
@@ -1169,6 +1980,16 @@
    "scene_id": "s00068",
    "node_id": "s00068c03",
    "truth": "noisy",
+   "window": {
+    "tag": "AIR068_OIL_TEMP",
+    "unit": "A",
+    "n": 96,
+    "lo": 100.718,
+    "hi": 139.944,
+    "mean": 116.045,
+    "slope_per_min": 0.1797,
+    "body": "channel=s00068c03 tag=AIR068_OIL_TEMP stated_unit=A period_s=9.67 n=96\n  range=[100.718,139.944] mean=116.045 sd=6.0628 first=115.22 last=111.784\n  slope_per_min=0.1797 sign_changes=51 hf_energy=0.1979\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.9507 sd_tail=10.2846\n  monotonic_frac=0.463 n_resets=51 max_drop=26.49 gap_frac=0.0"
+   },
    "child": {
     "prediction": "noisy",
     "margin": 0.5
@@ -1182,6 +2003,16 @@
    "scene_id": "s00068",
    "node_id": "s00068c04",
    "truth": "drifting",
+   "window": {
+    "tag": "AIR068_DISCHARGE_TEMP",
+    "unit": "mm/s",
+    "n": 96,
+    "lo": 12.489,
+    "hi": 14.464,
+    "mean": 13.573,
+    "slope_per_min": -0.2443,
+    "body": "channel=s00068c04 tag=AIR068_DISCHARGE_TEMP stated_unit=mm/s period_s=5.2 n=96\n  range=[12.489,14.464] mean=13.573 sd=0.6 first=14.464 last=12.604\n  slope_per_min=-0.2443 sign_changes=58 hf_energy=0.0928\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.1343 sd_tail=0.2311\n  monotonic_frac=0.442 n_resets=53 max_drop=0.437 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 0.25
@@ -1195,6 +2026,16 @@
    "scene_id": "s00068",
    "node_id": "s00068c05",
    "truth": "railed",
+   "window": {
+    "tag": "AIR068_OIL_TEMP",
+    "unit": "Cel",
+    "n": 96,
+    "lo": 163.158,
+    "hi": 189.64,
+    "mean": 170.89,
+    "slope_per_min": 0.7942,
+    "body": "channel=s00068c05 tag=AIR068_OIL_TEMP stated_unit=Cel period_s=2.52 n=96\n  range=[163.158,189.64] mean=170.89 sd=11.7054 first=163.633 last=163.537\n  slope_per_min=0.7942 sign_changes=63 hf_energy=0.0517\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.2093 sd_tail=4.5352\n  monotonic_frac=0.495 n_resets=48 max_drop=25.921 gap_frac=0.0"
+   },
    "child": {
     "prediction": "dropout",
     "margin": 0.875
@@ -1208,6 +2049,16 @@
    "scene_id": "s00069",
    "node_id": "s00069c00",
    "truth": "none",
+   "window": {
+    "tag": "AIR069_DISCHARGE_TEMP",
+    "unit": "Cel",
+    "n": 96,
+    "lo": 162.529,
+    "hi": 166.85,
+    "mean": 164.63,
+    "slope_per_min": 1.1694,
+    "body": "channel=s00069c00 tag=AIR069_DISCHARGE_TEMP stated_unit=Cel period_s=2.16 n=96\n  range=[162.529,166.85] mean=164.63 sd=1.1813 first=162.7 last=166.85\n  slope_per_min=1.1694 sign_changes=64 hf_energy=0.0932\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.4714 sd_tail=0.4256\n  monotonic_frac=0.568 n_resets=41 max_drop=0.597 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 2.25
@@ -1221,6 +2072,16 @@
    "scene_id": "s00069",
    "node_id": "s00069c01",
    "truth": "none",
+   "window": {
+    "tag": "AIR069_SUCTION_PRESS",
+    "unit": "kPa",
+    "n": 96,
+    "lo": 101.685,
+    "hi": 102.129,
+    "mean": 101.967,
+    "slope_per_min": 0.0031,
+    "body": "channel=s00069c01 tag=AIR069_SUCTION_PRESS stated_unit=kPa period_s=4.32 n=96\n  range=[101.685,102.129] mean=101.967 sd=0.0771 first=101.913 last=101.864\n  slope_per_min=0.0031 sign_changes=67 hf_energy=0.3469\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.0632 sd_tail=0.0643\n  monotonic_frac=0.547 n_resets=43 max_drop=0.329 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 2.625
@@ -1234,6 +2095,16 @@
    "scene_id": "s00069",
    "node_id": "s00069c02",
    "truth": "none",
+   "window": {
+    "tag": "AI_2899",
+    "unit": null,
+    "n": 96,
+    "lo": 103.44,
+    "hi": 103.855,
+    "mean": 103.623,
+    "slope_per_min": -0.0029,
+    "body": "channel=s00069c02 tag=AI_2899 stated_unit=? period_s=5.65 n=96\n  range=[103.44,103.855] mean=103.623 sd=0.0852 first=103.575 last=103.659\n  slope_per_min=-0.0029 sign_changes=61 hf_energy=0.4619\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.0903 sd_tail=0.0844\n  monotonic_frac=0.547 n_resets=43 max_drop=0.283 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 2.25
@@ -1247,6 +2118,16 @@
    "scene_id": "s00069",
    "node_id": "s00069c03",
    "truth": "noisy",
+   "window": {
+    "tag": "AIR069_MOTOR_CURRENT",
+    "unit": "A",
+    "n": 96,
+    "lo": 128.8,
+    "hi": 136.48,
+    "mean": 132.129,
+    "slope_per_min": -0.0307,
+    "body": "channel=s00069c03 tag=AIR069_MOTOR_CURRENT stated_unit=A period_s=8.76 n=96\n  range=[128.8,136.48] mean=132.129 sd=1.365 first=132.161 last=130.524\n  slope_per_min=-0.0307 sign_changes=70 hf_energy=0.3749\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=1.086 sd_tail=1.5385\n  monotonic_frac=0.474 n_resets=50 max_drop=5.434 gap_frac=0.0"
+   },
    "child": {
     "prediction": "noisy",
     "margin": 0.75
@@ -1260,6 +2141,16 @@
    "scene_id": "s00069",
    "node_id": "s00069c04",
    "truth": "noisy",
+   "window": {
+    "tag": "AI_2901",
+    "unit": null,
+    "n": 96,
+    "lo": 16.267,
+    "hi": 17.593,
+    "mean": 16.828,
+    "slope_per_min": -0.0091,
+    "body": "channel=s00069c04 tag=AI_2901 stated_unit=? period_s=6.31 n=96\n  range=[16.267,17.593] mean=16.828 sd=0.2474 first=16.812 last=16.608\n  slope_per_min=-0.0091 sign_changes=67 hf_energy=0.328\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.1383 sd_tail=0.2693\n  monotonic_frac=0.495 n_resets=48 max_drop=0.918 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 1.375
@@ -1273,6 +2164,16 @@
    "scene_id": "s00069",
    "node_id": "s00069c05",
    "truth": "stuck",
+   "window": {
+    "tag": "AIR069_OIL_TEMP",
+    "unit": "Cel",
+    "n": 96,
+    "lo": 163.21,
+    "hi": 167,
+    "mean": 165.397,
+    "slope_per_min": 0.6462,
+    "body": "channel=s00069c05 tag=AIR069_OIL_TEMP stated_unit=Cel period_s=3.6 n=96\n  range=[163.21,167.0] mean=165.397 sd=1.0935 first=163.27 last=166.941\n  slope_per_min=0.6462 sign_changes=62 hf_energy=0.0929\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.4582 sd_tail=0.2747\n  monotonic_frac=0.589 n_resets=39 max_drop=0.641 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 2.25
@@ -1286,6 +2187,16 @@
    "scene_id": "s00070",
    "node_id": "s00070c00",
    "truth": "none",
+   "window": {
+    "tag": "AIR070_DISCHARGE_TEMP",
+    "unit": "Cel",
+    "n": 96,
+    "lo": 167.891,
+    "hi": 178.907,
+    "mean": 173.401,
+    "slope_per_min": 1.4501,
+    "body": "channel=s00070c00 tag=AIR070_DISCHARGE_TEMP stated_unit=Cel period_s=4.74 n=96\n  range=[167.891,178.907] mean=173.401 sd=3.1806 first=167.891 last=178.712\n  slope_per_min=1.4501 sign_changes=59 hf_energy=0.0402\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=1.1179 sd_tail=1.0941\n  monotonic_frac=0.642 n_resets=34 max_drop=0.641 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 2.25
@@ -1299,6 +2210,16 @@
    "scene_id": "s00070",
    "node_id": "s00070c01",
    "truth": "drifting",
+   "window": {
+    "tag": "AIR070_DISCHARGE_PRESS",
+    "unit": "kPa",
+    "n": 96,
+    "lo": 99.864,
+    "hi": 102.039,
+    "mean": 100.617,
+    "slope_per_min": -0.7389,
+    "body": "channel=s00070c01 tag=AIR070_DISCHARGE_PRESS stated_unit=kPa period_s=1.5 n=96\n  range=[99.864,102.039] mean=100.617 sd=0.5478 first=102.039 last=99.864\n  slope_per_min=-0.7389 sign_changes=60 hf_energy=0.0651\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.4234 sd_tail=0.1375\n  monotonic_frac=0.389 n_resets=58 max_drop=0.207 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 2.875
@@ -1312,6 +2233,16 @@
    "scene_id": "s00070",
    "node_id": "s00070c02",
    "truth": "dropout",
+   "window": {
+    "tag": "AIR070_VIBRATION",
+    "unit": "kPa",
+    "n": 96,
+    "lo": 91.326,
+    "hi": 103.13,
+    "mean": 102.286,
+    "slope_per_min": 0.0124,
+    "body": "channel=s00070c02 tag=AIR070_VIBRATION stated_unit=kPa period_s=7.03 n=96\n  range=[91.326,103.13] mean=102.286 sd=2.5605 first=102.952 last=102.932\n  slope_per_min=0.0124 sign_changes=65 hf_energy=0.2193\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=2.0042 sd_tail=2.0046\n  monotonic_frac=0.516 n_resets=46 max_drop=11.696 gap_frac=0.0"
+   },
    "child": {
     "prediction": "dropout",
     "margin": 0.625
@@ -1325,6 +2256,16 @@
    "scene_id": "s00070",
    "node_id": "s00070c03",
    "truth": "none",
+   "window": {
+    "tag": "AIR070_MOTOR_CURRENT",
+    "unit": "A",
+    "n": 96,
+    "lo": 135.078,
+    "hi": 194.534,
+    "mean": 165.091,
+    "slope_per_min": 4.0283,
+    "body": "channel=s00070c03 tag=AIR070_MOTOR_CURRENT stated_unit=A period_s=9.47 n=96\n  range=[135.078,194.534] mean=165.091 sd=17.6531 first=135.351 last=194.534\n  slope_per_min=4.0283 sign_changes=50 hf_energy=0.0364\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=6.0269 sd_tail=5.6046\n  monotonic_frac=0.684 n_resets=30 max_drop=3.782 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 1
@@ -1338,6 +2279,16 @@
    "scene_id": "s00070",
    "node_id": "s00070c04",
    "truth": "none",
+   "window": {
+    "tag": "AIR070_VIBRATION",
+    "unit": "mm/s",
+    "n": 96,
+    "lo": 8.36,
+    "hi": 8.932,
+    "mean": 8.703,
+    "slope_per_min": 0.0035,
+    "body": "channel=s00070c04 tag=AIR070_VIBRATION stated_unit=mm/s period_s=3.74 n=96\n  range=[8.36,8.932] mean=8.703 sd=0.1121 first=8.564 last=8.63\n  slope_per_min=0.0035 sign_changes=65 hf_energy=0.3974\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.1154 sd_tail=0.1017\n  monotonic_frac=0.526 n_resets=45 max_drop=0.402 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 2.75
@@ -1351,6 +2302,16 @@
    "scene_id": "s00070",
    "node_id": "s00070c05",
    "truth": "none",
+   "window": {
+    "tag": "AIR070_OIL_TEMP",
+    "unit": "Cel",
+    "n": 96,
+    "lo": 166.103,
+    "hi": 166.846,
+    "mean": 166.485,
+    "slope_per_min": -0.0013,
+    "body": "channel=s00070c05 tag=AIR070_OIL_TEMP stated_unit=Cel period_s=6.47 n=96\n  range=[166.103,166.846] mean=166.485 sd=0.1802 first=166.334 last=166.755\n  slope_per_min=-0.0013 sign_changes=64 hf_energy=0.5191\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.1833 sd_tail=0.1632\n  monotonic_frac=0.474 n_resets=50 max_drop=0.557 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 2.375
@@ -1364,6 +2325,16 @@
    "scene_id": "s00075",
    "node_id": "s00075c00",
    "truth": "stuck",
+   "window": {
+    "tag": "AIR075_DISCHARGE_TEMP",
+    "unit": "Cel",
+    "n": 96,
+    "lo": 157.568,
+    "hi": 158.458,
+    "mean": 157.984,
+    "slope_per_min": -0.0189,
+    "body": "channel=s00075c00 tag=AIR075_DISCHARGE_TEMP stated_unit=Cel period_s=4.16 n=96\n  range=[157.568,158.458] mean=157.984 sd=0.1768 first=158.225 last=158.137\n  slope_per_min=-0.0189 sign_changes=61 hf_energy=0.3743\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.2186 sd_tail=0.1409\n  monotonic_frac=0.505 n_resets=47 max_drop=0.66 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 1.875
@@ -1377,6 +2348,16 @@
    "scene_id": "s00075",
    "node_id": "s00075c01",
    "truth": "none",
+   "window": {
+    "tag": "AIR075_DISCHARGE_PRESS",
+    "unit": "kPa",
+    "n": 96,
+    "lo": 103.161,
+    "hi": 103.476,
+    "mean": 103.312,
+    "slope_per_min": 0.001,
+    "body": "channel=s00075c01 tag=AIR075_DISCHARGE_PRESS stated_unit=kPa period_s=6.04 n=96\n  range=[103.161,103.476] mean=103.312 sd=0.072 first=103.408 last=103.356\n  slope_per_min=0.001 sign_changes=60 hf_energy=0.4511\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.0701 sd_tail=0.0717\n  monotonic_frac=0.474 n_resets=50 max_drop=0.191 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 3.125
@@ -1390,6 +2371,16 @@
    "scene_id": "s00075",
    "node_id": "s00075c02",
    "truth": "dropout",
+   "window": {
+    "tag": "AIR075_MOTOR_CURRENT",
+    "unit": "kPa",
+    "n": 96,
+    "lo": 90.802,
+    "hi": 99.653,
+    "mean": 99.18,
+    "slope_per_min": -0.0674,
+    "body": "channel=s00075c02 tag=AIR075_MOTOR_CURRENT stated_unit=kPa period_s=9.71 n=96\n  range=[90.802,99.653] mean=99.18 sd=1.5004 first=99.51 last=99.448\n  slope_per_min=-0.0674 sign_changes=62 hf_energy=0.1412\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.0749 sd_tail=2.5158\n  monotonic_frac=0.474 n_resets=50 max_drop=8.65 gap_frac=0.0"
+   },
    "child": {
     "prediction": "dropout",
     "margin": 0.125
@@ -1403,6 +2394,16 @@
    "scene_id": "s00075",
    "node_id": "s00075c03",
    "truth": "none",
+   "window": {
+    "tag": "AIR075_VIBRATION",
+    "unit": "A",
+    "n": 96,
+    "lo": 159.472,
+    "hi": 166.275,
+    "mean": 163.564,
+    "slope_per_min": 0.0479,
+    "body": "channel=s00075c03 tag=AIR075_VIBRATION stated_unit=A period_s=7.75 n=96\n  range=[159.472,166.275] mean=163.564 sd=1.2283 first=161.854 last=163.819\n  slope_per_min=0.0479 sign_changes=58 hf_energy=0.3332\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=1.2279 sd_tail=1.1484\n  monotonic_frac=0.474 n_resets=50 max_drop=5.207 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 1
@@ -1416,6 +2417,16 @@
    "scene_id": "s00075",
    "node_id": "s00075c04",
    "truth": "drifting",
+   "window": {
+    "tag": "AI_2979",
+    "unit": null,
+    "n": 96,
+    "lo": 17.577,
+    "hi": 21.08,
+    "mean": 18.867,
+    "slope_per_min": 0.8929,
+    "body": "channel=s00075c04 tag=AI_2979 stated_unit=? period_s=2.46 n=96\n  range=[17.577,21.08] mean=18.867 sd=1.0538 first=17.934 last=21.08\n  slope_per_min=0.8929 sign_changes=65 hf_energy=0.0656\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.0988 sd_tail=0.4639\n  monotonic_frac=0.621 n_resets=36 max_drop=0.298 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 1.125
@@ -1429,6 +2440,16 @@
    "scene_id": "s00075",
    "node_id": "s00075c05",
    "truth": "none",
+   "window": {
+    "tag": "AIR075_OIL_TEMP",
+    "unit": "Cel",
+    "n": 96,
+    "lo": 157.774,
+    "hi": 158.864,
+    "mean": 158.374,
+    "slope_per_min": -0.0053,
+    "body": "channel=s00075c05 tag=AIR075_OIL_TEMP stated_unit=Cel period_s=6.94 n=96\n  range=[157.774,158.864] mean=158.374 sd=0.2158 first=158.542 last=158.318\n  slope_per_min=-0.0053 sign_changes=62 hf_energy=0.3958\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.195 sd_tail=0.2267\n  monotonic_frac=0.484 n_resets=49 max_drop=0.626 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 2.25
@@ -1442,6 +2463,16 @@
    "scene_id": "s00077",
    "node_id": "s00077c00",
    "truth": "drifting",
+   "window": {
+    "tag": "AIR077_DISCHARGE_PRESS",
+    "unit": "Cel",
+    "n": 96,
+    "lo": 157.867,
+    "hi": 160.576,
+    "mean": 159.652,
+    "slope_per_min": -0.2288,
+    "body": "channel=s00077c00 tag=AIR077_DISCHARGE_PRESS stated_unit=Cel period_s=5.6 n=96\n  range=[157.867,160.576] mean=159.652 sd=0.7034 first=160.255 last=158.047\n  slope_per_min=-0.2288 sign_changes=61 hf_energy=0.1493\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.2372 sd_tail=0.4683\n  monotonic_frac=0.474 n_resets=50 max_drop=0.757 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 1.125
@@ -1455,6 +2486,16 @@
    "scene_id": "s00077",
    "node_id": "s00077c01",
    "truth": "stuck",
+   "window": {
+    "tag": "AI_3002",
+    "unit": null,
+    "n": 96,
+    "lo": 99.594,
+    "hi": 99.962,
+    "mean": 99.782,
+    "slope_per_min": 0.0067,
+    "body": "channel=s00077c01 tag=AI_3002 stated_unit=? period_s=6.41 n=96\n  range=[99.594,99.962] mean=99.782 sd=0.0753 first=99.624 last=99.853\n  slope_per_min=0.0067 sign_changes=58 hf_energy=0.3366\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.0784 sd_tail=0.0627\n  monotonic_frac=0.568 n_resets=41 max_drop=0.327 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 2.875
@@ -1468,6 +2509,16 @@
    "scene_id": "s00077",
    "node_id": "s00077c02",
    "truth": "none",
+   "window": {
+    "tag": "AIR077_SUCTION_PRESS",
+    "unit": "kPa",
+    "n": 96,
+    "lo": 97.555,
+    "hi": 102.669,
+    "mean": 100.121,
+    "slope_per_min": -0.5348,
+    "body": "channel=s00077c02 tag=AIR077_SUCTION_PRESS stated_unit=kPa period_s=5.94 n=96\n  range=[97.555,102.669] mean=100.121 sd=1.4691 first=102.643 last=97.555\n  slope_per_min=-0.5348 sign_changes=49 hf_energy=0.0295\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.4998 sd_tail=0.5052\n  monotonic_frac=0.295 n_resets=67 max_drop=0.397 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 1.5
@@ -1481,6 +2532,16 @@
    "scene_id": "s00077",
    "node_id": "s00077c03",
    "truth": "none",
+   "window": {
+    "tag": "AIR077_DISCHARGE_PRESS",
+    "unit": "A",
+    "n": 96,
+    "lo": 157.851,
+    "hi": 228.441,
+    "mean": 193.112,
+    "slope_per_min": 4.5278,
+    "body": "channel=s00077c03 tag=AIR077_DISCHARGE_PRESS stated_unit=A period_s=9.8 n=96\n  range=[157.851,228.441] mean=193.112 sd=20.5212 first=158.44 last=228.141\n  slope_per_min=4.5278 sign_changes=52 hf_energy=0.0334\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=6.7509 sd_tail=7.2327\n  monotonic_frac=0.705 n_resets=28 max_drop=3.506 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 1.375
@@ -1494,6 +2555,16 @@
    "scene_id": "s00077",
    "node_id": "s00077c04",
    "truth": "none",
+   "window": {
+    "tag": "AIR077_VIBRATION",
+    "unit": "mm/s",
+    "n": 96,
+    "lo": 11.119,
+    "hi": 11.726,
+    "mean": 11.445,
+    "slope_per_min": 0.0079,
+    "body": "channel=s00077c04 tag=AIR077_VIBRATION stated_unit=mm/s period_s=5.49 n=96\n  range=[11.119,11.726] mean=11.445 sd=0.1233 first=11.29 last=11.726\n  slope_per_min=0.0079 sign_changes=66 hf_energy=0.4334\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.1344 sd_tail=0.121\n  monotonic_frac=0.547 n_resets=43 max_drop=0.509 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 1.75
@@ -1507,6 +2578,16 @@
    "scene_id": "s00077",
    "node_id": "s00077c05",
    "truth": "none",
+   "window": {
+    "tag": "AIR077_MOTOR_CURRENT",
+    "unit": "Cel",
+    "n": 96,
+    "lo": 169.194,
+    "hi": 170.126,
+    "mean": 169.635,
+    "slope_per_min": -0.0123,
+    "body": "channel=s00077c05 tag=AIR077_MOTOR_CURRENT stated_unit=Cel period_s=4.86 n=96\n  range=[169.194,170.126] mean=169.635 sd=0.1727 first=169.804 last=169.77\n  slope_per_min=-0.0123 sign_changes=51 hf_energy=0.2816\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.1566 sd_tail=0.1486\n  monotonic_frac=0.495 n_resets=48 max_drop=0.496 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 2.5
@@ -1520,6 +2601,16 @@
    "scene_id": "s00079",
    "node_id": "s00079c00",
    "truth": "none",
+   "window": {
+    "tag": "AIR079_MOTOR_CURRENT",
+    "unit": "Cel",
+    "n": 96,
+    "lo": 163.405,
+    "hi": 167.293,
+    "mean": 165.395,
+    "slope_per_min": 0.3238,
+    "body": "channel=s00079c00 tag=AIR079_MOTOR_CURRENT stated_unit=Cel period_s=6.82 n=96\n  range=[163.405,167.293] mean=165.395 sd=1.0403 first=163.405 last=167.126\n  slope_per_min=0.3238 sign_changes=67 hf_energy=0.1148\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.3676 sd_tail=0.3876\n  monotonic_frac=0.526 n_resets=45 max_drop=0.709 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 1.75
@@ -1533,6 +2624,16 @@
    "scene_id": "s00079",
    "node_id": "s00079c01",
    "truth": "none",
+   "window": {
+    "tag": "AIR079_DISCHARGE_PRESS",
+    "unit": "kPa",
+    "n": 96,
+    "lo": 98.277,
+    "hi": 99.829,
+    "mean": 99.066,
+    "slope_per_min": -0.1225,
+    "body": "channel=s00079c01 tag=AIR079_DISCHARGE_PRESS stated_unit=kPa period_s=6.98 n=96\n  range=[98.277,99.829] mean=99.066 sd=0.4028 first=99.719 last=98.506\n  slope_per_min=-0.1225 sign_changes=65 hf_energy=0.1067\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.1407 sd_tail=0.1498\n  monotonic_frac=0.463 n_resets=51 max_drop=0.233 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 2.875
@@ -1546,6 +2647,16 @@
    "scene_id": "s00079",
    "node_id": "s00079c02",
    "truth": "dropout",
+   "window": {
+    "tag": "AIR079_SUCTION_PRESS",
+    "unit": "kPa",
+    "n": 96,
+    "lo": 91.175,
+    "hi": 102.265,
+    "mean": 101.962,
+    "slope_per_min": -0.0429,
+    "body": "channel=s00079c02 tag=AIR079_SUCTION_PRESS stated_unit=kPa period_s=4.48 n=96\n  range=[91.175,102.265] mean=101.962 sd=1.1095 first=102.123 last=101.922\n  slope_per_min=-0.0429 sign_changes=66 hf_energy=0.057\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.08 sd_tail=1.9008\n  monotonic_frac=0.421 n_resets=55 max_drop=10.934 gap_frac=0.0"
+   },
    "child": {
     "prediction": "dropout",
     "margin": 0.375
@@ -1559,6 +2670,16 @@
    "scene_id": "s00079",
    "node_id": "s00079c03",
    "truth": "drifting",
+   "window": {
+    "tag": "AIR079_MOTOR_CURRENT",
+    "unit": "A",
+    "n": 96,
+    "lo": 116.981,
+    "hi": 140.715,
+    "mean": 132.393,
+    "slope_per_min": -0.3887,
+    "body": "channel=s00079c03 tag=AIR079_MOTOR_CURRENT stated_unit=A period_s=8.87 n=96\n  range=[116.981,140.715] mean=132.393 sd=5.3221 first=127.962 last=116.981\n  slope_per_min=-0.3887 sign_changes=59 hf_energy=0.076\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=2.2106 sd_tail=5.2225\n  monotonic_frac=0.474 n_resets=50 max_drop=3.591 gap_frac=0.0"
+   },
    "child": {
     "prediction": "drifting",
     "margin": 0.125
@@ -1572,6 +2693,16 @@
    "scene_id": "s00079",
    "node_id": "s00079c04",
    "truth": "drifting",
+   "window": {
+    "tag": "AIR079_VIBRATION",
+    "unit": "mm/s",
+    "n": 96,
+    "lo": 17.701,
+    "hi": 19.303,
+    "mean": 18.642,
+    "slope_per_min": -0.1798,
+    "body": "channel=s00079c04 tag=AIR079_VIBRATION stated_unit=mm/s period_s=4.36 n=96\n  range=[17.701,19.303] mean=18.642 sd=0.3876 first=18.897 last=17.864\n  slope_per_min=-0.1798 sign_changes=62 hf_energy=0.1292\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.1018 sd_tail=0.1997\n  monotonic_frac=0.484 n_resets=49 max_drop=0.44 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 1.125
@@ -1585,6 +2716,16 @@
    "scene_id": "s00079",
    "node_id": "s00079c05",
    "truth": "dropout",
+   "window": {
+    "tag": "AI_3032",
+    "unit": null,
+    "n": 96,
+    "lo": 139.127,
+    "hi": 168.853,
+    "mean": 166.837,
+    "slope_per_min": -0.5786,
+    "body": "channel=s00079c05 tag=AI_3032 stated_unit=? period_s=8.55 n=96\n  range=[139.127,168.853] mean=166.837 sd=6.4796 first=168.516 last=139.143\n  slope_per_min=-0.5786 sign_changes=68 hf_energy=0.1476\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.2121 sd_tail=10.5831\n  monotonic_frac=0.495 n_resets=48 max_drop=29.674 gap_frac=0.0"
+   },
    "child": {
     "prediction": "dropout",
     "margin": 1
@@ -1598,6 +2739,16 @@
    "scene_id": "s00083",
    "node_id": "s00083c00",
    "truth": "drifting",
+   "window": {
+    "tag": "AIR083_DISCHARGE_TEMP",
+    "unit": "Cel",
+    "n": 96,
+    "lo": 169.516,
+    "hi": 174.167,
+    "mean": 172.46,
+    "slope_per_min": 0.3229,
+    "body": "channel=s00083c00 tag=AIR083_DISCHARGE_TEMP stated_unit=Cel period_s=8.27 n=96\n  range=[169.516,174.167] mean=172.46 sd=1.3008 first=169.963 last=173.582\n  slope_per_min=0.3229 sign_changes=60 hf_energy=0.0868\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.7203 sd_tail=0.1978\n  monotonic_frac=0.537 n_resets=44 max_drop=0.886 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 1.625
@@ -1611,6 +2762,16 @@
    "scene_id": "s00083",
    "node_id": "s00083c01",
    "truth": "noisy",
+   "window": {
+    "tag": "AI_3080",
+    "unit": null,
+    "n": 96,
+    "lo": 97.963,
+    "hi": 102.057,
+    "mean": 100.774,
+    "slope_per_min": -0.1453,
+    "body": "channel=s00083c01 tag=AI_3080 stated_unit=? period_s=9.46 n=96\n  range=[97.963,102.057] mean=100.774 sd=0.7487 first=101.986 last=100.307\n  slope_per_min=-0.1453 sign_changes=58 hf_energy=0.1202\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.2779 sd_tail=0.7209\n  monotonic_frac=0.432 n_resets=54 max_drop=2.796 gap_frac=0.0"
+   },
    "child": {
     "prediction": "noisy",
     "margin": 1.25
@@ -1624,6 +2785,16 @@
    "scene_id": "s00083",
    "node_id": "s00083c02",
    "truth": "none",
+   "window": {
+    "tag": "AI_3081",
+    "unit": null,
+    "n": 96,
+    "lo": 98.24,
+    "hi": 98.627,
+    "mean": 98.426,
+    "slope_per_min": -0.0005,
+    "body": "channel=s00083c02 tag=AI_3081 stated_unit=? period_s=9.02 n=96\n  range=[98.24,98.627] mean=98.426 sd=0.0771 first=98.522 last=98.457\n  slope_per_min=-0.0005 sign_changes=67 hf_energy=0.3782\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.0749 sd_tail=0.0684\n  monotonic_frac=0.484 n_resets=49 max_drop=0.3 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 2.875
@@ -1637,6 +2808,16 @@
    "scene_id": "s00083",
    "node_id": "s00083c03",
    "truth": "none",
+   "window": {
+    "tag": "AI_3082",
+    "unit": null,
+    "n": 96,
+    "lo": 123.559,
+    "hi": 160.557,
+    "mean": 141.43,
+    "slope_per_min": 2.5932,
+    "body": "channel=s00083c03 tag=AI_3082 stated_unit=? period_s=8.64 n=96\n  range=[123.559,160.557] mean=141.43 sd=10.4078 first=123.559 last=159.18\n  slope_per_min=2.5932 sign_changes=57 hf_energy=0.0556\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=3.4939 sd_tail=3.7058\n  monotonic_frac=0.526 n_resets=45 max_drop=3.699 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 1.75
@@ -1650,6 +2831,16 @@
    "scene_id": "s00083",
    "node_id": "s00083c04",
    "truth": "none",
+   "window": {
+    "tag": "AIR083_VIBRATION",
+    "unit": "mm/s",
+    "n": 96,
+    "lo": 8.778,
+    "hi": 9.316,
+    "mean": 9.062,
+    "slope_per_min": -0.0089,
+    "body": "channel=s00083c04 tag=AIR083_VIBRATION stated_unit=mm/s period_s=2.49 n=96\n  range=[8.778,9.316] mean=9.062 sd=0.1181 first=9.158 last=9.014\n  slope_per_min=-0.0089 sign_changes=66 hf_energy=0.423\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.1237 sd_tail=0.1148\n  monotonic_frac=0.537 n_resets=44 max_drop=0.342 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 2.5
@@ -1663,6 +2854,16 @@
    "scene_id": "s00083",
    "node_id": "s00083c05",
    "truth": "drifting",
+   "window": {
+    "tag": "AIR083_OIL_TEMP",
+    "unit": "Cel",
+    "n": 96,
+    "lo": 168.934,
+    "hi": 173.82,
+    "mean": 172.508,
+    "slope_per_min": -0.2741,
+    "body": "channel=s00083c05 tag=AIR083_OIL_TEMP stated_unit=Cel period_s=9.56 n=96\n  range=[168.934,173.82] mean=172.508 sd=1.4386 first=173.471 last=168.934\n  slope_per_min=-0.2741 sign_changes=56 hf_energy=0.0678\n  repeat_frac=0.0 longest_run=1 zero_frac=0.0 at_max_frac=0.01\n  sd_head=0.1578 sd_tail=1.0288\n  monotonic_frac=0.411 n_resets=56 max_drop=0.859 gap_frac=0.0"
+   },
    "child": {
     "prediction": "none",
     "margin": 2.125

@@ -23,6 +23,7 @@ where redness = R−max(G,B) > 28, MedianFilter 3). Spot plates must stay < 16 K
 | `mast-ladder-*` | Four lattice masts, tiny → tall, linked by wires; red beacon on the tallest | 1408×480 | 59 KB / 2.9 KB | 1337 | `06445fe7b9b6` | Tier-ladder plate (pico → nano → micro → core) for pricing/broadcast-article headers |
 | `sensor-gauge-*` | Round-dial process sensor on a transmitter box, no red | 190×312 | 33 KB / 0.3 KB (empty) | 42 | `p-sensor.txt` sha256 n/a - prompt archived in session scratchpad | The signal bench's sensor-wall cards (wired) |
 | `radio-reader-*` | Compact 1950s tabletop radio, red lamp on the VU meter | 580×380 | 131 KB / 1.4 KB | 42 | (cropped from plate-reader raw; knob-label microtext zapped) | The signal bench's READER radio (wired) |
+| `radio-pocket-*` | Pocket transistor radio (palm-size set), no red | 370×310 | 59 KB / 0.5 KB (empty) | 42 | (cropped from plate-pocket raw; faceplate pseudo-text + signature zapped) | The attach menu's pico/edge-scale model icon (wired) |
 | `radio-senior-*` | Tall rack-mounted radio console, three stacked panels, no red | 512×640 | 147 KB / 1.3 KB (empty) | 42 | (from plate-senior raw) | The signal bench's SENIOR rack (wired) |
 
 Notes:

@@ -312,11 +312,10 @@
 /* the bench: wall | radio | console */
 .wb-bench {
   position: relative;
-  display: grid; grid-template-columns: 15.5rem 1fr 17rem;
+  display: grid; grid-template-columns: 1fr 17rem;
   gap: var(--s-4, 1rem); align-items: start;
 }
-@media (max-width: 1080px) { .wb-bench { grid-template-columns: 13rem 1fr 15rem; } }
-@media (max-width: 860px) { .wb-bench { grid-template-columns: 1fr; } }
+@media (max-width: 980px) { .wb-bench { grid-template-columns: 1fr; } }
 
 /* the cables draw themselves over the bench, never catching a tap */
 .wb-cables { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
@@ -326,42 +325,6 @@
 }
 .wb-cable--esc { stroke-dasharray: 4 4; stroke: var(--ink-400); }
 
-/* ---- the sensor wall ---------------------------------------------------- */
-.wb-wall { display: flex; flex-direction: column; gap: .6rem; }
-.wb-sensor {
-  position: relative; border: 1px solid var(--hairline-2); border-radius: 10px;
-  background: var(--paper-2); padding: .6rem .7rem;
-  display: grid; grid-template-columns: 3.2rem 1fr auto; grid-template-rows: auto auto;
-  gap: .2rem .6rem; align-items: center;
-  opacity: .62; transition: opacity .2s ease, border-color .2s ease;
-}
-.wb-sensor.is-on { opacity: 1; border-color: var(--ink-300); }
-@media (prefers-reduced-motion: reduce) { .wb-sensor { transition: none; } }
-
-/* the sensor's engraved instrument, re-inked per theme (illustration only) */
-.wb-sensor__art { grid-row: 1 / 3; width: 3.2rem; height: 3.6rem; position: relative; }
-.wb-sensor__art .wb-plate__ink {
-  position: absolute; inset: 0; background: var(--ink-900);
-  -webkit-mask-image: url("../assets/wave/sensor-gauge-ink.png");
-  mask-image: url("../assets/wave/sensor-gauge-ink.png");
-  -webkit-mask-size: contain; mask-size: contain;
-  -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
-  -webkit-mask-position: center; mask-position: center;
-}
-.wb-sensor__art--tape .wb-plate__ink {
-  -webkit-mask-image: url("../assets/wave/tape-reader-ink.png");
-  mask-image: url("../assets/wave/tape-reader-ink.png");
-}
-.wb-sensor__head { display: flex; flex-direction: column; gap: .1rem; min-width: 0; }
-.wb-sensor__head b {
-  font-family: var(--font-mono); font-size: .68rem; letter-spacing: .12em;
-}
-.wb-sensor__ch { font-size: .6rem; color: var(--ink-400); font-family: var(--font-mono); }
-.wb-sensor__dial { grid-column: 3; grid-row: 1 / 3; }
-.wb-sensor__dial.is-dim { opacity: .45; }
-.wb-sensor--intake { border-style: dashed; cursor: pointer; grid-template-rows: auto; }
-.wb-sensor--intake:hover { border-color: var(--ink-500); }
-.wb-sensor--intake:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
 
 /* ---- the lever: a big honest ON/OFF switch ------------------------------ */
 .wb-lever {
@@ -387,67 +350,7 @@
 @media (prefers-reduced-motion: reduce) { .wb-lever__pip::after { transition: none; } }
 .wb-lever:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
 
-/* ---- the radio ----------------------------------------------------------- */
-.wb-mid { display: flex; flex-direction: column; gap: .8rem; align-items: center; position: relative; z-index: 2; }
-.wb-radio {
-  width: 100%; max-width: 26rem; border: 1px solid var(--hairline-2); border-radius: 12px;
-  background: var(--paper-2); padding: .8rem; cursor: pointer;
-  display: flex; flex-direction: column; gap: .5rem; align-items: center;
-}
-.wb-radio.is-seated { border-color: var(--ink-300); }
-.wb-radio__art { width: 100%; aspect-ratio: 580 / 380; max-height: 14rem; position: relative; }
-.wb-radio__art .wb-plate__ink, .wb-radio__art .wb-plate__spot {
-  position: absolute; inset: 0;
-  -webkit-mask-size: contain; mask-size: contain;
-  -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
-  -webkit-mask-position: center; mask-position: center;
-}
-.wb-radio__art .wb-plate__ink {
-  background: var(--ink-900);
-  -webkit-mask-image: url("../assets/wave/radio-reader-ink.png");
-  mask-image: url("../assets/wave/radio-reader-ink.png");
-}
-/* the radio's one red glint: the recorded lamp on the engraved faceplate */
-.wb-radio__art .wb-plate__spot {
-  background: var(--live);
-  -webkit-mask-image: url("../assets/wave/radio-reader-spot.png");
-  mask-image: url("../assets/wave/radio-reader-spot.png");
-}
-.wb-radio__face { display: flex; flex-direction: column; gap: .25rem; align-items: center; text-align: center; }
-.wb-radio__face b { font-family: var(--font-mono); font-size: .78rem; letter-spacing: .14em; }
-.wb-radio__sub { font-family: var(--font-mono); font-size: .6rem; color: var(--ink-400); }
 
-/* the senior's rack, when a Pico reader is seated */
-.wb-senior {
-  width: 100%; max-width: 15rem; border: 1px dashed var(--hairline-2); border-radius: 10px;
-  background: var(--paper-2); padding: .6rem; text-align: center;
-  display: flex; flex-direction: column; gap: .3rem; align-items: center;
-  opacity: .6;
-}
-.wb-senior.is-seated { opacity: 1; border-style: solid; border-color: var(--ink-300); }
-.wb-senior b { font-family: var(--font-mono); font-size: .64rem; letter-spacing: .12em; }
-.wb-senior__art { width: 4.4rem; aspect-ratio: 512 / 640; position: relative; }
-.wb-senior__art .wb-plate__ink {
-  position: absolute; inset: 0; background: var(--ink-900);
-  -webkit-mask-image: url("../assets/wave/radio-senior-ink.png");
-  mask-image: url("../assets/wave/radio-senior-ink.png");
-  -webkit-mask-size: contain; mask-size: contain;
-  -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
-  -webkit-mask-position: center; mask-position: center;
-}
-
-/* ---- the shelf chips ------------------------------------------------------ */
-.wb-chip {
-  display: flex; flex-direction: column; gap: .05rem; align-items: flex-start;
-  padding: .4rem .7rem; border-radius: 8px; cursor: pointer;
-  border: 1px solid var(--hairline-2); background: var(--paper); font: inherit;
-  color: var(--ink-500); text-align: left;
-}
-.wb-chip b { font-family: var(--font-mono); font-size: .64rem; letter-spacing: .1em; color: var(--ink-900); }
-.wb-chip span { font-family: var(--font-mono); font-size: .54rem; }
-.wb-chip:hover { border-color: var(--ink-500); }
-.wb-chip.is-seated { border-color: var(--ink-900); background: var(--paper-2); }
-.wb-chip:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
 
 /* ---- WHAT IT SAYS: the recorded predictions, one line per sensor -------- */
 .wp-reads {
@@ -470,4 +373,171 @@
 .wp-read--quiet { color: var(--ink-400); }
 .wp-console__op { display: flex; }
 .wp-console__op .wb-lever { grid-column: auto; }
+
+/* =====================================================================
+   THE INSTRUMENT RACK - bays with real tags, logs, and a socket
+   ===================================================================== */
+.ws-rack { display: flex; flex-direction: column; gap: .6rem; min-width: 0; }
+.ws-bay {
+  position: relative;
+  display: grid; grid-template-columns: 15rem minmax(0, 1fr) 13.5rem;
+  gap: .4rem .9rem; align-items: start;
+  border: 1px solid var(--hairline-2); border-radius: 10px;
+  background: var(--paper-2); padding: .65rem .8rem;
+  opacity: .62; transition: opacity .2s ease, border-color .2s ease;
+}
+.ws-bay.is-on { opacity: 1; border-color: var(--ink-300); }
+@media (prefers-reduced-motion: reduce) { .ws-bay { transition: none; } }
+@media (max-width: 760px) { .ws-bay { grid-template-columns: 1fr; } }
+
+.ws-bay__id { display: flex; gap: .6rem; align-items: flex-start; min-width: 0; }
+.ws-bay__art { width: 2.6rem; height: 4.2rem; position: relative; flex: none; }
+.ws-bay__art .wb-plate__ink {
+  position: absolute; inset: 0; background: var(--ink-900);
+  -webkit-mask-image: url("../assets/wave/sensor-gauge-ink.png");
+  mask-image: url("../assets/wave/sensor-gauge-ink.png");
+  -webkit-mask-size: contain; mask-size: contain;
+  -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+  -webkit-mask-position: center top; mask-position: center top;
+}
+.ws-bay__art--tape .wb-plate__ink {
+  -webkit-mask-image: url("../assets/wave/tape-reader-ink.png");
+  mask-image: url("../assets/wave/tape-reader-ink.png");
+  -webkit-mask-position: center; mask-position: center;
+}
+.ws-bay__name { display: flex; flex-direction: column; gap: .25rem; min-width: 0; }
+.ws-bay__name > b {
+  font-family: var(--font-mono); font-size: .68rem; letter-spacing: .1em;
+  overflow-wrap: anywhere;
+}
+.ws-bay__sub { font-family: var(--font-mono); font-size: .56rem; color: var(--ink-400); }
+.ws-bay__ctl { display: flex; gap: .7rem; align-items: center; }
+.ws-bay__ctl .wb-lever { grid-column: auto; }
+
+/* the sensor at work: meter, REC chip, and the literal log */
+.ws-bay__log { display: flex; flex-direction: column; gap: .3rem; min-width: 0; }
+.ws-meter { width: 11rem; max-width: 100%; height: auto; }
+.ws-meter__rail { stroke: var(--ink-300); stroke-width: 1.5; }
+.ws-meter__stop { stroke: var(--ink-500); stroke-width: 1.5; }
+.ws-meter__needle { fill: var(--ink-900); }
+.ws-meter__t { font-family: var(--font-mono); font-size: 7px; fill: var(--ink-400); }
+.ws-rec {
+  display: inline-flex; gap: .35rem; align-items: center;
+  font-family: var(--font-mono); font-size: .52rem; letter-spacing: .14em;
+  color: var(--ink-400);
+}
+.ws-rec__dot {
+  width: .45rem; height: .45rem; border-radius: 50%; background: var(--ink-400);
+}
+/* the "live" pulse is CHROME - it decorates a replay and claims nothing */
+.ws-rec.is-live .ws-rec__dot { animation: ws-blink 1.6s ease-in-out infinite; }
+@keyframes ws-blink { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }
+@media (prefers-reduced-motion: reduce) { .ws-rec.is-live .ws-rec__dot { animation: none; } }
+.ws-log {
+  margin: 0; padding: .45rem .55rem; border-radius: 6px;
+  border: 1px solid var(--hairline-2); background: var(--paper);
+  font-family: var(--font-mono); font-size: .56rem; line-height: 1.55;
+  color: var(--ink-700); overflow-x: auto; white-space: pre;
+}
+.ws-log--quiet { color: var(--ink-300); border-style: dashed; }
+
+/* the end of the line: [+] or the attached model's response */
+.ws-bay__end { display: flex; flex-direction: column; gap: .3rem; align-items: stretch; }
+.ws-add {
+  display: inline-flex; gap: .5rem; align-items: center; justify-content: center;
+  padding: .55rem .8rem; border-radius: 8px; cursor: pointer;
+  border: 1.5px dashed var(--ink-300); background: var(--paper);
+  font-family: var(--font-mono); font-size: .6rem; letter-spacing: .12em;
+  color: var(--ink-500);
+}
+.ws-add:hover { border-color: var(--ink-900); color: var(--ink-900); }
+.ws-add:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
+.ws-add__plus { font-size: 1rem; line-height: 1; }
+.ws-add--ghost { border-style: dotted; cursor: pointer; }
+.ws-bay__hint { font-family: var(--font-mono); font-size: .52rem; color: var(--ink-300); text-align: center; }
+
+/* the model icons: the size argument, drawn */
+.ws-icon { position: relative; display: inline-block; flex: none; }
+.ws-icon .wb-plate__ink {
+  position: absolute; inset: 0; background: var(--ink-900);
+  -webkit-mask-size: contain; mask-size: contain;
+  -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+  -webkit-mask-position: center bottom; mask-position: center bottom;
+}
+.ws-icon--pocket .wb-plate__ink {
+  -webkit-mask-image: url("../assets/wave/radio-pocket-ink.png");
+  mask-image: url("../assets/wave/radio-pocket-ink.png");
+}
+.ws-icon--reader .wb-plate__ink {
+  -webkit-mask-image: url("../assets/wave/radio-reader-ink.png");
+  mask-image: url("../assets/wave/radio-reader-ink.png");
+}
+.ws-icon--senior .wb-plate__ink {
+  -webkit-mask-image: url("../assets/wave/radio-senior-ink.png");
+  mask-image: url("../assets/wave/radio-senior-ink.png");
+}
+
+/* the attach menu: one row per family slot, size visible */
+.ws-menu {
+  grid-column: 1 / -1;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+  gap: .4rem; padding: .6rem; border-radius: 8px;
+  border: 1px solid var(--hairline-2); background: var(--paper);
+}
+.ws-menu__item {
+  display: flex; gap: .7rem; align-items: flex-end; text-align: left;
+  padding: .5rem .6rem; border-radius: 8px; cursor: pointer;
+  border: 1px solid var(--hairline-2); background: var(--paper-2); font: inherit;
+}
+.ws-menu__item:hover { border-color: var(--ink-500); }
+.ws-menu__item:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
+.ws-menu__item--quiet { opacity: .66; }
+.ws-menu__txt { display: flex; flex-direction: column; gap: .1rem; }
+.ws-menu__txt b { font-family: var(--font-mono); font-size: .64rem; letter-spacing: .1em; }
+.ws-menu__txt span { font-family: var(--font-mono); font-size: .54rem; color: var(--ink-500); }
+.ws-menu__status { color: var(--ink-400); }
+
+/* the response panel: what the model reads, what it says */
+.ws-resp {
+  border: 1px solid var(--ink-300); border-radius: 8px; background: var(--paper);
+  padding: .5rem .6rem; display: flex; flex-direction: column; gap: .25rem;
+}
+.ws-resp__head { display: flex; gap: .5rem; align-items: flex-end; }
+.ws-resp__who { display: flex; flex-direction: column; gap: .05rem; min-width: 0; }
+.ws-resp__who b { font-family: var(--font-mono); font-size: .62rem; letter-spacing: .1em; }
+.ws-resp__x {
+  margin-left: auto; border: 1px solid var(--hairline-2); background: var(--paper);
+  border-radius: 6px; cursor: pointer; font-size: .8rem; line-height: 1;
+  padding: .1rem .35rem; color: var(--ink-500);
+}
+.ws-resp__x:hover { color: var(--ink-900); border-color: var(--ink-500); }
+.ws-resp__x:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
+.ws-resp__reads, .ws-resp__says {
+  margin: 0; font-family: var(--font-mono); font-size: .58rem; color: var(--ink-700);
+}
+.ws-resp__k { color: var(--ink-400); letter-spacing: .12em; font-size: .52rem; }
+.ws-resp__says b { font-size: .68rem; }
+.ws-resp__mark { margin: 0; font-family: var(--font-mono); font-size: .56rem; letter-spacing: .08em; }
+
+/* the senior rack card on the console */
+.ws-senior {
+  display: flex; gap: .6rem; align-items: center; width: 100%;
+  border: 1px dashed var(--hairline-2); border-radius: 8px; background: var(--paper);
+  padding: .5rem .6rem; cursor: pointer; font: inherit; text-align: left;
+  opacity: .7;
+}
+.ws-senior.is-seated { opacity: 1; border-style: solid; border-color: var(--ink-300); }
+.ws-senior:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
+.ws-senior__art { width: 2rem; height: 2.6rem; position: relative; flex: none; }
+.ws-senior__art .wb-plate__ink {
+  position: absolute; inset: 0; background: var(--ink-900);
+  -webkit-mask-image: url("../assets/wave/radio-senior-ink.png");
+  mask-image: url("../assets/wave/radio-senior-ink.png");
+  -webkit-mask-size: contain; mask-size: contain;
+  -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+  -webkit-mask-position: center; mask-position: center;
+}
+.ws-senior__txt { display: flex; flex-direction: column; gap: .1rem; }
+.ws-senior__txt b { font-family: var(--font-mono); font-size: .6rem; letter-spacing: .12em; }
+.ws-senior__txt span { font-family: var(--font-mono); font-size: .54rem; color: var(--ink-400); }
 
