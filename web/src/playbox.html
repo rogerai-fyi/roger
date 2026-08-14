@@ -502,7 +502,6 @@
                 <span class="wp-console__k">1 &middot; PICK A SENSOR</span>
                 <div class="sn-types" id="wsTypes"></div>
                 <div class="syn__pads sn-side__pads" id="wsPads"></div>
-                <button class="sn-paste" id="wsPaste" type="button">&#9636; PASTE YOUR OWN BYTES</button>
                 <p class="sn-roadmap">one sensor at a time &middot; more sensors soon</p>
               </div>
 
@@ -510,14 +509,36 @@
               <div class="sn-flow">
                 <span class="wp-console__k">2 &middot; CHAIN MODELS</span>
                 <div class="sn-chainrail" id="wsChain" role="group" aria-label="The model chain"></div>
+                <p class="sn-roadmap sn-roadmap--chain">In a real mesh one Pico reads many
+                  channels; this bench shows one for clarity.</p>
                 <div id="wsChainMenu"></div>
 
                 <span class="wp-console__k">3 &middot; THE OUTPUT</span>
-                <div class="sn-monitor">
-                  <span class="sn-monitor__plate" aria-hidden="true">
-                    <span class="wb-plate__ink"></span>
-                  </span>
-                  <div class="sn-monitor__screen" id="wpMonitor" aria-label="The monitor - the output at each stage"></div>
+                <!-- THE MONITOR, bezel-as-chrome: output room wins over the
+                     engraved plate, which crowns the bar as an emblem. The
+                     screen is a large CSS glass; the tabs are channel
+                     buttons choosing which stage's output to show. -->
+                <div class="sn-mon2">
+                  <div class="sn-mon2__bar">
+                    <span class="sn-mon2__emblem" aria-hidden="true"><span class="wb-plate__ink"></span></span>
+                    <div class="sn-tabs" id="wsTabs"></div>
+                    <span class="wp-tag wp-tag--led">REPLAY &middot; RECORDED</span>
+                  </div>
+                  <div class="sn-mon2__screen" id="wpMonitor" aria-label="The monitor - the output at each stage"></div>
+                  <div class="sn-chips" id="wpChips"></div>
+                  <form class="sn-prompt" id="wpPromptForm">
+                    <span class="sn-prompt__keys" aria-hidden="true"><span class="wb-plate__ink"></span></span>
+                    <div class="sn-prompt__line">
+                      <label class="wp-scrub__label" for="wpPrompt">Talk to the chain</label>
+                      <textarea class="sn-prompt__ta" id="wpPrompt" rows="2" spellcheck="false"
+                        title="typing feeds the translation shim - wire blobs and numbers earn a DRAFT envelope; small talk is answered by the interface"
+                        placeholder="Paste what your plant emits - a Modbus dump, Sparkplug payload, Prometheus text, raw numbers - or press a sample chip. Enter sends."></textarea>
+                      <div class="sn-prompt__row">
+                        <span class="sn-prompt__wire" id="wpPromptWire"></span>
+                        <button class="wp-run wp-run--send" type="submit">SEND &rarr;</button>
+                      </div>
+                    </div>
+                  </form>
                 </div>
 
                 <div class="sn-foot">
@@ -530,33 +551,8 @@
               </div>
             </div>
 
-            <!-- ================= INTAKE - THE TRANSLATION SHIM =================
-                 Handoff 3: Wave models cannot be free-chatted - every human
-                 input is CLASSIFIED and WRAPPED, the shim shows its evidence,
-                 and a paste earns the REQUEST ENVELOPE, DRAFT · NOT RUN. -->
-            <section class="wp-intake" id="wpIntake" hidden aria-label="Intake - the translation shim">
-              <div class="wp-panel__head">
-                <b>INTAKE &middot; THE TRANSLATION SHIM</b>
-                <button class="wp-remove" id="wpIntakeClose" type="button">close</button>
-              </div>
-              <div class="wp-intake__grid">
-                <div class="wp-intake__left">
-                  <label class="wp-scrub__label" for="wpPaste">Paste what your plant emits</label>
-                  <textarea class="wp-paste" id="wpPaste" rows="9" spellcheck="false"
-                    placeholder="Paste what your plant emits - a Modbus dump, OPC UA notifications, Prometheus text, raw numbers - or press a sample below."></textarea>
-                  <div class="wp-samples" id="wpSamples" role="group" aria-label="Recorded samples"></div>
-                </div>
-                <div class="wp-intake__right">
-                  <dl class="wp-detect" id="wpDetect">
-                    <dt>MODALITY</dt><dd id="wpDetMod">paste something - the shim reads as you type</dd>
-                    <dt>SHAPE</dt><dd id="wpDetShape">&mdash;</dd>
-                    <dt>FRAME</dt><dd id="wpDetFrame">&mdash;</dd>
-                  </dl>
-                  <p class="wp-note" id="wpDetNote"></p>
-                  <button class="wp-run wp-run--send" id="wpSend" type="button" disabled>SEND TO THE BENCH &rarr;</button>
-                </div>
-              </div>
-            </section>
+<!-- The prompt below the monitor replaced the intake drawer as the
+                 primary path; the shim (classify + envelope) is unchanged. -->
 
             <details class="wp-note syn__mirror">
               <summary>View this patch as a list</summary>

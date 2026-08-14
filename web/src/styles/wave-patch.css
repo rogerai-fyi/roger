@@ -134,16 +134,6 @@
 }
 
 /* ---- INTAKE: the translation shim -------------------------------------- */
-.wp-intake {
-  margin-top: var(--s-3, .75rem); padding: .8rem;
-  border: 1px dashed var(--hairline-2); border-radius: 10px;
-  background: var(--paper-2);
-}
-.wp-intake__grid {
-  display: grid; gap: var(--s-4, 1rem);
-  grid-template-columns: minmax(320px, 1.5fr) minmax(260px, 1fr);
-}
-@media (max-width: 860px) { .wp-intake__grid { grid-template-columns: 1fr; } }
 .wp-paste {
   width: 100%; box-sizing: border-box; resize: vertical;
   font-family: var(--font-mono); font-size: .66rem; line-height: 1.5;
@@ -603,14 +593,6 @@
 .sn-side__pads { padding: .65rem; }
 .sn-now { margin: .3rem 0 0; font-family: var(--font-mono); font-size: .56rem; color: var(--ink-500); overflow-wrap: anywhere; }
 .sn-now b { color: var(--ink-900); letter-spacing: .06em; }
-.sn-paste {
-  display: flex; gap: .5rem; align-items: center; justify-content: center;
-  padding: .5rem .7rem; border-radius: 8px; cursor: pointer; font: inherit;
-  font-family: var(--font-mono); font-size: .58rem; letter-spacing: .1em;
-  background: var(--paper); border: 1.5px dashed var(--ink-300); color: var(--ink-500);
-}
-.sn-paste:hover { border-color: var(--ink-900); color: var(--ink-900); }
-.sn-paste:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
 .sn-roadmap { margin: 0; font-family: var(--font-mono); font-size: .52rem; color: var(--ink-300); text-align: center; }
 
 /* ---- 2) the chain rail ----------------------------------------------------- */
@@ -662,33 +644,7 @@
 .syn-plus:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
 .syn-plus[aria-expanded="true"] { border-style: solid; border-color: var(--ink-900); }
 
-/* ---- 3) THE MONITOR: the hero --------------------------------------------
-   The engraved CRT bezel frames a real, scrolling screen: the plate is an
-   alpha mask layered OVER the output (pointer-events none), and the
-   cascade lives in the glass interior (the engraving's screen area is
-   transparent). ILLUSTRATION frames data; it never is the data. -->     */
-.sn-monitor {
-  position: relative; width: 100%; max-width: 640px; margin: 0 auto;
-  aspect-ratio: 605 / 550;
-}
-.sn-monitor__plate { position: absolute; inset: 0; pointer-events: none; z-index: 2; }
-.sn-monitor__plate .wb-plate__ink {
-  position: absolute; inset: 0; background: var(--ink-900);
-  -webkit-mask-image: url("../assets/wave/glass-monitor-ink.png");
-  mask-image: url("../assets/wave/glass-monitor-ink.png");
-  -webkit-mask-size: contain; mask-size: contain;
-  -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
-  -webkit-mask-position: center; mask-position: center;
-}
-.sn-monitor__screen {
-  position: absolute; left: 19%; top: 18.5%; width: 59%; height: 48%;
-  overflow-y: auto; z-index: 1;
-  background: var(--paper-3);
-  box-shadow: inset 0 2px 10px rgba(0, 0, 0, .16);
-  border-radius: 6px;
-  padding: .55rem .65rem; box-sizing: border-box;
-  display: flex; flex-direction: column; gap: .55rem;
-}
+
 
 /* the stages: each one labeled by who produced it, revealed alive */
 .sn-stage { border-left: 2px solid var(--hairline-2); padding-left: .55rem; }
@@ -782,4 +738,133 @@
 
 /* the chain menu inherits the bay treatment */
 #wsChainMenu .ws-menu { margin-top: .5rem; }
+
+/* =====================================================================
+   THE MONITOR v7 - bezel-as-chrome. Output room wins over the plate:
+   a large CSS glass with channel-button tabs, the engraved CRT as an
+   emblem, the live strip-chart of REAL recorded samples on top, and the
+   prompt line - a terminal wired to the last model - underneath.
+   ===================================================================== */
+.sn-mon2 {
+  border-radius: 16px; border: 1px solid var(--hairline-2);
+  background: var(--paper-2);
+  box-shadow: inset 0 1px 0 var(--paper), 0 12px 30px rgba(0, 0, 0, .12);
+  padding: .7rem .8rem .8rem;
+  display: flex; flex-direction: column; gap: .6rem;
+  /* the founder's 3D ask, kept subtle enough to never blur the text */
+  transform: perspective(1400px) rotateX(.6deg);
+  transform-origin: top center;
+}
+.sn-mon2__bar { display: flex; align-items: center; gap: .7rem; flex-wrap: wrap; }
+.sn-mon2__emblem { width: 2.4rem; height: 2.1rem; position: relative; flex: none; }
+.sn-mon2__emblem .wb-plate__ink {
+  position: absolute; inset: 0; background: var(--ink-900);
+  -webkit-mask-image: url("../assets/wave/glass-monitor-ink.png");
+  mask-image: url("../assets/wave/glass-monitor-ink.png");
+  -webkit-mask-size: contain; mask-size: contain;
+  -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+  -webkit-mask-position: center; mask-position: center;
+}
+.sn-tabs { display: flex; gap: .35rem; flex-wrap: wrap; }
+.sn-tab {
+  padding: .3rem .7rem; border-radius: 6px; cursor: pointer; font: inherit;
+  font-family: var(--font-mono); font-size: .56rem; letter-spacing: .12em;
+  background: var(--paper); color: var(--ink-500);
+  border: 1px solid var(--hairline-2);
+  box-shadow: inset 0 -2px 0 rgba(0, 0, 0, .06);
+}
+.sn-tab:hover { border-color: var(--ink-500); }
+.sn-tab:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
+/* a pressed channel button sits DOWN, like hardware */
+.sn-tab.is-on {
+  background: var(--paper-3); color: var(--ink-900); border-color: var(--ink-500);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, .14);
+  transform: translateY(1px);
+}
+.sn-mon2__bar .wp-tag--led { margin-left: auto; }
+
+.sn-mon2__screen {
+  min-height: 26rem; max-height: 34rem; overflow-y: auto;
+  border-radius: 10px; padding: .8rem .9rem;
+  background: var(--paper-3);
+  /* glass: an inset well with the faintest scan texture and a sheen */
+  background-image:
+    linear-gradient(165deg, rgba(255, 255, 255, .18) 0%, transparent 22%),
+    repeating-linear-gradient(to bottom, transparent 0, transparent 3px, rgba(0, 0, 0, .012) 3px, rgba(0, 0, 0, .012) 4px);
+  box-shadow: inset 0 3px 14px rgba(0, 0, 0, .18), inset 0 0 0 1px var(--hairline-2);
+  display: flex; flex-direction: column; gap: .7rem;
+}
+/* the power-on sweep when the output changes - chrome, motion-gated */
+@media (prefers-reduced-motion: no-preference) {
+  .sn-mon2__screen.is-flip { animation: sn-power .3s ease-out; }
+  @keyframes sn-power { from { opacity: .35; filter: brightness(1.25); } to { opacity: 1; filter: none; } }
+}
+
+/* solo stages read large */
+.sn-stage--solo .sn-proto { font-size: .9rem; }
+.sn-stage--solo .sn-verdict { font-size: 1.35rem; }
+.sn-stage--solo .ws-log { font-size: .62rem; max-height: 20rem; }
+.sn-stage--reply { border-left-color: var(--ink-900); }
+.sn-stage--reply .ws-resp__x { margin-left: auto; }
+
+/* ---- the LIVE TRACE: real recorded samples, looped ----------------------- */
+.sn-strip { border-left: 2px solid var(--hairline-2); padding-left: .55rem; }
+.sn-strip__svg {
+  display: block; width: 100%; height: 96px; margin-top: .3rem;
+  border-radius: 6px; background: var(--paper);
+  box-shadow: inset 0 1px 5px rgba(0, 0, 0, .1);
+  overflow: hidden;
+}
+.sn-strip__line { fill: none; stroke: var(--ink-900); stroke-width: 1.4; vector-effect: non-scaling-stroke; }
+@media (prefers-reduced-motion: no-preference) {
+  .sn-strip__scroll { animation: sn-scrollx 9s linear infinite; }
+  @keyframes sn-scrollx { to { transform: translateX(-50%); } }
+}
+
+/* the pads preview their record's REAL series */
+.sn-spark { display: block; width: 100%; height: 100%; padding: .3rem; box-sizing: border-box; }
+.sn-spark__line { fill: none; stroke: var(--ink-700); stroke-width: 1.1; vector-effect: non-scaling-stroke; }
+.syn-pad.is-lit .sn-spark__line { stroke: var(--ink-900); }
+/* pad press depth - hardware feel, no motion dependency */
+.syn-pad:active .syn-pad__cap { transform: translateY(1px) scale(.985); box-shadow: inset 0 3px 7px rgba(0, 0, 0, .16); }
+
+/* knob inertia: the cap eases to its detent */
+@media (prefers-reduced-motion: no-preference) {
+  .wp-knob__cap { transition: transform .18s cubic-bezier(.3, 1.4, .5, 1); }
+  .sn-rail__cable { stroke-dasharray: 4 3; animation: sn-crawl2 2.6s linear infinite; }
+  @keyframes sn-crawl2 { to { stroke-dashoffset: -14; } }
+}
+
+/* ---- the prompt: a terminal line wired to the last model ----------------- */
+.sn-chips { display: flex; flex-wrap: wrap; gap: .3rem; align-items: center; }
+.sn-prompt { display: flex; gap: .8rem; align-items: stretch; }
+.sn-prompt__keys { width: 8.5rem; position: relative; flex: none; align-self: center; aspect-ratio: 660 / 295; }
+.sn-prompt__keys .wb-plate__ink {
+  position: absolute; inset: 0; background: var(--ink-900);
+  -webkit-mask-image: url("../assets/wave/term-keys-ink.png");
+  mask-image: url("../assets/wave/term-keys-ink.png");
+  -webkit-mask-size: contain; mask-size: contain;
+  -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+  -webkit-mask-position: center; mask-position: center;
+}
+@media (max-width: 760px) { .sn-prompt__keys { display: none; } }
+.sn-prompt__line { flex: 1; display: flex; flex-direction: column; gap: .35rem; min-width: 0; }
+.sn-prompt__ta {
+  width: 100%; box-sizing: border-box; resize: vertical;
+  font-family: var(--font-mono); font-size: .64rem; line-height: 1.5;
+  padding: .55rem .6rem; border-radius: 8px;
+  border: 1px solid var(--hairline-2); background: var(--paper); color: var(--ink-900);
+}
+.sn-prompt__ta:focus-visible { outline: 2px solid var(--live); outline-offset: 1px; }
+.sn-prompt__row { display: flex; gap: .8rem; align-items: center; }
+.sn-prompt__wire {
+  font-family: var(--font-mono); font-size: .54rem; letter-spacing: .08em;
+  color: var(--ink-400); flex: 1;
+}
+.sn-reco {
+  font-family: var(--font-mono); font-size: .5rem; letter-spacing: .14em;
+  color: var(--ink-500); border: 1px solid var(--hairline-2); border-radius: 999px;
+  padding: .15rem .5rem; background: var(--paper);
+}
+.sn-roadmap--chain { text-align: left; margin-top: .2rem; }
 

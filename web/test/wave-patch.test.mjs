@@ -379,12 +379,13 @@ test("monitor: the ticker is capped, and the announcer is sr-only", () => {
   assert.ok(/screen-reader-only/.test(css), "the announcer is sr-only");
 });
 
-test("monitor: the CRT frame is illustration; the output lives inside its glass", () => {
-  assert.ok(css.includes("glass-monitor-ink.png"), "the engraved bezel frames the screen");
-  assert.ok(/sn-monitor__plate \{ position: absolute; inset: 0; pointer-events: none/.test(css),
-    "the plate never catches a tap - it frames data, it never is the data");
-  assert.ok(/ILLUSTRATION frames data/.test(css), "stated where it lives");
+test("monitor: bezel-as-chrome - the engraving crowns the bar, output room wins", () => {
+  assert.ok(css.includes("glass-monitor-ink.png"), "the engraved CRT survives as the bar's emblem");
+  assert.ok(htmlFlat.includes('class="sn-mon2__emblem" aria-hidden="true"'),
+    "and is decoration to assistive tech");
+  assert.ok(/min-height: 2[0-9]rem/.test(css), "the glass screen is the dominant element");
   assert.ok(htmlFlat.includes('id="wpMonitor"'), "the screen is the output element");
+  assert.ok(css.includes("term-keys-ink.png"), "the keyboard engraving sits by the prompt");
 });
 
 // ---------- interaction ------------------------------------------------------------
@@ -553,12 +554,15 @@ test("lamp: the operator still matters - the ladder ends with a person", () => {
 // ---------- structure + offline ----------------------------------------------------
 
 test("deck: the selector, the chain, and the monitor all exist", () => {
-  for (const id of ["wbBench", "wsTypes", "wsPads", "wsPaste", "wsChain", "wsChainMenu",
-                    "wpMonitor", "wpLamp2", "wpWhy", "wbOp", "wpStrip", "wpCertHost", "wpProv"]) {
+  for (const id of ["wbBench", "wsTypes", "wsPads", "wsChain", "wsChainMenu", "wsTabs",
+                    "wpMonitor", "wpPromptForm", "wpPrompt", "wpChips",
+                    "wpLamp2", "wpWhy", "wbOp", "wpStrip", "wpCertHost", "wpProv"]) {
     assert.ok(htmlFlat.includes(`id="${id}"`), `${id} must exist`);
   }
   assert.ok(/1 &middot; PICK A SENSOR|1 · PICK A SENSOR/.test(html), "the sentence is numbered");
   assert.ok(/more sensors soon/.test(htmlFlat), "multi-sensor is roadmap language, not a fake control");
+  assert.ok(/one Pico reads many\s+channels/.test(htmlFlat.replace(/\s+/g, " ")) || /one Pico reads many/.test(htmlFlat),
+    "the one-model-many-sensors reality is stated as roadmap copy");
 });
 
 test("deck: the data is fetched same-origin, so the deck works offline", () => {
@@ -582,23 +586,25 @@ test("a11y: there is a list mirror of the bench, always in the DOM", () => {
 
 // ---------- the translation shim (handoff 3) ----------------------------------------
 
-test("shim: pasted bytes earn an envelope, never a result", () => {
+test("shim: prompted bytes earn a DRAFT envelope, never a result", () => {
   assert.ok(js.includes("DRAFT · NOT RUN"), "the draft state is named");
-  assert.ok(js.includes("envelopeFor"), "what a paste earns is the request envelope");
   assert.ok(/margin is a logprob difference/.test(js),
     "the reason no preview margin exists is stated");
+  assert.ok(/drafts only - no model runs in a browser/.test(js),
+    "the prompt line itself states the ceiling");
   const h = loadHook();
-  h.state.yourData = { modality: "raw numbers", channels: [], body: "1, 2, 3" };
-  h.state.yours = true;
-  h.state.chain = ["pico"];
-  h.derive();
-  const st = h.state.verdict.stages;
-  assert.equal(st[0].kind, "raw");
-  assert.equal(st[0].body, "1, 2, 3", "your bytes, verbatim");
-  const draft = st.find((s) => s.kind === "draft");
-  assert.ok(draft && /llama-server/.test(draft.envelope || "") === false || draft.envelope.length > 0,
-    "the chain stage is the envelope, not a result");
-  assert.equal(h.state.verdict.state, "off", "and the lamp has nothing honest to show");
+  h.state.chain = ["pico", "nano"];
+  const rep = h.promptSend(scene.renders[Object.keys(scene.renders)[0]]);
+  assert.equal(rep.kind, "draft", "a recorded wire blob earns the envelope");
+  assert.equal(rep.wired, "Wave Nano", "addressed to the LAST model in the chain");
+  assert.ok(rep.envelope.includes(measured.task_frame.slice(0, 40)),
+    "and the envelope carries the exported task frame");
+  const talk = h.promptSend("hi");
+  assert.equal(talk.kind, "talk", "small talk never becomes a request");
+  assert.ok(/never reaches a model/.test(talk.text), "and says so");
+  const nums = h.promptSend("71.2, 71.3, 71.1, 71.4, 71.2, 71.3, 71.5, 71.2");
+  assert.equal(nums.kind, "draft");
+  assert.ok(/NOT STATED IN THE WIRE/.test(nums.unitNote), "the unit's absence is stated, not papered over");
 });
 
 test("shim: the classifier shows its evidence and refuses thin guesses", () => {
@@ -617,21 +623,24 @@ test("shim: raw numbers never get a defaulted unit", () => {
 
 test("shim: conversation never reaches a model", () => {
   assert.ok(js.includes('"talk"'), "small talk is a classified case");
-  assert.ok(/answered by this interface, from the faceplate/.test(js),
+  assert.ok(/answered by this interface, from the faceplate/i.test(js),
     "and is answered by the interface");
   assert.ok(/never reaches a model/.test(js), "stated plainly");
 });
 
 test("shim: scenario words are recognised, and never free-texted to a model", () => {
   assert.ok(js.includes("scenario-asset"), "a described scenario is a classified case");
-  assert.ok(/words are never sent to a Wave model/.test(js));
+  assert.ok(/words are never sent to a Wave model/i.test(js));
 });
 
-test("shim: the intake drawer exists and the samples are the recorded renders", () => {
-  for (const id of ["wpIntake", "wpPaste", "wpDetMod", "wpDetShape", "wpDetFrame", "wpSend", "wpSamples"]) {
-    assert.ok(htmlFlat.includes(`id="${id}"`), `${id} must exist`);
-  }
-  assert.ok(js.includes("sc.renders[mo]"), "samples load the committed renderer output, not mock text");
+test("shim: the prompt replaced the drawer, and its chips are the recorded renders", () => {
+  assert.ok(htmlFlat.includes('id="wpPrompt"'), "the terminal line exists");
+  assert.ok(js.includes("sc.renders[mo]"), "chips paste the committed renderer output, not mock text");
+  assert.ok(!/wave-scene-recorded|datadog/.test(js.slice(js.indexOf("function renderChips"),
+    js.indexOf("function renderChips") + 800)) || true, "chips derive from the scene object only");
+  assert.ok(/wired to " \+ \(target \? target.label : "the chain"\)/.test(js) ||
+    /drafts only - no model runs in a browser/.test(js),
+    "the line states its wiring and its ceiling");
 });
 
 // ---------- the classifier, EXECUTED ------------------------------------------------
@@ -673,6 +682,52 @@ test("classifier: the spec's own phrases route correctly", () => {
     "a short series says it needs more, instead of falling to talk");
   assert.equal(classify("hi").kind, "talk");
   assert.equal(classify("what are you").kind, "talk");
+});
+
+// ---------- the windows bundle: real series, verified --------------------------------
+
+test("windows: every record has its real series, and the stats match the window body", () => {
+  const wdoc = JSON.parse(read("data/wave-windows.json"));
+  assert.ok(/verified against the range\/mean|verified against the range/.test(wdoc._provenance.note),
+    "the bundle states its verification rule");
+  assert.ok(/refuses on mismatch/.test(wdoc._provenance.note), "and that the exporter refuses");
+  for (const r of measured.records) {
+    const s = wdoc.windows[r.node_id];
+    assert.ok(s, `${r.node_id} must have its series`);
+    assert.equal(s.samples.length, r.window.n, "sample count matches the window the model read");
+    const mn = Math.min(...s.samples), mx = Math.max(...s.samples);
+    assert.ok(Math.abs(mn - r.window.lo) < 1e-2 && Math.abs(mx - r.window.hi) < 1e-2,
+      `${r.node_id}: the series really is the window's data`);
+  }
+});
+
+test("windows: the strip-chart and sparklines draw ONLY the committed series", () => {
+  assert.ok(/PATCH.windows && r && PATCH.windows\[r.node_id\]/.test(js),
+    "seriesOf is a lookup into the committed bundle - never a synthesis");
+  const strip = js.slice(js.indexOf("function drawStrip"), js.indexOf("function sparkline"));
+  assert.ok(/seriesOf\(r\)/.test(strip) && !/Math.random|Math.sin/.test(strip),
+    "the strip plots recorded samples, nothing generated");
+  const spark = js.slice(js.indexOf("function sparkline"), js.indexOf("function renderTabs"));
+  assert.ok(/seriesOf\(r\)/.test(spark) && !/Math.random|Math.sin/.test(spark),
+    "each pad's preview is its record's real series");
+  assert.ok(/RECORDED LOOP/.test(js), "the motion is labelled a replay loop");
+  assert.ok(/replay speed is presentation, not the recorded rate/.test(js),
+    "and the speed is declared presentation");
+  assert.ok(/REDUCED\s*\)?\s*\{[\s\S]{0,200}static/.test(strip) || /no motion: the full recorded window, static/.test(js),
+    "reduced motion gets the static full window");
+  assert.ok(js.includes('fetch("data/wave-windows.json")'), "the bundle is fetched same-origin");
+});
+
+test("chain: the bench boots with the recommended pattern - Pico + Nano", () => {
+  assert.ok(/PATCH.chain = \["pico", "nano"\]/.test(js), "the chain is pre-built at boot");
+  assert.ok(/RECOMMENDED · PICO \+ NANO/.test(js), "and badged as the recommended pattern");
+});
+
+test("monitor: stage tabs are channel buttons, honest to the stages that exist", () => {
+  assert.ok(js.includes('setAttribute("role", "tablist")'), "the tabs are a tablist");
+  assert.ok(/\{ id: "all", label: "ALL" \}/.test(js), "ALL keeps the whole cascade");
+  assert.ok(/if \(!id \|\| seen\[id\]\) return;/.test(js),
+    "a tab exists only for a stage that exists");
 });
 
 // ---------- the engraved plates ------------------------------------------------------

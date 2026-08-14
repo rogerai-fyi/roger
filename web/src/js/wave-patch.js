@@ -117,11 +117,12 @@
     types: [],            // built from the records at boot
     typeKey: null,        // the selected sensor type
     cond: "none",         // the dialed condition (a recorded truth)
-    yours: false,         // YOUR DATA selected instead of a recorded type
+    windows: null,        // wave-windows.json: the real 96-sample series per record
+    tab: "all",           // the monitor's channel button: all | raw | pico | nano
+    reply: null,          // the prompt's last response (classified, DRAFT-only)
     chain: [],            // family ids, in daisy-chain order
     floor: 1.5,           // the Pico's margin floor (measured detents)
     operator: false,      // the lever by the monitor footer
-    yourData: null,       // the intake's pasted channel, if any
     verdict: null,
     menuFor: null,        // chain slot index whose attach menu is open
     booted: false,
@@ -168,7 +169,6 @@
 
   // The selected RECORD: type + condition, deterministically.
   function currentRecord() {
-    if (PATCH.yours) return null;
     var t = currentType();
     if (!t || !PATCH.measured) return null;
     var i = t.recIdx[PATCH.cond] != null ? t.recIdx[PATCH.cond] : t.recIdx[t.conds[0]];
@@ -201,7 +201,6 @@
   function selectType(key, cond) {
     var t = typeOf(key);
     if (!t) return;
-    PATCH.yours = false;
     PATCH.typeKey = key;
     PATCH.cond = (cond != null && t.recIdx[cond] != null) ? cond
       : (t.recIdx[PATCH.cond] != null ? PATCH.cond : t.conds[0]);
@@ -212,15 +211,6 @@
      ===================================================================== */
   function stages() {
     var out = [];
-    if (PATCH.yours && PATCH.yourData) {
-      out.push({ kind: "raw", who: "YOUR BYTES", body: PATCH.yourData.body || "",
-                 tag: "your channel", draft: true });
-      if (PATCH.chain.length) {
-        out.push({ kind: "draft", who: "THE CHAIN",
-                   envelope: envelopeFor(PATCH.yourData) });
-      }
-      return out;
-    }
     var r = currentRecord();
     if (!r) return out;
     var w = r.window || {};
@@ -296,16 +286,6 @@
     if (!PATCH.measured) return;
     var st = stages();
     var state, why, label = null;
-
-    if (PATCH.yours) {
-      state = "off";
-      why = PATCH.chain.length
-        ? "Your bytes are a DRAFT - nothing ran, so the lamp has nothing honest to show. The monitor holds the request envelope."
-        : "Your bytes are on the bench. Chain a model to see the envelope it would earn.";
-      PATCH.verdict = { state: state, why: why, label: null, stages: st };
-      paintMonitor();
-      return;
-    }
 
     var r = currentRecord();
     var info = chainInfo();
@@ -484,7 +464,9 @@
     renderSelector();
     renderPads();
     renderChain();
+    renderTabs();
     paintMonitor();
+    paintWire();
     renderOp();
     renderMirror();
   }
@@ -506,7 +488,7 @@
     host.setAttribute("role", "radiogroup");
     host.setAttribute("aria-label", "Sensor type - derived from the recorded tags");
     PATCH.types.forEach(function (t) {
-      var sel = !PATCH.yours && PATCH.typeKey === t.key;
+      var sel = PATCH.typeKey === t.key;
       var b = el("button", "sn-type" + (sel ? " is-sel" : ""));
       b.type = "button";
       b.setAttribute("role", "radio");
@@ -539,11 +521,6 @@
     var host = $("wsPads");
     if (!host) return;
     host.textContent = "";
-    if (PATCH.yours) {
-      host.appendChild(el("p", "wp-note",
-        "Your pasted bytes are the sensor now. Pick a type above to go back to the recorded fleet."));
-      return;
-    }
     var t = currentType();
     if (!t) return;
     var head = el("div", "syn-pads__head");
@@ -563,7 +540,10 @@
       var rr = PATCH.measured.records[t.recIdx[c]];
       pad.title = "replays recorded record " + rr.node_id + " (scene " + rr.scene_id +
         ") - a pad is a recorded instance, selected, not simulated";
-      pad.appendChild(el("span", "syn-pad__cap"));
+      var cap = el("span", "syn-pad__cap");
+      var sp = sparkline(rr);
+      if (sp) cap.appendChild(sp);
+      pad.appendChild(cap);
       pad.appendChild(el("span", "syn-pad__k", CONDW[c] || c.toUpperCase()));
       pad.addEventListener("click", function () {
         PATCH.cond = c;
@@ -606,11 +586,11 @@
     // the sensor end of the rail
     var t = currentType();
     var sens = el("div", "sn-slot sn-slot--sensor");
-    var art = el("span", "sn-type__art sn-type__art--" + (PATCH.yours ? "junction" : (t ? t.icon : "gauge")));
+    var art = el("span", "sn-type__art sn-type__art--" + (t ? t.icon : "gauge"));
     art.setAttribute("aria-hidden", "true");
     art.appendChild(el("span", "wb-plate__ink"));
     sens.appendChild(art);
-    sens.appendChild(el("b", null, PATCH.yours ? "YOUR BYTES" : (t ? t.label : "")));
+    sens.appendChild(el("b", null, t ? t.label : ""));
     sens.appendChild(el("span", "sn-sub", "emitting"));
     host.appendChild(sens);
 
@@ -634,6 +614,13 @@
       if (m) m.focus();
     });
     host.appendChild(plus);
+
+    if (PATCH.chain.length === 2 && PATCH.chain[0] === "pico" && PATCH.chain[1] === "nano") {
+      var badge = el("span", "sn-reco", "RECOMMENDED · PICO + NANO");
+      badge.title = "the measured deployment pattern: a small reader asserting at its floor, " +
+        "a senior adjudicating the doubtful reads";
+      host.appendChild(badge);
+    }
 
     host.appendChild(railArrow());
     var mon = el("div", "sn-slot sn-slot--monitor");
@@ -706,6 +693,9 @@
     var fam = familyById(id);
     var card = el("div", "sn-slot sn-slot--model" +
       (fam.status === "recorded" ? "" : " sn-slot--quiet"));
+    card.title = fam.blurb + (fam.status === "recorded"
+      ? " - its stage replays recorded fields only"
+      : " - it chains in honestly silent: no recorded transcript");
     card.appendChild(modelIcon(fam));
     var txt = el("span", "sn-slot__txt");
     txt.appendChild(el("b", null, fam.label));
@@ -821,30 +811,150 @@
   /* =====================================================================
      THE MONITOR - the hero. The output at each stage, top to bottom.
      ===================================================================== */
+  /* ---- the real recorded series, drawn live ------------------------------
+     Every path below is plotted from wave-windows.json - the raw 96-sample
+     series behind the very window the model read, verified by the exporter
+     against the window body. The MOTION is chrome (a loop, labelled); the
+     SHAPE is recorded fact: a STUCK window genuinely flatlines, a DROPOUT
+     genuinely gaps, because the samples are real. */
+  function seriesOf(r) {
+    return (PATCH.windows && r && PATCH.windows[r.node_id]) || null;
+  }
+
+  function seriesPath(samples, W, H, pad, dup) {
+    var lo = Math.min.apply(null, samples), hi = Math.max.apply(null, samples);
+    var span = (hi - lo) || 1;
+    var n = samples.length, reps = dup ? 2 : 1, d = "";
+    for (var k = 0; k < reps; k++) {
+      for (var i = 0; i < n; i++) {
+        var x = ((k * n + i) / (reps * n - 1)) * W;
+        var y = pad + (1 - (samples[i] - lo) / span) * (H - pad * 2);
+        d += (k === 0 && i === 0 ? "M" : "L") + x.toFixed(1) + " " + y.toFixed(1);
+      }
+    }
+    return d;
+  }
+
+  function drawStrip(r) {
+    var s = seriesOf(r);
+    if (!s) return null;
+    var wrap = el("div", "sn-strip");
+    var head = el("div", "sn-stage__head");
+    head.appendChild(el("b", null, "LIVE TRACE"));
+    var rec = el("span", "ws-rec" + (REDUCED ? "" : " is-live"));
+    rec.appendChild(el("span", "ws-rec__dot"));
+    rec.appendChild(el("span", null, "REPLAY · RECORDED LOOP"));
+    rec.title = "the record's real " + s.samples.length + " samples, replayed in a loop - " +
+      "the motion is presentation; the shape is recorded fact";
+    head.appendChild(rec);
+    wrap.appendChild(head);
+    var W = 560, H = 96;
+    var host = svg("svg", { class: "sn-strip__svg", viewBox: "0 0 " + W + " " + H,
+      preserveAspectRatio: "none", role: "img",
+      "aria-label": "the recorded sample series for this record, replayed in a loop" });
+    if (REDUCED) {
+      // no motion: the full recorded window, static
+      host.appendChild(svg("path", { class: "sn-strip__line",
+        d: seriesPath(s.samples, W, H, 8, false) }));
+    } else {
+      var g = svg("g", { class: "sn-strip__scroll" });
+      g.appendChild(svg("path", { class: "sn-strip__line",
+        d: seriesPath(s.samples, W * 2, H, 8, true) }));
+      host.appendChild(g);
+    }
+    wrap.appendChild(host);
+    var w = r.window || {};
+    wrap.appendChild(el("p", "sn-sub",
+      (w.tag || r.node_id) + " · " + s.samples.length + " recorded samples · period " +
+      s.period_s + "s · replay speed is presentation, not the recorded rate"));
+    return wrap;
+  }
+
+  // A pad's preview: the tiny REAL series of the record that pad replays.
+  function sparkline(r) {
+    var s = seriesOf(r);
+    if (!s) return null;
+    var host = svg("svg", { class: "sn-spark", viewBox: "0 0 40 14", "aria-hidden": "true" });
+    host.appendChild(svg("path", { class: "sn-spark__line",
+      d: seriesPath(s.samples, 40, 14, 2, false) }));
+    return host;
+  }
+
+  /* ---- the channel buttons: which stage the screen shows ------------------ */
+  function renderTabs() {
+    var host = $("wsTabs");
+    if (!host) return;
+    host.textContent = "";
+    host.setAttribute("role", "tablist");
+    host.setAttribute("aria-label", "Which stage's output the monitor shows");
+    var sts = PATCH.verdict ? PATCH.verdict.stages : [];
+    var tabs = [{ id: "all", label: "ALL" }], seen = {};
+    sts.forEach(function (st) {
+      var id = st.kind === "raw" ? "raw"
+        : st.kind === "pico" ? "pico"
+        : (st.kind === "nano" || st.kind === "quietSenior") ? "nano" : null;
+      if (!id || seen[id]) return;
+      seen[id] = true;
+      tabs.push({ id: id, label: id === "raw" ? "RAW WIRE" : id === "pico" ? "WAVE PICO" : "WAVE NANO" });
+    });
+    if (!tabs.some(function (t) { return t.id === PATCH.tab; })) PATCH.tab = "all";
+    tabs.forEach(function (t) {
+      var b = el("button", "sn-tab" + (PATCH.tab === t.id ? " is-on" : ""));
+      b.type = "button";
+      b.setAttribute("role", "tab");
+      b.setAttribute("aria-selected", PATCH.tab === t.id ? "true" : "false");
+      b.textContent = t.label;
+      b.title = t.id === "all" ? "the whole cascade, every stage in order"
+        : "show only this stage's output, large";
+      b.addEventListener("click", function () {
+        PATCH.tab = t.id;
+        paintMonitor();
+        renderTabs();
+      });
+      host.appendChild(b);
+    });
+  }
+
   function paintMonitor() {
     var host = $("wpMonitor");
     if (!host) return;
     host.textContent = "";
+    // the power-on sweep: retriggered chrome, guarded by reduced-motion in CSS
+    host.classList.remove("is-flip");
+    void host.offsetWidth;
+    host.classList.add("is-flip");
+
     var v = PATCH.verdict;
     var sts = v ? v.stages : stages();
+    var r = currentRecord();
+
+    if (r && (PATCH.tab === "all" || PATCH.tab === "raw")) {
+      var strip = drawStrip(r);
+      if (strip) host.appendChild(strip);
+    }
 
     sts.forEach(function (st) {
-      var box = el("section", "sn-stage sn-stage--" + st.kind);
+      if (PATCH.tab !== "all") {
+        if (PATCH.tab === "raw" && st.kind !== "raw") return;
+        if (PATCH.tab === "pico" && st.kind !== "pico") return;
+        if (PATCH.tab === "nano" && st.kind !== "nano" && st.kind !== "quietSenior") return;
+      }
+      var solo = PATCH.tab !== "all";
+      var box = el("section", "sn-stage sn-stage--" + st.kind + (solo ? " sn-stage--solo" : ""));
       var head = el("div", "sn-stage__head");
       head.appendChild(el("b", null, st.who));
       if (st.kind === "raw") {
-        var rec = el("span", "ws-rec" + (REDUCED ? "" : " is-live"));
+        var rec = el("span", "ws-rec");
         rec.appendChild(el("span", "ws-rec__dot"));
-        rec.appendChild(el("span", null, st.draft ? "DRAFT · NOT RUN" : "MONITORING · REPLAY"));
-        rec.title = st.draft ? "your bytes - nothing ran" : "the recorded window, replayed - nothing here is live";
+        rec.appendChild(el("span", null, "MONITORING · REPLAY"));
+        rec.title = "the recorded window, replayed - nothing here is live";
         head.appendChild(rec);
       }
       box.appendChild(head);
 
       if (st.kind === "raw") {
         var log = el("pre", "ws-log", st.body);
-        log.title = st.draft ? "your bytes, verbatim"
-          : "byte-for-byte, the window the model read in the recorded run";
+        log.title = "byte-for-byte, the window the model read in the recorded run";
         box.appendChild(log);
       } else if (st.kind === "pico") {
         var line = el("p", "sn-proto");
@@ -875,12 +985,6 @@
         box.appendChild(el("p", "sn-sub", st.note));
       } else if (st.kind === "deadend") {
         box.appendChild(el("p", "sn-para sn-para--warn", st.note));
-      } else if (st.kind === "draft") {
-        box.appendChild(el("p", "wp-tag wp-tag--draft", "DRAFT · NOT RUN"));
-        box.appendChild(el("p", "sn-sub",
-          "no model executes in a browser, and a margin is a logprob difference nothing " +
-          "here can compute. This is the exact request that would go to a stock llama-server:"));
-        box.appendChild(el("pre", "wp-wirebytes", st.envelope));
       } else if (st.kind === "silent") {
         box.appendChild(el("p", "sn-sub",
           st.fam.blurb + " - no recorded transcript, output unchanged."));
@@ -888,10 +992,14 @@
       host.appendChild(box);
     });
 
-    // the foot below the glass: the verdict lamp + why, always visible
+    if (PATCH.reply) host.appendChild(drawReply(PATCH.reply));
+
     var lampBig = $("wpLamp2"), why = $("wpWhy");
     if (lampBig && v) {
       lampBig.dataset.state = v.state;
+      lampBig.title = "derived from recorded records only: red = a miss a higher floor would have " +
+        "caught, yellow = an incomplete chain, green = complete (AT CEILING when the recorded " +
+        "senior itself missed)";
       var f2 = LAMP_FACE[v.state] || LAMP_FACE.off;
       lampBig.textContent = "";
       lampBig.appendChild(el("span", "wp-lampwin__sym", f2.sym));
@@ -901,8 +1009,7 @@
 
     var certHost = $("wpCertHost");
     if (certHost) certHost.textContent = "";
-    var r = currentRecord();
-    if (r && !PATCH.yours && certHost) {
+    if (r && certHost) {
       var det = el("details", "sn-cert");
       var sum = el("summary", null, "record certificate");
       det.appendChild(sum);
@@ -923,7 +1030,8 @@
       det.appendChild(dl);
       det.appendChild(el("p", "wp-note",
         "The raw stage above is byte-for-byte the window the model read in the recorded " +
-        "run. Every stage prints recorded fields; the margins are recorded logprob " +
+        "run; the live trace is its real sample series from the committed windows bundle. " +
+        "Every stage prints recorded fields; the margins are recorded logprob " +
         "differences - nothing in this browser computes one."));
       if (PATCH.scene && r.scene_id === PATCH.scene.scene_id) drawScopeInto(det);
       certHost.appendChild(det);
@@ -990,9 +1098,9 @@
     m.textContent = "";
     var t = currentType();
     var r = currentRecord();
-    m.appendChild(el("li", null, "Sensor: " + (PATCH.yours ? "your pasted bytes" :
+    m.appendChild(el("li", null, "Sensor: " +
       (t ? t.label + ", condition " + (CONDW[PATCH.cond] || PATCH.cond) +
-        (r ? ", replaying " + ((r.window && r.window.tag) || r.node_id) : "") : "none"))));
+        (r ? ", replaying " + ((r.window && r.window.tag) || r.node_id) : "") : "none")));
     if (!PATCH.chain.length) {
       m.appendChild(el("li", null, "Chain: empty - the sensor writes raw wire"));
     } else {
@@ -1157,119 +1265,110 @@
     return { kind: "talk" };
   }
 
-  function paintDetect() {
-    var v = INTAKE.verdict;
-    var mod = $("wpDetMod"), shape = $("wpDetShape"), frame = $("wpDetFrame");
-    var note = $("wpDetNote"), send = $("wpSend");
-    if (!mod) return;
-    send.disabled = true;
-    send.textContent = "SEND TO THE BENCH →";
-    note.textContent = "";
-
-    if (!v) {
-      mod.textContent = "paste something - the shim reads as you type";
-      shape.textContent = "—"; frame.textContent = "—";
-      return;
+  /* =====================================================================
+     THE PROMPT - a terminal line wired to the LAST model in the chain.
+     Typing feeds the TRANSLATION SHIM: every input is classified, and the
+     honest ceiling is stated on the line itself - drafts only, no model
+     runs in a browser. What a wire-blob or a number series earns is the
+     DRAFT request envelope; small talk is answered by the interface, from
+     the faceplate - it never reaches a model.
+     ===================================================================== */
+  function lastModel() {
+    for (var i = PATCH.chain.length - 1; i >= 0; i--) {
+      var f = familyById(PATCH.chain[i]);
+      if (f) return f;
     }
-    if (v.kind === "blob") {
-      mod.textContent = v.mod + "  ↳ matched " + v.evidence.map(function (e) {
-        return JSON.stringify(e.length > 18 ? e.slice(0, 18) + "…" : e);
-      }).join(", ");
-      shape.textContent = (v.tag ? "tag " + v.tag + " · " : "") + "pass-through: the blob IS the input body";
-      frame.textContent = "T01 sensor-health · frame exported - see the envelope";
-      if (v.recognised) {
-        note.textContent = "Recognised: byte-identical to the recorded pump scene's " +
-          v.recognised + " render. These are our recorded bytes - paste your own for the real test.";
+    return null;
+  }
+
+  function buildReply(text) {
+    var v = classify(text);
+    var target = lastModel();
+    var wired = target ? target.label : "the chain";
+    if (v.kind === "blob" || v.kind === "numbers") {
+      var src = v.kind === "blob"
+        ? { modality: v.mod, recognised: v.recognised || null,
+            channels: [{ name: v.tag || "your channel", unit: "" }], body: text }
+        : { modality: "raw numbers", recognised: null, unit: v.unit || null,
+            channels: [{ name: "your channel", unit: v.unit || "" }], body: text };
+      return { kind: "draft", wired: wired, v: v,
+               unitNote: v.kind === "numbers" && !v.unit
+                 ? "unit NOT STATED IN THE WIRE - a defaulted unit would be an invented fact"
+                 : (v.unit ? "unit stated: " + v.unit + " (you stated it - it was not in the wire)" : null),
+               recognised: v.recognised || null,
+               envelope: envelopeFor(src) };
+    }
+    if (v.kind === "talk") {
+      return { kind: "talk", wired: wired,
+               text: "Answered by this interface, from the faceplate - it never reaches a model. " +
+                 "Wave models are task-native: free-sampled, this input would produce a corpus " +
+                 "dream, not an answer. Paste what your plant emits, or press a sample chip." };
+    }
+    if (v.kind === "scenario-asset") {
+      return { kind: "scenario", wired: wired,
+               text: "That reads like a scenario about " + labelOf(v.asset) + " (matched: " +
+                 v.evidence.join(", ") + "). Words are never sent to a Wave model - this bench " +
+                 "replays the recorded fleet; describing your own scene returns when the scene " +
+                 "exporter grows." };
+    }
+    if (v.kind === "ambiguous") {
+      return { kind: "note", wired: wired,
+               text: "Unclear: " + v.a.mod + " (" + v.a.hits + " marks) vs " + v.b.mod + " (" +
+                 v.b.hits + ") - the shim refuses to guess on thin evidence. That is the real " +
+                 "system's behaviour too. Paste more of the payload." };
+    }
+    if (v.kind === "few-numbers") {
+      return { kind: "note", wired: wired,
+               text: "Looks numeric - " + v.n + " sample" + (v.n === 1 ? "" : "s") + ". A window " +
+                 "needs at least 8 samples to say anything about a signal; paste more of the series." };
+    }
+    return { kind: "note", wired: wired,
+             text: "Machine-shaped, but not a dialect the shim recognises - it reads eight " +
+               "dialects and their line shapes, and this matched none well enough to wrap " +
+               "honestly. Try including the header lines of the dump." };
+  }
+
+  function promptSend(text) {
+    text = String(text || "").trim();
+    if (!text) return null;
+    PATCH.reply = buildReply(text);
+    paintMonitor();
+    react(PATCH.reply.kind === "draft"
+      ? "Draft envelope built for " + PATCH.reply.wired + " - NOT RUN; no model runs in a browser."
+      : "The shim answered from the faceplate.");
+    return PATCH.reply;
+  }
+
+  function drawReply(rep) {
+    var box = el("section", "sn-stage sn-stage--reply");
+    var head = el("div", "sn-stage__head");
+    head.appendChild(el("b", null, "YOUR PROMPT → " + rep.wired.toUpperCase()));
+    if (rep.kind === "draft") head.appendChild(el("span", "wp-tag wp-tag--draft", "DRAFT · NOT RUN"));
+    var x = el("button", "ws-resp__x");
+    x.type = "button";
+    x.setAttribute("aria-label", "Dismiss the prompt response");
+    x.textContent = "×";
+    x.addEventListener("click", function () { PATCH.reply = null; paintMonitor(); });
+    head.appendChild(x);
+    box.appendChild(head);
+    if (rep.kind === "draft") {
+      if (rep.recognised) {
+        box.appendChild(el("p", "sn-sub", "Recognised: byte-identical to the recorded pump scene's " +
+          rep.recognised + " render. These are our recorded bytes - paste your own for the real test."));
       }
-      send.disabled = false;
-    } else if (v.kind === "ambiguous") {
-      mod.textContent = "unclear: " + v.a.mod + " (" + v.a.hits + " marks) vs " +
-        v.b.mod + " (" + v.b.hits + ") - add more of the payload";
-      shape.textContent = "—"; frame.textContent = "—";
-      note.textContent = "The shim refuses to guess on thin evidence. That is the real system's behaviour too.";
-    } else if (v.kind === "numbers") {
-      mod.textContent = "raw numbers  ↳ " + v.n + " numeric samples" +
-        (v.unit ? " · unit stated: " + v.unit : "");
-      shape.textContent = v.unit
-        ? "one channel · " + v.unit + " (you stated it - it was not in the wire)"
-        : "one channel · unit NOT STATED IN THE WIRE - a defaulted unit would be an invented fact";
-      frame.textContent = "T01 sensor-health · frame exported - see the envelope";
-      send.disabled = false;
-    } else if (v.kind === "few-numbers") {
-      mod.textContent = "looks numeric - " + v.n + " sample" + (v.n === 1 ? "" : "s");
-      shape.textContent = "a window needs at least 8 samples to say anything about a signal";
-      frame.textContent = "—";
-      note.textContent = "Paste more of the series and the shim will build the channel.";
-    } else if (v.kind === "machine-unknown") {
-      mod.textContent = "machine-shaped, but not a dialect the shim recognises";
-      shape.textContent = v.lines + " lines, digit-heavy - this looks like telemetry";
-      frame.textContent = "—";
-      note.textContent = "The shim reads eight dialects and their line shapes; this matched " +
-        "none well enough to wrap honestly. Try including the header lines of the dump.";
-    } else if (v.kind === "scenario-asset") {
-      mod.textContent = "a scenario, in words  ↳ matched " + v.evidence.join(", ");
-      shape.textContent = "words are never sent to a Wave model";
-      frame.textContent = "—";
-      note.textContent = "That device is in the catalogue (" + labelOf(v.asset) +
-        "). This bench plays the recorded fleet; describing your own scene returns " +
-        "when the scene exporter grows.";
+      if (rep.unitNote) box.appendChild(el("p", "sn-sub", rep.unitNote));
+      box.appendChild(el("p", "sn-sub",
+        "no model executes in a browser, and a margin is a logprob difference nothing here " +
+        "can compute. This is the exact request that would go to a stock llama-server:"));
+      box.appendChild(el("pre", "wp-wirebytes", rep.envelope));
     } else {
-      mod.textContent = "conversation";
-      shape.textContent = "answered by this interface, from the faceplate - it never reaches a model";
-      frame.textContent = "—";
-      note.textContent = "Wave models are task-native, not chat models. Free-sampled, this " +
-        "input would produce a corpus dream, not an answer. Tier pico · floor 2.0 · " +
-        "digest pending export. For conversation, the CONSOLE deck hosts chat models.";
+      box.appendChild(el("p", "sn-para", rep.text));
     }
+    return box;
   }
 
-  function intakeSend() {
-    var v = INTAKE.verdict;
-    if (!v) return;
-    if (v.kind === "blob") {
-      PATCH.yourData = { modality: v.mod, recognised: v.recognised || null,
-        channels: [{ name: v.tag || "your channel", unit: "" }], body: INTAKE.text };
-    } else if (v.kind === "numbers") {
-      PATCH.yourData = { modality: "raw numbers", recognised: null, unit: v.unit || null,
-        channels: [{ name: "your channel", unit: v.unit || "" }], body: INTAKE.text };
-    } else {
-      return;
-    }
-    PATCH.yours = true;
-    closeIntake();
-    derive();
-    render();
-    react(PATCH.chain.length
-      ? "Your bytes are the sensor now - the monitor holds the DRAFT request envelope."
-      : "Your bytes are the sensor now. Chain a model to see the envelope it would earn.");
-  }
-
-  // Drop or share text straight onto YOUR DATA: open the drawer with it read.
-  function intakeWith(text) {
-    openIntake();
-    var ta = $("wpPaste");
-    if (!ta) return;
-    ta.value = text;
-    INTAKE.text = text;
-    INTAKE.verdict = classify(text);
-    paintDetect();
-  }
-
-  function openIntake() {
-    var d = $("wpIntake");
-    if (!d) return;
-    d.hidden = false;
-    renderSamples();
-    var ta = $("wpPaste");
-    if (ta) ta.focus();
-  }
-  function closeIntake() {
-    var d = $("wpIntake");
-    if (d) d.hidden = true;
-  }
-
-  function renderSamples() {
-    var host = $("wpSamples");
+  function renderChips() {
+    var host = $("wpChips");
     if (!host || host.childNodes.length) return;
     var sc = PATCH.scene;
     if (!sc || !sc.renders) return;
@@ -1277,28 +1376,53 @@
     Object.keys(sc.renders).forEach(function (mo) {
       var b = el("button", "wp-dialect", mo);
       b.type = "button";
+      b.title = "paste the recorded " + mo + " render of the pump scene into the prompt";
       b.addEventListener("click", function () {
-        var ta = $("wpPaste");
+        var ta = $("wpPrompt");
         if (!ta) return;
         ta.value = sc.renders[mo];
-        INTAKE.text = ta.value;
-        INTAKE.verdict = classify(ta.value);
-        paintDetect();
+        promptSend(ta.value);
       });
       host.appendChild(b);
     });
   }
 
-  function wireIntake() {
-    var ta = $("wpPaste"), send = $("wpSend"), close = $("wpIntakeClose");
-    if (!ta) return;
-    ta.addEventListener("input", function () {
-      INTAKE.text = ta.value;
-      INTAKE.verdict = classify(ta.value);
-      paintDetect();
+  function wirePrompt() {
+    var form = $("wpPromptForm"), ta = $("wpPrompt");
+    if (!form || !ta) return;
+    form.addEventListener("submit", function (e) {
+      e.preventDefault();
+      promptSend(ta.value);
     });
-    if (send) send.addEventListener("click", intakeSend);
-    if (close) close.addEventListener("click", closeIntake);
+    ta.addEventListener("keydown", function (e) {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        promptSend(ta.value);
+      }
+    });
+    // paste-your-own-bytes works here too: the prompt is the drop target
+    ta.addEventListener("dragover", function (e) { e.preventDefault(); });
+    ta.addEventListener("drop", function (e) {
+      e.preventDefault();
+      var txt = e.dataTransfer.getData("text");
+      if (txt) { ta.value = txt; promptSend(txt); return; }
+      var f2 = e.dataTransfer.files && e.dataTransfer.files[0];
+      if (f2 && f2.size < 1 << 20) {
+        var rd = new FileReader();
+        rd.onload = function () { ta.value = String(rd.result || ""); promptSend(ta.value); };
+        rd.readAsText(f2);
+      }
+    });
+    renderChips();
+    paintWire();
+  }
+
+  function paintWire() {
+    var lab = $("wpPromptWire");
+    if (!lab) return;
+    var target = lastModel();
+    lab.textContent = "wired to " + (target ? target.label : "the chain") +
+      " · drafts only - no model runs in a browser";
   }
 
   /* ---- the request envelope: what a paste earns -------------------------
@@ -1408,8 +1532,10 @@
       fetch("data/wave-catalog.json").then(function (r) { return r.ok ? r.json() : null; }),
       fetch("data/wave-measured.json").then(function (r) { return r.ok ? r.json() : null; }),
       fetch("data/wave-scene-recorded.json").then(function (r) { return r.ok ? r.json() : null; }),
+      fetch("data/wave-windows.json").then(function (r) { return r.ok ? r.json() : null; }),
     ]).then(function (res) {
       PATCH.catalog = res[0]; PATCH.measured = res[1]; PATCH.scene = res[2];
+      PATCH.windows = res[3] ? res[3].windows : null;
       if (!PATCH.catalog || !PATCH.measured) { fail(); return; }
       var prov = $("wpProv");
       if (prov) {
@@ -1420,49 +1546,31 @@
           " · every reading here is a recount of these records";
       }
       buildTypes();
+      // the recommended pattern boots pre-built: Pico reading, Nano adjudicating
+      PATCH.chain = ["pico", "nano"];
       derive();
       render();
-      react("The panel is live: " + PATCH.sensors.length + " recorded instruments, writing to " +
-        "their logs. Tap a node's [+] stub to attach a model; tap a node to see its log.");
+      react("The bench is live with the recommended chain: Pico reads, Nano adjudicates. " +
+        "Pick a sensor, press a condition pad, and watch the monitor.");
       document.addEventListener("keydown", onKey);
-      var pb = $("wsPaste");
-      if (pb) {
-        pb.addEventListener("click", function () { openIntake(); });
-        // dropping text or a small file on the button feeds the shim - the
-        // one place HTML5 DnD is welcome: being an external drop TARGET
-        pb.addEventListener("dragover", function (e) { e.preventDefault(); });
-        pb.addEventListener("drop", function (e) {
-          e.preventDefault();
-          var txt = e.dataTransfer.getData("text");
-          if (txt) { intakeWith(txt); return; }
-          var f2 = e.dataTransfer.files && e.dataTransfer.files[0];
-          if (f2 && f2.size < 1 << 20) {
-            var rd = new FileReader();
-            rd.onload = function () { intakeWith(String(rd.result || "")); };
-            rd.readAsText(f2);
-          }
-        });
-      }
-      wireIntake();
+      wirePrompt();
     }).catch(fail);
   }
 
   function onKey(e) {
-    if (e.key === "Escape") {
-      var drawer = $("wpIntake");
-      if (drawer && !drawer.hidden) {
-        closeIntake();
-        var back = $("wsPaste") || document.body;
-        if (back) back.focus();
-        return;
-      }
-      if (PATCH.menuFor != null) {
-        var ch = PATCH.menuFor;
-        PATCH.menuFor = null;
-        render();
-        var add = document.querySelector('.syn-plus');
-        if (add) add.focus();
-      }
+    if (e.key !== "Escape") return;
+    if (PATCH.menuFor != null) {
+      PATCH.menuFor = null;
+      render();
+      var add = document.querySelector(".syn-plus");
+      if (add) add.focus();
+      return;
+    }
+    if (PATCH.reply) {
+      PATCH.reply = null;
+      paintMonitor();
+      var ta = $("wpPrompt");
+      if (ta) ta.focus();
     }
   }
 
@@ -1488,6 +1596,9 @@
       stages: stages,
       derive: derive,
       envelopeFor: envelopeFor,
+      promptSend: promptSend,
+      setWindows: function (w) { PATCH.windows = w; },
+      seriesOf: seriesOf,
       state: PATCH,
       family: FAMILY,
       detents: DETENTS,
