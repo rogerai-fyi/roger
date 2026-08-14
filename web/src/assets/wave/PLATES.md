@@ -25,6 +25,13 @@ where redness = R−max(G,B) > 28, MedianFilter 3). Spot plates must stay < 16 K
 | `radio-reader-*` | Compact 1950s tabletop radio, red lamp on the VU meter | 580×380 | 131 KB / 1.4 KB | 42 | (cropped from plate-reader raw; knob-label microtext zapped) | The signal bench's READER radio (wired) |
 | `radio-pocket-*` | Pocket transistor radio (palm-size set), no red | 370×310 | 59 KB / 0.5 KB (empty) | 42 | (cropped from plate-pocket raw; faceplate pseudo-text + signature zapped) | The attach menu's pico/edge-scale model icon (wired) |
 | `radio-senior-*` | Tall rack-mounted radio console, three stacked panels, no red | 512×640 | 147 KB / 1.3 KB (empty) | 42 | (from plate-senior raw) | The signal bench's SENIOR rack (wired) |
+| `tier-chip-*` | A single IC chip from directly above, bold square body with pin legs, no red | 347×372 | 86 KB / empty | 42 | THE SCALE LADDER: Wave Pico's icon — what it takes to run the tier |
+| `tier-gateway-*` | A compact industrial gateway box with two stub antennas, no red | 425×290 | 31 KB / empty | 42 | THE SCALE LADDER: Wave Nano's icon — what it takes to run the tier |
+| `tier-server-*` | One rack-mount server unit, straight-on front with drive bays, no red | 505×160 | 43 KB / empty | 42 | THE SCALE LADDER: Wave Micro's icon — what it takes to run the tier |
+| `tier-rack-*` | A single tall server rack cabinet, mesh door, no red | 300×460 | 125 KB / empty | 42 | THE SCALE LADDER: Wave Giga's icon — what it takes to run the tier |
+| `tier-racks-*` | A short row of three rack cabinets, no red | 485×300 | 97 KB / empty | 42 | THE SCALE LADDER: Wave Tera's icon — what it takes to run the tier |
+| `tier-aisle-*` | A datacenter aisle receding in deep perspective, no red | 512×512 | 102 KB / empty | 42 | THE SCALE LADDER: Wave Peta's icon — what it takes to run the tier |
+| `tier-hall-*` | A vast datacenter hall, many rows under a high ceiling, no red | 512×512 | 154 KB / empty | 42 | THE SCALE LADDER: Wave Exa's icon — what it takes to run the tier |
 | `sensor-thermo-*` | Industrial temperature probe (thermowell + head), no red | 150×432 | 11 KB / empty | 42 | The v6 sensor selector's TEMP type icon |
 | `sensor-vibro-*` | Vibration accelerometer puck with side cable, no red | 428×250 | 52 KB / empty | 42 | Selector VIBRATION icon |
 | `sensor-ammeter-*` | Panel ammeter, fan scale (face microtext zapped), no red | 325×285 | 40 KB / empty | 42 | Selector MOTOR CURRENT icon |
@@ -35,6 +42,10 @@ where redness = R−max(G,B) > 28, MedianFilter 3). Spot plates must stay < 16 K
 | `term-keys-*` | Vintage terminal keyboard, coiled cable (bezel pseudo-text zapped, display strip filled solid), no red | 660×295 | see file | 42 | The v7 monitor's prompt-input emblem |
 
 Notes:
+- The `tier-*` set is ONE FAMILY read as a scale ladder: chip → gateway box → server →
+  rack → racks → aisle → hall. It answers "how big is this model?" with the hardware the
+  tier actually runs on, so the size story needs no numbers. Drawn straight-on / simple so
+  each silhouette stays distinct at 46–96px, and sized on screen in ladder order.
 - Raw Flux outputs live in the ComfyUI output dir (`plate-*` prefixes); prompt
   texts are hashed above for reproducibility (checkpoint flux1-dev-fp8, seed listed).
 - Corner registration marks, engraver microtext captions, and tiny pseudo-text
