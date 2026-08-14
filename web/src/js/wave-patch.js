@@ -123,6 +123,12 @@
     chain: [],            // family ids, in daisy-chain order
     floor: 1.5,           // the Pico's margin floor (measured detents)
     operator: false,      // the lever by the monitor footer
+    authority: false,     // UNATTENDED AUTHORITY: a POLICY the visitor sets -
+                          // the senior may act with no operator on shift, and
+                          // its decisions queue for human review. Never a
+                          // capability claim; a policy simulation over the
+                          // same recorded outcomes.
+    whyOpen: null,        // which why-panel is expanded (one at a time)
     verdict: null,
     menuFor: null,        // chain slot index whose attach menu is open
     booted: false,
@@ -341,7 +347,7 @@
   function derive() {
     if (!PATCH.measured) return;
     var st = stages();
-    var state, why, label = null;
+    var state, why, label = null, sym = null;
 
     var r = currentRecord();
     var info = chainInfo();
@@ -394,8 +400,23 @@
         state = "yellow";
         why = "The Pico doubts this read and has nobody to ask - chain Wave Nano after it.";
       } else if (!PATCH.operator) {
-        state = "yellow";
-        why = "The chain works, but no operator is on shift - flip the lever by the monitor; the ladder should end with a person.";
+        // UNATTENDED AUTHORITY: with the senior aboard and the policy granted,
+        // the no-operator state is not DEGRADED but PROVISIONAL - the chain
+        // acts, and its decisions queue for a person to review. This is a
+        // POLICY the visitor sets, not a measurement; the recounted outcomes
+        // are the same recorded records either way.
+        var seniorAboard = PATCH.chain.indexOf("nano") >= 0;
+        if (PATCH.authority && seniorAboard) {
+          state = "green"; label = "PROVISIONAL"; sym = "◐";
+          why = "The senior is acting unattended - this record's decision is queued for human " +
+            "review. Whether a model is big enough to take a shift is a POLICY you set, " +
+            "not a measurement; the ladder should still end with a person.";
+        } else {
+          state = "yellow";
+          why = "The chain works, but no operator is on shift - flip the lever by the monitor; " +
+            "the ladder should end with a person." +
+            (seniorAboard ? " (Or grant UNATTENDED AUTHORITY and let the senior act provisionally.)" : "");
+        }
       } else if (!missed) {
         state = "green";
         why = caught ? "Fault caught, operator on shift. Complete chain."
@@ -408,7 +429,7 @@
           "The chain is at its measured ceiling on this record.";
       }
     }
-    PATCH.verdict = { state: state, why: why, label: label, stages: st };
+    PATCH.verdict = { state: state, why: why, label: label, sym: sym, stages: st };
     paintMonitor();
   }
 
@@ -520,6 +541,7 @@
     renderSelector();
     renderPads();
     renderChain();
+    renderWhys();
     renderTabs();
     paintMonitor();
     paintWire();
@@ -825,23 +847,11 @@
           if (again) again.focus({ preventScroll: true });
         },
       }));
-      // why task-native: the doctrine, one tap away
-      var wp = whyPop("why task-native?", "sn-why--card");
-      wp.appendChild(el("p", "sn-why__p",
-        "A chat model free-sampled on these bytes dreams a Modbus register table. " +
-        "A Wave model decodes a LOCKED ENUM with a MARGIN - the margin is the model " +
-        "saying how sure it is, and that calibrated doubt is what the escalation " +
-        "contract is built on. No prose, no dreaming: one token of meaning, scored."));
-      card.appendChild(wp);
     }
-    if (id === "nano") {
-      var wn = whyPop("why a senior?", "sn-why--card");
-      wn.appendChild(el("p", "sn-why__p",
-        "The senior only pays attention when a reader is unsure - that is the whole " +
-        "economics of the mesh (open WHY NOT ONE BIG MODEL? below for the measured " +
-        "sweep). It runs on " + fam.runs + ", so the doubtful reads stay on-prem too."));
-      card.appendChild(wn);
-    }
+    // the model whys moved to the standing row below the rail: an open pop
+    // inside the rail's scroll container was CLIPPED (founder v12: "when the
+    // tooltip is open i have to scroll and it hides parts of the ui") - all
+    // whys now expand in place, full width, one at a time.
     return card;
   }
 
@@ -881,6 +891,22 @@
     return menu;
   }
 
+  // THE LADDER RUNS UP. A senior does not hand work down: the reader (Pico,
+  // or Nano reading direct) comes first, the senior after it, observers
+  // behind. Attach order is the visitor's gesture; CHAIN order is physics -
+  // normalize makes a backwards chain unconstructible rather than merely
+  // discouraged (founder v12: a Pico was reading the Nano's output).
+  function normalizeChain() {
+    var rest = PATCH.chain.filter(function (x) { return x !== "pico" && x !== "nano"; });
+    var out = [];
+    if (PATCH.chain.indexOf("pico") >= 0) out.push("pico");
+    if (PATCH.chain.indexOf("nano") >= 0) out.push("nano");
+    out = out.concat(rest);
+    var moved = out.join(",") !== PATCH.chain.join(",");
+    PATCH.chain = out;
+    return moved;
+  }
+
   function chainAdd(id, at) {
     var fam = familyById(id);
     if (PATCH.chain.indexOf(id) >= 0) {
@@ -894,9 +920,15 @@
     contextMoved();
     if (at == null || at > PATCH.chain.length) at = PATCH.chain.length;
     PATCH.chain.splice(at, 0, id);
+    var rearranged = normalizeChain();
     PATCH.menuFor = null;
     derive(); render();
-    if (fam.status === "recorded") {
+    if (rearranged && id === "pico") {
+      react("The ladder runs up: Wave Pico took the wire and Wave Nano moved to senior - " +
+        "a senior does not hand work down to a reader.");
+    } else if (rearranged) {
+      react(fam.label + " in the chain - slotted where the ladder runs up: reader first, senior after.");
+    } else if (fam.status === "recorded") {
       var info = chainInfo();
       react(fam.label + " in the chain - " + (id === "pico"
         ? "it classifies each read: assert, or escalate at its floor."
@@ -920,6 +952,27 @@
     sum.appendChild(el("span", "sn-why__i", "ⓘ"));
     sum.appendChild(el("span", "sn-why__k", label));
     det.appendChild(sum);
+    return det;
+  }
+
+  // A standing why: expands IN PLACE below the rail (full-width accordion
+  // row - never a floating pop inside a scroll container), one open at a
+  // time, and the open one survives re-renders via PATCH.whyOpen.
+  function whyChip(key, label) {
+    var det = whyPop(label);
+    det.dataset.why = key;
+    if (PATCH.whyOpen === key) det.open = true;
+    det.addEventListener("toggle", function () {
+      if (det.open) {
+        PATCH.whyOpen = key;
+        var others = document.querySelectorAll('.sn-whys .sn-why[open]');
+        Array.prototype.forEach.call(others, function (o) {
+          if (o !== det) o.open = false;
+        });
+      } else if (PATCH.whyOpen === key) {
+        PATCH.whyOpen = null;
+      }
+    });
     return det;
   }
 
@@ -975,14 +1028,31 @@
     return null;
   }
 
-  // The two standing questions, parked under the chain rail.
+  // The standing questions, parked under the chain rail - ALL the whys live
+  // here now (the model-card pops clipped inside the rail's scroller).
   function renderWhys() {
     var host = $("wsWhys");
     if (!host || !PATCH.measured) return;
     host.textContent = "";
     var m = PATCH.measured;
 
-    var econ = whyPop("why not one big model?");
+    var tn = whyChip("tasknative", "why task-native?");
+    tn.appendChild(el("p", "sn-why__p",
+      "A chat model free-sampled on these bytes dreams a Modbus register table. " +
+      "A Wave model decodes a LOCKED ENUM with a MARGIN - the margin is the model " +
+      "saying how sure it is, and that calibrated doubt is what the escalation " +
+      "contract is built on. No prose, no dreaming: one token of meaning, scored."));
+    host.appendChild(tn);
+
+    var nano = familyById("nano");
+    var sr = whyChip("senior", "why a senior?");
+    sr.appendChild(el("p", "sn-why__p",
+      "The senior only pays attention when a reader is unsure - that is the whole " +
+      "economics of the mesh (open WHY NOT ONE BIG MODEL? for the measured " +
+      "sweep). It runs on " + nano.runs + ", so the doubtful reads stay on-prem too."));
+    host.appendChild(sr);
+
+    var econ = whyChip("econ", "why not one big model?");
     var chart = econChart();
     if (chart) econ.appendChild(chart);
     var best = m.escalation.configs.filter(function (c) { return c.config === "child+parent@1.5"; })[0];
@@ -998,7 +1068,7 @@
       " (" + m._provenance.suite + ")"));
     host.appendChild(econ);
 
-    var tiny = whyPop("why so small?");
+    var tiny = whyChip("tiny", "why so small?");
     var ladder = el("span", "sn-ladder");
     ladder.setAttribute("aria-hidden", "true");
     ladder.appendChild(el("span", "wb-plate__ink"));
@@ -1017,6 +1087,16 @@
         "for a browser tab (" + q.source + ")."));
     }
     host.appendChild(tiny);
+
+    var person = whyChip("person", "why a person at the end?");
+    person.appendChild(el("p", "sn-why__p",
+      "The ladder should end with someone accountable - the operator lever is that " +
+      "doctrine. UNATTENDED AUTHORITY is the exception you can grant: the senior acts " +
+      "with nobody on shift and every decision queues for human review, so the lamp " +
+      "reads PROVISIONAL, not ALL CLEAR. Whether a model is big enough to take a " +
+      "shift is a POLICY you set, not a measurement - this bench never claims " +
+      "measured autonomous performance."));
+    host.appendChild(person);
   }
 
   /* ---- the measured figures live on the knob's tooltip ------------------- */
@@ -1033,6 +1113,58 @@
       m._provenance.suite + ")";
   }
 
+  /* ---- the MARGIN-vs-FLOOR meter: the knob's effect, visible every turn.
+     The bar is the RECORDED margin; the tick is the floor, and it slides as
+     the knob turns - so a detent that does not flip the verdict still
+     visibly moves the threshold against the same recorded bar. ------------- */
+  function floorMeter(margin, floor) {
+    var W = 230, H = 30, max = Math.max(TOP + 0.6, margin + 0.4);
+    var x = function (v) { return 8 + (v / max) * (W - 16); };
+    var host = svg("svg", { class: "sn-fm", viewBox: "0 0 " + W + " " + H, role: "img",
+      "aria-label": "recorded margin " + margin.toFixed(2) + " against floor " + floor.toFixed(1) +
+        (margin < floor ? " - below the floor, so it escalates" : " - at or above the floor, so it asserts") });
+    host.appendChild(svg("line", { class: "sn-fm__track", x1: 8, y1: 19, x2: W - 8, y2: 19 }));
+    // every measured detent is a notch, so the knob's stations are visible
+    DETENTS.forEach(function (d) {
+      host.appendChild(svg("line", { class: "sn-fm__detent",
+        x1: x(d).toFixed(1), y1: 16, x2: x(d).toFixed(1), y2: 22 }));
+    });
+    var esc = margin < floor;
+    host.appendChild(svg("line", { class: "sn-fm__bar" + (esc ? " is-esc" : ""),
+      x1: 8, y1: 19, x2: x(margin).toFixed(1), y2: 19 }));
+    host.appendChild(svg("circle", { class: "sn-fm__tip" + (esc ? " is-esc" : ""),
+      cx: x(margin).toFixed(1), cy: 19, r: 2.6 }));
+    host.appendChild(svg("line", { class: "sn-fm__floor",
+      x1: x(floor).toFixed(1), y1: 8, x2: x(floor).toFixed(1), y2: 26 }));
+    var fl = svg("text", { class: "sn-fm__t", x: x(floor).toFixed(1), y: 6, "text-anchor": "middle" });
+    fl.textContent = "floor " + floor.toFixed(1);
+    var ml = svg("text", { class: "sn-fm__t sn-fm__t--m",
+      x: Math.min(W - 8, Math.max(24, x(margin))).toFixed(1), y: 29, "text-anchor": "middle" });
+    ml.textContent = "margin " + margin.toFixed(2);
+    host.appendChild(fl); host.appendChild(ml);
+    host.setAttribute("title",
+      "the floor is the doubt threshold - margins below it escalate; the measured sweep numbers ride the knob");
+    return host;
+  }
+
+  /* ---- the semantic tint + change flash: colour rides only on verdict
+     words that already carry their meaning in text and shape; the flash
+     fires exactly when a stage's verdict CONTENT changes (the same
+     signature discipline as the v11 power-on gate), and reduced motion
+     keeps the steady tint but skips the flash. ---------------------------- */
+  function verdictTint(esc, ok, isFault) {
+    if (esc) return "sn-live--esc";
+    if (ok) return "sn-live--ok";
+    return isFault ? "sn-live--bad" : "sn-live--esc"; // false alarm reads amber
+  }
+  function flashIfChanged(node, key, sig) {
+    PATCH._vSig = PATCH._vSig || {};
+    if (PATCH._vSig[key] !== undefined && PATCH._vSig[key] !== sig && !REDUCED) {
+      node.classList.add("is-flash");
+    }
+    PATCH._vSig[key] = sig;
+  }
+
   /* =====================================================================
      THE MONITOR - the hero. The output at each stage, top to bottom.
      ===================================================================== */
@@ -1046,22 +1178,44 @@
     return (PATCH.windows && r && PATCH.windows[r.node_id]) || null;
   }
 
-  /* HONEST SCALING. Autoscaling every window to its own min/max would blow a
-     steady window's quantization jitter up to full height - STUCK would look
-     noisy, and every condition would look alike. The display span therefore
-     has a FLOOR relative to the signal's own magnitude; the samples are
+  /* HONEST SCALING, ANCHORED TO THE INSTRUMENT'S OWN HEALTHY WINDOW.
+     Autoscaling every window to its own min/max would blow a steady window's
+     quantization jitter up to full height - STUCK would look noisy, and
+     every condition would look alike (founder v12: "stuck moves more like
+     OK"). The display span is therefore anchored to the selected TYPE's OK
+     window, in RELATIVE terms (the conditions come from different recorded
+     machines, so absolute ranges cannot be shared - but the same SENSITIVITY
+     can): span >= the OK window's padded span scaled to this record's own
+     magnitude. OK then breathes across its band, STUCK renders near-flat at
+     the same zoom, a drift ramps out of band, a rail clips. The samples are
      untouched, and the strip prints the DISPLAYED scale so the scale itself
-     is honest. */
-  function scaleOf(samples) {
+     is honest. Fallback when a type has no OK record: the v8 floor,
+     3% of the signal's own magnitude (every current type has an OK pick). */
+  function okAnchorRel() {
+    var t = currentType();
+    if (!t || t.recIdx.none == null || !PATCH.measured) return null;
+    var okS = seriesOf(PATCH.measured.records[t.recIdx.none]);
+    if (!okS) return null;
+    var lo = Math.min.apply(null, okS.samples), hi = Math.max.apply(null, okS.samples);
+    var mean = 0;
+    for (var i = 0; i < okS.samples.length; i++) mean += okS.samples[i];
+    mean /= okS.samples.length || 1;
+    if (!isFinite(mean) || Math.abs(mean) < 1e-9) return null;
+    return ((hi - lo) * 1.2) / Math.abs(mean); // the OK span, padded, as a fraction of reading
+  }
+
+  function scaleOf(samples, anchorRel) {
     var lo = Math.min.apply(null, samples), hi = Math.max.apply(null, samples);
     var mean = 0;
     for (var i = 0; i < samples.length; i++) mean += samples[i];
     mean /= samples.length || 1;
-    // 3% of the signal's own magnitude, tuned by eye across the condition
-    // set: a stuck band flattens, a drift still ramps, noise still fills.
-    var span = Math.max(hi - lo, 0.03 * Math.abs(mean), 1e-9);
+    var floor = anchorRel
+      ? anchorRel * Math.abs(mean)                 // the OK window's sensitivity
+      : 0.03 * Math.abs(mean);                     // v8 fallback floor
+    var span = Math.max(hi - lo, floor, 1e-9);
     var mid = (hi + lo) / 2;
-    return { lo: mid - span / 2, hi: mid + span / 2, span: span, dataLo: lo, dataHi: hi };
+    return { lo: mid - span / 2, hi: mid + span / 2, span: span,
+             dataLo: lo, dataHi: hi, anchored: !!anchorRel };
   }
 
   function fmtN(x) {
@@ -1089,7 +1243,7 @@
      SVG strip below remains the reduced-motion / no-canvas fallback with
      identical labels. */
   var TRACE = { gen: 0 };
-  function drawStripCanvas(wrap, s, sc) {
+  function drawStripCanvas(wrap, s, sc, unitWord) {
     var cv = document.createElement("canvas");
     var ctx = cv.getContext && cv.getContext("2d");
     if (!ctx) return false;
@@ -1102,7 +1256,7 @@
     cv.width = W * dpr; cv.height = H * dpr;
     var samples = s.samples, n = samples.length;
     var SWEEP_MS = 9000; // presentation speed, as labelled - not the recorded rate
-    var stroke = null, blur = 2.5, frame = 0, t0 = null, li = 0;
+    var stroke = null, blur = 2.5, frame = 0, t0 = null, li = 0, roNodes = null;
     function yOf(v) { return 8 + (1 - (v - sc.lo) / sc.span) * (H - 16); }
     function xOf(i) { return (i / (n - 1)) * W; }
     function seg(a, b) {
@@ -1146,6 +1300,15 @@
       ctx.beginPath();
       ctx.arc(xOf(head), yOf(samples[Math.round(head)]), 1.8, 0, Math.PI * 2);
       ctx.fill();
+      // the text side moves with the graph: the READOUT is the recorded
+      // sample under the beam - real data at presentation cadence
+      if (frame % 6 === 0) {
+        if (frame % 30 === 0 || !roNodes) roNodes = document.querySelectorAll(".sn-beamro");
+        var hi0 = Math.round(head);
+        var roTxt = "▸ sample " + (hi0 + 1) + "/" + n + " · " + fmtN(samples[hi0]) +
+          (unitWord ? " " + unitWord : "");
+        for (var ri = 0; ri < roNodes.length; ri++) roNodes[ri].textContent = roTxt;
+      }
       requestAnimationFrame(step);
     }
     requestAnimationFrame(step);
@@ -1166,10 +1329,15 @@
     head.appendChild(rec);
     wrap.appendChild(head);
     var W = 560, H = 96;
-    var sc = scaleOf(s.samples);
+    var sc = scaleOf(s.samples, okAnchorRel());
     // the phosphor beam when motion is welcome and canvas exists; the SVG
     // strip is the reduced-motion / no-canvas fallback
-    var painted = !REDUCED && drawStripCanvas(wrap, s, sc);
+    if (!REDUCED) {
+      var ro = el("span", "sn-beamro");
+      ro.setAttribute("aria-hidden", "true"); // the legend carries the accessible numbers
+      head.appendChild(ro);
+    }
+    var painted = !REDUCED && drawStripCanvas(wrap, s, sc, unitWordOf(r));
     if (!painted) {
       var host = svg("svg", { class: "sn-strip__svg", viewBox: "0 0 " + W + " " + H,
         preserveAspectRatio: "none", role: "img",
@@ -1189,9 +1357,12 @@
     var w = r.window || {};
     var legend = el("p", "sn-sub sn-strip__legend",
       "display scale " + fmtN(sc.lo) + " … " + fmtN(sc.hi) +
-      (unitWordOf(r) ? " " + unitWordOf(r) : "") + " · data " + fmtN(sc.dataLo) + " … " + fmtN(sc.dataHi));
-    legend.title = "the scale floor keeps a steady window looking steady - the samples are untouched, " +
-      "and this line prints the scale actually drawn";
+      (unitWordOf(r) ? " " + unitWordOf(r) : "") +
+      (sc.anchored ? " · matched to this sensor's OK window" : "") +
+      " · data " + fmtN(sc.dataLo) + " … " + fmtN(sc.dataHi));
+    legend.title = "every condition of this sensor draws at the SAME sensitivity - the scale is " +
+      "anchored to its OK window, so a steady window looks steady and a wild one looks wild. " +
+      "The samples are untouched, and this line prints the scale actually drawn";
     wrap.appendChild(legend);
     wrap.appendChild(el("p", "sn-sub",
       (w.tag || r.node_id) + " · " + s.samples.length + " recorded samples · period " +
@@ -1205,7 +1376,7 @@
     if (!s) return null;
     var host = svg("svg", { class: "sn-spark", viewBox: "0 0 40 14", "aria-hidden": "true" });
     host.appendChild(svg("path", { class: "sn-spark__line",
-      d: seriesPath(s.samples, 40, 14, 2, false) }));
+      d: seriesPath(s.samples, 40, 14, 2, false, scaleOf(s.samples, okAnchorRel())) }));
     return host;
   }
 
@@ -1286,6 +1457,12 @@
         rec.appendChild(el("span", null, "MONITORING · REPLAY"));
         rec.title = "the recorded window, replayed - nothing here is live";
         head.appendChild(rec);
+        if (!REDUCED) {
+          var echo = el("span", "sn-beamro sn-beamro--echo");
+          echo.setAttribute("aria-hidden", "true");
+          echo.title = "the recorded sample under the beam, as it sweeps";
+          head.appendChild(echo);
+        }
       }
       box.appendChild(head);
 
@@ -1294,23 +1471,31 @@
         log.title = "byte-for-byte, the window the model read in the recorded run";
         box.appendChild(log);
       } else if (st.kind === "pico") {
+        var isFaultP = st.r.truth !== "none";
         var line = el("p", "sn-proto");
-        if (st.esc) {
-          line.appendChild(el("b", "sn-proto__esc", "ESCALATE ↑"));
-          line.appendChild(el("span", null, " margin " + st.margin.toFixed(2) +
-            " · below floor " + st.floor.toFixed(1) + " - too doubtful to assert"));
-        } else {
-          line.appendChild(el("b", null, "ASSERT " + '" ' + st.said + '"'));
-          line.appendChild(el("span", null, " · margin " + st.margin.toFixed(2)));
-        }
+        // the verdict word carries a semantic tint (word + shape still carry
+        // the meaning without colour) and flashes when it CHANGES
+        var vb = el("b", "sn-vword " + (st.esc ? "sn-proto__esc sn-live--esc" : verdictTint(false, st.ok, isFaultP)),
+          st.esc ? "ESCALATE ↑" : "ASSERT " + '" ' + st.said + '"');
+        flashIfChanged(vb, "pico", (st.esc ? "esc" : "as|" + st.said) + "|" + st.margin);
+        line.appendChild(vb);
+        // margin vs floor, ALWAYS both numbers - the knob's effect is
+        // visible on every detent, not only when the verdict flips
+        line.appendChild(el("span", null, st.esc
+          ? " · margin " + st.margin.toFixed(2) + " < floor " + st.floor.toFixed(1) + " - too doubtful to assert"
+          : " · margin " + st.margin.toFixed(2) + " ≥ floor " + st.floor.toFixed(1) + " - sure enough to assert"));
         box.appendChild(line);
+        box.appendChild(floorMeter(st.margin, st.floor));
         box.appendChild(el("p", "sn-sub", st.esc
           ? "the wire protocol line - the Pico hands this read up. The margin is the model " +
             "saying 'I am not sure' - that honesty is the feature."
           : "the wire protocol line - machine-facing, one token of meaning"));
       } else if (st.kind === "nano") {
         var vw = el("p", "sn-verdict");
-        vw.appendChild(el("b", null, st.verdict.toUpperCase()));
+        var nb = el("b", "sn-vword " + verdictTint(false, st.ok, st.isFault),
+          st.verdict.toUpperCase());
+        flashIfChanged(nb, "nano", st.verdict + "|" + (st.ok ? "ok" : "bad"));
+        vw.appendChild(nb);
         if (st.gloss) {
           var g = el("span", "sn-gloss");
           g.appendChild(el("span", null, " - " + st.gloss + " "));
@@ -1322,13 +1507,25 @@
       } else if (st.kind === "quietSenior") {
         box.appendChild(el("p", "sn-sub", st.note));
       } else if (st.kind === "deadend") {
-        box.appendChild(el("p", "sn-para sn-para--warn", st.note));
+        var dn = el("p", "sn-para sn-para--warn sn-live--esc", st.note);
+        flashIfChanged(dn, "deadend", "deadend");
+        box.appendChild(dn);
       } else if (st.kind === "silent") {
         box.appendChild(el("p", "sn-sub",
           st.fam.blurb + " - no recorded transcript, output unchanged."));
       }
       host.appendChild(box);
     });
+
+    // a stage that left the cascade forgets its signature, so its RETURN
+    // flashes too (an escalate that comes back is news)
+    if (PATCH._vSig) {
+      var present = {};
+      sts.forEach(function (st) { present[st.kind] = true; });
+      Object.keys(PATCH._vSig).forEach(function (k) {
+        if (!present[k]) delete PATCH._vSig[k];
+      });
+    }
 
     if (PATCH.reply) host.appendChild(drawReply(PATCH.reply));
 
@@ -1347,7 +1544,7 @@
         "senior itself missed)";
       var f2 = LAMP_FACE[v.state] || LAMP_FACE.off;
       lampBig.textContent = "";
-      lampBig.appendChild(el("span", "wp-lampwin__sym", f2.sym));
+      lampBig.appendChild(el("span", "wp-lampwin__sym", v.sym || f2.sym));
       lampBig.appendChild(el("span", "wp-lampwin__label", v.label || f2.label));
     }
     if (why && v) why.textContent = v.why;
@@ -1427,6 +1624,27 @@
         : "The operator went off shift.");
     });
     host.appendChild(sw);
+
+    // the policy lever: UNATTENDED AUTHORITY. A policy the visitor sets -
+    // never a capability claim - and the lamp answers with PROVISIONAL,
+    // not ALL CLEAR, when it is exercised.
+    var au = el("button", "wb-lever wb-lever--auth" + (PATCH.authority ? " is-on" : ""));
+    au.type = "button";
+    au.setAttribute("role", "switch");
+    au.setAttribute("aria-checked", PATCH.authority ? "true" : "false");
+    au.setAttribute("aria-label", "Unattended authority - the senior may act with no operator on shift");
+    au.title = "let the senior act with no operator on shift - decisions queue for human review. " +
+      "Whether a model is big enough to take a shift is a POLICY you set, not a measurement.";
+    au.appendChild(el("span", "wb-lever__k", "UNATTENDED AUTHORITY"));
+    au.appendChild(el("span", "wb-lever__pip"));
+    au.addEventListener("click", function () {
+      PATCH.authority = !PATCH.authority;
+      derive(); render();
+      react(PATCH.authority
+        ? "Unattended authority granted - with a senior aboard and nobody on shift, decisions queue for human review."
+        : "Unattended authority revoked - with nobody on shift the chain reads DEGRADED again.");
+    });
+    host.appendChild(au);
   }
 
   /* ---- the recorded pump trace, where it belongs ------------------------- */
@@ -1672,20 +1890,60 @@
     return null;
   }
 
-  /* THE LIVE SEAM. When the hosted Roger models come on air, this is where
-     they plug in - the intended wiring, so it lands without a rebuild:
-       - transport: the Tower relay, the same path the CONSOLE deck's live
-         tapes stream through, addressed to a hosted wave band;
+  /* THE LIVE SEAM - the deck's first live surface, and the path to the rest.
+     TODAY: chat and reading questions go to PING - the broker's concierge, a
+     REAL model answering over the Tower relay (the same POST /concierge the
+     CONSOLE deck's pingSend makes). Ping is the concierge, NOT a Wave model,
+     and its card says so; the message hands it the recorded bench context
+     (the [WAVE MESH BENCH] prefix the broker persona recognises) and the
+     reply is displayed VERBATIM, declines included - a real reply is a real
+     reply. The bench's recorded reading always rides beneath a question's
+     answer, so the visitor gets the numbers whatever Ping says.
+     NEXT (when the hosted wave band lands - asked in
+     QUESTION-FOR-MODELS-AGENT-mesh-live-prompt.md):
        - enums (fault calls): the R.45/R.55 one-request-per-candidate grammar
-         protocol, margins from the shim's logprob sums;
-       - readings (free text): a single request to the band, if the models
-         agent confirms Nano free-texts (asked in
-         QUESTION-FOR-MODELS-AGENT-mesh-live-prompt.md, with a
-         recorded-transcript stopgap as fallback).
-     Until then it returns null and the BENCH answers from the recorded
-     window - and the reply is signed accordingly, never as the model. */
-  function liveAnswerer(v, ctx) {
-    return null; // not yet on air - no hosted band is reachable from this page
+         protocol via the relay, margins from the shim's logprob sums;
+       - readings: a single request to the wave band, replacing Ping as the
+         voice - the answerer-chain shape below is that seam.
+     PROTOCOL kinds (wire blobs, number series) never go to chat: they earn
+     the DRAFT envelope, and no model runs in a browser. */
+  var PING_URL = "https://broker.rogerai.fm/concierge"; // the ONE cross-origin call this deck makes
+
+  function benchContext() {
+    var r = currentRecord();
+    if (!r) return "no sensor selected.";
+    var w = r.window || {};
+    var bits = [];
+    stages().forEach(function (st) {
+      if (st.kind === "pico") {
+        bits.push("Wave Pico " + (st.esc
+          ? "escalated (margin " + st.margin.toFixed(2) + " below floor " + st.floor.toFixed(1) + ")"
+          : 'asserted " ' + st.said + '" (margin ' + st.margin.toFixed(2) + " at floor " + st.floor.toFixed(1) + ")"));
+      }
+      if (st.kind === "nano") bits.push('Wave Nano said " ' + st.verdict + '" (margin ' + st.r.parent.margin.toFixed(2) + ")");
+      if (st.kind === "deadend") bits.push("the escalation went unheard (no senior in the chain)");
+    });
+    return "recorded window: tag=" + (w.tag || r.node_id) +
+      ", unit=" + (unitWordOf(r) || "not stated") + ", n=" + w.n +
+      ", range=" + w.lo + "\u2013" + w.hi + ", mean=" + w.mean +
+      ", trend=" + w.slope_per_min + "/min. chain: " +
+      (bits.join("; ") || "no model chained") + ".";
+  }
+
+  function liveAnswerer(v, ctx, text) {
+    // protocol kinds never go to chat - they earn the DRAFT envelope instead
+    if (!v || (v.kind !== "talk" && v.kind !== "question")) return null;
+    var msg = "[WAVE MESH BENCH] " + benchContext() + " visitor asks: " + text;
+    return fetch(PING_URL, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      credentials: "omit", cache: "no-store",
+      body: JSON.stringify({ messages: [{ role: "user", content: msg }] }),
+    }).then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+      .then(function (d) {
+        var rep = d && d.reply ? String(d.reply) : "";
+        if (!rep) throw 0;
+        return rep;
+      });
   }
 
   function liveCtx() {
@@ -1725,7 +1983,7 @@
     return {
       kind: "reading",
       who: "THE BENCH · from the recorded window",
-      offAir: "a hosted Wave Nano will answer this live - not yet on air",
+      offAir: "a recount of the recorded window - a hosted Wave Nano will take this over; not yet on air",
       tag: w.tag || r.node_id,
       meanLine: "reads mean " + fmtN(w.mean) + (u ? " " + u : "") + " over the recorded window",
       detail: w.n + " samples · " + fmtN(w.lo) + " … " + fmtN(w.hi) + (u ? " " + u : "") +
@@ -1753,9 +2011,12 @@
                envelope: envelopeFor(src) };
     }
     if (v.kind === "talk") {
+      // the fallback voice when Ping is off air. Chat goes to Ping - a live
+      // concierge, labelled as such; it never reaches a Wave model, whose
+      // free-sampled answer would be a corpus dream, not a reply.
       return { kind: "talk", wired: wired,
-               text: "Answered by this interface, from the faceplate - it never reaches a model. " +
-                 "Wave models are task-native: free-sampled, this input would produce a corpus " +
+               text: "Answered by this interface, from the faceplate - conversation never " +
+                 "reaches a Wave model. Free-sampled, this input would produce a corpus " +
                  "dream, not an answer. Paste what your plant emits, or press a sample chip." };
     }
     if (v.kind === "scenario-asset") {
@@ -1782,24 +2043,77 @@
                "honestly. Try including the header lines of the dump." };
   }
 
+  var REPLY_SEQ = 0;
   function promptSend(text) {
     text = String(text || "").trim();
     if (!text) return null;
     var v = classify(text);
-    // the answerer chain: live first (off air today), then the bench
-    PATCH.reply = liveAnswerer(v, liveCtx()) || buildReply(text, v);
+    var bench = buildReply(text, v); // the recorded recount, always built
+    // the answerer chain: live first (Ping today, a wave band next), the
+    // bench beneath or behind it
+    var live = liveAnswerer(v, liveCtx(), text);
+    if (live) {
+      var token = ++REPLY_SEQ;
+      PATCH.reply = { kind: "pingwait", token: token, bench: bench,
+                      question: v.kind === "question" };
+      live.then(function (rep) {
+        // context may have moved while Ping typed - a stale card never lands
+        if (!PATCH.reply || PATCH.reply.token !== token) return;
+        PATCH.reply = { kind: "ping", token: token, text: rep, bench: bench,
+                        question: v.kind === "question" };
+        paintMonitor();
+        react("Ping answered - live over the Tower relay.");
+      }).catch(function () {
+        if (!PATCH.reply || PATCH.reply.token !== token) return;
+        bench.offAirNote = "Ping is off air - the bench answered from the recorded window.";
+        PATCH.reply = bench;
+        paintMonitor();
+        react("Ping is off air - the bench answered from the recorded window.");
+      });
+    } else {
+      PATCH.reply = bench;
+    }
     var ta = $("wpPrompt");
     if (ta) ta.value = ""; // sent - the reply card carries what it earned
     paintMonitor();
     react(PATCH.reply.kind === "draft"
       ? "Draft envelope built for " + PATCH.reply.wired + " - NOT RUN; no model runs in a browser."
+      : PATCH.reply.kind === "pingwait"
+      ? "Asking Ping - a live answer over the Tower relay…"
       : PATCH.reply.kind === "reading"
-      ? "The bench answered from the recorded window - a hosted Nano will take this live."
+      ? "The bench answered from the recorded window."
       : "The shim answered from the faceplate.");
     return PATCH.reply;
   }
 
   function drawReply(rep) {
+    // the live voice + the recorded recount travel as one stack
+    if (rep.kind === "ping" || rep.kind === "pingwait") {
+      var stack = el("section", "sn-stage sn-stage--reply sn-replystack");
+      var phead = el("div", "sn-stage__head");
+      var dot = el("span", "sn-livedot" + (rep.kind === "pingwait" ? " is-wait" : ""));
+      dot.setAttribute("aria-hidden", "true");
+      phead.appendChild(dot);
+      phead.appendChild(el("b", null, "PING · LIVE over the Tower relay"));
+      var px = el("button", "ws-resp__x");
+      px.type = "button";
+      px.setAttribute("aria-label", "Dismiss the prompt response");
+      px.textContent = "×";
+      px.addEventListener("click", function () { PATCH.reply = null; paintMonitor(); });
+      phead.appendChild(px);
+      stack.appendChild(phead);
+      stack.appendChild(el("p", "sn-para sn-ping__text" + (rep.kind === "pingwait" ? " is-wait" : ""),
+        rep.kind === "pingwait" ? "…asking Ping" : rep.text));
+      var sub = el("p", "sn-sub sn-ping__sub",
+        "Ping is the concierge answering live - not a Wave model; a hosted Wave Nano is the goal.");
+      sub.title = "a real reply from a real endpoint, shown verbatim - declines included";
+      stack.appendChild(sub);
+      // a question always carries the recorded numbers beneath the live voice
+      if (rep.question && rep.bench && rep.bench.kind === "reading") {
+        stack.appendChild(drawReply(rep.bench));
+      }
+      return stack;
+    }
     var box = el("section", "sn-stage sn-stage--reply");
     var head = el("div", "sn-stage__head");
     head.appendChild(el("b", null, rep.kind === "reading"
@@ -1819,6 +2133,7 @@
       box.appendChild(rd);
       box.appendChild(el("p", "sn-para", rep.detail));
       if (rep.chainLine) box.appendChild(el("p", "sn-para", rep.chainLine));
+      if (rep.offAirNote) box.appendChild(el("p", "sn-sub sn-read__note", rep.offAirNote));
       var off = el("p", "sn-sub sn-read__offair", rep.offAir);
       off.title = "the answer above is a recount of the recorded window - no model produced this sentence";
       box.appendChild(off);
@@ -1895,7 +2210,7 @@
     if (!lab) return;
     var target = lastModel();
     lab.textContent = "wired to " + (target ? target.label : "the chain") +
-      " · drafts only - no model runs in a browser";
+      " · chat answered live by Ping · drafts only - no model runs in a browser";
   }
 
   /* ---- the request envelope: what a paste earns -------------------------
@@ -2035,7 +2350,6 @@
       render();
       react("The bench is live with the recommended chain: Pico reads, Nano adjudicates. " +
         "Pick a sensor, press a condition pad, and watch the monitor.");
-      renderWhys();
       wireTilt();
       document.addEventListener("keydown", onKey);
       wirePrompt();
@@ -2049,6 +2363,14 @@
       render();
       var add = document.querySelector(".syn-plus");
       if (add) add.focus();
+      return;
+    }
+    if (PATCH.whyOpen != null) {
+      var openKey = PATCH.whyOpen;
+      PATCH.whyOpen = null;
+      renderWhys();
+      var chip = document.querySelector('.sn-whys .sn-why[data-why="' + openKey + '"] > summary');
+      if (chip) chip.focus();
       return;
     }
     if (PATCH.reply) {
@@ -2085,6 +2407,10 @@
       liveAnswerer: liveAnswerer,
       setWindows: function (w) { PATCH.windows = w; },
       seriesOf: seriesOf,
+      scaleOf: scaleOf,
+      okAnchorRel: okAnchorRel,
+      buildReply: buildReply,
+      benchContext: benchContext,
       state: PATCH,
       family: FAMILY,
       detents: DETENTS,

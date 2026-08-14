@@ -949,24 +949,16 @@
 }
 /* on a chain card the chip is icon-only so the rail stays one line; the
    summary keeps its accessible name via the visually-hidden label */
-.sn-why--card { font-weight: normal; }
-.sn-why--card > summary { padding: .2rem; border-radius: 50%; }
-.sn-why--card > summary .sn-why__k {
-  position: absolute; width: 1px; height: 1px; overflow: hidden;
-  clip-path: inset(50%); white-space: nowrap;
+/* v12: the card-why floating pops are GONE - an open pop inside the rail's
+   scroll container clipped ("i have to scroll and it hides parts of the ui").
+   Every why now lives in the standing row and EXPANDS IN PLACE: the open one
+   takes the full row, pushing content down instead of covering it. */
+.sn-whys .sn-why[open] {
+  flex-basis: 100%;
+  border: 1px solid var(--hairline-2); border-radius: 8px;
+  background: var(--paper-2); padding: .35rem .7rem .65rem;
 }
-.sn-why--card[open] > summary .sn-why__k {
-  position: static; width: auto; height: auto; clip-path: none;
-}
-.sn-why--card .sn-why__p { max-width: 22rem; }
-/* an open pop breaks out of the rail's flow instead of stretching the card */
-.sn-slot--model { position: relative; }
-.sn-slot--model .sn-why--card[open] {
-  position: absolute; top: calc(100% + .4rem); left: 0; z-index: 6;
-  background: var(--paper); border: 1px solid var(--hairline-2); border-radius: 8px;
-  padding: .2rem .7rem .6rem; box-shadow: 0 8px 22px rgba(0,0,0,.18);
-  width: max-content; max-width: 24rem;
-}
+.sn-whys .sn-why[open] > summary { border-color: transparent; background: transparent; }
 
 /* the measured-sweep micro-chart: every point a real config */
 .sn-econ { display: block; width: 100%; max-width: 22rem; margin-top: .5rem; }
@@ -1020,4 +1012,62 @@
 }
 .sn-nudge__x:hover { color: var(--ink-900); }
 .sn-nudge__x:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
+
+/* =====================================================================
+   v12 - the knob's effect made visible, the live voice, semantic light
+   ===================================================================== */
+
+/* the MARGIN-vs-FLOOR meter: bar = recorded margin, tick = the floor */
+.sn-fm { display: block; width: 15rem; max-width: 100%; margin: .3rem 0 .1rem; }
+.sn-fm__track { stroke: var(--ink-300); stroke-width: 1.2; }
+.sn-fm__detent { stroke: var(--ink-300); stroke-width: 1; }
+.sn-fm__bar { stroke: #1E7A3C; stroke-width: 3.5; stroke-linecap: round; }
+.sn-fm__tip { fill: #1E7A3C; }
+.sn-fm__bar.is-esc { stroke: #C99700; }
+.sn-fm__tip.is-esc { fill: #C99700; }
+.sn-fm__floor { stroke: var(--ink-900); stroke-width: 2; }
+.sn-fm__t { font-family: var(--font-mono); font-size: 6.5px; fill: var(--ink-500); letter-spacing: .06em; }
+.sn-fm__t--m { fill: var(--ink-400); }
+
+/* semantic tint on VERDICT WORDS only - the word and the shape carry the
+   meaning; the hue rides along (lamp semantics: green caught, amber doubt/
+   false-alarm, red missed) */
+.sn-live--ok  { color: #1E7A3C; }
+.sn-live--esc { color: #C99700; }
+.sn-live--bad { color: var(--live); }
+/* the change flash: fires only when a stage's verdict CONTENT changes */
+.sn-vword.is-flash, .sn-para--warn.is-flash { animation: sn-vflash .6s ease-out 1; }
+@keyframes sn-vflash {
+  0% { filter: brightness(1.9); text-shadow: 0 0 10px currentColor; }
+  100% { filter: none; text-shadow: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sn-vword.is-flash, .sn-para--warn.is-flash { animation: none; }
+}
+
+/* the beam readout: the recorded sample under the beam, ticking with it */
+.sn-beamro {
+  font-family: var(--font-mono); font-size: .58rem; color: var(--ink-500);
+  font-variant-numeric: tabular-nums; margin-left: auto; white-space: nowrap;
+}
+.sn-beamro--echo { margin-left: .6rem; color: var(--ink-400); }
+
+/* PING - the deck's one LIVE surface. The dot is green because it is
+   genuinely live (lamp semantics: on air), and pulses only mid-request. */
+.sn-livedot {
+  width: .5rem; height: .5rem; border-radius: 50%; background: #1E7A3C;
+  display: inline-block; flex: none; align-self: center;
+}
+.sn-livedot.is-wait { animation: sn-pingwait 1.1s ease-in-out infinite; }
+@keyframes sn-pingwait { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
+@media (prefers-reduced-motion: reduce) { .sn-livedot.is-wait { animation: none; } }
+.sn-ping__text.is-wait { color: var(--ink-400); font-style: italic; }
+.sn-ping__sub { font-style: italic; }
+.sn-replystack .sn-stage--reply {
+  border-left: 2px solid var(--hairline-2); margin-top: .5rem; padding-left: .55rem;
+}
+.sn-read__note { color: var(--ink-500); font-style: italic; }
+
+/* the second lever: a policy, next to the person it stands in for */
+.wb-lever--auth { margin-left: .5rem; }
 

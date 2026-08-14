@@ -502,7 +502,10 @@ test("palette: the lamp hues are fenced to lamp semantics", () => {
   for (const b of hueRules) {
     // lamps, read marks and lit condition pads all SPEAK lamp semantics -
     // what is the bench replaying / catching right now
-    assert.ok(/wp-lamp|wp-read__mark|syn-pad/.test(b),
+    // v12 adds: verdict-word tints (sn-live), the margin/floor meter's bar
+    // (green asserts / amber escalates), and the LIVE dot (green = on air).
+    // All of them SPEAK lamp semantics; none is decoration.
+    assert.ok(/wp-lamp|wp-read__mark|syn-pad|sn-live|sn-fm__/.test(b),
       `green/yellow may only colour lamp-semantic surfaces, got: ${b.split("{")[0].trim()}`);
   }
   assert.ok(/STANDING BY|ALL CLEAR|DEGRADED|FAULTS MISSED/.test(js),
@@ -597,11 +600,19 @@ test("deck: the selector, the chain, and the monitor all exist", () => {
     "the one-model-many-sensors reality is stated as roadmap copy");
 });
 
-test("deck: the data is fetched same-origin, so the deck works offline", () => {
+test("deck: data is same-origin; Ping is the ONE documented cross-origin call", () => {
   const fetches = js.match(/fetch\("([^"]+)"/g) || [];
   assert.ok(fetches.length >= 3, "the deck loads its snapshots");
   for (const f of fetches) assert.ok(!/https?:\/\//.test(f), `${f} must be same-origin`);
   assert.ok(js.includes("did not load"), "and says so honestly when they do not");
+  // the live prompt is the one exception, named and bounded: the same
+  // concierge endpoint the CONSOLE deck calls, credentials omitted
+  const urls = js.match(/https:\/\/[a-z0-9.\/-]+/gi) || [];
+  assert.deepEqual([...new Set(urls)], ["https://broker.rogerai.fm/concierge"],
+    "exactly one cross-origin URL, the concierge");
+  assert.ok(/PING_URL = "https:\/\/broker.rogerai.fm\/concierge"/.test(js));
+  const ping = js.slice(js.indexOf("function liveAnswerer"), js.indexOf("function liveCtx"));
+  assert.ok(/credentials: "omit"/.test(ping), "no cookies ride to the concierge");
 });
 
 test("deck: the scope only draws for the scene that has committed samples", () => {
@@ -632,8 +643,9 @@ test("shim: prompted bytes earn a DRAFT envelope, never a result", () => {
   assert.ok(rep.envelope.includes(measured.task_frame.slice(0, 40)),
     "and the envelope carries the exported task frame");
   const talk = h.promptSend("hi");
-  assert.equal(talk.kind, "talk", "small talk never becomes a request");
-  assert.ok(/never reaches a model/.test(talk.text), "and says so");
+  assert.equal(talk.kind, "pingwait", "small talk goes to Ping - the live concierge");
+  assert.equal(talk.bench.kind, "talk", "with the faceplate fallback already built");
+  assert.ok(/never reaches a Wave model/.test(talk.bench.text), "which says what chat never touches");
   const nums = h.promptSend("71.2, 71.3, 71.1, 71.4, 71.2, 71.3, 71.5, 71.2");
   assert.equal(nums.kind, "draft");
   assert.ok(/NOT STATED IN THE WIRE/.test(nums.unitNote), "the unit's absence is stated, not papered over");
@@ -653,11 +665,15 @@ test("shim: raw numbers never get a defaulted unit", () => {
     "no unit is ever assumed for pasted data");
 });
 
-test("shim: conversation never reaches a model", () => {
+test("shim: conversation reaches Ping, labelled - never a Wave model", () => {
   assert.ok(js.includes('"talk"'), "small talk is a classified case");
+  assert.ok(/never reaches a Wave model/.test(js), "the fallback states the boundary plainly");
   assert.ok(/answered by this interface, from the faceplate/i.test(js),
-    "and is answered by the interface");
-  assert.ok(/never reaches a model/.test(js), "stated plainly");
+    "and the off-air fallback still answers from the faceplate");
+  assert.ok(/not a Wave model; a hosted Wave Nano is the goal/.test(js),
+    "the live card signs Ping as the concierge, never as a Wave model");
+  assert.ok(/PING · LIVE over the Tower relay/.test(js),
+    "and the one live surface is labelled LIVE, not replay");
 });
 
 test("shim: scenario words are recognised, and never free-texted to a model", () => {
@@ -797,18 +813,47 @@ test("monitor: stage tabs are channel buttons, honest to the stages that exist",
 
 // ---------- v8: honest display scale + the reading prompt ----------------------------
 
-test("strip: the display scale has a documented floor, and prints itself", () => {
-  assert.ok(/Math.max\(hi - lo, 0.03 \* Math.abs\(mean\), 1e-9\)/.test(js),
-    "the span floor is a fixed, documented formula - never a per-condition fudge");
+test("strip: the scale is anchored to the sensor's OK window, and prints itself", () => {
+  // v12: same-instrument comparison - every condition of a type draws at the
+  // OK window's sensitivity (relative span: the machines differ, absolute
+  // ranges cannot be shared honestly), so STUCK renders flat next to OK.
+  assert.ok(/\(\(hi - lo\) \* 1.2\) \/ Math.abs\(mean\)/.test(js),
+    "the anchor is the OK window's padded span, relative to its reading");
+  assert.ok(/anchorRel \* Math.abs\(mean\)/.test(js), "applied at this record's magnitude");
+  assert.ok(/0.03 \* Math.abs\(mean\)/.test(js), "with the v8 floor as the no-OK fallback");
   assert.ok(/display scale/.test(js), "the strip prints the scale actually drawn");
+  assert.ok(/matched to this sensor's OK window/.test(js), "and names its anchor");
   assert.ok(/samples are untouched/.test(js), "and states that the data is untouched");
+  // executed: at the same sensitivity, the stuck pick draws FLATTER than OK
+  const wdoc2 = JSON.parse(read("data/wave-windows.json"));
+  const h = loadHook();
+  h.setWindows(wdoc2.windows);
+  let compared = 0;
+  for (const ty of h.state.types) {
+    if (ty.recIdx.none == null || ty.recIdx.stuck == null) continue;
+    h.selectType(ty.key, "stuck");
+    const anchor = h.okAnchorRel();
+    assert.ok(anchor > 0, ty.key + ": the OK anchor exists");
+    const frac = (rec) => {
+      const s = h.seriesOf(measured.records[rec]);
+      const sc = h.scaleOf(s.samples, anchor);
+      return (sc.dataHi - sc.dataLo) / sc.span;
+    };
+    assert.ok(frac(ty.recIdx.stuck) < frac(ty.recIdx.none),
+      ty.key + ": stuck fills LESS of the shared band than OK - it reads flat");
+    compared++;
+  }
+  assert.ok(compared > 0, "at least one type has both OK and STUCK to compare");
 });
 
 test("prompt: a reading question is answered by THE BENCH, never signed as a model", () => {
   const h = loadHook();
   h.state.chain = ["pico", "nano"];
   h.selectType("temp", "drifting");
-  const rep = h.promptSend("what does the temperature read right now?");
+  const stack = h.promptSend("what does the temperature read right now?");
+  assert.equal(stack.kind, "pingwait", "the live voice is asked first");
+  assert.equal(stack.question, true, "and a question always carries the bench beneath");
+  const rep = stack.bench;
   assert.equal(rep.kind, "reading");
   assert.ok(/THE BENCH/.test(rep.who), "signed by the bench");
   assert.ok(/from the recorded window/.test(rep.who), "with its source named");
@@ -822,19 +867,33 @@ test("prompt: a reading question is answered by THE BENCH, never signed as a mod
   // with nobody watching, the bench still answers but says so
   h.state.chain = [];
   const rep2 = h.promptSend("what is the reading now?");
-  assert.ok(/Nobody is watching this channel/.test(rep2.chainLine));
+  assert.ok(/Nobody is watching this channel/.test(rep2.bench.chainLine));
 });
 
-test("prompt: the live seam exists, returns null today, and documents its wiring", () => {
+test("prompt: the live seam - Ping for chat, null for protocol, wave band documented", () => {
   const h = loadHook();
-  assert.equal(h.liveAnswerer({ kind: "question" }, {}), null,
-    "no hosted band is reachable from this page - the seam must say so by returning null");
-  assert.ok(/Tower relay/.test(js), "the intended transport is documented at the seam");
-  assert.ok(/one-request-per-candidate grammar/.test(js), "with the enum protocol");
+  assert.equal(h.liveAnswerer({ kind: "blob" }, {}, "x"), null,
+    "wire blobs never go to chat - they earn the DRAFT envelope");
+  assert.equal(h.liveAnswerer({ kind: "numbers" }, {}, "x"), null,
+    "number series likewise");
+  const live = h.liveAnswerer({ kind: "question", text: "q" }, {}, "q");
+  assert.ok(live && typeof live.then === "function",
+    "chat and questions produce a real request (a promise), not a placeholder");
+  assert.ok(/\[WAVE MESH BENCH\]/.test(js),
+    "the message carries the bench-context prefix the broker persona recognises");
+  assert.ok(/Tower relay/.test(js), "the transport is documented at the seam");
+  assert.ok(/one-request-per-candidate grammar/.test(js), "with the enum protocol for the wave band");
   assert.ok(/QUESTION-FOR-MODELS-AGENT-mesh-live-prompt/.test(js),
     "and the open ask to the models agent is referenced");
-  assert.ok(/liveAnswerer\(v, liveCtx\(\)\) \|\| buildReply/.test(js),
-    "promptSend is an answerer chain: live first, bench fallback");
+  assert.ok(/PATCH.reply.token !== token/.test(js),
+    "a reply that lands after the context moved is dropped, not painted");
+  // the bench context itself is recorded fields only
+  h.state.chain = ["pico", "nano"];
+  h.selectType("temp", "drifting");
+  const ctx = h.benchContext();
+  const r = measured.records[h.state.types.find((x) => x.key === "temp").recIdx.drifting];
+  assert.ok(ctx.includes("tag=" + r.window.tag), "the context names the live selection");
+  assert.ok(ctx.includes("mean=" + r.window.mean), "with its recorded mean");
 });
 
 test("classifier: reading questions route to question, chatter still routes to talk", () => {
@@ -900,10 +959,17 @@ test("why: the escalate stage states the margin doctrine", () => {
   assert.ok(/saying 'I am not sure' - that honesty is the feature/.test(js));
 });
 
-test("why: pico and nano chain cards carry their story one tap away", () => {
-  assert.ok(/why task-native\?/.test(js), "the pico card asks the question");
+test("why: every why expands IN PLACE below the rail - one at a time, never clipped", () => {
+  assert.ok(/why task-native\?/.test(js), "the task-native question stands");
   assert.ok(/LOCKED ENUM with a MARGIN/.test(js), "and answers with the doctrine");
-  assert.ok(/why a senior\?/.test(js), "the nano card asks its own");
+  assert.ok(/why a senior\?/.test(js), "the senior question stands");
+  assert.ok(/why a person at the end\?/.test(js), "and the operator doctrine has its own");
+  // v12: the floating card-pops clipped inside the rail's scroller - gone
+  assert.ok(!/sn-why--card\[open\]/.test(css), "no floating pop inside a scroll container");
+  assert.ok(/\.sn-whys \.sn-why\[open\] \{\s*\n?\s*flex-basis: 100%/.test(css),
+    "an open why takes the full row - expands in place, pushing content down");
+  assert.ok(/PATCH.whyOpen = key/.test(js) && /o.open = false/.test(js),
+    "one why open at a time, and the open one survives re-renders");
 });
 
 // ---------- the phosphor renderer (v9) ---------------------------------------------
@@ -938,13 +1004,14 @@ test("v11: a prompt reply dies when its context moves", () => {
   const h = loadHook();
   h.state.chain = ["pico", "nano"];
   h.promptSend("what does the temperature read right now?");
-  assert.equal(h.state.reply.kind, "reading", "a reading question earns a bench reading");
+  assert.equal(h.state.reply.kind, "pingwait", "a question asks the live voice");
+  assert.equal(h.state.reply.bench.kind, "reading", "with the bench reading beneath");
   const before = h.state.reply;
   const other = h.state.types.find((x) => x.key !== h.state.typeKey);
   h.selectType(other.key);
   assert.equal(h.state.reply, null,
     "a reading card citing the previous sensor must not survive a type switch");
-  assert.ok(before.tag, "(the stale card really did carry the old tag)");
+  assert.ok(before.bench.tag, "(the stale card really did carry the old tag)");
   // chain moves kill it too - the DRAFT header names its addressee
   h.promptSend("71.2, 71.3, 71.1, 71.4, 71.2, 71.3, 71.5, 71.2");
   assert.equal(h.state.reply.kind, "draft");
@@ -993,3 +1060,107 @@ test("v11: the glass shows a scroll cue when the cascade runs past it", () => {
     "sticky, so it hugs the bottom edge only while content overflows");
 });
 
+// ---------- v12: the founder's review round ------------------------------------
+
+test("v12: the knob's effect is visible every turn - margin AND floor, plus the meter", () => {
+  assert.ok(/margin " \+ st.margin.toFixed\(2\) \+ " < floor/.test(js) ||
+    /< floor " \+ st.floor.toFixed\(1\)/.test(js),
+    "the escalate line prints both numbers");
+  assert.ok(/≥ floor/.test(js), "and so does the assert line - the comparison is explicit");
+  assert.ok(/function floorMeter/.test(js), "the margin-vs-floor meter exists");
+  const fm = js.slice(js.indexOf("function floorMeter"), js.indexOf("function verdictTint"));
+  assert.ok(/DETENTS.forEach/.test(fm), "every measured detent is a notch on the meter");
+  assert.ok(/doubt threshold/.test(fm), "and the meter explains itself");
+  assert.ok(!/Math.random|Math.sin/.test(fm), "recorded margin + chosen floor only");
+  assert.ok(/floorMeter\(st.margin, st.floor\)/.test(js), "the pico stage carries it");
+});
+
+test("v12: verdict words carry semantic light, flashed only on real change", () => {
+  const vtAt = js.indexOf("function verdictTint");
+  const vt = js.slice(vtAt, js.indexOf("function flashIfChanged", vtAt));
+  assert.ok(/sn-live--esc/.test(vt) && /sn-live--ok/.test(vt) && /sn-live--bad/.test(vt),
+    "the tint speaks lamp semantics: amber doubt, green caught, red missed");
+  assert.ok(/PATCH._vSig\[key\] !== undefined && PATCH._vSig\[key\] !== sig && !REDUCED/.test(js),
+    "the flash fires exactly when a stage's verdict content changes, never under reduced motion");
+  assert.ok(/prefers-reduced-motion: reduce\) \{\n  \.sn-vword\.is-flash/.test(css) ||
+    /prefers-reduced-motion: reduce\) \{[^}]*\.sn-vword\.is-flash \{ animation: none/.test(css.replace(/\n/g, " ")),
+    "the CSS side skips the flash too - the steady tint stays");
+  assert.ok(/delete PATCH._vSig\[k\]/.test(js),
+    "a stage that leaves the cascade forgets its signature, so its return flashes");
+});
+
+test("v12: the beam readout is the recorded sample under the beam", () => {
+  const cvBlock = js.slice(js.indexOf("function drawStripCanvas"), js.indexOf("function drawStrip(r)"));
+  assert.ok(/sample " \+ \(hi0 \+ 1\) \+ "\/" \+ n/.test(cvBlock),
+    "the readout counts real samples");
+  assert.ok(/fmtN\(samples\[hi0\]\)/.test(cvBlock),
+    "and prints the recorded value under the beam - nothing else");
+  assert.ok(/sn-beamro/.test(cvBlock), "pushed to the readout spans");
+  assert.ok(/sn-beamro--echo/.test(js), "with the compact echo on the RAW WIRE head");
+  const strip = js.slice(js.indexOf("function drawStrip(r)"), js.indexOf("function sparkline"));
+  assert.ok(/if \(!REDUCED\) \{\n      var ro = el\("span", "sn-beamro"\)/.test(strip),
+    "reduced motion gets no ticker - the legend already carries the static numbers");
+});
+
+test("v12: UNATTENDED AUTHORITY is a policy, and the lamp answers PROVISIONAL", () => {
+  const h = loadHook();
+  h.selectType("temp", "none");
+  h.state.chain = ["pico", "nano"];
+  h.state.operator = false; h.state.authority = false;
+  h.derive();
+  assert.equal(h.state.verdict.state, "yellow", "no operator, no authority: DEGRADED as before");
+  h.state.authority = true;
+  h.derive();
+  assert.equal(h.state.verdict.state, "green", "authority granted: the chain acts");
+  assert.equal(h.state.verdict.label, "PROVISIONAL", "but never claims ALL CLEAR");
+  assert.equal(h.state.verdict.sym, "◐", "with its own half-lamp shape");
+  assert.ok(/queued for human\s+review/.test(h.state.verdict.why.replace(/\s+/g, " ")),
+    "decisions queue for a person");
+  assert.ok(/POLICY you set,\s*not a measurement/.test(h.state.verdict.why.replace(/\s+/g, " ")),
+    "and the why-line says it is policy, not measurement");
+  // authority without a senior changes nothing - a lone Pico takes no shift
+  h.state.chain = ["pico"]; h.state.floor = 0.5;
+  h.derive();
+  assert.notEqual(h.state.verdict.label, "PROVISIONAL",
+    "no senior aboard: the policy has nobody qualified to exercise it");
+  // and with the operator ON, authority is moot
+  h.state.chain = ["pico", "nano"]; h.state.operator = true;
+  h.derive();
+  assert.notEqual(h.state.verdict.label, "PROVISIONAL", "a person on shift outranks the policy");
+});
+
+test("v12: the ladder runs up - a backwards chain cannot be constructed", () => {
+  const h = loadHook();
+  h.state.chain = [];
+  h.chainAdd("nano");
+  h.chainAdd("pico"); // attached after - but a senior does not hand work down
+  assert.deepEqual(h.state.chain, ["pico", "nano"],
+    "the chain normalizes: reader first, senior after, whatever the tap order");
+  h.state.chain = ["micro"];
+  h.chainAdd("pico");
+  assert.deepEqual(h.state.chain.slice(0, 1), ["pico"],
+    "the reader always takes the wire end, observers ride behind");
+  assert.ok(/a senior does not hand work down/.test(js),
+    "and the rearrange teaches the reason");
+  // derive() can therefore never see a pico-after-nano topology
+  const info = js.slice(js.indexOf("function normalizeChain"), js.indexOf("function chainAdd"));
+  assert.ok(/out.push\("pico"\)/.test(info) && /out.push\("nano"\)/.test(info),
+    "normalization is structural, not advisory");
+});
+
+test("v12: the Ping stack shows the live voice on top, the recorded numbers beneath", () => {
+  const dr = js.slice(js.indexOf("function drawReply"), js.indexOf("function renderChips"));
+  assert.ok(/rep.question && rep.bench && rep.bench.kind === "reading"/.test(dr),
+    "a question's stack always carries the bench reading");
+  assert.ok(/shown verbatim - declines included/.test(dr),
+    "a real reply is a real reply - declines are displayed, not sniffed");
+  assert.ok(/Ping is off air - the bench answered/.test(js),
+    "network failure falls back to the bench, and says so");
+  // the wait card dies with its context like any reply (v11 rule, executed)
+  const h = loadHook();
+  h.state.chain = ["pico", "nano"];
+  h.promptSend("hello there");
+  assert.equal(h.state.reply.kind, "pingwait");
+  h.selectType(h.state.types.find((x) => x.key !== h.state.typeKey).key);
+  assert.equal(h.state.reply, null, "a moved context dismisses the waiting card too");
+});
