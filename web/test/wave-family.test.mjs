@@ -30,7 +30,10 @@ const rows = (table) => [...table.matchAll(/<tr>(?!\s*<th scope="col")[\s\S]*?<\
   .map((m) => m[0]).filter((r) => /<th scope="row"/.test(r));
 
 // Every slot the family actually has. A jobs row may name only these.
-const SLOTS = ["Edge", "Nano", "Micro", "Core", "Station"];
+// SPECTRUM RENAME (founder, 2026-08-14): the ladder is Pico -> Nano -> Micro ->
+// Giga -> Tera -> Peta -> Exa; the jobs table names the four deployable-on-site
+// tiers, mapped 1:1 from the old vocabulary (Edge->Pico, Core->Giga).
+const SLOTS = ["Pico", "Nano", "Micro", "Giga"];
 
 test("the jobs table covers the plant broadly, not as a token gesture", () => {
   const table = jobsTable();

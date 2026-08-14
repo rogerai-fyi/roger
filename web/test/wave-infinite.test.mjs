@@ -166,13 +166,19 @@ test("the prototype badge is always visible in the section", () => {
     "the badge ships with the section, per the web brief hard rule");
 });
 
-test("the rail ends with Infinite as a mode, not a size", () => {
+test("the rail carries sizes only - Infinite is a mode, not a size", () => {
+  // AMENDED 2026-08-14: this used to require Infinite as a trailing rail marker with
+  // its own treatment. It sat past the axis end (111%), where it collided with the top
+  // tiers and clipped out of the scroller. The guarantee this test exists for - that
+  // Infinite is never read as another size - is now enforced the strongest way there
+  // is: it is not on the size axis at all, and the caption says why. Section 6 owns it.
   const page = read("research-wave-family.html");
   const rail = page.match(/<figure class="wf-rail"[\s\S]*?<\/figure>/)[0];
   const nodes = [...rail.matchAll(/class="wf-node[^"]*"[^>]*>[\s\S]*?<b>([^<]+)<\/b>/g)].map((m) => m[1]);
-  assert.equal(nodes[nodes.length - 1], "Infinite", "Infinite is the last marker");
-  assert.match(rail, /wf-node--infinite/, "with its own treatment, not a sixth size dot");
-  assert.match(visible(rail), /not a size/i, "the caption says it is not a size");
+  assert.deepEqual(nodes, ["Pico", "Nano", "Micro", "Giga", "Tera", "Peta", "Exa"],
+    "the axis carries the seven fixed sizes of the locked ladder, in order");
+  assert.ok(!/wf-node--infinite/.test(rail), "Infinite is not a dot on the size axis");
+  assert.match(visible(rail), /not a size/i, "and the caption says it is not a size");
 });
 
 test("the loop figure is described and safe", () => {

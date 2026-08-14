@@ -46,57 +46,61 @@
             <span class="research-kicker">DESIGNED BY ROGERAI</span>
             <h3>Wave models</h3>
           </div>
-          <p>Every slot retains its own program status · no checkpoint released yet</p>
+          <p>The Wave Spectrum, pico to exa &middot; every tier retains its own program status &middot; no checkpoint released yet</p>
         </div>
 
         <div class="model-list model-list--native">
           <article class="model-row">
             <div class="model-row__identity">
-              <span class="status">IN DESIGN</span>
-              <h3>Roger Edge</h3>
-              <p class="research-parent">KB–10M · Microcontrollers</p>
-              <code class="model-id">roger-edge-&lt;task&gt;-&lt;size&gt;</code>
+              <span class="status">WAYPOINT TRAINED</span>
+              <h3>Wave Pico</h3>
+              <p class="research-parent">250&ndash;300M target &middot; Pi, ESP32 &middot; ~50 ms, no GPU</p>
+              <code class="model-id">wave-pico-&lt;size&gt;-&lt;task&gt;</code>
             </div>
             <div>
               <span class="research-kicker">ROLE</span>
-              <p>Wake, voice activity, sensing, and fixed commands need reliable task models,
-                 not miniature chatbots.</p>
+              <p>The edge child: reads one machine&rsquo;s telemetry and asserts, with
+                 margins. Trained from scratch on our data; the certified 100M-class
+                 waypoint build exists today, and the tier retrains upward as the
+                 diverse-data pool grows.</p>
               <div class="model-row__actions">
-                <span class="model-stage">Hardware and dataset design</span>
+                <span class="model-stage">Certifying the waypoint &middot; 300M retrain next</span>
               </div>
             </div>
           </article>
 
           <article class="model-row">
             <div class="model-row__identity">
-              <span class="status">TRAINED</span>
+              <span class="status">NEXT BUILD</span>
               <h3>Wave Nano</h3>
-              <p class="research-parent">~350M · phone, Pi, and gateway</p>
-              <code class="model-id">wave-nano-350m-&lt;task&gt;</code>
+              <p class="research-parent">0.8&ndash;1.5B &middot; gateway, concentrator</p>
+              <code class="model-id">wave-nano-&lt;size&gt;-&lt;task&gt;</code>
             </div>
             <div>
               <span class="research-kicker">ROLE</span>
-              <p>Fast routing, extraction, and triage without carrying the memory and compute
-                 cost of a chat model.</p>
+              <p>The fleet gateway: rolls up many children, resolves conflicts, and routes
+                 by discovery. Scratch if the data program allows; a base-and-specialize
+                 fallback is held as the control.</p>
               <div class="model-row__actions">
-                <span class="model-stage">Trained, improving</span>
+                <span class="model-stage">Scratch build queued behind Pico</span>
               </div>
             </div>
           </article>
 
           <article class="model-row" id="wave-micro">
             <div class="model-row__identity">
-              <span class="status">TRAINED</span>
+              <span class="status">BASE SELECTED</span>
               <h3>Wave Micro</h3>
-              <p class="research-parent">1&ndash;8B class · text + tools · laptop and edge computer</p>
+              <p class="research-parent">7&ndash;8B &middot; on-site server &middot; general + industrial</p>
               <code class="model-id">no checkpoint released</code>
             </div>
             <div>
               <span class="research-kicker">ROLE</span>
-              <p>Bounded local text and tool use where a general cloud model adds unnecessary
-                 latency, cost, or exposure.</p>
+              <p>The site brain: multi-fleet reasoning across a facility. Built as
+                 base + specialize, and gated on keeping its general ability while the
+                 industrial score rises.</p>
               <div class="model-row__actions">
-                <span class="model-stage">In evaluation</span>
+                <span class="model-stage">Specialization pipeline standing up</span>
               </div>
             </div>
           </article>
@@ -104,16 +108,68 @@
           <article class="model-row">
             <div class="model-row__identity">
               <span class="status">PLANNED</span>
-              <h3>Wave Core</h3>
-              <p class="research-parent">8&ndash;30B planned band · single GPU, control room</p>
-              <code class="model-id">wave-core-&lt;size&gt;-instruct</code>
+              <h3>Wave Giga</h3>
+              <p class="research-parent">27&ndash;35B &middot; plant datacenter</p>
+              <code class="model-id">wave-giga-&lt;size&gt;-instruct</code>
             </div>
             <div>
               <span class="research-kicker">ROLE</span>
-              <p>General local reasoning, longer synthesis, and multi-step tool use when
-                 Nano is too constrained but local control still matters.</p>
+              <p>The plant: full-plant reasoning, competitive on general benchmarks as
+                 well as machines. Base + specialize; base selection is open.</p>
+              <div class="model-row__actions">
+                <span class="model-stage">Base selection</span>
+              </div>
+            </div>
+          </article>
+
+          <article class="model-row">
+            <div class="model-row__identity">
+              <span class="status">PLANNED</span>
+              <h3>Wave Tera</h3>
+              <p class="research-parent">80&ndash;120B &middot; enterprise cloud</p>
+              <code class="model-id">wave-tera-&lt;size&gt;-instruct</code>
+            </div>
+            <div>
+              <span class="research-kicker">ROLE</span>
+              <p>Cross-site enterprise: correlates faults and trends across many plants
+                 at once.</p>
               <div class="model-row__actions">
                 <span class="model-stage">Architecture and data design</span>
+              </div>
+            </div>
+          </article>
+
+          <article class="model-row">
+            <div class="model-row__identity">
+              <span class="status">PLANNED</span>
+              <h3>Wave Peta</h3>
+              <p class="research-parent">150&ndash;200B &middot; regional cloud</p>
+              <code class="model-id">wave-peta-&lt;size&gt;-instruct</code>
+            </div>
+            <div>
+              <span class="research-kicker">ROLE</span>
+              <p>Regional scale: a leaner giant, expert-pruned and distilled down from
+                 the frontier flagship rather than trained.</p>
+              <div class="model-row__actions">
+                <span class="model-stage">Pruning plan</span>
+              </div>
+            </div>
+          </article>
+
+          <article class="model-row">
+            <div class="model-row__identity">
+              <span class="status">FRONTIER BASE</span>
+              <h3>Wave Exa</h3>
+              <p class="research-parent">~284B &middot; frontier datacenter</p>
+              <code class="model-id">DeepSeek-V4-Flash class &middot; MTP</code>
+            </div>
+            <div>
+              <span class="research-kicker">ROLE</span>
+              <p>The flagship: exascale-class frontier capability, and the teacher the
+                 whole family learns from. Every tier ships with Wave Mesh baked in and
+                 understands the output of every tier beneath it.</p>
+              <div class="model-row__actions">
+                <span class="model-stage">The family teacher</span>
               </div>
             </div>
           </article>

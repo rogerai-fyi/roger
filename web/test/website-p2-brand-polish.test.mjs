@@ -30,7 +30,7 @@ test("released Wave copy names Apache-2.0 decisively and separates network servi
 test("homepage puts Wave Labs proof before the install action without adding a hidden reveal", () => {
   const home = read("index.html");
   const hero = home.match(/<section class="hero">[\s\S]*?<\/section>/)?.[0] || "";
-  const proof = hero.indexOf("WAVE MICRO");
+  const proof = hero.indexOf("WAVE PICO");
   const install = hero.indexOf('class="install"');
   assert.ok(proof > 0 && proof < install, "the Labs plate precedes install in the first hero flow");
   // The plate states program status, not a licence or a version it cannot back.
@@ -67,7 +67,8 @@ test("mobile research exposes a compact program-status ticker", () => {
   const page = read("research.html");
   assert.match(page, /class="release-ticker"/);
   const ticker = visible(page.match(/<p class="release-ticker"[\s\S]*?<\/p>/)?.[0] || "");
-  for (const fact of ["TRAINED", "Wave Micro", "1&ndash;8B class", "no public checkpoint yet"]) {
+  // SPECTRUM RENAME (2026-08-14): the ticker carries Pico's waypoint status.
+  for (const fact of ["WAYPOINT", "Wave Pico", "100M-class", "no public checkpoint yet"]) {
     assert.match(ticker, new RegExp(fact, "i"));
   }
   assert.doesNotMatch(ticker, /AVAILABLE|v1\.0|Apache-2\.0/i);

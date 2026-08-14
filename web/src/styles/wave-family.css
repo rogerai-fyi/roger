@@ -12,18 +12,22 @@
 }
 .wf-rail__scroll { overflow-x: auto; padding: var(--s-8) var(--s-5) var(--s-5); }
 /* Padding keeps the 0% and 100% markers from clipping at the track ends. */
-.wf-rail__track { position: relative; min-width: 560px; height: 74px; margin-inline: 44px; }
+.wf-rail__track { position: relative; min-width: 860px; height: 74px; margin-inline: 44px; }
 .wf-rail__track::before {
   content: ""; position: absolute; left: 0; right: 0; top: 30px; height: 2px;
   background: var(--hairline-2);
 }
-.wf-tick { position: absolute; left: var(--at); top: 0; transform: translateX(-50%); text-align: center; }
-.wf-tick i { display: block; width: 1px; height: 12px; margin: 16px auto 5px; background: var(--hairline-2); }
+.wf-tick {
+  position: absolute; left: var(--at); top: 0; transform: translateX(-50%);
+  text-align: center; display: flex; flex-direction: column-reverse;
+}
+.wf-tick i { display: block; width: 1px; height: 12px; margin: 4px auto 0; background: var(--hairline-2); }
 .wf-tick b {
   display: block; color: var(--ink-400); font-family: var(--font-mono);
   font-size: var(--t-micro); font-weight: 400; letter-spacing: .04em;
+  white-space: nowrap;
 }
-.wf-node { position: absolute; left: var(--at); top: 24px; transform: translateX(-50%); width: 92px; text-align: center; }
+.wf-node { position: absolute; left: var(--at); top: 24px; transform: translateX(-50%); width: 58px; text-align: center; }
 .wf-node i {
   display: block; width: 11px; height: 11px; margin: 0 auto var(--s-2);
   border: 2px solid var(--ink-900); border-radius: 50%; background: var(--paper);
@@ -31,9 +35,14 @@
 .wf-node b {
   display: block; color: var(--ink-900); font-family: var(--font-mono);
   font-size: var(--t-micro); font-weight: 500; letter-spacing: .06em; text-transform: uppercase;
+  white-space: nowrap;
 }
 /* The one red beacon: spent on the single slot that actually exists. */
 .wf-node.is-live i { border-color: var(--live); background: var(--live); }
+/* the top of the ladder is truthfully tight on a log axis (80-284B spans barely
+   half a decade), so the middle of the three drops a row instead of colliding.
+   It drops rather than lifts because above the axis is the tick row. */
+.wf-node--up b { transform: translateY(15px); }
 .wf-node.is-live b { color: var(--live); }
 .wf-rail figcaption {
   padding: var(--s-4) var(--s-5); border-top: 1px solid var(--hairline);
@@ -189,14 +198,6 @@
 .wf-inf__use li b { color: var(--ink-900); }
 @media (max-width: 860px) { .wf-inf__use ol { grid-template-columns: 1fr; } }
 
-/* The rail's last marker: the mode, not a sixth size. A double ring that breathes.
-   It sits past the axis end (105%), so the track keeps extra right margin for it. */
-.wf-rail__track { margin-inline: 44px 110px; }
-.wf-node--infinite i { border-style: double; border-width: 3px; border-color: var(--live); }
-.wf-node--infinite b { color: var(--live); }
-.wf-node--infinite i {
-  animation: wave-mark-beat 3.4s var(--ease-in-out, ease-in-out) infinite;
-}
 
 @media (prefers-reduced-motion: reduce) {
   /* The shimmer carries no information, so stopping it loses nothing. Reset the clip
@@ -208,7 +209,7 @@
   /* The orbit freezes legible: full loop stroke, sprouts resting visible, no motion. */
   .wf-orbit__comet { animation: none; stroke-dasharray: none; stroke-opacity: .8; }
   .wf-orbit__comet--echo { display: none; }
-  .wf-orbit__core, .wf-orbit__sprout, .wf-node--infinite i { animation: none; }
+  .wf-orbit__core, .wf-orbit__sprout { animation: none; }
   .wf-orbit__sprout { opacity: 1; transform: none; }
 }
 @media (max-width: 860px) {

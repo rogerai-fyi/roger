@@ -18,20 +18,21 @@ before(() => execFileSync("node", ["build.mjs"], { cwd: WEB }));
 test("the homepage orders the compact right-sized model spectrum", () => {
   const home = read("index.html");
   const spectrum = home.match(/<ol class="home-spectrum"[\s\S]*?<\/ol>/)?.[0] || "";
-  const order = ["Roger Edge", "Wave Nano", "Wave Micro", "Wave Core"];
+  // SPECTRUM RENAME (2026-08-14): pico -> exa on the home strip.
+  const order = ["Wave Pico", "Wave Nano", "Wave Micro", "Wave Giga", "Wave Exa"];
   let cursor = -1;
   for (const name of order) {
     const next = spectrum.indexOf(name);
     assert.ok(next > cursor, `${name} follows the smaller tier`);
     cursor = next;
   }
-  for (const phrase of ["fixed sensing", "routing + extraction", "local text + tools", "local reasoning"]) {
+  for (const phrase of ["telemetry", "fleet rollup", "site brain", "full-plant reasoning"]) {
     assert.match(visible(spectrum), new RegExp(phrase.replace("+", "\\+"), "i"));
   }
   assert.match(spectrum, /href="\/research\.html"/);
 });
 
-test("the homepage Labs card presents Wave Micro as a program, not a download", () => {
+test("the homepage Labs card presents the Wave program, not a download", () => {
   const section = read("index.html").match(/<section\b[^>]*id="company"[\s\S]*?<\/section>/)?.[0] || "";
   const sectionText = visible(section);
   // Nothing here may read as a shipping artifact while the checkpoint is unpublished.

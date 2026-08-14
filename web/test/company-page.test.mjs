@@ -120,15 +120,15 @@ test("the company page makes no unearned model claims", () => {
 
 test("the company page presents an honest model-size family", () => {
   const page = visible(readDist("company.html"));
+  // SPECTRUM RENAME (2026-08-14): the family line runs pico to exa.
   for (const slot of [
-    /Roger Edge/i,
+    /Wave Pico/i,
     /Wave Nano/i,
     /Wave Micro/i,
-    /frontier-scale optimization/i,
+    /Wave Giga/i,
   ]) assert.match(page, slot);
-  assert.match(page, /trained ~350M/i);
-  assert.match(page, /1(?:&ndash;|\u2013|-)8B class/i);
-  assert.match(page, /tens or hundreds of billions/i);
+  assert.match(page, /pico to exa/i);
+  assert.match(page, /frontier flagship/i);
   assert.match(page, /right-sized|smallest model/i);
   // The family describes PROGRAMS; none of its slots may advertise an artifact id.
   // Founder ruling 2026-07-31: the release-gate explanation came off this page (noise

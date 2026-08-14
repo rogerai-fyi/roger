@@ -77,24 +77,30 @@ test("the page leads with the work, not a biography of the company", () => {
 
 test("the model list gives every program a reason and honest status", () => {
   const page = text("research-models.html");
+  // SPECTRUM RENAME (2026-08-14): the Wave ladder is Pico -> Exa.
   for (const model of [
     "DeepSeek-V4-Flash MTP",
     "Kimi-K3",
-    "Wave Core",
-    "Wave Micro",
+    "Wave Pico",
     "Wave Nano",
-    "Roger Edge",
+    "Wave Micro",
+    "Wave Giga",
+    "Wave Tera",
+    "Wave Peta",
+    "Wave Exa",
   ]) assert.match(page, new RegExp(model));
   for (const reason of [
     /practical local inference/i,
     /high-memory workstation/i,
-    /general local reasoning/i,
-    /local text and tool use/i,
-    /routing, extraction, and triage/i,
-    /wake, voice activity, sensing, and fixed commands/i,
+    /reads one machine&rsquo;s telemetry|telemetry and asserts/i,
+    /fleet gateway/i,
+    /site brain/i,
+    /full-plant reasoning/i,
+    /expert-pruned/i,
+    /the teacher the\s+whole family learns from/i,
   ]) assert.match(page, reason);
   assert.match(page, /Research build/i);
-  assert.match(page, /In design/i);
+  assert.match(page, /Planned/i);
   assert.match(page, /Trained/i);
   // The fabricated artifact id is gone. Naming-CONVENTION placeholders on design
   // rows (wave-core-1b-instruct, wave-nano-<size>-<task>) are fine - they document
@@ -108,7 +114,7 @@ test("the model scope plots parameter class as radar range on a true log axis", 
   const scope = page.match(/<figure class="scope"[\s\S]*?<\/figure>/)?.[0];
   assert.ok(scope, "the Wave scope exists");
 
-  const order = ["Roger Edge", "Wave Nano", "Wave Micro", "Wave Core"];
+  const order = ["Wave Pico", "Wave Nano", "Wave Micro", "Wave Giga"];
   let cursor = -1;
   for (const name of order) {
     const next = scope.indexOf(name);
@@ -177,10 +183,11 @@ test("the model scope plots parameter class as radar range on a true log axis", 
 
 test("model identity follows family size variant conventions", () => {
   const page = read("research-models.html");
+  // SPECTRUM RENAME (2026-08-14): ids follow the pico->exa ladder.
   for (const id of [
-    "roger-edge-&lt;task&gt;-&lt;size&gt;",
-    "wave-nano-350m-&lt;task&gt;",
-    "wave-core-&lt;size&gt;-instruct",
+    "wave-pico-&lt;size&gt;-&lt;task&gt;",
+    "wave-nano-&lt;size&gt;-&lt;task&gt;",
+    "wave-giga-&lt;size&gt;-instruct",
   ]) assert.match(page, new RegExp(id));
   // The "Naming contract" paragraph came off the page on founder direction
   // (2026-07-31, noise reduction); the ids above still pin the convention.
@@ -220,9 +227,9 @@ test("only released artifacts present download controls", () => {
   assert.doesNotMatch(page, /aria-disabled="true"/);
   for (const stage of [
     /16K saliency calibration/,
-    /Trained, improving/,
+    /Certifying the waypoint/,
     /Architecture and data design/,
-    /Hardware and dataset design/,
+    /Scratch build queued/,
   ]) assert.match(page, stage);
   assert.doesNotMatch(page, /href="[^"]*(?:placeholder|coming-soon)[^"]*"/i);
 });
@@ -244,10 +251,10 @@ test("Wave Micro publishes its program status instead of a release contract", ()
   // programme detail (bake-off state, decision rule, licence intent) is not what a reader
   // scanning a model list came for. What must survive is the status a reader could be
   // misled about, and it does: the chip, the id, and no artifact link or evidence fields.
-  assert.match(cardText, /TRAINED/i);
-  // Founder ruling 2026-07-31: phase labels, not explanations ("In evaluation",
-  // was "Training not yet approved"; "bake-off" is barred by the stage sweep).
-  assert.match(cardText, /in evaluation/i);
+  // SPECTRUM RENAME (2026-08-14): Micro is now the 7-8B base+specialize site
+  // tier - no trained-artifact claim, its honest status is the selected base.
+  assert.match(cardText, /BASE SELECTED/i);
+  assert.match(cardText, /pipeline standing up/i);
   assert.match(cardText, /no checkpoint released/i);
   // No placeholder evidence: the earlier version listed five fields that all deferred to
   // a model card that did not exist, which looked like rigour and was not.
@@ -486,7 +493,7 @@ test("each slot's arc spans exactly the variations the family page gives it", ()
   assert.ok(Object.keys(livesAt).length >= 6, "the variation table was found");
 
   const ORDER = ["Guard", "Audio", "Vision", "Text", "Embed", "Tool"]; // bearing order, north-clockwise
-  const SLOTS = ["Roger Edge", "Wave Nano", "Wave Micro", "Wave Core"];
+  const SLOTS = ["Wave Pico", "Wave Nano", "Wave Micro", "Wave Giga"];
   const expands = (livesAtText) => {
     if (/every slot/i.test(livesAtText)) return new Set(SLOTS);
     const short = (s) => SLOTS.find((n) => n.endsWith(s) || n === s);
@@ -539,7 +546,7 @@ test("the scope offers both axes and defaults to the capability one", () => {
 test("each slot's job arc matches the family page's jobs table", () => {
   const jobsSection = read("research-wave-family.html")
     .match(/<section[^>]*id="jobs"[\s\S]*?<\/section>/)[0];
-  const SLOTS = ["Edge", "Nano", "Micro", "Core"];
+  const SLOTS = ["Pico", "Nano", "Micro", "Giga"];
   const expand = (cell) => {
     if (/\bto\b/i.test(cell)) {
       const [a, z] = cell.split(/\s+to\s+/i).map((x) => SLOTS.indexOf(x.trim()));
@@ -560,8 +567,8 @@ test("each slot's job arc matches the family page's jobs table", () => {
   assert.ok(jobs >= 16, `the table still carries the full job set, found ${jobs}`);
 
   const axis = axisGroup(scopeFig(), "jobs");
-  for (const [short, slug] of [["Edge", "roger-edge"], ["Nano", "wave-nano"],
-                               ["Micro", "wave-micro"], ["Core", "wave-core"]]) {
+  for (const [short, slug] of [["Pico", "wave-pico"], ["Nano", "wave-nano"],
+                               ["Micro", "wave-micro"], ["Giga", "wave-giga"]]) {
     const g = axis.match(new RegExp(`<g class="scope__contact" data-slot="${slug}">([\\s\\S]*?)</g>`))[1];
     const drawn = (g.match(/<path class="scope__cell"/g) || []).length;
     assert.equal(drawn, expected[short],

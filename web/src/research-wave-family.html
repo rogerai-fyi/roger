@@ -7,7 +7,7 @@
      Registered in build.mjs CSS_BUNDLES with research.css + wave-family.css. -->
 <html lang="en">
 <head>
-  <!-- include: head.html title="The Wave family - seven orders of magnitude" desc="How the Wave model family is sized, what each slot is for, and the measurement that decides which slot can take which industrial job." theme=external og=post ogtype=article ogtitle="The Wave family: seven orders of magnitude" ogdesc="Compression takes explanation before it takes extraction. That measurement is what assigns jobs to slots, from a microcontroller to a workstation." ogurl="https://rogerai.fm/research-wave-family.html" ogimage="https://rogerai.fm/og-research.png" -->
+  <!-- include: head.html title="The Wave Spectrum - one family, pico to exa" desc="The Wave family on one SI scale - Pico to Exa, a chip beside the machine to an exascale-class flagship - what each tier is for, how each is built, and the measurement that decides which tier can take which industrial job." theme=external og=post ogtype=article ogtitle="The Wave Spectrum: one family, pico to exa" ogdesc="Compression takes explanation before it takes extraction. That measurement is what assigns jobs to tiers, from a chip beside the machine to an exascale-class flagship." ogurl="https://rogerai.fm/research-wave-family.html" ogimage="https://rogerai.fm/og-research.png" -->
 </head>
 <body data-onair="idle">
 
@@ -28,11 +28,12 @@
             <span class="onair" aria-hidden="true">((<span class="onair__dot">&bull;</span>))</span>
             <span class="hero__callsign">WAVE FAMILY &middot; FIELD GUIDE</span>
           </span>
-          <h1>One family, seven orders of magnitude.</h1>
+          <h1>The Wave Spectrum: one family, pico to exa.</h1>
           <p class="research-hero__lead">
-            From a model that fits on a microcontroller to one that fills a workstation.
-            Each slot has a different job, and a measurement decides which job it is allowed
-            to take.
+            One family of industrial models on a single SI scale - from a chip beside
+            the machine to an exascale-class flagship. Smaller waves reach the edge;
+            larger waves carry more power. Each tier has a different job, and a
+            measurement decides which job it is allowed to take.
           </p>
         </div>
 
@@ -64,9 +65,9 @@
         <div class="section__head section__head--left">
           <span class="sectionno">&sect;1 / SCALE</span>
           <h2>The gaps are real.</h2>
-          <p>Slots sit at their true artifact size on a logarithmic axis, so the spacing
-             carries information instead of decorating the page. Wave Micro is hundreds of
-             times a Roger Edge model.</p>
+          <p>Tiers sit at their target artifact size on a logarithmic axis, so the spacing
+             carries information instead of decorating the page. Wave Exa is roughly a
+             thousand times a Wave Pico.</p>
         </div>
 
         <figure class="wf-rail" aria-labelledby="wf-rail-title wf-rail-cap">
@@ -74,27 +75,39 @@
             <span id="wf-rail-title">ARTIFACT SIZE ON DISK</span>
             <span>quantized weights, log scale</span>
           </div>
+          <!-- Six decades, 1 MB to 1 TB, so every tier sits ON the axis rather than
+               past its end. Node positions are computed, not eyeballed:
+               at% = (100/6) x log10(size_MB), size = params x ~0.6 bytes (Q4-class
+               quantized weights, the shipping form - the measured 98M build is 65 MB
+               at Q4_K_M). Tier midpoints from the locked ladder: Pico 275M -> 165 MB,
+               Nano 1.15B -> 690 MB, Micro 7.5B -> 4.5 GB, Giga 31B -> 18.6 GB,
+               Tera 100B -> 60 GB, Peta 175B -> 105 GB, Exa 284B -> 170 GB. -->
           <div class="wf-rail__scroll">
             <div class="wf-rail__track">
               <span class="wf-tick" style="--at:0%"><i></i><b>1 MB</b></span>
-              <span class="wf-tick" style="--at:20%"><i></i><b>10 MB</b></span>
-              <span class="wf-tick" style="--at:40%"><i></i><b>100 MB</b></span>
-              <span class="wf-tick" style="--at:60%"><i></i><b>1 GB</b></span>
-              <span class="wf-tick" style="--at:80%"><i></i><b>10 GB</b></span>
-              <span class="wf-tick" style="--at:100%"><i></i><b>100 GB</b></span>
+              <span class="wf-tick" style="--at:16.7%"><i></i><b>10 MB</b></span>
+              <span class="wf-tick" style="--at:33.3%"><i></i><b>100 MB</b></span>
+              <span class="wf-tick" style="--at:50%"><i></i><b>1 GB</b></span>
+              <span class="wf-tick" style="--at:66.7%"><i></i><b>10 GB</b></span>
+              <span class="wf-tick" style="--at:83.3%"><i></i><b>100 GB</b></span>
+              <span class="wf-tick" style="--at:100%"><i></i><b>1 TB</b></span>
 
-              <span class="wf-node" style="--at:6%"><i></i><b>Edge</b></span>
-              <span class="wf-node is-live" style="--at:47%"><i></i><b>Nano</b></span>
-              <span class="wf-node is-live" style="--at:64%"><i></i><b>Micro</b></span>
-              <span class="wf-node" style="--at:78%"><i></i><b>Core</b></span>
-              <span class="wf-node" style="--at:88%"><i></i><b>Station</b></span>
-              <span class="wf-node" style="--at:94%"><i></i><b>Satellite</b></span>
-              <span class="wf-node wf-node--infinite" style="--at:105%"><i></i><b>Infinite</b></span>
+              <span class="wf-node is-live" style="--at:37%"><i></i><b>Pico</b></span>
+              <span class="wf-node" style="--at:47%"><i></i><b>Nano</b></span>
+              <span class="wf-node" style="--at:61%"><i></i><b>Micro</b></span>
+              <span class="wf-node" style="--at:71%"><i></i><b>Giga</b></span>
+              <span class="wf-node" style="--at:80%"><i></i><b>Tera</b></span>
+              <span class="wf-node wf-node--up" style="--at:84%"><i></i><b>Peta</b></span>
+              <span class="wf-node" style="--at:87%"><i></i><b>Exa</b></span>
             </div>
           </div>
-          <figcaption id="wf-rail-cap">Filled marker: trained (no public checkpoint
-            released yet). Hollow: planned or in design. Infinite: not a size - the growth
-            loop a base model enters (&sect;6).</figcaption>
+          <figcaption id="wf-rail-cap">Filled marker: a trained waypoint artifact exists
+            (Wave Pico&rsquo;s certified 100M-class build; 250&ndash;300M is the tier
+            target; no public checkpoint released yet). Hollow: a program stage. The top
+            three tiers sit close because they are: Exa is under three times Tera, which
+            is what half a decade looks like on a log axis. Wave Infinite is not a size,
+            so it is not on this axis - it is the growth loop a base model enters
+            (&sect;6).</figcaption>
         </figure>
       </div>
     </section>
@@ -157,7 +170,7 @@
           <p><b>That boundary is the product.</b> Extraction, classification and tool use
              survive heavy compression, so they belong in the small slots. Explanation and
              multi-step reasoning do not, so they belong in the large ones. It is why a
-             single-digit-billion model is enough for a work order and why Wave Core
+             single-digit-billion Wave Micro is enough for a work order and why Wave Giga
              exists for the rest.</p>
         </div>
       </div>
@@ -169,7 +182,7 @@
         <div class="section__head section__head--left">
           <span class="sectionno">&sect;3 / SLOTS</span>
           <h2>What each size is for.</h2>
-          <p>Program status travels with each slot. No slot has released an artifact yet.</p>
+          <p>The build recipe travels with each tier. The only trained waypoint today is Wave Pico&rsquo;s; no tier has released a public checkpoint yet.</p>
         </div>
 
         <div class="tier-scroll">
@@ -177,52 +190,62 @@
             <thead>
               <tr>
                 <th scope="col">Slot</th><th scope="col">Class</th><th scope="col">Job</th>
-                <th scope="col">Runs on</th><th scope="col">Status</th>
+                <th scope="col">Runs on</th><th scope="col">Recipe</th>
               </tr>
             </thead>
             <tbody>
               <tr>
-                <th scope="row">Roger Edge</th><td class="tier-cell">KB&ndash;10M</td>
-                <td>Wake, voice activity, sensing, fixed commands</td>
-                <td>ESP32, Cortex-M</td><td class="tier-cell">In design</td>
+                <th scope="row">Wave Pico</th><td class="tier-cell">250&ndash;300M</td>
+                <td>The edge child: reads one machine&rsquo;s telemetry and asserts, with margins</td>
+                <td>Pi, ESP32 &middot; ~50 ms, no GPU</td><td class="tier-cell">Scratch &middot; waypoint trained</td>
               </tr>
               <tr>
-                <th scope="row">Wave Nano</th><td class="tier-cell">~350M</td>
-                <td>Intent routing, field extraction, anomaly triage</td>
-                <td>Phone, Pi, gateway</td><td class="tier-cell">Trained</td>
+                <th scope="row">Wave Nano</th><td class="tier-cell">0.8&ndash;1.5B</td>
+                <td>The fleet gateway: rolls up many children, resolves conflicts, routes by discovery</td>
+                <td>Gateway, concentrator</td><td class="tier-cell">Scratch &middot; next build</td>
               </tr>
               <tr>
-                <th scope="row">Wave Micro</th><td class="tier-cell">1&ndash;8B</td>
-                <td>Bounded local text and tool use, structured output</td>
-                <td>Laptop, edge computer</td><td class="tier-cell">Trained</td>
+                <th scope="row">Wave Micro</th><td class="tier-cell">7&ndash;8B</td>
+                <td>The site brain: multi-fleet reasoning across a facility, general-capable and industrial</td>
+                <td>On-site server</td><td class="tier-cell">Base + specialize</td>
               </tr>
               <tr>
-                <th scope="row">Wave Core</th><td class="tier-cell">8&ndash;30B</td>
-                <td>Local reasoning, longer synthesis, multi-step tool use</td>
-                <td>Single GPU, control room</td><td class="tier-cell">Planned</td>
+                <th scope="row">Wave Giga</th><td class="tier-cell">27&ndash;35B</td>
+                <td>The plant: full-plant reasoning, competitive on general benchmarks as well as machines</td>
+                <td>Plant datacenter</td><td class="tier-cell">Base + specialize</td>
               </tr>
               <tr>
-                <th scope="row">Wave Station</th><td class="tier-cell">~30&ndash;70B</td>
-                <td>On-premises heavyweight: synthesis, planning, and teaching smaller slots</td>
-                <td>Rack, plant server</td><td class="tier-cell">Planned</td>
+                <th scope="row">Wave Tera</th><td class="tier-cell">80&ndash;120B</td>
+                <td>Cross-site enterprise: correlates faults and trends across many plants at once</td>
+                <td>Enterprise cloud</td><td class="tier-cell">Base + specialize</td>
               </tr>
               <tr>
-                <th scope="row">Wave Satellite</th><td class="tier-cell">~70B+</td>
-                <td>The largest fixed model: plant-wide reach and knowledge breadth</td>
-                <td>Plant server room</td><td class="tier-cell">Planned</td>
+                <th scope="row">Wave Peta</th><td class="tier-cell">150&ndash;200B</td>
+                <td>Regional scale: a leaner giant, distilled and pruned down from the frontier</td>
+                <td>Regional cloud</td><td class="tier-cell">Expert-pruned</td>
+              </tr>
+              <tr>
+                <th scope="row">Wave Exa</th><td class="tier-cell">~284B</td>
+                <td>The flagship: exascale-class frontier capability, and the teacher the whole family learns from</td>
+                <td>Frontier datacenter</td><td class="tier-cell">Frontier base</td>
               </tr>
             </tbody>
           </table>
         </div>
 
         <div class="device-contract">
-          <p><b>Task models first.</b> Roger Edge and Wave Nano extract, classify, route,
-             and call tools in fixed contracts; reasoning and explanation grow from
-             Wave Micro upward.</p>
-          <p><b>Why the family stops.</b> Wave Satellite is the largest fixed model; above
-             it you are buying frontier knowledge breadth, which is rarely the binding
-             constraint for a disconnected site. Core, Station, and Satellite are
-             planned bands, not final specifications.</p>
+          <p><b>Specialists first.</b> Wave Pico and Wave Nano are task-native total
+             specialists - at chance on general benchmarks by design (MMLU 23.2, Pico
+             report); reasoning and explanation grow from Wave Micro upward, where every
+             tier must stay competitive on general benchmarks as well as industrial ones.</p>
+          <p><b>How the recipes split.</b> Scratch means trained from random init on our
+             data, and it is bounded by diverse tokens, not GPUs - measured to win through
+             roughly half a billion parameters. Above that, base + specialize: a strong
+             open base, industrial continued-pretrain, and the mesh. Peta and Exa are
+             carved from the flagship rather than trained. Sizes are targets and bands,
+             not final specifications.</p>
+          <p><b>One family on one wire.</b> Every tier ships with Wave Mesh baked in and
+             understands the output of every tier beneath it.</p>
         </div>
       </div>
     </section>
@@ -246,31 +269,31 @@
               </tr>
             </thead>
             <tbody>
-              <tr><th scope="row">Gas leak screening</th><td class="tier-cell">Edge + Nano</td><td>Sensor and acoustic stream to anomaly event</td><td>Continuous, no bandwidth, hazardous area</td></tr>
+              <tr><th scope="row">Gas leak screening</th><td class="tier-cell">Pico + Nano</td><td>Sensor and acoustic stream to anomaly event</td><td>Continuous, no bandwidth, hazardous area</td></tr>
               <tr><th scope="row">Leak survey to repair order</th><td class="tier-cell">Micro</td><td>Findings to repair work order</td><td>Emissions reporting from a disconnected site</td></tr>
-              <tr><th scope="row">Rotating-equipment health</th><td class="tier-cell">Nano to Core</td><td>Vibration and thermal features to alert and cause</td><td>Latency, connectivity, data volume</td></tr>
-              <tr><th scope="row">Alarm triage and flood reduction</th><td class="tier-cell">Micro to Core</td><td>Alarm stream to ranked, deduplicated summary</td><td>The control network cannot send data out</td></tr>
+              <tr><th scope="row">Rotating-equipment health</th><td class="tier-cell">Nano to Giga</td><td>Vibration and thermal features to alert and cause</td><td>Latency, connectivity, data volume</td></tr>
+              <tr><th scope="row">Alarm triage and flood reduction</th><td class="tier-cell">Micro to Giga</td><td>Alarm stream to ranked, deduplicated summary</td><td>The control network cannot send data out</td></tr>
               <tr><th scope="row">Work-order and log automation</th><td class="tier-cell">Micro</td><td>Free-text notes to structured record</td><td>The task measured to survive heavy compression</td></tr>
-              <tr><th scope="row">Procedure and drawing questions</th><td class="tier-cell">Micro + Core</td><td>Question and local corpus to grounded answer</td><td>Documents never leave the plant</td></tr>
-              <tr><th scope="row">Incident, permit, and handover notes</th><td class="tier-cell">Core</td><td>Notes to structured report and summary</td><td>Privacy, audit trail, disconnected network</td></tr>
-              <tr><th scope="row">Inspection and root cause</th><td class="tier-cell">Micro to Core</td><td>Image and line data to defect call with reason</td><td>Line-rate latency</td></tr>
-              <tr><th scope="row">Gloves-on voice control</th><td class="tier-cell">Edge to Nano</td><td>Spoken command in plant noise to a confirmed action request</td><td>Hands and eyes are busy, and the area may be hazardous</td></tr>
+              <tr><th scope="row">Procedure and drawing questions</th><td class="tier-cell">Micro + Giga</td><td>Question and local corpus to grounded answer</td><td>Documents never leave the plant</td></tr>
+              <tr><th scope="row">Incident, permit, and handover notes</th><td class="tier-cell">Giga</td><td>Notes to structured report and summary</td><td>Privacy, audit trail, disconnected network</td></tr>
+              <tr><th scope="row">Inspection and root cause</th><td class="tier-cell">Micro to Giga</td><td>Image and line data to defect call with reason</td><td>Line-rate latency</td></tr>
+              <tr><th scope="row">Gloves-on voice control</th><td class="tier-cell">Pico to Nano</td><td>Spoken command in plant noise to a confirmed action request</td><td>Hands and eyes are busy, and the area may be hazardous</td></tr>
               <tr><th scope="row">Radio and intercom transcription</th><td class="tier-cell">Nano to Micro</td><td>Channel audio to a searchable shift log</td><td>Continuous audio, no bandwidth to ship it</td></tr>
               <tr><th scope="row">Gauge and panel reading</th><td class="tier-cell">Micro</td><td>Photograph of a dial or screen to a numeric reading</td><td>Legacy assets with no digital output</td></tr>
               <tr><th scope="row">Cause codes from technician notes</th><td class="tier-cell">Nano to Micro</td><td>Free-text repair note to a standard failure code</td><td>Notes stay on site; codes feed the local historian</td></tr>
               <tr><th scope="row">Spare-part and BOM lookup</th><td class="tier-cell">Nano + Micro</td><td>Part described in words to a catalogue number</td><td>The catalogue is local and the site is disconnected</td></tr>
               <tr><th scope="row">Procedure step-out detection</th><td class="tier-cell">Micro</td><td>Executed steps against the written procedure to a deviation flag</td><td>Controlled procedures never leave the plant</td></tr>
-              <tr><th scope="row">Sensor drift and calibration triage</th><td class="tier-cell">Nano to Core</td><td>Instrument trend to suspected drift and its likely cause</td><td>Continuous data, thin link, fast turnaround</td></tr>
-              <tr><th scope="row">Shift handover summary</th><td class="tier-cell">Micro to Core</td><td>A shift of logs and alarms to what the next crew must know</td><td>Personnel and incident detail stays on site</td></tr>
-              <tr><th scope="row">Emissions and regulatory reporting</th><td class="tier-cell">Core</td><td>Field findings to a submission-ready record</td><td>Audit trail, and the site is disconnected</td></tr>
-              <tr><th scope="row">Weld and assembly inspection</th><td class="tier-cell">Micro to Core</td><td>Line image to accept or reject, with the defect named</td><td>Line-rate latency; images never leave the cell</td></tr>
-              <tr><th scope="row">Imaging fleet health</th><td class="tier-cell">Micro to Core</td><td>Scanner service log to fault and likely cause</td><td>Vendor-segmented network, nothing leaves the hospital</td></tr>
+              <tr><th scope="row">Sensor drift and calibration triage</th><td class="tier-cell">Nano to Giga</td><td>Instrument trend to suspected drift and its likely cause</td><td>Continuous data, thin link, fast turnaround</td></tr>
+              <tr><th scope="row">Shift handover summary</th><td class="tier-cell">Micro to Giga</td><td>A shift of logs and alarms to what the next crew must know</td><td>Personnel and incident detail stays on site</td></tr>
+              <tr><th scope="row">Emissions and regulatory reporting</th><td class="tier-cell">Giga</td><td>Field findings to a submission-ready record</td><td>Audit trail, and the site is disconnected</td></tr>
+              <tr><th scope="row">Weld and assembly inspection</th><td class="tier-cell">Micro to Giga</td><td>Line image to accept or reject, with the defect named</td><td>Line-rate latency; images never leave the cell</td></tr>
+              <tr><th scope="row">Imaging fleet health</th><td class="tier-cell">Micro to Giga</td><td>Scanner service log to fault and likely cause</td><td>Vendor-segmented network, nothing leaves the hospital</td></tr>
               <tr><th scope="row">Biomedical work orders</th><td class="tier-cell">Nano to Micro</td><td>Technician note to structured equipment failure record</td><td>Records stay on site, beside the patient network</td></tr>
               <tr><th scope="row">Alarm configuration review</th><td class="tier-cell">Micro</td><td>Alarm journal to misconfigured limits and duplicate annunciations</td><td>Journals never leave the clinical network</td></tr>
-              <tr><th scope="row">Device reportability routing</th><td class="tier-cell">Micro to Core</td><td>Device event to reporting trigger, citation, and deadline</td><td>Regulated record, retained on premises</td></tr>
-              <tr><th scope="row">Cold-chain excursions</th><td class="tier-cell">Edge to Nano</td><td>Refrigeration telemetry to an excursion event</td><td>Continuous, no bandwidth, unattended overnight</td></tr>
+              <tr><th scope="row">Device reportability routing</th><td class="tier-cell">Micro to Giga</td><td>Device event to reporting trigger, citation, and deadline</td><td>Regulated record, retained on premises</td></tr>
+              <tr><th scope="row">Cold-chain excursions</th><td class="tier-cell">Pico to Nano</td><td>Refrigeration telemetry to an excursion event</td><td>Continuous, no bandwidth, unattended overnight</td></tr>
               <tr><th scope="row">Sterile processing records</th><td class="tier-cell">Nano to Micro</td><td>Sterilizer cycle record to a compliance exception</td><td>High volume, and the record stays with the department</td></tr>
-              <tr><th scope="row">Platform fault triage</th><td class="tier-cell">Micro to Core</td><td>Maintenance log to a coded fault and its likely cause</td><td>Denied and intermittent links, no reachback</td></tr>
+              <tr><th scope="row">Platform fault triage</th><td class="tier-cell">Micro to Giga</td><td>Maintenance log to a coded fault and its likely cause</td><td>Denied and intermittent links, no reachback</td></tr>
               <tr><th scope="row">Readiness paperwork</th><td class="tier-cell">Nano to Micro</td><td>Free-text status to a structured readiness record</td><td>Air-gapped network</td></tr>
               <tr><th scope="row">Supply catalogue lookup</th><td class="tier-cell">Nano</td><td>Part described in words to catalogue candidates</td><td>Disconnected depot, local catalogue</td></tr>
             </tbody>
@@ -295,11 +318,11 @@
             </thead>
             <tbody>
               <tr><th scope="row">Tool</th><td>Typed function calls, JSON contracts, schema adherence</td><td class="tier-cell">Nano and up</td><td>Exact-JSON pass rate, no regression when quantized</td></tr>
-              <tr><th scope="row">Text</th><td>Instruction following, summarizing, explanation</td><td class="tier-cell">Micro and up</td><td>Held-out language budget; explanation claimed at Core</td></tr>
+              <tr><th scope="row">Text</th><td>Instruction following, summarizing, explanation</td><td class="tier-cell">Micro and up</td><td>Held-out language budget; explanation claimed at Giga</td></tr>
               <tr><th scope="row">Embed</th><td>Retrieval over manuals, procedures, drawings, work history</td><td class="tier-cell">Nano, Micro</td><td>Retrieval benchmark on industrial text</td></tr>
               <tr><th scope="row">Guard</th><td>Refusal, escalation, and saying it does not know</td><td class="tier-cell">Every slot</td><td>Abstention rate on questions it cannot answer</td></tr>
-              <tr><th scope="row">Vision</th><td>Gauge and screen reading, weld and assembly inspection</td><td class="tier-cell">Micro to Core</td><td>Named public benchmark, published spread</td></tr>
-              <tr><th scope="row">Audio</th><td>Gloves-on voice control, radio and intercom transcription</td><td class="tier-cell">Edge to Core</td><td>Word error rate measured in real plant noise</td></tr>
+              <tr><th scope="row">Vision</th><td>Gauge and screen reading, weld and assembly inspection</td><td class="tier-cell">Micro to Giga</td><td>Named public benchmark, published spread</td></tr>
+              <tr><th scope="row">Audio</th><td>Gloves-on voice control, radio and intercom transcription</td><td class="tier-cell">Pico to Giga</td><td>Word error rate measured in real plant noise</td></tr>
             </tbody>
           </table>
         </div>
@@ -332,7 +355,7 @@
           <h2 class="wf-inf__title">The model that <span class="wf-inf__shimmer">grows</span>.</h2>
           <span class="wf-inf__badge">Prototype &middot; measured foundations, growth loop in development</span>
           <p>Every slot above is a fixed size. <b>Wave Infinite</b> is a prototype model
-             programme: start from a <b>Nano</b>, <b>Micro</b>, or <b>Station</b> base,
+             programme: start from a <b>Nano</b>, <b>Micro</b>, or <b>Giga</b> base,
              and the model grows new weights - real parameters, trained on your work, not
              prompts, not retrieval - inside a proof that the base behaviour is
              preserved.</p>
@@ -341,11 +364,11 @@
         <!-- The loop, drawn. Visuals are not claims (web brief), so the figure gets the
              showcase treatment; the badge above and the states below carry the truth. -->
         <figure class="wf-orbit" role="img"
-          aria-label="The Wave Infinite loop: a Nano, Micro, or Station base model enters a continuous cycle of observe, measure, grow, and certify. New capacity sprouts where measured utility says it helps, and every change keeps an exact path back to the original model.">
+          aria-label="The Wave Infinite loop: a Nano, Micro, or Giga base model enters a continuous cycle of observe, measure, grow, and certify. New capacity sprouts where measured utility says it helps, and every change keeps an exact path back to the original model.">
           <svg class="wf-orbit__svg" viewBox="0 0 900 340" aria-hidden="true" focusable="false">
             <text class="wf-orbit__feedlabel" x="46" y="84">NANO</text>
             <text class="wf-orbit__feedlabel" x="46" y="174">MICRO</text>
-            <text class="wf-orbit__feedlabel" x="46" y="264">STATION</text>
+            <text class="wf-orbit__feedlabel" x="46" y="264">GIGA</text>
             <circle class="wf-orbit__node" cx="130" cy="80" r="4"/>
             <circle class="wf-orbit__node" cx="130" cy="170" r="4"/>
             <circle class="wf-orbit__node" cx="130" cy="260" r="4"/>
@@ -414,8 +437,8 @@
         <div class="wf-inf__use">
           <span class="research-kicker">TRAINING IT IS USING IT</span>
           <ol>
-            <li><b>Start.</b> Pick a base: Nano, Micro, or Station. Infinite is the loop,
-              not a fourth size.</li>
+            <li><b>Start.</b> Pick a base: Nano, Micro, or Giga. Infinite is the loop,
+              not another tier.</li>
             <li><b>Work.</b> The model observes its own execution and grows new weights
               only where measured utility says they help.</li>
             <li><b>Certify.</b> Changes go live through the same certified path, with an
@@ -456,8 +479,8 @@
           reachability certification of <b>mixture-of-experts</b> routing, so it applies
           to a model that has experts and a per-expert selection bias to read. That is a
           base-model choice rather than something the family has today, and it does not
-          reach <b>Roger Edge</b> at all - that is a classifier of a few hundred
-          kilobytes, not a language model.</p>
+          reach the microcontroller-class edge at all - a classifier of a few hundred
+          kilobytes is not a language model.</p>
 
       </div>
     </section>

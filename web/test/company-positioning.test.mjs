@@ -91,7 +91,7 @@ test("homepage connects company, product, audience, evaluation, and research", (
   assert.match(section, /href="\/company\.html"/);
   assert.match(section, /RogerAI Labs/);
   assert.match(section, /Open Air Waves/);
-  assert.match(section, /Wave Micro/i);
+  assert.match(section, /Wave Pico|Wave Spectrum/i);  // SPECTRUM RENAME 2026-08-14
   assert.match(section, /edge|manufacturing|industrial|personal/i);
 });
 

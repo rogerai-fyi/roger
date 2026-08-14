@@ -34,7 +34,7 @@ function walk(dir, ext, prefix = "") {
 }
 
 // The slots of the Wave family. None has a public checkpoint.
-const SLOTS = /Wave\s+(?:Micro|Nano|Core)/gi;
+const SLOTS = /Wave\s+(?:Pico|Nano|Micro|Giga|Tera|Peta|Exa)/gi;  // SPECTRUM 2026-08-14
 // Claims that would assert one exists. Deliberately CASE-SENSITIVE and matched only
 // NEAR a slot. Lowercase prose is how the truth is written - "no checkpoint released",
 // "Live data loads when JavaScript is available" - while an actual claim is a status
