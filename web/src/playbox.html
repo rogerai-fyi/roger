@@ -479,101 +479,107 @@
           </div>
 
 
-          <!-- ================= THE SIGNAL BENCH =================
-               A rack of recorded instruments. Each bay carries a REAL
-               recorded sensor - its tag, its stated unit (or "unit not
-               stated"), its window bounds as a meter, and the literal log
-               the model read. With no model attached, a sensor writes to
-               its log; tap the [+] at the end of the bay to attach one.
-               The whole Wave family is on the menu, drawn to SCALE - only
-               the two slots with a recorded run on this bench can speak.
+          <!-- ================= THE SIGNAL BENCH - the instrument =================
+               The whole deck is ONE dark instrument: a bezel with its own scoped
+               palette sitting on the cream page like a piece of rack gear on a
+               workbench. Inside: an n8n-style node canvas (recorded sensors ->
+               models -> senior -> the output lamp, cables drawn from the same
+               coordinates the nodes are placed by), a channel strip with the
+               verdict lamp, an MPC-style pad row that dials the selected bay's
+               RECORDED conditions, and a phosphor terminal showing the literal
+               window the model read.
 
-               Everything replayed here is a RECORDED run. No model executes
-               in this browser, so a lamp may only change colour because a
-               recount of real records changed it. -->
-          <div class="wp-bar">
-            <span class="wp-tag">REPLAY &middot; RECORDED</span>
-            <span class="wp-note" id="wpProv" style="margin:0"></span>
-          </div>
+               Everything replayed here is a RECORDED run. No model executes in
+               this browser, so a lamp may only change colour because a recount
+               of real records changed it. -->
+          <div class="syn" id="wbBench">
+            <div class="syn__head">
+              <span class="syn__screw" aria-hidden="true"></span>
+              <span class="syn__brand">WAVE MESH <i>SIGNAL BENCH</i></span>
+              <span class="wp-tag wp-tag--led">REPLAY &middot; RECORDED</span>
+              <span class="syn__prov" id="wpProv"></span>
+              <span class="syn__screw" aria-hidden="true"></span>
+            </div>
 
-          <div class="wb-bench" id="wbBench">
-            <div class="ws-rack" id="wsRack" role="group" aria-label="Instrument rack"></div>
+            <div class="syn__main">
+              <div class="syn__canvaswrap">
+                <div class="syn__canvas">
+                  <svg class="wb-cables" id="wbCables" aria-hidden="true"></svg>
+                  <div class="ws-rack" id="wsRack" role="group" aria-label="The node canvas: sensors, models, senior, output"></div>
+                </div>
+              </div>
 
-            <!-- The status console: where the chain ends. The lamp window is
-                 the founder-mandated green/yellow/red verdict (NE-107-style
-                 shapes ride along for colour-blind readers); WHAT IT SAYS is
-                 the per-bay replay of the recorded predictions; the strip is
-                 a chart recorder narrating every move. All RECOUNTS. -->
-            <aside class="wp-console" aria-label="Fleet status">
-              <span class="wp-console__k">FLEET STATUS</span>
-              <div class="wp-lampwin" id="wpLamp2" data-state="off"></div>
-              <p class="wp-why" id="wpWhy"></p>
-              <span class="wp-console__k">SENIOR RACK</span>
-              <div id="wbSenior"></div>
-              <div class="wp-console__op" id="wbOp"></div>
-              <span class="wp-console__k">WHAT IT SAYS &middot; RECORDED</span>
-              <ol class="wp-reads" id="wpReads"></ol>
-              <span class="wp-console__k">CHART STRIP</span>
-              <ol class="wp-strip" id="wpStrip"></ol>
-            </aside>
+              <!-- The channel strip: where the chain ends. The lamp window is
+                   the founder-mandated green/yellow/red verdict (NE-107-style
+                   shapes ride along); WHAT IT SAYS is the per-bay replay of
+                   the recorded predictions; the strip is a chart recorder
+                   narrating every move. All RECOUNTS. -->
+              <aside class="wp-console" aria-label="Fleet status">
+                <span class="wp-console__k">FLEET STATUS</span>
+                <div class="wp-lampwin" id="wpLamp2" data-state="off"></div>
+                <p class="wp-why" id="wpWhy"></p>
+                <span class="wp-console__k">SENIOR RACK</span>
+                <div id="wbSenior"></div>
+                <div class="wp-console__op" id="wbOp"></div>
+                <span class="wp-console__k">WHAT IT SAYS &middot; RECORDED</span>
+                <ol class="wp-reads" id="wpReads"></ol>
+                <span class="wp-console__k">CHART STRIP</span>
+                <ol class="wp-strip" id="wpStrip"></ol>
+              </aside>
+            </div>
 
-            <svg class="wb-cables" id="wbCables" aria-hidden="true"></svg>
+            <div class="syn__lower">
+              <div class="syn__pads" id="wsPads"></div>
+              <div class="syn__term">
+                <span class="wp-console__k">TERMINAL &middot; THE SELECTED BAY</span>
+                <div id="wpInspect">
+                  <p class="wp-inspect__placeholder">Tap a node on the canvas -
+                    its record, its log, and its model's response print here.</p>
+                </div>
+              </div>
+            </div>
+
+            <!-- ================= INTAKE - THE TRANSLATION SHIM =================
+                 Handoff 3: Wave models cannot be free-chatted - a task-native
+                 base model given "hi" dreams a Modbus register table. So every
+                 human input is CLASSIFIED and WRAPPED into the protocol, and
+                 the shim shows its work: each detection row prints the evidence
+                 for its own guess, and thin evidence refuses to guess.
+
+                 Nothing pasted here is ever "run": no model executes in a
+                 browser, and a margin is a logprob difference nothing here can
+                 compute. What a paste earns is the REQUEST ENVELOPE - the exact
+                 bytes that would go to a stock llama-server - DRAFT · NOT RUN. -->
+            <section class="wp-intake" id="wpIntake" hidden aria-label="Intake - the translation shim">
+              <div class="wp-panel__head">
+                <b>INTAKE &middot; THE TRANSLATION SHIM</b>
+                <button class="wp-remove" id="wpIntakeClose" type="button">close</button>
+              </div>
+              <div class="wp-intake__grid">
+                <div class="wp-intake__left">
+                  <label class="wp-scrub__label" for="wpPaste">Paste what your plant emits</label>
+                  <textarea class="wp-paste" id="wpPaste" rows="9" spellcheck="false"
+                    placeholder="Paste what your plant emits - a Modbus dump, OPC UA notifications, Prometheus text, raw numbers - or press a sample below."></textarea>
+                  <div class="wp-samples" id="wpSamples" role="group" aria-label="Recorded samples"></div>
+                </div>
+                <div class="wp-intake__right">
+                  <dl class="wp-detect" id="wpDetect">
+                    <dt>MODALITY</dt><dd id="wpDetMod">paste something - the shim reads as you type</dd>
+                    <dt>SHAPE</dt><dd id="wpDetShape">&mdash;</dd>
+                    <dt>FRAME</dt><dd id="wpDetFrame">&mdash;</dd>
+                  </dl>
+                  <p class="wp-note" id="wpDetNote"></p>
+                  <button class="wp-run wp-run--send" id="wpSend" type="button" disabled>SEND TO THE BENCH &rarr;</button>
+                </div>
+              </div>
+            </section>
+
+            <details class="wp-note syn__mirror">
+              <summary>View this patch as a list</summary>
+              <ol class="wp-mirror" id="wpMirror"></ol>
+            </details>
           </div>
           <p class="wp-say" id="wpSay" role="status" aria-live="polite"></p>
-          <!-- ================= INTAKE - THE TRANSLATION SHIM =================
-               Handoff 3: Wave models cannot be free-chatted - a task-native base
-               model given "hi" dreams a Modbus register table. So every human
-               input is CLASSIFIED and WRAPPED into the protocol, and the shim
-               shows its work: each detection row prints the evidence for its own
-               guess, and thin evidence refuses to guess rather than guessing.
-
-               Nothing pasted here is ever "run": no model executes in a browser,
-               and a margin is a logprob difference nothing here can compute. What
-               a paste earns is the REQUEST ENVELOPE - the exact bytes that would
-               go to a stock llama-server - marked DRAFT · NOT RUN. -->
-          <section class="wp-intake" id="wpIntake" hidden aria-label="Intake - the translation shim">
-            <div class="wp-panel__head">
-              <b>INTAKE &middot; THE TRANSLATION SHIM</b>
-              <button class="wp-remove" id="wpIntakeClose" type="button">close</button>
-            </div>
-            <div class="wp-intake__grid">
-              <div class="wp-intake__left">
-                <label class="wp-scrub__label" for="wpPaste">Paste what your plant emits</label>
-                <textarea class="wp-paste" id="wpPaste" rows="9" spellcheck="false"
-                  placeholder="Paste what your plant emits - a Modbus dump, OPC UA notifications, Prometheus text, raw numbers - or press a sample below."></textarea>
-                <div class="wp-samples" id="wpSamples" role="group" aria-label="Recorded samples"></div>
-              </div>
-              <div class="wp-intake__right">
-                <dl class="wp-detect" id="wpDetect">
-                  <dt>MODALITY</dt><dd id="wpDetMod">paste something - the shim reads as you type</dd>
-                  <dt>SHAPE</dt><dd id="wpDetShape">&mdash;</dd>
-                  <dt>FRAME</dt><dd id="wpDetFrame">&mdash;</dd>
-                </dl>
-                <p class="wp-note" id="wpDetNote"></p>
-                <button class="wp-run wp-run--send" id="wpSend" type="button" disabled>SEND TO THE SHEET &rarr;</button>
-              </div>
-            </div>
-          </section>
-
-
-          <details class="wp-note">
-            <summary>View this patch as a list</summary>
-            <ol class="wp-mirror" id="wpMirror"></ol>
-          </details>
-
-          <!-- ================= THE INSPECTOR =================
-               No gauge wall: the measured numbers live where the controls
-               are - on the knob's tooltip, in WHAT IT SAYS, and here -
-               because a bench engineer reads an instrument, not a report. -->
-          <div class="wp-results wp-results--one">
-            <div class="wp-panel">
-              <div class="wp-panel__head"><b>Inspector</b></div>
-              <div id="wpInspect">
-                <p class="wp-inspect__placeholder">Tap a sensor or the radio -
-                  its record, its certificate, or its envelope appears here.</p>
-              </div>
-            </div>
-          </div>
 
           <p class="wm-attrib">Designed by RogerAI in Orange County, California.</p>
         </div>

@@ -98,6 +98,7 @@
     yourData: null,       // the intake's pasted channel, if any
     verdict: null,
     menuFor: null,        // bay ch whose attach menu is open
+    sel: null,            // the selected bay (its pads + terminal are shown)
     booted: false,
     step: 0,              // strip line counter
   };
@@ -429,18 +430,37 @@
   }
 
   /* =====================================================================
-     RENDER - the rack of bays
+     RENDER - the node canvas, the channel strip, the pads, the terminal
+
+     The deck is one dark INSTRUMENT: a bezel with its own scoped palette
+     (--syn-*), sitting on the cream page like a piece of rack gear on a
+     workbench. Inside: an n8n-style node canvas (sensors -> models ->
+     senior -> lamp, cables drawn from the same coordinates the nodes are
+     placed by, so they cannot drift), a channel strip with the verdict
+     lamp, and an MPC-style pad row that dials the SELECTED sensor's
+     condition - one backlit pad per RECORDED condition, nothing else.
      ===================================================================== */
+  var ROW_H = 92, NODE_W = 190, NODE_H = 76;
+  var COL_X = { sensor: 14, model: 262, senior: 512, lamp: 716 };
+  var CANVAS_W = 866;
+
   function render() {
-    renderRack();
+    renderCanvas();
     renderSenior();
     renderOp();
+    renderPads();
+    renderTerm();
     renderMirror();
-    requestAnimationFrame(drawCables);
+  }
+
+  function selected() {
+    var s = PATCH.sensors.filter(function (x) { return x.ch === PATCH.sel; })[0];
+    return s || PATCH.sensors[0] || null;
   }
 
   function modelIcon(fam) {
-    // The size argument, drawn: an engraved set scaled to the slot's params.
+    // The size argument, drawn: an engraved set scaled to the slot's params,
+    // re-inked phosphor-light on the dark panel (the plates are alpha masks).
     var box = el("span", "ws-icon ws-icon--" + fam.icon);
     box.style.width = fam.px + "px";
     box.style.height = Math.round(fam.px * (fam.icon === "senior" ? 1.25 : fam.icon === "pocket" ? 1 : 0.66)) + "px";
@@ -449,219 +469,191 @@
     return box;
   }
 
-  function renderRack() {
+  /* ---- the canvas: nodes at computed coordinates, cables from the same
+     numbers - geometry is the single source of truth ---------------------- */
+  function nodeY(i) { return 18 + i * ROW_H; }
+
+  function renderCanvas() {
     var host = $("wsRack");
     if (!host) return;
     host.textContent = "";
-    PATCH.sensors.forEach(function (s) { host.appendChild(drawBay(s)); });
+    var rows = PATCH.sensors.length + 1; // + YOUR DATA
+    var h = 18 + rows * ROW_H + 8;
+    host.style.height = h + "px";
+    host.style.minWidth = CANVAS_W + "px";
 
-    // YOUR DATA: the intake as the last bay on the rack
-    var yd = el("div", "ws-bay ws-bay--intake");
-    yd.tabIndex = 0;
-    yd.setAttribute("role", "button");
-    yd.setAttribute("aria-label", "Your data - paste what your plant emits");
-    var left = el("div", "ws-bay__id");
-    var art = el("div", "ws-bay__art ws-bay__art--tape");
-    art.appendChild(el("span", "wb-plate__ink"));
-    art.setAttribute("aria-hidden", "true");
-    left.appendChild(art);
-    var idc = el("div", "ws-bay__name");
-    idc.appendChild(el("b", null, "YOUR DATA"));
-    idc.appendChild(el("span", "ws-bay__sub", PATCH.yourData
-      ? "PASTED · " + (PATCH.yourData.modality || "").toUpperCase()
-      : "paste / drop - read by the shim"));
-    left.appendChild(idc);
-    yd.appendChild(left);
-    var mid = el("div", "ws-bay__log");
-    mid.appendChild(el("pre", "ws-log ws-log--quiet", PATCH.yourData
-      ? (PATCH.yourData.body || "").split("\n").slice(0, 4).join("\n")
-      : "…paste a Modbus dump, OPC UA notifications,\nPrometheus text or raw numbers here…"));
-    yd.appendChild(mid);
-    var end = el("div", "ws-bay__end");
-    if (PATCH.yourData) {
-      var draft = el("div", "ws-resp");
-      draft.appendChild(el("p", "wp-tag wp-tag--draft", "DRAFT · NOT RUN"));
-      draft.appendChild(el("p", "wp-note", "tap for the request envelope"));
-      end.appendChild(draft);
-    } else {
-      end.appendChild(el("span", "ws-add ws-add--ghost", "▤ PASTE"));
+    PATCH.sensors.forEach(function (s, i) {
+      host.appendChild(drawSensorNode(s, i));
+      if (s.model) host.appendChild(drawModelNode(s, i));
+    });
+    host.appendChild(drawIntakeNode(PATCH.sensors.length));
+
+    // the senior rack node appears on the canvas when seated
+    if (PATCH.senior) {
+      var mid = nodeY(Math.floor((PATCH.sensors.length - 1) / 2));
+      var sn = el("div", "syn-node syn-node--senior");
+      sn.style.left = COL_X.senior + "px";
+      sn.style.top = mid + "px";
+      var ic = modelIcon(familyById("nano"));
+      sn.appendChild(ic);
+      var t = el("div", "syn-node__body");
+      t.appendChild(el("b", null, "WAVE NANO"));
+      t.appendChild(el("span", "syn-node__sub", "senior · adjudicates doubtful reads"));
+      sn.appendChild(t);
+      sn.appendChild(el("span", "syn-node__port syn-node__port--in"));
+      sn.appendChild(el("span", "syn-node__port syn-node__port--out"));
+      host.appendChild(sn);
     }
-    yd.appendChild(end);
-    yd.addEventListener("click", function () {
-      if (PATCH.yourData) { inspectYourData(); } else { openIntake(); }
-    });
-    yd.addEventListener("keydown", function (e) {
-      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openIntake(); }
-    });
-    yd.addEventListener("dragover", function (e) { e.preventDefault(); });
-    yd.addEventListener("drop", function (e) {
-      e.preventDefault();
-      var txt = e.dataTransfer.getData("text");
-      if (txt) { intakeWith(txt); return; }
-      var f2 = e.dataTransfer.files && e.dataTransfer.files[0];
-      if (f2 && f2.size < 1 << 20) {
-        var rd = new FileReader();
-        rd.onload = function () { intakeWith(String(rd.result || "")); };
-        rd.readAsText(f2);
-      }
-    });
-    host.appendChild(yd);
+
+    // the output lamp node: where every chain ends
+    var v = PATCH.verdict || { state: "off" };
+    var ln = el("div", "syn-node syn-node--lamp");
+    ln.style.left = COL_X.lamp + "px";
+    ln.style.top = nodeY(Math.floor((PATCH.sensors.length - 1) / 2)) + "px";
+    var lw = el("span", "wp-lampwin wp-lampwin--node");
+    lw.dataset.state = v.state;
+    var f = LAMP_FACE[v.state] || LAMP_FACE.off;
+    lw.appendChild(el("span", "wp-lampwin__sym", f.sym));
+    lw.appendChild(el("span", "wp-lampwin__label", v.label || f.label));
+    ln.appendChild(lw);
+    ln.appendChild(el("span", "syn-node__sub", "OUTPUT"));
+    ln.appendChild(el("span", "syn-node__port syn-node__port--in"));
+    host.appendChild(ln);
+
+    drawCables();
   }
 
-  function drawBay(s) {
+  function drawSensorNode(s, i) {
     var r = recordOf(s);
     var w = r.window || {};
-    var bay = el("div", "ws-bay" + (s.on ? " is-on" : ""));
-    bay.dataset.sensor = s.ch;
+    var n = el("div", "syn-node syn-node--sensor" + (s.on ? " is-on" : "") +
+      (PATCH.sel === s.ch ? " is-sel" : ""));
+    n.style.left = COL_X.sensor + "px";
+    n.style.top = nodeY(i) + "px";
+    n.dataset.sensor = s.ch;
+    n.tabIndex = 0;
+    n.setAttribute("role", "button");
+    n.setAttribute("aria-label", "Sensor bay " + s.n + ", " + tagOf(s) + ", " +
+      (s.on ? "on line, dialed " + (CONDW[s.cond] || s.cond) : "off") +
+      ". Activate to select; its pads and log appear below.");
 
-    /* -- left: who this instrument is ------------------------------------ */
-    var left = el("div", "ws-bay__id");
-    var art = el("div", "ws-bay__art");
-    art.appendChild(el("span", "wb-plate__ink"));
-    art.setAttribute("aria-hidden", "true");
-    left.appendChild(art);
-
-    var idc = el("div", "ws-bay__name");
-    var tagB = el("b", null, tagOf(s));
-    tagB.title = "the recorded tag of the instrument this bay is dialed to (scene " + r.scene_id + ")";
-    idc.appendChild(tagB);
-    var u = unitOf(s);
-    var sub = el("span", "ws-bay__sub",
-      (u ? u : "unit not stated") + (w.n ? " · " + w.n + " samples" : "") +
-      " · bay " + s.n);
-    if (!u) sub.title = "the wire did not state a unit - a defaulted unit would be an invented fact";
-    idc.appendChild(sub);
-
-    var controls = el("div", "ws-bay__ctl");
-    var sw = el("button", "wb-lever" + (s.on ? " is-on" : ""));
-    sw.type = "button";
-    sw.setAttribute("role", "switch");
-    sw.setAttribute("aria-checked", s.on ? "true" : "false");
-    sw.setAttribute("aria-label", "Bay " + s.n + " on line");
-    sw.appendChild(el("span", "wb-lever__k", s.on ? "ON LINE" : "OFF"));
-    sw.appendChild(el("span", "wb-lever__pip"));
-    sw.addEventListener("click", function (e) {
+    // the power button: a real switch, top-right, like gear
+    var pwr = el("button", "syn-node__pwr" + (s.on ? " is-on" : ""));
+    pwr.type = "button";
+    pwr.setAttribute("role", "switch");
+    pwr.setAttribute("aria-checked", s.on ? "true" : "false");
+    pwr.setAttribute("aria-label", "Bay " + s.n + " on line");
+    pwr.title = s.on ? "on line - tap to switch off" : "off - tap to bring on line";
+    pwr.addEventListener("click", function (e) {
       e.stopPropagation();
       s.on = !s.on;
       derive(); render();
       react("Bay " + s.n + (s.on ? " on line - " + tagOf(s) + "." : " off line."));
       reactStats();
-      refocusBay(s, ".wb-lever");
+      refocusBay(s, ".syn-node__pwr");
     });
-    controls.appendChild(sw);
+    n.appendChild(pwr);
 
-    controls.appendChild(drawDial({
-      values: s.conds,
-      labels: s.conds.map(function (c) { return CONDW[c] || c.toUpperCase(); }),
-      index: Math.max(0, s.conds.indexOf(s.cond)),
-      name: "Bay " + s.n + " condition",
-      size: 48,
-      tip: function (i) {
-        var rr = PATCH.measured.records[s.recIdx[s.conds[i]]];
-        return "replays recorded record " + rr.node_id + " (scene " + rr.scene_id +
-          ") - every position on this dial is a recorded instance, selected, not simulated";
-      },
-      onset: function (i) {
-        s.cond = s.conds[i];
-        if (!s.on) s.on = true;
-        derive(); render();
-        react("Bay " + s.n + " dialed " + (CONDW[s.cond] || s.cond.toUpperCase()) +
-          " - now replaying " + tagOf(s) + ".");
-        reactStats();
-        refocusBay(s, ".wp-knob");
-      },
-    }));
-    idc.appendChild(controls);
-    left.appendChild(idc);
-    bay.appendChild(left);
+    var body = el("div", "syn-node__body");
+    var tagB = el("b", null, tagOf(s));
+    tagB.title = "the recorded tag of the instrument this bay is dialed to (scene " + r.scene_id + ")";
+    body.appendChild(tagB);
+    var u = unitOf(s);
+    var sub = el("span", "syn-node__sub",
+      (u ? u : "unit not stated") + " · " + (CONDW[s.cond] || s.cond.toUpperCase()));
+    if (!u) sub.title = "the wire did not state a unit - a defaulted unit would be an invented fact";
+    body.appendChild(sub);
+    var meter = drawMeter(w);
+    if (meter && s.on) body.appendChild(meter);
+    n.appendChild(body);
 
-    /* -- middle: the sensor at work - its meter and its log --------------- */
-    var mid = el("div", "ws-bay__log");
-    if (s.on) {
-      var meter = drawMeter(w);
-      if (meter) mid.appendChild(meter);
-      var rec = el("span", "ws-rec" + (REDUCED ? "" : " is-live"));
-      rec.appendChild(el("span", "ws-rec__dot"));
-      rec.appendChild(el("span", null, "MONITORING · REPLAY"));
-      rec.title = "the recorded window, replayed - nothing here is live";
-      mid.appendChild(rec);
-      var log = el("pre", "ws-log", w.body ||
-        "(this record's window was not exported - the log is absent, not invented)");
-      log.title = "byte-for-byte, the window the model read in the recorded run";
-      mid.appendChild(log);
-    } else {
-      mid.appendChild(el("pre", "ws-log ws-log--quiet", "— bay switched off —"));
-    }
-    bay.appendChild(mid);
+    var led = el("span", "syn-node__led");
+    led.dataset.state = ledOf(s);
+    led.setAttribute("aria-hidden", "true");
+    n.appendChild(led);
 
-    /* -- end of the line: the socket ------------------------------------- */
-    var end = el("div", "ws-bay__end");
-    var fam = familyById(s.model);
-    if (!fam) {
-      var add = el("button", "ws-add");
-      add.type = "button";
-      add.setAttribute("aria-expanded", PATCH.menuFor === s.ch ? "true" : "false");
-      add.setAttribute("aria-label", "Attach a model to bay " + s.n);
-      add.appendChild(el("span", "ws-add__plus", "+"));
-      add.appendChild(el("span", null, "ADD MODEL"));
-      add.addEventListener("click", function (e) {
+    n.appendChild(el("span", "syn-node__port syn-node__port--out"));
+
+    // the n8n plus-stub: an unconnected output invites a model
+    if (!s.model) {
+      var plus = el("button", "syn-plus");
+      plus.type = "button";
+      plus.style.left = (COL_X.sensor + NODE_W + 34) + "px";
+      plus.style.top = (nodeY(i) + NODE_H / 2 - 14) + "px";
+      plus.setAttribute("aria-expanded", PATCH.menuFor === s.ch ? "true" : "false");
+      plus.setAttribute("aria-label", "Attach a model to bay " + s.n);
+      plus.textContent = "+";
+      plus.addEventListener("click", function (e) {
         e.stopPropagation();
+        PATCH.sel = s.ch;
         PATCH.menuFor = PATCH.menuFor === s.ch ? null : s.ch;
         render();
-        var menu = document.querySelector('.ws-bay[data-sensor="' + s.ch + '"] .ws-menu');
-        if (menu) menu.querySelector("button") && menu.querySelector("button").focus();
+        var menu = document.querySelector(".ws-menu button");
+        if (menu) menu.focus();
       });
-      end.appendChild(add);
-      if (!s.model && s.on) {
-        end.appendChild(el("span", "ws-bay__hint", "writing to log only"));
-      }
-    } else {
-      end.appendChild(drawResponse(s, fam));
+      // the stub is a sibling of the node so the cable can reach it
+      var wrap = el("div");
+      wrap.appendChild(n);
+      wrap.appendChild(plus);
+      n.addEventListener("click", selectHandler(s));
+      n.addEventListener("keydown", keySelect(s));
+      return wrap;
     }
-    bay.appendChild(end);
 
-    if (PATCH.menuFor === s.ch) bay.appendChild(drawMenu(s));
-
-    bay.addEventListener("click", function (e) {
-      if (e.target.closest(".wp-knob, .wb-lever, .ws-add, .ws-menu, .ws-resp__x")) return;
-      inspectBay(s);
-    });
-    return bay;
+    n.addEventListener("click", selectHandler(s));
+    n.addEventListener("keydown", keySelect(s));
+    return n;
   }
 
-  // The bounds meter: the recorded window drawn as an instrument - the
-  // range is the scale, the mean is the pointer. Recorded numbers only.
-  function drawMeter(w) {
-    if (!w || w.lo == null || w.hi == null) return null;
-    var W = 180, H = 26;
-    var host = svg("svg", { class: "ws-meter", viewBox: "0 0 " + W + " " + H, role: "img",
-      "aria-label": "recorded window: " + w.lo + " to " + w.hi + (w.unit ? " " + w.unit : "") });
-    host.appendChild(svg("line", { class: "ws-meter__rail", x1: 8, x2: W - 8, y1: H - 8, y2: H - 8 }));
-    [8, W - 8].forEach(function (x) {
-      host.appendChild(svg("line", { class: "ws-meter__stop", x1: x, x2: x, y1: H - 14, y2: H - 2 }));
-    });
-    var span = (w.hi - w.lo) || 1;
-    var mx = 8 + ((w.mean - w.lo) / span) * (W - 16);
-    host.appendChild(svg("path", { class: "ws-meter__needle",
-      d: "M" + mx + " " + (H - 8) + " L" + (mx - 4) + " " + (H - 18) + " L" + (mx + 4) + " " + (H - 18) + " z" }));
-    var t1 = svg("text", { class: "ws-meter__t", x: 8, y: 8, "text-anchor": "start" });
-    t1.textContent = String(w.lo);
-    var t2 = svg("text", { class: "ws-meter__t", x: W - 8, y: 8, "text-anchor": "end" });
-    t2.textContent = String(w.hi);
-    host.appendChild(t1); host.appendChild(t2);
-    host.setAttribute("title", "recorded window bounds, with the mean as the pointer");
-    return host;
+  function selectHandler(s) {
+    return function (e) {
+      if (e.target.closest(".syn-node__pwr, .syn-plus, .ws-resp__x")) return;
+      PATCH.sel = s.ch;
+      PATCH.menuFor = null;
+      render();
+    };
+  }
+  function keySelect(s) {
+    return function (e) {
+      if (e.key === "Enter" || e.key === " ") {
+        if (e.target !== e.currentTarget) return;
+        e.preventDefault();
+        PATCH.sel = s.ch;
+        render();
+      }
+    };
   }
 
-  // What the model READS and what it SAYS - fields of the record, only.
-  function drawResponse(s, fam) {
-    var box = el("div", "ws-resp");
-    var head = el("div", "ws-resp__head");
-    head.appendChild(modelIcon(fam));
-    var hh = el("div", "ws-resp__who");
-    hh.appendChild(el("b", null, fam.label));
-    hh.appendChild(el("span", "ws-bay__sub", fam.size + " · " + fam.status));
-    head.appendChild(hh);
+  function ledOf(s) {
+    if (!s.on) return "off";
+    var fam = familyById(s.model);
+    if (!fam) return "log";
+    if (fam.status !== "recorded") return "silent";
+    var rd = readOf(s);
+    if (rd.deadEnd) return "dead";
+    if (!rd.ok && rd.r.truth !== "none") return "missed";
+    return "ok";
+  }
+
+  function drawModelNode(s, i) {
+    var fam = familyById(s.model);
+    var n = el("div", "syn-node syn-node--model" +
+      (fam.status === "recorded" ? "" : " syn-node--quiet") +
+      (PATCH.sel === s.ch ? " is-sel" : ""));
+    n.style.left = COL_X.model + "px";
+    n.style.top = nodeY(i) + "px";
+    n.dataset.model = s.ch;
+    n.tabIndex = 0;
+    n.setAttribute("role", "button");
+    n.setAttribute("aria-label", fam.label + " on bay " + s.n + ". Activate to select.");
+
+    n.appendChild(modelIcon(fam));
+    var body = el("div", "syn-node__body");
+    body.appendChild(el("b", null, fam.label));
+    body.appendChild(el("span", "syn-node__sub", fam.size + " · " + fam.status +
+      (fam.id === "pico" ? " · floor " + s.floor.toFixed(1) : "")));
+    n.appendChild(body);
+
     var x = el("button", "ws-resp__x");
     x.type = "button";
     x.setAttribute("aria-label", "Detach " + fam.label + " from bay " + s.n);
@@ -672,50 +664,180 @@
       derive(); render();
       react(fam.label + " detached from bay " + s.n + " - the sensor writes to its log again.");
     });
-    head.appendChild(x);
-    box.appendChild(head);
+    n.appendChild(x);
 
-    if (fam.status !== "recorded") {
-      box.appendChild(el("p", "wp-note",
-        fam.blurb + ". It attaches, but this bench can only replay recorded runs - " +
-        "so it stays honestly silent."));
-      return box;
+    n.appendChild(el("span", "syn-node__port syn-node__port--in"));
+    n.appendChild(el("span", "syn-node__port syn-node__port--out"));
+    n.addEventListener("click", selectHandler(s));
+    n.addEventListener("keydown", keySelect(s));
+    return n;
+  }
+
+  function drawIntakeNode(i) {
+    var n = el("div", "syn-node syn-node--intake");
+    n.style.left = COL_X.sensor + "px";
+    n.style.top = nodeY(i) + "px";
+    n.tabIndex = 0;
+    n.setAttribute("role", "button");
+    n.setAttribute("aria-label", "Your data - paste what your plant emits");
+    var body = el("div", "syn-node__body");
+    body.appendChild(el("b", null, "YOUR DATA"));
+    body.appendChild(el("span", "syn-node__sub", PATCH.yourData
+      ? "PASTED · " + (PATCH.yourData.modality || "").toUpperCase() + " · DRAFT"
+      : "paste / drop - read by the shim"));
+    n.appendChild(body);
+    n.appendChild(el("span", "syn-node__port syn-node__port--out is-dark"));
+    n.addEventListener("click", function () {
+      if (PATCH.yourData) { inspectYourData(); } else { openIntake(); }
+    });
+    n.addEventListener("keydown", function (e) {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openIntake(); }
+    });
+    n.addEventListener("dragover", function (e) { e.preventDefault(); });
+    n.addEventListener("drop", function (e) {
+      e.preventDefault();
+      var txt = e.dataTransfer.getData("text");
+      if (txt) { intakeWith(txt); return; }
+      var f2 = e.dataTransfer.files && e.dataTransfer.files[0];
+      if (f2 && f2.size < 1 << 20) {
+        var rd = new FileReader();
+        rd.onload = function () { intakeWith(String(rd.result || "")); };
+        rd.readAsText(f2);
+      }
+    });
+    return n;
+  }
+
+  // The bounds meter: the recorded window drawn as an instrument - the
+  // range is the scale, the mean is the pointer. Recorded numbers only.
+  function drawMeter(w) {
+    if (!w || w.lo == null || w.hi == null) return null;
+    var W = 168, H = 18;
+    var host = svg("svg", { class: "ws-meter", viewBox: "0 0 " + W + " " + H, role: "img",
+      "aria-label": "recorded window: " + w.lo + " to " + w.hi + (w.unit ? " " + w.unit : "") });
+    host.appendChild(svg("line", { class: "ws-meter__rail", x1: 4, x2: W - 4, y1: H - 5, y2: H - 5 }));
+    [4, W - 4].forEach(function (x) {
+      host.appendChild(svg("line", { class: "ws-meter__stop", x1: x, x2: x, y1: H - 10, y2: H } ));
+    });
+    var span = (w.hi - w.lo) || 1;
+    var mx = 4 + ((w.mean - w.lo) / span) * (W - 8);
+    host.appendChild(svg("path", { class: "ws-meter__needle",
+      d: "M" + mx + " " + (H - 5) + " L" + (mx - 3.4) + " " + (H - 13) + " L" + (mx + 3.4) + " " + (H - 13) + " z" }));
+    var t1 = svg("text", { class: "ws-meter__t", x: 4, y: 7, "text-anchor": "start" });
+    t1.textContent = String(w.lo);
+    var t2 = svg("text", { class: "ws-meter__t", x: W - 4, y: 7, "text-anchor": "end" });
+    t2.textContent = String(w.hi);
+    host.appendChild(t1); host.appendChild(t2);
+    host.setAttribute("title", "recorded window bounds, with the mean as the pointer");
+    return host;
+  }
+
+  /* ---- cables: computed from the SAME coordinates the nodes are placed
+     by. A cable exists only where a connection exists. --------------------- */
+  function cablePath(x1, y1, x2, y2) {
+    var mid = (x1 + x2) / 2;
+    return "M" + x1 + " " + y1 + " C" + mid + " " + y1 + ", " + mid + " " + y2 + ", " + x2 + " " + y2;
+  }
+
+  function drawCables() {
+    var cables = $("wbCables"), host = $("wsRack");
+    if (!cables || !host) return;
+    while (cables.lastChild) cables.removeChild(cables.lastChild);
+    var H = parseInt(host.style.height, 10) || 600;
+    cables.setAttribute("width", CANVAS_W);
+    cables.setAttribute("height", H);
+    cables.setAttribute("viewBox", "0 0 " + CANVAS_W + " " + H);
+
+    var midRow = nodeY(Math.floor((PATCH.sensors.length - 1) / 2));
+    var seniorIn = { x: COL_X.senior, y: midRow + NODE_H / 2 };
+    var seniorOut = { x: COL_X.senior + NODE_W, y: midRow + NODE_H / 2 };
+    var lampIn = { x: COL_X.lamp, y: midRow + NODE_H / 2 };
+    var anyToLamp = false;
+
+    PATCH.sensors.forEach(function (s, i) {
+      var oy = nodeY(i) + NODE_H / 2;
+      var out = { x: COL_X.sensor + NODE_W, y: oy };
+      if (!s.model) {
+        // sensor -> its plus-stub: the n8n invitation
+        cables.appendChild(svg("path", { class: "wb-cable wb-cable--stub",
+          d: cablePath(out.x, out.y, COL_X.sensor + NODE_W + 34, oy) }));
+        return;
+      }
+      if (!s.on) return;
+      cables.appendChild(svg("path", { class: "wb-cable",
+        d: cablePath(out.x, out.y, COL_X.model, oy) }));
+      var fam = familyById(s.model);
+      if (!fam || fam.status !== "recorded") return;
+      var mOut = { x: COL_X.model + NODE_W, y: oy };
+      var rd = readOf(s);
+      if (rd.esc && PATCH.senior) {
+        // the doubtful read rides the dashed escalation cable to the senior
+        cables.appendChild(svg("path", { class: "wb-cable wb-cable--esc",
+          d: cablePath(mOut.x, mOut.y, seniorIn.x, seniorIn.y) }));
+        anyToLamp = true;
+      } else if (!rd.deadEnd) {
+        cables.appendChild(svg("path", { class: "wb-cable wb-cable--thin",
+          d: cablePath(mOut.x, mOut.y, lampIn.x, lampIn.y) }));
+        anyToLamp = true;
+      }
+    });
+    if (PATCH.senior && anyToLamp) {
+      cables.appendChild(svg("path", { class: "wb-cable",
+        d: cablePath(seniorOut.x, seniorOut.y, lampIn.x, lampIn.y) }));
     }
-    if (!s.on) {
-      box.appendChild(el("p", "wp-note", "bay off - nothing to read"));
-      return box;
-    }
+  }
 
-    var rd = readOf(s);
-    var w = rd.r.window || {};
-    var reads = el("p", "ws-resp__reads");
-    reads.appendChild(el("span", "ws-resp__k", "READS "));
-    reads.appendChild(el("span", null, (w.n ? w.n + " samples · " : "") +
-      (w.lo != null ? "bounds " + w.lo + " … " + w.hi + (unitOf(s) ? " " + unitOf(s) : "") : "the window above")));
-    reads.title = "the recorded window is the model's entire input - it knows the bounds because they are IN the window";
-    box.appendChild(reads);
+  /* ---- the pads: MPC-style, one backlit pad per RECORDED condition ------- */
+  function renderPads() {
+    var host = $("wsPads");
+    if (!host) return;
+    host.textContent = "";
+    var s = selected();
+    if (!s) return;
 
-    var says = el("p", "ws-resp__says");
-    says.appendChild(el("span", "ws-resp__k", "SAYS "));
-    says.appendChild(el("b", null, rd.deadEnd ? "…" : '" ' + rd.said + '"'));
-    says.appendChild(el("span", "wp-read__m", " " + rd.margin.toFixed(2)));
-    box.appendChild(says);
+    var head = el("div", "syn-pads__head");
+    head.appendChild(el("b", null, "CONDITION PADS"));
+    head.appendChild(el("span", "syn-node__sub", "bay " + s.n + " · " + tagOf(s) +
+      " · one pad per recorded condition - unrecorded conditions have no pad"));
+    host.appendChild(head);
 
-    var isFault = rd.r.truth !== "none";
-    var outcome = rd.deadEnd ? "doubts - nobody to ask"
-      : rd.esc ? "doubted, senior answered - " + (rd.ok ? "caught" : (isFault ? "missed" : "false alarm"))
-      : (rd.ok ? (isFault ? "asserted - caught" : "asserted - quiet")
-               : (isFault ? "asserted - MISSED" : "asserted - false alarm"));
-    var oc = el("p", "ws-resp__mark wp-read__mark--" + (rd.deadEnd ? "dead" : rd.ok ? "ok" : "bad"), outcome);
-    box.appendChild(oc);
+    var row = el("div", "syn-pads__row");
+    row.setAttribute("role", "radiogroup");
+    row.setAttribute("aria-label", "Bay " + s.n + " condition - each pad replays one recorded instance");
+    s.conds.forEach(function (c) {
+      var pad = el("button", "syn-pad" + (s.cond === c ? " is-lit" : "") +
+        (c === "none" ? " syn-pad--ok" : ""));
+      pad.type = "button";
+      pad.setAttribute("role", "radio");
+      pad.setAttribute("aria-checked", s.cond === c ? "true" : "false");
+      var rr = PATCH.measured.records[s.recIdx[c]];
+      pad.title = "replays recorded record " + rr.node_id + " (scene " + rr.scene_id +
+        ") - a pad is a recorded instance, selected, not simulated";
+      pad.appendChild(el("span", "syn-pad__cap"));
+      pad.appendChild(el("span", "syn-pad__k", CONDW[c] || c.toUpperCase()));
+      pad.addEventListener("click", function () {
+        s.cond = c;
+        if (!s.on) s.on = true;
+        derive(); render();
+        react("Bay " + s.n + " pad " + (CONDW[c] || c.toUpperCase()) +
+          " - now replaying " + tagOf(s) + ".");
+        reactStats();
+        var again = document.querySelector('.syn-pad.is-lit');
+        if (again) again.focus({ preventScroll: true });
+      });
+      row.appendChild(pad);
+    });
+    host.appendChild(row);
 
-    if (fam.id === "pico") {
-      box.appendChild(drawDial({
+    // the floor knob rides with the pads when the selected bay reads via pico
+    if (s.model === "pico") {
+      var kwrap = el("div", "syn-pads__knob");
+      kwrap.appendChild(drawDial({
         values: DETENTS.slice(),
         labels: DETENTS.map(function (d) { return "FLOOR " + d.toFixed(1); }),
         index: Math.max(0, DETENTS.indexOf(s.floor)),
         name: "Bay " + s.n + " margin floor",
-        size: 40,
+        size: 56,
         tip: function (i) { return knobTip(DETENTS[i]); },
         onset: function (i) {
           s.floor = DETENTS[i];
@@ -723,11 +845,14 @@
           react("Bay " + s.n + " floor set to " + s.floor.toFixed(1) +
             " - margins below it now escalate.");
           reactStats();
-          refocusBay(s, ".ws-resp .wp-knob");
+          var again = document.querySelector(".syn-pads__knob .wp-knob");
+          if (again) again.focus({ preventScroll: true });
         },
       }));
+      host.appendChild(kwrap);
     }
-    return box;
+
+    if (PATCH.menuFor === s.ch) host.appendChild(drawMenu(s));
   }
 
   // The attach menu: the whole family, sized so size is VISIBLE.
@@ -771,6 +896,7 @@
     s.model = id;
     if (!s.on) s.on = true;
     PATCH.menuFor = null;
+    PATCH.sel = s.ch;
     derive(); render();
     if (fam.status === "recorded") {
       react(fam.label + " attached to " + tagOf(s) + (id === "pico"
@@ -784,11 +910,12 @@
   }
 
   function refocusBay(s, sel) {
-    var n = document.querySelector('.ws-bay[data-sensor="' + s.ch + '"] ' + sel);
+    var n = document.querySelector('.syn-node[data-sensor="' + s.ch + '"] ' + sel) ||
+            document.querySelector(sel);
     if (n) n.focus({ preventScroll: true });
   }
 
-  /* ---- the senior rack + operator, on the console ------------------------- */
+  /* ---- the senior rack + operator, on the channel strip ------------------- */
   function renderSenior() {
     var host = $("wbSenior");
     if (!host) return;
@@ -833,38 +960,12 @@
     sw.addEventListener("click", function () {
       PATCH.operator = !PATCH.operator;
       derive();
-      renderOp();
+      render(); // the canvas lamp node mirrors the verdict - repaint it too
       react(PATCH.operator
         ? "The operator is on shift, reading the rollups. The ladder ends with a person."
         : "The operator went off shift.");
     });
     host.appendChild(sw);
-  }
-
-  /* ---- escalation cables: bay socket -> senior rack, live geometry -------- */
-  function drawCables() {
-    var cables = $("wbCables"), bench = $("wbBench");
-    if (!cables || !bench) return;
-    cables.textContent = "";
-    var bb = bench.getBoundingClientRect();
-    cables.setAttribute("width", bb.width);
-    cables.setAttribute("height", bb.height);
-    cables.setAttribute("viewBox", "0 0 " + bb.width + " " + bb.height);
-    if (!PATCH.senior || !PATCH.verdict) return;
-    var rack = document.querySelector(".ws-senior.is-seated");
-    if (!rack) return;
-    var rb = rack.getBoundingClientRect();
-    var rx = rb.left - bb.left, ry = rb.top - bb.top + rb.height / 2;
-    PATCH.verdict.reads.forEach(function (rd) {
-      if (!rd.esc) return;
-      var bay = document.querySelector('.ws-bay[data-sensor="' + rd.s.ch + '"] .ws-resp');
-      if (!bay) return;
-      var cb = bay.getBoundingClientRect();
-      var x1 = cb.right - bb.left, y1 = cb.top - bb.top + cb.height / 2;
-      var mid = (x1 + rx) / 2;
-      cables.appendChild(svg("path", { class: "wb-cable wb-cable--esc",
-        d: "M" + x1 + " " + y1 + " C" + mid + " " + y1 + ", " + mid + " " + ry + ", " + rx + " " + ry }));
-    });
   }
 
   /* ---- the measured figures live on the knob's tooltip ------------------- */
@@ -882,11 +983,13 @@
   }
 
   /* =====================================================================
-     THE INSPECTOR
+     THE TERMINAL - the selected bay, on the phosphor screen
+     The terminal IS the inspector (#wpInspect): selecting a node writes
+     its record, its log, and its model's response here.
      ===================================================================== */
-  function revealInspector() {
-    var panel = $("wpInspect");
-    if (panel && panel.scrollIntoView) panel.scrollIntoView({ block: "nearest", behavior: REDUCED ? "auto" : "smooth" });
+  function renderTerm() {
+    var s = selected();
+    if (s) inspectBay(s);
   }
 
   function inspectBay(s) {
@@ -895,7 +998,54 @@
     box.textContent = "";
     var r = recordOf(s);
     var w = r.window || {};
-    box.appendChild(el("b", null, "Bay " + s.n + " · " + tagOf(s)));
+
+    var head = el("div", "syn-term__head");
+    head.appendChild(el("b", null, "BAY " + s.n + " · " + tagOf(s)));
+    var rec = el("span", "ws-rec" + (REDUCED || !s.on ? "" : " is-live"));
+    rec.appendChild(el("span", "ws-rec__dot"));
+    rec.appendChild(el("span", null, s.on ? "MONITORING · REPLAY" : "BAY OFF"));
+    rec.title = "the recorded window, replayed - nothing here is live";
+    head.appendChild(rec);
+    box.appendChild(head);
+
+    if (s.on) {
+      var log = el("pre", "ws-log", w.body ||
+        "(this record's window was not exported - the log is absent, not invented)");
+      log.title = "byte-for-byte, the window the model read in the recorded run";
+      box.appendChild(log);
+    } else {
+      box.appendChild(el("pre", "ws-log ws-log--quiet", "— bay switched off —"));
+    }
+
+    var fam = familyById(s.model);
+    if (fam && s.on) {
+      if (fam.status !== "recorded") {
+        box.appendChild(el("p", "wp-note",
+          fam.label + " is attached, but " + fam.blurb + ". It attaches, but this bench can " +
+          "only replay recorded runs - so it stays honestly silent."));
+      } else {
+        var rd = readOf(s);
+        var reads = el("p", "ws-resp__reads");
+        reads.appendChild(el("span", "ws-resp__k", "READS "));
+        reads.appendChild(el("span", null, (w.n ? w.n + " samples · " : "") +
+          (w.lo != null ? "bounds " + w.lo + " … " + w.hi + (unitOf(s) ? " " + unitOf(s) : "") : "the window above")));
+        reads.title = "the recorded window is the model's entire input - it knows the bounds because they are IN the window";
+        box.appendChild(reads);
+        var says = el("p", "ws-resp__says");
+        says.appendChild(el("span", "ws-resp__k", "SAYS "));
+        says.appendChild(el("b", null, rd.deadEnd ? "…" : '" ' + rd.said + '"'));
+        says.appendChild(el("span", "wp-read__m", " " + rd.margin.toFixed(2)));
+        box.appendChild(says);
+        var isFault = rd.r.truth !== "none";
+        var outcome = rd.deadEnd ? "doubts - nobody to ask"
+          : rd.esc ? "doubted, senior answered - " + (rd.ok ? "caught" : (isFault ? "missed" : "false alarm"))
+          : (rd.ok ? (isFault ? "asserted - caught" : "asserted - quiet")
+                   : (isFault ? "asserted - MISSED" : "asserted - false alarm"));
+        box.appendChild(el("p", "ws-resp__mark wp-read__mark--" +
+          (rd.deadEnd ? "dead" : rd.ok ? "ok" : "bad"), outcome));
+      }
+    }
+
     var dl = el("dl", "wp-cert");
     [["dialed", CONDW[s.cond] || s.cond],
      ["record", r.node_id + " (scene " + r.scene_id + ")"],
@@ -910,28 +1060,28 @@
     });
     box.appendChild(dl);
     box.appendChild(el("p", "wp-note",
-      "The log in this bay is byte-for-byte the window the model read in the recorded " +
-      "run. The dial's positions are the conditions recorded for this channel slot - " +
-      "each position replays one real record. The margins are recorded logprob " +
-      "differences; nothing in this browser computes one."));
+      "The log above is byte-for-byte the window the model read in the recorded run. " +
+      "The pads are the conditions recorded for this channel slot - each pad replays " +
+      "one real record. The margins are recorded logprob differences; nothing in this " +
+      "browser computes one."));
     if (PATCH.scene && r.scene_id === PATCH.scene.scene_id) {
       drawScopeInto(box);
     }
-    revealInspector();
   }
 
   function inspectYourData(){
     var box = $("wpInspect");
     if (!box) return;
     box.textContent = "";
-    box.appendChild(el("b", null, "Your data"));
-    box.appendChild(el("p", "wp-tag wp-tag--draft", "DRAFT · NOT RUN"));
+    var head = el("div", "syn-term__head");
+    head.appendChild(el("b", null, "YOUR DATA"));
+    head.appendChild(el("span", "wp-tag wp-tag--draft", "DRAFT · NOT RUN"));
+    box.appendChild(head);
     box.appendChild(el("p", "wp-note",
       "Your bytes are on the bench but nothing ran - no model executes in a browser, " +
       "and a margin is a logprob difference nothing here can compute. This is the exact " +
       "request that would go to a stock llama-server:"));
     box.appendChild(el("pre", "wp-wirebytes", envelopeFor(PATCH.yourData)));
-    revealInspector();
   }
 
   /* ---- the recorded pump trace, where it belongs ------------------------- */
@@ -1385,12 +1535,12 @@
           " · every reading here is a recount of these records";
       }
       buildSensors();
+      if (PATCH.sensors[0]) PATCH.sel = PATCH.sensors[0].ch;
       derive();
       render();
-      react("The rack is live: " + PATCH.sensors.length + " recorded instruments, writing to " +
-        "their logs. Tap the [+] at the end of a bay to attach a model.");
+      react("The panel is live: " + PATCH.sensors.length + " recorded instruments, writing to " +
+        "their logs. Tap a node's [+] stub to attach a model; tap a node to see its log.");
       document.addEventListener("keydown", onKey);
-      window.addEventListener("resize", function () { requestAnimationFrame(drawCables); });
       wireIntake();
     }).catch(fail);
   }
@@ -1400,7 +1550,7 @@
       var drawer = $("wpIntake");
       if (drawer && !drawer.hidden) {
         closeIntake();
-        var back = document.querySelector(".ws-bay--intake");
+        var back = document.querySelector(".syn-node--intake");
         if (back) back.focus();
         return;
       }
@@ -1408,7 +1558,7 @@
         var ch = PATCH.menuFor;
         PATCH.menuFor = null;
         render();
-        var add = document.querySelector('.ws-bay[data-sensor="' + ch + '"] .ws-add');
+        var add = document.querySelector('.syn-plus');
         if (add) add.focus();
       }
     }

@@ -198,11 +198,6 @@
 
 /* the inspector is a first-class panel, never an unlabeled div */
 .wp-inspect__placeholder { color: var(--ink-400); font-size: var(--t-micro, .7rem); }
-#wpInspect b {
-  display: block; font-family: var(--font-mono); font-size: var(--t-micro, .66rem);
-  letter-spacing: .12em; text-transform: uppercase; color: var(--ink-500);
-  margin: .2rem 0 .3rem;
-}
 
 /* the masthead crops instead of pushing the deck below the fold. Height is
    FIXED and width fills the bench - aspect-ratio + max-height would shrink
@@ -310,20 +305,7 @@
 }
 
 /* the bench: wall | radio | console */
-.wb-bench {
-  position: relative;
-  display: grid; grid-template-columns: 1fr 17rem;
-  gap: var(--s-4, 1rem); align-items: start;
-}
-@media (max-width: 980px) { .wb-bench { grid-template-columns: 1fr; } }
 
-/* the cables draw themselves over the bench, never catching a tap */
-.wb-cables { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
-.wb-cable {
-  fill: none; stroke: var(--ink-700); stroke-width: 1.6;
-  vector-effect: non-scaling-stroke;
-}
-.wb-cable--esc { stroke-dasharray: 4 4; stroke: var(--ink-400); }
 
 
 /* ---- the lever: a big honest ON/OFF switch ------------------------------ */
@@ -377,42 +359,7 @@
 /* =====================================================================
    THE INSTRUMENT RACK - bays with real tags, logs, and a socket
    ===================================================================== */
-.ws-rack { display: flex; flex-direction: column; gap: .6rem; min-width: 0; }
-.ws-bay {
-  position: relative;
-  display: grid; grid-template-columns: 15rem minmax(0, 1fr) 13.5rem;
-  gap: .4rem .9rem; align-items: start;
-  border: 1px solid var(--hairline-2); border-radius: 10px;
-  background: var(--paper-2); padding: .65rem .8rem;
-  opacity: .62; transition: opacity .2s ease, border-color .2s ease;
-}
-.ws-bay.is-on { opacity: 1; border-color: var(--ink-300); }
-@media (prefers-reduced-motion: reduce) { .ws-bay { transition: none; } }
-@media (max-width: 760px) { .ws-bay { grid-template-columns: 1fr; } }
 
-.ws-bay__id { display: flex; gap: .6rem; align-items: flex-start; min-width: 0; }
-.ws-bay__art { width: 2.6rem; height: 4.2rem; position: relative; flex: none; }
-.ws-bay__art .wb-plate__ink {
-  position: absolute; inset: 0; background: var(--ink-900);
-  -webkit-mask-image: url("../assets/wave/sensor-gauge-ink.png");
-  mask-image: url("../assets/wave/sensor-gauge-ink.png");
-  -webkit-mask-size: contain; mask-size: contain;
-  -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
-  -webkit-mask-position: center top; mask-position: center top;
-}
-.ws-bay__art--tape .wb-plate__ink {
-  -webkit-mask-image: url("../assets/wave/tape-reader-ink.png");
-  mask-image: url("../assets/wave/tape-reader-ink.png");
-  -webkit-mask-position: center; mask-position: center;
-}
-.ws-bay__name { display: flex; flex-direction: column; gap: .25rem; min-width: 0; }
-.ws-bay__name > b {
-  font-family: var(--font-mono); font-size: .68rem; letter-spacing: .1em;
-  overflow-wrap: anywhere;
-}
-.ws-bay__sub { font-family: var(--font-mono); font-size: .56rem; color: var(--ink-400); }
-.ws-bay__ctl { display: flex; gap: .7rem; align-items: center; }
-.ws-bay__ctl .wb-lever { grid-column: auto; }
 
 /* the sensor at work: meter, REC chip, and the literal log */
 .ws-bay__log { display: flex; flex-direction: column; gap: .3rem; min-width: 0; }
@@ -441,20 +388,6 @@
 }
 .ws-log--quiet { color: var(--ink-300); border-style: dashed; }
 
-/* the end of the line: [+] or the attached model's response */
-.ws-bay__end { display: flex; flex-direction: column; gap: .3rem; align-items: stretch; }
-.ws-add {
-  display: inline-flex; gap: .5rem; align-items: center; justify-content: center;
-  padding: .55rem .8rem; border-radius: 8px; cursor: pointer;
-  border: 1.5px dashed var(--ink-300); background: var(--paper);
-  font-family: var(--font-mono); font-size: .6rem; letter-spacing: .12em;
-  color: var(--ink-500);
-}
-.ws-add:hover { border-color: var(--ink-900); color: var(--ink-900); }
-.ws-add:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
-.ws-add__plus { font-size: 1rem; line-height: 1; }
-.ws-add--ghost { border-style: dotted; cursor: pointer; }
-.ws-bay__hint { font-family: var(--font-mono); font-size: .52rem; color: var(--ink-300); text-align: center; }
 
 /* the model icons: the size argument, drawn */
 .ws-icon { position: relative; display: inline-block; flex: none; }
@@ -497,27 +430,6 @@
 .ws-menu__txt span { font-family: var(--font-mono); font-size: .54rem; color: var(--ink-500); }
 .ws-menu__status { color: var(--ink-400); }
 
-/* the response panel: what the model reads, what it says */
-.ws-resp {
-  border: 1px solid var(--ink-300); border-radius: 8px; background: var(--paper);
-  padding: .5rem .6rem; display: flex; flex-direction: column; gap: .25rem;
-}
-.ws-resp__head { display: flex; gap: .5rem; align-items: flex-end; }
-.ws-resp__who { display: flex; flex-direction: column; gap: .05rem; min-width: 0; }
-.ws-resp__who b { font-family: var(--font-mono); font-size: .62rem; letter-spacing: .1em; }
-.ws-resp__x {
-  margin-left: auto; border: 1px solid var(--hairline-2); background: var(--paper);
-  border-radius: 6px; cursor: pointer; font-size: .8rem; line-height: 1;
-  padding: .1rem .35rem; color: var(--ink-500);
-}
-.ws-resp__x:hover { color: var(--ink-900); border-color: var(--ink-500); }
-.ws-resp__x:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
-.ws-resp__reads, .ws-resp__says {
-  margin: 0; font-family: var(--font-mono); font-size: .58rem; color: var(--ink-700);
-}
-.ws-resp__k { color: var(--ink-400); letter-spacing: .12em; font-size: .52rem; }
-.ws-resp__says b { font-size: .68rem; }
-.ws-resp__mark { margin: 0; font-family: var(--font-mono); font-size: .56rem; letter-spacing: .08em; }
 
 /* the senior rack card on the console */
 .ws-senior {
@@ -540,4 +452,203 @@
 .ws-senior__txt { display: flex; flex-direction: column; gap: .1rem; }
 .ws-senior__txt b { font-family: var(--font-mono); font-size: .6rem; letter-spacing: .12em; }
 .ws-senior__txt span { font-family: var(--font-mono); font-size: .54rem; color: var(--ink-400); }
+
+/* =====================================================================
+   THE INSTRUMENT - a cream bench-top device in the house theme.
+   What the synth references contribute is the CONTROL AESTHETIC - a node
+   canvas on a dotted grid, plus-circle stubs, chunky knobs, backlit
+   condition pads, a channel strip - all drawn in the paper/ink system
+   with the one red glint. Think a cream Teenage Engineering device, not
+   a black rack. The green/yellow signal literals stay fenced to lamp
+   semantics: the verdict window, the read marks, the node LEDs and the
+   lit pads (FOUNDER MANDATE: the verdict is literally green/yellow/red).
+   ===================================================================== */
+.syn {
+  position: relative;
+  margin-top: var(--s-4, 1rem);
+  border-radius: 16px;
+  padding: .9rem 1rem 1rem;
+  background: var(--paper-2);
+  border: 1px solid var(--hairline-2);
+  box-shadow: inset 0 1px 0 var(--paper), 0 10px 28px rgba(0, 0, 0, .08);
+}
+
+/* ---- the head rail: brand, the REPLAY tag, provenance ------------------ */
+.syn__head {
+  display: flex; align-items: center; gap: .8rem; flex-wrap: wrap;
+  padding: 0 .2rem .7rem;
+}
+.syn__brand {
+  font-family: var(--font-mono); font-size: .7rem; letter-spacing: .22em;
+  color: var(--ink-900);
+}
+.syn__brand i { font-style: normal; color: var(--ink-400); letter-spacing: .18em; }
+.syn__prov {
+  font-family: var(--font-mono); font-size: .54rem; color: var(--ink-400);
+  line-height: 1.5; max-width: 46rem;
+}
+.syn__screw {
+  width: .55rem; height: .55rem; border-radius: 50%; flex: none;
+  background: radial-gradient(circle at 35% 30%, var(--paper), var(--ink-300) 75%);
+  box-shadow: inset 0 0 0 1px var(--ink-400);
+}
+.syn__screw:last-child { margin-left: auto; }
+.syn .wp-tag--led { border-radius: 4px; }
+
+/* ---- layout zones ------------------------------------------------------- */
+.syn__main { display: grid; grid-template-columns: minmax(0, 1fr) 16.5rem; gap: .9rem; align-items: stretch; }
+@media (max-width: 980px) { .syn__main { grid-template-columns: 1fr; } }
+.syn__lower { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: .9rem; margin-top: .9rem; }
+@media (max-width: 980px) { .syn__lower { grid-template-columns: 1fr; } }
+
+/* ---- the canvas: dotted grid, nodes, cables ------------------------------ */
+.syn__canvaswrap {
+  overflow: auto; border-radius: 12px;
+  border: 1px solid var(--hairline-2);
+  background: var(--paper);
+  background-image: radial-gradient(circle, var(--ink-300) .8px, transparent .9px);
+  background-size: 22px 22px;
+  box-shadow: inset 0 2px 8px rgba(0, 0, 0, .06);
+}
+.syn__canvas { position: relative; }
+.ws-rack { position: relative; z-index: 1; }
+.wb-cables { position: absolute; inset: 0; pointer-events: none; z-index: 0; }
+.wb-cable { fill: none; stroke: var(--ink-700); stroke-width: 1.6; }
+.wb-cable--thin { stroke: var(--ink-300); stroke-width: 1.4; }
+.wb-cable--stub { stroke: var(--ink-300); stroke-width: 1.4; stroke-dasharray: 3 4; }
+/* the escalation cable: dashed, with a slow crawl that is CHROME - it
+   decorates a replay and claims nothing */
+.wb-cable--esc {
+  stroke: var(--ink-400); stroke-width: 1.8; stroke-dasharray: 5 5;
+  animation: syn-crawl 2.8s linear infinite;
+}
+@keyframes syn-crawl { to { stroke-dashoffset: -20; } }
+@media (prefers-reduced-motion: reduce) { .wb-cable--esc { animation: none; } }
+
+/* ---- nodes: rounded cards with equipment depth --------------------------- */
+.syn-node {
+  position: absolute; width: 190px; height: 76px;
+  display: flex; align-items: center; gap: .55rem;
+  padding: .55rem .7rem; box-sizing: border-box;
+  border-radius: 10px; cursor: pointer;
+  background: var(--paper);
+  border: 1px solid var(--hairline-2);
+  box-shadow: 0 1px 0 var(--hairline-2), 0 6px 14px rgba(0, 0, 0, .08);
+}
+.syn-node:hover { border-color: var(--ink-500); }
+.syn-node:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
+/* selection = a machined ring, not a hue (the Node-RED call) */
+.syn-node.is-sel { box-shadow: 0 0 0 3px var(--paper-3), 0 0 0 4px var(--ink-500), 0 6px 14px rgba(0, 0, 0, .08); }
+.syn-node--sensor:not(.is-on) { opacity: .55; }
+.syn-node__body { display: flex; flex-direction: column; gap: .18rem; min-width: 0; flex: 1; }
+.syn-node__body b {
+  font-family: var(--font-mono); font-size: .58rem; letter-spacing: .08em;
+  color: var(--ink-900); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.syn-node__sub {
+  font-family: var(--font-mono); font-size: .5rem; letter-spacing: .06em;
+  color: var(--ink-400); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.syn-node__pwr {
+  position: absolute; top: 7px; right: 7px; width: .8rem; height: .8rem;
+  border-radius: 50%; cursor: pointer; padding: 0;
+  border: 1px solid var(--ink-300); background: var(--paper-3);
+}
+.syn-node__pwr.is-on { background: var(--ink-900); border-color: var(--ink-900); }
+.syn-node__pwr:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
+/* the node LEDs speak lamp semantics, so they may use the fenced hues */
+.syn-node__led {
+  position: absolute; bottom: 8px; right: 8px; width: .5rem; height: .5rem;
+  border-radius: 50%; background: var(--paper-3); border: 1px solid var(--hairline-2);
+}
+.syn-node__led[data-state="log"]    { background: var(--ink-700); border-color: var(--ink-700); }
+.syn-node__led[data-state="silent"] { background: var(--ink-300); border-color: var(--ink-300); }
+.syn-node__led[data-state="ok"]     { background: #1E7A3C; border-color: #1E7A3C; }
+.syn-node__led[data-state="missed"] { background: var(--live); border-color: var(--live); }
+.syn-node__led[data-state="dead"]   { background: #C99700; border-color: #C99700; }
+.syn-node__port {
+  position: absolute; width: .55rem; height: .55rem; border-radius: 50%;
+  background: var(--ink-700); border: 2px solid var(--paper); top: 50%;
+  transform: translateY(-50%);
+}
+.syn-node__port--in  { left: -6px; }
+.syn-node__port--out { right: -6px; }
+.syn-node__port.is-dark { background: var(--paper-3); }
+.syn-node--model { background: var(--paper-2); }
+.syn-node--model .ws-resp__x { position: absolute; top: 5px; right: 5px; }
+.syn-node--quiet { border-style: dashed; opacity: .8; }
+.syn-node--senior { border-width: 2px; border-color: var(--ink-500); }
+.syn-node--intake { border-style: dashed; height: 64px; }
+.syn-node--lamp {
+  width: 136px; height: auto; flex-direction: column; gap: .3rem;
+  padding: .6rem; cursor: default;
+}
+.wp-lampwin--node { min-height: 2.5rem; width: 100%; border-radius: 6px; }
+
+/* the n8n plus-stub: an unconnected output, inviting */
+.syn-plus {
+  position: absolute; width: 28px; height: 28px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font: 1.05rem/1 var(--font-mono); cursor: pointer; padding: 0;
+  color: var(--ink-700); background: var(--paper);
+  border: 1.5px dashed var(--ink-400);
+}
+.syn-plus:hover { border-style: solid; border-color: var(--ink-900); color: var(--ink-900); }
+.syn-plus:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
+.syn-plus[aria-expanded="true"] { border-style: solid; border-color: var(--ink-900); }
+
+/* ---- the pads: MPC-style, in cream ---------------------------------------
+   A pad is a RECORDED condition. Lit = dialed. OK lights the lamp green;
+   a fault pad lights the lamp yellow - the same fenced literals the lamp
+   already owns, because a lit pad IS lamp semantics (what is the bench
+   replaying right now). */
+.syn__pads {
+  border: 1px solid var(--hairline-2); border-radius: 12px; background: var(--paper);
+  padding: .8rem; display: flex; flex-direction: column; gap: .6rem;
+}
+.syn-pads__head { display: flex; flex-direction: column; gap: .15rem; }
+.syn-pads__head b { font-family: var(--font-mono); font-size: .58rem; letter-spacing: .16em; color: var(--ink-500); }
+.syn-pads__row { display: flex; gap: .55rem; flex-wrap: wrap; }
+.syn-pad {
+  display: flex; flex-direction: column; align-items: center; gap: .3rem;
+  padding: 0; border: 0; background: none; cursor: pointer; font: inherit;
+}
+.syn-pad__cap {
+  width: 3.4rem; height: 3.4rem; border-radius: 9px;
+  background: var(--paper-3);
+  border: 1px solid var(--hairline-2);
+  box-shadow: inset 0 2px 5px rgba(0, 0, 0, .1), inset 0 -1px 0 var(--paper);
+}
+.syn-pad__k {
+  font-family: var(--font-mono); font-size: .5rem; letter-spacing: .1em;
+  color: var(--ink-400);
+}
+.syn-pad:hover .syn-pad__cap { border-color: var(--ink-500); }
+.syn-pad:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; border-radius: 10px; }
+.syn-pad.is-lit .syn-pad__cap {
+  border-color: #C99700;
+  box-shadow: inset 0 0 0 2px #C99700, inset 0 2px 5px rgba(0, 0, 0, .08);
+}
+.syn-pad.is-lit .syn-pad__k { color: var(--ink-900); }
+.syn-pad--ok.is-lit .syn-pad__cap {
+  border-color: #1E7A3C;
+  box-shadow: inset 0 0 0 2px #1E7A3C, inset 0 2px 5px rgba(0, 0, 0, .08);
+}
+.syn-pads__knob { display: flex; align-items: center; gap: .8rem; }
+.syn__pads .ws-menu { margin-top: .2rem; }
+
+/* ---- the terminal: the selected bay's record, on paper ------------------- */
+.syn__term {
+  border: 1px solid var(--hairline-2); border-radius: 12px; background: var(--paper);
+  padding: .8rem; display: flex; flex-direction: column; gap: .5rem; min-width: 0;
+}
+.syn-term__head { display: flex; gap: .7rem; align-items: baseline; flex-wrap: wrap; }
+.syn-term__head b { font-family: var(--font-mono); font-size: .62rem; letter-spacing: .12em; color: var(--ink-900); }
+
+/* strip + intake sit inside the bezel; their base styles already speak the
+   house theme - only spacing needs a nudge */
+.syn .wp-console { background: var(--paper); }
+.syn .wp-intake { margin-top: .9rem; background: var(--paper); }
+.syn__mirror { padding: .2rem .2rem 0; }
+.syn__mirror summary { cursor: pointer; }
 

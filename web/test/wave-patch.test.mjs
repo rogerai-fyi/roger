@@ -357,8 +357,10 @@ test("lamp: the founder's colours are literals, fenced to lamps and marks", () =
   assert.ok(/FOUNDER MANDATE/.test(css), "the exception is documented where it lives");
   const hueRules = css.split("}").filter((b) => /#1E7A3C|#C99700/.test(b));
   for (const b of hueRules) {
-    assert.ok(/wp-lamp|wp-read__mark/.test(b),
-      `green/yellow may only colour lamps and read-marks, got: ${b.split("{")[0].trim()}`);
+    // lamps, read marks, node LEDs and lit condition pads all SPEAK lamp
+    // semantics - what is the bench replaying / catching right now
+    assert.ok(/wp-lamp|wp-read__mark|syn-node__led|syn-pad/.test(b),
+      `green/yellow may only colour lamp-semantic surfaces, got: ${b.split("{")[0].trim()}`);
   }
   assert.ok(/STANDING BY|ALL CLEAR|DEGRADED|FAULTS MISSED/.test(js),
     "every lamp state carries a word");
@@ -396,9 +398,36 @@ test("interaction: no HTML5 drag anywhere; the intake is the one drop target", (
 });
 
 test("interaction: the escalation cable is dashed, and cables never catch a tap", () => {
-  assert.ok(/\.wb-cable--esc \{ stroke-dasharray/.test(css));
+  assert.ok(/\.wb-cable--esc \{[^}]*stroke-dasharray/.test(css));
   assert.ok(/\.wb-cables \{ position: absolute; inset: 0; pointer-events: none/.test(css),
     "the cable layer is decoration over live geometry, not a control");
+});
+
+// ---------- the canvas grammar ------------------------------------------------------
+
+test("canvas: an unconnected output ends in a plus-stub, and cables never catch a tap", () => {
+  assert.ok(/syn-plus/.test(js), "the n8n-style invitation exists");
+  assert.ok(/aria-expanded/.test(js), "and states whether its menu is open");
+  assert.ok(/\.wb-cables \{ position: absolute; inset: 0; pointer-events: none/.test(css),
+    "the cable layer is decoration over live geometry, not a control");
+  assert.ok(/cables come from node coordinates|coordinates the nodes are placed/i.test(js),
+    "cables and nodes share one geometry - they cannot drift apart");
+});
+
+test("pads: one backlit pad per RECORDED condition, and pads are a radiogroup", () => {
+  assert.ok(/role", "radiogroup"|"role", "radiogroup"/.test(js.replace(/setAttribute\(/g, '"role", ')) ||
+    js.includes('setAttribute("role", "radiogroup")'), "the pad row is one choice");
+  assert.ok(js.includes('setAttribute("role", "radio")'), "each pad is a position");
+  assert.ok(/one pad per recorded condition/.test(js),
+    "the pads say the rule out loud: unrecorded conditions have no pad");
+  assert.ok(/a pad is a recorded instance, selected, not simulated/.test(js),
+    "and each pad names the record it replays");
+});
+
+test("canvas: the escalation cable's crawl is chrome, and stops for reduced motion", () => {
+  assert.ok(/is CHROME/.test(css), "the css says the crawl claims nothing");
+  assert.ok(/@media \(prefers-reduced-motion: reduce\) \{ \.wb-cable--esc \{ animation: none/.test(css),
+    "and it stops for people who asked for less motion");
 });
 
 // ---------- the palette ----------------------------------------------------------
@@ -425,8 +454,11 @@ test("palette: red is a signal, never a surface", async () => {
   // the masthead's spot plate, the radio's engraved lamp glint (both clipped
   // by tiny alpha masks), and the LAMP WINDOW in its red state - the
   // founder-mandated verdict light.
+  // Four rules may fill with red: the masthead's spot plate, the intake's
+  // one primary action, the lamp window's red state, and the node LED in its
+  // MISSED state - the same alarm semantics at canvas scale.
   assert.deepEqual(filled.sort(),
-    ['.wm-masthead__spot', '.wp-lampwin[data-state="red"]', '.wp-run'].sort(),
+    ['.syn-node__led[data-state="missed"]', '.wm-masthead__spot', '.wp-lampwin[data-state="red"]', '.wp-run'].sort(),
     `got ${filled.join(", ")}`);
   const pin = (f, kb) => {
     const bytes = statSync(path.join(SRC, "assets/wave/" + f)).size;
@@ -576,8 +608,8 @@ test("plates: every mask plate ships as an ink/spot pair", () => {
 });
 
 test("plates: illustrations are labelled illustration, and sit on non-data surfaces", () => {
-  assert.ok(/aria-hidden/.test(js.slice(js.indexOf("ws-bay__art"))),
-    "the sensor engraving is decoration to assistive tech");
+  assert.ok(/setAttribute\("aria-hidden", "true"\)/.test(js.slice(js.indexOf("function modelIcon"))),
+    "the engraved model glyph is decoration to assistive tech");
   assert.ok(/ILLUSTRATION|illustration only|re-inked per theme \(illustration/.test(js + css + htmlFlat),
     "somewhere the surface says these are illustrations, not data");
 });
