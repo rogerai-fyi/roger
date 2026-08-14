@@ -1140,3 +1140,29 @@
 .sn-fleet__trow { display: flex; gap: .6rem; justify-content: space-between; flex-wrap: wrap; }
 .sn-fleet__trow b { letter-spacing: .08em; color: var(--ink-700); }
 
+/* ---- v14: the consolidated WHY WAVE panel + the Spectrum menu ---------- */
+.sn-why__nav {
+  display: flex; flex-wrap: wrap; gap: .35rem;
+  padding: .5rem 0 .6rem; border-bottom: 1px dotted var(--hairline-2);
+  margin-bottom: .6rem;
+}
+.sn-why__tab {
+  font-family: var(--font-mono); font-size: .56rem; letter-spacing: .1em;
+  text-transform: uppercase; padding: .3rem .55rem; border-radius: 999px;
+  border: 1px solid var(--hairline-2); background: var(--paper); color: var(--ink-500);
+  cursor: pointer;
+}
+.sn-why__tab:hover { border-color: var(--ink-500); color: var(--ink-900); }
+.sn-why__tab.is-on { border-color: var(--ink-900); background: var(--paper-2); color: var(--ink-900); }
+.sn-why__tab:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
+.sn-why__body { min-height: 3rem; }
+
+.ws-menu__foot {
+  grid-column: 1 / -1; margin: .2rem 0 0;
+  font-family: var(--font-mono); font-size: .54rem; line-height: 1.6;
+  color: var(--ink-400);
+}
+
+/* v14 rhythm: the left column breathes without the roadmap line */
+.sn-side .sn-types { margin-bottom: .55rem; }
+

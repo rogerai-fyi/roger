@@ -48,35 +48,61 @@
 
   /* ---- the model family: sizes, statuses, runs-on from the family page.
      `does` is each slot's transform, in plain words, for its chain card. */
+  // THE WAVE SPECTRUM - the LOCKED ladder (WAVE-TIER-SCALING-STRATEGY-2026-08-14:
+  // "Wave Pico -> Nano -> Micro -> Giga -> Tera -> Peta -> Exa", one SI-magnitude
+  // scale read as "___ Wave", edge -> exascale flagship; supersedes the old
+  // Edge/Core/Station/Satellite page ladder). Recipes, per the same doc:
+  //   scratch          - trained from random init on our data
+  //   base+specialize  - strong open base, industrial continued-pretrain + mesh
+  //   expert-pruned / frontier - carved from the flagship
+  // Every tier ships with Wave Mesh baked in and understands the output of every
+  // tier beneath it. The two recorded slots also carry their RUN NAMES as ground
+  // truth; the senior run's exact params are pending export
+  // (ANSWER-FROM-MODELS-AGENT-wave-tier-naming.md).
   var FAMILY = [
-    { id: "edge", label: "Roger Edge", size: "KB-10M", status: "in design",
-      runs: "ESP32 · Cortex-M", icon: "pocket", px: 26,
-      does: "wake and sensing tier",
-      blurb: "wake and sensing tier - in design" },
-    { id: "pico", label: "Wave Pico", size: "270M", status: "recorded",
-      runs: "gateway class", icon: "pocket", px: 38,
+    { id: "pico", label: "Wave Pico", size: "270M", band: "250-300M", status: "recorded",
+      recipe: "scratch", reach: "edge · single device",
+      runs: "Pi / ESP32 · ~50ms · no GPU", icon: "pocket", px: 30,
       does: "asserts or escalates",
-      blurb: "the recorded reader on this bench" },
-    { id: "nano", label: "Wave Nano", size: "~350M", status: "recorded",
-      runs: "phone · Pi · gateway", icon: "reader", px: 46,
+      blurb: "the edge child - reads one machine's telemetry and asserts, with margins; " +
+             "the recorded reader on this bench (270M, in the 250-300M tier band)" },
+    { id: "nano", label: "Wave Nano", size: "0.8-1.5B", band: "0.8-1.5B", status: "recorded",
+      recipe: "scratch", reach: "gateway · a fleet",
+      runs: "a gateway / concentrator", icon: "reader", px: 42,
       does: "adjudicates doubts",
-      blurb: "the recorded senior - adjudicates doubtful reads" },
-    { id: "micro", label: "Wave Micro", size: "1-8B", status: "trained",
-      runs: "laptop · edge computer", icon: "reader", px: 58,
-      does: "local reasoning tier",
-      blurb: "trained, but has no recorded run on this bench" },
-    { id: "core", label: "Wave Core", size: "8-30B", status: "planned",
-      runs: "single GPU · control room", icon: "senior", px: 52,
-      does: "control-room synthesis tier",
-      blurb: "planned slot" },
-    { id: "station", label: "Wave Station", size: "30-70B", status: "planned",
-      runs: "rack · plant server", icon: "senior", px: 62,
-      does: "plant-server tier",
-      blurb: "planned slot" },
-    { id: "satellite", label: "Wave Satellite", size: "~70B+", status: "planned",
-      runs: "plant server room", icon: "senior", px: 74,
-      does: "plant-wide tier",
-      blurb: "planned slot" },
+      blurb: "the fleet gateway - rolls up many children and resolves conflicts; " +
+             "the recorded senior on this bench (run params pending export)" },
+    { id: "micro", label: "Wave Micro", size: "7-8B", status: "base+specialize",
+      recipe: "base+specialize", reach: "site · a facility",
+      runs: "an on-site server", icon: "reader", px: 54,
+      does: "the site brain",
+      blurb: "multi-fleet reasoning across a facility - general-capable AND industrial; " +
+             "no recorded run on this bench" },
+    { id: "giga", label: "Wave Giga", size: "27-35B", status: "base+specialize",
+      recipe: "base+specialize", reach: "a plant",
+      runs: "a plant datacenter", icon: "senior", px: 50,
+      does: "full-plant reasoning",
+      blurb: "the plant - full-plant reasoning, competitive on general benchmarks as well " +
+             "as machines; no recorded run on this bench" },
+    { id: "tera", label: "Wave Tera", size: "80-120B", status: "base+specialize",
+      recipe: "base+specialize", reach: "enterprise · many plants",
+      runs: "an enterprise cloud", icon: "senior", px: 60,
+      does: "cross-site correlation",
+      blurb: "cross-site enterprise - correlates faults and trends across many plants at " +
+             "once; no recorded run on this bench" },
+    { id: "peta", label: "Wave Peta", size: "150-200B", status: "expert-pruned",
+      recipe: "expert-pruned", reach: "a region",
+      runs: "a regional cloud", icon: "senior", px: 70,
+      does: "a leaner giant",
+      blurb: "regional scale - a leaner giant, distilled and pruned down from the " +
+             "frontier; no recorded run on this bench" },
+    { id: "exa", label: "Wave Exa", size: "~284B", status: "frontier",
+      recipe: "frontier", reach: "the family teacher",
+      runs: "an exascale datacenter", icon: "senior", px: 82,
+      does: "teaches the family",
+      blurb: "the flagship - exascale-class frontier capability (DeepSeek-V4-Flash " +
+             "class · MTP), and the teacher the whole family learns from; no recorded " +
+             "run on this bench" },
   ];
   function familyById(id) {
     for (var i = 0; i < FAMILY.length; i++) if (FAMILY[i].id === id) return FAMILY[i];
@@ -960,19 +986,25 @@
       b.appendChild(modelIcon(fam));
       var txt = el("span", "ws-menu__txt");
       txt.appendChild(el("b", null, fam.label));
-      txt.appendChild(el("span", null, fam.size + " · runs on " + fam.runs));
+      txt.appendChild(el("span", null, fam.size + " · " + fam.reach));
       txt.appendChild(el("span", "ws-menu__status",
         fam.status === "recorded"
           ? "recorded on this bench" + (runOf(fam.id) ? " · run " + runOf(fam.id) : "")
           : fam.status + " · will attach silent"));
       b.appendChild(txt);
-      b.title = fam.blurb;
+      b.title = fam.blurb + " · runs on " + fam.runs + " · " + fam.recipe;
       b.addEventListener("click", function (e) {
         e.stopPropagation();
         chainAdd(fam.id, slotIdx);
       });
       menu.appendChild(b);
     });
+    // the Spectrum's own footer line, verbatim from the tier strategy doc
+    menu.appendChild(el("p", "ws-menu__foot",
+      "The Wave Spectrum, pico → exa: every tier ships with Wave Mesh baked in and " +
+      "understands the output of every tier beneath it. scratch = trained from random " +
+      "init on our data · base+specialize = strong open base, industrial " +
+      "continued-pretrain + mesh · expert-pruned / frontier = carved from the flagship."));
     var close = el("button", "wp-remove");
     close.type = "button";
     close.textContent = "close";
@@ -1029,8 +1061,8 @@
         : (info.senior ? "the senior now adjudicates every doubtful read, and the monitor gains a human-readable stage."
                        : "it reads the wire directly, and the monitor gains a human-readable stage.")));
     } else {
-      react(fam.label + " (" + fam.size + ") in the chain - but it is " + fam.status +
-        ", with no recorded run on this bench. Its stage stays honestly silent.");
+      react(fam.label + " (" + fam.size + ", " + fam.recipe + ") in the chain - " +
+        "no recorded run on this bench, so its stage stays honestly silent.");
     }
   }
 
@@ -1122,75 +1154,120 @@
     return null;
   }
 
-  // The standing questions, parked under the chain rail - ALL the whys live
-  // here now (the model-card pops clipped inside the rail's scroller).
+  // THE WHY LAYER, consolidated (founder v14: five chips were "too bunched
+  // in") - ONE standing entry, "WHY WAVE?", opening a single full-width panel
+  // with the five questions as an internal mini-nav. Content unchanged in
+  // spirit: every number rendered from the bundle or cited to its source doc.
+  function whyTopics() {
+    var m = PATCH.measured;
+    var nano = familyById("nano");
+    return [
+      { key: "tasknative", label: "why task-native?", build: function (box) {
+        box.appendChild(el("p", "sn-why__p",
+          "A chat model free-sampled on these bytes dreams a Modbus register table. " +
+          "A Wave model decodes a LOCKED ENUM with a MARGIN - the margin is the model " +
+          "saying how sure it is, and that calibrated doubt is what the escalation " +
+          "contract is built on. No prose, no dreaming: one token of meaning, scored."));
+        box.appendChild(el("p", "sn-why__p",
+          "The split runs up the Spectrum: Wave Pico and Nano are TOTAL specialists - " +
+          "at chance on general benchmarks BY DESIGN (measured MMLU 23.2 - Pico " +
+          "report). Wave Micro and above are dual-capable by requirement: competitive " +
+          "on general benchmarks AND best-in-class industrial, with capability " +
+          "retention a gating metric (tier-scaling strategy, 2026-08-14)."));
+        box.appendChild(el("p", "sn-why__cite",
+          "generalist models read raw industrial telemetry near chance - that is the " +
+          "bench this deck replays (IEB-Signals public-release plan, 2026-08-14)"));
+      } },
+      { key: "senior", label: "why a senior?", build: function (box) {
+        box.appendChild(el("p", "sn-why__p",
+          "The senior only pays attention when a reader is unsure - that is the whole " +
+          "economics of the mesh (open WHY NOT ONE BIG MODEL? for the measured " +
+          "sweep). It runs on " + nano.runs + ", so the doubtful reads stay on-prem too."));
+      } },
+      { key: "econ", label: "why not one big model?", build: function (box) {
+        var chart = econChart();
+        if (chart) box.appendChild(chart);
+        var best = m.escalation.configs.filter(function (c) { return c.config === "child+parent@1.5"; })[0];
+        if (best) {
+          box.appendChild(el("p", "sn-why__p",
+            "The measured trade: at floor 1.5 the mesh reaches " + (best.macro_recall * 100).toFixed(1) +
+            " macro recall for " + (best.pct_of_parent_everywhere * 100).toFixed(0) +
+            "% of the compute of asking the senior about everything. Escalation buys most of the " +
+            "senior's judgment for a fraction of its residency."));
+        }
+        box.appendChild(el("p", "sn-why__cite",
+          "measured: " + m.escalation.configs.map(function (c) { return c.config; }).join(" · ") +
+          " (" + m._provenance.suite + ")"));
+      } },
+      { key: "tiny", label: "why so small?", build: function (box) {
+        var ladder = el("span", "sn-ladder");
+        ladder.setAttribute("aria-hidden", "true");
+        ladder.appendChild(el("span", "wb-plate__ink"));
+        box.appendChild(ladder);
+        box.appendChild(el("p", "sn-why__p",
+          "The reading happens where the wire is. The Spectrum climbs one SI step at a " +
+          "time - " + FAMILY.map(function (f) { return f.label.replace("Wave ", "") + " on " + f.runs; }).join(", ") +
+          " - so each tier runs on hardware its scope already owns, and the bytes " +
+          "never leave the fence."));
+        box.appendChild(el("p", "sn-why__p",
+          "Why not just make them all huge? From-scratch quality is bounded by DIVERSE " +
+          "TOKENS, not GPUs - scratch wins through roughly half a billion params, and " +
+          "above that the family switches to base+specialize (tier-scaling strategy, " +
+          "2026-08-14). Small is not a compromise at the edge; it is the design."));
+        var q = browserTierQuant();
+        if (q) {
+          box.appendChild(el("p", "sn-why__p",
+            "Small also survives quantization: the " + q.quant + " build is " + q.size_mb +
+            "MB at " + (q.fault_id_macro * 100).toFixed(1) + " fault-ID macro - small enough " +
+            "for a browser tab (" + q.source + ")."));
+        }
+      } },
+      { key: "person", label: "why a person at the end?", build: function (box) {
+        box.appendChild(el("p", "sn-why__p",
+          "The ladder should end with someone accountable - the operator lever is that " +
+          "doctrine. UNATTENDED AUTHORITY is the exception you can grant: the senior acts " +
+          "with nobody on shift and every decision queues for human review, so the lamp " +
+          "reads PROVISIONAL, not ALL CLEAR. Whether a model is big enough to take a " +
+          "shift is a POLICY you set, not a measurement - this bench never claims " +
+          "measured autonomous performance."));
+      } },
+    ];
+  }
+
   function renderWhys() {
     var host = $("wsWhys");
     if (!host || !PATCH.measured) return;
     host.textContent = "";
-    var m = PATCH.measured;
-
-    var tn = whyChip("tasknative", "why task-native?");
-    tn.appendChild(el("p", "sn-why__p",
-      "A chat model free-sampled on these bytes dreams a Modbus register table. " +
-      "A Wave model decodes a LOCKED ENUM with a MARGIN - the margin is the model " +
-      "saying how sure it is, and that calibrated doubt is what the escalation " +
-      "contract is built on. No prose, no dreaming: one token of meaning, scored."));
-    host.appendChild(tn);
-
-    var nano = familyById("nano");
-    var sr = whyChip("senior", "why a senior?");
-    sr.appendChild(el("p", "sn-why__p",
-      "The senior only pays attention when a reader is unsure - that is the whole " +
-      "economics of the mesh (open WHY NOT ONE BIG MODEL? for the measured " +
-      "sweep). It runs on " + nano.runs + ", so the doubtful reads stay on-prem too."));
-    host.appendChild(sr);
-
-    var econ = whyChip("econ", "why not one big model?");
-    var chart = econChart();
-    if (chart) econ.appendChild(chart);
-    var best = m.escalation.configs.filter(function (c) { return c.config === "child+parent@1.5"; })[0];
-    if (best) {
-      econ.appendChild(el("p", "sn-why__p",
-        "The measured trade: at floor 1.5 the mesh reaches " + (best.macro_recall * 100).toFixed(1) +
-        " macro recall for " + (best.pct_of_parent_everywhere * 100).toFixed(0) +
-        "% of the compute of asking the senior about everything. Escalation buys most of the " +
-        "senior's judgment for a fraction of its residency."));
+    var topics = whyTopics();
+    var det = whyChip("wave", "WHY WAVE? · the story in five questions");
+    var nav = el("div", "sn-why__nav");
+    nav.setAttribute("role", "tablist");
+    nav.setAttribute("aria-label", "The five why questions");
+    var body = el("div", "sn-why__body");
+    if (!PATCH.whyTopic) PATCH.whyTopic = topics[0].key;
+    function paint() {
+      body.textContent = "";
+      nav.textContent = "";
+      topics.forEach(function (t) {
+        var b = el("button", "sn-why__tab" + (PATCH.whyTopic === t.key ? " is-on" : ""));
+        b.type = "button";
+        b.setAttribute("role", "tab");
+        b.setAttribute("aria-selected", PATCH.whyTopic === t.key ? "true" : "false");
+        b.textContent = t.label;
+        b.addEventListener("click", function (e) {
+          e.stopPropagation();
+          PATCH.whyTopic = t.key;
+          paint();
+        });
+        nav.appendChild(b);
+      });
+      var cur = topics.filter(function (t) { return t.key === PATCH.whyTopic; })[0] || topics[0];
+      cur.build(body);
     }
-    econ.appendChild(el("p", "sn-why__cite",
-      "measured: " + m.escalation.configs.map(function (c) { return c.config; }).join(" · ") +
-      " (" + m._provenance.suite + ")"));
-    host.appendChild(econ);
-
-    var tiny = whyChip("tiny", "why so small?");
-    var ladder = el("span", "sn-ladder");
-    ladder.setAttribute("aria-hidden", "true");
-    ladder.appendChild(el("span", "wb-plate__ink"));
-    tiny.appendChild(ladder);
-    tiny.appendChild(el("p", "sn-why__p",
-      "The reading happens where the wire is. A chat model needs a datacenter and a " +
-      "round-trip; a Wave slot runs on the hardware the plant already owns - " +
-      FAMILY.filter(function (f) { return f.status !== "planned"; })
-        .map(function (f) { return f.label + " on " + f.runs; }).join(", ") +
-      " - so the bytes never leave the fence."));
-    var q = browserTierQuant();
-    if (q) {
-      tiny.appendChild(el("p", "sn-why__p",
-        "Small also survives quantization: the " + q.quant + " build is " + q.size_mb +
-        "MB at " + (q.fault_id_macro * 100).toFixed(1) + " fault-ID macro - small enough " +
-        "for a browser tab (" + q.source + ")."));
-    }
-    host.appendChild(tiny);
-
-    var person = whyChip("person", "why a person at the end?");
-    person.appendChild(el("p", "sn-why__p",
-      "The ladder should end with someone accountable - the operator lever is that " +
-      "doctrine. UNATTENDED AUTHORITY is the exception you can grant: the senior acts " +
-      "with nobody on shift and every decision queues for human review, so the lamp " +
-      "reads PROVISIONAL, not ALL CLEAR. Whether a model is big enough to take a " +
-      "shift is a POLICY you set, not a measurement - this bench never claims " +
-      "measured autonomous performance."));
-    host.appendChild(person);
+    paint();
+    det.appendChild(nav);
+    det.appendChild(body);
+    host.appendChild(det);
   }
 
   /* ---- the measured figures live on the knob's tooltip ------------------- */

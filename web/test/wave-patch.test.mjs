@@ -253,10 +253,19 @@ test("selector: each pad replays the CLEAREST recorded window - documented crite
 
 test("chain: the menu carries the WHOLE Wave family with honest statuses", () => {
   const h = loadHook();
+  // v14: THE WAVE SPECTRUM (WAVE-TIER-SCALING-STRATEGY-2026-08-14, naming
+  // LOCKED) - pico -> exa; the old Edge/Core/Station/Satellite ladder is gone.
   const ids = h.family.map((f) => f.id);
-  for (const want of ["pico", "nano", "edge", "micro", "core", "station", "satellite"]) {
-    assert.ok(ids.includes(want), `${want} must be on the menu`);
+  assert.deepEqual(ids, ["pico", "nano", "micro", "giga", "tera", "peta", "exa"],
+    "the menu is the locked Spectrum, in ladder order");
+  for (const gone of ["edge", "core", "station", "satellite"]) {
+    assert.ok(!ids.includes(gone), `${gone} is a superseded tier and must not survive`);
   }
+  assert.ok(h.family.every((f) => f.recipe && f.reach),
+    "every tier states its training recipe and its reach");
+  const nano = h.family.find((f) => f.id === "nano");
+  assert.ok(!/350/.test(nano.size), "the old ~350M guess is dead - the tier band shows instead");
+  assert.ok(/pending export/.test(nano.blurb), "the senior run's params are pending, and say so");
   const recorded = h.family.filter((f) => f.status === "recorded").map((f) => f.id).sort();
   assert.deepEqual(recorded, ["nano", "pico"],
     "exactly two slots have a recorded run on this bench - claiming more would be a lie");
@@ -1040,7 +1049,8 @@ test("why: the economics chart is drawn from the measured configs, cited", () =>
   assert.ok(/m.escalation.configs/.test(econ), "every point is a real config");
   assert.ok(/pct_of_parent_everywhere/.test(econ) && /macro_recall/.test(econ),
     "the axes are the measured trade");
-  const whys = js.slice(js.indexOf("function renderWhys"), js.indexOf("/* ---- the measured figures"));
+  // v14: content moved into whyTopics (the consolidated WHY WAVE panel)
+  const whys = js.slice(js.indexOf("function whyTopics"), js.indexOf("/* ---- the measured figures"));
   assert.ok(/_provenance.suite/.test(whys), "the pop cites the suite");
   assert.ok(/configs.map\(function \(c\) \{ return c.config; \}\)/.test(whys),
     "and lists the config names it plotted");
@@ -1050,7 +1060,7 @@ test("why: the economics chart is drawn from the measured configs, cited", () =>
 
 test("why: the tiny story quotes the browser-tier quant with its source", () => {
   assert.ok(/browserTierQuant/.test(js), "the quant row is looked up, not remembered");
-  const whys = js.slice(js.indexOf("function renderWhys"), js.indexOf("/* ---- the measured figures"));
+  const whys = js.slice(js.indexOf("function whyTopics"), js.indexOf("/* ---- the measured figures"));
   assert.ok(/q.size_mb/.test(whys) && /q.source/.test(whys),
     "size and citation both come from the quants row");
   assert.ok(css.includes("mast-ladder-ink.png"), "the tier ladder emblem is the committed plate");
@@ -1282,4 +1292,39 @@ test("v12: the Ping stack shows the live voice on top, the recorded numbers bene
   assert.equal(h.state.reply.kind, "pingwait");
   h.selectType(h.state.types.find((x) => x.key !== h.state.typeKey).key);
   assert.equal(h.state.reply, null, "a moved context dismisses the waiting card too");
+});
+
+// ---------- v14: the Spectrum + the consolidated why ------------------------------
+
+test("v14: the Spectrum menu carries the mesh-baked line and the recipe legend", () => {
+  assert.ok(/every tier ships with Wave Mesh baked in and/i.test(js),
+    "the family's defining sentence is on the menu");
+  assert.ok(/scratch = trained from random /.test(js) &&
+            /carved from the flagship/.test(js),
+    "the recipe legend explains scratch / base+specialize / expert-pruned");
+});
+
+test("v14: ONE WHY WAVE entry with the five questions as an internal nav", () => {
+  assert.ok(/WHY WAVE\? · the story in five questions/.test(js), "one entry point");
+  const topics = js.slice(js.indexOf("function whyTopics"), js.indexOf("function renderWhys"));
+  for (const q of ["why task-native\\?", "why a senior\\?", "why not one big model\\?",
+                   "why so small\\?", "why a person at the end\\?"]) {
+    assert.ok(new RegExp(q).test(topics), `${q} is a topic inside the panel`);
+  }
+  assert.ok(/role", "tablist"/.test(js.replace(/setAttribute\(/g, '", "').slice(0)) ||
+            js.includes('setAttribute("role", "tablist")'),
+    "the mini-nav is a tablist");
+  assert.ok(/PATCH.whyTopic/.test(js), "the open topic survives repaints");
+});
+
+test("v14: the specialist-vs-dual story is cited, and stays qualitative where uncited", () => {
+  const topics = js.slice(js.indexOf("function whyTopics"), js.indexOf("function renderWhys"));
+  assert.ok(/MMLU 23.2 - Pico[\s\S]{0,20}report/.test(topics),
+    "the at-chance-by-design number carries its citation");
+  assert.ok(/near chance[\s\S]{0,120}IEB-Signals public-release plan/.test(topics),
+    "the generalists-at-chance claim is qualitative, cited to the plan doc - no roster numbers");
+  assert.ok(!/14\.0|13\.4|14\.3/.test(topics),
+    "the unpublished roster figures never reach the deck");
+  assert.ok(/tier-scaling strategy, [\s\S]{0,8}2026-08-14/.test(topics),
+    "the scaling-law nugget cites the strategy doc");
 });

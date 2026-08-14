@@ -239,9 +239,11 @@
                 </details>
                 <p class="dk__surfnote">The model embedded at the asset: its input is the
                   device&rsquo;s own signal, and every device carries its fixed prompt - model
-                  and framing ship as one unit. The brain in these devices is <b>Wave Nano</b>
-                  (350M), the trained gateway-class model; <b>Roger Edge</b> is the MCU-class
-                  classifier line, in design, with no trained artifact yet.</p>
+                  and framing ship as one unit. The brain in these devices is <b>Wave Nano</b>,
+                  the trained gateway tier of the Wave Spectrum (the tier targets 0.8&ndash;1.5B;
+                  this run&rsquo;s exact params are pending export); <b>Wave Pico</b> is the
+                  MCU-class edge tier (scratch-trained; certified 99.4M waypoint, target
+                  250&ndash;300M, runs with no GPU).</p>
               </div>
 
               <!-- GUARD: requests the model must refuse upward -->
@@ -499,10 +501,10 @@
             <div class="sn-deck">
               <!-- 1) the sensor selector -->
               <div class="sn-side">
-                <span class="wp-console__k">1 &middot; PICK A SENSOR</span>
+                <span class="wp-console__k"
+                      title="one sensor at a time - more sensors soon">1 &middot; PICK A SENSOR</span>
                 <div class="sn-types" id="wsTypes"></div>
                 <div class="syn__pads sn-side__pads" id="wsPads"></div>
-                <p class="sn-roadmap">one sensor at a time &middot; more sensors soon</p>
               </div>
 
               <!-- 2) the chain, 3) the monitor -->
