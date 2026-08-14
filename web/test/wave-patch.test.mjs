@@ -1420,3 +1420,76 @@ test("v15: a chain card answers what/doing/decided at a glance", () => {
   assert.ok(/sn-slot__meta/.test(js) && /the run name is ground truth/.test(js),
     "the run name stays reachable on the card's metadata");
 });
+
+/* ---------------------------------------------------------------------------
+   v16 - THE CHAIN, MADE VISIBLE. The model cards used to be identical boxes
+   with a small radio glyph; now each tier carries its own engraved scale art
+   and a card that acted looks nothing like one that stood down.
+   --------------------------------------------------------------------------- */
+
+test("v16: model iconography is the tier scale ladder, not the old radio glyphs", () => {
+  for (const art of ["chip", "gateway", "server", "rack", "racks", "aisle", "hall"]) {
+    assert.ok(new RegExp(`art: "${art}"`).test(js), `${art} is a tier's art`);
+    assert.ok(css.includes(`assets/wave/tier-${art}-ink.png`),
+      `the ${art} rung is masked from its committed plate`);
+  }
+  // the radio glyphs stay on disk but no longer stand in for a model tier
+  for (const old of ["radio-pocket", "radio-reader", "radio-senior"]) {
+    assert.ok(!css.includes(`ws-icon--`) || !new RegExp(`ws-icon--[a-z]+ \\.wb-plate__ink \\{[^}]*${old}`).test(css),
+      `${old} no longer dresses a model icon`);
+  }
+  assert.ok(!/icon: "(pocket|reader|senior)"/.test(js), "no tier still points at a radio glyph");
+});
+
+test("v16: the ladder is scaled by ink AREA, so a flat server never outranks a cabinet", () => {
+  // longest-side scaling would draw the 3.2:1 server larger than the 0.65:1
+  // cabinet above it and invert the ladder - the rule must be area.
+  assert.ok(/Math.sqrt\(\(s \* s\) \/ ratio\)/.test(js), "the box is derived from an area rung");
+  const artBlock = js.slice(js.indexOf("var ART = {"), js.indexOf("function modelIcon"));
+  const dims = {};
+  for (const m of artBlock.matchAll(/(\w+):\s*\{ w: (\d+), h: (\d+) \}/g)) {
+    dims[m[1]] = { w: +m[2], h: +m[3] };
+  }
+  const rungs = [...js.matchAll(/art: "(\w+)", span: (\d+)/g)].map((m) => ({ art: m[1], span: +m[2] }));
+  assert.equal(rungs.length, 7, "every tier has a rung");
+  let prev = 0;
+  for (const r of rungs) {
+    const d = dims[r.art];
+    assert.ok(d, `${r.art} has measured source dimensions`);
+    const h = Math.sqrt((r.span * r.span) / (d.w / d.h));
+    const area = h * (h * (d.w / d.h));
+    assert.ok(area > prev, `${r.art} draws more ink than the tier below it`);
+    prev = area;
+  }
+});
+
+test("v16: a card that acted is visibly not a card that stood down", () => {
+  // the mesh's whole argument is that the senior is only bothered when the
+  // small model is unsure - so "nothing reached Wave Nano" has to be visible.
+  assert.ok(/is-acted/.test(js) && /is-standby/.test(js), "the two states exist");
+  assert.ok(/st.cls === "is-ok" \|\| st.cls === "is-esc"/.test(js),
+    "acted is derived from the same stage verdicts the monitor prints");
+  assert.ok(/\.sn-slot--model\.is-acted/.test(css) && /\.sn-slot--model\.is-standby/.test(css),
+    "and each state has its own treatment");
+  assert.ok(/\.sn-rail\.is-idle .sn-rail__cable/.test(css),
+    "the cable into a stood-down model reads stood down too");
+  // no new claim: the states come from slotState, which reads PATCH.verdict
+  const sc = js.slice(js.indexOf("function slotState"), js.indexOf("function drawChainCard"));
+  assert.ok(/PATCH.verdict/.test(sc) && /v.stages/.test(sc),
+    "card state is a recount of the printed stages, never its own judgement");
+});
+
+test("v16: the chain flash rides the same signature gate, and reduced motion skips it", () => {
+  assert.ok(/flashIfChanged\(card, "chain:" \+ id, stNow.word\)/.test(js),
+    "a card pulses only when its verdict actually changed");
+  assert.ok(/prefers-reduced-motion: reduce\) \{\s*\.sn-slot--model\.is-flash \{ animation: none/.test(css),
+    "and the pulse is chrome that reduced motion drops");
+});
+
+test("v16: the attach menu is the ladder, one tier per row", () => {
+  assert.ok(/ws-menu__art/.test(js) && /\.ws-menu__art/.test(css), "each row has an art cell");
+  assert.ok(/align-items: flex-end/.test(css.slice(css.indexOf(".ws-menu__art"))),
+    "the engravings share a baseline so the growth reads as a staircase");
+  assert.ok(/\.ws-menu \{ grid-template-columns: 1fr/.test(css), "one tier per row, in ladder order");
+  assert.ok(/runs on " \+ fam.runs/.test(js), "the row says what hardware it takes to run");
+});

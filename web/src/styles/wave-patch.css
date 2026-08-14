@@ -376,17 +376,33 @@
   -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
   -webkit-mask-position: center bottom; mask-position: center bottom;
 }
-.ws-icon--pocket .wb-plate__ink {
-  -webkit-mask-image: url("../assets/wave/radio-pocket-ink.png");
-  mask-image: url("../assets/wave/radio-pocket-ink.png");
+.ws-icon--chip .wb-plate__ink {
+  -webkit-mask-image: url("../assets/wave/tier-chip-ink.png");
+  mask-image: url("../assets/wave/tier-chip-ink.png");
 }
-.ws-icon--reader .wb-plate__ink {
-  -webkit-mask-image: url("../assets/wave/radio-reader-ink.png");
-  mask-image: url("../assets/wave/radio-reader-ink.png");
+.ws-icon--gateway .wb-plate__ink {
+  -webkit-mask-image: url("../assets/wave/tier-gateway-ink.png");
+  mask-image: url("../assets/wave/tier-gateway-ink.png");
 }
-.ws-icon--senior .wb-plate__ink {
-  -webkit-mask-image: url("../assets/wave/radio-senior-ink.png");
-  mask-image: url("../assets/wave/radio-senior-ink.png");
+.ws-icon--server .wb-plate__ink {
+  -webkit-mask-image: url("../assets/wave/tier-server-ink.png");
+  mask-image: url("../assets/wave/tier-server-ink.png");
+}
+.ws-icon--rack .wb-plate__ink {
+  -webkit-mask-image: url("../assets/wave/tier-rack-ink.png");
+  mask-image: url("../assets/wave/tier-rack-ink.png");
+}
+.ws-icon--racks .wb-plate__ink {
+  -webkit-mask-image: url("../assets/wave/tier-racks-ink.png");
+  mask-image: url("../assets/wave/tier-racks-ink.png");
+}
+.ws-icon--aisle .wb-plate__ink {
+  -webkit-mask-image: url("../assets/wave/tier-aisle-ink.png");
+  mask-image: url("../assets/wave/tier-aisle-ink.png");
+}
+.ws-icon--hall .wb-plate__ink {
+  -webkit-mask-image: url("../assets/wave/tier-hall-ink.png");
+  mask-image: url("../assets/wave/tier-hall-ink.png");
 }
 
 /* the attach menu: one row per family slot, size visible */
@@ -410,27 +426,6 @@
 .ws-menu__status { color: var(--ink-400); }
 
 
-/* the senior rack card on the console */
-.ws-senior {
-  display: flex; gap: .6rem; align-items: center; width: 100%;
-  border: 1px dashed var(--hairline-2); border-radius: 8px; background: var(--paper);
-  padding: .5rem .6rem; cursor: pointer; font: inherit; text-align: left;
-  opacity: .7;
-}
-.ws-senior.is-seated { opacity: 1; border-style: solid; border-color: var(--ink-300); }
-.ws-senior:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
-.ws-senior__art { width: 2rem; height: 2.6rem; position: relative; flex: none; }
-.ws-senior__art .wb-plate__ink {
-  position: absolute; inset: 0; background: var(--ink-900);
-  -webkit-mask-image: url("../assets/wave/radio-senior-ink.png");
-  mask-image: url("../assets/wave/radio-senior-ink.png");
-  -webkit-mask-size: contain; mask-size: contain;
-  -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
-  -webkit-mask-position: center; mask-position: center;
-}
-.ws-senior__txt { display: flex; flex-direction: column; gap: .1rem; }
-.ws-senior__txt b { font-family: var(--font-mono); font-size: .6rem; letter-spacing: .12em; }
-.ws-senior__txt span { font-family: var(--font-mono); font-size: .54rem; color: var(--ink-400); }
 
 /* =====================================================================
    THE INSTRUMENT - a cream bench-top device in the house theme.
@@ -846,7 +841,7 @@
    biggest thing on the deck; the prompt is its console shelf.
    ===================================================================== */
 .sn-tv {
-  position: relative; width: 100%; max-width: 58rem; margin: 0 auto;
+  position: relative; width: 100%; max-width: 66rem; margin: 0 auto;
   aspect-ratio: 750 / 570;
   perspective: 900px; transform-style: preserve-3d;
 }
@@ -865,9 +860,13 @@
   -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
   -webkit-mask-position: center; mask-position: center;
 }
-/* the glass interior of the engraving: x 130->630, y 95->435 of 750x570 */
+/* the glass interior of the engraving, now MEASURED off the plate rather
+   than estimated: the clear window runs x 116-643, y 81-445 of 750x570
+   (15.5%/14.2% at 70.3%x63.9%). The screen sits just inside that, because
+   the engraved glass corners curve in. v16 grew it toward those true
+   bounds - the founder asked twice for more room to read the output. */
 .sn-tv__screen {
-  position: absolute; left: 17.6%; top: 16%; width: 66.2%; height: 61%;
+  position: absolute; left: 16.6%; top: 15.2%; width: 68.2%; height: 62.4%;
   transform: rotateX(var(--tiltx, 0deg)) rotateY(var(--tilty, 0deg));
   transition: transform .25s ease-out;
   overflow-y: auto; z-index: 1;
@@ -1280,3 +1279,70 @@
   cursor: help;
 }
 
+/* =====================================================================
+   v16 - THE CHAIN, MADE VISIBLE
+   The rail used to be a row of identical boxes. Now each card carries its
+   tier's engraved scale art, and a card that ACTED on the current read is
+   plainly distinct from one that stood down. Every state below is derived
+   from the same stages the monitor prints - this is presentation, not a
+   new claim.
+   ===================================================================== */
+
+/* the art slot: tall enough for a rack cabinet, and the art sits on a
+   common baseline so the ladder reads as a staircase across the rail */
+/* sized for the ladder's extremes at card scale: a cabinet is the tallest
+   (49px), a 1U server the widest (63px). The art sits on a common baseline
+   so the rungs read as a staircase across the rail. */
+.sn-slot__art { width: auto; min-width: 40px; height: 66px; align-items: flex-end; }
+.sn-slot--model .sn-slot__art .ws-icon { max-height: 66px; max-width: none; }
+
+/* ACTED: this model handled the read - its edge firms up and the art
+   comes to full strength */
+.sn-slot--model.is-acted { border-color: var(--ink-500); }
+.sn-slot--model.is-acted .sn-slot__art { opacity: 1; }
+/* STOOD DOWN: nothing reached it on this read. Dimmed and dashed, never
+   hidden - the visitor still needs to see it is in the chain, waiting. */
+.sn-slot--model.is-standby { border-style: dashed; }
+.sn-slot--model.is-standby .sn-slot__art { opacity: .45; }
+.sn-slot--model.is-standby .sn-slot__name { color: var(--ink-500); }
+
+/* the cable's own state: a stood-down link is faint and dotted, so the
+   path the read actually took is the one you see */
+.sn-rail.is-idle .sn-rail__cable { stroke-dasharray: 1.5 2.5; opacity: .4; }
+.sn-rail.is-idle .sn-rail__plug { opacity: .4; }
+
+/* the change flash, reusing the monitor's signature gate: when a card's
+   verdict changes, it pulses once. Chrome only - the word already says it. */
+@keyframes sn-slot-pulse {
+  0%   { box-shadow: 0 0 0 0 var(--ink-300); }
+  40%  { box-shadow: 0 0 0 4px var(--paper-3); }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+.sn-slot--model.is-flash { animation: sn-slot-pulse 620ms var(--ease-out, ease-out) 1; }
+@media (prefers-reduced-motion: reduce) {
+  .sn-slot--model.is-flash { animation: none; }
+}
+
+/* ---- the attach menu as the family's scale ladder -------------------------
+   One row per tier, in ladder order, each engraving bottom-aligned in a
+   fixed cell: scanning down, the hardware grows from a chip you could lose
+   in a pocket to a datacenter hall. The size argument needs no numbers -
+   though the band and the runs-on line are right beside it for anyone who
+   wants them. */
+.ws-menu { grid-template-columns: 1fr; gap: .2rem; max-height: 60vh; overflow-y: auto; }
+.ws-menu__item {
+  display: grid; grid-template-columns: 104px 1fr; align-items: end;
+  gap: .7rem; text-align: left;
+}
+.ws-menu__art {
+  display: flex; align-items: flex-end; justify-content: center;
+  height: 78px; width: 104px;
+}
+.ws-menu__art .ws-icon { max-width: 100px; max-height: 78px; }
+.ws-menu__txt { padding-bottom: .3rem; }
+.ws-menu__runs {
+  font-family: var(--font-mono); font-size: .52rem; color: var(--ink-400);
+}
+/* the ladder is the point, so the rows stay in one column even on wide
+   screens - two columns would break the staircase into two half-stories */
+@media (min-width: 1200px) { .ws-menu { grid-template-columns: 1fr; } }

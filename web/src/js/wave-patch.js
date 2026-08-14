@@ -62,43 +62,43 @@
   var FAMILY = [
     { id: "pico", label: "Wave Pico", size: "270M", band: "250-300M", status: "recorded",
       recipe: "scratch", reach: "edge · single device",
-      runs: "Pi / ESP32 · ~50ms · no GPU", icon: "pocket", px: 30,
+      runs: "Pi / ESP32 · ~50ms · no GPU", art: "chip", span: 40,
       does: "reads the sensor, answers or asks for help",
       blurb: "the edge child - reads one machine's telemetry and asserts, with margins; " +
              "the recorded reader on this bench (270M, in the 250-300M tier band)" },
     { id: "nano", label: "Wave Nano", size: "0.8-1.5B", band: "0.8-1.5B", status: "recorded",
       recipe: "scratch", reach: "gateway · a fleet",
-      runs: "a gateway / concentrator", icon: "reader", px: 42,
+      runs: "a gateway / concentrator", art: "gateway", span: 46,
       does: "answers when the small one is unsure",
       blurb: "the fleet gateway - rolls up many children and resolves conflicts; " +
              "the recorded senior on this bench (run params pending export)" },
     { id: "micro", label: "Wave Micro", size: "7-8B", status: "base+specialize",
       recipe: "base+specialize", reach: "site · a facility",
-      runs: "an on-site server", icon: "reader", px: 54,
+      runs: "an on-site server", art: "server", span: 52,
       does: "reasons across a whole facility",
       blurb: "multi-fleet reasoning across a facility - general-capable AND industrial; " +
              "no recorded run on this bench" },
     { id: "giga", label: "Wave Giga", size: "27-35B", status: "base+specialize",
       recipe: "base+specialize", reach: "a plant",
-      runs: "a plant datacenter", icon: "senior", px: 50,
+      runs: "a plant datacenter", art: "rack", span: 58,
       does: "reasons across a whole plant",
       blurb: "the plant - full-plant reasoning, competitive on general benchmarks as well " +
              "as machines; no recorded run on this bench" },
     { id: "tera", label: "Wave Tera", size: "80-120B", status: "base+specialize",
       recipe: "base+specialize", reach: "enterprise · many plants",
-      runs: "an enterprise cloud", icon: "senior", px: 60,
+      runs: "an enterprise cloud", art: "racks", span: 64,
       does: "connects faults across many plants",
       blurb: "cross-site enterprise - correlates faults and trends across many plants at " +
              "once; no recorded run on this bench" },
     { id: "peta", label: "Wave Peta", size: "150-200B", status: "expert-pruned",
       recipe: "expert-pruned", reach: "a region",
-      runs: "a regional cloud", icon: "senior", px: 70,
+      runs: "a regional cloud", art: "aisle", span: 70,
       does: "regional scale, pruned smaller",
       blurb: "regional scale - a leaner giant, distilled and pruned down from the " +
              "frontier; no recorded run on this bench" },
     { id: "exa", label: "Wave Exa", size: "~284B", status: "frontier",
       recipe: "frontier", reach: "the family teacher",
-      runs: "an exascale datacenter", icon: "senior", px: 82,
+      runs: "an exascale datacenter", art: "hall", span: 76,
       does: "the flagship the others learn from",
       blurb: "the flagship - exascale-class frontier capability (DeepSeek-V4-Flash " +
              "class · MTP), and the teacher the whole family learns from; no recorded " +
@@ -663,14 +663,45 @@
     renderMirror();
   }
 
-  function modelIcon(fam) {
-    var box = el("span", "ws-icon ws-icon--" + fam.icon);
-    box.style.width = fam.px + "px";
-    box.style.height = Math.round(fam.px * (fam.icon === "senior" ? 1.25 : fam.icon === "pocket" ? 1 : 0.66)) + "px";
+  /* ---- THE SCALE LADDER -------------------------------------------------
+     One engraved icon per tier, drawn as a single family, so "how big is
+     this model" is answered by the hardware it takes to run it and needs no
+     number: a chip on its pins -> a gateway box -> a rack-mount server -> a
+     cabinet -> three cabinets -> a datacenter aisle -> a hall.
+     Source dimensions live here because the sizing rule needs the aspect.
+     The rule is AREA, not longest-side: these engravings run from 3.2:1
+     (a 1U server, wide and flat) to 0.65:1 (a cabinet, tall and narrow),
+     and scaling by longest side would draw the flat server BIGGER than the
+     cabinet above it - inverting the very ladder the art exists to show.
+     Equal-area scaling is how the eye actually reads "bigger", so each
+     tier's ink area climbs monotonically while every engraving keeps its
+     own proportions. The parameter band beside the icon carries the exact
+     numbers for anyone counting. */
+  // measured from the committed plates - the box is cut to the art's own
+  // aspect, so a wrong number here would stretch the engraving
+  var ART = {
+    chip:    { w: 347, h: 372 },
+    gateway: { w: 425, h: 290 },
+    server:  { w: 505, h: 160 },
+    rack:    { w: 300, h: 460 },
+    racks:   { w: 485, h: 300 },
+    aisle:   { w: 512, h: 512 },
+    hall:    { w: 512, h: 512 },
+  };
+  function modelIcon(fam, span) {
+    var a = ART[fam.art] || ART.gateway;
+    var s = span || fam.span;          // the tier's rung, as a side-length
+    var ratio = a.w / a.h;
+    var h = Math.sqrt((s * s) / ratio); // same ink area for the same rung
+    var box = el("span", "ws-icon ws-icon--" + fam.art);
+    box.style.width = Math.round(h * ratio) + "px";
+    box.style.height = Math.round(h) + "px";
     box.setAttribute("aria-hidden", "true");
     box.appendChild(el("span", "wb-plate__ink"));
     return box;
   }
+  // the rail is tighter than the menu, so the same ladder is drawn smaller
+  var CARD_SCALE = 0.85;
 
   /* ---- the sensor selector: one button per RECORDED type ----------------- */
   function renderSelector() {
@@ -825,7 +856,10 @@
     host.appendChild(sens);
 
     PATCH.chain.forEach(function (id, i) {
-      host.appendChild(railArrow());
+      var st = slotState(id);
+      var acted = st && (st.cls === "is-ok" || st.cls === "is-esc");
+      // no verdict yet (no sensor read) leaves every cable neutral
+      host.appendChild(railArrow(st ? acted : undefined));
       host.appendChild(drawChainCard(id, i));
     });
 
@@ -871,9 +905,11 @@
     }
   }
 
-  function railArrow() {
+  // carrying === false draws the cable stood down: the read never travelled
+  // it. Only ever called with a state derived from the printed stages.
+  function railArrow(carrying) {
     // a short patch cable with a little sag - geometry as texture
-    var a = el("span", "sn-rail");
+    var a = el("span", "sn-rail" + (carrying === false ? " is-idle" : ""));
     a.setAttribute("aria-hidden", "true");
     var s = svg("svg", { viewBox: "0 0 22 16", width: 22, height: 16, class: "sn-rail__svg" });
     s.appendChild(svg("path", { class: "sn-rail__cable", d: "M2 5 C 8 13, 14 13, 20 5" }));
@@ -944,25 +980,31 @@
 
   function drawChainCard(id, i) {
     var fam = familyById(id);
+    var stNow = slotState(id);
+    // A card that WORKED and a card that stood down must not look alike -
+    // "nothing reached Wave Nano on this read" is the mesh's whole point, so
+    // the rail shows it. The state is read off the same stages the monitor
+    // prints; nothing new is claimed here.
+    var acted = stNow && (stNow.cls === "is-ok" || stNow.cls === "is-esc");
     var card = el("div", "sn-slot sn-slot--model" +
-      (fam.status === "recorded" ? "" : " sn-slot--quiet"));
+      (fam.status === "recorded" ? "" : " sn-slot--quiet") +
+      (stNow ? (acted ? " is-acted" : " is-standby") : ""));
     card.title = fam.blurb + (fam.status === "recorded"
       ? " - its stage replays recorded fields only"
       : " - it chains in honestly silent: no recorded transcript");
-    // a roomy artwork slot: the engraved per-tier scale art lands here in a
-    // follow-up round, so the frame is sized for it now
     var artWrap = el("span", "sn-slot__art");
-    artWrap.appendChild(modelIcon(fam));
+    artWrap.appendChild(modelIcon(fam, Math.round(fam.span * CARD_SCALE)));
     card.appendChild(artWrap);
 
     var txt = el("span", "sn-slot__txt");
     txt.appendChild(el("b", "sn-slot__name", fam.label));
     txt.appendChild(el("span", "sn-slot__role", fam.does));
-    var stNow = slotState(id);
     if (stNow) {
       var badge = el("span", "sn-slot__state " + stNow.cls, stNow.word);
       badge.title = "what this model did with the read now on the monitor";
       txt.appendChild(badge);
+      // the card that just changed its mind is where attention goes
+      flashIfChanged(card, "chain:" + id, stNow.word);
     }
     // params, recipe and the run name are for the curious, not the first glance
     var meta = fam.size + " · " + fam.status + (runOf(id) ? " · run " + runOf(id) : "");
@@ -1020,10 +1062,17 @@
         (fam.status === "recorded" ? "" : " ws-menu__item--quiet"));
       b.type = "button";
       b.setAttribute("role", "menuitem");
-      b.appendChild(modelIcon(fam));
+      // the icon sits in a fixed cell on a common baseline, so scanning the
+      // menu top to bottom IS the ladder: a chip, then a box, then a server,
+      // then cabinets, then a hall. Choosing a model is choosing a size you
+      // can see before you read a single number.
+      var cell = el("span", "ws-menu__art");
+      cell.appendChild(modelIcon(fam));
+      b.appendChild(cell);
       var txt = el("span", "ws-menu__txt");
       txt.appendChild(el("b", null, fam.label));
       txt.appendChild(el("span", null, fam.size + " · " + fam.reach));
+      txt.appendChild(el("span", "ws-menu__runs", "runs on " + fam.runs));
       txt.appendChild(el("span", "ws-menu__status",
         fam.status === "recorded"
           ? "recorded on this bench" + (runOf(fam.id) ? " · run " + runOf(fam.id) : "")
