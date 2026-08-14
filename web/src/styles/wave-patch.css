@@ -1071,3 +1071,72 @@
 /* the second lever: a policy, next to the person it stands in for */
 .wb-lever--auth { margin-left: .5rem; }
 
+/* =====================================================================
+   v13 - attention, comprehension, the fleet
+   ===================================================================== */
+
+/* the glass scrolls WITH you, never against the page; the scrollbar is
+   part of the instrument */
+.sn-tv__screen {
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--ink-300) transparent;
+}
+.sn-tv__screen::-webkit-scrollbar { width: 8px; }
+.sn-tv__screen::-webkit-scrollbar-thumb {
+  background: var(--ink-300); border-radius: 4px;
+  border: 2px solid transparent; background-clip: content-box;
+}
+.sn-tv__screen::-webkit-scrollbar-track { background: transparent; }
+
+/* WHAT THE SHIM READ - the comprehension card over a paste */
+.sn-shimread {
+  border: 1px solid var(--hairline-2); border-radius: 8px;
+  padding: .5rem .65rem; margin: .4rem 0;
+  display: flex; flex-direction: column; gap: .25rem;
+}
+.sn-shimread__k {
+  font-family: var(--font-mono); font-size: .56rem; letter-spacing: .14em;
+  color: var(--ink-400);
+}
+.sn-shimread__trace { width: 100%; max-width: 15rem; height: auto; display: block; }
+.sn-shimread__line {
+  fill: none; stroke: var(--ink-700); stroke-width: 1.4;
+  vector-effect: non-scaling-stroke;
+}
+.sn-shimread__feats {
+  margin: 0; font-family: var(--font-mono); font-size: .58rem; color: var(--ink-700);
+  overflow-wrap: anywhere;
+}
+.sn-envfold { margin-top: .4rem; }
+.sn-envfold > summary {
+  font-family: var(--font-mono); font-size: .58rem; letter-spacing: .08em;
+  color: var(--ink-500); cursor: pointer;
+}
+
+/* the run name is ground truth; the tier label is a deck name */
+.sn-sub--run { font-family: var(--font-mono); font-size: .5rem; color: var(--ink-400); }
+
+/* THE FLEET tab - the rollup as bar rows over the recorded records */
+.sn-fleet { display: flex; flex-direction: column; gap: .3rem; margin: .5rem 0; }
+.sn-fleet__row { display: flex; align-items: center; gap: .6rem; }
+.sn-fleet__k {
+  font-family: var(--font-mono); font-size: .58rem; letter-spacing: .08em;
+  width: 8.5rem; flex: none; text-transform: uppercase; color: var(--ink-500);
+}
+.sn-fleet__bar {
+  flex: 1; height: .5rem; border-radius: 3px; background: var(--paper-3);
+  overflow: hidden; border: 1px solid var(--hairline-2);
+}
+.sn-fleet__fill { display: block; height: 100%; background: var(--ink-500); }
+.sn-fleet__n {
+  font-family: var(--font-mono); font-size: .62rem; width: 2.4rem; text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.sn-fleet__types {
+  display: flex; flex-direction: column; gap: .2rem; margin: .5rem 0 0;
+  font-family: var(--font-mono); font-size: .58rem; color: var(--ink-500);
+}
+.sn-fleet__trow { display: flex; gap: .6rem; justify-content: space-between; flex-wrap: wrap; }
+.sn-fleet__trow b { letter-spacing: .08em; color: var(--ink-700); }
+

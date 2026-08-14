@@ -637,18 +637,22 @@ test("shim: prompted bytes earn a DRAFT envelope, never a result", () => {
     "the prompt line itself states the ceiling");
   const h = loadHook();
   h.state.chain = ["pico", "nano"];
+  // v13: Ping may COMMENT on a paste (live voice above), but the paste's
+  // WORK is still the protocol path - the DRAFT rides as the bench card
   const rep = h.promptSend(scene.renders[Object.keys(scene.renders)[0]]);
-  assert.equal(rep.kind, "draft", "a recorded wire blob earns the envelope");
-  assert.equal(rep.wired, "Wave Nano", "addressed to the LAST model in the chain");
-  assert.ok(rep.envelope.includes(measured.task_frame.slice(0, 40)),
+  const draft = rep.kind === "pingwait" ? rep.bench : rep;
+  assert.equal(draft.kind, "draft", "a recorded wire blob earns the envelope");
+  assert.equal(draft.wired, "Wave Nano", "addressed to the LAST model in the chain");
+  assert.ok(draft.envelope.includes(measured.task_frame.slice(0, 40)),
     "and the envelope carries the exported task frame");
   const talk = h.promptSend("hi");
   assert.equal(talk.kind, "pingwait", "small talk goes to Ping - the live concierge");
   assert.equal(talk.bench.kind, "talk", "with the faceplate fallback already built");
   assert.ok(/never reaches a Wave model/.test(talk.bench.text), "which says what chat never touches");
   const nums = h.promptSend("71.2, 71.3, 71.1, 71.4, 71.2, 71.3, 71.5, 71.2");
-  assert.equal(nums.kind, "draft");
-  assert.ok(/NOT STATED IN THE WIRE/.test(nums.unitNote), "the unit's absence is stated, not papered over");
+  const numsDraft = nums.kind === "pingwait" ? nums.bench : nums;
+  assert.equal(numsDraft.kind, "draft");
+  assert.ok(/NOT STATED IN THE WIRE/.test(numsDraft.unitNote), "the unit's absence is stated, not papered over");
 });
 
 test("shim: the classifier shows its evidence and refuses thin guesses", () => {
@@ -722,6 +726,109 @@ test("v10: one honest line, one announcer", () => {
   const lives = (htmlFlat.match(/aria-live="polite"/g) || []).length;
   // one for the mesh announcer, one for the console deck's chat log
   assert.ok(lives <= 2, `aria-live regions must not multiply (got ${lives})`);
+});
+
+
+// ---------- v13: attention, comprehension, the fleet ---------------------------
+
+test("v13: auto-follow yields to a hand on the glass", () => {
+  const h = loadHook();
+  h.state._userScrollAt = 0;
+  assert.equal(h.followSuppressed(10_000), false, "an idle glass follows");
+  h.state._userScrollAt = 9_000;
+  assert.equal(h.followSuppressed(10_000), true,
+    "a user scroll suppresses following for the quiet window");
+  assert.equal(h.followSuppressed(11_100), false, "and the window ends");
+  assert.ok(/its echo is not a user/.test(js),
+    "a programmatic glide's own scroll event never counts as the user");
+  assert.ok(/overscroll-behavior: contain/.test(css),
+    "the glass never drags the page with it at the boundary");
+  assert.ok(/glassScrollTo\(null, true\)/.test(js),
+    "a tab pick is explicit intent - it always lands");
+});
+
+test("v13: the fleet rollup is arithmetic over ALL the records, and moves with the floor", () => {
+  const h = loadHook();
+  h.state.chain = ["pico", "nano"];
+  h.state.floor = 0.5;
+  const lo = h.deriveFleet();
+  assert.equal(lo.totals.n, measured.records.length, "every record is counted");
+  assert.equal(lo.totals.caught + lo.totals.missed, lo.totals.faults,
+    "every recorded fault is either caught or missed - nothing vanishes");
+  assert.equal(lo.totals.faults,
+    measured.records.filter((r) => r.truth !== "none").length,
+    "the fault count is the records', not an estimate");
+  // per-type tallies sum to the totals
+  const per = Object.values(lo.perType);
+  assert.equal(per.reduce((a, p) => a + p.n, 0), lo.totals.n);
+  assert.equal(per.reduce((a, p) => a + p.caught, 0), lo.totals.caught);
+  // the floor moves the fleet: more escalations at a higher floor
+  h.state.floor = 2.0;
+  const hi = h.deriveFleet();
+  assert.ok(hi.totals.escalated > lo.totals.escalated,
+    "raising the floor escalates more of the fleet");
+  assert.ok(/arithmetic over the 120 committed records|arithmetic over the committed records/.test(js),
+    "and the panel says what the numbers are");
+});
+
+test("v13: fleet questions route to the fleet rollup", () => {
+  const h = loadHook();
+  h.state.chain = ["pico", "nano"];
+  assert.equal(h.classify("how many faults across the fleet?").kind, "fleet-question");
+  assert.equal(h.classify("what does the temperature read right now?").kind, "question",
+    "a single-sensor reading stays a reading");
+  const rep = h.benchFleet();
+  assert.equal(rep.kind, "fleetread");
+  assert.ok(/Across the recorded fleet at floor/.test(rep.lead), "the answer states the policy");
+  assert.ok(/see the FLEET tab/i.test(rep.detail), "and points at the tab");
+  h.state.chain = [];
+  assert.ok(/Nobody is reading the fleet/.test(h.benchFleet().text),
+    "no reader, no rollup - honestly");
+  assert.ok(/id: "fleet", label: "FLEET"/.test(js), "the FLEET tab exists on the monitor");
+});
+
+test("v13: the shim comprehends a paste - features yes, verdicts never", () => {
+  const h = loadHook();
+  // the founder's own case: the recorded datadog render (a flat series)
+  const dd = scene.renders.datadog;
+  const v = h.classify(dd);
+  assert.equal(v.kind, "blob");
+  const read = h.shimRead(dd, v);
+  assert.ok(read.vals && read.vals.length >= 8, "datadog values extract cleanly");
+  assert.equal(read.feats.n, read.vals.length);
+  assert.ok(read.feats.lo <= read.feats.mean && read.feats.mean <= read.feats.hi,
+    "the computed features are real arithmetic on the pasted values");
+  // a flat paste shows WHY such a window matters - without a verdict
+  const flat = h.computeFeatures([20.5669, 20.5669, 20.5669, 20.5669]);
+  assert.equal(flat.repeat_frac, 1, "all points identical reads as repeat_frac 1");
+  assert.equal(flat.longest_run, 4);
+  // NO verdict claims: the comprehension card never prints a fault word as a
+  // conclusion about their data
+  const card = js.slice(js.indexOf("WHAT THE SHIM READ"), js.indexOf("sn-envfold"));
+  for (const word of ["stuck", "dropout", "noisy", "drifting", "railed"]) {
+    assert.ok(!card.includes('"' + word + '"') && !card.includes(word.toUpperCase()),
+      "the card never concludes " + word + " about the visitor's bytes");
+  }
+  assert.ok(/computed from your paste just now - not a recorded window, and not a prediction/.test(js),
+    "the features are labelled computed-now, never recorded, never predicted");
+  assert.ok(/does not decode its packed values in-browser/.test(js),
+    "dialects that resist clean extraction are said so, not guessed");
+  // their trace is USER PASTE ONLY - the recorded strip never uses it
+  assert.ok(/USER PASTE ONLY/.test(js), "pastePath is fenced to the paste card");
+  const strip = js.slice(js.indexOf("function drawStrip"), js.indexOf("function sparkline"));
+  assert.ok(!/pastePath/.test(strip), "the recorded strip draws seriesOf() and never the paste");
+});
+
+test("v13: run names are ground truth on the chain cards", () => {
+  const h = loadHook();
+  assert.equal(h.runOf("pico"), measured.escalation.child.split("/").pop(),
+    "the reader card names the exact recorded artifact");
+  assert.equal(h.runOf("nano"), measured.escalation.parent.split("/").pop());
+  assert.equal(h.runOf("micro"), null, "unrecorded slots claim no run");
+  assert.ok(/tier label is a deck name/.test(js),
+    "and the source says the tier labels await the naming answer");
+  assert.ok(/ANSWER-FROM-MODELS-AGENT-wave-tier-naming/.test(js),
+    "with the doc it waits on named");
 });
 
 // ---------- the classifier, EXECUTED ------------------------------------------------
@@ -872,10 +979,15 @@ test("prompt: a reading question is answered by THE BENCH, never signed as a mod
 
 test("prompt: the live seam - Ping for chat, null for protocol, wave band documented", () => {
   const h = loadHook();
-  assert.equal(h.liveAnswerer({ kind: "blob" }, {}, "x"), null,
-    "wire blobs never go to chat - they earn the DRAFT envelope");
-  assert.equal(h.liveAnswerer({ kind: "numbers" }, {}, "x"), null,
-    "number series likewise");
+  // v13: a paste's WORK is still the protocol path (the DRAFT is always
+  // built and stacked); Ping now also receives the parsed SUMMARY for live
+  // commentary - so the answerer fires for pastes too. What must stay null
+  // is anything unclassified.
+  assert.equal(h.liveAnswerer(null, {}, "x"), null, "no verdict, no request");
+  assert.equal(h.liveAnswerer({ kind: "scenario-asset" }, {}, "x"), null,
+    "scenario words still never leave the deck");
+  assert.ok(/Comment briefly on what the paste shows; do not invent values/.test(js),
+    "the paste commentary request forbids invention");
   const live = h.liveAnswerer({ kind: "question", text: "q" }, {}, "q");
   assert.ok(live && typeof live.then === "function",
     "chat and questions produce a real request (a promise), not a placeholder");
@@ -1013,8 +1125,9 @@ test("v11: a prompt reply dies when its context moves", () => {
     "a reading card citing the previous sensor must not survive a type switch");
   assert.ok(before.bench.tag, "(the stale card really did carry the old tag)");
   // chain moves kill it too - the DRAFT header names its addressee
+  // (v13: the paste rides beneath Ping's commentary card)
   h.promptSend("71.2, 71.3, 71.1, 71.4, 71.2, 71.3, 71.5, 71.2");
-  assert.equal(h.state.reply.kind, "draft");
+  assert.equal((h.state.reply.bench || h.state.reply).kind, "draft");
   h.chainAdd("micro");
   assert.equal(h.state.reply, null, "a chain change retires the addressed draft");
 });
@@ -1080,8 +1193,12 @@ test("v12: verdict words carry semantic light, flashed only on real change", () 
   const vt = js.slice(vtAt, js.indexOf("function flashIfChanged", vtAt));
   assert.ok(/sn-live--esc/.test(vt) && /sn-live--ok/.test(vt) && /sn-live--bad/.test(vt),
     "the tint speaks lamp semantics: amber doubt, green caught, red missed");
-  assert.ok(/PATCH._vSig\[key\] !== undefined && PATCH._vSig\[key\] !== sig && !REDUCED/.test(js),
-    "the flash fires exactly when a stage's verdict content changes, never under reduced motion");
+  // v13: the change gate also nominates the changed node for auto-follow,
+  // so the reduced-motion guard moved INSIDE the changed-branch
+  assert.ok(/PATCH._vSig\[key\] !== undefined && PATCH._vSig\[key\] !== sig/.test(js),
+    "the flash gate fires exactly when a stage's verdict content changes");
+  assert.ok(/if \(!REDUCED\) node.classList.add\("is-flash"\)/.test(js),
+    "and never flashes under reduced motion");
   assert.ok(/prefers-reduced-motion: reduce\) \{\n  \.sn-vword\.is-flash/.test(css) ||
     /prefers-reduced-motion: reduce\) \{[^}]*\.sn-vword\.is-flash \{ animation: none/.test(css.replace(/\n/g, " ")),
     "the CSS side skips the flash too - the steady tint stays");
@@ -1150,8 +1267,10 @@ test("v12: the ladder runs up - a backwards chain cannot be constructed", () => 
 
 test("v12: the Ping stack shows the live voice on top, the recorded numbers beneath", () => {
   const dr = js.slice(js.indexOf("function drawReply"), js.indexOf("function renderChips"));
-  assert.ok(/rep.question && rep.bench && rep.bench.kind === "reading"/.test(dr),
-    "a question's stack always carries the bench reading");
+  // v13: the recorded recount rides beneath the live voice for questions AND
+  // pastes (reading or draft) - only bare talk has nothing to stack
+  assert.ok(/rep.bench && rep.bench.kind !== "talk"/.test(dr),
+    "the stack always carries the bench's recorded answer beneath the live voice");
   assert.ok(/shown verbatim - declines included/.test(dr),
     "a real reply is a real reply - declines are displayed, not sniffed");
   assert.ok(/Ping is off air - the bench answered/.test(js),

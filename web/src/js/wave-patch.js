@@ -133,11 +133,14 @@
     menuFor: null,        // chain slot index whose attach menu is open
     booted: false,
     step: 0,
+    _userScrollAt: 0,     // last USER scroll inside the glass (auto-follow yields)
+    _autoScrollAt: 0,     // last programmatic glass scroll (its echo is not a user)
   };
 
   function buildTypes() {
     var m = PATCH.measured;
     if (!m) return;
+    PATCH._recType = {};   // record index -> type key, for the fleet rollup
     var bySuffix = {};
     m.records.forEach(function (r, i) {
       var tag = (r.window && r.window.tag) || "";
@@ -168,7 +171,9 @@
         return a < b ? -1 : 1;
       });
       PATCH.types.push({ key: def.key, label: def.label, icon: def.icon,
-                         count: idxs.length, conds: conds, recIdx: recIdx, pickWhy: pickWhy });
+                         count: idxs.length, idxs: idxs, conds: conds,
+                         recIdx: recIdx, pickWhy: pickWhy });
+      idxs.forEach(function (i) { PATCH._recType[i] = def.key; });
     });
     if (!PATCH.typeKey && PATCH.types[0]) PATCH.typeKey = PATCH.types[0].key;
   }
@@ -214,6 +219,18 @@
                   ": " + rule.why + " (" + detail + ")" };
   }
 
+  // RUN NAMES ARE GROUND TRUTH. The tier labels (Wave Pico / Wave Nano) are
+  // deck names pending the authoritative ladder answer
+  // (ANSWER-FROM-MODELS-AGENT-wave-tier-naming.md); the RUN names below come
+  // from the measured export and are what actually ran on the bench.
+  function runOf(id) {
+    var m = PATCH.measured;
+    if (!m || !m.escalation) return null;
+    if (id === "pico") return shortName(m.escalation.child);
+    if (id === "nano") return shortName(m.escalation.parent);
+    return null;
+  }
+
   function typeOf(key) {
     for (var i = 0; i < PATCH.types.length; i++) if (PATCH.types[i].key === key) return PATCH.types[i];
     return null;
@@ -249,6 +266,76 @@
       senior: picoAt >= 0 && nanoAt > picoAt,
       reader: picoAt >= 0 ? "pico" : (nanoAt >= 0 ? "nano" : null),
     };
+  }
+
+  /* =====================================================================
+     THE FLEET - every recorded record, replayed under the CURRENT policy.
+     Pure arithmetic over the 120 committed records: the same single-record
+     walk derive() does, run across the whole bench, so turning the floor
+     knob visibly moves fleet-level catches. Nothing here is a projection -
+     it is a recount of recorded child/parent predictions under the chain
+     settings the visitor chose.
+     ===================================================================== */
+  function deriveFleet() {
+    var m = PATCH.measured;
+    if (!m) return null;
+    var info = chainInfo();
+    if (!info.reader) return { none: true };
+    var mk = function () {
+      return { n: 0, faults: 0, caught: 0, missed: 0, fixable: 0,
+               deadEnd: 0, falseAlarms: 0, escalated: 0, quiet: 0 };
+    };
+    var t = mk(), per = {};
+    m.records.forEach(function (r, i) {
+      var key = PATCH._recType && PATCH._recType[i];
+      var p = per[key] = per[key] || mk();
+      var isFault = r.truth !== "none";
+      [t, p].forEach(function (b) {
+        b.n++;
+        if (isFault) b.faults++;
+      });
+      var out; // caught | missed | quiet | false
+      var esc = false, dead = false, fixable = false;
+      if (info.reader === "nano" && info.picoAt < 0) {
+        var okN = r.parent.prediction === r.truth;
+        out = okN ? (isFault ? "caught" : "quiet") : (isFault ? "missed" : "false");
+      } else {
+        esc = r.child.margin < PATCH.floor;
+        if (!esc) {
+          var okC = r.child.prediction === r.truth;
+          out = okC ? (isFault ? "caught" : "quiet") : (isFault ? "missed" : "false");
+          if (out === "missed" && r.parent.prediction === r.truth && r.child.margin < TOP) fixable = true;
+        } else if (info.senior) {
+          var okP = r.parent.prediction === r.truth;
+          out = okP ? (isFault ? "caught" : "quiet") : (isFault ? "missed" : "false");
+        } else {
+          dead = true;
+          out = isFault ? "missed" : "quiet"; // an unheard doubt asserts nothing
+        }
+      }
+      [t, p].forEach(function (b) {
+        if (esc) b.escalated++;
+        if (dead) b.deadEnd++;
+        if (fixable) b.fixable++;
+        if (out === "caught") b.caught++;
+        else if (out === "missed") b.missed++;
+        else if (out === "false") b.falseAlarms++;
+        else b.quiet++;
+      });
+    });
+    return { totals: t, perType: per, policy: policyLine() };
+  }
+
+  function policyLine() {
+    var info = chainInfo();
+    var bits = [];
+    if (info.reader === "pico") bits.push("floor " + PATCH.floor.toFixed(1));
+    if (info.reader === "nano" && info.picoAt < 0) bits.push("the senior reads direct");
+    else bits.push(info.senior ? "senior seated" : "no senior");
+    bits.push(PATCH.operator ? "operator on shift"
+      : (PATCH.authority && PATCH.chain.indexOf("nano") >= 0
+        ? "unattended authority granted" : "nobody on shift"));
+    return bits.join(" · ");
   }
 
   // A prompt reply cites the selection (readings) and the chain (the DRAFT's
@@ -817,6 +904,11 @@
     txt.appendChild(el("b", null, fam.label));
     txt.appendChild(el("span", "sn-sub", fam.does));
     txt.appendChild(el("span", "sn-sub sn-sub--dim", fam.size + " · " + fam.status));
+    if (runOf(id)) {
+      var runLine = el("span", "sn-sub sn-sub--run", "run " + runOf(id));
+      runLine.title = "the exact recorded artifact this stage replays - the run name is ground truth; the tier label is a deck name";
+      txt.appendChild(runLine);
+    }
     card.appendChild(txt);
     var x = el("button", "ws-resp__x");
     x.type = "button";
@@ -870,7 +962,9 @@
       txt.appendChild(el("b", null, fam.label));
       txt.appendChild(el("span", null, fam.size + " · runs on " + fam.runs));
       txt.appendChild(el("span", "ws-menu__status",
-        fam.status === "recorded" ? "recorded on this bench" : fam.status + " · will attach silent"));
+        fam.status === "recorded"
+          ? "recorded on this bench" + (runOf(fam.id) ? " · run " + runOf(fam.id) : "")
+          : fam.status + " · will attach silent"));
       b.appendChild(txt);
       b.title = fam.blurb;
       b.addEventListener("click", function (e) {
@@ -1159,8 +1253,10 @@
   }
   function flashIfChanged(node, key, sig) {
     PATCH._vSig = PATCH._vSig || {};
-    if (PATCH._vSig[key] !== undefined && PATCH._vSig[key] !== sig && !REDUCED) {
-      node.classList.add("is-flash");
+    if (PATCH._vSig[key] !== undefined && PATCH._vSig[key] !== sig) {
+      if (!REDUCED) node.classList.add("is-flash");
+      // the first stage that actually changed is where attention goes
+      if (!PATCH._scrollNode) PATCH._scrollNode = node;
     }
     PATCH._vSig[key] = sig;
   }
@@ -1381,6 +1477,100 @@
   }
 
   /* ---- the channel buttons: which stage the screen shows ------------------ */
+  /* ---- the FLEET panel: the rollup, drawn -------------------------------- */
+  function renderFleet() {
+    var box = el("section", "sn-stage sn-stage--fleet");
+    var head = el("div", "sn-stage__head");
+    head.appendChild(el("b", null, "THE RECORDED FLEET"));
+    head.appendChild(el("span", "wp-tag", "REPLAY · RECORDED"));
+    box.appendChild(head);
+    var f = deriveFleet();
+    if (!f || f.none) {
+      box.appendChild(el("p", "sn-sub",
+        "Nobody is reading the fleet - chain Wave Pico or Wave Nano and the whole " +
+        "bench replays under your settings."));
+      return box;
+    }
+    var t = f.totals;
+    var sig = [t.caught, t.missed, t.escalated, t.deadEnd, t.falseAlarms, f.policy].join("|");
+    var lead = el("p", "sn-para");
+    var leadB = el("b", "sn-vword", t.caught + " of " + t.faults + " recorded faults caught");
+    flashIfChanged(leadB, "fleet", sig);
+    lead.appendChild(leadB);
+    lead.appendChild(el("span", null, " across " + t.n + " channels · " + f.policy));
+    box.appendChild(lead);
+
+    var rows = el("div", "sn-fleet");
+    [["caught", t.caught, "ok"], ["missed", t.missed, "bad"],
+     ["escalated", t.escalated, null], ["unheard", t.deadEnd, "dead"],
+     ["false alarms", t.falseAlarms, "dead"], ["quiet (healthy)", t.quiet, null],
+    ].forEach(function (rw) {
+      var row = el("div", "sn-fleet__row");
+      row.appendChild(el("span", "sn-fleet__k" + (rw[2] ? " wp-read__mark--" + rw[2] : ""), rw[0]));
+      var bar = el("span", "sn-fleet__bar");
+      var fill = el("span", "sn-fleet__fill");
+      fill.style.width = Math.round((rw[1] / t.n) * 100) + "%";
+      bar.appendChild(fill);
+      row.appendChild(bar);
+      row.appendChild(el("span", "sn-fleet__n", String(rw[1])));
+      row.title = rw[1] + " of " + t.n + " recorded channels - arithmetic over the committed records";
+      rows.appendChild(row);
+    });
+    box.appendChild(rows);
+
+    var tbl = el("div", "sn-fleet__types");
+    PATCH.types.forEach(function (ty) {
+      var p = f.perType[ty.key];
+      if (!p) return;
+      var row = el("div", "sn-fleet__trow");
+      row.appendChild(el("b", null, ty.label));
+      row.appendChild(el("span", null, p.n + " ch · " + p.faults + " faults · " +
+        p.caught + " caught · " + p.missed + " missed"));
+      tbl.appendChild(row);
+    });
+    box.appendChild(tbl);
+    box.appendChild(el("p", "sn-sub",
+      "The whole recorded fleet replayed under your current settings - every count is " +
+      "arithmetic over the 120 committed records. Turn the FLOOR knob and watch the " +
+      "catches move."));
+    if (t.fixable) {
+      box.appendChild(el("p", "sn-sub wp-read__mark--bad",
+        t.fixable + " of the misses would escalate at a higher floor - and the recorded " +
+        "senior had the right answer."));
+    }
+    return box;
+  }
+
+  /* ---- ATTENTION: the glass goes to what changed (founder v13: "hard to
+     scroll on the monitor - it should go to where we need to pay attention").
+     Auto-follow NEVER fights the visitor: a user scroll inside the glass
+     suppresses following for a quiet window; a tab click is explicit intent
+     and always lands. Reduced motion jumps instead of gliding. ---- */
+  var FOLLOW_QUIET_MS = 2000;
+  function followSuppressed(now) {
+    return (now - PATCH._userScrollAt) < FOLLOW_QUIET_MS;
+  }
+  function glassScrollTo(node, force) {
+    var host = $("wpMonitor");
+    if (!host) return;
+    if (!force && followSuppressed(Date.now())) return;
+    PATCH._autoScrollAt = Date.now();
+    var top = node
+      ? node.getBoundingClientRect().top - host.getBoundingClientRect().top + host.scrollTop - 6
+      : 0;
+    if (host.scrollTo) host.scrollTo({ top: top, behavior: REDUCED ? "auto" : "smooth" });
+    else host.scrollTop = top;
+  }
+  function wireGlassScroll() {
+    var host = $("wpMonitor");
+    if (!host) return;
+    host.addEventListener("scroll", function () {
+      // a programmatic glide also fires scroll events; its echo is not a user
+      if (Date.now() - PATCH._autoScrollAt < 900) return;
+      PATCH._userScrollAt = Date.now();
+    }, { passive: true });
+  }
+
   function renderTabs() {
     var host = $("wsTabs");
     if (!host) return;
@@ -1397,6 +1587,7 @@
       seen[id] = true;
       tabs.push({ id: id, label: id === "raw" ? "RAW WIRE" : id === "pico" ? "WAVE PICO" : "WAVE NANO" });
     });
+    tabs.push({ id: "fleet", label: "FLEET" });
     if (!tabs.some(function (t) { return t.id === PATCH.tab; })) PATCH.tab = "all";
     tabs.forEach(function (t) {
       var b = el("button", "sn-tab" + (PATCH.tab === t.id ? " is-on" : ""));
@@ -1405,11 +1596,13 @@
       b.setAttribute("aria-selected", PATCH.tab === t.id ? "true" : "false");
       b.textContent = t.label;
       b.title = t.id === "all" ? "the whole cascade, every stage in order"
+        : t.id === "fleet" ? "the whole recorded fleet replayed under your current settings"
         : "show only this stage's output, large";
       b.addEventListener("click", function () {
         PATCH.tab = t.id;
         paintMonitor();
         renderTabs();
+        glassScrollTo(null, true); // a tab pick is explicit intent - always land
       });
       host.appendChild(b);
     });
@@ -1435,6 +1628,18 @@
     var v = PATCH.verdict;
     var sts = v ? v.stages : stages();
     var r = currentRecord();
+    PATCH._scrollNode = null; // nominated by whatever actually changes below
+
+    if (PATCH.tab === "fleet") {
+      host.appendChild(renderFleet());
+      if (PATCH.reply) host.appendChild(drawReply(PATCH.reply));
+      var fadeF = el("div", "sn-mon__fade");
+      fadeF.setAttribute("aria-hidden", "true");
+      host.appendChild(fadeF);
+      paintLampAndCert(v, r);
+      followChanges();
+      return;
+    }
 
     if (r && (PATCH.tab === "all" || PATCH.tab === "raw")) {
       var strip = drawStrip(r);
@@ -1527,7 +1732,17 @@
       });
     }
 
-    if (PATCH.reply) host.appendChild(drawReply(PATCH.reply));
+    if (PATCH.reply) {
+      var replyNode = drawReply(PATCH.reply);
+      host.appendChild(replyNode);
+      // a NEW reply is where attention goes - it outranks a changed stage
+      var rSig = PATCH.reply.kind + "|" + (PATCH.reply.token || "") +
+        (PATCH.reply.text ? "|t" : "");
+      if (rSig !== PATCH._replySig) PATCH._scrollNode = replyNode;
+      PATCH._replySig = rSig;
+    } else {
+      PATCH._replySig = "";
+    }
 
     // the glass tells you it scrolls: a sticky fade hugs the bottom edge
     // whenever the cascade runs past it (v8 screenshots clipped the Nano
@@ -1536,6 +1751,19 @@
     fade.setAttribute("aria-hidden", "true");
     host.appendChild(fade);
 
+    paintLampAndCert(v, r);
+    followChanges();
+  }
+
+  function followChanges() {
+    if (PATCH._scrollNode) {
+      var node = PATCH._scrollNode;
+      PATCH._scrollNode = null;
+      glassScrollTo(node);
+    }
+  }
+
+  function paintLampAndCert(v, r) {
     var lampBig = $("wpLamp2"), why = $("wpWhy");
     if (lampBig && v) {
       lampBig.dataset.state = v.state;
@@ -1828,6 +2056,13 @@
       return { kind: "few-numbers", n: nums.length };
     }
 
+    // a FLEET QUESTION: "how many faults across the fleet?" - fleet-scoped
+    // stems, answered by the bench's fleet rollup (arithmetic over records)
+    var FLEETQ = /(\bfleet\b|all (of )?(the )?sensors|every sensor|across (the )?(bench|fleet|sensors)|whole (bench|fleet)|how many (faults|sensors|channels|misses|catches|alarms))/i;
+    if (FLEETQ.test(t)) {
+      return { kind: "fleet-question", text: t };
+    }
+
     // a READING QUESTION: "what does the temperature read now?" - detected
     // by documented stems (a question word + a reading word), never NLU. It
     // is answered by the bench from the recorded window - see benchReading.
@@ -1931,9 +2166,33 @@
   }
 
   function liveAnswerer(v, ctx, text) {
-    // protocol kinds never go to chat - they earn the DRAFT envelope instead
-    if (!v || (v.kind !== "talk" && v.kind !== "question")) return null;
-    var msg = "[WAVE MESH BENCH] " + benchContext() + " visitor asks: " + text;
+    // PROTOCOL still never reaches chat as work: a wire blob or a number
+    // series earns the DRAFT envelope. But Ping - the live concierge, not a
+    // Wave model - may COMMENT on a paste's parsed summary, stacked above
+    // the draft. Questions and talk go to Ping as before.
+    var kinds = { talk: 1, question: 1, "fleet-question": 1, blob: 1, numbers: 1 };
+    if (!v || !kinds[v.kind]) return null;
+    var msg;
+    if (v.kind === "blob" || v.kind === "numbers") {
+      var rd = shimRead(text, v);
+      var sum = rd.name + (rd.unit ? " (" + rd.unit + ")" : " (unit not stated)") + ", " + rd.mod;
+      if (rd.feats) {
+        sum += ", " + rd.feats.n + " points, min " + fmtN(rd.feats.lo) + " max " + fmtN(rd.feats.hi) +
+          " mean " + fmtN(rd.feats.mean) +
+          (rd.feats.repeat_frac === 1 ? ", all points identical" : "");
+      } else {
+        sum += ", values not decoded in-browser";
+      }
+      msg = "[WAVE MESH BENCH] " + benchContext() +
+        " visitor pasted machine bytes: " + sum +
+        ". Comment briefly on what the paste shows; do not invent values.";
+    } else if (v.kind === "fleet-question") {
+      var fl = benchFleet();
+      msg = "[WAVE MESH BENCH] the recorded fleet rollup: " +
+        (fl.lead || "no reader chained") + " visitor asks: " + text;
+    } else {
+      msg = "[WAVE MESH BENCH] " + benchContext() + " visitor asks: " + text;
+    }
     return fetch(PING_URL, {
       method: "POST", headers: { "Content-Type": "application/json" },
       credentials: "omit", cache: "no-store",
@@ -1992,9 +2251,115 @@
     };
   }
 
+  // The bench's answer to a FLEET question: the rollup, as sentences.
+  function benchFleet() {
+    var f = deriveFleet();
+    if (!f || f.none) {
+      return { kind: "note", wired: "the bench",
+               text: "Nobody is reading the fleet - chain Wave Pico or Wave Nano first, " +
+                 "then ask again. The FLEET tab shows the whole bench once a reader is in." };
+    }
+    var t = f.totals;
+    return { kind: "fleetread",
+      who: "THE BENCH · the recorded fleet under your settings",
+      offAir: "a recount of the 120 recorded records - a hosted Wave Nano will take this over; not yet on air",
+      lead: "Across the recorded fleet at " + f.policy + ": " + t.n + " channels, " +
+        t.faults + " recorded faults - " + t.caught + " caught, " + t.missed + " missed" +
+        (t.deadEnd ? " (" + t.deadEnd + " escalation" + (t.deadEnd === 1 ? "" : "s") + " unheard)" : "") +
+        ", " + t.falseAlarms + " false alarm" + (t.falseAlarms === 1 ? "" : "s") + ".",
+      detail: t.escalated + " reads escalated" +
+        (t.fixable ? " · " + t.fixable + " of the misses would escalate at a higher floor" : "") +
+        " · see the FLEET tab for the per-sensor breakdown.",
+    };
+  }
+
+  /* ---- WHAT THE SHIM READ (founder v13: "i enter prompts from like datadog
+     etc but what is supposed to show me") - the comprehension pass over a
+     PASTE. Where a dialect's values are cleanly extractable, the shim draws
+     THEIR points and computes the same window features the model would read
+     - arithmetic on the visitor's own bytes, computed just now, labelled as
+     such. It is NOT a model output and it NEVER concludes a fault word:
+     features yes, verdicts no. Dialects whose values are packed (modbus
+     registers, syslog prose, opcua notifications, the pre-rendered feature
+     summary) are recognised but honestly not decoded in-browser. */
+  var SERIES_RX = {
+    datadog: /"value":\s*(-?\d+(?:\.\d+)?)/g,
+    sparkplug: /"(?:value|floatValue|doubleValue)":\s*(-?\d+(?:\.\d+)?)/g,
+    prometheus: /^[a-zA-Z_:][\w:]*(?:\{[^}]*\})?\s+(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)(?:\s+\d{10,13})?\s*$/gm,
+    influx: /=(-?\d+(?:\.\d+)?)(?=[,\s]|$)/gm,
+  };
+  function parseSeries(text, mod) {
+    var rx = SERIES_RX[mod];
+    if (!rx) return null;
+    rx.lastIndex = 0;
+    var vals = [], m;
+    while ((m = rx.exec(text)) !== null) {
+      vals.push(Number(m[1]));
+      if (vals.length > 512) break;
+    }
+    return vals.length >= 2 ? vals : null;
+  }
+  function parseMeta(text, mod) {
+    var name = null, unit = null, m;
+    if (mod === "datadog" || mod === "sparkplug") {
+      m = /"(?:metric|name)":\s*"([^"]+)"/.exec(text); if (m) name = m[1];
+      m = /"unit":\s*"([^"]+)"/.exec(text); if (m) unit = m[1];
+    } else if (mod === "prometheus") {
+      m = /^([a-zA-Z_:][\w:]*)(?:\{|\s)/m.exec(text.replace(/^#.*$/gm, "").trim()); if (m) name = m[1];
+    } else if (mod === "influx") {
+      m = /^(\w[\w.]*)[,\s]/m.exec(text); if (m) name = m[1];
+    }
+    return { name: name, unit: unit };
+  }
+  function computeFeatures(vals) {
+    var n = vals.length;
+    var lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
+    var mean = 0;
+    vals.forEach(function (x) { mean += x; });
+    mean /= n;
+    // float summation can drift the mean a few ulp outside [lo,hi] on an
+    // all-identical series; clamp for display sanity (arithmetic, not fudge)
+    mean = Math.min(hi, Math.max(lo, mean));
+    var sd = 0;
+    vals.forEach(function (x) { sd += (x - mean) * (x - mean); });
+    sd = Math.sqrt(sd / n);
+    var repeats = 0, run = 1, longest = 1;
+    for (var i = 1; i < n; i++) {
+      if (vals[i] === vals[i - 1]) { repeats++; run++; if (run > longest) longest = run; }
+      else run = 1;
+    }
+    return { n: n, lo: lo, hi: hi, mean: mean, sd: sd,
+             repeat_frac: n > 1 ? repeats / (n - 1) : 0, longest_run: longest };
+  }
+  function shimRead(text, v) {
+    if (v.kind === "numbers") {
+      return { name: "your channel", unit: v.unit || null,
+               vals: v.samples, feats: computeFeatures(v.samples), undecoded: false, mod: "raw numbers" };
+    }
+    var vals = parseSeries(text, v.mod);
+    var meta = parseMeta(text, v.mod);
+    return { name: meta.name || v.tag || "your channel", unit: meta.unit || null,
+             vals: vals, feats: vals ? computeFeatures(vals) : null,
+             undecoded: !vals, mod: v.mod };
+  }
+  // their points, drawn - USER PASTE ONLY; the recorded strip/sparklines
+  // draw seriesOf() and never this
+  function pastePath(vals, W, H, pad) {
+    var lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
+    var span = Math.max(hi - lo, Math.abs((hi + lo) / 2) * 0.005, 1e-9);
+    var mid = (hi + lo) / 2, n = vals.length, d = "";
+    for (var i = 0; i < n; i++) {
+      var x = (n === 1 ? 0.5 : i / (n - 1)) * W;
+      var y = pad + (1 - ((vals[i] - (mid - span / 2)) / span)) * (H - pad * 2);
+      d += (i === 0 ? "M" : "L") + x.toFixed(1) + " " + y.toFixed(1);
+    }
+    return d;
+  }
+
   function buildReply(text, v) {
     if (!v) v = classify(text);
     if (v.kind === "question") return benchReading();
+    if (v.kind === "fleet-question") return benchFleet();
     var target = lastModel();
     var wired = target ? target.label : "the chain";
     if (v.kind === "blob" || v.kind === "numbers") {
@@ -2004,6 +2369,7 @@
         : { modality: "raw numbers", recognised: null, unit: v.unit || null,
             channels: [{ name: "your channel", unit: v.unit || "" }], body: text };
       return { kind: "draft", wired: wired, v: v,
+               read: shimRead(text, v),
                unitNote: v.kind === "numbers" && !v.unit
                  ? "unit NOT STATED IN THE WIRE - a defaulted unit would be an invented fact"
                  : (v.unit ? "unit stated: " + v.unit + " (you stated it - it was not in the wire)" : null),
@@ -2055,12 +2421,12 @@
     if (live) {
       var token = ++REPLY_SEQ;
       PATCH.reply = { kind: "pingwait", token: token, bench: bench,
-                      question: v.kind === "question" };
+                      question: v.kind === "question" || v.kind === "fleet-question" };
       live.then(function (rep) {
         // context may have moved while Ping typed - a stale card never lands
         if (!PATCH.reply || PATCH.reply.token !== token) return;
         PATCH.reply = { kind: "ping", token: token, text: rep, bench: bench,
-                        question: v.kind === "question" };
+                        question: v.kind === "question" || v.kind === "fleet-question" };
         paintMonitor();
         react("Ping answered - live over the Tower relay.");
       }).catch(function () {
@@ -2082,6 +2448,8 @@
       ? "Asking Ping - a live answer over the Tower relay…"
       : PATCH.reply.kind === "reading"
       ? "The bench answered from the recorded window."
+      : PATCH.reply.kind === "fleetread"
+      ? "The bench answered from the recorded fleet."
       : "The shim answered from the faceplate.");
     return PATCH.reply;
   }
@@ -2108,16 +2476,18 @@
         "Ping is the concierge answering live - not a Wave model; a hosted Wave Nano is the goal.");
       sub.title = "a real reply from a real endpoint, shown verbatim - declines included";
       stack.appendChild(sub);
-      // a question always carries the recorded numbers beneath the live voice
-      if (rep.question && rep.bench && rep.bench.kind === "reading") {
+      // the recorded recount always rides beneath the live voice: the
+      // reading's numbers under a question, the DRAFT + comprehension under a
+      // paste - whatever Ping says, the visitor gets the bench's answer
+      if (rep.bench && rep.bench.kind !== "talk") {
         stack.appendChild(drawReply(rep.bench));
       }
       return stack;
     }
     var box = el("section", "sn-stage sn-stage--reply");
     var head = el("div", "sn-stage__head");
-    head.appendChild(el("b", null, rep.kind === "reading"
-      ? rep.who : "YOUR PROMPT → " + rep.wired.toUpperCase()));
+    head.appendChild(el("b", null, rep.who
+      ? rep.who : "YOUR PROMPT → " + (rep.wired || "the chain").toUpperCase()));
     if (rep.kind === "draft") head.appendChild(el("span", "wp-tag wp-tag--draft", "DRAFT · NOT RUN"));
     var x = el("button", "ws-resp__x");
     x.type = "button";
@@ -2126,16 +2496,20 @@
     x.addEventListener("click", function () { PATCH.reply = null; paintMonitor(); });
     head.appendChild(x);
     box.appendChild(head);
-    if (rep.kind === "reading") {
-      var rd = el("p", "sn-read");
-      rd.appendChild(el("b", null, rep.tag));
-      rd.appendChild(el("span", null, " " + rep.meanLine));
-      box.appendChild(rd);
+    if (rep.kind === "reading" || rep.kind === "fleetread") {
+      if (rep.kind === "reading") {
+        var rd = el("p", "sn-read");
+        rd.appendChild(el("b", null, rep.tag));
+        rd.appendChild(el("span", null, " " + rep.meanLine));
+        box.appendChild(rd);
+      } else {
+        box.appendChild(el("p", "sn-para", rep.lead));
+      }
       box.appendChild(el("p", "sn-para", rep.detail));
       if (rep.chainLine) box.appendChild(el("p", "sn-para", rep.chainLine));
       if (rep.offAirNote) box.appendChild(el("p", "sn-sub sn-read__note", rep.offAirNote));
       var off = el("p", "sn-sub sn-read__offair", rep.offAir);
-      off.title = "the answer above is a recount of the recorded window - no model produced this sentence";
+      off.title = "the answer above is a recount of recorded records - no model produced this sentence";
       box.appendChild(off);
       return box;
     }
@@ -2144,11 +2518,44 @@
         box.appendChild(el("p", "sn-sub", "Recognised: byte-identical to the recorded pump scene's " +
           rep.recognised + " render. These are our recorded bytes - paste your own for the real test."));
       }
+      // WHAT THE SHIM READ - the comprehension card leads; the envelope folds
+      var rd2 = rep.read;
+      if (rd2) {
+        var read = el("div", "sn-shimread");
+        read.appendChild(el("b", "sn-shimread__k", "WHAT THE SHIM READ"));
+        read.appendChild(el("p", "sn-para",
+          rd2.name + (rd2.unit ? " · " + rd2.unit : " · unit not stated") +
+          (rd2.feats ? " · " + rd2.feats.n + " points" : "") + " · " + rd2.mod));
+        if (rd2.vals) {
+          var tr = svg("svg", { class: "sn-shimread__trace", viewBox: "0 0 220 44",
+            role: "img", "aria-label": "your pasted values, drawn - " + rd2.vals.length + " points" });
+          tr.appendChild(svg("path", { class: "sn-shimread__line", d: pastePath(rd2.vals, 220, 44, 5) }));
+          read.appendChild(tr);
+          read.appendChild(el("p", "sn-sub", "your bytes, drawn - " + rd2.vals.length + " points"));
+          var f = rd2.feats;
+          var grid = el("p", "sn-shimread__feats",
+            "mean " + fmtN(f.mean) + " · range " + fmtN(f.lo) + " … " + fmtN(f.hi) +
+            " · sd " + fmtN(f.sd) + " · repeat_frac " + f.repeat_frac.toFixed(2) +
+            " · longest_run " + f.longest_run + " of " + f.n);
+          grid.title = "the same window features the model would read - no verdict is drawn from them here";
+          read.appendChild(grid);
+          read.appendChild(el("p", "sn-sub",
+            "computed from your paste just now - not a recorded window, and not a prediction"));
+        } else if (rd2.undecoded) {
+          read.appendChild(el("p", "sn-sub",
+            "the shim recognises the dialect but does not decode its packed values in-browser - " +
+            "the model reads the bytes; the envelope below carries them verbatim"));
+        }
+        box.appendChild(read);
+      }
       if (rep.unitNote) box.appendChild(el("p", "sn-sub", rep.unitNote));
-      box.appendChild(el("p", "sn-sub",
+      var env = el("details", "sn-cert sn-envfold");
+      env.appendChild(el("summary", null, "view the exact llama-server request"));
+      env.appendChild(el("p", "sn-sub",
         "no model runs in a browser, and a margin is a logprob difference nothing here " +
         "can compute. This is the exact request that would go to a stock llama-server:"));
-      box.appendChild(el("pre", "wp-wirebytes", rep.envelope));
+      env.appendChild(el("pre", "wp-wirebytes", rep.envelope));
+      box.appendChild(env);
     } else {
       box.appendChild(el("p", "sn-para", rep.text));
     }
@@ -2353,6 +2760,7 @@
       wireTilt();
       document.addEventListener("keydown", onKey);
       wirePrompt();
+      wireGlassScroll();
     }).catch(fail);
   }
 
@@ -2411,6 +2819,13 @@
       okAnchorRel: okAnchorRel,
       buildReply: buildReply,
       benchContext: benchContext,
+      deriveFleet: deriveFleet,
+      benchFleet: benchFleet,
+      followSuppressed: followSuppressed,
+      parseSeries: parseSeries,
+      computeFeatures: computeFeatures,
+      shimRead: shimRead,
+      runOf: runOf,
       state: PATCH,
       family: FAMILY,
       detents: DETENTS,
