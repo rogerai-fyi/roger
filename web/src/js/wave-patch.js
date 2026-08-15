@@ -63,6 +63,8 @@
     { id: "pico", label: "Wave Pico", size: "270M", band: "250-300M", status: "recorded",
       recipe: "scratch", reach: "edge · single device",
       runs: "Pi / ESP32 · ~50ms · no GPU", art: "chip", span: 40,
+      only: "answers where the data is born - no network hop, no GPU, no waiting. A read that never leaves the machine cannot be delayed by a link that is down.",
+      belowCant: "the floor of the ladder: nothing smaller can hold a task model",
       takes: "one machine's channels",
       job: "a call on this machine: one word, and how sure it was",
       does: "reads the sensor, answers or asks for help",
@@ -71,6 +73,8 @@
     { id: "nano", label: "Wave Nano", size: "0.8-1.5B", band: "0.8-1.5B", status: "recorded",
       recipe: "scratch", reach: "gateway · a fleet",
       runs: "a gateway / concentrator", art: "gateway", span: 46,
+      only: "sees MANY machines at once, so it can settle a disagreement no single machine can even perceive - two readers, one truth.",
+      belowCant: "one Pico sees one machine; conflicts between machines are invisible to it",
       takes: "many Picos",
       job: "a fleet rollup: the doubtful reads from many machines, adjudicated",
       does: "answers when the small one is unsure",
@@ -79,6 +83,8 @@
     { id: "micro", label: "Wave Micro", size: "7-8B", status: "base+specialize",
       recipe: "base+specialize", reach: "site · a facility",
       runs: "an on-site server", art: "server", span: 52,
+      only: "reasons in general language across many fleets - not just a fault enum. It can be ASKED things, and answer about a facility.",
+      belowCant: "a gateway rolls up its own fleet; it cannot reason about the site around it",
       takes: "many fleets",
       job: "a site rollup: every fleet's reads, summarised for one facility",
       does: "reasons across a whole facility",
@@ -87,6 +93,8 @@
     { id: "giga", label: "Wave Giga", size: "27-35B", status: "base+specialize",
       recipe: "base+specialize", reach: "a plant",
       runs: "a plant datacenter", art: "rack", span: 58,
+      only: "holds a whole plant in view at once - process, maintenance and history reasoned over together, competitive on general benchmarks as well as machines.",
+      belowCant: "a site brain sees its facility; the plant's other facilities are outside it",
       takes: "many sites",
       job: "a plant-wide picture: every site's rollup, reasoned over together",
       does: "reasons across a whole plant",
@@ -95,6 +103,8 @@
     { id: "tera", label: "Wave Tera", size: "80-120B", status: "base+specialize",
       recipe: "base+specialize", reach: "enterprise · many plants",
       runs: "an enterprise cloud", art: "racks", span: 64,
+      only: "compares plants. A fault pattern that repeats across sites is invisible from inside any one of them.",
+      belowCant: "one plant's model cannot see the pattern it shares with the next plant",
       takes: "many plants",
       job: "faults and trends correlated across an enterprise at once",
       does: "connects faults across many plants",
@@ -103,6 +113,8 @@
     { id: "peta", label: "Wave Peta", size: "150-200B", status: "expert-pruned",
       recipe: "expert-pruned", reach: "a region",
       runs: "a regional cloud", art: "aisle", span: 70,
+      only: "carries a region on leaner hardware, pruned down from the flagship - the frontier's judgement at a fraction of its residency.",
+      belowCant: "enterprise scale still runs the full stack; a region needs it cheaper",
       takes: "a region's plants",
       job: "a region's work, on leaner hardware carved from the flagship",
       does: "regional scale, pruned smaller",
@@ -111,6 +123,8 @@
     { id: "exa", label: "Wave Exa", size: "~284B", status: "frontier",
       recipe: "frontier", reach: "the family teacher",
       runs: "an exascale datacenter", art: "hall", span: 76,
+      only: "TEACHES the rest. The small models are good because this one trained them - the flagship is why a 270M model on a microcontroller is worth trusting.",
+      belowCant: "nothing above it: this is where the family's capability comes from",
       takes: "the whole family's work",
       job: "the teaching signal the rest of the family learns from",
       does: "the flagship the others learn from",
@@ -212,6 +226,7 @@
                           // capability claim; a policy simulation over the
                           // same recorded outcomes.
     whyOpen: null,        // which why-panel is expanded (one at a time)
+    liveTier: null,       // which tier the WHERE THEY LIVE panel is showing
     tour: -1,             // guided-tour step, -1 = not touring
     verdict: null,
     menuFor: null,        // chain slot index whose attach menu is open
@@ -1461,8 +1476,16 @@
     menu.setAttribute("role", "menu");
     menu.setAttribute("aria-label", "Add a model to the chain");
     FAMILY.forEach(function (fam) {
+      // ALREADY SEATED reads as seated (founder v19: "highlight the ones or
+      // dim the ones we are already added"). Offering a tier that is already
+      // in the chain as if it were available is a small lie the menu was
+      // telling seven times over. A seated row stays CLICKABLE because the
+      // useful thing to do with it is find it - it takes you to its band -
+      // and it says so rather than looking mysteriously disabled.
+      var seated = PATCH.chain.indexOf(fam.id) >= 0;
       var b = el("button", "ws-menu__item" +
-        (fam.status === "recorded" ? "" : " ws-menu__item--quiet"));
+        (fam.status === "recorded" ? "" : " ws-menu__item--quiet") +
+        (seated ? " is-seated" : ""));
       b.type = "button";
       b.setAttribute("role", "menuitem");
       tierStyle(b, fam.id);
@@ -1483,10 +1506,19 @@
         fam.status === "recorded"
           ? "recorded on this bench" + (runOf(fam.id) ? " · run " + runOf(fam.id) : "")
           : fam.status + " · will attach silent"));
+      if (seated) {
+        var band = bandOf(fam.id);
+        txt.appendChild(el("span", "ws-menu__seated",
+          "✓ already in the chain" + (band ? " · " + band.label.toLowerCase() : "") +
+          " — click to find it"));
+      }
       b.appendChild(txt);
-      b.title = fam.blurb + " · runs on " + fam.runs + " · " + fam.recipe;
+      b.title = seated
+        ? fam.label + " is already in this chain; clicking takes you to its band"
+        : fam.blurb + " · runs on " + fam.runs + " · " + fam.recipe;
       b.addEventListener("click", function (e) {
         e.stopPropagation();
+        if (seated) { revealBand(fam.id); return; }
         chainAdd(fam.id, slotIdx);
       });
       menu.appendChild(b);
@@ -1507,6 +1539,28 @@
     });
     menu.appendChild(close);
     return menu;
+  }
+
+  // Take the visitor to a tier that is already seated. The menu closes, the
+  // band scrolls into view (the line scrolls sideways - seven bands do not
+  // fit a column) and flashes once so the eye lands on it. Chrome only.
+  function revealBand(tierId) {
+    var band = bandOf(tierId);
+    PATCH.menuFor = null;
+    render();
+    if (!band) return;
+    var zone = document.querySelector('.sn-band[data-band="' + band.key + '"]');
+    if (!zone) return;
+    if (zone.scrollIntoView) {
+      zone.scrollIntoView({ block: "nearest", inline: "center",
+                            behavior: REDUCED ? "auto" : "smooth" });
+    }
+    if (!REDUCED) {
+      zone.classList.add("is-found");
+      setTimeout(function () { zone.classList.remove("is-found"); }, 1200);
+    }
+    var card = zone.querySelector(".sn-slot, button, [tabindex]");
+    if (card && card.focus) card.focus({ preventScroll: true });
   }
 
   // THE LADDER RUNS UP. A senior does not hand work down: the reader (Pico,
@@ -1760,6 +1814,150 @@
     det.appendChild(nav);
     det.appendChild(body);
     host.appendChild(det);
+    host.appendChild(whereTheyLive());
+  }
+
+  /* ---- WHERE THEY LIVE: the value of the upper ladder, honestly ----------
+     THE STRUCTURAL PROBLEM, named: this is a ONE-SENSOR bench. The upper
+     tiers' value is SCOPE (many machines -> a fleet -> a facility -> a plant
+     -> many plants -> a region), plus general CAPABILITY, plus - uniquely for
+     Exa - TEACHING the rest of the family. A bench replaying one recorded
+     channel cannot demonstrate any of that with data, and faking a plant to
+     make the argument would be exactly the lie this deck exists to avoid.
+
+     So this panel SHOWS the deployment reality and SAYS what each tier sees.
+     Every line here is a deployment fact from the locked ladder, not a
+     measurement: no counts, no accuracy, no latency claims beyond the tier's
+     own published runs-on. The recorded numbers stay where they are earned -
+     in the monitor, on the knob, in the fleet tab.
+
+     The cutaway's four floors map to the four tiers that live INSIDE one
+     building; the last three are drawn above its roof because that is where
+     they are - beyond the plant. Floor bands were measured off the plate
+     (the building spans ~6% to ~99% of its height, four floors of ~23%). */
+  // `at` labels the chip; `where` completes the sentence "Lives ___."
+  var PLANT_FLOORS = {
+    giga:  { top: 6,  bot: 29, at: "the server room, top floor",   where: "in the server room on the top floor" },
+    micro: { top: 29, bot: 52, at: "the control room",             where: "in the control room" },
+    nano:  { top: 52, bot: 75, at: "a cabinet, utility level",     where: "in a cabinet on the utility level" },
+    pico:  { top: 75, bot: 99, at: "bolted to the machine",        where: "on the machine itself, bolted to its frame" },
+  };
+
+  function whereTheyLive() {
+    var det = whyChip("live", "WHERE THEY LIVE · one plant, seven tiers");
+    var grid = el("div", "sn-live");
+
+    // the building, with a band marking the selected tier's floor
+    var fig = el("figure", "sn-live__plant");
+    fig.setAttribute("role", "img");
+    fig.setAttribute("aria-label",
+      "A cutaway of a factory building: machines on the ground floor, control " +
+      "cabinets above them, a control room, and a server room at the top.");
+    var art = el("span", "sn-live__art");
+    art.appendChild(el("span", "wb-plate__ink"));
+    fig.appendChild(art);
+    var band = el("span", "sn-live__band");
+    band.setAttribute("aria-hidden", "true");
+    fig.appendChild(band);
+    var above = el("figcaption", "sn-live__above",
+      "above the roof: many plants, a region, the teacher");
+    fig.appendChild(above);
+    grid.appendChild(fig);
+
+    var right = el("div", "sn-live__right");
+    var list = el("div", "sn-live__list");
+    list.setAttribute("role", "tablist");
+    list.setAttribute("aria-label", "Where each tier lives");
+    var detail = el("div", "sn-live__detail");
+    if (!PATCH.liveTier) PATCH.liveTier = "pico";
+
+    function paintLive() {
+      list.textContent = "";
+      detail.textContent = "";
+      FAMILY.forEach(function (fam) {
+        var on = PATCH.liveTier === fam.id;
+        var b = el("button", "sn-live__tier" + (on ? " is-on" : ""));
+        b.type = "button";
+        b.setAttribute("role", "tab");
+        b.setAttribute("aria-selected", on ? "true" : "false");
+        tierStyle(b, fam.id);
+        var ic = el("span", "sn-live__ic");
+        ic.appendChild(modelIcon(fam));
+        b.appendChild(ic);
+        b.appendChild(el("b", "sn-tiername", fam.label.replace("Wave ", "")));
+        var fl = PLANT_FLOORS[fam.id];
+        b.appendChild(el("span", "sn-live__at", fl ? fl.at : "beyond this building"));
+        b.addEventListener("click", function (e) {
+          e.stopPropagation();
+          PATCH.liveTier = fam.id;
+          paintLive();
+        });
+        list.appendChild(b);
+      });
+
+      var cur = FAMILY.filter(function (f) { return f.id === PATCH.liveTier; })[0];
+      var fl = PLANT_FLOORS[cur.id];
+      // move the marker: inside the building for the four that live there,
+      // floating above the roof for the three that do not
+      if (fl) {
+        band.style.top = fl.top + "%";
+        band.style.height = (fl.bot - fl.top) + "%";
+        band.style.opacity = "1";
+      } else {
+        // above the roof, in the headroom the figure reserves for exactly this
+        band.style.top = "0%";
+        band.style.height = "4.5%";
+        band.style.opacity = ".9";
+      }
+      band.style.setProperty("--tc", "var(--tier-" + cur.id + ")");
+
+      tierStyle(detail, cur.id);
+      var h = el("div", "sn-live__head");
+      h.appendChild(el("b", "sn-tiername", cur.label));
+      h.appendChild(el("span", "sn-live__size", cur.size + " · " + cur.reach));
+      detail.appendChild(h);
+      detail.appendChild(el("p", "sn-live__where",
+        fl ? "Lives " + fl.where + "." : "Lives beyond this building, on " + cur.runs + "."));
+      [["SEES", cur.takes], ["ANSWERS", cur.job],
+       ["ONLY IT CAN", cur.only], ["THE ONE BELOW", cur.belowCant],
+       ["RUNS ON", cur.runs]].forEach(function (row) {
+        var r = el("p", "sn-live__row");
+        r.appendChild(el("span", "sn-live__k", row[0]));
+        r.appendChild(el("span", null, row[1]));
+        detail.appendChild(r);
+      });
+      // the small side of the argument, where it belongs
+      if (cur.id === "pico") {
+        var sc = el("figure", "sn-live__scene sn-live__scene--robot");
+        sc.setAttribute("role", "img");
+        sc.setAttribute("aria-label",
+          "A robot arm cell with a small module bolted beside it - where a Pico sits.");
+        sc.appendChild(el("span", "wb-plate__ink"));
+        detail.appendChild(sc);
+      } else if (cur.id === "micro") {
+        var sc2 = el("figure", "sn-live__scene sn-live__scene--control");
+        sc2.setAttribute("role", "img");
+        sc2.setAttribute("aria-label", "A plant control room console - where a site brain runs.");
+        sc2.appendChild(el("span", "wb-plate__ink"));
+        detail.appendChild(sc2);
+      }
+      detail.appendChild(el("p", "sn-live__foot",
+        cur.status === "recorded"
+          ? "Recorded on this bench: you can hear this tier answer in the monitor."
+          : "No recorded run on this bench - this is where the tier LIVES and what it " +
+            "would see, never a claim about what it said."));
+    }
+    paintLive();
+
+    right.appendChild(list);
+    right.appendChild(detail);
+    grid.appendChild(right);
+    det.appendChild(grid);
+    det.appendChild(el("p", "sn-live__note",
+      "Deployment facts from the Wave Spectrum, not measurements: this bench replays one " +
+      "recorded fleet, so it can show you where each tier sits and what it would see, but " +
+      "only Pico and Nano have runs here to actually hear."));
+    return det;
   }
 
   /* ---- the measured figures live on the knob's tooltip ------------------- */
@@ -2141,6 +2339,30 @@
       if (Date.now() - PATCH._autoScrollAt < 900) return;
       PATCH._userScrollAt = Date.now();
     }, { passive: true });
+
+    // THE SET'S CONTROLS. Pressing a key is a hand on the glass, so it
+    // suspends auto-follow exactly like a wheel or a drag - otherwise the
+    // next verdict change would yank the reader back mid-paragraph. ANSWER
+    // is the exception: it is a request to be taken somewhere, so it forces.
+    var ctl = $("wsTvCtl");
+    if (!ctl) return;
+    ctl.addEventListener("click", function (e) {
+      var b = e.target.closest("[data-scroll]");
+      if (!b) return;
+      e.preventDefault();
+      var how = b.getAttribute("data-scroll");
+      if (how === "answer") {
+        var head = host.querySelector(".sn-answer") || host.firstChild;
+        glassScrollTo(head && head.nodeType === 1 ? head : null, true);
+        return;
+      }
+      PATCH._userScrollAt = Date.now();
+      PATCH._autoScrollAt = Date.now();
+      var step = Math.max(80, Math.round(host.clientHeight * 0.7));
+      var to = host.scrollTop + (how === "up" ? -step : step);
+      if (host.scrollTo) host.scrollTo({ top: to, behavior: REDUCED ? "auto" : "smooth" });
+      else host.scrollTop = to;
+    });
   }
 
   function renderTabs() {

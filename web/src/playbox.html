@@ -567,6 +567,22 @@
                       <span class="wb-plate__ink"></span>
                     </span>
                     <div class="sn-tv__screen" id="wpMonitor" aria-label="The monitor - the output at each stage"></div>
+                    <!-- The set's own controls. The engraved TV draws a knob
+                         strip along its lower bezel; these make it real, so
+                         the glass can be worked without a trackpad. They read
+                         as explicit intent, so they suspend auto-follow the
+                         same way a hand on the glass does. -->
+                    <div class="sn-tvctl" id="wsTvCtl">
+                      <button class="sn-tvctl__k" type="button" data-scroll="up"
+                              aria-controls="wpMonitor" aria-label="Scroll the monitor up">
+                        <span aria-hidden="true">&#9650;</span></button>
+                      <button class="sn-tvctl__k" type="button" data-scroll="down"
+                              aria-controls="wpMonitor" aria-label="Scroll the monitor down">
+                        <span aria-hidden="true">&#9660;</span></button>
+                      <button class="sn-tvctl__k sn-tvctl__k--wide" type="button" data-scroll="answer"
+                              aria-controls="wpMonitor" aria-label="Jump to the answer">
+                        <span>ANSWER</span></button>
+                    </div>
                   </div>
                   <div class="sn-chips" id="wpChips"></div>
                   <form class="sn-prompt" id="wpPromptForm">

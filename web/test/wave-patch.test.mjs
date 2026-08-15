@@ -573,8 +573,14 @@ test("palette: only tokens that exist are referenced", () => {
 });
 
 test("palette: red is a signal, never a surface", async () => {
+  // The count is a coarse tripwire against runaway red; the enumerated FILL
+  // list below is the real teeth. Raised 30 -> 32 in v19 for the TV's scroll
+  // controls, whose :focus-visible ring is the same red every other control
+  // on this deck focuses with - a focus ring is the canonical "current step"
+  // use, not a new surface. If this ever needs raising again for something
+  // that is NOT a focus ring, that is the signal to look hard instead.
   const reds = (css.match(/var\(--live\)/g) || []).length;
-  assert.ok(reds > 0 && reds < 30, `red is used ${reds} times; it must stay a glint`);
+  assert.ok(reds > 0 && reds < 32, `red is used ${reds} times; it must stay a glint`);
   const filled = [];
   for (const block of css.split("}")) {
     if (/background:\s*var\(--live\)/.test(block)) {
@@ -1730,4 +1736,89 @@ test("v16: the attach menu is the ladder, one tier per row", () => {
     "the engravings share a baseline so the growth reads as a staircase");
   assert.ok(/\.ws-menu \{ grid-template-columns: 1fr/.test(css), "one tier per row, in ladder order");
   assert.ok(/runs on " \+ fam.runs/.test(js), "the row says what hardware it takes to run");
+});
+
+/* ---- v19: the founder could not tell the models apart in the monitor, could
+   not work the glass without a trackpad, was offered tiers already seated, and
+   could not see what the upper ladder is FOR. ---- */
+
+test("v19: every stage header carries its tier's hue, beating the generic head rule", () => {
+  // The regression was pure specificity: .sn-stage__head b (0,1,1) outranked
+  // .sn-tiername (0,1,0), so tier identity died in the monitor - the one place
+  // the eye follows a model from its card to its answer.
+  assert.ok(/\.sn-stage__head b\.sn-tiername \{ color: var\(--tc/.test(css),
+    "the stage-head name is beaten out of flat ink by an equally specific rule");
+  const headRule = /\.sn-stage__head b \{[^}]*color: var\(--ink-400\)/.test(css);
+  assert.ok(headRule, "the generic head rule still exists, so the override is load-bearing");
+  // and the JS actually hands every stage a tier to colour with
+  assert.ok(/st\.fam \? st\.fam\.id : null/.test(js),
+    "stages beyond pico/nano take their tier from the family entry");
+  assert.ok(/tierStyle\(box, stTier\)/.test(js), "and the stage box carries it");
+});
+
+test("v19: the set has working controls, and pressing one is a hand on the glass", () => {
+  for (const id of ["wsTvCtl"]) {
+    assert.ok(htmlFlat.includes(`id="${id}"`), `${id} must exist`);
+  }
+  for (const how of ["up", "down", "answer"]) {
+    assert.ok(htmlFlat.includes(`data-scroll="${how}"`), `a ${how} control exists`);
+  }
+  assert.ok(/aria-controls="wpMonitor"/.test(htmlFlat), "the controls say what they drive");
+  const wire = js.slice(js.indexOf('var ctl = $("wsTvCtl")'), js.indexOf('var ctl = $("wsTvCtl")') + 1200);
+  assert.ok(/PATCH\._userScrollAt = Date\.now\(\)/.test(wire),
+    "a press suspends auto-follow like any other user scroll - it must not yank you back");
+  assert.ok(/glassScrollTo\([^)]*, true\)/.test(wire),
+    "except ANSWER, which is a request to be taken somewhere and forces");
+  assert.ok(/REDUCED \? "auto" : "smooth"/.test(wire), "and reduced motion jumps");
+});
+
+test("v19: a tier already in the chain reads as seated, not as on offer", () => {
+  assert.ok(/var seated = PATCH\.chain\.indexOf\(fam\.id\) >= 0/.test(js),
+    "the menu knows what is already chained");
+  assert.ok(/already in the chain/.test(js), "and says so on the row");
+  assert.ok(/if \(seated\) \{ revealBand\(fam\.id\); return; \}/.test(js),
+    "clicking a seated row takes you to it instead of adding it twice");
+  assert.ok(/\.ws-menu__item\.is-seated \{ opacity/.test(css), "and it is visibly dimmed");
+  // the reveal is a real navigation, not a no-op
+  assert.ok(/function revealBand/.test(js) && /scrollIntoView/.test(js.slice(js.indexOf("function revealBand"))),
+    "revealBand actually scrolls the band into view");
+});
+
+test("v19: WHERE THEY LIVE explains the upper ladder without inventing data", () => {
+  const h = loadHook();
+  // every tier carries the value argument, and it is prose, not numbers
+  for (const fam of h.family) {
+    assert.ok(fam.only && fam.only.length > 20, `${fam.id} says what only it can do`);
+    assert.ok(fam.belowCant && fam.belowCant.length > 10, `${fam.id} says what the tier below cannot`);
+    assert.ok(!/\d+\s*(%|faults|caught|missed|channels)/.test(fam.only + fam.belowCant),
+      `${fam.id}'s argument is a deployment fact, not a measurement`);
+  }
+  // the panel exists and is honest about what has a run and what does not
+  const panel = js.slice(js.indexOf("function whereTheyLive"));
+  assert.ok(/No recorded run on this bench - this is where the tier LIVES/.test(panel),
+    "an unrecorded tier says it is showing a place, never a claim about what it said");
+  assert.ok(/only Pico and Nano have runs here to actually hear/.test(panel),
+    "and the panel footer names exactly which tiers can be heard");
+  assert.ok(/Deployment facts from the Wave Spectrum, not measurements/.test(panel),
+    "the whole panel is labelled as deployment fact, not measurement");
+  // the four in-building tiers map to floors; the rest are explicitly beyond it
+  const floors = js.slice(js.indexOf("var PLANT_FLOORS"), js.indexOf("function whereTheyLive"));
+  for (const t of ["pico", "nano", "micro", "giga"]) {
+    assert.ok(new RegExp(`${t}:\\s*\\{ top:`).test(floors), `${t} has a floor in the building`);
+  }
+  for (const t of ["tera", "peta", "exa"]) {
+    assert.ok(!new RegExp(`${t}:\\s*\\{ top:`).test(floors), `${t} is not given a floor - it is beyond the plant`);
+  }
+  assert.ok(/beyond this building/.test(panel), "and the panel says so");
+});
+
+test("v19: the flagship's teaching role is the argument for the small models", () => {
+  const h = loadHook();
+  const exa = h.family.find((f) => f.id === "exa");
+  assert.ok(/TEACHES/.test(exa.only), "Exa's value is stated as teaching the rest");
+  assert.ok(/270M/.test(exa.only),
+    "tied back to why the smallest tier is trustworthy - that is the whole ladder's argument");
+  const pico = h.family.find((f) => f.id === "pico");
+  assert.ok(/no network|no GPU/i.test(pico.only),
+    "and the small side is a virtue stated in its own terms, not an apology");
 });

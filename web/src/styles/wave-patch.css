@@ -1387,8 +1387,15 @@
     --tier-wash: 13%;
   }
 }
-/* the tier's name, wherever it appears - identity, never state */
+/* the tier's name, wherever it appears - identity, never state.
+   THE SPECIFICITY TRAP (founder v19: "giga and micro doesn't have color"):
+   .sn-stage__head b is (0,1,1) and beat this (0,1,0), so every stage header
+   in the monitor rendered in flat ink and the tier identity died exactly
+   where the eye most needs to follow it - card -> stage -> trail dot. The
+   stage-head rule is listed explicitly rather than bumped with !important,
+   so the next override is visible instead of silent. */
 .sn-tiername { color: var(--tc, var(--ink-900)); }
+.sn-stage__head b.sn-tiername { color: var(--tc, var(--ink-900)); }
 
 /* ---- the line: deployment bands across the top ------------------------- */
 .sn-band {
@@ -1615,3 +1622,121 @@
 .sn-band__empty { padding: .35rem .3rem .3rem; }
 .sn-band__plus { opacity: .7; }
 .sn-band__empty:hover .sn-band__plus { opacity: 1; }
+
+/* ---- the set's own controls (v19) --------------------------------------
+   The engraved TV draws knobs on its lower bezel; these are the working
+   ones. They sit ON the bezel where the plate shows it, and drop into flow
+   under the glass at the width where the plate steps aside. */
+.sn-tvctl {
+  /* on the plate's knob strip, not down on the stand where the first pass
+     put them - measured against the engraving's lower bezel band */
+  position: absolute; left: 50%; bottom: 9.5%; transform: translateX(-50%);
+  display: flex; gap: .4rem; z-index: 3;
+}
+.sn-tvctl__k {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 2.1rem; height: 1.6rem; padding: 0 .55rem; cursor: pointer;
+  border-radius: 5px; border: 1px solid var(--ink-500);
+  background: linear-gradient(var(--paper-2), var(--paper-3));
+  box-shadow: inset 0 1px 0 var(--paper), 0 1px 2px rgba(0,0,0,.18);
+  font-family: var(--font-mono); font-size: .56rem; letter-spacing: .12em;
+  color: var(--ink-500);
+}
+.sn-tvctl__k--wide { letter-spacing: .16em; }
+.sn-tvctl__k:hover { color: var(--ink-900); border-color: var(--ink-500); }
+.sn-tvctl__k:active { box-shadow: inset 0 2px 3px rgba(0,0,0,.28); transform: translateY(1px); }
+.sn-tvctl__k:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { .sn-tvctl__k:active { transform: none; } }
+@media (max-width: 700px) {
+  .sn-tvctl { position: static; transform: none; justify-content: flex-end; margin-top: .4rem; }
+}
+
+/* a tier already in the chain is not on offer - it is somewhere to go */
+.ws-menu__item.is-seated { opacity: .55; }
+.ws-menu__item.is-seated:hover { opacity: .8; }
+.ws-menu__seated {
+  font-family: var(--font-mono); font-size: .54rem; letter-spacing: .04em;
+  color: var(--tc, var(--ink-500));
+}
+
+/* the band the menu just sent you to, blinked once so the eye lands */
+@keyframes sn-found { 0%, 100% { box-shadow: none; } 40% { box-shadow: 0 0 0 3px var(--tc, var(--ink-300)); } }
+.sn-band.is-found { animation: sn-found 1.2s ease-in-out; }
+
+/* ---- WHERE THEY LIVE (v19): the upper ladder's value, drawn -------------
+   A cutaway of one plant with a band marking the selected tier's floor, and
+   the three tiers that live beyond the building marked above its roof. The
+   engraving is illustration; every fact beside it is a deployment fact. */
+.sn-live { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: var(--s-4, 1rem); align-items: start; }
+@media (max-width: 760px) { .sn-live { grid-template-columns: 1fr; } }
+.sn-live__plant { position: relative; margin: 0; padding-top: 9%; }
+.sn-live__art { display: block; width: 100%; aspect-ratio: 280 / 630; position: relative; }
+.sn-live__art .wb-plate__ink {
+  position: absolute; inset: 0; background: var(--ink-900);
+  -webkit-mask-image: url("../assets/wave/scene-plant-ink.png");
+  mask-image: url("../assets/wave/scene-plant-ink.png");
+  -webkit-mask-size: contain; mask-size: contain;
+  -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+  -webkit-mask-position: center; mask-position: center;
+}
+.sn-live__band {
+  position: absolute; left: -4px; right: -4px; border-radius: 4px;
+  border: 1.5px solid var(--tc, var(--ink-500));
+  background: color-mix(in srgb, var(--tc, var(--ink-500)) 12%, transparent);
+  transition: top .28s ease, height .28s ease;
+}
+@media (prefers-reduced-motion: reduce) { .sn-live__band { transition: none; } }
+.sn-live__above {
+  margin-top: .35rem; font-family: var(--font-mono); font-size: .5rem;
+  letter-spacing: .06em; color: var(--ink-400); text-align: center;
+}
+.sn-live__right { display: flex; flex-direction: column; gap: .6rem; min-width: 0; }
+.sn-live__list { display: flex; flex-wrap: wrap; gap: .3rem; }
+.sn-live__tier {
+  display: flex; align-items: center; gap: .4rem; cursor: pointer;
+  padding: .3rem .55rem; border-radius: 7px; font: inherit; text-align: left;
+  border: 1px solid var(--hairline-2); background: var(--paper);
+  border-left: 3px solid var(--tc, var(--ink-300));
+}
+.sn-live__tier:hover { border-color: var(--ink-500); }
+.sn-live__tier.is-on { background: color-mix(in srgb, var(--tc, var(--ink-300)) 9%, var(--paper)); }
+.sn-live__tier:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
+.sn-live__tier b { font-family: var(--font-mono); font-size: .6rem; letter-spacing: .1em; }
+.sn-live__ic { display: inline-flex; width: 22px; height: 22px; align-items: flex-end; justify-content: center; }
+.sn-live__ic .ws-icon { max-width: 22px; max-height: 22px; }
+.sn-live__at { font-family: var(--font-mono); font-size: .5rem; color: var(--ink-400); }
+@media (max-width: 560px) { .sn-live__at { display: none; } }
+.sn-live__detail {
+  border: 1px solid var(--hairline-2); border-left: 3px solid var(--tc, var(--ink-300));
+  border-radius: 8px; padding: .6rem .7rem; background: var(--paper-2);
+}
+.sn-live__head { display: flex; gap: .5rem; align-items: baseline; flex-wrap: wrap; }
+.sn-live__head b { font-family: var(--font-mono); font-size: .72rem; letter-spacing: .1em; }
+.sn-live__size { font-family: var(--font-mono); font-size: .54rem; color: var(--ink-400); }
+.sn-live__where { margin: .3rem 0 .45rem; font-size: var(--t-micro, .7rem); color: var(--ink-700); }
+.sn-live__row { display: grid; grid-template-columns: 7.2rem minmax(0, 1fr); gap: .5rem; margin: 0 0 .3rem; font-size: var(--t-micro, .7rem); line-height: 1.5; }
+@media (max-width: 560px) { .sn-live__row { grid-template-columns: 1fr; gap: .05rem; } }
+.sn-live__k { font-family: var(--font-mono); font-size: .5rem; letter-spacing: .12em; color: var(--ink-400); }
+/* the scene is a VIGNETTE - it grounds the tier in a place, it is not the
+   content. Capped so it can never outshout the facts above it. */
+.sn-live__scene { margin: .5rem 0 0; position: relative; width: 100%; max-width: 21rem; opacity: .85; }
+.sn-live__scene .wb-plate__ink {
+  display: block; width: 100%; background: var(--ink-900);
+  -webkit-mask-size: contain; mask-size: contain;
+  -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+  -webkit-mask-position: center; mask-position: center;
+}
+.sn-live__scene--robot .wb-plate__ink {
+  aspect-ratio: 562 / 408;
+  -webkit-mask-image: url("../assets/wave/scene-robot-ink.png");
+  mask-image: url("../assets/wave/scene-robot-ink.png");
+}
+.sn-live__scene--control .wb-plate__ink {
+  aspect-ratio: 697 / 382;
+  -webkit-mask-image: url("../assets/wave/scene-control-ink.png");
+  mask-image: url("../assets/wave/scene-control-ink.png");
+}
+.sn-live__foot, .sn-live__note {
+  margin: .45rem 0 0; font-size: .6rem; color: var(--ink-500); line-height: 1.5;
+}
+.sn-live__note { color: var(--ink-400); }
