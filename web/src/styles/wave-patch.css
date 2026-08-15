@@ -1540,3 +1540,78 @@
 }
 .sn-chainrail.is-more .sn-linefade { opacity: 1; }
 @media (prefers-reduced-motion: reduce) { .sn-linefade { transition: none; } }
+
+/* =====================================================================
+   v18 - THE UPPER LADDER EARNS ITS PLACE
+   A tier with no recorded run used to print one dead line. It now states
+   the JOB it does; where the bench holds data at that scope (Micro, the
+   site brain) it does that job on the recorded records. The attribution
+   tag is load-bearing, so it is styled to be READ, not skimmed past.
+   ===================================================================== */
+.sn-scope { margin: .35rem 0 0; display: flex; flex-direction: column; gap: .4rem; }
+.sn-scope__job {
+  margin: 0; font-size: var(--t-micro, .72rem); color: var(--ink-700); line-height: 1.5;
+}
+
+/* the rollup itself: a compact instrument read-out, numbers doing the talking */
+.sn-scope__grid {
+  margin: 0; display: flex; flex-wrap: wrap; gap: .45rem 1.1rem;
+  padding: .5rem .6rem; border: 1px solid var(--hairline-2); border-radius: 8px;
+  background: var(--paper);
+}
+.sn-scope__stat { display: flex; flex-direction: column; gap: .05rem; min-width: 4rem; }
+.sn-scope__grid dt {
+  font-family: var(--font-mono); font-size: .5rem; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--ink-400);
+}
+.sn-scope__grid dd {
+  margin: 0; font-family: var(--font-mono); font-size: .9rem;
+  color: var(--ink-900); font-variant-numeric: tabular-nums; line-height: 1.1;
+}
+.sn-scope__policy {
+  margin: 0; font-family: var(--font-mono); font-size: .5rem; letter-spacing: .06em;
+  color: var(--ink-400);
+}
+
+/* takes-in / produces, for the tiers the bench has no data for */
+.sn-scope__pair {
+  margin: 0; display: grid; grid-template-columns: auto 1fr; gap: .18rem .7rem;
+  font-size: var(--t-micro, .72rem);
+}
+.sn-scope__pair dt {
+  font-family: var(--font-mono); font-size: .5rem; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--ink-400); padding-top: .12rem;
+}
+.sn-scope__pair dd { margin: 0; color: var(--ink-700); line-height: 1.45; }
+
+/* the attribution: whose arithmetic this is. Never a whisper. */
+.sn-scope__att {
+  margin: 0; font-size: .62rem; line-height: 1.5; color: var(--ink-500);
+  border-left: 2px solid var(--hairline-2); padding-left: .5rem;
+}
+.sn-scope__tag {
+  font-style: normal; font-family: var(--font-mono); font-size: .5rem;
+  letter-spacing: .12em; text-transform: uppercase; color: var(--ink-900);
+  border: 1px solid var(--ink-300); border-radius: 3px; padding: 0 .28rem;
+  margin-right: .25rem; white-space: nowrap;
+}
+
+/* fan-in, stated on the card: what this tier takes IN */
+.sn-slot__takes {
+  font-family: var(--font-mono); font-size: .5rem; letter-spacing: .04em;
+  color: var(--ink-400); line-height: 1.3;
+}
+.sn-slot__takes-k { font-style: normal; color: var(--ink-300); }
+
+/* An empty zone now shows the engraving of the tier that would stand there,
+   ghosted - the offer is legible before you click it, and the scale ladder
+   does the explaining. It lifts toward full ink on hover/focus. */
+.sn-band__art { display: flex; align-items: flex-end; justify-content: center; opacity: .38; }
+.sn-band__empty:hover .sn-band__art,
+.sn-band__empty:focus-visible .sn-band__art { opacity: .75; }
+@media (prefers-reduced-motion: no-preference) {
+  .sn-band__art { transition: opacity .18s ease-out; }
+}
+.sn-band__empty { padding: .35rem .3rem .3rem; }
+.sn-band__plus { opacity: .7; }
+.sn-band__empty:hover .sn-band__plus { opacity: 1; }

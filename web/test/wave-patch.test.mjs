@@ -273,19 +273,90 @@ test("chain: the menu carries the WHOLE Wave family with honest statuses", () =>
   assert.ok(/will attach silent/.test(js), "the menu warns before an unrecorded slot chains in");
 });
 
-test("chain: an unrecorded model chains in, but its stage is honestly silent", () => {
+test("chain: an unrecorded model chains in and states its job, claiming nothing", () => {
+  // AMENDED 2026-08-15: an unrecorded tier used to add one dead line ("silent -
+  // no recorded run here"). It now states the JOB that tier does - and where the
+  // bench holds data at that scope (Micro, the site brain) it does that job on
+  // the recorded records, attributed to the BENCH. The guarantee this lock
+  // exists for is unchanged and asserted harder: no prediction, no margin, no
+  // lamp, for any tier without a recorded run.
   const h = loadHook();
   h.selectType("temp", "dropout");
-  h.state.chain = ["micro"];
-  h.derive();
-  const st = h.state.verdict.stages;
-  assert.equal(st.length, 2, "raw + the silent stage");
-  assert.equal(st[1].kind, "silent");
-  assert.ok(!("said" in st[1]) && !("margin" in st[1]),
-    "a silent stage carries NO prediction and NO margin");
-  assert.equal(h.state.verdict.state, "off", "and the lamp refuses to glow");
+  for (const [tier, kind] of [["micro", "site"], ["giga", "scope"], ["exa", "scope"]]) {
+    h.state.chain = [tier];
+    h.derive();
+    const st = h.state.verdict.stages;
+    assert.equal(st.length, 2, `raw + the ${tier} stage`);
+    assert.equal(st[1].kind, kind, `${tier} produces a ${kind} stage`);
+    assert.ok(!("said" in st[1]) && !("margin" in st[1]) && !("verdict" in st[1]),
+      `${tier} carries NO prediction and NO margin`);
+    assert.equal(h.state.verdict.state, "off", `and the lamp refuses to glow for ${tier}`);
+  }
   assert.ok(/no recorded run on this bench, so it stays quiet/.test(js),
-    "the stage says exactly what it is");
+    "a recorded tier in a pass-through position still says exactly what it is");
+});
+
+test("v18: the site rollup is the bench's arithmetic, attributed, never a model output", () => {
+  const h = loadHook();
+  h.selectType("temp", "dropout");
+  h.state.chain = ["pico", "nano", "micro"];
+  h.state.floor = 1.5;
+  h.derive();
+  const site = h.state.verdict.stages.find((s) => s.kind === "site");
+  assert.ok(site, "a chained Micro produces a site stage");
+
+  // ONE SOURCE OF TRUTH: the site rollup and the FLEET tab must be the same
+  // derivation, or the deck would show two different fleets.
+  const fleet = h.deriveFleet();
+  assert.deepEqual(site.fleet.totals, fleet.totals,
+    "the site rollup IS deriveFleet() - the same recount the FLEET tab prints");
+  assert.equal(site.fleet.totals.n, measured.records.length,
+    "and it counts every recorded channel");
+  assert.equal(site.fleet.totals.caught + site.fleet.totals.missed, site.fleet.totals.faults,
+    "its arithmetic still balances");
+
+  // it states the job, and never claims the model did it
+  assert.ok(/BENCH ARITHMETIC/.test(js), "the numbers carry a bench-arithmetic tag");
+  assert.ok(/not something Wave Micro said/.test(js),
+    "and say in words that Wave Micro did not produce them");
+  assert.ok(/no recorded run here/.test(js), "the absent run is stated");
+  assert.ok(!("said" in site) && !("margin" in site) && !("verdict" in site),
+    "the stage carries no prediction and no margin");
+});
+
+test("v18: tiers above the site state their scope and invent nothing", () => {
+  const h = loadHook();
+  h.selectType("temp", "dropout");
+  for (const tier of ["giga", "tera", "peta", "exa"]) {
+    h.state.chain = [tier];
+    h.derive();
+    const sc = h.state.verdict.stages.find((s) => s.kind === "scope");
+    assert.ok(sc, `${tier} produces a scope stage`);
+    assert.ok(sc.takes && sc.job, `${tier} says what it takes in and what it would produce`);
+    // nothing numeric may ride a tier the bench has no data for
+    for (const k of ["fleet", "margin", "said", "verdict", "n", "caught", "missed"]) {
+      assert.ok(!(k in sc), `${tier}'s scope stage carries no ${k}`);
+    }
+  }
+  assert.ok(/NOTHING THIS BIG HERE/.test(js), "the empty scope is labelled");
+  assert.ok(/This bench holds one recorded fleet/.test(js),
+    "and says where the data stops");
+});
+
+test("v18: fan-in is stated on every card and walked in the tour", () => {
+  const h = loadHook();
+  // every tier declares what it takes IN - the shape of the mesh
+  for (const fam of h.family) {
+    assert.ok(fam.takes && fam.takes.length > 3, `${fam.id} declares what it takes in`);
+    assert.ok(fam.job && fam.job.length > 10, `${fam.id} declares what it produces`);
+  }
+  assert.equal(h.family.find((f) => f.id === "nano").takes, "many Picos",
+    "a Nano rolls up many Picos");
+  assert.equal(h.family.find((f) => f.id === "micro").takes, "many fleets",
+    "a Micro reasons over many fleets");
+  assert.ok(/sn-slot__takes/.test(js), "the card renders it");
+  assert.ok(/in a real mesh, many at once/.test(js),
+    "and says the bench shows one where a plant would run many");
 });
 
 test("chain: pico stage prints recorded child fields, nano stage the recorded parent", () => {
@@ -1333,9 +1404,16 @@ test("v17: the guided tour is one-shot, skippable and walks the whole line", () 
   assert.ok(!/pb\.meshNudge/.test(js), "the nudge it replaces is gone, not left dangling");
   const tour = js.slice(js.indexOf("var TOUR = ["), js.indexOf("function tourWanted"));
   const steps = (tour.match(/at: "/g) || []).length;
-  assert.ok(steps >= 3 && steps <= 5, `a tour is 3-5 steps, got ${steps}`);
+  // AMENDED 2026-08-15: the bound moves 5 -> 6 for the founder's fan-in step
+  // ("each model is able to take on several sensors or several Pico"). The rule
+  // this protects is that a tour stays a tour and never becomes a manual, so
+  // the ceiling stays tight rather than being removed.
+  assert.ok(steps >= 3 && steps <= 6, `a tour is 3-6 steps, got ${steps}`);
+  assert.ok(/One model, many machines/.test(tour), "and one of them explains fan-in");
   // every step must point at a zone that actually exists in the render
-  const targets = [...tour.matchAll(/at: "([a-z]+)"/g)].map((m) => m[1]);
+  // a step may light more than one zone (the fan-in step names the line AND
+  // the sensor wall, because it is about the relationship between them)
+  const targets = [...tour.matchAll(/at: "([a-z,]+)"/g)].flatMap((m) => m[1].split(","));
   for (const at of targets) {
     assert.ok(new RegExp(`data-tour", "${at}"|data-tour="${at}"`).test(js),
       `step "${at}" highlights a zone the deck actually renders`);

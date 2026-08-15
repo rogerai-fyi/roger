@@ -63,42 +63,56 @@
     { id: "pico", label: "Wave Pico", size: "270M", band: "250-300M", status: "recorded",
       recipe: "scratch", reach: "edge · single device",
       runs: "Pi / ESP32 · ~50ms · no GPU", art: "chip", span: 40,
+      takes: "one machine's channels",
+      job: "a call on this machine: one word, and how sure it was",
       does: "reads the sensor, answers or asks for help",
       blurb: "the edge child - reads one machine's telemetry and asserts, with margins; " +
              "the recorded reader on this bench (270M, in the 250-300M tier band)" },
     { id: "nano", label: "Wave Nano", size: "0.8-1.5B", band: "0.8-1.5B", status: "recorded",
       recipe: "scratch", reach: "gateway · a fleet",
       runs: "a gateway / concentrator", art: "gateway", span: 46,
+      takes: "many Picos",
+      job: "a fleet rollup: the doubtful reads from many machines, adjudicated",
       does: "answers when the small one is unsure",
       blurb: "the fleet gateway - rolls up many children and resolves conflicts; " +
              "the recorded senior on this bench (run params pending export)" },
     { id: "micro", label: "Wave Micro", size: "7-8B", status: "base+specialize",
       recipe: "base+specialize", reach: "site · a facility",
       runs: "an on-site server", art: "server", span: 52,
+      takes: "many fleets",
+      job: "a site rollup: every fleet's reads, summarised for one facility",
       does: "reasons across a whole facility",
       blurb: "multi-fleet reasoning across a facility - general-capable AND industrial; " +
              "no recorded run on this bench" },
     { id: "giga", label: "Wave Giga", size: "27-35B", status: "base+specialize",
       recipe: "base+specialize", reach: "a plant",
       runs: "a plant datacenter", art: "rack", span: 58,
+      takes: "many sites",
+      job: "a plant-wide picture: every site's rollup, reasoned over together",
       does: "reasons across a whole plant",
       blurb: "the plant - full-plant reasoning, competitive on general benchmarks as well " +
              "as machines; no recorded run on this bench" },
     { id: "tera", label: "Wave Tera", size: "80-120B", status: "base+specialize",
       recipe: "base+specialize", reach: "enterprise · many plants",
       runs: "an enterprise cloud", art: "racks", span: 64,
+      takes: "many plants",
+      job: "faults and trends correlated across an enterprise at once",
       does: "connects faults across many plants",
       blurb: "cross-site enterprise - correlates faults and trends across many plants at " +
              "once; no recorded run on this bench" },
     { id: "peta", label: "Wave Peta", size: "150-200B", status: "expert-pruned",
       recipe: "expert-pruned", reach: "a region",
       runs: "a regional cloud", art: "aisle", span: 70,
+      takes: "a region's plants",
+      job: "a region's work, on leaner hardware carved from the flagship",
       does: "regional scale, pruned smaller",
       blurb: "regional scale - a leaner giant, distilled and pruned down from the " +
              "frontier; no recorded run on this bench" },
     { id: "exa", label: "Wave Exa", size: "~284B", status: "frontier",
       recipe: "frontier", reach: "the family teacher",
       runs: "an exascale datacenter", art: "hall", span: 76,
+      takes: "the whole family's work",
+      job: "the teaching signal the rest of the family learns from",
       does: "the flagship the others learn from",
       blurb: "the flagship - exascale-class frontier capability (DeepSeek-V4-Flash " +
              "class · MTP), and the teacher the whole family learns from; no recorded " +
@@ -503,7 +517,7 @@
       var fam = familyById(id);
       if (!fam) return;
       if (fam.status !== "recorded") {
-        out.push({ kind: "silent", who: fam.label.toUpperCase(), fam: fam });
+        out.push(unrecordedStage(fam));
         return;
       }
       if (id === "pico" && i === info.picoAt) {
@@ -534,6 +548,34 @@
                  note: "Wave Pico asked for help, but there is no bigger model in the chain - so nobody answered." });
     }
     return out;
+  }
+
+  /* A tier with no recorded run used to add one dead line - "silent, no
+     recorded run here" - which was honest and useless, and made the whole
+     upper ladder look like decoration. A tier still never emits a prediction,
+     a margin or a lamp state without a run behind it. But we can show the JOB
+     the tier does, and where we hold data at that scope we can do that job on
+     it, attributed to the BENCH rather than to a model that never ran.
+
+     WAVE MICRO is the site brain: multi-fleet reasoning across one facility.
+     A recount across every recorded channel IS that job, and the deck already
+     computes it for the FLEET tab - deriveFleet() is the ONE source of truth,
+     so the site stage and the tab can never drift apart.
+
+     ABOVE MICRO there is nothing at that scope to recount: this bench holds a
+     single recorded fleet, not a plant, an enterprise or a region. So those
+     tiers state what they would take in and what they would produce, and say
+     plainly that the data stops below them. */
+  function unrecordedStage(fam) {
+    var base = { who: fam.label.toUpperCase(), fam: fam, role: fam.reach,
+                 takes: fam.takes, job: fam.job };
+    if (fam.id === "micro") {
+      base.kind = "site";
+      base.fleet = deriveFleet(); // same derivation the FLEET tab prints
+      return base;
+    }
+    base.kind = "scope";
+    return base;
   }
 
   // The Nano's stage: the human-readable verdict. A fixed TEMPLATE over
@@ -879,10 +921,14 @@
     { at: "machine", title: "3. A small model reads it, right on the machine",
       body: "Wave Pico runs on the device itself. It answers with one word and how sure it " +
             "was - and it only answers alone when it is sure enough." },
-    { at: "gateway", title: "4. When it is not sure, it asks",
+    { at: "line,sensors", title: "4. One model, many machines",
+      body: "The mesh fans in: one Pico reads one machine's channels, one Nano rolls up many " +
+            "Picos, one Micro reasons across many fleets. Every sensor on the left is being " +
+            "read by the same chain - this bench shows one at a time so you can follow it." },
+    { at: "gateway", title: "5. When it is not sure, it asks",
       body: "The read climbs to a bigger model at the gateway. That hand-off is the whole " +
             "idea: small models everywhere, a big one only when it is needed." },
-    { at: "monitor", title: "5. This is what came out",
+    { at: "monitor", title: "6. This is what came out",
       body: "The answer, and what each model did to get there. Change anything on the left " +
             "and watch this change with it." },
   ];
@@ -925,9 +971,18 @@
     deck.classList.toggle("is-touring", PATCH.tour >= 0);
     if (PATCH.tour < 0 || PATCH.tour >= TOUR.length) return;
     var step = TOUR[PATCH.tour];
-    var target = deck.querySelector('[data-tour="' + step.at + '"]');
+    // a step may name more than one zone - the fan-in step is ABOUT the
+    // relationship between the sensor wall and the line, so dimming one of
+    // them while describing both would fight the sentence. The first zone
+    // named is where the card is planted; every zone named is lit.
+    var names = step.at.split(",");
+    var lit = [];
+    names.forEach(function (nm) {
+      var n = deck.querySelector('[data-tour="' + nm + '"]');
+      if (n) { n.classList.add("is-tourlit"); lit.push(n); }
+    });
+    var target = lit[0];
     if (!target) return;
-    target.classList.add("is-tourlit");
 
     var card = el("div", "sn-tour");
     card.setAttribute("role", "dialog");
@@ -1053,6 +1108,7 @@
     var host = $("wsChain");
     if (!host) return;
     host.textContent = "";
+    host.setAttribute("data-tour", "line");
 
     var t = currentType();
     var info = chainInfo();
@@ -1136,8 +1192,14 @@
     slot.type = "button";
     slot.setAttribute("aria-expanded", PATCH.menuFor === bi ? "true" : "false");
     slot.setAttribute("aria-label", "Put a model " + b.label.toLowerCase() + " (" + fam.label + ")");
-    slot.appendChild(el("span", "sn-band__plus", "+"));
+    // the tier's own engraving, ghosted: an empty zone should show you WHAT
+    // would stand there, not just that something could. The scale ladder does
+    // the explaining - a chip and a datacenter hall are not the same offer.
+    var ghostArt = el("span", "sn-band__art");
+    ghostArt.appendChild(modelIcon(fam, Math.round(fam.span * 0.62)));
+    slot.appendChild(ghostArt);
     slot.appendChild(el("span", "sn-band__ghost", fam.label));
+    slot.appendChild(el("span", "sn-band__plus", "+"));
     slot.title = fam.label + " lives here - " + fam.runs +
       (fam.status === "recorded" ? "" : " · no recorded run on this bench, so it would chain in silent");
     slot.addEventListener("click", function (e) {
@@ -1223,6 +1285,71 @@
     return host;
   }
 
+  /* THE SITE ROLLUP - what a Wave Micro is FOR, done on the data we hold.
+     Every number here comes from deriveFleet(), the same recount the FLEET
+     tab prints, so the two can never disagree. The attribution is the point:
+     this is the BENCH's arithmetic over recorded records, and it is labelled
+     that way in the markup, in the copy and in the aria-label. Wave Micro has
+     no recorded run on this bench and emits no prediction, margin or lamp. */
+  function drawSiteRollup(st) {
+    var box = el("div", "sn-scope");
+    box.appendChild(el("p", "sn-scope__job",
+      "A site brain takes in " + st.takes + " at once and produces " + st.job + "."));
+
+    var fl = st.fleet;
+    if (!fl || fl.none || !fl.totals) {
+      box.appendChild(el("p", "sn-sub",
+        "Nothing is reading the fleet yet, so there is no site rollup to do. " +
+        "Chain a model with a recorded run and this fills in."));
+      return box;
+    }
+    var t = fl.totals;
+    // each stat is its own cell so the row WRAPS on a narrow screen - a
+    // column-flow grid pushed half the rollup off the side at 380px
+    var grid = el("dl", "sn-scope__grid");
+    [["channels", t.n], ["faults", t.faults], ["caught", t.caught],
+     ["missed", t.missed], ["unheard", t.deadEnd], ["false alarms", t.falseAlarms]
+    ].forEach(function (row) {
+      var cell = el("div", "sn-scope__stat");
+      cell.appendChild(el("dt", null, row[0]));
+      cell.appendChild(el("dd", null, String(row[1])));
+      grid.appendChild(cell);
+    });
+    box.appendChild(grid);
+    box.appendChild(el("p", "sn-scope__policy", "across the whole recorded fleet · " + fl.policy));
+
+    var att = el("p", "sn-scope__att");
+    att.appendChild(el("i", "sn-scope__tag", "BENCH ARITHMETIC"));
+    att.appendChild(el("span", null,
+      " These are the bench's own numbers - a recount of the recorded records under your " +
+      "current settings. Wave Micro has no recorded run here, so this is the JOB a site " +
+      "brain does, done on the data we have - not something Wave Micro said."));
+    box.appendChild(att);
+    box.setAttribute("aria-label",
+      "A site rollup computed by the bench from recorded records, not output from Wave Micro");
+    return box;
+  }
+
+  /* ABOVE THE SITE the bench simply has nothing that big. These tiers say what
+     they would take in and what they would produce, and then say where the
+     data stops - which is more useful than a shrug, and still claims nothing. */
+  function drawScopeCard(st) {
+    var box = el("div", "sn-scope");
+    var dl = el("dl", "sn-scope__pair");
+    dl.appendChild(el("dt", null, "takes in"));
+    dl.appendChild(el("dd", null, st.takes));
+    dl.appendChild(el("dt", null, "produces"));
+    dl.appendChild(el("dd", null, st.job));
+    box.appendChild(dl);
+    var att = el("p", "sn-scope__att");
+    att.appendChild(el("i", "sn-scope__tag", "NOTHING THIS BIG HERE"));
+    att.appendChild(el("span", null,
+      " This bench holds one recorded fleet - not " + st.role + ". There is nothing at that " +
+      "scope to recount, and no recorded " + st.fam.label + " run to replay, so it stays quiet."));
+    box.appendChild(att);
+    return box;
+  }
+
   // the card's live state, in three words, from the stage this model produced
   function slotState(id) {
     var v = PATCH.verdict;
@@ -1266,6 +1393,15 @@
     var txt = el("span", "sn-slot__txt");
     txt.appendChild(el("b", "sn-slot__name sn-tiername", fam.label));
     txt.appendChild(el("span", "sn-slot__role", fam.does));
+    // fan-in, said on the card: what this tier takes IN. A Pico reads one
+    // machine, a Nano rolls up many Picos, a Micro reasons over many fleets -
+    // the shape of the mesh, stated where the model is rather than in a footnote.
+    var takes = el("span", "sn-slot__takes");
+    takes.appendChild(el("i", "sn-slot__takes-k", "takes "));
+    takes.appendChild(el("span", null, fam.takes));
+    takes.title = "one " + fam.label + " takes in " + fam.takes +
+      " - in a real mesh, many at once. This bench shows one for clarity.";
+    txt.appendChild(takes);
     if (stNow) {
       var badge = el("span", "sn-slot__state " + stNow.cls, stNow.word);
       badge.title = "what this model did with the read now on the monitor";
@@ -2124,7 +2260,7 @@
       sts.forEach(function (st) {
         var tier = st.kind === "pico" ? "pico"
           : (st.kind === "nano" || st.kind === "quietSenior") ? "nano"
-          : (st.kind === "silent" && st.fam) ? st.fam.id : null;
+          : st.fam ? st.fam.id : null;
         if (!tier) return;
         var li = el("li", "sn-trail__row");
         tierStyle(li, tier);
@@ -2134,6 +2270,8 @@
           ? (st.esc ? "not sure enough - asked for help" : 'answered " ' + st.said + '"')
           : st.kind === "nano" ? 'answered " ' + st.verdict + '"'
           : st.kind === "quietSenior" ? "not needed on this read"
+          : st.kind === "site" ? "summed up the whole site - the bench's arithmetic, not its own"
+          : st.kind === "scope" ? "would take in " + st.takes + " - nothing that big on this bench"
           : "silent - no recorded run here";
         li.appendChild(el("span", "sn-trail__did", did));
         trail.appendChild(li);
@@ -2156,7 +2294,7 @@
       var box = el("section", "sn-stage sn-stage--" + st.kind + (solo ? " sn-stage--solo" : ""));
       var stTier = st.kind === "pico" ? "pico"
         : (st.kind === "nano" || st.kind === "quietSenior") ? "nano"
-        : (st.kind === "silent" && st.fam) ? st.fam.id : null;
+        : st.fam ? st.fam.id : null;
       if (stTier) tierStyle(box, stTier);
       var head = el("div", "sn-stage__head");
       head.appendChild(el("b", stTier ? "sn-tiername" : null, st.who));
@@ -2237,6 +2375,10 @@
         var dn = el("p", "sn-para sn-para--warn sn-live--esc", st.note);
         flashIfChanged(dn, "deadend", "deadend");
         box.appendChild(dn);
+      } else if (st.kind === "site") {
+        box.appendChild(drawSiteRollup(st));
+      } else if (st.kind === "scope") {
+        box.appendChild(drawScopeCard(st));
       } else if (st.kind === "silent") {
         box.appendChild(el("p", "sn-sub",
           st.fam.blurb + " - it has no recorded run on this bench, so it stays quiet."));
