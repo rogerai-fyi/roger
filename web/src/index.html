@@ -55,7 +55,10 @@
            now-playing display). Clicking the mascot OR the banner opens a small
            record-player chat (Ping concierge) for typing. Sits right after the
            subhead, before the command. teaser.js drives #pingTag / [data-onair]. -->
-      <!-- Wave Micro is a PROGRAM, not a download. The plate states the two facts a
+      <!-- SPECTRUM (2026-08-14): this plate is Wave PICO's - the edge tier and the
+           only one with a trained artifact today. (It read "Wave Micro" here until
+           the ladder was renamed; the plate itself was already correct.)
+           Wave Pico is a PROGRAM, not a download. The plate states the two facts a
            reader could otherwise get wrong - it is in progress, and no checkpoint has
            been released - and stops there. Internal programme state (which stage the
            architecture work is at) is not something a visitor needs, and publishing it
@@ -428,14 +431,29 @@
         </article>
       </div>
 
+      <!-- THE WHOLE LADDER, not a sample of it. This strip used to name five of
+           the seven tiers and elide the rest behind an ellipsis, which read as
+           if the family stopped at Giga. All seven are here now, each with the
+           one thing a reader actually wants - how big, and what it watches.
+           The bar over each tier is the wave itself: a repeating gradient whose
+           stripes TIGHTEN as the model grows, so the spectrum is legible before
+           a word is read. It is drawn in CSS and costs nothing to ship - the
+           engraved tier plates are richer but weigh ~640KB together, which is
+           not a homepage's job. -->
       <ol class="home-spectrum" aria-label="The Wave Spectrum, pico to exa">
-        <li><span>250–300M · waypoint</span><b>Wave Pico</b><small>one machine&rsquo;s telemetry · Pi/ESP32</small></li>
-        <li><span>0.8–1.5B</span><b>Wave Nano</b><small>fleet rollup + routing · gateway</small></li>
-        <li><span>7–8B</span><b>Wave Micro</b><small>site brain · general + industrial</small></li>
-        <li><span>27–35B</span><b>Wave Giga</b><small>full-plant reasoning · plant datacenter</small></li>
-        <li><span>…&nbsp;to ~284B</span><b>Wave Exa</b><small>the frontier flagship, the family&rsquo;s teacher</small></li>
-        <li class="home-spectrum__more"><a href="/research.html">Full program status &rarr;</a></li>
+        <li style="--gap:14px"><i aria-hidden="true"></i><span>250–300M · waypoint</span><b>Wave Pico</b><small>one machine&rsquo;s telemetry · Pi/ESP32</small></li>
+        <li style="--gap:10px"><i aria-hidden="true"></i><span>0.8–1.5B</span><b>Wave Nano</b><small>fleet rollup + routing · a gateway</small></li>
+        <li style="--gap:7.5px"><i aria-hidden="true"></i><span>7–8B</span><b>Wave Micro</b><small>site brain · a facility</small></li>
+        <li style="--gap:5.5px"><i aria-hidden="true"></i><span>27–35B</span><b>Wave Giga</b><small>full-plant reasoning · a plant</small></li>
+        <li style="--gap:4.2px"><i aria-hidden="true"></i><span>80–120B</span><b>Wave Tera</b><small>faults across many plants</small></li>
+        <li style="--gap:3.2px"><i aria-hidden="true"></i><span>150–200B</span><b>Wave Peta</b><small>regional scale · pruned from the flagship</small></li>
+        <li style="--gap:2.4px"><i aria-hidden="true"></i><span>~284B</span><b>Wave Exa</b><small>the frontier flagship, the family&rsquo;s teacher</small></li>
       </ol>
+      <p class="home-spectrum__foot">
+        Every tier ships with Wave Mesh baked in and understands the output of every
+        tier beneath it. <a href="/research-wave-family.html">The Wave Spectrum &rarr;</a>
+        <a href="/research.html">Full program status &rarr;</a>
+      </p>
     </div>
   </section>
 

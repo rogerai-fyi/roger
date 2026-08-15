@@ -203,6 +203,13 @@ test("the footer carries every destination the nav panels reveal", () => {
     .flatMap((m) => liveHrefs(m[0]));
   const footer = liveHrefs(home.match(/<footer[\s\S]*?<\/nav>/)[0]);
   for (const h of new Set(panelHrefs)) {
+    // A panel entry may be a DEEP LINK into a page the footer already carries
+    // (the Playbox lists its two decks as /playbox.html#console and #mesh). The
+    // rule this test protects is "no destination is reachable only through a
+    // JS panel" - and a hash into an already-mapped page is not a destination
+    // the footer is missing, it is a shortcut into one it has.
+    const base = h.split("#")[0];
+    if (base && base !== h && footer.includes(base)) continue;
     assert.ok(footer.includes(h), `${h} is in the footer too, so it survives with JS off`);
   }
 });
@@ -382,6 +389,14 @@ test("each group's page offers every destination in that group's panel", () => {
     assert.ok(hero, `${parent} carries a hero action row`);
     for (const dest of dests) {
       if (dest === parent) continue; // the parent is where we already are
+      // A panel entry may be a DEEP LINK into a page the hero already offers -
+      // the Playbox lists its two decks as /playbox.html#console and #mesh. The
+      // reader this test protects (landed here from a search result, menu
+      // undiscovered) can still reach the page; the hash picks a deck once
+      // there. Requiring a separate hero button per deck would put three
+      // Playbox buttons in one row to no benefit.
+      const base = dest.split("#")[0];
+      if (base && base !== dest && (base === parent || hero.includes(`href="${base}"`))) continue;
       assert.ok(hero.includes(`href="${dest}"`),
         `${parent} must offer ${dest} as a button in its hero, not only in the ${name.trim()} panel`);
     }

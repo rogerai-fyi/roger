@@ -58,16 +58,37 @@
          image, tools, embeds) - unchanged. WAVE MESH is the engineering deck:
          devices, wire formats, and the mesh that reads them. The Playbox is
          where you FEEL what a model does, and RogerAI's models read machines,
-         so the machine deck belongs here rather than on a page of its own. -->
-    <div class="wrap pg-modes">
-      <div class="pg-modes__tabs" role="tablist" aria-label="Playbox decks">
+         so the machine deck belongs here rather than on a page of its own.
+
+         The switch used to be a quiet pair of tabs and visitors missed the
+         second deck entirely. It is now a labelled two-way selector on the
+         face of the instrument: a legend naming what it selects, both decks
+         legible BEFORE you click, and the seated one carrying a lit lamp.
+         The .pg-mode class and the pgMode* ids are the contract wave-patch.js
+         drives (aria-selected + tabindex + arrow keys) - kept exactly. The
+         styling lives in playbox.css under .pg-deckswitch, whose descendant
+         selectors outrank the base .pg-mode rules whatever the bundle order. -->
+    <div class="wrap pg-modes pg-deckswitch">
+      <span class="pg-deckswitch__legend" id="pgDeckLegend">
+        <span class="pg-deckswitch__no" aria-hidden="true">SEL</span>
+        Two decks on one instrument &mdash; pick one
+      </span>
+      <div class="pg-modes__tabs" role="tablist" aria-labelledby="pgDeckLegend">
         <button class="pg-mode" id="pgModeConsole" type="button" role="tab"
                 aria-selected="true" aria-controls="pgConsoleView" tabindex="0">
-          <b>CONSOLE</b><span>load a model, press play</span>
+          <span class="pg-mode__lamp" aria-hidden="true"></span>
+          <span class="pg-mode__face">
+            <b>CONSOLE</b><span>load a model, press play</span>
+            <em class="pg-mode__hint">chat &middot; voice &middot; image &middot; tools &middot; embeds</em>
+          </span>
         </button>
         <button class="pg-mode" id="pgModeMesh" type="button" role="tab"
                 aria-selected="false" aria-controls="pgMeshView" tabindex="-1">
-          <b>WAVE MESH</b><span>devices, wire formats, the mesh that reads them</span>
+          <span class="pg-mode__lamp" aria-hidden="true"></span>
+          <span class="pg-mode__face">
+            <b>WAVE MESH</b><span>devices, wire formats, the mesh that reads them</span>
+            <em class="pg-mode__hint">sensors &rarr; models &rarr; what they said</em>
+          </span>
         </button>
       </div>
     </div>

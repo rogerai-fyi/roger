@@ -674,7 +674,7 @@
 
 .home-spectrum {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr)) auto;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   margin: var(--s-6) 0 0;
   padding: 0;
   list-style: none;
@@ -686,24 +686,51 @@
   align-content: start;
   gap: 4px;
   min-width: 0;
-  padding: var(--s-4);
+  padding: var(--s-4) var(--s-3);
   border-right: 1px solid var(--hairline);
 }
+.home-spectrum li:last-child { border-right: 0; }
+
+/* The wave, drawn: stripes tighten as the tier grows, so the ladder is a
+   picture before it is a list. --gap is set per tier in the markup; the mask
+   fades both ends so the strip reads as a sample of a continuous signal
+   rather than a bounded bar. */
+.home-spectrum i {
+  display: block; height: 22px; margin-bottom: 2px;
+  background: repeating-linear-gradient(90deg,
+    currentColor 0 1.5px, transparent 1.5px var(--gap, 8px));
+  color: var(--ink-300);
+  -webkit-mask: linear-gradient(90deg, transparent, #000 22%, #000 78%, transparent);
+          mask: linear-gradient(90deg, transparent, #000 22%, #000 78%, transparent);
+}
 .home-spectrum li > span,
-.home-spectrum small,
-.home-spectrum__more a {
+.home-spectrum small {
   color: var(--ink-500);
   font-family: var(--font-mono);
   font-size: var(--t-micro);
 }
+/* Pico is the one tier carrying a status ("· waypoint"), so its size line wraps
+   to two rows and every name after it sat a line higher. Reserve the second row
+   in every cell so the seven names share one baseline. */
+.home-spectrum li > span { min-height: 2.6em; }
 .home-spectrum b { color: var(--ink-900); font-size: var(--t-sm); }
-.home-spectrum__more {
-  align-items: center;
-  border-right: 0 !important;
-  background: var(--paper-2);
+.home-spectrum__foot {
+  margin: var(--s-3) 0 0;
+  display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-4);
+  align-items: baseline;
+  font-size: var(--t-xs); color: var(--ink-500); line-height: var(--lh-body);
 }
-.home-spectrum__more a { color: var(--ink-900); }
-.home-spectrum__more a:hover { color: var(--live); }
+.home-spectrum__foot a {
+  font-family: var(--font-mono); font-size: var(--t-micro);
+  color: var(--ink-900); white-space: nowrap;
+}
+.home-spectrum__foot a:hover { color: var(--live); }
+@media (max-width: 1080px) {
+  .home-spectrum { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .home-spectrum li { border-bottom: 1px solid var(--hairline); }
+  .home-spectrum li:nth-child(4n) { border-right: 0; }
+  .home-spectrum li:nth-last-child(-n+3):nth-child(n+5) { border-bottom: 0; }
+}
 @media (max-width: 720px) {
   .company__grid { grid-template-columns: 1fr; }
   .company__card { padding: var(--s-6); }
@@ -712,14 +739,15 @@
     border-top: 1px solid var(--hairline);
   }
   .home-spectrum { grid-template-columns: 1fr 1fr; }
+  .home-spectrum li:nth-child(4n) { border-right: 1px solid var(--hairline); }
   .home-spectrum li:nth-child(even) { border-right: 0; }
   .home-spectrum li { border-bottom: 1px solid var(--hairline); }
-  .home-spectrum__more { grid-column: 1 / -1; border-bottom: 0 !important; }
+  .home-spectrum li:last-child { border-bottom: 0; }
 }
 @media (max-width: 420px) {
   .home-spectrum { grid-template-columns: 1fr; }
-  .home-spectrum li { border-right: 0; }
-  .home-spectrum__more { grid-column: auto; }
+  .home-spectrum li { border-right: 0 !important; }
+  .home-spectrum i { height: 18px; }
 }
 .checks { list-style: none; margin: var(--s-6) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--s-3); }
 .checks li { display: flex; gap: 10px; align-items: flex-start; font-size: var(--t-sm); color: var(--ink-700); }

@@ -121,11 +121,17 @@ test("the company page makes no unearned model claims", () => {
 test("the company page presents an honest model-size family", () => {
   const page = visible(readDist("company.html"));
   // SPECTRUM RENAME (2026-08-14): the family line runs pico to exa.
+  // WHOLE LADDER (2026-08-15): the sentence named four tiers and summarised the
+  // rest as "the largest waves", so a reader could not learn the family from it.
+  // All seven are named now, each with the place it sits.
   for (const slot of [
     /Wave Pico/i,
     /Wave Nano/i,
     /Wave Micro/i,
     /Wave Giga/i,
+    /Wave Tera/i,
+    /Wave Peta/i,
+    /Wave Exa/i,
   ]) assert.match(page, slot);
   assert.match(page, /pico to exa/i);
   assert.match(page, /frontier flagship/i);

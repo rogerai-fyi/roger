@@ -831,6 +831,19 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
 .nav__panel a:hover, .nav__panel a:focus-visible { background: var(--hover-bg); }
 .nav__panel b { color: var(--ink-900); font-size: var(--t-sm); font-weight: var(--weight-semi); }
 .nav__panel span { font-size: var(--t-xs); line-height: var(--lh-body); }
+
+/* A panel row that is a CHILD of the row above it - the Playbox's two decks.
+   The rule down the left is the nesting cue, so the pair reads as ways into one
+   destination rather than three separate places. */
+.nav__panel a.nav__sub {
+  margin-left: var(--s-4);
+  padding-left: var(--s-3);
+  border-left: 1px solid var(--hairline-2);
+  border-radius: 0 var(--r-xs) var(--r-xs) 0;
+}
+.nav__panel a.nav__sub b { font-size: var(--t-xs); color: var(--ink-700); }
+.nav__panel a.nav__sub:hover b, .nav__panel a.nav__sub:focus-visible b { color: var(--ink-900); }
+.nav__panel a.nav__sub:hover, .nav__panel a.nav__sub:focus-visible { border-left-color: var(--live); }
 @media (prefers-reduced-motion: reduce) { .nav__more svg { transition: none; } }
 
 /* Inside the mobile burger the bar is a column, so a floating panel would sit over

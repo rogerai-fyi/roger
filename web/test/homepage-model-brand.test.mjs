@@ -19,17 +19,28 @@ test("the homepage orders the compact right-sized model spectrum", () => {
   const home = read("index.html");
   const spectrum = home.match(/<ol class="home-spectrum"[\s\S]*?<\/ol>/)?.[0] || "";
   // SPECTRUM RENAME (2026-08-14): pico -> exa on the home strip.
-  const order = ["Wave Pico", "Wave Nano", "Wave Micro", "Wave Giga", "Wave Exa"];
+  // WHOLE LADDER (2026-08-15): the strip used to name five tiers and elide Tera
+  // and Peta behind an ellipsis, which read as a family that stops at Giga. All
+  // seven are required here now, in ladder order.
+  const order = ["Wave Pico", "Wave Nano", "Wave Micro", "Wave Giga",
+                 "Wave Tera", "Wave Peta", "Wave Exa"];
   let cursor = -1;
   for (const name of order) {
     const next = spectrum.indexOf(name);
     assert.ok(next > cursor, `${name} follows the smaller tier`);
     cursor = next;
   }
+  assert.equal((spectrum.match(/<li/g) || []).length, order.length,
+    "the strip is the ladder and nothing else - no filler rows");
   for (const phrase of ["telemetry", "fleet rollup", "site brain", "full-plant reasoning"]) {
     assert.match(visible(spectrum), new RegExp(phrase.replace("+", "\\+"), "i"));
   }
-  assert.match(spectrum, /href="\/research\.html"/);
+  // the deeper reads moved OUT of the <ol> (a link is not a tier) into the
+  // caption beneath it, which also carries the tier-comprehension line
+  const foot = home.match(/<p class="home-spectrum__foot"[\s\S]*?<\/p>/)?.[0] || "";
+  assert.match(foot, /href="\/research\.html"/);
+  assert.match(foot, /href="\/research-wave-family\.html"/);
+  assert.match(visible(foot), /understands the output of every tier beneath it/i);
 });
 
 test("the homepage Labs card presents the Wave program, not a download", () => {

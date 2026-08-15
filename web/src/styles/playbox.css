@@ -741,3 +741,92 @@
   .dk__spine:hover { transform: none; }
   .pg-smeter__needle { transition: none; }
 }
+
+/* =====================================================================
+   THE DECK SWITCH - two decks on one instrument
+   The Playbox carries CONSOLE and WAVE MESH, and visitors were missing the
+   second one entirely: the old switch was two quiet text tabs under the
+   hero, with nothing saying a choice was on offer. It now reads as a
+   labelled two-way selector on the face of the equipment - a legend that
+   names what it selects, both decks described BEFORE you click, and the
+   seated deck carrying the lit lamp.
+
+   These are DESCENDANT selectors (.pg-deckswitch .pg-mode = 0,2,0) so they
+   outrank the base .pg-mode rules (0,1,0) that live in wave-patch.css,
+   whichever bundle loads last. The class and ids are wave-patch.js's
+   contract (aria-selected + tabindex + arrow keys) and are untouched.
+   ===================================================================== */
+.pg-deckswitch {
+  display: grid; gap: var(--s-3);
+  margin-top: var(--s-6);
+}
+.pg-deckswitch__legend {
+  display: flex; align-items: center; gap: var(--s-2);
+  font-family: var(--font-mono); font-size: var(--t-micro);
+  letter-spacing: var(--tracking-label); text-transform: uppercase;
+  color: var(--ink-400);
+}
+.pg-deckswitch__no {
+  padding: 1px 6px; border: 1px solid var(--hairline-2); border-radius: var(--r-xs);
+  color: var(--ink-500); letter-spacing: .12em;
+}
+.pg-deckswitch .pg-modes__tabs {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 0;
+  border: 1px solid var(--hairline);
+  border-top: 2px solid var(--ink-900);
+  background: var(--paper);
+  padding: 0;
+}
+.pg-deckswitch .pg-mode {
+  display: grid; grid-template-columns: auto 1fr; gap: var(--s-3);
+  align-items: start; text-align: left;
+  padding: var(--s-4) var(--s-5);
+  background: transparent; border: 0; border-radius: 0;
+  cursor: pointer; color: inherit; font: inherit;
+  transition: background var(--d-2, .18s) var(--ease-standard, ease);
+}
+.pg-deckswitch .pg-mode + .pg-mode { border-left: 1px solid var(--hairline); }
+.pg-deckswitch .pg-mode:hover { background: var(--paper-2); }
+.pg-deckswitch .pg-mode:focus-visible { outline: 2px solid var(--live); outline-offset: -3px; }
+
+/* the lamp: dark when the deck is parked, lit when it is seated */
+.pg-mode__lamp {
+  width: 10px; height: 10px; margin-top: 5px; border-radius: 50%;
+  border: 1px solid var(--ink-300); background: var(--paper-3);
+  transition: background var(--d-2, .18s) var(--ease-standard, ease),
+              border-color var(--d-2, .18s) var(--ease-standard, ease),
+              box-shadow var(--d-2, .18s) var(--ease-standard, ease);
+}
+.pg-mode__face { display: grid; gap: 2px; min-width: 0; }
+.pg-deckswitch .pg-mode b {
+  font-family: var(--font-mono); font-size: var(--t-sm);
+  letter-spacing: var(--tracking-label); color: var(--ink-500);
+}
+.pg-deckswitch .pg-mode > .pg-mode__face > span {
+  font-size: var(--t-xs); line-height: var(--lh-body); color: var(--ink-500);
+}
+.pg-mode__hint {
+  font-family: var(--font-mono); font-size: var(--t-micro); font-style: normal;
+  color: var(--ink-400);
+}
+
+/* SEATED: the lamp lights, the name goes to full ink, and the deck's own
+   face lifts off the paper. The word is always there - the lamp is a
+   second signal, never the only one. */
+.pg-deckswitch .pg-mode[aria-selected="true"] { background: var(--paper-2); }
+.pg-deckswitch .pg-mode[aria-selected="true"] b { color: var(--ink-900); }
+.pg-deckswitch .pg-mode[aria-selected="true"] .pg-mode__lamp {
+  background: var(--live); border-color: var(--live);
+  box-shadow: 0 0 0 3px var(--live-wash, rgb(224 35 28 / 14%));
+}
+.pg-deckswitch .pg-mode[aria-selected="true"] .pg-mode__hint { color: var(--ink-500); }
+
+@media (max-width: 620px) {
+  .pg-deckswitch .pg-modes__tabs { grid-template-columns: 1fr; }
+  .pg-deckswitch .pg-mode + .pg-mode {
+    border-left: 0; border-top: 1px solid var(--hairline);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pg-deckswitch .pg-mode, .pg-mode__lamp { transition: none; }
+}

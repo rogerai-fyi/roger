@@ -42,7 +42,14 @@
           </button>
           <div class="nav__panel" id="navModelsPanel" hidden>
             <a href="/models.html"><b>Models on air</b><span>The live directory: every model the network is carrying, and the stations carrying it.</span></a>
-            <a href="/playbox.html" {{playboxcurrent}}><b>Playbox</b><span>Open the console: chat with live stations, try the capability surfaces, and run the Roger Edge device.</span></a>
+            <!-- The Playbox carries TWO decks and this menu used to name only one,
+                 so the mesh deck was unreachable from navigation. Both are listed
+                 now; the mesh entry deep-links to #mesh, which the deck already
+                 boots from. The two are indented CHILDREN of the Playbox row, not
+                 siblings, so the menu still reads as one destination, two ways in. -->
+            <a href="/playbox.html" {{playboxcurrent}}><b>Playbox</b><span>Two decks on one instrument: talk to live models, or wire a machine to one.</span></a>
+            <a class="nav__sub" href="/playbox.html#console"><b>Console</b><span>Load a model like a cassette: chat, voice, image, tools, embeds.</span></a>
+            <a class="nav__sub" href="/playbox.html#mesh"><b>Wave Mesh</b><span>Sensors, wire formats, and the Wave models that read them.</span></a>
             <a href="/voices.html" {{voicescurrent}}><b>Voices</b><span>On-air text-to-speech voices, each one an operator&rsquo;s station.</span></a>
             <a href="/tower.html" {{towercurrent}}><b>Tower</b><span>How a station is chosen, metered, and made to sign for what it billed.</span></a>
           </div>
@@ -58,7 +65,7 @@
           <div class="nav__panel" id="navResearchPanel" hidden>
             <a href="/research.html"><b>Labs</b><span>Programs, proof, and how the work gets published.</span></a>
             <a href="/research-models.html"><b>Models and status</b><span>Every model, its program status, lineage and evidence.</span></a>
-            <a href="/research-wave-family.html"><b>The Wave family</b><span>Every slot, from microcontroller to workstation.</span></a>
+            <a href="/research-wave-family.html"><b>The Wave family</b><span>The Spectrum, pico to exa: a chip beside one machine up to an exascale-class flagship.</span></a>
             <a href="/research-industry.html"><b>Industrial deployment</b><span>Where the box sits in a plant network, and what it never touches.</span></a>
             <a href="/broadcasts.html"><b>Open Air Waves</b><span>Build stories and measurements, negative results included.</span></a>
           </div>

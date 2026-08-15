@@ -286,3 +286,53 @@
   .po-meter__seg { transition: none; }
   .po-payout__chev { transition: none; }
 }
+
+/* ---- Towers & relay: the operator's live fleet, one row per Tower. Mirrors the
+   per-model breakdown row (left = id + a mono meta line; right = a state pill). ---- */
+.po-towers__title {
+  margin: var(--s-4) 0 var(--s-2);
+  color: var(--ink-500);
+  font-weight: var(--weight-medium);
+}
+.po-tower__left {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.po-tower__left b {
+  color: var(--ink-900);
+  font-weight: var(--weight-medium);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.po-tower__meta {
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  color: var(--ink-400);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.po-tower__state {
+  flex: none;
+  align-self: center;
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  letter-spacing: .02em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--hairline);
+  color: var(--ink-500);
+  white-space: nowrap;
+}
+/* A Tower carrying work reads as live; quarantine reads as caution; retired/other stays
+   muted. These map to the registry states surfaced by /tower/status. */
+.po-tower__state--joined,
+.po-tower__state--live {
+  color: var(--live);
+  border-color: color-mix(in srgb, var(--live) 45%, transparent);
+}
+.po-tower__state--quarantine {
+  color: var(--warn, #d9a441);
+  border-color: color-mix(in srgb, var(--warn, #d9a441) 45%, transparent);
+}
