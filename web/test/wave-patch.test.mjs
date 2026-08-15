@@ -280,9 +280,12 @@ test("chain: an unrecorded model chains in and states its job, claiming nothing"
   // the recorded records, attributed to the BENCH. The guarantee this lock
   // exists for is unchanged and asserted harder: no prediction, no margin, no
   // lamp, for any tier without a recorded run.
+  // AMENDED AGAIN 2026-08-15 (v20): Micro AND Giga now do their real job at
+  // their real scope (a site / the plant), so both produce a "scoperun" stage
+  // with counts; only tiers whose scope exceeds the recording stay "scope".
   const h = loadHook();
   h.selectType("temp", "dropout");
-  for (const [tier, kind] of [["micro", "site"], ["giga", "scope"], ["exa", "scope"]]) {
+  for (const [tier, kind] of [["micro", "scoperun"], ["giga", "scoperun"], ["exa", "scope"]]) {
     h.state.chain = [tier];
     h.derive();
     const st = h.state.verdict.stages;
@@ -296,51 +299,99 @@ test("chain: an unrecorded model chains in and states its job, claiming nothing"
     "a recorded tier in a pass-through position still says exactly what it is");
 });
 
-test("v18: the site rollup is the bench's arithmetic, attributed, never a model output", () => {
+test("v20: every scope is a real subset of the records, counted by one engine", () => {
+  // AMENDED 2026-08-15 (v20): the site rollup used to be the WHOLE fleet, which
+  // was the right arithmetic on the wrong scope - a site brain reads a site,
+  // not the plant. Scopes are now nested subsets of real records (machine ->
+  // site -> plant), and the guarantee is stronger: every scope's counts must
+  // come from records that actually exist, and the plant scope must still
+  // agree with the FLEET tab exactly.
   const h = loadHook();
   h.selectType("temp", "dropout");
   h.state.chain = ["pico", "nano", "micro"];
   h.state.floor = 1.5;
   h.derive();
-  const site = h.state.verdict.stages.find((s) => s.kind === "site");
-  assert.ok(site, "a chained Micro produces a site stage");
+  const site = h.state.verdict.stages.find((s) => s.kind === "scoperun");
+  assert.ok(site, "a chained Micro produces a scope-run stage");
 
-  // ONE SOURCE OF TRUTH: the site rollup and the FLEET tab must be the same
-  // derivation, or the deck would show two different fleets.
+  // the scope is a real subset: its indices exist, are unique, and are exactly
+  // the channels of the machines it claims
+  const idxs = site.scope.idxs;
+  assert.equal(new Set(idxs).size, idxs.length, "no record is counted twice in a scope");
+  idxs.forEach((i) => assert.ok(measured.records[i], `record ${i} exists`));
+  assert.equal(site.scope.chans, idxs.length, "the channel count is the scope's own size");
+  assert.equal(site.tally.n, idxs.length, "and the tally counts exactly those records");
+  assert.equal(site.tally.caught + site.tally.missed, site.tally.faults,
+    "its arithmetic balances");
+  assert.ok(site.scope.chans < measured.records.length,
+    "a SITE is smaller than the plant - the scope actually narrows");
+
+  // the plant scope must equal the fleet tab, record for record
+  h.state.chain = ["pico", "nano", "giga"];
+  h.derive();
+  const plant = h.state.verdict.stages.find((s) => s.kind === "scoperun");
+  assert.equal(plant.scope.chans, measured.records.length,
+    "the PLANT scope is every recorded channel");
   const fleet = h.deriveFleet();
-  assert.deepEqual(site.fleet.totals, fleet.totals,
-    "the site rollup IS deriveFleet() - the same recount the FLEET tab prints");
-  assert.equal(site.fleet.totals.n, measured.records.length,
-    "and it counts every recorded channel");
-  assert.equal(site.fleet.totals.caught + site.fleet.totals.missed, site.fleet.totals.faults,
-    "its arithmetic still balances");
+  ["n", "faults", "caught", "missed", "deadEnd", "falseAlarms"].forEach((k) => {
+    assert.equal(plant.tally[k], fleet.totals[k],
+      `plant.${k} agrees with the FLEET tab - one engine, no drift`);
+  });
 
   // it states the job, and never claims the model did it
   assert.ok(/BENCH ARITHMETIC/.test(js), "the numbers carry a bench-arithmetic tag");
-  assert.ok(/not something Wave Micro said/.test(js),
-    "and say in words that Wave Micro did not produce them");
-  assert.ok(/no recorded run here/.test(js), "the absent run is stated");
-  assert.ok(!("said" in site) && !("margin" in site) && !("verdict" in site),
-    "the stage carries no prediction and no margin");
+  assert.ok(/not something " \+\s*st\.fam\.label|not something/.test(js),
+    "and say in words that the model did not produce them");
+  assert.ok(/has no recorded run here/.test(js), "the absent run is stated");
+  [site, plant].forEach((st) => {
+    assert.ok(!("said" in st) && !("margin" in st) && !("verdict" in st),
+      "a scope stage carries no prediction and no margin");
+  });
 });
 
-test("v18: tiers above the site state their scope and invent nothing", () => {
+test("v20: the site partition is a stated convention, not a claimed fact", () => {
+  // The bench file never says which machines share a building. The deck groups
+  // scenes in id order, and that rule must be VISIBLE wherever a site is shown -
+  // otherwise the deck would be quietly inventing plant topology.
   const h = loadHook();
   h.selectType("temp", "dropout");
-  for (const tier of ["giga", "tera", "peta", "exa"]) {
+  h.state.chain = ["micro"];
+  h.derive();
+  const st = h.state.verdict.stages.find((s) => s.kind === "scoperun");
+  assert.match(st.scope.how, /scenes in id order/,
+    "the grouping rule travels with the scope and is printed on the card");
+  assert.ok(/THE SITE PARTITION IS A STATED CONVENTION/.test(js),
+    "and the source says so where the rule is defined");
+  // machines are real: each is one recorded scene
+  const scenes = new Set(measured.records.map((r) => r.scene_id));
+  assert.equal(h.state.machines.length, scenes.size, "one machine per recorded scene");
+  const covered = h.state.machines.reduce((a, m) => a + m.idxs.length, 0);
+  assert.equal(covered, measured.records.length,
+    "and every recorded channel belongs to exactly one machine");
+});
+
+test("v18: tiers above the PLANT state their scope and invent nothing", () => {
+  const h = loadHook();
+  h.selectType("temp", "dropout");
+  for (const tier of ["tera", "peta", "exa"]) {  // giga now runs the plant scope
     h.state.chain = [tier];
     h.derive();
     const sc = h.state.verdict.stages.find((s) => s.kind === "scope");
     assert.ok(sc, `${tier} produces a scope stage`);
     assert.ok(sc.takes && sc.job, `${tier} says what it takes in and what it would produce`);
     // nothing numeric may ride a tier the bench has no data for
-    for (const k of ["fleet", "margin", "said", "verdict", "n", "caught", "missed"]) {
+    for (const k of ["fleet", "tally", "scope", "margin", "said", "verdict", "n", "caught", "missed"]) {
       assert.ok(!(k in sc), `${tier}'s scope stage carries no ${k}`);
     }
+    // and it must say what it would ADD, not merely that it is absent
+    assert.ok(sc.fam.only && sc.fam.needs,
+      `${tier} states what only it can do and what the bench would need`);
   }
-  assert.ok(/NOTHING THIS BIG HERE/.test(js), "the empty scope is labelled");
-  assert.ok(/This bench holds one recorded fleet/.test(js),
-    "and says where the data stops");
+  assert.ok(/WHAT THIS BENCH WOULD NEED/.test(js), "the empty scope is labelled");
+  assert.ok(/a second plant's recording/.test(js),
+    "and says exactly what it would take to fill it");
+  assert.ok(/its work shows up in the WEIGHTS of the models below it/.test(js),
+    "the flagship's job is teaching, which is not a read on this monitor");
 });
 
 test("v18: fan-in is stated on every card and walked in the tour", () => {
@@ -576,11 +627,16 @@ test("palette: red is a signal, never a surface", async () => {
   // The count is a coarse tripwire against runaway red; the enumerated FILL
   // list below is the real teeth. Raised 30 -> 32 in v19 for the TV's scroll
   // controls, whose :focus-visible ring is the same red every other control
-  // on this deck focuses with - a focus ring is the canonical "current step"
-  // use, not a new surface. If this ever needs raising again for something
-  // that is NOT a focus ring, that is the signal to look hard instead.
+  // on this deck focuses with. The v19 comment said that a raise for anything
+  // that is NOT a focus ring is the signal to look hard - so, v20, having
+  // looked hard: 32 -> 36 covers four uses, and only two are new red at all.
+  // Two ARE focus rings (the face of the set, and the way back out of it).
+  // The other two are one thing: the face's red STATE, which sets background
+  // and border-color together. That is the lamp window's rule rendered at the
+  // size of the glass - already enumerated as a permitted fill below, still
+  // carrying its NE-107 shape and its word. No new KIND of red was added.
   const reds = (css.match(/var\(--live\)/g) || []).length;
-  assert.ok(reds > 0 && reds < 32, `red is used ${reds} times; it must stay a glint`);
+  assert.ok(reds > 0 && reds < 36, `red is used ${reds} times; it must stay a glint`);
   const filled = [];
   for (const block of css.split("}")) {
     if (/background:\s*var\(--live\)/.test(block)) {
@@ -588,13 +644,16 @@ test("palette: red is a signal, never a surface", async () => {
       filled.push(sel);
     }
   }
-  // Four rules may fill with red: the masthead's spot plate, the intake's one
-  // primary action, the lamp window's red state, and (v17) the sensor lane's
-  // missed-fault dot - a 0.42rem diamond meaning exactly what --live means,
-  // on the one surface that reports a fault the chain did not catch. It is
-  // the smallest red on the deck and it is alarm semantics, not decoration.
+  // Five rules may fill with red: the masthead's spot plate, the intake's one
+  // primary action, the lamp window's red state, (v17) the sensor lane's
+  // missed-fault dot - a 0.42rem diamond meaning exactly what --live means -
+  // and (v20) the FACE OF THE SET in its red state. The face is the largest
+  // red on the deck by area, and it is deliberate: it IS the lamp, shown at
+  // the size of the glass, and it carries the shape and the word beside the
+  // colour. A red screen that means "faults missed" is the alarm doing its
+  // job; the rail this list protects is that red never becomes decoration.
   assert.deepEqual(filled.sort(),
-    ['.sn-type__dot.is-bad', '.wm-masthead__spot',
+    ['.sn-tv__front[data-state="red"]', '.sn-type__dot.is-bad', '.wm-masthead__spot',
      '.wp-lampwin[data-state="red"]', '.wp-run'].sort(),
     `got ${filled.join(", ")}`);
   const pin = (f, kb) => {
@@ -622,7 +681,11 @@ test("palette: the lamp hues are fenced to lamp semantics", () => {
     // not its only signal: each state also has a distinct SHAPE (filled or
     // hollow, circle or diamond) and spells itself out in the lane's
     // aria-label and title - both asserted below.
-    assert.ok(/wp-lamp|wp-read__mark|syn-pad|sn-live|sn-fm__|sn-slot__state|sn-type__dot/.test(b),
+    // v20 adds the face of the set (sn-tv__front / sn-front__why): the glass at
+    // rest IS the lamp, shown large. It carries the NE-107 shape and the state
+    // word next to the colour, and its why-line inherits the same state, so it
+    // is the most literal lamp semantics on the deck rather than an exception.
+    assert.ok(/wp-lamp|wp-read__mark|syn-pad|sn-live|sn-fm__|sn-slot__state|sn-type__dot|sn-tv__front|sn-front__/.test(b),
       `green/yellow may only colour lamp-semantic surfaces, got: ${b.split("{")[0].trim()}`);
   }
   assert.ok(/STANDING BY|ALL CLEAR|DEGRADED|FAULTS MISSED/.test(js),
@@ -1821,4 +1884,74 @@ test("v19: the flagship's teaching role is the argument for the small models", (
   const pico = h.family.find((f) => f.id === "pico");
   assert.ok(/no network|no GPU/i.test(pico.only),
     "and the small side is a virtue stated in its own terms, not an apology");
+});
+
+// ---------- v20: the face of the set, the band-aware menu, the tabs ----------
+
+test("v20: the glass leads with the verdict, and the detail is one step away", () => {
+  // Founder: "maybe it might be good to have a full screen just green/yellow/
+  // red with a word text of the final state but then moving the mouse over it
+  // or clicking on it it shows all the details we currently have."
+  assert.ok(/sn-tv__front/.test(html), "the face of the set exists in the markup");
+  assert.match(html, /<button class="sn-tv__front"/,
+    "and it is a button, so the keyboard gets it without extra wiring");
+  assert.ok(/function paintFront/.test(js), "it is painted from the verdict");
+  assert.ok(/f\.hidden = detailOpen\(\)/.test(js),
+    "and it hides exactly when the detail is open - one state, not two");
+
+  // it must print the SAME verdict the lamp prints - never a second opinion
+  assert.ok(/LAMP_FACE\[state\]/.test(js.slice(js.indexOf("function paintFront"))),
+    "the face reads its word from LAMP_FACE, the lamp's own table");
+  assert.ok(/v\.label\) \|\| face\.label/.test(js),
+    "including the AT-CEILING style override the lamp uses");
+
+  // the way back, and the hover that opens it
+  assert.ok(/sn-back/.test(js), "the detail carries a way back to the face");
+  assert.ok(/FRONT_HOVER_MS/.test(js), "hover opens on rest, not on a pointer crossing");
+  assert.ok(/pointerType === "touch" \|\| REDUCED/.test(js),
+    "and never on touch or under reduced motion, where hover is not a gesture");
+
+  // the bug that made this unusable the first time: display:flex beat [hidden]
+  assert.ok(/\.sn-tv__front\[hidden\] \{ display: none; \}/.test(css),
+    "a hidden face must leave the layer, or it swallows every click on the glass");
+});
+
+test("v20: the menu leads with the tier that belongs in the band you opened", () => {
+  // Founder: "its not easy to understand which one i should select based on
+  // what i clicked." Every band knows its tier; the menu now says so.
+  const h = loadHook();
+  const bandTiers = ["pico", "nano", "micro", "giga", "tera", "peta", "exa"];
+  bandTiers.forEach((tier, i) => {
+    // the band table and the family must agree, or the recommendation lies
+    assert.equal(h.bands[i].tier, tier, `band ${i} belongs to ${tier}`);
+    assert.ok(h.family.some((f) => f.id === tier), `${tier} is a real tier`);
+  });
+  assert.ok(/ordered = \[pick\]\.concat/.test(js), "the band's own tier is moved to the front");
+  assert.ok(/lives here/.test(js), "and marked as the one that lives there");
+  assert.ok(/or put another tier here - the ladder stays open/.test(js),
+    "the rest stay choosable - the deck does not forbid an unusual chain");
+  assert.ok(/\.ws-menu__div ~ \.ws-menu__item \{ opacity/.test(css),
+    "they just step back so the lead reads as the lead");
+  // the motion is first-party and reduced-motion-gated (no library: CSP is self-only)
+  assert.ok(/@media \(prefers-reduced-motion: no-preference\)[\s\S]*ws-menu-in/.test(css),
+    "the arrival animation is opt-in, not imposed");
+});
+
+test("v20: the monitor's tabs follow the chain, whatever is in it", () => {
+  // The strip used to hard-code pico and nano, so a chained Micro produced a
+  // stage on the glass with no way to bring it up alone.
+  const h = loadHook();
+  h.selectType("temp", "dropout");
+  h.state.chain = ["pico", "nano", "micro", "giga"];
+  h.derive();
+  const kinds = h.state.verdict.stages.map((s) => s.kind);
+  assert.ok(kinds.includes("scoperun"), "Micro and Giga produce stages");
+  // every stage a model produced must be reachable as its own tab
+  const modelStages = h.state.verdict.stages.filter((s) => s.fam || s.kind === "pico" ||
+    s.kind === "nano" || s.kind === "quietSenior");
+  assert.ok(modelStages.length >= 4, "four models produced stages");
+  assert.ok(/else if \(st\.fam\) \{ id = st\.fam\.id/.test(js),
+    "the tab strip takes its ids from the stages, not a fixed list");
+  assert.ok(/if \(stId !== PATCH\.tab\) return;/.test(js),
+    "and one filter solos any of them, so no model is unreachable");
 });

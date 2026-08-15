@@ -37,6 +37,11 @@
           <span id="pgHeroKicker">open the console</span>
         </span>
         <h1 class="pg-hero__title" data-reveal data-reveal-delay="60" id="pgHeroTitle">Open the console.</h1>
+        <!-- Both deck blurbs live in ONE grid cell (see .pg-hero__subs) so the
+             hero always reserves the taller of the two. Otherwise the hero
+             shrinks when the deck switch is thrown and the switch jumps ~40px
+             out from under the cursor that just clicked it. -->
+        <div class="pg-hero__subs">
         <p class="pg-hero__sub" data-reveal data-reveal-delay="120" id="pgHeroConsole">
           Load a model like a cassette, choose what goes in - text, your voice, an image,
           a tool request, an embedded signal, or a guarded command - and press play.
@@ -50,6 +55,7 @@
           committed export of the simulation suite the models are actually trained and
           measured against - not an illustration of one.
         </p>
+        </div>
       </div>
     </section>
 
@@ -107,12 +113,16 @@
              story. Same two-plate mask mechanism as the mesh masthead, so it
              re-inks per theme. Without it the two decks read as different
              products; with it they are two instruments on one bench. -->
+        <!-- FIG caption FIRST, matching the mesh deck: both decks must present
+             the same element directly beneath the two-position switch, or the
+             switch appears to sit on different furniture depending on which way
+             it is thrown. -->
+        <span class="fig">FIG. 1 - THE DECK &middot; INPUT / TAPE / OUTPUT</span>
         <figure class="wm-masthead wm-masthead--tape" role="img"
                 aria-label="Engraved illustration: a punched-tape reader feeding a small radio receiver with a red lamp lit">
           <span class="wm-masthead__ink" aria-hidden="true"></span>
           <span class="wm-masthead__spot" aria-hidden="true"></span>
         </figure>
-        <span class="fig">FIG. 1 - THE DECK &middot; INPUT / TAPE / OUTPUT</span>
         <div class="pg-deck pg-bench dk">
           <!-- the engraved maker's plate: the deck is one piece of equipment -->
           <div class="pg-bench__plate" aria-hidden="true">
@@ -567,6 +577,16 @@
                       <span class="wb-plate__ink"></span>
                     </span>
                     <div class="sn-tv__screen" id="wpMonitor" aria-label="The monitor - the output at each stage"></div>
+                    <!-- THE FACE OF THE SET. At rest the glass shows ONE thing:
+                         the verdict, in its lamp colour, with the word. The
+                         detail cascade is one hover or click away. The founder:
+                         "it's still hard to know what we're supposed to look
+                         at... maybe a full screen just green/yellow/red with a
+                         word, then moving the mouse over it shows all the
+                         details we currently have." It is a button because it
+                         is one, so the keyboard gets it for free. -->
+                    <button class="sn-tv__front" id="wsFront" type="button"
+                            aria-controls="wpMonitor"></button>
                     <!-- The set's own controls. The engraved TV draws a knob
                          strip along its lower bezel; these make it real, so
                          the glass can be worked without a trackpad. They read

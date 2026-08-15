@@ -42,6 +42,14 @@
   font-size: var(--t-lead); line-height: var(--lh-body); text-wrap: pretty;
 }
 .pg-hero__sub b { color: var(--ink-700); font-weight: var(--weight-semi); }
+/* The two deck blurbs share one grid cell, so the cell is always as tall as the
+   taller of them. `hidden` would remove the inactive one from layout and the
+   hero would change height every time the deck switch is thrown - which moved
+   the switch itself out from under the pointer that had just clicked it. Kept
+   out of the a11y tree by visibility, not by display. */
+.pg-hero__subs { display: grid; }
+.pg-hero__subs > .pg-hero__sub { grid-area: 1 / 1; }
+.pg-hero__subs > .pg-hero__sub[hidden] { display: block; visibility: hidden; }
 @media (max-width: 800px) {
   .pg-hero__inner { grid-template-columns: 1fr; }
   .pg-hero__title { max-width: none; }

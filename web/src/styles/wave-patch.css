@@ -1740,3 +1740,128 @@
   margin: .45rem 0 0; font-size: .6rem; color: var(--ink-500); line-height: 1.5;
 }
 .sn-live__note { color: var(--ink-400); }
+
+/* =====================================================================
+   THE FACE OF THE SET - the glass at rest
+   Founder: "maybe it might be good to have a full screen just green/yellow/
+   red with a word text of the final state but then moving the mouse over it
+   or clicking on it it shows all the details we currently have."
+   Same fenced lamp hues as the window and the pads (they carry the WORD and a
+   shape too, so colour is never the only signal); it sits in the plate's glass
+   interior, exactly where the screen sits, and hides when the detail opens.
+   ===================================================================== */
+.sn-tv__front {
+  position: absolute; left: 16.6%; top: 15.2%; width: 68.2%; height: 62.4%;
+  transform: rotateX(var(--tiltx, 0deg)) rotateY(var(--tilty, 0deg));
+  transition: transform .25s ease-out;
+  z-index: 2; box-sizing: border-box; border-radius: 8px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: .5rem; padding: 1rem 1.4rem; cursor: pointer; text-align: center;
+  border: 1px solid var(--hairline-2); background: var(--paper-3); color: var(--ink-500);
+  font: inherit;
+}
+/* `display: flex` above beats the UA's [hidden] { display: none }, so the face
+   would stay in the layer over the glass while "hidden" and swallow every
+   click meant for the detail. Say it explicitly. */
+.sn-tv__front[hidden] { display: none; }
+.sn-tv__front:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
+.sn-front__k {
+  font-family: var(--font-mono); font-size: .56rem; letter-spacing: .18em;
+  opacity: .75;
+}
+.sn-front__word {
+  display: flex; align-items: center; gap: .6rem;
+  font-family: var(--font-mono); font-weight: 500;
+  font-size: clamp(1.4rem, 3.6vw, 2.6rem); letter-spacing: .1em; line-height: 1;
+}
+.sn-front__sym { font-size: 1.1em; line-height: 1; }
+.sn-front__why {
+  font-size: var(--t-micro, .7rem); line-height: 1.5; max-width: 46ch; opacity: .92;
+}
+.sn-front__hint {
+  margin-top: .2rem; font-family: var(--font-mono); font-size: .54rem;
+  letter-spacing: .14em; opacity: .6;
+}
+.sn-tv__front[data-state="green"]  { background: #1E7A3C; border-color: #1E7A3C; color: #FDFBF7; }
+.sn-tv__front[data-state="yellow"] { background: #C99700; border-color: #C99700; color: #14130F; }
+.sn-tv__front[data-state="red"]    { background: var(--live); border-color: var(--live); color: #FDFBF7; }
+.sn-tv__front[data-state="green"] .sn-front__why,
+.sn-tv__front[data-state="red"] .sn-front__why { color: #FDFBF7; }
+.sn-tv__front[data-state="yellow"] .sn-front__why { color: #14130F; }
+@media (hover: hover) {
+  .sn-tv__front:hover { filter: brightness(1.06); }
+}
+
+/* the way back to the face, first thing in the detail */
+.sn-back {
+  display: inline-flex; align-items: center; gap: .4rem; margin: 0 0 .5rem;
+  padding: .25rem .6rem; border-radius: 6px; cursor: pointer;
+  border: 1px solid var(--hairline-2); background: var(--paper); color: var(--ink-500);
+  font-family: var(--font-mono); font-size: .56rem; letter-spacing: .14em;
+}
+.sn-back:hover { border-color: var(--ink-500); color: var(--ink-900); }
+.sn-back:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
+.sn-back__arrow { font-size: .7em; }
+
+/* at narrow widths the plate steps aside and the glass is a plain card, so the
+   face follows it into flow rather than floating over nothing */
+@media (max-width: 700px) {
+  .sn-tv__front {
+    position: static; width: 100%; height: auto; min-height: 12rem;
+    transform: none;
+  }
+}
+
+/* ---- the menu knows which zone it was opened from ------------------------
+   Founder: "its not easy to understand which one i should select based on
+   what i clicked." The zone's own tier leads, marked and lifted; the rest sit
+   under a divider, dimmer but fully choosable. */
+.ws-menu__head {
+  margin: 0 0 .5rem; font-family: var(--font-mono); font-size: .6rem;
+  letter-spacing: .1em; color: var(--ink-500);
+}
+.ws-menu__where { font-style: normal; color: var(--ink-900); letter-spacing: .16em; }
+.ws-menu__div {
+  margin: .55rem 0 .4rem; padding-top: .5rem;
+  border-top: 1px dotted var(--hairline-2);
+  font-family: var(--font-mono); font-size: .54rem; letter-spacing: .08em;
+  color: var(--ink-400);
+}
+.ws-menu__lives {
+  color: var(--tc, var(--ink-900)); font-family: var(--font-mono);
+  font-size: .56rem; letter-spacing: .06em;
+}
+.ws-menu__item.is-lives {
+  border-color: var(--tc, var(--ink-500));
+  background: color-mix(in srgb, var(--tc, var(--ink-900)) 7%, var(--paper-2));
+}
+/* everything under the divider steps back so the lead reads as the lead */
+.ws-menu__div ~ .ws-menu__item { opacity: .78; }
+.ws-menu__div ~ .ws-menu__item:hover,
+.ws-menu__div ~ .ws-menu__item:focus-visible { opacity: 1; }
+
+/* ---- first-party motion: the menu arriving, the choice committing --------
+   No library (CSP script-src 'self', zero deps): a short stagger on the rows
+   and a lift on the lead is enough to feel alive. Chrome only - every row is
+   fully usable the instant it exists, and reduced motion sees none of it. */
+@media (prefers-reduced-motion: no-preference) {
+  .ws-menu__item { animation: ws-menu-in .26s ease-out backwards; }
+  .ws-menu__item:nth-child(2) { animation-delay: .02s; }
+  .ws-menu__item:nth-child(3) { animation-delay: .04s; }
+  .ws-menu__item:nth-child(4) { animation-delay: .06s; }
+  .ws-menu__item:nth-child(5) { animation-delay: .08s; }
+  .ws-menu__item:nth-child(6) { animation-delay: .10s; }
+  .ws-menu__item:nth-child(7) { animation-delay: .12s; }
+  .ws-menu__item:nth-child(8) { animation-delay: .14s; }
+  @keyframes ws-menu-in { from { opacity: 0; transform: translateY(-4px); } }
+  .ws-menu__item.is-lives { animation: ws-menu-lead .3s ease-out backwards; }
+  @keyframes ws-menu-lead { from { opacity: 0; transform: translateY(-6px) scale(.99); } }
+  .ws-menu__item { transition: border-color .16s ease-out, background .16s ease-out; }
+}
+
+/* While the face of the set is showing, the chin drops the duplicated why
+   sentence and keeps its lamp as a persistent indicator beside the control.
+   Saying the same thing twice on one screen is the crowding the founder keeps
+   asking us to remove. */
+.wp-console__lamp.is-lean { gap: .6rem; }
+.wp-console__lamp.is-lean .wp-why[hidden] { display: none; }

@@ -106,6 +106,7 @@
       only: "compares plants. A fault pattern that repeats across sites is invisible from inside any one of them.",
       belowCant: "one plant's model cannot see the pattern it shares with the next plant",
       takes: "many plants",
+      needs: "a second plant's recording - this bench holds one",
       job: "faults and trends correlated across an enterprise at once",
       does: "connects faults across many plants",
       blurb: "cross-site enterprise - correlates faults and trends across many plants at " +
@@ -116,6 +117,7 @@
       only: "carries a region on leaner hardware, pruned down from the flagship - the frontier's judgement at a fraction of its residency.",
       belowCant: "enterprise scale still runs the full stack; a region needs it cheaper",
       takes: "a region's plants",
+      needs: "recordings from plants across a region - this bench holds one plant",
       job: "a region's work, on leaner hardware carved from the flagship",
       does: "regional scale, pruned smaller",
       blurb: "regional scale - a leaner giant, distilled and pruned down from the " +
@@ -126,6 +128,7 @@
       only: "TEACHES the rest. The small models are good because this one trained them - the flagship is why a 270M model on a microcontroller is worth trusting.",
       belowCant: "nothing above it: this is where the family's capability comes from",
       takes: "the whole family's work",
+      needs: "nothing on this monitor: its work shows up in the WEIGHTS of the models below it, not as a read",
       job: "the teaching signal the rest of the family learns from",
       does: "the flagship the others learn from",
       blurb: "the flagship - exascale-class frontier capability (DeepSeek-V4-Flash " +
@@ -275,6 +278,9 @@
       idxs.forEach(function (i) { PATCH._recType[i] = def.key; });
     });
     if (!PATCH.typeKey && PATCH.types[0]) PATCH.typeKey = PATCH.types[0].key;
+    // the scopes index the SAME records by machine/site/plant. They are always
+    // needed together, so building them here removes a call-order footgun.
+    buildScopes();
   }
 
   /* ---- the representative pick: per (type, condition), the RECORDED window
@@ -435,15 +441,66 @@
      it is a recount of recorded child/parent predictions under the chain
      settings the visitor chose.
      ===================================================================== */
+  function mkTally() {
+    return { n: 0, faults: 0, caught: 0, missed: 0, fixable: 0,
+             deadEnd: 0, falseAlarms: 0, escalated: 0, quiet: 0 };
+  }
+
+  /* Score ONE record under the current chain policy. Pulled out of the fleet
+     rollup so every scope - a machine, a site, the plant, the whole fleet -
+     is counted by the SAME arithmetic. Returns the outcome and the flags a
+     tally needs; it invents nothing, it only reads recorded fields. */
+  function scoreRecord(r, info) {
+    var isFault = r.truth !== "none";
+    var out, esc = false, dead = false, fixable = false;
+    if (info.reader === "nano" && info.picoAt < 0) {
+      var okN = r.parent.prediction === r.truth;
+      out = okN ? (isFault ? "caught" : "quiet") : (isFault ? "missed" : "false");
+    } else {
+      esc = r.child.margin < PATCH.floor;
+      if (!esc) {
+        var okC = r.child.prediction === r.truth;
+        out = okC ? (isFault ? "caught" : "quiet") : (isFault ? "missed" : "false");
+        if (out === "missed" && r.parent.prediction === r.truth && r.child.margin < TOP) fixable = true;
+      } else if (info.senior) {
+        var okP = r.parent.prediction === r.truth;
+        out = okP ? (isFault ? "caught" : "quiet") : (isFault ? "missed" : "false");
+      } else {
+        dead = true;
+        out = isFault ? "missed" : "quiet"; // an unheard doubt asserts nothing
+      }
+    }
+    return { out: out, esc: esc, dead: dead, fixable: fixable, isFault: isFault };
+  }
+
+  function addToTally(b, sc) {
+    b.n++;
+    if (sc.isFault) b.faults++;
+    if (sc.esc) b.escalated++;
+    if (sc.dead) b.deadEnd++;
+    if (sc.fixable) b.fixable++;
+    if (sc.out === "caught") b.caught++;
+    else if (sc.out === "missed") b.missed++;
+    else if (sc.out === "false") b.falseAlarms++;
+    else b.quiet++;
+  }
+
+  /* Count any set of record indices under the current policy. This is the one
+     engine behind every scope stage AND the FLEET tab, so a site rollup and
+     the fleet tab can never disagree about the same records. */
+  function tallyOver(idxs, info) {
+    var m = PATCH.measured;
+    var t = mkTally();
+    idxs.forEach(function (i) { addToTally(t, scoreRecord(m.records[i], info)); });
+    return t;
+  }
+
   function deriveFleet() {
     var m = PATCH.measured;
     if (!m) return null;
     var info = chainInfo();
     if (!info.reader) return { none: true };
-    var mk = function () {
-      return { n: 0, faults: 0, caught: 0, missed: 0, fixable: 0,
-               deadEnd: 0, falseAlarms: 0, escalated: 0, quiet: 0 };
-    };
+    var mk = mkTally;
     var t = mk(), per = {};
     m.records.forEach(function (r, i) {
       var key = PATCH._recType && PATCH._recType[i];
@@ -483,6 +540,124 @@
       });
     });
     return { totals: t, perType: per, policy: policyLine() };
+  }
+
+  /* =====================================================================
+     THE SCOPES - what each tier can see, derived from the recording
+
+     The founder: "when i put Giga it just says nothing that big here, we need
+     to simulate as if it were." It can be simulated without inventing a byte,
+     because the recording already HAS the shape of a plant: the 120 records
+     are 20 scenes of 6 channels, and each scene is one machine (its channels
+     share a tag root - AIR003_*, AIR004_*, ...). So the ladder's scopes are
+     nested subsets of real records:
+
+       Pico  - one channel on one machine        (the dialed record)
+       Nano  - that machine's channels           (one scene: 6 records)
+       Micro - that machine's SITE               (see the partition below)
+       Giga  - every machine: THE PLANT          (all 20 scenes, 120 records)
+
+     THE SITE PARTITION IS A STATED CONVENTION, not a recorded fact: the bench
+     file does not say which machines share a building, so the deck groups the
+     scenes in id order into sites of SITE_SIZE. That is arithmetic on real
+     records under a rule we print on screen - never a claim the export made.
+
+     Above Giga the recording genuinely runs out: one plant is not many plants,
+     there is no region, and the flagship's role is TEACHING, which is a
+     training relationship rather than a read. Those tiers say what they would
+     add and stop, because the alternative is fabrication. */
+  var SITE_SIZE = 5;   // machines per site, stated wherever a site is shown
+
+  function buildScopes() {
+    var m = PATCH.measured;
+    if (!m) return;
+    var order = [], byScene = {};
+    m.records.forEach(function (r, i) {
+      if (!byScene[r.scene_id]) { byScene[r.scene_id] = []; order.push(r.scene_id); }
+      byScene[r.scene_id].push(i);
+    });
+    order.sort();
+    PATCH.machines = order.map(function (sid, k) {
+      var idxs = byScene[sid];
+      // a machine's name is the tag root its channels share; unnamed channels
+      // (the Sparkplug aliases) fall back to the scene id, never invented
+      var roots = {};
+      idxs.forEach(function (i) {
+        var tag = (m.records[i].window && m.records[i].window.tag) || "";
+        var root = /^AI_\d+$/.test(tag) ? null : tag.split("_")[0];
+        if (root) roots[root] = (roots[root] || 0) + 1;
+      });
+      var name = Object.keys(roots).sort(function (a, b) { return roots[b] - roots[a]; })[0] || sid;
+      return { scene: sid, name: name, idxs: idxs, site: Math.floor(k / SITE_SIZE) };
+    });
+    PATCH.sites = [];
+    PATCH.machines.forEach(function (mach) {
+      var st = PATCH.sites[mach.site] = PATCH.sites[mach.site] ||
+        { n: mach.site, machines: [], idxs: [] };
+      st.machines.push(mach);
+      st.idxs = st.idxs.concat(mach.idxs);
+    });
+    PATCH.sites.forEach(function (st) {
+      st.label = "SITE " + String.fromCharCode(65 + st.n);
+    });
+  }
+
+  function machineOf(recIdx) {
+    var ms = PATCH.machines || [];
+    for (var i = 0; i < ms.length; i++) if (ms[i].idxs.indexOf(recIdx) >= 0) return ms[i];
+    return null;
+  }
+
+  /* The scope a tier answers over, for the CURRENT selection. Returns the
+     record indices plus what to call them, or null when the tier's scope
+     exceeds what was recorded. */
+  function scopeFor(tierId) {
+    var m = PATCH.measured;
+    if (!m || !PATCH.machines) return null;
+    var sel = currentType();
+    var recIdx = sel && sel.recIdx ? sel.recIdx[PATCH.cond] : null;
+    var mach = recIdx == null ? null : machineOf(recIdx);
+    if (tierId === "nano") {
+      if (!mach) return null;
+      return { idxs: mach.idxs, unit: "machine", name: mach.name,
+               machines: 1, chans: mach.idxs.length,
+               how: "the machine this channel is bolted to" };
+    }
+    if (tierId === "micro") {
+      if (!mach) return null;
+      var site = PATCH.sites[mach.site];
+      return { idxs: site.idxs, unit: "site", name: site.label,
+               machines: site.machines.length, chans: site.idxs.length,
+               how: "the " + site.machines.length + " machines grouped as " + site.label +
+                    " - scenes in id order, " + SITE_SIZE + " to a site" };
+    }
+    if (tierId === "giga") {
+      var all = [];
+      PATCH.machines.forEach(function (x) { all = all.concat(x.idxs); });
+      return { idxs: all, unit: "plant", name: "THE PLANT",
+               machines: PATCH.machines.length, chans: all.length,
+               sites: PATCH.sites.length,
+               how: "every recorded machine on this bench" };
+    }
+    return null; // tera / peta / exa exceed the recording
+  }
+
+  /* The worst offenders inside a scope: which machines carry the misses. This
+     is what a site brain or a plant model would actually report, and it is a
+     recount - each machine's own records, scored by the same engine. */
+  function worstMachines(idxs, info, limit) {
+    var seen = {}, out = [];
+    (PATCH.machines || []).forEach(function (mach) {
+      var mine = mach.idxs.filter(function (i) { return idxs.indexOf(i) >= 0; });
+      if (!mine.length) return;
+      var t = tallyOver(mine, info);
+      if (!seen[mach.name]) { seen[mach.name] = 1; out.push({ mach: mach, t: t }); }
+    });
+    out.sort(function (a, b) {
+      return (b.t.missed - a.t.missed) || (b.t.faults - a.t.faults) ||
+             (a.mach.name < b.mach.name ? -1 : 1);
+    });
+    return out.slice(0, limit || 3);
   }
 
   function policyLine() {
@@ -565,28 +740,35 @@
     return out;
   }
 
-  /* A tier with no recorded run used to add one dead line - "silent, no
-     recorded run here" - which was honest and useless, and made the whole
-     upper ladder look like decoration. A tier still never emits a prediction,
-     a margin or a lamp state without a run behind it. But we can show the JOB
-     the tier does, and where we hold data at that scope we can do that job on
-     it, attributed to the BENCH rather than to a model that never ran.
+  /* A tier with no recorded run never emits a prediction, a margin or a lamp
+     state - that rail has not moved. What HAS moved is what it does instead of
+     shrugging. Where the recording holds data at the tier's scope, the tier's
+     JOB is done on that data and attributed to the bench:
 
-     WAVE MICRO is the site brain: multi-fleet reasoning across one facility.
-     A recount across every recorded channel IS that job, and the deck already
-     computes it for the FLEET tab - deriveFleet() is the ONE source of truth,
-     so the site stage and the tab can never drift apart.
+       MICRO - the site brain: its site's machines, recounted
+       GIGA  - the plant: every recorded machine, recounted, sites ranked
 
-     ABOVE MICRO there is nothing at that scope to recount: this bench holds a
-     single recorded fleet, not a plant, an enterprise or a region. So those
-     tiers state what they would take in and what they would produce, and say
-     plainly that the data stops below them. */
+     Above Giga the recording runs out (one plant is not many plants; there is
+     no region; the flagship TEACHES rather than reads), so those tiers state
+     precisely what they would add and why the bench stops - which is a far
+     more useful thing to read than "nothing that big here". */
   function unrecordedStage(fam) {
     var base = { who: fam.label.toUpperCase(), fam: fam, role: fam.reach,
                  takes: fam.takes, job: fam.job };
-    if (fam.id === "micro") {
-      base.kind = "site";
-      base.fleet = deriveFleet(); // same derivation the FLEET tab prints
+    var sc = scopeFor(fam.id);
+    if (sc) {
+      var info = chainInfo();
+      base.kind = "scoperun";
+      base.scope = sc;
+      base.tally = tallyOver(sc.idxs, info);
+      base.worst = worstMachines(sc.idxs, info, 3);
+      base.policy = policyLine();
+      if (fam.id === "giga") {
+        base.sites = (PATCH.sites || []).map(function (st) {
+          return { label: st.label, machines: st.machines.length,
+                   t: tallyOver(st.idxs, info) };
+        }).sort(function (a, b) { return b.t.missed - a.t.missed; });
+      }
       return base;
     }
     base.kind = "scope";
@@ -1306,20 +1488,26 @@
      this is the BENCH's arithmetic over recorded records, and it is labelled
      that way in the markup, in the copy and in the aria-label. Wave Micro has
      no recorded run on this bench and emits no prediction, margin or lamp. */
-  function drawSiteRollup(st) {
+  /* A tier doing its real job at its real scope. The numbers are a recount of
+     recorded records inside that scope, scored by the same engine the FLEET
+     tab uses - so a site rollup, a plant rollup and the fleet tab can never
+     disagree about the same records. The attribution is the point: the JOB is
+     the tier's, the ARITHMETIC is the bench's, and no model ran. */
+  function drawScopeRun(st) {
     var box = el("div", "sn-scope");
+    var sc = st.scope, t = st.tally;
     box.appendChild(el("p", "sn-scope__job",
-      "A site brain takes in " + st.takes + " at once and produces " + st.job + "."));
+      "A " + (sc.unit === "plant" ? "plant model" : "site brain") + " takes in " +
+      st.takes + " at once and produces " + st.job + "."));
 
-    var fl = st.fleet;
-    if (!fl || fl.none || !fl.totals) {
-      box.appendChild(el("p", "sn-sub",
-        "Nothing is reading the fleet yet, so there is no site rollup to do. " +
-        "Chain a model with a recorded run and this fills in."));
-      return box;
-    }
-    var t = fl.totals;
-    // each stat is its own cell so the row WRAPS on a narrow screen - a
+    var head = el("p", "sn-scope__scopeline");
+    head.appendChild(el("b", null, sc.name));
+    head.appendChild(el("span", null, " · " + sc.machines + " machine" +
+      (sc.machines === 1 ? "" : "s") + " · " + sc.chans + " recorded channels" +
+      (sc.sites ? " · " + sc.sites + " sites" : "")));
+    box.appendChild(head);
+
+    // each stat its own cell so the row WRAPS on a narrow screen - a
     // column-flow grid pushed half the rollup off the side at 380px
     var grid = el("dl", "sn-scope__grid");
     [["channels", t.n], ["faults", t.faults], ["caught", t.caught],
@@ -1331,36 +1519,76 @@
       grid.appendChild(cell);
     });
     box.appendChild(grid);
-    box.appendChild(el("p", "sn-scope__policy", "across the whole recorded fleet · " + fl.policy));
+
+    // what a model at this level would actually report: where the trouble is
+    if (st.sites && st.sites.length > 1) {
+      var sl = el("ul", "sn-scope__rank");
+      st.sites.forEach(function (x) {
+        var li = el("li", null);
+        li.appendChild(el("b", null, x.label));
+        li.appendChild(el("span", null, " " + x.machines + " machines · " +
+          x.t.missed + " missed of " + x.t.faults + " faults"));
+        sl.appendChild(li);
+      });
+      box.appendChild(el("p", "sn-scope__rankhead", "sites, worst first"));
+      box.appendChild(sl);
+    } else if (st.worst && st.worst.length) {
+      var ml = el("ul", "sn-scope__rank");
+      st.worst.forEach(function (x) {
+        var li = el("li", null);
+        li.appendChild(el("b", null, x.mach.name));
+        li.appendChild(el("span", null, " " + x.t.missed + " missed of " +
+          x.t.faults + " faults · " + x.t.n + " channels"));
+        ml.appendChild(li);
+      });
+      box.appendChild(el("p", "sn-scope__rankhead", "machines, worst first"));
+      box.appendChild(ml);
+    }
+
+    box.appendChild(el("p", "sn-scope__policy", sc.how + " · " + st.policy));
 
     var att = el("p", "sn-scope__att");
     att.appendChild(el("i", "sn-scope__tag", "BENCH ARITHMETIC"));
     att.appendChild(el("span", null,
-      " These are the bench's own numbers - a recount of the recorded records under your " +
-      "current settings. Wave Micro has no recorded run here, so this is the JOB a site " +
-      "brain does, done on the data we have - not something Wave Micro said."));
+      " These are the bench's own numbers - a recount of the recorded records in this " +
+      "scope under your current settings. " + st.fam.label + " has no recorded run here, " +
+      "so this is the JOB it does, done on the data we have - not something " +
+      st.fam.label + " said."));
     box.appendChild(att);
     box.setAttribute("aria-label",
-      "A site rollup computed by the bench from recorded records, not output from Wave Micro");
+      "A " + sc.unit + " rollup computed by the bench from recorded records, not output from " +
+      st.fam.label);
     return box;
   }
 
-  /* ABOVE THE SITE the bench simply has nothing that big. These tiers say what
-     they would take in and what they would produce, and then say where the
-     data stops - which is more useful than a shrug, and still claims nothing. */
+  /* ABOVE THE PLANT the recording genuinely runs out. "Nothing this big here"
+     was true and useless; what a reader needs is what the tier WOULD add, what
+     the tier below cannot do without it, and exactly what this bench would
+     need in order to show it. The difference between "cannot show" and "here
+     is what it would take" is the whole argument for the upper ladder. */
   function drawScopeCard(st) {
     var box = el("div", "sn-scope");
+    var fam = st.fam;
     var dl = el("dl", "sn-scope__pair");
     dl.appendChild(el("dt", null, "takes in"));
     dl.appendChild(el("dd", null, st.takes));
     dl.appendChild(el("dt", null, "produces"));
     dl.appendChild(el("dd", null, st.job));
+    if (fam.only) {
+      dl.appendChild(el("dt", null, "only it can"));
+      dl.appendChild(el("dd", null, fam.only));
+    }
+    if (fam.belowCant) {
+      dl.appendChild(el("dt", null, "the one below"));
+      dl.appendChild(el("dd", null, fam.belowCant));
+    }
     box.appendChild(dl);
+
     var att = el("p", "sn-scope__att");
-    att.appendChild(el("i", "sn-scope__tag", "NOTHING THIS BIG HERE"));
-    att.appendChild(el("span", null,
-      " This bench holds one recorded fleet - not " + st.role + ". There is nothing at that " +
-      "scope to recount, and no recorded " + st.fam.label + " run to replay, so it stays quiet."));
+    att.appendChild(el("i", "sn-scope__tag", "WHAT THIS BENCH WOULD NEED"));
+    att.appendChild(el("span", null, " " + (fam.needs ||
+      "a recording at that scope - this bench holds one plant") +
+      ". No recorded " + fam.label + " run exists here either, so it asserts nothing."));
     box.appendChild(att);
     return box;
   }
@@ -1471,11 +1699,41 @@
   }
 
   // The attach menu: the whole family, sized so size is VISIBLE.
+  /* The menu opens FROM a band, and that band already knows which tier belongs
+     in it - so it says so. The founder: "its not easy to understand which one
+     i should select based on what i clicked." The zone's own tier leads, named
+     and marked; the rest of the ladder follows under a divider, still fully
+     choosable, because putting a Micro where a Nano would go is a legitimate
+     thing to try and the deck should not forbid it - only stop pretending the
+     seven are interchangeable. */
   function drawMenu(slotIdx) {
     var menu = el("div", "ws-menu");
     menu.setAttribute("role", "menu");
-    menu.setAttribute("aria-label", "Add a model to the chain");
-    FAMILY.forEach(function (fam) {
+    var band = (typeof slotIdx === "number" && BANDS[slotIdx]) ? BANDS[slotIdx] : null;
+    var pick = band ? familyById(band.tier) : null;
+    menu.setAttribute("aria-label", band
+      ? "Put a model " + band.label.toLowerCase() + ". " + (pick ? pick.label + " lives here." : "")
+      : "Add a model to the chain");
+
+    if (band) {
+      var head = el("p", "ws-menu__head");
+      head.appendChild(el("i", "ws-menu__where", band.label));
+      head.appendChild(el("span", null, " · " + band.where));
+      menu.appendChild(head);
+    }
+
+    // the zone's own tier first, then everything else
+    var ordered = FAMILY.slice();
+    if (pick) {
+      ordered = [pick].concat(FAMILY.filter(function (f) { return f.id !== pick.id; }));
+    }
+    var dividerAt = pick ? 1 : -1;
+
+    ordered.forEach(function (fam, oi) {
+      if (oi === dividerAt) {
+        menu.appendChild(el("p", "ws-menu__div",
+          "or put another tier here - the ladder stays open"));
+      }
       // ALREADY SEATED reads as seated (founder v19: "highlight the ones or
       // dim the ones we are already added"). Offering a tier that is already
       // in the chain as if it were available is a small lie the menu was
@@ -1483,9 +1741,10 @@
       // useful thing to do with it is find it - it takes you to its band -
       // and it says so rather than looking mysteriously disabled.
       var seated = PATCH.chain.indexOf(fam.id) >= 0;
+      var lives = !!(pick && fam.id === pick.id);
       var b = el("button", "ws-menu__item" +
         (fam.status === "recorded" ? "" : " ws-menu__item--quiet") +
-        (seated ? " is-seated" : ""));
+        (seated ? " is-seated" : "") + (lives ? " is-lives" : ""));
       b.type = "button";
       b.setAttribute("role", "menuitem");
       tierStyle(b, fam.id);
@@ -1506,16 +1765,21 @@
         fam.status === "recorded"
           ? "recorded on this bench" + (runOf(fam.id) ? " · run " + runOf(fam.id) : "")
           : fam.status + " · will attach silent"));
+      if (lives && !seated) {
+        txt.appendChild(el("span", "ws-menu__lives",
+          "◂ lives here — this is the tier for " + band.label.toLowerCase()));
+      }
       if (seated) {
-        var band = bandOf(fam.id);
+        var sband = bandOf(fam.id);
         txt.appendChild(el("span", "ws-menu__seated",
-          "✓ already in the chain" + (band ? " · " + band.label.toLowerCase() : "") +
+          "✓ already in the chain" + (sband ? " · " + sband.label.toLowerCase() : "") +
           " — click to find it"));
       }
       b.appendChild(txt);
       b.title = seated
         ? fam.label + " is already in this chain; clicking takes you to its band"
-        : fam.blurb + " · runs on " + fam.runs + " · " + fam.recipe;
+        : (lives ? "the tier that belongs " + band.label.toLowerCase() + " · " : "") +
+          fam.blurb + " · runs on " + fam.runs + " · " + fam.recipe;
       b.addEventListener("click", function (e) {
         e.stopPropagation();
         if (seated) { revealBand(fam.id); return; }
@@ -2373,13 +2637,21 @@
     host.setAttribute("aria-label", "Which stage's output the monitor shows");
     var sts = PATCH.verdict ? PATCH.verdict.stages : [];
     var tabs = [{ id: "all", label: "ALL" }], seen = {};
+    /* The strip follows the CHAIN. It used to hard-code pico and nano, so a
+       chained Micro or Giga produced a stage on the glass with no way to bring
+       it up alone - the tabs claimed the chain was two models long whatever the
+       visitor had built. Every model that produced a stage gets a tab, in the
+       order the stages run (which normalizeChain keeps in ladder order), and it
+       carries its tier colour so the strip matches the cards and the trail. */
     sts.forEach(function (st) {
-      var id = st.kind === "raw" ? "raw"
-        : st.kind === "pico" ? "pico"
-        : (st.kind === "nano" || st.kind === "quietSenior") ? "nano" : null;
+      var id = null, label = null, tier = null;
+      if (st.kind === "raw") { id = "raw"; label = "SENSOR DATA"; }
+      else if (st.kind === "pico") { id = "pico"; label = "WAVE PICO"; tier = "pico"; }
+      else if (st.kind === "nano" || st.kind === "quietSenior") { id = "nano"; label = "WAVE NANO"; tier = "nano"; }
+      else if (st.fam) { id = st.fam.id; label = st.fam.label.toUpperCase(); tier = st.fam.id; }
       if (!id || seen[id]) return;
       seen[id] = true;
-      tabs.push({ id: id, label: id === "raw" ? "SENSOR DATA" : id === "pico" ? "WAVE PICO" : "WAVE NANO" });
+      tabs.push({ id: id, label: label, tier: tier });
     });
     tabs.push({ id: "fleet", label: "FLEET" });
     if (!tabs.some(function (t) { return t.id === PATCH.tab; })) PATCH.tab = "all";
@@ -2389,10 +2661,11 @@
       b.setAttribute("role", "tab");
       b.setAttribute("aria-selected", PATCH.tab === t.id ? "true" : "false");
       b.textContent = t.label;
+      if (t.tier) tierStyle(b, t.tier);
       b.title = t.id === "all" ? "everything at once: the sensor, then what each model said"
         : t.id === "fleet" ? "all 120 recorded sensors replayed under your current settings"
         : t.id === "raw" ? "just the numbers the sensor sent"
-        : "just what this model said, large";
+        : "just this model's stage, on its own";
       b.addEventListener("click", function () {
         PATCH.tab = t.id;
         paintMonitor();
@@ -2401,6 +2674,70 @@
       });
       host.appendChild(b);
     });
+  }
+
+  /* ---- THE FACE OF THE SET -------------------------------------------------
+     At rest the glass shows the verdict and nothing else: the lamp colour, the
+     word, one line of why. Hover (with an intent delay, so crossing the deck
+     does not open it) or click/Enter reveals the detail cascade, and a control
+     inside the detail returns. Everything it prints is read off the SAME
+     verdict the lamp and the stages use - it is a bigger way of showing what
+     the deck already concluded, never a second opinion. */
+  var FRONT_HOVER_MS = 380;
+  var frontTimer = null;
+
+  function detailOpen() { return !!PATCH.detail; }
+
+  function setDetail(on) {
+    if (PATCH.detail === on) return;
+    PATCH.detail = on;
+    paintFront();
+    paintMonitor();
+    if (on) {
+      var back = document.querySelector(".sn-back");
+      if (back && back.focus) back.focus({ preventScroll: true });
+    } else {
+      var f = $("wsFront");
+      if (f && f.focus) f.focus({ preventScroll: true });
+    }
+  }
+
+  function paintFront() {
+    var f = $("wsFront");
+    if (!f) return;
+    var v = PATCH.verdict;
+    var state = v ? v.state : "off";
+    var face = LAMP_FACE[state] || LAMP_FACE.off;
+    f.textContent = "";
+    f.dataset.state = state;
+    f.hidden = detailOpen();
+    if (detailOpen()) return;
+
+    var k = el("span", "sn-front__k", "FLEET STATUS");
+    f.appendChild(k);
+    var word = el("b", "sn-front__word");
+    word.appendChild(el("span", "sn-front__sym", face.sym));
+    word.appendChild(el("span", null, (v && v.label) || face.label));
+    f.appendChild(word);
+    if (v && v.why) f.appendChild(el("span", "sn-front__why", v.why));
+    f.appendChild(el("span", "sn-front__hint", "tap for the detail"));
+    f.setAttribute("aria-label",
+      "Fleet status: " + ((v && v.label) || face.label) + ". " +
+      ((v && v.why) || "") + " Activate to see the detail.");
+  }
+
+  function wireFront() {
+    var f = $("wsFront");
+    if (!f) return;
+    f.addEventListener("click", function () { setDetail(true); });
+    // hover opens, but only on rest - otherwise a pointer crossing the deck
+    // would blow past the one screen the founder asked us to lead with
+    f.addEventListener("pointerenter", function (e) {
+      if (e.pointerType === "touch" || REDUCED) return;
+      clearTimeout(frontTimer);
+      frontTimer = setTimeout(function () { setDetail(true); }, FRONT_HOVER_MS);
+    });
+    f.addEventListener("pointerleave", function () { clearTimeout(frontTimer); });
   }
 
   function paintMonitor() {
@@ -2427,6 +2764,17 @@
     var r = currentRecord();
     PATCH._scrollNode = null; // nominated by whatever actually changes below
 
+    // the way back to the face of the set, first thing in the detail
+    if (detailOpen()) {
+      var back = el("button", "sn-back");
+      back.type = "button";
+      back.appendChild(el("span", "sn-back__arrow", "\u25c0"));
+      back.appendChild(el("span", null, "STATUS"));
+      back.title = "back to the status screen";
+      back.addEventListener("click", function () { setDetail(false); });
+      host.appendChild(back);
+    }
+
     if (PATCH.tab === "fleet") {
       host.appendChild(renderFleet());
       if (PATCH.reply) host.appendChild(drawReply(PATCH.reply));
@@ -2434,6 +2782,7 @@
       fadeF.setAttribute("aria-hidden", "true");
       host.appendChild(fadeF);
       paintLampAndCert(v, r);
+      paintFront();
       followChanges();
       return;
     }
@@ -2492,8 +2841,11 @@
           ? (st.esc ? "not sure enough - asked for help" : 'answered " ' + st.said + '"')
           : st.kind === "nano" ? 'answered " ' + st.verdict + '"'
           : st.kind === "quietSenior" ? "not needed on this read"
-          : st.kind === "site" ? "summed up the whole site - the bench's arithmetic, not its own"
-          : st.kind === "scope" ? "would take in " + st.takes + " - nothing that big on this bench"
+          : st.kind === "scoperun"
+            ? ("read " + st.scope.machines + " machine" + (st.scope.machines === 1 ? "" : "s") +
+               " · " + st.tally.missed + " missed of " + st.tally.faults +
+               " faults - the bench's arithmetic, not its own")
+          : st.kind === "scope" ? "would take in " + st.takes + " - beyond what this bench recorded"
           : "silent - no recorded run here";
         li.appendChild(el("span", "sn-trail__did", did));
         trail.appendChild(li);
@@ -2508,9 +2860,13 @@
 
     sts.forEach(function (st) {
       if (PATCH.tab !== "all") {
-        if (PATCH.tab === "raw" && st.kind !== "raw") return;
-        if (PATCH.tab === "pico" && st.kind !== "pico") return;
-        if (PATCH.tab === "nano" && st.kind !== "nano" && st.kind !== "quietSenior") return;
+        // one filter for every model, so a tab added for Micro or Giga solos
+        // its stage the same way Pico's does
+        var stId = st.kind === "raw" ? "raw"
+          : st.kind === "pico" ? "pico"
+          : (st.kind === "nano" || st.kind === "quietSenior") ? "nano"
+          : st.fam ? st.fam.id : null;
+        if (stId !== PATCH.tab) return;
       }
       var solo = PATCH.tab !== "all";
       var box = el("section", "sn-stage sn-stage--" + st.kind + (solo ? " sn-stage--solo" : ""));
@@ -2597,8 +2953,8 @@
         var dn = el("p", "sn-para sn-para--warn sn-live--esc", st.note);
         flashIfChanged(dn, "deadend", "deadend");
         box.appendChild(dn);
-      } else if (st.kind === "site") {
-        box.appendChild(drawSiteRollup(st));
+      } else if (st.kind === "scoperun") {
+        box.appendChild(drawScopeRun(st));
       } else if (st.kind === "scope") {
         box.appendChild(drawScopeCard(st));
       } else if (st.kind === "silent") {
@@ -2638,6 +2994,7 @@
     host.appendChild(fade);
 
     paintLampAndCert(v, r);
+    paintFront();
     followChanges();
   }
 
@@ -2661,7 +3018,18 @@
       lampBig.appendChild(el("span", "wp-lampwin__sym", v.sym || f2.sym));
       lampBig.appendChild(el("span", "wp-lampwin__label", v.label || f2.label));
     }
-    if (why && v) why.textContent = v.why;
+    /* v20 - SAY IT ONCE. With the face of the set leading, the chin was
+       repeating the same lamp and the same why sentence, verbatim, on the same
+       screen. While the face is showing, the chin keeps only its lamp (a
+       persistent indicator beside the WHO'S WATCHING control, which is a
+       control and stays) and drops the duplicated sentence; when the detail is
+       open the face is gone, so the chin carries the full line again. */
+    if (why && v) {
+      why.textContent = detailOpen() ? v.why : "";
+      why.hidden = !detailOpen();
+    }
+    var chin = why && why.parentNode;
+    if (chin && chin.classList) chin.classList.toggle("is-lean", !detailOpen());
 
     var certHost = $("wpCertHost");
     var certWasOpen = false;
@@ -3685,6 +4053,7 @@
       document.addEventListener("keydown", onKey);
       wirePrompt();
       wireGlassScroll();
+      wireFront();
     }).catch(fail);
   }
 
@@ -3731,6 +4100,10 @@
       setScene: function (sc, cat) { PATCH.scene = sc; PATCH.catalog = cat; },
       setMeasured: function (m) { PATCH.measured = m; },
       buildTypes: buildTypes,
+      buildScopes: buildScopes,
+      scopeFor: scopeFor,
+      tallyOver: tallyOver,
+      worstMachines: worstMachines,
       selectType: selectType,
       chainAdd: chainAdd,
       laneRead: laneRead,
@@ -3755,6 +4128,7 @@
       runOf: runOf,
       state: PATCH,
       family: FAMILY,
+      bands: BANDS,
       detents: DETENTS,
       glossary: GLOSSARY,
     };
