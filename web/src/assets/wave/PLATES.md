@@ -25,6 +25,9 @@ where redness = R−max(G,B) > 28, MedianFilter 3). Spot plates must stay < 16 K
 | `radio-reader-*` | Compact 1950s tabletop radio, red lamp on the VU meter | 580×380 | 131 KB / 1.4 KB | 42 | (cropped from plate-reader raw; knob-label microtext zapped) | The signal bench's READER radio (wired) |
 | `radio-pocket-*` | Pocket transistor radio (palm-size set), no red | 370×310 | 59 KB / 0.5 KB (empty) | 42 | (cropped from plate-pocket raw; faceplate pseudo-text + signature zapped) | The attach menu's pico/edge-scale model icon (wired) |
 | `radio-senior-*` | Tall rack-mounted radio console, three stacked panels, no red | 512×640 | 147 KB / 1.3 KB (empty) | 42 | (from plate-senior raw) | The signal bench's SENIOR rack (wired) |
+| `scene-plant-*` | A four-storey factory cutaway: machines, control cabinets, a control room, a server room, no red | 280×630 | 120 KB / empty | 7 | DEPLOYMENT CONTEXT: where a tier physically lives and what it can see |
+| `scene-robot-*` | A robot arm cell with a small module bolted beside it and a conveyor, no red | 610×410 | 87 KB / empty | 7 | DEPLOYMENT CONTEXT: where a tier physically lives and what it can see |
+| `scene-control-*` | A plant control room console with screens, chairs and a window, no red | 1020×390 | 92 KB / empty | 7 | DEPLOYMENT CONTEXT: where a tier physically lives and what it can see |
 | `tier-chip-*` | A single IC chip from directly above, bold square body with pin legs, no red | 347×372 | 86 KB / empty | 42 | THE SCALE LADDER: Wave Pico's icon — what it takes to run the tier |
 | `tier-gateway-*` | A compact industrial gateway box with two stub antennas, no red | 425×290 | 31 KB / empty | 42 | THE SCALE LADDER: Wave Nano's icon — what it takes to run the tier |
 | `tier-server-*` | One rack-mount server unit, straight-on front with drive bays, no red | 505×160 | 43 KB / empty | 42 | THE SCALE LADDER: Wave Micro's icon — what it takes to run the tier |
@@ -42,6 +45,12 @@ where redness = R−max(G,B) > 28, MedianFilter 3). Spot plates must stay < 16 K
 | `term-keys-*` | Vintage terminal keyboard, coiled cable (bezel pseudo-text zapped, display strip filled solid), no red | 660×295 | see file | 42 | The v7 monitor's prompt-input emblem |
 
 Notes:
+- The `scene-*` set answers a different question from `tier-*`: not "how big is this
+  model" but "where does it sit and what can it see". PROMPTING LESSON: long concrete
+  scene descriptions overwhelm the style tokens and Flux returns photorealism - put the
+  engraving style FIRST, keep the subject terse, and add a negative-style tail
+  ("no photograph, no render"). Seed 7; the first pass at seed 42 came back as colour
+  photographs.
 - The `tier-*` set is ONE FAMILY read as a scale ladder: chip → gateway box → server →
   rack → racks → aisle → hall. It answers "how big is this model?" with the hardware the
   tier actually runs on, so the size story needs no numbers. Drawn straight-on / simple so
