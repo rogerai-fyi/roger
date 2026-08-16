@@ -16,7 +16,7 @@ where redness = R−max(G,B) > 28, MedianFilter 3). Spot plates must stay < 16 K
 | Asset | Depicts | Dims | Ink / spot size | Seed | Prompt sha256[:12] | Suggested use |
 |---|---|---|---|---|---|---|
 | `mesh-console-*` | 1950s radio patch console, red lamp + cable (masthead) | 1408×480 | 132 KB / 3.1 KB | 42 | (pre-existing) | Playbox masthead (already wired) |
-| `factory-game-*` | A miniature production line: forming machinery, one red inspection lever, packing crates, and a shipping shed | 1408×480 | 100 KB / 1.8 KB | 7 | `1ec67e29c9a2` | Playbox FIG. 3 masthead for the WAVEWORKS factory game |
+| `factory-game-*` | FIG. 3, THE COOKIE LINE: a dough mixer with hopper and crank, cookies riding a conveyor into a baking oven; the one red accent is the oven's indicator lamp | 1408×480 | 162 KB / 5.0 KB | 7 | The factory game's masthead (replaces the pump-line plate under the same name) |
 | `pump-vignette-*` | Industrial centrifugal pump w/ twin gauges, no red | 640×448 | 100 KB / 1.2 KB (empty) | 42 | `f0bfaaea25ca` | Template-card art or section marker for plant/process templates |
 | `robot-arm-*` | Small industrial robot arm on pedestal, no red | 640×448 | 53 KB / 1.2 KB (empty) | 1337 | `efbe6a0676ce` | Template-card art for robotics/actuation templates |
 | `gearbox-cutaway-*` | Gearbox cutaway, sectioned housing + helical gear, no red | 640×448 | 131 KB / 1.2 KB (empty) | 42 | `fecdcad803d5` | Template-card art for drivetrain/mechanical templates (tonally the heaviest plate — use on roomy cards) |

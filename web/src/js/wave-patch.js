@@ -5933,7 +5933,7 @@
     if (hc) hc.hidden = toMesh || toFactory;
     if (hm) hm.hidden = !toMesh;
     if (hf) hf.hidden = !toFactory;
-    if (ht) ht.textContent = toFactory ? "Make it move." :
+    if (ht) ht.textContent = toFactory ? "Keep the line running." :
       toMesh ? "Wire a machine to a model." : "Open the console.";
     if (hk) hk.textContent = toFactory ? "the factory game" : toMesh ? "the wave mesh" : "open the console";
     [["pgModeConsole", !toMesh && !toFactory], ["pgModeMesh", toMesh], ["pgModeFactory", toFactory]].forEach(function (pair) {
