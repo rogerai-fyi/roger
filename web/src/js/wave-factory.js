@@ -128,6 +128,11 @@
       incidents: { caught: 0, missed: 0, open: 0 },
       history: [], sampleAt: 0, upTime: 0, runTime: 0,
       deskTab: "site",
+      /* WHAT ACTUALLY MOVED between stations this tick, recorded by step()
+         itself. The floor's traveling cookies SPEND these accumulators - a
+         sprite may only appear because the simulation really transferred
+         product on that segment, so a starved belt goes visibly empty. */
+      flow: { dough: 0, baked: 0, out: 0 },
     };
   }
 
@@ -380,6 +385,8 @@
     var pack = Math.min(ov.buffer, rateOf(pk) * dt * 1.5);
     ov.buffer -= pack;
     G.cookies += pack;
+    // the floor's sprite layer draws down these amounts, and nothing else
+    G.flow.dough += made; G.flow.baked += bake; G.flow.out += pack;
     G.coins += pack * 4;   // a cookie sells for four
     var rate = pack / Math.max(dt, 1e-6);
     G.peakRate = Math.max(G.peakRate, rate);
@@ -506,9 +513,14 @@
     return b;
   }
 
+  /* THE SCENE IS DOM, NOT CANVAS - a deliberate call. The machine art ships
+     as CSS mask plates that re-ink themselves per theme; canvas would flatten
+     that to one baked colour and re-implement theming by hand. The dials and
+     buttons must be real focusable elements anyway, and the moving parts
+     (a dozen cookie sprites) are cheap as transformed DOM nodes. */
   function buildShell(host) {
     host.textContent = "";
-    DOM = { stations: {} };
+    DOM = { stations: {}, cookies: [], pool: [] };
     var root = el("div", "cl");
 
     /* header */
@@ -518,30 +530,69 @@
     brand.appendChild(el("span", null, "mix · bake · pack · ship"));
     head.appendChild(brand);
     var hud = el("div", "cl-hud");
-    DOM.coins = el("b", null, "0"); DOM.cookies = el("b", null, "0"); DOM.rate = el("b", null, "0.0");
-    [["COINS", DOM.coins], ["COOKIES", DOM.cookies], ["PER SEC", DOM.rate]].forEach(function (p) {
-      var s = el("span", "cl-stat"); s.appendChild(p[1]); s.appendChild(el("i", null, p[0])); hud.appendChild(s);
+    DOM.coins = el("b", null, "0"); DOM.cookies2 = el("b", null, "0"); DOM.rate = el("b", null, "0.0");
+    [["COINS", DOM.coins], ["COOKIES", DOM.cookies2], ["PER SEC", DOM.rate]].forEach(function (p) {
+      var st = el("span", "cl-stat"); st.appendChild(p[1]); st.appendChild(el("i", null, p[0])); hud.appendChild(st);
     });
+    DOM.shopBtn = btn("SHOP + UPGRADES", "cl-run cl-run--shop", openShop);
+    hud.appendChild(DOM.shopBtn);
     DOM.runBtn = btn("PAUSE", "cl-run", toggleRun);
     hud.appendChild(DOM.runBtn);
-    hud.appendChild(btn("↻", "cl-reset", resetGame));
+    hud.appendChild(btn("\u21bb", "cl-reset", resetGame));
     head.appendChild(hud);
     root.appendChild(head);
 
-    /* the goal chip: two or three lines, always visible, never a quest log */
+    /* the goal chip */
     DOM.goals = el("ul", "cl-goals");
     root.appendChild(DOM.goals);
 
-    /* the line */
-    var line = el("div", "cl-line");
-    G.machines.forEach(function (m, i) {
-      line.appendChild(station(m));
-      if (i < G.machines.length - 1) line.appendChild(conveyor(m));
-    });
-    line.appendChild(shipper());
-    root.appendChild(line);
+    /* ================= THE FLOOR - the game is this picture ============= */
+    var scroller = el("div", "clf-scroll");
+    var floor = el("div", "clf-floor");
+    floor.setAttribute("role", "img");
+    floor.setAttribute("aria-label",
+      "The factory floor: a dough mixer, an oven and a packaging machine on one " +
+      "conveyor, with cookies traveling between them. Every reading and control " +
+      "is in the consoles below the floor.");
 
-    /* the desk */
+    // the belt runs the width of the floor, in front of the machine bases
+    var belt = el("div", "clf-belt");
+    floor.appendChild(belt);
+
+    // machines stand on the ground line
+    G.machines.forEach(function (m) {
+      floor.appendChild(machineBlock(m));
+    });
+
+    // shipping crates at the end of the belt
+    var ship = el("div", "clf-ship");
+    ship.appendChild(el("b", null, "SHIPPING"));
+    DOM.crates = el("div", "clf-crates");
+    ship.appendChild(DOM.crates);
+    DOM.shipTxt = el("span", "clf-ship__n", "0");
+    ship.appendChild(DOM.shipTxt);
+    DOM.spoilTxt = el("i", "clf-ship__spoil", "");
+    ship.appendChild(DOM.spoilTxt);
+    floor.appendChild(ship);
+
+    // the operator desk holds the bought desk models, physically at the end
+    DOM.floorDesk = el("div", "clf-desk");
+    floor.appendChild(DOM.floorDesk);
+
+    // the traveling product - spent from G.flow, never invented
+    DOM.cookieLayer = el("div", "clf-cookies");
+    DOM.cookieLayer.setAttribute("aria-hidden", "true");
+    floor.appendChild(DOM.cookieLayer);
+
+    scroller.appendChild(floor);
+    root.appendChild(scroller);
+
+    /* the consoles: one per machine, tethered under its spot on the floor */
+    var panels = el("div", "clf-panels");
+    G.machines.forEach(function (m) { panels.appendChild(panel(m)); });
+    root.appendChild(panels);
+
+    /* the desk views (site / plant / results) */
     root.appendChild(desk());
 
     /* honesty footer */
@@ -561,26 +612,71 @@
     log.appendChild(DOM.log);
     root.appendChild(log);
 
+    /* the shop, as an overlay over the floor; the line pauses while it is up */
+    DOM.shopOver = el("div", "clf-shopover");
+    DOM.shopOver.hidden = true;
+    var shopCard = el("div", "clf-shopcard");
+    shopCard.setAttribute("role", "dialog");
+    shopCard.setAttribute("aria-modal", "false");
+    shopCard.setAttribute("aria-label", "Shop and upgrades");
+    var shopHead = el("div", "cl-desk__head");
+    shopHead.appendChild(el("b", null, "SHOP + UPGRADES"));
+    shopHead.appendChild(el("span", null, "the line waits while you decide"));
+    DOM.shopClose = btn("CLOSE", "cl-run", closeShop);
+    shopHead.appendChild(DOM.shopClose);
+    shopCard.appendChild(shopHead);
+    DOM.shop = el("div", "cl-shop");
+    shopCard.appendChild(DOM.shop);
+    DOM.shopOver.appendChild(shopCard);
+    root.appendChild(DOM.shopOver);
+
     host.appendChild(root);
   }
 
-  function station(m) {
+  /* ---- a machine, standing on the floor -------------------------------- */
+  function machineBlock(m) {
     var s = DOM.stations[m.id] = {};
-    var card = el("section", "cl-station cl-station--" + m.id);
-    card.setAttribute("aria-label", m.spec.name);
+    var block = el("div", "clf-machine clf-machine--" + m.id);
 
-    var top = el("div", "cl-station__top");
-    top.appendChild(el("span", "cl-station__art", m.spec.art));
-    var names = el("div", "cl-station__names");
-    names.appendChild(el("b", null, m.spec.name));
-    s.tier = el("span", "cl-station__tier", "Mk I");
-    names.appendChild(s.tier);
-    top.appendChild(names);
-    s.lamp = el("span", "cl-lamp");
-    top.appendChild(s.lamp);
-    card.appendChild(top);
+    // the engraving itself
+    s.art = el("span", "clf-art");
+    s.art.setAttribute("aria-hidden", "true");
+    block.appendChild(s.art);
 
-    /* the sensor readout - the only thing you get in phase 0 */
+    // the oven bakes with a visible warmth behind its porthole; decoration
+    // for a state the lamp already words
+    if (m.id === "oven") {
+      s.glow = el("i", "clf-glow");
+      block.appendChild(s.glow);
+    }
+
+    // the state lamp, on the machine body
+    s.lamp = el("span", "cl-lamp clf-lamp");
+    block.appendChild(s.lamp);
+
+    // nameplate riveted to the base
+    var plate = el("span", "clf-plate");
+    plate.appendChild(el("b", null, m.spec.name));
+    s.tier = el("i", null, "Mk I");
+    plate.appendChild(s.tier);
+    block.appendChild(plate);
+
+    // a bought Pico bolts on as a badge; its word renders right here
+    s.mount = el("span", "clf-mount");
+    block.appendChild(s.mount);
+    s.bubble = el("div", "clf-bubble");
+    s.bubble.hidden = true;
+    block.appendChild(s.bubble);
+
+    return block;
+  }
+
+  /* ---- the machine's console, tethered beneath it ----------------------- */
+  function panel(m) {
+    var s = DOM.stations[m.id];
+    var card = el("section", "cl-station clf-panel clf-panel--" + m.id);
+    card.setAttribute("aria-label", m.spec.name + " console");
+
     var read = el("div", "cl-read");
     read.appendChild(el("i", null, m.spec.sensor.label));
     s.value = el("b", "cl-read__v", "--");
@@ -595,7 +691,6 @@
     s.bandTxt = el("span", "cl-band__txt", "");
     card.appendChild(s.bandTxt);
 
-    /* the control */
     var ctl = el("label", "cl-ctl");
     ctl.appendChild(el("i", null, m.spec.control.label));
     var input = document.createElement("input");
@@ -611,11 +706,10 @@
     ctl.appendChild(s.setTxt);
     card.appendChild(ctl);
 
-    /* the model slot */
+    /* the model slot: nano advice, autonomy, provenance */
     s.slot = el("div", "cl-slot");
     card.appendChild(s.slot);
 
-    /* actions */
     var acts = el("div", "cl-acts");
     s.service = btn("SERVICE", "cl-act cl-act--service", function () { service(m.id); });
     s.upgrade = btn("UPGRADE", "cl-act", function () { buyTier(m.id); });
@@ -625,42 +719,93 @@
     return card;
   }
 
-  function conveyor(m) {
-    var c = el("div", "cl-conv");
-    var belt = el("div", "cl-conv__belt");
-    var s = DOM.stations[m.id];
-    s.dots = [];
-    for (var i = 0; i < 5; i++) { var d = el("i", "cl-conv__dot"); s.dots.push(d); belt.appendChild(d); }
-    c.appendChild(belt);
-    s.buf = el("span", "cl-conv__buf", "0");
-    c.appendChild(s.buf);
-    return c;
-  }
-
-  function shipper() {
-    var sh = el("section", "cl-ship");
-    sh.appendChild(el("span", "cl-station__art", "▣"));
-    sh.appendChild(el("b", null, "SHIPPING"));
-    DOM.shipTxt = el("span", null, "0 cookies");
-    sh.appendChild(DOM.shipTxt);
-    DOM.spoilTxt = el("i", "cl-ship__spoil", "");
-    sh.appendChild(DOM.spoilTxt);
-    return sh;
-  }
-
   function desk() {
     var d = el("section", "cl-desk");
     var head = el("div", "cl-desk__head");
     head.appendChild(el("b", null, "OPERATOR DESK"));
     head.appendChild(el("span", null, "buy the ladder · each tier tells you more"));
     d.appendChild(head);
-
-    DOM.shop = el("div", "cl-shop");
-    d.appendChild(DOM.shop);
-
     DOM.deskView = el("div", "cl-deskview");
     d.appendChild(DOM.deskView);
     return d;
+  }
+
+  /* ---- the shop overlay: the floor waits while you decide --------------- */
+  function openShop() {
+    if (!DOM.shopOver.hidden) return;
+    G.shopWasRunning = G.running;
+    G.running = false;
+    DOM.shopOver.hidden = false;
+    paintShop();
+    paint();
+    if (DOM.shopClose) DOM.shopClose.focus();
+  }
+  function closeShop() {
+    if (DOM.shopOver.hidden) return;
+    DOM.shopOver.hidden = true;
+    if (G.shopWasRunning) { G.running = true; lastT = 0; }
+    paint();
+    if (DOM.shopBtn) DOM.shopBtn.focus();
+  }
+
+  /* ---- the traveling product -------------------------------------------
+     Sprites are SPENT from G.flow, which only step() feeds - one dough blob
+     per unit the mixer really made, one cookie per unit the oven really
+     baked, one box per unit the packer really shipped. A starved segment
+     stops spawning and its stretch of belt visibly empties. Positions are
+     presentation; existence is simulation. */
+  var SEGS = [
+    { flow: "dough", from: 14, to: 42, kind: "dough" },
+    { flow: "baked", from: 46, to: 72, kind: "cookie" },
+    { flow: "out", from: 76, to: 91, kind: "box" },
+  ];
+  var COOKIE_SVGS = {
+    dough: '<svg viewBox="0 0 20 14"><path d="M3 11 Q1 8 4 6 Q3 2 8 3 Q11 0 14 3 Q18 2 17 6 Q20 9 16 11 Q14 13 10 12 Q6 14 3 11 Z"/></svg>',
+    cookie: '<svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="7"/><circle class="chip" cx="5.5" cy="6" r="1.2"/><circle class="chip" cx="10.5" cy="5.5" r="1.1"/><circle class="chip" cx="8.5" cy="10.5" r="1.2"/><circle class="chip" cx="5" cy="10" r="0.9"/></svg>',
+    box: '<svg viewBox="0 0 18 14"><rect x="1" y="2" width="16" height="11" rx="1"/><line class="tape" x1="9" y1="2" x2="9" y2="13"/></svg>',
+  };
+
+  function spawnCookie(seg) {
+    var n = DOM.pool.pop();
+    if (!n) {
+      n = el("i", "clf-cookie");
+      DOM.cookieLayer.appendChild(n);
+    }
+    n.className = "clf-cookie clf-cookie--" + seg.kind;
+    n.innerHTML = COOKIE_SVGS[seg.kind];
+    n.hidden = false;
+    DOM.cookies.push({ node: n, seg: seg, at: 0 });
+  }
+
+  function updateCookies(dt) {
+    if (!DOM.cookieLayer) return;
+    // spend the sim's transfer amounts; SPRITE_PER unit keeps the belt legible
+    var SPRITE_PER = 1.4;
+    SEGS.forEach(function (seg) {
+      while (G.flow[seg.flow] >= SPRITE_PER) {
+        G.flow[seg.flow] -= SPRITE_PER;
+        if (DOM.cookies.length < 26) spawnCookie(seg);
+      }
+      // never let a starved counter build debt while paused
+      if (G.flow[seg.flow] > 40) G.flow[seg.flow] = 40;
+    });
+    var speed = dt / 2.6;                    // one crossing takes ~2.6s
+    for (var i = DOM.cookies.length - 1; i >= 0; i--) {
+      var c = DOM.cookies[i];
+      c.at += speed;
+      if (c.at >= 1) {
+        c.node.hidden = true;
+        DOM.pool.push(c.node);
+        DOM.cookies.splice(i, 1);
+        continue;
+      }
+      var x = c.seg.from + (c.seg.to - c.seg.from) * c.at;
+      if (REDUCED) {
+        // stepped, not swept: quarter-belt hops
+        x = c.seg.from + (c.seg.to - c.seg.from) * (Math.floor(c.at * 4) / 4);
+      }
+      c.node.style.left = x.toFixed(2) + "%";
+    }
   }
 
   /* ---- paint ----------------------------------------------------------- */
@@ -692,6 +837,18 @@
     var state = m.stopped ? "stopped" : (!claimsOk ? "warn" : "ok");
     s.lamp.dataset.state = state;
     s.lamp.textContent = state === "stopped" ? "STOPPED" : state === "warn" ? "OUT OF BAND" : "RUNNING";
+
+    /* the machine's physical tells - presentation of sim state, nothing more:
+       a stopped machine's art dims and its working shimmer ends; the oven's
+       porthole warmth follows whether it is actually baking in band */
+    if (s.art) {
+      s.art.classList.toggle("is-dead", m.stopped);
+      s.art.classList.toggle("is-working", !m.stopped && G.running);
+    }
+    if (s.glow) {
+      var baking = !m.stopped && m.real >= tierOf(m).lo && m.real <= tierOf(m).hi;
+      s.glow.dataset.on = baking ? "1" : "0";
+    }
 
     /* The model slot rebuilds only when its CONTENT changes. Rebuilding it
        every frame re-creates the very buy button under the player's cursor,
@@ -727,6 +884,18 @@
         head.dataset.verdict = "warn";
       }
       s.slot.appendChild(head);
+
+      // the same word, said AT the machine: badge + bubble on the floor
+      if (s.bubble) {
+        var r2 = m.picoRead;
+        if (m.cond !== "none" && r2) {
+          s.bubble.hidden = false;
+          s.bubble.textContent = r2.kind === "unsure" ? "not sure" : "\u201c " + r2.said + "\u201d";
+          s.bubble.dataset.verdict = r2.kind === "caught" ? "bad" : "warn";
+        } else {
+          s.bubble.hidden = true;
+        }
+      }
 
       if (G.nano && m.nanoRead) {
         var n = el("div", "cl-say cl-say--nano");
@@ -776,6 +945,21 @@
                (m.nanoRead && m.nanoRead.kind === "resolved");
     }
 
+    // the bought model is VISIBLY bolted on: the chip engraving, pico-edged
+    var mountKey = (m.pico ? "pico" : "") + "~" + (m.cond !== "none" && m.pico ? "lit" : "");
+    if (s.mountKey !== mountKey) {
+      s.mountKey = mountKey;
+      s.mount.textContent = "";
+      if (m.pico) {
+        var badge = el("span", "clf-badge");
+        badge.title = "Wave Pico, mounted on this machine";
+        badge.appendChild(el("i", "clf-badge__art"));
+        badge.appendChild(el("b", null, "PICO"));
+        s.mount.appendChild(badge);
+      }
+      if (s.bubble) s.bubble.hidden = !(m.pico && m.cond !== "none" && m.picoRead);
+    }
+
     s.service.textContent = m.servicing > 0 ? "SERVICING " + m.servicing.toFixed(1) + "s" : "SERVICE";
     s.service.disabled = m.servicing > 0;
     s.service.classList.toggle("is-needed", !!told);
@@ -783,15 +967,6 @@
     s.upgrade.textContent = next ? "UPGRADE · " + next.price : "TOP TIER";
     s.upgrade.disabled = !next || G.coins < next.price;
 
-    if (s.dots) {
-      var flowing = !m.stopped && rateOf(m) > 0.05;
-      s.dots.forEach(function (d, i) {
-        d.classList.toggle("is-on", flowing);
-        d.style.animationDelay = REDUCED ? "0s" : (i * 0.18) + "s";
-      });
-      s.buf.textContent = Math.floor(m.buffer);
-      s.buf.classList.toggle("is-starved", m.buffer < 0.5);
-    }
   }
 
   /* THE GOALS. Two or three lines that always say what is worth doing next,
@@ -1030,21 +1205,47 @@
   function paint() {
     if (!DOM.stations) return;
     DOM.coins.textContent = Math.floor(G.coins);
-    DOM.cookies.textContent = Math.floor(G.cookies);
+    DOM.cookies2.textContent = Math.floor(G.cookies);
     var pk = machine("packer");
     DOM.rate.textContent = (pk.stopped ? 0 : rateOf(pk) * 1.5).toFixed(1);
     DOM.runBtn.textContent = G.running ? "PAUSE" : "START";
     DOM.runBtn.dataset.on = G.running ? "1" : "0";
     G.machines.forEach(paintStation);
-    DOM.shipTxt.textContent = Math.floor(G.cookies) + " cookies";
+    DOM.shipTxt.textContent = Math.floor(G.cookies) + " shipped";
     DOM.spoilTxt.textContent = G.spoiled > 1 ? Math.floor(G.spoiled) + " burnt" : "";
+    // the crate stack grows with real shipments; capped so it stays a stack
+    if (DOM.crates) {
+      var want = Math.min(8, Math.floor(G.cookies / 20));
+      if (DOM.crateCount !== want) {
+        DOM.crateCount = want;
+        DOM.crates.textContent = "";
+        for (var ci = 0; ci < want; ci++) DOM.crates.appendChild(el("i", "clf-crate"));
+      }
+    }
+    // owned desk models sit at the desk end of the floor
+    var deskKey = [G.nano, G.micro, G.giga].join("~");
+    if (DOM.floorDesk && DOM.deskKey !== deskKey) {
+      DOM.deskKey = deskKey;
+      DOM.floorDesk.textContent = "";
+      DOM.floorDesk.appendChild(el("i", "clf-desk__art"));
+      var owned = [["nano", G.nano], ["micro", G.micro], ["giga", G.giga]]
+        .filter(function (p) { return p[1]; });
+      var rack = el("span", "clf-desk__rack");
+      owned.forEach(function (p) {
+        var chipEl = el("b", "clf-desk__chip", p[0].toUpperCase());
+        chipEl.dataset.tier = p[0];
+        rack.appendChild(chipEl);
+      });
+      DOM.floorDesk.appendChild(rack);
+      DOM.floorDesk.appendChild(el("span", "clf-desk__k", owned.length ? "THE DESK" : "DESK · EMPTY"));
+    }
 
     var key = structureKey();
     if (key !== DOM.key) {
       DOM.key = key;
       DOM.priced = (DOM.priced || []).filter(function (p) { return p.b.isConnected; });
       paintGoals();
-      paintShop();
+      if (DOM.shopOver && !DOM.shopOver.hidden) paintShop();
       paintDesk();
       DOM.log.textContent = "";
       G.log.forEach(function (c) { DOM.log.appendChild(el("li", null, c)); });
@@ -1063,6 +1264,7 @@
     acc += dt;
     var guard = 0;
     while (acc >= TICK && guard++ < 8) { step(TICK); acc -= TICK; }
+    updateCookies(dt);
     paint();
   }
 
@@ -1101,6 +1303,9 @@
     paint();
     loadRecords();
     if (window.requestAnimationFrame) raf = window.requestAnimationFrame(frame);
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && DOM.shopOver && !DOM.shopOver.hidden) closeShop();
+    });
     document.addEventListener("visibilitychange", function () {
       if (document.hidden) { G.wasRunning = G.running; G.running = false; }
       else if (G.wasRunning) { G.running = true; lastT = 0; }
@@ -1136,6 +1341,10 @@
       clearWith: function (state, id) {
         var s = G; G = state; clearCondition(machine(id)); G = s; return state.incidents;
       },
+      flowWith: function (state, dt) {
+        var s = G; G = state; step(dt); G = s; return state.flow;
+      },
+      segments: SEGS,
     };
   }
 

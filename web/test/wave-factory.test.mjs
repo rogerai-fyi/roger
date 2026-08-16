@@ -253,3 +253,56 @@ test("cookie line: a machine is down while it is serviced, then comes back hones
   assert.equal(mixer.servicing, 0, "the work finishes");
   assert.equal(mixer.cond, "none", "and the sensor tells the truth again");
 });
+
+/* ---- THE SCENE (v23: the game is a picture, not a dashboard) ----------- */
+
+test("scene: the machines are the engraved sprites, standing on a floor", () => {
+  for (const plate of ["game-mixer-ink.png", "game-oven-ink.png", "game-packer-ink.png", "game-belt-ink.png"]) {
+    assert.ok(css.includes(plate), `${plate} is masked into the scene`);
+  }
+  assert.match(css, /\.clf-floor \{/, "there is a floor");
+  assert.match(js, /clf-machine clf-machine--/, "machines stand in it");
+  assert.doesNotMatch(css, /\.cl-line \{/,
+    "the card grid is gone as the primary surface - the floor replaced it");
+  // FIG.3 wears its own plate now, not the mesh deck's masthead
+  assert.match(css, /wm-masthead--factory[\s\S]{0,400}factory-game-ink\.png/,
+    "the factory masthead points at the factory plate");
+});
+
+test("scene: the lamp on the machine reads the SENSOR, and the tells read the sim", () => {
+  // same guarantee as before, now painted onto the machine body: the lamp
+  // state comes from what the instrument CLAIMS, never from m.real
+  assert.match(js, /claimsOk = shown == null \? true : inBand\(m, shown\)/,
+    "lamp state derives from the shown value");
+  assert.match(js, /is-dead", m\.stopped/, "the art dims from the sim's stopped flag");
+  assert.match(js, /baking = !m\.stopped && m\.real >= tierOf\(m\)\.lo/,
+    "the oven glow follows the real baking state - decoration for a worded state");
+});
+
+test("scene: traveling cookies are SPENT from the sim's own transfers", () => {
+  const h = loadHook();
+  const s = h.freshState();
+  // a running line really transfers product, so flow accumulates
+  for (let i = 0; i < 24; i++) h.flowWith(s, 1 / 12);
+  assert.ok(s.flow.dough > 0, "the mixer's real output feeds the dough segment");
+  // a dead oven transfers nothing to the baked segment
+  const s2 = h.freshState();
+  s2.machines[1].set = 240; s2.machines[1].real = 240;   // far out of band
+  for (let i = 0; i < 40; i++) h.flowWith(s2, 1 / 12);
+  const bakedAfterStop = s2.flow.baked;
+  for (let i = 0; i < 12; i++) h.flowWith(s2, 1 / 12);
+  assert.ok(s2.flow.baked - bakedAfterStop < 0.36,
+    "a stopped oven stops feeding the baked segment - its belt stretch empties");
+  // and the only writer of flow is step(); the only spender is the sprite layer
+  const writers = js.match(/G\.flow\.\w+ \+=/g) || [];
+  assert.equal(writers.length, 3, "exactly the three segment writes, inside step()");
+  assert.match(js, /G\.flow\[seg\.flow\] -= SPRITE_PER/,
+    "sprites exist only by spending what the sim transferred");
+});
+
+test("scene: the shop is an overlay that pauses the line, and [hidden] wins", () => {
+  assert.match(js, /G\.shopWasRunning = G\.running;\s*G\.running = false/,
+    "opening the shop stops the clock");
+  assert.match(css, /\.clf-shopover\[hidden\] \{ display: none; \}/,
+    "display:flex must not beat the hidden attribute - the mesh deck's own bug");
+});
