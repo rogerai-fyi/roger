@@ -6,7 +6,10 @@
 # wallets (grant.go). The contract:
 #   - grant management accepts ANY bound, non-anonymized owner — exactly the set for which
 #     accountWalletForOwner resolves (GitHubID != 0 OR AppleSub != ""), pubkey-bound;
-#   - payoutOwner itself stays GitHub/KYC-only for actual payouts (unchanged);
+#   - payoutOwner now admits ANY identity-verified owner (GitHub id, Apple sub, or a
+#     verified email) — the website consolidated all three logins, so a Tower/Station
+#     operator reaches earnings + cash-out no matter how they signed up. Actual money
+#     movement still sits behind the SAME Stripe Connect KYC gate for everyone;
 #   - NEVER suggest "link GitHub" as a workaround: accountWalletForOwner is GitHub-wins, so
 #     linking flips a funded u_apple_ wallet to u_gh_ and strands the Apple balance. (That
 #     precedence is EXISTING behavior — pinned here, not changed.)
@@ -14,7 +17,8 @@
 # Ground truth (real code this spec is anchored in):
 #   cmd/rogerai-broker/grants_http.go — both gates: payoutOwner(...) -> 401, then
 #       owner.GitHubID == 0 || owner.Pubkey == "" -> 403 (collection AND item handlers)
-#   cmd/rogerai-broker/payouts.go payoutOwner — signed leg requires rec.GitHubID != 0
+#   cmd/rogerai-broker/payouts.go payoutOwner — signed leg requires hasVerifiedIdentity
+#       (GitHubID != 0 OR AppleSub != "" OR EmailVerifiedAt != 0), non-anonymized
 #   cmd/rogerai-broker/main.go accountWalletForOwner — GitHub-wins wallet precedence
 #   cmd/rogerai-broker/grant.go — grant SPEND already resolves Apple funder wallets
 #
@@ -24,8 +28,9 @@
 #       on it). The refusal message no longer claims GitHub is required.
 #   G2  an Apple-bound owner's minted grant is FUNDED BY the Apple wallet (u_apple_…), via
 #       the same accountWalletForOwner resolution spend already uses.
-#   G3  payouts remain GitHub/KYC-only: the SAME Apple-bound owner is still refused on the
-#       payout surface (payoutOwner unchanged).
+#   G3  payouts are provider-agnostic: the SAME Apple-bound owner is ADMITTED to the payout
+#       surface (identity verified by Apple sub), subject to the unchanged Stripe Connect
+#       KYC gate before any money actually moves.
 #   G4  everything else is byte-identical: anonymous/unbound signed keypairs 401, unsigned
 #       401, anonymized (deleted) owners refused, GitHub-linked owners unchanged, the web
 #       session leg unchanged.
@@ -36,7 +41,7 @@ Feature: Grant key management for Apple-bound owners
   As an operator who signed in with Apple (no GitHub account)
   I want to mint, list, inspect, and revoke my grant keys
   So that my bots and devices can use my funded Apple wallet,
-  while payouts stay behind the GitHub/KYC gate
+  and I can view and cash out my operator earnings the same as any other login
 
   Background:
     Given a broker with a bound APPLE owner "apple-ana" (AppleSub set, no GitHub) whose wallet holds $20.00
@@ -82,11 +87,11 @@ Feature: Grant key management for Apple-bound owners
     When "apple-ana" sends a signed POST /grants with name "my-iphone"
     Then the minted grant's funder wallet is "apple-ana"'s u_apple wallet
 
-  # ── G3: payouts stay GitHub/KYC-only ───────────────────────────────────────────────────
+  # ── G3: payouts are provider-agnostic (login consolidation) ────────────────────────────
 
-  Scenario: the same Apple-bound owner is still refused on the payout surface
+  Scenario: the same Apple-bound owner is admitted to the payout surface
     When "apple-ana" sends a signed payout-status request
-    Then the payout request is refused for lacking a GitHub-linked account
+    Then the payout surface accepts the identity-verified Apple owner
 
   # ── G4: everything else byte-identical ─────────────────────────────────────────────────
 

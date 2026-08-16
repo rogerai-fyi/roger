@@ -73,11 +73,11 @@ test("deck: input, cassette, and output sit side by side with no tab navigation"
   }
 });
 
-test("deck: the page-level switch offers exactly two decks", () => {
-  assert.equal((htmlFlat.match(/class="pg-mode"/g) || []).length, 2,
-    "exactly two decks: console and wave mesh");
+test("deck: the page-level switch offers three separate decks", () => {
+  assert.equal((htmlFlat.match(/class="pg-mode(?:\s|\")/g) || []).length, 3,
+    "exactly three decks: console, wave mesh, and factory");
   assert.ok(htmlFlat.includes('role="tablist"'), "the switch uses tablist semantics");
-  for (const [btn, panel] of [["pgModeConsole", "pgConsoleView"], ["pgModeMesh", "pgMeshView"]]) {
+  for (const [btn, panel] of [["pgModeConsole", "pgConsoleView"], ["pgModeMesh", "pgMeshView"], ["pgModeFactory", "pgFactoryView"]]) {
     assert.ok(htmlFlat.includes(`id="${btn}"`), `${btn} must exist`);
     assert.ok(htmlFlat.includes(`id="${panel}"`), `${panel} must exist`);
     assert.ok(htmlFlat.includes(`aria-controls="${panel}"`), `${btn} must control ${panel}`);

@@ -42,14 +42,15 @@
           </button>
           <div class="nav__panel" id="navModelsPanel" hidden>
             <a href="/models.html"><b>Models on air</b><span>The live directory: every model the network is carrying, and the stations carrying it.</span></a>
-            <!-- The Playbox carries TWO decks and this menu used to name only one,
+            <!-- The Playbox carries THREE decks and this menu used to name only one,
                  so the mesh deck was unreachable from navigation. Both are listed
                  now; the mesh entry deep-links to #mesh, which the deck already
-                 boots from. The two are indented CHILDREN of the Playbox row, not
+                 boots from. The three are indented CHILDREN of the Playbox row, not
                  siblings, so the menu still reads as one destination, two ways in. -->
-            <a href="/playbox.html" {{playboxcurrent}}><b>Playbox</b><span>Two decks on one instrument: talk to live models, or wire a machine to one.</span></a>
+            <a href="/playbox.html" {{playboxcurrent}}><b>Playbox</b><span>Three decks: talk to a model, inspect the mesh, or build a factory.</span></a>
             <a class="nav__sub" href="/playbox.html#console"><b>Console</b><span>Load a model like a cassette: chat, voice, image, tools, embeds.</span></a>
             <a class="nav__sub" href="/playbox.html#mesh"><b>Wave Mesh</b><span>Sensors, wire formats, and the Wave models that read them.</span></a>
+            <a class="nav__sub" href="/playbox.html#factory"><b>Factory</b><span>Build machines, ship crates, fix holds, and expand the line.</span></a>
             <a href="/voices.html" {{voicescurrent}}><b>Voices</b><span>On-air text-to-speech voices, each one an operator&rsquo;s station.</span></a>
             <a href="/tower.html" {{towercurrent}}><b>Tower</b><span>How a station is chosen, metered, and made to sign for what it billed.</span></a>
           </div>

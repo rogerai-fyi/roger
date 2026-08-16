@@ -57,6 +57,15 @@ function loadHook() {
   return hook;
 }
 
+function solveModelMove(h) {
+  for (let guard = 0; guard < 5 && h.missionPlan().locked; guard++) {
+    const move = h.incidentMove();
+    assert.ok(move && move.correct, "a locked case always names the move that unlocks it");
+    assert.equal(h.missionChooseMove(move.correct), true, `solve ${move.kind} with ${move.correct}`);
+  }
+  assert.equal(h.missionPlan().locked, false, "the evidence-driven model route reaches field play");
+}
+
 // ---------- provenance: every figure traceable to a run ------------------------
 
 test("data: the snapshots carry their provenance", () => {
@@ -117,6 +126,15 @@ test("honesty: the retracted Q4 collapse cannot come back", () => {
   const q4 = measured.quants.find((q) => /q4/i.test(q.quant));
   assert.ok(q4.fault_id_macro > 0.6, "Q4 holds full accuracy; 0.223 was a harness bug");
   assert.ok(!/quantization-fragile/.test(js), "the retracted copy must stay gone");
+});
+
+test("honesty: public measurement data carries no internal filenames or row ids", () => {
+  const publicData = JSON.stringify(measured);
+  assert.doesNotMatch(publicData, /RESULTS-MATRIX\.md|R\.\d+/,
+    "the browser gets a public method label, not an internal notebook coordinate");
+  for (const q of measured.quants) {
+    assert.match(q.source, /quantization sweep/i, "each public quant cites the kind of run");
+  }
 });
 
 test("honesty: identical aggregates across quantizations are refused as a harness fault", () => {
@@ -647,14 +665,11 @@ test("palette: red is a signal, never a surface", async () => {
   // Five rules may fill with red: the masthead's spot plate, the intake's one
   // primary action, the lamp window's red state, (v17) the sensor lane's
   // missed-fault dot - a 0.42rem diamond meaning exactly what --live means -
-  // and (v20) the FACE OF THE SET in its red state. The face is the largest
-  // red on the deck by area, and it is deliberate: it IS the lamp, shown at
-  // the size of the glass, and it carries the shape and the word beside the
-  // colour. A red screen that means "faults missed" is the alarm doing its
-  // job; the rail this list protects is that red never becomes decoration.
+  // v21 removes the face from this list: the CRT is neutral glass in every
+  // state and spends red only on its thin status accent, never as a surface.
   assert.deepEqual(filled.sort(),
-    ['.sn-tv__front[data-state="red"]', '.sn-type__dot.is-bad', '.wm-masthead__spot',
-     '.wp-lampwin[data-state="red"]', '.wp-run'].sort(),
+    ['.sn-type__dot.is-bad', '.wm-masthead__spot', '.wp-lampwin[data-state="red"]',
+     '.wp-run'].sort(),
     `got ${filled.join(", ")}`);
   const pin = (f, kb) => {
     const bytes = statSync(path.join(SRC, "assets/wave/" + f)).size;
@@ -681,14 +696,15 @@ test("palette: the lamp hues are fenced to lamp semantics", () => {
     // not its only signal: each state also has a distinct SHAPE (filled or
     // hollow, circle or diamond) and spells itself out in the lane's
     // aria-label and title - both asserted below.
-    // v20 adds the face of the set (sn-tv__front / sn-front__why): the glass at
-    // rest IS the lamp, shown large. It carries the NE-107 shape and the state
-    // word next to the colour, and its why-line inherits the same state, so it
-    // is the most literal lamp semantics on the deck rather than an exception.
-    assert.ok(/wp-lamp|wp-read__mark|syn-pad|sn-live|sn-fm__|sn-slot__state|sn-type__dot|sn-tv__front|sn-front__/.test(b),
+    // v21 keeps the face neutral and uses a status accent only. It still carries
+    // the shape and word, but no longer adds a green/yellow surface here.
+    // v24 adds the field-panel pilot lamp: amber means the next check is live,
+    // green means that named check completed. The surrounding card and result
+    // stay neutral, so the hue is still fenced to a lamp with a number/check.
+    assert.ok(/wp-lamp|wp-read__mark|syn-pad|sn-live|sn-fm__|sn-slot__state|sn-type__dot|sn-tv__front|sn-front__|sn-field__lamp/.test(b),
       `green/yellow may only colour lamp-semantic surfaces, got: ${b.split("{")[0].trim()}`);
   }
-  assert.ok(/STANDING BY|ALL CLEAR|DEGRADED|FAULTS MISSED/.test(js),
+  assert.ok(/STANDING BY|ALL CLEAR|CHECK REQUIRED|FAULT MISSED/.test(js),
     "every lamp state carries a word");
   assert.ok(/[·●△⊗]/.test(js), "and an NE-107-style shape, so the verdict never rides on hue alone");
   // the lane dots follow the same discipline: shape as well as hue, and the
@@ -737,13 +753,11 @@ test("lamp: every state is a recount of the recorded records", () => {
   }
 });
 
-test("lamp: green at the ceiling never claims ALL CLEAR while the fault was missed", () => {
-  // v15: "AT CEILING" read as jargon. Same guarantee, plain words: a green lamp
-  // over a missed fault must say the chain is finished AND blame the recorded
-  // senior rather than implying luck.
-  assert.ok(/BEST THIS CHAIN CAN DO/.test(js), "the ceiling label exists, in plain words");
-  assert.ok(/Wave Nano itself got this one wrong in the recorded run/.test(js),
-    "and the why-line attributes the miss to the recorded senior, not to luck");
+test("v21: a model-limit miss stays red instead of becoming a green consolation prize", () => {
+  assert.ok(/MODEL LIMIT/.test(js), "the ceiling label names the model limit in plain words");
+  assert.ok(/recorded Nano counterfactual also said/.test(js) &&
+            /Wave Nano answered.*recorded run/.test(js),
+    "the why-line attributes both called and uncalled misses to the recorded senior, not to luck");
   const h = loadHook();
   // find a fault both models miss
   let found = null;
@@ -761,25 +775,85 @@ test("lamp: green at the ceiling never claims ALL CLEAR while the fault was miss
     h.selectType(found.t.key, found.c);
     h.state.chain = ["pico", "nano"]; h.state.floor = 2.0; h.state.operator = true;
     h.derive();
-    if (h.state.verdict.state === "green") {
-      assert.equal(h.state.verdict.label, "BEST THIS CHAIN CAN DO",
-        "a green lamp over a missed fault must say the chain is finished, not ALL CLEAR");
-    }
+    assert.equal(h.state.verdict.state, "red", "a recorded fault missed by the chain stays red");
+    assert.equal(h.state.verdict.label, "MODEL LIMIT",
+      "the red result distinguishes a model limit from a broken route");
   }
 });
 
-test("lamp: the operator still matters - the ladder ends with a person", () => {
+test("v21: the stuck motor-current miss explains why escalation cannot rescue it", () => {
+  const h = loadHook();
+  h.selectType("amp", "stuck");
+  h.state.chain = ["pico", "nano", "micro"];
+  h.state.floor = 1.5;
+  h.derive();
+  const pico = h.state.verdict.stages.find((st) => st.kind === "pico");
+  const nano = h.state.verdict.stages.find((st) => st.kind === "quietSenior");
+  assert.equal(pico.said, "none", "the committed Pico result is NONE");
+  assert.equal(pico.margin, 1.875, "its committed margin clears the 1.5 floor");
+  assert.ok(nano, "Nano was not called because Pico cleared the floor");
+  assert.match(h.stageResponse(nano), /NOT CALLED.*WOULD ALSO SAY "NONE"/,
+    "the glance view exposes the recorded counterfactual instead of looking disconnected");
+  assert.equal(h.state.verdict.label, "MODEL LIMIT");
+  assert.match(h.state.verdict.why, /1\.88.*1\.5.*Nano was not called.*also said "none"/i,
+    "the detailed verdict explains both the gate and why escalation would not change the answer");
+});
+
+test("v25: a confident miss puts model output, truth, and detection boundary together", () => {
+  const h = loadHook();
+  const r = measured.records.find((item) =>
+    item.node_id === "s00077c01" && item.truth === "stuck" &&
+    item.child.prediction === "none" && item.parent.prediction === "none");
+  assert.ok(r, "the screenshot's committed STUCK/NONE/NONE record remains in the replay");
+  h.state.floor = 1.5;
+  const lesson = h.modelLimitLesson(r, {
+    word: r.child.prediction,
+    who: "WAVE PICO",
+  });
+  assert.equal(lesson.label, "CONFIDENT MISS");
+  assert.equal(lesson.modelAnswer, "NONE");
+  assert.equal(lesson.recordedTruth, "STUCK");
+  assert.match(lesson.knownBy, /REPLAY LABEL.*NOT MODEL OUTPUT/i,
+    "the screen says how the simulator knows something both models missed");
+  assert.match(lesson.why, /2\.88.*1\.5.*Nano was not called.*also said NONE/i,
+    "the handoff decision and the recorded Nano counterfactual are one explanation");
+  assert.match(lesson.shape, /96 values.*99\.594.*99\.962.*no consecutive value repeats.*all-values-equal/i,
+    "the STUCK card explains why the visibly moving noise does not make the label obvious");
+  assert.match(lesson.catch, /independent reference.*site invariant.*all-clear/i,
+    "the next defense can observe a miss even though a finding was never emitted");
+});
+
+test("v25: the answer card labels NONE as model output rather than healthy truth", () => {
+  const monitor = js.slice(js.indexOf("function paintMonitor"), js.indexOf("function wirePrompt"));
+  for (const copy of ["MODEL ANSWER · NOT THE TRUTH", "RECORDED TRUTH", "HOW THIS BENCH KNOWS",
+                      "WHY NONE LOOKED PLAUSIBLE", "WHAT CAN CATCH IT"]) {
+    assert.ok(monitor.includes(copy), `the detail puts ${copy} beside the missed answer`);
+  }
+  assert.match(monitor, /modelLimitLesson\(r, ans\)/,
+    "the visible comparison is derived from the selected record and final answer");
+  assert.match(js, /AUDIT THE BLIND SPOT/,
+    "the Micro action is framed as an audit, not a fabricated inference");
+  assert.match(js, /MODEL MISS AUDIT[\s\S]*MODEL SAID[\s\S]*REPLAY SAYS/,
+    "the training console keeps the mismatch visible even when its detailed answer is below the fold");
+});
+
+test("v21: response routing never rewrites the model result", () => {
   const h = loadHook();
   h.selectType("temp", "none");
   h.state.chain = ["pico"]; h.state.floor = 0.5; h.state.operator = false;
+  h.state.authority = false;
   h.derive();
-  if (h.state.verdict.state === "yellow") {
-    assert.ok(/nobody is watching/i.test(h.state.verdict.why),
-      "the yellow names the missing person");
-  }
+  const logged = { state: h.state.verdict.state, label: h.state.verdict.label, why: h.state.verdict.why };
   h.state.operator = true;
   h.derive();
-  assert.equal(h.state.verdict.state, "green", "OK dialed, chain agrees, operator on - green");
+  assert.deepEqual(
+    { state: h.state.verdict.state, label: h.state.verdict.label, why: h.state.verdict.why },
+    logged, "sending a finding to human review changes routing, not the reading");
+  h.state.operator = false; h.state.authority = true;
+  h.derive();
+  assert.deepEqual(
+    { state: h.state.verdict.state, label: h.state.verdict.label, why: h.state.verdict.why },
+    logged, "sending a finding to the policy queue changes routing, not the reading");
 });
 
 // ---------- structure + offline ----------------------------------------------------
@@ -1102,9 +1176,13 @@ test("windows: the strip-chart and sparklines draw ONLY the committed series", (
   assert.ok(js.includes('fetch("data/wave-windows.json")'), "the bundle is fetched same-origin");
 });
 
-test("chain: the bench boots with the recommended pattern - Pico + Nano", () => {
-  assert.ok(/PATCH.chain = \["pico", "nano"\]/.test(js), "the chain is pre-built at boot");
-  assert.ok(/RECOMMENDED · PICO \+ NANO/.test(js), "and badged as the recommended pattern");
+test("chain: the engineering sandbox boots through site scope", () => {
+  assert.ok(/PATCH.chain = \["pico", "nano", "micro"\]/.test(js),
+    "Pico, Nano, and Micro are visible without setup");
+  assert.ok(/STARTER CHAIN · PICO \+ NANO \+ MICRO/.test(js),
+    "and the header names all three default tiers");
+  assert.ok(!htmlFlat.includes('id="wsWelcome"') && !htmlFlat.includes('id="wsFactory"'),
+    "the rejected quiz-like game is no longer wrapped around Wave Mesh");
 });
 
 test("monitor: stage tabs are channel buttons, honest to the stages that exist", () => {
@@ -1167,10 +1245,10 @@ test("prompt: a reading question is answered by THE BENCH, never signed as a mod
   const said = r.child.margin < 1.5 ? r.parent.prediction : r.child.prediction;
   assert.ok(rep.chainLine.includes('" ' + said + '"'),
     "the chain's word is the recorded prediction of whoever actually answered");
-  // with nobody watching, the bench still answers but says so
+  // with no model seated, the bench still answers but names the missing model
   h.state.chain = [];
   const rep2 = h.promptSend("what is the reading now?");
-  assert.ok(/Nobody is watching this channel/.test(rep2.bench.chainLine));
+  assert.ok(/No model is seated on this channel/.test(rep2.bench.chainLine));
 });
 
 test("prompt: the live seam - Ping for chat, null for protocol, wave band documented", () => {
@@ -1295,7 +1373,9 @@ test("why: every why expands IN PLACE below the rail - one at a time, never clip
   assert.ok(/why task-native\?/.test(js), "the task-native question stands");
   assert.ok(/LOCKED ENUM with a MARGIN/.test(js), "and answers with the doctrine");
   assert.ok(/why a senior\?/.test(js), "the senior question stands");
-  assert.ok(/why a person at the end\?/.test(js), "and the operator doctrine has its own");
+  assert.ok(/what happens after a finding\?/.test(js), "and response routing has its own");
+  assert.ok(!/PROVISIONAL|UNATTENDED AUTHORITY|operator lever/.test(js),
+    "the old staffing language cannot contradict the outcome-first monitor");
   // v12: the floating card-pops clipped inside the rail's scroller - gone
   assert.ok(!/sn-why--card\[open\]/.test(css), "no floating pop inside a scroll container");
   assert.ok(/\.sn-whys \.sn-why\[open\] \{\s*\n?\s*flex-basis: 100%/.test(css),
@@ -1326,6 +1406,18 @@ test("phosphor: the canvas draws only the recorded series, with the SVG fallback
 test("phosphor: the tilt is chrome - no listeners under reduced motion", () => {
   const tilt = js.slice(js.indexOf("function wireTilt"), js.indexOf("function renderMirror"));
   assert.ok(/if \(REDUCED\) return;/.test(tilt), "reduced motion attaches nothing");
+  const screen = css.slice(css.indexOf(".sn-tv__screen {"),
+    css.indexOf("}", css.indexOf(".sn-tv__screen {")) + 1);
+  const front = css.slice(css.indexOf(".sn-tv__front {"),
+    css.indexOf("}", css.indexOf(".sn-tv__front {")) + 1);
+  assert.doesNotMatch(screen, /transform:\s*rotate[XY]\(var\(--tilt/,
+    "the scrolling detail stays a stable interactive plane while the frame tilts");
+  assert.doesNotMatch(front, /transform:\s*rotate[XY]\(var\(--tilt/,
+    "the full overview hit target stays under the pointer at every edge and corner");
+  assert.match(css.slice(css.indexOf(".sn-tv__plate {"),
+    css.indexOf("}", css.indexOf(".sn-tv__plate {")) + 1),
+    /transform:\s*rotateX\(var\(--tiltx/,
+    "the decorative engraved frame keeps the restrained 3D effect");
   assert.ok(/prefers-reduced-motion: reduce\) \{ \.sn-tv__plate \{ transition: none; transform: none/.test(css),
     "and the CSS side goes static too");
 });
@@ -1553,34 +1645,26 @@ test("v12: the beam readout is the recorded sample under the beam", () => {
     "reduced motion gets no ticker - the legend already carries the static numbers");
 });
 
-test("v12: UNATTENDED AUTHORITY is a policy, and the lamp answers PROVISIONAL", () => {
+test("v21: response mode is reported beside the invariant model outcome", () => {
   const h = loadHook();
   h.selectType("temp", "none");
   h.state.chain = ["pico", "nano"];
   h.state.operator = false; h.state.authority = false;
   h.derive();
-  assert.equal(h.state.verdict.state, "yellow", "no operator, no authority: DEGRADED as before");
+  const result = { state: h.state.verdict.state, label: h.state.verdict.label, why: h.state.verdict.why };
+  assert.equal(h.state.verdict.response.id, "log", "the default logs findings");
   h.state.authority = true;
   h.derive();
-  assert.equal(h.state.verdict.state, "green", "authority granted: the chain acts");
-  assert.equal(h.state.verdict.label, "ACTING ALONE",
-    "but never claims ALL CLEAR - the lamp says the model is acting unwatched");
-  assert.equal(h.state.verdict.sym, "◐", "with its own half-lamp shape");
-  // v15: plainer phrasing ("queued for a person to review later"); the guarantee
-  // is that the state names a QUEUE and a PERSON, never an unreviewed decision.
-  assert.ok(/queued for a person to review/.test(h.state.verdict.why.replace(/\s+/g, " ")),
-    "decisions queue for a person");
-  assert.ok(/POLICY you set,\s*not a measurement/.test(h.state.verdict.why.replace(/\s+/g, " ")),
-    "and the why-line says it is policy, not measurement");
-  // authority without a senior changes nothing - a lone Pico takes no shift
-  h.state.chain = ["pico"]; h.state.floor = 0.5;
+  assert.equal(h.state.verdict.response.id, "policy", "authority maps to the policy queue");
+  assert.deepEqual(
+    { state: h.state.verdict.state, label: h.state.verdict.label, why: h.state.verdict.why }, result,
+    "the policy queue does not recolor or relabel the model result");
+  h.state.operator = true; h.state.authority = false;
   h.derive();
-  assert.notEqual(h.state.verdict.label, "ACTING ALONE",
-    "no senior aboard: the policy has nobody qualified to exercise it");
-  // and with the operator ON, authority is moot
-  h.state.chain = ["pico", "nano"]; h.state.operator = true;
-  h.derive();
-  assert.notEqual(h.state.verdict.label, "ACTING ALONE", "a person on shift outranks the policy");
+  assert.equal(h.state.verdict.response.id, "human", "an operator maps to human review");
+  assert.deepEqual(
+    { state: h.state.verdict.state, label: h.state.verdict.label, why: h.state.verdict.why }, result,
+    "human review also leaves the result alone");
 });
 
 test("v12: the ladder runs up - a backwards chain cannot be constructed", () => {
@@ -1635,7 +1719,7 @@ test("v14: ONE WHY WAVE entry with the five questions as an internal nav", () =>
   assert.ok(/WHY WAVE\? · the story in five questions/.test(js), "one entry point");
   const topics = js.slice(js.indexOf("function whyTopics"), js.indexOf("function renderWhys"));
   for (const q of ["why task-native\\?", "why a senior\\?", "why not one big model\\?",
-                   "why so small\\?", "why a person at the end\\?"]) {
+                   "why so small\\?", "what happens after a finding\\?"]) {
     assert.ok(new RegExp(q).test(topics), `${q} is a topic inside the panel`);
   }
   assert.ok(/role", "tablist"/.test(js.replace(/setAttribute\(/g, '", "').slice(0)) ||
@@ -1656,16 +1740,29 @@ test("v14: the specialist-vs-dual story is cited, and stays qualitative where un
     "the scaling-law nugget cites the strategy doc");
 });
 
+test("v21: why not one big model explains the measured handoff and its limits", () => {
+  const topics = js.slice(js.indexOf("function whyTopics"), js.indexOf("function renderWhys"));
+  for (const field of ["escalation_rate", "macro_recall", "pct_of_parent_everywhere"]) {
+    assert.ok(topics.includes(field), `${field} is read from the committed sweep`);
+  }
+  assert.ok(/PICO ONLY/.test(topics) && /FLOOR 1\.5 MESH/.test(topics) && /NANO DIRECT/.test(topics),
+    "the panel compares the three decisions an engineer is actually making");
+  assert.ok(/topology,[\s\S]{0,80}not a privacy guarantee/.test(topics),
+    "gateway placement is not inflated into an unmeasured security property");
+  assert.ok(/not [" +\s]*latency, energy, a cloud bill, or a hardware benchmark/.test(topics),
+    "the compute axis says exactly what it cannot establish");
+});
+
 // ---------- v15: the plain-language pass ------------------------------------
 // The founder's read: "the terms floor and ceiling are confusing... it's still
 // a bit too complicated and easy to dismiss because it looks too hard to
 // understand." These lock the translation so the jargon cannot creep back.
 
 test("v15: the deck opens with a plain sentence and an instruction", () => {
-  assert.ok(/A sensor sends numbers/.test(htmlFlat),
-    "the first line says what the bench IS, in words with no jargon in them");
-  assert.ok(/Pick a sensor, then press a condition/.test(htmlFlat),
-    "and tells a newcomer the one thing to do first");
+  assert.ok(/Pick a recorded sensor, change its condition, and inspect what each model stage saw/.test(htmlFlat),
+    "the engineering deck opens by saying exactly what can be changed and seen");
+  assert.ok(/This is the engineering sandbox/.test(htmlFlat),
+    "and distinguishes itself from the separate game before the controls");
   // the provenance line - run names and a suite version - is the receipt, not
   // the opening. It must still be one click away.
   assert.ok(/where these numbers come from/.test(htmlFlat), "the receipt has a way in");
@@ -1691,16 +1788,22 @@ test("v15: how-sure and the setting are plain, and the knob says what it does", 
   assert.ok(/"this read " \+ margin.toFixed\(2\)/.test(js), "and its bar is 'this read N'");
 });
 
-test("v15: WHO'S WATCHING is one question with three spelled-out answers", () => {
-  assert.ok(/WHO'S WATCHING\?/.test(js), "the control asks a question");
-  for (const a of ["A PERSON", "NOBODY", "THE MODEL, ALONE"]) {
+test("v21: models watch by default and the control chooses what happens after a finding", () => {
+  assert.ok(/MODELS WATCHING/.test(js), "the workbench states who is doing the watching");
+  assert.ok(/AFTER A FINDING/.test(js), "the control asks the downstream question");
+  for (const a of ["LOG ONLY", "HUMAN REVIEW", "POLICY QUEUE"]) {
     assert.ok(js.includes(a), `${a} is spelled out, not computed from two toggles`);
   }
-  // the underlying policy is unchanged: person => operator, alone => authority
-  assert.ok(/PATCH.operator = w.id === "person"/.test(js), "a person on shift is the operator");
-  assert.ok(/PATCH.authority = w.id === "alone"/.test(js), "acting alone is the policy flag");
-  assert.ok(/POLICY\s+you set, not a measurement/.test(js.replace(/\s+/g, " ")),
-    "and the policy is still never claimed as a measurement");
+  assert.ok(/PATCH.operator = w.id === "human"/.test(js), "human review maps to the operator flag");
+  assert.ok(/PATCH.authority = w.id === "policy"/.test(js), "the policy queue maps to authority");
+  assert.ok(/models read every replay/i.test(js), "the copy explains that watching is invariant");
+  const h = loadHook();
+  h.state.chain = [];
+  assert.match(h.watchingLabel(), /NO MODEL SEATED/,
+    "an intentionally empty rail never claims a model is watching");
+  h.state.chain = ["pico"];
+  assert.match(h.watchingLabel(), /MODELS WATCHING/,
+    "seating a recorded reader restores the default watching state");
 });
 
 test("v15: the feature dump folds away in the combined view, never disappears", () => {
@@ -1830,9 +1933,46 @@ test("v19: the set has working controls, and pressing one is a hand on the glass
   const wire = js.slice(js.indexOf('var ctl = $("wsTvCtl")'), js.indexOf('var ctl = $("wsTvCtl")') + 1200);
   assert.ok(/PATCH\._userScrollAt = Date\.now\(\)/.test(wire),
     "a press suspends auto-follow like any other user scroll - it must not yank you back");
-  assert.ok(/glassScrollTo\([^)]*, true\)/.test(wire),
-    "except ANSWER, which is a request to be taken somewhere and forces");
+  assert.ok(/openAnswer\(\)/.test(wire),
+    "except the DETAILS/ANSWER destination key, which is explicit intent");
+  const answerWire = js.slice(js.indexOf("function openAnswer"), js.indexOf("function frontTrace"));
+  assert.ok(/glassScrollTo\([^)]*, true\)/.test(answerWire),
+    "the destination key forces its answer landing");
   assert.ok(/REDUCED \? "auto" : "smooth"/.test(wire), "and reduced motion jumps");
+});
+
+test("v23: the whole engraved glass opens detail and the hardware key names its action", () => {
+  const front = css.slice(css.indexOf(".sn-tv__front {"),
+    css.indexOf("}", css.indexOf(".sn-tv__front {")) + 1);
+  assert.match(front, /left:\s*15\.5%/,
+    "the hit target begins at the measured left edge of the clear CRT opening");
+  assert.match(front, /top:\s*14\.2%/,
+    "the hit target begins at the measured top edge of the clear CRT opening");
+  assert.match(front, /width:\s*70\.3%/,
+    "the hit target spans the measured clear CRT width");
+  assert.match(front, /height:\s*63\.9%/,
+    "the hit target spans the measured clear CRT height");
+  assert.ok(/\.sn-tv__front > \* \{[^}]*pointer-events:\s*none/.test(css),
+    "every point on the overview resolves to the glass button itself");
+  assert.ok(htmlFlat.includes('id="wsAnswerKey"'), "the hardware detail key has a stable control id");
+  assert.match(htmlFlat, /id="wsAnswerKey"[^>]*>[\s\S]*?<span>DETAILS<\/span>/,
+    "its initial label says what it does from the overview");
+  const answer = js.slice(js.indexOf("function paintAnswerKey"), js.indexOf("function frontTrace"));
+  assert.match(answer, /detailOpen\(\) \? "ANSWER" : "DETAILS"/,
+    "inside detail the same key changes to the useful jump-back action");
+  assert.match(answer, /if \(!detailOpen\(\)\) setDetail\(true\)/,
+    "DETAILS opens the cascade instead of scrolling an invisible layer");
+  assert.match(answer, /querySelector\("\.sn-answer"\)/,
+    "then both key states land on the answer");
+});
+
+test("v21: the TV controls are seated in one flush hardware strip", () => {
+  const strip = css.slice(css.indexOf(".sn-tvctl {"), css.indexOf(".sn-tvctl__k {"));
+  assert.ok(/width:\s*52%/.test(strip), "the four-button strip spans the engraved control-panel cutout");
+  assert.ok(/background:\s*linear-gradient/.test(strip),
+    "the paper showing through the bezel is replaced by a hardware surface");
+  const keys = css.slice(css.indexOf(".sn-tvctl__k {"), css.indexOf(".sn-tvctl__k--wide"));
+  assert.ok(/height:\s*1\.6rem/.test(keys), "all hardware buttons share one height");
 });
 
 test("v19: a tier already in the chain reads as seated, not as on offer", () => {
@@ -1888,32 +2028,594 @@ test("v19: the flagship's teaching role is the argument for the small models", (
 
 // ---------- v20: the face of the set, the band-aware menu, the tabs ----------
 
-test("v20: the glass leads with the verdict, and the detail is one step away", () => {
-  // Founder: "maybe it might be good to have a full screen just green/yellow/
-  // red with a word text of the final state but then moving the mouse over it
-  // or clicking on it it shows all the details we currently have."
+test("v21: the CRT face leads with recorded evidence and opens detail explicitly", () => {
   assert.ok(/sn-tv__front/.test(html), "the face of the set exists in the markup");
   assert.match(html, /<button class="sn-tv__front"/,
     "and it is a button, so the keyboard gets it without extra wiring");
   assert.ok(/function paintFront/.test(js), "it is painted from the verdict");
   assert.ok(/f\.hidden = detailOpen\(\)/.test(js),
     "and it hides exactly when the detail is open - one state, not two");
-
-  // it must print the SAME verdict the lamp prints - never a second opinion
-  assert.ok(/LAMP_FACE\[state\]/.test(js.slice(js.indexOf("function paintFront"))),
-    "the face reads its word from LAMP_FACE, the lamp's own table");
-  assert.ok(/v\.label\) \|\| face\.label/.test(js),
-    "including the AT-CEILING style override the lamp uses");
-
-  // the way back, and the hover that opens it
+  const face = js.slice(js.indexOf("function paintFront"), js.indexOf("function wireFront"));
+  for (const token of ["CURRENT READ", "watchingLabel()", "frontScore()", "frontTrace(r)",
+                       "frontRoute(sts)", "PRESS ANYWHERE ON THE GLASS", "OPEN FULL MODEL OUTPUT",
+                       "RAW DATA · EVERY MODEL · FLEET DETAIL"]) {
+    assert.ok(face.includes(token), `the glance face includes ${token}`);
+  }
+  assert.ok(/sn-front__hintkey/.test(face) && /sn-front__hintmore/.test(face),
+    "the full-output action has hierarchy instead of another tiny footer label");
+  const trace = js.slice(js.indexOf("function frontTrace"), js.indexOf("function frontRoute"));
+  assert.ok(/seriesOf\(r\)/.test(trace) && /seriesPath\(s\.samples/.test(trace),
+    "the glance trace is plotted from the selected committed series");
+  assert.ok(/sn-front__scan/.test(trace) && /sn-front__sweep/.test(trace),
+    "the real waveform carries a moving phosphor scan, not only an opacity pulse");
+  assert.ok(/@keyframes sn-front-sweep/.test(css) && /@keyframes sn-front-scan/.test(css),
+    "the replay visibly travels across the CRT");
+  assert.ok(/prefers-reduced-motion: no-preference\)[\s\S]*\.sn-front__scan[\s\S]*\.sn-front__sweep/.test(css),
+    "the sweep only runs when motion is welcome");
+  const score = js.slice(js.indexOf("function frontScore"), js.indexOf("function paintFront"));
+  assert.ok(/deriveFleet\(\)/.test(score) && /t\.caught \+ "\/" \+ t\.faults/.test(score),
+    "the score is the same fleet recount, not a game-only number");
+  assert.ok(/sn-front__route/.test(js) && /sn-front__score/.test(js),
+    "route and score have visible instrument regions");
+  assert.ok(/aria-expanded/.test(face), "the disclosure reports its open state");
   assert.ok(/sn-back/.test(js), "the detail carries a way back to the face");
-  assert.ok(/FRONT_HOVER_MS/.test(js), "hover opens on rest, not on a pointer crossing");
-  assert.ok(/pointerType === "touch" \|\| REDUCED/.test(js),
-    "and never on touch or under reduced motion, where hover is not a gesture");
-
-  // the bug that made this unusable the first time: display:flex beat [hidden]
+  const wire = js.slice(js.indexOf("function wireFront"), js.indexOf("function paintMonitor"));
+  assert.ok(/addEventListener\("click"/.test(wire), "click opens the detail");
+  assert.ok(!/pointerenter|FRONT_HOVER_MS/.test(js), "mere pointer movement never opens it");
   assert.ok(/\.sn-tv__front\[hidden\] \{ display: none; \}/.test(css),
     "a hidden face must leave the layer, or it swallows every click on the glass");
+  assert.ok(/\.sn-tv__front\s*\{[\s\S]*?z-index:\s*1/.test(css),
+    "the front sits behind the engraved bezel instead of painting over it");
+  for (const state of ["green", "yellow", "red"]) {
+    const at = css.indexOf(`.sn-tv__front[data-state="${state}"]`);
+    const rule = at < 0 ? "" : css.slice(at, css.indexOf("}", at) + 1);
+    assert.ok(rule && !/background\s*:/.test(rule), `${state} is an accent, not a flooded screen`);
+  }
+});
+
+test("v21: the television dominates the bench and its working text is legible", () => {
+  const tv = css.slice(css.indexOf(".sn-tv {"), css.indexOf("}", css.indexOf(".sn-tv {")) + 1);
+  assert.match(tv, /max-width:\s*76rem/, "the TV grows beyond the old 66rem cap");
+  const responseAt = css.indexOf(".sn-front__rstate {", css.indexOf(".sn-front__rstate {") + 1);
+  const response = css.slice(responseAt, css.indexOf("}", responseAt) + 1);
+  assert.match(response, /font-size:\s*\.5rem/, "compact model responses are still readable");
+  assert.match(response, /white-space:\s*normal/, "response explanations may use their card's second line");
+  assert.ok(/\.sn-tv__screen \.ws-log \{ font-size: \.68rem; \}/.test(css),
+    "raw evidence in the detailed monitor is enlarged too");
+  const front = css.slice(css.indexOf(".sn-tv__front {"),
+    css.indexOf("}", css.indexOf(".sn-tv__front {")) + 1);
+  assert.match(front, /justify-content:\s*space-between/,
+    "the larger glass is used vertically instead of leaving a dead lower half");
+});
+
+test("v21: every seated model keeps its response on the glance screen", () => {
+  const h = loadHook();
+  h.selectType("temp", "none");
+  h.state.chain = ["pico", "nano", "micro", "giga", "tera", "peta", "exa"];
+  h.state.floor = 0.5;
+  h.derive();
+  const modelStages = h.state.verdict.stages.filter((st) => st.kind !== "raw" && st.kind !== "deadend");
+  assert.equal(modelStages.length, 7, "one visible response exists for every seated tier");
+  const responses = modelStages.map(h.stageResponse);
+  assert.match(responses[0], /ANSWERED|ASKED FOR HELP/, "Pico prints its actual action");
+  assert.match(responses[1], /ANSWERED|NOT CALLED/, "Nano prints its actual action");
+  assert.match(responses[2], /SITE RECOUNT/, "Micro prints its scope recount");
+  assert.match(responses[3], /PLANT RECOUNT/, "Giga prints its scope recount");
+  for (const response of responses.slice(4)) {
+    assert.match(response, /BEYOND REPLAY/, "unrecorded upper tiers state the honest ceiling");
+  }
+  const route = js.slice(js.indexOf("function frontRoute"), js.indexOf("function frontScore"));
+  assert.ok(/stageResponse\(st\)/.test(route) && /fam\.label/.test(route),
+    "the CRT renders both the full Wave name and that stage's response");
+});
+
+test("v22: the incident deck deals only committed windows and never changes on a timer", () => {
+  const h = loadHook();
+  const candidates = h.incidentCandidates();
+  assert.ok(candidates.length > h.state.types.length, "the deck includes OK and fault conditions");
+  for (const pick of candidates) {
+    const type = h.state.types.find((t) => t.key === pick.typeKey);
+    assert.ok(type && type.recIdx[pick.cond] === pick.recordIndex,
+      "every deal points back to the selector's committed record");
+  }
+  const faultAt = candidates.findIndex((pick) => pick.cond !== "none");
+  h.drawIncident(faultAt);
+  assert.equal(h.state.typeKey, candidates[faultAt].typeKey);
+  assert.equal(h.state.cond, candidates[faultAt].cond);
+  assert.equal(h.state.mission.incidentNode,
+    measured.records[candidates[faultAt].recordIndex].node_id);
+  assert.ok(/crypto\.getRandomValues/.test(js), "an unforced deal chooses among committed cards");
+  assert.ok(!/setInterval/.test(js), "no timer changes the condition while it is being read");
+  assert.ok(htmlFlat.includes('data-mission="draw"'), "the TV has an explicit DEAL control");
+});
+
+test("v27: the idle case board teaches one cohesive mystery loop", () => {
+  const h = loadHook();
+  const cards = h.incidentCandidates();
+  const tally = h.missionDeckTally();
+  assert.deepEqual(tally, {
+    total: cards.length,
+    incidents: cards.filter((card) => card.cond !== "none").length,
+    checks: cards.filter((card) => card.cond === "none").length,
+  }, "the visible deck count comes from the committed selector records");
+  const mission = js.slice(js.indexOf("function drawMission"), js.indexOf("function paintFront"));
+  for (const beat of ["CATCH", "TRACE", "CLOSE"]) {
+    assert.ok(mission.includes(beat), `${beat} is visible before the first deal`);
+  }
+  assert.ok(mission.includes("Pick a mystery from the measured deck."),
+    "the invitation starts with a clear action and its honest source");
+  assert.ok(mission.includes("Nothing changes until you make a move"),
+    "the no-timer rule reads like a benefit rather than a disclaimer");
+  assert.ok(mission.includes("START FIRST CASE"));
+  assert.ok(mission.includes("START NEXT CASE"));
+  assert.ok(/sn-mission__idledeck/.test(mission) && /sn-mission__loop/.test(mission),
+    "the idle state is a small playable route rather than a paragraph and button");
+  assert.match(css, /\.sn-mission__loop\s*\{[^}]*grid-template-columns:\s*repeat\(3/,
+    "the opening loop reads as a three-beat route");
+  assert.match(css, /prefers-reduced-motion:\s*reduce[\s\S]*\.sn-mission__loop li:first-child/,
+    "the deal prompt becomes still when reduced motion is requested");
+});
+
+test("v27: incident copy gives the player a mission in plain language", () => {
+  const mission = js.slice(js.indexOf("function drawMission"), js.indexOf("function paintFront"));
+  assert.ok(mission.includes("Something is wrong with this signal."));
+  assert.ok(mission.includes("choose who should hear it"));
+  assert.ok(mission.includes("use the clue kit to narrow down why"));
+  assert.ok(!mission.includes("A sensor condition is not a root-cause diagnosis"),
+    "the incident opens with an objective, not compliance prose");
+  for (const label of ["START A MYSTERY CASE", "CARD CLEAR", "CASE CLOSED"]) {
+    assert.ok(js.includes(label), `${label} keeps the deck, incident, and result vocabulary aligned`);
+  }
+});
+
+test("v27: every kind of model miss gets a useful bench explanation", () => {
+  const h = loadHook();
+  for (const truth of ["stuck", "drifting", "dropout", "noisy", "railed"]) {
+    const record = measured.records.find((item) => item.truth === truth);
+    assert.ok(record, `${truth} has a committed card`);
+    const lesson = h.modelLimitLesson(record, { word: "none", who: "WAVE PICO" });
+    assert.ok(lesson && lesson.shape.length > 80, `${truth} gets a substantive explanation`);
+    assert.doesNotMatch(lesson.shape, /does not contain a model-authored explanation/i,
+      `${truth} never ends at a missing-data disclaimer`);
+    assert.match(lesson.shape, /recorded|samples|trace|reading|values/i,
+      `${truth} points back to visible evidence`);
+    assert.match(lesson.shapeBy, /BENCH EXPLANATION.*RECORDED SIGNAL.*NOT MODEL OUTPUT/,
+      `${truth} keeps authored guidance separate from model output`);
+  }
+  const monitor = js.slice(js.indexOf("function paintMonitor"), js.indexOf("function wirePrompt"));
+  assert.ok(/miss\.shapeTitle/.test(monitor) && /miss\.shapeBy/.test(monitor),
+    "the explanation and its source are both rendered");
+});
+
+test("v28: every committed card has condition mechanics and a seven-tier case brief", () => {
+  const h = loadHook();
+  const tiers = ["pico", "nano", "micro", "giga", "tera", "peta", "exa"];
+  const familyLine = "PICO → NANO → MICRO → GIGA → TERA → PETA → EXA";
+  for (const card of h.incidentCandidates()) {
+    h.selectType(card.typeKey, card.cond);
+    const record = measured.records[card.recordIndex];
+    const sensor = h.state.types.find((type) => type.key === card.typeKey);
+    if (card.cond !== "none") {
+      assert.ok(h.fieldRigs[card.cond], `${card.typeKey}/${card.cond} has a playable field rig`);
+    }
+    const contributions = new Set();
+    for (const tier of tiers) {
+      const brief = h.tierCaseBrief(tier, record);
+      assert.equal(brief.record, record.node_id, `${tier} receives the exact selected record`);
+      assert.equal(brief.sensor, sensor.label, `${tier} receives the active sensor`);
+      assert.equal(brief.condition, card.cond.toUpperCase().replace("NONE", "OK"));
+      assert.equal(brief.family, familyLine, `${tier} knows the complete family contract`);
+      assert.match(brief.handoff, /WAVE PICO.*WAVE NANO/i,
+        `${tier} sees what both recorded readers did, even when Nano was not called`);
+      assert.ok(brief.mechanic && brief.mechanic.length > 12,
+        `${tier} receives the condition's field mechanic`);
+      assert.ok(brief.signal && brief.signal.length > 45,
+        `${tier} receives a measured clue from the selected signal`);
+      assert.ok(brief.adds && brief.adds.length > 25, `${tier} contributes to this case`);
+      contributions.add(brief.adds);
+    }
+    assert.equal(contributions.size, tiers.length,
+      `${card.typeKey}/${card.cond} gives all seven tiers distinct work`);
+  }
+});
+
+test("v28: tier case intelligence is explicit about what ran and what is synthesized", () => {
+  const h = loadHook();
+  h.selectType("amp", "stuck");
+  const record = measured.records[h.state.types.find((type) => type.key === "amp").recIdx.stuck];
+  for (const tier of ["pico", "nano"]) {
+    assert.equal(h.tierCaseBrief(tier, record).provenance, "RECORDED MODEL OUTPUT");
+  }
+  for (const tier of ["micro", "giga"]) {
+    const brief = h.tierCaseBrief(tier, record);
+    assert.equal(brief.provenance, "BENCH SYNTHESIS · COMMITTED RECORDS · NOT MODEL OUTPUT");
+    assert.match(brief.adds, /STUCK/i, `${tier} responds to the current case, not only a generic scope`);
+  }
+  for (const tier of ["tera", "peta", "exa"]) {
+    const brief = h.tierCaseBrief(tier, record);
+    assert.equal(brief.provenance, "ROLE SIMULATION · REPLAY ENDS AT ONE PLANT");
+    assert.match(brief.adds, /STUCK/i, `${tier} still receives the current case packet`);
+  }
+  const monitor = js.slice(js.indexOf("function paintMonitor"), js.indexOf("function wirePrompt"));
+  assert.ok(/drawTierCase\(st\)/.test(monitor), "every model stage renders its current-case brief");
+  for (const label of ["CURRENT CASE", "READER HANDOFF", "THIS TIER ADDS", "FAMILY CONTRACT"]) {
+    assert.ok(js.includes(label), `${label} is visible in the case brief`);
+  }
+});
+
+test("v28: a tier tab leads with its case instead of the global shift console", () => {
+  const monitor = js.slice(js.indexOf("function paintMonitor"), js.indexOf("function wirePrompt"));
+  assert.match(monitor, /if \(PATCH\.tab === "all"\) host\.appendChild\(drawMission\(\)\)/,
+    "the global game console belongs to ALL, so a selected tier can lead");
+  assert.ok(/if \(stTier\) box\.appendChild\(drawTierCase\(st\)\)/.test(monitor),
+    "the selected model stage opens with its case brief");
+});
+
+test("v29: Micro and Giga compare the active sensor case instead of a static fault leaderboard", () => {
+  const h = loadHook();
+  h.selectType("amp", "stuck");
+  h.state.chain = ["pico", "nano", "micro"];
+  h.state.floor = 1.5;
+  h.derive();
+  const record = measured.records[h.state.types.find((type) => type.key === "amp").recIdx.stuck];
+  const lens = h.caseLens("micro", record);
+  assert.equal(lens.sensor, "MOTOR CURRENT");
+  assert.equal(lens.condition, "STUCK");
+  assert.equal(lens.rows[0].record, record.node_id, "the selected machine leads the comparison");
+  assert.equal(lens.rows[0].current, true);
+  assert.ok(lens.rows.length > 1, "the site supplies comparable motor-current cards");
+  assert.ok(lens.rows.every((row) => row.sensorKey === "amp"),
+    "unrelated pressure, temperature, and vibration cards never enter this list");
+  assert.ok(lens.rows.every((row) => row.condition && row.outcome),
+    "every comparable card says what was recorded and what this chain did");
+  assert.match(lens.scope.how, /scenes in id order/, "the synthetic site partition stays disclosed");
+
+  h.selectType("vib", "stuck");
+  const vib = h.caseLens("micro");
+  assert.ok(vib.rows.every((row) => row.sensorKey === "vib"));
+  assert.notDeepEqual(vib.rows.map((row) => row.record), lens.rows.map((row) => row.record),
+    "changing the sensor changes the site evidence");
+
+  const scopeCard = js.slice(js.indexOf("function drawScopeRun"), js.indexOf("function drawScopeCard"));
+  assert.ok(scopeCard.includes("CURRENT CASE FIRST"));
+  assert.ok(!scopeCard.includes("machines, worst first"),
+    "the old global miss leaderboard no longer leads Micro");
+});
+
+test("v29: the next model move is computed from the selected record and chain outcome", () => {
+  const h = loadHook();
+  h.state.floor = 1.5;
+
+  h.selectType("temp", "dropout");
+  h.state.chain = ["pico"];
+  h.beginSelectedIncident(false);
+  assert.equal(h.incidentMove().correct, "nano", "an unheard Pico escalation needs Nano");
+
+  h.state.chain = ["pico", "nano"];
+  h.beginSelectedIncident(false);
+  let move = h.incidentMove();
+  assert.equal(move.kind, "identify");
+  assert.equal(move.correct, "nano", "the player identifies the senior that caught this read");
+  assert.equal(h.missionChooseMove("giga"), false, "a scope jump does not solve a reader question");
+  assert.equal(h.state.mission.moveStage, 0, "wrong moves do not advance the case");
+  assert.match(h.state.mission.moveFeedback.text, /Nano|doubt|read/i);
+  assert.equal(h.missionChooseMove("nano"), true);
+  assert.equal(h.incidentMove().correct, "micro", "after detection, site investigation is the next beat");
+
+  h.selectType("unnamed", "railed");
+  h.state.chain = ["pico", "nano"];
+  h.state.floor = 1.5;
+  h.beginSelectedIncident(false);
+  move = h.incidentMove();
+  assert.equal(move.kind, "threshold");
+  assert.equal(move.correct, "floor");
+  assert.equal(move.nextFloor, 2.0, "the next measured detent is derived from Pico's margin");
+  h.state.chain = ["pico", "nano", "micro"];
+  h.beginSelectedIncident(false);
+  assert.equal(h.incidentMove().correct, "floor",
+    "pre-seating Micro does not skip a recoverable handoff puzzle");
+  assert.equal(h.missionPlan().locked, true);
+  assert.equal(h.missionChooseMove("floor"), true);
+  assert.equal(h.missionPlan().locked, false,
+    "the already-seated site tier opens after the threshold move is solved");
+
+  h.selectType("amp", "stuck");
+  h.state.floor = 1.5;
+  h.state.chain = ["pico", "nano"];
+  h.beginSelectedIncident(false);
+  move = h.incidentMove();
+  assert.equal(move.kind, "model");
+  assert.equal(move.correct, "micro", "a recorded Pico+Nano blind spot needs an independent site audit");
+  assert.match(move.question, /both|blind spot|site/i);
+  const moveCard = js.slice(js.indexOf("function drawMissionMove"), js.indexOf("function addMissionMicro"));
+  assert.ok(moveCard.includes("ALREADY SEATED"),
+    "a decoy tier already in the chain is identified, never offered as another seat");
+});
+
+test("v29: every incident asks three condition-specific diagnostic questions", () => {
+  const h = loadHook();
+  const questions = new Set();
+  for (const condition of ["stuck", "drifting", "dropout", "noisy", "railed"]) {
+    const rig = h.fieldRigs[condition];
+    assert.equal(rig.controls.length, 3);
+    for (const control of rig.controls) {
+      assert.ok(control.question && control.question.endsWith("?"),
+        `${condition}/${control.id} asks the player a concrete question`);
+      questions.add(control.question);
+    }
+  }
+  assert.equal(questions.size, 15, "the five cases do not recycle one generic quiz");
+  const control = js.slice(js.indexOf("function drawFieldControl"), js.indexOf("function fieldDealButton"));
+  assert.ok(control.includes("YOUR CLUE"));
+  assert.ok(control.includes("control.question"));
+});
+
+test("v29: the opening deals teach Nano, blind-spot audit, then threshold tuning", () => {
+  const h = loadHook();
+  h.state.floor = 1.5;
+  const cards = h.incidentCandidates();
+  const opening = [0, 1, 2].map((draw) => h.guidedCard(cards, draw));
+  assert.deepEqual(opening.map((card) => h.caseLesson(measured.records[card.recordIndex])),
+    ["nano", "blind", "floor"]);
+  assert.ok(opening.every((card) => measured.records[card.recordIndex]),
+    "the tutorial changes only which committed card is dealt");
+  assert.equal(h.guidedCard(cards, 3), null, "later shifts return to the shuffled deck");
+});
+
+test("v22: Micro unlocks a clearly non-model diagnostic playbook", () => {
+  const h = loadHook();
+  const faultAt = h.incidentCandidates().findIndex((pick) => pick.cond === "stuck");
+  h.state.chain = ["pico", "nano"];
+  h.drawIncident(faultAt);
+  assert.equal(h.missionPlan().locked, true, "Pico and Nano detect; they do not invent repair prose");
+  h.chainAdd("micro");
+  const plan = h.missionPlan();
+  assert.equal(plan.locked, false);
+  assert.equal(plan.steps.length, 3, "the playbook is a short playable sequence");
+  assert.deepEqual(plan.steps.map((step) => step.kind), ["verify", "context", "handoff"],
+    "the sequence verifies the signal, checks context, then hands work to authorized maintenance");
+  const copy = JSON.stringify(h.playbooks);
+  assert.match(copy, /independent|reference|calibrated/i, "it names a diagnostic tool");
+  assert.match(copy, /authorized|site-specific/i, "it names the safety boundary");
+  assert.match(copy, /Do not restart or bypass equipment/i,
+    "the playbook explicitly refuses machinery commands");
+  assert.doesNotMatch(copy, /click to restart|override the interlock|bypass the interlock/i,
+    "the browser never offers a machinery command");
+  const mission = js.slice(js.indexOf("function missionPlan"), js.indexOf("function paintFront"));
+  assert.ok(/authored for the game, not generated model output/.test(mission));
+  assert.ok(/SEAT WAVE MICRO · UNLOCK SAFE CHECKS/.test(mission));
+});
+
+test("v23: the Micro mission control has an unmistakable locked-to-playbook handoff", () => {
+  const mission = js.slice(js.indexOf("function missionPlan"), js.indexOf("function paintFront"));
+  for (const label of ["PICO · DETECTS", "NANO · CHECKS", "MICRO · SITE TRIAGE"]) {
+    assert.ok(mission.includes(label), `the locked console explains ${label}`);
+  }
+  assert.ok(/SEAT WAVE MICRO · UNLOCK SAFE CHECKS/.test(mission),
+    "the control names the result of pressing it");
+  assert.ok(/function addMissionMicro/.test(mission), "the mission upgrade has one explicit action");
+  assert.ok(/chainAdd\("micro"\)/.test(mission), "the action really seats Micro");
+  assert.ok(/focusFieldStep\("verify"\)/.test(mission),
+    "after repaint it finds the first playable field control");
+  const upgrade = mission.slice(mission.indexOf("function addMissionMicro"),
+    mission.indexOf("function drawMission"));
+  const earlyReturn = upgrade.indexOf("if (!unlocked) return");
+  assert.ok(earlyReturn < 0 || upgrade.indexOf('focusFieldStep("verify")') < earlyReturn,
+    "the field handoff cannot be skipped merely because the CRT is still on its overview face");
+  assert.ok(/firstControl[\s\S]*glassScrollTo\(firstControl \|\| unlocked, true\)/.test(mission),
+    "the newly live instrument, not merely the top of its card, is kept in view");
+  assert.ok(/CLUE KIT OPEN/.test(mission) && /CLUES SOLVED/.test(mission),
+    "the unlocked state reports progress");
+});
+
+// ---------- v24: condition-specific field training --------------------------
+
+test("v24: the five recorded faults have five distinct training rigs", () => {
+  const h = loadHook();
+  const expected = {
+    stuck: ["FROZEN INPUT", "REFERENCE", "TRACE POINT", "OPEN INPUT-CHANNEL WORK ORDER"],
+    drifting: ["CALIBRATION OFFSET", "CAL POINT", "COMPARE", "OPEN CALIBRATION WORK ORDER"],
+    dropout: ["INTERMITTENT LOOP", "TIMELINE", "TEST POINT", "OPEN FIELD-CONNECTION WORK ORDER"],
+    noisy: ["NOISY SIGNAL PATH", "COMPARE", "INSTALLATION", "OPEN SHIELD-ROUTING WORK ORDER"],
+    railed: ["RANGE MISMATCH", "RANGE SOURCE", "INPUT RANGE", "OPEN CONFIGURATION-CHANGE REVIEW"],
+  };
+  assert.deepEqual(Object.keys(h.fieldRigs).sort(), Object.keys(expected).sort());
+  for (const [condition, words] of Object.entries(expected)) {
+    const rig = h.fieldRigs[condition];
+    assert.equal(rig.title, words[0]);
+    assert.deepEqual(rig.controls.map((control) => control.id), ["verify", "context", "handoff"],
+      `${condition} advances the same three-step mission spine`);
+    assert.equal(rig.controls[0].label, words[1]);
+    assert.equal(rig.controls[1].label, words[2]);
+    assert.equal(rig.controls[2].label, words[3]);
+    assert.ok(rig.controls.every((control) => control.finding && control.try),
+      `${condition} has both a successful clue and useful wrong-setting feedback`);
+    assert.notEqual(rig.authored, "", `${condition} declares its authored scenario clue`);
+  }
+  assert.equal(h.fieldRigs.drifting.controls[0].kind, "sequence",
+    "drift uses an ordered 0/50/100 as-found sweep rather than a one-click repair");
+  assert.deepEqual(h.fieldRigs.drifting.controls[0].sequence, ["zero", "mid", "span"]);
+});
+
+test("v24: field controls are Micro-gated, ordered, and never rewrite the recorded verdict", () => {
+  const h = loadHook();
+  const faultAt = h.incidentCandidates().findIndex((pick) => pick.cond === "railed");
+  h.state.chain = ["pico", "nano"];
+  h.drawIncident(faultAt);
+  assert.equal(h.fieldApply("verify", "record"), false, "Pico + Nano cannot operate the site panel");
+  assert.equal(h.fieldProgress(), 0);
+
+  h.chainAdd("micro");
+  solveModelMove(h);
+  const before = JSON.stringify(h.state.verdict);
+  assert.equal(h.fieldApply("context", "match"), false, "step two cannot jump over verification");
+  assert.equal(h.fieldApply("verify", "display"), false, "a wrong setting teaches but does not pass");
+  assert.equal(h.state.mission.field.feedback.kind, "try");
+  assert.equal(h.fieldProgress(), 0);
+  assert.equal(h.fieldApply("verify", "record"), true);
+  assert.equal(h.fieldProgress(), 1);
+  assert.equal(h.fieldApply("context", "match"), true);
+  assert.equal(h.fieldProgress(), 2);
+  assert.equal(h.fieldApply("handoff", "open"), true);
+  assert.equal(h.fieldProgress(), 3);
+  assert.equal(h.missionReady(), true);
+  assert.equal(JSON.stringify(h.state.verdict), before,
+    "training state must not recolour, rewrite, or replace recorded model evidence");
+});
+
+test("v24: the drifting rig requires the complete ordered as-found sweep", () => {
+  const h = loadHook();
+  const faultAt = h.incidentCandidates().findIndex((pick) => pick.cond === "drifting");
+  h.state.chain = ["pico", "nano", "micro"];
+  h.drawIncident(faultAt);
+  solveModelMove(h);
+  assert.equal(h.fieldApply("verify", "mid"), false, "starting at 50% is not an as-found sweep");
+  assert.deepEqual(h.state.mission.field.visits.verify, []);
+  assert.equal(h.fieldApply("verify", "zero"), false);
+  assert.deepEqual(h.state.mission.field.visits.verify, ["zero"]);
+  assert.equal(h.fieldApply("verify", "span"), false, "skipping the midpoint resets the sweep");
+  assert.deepEqual(h.state.mission.field.visits.verify, []);
+  assert.equal(h.fieldApply("verify", "zero"), false);
+  assert.equal(h.fieldApply("verify", "mid"), false);
+  assert.equal(h.fieldApply("verify", "span"), true);
+  assert.equal(h.fieldProgress(), 1);
+});
+
+test("v24: every rig can reach verification only through its own controls", () => {
+  for (const condition of ["stuck", "drifting", "dropout", "noisy", "railed"]) {
+    const h = loadHook();
+    const at = h.incidentCandidates().findIndex((pick) => pick.cond === condition);
+    h.state.chain = ["pico", "nano", "micro"];
+    h.drawIncident(at);
+    solveModelMove(h);
+    const rig = h.fieldRigs[condition];
+    for (const control of rig.controls) {
+      if (control.sequence) {
+        for (const choice of control.sequence) h.fieldApply(control.id, choice);
+      } else {
+        assert.equal(h.fieldApply(control.id, control.correct), true,
+          `${condition} accepts its authored ${control.id} action`);
+      }
+    }
+    assert.equal(h.fieldProgress(), 3, `${condition} completes three checks`);
+    const incidentNode = h.state.mission.incidentNode;
+    assert.equal(h.verifyMission(), true, `${condition} unlocks recorded-OK verification`);
+    assert.equal(h.state.cond, "none");
+    assert.notEqual(h.state.mission.verifiedNode, incidentNode);
+    assert.equal(h.verifyMission(), false, "the same incident cannot score twice");
+  }
+});
+
+test("v24: a new incident or removal of Micro clears unverified field progress", () => {
+  const h = loadHook();
+  h.state.chain = ["pico", "nano", "micro"];
+  const dropout = h.incidentCandidates().findIndex((pick) => pick.cond === "dropout");
+  h.drawIncident(dropout);
+  solveModelMove(h);
+  assert.equal(h.fieldApply("verify", "source"), true);
+  const completed = h.state.mission.completed;
+  const noisy = h.incidentCandidates().findIndex((pick) => pick.cond === "noisy");
+  h.drawIncident(noisy);
+  solveModelMove(h);
+  assert.equal(h.fieldProgress(), 0);
+  assert.deepEqual(h.state.mission.actions, {});
+  assert.equal(h.state.mission.completed, completed);
+  assert.equal(h.fieldApply("verify", "independent"), true);
+  h.chainRemove("micro");
+  assert.equal(h.fieldProgress(), 0);
+  assert.deepEqual(h.state.mission.actions, {});
+  assert.equal(h.missionPlan().locked, true);
+  assert.equal(h.state.mission.completed, completed);
+});
+
+test("v25: the current field control is operable in the monitor and mirrored on the bench", () => {
+  assert.ok(htmlFlat.includes('id="wsField"'), "the sensor column owns a stable field-panel host");
+  const render = js.slice(js.indexOf("function render()"), js.indexOf("function render()") + 420);
+  assert.ok(/renderField\(\)/.test(render), "every bench render keeps the field panel in sync");
+  const field = js.slice(js.indexOf("function currentFieldControl"), js.indexOf("function frontMission"));
+  for (const copy of ["CASE TOOLS", "PRACTICE RIG · SAFE TO TRY",
+                      "CLUE FROM THE CASE FILE", "CLOSE CASE WITH A HEALTHY READ"]) {
+    assert.ok(field.includes(copy), `the field panel carries ${copy}`);
+  }
+  assert.ok(/role", "slider"/.test(field) && /ArrowLeft|ArrowRight/.test(field),
+    "rotary controls expose value semantics and keyboard detents");
+  assert.ok(/data-field-step/.test(field), "each training control has a shared step address");
+  assert.ok(/function focusFieldStep/.test(js) && /querySelector\('\[data-field-step="'/.test(js),
+    "monitor guidance can focus the matching visible control");
+  const mission = js.slice(js.indexOf("function drawMission"), js.indexOf("function paintFront"));
+  assert.ok(/focusFieldStep\(step\.id\)/.test(mission),
+    "monitor steps move to their control instead of completing themselves");
+  assert.ok(/drawFieldControl\(activeControl, activeAt, plan\)/.test(mission),
+    "the active real control is rendered inside the shift console");
+  assert.ok(/ACTIVE BENCH CONTROL/.test(mission) && /USE IT HERE/.test(mission),
+    "the embedded instrument is plainly introduced as the place to act");
+  assert.ok(!/addEventListener\("click", function \(\) \{\s*if \(!missionStep/.test(mission),
+    "a checklist row cannot bypass its condition-specific control");
+  assert.ok(/\.sn-field\s*\{/.test(css) && /\.sn-field__dial/.test(css),
+    "the left bay has a real hardware panel and rotary controls");
+  assert.ok(/@media \(max-width: 900px\)[\s\S]*\.sn-deck/.test(css),
+    "the existing responsive order keeps field controls before the model chain");
+});
+
+test("v26: the shift console is a three-beat evidence mission, not a duplicate form", () => {
+  const rigs = js.slice(js.indexOf("var FIELD_RIGS"), js.indexOf("function incidentCandidates"));
+  for (const condition of ["stuck", "drifting", "dropout", "noisy", "railed"]) {
+    assert.match(rigs, new RegExp(`${condition}: \\{[\\s\\S]*?objective:`),
+      `${condition} carries its own field objective`);
+  }
+  const mission = js.slice(js.indexOf("function missionBeat"), js.indexOf("function paintFront"));
+  for (const beat of ["OBSERVE", "ISOLATE", "HAND OFF"]) {
+    assert.ok(mission.includes(beat), `${beat} is a named incident beat`);
+  }
+  assert.ok(/YOUR GOAL/.test(mission), "the condition-specific goal leads the sequence");
+  assert.ok(/aria-current", active \? "step"/.test(mission),
+    "the current beat is programmatically exposed");
+  assert.ok(/CASE READY · EVIDENCE PACKET 03\/03/.test(mission),
+    "completion becomes an evidence-packet finale");
+  assert.ok(/CLOSE CASE WITH A HEALTHY READ/.test(mission),
+    "the final action describes the replay change before it happens");
+  assert.match(js, /querySelector\("\.sn-mission \.sn-mission__verify"\)[\s\S]*glassScrollTo/,
+    "the final field action reveals the case-ready button inside the CRT instead of focusing the side copy");
+  assert.ok(/does not claim the prior machine was repaired/i.test(mission),
+    "the game finale keeps the causality boundary visible");
+  assert.match(css, /\.sn-mission__steps\s*\{[^}]*grid-template-columns:\s*repeat\(3/,
+    "the three beats read as a route across the CRT");
+  assert.match(css, /\.sn-mission__step\.is-active[^}]*animation:/,
+    "the current beat has restrained motion");
+  assert.match(css, /prefers-reduced-motion:\s*reduce[\s\S]*\.sn-mission__step\.is-active/,
+    "the mission pulse is removed for reduced motion");
+});
+
+test("v24: field training is local state, not a hidden network or machinery path", () => {
+  const block = js.slice(js.indexOf("var FIELD_RIGS"), js.indexOf("function frontMission"));
+  assert.doesNotMatch(block, /fetch\s*\(|XMLHttpRequest|WebSocket|sendBeacon/,
+    "field actions never leave the browser");
+  assert.match(block, /does not prove|not proof/i,
+    "the recorded OK handoff retains its causality boundary");
+  assert.doesNotMatch(block, /restart machine|bypass|force the input/i,
+    "the game does not smuggle a machinery command into its training copy");
+});
+
+test("v22: completing the playbook verifies against a different committed OK window", () => {
+  const h = loadHook();
+  const faultAt = h.incidentCandidates().findIndex((pick) => pick.cond !== "none");
+  h.state.chain = ["pico", "nano", "micro"];
+  h.drawIncident(faultAt);
+  const incidentNode = h.state.mission.incidentNode;
+  for (const step of h.missionPlan().steps) h.missionStep(step.id);
+  assert.equal(h.verifyMission(), true, "all three checks unlock verification");
+  assert.equal(h.state.cond, "none");
+  assert.equal(h.state.mission.phase, "verified");
+  assert.equal(h.state.mission.completed, 1);
+  assert.notEqual(h.state.mission.verifiedNode, incidentNode,
+    "OK is a separate committed window, never a rewritten incident");
+  assert.match(h.state.mission.note, /does not prove.*repaired/i,
+    "the game refuses invented causality");
+  assert.ok(/VERIFY WITH RECORDED OK/.test(js));
+  assert.ok(/CASE CLOSED · SEPARATE RECORDED OK/.test(js));
+  assert.ok(js.includes("This verifies the workflow; it does not prove ") &&
+    js.includes("the training steps repaired the prior machine."),
+    "the friendlier case-closed title does not erase the causality boundary");
 });
 
 test("v20: the menu leads with the tier that belongs in the band you opened", () => {

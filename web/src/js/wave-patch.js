@@ -212,6 +212,68 @@
   var UNIT_WORD = { Cel: "°C", kPa: "kPa", "mm/s": "mm/s", A: "A" };
   var CONDW = { none: "OK" };
 
+  /* Operator-authored TRAINING playbooks, never model output. The recording
+     can prove what the classifiers said about a sensor window; it cannot prove
+     a root cause or authorize work on machinery. These steps therefore stop
+     at verification, context gathering, and a site-controlled handoff. */
+  var PLAYBOOKS = {
+    stuck: { label: "STUCK SIGNAL", steps: [
+      { id: "verify", kind: "verify", label: "VERIFY THE READING",
+        tool: "independent instrument or calibrated reference",
+        detail: "Compare this fixed channel with an independent observation before treating it as the process truth." },
+      { id: "context", kind: "context", label: "CHECK THE SIGNAL PATH",
+        tool: "trend history and an appropriately rated test instrument",
+        detail: "Authorized personnel check the sensor, wiring, input channel, and scaling for where the value stopped changing." },
+      { id: "handoff", kind: "handoff", label: "HAND OFF SAFELY",
+        tool: "site-specific work order and energy-control procedure",
+        detail: "Route physical inspection to authorized maintenance; verify hazardous-energy isolation before servicing." },
+    ] },
+    drifting: { label: "DRIFTING SIGNAL", steps: [
+      { id: "verify", kind: "verify", label: "VERIFY THE OFFSET",
+        tool: "calibrated reference or redundant channel",
+        detail: "Compare the trend with an independent reference before deciding the instrument has drifted." },
+      { id: "context", kind: "context", label: "CHECK CONTEXT",
+        tool: "calibration history and neighboring-channel trends",
+        detail: "Look for maintenance history, installation changes, or nearby channels moving at the same time." },
+      { id: "handoff", kind: "handoff", label: "HAND OFF CALIBRATION",
+        tool: "site calibration procedure and approved work order",
+        detail: "Only authorized personnel decide whether calibration or replacement is appropriate for this instrument." },
+    ] },
+    dropout: { label: "DROPOUT", steps: [
+      { id: "verify", kind: "verify", label: "VERIFY THE GAP",
+        tool: "historian timestamps or an independent live indication",
+        detail: "Confirm that samples are absent rather than merely delayed, filtered, or hidden by the display." },
+      { id: "context", kind: "context", label: "TRACE THE PATH",
+        tool: "communications diagnostics and an appropriately rated test instrument",
+        detail: "Authorized personnel trace sensor power, connectors, network path, and the receiving input for the missing segment." },
+      { id: "handoff", kind: "handoff", label: "HAND OFF SAFELY",
+        tool: "site-specific work order and energy-control procedure",
+        detail: "Do not restart or bypass equipment from this screen; route physical work through the site's authorized procedure." },
+    ] },
+    noisy: { label: "NOISY SIGNAL", steps: [
+      { id: "verify", kind: "verify", label: "VERIFY THE VARIATION",
+        tool: "independent instrument or neighboring-channel comparison",
+        detail: "Check whether the variation is present outside this one measurement path." },
+      { id: "context", kind: "context", label: "CHECK INSTALLATION CONTEXT",
+        tool: "trend history and approved electrical or mechanical test equipment",
+        detail: "Authorized personnel inspect mounting, grounding, shielding, routing, and nearby operating changes." },
+      { id: "handoff", kind: "handoff", label: "HAND OFF SAFELY",
+        tool: "site-specific work order and energy-control procedure",
+        detail: "Route any physical correction to authorized maintenance and verify isolation before servicing." },
+    ] },
+    railed: { label: "RAILED SIGNAL", steps: [
+      { id: "verify", kind: "verify", label: "VERIFY RANGE AND SCALE",
+        tool: "independent reference and the approved instrument range",
+        detail: "Confirm the value is pinned at a limit and that display scaling is not creating the appearance." },
+      { id: "context", kind: "context", label: "CHECK INPUT CONTEXT",
+        tool: "appropriately rated test instrument and configuration record",
+        detail: "Authorized personnel check supply, signal path, input range, and configuration against the instrument record." },
+      { id: "handoff", kind: "handoff", label: "HAND OFF SAFELY",
+        tool: "site-specific work order and energy-control procedure",
+        detail: "Do not force the input back into range; route inspection through authorized maintenance." },
+    ] },
+  };
+
   var PATCH = {
     catalog: null, measured: null, scene: null,
     types: [],            // built from the records at boot
@@ -222,19 +284,23 @@
     reply: null,          // the prompt's last response (classified, DRAFT-only)
     chain: [],            // family ids, in daisy-chain order
     floor: 1.5,           // the Pico's margin floor (measured detents)
-    operator: false,      // the lever by the monitor footer
-    authority: false,     // UNATTENDED AUTHORITY: a POLICY the visitor sets -
-                          // the senior may act with no operator on shift, and
-                          // its decisions queue for human review. Never a
-                          // capability claim; a policy simulation over the
-                          // same recorded outcomes.
+    operator: false,      // legacy backing flag: HUMAN REVIEW response route
+    authority: false,     // legacy backing flag: POLICY QUEUE response route;
+                          // neither flag changes a model result or capability
     whyOpen: null,        // which why-panel is expanded (one at a time)
     liveTier: null,       // which tier the WHERE THEY LIVE panel is showing
     tour: -1,             // guided-tour step, -1 = not touring
+    gameMode: "explore", // Mesh stays the full engineering workbench; Factory is its own deck
+    inspectionOpen: false,
+    factory: { shipped: 0, goal: 3 },
     verdict: null,
     menuFor: null,        // chain slot index whose attach menu is open
     booted: false,
     step: 0,
+    mission: { active: false, phase: "idle", draws: 0, completed: 0,
+               actions: {}, incidentNode: null, verifiedNode: null, note: "",
+               moveStage: 0, moveFeedback: null,
+               field: { values: {}, visits: {}, feedback: null } },
     _userScrollAt: 0,     // last USER scroll inside the glass (auto-follow yields)
     _autoScrollAt: 0,     // last programmatic glass scroll (its echo is not a user)
   };
@@ -433,6 +499,98 @@
     return out;
   }
 
+  function caseSignalClue(r) {
+    var w = r && r.window;
+    if (!r || !w) {
+      return "The committed record has no exported signal summary, so this case must be checked against an independent source rather than guessed from a missing trace.";
+    }
+    var unit = unitWordOf(r);
+    var suffix = unit ? " " + unit : "";
+    var span = w.lo + " to " + w.hi + suffix;
+    if (r.truth === "stuck") {
+      return "This card's " + w.n + " values span " + span +
+        " and no consecutive value repeats exactly.";
+    }
+    if (r.truth === "drifting") {
+      return "The recorded trace stays populated while moving at " + w.slope_per_min + suffix +
+        " per minute across " + span + ".";
+    }
+    if (r.truth === "dropout") {
+      return "The recorded trace contains " + w.n + " samples and a one-step drop as large as " +
+        w.max_drop + suffix + ".";
+    }
+    if (r.truth === "noisy") {
+      return "The recorded trace changes direction " + w.sign_changes + " times across " + span + ".";
+    }
+    if (r.truth === "railed") {
+      return "All " + w.n + " recorded values are present and the trace still moves across " + span + ".";
+    }
+    return "This independent OK check contains " + w.n + " recorded samples spanning " + span + ".";
+  }
+
+  function modelMissShape(r) {
+    var clue = caseSignalClue(r);
+    if (!r || !r.window) {
+      return clue + " The label-model disagreement is the reason to stop treating an all-clear as proof and check an independent reference.";
+    }
+    if (r.truth === "stuck") {
+      return clue + " Small measurement movement makes NONE look plausible even though the replay labels the signal STUCK; a literal all-values-equal rule would miss it.";
+    }
+    if (r.truth === "drifting") {
+      return clue + " Without a trusted baseline or calibration point, that slow movement can resemble ordinary variation and make NONE look plausible.";
+    }
+    if (r.truth === "dropout") {
+      return clue + " The remaining readings can dominate a summary, so a brief loss can still leave NONE looking plausible unless the timeline is checked.";
+    }
+    if (r.truth === "noisy") {
+      return clue + " Every sample is still present, so a check aimed only at gaps or hard limits can return NONE; an independent reference exposes the excess variation.";
+    }
+    if (r.truth === "railed") {
+      return clue + " That can look healthy on shape alone. The approved range and receiving configuration are what expose a rail or range mismatch.";
+    }
+    return clue + " The waveform alone left the model answer plausible, while the committed label says an independent reference is still needed.";
+  }
+
+  /* A red MODEL LIMIT is a disagreement between two different sources:
+     model output and the replay's committed label. Keep the boundary in one
+     object so the overview, detail and training prompt cannot each tell a
+     different story about who discovered the miss. In production there is no
+     magic truth label; an independent signal or an audit policy has to create
+     the disagreement that the benchmark gives this workbench for free. */
+  function modelLimitLesson(r, answer) {
+    if (!r || !answer || r.truth === "none" || answer.word === r.truth) return null;
+    var picoAnswered = answer.who === "WAVE PICO";
+    var picoConfident = picoAnswered && r.child.margin >= PATCH.floor;
+    var truth = CONDW[r.truth] || String(r.truth).toUpperCase();
+    var modelAnswer = answer.word == null ? "NO ANSWER" : String(answer.word).toUpperCase();
+    var why;
+    if (picoConfident) {
+      why = "Pico was " + r.child.margin.toFixed(2) + " sure, above the " +
+        PATCH.floor.toFixed(1) + " floor, so Nano was not called. Nano's recorded " +
+        "counterfactual " + (r.parent.prediction === r.truth ? "said " : "also said ") +
+        String(r.parent.prediction).toUpperCase() + ". " +
+        (r.parent.prediction === r.truth
+          ? "That would be right, but Pico's margin is above the highest available handoff setting."
+          : "Changing the handoff knob would not rescue this read.");
+    } else {
+      why = (picoAnswered ? "Pico asked for help. " : "Nano read this window directly. ") +
+        "Nano's recorded answer was " + String(r.parent.prediction).toUpperCase() +
+        ", and it disagreed with the replay label.";
+    }
+    var shape = modelMissShape(r);
+    return {
+      label: picoConfident ? "CONFIDENT MISS" : "CHAIN MISS",
+      modelAnswer: modelAnswer,
+      recordedTruth: truth,
+      knownBy: "COMMITTED REPLAY LABEL · NOT MODEL OUTPUT",
+      why: why,
+      shapeTitle: modelAnswer === "NONE" ? "WHY NONE LOOKED PLAUSIBLE" : "WHY THE ANSWER LOOKED PLAUSIBLE",
+      shapeBy: "BENCH EXPLANATION · RECORDED SIGNAL · NOT MODEL OUTPUT",
+      shape: shape,
+      catch: "An independent reference, a site invariant, or an audit that samples all-clear decisions can challenge a model answer that emitted no finding.",
+    };
+  }
+
   /* =====================================================================
      THE FLEET - every recorded record, replayed under the CURRENT policy.
      Pure arithmetic over the 120 committed records: the same single-record
@@ -611,11 +769,9 @@
   /* The scope a tier answers over, for the CURRENT selection. Returns the
      record indices plus what to call them, or null when the tier's scope
      exceeds what was recorded. */
-  function scopeFor(tierId) {
+  function scopeForRecord(tierId, recIdx) {
     var m = PATCH.measured;
     if (!m || !PATCH.machines) return null;
-    var sel = currentType();
-    var recIdx = sel && sel.recIdx ? sel.recIdx[PATCH.cond] : null;
     var mach = recIdx == null ? null : machineOf(recIdx);
     if (tierId === "nano") {
       if (!mach) return null;
@@ -642,6 +798,12 @@
     return null; // tera / peta / exa exceed the recording
   }
 
+  function scopeFor(tierId) {
+    var sel = currentType();
+    var recIdx = sel && sel.recIdx ? sel.recIdx[PATCH.cond] : null;
+    return scopeForRecord(tierId, recIdx);
+  }
+
   /* The worst offenders inside a scope: which machines carry the misses. This
      is what a site brain or a plant model would actually report, and it is a
      recount - each machine's own records, scored by the same engine. */
@@ -660,16 +822,204 @@
     return out.slice(0, limit || 3);
   }
 
+  /* The scope rollup used to answer the same question for every selected
+     card: "which machines missed the most faults of any kind?" That is valid
+     fleet arithmetic and poor case intelligence. A technician looking at a
+     MOTOR CURRENT card needs the current motor first, then comparable motor
+     cards at the tier's scope. This lens is still only a recount of committed
+     records; it adds no model prose and no synthetic sensor values. */
+  function caseLens(tierId, record) {
+    var r = record || currentRecord();
+    if (!r || !PATCH.measured) return null;
+    var recIdx = PATCH.measured.records.indexOf(r);
+    if (recIdx < 0) return null;
+    var sensorKey = PATCH._recType && PATCH._recType[recIdx];
+    var type = typeOf(sensorKey);
+    var scope = scopeForRecord(tierId, recIdx);
+    var info = chainInfo();
+    if (!sensorKey || !scope || !info.reader) return null;
+
+    var comparable = scope.idxs.filter(function (i) {
+      return PATCH._recType && PATCH._recType[i] === sensorKey;
+    });
+    var byMachine = [];
+    (PATCH.machines || []).forEach(function (mach) {
+      var mine = comparable.filter(function (i) { return mach.idxs.indexOf(i) >= 0; });
+      if (!mine.length) return;
+      mine.sort(function (a, b) {
+        if (a === recIdx) return -1;
+        if (b === recIdx) return 1;
+        var ar = PATCH.measured.records[a], br = PATCH.measured.records[b];
+        var ae = ar.truth === r.truth ? 1 : 0, be = br.truth === r.truth ? 1 : 0;
+        if (ae !== be) return be - ae;
+        var af = ar.truth === "none" ? 0 : 1, bf = br.truth === "none" ? 0 : 1;
+        if (af !== bf) return bf - af;
+        return a - b;
+      });
+      var pick = mine[0];
+      var rowRecord = PATCH.measured.records[pick];
+      var scored = scoreRecord(rowRecord, info);
+      var outcome = scored.dead ? "UNHEARD"
+        : scored.out === "false" ? "FALSE ALARM"
+        : String(scored.out).toUpperCase();
+      byMachine.push({
+        machine: mach.name,
+        record: rowRecord.node_id,
+        current: pick === recIdx,
+        sensorKey: sensorKey,
+        condition: CONDW[rowRecord.truth] || String(rowRecord.truth).toUpperCase(),
+        outcome: outcome,
+        prediction: scored.dead ? null : (rowRecord.child.margin < PATCH.floor && info.senior
+          ? rowRecord.parent.prediction : rowRecord.child.prediction),
+        margin: rowRecord.child.margin,
+      });
+    });
+    byMachine.sort(function (a, b) {
+      if (a.current !== b.current) return a.current ? -1 : 1;
+      var ae = a.condition === (CONDW[r.truth] || String(r.truth).toUpperCase()) ? 1 : 0;
+      var be = b.condition === (CONDW[r.truth] || String(r.truth).toUpperCase()) ? 1 : 0;
+      if (ae !== be) return be - ae;
+      return a.machine < b.machine ? -1 : 1;
+    });
+    var exact = comparable.filter(function (i) {
+      return PATCH.measured.records[i].truth === r.truth;
+    });
+    return {
+      tier: tierId,
+      sensorKey: sensorKey,
+      sensor: type ? type.label : ((r.window && r.window.tag) || "RECORDED SENSOR"),
+      condition: CONDW[r.truth] || String(r.truth).toUpperCase(),
+      scope: scope,
+      tally: tallyOver(comparable, info),
+      matching: exact.length,
+      rows: byMachine.slice(0, tierId === "giga" ? 8 : 5),
+    };
+  }
+
   function policyLine() {
     var info = chainInfo();
     var bits = [];
     if (info.reader === "pico") bits.push("floor " + PATCH.floor.toFixed(1));
     if (info.reader === "nano" && info.picoAt < 0) bits.push("the senior reads direct");
     else bits.push(info.senior ? "senior seated" : "no senior");
-    bits.push(PATCH.operator ? "operator on shift"
-      : (PATCH.authority && PATCH.chain.indexOf("nano") >= 0
-        ? "unattended authority granted" : "nobody on shift"));
+    bits.push(responseMode().short);
     return bits.join(" · ");
+  }
+
+  var FAMILY_CASE_LINE = "PICO → NANO → MICRO → GIGA → TERA → PETA → EXA";
+
+  function readerHandoff(r) {
+    if (!r) return "WAVE PICO has no recorded read · WAVE NANO has no recorded read";
+    var pico = 'WAVE PICO ' + (r.child.margin < PATCH.floor ? "ASKED FOR HELP" :
+      'ANSWERED "' + String(r.child.prediction).toUpperCase() + '"') +
+      " at margin " + r.child.margin.toFixed(2);
+    var nano = r.child.margin < PATCH.floor
+      ? 'WAVE NANO ANSWERED "' + String(r.parent.prediction).toUpperCase() + '" in the recorded run'
+      : 'WAVE NANO WAS NOT CALLED · recorded counterfactual "' +
+        String(r.parent.prediction).toUpperCase() + '"';
+    return pico + " · " + nano;
+  }
+
+  function caseMechanic(r) {
+    if (!r || r.truth === "none") {
+      return "OK CHECK · no field action is needed; deal the next shift card.";
+    }
+    var rig = FIELD_RIGS && FIELD_RIGS[r.truth];
+    if (!rig) return "FIELD CHECK REQUIRED · this recorded condition has no training rig yet.";
+    return rig.title + " · " + rig.controls.map(function (control) {
+      return control.label;
+    }).join(" → ");
+  }
+
+  /* One shared case packet, seven distinct jobs. Pico/Nano fields are model
+     outputs from the committed run. Micro/Giga are deterministic synthesis
+     over committed records. The upper three receive the same packet but stop
+     at a role simulation because this replay contains only one plant. */
+  function tierCaseBrief(tierId, record) {
+    var fam = familyById(tierId);
+    var r = record || currentRecord();
+    if (!fam || !r || !PATCH.measured) return null;
+    var recIdx = PATCH.measured.records.indexOf(r);
+    var typeKey = PATCH._recType && PATCH._recType[recIdx];
+    var type = typeOf(typeKey) || currentType();
+    var condition = r.truth === "none" ? "OK" : String(r.truth).toUpperCase();
+    var rig = FIELD_RIGS && FIELD_RIGS[r.truth];
+    var objective = rig && rig.objective ? rig.objective :
+      "Confirm the independent OK check and leave the machinery unchanged.";
+    var scopeSummary = (tierId === "micro" || tierId === "giga")
+      ? caseLens(tierId, r) : null;
+    var adds, provenance;
+    if (tierId === "pico") {
+      adds = "For this " + condition + " case, Pico contributes its recorded one-channel call: " +
+        String(r.child.prediction).toUpperCase() + " at margin " + r.child.margin.toFixed(2) +
+        ", then answers or asks Nano according to the knob.";
+      provenance = "RECORDED MODEL OUTPUT";
+    } else if (tierId === "nano") {
+      adds = "For this " + condition + " case, Nano contributes its recorded second opinion: " +
+        String(r.parent.prediction).toUpperCase() + " at margin " + r.parent.margin.toFixed(2) +
+        ", used only when the handoff reaches it.";
+      provenance = "RECORDED MODEL OUTPUT";
+    } else if (tierId === "micro") {
+      adds = "For this " + condition + " " + (type ? type.label : "sensor") +
+        " case, Micro puts " + r.node_id + " first, then compares " +
+        (scopeSummary ? scopeSummary.tally.n + " " + scopeSummary.sensor + " card" +
+          (scopeSummary.tally.n === 1 ? "" : "s") + " across " + scopeSummary.scope.name +
+          ": " + scopeSummary.tally.caught + " caught, " + scopeSummary.tally.missed + " missed"
+          : "the same sensor across its site") + ". Its site-triage mission is: " + objective;
+      provenance = "BENCH SYNTHESIS · COMMITTED RECORDS · NOT MODEL OUTPUT";
+    } else if (tierId === "giga") {
+      adds = "For this " + condition + " " + (type ? type.label : "sensor") +
+        " case, Giga carries the same comparison across " +
+        (scopeSummary ? scopeSummary.scope.name + ": " + scopeSummary.tally.n +
+          " comparable cards, " + scopeSummary.matching + " with this condition"
+          : "the plant's sites") +
+        ", so plant operations compare like with like instead of ranking unrelated channels.";
+      provenance = "BENCH SYNTHESIS · COMMITTED RECORDS · NOT MODEL OUTPUT";
+    } else if (tierId === "tera") {
+      adds = "For this " + condition + " case, Tera would compare the validated signature across plants and reveal whether the same failure pattern is repeating. A second plant is required to run that comparison.";
+      provenance = "ROLE SIMULATION · REPLAY ENDS AT ONE PLANT";
+    } else if (tierId === "peta") {
+      adds = "For this " + condition + " case, Peta would turn enterprise comparisons into a regional priority and carry the response on leaner hardware. Regional plant records are required to run that work.";
+      provenance = "ROLE SIMULATION · REPLAY ENDS AT ONE PLANT";
+    } else {
+      adds = "For this " + condition + " case, Exa would turn the verified miss, field evidence, and safe handoff into an evaluation and teaching signal for Pico, Nano, and the rest of the family.";
+      provenance = "ROLE SIMULATION · REPLAY ENDS AT ONE PLANT";
+    }
+    return {
+      tier: tierId,
+      record: r.node_id,
+      sensor: type ? type.label : ((r.window && r.window.tag) || "RECORDED SENSOR"),
+      condition: condition,
+      signal: caseSignalClue(r),
+      handoff: readerHandoff(r),
+      family: FAMILY_CASE_LINE,
+      mechanic: caseMechanic(r),
+      adds: adds,
+      provenance: provenance,
+    };
+  }
+
+  /* THE MODELS ALWAYS WATCH. These three states describe only what happens
+     AFTER a finding. Keeping that separate from derive() matters: staffing
+     cannot turn a correct model result amber, and granting authority cannot
+     turn a recorded miss green. The legacy booleans remain the wire/storage
+     shape; this plain object is the product language. */
+  function responseMode() {
+    if (PATCH.operator) {
+      return { id: "human", label: "HUMAN REVIEW", short: "sent to human review",
+               hint: "Models keep watching; a person reviews each finding." };
+    }
+    if (PATCH.authority) {
+      return { id: "policy", label: "POLICY QUEUE", short: "sent to the policy queue",
+               hint: "Models keep watching; findings enter the configured policy queue." };
+    }
+    return { id: "log", label: "LOG ONLY", short: "findings logged only",
+             hint: "Models keep watching; findings are recorded without an automatic response." };
+  }
+
+  function watchingLabel() {
+    if (!PATCH.chain.length) return "○ NO MODEL SEATED";
+    return chainInfo().reader ? "● MODELS WATCHING" : "○ NO RECORDED READER";
   }
 
   // A prompt reply cites the selection (readings) and the chain (the DRAFT's
@@ -721,9 +1071,15 @@
       }
       if (id === "nano") {
         if (i === info.nanoAt && info.senior && !escalated) {
-          // the senior only speaks when a read reaches it
+          // The senior only speaks when a read reaches it. Keep the committed
+          // parent result on the quiet stage as a labelled counterfactual: it
+          // explains whether changing the floor could have rescued this read.
           out.push({ kind: "quietSenior", who: "WAVE NANO", role: "the bigger model it can ask",
-                     note: "Wave Pico answered on its own, so nothing reached Wave Nano on this read." });
+                     wouldSay: r.parent.prediction, wouldMargin: r.parent.margin,
+                     picoMargin: r.child.margin, floor: PATCH.floor, r: r,
+                     note: "Wave Pico answered on its own at " + r.child.margin.toFixed(2) +
+                       " >= " + PATCH.floor.toFixed(1) + ", so this read did not reach Wave Nano. " +
+                       'Recorded counterfactual: Wave Nano also said "' + r.parent.prediction + '".' });
           return;
         }
         answered = true;
@@ -761,14 +1117,8 @@
       base.kind = "scoperun";
       base.scope = sc;
       base.tally = tallyOver(sc.idxs, info);
-      base.worst = worstMachines(sc.idxs, info, 3);
+      base.caseLens = caseLens(fam.id);
       base.policy = policyLine();
-      if (fam.id === "giga") {
-        base.sites = (PATCH.sites || []).map(function (st) {
-          return { label: st.label, machines: st.machines.length,
-                   t: tallyOver(st.idxs, info) };
-        }).sort(function (a, b) { return b.t.missed - a.t.missed; });
-      }
       return base;
     }
     base.kind = "scope";
@@ -856,37 +1206,31 @@
       } else if (deadEnd) {
         state = "yellow";
         why = "Wave Pico is not sure about this read and has nobody to ask. Add Wave Nano behind it.";
-      } else if (!PATCH.operator) {
-        // UNATTENDED AUTHORITY: with the senior aboard and the policy granted,
-        // the no-operator state is not DEGRADED but PROVISIONAL - the chain
-        // acts, and its decisions queue for a person to review. This is a
-        // POLICY the visitor sets, not a measurement; the recounted outcomes
-        // are the same recorded records either way.
-        var seniorAboard = PATCH.chain.indexOf("nano") >= 0;
-        if (PATCH.authority && seniorAboard) {
-          state = "green"; label = "ACTING ALONE"; sym = "◐";
-          why = "Nobody is on shift, so Wave Nano is acting on its own and this decision is " +
-            "queued for a person to review later. Whether a model is big enough to take a " +
-            "shift is a POLICY you set, not a measurement.";
-        } else {
-          state = "yellow";
-          why = "The models agree, but nobody is watching. Set WHO'S WATCHING to a person - " +
-            "the chain should end with one." +
-            (seniorAboard ? " (Or let Wave Nano act alone, with its decisions queued for review.)" : "");
-        }
       } else if (!missed) {
         state = "green";
-        why = caught ? "The fault was caught and a person is watching. Nothing to fix."
-          : falseAlarm ? "False alarm - the chain called a fault on a healthy sensor. The person on shift will see it."
+        why = caught ? "The recorded fault was caught by the model chain."
+          : falseAlarm ? "False alarm - the chain called a fault on a recorded healthy sensor."
           : "All quiet: the sensor is healthy and the models agree.";
-        if (falseAlarm) { state = "yellow"; }
+        if (caught) label = "FAULT CAUGHT";
+        if (falseAlarm) { state = "yellow"; label = "CHECK CALL"; }
       } else {
-        state = "green"; label = "BEST THIS CHAIN CAN DO";
-        why = "Wave Nano itself got this one wrong in the recorded run, so no knob setting " +
-          "catches it. This chain has done everything it can on this read.";
+        state = "red"; label = "MODEL LIMIT";
+        if (info.reader === "nano" && info.picoAt < 0) {
+          why = 'Wave Nano answered "' + r.parent.prediction + '" in the recorded run and got this ' +
+            "fault wrong. The fault stays red because there is no recorded senior result above Nano on this bench.";
+        } else if (r.child.margin >= PATCH.floor) {
+          why = 'Wave Pico answered "' + r.child.prediction + '" at ' + r.child.margin.toFixed(2) +
+            ", above the " + PATCH.floor.toFixed(1) + " SURE ENOUGH floor, so Nano was not called. " +
+            'The recorded Nano counterfactual also said "' + r.parent.prediction +
+            '", so raising the floor would not catch this fault.';
+        } else {
+          why = 'Wave Pico asked for help and Wave Nano answered "' + r.parent.prediction +
+            '" in the recorded run. Nano also got this fault wrong, so no recorded model in this chain catches it.';
+        }
       }
     }
-    PATCH.verdict = { state: state, why: why, label: label, sym: sym, stages: st };
+    PATCH.verdict = { state: state, why: why, label: label, sym: sym,
+                      response: responseMode(), stages: st };
     paintMonitor();
   }
 
@@ -995,8 +1339,11 @@
      RENDER
      ===================================================================== */
   function render() {
+    renderGameShell();
+    renderFactory();
     renderSelector();
     renderPads();
+    renderField();
     renderChain();
     renderWhys();
     renderTabs();
@@ -1005,6 +1352,339 @@
     renderOp();
     renderMirror();
     paintTour();
+  }
+
+  /* ---- THE FRONT DOOR --------------------------------------------------
+     The workbench is a powerful sandbox, but it is a poor tutorial: every
+     control looks equally important. The game starts with one promise and
+     one action, then focus mode keeps only the current case in view. The
+     sandbox is never removed; it is an explicit choice instead of the first
+     thing a visitor has to decode. */
+  function gameBeat() {
+    var m = PATCH.mission;
+    if (!m.active) return 0;
+    if (m.phase === "verified" || m.phase === "clear") return 3;
+    var plan = missionPlan();
+    if (plan.locked) return 0;
+    if (missionReady()) return 2;
+    return 1;
+  }
+
+  function renderGamebar() {
+    var host = $("wsGamebar");
+    if (!host) return;
+    host.textContent = "";
+    if (PATCH.gameMode === "explore") {
+      host.hidden = false;
+      var back = el("button", "sn-gamebar__return", PATCH.mission.active
+        ? "← RETURN TO YOUR FACTORY" : "START THE FACTORY GAME →");
+      back.type = "button";
+      back.addEventListener("click", function () {
+        if (PATCH.mission.active) returnToFactory();
+        else startMystery();
+      });
+      host.appendChild(back);
+      return;
+    }
+    if (PATCH.gameMode !== "play") {
+      host.hidden = true;
+      return;
+    }
+    host.hidden = false;
+    var beat = gameBeat();
+    var t = currentType();
+    var top = el("div", "sn-gamebar__top");
+    var title = el("span", "sn-gamebar__case");
+    title.appendChild(el("b", null, "CASE " + String(PATCH.mission.completed + 1).padStart(2, "0")));
+    title.appendChild(el("span", null, (t ? t.label : "MYSTERY SENSOR") + " · " +
+      (CONDW[PATCH.cond] || String(PATCH.cond).toUpperCase())));
+    top.appendChild(title);
+    var leave = el("button", "sn-gamebar__sandbox", "OPEN SANDBOX");
+    leave.type = "button";
+    leave.title = "Show every sensor, condition, model, note, and input";
+    leave.addEventListener("click", openSandbox);
+    top.appendChild(leave);
+    host.appendChild(top);
+    var steps = el("ol", "sn-gamebar__steps");
+    [
+      ["CATCH IT", "choose the right model move"],
+      ["TRACE IT", "solve three signal clues"],
+      ["CLOSE IT", "compare with a healthy read"],
+    ].forEach(function (copy, index) {
+      var state = index < beat ? " is-done" : index === beat && beat < 3 ? " is-now" : "";
+      var item = el("li", "sn-gamebar__step" + state);
+      item.appendChild(el("span", "sn-gamebar__pip", index < beat ? "✓" : String(index + 1)));
+      var words = el("span", "sn-gamebar__words");
+      words.appendChild(el("b", null, copy[0]));
+      words.appendChild(el("span", null, copy[1]));
+      item.appendChild(words);
+      steps.appendChild(item);
+    });
+    host.appendChild(steps);
+  }
+
+  function renderGameShell() {
+    var bench = $("wbBench");
+    if (bench && bench.classList) {
+      bench.classList.toggle("is-welcome", PATCH.gameMode === "welcome");
+      bench.classList.toggle("is-playing", PATCH.gameMode === "play");
+      bench.classList.toggle("is-exploring", PATCH.gameMode === "explore");
+      bench.classList.toggle("is-inspecting", PATCH.gameMode !== "play" || PATCH.inspectionOpen);
+    }
+    var sensor = $("wsSensorStep"), model = $("wsModelStep"), output = $("wsOutputStep");
+    if (sensor) sensor.firstChild.textContent = PATCH.gameMode === "play" ? "YOUR MACHINE" : "1 · PICK A SENSOR";
+    if (model) model.firstChild.textContent = PATCH.gameMode === "play" ? "YOUR MODEL CHAIN " : "2 · ADD MODELS ";
+    if (output) output.textContent = PATCH.gameMode === "play" ? "YOUR CASE" : "3 · WHAT THEY SAID";
+    renderGamebar();
+  }
+
+  function startMystery() {
+    var firstStart = PATCH.gameMode === "welcome";
+    PATCH.gameMode = "play";
+    PATCH.tour = -1;
+    PATCH.detail = false;
+    PATCH.inspectionOpen = false;
+    // The factory starts small: one machine reader. The first measured card
+    // teaches why a line gateway exists by making the player place Nano.
+    if (firstStart) PATCH.chain = ["pico"];
+    else if (!PATCH.chain.length) PATCH.chain = ["pico"];
+    var pick = drawIncident();
+    render();
+    react(pick
+      ? "Mystery case opened. Start on the television: catch the fault, trace the clues, and close the case."
+      : "The case deck is not ready yet.");
+    var action = document.querySelector(".sn-factory__primary, .sn-factory__choice");
+    if (action && action.scrollIntoView) action.scrollIntoView({ block: "center", behavior: REDUCED ? "auto" : "smooth" });
+    if (action && action.focus) action.focus({ preventScroll: true });
+    return pick;
+  }
+
+  function openSandbox() {
+    PATCH.gameMode = "explore";
+    PATCH.inspectionOpen = true;
+    PATCH.tour = -1;
+    render();
+    react("Sandbox open. Every recorded sensor, condition, model tier, and technical note is available.");
+    var sensor = document.querySelector(".sn-type.is-sel");
+    if (sensor && sensor.focus) sensor.focus({ preventScroll: true });
+  }
+
+  function returnToFactory() {
+    PATCH.gameMode = "play";
+    PATCH.inspectionOpen = false;
+    PATCH.detail = false;
+    render();
+    var action = document.querySelector(".sn-factory__primary, .sn-factory__choice");
+    if (action && action.scrollIntoView) action.scrollIntoView({ block: "center", behavior: REDUCED ? "auto" : "smooth" });
+    if (action && action.focus) action.focus({ preventScroll: true });
+  }
+
+  function wireGameDoor() {
+    var start = $("wsStartGame"), explore = $("wsExplore");
+    if (start) start.addEventListener("click", startMystery);
+    if (explore) explore.addEventListener("click", openSandbox);
+  }
+
+  function factoryModelLabel(id, identify) {
+    var fam = familyById(id);
+    if (id === "floor") return "TUNE PICO'S HANDOFF";
+    if (!fam) return String(id).toUpperCase();
+    if (identify) return fam.label.toUpperCase() + " MADE THE CALL";
+    if (PATCH.chain.indexOf(id) >= 0) return fam.label.toUpperCase() + " IS ALREADY BUILT";
+    if (id === "pico") return "PLACE PICO ON THE MACHINE";
+    if (id === "nano") return "INSTALL NANO AT THE LINE GATEWAY";
+    if (id === "micro") return "ADD MICRO TO SITE CONTROL";
+    if (id === "giga") return "ADD GIGA AT PLANT CONTROL";
+    return "PLACE " + fam.label.toUpperCase();
+  }
+
+  function factoryNode(label, sub, cls, tier) {
+    var node = el("div", "sn-factory__node" + (cls ? " " + cls : ""));
+    if (tier) tierStyle(node, tier);
+    node.appendChild(el("b", null, label));
+    node.appendChild(el("span", null, sub));
+    return node;
+  }
+
+  function openInspection() {
+    PATCH.inspectionOpen = true;
+    PATCH.detail = true;
+    render();
+    var deck = document.querySelector(".sn-deck");
+    if (deck && deck.scrollIntoView) deck.scrollIntoView({ block: "start", behavior: REDUCED ? "auto" : "smooth" });
+    var first = document.querySelector(".sn-mission__movechoice, .sn-mission [data-field-step] button:not([disabled])");
+    if (first && first.focus) first.focus({ preventScroll: true });
+  }
+
+  function shipBatch() {
+    var m = PATCH.mission;
+    if (!m.active || (m.phase !== "verified" && m.phase !== "clear")) return false;
+    PATCH.factory.shipped++;
+    if (PATCH.factory.shipped >= PATCH.factory.goal) {
+      render();
+      react("Contract complete: three reliable batches shipped. Keep building to test the next part of the factory.");
+      return true;
+    }
+    dealAndRender();
+    return true;
+  }
+
+  function focusFactoryRelease() {
+    if (PATCH.gameMode !== "play") return;
+    PATCH.inspectionOpen = false;
+    PATCH.detail = false;
+    render();
+    var release = document.querySelector(".sn-factory__primary");
+    if (release && release.scrollIntoView) release.scrollIntoView({ block: "center", behavior: REDUCED ? "auto" : "smooth" });
+    if (release && release.focus) release.focus({ preventScroll: true });
+  }
+
+  function renderFactory() {
+    var host = $("wsFactory");
+    if (!host) return;
+    host.textContent = "";
+    host.hidden = PATCH.gameMode !== "play";
+    if (PATCH.gameMode !== "play") return;
+    var m = PATCH.mission;
+    var r = currentRecord();
+    var t = currentType();
+    var phaseReady = m.phase === "verified" || m.phase === "clear";
+    var won = PATCH.factory.shipped >= PATCH.factory.goal;
+
+    var head = el("header", "sn-factory__head");
+    var title = el("div", "sn-factory__title");
+    title.appendChild(el("span", null, "WAVE FACTORY · CONTRACT 01"));
+    title.appendChild(el("h2", null, won ? "Factory online." : "Ship 3 reliable batches."));
+    title.appendChild(el("p", null, won
+      ? "You built a model chain that can catch, investigate, and safely route signal problems."
+      : "Bad signals stop packout. Build the smallest model chain that can catch each one, then trace the fault and release the line."));
+    head.appendChild(title);
+    var score = el("div", "sn-factory__score");
+    score.appendChild(el("b", null, String(PATCH.factory.shipped).padStart(2, "0") + " / " + String(PATCH.factory.goal).padStart(2, "0")));
+    score.appendChild(el("span", null, "BATCHES SHIPPED"));
+    head.appendChild(score);
+    host.appendChild(head);
+
+    var contract = el("div", "sn-factory__contract");
+    var boxes = el("div", "sn-factory__boxes");
+    for (var bi = 0; bi < PATCH.factory.goal; bi++) {
+      var crate = el("span", "sn-factory__box" + (bi < PATCH.factory.shipped ? " is-shipped" : bi === PATCH.factory.shipped ? " is-next" : ""));
+      crate.appendChild(el("i", null, bi < PATCH.factory.shipped ? "✓" : "◇"));
+      crate.appendChild(el("b", null, "BATCH " + String(bi + 1).padStart(2, "0")));
+      boxes.appendChild(crate);
+    }
+    contract.appendChild(boxes);
+    contract.appendChild(el("span", "sn-factory__linestate " + (phaseReady ? "is-ready" : "is-stopped"),
+      won ? "CONTRACT COMPLETE" : phaseReady ? "PACKOUT READY" : "LINE STOPPED · SIGNAL HOLD"));
+    host.appendChild(contract);
+
+    var floor = el("section", "sn-factory__floor");
+    floor.setAttribute("aria-label", "Production line and model defense layers");
+    var prodHead = el("div", "sn-factory__railhead");
+    prodHead.appendChild(el("b", null, "PRODUCTION LINE"));
+    prodHead.appendChild(el("span", null, "YOUR MOVE · THE LINE WAITS FOR YOU"));
+    floor.appendChild(prodHead);
+    var production = el("div", "sn-factory__line");
+    production.appendChild(factoryNode("RAW FEED", "material enters", "is-source"));
+    production.appendChild(el("span", "sn-factory__belt", "→"));
+    production.appendChild(factoryNode("PROCESS CELL", t ? t.label : "sensor", "is-machine"));
+    production.appendChild(el("span", "sn-factory__belt", "→"));
+    production.appendChild(factoryNode("QUALITY GATE", phaseReady ? "route verified" : "waiting on signal", phaseReady ? "is-clear" : "is-blocked"));
+    production.appendChild(el("span", "sn-factory__belt", "→"));
+    production.appendChild(factoryNode("PACKOUT", phaseReady ? "ready to ship" : "held", "is-packout"));
+    floor.appendChild(production);
+
+    var defenseHead = el("div", "sn-factory__railhead sn-factory__railhead--models");
+    defenseHead.appendChild(el("b", null, "SIGNAL DEFENSE"));
+    defenseHead.appendChild(el("span", null, "machine → line → site → plant"));
+    floor.appendChild(defenseHead);
+    var defense = el("div", "sn-factory__defense");
+    [
+      ["pico", "ON MACHINE", "reads one signal"],
+      ["nano", "LINE GATEWAY", "hears Pico's doubt"],
+      ["micro", "SITE CONTROL", "connects facility clues"],
+      ["giga", "PLANT CONTROL", "compares every site"],
+    ].forEach(function (slot) {
+      var seated = PATCH.chain.indexOf(slot[0]) >= 0;
+      var node = factoryNode(seated ? familyById(slot[0]).label.toUpperCase() : "EMPTY SLOT",
+        slot[1] + " · " + slot[2], "sn-factory__model" + (seated ? " is-seated" : " is-empty"), slot[0]);
+      node.appendChild(el("i", "sn-factory__modelnote", seated ? "ONLINE" : "NOT BUILT"));
+      defense.appendChild(node);
+    });
+    floor.appendChild(defense);
+    var expansionHead = el("div", "sn-factory__railhead sn-factory__railhead--expansion");
+    expansionHead.appendChild(el("b", null, "FACTORY EXPANSION"));
+    expansionHead.appendChild(el("span", null, "future contracts · beyond this one-plant replay"));
+    floor.appendChild(expansionHead);
+    var expansion = el("div", "sn-factory__expansion");
+    [
+      ["tera", "ENTERPRISE", "coordinates multiple plants"],
+      ["peta", "REGION", "connects several enterprises"],
+      ["exa", "FLAGSHIP LAB", "teaches the smaller model family"],
+    ].forEach(function (slot) {
+      var node = factoryNode(familyById(slot[0]).label.toUpperCase(),
+        slot[1] + " · " + slot[2], "sn-factory__model is-future", slot[0]);
+      node.appendChild(el("i", "sn-factory__modelnote", "LOCKED · COMPLETE LATER CONTRACTS"));
+      expansion.appendChild(node);
+    });
+    floor.appendChild(expansion);
+    host.appendChild(floor);
+
+    var event = el("section", "sn-factory__event");
+    var eventCopy = el("div", "sn-factory__eventcopy");
+    eventCopy.appendChild(el("span", null, won ? "FACTORY COMPLETE" : phaseReady ? "LINE RECOVERED" : "NEW SIGNAL AT THE QUALITY GATE"));
+    eventCopy.appendChild(el("h3", null, won ? "Contract shipped." : phaseReady
+      ? "The evidence route is ready. Release this batch."
+      : (t ? t.label : "SENSOR") + " is reading " + (CONDW[PATCH.cond] || String(PATCH.cond).toUpperCase()) + "."));
+    eventCopy.appendChild(el("p", null, won
+      ? "You can keep running batches or open the sandbox to redesign the chain."
+      : phaseReady ? "Your signal route passed its healthy comparison. Release the batch and keep the line moving."
+      : "Packout is paused before a questionable signal becomes a bad decision. Decide where this read belongs in the model ladder."));
+    event.appendChild(eventCopy);
+
+    var play = el("div", "sn-factory__play");
+    var move = !phaseReady ? incidentMove() : null;
+    if (won) {
+      var keep = el("button", "sn-factory__primary", "RUN ANOTHER BATCH →");
+      keep.type = "button";
+      keep.addEventListener("click", dealAndRender);
+      play.appendChild(keep);
+    } else if (phaseReady) {
+      var ship = el("button", "sn-factory__primary", "RELEASE TO PACKOUT · SHIP BATCH →");
+      ship.type = "button";
+      ship.addEventListener("click", shipBatch);
+      play.appendChild(ship);
+    } else if (move && move.correct) {
+      play.appendChild(el("b", "sn-factory__question", move.question));
+      var choices = el("div", "sn-factory__choices");
+      move.choices.forEach(function (choice) {
+        var button = el("button", "sn-factory__choice");
+        button.type = "button";
+        if (choice.id !== "floor") tierStyle(button, choice.id);
+        button.appendChild(el("b", null, factoryModelLabel(choice.id, move.kind === "identify")));
+        button.appendChild(el("span", null, choice.role));
+        button.addEventListener("click", function () {
+          var changed = missionChooseMove(choice.id);
+          if (!changed) renderFactory();
+          else render();
+        });
+        choices.appendChild(button);
+      });
+      play.appendChild(choices);
+      if (m.moveFeedback) play.appendChild(el("p", "sn-factory__feedback is-" + m.moveFeedback.kind, m.moveFeedback.text));
+      var inspect = el("button", "sn-factory__inspect", "INSPECT THE RECORDED SIGNAL ON THE CRT");
+      inspect.type = "button";
+      inspect.addEventListener("click", openInspection);
+      play.appendChild(inspect);
+    } else {
+      var clues = el("button", "sn-factory__primary", "OPEN THE CLUE KIT →");
+      clues.type = "button";
+      clues.addEventListener("click", openInspection);
+      play.appendChild(clues);
+      play.appendChild(el("p", "sn-factory__feedback", "The model route is built. Use the inspection room to trace three clues and release the line."));
+    }
+    event.appendChild(play);
+    host.appendChild(event);
   }
 
   /* ---- THE SCALE LADDER -------------------------------------------------
@@ -1087,8 +1767,11 @@
         ? "Sparkplug aliases with no name - the wire never said what these measure. Real plants are full of them."
         : "grouped from the recorded tags ending _" + t.label.replace(/ /g, "_");
       b.addEventListener("click", function () {
+        var training = PATCH.mission.active;
         selectType(t.key);
-        derive(); render();
+        if (training) beginSelectedIncident(false);
+        else derive();
+        render();
         var r = currentRecord();
         react(t.label + " selected - emitting " + ((r.window && r.window.tag) || "its wire") + ".");
         var again = document.querySelector(".sn-type.is-sel");
@@ -1262,7 +1945,8 @@
       pad.addEventListener("click", function () {
         contextMoved();
         PATCH.cond = c;
-        derive(); render();
+        beginSelectedIncident(false);
+        render();
         var r = currentRecord();
         react("Condition " + (CONDW[c] || c.toUpperCase()) + " - replaying " +
           ((r.window && r.window.tag) || r.node_id) + ".");
@@ -1289,6 +1973,244 @@
         vwrap.appendChild(vu);
         host.appendChild(vwrap);
       }
+    }
+  }
+
+  /* ---- FIELD TRAINING ---------------------------------------------------
+     The CRT and left bay are two views of ONE local training rig. The CRT
+     keeps the explanation beside the active control; the bay keeps the whole
+     bench scannable. All clues are operator-authored training context. A
+     control changes only PATCH.mission and never the recorded window, model
+     stages or broker. */
+  function currentFieldControl() {
+    var plan = missionPlan();
+    if (!plan.rig) return null;
+    for (var i = 0; i < plan.rig.controls.length; i++) {
+      if (!PATCH.mission.actions[plan.rig.controls[i].id]) return plan.rig.controls[i];
+    }
+    return null;
+  }
+
+  function fieldControlEnabled(control, plan) {
+    if (!control || !plan || plan.locked || plan.clear || PATCH.mission.actions[control.id]) return false;
+    var at = plan.rig.controls.indexOf(control);
+    return at === 0 || !!PATCH.mission.actions[plan.rig.controls[at - 1].id];
+  }
+
+  function focusFieldStep(id) {
+    var zone = detailOpen()
+      ? document.querySelector('.sn-mission [data-field-step="' + id + '"]')
+      : null;
+    if (!zone) zone = document.querySelector('[data-field-step="' + id + '"]');
+    if (!zone) return false;
+    if (zone.scrollIntoView) {
+      zone.scrollIntoView({ block: "nearest", behavior: REDUCED ? "auto" : "smooth" });
+    }
+    var target = zone.querySelector("button:not([disabled]), [role=slider]:not([aria-disabled=true])");
+    if (target && target.focus) target.focus({ preventScroll: true });
+    return !!target;
+  }
+
+  function applyFieldFromUI(control, choice) {
+    var passed = fieldApply(control.id, choice);
+    var feedback = PATCH.mission.field && PATCH.mission.field.feedback;
+    var next = passed ? currentFieldControl() : control;
+    renderField();
+    paintMonitor();
+    renderGamebar();
+    react(feedback ? feedback.text : "That training control is not available yet.");
+    if (next) focusFieldStep(next.id);
+    else {
+      var verify = detailOpen()
+        ? document.querySelector(".sn-mission .sn-mission__verify")
+        : document.querySelector("#wsField .sn-field__verify");
+      if (detailOpen() && verify) glassScrollTo(verify.closest(".sn-mission__ready"), true);
+      if (verify && verify.focus) verify.focus({ preventScroll: true });
+    }
+  }
+
+  function drawFieldDial(control, enabled) {
+    var wrap = el("div", "sn-field__dialbank");
+    var values = PATCH.mission.field.values || {};
+    var selected = values[control.id];
+    var at = control.choices.findIndex(function (choice) { return choice.id === selected; });
+    var dial = el("button", "sn-field__dial");
+    dial.type = "button";
+    dial.disabled = !enabled;
+    dial.setAttribute("role", "slider");
+    dial.setAttribute("aria-label", control.label + " training detent");
+    dial.setAttribute("aria-valuemin", "0");
+    dial.setAttribute("aria-valuemax", String(control.choices.length - 1));
+    dial.setAttribute("aria-valuenow", String(Math.max(0, at)));
+    dial.setAttribute("aria-valuetext", at < 0 ? "not set" : control.choices[at].label);
+    dial.style.setProperty("--field-turn", (-120 + Math.max(0, at) * (240 / Math.max(1, control.choices.length - 1))) + "deg");
+    dial.appendChild(el("span", "sn-field__dialcap"));
+    function choose(index) {
+      index = Math.max(0, Math.min(control.choices.length - 1, index));
+      applyFieldFromUI(control, control.choices[index].id);
+    }
+    dial.addEventListener("click", function () { choose((at + 1 + control.choices.length) % control.choices.length); });
+    dial.addEventListener("keydown", function (e) {
+      if (e.key === "ArrowLeft" || e.key === "ArrowDown") { e.preventDefault(); choose(at <= 0 ? 0 : at - 1); }
+      if (e.key === "ArrowRight" || e.key === "ArrowUp") { e.preventDefault(); choose(at < 0 ? 0 : at + 1); }
+    });
+    wrap.appendChild(dial);
+    var detents = el("div", "sn-field__detents");
+    control.choices.forEach(function (choice) {
+      var b = el("button", "sn-field__detent" + (choice.id === selected ? " is-on" : ""), choice.label);
+      b.type = "button";
+      b.disabled = !enabled;
+      b.setAttribute("aria-pressed", choice.id === selected ? "true" : "false");
+      b.addEventListener("click", function () { applyFieldFromUI(control, choice.id); });
+      detents.appendChild(b);
+    });
+    wrap.appendChild(detents);
+    return wrap;
+  }
+
+  function drawFieldSwitch(control, enabled) {
+    var row = el("div", "sn-field__switches");
+    row.setAttribute("role", "group");
+    row.setAttribute("aria-label", control.label);
+    var selected = PATCH.mission.field.values[control.id];
+    control.choices.forEach(function (choice) {
+      var b = el("button", "sn-field__switch" + (selected === choice.id ? " is-on" : ""), choice.label);
+      b.type = "button";
+      b.disabled = !enabled;
+      b.setAttribute("aria-pressed", selected === choice.id ? "true" : "false");
+      b.addEventListener("click", function () { applyFieldFromUI(control, choice.id); });
+      row.appendChild(b);
+    });
+    return row;
+  }
+
+  function drawFieldControl(control, index, plan) {
+    var done = !!PATCH.mission.actions[control.id];
+    var enabled = fieldControlEnabled(control, plan);
+    var box = el("section", "sn-field__control" + (done ? " is-done" : enabled ? " is-active" : " is-locked"));
+    box.dataset.fieldStep = control.id;
+    box.setAttribute("data-field-step", control.id);
+    var head = el("div", "sn-field__controlhead");
+    head.appendChild(el("span", "sn-field__lamp", done ? "✓" : String(index + 1).padStart(2, "0")));
+    head.appendChild(el("b", null, control.label));
+    box.appendChild(head);
+    var question = el("div", "sn-field__question");
+    question.appendChild(el("b", null, "YOUR CLUE"));
+    question.appendChild(el("p", null, control.question));
+    box.appendChild(question);
+    if (control.kind === "action") {
+      var action = el("button", "sn-field__work", control.label);
+      action.type = "button";
+      action.disabled = !enabled;
+      action.addEventListener("click", function () { applyFieldFromUI(control, "open"); });
+      box.appendChild(action);
+    } else if (control.kind === "switch") {
+      box.appendChild(drawFieldSwitch(control, enabled));
+    } else {
+      box.appendChild(drawFieldDial(control, enabled));
+    }
+    if (done) box.appendChild(el("p", "sn-field__finding", control.finding));
+    else if (!enabled && !plan.locked) box.appendChild(el("p", "sn-field__wait", "Complete the check above first."));
+    return box;
+  }
+
+  function fieldDealButton(label) {
+    var b = el("button", "sn-field__deal", label || "START A CASE");
+    b.type = "button";
+    b.addEventListener("click", dealAndRender);
+    return b;
+  }
+
+  function renderField() {
+    var host = $("wsField");
+    if (!host) return;
+    host.textContent = "";
+    host.dataset.tour = "field";
+    var m = PATCH.mission;
+    var r = currentRecord();
+    var t = currentType();
+    var head = el("div", "sn-field__head");
+    head.appendChild(el("b", null, "CASE TOOLS"));
+    head.appendChild(el("span", null, fieldProgress() + "/3 CLUES"));
+    host.appendChild(head);
+    host.appendChild(el("p", "sn-field__safe", "PRACTICE RIG · SAFE TO TRY"));
+
+    var identity = el("p", "sn-field__identity");
+    identity.appendChild(el("b", null, t ? t.label : "NO SENSOR"));
+    identity.appendChild(el("span", null, " · " + (CONDW[PATCH.cond] || String(PATCH.cond).toUpperCase()) +
+      (r && unitWordOf(r) ? " · " + unitWordOf(r) : "")));
+    host.appendChild(identity);
+
+    if (!m.active) {
+      host.dataset.state = "idle";
+      host.appendChild(el("p", "sn-field__empty",
+        "Start a mystery case. When a fault appears, this panel becomes your clue kit."));
+      host.appendChild(fieldDealButton());
+      return;
+    }
+    if (PATCH.cond === "none") {
+      host.dataset.state = m.phase === "verified" ? "verified" : "clear";
+      host.appendChild(el("strong", "sn-field__clear", m.phase === "verified"
+        ? "CASE CLOSED · WORKFLOW VERIFIED" : "CARD CLEAR · NO INTERVENTION"));
+      host.appendChild(el("p", "sn-field__empty", m.note));
+      if (m.phase === "verified") {
+        host.appendChild(el("p", "sn-field__handoff",
+          m.incidentNode + " → " + (m.verifiedNode || "recorded OK window")));
+      }
+      host.appendChild(fieldDealButton("START NEXT CASE"));
+      return;
+    }
+
+    var plan = missionPlan();
+    var rig = plan.rig;
+    if (!rig) return;
+    host.dataset.state = plan.locked ? "locked" : missionReady() ? "ready" : "playing";
+    host.appendChild(el("strong", "sn-field__title", rig.title));
+    var clue = el("div", "sn-field__clue");
+    clue.appendChild(el("b", null, "CLUE FROM THE CASE FILE"));
+    clue.appendChild(el("p", null, rig.authored + " Test the clue with the controls below."));
+    host.appendChild(clue);
+    if (plan.locked) {
+      var pendingMove = incidentMove();
+      var lock = el("div", "sn-field__lock");
+      var needsMicro = pendingMove && pendingMove.correct === "micro";
+      lock.appendChild(el("b", null, needsMicro ? "UNLOCK THE CLUE KIT" : "FIRST: SOLVE THE MODEL MOVE"));
+      lock.appendChild(el("span", null, needsMicro
+        ? "Bring in Micro to widen this one signal into a site-level investigation."
+        : "Open the case on the TV and choose who should hear this signal next."));
+      var add = el("button", "sn-field__upgrade", needsMicro ? "ADD MICRO · OPEN CLUES" : "OPEN THE CASE");
+      add.type = "button";
+      add.addEventListener("click", function () {
+        if (needsMicro) { addMissionMicro(); return; }
+        if (!detailOpen()) setDetail(true);
+        var moveCard = document.querySelector(".sn-mission__move");
+        glassScrollTo(moveCard, true);
+        var first = moveCard && moveCard.querySelector("button");
+        if (first && first.focus) first.focus({ preventScroll: true });
+      });
+      lock.appendChild(add);
+      host.appendChild(lock);
+    }
+    var controls = el("div", "sn-field__controls");
+    rig.controls.forEach(function (control, index) {
+      controls.appendChild(drawFieldControl(control, index, plan));
+    });
+    host.appendChild(controls);
+    var feedback = m.field && m.field.feedback;
+    var result = el("p", "sn-field__feedback" + (feedback ? " is-" + feedback.kind : ""),
+      feedback ? feedback.text : "Try the first lit control. A wrong answer costs nothing; use the feedback and try again.");
+    result.setAttribute("aria-live", "polite");
+    host.appendChild(result);
+    if (missionReady()) {
+      var verify = el("button", "sn-field__verify", "CLOSE CASE WITH A HEALTHY READ →");
+      verify.type = "button";
+      verify.setAttribute("aria-label", "VERIFY WITH RECORDED OK. Opens a separate committed replay window.");
+      verify.addEventListener("click", function () {
+        if (!verifyMission()) return;
+        react("Workflow verified against a separate recorded OK window; this is not proof that the training actions repaired the prior machine.");
+        focusFactoryRelease();
+      });
+      host.appendChild(verify);
     }
   }
 
@@ -1353,10 +2275,9 @@
     var badgeHost = $("wsChainBadge");
     if (badgeHost) {
       badgeHost.textContent = "";
-      if (PATCH.chain.length === 2 && PATCH.chain[0] === "pico" && PATCH.chain[1] === "nano") {
-        var badge = el("span", "sn-reco", "RECOMMENDED · PICO + NANO");
-        badge.title = "the measured deployment pattern: a small reader asserting at its floor, " +
-          "a senior adjudicating the doubtful reads";
+      if (PATCH.chain.length === 3 && PATCH.chain[0] === "pico" && PATCH.chain[1] === "nano" && PATCH.chain[2] === "micro") {
+        var badge = el("span", "sn-reco", "STARTER CHAIN · PICO + NANO + MICRO");
+        badge.title = "Pico reads the channel, Nano adjudicates doubtful reads, and Micro shows the site scope by default";
         badgeHost.appendChild(badge);
       }
     }
@@ -1495,7 +2416,7 @@
      the tier's, the ARITHMETIC is the bench's, and no model ran. */
   function drawScopeRun(st) {
     var box = el("div", "sn-scope");
-    var sc = st.scope, t = st.tally;
+    var sc = st.scope, t = st.tally, lens = st.caseLens;
     box.appendChild(el("p", "sn-scope__job",
       "A " + (sc.unit === "plant" ? "plant model" : "site brain") + " takes in " +
       st.takes + " at once and produces " + st.job + "."));
@@ -1507,45 +2428,45 @@
       (sc.sites ? " · " + sc.sites + " sites" : "")));
     box.appendChild(head);
 
-    // each stat its own cell so the row WRAPS on a narrow screen - a
-    // column-flow grid pushed half the rollup off the side at 380px
-    var grid = el("dl", "sn-scope__grid");
-    [["channels", t.n], ["faults", t.faults], ["caught", t.caught],
-     ["missed", t.missed], ["unheard", t.deadEnd], ["false alarms", t.falseAlarms]
-    ].forEach(function (row) {
-      var cell = el("div", "sn-scope__stat");
-      cell.appendChild(el("dt", null, row[0]));
-      cell.appendChild(el("dd", null, String(row[1])));
-      grid.appendChild(cell);
-    });
-    box.appendChild(grid);
+    if (lens) {
+      var caseHead = el("div", "sn-scope__casehead");
+      var caseWords = el("span", null);
+      caseWords.appendChild(el("i", null, "CURRENT CASE FIRST"));
+      caseWords.appendChild(el("b", null, lens.sensor + " · " + lens.condition));
+      caseHead.appendChild(caseWords);
+      caseHead.appendChild(el("span", null, lens.tally.n + " comparable card" +
+        (lens.tally.n === 1 ? "" : "s") + " · " + lens.matching + " same-condition"));
+      box.appendChild(caseHead);
 
-    // what a model at this level would actually report: where the trouble is
-    if (st.sites && st.sites.length > 1) {
-      var sl = el("ul", "sn-scope__rank");
-      st.sites.forEach(function (x) {
-        var li = el("li", null);
-        li.appendChild(el("b", null, x.label));
-        li.appendChild(el("span", null, " " + x.machines + " machines · " +
-          x.t.missed + " missed of " + x.t.faults + " faults"));
-        sl.appendChild(li);
+      var caseGrid = el("dl", "sn-scope__grid is-case");
+      [["sensor cards", lens.tally.n], ["faults", lens.tally.faults],
+       ["caught", lens.tally.caught], ["missed", lens.tally.missed]
+      ].forEach(function (row) {
+        var cell = el("div", "sn-scope__stat");
+        cell.appendChild(el("dt", null, row[0]));
+        cell.appendChild(el("dd", null, String(row[1])));
+        caseGrid.appendChild(cell);
       });
-      box.appendChild(el("p", "sn-scope__rankhead", "sites, worst first"));
-      box.appendChild(sl);
-    } else if (st.worst && st.worst.length) {
-      var ml = el("ul", "sn-scope__rank");
-      st.worst.forEach(function (x) {
-        var li = el("li", null);
-        li.appendChild(el("b", null, x.mach.name));
-        li.appendChild(el("span", null, " " + x.t.missed + " missed of " +
-          x.t.faults + " faults · " + x.t.n + " channels"));
-        ml.appendChild(li);
+      box.appendChild(caseGrid);
+
+      var rows = el("ol", "sn-scope__cases");
+      lens.rows.forEach(function (row) {
+        var li = el("li", row.current ? "is-current" : null);
+        li.appendChild(el("span", "sn-scope__casemark", row.current ? "NOW" : "PEER"));
+        var identity = el("span", "sn-scope__caseid");
+        identity.appendChild(el("b", null, row.machine));
+        identity.appendChild(el("code", null, row.record));
+        li.appendChild(identity);
+        li.appendChild(el("span", "sn-scope__casecondition", row.condition));
+        li.appendChild(el("strong", "sn-scope__caseout", row.outcome));
+        rows.appendChild(li);
       });
-      box.appendChild(el("p", "sn-scope__rankhead", "machines, worst first"));
-      box.appendChild(ml);
+      box.appendChild(rows);
     }
 
-    box.appendChild(el("p", "sn-scope__policy", sc.how + " · " + st.policy));
+    box.appendChild(el("p", "sn-scope__policy",
+      "SCOPE BACKDROP · " + t.n + " channels · " + t.faults + " faults · " +
+      t.caught + " caught · " + t.missed + " missed · " + sc.how + " · " + st.policy));
 
     var att = el("p", "sn-scope__att");
     att.appendChild(el("i", "sn-scope__tag", "BENCH ARITHMETIC"));
@@ -1590,6 +2511,46 @@
       "a recording at that scope - this bench holds one plant") +
       ". No recorded " + fam.label + " run exists here either, so it asserts nothing."));
     box.appendChild(att);
+    return box;
+  }
+
+  function drawTierCase(st) {
+    var tierId = st.kind === "pico" ? "pico"
+      : (st.kind === "nano" || st.kind === "quietSenior") ? "nano"
+      : st.fam ? st.fam.id : null;
+    var brief = tierId ? tierCaseBrief(tierId, st.r || currentRecord()) : null;
+    if (!brief) return null;
+    var box = el("section", "sn-tiercase");
+    tierStyle(box, tierId);
+    var head = el("div", "sn-tiercase__head");
+    head.appendChild(el("b", null, "CURRENT CASE"));
+    head.appendChild(el("i", null, brief.provenance));
+    box.appendChild(head);
+    var identity = el("p", "sn-tiercase__identity");
+    identity.appendChild(el("strong", null, brief.condition + " · " + brief.sensor));
+    identity.appendChild(el("code", null, brief.record));
+    box.appendChild(identity);
+    box.appendChild(el("p", "sn-tiercase__signal", brief.signal));
+
+    var cards = el("div", "sn-tiercase__cards");
+    var handoff = el("div", "sn-tiercase__card");
+    handoff.appendChild(el("b", null, "READER HANDOFF"));
+    handoff.appendChild(el("p", null, brief.handoff));
+    cards.appendChild(handoff);
+    var adds = el("div", "sn-tiercase__card is-tier");
+    adds.appendChild(el("b", null, "THIS TIER ADDS"));
+    adds.appendChild(el("p", null, brief.adds));
+    cards.appendChild(adds);
+    box.appendChild(cards);
+
+    var mechanic = el("p", "sn-tiercase__mechanic");
+    mechanic.appendChild(el("b", null, "FIELD MECHANIC"));
+    mechanic.appendChild(el("span", null, brief.mechanic));
+    box.appendChild(mechanic);
+    var family = el("p", "sn-tiercase__family");
+    family.appendChild(el("b", null, "FAMILY CONTRACT"));
+    family.appendChild(el("span", null, brief.family));
+    box.appendChild(family);
     return box;
   }
 
@@ -1663,10 +2624,8 @@
     x.setAttribute("aria-label", "Remove " + fam.label + " from the chain");
     x.textContent = "×";
     x.addEventListener("click", function () {
-      contextMoved();
-      PATCH.chain.splice(i, 1);
-      PATCH.menuFor = null;
-      derive(); render();
+      chainRemove(id);
+      render();
       react(fam.label + " removed from the chain.");
     });
     card.appendChild(x);
@@ -1876,6 +2835,24 @@
     }
   }
 
+  function chainRemove(id) {
+    var at = PATCH.chain.indexOf(id);
+    if (at < 0) return false;
+    contextMoved();
+    PATCH.chain.splice(at, 1);
+    PATCH.menuFor = null;
+    if (id === "micro" && PATCH.mission.active && PATCH.cond !== "none" &&
+        PATCH.mission.phase !== "verified") {
+      PATCH.mission.actions = {};
+      PATCH.mission.phase = "incident";
+      PATCH.mission.moveStage = 0;
+      PATCH.mission.moveFeedback = null;
+      resetField();
+    }
+    derive();
+    return true;
+  }
+
   /* =====================================================================
      THE WHY LAYER - the product story, one hover/tap away.
      Surface stays minimal; every NUMBER in a pop is rendered from the
@@ -1989,25 +2966,68 @@
           "bench this deck replays (IEB-Signals public-release plan, 2026-08-14)"));
       } },
       { key: "senior", label: "why a senior?", build: function (box) {
+        var selected = m.escalation.configs.filter(function (c) {
+          return c.config === "child+parent@" + PATCH.floor.toFixed(1);
+        })[0];
         box.appendChild(el("p", "sn-why__p",
-          "The senior only pays attention when a reader is unsure - that is the whole " +
-          "economics of the mesh (open WHY NOT ONE BIG MODEL? for the measured " +
-          "sweep). It runs on " + nano.runs + ", so the doubtful reads stay on-prem too."));
+          "Wave Pico reads every window on the machine. It compares the gap between its " +
+          "first and second choices with SURE ENOUGH. Below that floor it asks Wave Nano " +
+          "to evaluate the same recorded window; at or above it, Pico answers locally."));
+        if (selected) {
+          var upward = Math.round(m.escalation.n * selected.escalation_rate);
+          box.appendChild(el("p", "sn-why__p",
+            "At the selected " + PATCH.floor.toFixed(1) + " floor, the committed " +
+            m.escalation.n + "-record sweep sent " + upward + " reads (" +
+            (selected.escalation_rate * 100).toFixed(1) + "%) upward. The other " +
+            (m.escalation.n - upward) + " ended at Pico. Open WHY NOT ONE BIG MODEL? " +
+            "to compare the quality and residency-proxy result."));
+        }
+        box.appendChild(el("p", "sn-why__p",
+          "Wave Nano is placed on " + nano.runs + ". In that deployment shape, the " +
+          "machine-to-gateway handoff can remain inside the site network. That is topology, " +
+          "not a privacy guarantee: transport, storage, access control, and any configured " +
+          "egress still have to be secured by the operator."));
       } },
       { key: "econ", label: "why not one big model?", build: function (box) {
         var chart = econChart();
         if (chart) box.appendChild(chart);
-        var best = m.escalation.configs.filter(function (c) { return c.config === "child+parent@1.5"; })[0];
-        if (best) {
+        var cfg = function (name) {
+          return m.escalation.configs.filter(function (c) { return c.config === name; })[0];
+        };
+        var child = cfg("child-only");
+        var best = cfg("child+parent@1.5");
+        var direct = cfg("parent-direct");
+        if (child && best && direct) {
           box.appendChild(el("p", "sn-why__p",
-            "The measured trade: at floor 1.5 the mesh reaches " + (best.macro_recall * 100).toFixed(1) +
-            " macro recall for " + (best.pct_of_parent_everywhere * 100).toFixed(0) +
-            "% of the compute of asking the senior about everything. Escalation buys most of the " +
-            "senior's judgment for a fraction of its residency."));
+            "There is no free winner. Nano direct scored " + (direct.macro_recall * 100).toFixed(1) +
+            "% macro recall in this sweep; the 1.5 mesh scored " +
+            (best.macro_recall * 100).toFixed(1) + "% while sending " +
+            (best.escalation_rate * 100).toFixed(1) + "% of reads upward and using " +
+            (best.pct_of_parent_everywhere * 100).toFixed(1) +
+            "% of the parent-direct residency proxy. The mesh is a tunable quality and " +
+            "placement trade, not a claim that the small chain beats Nano on every read."));
+
+          var facts = el("dl", "sn-econfacts");
+          [["PICO ONLY", child, "0% sent up"],
+           ["FLOOR 1.5 MESH", best, (best.escalation_rate * 100).toFixed(1) + "% sent up"],
+           ["NANO DIRECT", direct, "every read starts at Nano"]].forEach(function (item) {
+            var card = el("div", "sn-econfacts__card");
+            card.appendChild(el("dt", null, item[0]));
+            card.appendChild(el("dd", null, (item[1].macro_recall * 100).toFixed(1) + "% macro recall"));
+            card.appendChild(el("dd", null, item[2]));
+            card.appendChild(el("dd", null,
+              (item[1].pct_of_parent_everywhere * 100).toFixed(1) + "% residency proxy"));
+            facts.appendChild(card);
+          });
+          box.appendChild(facts);
         }
+        box.appendChild(el("p", "sn-why__p",
+          "The x-axis is mean parameters evaluated per item, a residency proxy. It is not " +
+          "latency, energy, a cloud bill, or a hardware benchmark. Those require a deployment " +
+          "measurement on the actual gateway and edge devices."));
         box.appendChild(el("p", "sn-why__cite",
           "measured: " + m.escalation.configs.map(function (c) { return c.config; }).join(" · ") +
-          " (" + m._provenance.suite + ")"));
+          " (" + m._provenance.suite + ") · method note: " + m.escalation.cost_note));
       } },
       { key: "tiny", label: "why so small?", build: function (box) {
         var ladder = el("span", "sn-ladder");
@@ -2017,8 +3037,9 @@
         box.appendChild(el("p", "sn-why__p",
           "The reading happens where the wire is. The Spectrum climbs one SI step at a " +
           "time - " + FAMILY.map(function (f) { return f.label.replace("Wave ", "") + " on " + f.runs; }).join(", ") +
-          " - so each tier runs on hardware its scope already owns, and the bytes " +
-          "never leave the fence."));
+          " - so each tier can run on hardware its scope already owns. In the shown " +
+          "on-site topology, reads need not leave the fence to reach a senior; that " +
+          "placement does not itself prove confidentiality or prevent configured egress."));
         box.appendChild(el("p", "sn-why__p",
           "Why not just make them all huge? From-scratch quality is bounded by DIVERSE " +
           "TOKENS, not GPUs - scratch wins through roughly half a billion params, and " +
@@ -2032,14 +3053,13 @@
             "for a browser tab (" + q.source + ")."));
         }
       } },
-      { key: "person", label: "why a person at the end?", build: function (box) {
+      { key: "response", label: "what happens after a finding?", build: function (box) {
         box.appendChild(el("p", "sn-why__p",
-          "The ladder should end with someone accountable - the operator lever is that " +
-          "doctrine. UNATTENDED AUTHORITY is the exception you can grant: the senior acts " +
-          "with nobody on shift and every decision queues for human review, so the lamp " +
-          "reads PROVISIONAL, not ALL CLEAR. Whether a model is big enough to take a " +
-          "shift is a POLICY you set, not a measurement - this bench never claims " +
-          "measured autonomous performance."));
+          "The models make the same recorded call in every mode. LOG ONLY records the " +
+          "finding, HUMAN REVIEW sends it to a person, and POLICY QUEUE sends it to the " +
+          "configured response seam. That choice happens after detection, so it never " +
+          "recolours or rewrites the model result. This bench demonstrates routing over " +
+          "recorded outcomes; it does not claim measured autonomous control."));
       } },
     ];
   }
@@ -2606,18 +3626,24 @@
 
     // THE SET'S CONTROLS. Pressing a key is a hand on the glass, so it
     // suspends auto-follow exactly like a wheel or a drag - otherwise the
-    // next verdict change would yank the reader back mid-paragraph. ANSWER
-    // is the exception: it is a request to be taken somewhere, so it forces.
+    // next verdict change would yank the reader back mid-paragraph. The wide
+    // key is the exception: from the overview it opens DETAILS at the answer;
+    // inside detail it returns to the ANSWER. Both are explicit destinations.
     var ctl = $("wsTvCtl");
     if (!ctl) return;
     ctl.addEventListener("click", function (e) {
+      var mission = e.target.closest("[data-mission]");
+      if (mission && mission.getAttribute("data-mission") === "draw") {
+        e.preventDefault();
+        dealAndRender();
+        return;
+      }
       var b = e.target.closest("[data-scroll]");
       if (!b) return;
       e.preventDefault();
       var how = b.getAttribute("data-scroll");
       if (how === "answer") {
-        var head = host.querySelector(".sn-answer") || host.firstChild;
-        glassScrollTo(head && head.nodeType === 1 ? head : null, true);
+        openAnswer();
         return;
       }
       PATCH._userScrollAt = Date.now();
@@ -2677,14 +3703,16 @@
   }
 
   /* ---- THE FACE OF THE SET -------------------------------------------------
-     At rest the glass shows the verdict and nothing else: the lamp colour, the
-     word, one line of why. Hover (with an intent delay, so crossing the deck
-     does not open it) or click/Enter reveals the detail cascade, and a control
-     inside the detail returns. Everything it prints is read off the SAME
-     verdict the lamp and the stages use - it is a bigger way of showing what
-     the deck already concluded, never a second opinion. */
-  var FRONT_HOVER_MS = 380;
-  var frontTimer = null;
+     This is the useful idle screen, not a giant traffic light. It condenses the
+     selected recorded window into: what was read, the real trace, what the last
+     model said, the route, fleet performance and the downstream response mode.
+     Semantic colour is only the status accent. The engraved plate remains in
+     front of this layer, so the content reads as glass INSIDE the television.
+
+     The chain is ordered and intentionally constrained, so a free-positioning
+     graph library would add a viewport, handles and failure modes without
+     making the story clearer. Native SVG/CSS lets the route stay deterministic
+     and the plotted shape stay byte-for-byte derived from the committed series. */
 
   function detailOpen() { return !!PATCH.detail; }
 
@@ -2702,42 +3730,937 @@
     }
   }
 
+  function paintAnswerKey() {
+    var b = $("wsAnswerKey");
+    if (!b) return;
+    var label = detailOpen() ? "ANSWER" : "DETAILS";
+    var words = b.querySelector("span");
+    if (words) words.textContent = label;
+    b.setAttribute("aria-label", detailOpen()
+      ? "Jump to the answer in the open details"
+      : "Open details at the answer");
+  }
+
+  function openAnswer() {
+    if (!detailOpen()) setDetail(true);
+    var host = $("wpMonitor");
+    if (!host) return;
+    var head = host.querySelector(".sn-answer") || host.firstChild;
+    glassScrollTo(head && head.nodeType === 1 ? head : null, true);
+  }
+
+  function frontTrace(r) {
+    var wrap = el("span", "sn-front__trace");
+    var s = seriesOf(r);
+    if (!s || !s.samples || !s.samples.length) {
+      wrap.appendChild(el("span", "sn-front__traceoff", "recorded trace unavailable"));
+      return wrap;
+    }
+    var W = 520, H = 72, pad = 6;
+    var sc = scaleOf(s.samples, okAnchorRel());
+    var chart = svg("svg", { viewBox: "0 0 " + W + " " + H,
+      role: "img", "aria-label": "Actual recorded samples for the selected channel" });
+    [18, 36, 54].forEach(function (y) {
+      chart.appendChild(svg("line", { class: "sn-front__grid", x1: 0, x2: W, y1: y, y2: y }));
+    });
+    var d = seriesPath(s.samples, W, H, pad, false, sc);
+    chart.appendChild(svg("path", { class: "sn-front__beam", d: d }));
+    // The SHAPE is always the complete recorded series above. These two marks
+    // are CRT chrome: a bright segment and scan line traveling across that
+    // same immutable path, making replay feel alive without inventing a tick.
+    chart.appendChild(svg("path", { class: "sn-front__scan", d: d, pathLength: 100 }));
+    chart.appendChild(svg("line", { class: "sn-front__sweep", x1: 0, x2: 0, y1: 4, y2: H - 4 }));
+    wrap.appendChild(chart);
+    wrap.appendChild(el("span", "sn-front__tracemeta",
+      s.samples.length + " RECORDED SAMPLES · " + fmtN(sc.dataLo) + "—" + fmtN(sc.dataHi) +
+      (unitWordOf(r) ? " " + unitWordOf(r) : " · UNIT NOT STATED") + " · LOOPING CRT SWEEP"));
+    return wrap;
+  }
+
+  /* One compact sentence for the glance screen AND the detailed trail. All
+     values come from the stage already derived from the recorded run. */
+  function stageResponse(st) {
+    if (!st) return "NO STAGE";
+    if (st.kind === "pico") {
+      return st.esc
+        ? "ASKED FOR HELP · " + st.margin.toFixed(2) + " BELOW " + st.floor.toFixed(1)
+        : 'ANSWERED "' + String(st.said).toUpperCase() + '" · ' + st.margin.toFixed(2) + " SURE";
+    }
+    if (st.kind === "nano") {
+      return 'ANSWERED "' + String(st.verdict).toUpperCase() + '" · ' +
+        st.r.parent.margin.toFixed(2) + " SURE";
+    }
+    if (st.kind === "quietSenior") {
+      return 'NOT CALLED · WOULD ALSO SAY "' + String(st.wouldSay).toUpperCase() + '"';
+    }
+    if (st.kind === "scoperun") {
+      return (st.scope.unit === "plant" ? "PLANT CASE" : "SITE CASE") + " · " +
+        String(currentRecord().truth).toUpperCase() + " · " +
+        (st.scope.unit === "plant" ? "PLANT RECOUNT" : "SITE RECOUNT") + " · " +
+        st.tally.caught + "/" + st.tally.faults + " CAUGHT";
+    }
+    if (st.kind === "scope") {
+      return "CASE RECEIVED · " + String(currentRecord().truth).toUpperCase() + " · BEYOND REPLAY";
+    }
+    if (st.kind === "silent") return "NO RECORDED RUN · SILENT";
+    return "PASS THROUGH";
+  }
+
+  function frontRoute(sts) {
+    var route = el("span", "sn-front__route");
+    route.appendChild(el("span", "sn-front__routek", "MODEL RESPONSES · CHAIN ORDER"));
+    var line = el("span", "sn-front__routewire");
+    var sensor = el("span", "sn-front__rnode sn-front__rnode--sensor");
+    sensor.appendChild(el("b", "sn-front__rname", "SENSOR"));
+    sensor.appendChild(el("i", "sn-front__rstate", "RECORDED WINDOW"));
+    line.appendChild(sensor);
+    PATCH.chain.forEach(function (id, i) {
+      line.appendChild(el("span", "sn-front__edge", "›"));
+      var fam = familyById(id);
+      var st = sts[i + 1]; // stage zero is raw wire; the rest follow the chain
+      var state = st && (st.kind === "pico" && st.esc ? "ask"
+        : st.kind === "quietSenior" ? "wait"
+        : st.kind === "scope" || st.kind === "silent" ? "pass" : "read");
+      var node = el("span", "sn-front__rnode is-" + (state || "pass"));
+      node.appendChild(el("b", "sn-front__rname", fam ? fam.label : id.toUpperCase()));
+      node.appendChild(el("i", "sn-front__rstate", stageResponse(st)));
+      node.title = (fam ? fam.label + ": " : "") + stageResponse(st);
+      tierStyle(node, id);
+      line.appendChild(node);
+    });
+    if (!PATCH.chain.length) {
+      line.appendChild(el("span", "sn-front__edge", "›"));
+      line.appendChild(el("span", "sn-front__rnode is-empty", "ADD A MODEL"));
+    }
+    route.appendChild(line);
+    return route;
+  }
+
+  function frontScore() {
+    var score = el("span", "sn-front__score");
+    var fleet = deriveFleet();
+    score.appendChild(el("span", "sn-front__scorek", "RECORDED FLEET · 120 CHANNELS"));
+    if (!fleet || fleet.none) {
+      score.appendChild(el("span", "sn-front__scoreline", "Seat a recorded model to score the replay"));
+      return score;
+    }
+    var t = fleet.totals;
+    var ratio = t.faults ? t.caught / t.faults : 0;
+    var line = el("span", "sn-front__scoreline");
+    line.appendChild(el("b", null, t.caught + "/" + t.faults + " FAULTS CAUGHT"));
+    line.appendChild(el("i", null, t.missed + " missed" +
+      (t.fixable ? " · " + t.fixable + " tunable" : " · no knob recoveries")));
+    score.appendChild(line);
+    var meter = el("span", "sn-front__meter");
+    var fill = el("span", "sn-front__meterfill");
+    fill.style.width = Math.round(ratio * 100) + "%";
+    meter.appendChild(fill);
+    score.appendChild(meter);
+    return score;
+  }
+
+  /* ---- SHIFT MODE -------------------------------------------------------
+     A deal chooses among records the selector already exposes. Randomness
+     chooses a card, never a reading, prediction, score, or repair outcome.
+     There is deliberately no timer: the bench changes only under a hand. */
+  var FIELD_RIGS = {
+    stuck: {
+      title: "FROZEN INPUT",
+      objective: "Prove the process and channel disagree, trace where the value stops moving, then route an authorized input-path inspection.",
+      authored: "In this training scenario an independent reference moves while the receiving input remains held.",
+      controls: [
+        { id: "verify", kind: "switch", label: "REFERENCE",
+          question: "Which source can prove the process moved while this channel stayed held?",
+          choices: [{ id: "channel", label: "CHANNEL" }, { id: "independent", label: "INDEPENDENT" }],
+          correct: "independent", finding: "Independent reference moves; the recorded channel remains held.",
+          try: "The channel is the suspect evidence. Compare it with an independent reference next." },
+        { id: "context", kind: "dial", label: "TRACE POINT",
+          question: "At which test point does this scenario's value stop following the reference?",
+          choices: [{ id: "sensor", label: "SENSOR" }, { id: "wire", label: "WIRE" }, { id: "input", label: "INPUT" }],
+          correct: "input", finding: "The authored clue isolates the held value at the receiving input.",
+          try: "That point still follows the reference in this scenario. Continue toward the receiving input." },
+        { id: "handoff", kind: "action", label: "OPEN INPUT-CHANNEL WORK ORDER",
+          question: "What safely records the input-path inspection for authorized maintenance?",
+          correct: "open", finding: "Input-channel inspection routed to authorized maintenance.",
+          try: "Complete the reference comparison and trace point before opening the work order." },
+      ],
+    },
+    drifting: {
+      title: "CALIBRATION OFFSET",
+      objective: "Capture the as-found sweep, compare it with the approved calibration record, then route calibration review with the evidence attached.",
+      authored: "In this training scenario a documented as-found sweep exposes an offset against the calibration record.",
+      controls: [
+        { id: "verify", kind: "sequence", label: "CAL POINT",
+          question: "Which ordered sweep preserves the instrument's as-found offset?",
+          choices: [{ id: "zero", label: "0%" }, { id: "mid", label: "50%" }, { id: "span", label: "100%" }],
+          sequence: ["zero", "mid", "span"], correct: "span",
+          finding: "The 0, 50, and 100 percent as-found sweep is recorded in order.",
+          try: "An as-found sweep starts at 0 percent, includes 50 percent, and ends at 100 percent." },
+        { id: "context", kind: "dial", label: "COMPARE",
+          question: "What reference can distinguish calibration offset from real process movement?",
+          choices: [{ id: "process", label: "PROCESS" }, { id: "neighbor", label: "NEIGHBOR" }, { id: "record", label: "CAL RECORD" }],
+          correct: "record", finding: "The authored calibration record exposes the scenario offset.",
+          try: "Process movement alone cannot establish calibration bias. Compare the documented reference." },
+        { id: "handoff", kind: "action", label: "OPEN CALIBRATION WORK ORDER",
+          question: "Where should the calibration evidence go before anyone changes the instrument?",
+          correct: "open", finding: "Calibration review routed under the site's approved procedure.",
+          try: "Finish the as-found sweep and reference comparison before the handoff." },
+      ],
+    },
+    dropout: {
+      title: "INTERMITTENT LOOP",
+      objective: "Confirm the missing samples at their source, isolate the intermittent test point, then route a field-connection inspection.",
+      authored: "In this training scenario source timestamps confirm gaps and the field terminal is intermittent.",
+      controls: [
+        { id: "verify", kind: "switch", label: "TIMELINE",
+          question: "Which timeline can prove samples vanished before the display?",
+          choices: [{ id: "display", label: "DISPLAY" }, { id: "source", label: "SOURCE" }],
+          correct: "source", finding: "Source timestamps confirm that samples are absent, not merely hidden.",
+          try: "The display can hide or delay a point. Check timestamps at the source next." },
+        { id: "context", kind: "dial", label: "TEST POINT",
+          question: "Which test point first reveals the intermittent signal path?",
+          choices: [{ id: "supply", label: "SUPPLY" }, { id: "field", label: "FIELD" }, { id: "input", label: "INPUT" }],
+          correct: "field", finding: "The authored clue finds the intermittent path at the field terminal.",
+          try: "That point stays stable in this scenario. Compare the field terminal next." },
+        { id: "handoff", kind: "action", label: "OPEN FIELD-CONNECTION WORK ORDER",
+          question: "What safely routes a field-connection inspection?",
+          correct: "open", finding: "Field-connection inspection routed to authorized maintenance.",
+          try: "Confirm the gap and isolate the test point before opening a work order." },
+      ],
+    },
+    noisy: {
+      title: "NOISY SIGNAL PATH",
+      objective: "Separate process movement from measurement noise, isolate the installation clue, then route a shield-path inspection.",
+      authored: "In this training scenario the independent reference stays stable and the shield path carries the clue.",
+      controls: [
+        { id: "verify", kind: "switch", label: "COMPARE",
+          question: "Which comparison separates process motion from measurement noise?",
+          choices: [{ id: "channel", label: "CHANNEL" }, { id: "independent", label: "INDEPENDENT" }],
+          correct: "independent", finding: "Independent reference stays stable while this channel remains noisy.",
+          try: "Looking only at the noisy channel cannot separate process variation from measurement noise." },
+        { id: "context", kind: "dial", label: "INSTALLATION",
+          question: "Which installation path carries this scenario's independent clue?",
+          choices: [{ id: "mount", label: "MOUNT" }, { id: "shield", label: "SHIELD" }, { id: "route", label: "ROUTE" }],
+          correct: "shield", finding: "The authored clue isolates the shield path for inspection.",
+          try: "That installation point does not explain this scenario. Inspect the shield path next." },
+        { id: "handoff", kind: "action", label: "OPEN SHIELD-ROUTING WORK ORDER",
+          question: "What safely routes shielding and cable inspection?",
+          correct: "open", finding: "Shield and routing inspection handed to authorized maintenance.",
+          try: "Verify the variation and installation clue before the handoff." },
+      ],
+    },
+    railed: {
+      title: "RANGE MISMATCH",
+      objective: "Establish the approved range, compare the receiving configuration, then route the mismatch through controlled review.",
+      authored: "In this training scenario the approved range record and receiving-input configuration do not agree.",
+      controls: [
+        { id: "verify", kind: "switch", label: "RANGE SOURCE",
+          question: "Which source defines the instrument's approved range?",
+          choices: [{ id: "display", label: "DISPLAY" }, { id: "record", label: "RECORD" }],
+          correct: "record", finding: "The approved record supplies the expected instrument range.",
+          try: "The display is part of the path under test. Start from the approved range record." },
+        { id: "context", kind: "dial", label: "INPUT RANGE",
+          question: "Which receiving range agrees with the approved instrument record?",
+          choices: [{ id: "low", label: "LOW" }, { id: "match", label: "MATCH" }, { id: "high", label: "HIGH" }],
+          correct: "match", finding: "MATCH aligns the training input with the approved range.",
+          try: "That detent still disagrees with the approved range in this scenario." },
+        { id: "handoff", kind: "action", label: "OPEN CONFIGURATION-CHANGE REVIEW",
+          question: "What safely controls a receiving-range configuration change?",
+          correct: "open", finding: "Configuration review routed through authorized change control.",
+          try: "Verify the range source and matching input configuration before review." },
+      ],
+    },
+  };
+
+  function incidentCandidates() {
+    var out = [];
+    (PATCH.types || []).forEach(function (t) {
+      (t.conds || []).forEach(function (cond) {
+        var at = t.recIdx && t.recIdx[cond];
+        if (at == null || !PATCH.measured || !PATCH.measured.records[at]) return;
+        out.push({ typeKey: t.key, cond: cond, recordIndex: at });
+      });
+    });
+    return out;
+  }
+
+  function missionDeckTally() {
+    var tally = { total: 0, incidents: 0, checks: 0 };
+    incidentCandidates().forEach(function (card) {
+      tally.total++;
+      if (card.cond === "none") tally.checks++;
+      else tally.incidents++;
+    });
+    return tally;
+  }
+
+  function caseLesson(r) {
+    if (!r || r.truth === "none") return "clear";
+    if (r.child.margin < PATCH.floor && r.parent.prediction === r.truth) return "nano";
+    if (r.child.margin >= PATCH.floor && r.child.prediction !== r.truth &&
+        r.parent.prediction === r.truth && nextFloorFor(r.child.margin) != null) return "floor";
+    if (r.child.prediction !== r.truth && r.parent.prediction !== r.truth) return "blind";
+    if (r.child.margin >= PATCH.floor && r.child.prediction === r.truth) return "pico";
+    return "miss";
+  }
+
+  /* The opening is a playable tutorial, not roulette. Each of the first
+     three cards teaches one ladder idea using an existing committed record;
+     after that the full deck shuffles as before. */
+  function guidedCard(cards, drawNumber) {
+    var lesson = ["nano", "blind", "floor"][drawNumber];
+    if (!lesson) return null;
+    for (var i = 0; i < cards.length; i++) {
+      var r = PATCH.measured && PATCH.measured.records[cards[i].recordIndex];
+      if (caseLesson(r) === lesson) return cards[i];
+    }
+    return null;
+  }
+
+  function randomCard(n) {
+    if (n < 2) return 0;
+    if (window.crypto && window.crypto.getRandomValues) {
+      var word = new Uint32Array(1);
+      window.crypto.getRandomValues(word);
+      return word[0] % n;
+    }
+    // Deterministic test/private-context fallback; still only walks committed
+    // cards, and never changes anything until DEAL is pressed.
+    return (PATCH.mission.draws * 7 + 3) % n;
+  }
+
+  function drawIncident(forcedAt) {
+    var cards = incidentCandidates();
+    if (!cards.length) return null;
+    var guided = typeof forcedAt === "number" ? null : guidedCard(cards, PATCH.mission.draws);
+    var at = typeof forcedAt === "number" ? forcedAt
+      : guided ? cards.indexOf(guided) : randomCard(cards.length);
+    at = ((at % cards.length) + cards.length) % cards.length;
+    var pick = cards[at];
+    selectType(pick.typeKey, pick.cond);
+    beginSelectedIncident(true);
+    return pick;
+  }
+
+  function resetField() {
+    PATCH.mission.field = { values: {}, visits: {}, feedback: null };
+  }
+
+  function beginSelectedIncident(countDraw) {
+    var r = currentRecord();
+    if (!r) return false;
+    PATCH.mission.active = true;
+    PATCH.mission.phase = PATCH.cond === "none" ? "clear" : "incident";
+    if (countDraw) PATCH.mission.draws++;
+    PATCH.mission.actions = {};
+    PATCH.mission.moveStage = 0;
+    PATCH.mission.moveFeedback = null;
+    resetField();
+    PATCH.mission.incidentNode = r.node_id;
+    PATCH.mission.verifiedNode = null;
+    PATCH.mission.note = PATCH.cond === "none"
+      ? "Independent recorded OK window. No intervention is required; deal another window when ready."
+      : "Recorded training incident. Detection is measured; the diagnostic playbook is operator-authored.";
+    derive();
+    return true;
+  }
+
+  function missionPlan() {
+    var m = PATCH.mission;
+    var book = m && m.active ? PLAYBOOKS[PATCH.cond] : null;
+    if (!book || PATCH.cond === "none") {
+      return { locked: false, clear: true, label: "NO FAULT PLAYBOOK", steps: [] };
+    }
+    var move = incidentMove();
+    return { locked: !move || move.kind !== "ready", clear: false,
+             label: book.label, steps: book.steps, rig: FIELD_RIGS[PATCH.cond] || null };
+  }
+
+  function nextFloorFor(margin) {
+    for (var i = 0; i < DETENTS.length; i++) if (DETENTS[i] > margin) return DETENTS[i];
+    return null;
+  }
+
+  function moveChoices(ids, nextFloor) {
+    var copy = {
+      pico: ["WAVE PICO", "reads one channel on the machine"],
+      nano: ["WAVE NANO", "hears Pico's doubtful reads at the gateway"],
+      micro: ["WAVE MICRO", "adds facility context and an independent site audit"],
+      giga: ["WAVE GIGA", "compares sites across the plant after site triage"],
+      floor: ["RAISE PICO FLOOR", "hand this read to Nano at " + Number(nextFloor).toFixed(1)],
+    };
+    return ids.map(function (id) {
+      return { id: id, label: copy[id][0], role: copy[id][1] };
+    });
+  }
+
+  /* One evidence-driven question before the field exercise. This is the
+     ladder made playable: the right answer depends on who read this exact
+     card, whether Pico asked, whether Nano's committed counterfactual was
+     right, and the current margin floor. */
+  function incidentMove() {
+    var m = PATCH.mission;
+    var r = currentRecord();
+    if (!m.active || !r || r.truth === "none") return null;
+    var info = chainInfo();
+    if (!info.reader) {
+      return { kind: "model", correct: "pico",
+        question: "No recorded reader is on the wire. Which tier belongs on the machine?",
+        reason: "Pico is the one-channel machine reader.",
+        choices: moveChoices(["pico", "nano", "micro"]) };
+    }
+    if (info.reader === "nano" && info.picoAt < 0) {
+      if (r.parent.prediction === r.truth && m.moveStage === 0) {
+        return { kind: "identify", correct: "nano",
+          question: "Which tier read this wire directly and made the recorded call?",
+          reason: "Nano is the first recorded reader in this chain.",
+          choices: moveChoices(["pico", "nano", "micro"]) };
+      }
+      if (PATCH.chain.indexOf("micro") >= 0) {
+        return { kind: "ready", correct: null, question: "Site triage is unlocked.", choices: [] };
+      }
+      return { kind: "model", correct: "micro",
+        question: "The channel has a model answer. Which tier adds an independent facility-level investigation next?",
+        reason: "Micro widens the case from one machine to its site without pretending to be another recorded classifier.",
+        choices: moveChoices(["nano", "micro", "giga"]) };
+    }
+
+    var escalated = r.child.margin < PATCH.floor;
+    if (escalated && !info.senior) {
+      return { kind: "model", correct: "nano",
+        question: "Pico asked for help, but nobody heard it. Which tier belongs directly behind Pico?",
+        reason: "Nano is the gateway senior that adjudicates doubtful Pico reads.",
+        choices: moveChoices(["pico", "nano", "micro"]) };
+    }
+    if (!escalated && r.child.prediction !== r.truth && r.parent.prediction === r.truth) {
+      var nextFloor = nextFloorFor(r.child.margin);
+      if (nextFloor != null) {
+        return { kind: "threshold", correct: "floor", nextFloor: nextFloor,
+          question: "Nano had the right recorded counterfactual. What move would have sent this doubtful call to it?",
+          reason: "Raise SURE ENOUGH above Pico's " + r.child.margin.toFixed(2) + " margin so Nano hears the read.",
+          choices: moveChoices(["floor", "micro", "giga"], nextFloor) };
+      }
+    }
+    if (escalated && info.senior && r.parent.prediction === r.truth && m.moveStage === 0) {
+      return { kind: "identify", correct: "nano",
+        question: "Pico asked for help. Which tier caught this fault in the committed run?",
+        reason: "Nano heard the doubt and its recorded answer matches the replay label.",
+        choices: moveChoices(["pico", "nano", "micro"]) };
+    }
+    if (!escalated && r.child.prediction === r.truth && m.moveStage === 0) {
+      return { kind: "identify", correct: "pico",
+        question: "This fault was caught without a handoff. Which tier made the call on the machine?",
+        reason: "Pico answered above the current floor and matched the replay label.",
+        choices: moveChoices(["pico", "nano", "micro"]) };
+    }
+    if (PATCH.chain.indexOf("micro") >= 0) {
+      return { kind: "ready", correct: null, question: "Site triage is unlocked.", choices: [] };
+    }
+    var blind = r.child.prediction !== r.truth && r.parent.prediction !== r.truth;
+    return { kind: "model", correct: "micro",
+      question: blind
+        ? "Pico and Nano share this blind spot. Which tier should widen the case to site evidence?"
+        : "Detection is complete. Which tier should widen the case to site evidence?",
+      reason: blind
+        ? "Micro opens an independent site audit; it does not overwrite either recorded miss."
+        : "Micro adds facility context before the case is handed to plant operations.",
+      choices: moveChoices(["nano", "micro", "giga"]) };
+  }
+
+  function missionChooseMove(choice) {
+    var move = incidentMove();
+    if (!move || !move.correct) return false;
+    if (choice !== move.correct) {
+      var lesson = move.correct === "nano"
+        ? "Nano belongs at the gateway where it can hear Pico's doubt; a broader tier does not replace that handoff."
+        : move.correct === "micro"
+          ? "Micro is the first facility-context tier. Giga compares sites only after this site case is established."
+          : move.correct === "floor"
+            ? "The recorded Nano answer was already right. Change when Pico asks; adding scope does not repair the missed handoff."
+            : "Pico is the recorded reader on the machine for this call.";
+      PATCH.mission.moveFeedback = { kind: "try", text: lesson };
+      return false;
+    }
+    PATCH.mission.moveFeedback = { kind: "pass", text: move.reason };
+    if (move.kind === "identify") {
+      PATCH.mission.moveStage++;
+      return true;
+    }
+    if (choice === "nano") {
+      chainAdd("nano");
+      return true;
+    }
+    if (choice === "floor") {
+      PATCH.floor = move.nextFloor;
+      PATCH.mission.moveStage++;
+      derive();
+      render();
+      react("Pico now hands this read to Nano at the " + PATCH.floor.toFixed(1) + " SURE ENOUGH floor.");
+      return true;
+    }
+    if (choice === "micro") {
+      addMissionMicro();
+      return true;
+    }
+    if (choice === "pico") {
+      chainAdd("pico");
+      return true;
+    }
+    return false;
+  }
+
+  function missionStep(id) {
+    var plan = missionPlan();
+    if (plan.locked || plan.clear) return false;
+    var step = plan.steps.filter(function (s) { return s.id === id; })[0];
+    if (!step) return false;
+    var at = plan.steps.indexOf(step);
+    if (at > 0 && !PATCH.mission.actions[plan.steps[at - 1].id]) return false;
+    PATCH.mission.actions[id] = true;
+    PATCH.mission.phase = "triage";
+    return true;
+  }
+
+  function missionReady() {
+    var plan = missionPlan();
+    return !plan.locked && !plan.clear && plan.steps.length &&
+      plan.steps.every(function (s) { return !!PATCH.mission.actions[s.id]; });
+  }
+
+  function fieldProgress() {
+    var plan = missionPlan();
+    if (plan.clear) return 0;
+    return plan.steps.reduce(function (n, step) {
+      return n + (PATCH.mission.actions[step.id] ? 1 : 0);
+    }, 0);
+  }
+
+  function fieldApply(id, choice) {
+    var plan = missionPlan();
+    var rig = plan.rig;
+    if (plan.locked || plan.clear || !rig) return false;
+    var control = rig.controls.filter(function (item) { return item.id === id; })[0];
+    if (!control || PATCH.mission.actions[id]) return false;
+    var at = rig.controls.indexOf(control);
+    if (at > 0 && !PATCH.mission.actions[rig.controls[at - 1].id]) {
+      PATCH.mission.field.feedback = { kind: "try", step: id,
+        text: "Complete " + rig.controls[at - 1].label + " first." };
+      return false;
+    }
+    var valid = control.kind === "action" ? choice === "open"
+      : control.choices.some(function (item) { return item.id === choice; });
+    if (!valid) return false;
+    PATCH.mission.field.values[id] = choice;
+
+    if (control.sequence) {
+      var visits = PATCH.mission.field.visits[id] || [];
+      var expected = control.sequence[visits.length];
+      if (choice !== expected) {
+        PATCH.mission.field.visits[id] = [];
+        PATCH.mission.field.feedback = { kind: "try", step: id, text: control.try };
+        return false;
+      }
+      visits.push(choice);
+      PATCH.mission.field.visits[id] = visits;
+      if (visits.length < control.sequence.length) {
+        PATCH.mission.field.feedback = { kind: "working", step: id,
+          text: "As-found point " + visits.length + " of " + control.sequence.length + " recorded. Continue in order." };
+        return false;
+      }
+    } else if (choice !== control.correct) {
+      PATCH.mission.field.feedback = { kind: "try", step: id, text: control.try };
+      return false;
+    }
+
+    if (!missionStep(id)) return false;
+    PATCH.mission.field.feedback = { kind: "pass", step: id, text: control.finding };
+    return true;
+  }
+
+  function verifyMission() {
+    if (!missionReady()) return false;
+    var t = currentType();
+    if (!t || !t.recIdx || t.recIdx.none == null) return false;
+    var incident = PATCH.mission.incidentNode;
+    selectType(t.key, "none");
+    var ok = currentRecord();
+    PATCH.mission.phase = "verified";
+    PATCH.mission.completed++;
+    PATCH.mission.verifiedNode = ok && ok.node_id;
+    PATCH.mission.note = "Advanced from " + incident + " to a separately recorded OK window, " +
+      (ok ? ok.node_id : "unknown") + ". This verifies the workflow; it does not prove " +
+      "the training steps repaired the prior machine.";
+    derive();
+    return true;
+  }
+
+  function dealAndRender() {
+    var pick = drawIncident();
+    if (!pick) return;
+    PATCH.detail = false;
+    render();
+    react((pick.cond === "none" ? "OK shift card dealt" : "Incident shift card dealt: " + pick.cond.toUpperCase()) +
+      ". Every value and model answer comes from the committed replay.");
+  }
+
+  function frontMission() {
+    var m = PATCH.mission;
+    var row = el("span", "sn-front__mission");
+    row.appendChild(el("b", "sn-front__missionk", "SHIFT " + String(m.completed + 1).padStart(2, "0")));
+    var text = "START A MYSTERY CASE";
+    if (m.phase === "clear") text = "CARD CLEAR · INDEPENDENT RECORDED OK";
+    else if (m.phase === "verified") text = "CASE CLOSED · " + m.completed + " TOTAL";
+    else if (m.active && missionPlan().locked) {
+      var move = incidentMove();
+      text = move ? "NEXT · " +
+        (move.kind === "threshold" ? "FIX THE HANDOFF" : "CHOOSE THE RIGHT MODEL") :
+        "NEXT · ADD WAVE MICRO";
+    }
+    else if (m.active) text = "NEXT · OPEN THE CASE · FOLLOW THE CLUES";
+    row.appendChild(el("span", "sn-front__missiontext", text));
+    return row;
+  }
+
+  function missionUpgradeRail() {
+    var rail = el("div", "sn-mission__ladder");
+    rail.setAttribute("aria-label", "Pico detects, Nano checks doubt, Micro adds site context");
+    [
+      { id: "pico", label: "PICO · DETECTS" },
+      { id: "nano", label: "NANO · CHECKS" },
+      { id: "micro", label: "MICRO · SITE TRIAGE", needed: true },
+    ].forEach(function (item, i) {
+      if (i) rail.appendChild(el("span", "sn-mission__edge", "→"));
+      var node = el("span", "sn-mission__node" + (item.needed ? " is-needed" : ""), item.label);
+      tierStyle(node, item.id);
+      rail.appendChild(node);
+    });
+    return rail;
+  }
+
+  function drawMissionMove(move) {
+    var game = el("section", "sn-mission__move");
+    var head = el("div", "sn-mission__movehead");
+    head.appendChild(el("b", null, "WHO SHOULD HEAR THIS?"));
+    head.appendChild(el("span", null, "PICK ONE · FEEDBACK IS FREE"));
+    game.appendChild(head);
+    game.appendChild(el("p", "sn-mission__moveq", move.question));
+    game.appendChild(el("p", "sn-mission__moveevidence", readerHandoff(currentRecord())));
+    var choices = el("div", "sn-mission__movechoices");
+    move.choices.forEach(function (choice) {
+      var button = el("button", "sn-mission__movechoice");
+      button.type = "button";
+      button.dataset.move = choice.id;
+      if (choice.id === "micro") tierStyle(button, "micro");
+      else if (choice.id === "nano") tierStyle(button, "nano");
+      else if (choice.id === "pico") tierStyle(button, "pico");
+      else if (choice.id === "giga") tierStyle(button, "giga");
+      var label = choice.label;
+      if (choice.id === "micro") label = /blind spot/i.test(move.question)
+        ? "SEAT WAVE MICRO · AUDIT THE BLIND SPOT"
+        : "SEAT WAVE MICRO · UNLOCK SAFE CHECKS";
+      else if (choice.id === "nano" && move.kind !== "identify") label = "SEAT WAVE NANO · HEAR PICO";
+      else if (choice.id === "floor") label = "TURN SURE ENOUGH TO " + move.nextFloor.toFixed(1);
+      else label = "CHOOSE " + choice.label;
+      if (PATCH.chain.indexOf(choice.id) >= 0 && move.kind !== "identify") {
+        label = choice.label + " · ALREADY SEATED";
+      }
+      button.appendChild(el("b", null, label));
+      button.appendChild(el("span", null, choice.role));
+      button.addEventListener("click", function () {
+        var changed = missionChooseMove(choice.id);
+        renderGamebar();
+        if (move.kind === "identify" || !changed) paintMonitor();
+      });
+      choices.appendChild(button);
+    });
+    game.appendChild(choices);
+    var feedback = PATCH.mission.moveFeedback;
+    if (feedback) {
+      var result = el("p", "sn-mission__movefeedback is-" + feedback.kind, feedback.text);
+      result.setAttribute("aria-live", "polite");
+      game.appendChild(result);
+    }
+    return game;
+  }
+
+  function addMissionMicro(e) {
+    if (e) { e.preventDefault(); e.stopPropagation(); }
+    chainAdd("micro");
+    // The field panel exists on both faces of the television, while the
+    // expanded mission card exists only in DETAILS. Always complete the
+    // required handoff first; the CRT arrival treatment is optional chrome.
+    focusFieldStep("verify");
+    var unlocked = document.querySelector(".sn-mission");
+    if (unlocked) {
+      unlocked.classList.add("is-arriving");
+      var firstControl = unlocked.querySelector('[data-field-step="verify"]');
+      glassScrollTo(firstControl || unlocked, true);
+    }
+    react("Wave Micro seated. Site context unlocked the safe training checks; no Micro inference was invented.");
+  }
+
+  function missionBeat(step, index) {
+    if (step && step.kind === "verify") return "OBSERVE";
+    if (step && step.kind === "context") return "ISOLATE";
+    if (step && step.kind === "handoff") return "HAND OFF";
+    return ["OBSERVE", "ISOLATE", "HAND OFF"][index] || "CHECK";
+  }
+
+  function drawMission() {
+    var m = PATCH.mission;
+    var box = el("section", "sn-mission");
+    var head = el("div", "sn-mission__head");
+    head.appendChild(el("b", null, "CASE BOARD"));
+    head.appendChild(el("span", null, m.completed + " CASE" +
+      (m.completed === 1 ? "" : "S") + " CLOSED"));
+    box.appendChild(head);
+
+    function dealButton(label) {
+      var b = el("button", "sn-mission__deal", label || "START NEXT CASE");
+      b.type = "button";
+      b.addEventListener("click", dealAndRender);
+      return b;
+    }
+
+    if (!m.active) {
+      var deck = missionDeckTally();
+      var idleDeck = el("div", "sn-mission__idledeck");
+      var deckHead = el("div", "sn-mission__deckhead");
+      deckHead.appendChild(el("b", null, "MYSTERY DECK"));
+      deckHead.appendChild(el("span", null, deck.incidents + " FAULTS · " +
+        deck.checks + " HEALTHY READS · FIRST 3 ARE GUIDED"));
+      idleDeck.appendChild(deckHead);
+      var loop = el("ol", "sn-mission__loop");
+      loop.setAttribute("aria-label", "Deal, investigate, and close the case");
+      [
+        { beat: "CATCH", copy: "Choose the model move that fits the signal." },
+        { beat: "TRACE", copy: "Use three clues to narrow the problem." },
+        { beat: "CLOSE", copy: "Compare your route with a healthy read." },
+      ].forEach(function (step, index) {
+        var item = el("li");
+        item.appendChild(el("span", "sn-mission__loopn", String(index + 1).padStart(2, "0")));
+        var words = el("span", "sn-mission__loopwords");
+        words.appendChild(el("b", null, step.beat));
+        words.appendChild(el("span", null, step.copy));
+        item.appendChild(words);
+        loop.appendChild(item);
+      });
+      idleDeck.appendChild(loop);
+      box.appendChild(idleDeck);
+      box.appendChild(el("p", "sn-mission__lead",
+        "Pick a mystery from the measured deck. Nothing changes until you make a move, and a wrong guess always tells you something useful."));
+      box.appendChild(dealButton("START FIRST CASE"));
+      return box;
+    }
+    if (m.phase === "clear") {
+      box.appendChild(el("strong", "sn-mission__clear", "CARD CLEAR · NO INTERVENTION"));
+      box.appendChild(el("p", "sn-mission__copy", m.note));
+      box.appendChild(dealButton());
+      return box;
+    }
+    if (m.phase === "verified") {
+      box.appendChild(el("strong", "sn-mission__clear",
+        "CASE CLOSED · SEPARATE RECORDED OK"));
+      box.appendChild(el("p", "sn-mission__copy", m.note));
+      box.appendChild(dealButton());
+      return box;
+    }
+
+    var plan = missionPlan();
+    var missLesson = PATCH.verdict && PATCH.verdict.label === "MODEL LIMIT"
+      ? modelLimitLesson(currentRecord(), finalAnswer(PATCH.verdict.stages)) : null;
+    box.appendChild(el("span", "sn-mission__incident", "MACHINE CASE · " + plan.label));
+    box.appendChild(el("p", "sn-mission__copy",
+      "Something is wrong with this signal. First choose who should hear it; then use the clue kit to narrow down why."));
+    if (missLesson) {
+      var missAudit = el("div", "sn-mission__missaudit");
+      missAudit.appendChild(el("b", null, "MODEL MISS AUDIT"));
+      var missCompare = el("span", null,
+        "MODEL SAID " + missLesson.modelAnswer + " ≠ REPLAY SAYS " + missLesson.recordedTruth);
+      missAudit.appendChild(missCompare);
+      missAudit.appendChild(el("p", null,
+        "The replay label exposed this blind spot. The exercise below gathers independent evidence; it does not rewrite either recorded model answer."));
+      box.appendChild(missAudit);
+    }
+    if (plan.rig && plan.rig.objective) {
+      var brief = el("div", "sn-mission__brief");
+      brief.appendChild(el("b", null, "YOUR GOAL"));
+      brief.appendChild(el("p", null, plan.rig.objective));
+      box.appendChild(brief);
+    }
+    if (plan.locked) {
+      box.classList.add("is-locked");
+      var move = incidentMove();
+      box.appendChild(el("p", "sn-mission__copy", missLesson
+        ? "The models missed this one. Choose the move that widens the investigation, then use the clues to find what the all-clear overlooked."
+        : "Look at the handoff, choose the model or threshold that belongs next, and unlock the clues."));
+      box.appendChild(missionUpgradeRail());
+      if (move) box.appendChild(drawMissionMove(move));
+      box.appendChild(el("p", "sn-mission__unlocknote", missLesson
+        ? "The right move opens an independent reference and a receiving-path clue. It never pretends that a model caught what it missed."
+        : "The right move changes the local chain or handoff setting and opens the clue kit."));
+      return box;
+    }
+
+    box.classList.add("is-unlocked");
+    var doneCount = plan.steps.filter(function (step) { return !!m.actions[step.id]; }).length;
+    box.appendChild(el("strong", "sn-mission__playlabel",
+      "CLUE KIT OPEN · " + doneCount + "/" + plan.steps.length + " CLUES SOLVED"));
+    box.appendChild(el("span", "sn-mission__incident", "FOLLOW THE EVIDENCE"));
+    box.appendChild(el("p", "sn-mission__copy",
+      "Micro widened the case to site context. Work the clues in order; each answer explains what it rules in or out."));
+    var list = el("ol", "sn-mission__steps");
+    plan.steps.forEach(function (step, i) {
+      var done = !!m.actions[step.id];
+      var enabled = i === 0 || !!m.actions[plan.steps[i - 1].id];
+      var active = enabled && !done;
+      var fieldControl = plan.rig && plan.rig.controls[i];
+      var li = el("li", "sn-mission__step" +
+        (done ? " is-done" : active ? " is-active" : " is-locked"));
+      var b = el("button", "sn-mission__stepbtn");
+      b.type = "button";
+      b.disabled = done || !enabled;
+      b.setAttribute("aria-current", active ? "step" : "false");
+      b.appendChild(el("span", "sn-mission__stepn", done ? "✓" : String(i + 1).padStart(2, "0")));
+      var words = el("span", "sn-mission__stepwords");
+      words.appendChild(el("span", "sn-mission__beat", missionBeat(step, i)));
+      words.appendChild(el("b", null, step.label));
+      words.appendChild(el("i", null, done
+        ? "EVIDENCE RECEIPT · CAPTURED"
+        : "NEXT CONTROL · " + (fieldControl ? fieldControl.label : step.tool) + " · USE IT BELOW"));
+      words.appendChild(el("span", null, done && fieldControl ? fieldControl.finding
+        : active ? step.detail : "LOCKED · COMPLETE THE PRIOR BEAT"));
+      b.appendChild(words);
+      b.addEventListener("click", function () {
+        focusFieldStep(step.id);
+      });
+      li.appendChild(b);
+      list.appendChild(li);
+    });
+    box.appendChild(list);
+
+    var activeControl = currentFieldControl();
+    if (activeControl && plan.rig) {
+      var activeAt = plan.rig.controls.indexOf(activeControl);
+      var instrument = el("section", "sn-mission__instrument");
+      var instrumentHead = el("div", "sn-mission__instrumenthead");
+      instrumentHead.appendChild(el("b", null, "ACTIVE BENCH CONTROL"));
+      instrumentHead.appendChild(el("span", null, "USE IT HERE · MIRRORED IN THE LEFT BAY"));
+      instrument.appendChild(instrumentHead);
+      instrument.appendChild(drawFieldControl(activeControl, activeAt, plan));
+      var inlineFeedback = m.field && m.field.feedback;
+      if (inlineFeedback && inlineFeedback.step === activeControl.id) {
+        var inlineResult = el("p", "sn-field__feedback is-" + inlineFeedback.kind,
+          inlineFeedback.text);
+        inlineResult.setAttribute("aria-live", "polite");
+        instrument.appendChild(inlineResult);
+      }
+      box.appendChild(instrument);
+    } else if (missionReady()) {
+      var ready = el("section", "sn-mission__ready");
+      ready.appendChild(el("b", "sn-mission__readytitle", "CASE READY · EVIDENCE PACKET 03/03"));
+      ready.appendChild(el("p", "sn-mission__readycopy",
+        "You found the route. Close the case by comparing it with a separate healthy reading."));
+      var receipts = el("ul", "sn-mission__receipts");
+      plan.rig.controls.forEach(function (control, i) {
+        var receipt = el("li", null);
+        receipt.appendChild(el("span", null, "✓"));
+        receipt.appendChild(el("b", null, missionBeat(plan.steps[i], i)));
+        receipt.appendChild(el("span", null, control.finding));
+        receipts.appendChild(receipt);
+      });
+      ready.appendChild(receipts);
+      var compareOk = el("button", "sn-mission__verify", "CLOSE CASE WITH A HEALTHY READ →");
+      compareOk.type = "button";
+      compareOk.setAttribute("aria-label", "VERIFY WITH RECORDED OK. Opens a separate committed replay window.");
+      compareOk.addEventListener("click", function () {
+        if (!verifyMission()) return;
+        react("Workflow compared with a separate recorded OK window; this is not proof that the training actions repaired the prior machine.");
+        focusFactoryRelease();
+      });
+      ready.appendChild(compareOk);
+      box.appendChild(ready);
+    }
+    var safety = el("details", "sn-mission__safety");
+    safety.appendChild(el("summary", null, "Safety and evidence note"));
+    safety.appendChild(el("span", null,
+      "These clue steps are authored for the game, not generated model output. This puzzle changes no machinery and does not claim the prior machine was repaired. Physical work remains under authorized site procedures, including hazardous-energy isolation where required."));
+    box.appendChild(safety);
+    return box;
+  }
+
   function paintFront() {
     var f = $("wsFront");
     if (!f) return;
     var v = PATCH.verdict;
     var state = v ? v.state : "off";
     var face = LAMP_FACE[state] || LAMP_FACE.off;
+    var sts = v ? v.stages : stages();
+    var r = currentRecord();
+    var t = currentType();
+    var answer = finalAnswer(sts);
+    var miss = v && v.label === "MODEL LIMIT" ? modelLimitLesson(r, answer) : null;
+    var response = v && v.response ? v.response : responseMode();
     f.textContent = "";
     f.dataset.state = state;
     f.hidden = detailOpen();
+    f.setAttribute("aria-expanded", detailOpen() ? "true" : "false");
+    paintAnswerKey();
     if (detailOpen()) return;
 
-    var k = el("span", "sn-front__k", "FLEET STATUS");
-    f.appendChild(k);
-    var word = el("b", "sn-front__word");
-    word.appendChild(el("span", "sn-front__sym", face.sym));
-    word.appendChild(el("span", null, (v && v.label) || face.label));
-    f.appendChild(word);
-    if (v && v.why) f.appendChild(el("span", "sn-front__why", v.why));
-    f.appendChild(el("span", "sn-front__hint", "tap for the detail"));
+    var top = el("span", "sn-front__top");
+    top.appendChild(el("span", "sn-front__k", "CURRENT READ"));
+    top.appendChild(el("span", "sn-front__live", watchingLabel() + " · RECORDED REPLAY"));
+    f.appendChild(top);
+
+    var read = el("span", "sn-front__read");
+    read.appendChild(el("span", "sn-front__sensor",
+      (t ? t.label : "NO SENSOR") + " · " + (CONDW[PATCH.cond] || String(PATCH.cond).toUpperCase())));
+    read.appendChild(el("span", "sn-front__tag",
+      r ? ((r.window && r.window.tag) || r.node_id) : "NO RECORDED WINDOW"));
+    f.appendChild(read);
+    f.appendChild(frontTrace(r));
+
+    var result = el("span", "sn-front__result");
+    var status = el("span", "sn-front__status");
+    status.appendChild(el("span", "sn-front__sym", (v && v.sym) || face.sym));
+    status.appendChild(el("span", null, (v && v.label) || face.label));
+    result.appendChild(status);
+    var answerBox = el("span", "sn-front__answer");
+    answerBox.appendChild(el("span", "sn-front__answerk", answer
+      ? answer.who + (miss ? " MODEL ANSWER" : " SAID") : "MODEL OUTPUT"));
+    answerBox.appendChild(el("b", "sn-front__word",
+      answer && answer.word ? String(answer.word).toUpperCase() : "NO MODEL ANSWER"));
+    if (answer && answer.gloss) answerBox.appendChild(el("span", "sn-front__gloss", answer.gloss));
+    if (miss) answerBox.appendChild(el("span", "sn-front__truth",
+      "RECORDED TRUTH · " + miss.recordedTruth + " · " + miss.label));
+    result.appendChild(answerBox);
+    f.appendChild(result);
+
+    f.appendChild(frontRoute(sts));
+    f.appendChild(frontScore());
+    f.appendChild(frontMission());
+    var foot = el("span", "sn-front__foot");
+    foot.appendChild(el("span", "sn-front__response", "AFTER A FINDING · " + response.label));
+    var hint = el("span", "sn-front__hint");
+    hint.appendChild(el("span", "sn-front__hintkey", "PRESS ANYWHERE ON THE GLASS"));
+    hint.appendChild(el("b", "sn-front__hintmain", "OPEN FULL MODEL OUTPUT ↗"));
+    hint.appendChild(el("i", "sn-front__hintmore", "RAW DATA · EVERY MODEL · FLEET DETAIL"));
+    foot.appendChild(hint);
+    f.appendChild(foot);
     f.setAttribute("aria-label",
-      "Fleet status: " + ((v && v.label) || face.label) + ". " +
-      ((v && v.why) || "") + " Activate to see the detail.");
+      "Current recorded read: " + (t ? t.label : "no sensor") + ", " +
+      (CONDW[PATCH.cond] || PATCH.cond) + ". Model result: " +
+      ((v && v.label) || face.label) + ". " +
+      (answer && answer.word ? answer.who + " said " + answer.word + ". " : "") +
+      "After a finding: " + response.label + ". Activate to inspect the raw data, every model stage, " +
+      "and the fleet detail.");
   }
 
   function wireFront() {
     var f = $("wsFront");
     if (!f) return;
     f.addEventListener("click", function () { setDetail(true); });
-    // hover opens, but only on rest - otherwise a pointer crossing the deck
-    // would blow past the one screen the founder asked us to lead with
-    f.addEventListener("pointerenter", function (e) {
-      if (e.pointerType === "touch" || REDUCED) return;
-      clearTimeout(frontTimer);
-      frontTimer = setTimeout(function () { setDetail(true); }, FRONT_HOVER_MS);
-    });
-    f.addEventListener("pointerleave", function () { clearTimeout(frontTimer); });
   }
 
   function paintMonitor() {
@@ -2773,6 +4696,7 @@
       back.title = "back to the status screen";
       back.addEventListener("click", function () { setDetail(false); });
       host.appendChild(back);
+      if (PATCH.tab === "all") host.appendChild(drawMission());
     }
 
     if (PATCH.tab === "fleet") {
@@ -2795,9 +4719,11 @@
     if (PATCH.tab === "all") {
       var ans = finalAnswer(sts);
       if (ans) {
+        var miss = v && v.label === "MODEL LIMIT" ? modelLimitLesson(r, ans) : null;
         var ah = el("section", "sn-answer");
         if (ans.tier) tierStyle(ah, ans.tier);
-        var akey = el("span", "sn-answer__k", ans.word == null ? "NO ANSWER" : "THE ANSWER");
+        var akey = el("span", "sn-answer__k", ans.word == null ? "NO ANSWER"
+          : miss ? "MODEL ANSWER · NOT THE TRUTH" : "THE ANSWER");
         ah.appendChild(akey);
         if (ans.word == null) {
           ah.appendChild(el("p", "sn-answer__none sn-live--esc", ans.note));
@@ -2820,6 +4746,32 @@
             ? " answered, after the small model asked for help"
             : " answered on its own, on the machine"));
           ah.appendChild(by);
+          if (miss) {
+            var mismatch = el("div", "sn-answer__miss");
+            mismatch.appendChild(el("b", "sn-answer__misslabel", miss.label));
+            var compare = el("div", "sn-answer__compare");
+            var modelSide = el("span", "sn-answer__side");
+            modelSide.appendChild(el("i", null, "MODEL ANSWER"));
+            modelSide.appendChild(el("strong", null, miss.modelAnswer));
+            compare.appendChild(modelSide);
+            var truthSide = el("span", "sn-answer__side is-truth");
+            truthSide.appendChild(el("i", null, "RECORDED TRUTH"));
+            truthSide.appendChild(el("strong", null, miss.recordedTruth));
+            compare.appendChild(truthSide);
+            mismatch.appendChild(compare);
+            mismatch.appendChild(el("b", "sn-answer__explaink", "HOW THIS BENCH KNOWS"));
+            mismatch.appendChild(el("p", "sn-answer__explain", miss.knownBy + ". " +
+              "The benchmark supplies the disagreement; neither model discovered it."));
+            mismatch.appendChild(el("b", "sn-answer__explaink", "WHY NANO DID NOT FIX IT"));
+            mismatch.appendChild(el("p", "sn-answer__explain", miss.why));
+            mismatch.appendChild(el("b", "sn-answer__explaink",
+              miss.shapeTitle || "WHY NONE LOOKED PLAUSIBLE"));
+            mismatch.appendChild(el("i", "sn-answer__explainsource", miss.shapeBy));
+            mismatch.appendChild(el("p", "sn-answer__explain", miss.shape));
+            mismatch.appendChild(el("b", "sn-answer__explaink", "WHAT CAN CATCH IT"));
+            mismatch.appendChild(el("p", "sn-answer__explain", miss.catch));
+            ah.appendChild(mismatch);
+          }
         }
         host.appendChild(ah);
       }
@@ -2837,16 +4789,7 @@
         tierStyle(li, tier);
         li.appendChild(el("span", "sn-trail__dot"));
         li.appendChild(el("b", "sn-tiername", st.who));
-        var did = st.kind === "pico"
-          ? (st.esc ? "not sure enough - asked for help" : 'answered " ' + st.said + '"')
-          : st.kind === "nano" ? 'answered " ' + st.verdict + '"'
-          : st.kind === "quietSenior" ? "not needed on this read"
-          : st.kind === "scoperun"
-            ? ("read " + st.scope.machines + " machine" + (st.scope.machines === 1 ? "" : "s") +
-               " · " + st.tally.missed + " missed of " + st.tally.faults +
-               " faults - the bench's arithmetic, not its own")
-          : st.kind === "scope" ? "would take in " + st.takes + " - beyond what this bench recorded"
-          : "silent - no recorded run here";
+        var did = stageResponse(st);
         li.appendChild(el("span", "sn-trail__did", did));
         trail.appendChild(li);
       });
@@ -2894,6 +4837,7 @@
         }
       }
       box.appendChild(head);
+      if (stTier) box.appendChild(drawTierCase(st));
 
       if (st.kind === "raw") {
         var log = el("pre", "ws-log", st.body);
@@ -3010,18 +4954,17 @@
     var lampBig = $("wpLamp2"), why = $("wpWhy");
     if (lampBig && v) {
       lampBig.dataset.state = v.state;
-      lampBig.title = "derived from recorded records only: red = a miss a higher floor would have " +
-        "caught, yellow = an incomplete chain, green = complete (AT CEILING when the recorded " +
-        "senior itself missed)";
+      lampBig.title = "derived from recorded records only: red = a recorded fault was missed, " +
+        "yellow = the chain needs attention or made a false call, green = the recorded read was handled correctly";
       var f2 = LAMP_FACE[v.state] || LAMP_FACE.off;
       lampBig.textContent = "";
       lampBig.appendChild(el("span", "wp-lampwin__sym", v.sym || f2.sym));
       lampBig.appendChild(el("span", "wp-lampwin__label", v.label || f2.label));
     }
-    /* v20 - SAY IT ONCE. With the face of the set leading, the chin was
+    /* SAY IT ONCE. With the face of the set leading, the chin was
        repeating the same lamp and the same why sentence, verbatim, on the same
        screen. While the face is showing, the chin keeps only its lamp (a
-       persistent indicator beside the WHO'S WATCHING control, which is a
+       persistent indicator beside the AFTER A FINDING control, which is a
        control and stays) and drops the duplicated sentence; when the detail is
        open the face is gone, so the chin carries the full line again. */
     if (why && v) {
@@ -3082,43 +5025,40 @@
   var LAMP_FACE = {
     off:    { sym: "·", label: "STANDING BY" },
     green:  { sym: "●", label: "ALL CLEAR" },
-    yellow: { sym: "△", label: "DEGRADED" },
-    red:    { sym: "⊗", label: "FAULTS MISSED" },
+    yellow: { sym: "△", label: "CHECK REQUIRED" },
+    red:    { sym: "⊗", label: "FAULT MISSED" },
   };
 
-  /* ---- WHO'S WATCHING: one question, three answers ----------------------
-     Two toggles (OPERATOR ON SHIFT + UNATTENDED AUTHORITY) asked the visitor
-     to reason about a combination before they knew either word. The states
-     underneath are unchanged - operator, and the policy that lets the senior
-     act unwatched - but they are now the three answers to one plain question,
-     each spelled out instead of computed. -------------------------------- */
-  var WATCHERS = [
-    { id: "person", label: "A PERSON",
-      hint: "someone is on shift reading what the models say" },
-    { id: "nobody", label: "NOBODY",
-      hint: "no one is on shift, and the models may not act without one" },
-    { id: "alone",  label: "THE MODEL, ALONE",
-      hint: "no one is on shift, and you have allowed Wave Nano to act anyway - " +
-            "its decisions queue for a person to review later. This is a POLICY " +
-            "you set, not a measurement." },
+  /* ---- AFTER A FINDING: response, not detection -------------------------
+     The models read every replay in all three modes. This control sends the
+     resulting finding somewhere; it never changes the answer or lamp. */
+  var RESPONSE_MODES = [
+    { id: "log", label: "LOG ONLY",
+      hint: "record findings without an automatic response" },
+    { id: "human", label: "HUMAN REVIEW",
+      hint: "send each finding to a person for review" },
+    { id: "policy", label: "POLICY QUEUE",
+      hint: "send findings to the configured origin-aware policy queue" },
   ];
 
-  function watcherNow() {
-    if (PATCH.operator) return "person";
-    return PATCH.authority ? "alone" : "nobody";
+  function responseNow() {
+    return responseMode().id;
   }
 
   function renderOp() {
     var host = $("wbOp");
     if (!host) return;
     host.textContent = "";
-    var now = watcherNow();
+    var now = responseNow();
     var wrap = el("div", "sn-watch");
-    wrap.appendChild(el("span", "sn-watch__k", "WHO'S WATCHING?"));
+    var lead = el("span", "sn-watch__lead");
+    lead.appendChild(el("b", "sn-watch__on", watchingLabel()));
+    lead.appendChild(el("span", "sn-watch__k", "AFTER A FINDING"));
+    wrap.appendChild(lead);
     var row = el("div", "sn-watch__row");
     row.setAttribute("role", "radiogroup");
-    row.setAttribute("aria-label", "Who is watching what the models decide");
-    WATCHERS.forEach(function (w) {
+    row.setAttribute("aria-label", "What happens after the models report a finding");
+    RESPONSE_MODES.forEach(function (w) {
       var b = el("button", "sn-watch__opt" + (now === w.id ? " is-on" : ""));
       b.type = "button";
       b.setAttribute("role", "radio");
@@ -3126,14 +5066,14 @@
       b.title = w.hint;
       b.textContent = w.label;
       b.addEventListener("click", function () {
-        PATCH.operator = w.id === "person";
-        PATCH.authority = w.id === "alone";
+        PATCH.operator = w.id === "human";
+        PATCH.authority = w.id === "policy";
         derive(); render();
-        react(w.id === "person"
-          ? "A person is on shift - the chain ends with someone reading it."
-          : w.id === "nobody"
-          ? "Nobody is watching now."
-          : "Wave Nano may act with nobody watching - its decisions queue for review.");
+        react(w.id === "human"
+          ? "Models still watch; findings now route to human review."
+          : w.id === "policy"
+          ? "Models still watch; findings now route to the policy queue."
+          : "Models still watch; findings are logged only.");
         var again = document.querySelector(".sn-watch__opt.is-on");
         if (again) again.focus({ preventScroll: true });
       });
@@ -3167,8 +5107,10 @@
 
   function shortName(p) { return String(p || "").split("/").pop(); }
 
-  /* ---- the TV's parallax: bezel and glass on separate depths -------------
-     Pure chrome. No listeners are even attached under reduced motion. */
+  /* ---- the TV's parallax: decorative bezel only --------------------------
+     Pure chrome. The interactive overview and scrolling detail stay in the
+     page plane so their full hit areas cannot move out from under a pointer.
+     No listeners are even attached under reduced motion. */
   function wireTilt() {
     if (REDUCED) return;
     var tv = document.querySelector(".sn-tv");
@@ -3207,7 +5149,8 @@
           (fam.status === "recorded" ? "" : " (no recorded run - silent)")));
       });
     }
-    m.appendChild(el("li", null, "Operator: " + (PATCH.operator ? "on shift" : "off shift")));
+    m.appendChild(el("li", null, "Models: watching the recorded replay"));
+    m.appendChild(el("li", null, "After a finding: " + responseMode().label.toLowerCase()));
   }
 
   /* =====================================================================
@@ -3512,7 +5455,7 @@
       var f = familyById(id); return f && f.status === "recorded";
     });
     if (!hasReader) {
-      chainLine = "Nobody is watching this channel - chain Wave Pico or Wave Nano to have it read.";
+      chainLine = "No model is seated on this channel - chain Wave Pico or Wave Nano to have it read.";
     } else {
       var sts = stages();
       var nano = null, pico = null;
@@ -3975,20 +5918,25 @@
 
 
   /* =====================================================================
-     THE MODE SWITCH - console / mesh
+     THE MODE SWITCH - console / mesh / factory
      ===================================================================== */
   function showView(mode) {
-    var consoleView = $("pgConsoleView"), mesh = $("pgMeshView");
-    if (!consoleView || !mesh) return;
+    var consoleView = $("pgConsoleView"), mesh = $("pgMeshView"), factory = $("pgFactoryView");
+    if (!consoleView || !mesh || !factory) return;
     var toMesh = mode === "mesh";
-    consoleView.hidden = toMesh;
+    var toFactory = mode === "factory";
+    consoleView.hidden = toMesh || toFactory;
     mesh.hidden = !toMesh;
-    var hc = $("pgHeroConsole"), hm = $("pgHeroMesh"), ht = $("pgHeroTitle"), hk = $("pgHeroKicker");
-    if (hc) hc.hidden = toMesh;
+    factory.hidden = !toFactory;
+    var hc = $("pgHeroConsole"), hm = $("pgHeroMesh"), hf = $("pgHeroFactory");
+    var ht = $("pgHeroTitle"), hk = $("pgHeroKicker");
+    if (hc) hc.hidden = toMesh || toFactory;
     if (hm) hm.hidden = !toMesh;
-    if (ht) ht.textContent = toMesh ? "Wire a machine to a model." : "Open the console.";
-    if (hk) hk.textContent = toMesh ? "the wave mesh" : "open the console";
-    [["pgModeConsole", !toMesh], ["pgModeMesh", toMesh]].forEach(function (pair) {
+    if (hf) hf.hidden = !toFactory;
+    if (ht) ht.textContent = toFactory ? "Make it move." :
+      toMesh ? "Wire a machine to a model." : "Open the console.";
+    if (hk) hk.textContent = toFactory ? "the factory game" : toMesh ? "the wave mesh" : "open the console";
+    [["pgModeConsole", !toMesh && !toFactory], ["pgModeMesh", toMesh], ["pgModeFactory", toFactory]].forEach(function (pair) {
       var b = $(pair[0]);
       if (!b) return;
       b.setAttribute("aria-selected", pair[1] ? "true" : "false");
@@ -3999,24 +5947,29 @@
   }
 
   function wireModeSwitch() {
-    var c = $("pgModeConsole"), m = $("pgModeMesh");
-    if (!c || !m) return;
+    var c = $("pgModeConsole"), m = $("pgModeMesh"), f = $("pgModeFactory");
+    if (!c || !m || !f) return;
     c.addEventListener("click", function () { showView("console"); });
     m.addEventListener("click", function () { showView("mesh"); });
-    [c, m].forEach(function (btn) {
+    f.addEventListener("click", function () { showView("factory"); });
+    var tabs = [c, m, f];
+    var modes = ["console", "mesh", "factory"];
+    tabs.forEach(function (btn, index) {
       btn.addEventListener("keydown", function (e) {
         if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
         e.preventDefault();
-        var next = btn === c ? m : c;
-        showView(next === m ? "mesh" : "console");
+        var step = e.key === "ArrowRight" ? 1 : -1;
+        var nextIndex = (index + step + tabs.length) % tabs.length;
+        var next = tabs[nextIndex];
+        showView(modes[nextIndex]);
         next.focus();
       });
     });
     var hash = (window.location.hash || "").replace("#", "").toLowerCase();
-    if (hash === "mesh" || hash === "console") { showView(hash); return; }
+    if (hash === "mesh" || hash === "console" || hash === "factory") { showView(hash); return; }
     var saved = "console";
     try { saved = window.localStorage.getItem("pb.mode") || "console"; } catch (e) { /* ignore */ }
-    showView(saved === "mesh" ? "mesh" : "console");
+    showView(modes.indexOf(saved) >= 0 ? saved : "console");
   }
 
   /* =====================================================================
@@ -4041,14 +5994,16 @@
           " · every reading here is a recount of these records";
       }
       buildTypes();
-      // the recommended pattern boots pre-built: Pico reading, Nano adjudicating
-      PATCH.chain = ["pico", "nano"];
-      // a first-time visitor gets walked down the line once, ever
-      if (tourWanted()) PATCH.tour = 0;
+      // Start with detection and escalation. Shift mode gives Micro a reason
+      // to enter: it unlocks site-triage training after an incident is dealt.
+      PATCH.chain = ["pico", "nano", "micro"];
+      // The old six-card guided tour made the bench feel like required
+      // training before play. The welcome challenge now teaches by doing;
+      // the tour code remains available to old links without auto-launching.
+      PATCH.tour = -1;
       derive();
       render();
-      react("The bench is live with the recommended chain: Pico reads, Nano adjudicates. " +
-        "Pick a sensor, press a condition pad, and watch the monitor.");
+      react("The recorded signal workbench is ready. Pick a sensor or change a condition.");
       wireTilt();
       document.addEventListener("keydown", onKey);
       wirePrompt();
@@ -4104,10 +6059,14 @@
       scopeFor: scopeFor,
       tallyOver: tallyOver,
       worstMachines: worstMachines,
+      caseLens: caseLens,
       selectType: selectType,
       chainAdd: chainAdd,
       laneRead: laneRead,
       finalAnswer: finalAnswer,
+      modelLimitLesson: modelLimitLesson,
+      tierCaseBrief: tierCaseBrief,
+      stageResponse: stageResponse,
       stages: stages,
       derive: derive,
       envelopeFor: envelopeFor,
@@ -4120,6 +6079,26 @@
       buildReply: buildReply,
       benchContext: benchContext,
       deriveFleet: deriveFleet,
+      incidentCandidates: incidentCandidates,
+      missionDeckTally: missionDeckTally,
+      caseLesson: caseLesson,
+      guidedCard: guidedCard,
+      gameBeat: gameBeat,
+      startMystery: startMystery,
+      openSandbox: openSandbox,
+      shipBatch: shipBatch,
+      drawIncident: drawIncident,
+      missionPlan: missionPlan,
+      incidentMove: incidentMove,
+      missionChooseMove: missionChooseMove,
+      missionStep: missionStep,
+      missionReady: missionReady,
+      verifyMission: verifyMission,
+      beginSelectedIncident: beginSelectedIncident,
+      fieldApply: fieldApply,
+      fieldProgress: fieldProgress,
+      chainRemove: chainRemove,
+      watchingLabel: watchingLabel,
       benchFleet: benchFleet,
       followSuppressed: followSuppressed,
       parseSeries: parseSeries,
@@ -4131,6 +6110,8 @@
       bands: BANDS,
       detents: DETENTS,
       glossary: GLOSSARY,
+      playbooks: PLAYBOOKS,
+      fieldRigs: FIELD_RIGS,
     };
   }
 

@@ -171,6 +171,63 @@ Feature: A Tower carries the data plane and Roger Core keeps the control plane
     Then the amount is computed from corroborated usage, not from the Tower's own counts
     And a Tower's earnings can be withheld on the same evidence that detects it misbehaving
 
+  # --- overflow becomes paid relay (the consumer wire) ---------------------
+
+  # The load-bearing wire: until now the paid edge path had every part built and no
+  # first-party consumer driving it, so real overflow traffic (a model no direct node
+  # serves) took a separate FREE relayed path and no operator ever earned. Roger Core now
+  # drives the edge path itself for that overflow (Option A, broker-as-edge-consumer): it
+  # authorizes an attempt bound to the real consumer, carries the request to the Station,
+  # and settles from the receipt inline. On this path Core sees the content (it is the
+  # consumer end), which is what lets it price at the Station's OWN token rate exactly as a
+  # direct request - the blind, client-driven path is a later phase.
+  #
+  # MONEY MODEL (founder decision, 2026-08-13, overriding operator_revenue_share.feature's
+  # "share of net platform revenue" basis): a relayed request is priced at the Station's
+  # per-token rate (Core re-counts tokens, min(claim, recount)), and gross splits three ways
+  # of the metered cost - Station 70%, Tower 10%, Platform 20%. The tower's 10% comes out of
+  # the platform's margin (its 30% fee drops to 20%), so a Station is paid no less because
+  # its traffic was relayed. Billed to the consumer's ACCOUNT wallet, the same balance a
+  # direct request draws.
+
+  Scenario: A real request to a tower-only model bills the consumer and pays the operator
+    Given a model that only a Station attached to a Tower serves
+    And edge pricing is on
+    And a signed-in consumer whose account accepted the terms and holds funds
+    When the consumer makes an ordinary request the direct fleet cannot serve
+    Then Roger Core authorizes an edge attempt bound to that consumer and holds the ceiling on the account wallet
+    And the request is carried to the Station and a signed receipt returns
+    And the consumer's account wallet is charged at the Station's token rate for the recounted usage
+    And the serving Station's owner earns 70 percent of the metered cost
+    And the relaying Tower's operator earns 10 percent of the metered cost
+    And the platform keeps the remaining 20 percent
+    And the answer is returned with its real cost, not marked free
+
+  Scenario: The serving Station is paid no less because its traffic was relayed
+    Given the same request served directly versus through a Tower
+    Then the Station owner earns the same 70 percent either way
+    And the Tower's 10 percent is taken from the platform's share, never the Station's
+
+  Scenario: A failed overflow attempt charges the consumer nothing
+    Given a signed-in funded consumer and edge pricing on
+    When an overflow attempt is authorized but the Station or Tower dies before a valid receipt
+    Then no settlement captures the hold
+    And the consumer's reserved funds are released by the pending-hold sweep
+    And neither the Station owner nor the Tower operator earns anything
+
+  Scenario: A free or unpriced tower stays free
+    Given edge pricing is off
+    When an overflow request is served through a Tower
+    Then no hold is placed and no wallet is charged
+    And the request is carried on the existing free relayed path
+    And no relay earning is minted
+
+  Scenario: Only a signed-in, non-anonymized account can be relay-billed
+    Given a caller that is not a signed-in, non-anonymized account
+    When its request would overflow to a tower-only model
+    Then Roger Core does not authorize a paid edge attempt for it
+    And it is never billed for relayed traffic
+
   # --- superseded ----------------------------------------------------------
 
   # These four scenarios in job_and_settlement.feature describe the Core-relayed path and

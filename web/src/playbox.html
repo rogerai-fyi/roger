@@ -37,8 +37,8 @@
           <span id="pgHeroKicker">open the console</span>
         </span>
         <h1 class="pg-hero__title" data-reveal data-reveal-delay="60" id="pgHeroTitle">Open the console.</h1>
-        <!-- Both deck blurbs live in ONE grid cell (see .pg-hero__subs) so the
-             hero always reserves the taller of the two. Otherwise the hero
+        <!-- All deck blurbs live in ONE grid cell (see .pg-hero__subs) so the
+             hero always reserves the tallest of them. Otherwise the hero
              shrinks when the deck switch is thrown and the switch jumps ~40px
              out from under the cursor that just clicked it. -->
         <div class="pg-hero__subs">
@@ -55,16 +55,20 @@
           committed export of the simulation suite the models are actually trained and
           measured against - not an illustration of one.
         </p>
+        <p class="pg-hero__sub" id="pgHeroFactory" hidden>
+          Your first order is six pump skids. You have 90 bolts, one empty floor, and a line
+          that only moves when you press RUN. <b>Build it, catch the signal gremlins, ship the
+          crates, and grow the whole plant.</b>
+        </p>
         </div>
       </div>
     </section>
 
     <!-- ===================== THE MODE SWITCH =====================
-         Two decks on one page. CONSOLE is the cassette deck (chat, voice,
+         Three decks on one page. CONSOLE is the cassette deck (chat, voice,
          image, tools, embeds) - unchanged. WAVE MESH is the engineering deck:
-         devices, wire formats, and the mesh that reads them. The Playbox is
-         where you FEEL what a model does, and RogerAI's models read machines,
-         so the machine deck belongs here rather than on a page of its own.
+         devices, wire formats, and the mesh that reads them. FACTORY is the
+         separate game: build a line, move parts, fix holds, and expand.
 
          The switch used to be a quiet pair of tabs and visitors missed the
          second deck entirely. It is now a labelled two-way selector on the
@@ -77,7 +81,7 @@
     <div class="wrap pg-modes pg-deckswitch">
       <span class="pg-deckswitch__legend" id="pgDeckLegend">
         <span class="pg-deckswitch__no" aria-hidden="true">SEL</span>
-        Two decks on one instrument &mdash; pick one
+        Three decks on one instrument &mdash; pick one
       </span>
       <div class="pg-modes__tabs" role="tablist" aria-labelledby="pgDeckLegend">
         <button class="pg-mode" id="pgModeConsole" type="button" role="tab"
@@ -94,6 +98,14 @@
           <span class="pg-mode__face">
             <b>WAVE MESH</b><span>devices, wire formats, the mesh that reads them</span>
             <em class="pg-mode__hint">sensors &rarr; models &rarr; what they said</em>
+          </span>
+        </button>
+        <button class="pg-mode pg-mode--factory" id="pgModeFactory" type="button" role="tab"
+                aria-selected="false" aria-controls="pgFactoryView" tabindex="-1">
+          <span class="pg-mode__lamp" aria-hidden="true"></span>
+          <span class="pg-mode__face">
+            <b>FACTORY</b><span>build a line and make it grow</span>
+            <em class="pg-mode__hint">buy &rarr; build &rarr; ship &rarr; expand</em>
           </span>
         </button>
       </div>
@@ -532,22 +544,27 @@
               <span class="syn__screw" aria-hidden="true"></span>
             </div>
 
-            <p class="sn-lede">A sensor sends numbers. A small model reads them and says
-              what is wrong - or asks a bigger one when it is not sure.
-              <b>Pick a sensor, then press a condition</b> to see what each model makes of it.</p>
+            <p class="sn-lede">Pick a recorded sensor, change its condition, and inspect what
+              each model stage saw. <b>This is the engineering sandbox;</b> the separate Factory
+              deck turns the same signal ideas into a game.</p>
 
             <div class="sn-deck">
               <!-- 1) the sensor selector -->
               <div class="sn-side">
-                <span class="wp-console__k"
+                <span class="wp-console__k" id="wsSensorStep"
                       title="one sensor at a time - more sensors soon">1 &middot; PICK A SENSOR</span>
                 <div class="sn-types" id="wsTypes"></div>
                 <div class="syn__pads sn-side__pads" id="wsPads"></div>
+                <!-- The action surface for shift training. It never talks to
+                     machinery: condition-specific controls advance only the
+                     local exercise state, while the monitor explains why. -->
+                <div class="sn-field" id="wsField"
+                     aria-label="Field training simulation controls"></div>
               </div>
 
               <!-- 2) the chain, 3) the monitor -->
               <div class="sn-flow">
-                <span class="wp-console__k">2 &middot; ADD MODELS
+                <span class="wp-console__k" id="wsModelStep">2 &middot; ADD MODELS
                   <span id="wsChainBadge"></span></span>
                 <div class="sn-chainrail" id="wsChain" role="group" aria-label="The model chain"></div>
                 <p class="sn-roadmap sn-roadmap--chain">In a real mesh one Pico reads many
@@ -559,7 +576,7 @@
                 <div class="sn-whys" id="wsWhys"></div>
                 <div id="wsChainMenu"></div>
 
-                <span class="wp-console__k">3 &middot; WHAT THEY SAID</span>
+                <span class="wp-console__k" id="wsOutputStep">3 &middot; WHAT THEY SAID</span>
                 <!-- THE MONITOR, bezel-as-chrome: output room wins over the
                      engraved plate, which crowns the bar as an emblem. The
                      screen is a large CSS glass; the tabs are channel
@@ -577,14 +594,12 @@
                       <span class="wb-plate__ink"></span>
                     </span>
                     <div class="sn-tv__screen" id="wpMonitor" aria-label="The monitor - the output at each stage"></div>
-                    <!-- THE FACE OF THE SET. At rest the glass shows ONE thing:
-                         the verdict, in its lamp colour, with the word. The
-                         detail cascade is one hover or click away. The founder:
-                         "it's still hard to know what we're supposed to look
-                         at... maybe a full screen just green/yellow/red with a
-                         word, then moving the mouse over it shows all the
-                         details we currently have." It is a button because it
-                         is one, so the keyboard gets it for free. -->
+                    <!-- THE FACE OF THE SET. A neutral CRT overview derived
+                         from the selected recorded window: its real trace,
+                         final answer, model route, fleet score and downstream
+                         response. Status colour is an accent rather than a
+                         flooded screen. Explicit activation opens the full run
+                         trace; crossing the glass with a pointer never does. -->
                     <button class="sn-tv__front" id="wsFront" type="button"
                             aria-controls="wpMonitor"></button>
                     <!-- The set's own controls. The engraved TV draws a knob
@@ -593,15 +608,20 @@
                          as explicit intent, so they suspend auto-follow the
                          same way a hand on the glass does. -->
                     <div class="sn-tvctl" id="wsTvCtl">
+                      <button class="sn-tvctl__k sn-tvctl__k--deal" type="button"
+                              data-mission="draw" aria-controls="wpMonitor"
+                              aria-label="Deal another committed recorded window">
+                        <span>DEAL</span></button>
                       <button class="sn-tvctl__k" type="button" data-scroll="up"
                               aria-controls="wpMonitor" aria-label="Scroll the monitor up">
                         <span aria-hidden="true">&#9650;</span></button>
                       <button class="sn-tvctl__k" type="button" data-scroll="down"
                               aria-controls="wpMonitor" aria-label="Scroll the monitor down">
                         <span aria-hidden="true">&#9660;</span></button>
-                      <button class="sn-tvctl__k sn-tvctl__k--wide" type="button" data-scroll="answer"
-                              aria-controls="wpMonitor" aria-label="Jump to the answer">
-                        <span>ANSWER</span></button>
+                      <button class="sn-tvctl__k sn-tvctl__k--wide" id="wsAnswerKey"
+                              type="button" data-scroll="answer" aria-controls="wpMonitor"
+                              aria-label="Open details at the answer">
+                        <span>DETAILS</span></button>
                     </div>
                   </div>
                   <div class="sn-chips" id="wpChips"></div>
@@ -645,6 +665,27 @@
       </div>
     </section>
 
+    <!-- ======================== THE FACTORY GAME ========================
+         A separate experience, not a tutorial wrapped around the engineering
+         bench. The economy, crates, buildings and production outcomes are an
+         explicit game simulation. Signal events are selected from the same
+         committed replay used by Wave Mesh; the source card remains inspectable
+         and is never presented as a live model run. -->
+    <section class="pg-factory" id="pgFactoryView" role="tabpanel"
+             aria-labelledby="pgModeFactory" hidden>
+      <div class="wrap wrap--factory">
+        <span class="fig">FIG. 3 - WAVEWORKS &middot; POCKET FACTORY</span>
+        <figure class="wm-masthead wm-masthead--factory" role="img"
+                aria-label="Engraved illustration: a miniature factory line carries parts from a forming machine past a red inspection lever to packing crates and a shipping shed">
+          <span class="wm-masthead__ink" aria-hidden="true"></span>
+          <span class="wm-masthead__spot" aria-hidden="true"></span>
+        </figure>
+        <div id="wfGame" class="wf">
+          <p class="wf__loading">Rolling up the factory doors&hellip;</p>
+        </div>
+      </div>
+    </section>
+
   </main>
 
   <!-- the Edge dataset: real inputs + certified contracts + captured samples,
@@ -658,6 +699,7 @@
   <script src="js/session.js" defer></script>
   <script src="js/playbox.js" defer></script>
   <script src="js/wave-patch.js" defer></script>
+  <script src="js/wave-factory.js" defer></script>
   <script src="js/promo.js" defer></script>
 </body>
 </html>

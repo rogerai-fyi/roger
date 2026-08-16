@@ -7,12 +7,12 @@
    "frames": "out/margin-per-frame.json",
    "escalation": "out/fleet-sim-v4.json",
    "records": "out/fleet-sim-v4.json (per_item) ⋈ out/mm-hard-signal.jsonl (tags, units, windows, task frame)",
-   "quants": "RESULTS-MATRIX.md R.57 (fixed-protocol endpoint battery (leading-space grammar), stock llama-server)"
+   "quants": "corrected fixed-protocol quantization sweep (fixed-protocol endpoint battery (leading-space grammar), stock llama-server)"
   },
   "retracted": {
    "claim": "Q4_K_M collapses the 98M (72.6 -> 22.3)",
-   "status": "RETRACTED - harness bug (grammar spacing), re-measured in R.57",
-   "guard": "out/iebs12-pico-scratch-v2-q4.json and -q8.json return byte-identical aggregates; that is the signature of the grammar-spacing harness bug (R.57), not a measurement"
+   "status": "RETRACTED - harness bug (grammar spacing), replaced by the corrected endpoint run",
+   "guard": "The Q4 and Q8 endpoint outputs return byte-identical aggregates; that is the signature of the corrected grammar-spacing harness bug, not a measurement"
   },
   "note": "Regenerate with: node scripts/export-wave-measured.mjs"
  },
@@ -4201,7 +4201,7 @@
    "n": 250,
    "size_mb": 200,
    "role": "reference",
-   "source": "RESULTS-MATRIX.md R.57"
+   "source": "corrected fixed-protocol quantization sweep"
   },
   {
    "quant": "Q8_0",
@@ -4209,7 +4209,7 @@
    "n": 150,
    "size_mb": 105,
    "role": "",
-   "source": "RESULTS-MATRIX.md R.57"
+   "source": "corrected fixed-protocol quantization sweep"
   },
   {
    "quant": "Q4_K_M",
@@ -4217,7 +4217,7 @@
    "n": 150,
    "size_mb": 65,
    "role": "browser tier",
-   "source": "RESULTS-MATRIX.md R.57"
+   "source": "corrected fixed-protocol quantization sweep"
   }
  ],
  "quant_note": "fixed-protocol endpoint battery (leading-space grammar), stock llama-server"

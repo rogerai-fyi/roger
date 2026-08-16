@@ -188,7 +188,10 @@ const records = fleet.per_item.slice(0, SAMPLE).map((p) => ({
 // written to out/, it carries the certified figures transcribed from the results log,
 // with the R-number recorded so the page cites a source rather than a memory.
 const CERTIFIED = {
-  source: "RESULTS-MATRIX.md R.57",
+  // Keep the notebook coordinate here in the exporter history, never in the
+  // browser payload. Public copy describes the method instead of exposing an
+  // internal filename and row number.
+  source: "corrected fixed-protocol quantization sweep",
   task: "T01 fault-ID",
   note: "fixed-protocol endpoint battery (leading-space grammar), stock llama-server",
   rows: [
@@ -204,8 +207,8 @@ const q8raw = readJSON("iebs12-pico-scratch-v2-q8.json");
 let harnessSuspect = null;
 if (q4raw && q8raw && JSON.stringify(q4raw.results) === JSON.stringify(q8raw.results)) {
   harnessSuspect =
-    "out/iebs12-pico-scratch-v2-q4.json and -q8.json return byte-identical aggregates; " +
-    "that is the signature of the grammar-spacing harness bug (R.57), not a measurement";
+    "The Q4 and Q8 endpoint outputs return byte-identical aggregates; that is the " +
+    "signature of the corrected grammar-spacing harness bug, not a measurement";
 }
 
 const quants = CERTIFIED.rows.map((r) => ({
@@ -231,7 +234,7 @@ const doc = {
     },
     retracted: {
       claim: "Q4_K_M collapses the 98M (72.6 -> 22.3)",
-      status: "RETRACTED - harness bug (grammar spacing), re-measured in R.57",
+      status: "RETRACTED - harness bug (grammar spacing), replaced by the corrected endpoint run",
       guard: harnessSuspect,
     },
     note: "Regenerate with: node scripts/export-wave-measured.mjs",

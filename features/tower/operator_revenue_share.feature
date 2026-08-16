@@ -1,6 +1,15 @@
 # APPROVED SPEC - founder approved 2026-08-03. Changes to an approved scenario need
 # re-approval; they are not a diff to be reviewed.
 #
+# RATE-BASIS OVERRIDE (founder, 2026-08-13): the share basis below - "10% of NET PLATFORM
+# REVENUE" (i.e. 10% of the platform's fee, ~3% of gross) - is SUPERSEDED for the shipped
+# edge path by a simpler founder decision: the Tower earns 10% of GROSS (the metered cost),
+# taken from the platform's margin (its 30% fee drops to 20%), with the Station keeping its
+# full 70%. The shipped behaviour is specified in features/tower/edge_dispatch.feature
+# ("overflow becomes paid relay"). When the fuller entitlement program below is built, its
+# "net platform revenue" scenarios and atom-conservation math must be revised to this
+# 10%-of-gross basis; until then they describe an unbuilt design, not shipped behaviour.
+#
 # BUILD STATUS: PARTIAL. Approval is not implementation - this line says which.
 # Built: the canonical money arithmetic this whole program rests on - the rate_ppm wire form and
 # its boundary validation, the parts-per-million share application (floor), the rolling-reserve
