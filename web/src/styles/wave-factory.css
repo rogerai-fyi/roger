@@ -745,6 +745,16 @@
 .cl-cert__row.is-done { color: var(--ink-900); }
 .cl-cert__row.is-done b { color: #1E7A3C; } /* the fenced lamp green: done = good, and the checkmark carries the word beside it */
 .cl-cert__clock { margin-left: auto; color: var(--ink-400); font-style: normal; font-variant-numeric: tabular-nums; }
+
+/* v34: the proof rule spelled out where the goal is read - a touch is a
+   setback, not a restart, so a dead line should be rescued */
+.cl-cert__hint {
+  display: block;
+  font-style: normal;
+  font-size: 0.62rem;
+  letter-spacing: 0.04em;
+  opacity: 0.62;
+}
 .cl-cert__stamp {
   position: absolute; right: 1rem; top: .55rem;
   font-family: var(--font-mono); font-size: .66rem; letter-spacing: .18em;

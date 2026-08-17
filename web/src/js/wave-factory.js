@@ -227,7 +227,10 @@
   var TIER_COLOUR = { pico: "pico", nano: "nano", micro: "micro", giga: "giga" };
   /* the ONE build string every export stamps - the tape header shipped a
      stale hardcoded "v29" for three rounds (playtest round 3 caught it) */
-  var GAME_BUILD = "playbox v32";
+  var GAME_BUILD = "playbox v34";
+  /* v34: the proof-window touch penalty, named so the goal card's hint and
+     touchPlant() can never disagree about the rule */
+  var CERT_TOUCH_SETBACK = 20;
 
   /* ---- state ----------------------------------------------------------- */
   function freshMachine(spec) {
@@ -904,7 +907,11 @@
             /* the Unit attends the move: the SIM's dial change stays
                immediate, but the floor's floating tag waits for the Unit to
                arrive - the body catching up with the mind */
-            if (G.giga && G.unit && G.unit.at !== m.id) {
+            var pinned = false;
+            G.machines.forEach(function (mm) {
+              if (mm.unitInspecting && mm.inspecting > 0) pinned = true;
+            });
+            if (G.giga && G.unit && G.unit.at !== m.id && !pinned) {
               m.unitTagHold = true;
               unitGo(m.id);
             }
@@ -1374,6 +1381,10 @@
       { key: "handed", label: "every dial handed to the models", done: handed },
       { key: "proof", label: Math.round(CERT_PROOF_SECS / 60) + " minutes hands-off at " +
           Math.round(CERT_UPTIME * 100) + "%+ uptime", done: G.cert.done,
+        /* round 5: a strict "never touch" reading let a dead plant sit for
+           half an hour - say the real rule where the player reads the goal */
+        hint: "stepping in costs a " + Math.round(CERT_TOUCH_SETBACK) +
+          "s setback, not a restart - rescue a dead line",
         progress: G.cert.done ? 1 : Math.min(1, G.cert.run / CERT_PROOF_SECS) },
     ];
   }
@@ -1448,7 +1459,7 @@
     if (G.autoActing) return;
     if (G.cert.done) return;
     if (G.cert.run > 0) {
-      var cut = Math.min(20, G.cert.run);
+      var cut = Math.min(CERT_TOUCH_SETBACK, G.cert.run);
       G.cert.run -= cut;
       G.cert.up = Math.max(0, G.cert.up - cut);
       if (certReady() && G.cert.run > 1) {
@@ -1903,7 +1914,7 @@
       ["stuck", "A stuck sensor usually re-seats with a RESTART - free and quick. If it doesn't take, try once more before anything drastic."],
       ["nois", "Noisy is interference on the pickup - CLEAN it; a restart rarely helps."],
       ["rail", "Railed means the sensor is pinned at its limit - that's hardware, and only SERVICE fixes it."],
-      ["dropout", "A dropout usually clears with a RESTART - the wire went quiet, not the machine."],
+      ["drop", "A dropout usually clears with a RESTART - the wire went quiet, not the machine."],
     ];
     var lq = q.toLowerCase();
     for (var i = 0; i < CARD.length; i++) {
@@ -1926,9 +1937,11 @@
 
   function sendChat(q) {
     q = String(q || "").trim();
-    if (!q || G.chatBusy) return false;
-    G.chat.push({ who: "you", text: q });
+    if (!q) return false;
+    /* local answers first: identity and doctrine never need the radio,
+       so a slow (or hung) live call must not silence them */
     if (isIdentityQ(q)) {
+      G.chat.push({ who: "you", text: q });
       G.chat.push({ who: "unit", text: IDENTITY_LINE });
       tapeChat(q, "local-identity", IDENTITY_LINE);
       G.chat = G.chat.slice(-12);
@@ -1937,12 +1950,15 @@
     }
     var doctrine = doctrineAnswer(q);
     if (doctrine) {
+      G.chat.push({ who: "you", text: q });
       G.chat.push({ who: "unit", text: doctrine, how: "local-doctrine" });
       tapeChat(q, "local-doctrine", doctrine);
       G.chat = G.chat.slice(-12);
       paintChat();
       return true;
     }
+    if (G.chatBusy) return false;
+    G.chat.push({ who: "you", text: q });
     G.chatBusy = true;
     paintChat();
     function ask() {
@@ -1957,8 +1973,13 @@
           return reply;
         });
     }
-    ask()
-      .catch(function (why) { return why === "insane" ? ask() : Promise.reject(why); })
+    function askTimed() {
+      return Promise.race([ask(), new Promise(function (_, no) {
+        setTimeout(function () { no("timeout"); }, 15000);
+      })]);
+    }
+    askTimed()
+      .catch(function (why) { return why === "insane" ? askTimed() : Promise.reject(why); })
       .then(function (reply) {
         G.chat.push({ who: "ping", text: reply });
         tapeChat(q, "live", reply);
@@ -3878,6 +3899,7 @@
           if (it.key === "proof" && !it.done) {
             DOM.certProof = el("i", "cl-cert__clock", "");
             li.appendChild(DOM.certProof);
+            if (it.hint) li.appendChild(el("i", "cl-cert__hint", it.hint));
           }
           DOM.certRows.appendChild(li);
         });

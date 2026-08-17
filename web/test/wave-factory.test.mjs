@@ -1811,12 +1811,17 @@ test("v32: playtest round-3 fixes - the win card is a pause not a hostage, the t
   assert.match(js, /G\.winAutoClose = window\.setTimeout\(function \(\) \{ dismissWin\(\); \}, 45000\)/,
     "the contract card dismisses itself after a generous beat - a hands-off session never freezes");
   assert.match(js, /build: GAME_BUILD/, "the tape header derives from the one build string");
-  assert.match(js, /var GAME_BUILD = "playbox v32"/, "which is current");
+  /* v34: bumped v32->v34 - the stamp went stale AGAIN across v33 (round 5
+     caught it); this lock is the ratchet, so it moves with every round that
+     ships behaviour */
+  assert.match(js, /var GAME_BUILD = "playbox v34"/, "which is current");
   // Ping guardrails: identity is local, gibberish is filtered with one retry
   assert.match(js, /isIdentityQ\(q\)/, "who-are-you never hits the network");
   assert.match(js, /I'm the radio, not the mind/, "and the canned answer names Ping honestly");
   assert.match(js, /saneReply\(reply\)/, "a live reply must look like language before it airs");
-  assert.match(js, /why === "insane" \? ask\(\) : Promise\.reject\(why\)/, "one retry, then the Unit's fallback");
+  /* v34: the retry now goes through askTimed() (same ask, raced against a
+     15s timeout) - the guarantee is unchanged: one retry, then fallback */
+  assert.match(js, /why === "insane" \? askTimed\(\) : Promise\.reject\(why\)/, "one retry, then the Unit's fallback");
   assert.match(js, /already at top tier/, "the summary tells Ping what is maxed so it stops selling it");
 });
 
@@ -1874,4 +1879,64 @@ test("v33: doctrine questions are answered locally, never by advert", () => {
 test("v33: a filled contract reads as filled in the radio summary", () => {
   assert.ok(/already filled \(/.test(js),
     "plantSummary must not hand Ping '1808\/100' to garble");
+});
+
+/* ---- v34: playtest round-5 punch list --------------------------------- */
+
+test("v34: a dial-tag never yanks the Unit off an inspection", () => {
+  // round 5, bug 1: autoAdjust's unitTagHold block called unitGo() while a
+  // machine's unitInspecting clock was running - ~4s of wandering with the
+  // narration still claiming the Unit was inspecting. The dispatch is now
+  // gated on the same pin stepUnit honours.
+  assert.match(js, /if \(mm\.unitInspecting && mm\.inspecting > 0\) pinned = true/,
+    "the tag-hold dispatch checks the pin");
+  assert.match(js, /G\.unit\.at !== m\.id && !pinned/,
+    "and only walks when no inspection is running");
+});
+
+test("v34: doctrine speaks the game's own words - 'dropping out' included", () => {
+  // round 5, bug 2: the card keyed on the literal "dropout" while the game's
+  // surface vocabulary says "dropping out", so the game's own phrasing went
+  // to the live radio.
+  const h = loadHook();
+  const state = h.freshState();
+  const ok = h.sendChatWith(state, "the mixer says it is dropping out - what do i do?");
+  assert.equal(ok, true);
+  const last = state.chat[state.chat.length - 1];
+  assert.equal(last.how, "local-doctrine", "the game's own wording stays local");
+  assert.ok(/RESTART/.test(last.text), "with the card's verb");
+});
+
+test("v34: a hung radio cannot mute the local answers", () => {
+  // round 5, bug 3: sendChat checked chatBusy before the identity/doctrine
+  // branches, so one in-flight live call silenced every later question -
+  // including "who are you?". Local answers now run first.
+  const h = loadHook();
+  const state = h.freshState();
+  state.chatBusy = true;
+  const ok = h.sendChatWith(state, "my oven is drifting - what do i do?");
+  assert.equal(ok, true, "doctrine answers while the radio hangs");
+  assert.equal(state.chat[state.chat.length - 1].how, "local-doctrine");
+  assert.match(js, /setTimeout\(function \(\) \{ no\("timeout"\); \}, 15000\)/,
+    "and the live call itself times out instead of hanging forever");
+});
+
+test("v34: the tape stamps the current build", () => {
+  const h = loadHook();
+  const s = h.freshState();
+  const doc = h.buildTapeWith(s);
+  assert.equal(doc.build, "playbox v34", "the tape header names this round");
+});
+
+test("v34: the proof rule is printed where the goal is read", () => {
+  // round 5, observation: a strict "never touch" reading of the proof window
+  // let a dead 3-Micro plant sit for 30 sim-minutes. The goal card now says
+  // the real rule, and the number it prints is the number touchPlant() uses.
+  const h = loadHook();
+  const state = h.freshState();
+  const proof = h.certItemsWith(state).find((it) => it.key === "proof");
+  assert.ok(proof.hint, "the proof row carries a hint");
+  assert.match(proof.hint, /20s setback, not a restart/, "stating the touch rule");
+  assert.match(js, /Math\.min\(CERT_TOUCH_SETBACK, G\.cert\.run\)/,
+    "and touchPlant() cuts by the same named constant the hint prints");
 });
