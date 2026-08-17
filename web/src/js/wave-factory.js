@@ -223,8 +223,13 @@
       running: true, ready: false, error: "",
       /* THE CONTRACT ARC. Filling one is a real moment (the win card), and
          the next one re-rolls harder: more cookies, faster creep. */
-      contract: { target: 100, level: 1, creep: 1 },
+      contract: { target: 100, level: 1, creep: 1, sla: 0 },
       won: false, contractDone: false,
+      /* THE SLA (v29, staged from playtest round 2): from contract 2 up the
+         buyer expects the line UP. sla is the uptime bar (0 = no stake);
+         slaClock is the rolling minute the bar is judged over. */
+      slaClock: { run: 0, up: 0 }, contractsLost: 0,
+      firstPicoAt: null, tapeCoinsAt: 0,
       diag: { first: 0, total: 0 },
       /* THE OPENING (v26). freshState itself starts calm-less so the sim
          hooks and tests drive raw rules; the LIVE game calls beginRun(),
@@ -546,6 +551,10 @@
     m.nanoDirect = false;
     m.hadStop = false;
     G.incidents.open += 1;
+    tape("fault", { m: m.id, kind: pick,
+      record: m.sample ? m.sample.record.node_id : null,
+      picoSaid: m.picoRead ? m.picoRead.said : null,
+      nanoHeard: m.nanoRead ? m.nanoRead.kind : null });
     addLog(m.spec.name + " sensor went " + CONDITION_WORD[pick] + ".");
   }
 
@@ -588,6 +597,7 @@
          feel like one. Fires only on a genuine recorded chain miss. */
       if (chainMissed(m)) {
         G.humanSaves += 1;
+        tape("human-save", { m: m.id, record: m.sample ? m.sample.record.node_id : null });
         G.ackUntil = G.elapsed + 8;
         G.ackWhat = m.spec.name.toLowerCase();
         addLog("You caught what both models missed on the " +
@@ -668,6 +678,7 @@
         m.set = next;
         m.autoNote = holderOf(m) + " moved " + c.label + " to " + next + c.unit;
         m.autoNoteAt = G.elapsed; m.autoTier = G.giga ? "giga" : "micro";
+        tape("dial", { m: m.id, to: next, by: holderOf(m) });
       }
     }
     /* A held knob may also EXECUTE maintenance, not just trim the dial - but
@@ -688,6 +699,7 @@
            as it would prescribe to a person; WITHOUT it, it buys certainty
            the expensive way - service - like any player without advice. */
         var v = G.nano ? verbFor(m.cond) : "service";
+        tape("auto-verb", { m: m.id, verb: v, by: holder, onNanoAdvice: G.nano });
         if (v === "service") {
           m.autoNote = holder + " called service on the models' word" +
             (G.nano ? " - Nano ruled the cheap verbs out" : "");
@@ -768,6 +780,7 @@
         m.restarting = 0;
         m.stoppedFor = 0;
         if (m.cond === "none") {
+          tape("verb", { m: m.id, verb: m.fixVerb, outcome: "nothing-wrong", tries: m.verbTries });
           addLog(m.spec.name + " " + verb.label.toLowerCase() + " done - nothing was wrong. " +
             verb.secs + "s lost.");
         } else {
@@ -779,9 +792,13 @@
                not print the same card (playtest round 2) */
             G.diag.total += 1;
             if (m.verbTries === 1 && odds >= 0.5) G.diag.first += 1;
+            tape("verb", { m: m.id, verb: m.fixVerb, outcome: "cleared",
+              kind: m.cond, tries: m.verbTries });
             clearCondition(m);
             m.drift = 0;
           } else if (odds >= 0.5) {
+            tape("verb", { m: m.id, verb: m.fixVerb, outcome: "did-not-take",
+              kind: m.cond, tries: m.verbTries });
             addLog(m.spec.name + " " + verb.label.toLowerCase() +
               " did not take this time - the right call can need a second go.");
             /* said AT the station too - a failed correct verb used to look
@@ -789,6 +806,8 @@
             m.autoNote = verb.label + " did not take - try again";
             m.autoNoteAt = G.elapsed; m.autoTier = "";
           } else {
+            tape("verb", { m: m.id, verb: m.fixVerb, outcome: "locked",
+              kind: m.cond, tries: m.verbTries });
             m.lockout = LOCKOUT_SECS;
             /* the reason lives AT THE STATION, not only on the radio - a
                countdown without a why reads as breakage, not consequence.
@@ -816,6 +835,7 @@
         m.inspecting = 0;
         m.stoppedFor = 0;
         m.inspected = m.cond !== "none";
+        tape("inspected", { m: m.id, found: m.cond });
         addLog(m.spec.name + " inspected: " + INSPECT_WORD[m.cond]);
       }
       return false;
@@ -918,6 +938,13 @@
     if (G.graceLeft > 0) G.graceLeft = Math.max(0, G.graceLeft - dt);
     var mx = machine("mixer"), ov = machine("oven"), pk = machine("packer");
     stepMachine(mx, dt); stepMachine(ov, dt); stepMachine(pk, dt);
+    // the tape hears every stop/run transition, whatever caused it
+    G.machines.forEach(function (x) {
+      if (x.stopped !== x.wasStopped) {
+        tape("line", { m: x.id, stopped: !!x.stopped });
+        x.wasStopped = x.stopped;
+      }
+    });
 
     var CAP = 14;
     // mixer -> dough buffer
@@ -952,6 +979,7 @@
          a mid-game flatline hovering at ~300 coins with Micro at 260 */
       var bonus = 100 + 50 * G.contract.level;
       G.coins += bonus;
+      tape("contract", { event: "filled", level: G.contract.level, bonus: bonus });
       addLog("Contract filled: " + G.contract.target + " cookies shipped. " +
         "The buyer tips " + bonus + " coins for the finished order.");
       if (DOM.stations) showWin();
@@ -964,6 +992,27 @@
     G.runTime += dt;
     var allUp = G.machines.every(function (x) { return !x.stopped; });
     if (allUp) G.upTime += dt;
+    /* THE SLA STAKES (v29, staged from playtest round 2). From contract 2 up
+       the buyer expects the line UP: sustained uptime below the bar - a full
+       rolling minute under it - and they walk. No completion bonus, and a
+       fresh order is ALWAYS on the desk: a lost contract is a consequence,
+       never a dead end. The tutorial gate keeps this off contract 1. */
+    if (G.contract.sla > 0 && !G.won && (!G.taught || G.taughtCleared)) {
+      G.slaClock.run += dt;
+      if (allUp) G.slaClock.up += dt;
+      if (G.slaClock.run >= 60) {
+        if (G.slaClock.up / G.slaClock.run < G.contract.sla) buyerWalks();
+        else { G.slaClock.run = 0; G.slaClock.up = 0; }
+      }
+    }
+    /* the tape's coins pulse: a ten-second heartbeat of the wallet and the
+       line, so a downloaded tape can graph the run */
+    if (G.elapsed - G.tapeCoinsAt >= 10) {
+      G.tapeCoinsAt = G.elapsed;
+      tape("coins", { coins: Math.floor(G.coins), cookies: Math.floor(G.cookies),
+        burnt: Math.floor(G.spoiled),
+        uptime: Math.round((G.runTime ? G.upTime / G.runTime : 1) * 100) });
+    }
     // per-machine uptime, for the site board: same arithmetic, one machine at a time
     G.machines.forEach(function (x) { x.runT += dt; if (!x.stopped) x.upT += dt; });
     stepCert(dt, allUp);
@@ -1024,6 +1073,56 @@
     var it = certItems();
     for (var i = 0; i < it.length; i++) if (!it[i].done) return it[i];
     return null;
+  }
+
+  /* THE RECOMMENDED NEXT BUY (v29) - ONE source of truth for the goal chip's
+     NEXT row and the floor's strong glow, so the game never points two ways
+     at once (test-locked). MODELS COME FIRST by design: watchers before
+     horsepower, so a Mk upgrade only becomes the recommendation once the
+     model ladder is done. The micro-vs-giga fork is a genuine CHOICE - the
+     scale-out-vs-scale-up lesson - so it returns BOTH and the glow picks no
+     winner between them. */
+  function recommendedNext() {
+    for (var i = 0; i < G.machines.length; i++) {
+      if (!G.machines[i].pico) return [{ kind: "pico", id: G.machines[i].id }];
+    }
+    if (!G.nano) return [{ kind: "nano" }];
+    if (!G.giga) {
+      if (G.micro === 0) return [{ kind: "micro" }];
+      if (G.micro < MICRO_MAX) return [{ kind: "micro" }, { kind: "giga" }];
+      return [];               // full coverage by quantity - gear from here
+    }
+    // models done: the certificate's Mk III line is the next purchase
+    for (var j = 0; j < G.machines.length; j++) {
+      if (TIERS[G.machines[j].id][G.machines[j].tier + 1]) {
+        return [{ kind: "tier", id: G.machines[j].id }];
+      }
+    }
+    return [];
+  }
+
+  /* what the floor desk offers, in order (v29 - the founder could not buy a
+     second Micro from the desk tag: the old chain hid "another Micro" behind
+     Giga, backwards). With 1-2 Micros and no Giga it offers BOTH - the
+     scale-out-vs-scale-up tradeoff, sold at the point of purchase. After
+     Giga, no more Micros: Giga already minds every dial. */
+  function deskOffers() {
+    if (!G.nano) return ["nano"];
+    if (G.giga) return [];
+    if (G.micro === 0) return ["micro"];
+    if (G.micro < MICRO_MAX) return ["micro", "giga"];
+    return ["giga"];
+  }
+
+  /* the gateway's watch row, decided as STATE (v29 - the founder hit a row
+     of all-disabled buttons: "what is this supposed to do"). Full Pico
+     coverage means there is nothing to point the gateway at, so the row
+     goes away entirely; with partial coverage only bare machines are
+     choices, and covered ones render as non-button chips. */
+  function watchOptions() {
+    var bare = [], covered = [];
+    G.machines.forEach(function (m) { (m.pico ? covered : bare).push(m.id); });
+    return { show: bare.length > 0, bare: bare, covered: covered };
   }
   /* a hand on the plant: the proof clock starts over. Dials, verbs, buys,
      autonomy toggles, pointing the gateway - all of it counts as touching. */
@@ -1129,7 +1228,13 @@
     if (!next || G.coins < next.price) return false;
     G.coins -= next.price;
     m.tier += 1;
-    addLog(m.spec.name + " upgraded to " + next.name + " - band now " + next.lo + "-" + next.hi + " " + m.spec.sensor.unit + ".");
+    /* THE UPGRADE MOMENT (v29): the floor sprite swaps to the new plate and
+       gets a brief reveal beat (paintStation reads upgradeAt; reduced motion
+       gets a clean swap and this radio line does the announcing) */
+    m.upgradeAt = G.elapsed;
+    tape("upgrade", { m: m.id, to: next.name });
+    addLog("The new " + m.spec.name.toLowerCase() + " is in - " + next.name +
+      ", band now " + next.lo + "-" + next.hi + " " + m.spec.sensor.unit + ".");
     paint();
     return true;
   }
@@ -1140,6 +1245,8 @@
     if (m.pico || G.coins < MODEL_PRICE.pico) return false;
     G.coins -= MODEL_PRICE.pico;
     m.pico = true;
+    if (G.firstPicoAt == null) G.firstPicoAt = G.elapsed;
+    tape("buy", { what: "pico", m: m.id });
     var wasWatched = watchTarget() === m.id;
     if (m.cond !== "none") {
       m.picoRead = picoRead(m.sample);
@@ -1160,6 +1267,7 @@
       if (G.micro >= MICRO_MAX || G.coins < MODEL_PRICE.micro) return false;
       G.coins -= MODEL_PRICE.micro;
       G.micro += 1;
+      tape("buy", { what: "micro", count: G.micro });
       addLog(G.micro === 1
         ? "Wave Micro online at the desk - the site view, and it can hold one dial."
         : "Micro #" + G.micro + " online. It'll mind its own machine - " +
@@ -1170,6 +1278,7 @@
     if (G[which] || G.coins < MODEL_PRICE[which]) return false;
     G.coins -= MODEL_PRICE[which];
     G[which] = true;
+    tape("buy", { what: which });
     if (which === "nano") {
       G.machines.forEach(function (m) {
         if (m.cond !== "none" && m.pico) m.nanoRead = nanoRead(m.sample);
@@ -1196,6 +1305,7 @@
     m.fixVerb = verbName;
     m.restarting = verb.secs;
     m.verbTries += 1;
+    tape("verb-start", { m: m.id, verb: verbName, tries: m.verbTries });
     addLog(m.spec.name + " " + verb.label.toLowerCase() +
       (verbName === "recal" ? "ibrating (" + verb.cost + " coins)…" : "ing…"));
     paint();
@@ -1230,6 +1340,8 @@
     var hadFunds = G.coins >= SERVICE_COST;
     G.coins -= SERVICE_COST;
     m.servicing = SERVICE_SECS;          // the machine is down while it happens
+    tape("service", { m: m.id, invoiced: SERVICE_COST, onLoan: !hadFunds,
+      wasHealthy: m.cond === "none" });
     if (!hadFunds) {
       addLog("The crew invoiced " + SERVICE_COST + " you did not have - it is on loan. " +
         "Earnings pay the debt before they pile up.");
@@ -1251,6 +1363,75 @@
   }
 
   function addLog(copy) { G.log.unshift(copy); G.log = G.log.slice(0, 6); }
+
+  /* =====================================================================
+     THE SESSION TAPE (v29). The founder asked "are you able to see the
+     logs of how i'm playing" - so the game keeps one: an in-memory event
+     tape of everything that happened, timestamped on the run clock.
+     ALL LOCAL: it lives in this page, persists (last three sessions) in
+     this browser's localStorage, and leaves the machine only if the
+     player downloads it and shares the file themselves.
+     ===================================================================== */
+  var TAPE_CAP = 2000;               // FIFO: old events fall off the front
+  var TAPE = [];
+  function tape(type, data) {
+    var e2 = { t: Math.round(G.elapsed * 10) / 10, type: type };
+    if (data) for (var k2 in data) if (Object.prototype.hasOwnProperty.call(data, k2)) e2[k2] = data[k2];
+    TAPE.push(e2);
+    if (TAPE.length > TAPE_CAP) TAPE.splice(0, TAPE.length - TAPE_CAP);
+  }
+  function tapeSummary() {
+    var up = G.runTime ? G.upTime / G.runTime : 1;
+    return {
+      shipped: Math.floor(G.cookies), burnt: Math.floor(G.spoiled),
+      uptime: Math.round(up * 100) + "%",
+      caughtInTime: G.incidents.caught, lineStopped: G.incidents.missed,
+      rightVerbFirstTry: G.diag.first + "/" + G.diag.total,
+      calledByTheModels: G.modelCalled, savedByYou: G.humanSaves,
+      coins: Math.floor(G.coins), onLoan: G.coins < 0,
+      contractLevel: G.contract.level, contractsLost: G.contractsLost || 0,
+      secondsToFirstPico: G.firstPicoAt == null ? null : Math.round(G.firstPicoAt),
+      secondsPlayed: Math.round(G.elapsed),
+    };
+  }
+  function buildTape() {
+    return {
+      what: "THE COOKIE LINE · session tape",
+      build: "playbox v29",
+      exportedAt: new Date().toISOString(),
+      honesty: "model words in these events are replayed record fields from the " +
+        "committed bench export; the plant itself is game simulation. This file " +
+        "was written locally and transmitted nowhere.",
+      summary: tapeSummary(),
+      events: TAPE.slice(),
+    };
+  }
+  /* persisted on the way OUT (pagehide/hidden), never per tick - localStorage
+     writes are synchronous and the frame loop should not pay for them */
+  function persistTape() {
+    if (!TAPE.length) return;
+    try {
+      var store = JSON.parse(window.localStorage.getItem("clTapes") || "[]");
+      if (!Array.isArray(store)) store = [];
+      store.push({ savedAt: new Date().toISOString(), summary: tapeSummary(), events: TAPE.slice(-600) });
+      while (store.length > 3) store.shift();
+      window.localStorage.setItem("clTapes", JSON.stringify(store));
+    } catch (err) { /* quota or private mode - the tape is a courtesy, not a dependency */ }
+  }
+  function downloadTape() {
+    var blob = new Blob([JSON.stringify(buildTape(), null, 1)], { type: "application/json" });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url; a.download = "cookie-line-session-tape.json";
+    document.body.appendChild(a);
+    a.click();
+    window.setTimeout(function () {
+      if (a.parentNode) a.parentNode.removeChild(a);
+      URL.revokeObjectURL(url);
+    }, 400);
+    tape("export", {});
+    addLog("Session tape saved to your downloads - it stays on your machine unless you share it.");
+  }
 
   /* =====================================================================
      RENDER - built once, painted per frame
@@ -1466,6 +1647,12 @@
     log.appendChild(el("summary", null, "LINE RADIO"));
     DOM.log = el("ol");
     log.appendChild(DOM.log);
+    /* THE SESSION TAPE's download lives with the radio: every event of the
+       run as JSON, with a plain-language summary up top. All local. */
+    var tapeBtn = btn("SESSION TAPE · download", "cl-act cl-tapebtn", downloadTape);
+    tapeBtn.title = "Every event of this run, timestamped, as a JSON file - it stays " +
+      "on your machine; download and share it if you want.";
+    log.appendChild(tapeBtn);
     root.appendChild(log);
 
     /* the shop, as an overlay over the floor; the line pauses while it is up */
@@ -1537,6 +1724,11 @@
   function machineBlock(m) {
     var s = DOM.stations[m.id] = {};
     var block = el("div", "clf-machine clf-machine--" + m.id);
+    /* the sprite follows the tier: data-mk picks the committed Mk plate in
+       CSS, and the badge/lamp/plate anchors ride the block so they track
+       whatever size the new art takes (v29) */
+    block.dataset.mk = String(m.tier + 1);
+    s.block = block;
 
     // the engraving itself
     s.art = el("span", "clf-art");
@@ -1627,15 +1819,13 @@
     input.className = "cl-ctl__range";
     input.setAttribute("aria-label", m.spec.name + " " + m.spec.control.label.toLowerCase());
     input.addEventListener("input", function () { m.set = Number(input.value); touchPlant(); paint(); });
+    // the tape records the SETTLED value (change, not every drag tick)
+    input.addEventListener("change", function () { tape("dial", { m: m.id, to: m.set, by: "player" }); });
     s.input = input;
     ctl.appendChild(input);
     s.setTxt = el("b", "cl-ctl__v", "");
     ctl.appendChild(s.setTxt);
     card.appendChild(ctl);
-
-    /* the model slot: nano advice, autonomy, provenance */
-    s.slot = el("div", "cl-slot");
-    card.appendChild(s.slot);
 
     /* THE ACTION LADDER, in cost order. The dial above is ADJUST (free, fixes
        process problems, never locked). Then the fixing verbs, each honest to
@@ -1663,6 +1853,16 @@
     [s.restart, s.clean, s.recal, s.inspect, s.service, s.upgrade]
       .forEach(function (b) { acts.appendChild(b); });
     card.appendChild(acts);
+
+    /* THE MODEL SLOT - nano advice, autonomy, provenance - sits BELOW the
+       action row (v29, founder screenshot: advice blocks mounting above the
+       buttons shoved them up and down every state change). Everything above
+       the buttons is fixed-height, so the actions never move; the slot's
+       weather grows downward into its own reserved space. LAYOUT STABILITY
+       is test-locked on this order - do not move the buttons back under
+       variable-height content. */
+    s.slot = el("div", "cl-slot");
+    card.appendChild(s.slot);
 
     return card;
   }
@@ -1739,9 +1939,39 @@
     paint();
   }
 
+  /* how many cookies one order of this level asks for - the same 2.5× ladder
+     nextTargetOf climbs, counted as a SIZE so a re-offered contract after a
+     buyer walk can start from wherever the cookie count already is */
+  function contractSize(level) {
+    var size = 100;
+    for (var i = 1; i < level; i++) size = Math.round(size * 2.5 / 10) * 10;
+    return size;
+  }
+  var SLA_BAR = 0.4;       // contract 2 up: the buyer expects 40%+ uptime
+  function buyerWalks() {
+    var lost = G.contract;
+    G.contractsLost += 1;
+    tape("contract", { event: "lost", level: lost.level,
+      uptimeInWindow: Math.round((G.slaClock.up / Math.max(G.slaClock.run, 1e-6)) * 100) });
+    /* plain and warm: what happened, what it cost, and that the desk is
+       never empty - a fresh order of the same size starts from here */
+    addLog("The buyer walked - the line spent too much of the last minute down " +
+      "(they expect " + Math.round(lost.sla * 100) + "%+ uptime). No completion " +
+      "bonus this time. A fresh order for " + contractSize(lost.level) +
+      " cookies is already on the desk.");
+    G.contract = { target: Math.ceil(G.cookies / 10) * 10 + contractSize(lost.level),
+      level: lost.level, creep: lost.creep, sla: lost.sla };
+    G.won = false;
+    G.contractDone = false;
+    G.slaClock = { run: 0, up: 0 };
+  }
+
   function nextContract() {
     var next = nextTargetOf(G.contract);
-    G.contract = { target: next, level: G.contract.level + 1, creep: G.contract.creep * 1.35 };
+    G.contract = { target: next, level: G.contract.level + 1,
+      creep: G.contract.creep * 1.35, sla: SLA_BAR };
+    G.slaClock = { run: 0, up: 0 };
+    tape("contract", { event: "accepted", level: G.contract.level, target: next });
     G.won = false;
     G.contractDone = false;
     if (DOM.winOver) DOM.winOver.hidden = true;
@@ -1865,6 +2095,17 @@
       s.art.classList.toggle("is-dead", m.stopped);
       s.art.classList.toggle("is-working", !m.stopped && G.running);
     }
+    /* THE UPGRADE MOMENT (v29): when the tier changes, data-mk swaps the
+       committed Mk plate in - and every anchor (lamp, badge, plate, bubble)
+       rides the block, so they track the new art for free. The reveal beat
+       is a short CSS animation; reduced motion gets the clean swap and the
+       radio line carries the announcement. */
+    if (s.block) {
+      var mkNow = String(m.tier + 1);
+      if (s.block.dataset.mk !== mkNow) s.block.dataset.mk = mkNow;
+      s.block.classList.toggle("is-upgrading",
+        !REDUCED && !!m.upgradeAt && G.elapsed - m.upgradeAt < 1.6);
+    }
     if (s.glow) {
       var baking = !m.stopped && m.real >= tierOf(m).lo && m.real <= tierOf(m).hi;
       s.glow.dataset.on = baking ? "1" : "0";
@@ -1932,7 +2173,7 @@
     var r = m.picoRead;
     if (!m.pico) {
       var b = btn("+ WAVE PICO · " + MODEL_PRICE.pico, "cl-slot__buy", function () { buyPico(m.id); });
-      (DOM.priced = DOM.priced || []).push({ b: b, cost: MODEL_PRICE.pico });
+      (DOM.priced = DOM.priced || []).push({ b: b, cost: MODEL_PRICE.pico, kind: "pico" });
       b.title = "A model on this machine tells you when the reading stops being trustworthy.";
       s.slot.appendChild(b);
       s.slot.appendChild(el("i", "cl-slot__hint", G.nano
@@ -2129,7 +2370,7 @@
         });
         tag.title = "Mount a Wave Pico here - instant, always-on coverage for this machine, " +
           "and it frees the gateway to mind the rest of the site.";
-        (DOM.priced = DOM.priced || []).push({ b: tag, cost: MODEL_PRICE.pico });
+        (DOM.priced = DOM.priced || []).push({ b: tag, cost: MODEL_PRICE.pico, kind: "pico" });
         s.mount.appendChild(tag);
       }
       if (s.bubble) s.bubble.hidden = !(m.pico && m.cond !== "none" && m.picoRead);
@@ -2142,7 +2383,20 @@
         s.plateBuy.textContent = nextTier.name.toUpperCase() + " · " + nextTier.price;
         s.plateBuy.disabled = G.coins < nextTier.price;
         s.plateBuy.title = "Upgrade: faster, and a wider band (" + nextTier.lo + "-" + nextTier.hi +
-          " " + m.spec.sensor.unit + ") so a small lie is less fatal.";
+          " " + m.spec.sensor.unit + ") so a small lie is less fatal." +
+          (G.coins >= nextTier.price ? " You can afford this now." : "");
+        /* GLOW DISCIPLINE (v29): MODELS FIRST. A machine's Mk tag stays
+           QUIET - no glow at all - until that machine has its Pico, so an
+           affordable Mk never competes with the model ladder; after the
+           Pico it lights softly when affordable, and carries the STRONG
+           glow only when the Mk line is the recommendation (recommendedNext:
+           model ladder done). */
+        var affordTier = G.coins >= nextTier.price && m.pico;
+        var recoTier = (DOM.recoKinds || {})["tier"];
+        s.plateBuy.classList.toggle("is-afford", affordTier);
+        s.plateBuy.classList.toggle("is-reco", affordTier && !!recoTier);
+        s.upgrade.classList.toggle("is-afford", affordTier);
+        s.upgrade.classList.toggle("is-reco", affordTier && !!recoTier);
       }
     }
 
@@ -2198,7 +2452,11 @@
     var filled = G.cookies >= target;
     rows.push(["SHIP", Math.floor(G.cookies) + " / " + target + " cookies" +
       (G.contract.level > 1 ? " · contract " + G.contract.level : ""),
-      filled ? "contract filled" : "keep every needle inside its marked band - conditions creep"]);
+      filled ? "contract filled"
+        : G.contract.sla > 0
+          ? "this buyer expects " + Math.round(G.contract.sla * 100) +
+            "%+ uptime - too long down and they walk (a fresh order always follows)"
+          : "keep every needle inside its marked band - conditions creep"]);
     /* the opening, said where the player is looking */
     if (G.graceLeft > 0) {
       rows.push(["WATCH", "the line is settling in",
@@ -2231,20 +2489,30 @@
         rows.push(["GOAL", cn.label,
           "the certificate: a factory that runs itself, upgraded end to end"]);
       }
-    } else if (!picos) {
-      rows.push(["NEXT", "WAVE PICO · " + MODEL_PRICE.pico,
-        "puts a model on one machine so it tells you when its reading stops being trustworthy"]);
-    } else if (!G.nano) {
-      rows.push(["NEXT", "WAVE NANO · " + MODEL_PRICE.nano,
-        "explains WHY and what to do - instant through Picos, or direct-watching one bare machine itself"]);
-    } else if (!G.micro) {
-      rows.push(["NEXT", "WAVE MICRO · " + MODEL_PRICE.micro,
-        "the site view - and it can hold one knob for you"]);
-    } else if (!G.giga) {
-      rows.push(["NEXT", "WAVE GIGA · " + MODEL_PRICE.giga,
-        G.micro > 1
-          ? "your Micros each mind their own machine - Giga minds the LINE"
-          : "the plant view - one mind on every knob (or stack Micros, one dial each)"]);
+    } else if (recommendedNext().length) {
+      /* the NEXT row and the floor's strong glow share recommendedNext() -
+         one source, test-locked, so the chip and the glowing tag agree */
+      var reco = recommendedNext();
+      var k0 = reco[0].kind;
+      if (k0 === "pico") {
+        rows.push(["NEXT", "WAVE PICO · " + MODEL_PRICE.pico,
+          "puts a model on one machine so it tells you when its reading stops being trustworthy"]);
+      } else if (k0 === "nano") {
+        rows.push(["NEXT", "WAVE NANO · " + MODEL_PRICE.nano,
+          "explains WHY and what to do - instant through Picos, or direct-watching one bare machine itself"]);
+      } else if (k0 === "micro" && reco.length > 1) {
+        rows.push(["NEXT", "MICRO · " + MODEL_PRICE.micro + " or GIGA · " + MODEL_PRICE.giga,
+          "your call: another Micro holds one more dial; Giga is one mind on the whole LINE"]);
+      } else if (k0 === "micro") {
+        rows.push(["NEXT", "WAVE MICRO · " + MODEL_PRICE.micro,
+          "the site view - and it can hold one knob for you"]);
+      } else if (k0 === "giga") {
+        rows.push(["NEXT", "WAVE GIGA · " + MODEL_PRICE.giga,
+          "the plant view - one mind on every knob"]);
+      } else if (k0 === "tier") {
+        rows.push(["NEXT", "MK UPGRADES",
+          "the certificate wants every machine at Mk III - faster, wider bands"]);
+      }
     } else if (autoCount() < G.machines.length) {
       rows.push(["NEXT", "HAND OVER THE LAST KNOBS",
         "let the models drive all three and the plant runs itself"]);
@@ -2285,13 +2553,22 @@
     function node(opts) {
       var n = el("div", "cl-node" + (opts.owned ? " is-owned" : "") + (opts.locked ? " is-locked" : ""));
       if (opts.tier) n.dataset.tier = opts.tier;
+      /* the Mk rows carry a small thumbnail of the committed plate the
+         upgrade actually swaps in (v29) - the shop shows what you get */
+      if (opts.thumb) {
+        var th = el("i", "cl-node__thumb");
+        th.dataset.m = opts.thumb.m;
+        th.dataset.mk = String(opts.thumb.mk);
+        th.setAttribute("aria-hidden", "true");
+        n.appendChild(th);
+      }
       n.appendChild(el("b", null, opts.name));
       n.appendChild(el("i", null, opts.owned ? opts.does : opts.promise));
       if (opts.owned) n.appendChild(el("span", "cl-node__on", "INSTALLED"));
       else if (opts.locked) n.appendChild(el("span", "cl-node__lock", opts.locked));
       else {
         var b = btn(opts.price, "cl-act", opts.buy);
-        (DOM.priced = DOM.priced || []).push({ b: b, cost: opts.cost || 0 });
+        (DOM.priced = DOM.priced || []).push({ b: b, cost: opts.cost || 0, kind: opts.kind });
         n.appendChild(b);
       }
       return n;
@@ -2308,6 +2585,8 @@
         promise: next ? "faster, and a wider band (" + next.lo + "-" + next.hi + ") so a small lie is less fatal" : "",
         price: next ? "UPGRADE · " + next.price : "",
         cost: next ? next.price : 0,
+        kind: "tier",
+        thumb: { m: m.id, mk: next ? m.tier + 2 : m.tier + 1 },
         buy: function () { buyTier(m.id); },
       }));
     });
@@ -2321,6 +2600,7 @@
         promise: "a light and one word when this reading stops being trustworthy",
         price: "BUY · " + MODEL_PRICE.pico,
         cost: MODEL_PRICE.pico,
+        kind: "pico",
         buy: function () { buyPico(m.id); },
       }));
     });
@@ -2350,6 +2630,7 @@
           : row[2],
         price: stacking ? "ANOTHER · " + MODEL_PRICE.micro : "BUY · " + MODEL_PRICE[id],
         cost: MODEL_PRICE[id],
+        kind: id,
         buy: function () { buyDesk(id); },
       }));
     });
@@ -2441,30 +2722,42 @@
     if (G.nano) {
       var gw = el("div", "cl-view cl-view--nano");
       gw.appendChild(el("b", "cl-view__head", "WAVE NANO · SITE GATEWAY"));
-      var sel = el("div", "cl-watchsel");
-      sel.setAttribute("role", "group");
-      sel.setAttribute("aria-label", "Gateway direct watch");
-      sel.appendChild(el("i", null, "WATCHING"));
-      var autoB = btn("AUTO", "cl-watch" + (G.nanoWatch == null ? " is-on" : ""), function () {
-        G.nanoWatch = null; touchPlant(); addLog("Gateway watch set to AUTO - it walks the machines that have no Pico."); paint();
-      });
-      autoB.setAttribute("aria-pressed", G.nanoWatch == null ? "true" : "false");
-      sel.appendChild(autoB);
-      G.machines.forEach(function (mm) {
-        var wb = btn(mm.spec.name, "cl-watch" + (G.nanoWatch === mm.id ? " is-on" : ""), function () {
-          G.nanoWatch = mm.id;
-          touchPlant();
-          addLog("Gateway pointed at the " + mm.spec.name.toLowerCase() + ".");
-          paint();
+      /* THE WATCHING ROW IS STATE-DRIVEN (v29). The founder hit a row of
+         all-disabled buttons ("what is this supposed to do") - so with full
+         Pico coverage the selector does not render at all (the status line
+         below says why), and with partial coverage only BARE machines are
+         buttons; covered ones are non-button chips. If a Pico ever went
+         away, watchOptions() would bring the row back. */
+      var wo = watchOptions();
+      if (wo.show) {
+        var sel = el("div", "cl-watchsel");
+        sel.setAttribute("role", "group");
+        sel.setAttribute("aria-label", "Gateway direct watch");
+        sel.appendChild(el("i", null, "WATCHING"));
+        var autoB = btn("AUTO", "cl-watch" + (G.nanoWatch == null ? " is-on" : ""), function () {
+          G.nanoWatch = null; touchPlant(); addLog("Gateway watch set to AUTO - it walks the machines that have no Pico."); paint();
         });
-        wb.setAttribute("aria-pressed", G.nanoWatch === mm.id ? "true" : "false");
-        if (mm.pico) {
-          wb.disabled = true;
-          wb.title = "This machine has a Pico - its reports reach the gateway instantly.";
-        }
-        sel.appendChild(wb);
-      });
-      gw.appendChild(sel);
+        autoB.setAttribute("aria-pressed", G.nanoWatch == null ? "true" : "false");
+        sel.appendChild(autoB);
+        wo.bare.forEach(function (mid) {
+          var mm = machine(mid);
+          var wb = btn(mm.spec.name, "cl-watch" + (G.nanoWatch === mm.id ? " is-on" : ""), function () {
+            G.nanoWatch = mm.id;
+            touchPlant();
+            addLog("Gateway pointed at the " + mm.spec.name.toLowerCase() + ".");
+            paint();
+          });
+          wb.setAttribute("aria-pressed", G.nanoWatch === mm.id ? "true" : "false");
+          sel.appendChild(wb);
+        });
+        wo.covered.forEach(function (mid) {
+          var chip = el("s", "cl-watch cl-watch--covered", machine(mid).spec.name);
+          chip.title = "This machine has a Pico - its reports reach the gateway instantly, " +
+            "so there is nothing to point the watch at.";
+          sel.appendChild(chip);
+        });
+        gw.appendChild(sel);
+      }
       var tgt = watchTarget();
       gw.appendChild(el("span", null, tgt
         ? (G.nanoWatch ? "Pinned on the " : "Patrolling - now at the ") +
@@ -2546,12 +2839,18 @@
         return [m.pico, m.auto, m.cond, m.tier, m.lockout > 0, m.restarting > 0,
           m.healthyDraws, m.picoRead && m.picoRead.kind, m.nanoRead && m.nanoRead.kind].join(",");
       }).join("|"),
-      G.cookies >= G.contract.target, G.contract.level, G.won, G.contractDone,
+      G.cookies >= G.contract.target, G.contract.level, G.contract.target,
+      G.contractsLost, G.won, G.contractDone,
       G.graceLeft > 0, G.taught, G.taughtCleared].concat([G.cert.done, certReady(), G.micro, G.modelCalled]).join("~");
   }
 
   function paint() {
     if (!DOM.stations) return;
+    /* the recommendation, computed ONCE per paint: the goal chip's NEXT row,
+       the stations' Mk tags, and the priced sweep below all read this same
+       answer - the chip and the glowing tag can never disagree */
+    DOM.recoKinds = {};
+    recommendedNext().forEach(function (r0) { DOM.recoKinds[r0.kind] = true; });
     DOM.coins.textContent = Math.floor(G.coins);
     // debt is a state you can SEE: red coins plus a flag - the COINS label
     // itself never vanishes (playtest: "players scanning for money see their
@@ -2691,24 +2990,26 @@
           rack.appendChild(chipEl);
         }
       });
-      // the desk sells its own next model, right where it would sit
-      var nextDesk = !G.nano ? "nano" : !G.micro ? "micro" : !G.giga ? "giga"
-        : G.micro < MICRO_MAX ? "micro" : null;
-      if (nextDesk) {
-        var deskTag = btn("+ " + nextDesk.toUpperCase() + " · " + MODEL_PRICE[nextDesk],
+      /* the desk sells its own next model, right where it would sit. With
+         Micros started and no Giga it offers BOTH (v29 - the founder could
+         not buy a second Micro from here): another-Micro and Giga side by
+         side, because scale-out-vs-scale-up is a genuine choice - the glow
+         picks no winner between them. deskOffers() is the one rule. */
+      deskOffers().forEach(function (offer) {
+        var deskTag = btn("+ " + offer.toUpperCase() + " · " + MODEL_PRICE[offer],
           "clf-buytag clf-buytag--desk", function (e) {
             e.stopPropagation();
-            buyDesk(nextDesk);
+            buyDesk(offer);
           });
-        deskTag.title = nextDesk === "nano"
+        deskTag.title = offer === "nano"
           ? "The site gateway: explains WHY a reading is wrong and which verb fixes it."
-          : nextDesk === "micro"
-            ? (G.micro ? "Another Micro: one more dial held - but they don't talk to each other. Giga minds the LINE."
+          : offer === "micro"
+            ? (G.micro ? "Another Micro: one more dial held - but they don't talk to each other."
                        : "The site view - and it can hold one knob for you.")
             : "The plant view - one mind on every knob.";
-        (DOM.priced = DOM.priced || []).push({ b: deskTag, cost: MODEL_PRICE[nextDesk] });
+        (DOM.priced = DOM.priced || []).push({ b: deskTag, cost: MODEL_PRICE[offer], kind: offer });
         rack.appendChild(deskTag);
-      }
+      });
       DOM.floorDesk.appendChild(rack);
       DOM.floorDesk.appendChild(el("span", "clf-desk__k", owned.length ? "THE DESK" : "DESK · EMPTY"));
     }
@@ -2728,8 +3029,25 @@
       var tick = G.log[0] || "";
       if (DOM.ticker.textContent !== tick) DOM.ticker.textContent = tick;
     }
-    // prices react to the wallet without rebuilding anything
-    (DOM.priced || []).forEach(function (p) { p.b.disabled = G.coins < p.cost || p.off; });
+    /* prices react to the wallet without rebuilding anything - and the
+       AFFORDABILITY GLOW rides the same sweep (v29): affordable purchase
+       points light softly (is-afford; reduced motion gets a steady lit
+       state in CSS), and the recommended next buy carries the strong glow
+       (is-reco). Glow states affordability and recommendation, never
+       urgency - the tooltip says only "you can afford this now". */
+    (DOM.priced || []).forEach(function (p) {
+      p.b.disabled = G.coins < p.cost || p.off;
+      var afford = !p.b.disabled && p.cost > 0;
+      p.b.classList.toggle("is-afford", afford);
+      p.b.classList.toggle("is-reco", afford && !!p.kind && !!DOM.recoKinds[p.kind]);
+      if (afford !== p.wasAfford) {
+        p.wasAfford = afford;
+        if (p.baseTitle == null) p.baseTitle = p.b.title || "";
+        p.b.title = afford
+          ? (p.baseTitle ? p.baseTitle + " " : "") + "You can afford this now."
+          : p.baseTitle;
+      }
+    });
   }
 
   /* ---- loop ------------------------------------------------------------ */
@@ -2789,10 +3107,15 @@
       else if (DOM.winOver && !DOM.winOver.hidden) dismissWin();
     });
     document.addEventListener("visibilitychange", function () {
-      if (document.hidden) { G.wasRunning = G.running; G.running = false; }
+      if (document.hidden) {
+        G.wasRunning = G.running; G.running = false;
+        persistTape();     // serialize on the way out, never per tick
+      }
       else if (G.wasRunning) { G.running = true; lastT = 0; }
       paint();
     });
+    // pagehide is the reliable leave signal (tab close, navigation, bfcache)
+    window.addEventListener("pagehide", persistTape);
   }
 
   if (typeof window !== "undefined") {
@@ -2885,6 +3208,19 @@
         return true;
       },
       grant: function (n) { G.coins += n; paint(); },
+      /* v29 surfaces */
+      recommendedNextWith: function (state) { var s2 = G; G = state; var v = recommendedNext(); G = s2; return v; },
+      deskOffersWith: function (state) { var s2 = G; G = state; var v = deskOffers(); G = s2; return v; },
+      watchOptionsWith: function (state) { var s2 = G; G = state; var v = watchOptions(); G = s2; return v; },
+      buyTierWith: function (state, id) { var s2 = G; G = state; var ok = buyTier(id); G = s2; return ok; },
+      contractSize: contractSize,
+      slaBar: SLA_BAR,
+      microMax: MICRO_MAX,
+      tapeEvents: function () { return TAPE.slice(); },
+      tapeReset: function () { TAPE.length = 0; },
+      tapePush: tape,
+      buildTapeWith: function (state) { var s2 = G; G = state; var v = buildTape(); G = s2; return v; },
+      persistTape: persistTape,
     };
   }
 

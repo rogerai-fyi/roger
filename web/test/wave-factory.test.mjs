@@ -570,7 +570,9 @@ test("v25: the floor sells its own upgrades - buy points on the machines and the
     "the empty mount buys Pico in place");
   assert.match(js, /clf-buytag clf-buytag--tier/, "the nameplate sells the next tier");
   assert.match(js, /clf-buytag clf-buytag--desk/, "the desk sells its next model");
-  assert.match(js, /DOM\.priced = DOM\.priced \|\| \[\]\)\.push\(\{ b: tag, cost: MODEL_PRICE\.pico \}/,
+  // AMENDED v29: priced entries carry their purchase kind so the
+  // affordability glow can tell models from Mk upgrades
+  assert.match(js, /DOM\.priced = DOM\.priced \|\| \[\]\)\.push\(\{ b: tag, cost: MODEL_PRICE\.pico, kind: "pico" \}/,
     "floor prices dim with the wallet like every other price");
   assert.match(css, /\.clf-buytag:disabled \{ opacity: \.38/, "short-wallet state is visible");
 });
@@ -1087,4 +1089,209 @@ test("v28: playtest round 2 - verdicts silence coaching, absurd readings confess
     "the recorded-miss line is conditioned on actually owning a model");
   assert.match(js, /RIGHT VERB, FIRST TRY/, "the win card scores the diagnosis");
   assert.match(js, /unlocks with WAVE MICRO/, "the handover destination is visible before it unlocks");
+});
+
+/* ===================================================================== */
+/* v29 - upgrades you can see, the glow, stable panels, SLA, the tape    */
+/* ===================================================================== */
+
+test("v29: a tier upgrade swaps the committed Mk plate, and the reveal is gated", () => {
+  const h = loadHook();
+  // the sprite rides data-mk off the SAME tier state the plates sell
+  assert.match(js, /block\.dataset\.mk = String\(m\.tier \+ 1\)/, "the block is stamped at build");
+  assert.match(js, /s\.block\.dataset\.mk !== mkNow/, "and re-stamped when the tier changes");
+  assert.match(js, /is-upgrading",\s*!REDUCED/, "the reveal beat is reduced-motion gated");
+  assert.match(js, /The new " \+ m\.spec\.name\.toLowerCase\(\) \+ " is in/,
+    "the radio announces the new machine either way");
+  // every Mk II/III plate the CSS points at is a real committed export
+  for (const m of ["mixer", "oven", "packer"]) {
+    for (const mk of ["2", "3"]) {
+      assert.match(css, new RegExp(`clf-machine--${m}\\[data-mk="${mk}"\\] \\.clf-art`),
+        `${m} Mk ${mk} has its own mask rule`);
+      readFileSync(path.join(SRC, `assets/wave/game-${m}-mk${mk}-ink.png`));
+    }
+    // the shop's Mk rows show the plate the upgrade swaps in
+    assert.match(css, new RegExp(`cl-node__thumb\\[data-m="${m}"\\]\\[data-mk="2"\\]`));
+  }
+  // executed: buying a tier stamps the reveal clock
+  const s = h.freshState();
+  s.coins = 1000;
+  h.buyTierWith(s, "mixer");
+  assert.equal(s.machines[0].tier, 1);
+  assert.ok(s.machines[0].upgradeAt != null, "the upgrade moment is stamped for the reveal");
+});
+
+test("v29: one recommendation - the goal chip's NEXT row and the strong glow share recommendedNext", () => {
+  const h = loadHook();
+  const s = h.freshState();
+  // models first: bare machines recommend a Pico, whatever else is affordable
+  assert.deepEqual(h.recommendedNextWith(s)[0], { kind: "pico", id: "mixer" });
+  s.machines.forEach((m) => { m.pico = true; });
+  assert.deepEqual(h.recommendedNextWith(s), [{ kind: "nano" }]);
+  s.nano = true;
+  assert.deepEqual(h.recommendedNextWith(s), [{ kind: "micro" }]);
+  // the fork is a genuine choice: BOTH are recommended, no winner
+  s.micro = 1;
+  assert.deepEqual(h.recommendedNextWith(s), [{ kind: "micro" }, { kind: "giga" }]);
+  // after the model ladder, the Mk line inherits the recommendation
+  s.giga = true;
+  assert.deepEqual(h.recommendedNextWith(s), [{ kind: "tier", id: "mixer" }]);
+  s.machines.forEach((m) => { m.tier = 2; });
+  assert.deepEqual(h.recommendedNextWith(s), [], "a maxed plant recommends nothing");
+  // the goal chip reads the same source (grep: the NEXT branch keys off it)
+  assert.match(js, /\} else if \(recommendedNext\(\)\.length\) \{/,
+    "paintGoals' NEXT row derives from recommendedNext");
+  assert.match(js, /recommendedNext\(\)\.forEach\(function \(r0\) \{ DOM\.recoKinds\[r0\.kind\] = true/,
+    "the glow sweep derives from recommendedNext");
+  // glow discipline in CSS: soft afford, strong reco, reduced-motion steady
+  assert.match(css, /\.is-afford:not\(:disabled\)/);
+  assert.match(css, /\.is-reco:not\(:disabled\)/);
+  assert.match(js, /is-reco", afford && !!p\.kind && !!DOM\.recoKinds\[p\.kind\]/,
+    "the strong glow only lands on the recommended kind");
+  assert.match(js, /G\.coins >= nextTier\.price && m\.pico/,
+    "a machine's Mk tag stays quiet until that machine has its Pico - models first");
+});
+
+test("v29: the action row never rides on the weather - buttons above the slot", () => {
+  // the founder's screenshot: advice blocks mounting above the buttons
+  // shoved them up and down. The verbs now sit above the model slot, under
+  // fixed-height rows only; the slot reserves space and grows downward.
+  const acts = js.indexOf("card.appendChild(acts)");
+  const slot = js.indexOf("card.appendChild(s.slot)");
+  assert.ok(acts > -1 && slot > -1 && acts < slot,
+    "panel(): the action row is appended BEFORE the model slot");
+  assert.match(js, /LAYOUT STABILITY/, "and the order is documented as load-bearing");
+  assert.match(css, /\.cl-slot \{ min-height: /, "the slot reserves a floor of space");
+});
+
+test("v29: SLA stakes - from contract 2 the buyer walks on sustained downtime, never into a dead end", () => {
+  const h = loadHook();
+  const s = h.freshState();
+  s.records = measured.records;
+  // contract 1 has no SLA: a bad opening minute costs nothing extra
+  assert.equal(s.contract.sla, 0);
+  s.machines.forEach((m) => { m.stopped = true; m.nextFault = 999; m.eventLeft = 999; });
+  // force the whole line down for a rolling minute at level 1: no walk
+  for (let i = 0; i < 12 * 61; i++) h.stepWith(s, 1 / 12);
+  assert.equal(s.contractsLost, 0, "contract 1 never walks");
+
+  // contract 2: the same neglected minute loses the buyer
+  const s2 = h.freshState();
+  s2.records = measured.records;
+  s2.contract = { target: 250, level: 2, creep: 1.35, sla: h.slaBar };
+  s2.cookies = 120;
+  const coinsBefore = s2.coins;
+  s2.machines.forEach((m) => {
+    m.cond = "railed"; m.stoppedFor = 99; m.stopped = true;
+    m.nextFault = 999; m.eventLeft = 999;
+  });
+  for (let i = 0; i < 12 * 61 && !s2.contractsLost; i++) h.stepWith(s2, 1 / 12);
+  assert.equal(s2.contractsLost, 1, "sustained downtime under the bar loses contract 2");
+  assert.ok(s2.log.some((l) => /buyer walked/.test(l)), "and the radio says so plainly");
+  assert.ok(s2.log.some((l) => /fresh order/.test(l)), "with the fresh order in the same breath");
+  assert.ok(!s2.won && s2.coins <= coinsBefore, "no completion bonus was paid");
+  // never a dead end: a same-size order re-opens from the current count
+  assert.equal(s2.contract.level, 2, "the level does not reset");
+  assert.equal(s2.contract.target, Math.ceil(s2.cookies / 10) * 10 + h.contractSize(2),
+    "the fresh order is the same size, counted from here");
+  assert.equal(s2.contract.sla, h.slaBar, "and the buyer's expectation stands");
+  // accepting the next contract arms the SLA from level 2 on
+  assert.match(js, /creep: G\.contract\.creep \* 1\.35, sla: SLA_BAR/,
+    "every accepted re-roll carries the uptime stake");
+  // the goal chip words the stake, warmly, with the no-dead-end promise
+  assert.match(js, /this buyer expects " \+ Math\.round\(G\.contract\.sla \* 100\)/,
+    "the SHIP row names the expectation");
+  assert.match(js, /a fresh order always follows/, "and promises the desk is never empty");
+});
+
+test("v29: the session tape - recorded, capped, persisted on the way out, downloadable", () => {
+  const h = loadHook();
+  h.tapeReset();
+  const s = h.freshState();
+  s.records = measured.records;
+  // a forced fault lands on the tape with its record id - the honesty trail
+  h.conditionWith(s, "mixer", "stuck");
+  let ev = h.tapeEvents();
+  const fault = ev.find((e) => e.type === "fault");
+  assert.ok(fault && fault.m === "mixer" && fault.kind === "stuck");
+  assert.ok(fault.record, "the fault names the replayed record");
+  // a verb start and its outcome, attributed and executed
+  h.maintainWith(s, "mixer", "restart");
+  for (let i = 0; i < 12 * 3; i++) h.stepWith(s, 1 / 12);
+  ev = h.tapeEvents();
+  assert.ok(ev.some((e) => e.type === "verb-start" && e.verb === "restart"));
+  const outcome = ev.find((e) => e.type === "verb" && e.m === "mixer");
+  assert.ok(outcome && ["cleared", "did-not-take", "locked"].includes(outcome.outcome),
+    "the verb resolves to a recorded outcome");
+  // purchases land with their what
+  s.coins = 1000;
+  h.buyPicoWith(s, "oven");
+  assert.ok(h.tapeEvents().some((e) => e.type === "buy" && e.what === "pico" && e.m === "oven"));
+  assert.ok(s.firstPicoAt != null, "time-to-first-Pico is stamped for the summary");
+  // the export is parseable JSON with the summary header and the honesty note
+  const tapeDoc = JSON.parse(JSON.stringify(h.buildTapeWith(s)));
+  assert.ok(tapeDoc.summary && typeof tapeDoc.summary.shipped === "number");
+  assert.match(tapeDoc.honesty, /replayed record fields/);
+  assert.match(tapeDoc.honesty, /transmitted nowhere/);
+  assert.ok(Array.isArray(tapeDoc.events) && tapeDoc.events.length > 0);
+  // FIFO cap: the tape never grows past its ceiling
+  for (let i = 0; i < 2200; i++) h.tapePush("coins", { i });
+  assert.equal(h.tapeEvents().length, 2000, "the tape is a 2000-event FIFO");
+  h.tapeReset();
+  // persistence rides the leave signals, never the tick
+  assert.match(js, /window\.addEventListener\("pagehide", persistTape\)/);
+  assert.match(js, /persistTape\(\);\s*\/\/ serialize on the way out/);
+  assert.match(js, /while \(store\.length > 3\) store\.shift\(\)/, "last three sessions kept");
+  // the download affordance says it stays local
+  assert.match(js, /SESSION TAPE · download/);
+  assert.match(js, /stays " \+\s*"on your machine; download and share it if you want/);
+  assert.match(js, /URL\.createObjectURL/, "the export is a Blob URL - CSP-safe, first party");
+});
+
+test("v29: the watching row is state - full Pico coverage removes it, partial keeps only bare choices", () => {
+  const h = loadHook();
+  const s = h.freshState();
+  // partial coverage: bare machines are the only button choices
+  s.machines[0].pico = true;
+  let wo = h.watchOptionsWith(s);
+  assert.equal(wo.show, true);
+  assert.deepEqual(wo.bare, ["oven", "packer"]);
+  assert.deepEqual(wo.covered, ["mixer"]);
+  // full coverage: no selector at all - zero watch buttons to be dead
+  s.machines.forEach((m) => { m.pico = true; });
+  wo = h.watchOptionsWith(s);
+  assert.equal(wo.show, false, "nothing to point the gateway at, so no row");
+  // and the render follows the state rule, not a disabled-button habit
+  assert.match(js, /var wo = watchOptions\(\);\s*if \(wo\.show\) \{/,
+    "paintDesk renders the selector only when there is a choice");
+  assert.match(js, /cl-watch cl-watch--covered/, "covered machines are chips, not buttons");
+  assert.ok(!/wb\.disabled = true;\s*wb\.title = "This machine has a Pico/.test(js),
+    "the dead disabled-button row is gone");
+  // the status line for full coverage already exists and stays
+  assert.match(js, /Every machine has a Pico - the gateway hears them all instantly\./);
+});
+
+test("v29: the desk sells the micro-vs-giga choice at the point of purchase", () => {
+  const h = loadHook();
+  const s = h.freshState();
+  // the ladder up to the fork
+  assert.deepEqual(h.deskOffersWith(s), ["nano"]);
+  s.nano = true;
+  assert.deepEqual(h.deskOffersWith(s), ["micro"]);
+  // the founder's bug: with one Micro the desk hid "another Micro" behind
+  // Giga. Now BOTH tags render - the scale-out-vs-scale-up tradeoff, sold
+  // where the money is spent.
+  s.micro = 1;
+  assert.deepEqual(h.deskOffersWith(s), ["micro", "giga"]);
+  s.micro = 2;
+  assert.deepEqual(h.deskOffersWith(s), ["micro", "giga"]);
+  // buying through to three Micros works from the desk offers alone
+  s.coins = 2000;
+  assert.ok(h.buyDeskWith(s, "micro"));
+  assert.equal(s.micro, 3);
+  assert.deepEqual(h.deskOffersWith(s), ["giga"], "full stack: only Giga remains");
+  // after Giga, no more Micro tag - Giga already minds every dial
+  s.giga = true;
+  assert.deepEqual(h.deskOffersWith(s), []);
+  assert.match(js, /deskOffers\(\)\.forEach\(function \(offer\)/, "the desk renders the offers rule");
 });

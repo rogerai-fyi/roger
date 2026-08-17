@@ -720,3 +720,220 @@
 .cl-watch:disabled { opacity: .45; cursor: not-allowed; }
 .cl-watch:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
 .cl-view--nano .cl-view__head { color: var(--tier-nano, var(--ink-900)); }
+
+/* =====================================================================
+   v28 - the certificate, the site board, the visible patrol
+   ===================================================================== */
+
+/* THE FACTORY CERTIFICATE - hung like the maker's plaque it is */
+.cl-cert {
+  margin-top: var(--s-4, 1rem); padding: .8rem .95rem;
+  border: 1px solid var(--hairline-2); border-radius: 10px;
+  background: var(--paper-2); position: relative;
+  box-shadow: inset 0 0 0 3px var(--paper-2), inset 0 0 0 4px var(--hairline);
+}
+.cl-cert__head { display: flex; gap: .7rem; align-items: baseline; flex-wrap: wrap; }
+.cl-cert__head b { font-family: var(--font-mono); font-size: .72rem; letter-spacing: .16em; }
+.cl-cert__head span { font-size: .62rem; color: var(--ink-400); font-family: var(--font-mono); }
+.cl-cert__rows { list-style: none; margin: .5rem 0 0; padding: 0; display: grid; gap: .25rem; }
+.cl-cert__row { display: flex; gap: .5rem; align-items: baseline; font-family: var(--font-mono); font-size: .62rem; color: var(--ink-500); }
+.cl-cert__row b { width: 1rem; text-align: center; color: var(--ink-300); }
+.cl-cert__row.is-done { color: var(--ink-900); }
+.cl-cert__row.is-done b { color: #1E7A3C; } /* the fenced lamp green: done = good, and the checkmark carries the word beside it */
+.cl-cert__clock { margin-left: auto; color: var(--ink-400); font-style: normal; font-variant-numeric: tabular-nums; }
+.cl-cert__stamp {
+  position: absolute; right: 1rem; top: .55rem;
+  font-family: var(--font-mono); font-size: .66rem; letter-spacing: .18em;
+  color: #1E7A3C; border: 2px double #1E7A3C; border-radius: 4px;
+  padding: .18rem .5rem; transform: rotate(-4deg);
+}
+
+/* the CERTIFIED moment */
+.cl-win__stamp--cert { color: #1E7A3C; border-color: #1E7A3C; }
+.cl-cert__sub { display: block; font-size: .7rem; color: var(--ink-500); margin: .4rem 0 .2rem; max-width: 34rem; }
+
+/* MICRO's SITE BOARD, on the wall of the floor scene */
+.clf-siteboard {
+  position: absolute; top: 6%; left: 34%; width: 12.5rem; z-index: 3;
+  padding: .45rem .55rem; border-radius: 6px;
+  background: var(--paper); border: 1px solid var(--ink-300);
+  border-left: 3px solid var(--tier-micro, var(--ink-500));
+  box-shadow: 0 2px 10px rgba(0,0,0,.25);
+  font-family: var(--font-mono);
+}
+.clf-siteboard__k { display: block; font-size: .5rem; letter-spacing: .16em; color: var(--ink-400); margin-bottom: .25rem; }
+.clf-siteboard__row { display: flex; gap: .4rem; align-items: center; font-size: .54rem; color: var(--ink-700); padding: .08rem 0; }
+.clf-siteboard__row i { width: 3.2rem; font-style: normal; }
+.clf-siteboard__bar { flex: 1; height: .3rem; background: var(--paper-3); border-radius: 2px; overflow: hidden; display: block; }
+.clf-siteboard__bar b { display: block; height: 100%; background: var(--ink-500); }
+.clf-siteboard__row em { font-style: normal; color: var(--ink-500); min-width: 2.4rem; text-align: right; font-variant-numeric: tabular-nums; }
+.clf-siteboard__line { display: block; margin-top: .3rem; font-size: .52rem; color: var(--ink-500); font-style: normal; }
+
+/* the gateway's attention, standing at the machine it watches */
+.clf-gwtag {
+  position: absolute; top: -1.6rem; left: 50%; transform: translateX(-50%);
+  white-space: nowrap; font-family: var(--font-mono); font-size: .52rem;
+  letter-spacing: .06em; color: var(--tier-nano, var(--ink-500));
+  border: 1px dashed var(--tier-nano, var(--ink-400)); border-radius: 999px;
+  padding: .12rem .5rem; background: var(--paper);
+}
+
+/* an autonomy move, floating off the machine it happened to */
+.clf-autotag {
+  position: absolute; top: -3rem; left: 50%; transform: translateX(-50%);
+  white-space: nowrap; font-family: var(--font-mono); font-size: .54rem;
+  font-style: normal; padding: .15rem .5rem; border-radius: 4px;
+  background: var(--paper); border: 1px solid var(--hairline-2);
+  border-left: 3px solid var(--ink-500);
+}
+.clf-autotag[data-tier="micro"] { border-left-color: var(--tier-micro, var(--ink-500)); }
+.clf-autotag[data-tier="giga"] { border-left-color: var(--tier-giga, var(--ink-500)); }
+@media (prefers-reduced-motion: no-preference) {
+  .clf-autotag { animation: clf-float 2.4s ease-out both; }
+  @keyframes clf-float { from { opacity: 0; margin-top: .5rem; } 15% { opacity: 1; margin-top: 0; } 85% { opacity: 1; } to { opacity: 0; } }
+}
+
+/* the Pico badge's vigilance tally, and its glint on a fresh catch */
+.clf-badge__n {
+  text-decoration: none; font-family: var(--font-mono); font-size: .5rem;
+  color: var(--paper); background: var(--tier-pico, var(--ink-700));
+  border-radius: 999px; padding: .05rem .3rem; margin-left: .2rem;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .clf-badge.is-glint { animation: clf-glint .9s ease-out 1; }
+  @keyframes clf-glint { 30% { box-shadow: 0 0 0 4px var(--live-wash, rgba(224,35,28,.2)); } }
+}
+
+/* ---- v28 playtest round 2: the ticker + the locked handover ---- */
+.cl-ticker {
+  margin: 2px 0 6px;
+  padding: 3px 10px;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  color: var(--cl-ink-dim, inherit);
+  border-left: 3px solid var(--cl-line, currentColor);
+  opacity: 0.85;
+  min-height: 1.4em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cl-auto.is-locked { opacity: 0.55; }
+.cl-auto.is-locked .cl-auto__note { font-style: italic; }
+
+/* ===================================================================== */
+/* v29 - upgrades you can see, the glow, stable panels, the tape         */
+/* ===================================================================== */
+
+/* UPGRADES YOU CAN SEE: data-mk on the machine block picks the committed
+   Mk plate; every anchor (lamp, plate, badge, bubble) rides the block so
+   they track the new art for free. The floor's min-width grows with the
+   biggest installed plate - the floor scrolls sideways by design, so a
+   long Mk III oven is absorbed, not squeezed. */
+.clf-floor:has(.clf-machine[data-mk="2"]) { min-width: 960px; }
+.clf-floor:has(.clf-machine[data-mk="3"]) { min-width: 1040px; }
+
+.clf-machine--mixer[data-mk="2"] { width: 208px; height: 272px; }
+.clf-machine--mixer[data-mk="3"] { width: 230px; height: 272px; }
+.clf-machine--oven[data-mk="2"]  { left: 35%; width: 300px; height: 206px; }
+.clf-machine--oven[data-mk="3"]  { left: 31%; width: 350px; height: 219px; }
+.clf-machine--packer[data-mk="2"] { left: 68%; width: 145px; height: 276px; }
+.clf-machine--packer[data-mk="3"] { left: 65%; width: 260px; height: 193px; }
+
+.clf-machine--mixer[data-mk="2"] .clf-art { -webkit-mask-image: url("../assets/wave/game-mixer-mk2-ink.png"); mask-image: url("../assets/wave/game-mixer-mk2-ink.png"); }
+.clf-machine--mixer[data-mk="3"] .clf-art { -webkit-mask-image: url("../assets/wave/game-mixer-mk3-ink.png"); mask-image: url("../assets/wave/game-mixer-mk3-ink.png"); }
+.clf-machine--oven[data-mk="2"] .clf-art { -webkit-mask-image: url("../assets/wave/game-oven-mk2-ink.png"); mask-image: url("../assets/wave/game-oven-mk2-ink.png"); }
+.clf-machine--oven[data-mk="3"] .clf-art { -webkit-mask-image: url("../assets/wave/game-oven-mk3-ink.png"); mask-image: url("../assets/wave/game-oven-mk3-ink.png"); }
+.clf-machine--packer[data-mk="2"] .clf-art { -webkit-mask-image: url("../assets/wave/game-packer-mk2-ink.png"); mask-image: url("../assets/wave/game-packer-mk2-ink.png"); }
+.clf-machine--packer[data-mk="3"] .clf-art { -webkit-mask-image: url("../assets/wave/game-packer-mk3-ink.png"); mask-image: url("../assets/wave/game-packer-mk3-ink.png"); }
+
+/* the wide Mk oven's porthole moved with the new art */
+.clf-machine--oven[data-mk="2"] .clf-glow { left: 24%; top: 34%; width: 26%; height: 30%; }
+.clf-machine--oven[data-mk="3"] .clf-glow { left: 30%; top: 36%; width: 22%; height: 28%; }
+
+/* THE REVEAL: a short settle when the new plate lands. Reduced motion
+   gets the clean swap; the radio line does the announcing either way. */
+@media (prefers-reduced-motion: no-preference) {
+  .clf-machine.is-upgrading .clf-art { animation: clf-upgrade 1.5s ease-out 1; }
+  @keyframes clf-upgrade {
+    0% { opacity: 0; transform: translateY(6px) scale(.96); }
+    45% { opacity: 1; }
+    70% { transform: translateY(-2px) scale(1.01); }
+    100% { transform: none; }
+  }
+  .clf-machine.is-upgrading::after {
+    content: ""; position: absolute; left: 8%; right: 8%; bottom: -4px; height: 22px;
+    border-radius: 50%; pointer-events: none;
+    background: radial-gradient(closest-side, var(--ink-300), transparent 75%);
+    animation: clf-upgrade-dust 1.4s ease-out 1 forwards;
+  }
+  @keyframes clf-upgrade-dust {
+    0% { opacity: 0; transform: scaleX(.5); }
+    25% { opacity: .55; }
+    100% { opacity: 0; transform: scaleX(1.25); }
+  }
+}
+
+/* the shop's Mk rows show the plate the upgrade swaps in */
+.cl-node__thumb {
+  display: block; float: right; width: 34px; height: 34px; margin-left: .4rem;
+  background: var(--ink-700);
+  -webkit-mask-size: contain; mask-size: contain;
+  -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+  -webkit-mask-position: center; mask-position: center;
+}
+.cl-node__thumb[data-m="mixer"][data-mk="1"] { -webkit-mask-image: url("../assets/wave/game-mixer-ink.png"); mask-image: url("../assets/wave/game-mixer-ink.png"); }
+.cl-node__thumb[data-m="mixer"][data-mk="2"] { -webkit-mask-image: url("../assets/wave/game-mixer-mk2-ink.png"); mask-image: url("../assets/wave/game-mixer-mk2-ink.png"); }
+.cl-node__thumb[data-m="mixer"][data-mk="3"] { -webkit-mask-image: url("../assets/wave/game-mixer-mk3-ink.png"); mask-image: url("../assets/wave/game-mixer-mk3-ink.png"); }
+.cl-node__thumb[data-m="oven"][data-mk="1"] { -webkit-mask-image: url("../assets/wave/game-oven-ink.png"); mask-image: url("../assets/wave/game-oven-ink.png"); }
+.cl-node__thumb[data-m="oven"][data-mk="2"] { -webkit-mask-image: url("../assets/wave/game-oven-mk2-ink.png"); mask-image: url("../assets/wave/game-oven-mk2-ink.png"); }
+.cl-node__thumb[data-m="oven"][data-mk="3"] { -webkit-mask-image: url("../assets/wave/game-oven-mk3-ink.png"); mask-image: url("../assets/wave/game-oven-mk3-ink.png"); }
+.cl-node__thumb[data-m="packer"][data-mk="1"] { -webkit-mask-image: url("../assets/wave/game-packer-ink.png"); mask-image: url("../assets/wave/game-packer-ink.png"); }
+.cl-node__thumb[data-m="packer"][data-mk="2"] { -webkit-mask-image: url("../assets/wave/game-packer-mk2-ink.png"); mask-image: url("../assets/wave/game-packer-mk2-ink.png"); }
+.cl-node__thumb[data-m="packer"][data-mk="3"] { -webkit-mask-image: url("../assets/wave/game-packer-mk3-ink.png"); mask-image: url("../assets/wave/game-packer-mk3-ink.png"); }
+
+/* THE AFFORDABILITY GLOW. Soft lit state when the wallet covers it; the
+   STRONG glow marks the recommended next buy (one source: recommendedNext).
+   Green is "you can", never an alarm - state colours stay owned by lamps
+   and verdicts. Reduced motion: the pulse becomes a steady lit ring. */
+.is-afford:not(:disabled) {
+  border-color: #1E7A3C; border-style: solid; color: var(--ink-900);
+  box-shadow: 0 0 0 1px rgba(30, 122, 60, .35);
+}
+.is-reco:not(:disabled) {
+  box-shadow: 0 0 0 2px rgba(30, 122, 60, .55), 0 0 10px 2px rgba(30, 122, 60, .3);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .is-reco:not(:disabled) { animation: cl-reco 1.8s ease-in-out infinite; }
+  @keyframes cl-reco {
+    0%, 100% { box-shadow: 0 0 0 2px rgba(30, 122, 60, .55), 0 0 10px 2px rgba(30, 122, 60, .3); }
+    50% { box-shadow: 0 0 0 2px rgba(30, 122, 60, .4), 0 0 4px 1px rgba(30, 122, 60, .15); }
+  }
+}
+
+/* LAYOUT STABILITY (v29). The action row sits ABOVE the model slot now, so
+   nothing interactive rides on variable-height advice; the slot reserves a
+   floor of space so the panel's bottom edge doesn't bounce on every state. */
+.cl-slot { min-height: 3.6rem; }
+.cl-slot:empty { min-height: 0; }
+
+/* the gateway's covered chips: not buttons, just the fact */
+.cl-watch--covered {
+  text-decoration: none; font-family: var(--font-mono); font-size: .52rem;
+  letter-spacing: .1em; padding: .3rem .5rem; border-radius: 8px;
+  border: 1px solid var(--hairline-2); color: var(--ink-300);
+  background: var(--paper-2); cursor: help;
+}
+
+/* the session tape's download, with the radio it records */
+.cl-tapebtn { display: inline-block; margin: .4rem 0 .2rem; flex: 0 0 auto; }
+
+/* light-theme watch item (v28): the packer's "not sure" bubble could sit
+   over the desk chips - it now speaks toward the line, away from the desk */
+.clf-machine--packer .clf-bubble {
+  left: auto; right: 65%; border-radius: 6px 6px 0 6px;
+}
+
+/* the desk's rack can carry TWO buy tags now (micro-vs-giga, v29): it
+   wraps instead of spilling past the desk's narrow column */
+.clf-desk__rack { flex-wrap: wrap; justify-content: center; row-gap: .2rem; }
