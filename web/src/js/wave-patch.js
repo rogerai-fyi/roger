@@ -291,6 +291,8 @@
     liveTier: null,       // which tier the WHERE THEY LIVE panel is showing
     tour: -1,             // guided-tour step, -1 = not touring
     gameMode: "explore", // Mesh stays the full engineering workbench; Factory is its own deck
+    sideMore: false,      // v38: the gauge + case tools fold under MORE until asked for
+    touched: false,       // v38: the visitor has changed something - the fleet score may show
     inspectionOpen: false,
     factory: { shipped: 0, goal: 3 },
     verdict: null,
@@ -1028,6 +1030,7 @@
   // live - a TEMP reading card survived a switch to VIBRATION.)
   function contextMoved() {
     PATCH.reply = null;
+    PATCH.touched = true;   // v38: a score for a game you have not started is noise
   }
 
   function selectType(key, cond) {
@@ -1967,7 +1970,10 @@
         (w.n ? " · " + w.n + " samples" : "")));
       if (!unitWordOf(r)) id.title = "the wire did not state a unit - a defaulted unit would be an invented fact";
       host.appendChild(id);
-      var vu = drawVU(w, unitWordOf(r));
+      /* v38 (UX audit: the left column is too much at once): the gauge
+         repeats the trace already on the glass, so it lives under the
+         MORE fold with the case tools - one click away, never in the way */
+      var vu = (PATCH.sideMore || PATCH.gameMode === "play") ? drawVU(w, unitWordOf(r)) : null;
       if (vu) {
         var vwrap = el("div", "sn-vuwell");
         vwrap.appendChild(vu);
@@ -2127,11 +2133,35 @@
     host.textContent = "";
     host.dataset.tour = "field";
     var m = PATCH.mission;
+    /* v38 - THE MORE FOLD (UX audit item 2: sensor list + pads + gauge +
+       case tools compete at once, and START A CASE stood in two places).
+       Idle, in the sandbox, the bay is one slim toggle; the case is started
+       from the glass (SHIFT · START A MYSTERY CASE). Once a case is live, or
+       the visitor asks, the full clue kit and the gauge stand up. */
+    var folded = !PATCH.sideMore && !m.active && PATCH.gameMode !== "play";
+    host.classList.toggle("is-folded", folded);
+    if (folded) {
+      host.dataset.state = "folded";
+      var more = el("button", "sn-field__more", "MORE · GAUGE & CASE TOOLS ▸");
+      more.type = "button";
+      more.setAttribute("aria-expanded", "false");
+      more.title = "the recorded window's gauge and the case clue kit";
+      more.addEventListener("click", function () { PATCH.sideMore = true; render(); });
+      host.appendChild(more);
+      return;
+    }
     var r = currentRecord();
     var t = currentType();
     var head = el("div", "sn-field__head");
     head.appendChild(el("b", null, "CASE TOOLS"));
     head.appendChild(el("span", null, fieldProgress() + "/3 CLUES"));
+    if (!m.active && PATCH.gameMode !== "play") {
+      var less = el("button", "sn-field__less", "LESS ▴");
+      less.type = "button";
+      less.setAttribute("aria-expanded", "true");
+      less.addEventListener("click", function () { PATCH.sideMore = false; render(); });
+      head.appendChild(less);
+    }
     host.appendChild(head);
     host.appendChild(el("p", "sn-field__safe", "PRACTICE RIG · SAFE TO TRY"));
 
@@ -2241,14 +2271,15 @@
     var stxt = el("span", "sn-slot__txt");
     stxt.appendChild(el("b", null, t ? t.label : ""));
     var live = PATCH.types.filter(function (x) { return laneRead(x); }).length;
-    stxt.appendChild(el("span", "sn-sub", live > 1
-      ? "emitting · " + live + " sensors on the line"
-      : "emitting"));
+    /* v38: the sub-line moved into the tooltip - the selected sensor card is
+       20px to the left, so the rail head is a slim tag, not a second card */
     sens.appendChild(stxt);
-    sens.title = live > 1
-      ? "every sensor on the left feeds the same chain - one model reads many channels"
-      : "the selected sensor feeds the line";
+    sens.title = (live > 1
+      ? "emitting · " + live + " sensors on the line - every sensor on the left feeds the same chain; one model reads many channels"
+      : "emitting - the selected sensor feeds the line");
     host.appendChild(sens);
+    host.title = "In a real mesh one Pico reads many channels; this bench shows one for clarity - " +
+      "the monitor's FLEET tab replays all 120 recorded channels under your settings.";
 
     BANDS.forEach(function (b, bi) {
       var seated = PATCH.chain.indexOf(b.tier) >= 0;
@@ -4650,10 +4681,16 @@
     f.appendChild(result);
 
     f.appendChild(frontRoute(sts));
-    f.appendChild(frontScore());
+    /* v38 (UX audit item 4): "23/50 FAULTS CAUGHT" before the visitor has
+       done anything is a score for a game they have not started - the same
+       fleet recount appears once they change something or a case is live
+       (and always on the FLEET tab). */
+    if (PATCH.touched || PATCH.mission.active) f.appendChild(frontScore());
     f.appendChild(frontMission());
     var foot = el("span", "sn-front__foot");
-    foot.appendChild(el("span", "sn-front__response", "AFTER A FINDING · " + response.label));
+    /* the response mode ("AFTER A FINDING · LOG ONLY") is a real control on
+       the strip below the prompt; on the glass it was a label with nothing
+       under it, so the glance keeps it in the aria text only */
     var hint = el("span", "sn-front__hint");
     hint.appendChild(el("span", "sn-front__hintkey", "PRESS ANYWHERE ON THE GLASS"));
     hint.appendChild(el("b", "sn-front__hintmain", "OPEN FULL MODEL OUTPUT ↗"));

@@ -239,8 +239,10 @@
   padding: .8rem; background: var(--paper-2);
 }
 .wp-console__k {
-  font-family: var(--font-mono); font-size: .56rem; letter-spacing: .16em;
-  color: var(--ink-400);
+  /* v38 (UX audit): the 1 · 2 · 3 labels are the eye path - they must WIN
+     against the monitor, not whisper beside it */
+  font-family: var(--font-mono); font-size: .72rem; letter-spacing: .16em;
+  color: var(--ink-900); font-weight: 600;
 }
 
 /* ---- the LAMP WINDOW -----------------------------------------------------
@@ -552,7 +554,7 @@
 @media (max-width: 900px) { .sn-deck { grid-template-columns: 1fr; } }
 .sn-side { display: flex; flex-direction: column; gap: .6rem; min-width: 0; }
 .sn-flow { display: flex; flex-direction: column; gap: .6rem; min-width: 0; }
-.sn-sub { font-family: var(--font-mono); font-size: .52rem; letter-spacing: .06em; color: var(--ink-400); }
+.sn-sub { font-family: var(--font-mono); font-size: .58rem; letter-spacing: .06em; color: var(--ink-400); }
 .sn-sub--dim { color: var(--ink-300); }
 
 /* ---- 1) the sensor selector: synth-patch buttons ------------------------- */
@@ -586,12 +588,15 @@
 .sn-type__art--oilcan .wb-plate__ink   { -webkit-mask-image: url("../assets/wave/sensor-oilcan-ink.png"); mask-image: url("../assets/wave/sensor-oilcan-ink.png"); }
 .sn-type__art--junction .wb-plate__ink { -webkit-mask-image: url("../assets/wave/sensor-junction-ink.png"); mask-image: url("../assets/wave/sensor-junction-ink.png"); }
 .sn-type__txt { display: flex; flex-direction: column; gap: .12rem; min-width: 0; }
-.sn-type__txt b { font-family: var(--font-mono); font-size: .62rem; letter-spacing: .1em; color: var(--ink-900); }
-.sn-type__txt span { font-family: var(--font-mono); font-size: .52rem; color: var(--ink-400); }
+.sn-type__txt b { font-family: var(--font-mono); font-size: .66rem; letter-spacing: .1em; color: var(--ink-900); }
+.sn-type__txt span { font-family: var(--font-mono); font-size: .56rem; color: var(--ink-400); }
 .sn-side__pads { padding: .65rem; }
 .sn-now { margin: .3rem 0 0; font-family: var(--font-mono); font-size: .56rem; color: var(--ink-500); overflow-wrap: anywhere; }
 .sn-now b { color: var(--ink-900); letter-spacing: .06em; }
 .sn-roadmap { margin: 0; font-family: var(--font-mono); font-size: .52rem; color: var(--ink-300); text-align: center; }
+/* v38: the 130-character caption under the rail became the rail's own
+   tooltip (renderChain sets it) - one less line of 9px grey to skim past */
+.sn-roadmap--chain { display: none; }
 
 /* ---- 2) the chain rail ----------------------------------------------------- */
 .sn-chainrail {
@@ -749,6 +754,20 @@
 }
 .sn-field::before { top: .35rem; left: .35rem; }
 .sn-field::after { right: .35rem; bottom: .35rem; }
+/* v38: the MORE fold - idle in the sandbox the bay is one slim toggle */
+.sn-field.is-folded {
+  padding: 0; border: 0; background: none; box-shadow: none;
+}
+.sn-field.is-folded::before, .sn-field.is-folded::after { display: none; }
+.sn-field__more, .sn-field__less {
+  appearance: none; cursor: pointer; font: inherit;
+  font-family: var(--font-mono); font-size: .6rem; letter-spacing: .12em;
+  color: var(--ink-500); background: var(--paper); border: 1px dashed var(--hairline-2);
+  border-radius: 8px; padding: .45rem .6rem; text-align: left; width: 100%;
+}
+.sn-field__more:hover, .sn-field__less:hover { color: var(--ink-900); border-color: var(--ink-500); }
+.sn-field__more:focus-visible, .sn-field__less:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
+.sn-field__less { width: auto; padding: .1rem .4rem; margin-left: auto; font-size: .52rem; border-style: solid; }
 .sn-field__head {
   display: flex; justify-content: space-between; gap: .5rem; align-items: baseline;
   padding: 0 .35rem .35rem; border-bottom: 1px dotted var(--hairline-2);
@@ -1705,7 +1724,19 @@
 .sn-slot--model .sn-slot__art .ws-icon { max-height: 56px; max-width: 60px; }
 /* the role line wraps instead of stretching the card - a rail that scrolls
    past the edge cannot be read at a glance, which is the whole point of it */
-.sn-slot--model .sn-slot__txt { max-width: 8rem; }
+.sn-slot--model .sn-slot__txt { max-width: 6.6rem; }
+/* v38 (UX audit item 3): five facts per card pushed the third seated card
+   off the glass at desktop width. The rail shows NAME · STATE · SIZE; the
+   role and fan-in ride the card's tooltip (they are still rendered, so the
+   locks that read them hold, and the detail view prints them in full). */
+.sn-chainrail .sn-slot__role, .sn-chainrail .sn-slot__takes { display: none; }
+.sn-chainrail .sn-slot--model { padding: .3rem 1.25rem .3rem .4rem; }   /* right room for the x */
+.sn-chainrail .sn-slot--model .sn-slot__art { height: 46px; min-width: 32px; }
+.sn-chainrail .sn-slot--model .sn-slot__art .ws-icon { max-height: 46px; }
+.sn-chainrail .sn-slot--model .wp-knob { max-width: 3.4rem; }
+.sn-chainrail .sn-slot--sensor .sn-type__art { width: 1.3rem; height: 1.3rem; padding: .2rem; }
+.sn-chainrail .sn-slot--sensor .sn-slot__txt, .sn-chainrail .sn-slot--sensor b { max-width: 5rem; }
+.sn-chainrail .sn-slot--sensor { padding: .3rem .4rem .3rem .35rem; }
 /* the knob's label wraps under its dial rather than widening the whole card */
 .sn-slot--model .wp-knob { max-width: 4.1rem; }
 /* the sensor slot's label needn't be as wide as a model card's */
@@ -1719,7 +1750,7 @@
 .sn-slot__role { font-size: .6rem; color: var(--ink-500); line-height: 1.25; }
 .sn-slot__state {
   align-self: flex-start; margin-top: .12rem;
-  font-family: var(--font-mono); font-size: .5rem; letter-spacing: .1em;
+  font-family: var(--font-mono); font-size: .58rem; letter-spacing: .1em;
   padding: .1rem .3rem; border-radius: 4px; border: 1px solid var(--hairline-2);
   color: var(--ink-500);
 }
@@ -1727,7 +1758,7 @@
 .sn-slot__state.is-esc { color: #C99700; border-color: #C99700; }
 .sn-slot__state.is-idle { color: var(--ink-300); }
 .sn-slot__meta {
-  font-family: var(--font-mono); font-size: .5rem; color: var(--ink-300);
+  font-family: var(--font-mono); font-size: .56rem; color: var(--ink-400);
   cursor: help;
 }
 
@@ -1855,9 +1886,9 @@
   font-family: var(--font-mono); line-height: 1.25;
 }
 .sn-band__cap b {
-  font-size: .48rem; letter-spacing: .14em; color: var(--tc, var(--ink-500));
+  font-size: .54rem; letter-spacing: .14em; color: var(--tc, var(--ink-500));
 }
-.sn-band__cap span { font-size: .44rem; letter-spacing: .06em; color: var(--ink-300); }
+.sn-band__cap span { font-size: .5rem; letter-spacing: .06em; color: var(--ink-300); }
 .sn-band:not(.is-seated) .sn-band__cap b { color: var(--ink-300); }
 
 /* an empty zone IS the add button - you click where the model would live */
@@ -2164,10 +2195,16 @@
 .sn-tvctl {
   /* on the plate's knob strip, not down on the stand where the first pass
      put them - measured against the engraving's lower bezel band */
-  position: absolute; left: 50%; bottom: 9.5%; transform: translateX(-50%);
+  /* v38 (UX audit: the keys read as struck-through): the engraved plate
+     rides translateZ(10px) inside the set's preserve-3d context, so a plain
+     z-index never won - the plate's own engraved strip line painted across
+     the key legends. The strip now sits in FRONT of the plate in 3D. */
+  position: absolute; left: 50%; bottom: 9.5%; transform: translateX(-50%) translateZ(14px);
   display: flex; justify-content: center; gap: .4rem; z-index: 3;
-  width: 52%; box-sizing: border-box; padding: .22rem .45rem;
+  width: 52%; box-sizing: border-box; padding: .12rem .45rem;
   border: 1px solid rgba(8, 9, 7, .88); border-radius: 4px;
+  /* v38: the keys sit FLUSH in the strip - the padding used to leave a dark
+     band above and below them that read as a strike-through */
   background: linear-gradient(180deg, #31322d 0%, #171814 52%, #090a08 100%);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, .12), 0 1px 3px rgba(0, 0, 0, .38);
 }
@@ -2177,8 +2214,8 @@
   border-radius: 5px; border: 1px solid var(--ink-500);
   background: linear-gradient(var(--paper-2), var(--paper-3));
   box-shadow: inset 0 1px 0 var(--paper), 0 1px 2px rgba(0,0,0,.18);
-  font-family: var(--font-mono); font-size: .56rem; letter-spacing: .12em;
-  color: var(--ink-500);
+  font-family: var(--font-mono); font-size: .68rem; letter-spacing: .12em;
+  color: var(--ink-900);
 }
 .sn-tvctl__k--wide { letter-spacing: .16em; }
 .sn-tvctl__k--deal { min-width: 3.9rem; color: var(--ink-900); }
@@ -2404,7 +2441,7 @@
 }
 .sn-front__route, .sn-front__score { display: flex; flex-direction: column; gap: .22rem; }
 .sn-front__routek, .sn-front__scorek {
-  color: #778276; font-family: var(--font-mono); font-size: .54rem; letter-spacing: .12em;
+  color: #8d998b; font-family: var(--font-mono); font-size: .58rem; letter-spacing: .12em;
 }
 .sn-front__routewire { display: flex; align-items: stretch; min-width: 0; }
 .sn-front__rnode {
@@ -2416,9 +2453,9 @@
 }
 .sn-front__rnode--sensor { flex: .7 1 0; }
 .sn-front__rname, .sn-front__rstate { overflow: hidden; text-overflow: ellipsis; }
-.sn-front__rname { font-size: .58rem; font-weight: 500; letter-spacing: .06em; white-space: nowrap; }
+.sn-front__rname { font-size: .64rem; font-weight: 500; letter-spacing: .06em; white-space: nowrap; }
 .sn-front__rstate {
-  margin-top: .12rem; color: #a1ad9d; font-size: .5rem; font-style: normal;
+  margin-top: .12rem; color: #b3bfaf; font-size: .58rem; font-style: normal;
   letter-spacing: .025em; line-height: 1.25; white-space: normal;
 }
 .sn-front__rnode.is-ask { border-style: dashed; }
@@ -2447,10 +2484,10 @@
   font-family: var(--font-mono);
 }
 .sn-front__missionk {
-  flex: none; color: var(--signal); font-size: .48rem; font-weight: 500; letter-spacing: .13em;
+  flex: none; color: var(--signal); font-size: .56rem; font-weight: 500; letter-spacing: .13em;
 }
 .sn-front__missiontext {
-  min-width: 0; overflow: hidden; color: #d8dfd2; font-size: .54rem;
+  min-width: 0; overflow: hidden; color: #d8dfd2; font-size: .6rem;
   letter-spacing: .07em; text-overflow: ellipsis; white-space: nowrap;
 }
 .sn-front__foot { margin-top: 0; padding-top: .25rem; }
@@ -2466,15 +2503,19 @@
               0 0 7px color-mix(in srgb, var(--signal) 14%, transparent);
 }
 .sn-front__hintkey {
-  color: var(--signal); font-size: .39rem; letter-spacing: .14em;
+  color: var(--signal); font-size: .5rem; letter-spacing: .14em;
 }
 .sn-front__hintmain {
-  margin-top: .08rem; font-size: .59rem; font-weight: 500; letter-spacing: .1em;
+  margin-top: .08rem; font-size: .66rem; font-weight: 500; letter-spacing: .1em;
 }
 .sn-front__hintmore {
-  margin-top: .09rem; color: #9ba798; font-size: .39rem; font-style: normal;
+  margin-top: .09rem; color: #a9b5a6; font-size: .5rem; font-style: normal;
   letter-spacing: .055em;
 }
+/* v38: with the score gated and the dangling response label gone, the
+   foot has room - and it must never be the thing the bezel clips */
+.sn-front__foot { flex: none; justify-content: flex-end; }
+.sn-front__hint { min-width: 0; }
 .sn-tv__front[data-state="green"]  { --signal: #55cc78; }
 .sn-tv__front[data-state="yellow"] { --signal: #e4bc42; }
 .sn-tv__front[data-state="red"]    { --signal: #ed5d58; }

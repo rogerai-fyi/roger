@@ -653,8 +653,11 @@ test("palette: red is a signal, never a surface", async () => {
   // and border-color together. That is the lamp window's rule rendered at the
   // size of the glass - already enumerated as a permitted fill below, still
   // carrying its NE-107 shape and its word. No new KIND of red was added.
+  // v38: 36 -> 37 for exactly one more FOCUS RING - the sidebar's MORE/LESS
+  // fold toggle focuses with the same red as every other control here. Still
+  // no new KIND of red.
   const reds = (css.match(/var\(--live\)/g) || []).length;
-  assert.ok(reds > 0 && reds < 36, `red is used ${reds} times; it must stay a glint`);
+  assert.ok(reds > 0 && reds < 37, `red is used ${reds} times; it must stay a glint`);
   const filled = [];
   for (const block of css.split("}")) {
     if (/background:\s*var\(--live\)/.test(block)) {
@@ -2078,7 +2081,9 @@ test("v21: the television dominates the bench and its working text is legible", 
   assert.match(tv, /max-width:\s*76rem/, "the TV grows beyond the old 66rem cap");
   const responseAt = css.indexOf(".sn-front__rstate {", css.indexOf(".sn-front__rstate {") + 1);
   const response = css.slice(responseAt, css.indexOf("}", responseAt) + 1);
-  assert.match(response, /font-size:\s*\.5rem/, "compact model responses are still readable");
+  /* v38 (UX audit type floor): the compact responses grew .5rem -> .58rem -
+     the guarantee is READABLE, and this is more so; the floor is the lock */
+  assert.match(response, /font-size:\s*\.58rem/, "compact model responses are still readable");
   assert.match(response, /white-space:\s*normal/, "response explanations may use their card's second line");
   assert.ok(/\.sn-tv__screen \.ws-log \{ font-size: \.68rem; \}/.test(css),
     "raw evidence in the detailed monitor is enlarged too");
@@ -2670,4 +2675,41 @@ test("v20: the monitor's tabs follow the chain, whatever is in it", () => {
     "the tab strip takes its ids from the stages, not a fixed list");
   assert.ok(/if \(stId !== PATCH\.tab\) return;/.test(js),
     "and one filter solos any of them, so no model is unreachable");
+});
+
+/* ---- v38: the mesh deck de-cluttered (UX audit 2026-08-17) -------------- */
+
+test("v38: the sandbox opens with the essentials - gauge and case tools fold under MORE", () => {
+  const h = loadHook();
+  assert.equal(h.state.sideMore, false, "folded by default");
+  assert.ok(/MORE · GAUGE & CASE TOOLS/.test(js), "the fold is one slim toggle");
+  assert.ok(/var folded = !PATCH\.sideMore && !m\.active && PATCH\.gameMode !== "play"/.test(js),
+    "and it unfolds by itself the moment a case is live");
+  assert.ok(/\(PATCH\.sideMore \|\| PATCH\.gameMode === "play"\) \? drawVU/.test(js),
+    "the gauge (a repeat of the trace on the glass) rides the same fold");
+  assert.ok(/\.sn-field\.is-folded \{/.test(css), "and the folded bay drops its hardware chrome");
+});
+
+test("v38: the glass leads with the read - the fleet score waits for the visitor", () => {
+  const face = js.slice(js.indexOf("function paintFront"), js.indexOf("function wireFront"));
+  assert.ok(/if \(PATCH\.touched \|\| PATCH\.mission\.active\) f\.appendChild\(frontScore\(\)\)/.test(face),
+    "23/50 FAULTS CAUGHT is not shown for a game nobody has started");
+  assert.ok(/PATCH\.touched = true/.test(js), "and any context move earns it");
+  assert.ok(!/sn-front__response/.test(face), "the dangling AFTER A FINDING label left the glass");
+  assert.ok(/After a finding: " \+ response\.label/.test(face), "but the aria text still says it");
+});
+
+test("v38: the rail reads whole at desktop width, the bezel keys sit in front of the plate", () => {
+  assert.ok(/\.sn-chainrail \.sn-slot__role, \.sn-chainrail \.sn-slot__takes \{ display: none; \}/.test(css),
+    "role and fan-in ride the tooltip on the rail (still rendered for the detail and the locks)");
+  assert.ok(/\.sn-roadmap--chain \{ display: none; \}/.test(css), "the 130-char caption became a tooltip");
+  assert.ok(/host\.title = "In a real mesh one Pico reads many channels/.test(js), "set on the rail itself");
+  const strip = css.slice(css.indexOf(".sn-tvctl {"), css.indexOf(".sn-tvctl__k {"));
+  assert.ok(/translateZ\(14px\)/.test(strip),
+    "the key strip is lifted past the plate's translateZ(10px) - z-index alone lost inside preserve-3d");
+  const keys = css.slice(css.indexOf(".sn-tvctl__k {"), css.indexOf(".sn-tvctl__k--wide"));
+  assert.ok(/color: var\(--ink-900\)/.test(keys) && /font-size: \.68rem/.test(keys),
+    "and the legends are ink-900 at the type floor");
+  const k = css.slice(css.indexOf(".wp-console__k {"), css.indexOf("}", css.indexOf(".wp-console__k {")));
+  assert.ok(/font-size: \.72rem/.test(k) && /var\(--ink-900\)/.test(k), "the 1 · 2 · 3 labels win visually");
 });
