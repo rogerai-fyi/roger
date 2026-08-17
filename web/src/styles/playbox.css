@@ -779,7 +779,10 @@
   color: var(--ink-500); letter-spacing: .12em;
 }
 .pg-deckswitch .pg-modes__tabs {
-  display: grid; grid-template-columns: 1fr 1fr; gap: 0;
+  /* one column per deck - this went stale at "1fr 1fr" when the third deck
+     (FACTORY) arrived and wrapped onto its own row. auto-fit keeps it honest
+     if a fourth ever lands. */
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 0;
   border: 1px solid var(--hairline);
   border-top: 2px solid var(--ink-900);
   background: var(--paper);
@@ -831,6 +834,7 @@
 
 @media (max-width: 620px) {
   .pg-deckswitch .pg-modes__tabs { grid-template-columns: 1fr; }
+  .pg-deckswitch .pg-mode + .pg-mode { border-left: 0; border-top: 1px solid var(--hairline); }
   .pg-deckswitch .pg-mode + .pg-mode {
     border-left: 0; border-top: 1px solid var(--hairline);
   }
