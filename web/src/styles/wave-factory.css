@@ -937,3 +937,94 @@
 /* the desk's rack can carry TWO buy tags now (micro-vs-giga, v29): it
    wraps instead of spilling past the desk's narrow column */
 .clf-desk__rack { flex-wrap: wrap; justify-content: center; row-gap: .2rem; }
+
+/* =====================================================================
+   THE GIGA UNIT (v30) - the plant's visible mind. A little automaton on
+   the ground line: its glide between anchors is CSS transition (chrome -
+   the sim decided the destination; reduced motion relocates instantly),
+   its pose is one of three committed engravings, its words are the tally
+   engines in persona voice, and its TALK chip opens the plant radio.
+   ===================================================================== */
+.clf-unit {
+  position: absolute; bottom: 34px; width: 92px; height: 128px; z-index: 3;
+  transition: left 1.6s ease;
+  display: flex; flex-direction: column; align-items: center;
+}
+.clf-unit__art {
+  position: absolute; inset: 0; background: var(--ink-900);
+  -webkit-mask-size: contain; mask-size: contain;
+  -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+  -webkit-mask-position: center bottom; mask-position: center bottom;
+  -webkit-mask-image: url("../assets/wave/giga-bot-idle-ink.png");
+  mask-image: url("../assets/wave/giga-bot-idle-ink.png");
+}
+.clf-unit[data-pose="roll"] .clf-unit__art {
+  -webkit-mask-image: url("../assets/wave/giga-bot-roll-ink.png");
+  mask-image: url("../assets/wave/giga-bot-roll-ink.png");
+}
+.clf-unit[data-pose="inspect"] .clf-unit__art {
+  -webkit-mask-image: url("../assets/wave/giga-bot-inspect-ink.png");
+  mask-image: url("../assets/wave/giga-bot-inspect-ink.png");
+}
+/* the engravings face right; leftward travel mirrors them */
+.clf-unit[data-dir="-1"] .clf-unit__art { transform: scaleX(-1); }
+@media (prefers-reduced-motion: no-preference) {
+  .clf-unit[data-pose="roll"] .clf-unit__art { animation: clf-unit-bob 0.7s ease-in-out infinite; }
+  @keyframes clf-unit-bob {
+    0%, 100% { translate: 0 0; } 50% { translate: 0 -2px; }
+  }
+}
+@media (prefers-reduced-motion: reduce) { .clf-unit { transition: none; } }
+
+/* what it says when it pauses - same bubble language as the machines */
+.clf-unit__say {
+  position: absolute; bottom: 100%; margin-bottom: 26px; z-index: 4;
+  width: max-content; max-width: 190px;
+  font-family: var(--font-mono); font-size: .54rem; line-height: 1.45;
+  color: var(--ink-900); background: var(--paper);
+  border: 1px solid var(--tier-giga, var(--ink-500)); border-radius: 7px;
+  padding: .3rem .45rem;
+}
+.clf-unit__talk {
+  /* at the Unit's shoulder, not under its wheels - below is the nameplate
+     strip, and the chip was landing on it */
+  position: absolute; left: 100%; top: 42%; margin-left: 3px;
+  font-family: var(--font-mono); font-size: .52rem; letter-spacing: .12em;
+  padding: .16rem .5rem; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--tier-giga, var(--ink-500));
+  background: var(--paper); color: var(--ink-900);
+}
+.clf-unit__talk:hover { background: var(--paper-2); }
+.clf-unit__talk:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
+
+/* on a phone the Unit parks by the desk instead of patrolling */
+@media (max-width: 640px) {
+  .clf-unit { left: 80% !important; transition: none; }
+  .clf-unit__say { max-width: 140px; }
+}
+
+/* ---- THE PLANT RADIO - the chat card ---------------------------------- */
+.clf-chatcard { max-width: 30rem; }
+.cl-chat__sub {
+  margin: .3rem 0 .5rem; font-size: .58rem; line-height: 1.5; color: var(--ink-500);
+}
+.cl-chat__list {
+  list-style: none; margin: 0 0 .5rem; padding: .45rem .55rem;
+  max-height: 14rem; overflow-y: auto;
+  border: 1px solid var(--hairline-2); border-radius: 8px; background: var(--paper);
+}
+.cl-chat__msg { padding: .22rem 0; font-size: .6rem; line-height: 1.5; }
+.cl-chat__msg + .cl-chat__msg { border-top: 1px dotted var(--hairline-2); }
+.cl-chat__msg b {
+  display: block; font-family: var(--font-mono); font-size: .5rem;
+  letter-spacing: .12em; color: var(--ink-400);
+}
+.cl-chat__msg--ping b { color: var(--tier-giga, var(--ink-700)); }
+.cl-chat__msg--wait span { color: var(--ink-400); font-style: italic; }
+.cl-chat__form { display: flex; gap: .4rem; }
+.cl-chat__input {
+  flex: 1; font-family: var(--font-mono); font-size: .62rem;
+  padding: .4rem .5rem; border-radius: 7px;
+  border: 1px solid var(--hairline-2); background: var(--paper); color: var(--ink-900);
+}
+.cl-chat__input:focus-visible { outline: 2px solid var(--live); outline-offset: 1px; }

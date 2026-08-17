@@ -1232,7 +1232,14 @@ test("v29: the session tape - recorded, capped, persisted on the way out, downlo
   const tapeDoc = JSON.parse(JSON.stringify(h.buildTapeWith(s)));
   assert.ok(tapeDoc.summary && typeof tapeDoc.summary.shipped === "number");
   assert.match(tapeDoc.honesty, /replayed record fields/);
-  assert.match(tapeDoc.honesty, /transmitted nowhere/);
+  // AMENDED v30: the plant radio means chat questions DO leave the machine
+  // (only when the player sends one, carrying only summary numbers) - the
+  // header now says exactly that instead of the blanket "transmitted
+  // nowhere", which would have become a lie the moment TALK shipped.
+  assert.match(tapeDoc.honesty, /Nothing leaves your machine except questions you send to Ping/);
+  assert.match(tapeDoc.honesty, /only your line's summary numbers/);
+  assert.ok(!/transmitted nowhere/.test(tapeDoc.honesty),
+    "the obsolete blanket claim is gone");
   assert.ok(Array.isArray(tapeDoc.events) && tapeDoc.events.length > 0);
   // FIFO cap: the tape never grows past its ceiling
   for (let i = 0; i < 2200; i++) h.tapePush("coins", { i });
@@ -1294,4 +1301,120 @@ test("v29: the desk sells the micro-vs-giga choice at the point of purchase", ()
   s.giga = true;
   assert.deepEqual(h.deskOffersWith(s), []);
   assert.match(js, /deskOffers\(\)\.forEach\(function \(offer\)/, "the desk renders the offers rule");
+});
+
+/* =====================================================================
+   v30 - THE GIGA UNIT: embodiment, belief-driven attention, and the
+   plant radio (chat answered live by Ping, honestly labeled)
+   ===================================================================== */
+test("v30: the Unit's attention is belief-driven - a secret fault cannot summon it", () => {
+  const h = loadHook();
+  const s = h.freshState();
+  s.giga = true;
+  s.records = measured.records;
+  // mixer has the worst PUBLIC uptime; packer carries a live fault that no
+  // model surfaced (its replayed read said " none" - a recorded miss) and
+  // has not stopped yet. The Unit must go where the surfaced numbers point.
+  s.machines[0].runT = 100; s.machines[0].upT = 60;
+  s.machines[1].runT = 100; s.machines[1].upT = 100;
+  s.machines[2].runT = 100; s.machines[2].upT = 100;
+  const pk = s.machines[2];
+  pk.cond = "railed"; pk.stopped = false;
+  pk.picoRead = { kind: "assert", said: "none", margin: 3.0 };
+  assert.equal(h.unitFocusWith(s), "mixer",
+    "worst public uptime wins; the hidden fault has no pull");
+  // but once a model RAISES it, the incident leads
+  pk.picoRead = { kind: "assert", said: "railed", margin: 2.2 };
+  assert.equal(h.unitFocusWith(s), "packer", "a surfaced incident outranks uptime");
+  assert.match(js, /never steered by hidden fault state|never where only the hidden fault state/,
+    "the discipline is written where the code lives");
+});
+
+test("v30: Giga's dial move dispatches the Unit, and the floor tag lands on arrival", () => {
+  const h = loadHook();
+  const s = h.freshState();
+  s.giga = true; s.records = measured.records;
+  const m = s.machines[0];
+  m.auto = true; m.cond = "stuck"; m.stuckAt = 0.2; m.real = 4.9;
+  h.autoWith(s, "mixer", 1 / 12);
+  assert.notEqual(m.set, 5, "the SIM dial move stays immediate - Giga's mind is continuous");
+  assert.equal(m.unitTagHold, true, "but the floor tag waits for the body");
+  assert.equal(s.unit.going, "mixer", "and the Unit is dispatched");
+  // travel completes; the tag flushes with the arrival
+  for (let i = 0; i < 40; i++) h.stepUnitWith(s, 0.1);
+  assert.equal(s.unit.at, "mixer", "the Unit arrived");
+  assert.equal(m.unitTagHold, false, "and the held tag flushed on arrival");
+});
+
+test("v30: the Unit's ambient lines come from the tally engines, one source", () => {
+  const h = loadHook();
+  const s = h.freshState();
+  s.giga = true; s.records = measured.records;
+  s.machines[0].runT = 100; s.machines[0].upT = 60;   // mixer is the bottleneck
+  s.unit.topic = 0;
+  const line = h.unitLineWith(s);
+  assert.match(line, /mixer is holding you back/i,
+    "topic zero IS siteBoard().line - the same sentence the wall board prints");
+  assert.match(js, /SAME siteBoard\(\)\/plantView\(\)/,
+    "the one-source rule is written at the function");
+  assert.match(js, /never a number of its own|never mints a number/, "and says why");
+});
+
+test("v30: the plant radio asks Ping with the line's summary, prose-framed", () => {
+  const h = loadHook();
+  const s = h.freshState();
+  s.records = measured.records;
+  s.giga = true; s.coins = 214; s.cookies = 61;
+  s.contract = { target: 250, level: 2, creep: 1.35, sla: 0.4 };
+  const framing = h.pingFramingWith(s, "what should I upgrade next?");
+  assert.match(framing, /^On the RogerAI Playbox, the visitor is playing the cookie-line factory game/,
+    "prose framing, the mesh lesson - a machine-tagged dump draws a decline");
+  assert.match(framing, /% uptime/, "the summary carries real uptime numbers");
+  assert.match(framing, /214 coins/, "and the wallet");
+  assert.match(framing, /contract 2 at 61\/250/, "and the contract state");
+  assert.match(framing, /using only the numbers above/, "and forbids invention");
+  // the transport: the one documented outside call, credentials omitted
+  assert.match(js, /var PING_URL = "https:\/\/broker\.rogerai\.fm\/concierge"/);
+  assert.match(js, /credentials: "omit", cache: "no-store",\n      body: JSON\.stringify\(\{ messages/);
+});
+
+test("v30: Ping's reply is labeled Ping - never signed as Giga - and the fallback is local arithmetic", () => {
+  // the labels, verbatim where the chat renders
+  assert.match(js, /PING \\u00b7 LIVE over the Tower relay/, "live replies wear Ping's name");
+  assert.match(js, /Ping is RogerAI's concierge, not a Wave model/, "and the header says what Ping is not");
+  assert.ok(!/GIGA \u00b7 LIVE|Giga says/.test(js), "no surface signs the radio's words as Giga's");
+  // the fallback is the tally engine, no radio required
+  const h = loadHook();
+  const s = h.freshState();
+  s.records = measured.records;
+  s.machines[0].runT = 100; s.machines[0].upT = 55;
+  const f = h.unitFallbackWith(s);
+  assert.match(f, /^the radio's quiet - here's what I can see myself: /);
+  assert.match(f, /mixer is holding you back/i, "the fallback body IS siteBoard().line");
+});
+
+test("v30: chat rides the tape as a truncated note, and the privacy copy tells the truth", () => {
+  const h = loadHook();
+  h.tapeReset();
+  const longReply = "x".repeat(300);
+  h.tapeChat("what should I upgrade next, and also a very long rambling question that overflows".repeat(3), "live", longReply);
+  const ev = h.tapeEvents().filter((e) => e.type === "chat")[0];
+  assert.ok(ev, "chat lands on the tape");
+  assert.ok(ev.q.length <= 80, "the question is truncated");
+  assert.equal(ev.note.length, 40, "the reply rides as a 40-char note, never the full text");
+  assert.equal(ev.answered, "live");
+  h.tapeReset();
+});
+
+test("v30: buying Giga spawns the Unit and sells the bundle", () => {
+  const h = loadHook();
+  const s = h.freshState();
+  s.records = measured.records;
+  s.coins = 1000; s.nano = true; s.micro = 0;
+  s.unit = null;                       // prove the purchase spawns it fresh
+  assert.ok(h.buyDeskWith(s, "giga"));
+  assert.ok(s.unit && s.unit.at === "desk", "the Unit spawns at the desk");
+  assert.match(s.log[0], /Its Unit is rolling onto the floor/, "the purchase says what arrived");
+  assert.match(js, /watch it work, press TALK to ask it anything|its Unit on the floor/i,
+    "the desk offer sells the bundle");
 });

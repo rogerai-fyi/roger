@@ -168,6 +168,17 @@
      delay and the one-machine budget are game simulation of deployment
      reality; what Nano SAYS still rides the recorded parent fields. */
   var NANO_SWEEP_SECS = 8;       // the gateway's polling sweep, direct mode
+  /* THE GIGA UNIT (v30). Floor anchors as left-% (must agree with the CSS
+     machine positions), and the plant radio's one outside line: the same
+     concierge endpoint the mesh deck talks to. Prose framing is the lesson
+     learned there - a machine-tagged dump reads as off-topic to Ping's
+     guardrail and draws a decline; the same numbers as product prose get a
+     real answer (verified live against production before this shipped). */
+  /* anchors sit BESIDE their machines (mixer spans ~6-19%, oven ~38-55%,
+     packer ~66-79%), so the Unit stands next to the equipment it inspects
+     rather than inside the engraving */
+  var UNIT_POS = { mixer: 21, oven: 57, packer: 61, desk: 84 };
+  var PING_URL = "https://broker.rogerai.fm/concierge";
   /* THE CERTIFICATE (v28) - the campaign goal the founder asked for: a fully
      automated, fully upgraded factory. The last item is the PROOF: the plant
      runs hands-off for a stretch while its own dashboard records it. */
@@ -248,6 +259,12 @@
       cert: { run: 0, up: 0, done: false, doneAt: 0 },
       history: [], sampleAt: 0, upTime: 0, runTime: 0,
       deskTab: "site",
+      /* THE GIGA UNIT: where the plant's visible mind stands, where it is
+         rolling, what it is saying. Spawned properly by buyDesk("giga");
+         present in every state so the sim hooks can drive it. */
+      unit: { at: "desk", going: null, travelLeft: 0, pauseLeft: 4, dir: 1,
+              pose: "idle", say: "", sayUntil: 0, topic: 0 },
+      chat: [], chatBusy: false,
       /* WHAT ACTUALLY MOVED between stations this tick, recorded by step()
          itself. The floor's traveling cookies SPEND these accumulators - a
          sprite may only appear because the simulation really transferred
@@ -679,6 +696,14 @@
         m.autoNote = holderOf(m) + " moved " + c.label + " to " + next + c.unit;
         m.autoNoteAt = G.elapsed; m.autoTier = G.giga ? "giga" : "micro";
         tape("dial", { m: m.id, to: next, by: holderOf(m) });
+        /* the Unit attends the move: the SIM's dial change stays immediate
+           (Giga's coordination IS continuous - that is the whole gap it is
+           sold on), but the floor's floating tag waits for the Unit to
+           arrive - the body catching up with the mind */
+        if (G.giga && G.unit && G.unit.at !== m.id) {
+          m.unitTagHold = true;
+          unitGo(m.id);
+        }
       }
     }
     /* A held knob may also EXECUTE maintenance, not just trim the dial - but
@@ -934,6 +959,7 @@
 
   function step(dt) {
     stepGateway(dt);
+    if (G.giga && G.unit) stepUnit(dt);
     G.elapsed += dt;
     if (G.graceLeft > 0) G.graceLeft = Math.max(0, G.graceLeft - dt);
     var mx = machine("mixer"), ov = machine("oven"), pk = machine("packer");
@@ -1220,6 +1246,195 @@
              faults: G.machines.filter(function (m) { return m.cond !== "none"; }).length };
   }
 
+  /* =====================================================================
+     THE GIGA UNIT (v30) - the plant's visible mind. Buying Giga was a line
+     item; now it is someone on the floor: a little automaton that patrols,
+     inspects, is physically present when Giga trims a dial, offers a line
+     of analysis when it pauses - and carries the plant radio, so you can
+     ask a REAL model (Ping) about your line.
+     ===================================================================== */
+
+  /* THE UNIT'S ATTENTION is belief-driven - the v27 gateway lesson applied
+     again: it goes where the game's own SURFACED numbers point (an incident
+     a model raised, a machine anyone can see is stopped, the worst public
+     uptime) and never where only the hidden fault state knows to look. A
+     lying sensor nobody caught leaves the Unit as fooled as the person. */
+  function unitFocus() {
+    var alarmed = G.machines.filter(function (m) {
+      return m.cond !== "none" && ((m.picoRead && m.picoRead.said !== "none") ||
+        (m.nanoRead && m.nanoRead.kind === "resolved"));
+    });
+    if (alarmed.length) return alarmed[0].id;
+    var stopped = G.machines.filter(function (m) { return m.stopped; });
+    if (stopped.length) return stopped[0].id;
+    var sb = siteBoard();
+    if (sb.worst && sb.worst.up < 0.985) return sb.worst.id;
+    var ring = ["mixer", "oven", "packer", "desk"];
+    return ring[(ring.indexOf(G.unit.at) + 1) % ring.length];
+  }
+
+  /* The Unit's ambient lines are the tally engines in persona voice - the
+     SAME siteBoard()/plantView() that feed the wall board and the desk
+     cards (one source, test-locked). It never mints a number of its own. */
+  function unitLine() {
+    var sb = siteBoard(), pv = plantView();
+    var topics = [];
+    topics.push(sb.line.charAt(0).toUpperCase() + sb.line.slice(1) + ".");
+    if (pv.loss > 0.05) {
+      topics.push("The " + pv.bottleneck.name.toLowerCase() + " caps the line - about " +
+        pv.loss.toFixed(2) + "/s left on the table.");
+    }
+    var last = G.history.length ? G.history[G.history.length - 1] : null;
+    var remaining = G.contract.target - G.cookies;
+    if (last && last.rate > 0.05 && remaining > 0) {
+      topics.push("At this pace the order lands in about " +
+        Math.round(remaining / last.rate) + "s.");
+    }
+    if (G.runTime > 30) {
+      topics.push("Line uptime " + Math.round((G.upTime / Math.max(1, G.runTime)) * 100) +
+        "% since you started. I keep the books.");
+    }
+    var line = topics[G.unit.topic % topics.length];
+    G.unit.topic += 1;
+    return line;
+  }
+
+  function flushUnitTags() {
+    G.machines.forEach(function (m) {
+      if (m.unitTagHold && G.unit.at === m.id) {
+        m.unitTagHold = false;
+        m.autoNoteAt = G.elapsed;   // the floor tag lands WITH the Unit
+      }
+    });
+  }
+
+  function stepUnit(dt) {
+    var u = G.unit;
+    if (!u) return;
+    if (u.going) {
+      u.travelLeft -= dt;
+      if (u.travelLeft <= 0) {
+        u.at = u.going; u.going = null;
+        u.pose = u.at === "desk" ? "idle" : "inspect";
+        u.pauseLeft = 8 + (u.topic % 5);      // a supervisor, not a busy bee
+        u.say = unitLine();
+        u.sayUntil = G.elapsed + Math.min(u.pauseLeft, 7);
+        flushUnitTags();
+      }
+      return;
+    }
+    u.pauseLeft -= dt;
+    if (u.pauseLeft <= 0) {
+      var next = unitFocus();
+      if (next !== u.at) unitGo(next);
+      else {
+        u.pauseLeft = 8 + (u.topic % 5);
+        u.say = unitLine();
+        u.sayUntil = G.elapsed + 7;
+      }
+    }
+  }
+
+  function unitGo(dest) {
+    var u = G.unit;
+    if (!u || u.at === dest || u.going === dest) return;
+    u.going = dest;
+    u.pose = "roll";
+    u.dir = UNIT_POS[dest] >= UNIT_POS[u.at] ? 1 : -1;
+    u.travelLeft = 1 + Math.abs(UNIT_POS[dest] - UNIT_POS[u.at]) * 0.02;
+  }
+
+  /* ---- the plant radio: chat through the Unit, answered by PING --------
+     Ping is RogerAI's live concierge - a REAL model over the Tower relay,
+     and the only voice here that is not game arithmetic. The Unit carries
+     the radio; it never signs Ping's words as its own, and never as Giga's
+     (Giga has no hosted model - putting words in its mouth would be the
+     exact lie this whole deck exists to avoid). */
+  function plantSummary() {
+    var sb = siteBoard();
+    var mach = G.machines.map(function (m) {
+      return m.spec.name.toLowerCase() + " Mk " + ["I", "II", "III"][m.tier] + " (" +
+        Math.round((m.runT > 0 ? m.upT / m.runT : 1) * 100) + "% uptime" +
+        (m.stopped ? ", stopped right now" : "") + ")";
+    }).join(", ");
+    var models = [];
+    G.machines.forEach(function (m) { if (m.pico) models.push("a Pico on the " + m.spec.name.toLowerCase()); });
+    if (G.nano) models.push("Wave Nano at the gateway");
+    if (G.micro) models.push(G.micro + " Wave Micro" + (G.micro > 1 ? "s" : ""));
+    if (G.giga) models.push("Wave Giga running the dials");
+    return mach + "; " + sb.line + "; models: " +
+      (models.length ? models.join(", ") : "none yet") + "; " +
+      Math.floor(G.coins) + " coins" + (G.coins < 0 ? " (on loan)" : "") +
+      "; contract " + G.contract.level + " at " + Math.floor(G.cookies) + "/" + G.contract.target +
+      " cookies; " + G.incidents.missed + " incidents missed so far.";
+  }
+
+  function pingFraming(q) {
+    return "On the RogerAI Playbox, the visitor is playing the cookie-line factory game - " +
+      "a toy plant that teaches what RogerAI's Wave models do. Their line right now: " +
+      plantSummary() + " The plant's little robot assistant relays your reply over the " +
+      "factory radio. The player asks: \"" + q + "\" Answer in one or two sentences, in " +
+      "your DJ voice, using only the numbers above.";
+  }
+
+  // the Unit's own fallback voice: tally arithmetic, no radio required
+  function unitFallbackLine() {
+    return "the radio's quiet - here's what I can see myself: " + siteBoard().line + ".";
+  }
+
+  function tapeChat(q, answered, text) {
+    tape("chat", { q: String(q).slice(0, 80), answered: answered,
+                   note: String(text || "").slice(0, 40) });
+  }
+
+  function sendChat(q) {
+    q = String(q || "").trim();
+    if (!q || G.chatBusy) return false;
+    G.chatBusy = true;
+    G.chat.push({ who: "you", text: q });
+    paintChat();
+    window.fetch(PING_URL, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      credentials: "omit", cache: "no-store",
+      body: JSON.stringify({ messages: [{ role: "user", content: pingFraming(q) }] }),
+    }).then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+      .then(function (d) {
+        var reply = d && d.reply ? String(d.reply) : "";
+        if (!reply) throw 0;
+        G.chat.push({ who: "ping", text: reply });
+        tapeChat(q, "live", reply);
+      })
+      .catch(function () {
+        var f = unitFallbackLine();
+        G.chat.push({ who: "unit", text: f });
+        tapeChat(q, "fallback", f);
+      })
+      .then(function () {
+        G.chatBusy = false;
+        G.chat = G.chat.slice(-12);      // last ~6 exchanges
+        paintChat();
+        paint();
+      });
+    return true;
+  }
+
+  function openChat() {
+    if (!DOM.chatOver || !DOM.chatOver.hidden) return;
+    G.chatWasRunning = G.running;
+    G.running = false;
+    DOM.chatOver.hidden = false;
+    paintChat();
+    paint();
+    if (DOM.chatInput) DOM.chatInput.focus();
+  }
+  function closeChat() {
+    if (!DOM.chatOver || DOM.chatOver.hidden) return;
+    DOM.chatOver.hidden = true;
+    if (G.chatWasRunning) { G.running = true; lastT = 0; }
+    paint();
+    if (DOM.unitTalk) DOM.unitTalk.focus();
+  }
+
   /* ---- economy --------------------------------------------------------- */
   function buyTier(id) {
     touchPlant();
@@ -1285,6 +1500,11 @@
       });
       addLog("Wave Nano online at the desk - instant through its Picos, and it " +
         "can direct-watch ONE bare machine at a time on a " + NANO_SWEEP_SECS + "s sweep.");
+    } else if (which === "giga") {
+      G.unit = { at: "desk", going: null, travelLeft: 0, pauseLeft: 2, dir: 1,
+                 pose: "idle", say: "", sayUntil: 0, topic: 0 };
+      addLog("Wave Giga online - one mind on every dial, the line balanced as a " +
+        "whole. Its Unit is rolling onto the floor; press TALK to ask it anything.");
     } else {
       addLog("Wave " + which.charAt(0).toUpperCase() + which.slice(1) + " online at the desk.");
     }
@@ -1401,7 +1621,9 @@
       exportedAt: new Date().toISOString(),
       honesty: "model words in these events are replayed record fields from the " +
         "committed bench export; the plant itself is game simulation. This file " +
-        "was written locally and transmitted nowhere.",
+        "was written locally. Nothing leaves your machine except questions you " +
+        "send to Ping over the plant radio - and those carry only your line's " +
+        "summary numbers.",
       summary: tapeSummary(),
       events: TAPE.slice(),
     };
@@ -1574,6 +1796,21 @@
     DOM.siteBoard.hidden = true;
     floor.appendChild(DOM.siteBoard);
 
+    /* THE GIGA UNIT - hidden until Giga is bought, then a real presence:
+       it patrols, inspects, attends dial moves, and carries the radio */
+    DOM.unit = el("div", "clf-unit");
+    DOM.unit.hidden = true;
+    DOM.unitArt = el("span", "clf-unit__art");
+    DOM.unitArt.setAttribute("aria-hidden", "true");
+    DOM.unit.appendChild(DOM.unitArt);
+    DOM.unitSay = el("div", "clf-unit__say");
+    DOM.unitSay.hidden = true;
+    DOM.unit.appendChild(DOM.unitSay);
+    DOM.unitTalk = btn("TALK", "clf-unit__talk", openChat);
+    DOM.unitTalk.title = "ask about your line - answered live by Ping over the plant radio";
+    DOM.unit.appendChild(DOM.unitTalk);
+    floor.appendChild(DOM.unit);
+
     // the traveling product - spent from G.flow, never invented
     DOM.cookieLayer = el("div", "clf-cookies");
     DOM.cookieLayer.setAttribute("aria-hidden", "true");
@@ -1672,6 +1909,45 @@
     shopCard.appendChild(DOM.shop);
     DOM.shopOver.appendChild(shopCard);
     root.appendChild(DOM.shopOver);
+
+    /* THE PLANT RADIO - chat through the Unit, answered by PING. The header
+       carries the whole honesty story so no reply can be misread as Giga's:
+       Ping is the live concierge, the Unit only holds the microphone. */
+    DOM.chatOver = el("div", "clf-shopover clf-chatover");
+    DOM.chatOver.hidden = true;
+    var chatCard = el("div", "clf-shopcard clf-chatcard");
+    chatCard.setAttribute("role", "dialog");
+    chatCard.setAttribute("aria-modal", "false");
+    chatCard.setAttribute("aria-label", "The plant radio - ask Ping about your line");
+    var chatHead = el("div", "cl-desk__head");
+    chatHead.appendChild(el("b", null, "THE PLANT RADIO"));
+    chatHead.appendChild(el("span", null,
+      "PING \u00b7 live over the Tower relay - speaking through the plant radio"));
+    DOM.chatClose = btn("CLOSE", "cl-run", closeChat);
+    chatHead.appendChild(DOM.chatClose);
+    chatCard.appendChild(chatHead);
+    chatCard.appendChild(el("p", "cl-chat__sub",
+      "Ping is RogerAI's concierge, not a Wave model - the Unit just carries the radio. " +
+      "Your question goes out with your line's summary numbers; nothing else leaves your machine."));
+    DOM.chatList = el("ol", "cl-chat__list");
+    chatCard.appendChild(DOM.chatList);
+    var chatForm = el("form", "cl-chat__form");
+    DOM.chatInput = el("input", "cl-chat__input");
+    DOM.chatInput.type = "text";
+    DOM.chatInput.maxLength = 200;
+    DOM.chatInput.placeholder = "ask about your line - what should I upgrade next?";
+    DOM.chatInput.setAttribute("aria-label", "Your question for Ping");
+    chatForm.appendChild(DOM.chatInput);
+    DOM.chatSend = btn("SEND", "cl-run cl-chat__send", function () {});
+    DOM.chatSend.type = "submit";
+    chatForm.appendChild(DOM.chatSend);
+    chatForm.addEventListener("submit", function (e) {
+      e.preventDefault();
+      if (sendChat(DOM.chatInput.value)) DOM.chatInput.value = "";
+    });
+    chatCard.appendChild(chatForm);
+    DOM.chatOver.appendChild(chatCard);
+    root.appendChild(DOM.chatOver);
 
     /* the win card: same overlay mechanics as the shop (the line waits) */
     DOM.winOver = el("div", "clf-shopover clf-winover");
@@ -2129,7 +2405,7 @@
     }
     /* an autonomy move floats off the machine it happened to, tier-coloured
        - the handover is visible on the floor, not only in the panel */
-    if (m.autoNoteAt && s.noteAt !== m.autoNoteAt && m.autoNote) {
+    if (m.autoNoteAt && s.noteAt !== m.autoNoteAt && m.autoNote && !m.unitTagHold) {
       s.noteAt = m.autoNoteAt;
       var atag = el("i", "clf-autotag", m.autoNote);
       if (m.autoTier) atag.dataset.tier = m.autoTier;
@@ -2508,7 +2784,7 @@
           "the site view - and it can hold one knob for you"]);
       } else if (k0 === "giga") {
         rows.push(["NEXT", "WAVE GIGA · " + MODEL_PRICE.giga,
-          "the plant view - one mind on every knob"]);
+          "one mind on every dial - and its Unit on the floor, with a live radio to ask"]);
       } else if (k0 === "tier") {
         rows.push(["NEXT", "MK UPGRADES",
           "the certificate wants every machine at Mk III - faster, wider bands"]);
@@ -2609,7 +2885,7 @@
     col3.appendChild(el("span", "cl-branch__head", "THE DESK"));
     [["nano", "WAVE NANO", "tells you WHY, and what to change - instant through Picos, or direct-watching one bare machine on its own sweep", "explains the fault and gives the fix; no Picos needed to start"],
      ["micro", "WAVE MICRO", "the site view - and it can hold one knob", "all three machines at once"],
-     ["giga", "WAVE GIGA", "the plant view - and it can run every knob", "bottleneck, forecast, full autonomy"]
+     ["giga", "WAVE GIGA", "one mind on every dial - and its Unit on the floor", "bottleneck, forecast, full autonomy, a live radio to ask"]
     ].forEach(function (row) {
       var id = row[0];
       var locked = (id !== "nano" && !G.nano) ? "NEEDS NANO" : "";
@@ -2831,6 +3107,45 @@
      button under the player's cursor, so clicks get eaten and focus is lost.
      Structure is rebuilt only when discrete state actually changes; the
      numbers repaint every frame, and prices update on the buttons in place. */
+  /* the Unit is painted per frame: position rides the CSS transition (its
+     glide is chrome; reduced motion turns the transition off and it simply
+     relocates), pose and say ride the sim state */
+  function paintUnit() {
+    if (!DOM.unit) return;
+    var show = !!(G.giga && G.unit);
+    DOM.unit.hidden = !show;
+    if (!show) return;
+    var u = G.unit;
+    DOM.unit.style.left = UNIT_POS[u.going || u.at] + "%";
+    DOM.unit.dataset.pose = u.going ? "roll" : u.pose;
+    DOM.unit.dataset.dir = String(u.dir);
+    var line = G.chatBusy ? "\u2026asking over the radio"
+      : (!u.going && u.say && G.elapsed < u.sayUntil ? u.say : "");
+    DOM.unitSay.hidden = !line;
+    if (line) DOM.unitSay.textContent = line;
+  }
+
+  function paintChat() {
+    if (!DOM.chatList) return;
+    DOM.chatList.textContent = "";
+    G.chat.forEach(function (c2) {
+      var li = el("li", "cl-chat__msg cl-chat__msg--" + c2.who);
+      li.appendChild(el("b", null,
+        c2.who === "you" ? "YOU"
+          : c2.who === "ping" ? "PING \u00b7 LIVE over the Tower relay"
+            : "THE UNIT \u00b7 radio quiet"));
+      li.appendChild(el("span", null, c2.text));
+      DOM.chatList.appendChild(li);
+    });
+    if (G.chatBusy) {
+      var w = el("li", "cl-chat__msg cl-chat__msg--wait");
+      w.appendChild(el("span", null, "\u2026asking over the radio"));
+      DOM.chatList.appendChild(w);
+    }
+    DOM.chatList.scrollTop = DOM.chatList.scrollHeight;
+    if (DOM.chatSend) DOM.chatSend.disabled = !!G.chatBusy;
+  }
+
   function structureKey() {
     /* cert rows repaint on discrete cert change; the proof clock itself is
        painted per-frame straight into DOM refs (cheap text writes) */
@@ -2876,6 +3191,7 @@
     DOM.cookies2.textContent = Math.floor(G.cookies);
     var pk = machine("packer");
     DOM.rate.textContent = (pk.stopped ? 0 : rateOf(pk) * 1.5).toFixed(1);
+    paintUnit();
     DOM.runBtn.textContent = G.running ? "PAUSE" : "START";
     DOM.runBtn.dataset.on = G.running ? "1" : "0";
     G.machines.forEach(paintStation);
@@ -3006,7 +3322,8 @@
           : offer === "micro"
             ? (G.micro ? "Another Micro: one more dial held - but they don't talk to each other."
                        : "The site view - and it can hold one knob for you.")
-            : "The plant view - one mind on every knob.";
+            : "One mind on every dial, the line balanced as a whole - and its " +
+              "Unit on the floor: watch it work, press TALK to ask it anything.";
         (DOM.priced = DOM.priced || []).push({ b: deskTag, cost: MODEL_PRICE[offer], kind: offer });
         rack.appendChild(deskTag);
       });
@@ -3103,7 +3420,8 @@
     if (window.requestAnimationFrame) raf = window.requestAnimationFrame(frame);
     document.addEventListener("keydown", function (e) {
       if (e.key !== "Escape") return;
-      if (DOM.shopOver && !DOM.shopOver.hidden) closeShop();
+      if (DOM.chatOver && !DOM.chatOver.hidden) closeChat();
+      else if (DOM.shopOver && !DOM.shopOver.hidden) closeShop();
       else if (DOM.winOver && !DOM.winOver.hidden) dismissWin();
     });
     document.addEventListener("visibilitychange", function () {
@@ -3210,6 +3528,13 @@
       grant: function (n) { G.coins += n; paint(); },
       /* v29 surfaces */
       recommendedNextWith: function (state) { var s2 = G; G = state; var v = recommendedNext(); G = s2; return v; },
+      unitFocusWith: function (state) { var s2 = G; G = state; var v = unitFocus(); G = s2; return v; },
+      stepUnitWith: function (state, dt) { var s2 = G; G = state; stepUnit(dt); G = s2; return state; },
+      unitLineWith: function (state) { var s2 = G; G = state; var v = unitLine(); G = s2; return v; },
+      plantSummaryWith: function (state) { var s2 = G; G = state; var v = plantSummary(); G = s2; return v; },
+      pingFramingWith: function (state, q) { var s2 = G; G = state; var v = pingFraming(q); G = s2; return v; },
+      unitFallbackWith: function (state) { var s2 = G; G = state; var v = unitFallbackLine(); G = s2; return v; },
+      tapeChat: tapeChat,
       deskOffersWith: function (state) { var s2 = G; G = state; var v = deskOffers(); G = s2; return v; },
       watchOptionsWith: function (state) { var s2 = G; G = state; var v = watchOptions(); G = s2; return v; },
       buyTierWith: function (state, id) { var s2 = G; G = state; var ok = buyTier(id); G = s2; return ok; },
