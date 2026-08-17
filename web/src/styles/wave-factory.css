@@ -614,3 +614,85 @@
   .clf-floor { height: 360px; }
   .wm-masthead--factory { height: 104px; }
 }
+
+/* ===================================================================== */
+/* v26 - the playtest round: taught opening, the win, meters and teeth   */
+/* ===================================================================== */
+
+/* THE MARGIN METER - the confidence bar with the floor as a tick. The
+   numbers ride the tooltip; the geometry says "speaks above this line". */
+.cl-margin {
+  position: relative; display: inline-block; width: 64px; height: 8px;
+  border: 1px solid var(--hairline-2); border-radius: 3px;
+  background: var(--paper-3); vertical-align: middle; font-style: normal;
+}
+.cl-margin__fill {
+  position: absolute; inset: 1px auto 1px 1px; border-radius: 2px;
+  background: var(--ink-500); max-width: calc(100% - 2px);
+}
+.cl-say[data-verdict="ok"] .cl-margin__fill { background: #1E7A3C; }
+.cl-say[data-verdict="warn"] .cl-margin__fill { background: #C99700; }
+.cl-margin__tick {
+  position: absolute; top: -3px; bottom: -3px; width: 2px;
+  background: var(--ink-900); text-decoration: none;
+}
+
+/* the lockout's WHY, at the station - consequence, not breakage */
+.cl-lockwhy {
+  font-family: var(--font-mono); font-size: .56rem; line-height: 1.5;
+  color: #C99700; border-left: 2px solid #C99700; padding-left: .5rem;
+}
+
+/* the dial hint's at-limit form: not a direction, a deduction */
+.cl-dialhint[data-dir="none"] { border-left-color: var(--ink-500); color: var(--ink-700); }
+
+/* debt: the COINS label stays; the flag rides beside it */
+.cl-stat__flag {
+  font-family: var(--font-mono); font-size: .5rem; letter-spacing: .1em;
+  font-style: normal; color: var(--live); border: 1px solid var(--live);
+  border-radius: 999px; padding: 0 .35rem; margin-left: .3rem;
+}
+.cl-stat.is-burnt b { color: var(--live); }
+
+/* reset must be armed before it fires */
+.cl-reset.is-armed { color: var(--live); border-color: var(--live); }
+
+/* THE WIN CARD - the contract fills and the game says so */
+.clf-winover { z-index: 6; }
+.clf-wincard { text-align: center; }
+.cl-win__stamp {
+  display: inline-block; font-family: var(--font-mono); font-size: 1.05rem;
+  letter-spacing: .3em; color: #1E7A3C; border: 3px double #1E7A3C;
+  border-radius: 6px; padding: .45rem 1.1rem; transform: rotate(-3deg);
+  margin: .2rem auto .8rem;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .clf-winover:not([hidden]) .cl-win__stamp { animation: cl-stampin .5s cubic-bezier(.2,1.6,.4,1) both; }
+  @keyframes cl-stampin { from { transform: rotate(-3deg) scale(2.2); opacity: 0; }
+                          to { transform: rotate(-3deg) scale(1); opacity: 1; } }
+}
+.cl-win__stats { justify-content: center; margin: .4rem 0 .6rem; }
+.cl-win__acts { display: flex; gap: .6rem; justify-content: center; margin-top: .8rem; flex-wrap: wrap; }
+.clf-crates.is-stamped::after {
+  content: "FILLED"; position: absolute; top: -14px; left: 50%;
+  transform: translateX(-50%) rotate(-8deg);
+  font-family: var(--font-mono); font-size: .5rem; letter-spacing: .2em;
+  color: #1E7A3C; border: 2px solid #1E7A3C; border-radius: 3px; padding: 0 .3rem;
+}
+
+/* a burnt cookie falls off the belt at the oven */
+.clf-cookie--burnt svg { fill: var(--ink-900); opacity: .85; }
+.clf-cookie--burnt svg .chip { fill: var(--paper); }
+@media (prefers-reduced-motion: no-preference) {
+  .clf-cookie--burnt { animation: clf-fall 1.2s ease-in both; }
+  @keyframes clf-fall {
+    from { transform: translateY(0) rotate(0); opacity: 1; }
+    to { transform: translateY(74px) rotate(140deg); opacity: 0; }
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .clf-cookie--burnt { display: none; }   /* the HUD tally is the report */
+}
+
+/* the sticky site nav must never bury a focused console (playtest bug 8) */
+.cl-station, .cl-desk, .cl-maint, .cl-goals { scroll-margin-top: 96px; }

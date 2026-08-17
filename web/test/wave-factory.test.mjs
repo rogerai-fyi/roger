@@ -237,8 +237,10 @@ test("cookie line: service invoices, loans if broke - and can never soft-lock", 
   assert.equal(s.coins, 10 - h.serviceCost, "the invoice lands anyway - that is the loan");
   assert.ok(s.coins < 0, "the balance is genuinely negative, not clamped");
 
-  // the work still completes from negative money, and the line recovers
-  for (let i = 0; i < 60; i++) h.stepWith(s, 1 / 12);
+  // the work still completes from negative money, and the line recovers.
+  // (v26 repriced service to 10s of downtime - the sure thing is now the
+  // slow thing - so this drive steps past the longer window.)
+  for (let i = 0; i < 140; i++) h.stepWith(s, 1 / 12);
   assert.equal(mixer.cond, "none", "the line recovers even in debt");
 
   // deeper into debt is still allowed - service is NEVER unavailable
@@ -324,8 +326,13 @@ test("v24: a healthy Pico reads fresh truth-none windows on a cadence", () => {
   const draws = mixer.healthyDraws;
   for (let i = 0; i < 12 * h.healthyWindow * 2.2; i++) h.stepWith(s, 1 / 12);
   assert.ok(mixer.healthyDraws > draws, "the display lives - windows redraw on the cadence");
-  // and the display surfaces the confidence, so "steady" reads as measured
-  assert.match(js, /toFixed\(1\) \+ " sure"/, "the margin rides the word");
+  // and the display surfaces the confidence, so "steady" reads as measured.
+  // AMENDED v26: the raw number pair confused the playtest ("0.9 sure...out
+  // of what?"), so the confidence is now a METER with the floor as a tick,
+  // and the exact figures ride its tooltip. Same guarantee, better surface.
+  assert.match(js, /toFixed\(1\) \+ " sure, needs " \+ FLOOR/,
+    "the margin still rides the display, in the meter's tooltip");
+  assert.match(js, /cl-margin__tick/, "and the floor is a visible tick to clear");
 });
 
 test("v24: the meter shows the band as a zone and pre-warns on the METER only", () => {
@@ -567,8 +574,11 @@ test("v25: the floor sells its own upgrades - buy points on the machines and the
 });
 
 test("v25: the not-sure copy explains itself, and the maintenance card prints the doctrine", () => {
-  assert.ok(js.includes('"not sure \\u00b7 " + r.margin.toFixed(1) + " sure, needs " + FLOOR'),
-    "the mesh deck's pattern: the number, what it is, the bar it failed");
+  // AMENDED v26: the inline number pair became the margin METER; the mesh
+  // pattern (the number, what it is, the bar it failed) now lives in the
+  // meter's tooltip and geometry, asserted in the v24 cadence lock above.
+  assert.ok(js.includes('"not sure" + (m.unsureRun > 1 ? " \\u00d7" + m.unsureRun : "")'),
+    "a run of doubts collapses into one line with a count, not a chirp per redraw");
   assert.ok(!/not sure[^"]*only/.test(js), "the opaque 'only 1.4' phrasing is gone");
   assert.match(js, /MAINTENANCE CARD · what fixes what/, "the doctrine is printed for study");
   assert.match(js, /Nano quotes this card instantly; INSPECT learns it the slow way/,
@@ -588,4 +598,145 @@ test("v25: the gateway hears THROUGH the child - no Pico, no Nano report on that
   assert.notEqual(mixer.cond, "none", "a fault started");
   assert.equal(mixer.nanoRead, null, "but the gateway has no report from a machine with no child");
   assert.match(js, /gateway hears THROUGH the child/i, "the rule is stated where it lives");
+});
+
+/* ---- v26: THE PLAYTEST ROUND ------------------------------------------- */
+
+test("v26: a live run opens calm, then teaches the core lie once, on a real record", () => {
+  const h = loadHook();
+  const s = h.freshState();
+  s.records = measured.records;
+  h.begin(s);                                     // what boot()/reset() arm
+  assert.equal(s.graceLeft, h.graceSecs, "the grace period is armed");
+  // step to just short of the grace boundary: nothing may fault
+  for (let i = 0; i < 12 * (h.graceSecs - 1); i++) h.stepWith(s, 1 / 12);
+  assert.ok(s.machines.every((m) => m.cond === "none"), "the opening is calm");
+  // cross the boundary: the ONE taught fault lands, on the mixer, STUCK
+  for (let i = 0; i < 12 * 3; i++) h.stepWith(s, 1 / 12);
+  const mixer = s.machines[0];
+  assert.equal(mixer.cond, "stuck", "the taught fault is the core lie");
+  assert.equal(mixer.sample.record.truth, "stuck",
+    "and it rides a real recorded stuck window like every other fault");
+  assert.ok(s.log.some((l) => /does that seem right/.test(l)),
+    "the radio points at it instead of leaving the newcomer to mash buttons");
+  // and nothing else faults until the lesson is cleared
+  for (let i = 0; i < 12 * 30; i++) h.stepWith(s, 1 / 12);
+  assert.ok(s.machines[1].cond === "none" && s.machines[2].cond === "none",
+    "one lesson at a time - the rest of the line waits");
+});
+
+test("v26: the cascade cap - no machine draws a new fault while any lockout runs", () => {
+  const h = loadHook();
+  const s = h.freshState();
+  s.records = measured.records;
+  const oven = s.machines[1];
+  oven.lockout = 30;                              // one wrong verb, mid-penalty
+  s.machines.forEach((m) => { m.nextFault = 0.05; });  // all about to fault
+  for (let i = 0; i < 12 * 5; i++) h.stepWith(s, 1 / 12);
+  assert.ok(s.machines.every((m) => m.cond === "none"),
+    "the scheduler waits: a lockout is a lesson, not an invitation to pile on");
+  assert.match(js, /PACING CANON/, "and the rule is written down as canon");
+});
+
+test("v26: THE PRODUCT CLAIM, executed - the informed operator out-earns service-spam", () => {
+  /* The playtest's headline: as tuned in v25, blind SERVICE-spam beat
+     verb-diagnosis by hundreds of coins, refuting the game's own sales
+     pitch. This drives two identical plants through the SAME deterministic
+     fault schedule - one operator services everything, one uses the
+     doctrine's cheapest correct verb - and the informed one must come out
+     ahead. If a rebalance ever flips this again, this test is the alarm. */
+  const h = loadHook();
+  const SCHEDULE = [
+    [20, "mixer", "stuck"], [50, "oven", "drifting"], [80, "packer", "noisy"],
+    [110, "mixer", "dropout"], [140, "oven", "railed"], [170, "packer", "stuck"],
+    [200, "mixer", "noisy"], [230, "oven", "dropout"], [260, "packer", "drifting"],
+    [290, "mixer", "stuck"], [320, "oven", "noisy"],
+  ];
+  function run(strategy) {
+    const s = h.freshState();
+    s.records = measured.records;
+    s.contract.target = 1e9;                     // no win pause mid-drive
+    let due = SCHEDULE.slice();
+    for (let t = 0; t < 360; t += 1 / 12) {
+      // isolate the maintenance economy: no creep, no natural faults
+      s.machines.forEach((m) => { m.ambient = 0; m.event = null; m.eventLeft = 999; m.nextFault = 999; });
+      while (due.length && t >= due[0][0]) {
+        const [, id, kind] = due.shift();
+        const m = s.machines.find((x) => x.id === id);
+        if (m.cond === "none" && !m.servicing && !m.restarting) h.conditionWith(s, id, kind);
+      }
+      s.machines.forEach((m) => {
+        if (m.cond === "none" || m.servicing > 0 || m.restarting > 0 || m.inspecting > 0 || m.lockout > 0) return;
+        if (strategy === "spam") { h.serviceWith(s, m.id); return; }
+        const verb = h.verbFor(m.cond);
+        if (verb === "service") h.serviceWith(s, m.id);
+        else h.maintainWith(s, m.id, verb);
+      });
+      h.stepWith(s, 1 / 12);
+    }
+    return s;
+  }
+  const informed = run("informed");
+  const spam = run("spam");
+  assert.ok(informed.coins > spam.coins,
+    `diagnosis must pay: informed ${informed.coins.toFixed(0)} vs spam ${spam.coins.toFixed(0)}`);
+  assert.ok(informed.coins - spam.coins > 100,
+    "and by a margin a player would feel, not a rounding error");
+});
+
+test("v26: the win is a state, the next contract re-rolls harder, and Pico ads stop", () => {
+  const h = loadHook();
+  const s = h.freshState();
+  s.records = measured.records;
+  s.cookies = 99.9;
+  s.machines.forEach((m) => { m.nextFault = 999; });
+  for (let i = 0; i < 12 * 3; i++) h.stepWith(s, 1 / 12);
+  assert.ok(s.won, "crossing the target is a real state change");
+  assert.ok(s.log.some((l) => /Contract filled/.test(l)), "and it is announced");
+  const next = h.nextTargetOf(s.contract);
+  assert.equal(next, 250, "the first re-roll is the 250-cookie contract");
+  assert.match(js, /creep: G\.contract\.creep \* 1\.35/, "and conditions creep faster on it");
+  assert.match(js, /if \(filled\) \{/, "the goal chip switches to the next contract");
+  assert.match(js, /CONTRACT FILLED/, "the win card exists with its stamp");
+  assert.match(js, /KEEP RUNNING THIS LINE/, "and staying on the current line is a choice");
+});
+
+test("v26: pico owns a recorded miss once the truth surfaces - character, not spam", () => {
+  const h = loadHook();
+  assert.equal(h.ownsMiss(null), null);
+  assert.equal(h.ownsMiss({ kind: "caught", said: "stuck" }), null, "a catch owes no apology");
+  assert.equal(h.ownsMiss({ kind: "unsure", said: "none" }), null, "doubt is not a miss");
+  const owned = h.ownsMiss({ kind: "wrong", said: "none", margin: 2.1, truth: "stuck" });
+  assert.match(owned, /I said none - I was wrong/, "the confident lie is owned in first person");
+  assert.match(owned, /That is what the record shows/, "and attributed to the replay, not to drama");
+  assert.match(js, /ownsMiss\(m\.picoRead\)/, "and it fires where incidents clear");
+});
+
+test("v26: debt has one tooth - shipping pays less on loan, and COINS never vanishes", () => {
+  const h = loadHook();
+  const solvent = h.freshState(); solvent.machines.forEach((m) => { m.nextFault = 999; });
+  const broke = h.freshState(); broke.machines.forEach((m) => { m.nextFault = 999; });
+  broke.coins = -500;
+  for (let i = 0; i < 12 * 20; i++) { h.stepWith(solvent, 1 / 12); h.stepWith(broke, 1 / 12); }
+  const earnedSolvent = solvent.coins - 120;
+  const earnedBroke = broke.coins - -500;
+  assert.ok(earnedBroke > 0, "debt still climbs toward zero - no dead end");
+  assert.ok(earnedBroke < earnedSolvent * 0.85,
+    "but the crew takes its cut: on-loan shipping pays less than solvent shipping");
+  assert.match(js, /DOM\.loanFlag\.hidden = G\.coins >= 0/,
+    "the loan is a FLAG beside COINS - the money stat itself never disappears");
+});
+
+test("v26: quality-of-life locks - quotes, inspect timer, reset arming, no-reading label", () => {
+  assert.ok(!js.includes('\\u201c " +'), "the stray space inside model quotes is gone");
+  // INSPECT cannot be restarted mid-look
+  const h = loadHook();
+  const s = h.freshState();
+  s.records = measured.records;
+  assert.ok(h.inspectWith(s, "mixer"), "an inspect starts");
+  assert.equal(h.inspectWith(s, "mixer"), false, "and re-clicking cannot restart the timer");
+  assert.match(js, /RESET\?/, "reset arms before it fires");
+  assert.match(js, /NO READING - the wire went quiet/, "a dropped-out reading is labelled, not bare dashes");
+  assert.match(js, /is already at/, "a dial at its stop says so instead of hinting the impossible");
+  assert.match(js, /drift = Math\.min\(capSpan/, "and the unwatched walk is capped, not unbounded");
 });

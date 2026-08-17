@@ -90,9 +90,18 @@
      doctrine gives under-50% odds - locks that machine's maintenance for a
      minute when it fails. The RIGHT verb failing its dice is not a wrong
      call: it just costs the downtime, and you may try again. */
-  var SERVICE_SECS = 4;          // the machine is down while the crew works
-  var SERVICE_COST = 30;         // and the crew invoices, loan if needed
+  /* SERVICE PRICING (v26). The playtest proved the old numbers refuted the
+     product: at 30 coins and 4s, the sure thing was also the cheap-fast
+     thing, and a service-spamming player out-earned the diagnostician by
+     hundreds of coins ("session C"). The sure thing is now the EXPENSIVE,
+     SLOW thing - always available, still loans - so knowing the right verb
+     (Nano's whole pitch) is worth real money. The informed-beats-spam claim
+     is an executed test, because it IS the product claim. */
+  var SERVICE_SECS = 10;         // the machine is down while the crew works
+  var SERVICE_COST = 60;         // and the crew invoices, loan if needed
   var LOCKOUT_SECS = 60;         // the cost of guessing the wrong verb
+  var GRACE_SECS = 45;           // the calm before the first, taught fault
+  var LOAN_RATE = 3;             // shipping pays 3/cookie while on loan (else 4)
 
   /* THE MAINTENANCE DOCTRINE - a game-sim rule about a game plant, and the
      thing Nano sells you: which verb clears which fault. Stuck and dropped-
@@ -167,6 +176,8 @@
       nextFault: 0,
       sample: null,                         // the drawn record, while faulted
       healthySample: null, windowLeft: 0, healthyDraws: 0,
+      unsureRun: 0,                         // consecutive sub-floor healthy draws
+      lockReason: "",                       // why the crew won't touch it
       pico: false,
       auto: false,                          // the models turn this knob
       autoNote: "", hadStop: false,
@@ -182,6 +193,14 @@
       machines: MACHINES.map(freshMachine),
       nano: false, micro: false, giga: false,
       running: true, ready: false, error: "",
+      /* THE CONTRACT ARC. Filling one is a real moment (the win card), and
+         the next one re-rolls harder: more cookies, faster creep. */
+      contract: { target: 100, level: 1, creep: 1 },
+      won: false, contractDone: false,
+      /* THE OPENING (v26). freshState itself starts calm-less so the sim
+         hooks and tests drive raw rules; the LIVE game calls beginRun(),
+         which arms the grace period and the taught first fault. */
+      graceLeft: 0, taught: true, taughtCleared: true,
       records: [], seed: 7,
       log: ["The line is cold. Press START and watch the numbers."],
       serviced: 0, saves: { pico: 0, nano: 0 }, missed: 0,
@@ -202,6 +221,18 @@
   var G = freshState();
   var DOM = {};
   var raf = 0, lastT = 0, acc = 0;
+
+  /* THE OPENING, armed only for a real run. The playtest's newcomer was hit
+     by unexplained faults inside the first minute and learned exactly the
+     wrong lesson (mash RESTART). A live run now starts with a calm grace
+     period, then ONE scripted STUCK on the mixer, called out on the radio -
+     the core lie, taught once, on a real recorded stuck window like every
+     other fault. */
+  function beginRun(state) {
+    state.graceLeft = GRACE_SECS;
+    state.taught = false;
+    state.taughtCleared = false;
+  }
 
   function machine(id) {
     for (var i = 0; i < G.machines.length; i++) if (G.machines[i].id === id) return G.machines[i];
@@ -352,7 +383,20 @@
     if (shown == null) return null;
     var t = tierOf(m);
     if (shown >= t.lo && shown <= t.hi) return null;
-    var word = m.spec.control.label;
+    var word = m.spec.control.label, c = m.spec.control;
+    /* AT THE DIAL'S LIMIT the hint changes meaning instead of lying
+       (playtest: needle pinned nineteen bands high with SPEED already at 1,
+       hint still said "bring SPEED down"). A needle outside the band with
+       the dial already at its stop is, by visible deduction alone, NOT a
+       process problem - and saying so is the honest next lesson. */
+    if (shown > t.hi && m.set <= c.min) {
+      return { dir: "none", label: word + " is already at " + c.min +
+        " - this is not a process problem. INSPECT the sensor, or ask the models." };
+    }
+    if (shown < t.lo && m.set >= c.max) {
+      return { dir: "none", label: word + " is already at " + c.max +
+        " - this is not a process problem. INSPECT the sensor, or ask the models." };
+    }
     return shown > t.hi
       ? { dir: "down", label: "needle OUTSIDE the band - the dial is the free first move: bring " + word + " down" }
       : { dir: "up", label: "needle OUTSIDE the band - the dial is the free first move: bring " + word + " up" };
@@ -381,11 +425,27 @@
      stopped it first was missed, whoever or whatever was watching. Under
      automation that distinction is the whole scoreboard: a replayed model
      miss still lets the line die, and the results panel has to show it. */
+  /* PICO OWNS ITS MISS. A recorded miss renders as health while it lasts -
+     that is the honesty rule - but once the truth surfaces (the fault is
+     cleared, so the player knows), the model that called it wrong says so
+     out loud. Recorded-miss honesty, turned into character instead of
+     silent spam. Pure, so the lock can run it. */
+  function ownsMiss(read) {
+    if (!read || read.kind !== "wrong") return null;
+    return "Pico: “I said " + read.said + " - I was wrong. That is what the record shows.”";
+  }
+
   function clearCondition(m) {
     m.nextFault = 14 + rnd(m) * 30;
     if (m.cond !== "none") {
       G.incidents.open = Math.max(0, G.incidents.open - 1);
       if (m.hadStop) G.incidents.missed += 1; else G.incidents.caught += 1;
+      var owned = ownsMiss(m.picoRead);
+      if (owned && m.sample) {
+        addLog(owned + " (replayed " + m.sample.record.node_id + ")");
+      }
+      // the taught first fault is done: the rest of the line may now fault
+      if (G.taught && !G.taughtCleared && m.id === "mixer") G.taughtCleared = true;
     }
     m.cond = "none"; m.condAge = 0; m.sample = null;
     m.picoRead = null; m.nanoRead = null; m.driftLie = 0; m.hadStop = false;
@@ -479,11 +539,14 @@
   };
   function stepCreep(m, dt) {
     var t = tierOf(m), span = t.hi - t.lo;
+    // later contracts creep faster and lean harder - the re-roll's difficulty
+    var creep = (G.contract && G.contract.creep) || 1;
     if (!m.event) {
-      if (!m.eventLeft) m.eventLeft = 22 + rnd(m) * 34;
+      if (!m.eventLeft) m.eventLeft = (22 + rnd(m) * 34) / creep;
       m.eventLeft -= dt;
       if (m.eventLeft <= 0) {
-        m.event = { t: 0, ramp: 12, hold: 10, decay: 9, mag: span * (0.14 + rnd(m) * 0.16) };
+        m.event = { t: 0, ramp: 12, hold: 10, decay: 9,
+          mag: span * (0.14 + rnd(m) * 0.16) * (1 + (creep - 1) * 0.6) };
         m.eventLeft = 0;
         addLog(CREEP_FLAVOUR[m.id]);
       }
@@ -542,6 +605,14 @@
               " did not take this time - the right call can need a second go.");
           } else {
             m.lockout = LOCKOUT_SECS;
+            /* the reason lives AT THE STATION, not only on the radio - a
+               countdown without a why reads as breakage, not consequence.
+               Naming what Nano would have said leaks the diagnosis, and that
+               is deliberate: the lockout already cost a minute, and turning
+               the punishment into the lesson is the point of it. */
+            m.lockReason = "wrong verb - the crew won't touch it while it recovers. " +
+              "(Nano would have said: " +
+              (CONDITION_FIX[m.cond] || "").split(" - ").pop().toLowerCase() + ")";
             addLog(m.spec.name + " " + verb.label.toLowerCase() + " was the wrong call - " +
               "maintenance locked " + LOCKOUT_SECS + "s while it recovers. (Nano would have said: " +
               (CONDITION_FIX[m.cond] || "").split(" - ").pop().toLowerCase() + ")");
@@ -588,18 +659,50 @@
           m.healthyDraws += 1;
           m.picoRead = picoRead(m.healthySample);
           m.nanoRead = G.nano ? nanoRead(m.healthySample) : null;
+          /* the ×N run: consecutive sub-floor windows collapse into one line
+             with a count, instead of a fresh chirp per redraw - the playtest
+             called the old stream "a broken smoke detector" */
+          m.unsureRun = (m.picoRead && m.picoRead.kind === "unsure") ? m.unsureRun + 1 : 0;
         }
       }
       /* A COUNTDOWN, not a per-tick coin flip. A rare random draw made the
          first fault land anywhere between ten seconds and never, depending on
          the seed - and a teaching loop that sometimes never starts is not a
-         teaching loop. This schedules the next fault into a known window. */
-      if (!m.nextFault) m.nextFault = 10 + rnd(m) * 26;
-      m.nextFault -= dt;
-      if (m.nextFault <= 0) { startCondition(m); m.nextFault = 0; }
+         teaching loop. This schedules the next fault into a known window.
+
+         PACING CANON (v26, from the playtest's death spiral): the scheduler
+         GATES. During the grace period nothing faults; the first fault is the
+         taught one, on the mixer, and nothing else faults until the player
+         has cleared it; and while ANY machine is locked out, no machine draws
+         a new fault - a lockout is a lesson, and piling fresh trouble on top
+         of it turned one wrong verb into 294 straight seconds of dead line. */
+      if (G.graceLeft > 0) {
+        // the calm before the lesson - nothing schedules
+      } else if (!G.taught) {
+        if (m.id === "mixer") {
+          startCondition(m, "stuck");
+          G.taught = true;
+          addLog("Radio: the mixer reads " + m.stuckAt.toFixed(2) + " " + m.spec.sensor.unit +
+            " and has not moved in a while - does that seem right? " +
+            "(INSPECT will tell you; a stuck sensor usually restarts clean.)");
+        }
+      } else if (!G.taughtCleared) {
+        // one lesson at a time: the line waits for you to fix the first lie
+      } else if (G.machines.some(function (x) { return x.lockout > 0; })) {
+        // cascade cap: the countdown freezes while any machine is locked out
+      } else {
+        if (!m.nextFault) m.nextFault = 10 + rnd(m) * 26;
+        m.nextFault -= dt;
+        if (m.nextFault <= 0) { startCondition(m); m.nextFault = 0; }
+      }
     } else {
       m.condAge += dt;
-      m.drift += dt * (m.id === "oven" ? 1.6 : 0.30);
+      /* the unwatched walk is CAPPED (playtest: a stopped mixer's needle
+         climbed 8 -> 94 mm/s, nineteen bands past the edge, while the hint
+         still said "bring SPEED down"). Out of band is out of band; a
+         runaway number past all meaning is just noise that reads as spite. */
+      var capSpan = (t.hi - t.lo) * 1.6;
+      m.drift = Math.min(capSpan, m.drift + dt * (m.id === "oven" ? 1.6 : 0.30));
       if (m.cond === "drifting") m.driftLie += dt * (m.id === "oven" ? 1.5 : 0.26);
     }
 
@@ -623,6 +726,7 @@
 
   function step(dt) {
     G.elapsed += dt;
+    if (G.graceLeft > 0) G.graceLeft = Math.max(0, G.graceLeft - dt);
     var mx = machine("mixer"), ov = machine("oven"), pk = machine("packer");
     stepMachine(mx, dt); stepMachine(ov, dt); stepMachine(pk, dt);
 
@@ -642,9 +746,20 @@
     G.cookies += pack;
     // the floor's sprite layer draws down these amounts, and nothing else
     G.flow.dough += made; G.flow.baked += bake; G.flow.out += pack;
-    G.coins += pack * 4;   // a cookie sells for four
+    /* THE DEBT TOOTH: a cookie sells for four - three while ON LOAN, because
+       the crew takes its cut. Debt stays survivable (income still climbs the
+       balance toward zero) but no longer plays identically to solvency. */
+    G.coins += pack * (G.coins < 0 ? LOAN_RATE : 4);
     var rate = pack / Math.max(dt, 1e-6);
     G.peakRate = Math.max(G.peakRate, rate);
+
+    /* THE CONTRACT FILLS - a real moment, not three lowercase words. The
+       line pauses on the win card; the next contract re-rolls harder. */
+    if (!G.won && G.cookies >= G.contract.target) {
+      G.won = true;
+      addLog("Contract filled: " + G.contract.target + " cookies shipped.");
+      if (DOM.stations) showWin();
+    }
 
     /* THE RESULTS SERIES. An automated plant has to have something to show
        for itself, so the game keeps its own rolling record: cookies per
@@ -839,18 +954,47 @@
     var hud = el("div", "cl-hud");
     DOM.coins = el("b", null, "0"); DOM.cookies2 = el("b", null, "0"); DOM.rate = el("b", null, "0.0");
     DOM.best = el("b", null, "0s");
+    /* BURNT rides the HUD beside COOKIES: it is the loss state, not a
+       footnote under the crates (playtest #10) */
+    DOM.burnt = el("b", null, "0");
     DOM.statEls = {};
-    [["COINS", DOM.coins], ["COOKIES", DOM.cookies2], ["PER SEC", DOM.rate], ["BEST RUN", DOM.best]]
+    [["COINS", DOM.coins], ["COOKIES", DOM.cookies2], ["BURNT", DOM.burnt],
+     ["PER SEC", DOM.rate], ["BEST RUN", DOM.best]]
       .forEach(function (p) {
         var st = el("span", "cl-stat"); st.appendChild(p[1]);
         DOM.statEls[p[0]] = st;
         st.appendChild(el("i", null, p[0])); hud.appendChild(st);
       });
+    /* debt is a FLAG on the coins stat, not a replacement for it: a player
+       scanning for their money must always find the number where it lives */
+    DOM.loanFlag = el("em", "cl-stat__flag", "ON LOAN");
+    DOM.loanFlag.title = "shipping pays " + LOAN_RATE + "/cookie until the debt clears - the crew takes its cut";
+    DOM.loanFlag.hidden = true;
+    DOM.statEls.COINS.appendChild(DOM.loanFlag);
     DOM.shopBtn = btn("SHOP + UPGRADES", "cl-run cl-run--shop", openShop);
     hud.appendChild(DOM.shopBtn);
     DOM.runBtn = btn("PAUSE", "cl-run", toggleRun);
     hud.appendChild(DOM.runBtn);
-    hud.appendChild(btn("\u21bb", "cl-reset", resetGame));
+    /* reset arms before it fires: one misclick sat next to PAUSE and wiped a
+       forty-minute run (playtest bug 7). First press asks; it disarms itself. */
+    DOM.resetBtn = btn("\u21bb", "cl-reset", function () {
+      if (!DOM.resetArmed) {
+        DOM.resetArmed = true;
+        DOM.resetBtn.textContent = "RESET?";
+        DOM.resetBtn.classList.add("is-armed");
+        DOM.resetBtn.title = "press again to wipe this run";
+        window.setTimeout(function () {
+          DOM.resetArmed = false;
+          if (DOM.resetBtn) {
+            DOM.resetBtn.textContent = "\u21bb";
+            DOM.resetBtn.classList.remove("is-armed");
+          }
+        }, 2600);
+        return;
+      }
+      resetGame();
+    });
+    hud.appendChild(DOM.resetBtn);
     head.appendChild(hud);
     root.appendChild(head);
 
@@ -935,8 +1079,8 @@
     });
     maint.appendChild(mt);
     maint.appendChild(el("p", "cl-maint__note",
-      "Picking a verb the card rules out locks that machine's maintenance for " + LOCKOUT_SECS +
-      "s when it fails. Nano quotes this card instantly; INSPECT learns it the slow way."));
+      "If you pick a verb the card says is wrong and it fails, that machine's maintenance locks for " +
+      LOCKOUT_SECS + "s. Nano quotes this card instantly; INSPECT learns it the slow way."));
     root.appendChild(maint);
 
     /* the desk views (site / plant / results) */
@@ -976,6 +1120,26 @@
     shopCard.appendChild(DOM.shop);
     DOM.shopOver.appendChild(shopCard);
     root.appendChild(DOM.shopOver);
+
+    /* the win card: same overlay mechanics as the shop (the line waits) */
+    DOM.winOver = el("div", "clf-shopover clf-winover");
+    DOM.winOver.hidden = true;
+    var winCard = el("div", "clf-shopcard clf-wincard");
+    winCard.setAttribute("role", "dialog");
+    winCard.setAttribute("aria-modal", "false");
+    winCard.setAttribute("aria-label", "Contract filled");
+    winCard.appendChild(el("b", "cl-win__stamp", "CONTRACT FILLED"));
+    DOM.winStats = el("div", "cl-results cl-win__stats");
+    winCard.appendChild(DOM.winStats);
+    winCard.appendChild(el("i", "cl-view__note",
+      "the run's own numbers, accumulated as you played - game arithmetic, not a model claim"));
+    var winActs = el("div", "cl-win__acts");
+    DOM.winNext = btn("NEXT CONTRACT", "cl-run", nextContract);
+    winActs.appendChild(DOM.winNext);
+    winActs.appendChild(btn("KEEP RUNNING THIS LINE", "cl-act", dismissWin));
+    winCard.appendChild(winActs);
+    DOM.winOver.appendChild(winCard);
+    root.appendChild(DOM.winOver);
 
     host.appendChild(root);
   }
@@ -1136,6 +1300,60 @@
     if (DOM.shopBtn) DOM.shopBtn.focus();
   }
 
+  /* ---- THE WIN - a contract fills, and the game says so ------------------
+     The playtest shipped 263 cookies and the entire celebration was three
+     lowercase words while the goal chip kept advertising a Pico. Now: the
+     line pauses, the results land front-and-center, the crates get their
+     stamp, and the next contract - bigger, faster creep - is one button. */
+  function nextTargetOf(contract) { return Math.round(contract.target * 2.5 / 10) * 10; }
+
+  function showWin() {
+    if (!DOM.winOver) return;
+    G.winWasRunning = G.running;
+    G.running = false;
+    DOM.winOver.hidden = false;
+    if (DOM.crates) DOM.crates.classList.add("is-stamped");
+    // the run's numbers, laid out like the results view: game arithmetic
+    DOM.winStats.textContent = "";
+    var up = G.runTime ? (G.upTime / G.runTime) * 100 : 100;
+    [["SHIPPED", String(Math.floor(G.cookies))],
+     ["BURNT", String(Math.floor(G.spoiled))],
+     ["UPTIME", up.toFixed(0) + "%"],
+     ["CAUGHT IN TIME", String(G.incidents.caught)],
+     ["LINE STOPPED", String(G.incidents.missed)],
+     [G.coins < 0 ? "ON LOAN" : "COINS", String(Math.floor(G.coins))],
+    ].forEach(function (p) {
+      var c = el("div", "cl-results__cell");
+      c.appendChild(el("b", null, p[1]));
+      c.appendChild(el("i", null, p[0]));
+      DOM.winStats.appendChild(c);
+    });
+    DOM.winNext.textContent = "NEXT CONTRACT · " + nextTargetOf(G.contract) +
+      " COOKIES · conditions creep faster";
+    paint();
+    DOM.winNext.focus();
+  }
+
+  function dismissWin() {
+    if (!DOM.winOver || DOM.winOver.hidden) return;
+    DOM.winOver.hidden = true;
+    G.contractDone = true;            // the offer moves to the goals + shop
+    if (G.winWasRunning) { G.running = true; lastT = 0; }
+    paint();
+  }
+
+  function nextContract() {
+    var next = nextTargetOf(G.contract);
+    G.contract = { target: next, level: G.contract.level + 1, creep: G.contract.creep * 1.35 };
+    G.won = false;
+    G.contractDone = false;
+    if (DOM.winOver) DOM.winOver.hidden = true;
+    if (DOM.crates) DOM.crates.classList.remove("is-stamped");
+    addLog("New contract: " + next + " cookies. Conditions creep faster now.");
+    if (G.winWasRunning !== false) { G.running = true; lastT = 0; }
+    paint();
+  }
+
   /* ---- the traveling product -------------------------------------------
      Sprites are SPENT from G.flow, which only step() feeds - one dough blob
      per unit the mixer really made, one cookie per unit the oven really
@@ -1214,8 +1432,14 @@
     s.bandZone.style.width = (mi.zoneWidth * 100).toFixed(1) + "%";
     s.bandMark.style.left = (mi.pos * 100).toFixed(1) + "%";
     s.band.dataset.state = mi.state;
+    /* a dropped-out reading is LABELLED, not left as bare dashes (playtest
+       bug 5: "--" with the band text still claiming OUTSIDE) */
     s.bandTxt.textContent = "band " + t.lo + "-" + t.hi + " " + m.spec.sensor.unit +
-      (mi.state === "edge" ? " \u00b7 near the edge" : mi.state === "out" ? " \u00b7 OUTSIDE" : "");
+      (mi.state === "gone" ? " \u00b7 NO READING - the wire went quiet"
+        : mi.state === "edge" ? " \u00b7 near the edge"
+        : mi.state === "out" ? " \u00b7 OUTSIDE" : "");
+    if (shown == null) s.value.title = "no reading - the sensor sent nothing this moment";
+    else s.value.removeAttribute("title");
     s.setTxt.textContent = m.set + (m.spec.control.unit || "");
     if (s.input.value !== String(m.set)) s.input.value = m.set;
 
@@ -1273,6 +1497,11 @@
     if (m.inspected && m.cond !== "none") {
       s.slot.appendChild(el("div", "cl-inspected", "INSPECTED: " + INSPECT_WORD[m.cond]));
     }
+    /* a lockout explains itself where it hurts - the countdown lives on the
+       buttons, the WHY lives here, so punishment reads as consequence */
+    if (m.lockout > 0 && m.lockReason) {
+      s.slot.appendChild(el("div", "cl-lockwhy", m.lockReason));
+    }
     if (!m.pico) {
       var b = btn("+ WAVE PICO · " + MODEL_PRICE.pico, "cl-slot__buy", function () { buyPico(m.id); });
       (DOM.priced = DOM.priced || []).push({ b: b, cost: MODEL_PRICE.pico });
@@ -1286,25 +1515,39 @@
       /* PICO SPEAKS BY WHAT IT SAID, never by what the game knows. A recorded
          miss whose child said " none" during a fault renders exactly like
          health - a confident lie is the product truth, and colouring it warn
-         would leak the very answer the model failed to give. The margin now
-         rides every word ("steady \u00b7 3.0 sure"), and healthy windows
-         redraw on a cadence, so the display is a live instrument instead of
-         a dead label - which is what made Pico read as useless before. */
+         would leak the very answer the model failed to give.
+         THE MARGIN IS A METER now, not a number pair (playtest: "0.9
+         sure...out of what?"). The bar is the confidence, the tick is the
+         floor it must clear to speak alone, and the exact figures ride the
+         tooltip. A run of sub-floor windows collapses into one line with a
+         count instead of a fresh chirp per redraw. */
+      function marginMeter(margin) {
+        var wrap = el("i", "cl-margin");
+        wrap.title = margin.toFixed(1) + " sure, needs " + FLOOR +
+          " to speak alone - the bar is confidence, the tick is the line it must clear";
+        var fill = el("b", "cl-margin__fill");
+        fill.style.width = Math.round(Math.min(1, margin / 4) * 100) + "%";
+        wrap.appendChild(fill);
+        var tick = el("s", "cl-margin__tick");
+        tick.style.left = Math.round((FLOOR / 4) * 100) + "%";
+        wrap.appendChild(tick);
+        return wrap;
+      }
       if (!r) {
         head.appendChild(el("span", "cl-say__word", "steady"));
         head.dataset.verdict = "ok";
       } else if (r.kind === "unsure") {
-        /* "only 1.4" told the founder nothing. Same pattern as the mesh deck:
-           the number, what it is, and the bar it failed to clear. */
         head.appendChild(el("span", "cl-say__word",
-          "not sure \u00b7 " + r.margin.toFixed(1) + " sure, needs " + FLOOR));
+          "not sure" + (m.unsureRun > 1 ? " \u00d7" + m.unsureRun : "")));
+        head.appendChild(marginMeter(r.margin));
         head.dataset.verdict = "warn";
       } else if (r.said === "none") {
-        head.appendChild(el("span", "cl-say__word", "steady \u00b7 " + r.margin.toFixed(1) + " sure"));
+        head.appendChild(el("span", "cl-say__word", "steady"));
+        head.appendChild(marginMeter(r.margin));
         head.dataset.verdict = "ok";
       } else {
-        head.appendChild(el("span", "cl-say__word",
-          "\u201c " + r.said + "\u201d \u00b7 " + r.margin.toFixed(1) + " sure"));
+        head.appendChild(el("span", "cl-say__word", "\u201c" + r.said + "\u201d"));
+        head.appendChild(marginMeter(r.margin));
         // an alarm word is an alarm; on a healthy window it is the bench's
         // own recorded false alarm, replayed exactly as recorded
         head.dataset.verdict = m.cond !== "none" ? "bad" : "warn";
@@ -1318,7 +1561,7 @@
         var raised = !!r2 && (r2.kind === "unsure" || r2.said !== "none");
         if (raised) {
           s.bubble.hidden = false;
-          s.bubble.textContent = r2.kind === "unsure" ? "not sure" : "\u201c " + r2.said + "\u201d";
+          s.bubble.textContent = r2.kind === "unsure" ? "not sure" : "\u201c" + r2.said + "\u201d";
           s.bubble.dataset.verdict = (r2.said !== "none" && m.cond !== "none") ? "bad" : "warn";
         } else {
           s.bubble.hidden = true;
@@ -1341,12 +1584,12 @@
                                         : "Then reduce SPEED - you are over the limit.";
             }
           } else {
-            advice = "says \u201c " + m.nanoRead.said + "\u201d - the recorded senior got this one wrong too.";
+            advice = "says \u201c" + m.nanoRead.said + "\u201d - the recorded senior got this one wrong too.";
           }
         } else if (m.cond === "none" && r && r.kind !== "unsure" && r.said !== "none" && m.nanoRead) {
           advice = m.nanoRead.kind === "resolved"
             ? "checked that alarm at the gateway - no real fault behind it. Carry on."
-            : "the gateway read the same window and also called \u201c " + m.nanoRead.said +
+            : "the gateway read the same window and also called \u201c" + m.nanoRead.said +
               "\u201d - SERVICE to be sure.";
         } else if (m.cond === "none" && !inBand(m, m.real)) {
           advice = "that is not a sensor fault - the process is out of its band.";
@@ -1479,9 +1722,26 @@
   function paintGoals() {
     var rows = [];
     var picos = G.machines.filter(function (m) { return m.pico; }).length;
-    rows.push(["SHIP", Math.floor(G.cookies) + " / 100 cookies",
-      G.cookies >= 100 ? "contract filled" : "keep every needle inside its marked band - conditions creep"]);
-    if (!picos) {
+    var target = G.contract.target;
+    var filled = G.cookies >= target;
+    rows.push(["SHIP", Math.floor(G.cookies) + " / " + target + " cookies" +
+      (G.contract.level > 1 ? " · contract " + G.contract.level : ""),
+      filled ? "contract filled" : "keep every needle inside its marked band - conditions creep"]);
+    /* the opening, said where the player is looking */
+    if (G.graceLeft > 0) {
+      rows.push(["WATCH", "the line is settling in",
+        "learn the dials - keep every needle in its band. The first trouble is coming."]);
+    } else if (G.taught && !G.taughtCleared) {
+      var mx0 = machine("mixer");
+      rows.push(["WATCH", "the mixer reads " + (mx0.cond === "stuck" ? mx0.stuckAt.toFixed(2) : "steady") +
+        " and has not moved", "does that seem right? INSPECT it - or a stuck sensor usually restarts clean"]);
+    }
+    if (filled) {
+      /* the win stops advertising Picos (playtest bug 1) - the next thing
+         is the next contract, offered on the win card and again here */
+      rows.push(["NEXT", "NEW CONTRACT · " + nextTargetOf(G.contract) + " cookies",
+        "take it from the results card or the shop - conditions creep faster"]);
+    } else if (!picos) {
       rows.push(["NEXT", "WAVE PICO · " + MODEL_PRICE.pico,
         "puts a model on one machine so it tells you when its reading stops being trustworthy"]);
     } else if (!G.nano) {
@@ -1578,6 +1838,21 @@
       }));
     });
 
+    /* a filled contract's re-roll is buyable here too, for the player who
+       dismissed the win card and kept running */
+    if (G.won && G.contractDone) {
+      var col4 = el("div", "cl-branch");
+      col4.appendChild(el("span", "cl-branch__head", "THE OFFICE"));
+      col4.appendChild(node({
+        name: "NEXT CONTRACT",
+        owned: false,
+        promise: nextTargetOf(G.contract) + " cookies - conditions creep faster",
+        price: "TAKE IT",
+        cost: 0,
+        buy: function () { nextContract(); closeShop(); },
+      }));
+      DOM.shop.appendChild(col4);
+    }
     DOM.shop.appendChild(col1);
     DOM.shop.appendChild(col2);
     DOM.shop.appendChild(col3);
@@ -1704,16 +1979,23 @@
         return [m.pico, m.auto, m.cond, m.tier, m.lockout > 0, m.restarting > 0,
           m.healthyDraws, m.picoRead && m.picoRead.kind, m.nanoRead && m.nanoRead.kind].join(",");
       }).join("|"),
-      Math.floor(G.cookies) >= 100].join("~");
+      G.cookies >= G.contract.target, G.contract.level, G.won, G.contractDone,
+      G.graceLeft > 0, G.taught, G.taughtCleared].join("~");
   }
 
   function paint() {
     if (!DOM.stations) return;
     DOM.coins.textContent = Math.floor(G.coins);
-    // debt is a state you can SEE: red coins and the label says loan
+    // debt is a state you can SEE: red coins plus a flag - the COINS label
+    // itself never vanishes (playtest: "players scanning for money see their
+    // stat gone")
     if (DOM.statEls && DOM.statEls.COINS) {
       DOM.statEls.COINS.classList.toggle("is-debt", G.coins < 0);
-      DOM.statEls.COINS.lastChild.textContent = G.coins < 0 ? "ON LOAN" : "COINS";
+      if (DOM.loanFlag) DOM.loanFlag.hidden = G.coins >= 0;
+    }
+    if (DOM.burnt) {
+      DOM.burnt.textContent = Math.floor(G.spoiled);
+      DOM.statEls.BURNT.classList.toggle("is-burnt", G.spoiled >= 1);
     }
     if (DOM.best) {
       var bestShow = Math.max(G.bestRun, G.cleanRun);
@@ -1729,6 +2011,23 @@
     G.machines.forEach(paintStation);
     DOM.shipTxt.textContent = Math.floor(G.cookies) + " shipped";
     DOM.spoilTxt.textContent = G.spoiled > 1 ? Math.floor(G.spoiled) + " burnt" : "";
+    /* a burnt cookie FALLS OFF THE BELT at the oven - the loss state gets a
+       moment, not a footnote. Chrome for arithmetic that already happened;
+       under reduced motion the HUD tally tick is the report. */
+    if (DOM.cookieLayer) {
+      var burntNow = Math.floor(G.spoiled);
+      if (DOM.burntShown == null) DOM.burntShown = burntNow;
+      if (burntNow > DOM.burntShown) {
+        DOM.burntShown = burntNow;
+        if (!REDUCED) {
+          var bc = el("i", "clf-cookie clf-cookie--burnt");
+          bc.innerHTML = COOKIE_SVGS.cookie;
+          bc.style.left = "58%";
+          DOM.cookieLayer.appendChild(bc);
+          window.setTimeout(function () { if (bc.parentNode) bc.parentNode.removeChild(bc); }, 1300);
+        }
+      }
+    }
     // the crate stack grows with real shipments; capped so it stays a stack
     if (DOM.crates) {
       var want = Math.min(8, Math.floor(G.cookies / 20));
@@ -1814,6 +2113,7 @@
 
   function resetGame() {
     G = freshState();
+    beginRun(G);                 // a real run always opens with the lesson
     var host = document.getElementById("wfGame");
     if (host) buildShell(host);
     loadRecords();
@@ -1841,12 +2141,15 @@
   function boot() {
     var host = document.getElementById("wfGame");
     if (!host) return;
+    beginRun(G);                 // the live game opens calm, then teaches
     buildShell(host);
     paint();
     loadRecords();
     if (window.requestAnimationFrame) raf = window.requestAnimationFrame(frame);
     document.addEventListener("keydown", function (e) {
-      if (e.key === "Escape" && DOM.shopOver && !DOM.shopOver.hidden) closeShop();
+      if (e.key !== "Escape") return;
+      if (DOM.shopOver && !DOM.shopOver.hidden) closeShop();
+      else if (DOM.winOver && !DOM.winOver.hidden) dismissWin();
     });
     document.addEventListener("visibilitychange", function () {
       if (document.hidden) { G.wasRunning = G.running; G.running = false; }
@@ -1907,9 +2210,18 @@
       inspectSecs: INSPECT_SECS,
       inspectWord: INSPECT_WORD,
       serviceCost: SERVICE_COST,
+      serviceSecs: SERVICE_SECS,
       lockoutSecs: LOCKOUT_SECS,
       healthyWindow: HEALTHY_WINDOW,
       conditionFix: CONDITION_FIX,
+      graceSecs: GRACE_SECS,
+      loanRate: LOAN_RATE,
+      ownsMiss: ownsMiss,
+      begin: beginRun,
+      nextTargetOf: nextTargetOf,
+      conditionWith: function (state, id, kind) {
+        var s = G; G = state; startCondition(machine(id), kind); G = s; return state;
+      },
       flowWith: function (state, dt) {
         var s = G; G = state; step(dt); G = s; return state.flow;
       },
