@@ -763,7 +763,7 @@
 .cl-cert__head b { font-family: var(--font-mono); font-size: .72rem; letter-spacing: .16em; }
 .cl-cert__head span { font-size: .62rem; color: var(--ink-400); font-family: var(--font-mono); }
 .cl-cert__rows { list-style: none; margin: .5rem 0 0; padding: 0; display: grid; gap: .25rem; }
-.cl-cert__row { display: flex; gap: .5rem; align-items: baseline; font-family: var(--font-mono); font-size: .62rem; color: var(--ink-500); }
+.cl-cert__row { display: flex; flex-wrap: wrap; gap: .1rem .5rem; align-items: baseline; font-family: var(--font-mono); font-size: .62rem; color: var(--ink-500); }
 .cl-cert__row b { width: 1rem; text-align: center; color: var(--ink-300); }
 .cl-cert__row.is-done { color: var(--ink-900); }
 .cl-cert__row.is-done b { color: #1E7A3C; } /* the fenced lamp green: done = good, and the checkmark carries the word beside it */
@@ -772,7 +772,7 @@
 /* v34: the proof rule spelled out where the goal is read - a touch is a
    setback, not a restart, so a dead line should be rescued */
 .cl-cert__hint {
-  display: block;
+  display: block; flex-basis: 100%; padding-left: 1.5rem;   /* its own line, under the clock, indented past the tick */
   font-style: normal;
   font-size: 0.62rem;
   letter-spacing: 0.04em;
