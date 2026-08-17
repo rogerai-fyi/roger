@@ -40,7 +40,7 @@ import (
 // serveJoined runs the link until the process is interrupted. It supplies the two things the
 // loop cannot invent for itself - a real signal and a real clock - and then gets out of the
 // way; everything that can go wrong is in runLink, where a test can reach it.
-func serveJoined(st *tower.State, out io.Writer, stations stationEndpoints, relayAddr string, routes relayRoutes, relayPublic, hubAddr, hubCert, hubKey string) error {
+func serveJoined(st *tower.State, out io.Writer, relayPublic, hubAddr, hubCert, hubKey string) error {
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(stop)
@@ -56,15 +56,8 @@ func serveJoined(st *tower.State, out io.Writer, stations stationEndpoints, rela
 		windDown()
 	}()
 
-	// THE DATA PLANE, alongside the link. It is what takes load off Roger Core, and it runs
-	// independently: a Tower whose link is briefly down is still carrying sessions that were
-	// already authorized, and cutting them off would turn a control-plane blip into a
-	// customer-visible outage.
-	if relayAddr != "" {
-		waitForRelay := runRelayInBackground(relayAddr, routes, out, stopped)
-		defer waitForRelay()
-	}
-	// THE HUB (Option C, Topology 2): the tower-hosted job queue consumers submit sealed work
+	// THE HUB - the data plane (Option C, Topology 2): the tower-hosted job queue consumers
+	// submit sealed work
 	// to and self-attached roger share nodes poll. Started before the link so a consumer's
 	// very first submit after we advertise has somewhere to land; fails fast if Core's grant
 	// key cannot be fetched.
@@ -81,7 +74,7 @@ func serveJoined(st *tower.State, out io.Writer, stations stationEndpoints, rela
 	// an operator who did nothing wrong. It runs independently of the link for the same
 	// reason the relay does: a control-plane blip must not also cost the credential.
 	go towerjoin.KeepRenewed(st, out, stopped, realTicker)
-	err := runLink(st, out, stopped, realTicker, stations, relayPublic)
+	err := runLink(st, out, stopped, realTicker, relayPublic)
 	// THE LINK RETURNING WINDS EVERYTHING DOWN, error or not. Without this, a serve whose
 	// link failed at startup - not registered, wrong mode - HUNG forever: the deferred
 	// relay-wait was waiting on a stop signal only ctrl-c could send, over a loop whose
@@ -104,14 +97,8 @@ func realTicker(d time.Duration) (<-chan time.Time, func()) {
 	return t.C, t.Stop
 }
 
-// runLink is the link loop proper: open, push, heartbeat, collect work, re-open on refusal,
-// drain on exit.
-//
-// stations may be empty, and then this Tower relays its Stations' offers without collecting
-// any work for them - which is the right behaviour for a Tower whose Stations are attached
-// but not yet reachable, and is what every test that is about the LINK rather than about
-// dispatch passes.
-func runLink(st *tower.State, out io.Writer, stop <-chan struct{}, ticker func(time.Duration) (<-chan time.Time, func()), stations stationEndpoints, relayEndpoint string) error {
+// runLink is the link loop proper: open, push, heartbeat, re-open on refusal, drain on exit.
+func runLink(st *tower.State, out io.Writer, stop <-chan struct{}, ticker func(time.Duration) (<-chan time.Time, func()), relayEndpoint string) error {
 	if st.Mode != tower.ModeJoined {
 		return errors.New(
 			"this Tower is standalone: it serves its own local network and needs nothing from " +
@@ -163,25 +150,6 @@ func runLink(st *tower.State, out io.Writer, stop <-chan struct{}, ticker func(t
 
 	fmt.Fprintf(out, "holding the link (heartbeat every %s, inventory refresh every %s) - "+
 		"ctrl-c to drain and exit\n", beat, inventoryRefresh)
-
-	// DISPATCH runs alongside, in its own goroutine: a heartbeat is a short call on a timer
-	// and a poll is a long wait, and folding them together would mean one starving the other.
-	// It is stopped by the same signal and waited for on the way out, so a Tower never exits
-	// while it is mid-relay on somebody's request.
-	if len(stations) > 0 {
-		waitForDispatch := runDispatchInBackground(st, out, stations, stop)
-		defer waitForDispatch()
-		// THE RECEIPT COURIER, for the edge path: a receipt travels to the consumer inside
-		// TLS this Tower cannot read, so settlement's copy comes from the Stations' outboxes,
-		// through here. Withholding them costs exactly one party - this operator, who is paid
-		// on what settles - so the courier is the incentive-aligned half of getting paid.
-		go towerjoin.KeepCollecting(st, stations, out, stop, ticker)
-		// AND THE AUDIT COURIER, on the same timer: Core samples a fraction of settled
-		// attempts for content review, and the transcripts travel the road only the Tower
-		// holds. Withholding them is itself a finding, so carrying them is the operator's
-		// interest as much as the receipts are.
-		go towerjoin.KeepAuditing(st, stations, out, stop, ticker)
-	}
 
 	for {
 		select {
@@ -326,11 +294,7 @@ func localOffers(st *tower.State, out io.Writer) ([]json.RawMessage, error) {
 func cmdServe(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	dir, cfg := dirAndConfig(fs)
-	var stationFlags, relayFlags multiFlag
-	fs.Var(&stationFlags, "station", "a Station this Tower serves, as ID=URL (repeatable)")
-	fs.Var(&relayFlags, "relay-station", "a Station this Tower RELAYS to, as ID=HOST:PORT (repeatable)")
-	relayAddr := fs.String("relay", "", "address to relay consumer traffic on, e.g. :8443")
-	relayPublic := fs.String("relay-public", "", "the PUBLIC host:port consumers reach the relay at (advertised to Roger Core)")
+	relayPublic := fs.String("relay-public", "", "the PUBLIC host:port consumers reach this tower's data plane (the hub) at, advertised to Roger Core")
 	hubAddr := fs.String("hub", "", "address to serve the data-plane HUB on, e.g. :8444 - where consumers submit sealed work and this tower's self-attached nodes poll")
 	hubCert := fs.String("hub-tls-cert", "", "TLS certificate (PEM) for the hub listener - with --hub-tls-key, the hub serves https")
 	hubKey := fs.String("hub-tls-key", "", "TLS private key (PEM) for the hub listener")
@@ -346,27 +310,16 @@ func cmdServe(args []string, out io.Writer) error {
 	if *hubCert != "" && *hubAddr == "" {
 		return fmt.Errorf("--hub-tls-cert without --hub: there is no hub listener to protect")
 	}
-	stations, err := parseStationEndpoints(stationFlags)
-	if err != nil {
-		return err
-	}
-	routes, err := parseRelayRoutes(relayFlags)
-	if err != nil {
-		return err
-	}
 	// Checked BEFORE the data directory is touched when there is no config to fill the gap:
 	// a flag mistake should be reported as a flag mistake, not as whatever the directory
 	// happens to complain about first.
-	if *cfg == "" && *relayAddr != "" && len(routes) == 0 {
-		return fmt.Errorf("--relay needs at least one --relay-station ID=HOST:PORT to route to")
-	}
 	if *relayPublic != "" {
 		if _, _, aerr := net.SplitHostPort(*relayPublic); aerr != nil {
 			return fmt.Errorf("--relay-public must be a dialable host:port, got %q", *relayPublic)
 		}
 	}
-	if *cfg == "" && *relayPublic != "" && *relayAddr == "" && *hubAddr == "" {
-		return fmt.Errorf("--relay-public advertises a data plane, but neither --relay nor --hub is serving one")
+	if *cfg == "" && *relayPublic != "" && *hubAddr == "" {
+		return fmt.Errorf("--relay-public advertises a data plane, but no --hub is serving one")
 	}
 	// serve takes --config for the same reason the state commands do, and it matters MORE
 	// here: an operator whose `attach` wrote to the database while `serve` read local disk
@@ -376,10 +329,10 @@ func cmdServe(args []string, out io.Writer) error {
 		return err
 	}
 	defer release()
-	// THE CONFIG IS NOT DECORATION. A relay declared in the file and then ignored because
-	// the operator did not also pass flags is the exact failure this audit found across the
-	// rest of the schema; flags win when both are given, because a flag is the more
-	// deliberate of the two.
+	// THE CONFIG IS NOT DECORATION. A data plane declared in the file and then ignored
+	// because the operator did not also pass flags is the exact failure an audit found
+	// across the rest of the schema; flags win when both are given, because a flag is the
+	// more deliberate of the two.
 	if *cfg != "" {
 		c, cerr := loadConfig(*cfg)
 		if cerr != nil {
@@ -388,19 +341,9 @@ func cmdServe(args []string, out io.Writer) error {
 		for _, u := range c.Unenforced() {
 			fmt.Fprintf(out, "IGNORED: %s\n", u)
 		}
-		if *relayAddr == "" && c.Relay != nil {
-			*relayAddr = c.Relay.Address
-		}
 		if *relayPublic == "" && c.Relay != nil {
 			*relayPublic = c.Relay.Public
 		}
-		if len(routes) == 0 && c.Relay != nil {
-			routes, err = relayRoutesFrom(c.Relay.Stations)
-			if err != nil {
-				return err
-			}
-		}
-		// The hub block mirrors the relay's flag-beats-config rule.
 		if c.Hub != nil {
 			if *hubAddr == "" {
 				*hubAddr = c.Hub.Address
@@ -410,24 +353,16 @@ func cmdServe(args []string, out io.Writer) error {
 			}
 		}
 	}
-	if *relayAddr != "" && len(routes) == 0 {
-		return fmt.Errorf("a relay address needs at least one Station to route to: " +
-			"pass --relay-station ID=HOST:PORT, or set relay.stations in the config")
+	// The PUBLIC address is what Core hands to consumers and self-attaching nodes, and the
+	// listen address is very often not it - ":8444" is not dialable by anyone. A hub with no
+	// public address still serves whoever was told about it some other way, but Core will
+	// not route anyone new here, and the operator should know that is what they asked for.
+	if *relayPublic != "" && *hubAddr == "" {
+		return fmt.Errorf("--relay-public advertises a data plane, but no --hub is serving one")
 	}
-	// The PUBLIC address is what Core hands to consumers, and the listen address is very
-	// often not it - ":8443" is not dialable by anyone. A relay with no public address still
-	// carries traffic for consumers who were told about it some other way, but Core will not
-	// route anyone new here, and the operator should know that is what they asked for.
-	// A HUB is a data plane too: --relay-public names the address Core advertises for
-	// whichever plane is serving, and a hub-only tower (the Topology-2 shape) is the one
-	// that NEEDS it - self-attach hands that address to every node and consumer. The earlier
-	// check refused exactly that combination and stranded hub towers unadvertised.
-	if *relayPublic != "" && *relayAddr == "" && *hubAddr == "" {
-		return fmt.Errorf("--relay-public advertises a data plane, but neither --relay nor --hub is serving one")
+	if *hubAddr != "" && *relayPublic == "" {
+		fmt.Fprint(out, "NOTE: the hub has no --relay-public address, so Roger Core will not "+
+			"route edge consumers or self-attaching nodes to this Tower.\n")
 	}
-	if *relayAddr != "" && *relayPublic == "" {
-		fmt.Fprint(out, "NOTE: the relay has no --relay-public address, so Roger Core will not "+
-			"route edge consumers to this Tower.\n")
-	}
-	return serveJoined(st, out, stations, *relayAddr, routes, *relayPublic, *hubAddr, *hubCert, *hubKey)
+	return serveJoined(st, out, *relayPublic, *hubAddr, *hubCert, *hubKey)
 }

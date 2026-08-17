@@ -68,10 +68,9 @@ func TestSealedCanaryJudgesAHubNode(t *testing.T) {
 		return true
 	}, 10*time.Second, 50*time.Millisecond)
 
-	// The target is the SELF- row, and the probe rides the sealed path: a serving node passes.
-	_, _, sealedPath, ok := b.canaryTargetFor(tw.id)
+	// The target is the SELF- row - the only kind the canary probes now: a serving node passes.
+	_, _, ok := b.canaryTargetFor(tw.id)
 	require.True(t, ok, "the hub node is a canary target")
-	require.True(t, sealedPath, "a self-attached row is probed sealed, never raw-TLS")
 	require.Equal(t, reputation.CanaryPass, b.RunCanary(tw.id), "a healthy hub node passes")
 
 	// The node goes dark: the same probe fails - the 'serving nothing' finding.

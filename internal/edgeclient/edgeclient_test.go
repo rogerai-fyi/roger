@@ -1,26 +1,20 @@
 package edgeclient
 
-// edgeclient_test.go drives the whole consumer side against a real Station behind a real
-// relay, and a Core stub that records what the acknowledgement carried.
+// edgeclient_test.go drives the whole SEALED consumer loop against a real serving node
+// behind a real tower hub, and a Core stub that records what the acknowledgement carried.
+// (The raw-TLS relay rig this file used to build died with the leaf-station generation.)
 //
 // Contract: features/tower/edge_dispatch.feature.
 
 import (
 	"bytes"
 	"context"
-	"crypto/ecdsa"
 	"crypto/ed25519"
-	"crypto/elliptic"
 	"crypto/rand"
-	"crypto/tls"
-	"crypto/x509"
-	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"io"
-	"math/big"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -28,108 +22,87 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"rogerai.fm/roger/v5/internal/relay"
 	"rogerai.fm/roger/v5/internal/station"
 	"rogerai.fm/roger/v5/internal/towercore/dispatch"
 	"rogerai.fm/roger/v5/internal/towercore/link"
+	"rogerai.fm/roger/v5/internal/towerhub"
 )
 
-// edgeWorld stands up the whole path: Core (authorize + ack), a Station serving over TLS, a
-// blind relay in front of it, and a client pointed at Core.
-type edgeWorld struct {
-	client   *Client
-	acked    []dispatch.Ack
-	mu       sync.Mutex
-	stopRlay func()
+// sealedWorld stands up the whole path: Core (authorize + ack), a node blind-serving through
+// a real tower hub, and a client pointed at Core.
+type sealedWorld struct {
+	client *Client
+	acked  []dispatch.Ack
+	mu     sync.Mutex
+	cancel func()
 }
 
-func newEdgeWorld(t *testing.T, model, answer string) *edgeWorld {
+func newSealedWorld(t *testing.T, model, answer string) *sealedWorld {
 	t.Helper()
-	const relayName = "st-1.relay.example"
 
-	// The Station's identity, issued by a CA the client will trust.
-	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	require.NoError(t, err)
-	caTmpl := &x509.Certificate{
-		SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "probe CA"},
-		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour),
-		KeyUsage: x509.KeyUsageCertSign, BasicConstraintsValid: true, IsCA: true,
-	}
-	caDER, err := x509.CreateCertificate(rand.Reader, caTmpl, caTmpl, &caKey.PublicKey, caKey)
-	require.NoError(t, err)
-	caCert, err := x509.ParseCertificate(caDER)
-	require.NoError(t, err)
-
-	stKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	require.NoError(t, err)
-	leafTmpl := &x509.Certificate{
-		SerialNumber: big.NewInt(2), Subject: pkix.Name{CommonName: relayName},
-		DNSNames: []string{relayName}, NotBefore: time.Now().Add(-time.Hour),
-		NotAfter: time.Now().Add(time.Hour), KeyUsage: x509.KeyUsageDigitalSignature,
-		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-	}
-	leafDER, err := x509.CreateCertificate(rand.Reader, leafTmpl, caCert, &stKey.PublicKey, caKey)
-	require.NoError(t, err)
-	roots := x509.NewCertPool()
-	roots.AddCert(caCert)
-
-	// The Station and Core share a grant key; the Station verifies grants with the public
-	// half, Core mints with the private.
 	corePub, corePriv, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
 	st, err := station.Init(t.TempDir())
 	require.NoError(t, err)
-	edge := station.EdgeExecutor{
+	exec := station.EdgeExecutor{
 		Station: st, CoreKey: corePub, Network: link.PublicNetwork,
 		Upstream: fixedUpstream([]byte(answer)),
+		Outbox:   station.NewOutbox(16),
+		Seen:     station.NewAttemptCache(),
 	}
 
-	// The Station's TLS listener.
-	rawLn, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	stationAddr := rawLn.Addr().String()
-	tlsLn := tls.NewListener(rawLn, &tls.Config{
-		Certificates: []tls.Certificate{{Certificate: [][]byte{leafDER}, PrivateKey: stKey}},
-		MinVersion:   tls.VersionTLS12,
-	})
-	stationSrv := &http.Server{Handler: http.HandlerFunc(edgeServe(edge))}
-	go func() { _ = stationSrv.Serve(tlsLn) }()
-	t.Cleanup(func() { _ = stationSrv.Close() })
-
-	// A blind relay in front, dialing the Station.
-	relayLn, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	relayAddr := relayLn.Addr().String()
-	r := &relay.Relay{
-		Router:      staticRoute{name: relayName, addr: stationAddr},
-		PeekTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second,
-	}
+	// The tower hub, with the node's serve loop polling it.
+	hub := towerhub.NewServer(towerhub.New(), func(grant []byte) (string, string, error) {
+		att, stationID, _, gerr := dispatch.EdgeGrantMeta(grant, corePub, link.PublicNetwork, "tw-1", time.Now())
+		if gerr != nil {
+			return "", "", gerr
+		}
+		return att, stationID, nil
+	}, 10*time.Second, 300*time.Millisecond)
+	hub.RegisterNode(st.StationID, "tok")
+	mux := http.NewServeMux()
+	mux.HandleFunc(towerhub.PathSubmit, hub.Submit)
+	mux.HandleFunc(towerhub.PathPoll, hub.Poll)
+	mux.HandleFunc(towerhub.PathComplete, hub.Complete)
+	hubSrv := httptest.NewServer(mux)
+	t.Cleanup(hubSrv.Close)
 	ctx, cancel := context.WithCancel(context.Background())
-	relayDone := make(chan struct{})
-	go func() { defer close(relayDone); _ = r.Serve(ctx, relayLn) }()
+	nodeClient := &towerhub.Client{BaseURL: hubSrv.URL, Token: "tok"}
+	go func() {
+		_ = towerhub.ServeLoop(ctx, nodeClient, st.StationID, sealedServe{exec}, nil)
+	}()
 
-	w := &edgeWorld{stopRlay: func() { cancel(); _ = relayLn.Close(); <-relayDone }}
+	w := &sealedWorld{cancel: cancel}
 	reg := dispatch.NewWithStore(dispatch.Config{
 		Network: link.PublicNetwork, Signer: corePriv, Lifetime: time.Minute,
 	}, nil)
 
-	// Core: authorize mints against the relay endpoint; ack verifies against the request key.
-	mux := http.NewServeMux()
-	mux.HandleFunc("/tower/edge/authorize", func(rw http.ResponseWriter, r *http.Request) {
-		pub := r.Header.Get("X-Roger-Pubkey")
-		require.NotEmpty(t, pub, "authorize must be signed")
-		g, err := reg.MintEdge(dispatch.EdgeTarget{
+	// Core: authorize mints against the hub endpoint; ack verifies against the request key.
+	coreMux := http.NewServeMux()
+	coreMux.HandleFunc("/tower/edge/authorize", func(rw http.ResponseWriter, r *http.Request) {
+		require.NotEmpty(t, r.Header.Get("X-Roger-Pubkey"), "authorize must be signed")
+		var req struct {
+			ConsumerEnvKey string `json:"consumer_env_key"`
+		}
+		body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+		require.NoError(t, json.Unmarshal(body, &req))
+		envKey, kerr := hex.DecodeString(req.ConsumerEnvKey)
+		require.NoError(t, kerr)
+		g, gerr := reg.MintEdge(dispatch.EdgeTarget{
 			TowerID: "tw-1", StationID: st.StationID, Model: model, Modality: "text",
-			RelayName: relayName, MaxIn: 1 << 20, MaxOut: 1 << 20, AssertionKey: st.AssertionPub(), ConsumerKey: edgeConsumerKey(),
+			RelayName: "st-1.relay.example", MaxIn: 1 << 20, MaxOut: 1 << 20,
+			AssertionKey: st.AssertionPub(), ConsumerKey: edgeConsumerKey(),
+			ConsumerEnvKey: envKey, PriceOutMicros: 300_000,
 		})
-		require.NoError(t, err)
+		require.NoError(t, gerr)
 		writeJSON(rw, map[string]any{
 			"attempt_id": g.AttemptID, "grant": base64.StdEncoding.EncodeToString(g.Signed),
-			"relay_name": relayName, "endpoint": relayAddr,
-			"deadline": g.Deadline.Unix(), "max_in": g.MaxIn, "max_out": g.MaxOut,
+			"endpoint":            hubSrv.Listener.Addr().String(),
+			"station_session_key": hex.EncodeToString(st.SessionPub()),
+			"price_out_micros":    300_000,
 		})
 	})
-	mux.HandleFunc("/tower/edge/ack", func(rw http.ResponseWriter, r *http.Request) {
+	coreMux.HandleFunc("/tower/edge/ack", func(rw http.ResponseWriter, r *http.Request) {
 		var req struct {
 			AttemptID string `json:"attempt_id"`
 			Ack       string `json:"ack"`
@@ -137,41 +110,47 @@ func newEdgeWorld(t *testing.T, model, answer string) *edgeWorld {
 		_ = json.NewDecoder(r.Body).Decode(&req)
 		raw, _ := base64.StdEncoding.DecodeString(req.Ack)
 		pub, _ := hex.DecodeString(r.Header.Get("X-Roger-Pubkey"))
-		ack, err := dispatch.ParseAck(raw, pub, link.PublicNetwork, req.AttemptID)
-		require.NoError(t, err)
+		ack, aerr := dispatch.ParseAck(raw, pub, link.PublicNetwork, req.AttemptID)
+		require.NoError(t, aerr)
 		w.mu.Lock()
 		w.acked = append(w.acked, ack)
 		w.mu.Unlock()
 		writeJSON(rw, map[string]any{"recorded": true})
 	})
-	coreSrv := httptest.NewServer(mux)
+	coreSrv := httptest.NewServer(coreMux)
 	t.Cleanup(coreSrv.Close)
 
 	_, clientKey, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
-	w.client = &Client{Broker: coreSrv.URL, Key: clientKey, Roots: roots}
+	w.client = &Client{Broker: coreSrv.URL, Key: clientKey}
 	return w
 }
 
-// THE WHOLE CONSUMER LOOP: authorize, serve through the relay, acknowledge - and the
-// acknowledgement Core received matches the bytes the Station actually returned.
+type sealedServe struct{ e station.EdgeExecutor }
+
+func (s sealedServe) Serve(ctx context.Context, grant, env []byte) ([]byte, []byte, string) {
+	return s.e.ServeSealed(ctx, grant, env)
+}
+
+// THE WHOLE CONSUMER LOOP: authorize, serve sealed through the hub, acknowledge - and the
+// acknowledgement Core received matches the bytes the node actually returned.
 func TestTheClientAuthorizesServesAndAcknowledges(t *testing.T) {
 	answer := `{"choices":[{"text":"the answer"}]}`
-	w := newEdgeWorld(t, "m", answer)
-	defer w.stopRlay()
+	w := newSealedWorld(t, "m", answer)
+	defer w.cancel()
 
 	ctx := context.Background()
-	auth, err := w.client.Authorize(ctx, "m", 1<<10, 1<<10)
+	auth, err := w.client.AuthorizeSealed(ctx, "m")
 	require.NoError(t, err)
 	require.NotEmpty(t, auth.AttemptID)
-	require.Equal(t, "st-1.relay.example", auth.RelayName)
+	require.EqualValues(t, 300_000, auth.PriceOutMicros, "the pinned price is echoed")
 
-	res, err := w.client.Do(ctx, auth, "/v1/chat/completions", []byte(`{"prompt":"hi"}`))
+	res, err := w.client.DoSealed(ctx, &auth, []byte(`{"prompt":"hi"}`))
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, res.Status)
-	require.JSONEq(t, answer, string(res.Body), "the consumer gets the model's own bytes")
+	require.JSONEq(t, answer, string(res.Body), "the consumer gets the model's own bytes, opened")
 
-	require.NoError(t, w.client.Ack(ctx, auth, res))
+	require.NoError(t, w.client.AckSealed(ctx, &auth, res))
 
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -181,28 +160,32 @@ func TestTheClientAuthorizesServesAndAcknowledges(t *testing.T) {
 		"the acknowledgement must commit to exactly what was received")
 }
 
-func TestAuthorizeNeedsAKey(t *testing.T) {
-	c := &Client{Broker: "http://127.0.0.1:1"}
-	_, err := c.Authorize(context.Background(), "m", 1, 1)
-	require.ErrorContains(t, err, "signing key")
+// A spent authorization cannot be replayed: the opening key is zeroed on success.
+func TestASpentAuthorizationCannotBeReused(t *testing.T) {
+	w := newSealedWorld(t, "m", `{"ok":true}`)
+	defer w.cancel()
+	ctx := context.Background()
+	auth, err := w.client.AuthorizeSealed(ctx, "m")
+	require.NoError(t, err)
+	_, err = w.client.DoSealed(ctx, &auth, []byte(`{}`))
+	require.NoError(t, err)
+	_, err = w.client.DoSealed(ctx, &auth, []byte(`{}`))
+	require.ErrorContains(t, err, "already used")
 }
 
-// A request over the grant's ceiling is refused BEFORE a connection is spent - the Station
-// would refuse it anyway, so there is no reason to open a socket to find out.
-func TestARequestOverTheCeilingNeverLeaves(t *testing.T) {
-	c := &Client{Broker: "http://127.0.0.1:1", Key: mustKey(t)}
-	_, err := c.Do(context.Background(),
-		Authorization{RelayName: "x", Endpoint: "127.0.0.1:1", MaxIn: 4}, "/", []byte("too long"))
-	require.ErrorContains(t, err, "the grant allows 4")
+func TestAuthorizeNeedsAKey(t *testing.T) {
+	c := &Client{Broker: "http://127.0.0.1:1"}
+	_, err := c.AuthorizeSealed(context.Background(), "m")
+	require.ErrorContains(t, err, "signing key")
 }
 
 // An acknowledgement of a non-answer is a no-op, not an error: there is nothing to
 // corroborate, and signing a claim about an error body would be a lie.
 func TestThereIsNothingToAcknowledgeForARefusal(t *testing.T) {
 	c := &Client{Broker: "http://127.0.0.1:1", Key: mustKey(t)}
-	require.NoError(t, c.Ack(context.Background(), Authorization{AttemptID: "a"},
+	require.NoError(t, c.AckSealed(context.Background(), &SealedAuthorization{AttemptID: "a"},
 		Result{Status: http.StatusForbidden}))
-	require.NoError(t, c.Ack(context.Background(), Authorization{AttemptID: "a"},
+	require.NoError(t, c.AckSealed(context.Background(), &SealedAuthorization{AttemptID: "a"},
 		Result{Status: http.StatusOK, Body: []byte("hi")})) // no receipt: nothing to sign against
 }
 
@@ -215,59 +198,31 @@ func TestAuthorizeSurfacesCoresRefusal(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 	c := &Client{Broker: srv.URL, Key: mustKey(t)}
-	_, err := c.Authorize(context.Background(), "m", 1, 1)
+	_, err := c.AuthorizeSealed(context.Background(), "m")
 	require.ErrorContains(t, err, "no Station can take this")
 }
 
 func TestAnIncompleteAuthorizationIsRejected(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/tower/edge/authorize", func(rw http.ResponseWriter, r *http.Request) {
-		writeJSON(rw, map[string]any{"attempt_id": "a"}) // no grant, endpoint, or relay name
+		writeJSON(rw, map[string]any{"attempt_id": "a"}) // no grant, endpoint, or session key
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 	c := &Client{Broker: srv.URL, Key: mustKey(t)}
-	_, err := c.Authorize(context.Background(), "m", 1, 1)
-	require.ErrorContains(t, err, "missing a grant")
+	_, err := c.AuthorizeSealed(context.Background(), "m")
+	require.ErrorContains(t, err, "no readable grant")
 }
 
 // --- helpers -----------------------------------------------------------------
-
-type staticRoute struct{ name, addr string }
-
-func (s staticRoute) Upstream(name string) (string, bool) {
-	if name != s.name {
-		return "", false
-	}
-	return s.addr, true
-}
 
 type fixedUpstream []byte
 
 func (u fixedUpstream) Serve(context.Context, []byte) ([]byte, error) { return []byte(u), nil }
 
-func edgeServe(edge station.EdgeExecutor) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		raw, _ := readAll(r)
-		resp := edge.Serve(r.Context(), station.EdgeRequest{
-			Grant: r.Header.Get(station.GrantHeader), Body: raw,
-		})
-		if resp.Failure != "" {
-			http.Error(w, resp.Failure, resp.Status)
-			return
-		}
-		w.Header().Set(station.ReceiptHeader, resp.Receipt)
-		_, _ = w.Write(resp.Body)
-	}
-}
-
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(v)
-}
-
-func readAll(r *http.Request) ([]byte, error) {
-	return io.ReadAll(io.LimitReader(r.Body, 8<<20))
 }
 
 func mustKey(t *testing.T) ed25519.PrivateKey {
@@ -282,22 +237,13 @@ func TestOptionalFieldsAreHonoured(t *testing.T) {
 	var reached bool
 	rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		reached = true
-		return &http.Response{StatusCode: 200, Body: nopCloser([]byte(`{"attempt_id":"a","grant":"g","relay_name":"n","endpoint":"e"}`)), Header: http.Header{}}, nil
+		return &http.Response{StatusCode: 500, Body: nopCloser([]byte("nope")), Header: http.Header{}}, nil
 	})
 	c := &Client{Broker: "http://localhost", Key: mustKey(t), HTTP: &http.Client{Transport: rt}, Network: "roger-private"}
 	require.Equal(t, "roger-private", c.network())
-	_, err := c.Authorize(context.Background(), "m", 1, 1)
-	require.NoError(t, err)
-	require.True(t, reached, "the custom HTTP client must carry the request")
-}
-
-// A Station that cannot be dialled is a real error, surfaced rather than swallowed.
-func TestAnUnreachableStationIsAnError(t *testing.T) {
-	c := &Client{Broker: "http://127.0.0.1:1", Key: mustKey(t)}
-	_, err := c.Do(context.Background(),
-		Authorization{RelayName: "n", Endpoint: "127.0.0.1:1", MaxIn: 1 << 20, MaxOut: 1 << 20},
-		"/v1/x", []byte("hi"))
+	_, err := c.AuthorizeSealed(context.Background(), "m")
 	require.Error(t, err)
+	require.True(t, reached, "the custom HTTP client must carry the request")
 }
 
 // A control-plane call to a broker that is not there surfaces the transport error.
@@ -317,19 +263,6 @@ func TestAPlainErrorBodyStillReportsTheStatus(t *testing.T) {
 	require.ErrorContains(t, err, "500")
 }
 
-// The path is normalised: a caller that omits the leading slash still reaches the Station.
-func TestARelativePathIsNormalised(t *testing.T) {
-	answer := `{"ok":true}`
-	w := newEdgeWorld(t, "m", answer)
-	defer w.stopRlay()
-	ctx := context.Background()
-	auth, err := w.client.Authorize(ctx, "m", 1<<10, 1<<10)
-	require.NoError(t, err)
-	res, err := w.client.Do(ctx, auth, "v1/no/leading/slash", []byte(`{}`))
-	require.NoError(t, err)
-	require.Equal(t, http.StatusOK, res.Status)
-}
-
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
@@ -342,7 +275,7 @@ func TestAnUnreadableAuthorizationReplyIsAnError(t *testing.T) {
 		return &http.Response{StatusCode: 200, Body: nopCloser([]byte("{not json")), Header: http.Header{}}, nil
 	})
 	c := &Client{Broker: "http://localhost", Key: mustKey(t), HTTP: &http.Client{Transport: rt}}
-	_, err := c.Authorize(context.Background(), "m", 1, 1)
+	_, err := c.AuthorizeSealed(context.Background(), "m")
 	require.ErrorContains(t, err, "could not read")
 }
 
@@ -354,7 +287,7 @@ func TestTheDefaultHTTPClientIsBounded(t *testing.T) {
 	require.Positive(t, c.httpClient().Timeout)
 }
 
-// edgeConsumerKey is a valid consumer public key for a grant fixture. An edge grant is now
+// edgeConsumerKey is a valid consumer public key for a grant fixture. An edge grant is
 // issued to a consumer, so a target that named none would be refused.
 func edgeConsumerKey() ed25519.PublicKey {
 	pub, _, err := ed25519.GenerateKey(rand.Reader)

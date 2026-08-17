@@ -51,19 +51,6 @@ builds:
     flags: [-trimpath]
     ldflags: ["-s -w -X main.version={{.Version}}"]
 
-  # roger-station: the machine that actually serves work behind a Tower. It ships for macOS
-  # as well as Linux, which is the one place it deliberately differs from roger-tower above:
-  # a Tower is a relay somebody runs as production infrastructure, but a Station is whatever
-  # box is holding the model, and a great many of those are laptops. Refusing to build for
-  # them would mean the key-separation story ("the Station signs its own offers") only works
-  # for people who own a Linux server.
-  - id: roger-station
-    main: ./cmd/roger-station
-    binary: roger-station
-    env: [CGO_ENABLED=0]
-    goos: [linux, darwin]
-    goarch: [amd64, arm64]
-    flags: [-trimpath]
     ldflags: ["-s -w -X main.version={{.Version}}"]
 
 # ---- macOS code signing + notarization -----------------------------------------------
@@ -111,12 +98,6 @@ archives:
     ids: [roger-tower]
     formats: [binary]
     name_template: "roger-tower-{{ .Os }}-{{ .Arch }}"
-  # roger-station, same shape and the same checksums.txt, so a Station operator verifies
-  # their download exactly as a Tower operator does.
-  - id: station
-    ids: [roger-station]
-    formats: [binary]
-    name_template: "roger-station-{{ .Os }}-{{ .Arch }}"
   # A Windows-only zip, ADDITIONALLY, purely so Scoop has an archive to point at.
   # Produces roger-windows-amd64.zip alongside the .exe (both in the release + checksums).
   - id: winzip

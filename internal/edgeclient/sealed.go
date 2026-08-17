@@ -178,5 +178,5 @@ func (c *Client) AckSealed(ctx context.Context, auth *SealedAuthorization, res R
 	if auth == nil {
 		return errors.New("no authorization to acknowledge against")
 	}
-	return c.Ack(ctx, Authorization{AttemptID: auth.AttemptID}, res)
+	return c.ack(ctx, auth.AttemptID, res)
 }

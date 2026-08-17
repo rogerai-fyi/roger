@@ -20,7 +20,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -76,47 +75,6 @@ func dispatchable(t *testing.T, b *broker, srv *httptest.Server, op operator) (l
 	return lt, stn
 }
 
-// THE WHOLE CHAIN. A request no direct node can serve reaches a Station behind a Tower, and
-// the answer that comes back is one Core verified rather than one it was told.
-func TestARequestReachesAStationAndTheAnswerComesBackVerified(t *testing.T) {
-	b, srv := towerTestBroker(t)
-	op := signedInOperator(t, b, "octocat")
-	lt, stn := dispatchable(t, b, srv, op)
-
-	model := &stubModel{body: []byte(`{"choices":[{"message":{"content":"hello from the station"}}]}`)}
-	exec := stationExec(b, stn, model)
-
-	// The Tower's side, driven directly: poll, relay, return.
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		work := pollForWork(t, srv, lt)
-		resp := exec.Execute(context.Background(), station.ExecuteRequest{
-			Grant: work.Grant, Envelope: work.Envelope,
-		})
-		require.Empty(t, resp.Failure)
-		returnResult(t, srv, lt, work.AttemptID, resp)
-	}()
-
-	request := []byte(`{"model":"roger-1","messages":[{"role":"user","content":"hi"}]}`)
-	rec := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(string(request)))
-	require.True(t, b.tryTowerDispatch(rec, r, "roger-1", request, false),
-		"a routable Station must be used rather than refused")
-	<-done
-
-	require.Equal(t, http.StatusOK, rec.Code)
-	require.JSONEq(t, string(model.body), rec.Body.String())
-	require.Equal(t, request, model.saw, "the Station served exactly the authorized bytes")
-
-	// FREE, and said so on the response. A caller has no other way to tell this apart from a
-	// billed answer, and "you were not charged" must not be implicit.
-	require.Equal(t, "tower", rec.Header().Get("X-RogerAI-Origin"))
-	require.Equal(t, "0", rec.Header().Get("X-RogerAI-Cost"))
-}
-
-// A TOWER CANNOT ALTER THE ANSWER. It holds every byte on the way back and is the party with
-// something to gain; the receipt commits to a digest, and Core refuses the mismatch.
 func TestATowerCannotChangeTheStationsAnswer(t *testing.T) {
 	b, srv := towerTestBroker(t)
 	op := signedInOperator(t, b, "octocat")
@@ -253,46 +211,6 @@ func TestTheGrantKeyIsStableAcrossRestarts(t *testing.T) {
 	_, isECDSA := b.tower.ca.RootKey().(*ecdsa.PrivateKey)
 	require.True(t, isECDSA, "the CA root signs certificates, not grants")
 }
-
-// When no Station can serve the model, dispatch declines and the caller's own refusal stands.
-func TestDispatchDeclinesWhenNoStationServesTheModel(t *testing.T) {
-	b, srv := towerTestBroker(t)
-	op := signedInOperator(t, b, "octocat")
-	_, _ = dispatchable(t, b, srv, op)
-
-	rec := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader("{}"))
-	require.False(t, b.tryTowerDispatch(rec, r, "a-model-nobody-serves", []byte(`{}`), false))
-
-	// And a STREAMING request is declined too: a streamed answer through a relay-of-a-relay
-	// needs the inner session, and answering a stream with a whole body would break the
-	// client's contract.
-	require.False(t, b.tryTowerDispatch(rec, r, "roger-1", []byte(`{}`), true))
-}
-
-// A Station that refuses is relayed as a failure, and the caller is told - rather than
-// waiting out the deadline for an answer that is never coming.
-func TestAStationFailureReachesTheCallerPromptly(t *testing.T) {
-	b, srv := towerTestBroker(t)
-	op := signedInOperator(t, b, "octocat")
-	lt, _ := dispatchable(t, b, srv, op)
-
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		work := pollForWork(t, srv, lt)
-		returnResult(t, srv, lt, work.AttemptID,
-			station.ExecuteResponse{Failure: "the model is not loaded"})
-	}()
-
-	rec := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader("{}"))
-	require.True(t, b.tryTowerDispatch(rec, r, "roger-1", []byte(`{"model":"roger-1"}`), false))
-	<-done
-	require.Equal(t, http.StatusBadGateway, rec.Code)
-}
-
-// --- helpers ---------------------------------------------------------------
 
 func pollForWork(t *testing.T, srv *httptest.Server, lt linkTower) towerWork {
 	t.Helper()
@@ -516,123 +434,6 @@ func TestBothBrokersSignGrantsTheSameStationAccepts(t *testing.T) {
 	require.NotNil(t, got.Receipt)
 }
 
-// A BROKER CAN ROUTE TO A TOWER CONNECTED ELSEWHERE.
-//
-// A Tower holds ONE link, to ONE broker, and its accepted inventory lives in that instance's
-// memory - so every other broker used to be unable to see the Station at all and fell back
-// to "no node offers this model". With two brokers a perfectly healthy Tower served roughly
-// half the requests it should have, and nothing anywhere reported a problem.
-//
-// This assertion was the inverse until the fleet projection existed; it is inverted rather
-// than deleted because the inversion is the change.
-func TestABrokerCanRouteToATowerConnectedElsewhere(t *testing.T) {
-	a, aSrv, c, _ := twoBrokers(t)
-	op := signedInOperator(t, a, "octocat")
-	_, _ = dispatchable(t, a, aSrv, op)
-
-	_, ok := a.pickTowerStation("roger-1")
-	require.True(t, ok, "the broker holding the link can route to it")
-
-	target, ok := c.pickTowerStation("roger-1")
-	require.True(t, ok, "and so can the one that has never seen this Tower's link")
-	require.NotEmpty(t, target.StationID)
-	require.NotEmpty(t, target.AssertionKey,
-		"with the key from the ATTACHMENT, never from the projection")
-}
-
-// THE PROJECTION IS A HINT, NOT AUTHORITY. Every check is re-run against the registry and
-// the attachment before a grant is issued, so a Station that has since been revoked - or a
-// Tower that has since been suspended - is not dispatched to however fresh the row looks.
-func TestTheFleetViewNeverOverridesAuthority(t *testing.T) {
-	a, aSrv, c, _ := twoBrokers(t)
-	op := signedInOperator(t, a, "octocat")
-	lt, stn := dispatchable(t, a, aSrv, op)
-
-	_, ok := c.pickTowerStation("roger-1")
-	require.True(t, ok)
-
-	// Suspended on A. C's projection still lists the Station.
-	require.NoError(t, a.tower.registry.Transition(lt.id, admit.StateSuspended))
-	_, ok = c.pickTowerStation("roger-1")
-	require.False(t, ok, "a suspended Tower's rows must not be dispatched to")
-
-	// Back in service, then the STATION is revoked.
-	require.NoError(t, a.tower.registry.Transition(lt.id, admit.StateQuarantine))
-	require.NoError(t, a.tower.registry.Transition(lt.id, admit.StateActive))
-	_, ok = c.pickTowerStation("roger-1")
-	require.True(t, ok)
-
-	_, err := a.tower.stations.Revoke(stn.StationID)
-	require.NoError(t, err)
-	_, ok = c.pickTowerStation("roger-1")
-	require.False(t, ok, "a revoked Station must not be dispatched to")
-}
-
-// A DRAIN WITHDRAWS THE FLEET EVERYWHERE. That is the whole difference between draining and
-// walking away: the capacity stops being offered at once rather than aging out.
-func TestDrainingWithdrawsTheFleetFromEveryBroker(t *testing.T) {
-	a, aSrv, c, _ := twoBrokers(t)
-	op := signedInOperator(t, a, "octocat")
-	lt, _ := dispatchable(t, a, aSrv, op)
-
-	_, ok := c.pickTowerStation("roger-1")
-	require.True(t, ok)
-
-	code, raw := lt.call(t, aSrv, "/tower/session/close", jsonOf(t, link.Frame{
-		Network: link.PublicNetwork, Version: 1, TowerID: lt.id,
-	}), nil)
-	require.Equal(t, http.StatusOK, code, raw)
-
-	_, ok = c.pickTowerStation("roger-1")
-	require.False(t, ok, "a drained Tower is offered by nobody")
-}
-
-// THE ANSWER CROSSES BACK. The caller waits on the broker that issued the grant, and the
-// Tower returns the result to whichever broker it reached - very often a different one. This
-// is the other half of multi-instance: without it the work is dispatched perfectly and the
-// caller times out anyway.
-func TestAnAnswerReturnedToOneBrokerReachesTheCallerOnTheOther(t *testing.T) {
-	mr := miniredis.RunT(t)
-	a, aSrv, c, cSrv := twoBrokersOnBus(t, mr)
-	op := signedInOperator(t, a, "octocat")
-	lt, stn := dispatchable(t, a, aSrv, op)
-
-	model := &stubModel{body: []byte(`{"choices":[{"message":{"content":"across brokers"}}]}`)}
-	exec := stationExec(a, stn, model)
-
-	// The Tower polls C and returns its answer to C.
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		var work towerWork
-		require.Eventually(t, func() bool {
-			code, _ := lt.call(t, cSrv, "/tower/dispatch", []byte(`{"tower_id":"`+lt.id+`"}`), &work)
-			return code == http.StatusOK && work.AttemptID != ""
-		}, 10*time.Second, 20*time.Millisecond)
-
-		resp := exec.Execute(context.Background(), station.ExecuteRequest{
-			Grant: work.Grant, Envelope: work.Envelope,
-		})
-		require.Empty(t, resp.Failure)
-		returnResult(t, cSrv, lt, work.AttemptID, resp)
-	}()
-
-	// The caller is on A.
-	request := []byte(`{"model":"roger-1","messages":[]}`)
-	rec := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(string(request)))
-	require.True(t, a.tryTowerDispatch(rec, r, "roger-1", request, false))
-	<-done
-
-	require.Equal(t, http.StatusOK, rec.Code)
-	require.JSONEq(t, string(model.body), rec.Body.String(),
-		"the answer settled on one broker reached the caller parked on the other")
-	require.Equal(t, "0", rec.Header().Get("X-RogerAI-Cost"), "and it is still free")
-	_ = c
-}
-
-// A result nobody is waiting for anywhere is ACCEPTED rather than refused: the Station did
-// its job, the caller gave up, and re-sending would not help.
 func TestAnAnswerNobodyIsWaitingForIsStillAccepted(t *testing.T) {
 	mr := miniredis.RunT(t)
 	a, aSrv, _, cSrv := twoBrokersOnBus(t, mr)
@@ -779,46 +580,6 @@ func TestAnIdleTowerIsToldThereIsNothing(t *testing.T) {
 		"it waits for work rather than returning immediately and re-polling in a loop")
 }
 
-// A Station that never answers costs the caller its deadline and no more. Without the
-// timeout the relay would hold the connection until the client gave up, which looks to a
-// consumer exactly like the broker having hung.
-func TestAStationThatNeverAnswersTimesOut(t *testing.T) {
-	b, srv := towerTestBroker(t)
-	op := signedInOperator(t, b, "octocat")
-	_, _ = dispatchable(t, b, srv, op)
-
-	was := towerAttemptLifetimeForTest(t, 200*time.Millisecond)
-	defer was()
-
-	rec := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader("{}"))
-	require.True(t, b.tryTowerDispatch(rec, r, "roger-1", []byte(`{"model":"roger-1"}`), false))
-	require.Equal(t, http.StatusGatewayTimeout, rec.Code)
-	require.Contains(t, rec.Body.String(), "did not answer in time")
-}
-
-// A caller that goes away mid-flight is not an error and produces no write to a dead
-// connection.
-func TestACallerThatGivesUpIsNotAnError(t *testing.T) {
-	b, srv := towerTestBroker(t)
-	op := signedInOperator(t, b, "octocat")
-	_, _ = dispatchable(t, b, srv, op)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	rec := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader("{}")).WithContext(ctx)
-	go func() { time.Sleep(50 * time.Millisecond); cancel() }()
-
-	require.True(t, b.tryTowerDispatch(rec, r, "roger-1", []byte(`{"model":"roger-1"}`), false))
-	// A recorder reports 200 whether or not anything was written, so the BODY is what says
-	// so: nothing was sent to a connection that had already gone.
-	require.Zero(t, rec.Body.Len(), "nothing was written to a connection that had gone")
-	require.Empty(t, rec.Header().Get("X-RogerAI-Origin"))
-}
-
-// A Station whose attachment is not live is not a candidate, however routable its offer
-// looks: dispatching to one whose recorded key we cannot read means accepting a receipt we
-// have no way to check.
 func TestARevokedStationStopsBeingACandidate(t *testing.T) {
 	b, srv := towerTestBroker(t)
 	op := signedInOperator(t, b, "octocat")
@@ -847,101 +608,6 @@ func towerAttemptLifetimeForTest(t *testing.T, d time.Duration) func() {
 // hold a chain but that the REAL dispatch path writes the right one. These drive actual
 // requests and then read the history back.
 
-// A served request leaves a complete, terminal history: issued, leased, evidence_complete,
-// settled - each binding the one before it.
-func TestAServedRequestLeavesASettledAttemptHistory(t *testing.T) {
-	b, srv := towerTestBroker(t)
-	op := signedInOperator(t, b, "octocat")
-	lt, stn := dispatchable(t, b, srv, op)
-
-	model := &stubModel{body: []byte(`{"content":"hello"}`)}
-	exec := stationExec(b, stn, model)
-	var attemptID string
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		work := pollForWork(t, srv, lt)
-		attemptID = work.AttemptID
-		resp := exec.Execute(context.Background(), station.ExecuteRequest{
-			Grant: work.Grant, Envelope: work.Envelope,
-		})
-		require.Empty(t, resp.Failure)
-		returnResult(t, srv, lt, work.AttemptID, resp)
-	}()
-
-	request := []byte(`{"model":"roger-1"}`)
-	rec := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(string(request)))
-	require.True(t, b.tryTowerDispatch(rec, r, "roger-1", request, false))
-	<-done
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	state, revision, ok, err := b.tower.attempts.State(attemptID)
-	require.NoError(t, err)
-	require.True(t, ok, "the attempt was recorded")
-	require.Equal(t, attempt.StateSettled, state)
-	require.Equal(t, int64(4), revision,
-		"issued, leased, evidence_complete, settled - four links, no shortcuts")
-	require.True(t, attempt.Terminal(state))
-}
-
-// A Station that fails leaves a FAILED attempt, and the hold is released rather than
-// captured. Nothing about a failed attempt may look settleable afterwards.
-func TestAFailedRequestLeavesAFailedAttempt(t *testing.T) {
-	b, srv := towerTestBroker(t)
-	op := signedInOperator(t, b, "octocat")
-	lt, _ := dispatchable(t, b, srv, op)
-
-	var attemptID string
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		work := pollForWork(t, srv, lt)
-		attemptID = work.AttemptID
-		returnResult(t, srv, lt, work.AttemptID,
-			station.ExecuteResponse{Failure: "the model is not loaded"})
-	}()
-
-	rec := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader("{}"))
-	require.True(t, b.tryTowerDispatch(rec, r, "roger-1", []byte(`{"model":"roger-1"}`), false))
-	<-done
-
-	state, _, ok, err := b.tower.attempts.State(attemptID)
-	require.NoError(t, err)
-	require.True(t, ok)
-	require.Equal(t, attempt.StateFailed, state)
-
-	// And it cannot then be settled - a terminal attempt is not revivable by anyone.
-	_, err = b.tower.attempts.Commit(attemptID, attempt.Observation{
-		Kind: attempt.KindSettlementCommitted, EvidenceHash: "e", Reason: "sneaky",
-	})
-	require.ErrorIs(t, err, attempt.ErrTerminal)
-}
-
-// THE GRANT IS NOT TRANSMITTED BEFORE THE ATTEMPT COMMITS. "the lease or grant cannot be
-// transmitted before that commit" - an attempt nobody recorded is work whose outcome cannot
-// be established afterwards, so a ledger that refuses means nothing is dispatched.
-func TestNothingIsDispatchedIfTheAttemptCannotBeRecorded(t *testing.T) {
-	b, srv := towerTestBroker(t)
-	op := signedInOperator(t, b, "octocat")
-	lt, _ := dispatchable(t, b, srv, op)
-	b.tower.attempts = attempt.New(attempt.Config{
-		Network: link.PublicNetwork, Signer: b.tower.attemptKey,
-	}, brokenAttemptChain{})
-
-	rec := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader("{}"))
-	require.False(t, b.tryTowerDispatch(rec, r, "roger-1", []byte(`{"model":"roger-1"}`), false),
-		"no attempt, no dispatch")
-
-	// And the Tower is offered nothing, so the Station never sees work Core did not record.
-	shortPolls(t)
-	code, raw := lt.call(t, srv, "/tower/dispatch", []byte(`{"tower_id":"`+lt.id+`"}`), nil)
-	require.Equal(t, http.StatusNoContent, code, raw)
-}
-
-// brokenAttemptChain refuses to record anything.
 type brokenAttemptChain struct{ attempt.Store }
 
 func (brokenAttemptChain) Append(attempt.Record, int64) error {
@@ -991,49 +657,6 @@ func sealForStation(t *testing.T, stn *station.Station, attemptID string, reques
 // confidentiality property checked by asking the encryption whether it encrypted is a
 // property that can pass while the plaintext travels beside it.
 
-func TestATowerCannotReadWhatItRelays(t *testing.T) {
-	b, srv := towerTestBroker(t)
-	op := signedInOperator(t, b, "octocat")
-	lt, stn := dispatchable(t, b, srv, op)
-
-	const prompt = "the patient's diagnosis is confidential"
-	const completion = "and so is this answer"
-	request := []byte(`{"model":"roger-1","messages":[{"role":"user","content":"` + prompt + `"}]}`)
-	exec := stationExec(b, stn, &stubModel{body: []byte(`{"content":"` + completion + `"}`)})
-
-	// EVERYTHING THE TOWER TOUCHES, captured as it goes past.
-	var relayed [][]byte
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		work := pollForWork(t, srv, lt)
-		relayed = append(relayed, work.Grant, work.Envelope)
-
-		resp := exec.Execute(context.Background(), station.ExecuteRequest{
-			Grant: work.Grant, Envelope: work.Envelope,
-		})
-		require.Empty(t, resp.Failure)
-		relayed = append(relayed, resp.Envelope)
-		returnResult(t, srv, lt, work.AttemptID, resp)
-	}()
-
-	rec := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(string(request)))
-	require.True(t, b.tryTowerDispatch(rec, r, "roger-1", request, false))
-	<-done
-	require.Equal(t, http.StatusOK, rec.Code)
-	require.Contains(t, rec.Body.String(), completion, "the consumer still got their answer")
-
-	for _, seen := range relayed {
-		require.NotContains(t, string(seen), prompt, "the Tower could read the prompt")
-		require.NotContains(t, string(seen), completion, "the Tower could read the completion")
-		require.NotContains(t, string(seen), "messages", "the request's shape leaked to the Tower")
-	}
-}
-
-// A TOWER CANNOT SUBSTITUTE A REQUEST IT CANNOT READ. It could always be caught altering one
-// - the grant commits to a digest - but now it cannot even produce a well-formed envelope for
-// the Station, because sealing one needs the Station's session key.
 func TestATowerCannotSubstituteTheRequest(t *testing.T) {
 	b, srv := towerTestBroker(t)
 	op := signedInOperator(t, b, "octocat")
@@ -1089,53 +712,4 @@ func TestCorePublishesBothPinnedKeys(t *testing.T) {
 	againPub, err := envelope.PublicKeyOf(again)
 	require.NoError(t, err)
 	require.Equal(t, b.tower.envelopePub, againPub)
-}
-
-// A Station whose recorded session key is unusable is not dispatched to. The alternative
-// would be relaying its content in the clear, which is the thing this exists to prevent.
-func TestAStationWithNoUsableSessionKeyIsNotDispatchedTo(t *testing.T) {
-	b, srv := towerTestBroker(t)
-	op := signedInOperator(t, b, "octocat")
-	lt := enrolledTower(t, b, op.login)
-	require.NoError(t, b.tower.registry.Transition(lt.id, admit.StateActive))
-
-	// Attached with an assertion key that is fine and a session key that is not a key.
-	stn, err := station.Init(filepath.Join(t.TempDir(), "st"))
-	require.NoError(t, err)
-	owner := ownerPubkeyOf(t, b, op.login)
-	auth, secret, err := attach.NewInvite(attach.Authorization{
-		ID: "auth-nosession", Network: link.PublicNetwork, StationID: stn.StationID,
-		Owner:  owner,
-		Origin: attach.Origin{Kind: attach.OriginJoined, TowerID: lt.id},
-		// 32 bytes so it passes the shape check at invite, but not a usable X25519 point
-		// once dispatch needs it.
-		AssertionKey: stn.Assertion, SessionKey: strings.Repeat("00", 32),
-	}, time.Hour, time.Now())
-	require.NoError(t, err)
-	require.NoError(t, b.tower.stationStore.PutAuthorization(auth))
-	_, err = b.tower.stations.Admit(attach.Proof{
-		AuthID: "auth-nosession", Secret: secret, Network: link.PublicNetwork,
-		StationID: stn.StationID, Owner: owner,
-		Origin:       attach.Origin{Kind: attach.OriginJoined, TowerID: lt.id},
-		AssertionKey: stn.Assertion, SessionKey: strings.Repeat("00", 32),
-	})
-	require.NoError(t, err)
-	_, err = b.tower.stations.Promote(stn.StationID)
-	require.NoError(t, err)
-	openLink(t, srv, lt)
-
-	signed, err := stn.SignOffer(station.Offer{
-		Network: link.PublicNetwork, TowerID: lt.id, Model: "roger-1", Modality: "text",
-		PriceIn: 1000, PriceOut: 2000, EarnIn: 800, EarnOut: 1600, Capacity: 4,
-		Capabilities: []string{"chat"}, TTL: time.Hour,
-	}, time.Now())
-	require.NoError(t, err)
-	code, raw := lt.call(t, srv, "/tower/inventory",
-		wrapLeaves(t, lt, 1, "genesis", []json.RawMessage{signed}), nil)
-	require.Equal(t, http.StatusOK, code, raw)
-
-	// Routable on paper, and still not dispatched to: there is nowhere safe to send it.
-	rec := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader("{}"))
-	require.False(t, b.tryTowerDispatch(rec, r, "roger-1", []byte(`{"model":"roger-1"}`), false))
 }

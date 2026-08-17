@@ -32,7 +32,6 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"strings"
 	"time"
 
 	"errors"
@@ -378,213 +377,6 @@ func excludedView(ex []inv.Exclusion) []map[string]string {
 }
 
 // --- Station invitations ----------------------------------------------------
-
-// towerStationInvite handles POST /tower/station/invite: the operator saying "this Station,
-// with these two keys, may attach to my Tower".
-//
-// IT IS THE ONLY THING THAT CREATES ATTACHMENT AUTHORITY, exactly as /tower/token is the
-// only thing that creates admission authority. Without it the Station registry can only ever
-// be empty, and towerinv refuses every leaf with "not consistent with any registered key" -
-// which is precisely the state this whole subsystem was in before this route existed.
-//
-// The invitation is bound to the OPERATOR'S OWN Tower. An operator who names somebody else's
-// Tower is refused: attaching a Station is capacity and earnings, and neither belongs to a
-// person who merely knows a Tower ID.
-//
-// The plaintext secret is returned ONCE and never stored - only its verifier is. A database
-// read therefore cannot hand anybody an attachment they were not given.
-func (b *broker) towerStationInvite(w http.ResponseWriter, r *http.Request) {
-	if corsCredsPreflight(w, r) {
-		return
-	}
-	if !allow(w, r, http.MethodPost) {
-		return
-	}
-	corsCreds(w, r)
-	body := readTowerBody(r)
-
-	owner, ok := b.towerOperator(r, body)
-	if !ok {
-		jsonErr(w, http.StatusUnauthorized, "inviting a Station requires a signed-in account - run `roger-tower login`")
-		return
-	}
-	// TWO DIFFERENT NOTIONS OF "OWNER", and conflating them is a real bug this route hit.
-	//
-	// Tower ownership is recorded by LOGIN (toweradmit), but an attachment records the
-	// account PUBKEY, because that is what towerpolicy resolves when it asks whether the
-	// owner is present and in good standing. Storing the login here produced an attachment
-	// that verified perfectly and was then refused for "no owner, which public admission
-	// requires" - a leaf rejected for a reason that had nothing to do with the leaf.
-	//
-	// The pubkey is taken from the request that was already authenticated, not from the
-	// body: it is the key that signed, which is the key bound to this account.
-	ownerPubkey := r.Header.Get("X-Roger-Pubkey")
-	if _, found, oerr := b.db.OwnerByPubkey(ownerPubkey); oerr != nil || !found {
-		jsonErr(w, http.StatusUnauthorized, "inviting a Station requires a signed-in account - run `roger-tower login`")
-		return
-	}
-	ts := b.towerAvailable(w)
-	if ts == nil {
-		return
-	}
-
-	var req struct {
-		TowerID      string `json:"tower_id"`
-		StationID    string `json:"station_id"`
-		AssertionKey string `json:"assertion_key"`
-		SessionKey   string `json:"session_key"`
-		Role         string `json:"role"`
-		CeilingHash  string `json:"capability_ceiling_hash"`
-	}
-	if err := json.Unmarshal(body, &req); err != nil {
-		jsonErr(w, http.StatusBadRequest, "invalid JSON body")
-		return
-	}
-
-	// The Tower must be one THIS operator holds. Checked against the registry rather than
-	// taken from the request: a Tower ID is not a secret and knowing one proves nothing.
-	tw, found := ts.registry.Get(req.TowerID)
-	if !found || tw.Owner != owner {
-		// Indistinguishable from "no such Tower" on purpose, so this cannot be used to
-		// enumerate other people's Towers.
-		jsonErr(w, http.StatusNotFound, "no such Tower on this account")
-		return
-	}
-
-	// Both keys are checked for SHAPE here, before anything is stored. towerinv will later
-	// verify signatures against the assertion key, and a key that is not a key would produce
-	// a confusing refusal at that distance from the mistake.
-	for name, k := range map[string]string{"assertion_key": req.AssertionKey, "session_key": req.SessionKey} {
-		raw, derr := hex.DecodeString(k)
-		if derr != nil || len(raw) != ed25519.PublicKeySize {
-			jsonErr(w, http.StatusBadRequest, name+" must be a hex-encoded Ed25519 public key")
-			return
-		}
-	}
-
-	stationID := strings.TrimSpace(req.StationID)
-	if stationID == "" {
-		stationID = newStationID()
-	}
-	// A Station ID that is already attached cannot be re-invited: the attachment path would
-	// refuse it anyway, and saying so here costs the operator nothing to fix.
-	if _, exists, serr := ts.stations.Station(stationID); serr != nil {
-		jsonErr(w, http.StatusServiceUnavailable, "could not check the Station registry - try again in a moment")
-		return
-	} else if exists {
-		jsonErr(w, http.StatusConflict, "that Station is already attached - revoke it before attaching a new identity")
-		return
-	}
-
-	auth, secret, err := attach.NewInvite(attach.Authorization{
-		ID: newInviteID(), Network: link.PublicNetwork, StationID: stationID, Owner: ownerPubkey,
-		Origin:       attach.Origin{Kind: attach.OriginJoined, TowerID: tw.ID},
-		AssertionKey: req.AssertionKey, SessionKey: req.SessionKey,
-		Role: req.Role, CeilingHash: req.CeilingHash,
-	}, stationInviteTTL, time.Now())
-	if err != nil {
-		jsonErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	// CAPPED PER OWNER. Without this any signed-in free account could loop this route and
-	// grow rogerai.station_authorizations without bound for a full TTL - the same
-	// database-filling vector the enrollment-token layer already closed
-	// (admit.PutTokenCapped). The cap is enforced by the write, not by counting first:
-	// concurrent calls would all read the same count and all insert.
-	wrote, err := ts.stationStore.PutAuthorizationCapped(auth, maxOpenInvitesPerOwner)
-	if err != nil {
-		jsonErr(w, http.StatusServiceUnavailable, "could not record the invitation - try again in a moment")
-		return
-	}
-	if !wrote {
-		jsonErr(w, http.StatusTooManyRequests, fmt.Sprintf(
-			"you already have %d unredeemed Station invitations - redeem or wait for one to expire",
-			maxOpenInvitesPerOwner))
-		return
-	}
-
-	log.Printf("station invite %s issued for Station %s on Tower %s by %s",
-		auth.ID, stationID, tw.ID, owner)
-	writeJSON(w, http.StatusOK, map[string]any{
-		"invitation_id": auth.ID,
-		"station_id":    stationID,
-		"tower_id":      tw.ID,
-		// Shown ONCE. It is not stored and cannot be shown again; a lost invitation is
-		// re-issued, never recovered.
-		"secret":     secret,
-		"expires_in": int(stationInviteTTL.Seconds()),
-	})
-}
-
-// towerStationAttach handles POST /tower/station/attach: the Station redeeming the
-// invitation its operator was given.
-//
-// WITHOUT THIS ROUTE THE INVITE WAS A DEAD END. The audit put it plainly: /tower/station/
-// invite handed out a one-time secret and a TTL for something nothing could redeem, so the
-// registry every leaf is verified against stayed empty and towercore/inv refused every offer
-// as unknown - the exact condition the invite was introduced to end.
-//
-// The caller here is the TOWER, not the operator and not the Station: a Station reaches Core
-// through the Tower relaying it, and the Tower is the party holding an admitted identity we
-// can authenticate. What stops the Tower attaching a Station of its own invention is that
-// the invitation pins the Station ID, the owner and BOTH keys, and it can only have come
-// from an operator who owns this Tower.
-func (b *broker) towerStationAttach(w http.ResponseWriter, r *http.Request) {
-	if !allow(w, r, http.MethodPost) {
-		return
-	}
-	ts := b.towerAvailable(w)
-	if ts == nil {
-		return
-	}
-	body := readTowerBody(r)
-
-	var req struct {
-		TowerID      string `json:"tower_id"`
-		InvitationID string `json:"invitation_id"`
-		Secret       string `json:"secret"`
-		StationID    string `json:"station_id"`
-		Owner        string `json:"owner"`
-		AssertionKey string `json:"assertion_key"`
-		SessionKey   string `json:"session_key"`
-	}
-	if err := json.Unmarshal(body, &req); err != nil {
-		jsonErr(w, http.StatusBadRequest, "invalid JSON body")
-		return
-	}
-	tw, _, ok := b.towerCaller(r, body, req.TowerID)
-	if !ok {
-		jsonErr(w, http.StatusForbidden, "attaching a Station requires a registered Tower's own signed request")
-		return
-	}
-
-	at, err := ts.stations.Admit(attach.Proof{
-		AuthID: req.InvitationID, Secret: req.Secret,
-		Network: link.PublicNetwork, StationID: req.StationID, Owner: req.Owner,
-		// The origin is not taken from the request: it is THIS Tower, the one that
-		// authenticated. A Tower cannot attach a Station onto somebody else's origin.
-		Origin:       attach.Origin{Kind: attach.OriginJoined, TowerID: tw.ID},
-		AssertionKey: req.AssertionKey, SessionKey: req.SessionKey,
-	})
-	switch {
-	case errors.Is(err, attach.ErrUnavailable):
-		jsonErr(w, http.StatusServiceUnavailable, "could not record the attachment - try again in a moment")
-		return
-	case err != nil:
-		// Every refusal reads the same to the caller. Which check refused it is an oracle a
-		// Station has no business probing, and attach.ErrRejected is deliberately uniform.
-		jsonErr(w, http.StatusForbidden, "that invitation cannot be redeemed")
-		return
-	}
-
-	log.Printf("station %s attached to tower %s (state %s)", at.StationID, tw.ID, at.State)
-	writeJSON(w, http.StatusOK, map[string]any{
-		"ok": true, "station_id": at.StationID, "state": at.State, "epoch": at.Epoch,
-		// Said plainly, because it is the next thing the operator will ask: attachment is
-		// identity, not eligibility.
-		"note": "attached in quarantine - it carries no public work until Core's own evidence promotes it",
-	})
-}
 
 // towerStationRevoke handles POST /tower/station/revoke: the operator retiring a Station
 // identity terminally. It is the action the invite route's conflict message names, and
@@ -1079,11 +871,9 @@ func (b *broker) registerTowerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/tower/inventory", b.towerInventory(false))      // Tower: full signed revision
 	mux.HandleFunc("/tower/inventory/delta", b.towerInventory(true)) // Tower: chained amendment
 
-	mux.HandleFunc("/tower/station/invite", b.towerStationInvite)      // operator: authorize a Station to attach
-	mux.HandleFunc("/tower/station/attach", b.towerStationAttach)      // Tower: redeem a Station invitation
-	mux.HandleFunc("/tower/station/edge-cert", b.towerStationEdgeCert) // operator: get a Station its edge TLS certificate
-	mux.HandleFunc("/tower/station/revoke", b.towerStationRevoke)      // operator: retire a Station identity
-	mux.HandleFunc("/tower/station/promote", b.towerStationPromote)    // admin: open the Station quarantine gate
+	// Tower: redeem a Station invitation
+	mux.HandleFunc("/tower/station/revoke", b.towerStationRevoke)   // operator: retire a Station identity
+	mux.HandleFunc("/tower/station/promote", b.towerStationPromote) // admin: open the Station quarantine gate
 
 	mux.HandleFunc("/tower/cert/revoke", b.towerCertRevoke)       // admin: revoke a Tower certificate now
 	mux.HandleFunc("/tower/lease/expire", b.towerLeaseExpire)     // admin: take a Tower off the link now

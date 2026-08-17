@@ -54,7 +54,6 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
 
@@ -234,6 +233,15 @@ func (q *dispatchQueue) abandon(attemptID string) {
 // It is called ONLY where the relay would otherwise answer "no node offers this model", so
 // nothing it does can change how a request that a direct node could serve is handled.
 func (b *broker) tryTowerDispatch(w http.ResponseWriter, r *http.Request, model string, body []byte, streaming bool) bool {
+	// RETIRED WITH THE LEAF-STATION GENERATION. This was Topology 1: park the request on a
+	// queue the tower's dispatch courier collected over the link. That courier no longer
+	// exists in any tower binary, so queueing here would hold a consumer's request against a
+	// poll that never comes - strictly worse than the honest "no node offers this model".
+	// Hub-served models are reached through the edge API (authorize -> sealed submit), not
+	// this overflow path. The queue machinery below remains only for the routes' guards and
+	// dies with them in a later cleanup.
+	return false
+
 	ts := b.tower
 	if ts == nil || ts.dispatch == nil || ts.queue == nil {
 		return false
@@ -734,35 +742,21 @@ func (b *broker) publishRoutable(towerID string) {
 	if ts == nil || ts.routable == nil {
 		return
 	}
-	leaves := ts.inv.Routable(towerID)
 	// The data-plane endpoint comes from the LIVE SESSION, stamped onto every row at publish
 	// time. Rows are published by the one instance holding the link - the only instance that
 	// knows the endpoint - and read by every other, which is exactly the hop the projection
 	// exists to carry. A Tower that advertises no endpoint publishes rows without one, and
 	// those rows are simply never offered to an edge consumer.
+	//
+	// ONLY self-attached nodes are routable now: the tower-pushed LEAF rows died with the
+	// leaf-station generation (their endpoint fed a raw-TLS dial nothing serves anymore, and
+	// with the invite flow gone no leaf can be attached to verify against).
 	endpoint, _ := ts.link.RelayEndpoint(towerID)
-	rows := make([]fleet.Station, 0, len(leaves))
-	for _, l := range leaves {
-		if strings.HasPrefix(l.OfferID, "self-") {
-			// The "self-" namespace belongs to self-attached nodes. A tower-pushed leaf using
-			// it could collide with a self row's (tower_id, offer_id) key and - depending on
-			// insert order - shadow that node's listing. Signed or not, it is refused here.
-			log.Printf("tower %s: leaf offer %q uses the reserved self- namespace - skipped", towerID, l.OfferID)
-			continue
-		}
-		rows = append(rows, fleet.Station{
-			TowerID: towerID, StationID: l.StationID, OfferID: l.OfferID,
-			Model: l.Model, Modality: l.Modality, Capacity: l.Capacity, Expires: l.Expires,
-			Endpoint: endpoint,
-			// The consumer price from the SIGNED, band-checked leaf, carried so authorize can
-			// pin it into the grant (Option C per-token billing). Micro-USD per 1M tokens.
-			PriceIn: l.PriceIn, PriceOut: l.PriceOut,
-		})
-	}
-	// SELF-ATTACHED nodes (Option C) ride the same projection: their offer lives on the
-	// attachment (band-checked at attach), not in the tower's signed inventory - the tower is
-	// pure transport for them and pushes no leaf on their behalf. Merged here so this stays
-	// the projection's ONE writer, and Replace keeps its whole-tower semantics.
+	var rows []fleet.Station
+	// SELF-ATTACHED nodes (Option C): their offer lives on the attachment (band-checked at
+	// attach), not in a tower's signed inventory - the tower is pure transport for them and
+	// pushes no leaf on their behalf. This stays the projection's ONE writer, and Replace
+	// keeps its whole-tower semantics.
 	if ts.stations != nil {
 		ats, aerr := ts.stations.ByTower(towerID)
 		if aerr != nil {

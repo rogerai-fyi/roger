@@ -29,14 +29,11 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
-	"crypto/x509"
-	"encoding/base64"
 	"encoding/json"
 	"log"
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v5/internal/edgeclient"
 	"rogerai.fm/roger/v5/internal/towercore/dispatch"
 	"rogerai.fm/roger/v5/internal/towercore/envelope"
 	"rogerai.fm/roger/v5/internal/towercore/fleet"
@@ -84,7 +81,7 @@ func (b *broker) RunCanary(towerID string) reputation.Outcome {
 	if ts == nil || ts.ca == nil {
 		return ""
 	}
-	target, row, sealedPath, ok := b.canaryTargetFor(towerID)
+	target, row, ok := b.canaryTargetFor(towerID)
 	endpoint := row.Endpoint
 	if !ok {
 		// No routable Station with a data plane behind this Tower to probe. Not a failure -
@@ -99,13 +96,11 @@ func (b *broker) RunCanary(towerID string) reputation.Outcome {
 	if err != nil {
 		return ""
 	}
-	// On the sealed path the canary also holds an ephemeral X25519 envelope key, bound into
-	// the grant like any consumer's - the node seals the answer to it, and only Core opens it.
-	var envPub, envPriv []byte
-	if sealedPath {
-		if envPub, envPriv, err = envelope.NewKey(); err != nil {
-			return ""
-		}
+	// The canary also holds an ephemeral X25519 envelope key, bound into the grant like any
+	// consumer's - the node seals the answer to it, and only Core opens it.
+	envPub, envPriv, err := envelope.NewKey()
+	if err != nil {
+		return ""
 	}
 	// The grant is shaped exactly like a paying consumer's: the row's own pinned prices and
 	// the standard token ceilings. A canary grant with zero pricing on a priced node was
@@ -129,49 +124,10 @@ func (b *broker) RunCanary(towerID string) reputation.Outcome {
 		return ""
 	}
 
-	var outcome reputation.Outcome
-	if sealedPath {
-		outcome = b.driveSealedCanary(grant, target, endpoint, consumerKey, envPriv)
-	} else {
-		outcome = b.driveCanary(grant, target, endpoint, consumerKey)
-	}
+	outcome := b.driveSealedCanary(grant, target, endpoint, consumerKey, envPriv)
 	b.recordOutcome(towerID, grant.AttemptID, outcome)
 	b.evaluateTower(towerID)
 	return outcome
-}
-
-// driveCanary carries the request as a consumer and judges the answer.
-func (b *broker) driveCanary(grant dispatch.EdgeGrant, target dispatch.Target, endpoint string, consumerKey ed25519.PrivateKey) reputation.Outcome {
-	roots := x509.NewCertPool()
-	roots.AddCert(b.tower.ca.Root())
-	client := &edgeclient.Client{Key: consumerKey, Roots: roots, Network: link.PublicNetwork}
-	ctx, cancel := context.WithTimeout(context.Background(), canaryTimeout)
-	defer cancel()
-
-	res, err := client.Do(ctx, edgeclient.Authorization{
-		AttemptID: grant.AttemptID, Grant: base64.StdEncoding.EncodeToString(grant.Signed),
-		RelayName: grant.RelayName, Endpoint: endpoint,
-		MaxIn: grant.MaxIn, MaxOut: grant.MaxOut,
-	}, "/v1/chat/completions", canaryBodyFor(grant.Model))
-	if err != nil || res.Status != 200 || len(res.Body) == 0 {
-		// Did not connect, did not complete, or came back empty. The "serving nothing" case.
-		return reputation.CanaryFail
-	}
-	// A VALID STATION RECEIPT over the bytes that came back is the pass. A Tower that returned
-	// something it made up cannot produce one signed by the Station's attachment-recorded key.
-	raw, err := base64.StdEncoding.DecodeString(res.Receipt())
-	if err != nil {
-		return reputation.CanaryFail
-	}
-	rec, err := dispatch.ParseReceipt(raw, target.AssertionKey, link.PublicNetwork,
-		grant.AttemptID, target.StationID)
-	if err != nil {
-		return reputation.CanaryFail
-	}
-	if rec.ResponseDigest == "" {
-		return reputation.CanaryFail
-	}
-	return reputation.CanaryPass
 }
 
 // driveSealedCanary probes a HUB-path (self-attached) node exactly as a sealed consumer
@@ -236,31 +192,33 @@ func (b *broker) driveSealedCanary(grant dispatch.EdgeGrant, target dispatch.Tar
 //
 // Per-Tower, unlike edgeTargetFor which picks the best Station for a model across the whole
 // fleet: a canary tests ONE Tower, so it must route to that Tower or not at all.
-func (b *broker) canaryTargetFor(towerID string) (dispatch.Target, fleet.Station, bool, bool) {
+func (b *broker) canaryTargetFor(towerID string) (dispatch.Target, fleet.Station, bool) {
 	ts := b.tower
 	if ts == nil || ts.routable == nil || !ts.registry.MayTakeWork(towerID) {
-		return dispatch.Target{}, fleet.Station{}, false, false
+		return dispatch.Target{}, fleet.Station{}, false
 	}
 	// From the routable PROJECTION, not this instance's in-memory inventory: a canary may run
 	// on an instance that does not hold the Tower's link, and reading local inventory would
 	// make it blind to exactly the Towers another instance is carrying.
 	rows, err := ts.routable.ByTower(towerID, time.Now())
 	if err != nil {
-		return dispatch.Target{}, fleet.Station{}, false, false
+		return dispatch.Target{}, fleet.Station{}, false
 	}
 	for _, row := range rows {
 		if row.Endpoint == "" {
 			continue
 		}
-		// A SELF-ATTACHED row serves the HUB path: the canary probes it with a SEALED submit,
-		// exactly as a real consumer would - not the raw-TLS dial, which would fail every
-		// time and quarantine a healthy hub tower on evidence Core manufactured itself.
-		sealed := strings.HasPrefix(row.OfferID, "self-")
+		// Only SELF-ATTACHED (hub) rows are canary targets now: the raw-TLS drive died with
+		// the leaf-station generation, and probing a leaf row sealed would fail a plane it
+		// never served.
+		if !strings.HasPrefix(row.OfferID, "self-") {
+			continue
+		}
 		if target, ok := b.targetFor(row.TowerID, row.StationID, row.Model, row.Modality); ok {
-			return target, row, sealed, true
+			return target, row, true
 		}
 	}
-	return dispatch.Target{}, fleet.Station{}, false, false
+	return dispatch.Target{}, fleet.Station{}, false
 }
 
 // canaryInterval is how often Core probes the fleet. Frequent enough that a Tower that goes

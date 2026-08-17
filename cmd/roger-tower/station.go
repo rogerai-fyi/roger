@@ -18,33 +18,20 @@ package main
 // has no record of.
 
 import (
-	"encoding/pem"
 	"flag"
 	"fmt"
 	"io"
-	"os"
-	"time"
 
 	"rogerai.fm/roger/v5/internal/towerjoin"
 )
 
 const stationUsage = `roger-tower station - Stations on the public network
 
-  roger-tower station invite --dir DIR --assertion-key HEX --session-key HEX [--station-id ID]
-  roger-tower station attach --dir DIR --invitation ID --secret S \
-                             --assertion-key HEX --session-key HEX [--station-id ID]
   roger-tower station revoke --dir DIR --station-id ID
-  roger-tower station edge-cert --station-id ID --csr FILE [--out FILE]
 
-Run ` + "`roger-station init`" + ` ON THE STATION first: it mints the two keys and prints
-their public halves, which are what these commands carry. The Station keeps the private
-halves and this Tower never sees them - if the relay could sign for a Station, "signed by
-the Station" would mean nothing.
-
-invite is signed by your ACCOUNT (` + "`roger-tower login`" + `); attach is signed by this
-TOWER. That is not an accident of who runs what: authorizing a machine to serve under your
-account is an account decision, and redeeming is the relay proving which origin the Station
-is attached behind.
+Nodes attach themselves now: a provider runs ` + "`roger share --tower`" + ` and Roger Core
+records the attachment (the invite-file ceremony died with the roger-station binary).
+revoke remains the operator's kill switch for a station serving under their tower.
 `
 
 func cmdStation(args []string, out io.Writer) error {
@@ -53,14 +40,8 @@ func cmdStation(args []string, out io.Writer) error {
 		return nil
 	}
 	switch args[0] {
-	case "invite":
-		return cmdStationInvite(args[1:], out)
-	case "attach":
-		return cmdStationAttach(args[1:], out)
 	case "revoke":
 		return cmdStationRevoke(args[1:], out)
-	case "edge-cert":
-		return cmdStationEdgeCert(args[1:], out)
 	case "help", "-h", "--help":
 		fmt.Fprint(out, stationUsage)
 		return nil
@@ -75,80 +56,6 @@ func stationKeyFlags(fs *flag.FlagSet) (assertion, session, id *string) {
 	session = fs.String("session-key", "", "the Station's secure-session public key (hex)")
 	id = fs.String("station-id", "", "the Station's id (Roger Core allocates one if omitted)")
 	return
-}
-
-func cmdStationInvite(args []string, out io.Writer) error {
-	fs := flag.NewFlagSet("station invite", flag.ContinueOnError)
-	fs.SetOutput(out)
-	dir := fs.String("dir", "", "Tower data directory")
-	assertion, session, id := stationKeyFlags(fs)
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-	st, release, err := openDir(*dir)
-	if err != nil {
-		return err
-	}
-	defer release()
-
-	inv, err := towerjoin.InviteStation(st, towerjoin.StationKeys{
-		StationID: *id, AssertionKey: *assertion, SessionKey: *session,
-	})
-	if err != nil {
-		return err
-	}
-	fmt.Fprintf(out, "invitation: %s\n", inv.InvitationID)
-	fmt.Fprintf(out, "station:    %s\n", inv.StationID)
-	fmt.Fprintf(out, "secret:     %s\n", inv.Secret)
-	fmt.Fprintf(out, "expires in: %ds\n", inv.ExpiresIn)
-	// Said at the point the secret is on screen, because that is the only moment it can be
-	// acted on. Core does not store it and cannot show it again; a lost invitation is
-	// re-issued, never recovered.
-	fmt.Fprint(out, "\nThe secret is shown ONCE and is not stored. Redeem it with:\n")
-	fmt.Fprintf(out, "  roger-tower station attach --dir DIR --invitation %s --secret %s \\\n",
-		inv.InvitationID, inv.Secret)
-	fmt.Fprintf(out, "      --station-id %s --assertion-key %s --session-key %s\n",
-		inv.StationID, *assertion, *session)
-	return nil
-}
-
-func cmdStationAttach(args []string, out io.Writer) error {
-	fs := flag.NewFlagSet("station attach", flag.ContinueOnError)
-	fs.SetOutput(out)
-	dir := fs.String("dir", "", "Tower data directory")
-	invitation := fs.String("invitation", "", "the invitation id")
-	secret := fs.String("secret", "", "the one-time secret from `station invite`")
-	assertion, session, id := stationKeyFlags(fs)
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-	st, release, err := openDir(*dir)
-	if err != nil {
-		return err
-	}
-	defer release()
-
-	at, err := towerjoin.AttachStation(st, towerjoin.Invitation{
-		InvitationID: *invitation, Secret: *secret, StationID: *id,
-		Keys: towerjoin.StationKeys{
-			StationID: *id, AssertionKey: *assertion, SessionKey: *session,
-		},
-	})
-	if err != nil {
-		return err
-	}
-	fmt.Fprintf(out, "attached station %s (%s)\n", at.StationID, at.State)
-	if at.State == "quarantine" {
-		// Not a failure, and the single most likely thing to be misread as one. A Station is
-		// never trusted with public work on arrival.
-		fmt.Fprint(out, "\nQuarantine is the expected state: a new Station is not yet eligible for\n"+
-			"public work. Roger Core opens that gate itself once it has its own evidence.\n")
-	}
-	fmt.Fprint(out, "\nNext, on the STATION:\n"+
-		"  roger-station offer --dir DIR --tower TOWER --model NAME ... --out offer.json\n"+
-		"then copy offer.json into this Tower's `offers` directory. `roger-tower serve`\n"+
-		"relays it byte for byte.\n")
-	return nil
 }
 
 // cmdStationRevoke retires a Station identity.
@@ -249,56 +156,5 @@ func setOwnState(args []string, out io.Writer, name, state, note string) error {
 		return err
 	}
 	fmt.Fprint(out, note)
-	return nil
-}
-
-// cmdStationEdgeCert submits a Station's CSR to Roger Core and writes back the signed
-// certificate, so the Station can serve consumers on the edge path.
-//
-// The CSR comes from `roger-station csr` on the Station itself - the Station mints the key and
-// this only carries the public request. What comes back is installed with
-// `roger-station install-cert`. The key never travels.
-func cmdStationEdgeCert(args []string, out io.Writer) error {
-	fs := flag.NewFlagSet("station edge-cert", flag.ContinueOnError)
-	fs.SetOutput(out)
-	stationID := fs.String("station-id", "", "the Station's id")
-	csrFile := fs.String("csr", "", "the PEM or DER CSR file from `roger-station csr`")
-	outFile := fs.String("out", "", "write the certificate PEM here instead of stdout")
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-	if *stationID == "" {
-		return fmt.Errorf("--station-id is required")
-	}
-	if *csrFile == "" {
-		return fmt.Errorf("--csr is required: the request `roger-station csr` produced")
-	}
-	raw, err := os.ReadFile(*csrFile)
-	if err != nil {
-		return err
-	}
-	// Accept either PEM (what `roger-station csr` prints) or raw DER.
-	csrDER := raw
-	if block, _ := pem.Decode(raw); block != nil {
-		csrDER = block.Bytes
-	}
-
-	cert, err := towerjoin.RequestEdgeCert(*stationID, csrDER)
-	if err != nil {
-		return err
-	}
-	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Certificate})
-	if *outFile != "" {
-		if werr := os.WriteFile(*outFile, certPEM, 0o644); werr != nil {
-			return werr
-		}
-		fmt.Fprintf(out, "certificate for %s written to %s\n", cert.RelayName, *outFile)
-	} else {
-		fmt.Fprintf(out, "%s", certPEM)
-	}
-	fmt.Fprintf(out, "\nissued for %s, valid until %s.\n", cert.RelayName,
-		time.Unix(cert.NotAfter, 0).Format(time.RFC3339))
-	fmt.Fprint(out, "install it on the Station with `roger-station install-cert --cert FILE`, "+
-		"then serve with --edge.\n")
 	return nil
 }
