@@ -444,12 +444,18 @@ test("deck: the brain is named honestly and no benchmark figures leak", () => {
   assert.ok(!html.includes("in-development slot"), "the stale Nano framing must be gone");
   // SPECTRUM UPDATE (2026-08-14): the old "(350M)" claim is retired - the run's
   // exact params are unexported, so the copy states the locked tier band and says
-  // pending; Wave Pico (not the superseded Roger Edge tier) is the MCU-class edge.
+  // pending. EDGE CORRECTION (2026-08-17): Wave Pico is the Pi-class edge tier, NOT
+  // an MCU tier. ROGER-EDGE-MCU-FEASIBILITY-2026-08-14 is explicit that no transformer
+  // of any Wave tier fits an ESP32-S3 (99M at Q4 is ~58 MB against 16 MB of flash);
+  // the ESP32 is the sensor and Roger Edge is the sensing/glue layer, not a Wave tier.
   assert.ok(!html.includes("(350M)"), "the retired ~350M size guess must not return");
   assert.ok(htmlFlat.includes("targets 0.8&ndash;1.5B") || htmlFlat.includes("targets 0.8–1.5B"),
     "Wave Nano's locked tier band must be stated");
   assert.ok(htmlFlat.includes("pending export"), "the run's unknown params must be stated as pending, never guessed");
-  assert.ok(htmlFlat.includes("MCU-class edge tier"), "Wave Pico must be named as the MCU-class edge tier");
+  assert.ok(htmlFlat.includes("edge tier that runs on a Pi"),
+    "Wave Pico must be named as the Pi-class edge tier");
+  assert.ok(!/MCU-class edge tier/.test(htmlFlat),
+    "no Wave tier may be called an MCU tier - none of them fit an MCU");
   assert.ok(htmlFlat.includes("99.4M waypoint"), "the shipped-vs-target truth must be stated");
   for (const leak of ["24/25", "4/133", "46%", "84–90%"]) {
     assert.ok(!html.includes(leak) && !js.includes(leak),

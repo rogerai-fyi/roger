@@ -377,7 +377,8 @@ test("device and roadmap claims remain gated", () => {
   assert.match(page, /Raspberry Pi/i);
   assert.match(page, /ESP32/i);
   assert.match(copy, /exact board.*runtime.*format.*quantization/i);
-  assert.match(copy, /does not run Wave Micro/i);
+  // Stronger than the old 'does not run Wave Micro': NO Wave tier fits an ESP32.
+  assert.match(copy, /No Wave tier runs on an ESP32/i);
   assert.match(copy, /full delegation.*partial delegation.*CPU fallback/i);
   // The Wave Tool / Vision / Audio roadmap block was retired on founder direction.
   // Those modalities are now absent entirely, so the honest invariant is that they
