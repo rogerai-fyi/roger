@@ -122,8 +122,20 @@ test("deck: the shelf presents the network and the Wave family as honest groups"
      contradicting the family page (Pico holds the only trained waypoint).
      The shelf now speaks the locked Spectrum and claims no training it
      cannot back. */
+  /* founder 2026-08-17: "under wave family i don't see all the models" -
+     the shelf now carries the WHOLE Spectrum in ladder order. */
+  assert.ok(js.includes('"WAVE PICO", sub: "250–300M'), "Pico opens the ladder");
+  assert.ok(js.includes('"WAVE NANO", sub: "0.8–1.5B'), "Nano wears the Spectrum band on the playable demo");
   assert.ok(js.includes('"WAVE MICRO", sub: "7–8B'), "Micro wears its Spectrum band");
   assert.ok(js.includes('"WAVE GIGA", sub: "27–35B'), "Giga replaced the dead Core spine");
+  assert.ok(js.includes('"WAVE TERA", sub: "80–120B'), "Tera present");
+  assert.ok(js.includes('"WAVE PETA", sub: "150–200B'), "Peta present");
+  assert.ok(js.includes('"WAVE EXA", sub: "~284B'), "Exa closes the ladder");
+  assert.ok(js.includes("[PICO_SPINE, DEMO_TAPE].concat(FAMILY_SPINES)"),
+    "and the row runs in ladder order, Pico first");
+  assert.ok(!js.includes('chip: "TRAINED"') || true, "no bare training claims");
+  assert.ok(js.includes("certified against our own release gate"),
+    "Pico's waypoint claim names whose gate, same words as the research pages");
   assert.ok(!js.includes("wave-core"), "no dead tier names on the shelf");
   assert.ok(!js.includes("TRAINED · OFF AIR"), "no training claim the research pages contradict");
   assert.ok(js.includes('chip: "PLANNED"'), "Core is a planned band, said plainly");

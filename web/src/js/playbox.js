@@ -235,7 +235,7 @@
   // The demo tape carries the RECORDED kinds. Framing rule (models-agent,
   // measured twice): Wave contract models are never offered as raw free chat.
   var DEMO_TAPE = {
-    demo: true, model: "wave-nano", label: "WAVE NANO", sub: "gateway tier · edge contracts",
+    demo: true, model: "wave-nano", label: "WAVE NANO", sub: "0.8–1.5B · the gateway",
     kinds: { image: true, tool: true, embed: true, guard: true }
   };
   var PING_TAPE = {
@@ -255,16 +255,32 @@
     return k;
   }
 
-  // The Wave family on the shelf, honestly - and in the Spectrum's own words
-  // (release audit: this block was the last surface still speaking the dead
-  // pre-Spectrum ladder, "Core" and all, and claimed Micro trained while the
-  // family page says Pico holds the only trained waypoint). Nothing is faked -
-  // the unplayable spines say exactly why they cannot play yet.
+  /* The WHOLE Wave Spectrum on the shelf, honestly, in ladder order (founder:
+     "under wave family i don't see all the models"). One compact spine per
+     tier, "band · reach" - the strip scrolls, so the ladder reads left to
+     right without crowding the row. Nothing is faked: Nano's spine is the
+     playable recorded demo; every other tier says exactly why it cannot
+     play yet, and no training is claimed that the research pages don't back
+     (Pico holds the only trained waypoint - its recorded contracts run on
+     the WAVE MESH deck, which its spine points to). */
+  var PICO_SPINE = {
+    spine: true, model: "wave-pico", label: "WAVE PICO", sub: "250–300M · on the machine",
+    chip: "WAYPOINT TRAINED",
+    why: "A 100M-class waypoint is trained (certified against our own release gate; " +
+      "250–300M is the tier target). No public checkpoint yet - its recorded " +
+      "contracts play on the WAVE MESH deck above."
+  };
   var FAMILY_SPINES = [
-    { spine: true, model: "wave-micro", label: "WAVE MICRO", sub: "7–8B · site brain",
+    { spine: true, model: "wave-micro", label: "WAVE MICRO", sub: "7–8B · the site",
       chip: "PLANNED", why: "A planned specialization (base+specialize) - no checkpoint exists to put on air yet." },
-    { spine: true, model: "wave-giga", label: "WAVE GIGA", sub: "27–35B · plant band",
-      chip: "PLANNED", why: "A planned band, not a final specification - nothing to play yet." }
+    { spine: true, model: "wave-giga", label: "WAVE GIGA", sub: "27–35B · the plant",
+      chip: "PLANNED", why: "A planned band, not a final specification - nothing to play yet." },
+    { spine: true, model: "wave-tera", label: "WAVE TERA", sub: "80–120B · enterprise",
+      chip: "PLANNED", why: "A planned band: faults and trends correlated across many plants at once. Nothing to play yet." },
+    { spine: true, model: "wave-peta", label: "WAVE PETA", sub: "150–200B · regional",
+      chip: "PLANNED", why: "A planned band, expert-pruned down from the flagship for regional scale. Nothing to play yet." },
+    { spine: true, model: "wave-exa", label: "WAVE EXA", sub: "~284B · the teacher",
+      chip: "PLANNED", why: "The planned flagship and the family's teacher - a training role, not a station. Nothing to play yet." }
   ];
 
   // EVERY model on the band gets a spine. A station the deck cannot drive is still
@@ -307,7 +323,7 @@
     });
     var groups = [{ group: "CHAT", entries: chat }];
     if (voice.length) groups.push({ group: "VOICE", entries: voice });
-    groups.push({ group: "WAVE FAMILY", entries: [DEMO_TAPE].concat(FAMILY_SPINES) });
+    groups.push({ group: "WAVE FAMILY", entries: [PICO_SPINE, DEMO_TAPE].concat(FAMILY_SPINES) });
     if (other.length) groups.push({ group: "ALSO ON AIR", entries: other });
     if (dark.length) groups.push({ group: "OFF AIR", entries: dark });
     return groups;
