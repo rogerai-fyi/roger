@@ -255,13 +255,15 @@
     return k;
   }
 
-  // The Wave family on the shelf, honestly: Nano's recorded contracts are playable;
-  // Micro is trained but not yet on air; Core is a planned band. Nothing is faked -
+  // The Wave family on the shelf, honestly - and in the Spectrum's own words
+  // (release audit: this block was the last surface still speaking the dead
+  // pre-Spectrum ladder, "Core" and all, and claimed Micro trained while the
+  // family page says Pico holds the only trained waypoint). Nothing is faked -
   // the unplayable spines say exactly why they cannot play yet.
   var FAMILY_SPINES = [
-    { spine: true, model: "wave-micro", label: "WAVE MICRO", sub: "1–8B · text + tools",
-      chip: "TRAINED · OFF AIR", why: "Trained, not yet on air - no public checkpoint is released." },
-    { spine: true, model: "wave-core", label: "WAVE CORE", sub: "8–30B · planned band",
+    { spine: true, model: "wave-micro", label: "WAVE MICRO", sub: "7–8B · site brain",
+      chip: "PLANNED", why: "A planned specialization (base+specialize) - no checkpoint exists to put on air yet." },
+    { spine: true, model: "wave-giga", label: "WAVE GIGA", sub: "27–35B · plant band",
       chip: "PLANNED", why: "A planned band, not a final specification - nothing to play yet." }
   ];
 

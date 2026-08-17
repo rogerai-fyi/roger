@@ -70,3 +70,32 @@ Feature: The Cookie Line factory game
     And it says the plant itself - cookies, coins, bands, wear - is game simulation
     And a fault drawn from another kind of instrument says so on the card
     And no tier without a recorded run is ever given an invented answer
+
+  Scenario: The certificate is the campaign goal, and the proof is hands-off
+    Given I am playing the cookie line
+    Then a factory certificate plaque lists every step to a fully automated, fully upgraded plant
+    And its final line is a proof: two untouched minutes at eighty percent uptime or better
+    And touching anything on the plant costs a setback, not a restart
+    And moves made by the models do not count as touching
+    When the proof completes
+    Then the plaque is stamped and the line keeps running as its own exhibit
+
+  Scenario: Micro shows its work on the factory wall
+    Given Wave Micro is installed
+    Then a site board on the wall shows each machine's uptime and headroom trend
+    And it names the bottleneck machine with its uptime, or says the line is clean
+    And the desk card and the wall board are the same arithmetic from one source
+    And a tag on the floor says which model nudged which dial
+
+  Scenario: The gateway's attention is visible, and it is belief not truth
+    Given Wave Nano is installed and a machine has no Pico
+    Then a marker on the floor shows which machine the gateway is watching
+    And the marker moves on the sweep clock, not when a fault secretly appears
+
+  Scenario: Micros stack, but more boxes is not more brain
+    Given Wave Nano is installed
+    Then I may buy up to three Wave Micros, each able to hold one dial
+    And three Micros cost more than one Giga, and the shop says so
+    And stacked Micros act on their own separate cycles with no view of the line
+    And Wave Giga corrects continuously as one mind
+    And the certificate accepts full coverage by either route

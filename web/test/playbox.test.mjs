@@ -117,7 +117,15 @@ test("deck: the shelf presents the network and the Wave family as honest groups"
     assert.ok(js.includes(g), `the shelf needs a ${g} group`);
   }
   assert.ok(js.includes("FAMILY_SPINES"), "the family placeholders exist");
-  assert.ok(js.includes("TRAINED · OFF AIR"), "Micro is trained but off air, said plainly");
+  /* release audit 2026-08-17: the old chip said "TRAINED · OFF AIR" for a
+     1-8B Micro next to a "WAVE CORE" spine - the dead pre-Spectrum ladder,
+     contradicting the family page (Pico holds the only trained waypoint).
+     The shelf now speaks the locked Spectrum and claims no training it
+     cannot back. */
+  assert.ok(js.includes('"WAVE MICRO", sub: "7–8B'), "Micro wears its Spectrum band");
+  assert.ok(js.includes('"WAVE GIGA", sub: "27–35B'), "Giga replaced the dead Core spine");
+  assert.ok(!js.includes("wave-core"), "no dead tier names on the shelf");
+  assert.ok(!js.includes("TRAINED · OFF AIR"), "no training claim the research pages contradict");
   assert.ok(js.includes('chip: "PLANNED"'), "Core is a planned band, said plainly");
   assert.ok(js.includes('aria-disabled'), "placeholders cannot load and say why");
   assert.ok(!js.includes('"AVAILABLE"'), "no placeholder ever claims availability");
