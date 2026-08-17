@@ -3800,7 +3800,19 @@
         st.tally.caught + "/" + st.tally.faults + " CAUGHT";
     }
     if (st.kind === "scope") {
-      return "CASE RECEIVED · " + String(currentRecord().truth).toUpperCase() + " · BEYOND REPLAY";
+      /* v37 (founder: "lets finish the rest"): the three beyond-replay
+         tiers printed one identical line - the case truth three times over.
+         Each now says ITS OWN honest thing: what it would add, and exactly
+         why this bench stops short of it. Tera/Peta stay conditional (the
+         recording holds one plant, no region); Exa is not a reader at all -
+         and "teacher" stays a role, never a claim that it trained the
+         recorded runs on this bench (it did not - they are scratch-trained). */
+      var beyond = {
+        tera: "CASE RECEIVED · WOULD CORRELATE MANY PLANTS · ONLY ONE RECORDED",
+        peta: "CASE RECEIVED · WOULD CARRY A REGION, LEANER · NO REGIONAL RECORDS",
+        exa: "NOT A READER · THE FAMILY'S TEACHER · NO CASE TO TAKE",
+      };
+      return beyond[st.fam && st.fam.id] || "CASE RECEIVED · BEYOND REPLAY";
     }
     if (st.kind === "silent") return "NO RECORDED RUN · SILENT";
     return "PASS THROUGH";
@@ -4696,7 +4708,6 @@
       back.title = "back to the status screen";
       back.addEventListener("click", function () { setDetail(false); });
       host.appendChild(back);
-      if (PATCH.tab === "all") host.appendChild(drawMission());
     }
 
     if (PATCH.tab === "fleet") {
@@ -4929,6 +4940,11 @@
     } else {
       PATCH._replySig = "";
     }
+
+    /* v37 (founder: "CASE BOARD - move that to the end"): the shift console
+       used to open the detail view, pushing THE ANSWER below the fold; the
+       glass now leads with the verdict and the case board closes the read. */
+    if (detailOpen() && PATCH.tab === "all") host.appendChild(drawMission());
 
     // the glass tells you it scrolls: a sticky fade hugs the bottom edge
     // whenever the cascade runs past it (v8 screenshots clipped the Nano

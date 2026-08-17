@@ -2101,9 +2101,17 @@ test("v21: every seated model keeps its response on the glance screen", () => {
   assert.match(responses[1], /ANSWERED|NOT CALLED/, "Nano prints its actual action");
   assert.match(responses[2], /SITE RECOUNT/, "Micro prints its scope recount");
   assert.match(responses[3], /PLANT RECOUNT/, "Giga prints its scope recount");
-  for (const response of responses.slice(4)) {
-    assert.match(response, /BEYOND REPLAY/, "unrecorded upper tiers state the honest ceiling");
-  }
+  /* v37 (founder: "lets finish the rest"): the three beyond-replay tiers
+     used to print one identical line; each now states ITS OWN honest
+     ceiling - and the guarantee tightens: distinct, per-tier, still no
+     prediction, margin, or lamp. */
+  assert.match(responses[4], /WOULD CORRELATE MANY PLANTS · ONLY ONE RECORDED/,
+    "Tera says what it would add and why the bench stops");
+  assert.match(responses[5], /WOULD CARRY A REGION, LEANER · NO REGIONAL RECORDS/,
+    "Peta likewise, in its own terms");
+  assert.match(responses[6], /NOT A READER · THE FAMILY'S TEACHER/,
+    "Exa is a role, not a reader - and never claims it trained these runs");
+  assert.equal(new Set(responses.slice(4)).size, 3, "no two upper tiers share a line");
   const route = js.slice(js.indexOf("function frontRoute"), js.indexOf("function frontScore"));
   assert.ok(/stageResponse\(st\)/.test(route) && /fam\.label/.test(route),
     "the CRT renders both the full Wave name and that stage's response");
@@ -2245,8 +2253,14 @@ test("v28: tier case intelligence is explicit about what ran and what is synthes
 
 test("v28: a tier tab leads with its case instead of the global shift console", () => {
   const monitor = js.slice(js.indexOf("function paintMonitor"), js.indexOf("function wirePrompt"));
-  assert.match(monitor, /if \(PATCH\.tab === "all"\) host\.appendChild\(drawMission\(\)\)/,
+  /* v37 (founder: "CASE BOARD - move that to the end"): still ALL-only,
+     but it now closes the detail view instead of opening it, so THE
+     ANSWER leads the glass. */
+  assert.match(monitor, /if \(detailOpen\(\) && PATCH\.tab === "all"\) host\.appendChild\(drawMission\(\)\)/,
     "the global game console belongs to ALL, so a selected tier can lead");
+  const missionAt = monitor.indexOf('host.appendChild(drawMission())');
+  const answerAt = monitor.indexOf('finalAnswer(sts)');
+  assert.ok(missionAt > answerAt, "and the case board renders AFTER the answer, at the end");
   assert.ok(/if \(stTier\) box\.appendChild\(drawTierCase\(st\)\)/.test(monitor),
     "the selected model stage opens with its case brief");
 });
