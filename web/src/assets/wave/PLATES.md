@@ -21,6 +21,8 @@ where redness = R−max(G,B) > 28, MedianFilter 3). Spot plates must stay < 16 K
 | `game-oven-*` | A riveted baking oven: porthole door, chimney, three knobs, no red | 550×505 | 167 KB / empty | 7 | THE COOKIE LINE's game sprites — machines standing on the floor, belt between them |
 | `game-packer-*` | A packaging machine: hopper, press mechanism, output trays, no red | 410×560 | 130 KB / empty | 7 | THE COOKIE LINE's game sprites — machines standing on the floor, belt between them |
 | `game-belt-*` | A long conveyor: flat belt over rollers, leg stands, no red | 1135×235 | 104 KB / empty | 7 | THE COOKIE LINE's game sprites — machines standing on the floor, belt between them |
+| `game-crates-*` | A stack of wooden shipping crates on a pallet, no red | 335×430 | see file | 7 | THE COOKIE LINE: the SHIPPING end |
+| `game-dough-*` | A tilted dough bowl pouring onto the belt start, no red | 485×405 | see file | 7 | THE COOKIE LINE: the line's feed |
 | `pump-vignette-*` | Industrial centrifugal pump w/ twin gauges, no red | 640×448 | 100 KB / 1.2 KB (empty) | 42 | `f0bfaaea25ca` | Template-card art or section marker for plant/process templates |
 | `robot-arm-*` | Small industrial robot arm on pedestal, no red | 640×448 | 53 KB / 1.2 KB (empty) | 1337 | `efbe6a0676ce` | Template-card art for robotics/actuation templates |
 | `gearbox-cutaway-*` | Gearbox cutaway, sectioned housing + helical gear, no red | 640×448 | 131 KB / 1.2 KB (empty) | 42 | `fecdcad803d5` | Template-card art for drivetrain/mechanical templates (tonally the heaviest plate — use on roomy cards) |
