@@ -1731,12 +1731,38 @@ test("v14: ONE WHY WAVE entry with the five questions as an internal nav", () =>
   assert.ok(/PATCH.whyTopic/.test(js), "the open topic survives repaints");
 });
 
+test("v14: the deck never puts our own model's behaviour in a competitor's mouth", () => {
+  /* 2026-08-17 honesty audit: the why-task-native tab opened with "A chat
+     model free-sampled on these bytes dreams a Modbus register table." The
+     register-table dream is REAL and RECORDED - but it was our own Wave Pico
+     RC answering "hi" (UI-HANDOFF-3-TRANSLATION-SHIM, 2026-08-13), by design,
+     because a task-native base model has no chat training. No chat model has
+     ever been observed doing this on our data. */
+  const topics = js.slice(js.indexOf("function whyTopics"), js.indexOf("function renderWhys"));
+  assert.ok(!/A chat model free-sampled/.test(topics),
+    "the misattributed sentence must not return");
+  assert.ok(/task-native model to chat and it dreams its training set[\s\S]{0,80}ours/.test(topics),
+    "the corpus dream is owned as ours, where it actually happened");
+});
+
 test("v14: the specialist-vs-dual story is cited, and stays qualitative where uncited", () => {
   const topics = js.slice(js.indexOf("function whyTopics"), js.indexOf("function renderWhys"));
-  assert.ok(/MMLU 23.2 - Pico[\s\S]{0,20}report/.test(topics),
+  // Pico 1.0 = v4 (R.125, 2026-08-15); v4 measures MMLU 26.9 against a 25 chance
+  // line (AUDIT-PICO-V4). The superseded 23.2 belonged to an earlier build.
+  assert.ok(/MMLU 26\.9[\s\S]{0,80}Pico v4 audit/.test(topics),
     "the at-chance-by-design number carries its citation");
-  assert.ok(/near chance[\s\S]{0,120}IEB-Signals public-release plan/.test(topics),
+  assert.ok(!/MMLU 23\.2/.test(topics),
+    "the superseded build's MMLU must not return");
+  /* 2026-08-17 (honesty audit): the claim used to say "generalist models",
+     a population never sampled - it now names the 30B-class OPEN models
+     actually benched and states that no frontier or chat-tuned model has
+     been measured. That disclaimer sits between the claim and its citation,
+     so the window widens 120 -> 220. The guarantee is unchanged and the
+     no-roster-numbers rule below still enforces the embargo. */
+  assert.ok(/near chance[\s\S]{0,220}IEB-Signals public-release plan/.test(topics),
     "the generalists-at-chance claim is qualitative, cited to the plan doc - no roster numbers");
+  assert.ok(/no frontier or chat-tuned model has been measured/.test(topics),
+    "and it says plainly which population was NOT benched");
   assert.ok(!/14\.0|13\.4|14\.3/.test(topics),
     "the unpublished roster figures never reach the deck");
   assert.ok(/tier-scaling strategy, [\s\S]{0,8}2026-08-14/.test(topics),

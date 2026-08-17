@@ -62,7 +62,7 @@
   var FAMILY = [
     { id: "pico", label: "Wave Pico", size: "270M", band: "250-300M", status: "recorded",
       recipe: "scratch", reach: "edge · single device",
-      runs: "Pi / ESP32 · ~50ms · no GPU", art: "chip", span: 40,
+      runs: "Raspberry Pi · ~50ms · no GPU", art: "chip", span: 40,
       only: "answers where the data is born - no network hop, no GPU, no waiting. A read that never leaves the machine cannot be delayed by a link that is down.",
       belowCant: "the floor of the ladder: nothing smaller can hold a task model",
       takes: "one machine's channels",
@@ -125,7 +125,7 @@
     { id: "exa", label: "Wave Exa", size: "~284B", status: "frontier",
       recipe: "frontier", reach: "the family teacher",
       runs: "an exascale datacenter", art: "hall", span: 76,
-      only: "TEACHES the rest. The small models are good because this one trained them - the flagship is why a 270M model on a microcontroller is worth trusting.",
+      only: "TEACHES the rest. The small models are good because this one trained them - the flagship is why a 270M model on a Pi at the edge is worth trusting.",
       belowCant: "nothing above it: this is where the family's capability comes from",
       takes: "the whole family's work",
       needs: "nothing on this monitor: its work shows up in the WEIGHTS of the models below it, not as a read",
@@ -2981,20 +2981,41 @@
     var nano = familyById("nano");
     return [
       { key: "tasknative", label: "why task-native?", build: function (box) {
+        /* HONESTY FIX 2026-08-17 (audit): this paragraph used to open "A chat
+           model free-sampled on these bytes dreams a Modbus register table."
+           That is a real recorded incident - but it happened to OUR OWN Wave
+           Pico RC, not to a chat model (UI-HANDOFF-3-TRANSLATION-SHIM,
+           2026-08-13: a task-native base model asked "hi" dreamed a register
+           table, BY DESIGN). No chat model has ever been observed doing this
+           on our data. We do not put our own model's behaviour in a
+           competitor's mouth; the true version is the better argument anyway. */
         box.appendChild(el("p", "sn-why__p",
-          "A chat model free-sampled on these bytes dreams a Modbus register table. " +
-          "A Wave model decodes a LOCKED ENUM with a MARGIN - the margin is the model " +
-          "saying how sure it is, and that calibrated doubt is what the escalation " +
-          "contract is built on. No prose, no dreaming: one token of meaning, scored."));
+          "Ask a task-native model to chat and it dreams its training set - ours " +
+          "answered \u201chi\u201d with an invented Modbus register table. That is " +
+          "the point, not a defect: it was never trained to talk. You do not " +
+          "free-sample a Wave model, you DECODE it - a LOCKED ENUM with a MARGIN, " +
+          "the model saying how sure it is. That calibrated doubt is what the " +
+          "escalation contract is built on: one token of meaning, scored."));
         box.appendChild(el("p", "sn-why__p",
           "The split runs up the Spectrum: Wave Pico and Nano are TOTAL specialists - " +
-          "at chance on general benchmarks BY DESIGN (measured MMLU 23.2 - Pico " +
-          "report). Wave Micro and above are dual-capable by requirement: competitive " +
+          "at chance on general benchmarks BY DESIGN (measured MMLU 26.9 against a " +
+          "25 chance line - Pico v4 audit). Wave Micro and above are dual-capable by requirement: competitive " +
           "on general benchmarks AND best-in-class industrial, with capability " +
           "retention a gating metric (tier-scaling strategy, 2026-08-14)."));
+        /* HONESTY FIX 2026-08-17 (audit): the line claimed "generalist models"
+           as a whole read raw industrial telemetry at the chance floor - a
+           population we never sampled. The bench has run 30B-class OPEN
+           models only; no frontier or
+           chat-tuned model has ever been on it. The claim is now narrowed to
+           what was actually benched, and says plainly what has not been. It
+           stays QUALITATIVE and cited to the plan doc on purpose: the roster
+           figures are unpublished until IEB-Signals is released (the v14 lock
+           enforces exactly this - see "the unpublished roster figures never
+           reach the deck"). */
         box.appendChild(el("p", "sn-why__cite",
-          "generalist models read raw industrial telemetry near chance - that is the " +
-          "bench this deck replays (IEB-Signals public-release plan, 2026-08-14)"));
+          "the 30B-class open models on this bench read raw telemetry near chance" +
+          " - no frontier or chat-tuned model has been measured here, so that is" +
+          " the whole of the claim (IEB-Signals public-release plan, 2026-08-14)"));
       } },
       { key: "senior", label: "why a senior?", build: function (box) {
         var selected = m.escalation.configs.filter(function (c) {
