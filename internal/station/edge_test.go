@@ -259,3 +259,35 @@ func edgeConsumerKey() ed25519.PublicKey {
 	}
 	return pub
 }
+
+// Option C on the BLIND edge path (the metered path that becomes tower_relay money): the edge
+// Station signs the model's token usage into the receipt, so Core can bill per-token.
+func TestTheEdgeStationSignsTheModelsTokenUsage(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	s := initStation(t)
+	corePub, corePriv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	reg := dispatch.NewWithStore(dispatch.Config{
+		Network: "roger-public", Signer: corePriv, Lifetime: time.Minute,
+		Now: func() time.Time { return now },
+	}, nil)
+	g, err := reg.MintEdge(dispatch.EdgeTarget{
+		TowerID: "tw-1", StationID: s.StationID, Model: "m", Modality: "text",
+		RelayName: "st.relay.example", MaxIn: 4096, MaxOut: 4096,
+		AssertionKey: s.AssertionPub(), ConsumerKey: edgeConsumerKey(),
+	})
+	require.NoError(t, err)
+	up := &fixedUpstream{body: []byte(`{"choices":[{"text":"hi"}],"usage":{"prompt_tokens":8,"completion_tokens":3}}`)}
+	e := EdgeExecutor{Station: s, CoreKey: corePub, Network: "roger-public", Upstream: up,
+		Now: func() time.Time { return now }}
+
+	resp := e.Serve(context.Background(), EdgeRequest{
+		Grant: base64.StdEncoding.EncodeToString(g.Signed), Body: []byte(`{"prompt":"hi"}`)})
+	require.Empty(t, resp.Failure)
+	raw, err := base64.StdEncoding.DecodeString(resp.Receipt)
+	require.NoError(t, err)
+	rec, err := dispatch.ParseReceipt(raw, s.AssertionPub(), "roger-public", g.AttemptID, s.StationID)
+	require.NoError(t, err)
+	require.Equal(t, dispatch.Usage{In: 8, Out: 3}, rec.TokUsage,
+		"the blind edge Station signs the model's token usage for per-token billing")
+}

@@ -160,7 +160,7 @@ func TestATowerCannotFabricateAResult(t *testing.T) {
 	require.NoError(t, err)
 	body := []byte(`{"content":"made up"}`)
 	forged, err := dispatch.SignReceipt(forgerPriv, link.PublicNetwork,
-		dispatch.Grant{AttemptID: work.AttemptID, StationID: "st-x"}, []byte("req"), body, dispatch.Usage{In: 1, Out: int64(len(body))})
+		dispatch.Grant{AttemptID: work.AttemptID, StationID: "st-x"}, []byte("req"), body, dispatch.Usage{In: 1, Out: int64(len(body))}, dispatch.Usage{})
 	require.NoError(t, err)
 	sealed, err := envelope.SealTo(b.tower.envelopePub, body, work.AttemptID)
 	require.NoError(t, err)

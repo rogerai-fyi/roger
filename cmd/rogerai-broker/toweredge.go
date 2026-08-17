@@ -45,6 +45,7 @@ import (
 	"rogerai.fm/roger/v5/internal/towercore/comp"
 	"rogerai.fm/roger/v5/internal/towercore/dispatch"
 	"rogerai.fm/roger/v5/internal/towercore/earnings"
+	"rogerai.fm/roger/v5/internal/towercore/fleet"
 	"rogerai.fm/roger/v5/internal/towercore/link"
 	"rogerai.fm/roger/v5/internal/towercore/reputation"
 	"rogerai.fm/roger/v5/internal/towerobj"
@@ -88,6 +89,11 @@ func IsTowerNode(node string) bool { return strings.HasPrefix(node, towerNodePre
 // asks for. It matches the Station's own request ceiling: a grant for more than a Station
 // will read is a promise the network cannot keep.
 const edgeMaxBytes = 8 << 20
+
+// edgeMaxTokens caps the token ceiling an edge grant may authorize (Option C per-token
+// billing). A token is at least one byte, so this stays well under edgeMaxBytes; ~1M tokens
+// is far more than any single request needs and bounds the worst-case wallet hold + payout.
+const edgeMaxTokens = 1 << 20
 
 // relayDomain is the DNS suffix Station relay names live under. Core's to choose - a Station
 // that picked its own name could answer for another Station - and configurable because the
@@ -134,9 +140,11 @@ func (b *broker) towerEdgeAuthorize(w http.ResponseWriter, r *http.Request) {
 	// is well-formed hex of the right length by the time we reach here.
 	consumerKey, _ := hex.DecodeString(r.Header.Get(protocol.HeaderPubkey))
 	var req struct {
-		Model  string `json:"model"`
-		MaxIn  int64  `json:"max_in,omitempty"`
-		MaxOut int64  `json:"max_out,omitempty"`
+		Model     string `json:"model"`
+		MaxIn     int64  `json:"max_in,omitempty"`
+		MaxOut    int64  `json:"max_out,omitempty"`
+		MaxTokIn  int64  `json:"max_tok_in,omitempty"`
+		MaxTokOut int64  `json:"max_tok_out,omitempty"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil || req.Model == "" {
 		jsonErr(w, http.StatusBadRequest, "an edge authorization names the model it wants")
@@ -172,8 +180,21 @@ func (b *broker) towerEdgeAuthorize(w http.ResponseWriter, r *http.Request) {
 	if maxOut <= 0 || maxOut > edgeMaxBytes {
 		maxOut = edgeMaxBytes
 	}
+	// TOKEN ceilings for the Option C per-token path, bounded like the byte ceilings. The
+	// consumer declares what it wants authorized (it need not reveal the request - the broker
+	// is blind); an unset or over-large bound falls back to edgeMaxTokens. These ride the grant
+	// alongside the byte ceilings and bound both the wallet hold and the settle-time token
+	// clamp. Tokens <= bytes always, so edgeMaxTokens <= edgeMaxBytes.
+	maxTokIn, maxTokOut := req.MaxTokIn, req.MaxTokOut
+	if maxTokIn <= 0 || maxTokIn > edgeMaxTokens {
+		maxTokIn = edgeMaxTokens
+	}
+	if maxTokOut <= 0 || maxTokOut > edgeMaxTokens {
+		maxTokOut = edgeMaxTokens
+	}
 
-	target, endpoint, ok := b.edgeTargetFor(req.Model)
+	target, row, ok := b.edgeTargetFor(req.Model)
+	endpoint := row.Endpoint
 	if !ok {
 		// The same refusal whether the model is unknown, every Station is busy, or no Tower
 		// carries a data plane: what a consumer needs to know is "not here, not now", and
@@ -181,13 +202,34 @@ func (b *broker) towerEdgeAuthorize(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusServiceUnavailable, "no Station can take this on the edge path right now")
 		return
 	}
+	// THE FLEET PROJECTION IS NOT A SECURITY BOUNDARY - the price is re-checked against the
+	// public band HERE, at the moment it becomes money. The row's price came from a signed,
+	// band-checked leaf, but the projection rows themselves are unsigned database state; an
+	// out-of-band writer (or a future second publisher) must not be able to pin an arbitrary
+	// price into a Core-signed grant. Out of band -> refuse rather than clamp: a wrong price
+	// is a wrong offer, not one to silently reprice.
+	if row.PriceIn != 0 || row.PriceOut != 0 {
+		if floor, ceiling, bok := towerPriceBand(req.Model); !bok ||
+			row.PriceIn < floor || row.PriceIn > ceiling ||
+			row.PriceOut < floor || row.PriceOut > ceiling {
+			log.Printf("edge authorize: routable row for %s/%s carries an out-of-band price (%d/%d) - refused",
+				row.TowerID, row.StationID, row.PriceIn, row.PriceOut)
+			jsonErr(w, http.StatusServiceUnavailable, "no Station can take this on the edge path right now")
+			return
+		}
+	}
 
 	g, err := ts.dispatch.MintEdge(dispatch.EdgeTarget{
 		TowerID: target.TowerID, StationID: target.StationID, StationEpoch: target.StationEpoch,
 		Model: target.Model, Modality: target.Modality,
 		RelayName: target.StationID + "." + relayDomain(),
-		MaxIn:     maxIn, MaxOut: maxOut, AssertionKey: target.AssertionKey,
+		MaxIn:     maxIn, MaxOut: maxOut,
+		MaxTokIn: maxTokIn, MaxTokOut: maxTokOut, AssertionKey: target.AssertionKey,
 		ConsumerKey: consumerKey,
+		// THE PRICE IS PINNED HERE, from the Station's signed, band-checked offer, into the
+		// Core-signed grant - so settlement bills the number the consumer authorized against,
+		// and a price change between authorize and settle cannot reprice this attempt.
+		PriceInMicros: row.PriceIn, PriceOutMicros: row.PriceOut,
 	})
 	if err != nil {
 		jsonErr(w, http.StatusServiceUnavailable, "could not authorize this attempt - try again")
@@ -199,8 +241,23 @@ func (b *broker) towerEdgeAuthorize(w http.ResponseWriter, r *http.Request) {
 	// settle-time capture refunds the unused remainder. Free (unpriced) edge traffic skips this.
 	// The grant was minted but is NOT recorded until the hold succeeds, so a refused hold leaves
 	// no usable attempt behind.
-	if maxCost := edgePriceCredits(maxIn, maxOut); maxCost > 0 {
-		consumerWallet := protocol.UserIDFromPubkey(hex.EncodeToString(consumerKey))
+	// Hold and capture MUST use the SAME wallet or funds move between pots. Both use the
+	// consumer's ACCOUNT wallet (u_gh_/u_apple_/u_email_) - resolved here from the owner the
+	// account gate already looked up - so a relayed request reserves from and bills the same
+	// balance a direct request would, not the device-key wallet.
+	consumerWallet, cwok := accountWalletForOwner(o)
+	if !cwok {
+		jsonErr(w, http.StatusForbidden, "tower inference requires a signed-in account that has accepted the terms of service")
+		return
+	}
+	// The hold covers the WORST CASE under whichever tariff can bill this attempt: the byte
+	// tariff's ceiling price, or the token ceiling at the grant's pinned per-token price. The
+	// settle-time capture charges the actual figure and refunds the remainder.
+	maxCost := edgePriceCredits(maxIn, maxOut)
+	if tc := tokenCostCredits(maxTokIn, maxTokOut, row.PriceIn, row.PriceOut); tc > maxCost {
+		maxCost = tc
+	}
+	if maxCost > 0 {
 		if ok, herr := b.db.HoldFor(consumerWallet, g.AttemptID, maxCost); herr != nil || !ok {
 			jsonErr(w, http.StatusPaymentRequired, "insufficient balance for this request")
 			return
@@ -216,8 +273,8 @@ func (b *broker) towerEdgeAuthorize(w http.ResponseWriter, r *http.Request) {
 		// If a hold was placed just above, release it: the attempt does not exist, so it will
 		// never settle to capture it, and leaving it would strand the consumer's funds until the
 		// orphan sweep. Idempotent and a no-op when no hold was placed (unpriced traffic).
-		if edgePriceCredits(maxIn, maxOut) > 0 {
-			if _, rerr := b.db.ReleaseHoldFor(protocol.UserIDFromPubkey(hex.EncodeToString(consumerKey)), g.AttemptID); rerr != nil {
+		if maxCost > 0 {
+			if _, rerr := b.db.ReleaseHoldFor(consumerWallet, g.AttemptID); rerr != nil {
 				log.Printf("edge authorize: could not release hold for orphaned attempt %s: %v", g.AttemptID, rerr)
 			}
 		}
@@ -235,6 +292,15 @@ func (b *broker) towerEdgeAuthorize(w http.ResponseWriter, r *http.Request) {
 		"deadline": g.Deadline.Unix(),
 		"max_in":   g.MaxIn,
 		"max_out":  g.MaxOut,
+		// THE PRICE, IN THE OPEN. The pinned per-token price, the token ceilings, and the
+		// worst-case hold are what the consumer is agreeing to by using this grant - inside
+		// the base64 grant is not "shown", so they are echoed here where a client can display
+		// them before a byte is sent.
+		"max_tok_in":       g.MaxTokIn,
+		"max_tok_out":      g.MaxTokOut,
+		"price_in_micros":  g.PriceInMicros,
+		"price_out_micros": g.PriceOutMicros,
+		"max_hold_credits": round6(maxCost),
 		"note": "connect to endpoint with TLS server name relay_name, send the grant in the " +
 			"X-Rogerai-Grant header, and acknowledge what you receive at /tower/edge/ack - an " +
 			"honest acknowledgement can only ever reduce what you are billed",
@@ -285,15 +351,15 @@ func (b *broker) openEdgeAttempt(g dispatch.EdgeGrant, target dispatch.Target) e
 // registry and the attachment record - never by the read model. And only rows with an
 // endpoint qualify: a Tower that relays nothing has no edge to route a consumer to, however
 // healthy its Stations are on the relayed path.
-func (b *broker) edgeTargetFor(model string) (dispatch.Target, string, bool) {
+func (b *broker) edgeTargetFor(model string) (dispatch.Target, fleet.Station, bool) {
 	ts := b.tower
 	if ts == nil || ts.routable == nil {
-		return dispatch.Target{}, "", false
+		return dispatch.Target{}, fleet.Station{}, false
 	}
 	rows, err := ts.routable.Candidates(model, time.Now())
 	if err != nil {
 		log.Printf("edge authorize: cannot read the routable fleet: %v", err)
-		return dispatch.Target{}, "", false
+		return dispatch.Target{}, fleet.Station{}, false
 	}
 	for _, row := range rows {
 		if row.Endpoint == "" {
@@ -303,10 +369,12 @@ func (b *broker) edgeTargetFor(model string) (dispatch.Target, string, bool) {
 			continue
 		}
 		if target, ok := b.targetFor(row.TowerID, row.StationID, row.Model, row.Modality); ok {
-			return target, row.Endpoint, true
+			// The whole ROW rides back: the endpoint the consumer connects to, and the signed
+			// leaf's consumer price that authorize pins into the grant.
+			return target, row, true
 		}
 	}
-	return dispatch.Target{}, "", false
+	return dispatch.Target{}, fleet.Station{}, false
 }
 
 // towerEdgeAck accepts the consumer's signed statement about what it actually received.
@@ -654,6 +722,57 @@ func (b *broker) towerEdgeSettle(w http.ResponseWriter, r *http.Request) {
 		log.Printf("edge settle: attempt %s grant ceiling unreadable (%v) - billable NOT clamped, flagged for audit", req.AttemptID, cerr)
 		disputed = true
 	}
+	// TOKEN CEILING CLAMP (Option C). The per-token figure a node is paid on must not exceed
+	// what Core authorized in the grant, exactly as the byte figure is clamped above. A ceiling
+	// of 0 means "no token ceiling" (a byte-only grant, or one minted before token billing) - in
+	// that case the token figure is left to the byte cap + audit, NOT clamped to zero. This lands
+	// the clamp BEFORE any node populates a real token claim, so an unclamped raw operator claim
+	// can never reach the money path. Reads the token ceiling from the SAME signed grant.
+	if maxTokIn, maxTokOut, terr := dispatch.EdgeGrantTokenCeiling(rec.Grant, ts.dispatchPub,
+		link.PublicNetwork, rec.StationID); terr == nil {
+		if maxTokIn > 0 && settled.BillableTokens.In > maxTokIn {
+			settled.BillableTokens.In = maxTokIn
+			disputed = true
+		}
+		if maxTokOut > 0 && settled.BillableTokens.Out > maxTokOut {
+			settled.BillableTokens.Out = maxTokOut
+			disputed = true
+		}
+	} else {
+		// Same safe direction as the byte ceiling above: a token ceiling we cannot read from a
+		// grant we stored should never happen, but we do not trap the operator's pay behind it -
+		// we flag it disputed and force-audit so an unclamped token figure never passes
+		// unexamined once BillableTokens becomes money (P4+). Today this is implicitly covered
+		// because the byte read fails on the same grant, but it must stand on its own.
+		disputed = true
+	}
+	// TOKENS <= BYTES, enforced with data Core already holds. A token is at least one byte, so
+	// the byte figure - itself already clamped to the grant's byte ceiling above and re-checked
+	// against the transcript at audit - is a hard upper bound on tokens. A token claim exceeding
+	// the bytes actually served is provably inflated, so clamp it and dispute. This is the cheap,
+	// attestation-free bound that lets token PRICING land without waiting on the full Tower
+	// byte-attestation (which only tightens this, replacing the node's own byte claim with the
+	// Tower's independent wire count). It runs AFTER the byte and token-ceiling clamps so both
+	// figures are final.
+	if settled.BillableTokens.In > settled.Billable.In {
+		settled.BillableTokens.In = settled.Billable.In
+		disputed = true
+	}
+	if settled.BillableTokens.Out > settled.Billable.Out {
+		settled.BillableTokens.Out = settled.Billable.Out
+		disputed = true
+	}
+	// A TOKEN-PRICED grant settled with NO token claim but nonzero bytes is anomalous: an
+	// updated node always reports its model's usage, so a zero claim on real output is either
+	// an old node or a node gaming the byte-fallback tariff (its cost is capped at the token
+	// ceiling either way - see settleEdgeMoney - but the pattern deserves the audit's eyes,
+	// like every other figure that smells of inflation).
+	if pin, pout, perr := dispatch.EdgeGrantPricing(rec.Grant, ts.dispatchPub,
+		link.PublicNetwork, rec.StationID); perr == nil && (pin > 0 || pout > 0) &&
+		settled.BillableTokens.In == 0 && settled.BillableTokens.Out == 0 &&
+		(settled.Billable.In > 0 || settled.Billable.Out > 0) {
+		disputed = true
+	}
 	// THE FUNDING LEDGER, written after the one-use settlement has committed and keyed by this
 	// attempt id, so it accrues exactly once however this request is retried or raced. The
 	// amount is computed from the BILLABLE usage - now bounded by the grant ceiling above, and
@@ -811,6 +930,35 @@ func (b *broker) accrueEarnings(ts *towerSubsystem, towerID, owner, model string
 // credits are clawed back together if the request is refunded. FREE (unpriced) edge traffic does
 // nothing here - billing turns on only when a per-byte edge price is configured.
 func (b *broker) settleEdgeMoney(ts *towerSubsystem, towerID, stationID, stationOwner string, rec dispatch.Record, settled dispatch.Settlement, now time.Time) {
+	// TOKEN-PRICED FIRST (Option C). The price was pinned into the Core-signed grant at
+	// authorize, so settlement honors it REGARDLESS of the env byte-tariff switch - exactly the
+	// lock-price property the direct path has. Billable tokens have already been clamped to the
+	// grant token ceiling and the tokens<=bytes bound above, so the figure is safe to price.
+	if pin, pout, perr := dispatch.EdgeGrantPricing(rec.Grant, ts.dispatchPub,
+		link.PublicNetwork, rec.StationID); perr == nil && (pin > 0 || pout > 0) {
+		if settled.BillableTokens.In > 0 || settled.BillableTokens.Out > 0 {
+			cost := tokenCostCredits(settled.BillableTokens.In, settled.BillableTokens.Out, pin, pout)
+			b.captureEdgeCharge(towerID, stationID, stationOwner, rec.ConsumerKey, settled.AttemptID,
+				rec.Model, cost, settled.BillableTokens.In, settled.BillableTokens.Out, now)
+			return
+		}
+		// A token-priced grant whose node signed NO token claim (an old node): bill the byte
+		// tariff, but CAPPED at what the token ceilings would have cost at the pinned price -
+		// otherwise a node whose token price is LOW could zero its claim to be paid the higher
+		// platform byte rate (the arbitrage the audit flagged). And ALWAYS capture, even with
+		// the byte tariff off: a token-priced attempt always placed a hold, and capturing at
+		// zero refunds it immediately rather than stranding it until the sweep.
+		byteCost := edgePriceCredits(settled.Billable.In, settled.Billable.Out)
+		if maxTokIn, maxTokOut, terr := dispatch.EdgeGrantTokenCeiling(rec.Grant, ts.dispatchPub,
+			link.PublicNetwork, rec.StationID); terr == nil {
+			if ceilingCost := tokenCostCredits(maxTokIn, maxTokOut, pin, pout); byteCost > ceilingCost {
+				byteCost = ceilingCost
+			}
+		}
+		b.captureEdgeCharge(towerID, stationID, stationOwner, rec.ConsumerKey, settled.AttemptID,
+			rec.Model, byteCost, settled.Billable.In, settled.Billable.Out, now)
+		return
+	}
 	if !edgePricingOn() {
 		// Edge pricing is off, so no holds were placed and there is nothing to capture. We
 		// deliberately do NOT call SettleEdge here: it would claim a consumer receipt for free
@@ -825,26 +973,77 @@ func (b *broker) settleEdgeMoney(ts *towerSubsystem, towerID, stationID, station
 	// swept hold or a changed price cannot produce a wrong refund. We still call it at cost 0 (an
 	// empty result while pricing remains on): that CAPTURES the hold at zero cost, refunding the
 	// full reservation, rather than stranding it.
+	// The byte-priced (blind / canary / probe) path prices the settled billable BYTES; the
+	// token-priced branch above prices tokens at the grant's pinned rate. Both share the
+	// split + wallet + SettleEdge logic in captureEdgeCharge.
 	cost := edgePriceCredits(settled.Billable.In, settled.Billable.Out)
-	consumerWallet := protocol.UserIDFromPubkey(hex.EncodeToString(rec.ConsumerKey))
-	stationShare := cost * (1 - b.feeRate)
-	towerShare := cost * b.feeRate * edgeTowerRate()
+	b.captureEdgeCharge(towerID, stationID, stationOwner, rec.ConsumerKey, settled.AttemptID, rec.Model,
+		cost, settled.Billable.In, settled.Billable.Out, now)
+}
+
+// edgeConsumerWallet resolves the ACCOUNT wallet to bill for an edge consumer key, so a
+// relayed request draws from the SAME balance as a direct one (u_gh_/u_apple_/u_email_),
+// not the device-key wallet. It resolves the owner behind the key and its account wallet;
+// ok=false for a key not bound to a non-anonymized account (e.g. an ephemeral canary key),
+// in which case nothing is billed. The authorize-time account gate already requires a bound
+// account, so a real relayed request always resolves here.
+func (b *broker) edgeConsumerWallet(consumerKey []byte) (string, bool) {
+	o, ok, err := b.db.OwnerByPubkey(hex.EncodeToString(consumerKey))
+	if err != nil || !ok {
+		return "", false
+	}
+	return accountWalletForOwner(o)
+}
+
+// edgeShares splits an edge/relay charge of `cost` credits three ways, all fractions of
+// GROSS (the founder-set model, 2026-08-13, overriding the earlier "share of net platform
+// revenue" basis - see operator_revenue_share.feature):
+//
+//	station owner : 1 - feeRate            -> 70% at the default 30% fee (unchanged)
+//	tower operator: edgeTowerRate()        -> 10% of GROSS, the relay cut
+//	platform      : feeRate - towerRate    -> 20%, i.e. the platform ABSORBS the tower's
+//	                                          cut out of its own margin, so a Station is
+//	                                          never paid less because its traffic was relayed.
+//
+// The tower rate is capped at feeRate so the platform's share can never go negative.
+func (b *broker) edgeShares(cost float64) (stationShare, towerShare float64) {
+	tr := edgeTowerRate()
+	if tr > b.feeRate {
+		tr = b.feeRate
+	}
+	return cost * (1 - b.feeRate), cost * tr
+}
+
+// captureEdgeCharge bills a settled edge/relay attempt against the consumer's ACCOUNT
+// wallet: it captures the authorize-time hold at `cost` credits (refunding the unused
+// reservation, no-op if no hold exists), and mints the Station-owner and Tower-operator
+// earning lots via the 70/10/20 split. inUnits/outUnits are recorded on the lineage
+// receipt (bytes on the blind path, tokens on the overflow path). Shared by the
+// byte-priced settle and the token-priced overflow path so both bill identically.
+func (b *broker) captureEdgeCharge(towerID, stationID, stationOwner string, consumerKey []byte, attemptID, model string, cost float64, inUnits, outUnits int64, now time.Time) {
+	wallet, ok := b.edgeConsumerWallet(consumerKey)
+	if !ok {
+		// Not a billable account (e.g. an ephemeral canary key). No hold was ever placed
+		// against an account wallet, so there is nothing to capture and nothing to earn.
+		return
+	}
+	stationShare, towerShare := b.edgeShares(cost)
 	towerAcct, ok := b.towerOperatorAccount(towerID)
 	if !ok {
 		log.Printf("edge settle: attempt %s - Tower %s operator has no resolvable wallet account; Tower earns nothing",
-			settled.AttemptID, towerID)
+			attemptID, towerID)
 	}
 	r := protocol.UsageReceipt{
-		RequestID: settled.AttemptID, Model: rec.Model,
-		PromptTokens: int(settled.Billable.In), CompletionTokens: int(settled.Billable.Out), TS: now.Unix(),
+		RequestID: attemptID, Model: model,
+		PromptTokens: int(inUnits), CompletionTokens: int(outUnits), TS: now.Unix(),
 	}
 	// The Tower lot is tagged with a "tower:" node prefix so the earnings surface can tell a
 	// Tower-RELAY share apart from a node-SERVING share for the same operator (the dashboard shows
 	// them separately). It is provenance only - clawback and payout key on the account and request,
 	// not the node - so the prefix changes no money.
-	if _, err := b.db.SettleEdge(consumerWallet, stationID, stationOwner, towerNode(towerID), towerAcct,
+	if _, err := b.db.SettleEdge(wallet, stationID, stationOwner, towerNode(towerID), towerAcct,
 		cost, stationShare, towerShare, r); err != nil {
-		log.Printf("edge settle: could not bill attempt %s: %v", settled.AttemptID, err)
+		log.Printf("edge settle: could not bill attempt %s: %v", attemptID, err)
 	}
 }
 
@@ -937,9 +1136,11 @@ func envMicros(name string) int64 {
 	return n
 }
 
-// edgeTowerRateDefault is the Tower operator's share of NET PLATFORM REVENUE on a relayed
-// attempt - the founder-set 10%. Overridable by config; the split comes out of the platform's
-// margin, not the serving Station's share.
+// edgeTowerRateDefault is the Tower operator's share of GROSS on a relayed attempt - the
+// founder-set 10% (2026-08-13, overriding the earlier "share of net platform revenue" basis).
+// Overridable by config; the cut comes out of the PLATFORM's margin (its fee drops from 30%
+// to 20% at the default), never the serving Station's 70% share. Capped at feeRate in
+// edgeShares so the platform's residual can never go negative.
 const edgeTowerRateDefault = 0.10
 
 // Edge prices are expressed as CREDITS PER MILLION BYTES (1 credit = $1), mirroring the direct
@@ -951,6 +1152,17 @@ const (
 	defaultEdgePricePerMBIn  = 0.05 // credits per 1,000,000 input bytes
 	defaultEdgePricePerMBOut = 0.15 // credits per 1,000,000 output bytes
 )
+
+// tokenCostCredits prices token usage in consumer credits (1 credit = $1) at a pinned
+// per-token price: prices are MICRO-USD PER 1,000,000 TOKENS, so
+// cost = (tokens x priceMicros) / 1e6 [per-1M] / 1e6 [micros->USD]. Negative inputs (which
+// every upstream guard already refuses) price as zero rather than minting negative money.
+func tokenCostCredits(tokIn, tokOut, priceInMicros, priceOutMicros int64) float64 {
+	if tokIn < 0 || tokOut < 0 || priceInMicros < 0 || priceOutMicros < 0 {
+		return 0
+	}
+	return (float64(tokIn)*float64(priceInMicros) + float64(tokOut)*float64(priceOutMicros)) / 1e12
+}
 
 // edgePriceCredits prices an edge attempt's billable bytes in consumer credits. The consumer is
 // charged this, the Station owner earns cost*(1-fee), and the Tower operator earns cost*fee*rate -
@@ -968,8 +1180,11 @@ func edgeRatePerMB(name string, def float64) float64 {
 		return def
 	}
 	f, err := strconv.ParseFloat(v, 64)
-	if err != nil || f < 0 {
-		log.Printf("tower: %s is not a non-negative number (%q); using default %.4f", name, v, def)
+	if err != nil || f < 0 || math.IsInf(f, 0) || math.IsNaN(f) {
+		// Inf/NaN would poison every cost computed from this rate (NaN even slips past the
+		// settle-time cost<=held clamp, whose comparison is false for NaN), so a non-finite
+		// rate is refused exactly like a negative one.
+		log.Printf("tower: %s is not a finite non-negative number (%q); using default %.4f", name, v, def)
 		return def
 	}
 	return f
@@ -984,8 +1199,9 @@ func edgePricingOn() bool {
 		edgeRatePerMB("ROGERAI_TOWER_EDGE_PRICE_OUT", defaultEdgePricePerMBOut) > 0
 }
 
-// edgeTowerRate is the Tower's fraction of platform revenue, defaulting to 10% and clamped to
-// [0,1]; a bad value falls back to the default rather than paying an absurd share.
+// edgeTowerRate is the Tower's fraction of GROSS, defaulting to 10% and clamped to [0,1] here
+// (edgeShares further caps it at feeRate); a bad value falls back to the default rather than
+// paying an absurd share.
 func edgeTowerRate() float64 {
 	v := os.Getenv("ROGERAI_TOWER_REVENUE_RATE")
 	if v == "" {

@@ -124,6 +124,11 @@ type Receipt struct {
 	// Usage is what the Station claims it spent, IN THE SIGNATURE. It is the claim the
 	// Station is paid on, so it must not be alterable by the relay carrying the receipt.
 	Usage Usage `json:"usage"`
+	// TokUsage is the Station's TOKEN claim (Option C per-token billing), signed alongside the
+	// byte Usage. OPTIONAL: zero on the byte path or an old receipt. The byte Usage stays the
+	// tamper-evident wire measurement; tokens are the billing basis, bounded downstream by the
+	// grant's token ceiling, the Tower byte-attestation (tokens <= bytes), and sampled audit.
+	TokUsage Usage `json:"tok_usage"`
 	// Signed is the canonical Station-signed object.
 	Signed []byte `json:"signed"`
 }
@@ -439,9 +444,12 @@ func (r *Registry) Reap() int {
 // Station is paid on, and it must be inside the signature - a usage figure carried beside
 // the receipt would be writable by the Tower forwarding it, and "settlement never reads the
 // Tower's numbers" is the whole point of the evidence design.
-func SignReceipt(priv ed25519.PrivateKey, network string, g Grant, request, body []byte, u Usage) (Receipt, error) {
+func SignReceipt(priv ed25519.PrivateKey, network string, g Grant, request, body []byte, u Usage, tok Usage) (Receipt, error) {
 	if u.In < 0 || u.Out < 0 {
 		return Receipt{}, errors.New("a receipt cannot claim negative usage")
+	}
+	if tok.In < 0 || tok.Out < 0 {
+		return Receipt{}, errors.New("a receipt cannot claim negative token usage")
 	}
 	// The REQUEST digest is committed to as well as the response, and it is what makes a
 	// sampled transcript checkable at BOTH ends: an audit hashes the stored request and
@@ -449,7 +457,7 @@ func SignReceipt(priv ed25519.PrivateKey, network string, g Grant, request, body
 	// grant already carried a request digest, but the receipt did not commit to it - so a
 	// Station could have served a different request than the grant authorized and nothing
 	// downstream of the grant check would notice. Here it signs for exactly the bytes it saw.
-	rec := Receipt{AttemptID: g.AttemptID, RequestDigest: digestOf(request), ResponseDigest: digestOf(body), Usage: u}
+	rec := Receipt{AttemptID: g.AttemptID, RequestDigest: digestOf(request), ResponseDigest: digestOf(body), Usage: u, TokUsage: tok}
 	raw, err := json.Marshal(map[string]any{
 		"network":         network,
 		"type":            TypeReceipt,
@@ -460,6 +468,8 @@ func SignReceipt(priv ed25519.PrivateKey, network string, g Grant, request, body
 		"response_digest": rec.ResponseDigest,
 		"usage_in":        towerobj.FormatInt(u.In),
 		"usage_out":       towerobj.FormatInt(u.Out),
+		"tok_in":          towerobj.FormatInt(tok.In),
+		"tok_out":         towerobj.FormatInt(tok.Out),
 	})
 	if err != nil {
 		return Receipt{}, err

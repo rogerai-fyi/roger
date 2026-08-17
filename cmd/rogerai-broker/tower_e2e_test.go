@@ -83,14 +83,34 @@ func signedInConsumer(t *testing.T, b *broker) ed25519.PrivateKey {
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
 	pubHex := hexOf(pub)
-	require.NoError(t, b.db.BindOwner(store.Owner{
+	o := store.Owner{
 		Pubkey: pubHex, Login: "consumer-" + pubHex[:8], Email: pubHex[:8] + "@x.test",
 		EmailVerifiedAt: time.Now().Unix(),
-	}))
-	if _, err := b.db.AddCredits(protocol.UserIDFromPubkey(pubHex), 1_000_000); err != nil {
+	}
+	require.NoError(t, b.db.BindOwner(o))
+	// Fund the ACCOUNT wallet (what edge billing now draws from), not the device-key wallet.
+	wallet, ok := accountWalletForOwner(o)
+	require.True(t, ok, "a signed-in consumer must have a resolvable account wallet")
+	if _, err := b.db.AddCredits(wallet, 1_000_000); err != nil {
 		t.Fatal(err)
 	}
 	return priv
+}
+
+// bindEdgeConsumer binds an edge consumer key to a verified-email account and returns that
+// account's wallet - the balance edge billing now draws from. Use it for tests that mint a
+// grant with issuedEdgeGrant (an unbound key) but need the settle to actually bill.
+func bindEdgeConsumer(t *testing.T, b *broker, cpub ed25519.PublicKey) string {
+	t.Helper()
+	pubHex := hexOf(cpub)
+	o := store.Owner{
+		Pubkey: pubHex, Login: "edge-consumer-" + pubHex[:8], Email: pubHex[:8] + "@edge.test",
+		EmailVerifiedAt: time.Now().Unix(),
+	}
+	require.NoError(t, b.db.BindOwner(o))
+	wallet, ok := accountWalletForOwner(o)
+	require.True(t, ok)
+	return wallet
 }
 
 func hexOf(pub ed25519.PublicKey) string {
@@ -484,6 +504,38 @@ func TestStatusReportsWhatTheRegistryHolds(t *testing.T) {
 	require.Equal(t, "quarantine", status.Towers[0].State)
 	require.False(t, status.Towers[0].MayTakeWork,
 		"an operator must not be told their quarantined Tower is taking work")
+}
+
+// TestStatusReadableFromABrowserSession pins the dashboard reuse path: the SAME fleet an
+// operator enrolled from the CLI is visible to their logged-in BROWSER session (here an
+// email login), so the web dashboard can render "your Towers" without the operator having
+// to run a signed CLI request. Read-only; enrollment/lifecycle stay CLI-signed.
+func TestStatusReadableFromABrowserSession(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	o := signedInOperator(t, b, "operator-web") // binds owner Login "operator-web", verified email
+	code, out := register(t, srv, o, newTowerOnDisk(t), "txn-web")
+	require.Equal(t, http.StatusOK, code)
+
+	// A first-party EMAIL web session is shaped exactly as emaillogin mints it: gid 0, no
+	// Apple sub, the proven address as the login.
+	addr := "operator-web@rogerai.fm"
+	cookie := b.signSessionFull(addr, 0, walletForEmail(addr), "", time.Now().Add(time.Hour).Unix())
+	req, err := http.NewRequest(http.MethodGet, srv.URL+"/tower/status", nil)
+	require.NoError(t, err)
+	req.AddCookie(&http.Cookie{Name: sessionCookie, Value: cookie})
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode, "a logged-in browser session sees its own fleet")
+
+	var status struct {
+		Towers []struct {
+			TowerID string `json:"tower_id"`
+		} `json:"towers"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&status))
+	require.Len(t, status.Towers, 1, "the browser sees exactly the tower the CLI enrolled")
+	require.Equal(t, out["tower_id"], status.Towers[0].TowerID)
 }
 
 func TestWrongMethodsAreRefused(t *testing.T) {

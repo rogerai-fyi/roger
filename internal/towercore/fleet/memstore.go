@@ -23,7 +23,21 @@ func (m *memStore) Replace(towerID string, rows []Station) error {
 		delete(m.by, towerID)
 		return nil
 	}
-	m.by[towerID] = append([]Station(nil), rows...)
+	// DEDUPE BY OFFER ID, LAST WINS - the exact semantics the Postgres store's
+	// (tower_id, offer_id) primary key + ON CONFLICT upsert give. Without this the two
+	// stores disagree about a duplicate offer id within one Replace, and parity is the
+	// whole point of having a reference store.
+	seen := map[string]int{}
+	out := make([]Station, 0, len(rows))
+	for _, r := range rows {
+		if i, dup := seen[r.OfferID]; dup {
+			out[i] = r
+			continue
+		}
+		seen[r.OfferID] = len(out)
+		out = append(out, r)
+	}
+	m.by[towerID] = out
 	return nil
 }
 

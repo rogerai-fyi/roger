@@ -129,8 +129,20 @@ type Authorization struct {
 	// unusable rather than open - see validate.
 	SecretHash string
 	Role       string
-	IssuedAt   time.Time
-	ExpiresAt  time.Time
+	// HubToken is the bearer token the serving node will present to its Tower's data-plane
+	// hub (Option C, Topology 2). Minted by Core at SELF-attach (the invite+redeem-in-one
+	// path), empty on the classic operator-invite flow. Stored plaintext like the broker's
+	// node BridgeToken: the Tower must compare the exact value the node presents.
+	HubToken string
+	// Model/Modality/PriceIn/PriceOut are the self-attached node's OFFER: what it serves and
+	// what the consumer pays (micro-USD per 1,000,000 tokens), band-checked by the broker at
+	// attach. Empty/zero on the classic flow, whose offers ride the Tower's signed inventory.
+	Model     string
+	Modality  string
+	PriceIn   int64
+	PriceOut  int64
+	IssuedAt  time.Time
+	ExpiresAt time.Time
 	// Consumed and ConsumedBy record the spend. ConsumedBy is the Station ID that resulted,
 	// which is what makes a lost-response retry answerable.
 	Consumed   bool
@@ -151,6 +163,15 @@ type Attachment struct {
 	State       string
 	AttachedAt  time.Time
 	AuthID      string
+	// HubToken is the node's bearer token for its Tower's data-plane hub (see
+	// Authorization.HubToken). The Tower reads it to RegisterNode; empty means this
+	// attachment predates (or never used) the self-attach path.
+	HubToken string
+	// The self-attached node's offer (see Authorization). Model empty = classic flow.
+	Model    string
+	Modality string
+	PriceIn  int64
+	PriceOut int64
 }
 
 // Live reports whether this attachment may carry public work at all. Quarantine is live-
@@ -209,10 +230,18 @@ type Store interface {
 	Admit(authID string, at Attachment) (bool, error)
 	// ByStation, ByAssertionKey and BySessionKey are the uniqueness and lookup reads.
 	ByStation(stationID string) (Attachment, bool, error)
+	// ByTower lists the LIVE attachments whose origin is the given Tower - what that Tower's
+	// hub must serve (Option C: the tower reads each node's HubToken from here).
+	ByTower(towerID string) ([]Attachment, error)
 	ByAssertionKey(key string) (Attachment, bool, error)
 	BySessionKey(key string) (Attachment, bool, error)
 	// SetState moves an attachment through its lifecycle.
 	SetState(stationID, state string) (bool, error)
+	// ReapTerminal deletes revoked/detached attachments attached before the horizon. Terminal
+	// rows are kept a while for forensics, but not forever: without a reap, an attach ->
+	// revoke -> attach loop (frictionless on the self-attach path) grows the table without
+	// bound - the same vector the invitation reap closes one table over.
+	ReapTerminal(before time.Time) (int64, error)
 }
 
 // NewInvite mints a one-use invitation and returns it alongside the PLAINTEXT secret, which
@@ -344,6 +373,11 @@ func (r *Registry) Admit(p Proof) (Attachment, error) {
 		State:        StateQuarantine,
 		AttachedAt:   now,
 		AuthID:       auth.ID,
+		HubToken:     auth.HubToken,
+		Model:        auth.Model,
+		Modality:     auth.Modality,
+		PriceIn:      auth.PriceIn,
+		PriceOut:     auth.PriceOut,
 	}
 
 	won, err := r.store.Admit(auth.ID, at)
@@ -525,6 +559,17 @@ func (r *Registry) Station(stationID string) (Attachment, bool, error) {
 // Revoke retires a Station identity terminally. Terminal is the point: the spec requires a
 // cross-kind migration to go through revocation and a NEW Station ID, so a revoked identity
 // must never come back.
+// ByTower lists the live attachments served through one Tower.
+func (r *Registry) ByTower(towerID string) ([]Attachment, error) {
+	return r.store.ByTower(towerID)
+}
+
+// ByAssertionKey resolves the live attachment holding this assertion key, if any - what the
+// self-attach path uses to answer a lost-response retry idempotently.
+func (r *Registry) ByAssertionKey(key string) (Attachment, bool, error) {
+	return r.store.ByAssertionKey(key)
+}
+
 func (r *Registry) Revoke(stationID string) (bool, error) {
 	ok, err := r.store.SetState(stationID, StateRevoked)
 	if err != nil {

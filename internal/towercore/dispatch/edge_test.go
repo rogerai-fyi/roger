@@ -105,8 +105,10 @@ func TestAnEdgeGrantWithoutItsBoundsIsRefused(t *testing.T) {
 		"negative in":  func(g *EdgeTarget) { g.MaxIn = -1 },
 		"no key":       func(g *EdgeTarget) { g.AssertionKey = nil },
 		"short key":    func(g *EdgeTarget) { g.AssertionKey = []byte{1, 2, 3} },
-		"negative out": func(g *EdgeTarget) { g.MaxOut = -5 },
-		"no consumer":  func(g *EdgeTarget) { g.ConsumerKey = nil },
+		"negative out":     func(g *EdgeTarget) { g.MaxOut = -5 },
+		"negative tok in":  func(g *EdgeTarget) { g.MaxTokIn = -1 },
+		"negative tok out": func(g *EdgeTarget) { g.MaxTokOut = -5 },
+		"no consumer":      func(g *EdgeTarget) { g.ConsumerKey = nil },
 	} {
 		t.Run(name, func(t *testing.T) {
 			tgt := base
@@ -234,4 +236,198 @@ func TestEdgeGrantCeilingReadsBoundsAfterTheDeadline(t *testing.T) {
 	require.NoError(t, err)
 	_, _, err = EdgeGrantCeiling(g.Signed, impostor, "roger-public", "st-1")
 	require.Error(t, err)
+}
+
+// Option C per-token billing rides token ceilings ALONGSIDE the byte ceilings. They survive
+// mint -> sign -> parse, are readable at settlement via EdgeGrantTokenCeiling, and are
+// Station-bound so a substituted grant cannot pass a bogus ceiling into the money path.
+func TestEdgeGrantCarriesOptionalTokenCeilings(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	r, core := edgeRegistry(t, now)
+	tgt, _ := edgeTarget(t)
+	tgt.MaxTokIn, tgt.MaxTokOut = 300, 800
+
+	g, err := r.MintEdge(tgt)
+	require.NoError(t, err)
+	require.Equal(t, int64(300), g.MaxTokIn)
+	require.Equal(t, int64(800), g.MaxTokOut)
+
+	got, err := ParseEdgeGrant(g.Signed, core, "roger-public", "st-1", []byte("x"), now)
+	require.NoError(t, err)
+	require.Equal(t, int64(300), got.MaxTokIn)
+	require.Equal(t, int64(800), got.MaxTokOut)
+	// The byte ceilings remain, independent of the token ceilings.
+	require.Equal(t, int64(1000), got.MaxIn)
+	require.Equal(t, int64(2000), got.MaxOut)
+
+	ti, to, err := EdgeGrantTokenCeiling(g.Signed, core, "roger-public", "st-1")
+	require.NoError(t, err)
+	require.Equal(t, int64(300), ti)
+	require.Equal(t, int64(800), to)
+
+	// A grant minted for st-1 must not yield a ceiling when read as another Station's.
+	_, _, err = EdgeGrantTokenCeiling(g.Signed, core, "roger-public", "st-OTHER")
+	require.Error(t, err)
+
+	// Nor when read against an impostor signer: the ceiling is only meaningful because Core set it.
+	impostor, _, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	_, _, err = EdgeGrantTokenCeiling(g.Signed, impostor, "roger-public", "st-1")
+	require.Error(t, err)
+}
+
+// A byte-only grant (no token ceiling set, and any grant minted before Option C) reads back
+// with zero token ceilings and is NOT an error - 0 means "not token-bounded", so the byte cap
+// and audit still govern it.
+func TestAByteOnlyEdgeGrantHasNoTokenCeiling(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	r, core := edgeRegistry(t, now)
+	tgt, _ := edgeTarget(t) // token ceilings default to 0
+
+	g, err := r.MintEdge(tgt)
+	require.NoError(t, err)
+
+	got, err := ParseEdgeGrant(g.Signed, core, "roger-public", "st-1", []byte("x"), now)
+	require.NoError(t, err)
+	require.Zero(t, got.MaxTokIn, "absent token ceiling reads as 0 (no ceiling)")
+	require.Zero(t, got.MaxTokOut)
+
+	ti, to, err := EdgeGrantTokenCeiling(g.Signed, core, "roger-public", "st-1")
+	require.NoError(t, err, "a byte-only grant has no token ceiling, which is not an error")
+	require.Zero(t, ti)
+	require.Zero(t, to)
+}
+
+// The optional-ceiling parser: an ABSENT field (old grant) is 0; a present one must be a valid
+// non-negative integer, and a negative or malformed value is refused rather than silently
+// treated as "unset" - a malformed money bound must never disable itself.
+func TestParseOptionalCeiling(t *testing.T) {
+	ok := []struct {
+		in   string
+		want int64
+	}{{"", 0}, {"0", 0}, {"500", 500}}
+	for _, tc := range ok {
+		got, err := parseOptionalCeiling(tc.in)
+		require.NoError(t, err, tc.in)
+		require.Equal(t, tc.want, got, tc.in)
+	}
+	for _, bad := range []string{"-1", "abc", "1.5"} {
+		_, err := parseOptionalCeiling(bad)
+		require.Error(t, err, bad)
+	}
+}
+
+// EdgeGrantMeta reads a grant's public routing metadata (attempt/station/deadline) after
+// verifying Core's signature, so a Tower can authorize a submit without touching the sealed
+// request. It rejects an impostor signer and an expired grant, and skips expiry on a zero time.
+func TestEdgeGrantMetaReadsRoutingMetadataAndVerifies(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	r, core := edgeRegistry(t, now)
+	tgt, _ := edgeTarget(t)
+	g, err := r.MintEdge(tgt)
+	require.NoError(t, err)
+
+	att, station, deadline, err := EdgeGrantMeta(g.Signed, core, "roger-public", "tw-1", now)
+	require.NoError(t, err)
+	require.Equal(t, g.AttemptID, att)
+	require.Equal(t, "st-1", station)
+	require.Equal(t, now.Add(time.Minute).Unix(), deadline.Unix())
+
+	// Impostor signer rejected.
+	impostor, _, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	_, _, _, err = EdgeGrantMeta(g.Signed, impostor, "roger-public", "tw-1", now)
+	require.Error(t, err)
+
+	// Expired rejected (now past the deadline).
+	_, _, _, err = EdgeGrantMeta(g.Signed, core, "roger-public", "tw-1", now.Add(2*time.Minute))
+	require.ErrorIs(t, err, ErrExpired)
+
+	// A grant minted for tw-1 cannot be replayed at another tower.
+	_, _, _, err = EdgeGrantMeta(g.Signed, core, "roger-public", "tw-OTHER", now)
+	require.ErrorContains(t, err, "for Tower")
+
+	// Empty tower id skips the tower check; zero time skips the expiry check.
+	_, _, _, err = EdgeGrantMeta(g.Signed, core, "roger-public", "", time.Time{})
+	require.NoError(t, err)
+}
+
+// Option C: the consumer's X25519 sealing key rides the grant so the node can seal its result
+// back to the consumer through a blind tower. It is signature-covered, optional (absent on a
+// byte-path grant), and a malformed one is refused at both mint and parse.
+func TestEdgeGrantCarriesTheConsumerEnvelopeKey(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	r, core := edgeRegistry(t, now)
+	tgt, _ := edgeTarget(t)
+	envKey := make([]byte, 32)
+	for i := range envKey {
+		envKey[i] = byte(i + 1)
+	}
+	tgt.ConsumerEnvKey = envKey
+
+	g, err := r.MintEdge(tgt)
+	require.NoError(t, err)
+	got, err := ParseEdgeGrant(g.Signed, core, "roger-public", "st-1", []byte("x"), now)
+	require.NoError(t, err)
+	require.Equal(t, envKey, got.ConsumerEnvKey, "the sealing key survives the round trip")
+
+	// Absent on a byte-path grant: nil, no error.
+	plain, _ := edgeTarget(t)
+	g2, err := r.MintEdge(plain)
+	require.NoError(t, err)
+	got2, err := ParseEdgeGrant(g2.Signed, core, "roger-public", "st-1", []byte("x"), now)
+	require.NoError(t, err)
+	require.Nil(t, got2.ConsumerEnvKey)
+
+	// Malformed at mint: refused rather than signed dead-on-arrival.
+	bad, _ := edgeTarget(t)
+	bad.ConsumerEnvKey = []byte{1, 2, 3}
+	_, err = r.MintEdge(bad)
+	require.ErrorContains(t, err, "32 bytes")
+}
+
+// The pinned consumer price survives mint -> sign -> parse and is readable at settlement via
+// EdgeGrantPricing (signature + Station-bound). This is the round trip that guards the money:
+// a grant whose signed body dropped the price would bill zero.
+func TestEdgeGrantPinsThePrice(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	r, core := edgeRegistry(t, now)
+	tgt, _ := edgeTarget(t)
+	tgt.PriceInMicros, tgt.PriceOutMicros = 180_000, 300_000 // $0.18 / $0.30 per 1M tokens
+
+	g, err := r.MintEdge(tgt)
+	require.NoError(t, err)
+	require.Equal(t, int64(180_000), g.PriceInMicros)
+	require.Equal(t, int64(300_000), g.PriceOutMicros)
+
+	got, err := ParseEdgeGrant(g.Signed, core, "roger-public", "st-1", []byte("x"), now)
+	require.NoError(t, err)
+	require.Equal(t, int64(180_000), got.PriceInMicros, "the price survives the signed round trip")
+	require.Equal(t, int64(300_000), got.PriceOutMicros)
+
+	pin, pout, err := EdgeGrantPricing(g.Signed, core, "roger-public", "st-1")
+	require.NoError(t, err)
+	require.Equal(t, int64(180_000), pin)
+	require.Equal(t, int64(300_000), pout)
+
+	// Station-bound and signer-bound, like every other money reader.
+	_, _, err = EdgeGrantPricing(g.Signed, core, "roger-public", "st-OTHER")
+	require.Error(t, err)
+	impostor, _, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	_, _, err = EdgeGrantPricing(g.Signed, impostor, "roger-public", "st-1")
+	require.Error(t, err)
+
+	// An unpriced grant reads 0/0 with no error; a negative price is refused at mint.
+	plain, _ := edgeTarget(t)
+	g2, err := r.MintEdge(plain)
+	require.NoError(t, err)
+	pin, pout, err = EdgeGrantPricing(g2.Signed, core, "roger-public", "st-1")
+	require.NoError(t, err)
+	require.Zero(t, pin)
+	require.Zero(t, pout)
+	bad, _ := edgeTarget(t)
+	bad.PriceOutMicros = -1
+	_, err = r.MintEdge(bad)
+	require.ErrorContains(t, err, "cannot be negative")
 }

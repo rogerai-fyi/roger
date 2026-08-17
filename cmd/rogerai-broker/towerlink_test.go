@@ -1423,12 +1423,15 @@ func TestTowerStatusShowsWhatCoreActuallyBelieves(t *testing.T) {
 	require.Equal(t, "st-live", got.Routable[0].StationID)
 	require.Equal(t, "roger-1", got.Routable[0].Model)
 
-	// DISPATCH SHIPS, and the status says so. This assertion used to be the opposite, and is
-	// inverted rather than deleted because the inversion is the change: a status line that
-	// still claimed the feature was missing would send an operator to debug something fine.
+	// DISPATCH SHIPS, but is NOT YET compensated for the operator: the overflow path real
+	// traffic takes is carried free, and the metered edge path that pays has no live consumer
+	// and no payout rail yet. The status must say so plainly - claiming compensation an operator
+	// cannot actually collect would make them distrust a $0 relay line.
 	require.True(t, got.Carries, "Tower-backed work is dispatched now")
-	require.False(t, got.Compensated, "and is still uncompensated, which must stay explicit")
-	require.Contains(t, got.Note, "UNCOMPENSATED")
+	require.False(t, got.Compensated, "relayed traffic is not yet earning for the operator")
+	require.Contains(t, got.Note, "FREE")
+	require.Contains(t, got.Note, "not yet carrying live traffic",
+		"the status is honest that the paying path is not live for the operator")
 	require.Contains(t, got.Note, "no direct node",
 		"the most likely reason an eligible Station still sees nothing")
 }

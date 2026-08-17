@@ -39,6 +39,12 @@ type Station struct {
 	// reachable only on the Core-relayed path - a row without an endpoint is simply never
 	// offered to an edge consumer.
 	Endpoint string
+	// PriceIn and PriceOut are what the consumer pays, in MICRO-USD PER 1,000,000 TOKENS -
+	// copied verbatim from the Station's signed, band-checked inventory leaf so authorize can
+	// pin them into the grant (Option C per-token billing). 0/0 means the offer is unpriced
+	// and the byte tariff governs.
+	PriceIn  int64
+	PriceOut int64
 }
 
 // Store is the projection.

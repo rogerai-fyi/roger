@@ -54,6 +54,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -742,16 +743,59 @@ func (b *broker) publishRoutable(towerID string) {
 	endpoint, _ := ts.link.RelayEndpoint(towerID)
 	rows := make([]fleet.Station, 0, len(leaves))
 	for _, l := range leaves {
+		if strings.HasPrefix(l.OfferID, "self-") {
+			// The "self-" namespace belongs to self-attached nodes. A tower-pushed leaf using
+			// it could collide with a self row's (tower_id, offer_id) key and - depending on
+			// insert order - shadow that node's listing. Signed or not, it is refused here.
+			log.Printf("tower %s: leaf offer %q uses the reserved self- namespace - skipped", towerID, l.OfferID)
+			continue
+		}
 		rows = append(rows, fleet.Station{
 			TowerID: towerID, StationID: l.StationID, OfferID: l.OfferID,
 			Model: l.Model, Modality: l.Modality, Capacity: l.Capacity, Expires: l.Expires,
 			Endpoint: endpoint,
+			// The consumer price from the SIGNED, band-checked leaf, carried so authorize can
+			// pin it into the grant (Option C per-token billing). Micro-USD per 1M tokens.
+			PriceIn: l.PriceIn, PriceOut: l.PriceOut,
 		})
+	}
+	// SELF-ATTACHED nodes (Option C) ride the same projection: their offer lives on the
+	// attachment (band-checked at attach), not in the tower's signed inventory - the tower is
+	// pure transport for them and pushes no leaf on their behalf. Merged here so this stays
+	// the projection's ONE writer, and Replace keeps its whole-tower semantics.
+	if ts.stations != nil {
+		ats, aerr := ts.stations.ByTower(towerID)
+		if aerr != nil {
+			// A partial merge would silently de-list every self node on this tower until the
+			// next sweep. Keep the projection as it was rather than publishing a known-partial
+			// set; the sweep retries shortly.
+			log.Printf("tower %s: could not read self-attached nodes (%v) - projection left unchanged", towerID, aerr)
+			return
+		}
+		{
+			for _, at := range ats {
+				if at.Model == "" || at.HubToken == "" {
+					continue // classic-flow attachment: its offers come from the inventory
+				}
+				rows = append(rows, fleet.Station{
+					TowerID: towerID, StationID: at.StationID, OfferID: "self-" + at.StationID,
+					Model: at.Model, Modality: at.Modality, Capacity: 1,
+					Expires:  time.Now().Add(selfOfferTTL),
+					Endpoint: endpoint,
+					PriceIn:  at.PriceIn, PriceOut: at.PriceOut,
+				})
+			}
+		}
 	}
 	if err := ts.routable.Replace(towerID, rows); err != nil {
 		log.Printf("tower %s: could not publish the routable fleet: %v", towerID, err)
 	}
 }
+
+// selfOfferTTL bounds how long a self-attached node's routable row lives without a refresh.
+// The periodic sweep republishes live towers, so a healthy row never lapses; a tower that
+// goes dark stops being refreshed and its rows age out with it.
+const selfOfferTTL = time.Hour
 
 // forgetRoutable withdraws a Tower's fleet everywhere at once, for a drain or a revocation.
 func (b *broker) forgetRoutable(towerID string) {

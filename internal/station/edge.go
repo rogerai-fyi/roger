@@ -86,7 +86,10 @@ type EdgeExecutor struct {
 	// only route by which Tower-served content is reviewed, since Core never saw it. Nil
 	// means this Station keeps none, which is legal and means it can never pass an audit.
 	Transcripts *Transcripts
-	Now         func() time.Time
+	// Seen is the sealed path's one-serve-per-attempt guard (see AttemptCache). Nil disables
+	// replay suppression - acceptable only in tests; a wired node should always carry one.
+	Seen *AttemptCache
+	Now  func() time.Time
 }
 
 func (e EdgeExecutor) now() time.Time {
@@ -145,9 +148,12 @@ func (e EdgeExecutor) Serve(ctx context.Context, in EdgeRequest) EdgeResponse {
 	// The usage claim, measured from the exact bytes in and out. Byte counts rather than
 	// tokens, deliberately: bytes are what both ends can measure identically without sharing
 	// a tokenizer, and what the relay's own accounting can be compared against.
+	// Token usage is signed alongside bytes for the Option C per-token path, parsed from the
+	// model's own reported usage. Zero when the upstream reports none (or a non-JSON body), in
+	// which case the per-token settle path bills nothing and the byte fields + audit govern.
 	rec, err := dispatch.SignReceipt(e.Station.assertionPriv, e.Network,
 		dispatch.Grant{AttemptID: grant.AttemptID, StationID: grant.StationID}, in.Body, body,
-		dispatch.Usage{In: int64(len(in.Body)), Out: int64(len(body))})
+		dispatch.Usage{In: int64(len(in.Body)), Out: int64(len(body))}, tokenUsageOf(body))
 	if err != nil {
 		return fail(500, "this Station could not sign its result: "+err.Error())
 	}

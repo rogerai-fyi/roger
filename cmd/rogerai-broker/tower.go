@@ -514,6 +514,30 @@ func (b *broker) towerOperator(r *http.Request, body []byte) (string, bool) {
 	return id, true
 }
 
+// towerOperatorReader resolves the operator key for a READ-ONLY tower view, accepting
+// EITHER a signed CLI request (roger-tower) OR a logged-in browser session for ANY
+// provider (GitHub/Apple/email). Towers are keyed on the owner's Login exactly as
+// enrollment stored it (see towerOperator), and both auth paths resolve the SAME owner
+// record, so the browser sees precisely the fleet the CLI enrolled. Web sessions are
+// resolved by each provider's unique key (see sessionAnyOwner), so this does not weaken
+// features/security/apple_session_isolation.
+//
+// It is deliberately read-only: token minting, enrollment, and lifecycle stay on the
+// signed CLI path (those are actions taken from the machine that runs the Tower). This
+// only widens who may LOOK at their own fleet, which is what the dashboard needs.
+func (b *broker) towerOperatorReader(r *http.Request, body []byte) (string, bool) {
+	if owner, ok := b.towerOperator(r, body); ok {
+		return owner, true
+	}
+	if _, o, found, _ := b.sessionAnyOwner(r); found && !o.Anonymized {
+		if o.Login != "" {
+			return o.Login, true
+		}
+		return o.Pubkey, true
+	}
+	return "", false
+}
+
 // towerToken handles POST /tower/token: mint a one-time enrollment token for the caller's
 // account. It is the operator saying "I intend to run a Tower", and it is the only thing
 // that ever creates admission authority.
@@ -668,7 +692,7 @@ func (b *broker) towerStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	corsCreds(w, r)
-	owner, ok := b.towerOperator(r, nil)
+	owner, ok := b.towerOperatorReader(r, nil)
 	if !ok {
 		jsonErr(w, http.StatusUnauthorized, "sign in to see your Towers")
 		return
@@ -715,17 +739,25 @@ func (b *broker) towerStatus(w http.ResponseWriter, r *http.Request) {
 			entry["inventory_revision"] = rev
 			entry["inventory_hash"] = hash
 		}
-		// DISPATCH SHIPS NOW, so this no longer says it does not - a status line claiming a
-		// working feature is missing sends an operator to debug something that is fine.
-		//
-		// What it says instead is the two things that are still true and are still the most
-		// likely reasons an eligible Station sees no traffic: Tower-backed work is only
-		// reached when no direct node can serve the model, and it is uncompensated.
+		// DISPATCH SHIPS, but be precise about COMPENSATION or the status line lies to an
+		// operator. There are two relay paths and they pay differently:
+		//   - the mainstream overflow path (tunnel.go tryTowerDispatch) that real consumer
+		//     traffic actually takes today is carried FREE (X-RogerAI-Cost: 0) and mints no
+		//     earning; and
+		//   - the metered EDGE path (toweredge.go settleEdgeMoney -> tower_relay lot) that
+		//     DOES pay, but no shipping consumer drives it yet, and its payout/disbursement
+		//     rail is the last unbuilt milestone (docs/tower-compensation-roadmap.md).
+		// So for the traffic a Tower carries today, the honest answer is: not yet earning.
+		// `compensated` stays false until live consumer traffic reaches the metered path AND
+		// disbursement ships; flipping it early would have an operator watching a $0 relay
+		// line while the status claims they are being paid.
 		entry["carries_traffic"] = true
 		entry["compensated"] = false
 		entry["note"] = "Stations shown here are admitted, eligible and routable. " +
-			"Tower-backed work is used when no direct node offers the model, and is " +
-			"currently UNCOMPENSATED: nothing is charged for it and nothing is earned."
+			"Tower-backed work is used when no direct node offers the model, and today it is " +
+			"carried FREE - nothing is charged or earned for it yet. The metered relay path " +
+			"that pays operators is built but not yet carrying live traffic, and its payout " +
+			"rail is still being wired."
 		out = append(out, entry)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"towers": out})

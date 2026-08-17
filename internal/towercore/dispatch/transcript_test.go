@@ -18,7 +18,7 @@ func TestATranscriptRoundTripsAndMatchesItsReceiptDigests(t *testing.T) {
 
 	// A receipt over the same bytes commits to the same digests, by construction.
 	rec, err := SignReceipt(priv, "roger-public", Grant{AttemptID: "att-1", StationID: "st-1"},
-		req, resp, Usage{In: 1, Out: 1})
+		req, resp, Usage{In: 1, Out: 1}, Usage{})
 	require.NoError(t, err)
 
 	got, result, err := AuditTranscript(tr.Signed, pub, "roger-public", "att-1",

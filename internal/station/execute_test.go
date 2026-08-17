@@ -322,3 +322,33 @@ func readAll(r *http.Request) ([]byte, error) {
 		}
 	}
 }
+
+// Option C: the Station signs the model's own token counts into the receipt, so Core can bill
+// per-token on the blind path. A body carrying a usage object yields a token claim.
+func TestTheStationSignsTheModelsTokenUsage(t *testing.T) {
+	c := newCore(t)
+	s := execStation(t)
+	request := []byte(`{"model":"m1","messages":[]}`)
+	g := c.grantFor(t, s, request)
+	_, err := c.reg.Claim(g.AttemptID, "tw-1")
+	require.NoError(t, err)
+	envPub, _ := coreEnvelope(t)
+	up := &stubUpstream{body: []byte(`{"choices":[{"message":{"content":"hi"}}],"usage":{"prompt_tokens":12,"completion_tokens":7}}`)}
+	got := Executor{Station: s, CoreKey: c.pub, CoreEnvelopeKey: envPub, Network: execNetwork, Upstream: up}.
+		Execute(context.Background(), ExecuteRequest{Grant: g.Signed, Envelope: sealFor(t, s, g.AttemptID, request)})
+	require.Empty(t, got.Failure)
+	require.NotNil(t, got.Receipt)
+	require.Equal(t, dispatch.Usage{In: 12, Out: 7}, got.Receipt.TokUsage,
+		"the model's token usage is signed into the receipt for per-token billing")
+}
+
+func TestTokenUsageOfParsesUsageAndDefaultsToZero(t *testing.T) {
+	require.Equal(t, dispatch.Usage{In: 5, Out: 9},
+		tokenUsageOf([]byte(`{"usage":{"prompt_tokens":5,"completion_tokens":9}}`)))
+	require.Equal(t, dispatch.Usage{}, tokenUsageOf([]byte(`{"choices":[]}`)), "no usage object -> zero")
+	require.Equal(t, dispatch.Usage{}, tokenUsageOf([]byte(`not json at all`)), "non-JSON -> zero")
+	require.Equal(t, dispatch.Usage{},
+		tokenUsageOf([]byte(`{"usage":{"prompt_tokens":-3,"completion_tokens":-1}}`)), "negatives clamp to zero")
+	require.Equal(t, dispatch.Usage{In: 0, Out: 5},
+		tokenUsageOf([]byte(`{"usage":{"prompt_tokens":-3,"completion_tokens":5}}`)), "one negative field clamps alone")
+}

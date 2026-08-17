@@ -8,6 +8,7 @@ package main
 import (
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"math"
 	"net/http"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"rogerai.fm/roger/v5/internal/towercore/admit"
+	"rogerai.fm/roger/v5/internal/towercore/link"
 	"rogerai.fm/roger/v5/internal/towercore/audit"
 	"rogerai.fm/roger/v5/internal/towercore/dispatch"
 )
@@ -330,4 +332,157 @@ func TestSelfDealingEarnsNothing(t *testing.T) {
 	require.Equal(t, int64(0), owed.Owed(), "self-dealing earns nothing")
 	require.Equal(t, int64(500), owed.SelfDealt, "but it is recorded and surfaced (50*10)")
 	require.Equal(t, 1, owed.Attempts)
+}
+
+// issuedEdgeGrantTok mints an edge grant carrying TOKEN ceilings alongside the byte ceilings,
+// for the Option C per-token clamp tests.
+func issuedEdgeGrantTok(t *testing.T, b *broker, attemptID, towerID, stationID string, maxIn, maxOut, maxTokIn, maxTokOut int64) ed25519.PublicKey {
+	t.Helper()
+	cpub, _, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	apub, _, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	g, err := b.tower.dispatch.MintEdge(dispatch.EdgeTarget{
+		TowerID: towerID, StationID: stationID, StationEpoch: 1, Model: "m", Modality: "text",
+		RelayName: stationID + ".relay.example", MaxIn: maxIn, MaxOut: maxOut,
+		MaxTokIn: maxTokIn, MaxTokOut: maxTokOut, AssertionKey: apub, ConsumerKey: cpub,
+	})
+	require.NoError(t, err)
+	require.NoError(t, b.tower.dispatch.Store().Put(dispatch.Record{
+		AttemptID: attemptID, JobID: g.JobID, TowerID: towerID, StationID: stationID,
+		StationEpoch: 1, Model: "m", Modality: "text", Nonce: g.Nonce,
+		Deadline: time.Now().Add(time.Hour), Grant: g.Signed, ConsumerKey: cpub,
+		State: dispatch.StateIssued,
+	}))
+	return cpub
+}
+
+// signedReceiptTok signs a receipt carrying a TOKEN claim alongside the byte usage.
+func signedReceiptTok(t *testing.T, priv ed25519.PrivateKey, attemptID, stationID string,
+	response []byte, u, tok dispatch.Usage) string {
+	t.Helper()
+	rec, err := dispatch.SignReceipt(priv, link.PublicNetwork,
+		dispatch.Grant{AttemptID: attemptID, StationID: stationID}, []byte("req-"+attemptID), response, u, tok)
+	require.NoError(t, err)
+	return base64.StdEncoding.EncodeToString(rec.Signed)
+}
+
+// Option C: the TOKEN claim a node is paid on is clamped to the grant's token ceiling at
+// settle, exactly as the byte claim is. The byte usage is kept within its own ceiling here so
+// the dispute is attributable to the token over-claim alone.
+func TestEdgeSettleClampsTheTokenClaimToTheGrantCeiling(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	op := signedInOperator(t, b, "octocat")
+	owner := ownerPubkeyOf(t, b, op.login)
+	tw := enrolledTower(t, b, op.login)
+	stationPriv := attachStation(t, b, "st-1", tw.id, owner)
+	issuedEdgeGrantTok(t, b, "att-1", tw.id, "st-1", 8<<20, 5000, 1<<20, 50) // token out ceiling 50
+
+	body, err := json.Marshal(map[string]any{
+		"tower_id": tw.id, "station_id": "st-1", "attempt_id": "att-1",
+		// byte out=40 (within its 5000 ceiling, no byte dispute); token out=5000 (over the 50 ceiling).
+		"receipt": signedReceiptTok(t, stationPriv, "att-1", "st-1", []byte("answer"),
+			dispatch.Usage{In: 10, Out: 40}, dispatch.Usage{In: 5, Out: 5000}),
+	})
+	require.NoError(t, err)
+	var out map[string]any
+	code, _ := tw.call(t, srv, "/tower/edge/settle", body, &out)
+	require.Equal(t, http.StatusOK, code, out)
+	require.Equal(t, float64(40), out["billable_out"], "the byte figure within its ceiling is untouched")
+	require.Equal(t, true, out["disputed"], "a token over-claim is a dispute")
+	pending, err := b.tower.auditWanted.Pending(tw.id, time.Now())
+	require.NoError(t, err)
+	require.Len(t, pending, 1, "and force-audited regardless of the sample")
+}
+
+// A token claim within the ceiling is not clamped and not disputed.
+func TestEdgeSettleLeavesAnInBoundsTokenClaimAlone(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	op := signedInOperator(t, b, "octocat")
+	owner := ownerPubkeyOf(t, b, op.login)
+	tw := enrolledTower(t, b, op.login)
+	stationPriv := attachStation(t, b, "st-1", tw.id, owner)
+	issuedEdgeGrantTok(t, b, "att-1", tw.id, "st-1", 8<<20, 5000, 1<<20, 500)
+
+	body, err := json.Marshal(map[string]any{
+		"tower_id": tw.id, "station_id": "st-1", "attempt_id": "att-1",
+		// token out 400 <= byte out 500 (tokens<=bytes) AND <= the 500 token ceiling: in bounds.
+		"receipt": signedReceiptTok(t, stationPriv, "att-1", "st-1", []byte("answer"),
+			dispatch.Usage{In: 10, Out: 500}, dispatch.Usage{In: 5, Out: 400}),
+	})
+	require.NoError(t, err)
+	var out map[string]any
+	code, _ := tw.call(t, srv, "/tower/edge/settle", body, &out)
+	require.Equal(t, http.StatusOK, code, out)
+	require.NotEqual(t, true, out["disputed"], "an in-bounds token claim is not disputed")
+}
+
+// A grant with NO token ceiling (0/0) must not clamp or dispute a token claim at settle - 0
+// means "not token-bounded", so the byte cap + audit govern, exactly as an old byte-only grant.
+func TestEdgeSettleLeavesTokensAloneWhenGrantHasNoTokenCeiling(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	op := signedInOperator(t, b, "octocat")
+	owner := ownerPubkeyOf(t, b, op.login)
+	tw := enrolledTower(t, b, op.login)
+	stationPriv := attachStation(t, b, "st-1", tw.id, owner)
+	issuedEdgeGrantTok(t, b, "att-1", tw.id, "st-1", 8<<20, 5000, 0, 0) // NO token ceiling
+
+	body, err := json.Marshal(map[string]any{
+		"tower_id": tw.id, "station_id": "st-1", "attempt_id": "att-1",
+		// No token ceiling, and the token claim stays within the byte claim (tokens<=bytes still
+		// governs): the CEILING clamp is skipped, so this is not disputed.
+		"receipt": signedReceiptTok(t, stationPriv, "att-1", "st-1", []byte("answer"),
+			dispatch.Usage{In: 5000, Out: 5000}, dispatch.Usage{In: 4000, Out: 5000}),
+	})
+	require.NoError(t, err)
+	var out map[string]any
+	code, _ := tw.call(t, srv, "/tower/edge/settle", body, &out)
+	require.Equal(t, http.StatusOK, code, out)
+	require.NotEqual(t, true, out["disputed"], "a 0 token ceiling does not clamp or dispute an in-bounds token claim")
+}
+
+// The token INPUT ceiling clamps symmetrically with output: an over-claim on tok_in alone is a
+// dispute (byte usage kept within its ceiling to isolate the token-input clamp).
+func TestEdgeSettleClampsTheInputTokenClaimToTheGrantCeiling(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	op := signedInOperator(t, b, "octocat")
+	owner := ownerPubkeyOf(t, b, op.login)
+	tw := enrolledTower(t, b, op.login)
+	stationPriv := attachStation(t, b, "st-1", tw.id, owner)
+	issuedEdgeGrantTok(t, b, "att-1", tw.id, "st-1", 8<<20, 5000, 50, 1<<20) // token IN ceiling 50
+
+	body, err := json.Marshal(map[string]any{
+		"tower_id": tw.id, "station_id": "st-1", "attempt_id": "att-1",
+		"receipt": signedReceiptTok(t, stationPriv, "att-1", "st-1", []byte("answer"),
+			dispatch.Usage{In: 10, Out: 40}, dispatch.Usage{In: 5000, Out: 9}),
+	})
+	require.NoError(t, err)
+	var out map[string]any
+	code, _ := tw.call(t, srv, "/tower/edge/settle", body, &out)
+	require.Equal(t, http.StatusOK, code, out)
+	require.Equal(t, true, out["disputed"], "an input token over-claim is a dispute")
+}
+
+// tokens <= bytes is enforced with data Core already holds: a token claim exceeding the bytes
+// actually served is provably inflated (a token is >= 1 byte), so it is clamped and disputed
+// even with a generous token ceiling and no Tower attestation - the attestation-free bound that
+// lets token pricing land without waiting on the full byte-attestation.
+func TestEdgeSettleClampsTokensToTheByteFigure(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	op := signedInOperator(t, b, "octocat")
+	owner := ownerPubkeyOf(t, b, op.login)
+	tw := enrolledTower(t, b, op.login)
+	stationPriv := attachStation(t, b, "st-1", tw.id, owner)
+	issuedEdgeGrantTok(t, b, "att-1", tw.id, "st-1", 8<<20, 5000, 1<<20, 1<<20) // roomy ceilings
+	body, err := json.Marshal(map[string]any{
+		"tower_id": tw.id, "station_id": "st-1", "attempt_id": "att-1",
+		// byte out=40 (within its ceiling); token out=100 > 40 bytes: provably inflated.
+		"receipt": signedReceiptTok(t, stationPriv, "att-1", "st-1", []byte("answer"),
+			dispatch.Usage{In: 10, Out: 40}, dispatch.Usage{In: 5, Out: 100}),
+	})
+	require.NoError(t, err)
+	var out map[string]any
+	code, _ := tw.call(t, srv, "/tower/edge/settle", body, &out)
+	require.Equal(t, http.StatusOK, code, out)
+	require.Equal(t, true, out["disputed"], "a token claim above the bytes served is a dispute")
 }

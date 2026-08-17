@@ -27,6 +27,9 @@ CREATE TABLE IF NOT EXISTS rogerai.tower_routable (
 CREATE INDEX IF NOT EXISTS tower_routable_model ON rogerai.tower_routable (model, expires);
 -- ADDITIVE: a column in the CREATE body never reaches a table that already exists.
 ALTER TABLE rogerai.tower_routable ADD COLUMN IF NOT EXISTS endpoint TEXT NOT NULL DEFAULT '';
+-- Per-token pricing (Option C): micro-USD per 1,000,000 tokens, from the signed leaf.
+ALTER TABLE rogerai.tower_routable ADD COLUMN IF NOT EXISTS price_in  BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE rogerai.tower_routable ADD COLUMN IF NOT EXISTS price_out BIGINT NOT NULL DEFAULT 0;
 `
 
 // PGStore is the durable fleet view.
@@ -62,13 +65,14 @@ func (p *PGStore) Replace(towerID string, rows []Station) error {
 	for _, r := range rows {
 		if _, err := tx.Exec(`
 			INSERT INTO rogerai.tower_routable
-				(tower_id, station_id, offer_id, model, modality, capacity, expires, endpoint)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+				(tower_id, station_id, offer_id, model, modality, capacity, expires, endpoint, price_in, price_out)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
 			ON CONFLICT (tower_id, offer_id) DO UPDATE SET
 				station_id = EXCLUDED.station_id, model = EXCLUDED.model,
 				modality = EXCLUDED.modality, capacity = EXCLUDED.capacity,
-				expires = EXCLUDED.expires, endpoint = EXCLUDED.endpoint`,
-			towerID, r.StationID, r.OfferID, r.Model, r.Modality, r.Capacity, r.Expires, r.Endpoint); err != nil {
+				expires = EXCLUDED.expires, endpoint = EXCLUDED.endpoint,
+				price_in = EXCLUDED.price_in, price_out = EXCLUDED.price_out`,
+			towerID, r.StationID, r.OfferID, r.Model, r.Modality, r.Capacity, r.Expires, r.Endpoint, r.PriceIn, r.PriceOut); err != nil {
 			return err
 		}
 	}
@@ -77,7 +81,7 @@ func (p *PGStore) Replace(towerID string, rows []Station) error {
 
 func (p *PGStore) Candidates(model string, now time.Time) ([]Station, error) {
 	rows, err := p.db.Query(`
-		SELECT tower_id, station_id, offer_id, model, modality, capacity, expires, endpoint
+		SELECT tower_id, station_id, offer_id, model, modality, capacity, expires, endpoint, price_in, price_out
 		  FROM rogerai.tower_routable
 		 WHERE model = $1 AND expires > $2`, model, now)
 	if err != nil {
@@ -89,7 +93,7 @@ func (p *PGStore) Candidates(model string, now time.Time) ([]Station, error) {
 	for rows.Next() {
 		var s Station
 		if err := rows.Scan(&s.TowerID, &s.StationID, &s.OfferID, &s.Model, &s.Modality,
-			&s.Capacity, &s.Expires, &s.Endpoint); err != nil {
+			&s.Capacity, &s.Expires, &s.Endpoint, &s.PriceIn, &s.PriceOut); err != nil {
 			return nil, err
 		}
 		s.Expires = s.Expires.UTC()
@@ -126,7 +130,7 @@ func (p *PGStore) RoutableTowers(now time.Time) ([]string, error) {
 // ByTower is a Tower's unexpired rows.
 func (p *PGStore) ByTower(towerID string, now time.Time) ([]Station, error) {
 	rows, err := p.db.Query(`
-		SELECT tower_id, station_id, offer_id, model, modality, capacity, expires, endpoint
+		SELECT tower_id, station_id, offer_id, model, modality, capacity, expires, endpoint, price_in, price_out
 		  FROM rogerai.tower_routable WHERE tower_id = $1 AND expires > $2`, towerID, now.UTC())
 	if err != nil {
 		return nil, err
@@ -136,7 +140,7 @@ func (p *PGStore) ByTower(towerID string, now time.Time) ([]Station, error) {
 	for rows.Next() {
 		var st Station
 		if err := rows.Scan(&st.TowerID, &st.StationID, &st.OfferID, &st.Model, &st.Modality,
-			&st.Capacity, &st.Expires, &st.Endpoint); err != nil {
+			&st.Capacity, &st.Expires, &st.Endpoint, &st.PriceIn, &st.PriceOut); err != nil {
 			return nil, err
 		}
 		st.Expires = st.Expires.UTC()

@@ -89,6 +89,19 @@ CREATE UNIQUE INDEX IF NOT EXISTS station_attachments_live_session_key
     ON rogerai.station_attachments (session_key)
     WHERE state IN ('quarantine','active');
 CREATE INDEX IF NOT EXISTS station_attachments_owner ON rogerai.station_attachments (owner);
+-- Option C self-attach: the node's bearer token for its Tower's data-plane hub. Plaintext,
+-- like the broker's node BridgeToken - the Tower must compare the exact presented value.
+ALTER TABLE rogerai.station_authorizations ADD COLUMN IF NOT EXISTS hub_token TEXT NOT NULL DEFAULT '';
+ALTER TABLE rogerai.station_attachments  ADD COLUMN IF NOT EXISTS hub_token TEXT NOT NULL DEFAULT '';
+-- The self-attached node's offer: model/modality + micro-USD-per-1M-token prices.
+ALTER TABLE rogerai.station_authorizations ADD COLUMN IF NOT EXISTS model TEXT NOT NULL DEFAULT '';
+ALTER TABLE rogerai.station_authorizations ADD COLUMN IF NOT EXISTS modality TEXT NOT NULL DEFAULT '';
+ALTER TABLE rogerai.station_authorizations ADD COLUMN IF NOT EXISTS price_in  BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE rogerai.station_authorizations ADD COLUMN IF NOT EXISTS price_out BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE rogerai.station_attachments ADD COLUMN IF NOT EXISTS model TEXT NOT NULL DEFAULT '';
+ALTER TABLE rogerai.station_attachments ADD COLUMN IF NOT EXISTS modality TEXT NOT NULL DEFAULT '';
+ALTER TABLE rogerai.station_attachments ADD COLUMN IF NOT EXISTS price_in  BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE rogerai.station_attachments ADD COLUMN IF NOT EXISTS price_out BIGINT NOT NULL DEFAULT 0;
 `
 
 // PGStore is the durable Store.
@@ -125,17 +138,20 @@ func (p *PGStore) PutAuthorization(a Authorization) error {
 	_, err := p.db.Exec(`
 		INSERT INTO rogerai.station_authorizations
 		  (id,network,station_id,owner,origin_kind,origin_tower,assertion_key,session_key,
-		   ceiling_hash,secret_hash,role,issued_at,expires_at,consumed,consumed_by)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+		   ceiling_hash,secret_hash,role,hub_token,model,modality,price_in,price_out,
+		   issued_at,expires_at,consumed,consumed_by)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
 		ON CONFLICT (id) DO UPDATE SET
 		  network=EXCLUDED.network, station_id=EXCLUDED.station_id, owner=EXCLUDED.owner,
 		  origin_kind=EXCLUDED.origin_kind, origin_tower=EXCLUDED.origin_tower,
 		  assertion_key=EXCLUDED.assertion_key, session_key=EXCLUDED.session_key,
 		  ceiling_hash=EXCLUDED.ceiling_hash, secret_hash=EXCLUDED.secret_hash,
-		  role=EXCLUDED.role, issued_at=EXCLUDED.issued_at,
-		  expires_at=EXCLUDED.expires_at`,
+		  role=EXCLUDED.role, hub_token=EXCLUDED.hub_token, model=EXCLUDED.model,
+		  modality=EXCLUDED.modality, price_in=EXCLUDED.price_in, price_out=EXCLUDED.price_out,
+		  issued_at=EXCLUDED.issued_at, expires_at=EXCLUDED.expires_at`,
 		a.ID, a.Network, a.StationID, a.Owner, a.Origin.Kind, a.Origin.TowerID,
-		a.AssertionKey, a.SessionKey, a.CeilingHash, a.SecretHash, a.Role,
+		a.AssertionKey, a.SessionKey, a.CeilingHash, a.SecretHash, a.Role, a.HubToken,
+		a.Model, a.Modality, a.PriceIn, a.PriceOut,
 		a.IssuedAt.UTC(), a.ExpiresAt.UTC(), a.Consumed, a.ConsumedBy)
 	if err != nil {
 		return pgwrap("put authorization", err)
@@ -173,10 +189,12 @@ func (p *PGStore) PutAuthorizationCapped(a Authorization, max int) (bool, error)
 	if _, err := tx.Exec(`
 		INSERT INTO rogerai.station_authorizations
 		  (id,network,station_id,owner,origin_kind,origin_tower,assertion_key,session_key,
-		   ceiling_hash,secret_hash,role,issued_at,expires_at,consumed,consumed_by)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,false,'')`,
+		   ceiling_hash,secret_hash,role,hub_token,model,modality,price_in,price_out,
+		   issued_at,expires_at,consumed,consumed_by)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,false,'')`,
 		a.ID, a.Network, a.StationID, a.Owner, a.Origin.Kind, a.Origin.TowerID,
-		a.AssertionKey, a.SessionKey, a.CeilingHash, a.SecretHash, a.Role,
+		a.AssertionKey, a.SessionKey, a.CeilingHash, a.SecretHash, a.Role, a.HubToken,
+		a.Model, a.Modality, a.PriceIn, a.PriceOut,
 		a.IssuedAt.UTC(), a.ExpiresAt.UTC()); err != nil {
 		if isConstraintViolation(err) {
 			// A duplicate id is a permanent answer, and the memory store says the same.
@@ -194,10 +212,12 @@ func (p *PGStore) Authorization(id string) (Authorization, bool, error) {
 	var a Authorization
 	err := p.db.QueryRow(`
 		SELECT id,network,station_id,owner,origin_kind,origin_tower,assertion_key,session_key,
-		       ceiling_hash,secret_hash,role,issued_at,expires_at,consumed,consumed_by
+		       ceiling_hash,secret_hash,role,hub_token,model,modality,price_in,price_out,
+		       issued_at,expires_at,consumed,consumed_by
 		  FROM rogerai.station_authorizations WHERE id=$1`, id).
 		Scan(&a.ID, &a.Network, &a.StationID, &a.Owner, &a.Origin.Kind, &a.Origin.TowerID,
-			&a.AssertionKey, &a.SessionKey, &a.CeilingHash, &a.SecretHash, &a.Role,
+			&a.AssertionKey, &a.SessionKey, &a.CeilingHash, &a.SecretHash, &a.Role, &a.HubToken,
+			&a.Model, &a.Modality, &a.PriceIn, &a.PriceOut,
 			&a.IssuedAt, &a.ExpiresAt, &a.Consumed, &a.ConsumedBy)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Authorization{}, false, nil
@@ -246,11 +266,11 @@ func (p *PGStore) Admit(authID string, at Attachment) (bool, error) {
 	if _, err := tx.Exec(`
 		INSERT INTO rogerai.station_attachments
 		  (station_id,owner,assertion_key,session_key,origin_kind,origin_tower,epoch,
-		   ceiling_hash,state,attached_at,auth_id)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+		   ceiling_hash,state,attached_at,auth_id,hub_token,model,modality,price_in,price_out)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
 		at.StationID, at.Owner, at.AssertionKey, at.SessionKey, at.Origin.Kind,
 		at.Origin.TowerID, at.Epoch, at.CeilingHash, at.State, at.AttachedAt.UTC(),
-		at.AuthID); err != nil {
+		at.AuthID, at.HubToken, at.Model, at.Modality, at.PriceIn, at.PriceOut); err != nil {
 		// A constraint violation here is a PERMANENT answer, not a blip: the station_id
 		// primary key means that Station is already attached, and a partial unique index
 		// means another live Station holds one of these keys. Reporting either as an outage
@@ -269,13 +289,15 @@ func (p *PGStore) Admit(authID string, at Attachment) (bool, error) {
 }
 
 const attachCols = `station_id,owner,assertion_key,session_key,origin_kind,origin_tower,
-                    epoch,ceiling_hash,state,attached_at,auth_id`
+                    epoch,ceiling_hash,state,attached_at,auth_id,hub_token,model,modality,
+                    price_in,price_out`
 
 func scanAttachment(row interface{ Scan(...any) error }) (Attachment, error) {
 	var at Attachment
 	err := row.Scan(&at.StationID, &at.Owner, &at.AssertionKey, &at.SessionKey,
 		&at.Origin.Kind, &at.Origin.TowerID, &at.Epoch, &at.CeilingHash, &at.State,
-		&at.AttachedAt, &at.AuthID)
+		&at.AttachedAt, &at.AuthID, &at.HubToken, &at.Model, &at.Modality,
+		&at.PriceIn, &at.PriceOut)
 	return at, err
 }
 
@@ -348,4 +370,35 @@ func (p *PGStore) Reap(before time.Time, retryHorizon time.Duration) (int64, err
 	}
 	n, _ := res.RowsAffected()
 	return n, nil
+}
+
+// ByTower lists the LIVE attachments served through one Tower - what that Tower's hub must
+// serve. Live states only, matching the partial indexes and the Mem store.
+func (p *PGStore) ByTower(towerID string) ([]Attachment, error) {
+	rows, err := p.db.Query(`SELECT `+attachCols+` FROM rogerai.station_attachments
+		WHERE origin_tower=$1 AND state IN ('quarantine','active')`, towerID)
+	if err != nil {
+		return nil, pgwrap("list attachments by tower", err)
+	}
+	defer rows.Close()
+	var out []Attachment
+	for rows.Next() {
+		at, serr := scanAttachment(rows)
+		if serr != nil {
+			return nil, pgwrap("list attachments by tower", serr)
+		}
+		out = append(out, at)
+	}
+	return out, rows.Err()
+}
+
+// ReapTerminal deletes revoked/detached attachments attached before the horizon (see the
+// Store interface for why terminal rows cannot be kept forever).
+func (p *PGStore) ReapTerminal(before time.Time) (int64, error) {
+	res, err := p.db.Exec(`DELETE FROM rogerai.station_attachments
+		WHERE state IN ('revoked','detached') AND attached_at <= $1`, before.UTC())
+	if err != nil {
+		return 0, pgwrap("reap terminal attachments", err)
+	}
+	return res.RowsAffected()
 }

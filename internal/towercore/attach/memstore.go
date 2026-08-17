@@ -145,6 +145,18 @@ func (m *memStore) ByStation(stationID string) (Attachment, bool, error) {
 	return at, ok, nil
 }
 
+func (m *memStore) ByTower(towerID string) ([]Attachment, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []Attachment
+	for _, at := range m.byID {
+		if at.Origin.TowerID == towerID && at.Live() {
+			out = append(out, at)
+		}
+	}
+	return out, nil
+}
+
 // ByAssertionKey and BySessionKey scan rather than index. The set is small, and a scan
 // cannot fall out of step with the records the way a side index can - which is precisely
 // the bug the band occupancy check shipped with.
@@ -168,6 +180,19 @@ func (m *memStore) BySessionKey(key string) (Attachment, bool, error) {
 		}
 	}
 	return Attachment{}, false, nil
+}
+
+func (m *memStore) ReapTerminal(before time.Time) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var n int64
+	for id, at := range m.byID {
+		if (at.State == StateRevoked || at.State == StateDetached) && !at.AttachedAt.After(before) {
+			delete(m.byID, id)
+			n++
+		}
+	}
+	return n, nil
 }
 
 func (m *memStore) SetState(stationID, state string) (bool, error) {

@@ -9,6 +9,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -27,7 +28,7 @@ func stationReceipt(t *testing.T, attemptID string, response []byte, u Usage) Re
 	t.Helper()
 	_, priv, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
-	rec, err := SignReceipt(priv, "roger-public", Grant{AttemptID: attemptID, StationID: "st-1"}, []byte("req"), response, u)
+	rec, err := SignReceipt(priv, "roger-public", Grant{AttemptID: attemptID, StationID: "st-1"}, []byte("req"), response, u, Usage{})
 	require.NoError(t, err)
 	return rec
 }
@@ -243,7 +244,7 @@ func TestAReceiptIsVerifiedAgainstTheAttachmentRecordedKey(t *testing.T) {
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
 	rec, err := SignReceipt(priv, "roger-public", Grant{AttemptID: "att-1", StationID: "st-1"},
-		[]byte("req"), []byte("the answer"), Usage{In: 7, Out: 10})
+		[]byte("req"), []byte("the answer"), Usage{In: 7, Out: 10}, Usage{})
 	require.NoError(t, err)
 
 	got, err := ParseReceipt(rec.Signed, pub, "roger-public", "att-1", "st-1")
@@ -259,7 +260,7 @@ func TestAReceiptSignedByAnybodyElseIsRefused(t *testing.T) {
 	_, priv, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
 	rec, err := SignReceipt(priv, "roger-public", Grant{AttemptID: "att-1", StationID: "st-1"},
-		[]byte("req"), []byte("x"), Usage{In: 1, Out: 1})
+		[]byte("req"), []byte("x"), Usage{In: 1, Out: 1}, Usage{})
 	require.NoError(t, err)
 
 	impostor, _, err := ed25519.GenerateKey(rand.Reader)
@@ -275,7 +276,7 @@ func TestAReceiptForAnotherContextIsRefused(t *testing.T) {
 	require.NoError(t, err)
 	pub := priv.Public().(ed25519.PublicKey)
 	rec, err := SignReceipt(priv, "roger-public", Grant{AttemptID: "att-1", StationID: "st-1"},
-		[]byte("req"), []byte("x"), Usage{In: 1, Out: 1})
+		[]byte("req"), []byte("x"), Usage{In: 1, Out: 1}, Usage{})
 	require.NoError(t, err)
 
 	_, err = ParseReceipt(rec.Signed, pub, "roger-public", "att-OTHER", "st-1")
@@ -304,4 +305,102 @@ func TestAnUnreadableReceiptIsRefused(t *testing.T) {
 	pub := priv.Public().(ed25519.PublicKey)
 	_, err = ParseReceipt([]byte("{not json"), pub, "roger-public", "att-1", "st-1")
 	require.Error(t, err)
+}
+
+// Option C: a Station's TOKEN claim rides the receipt alongside the byte usage, survives the
+// sign -> parse round trip, and Reconcile carries it into Settlement.BillableTokens for the
+// per-token path while the byte Billable is unchanged.
+func TestReceiptCarriesTokenClaimAndReconcileBillsIt(t *testing.T) {
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	pub := priv.Public().(ed25519.PublicKey)
+	rec, err := SignReceipt(priv, "roger-public", Grant{AttemptID: "att-1", StationID: "st-1"},
+		[]byte("req"), []byte("the answer"), Usage{In: 20, Out: 40}, Usage{In: 5, Out: 11})
+	require.NoError(t, err)
+
+	got, err := ParseReceipt(rec.Signed, pub, "roger-public", "att-1", "st-1")
+	require.NoError(t, err)
+	require.Equal(t, Usage{In: 20, Out: 40}, got.Usage, "byte usage survives")
+	require.Equal(t, Usage{In: 5, Out: 11}, got.TokUsage, "token claim survives")
+
+	s, err := Reconcile(got, nil)
+	require.NoError(t, err)
+	require.Equal(t, Usage{In: 20, Out: 40}, s.Billable, "byte billable unchanged")
+	require.Equal(t, Usage{In: 5, Out: 11}, s.BillableTokens, "token billable is the node's claim")
+}
+
+// A byte-only receipt (no token claim, e.g. an old receipt) reconciles to zero token billable:
+// the per-token path bills nothing until a token claim is actually signed.
+func TestAByteOnlyReceiptHasNoTokenBillable(t *testing.T) {
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	pub := priv.Public().(ed25519.PublicKey)
+	rec, err := SignReceipt(priv, "roger-public", Grant{AttemptID: "att-1", StationID: "st-1"},
+		[]byte("req"), []byte("x"), Usage{In: 1, Out: 1}, Usage{})
+	require.NoError(t, err)
+	got, err := ParseReceipt(rec.Signed, pub, "roger-public", "att-1", "st-1")
+	require.NoError(t, err)
+	require.Zero(t, got.TokUsage.In)
+	require.Zero(t, got.TokUsage.Out)
+	s, err := Reconcile(got, nil)
+	require.NoError(t, err)
+	require.Equal(t, Usage{}, s.BillableTokens)
+}
+
+// A negative token claim is refused. ParseReceipt already rejects it on the wire; Reconcile
+// guards it too, since a Receipt can be constructed directly.
+func TestReconcileRejectsNegativeTokenClaim(t *testing.T) {
+	_, err := Reconcile(Receipt{AttemptID: "att-1", ResponseDigest: "d", TokUsage: Usage{Out: -1}}, nil)
+	require.Error(t, err)
+}
+
+// The token claim is the number a Station is paid on under Option C, so it must be as
+// tamper-evident as the byte claim: flipping tok_out in a signed receipt has to fail
+// verification, or a relay carrying the receipt could inflate what the operator is owed.
+func TestTamperingWithTheTokenClaimBreaksTheReceiptSignature(t *testing.T) {
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	pub := priv.Public().(ed25519.PublicKey)
+	rec, err := SignReceipt(priv, "roger-public", Grant{AttemptID: "att-1", StationID: "st-1"},
+		[]byte("req"), []byte("the answer"), Usage{In: 20, Out: 40}, Usage{In: 5, Out: 777})
+	require.NoError(t, err)
+
+	tampered := []byte(strings.Replace(string(rec.Signed), "777", "778", 1))
+	require.NotEqual(t, rec.Signed, tampered, "the token value must actually be in the signed body to tamper with")
+	_, err = ParseReceipt(tampered, pub, "roger-public", "att-1", "st-1")
+	require.Error(t, err, "an altered token claim must not verify")
+}
+
+// A corroborated ack reconciles the BYTE output (min of the two digest-committed claims) but
+// must NOT touch the token billable - consumer token recount is phase 6, so BillableTokens
+// stays the Station's raw signed token claim.
+func TestACorroboratedAckDoesNotTouchTokenBillable(t *testing.T) {
+	response := []byte("the answer")
+	pub, priv := consumer(t)
+	a, err := SignAck(priv, "roger-public", "att-1", response, Usage{In: 0, Out: int64(len(response))},
+		time.Now(), time.Now())
+	require.NoError(t, err)
+	parsed, err := ParseAck(a.Signed, pub, "roger-public", "att-1")
+	require.NoError(t, err)
+
+	_, spriv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	rec, err := SignReceipt(spriv, "roger-public", Grant{AttemptID: "att-1", StationID: "st-1"},
+		[]byte("req"), response, Usage{In: 10, Out: int64(len(response))}, Usage{In: 3, Out: 9})
+	require.NoError(t, err)
+
+	s, err := Reconcile(rec, &parsed)
+	require.NoError(t, err)
+	require.True(t, s.Corroborated)
+	require.Equal(t, int64(len(response)), s.Billable.Out, "byte output still reconciles against the ack")
+	require.Equal(t, Usage{In: 3, Out: 9}, s.BillableTokens, "the ack does not touch token billable (phase 6)")
+}
+
+// The sign side rejects a negative token claim too, symmetric with the byte usage guard.
+func TestSignReceiptRejectsNegativeTokenClaim(t *testing.T) {
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	_, err = SignReceipt(priv, "roger-public", Grant{AttemptID: "att-1", StationID: "st-1"},
+		[]byte("req"), []byte("x"), Usage{In: 1, Out: 1}, Usage{Out: -1})
+	require.ErrorContains(t, err, "negative token usage")
 }

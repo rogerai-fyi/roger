@@ -173,8 +173,15 @@ func ParseAck(raw []byte, consumerKey ed25519.PublicKey, network, attemptID stri
 // Settlement is what Core concluded about one edge attempt.
 type Settlement struct {
 	AttemptID string
-	// Billable is the usage the account is charged and the operator credited for.
+	// Billable is the BYTE usage the account is charged and the operator credited for on the
+	// legacy byte-priced path.
 	Billable Usage
+	// BillableTokens is the TOKEN usage for the Option C per-token path: the Station's signed
+	// token claim (corroborated on output by a first-party ack once that lands, phase 6). It is
+	// the RAW claim here - the caller clamps it to the grant's token ceiling and the Tower's
+	// byte-attestation (tokens <= bytes) before it reaches money. Zero when the receipt carried
+	// no token claim (byte-only path), in which case the per-token path bills nothing.
+	BillableTokens Usage
 	// Corroborated is false when no acknowledgement arrived. Not a failure - see the file
 	// comment - but it is carried through to settlement so a rate can be computed from it.
 	Corroborated bool
@@ -207,7 +214,15 @@ func Reconcile(receipt Receipt, ack *Ack) (Settlement, error) {
 	if claimed.In < 0 || claimed.Out < 0 {
 		return Settlement{}, errors.New("the Station's receipt reports negative usage")
 	}
-	s := Settlement{AttemptID: receipt.AttemptID, Billable: claimed}
+	if receipt.TokUsage.In < 0 || receipt.TokUsage.Out < 0 {
+		return Settlement{}, errors.New("the Station's receipt reports negative token usage")
+	}
+	// BillableTokens carries through on BOTH the corroborated and no-ack paths: it is the
+	// Station's raw signed token claim, which the caller clamps to the grant token ceiling and
+	// the Tower byte-attestation before it reaches money. (First-party ack token corroboration
+	// is phase 6; today acks carry no token count, so output tokens rest on the receipt + the
+	// digest-corroboration flag, exactly as byte output does on the no-ack path.)
+	s := Settlement{AttemptID: receipt.AttemptID, Billable: claimed, BillableTokens: receipt.TokUsage}
 	if ack == nil {
 		// Settles on the receipt alone, and says so. See the file comment for why this is not
 		// treated as a fault.
@@ -270,6 +285,8 @@ func ParseReceipt(raw []byte, assertionKey ed25519.PublicKey, network, attemptID
 		ResponseDigest string `json:"response_digest"`
 		UsageIn        string `json:"usage_in"`
 		UsageOut       string `json:"usage_out"`
+		TokIn          string `json:"tok_in"`
+		TokOut         string `json:"tok_out"`
 	}
 	if err := json.Unmarshal(raw, &obj); err != nil {
 		return Receipt{}, fmt.Errorf("this receipt cannot be read: %w", err)
@@ -300,6 +317,18 @@ func ParseReceipt(raw []byte, assertionKey ed25519.PublicKey, network, attemptID
 	if in < 0 || out < 0 {
 		return Receipt{}, errors.New("this receipt claims negative usage")
 	}
+	// TOKEN usage is OPTIONAL (Option C): absent on a byte-only / old receipt reads as 0, a
+	// present one must be a valid non-negative integer. 0 means "no token claim" and the
+	// per-token settlement path treats it accordingly (bounded by byte cap + audit).
+	tokIn, err := parseOptionalCeiling(obj.TokIn)
+	if err != nil {
+		return Receipt{}, errors.New("this receipt's input token usage is not a number")
+	}
+	tokOut, err := parseOptionalCeiling(obj.TokOut)
+	if err != nil {
+		return Receipt{}, errors.New("this receipt's output token usage is not a number")
+	}
 	return Receipt{AttemptID: obj.AttemptID, RequestDigest: obj.RequestDigest,
-		ResponseDigest: obj.ResponseDigest, Usage: Usage{In: in, Out: out}, Signed: raw}, nil
+		ResponseDigest: obj.ResponseDigest, Usage: Usage{In: in, Out: out},
+		TokUsage: Usage{In: tokIn, Out: tokOut}, Signed: raw}, nil
 }

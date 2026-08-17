@@ -105,7 +105,7 @@ func signedReceipt(t *testing.T, priv ed25519.PrivateKey, attemptID, stationID s
 	response []byte, u dispatch.Usage) string {
 	t.Helper()
 	rec, err := dispatch.SignReceipt(priv, link.PublicNetwork,
-		dispatch.Grant{AttemptID: attemptID, StationID: stationID}, []byte("req-"+attemptID), response, u)
+		dispatch.Grant{AttemptID: attemptID, StationID: stationID}, []byte("req-"+attemptID), response, u, dispatch.Usage{})
 	require.NoError(t, err)
 	return base64.StdEncoding.EncodeToString(rec.Signed)
 }

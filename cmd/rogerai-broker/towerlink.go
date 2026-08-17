@@ -716,6 +716,10 @@ func (b *broker) towerStationPromote(w http.ResponseWriter, r *http.Request) {
 // stops mattering quickly.
 const stationInviteTTL = time.Hour
 
+// terminalAttachmentHorizon is how long a revoked/detached attachment is kept before the
+// sweep deletes it - forensic history, bounded.
+const terminalAttachmentHorizon = 30 * 24 * time.Hour
+
 // maxOpenInvitesPerOwner bounds unredeemed invitations per account. Generous enough that an
 // operator attaching a rack of Stations never notices; low enough that the table cannot be
 // used as free storage.
@@ -967,6 +971,23 @@ func (b *broker) towerInviteSweepOnce(now time.Time) {
 	} else if n > 0 {
 		log.Printf("station invites: reaped %d expired unredeemed invitation(s)", n)
 	}
+	// Terminal (revoked/detached) attachments age out too: without this, an attach -> revoke ->
+	// attach loop - frictionless on the self-attach path - grows the attachment table without
+	// bound. A month keeps plenty of forensic history; live rows are never touched.
+	if tn, terr := b.tower.stationStore.ReapTerminal(now.Add(-terminalAttachmentHorizon)); terr != nil {
+		log.Printf("station attachments: terminal sweep failed: %v", terr)
+	} else if tn > 0 {
+		log.Printf("station attachments: reaped %d terminal attachment(s)", tn)
+	}
+	// Refresh the routable projection for the towers whose links THIS instance holds. Leaf
+	// rows are republished on every inventory push, but self-attached nodes' rows carry a
+	// selfOfferTTL that only a republish renews - this is that renewal, so a healthy node
+	// never lapses off the projection while a dark tower's rows age out with it.
+	if b.tower.link != nil {
+		for _, tw := range b.tower.link.LiveTowers() {
+			b.publishRoutable(tw)
+		}
+	}
 	// Reputation evidence ages out of the window it is judged in, so a table that kept every
 	// outcome forever would grow without bound while nothing older than the window is ever
 	// read. Reap past the window, on the same sweep - one fewer ticker to keep alive.
@@ -1078,6 +1099,8 @@ func (b *broker) registerTowerRoutes(mux *http.ServeMux) {
 	// THE EDGE PATH. Core's whole involvement in a Tower-served request: it authorized one
 	// earlier, and here it takes the consumer's account of what came back. The payload went
 	// nowhere near this process.
+	mux.HandleFunc("/tower/edge/attach", b.towerEdgeAttach)       // node: self-attach as a servable Station (Option C)
+	mux.HandleFunc("/tower/hub/nodes", b.towerHubNodes)           // Tower: my self-attached nodes + their hub tokens
 	mux.HandleFunc("/tower/edge/authorize", b.towerEdgeAuthorize) // consumer: route me to a Station
 	mux.HandleFunc("/tower/edge/ack", b.towerEdgeAck)             // consumer: what I actually received
 	mux.HandleFunc("/tower/edge/settle", b.towerEdgeSettle)       // Tower: the Station's receipt

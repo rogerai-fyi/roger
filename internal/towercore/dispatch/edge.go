@@ -52,6 +52,11 @@ import (
 // TypeEdgeGrant identifies the signed object.
 const TypeEdgeGrant = "dispatch.edge_grant"
 
+// maxEdgePriceMicros caps the per-token price a grant may pin: 1e10 micro-USD per 1M tokens
+// ($10,000 / 1M). Sanity, not policy - the public band (checked at leaf admission AND re-checked
+// at authorize) is orders of magnitude lower.
+const maxEdgePriceMicros = 10_000_000_000
+
 // EdgeTarget is what Core decides before it has seen anything.
 type EdgeTarget struct {
 	TowerID      string
@@ -70,6 +75,13 @@ type EdgeTarget struct {
 	// forgotten field away from an unmetered Station.
 	MaxIn  int64
 	MaxOut int64
+	// MaxTokIn and MaxTokOut are the TOKEN ceilings for the per-token billing path (Option C).
+	// They sit ALONGSIDE the byte ceilings, not instead of them: bytes remain the hard cap a
+	// Tower's byte-attestation enforces (a token is >= 1 byte), and tokens are the ceiling the
+	// consumer's wallet hold is sized against. Optional and default 0 ("no token ceiling") so a
+	// byte-only grant is unchanged; settlement treats 0 as "not token-bounded".
+	MaxTokIn  int64
+	MaxTokOut int64
 	// AssertionKey is the key from the ATTACHMENT record, carried for the same reason as on
 	// the relayed path: it is what the receipt is verified against.
 	AssertionKey ed25519.PublicKey
@@ -79,6 +91,21 @@ type EdgeTarget struct {
 	// security review found the ack unbound, letting a third party file one for somebody
 	// else's attempt.
 	ConsumerKey ed25519.PublicKey
+	// ConsumerEnvKey is the consumer's static X25519 public key (Option C, Topology 2): the
+	// serving node seals its RESULT to this so it travels back through a blind tower the node's
+	// operator and the tower cannot read. Distinct from ConsumerKey (ed25519, which signs the
+	// ack). Optional and 32 bytes when present; empty on the byte path, where nothing is sealed
+	// to the consumer.
+	ConsumerEnvKey []byte
+	// PriceInMicros and PriceOutMicros PIN the consumer price into the grant, in MICRO-USD PER
+	// 1,000,000 TOKENS, copied at authorize from the Station's signed, band-checked offer. The
+	// price the consumer is billed at settlement is read from HERE - the same Core-signed
+	// object as every other money bound - so a price hike between authorize and settle cannot
+	// reprice an in-flight attempt, and neither the tower nor the node can feed settlement a
+	// number the consumer never agreed to. Optional; 0/0 means unpriced-per-token, and the
+	// byte tariff governs.
+	PriceInMicros  int64
+	PriceOutMicros int64
 }
 
 // EdgeGrant authorizes one edge attempt.
@@ -93,11 +120,22 @@ type EdgeGrant struct {
 	RelayName    string
 	MaxIn        int64
 	MaxOut       int64
-	Deadline     time.Time
-	Nonce        string
+	// MaxTokIn and MaxTokOut are the optional TOKEN ceilings (Option C per-token billing).
+	// 0 means "no token ceiling" (a byte-only grant), so old grants read back unchanged.
+	MaxTokIn  int64
+	MaxTokOut int64
+	Deadline  time.Time
+	Nonce     string
 	// ConsumerKey is the account this grant was issued to, hex in the signed body. The
 	// acknowledgement must come from it.
 	ConsumerKey ed25519.PublicKey
+	// ConsumerEnvKey is the consumer's X25519 key results are sealed to (Option C). Empty on a
+	// byte-path grant; 32 bytes when present.
+	ConsumerEnvKey []byte
+	// PriceInMicros and PriceOutMicros are the pinned consumer price (micro-USD per 1M tokens);
+	// 0/0 = not token-priced.
+	PriceInMicros  int64
+	PriceOutMicros int64
 	// Signed is the canonical signed object, handed to the CONSUMER rather than to a Tower.
 	Signed []byte
 }
@@ -120,10 +158,28 @@ func (r *Registry) MintEdge(t EdgeTarget) (EdgeGrant, error) {
 		// bounds the attempt, and a zero meaning "unlimited" would make forgetting a field
 		// indistinguishable from authorizing everything.
 		return EdgeGrant{}, errors.New("an edge grant bounds input and output, and one of those bounds is missing")
+	case t.MaxTokIn < 0 || t.MaxTokOut < 0:
+		// Token ceilings are OPTIONAL (0 = none), but a NEGATIVE one is a bug, not "unset":
+		// mint-side validation stays symmetric with the parse side (which rejects it), so Core
+		// never signs a grant whose token fields every reader will reject as dead-on-arrival.
+		return EdgeGrant{}, errors.New("an edge grant's token ceilings cannot be negative")
 	case len(t.AssertionKey) != ed25519.PublicKeySize:
 		return EdgeGrant{}, errors.New("an edge grant needs the Station's attachment-recorded assertion key")
 	case len(t.ConsumerKey) != ed25519.PublicKeySize:
 		return EdgeGrant{}, errors.New("an edge grant is issued to a consumer, and none was named")
+	case t.PriceInMicros < 0 || t.PriceOutMicros < 0:
+		// Optional (0 = unpriced), but a negative price is a bug that would mint negative money.
+		return EdgeGrant{}, errors.New("an edge grant's prices cannot be negative")
+	case t.PriceInMicros > maxEdgePriceMicros || t.PriceOutMicros > maxEdgePriceMicros:
+		// Defense in depth: the broker only ever pins band-checked prices, but this signer must
+		// not be able to mint an absurd one if a caller slips. $10k per 1M tokens is far above
+		// any real band ceiling and far below any arithmetic hazard.
+		return EdgeGrant{}, errors.New("an edge grant's price is implausibly large")
+	case len(t.ConsumerEnvKey) != 0 && len(t.ConsumerEnvKey) != 32:
+		// OPTIONAL, but when present it must be a plausible X25519 public key: a grant carrying
+		// a malformed sealing key would make every node that honors it fail to seal its result,
+		// so the mint refuses to sign one rather than minting dead-on-arrival authorization.
+		return EdgeGrant{}, errors.New("an edge grant's consumer envelope key must be 32 bytes when present")
 	}
 
 	now := r.cfg.Now()
@@ -132,37 +188,47 @@ func (r *Registry) MintEdge(t EdgeTarget) (EdgeGrant, error) {
 		life = r.cfg.Lifetime
 	}
 	g := EdgeGrant{
-		JobID:        "job-" + randomHex(12),
-		AttemptID:    "att-" + randomHex(12),
-		TowerID:      t.TowerID,
-		StationID:    t.StationID,
-		StationEpoch: t.StationEpoch,
-		Model:        t.Model,
-		Modality:     t.Modality,
-		RelayName:    t.RelayName,
-		MaxIn:        t.MaxIn,
-		MaxOut:       t.MaxOut,
-		Deadline:     now.Add(life),
-		Nonce:        randomHex(16),
-		ConsumerKey:  t.ConsumerKey,
+		JobID:          "job-" + randomHex(12),
+		AttemptID:      "att-" + randomHex(12),
+		TowerID:        t.TowerID,
+		StationID:      t.StationID,
+		StationEpoch:   t.StationEpoch,
+		Model:          t.Model,
+		Modality:       t.Modality,
+		RelayName:      t.RelayName,
+		MaxIn:          t.MaxIn,
+		MaxOut:         t.MaxOut,
+		MaxTokIn:       t.MaxTokIn,
+		MaxTokOut:      t.MaxTokOut,
+		Deadline:       now.Add(life),
+		Nonce:          randomHex(16),
+		ConsumerKey:    t.ConsumerKey,
+		ConsumerEnvKey: t.ConsumerEnvKey,
+		PriceInMicros:  t.PriceInMicros,
+		PriceOutMicros: t.PriceOutMicros,
 	}
 	body, err := json.Marshal(map[string]any{
-		"network":       r.cfg.Network,
-		"type":          TypeEdgeGrant,
-		"version":       towerobj.FormatInt(Version),
-		"job_id":        g.JobID,
-		"attempt_id":    g.AttemptID,
-		"tower_id":      g.TowerID,
-		"station_id":    g.StationID,
-		"station_epoch": towerobj.FormatInt(g.StationEpoch),
-		"model":         g.Model,
-		"modality":      g.Modality,
-		"relay_name":    g.RelayName,
-		"max_in":        towerobj.FormatInt(g.MaxIn),
-		"max_out":       towerobj.FormatInt(g.MaxOut),
-		"deadline":      towerobj.FormatInt(g.Deadline.Unix()),
-		"nonce":         g.Nonce,
-		"consumer_key":  hex.EncodeToString(g.ConsumerKey),
+		"network":          r.cfg.Network,
+		"type":             TypeEdgeGrant,
+		"version":          towerobj.FormatInt(Version),
+		"job_id":           g.JobID,
+		"attempt_id":       g.AttemptID,
+		"tower_id":         g.TowerID,
+		"station_id":       g.StationID,
+		"station_epoch":    towerobj.FormatInt(g.StationEpoch),
+		"model":            g.Model,
+		"modality":         g.Modality,
+		"relay_name":       g.RelayName,
+		"max_in":           towerobj.FormatInt(g.MaxIn),
+		"max_out":          towerobj.FormatInt(g.MaxOut),
+		"max_tok_in":       towerobj.FormatInt(g.MaxTokIn),
+		"max_tok_out":      towerobj.FormatInt(g.MaxTokOut),
+		"deadline":         towerobj.FormatInt(g.Deadline.Unix()),
+		"nonce":            g.Nonce,
+		"consumer_key":     hex.EncodeToString(g.ConsumerKey),
+		"consumer_env_key": hex.EncodeToString(g.ConsumerEnvKey), // "" when absent
+		"price_in_micros":  towerobj.FormatInt(g.PriceInMicros),
+		"price_out_micros": towerobj.FormatInt(g.PriceOutMicros),
 	})
 	if err != nil {
 		return EdgeGrant{}, err
@@ -197,19 +263,24 @@ func ParseEdgeGrant(raw []byte, coreKey ed25519.PublicKey, network, stationID st
 	// a grant for another network has already failed. A second check here would be a branch
 	// no input can reach - protection that reads as protection and protects nothing.
 	var obj struct {
-		JobID        string `json:"job_id"`
-		AttemptID    string `json:"attempt_id"`
-		TowerID      string `json:"tower_id"`
-		StationID    string `json:"station_id"`
-		StationEpoch string `json:"station_epoch"`
-		Model        string `json:"model"`
-		Modality     string `json:"modality"`
-		RelayName    string `json:"relay_name"`
-		MaxIn        string `json:"max_in"`
-		MaxOut       string `json:"max_out"`
-		Deadline     string `json:"deadline"`
-		Nonce        string `json:"nonce"`
-		ConsumerKey  string `json:"consumer_key"`
+		JobID          string `json:"job_id"`
+		AttemptID      string `json:"attempt_id"`
+		TowerID        string `json:"tower_id"`
+		StationID      string `json:"station_id"`
+		StationEpoch   string `json:"station_epoch"`
+		Model          string `json:"model"`
+		Modality       string `json:"modality"`
+		RelayName      string `json:"relay_name"`
+		MaxIn          string `json:"max_in"`
+		MaxOut         string `json:"max_out"`
+		MaxTokIn       string `json:"max_tok_in"`
+		MaxTokOut      string `json:"max_tok_out"`
+		Deadline       string `json:"deadline"`
+		Nonce          string `json:"nonce"`
+		ConsumerKey    string `json:"consumer_key"`
+		ConsumerEnvKey string `json:"consumer_env_key"`
+		PriceInMicros  string `json:"price_in_micros"`
+		PriceOutMicros string `json:"price_out_micros"`
 	}
 	if err := json.Unmarshal(raw, &obj); err != nil {
 		return EdgeGrant{}, fmt.Errorf("this grant cannot be read: %w", err)
@@ -217,6 +288,26 @@ func ParseEdgeGrant(raw []byte, coreKey ed25519.PublicKey, network, stationID st
 	consumerKey, err := hex.DecodeString(obj.ConsumerKey)
 	if err != nil {
 		return EdgeGrant{}, errors.New("this grant's consumer key is unreadable")
+	}
+	// OPTIONAL sealing key: absent (old / byte-path grant) reads as nil; present must be a
+	// plausible X25519 public key, refused otherwise - a node must never try to seal a result
+	// to a malformed key and fall back to something readable.
+	consumerEnvKey, err := hex.DecodeString(obj.ConsumerEnvKey)
+	if err != nil || (len(consumerEnvKey) != 0 && len(consumerEnvKey) != 32) {
+		return EdgeGrant{}, errors.New("this grant's consumer envelope key is unreadable")
+	}
+	if len(consumerEnvKey) == 0 {
+		consumerEnvKey = nil
+	}
+	// Pinned prices are OPTIONAL like the token ceilings: absent -> 0 (byte tariff governs),
+	// present must be a valid non-negative integer.
+	priceIn, err := parseOptionalCeiling(obj.PriceInMicros)
+	if err != nil {
+		return EdgeGrant{}, errors.New("this grant's input price is not a number")
+	}
+	priceOut, err := parseOptionalCeiling(obj.PriceOutMicros)
+	if err != nil {
+		return EdgeGrant{}, errors.New("this grant's output price is not a number")
 	}
 	if obj.StationID != stationID {
 		return EdgeGrant{}, fmt.Errorf("this grant is for Station %q, not this one", obj.StationID)
@@ -232,6 +323,16 @@ func ParseEdgeGrant(raw []byte, coreKey ed25519.PublicKey, network, stationID st
 	maxOut, err := strconv.ParseInt(obj.MaxOut, 10, 64)
 	if err != nil {
 		return EdgeGrant{}, errors.New("this grant's output ceiling is not a number")
+	}
+	// Token ceilings are OPTIONAL (Option C): an absent field on an old byte-only grant reads
+	// as 0 ("no token ceiling"), a present one must be a valid non-negative integer.
+	maxTokIn, err := parseOptionalCeiling(obj.MaxTokIn)
+	if err != nil {
+		return EdgeGrant{}, errors.New("this grant's input token ceiling is not a number")
+	}
+	maxTokOut, err := parseOptionalCeiling(obj.MaxTokOut)
+	if err != nil {
+		return EdgeGrant{}, errors.New("this grant's output token ceiling is not a number")
 	}
 	unix, err := strconv.ParseInt(obj.Deadline, 10, 64)
 	if err != nil {
@@ -252,8 +353,29 @@ func ParseEdgeGrant(raw []byte, coreKey ed25519.PublicKey, network, stationID st
 		JobID: obj.JobID, AttemptID: obj.AttemptID, TowerID: obj.TowerID,
 		StationID: obj.StationID, StationEpoch: epoch, Model: obj.Model,
 		Modality: obj.Modality, RelayName: obj.RelayName, MaxIn: maxIn, MaxOut: maxOut,
-		Deadline: deadline, Nonce: obj.Nonce, ConsumerKey: consumerKey, Signed: raw,
+		MaxTokIn: maxTokIn, MaxTokOut: maxTokOut,
+		Deadline: deadline, Nonce: obj.Nonce, ConsumerKey: consumerKey,
+		ConsumerEnvKey: consumerEnvKey, PriceInMicros: priceIn, PriceOutMicros: priceOut,
+		Signed: raw,
 	}, nil
+}
+
+// parseOptionalCeiling reads an OPTIONAL non-negative integer ceiling from a signed grant:
+// an absent field (old byte-only grant) is 0 ("no ceiling"), a present one must parse and be
+// >= 0. A negative value is rejected rather than treated as unset, so a malformed ceiling
+// cannot silently disable the bound.
+func parseOptionalCeiling(s string) (int64, error) {
+	if s == "" {
+		return 0, nil
+	}
+	v, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return 0, err
+	}
+	if v < 0 {
+		return 0, errors.New("negative ceiling")
+	}
+	return v, nil
 }
 
 // EdgeGrantCeiling reads the usage bounds a Core-signed edge grant authorized.
@@ -296,4 +418,102 @@ func EdgeGrantCeiling(raw []byte, coreKey ed25519.PublicKey, network, stationID 
 		return 0, 0, errors.New("this grant carries no usable ceiling")
 	}
 	return maxIn, maxOut, nil
+}
+
+// EdgeGrantTokenCeiling reads the TOKEN usage bounds a Core-signed edge grant authorized, the
+// per-token (Option C) counterpart to EdgeGrantCeiling. Same signature + Station-binding
+// checks, so a substituted or wrong-Station grant cannot pass a bogus ceiling into the money
+// path. Unlike the byte ceiling, a token ceiling is OPTIONAL: an old byte-only grant (or a
+// grant minted with no token ceiling) returns 0, 0 with a nil error, and settlement reads 0 as
+// "not token-bounded" (so the byte cap + audit still apply). A present ceiling must be a valid
+// non-negative integer.
+func EdgeGrantTokenCeiling(raw []byte, coreKey ed25519.PublicKey, network, stationID string) (maxTokIn, maxTokOut int64, err error) {
+	if err := towerobj.Verify(coreKey, network, TypeEdgeGrant, Version, raw, "core_sig"); err != nil {
+		return 0, 0, fmt.Errorf("this grant is not signed by Roger Core: %w", err)
+	}
+	var obj struct {
+		StationID string `json:"station_id"`
+		MaxTokIn  string `json:"max_tok_in"`
+		MaxTokOut string `json:"max_tok_out"`
+	}
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return 0, 0, fmt.Errorf("this grant cannot be read: %w", err)
+	}
+	if obj.StationID != stationID {
+		return 0, 0, fmt.Errorf("this grant is for Station %q, not this one", obj.StationID)
+	}
+	if maxTokIn, err = parseOptionalCeiling(obj.MaxTokIn); err != nil {
+		return 0, 0, errors.New("this grant's input token ceiling is not a number")
+	}
+	if maxTokOut, err = parseOptionalCeiling(obj.MaxTokOut); err != nil {
+		return 0, 0, errors.New("this grant's output token ceiling is not a number")
+	}
+	return maxTokIn, maxTokOut, nil
+}
+
+// EdgeGrantPricing reads the PINNED consumer price (micro-USD per 1M tokens) out of a
+// Core-signed edge grant, for SETTLEMENT. Same signature + Station-binding gates as the
+// ceiling readers, so a substituted or wrong-Station grant cannot pass a bogus price into the
+// money path. 0/0 with a nil error means the grant is not token-priced (the byte tariff
+// governs); a present price must be a valid non-negative integer.
+func EdgeGrantPricing(raw []byte, coreKey ed25519.PublicKey, network, stationID string) (inMicros, outMicros int64, err error) {
+	if err := towerobj.Verify(coreKey, network, TypeEdgeGrant, Version, raw, "core_sig"); err != nil {
+		return 0, 0, fmt.Errorf("this grant is not signed by Roger Core: %w", err)
+	}
+	var obj struct {
+		StationID      string `json:"station_id"`
+		PriceInMicros  string `json:"price_in_micros"`
+		PriceOutMicros string `json:"price_out_micros"`
+	}
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return 0, 0, fmt.Errorf("this grant cannot be read: %w", err)
+	}
+	if obj.StationID != stationID {
+		return 0, 0, fmt.Errorf("this grant is for Station %q, not this one", obj.StationID)
+	}
+	if inMicros, err = parseOptionalCeiling(obj.PriceInMicros); err != nil {
+		return 0, 0, errors.New("this grant's input price is not a number")
+	}
+	if outMicros, err = parseOptionalCeiling(obj.PriceOutMicros); err != nil {
+		return 0, 0, errors.New("this grant's output price is not a number")
+	}
+	return inMicros, outMicros, nil
+}
+
+// EdgeGrantMeta verifies a grant came from Roger Core and reads only its PUBLIC metadata - the
+// attempt id, the Station it authorizes, and its deadline. It reads no ceiling and needs no
+// request, so a Tower can use it to authorize a consumer's submit (grant is Core-signed, names
+// this Station, bound to this Tower, not expired) WITHOUT ever touching the sealed request the
+// grant protects - the property that lets the Tower gate abuse while staying blind. `now` checks
+// the deadline; pass a zero time to skip the expiry check (e.g. a settlement-time read).
+// `towerID`, when non-empty, must equal the grant's Tower - so a grant minted for one Tower
+// cannot be replayed at another that happens to serve the same Station id; pass "" to skip.
+func EdgeGrantMeta(raw []byte, coreKey ed25519.PublicKey, network, towerID string, now time.Time) (attemptID, stationID string, deadline time.Time, err error) {
+	if verr := towerobj.Verify(coreKey, network, TypeEdgeGrant, Version, raw, "core_sig"); verr != nil {
+		return "", "", time.Time{}, fmt.Errorf("this grant is not signed by Roger Core: %w", verr)
+	}
+	var obj struct {
+		AttemptID string `json:"attempt_id"`
+		StationID string `json:"station_id"`
+		TowerID   string `json:"tower_id"`
+		Deadline  string `json:"deadline"`
+	}
+	if uerr := json.Unmarshal(raw, &obj); uerr != nil {
+		return "", "", time.Time{}, fmt.Errorf("this grant cannot be read: %w", uerr)
+	}
+	if obj.AttemptID == "" || obj.StationID == "" {
+		return "", "", time.Time{}, errors.New("this grant names no attempt or Station")
+	}
+	if towerID != "" && obj.TowerID != towerID {
+		return "", "", time.Time{}, fmt.Errorf("this grant is for Tower %q, not this one", obj.TowerID)
+	}
+	unix, perr := strconv.ParseInt(obj.Deadline, 10, 64)
+	if perr != nil {
+		return "", "", time.Time{}, errors.New("this grant's deadline is not a time")
+	}
+	deadline = time.Unix(unix, 0)
+	if !now.IsZero() && !now.Before(deadline) {
+		return "", "", time.Time{}, ErrExpired
+	}
+	return obj.AttemptID, obj.StationID, deadline, nil
 }

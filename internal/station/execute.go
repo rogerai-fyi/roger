@@ -136,7 +136,7 @@ func (e Executor) Execute(ctx context.Context, in ExecuteRequest) ExecuteRespons
 	// wire. Signing anything else - a re-encoding, a copy made earlier - would leave a gap
 	// between what was attested and what was sent.
 	rec, err := dispatch.SignReceipt(e.Station.assertionPriv, e.Network, grant, request, body,
-		dispatch.Usage{In: int64(len(request)), Out: int64(len(body))})
+		dispatch.Usage{In: int64(len(request)), Out: int64(len(body))}, tokenUsageOf(body))
 	if err != nil {
 		return ExecuteResponse{Failure: "this Station could not sign its result: " + err.Error()}
 	}
@@ -219,4 +219,28 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n] + "…"
+}
+
+// tokenUsageOf parses the model's own token counts from an OpenAI-compatible response body
+// (its "usage" object), for the Option C per-token receipt. A missing usage object, a non-JSON
+// body, or negative counts yield zero - the per-token settle path then bills nothing for this
+// request and the byte cap + audit govern, exactly as an un-tokened receipt. The node signs
+// whatever this returns; Core clamps it to the grant's token ceiling and the Tower's
+// byte-attestation, so an inflated figure here cannot exceed what was authorized.
+func tokenUsageOf(body []byte) dispatch.Usage {
+	var parsed struct {
+		Usage struct {
+			PromptTokens     int64 `json:"prompt_tokens"`
+			CompletionTokens int64 `json:"completion_tokens"`
+		} `json:"usage"`
+	}
+	_ = json.Unmarshal(body, &parsed)
+	in, out := parsed.Usage.PromptTokens, parsed.Usage.CompletionTokens
+	if in < 0 {
+		in = 0
+	}
+	if out < 0 {
+		out = 0
+	}
+	return dispatch.Usage{In: in, Out: out}
 }

@@ -7,14 +7,12 @@ package main
 import (
 	"crypto/ed25519"
 	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"rogerai.fm/roger/v5/internal/protocol"
 	"rogerai.fm/roger/v5/internal/store"
 	"rogerai.fm/roger/v5/internal/towercore/admit"
 	"rogerai.fm/roger/v5/internal/towercore/dispatch"
@@ -45,7 +43,7 @@ func TestEdgeBillingPaysStationOwnerAndTowerOperator(t *testing.T) {
 	// A real grant with a ceiling of 1000 out bytes, and a funded consumer whose authorize-time
 	// hold reserved the ceiling price (1000 * 1 = 1000 credits).
 	cpub := issuedEdgeGrant(t, b, "att-1", tw.id, "st-1", 1000, 1000)
-	consumerWallet := protocol.UserIDFromPubkey(hex.EncodeToString(cpub))
+	consumerWallet := bindEdgeConsumer(t, b, cpub)
 	_, err = b.db.AddCredits(consumerWallet, 100000)
 	require.NoError(t, err)
 	ok, err := b.db.HoldFor(consumerWallet, "att-1", 1000)
@@ -67,9 +65,9 @@ func TestEdgeBillingPaysStationOwnerAndTowerOperator(t *testing.T) {
 	// Station owner earns cost*(1-fee) = 50*0.7 = 35.
 	sSt, _ := b.db.EarningSplitOf(stationOwner, now)
 	require.InDelta(t, 35, sSt.Payable, 0.001, "station owner earns its 70%")
-	// Tower operator earns cost*fee*towerRate = 50*0.3*0.10 = 1.5.
+	// Tower operator earns 10% of GROSS = 50*0.10 = 5 (platform absorbs it; its 30% fee -> 20%).
 	sTw, _ := b.db.EarningSplitOf(towerAcct, now)
-	require.InDelta(t, 1.5, sTw.Payable, 0.001, "tower operator earns 10% of the platform margin")
+	require.InDelta(t, 5, sTw.Payable, 0.001, "tower operator earns 10% of gross")
 	// Consumer charged exactly the 50 (held 1000, refunded 950).
 	bal, _ := b.db.PeekBalance(consumerWallet)
 	require.InDelta(t, 100000-50, bal, 0.001, "consumer billed only the actual cost")
@@ -131,7 +129,7 @@ func TestSettleCompletesBillingAfterAStrandedDispatchSettle(t *testing.T) {
 	require.NoError(t, b.db.BindOwner(store.Owner{Pubkey: stationOwner, Login: "station-op", Email: "s@x.test", EmailVerifiedAt: time.Now().Unix()}))
 	stationPriv := attachStation(t, b, "st-1", tw.id, stationOwner)
 	cpub := issuedEdgeGrant(t, b, "att-1", tw.id, "st-1", 1000, 1000)
-	consumerWallet := protocol.UserIDFromPubkey(hex.EncodeToString(cpub))
+	consumerWallet := bindEdgeConsumer(t, b, cpub)
 	_, _ = b.db.AddCredits(consumerWallet, 100000)
 	ok, err := b.db.HoldFor(consumerWallet, "att-1", 1000)
 	require.NoError(t, err)
@@ -157,7 +155,7 @@ func TestSettleCompletesBillingAfterAStrandedDispatchSettle(t *testing.T) {
 	sSt, _ := b.db.EarningSplitOf(stationOwner, now)
 	require.InDelta(t, 35, sSt.Payable, 0.001, "station paid on the completion")
 	sTw, _ := b.db.EarningSplitOf(towerAcct, now)
-	require.InDelta(t, 1.5, sTw.Payable, 0.001, "tower paid on the completion")
+	require.InDelta(t, 5, sTw.Payable, 0.001, "tower paid 10% of gross on the completion")
 	bal, _ := b.db.PeekBalance(consumerWallet)
 	require.InDelta(t, 100000-50, bal, 0.001, "consumer charged the actual cost")
 
@@ -295,7 +293,7 @@ func TestTowerRelayEarningsAreTaggedForTheDashboard(t *testing.T) {
 	require.NoError(t, b.db.BindOwner(store.Owner{Pubkey: stationOwner, Login: "station-op2", Email: "s2@x.test", EmailVerifiedAt: time.Now().Unix()}))
 	stationPriv := attachStation(t, b, "st-1", tw.id, stationOwner)
 	cpub := issuedEdgeGrant(t, b, "att-1", tw.id, "st-1", 1000, 1000)
-	consumerWallet := protocol.UserIDFromPubkey(hex.EncodeToString(cpub))
+	consumerWallet := bindEdgeConsumer(t, b, cpub)
 	_, _ = b.db.AddCredits(consumerWallet, 100000)
 	ok, err := b.db.HoldFor(consumerWallet, "att-1", 1000)
 	require.NoError(t, err)
@@ -317,4 +315,138 @@ func TestTowerRelayEarningsAreTaggedForTheDashboard(t *testing.T) {
 	_, stNode, _ := b.db.EarningRollups(stationOwner)
 	require.Len(t, stNode, 1)
 	require.False(t, IsTowerNode(stNode[0].Key), "the station owner's earning is a serving share")
+}
+
+// issuedEdgeGrantPriced mints an edge grant carrying token ceilings AND a pinned per-token
+// price (micro-USD per 1M tokens), the Option C money shape.
+func issuedEdgeGrantPriced(t *testing.T, b *broker, attemptID, towerID, stationID string,
+	priceInMicros, priceOutMicros int64) ed25519.PublicKey {
+	t.Helper()
+	cpub, _, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	apub, _, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	g, err := b.tower.dispatch.MintEdge(dispatch.EdgeTarget{
+		TowerID: towerID, StationID: stationID, StationEpoch: 1, Model: "m", Modality: "text",
+		RelayName: stationID + ".relay.example", MaxIn: 8 << 20, MaxOut: 8 << 20,
+		MaxTokIn: 1 << 20, MaxTokOut: 1 << 20,
+		PriceInMicros: priceInMicros, PriceOutMicros: priceOutMicros,
+		AssertionKey: apub, ConsumerKey: cpub,
+	})
+	require.NoError(t, err)
+	require.NoError(t, b.tower.dispatch.Store().Put(dispatch.Record{
+		AttemptID: attemptID, JobID: g.JobID, TowerID: towerID, StationID: stationID,
+		StationEpoch: 1, Model: "m", Modality: "text", Nonce: g.Nonce,
+		Deadline: time.Now().Add(time.Hour), Grant: g.Signed, ConsumerKey: cpub,
+		State: dispatch.StateIssued,
+	}))
+	return cpub
+}
+
+// THE OPTION C MONEY TEST: a token-priced attempt settles at tokens x the price PINNED IN THE
+// GRANT, splitting 70% to the serving node's owner, 10% of gross to the tower operator, 20%
+// to the platform - through the same wallet as everything else. The byte tariff is OFF, so a
+// charge can only have come from the pinned token price.
+func TestTokenPricedSettlementPaysAtThePinnedPrice(t *testing.T) {
+	t.Setenv("ROGERAI_TOWER_EDGE_PRICE_IN", "0")
+	t.Setenv("ROGERAI_TOWER_EDGE_PRICE_OUT", "0") // byte tariff OFF: only the pinned price can bill
+	t.Setenv("ROGERAI_PAYOUT_HOLD_DAYS", "0")
+	t.Setenv("ROGERAI_PAYOUT_RESERVE", "0")
+	b, srv := towerTestBroker(t)
+	b.feeRate = 0.30
+	op := signedInOperator(t, b, "tower-op")
+	towerAcct := ownerPubkeyOf(t, b, op.login)
+	tw := enrolledTower(t, b, op.login)
+
+	stPub, _, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	stationOwner := hexOf(stPub)
+	require.NoError(t, b.db.BindOwner(store.Owner{
+		Pubkey: stationOwner, Login: "station-op", Email: "sp@x.test", EmailVerifiedAt: time.Now().Unix(),
+	}))
+	stationPriv := attachStation(t, b, "st-1", tw.id, stationOwner)
+
+	// Price: $5,000 per 1M output tokens = 5e9 micros (inside the mint sanity cap; bands gate
+	// leaf admission). 200 billable output tokens -> cost = 200 x 5e9 / 1e12 = 1.0 credit.
+	cpub := issuedEdgeGrantPriced(t, b, "att-1", tw.id, "st-1", 0, 5_000_000_000)
+	consumerWallet := bindEdgeConsumer(t, b, cpub)
+	_, err = b.db.AddCredits(consumerWallet, 1000)
+	require.NoError(t, err)
+	held, err := b.db.HoldFor(consumerWallet, "att-1", 10)
+	require.NoError(t, err)
+	require.True(t, held)
+
+	// The node's receipt: byte out 300 (within ceiling, and >= tokens), token out 200.
+	body, err := json.Marshal(map[string]any{
+		"tower_id": tw.id, "station_id": "st-1", "attempt_id": "att-1",
+		"receipt": signedReceiptTok(t, stationPriv, "att-1", "st-1", make([]byte, 300),
+			dispatch.Usage{In: 10, Out: 300}, dispatch.Usage{In: 0, Out: 200}),
+	})
+	require.NoError(t, err)
+	var out map[string]any
+	code, _ := tw.call(t, srv, "/tower/edge/settle", body, &out)
+	require.Equal(t, http.StatusOK, code, out)
+
+	now := time.Now()
+	// cost = 1.0 credit: node owner 70% = 0.70, tower 10% of gross = 0.10.
+	sSt, _ := b.db.EarningSplitOf(stationOwner, now)
+	require.InDelta(t, 0.70, sSt.Payable, 1e-9, "the serving owner earns 70% of the token-priced cost")
+	sTw, _ := b.db.EarningSplitOf(towerAcct, now)
+	require.InDelta(t, 0.10, sTw.Payable, 1e-9, "the tower operator earns 10% of gross")
+	bal, _ := b.db.PeekBalance(consumerWallet)
+	require.InDelta(t, 1000-1.0, bal, 1e-9, "the consumer paid exactly tokens x the pinned price (hold remainder refunded)")
+}
+
+// A token-priced grant whose node signed NO token claim falls back to the byte tariff - but
+// CAPPED at what the token ceilings would have cost at the pinned price, so a low-priced node
+// cannot zero its claim to be paid the higher platform byte rate. And the anomaly is disputed.
+func TestTokenPricedGrantWithNoTokenClaimFallsBackToBytes(t *testing.T) {
+	t.Setenv("ROGERAI_TOWER_EDGE_PRICE_IN", "0")
+	t.Setenv("ROGERAI_TOWER_EDGE_PRICE_OUT", "1000000") // byte tariff: 1 credit per byte out
+	t.Setenv("ROGERAI_PAYOUT_HOLD_DAYS", "0")
+	t.Setenv("ROGERAI_PAYOUT_RESERVE", "0")
+	b, srv := towerTestBroker(t)
+	b.feeRate = 0.30
+	op := signedInOperator(t, b, "tower-op")
+	tw := enrolledTower(t, b, op.login)
+	stPub, _, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	stationOwner := hexOf(stPub)
+	require.NoError(t, b.db.BindOwner(store.Owner{
+		Pubkey: stationOwner, Login: "station-op2", Email: "sp2@x.test", EmailVerifiedAt: time.Now().Unix(),
+	}))
+	stationPriv := attachStation(t, b, "st-1", tw.id, stationOwner)
+
+	cpub := issuedEdgeGrantPriced(t, b, "att-1", tw.id, "st-1", 0, 2_000_000)
+	consumerWallet := bindEdgeConsumer(t, b, cpub)
+	_, _ = b.db.AddCredits(consumerWallet, 1000)
+	held, err := b.db.HoldFor(consumerWallet, "att-1", 100)
+	require.NoError(t, err)
+	require.True(t, held)
+
+	// ZERO token claim: the byte tariff says 40 bytes x 1 credit/byte = 40 credits, but the
+	// token-ceiling cap says (1<<20 tokens) x $2/1M = ~2.097152 credits - the arbitrage cap
+	// bills the LOWER figure, and flags the anomaly for audit.
+	body, err := json.Marshal(map[string]any{
+		"tower_id": tw.id, "station_id": "st-1", "attempt_id": "att-1",
+		"receipt": signedReceiptTok(t, stationPriv, "att-1", "st-1", []byte("answer"),
+			dispatch.Usage{In: 10, Out: 40}, dispatch.Usage{}),
+	})
+	require.NoError(t, err)
+	var out map[string]any
+	code, _ := tw.call(t, srv, "/tower/edge/settle", body, &out)
+	require.Equal(t, http.StatusOK, code, out)
+	require.Equal(t, true, out["disputed"], "a zero token claim on a priced grant with real bytes is audited")
+	capCost := 2.097152 // tokenCostCredits(1<<20, 1<<20, 0, 2_000_000)
+	bal, _ := b.db.PeekBalance(consumerWallet)
+	require.InDelta(t, 1000-capCost, bal, 1e-6, "the byte fallback is capped at the token-ceiling cost")
+}
+
+// tokenCostCredits: micro-USD per 1M tokens -> credits, zero on any negative input.
+func TestTokenCostCredits(t *testing.T) {
+	require.InDelta(t, 1.0, tokenCostCredits(0, 500_000, 0, 2_000_000), 1e-12) // $2/1M x 0.5M
+	require.InDelta(t, 0.0003, tokenCostCredits(0, 1000, 0, 300_000), 1e-12)   // $0.30/1M x 1k
+	require.Zero(t, tokenCostCredits(-1, 10, 5, 5))
+	require.Zero(t, tokenCostCredits(10, 10, -5, 5))
+	require.Zero(t, tokenCostCredits(0, 0, 1_000_000, 1_000_000))
 }
