@@ -146,8 +146,10 @@ test("cookie line: the ladder is a handover - reach grows with the desk tiers", 
   const h = loadHook();
   const s = h.freshState();
   assert.equal(h.reachWith(s), 0, "with no desk model, every knob is the player's");
-  s.micro = true;
-  assert.equal(h.reachWith(s), 1, "Micro can hold one knob");
+  s.micro = 1;
+  assert.equal(h.reachWith(s), 1, "one Micro can hold one knob");
+  s.micro = 2;
+  assert.equal(h.reachWith(s), 2, "Micros stack - a second one holds a second knob");
   s.giga = true;
   assert.equal(h.reachWith(s), 3, "Giga can hold the whole plant");
 });
@@ -155,7 +157,7 @@ test("cookie line: the ladder is a handover - reach grows with the desk tiers", 
 test("cookie line: automation acts on what it BELIEVES, so a lie still fools it", () => {
   const h = loadHook();
   const s = h.freshState();
-  s.micro = true;
+  s.micro = 1;
   const mixer = s.machines[0];
   mixer.auto = true;
   mixer.cond = "stuck";
@@ -200,7 +202,7 @@ test("cookie line: results accumulate from play, and say they are the game's own
 test("cookie line: the site and plant views read the game's live state", () => {
   const h = loadHook();
   const s = h.freshState();
-  s.micro = true; s.giga = true;
+  s.micro = 1; s.giga = true;
   const site = h.siteWith(s);
   assert.equal(site.rows.length, 3, "one row per machine");
   assert.ok(site.worst && site.worst.name, "and it names the one with least headroom");
@@ -550,7 +552,7 @@ test("v25: concurrent draws avoid each other's records - the chorus fix", () => 
 test("v25: automation runs the cheapest correct verb on Nano's advice", () => {
   const h = loadHook();
   const s = h.freshState();
-  s.nano = true; s.micro = true;
+  s.nano = true; s.micro = 1;
   const oven = s.machines[1];
   oven.auto = true; oven.cond = "noisy"; oven.condAge = 3;
   oven.picoRead = { kind: "caught", said: "noisy", margin: 2.2, truth: "noisy" };
@@ -677,8 +679,12 @@ test("v27: a Pico frees the gateway", () => {
   // with a Pico on every machine there is nothing left to patrol at all
   s.machines.forEach((m) => { m.pico = true; });
   assert.equal(h.watchWith(s), null, "all children mounted - the gateway is fully free");
-  assert.match(js, /cannot be everywhere - that is what the children are for/,
+  // AMENDED v28 (voice pass): "that is what the children are for" read as
+  // doctrine-speak. Same guarantee - the one-unit budget is explained at the
+  // gateway's station - in a human voice.
+  assert.match(js, /can't be in three places at once/,
     "and the why is printed at the gateway's station");
+  assert.match(js, /That's what the Picos are for/, "with the children named plainly");
 });
 
 test("v27: the double-miss hands off to the human, and the catch is acknowledged", () => {
@@ -706,8 +712,11 @@ test("v27: the double-miss hands off to the human, and the catch is acknowledged
   packer.cond = "drifting";
   packer.picoRead = { kind: "caught", said: "drifting", margin: 3.0, truth: "drifting" };
   assert.equal(h.chainMissed(packer), false);
-  assert.match(js, /the ladder ends with a person/,
-    "the handoff completes the doctrine where the founder hit the wall");
+  // AMENDED v28 (voice pass): the founder called "the ladder ends with a
+  // person" robotic. The guarantee is unchanged - the double-miss must steer
+  // the player to inspect it themselves - re-anchored to the steer itself.
+  assert.match(js, /This one's yours: INSPECT it/,
+    "the double-miss hands the player the next move, plainly");
   assert.match(js, /is-doctrine", chainMissed\(m\)/,
     "and INSPECT lights on the handoff the way known-kind lights a verb");
 });
@@ -820,7 +829,9 @@ test("v26: pico owns a recorded miss once the truth surfaces - character, not sp
   assert.equal(h.ownsMiss({ kind: "unsure", said: "none" }), null, "doubt is not a miss");
   const owned = h.ownsMiss({ kind: "wrong", said: "none", margin: 2.1, truth: "stuck" });
   assert.match(owned, /I said none - I was wrong/, "the confident lie is owned in first person");
-  assert.match(owned, /That is what the record shows/, "and attributed to the replay, not to drama");
+  // AMENDED v28 (voice pass): same guarantee - the admission is attributed
+  // to the replay, not to drama - said like a colleague, not a protocol.
+  assert.match(owned, /Same miss it made in the recording/, "and attributed to the replay, not to drama");
   assert.match(js, /ownsMiss\(m\.picoRead\)/, "and it fires where incidents clear");
 });
 
@@ -851,4 +862,229 @@ test("v26: quality-of-life locks - quotes, inspect timer, reset arming, no-readi
   assert.match(js, /NO READING - the wire went quiet/, "a dropped-out reading is labelled, not bare dashes");
   assert.match(js, /is already at/, "a dial at its stop says so instead of hinting the impossible");
   assert.match(js, /drift = Math\.min\(capSpan/, "and the unwatched walk is capped, not unbounded");
+});
+
+/* ---- v28: THE CERTIFICATE, THE BOARD, THE VISIBLE PATROL ----------------- */
+
+test("v28: the robot voice is retired from every player-facing string", () => {
+  // The founder: "don't speak like 'the ladder ends with a person' it's very
+  // robotic." The facts stay (record ids, recorded-miss admissions, the
+  // sim-vs-replay fine print); the delivery is a colleague on the radio.
+  // EXTENDED (sitewide tone audit): the founder then caught "Buy the ladder
+  // when you get tired of guessing." surviving on the PAGE (playbox.html) after
+  // the in-game pass - salesy needling is the same offense as robot doctrine.
+  // The lock now sweeps the page surface too, and retires the needling register.
+  const page = readFileSync(path.join(SRC, "playbox.html"), "utf8");
+  for (const phrase of [
+    "the ladder ends with a person",
+    "that is what the children are for",
+    "That is what the record shows",
+    "it follows the newest fault",          // pre-patrol copy: also untrue
+    "tired of guessing",                    // needling: buy when you fail
+    "buy the ladder",                       // imperative shop-speak (legend was "buy the ladder ·")
+    "Buy the Wave ladder",
+  ]) {
+    assert.ok(!js.includes(phrase) && !page.includes(phrase),
+      `retired phrasing must not return: "${phrase}"`);
+  }
+  assert.match(js, /Nice save - some reads just need a person/,
+    "the human-catch beat stays, said like a person");
+});
+
+test("v28: the certificate - gear checklist, then a hands-off proof that resets on touch", () => {
+  const h = loadHook();
+  const s = h.freshState();
+  s.records = measured.records;
+  s.machines.forEach((m) => { m.nextFault = 99999; });
+  // an unfinished factory can never be mid-proof
+  assert.equal(h.certReadyWith(s), false);
+  assert.equal(h.certItemsWith(s).length, 5, "four gear items plus the proof");
+  assert.equal(h.certItemsWith(s)[4].key, "proof", "the proof is the last line");
+  for (let i = 0; i < 24; i++) h.stepWith(s, 1 / 12);
+  assert.equal(s.cert.run, 0, "the proof clock does not move before the checklist is done");
+  // finish the checklist: Mk III everywhere, Picos everywhere, full desk, all handed over
+  s.machines.forEach((m) => { m.tier = 2; m.pico = true; m.auto = true; });
+  s.nano = s.giga = true;   // desk coverage via the Giga route (micro stays a count)
+  assert.equal(h.certReadyWith(s), true, "gear done - the proof may begin");
+  for (let i = 0; i < 12 * 10; i++) h.stepWith(s, 1 / 12);
+  assert.ok(s.cert.run > 9, "hands off, the proof clock climbs (autonomy moves do not count as touching)");
+  h.touchWith(s);
+  assert.equal(s.cert.run, 0, "a hand on the plant restarts the clock");
+  // run the full window untouched and healthy
+  for (let i = 0; i < 12 * 185; i++) h.stepWith(s, 1 / 12);
+  assert.equal(s.cert.done, true, "three untouched minutes at full uptime: certified");
+  // the uptime gate: a window that ran below the bar resets instead of certifying
+  const s2 = h.freshState();
+  s2.records = measured.records;
+  s2.machines.forEach((m) => { m.nextFault = 99999; m.tier = 2; m.pico = true; m.auto = true; });
+  s2.nano = s2.micro = s2.giga = true;
+  s2.cert.run = 179.5; s2.cert.up = 100;   // 56% uptime so far - a bad window
+  for (let i = 0; i < 12; i++) h.stepWith(s2, 1 / 12);
+  assert.equal(s2.cert.done, false, "a window below the uptime bar does not certify");
+  assert.ok(s2.cert.run < 10, "it starts a fresh window instead");
+  assert.match(js, /FACTORY CERTIFICATE/, "the plaque panel exists");
+  assert.match(js, /FACTORY CERTIFIED/, "and the campaign win has its stamp");
+  assert.match(js, /KEEP IT RUNNING/, "the certified line keeps running as the exhibit");
+});
+
+test("v28: the site board is the game's own arithmetic, and it names the bottleneck", () => {
+  const h = loadHook();
+  const s = h.freshState();
+  s.machines[0].upT = 30; s.machines[0].runT = 60;   // mixer: 50% uptime
+  s.machines[1].upT = 60; s.machines[1].runT = 60;
+  s.machines[2].upT = 59; s.machines[2].runT = 60;
+  const sb = h.siteBoardWith(s);
+  assert.equal(Math.round(sb.rows[0].up * 100), 50, "uptime is upT over runT, nothing else");
+  assert.equal(sb.worst.id, "mixer", "the worst machine is the bottleneck");
+  assert.match(sb.line, /the mixer is holding you back - 50% uptime/);
+  // a clean line says so instead of inventing a problem (98.3% is still a
+  // named bottleneck - the bar for "clean" is deliberately high)
+  s.machines[0].upT = 60; s.machines[2].upT = 60;
+  assert.match(h.siteBoardWith(s).line, /no bottleneck/);
+  // one source of truth: the wall board and the desk card both read siteBoard()
+  assert.match(js, /var sb2 = siteBoard\(\);\s*\/\/ the desk card and the wall board share one source/);
+  assert.match(js, /SITE BOARD \\u00b7 MICRO/, "and the board hangs on the floor when Micro is owned");
+});
+
+test("v28: the patrol marker follows the gateway's belief, never the game's secret", () => {
+  const h = loadHook();
+  const s = h.freshState();
+  s.records = measured.records;
+  s.nano = true;
+  s.machines.forEach((m) => { m.nextFault = 99999; });
+  s.sweepAt = "mixer"; s.sweepLeft = 6;
+  // a secret fault lands on the oven - no model has read it
+  h.conditionWith(s, "oven", "stuck");
+  assert.equal(s.machines[1].nanoRead, null, "no read exists yet");
+  assert.equal(h.watchWith(s), "mixer",
+    "the watch target does not jump to a fault nobody has read - no answer leak");
+  // and the floor tag renders from that same belief-driven target
+  assert.match(js, /watchTarget\(\) === m\.id;?\s*\n\s*s\.gwtag\.hidden = !watchedHere/,
+    "the gateway tag on the floor rides watchTarget() and nothing else");
+});
+
+test("v28: pico's tally counts only faults it actually named", () => {
+  const h = loadHook();
+  const s = h.freshState();
+  s.records = measured.records;
+  const [mixer, oven, packer] = s.machines;
+  // a catch: pico named the truth before the fix landed
+  mixer.cond = "stuck"; mixer.pico = true;
+  mixer.picoRead = { kind: "caught", said: "stuck", margin: 3.0, truth: "stuck" };
+  h.clearWith(s, "mixer");
+  assert.equal(mixer.picoCatches, 1, "a named fault lands on the badge");
+  assert.equal(s.modelCalled, 1, "and on the HUD tally");
+  // a recorded miss is not a catch
+  packer.cond = "drifting"; packer.pico = true;
+  packer.picoRead = { kind: "wrong", said: "none", margin: 2.0, truth: "drifting" };
+  h.clearWith(s, "packer");
+  assert.equal(packer.picoCatches, 0, "a recorded miss never pads the tally");
+  assert.equal(s.modelCalled, 1);
+  // the gateway's resolve counts for the HUD, not for a pico badge
+  oven.cond = "noisy";
+  oven.nanoRead = { kind: "resolved", said: "noisy", margin: 2.0, truth: "noisy" };
+  h.clearWith(s, "oven");
+  assert.equal(oven.picoCatches, 0);
+  assert.equal(s.modelCalled, 2, "the gateway's call counts as a model call");
+  assert.match(js, /clf-badge__n/, "the tally rides the badge itself");
+  assert.match(js, /\[\"CAUGHT\", DOM\.caught\]/, "and CAUGHT rides the HUD beside BURNT");
+});
+
+test("v28: Micros stack to three, and more boxes is not more brain", () => {
+  const h = loadHook();
+  const s = h.freshState();
+  s.nano = true; s.coins = 5000;
+
+  // the purchase path: micro is a COUNT, repeatable to three, then it stops
+  assert.equal(s.micro, 0, "micro starts as a count");
+  assert.equal(h.buyDeskWith(s, "micro"), true);
+  assert.equal(h.buyDeskWith(s, "micro"), true);
+  assert.equal(h.buyDeskWith(s, "micro"), true);
+  assert.equal(s.micro, 3, "three Micros on the desk");
+  assert.equal(h.buyDeskWith(s, "micro"), false, "and no fourth");
+  assert.equal(s.coins, 5000 - 3 * h.prices.micro, "each one was paid for");
+  assert.ok(3 * h.prices.micro > h.prices.giga,
+    "the documented economy choice: scaling OUT (3 Micros) costs more than scaling UP (Giga)");
+  assert.equal(h.reachWith(s), 3, "three Micros reach every dial - coverage by quantity");
+
+  // the coordination gap, executed: a Micro acts on its own slow cycle,
+  // so within one cycle a second nudge does NOT land; Giga is continuous
+  const m = s.machines[0];
+  m.auto = true; m.cond = "stuck"; m.stuckAt = 0.2; m.real = 4.9;
+  h.autoWith(s, "mixer", 1 / 12);
+  const afterFirst = m.set;
+  m.real = 4.9; m.stuckAt = 0.2;
+  h.autoWith(s, "mixer", 1 / 12);
+  assert.equal(m.set, afterFirst, "a Micro mid-cycle does nothing - its next look is seconds away");
+  // Giga ignores the per-machine cycle entirely: same mid-cycle spot, fresh state
+  const s2 = h.freshState();
+  s2.giga = true;
+  const m2 = s2.machines[0];
+  m2.auto = true; m2.cond = "stuck"; m2.stuckAt = 0.2; m2.real = 4.9;
+  h.autoWith(s2, "mixer", 1 / 12);
+  const g1 = m2.set;
+  m2.real = 4.9; m2.stuckAt = 0.2; m2.cond = "stuck";
+  h.autoWith(s2, "mixer", 1 / 12);
+  assert.notEqual(m2.set, g1, "Giga is one continuous mind - it keeps correcting without a cycle gap");
+
+  // the certificate accepts EITHER full-coverage route
+  const s3 = h.freshState();
+  s3.machines.forEach((mm) => { mm.tier = 2; mm.pico = true; mm.auto = true; });
+  s3.nano = true; s3.micro = 3; s3.giga = false;
+  assert.equal(h.certReadyWith(s3), true, "three Micros satisfy the desk item without a Giga");
+  s3.micro = 2;
+  assert.equal(h.certReadyWith(s3), false, "two Micros leave a dial unheld - no certificate");
+
+  // attribution names the acting box, so the floor shows WHO nudged
+  assert.match(js, /function holderOf\(/, "attribution goes through one holder function");
+  assert.match(js, /"Micro-" \+/, "stacked Micros are numbered on their tags");
+  assert.match(js, /don't talk to each other/, "the shop says the quiet part out loud");
+});
+
+test("v28: playtest round 2 - verdicts silence coaching, absurd readings confess, the win waits for the tutorial", () => {
+  const h = loadHook();
+  const s = h.freshState();
+  const oven = s.machines[1];
+  const t = h.tiers.oven[0];
+
+  // a delivered verdict silences the process hint - no more contradictions
+  const outside = t.hi + 3;
+  assert.ok(h.dialHintWith(s, "oven", outside), "with nothing delivered, the coaching shows");
+  oven.cond = "railed";
+  oven.nanoRead = { kind: "resolved" };
+  assert.equal(h.dialHintWith(s, "oven", outside), null,
+    "a delivered verdict owns the card - the dial coaching yields");
+  oven.nanoRead = null; oven.inspected = true;
+  assert.equal(h.dialHintWith(s, "oven", outside), null, "INSPECT's verdict silences it too");
+  oven.inspected = false; oven.picoRead = { kind: "caught", said: "railed", margin: 2 };
+  assert.equal(h.dialHintWith(s, "oven", outside), null, "so does a Pico call");
+  oven.picoRead = { kind: "unsure", said: "none", margin: 0.4 };
+  assert.ok(h.dialHintWith(s, "oven", outside), "but an UNSURE is not a verdict - coaching stays");
+
+  // an impossible reading is named as the sensor talking, not process-coached
+  oven.picoRead = null; oven.cond = "none";
+  const lie = h.dialHintWith(s, "oven", -13.6);
+  assert.equal(lie.dir, "none", "no dial advice for a physically impossible number");
+  assert.match(lie.label, /the sensor talking/, "the hint says whose voice that number is");
+
+  // the win card waits for the taught sequence, and the buyer tips on the fill
+  const s2 = h.freshState();
+  s2.taught = true; s2.taughtCleared = false;
+  s2.cookies = s2.contract.target + 5;
+  h.stepWith(s2, 1 / 12);
+  assert.equal(s2.won, false, "mid-tutorial, the contract holds its fire");
+  s2.taughtCleared = true;
+  const before = s2.coins;
+  h.stepWith(s2, 1 / 12);
+  assert.equal(s2.won, true, "tutorial done, the fill lands");
+  assert.ok(s2.coins >= before + 100 + 50 * s2.contract.level,
+    "and the completion bonus arrives - the mid-game ladder stays reachable");
+
+  // the rest of the round-2 fixes, pinned to their strings
+  assert.match(js, /did not take - try again/, "a failed correct verb speaks at the station");
+  assert.match(js, /cl-ticker/, "the radio's last line rides a visible ticker");
+  assert.match(js, /nobody was watching - a Pico would have been/,
+    "the recorded-miss line is conditioned on actually owning a model");
+  assert.match(js, /RIGHT VERB, FIRST TRY/, "the win card scores the diagnosis");
+  assert.match(js, /unlocks with WAVE MICRO/, "the handover destination is visible before it unlocks");
 });

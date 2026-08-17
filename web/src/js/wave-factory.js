@@ -168,6 +168,11 @@
      delay and the one-machine budget are game simulation of deployment
      reality; what Nano SAYS still rides the recorded parent fields. */
   var NANO_SWEEP_SECS = 8;       // the gateway's polling sweep, direct mode
+  /* THE CERTIFICATE (v28) - the campaign goal the founder asked for: a fully
+     automated, fully upgraded factory. The last item is the PROOF: the plant
+     runs hands-off for a stretch while its own dashboard records it. */
+  var CERT_PROOF_SECS = 180;     // three untouched minutes...
+  var CERT_UPTIME = 0.9;         // ...at ninety percent uptime or better
 
   var TIER_COLOUR = { pico: "pico", nano: "nano", micro: "micro", giga: "giga" };
 
@@ -192,9 +197,11 @@
       unsureRun: 0,                         // consecutive sub-floor healthy draws
       lockReason: "",                       // why the crew won't touch it
       pico: false,
+      picoCatches: 0, catchAt: 0,           // the badge's tally of caught faults
+      upT: 0, runT: 0, lastHead: null,      // per-machine uptime + headroom trend
       nanoDirect: false,                     // this read came off the patrol
       auto: false,                          // the models turn this knob
-      autoNote: "", hadStop: false,
+      autoNote: "", autoNoteAt: 0, autoTier: "", hadStop: false, verbTries: 0,
       buffer: 0,
       stopped: false, stoppedFor: 0,
       spec: spec,
@@ -205,7 +212,11 @@
     return {
       coins: 120, cookies: 0, spoiled: 0, elapsed: 0,
       machines: MACHINES.map(freshMachine),
-      nano: false, micro: false, giga: false,
+      /* micro is a COUNT: the founder's scale-out-vs-scale-up decision.
+         Up to three Micros, each able to hold ONE dial - three of them is
+         full coverage by quantity (780 coins of it), while one Giga (500)
+         is full coverage by coordination. More boxes is not more brain. */
+      nano: false, micro: 0, giga: false,
       nanoWatch: null,   // direct-watch pin: a machine id, or null = patrol
       sweepAt: null, sweepLeft: null,   // the gateway's patrol position/clock
       humanSaves: 0, ackUntil: 0, ackWhat: "",
@@ -214,6 +225,7 @@
          the next one re-rolls harder: more cookies, faster creep. */
       contract: { target: 100, level: 1, creep: 1 },
       won: false, contractDone: false,
+      diag: { first: 0, total: 0 },
       /* THE OPENING (v26). freshState itself starts calm-less so the sim
          hooks and tests drive raw rules; the LIVE game calls beginRun(),
          which arms the grace period and the taught first fault. */
@@ -225,6 +237,10 @@
       // THE HANDOVER: incidents and a rolling metrics series, so an
       // automated plant has results to show for itself. Game arithmetic.
       incidents: { caught: 0, missed: 0, open: 0 },
+      modelCalled: 0,           // faults a model named before the fix landed
+      /* the campaign goal: gear checklist plus the hands-off proof window.
+         run/up are the proof clock; any hand on the plant resets them. */
+      cert: { run: 0, up: 0, done: false, doneAt: 0 },
       history: [], sampleAt: 0, upTime: 0, runTime: 0,
       deskTab: "site",
       /* WHAT ACTUALLY MOVED between stations this tick, recorded by step()
@@ -391,9 +407,9 @@
     if (m.cond !== "none" && !m.nanoRead && m.sample) {
       m.nanoRead = nanoRead(m.sample);
       m.nanoDirect = true;
-      addLog("Gateway sweep read the " + m.spec.name.toLowerCase() + " directly" +
+      addLog("Gateway swung by the " + m.spec.name.toLowerCase() +
         (m.nanoRead.kind === "resolved" ? " and named the fault." :
-         " - and the recorded senior got this one wrong."));
+         " - and per the recording, the senior read it wrong."));
     }
     // belief-driven dwell: stay only if the gateway's own read says trouble
     var believes = m.cond !== "none" && m.nanoRead && m.nanoRead.said !== "none";
@@ -476,6 +492,23 @@
     var t = tierOf(m);
     if (shown >= t.lo && shown <= t.hi) return null;
     var word = m.spec.control.label, c = m.spec.control;
+    /* A DELIVERED VERDICT SILENCES THE PROCESS HINT (playtest round 2: the
+       "bring SPEED down" line stood next to an INSPECT verdict saying only
+       service fixes it). Once anything has NAMED the fault - INSPECT, a
+       Pico call, the gateway - the coaching yields to the verdict. */
+    if (m.cond !== "none" && (m.inspected || m.nanoRead ||
+        (m.picoRead && m.picoRead.kind !== "unsure" && m.picoRead.said !== "none"))) {
+      return null;
+    }
+    /* AN ABSURD READING IS A CONFESSION, not a process problem (playtest:
+       the oven read -13.6° and the hint said "bring HEAT up"). Nothing on
+       this line reads below zero, so a negative needle is the sensor
+       talking, and the hint says exactly that. */
+    if (shown < 0) {
+      return { dir: "none", label: "no " + m.spec.name.toLowerCase() + " reads " +
+        shown.toFixed(1) + " - that number is the sensor talking, not the room. " +
+        "INSPECT it, or ask the models." };
+    }
     /* AT THE DIAL'S LIMIT the hint changes meaning instead of lying
        (playtest: needle pinned nineteen bands high with SPEED already at 1,
        hint still said "bring SPEED down"). A needle outside the band with
@@ -498,6 +531,7 @@
     var pick = forced || CONDITIONS[Math.floor(rnd(m) * CONDITIONS.length)];
     m.cond = pick;
     m.condAge = 0;
+    m.verbTries = 0;
     m.stuckAt = m.real;
     m.driftLie = 0;
     m.inspected = false;
@@ -526,7 +560,7 @@
      silent spam. Pure, so the lock can run it. */
   function ownsMiss(read) {
     if (!read || read.kind !== "wrong") return null;
-    return "Pico: “I said " + read.said + " - I was wrong. That is what the record shows.”";
+    return "Pico: “I said " + read.said + " - I was wrong. Same miss it made in the recording.”";
   }
 
   function clearCondition(m) {
@@ -534,23 +568,30 @@
     if (m.cond !== "none") {
       G.incidents.open = Math.max(0, G.incidents.open - 1);
       if (m.hadStop) G.incidents.missed += 1; else G.incidents.caught += 1;
+      /* the vigilance tallies: a fault a model NAMED before the fix landed.
+         Pico's own catches ride its badge; the HUD counts either model. */
+      var named = (m.picoRead && m.picoRead.kind === "caught") ||
+                  (m.nanoRead && m.nanoRead.kind === "resolved");
+      if (named) G.modelCalled += 1;
+      if (m.picoRead && m.picoRead.kind === "caught") {
+        m.picoCatches += 1; m.catchAt = G.elapsed;
+      }
       var owned = ownsMiss(m.picoRead);
       if (owned && m.sample) {
         addLog(owned + " (replayed " + m.sample.record.node_id + ")");
       }
-      /* THE ACKNOWLEDGMENT (v27). When the recorded chain missed - models
-         watching, none named the truth - the fix could only have come from
-         a person: automation acts on alarms, and a chain miss raises none.
-         The founder hit exactly this and called it "even Wave Nano can't
-         help"; the doctrine's last line is that the ladder ends with a
-         person, and the one moment the player IS that person deserves to
+      /* THE ACKNOWLEDGMENT (v27, re-voiced v28). When the recorded chain
+         missed - models watching, none named the truth - the fix could only
+         have come from a person: automation acts on alarms, and a chain miss
+         raises none. The founder hit exactly this ("even Wave Nano can't
+         help"), and the one moment the player beats the models deserves to
          feel like one. Fires only on a genuine recorded chain miss. */
       if (chainMissed(m)) {
         G.humanSaves += 1;
         G.ackUntil = G.elapsed + 8;
         G.ackWhat = m.spec.name.toLowerCase();
-        addLog("You caught what the recorded chain missed on the " +
-          m.spec.name.toLowerCase() + " - the ladder ends with a person." +
+        addLog("You caught what both models missed on the " +
+          m.spec.name.toLowerCase() + ". Nice save - some reads just need a person." +
           (m.sample ? " (replayed " + m.sample.record.node_id + ")" : ""));
       }
       // the taught first fault is done: the rest of the line may now fault
@@ -565,15 +606,16 @@
 
   /* ---- the handover: models turning the knobs -------------------------- */
   function autonomyReach() {
-    // Micro can hold one machine's knob; Giga can hold the whole plant.
+    // Each Micro can hold ONE machine's knob; Giga holds the whole plant.
     if (G.giga) return 3;
-    if (G.micro) return 1;
+    if (G.micro) return Math.min(3, G.micro);
     return 0;
   }
   function autoCount() {
     return G.machines.filter(function (m) { return m.auto; }).length;
   }
   function toggleAuto(id) {
+    touchPlant();
     var m = machine(id);
     if (!m.auto && autoCount() >= autonomyReach()) return false;
     m.auto = !m.auto;
@@ -589,8 +631,30 @@
      sensor and the same replayed model reads the player sees. A lying sensor
      that no model caught fools the automation exactly as it fools a person -
      which is why an automated plant still logs missed incidents. */
+  /* who is holding this machine's dial, for the attribution tags: Giga is
+     one mind; stacked Micros are numbered, each minding its own garden */
+  function holderOf(m) {
+    if (G.giga) return "Giga";
+    if (G.micro <= 1) return "Micro";
+    var idx = 0, n = 0;
+    for (var i = 0; i < G.machines.length; i++) {
+      if (G.machines[i].auto) { n += 1; if (G.machines[i].id === m.id) idx = n; }
+    }
+    return "Micro-" + (idx || 1);
+  }
+
   function autoAdjust(m, dt) {
     if (!m.auto) return;
+    /* THE COORDINATION GAP (v28, founder: "it just not as smart as the
+       larger model"). Stacked Micros each mind one machine on their OWN
+       slow cycle - no shared clock, no view of the line - so their
+       aggregate response lags. Giga is one mind on a continuous watch.
+       Game simulation of a real deployment truth, like the sweep budget. */
+    if (!G.giga) {
+      m.microCycle = (m.microCycle == null ? 0 : m.microCycle) - dt;
+      if (m.microCycle > 0) return;
+      m.microCycle = 4;
+    }
     var believed = shownValue(m);
     if (believed == null) return;                 // a dropout says nothing
     var t = tierOf(m), c = m.spec.control;
@@ -602,7 +666,8 @@
       var next = Math.max(c.min, Math.min(c.max, m.set + stepBy));
       if (next !== m.set) {
         m.set = next;
-        m.autoNote = (G.giga ? "Giga" : "Micro") + " moved " + c.label + " to " + next + c.unit;
+        m.autoNote = holderOf(m) + " moved " + c.label + " to " + next + c.unit;
+        m.autoNoteAt = G.elapsed; m.autoTier = G.giga ? "giga" : "micro";
       }
     }
     /* A held knob may also EXECUTE maintenance, not just trim the dial - but
@@ -618,7 +683,7 @@
       var alarmed = (m.picoRead && m.picoRead.said !== "none") ||
                     (m.nanoRead && m.nanoRead.kind === "resolved");
       if (alarmed && m.condAge > 2.5) {
-        var holder = G.giga ? "Giga" : "Micro";
+        var holder = holderOf(m);
         /* WITH Nano the automation runs the CHEAPEST CORRECT verb, exactly
            as it would prescribe to a person; WITHOUT it, it buys certainty
            the expensive way - service - like any player without advice. */
@@ -626,9 +691,11 @@
         if (v === "service") {
           m.autoNote = holder + " called service on the models' word" +
             (G.nano ? " - Nano ruled the cheap verbs out" : "");
+          m.autoNoteAt = G.elapsed; m.autoTier = G.giga ? "giga" : "micro";
           service(m.id);
         } else {
           m.autoNote = holder + " ran " + VERBS[v].label + " on Nano's advice";
+          m.autoNoteAt = G.elapsed; m.autoTier = G.giga ? "giga" : "micro";
           maintain(m.id, v);
         }
       }
@@ -708,11 +775,19 @@
           if (rnd(m) < odds) {
             addLog(m.spec.name + " " + verb.label.toLowerCase() + " cleared the " +
               CONDITION_WORD[m.cond] + " sensor.");
+            /* the diagnosis score: a surgical run and a lucky idle should
+               not print the same card (playtest round 2) */
+            G.diag.total += 1;
+            if (m.verbTries === 1 && odds >= 0.5) G.diag.first += 1;
             clearCondition(m);
             m.drift = 0;
           } else if (odds >= 0.5) {
             addLog(m.spec.name + " " + verb.label.toLowerCase() +
               " did not take this time - the right call can need a second go.");
+            /* said AT the station too - a failed correct verb used to look
+               exactly like nothing happening (playtest round 2) */
+            m.autoNote = verb.label + " did not take - try again";
+            m.autoNoteAt = G.elapsed; m.autoTier = "";
           } else {
             m.lockout = LOCKOUT_SECS;
             /* the reason lives AT THE STATION, not only on the radio - a
@@ -869,9 +944,16 @@
 
     /* THE CONTRACT FILLS - a real moment, not three lowercase words. The
        line pauses on the win card; the next contract re-rolls harder. */
-    if (!G.won && G.cookies >= G.contract.target) {
+    /* the win card waits for the taught sequence - contract 1 could fill
+       passively mid-tutorial and the overlay ate the taught click */
+    if (!G.won && G.cookies >= G.contract.target && (!G.taught || G.taughtCleared)) {
       G.won = true;
-      addLog("Contract filled: " + G.contract.target + " cookies shipped.");
+      /* the completion bonus keeps the ladder reachable - the playtest found
+         a mid-game flatline hovering at ~300 coins with Micro at 260 */
+      var bonus = 100 + 50 * G.contract.level;
+      G.coins += bonus;
+      addLog("Contract filled: " + G.contract.target + " cookies shipped. " +
+        "The buyer tips " + bonus + " coins for the finished order.");
       if (DOM.stations) showWin();
     }
 
@@ -882,12 +964,22 @@
     G.runTime += dt;
     var allUp = G.machines.every(function (x) { return !x.stopped; });
     if (allUp) G.upTime += dt;
+    // per-machine uptime, for the site board: same arithmetic, one machine at a time
+    G.machines.forEach(function (x) { x.runT += dt; if (!x.stopped) x.upT += dt; });
+    stepCert(dt, allUp);
     // the streak: how long the whole line has run clean, and the best yet
     if (allUp) { G.cleanRun += dt; if (G.cleanRun > G.bestRun) G.bestRun = G.cleanRun; }
     else G.cleanRun = 0;
     G.sampleAt += dt;
     if (G.sampleAt >= 1) {
       G.sampleAt = 0;
+      // the site board's trend arrows: is each machine's headroom growing or
+      // shrinking since the last sample? Game state, sampled, nothing more.
+      G.machines.forEach(function (x) {
+        var t2 = tierOf(x);
+        x.headTrend = x.lastHead == null ? 0 : (t2.hi - x.real) - x.lastHead;
+        x.lastHead = t2.hi - x.real;
+      });
       G.history.push({
         t: Math.round(G.elapsed),
         rate: rate,
@@ -897,6 +989,85 @@
       });
       if (G.history.length > 120) G.history.shift();
     }
+  }
+
+  /* =====================================================================
+     THE FACTORY CERTIFICATE - the campaign goal (v28)
+     ===================================================================== */
+  /* The checklist is gear; the last line is CONDUCT: the plant must run
+     hands-off for CERT_PROOF_SECS at CERT_UPTIME or better, while its own
+     dashboard records it. Any hand on the plant restarts the clock - the
+     founder's endgame is a factory that runs itself, and the only honest
+     proof of that is leaving it alone. All game arithmetic. */
+  function certItems() {
+    var maxed = G.machines.every(function (m) { return !TIERS[m.id][m.tier + 1]; });
+    var picos = G.machines.every(function (m) { return m.pico; });
+    // either route to full coverage counts: one coordinated Giga, or three
+    // greedy Micros - the proof run itself will feel the difference
+    var desk = G.nano && (G.giga || G.micro >= MICRO_MAX);
+    var handed = autoCount() === G.machines.length && autonomyReach() >= G.machines.length;
+    return [
+      { key: "mk", label: "every machine at Mk III", done: maxed },
+      { key: "picos", label: "a Wave Pico on every machine", done: picos },
+      { key: "desk", label: "Nano at the desk, plus full coverage (Giga, or three Micros)", done: desk },
+      { key: "handed", label: "every dial handed to the models", done: handed },
+      { key: "proof", label: Math.round(CERT_PROOF_SECS / 60) + " minutes hands-off at " +
+          Math.round(CERT_UPTIME * 100) + "%+ uptime", done: G.cert.done,
+        progress: G.cert.done ? 1 : Math.min(1, G.cert.run / CERT_PROOF_SECS) },
+    ];
+  }
+  function certReady() {
+    var it = certItems();
+    return it[0].done && it[1].done && it[2].done && it[3].done;
+  }
+  function certNext() {
+    var it = certItems();
+    for (var i = 0; i < it.length; i++) if (!it[i].done) return it[i];
+    return null;
+  }
+  /* a hand on the plant: the proof clock starts over. Dials, verbs, buys,
+     autonomy toggles, pointing the gateway - all of it counts as touching. */
+  function touchPlant() {
+    if (!G.cert.done) { G.cert.run = 0; G.cert.up = 0; }
+  }
+  function stepCert(dt, allUp) {
+    if (G.cert.done) return;
+    if (!certReady()) { G.cert.run = 0; G.cert.up = 0; return; }
+    G.cert.run += dt;
+    if (allUp) G.cert.up += dt;
+    if (G.cert.run >= CERT_PROOF_SECS) {
+      if (G.cert.up / G.cert.run >= CERT_UPTIME) {
+        G.cert.done = true;
+        G.cert.doneAt = G.elapsed;
+        addLog("Three minutes untouched, uptime held. FACTORY CERTIFIED - it runs itself now.");
+        if (DOM.stations) showCertified();
+      } else {
+        // the window ran its course below the bar: start a fresh one
+        G.cert.run = 0; G.cert.up = 0;
+      }
+    }
+  }
+
+  function showCertified() {
+    if (!DOM.certOver) return;
+    DOM.certOver.hidden = false;
+    DOM.certStats.textContent = "";
+    var up = G.runTime ? (G.upTime / G.runTime) * 100 : 100;
+    [["SHIPPED, LIFETIME", String(Math.floor(G.cookies))],
+     ["UPTIME, LIFETIME", up.toFixed(0) + "%"],
+     ["CALLED BY THE MODELS", String(G.modelCalled)],
+     ["SAVED BY YOU", String(G.humanSaves)],
+     ["CONTRACT LEVEL", String(G.contract.level)],
+     [G.coins < 0 ? "ON LOAN" : "COINS", String(Math.floor(G.coins))],
+    ].forEach(function (p2) {
+      var c = el("div", "cl-results__cell");
+      c.appendChild(el("b", null, p2[1]));
+      c.appendChild(el("i", null, p2[0]));
+      DOM.certStats.appendChild(c);
+    });
+    paint();
+    if (DOM.certKeep) DOM.certKeep.focus();
+    // deliberately does NOT pause: the whole point is that it runs itself
   }
 
   /* =====================================================================
@@ -918,6 +1089,28 @@
     return { rows: rows, worst: worst };
   }
 
+  /* MICRO's SITE BOARD - the wall scoreboard (v28). One pure function feeds
+     both the board on the floor and the desk card, so they cannot disagree.
+     Uptime is each machine's own up-time over its run-time; the bottleneck
+     line names the worst of them. Game arithmetic, labelled where drawn. */
+  function siteBoard() {
+    var rows = G.machines.map(function (m) {
+      var up = m.runT > 0 ? m.upT / m.runT : 1;
+      return {
+        id: m.id, name: m.spec.name,
+        up: up,
+        trend: m.headTrend == null ? 0 : m.headTrend,
+        stopped: m.stopped, cond: m.cond,
+      };
+    });
+    var worst = rows.slice().sort(function (a, b) { return a.up - b.up; })[0];
+    var line = worst.up < 0.985
+      ? "the " + worst.name.toLowerCase() + " is holding you back - " +
+        Math.round(worst.up * 100) + "% uptime"
+      : "no bottleneck - the whole line is running clean";
+    return { rows: rows, worst: worst, line: line };
+  }
+
   // GIGA: the plant view. Which station caps the line, and what it costs.
   function plantView() {
     var rates = G.machines.map(function (m) { return { id: m.id, name: m.spec.name, rate: rateOf(m) }; });
@@ -930,6 +1123,7 @@
 
   /* ---- economy --------------------------------------------------------- */
   function buyTier(id) {
+    touchPlant();
     var m = machine(id);
     var next = TIERS[id][m.tier + 1];
     if (!next || G.coins < next.price) return false;
@@ -941,6 +1135,7 @@
   }
 
   function buyPico(id) {
+    touchPlant();
     var m = machine(id);
     if (m.pico || G.coins < MODEL_PRICE.pico) return false;
     G.coins -= MODEL_PRICE.pico;
@@ -958,7 +1153,20 @@
     return true;
   }
 
+  var MICRO_MAX = 3;
   function buyDesk(which) {
+    touchPlant();
+    if (which === "micro") {
+      if (G.micro >= MICRO_MAX || G.coins < MODEL_PRICE.micro) return false;
+      G.coins -= MODEL_PRICE.micro;
+      G.micro += 1;
+      addLog(G.micro === 1
+        ? "Wave Micro online at the desk - the site view, and it can hold one dial."
+        : "Micro #" + G.micro + " online. It'll mind its own machine - " +
+          "three of them cover every dial, but none of them talk to each other.");
+      paint();
+      return true;
+    }
     if (G[which] || G.coins < MODEL_PRICE[which]) return false;
     G.coins -= MODEL_PRICE[which];
     G[which] = true;
@@ -979,6 +1187,7 @@
      fault kind. RECALIBRATE invoices its small fee like service does - on
      loan if the wallet is short - so no verb is ever gated on being rich. */
   function maintain(id, verbName) {
+    touchPlant();
     var m = machine(id);
     var verb = VERBS[verbName];
     if (!verb) return false;
@@ -986,6 +1195,7 @@
     if (verb.cost) G.coins -= verb.cost;
     m.fixVerb = verbName;
     m.restarting = verb.secs;
+    m.verbTries += 1;
     addLog(m.spec.name + " " + verb.label.toLowerCase() +
       (verbName === "recal" ? "ibrating (" + verb.cost + " coins)…" : "ing…"));
     paint();
@@ -999,6 +1209,7 @@
      fault kind - the manual, patient version of what Nano says instantly.
      Never locked out: diagnosis is not maintenance. */
   function inspect(id) {
+    touchPlant();
     var m = machine(id);
     if (m.servicing > 0 || m.restarting > 0 || m.inspecting > 0) return false;
     m.inspecting = INSPECT_SECS;
@@ -1013,6 +1224,7 @@
      the v22 soft-lock (broke player, dead line, no way back) stays impossible,
      now by credit instead of by making the work free. */
   function service(id) {
+    touchPlant();
     var m = machine(id);
     if (m.servicing > 0 || m.restarting > 0 || m.inspecting > 0 || m.lockout > 0) return false;
     var hadFunds = G.coins >= SERVICE_COST;
@@ -1077,9 +1289,12 @@
     /* BURNT rides the HUD beside COOKIES: it is the loss state, not a
        footnote under the crates (playtest #10) */
     DOM.burnt = el("b", null, "0");
+    /* CAUGHT rides beside BURNT: what the models called in time, next to
+       what slipped through - the two sides of the same ledger */
+    DOM.caught = el("b", null, "0");
     DOM.statEls = {};
     [["COINS", DOM.coins], ["COOKIES", DOM.cookies2], ["BURNT", DOM.burnt],
-     ["PER SEC", DOM.rate], ["BEST RUN", DOM.best]]
+     ["CAUGHT", DOM.caught], ["PER SEC", DOM.rate], ["BEST RUN", DOM.best]]
       .forEach(function (p) {
         var st = el("span", "cl-stat"); st.appendChild(p[1]);
         DOM.statEls[p[0]] = st;
@@ -1121,6 +1336,13 @@
     /* the goal chip */
     DOM.goals = el("ul", "cl-goals");
     root.appendChild(DOM.goals);
+
+    /* the ticker: the radio's newest line, always visible - the collapsed
+       LINE RADIO kept the WHY of a failed verb and every loan invoice out
+       of sight (playtest round 2) */
+    DOM.ticker = el("p", "cl-ticker");
+    DOM.ticker.setAttribute("aria-live", "polite");
+    root.appendChild(DOM.ticker);
 
     /* ================= THE FLOOR - the game is this picture ============= */
     var scroller = el("div", "clf-scroll");
@@ -1164,6 +1386,13 @@
     DOM.floorDesk = el("div", "clf-desk");
     floor.appendChild(DOM.floorDesk);
 
+    /* MICRO's SITE BOARD, on the factory wall - lights up when Micro is
+       bought, mirrors the desk card (same pure function), and gives the
+       site brain a physical presence the way Pico's badge gave it one */
+    DOM.siteBoard = el("div", "clf-siteboard");
+    DOM.siteBoard.hidden = true;
+    floor.appendChild(DOM.siteBoard);
+
     // the traveling product - spent from G.flow, never invented
     DOM.cookieLayer = el("div", "clf-cookies");
     DOM.cookieLayer.setAttribute("aria-hidden", "true");
@@ -1205,6 +1434,22 @@
 
     /* the desk views (site / plant / results) */
     root.appendChild(desk());
+
+    /* THE FACTORY CERTIFICATE - the campaign goal, hung like a plaque.
+       Checklist plus the proof clock; game arithmetic throughout. */
+    var cert = el("div", "cl-cert");
+    var certHead = el("div", "cl-cert__head");
+    certHead.appendChild(el("b", null, "FACTORY CERTIFICATE"));
+    certHead.appendChild(el("span", null, "the goal: a plant that runs itself, and proves it"));
+    cert.appendChild(certHead);
+    DOM.certRows = el("ul", "cl-cert__rows");
+    cert.appendChild(DOM.certRows);
+    DOM.certStamp = el("b", "cl-cert__stamp", "FACTORY CERTIFIED");
+    DOM.certStamp.hidden = true;
+    cert.appendChild(DOM.certStamp);
+    cert.appendChild(el("i", "cl-view__note",
+      "the checklist is the game's own - touch anything during the proof and the clock starts over"));
+    root.appendChild(cert);
 
     /* honesty footer */
     var note = el("p", "cl-note");
@@ -1261,6 +1506,30 @@
     DOM.winOver.appendChild(winCard);
     root.appendChild(DOM.winOver);
 
+    /* the CERTIFIED moment: bigger than a contract - the campaign win. It
+       does not pause the line, because the whole point is that the plant
+       keeps running with nobody's hands on it. */
+    DOM.certOver = el("div", "clf-shopover clf-certover");
+    DOM.certOver.hidden = true;
+    var certCard = el("div", "clf-shopcard clf-wincard clf-certcard");
+    certCard.setAttribute("role", "dialog");
+    certCard.setAttribute("aria-modal", "false");
+    certCard.setAttribute("aria-label", "Factory certified");
+    certCard.appendChild(el("b", "cl-win__stamp cl-win__stamp--cert", "FACTORY CERTIFIED"));
+    certCard.appendChild(el("span", "cl-cert__sub",
+      "every machine upgraded, every dial handed over - and it just ran " +
+      Math.round(CERT_PROOF_SECS / 60) + " minutes on its own. The line below is still going."));
+    DOM.certStats = el("div", "cl-results cl-win__stats");
+    certCard.appendChild(DOM.certStats);
+    certCard.appendChild(el("i", "cl-view__note",
+      "lifetime numbers, accumulated as you played - game arithmetic, not a model claim"));
+    DOM.certKeep = btn("KEEP IT RUNNING", "cl-run", function () {
+      DOM.certOver.hidden = true; paint();
+    });
+    certCard.appendChild(DOM.certKeep);
+    DOM.certOver.appendChild(certCard);
+    root.appendChild(DOM.certOver);
+
     host.appendChild(root);
   }
 
@@ -1306,6 +1575,13 @@
     plate.appendChild(s.plateBuy);
     block.appendChild(plate);
 
+    /* the gateway's attention, drawn: this tag sits on whichever machine
+       the patrol is watching (belief-driven - it renders from watchTarget(),
+       which never peeks at the game's secret) */
+    s.gwtag = el("span", "clf-gwtag");
+    s.gwtag.hidden = true;
+    block.appendChild(s.gwtag);
+
     // a bought Pico bolts on as a badge; its word renders right here
     s.mount = el("span", "clf-mount");
     block.appendChild(s.mount);
@@ -1350,7 +1626,7 @@
     input.value = m.set;
     input.className = "cl-ctl__range";
     input.setAttribute("aria-label", m.spec.name + " " + m.spec.control.label.toLowerCase());
-    input.addEventListener("input", function () { m.set = Number(input.value); paint(); });
+    input.addEventListener("input", function () { m.set = Number(input.value); touchPlant(); paint(); });
     s.input = input;
     ctl.appendChild(input);
     s.setTxt = el("b", "cl-ctl__v", "");
@@ -1395,7 +1671,7 @@
     var d = el("section", "cl-desk");
     var head = el("div", "cl-desk__head");
     head.appendChild(el("b", null, "OPERATOR DESK"));
-    head.appendChild(el("span", null, "buy the ladder · each tier tells you more"));
+    head.appendChild(el("span", null, "the Wave desk · each tier tells you more"));
     d.appendChild(head);
     DOM.deskView = el("div", "cl-deskview");
     d.appendChild(DOM.deskView);
@@ -1440,6 +1716,7 @@
      ["BURNT", String(Math.floor(G.spoiled))],
      ["UPTIME", up.toFixed(0) + "%"],
      ["CAUGHT IN TIME", String(G.incidents.caught)],
+     ["RIGHT VERB, FIRST TRY", G.diag.total ? G.diag.first + "/" + G.diag.total : "—"],
      ["LINE STOPPED", String(G.incidents.missed)],
      [G.coins < 0 ? "ON LOAN" : "COINS", String(Math.floor(G.coins))],
     ].forEach(function (p) {
@@ -1539,6 +1816,14 @@
 
   function paintStation(m) {
     var s = DOM.stations[m.id], t = tierOf(m);
+    /* a raised bubble must die with its cause - the slot only rebuilds on
+       content change, so this runs every frame (playtest: a "not sure"
+       outlived its fault on a healthy, RUNNING machine) */
+    if (s.bubble && !s.bubble.hidden) {
+      var stillRaised = m.pico && m.picoRead &&
+        (m.picoRead.kind === "unsure" || m.picoRead.said !== "none");
+      if (!stillRaised) s.bubble.hidden = true;
+    }
     var shown = shownValue(m);
     s.tier.textContent = t.name;
     s.value.textContent = fmt(shown, m.spec.sensor.dp);
@@ -1589,6 +1874,27 @@
     }
     if (s.wrench) s.wrench.hidden = !(m.servicing > 0);
     if (s.art) s.art.classList.toggle("is-restarting", m.restarting > 0);
+
+    // the patrol, visible: the tag rides watchTarget() and nothing else
+    if (s.gwtag) {
+      var watchedHere = G.nano && !m.pico && watchTarget() === m.id;
+      s.gwtag.hidden = !watchedHere;
+      if (watchedHere) {
+        s.gwtag.textContent = G.nanoWatch
+          ? "gateway watching"
+          : "gateway watching \u00b7 sweep " +
+            (G.sweepLeft != null ? Math.max(1, Math.ceil(G.sweepLeft)) : NANO_SWEEP_SECS) + "s";
+      }
+    }
+    /* an autonomy move floats off the machine it happened to, tier-coloured
+       - the handover is visible on the floor, not only in the panel */
+    if (m.autoNoteAt && s.noteAt !== m.autoNoteAt && m.autoNote) {
+      s.noteAt = m.autoNoteAt;
+      var atag = el("i", "clf-autotag", m.autoNote);
+      if (m.autoTier) atag.dataset.tier = m.autoTier;
+      s.gwtag.parentNode.appendChild(atag);
+      window.setTimeout(function () { if (atag.parentNode) atag.parentNode.removeChild(atag); }, 2600);
+    }
 
     /* The model slot rebuilds only when its CONTENT changes. Rebuilding it
        every frame re-creates the very buy button under the player's cursor,
@@ -1710,16 +2016,16 @@
                                         : "Then reduce SPEED - you are over the limit.";
             }
           } else {
-            /* THE DOUBLE-MISS HANDS OFF TO THE HUMAN (v27). The founder hit
-               this exact wall ("even Wave Nano can't help") and honesty
-               without a next move is a dead end. The doctrine has a last
-               line, so the advice completes it - and INSPECT lights below,
-               the way known-kind lights a verb. */
+            /* THE DOUBLE-MISS HANDS OFF TO THE HUMAN (v27, re-voiced v28).
+               The founder hit this exact wall ("even Wave Nano can't help")
+               and honesty without a next move is a dead end - so the advice
+               names the next move, plainly, and INSPECT lights below, the
+               way known-kind lights a verb. */
             advice = "says \u201c" + m.nanoRead.said + "\u201d - " +
-              (m.nanoDirect ? "wrong, per the recording."
-                            : "the recorded senior got this one wrong too.") +
-              " Both models missed this one in the recording. INSPECT it " +
-              "yourself - the ladder ends with a person.";
+              (m.nanoDirect ? "and per the recording, that is wrong."
+                            : "and per the recording, the senior got this one wrong too.") +
+              " Both models missed this one. This one's yours: INSPECT it " +
+              "and see for yourself.";
           }
         } else if (!m.pico && watchTarget() === m.id && G.sweepLeft != null && !m.nanoRead) {
           /* the patrol line rides the CLOCK, not the fault - it shows on the
@@ -1760,7 +2066,18 @@
       }
 
     /* THE HANDOVER, per machine: once a desk model can hold a knob, the
-       player may give this one away - and take it back at any time. */
+       player may give this one away - and take it back at any time. Before
+       any model can, the toggle still shows, locked - so the destination
+       (a plant that drives itself) is visible from minute one. */
+    if (autonomyReach() === 0) {
+      var ghost = el("div", "cl-auto is-locked");
+      var gb = btn("LET THE MODELS DRIVE", "cl-auto__btn", null);
+      gb.disabled = true;
+      gb.title = "Unlocks with Wave Micro - it can hold one dial. Giga can hold them all.";
+      ghost.appendChild(gb);
+      ghost.appendChild(el("i", "cl-auto__note", "unlocks with WAVE MICRO"));
+      s.slot.appendChild(ghost);
+    }
     if (autonomyReach() > 0) {
       var auto = el("div", "cl-auto" + (m.auto ? " is-on" : ""));
       var ab = btn(m.auto ? "MODELS HOLD THIS KNOB" : "LET THE MODELS DRIVE",
@@ -1786,15 +2103,24 @@
     // the bought model is VISIBLY bolted on: the chip engraving, pico-edged.
     // An EMPTY mount is a dashed buy tag on the machine body - the floor
     // sells its own upgrades, not just the shop overlay.
-    var mountKey = (m.pico ? "pico" : "empty") + "~" + (m.cond !== "none" && m.pico ? "lit" : "");
+    var mountKey = (m.pico ? "pico" : "empty") + "~" + (m.cond !== "none" && m.pico ? "lit" : "") +
+      "~" + m.picoCatches;
     if (s.mountKey !== mountKey) {
       s.mountKey = mountKey;
       s.mount.textContent = "";
       if (m.pico) {
         var badge = el("span", "clf-badge");
-        badge.title = "Wave Pico, mounted on this machine";
+        badge.title = m.picoCatches
+          ? "Wave Pico \u00b7 " + m.picoCatches + " fault" + (m.picoCatches === 1 ? "" : "s") +
+            " caught on this machine"
+          : "Wave Pico, mounted on this machine - the tireless watcher";
         badge.appendChild(el("i", "clf-badge__art"));
         badge.appendChild(el("b", null, "PICO"));
+        /* the vigilance tally: every fault this Pico named in time */
+        if (m.picoCatches > 0) {
+          badge.appendChild(el("s", "clf-badge__n", "\u00d7" + m.picoCatches));
+        }
+        if (G.elapsed - m.catchAt < 2 && m.catchAt > 0) badge.classList.add("is-glint");
         s.mount.appendChild(badge);
       } else {
         var tag = btn("+ PICO · " + MODEL_PRICE.pico, "clf-buytag", function (e) {
@@ -1885,13 +2211,13 @@
     /* the human-catch beat: for a few seconds after you fix what the
        recorded chain missed, the chip says so - the doctrine's best moment */
     if (G.elapsed < G.ackUntil) {
-      rows.push(["NICE", "you caught what the recorded chain missed on the " + G.ackWhat,
-        "the ladder ends with a person"]);
+      rows.push(["NICE", "you caught what both models missed on the " + G.ackWhat,
+        "nice save - that one needed a person"]);
     } else {
       var handedOffTo = G.machines.filter(function (mm) { return chainMissed(mm) && !mm.inspected; });
       if (handedOffTo.length) {
         rows.push(["WATCH", "both models missed the " + handedOffTo[0].spec.name.toLowerCase(),
-          "INSPECT it yourself - the ladder ends with a person"]);
+          "this one's yours - INSPECT it and see for yourself"]);
       }
     }
     if (filled) {
@@ -1899,6 +2225,12 @@
          is the next contract, offered on the win card and again here */
       rows.push(["NEXT", "NEW CONTRACT · " + nextTargetOf(G.contract) + " cookies",
         "take it from the results card or the shop - conditions creep faster"]);
+      /* and the campaign goal points at its next unmet line */
+      var cn = certNext();
+      if (cn) {
+        rows.push(["GOAL", cn.label,
+          "the certificate: a factory that runs itself, upgraded end to end"]);
+      }
     } else if (!picos) {
       rows.push(["NEXT", "WAVE PICO · " + MODEL_PRICE.pico,
         "puts a model on one machine so it tells you when its reading stops being trustworthy"]);
@@ -1910,16 +2242,30 @@
         "the site view - and it can hold one knob for you"]);
     } else if (!G.giga) {
       rows.push(["NEXT", "WAVE GIGA · " + MODEL_PRICE.giga,
-        "the plant view - and it can run every knob"]);
+        G.micro > 1
+          ? "your Micros each mind their own machine - Giga minds the LINE"
+          : "the plant view - one mind on every knob (or stack Micros, one dial each)"]);
     } else if (autoCount() < G.machines.length) {
       rows.push(["NEXT", "HAND OVER THE LAST KNOBS",
         "let the models drive all three and the plant runs itself"]);
+    } else if (G.cert.done) {
+      rows.push(["DONE", "FACTORY CERTIFIED", "it runs itself - watch the results and keep it honest"]);
+    } else if (certReady()) {
+      /* the proof window: hands off, and say how far along it is */
+      rows.push(["PROVE", "hands-off demonstration \u00b7 " +
+        Math.floor(G.cert.run) + "s / " + CERT_PROOF_SECS + "s",
+        "don't touch anything - the plant is proving it runs itself"]);
     } else {
-      rows.push(["DONE", "THE PLANT RUNS ITSELF", "watch the results and keep it honest"]);
+      var cn2 = certNext();
+      rows.push(["GOAL", cn2 ? cn2.label : "THE PLANT RUNS ITSELF",
+        "the certificate: a factory that runs itself, upgraded end to end"]);
     }
     if (G.incidents.missed) {
+      var anyModel = G.nano || G.giga || G.micro > 0 ||
+        G.machines.some(function (mm) { return mm.pico; });
       rows.push(["WATCH", G.incidents.missed + " incident" + (G.incidents.missed === 1 ? "" : "s") + " stopped the line",
-        "a model that missed in the recording misses here too"]);
+        anyModel ? "a model that missed in the recording misses here too"
+                 : "nobody was watching - a Pico would have been"]);
     }
     DOM.goals.textContent = "";
     rows.slice(0, 3).forEach(function (r) {
@@ -1987,10 +2333,22 @@
     ].forEach(function (row) {
       var id = row[0];
       var locked = (id !== "nano" && !G.nano) ? "NEEDS NANO" : "";
+      /* Micro stacks (up to three, one dial each) - and the shop is where the
+         scale-out-vs-scale-up tradeoff gets said out loud: three Micros cost
+         more than one Giga and still don't talk to each other. */
+      var stacking = id === "micro" && G.micro > 0 && G.micro < MICRO_MAX;
       col3.appendChild(node({
-        name: row[1], tier: TIER_COLOUR[id], owned: G[id], locked: locked,
-        does: row[3], promise: row[2],
-        price: "BUY · " + MODEL_PRICE[id],
+        name: id === "micro" && G.micro > 0 ? "WAVE MICRO ×" + G.micro : row[1],
+        tier: TIER_COLOUR[id],
+        owned: id === "micro" ? (stacking ? false : G.micro > 0) : G[id],
+        locked: locked,
+        does: row[3],
+        promise: stacking
+          ? "one more dial held - but Micros don't talk to each other. Three of them is " +
+            (MODEL_PRICE.micro * MICRO_MAX) + " coins of separate minds; Giga (" +
+            MODEL_PRICE.giga + ") minds the LINE."
+          : row[2],
+        price: stacking ? "ANOTHER · " + MODEL_PRICE.micro : "BUY · " + MODEL_PRICE[id],
         cost: MODEL_PRICE[id],
         buy: function () { buyDesk(id); },
       }));
@@ -2088,13 +2446,14 @@
       sel.setAttribute("aria-label", "Gateway direct watch");
       sel.appendChild(el("i", null, "WATCHING"));
       var autoB = btn("AUTO", "cl-watch" + (G.nanoWatch == null ? " is-on" : ""), function () {
-        G.nanoWatch = null; addLog("Gateway watch set to AUTO - it follows the newest fault."); paint();
+        G.nanoWatch = null; touchPlant(); addLog("Gateway watch set to AUTO - it walks the machines that have no Pico."); paint();
       });
       autoB.setAttribute("aria-pressed", G.nanoWatch == null ? "true" : "false");
       sel.appendChild(autoB);
       G.machines.forEach(function (mm) {
         var wb = btn(mm.spec.name, "cl-watch" + (G.nanoWatch === mm.id ? " is-on" : ""), function () {
           G.nanoWatch = mm.id;
+          touchPlant();
           addLog("Gateway pointed at the " + mm.spec.name.toLowerCase() + ".");
           paint();
         });
@@ -2111,10 +2470,11 @@
         ? (G.nanoWatch ? "Pinned on the " : "Patrolling - now at the ") +
           machine(tgt).spec.name.toLowerCase() +
           (G.sweepLeft != null ? " \u00b7 next sweep " + Math.max(1, Math.ceil(G.sweepLeft)) + "s" : "") +
-          (gatewayBusy() ? " \u00b7 dwelling on trouble it read itself - checks elsewhere wait" : "")
+          (gatewayBusy() ? " \u00b7 camped on trouble it spotted - other checks are waiting" : "")
         : "Every machine has a Pico - the gateway hears them all instantly."));
       gw.appendChild(el("i", "cl-view__note",
-        "the senior can read anything, but it cannot be everywhere - that is what the children are for"));
+        "the gateway can read any machine - it just can't be in three places at once. " +
+        "That's what the Picos are for."));
       DOM.deskView.appendChild(gw);
     }
     if (!G.micro && !G.giga) {
@@ -2125,20 +2485,26 @@
     }
     if (G.micro) {
       var sv = siteView();
+      var sb2 = siteBoard();   // the desk card and the wall board share one source
       var box = el("div", "cl-view cl-view--micro");
-      box.appendChild(el("b", "cl-view__head", "WAVE MICRO · SITE VIEW"));
+      box.appendChild(el("b", "cl-view__head",
+        "WAVE MICRO" + (G.micro > 1 ? " ×" + G.micro : "") + " · SITE VIEW"));
       var tbl = el("div", "cl-view__rows");
-      sv.rows.forEach(function (r) {
+      sv.rows.forEach(function (r, i2) {
         var row = el("div", "cl-view__row");
         row.appendChild(el("b", null, r.name));
         row.appendChild(el("span", null, r.tier + " · band " + r.band));
-        row.appendChild(el("span", null, "headroom " + r.head.toFixed(1)));
+        row.appendChild(el("span", null, Math.round(sb2.rows[i2].up * 100) + "% up · headroom " + r.head.toFixed(1)));
         row.appendChild(el("i", null, r.stopped ? "STOPPED" : r.cond !== "none" ? "SENSOR " + CONDITION_WORD[r.cond].toUpperCase() : "ok"));
         tbl.appendChild(row);
       });
       box.appendChild(tbl);
-      box.appendChild(el("span", "cl-view__worst", "Least headroom: " + sv.worst.name + "."));
-      box.appendChild(el("i", "cl-view__note", "arithmetic over the game's own numbers - Micro has no recorded run on this bench"));
+      box.appendChild(el("span", "cl-view__worst", sb2.line.charAt(0).toUpperCase() + sb2.line.slice(1) + "."));
+      box.appendChild(el("i", "cl-view__note",
+        (G.micro > 1 && !G.giga
+          ? "your " + G.micro + " Micros each mind one machine on their own clock - nobody is watching the line between them · "
+          : "") +
+        "arithmetic over the game's own numbers - Micro has no recorded run on this bench"));
       DOM.deskView.appendChild(box);
     }
     if (G.giga) {
@@ -2173,13 +2539,15 @@
      Structure is rebuilt only when discrete state actually changes; the
      numbers repaint every frame, and prices update on the buttons in place. */
   function structureKey() {
+    /* cert rows repaint on discrete cert change; the proof clock itself is
+       painted per-frame straight into DOM refs (cheap text writes) */
     return [G.nano, G.micro, G.giga, G.incidents.missed, G.ready, G.coins < 0,
       G.machines.map(function (m) {
         return [m.pico, m.auto, m.cond, m.tier, m.lockout > 0, m.restarting > 0,
           m.healthyDraws, m.picoRead && m.picoRead.kind, m.nanoRead && m.nanoRead.kind].join(",");
       }).join("|"),
       G.cookies >= G.contract.target, G.contract.level, G.won, G.contractDone,
-      G.graceLeft > 0, G.taught, G.taughtCleared].join("~");
+      G.graceLeft > 0, G.taught, G.taughtCleared].concat([G.cert.done, certReady(), G.micro, G.modelCalled]).join("~");
   }
 
   function paint() {
@@ -2195,6 +2563,10 @@
     if (DOM.burnt) {
       DOM.burnt.textContent = Math.floor(G.spoiled);
       DOM.statEls.BURNT.classList.toggle("is-burnt", G.spoiled >= 1);
+    }
+    if (DOM.caught) {
+      DOM.caught.textContent = G.modelCalled;
+      DOM.statEls.CAUGHT.title = "faults a model named before the fix landed";
     }
     if (DOM.best) {
       var bestShow = Math.max(G.bestRun, G.cleanRun);
@@ -2247,21 +2619,81 @@
       }
     }
     // owned desk models sit at the desk end of the floor
-    var deskKey = [G.nano, G.micro, G.giga].join("~");
+    /* THE CERTIFICATE PLAQUE: rows rebuild on discrete change; the proof
+       clock writes its text every frame (a cheap textContent) */
+    if (DOM.certRows) {
+      var items = certItems();
+      var certKey = items.map(function (it) { return it.key + (it.done ? "1" : "0"); }).join("");
+      if (DOM.certKey !== certKey) {
+        DOM.certKey = certKey;
+        DOM.certRows.textContent = "";
+        items.forEach(function (it) {
+          var li = el("li", "cl-cert__row" + (it.done ? " is-done" : ""));
+          li.appendChild(el("b", null, it.done ? "\u2713" : "\u00b7"));
+          li.appendChild(el("span", null, it.label));
+          if (it.key === "proof" && !it.done) {
+            DOM.certProof = el("i", "cl-cert__clock", "");
+            li.appendChild(DOM.certProof);
+          }
+          DOM.certRows.appendChild(li);
+        });
+        if (DOM.certStamp) DOM.certStamp.hidden = !G.cert.done;
+      }
+      if (DOM.certProof && !G.cert.done) {
+        DOM.certProof.textContent = certReady()
+          ? Math.floor(G.cert.run) + "s / " + CERT_PROOF_SECS + "s hands-off"
+          : "waiting on the checklist above";
+      }
+    }
+    /* MICRO's wall board: visible when Micro is owned, refreshed once a
+       second - the same pure siteBoard() the desk card reads */
+    if (DOM.siteBoard) {
+      DOM.siteBoard.hidden = !G.micro;
+      if (G.micro) {
+        var sbKey = Math.floor(G.elapsed);
+        if (DOM.sbKey !== sbKey) {
+          DOM.sbKey = sbKey;
+          var sb = siteBoard();
+          DOM.siteBoard.textContent = "";
+          DOM.siteBoard.appendChild(el("b", "clf-siteboard__k", "SITE BOARD \u00b7 MICRO"));
+          sb.rows.forEach(function (r2) {
+            var row = el("span", "clf-siteboard__row");
+            row.appendChild(el("i", null, r2.name));
+            var bar = el("s", "clf-siteboard__bar");
+            var fill = el("b", null, "");
+            fill.style.width = Math.round(r2.up * 100) + "%";
+            bar.appendChild(fill);
+            row.appendChild(bar);
+            row.appendChild(el("em", null, Math.round(r2.up * 100) + "%" +
+              (r2.trend > 0.02 ? " \u25b4" : r2.trend < -0.02 ? " \u25be" : "")));
+            row.title = r2.name + " uptime " + Math.round(r2.up * 100) + "% \u00b7 " +
+              (r2.trend < -0.02 ? "headroom tightening" : r2.trend > 0.02 ? "headroom easing" : "steady");
+            DOM.siteBoard.appendChild(row);
+          });
+          DOM.siteBoard.appendChild(el("i", "clf-siteboard__line", sb.line));
+        }
+      }
+    }
+    var deskKey = [G.nano, G.micro, G.giga].join("~");   // micro is its count
     if (DOM.floorDesk && DOM.deskKey !== deskKey) {
       DOM.deskKey = deskKey;
       DOM.floorDesk.textContent = "";
       DOM.floorDesk.appendChild(el("i", "clf-desk__art"));
-      var owned = [["nano", G.nano], ["micro", G.micro], ["giga", G.giga]]
+      var owned = [["nano", G.nano ? 1 : 0], ["micro", G.micro], ["giga", G.giga ? 1 : 0]]
         .filter(function (p) { return p[1]; });
       var rack = el("span", "clf-desk__rack");
       owned.forEach(function (p) {
-        var chipEl = el("b", "clf-desk__chip", p[0].toUpperCase());
-        chipEl.dataset.tier = p[0];
-        rack.appendChild(chipEl);
+        // stacked Micros are separate boxes on the desk - scale-out, visibly
+        for (var ci = 0; ci < p[1]; ci++) {
+          var chipEl = el("b", "clf-desk__chip",
+            p[0] === "micro" && p[1] > 1 ? "MICRO-" + (ci + 1) : p[0].toUpperCase());
+          chipEl.dataset.tier = p[0];
+          rack.appendChild(chipEl);
+        }
       });
       // the desk sells its own next model, right where it would sit
-      var nextDesk = !G.nano ? "nano" : !G.micro ? "micro" : !G.giga ? "giga" : null;
+      var nextDesk = !G.nano ? "nano" : !G.micro ? "micro" : !G.giga ? "giga"
+        : G.micro < MICRO_MAX ? "micro" : null;
       if (nextDesk) {
         var deskTag = btn("+ " + nextDesk.toUpperCase() + " · " + MODEL_PRICE[nextDesk],
           "clf-buytag clf-buytag--desk", function (e) {
@@ -2271,8 +2703,9 @@
         deskTag.title = nextDesk === "nano"
           ? "The site gateway: explains WHY a reading is wrong and which verb fixes it."
           : nextDesk === "micro"
-            ? "The site view - and it can hold one knob for you."
-            : "The plant view - and it can run every knob.";
+            ? (G.micro ? "Another Micro: one more dial held - but they don't talk to each other. Giga minds the LINE."
+                       : "The site view - and it can hold one knob for you.")
+            : "The plant view - one mind on every knob.";
         (DOM.priced = DOM.priced || []).push({ b: deskTag, cost: MODEL_PRICE[nextDesk] });
         rack.appendChild(deskTag);
       }
@@ -2289,6 +2722,11 @@
       paintDesk();
       DOM.log.textContent = "";
       G.log.forEach(function (c) { DOM.log.appendChild(el("li", null, c)); });
+    }
+    // the ticker rides every frame - the radio's newest line, never hidden
+    if (DOM.ticker) {
+      var tick = G.log[0] || "";
+      if (DOM.ticker.textContent !== tick) DOM.ticker.textContent = tick;
     }
     // prices react to the wallet without rebuilding anything
     (DOM.priced || []).forEach(function (p) { p.b.disabled = G.coins < p.cost || p.off; });
@@ -2382,6 +2820,7 @@
         var s = G; G = state; var m = machine(id); autoAdjust(m, dt); G = s; return m;
       },
       reachWith: function (state) { var s = G; G = state; var v = autonomyReach(); G = s; return v; },
+      buyDeskWith: function (state, which) { var s = G; G = state; var ok = buyDesk(which); G = s; return ok; },
       clearWith: function (state, id) {
         var s = G; G = state; clearCondition(machine(id)); G = s; return state.incidents;
       },
@@ -2433,6 +2872,10 @@
       /* dev/test window into the LIVE game. forceFault schedules a fault NOW
          through the exact same path the scheduler uses - same replay draw,
          same honesty - so screenshots and drives stop depending on the dice. */
+      certItemsWith: function (state) { var s2 = G; G = state; var v = certItems(); G = s2; return v; },
+      certReadyWith: function (state) { var s2 = G; G = state; var v = certReady(); G = s2; return v; },
+      touchWith: function (state) { var s2 = G; G = state; touchPlant(); G = s2; return state; },
+      siteBoardWith: function (state) { var s2 = G; G = state; var v = siteBoard(); G = s2; return v; },
       live: function () { return G; },
       forceFault: function (id, kind) {
         var m = machine(id);
