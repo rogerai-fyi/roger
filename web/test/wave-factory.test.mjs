@@ -585,9 +585,13 @@ test("v25: the not-sure copy explains itself, and the maintenance card prints th
     "and the card prices the models honestly: they sell time, not secrets");
 });
 
-test("v25: the gateway hears THROUGH the child - no Pico, no Nano report on that machine", () => {
-  // caught live: the doctrine verb lit on a machine with no Pico, meaning
-  // Nano was 'hearing' from a child that did not exist
+test("v25/v27: through a child the gateway hears instantly; bare machines wait for the sweep", () => {
+  // AMENDED v27. The v25 rule was "no Pico, no Nano report" - right for the
+  // escalation story, wrong to the measured data: parent-direct is the
+  // highest-accuracy config the bench recorded, so a lone Nano CAN read a
+  // bare machine. What survives of the old lock is the immediacy contrast:
+  // at fault-start a bare machine still has NO report (the sweep has not
+  // arrived), where a child's report is instant.
   const h = loadHook();
   const s = h.freshState();
   s.records = measured.records;
@@ -596,8 +600,116 @@ test("v25: the gateway hears THROUGH the child - no Pico, no Nano report on that
   mixer.nextFault = 0.01;
   for (let i = 0; i < 6; i++) h.stepWith(s, 1 / 12);
   assert.notEqual(mixer.cond, "none", "a fault started");
-  assert.equal(mixer.nanoRead, null, "but the gateway has no report from a machine with no child");
-  assert.match(js, /gateway hears THROUGH the child/i, "the rule is stated where it lives");
+  assert.equal(mixer.nanoRead, null, "no instant report without a child - the sweep takes time");
+  assert.match(js, /gateway hears THROUGH the child instantly/i, "the rule is stated where it lives");
+});
+
+/* ---- v27: NANO-DIRECT + THE HUMAN HANDOFF ------------------------------- */
+
+test("v27: nano-direct arrives on the sweep delay and rides the recorded PARENT fields", () => {
+  const h = loadHook();
+  const s = h.freshState();
+  s.records = measured.records;
+  s.nano = true;
+  s.machines.forEach((m) => { m.nextFault = 9999; });   // no surprise faults
+  h.conditionWith(s, "mixer", "stuck");
+  const mixer = s.machines[0];
+  assert.notEqual(mixer.cond, "none");
+  // before the sweep lands: nothing (the delay IS the cost of direct watch)
+  for (let i = 0; i < Math.floor(4 * 12); i++) h.stepWith(s, 1 / 12);
+  assert.equal(mixer.nanoRead, null, `no read at 4s - the patrol sweep fires every ${h.nanoSweepSecs}s`);
+  // after: the read exists, flagged direct, and its word IS the recorded
+  // parent prediction of the drawn record - recorded misses stay misses
+  for (let i = 0; i < Math.floor(7 * 12); i++) h.stepWith(s, 1 / 12);
+  assert.ok(mixer.nanoRead, "the sweep delivered");
+  assert.equal(mixer.nanoDirect, true, "and it is signed as a direct read");
+  assert.equal(mixer.nanoRead.said, mixer.sample.record.parent.prediction,
+    "what Nano says direct is the recorded parent's word - nothing invented");
+  assert.equal(mixer.nanoRead.kind,
+    mixer.sample.record.parent.prediction === mixer.sample.record.truth ? "resolved" : "missed",
+    "and a recorded parent miss arrives just as wrong");
+});
+
+test("v27: the gateway watches ONE machine - the budget is the product argument", () => {
+  // The gateway PATROLS in auto (belief-driven - the first cut auto-followed
+  // "the newest fault", which meant navigating by a secret no model had read
+  // yet). Pinning makes the budget deterministic to test: a pinned gateway
+  // reads its one machine and nothing else, however long the other burns.
+  const h = loadHook();
+  const s = h.freshState();
+  s.records = measured.records;
+  s.nano = true;
+  s.machines.forEach((m) => { m.nextFault = 9999; });
+  s.nanoWatch = "mixer";                                // the player pins it
+  h.conditionWith(s, "mixer", "stuck");
+  h.conditionWith(s, "oven", "drifting");
+  assert.equal(h.watchWith(s), "mixer", "the WATCHING pin overrides the patrol");
+  for (let i = 0; i < Math.floor(20 * 12); i++) h.stepWith(s, 1 / 12);
+  const mixer = s.machines[0], oven = s.machines[1];
+  assert.ok(mixer.nanoRead, "the pinned machine got its direct read");
+  assert.equal(oven.nanoRead, null,
+    "the other faulted bare machine got NOTHING - the gateway cannot be everywhere");
+  // busy = the gateway BELIEVES its target is in trouble - its own delivered
+  // read said an alarm word. Never the game's secret.
+  mixer.nanoRead = { kind: "resolved", said: "stuck", margin: 2, truth: "stuck" };
+  assert.equal(h.busyWith(s), true, "an alarmed read at the target = spread thin");
+  mixer.nanoRead = { kind: "missed", said: "none", margin: 2, truth: "stuck" };
+  assert.equal(h.busyWith(s), false,
+    "a recorded parent miss says none - the gateway is honestly fooled, not busy");
+});
+
+test("v27: a Pico frees the gateway", () => {
+  const h = loadHook();
+  const s = h.freshState();
+  s.records = measured.records;
+  s.nano = true;
+  s.coins = 500;
+  s.machines.forEach((m) => { m.nextFault = 9999; });
+  h.conditionWith(s, "mixer", "stuck");
+  assert.equal(h.watchWith(s), "mixer", "the patrol starts at the first bare machine");
+  assert.equal(h.buyPicoWith(s, "mixer"), true);
+  const mixer = s.machines[0];
+  assert.ok(mixer.picoRead, "the new child reports instantly on the open fault");
+  assert.ok(mixer.nanoRead, "and the gateway hears it instantly too");
+  assert.equal(mixer.nanoDirect, false, "as a child report, not a direct read");
+  assert.notEqual(h.watchWith(s), "mixer",
+    "the gateway stops patrolling a machine that has its own child");
+  // with a Pico on every machine there is nothing left to patrol at all
+  s.machines.forEach((m) => { m.pico = true; });
+  assert.equal(h.watchWith(s), null, "all children mounted - the gateway is fully free");
+  assert.match(js, /cannot be everywhere - that is what the children are for/,
+    "and the why is printed at the gateway's station");
+});
+
+test("v27: the double-miss hands off to the human, and the catch is acknowledged", () => {
+  const h = loadHook();
+  const s = h.freshState();
+  s.records = measured.records;
+  const mixer = s.machines[0];
+  // a genuine recorded chain miss: both watching models said the wrong thing
+  mixer.cond = "stuck";
+  mixer.picoRead = { kind: "wrong", said: "none", margin: 2.0, truth: "stuck" };
+  mixer.nanoRead = { kind: "missed", said: "none", margin: 2.0, truth: "stuck" };
+  assert.equal(h.chainMissed(mixer), true, "models watching, none named the truth");
+  h.clearWith(s, "mixer");
+  assert.equal(s.humanSaves, 1, "the fix could only have been a person - and it counts");
+  assert.ok(s.ackUntil > 0, "and the acknowledgment beat is armed");
+  // no models watching: honest silence, no medal for routine work
+  const oven = s.machines[1];
+  oven.cond = "noisy";
+  oven.picoRead = null; oven.nanoRead = null;
+  assert.equal(h.chainMissed(oven), false, "no model watching is not a chain miss");
+  h.clearWith(s, "oven");
+  assert.equal(s.humanSaves, 1, "no acknowledgment when nothing was missed by a model");
+  // a caught fault is the models' save, never the human handoff
+  const packer = s.machines[2];
+  packer.cond = "drifting";
+  packer.picoRead = { kind: "caught", said: "drifting", margin: 3.0, truth: "drifting" };
+  assert.equal(h.chainMissed(packer), false);
+  assert.match(js, /the ladder ends with a person/,
+    "the handoff completes the doctrine where the founder hit the wall");
+  assert.match(js, /is-doctrine", chainMissed\(m\)/,
+    "and INSPECT lights on the handoff the way known-kind lights a verb");
 });
 
 /* ---- v26: THE PLAYTEST ROUND ------------------------------------------- */

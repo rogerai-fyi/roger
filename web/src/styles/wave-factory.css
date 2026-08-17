@@ -696,3 +696,27 @@
 
 /* the sticky site nav must never bury a focused console (playtest bug 8) */
 .cl-station, .cl-desk, .cl-maint, .cl-goals { scroll-margin-top: 96px; }
+
+/* ===== v27: the gateway's direct watch, and the human handoff ============ */
+/* Nano speaking from its own read (no child on the machine) is signed
+   "direct watch" and carries a firmer left edge - same voice, different
+   provenance, and the player should be able to tell at a glance. */
+.cl-say--direct { border-left-width: 3px; }
+.cl-say--direct .cl-say__site { color: var(--tier-nano, var(--ink-500)); font-style: normal; }
+
+/* the WATCHING selector on the gateway's desk block */
+.cl-watchsel { display: flex; gap: .35rem; align-items: center; flex-wrap: wrap; margin: .3rem 0; }
+.cl-watchsel > i {
+  font-family: var(--font-mono); font-size: .54rem; letter-spacing: .14em;
+  color: var(--ink-400); font-style: normal;
+}
+.cl-watch {
+  font-family: var(--font-mono); font-size: .58rem; letter-spacing: .08em;
+  padding: .22rem .55rem; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--hairline-2); background: var(--paper); color: var(--ink-500);
+}
+.cl-watch:hover:not(:disabled) { border-color: var(--ink-500); color: var(--ink-900); }
+.cl-watch.is-on { border-color: var(--tier-nano, var(--ink-900)); color: var(--ink-900); }
+.cl-watch:disabled { opacity: .45; cursor: not-allowed; }
+.cl-watch:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
+.cl-view--nano .cl-view__head { color: var(--tier-nano, var(--ink-900)); }

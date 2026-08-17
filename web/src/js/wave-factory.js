@@ -155,6 +155,19 @@
     railed: "the reading is pinned at its limit - that is hardware. Only SERVICE fixes a railed sensor.",
   };
   var HEALTHY_WINDOW = 7;        // seconds between healthy-window redraws
+  /* NANO-DIRECT (v27). The founder asked whether a Nano alone should be
+     enough - and the measured data says YES: parent-direct (the senior
+     reading raw windows itself, no children) is the HIGHEST-accuracy config
+     the bench recorded (macro recall 0.776, vs the mesh's 0.56 @1.5). So a
+     lone Nano direct-watches - but the COST is the product argument, played
+     straight: the gateway is one unit. It watches ONE machine at a time, its
+     read arrives on a slow sweep instead of Pico's instant on-machine call,
+     and while it is direct-watching an open fault it is not also clearing
+     false alarms elsewhere. A Pico on the machine is instant, always-on, and
+     frees the gateway - the mesh economics, told as gameplay. The sweep
+     delay and the one-machine budget are game simulation of deployment
+     reality; what Nano SAYS still rides the recorded parent fields. */
+  var NANO_SWEEP_SECS = 8;       // the gateway's polling sweep, direct mode
 
   var TIER_COLOUR = { pico: "pico", nano: "nano", micro: "micro", giga: "giga" };
 
@@ -179,6 +192,7 @@
       unsureRun: 0,                         // consecutive sub-floor healthy draws
       lockReason: "",                       // why the crew won't touch it
       pico: false,
+      nanoDirect: false,                     // this read came off the patrol
       auto: false,                          // the models turn this knob
       autoNote: "", hadStop: false,
       buffer: 0,
@@ -192,6 +206,9 @@
       coins: 120, cookies: 0, spoiled: 0, elapsed: 0,
       machines: MACHINES.map(freshMachine),
       nano: false, micro: false, giga: false,
+      nanoWatch: null,   // direct-watch pin: a machine id, or null = patrol
+      sweepAt: null, sweepLeft: null,   // the gateway's patrol position/clock
+      humanSaves: 0, ackUntil: 0, ackWhat: "",
       running: true, ready: false, error: "",
       /* THE CONTRACT ARC. Filling one is a real moment (the win card), and
          the next one re-rolls harder: more cookies, faster creep. */
@@ -325,6 +342,81 @@
     };
   }
 
+  /* Where the gateway is pointing: the player's pin, or the PATROL position.
+     The first cut of this auto-followed "the most recent fault" - which was
+     an answer leak: no model had detected that fault yet, so the gateway was
+     navigating by the game's secret. The patrol fixes it: in AUTO the
+     gateway walks the bare machines on its sweep clock and DWELLS only where
+     its own delivered read says trouble - belief-driven motion, no peeking.
+     A machine with a Pico never needs the patrol; its reports are instant. */
+  function bareMachines() {
+    return G.machines.filter(function (m) { return !m.pico; });
+  }
+  function watchTarget() {
+    if (!G.nano) return null;
+    var pick = G.nanoWatch ? machine(G.nanoWatch) : null;
+    if (pick && !pick.pico) return pick.id;
+    var bare = bareMachines();
+    if (!bare.length) return null;
+    if (G.sweepAt && bare.some(function (m) { return m.id === G.sweepAt; })) return G.sweepAt;
+    return bare[0].id;
+  }
+
+  /* Spread thin, felt: while the gateway BELIEVES its watch target is in
+     trouble (its own delivered read said an alarm word - never the game's
+     secret), it is not also second-reading healthy windows elsewhere. */
+  function gatewayBusy() {
+    var t = watchTarget();
+    if (!t) return false;
+    var m = machine(t);
+    return !!m && m.cond !== "none" && !!m.nanoRead && m.nanoRead.said !== "none";
+  }
+
+  /* THE GATEWAY'S SWEEP, once per sim tick from step(). Every sweep period
+     it reads the machine it is pointed at; a fault there gets its direct
+     read (recorded parent fields - a recorded parent miss says " none" and
+     the gateway walks on, honestly fooled); in AUTO it advances to the next
+     bare machine unless its own read told it to stay. */
+  function stepGateway(dt) {
+    if (!G.nano) { G.sweepAt = null; G.sweepLeft = null; return; }
+    var bare = bareMachines();
+    if (!bare.length) { G.sweepAt = null; G.sweepLeft = null; return; }
+    var cur = watchTarget();
+    G.sweepAt = cur;
+    if (G.sweepLeft == null) G.sweepLeft = NANO_SWEEP_SECS;
+    G.sweepLeft -= dt;
+    if (G.sweepLeft > 0) return;
+    G.sweepLeft = NANO_SWEEP_SECS;
+    var m = machine(cur);
+    if (m.cond !== "none" && !m.nanoRead && m.sample) {
+      m.nanoRead = nanoRead(m.sample);
+      m.nanoDirect = true;
+      addLog("Gateway sweep read the " + m.spec.name.toLowerCase() + " directly" +
+        (m.nanoRead.kind === "resolved" ? " and named the fault." :
+         " - and the recorded senior got this one wrong."));
+    }
+    // belief-driven dwell: stay only if the gateway's own read says trouble
+    var believes = m.cond !== "none" && m.nanoRead && m.nanoRead.said !== "none";
+    var pinned = G.nanoWatch && machine(G.nanoWatch) && !machine(G.nanoWatch).pico;
+    if (!pinned && !believes) {
+      var i = -1;
+      for (var k = 0; k < bare.length; k++) if (bare[k].id === cur) i = k;
+      G.sweepAt = bare[(i + 1) % bare.length].id;
+    }
+  }
+
+  /* Did the recorded chain miss this one? True only when at least one model
+     was actually watching AND none of them named the truth - the double-miss
+     the founder hit ("even Wave Nano can't help"). Pure, so the lock runs it,
+     and so the acknowledgment can never fire for a fault no model saw. */
+  function chainMissed(m) {
+    if (m.cond === "none") return false;
+    var watched = false, called = false;
+    if (m.picoRead) { watched = true; if (m.picoRead.kind === "caught") called = true; }
+    if (m.nanoRead) { watched = true; if (m.nanoRead.kind === "resolved") called = true; }
+    return watched && !called;
+  }
+
   /* =====================================================================
      THE PLANT - game simulation, and labelled as such on the surface
      ===================================================================== */
@@ -411,11 +503,13 @@
     m.inspected = false;
     m.sample = sampleFor(m.spec.sensor.kind, pick, Math.floor(rnd(m) * 997), activeRecordIds(m.id));
     m.picoRead = m.pico ? picoRead(m.sample) : null;
-    /* the gateway hears THROUGH the child: a machine with no Pico sends no
-       report up, so Nano has nothing to say about it. This is also what
-       keeps the doctrine highlight honest - it lights only off knowledge
-       that actually flowed (a mounted Pico's report, or your own INSPECT). */
+    /* the gateway hears THROUGH the child instantly; with no child it can
+       still get here, but only by DIRECT WATCH - one machine at a time, on
+       the sweep delay (see stepMachine). The doctrine highlight stays honest
+       either way: it lights only off knowledge that actually flowed - a
+       child's instant report, the gateway's own delayed read, or INSPECT. */
     m.nanoRead = (G.nano && m.pico) ? nanoRead(m.sample) : null;
+    m.nanoDirect = false;
     m.hadStop = false;
     G.incidents.open += 1;
     addLog(m.spec.name + " sensor went " + CONDITION_WORD[pick] + ".");
@@ -444,11 +538,27 @@
       if (owned && m.sample) {
         addLog(owned + " (replayed " + m.sample.record.node_id + ")");
       }
+      /* THE ACKNOWLEDGMENT (v27). When the recorded chain missed - models
+         watching, none named the truth - the fix could only have come from
+         a person: automation acts on alarms, and a chain miss raises none.
+         The founder hit exactly this and called it "even Wave Nano can't
+         help"; the doctrine's last line is that the ladder ends with a
+         person, and the one moment the player IS that person deserves to
+         feel like one. Fires only on a genuine recorded chain miss. */
+      if (chainMissed(m)) {
+        G.humanSaves += 1;
+        G.ackUntil = G.elapsed + 8;
+        G.ackWhat = m.spec.name.toLowerCase();
+        addLog("You caught what the recorded chain missed on the " +
+          m.spec.name.toLowerCase() + " - the ladder ends with a person." +
+          (m.sample ? " (replayed " + m.sample.record.node_id + ")" : ""));
+      }
       // the taught first fault is done: the rest of the line may now fault
       if (G.taught && !G.taughtCleared && m.id === "mixer") G.taughtCleared = true;
     }
     m.cond = "none"; m.condAge = 0; m.sample = null;
     m.picoRead = null; m.nanoRead = null; m.driftLie = 0; m.hadStop = false;
+    m.nanoDirect = false;
     m.inspected = false; m.inspecting = 0;
     m.windowLeft = 0;   // a healthy window redraws immediately
   }
@@ -658,7 +768,10 @@
           m.healthySample = sampleFor(m.spec.sensor.kind, "none", Math.floor(rnd(m) * 997), activeRecordIds(m.id));
           m.healthyDraws += 1;
           m.picoRead = picoRead(m.healthySample);
-          m.nanoRead = G.nano ? nanoRead(m.healthySample) : null;
+          /* the one-unit budget, felt: a gateway direct-watching an open
+             fault is not also second-reading healthy windows here, so a
+             recorded false alarm stands unchecked until it is free again */
+          m.nanoRead = (G.nano && !gatewayBusy()) ? nanoRead(m.healthySample) : null;
           /* the ×N run: consecutive sub-floor windows collapse into one line
              with a count, instead of a fresh chirp per redraw - the playtest
              called the old stream "a broken smoke detector" */
@@ -725,6 +838,7 @@
   }
 
   function step(dt) {
+    stepGateway(dt);
     G.elapsed += dt;
     if (G.graceLeft > 0) G.graceLeft = Math.max(0, G.graceLeft - dt);
     var mx = machine("mixer"), ov = machine("oven"), pk = machine("packer");
@@ -831,12 +945,15 @@
     if (m.pico || G.coins < MODEL_PRICE.pico) return false;
     G.coins -= MODEL_PRICE.pico;
     m.pico = true;
+    var wasWatched = watchTarget() === m.id;
     if (m.cond !== "none") {
       m.picoRead = picoRead(m.sample);
       m.nanoRead = G.nano ? nanoRead(m.sample) : null;   // the gateway hears its new child
     }
     else m.windowLeft = 0;               // read the first healthy window now
-    addLog("Wave Pico installed on the " + m.spec.name.toLowerCase() + ".");
+    m.nanoDirect = false;
+    addLog("Wave Pico installed on the " + m.spec.name.toLowerCase() + "." +
+      (wasWatched ? " The gateway is free to mind the rest of the site." : ""));
     paint();
     return true;
   }
@@ -849,8 +966,11 @@
       G.machines.forEach(function (m) {
         if (m.cond !== "none" && m.pico) m.nanoRead = nanoRead(m.sample);
       });
+      addLog("Wave Nano online at the desk - instant through its Picos, and it " +
+        "can direct-watch ONE bare machine at a time on a " + NANO_SWEEP_SECS + "s sweep.");
+    } else {
+      addLog("Wave " + which.charAt(0).toUpperCase() + which.slice(1) + " online at the desk.");
     }
-    addLog("Wave " + which.charAt(0).toUpperCase() + which.slice(1) + " online at the desk.");
     paint();
     return true;
   }
@@ -1477,6 +1597,7 @@
     var slotKey = [m.pico, m.auto, m.cond, G.nano, autonomyReach(),
       m.picoRead && (m.picoRead.kind + m.picoRead.said + m.picoRead.margin),
       m.nanoRead && m.nanoRead.kind, m.healthyDraws,
+      G.sweepLeft == null ? "" : Math.ceil(G.sweepLeft), m.nanoDirect, watchTarget(),
       m.lockout > 0, m.restarting > 0, m.inspecting > 0, m.inspected,
       !inBand(m, m.real), mi.state === "out",
       m.autoNote, m.sample && m.sample.record.node_id].join("~");
@@ -1502,16 +1623,18 @@
     if (m.lockout > 0 && m.lockReason) {
       s.slot.appendChild(el("div", "cl-lockwhy", m.lockReason));
     }
+    var r = m.picoRead;
     if (!m.pico) {
       var b = btn("+ WAVE PICO · " + MODEL_PRICE.pico, "cl-slot__buy", function () { buyPico(m.id); });
       (DOM.priced = DOM.priced || []).push({ b: b, cost: MODEL_PRICE.pico });
       b.title = "A model on this machine tells you when the reading stops being trustworthy.";
       s.slot.appendChild(b);
-      s.slot.appendChild(el("i", "cl-slot__hint", "no model · you are reading this dial yourself"));
+      s.slot.appendChild(el("i", "cl-slot__hint", G.nano
+        ? "no Pico · the gateway covers this machine one sweep at a time"
+        : "no model · you are reading this dial yourself"));
     } else {
       var head = el("div", "cl-say cl-say--pico");
       head.appendChild(el("b", "cl-say__who", "WAVE PICO"));
-      var r = m.picoRead;
       /* PICO SPEAKS BY WHAT IT SAID, never by what the game knows. A recorded
          miss whose child said " none" during a fault renders exactly like
          health - a confident lie is the product truth, and colouring it warn
@@ -1568,6 +1691,8 @@
         }
       }
 
+    }
+
       /* THE GATEWAY'S COUNSEL - one Nano serves every Pico on the line
          (founder-confirmed arrangement), so its advice appears per machine
          but is signed by the site gateway. On a fault it prescribes the
@@ -1575,8 +1700,9 @@
          clears the air; on a clean out-of-band it says the words that save
          a wasted service: not a sensor fault, use the dial. */
       if (G.nano) {
-        var advice = null, fixLine = null;
+        var advice = null, fixLine = null, sign = " \u00b7 site gateway";
         if (m.cond !== "none" && m.nanoRead) {
+          if (m.nanoDirect) sign = " \u00b7 direct watch";
           if (m.nanoRead.kind === "resolved") {
             advice = CONDITION_FIX[m.cond];
             if (!inBand(m, m.real)) {
@@ -1584,8 +1710,23 @@
                                         : "Then reduce SPEED - you are over the limit.";
             }
           } else {
-            advice = "says \u201c" + m.nanoRead.said + "\u201d - the recorded senior got this one wrong too.";
+            /* THE DOUBLE-MISS HANDS OFF TO THE HUMAN (v27). The founder hit
+               this exact wall ("even Wave Nano can't help") and honesty
+               without a next move is a dead end. The doctrine has a last
+               line, so the advice completes it - and INSPECT lights below,
+               the way known-kind lights a verb. */
+            advice = "says \u201c" + m.nanoRead.said + "\u201d - " +
+              (m.nanoDirect ? "wrong, per the recording."
+                            : "the recorded senior got this one wrong too.") +
+              " Both models missed this one in the recording. INSPECT it " +
+              "yourself - the ladder ends with a person.";
           }
+        } else if (!m.pico && watchTarget() === m.id && G.sweepLeft != null && !m.nanoRead) {
+          /* the patrol line rides the CLOCK, not the fault - it shows on the
+             watched machine whether or not anything is wrong, so its mere
+             presence can never leak what no model has read yet */
+          advice = "gateway watch \u00b7 next sweep in " + Math.max(1, Math.ceil(G.sweepLeft)) + "s.";
+          sign = " \u00b7 direct watch";
         } else if (m.cond === "none" && r && r.kind !== "unsure" && r.said !== "none" && m.nanoRead) {
           advice = m.nanoRead.kind === "resolved"
             ? "checked that alarm at the gateway - no real fault behind it. Carry on."
@@ -1599,8 +1740,9 @@
         }
         if (advice) {
           var n = el("div", "cl-say cl-say--nano");
+          if (sign === " \u00b7 direct watch") n.classList.add("cl-say--direct");
           var who = el("b", "cl-say__who", "WAVE NANO");
-          who.appendChild(el("i", "cl-say__site", " \u00b7 site gateway"));
+          who.appendChild(el("i", "cl-say__site", sign));
           n.appendChild(who);
           n.appendChild(el("span", "cl-say__why", advice));
           if (fixLine) n.appendChild(el("span", "cl-say__fix", fixLine));
@@ -1616,7 +1758,6 @@
             m.spec.sensor.label.toLowerCase() + " channel with this fault)"));
         s.slot.appendChild(prov);
       }
-    }
 
     /* THE HANDOVER, per machine: once a desk model can hold a knob, the
        player may give this one away - and take it back at any time. */
@@ -1660,7 +1801,8 @@
           e.stopPropagation();
           buyPico(m.id);
         });
-        tag.title = "Mount a Wave Pico here - it tells you when this reading stops being trustworthy.";
+        tag.title = "Mount a Wave Pico here - instant, always-on coverage for this machine, " +
+          "and it frees the gateway to mind the rest of the site.";
         (DOM.priced = DOM.priced || []).push({ b: tag, cost: MODEL_PRICE.pico });
         s.mount.appendChild(tag);
       }
@@ -1707,6 +1849,10 @@
     var known = m.cond !== "none" &&
       (m.inspected || (G.nano && m.nanoRead && m.nanoRead.kind === "resolved"));
     var rightVerb = known ? verbFor(m.cond) : null;
+    /* the double-miss hands to the person: when every watching model got it
+       wrong per the recording, INSPECT is the doctrine's answer, and it
+       lights exactly the way a known-kind verb does */
+    s.inspect.classList.toggle("is-doctrine", chainMissed(m) && !m.inspected);
     s.restart.classList.toggle("is-doctrine", rightVerb === "restart");
     s.clean.classList.toggle("is-doctrine", rightVerb === "clean");
     s.recal.classList.toggle("is-doctrine", rightVerb === "recal");
@@ -1736,6 +1882,18 @@
       rows.push(["WATCH", "the mixer reads " + (mx0.cond === "stuck" ? mx0.stuckAt.toFixed(2) : "steady") +
         " and has not moved", "does that seem right? INSPECT it - or a stuck sensor usually restarts clean"]);
     }
+    /* the human-catch beat: for a few seconds after you fix what the
+       recorded chain missed, the chip says so - the doctrine's best moment */
+    if (G.elapsed < G.ackUntil) {
+      rows.push(["NICE", "you caught what the recorded chain missed on the " + G.ackWhat,
+        "the ladder ends with a person"]);
+    } else {
+      var handedOffTo = G.machines.filter(function (mm) { return chainMissed(mm) && !mm.inspected; });
+      if (handedOffTo.length) {
+        rows.push(["WATCH", "both models missed the " + handedOffTo[0].spec.name.toLowerCase(),
+          "INSPECT it yourself - the ladder ends with a person"]);
+      }
+    }
     if (filled) {
       /* the win stops advertising Picos (playtest bug 1) - the next thing
          is the next contract, offered on the win card and again here */
@@ -1746,7 +1904,7 @@
         "puts a model on one machine so it tells you when its reading stops being trustworthy"]);
     } else if (!G.nano) {
       rows.push(["NEXT", "WAVE NANO · " + MODEL_PRICE.nano,
-        "explains WHY a reading is wrong and what to change"]);
+        "explains WHY and what to do - instant through Picos, or direct-watching one bare machine itself"]);
     } else if (!G.micro) {
       rows.push(["NEXT", "WAVE MICRO · " + MODEL_PRICE.micro,
         "the site view - and it can hold one knob for you"]);
@@ -1823,7 +1981,7 @@
 
     var col3 = el("div", "cl-branch");
     col3.appendChild(el("span", "cl-branch__head", "THE DESK"));
-    [["nano", "WAVE NANO", "tells you WHY, and what to change", "explains the fault and gives the fix"],
+    [["nano", "WAVE NANO", "tells you WHY, and what to change - instant through Picos, or direct-watching one bare machine on its own sweep", "explains the fault and gives the fix; no Picos needed to start"],
      ["micro", "WAVE MICRO", "the site view - and it can hold one knob", "all three machines at once"],
      ["giga", "WAVE GIGA", "the plant view - and it can run every knob", "bottleneck, forecast, full autonomy"]
     ].forEach(function (row) {
@@ -1918,8 +2076,49 @@
 
   function paintDesk() {
     DOM.deskView.textContent = "";
+    /* THE GATEWAY'S STATION (v27): with Nano owned, the desk shows where its
+       one direct watch is pointed and lets the player point it. Machines
+       with a Pico never appear - their reports arrive instantly - which is
+       itself the sales pitch, printed as the why line. */
+    if (G.nano) {
+      var gw = el("div", "cl-view cl-view--nano");
+      gw.appendChild(el("b", "cl-view__head", "WAVE NANO · SITE GATEWAY"));
+      var sel = el("div", "cl-watchsel");
+      sel.setAttribute("role", "group");
+      sel.setAttribute("aria-label", "Gateway direct watch");
+      sel.appendChild(el("i", null, "WATCHING"));
+      var autoB = btn("AUTO", "cl-watch" + (G.nanoWatch == null ? " is-on" : ""), function () {
+        G.nanoWatch = null; addLog("Gateway watch set to AUTO - it follows the newest fault."); paint();
+      });
+      autoB.setAttribute("aria-pressed", G.nanoWatch == null ? "true" : "false");
+      sel.appendChild(autoB);
+      G.machines.forEach(function (mm) {
+        var wb = btn(mm.spec.name, "cl-watch" + (G.nanoWatch === mm.id ? " is-on" : ""), function () {
+          G.nanoWatch = mm.id;
+          addLog("Gateway pointed at the " + mm.spec.name.toLowerCase() + ".");
+          paint();
+        });
+        wb.setAttribute("aria-pressed", G.nanoWatch === mm.id ? "true" : "false");
+        if (mm.pico) {
+          wb.disabled = true;
+          wb.title = "This machine has a Pico - its reports reach the gateway instantly.";
+        }
+        sel.appendChild(wb);
+      });
+      gw.appendChild(sel);
+      var tgt = watchTarget();
+      gw.appendChild(el("span", null, tgt
+        ? (G.nanoWatch ? "Pinned on the " : "Patrolling - now at the ") +
+          machine(tgt).spec.name.toLowerCase() +
+          (G.sweepLeft != null ? " \u00b7 next sweep " + Math.max(1, Math.ceil(G.sweepLeft)) + "s" : "") +
+          (gatewayBusy() ? " \u00b7 dwelling on trouble it read itself - checks elsewhere wait" : "")
+        : "Every machine has a Pico - the gateway hears them all instantly."));
+      gw.appendChild(el("i", "cl-view__note",
+        "the senior can read anything, but it cannot be everywhere - that is what the children are for"));
+      DOM.deskView.appendChild(gw);
+    }
     if (!G.micro && !G.giga) {
-      DOM.deskView.appendChild(el("p", "cl-deskview__empty",
+      if (!G.nano) DOM.deskView.appendChild(el("p", "cl-deskview__empty",
         "With no desk model you only have the three dials on the line. Buy Micro to see the whole site at once."));
       if (G.history.length > 4) DOM.deskView.appendChild(resultsView());
       return;
@@ -2217,6 +2416,11 @@
       graceSecs: GRACE_SECS,
       loanRate: LOAN_RATE,
       ownsMiss: ownsMiss,
+      chainMissed: chainMissed,
+      nanoSweepSecs: NANO_SWEEP_SECS,
+      watchWith: function (state) { var s2 = G; G = state; var v = watchTarget(); G = s2; return v; },
+      busyWith: function (state) { var s2 = G; G = state; var v = gatewayBusy(); G = s2; return v; },
+      buyPicoWith: function (state, id) { var s2 = G; G = state; var ok = buyPico(id); G = s2; return ok; },
       begin: beginRun,
       nextTargetOf: nextTargetOf,
       conditionWith: function (state, id, kind) {
