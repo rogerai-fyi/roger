@@ -1080,7 +1080,13 @@ func (p *Postgres) SettleEdge(user, stationNode, stationAcct, towerNode, towerAc
 		return 0, err
 	}
 	if cost > held {
-		cost = held // never charge more than was reserved
+		// Never charge more than was reserved - and the SHARES shrink with the capture, or the
+		// operators would be paid a percentage of money the consumer never actually paid
+		// (minted from the platform's pocket). Mirrors the mem store exactly.
+		scale := held / cost
+		stationShare *= scale
+		towerShare *= scale
+		cost = held
 	}
 	var bal float64
 	if err := tx.QueryRow(`UPDATE rogerai.wallet SET balance=balance+$2 WHERE usr=$1 RETURNING balance`, user, held-cost).Scan(&bal); err != nil {
@@ -1307,6 +1313,17 @@ func (p *Postgres) OwnerByLogin(login string) (Owner, bool, error) {
 func (p *Postgres) OwnerByVerifiedEmail(email string) (Owner, bool, error) {
 	return p.scanOwner(`SELECT pubkey,github_id,login,created_at,email,stripe_connect_id,connect_status,deleted_at,anonymized,name,welcomed_at,apple_sub,email_verified_at
 		FROM rogerai.owners WHERE lower(email)=lower($1) AND email_verified_at IS NOT NULL AND NOT COALESCE(anonymized,false)`, email)
+}
+
+// OwnerByAppleSub resolves the account linked to this Apple identity. apple_sub is
+// Apple's stable per-account key, so the match is exact and cannot be spoofed by a login
+// string - the property that keeps Apple sessions isolated from GitHub accounts.
+func (p *Postgres) OwnerByAppleSub(sub string) (Owner, bool, error) {
+	if sub == "" {
+		return Owner{}, false, nil
+	}
+	return p.scanOwner(`SELECT pubkey,github_id,login,created_at,email,stripe_connect_id,connect_status,deleted_at,anonymized,name,welcomed_at,apple_sub,email_verified_at
+		FROM rogerai.owners WHERE apple_sub=$1 AND NOT COALESCE(anonymized,false)`, sub)
 }
 
 // scanOwner runs a single-row owner query, mapping NULL columns to zero values.

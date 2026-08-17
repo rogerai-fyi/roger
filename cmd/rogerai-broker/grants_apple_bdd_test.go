@@ -2,8 +2,9 @@ package main
 
 // grants_apple_bdd_test.go makes features/grants/apple_owner_management.feature EXECUTABLE:
 // the founder-approved contract (roger-ios docs/EXTERNAL-READINESS.md §2) that grant MANAGEMENT
-// accepts ANY bound, non-anonymized owner (GitHubID != 0 OR AppleSub != "", pubkey-bound) while
-// payouts stay behind the GitHub/KYC gate, and an Apple owner's grants are funded by the Apple
+// accepts ANY bound, non-anonymized owner (GitHubID != 0 OR AppleSub != "", pubkey-bound), that
+// payouts now admit any identity-verified owner (login consolidation - GitHub/Apple/email all
+// reach earnings + cash-out, money still gated by Stripe Connect KYC), and an Apple owner's grants are funded by the Apple
 // wallet (GitHub-wins precedence pinned for dual-bound owners). NO mocks: the REAL b.grants /
 // b.grantByID / b.connectStatus handlers run against store.NewMem() with real signed requests.
 
@@ -275,9 +276,12 @@ func (s *gaState) funderWalletIs(name, kind string) error {
 	return nil
 }
 
-func (s *gaState) payoutRefusedNoGitHub() error {
-	if s.code != http.StatusUnauthorized && s.code != http.StatusForbidden {
-		return fmt.Errorf("payout surface status = %d, want 401/403 (body %s)", s.code, s.body)
+func (s *gaState) payoutAdmittedVerified() error {
+	// Login consolidation: an Apple-bound (identity-verified) owner is now admitted to the
+	// payout surface exactly like a GitHub owner - 200, not the old 401/403. Whether money
+	// can actually move still depends on the separate Stripe Connect KYC gate (can_payout).
+	if s.code != http.StatusOK {
+		return fmt.Errorf("payout surface status = %d, want 200 (Apple owner admitted; body %s)", s.code, s.body)
 	}
 	return nil
 }
@@ -311,7 +315,7 @@ func TestGrantsAppleOwnerBDD(t *testing.T) {
 			sc.Step(`^the grant "([^"]*)" is revoked$`, st.grantRevoked)
 			sc.Step(`^the response does not mention GitHub$`, st.noGitHubMention)
 			sc.Step(`^the minted grant's funder wallet is "([^"]*)"'s (u_apple|u_gh) wallet$`, st.funderWalletIs)
-			sc.Step(`^the payout request is refused for lacking a GitHub-linked account$`, st.payoutRefusedNoGitHub)
+			sc.Step(`^the payout surface accepts the identity-verified Apple owner$`, st.payoutAdmittedVerified)
 		},
 		Options: &godog.Options{Format: "pretty", Paths: []string{"../../features/grants/apple_owner_management.feature"}, TestingT: t, Strict: true},
 	}

@@ -236,3 +236,44 @@ func TestWalletRecencyClawGroupsEdgeLotsPerRequest(t *testing.T) {
 		})
 	}
 }
+
+// SettleEdge caps the capture at the recorded hold - and the SHARES must shrink with it, or
+// the operators would be paid a percentage of money the consumer never actually paid (minted
+// from the platform's pocket). Runs against Mem AND Postgres.
+func TestSettleEdgeScalesSharesWithACappedCost(t *testing.T) {
+	t.Setenv("ROGERAI_PAYOUT_HOLD_DAYS", "0")
+	t.Setenv("ROGERAI_PAYOUT_RESERVE", "0")
+	for name, db := range parityStores(t) {
+		t.Run(name, func(t *testing.T) {
+			uid := name + "-" + time.Now().UTC().Format("150405.000000000")
+			user, station, stAcct, twNode, twAcct := "u-"+uid, "n-"+uid, "sa-"+uid, "tower:tw-"+uid, "ta-"+uid
+			if _, err := db.AddCredits(user, 100); err != nil {
+				t.Fatal(err)
+			}
+			held, err := db.HoldFor(user, "req-"+uid, 10) // the reservation: 10
+			if err != nil || !held {
+				t.Fatalf("hold: %v %v", held, err)
+			}
+
+			// A (defensively impossible) cost of 20 with shares computed from it: 14 / 2.
+			rec := protocol.UsageReceipt{RequestID: "req-" + uid, Model: "m", TS: time.Now().Unix()}
+			if _, err := db.SettleEdge(user, station, stAcct, twNode, twAcct, 20, 14, 2, rec); err != nil {
+				t.Fatal(err)
+			}
+
+			later := time.Now().Add(time.Hour)
+			sSt, _ := db.EarningSplitOf(stAcct, later)
+			sTw, _ := db.EarningSplitOf(twAcct, later)
+			if !approx(sSt.Payable, 7) {
+				t.Fatalf("%s: station share = %v, want 7 (scaled to the captured 10)", name, sSt.Payable)
+			}
+			if !approx(sTw.Payable, 1) {
+				t.Fatalf("%s: tower share = %v, want 1 (scaled to the captured 10)", name, sTw.Payable)
+			}
+			bal, _ := db.PeekBalance(user)
+			if !approx(bal, 90) {
+				t.Fatalf("%s: consumer balance = %v, want 90 (paid only the reservation)", name, bal)
+			}
+		})
+	}
+}

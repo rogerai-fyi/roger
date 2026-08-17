@@ -218,6 +218,13 @@ type Store interface {
 	// resurrecting the old one. The caller passes an already-normalized address; the
 	// comparison is case-insensitive so a stray spelling cannot mint a second account.
 	OwnerByVerifiedEmail(email string) (Owner, bool, error)
+	// OwnerByAppleSub returns the owner linked to this Apple identity (the stable
+	// "sub" claim Apple issues per account), ok=false if none. The sub is Apple's
+	// unique account key, so this resolves the correct account without any reliance on
+	// a collidable login string - which is what keeps an Apple session from ever
+	// reaching a GitHub account by name collision (features/security/apple_session_isolation).
+	// An anonymized (deleted) account never resolves.
+	OwnerByAppleSub(sub string) (Owner, bool, error)
 	// ClaimWelcome atomically stamps the owner's WelcomedAt (now) IFF it is unset,
 	// returning whether THIS call claimed it. It is the once-only guard for the welcome
 	// email: a true result means the caller (and only the caller) should send it.
@@ -1321,7 +1328,13 @@ func (m *Mem) SettleEdge(user, stationNode, stationAcct, towerNode, towerAcct st
 	}
 	held := ph.amount
 	if cost > held {
-		cost = held // never charge more than was reserved (billable is clamped upstream; defensive)
+		// Never charge more than was reserved (billable is clamped upstream; defensive) - and
+		// the SHARES shrink with the capture, or the operators would be paid a percentage of
+		// money the consumer never actually paid (minted from the platform's pocket).
+		scale := held / cost
+		stationShare *= scale
+		towerShare *= scale
+		cost = held
 	}
 	if rec.RequestID != "" {
 		m.settled[rec.RequestID] = true
@@ -1567,6 +1580,20 @@ func (m *Mem) OwnerByVerifiedEmail(email string) (Owner, bool, error) {
 	defer m.mu.Unlock()
 	for _, o := range m.owners {
 		if o.EmailVerifiedAt != 0 && !o.Anonymized && strings.EqualFold(o.Email, email) {
+			return o, true, nil
+		}
+	}
+	return Owner{}, false, nil
+}
+
+func (m *Mem) OwnerByAppleSub(sub string) (Owner, bool, error) {
+	if sub == "" {
+		return Owner{}, false, nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, o := range m.owners {
+		if o.AppleSub == sub && !o.Anonymized {
 			return o, true, nil
 		}
 	}

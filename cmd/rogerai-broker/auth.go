@@ -471,6 +471,55 @@ func (b *broker) sessionGitHubOwner(login string, gid int64) (store.Owner, bool)
 	return o, found
 }
 
+// hasVerifiedIdentity reports whether an owner has PROVEN who they are through any
+// supported provider - GitHub, Apple, or a verified email. It is the account-model
+// prerequisite for cashing out (KYC still happens separately at Stripe Connect); an
+// anonymized (deleted) account never qualifies. Consolidating the three providers here
+// is what lets an Apple- or email-signup Tower operator reach the SAME payout surface a
+// GitHub operator does, without loosening any downstream policy.
+func hasVerifiedIdentity(o store.Owner) bool {
+	return !o.Anonymized && (o.GitHubID != 0 || o.AppleSub != "" || o.EmailVerifiedAt != 0)
+}
+
+// sessionAnyOwner resolves a logged-in browser session to its bound owner across ALL
+// account providers, each keyed by its own UNIQUE, non-collidable identifier so the
+// apple_session_isolation invariant is preserved (a session never reaches another
+// provider's account by a login-string collision):
+//
+//   - GitHub session (gid != 0): resolved via sessionGitHubOwner (login, gid-gated).
+//   - Apple session (appleSub set): resolved by the Apple "sub", Apple's stable key.
+//   - Email session (the only remaining web login: gid==0, no appleSub): resolved by the
+//     PROVEN email address the session carries as its login.
+//
+// ok reports a valid session at all (even when no operator row is bound yet, so callers
+// can emit a precise "no operator account" 403 rather than a blunt 401); found reports
+// that an owner row was actually resolved.
+func (b *broker) sessionAnyOwner(r *http.Request) (login string, o store.Owner, found, ok bool) {
+	c, err := r.Cookie(sessionCookie)
+	if err != nil || c.Value == "" {
+		return "", store.Owner{}, false, false
+	}
+	l, gid, _, appleSub, vok := b.verifySessionFull(c.Value)
+	if !vok {
+		return "", store.Owner{}, false, false
+	}
+	switch {
+	case gid != 0:
+		if rec, f := b.sessionGitHubOwner(l, gid); f {
+			return l, rec, true, true
+		}
+	case appleSub != "":
+		if rec, f, _ := b.db.OwnerByAppleSub(appleSub); f {
+			return l, rec, true, true
+		}
+	default: // email session: gid==0 and no Apple sub. login is the proven address.
+		if rec, f, _ := b.db.OwnerByVerifiedEmail(l); f {
+			return l, rec, true, true
+		}
+	}
+	return l, store.Owner{}, false, true
+}
+
 func (b *broker) accountGet(w http.ResponseWriter, r *http.Request, login string, gid int64, wallet string) {
 	bal, _ := b.db.BalanceOf(wallet, b.seedFunds)
 	out := map[string]any{

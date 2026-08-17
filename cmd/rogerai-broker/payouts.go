@@ -104,41 +104,42 @@ func (c connect) stripeForm(method, path string, form url.Values, out any) (int,
 	return resp.StatusCode, nil
 }
 
-// payoutOwner resolves the GitHub-linked operator behind a connect/payout request,
+// payoutOwner resolves the identity-verified operator behind a connect/payout request,
 // accepting EITHER auth path:
 //
-//  1. a logged-in BROWSER session cookie (the web /payouts page), or
+//  1. a logged-in BROWSER session cookie (the web /payouts page) for ANY account
+//     provider - GitHub, Apple, or first-party email - or
 //  2. a signed CLI request (Ed25519, the SAME request-signing the rest of the client
-//     uses) whose pubkey is bound to a non-anonymized GitHub owner.
+//     uses) whose pubkey is bound to a non-anonymized, identity-verified owner.
 //
-// Both paths converge on the owner's GitHub login + owner record, so every downstream
-// gate (KYC / 120-day hold / $25 min / debit-first transfer rail / dispute clawback)
-// is identical no matter how the caller authenticated. This is purely an additional
-// AUTH path - it changes no policy. A signed-but-UNBOUND keypair (not logged in via
-// `roger login`) is rejected here: payouts are KYC + GitHub-linked only, so a
-// headless provider must have linked GitHub to cash out. An unsigned / anonymous
-// request (no cookie, no valid signature) returns ok=false -> 401.
+// Both paths converge on the owner record, so every downstream gate (KYC / 120-day hold
+// / $25 min / debit-first transfer rail / dispute clawback) is identical no matter how
+// the caller authenticated or which provider they signed up with. This is purely AUTH
+// resolution - it changes no policy. A signed-but-UNBOUND keypair, or a session with no
+// operator row, is returned with an empty Owner so the handler emits a precise "no
+// operator account" 403; an unsigned / anonymous request returns ok=false -> 401.
+//
+// Every provider is resolved by its own UNIQUE key (GitHub id / Apple sub / verified
+// email), never a collidable login, so widening beyond GitHub does not weaken the
+// apple_session_isolation invariant (see sessionAnyOwner).
 //
 // body is the exact request body the signature is verified over (nil for GET).
 func (b *broker) payoutOwner(r *http.Request, body []byte) (login string, o store.Owner, ok bool) {
-	// 1) Web session cookie (browser). GitHub sessions only (the gid gate, A1 -
-	// features/security/apple_session_isolation.feature): an Apple WEB session must never
-	// reach a GitHub owner's payout/connect state through a login collision. Payouts are
-	// GitHub+KYC-only, so a gid==0 session correctly falls through to the 403 below.
-	if l, gid, _, sok := b.sessionOwner(r); sok {
-		if rec, found := b.sessionGitHubOwner(l, gid); found {
+	// 1) Web session cookie (browser), any provider.
+	if l, rec, found, sok := b.sessionAnyOwner(r); sok {
+		if found {
 			return l, rec, true
 		}
-		// A valid session whose login is not (yet) a bound operator: still a logged-in
-		// identity - return it so the handler emits the "no operator account" 403.
+		// A valid session whose identity is not (yet) a bound operator: still a
+		// logged-in identity - return it so the handler emits the "no operator" 403.
 		return l, store.Owner{}, true
 	}
 	// 2) Signed CLI request: it MUST verify (identityOf rejects an offered-but-invalid
-	// signature), and its pubkey MUST be bound to a non-anonymized GitHub owner (the
-	// GitHub-link/KYC prerequisite). A signed-but-unbound keypair is anonymous here -
-	// no wallet, no payouts.
+	// signature), and its pubkey MUST be bound to a non-anonymized, identity-verified
+	// owner (the account/KYC prerequisite). A signed-but-unbound keypair is anonymous
+	// here - no wallet, no payouts.
 	if _, authed, iok := b.identityOf(r, body); iok && authed {
-		if rec, found := b.requireOwner(r); found && !rec.Anonymized && rec.GitHubID != 0 {
+		if rec, found := b.requireOwner(r); found && hasVerifiedIdentity(rec) {
 			return rec.Login, rec, true
 		}
 	}
@@ -160,11 +161,11 @@ func (b *broker) connectOnboard(w http.ResponseWriter, r *http.Request) {
 	body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<16))
 	login, o, ok := b.payoutOwner(r, body)
 	if !ok {
-		jsonErr(w, http.StatusUnauthorized, "not logged in - run `roger login` to link GitHub")
+		jsonErr(w, http.StatusUnauthorized, "not signed in - sign in at rogerai to view earnings and cash out")
 		return
 	}
-	if o.GitHubID == 0 {
-		jsonErr(w, http.StatusForbidden, "no operator account for this login (run `roger login` on a node first)")
+	if !hasVerifiedIdentity(o) {
+		jsonErr(w, http.StatusForbidden, "no operator account for this login (sign in and run a node first)")
 		return
 	}
 
@@ -231,10 +232,10 @@ func (b *broker) connectStatus(w http.ResponseWriter, r *http.Request) {
 	corsCreds(w, r)
 	login, o, ok := b.payoutOwner(r, nil)
 	if !ok {
-		jsonErr(w, http.StatusUnauthorized, "not logged in - run `roger login` to link GitHub")
+		jsonErr(w, http.StatusUnauthorized, "not signed in - sign in at rogerai to view earnings and cash out")
 		return
 	}
-	if o.GitHubID == 0 {
+	if !hasVerifiedIdentity(o) {
 		jsonErr(w, http.StatusForbidden, "no operator account for this login")
 		return
 	}
@@ -304,10 +305,10 @@ func (b *broker) payoutsRequest(w http.ResponseWriter, r *http.Request) {
 	body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<16))
 	login, o, ok := b.payoutOwner(r, body)
 	if !ok {
-		jsonErr(w, http.StatusUnauthorized, "not logged in - run `roger login` to link GitHub")
+		jsonErr(w, http.StatusUnauthorized, "not signed in - sign in at rogerai to view earnings and cash out")
 		return
 	}
-	if o.GitHubID == 0 {
+	if !hasVerifiedIdentity(o) {
 		jsonErr(w, http.StatusForbidden, "no operator account for this login")
 		return
 	}
@@ -619,10 +620,10 @@ func (b *broker) payoutsHistory(w http.ResponseWriter, r *http.Request) {
 	corsCreds(w, r)
 	_, o, ok := b.payoutOwner(r, nil)
 	if !ok {
-		jsonErr(w, http.StatusUnauthorized, "not logged in - run `roger login` to link GitHub")
+		jsonErr(w, http.StatusUnauthorized, "not signed in - sign in at rogerai to view earnings and cash out")
 		return
 	}
-	if o.GitHubID == 0 {
+	if !hasVerifiedIdentity(o) {
 		jsonErr(w, http.StatusForbidden, "no operator account for this login")
 		return
 	}
@@ -655,10 +656,10 @@ func (b *broker) payoutsEarnings(w http.ResponseWriter, r *http.Request) {
 	corsCreds(w, r)
 	_, o, ok := b.payoutOwner(r, nil)
 	if !ok {
-		jsonErr(w, http.StatusUnauthorized, "not logged in - run `roger login` to link GitHub")
+		jsonErr(w, http.StatusUnauthorized, "not signed in - sign in at rogerai to view earnings and cash out")
 		return
 	}
-	if o.GitHubID == 0 {
+	if !hasVerifiedIdentity(o) {
 		jsonErr(w, http.StatusForbidden, "no operator account for this login")
 		return
 	}
@@ -752,10 +753,10 @@ func (b *broker) payoutLots(w http.ResponseWriter, r *http.Request) {
 	}
 	_, o, ok := b.payoutOwner(r, nil)
 	if !ok {
-		jsonErr(w, http.StatusUnauthorized, "not logged in - run `roger login` to link GitHub")
+		jsonErr(w, http.StatusUnauthorized, "not signed in - sign in at rogerai to view earnings and cash out")
 		return
 	}
-	if o.GitHubID == 0 {
+	if !hasVerifiedIdentity(o) {
 		jsonErr(w, http.StatusForbidden, "no operator account for this login")
 		return
 	}
