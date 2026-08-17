@@ -33,6 +33,7 @@ package station
 import (
 	"hash/fnv"
 	"sync"
+	"time"
 )
 
 // Transcript is the exact bytes of one attempt.
@@ -42,13 +43,26 @@ type Transcript struct {
 	Response  []byte `json:"response"`
 }
 
+// auditRetention is how long a kept transcript is PROTECTED from count-based eviction:
+// comfortably past Core's 30-minute audit deadline, so a busy honest node cannot evict a
+// transcript before the audit that wants it can arrive. (An audit review found the pure
+// count bound turned high throughput into "cannot produce" findings against the honest.)
+const auditRetention = 40 * time.Minute
+
+// transcriptHardCap bounds the store absolutely, retention notwithstanding: a node sustaining
+// enough traffic to hold this many un-aged transcripts is trading memory for auditability,
+// and at the cap the oldest goes regardless - loudly the day the eviction happens young.
+const transcriptHardCap = 16384
+
 // Transcripts is a bounded, sampled store of recent transcripts.
 type Transcripts struct {
 	mu      sync.Mutex
 	by      map[string]Transcript
 	order   []string
+	keptAt  map[string]time.Time
 	limit   int
-	sampleN uint32 // keep 1 in sampleN; 1 means keep all
+	sampleN uint32           // keep 1 in sampleN; 1 means keep all
+	now     func() time.Time // seam for the retention tests
 }
 
 // NewTranscripts builds a store keeping at most `limit` transcripts, sampling 1 in `sampleN`.
@@ -63,7 +77,8 @@ func NewTranscripts(limit int, sampleN uint32) *Transcripts {
 	if sampleN == 0 {
 		sampleN = 1
 	}
-	return &Transcripts{by: map[string]Transcript{}, limit: limit, sampleN: sampleN}
+	return &Transcripts{by: map[string]Transcript{}, keptAt: map[string]time.Time{},
+		limit: limit, sampleN: sampleN, now: time.Now}
 }
 
 // sampled decides, deterministically from the attempt id, whether to keep this one. Determinism
@@ -89,14 +104,21 @@ func (s *Transcripts) Keep(t Transcript) {
 	if _, exists := s.by[t.AttemptID]; exists {
 		return
 	}
+	now := s.now()
 	for len(s.order) >= s.limit {
-		// Drop the oldest: an attempt old enough to have aged out is old enough that its audit
-		// window has almost certainly passed, so it is the cheapest one to lose.
 		oldest := s.order[0]
+		// TIME-BASED PROTECTION: an entry younger than the audit-retention window is one an
+		// audit may still legitimately want, so the count limit yields and the store grows -
+		// up to the hard cap, past which the oldest goes regardless.
+		if now.Sub(s.keptAt[oldest]) < auditRetention && len(s.order) < transcriptHardCap {
+			break
+		}
 		s.order = s.order[1:]
 		delete(s.by, oldest)
+		delete(s.keptAt, oldest)
 	}
 	s.by[t.AttemptID] = t
+	s.keptAt[t.AttemptID] = now
 	s.order = append(s.order, t.AttemptID)
 }
 

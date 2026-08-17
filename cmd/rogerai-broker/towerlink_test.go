@@ -1480,3 +1480,37 @@ func TestPromoteMovesAQuarantinedStationToActive(t *testing.T) {
 	at, _, _ = b.tower.stations.Station("st-q")
 	require.Equal(t, "active", string(at.State))
 }
+
+// A LAPSED tower cannot use the link (re-added after the invite-flow rig that carried this
+// died): the lease is what bounds what a Tower may do while nobody is watching, and an
+// expired Tower's next hello is refused rather than quietly resuming.
+func TestALapsedTowerCannotUseTheLink(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	op := signedInOperator(t, b, "octocat")
+	lt := enrolledTower(t, b, op.login)
+
+	var acc link.Accepted
+	code, raw := lt.call(t, srv, "/tower/session",
+		jsonOf(t, link.Hello{
+			Network: link.PublicNetwork, Versions: []int{1}, TowerID: lt.id,
+			Capabilities: mandatoryCaps(),
+		}), &acc)
+	require.Equal(t, http.StatusOK, code, raw, "a freshly admitted tower holds the link")
+
+	// Backdate the LEASE itself: towerMayHoldLink refuses a lapsed lease even before any
+	// state transition - the lease is the bound on unsupervised time.
+	tw, found, err := b.tower.admitStore.TowerByID(lt.id)
+	require.NoError(t, err)
+	require.True(t, found)
+	tw.LeaseExpires = time.Now().Add(-time.Minute)
+	won, err := b.tower.admitStore.CASTower(tw)
+	require.NoError(t, err)
+	require.True(t, won)
+
+	code, raw = lt.call(t, srv, "/tower/session",
+		jsonOf(t, link.Hello{
+			Network: link.PublicNetwork, Versions: []int{1}, TowerID: lt.id,
+			Capabilities: mandatoryCaps(),
+		}), nil)
+	require.NotEqual(t, http.StatusOK, code, "an expired tower's hello is refused: %s", raw)
+}

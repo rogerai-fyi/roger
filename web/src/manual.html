@@ -589,20 +589,21 @@
           <section class="man-sec" id="sTower">
             <span class="man-sec__no">§T · Run a Tower (relay)</span>
             <h2>Run a Tower</h2>
-            <p class="man-lead">A <b>Tower</b> is the relay every Station dials out to - the
-              thing the API and the manual call the <b>broker</b>. Running one puts a relay on
-              the network that carries traffic to Stations. It runs <b>no model</b> and holds
-              <b>no model keys</b>: it forwards opaque, encrypted work. The concept page is
-              <a href="/tower.html">The Tower</a>.</p>
+            <p class="man-lead">A <b>Tower</b> extends the broker&rsquo;s data plane: it hosts
+              the <b>hub</b> that consumers submit sealed work to and that providers&rsquo;
+              nodes (<code>roger share --tower</code>) poll to serve it. It runs <b>no model</b>
+              and holds <b>no keys to the content</b>: every request and every answer crosses it
+              encrypted end-to-end, and it is paid for carrying what it cannot read. The concept
+              page is <a href="/tower.html">The Tower</a>.</p>
             <div class="man-note">
-              <span class="man-note__tag">earning: rolling out</span>
-              Paying Tower operators is designed and partly built - the metered relay path, the
-              signed-receipt settlement, and the earnings ledger that feeds
-              <a href="/payouts.html">Payouts &rarr; Towers &amp; relay</a> all exist. But it is
-              <b>not live for you yet</b>: today's relayed overflow traffic is carried free, and
-              the payout rail for relay earnings is the last milestone still being wired. Run a
-              Tower now to put your relay on the network and attach Stations; treat relay
-              <b>earnings as not-yet-live</b> until we say otherwise.
+              <span class="man-note__tag">earning: settling, payouts pending</span>
+              The whole metered loop is <b>built and proven end-to-end</b>: a node lists its own
+              per-token price, your Tower carries the sealed work, settlement splits every
+              request <b>70% to the node, 10% to you, 20% to the platform</b>, and the ledger
+              feeds <a href="/payouts.html">Payouts &rarr; Towers &amp; relay</a>. What is
+              <b>not live yet</b> is the last mile: the payout rail that moves accrued
+              earnings out to your bank. Run a Tower now and your 10% accrues on every settled
+              request; treat it as <b>accruing, not yet withdrawable</b> until the rail ships.
             </div>
 
             <div class="man-note man-note--live">
@@ -636,12 +637,16 @@
 <span class="p">$</span> roger-tower init --dir /var/lib/roger-tower       <span class="c"># create keys + local state</span>
 <span class="p">$</span> roger-tower doctor                                 <span class="c"># pre-flight: config, reachability, clock</span>
 <span class="p">$</span> roger-tower register                               <span class="c"># enroll this Tower against the broker</span>
-<span class="p">$</span> roger-tower status                                 <span class="c"># admission state, lease, attached Stations</span></pre>
-            <p>Attach the Stations that will serve behind your Tower with
-              <code>invite</code> &rarr; <code>admit</code> &rarr; <code>attach</code>, then
-              <code>route</code> to see what Core will send where. <code>roger-tower --help</code>
-              lists every command (<code>drain</code>, <code>resume</code>, <code>revoke</code>,
-              <code>probe</code>, <code>stations</code>).</p>
+<span class="p">$</span> roger-tower status                                 <span class="c"># admission state, lease, attached nodes</span>
+<span class="p">$</span> roger-tower serve --hub :8444 --relay-public YOUR.HOST:8444   <span class="c"># hold the link + host the data plane</span></pre>
+            <p>You attach nobody by hand: providers run <code>roger share --tower</code> and
+              their node <b>self-attaches</b> - one signed call registers its keys, model, and
+              its own listed price, and Core routes consumers to your hub.
+              <code>roger-tower station revoke</code> is your kill switch for a node serving
+              under your Tower, and <code>roger-tower probe --model NAME</code> drives the
+              whole sealed loop as a consumer to prove your Tower carries work.
+              <code>roger-tower --help</code> lists every command (<code>drain</code>,
+              <code>resume</code>, <code>revoke</code>).</p>
 
             <h3>Run it as a service</h3>
             <p>A hardened <code>systemd</code> unit ships in the repo under
@@ -652,13 +657,13 @@
               service status.</p>
 
             <div class="man-note man-note--live">
-              <span class="man-note__tag">where it will show</span>
-              When relay earning goes live, what your Tower relays and earns appears in
+              <span class="man-note__tag">where it shows</span>
+              What your Tower carries and accrues appears in
               <a href="/payouts.html">Payouts &rarr; Towers &amp; relay</a> - the serving vs
               relaying split, your fleet's state, and the held &rarr; payable &rarr; paid
-              pipeline, keyed to your account. That surface already shows your fleet today; the
-              relay earnings figures fill in once the path is live. Payouts themselves work for
-              any sign-in (GitHub, Apple, or email) once you finish Stripe Connect onboarding
+              pipeline, keyed to your account. Settled relay earnings accrue there now;
+              withdrawing them waits on the payout rail. Payouts themselves work for any
+              sign-in (GitHub, Apple, or email) once you finish Stripe Connect onboarding
               (§7).
             </div>
           </section>

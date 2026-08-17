@@ -123,10 +123,13 @@ type towerSubsystem struct {
 	heads    *head.Reconciler
 	stations *attach.Registry
 	policy   *policy.Policy
-	// stationStore is kept so attachment authorizations can be seeded by the operator-facing
-	// invite flow (and by tests) without reaching through the Registry, which deliberately
-	// exposes only admission and lookup.
+	// stationStore is kept so attachment authorizations can be seeded by tests and internal
+	// flows without reaching through the Registry, which deliberately exposes only admission
+	// and lookup. admitStore is kept for the same reason on the Tower side: lease state is
+	// the Registry's to enforce, and reaching it (a test backdating a lease, operator
+	// tooling reading one) must not mean widening the Registry's API.
 	stationStore attach.Store
+	admitStore   admit.Store
 
 	// DISPATCH: the attempt registry that issues one-use signed grants, the in-process queue
 	// a Tower collects work from, and the public half of the grant key a Station pins so it
@@ -288,6 +291,7 @@ func newTowerSubsystem(b *broker, registryStore admit.Store, custody cert.Custod
 
 	ts.stations, ts.policy, ts.heads, ts.link, ts.inv = stations, pol, heads, sessions, inventory
 	ts.stationStore = deps.stations
+	ts.admitStore = registryStore
 	ts.dispatch = dispatch.NewWithStore(dispatch.Config{
 		Network:  link.PublicNetwork,
 		Signer:   grantKey,

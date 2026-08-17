@@ -1,5 +1,12 @@
 # RogerAI Tower network plan
 
+> **ARCHIVAL — a plan, largely executed and partly superseded.** The network this document
+> planned shipped in a different final shape: the leaf-station generation (roger-station,
+> the TLS-splice relay, invite files) was built, then retired in favor of the sealed hub -
+> providers run `roger share --tower` and self-attach, towers host the sealed data plane,
+> and settlement pays node 70 / tower 10 / platform 20 at the node's own listed per-token
+> price. Read `docs/tower.md` for what runs today; this file remains as the planning record.
+
 Status: **proposed for founder approval; no implementation is authorized by this document**
 
 Last updated: 2026-08-02

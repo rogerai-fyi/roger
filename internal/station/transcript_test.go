@@ -3,6 +3,7 @@ package station
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -25,15 +26,21 @@ func TestKeepAndGetRoundTrip(t *testing.T) {
 
 // Bounded, dropping the oldest - an attempt old enough to age out has almost certainly
 // aged out of its audit window too.
-func TestAFullTranscriptStoreDropsTheOldest(t *testing.T) {
+func TestAFullTranscriptStoreDropsTheOldestOnceAged(t *testing.T) {
 	s := NewTranscripts(3, 1)
+	clock := time.Now()
+	s.now = func() time.Time { return clock }
 	for i := 0; i < 5; i++ {
 		s.Keep(tr(fmt.Sprintf("att-%d", i)))
 	}
-	require.Equal(t, 3, s.Len())
+	// Young entries are audit-protected: the store grows rather than evicting them.
+	require.Equal(t, 5, s.Len())
+	// Once aged past the retention window, the count limit evicts oldest-first again.
+	clock = clock.Add(auditRetention + time.Minute)
+	s.Keep(tr("att-5"))
 	_, ok := s.Get("att-0")
 	require.False(t, ok)
-	_, ok = s.Get("att-4")
+	_, ok = s.Get("att-5")
 	require.True(t, ok)
 }
 

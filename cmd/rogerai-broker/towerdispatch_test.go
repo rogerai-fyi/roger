@@ -204,3 +204,35 @@ func TestCorePublishesBothPinnedKeys(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, b.tower.envelopePub, againPub)
 }
+
+// A BROKER CAN AUTHORIZE ONTO A TOWER LINKED ELSEWHERE (the edge-path successor of the
+// deleted Topology-1 cross-broker test): the tower holds ONE link, to ONE broker, and the
+// fleet projection is what lets every other instance still route consumers to its hub.
+func TestABrokerAuthorizesOntoATowerLinkedElsewhere(t *testing.T) {
+	a, aSrv, c, cSrv := twoBrokers(t)
+
+	// The tower links to broker A; the self-attached node's row lands in the SHARED
+	// projection with A's advertised endpoint.
+	tw := liveEdgeTower(t, a, aSrv, "xb-tower-op", "203.0.113.5:8444")
+	node := signedInOperator(t, a, "xb-node-op")
+	body, _ := selfAttachBody(t)
+	body["model"], body["modality"], body["price_out_micros"] = "xb-model", "chat", 250_000
+	var attached map[string]any
+	code, raw := node.call(t, aSrv, http.MethodPost, "/tower/edge/attach", body, &attached)
+	require.Equal(t, http.StatusOK, code, raw)
+
+	// Broker C never saw this tower's link - and still authorizes a consumer onto it, at the
+	// node's own pinned price, with the endpoint the projection carried across.
+	consumer := signedInConsumer(t, c)
+	code, auth := consumerCall(t, cSrv, consumer, "/tower/edge/authorize", map[string]any{
+		"model": "xb-model", "consumer_env_key": testEnvKeyHex(t),
+	})
+	require.Equal(t, http.StatusOK, code, auth)
+	require.Equal(t, "203.0.113.5:8444", auth["endpoint"],
+		"the endpoint crossed instances through the projection")
+	require.EqualValues(t, 250_000, auth["price_out_micros"],
+		"the node's own listed price is pinned by the instance that never held the link")
+	require.NotEmpty(t, auth["station_session_key"],
+		"the sealing key comes from the SHARED attachment record")
+	_ = tw
+}
