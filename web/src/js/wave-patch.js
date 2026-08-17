@@ -86,7 +86,7 @@
       only: "reasons in general language across many fleets - not just a fault enum. It can be ASKED things, and answer about a facility.",
       belowCant: "a gateway rolls up its own fleet; it cannot reason about the site around it",
       takes: "many fleets",
-      job: "a site rollup: every fleet's reads, summarised for one facility",
+      job: "a site rollup: every fleet's reads, summarized for one facility",
       does: "reasons across a whole facility",
       blurb: "multi-fleet reasoning across a facility - general-capable AND industrial; " +
              "no recorded run on this bench" },
@@ -504,7 +504,7 @@
   function caseSignalClue(r) {
     var w = r && r.window;
     if (!r || !w) {
-      return "The committed record has no exported signal summary, so this case must be checked against an independent source rather than guessed from a missing trace.";
+      return "Our recorded data has no signal summary for this case. Check it against an independent source rather than guessing from a missing trace.";
     }
     var unit = unitWordOf(r);
     var suffix = unit ? " " + unit : "";
@@ -550,7 +550,7 @@
     if (r.truth === "railed") {
       return clue + " That can look healthy on shape alone. The approved range and receiving configuration are what expose a rail or range mismatch.";
     }
-    return clue + " The waveform alone left the model answer plausible, while the committed label says an independent reference is still needed.";
+    return clue + " The waveform alone left the model answer plausible, while the recorded label says an independent reference is still needed.";
   }
 
   /* A red MODEL LIMIT is a disagreement between two different sources:
@@ -2234,7 +2234,7 @@
     if (missionReady()) {
       var verify = el("button", "sn-field__verify", "CLOSE CASE WITH A HEALTHY READ →");
       verify.type = "button";
-      verify.setAttribute("aria-label", "VERIFY WITH RECORDED OK. Opens a separate committed replay window.");
+      verify.setAttribute("aria-label", "VERIFY WITH RECORDED OK. Opens a separate recorded replay window.");
       verify.addEventListener("click", function () {
         if (!verifyMission()) return;
         react("Workflow verified against a separate recorded OK window; this is not proof that the training actions repaired the prior machine.");
@@ -3000,7 +3000,7 @@
           "The split runs up the Spectrum: Wave Pico and Nano are TOTAL specialists - " +
           "at chance on general benchmarks BY DESIGN (measured MMLU 26.9 against a " +
           "25 chance line - Pico v4 audit). Wave Micro and above are dual-capable by requirement: competitive " +
-          "on general benchmarks AND best-in-class industrial, with capability " +
+          "on general benchmarks AND on industrial ones, with capability " +
           "retention a gating metric (tier-scaling strategy, 2026-08-14)."));
         /* HONESTY FIX 2026-08-17 (audit): the line claimed "generalist models"
            as a whole read raw industrial telemetry at the chance floor - a
@@ -3028,17 +3028,17 @@
         if (selected) {
           var upward = Math.round(m.escalation.n * selected.escalation_rate);
           box.appendChild(el("p", "sn-why__p",
-            "At the selected " + PATCH.floor.toFixed(1) + " floor, the committed " +
+            "At the selected " + PATCH.floor.toFixed(1) + " floor, our recorded " +
             m.escalation.n + "-record sweep sent " + upward + " reads (" +
             (selected.escalation_rate * 100).toFixed(1) + "%) upward. The other " +
             (m.escalation.n - upward) + " ended at Pico. Open WHY NOT ONE BIG MODEL? " +
             "to compare the quality and residency-proxy result."));
         }
         box.appendChild(el("p", "sn-why__p",
-          "Wave Nano is placed on " + nano.runs + ". In that deployment shape, the " +
-          "machine-to-gateway handoff can remain inside the site network. That is topology, " +
-          "not a privacy guarantee: transport, storage, access control, and any configured " +
-          "egress still have to be secured by the operator."));
+          "Wave Nano is placed on " + nano.runs + ". In that layout, the " +
+          "machine-to-gateway handoff can stay inside the site network. That is a fact about " +
+          "topology, not a privacy guarantee. The operator still has to secure transport, " +
+          "storage, access control, and any egress they configure."));
       } },
       { key: "econ", label: "why not one big model?", build: function (box) {
         var chart = econChart();
@@ -3074,7 +3074,8 @@
           box.appendChild(facts);
         }
         box.appendChild(el("p", "sn-why__p",
-          "The x-axis is mean parameters evaluated per item, a residency proxy. It is not " +
+          "The x-axis is mean parameters evaluated per item, a residency proxy. " +
+          "Parent-everywhere means sending every read to the parent model. The axis is not " +
           "latency, energy, a cloud bill, or a hardware benchmark. Those require a deployment " +
           "measurement on the actual gateway and edge devices."));
         box.appendChild(el("p", "sn-why__cite",
@@ -3619,7 +3620,7 @@
       bar.appendChild(fill);
       row.appendChild(bar);
       row.appendChild(el("span", "sn-fleet__n", String(rw[1])));
-      row.title = rw[1] + " of " + t.n + " recorded channels - arithmetic over the committed records";
+      row.title = rw[1] + " of " + t.n + " recorded channels - arithmetic over the recorded data";
       rows.appendChild(row);
     });
     box.appendChild(rows);
@@ -3637,7 +3638,7 @@
     box.appendChild(tbl);
     box.appendChild(el("p", "sn-sub",
       "The whole recorded fleet replayed under your current settings - every count is " +
-      "arithmetic over the 120 committed records. Turn the FLOOR knob and watch the " +
+      "arithmetic over the 120 recorded records. Turn the FLOOR knob and watch the " +
       "catches move."));
     if (t.fixable) {
       box.appendChild(el("p", "sn-sub wp-read__mark--bad",
@@ -4207,7 +4208,7 @@
     }
     if (escalated && info.senior && r.parent.prediction === r.truth && m.moveStage === 0) {
       return { kind: "identify", correct: "nano",
-        question: "Pico asked for help. Which tier caught this fault in the committed run?",
+        question: "Pico asked for help. Which tier caught this fault in the recorded run?",
         reason: "Nano heard the doubt and its recorded answer matches the replay label.",
         choices: moveChoices(["pico", "nano", "micro"]) };
     }
@@ -4364,7 +4365,7 @@
     PATCH.detail = false;
     render();
     react((pick.cond === "none" ? "OK shift card dealt" : "Incident shift card dealt: " + pick.cond.toUpperCase()) +
-      ". Every value and model answer comes from the committed replay.");
+      ". Every value and model answer comes from the recorded replay.");
   }
 
   function frontMission() {
@@ -4636,7 +4637,7 @@
       ready.appendChild(receipts);
       var compareOk = el("button", "sn-mission__verify", "CLOSE CASE WITH A HEALTHY READ →");
       compareOk.type = "button";
-      compareOk.setAttribute("aria-label", "VERIFY WITH RECORDED OK. Opens a separate committed replay window.");
+      compareOk.setAttribute("aria-label", "VERIFY WITH RECORDED OK. Opens a separate recorded replay window.");
       compareOk.addEventListener("click", function () {
         if (!verifyMission()) return;
         react("Workflow compared with a separate recorded OK window; this is not proof that the training actions repaired the prior machine.");
@@ -5077,7 +5078,7 @@
       det.appendChild(dl);
       det.appendChild(el("p", "wp-note",
         "The raw stage above is byte-for-byte the window the model read in the recorded " +
-        "run; the live trace is its real sample series from the committed windows bundle. " +
+        "run; the live trace is its real sample series from the recorded windows bundle. " +
         "Every stage prints recorded fields; the margins are recorded logprob " +
         "differences - nothing in this browser computes one."));
       // the TRUST chip: the deck's one public mistake, worn as provenance.
@@ -5176,7 +5177,7 @@
     host.appendChild(svg("line", { class: "wp-scope__onset", x1: (0.4 * W).toFixed(1), x2: (0.4 * W).toFixed(1), y1: 4, y2: H - 4 }));
     box.appendChild(host);
     box.appendChild(el("p", "wp-note",
-      "The committed seed-42 pump scene: " + sc.steps.length + " recorded steps, fault onset at the dashed line. REPLAY, never live."));
+      "The recorded seed-42 pump scene: " + sc.steps.length + " recorded steps, fault onset at the dashed line. REPLAY, never live."));
   }
 
   function shortName(p) { return String(p || "").split("/").pop(); }
@@ -5702,8 +5703,8 @@
     if (v.kind === "ambiguous") {
       return { kind: "note", wired: wired,
                text: "Unclear: " + v.a.mod + " (" + v.a.hits + " marks) vs " + v.b.mod + " (" +
-                 v.b.hits + ") - the shim refuses to guess on thin evidence. That is the real " +
-                 "system's behaviour too. Paste more of the payload." };
+                 v.b.hits + ") - the reader refuses to guess on thin evidence. That is the real " +
+                 "system's behavior too. Paste more of the payload." };
     }
     if (v.kind === "few-numbers") {
       return { kind: "note", wired: wired,
@@ -5711,7 +5712,7 @@
                  "needs at least 8 samples to say anything about a signal; paste more of the series." };
     }
     return { kind: "note", wired: wired,
-             text: "Machine-shaped, but not a dialect the shim recognises - it reads eight " +
+             text: "Machine-shaped, but not a dialect the reader recognizes - it reads eight " +
                "dialects and their line shapes, and this matched none well enough to wrap " +
                "honestly. Try including the header lines of the dump." };
   }
@@ -5750,14 +5751,14 @@
     if (ta) ta.value = ""; // sent - the reply card carries what it earned
     paintMonitor();
     react(PATCH.reply.kind === "draft"
-      ? "Draft envelope built for " + PATCH.reply.wired + " - NOT RUN; no model runs in a browser."
+      ? "Draft request built for " + PATCH.reply.wired + " - NOT RUN; no model runs in a browser."
       : PATCH.reply.kind === "pingwait"
       ? "Asking Ping - a live answer over the Tower relay…"
       : PATCH.reply.kind === "reading"
       ? "The bench answered from the recorded window."
       : PATCH.reply.kind === "fleetread"
       ? "The bench answered from the recorded fleet."
-      : "The shim answered from the faceplate.");
+      : "The reader answered from the faceplate.");
     return PATCH.reply;
   }
 
@@ -5829,7 +5830,7 @@
       var rd2 = rep.read;
       if (rd2) {
         var read = el("div", "sn-shimread");
-        read.appendChild(el("b", "sn-shimread__k", "WHAT THE SHIM READ"));
+        read.appendChild(el("b", "sn-shimread__k", "WHAT THE READER SAW"));
         read.appendChild(el("p", "sn-para",
           rd2.name + (rd2.unit ? " · " + rd2.unit : " · unit not stated") +
           (rd2.feats ? " · " + rd2.feats.n + " points" : "") + " · " + rd2.mod));
@@ -5850,8 +5851,8 @@
             "computed from your paste just now - not a recorded window, and not a prediction"));
         } else if (rd2.undecoded) {
           read.appendChild(el("p", "sn-sub",
-            "the shim recognises the dialect but does not decode its packed values in-browser - " +
-            "the model reads the bytes; the envelope below carries them verbatim"));
+            "the reader recognizes the dialect but does not decode its packed values in-browser - " +
+            "the model reads the bytes; the request below carries them verbatim"));
         }
         box.appendChild(read);
       }

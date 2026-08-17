@@ -153,9 +153,13 @@ test("American-made and openness claims are component-specific", () => {
   // The carve-out is named with its actual scope (LICENSING.md): the protocol and
   // receipt SDK are Apache 2.0; the platform itself is not called open source.
   assert.match(page, /protocol and\s+usage-receipt SDK are Apache 2\.0/i);
-  // Licence is described as forward-looking until an artifact exists to carry one.
-  assert.match(page, /Artifact licence/i);
-  assert.doesNotMatch(page, /Artifact license: Apache-2\.0/i, "no definite licence for an unreleased artifact");
+  // COPY EDIT (2026-08-17): the heading is now "Model license" (American spelling,
+  // and "artifact" is internal build vocabulary on a first-contact page). The
+  // guarantee is unchanged and is what this re-anchors to: the licence of a released
+  // Wave model is described as forward-looking, never as a definite licence, because
+  // no artifact exists yet to carry one.
+  assert.match(page, /released Wave model will carry its own license/i);
+  assert.doesNotMatch(page, /(?:Artifact|Model) license: Apache-2\.0/i, "no definite licence for an unreleased model");
   assert.match(page, /network services/i);
   assert.match(page, /separate network terms/i);
   assert.doesNotMatch(page, /open-source (?:network|broker)/i);

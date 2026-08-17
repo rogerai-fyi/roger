@@ -2273,7 +2273,7 @@
       build: GAME_BUILD,
       exportedAt: new Date().toISOString(),
       honesty: "model words in these events are replayed record fields from the " +
-        "committed bench export; the plant itself is game simulation. This file " +
+        "recorded bench export. The plant itself is game simulation. This file " +
         "was written locally. Nothing leaves your machine except questions you " +
         "send to Ping over the plant radio - and those carry only your line's " +
         "summary numbers.",
@@ -2506,10 +2506,10 @@
     maint.appendChild(mt);
     maint.appendChild(el("p", "cl-maint__note",
       "If you pick a verb the card says is wrong and it fails, that machine's maintenance locks for " +
-      LOCKOUT_SECS + "s. Nano quotes this card instantly; INSPECT learns it the slow way. " +
-      "Better iron is easier iron: Mk II machines fault ~" + Math.round((MK_FAULT_MULT[1] - 1) * 100) +
-      "% less often and every verb runs " + Math.round((1 - MK_VERB_MULT[1]) * 100) + "% quicker; Mk III ~" +
-      Math.round((MK_FAULT_MULT[2] - 1) * 100) + "% less often, verbs " +
+      LOCKOUT_SECS + "s. Nano quotes this card instantly. INSPECT learns it the slow way. " +
+      "Better iron is easier iron. Mk II machines fault ~" + Math.round((MK_FAULT_MULT[1] - 1) * 100) +
+      "% less often, and every verb runs " + Math.round((1 - MK_VERB_MULT[1]) * 100) + "% quicker. " +
+      "Mk III machines fault ~" + Math.round((MK_FAULT_MULT[2] - 1) * 100) + "% less often, with verbs " +
       Math.round((1 - MK_VERB_MULT[2]) * 100) + "% quicker."));
     root.appendChild(maint);
 
@@ -2534,9 +2534,9 @@
 
     /* honesty footer */
     var note = el("p", "cl-note");
-    note.appendChild(el("b", null, "MODEL BEHAVIOUR: RECORDED REPLAY"));
+    note.appendChild(el("b", null, "MODEL BEHAVIOR: RECORDED REPLAY"));
     note.appendChild(document.createTextNode(
-      " · what Pico and Nano say is drawn from real records in the committed bench export, " +
+      " · what Pico and Nano say is drawn from real records in the recorded bench export, " +
       "misses included. THE PLANT ITSELF IS GAME SIMULATION: the cookies, coins, bands, wear and " +
       "throughput are invented for play. Micro and Giga read the game's own numbers - " +
       "no recorded run exists for those tiers."));
@@ -3477,10 +3477,10 @@
           "puts a model on one machine so it tells you when its reading stops being trustworthy"]);
       } else if (k0 === "nano") {
         rows.push(["NEXT", "WAVE NANO · " + MODEL_PRICE.nano,
-          "explains WHY and what to do - instant through Picos, or direct-watching one bare machine itself"]);
+          "explains WHY and what to do. It works instantly through Picos, or watches one bare machine directly"]);
       } else if (k0 === "micro" && reco.length > 1) {
         rows.push(["NEXT", "MICRO · " + MODEL_PRICE.micro + " or GIGA · " + MODEL_PRICE.giga,
-          "your call: another Micro holds one more dial; Giga is one mind on the LINE, with its Unit inspecting what nobody names"]);
+          "your call. Another Micro holds one more dial. Giga is one mind on the LINE, with its Unit inspecting what nobody names"]);
       } else if (k0 === "micro") {
         rows.push(["NEXT", "WAVE MICRO · " + MODEL_PRICE.micro,
           "the site view - and it can hold one knob for you"]);
@@ -3607,7 +3607,7 @@
 
     var col3 = el("div", "cl-branch");
     col3.appendChild(el("span", "cl-branch__head", "THE DESK"));
-    [["nano", "WAVE NANO", "tells you WHY, and what to change - instant through Picos, or direct-watching one bare machine on its own sweep", "explains the fault and gives the fix; no Picos needed to start"],
+    [["nano", "WAVE NANO", "tells you WHY, and what to change. It works instantly through Picos, or watches one bare machine directly on its own sweep", "explains the fault and gives the fix. No Picos needed to start"],
      ["micro", "WAVE MICRO", "the site view - and it can hold one knob", "all three machines at once"],
      ["giga", "WAVE GIGA", "one mind on every dial - its Unit walks the floor and inspects what nobody names", "bottleneck, forecast, full autonomy, auto-inspection, a live radio to ask"]
     ].forEach(function (row) {

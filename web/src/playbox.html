@@ -51,7 +51,7 @@
         </p>
         <p class="pg-hero__sub" id="pgHeroMesh" hidden>
           RogerAI builds <b>LLMs for machines</b>. Wire a device to a model, play the signal,
-          and watch what it asserts - every reading here is a committed export of the real bench.
+          and watch what it asserts - every reading here comes from our recorded export of the real bench.
         </p>
         <p class="pg-hero__sub" id="pgHeroFactory" hidden>
           A cookie line with one sensor and one dial per machine, and <b>no models</b> to start.
@@ -239,10 +239,11 @@
                     </div>
                   </form>
                 </details>
-                <p class="dk__surfnote">The contract: a strict tool call, routing decision,
-                  triage result, or typed extraction - no invented prose. Presets replay
-                  certified targets. Your own schema is rendered as a draft and never
-                  executed or presented as a model answer.</p>
+                <p class="dk__surfnote">The contract: the model returns a strict tool call,
+                  a routing decision, a triage result, or a typed extraction. It does not
+                  invent prose. Presets replay certified targets. We render your own schema
+                  as a draft. We never execute it, and never present it as a model
+                  answer.</p>
               </div>
 
               <!-- EMBED: the device the model rides in -->
@@ -278,13 +279,15 @@
                   </form>
                 </details>
                 <p class="dk__surfnote">The model embedded at the asset: its input is the
-                  device&rsquo;s own signal, and every device carries its fixed prompt - model
-                  and framing ship as one unit. The brain in these devices is <b>Wave Nano</b>,
-                  the gateway tier of the Wave Spectrum (the tier targets 0.8&ndash;1.5B; the
+                  device&rsquo;s own signal, and every device carries its fixed prompt. Model
+                  and framing ship as one unit.</p>
+                <p class="dk__surfnote"><b>Wave Nano</b> is the brain in these devices, the
+                  gateway tier of the Wave Spectrum. The tier targets 0.8&ndash;1.5B. Its
                   scratch build is queued behind Pico, and this run&rsquo;s exact params are
-                  pending export); <b>Wave Pico</b> is the
-                  edge tier that runs on a Pi (scratch-trained; certified 99.4M waypoint, target
-                  250&ndash;300M, runs with no GPU).</p>
+                  pending export.</p>
+                <p class="dk__surfnote"><b>Wave Pico</b> is the
+                  edge tier that runs on a Pi. It is scratch-trained, with a certified
+                  99.4M waypoint against a 250&ndash;300M target, and it runs with no GPU.</p>
               </div>
 
               <!-- GUARD: requests the model must refuse upward -->
@@ -482,8 +485,9 @@
         <p class="dk__realnote">
           <b>The labels are the contract.</b> <b>LIVE</b> means a hosted model answers over the
           network. <b>RECORDED</b> replays a certified target or captured output. <b>DRAFT</b>
-          is your browser-local input envelope and never claims a model ran it. Trained-off-air
-          and planned tapes cannot play. Nothing is promoted to live before it is hosted.
+          is the input you built in this browser, and it never claims a model ran it.
+          Trained-off-air and planned tapes cannot play. Nothing is promoted to live before
+          it is hosted.
         </p>
       </div>
     </section>
@@ -566,7 +570,7 @@
                   <span id="wsChainBadge"></span></span>
                 <div class="sn-chainrail" id="wsChain" role="group" aria-label="The model chain"></div>
                 <p class="sn-roadmap sn-roadmap--chain">In a real mesh one Pico reads many
-                  channels; this bench shows one for clarity &mdash; the monitor's FLEET tab
+                  channels. This bench shows one for clarity. The monitor's FLEET tab
                   replays all 120 recorded channels under your settings.</p>
                 <!-- THE WHY LAYER: the two standing questions, answered from
                      the measured bundle one tap away - the story stays off
@@ -608,7 +612,7 @@
                     <div class="sn-tvctl" id="wsTvCtl">
                       <button class="sn-tvctl__k sn-tvctl__k--deal" type="button"
                               data-mission="draw" aria-controls="wpMonitor"
-                              aria-label="Deal another committed recorded window">
+                              aria-label="Deal another recorded window">
                         <span>DEAL</span></button>
                       <button class="sn-tvctl__k" type="button" data-scroll="up"
                               aria-controls="wpMonitor" aria-label="Scroll the monitor up">
@@ -628,7 +632,7 @@
                     <div class="sn-prompt__line">
                       <label class="wp-scrub__label" for="wpPrompt">Talk to the chain</label>
                       <textarea class="sn-prompt__ta" id="wpPrompt" rows="2" spellcheck="false"
-                        title="typing feeds the translation shim - wire blobs and numbers earn a DRAFT envelope; small talk is answered by the interface"
+                        title="Paste machine data and it is wrapped into a DRAFT request, not run. Plain questions are answered by this page."
                         placeholder="Paste what your plant emits - a Modbus dump, Sparkplug payload, Prometheus text, raw numbers - or press a sample chip. Enter sends."></textarea>
                       <div class="sn-prompt__row">
                         <span class="sn-prompt__wire" id="wpPromptWire"></span>

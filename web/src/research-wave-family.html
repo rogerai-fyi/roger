@@ -119,9 +119,10 @@
               <span class="wf-node" style="--at:80.8%"><i></i><b>Exa</b></span>
             </div>
           </div>
-          <figcaption id="wf-rail-cap">Filled marker: a trained waypoint artifact exists
-            (Wave Pico&rsquo;s 100M-class build, certified against our own release gate; 250&ndash;300M is the tier
-            target; no public checkpoint released yet). Hollow: a program stage. The top
+          <figcaption id="wf-rail-cap">Filled marker: a trained waypoint artifact exists.
+            That is Wave Pico&rsquo;s 100M-class build, certified against our own release gate.
+            250&ndash;300M is the tier target. No public checkpoint has been released yet.
+            Hollow: a program stage. The top
             three tiers sit close because they are: Exa is under three times Tera, which
             is what half a decade looks like on a log axis. Wave Infinite is not a size,
             so it is not on this axis - it is the growth loop a base model enters
@@ -253,9 +254,10 @@
 
         <div class="device-contract">
           <p><b>Specialists first.</b> Wave Pico and Wave Nano are task-native total
-             specialists - at chance on general benchmarks by design (MMLU 26.9 against a
-             25 chance line, Pico v4 audit); reasoning and explanation grow from Wave Micro upward, where every
-             tier must stay competitive on general benchmarks as well as industrial ones.</p>
+             specialists. By design they score at chance on general benchmarks (MMLU 26.9
+             against a 25 chance line, Pico v4 audit). Reasoning and explanation grow from
+             Wave Micro upward, where every tier must stay competitive on general
+             benchmarks as well as industrial ones.</p>
           <p><b>How the recipes split.</b> Scratch means trained from random init on our
              data, and it is bounded by diverse tokens, not GPUs - measured healthy with no
              starvation knee through 1.5 billion parameters. Pico and Nano are the scratch
@@ -300,7 +302,7 @@
               <tr><th scope="row">Radio and intercom transcription</th><td class="tier-cell">Nano to Micro</td><td>Channel audio to a searchable shift log</td><td>Continuous audio, no bandwidth to ship it</td></tr>
               <tr><th scope="row">Gauge and panel reading</th><td class="tier-cell">Micro</td><td>Photograph of a dial or screen to a numeric reading</td><td>Legacy assets with no digital output</td></tr>
               <tr><th scope="row">Cause codes from technician notes</th><td class="tier-cell">Nano to Micro</td><td>Free-text repair note to a standard failure code</td><td>Notes stay on site; codes feed the local historian</td></tr>
-              <tr><th scope="row">Spare-part and BOM lookup</th><td class="tier-cell">Nano + Micro</td><td>Part described in words to a catalogue number</td><td>The catalogue is local and the site is disconnected</td></tr>
+              <tr><th scope="row">Spare-part and BOM lookup</th><td class="tier-cell">Nano + Micro</td><td>Part described in words to a catalog number</td><td>The catalog is local and the site is disconnected</td></tr>
               <tr><th scope="row">Procedure step-out detection</th><td class="tier-cell">Micro</td><td>Executed steps against the written procedure to a deviation flag</td><td>Controlled procedures never leave the plant</td></tr>
               <tr><th scope="row">Sensor drift and calibration triage</th><td class="tier-cell">Nano to Giga</td><td>Instrument trend to suspected drift and its likely cause</td><td>Continuous data, thin link, fast turnaround</td></tr>
               <tr><th scope="row">Shift handover summary</th><td class="tier-cell">Micro to Giga</td><td>A shift of logs and alarms to what the next crew must know</td><td>Personnel and incident detail stays on site</td></tr>
@@ -314,7 +316,7 @@
               <tr><th scope="row">Sterile processing records</th><td class="tier-cell">Nano to Micro</td><td>Sterilizer cycle record to a compliance exception</td><td>High volume, and the record stays with the department</td></tr>
               <tr><th scope="row">Platform fault triage</th><td class="tier-cell">Micro to Giga</td><td>Maintenance log to a coded fault and its likely cause</td><td>Denied and intermittent links, no reachback</td></tr>
               <tr><th scope="row">Readiness paperwork</th><td class="tier-cell">Nano to Micro</td><td>Free-text status to a structured readiness record</td><td>Air-gapped network</td></tr>
-              <tr><th scope="row">Supply catalogue lookup</th><td class="tier-cell">Nano</td><td>Part described in words to catalogue candidates</td><td>Disconnected depot, local catalogue</td></tr>
+              <tr><th scope="row">Supply catalog lookup</th><td class="tier-cell">Nano</td><td>Part described in words to catalog candidates</td><td>Disconnected depot, local catalog</td></tr>
             </tbody>
           </table>
         </div>
@@ -374,9 +376,9 @@
           <h2 class="wf-inf__title">The model that <span class="wf-inf__shimmer">grows</span>.</h2>
           <span class="wf-inf__badge">Prototype &middot; measured foundations, growth loop in development</span>
           <p>Every slot above is a fixed size. <b>Wave Infinite</b> is a prototype model
-             programme: start from a <b>Nano</b>, <b>Micro</b>, or <b>Giga</b> base,
-             and the model grows new weights - real parameters, trained on your work, not
-             prompts, not retrieval - inside a proof that the base behaviour is
+             program. Start from a <b>Nano</b>, <b>Micro</b>, or <b>Giga</b> base, and the
+             model grows new weights: real parameters, trained on your work, not prompts
+             and not retrieval. All of it happens inside a proof that the base behavior is
              preserved.</p>
         </div>
 
@@ -417,10 +419,10 @@
              makes the safety machinery non-optional rather than decorative. -->
         <figure class="wf-inf">
           <blockquote class="wf-inf__claim">
-            Why every change carries a certificate: specialisation damage can be
+            Why every change carries a certificate: specialization damage can be
             <b>statistically invisible</b> on the very benchmark you would check it with,
             and far worse once the workload shifts.
-            <span class="wf-inf__punch">You cannot monitor your way to safe specialisation.</span>
+            <span class="wf-inf__punch">You cannot monitor your way to safe specialization.</span>
           </blockquote>
 
           <ol class="wf-inf__loop">
@@ -428,8 +430,9 @@
               <span class="wf-inf__step">01</span><b>Reflection</b>
               <span class="wf-inf__state">Built and self-verifying</span>
               <small>The model&rsquo;s own execution - which experts fire, which could
-                fire, what the router compared - captured as first-class data by an
-                instrument that checks itself against the model on every token.</small>
+                fire, what the router compared - is captured as first-class data. The
+                instrument that captures it checks itself against the model on every
+                token.</small>
             </li>
             <li data-layer="certified" data-state="measured">
               <span class="wf-inf__step">02</span><b>Certified adaptation</b>
@@ -450,7 +453,7 @@
           </ol>
 
           <figcaption>Three layers, three states of proof. Each change starts provably
-            behaviour-preserving and keeps an exact path back.</figcaption>
+            behavior-preserving and keeps an exact path back.</figcaption>
         </figure>
 
         <div class="wf-inf__use">
@@ -473,9 +476,9 @@
               <div><dt>The certificate is sound</dt>
                 <dd>Removing every expert it marked unreachable left the model&rsquo;s
                   routing <b>bit-identical</b> - not close, unchanged.</dd></div>
-              <div><dt>Specialisation is safe on stable work</dt>
+              <div><dt>Specialization is safe on stable work</dt>
                 <dd>Within a single domain the guard <b>almost never fires</b>, so the
-                  specialisation holds for a stable workload.</dd></div>
+                  specialization holds for a stable workload.</dd></div>
               <div><dt>The guard is necessary</dt>
                 <dd>The moment the workload changes domain, the same certificates would
                   miss a <b>large share</b> of decisions. The fallback is what makes
@@ -489,17 +492,17 @@
           </div>
           <div class="wf-inf__unproven">
             <span class="research-kicker">IN MEASUREMENT</span>
-            <p>End-to-end speed of certified specialisation, and the growth layer&rsquo;s
-               quality gains. The prototype programme publishes both with error bars.</p>
+            <p>End-to-end speed of certified specialization, and the growth layer&rsquo;s
+               quality gains. The prototype program publishes both with error bars.</p>
           </div>
         </div>
 
         <p class="wf-inf__requires"><b>What it requires.</b> The certificate is
-          reachability certification of <b>mixture-of-experts</b> routing, so it applies
+          reachability certification of <b>mixture-of-experts</b> routing. It applies only
           to a model that has experts and a per-expert selection bias to read. That is a
-          base-model choice rather than something the family has today, and it does not
-          reach the microcontroller-class edge at all - a classifier of a few hundred
-          kilobytes is not a language model.</p>
+          base-model choice rather than something the family has today. It does not reach
+          the microcontroller-class edge at all: a classifier of a few hundred kilobytes
+          is not a language model.</p>
 
       </div>
     </section>

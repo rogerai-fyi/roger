@@ -106,7 +106,11 @@ test("honesty: a cross-instrument draw is disclosed, never blurred", () => {
 });
 
 test("honesty: the plant is labelled simulation, and the desk tiers claim no inference", () => {
-  assert.match(js, /MODEL BEHAVIOUR: RECORDED REPLAY/);
+  // COPY EDIT (2026-08-17): the honesty footer now reads MODEL BEHAVIOR, the
+  // American spelling the rest of the site uses ("American AI research" is the
+  // homepage H1). The guarantee is untouched and is what this re-anchors to: the
+  // footer names model behaviour as RECORDED REPLAY, in those words, on the face.
+  assert.match(js, /MODEL BEHAVIOR: RECORDED REPLAY/);
   assert.match(js, /THE PLANT ITSELF IS GAME SIMULATION/);
   assert.match(js, /no recorded run exists for those tiers/,
     "Micro and Giga are named as computing over game state, not replaying a model");
@@ -594,7 +598,10 @@ test("v25: the not-sure copy explains itself, and the maintenance card prints th
     "a run of doubts collapses into one line with a count, not a chirp per redraw");
   assert.ok(!/not sure[^"]*only/.test(js), "the opaque 'only 1.4' phrasing is gone");
   assert.match(js, /MAINTENANCE CARD · what fixes what/, "the doctrine is printed for study");
-  assert.match(js, /Nano quotes this card instantly; INSPECT learns it the slow way/,
+  // COPY EDIT (2026-08-17): the semicolon splice became two sentences. Same two
+  // claims, same order - re-anchored to both halves so the guarantee (Nano sells
+  // TIME, and INSPECT reaches the same answer the slow way) still has to be printed.
+  assert.match(js, /Nano quotes this card instantly\. INSPECT learns it the slow way/,
     "and the card prices the models honestly: they sell time, not secrets");
 });
 

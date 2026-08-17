@@ -1040,7 +1040,12 @@ test("v13: the fleet rollup is arithmetic over ALL the records, and moves with t
   const hi = h.deriveFleet();
   assert.ok(hi.totals.escalated > lo.totals.escalated,
     "raising the floor escalates more of the fleet");
-  assert.ok(/arithmetic over the 120 committed records|arithmetic over the committed records/.test(js),
+  // COPY EDIT (2026-08-17): "committed" is internal build vocabulary; the panel
+  // now says "recorded". Re-anchored to the VISIBLE panel string - the old regex
+  // would have kept passing on a code comment alone once the copy changed, which
+  // is not the guarantee. The guarantee is unchanged: the FLEET number must say
+  // on the face that it is arithmetic over the 120 recorded records.
+  assert.ok(/arithmetic over the 120 recorded records/.test(js),
     "and the panel says what the numbers are");
 });
 

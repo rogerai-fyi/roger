@@ -43,7 +43,7 @@
           <span class="sectionno">&sect;1 / THE SIGNAL PATH</span>
           <h2>Three hops, and only one of them opens a port.</h2>
           <p>Before the routing and the receipts, the shape: where a request goes, what
-             comes back, and which side does the dialling.</p>
+             comes back, and which side does the dialing.</p>
         </div>
 
           <!-- The signal path, moved here from the homepage. CSS offset-path carries the packets, so there is no
@@ -160,10 +160,11 @@
             </g>
             <text class="tower__note" x="626" y="232">B drops &rarr; the call moves &middot; you are not charged for the failed attempt</text>
           </svg>
-          <figcaption id="patch-cap">Each station on air is scored on price, reliability and
-            speed-fit for this request, then divided by how much it is already carrying -
-            counted across broker instances, not per instance, so a busy station does
-            not look idle to one of them. Healthy stations are selected ahead of
+          <figcaption id="patch-cap">Each station on air is scored on price, reliability
+            and speed-fit for this request. That score is then divided by how much the
+            station is already carrying. Load is counted across broker instances, not per
+            instance, so a busy station never looks idle to one of them.
+            Healthy stations are selected ahead of
             probationary ones, and a probationary station is used only when no healthy one
             is available. The final choice is power-of-two-choices: two candidates are drawn
             and the better one wins, so work spreads instead of piling onto whichever
@@ -207,10 +208,10 @@
               <span class="tape__sig tape__sig--broker">broker &check;</span>
             </li>
           </ol>
-          <figcaption id="tape-cap">The receipt returns to you with the response. Because
-            the station signs it and the broker counter-signs the same canonical bytes, and
-            because each one carries the hash of that station&rsquo;s previous receipt,
-            neither side can rewrite history alone. A request that produced nothing usable
+          <figcaption id="tape-cap">The receipt returns to you with the response. Neither
+            side can rewrite history alone. The station signs the receipt, the broker
+            counter-signs the same canonical bytes, and each receipt carries the hash of
+            that station&rsquo;s previous receipt. A request that produced nothing usable
             still gets a zero-value receipt, so the chain has no gaps to hide in.</figcaption>
         </figure>
 
@@ -223,7 +224,7 @@
              itself and bills the lower of the claim and its own recount, on the prompt and
              the completion separately.</p>
           <p><b>The ceiling is set before the work starts.</b> Cost is capped at the hold
-             authorised up front, so a request cannot bill past what you agreed to when it
+             authorized up front, so a request cannot bill past what you agreed to when it
              began.</p>
         </div>
 

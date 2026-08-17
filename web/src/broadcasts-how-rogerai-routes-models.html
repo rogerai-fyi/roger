@@ -162,7 +162,8 @@
           <span class="bc-sec__no">&sect;3 &middot; The score</span>
           <h2>What does “best signal” actually mean?</h2>
           <p>
-            The public signal is a readable summary. Selection uses a request-local score:
+            The public signal is a readable summary. Selection uses a request-local score
+            built on UCB (upper confidence bound):
           </p>
           <div class="route-formula mono">
             <span>score</span>
@@ -174,9 +175,9 @@
           <dl class="route-terms">
             <div><dt>Reliability</dt><dd>Recent canary proof, organic success, and trust multiply. A cheap or fast station cannot buy back repeated failure.</dd></div>
             <div><dt>Speed fit</dt><dd>Throughput saturates once it is fast enough. Prompt size is folded into effective time-to-first-token, so long prompts avoid weak prefill hardware.</dd></div>
-            <div><dt>Price</dt><dd>A bounded preference inside your allowed range. Free is neutral—not an infinite advantage that lets a flaky station win.</dd></div>
+            <div><dt>Price</dt><dd>A bounded preference inside your allowed range. Free is neutral - not an infinite advantage that lets a flaky station win.</dd></div>
             <div><dt>Load</dt><dd><code>1 / (1 + inflight / capacity)</code>. A four-slot rig absorbs more work before congestion lowers its score than a one-slot laptop.</dd></div>
-            <div><dt>Exploration</dt><dd>A small, self-extinguishing lift lets newly verified capacity earn real evidence instead of starving behind incumbents forever.</dd></div>
+            <div><dt>Exploration</dt><dd>A small, self-extinguishing lift lets newly verified capacity earn real evidence instead of starving behind incumbents forever. The lift shrinks as that evidence accumulates, and disappears once the station has a record of its own.</dd></div>
           </dl>
         </section>
 

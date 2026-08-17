@@ -318,7 +318,7 @@
       t.chip = "ON AIR";
       t.why = b.embedOnly
         ? "An embedding model: it turns text into vectors, so there is no reply to play. The network routes it, this deck cannot."
-        : "On air, but the deck has no surface for this kind of model yet.";
+        : "On air, but the deck has no panel for this kind of model yet.";
       other.push(t);
     });
     var groups = [{ group: "CHAT", entries: chat }];
@@ -1131,7 +1131,7 @@
   function offOriginNote() {
     return "this page is served from " + window.location.origin + ", and the Tower only accepts " +
       "browser calls from " + TOWER_ORIGINS.join(" or ") + " - so live station chat cannot run here. " +
-      "The recorded surfaces all work; for live chat open the deployed site.";
+      "The recorded panels all work. For live chat, open the deployed site.";
   }
   // A fetch that REJECTS never got a status: it was blocked, offline, or refused.
   // Distinguish that from a relay that answered with an error.
@@ -1515,7 +1515,7 @@
     note.textContent = "";
     STATE.playing = true; setBayState("PRINTING DRAFT"); setReels(true); refreshTransport();
     typeOut(out, JSON.stringify(card.draft, null, 2), function () {
-      note.textContent = "This is your input envelope. It stayed in this browser: no model was called, no tool was executed, and no device or control action occurred. A compatible hosted contract model is required for a live result.";
+      note.textContent = "This is the input you built. It stayed in this browser. Nothing ran: no model was called, no tool was executed, and no device or control action occurred. A live result needs a compatible hosted contract model.";
       STATE.playing = false; setBayState("DRAFT READY"); setReels(false); refreshTransport();
     });
   }
@@ -1592,7 +1592,7 @@
     // and getting a failure is the worst way to learn it.
     logLine("deck", "DECK", "Preview build: " + offOriginNote());
     var tn = $("dkTextNote");
-    if (tn) tn.textContent = "Live station chat is unavailable from this origin - the recorded surfaces below all work.";
+    if (tn) tn.textContent = "Live station chat is unavailable from this origin - the recorded panels below all work.";
   }
   loadTape(PING_TAPE);
   // Restore only after the first directory load: a remembered tape may be a network

@@ -36,8 +36,9 @@
         <div class="section__head section__head--left">
           <span class="sectionno">§1 / MARKETS</span>
           <h2>Eight industries whose data cannot leave the site.</h2>
-          <p>Segmented networks, hazardous areas and links too thin to stream sensor
-             data rule a cloud model out here - the constraint we build for. The
+          <p>A cloud model is ruled out here. Three things rule it out: segmented
+             networks, hazardous areas, and links too thin to stream sensor data. That is
+             the constraint we build for. The
              engagements are under NDA and not named here. In every
              deployment the model advises a person and stays outside the control loop:
              it never actuates equipment, and it is never part of a protection or
@@ -131,10 +132,9 @@
             jobs. The Wave model runs at Level 3, beside the historian and MES, reading
             plant data and answering questions about it. It initiates outbound through the
             DMZ and exposes no inbound listener below it. It writes nothing to supervisory
-            or basic control, and the safety-instrumented system is outside its reach
-            entirely - no closed-loop control, protection and interlocks stay
-            deterministic, and it works alongside classical analytics rather than
-            replacing them.
+            or basic control, and it performs no closed-loop control. The safety-instrumented system
+            is outside its reach entirely, so protection and interlocks stay deterministic.
+            It works alongside classical analytics rather than replacing them.
             Roger Edge sits down at the process, because that is where its sensor is. It is
             not a language model: it is a classifier of a few hundred kilobytes on its own
             battery-powered node, wired to nothing in the control system. It detects, emits
@@ -158,8 +158,9 @@
              runtime, format, quantization, context, peak memory, and measured speed.</p>
           <p><b>Raspberry Pi and NPU.</b> Pi results name model and RAM. NPU results report
              full delegation, partial delegation, and CPU fallback, not merely a successful load.</p>
-          <p><b>ESP32.</b> Roger Edge covers wake, VAD, sensing, and fixed commands.
-             ESP32 does not run Wave Micro; ESP32-P4 claims name the companion radio.</p>
+          <p><b>ESP32.</b> Roger Edge is the sensing and glue layer: wake, VAD, sensing,
+             and fixed commands. No Wave tier runs on an ESP32 - the board is the sensor
+             and a Raspberry Pi is the model host. ESP32-P4 claims name the companion radio.</p>
         </div>
       </div>
         </section>
@@ -185,11 +186,11 @@
              sealed fanless enclosure at 50 to 60&deg;C ambient that is the constraint
              that kills compute, long before anyone runs out of TOPS.</p>
           <p><b>Power in the zone.</b> Intrinsic safety (Ex ia) limits usable power to
-             roughly 1.2 to 1.3 watts. That is a transmitter or a microcontroller. It is
-             not an accelerator, and <b>we have not found a hazardous-area-certified GPU
-             enclosure on the market</b> - the shapes that do work are a safe-area rack, a
-             purged cabinet, light inference on a certified low-power gateway, or sensors
-             in the zone with the compute outside on fibre.</p>
+             roughly 1.2 to 1.3 watts. That is a transmitter or a microcontroller, not an
+             accelerator. <b>We have not found a hazardous-area-certified GPU enclosure on
+             the market.</b> The shapes that do work are a safe-area rack, a purged
+             cabinet, light inference on a certified low-power gateway, or sensors in the
+             zone with the compute outside on fiber.</p>
           <p><b>Power at a remote site.</b> Remote sites size three to seven days of
              battery autonomy. Every continuous watt costs roughly a 10 to 15 watt panel
              and 30 to 60 watt-hours of battery, so a 15 watt device is a 200 to 300 watt
