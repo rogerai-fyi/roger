@@ -186,3 +186,60 @@ type HTTPError struct {
 func (e *HTTPError) Error() string {
 	return fmt.Sprintf("tower hub returned %d: %s", e.Status, e.Body)
 }
+
+// AuditWanted is the NODE side of the audit plane: fetch the attempt ids Core wants this
+// Station's transcripts for (relayed by the tower's hub).
+func (c *Client) AuditWanted(ctx context.Context, station string) ([]string, error) {
+	u := c.url(PathAuditWanted) + "?station=" + url.QueryEscape(station)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil, err
+	}
+	if c.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.Token)
+	}
+	resp, err := c.httpClient().Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode != http.StatusOK {
+		return nil, &HTTPError{Status: resp.StatusCode, Body: errSnippet(raw)}
+	}
+	var out struct {
+		Wanted []string `json:"wanted"`
+	}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, fmt.Errorf("unreadable wanted response: %w", err)
+	}
+	return out.Wanted, nil
+}
+
+// AnswerAudit uploads one Station-signed transcript (or a truthful "not retained") for a
+// wanted attempt. The tower forwards it to Core; withholding is itself a finding, so an
+// honest node answers everything on its list.
+func (c *Client) AnswerAudit(ctx context.Context, station string, reply TranscriptReply) error {
+	body, _ := json.Marshal(struct {
+		StationID string `json:"station_id"`
+		TranscriptReply
+	}{StationID: station, TranscriptReply: reply})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(PathAuditTranscript), bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if c.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.Token)
+	}
+	resp, err := c.httpClient().Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
+		return &HTTPError{Status: resp.StatusCode, Body: errSnippet(raw)}
+	}
+	return nil
+}

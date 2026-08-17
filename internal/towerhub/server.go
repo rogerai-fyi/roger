@@ -54,6 +54,11 @@ type Server struct {
 	// becomes servable without waiting out the periodic refresh. Called on its own goroutine;
 	// the caller is responsible for rate-limiting.
 	OnUnknownStation func(stationID string)
+	// OnTranscript, when set, observes a node's answered audit (see audit.go) - the tower's
+	// courier forwards it to Core, tower-signed. Called on its own goroutine.
+	OnTranscript func(stationID string, reply TranscriptReply)
+
+	audit auditPlane
 
 	mu     sync.RWMutex
 	tokens map[string]string // stationID -> the serving node's bearer token

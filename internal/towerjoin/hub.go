@@ -109,3 +109,40 @@ func SettleEdgeReceipt(st *tower.State, stationID, attemptID string, receipt []b
 	}
 	return err
 }
+
+// WantedAudit is one transcript Core wants from this tower's fleet.
+type WantedAudit struct {
+	AttemptID string `json:"attempt_id"`
+	StationID string `json:"station_id"`
+}
+
+// WantedAudits fetches what Core wants audited from this Tower - the hub relays each
+// Station's slice of it to the node that can actually answer (poll-only nodes cannot be
+// dialed the way the classic courier dials --station endpoints).
+func WantedAudits(st *tower.State) ([]WantedAudit, error) {
+	body, err := json.Marshal(map[string]any{"tower_id": st.TowerID})
+	if err != nil {
+		return nil, err
+	}
+	var out struct {
+		Wanted []WantedAudit `json:"wanted"`
+	}
+	if err := towerPost(st, "/tower/audit/wanted", body, &out); err != nil {
+		return nil, err
+	}
+	return out.Wanted, nil
+}
+
+// ForwardAuditTranscript forwards a hub node's answered audit to Core, tower-signed - the
+// same shape the classic courier forwards, from the hub plane instead.
+func ForwardAuditTranscript(st *tower.State, attemptID string, available bool, transcript, request, response string) error {
+	body, err := json.Marshal(map[string]any{
+		"tower_id": st.TowerID, "attempt_id": attemptID,
+		"available": available, "transcript": transcript,
+		"request": request, "response": response,
+	})
+	if err != nil {
+		return err
+	}
+	return towerPost(st, "/tower/audit/transcript", body, nil)
+}

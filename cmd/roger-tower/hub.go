@@ -118,6 +118,15 @@ func runHubInBackground(st *tower.State, addr, tlsCert, tlsKey string, out io.Wr
 	}
 	serveDone := make(chan struct{})    // closed when the listener returns (Shutdown makes this fire IMMEDIATELY)
 	shutdownDone := make(chan struct{}) // closed only after Shutdown has finished draining handlers
+	// THE AUDIT COURIER: a node's answered audit is forwarded to Core tower-signed. Fire and
+	// forget with a log line - an audit that misses simply times out at Core's deadline as a
+	// soft/hard miss by its own rules; unlike the settle courier, no one's PAY rides on it.
+	server.OnTranscript = func(stationID string, reply towerhub.TranscriptReply) {
+		if err := towerjoin.ForwardAuditTranscript(st, reply.AttemptID, reply.Available,
+			reply.Transcript, reply.Request, reply.Response); err != nil {
+			fmt.Fprintf(out, "hub: audit forward for %s failed: %v\n", reply.AttemptID, err)
+		}
+	}
 	courierDone := make(chan struct{})
 	go func() {
 		defer close(courierDone)
@@ -228,6 +237,8 @@ func runHubInBackground(st *tower.State, addr, tlsCert, tlsKey string, out io.Wr
 	mux.HandleFunc(towerhub.PathSubmit, server.Submit)
 	mux.HandleFunc(towerhub.PathPoll, server.Poll)
 	mux.HandleFunc(towerhub.PathComplete, server.Complete)
+	mux.HandleFunc(towerhub.PathAuditWanted, server.AuditWanted)
+	mux.HandleFunc(towerhub.PathAuditTranscript, server.AuditTranscript)
 	httpSrv := &http.Server{
 		Addr:    addr,
 		Handler: mux,
@@ -271,6 +282,17 @@ func runHubInBackground(st *tower.State, addr, tlsCert, tlsKey string, out io.Wr
 			}
 		}
 		known = seen
+		// The AUDIT WANTED lists ride the same refresh: Core's per-station wants are grouped
+		// and handed to the hub, where each node's own poll picks them up.
+		if wanted, werr := towerjoin.WantedAudits(st); werr == nil {
+			byStation := map[string][]string{}
+			for _, wa := range wanted {
+				byStation[wa.StationID] = append(byStation[wa.StationID], wa.AttemptID)
+			}
+			for id := range seen {
+				server.SetWanted(id, byStation[id])
+			}
+		}
 	}
 	// FETCH-ON-UNKNOWN-STATION (audit M3): a consumer can arrive inside the up-to-30s window
 	// between a node's self-attach and the next periodic refresh. An unknown-Station submit

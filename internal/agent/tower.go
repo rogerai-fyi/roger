@@ -172,6 +172,17 @@ func (s sealedExec) Serve(ctx context.Context, grant, envelope []byte) ([]byte, 
 	return s.e.ServeSealed(ctx, grant, envelope)
 }
 
+// transcriptSource adapts the station's transcript lookup to the audit-answer seam.
+type transcriptSource struct{ e station.EdgeExecutor }
+
+func (t transcriptSource) SignedTranscript(attemptID string) (signed, request, response []byte, ok bool, err error) {
+	tr, found, terr := t.e.Transcript(attemptID)
+	if terr != nil || !found {
+		return nil, nil, nil, false, terr
+	}
+	return tr.Signed, tr.Request, tr.Response, true, nil
+}
+
 // ServeTower runs the tower-serving fabric until ctx is done: self-attach, pin Core's grant
 // key, then Parallel ServeLoop workers polling the assigned tower's hub. Errors before the
 // workers start are returned; worker-level transport blips are reported to out and retried
@@ -193,6 +204,10 @@ func ServeTower(ctx context.Context, cfg Config, priv ed25519.PrivateKey, dir st
 		Upstream: station.HTTPUpstream{URL: cfg.Upstream},
 		Outbox:   station.NewOutbox(256),
 		Seen:     station.NewAttemptCache(),
+		// Transcripts make this node AUDITABLE: Core's sampled/adaptive audit asks for the
+		// exact bytes behind a settled receipt, and a node that retains nothing can only
+		// answer "not retained". Keep-all over the recent window (the store is bounded).
+		Transcripts: station.NewTranscripts(0, 0),
 	}
 	client := &towerhub.Client{
 		BaseURL: hubBaseURL(at.Endpoint),
@@ -203,6 +218,11 @@ func ServeTower(ctx context.Context, cfg Config, priv ed25519.PrivateKey, dir st
 	if workers <= 0 {
 		workers = 2
 	}
+	// The audit-answer loop rides beside the workers: fetch what Core wants from this
+	// Station (relayed by the hub) and answer with signed transcripts.
+	go towerhub.AnswerAudits(ctx, client, at.StationID, transcriptSource{exec}, 0, func(err error) {
+		fmt.Fprintf(out, "tower audit: %v\n", err)
+	})
 	done := make(chan error, workers)
 	for i := 0; i < workers; i++ {
 		go func() {
