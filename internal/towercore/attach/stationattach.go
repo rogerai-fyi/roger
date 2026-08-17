@@ -172,6 +172,16 @@ type Attachment struct {
 	Modality string
 	PriceIn  int64
 	PriceOut int64
+	// AuditProvenAt is when this Station first ANSWERED a content audit - proof, by
+	// behaviour rather than by claim, that it retains transcripts and will produce them.
+	//
+	// It exists so a temporary leniency can retire itself per node instead of on a flag day.
+	// Hub nodes could not answer audits at all until the transcript plane shipped, so a
+	// "cannot produce" from one had to be treated softly or every honest tower running older
+	// node binaries would be quarantined for a feature that did not exist. A node that has
+	// answered once has demonstrated the capability, and from then on its misses mean what
+	// they mean for everybody else. Zero = never answered (yet).
+	AuditProvenAt time.Time
 }
 
 // Live reports whether this attachment may carry public work at all. Quarantine is live-
@@ -242,6 +252,10 @@ type Store interface {
 	// revoke -> attach loop (frictionless on the self-attach path) grows the table without
 	// bound - the same vector the invitation reap closes one table over.
 	ReapTerminal(before time.Time) (int64, error)
+	// MarkAuditProven records that a Station answered a content audit, once. Idempotent:
+	// the FIRST answer is the proof, and re-stamping it would let a node that has since
+	// stopped answering look freshly capable.
+	MarkAuditProven(stationID string, at time.Time) (bool, error)
 }
 
 // NewInvite mints a one-use invitation and returns it alongside the PLAINTEXT secret, which
@@ -562,6 +576,12 @@ func (r *Registry) Station(stationID string) (Attachment, bool, error) {
 // ByTower lists the live attachments served through one Tower.
 func (r *Registry) ByTower(towerID string) ([]Attachment, error) {
 	return r.store.ByTower(towerID)
+}
+
+// MarkAuditProven records that a Station answered a content audit - see
+// Attachment.AuditProvenAt for why that fact is worth keeping.
+func (r *Registry) MarkAuditProven(stationID string, at time.Time) (bool, error) {
+	return r.store.MarkAuditProven(stationID, at)
 }
 
 // ByAssertionKey resolves the live attachment holding this assertion key, if any - what the

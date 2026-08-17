@@ -163,6 +163,16 @@ Feature: A Tower carries the data plane and Roger Core keeps the control plane
   # WHAT REPLACES PRE-DISPATCH SCREENING. Core cannot moderate what it never sees, and both
   # ends have signed a digest of the exact bytes - so neither can produce a different
   # transcript afterwards. This is the only route by which Tower-served content is reviewed.
+  # LENIENCY THAT RETIRES ITSELF. A capability that did not exist cannot be a finding - but a
+  # blanket exemption is a permanent hole, and lifting one on a flag day punishes whoever
+  # upgrades last. So the leniency is keyed to PROOF, per Station, and ends the moment the
+  # Station demonstrates it can answer.
+  Scenario: A Station that has never produced a transcript is not yet held to the standard
+    Given a Station that has never answered a content audit
+    When Roger Core asks it for a transcript and it cannot produce one
+    Then the miss is recorded as a soft signal rather than a quarantine-grade finding
+    And the same miss from a Station that HAS produced one before is a finding
+
   Scenario: A sampled transcript is checked against what both ends signed
     Given a settled attempt selected for audit
     When Roger Core asks the Station for the full transcript

@@ -53,11 +53,15 @@ func (b *broker) towerEarningsOwed(w http.ResponseWriter, r *http.Request) {
 	// The balance is summed for the pubkey that signed, taken from the authenticated request
 	// rather than the body - the same account key an attachment records as its owner, which is
 	// what the accrual was filed under.
-	ownerPubkey := r.Header.Get("X-Roger-Pubkey")
-	if _, found, oerr := b.db.OwnerByPubkey(ownerPubkey); oerr != nil || !found {
+	signedBy := r.Header.Get("X-Roger-Pubkey")
+	signer, found, oerr := b.db.OwnerByPubkey(signedBy)
+	if oerr != nil || !found {
 		jsonErr(w, http.StatusUnauthorized, "reading earnings requires a signed-in account - run `roger-tower login`")
 		return
 	}
+	// THE ACCOUNT'S key, not this device's: an operator who enrolled their Tower from one
+	// machine and reads earnings from another is one account, and must see one balance.
+	ownerPubkey := b.accountKeyOf(signer)
 	// THE MONEY FIRST, and it does not depend on the tower subsystem at all: an operator's
 	// balance lives in the shared store, so an unavailable trail (or a deployment with no
 	// tower subsystem) must not answer 503 over a real payable balance. Only the two count

@@ -1567,23 +1567,41 @@ func (m *Mem) OwnerByPubkey(pubkey string) (Owner, bool, error) {
 func (m *Mem) OwnerByLogin(login string) (Owner, bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	for _, o := range m.owners {
-		if o.Login == login && !o.Anonymized {
-			return o, true, nil
+	return canonicalOwner(m.owners, func(o Owner) bool {
+		return o.Login == login && !o.Anonymized
+	})
+}
+
+// canonicalOwner picks THE SAME owner row every time a set of device rows shares one account.
+//
+// One account may hold several owner rows - one per device key - and these lookups are keyed
+// on the shared identity (login / apple sub / verified email), so several rows match. Ranging
+// a Go map returns them in randomized order, so consecutive calls could answer with DIFFERENT
+// rows: the account's earnings could be read under one pubkey and paid under another, and lots
+// minted minutes apart could scatter across keys with no way to gather them again. The
+// earliest row (tie-broken by pubkey, which is unique) is the account's canonical one - a
+// definition that is stable, needs no new column, and matches what Postgres now orders by.
+func canonicalOwner(owners map[string]Owner, match func(Owner) bool) (Owner, bool, error) {
+	var best Owner
+	found := false
+	for _, o := range owners {
+		if !match(o) {
+			continue
+		}
+		if !found || o.CreatedAt < best.CreatedAt ||
+			(o.CreatedAt == best.CreatedAt && o.Pubkey < best.Pubkey) {
+			best, found = o, true
 		}
 	}
-	return Owner{}, false, nil
+	return best, found, nil
 }
 
 func (m *Mem) OwnerByVerifiedEmail(email string) (Owner, bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	for _, o := range m.owners {
-		if o.EmailVerifiedAt != 0 && !o.Anonymized && strings.EqualFold(o.Email, email) {
-			return o, true, nil
-		}
-	}
-	return Owner{}, false, nil
+	return canonicalOwner(m.owners, func(o Owner) bool {
+		return o.EmailVerifiedAt != 0 && !o.Anonymized && strings.EqualFold(o.Email, email)
+	})
 }
 
 func (m *Mem) OwnerByAppleSub(sub string) (Owner, bool, error) {
@@ -1592,12 +1610,9 @@ func (m *Mem) OwnerByAppleSub(sub string) (Owner, bool, error) {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	for _, o := range m.owners {
-		if o.AppleSub == sub && !o.Anonymized {
-			return o, true, nil
-		}
-	}
-	return Owner{}, false, nil
+	return canonicalOwner(m.owners, func(o Owner) bool {
+		return o.AppleSub == sub && !o.Anonymized
+	})
 }
 
 func (m *Mem) UpdateAccount(login, email string) (Owner, bool, error) {

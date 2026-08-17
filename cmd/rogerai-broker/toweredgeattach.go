@@ -67,8 +67,13 @@ func (b *broker) towerEdgeAttach(w http.ResponseWriter, r *http.Request) {
 	}
 	// The attachment records the account PUBKEY (what towerpolicy resolves), taken from the
 	// request that was authenticated - never from the body. towerOperator already resolved and
-	// vetted this exact key (bound, non-anonymized), so no second lookup.
-	ownerPubkey := r.Header.Get("X-Roger-Pubkey")
+	// vetted this exact key (bound, non-anonymized).
+	//
+	// CANONICALIZED: this key is the payee of every lot this node ever earns, so it must be
+	// the ACCOUNT's key rather than the key of whichever device happened to run the attach.
+	// A provider who attaches from their server and cashes out from their laptop is one
+	// account, and their money must not be split across the two.
+	ownerPubkey := b.accountKeyOfPubkey(r.Header.Get("X-Roger-Pubkey"))
 	// The same standing check enrollment uses: a banned or barred account may not put
 	// machines on the network under its name.
 	if err := (brokerOperatorPolicy{b: b}).MayEnroll(owner); err != nil {

@@ -96,19 +96,46 @@ func (b *broker) forceAudit(towerID, stationID, attemptID, requestDigest, respon
 	}
 }
 
-// hubNodeStation reports whether stationID is a SELF-ATTACHED hub node. Hub nodes serve the
-// sealed path and have NO transcript-fetch plane yet - the tower's audit courier collects
-// from dialable --station endpoints, which a polling node is not - so a hard "cannot
-// produce" finding against one would quarantine an honest tower for a plane that does not
-// exist. Their misses stay soft until the hub transcript plane ships (tracked follow-up);
-// their money is still bounded by the grant ceilings, tokens<=bytes, and the wire evidence.
-func (b *broker) hubNodeStation(stationID string) bool {
+// auditLenientStation reports whether a "cannot produce" from this Station should be a SOFT
+// miss rather than the quarantine-grade finding it is for everybody else.
+//
+// The leniency exists for one reason and RETIRES ITSELF once that reason is gone. A hub node
+// could not answer audits at all before the transcript plane shipped - the classic courier
+// collects from dialable Station endpoints, and a polling node has none - so holding one to
+// the standard would have quarantined honest towers for a feature that did not exist. But a
+// blanket exemption is a permanent hole, and removing it on a flag day would punish whoever
+// upgrades last.
+//
+// So the test is BEHAVIOUR, not a version or a claim: a hub node that has ever ANSWERED an
+// audit has proven it retains transcripts and will produce them, and from that moment its
+// misses mean what everyone else's mean. A node that has never answered stays lenient - and
+// stays visible, because answering nothing is itself the pattern the audit exists to find.
+func (b *broker) auditLenientStation(stationID string) bool {
 	ts := b.tower
 	if ts == nil || ts.stations == nil {
 		return false
 	}
 	at, found, err := ts.stations.Station(stationID)
-	return err == nil && found && at.HubToken != ""
+	if err != nil || !found || at.HubToken == "" {
+		return false // classic attachment: always held to the standard
+	}
+	return at.AuditProvenAt.IsZero()
+}
+
+// markAuditProven records that this Station produced a transcript - the fact that retires its
+// leniency. Best effort: failing to record it only keeps a node lenient a while longer, which
+// is the safe direction.
+func (b *broker) markAuditProven(stationID string) {
+	ts := b.tower
+	if ts == nil || ts.stations == nil || stationID == "" {
+		return
+	}
+	if first, err := ts.stations.MarkAuditProven(stationID, time.Now()); err != nil {
+		log.Printf("audit: could not record that %s answered an audit: %v", stationID, err)
+	} else if first {
+		log.Printf("audit: station %s answered its first audit - it is now held to the "+
+			"same standard as every other station", stationID)
+	}
 }
 
 func auditSampled(attemptID string) bool {
@@ -231,11 +258,11 @@ func (b *broker) towerAuditTranscript(w http.ResponseWriter, r *http.Request) {
 		// samples by the same deterministic rule, so an honest, busy Station may simply not
 		// have it (a review found one-strike-quarantining that punished exactly the honest).
 		// Off-sample misses are logged as a soft signal, not recorded as a mismatch.
-		if auditSampled(req.AttemptID) && !b.hubNodeStation(wanted.StationID) {
+		if auditSampled(req.AttemptID) && !b.auditLenientStation(wanted.StationID) {
 			b.recordOutcome(req.TowerID, req.AttemptID, reputation.AuditMismatch)
 			b.evaluateTower(req.TowerID)
 		} else {
-			log.Printf("audit: attempt %s on tower %s not retained (off-sample or hub node) - soft miss, no finding", req.AttemptID, req.TowerID)
+			log.Printf("audit: attempt %s on tower %s not retained (off-sample, or a hub node that has never answered one) - soft miss, no finding", req.AttemptID, req.TowerID)
 		}
 		_ = ts.auditWanted.Resolve(req.AttemptID)
 		writeJSON(w, http.StatusOK, map[string]any{"attempt_id": req.AttemptID, "resolved": true})
@@ -302,6 +329,10 @@ func (b *broker) towerAuditTranscript(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// PROVEN: this Station produced a transcript that verified against the receipt's digests
+	// under its own attachment key. Whatever the content verdict below, the CAPABILITY is
+	// demonstrated, and its leniency ends here.
+	b.markAuditProven(wanted.StationID)
 	_ = ts.auditWanted.Resolve(req.AttemptID)
 	if !matches {
 		log.Printf("audit: attempt %s on tower %s did not match: %s", req.AttemptID, req.TowerID, result.Reason)
@@ -377,7 +408,7 @@ func (b *broker) sweepAuditOverdue(now time.Time) {
 		// A SAMPLED attempt whose transcript never came is a Station that cannot show its
 		// work - the spec's quarantine trigger. An off-sample (adaptive/forced) want carries
 		// no retention promise, so its silence is a soft signal, not a finding.
-		if !auditSampled(o.AttemptID) || b.hubNodeStation(o.StationID) {
+		if !auditSampled(o.AttemptID) || b.auditLenientStation(o.StationID) {
 			log.Printf("audit: attempt %s on tower %s never produced (off-sample or hub node) - soft miss, no finding", o.AttemptID, o.TowerID)
 			continue
 		}

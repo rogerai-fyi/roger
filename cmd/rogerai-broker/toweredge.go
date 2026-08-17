@@ -929,11 +929,13 @@ func (b *broker) towerOperatorAccount(towerID string) (string, bool) {
 	}
 	// Already a wallet account key (an owner pubkey the store knows)?
 	if o, found, err := b.db.OwnerByPubkey(tw.Owner); err == nil && found && !o.Anonymized {
-		return o.Pubkey, true
+		// CANONICAL, so the lot is minted under the same key a cash-out from any of this
+		// operator's devices will read.
+		return b.accountKeyOf(o), true
 	}
 	// The usual case: the owner is a login; resolve it to the account's pubkey.
 	if o, found, err := b.db.OwnerByLogin(tw.Owner); err == nil && found && !o.Anonymized && o.Pubkey != "" {
-		return o.Pubkey, true
+		return b.accountKeyOf(o), true
 	}
 	return "", false
 }

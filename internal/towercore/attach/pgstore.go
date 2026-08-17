@@ -93,6 +93,7 @@ CREATE INDEX IF NOT EXISTS station_attachments_owner ON rogerai.station_attachme
 -- like the broker's node BridgeToken - the Tower must compare the exact presented value.
 ALTER TABLE rogerai.station_authorizations ADD COLUMN IF NOT EXISTS hub_token TEXT NOT NULL DEFAULT '';
 ALTER TABLE rogerai.station_attachments  ADD COLUMN IF NOT EXISTS hub_token TEXT NOT NULL DEFAULT '';
+ALTER TABLE rogerai.station_attachments  ADD COLUMN IF NOT EXISTS audit_proven_at TIMESTAMPTZ;
 -- The self-attached node's offer: model/modality + micro-USD-per-1M-token prices.
 ALTER TABLE rogerai.station_authorizations ADD COLUMN IF NOT EXISTS model TEXT NOT NULL DEFAULT '';
 ALTER TABLE rogerai.station_authorizations ADD COLUMN IF NOT EXISTS modality TEXT NOT NULL DEFAULT '';
@@ -289,15 +290,21 @@ func (p *PGStore) Admit(authID string, at Attachment) (bool, error) {
 }
 
 const attachCols = `station_id,owner,assertion_key,session_key,origin_kind,origin_tower,
-                    epoch,ceiling_hash,state,attached_at,auth_id,hub_token,model,modality,
+                    epoch,ceiling_hash,state,attached_at,auth_id,audit_proven_at,hub_token,model,modality,
                     price_in,price_out`
 
 func scanAttachment(row interface{ Scan(...any) error }) (Attachment, error) {
 	var at Attachment
+	// NULL audit_proven_at means "has never answered an audit", which is the state every
+	// attachment starts in and the one older rows are already in.
+	var proven sql.NullTime
 	err := row.Scan(&at.StationID, &at.Owner, &at.AssertionKey, &at.SessionKey,
 		&at.Origin.Kind, &at.Origin.TowerID, &at.Epoch, &at.CeilingHash, &at.State,
-		&at.AttachedAt, &at.AuthID, &at.HubToken, &at.Model, &at.Modality,
+		&at.AttachedAt, &at.AuthID, &proven, &at.HubToken, &at.Model, &at.Modality,
 		&at.PriceIn, &at.PriceOut)
+	if proven.Valid {
+		at.AuditProvenAt = proven.Time.UTC()
+	}
 	return at, err
 }
 
@@ -334,6 +341,18 @@ func (p *PGStore) byLiveKey(col, key string) (Attachment, bool, error) {
 		return Attachment{}, false, pgwrap("read attachment by key", err)
 	}
 	return at, true, nil
+}
+
+// MarkAuditProven stamps the first answered audit; the IS NULL guard makes it idempotent, so
+// the recorded moment stays the moment the Station actually proved itself.
+func (p *PGStore) MarkAuditProven(stationID string, at time.Time) (bool, error) {
+	res, err := p.db.Exec(`UPDATE rogerai.station_attachments SET audit_proven_at=$2
+	                        WHERE station_id=$1 AND audit_proven_at IS NULL`, stationID, at.UTC())
+	if err != nil {
+		return false, pgwrap("mark audit proven", err)
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
 }
 
 func (p *PGStore) SetState(stationID, state string) (bool, error) {

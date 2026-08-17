@@ -124,11 +124,15 @@ func (c connect) stripeForm(method, path string, form url.Values, out any) (int,
 // apple_session_isolation invariant (see sessionAnyOwner).
 //
 // body is the exact request body the signature is verified over (nil for GET).
+// payoutOwner resolves the caller to the owner row whose key their MONEY lives under - the
+// account's canonical row, not merely the device that signed. An operator with a laptop and a
+// server holds two owner rows; without this, they could mint lots on one and cash out on the
+// other, finding nothing.
 func (b *broker) payoutOwner(r *http.Request, body []byte) (login string, o store.Owner, ok bool) {
 	// 1) Web session cookie (browser), any provider.
 	if l, rec, found, sok := b.sessionAnyOwner(r); sok {
 		if found {
-			return l, rec, true
+			return l, b.accountOwnerOf(rec), true
 		}
 		// A valid session whose identity is not (yet) a bound operator: still a
 		// logged-in identity - return it so the handler emits the "no operator" 403.
@@ -140,7 +144,9 @@ func (b *broker) payoutOwner(r *http.Request, body []byte) (login string, o stor
 	// here - no wallet, no payouts.
 	if _, authed, iok := b.identityOf(r, body); iok && authed {
 		if rec, found := b.requireOwner(r); found && hasVerifiedIdentity(rec) {
-			return rec.Login, rec, true
+			// The canonical row, so a signed cash-out from a second device reaches the same
+			// money the first device's lots were minted under.
+			return rec.Login, b.accountOwnerOf(rec), true
 		}
 	}
 	return "", store.Owner{}, false

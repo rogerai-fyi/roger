@@ -1301,7 +1301,8 @@ func (p *Postgres) OwnerByPubkey(pubkey string) (Owner, bool, error) {
 
 func (p *Postgres) OwnerByLogin(login string) (Owner, bool, error) {
 	return p.scanOwner(`SELECT pubkey,github_id,login,created_at,email,stripe_connect_id,connect_status,deleted_at,anonymized,name,welcomed_at,apple_sub,email_verified_at
-		FROM rogerai.owners WHERE login=$1 AND NOT COALESCE(anonymized,false)`, login)
+		FROM rogerai.owners WHERE login=$1 AND NOT COALESCE(anonymized,false)
+		ORDER BY created_at ASC, pubkey ASC LIMIT 1`, login)
 }
 
 // OwnerByVerifiedEmail resolves the account that PROVED it holds this address.
@@ -1312,7 +1313,8 @@ func (p *Postgres) OwnerByLogin(login string) (Owner, bool, error) {
 // lookup uses it rather than scanning.
 func (p *Postgres) OwnerByVerifiedEmail(email string) (Owner, bool, error) {
 	return p.scanOwner(`SELECT pubkey,github_id,login,created_at,email,stripe_connect_id,connect_status,deleted_at,anonymized,name,welcomed_at,apple_sub,email_verified_at
-		FROM rogerai.owners WHERE lower(email)=lower($1) AND email_verified_at IS NOT NULL AND NOT COALESCE(anonymized,false)`, email)
+		FROM rogerai.owners WHERE lower(email)=lower($1) AND email_verified_at IS NOT NULL AND NOT COALESCE(anonymized,false)
+		ORDER BY created_at ASC, pubkey ASC LIMIT 1`, email)
 }
 
 // OwnerByAppleSub resolves the account linked to this Apple identity. apple_sub is
@@ -1323,7 +1325,8 @@ func (p *Postgres) OwnerByAppleSub(sub string) (Owner, bool, error) {
 		return Owner{}, false, nil
 	}
 	return p.scanOwner(`SELECT pubkey,github_id,login,created_at,email,stripe_connect_id,connect_status,deleted_at,anonymized,name,welcomed_at,apple_sub,email_verified_at
-		FROM rogerai.owners WHERE apple_sub=$1 AND NOT COALESCE(anonymized,false)`, sub)
+		FROM rogerai.owners WHERE apple_sub=$1 AND NOT COALESCE(anonymized,false)
+		ORDER BY created_at ASC, pubkey ASC LIMIT 1`, sub)
 }
 
 // scanOwner runs a single-row owner query, mapping NULL columns to zero values.

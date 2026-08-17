@@ -195,6 +195,21 @@ func (m *memStore) ReapTerminal(before time.Time) (int64, error) {
 	return n, nil
 }
 
+// MarkAuditProven stamps the first answered audit. Later answers are no-ops: the proof is
+// that it EVER produced one, and re-stamping would let a node that has since gone silent
+// keep looking freshly capable.
+func (m *memStore) MarkAuditProven(stationID string, at time.Time) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	rec, ok := m.byID[stationID]
+	if !ok || !rec.AuditProvenAt.IsZero() {
+		return false, nil
+	}
+	rec.AuditProvenAt = at
+	m.byID[stationID] = rec
+	return true, nil
+}
+
 func (m *memStore) SetState(stationID, state string) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
