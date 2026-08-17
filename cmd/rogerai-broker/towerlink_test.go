@@ -1420,3 +1420,63 @@ func TestSelfServiceLifecycleRefusesWhatIsNotItsToDecide(t *testing.T) {
 	getResp.Body.Close()
 	require.Equal(t, http.StatusMethodNotAllowed, getResp.StatusCode)
 }
+
+// The promotion the route exists for (re-added after the invite-flow tests that carried it
+// died with the invite flow): a QUARANTINED station is promoted to active by an admin, and
+// only by an admin.
+func TestPromoteMovesAQuarantinedStationToActive(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	b.adminKey = "admin-secret"
+	op := signedInOperator(t, b, "octocat")
+	lt := enrolledTower(t, b, op.login)
+	owner := ownerPubkeyOf(t, b, op.login)
+
+	// Admit WITHOUT promoting: quarantine is where admission leaves a station.
+	pub, _, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	sessionRaw := make([]byte, 32)
+	copy(sessionRaw, "st-q")
+	authObj, secret, err := attach.NewInvite(attach.Authorization{
+		ID: "auth-st-q", Network: link.PublicNetwork, StationID: "st-q", Owner: owner,
+		Origin:       attach.Origin{Kind: attach.OriginJoined, TowerID: lt.id},
+		AssertionKey: hexOf(pub), SessionKey: hexOf(ed25519.PublicKey(sessionRaw)),
+	}, time.Hour, time.Now())
+	require.NoError(t, err)
+	require.NoError(t, b.tower.stationStore.PutAuthorization(authObj))
+	_, err = b.tower.stations.Admit(attach.Proof{
+		AuthID: "auth-st-q", Secret: secret, Network: link.PublicNetwork,
+		StationID: "st-q", Owner: owner,
+		Origin:       attach.Origin{Kind: attach.OriginJoined, TowerID: lt.id},
+		AssertionKey: hexOf(pub), SessionKey: hexOf(ed25519.PublicKey(sessionRaw)),
+	})
+	require.NoError(t, err)
+	at, found, err := b.tower.stations.Station("st-q")
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, "quarantine", string(at.State), "admission leaves a station quarantined")
+
+	// Not an admin: refused, nothing moves.
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/tower/station/promote",
+		strings.NewReader(`{"station_id":"st-q"}`))
+	require.NoError(t, err)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	resp.Body.Close()
+	require.NotEqual(t, http.StatusOK, resp.StatusCode, "promotion is an admin decision")
+	at, _, _ = b.tower.stations.Station("st-q")
+	require.Equal(t, "quarantine", string(at.State))
+
+	// The admin promotes; the station is active.
+	req, err = http.NewRequest(http.MethodPost, srv.URL+"/tower/station/promote",
+		strings.NewReader(`{"station_id":"st-q"}`))
+	require.NoError(t, err)
+	req.Header.Set("X-Roger-Admin", "admin-secret")
+	resp, err = http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
+	resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode, string(raw))
+	require.Contains(t, string(raw), `"promoted":true`)
+	at, _, _ = b.tower.stations.Station("st-q")
+	require.Equal(t, "active", string(at.State))
+}
