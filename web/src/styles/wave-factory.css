@@ -985,6 +985,11 @@
   border: 1px solid var(--tier-giga, var(--ink-500)); border-radius: 7px;
   padding: .3rem .45rem;
 }
+/* v31: the plea reads as a plea - amber edge, never the alarm red */
+.clf-unit__say.is-help { border-color: #C99700; color: var(--ink-900); }
+/* the crown under strain drops the triumph tone */
+.cl-view__crown.is-strain { color: #C99700; }
+
 .clf-unit__talk {
   /* at the Unit's shoulder, not under its wheels - below is the nameplate
      strip, and the chip was landing on it */

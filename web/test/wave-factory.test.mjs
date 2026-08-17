@@ -1010,7 +1010,14 @@ test("v28: Micros stack to three, and more boxes is not more brain", () => {
   assert.equal(h.reachWith(s), 3, "three Micros reach every dial - coverage by quantity");
 
   // the coordination gap, executed: a Micro acts on its own slow cycle,
-  // so within one cycle a second nudge does NOT land; Giga is continuous
+  // so within one cycle a second nudge does NOT land; Giga is continuous.
+  // AMENDED v31, with cause: "continuous" used to mean a step EVERY FRAME,
+  // which is how a lying sensor dragged the founder's oven to the 240-degree
+  // stop in about a second. Giga now corrects on a bounded step budget
+  // (GIGA_STEPS_PER_SEC) - still no per-machine cycle, still faster than a
+  // Micro's 4-second look, no longer instantaneous. The gap this lock
+  // protects survives: over one second Giga moves; mid-cycle, a Micro does
+  // not.
   const m = s.machines[0];
   m.auto = true; m.cond = "stuck"; m.stuckAt = 0.2; m.real = 4.9;
   h.autoWith(s, "mixer", 1 / 12);
@@ -1018,16 +1025,19 @@ test("v28: Micros stack to three, and more boxes is not more brain", () => {
   m.real = 4.9; m.stuckAt = 0.2;
   h.autoWith(s, "mixer", 1 / 12);
   assert.equal(m.set, afterFirst, "a Micro mid-cycle does nothing - its next look is seconds away");
-  // Giga ignores the per-machine cycle entirely: same mid-cycle spot, fresh state
+  // Giga has no per-machine cycle: within one second of frames it corrects,
+  // and within the next second it corrects again - while the Micro above
+  // would still be waiting out its 4s look
   const s2 = h.freshState();
   s2.giga = true;
   const m2 = s2.machines[0];
   m2.auto = true; m2.cond = "stuck"; m2.stuckAt = 0.2; m2.real = 4.9;
-  h.autoWith(s2, "mixer", 1 / 12);
+  const g0 = m2.set;
+  for (let i = 0; i < 12; i++) { m2.real = 4.9; m2.stuckAt = 0.2; m2.cond = "stuck"; h.autoWith(s2, "mixer", 1 / 12); }
   const g1 = m2.set;
-  m2.real = 4.9; m2.stuckAt = 0.2; m2.cond = "stuck";
-  h.autoWith(s2, "mixer", 1 / 12);
-  assert.notEqual(m2.set, g1, "Giga is one continuous mind - it keeps correcting without a cycle gap");
+  assert.notEqual(g1, g0, "Giga corrects within a second - no cycle gap");
+  for (let i = 0; i < 12; i++) { m2.real = 4.9; m2.stuckAt = 0.2; m2.cond = "stuck"; h.autoWith(s2, "mixer", 1 / 12); }
+  assert.notEqual(m2.set, g1, "and keeps correcting the next second - continuous, now rate-bounded");
 
   // the certificate accepts EITHER full-coverage route
   const s3 = h.freshState();
@@ -1336,8 +1346,10 @@ test("v30: Giga's dial move dispatches the Unit, and the floor tag lands on arri
   s.giga = true; s.records = measured.records;
   const m = s.machines[0];
   m.auto = true; m.cond = "stuck"; m.stuckAt = 0.2; m.real = 4.9;
-  h.autoWith(s, "mixer", 1 / 12);
-  assert.notEqual(m.set, 5, "the SIM dial move stays immediate - Giga's mind is continuous");
+  // AMENDED v31: Giga's steps ride a bounded budget now (see the v28 lock's
+  // amendment) - the sim move lands within the second, not on frame one
+  for (let i = 0; i < 12 && m.set === 5; i++) { m.real = 4.9; m.stuckAt = 0.2; h.autoWith(s, "mixer", 1 / 12); }
+  assert.notEqual(m.set, 5, "the SIM dial move lands within the step budget - Giga's mind is continuous");
   assert.equal(m.unitTagHold, true, "but the floor tag waits for the body");
   assert.equal(s.unit.going, "mixer", "and the Unit is dispatched");
   // travel completes; the tag flushes with the arrival
@@ -1417,4 +1429,138 @@ test("v30: buying Giga spawns the Unit and sells the bundle", () => {
   assert.match(s.log[0], /Its Unit is rolling onto the floor/, "the purchase says what arrived");
   assert.match(js, /watch it work, press TALK to ask it anything|its Unit on the floor/i,
     "the desk offer sells the bundle");
+});
+
+/* ===================================================================== v31
+   The founder reached Giga and it made everything worse: its optimizer
+   chased a drifting oven display to the dial's 240-degree stop while its
+   own plant view printed "2 sensor(s) currently lying to you". These locks
+   are that burn, made unconstructible. */
+
+test("v31: sensor trust is ONE source - the plant view and the policy read the same flag", () => {
+  const h = loadHook();
+  const s = h.freshState();
+  s.records = measured.records;
+  const m = s.machines[0];
+  // a model-raised fault word flags the sensor - public knowledge
+  m.cond = "stuck";
+  m.picoRead = { kind: "caught", said: "stuck", margin: 3, truth: "stuck" };
+  assert.equal(h.flaggedWith(s, "mixer"), "a model raised it");
+  assert.equal(h.plantWith(s).flagged, 1, "the plant view counts the SAME flag");
+  // a recorded miss nobody surfaced flags nothing - the policy is fooled
+  // with everyone else, which is the honesty rule
+  m.picoRead = { kind: "wrong", said: "none", margin: 3, truth: "stuck" };
+  m.inspected = false; m.lastShown = 2.4; m.senseSuspect = false;
+  assert.equal(h.flaggedWith(s, "mixer"), null, "a miss nobody caught fools the policy too");
+  assert.equal(h.plantWith(s).flagged, 0);
+  // INSPECT is public knowledge
+  m.inspected = true;
+  assert.equal(h.flaggedWith(s, "mixer"), "you inspected it");
+  // the one-source rule is structural too: the view calls the function
+  assert.match(js, /flagged: G\.machines\.filter\(function \(m\) \{ return !!sensorFlagged\(m\); \}\)/,
+    "plantView counts sensorFlagged - unified, not duplicated");
+  assert.match(js, /caught lying/, "and the desk card speaks from caught knowledge, not the secret");
+});
+
+test("v31: the founder's 240-degree burn is unconstructible - a chased liar gets held, never pinned", () => {
+  /* The exact scenario from the screenshot: Giga on autonomy, the oven
+     DRIFTING with a recorded double-miss (no model raised it), the display
+     sliding below the band. The old policy pinned HEAT at 240 within
+     seconds. The doctrine now: bounded steps, and the no-answer deduction
+     flags the sensor long before the stop; the hold restores the dial to
+     the last trusted position. */
+  const h = loadHook();
+  const s = h.freshState();
+  s.records = measured.records;
+  s.giga = true;
+  const m = s.machines.find((x) => x.id === "oven");
+  const c = m.spec.control;
+  m.auto = true;
+  // settle a trusted position first (healthy, in band)
+  m.real = 180; m.cond = "none";
+  for (let i = 0; i < 24; i++) h.autoWith(s, "oven", 1 / 12);
+  // now the lie: drifting, display sliding down, models silent (double miss)
+  m.cond = "drifting";
+  m.picoRead = { kind: "wrong", said: "none", margin: 3, truth: "drifting" };
+  m.nanoRead = { kind: "missed", said: "none", margin: 2, truth: "drifting" };
+  m.driftLie = 0;
+  let maxSet = m.set;
+  for (let t = 0; t < 90; t += 1 / 12) {
+    m.driftLie += (1 / 12) * 1.5;          // the sim's own oven drift-lie rate
+    m.real = 180;                           // whatever the dial does, the display keeps lying
+    h.autoWith(s, "oven", 1 / 12);
+    maxSet = Math.max(maxSet, m.set);
+  }
+  assert.ok(maxSet < c.max,
+    `the dial must never reach its stop chasing a liar (peaked at ${maxSet} of ${c.max})`);
+  assert.equal(m.heldForFlag, true, "the no-answer deduction flagged the sensor and the hold engaged");
+  assert.equal(m.set, m.lastTrustedSet, "and the dial went back to the last trusted position");
+  assert.match(js, /sensor is lying \(/, "the attribution line says why, at the machine");
+  assert.match(js, /GIGA_STEPS_PER_SEC/, "and the step budget is named doctrine, not a magic number");
+});
+
+test("v31: automation that cannot clear a machine asks for a person, loudly", () => {
+  const h = loadHook();
+  const s = h.freshState();
+  s.records = measured.records;
+  s.giga = true; s.unit = { at: "desk", pose: "idle", going: null, dir: 1, pauseLeft: 1, say: "", sayUntil: 0, topic: 0, travelLeft: 0 };
+  const m = s.machines.find((x) => x.id === "oven");
+  m.auto = true; m.cond = "drifting"; m.stopped = true;
+  m.picoRead = { kind: "wrong", said: "none", margin: 3, truth: "drifting" };  // chain miss: nothing raised
+  const help = h.helpWith(s);
+  assert.ok(help && help.id === "oven", "the unclearable machine is named");
+  // a machine with a live alarm and no lockout is NOT a plea - automation can act
+  m.picoRead = { kind: "caught", said: "drifting", margin: 3, truth: "drifting" };
+  assert.equal(h.helpWith(s), null, "an alarmed machine is automation's job, not the player's");
+  // unless the crew is locked out
+  m.lockout = 30;
+  assert.ok(h.helpWith(s), "a lockout hands it back to the person - INSPECT never locks");
+  assert.match(js, /needs your eyes/, "the goal chip says it in person-words");
+  assert.match(js, /I can't read the /, "and the Unit says it standing there");
+});
+
+test("v31: Giga is never worse than three Micros - the founder's inversion, locked", () => {
+  /* "i got to giga and it seemed to have made everything worse. it was
+     better when only micro was driving." Two identical plants, same
+     deterministic fault schedule - lying-sensor heavy (drifting, stuck,
+     railed), the exact kinds that burned the founder - one running three
+     Micros, one running Giga. Giga must never come out behind. */
+  const h = loadHook();
+  const SCHEDULE = [
+    [15, "oven", "drifting"], [40, "mixer", "stuck"], [70, "packer", "railed"],
+    [100, "oven", "stuck"], [130, "mixer", "drifting"], [160, "packer", "dropout"],
+    [190, "oven", "railed"], [220, "mixer", "noisy"], [250, "packer", "drifting"],
+  ];
+  function run(config) {
+    const st = h.freshState();
+    st.records = measured.records;
+    st.contract.target = 1e9;
+    st.nano = true;
+    if (config === "giga") st.giga = true; else st.micro = 3;
+    st.machines.forEach((m) => { m.pico = true; m.auto = true; });
+    let due = SCHEDULE.slice();
+    for (let t = 0; t < 300; t += 1 / 12) {
+      st.machines.forEach((m) => { m.ambient = 0; m.event = null; m.eventLeft = 999; m.nextFault = 999; });
+      while (due.length && t >= due[0][0]) {
+        const [, id, kind] = due.shift();
+        const m = st.machines.find((x) => x.id === id);
+        if (m.cond === "none" && !m.servicing && !m.restarting) h.conditionWith(st, id, kind);
+      }
+      h.stepWith(st, 1 / 12);
+    }
+    return st;
+  }
+  const giga = run("giga");
+  const micros = run("micros");
+  assert.ok(giga.coins >= micros.coins - 1,
+    `one coordinated mind must never lose to three uncoordinated ones: giga ${giga.coins.toFixed(0)} vs micros ${micros.coins.toFixed(0)}`);
+});
+
+test("v31: the crown reads the room, and the plea wears amber", () => {
+  assert.match(js, /THE PLANT IS STRUGGLING - THE MODELS NEED YOU/,
+    "a struggling plant is not crowned as running itself");
+  assert.match(js, /upPct < 0\.6/, "conditioned on the run's own uptime");
+  assert.match(css, /\.clf-unit__say\.is-help \{ border-color: #C99700/,
+    "the plea is amber - urgency without the alarm red");
+  assert.match(js, /tape\("hold"/, "a hold goes on the session tape");
 });

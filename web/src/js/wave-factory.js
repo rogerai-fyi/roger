@@ -155,6 +155,7 @@
     railed: "the reading is pinned at its limit - that is hardware. Only SERVICE fixes a railed sensor.",
   };
   var HEALTHY_WINDOW = 7;        // seconds between healthy-window redraws
+  var GIGA_STEPS_PER_SEC = 1.8;  // v31: continuous, not instantaneous (vs Micro's 4s look)
   /* NANO-DIRECT (v27). The founder asked whether a Nano alone should be
      enough - and the measured data says YES: parent-direct (the senior
      reading raw windows itself, no children) is the HIGHEST-accuracy config
@@ -213,6 +214,16 @@
       nanoDirect: false,                     // this read came off the patrol
       auto: false,                          // the models turn this knob
       autoNote: "", autoNoteAt: 0, autoTier: "", hadStop: false, verbTries: 0,
+      /* v31 control doctrine: the automation's own trust bookkeeping.
+         lastTrustedSet = the dial position last seen with a trusted,
+         in-band reading (where a hold restores to); chaseFrom/chaseErr =
+         where a push started and how bad the error was, so "I turned the
+         knob and the needle didn't answer" is a deduction the automation
+         can make; senseSuspect = that deduction, made; heldForFlag = the
+         hold announced once, not every frame; gigaGas = Giga's bounded
+         step budget (continuous, not instantaneous). */
+      lastTrustedSet: null, chaseFrom: null, chaseErr: null,
+      senseSuspect: false, heldForFlag: false, gigaGas: 0,
       buffer: 0,
       stopped: false, stoppedFor: 0,
       spec: spec,
@@ -628,10 +639,48 @@
     m.picoRead = null; m.nanoRead = null; m.driftLie = 0; m.hadStop = false;
     m.nanoDirect = false;
     m.inspected = false; m.inspecting = 0;
+    m.senseSuspect = false; m.heldForFlag = false;   // trust returns with the fix
+    m.chaseFrom = null; m.chaseErr = null;
     m.windowLeft = 0;   // a healthy window redraws immediately
   }
 
   /* ---- the handover: models turning the knobs -------------------------- */
+  /* =====================================================================
+     v31 - SENSOR TRUST, ONE SOURCE. The founder reached Giga and it made
+     everything worse: its optimizer chased a DRIFTING oven display to the
+     dial's maximum (240 degrees) while its own plant view printed "2
+     sensor(s) currently lying to you" - the knowledge and the policy never
+     met. This function is where they meet. It answers "has this sensor been
+     CAUGHT lying?" from PUBLIC knowledge only - a model-raised fault word,
+     an INSPECT verdict, a physically impossible reading, a needle pinned
+     outside the band with the dial already at its stop, or the automation's
+     own I-turned-the-knob-and-nothing-answered deduction. It NEVER peeks at
+     the hidden fault state: a recorded miss that nobody surfaced fools the
+     policy exactly as it fools a person. The plant view's "lying to you"
+     line and Giga's control policy both read THIS - unified, not
+     duplicated. */
+  function sensorFlagged(m) {
+    var picoAlarm = m.picoRead && m.picoRead.said !== "none";
+    var nanoNamesFault = m.nanoRead && m.nanoRead.said !== "none";
+    var nanoClears = m.nanoRead && m.nanoRead.kind === "resolved" &&
+      m.nanoRead.said === "none";
+    if ((picoAlarm && !nanoClears) || nanoNamesFault) return "a model raised it";
+    if (m.inspected) return "you inspected it";
+    /* the needle checks read the CACHED last display (m.lastShown, recorded
+       wherever a reading is actually taken) - shownValue() rolls the noisy
+       sensor's dice, and a trust check must not advance anyone's seed */
+    var shown = m.lastShown;
+    if (shown != null) {
+      if (shown < 0) return "the reading is impossible";
+      var t = tierOf(m), c = m.spec.control;
+      if ((shown > t.hi && m.set <= c.min) || (shown < t.lo && m.set >= c.max)) {
+        return "the dial is at its stop and the needle never moved";
+      }
+    }
+    if (m.senseSuspect) return "the needle is not answering the dial";
+    return null;
+  }
+
   function autonomyReach() {
     // Each Micro can hold ONE machine's knob; Giga holds the whole plant.
     if (G.giga) return 3;
@@ -683,26 +732,76 @@
       m.microCycle = 4;
     }
     var believed = shownValue(m);
-    if (believed == null) return;                 // a dropout says nothing
+    m.lastShown = believed;
     var t = tierOf(m), c = m.spec.control;
-    var aim = t.lo + 0.62 * (t.hi - t.lo);
-    var err = believed - aim;
-    var tol = (t.hi - t.lo) * 0.08;
-    if (Math.abs(err) > tol) {
-      var stepBy = c.step * (err > 0 ? -1 : 1) * (m.id === "oven" ? 1 : 1);
-      var next = Math.max(c.min, Math.min(c.max, m.set + stepBy));
-      if (next !== m.set) {
-        m.set = next;
-        m.autoNote = holderOf(m) + " moved " + c.label + " to " + next + c.unit;
+    /* v31 CONTROL DOCTRINE (the founder got burned: Giga chased a drifting
+       oven display to the 240-degree stop while its own plant view knew the
+       sensor was lying). Three rules, in-source because they ARE the fix:
+       1. A FLAGGED SENSOR IS NEVER CHASED. sensorFlagged() is the one
+          public-knowledge trust source; while it speaks, the dial goes back
+          to the last position seen with a trusted in-band reading and HOLDS
+          there - and the attribution line says so at the machine.
+       2. CONTINUOUS IS NOT INSTANTANEOUS. Giga corrects without a cycle gap
+          (the coordination edge it is sold on) but on a bounded step budget
+          - a lying sensor can no longer drag a dial to its stop in a
+          second. Micro keeps its slow 4s look; the gap survives.
+       3. NO ANSWER IS AN ANSWER. If the dial has moved 40% of its range in
+          one direction and the believed error has not shrunk, the sensor is
+          not answering the control - that deduction (senseSuspect) is
+          public knowledge the automation earned, and it flags the sensor. */
+    var flag = sensorFlagged(m);
+    if (flag) {
+      if (!m.heldForFlag) {
+        m.heldForFlag = true;
+        var back = (m.lastTrustedSet != null && m.lastTrustedSet !== m.set);
+        if (back) m.set = m.lastTrustedSet;
+        m.autoNote = holderOf(m) + ": " + m.spec.name + "'s sensor is lying (" +
+          flag + ") - " + (back ? "put " + c.label + " back to " + m.set + " and holding"
+                                : "holding " + c.label + " steady") + " until it's fixed";
         m.autoNoteAt = G.elapsed; m.autoTier = G.giga ? "giga" : "micro";
-        tape("dial", { m: m.id, to: next, by: holderOf(m) });
-        /* the Unit attends the move: the SIM's dial change stays immediate
-           (Giga's coordination IS continuous - that is the whole gap it is
-           sold on), but the floor's floating tag waits for the Unit to
-           arrive - the body catching up with the mind */
-        if (G.giga && G.unit && G.unit.at !== m.id) {
-          m.unitTagHold = true;
-          unitGo(m.id);
+        tape("hold", { m: m.id, why: flag, at: m.set });
+        m.chaseFrom = null; m.chaseErr = null; m.gigaGas = 0;
+      }
+    } else if (believed != null) {              // a dropout says nothing
+      m.heldForFlag = false;
+      var aim = t.lo + 0.62 * (t.hi - t.lo);
+      var err = believed - aim;
+      var tol = (t.hi - t.lo) * 0.08;
+      if (Math.abs(err) <= tol || (believed >= t.lo && believed <= t.hi && Math.abs(err) <= tol * 2)) {
+        // settled on a trusted reading: this is the position a hold restores to
+        if (believed >= t.lo && believed <= t.hi) m.lastTrustedSet = m.set;
+        m.chaseFrom = null; m.chaseErr = null;
+      }
+      if (Math.abs(err) > tol) {
+        // rule 3 bookkeeping: where did this push start, how bad was it
+        if (m.chaseFrom == null) { m.chaseFrom = m.set; m.chaseErr = Math.abs(err); }
+        if (Math.abs(m.set - m.chaseFrom) >= 0.4 * (c.max - c.min) &&
+            Math.abs(err) >= m.chaseErr * 0.9) {
+          m.senseSuspect = true;                // flags on the next look
+          return;
+        }
+        // rule 2: Giga's bounded budget; Micro's whole-step cycle is above
+        var may = true;
+        if (G.giga) {
+          m.gigaGas = Math.min(2, (m.gigaGas || 0) + dt * GIGA_STEPS_PER_SEC);
+          if (m.gigaGas < 1) may = false; else m.gigaGas -= 1;
+        }
+        if (may) {
+          var stepBy = c.step * (err > 0 ? -1 : 1);
+          var next = Math.max(c.min, Math.min(c.max, m.set + stepBy));
+          if (next !== m.set) {
+            m.set = next;
+            m.autoNote = holderOf(m) + " moved " + c.label + " to " + next + c.unit;
+            m.autoNoteAt = G.elapsed; m.autoTier = G.giga ? "giga" : "micro";
+            tape("dial", { m: m.id, to: next, by: holderOf(m) });
+            /* the Unit attends the move: the SIM's dial change stays
+               immediate, but the floor's floating tag waits for the Unit to
+               arrive - the body catching up with the mind */
+            if (G.giga && G.unit && G.unit.at !== m.id) {
+              m.unitTagHold = true;
+              unitGo(m.id);
+            }
+          }
         }
       }
     }
@@ -1242,8 +1341,13 @@
     var slow = rates.slice().sort(function (a, b) { return a.rate - b.rate; })[0];
     var best = rates.slice().sort(function (a, b) { return b.rate - a.rate; })[0];
     var loss = Math.max(0, best.rate - slow.rate);
+    /* v31: the "lying to you" count now rides sensorFlagged() - the same
+       public-knowledge trust source the control policy obeys. The old count
+       peeked at hidden fault state, which meant the desk card KNEW about
+       liars the policy went on trusting - the exact split the founder got
+       burned by (and, counted from the secret, it was itself a leak). */
     return { rates: rates, bottleneck: slow, loss: loss,
-             faults: G.machines.filter(function (m) { return m.cond !== "none"; }).length };
+             flagged: G.machines.filter(function (m) { return !!sensorFlagged(m); }).length };
   }
 
   /* =====================================================================
@@ -1259,7 +1363,31 @@
      a model raised, a machine anyone can see is stopped, the worst public
      uptime) and never where only the hidden fault state knows to look. A
      lying sensor nobody caught leaves the Unit as fooled as the person. */
+  /* v31 - AUTOMATION THAT IS STUCK ASKS FOR HELP, LOUDLY. The founder's
+     plant sat at 0.00/s under a banner reading PLANT RUNNING ITSELF while
+     the one fact that mattered - "I can't clear this, a person has to look"
+     - sat quietly in a panel. This names the machine automation cannot
+     clear: it is stopped with a live fault, no verb is running, and either
+     nothing was ever raised (a recorded chain miss - there is no alarm to
+     act on) or the crew is locked out. The Unit rolls THERE and says so;
+     the goal chip echoes it. Public knowledge only, like everything the
+     automation believes. */
+  function unitHelpTarget() {
+    if (!G.unit) return null;
+    for (var i = 0; i < G.machines.length; i++) {
+      var m = G.machines[i];
+      if (!m.auto || !m.stopped || m.cond === "none") continue;
+      if (m.servicing > 0 || m.restarting > 0 || m.inspecting > 0) continue;
+      var alarmed = (m.picoRead && m.picoRead.said !== "none") ||
+                    (m.nanoRead && m.nanoRead.said !== "none");
+      if (!alarmed || m.lockout > 0) return m;
+    }
+    return null;
+  }
+
   function unitFocus() {
+    var help = unitHelpTarget();
+    if (help) return help.id;
     var alarmed = G.machines.filter(function (m) {
       return m.cond !== "none" && ((m.picoRead && m.picoRead.said !== "none") ||
         (m.nanoRead && m.nanoRead.kind === "resolved"));
@@ -1277,6 +1405,21 @@
      SAME siteBoard()/plantView() that feed the wall board and the desk
      cards (one source, test-locked). It never mints a number of its own. */
   function unitLine() {
+    var help = unitHelpTarget();
+    if (help && G.unit.at === help.id) {
+      return help.lockout > 0
+        ? "The crew's locked out here - INSPECT the " + help.spec.name.toLowerCase() +
+          " while we wait. Inspecting never locks."
+        : "I can't read the " + help.spec.name.toLowerCase() +
+          " - it needs your eyes. INSPECT it.";
+    }
+    var heldHere = G.machines.filter(function (m2) {
+      return m2.heldForFlag && G.unit.at === m2.id;
+    })[0];
+    if (heldHere) {
+      return "The " + heldHere.spec.name.toLowerCase() + "'s sensor is lying - I'm holding " +
+        heldHere.spec.control.label + " steady until it's fixed.";
+    }
     var sb = siteBoard(), pv = plantView();
     var topics = [];
     topics.push(sb.line.charAt(0).toUpperCase() + sb.line.slice(1) + ".");
@@ -2331,6 +2474,7 @@
       if (!stillRaised) s.bubble.hidden = true;
     }
     var shown = shownValue(m);
+    m.lastShown = shown;   // the cached display the trust checks read (v31)
     s.tier.textContent = t.name;
     s.value.textContent = fmt(shown, m.spec.sensor.dp);
     s.value.classList.toggle("is-gone", shown == null);
@@ -2748,7 +2892,17 @@
       rows.push(["NICE", "you caught what both models missed on the " + G.ackWhat,
         "nice save - that one needed a person"]);
     } else {
-      var handedOffTo = G.machines.filter(function (mm) { return chainMissed(mm) && !mm.inspected; });
+      /* v31: under autonomy the same handoff is LOUD - the Unit is already
+         rolling there; the chip names the machine and the move */
+      var helpM = unitHelpTarget();
+      if (helpM) {
+        rows.push(["HELP", "the " + helpM.spec.name.toLowerCase() + " needs your eyes",
+          helpM.lockout > 0 ? "the crew's locked out - INSPECT it, inspecting never locks"
+                            : "automation can't clear this one - INSPECT it"]);
+      }
+      var handedOffTo = G.machines.filter(function (mm) {
+        return chainMissed(mm) && !mm.inspected && !(helpM && helpM.id === mm.id);
+      });
       if (handedOffTo.length) {
         rows.push(["WATCH", "both models missed the " + handedOffTo[0].spec.name.toLowerCase(),
           "this one's yours - INSPECT it and see for yourself"]);
@@ -3084,7 +3238,9 @@
       g.appendChild(el("span", null, pv.loss > 0.05
         ? "Upgrading it would free about " + pv.loss.toFixed(2) + "/s of the line's pace."
         : "The three stations are balanced."));
-      g.appendChild(el("span", null, pv.faults ? pv.faults + " sensor(s) currently lying to you." : "Every sensor is honest right now."));
+      g.appendChild(el("span", null, pv.flagged
+        ? pv.flagged + " sensor(s) caught lying - holding their dials until they're fixed."
+        : "No sensor has been caught lying right now."));
       g.appendChild(el("i", "cl-view__note", "arithmetic over the game's own numbers - Giga has no recorded run on this bench"));
       DOM.deskView.appendChild(g);
     }
@@ -3096,7 +3252,15 @@
     var res = resultsView();
     if (handedOver) {
       res.classList.add("is-lead");
-      res.insertBefore(el("span", "cl-view__crown", "PLANT RUNNING ITSELF · YOU ARE THE OPERATOR NOW"), res.firstChild);
+      /* v31: the crown reads the room. The founder saw PLANT RUNNING ITSELF
+         crowning 0.00/s and 33% uptime - triumph copy over a dying line. The
+         same banner now tells the truth the results already show. */
+      var upPct = G.runTime > 0 ? G.upTime / G.runTime : 1;
+      var crown = upPct < 0.6
+        ? "THE PLANT IS STRUGGLING - THE MODELS NEED YOU"
+        : "PLANT RUNNING ITSELF · YOU ARE THE OPERATOR NOW";
+      var crownEl = el("span", "cl-view__crown" + (upPct < 0.6 ? " is-strain" : ""), crown);
+      res.insertBefore(crownEl, res.firstChild);
       DOM.deskView.insertBefore(res, DOM.deskView.firstChild);
     } else {
       DOM.deskView.appendChild(res);
@@ -3123,6 +3287,8 @@
       : (!u.going && u.say && G.elapsed < u.sayUntil ? u.say : "");
     DOM.unitSay.hidden = !line;
     if (line) DOM.unitSay.textContent = line;
+    var help = unitHelpTarget();
+    DOM.unitSay.classList.toggle("is-help", !!(help && u.at === help.id && line));
   }
 
   function paintChat() {
@@ -3517,6 +3683,10 @@
       certReadyWith: function (state) { var s2 = G; G = state; var v = certReady(); G = s2; return v; },
       touchWith: function (state) { var s2 = G; G = state; touchPlant(); G = s2; return state; },
       siteBoardWith: function (state) { var s2 = G; G = state; var v = siteBoard(); G = s2; return v; },
+      /* v31: the trust source and the plea, runnable by the locks */
+      flaggedWith: function (state, id) { var s2 = G; G = state; var v = sensorFlagged(machine(id)); G = s2; return v; },
+      helpWith: function (state) { var s2 = G; G = state; var v = unitHelpTarget(); G = s2; return v; },
+      gigaStepsPerSec: GIGA_STEPS_PER_SEC,
       live: function () { return G; },
       forceFault: function (id, kind) {
         var m = machine(id);
