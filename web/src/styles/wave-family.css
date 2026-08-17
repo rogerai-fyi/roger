@@ -270,6 +270,25 @@
 .wave-mark__wave { fill: none; stroke-linecap: round; }
 .wave-mark__wave--wide { stroke: var(--hairline-2); stroke-width: 9; }
 .wave-mark__wave--live { stroke: var(--live); stroke-width: 6; }
+/* the spectrum behind the mark: harmonics at 2x/3x/4x, fainter and finer as
+   they get shorter (the ladder as wavelengths). Every one has a node under
+   the beacon. */
+.wave-mark__wave--h2 { stroke: var(--hairline-2); stroke-width: 4; opacity: .55; }
+.wave-mark__wave--h3 { stroke: var(--hairline-2); stroke-width: 3; opacity: .38; }
+.wave-mark__wave--h4 { stroke: var(--hairline-2); stroke-width: 2; opacity: .26; }
+/* on air: a ripple leaves the beacon every few seconds, a second one half a
+   beat behind - the ((*)) of the callsign, drawn */
+.wave-mark__ripple {
+  fill: none; stroke: var(--live); stroke-width: 2; opacity: 0;
+  transform-origin: 174px 78px;
+  animation: wave-mark-ripple 4.2s cubic-bezier(.2,.6,.3,1) infinite;
+}
+.wave-mark__ripple--late { animation-delay: 2.1s; }
+@keyframes wave-mark-ripple {
+  0%   { transform: scale(1);   opacity: .55; }
+  70%  { transform: scale(3.2); opacity: 0; }
+  100% { transform: scale(3.2); opacity: 0; }
+}
 /* The node is the beacon, so it breathes like every other one on the site. Scale only,
    from its own centre - the curves never move, because the mark is the mark. */
 .wave-mark__node {
@@ -285,5 +304,6 @@
   letter-spacing: var(--tracking-label); text-transform: uppercase;
 }
 @media (prefers-reduced-motion: reduce) {
-  .wave-mark__node { animation: none; }
+  .wave-mark__node, .wave-mark__ripple { animation: none; }
+  .wave-mark__ripple { display: none; }
 }

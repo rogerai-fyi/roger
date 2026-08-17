@@ -43,15 +43,30 @@
              named for the wave, and the crossing node is the point the whole page is about.
              Geometry is the card's, unchanged, so the two read as one mark. Deliberately
              not the vector Ping mascot, which stays on the homepage and the research hub. -->
+        <!-- ALIVE (js/wave-mark.js): the resting frame is this exact mark. Behind
+             the wide wave sit fainter harmonics at 2x, 3x, 4x - the ladder as a
+             spectrum of wavelengths - and every harmonic of one fundamental has a
+             node at the centre, so all of them cross under the beacon, always. The
+             waves are standing waves that breathe (never flat); a slow shimmer
+             rides the live one; a ripple leaves the beacon every few seconds. Under
+             prefers-reduced-motion nothing moves and this is the mark to the pixel. -->
         <figure class="wave-mark" role="img"
-                aria-label="The RogerAI wave mark: two waves crossing at a live beacon">
-          <svg class="wave-mark__svg" viewBox="-6 20 360 116" aria-hidden="true" focusable="false">
+                aria-label="The RogerAI wave mark: a spectrum of waves crossing at one live beacon">
+          <svg class="wave-mark__svg" viewBox="-6 20 360 116" aria-hidden="true" focusable="false" data-animate>
             <g fill="none" stroke-linecap="round">
+              <path class="wave-mark__wave wave-mark__wave--h4"
+                    d="M0 78C22 66 44 66 66 78S110 90 132 78S176 66 198 78S242 90 264 78S308 66 330 78L348 72"/>
+              <path class="wave-mark__wave wave-mark__wave--h3"
+                    d="M0 78C29 60 58 60 87 78S145 96 174 78S232 60 261 78S319 96 348 78"/>
+              <path class="wave-mark__wave wave-mark__wave--h2"
+                    d="M0 78C44 50 87 50 131 78S218 106 261 78S305 50 348 78"/>
               <path class="wave-mark__wave wave-mark__wave--wide"
                     d="M0 78C58 18 116 18 174 78S290 138 348 78"/>
               <path class="wave-mark__wave wave-mark__wave--live"
                     d="M0 78C58 42 116 42 174 78S290 114 348 78"/>
             </g>
+            <circle class="wave-mark__ripple" cx="174" cy="78" r="14"/>
+            <circle class="wave-mark__ripple wave-mark__ripple--late" cx="174" cy="78" r="14"/>
             <circle class="wave-mark__node" cx="174" cy="78" r="14"/>
           </svg>
           <figcaption>Right-sized intelligence, on air.</figcaption>
@@ -75,30 +90,33 @@
             <span id="wf-rail-title">ARTIFACT SIZE ON DISK</span>
             <span>quantized weights, log scale</span>
           </div>
-          <!-- Six decades, 1 MB to 1 TB, so every tier sits ON the axis rather than
-               past its end. Node positions are computed, not eyeballed:
-               at% = (100/6) x log10(size_MB), size = params x ~0.6 bytes (Q4-class
-               quantized weights, the shipping form - the measured 98M build is 65 MB
-               at Q4_K_M). Tier midpoints from the locked ladder: Pico 275M -> 165 MB,
-               Nano 1.15B -> 690 MB, Micro 7.5B -> 4.5 GB, Giga 31B -> 18.6 GB,
-               Tera 100B -> 60 GB, Peta 175B -> 105 GB, Exa 284B -> 170 GB. -->
+          <!-- Four decades, 100 MB to 1 TB, so every tier sits ON the axis with
+               room to breathe (founder 2026-08-17: the top three markers crowded on
+               the old 1 MB-1 TB span - the two empty decades below Pico were paying
+               for nothing). Still a true log axis. Node positions are computed, not
+               eyeballed: at% = 25 x (log10(size_MB) - 2), size = params x ~0.6 bytes
+               (Q4-class quantized weights, the shipping form - the measured 98M build
+               is 65 MB at Q4_K_M). Tier midpoints from the locked ladder:
+               Pico 275M -> 165 MB (5.4%), Nano 1.15B -> 690 MB (21%),
+               Micro 7.5B -> 4.5 GB (41%), Giga 31B -> 18.6 GB (57%),
+               Tera 100B -> 60 GB (69.5%), Peta 175B -> 105 GB (75.5%),
+               Exa 284B -> 170 GB (80.8%). On four decades the closest neighbours
+               (Peta/Exa) sit 46px apart on the 860px track - one row, no stagger. -->
           <div class="wf-rail__scroll">
             <div class="wf-rail__track">
-              <span class="wf-tick" style="--at:0%"><i></i><b>1 MB</b></span>
-              <span class="wf-tick" style="--at:16.7%"><i></i><b>10 MB</b></span>
-              <span class="wf-tick" style="--at:33.3%"><i></i><b>100 MB</b></span>
-              <span class="wf-tick" style="--at:50%"><i></i><b>1 GB</b></span>
-              <span class="wf-tick" style="--at:66.7%"><i></i><b>10 GB</b></span>
-              <span class="wf-tick" style="--at:83.3%"><i></i><b>100 GB</b></span>
+              <span class="wf-tick" style="--at:0%"><i></i><b>100 MB</b></span>
+              <span class="wf-tick" style="--at:25%"><i></i><b>1 GB</b></span>
+              <span class="wf-tick" style="--at:50%"><i></i><b>10 GB</b></span>
+              <span class="wf-tick" style="--at:75%"><i></i><b>100 GB</b></span>
               <span class="wf-tick" style="--at:100%"><i></i><b>1 TB</b></span>
 
-              <span class="wf-node is-live" style="--at:37%"><i></i><b>Pico</b></span>
-              <span class="wf-node" style="--at:47%"><i></i><b>Nano</b></span>
-              <span class="wf-node" style="--at:61%"><i></i><b>Micro</b></span>
-              <span class="wf-node" style="--at:71%"><i></i><b>Giga</b></span>
-              <span class="wf-node" style="--at:80%"><i></i><b>Tera</b></span>
-              <span class="wf-node wf-node--up" style="--at:84%"><i></i><b>Peta</b></span>
-              <span class="wf-node" style="--at:87%"><i></i><b>Exa</b></span>
+              <span class="wf-node is-live" style="--at:5.4%"><i></i><b>Pico</b></span>
+              <span class="wf-node" style="--at:21%"><i></i><b>Nano</b></span>
+              <span class="wf-node" style="--at:41%"><i></i><b>Micro</b></span>
+              <span class="wf-node" style="--at:57%"><i></i><b>Giga</b></span>
+              <span class="wf-node" style="--at:69.5%"><i></i><b>Tera</b></span>
+              <span class="wf-node" style="--at:75.5%"><i></i><b>Peta</b></span>
+              <span class="wf-node" style="--at:80.8%"><i></i><b>Exa</b></span>
             </div>
           </div>
           <figcaption id="wf-rail-cap">Filled marker: a trained waypoint artifact exists
@@ -197,7 +215,7 @@
               <tr>
                 <th scope="row">Wave Pico</th><td class="tier-cell">250&ndash;300M</td>
                 <td>The edge child: reads one machine&rsquo;s telemetry and asserts, with margins</td>
-                <td>Pi, ESP32 &middot; ~50 ms, no GPU</td><td class="tier-cell">Scratch &middot; waypoint trained</td>
+                <td>Raspberry Pi &middot; ~50 ms, no GPU</td><td class="tier-cell">Scratch &middot; waypoint trained</td>
               </tr>
               <tr>
                 <th scope="row">Wave Nano</th><td class="tier-cell">0.8&ndash;1.5B</td>
@@ -207,7 +225,7 @@
               <tr>
                 <th scope="row">Wave Micro</th><td class="tier-cell">7&ndash;8B</td>
                 <td>The site brain: multi-fleet reasoning across a facility, general-capable and industrial</td>
-                <td>On-site server</td><td class="tier-cell">Base + specialize</td>
+                <td>On-site server</td><td class="tier-cell">Scratch &middot; planned</td>
               </tr>
               <tr>
                 <th scope="row">Wave Giga</th><td class="tier-cell">27&ndash;35B</td>
@@ -235,12 +253,13 @@
 
         <div class="device-contract">
           <p><b>Specialists first.</b> Wave Pico and Wave Nano are task-native total
-             specialists - at chance on general benchmarks by design (MMLU 23.2, Pico
-             report); reasoning and explanation grow from Wave Micro upward, where every
+             specialists - at chance on general benchmarks by design (MMLU 26.9 against a
+             25 chance line, Pico v4 audit); reasoning and explanation grow from Wave Micro upward, where every
              tier must stay competitive on general benchmarks as well as industrial ones.</p>
           <p><b>How the recipes split.</b> Scratch means trained from random init on our
-             data, and it is bounded by diverse tokens, not GPUs - measured to win through
-             roughly half a billion parameters. Above that, base + specialize: a strong
+             data, and it is bounded by diverse tokens, not GPUs - measured healthy with no
+             starvation knee through 1.5 billion parameters. Pico, Nano, and Micro are all
+             scratch tiers. From Giga up, base + specialize: a strong
              open base, industrial continued-pretrain, and the mesh. Peta and Exa are
              carved from the flagship rather than trained. Sizes are targets and bands,
              not final specifications.</p>
@@ -490,6 +509,7 @@
   <!-- include: footer.html anchors=/ -->
 
   <script src="js/site.js" defer></script>
+  <script src="js/wave-mark.js" defer></script>
   <script src="js/session.js" defer></script>
   <script src="js/promo.js" defer></script>
 </body>

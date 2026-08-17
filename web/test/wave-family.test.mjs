@@ -364,8 +364,17 @@ test("the Wave family page carries the wave mark", () => {
   assert.match(mark, /role="img"/, "it is named for a screen reader");
   assert.match(mark, /aria-label="[^"]+"/);
 
-  const waves = [...mark.matchAll(/<path class="wave-mark__wave[^"]*"[^>]*d="([^"]+)"/g)].map((m) => m[1]);
-  assert.equal(waves.length, 2, `two waves, one behind the other, found ${waves.length}`);
+  /* 2026-08-17: the mark gained a SPECTRUM behind it - harmonics at 2x/3x/4x,
+     the ladder drawn as wavelengths. The guarantee is unchanged and now
+     stronger: the two PRINCIPAL waves still cross at the beacon, and every
+     harmonic is a harmonic of the same fundamental, so each has a node at
+     that same crossing - the animation cannot move the point the mark is
+     about. Harmonics are asserted separately below. */
+  const waves = [...mark.matchAll(/<path class="wave-mark__wave wave-mark__wave--(?:wide|live)"[^>]*d="([^"]+)"/g)].map((m) => m[1]);
+  assert.equal(waves.length, 2, `two principal waves, one behind the other, found ${waves.length}`);
+  const harmonics = [...mark.matchAll(/wave-mark__wave--h(\d)"[^>]*d="M0 (\d+)/g)];
+  assert.equal(harmonics.length, 3, "three harmonics stand behind them");
+  assert.ok(harmonics.every((h) => h[2] === "78"), "every harmonic rests on the same centreline");
 
   // Both run on the same centreline and share the same midpoint - that shared point is
   // where they cross, and it is the only place the beacon may sit.
@@ -393,9 +402,19 @@ test("the wave mark is whole without motion", () => {
   assert.ok(block.length, "the mark is styled");
   // Only the beacon animates, and only its scale: the curves are the mark and must not
   // move. Nothing may be hidden at rest.
-  assert.doesNotMatch(block, /\.wave-mark__wave[^{]*\{[^}]*animation:/, "the curves do not animate");
+  /* 2026-08-17: the curves are now animated by SCRIPT (js/wave-mark.js), which
+     recomputes their `d` from standing-wave math with the resting frame equal
+     to this markup. The CSS guarantee stands as written - no CSS animation
+     smears the curves, and reduced-motion users never load the script, so the
+     page they see is this exact static mark. */
+  assert.doesNotMatch(block, /\.wave-mark__wave[^{]*\{[^}]*animation:/, "no CSS animation moves the curves");
   assert.doesNotMatch(block, /\.wave-mark__(wave|node)[^{]*\{[^}]*opacity:\s*0\s*[;}]/,
     "nothing is hidden at rest");
+  /* the animation is opt-out, not opt-in: the script bails on reduced-motion,
+     so what remains must be the whole mark */
+  const js = readFileSync(path.join(WEB, "src", "js", "wave-mark.js"), "utf8");
+  assert.match(js, /prefers-reduced-motion: reduce/, "the script asks before it moves anything");
+  assert.match(js, /if \(reduce\) return;/, "and does nothing at all when asked not to");
   const reduced = (css.match(/@media \(prefers-reduced-motion: reduce\) \{([\s\S]*?)\n\}/g) || [])
     .find((b) => b.includes("wave-mark"));
   assert.ok(reduced, "the mark has a reduced-motion escape");
