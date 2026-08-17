@@ -83,20 +83,37 @@ func TestARetriedSettlementDoesNotAccrueTwice(t *testing.T) {
 	require.Equal(t, int64(20), owed.Accrued)
 }
 
-// The operator reads their own balance on the signed route, scoped to the pubkey that signed.
+// The operator reads THE MONEY on the signed route - the same credits, held/payable/paid and
+// relay-vs-serving split the website's Payouts page serves, scoped to the pubkey that signed.
+// It must NOT answer from the policy-priced accrual trail: that surface once did, and the CLI
+// and the dashboard disagreed about the same money.
 func TestAnOperatorReadsWhatTheyAreOwed(t *testing.T) {
-	t.Setenv("ROGERAI_TOWER_ACCRUAL_MICROS_OUT", "3")
+	t.Setenv("ROGERAI_TOWER_ACCRUAL_MICROS_OUT", "3") // the trail's policy rate - NOT the money
+	t.Setenv("ROGERAI_TOWER_EDGE_PRICE_IN", "0")
+	t.Setenv("ROGERAI_TOWER_EDGE_PRICE_OUT", "0")
+	t.Setenv("ROGERAI_PAYOUT_HOLD_DAYS", "0")
+	t.Setenv("ROGERAI_PAYOUT_RESERVE", "0")
 	b, srv := towerTestBroker(t)
+	b.feeRate = 0.30
 	op := signedInOperator(t, b, "octocat")
 	owner := ownerPubkeyOf(t, b, op.login)
 	tw := enrolledTower(t, b, op.login)
 	stationPriv := attachStation(t, b, "st-1", tw.id, owner)
-	issuedAttempt(t, b, "att-1", tw.id, "st-1")
+
+	// A priced attempt so there is real money: 200 tokens at $5,000/1M = 1.0 credit gross.
+	// This operator owns BOTH the tower and the station, so they earn 70% + 10% = 0.80.
+	cpub := issuedEdgeGrantPriced(t, b, "att-owed", tw.id, "st-1", 0, 5_000_000_000)
+	consumerWallet := bindEdgeConsumer(t, b, cpub)
+	_, err := b.db.AddCredits(consumerWallet, 100)
+	require.NoError(t, err)
+	held, err := b.db.HoldFor(consumerWallet, "att-owed", 10)
+	require.NoError(t, err)
+	require.True(t, held)
 
 	body, err := json.Marshal(map[string]any{
-		"tower_id": tw.id, "station_id": "st-1", "attempt_id": "att-1",
-		"receipt": signedReceipt(t, stationPriv, "att-1", "st-1", []byte("a"),
-			dispatch.Usage{In: 0, Out: 8}),
+		"tower_id": tw.id, "station_id": "st-1", "attempt_id": "att-owed",
+		"receipt": signedReceiptTok(t, stationPriv, "att-owed", "st-1", make([]byte, 300),
+			dispatch.Usage{In: 0, Out: 300}, dispatch.Usage{In: 0, Out: 200}),
 	})
 	require.NoError(t, err)
 	var settled map[string]any
@@ -106,10 +123,19 @@ func TestAnOperatorReadsWhatTheyAreOwed(t *testing.T) {
 	var owed map[string]any
 	code, raw := op.call(t, srv, http.MethodPost, "/tower/earnings/owed", map[string]any{}, &owed)
 	require.Equal(t, http.StatusOK, code, raw)
-	require.Equal(t, float64(24), owed["owed"], raw)
-	require.Equal(t, float64(24), owed["accrued"], raw)
-	require.Equal(t, float64(1), owed["attempts"], raw)
-	require.Equal(t, "micros", owed["unit"])
+	require.Equal(t, "credits", owed["unit"], "the money is quoted in the website's unit, not the trail's micros")
+	require.InDelta(t, 0.80, owed["payable"], 1e-6, "70%% serving + 10%% relaying of a 1.0-credit request")
+	require.InDelta(t, 0.10, owed["from_relaying"], 1e-6)
+	require.InDelta(t, 0.70, owed["from_serving"], 1e-6)
+	require.Equal(t, float64(1), owed["attempts"], "the trail contributes COUNTS, not a balance")
+	require.NotContains(t, owed, "accrued", "the policy-priced accrual is never quoted as a balance")
+
+	// THE INVARIANT: this endpoint and the website's /payouts/earnings agree, because both
+	// read the ledger the payout rail pays from.
+	split, err := b.db.EarningSplitOf(owner, time.Now())
+	require.NoError(t, err)
+	require.InDelta(t, split.Payable, owed["payable"], 1e-9)
+	require.InDelta(t, split.Paid, owed["paid"], 1e-9)
 }
 
 // A stranger cannot read the ledger, and nobody's balance leaks to an unauthenticated caller.

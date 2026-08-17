@@ -42,6 +42,7 @@ usage:
   roger-tower stations --dir DIR
   roger-tower route --dir DIR --client KEYHASH --model NAME
   roger-tower status --dir DIR
+  roger-tower earnings --dir DIR      (what this account has earned)
   roger-tower login  --dir DIR        (joined mode only)
   roger-tower logout --dir DIR
   roger-tower probe    --model NAME [--broker URL]   (drive the edge path as a consumer)
@@ -111,6 +112,8 @@ func run(args []string, out io.Writer) error {
 		return cmdProbe(args[1:], out)
 	case "status":
 		return cmdStatus(args[1:], out)
+	case "earnings":
+		return cmdEarnings(args[1:], out)
 	case "version":
 		fmt.Fprintln(out, version)
 		return nil

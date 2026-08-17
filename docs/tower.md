@@ -364,13 +364,18 @@ direct node's serving share uses. They hold, release, and cash out through `/pay
 like any other earning: Stripe Connect transfer, 120-day hold, $25 minimum, KYC gate, and
 clawback on dispute. The Payouts page shows relaying and serving apart (provenance only).
 
-Alongside that, `internal/towercore/earnings` records
-what each operator is *owed*: one durable row per settled attempt, keyed by attempt id, written
-after the one-use settlement commits. Two properties follow from that key — it accrues **exactly
-once** however the settle is retried or raced, and the amount is a **pure function of the
-billable usage** stored with the receipt, so a dropped accrual under-pays (the safe direction)
-and can be re-derived, never invented. The operator reads their balance on
-`/tower/earnings/owed`, scoped to the account key that signs the request.
+An operator reads that money on `/tower/earnings/owed` (or `roger-tower earnings`), scoped to
+the account key that signs the request — the same credits, the same held/payable/paid, and the
+same relaying-vs-serving split the website shows, because it is the same ledger. Two surfaces
+that disagree about one balance is a bug, and it was one: this endpoint used to answer from the
+accrual trail below and quote policy-priced micros as though they were the operator's money.
+
+Alongside the money, `internal/towercore/earnings` keeps a **per-attempt trail**: one durable
+row per settled attempt, keyed by attempt id, written after the one-use settlement commits. Two
+properties follow from that key — it accrues **exactly once** however the settle is retried or
+raced, and the amount is a **pure function of the billable usage** stored with the receipt, so
+a dropped row under-states (the safe direction) and can be re-derived, never invented. It is
+substrate for the future revenue-share program, and only its *counts* surface to the operator.
 
 That read-only ledger moves nothing itself — the separation is deliberate, so it can be
 accrued, read, disputed and reconciled without any tower-facing endpoint being able to move a
