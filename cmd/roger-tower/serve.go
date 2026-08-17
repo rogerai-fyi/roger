@@ -40,7 +40,7 @@ import (
 // serveJoined runs the link until the process is interrupted. It supplies the two things the
 // loop cannot invent for itself - a real signal and a real clock - and then gets out of the
 // way; everything that can go wrong is in runLink, where a test can reach it.
-func serveJoined(st *tower.State, out io.Writer, stations stationEndpoints, relayAddr string, routes relayRoutes, relayPublic string) error {
+func serveJoined(st *tower.State, out io.Writer, stations stationEndpoints, relayAddr string, routes relayRoutes, relayPublic, hubAddr string) error {
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(stop)
@@ -63,6 +63,18 @@ func serveJoined(st *tower.State, out io.Writer, stations stationEndpoints, rela
 	if relayAddr != "" {
 		waitForRelay := runRelayInBackground(relayAddr, routes, out, stopped)
 		defer waitForRelay()
+	}
+	// THE HUB (Option C, Topology 2): the tower-hosted job queue consumers submit sealed work
+	// to and self-attached roger share nodes poll. Started before the link so a consumer's
+	// very first submit after we advertise has somewhere to land; fails fast if Core's grant
+	// key cannot be fetched.
+	if hubAddr != "" {
+		waitForHub, herr := runHubInBackground(st, hubAddr, out, stopped)
+		if herr != nil {
+			windDown()
+			return herr
+		}
+		defer waitForHub()
 	}
 	// RENEWAL, alongside the link and the relay. Without it the certificate and the lease
 	// both lapse in a day and the Tower is finished - re-enrollment through quarantine, for
@@ -319,6 +331,7 @@ func cmdServe(args []string, out io.Writer) error {
 	fs.Var(&relayFlags, "relay-station", "a Station this Tower RELAYS to, as ID=HOST:PORT (repeatable)")
 	relayAddr := fs.String("relay", "", "address to relay consumer traffic on, e.g. :8443")
 	relayPublic := fs.String("relay-public", "", "the PUBLIC host:port consumers reach the relay at (advertised to Roger Core)")
+	hubAddr := fs.String("hub", "", "address to serve the data-plane HUB on, e.g. :8444 - where consumers submit sealed work and this tower's self-attached nodes poll")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -341,8 +354,8 @@ func cmdServe(args []string, out io.Writer) error {
 			return fmt.Errorf("--relay-public must be a dialable host:port, got %q", *relayPublic)
 		}
 	}
-	if *cfg == "" && *relayPublic != "" && *relayAddr == "" {
-		return fmt.Errorf("--relay-public advertises a data plane, but no --relay is serving one")
+	if *cfg == "" && *relayPublic != "" && *relayAddr == "" && *hubAddr == "" {
+		return fmt.Errorf("--relay-public advertises a data plane, but neither --relay nor --hub is serving one")
 	}
 	// serve takes --config for the same reason the state commands do, and it matters MORE
 	// here: an operator whose `attach` wrote to the database while `serve` read local disk
@@ -392,5 +405,5 @@ func cmdServe(args []string, out io.Writer) error {
 		fmt.Fprint(out, "NOTE: the relay has no --relay-public address, so Roger Core will not "+
 			"route edge consumers to this Tower.\n")
 	}
-	return serveJoined(st, out, stations, *relayAddr, routes, *relayPublic)
+	return serveJoined(st, out, stations, *relayAddr, routes, *relayPublic, *hubAddr)
 }

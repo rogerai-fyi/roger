@@ -81,6 +81,11 @@ func (b *broker) towerEdgeAttach(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
+		// StationID is OPTIONAL: a node that already minted its persistent station identity
+		// (station.Init) attaches under it, so the grants Core signs name the id the node's
+		// executor answers to. Absent -> Core mints one. Shape-checked; uniqueness is the
+		// store's (PK + live-key indexes).
+		StationID    string `json:"station_id"`
 		AssertionKey string `json:"assertion_key"`
 		SessionKey   string `json:"session_key"`
 		Model        string `json:"model"`
@@ -174,7 +179,13 @@ func (b *broker) towerEdgeAttach(w http.ResponseWriter, r *http.Request) {
 
 	// The internal invitation: minted and redeemed in this one call. The secret exists only
 	// on this stack; the cap and one-use guarantees are the store's, unchanged.
-	stationID := newStationID()
+	stationID := strings.TrimSpace(req.StationID)
+	if stationID == "" {
+		stationID = newStationID()
+	} else if !attach.ValidStationID(stationID) {
+		jsonErr(w, http.StatusBadRequest, "station_id is not a valid station identifier")
+		return
+	}
 	hubToken := newHubToken()
 	auth, secret, err := attach.NewInvite(attach.Authorization{
 		ID: newInviteID(), Network: link.PublicNetwork, StationID: stationID, Owner: ownerPubkey,

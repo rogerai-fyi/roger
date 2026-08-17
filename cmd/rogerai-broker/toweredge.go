@@ -145,6 +145,10 @@ func (b *broker) towerEdgeAuthorize(w http.ResponseWriter, r *http.Request) {
 		MaxOut    int64  `json:"max_out,omitempty"`
 		MaxTokIn  int64  `json:"max_tok_in,omitempty"`
 		MaxTokOut int64  `json:"max_tok_out,omitempty"`
+		// ConsumerEnvKey is the consumer's X25519 public key (hex, 32 bytes), OPTIONAL: on the
+		// hub (Topology 2) path the node seals its ANSWER to this, so it crosses the tower
+		// unreadable. Signed into the grant, so the tower cannot swap it.
+		ConsumerEnvKey string `json:"consumer_env_key,omitempty"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil || req.Model == "" {
 		jsonErr(w, http.StatusBadRequest, "an edge authorization names the model it wants")
@@ -193,6 +197,16 @@ func (b *broker) towerEdgeAuthorize(w http.ResponseWriter, r *http.Request) {
 		maxTokOut = edgeMaxTokens
 	}
 
+	var consumerEnvKey []byte
+	if req.ConsumerEnvKey != "" {
+		raw, derr := hex.DecodeString(req.ConsumerEnvKey)
+		if derr != nil || len(raw) != 32 {
+			jsonErr(w, http.StatusBadRequest, "consumer_env_key must be a hex-encoded 32-byte X25519 public key")
+			return
+		}
+		consumerEnvKey = raw
+	}
+
 	target, row, ok := b.edgeTargetFor(req.Model)
 	endpoint := row.Endpoint
 	if !ok {
@@ -225,7 +239,7 @@ func (b *broker) towerEdgeAuthorize(w http.ResponseWriter, r *http.Request) {
 		RelayName: target.StationID + "." + relayDomain(),
 		MaxIn:     maxIn, MaxOut: maxOut,
 		MaxTokIn: maxTokIn, MaxTokOut: maxTokOut, AssertionKey: target.AssertionKey,
-		ConsumerKey: consumerKey,
+		ConsumerKey: consumerKey, ConsumerEnvKey: consumerEnvKey,
 		// THE PRICE IS PINNED HERE, from the Station's signed, band-checked offer, into the
 		// Core-signed grant - so settlement bills the number the consumer authorized against,
 		// and a price change between authorize and settle cannot reprice this attempt.
@@ -301,6 +315,10 @@ func (b *broker) towerEdgeAuthorize(w http.ResponseWriter, r *http.Request) {
 		"price_in_micros":  g.PriceInMicros,
 		"price_out_micros": g.PriceOutMicros,
 		"max_hold_credits": round6(maxCost),
+		// The STATION'S session key, straight from Core's attachment record: what the consumer
+		// seals its REQUEST to on the hub path. Handed here - Core to consumer - so the tower
+		// never gets to name the key its relayed bytes are encrypted to.
+		"station_session_key": hex.EncodeToString(target.SessionKey),
 		"note": "connect to endpoint with TLS server name relay_name, send the grant in the " +
 			"X-Rogerai-Grant header, and acknowledge what you receive at /tower/edge/ack - an " +
 			"honest acknowledgement can only ever reduce what you are billed",

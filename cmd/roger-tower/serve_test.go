@@ -518,7 +518,7 @@ func TestServeJoinedWiresTheRealSignalAndClock(t *testing.T) {
 	st, release, err := openDir(dir)
 	require.NoError(t, err)
 	defer release()
-	require.Error(t, serveJoined(st, &b, nil, "", nil, ""))
+	require.Error(t, serveJoined(st, &b, nil, "", nil, "", ""))
 }
 
 // An offers directory that cannot be listed is FATAL, unlike a single bad file inside it.

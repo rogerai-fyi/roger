@@ -1,0 +1,203 @@
+package agent
+
+// tower.go is `roger share` serving THROUGH A TOWER (Option C, Topology 2) - the capability
+// that used to require the separate roger-station binary and its invite-file ceremony, folded
+// into the one binary providers actually run.
+//
+// # THE FLOW
+//
+//	1. The node mints (or reloads) its persistent STATION identity - the assertion key that
+//	   signs receipts and the X25519 session key consumers seal requests to - beside its
+//	   ordinary node key, under the same data dir.
+//	2. It SELF-ATTACHES: one signed call to Roger Core with its keys, model, and ITS OWN
+//	   per-token price. Core assigns a live tower and returns the hub endpoint + the bearer
+//	   token this node polls with. A lost reply is safe: the same call is answered
+//	   idempotently with the existing registration.
+//	3. It pins Core's grant key (fetched from Core itself, not from the tower - the tower is
+//	   exactly the party a forged grant would come from), and runs ServeLoop workers: poll
+//	   the tower's hub, ServeSealed each job (open the sealed request, verify the grant,
+//	   serve the local model, sign the TOKEN receipt, seal the answer to the consumer), and
+//	   return it. The tower carries only ciphertext; settlement pays this node 70% of its
+//	   listed price, the tower 10%, the platform 20%.
+//
+// # WHAT THE OPERATOR SEES
+//
+// `roger share --tower` (flag wiring in cmd/rogerai): the same share they already run, with
+// the serving fabric pointed at a tower instead of the broker's own long-poll. Prices are the
+// share's ordinary $/1M-token prices, converted to the tower path's micro-USD integers.
+
+import (
+	"bytes"
+	"context"
+	"crypto/ed25519"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"path/filepath"
+	"time"
+
+	"rogerai.fm/roger/v5/internal/protocol"
+	"rogerai.fm/roger/v5/internal/station"
+	"rogerai.fm/roger/v5/internal/towercore/link"
+	"rogerai.fm/roger/v5/internal/towerhub"
+)
+
+// TowerAttachment is what self-attach resolved: where to poll and with what credential.
+type TowerAttachment struct {
+	StationID string `json:"station_id"`
+	TowerID   string `json:"tower_id"`
+	Endpoint  string `json:"endpoint"`
+	HubToken  string `json:"hub_token"`
+	State     string `json:"state"`
+	Note      string `json:"note"`
+}
+
+// microsPerDollarPer1M converts the share's float $/1M-token price to the tower path's
+// integer micro-USD per 1M tokens.
+func microsPerDollarPer1M(price float64) int64 {
+	if price <= 0 {
+		return 0
+	}
+	return int64(price * 1_000_000)
+}
+
+// AttachTower self-attaches this node as a servable station: keys from the persistent station
+// identity under dir, the offer from cfg (model/modality/prices), the request signed with the
+// node's account-bound key. Idempotent on retry with the same identity.
+func AttachTower(cfg Config, priv ed25519.PrivateKey, dir string) (*station.Station, TowerAttachment, error) {
+	st, err := station.Init(filepath.Join(dir, "tower-station"))
+	if err != nil {
+		return nil, TowerAttachment{}, fmt.Errorf("station identity: %w", err)
+	}
+	modality := cfg.Modality
+	if modality == "" {
+		modality = "chat"
+	}
+	body, err := json.Marshal(map[string]any{
+		"station_id":       st.StationID,
+		"assertion_key":    hex.EncodeToString(st.AssertionPub()),
+		"session_key":      hex.EncodeToString(st.SessionPub()),
+		"model":            cfg.Model,
+		"modality":         modality,
+		"price_in_micros":  microsPerDollarPer1M(cfg.PriceIn),
+		"price_out_micros": microsPerDollarPer1M(cfg.PriceOut),
+	})
+	if err != nil {
+		return nil, TowerAttachment{}, err
+	}
+	const path = "/tower/edge/attach"
+	req, err := http.NewRequest(http.MethodPost, cfg.Broker+path, bytes.NewReader(body))
+	if err != nil {
+		return nil, TowerAttachment{}, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	pub, ts, sig := protocol.SignRequest(priv, http.MethodPost, path, body)
+	req.Header.Set(protocol.HeaderPubkey, pub)
+	req.Header.Set(protocol.HeaderTS, fmt.Sprintf("%d", ts))
+	req.Header.Set(protocol.HeaderSig, sig)
+	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+	if err != nil {
+		return nil, TowerAttachment{}, err
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode != http.StatusOK {
+		return nil, TowerAttachment{}, fmt.Errorf("attach refused (%d): %s", resp.StatusCode, raw)
+	}
+	var at TowerAttachment
+	if err := json.Unmarshal(raw, &at); err != nil {
+		return nil, TowerAttachment{}, fmt.Errorf("unreadable attach response: %w", err)
+	}
+	if at.Endpoint == "" || at.HubToken == "" {
+		return nil, TowerAttachment{}, errors.New("attach answered without an endpoint or token")
+	}
+	return st, at, nil
+}
+
+// fetchCoreGrantKey pins Roger Core's grant-signing key, from Core itself.
+func fetchCoreGrantKey(broker string) ([]byte, error) {
+	resp, err := (&http.Client{Timeout: 20 * time.Second}).Get(broker + "/tower/dispatch/key")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("grant key fetch: %d: %s", resp.StatusCode, raw)
+	}
+	var out struct {
+		DispatchKey string `json:"dispatch_key"`
+	}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, err
+	}
+	key, err := hex.DecodeString(out.DispatchKey)
+	if err != nil || len(key) != ed25519.PublicKeySize {
+		return nil, errors.New("the grant key is not a hex ed25519 public key")
+	}
+	return key, nil
+}
+
+// sealedExec adapts the station's sealed serve to the towerhub Executor seam.
+type sealedExec struct{ e station.EdgeExecutor }
+
+func (s sealedExec) Serve(ctx context.Context, grant, envelope []byte) ([]byte, []byte, string) {
+	return s.e.ServeSealed(ctx, grant, envelope)
+}
+
+// ServeTower runs the tower-serving fabric until ctx is done: self-attach, pin Core's grant
+// key, then Parallel ServeLoop workers polling the assigned tower's hub. Errors before the
+// workers start are returned; worker-level transport blips are reported to out and retried
+// by the loops themselves.
+func ServeTower(ctx context.Context, cfg Config, priv ed25519.PrivateKey, dir string, out io.Writer) error {
+	st, at, err := AttachTower(cfg, priv, dir)
+	if err != nil {
+		return err
+	}
+	coreKey, err := fetchCoreGrantKey(cfg.Broker)
+	if err != nil {
+		return fmt.Errorf("cannot pin Roger Core's grant key: %w", err)
+	}
+	fmt.Fprintf(out, "tower: attached as %s via %s (%s) - serving %s at your listed price\n",
+		at.StationID, at.TowerID, at.Endpoint, cfg.Model)
+
+	exec := station.EdgeExecutor{
+		Station: st, CoreKey: coreKey, Network: link.PublicNetwork,
+		Upstream: station.HTTPUpstream{URL: cfg.Upstream},
+		Outbox:   station.NewOutbox(256),
+		Seen:     station.NewAttemptCache(),
+	}
+	client := &towerhub.Client{
+		// The hub speaks HTTP on its own port today; front it with TLS in production - the
+		// PAYLOAD is sealed end-to-end regardless (the tower carries ciphertext), but the
+		// polling token deserves transport cover too.
+		BaseURL: "http://" + at.Endpoint,
+		Token:   at.HubToken,
+		HTTP:    &http.Client{Timeout: 60 * time.Second},
+	}
+	workers := cfg.Parallel
+	if workers <= 0 {
+		workers = 2
+	}
+	done := make(chan error, workers)
+	for i := 0; i < workers; i++ {
+		go func() {
+			done <- towerhub.ServeLoop(ctx, client, at.StationID, sealedExec{exec}, func(err error) {
+				fmt.Fprintf(out, "tower: %v\n", err)
+			})
+		}()
+	}
+	var first error
+	for i := 0; i < workers; i++ {
+		if werr := <-done; werr != nil && first == nil {
+			first = werr
+		}
+	}
+	if errors.Is(first, context.Canceled) {
+		return nil
+	}
+	return first
+}

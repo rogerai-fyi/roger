@@ -264,7 +264,7 @@ func TestRelayPublicRefusalsHappenBeforeAnythingElse(t *testing.T) {
 	// Advertising a data plane nobody is serving.
 	err = run([]string{"serve", "--dir", t.TempDir(),
 		"--relay-station", "st-a=127.0.0.1:1", "--relay-public", "203.0.113.7:8443"}, &b)
-	require.ErrorContains(t, err, "no --relay is serving one")
+	require.ErrorContains(t, err, "neither --relay nor --hub is serving one")
 }
 
 // A config-declared relay carries its public endpoint too - the file and the flags describe

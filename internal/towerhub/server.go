@@ -38,10 +38,15 @@ const (
 // in it. The tower authorizes a submit by the Core-signed grant and authenticates a polling
 // node by the per-registration bearer token, but reads no content.
 type Server struct {
-	hub      *Hub
-	check    GrantCheck
+	hub       *Hub
+	check     GrantCheck
 	submitTTL time.Duration
 	pollTTL   time.Duration
+	// OnComplete, when set, observes every completed result AFTER delivery is attempted - the
+	// tower's settle courier hangs here (it forwards the opaque receipt to Roger Core). It
+	// receives only what the tower may see: the station, the attempt, and the sealed/signed
+	// blobs it cannot read. Called on its own goroutine; it must not block the handler.
+	OnComplete func(stationID string, res Result)
 
 	mu     sync.RWMutex
 	tokens map[string]string // stationID -> the serving node's bearer token
@@ -241,6 +246,10 @@ func (s *Server) Complete(w http.ResponseWriter, r *http.Request) {
 	}
 	// Bound to the authenticated Station: hub.Complete drops a result whose attempt does not
 	// belong to req.StationID, so a node cannot resolve another Station's attempt.
-	s.hub.Complete(req.StationID, Result{AttemptID: req.AttemptID, Envelope: env, Receipt: rec, Failure: req.Failure})
+	res := Result{AttemptID: req.AttemptID, Envelope: env, Receipt: rec, Failure: req.Failure}
+	s.hub.Complete(req.StationID, res)
+	if s.OnComplete != nil && len(rec) > 0 {
+		go s.OnComplete(req.StationID, res)
+	}
 	w.WriteHeader(http.StatusOK)
 }
