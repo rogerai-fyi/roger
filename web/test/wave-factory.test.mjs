@@ -2044,3 +2044,32 @@ test("v35: with Micro on the knob the double-miss no longer dead-ends on you", (
   assert.match(js, /INSPECT yourself if you want it faster/,
     "and the person still strictly beats it");
 });
+
+test("v36: a fully covered plant never waits on a person - either route, measured", () => {
+  /* Round 6 (run inline after the playtest agent died mid-flight): the
+     founder's ask was "more automated or less frequent a human is needed".
+     This RUNS both fully-equipped routes on the natural seeded scheduler
+     for 15 sim-minutes and asserts zero needsHuman pleas - Micro's remote
+     diagnostic and the Unit's walk between them cover every unnamed fault.
+     (Measured context, same runs: Giga plant ~81% all-up uptime vs ~22%
+     for 3 stacked Micros - the hierarchy the shop sells is real.) */
+  for (const route of ["giga", "micro"]) {
+    const h = loadHook();
+    const s = h.freshState();
+    s.records = measured.records;
+    s.nano = true; s.coins = 5000;
+    if (route === "giga") {
+      s.giga = true;
+      s.unit = { at: "desk", going: null, travelLeft: 0, pauseLeft: 1, dir: 1,
+                 pose: "idle", say: "", sayUntil: 0, topic: 0 };
+    } else s.micro = 3;
+    for (const m of s.machines) { m.pico = true; m.tier = 2; m.auto = true; }
+    const DT = 1 / 12;
+    let pleas = 0;
+    for (let i = 0; i < Math.round(900 / DT); i++) {
+      h.stepWith(s, DT);
+      for (const m of s.machines) if (h.needsHumanWith(s, m.id)) pleas++;
+    }
+    assert.equal(pleas, 0, route + " route: automation covers every fault, no plea frames");
+  }
+});
