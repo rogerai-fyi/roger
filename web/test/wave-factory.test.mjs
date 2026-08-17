@@ -289,12 +289,18 @@ test("v24: restart follows the doctrine - never fixes drift or railing, and lock
 
 test("v24: Nano's counsel prescribes the ACTION per fault kind, per the doctrine", () => {
   const h = loadHook();
+  /* AMENDED (v25, founder direction): the vocabulary grew - "other ways we
+     can try to fix the problem without service first". The guarantee is the
+     same: Nano prescribes a SPECIFIC verb per fault kind, and the cheap
+     verbs' limits are stated, not implied. Service is now only THE answer
+     for railed (hardware); noise wants CLEAN, drift wants RECALIBRATE. */
   assert.match(h.conditionFix.stuck, /RESTART/i, "stuck: restart is the first move");
   assert.match(h.conditionFix.dropout, /RESTART/i, "dropout: restart re-seats it");
-  assert.match(h.conditionFix.noisy, /SERVICE/, "noisy: service is the sure fix");
-  assert.match(h.conditionFix.noisy, /rarely/i, "and the odds are stated, not implied");
-  assert.match(h.conditionFix.drifting, /will not help.*SERVICE/i, "drifting: restart ruled out");
-  assert.match(h.conditionFix.railed, /will not help.*SERVICE/i, "railed: restart ruled out");
+  assert.match(h.conditionFix.noisy, /CLEAN/, "noisy: clean the pickup");
+  assert.match(h.conditionFix.noisy, /rarely/i, "and restart's poor odds are stated, not implied");
+  assert.match(h.conditionFix.drifting, /RECALIBRATE/i, "drifting: recalibrate is the fix");
+  assert.match(h.conditionFix.drifting, /will not help/i, "and restart is ruled out in words");
+  assert.match(h.conditionFix.railed, /Only SERVICE/i, "railed: hardware - only the crew");
   // the not-a-sensor-fault case: the gateway points at the dial, not the crew
   assert.match(js, /not a sensor fault - the process is out of its band/,
     "a clean out-of-band gets dial advice, saving a wasted service");
@@ -416,4 +422,170 @@ test("scene: the shop is an overlay that pauses the line, and [hidden] wins", ()
     "opening the shop stops the clock");
   assert.match(css, /\.clf-shopover\[hidden\] \{ display: none; \}/,
     "display:flex must not beat the hidden attribute - the mesh deck's own bug");
+});
+
+/* ---- v25: the grown vocabulary, the dial-first rule, the floor that sells - */
+
+test("v25: the verb-fault matrix - each cheap verb fixes its own fault kind, and nothing else", () => {
+  const h = loadHook();
+  // the doctrine table, executed as data
+  assert.equal(h.verbs.clean.odds.noisy, 0.85, "clean clears a noisy pickup, usually");
+  for (const k of ["stuck", "dropout", "drifting", "railed"])
+    assert.equal(h.verbs.clean.odds[k], 0, `clean does nothing for ${k}`);
+  assert.equal(h.verbs.recal.odds.drifting, 0.95, "recalibrate is THE drift fix");
+  for (const k of ["stuck", "dropout", "noisy", "railed"])
+    assert.equal(h.verbs.recal.odds[k], 0, `recalibrate does nothing for ${k}`);
+  assert.equal(h.verbs.restart.odds.drifting, 0, "restart still never fixes drift");
+  assert.equal(h.verbs.restart.odds.railed, 0, "nor railing");
+  // and the prescription map points each fault at its cheapest correct verb
+  assert.equal(h.verbFor("stuck"), "restart");
+  assert.equal(h.verbFor("dropout"), "restart");
+  assert.equal(h.verbFor("noisy"), "clean");
+  assert.equal(h.verbFor("drifting"), "recal");
+  assert.equal(h.verbFor("railed"), "service", "railed is hardware - only the crew");
+
+  // EXECUTED: clean on a STUCK sensor is the wrong verb - it fails and locks
+  const s = h.freshState();
+  const mixer = s.machines[0];
+  mixer.cond = "stuck"; mixer.stuckAt = 2;
+  assert.ok(h.maintainWith(s, "mixer", "clean"), "the wrong verb is accepted - guessing is allowed");
+  for (let i = 0; i < 12 * 8; i++) h.stepWith(s, 1 / 12);
+  assert.equal(mixer.cond, "stuck", "and it fixed nothing");
+  assert.ok(mixer.lockout > 50, "wrong verb: the 60s lockout");
+
+  // EXECUTED: recalibrate on a DRIFTING sensor succeeds (seed 2 draws 0.03 < 0.95)
+  const s2 = h.freshState();
+  const oven = s2.machines[1];
+  oven.cond = "drifting"; oven.driftLie = 3; oven.seed = 2;
+  const coins = s2.coins;
+  assert.ok(h.maintainWith(s2, "oven", "recal"));
+  assert.equal(s2.coins, coins - h.verbs.recal.cost, "recalibration invoices its fee");
+  for (let i = 0; i < 12 * 10; i++) h.stepWith(s2, 1 / 12);
+  assert.equal(oven.cond, "none", "the right verb, and the drift is gone");
+  assert.equal(oven.lockout, 0, "no lockout for the right call");
+});
+
+test("v25: the RIGHT verb failing its dice is not a wrong call - no lockout, try again", () => {
+  const h = loadHook();
+  const s = h.freshState();
+  const mixer = s.machines[0];
+  mixer.cond = "stuck"; mixer.stuckAt = 2;
+  /* seed 29's next draw is 0.902, above restart's 0.8 odds for stuck - a
+     deterministic unlucky roll on the DOCTRINALLY CORRECT verb. Punishing it
+     with the lockout would make Nano's own advice read as a lie. */
+  assert.ok(h.restartWith(s, "mixer"));
+  mixer.seed = 29;
+  for (let i = 0; i < 12 * 3; i++) h.stepWith(s, 1 / 12);
+  assert.equal(mixer.cond, "stuck", "the roll failed");
+  assert.equal(mixer.lockout, 0, "but the right verb never locks");
+  assert.ok(h.restartWith(s, "mixer"), "so you may immediately try again");
+});
+
+test("v25: INSPECT reveals the fault kind, fixes nothing, and never locks - even during a lockout", () => {
+  const h = loadHook();
+  const s = h.freshState();
+  const packer = s.machines[2];
+  packer.cond = "railed";
+  assert.ok(h.inspectWith(s, "packer"), "inspection accepted");
+  for (let i = 0; i < 12 * (h.inspectSecs + 1); i++) h.stepWith(s, 1 / 12);
+  assert.equal(packer.inspected, true, "the kind is now known");
+  assert.equal(packer.cond, "railed", "inspection fixed nothing - it is diagnosis");
+  assert.equal(packer.lockout, 0, "and it never locks");
+  assert.match(h.inspectWord.railed, /RAILED/, "the reveal names the kind");
+  assert.match(h.inspectWord.railed, /service/i, "and points at the doctrine's verb");
+  assert.match(h.inspectWord.none, /honest/i, "inspecting a healthy sensor says so");
+  // diagnosis stays available through a maintenance lockout
+  const s3 = h.freshState();
+  const mixer3 = s3.machines[0];
+  mixer3.cond = "drifting"; mixer3.lockout = 45;
+  assert.equal(h.restartWith(s3, "mixer"), false, "maintenance is locked");
+  assert.ok(h.inspectWith(s3, "mixer"), "but you may still LOOK");
+});
+
+test("v25: the dial hint leads when the needle shows outside the band - the free fix, said first", () => {
+  const h = loadHook();
+  const s = h.freshState();
+  // pure and display-keyed: it reads the SHOWN value only, so it neither
+  // peeks at the fault state nor leaks it (a railed display also hints,
+  // and the player learns the next rung when adjusting visibly does nothing)
+  assert.equal(h.dialHintWith(s, "mixer", 2.5), null, "inside the band: no hint");
+  assert.equal(h.dialHintWith(s, "mixer", 6.2).dir, "down", "above it: bring SPEED down");
+  assert.match(h.dialHintWith(s, "mixer", 6.2).label, /free first move/i, "and it says the fix is free");
+  assert.equal(h.dialHintWith(s, "oven", 140).dir, "up", "below it: bring HEAT up");
+  assert.equal(h.dialHintWith(s, "mixer", null), null, "a dropped-out reading hints nothing");
+  // the hint LEADS the slot, before any maintenance verb is offered
+  assert.match(js, /the dial hint LEADS the slot/i, "stated where it is built");
+  assert.match(js, /steered by the UI toward RESTART/,
+    "and the reason - the founder's cascade - is recorded at the function");
+});
+
+test("v25: concurrent draws avoid each other's records - the chorus fix", () => {
+  const h = loadHook();
+  // a pool of three same-truth records; excluding the two on display must
+  // yield the third, whatever the seed
+  const mk = (id) => ({ truth: "noisy", node_id: id, child: { prediction: "noisy", margin: 2 },
+    parent: { prediction: "noisy", margin: 3 }, window: { tag: "X_VIBRATION" } });
+  const pool = [mk("a"), mk("b"), mk("c")];
+  for (let seed = 0; seed < 7; seed++) {
+    const got = h.sampleWith(pool, "vib", "noisy", seed, ["a", "b"]);
+    assert.equal(got.record.node_id, "c", "the un-displayed record is drawn");
+  }
+  // but a pool of one is a pool of one: a real record beats an empty slot
+  const solo = h.sampleWith([mk("a")], "vib", "noisy", 3, ["a"]);
+  assert.equal(solo.record.node_id, "a", "exclusion never empties the draw");
+  // and the live paths pass the exclusion list
+  assert.ok(js.includes('sampleFor(m.spec.sensor.kind, pick, Math.floor(rnd(m) * 997), activeRecordIds(m.id))'),
+    "fault draws exclude what the other machines show");
+  assert.ok(js.includes('sampleFor(m.spec.sensor.kind, "none", Math.floor(rnd(m) * 997), activeRecordIds(m.id))'),
+    "healthy draws too");
+});
+
+test("v25: automation runs the cheapest correct verb on Nano's advice", () => {
+  const h = loadHook();
+  const s = h.freshState();
+  s.nano = true; s.micro = true;
+  const oven = s.machines[1];
+  oven.auto = true; oven.cond = "noisy"; oven.condAge = 3;
+  oven.picoRead = { kind: "caught", said: "noisy", margin: 2.2, truth: "noisy" };
+  h.autoWith(s, "oven", 1 / 12);
+  assert.ok(oven.restarting > 0, "a verb is running");
+  assert.equal(oven.fixVerb, "clean", "and it is CLEAN - the doctrine's verb for noise, not a blanket service");
+  assert.match(oven.autoNote, /CLEAN on Nano's advice/i, "attributed");
+});
+
+test("v25: the floor sells its own upgrades - buy points on the machines and the desk", () => {
+  // an empty Pico mount is a dashed buy tag on the machine body; the
+  // nameplate sells the next Mk; the desk sells its next model. The shop
+  // overlay remains the full view - these are the visible storefront.
+  assert.match(js, /clf-buytag", function \(e\) \{\s*e\.stopPropagation\(\);\s*buyPico\(m\.id\);/,
+    "the empty mount buys Pico in place");
+  assert.match(js, /clf-buytag clf-buytag--tier/, "the nameplate sells the next tier");
+  assert.match(js, /clf-buytag clf-buytag--desk/, "the desk sells its next model");
+  assert.match(js, /DOM\.priced = DOM\.priced \|\| \[\]\)\.push\(\{ b: tag, cost: MODEL_PRICE\.pico \}/,
+    "floor prices dim with the wallet like every other price");
+  assert.match(css, /\.clf-buytag:disabled \{ opacity: \.38/, "short-wallet state is visible");
+});
+
+test("v25: the not-sure copy explains itself, and the maintenance card prints the doctrine", () => {
+  assert.ok(js.includes('"not sure \\u00b7 " + r.margin.toFixed(1) + " sure, needs " + FLOOR'),
+    "the mesh deck's pattern: the number, what it is, the bar it failed");
+  assert.ok(!/not sure[^"]*only/.test(js), "the opaque 'only 1.4' phrasing is gone");
+  assert.match(js, /MAINTENANCE CARD · what fixes what/, "the doctrine is printed for study");
+  assert.match(js, /Nano quotes this card instantly; INSPECT learns it the slow way/,
+    "and the card prices the models honestly: they sell time, not secrets");
+});
+
+test("v25: the gateway hears THROUGH the child - no Pico, no Nano report on that machine", () => {
+  // caught live: the doctrine verb lit on a machine with no Pico, meaning
+  // Nano was 'hearing' from a child that did not exist
+  const h = loadHook();
+  const s = h.freshState();
+  s.records = measured.records;
+  s.nano = true;
+  const mixer = s.machines[0];        // no pico mounted
+  mixer.nextFault = 0.01;
+  for (let i = 0; i < 6; i++) h.stepWith(s, 1 / 12);
+  assert.notEqual(mixer.cond, "none", "a fault started");
+  assert.equal(mixer.nanoRead, null, "but the gateway has no report from a machine with no child");
+  assert.match(js, /gateway hears THROUGH the child/i, "the rule is stated where it lives");
 });

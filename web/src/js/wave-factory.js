@@ -66,28 +66,68 @@
   };
 
   var MODEL_PRICE = { pico: 50, nano: 120, micro: 260, giga: 500 };
-  /* THE ACTION LADDER (founder direction, v24). Three verbs, in cost order:
-     ADJUST is free - the dials fix PROCESS problems (too fast, too hot).
-     RESTART is free and fast - it MIGHT fix a SENSOR fault, per the doctrine
-       table below; guessing wrong locks that machine's maintenance actions
-       for a minute, which is the price of guessing.
-     SERVICE always fixes, and costs real money. If the wallet cannot cover
-       it, the work goes ON LOAN and the balance goes negative - earnings pay
-       the debt down before they accumulate. Service is therefore ALWAYS
-       available: the v22 soft-lock (broke player, dead line, no way back)
-       stays impossible, just via credit now instead of a time-only price. */
+  /* THE ACTION LADDER (founder direction, v24; grown to a full vocabulary in
+     v25 - "other ways we can try to fix the problem without service first").
+     In cost order:
+       ADJUST is free - the dials fix PROCESS problems (too fast, too hot),
+         and adjusting never locks anything: process control is not
+         maintenance.
+       RESTART is free and fast - re-seats stuck and dropped-out sensors,
+         mostly.
+       CLEAN is free but slower - clears a noisy pickup (interference, dirt),
+         and nothing else.
+       RECALIBRATE costs a little and takes a while - it is THE fix for a
+         drifting sensor, and useless against anything else.
+       INSPECT is free, slow, and fixes nothing: it REVEALS the fault kind.
+         The patient player can always learn what Nano would say instantly -
+         Nano sells TIME, not secrets. Inspecting never locks anything.
+       SERVICE always fixes everything, railed included, and costs real
+         money. A wallet that cannot cover it goes ON LOAN - the balance
+         turns negative and earnings pay the debt down before they pile up.
+         Service is therefore ALWAYS available: the v22 soft-lock stays
+         impossible, via credit.
+     THE LOCKOUT RULE (v25): choosing the WRONG verb for the fault - one the
+     doctrine gives under-50% odds - locks that machine's maintenance for a
+     minute when it fails. The RIGHT verb failing its dice is not a wrong
+     call: it just costs the downtime, and you may try again. */
   var SERVICE_SECS = 4;          // the machine is down while the crew works
   var SERVICE_COST = 30;         // and the crew invoices, loan if needed
-  var RESTART_SECS = 1.5;
-  var LOCKOUT_SECS = 60;         // the cost of a restart that didn't take
+  var LOCKOUT_SECS = 60;         // the cost of guessing the wrong verb
 
   /* THE MAINTENANCE DOCTRINE - a game-sim rule about a game plant, and the
-     thing Nano sells you: which faults a restart can clear. Stuck and
-     dropped-out sensors usually just need re-seating; noise rarely goes
-     away by itself; drift and railing are calibration and hardware, and no
-     restart fixes those. Nano's advice strings state this doctrine on the
-     surface, so a player with Nano stops guessing. */
-  var RESTART_ODDS = { stuck: 0.8, dropout: 0.8, noisy: 0.25, drifting: 0, railed: 0 };
+     thing Nano sells you: which verb clears which fault. Stuck and dropped-
+     out sensors usually just need re-seating; a noisy pickup wants cleaning;
+     drift is calibration; railing is hardware and only the crew fixes it. */
+  var VERBS = {
+    restart: { label: "RESTART", secs: 1.5, cost: 0,
+      odds: { stuck: 0.8, dropout: 0.8, noisy: 0.25, drifting: 0, railed: 0 } },
+    clean: { label: "CLEAN", secs: 6, cost: 0,
+      odds: { stuck: 0, dropout: 0, noisy: 0.85, drifting: 0, railed: 0 } },
+    recal: { label: "RECAL", secs: 8, cost: 10,
+      odds: { stuck: 0, dropout: 0, noisy: 0, drifting: 0.95, railed: 0 } },
+  };
+  var RESTART_ODDS = VERBS.restart.odds;   // v24 name, same table
+  var RESTART_SECS = VERBS.restart.secs;
+  var INSPECT_SECS = 10;
+
+  // the cheapest correct verb per fault kind - what Nano prescribes, what a
+  // finished INSPECT points at, and what automation-with-Nano executes
+  function verbFor(cond) {
+    if (cond === "stuck" || cond === "dropout") return "restart";
+    if (cond === "noisy") return "clean";
+    if (cond === "drifting") return "recal";
+    return "service";                       // railed: hardware, crew only
+  }
+
+  // what a hands-on INSPECT finds, per kind - the manual version of Nano
+  var INSPECT_WORD = {
+    stuck: "the sensor face is frozen - STUCK. A restart usually re-seats it.",
+    dropout: "intermittent contact - DROPPING OUT. A restart usually re-seats it.",
+    noisy: "interference on the pickup - NOISY. Clean it.",
+    drifting: "readings slide against the hand gauge - DRIFTING. Recalibrate it.",
+    railed: "pinned hard at its limit - RAILED. That is hardware: only service fixes it.",
+    none: "nothing wrong found - this sensor is honest.",
+  };
 
   // The recorded fault taxonomy. `tell` is how the sensor LIES; the process
   // itself keeps drifting underneath regardless.
@@ -101,9 +141,9 @@
   var CONDITION_FIX = {
     stuck: "the reading is frozen - the real value has moved on. A RESTART usually clears a frozen sensor.",
     dropout: "the reading keeps vanishing. A RESTART usually re-seats it.",
-    noisy: "the reading is jittering too hard to trust. Restart rarely helps here - SERVICE is the sure fix.",
-    drifting: "the reading is sliding away from the truth - that is calibration. Restart will not help; SERVICE it.",
-    railed: "the reading is pinned at its limit - that is hardware. Restart will not help; SERVICE it.",
+    noisy: "the reading is jittering - interference on the pickup. CLEAN it; a restart rarely helps.",
+    drifting: "the reading is sliding away from the truth - that is calibration. RECALIBRATE it; a restart will not help.",
+    railed: "the reading is pinned at its limit - that is hardware. Only SERVICE fixes a railed sensor.",
   };
   var HEALTHY_WINDOW = 7;        // seconds between healthy-window redraws
 
@@ -118,7 +158,9 @@
       real: spec.id === "oven" ? 175 : 2.4, // the physical truth
       drift: 0,                             // process walking out of spec
       cond: "none", condAge: 0, servicing: 0,
-      restarting: 0, lockout: 0,            // the action ladder's states
+      restarting: 0, fixVerb: "restart",     // the verb whose timer is running
+      inspecting: 0, inspected: false,       // the manual diagnosis
+      lockout: 0,                            // the action ladder's states
       ambient: 0, event: null, eventLeft: 0, // slow process creep (game sim)
       // distinct seeds, or all three machines draw the same sequence
       seed: spec.id === "mixer" ? 9176 : spec.id === "oven" ? 41213 : 77431,
@@ -190,7 +232,7 @@
      keep, asserting " none" with a fat margin most of the time - and where
      the bench's recorded FALSE ALARMS surface, because a none-record whose
      child called a fault plays here exactly as it was recorded. */
-  function sampleFor(kind, truth, seed) {
+  function sampleFor(kind, truth, seed, excludeIds) {
     var recs = G.records;
     if (!recs.length) return null;
     var exact = [], any = [];
@@ -202,7 +244,29 @@
     }
     var pool = exact.length ? exact : any;
     if (!pool.length) return null;
+    /* THE CHORUS FIX (v25). The founder's cascade screenshot showed three
+       machines chanting the same sub-floor margin, because the small per-
+       truth pools overlap: a cross-instrument fallback on one machine can
+       land on the exact record another machine is already displaying.
+       Concurrent draws now avoid records already on display elsewhere -
+       when the pool is big enough to allow it. A pool of one is a pool of
+       one; a real record beats an empty slot. */
+    if (excludeIds && excludeIds.length) {
+      var fresh = pool.filter(function (r2) { return excludeIds.indexOf(r2.node_id) < 0; });
+      if (fresh.length) pool = fresh;
+    }
     return { record: pool[seed % pool.length], sameKind: exact.length > 0 };
+  }
+
+  // the records the OTHER machines are currently showing, so draws differ
+  function activeRecordIds(exceptId) {
+    var ids = [];
+    G.machines.forEach(function (m) {
+      if (m.id === exceptId) return;
+      if (m.sample) ids.push(m.sample.record.node_id);
+      if (m.healthySample) ids.push(m.healthySample.record.node_id);
+    });
+    return ids;
   }
 
   /* What Pico says, straight off the drawn record. Three outcomes, all real:
@@ -275,15 +339,39 @@
     return out;
   }
 
+  /* THE DIAL HINT - pure, and keyed off the DISPLAYED needle only. When the
+     meter shows a reading outside the band, the first move is always the
+     free one: the dial. That is honest guidance from visible truth alone -
+     it does not peek at whether the sensor is lying (a railed sensor will
+     ignore the dial, and the player learns the next rung when adjusting
+     visibly does nothing). It exists because the founder, facing a full-line
+     cascade of process problems, was steered by the UI toward RESTART - the
+     wrong verb, with a lockout price - when three dials would have fixed it
+     for free. */
+  function dialHint(m, shown) {
+    if (shown == null) return null;
+    var t = tierOf(m);
+    if (shown >= t.lo && shown <= t.hi) return null;
+    var word = m.spec.control.label;
+    return shown > t.hi
+      ? { dir: "down", label: "needle OUTSIDE the band - the dial is the free first move: bring " + word + " down" }
+      : { dir: "up", label: "needle OUTSIDE the band - the dial is the free first move: bring " + word + " up" };
+  }
+
   function startCondition(m, forced) {
     var pick = forced || CONDITIONS[Math.floor(rnd(m) * CONDITIONS.length)];
     m.cond = pick;
     m.condAge = 0;
     m.stuckAt = m.real;
     m.driftLie = 0;
-    m.sample = sampleFor(m.spec.sensor.kind, pick, Math.floor(rnd(m) * 997));
+    m.inspected = false;
+    m.sample = sampleFor(m.spec.sensor.kind, pick, Math.floor(rnd(m) * 997), activeRecordIds(m.id));
     m.picoRead = m.pico ? picoRead(m.sample) : null;
-    m.nanoRead = G.nano ? nanoRead(m.sample) : null;
+    /* the gateway hears THROUGH the child: a machine with no Pico sends no
+       report up, so Nano has nothing to say about it. This is also what
+       keeps the doctrine highlight honest - it lights only off knowledge
+       that actually flowed (a mounted Pico's report, or your own INSPECT). */
+    m.nanoRead = (G.nano && m.pico) ? nanoRead(m.sample) : null;
     m.hadStop = false;
     G.incidents.open += 1;
     addLog(m.spec.name + " sensor went " + CONDITION_WORD[pick] + ".");
@@ -301,6 +389,7 @@
     }
     m.cond = "none"; m.condAge = 0; m.sample = null;
     m.picoRead = null; m.nanoRead = null; m.driftLie = 0; m.hadStop = false;
+    m.inspected = false; m.inspecting = 0;
     m.windowLeft = 0;   // a healthy window redraws immediately
   }
 
@@ -355,18 +444,22 @@
        WITH Nano the action follows the doctrine (restart what restarts,
        service what does not); WITHOUT it the automation buys certainty the
        expensive way, exactly like a player without advice. */
-    if (m.cond !== "none" && !m.servicing && !m.restarting && m.lockout <= 0) {
+    if (m.cond !== "none" && !m.servicing && !m.restarting && !m.inspecting && m.lockout <= 0) {
       var alarmed = (m.picoRead && m.picoRead.said !== "none") ||
                     (m.nanoRead && m.nanoRead.kind === "resolved");
       if (alarmed && m.condAge > 2.5) {
         var holder = G.giga ? "Giga" : "Micro";
-        if (G.nano && (RESTART_ODDS[m.cond] || 0) >= 0.5) {
-          m.autoNote = holder + " restarted the " + m.spec.name.toLowerCase() + " on Nano's advice";
-          restart(m.id);
-        } else {
+        /* WITH Nano the automation runs the CHEAPEST CORRECT verb, exactly
+           as it would prescribe to a person; WITHOUT it, it buys certainty
+           the expensive way - service - like any player without advice. */
+        var v = G.nano ? verbFor(m.cond) : "service";
+        if (v === "service") {
           m.autoNote = holder + " called service on the models' word" +
-            (G.nano ? " - Nano ruled a restart out" : "");
+            (G.nano ? " - Nano ruled the cheap verbs out" : "");
           service(m.id);
+        } else {
+          m.autoNote = holder + " ran " + VERBS[v].label + " on Nano's advice";
+          maintain(m.id, v);
         }
       }
     }
@@ -419,28 +512,55 @@
       }
       return false;
     }
-    /* a RESTART holds the machine for a moment, then either clears the fault
-       (per the doctrine odds) or locks this machine's maintenance actions out
-       for a minute - the cost of guessing wrong. Adjusting the dials stays
-       available throughout: process control is not maintenance. */
+    /* A FIXING VERB (restart / clean / recalibrate) holds the machine for its
+       working time, then either clears the fault per the doctrine odds, or
+       resolves against you. THE LOCKOUT RULE: only the WRONG verb locks -
+       one the doctrine gives under-50% odds against this fault. The right
+       verb failing its dice just costs the downtime, and you may try again;
+       punishing a correct call would make Nano's advice feel like a lie.
+       Adjusting the dials stays available throughout: process control is
+       not maintenance. */
     if (m.restarting > 0) {
       m.restarting -= dt;
       m.stopped = true;
       if (m.restarting <= 0) {
+        var verb = VERBS[m.fixVerb] || VERBS.restart;
         m.restarting = 0;
         m.stoppedFor = 0;
         if (m.cond === "none") {
-          addLog(m.spec.name + " restarted - nothing was wrong. " + RESTART_SECS + "s lost.");
-        } else if (rnd(m) < (RESTART_ODDS[m.cond] || 0)) {
-          addLog(m.spec.name + " restart cleared the " + CONDITION_WORD[m.cond] + " sensor.");
-          clearCondition(m);
-          m.drift = 0;
+          addLog(m.spec.name + " " + verb.label.toLowerCase() + " done - nothing was wrong. " +
+            verb.secs + "s lost.");
         } else {
-          m.lockout = LOCKOUT_SECS;
-          addLog(m.spec.name + " restart did not take - its controls are locked " +
-            LOCKOUT_SECS + "s while it recovers. (Nano would have told you: " +
-            (CONDITION_FIX[m.cond] || "").split(". ").pop().toLowerCase() + ")");
+          var odds = verb.odds[m.cond] || 0;
+          if (rnd(m) < odds) {
+            addLog(m.spec.name + " " + verb.label.toLowerCase() + " cleared the " +
+              CONDITION_WORD[m.cond] + " sensor.");
+            clearCondition(m);
+            m.drift = 0;
+          } else if (odds >= 0.5) {
+            addLog(m.spec.name + " " + verb.label.toLowerCase() +
+              " did not take this time - the right call can need a second go.");
+          } else {
+            m.lockout = LOCKOUT_SECS;
+            addLog(m.spec.name + " " + verb.label.toLowerCase() + " was the wrong call - " +
+              "maintenance locked " + LOCKOUT_SECS + "s while it recovers. (Nano would have said: " +
+              (CONDITION_FIX[m.cond] || "").split(" - ").pop().toLowerCase() + ")");
+          }
         }
+      }
+      return false;
+    }
+    /* INSPECT: the manual diagnosis. The machine is down while you look, and
+       what you learn is the fault KIND - exactly the knowledge Nano sells
+       instantly. Inspecting fixes nothing and never locks anything. */
+    if (m.inspecting > 0) {
+      m.inspecting -= dt;
+      m.stopped = true;
+      if (m.inspecting <= 0) {
+        m.inspecting = 0;
+        m.stoppedFor = 0;
+        m.inspected = m.cond !== "none";
+        addLog(m.spec.name + " inspected: " + INSPECT_WORD[m.cond]);
       }
       return false;
     }
@@ -464,7 +584,7 @@
       if (m.windowLeft <= 0) {
         m.windowLeft = HEALTHY_WINDOW * (0.7 + rnd(m) * 0.6);
         if (m.pico) {
-          m.healthySample = sampleFor(m.spec.sensor.kind, "none", Math.floor(rnd(m) * 997));
+          m.healthySample = sampleFor(m.spec.sensor.kind, "none", Math.floor(rnd(m) * 997), activeRecordIds(m.id));
           m.healthyDraws += 1;
           m.picoRead = picoRead(m.healthySample);
           m.nanoRead = G.nano ? nanoRead(m.healthySample) : null;
@@ -596,7 +716,10 @@
     if (m.pico || G.coins < MODEL_PRICE.pico) return false;
     G.coins -= MODEL_PRICE.pico;
     m.pico = true;
-    if (m.cond !== "none") m.picoRead = picoRead(m.sample);
+    if (m.cond !== "none") {
+      m.picoRead = picoRead(m.sample);
+      m.nanoRead = G.nano ? nanoRead(m.sample) : null;   // the gateway hears its new child
+    }
     else m.windowLeft = 0;               // read the first healthy window now
     addLog("Wave Pico installed on the " + m.spec.name.toLowerCase() + ".");
     paint();
@@ -608,21 +731,43 @@
     G.coins -= MODEL_PRICE[which];
     G[which] = true;
     if (which === "nano") {
-      G.machines.forEach(function (m) { if (m.cond !== "none") m.nanoRead = nanoRead(m.sample); });
+      G.machines.forEach(function (m) {
+        if (m.cond !== "none" && m.pico) m.nanoRead = nanoRead(m.sample);
+      });
     }
     addLog("Wave " + which.charAt(0).toUpperCase() + which.slice(1) + " online at the desk.");
     paint();
     return true;
   }
 
-  /* RESTART: free, fast, and a gamble unless a model told you the fault kind.
-     The doctrine odds decide whether it takes; a restart that does not take
-     locks this machine's maintenance actions for a minute. */
-  function restart(id) {
+  /* A FIXING VERB: free-or-cheap, and a gamble unless something told you the
+     fault kind. RECALIBRATE invoices its small fee like service does - on
+     loan if the wallet is short - so no verb is ever gated on being rich. */
+  function maintain(id, verbName) {
     var m = machine(id);
-    if (m.servicing > 0 || m.restarting > 0 || m.lockout > 0) return false;
-    m.restarting = RESTART_SECS;
-    addLog(m.spec.name + " restarting…");
+    var verb = VERBS[verbName];
+    if (!verb) return false;
+    if (m.servicing > 0 || m.restarting > 0 || m.inspecting > 0 || m.lockout > 0) return false;
+    if (verb.cost) G.coins -= verb.cost;
+    m.fixVerb = verbName;
+    m.restarting = verb.secs;
+    addLog(m.spec.name + " " + verb.label.toLowerCase() +
+      (verbName === "recal" ? "ibrating (" + verb.cost + " coins)…" : "ing…"));
+    paint();
+    return true;
+  }
+  function restart(id) { return maintain(id, "restart"); }
+  function clean(id) { return maintain(id, "clean"); }
+  function recal(id) { return maintain(id, "recal"); }
+
+  /* INSPECT: look at the sensor yourself. Ten seconds of downtime buys the
+     fault kind - the manual, patient version of what Nano says instantly.
+     Never locked out: diagnosis is not maintenance. */
+  function inspect(id) {
+    var m = machine(id);
+    if (m.servicing > 0 || m.restarting > 0 || m.inspecting > 0) return false;
+    m.inspecting = INSPECT_SECS;
+    addLog(m.spec.name + " being inspected - " + INSPECT_SECS + "s of downtime to look.");
     paint();
     return true;
   }
@@ -634,7 +779,7 @@
      now by credit instead of by making the work free. */
   function service(id) {
     var m = machine(id);
-    if (m.servicing > 0 || m.restarting > 0 || m.lockout > 0) return false;
+    if (m.servicing > 0 || m.restarting > 0 || m.inspecting > 0 || m.lockout > 0) return false;
     var hadFunds = G.coins >= SERVICE_COST;
     G.coins -= SERVICE_COST;
     m.servicing = SERVICE_SECS;          // the machine is down while it happens
@@ -716,11 +861,14 @@
     /* ================= THE FLOOR - the game is this picture ============= */
     var scroller = el("div", "clf-scroll");
     var floor = el("div", "clf-floor");
-    floor.setAttribute("role", "img");
+    /* NOT role="img" any more: the floor gained real controls in v25 (the
+       buy tags on machines and the desk), and img makes children
+       presentational - screen readers would lose the buttons entirely. */
+    floor.setAttribute("role", "group");
     floor.setAttribute("aria-label",
       "The factory floor: a dough mixer, an oven and a packaging machine on one " +
-      "conveyor, with cookies traveling between them. Every reading and control " +
-      "is in the consoles below the floor.");
+      "conveyor, with cookies traveling between them. Buy tags on the machines " +
+      "and the desk sell upgrades; every reading and dial is in the consoles below.");
 
     // the belt runs the width of the floor, in front of the machine bases
     var belt = el("div", "clf-belt");
@@ -764,6 +912,32 @@
     var panels = el("div", "clf-panels");
     G.machines.forEach(function (m) { panels.appendChild(panel(m)); });
     root.appendChild(panels);
+
+    /* THE MAINTENANCE CARD - the verb-fault doctrine, printed where a player
+       can study it. This is the game's maintenance canon (game simulation,
+       like all plant physics here); Nano quotes it instantly, INSPECT learns
+       it slowly, and a wrong verb pays the lockout. */
+    var maint = el("details", "cl-maint");
+    maint.appendChild(el("summary", null, "MAINTENANCE CARD · what fixes what"));
+    var mt = el("div", "cl-maint__rows");
+    [["ADJUST (the dial)", "process out of its band - too fast, too hot", "free · never locks"],
+     ["RESTART", "a stuck or dropped-out sensor, usually; noise rarely", VERBS.restart.secs + "s down"],
+     ["CLEAN", "a noisy pickup (interference, dirt) - nothing else", VERBS.clean.secs + "s down"],
+     ["RECALIBRATE", "a drifting sensor, specifically", VERBS.recal.cost + " coins · " + VERBS.recal.secs + "s down"],
+     ["INSPECT", "fixes nothing - reveals what is actually wrong", INSPECT_SECS + "s down · never locks"],
+     ["SERVICE", "everything, railed included - the sure thing", SERVICE_COST + " coins (loan if short) · " + SERVICE_SECS + "s down"],
+    ].forEach(function (row) {
+      var r = el("div", "cl-maint__row");
+      r.appendChild(el("b", null, row[0]));
+      r.appendChild(el("span", null, row[1]));
+      r.appendChild(el("i", null, row[2]));
+      mt.appendChild(r);
+    });
+    maint.appendChild(mt);
+    maint.appendChild(el("p", "cl-maint__note",
+      "Picking a verb the card rules out locks that machine's maintenance for " + LOCKOUT_SECS +
+      "s when it fails. Nano quotes this card instantly; INSPECT learns it the slow way."));
+    root.appendChild(maint);
 
     /* the desk views (site / plant / results) */
     root.appendChild(desk());
@@ -833,11 +1007,19 @@
     s.wrench.hidden = true;
     block.appendChild(s.wrench);
 
-    // nameplate riveted to the base
+    // nameplate riveted to the base - and the upgrade sold right on it,
+    // so the floor does its own selling (founder: the shop should be
+    // visible inside the game, not only behind a button)
     var plate = el("span", "clf-plate");
     plate.appendChild(el("b", null, m.spec.name));
     s.tier = el("i", null, "Mk I");
     plate.appendChild(s.tier);
+    s.plateBuy = btn("", "clf-buytag clf-buytag--tier", function (e) {
+      e.stopPropagation();
+      buyTier(m.id);
+    });
+    s.plateBuy.hidden = true;
+    plate.appendChild(s.plateBuy);
     block.appendChild(plate);
 
     // a bought Pico bolts on as a badge; its word renders right here
@@ -876,6 +1058,7 @@
     card.appendChild(s.bandTxt);
 
     var ctl = el("label", "cl-ctl");
+    s.ctl = ctl;
     ctl.appendChild(el("i", null, m.spec.control.label));
     var input = document.createElement("input");
     input.type = "range";
@@ -894,20 +1077,31 @@
     s.slot = el("div", "cl-slot");
     card.appendChild(s.slot);
 
-    /* THE ACTION LADDER, in cost order: the dial above is ADJUST (free,
-       fixes process problems), RESTART is the free gamble on a sensor fault,
-       SERVICE the sure thing that invoices. A wrong restart locks both
-       maintenance verbs out for a minute; the dial stays live throughout -
-       process control is not maintenance. */
+    /* THE ACTION LADDER, in cost order. The dial above is ADJUST (free, fixes
+       process problems, never locked). Then the fixing verbs, each honest to
+       the fault taxonomy; INSPECT is diagnosis, not maintenance, so it stays
+       live even through a lockout; SERVICE is the sure thing that invoices.
+       Choosing a verb the doctrine rules out locks maintenance for a minute -
+       the price of guessing when you could have asked. */
     var acts = el("div", "cl-acts");
     s.restart = btn("RESTART", "cl-act cl-act--restart", function () { restart(m.id); });
-    s.restart.title = "Free and fast. Usually clears a stuck or dropped-out sensor; rarely helps " +
-      "noise; never fixes drift or railing. A restart that does not take locks this machine's " +
-      "maintenance for " + LOCKOUT_SECS + "s.";
+    s.restart.title = "Free, " + VERBS.restart.secs + "s down. Usually re-seats a stuck or " +
+      "dropped-out sensor; rarely helps noise; never fixes drift or railing.";
+    s.clean = btn("CLEAN", "cl-act cl-act--clean", function () { clean(m.id); });
+    s.clean.title = "Free, " + VERBS.clean.secs + "s down. Clears a noisy pickup " +
+      "(interference, dirt) - and nothing else.";
+    s.recal = btn("RECAL · " + VERBS.recal.cost, "cl-act cl-act--recal", function () { recal(m.id); });
+    s.recal.title = VERBS.recal.cost + " coins, " + VERBS.recal.secs + "s down. THE fix for a " +
+      "drifting sensor; useless against anything else.";
+    s.inspect = btn("INSPECT", "cl-act cl-act--inspect", function () { inspect(m.id); });
+    s.inspect.title = "Free, " + INSPECT_SECS + "s down, fixes nothing: you look at the sensor " +
+      "and learn what is actually wrong - what Nano tells you instantly. Never locked out.";
     s.service = btn("SERVICE", "cl-act cl-act--service", function () { service(m.id); });
-    s.service.title = "Always fixes. Costs " + SERVICE_COST + " coins - taken on loan if the wallet is short.";
+    s.service.title = "Always fixes everything, railed included. Costs " + SERVICE_COST +
+      " coins - taken on loan if the wallet is short.";
     s.upgrade = btn("UPGRADE", "cl-act", function () { buyTier(m.id); });
-    acts.appendChild(s.restart); acts.appendChild(s.service); acts.appendChild(s.upgrade);
+    [s.restart, s.clean, s.recal, s.inspect, s.service, s.upgrade]
+      .forEach(function (b) { acts.appendChild(b); });
     card.appendChild(acts);
 
     return card;
@@ -1059,11 +1253,26 @@
     var slotKey = [m.pico, m.auto, m.cond, G.nano, autonomyReach(),
       m.picoRead && (m.picoRead.kind + m.picoRead.said + m.picoRead.margin),
       m.nanoRead && m.nanoRead.kind, m.healthyDraws,
-      m.lockout > 0, m.restarting > 0, !inBand(m, m.real),
+      m.lockout > 0, m.restarting > 0, m.inspecting > 0, m.inspected,
+      !inBand(m, m.real), mi.state === "out",
       m.autoNote, m.sample && m.sample.record.node_id].join("~");
     if (s.slotKey !== slotKey) {
     s.slotKey = slotKey;
     s.slot.textContent = "";
+    /* the dial hint LEADS the slot: whatever else is going on, a needle shown
+       outside its band has a free fix, and the surface says so before it
+       offers any maintenance verb */
+    var hint = dialHint(m, shown);
+    if (hint) {
+      var hintEl = el("div", "cl-dialhint", hint.label);
+      hintEl.dataset.dir = hint.dir;
+      s.slot.appendChild(hintEl);
+    }
+    if (s.ctl) s.ctl.classList.toggle("is-urgent", !!hint);
+    // what a finished INSPECT taught you, until the incident clears
+    if (m.inspected && m.cond !== "none") {
+      s.slot.appendChild(el("div", "cl-inspected", "INSPECTED: " + INSPECT_WORD[m.cond]));
+    }
     if (!m.pico) {
       var b = btn("+ WAVE PICO · " + MODEL_PRICE.pico, "cl-slot__buy", function () { buyPico(m.id); });
       (DOM.priced = DOM.priced || []).push({ b: b, cost: MODEL_PRICE.pico });
@@ -1085,7 +1294,10 @@
         head.appendChild(el("span", "cl-say__word", "steady"));
         head.dataset.verdict = "ok";
       } else if (r.kind === "unsure") {
-        head.appendChild(el("span", "cl-say__word", "not sure \u00b7 only " + r.margin.toFixed(1)));
+        /* "only 1.4" told the founder nothing. Same pattern as the mesh deck:
+           the number, what it is, and the bar it failed to clear. */
+        head.appendChild(el("span", "cl-say__word",
+          "not sure \u00b7 " + r.margin.toFixed(1) + " sure, needs " + FLOOR));
         head.dataset.verdict = "warn";
       } else if (r.said === "none") {
         head.appendChild(el("span", "cl-say__word", "steady \u00b7 " + r.margin.toFixed(1) + " sure"));
@@ -1187,8 +1399,10 @@
                (m.nanoRead && m.nanoRead.kind === "resolved");
     }
 
-    // the bought model is VISIBLY bolted on: the chip engraving, pico-edged
-    var mountKey = (m.pico ? "pico" : "") + "~" + (m.cond !== "none" && m.pico ? "lit" : "");
+    // the bought model is VISIBLY bolted on: the chip engraving, pico-edged.
+    // An EMPTY mount is a dashed buy tag on the machine body - the floor
+    // sells its own upgrades, not just the shop overlay.
+    var mountKey = (m.pico ? "pico" : "empty") + "~" + (m.cond !== "none" && m.pico ? "lit" : "");
     if (s.mountKey !== mountKey) {
       s.mountKey = mountKey;
       s.mount.textContent = "";
@@ -1198,26 +1412,62 @@
         badge.appendChild(el("i", "clf-badge__art"));
         badge.appendChild(el("b", null, "PICO"));
         s.mount.appendChild(badge);
+      } else {
+        var tag = btn("+ PICO · " + MODEL_PRICE.pico, "clf-buytag", function (e) {
+          e.stopPropagation();
+          buyPico(m.id);
+        });
+        tag.title = "Mount a Wave Pico here - it tells you when this reading stops being trustworthy.";
+        (DOM.priced = DOM.priced || []).push({ b: tag, cost: MODEL_PRICE.pico });
+        s.mount.appendChild(tag);
       }
       if (s.bubble) s.bubble.hidden = !(m.pico && m.cond !== "none" && m.picoRead);
     }
+    // the nameplate sells the next tier in place
+    var nextTier = TIERS[m.id][m.tier + 1];
+    if (s.plateBuy) {
+      s.plateBuy.hidden = !nextTier;
+      if (nextTier) {
+        s.plateBuy.textContent = nextTier.name.toUpperCase() + " · " + nextTier.price;
+        s.plateBuy.disabled = G.coins < nextTier.price;
+        s.plateBuy.title = "Upgrade: faster, and a wider band (" + nextTier.lo + "-" + nextTier.hi +
+          " " + m.spec.sensor.unit + ") so a small lie is less fatal.";
+      }
+    }
 
-    // maintenance buttons carry their countdowns; a lockout is worded, not
-    // just greyed, so the cost of guessing reads as a consequence
+    /* maintenance buttons carry their countdowns; a lockout is worded, not
+       just greyed, so the cost of guessing reads as a consequence. INSPECT
+       stays live through a lockout - diagnosis is not maintenance, and a
+       locked-out player should at least get to learn what it was. */
+    var busy = m.restarting > 0 || m.servicing > 0 || m.inspecting > 0;
     if (m.lockout > 0) {
       var lockTxt = "LOCKED " + Math.ceil(m.lockout) + "s";
-      s.restart.textContent = lockTxt;
-      s.service.textContent = lockTxt;
-      s.restart.disabled = true;
-      s.service.disabled = true;
+      [s.restart, s.clean, s.recal, s.service].forEach(function (b) {
+        b.textContent = lockTxt;
+        b.disabled = true;
+      });
+      s.inspect.textContent = m.inspecting > 0 ? "INSPECTING " + m.inspecting.toFixed(0) + "s" : "INSPECT";
+      s.inspect.disabled = busy;
     } else {
-      s.restart.textContent = m.restarting > 0 ? "RESTARTING\u2026" : "RESTART";
-      s.restart.disabled = m.restarting > 0 || m.servicing > 0;
+      var running = m.restarting > 0 ? m.fixVerb : null;
+      s.restart.textContent = running === "restart" ? "RESTARTING\u2026" : "RESTART";
+      s.clean.textContent = running === "clean" ? "CLEANING\u2026" : "CLEAN";
+      s.recal.textContent = running === "recal" ? "RECAL\u2026" : "RECAL \u00b7 " + VERBS.recal.cost;
+      s.inspect.textContent = m.inspecting > 0 ? "INSPECTING " + Math.ceil(m.inspecting) + "s" : "INSPECT";
       s.service.textContent = m.servicing > 0 ? "SERVICING " + m.servicing.toFixed(1) + "s"
         : "SERVICE \u00b7 " + SERVICE_COST;
-      s.service.disabled = m.servicing > 0 || m.restarting > 0;
+      [s.restart, s.clean, s.recal, s.inspect, s.service].forEach(function (b) { b.disabled = busy; });
     }
     s.service.classList.toggle("is-needed", !!told);
+    /* when the fault kind is KNOWN - inspected, or Nano resolved it - the
+       doctrine's verb lights up, so knowledge visibly becomes the answer */
+    var known = m.cond !== "none" &&
+      (m.inspected || (G.nano && m.nanoRead && m.nanoRead.kind === "resolved"));
+    var rightVerb = known ? verbFor(m.cond) : null;
+    s.restart.classList.toggle("is-doctrine", rightVerb === "restart");
+    s.clean.classList.toggle("is-doctrine", rightVerb === "clean");
+    s.recal.classList.toggle("is-doctrine", rightVerb === "recal");
+    s.service.classList.toggle("is-doctrine", rightVerb === "service");
     var next = TIERS[m.id][m.tier + 1];
     s.upgrade.textContent = next ? "UPGRADE · " + next.price : "TOP TIER";
     s.upgrade.disabled = !next || G.coins < next.price;
@@ -1512,6 +1762,22 @@
         chipEl.dataset.tier = p[0];
         rack.appendChild(chipEl);
       });
+      // the desk sells its own next model, right where it would sit
+      var nextDesk = !G.nano ? "nano" : !G.micro ? "micro" : !G.giga ? "giga" : null;
+      if (nextDesk) {
+        var deskTag = btn("+ " + nextDesk.toUpperCase() + " · " + MODEL_PRICE[nextDesk],
+          "clf-buytag clf-buytag--desk", function (e) {
+            e.stopPropagation();
+            buyDesk(nextDesk);
+          });
+        deskTag.title = nextDesk === "nano"
+          ? "The site gateway: explains WHY a reading is wrong and which verb fixes it."
+          : nextDesk === "micro"
+            ? "The site view - and it can hold one knob for you."
+            : "The plant view - and it can run every knob.";
+        (DOM.priced = DOM.priced || []).push({ b: deskTag, cost: MODEL_PRICE[nextDesk] });
+        rack.appendChild(deskTag);
+      }
       DOM.floorDesk.appendChild(rack);
       DOM.floorDesk.appendChild(el("span", "clf-desk__k", owned.length ? "THE DESK" : "DESK · EMPTY"));
     }
@@ -1600,9 +1866,9 @@
       prices: MODEL_PRICE,
       conditions: CONDITIONS,
       floor: FLOOR,
-      sampleWith: function (records, kind, truth, seed) {
+      sampleWith: function (records, kind, truth, seed, excludeIds) {
         var save = G.records; G.records = records;
-        var out = sampleFor(kind, truth, seed);
+        var out = sampleFor(kind, truth, seed, excludeIds);
         G.records = save;
         return out;
       },
@@ -1620,13 +1886,26 @@
       restartWith: function (state, id) {
         var s = G; G = state; var ok = restart(id); G = s; return ok;
       },
+      maintainWith: function (state, id, verb) {
+        var s = G; G = state; var ok = maintain(id, verb); G = s; return ok;
+      },
+      inspectWith: function (state, id) {
+        var s = G; G = state; var ok = inspect(id); G = s; return ok;
+      },
       serviceWith: function (state, id) {
         var s = G; G = state; var ok = service(id); G = s; return ok;
+      },
+      dialHintWith: function (state, id, shown) {
+        var s = G; G = state; var v = dialHint(machine(id), shown); G = s; return v;
       },
       meterWith: function (state, id, shown) {
         var s = G; G = state; var v = meterInfo(machine(id), shown); G = s; return v;
       },
       restartOdds: RESTART_ODDS,
+      verbs: VERBS,
+      verbFor: verbFor,
+      inspectSecs: INSPECT_SECS,
+      inspectWord: INSPECT_WORD,
       serviceCost: SERVICE_COST,
       lockoutSecs: LOCKOUT_SECS,
       healthyWindow: HEALTHY_WINDOW,
