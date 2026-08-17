@@ -10,6 +10,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"rogerai.fm/roger/v5/internal/towercore/envelope"
@@ -20,6 +21,14 @@ import (
 type TranscriptSource interface {
 	SignedTranscript(attemptID string) (signed, request, response []byte, ok bool, err error)
 }
+
+// youngEvictionReporter is an OPTIONAL extra a source may implement: how many transcripts it
+// dropped before their audit window closed. A "not retained" answer has two very different
+// causes - this attempt was never sampled (nothing to fix), or the store ran out of room and
+// threw away evidence an audit was about to ask for (an operator's resource problem, and the
+// reason their tower starts failing audits). Only the second is worth waking someone over,
+// and it is worth saying out loud rather than counting in silence.
+type youngEvictionReporter interface{ EvictedYoung() int }
 
 // auditAnswerEvery is the node's audit-poll cadence. Slow on purpose: audits have a
 // 30-minute deadline and this loop rides beside the hot job loop, not inside it.
@@ -37,6 +46,8 @@ func AnswerAudits(ctx context.Context, c *Client, station string, src Transcript
 	if every <= 0 {
 		every = auditAnswerEvery
 	}
+	reporter, _ := src.(youngEvictionReporter)
+	reported := 0
 	t := time.NewTicker(every)
 	defer t.Stop()
 	for {
@@ -82,6 +93,17 @@ func AnswerAudits(ctx context.Context, c *Client, station string, src Transcript
 			}
 			if aerr := c.AnswerAudit(ctx, station, reply); aerr != nil {
 				report(onError, aerr)
+			}
+		}
+		// THE LOUD PART. Report a RISING count only, once per new eviction batch: a station
+		// that dropped evidence inside its audit window will fail audits it could have
+		// answered, and the operator needs to hear the cause rather than discover the effect.
+		if reporter != nil {
+			if n := reporter.EvictedYoung(); n > reported {
+				reported = n
+				report(onError, fmt.Errorf("dropped %d transcript(s) before their audit window "+
+					"closed - this station is retaining less evidence than Core may ask for; "+
+					"expect audit misses until it carries less traffic or has more memory", n))
 			}
 		}
 	}

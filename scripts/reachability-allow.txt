@@ -296,5 +296,12 @@ internal/towercore/dispatch.ParseGrant
 # The node-side outbox drain: the settle courier's spool is the primary rail today, and the
 # hub-node collection plane that would call these is a planned recovery path. Removing them
 # would delete the doctrine ("collection copies, confirmation removes") the outbox encodes.
-internal/station.Collect
-internal/station.Settled
+method internal/station.Collect
+method internal/station.Settled
+# The accrual trail's own net figure (Accrued - Paid). Its production caller went away
+# deliberately: /tower/earnings/owed used to answer from this ledger, quoting a
+# policy-priced number as the operator's balance, and now answers from the earning lots
+# the payout rail actually pays. The method stays because the trail is the substrate the
+# revenue-share program is specified against (operator_revenue_share), and its parity
+# tests hold the mem and Postgres stores to the same arithmetic.
+method internal/towercore/earnings.Owed

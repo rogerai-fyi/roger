@@ -182,6 +182,16 @@ func (s sealedExec) Serve(ctx context.Context, grant, envelope []byte) ([]byte, 
 // transcriptSource adapts the station's transcript lookup to the audit-answer seam.
 type transcriptSource struct{ e station.EdgeExecutor }
 
+// EvictedYoung forwards the station's count of transcripts dropped inside their audit
+// window, so the serve loop can say so instead of the operator discovering it as audit
+// failures at Core.
+func (t transcriptSource) EvictedYoung() int {
+	if t.e.Transcripts == nil {
+		return 0
+	}
+	return t.e.Transcripts.EvictedYoung()
+}
+
 func (t transcriptSource) SignedTranscript(attemptID string) (signed, request, response []byte, ok bool, err error) {
 	tr, found, terr := t.e.Transcript(attemptID)
 	if terr != nil || !found {
