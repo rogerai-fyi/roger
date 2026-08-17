@@ -22,7 +22,9 @@ package main
 // Station that could not show its work - the same finding as a mismatch.
 
 import (
+	cryptorand "crypto/rand"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -305,4 +307,73 @@ func (b *broker) sweepAuditOverdue(now time.Time) {
 		b.recordOutcome(o.TowerID, o.AttemptID, reputation.AuditMismatch)
 		b.evaluateTower(o.TowerID)
 	}
+}
+
+// --- the adaptive layer -----------------------------------------------------
+//
+// Contract: features/tower/edge_dispatch.feature ("The audit rate adapts to the evidence").
+//
+// The deterministic baseline (auditSampleN) keeps Core's wants inside the Station's long-term
+// transcript retention. The adaptive layer selects RECENT attempts - which a Station holds
+// regardless of the sample (the forceAudit precedent) - with a probability that starts high
+// for a freshly attached Station, ramps on a Tower's recent disputes/uncorroborated rate, and
+// decays toward zero as corroborated history accumulates. Like the baseline it is best
+// effort and downstream of settlement: it can under-sample, never gate money.
+
+const (
+	// adaptiveNewStationWindow is how long a fresh attachment is treated as unproven.
+	adaptiveNewStationWindow = 24 * time.Hour
+	// adaptiveNewStationP is the extra selection probability during that window: every other
+	// settlement of a brand-new Station gets looked at.
+	adaptiveNewStationP = 0.5
+	// adaptiveReputationWindow is the recent-history window the anomaly rate is read from.
+	adaptiveReputationWindow = 24 * time.Hour
+	// adaptiveAnomalyGain scales the Tower's recent (disputed + uncorroborated) rate into
+	// extra selection probability: a fully-anomalous Tower is audited on every settlement.
+	adaptiveAnomalyGain = 1.0
+)
+
+// adaptiveAuditP computes the elevated selection probability for one settlement.
+func (b *broker) adaptiveAuditP(towerID, stationID string, now time.Time) float64 {
+	ts := b.tower
+	if ts == nil {
+		return 0
+	}
+	p := 0.0
+	if ts.stations != nil {
+		if at, found, err := ts.stations.Station(stationID); err == nil && found &&
+			now.Sub(at.AttachedAt) < adaptiveNewStationWindow {
+			p += adaptiveNewStationP
+		}
+	}
+	if ts.outcomes != nil {
+		if tally, err := ts.outcomes.Tally(towerID, now.Add(-adaptiveReputationWindow)); err == nil && tally.Total > 0 {
+			anomaly := float64(tally.Disputed+tally.Uncorroborated) / float64(tally.Total)
+			p += adaptiveAnomalyGain * anomaly
+		}
+	}
+	if p > 1 {
+		p = 1
+	}
+	return p
+}
+
+// adaptiveAudit rolls the elevated selection for a just-settled attempt and, on a hit, marks
+// it wanted exactly as the baseline does. The coin is crypto/rand (a tower must not be able
+// to predict it the way it can predict the deterministic sample); a failed read of
+// randomness simply skips - under-sampling, never blocking.
+func (b *broker) adaptiveAudit(towerID, stationID, attemptID, requestDigest, responseDigest string, usageIn, usageOut int64) {
+	p := b.adaptiveAuditP(towerID, stationID, time.Now())
+	if p <= 0 {
+		return
+	}
+	var buf [8]byte
+	if _, err := cryptorand.Read(buf[:]); err != nil {
+		return
+	}
+	roll := float64(binary.BigEndian.Uint64(buf[:])>>11) / float64(1<<53)
+	if roll >= p {
+		return
+	}
+	b.forceAudit(towerID, stationID, attemptID, requestDigest, responseDigest, usageIn, usageOut)
 }

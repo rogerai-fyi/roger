@@ -55,6 +55,8 @@ type pendingSettle struct {
 	stationID string
 	attemptID string
 	receipt   []byte
+	wireIn    int64     // sealed-request bytes this tower relayed (its own count; 0 = unknown)
+	wireOut   int64     // sealed-result bytes this tower relayed
 	notBefore time.Time // the ack-grace gate for the FIRST forward
 	deadline  time.Time
 }
@@ -96,8 +98,9 @@ func runHubInBackground(st *tower.State, addr, tlsCert, tlsKey string, out io.Wr
 	var overflow []pendingSettle
 	server.OnComplete = func(stationID string, res towerhub.Result) {
 		p := pendingSettle{stationID: stationID, attemptID: res.AttemptID,
-			receipt: res.Receipt, notBefore: time.Now().Add(settleAckGrace),
-			deadline: time.Now().Add(settleRetryWindow)}
+			receipt: res.Receipt, wireIn: int64(res.WireIn), wireOut: int64(len(res.Envelope)),
+			notBefore: time.Now().Add(settleAckGrace),
+			deadline:  time.Now().Add(settleRetryWindow)}
 		if perr := spool.put(p); perr != nil {
 			fmt.Fprintf(out, "hub: could not spool settle for %s: %v\n", p.attemptID, perr)
 		}
@@ -130,7 +133,7 @@ func runHubInBackground(st *tower.State, addr, tlsCert, tlsKey string, out io.Wr
 		t := time.NewTicker(settleRetryEvery)
 		defer t.Stop()
 		forward := func(p pendingSettle, final bool) bool {
-			err := towerjoin.SettleEdgeReceipt(st, p.stationID, p.attemptID, p.receipt)
+			err := towerjoin.SettleEdgeReceipt(st, p.stationID, p.attemptID, p.receipt, p.wireIn, p.wireOut)
 			switch {
 			case err == nil:
 				spool.drop(p.attemptID)

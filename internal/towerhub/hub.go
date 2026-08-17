@@ -35,6 +35,11 @@ type Result struct {
 	Envelope  []byte
 	Receipt   []byte
 	Failure   string
+	// WireIn is the byte size of the SEALED REQUEST this hub actually relayed for the
+	// attempt, filled by the Server from its dispatch record at completion - the tower's own
+	// independent count, which settlement uses as an upper bound on what the node may bill
+	// for input (sealed bytes bound the plaintext they carry). Zero when unknown.
+	WireIn int
 }
 
 var (
@@ -90,8 +95,9 @@ type Hub struct {
 }
 
 type dispatchRecord struct {
-	station string
-	expires time.Time
+	station  string
+	reqBytes int // sealed-request size this hub relayed - the wire attestation's input half
+	expires  time.Time
 }
 
 // New returns an empty Hub.
@@ -223,7 +229,7 @@ func (h *Hub) Poll(ctx context.Context, stationID string) (Job, bool) {
 				delete(h.dispatched, id)
 			}
 		}
-		h.dispatched[job.AttemptID] = dispatchRecord{station: stationID, expires: now.Add(dispatchedTTL)}
+		h.dispatched[job.AttemptID] = dispatchRecord{station: stationID, reqBytes: len(job.Envelope), expires: now.Add(dispatchedTTL)}
 		h.mu.Unlock()
 		return job, true
 	case <-ctx.Done():
@@ -238,22 +244,23 @@ func (h *Hub) Poll(ctx context.Context, stationID string) (Job, bool) {
 // anyway). An expired record encountered here is deleted on the spot, so a tower that goes
 // quiet does not carry the last busy window's records forever (Poll's sweep only runs while
 // jobs still flow). A wrong-Station probe of a live record neither consumes nor confirms.
-func (h *Hub) ConsumeDispatched(attemptID, stationID string) bool {
+// It also returns the sealed-request byte size the hub relayed, for the wire attestation.
+func (h *Hub) ConsumeDispatched(attemptID, stationID string) (bool, int) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	d, ok := h.dispatched[attemptID]
 	if !ok {
-		return false
+		return false, 0
 	}
 	if !time.Now().Before(d.expires) {
 		delete(h.dispatched, attemptID)
-		return false
+		return false, 0
 	}
 	if d.station != stationID {
-		return false
+		return false, 0
 	}
 	delete(h.dispatched, attemptID)
-	return true
+	return true, d.reqBytes
 }
 
 // Complete delivers a node's result to the waiting submitter. stationID is the Station the

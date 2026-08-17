@@ -85,12 +85,17 @@ func HubNodes(st *tower.State) ([]HubNode, error) {
 // receipt it has already judged invalid.
 var ErrSettlePermanent = errors.New("roger core refused this receipt permanently")
 
-func SettleEdgeReceipt(st *tower.State, stationID, attemptID string, receipt []byte) error {
-	body, err := json.Marshal(map[string]string{
+// wireIn/wireOut are the byte sizes of the sealed request and sealed result THIS tower
+// actually relayed - its own independent count, which settlement uses only as an UPPER bound
+// on the billable bytes (the attestation can lower a bill, never raise one). Zero = unknown.
+func SettleEdgeReceipt(st *tower.State, stationID, attemptID string, receipt []byte, wireIn, wireOut int64) error {
+	body, err := json.Marshal(map[string]any{
 		"tower_id":   st.TowerID,
 		"station_id": stationID,
 		"attempt_id": attemptID,
 		"receipt":    base64.StdEncoding.EncodeToString(receipt),
+		"wire_in":    wireIn,
+		"wire_out":   wireOut,
 	})
 	if err != nil {
 		return err

@@ -29,6 +29,8 @@ type spoolEntry struct {
 	StationID string    `json:"station_id"`
 	AttemptID string    `json:"attempt_id"`
 	Receipt   []byte    `json:"receipt"`
+	WireIn    int64     `json:"wire_in,omitempty"`
+	WireOut   int64     `json:"wire_out,omitempty"`
 	Deadline  time.Time `json:"deadline"`
 }
 
@@ -51,7 +53,8 @@ func (s *settleSpool) put(p pendingSettle) error {
 		return nil
 	}
 	raw, err := json.Marshal(spoolEntry{
-		StationID: p.stationID, AttemptID: p.attemptID, Receipt: p.receipt, Deadline: p.deadline,
+		StationID: p.stationID, AttemptID: p.attemptID, Receipt: p.receipt,
+		WireIn: p.wireIn, WireOut: p.wireOut, Deadline: p.deadline,
 	})
 	if err != nil {
 		return err
@@ -97,6 +100,7 @@ func (s *settleSpool) load(now time.Time) []pendingSettle {
 		}
 		out = append(out, pendingSettle{
 			stationID: se.StationID, attemptID: se.AttemptID, receipt: se.Receipt,
+			wireIn: se.WireIn, wireOut: se.WireOut,
 			notBefore: now, deadline: se.Deadline,
 		})
 	}

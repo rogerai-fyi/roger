@@ -6,7 +6,10 @@
 # endpoints with one-use settlement, endpoint advertisement on the link, and the receipt
 # outbox + Tower courier, a first-party edge consumer (internal/edgeclient / `roger-tower
 # probe`), CANARIES (Core probes a Tower by using it), SAMPLED TRANSCRIPT AUDIT (Station-
-# signed transcripts checked against the receipt digests), a REPUTATION ledger that suspends
+# signed transcripts checked against the receipt digests) with the ADAPTIVE elevation (new
+# stations and anomalous recent history raise the selection odds by an unpredictable coin),
+# the Tower WIRE-COUNT attestation (sealed-byte counts bound the billable bytes, clamp-only,
+# forwarded by the settle courier), a REPUTATION ledger that suspends
 # on repeated canary failures or an audit mismatch, and Core-issued edge TLS certificates.
 # Built: the compensation ACCRUAL substrate - one durable idempotent row per settled attempt,
 # priced on billable usage, read by the operator (internal/towercore/earnings). Not built: the
@@ -163,6 +166,26 @@ Feature: A Tower carries the data plane and Roger Core keeps the control plane
     Then Roger Core does not inspect the content before dispatch
     And no user-facing surface describes edge traffic as pre-screened
     And a policy violation found in audit is enforced against the account afterwards
+
+  # THE RATE ADAPTS TO THE EVIDENCE. The deterministic baseline keeps Core and the Station's
+  # retention in agreement; the adaptive layer selects RECENT attempts (which a Station holds
+  # regardless of the long-term sample) when the evidence says look closer.
+  Scenario: The audit rate adapts to the evidence, not only a fixed dice roll
+    Given the sampled-transcript baseline selects a deterministic fraction of settled attempts
+    When a Station is newly attached, or its Tower's recent settlements are disputed or persistently uncorroborated
+    Then Roger Core additionally selects that settlement for audit at an elevated probability
+    And the elevation decays back toward the baseline as corroborated history accumulates
+    And a failure to enqueue an adaptive selection under-samples and never gates the money
+
+  # THE TOWER'S OWN WIRE COUNT. The Tower cannot read the session, but it can weigh it - and
+  # sealed bytes bound the plaintext they carry. A count from the party that RELAYED the bytes
+  # is independent of the party PAID for them, and it can only ever lower a bill.
+  Scenario: The Tower's wire count bounds what a Station can bill
+    Given a Tower forwards a Station's receipt for settlement
+    When the forward carries the byte sizes of the sealed request and sealed result the Tower actually relayed
+    Then settlement clamps the billable bytes to those wire counts
+    And a Station claim above the attested wire count is clamped and marked disputed
+    And an absent or zero wire count changes nothing - the attestation can only ever reduce a bill, never raise one
 
   # --- what the operator is paid for ---------------------------------------
 

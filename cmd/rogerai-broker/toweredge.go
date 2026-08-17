@@ -558,12 +558,20 @@ func (b *broker) towerEdgeSettle(w http.ResponseWriter, r *http.Request) {
 	// usage_in/usage_out in this body - which the TOWER sends - and fed them to settlement.
 	// The claim the Station is paid on now lives inside the receipt's signature, where the
 	// party forwarding it cannot hold the pen.
+	//
+	// wire_in/wire_out are NOT that mistake returning: they are the Tower's own count of the
+	// SEALED bytes it relayed, and settlement uses them only as an UPPER bound on the billable
+	// bytes (spec: "The Tower's wire count bounds what a Station can bill"). Sealed bytes
+	// bound the plaintext they carry, so the attestation can lower a bill - never raise one -
+	// and a Tower that lies low only shrinks its own 10%.
 	var req struct {
 		TowerID   string `json:"tower_id"`
 		StationID string `json:"station_id"`
 		AttemptID string `json:"attempt_id"`
 		// Receipt is base64 of the Station's signed object, relayed verbatim.
 		Receipt string `json:"receipt"`
+		WireIn  int64  `json:"wire_in"`
+		WireOut int64  `json:"wire_out"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		jsonErr(w, http.StatusBadRequest, "invalid JSON body")
@@ -764,6 +772,26 @@ func (b *broker) towerEdgeSettle(w http.ResponseWriter, r *http.Request) {
 		// because the byte read fails on the same grant, but it must stand on its own.
 		disputed = true
 	}
+	// THE TOWER'S WIRE ATTESTATION (P8; spec: "The Tower's wire count bounds what a Station
+	// can bill"). The Tower cannot read the session, but it can WEIGH it: the sealed request
+	// and sealed result it relayed are each at least as large as the plaintext they carry, so
+	// the Tower's own byte counts are an upper bound on the Station's byte claim - and the
+	// Tower is an independent party (it earns a % of gross, so understating shrinks its own
+	// pay, and the clamp means overstating changes nothing). Absent/zero counts change
+	// nothing; a Station claim above the attested wire is provably inflated - clamped and
+	// disputed. Runs BEFORE tokens<=bytes so the tightened byte figure bounds tokens too.
+	if req.WireIn > 0 && settled.Billable.In > req.WireIn {
+		log.Printf("edge settle: attempt %s billable in %d exceeds the tower's wire count %d - clamped and disputed",
+			req.AttemptID, settled.Billable.In, req.WireIn)
+		settled.Billable.In = req.WireIn
+		disputed = true
+	}
+	if req.WireOut > 0 && settled.Billable.Out > req.WireOut {
+		log.Printf("edge settle: attempt %s billable out %d exceeds the tower's wire count %d - clamped and disputed",
+			req.AttemptID, settled.Billable.Out, req.WireOut)
+		settled.Billable.Out = req.WireOut
+		disputed = true
+	}
 	// TOKENS <= BYTES, enforced with data Core already holds. A token is at least one byte, so
 	// the byte figure - itself already clamped to the grant's byte ceiling above and re-checked
 	// against the transcript at audit - is a hard upper bound on tokens. A token claim exceeding
@@ -844,6 +872,14 @@ func (b *broker) towerEdgeSettle(w http.ResponseWriter, r *http.Request) {
 	} else {
 		b.selectForAudit(req.TowerID, req.StationID, req.AttemptID,
 			receipt.RequestDigest, receipt.ResponseDigest, receipt.Usage.In, receipt.Usage.Out)
+		// THE ADAPTIVE LAYER (spec: "The audit rate adapts to the evidence"): a fresh
+		// Station or an anomalous recent history elevates this settlement's selection odds
+		// beyond the deterministic sample - by an unpredictable coin, so a tower cannot
+		// compute which attempts are watched. Skipped when the baseline already selected.
+		if !auditSampled(req.AttemptID) {
+			b.adaptiveAudit(req.TowerID, req.StationID, req.AttemptID,
+				receipt.RequestDigest, receipt.ResponseDigest, receipt.Usage.In, receipt.Usage.Out)
+		}
 	}
 	// Judged AFTER the outcome is recorded, so this attempt is in the window. The verdict may
 	// quarantine the Tower on strong evidence; it never touches THIS settlement, which has

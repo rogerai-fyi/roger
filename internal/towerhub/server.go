@@ -263,10 +263,11 @@ func (s *Server) Complete(w http.ResponseWriter, r *http.Request) {
 	// honestly did the work - while a fabricated attempt id goes nowhere.
 	// Consumed only when there is a receipt to courier: a failure completion must not burn
 	// the record a node's later receipt-bearing retry would need.
-	carried := false
+	carried, wireIn := false, 0
 	if len(rec) > 0 {
-		carried = s.hub.ConsumeDispatched(req.AttemptID, req.StationID)
+		carried, wireIn = s.hub.ConsumeDispatched(req.AttemptID, req.StationID)
 	}
+	res.WireIn = wireIn // the hub's own count of the sealed request it relayed
 	s.hub.Complete(req.StationID, res)
 	if s.OnComplete != nil && len(rec) > 0 && carried {
 		go s.OnComplete(req.StationID, res)
