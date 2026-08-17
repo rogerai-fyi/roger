@@ -218,25 +218,136 @@ test("cookie line: tier colour is identity, state colour is state", () => {
     "and every state carries its word, so colour is never the only signal");
 });
 
-test("cookie line: servicing costs downtime, so the player can never be soft-locked", () => {
+test("cookie line: service invoices, loans if broke - and can never soft-lock", () => {
+  /* AMENDED (v24, founder direction): service costs COINS again - "it will
+     always fix it but it will require some money/coins, if you don't have
+     coins then it goes on loan so you get negative money." The guarantee this
+     lock has always protected is NO SOFT-LOCK: in v22 that was bought by
+     making the work free; now it is bought by credit - service is ALWAYS
+     available, a broke wallet goes negative, and earnings pay the debt down
+     before they accumulate (negative + income -> zero is exactly that order).
+     The downtime cost stays on top of the invoice. */
   const h = loadHook();
   const s = h.freshState();
   const mixer = s.machines[0];
   mixer.cond = "stuck"; mixer.stuckAt = 2.4;
-  s.coins = 0;                             // flat broke on purpose
+  s.coins = 10;                            // cannot cover the invoice
 
-  // the fix is reachable with no money at all: it is paid in production, and
-  // the source must not contain a coin deduction for it anywhere
-  assert.match(js, /SERVICE_SECS/, "the cost is measured in seconds");
-  assert.doesNotMatch(js, /SERVICE_COST/, "the money cost is gone for good");
-  assert.doesNotMatch(js, /coins -= [^;]*SERVICE/, "service never debits the wallet");
-  assert.match(js, /no way back/,
-    "and the reason is written down where the next reader will see it");
+  assert.ok(h.serviceWith(s, "mixer"), "a broke player can still order the work");
+  assert.equal(s.coins, 10 - h.serviceCost, "the invoice lands anyway - that is the loan");
+  assert.ok(s.coins < 0, "the balance is genuinely negative, not clamped");
 
-  // a broke player can still start the work, and it still completes
-  mixer.servicing = 4;
+  // the work still completes from negative money, and the line recovers
   for (let i = 0; i < 60; i++) h.stepWith(s, 1 / 12);
-  assert.equal(mixer.cond, "none", "the line recovers even from zero coins");
+  assert.equal(mixer.cond, "none", "the line recovers even in debt");
+
+  // deeper into debt is still allowed - service is NEVER unavailable
+  mixer.cond = "drifting"; mixer.driftLie = 1;
+  assert.ok(h.serviceWith(s, "mixer"), "service works at any balance");
+  assert.ok(s.coins <= 10 - 2 * h.serviceCost + 60, "and invoices again");
+
+  // earnings pay the debt down before they pile up: income is plain addition
+  // on a negative balance, so the wallet must cross zero before it grows
+  const debtState = h.freshState();
+  debtState.coins = -20;
+  for (let i = 0; i < 240; i++) h.stepWith(debtState, 1 / 12);   // twenty seconds of shipping
+  assert.ok(debtState.coins > -20, "earnings move the balance up from debt");
+  assert.match(js, /on loan/i, "the loan is worded on the surface when it happens");
+  assert.match(js, /stays impossible/,
+    "and the no-soft-lock reasoning is written down where the next reader will see it");
+});
+
+/* ---- v24: THE ACTION LADDER -------------------------------------------- */
+
+test("v24: restart follows the doctrine - never fixes drift or railing, and lockout is the cost of guessing", () => {
+  const h = loadHook();
+  // the doctrine table itself: what Nano sells is exactly this knowledge
+  assert.equal(h.restartOdds.drifting, 0, "drift is calibration - restart never fixes it");
+  assert.equal(h.restartOdds.railed, 0, "railing is hardware - restart never fixes it");
+  assert.ok(h.restartOdds.stuck >= 0.7 && h.restartOdds.dropout >= 0.7,
+    "stuck and dropout usually clear on a restart");
+  assert.ok(h.restartOdds.noisy <= 0.3, "noise rarely does");
+
+  // EXECUTED on a deterministic case: restarting a drifting sensor cannot
+  // succeed, so it must end in the 60s lockout with the fault still there
+  const s = h.freshState();
+  const mixer = s.machines[0];
+  mixer.cond = "drifting"; mixer.driftLie = 2;
+  assert.ok(h.restartWith(s, "mixer"), "the restart is accepted");
+  for (let i = 0; i < 24; i++) h.stepWith(s, 1 / 12);   // two seconds - restart resolves
+  assert.equal(mixer.cond, "drifting", "the fault survived, as the doctrine says it must");
+  assert.ok(mixer.lockout > 50, "and the machine's maintenance is locked out for ~a minute");
+
+  // locked out means locked out - but only for MAINTENANCE, the dial stays live
+  assert.equal(h.restartWith(s, "mixer"), false, "no second restart during lockout");
+  assert.equal(h.serviceWith(s, "mixer"), false, "no service during lockout either");
+  // the lockout expires on the clock
+  mixer.lockout = 0.05;
+  h.stepWith(s, 1 / 12);
+  assert.equal(mixer.lockout, 0, "and it expires");
+});
+
+test("v24: Nano's counsel prescribes the ACTION per fault kind, per the doctrine", () => {
+  const h = loadHook();
+  assert.match(h.conditionFix.stuck, /RESTART/i, "stuck: restart is the first move");
+  assert.match(h.conditionFix.dropout, /RESTART/i, "dropout: restart re-seats it");
+  assert.match(h.conditionFix.noisy, /SERVICE/, "noisy: service is the sure fix");
+  assert.match(h.conditionFix.noisy, /rarely/i, "and the odds are stated, not implied");
+  assert.match(h.conditionFix.drifting, /will not help.*SERVICE/i, "drifting: restart ruled out");
+  assert.match(h.conditionFix.railed, /will not help.*SERVICE/i, "railed: restart ruled out");
+  // the not-a-sensor-fault case: the gateway points at the dial, not the crew
+  assert.match(js, /not a sensor fault - the process is out of its band/,
+    "a clean out-of-band gets dial advice, saving a wasted service");
+  assert.match(js, /site gateway/, "and the counsel is signed by the one gateway serving every Pico");
+});
+
+test("v24: a healthy Pico reads fresh truth-none windows on a cadence", () => {
+  const h = loadHook();
+  const s = h.freshState();
+  s.records = measured.records;
+  const mixer = s.machines[0];
+  mixer.pico = true; mixer.windowLeft = 0; mixer.nextFault = 999; // stay healthy
+  h.stepWith(s, 1 / 12);
+  assert.ok(mixer.healthySample, "a healthy window is drawn at all");
+  assert.equal(mixer.healthySample.record.truth, "none",
+    "and it is a real truth-none record - health draws health, faults draw faults");
+  assert.ok(measured.records.includes(mixer.healthySample.record), "from the committed export");
+  assert.ok(mixer.picoRead, "so Pico has something to say while healthy");
+
+  // the redraw cadence: more windows arrive as time passes
+  const draws = mixer.healthyDraws;
+  for (let i = 0; i < 12 * h.healthyWindow * 2.2; i++) h.stepWith(s, 1 / 12);
+  assert.ok(mixer.healthyDraws > draws, "the display lives - windows redraw on the cadence");
+  // and the display surfaces the confidence, so "steady" reads as measured
+  assert.match(js, /toFixed\(1\) \+ " sure"/, "the margin rides the word");
+});
+
+test("v24: the meter shows the band as a zone and pre-warns on the METER only", () => {
+  const h = loadHook();
+  const s = h.freshState();
+  const mixer = s.machines[0];               // Mk I band 0-5
+  const mid = h.meterWith(s, "mixer", 2.5);
+  assert.equal(mid.state, "ok");
+  assert.ok(mid.zoneLeft > 0.15 && mid.zoneLeft < 0.25, "the band is an inset zone, not the whole meter");
+  assert.equal(h.meterWith(s, "mixer", 4.8).state, "edge", "near the top edge warns");
+  assert.equal(h.meterWith(s, "mixer", 5.6).state, "out", "past it is OUT - a place on the meter");
+  assert.equal(h.meterWith(s, "mixer", null).state, "gone", "a dropout reads as gone");
+  // the lamp never borrows the meter's early warning: its states are unchanged
+  assert.match(js, /state = m\.stopped \? "stopped" : \(!claimsOk \? "warn" : "ok"\)/,
+    "lamp state still derives only from stopped + what the sensor claims");
+});
+
+test("v24: process creep leans on healthy machines, and is game simulation with flavour", () => {
+  const h = loadHook();
+  const s = h.freshState();
+  const mixer = s.machines[0];
+  mixer.nextFault = 9999;                    // no faults; creep only
+  mixer.event = { t: 0, ramp: 1, hold: 60, decay: 1, mag: 1.4 };
+  for (let i = 0; i < 36; i++) h.stepWith(s, 1 / 12);   // three seconds into the hold
+  assert.ok(mixer.ambient > 1.2, "the event leans on the machine");
+  const drifted = mixer.real;
+  assert.ok(drifted > 2.2, "and the real value creeps up while every sensor stays honest");
+  assert.match(js, /creeping up/, "the line radio narrates the creep in plant language");
 });
 
 test("cookie line: a machine is down while it is serviced, then comes back honest", () => {

@@ -66,12 +66,28 @@
   };
 
   var MODEL_PRICE = { pico: 50, nano: 120, micro: 260, giga: 500 };
-  /* SERVICING COSTS TIME, NOT MONEY. It used to cost coins, and a player who
-     could not tell which machine was lying would blind-service all three,
-     go broke, and then be unable to service anything at all - a dead line
-     with no way back. Downtime is the honest currency anyway: the models are
-     worth buying because they stop you spending minutes on healthy machines. */
-  var SERVICE_SECS = 4;
+  /* THE ACTION LADDER (founder direction, v24). Three verbs, in cost order:
+     ADJUST is free - the dials fix PROCESS problems (too fast, too hot).
+     RESTART is free and fast - it MIGHT fix a SENSOR fault, per the doctrine
+       table below; guessing wrong locks that machine's maintenance actions
+       for a minute, which is the price of guessing.
+     SERVICE always fixes, and costs real money. If the wallet cannot cover
+       it, the work goes ON LOAN and the balance goes negative - earnings pay
+       the debt down before they accumulate. Service is therefore ALWAYS
+       available: the v22 soft-lock (broke player, dead line, no way back)
+       stays impossible, just via credit now instead of a time-only price. */
+  var SERVICE_SECS = 4;          // the machine is down while the crew works
+  var SERVICE_COST = 30;         // and the crew invoices, loan if needed
+  var RESTART_SECS = 1.5;
+  var LOCKOUT_SECS = 60;         // the cost of a restart that didn't take
+
+  /* THE MAINTENANCE DOCTRINE - a game-sim rule about a game plant, and the
+     thing Nano sells you: which faults a restart can clear. Stuck and
+     dropped-out sensors usually just need re-seating; noise rarely goes
+     away by itself; drift and railing are calibration and hardware, and no
+     restart fixes those. Nano's advice strings state this doctrine on the
+     surface, so a player with Nano stops guessing. */
+  var RESTART_ODDS = { stuck: 0.8, dropout: 0.8, noisy: 0.25, drifting: 0, railed: 0 };
 
   // The recorded fault taxonomy. `tell` is how the sensor LIES; the process
   // itself keeps drifting underneath regardless.
@@ -80,14 +96,16 @@
     none: "steady", stuck: "stuck", drifting: "drifting",
     dropout: "dropping out", noisy: "noisy", railed: "railed",
   };
-  // What a Nano tells you to DO about it. Game advice about a game plant.
+  // What the site gateway tells you to DO about it - the doctrine, prescribed
+  // per fault kind. Game advice about a game plant, and it says which verb.
   var CONDITION_FIX = {
-    stuck: "the reading is frozen - the real value has moved on. Service this sensor.",
-    drifting: "the reading is sliding away from the truth. Service this sensor.",
-    dropout: "the reading keeps vanishing. Service this sensor.",
-    noisy: "the reading is jittering too hard to trust. Service this sensor.",
-    railed: "the reading is pinned at its limit. Service this sensor.",
+    stuck: "the reading is frozen - the real value has moved on. A RESTART usually clears a frozen sensor.",
+    dropout: "the reading keeps vanishing. A RESTART usually re-seats it.",
+    noisy: "the reading is jittering too hard to trust. Restart rarely helps here - SERVICE is the sure fix.",
+    drifting: "the reading is sliding away from the truth - that is calibration. Restart will not help; SERVICE it.",
+    railed: "the reading is pinned at its limit - that is hardware. Restart will not help; SERVICE it.",
   };
+  var HEALTHY_WINDOW = 7;        // seconds between healthy-window redraws
 
   var TIER_COLOUR = { pico: "pico", nano: "nano", micro: "micro", giga: "giga" };
 
@@ -100,10 +118,13 @@
       real: spec.id === "oven" ? 175 : 2.4, // the physical truth
       drift: 0,                             // process walking out of spec
       cond: "none", condAge: 0, servicing: 0,
+      restarting: 0, lockout: 0,            // the action ladder's states
+      ambient: 0, event: null, eventLeft: 0, // slow process creep (game sim)
       // distinct seeds, or all three machines draw the same sequence
       seed: spec.id === "mixer" ? 9176 : spec.id === "oven" ? 41213 : 77431,
       nextFault: 0,
       sample: null,                         // the drawn record, while faulted
+      healthySample: null, windowLeft: 0, healthyDraws: 0,
       pico: false,
       auto: false,                          // the models turn this knob
       autoNote: "", hadStop: false,
@@ -122,7 +143,7 @@
       records: [], seed: 7,
       log: ["The line is cold. Press START and watch the numbers."],
       serviced: 0, saves: { pico: 0, nano: 0 }, missed: 0,
-      peakRate: 0,
+      peakRate: 0, cleanRun: 0, bestRun: 0,
       // THE HANDOVER: incidents and a rolling metrics series, so an
       // automated plant has results to show for itself. Game arithmetic.
       incidents: { caught: 0, missed: 0, open: 0 },
@@ -164,10 +185,14 @@
      that pairing (it has no NOISY vibration channel, for instance). The
      fallback is reported so the surface can say which it used - a record
      from another instrument is still a real record, but it is not the same
-     claim, and the deck does not get to blur that. */
+     claim, and the deck does not get to blur that.
+     HEALTHY windows draw too (truth "none"): that is where Pico earns its
+     keep, asserting " none" with a fat margin most of the time - and where
+     the bench's recorded FALSE ALARMS surface, because a none-record whose
+     child called a fault plays here exactly as it was recorded. */
   function sampleFor(kind, truth, seed) {
     var recs = G.records;
-    if (!recs.length || truth === "none") return null;
+    if (!recs.length) return null;
     var exact = [], any = [];
     for (var i = 0; i < recs.length; i++) {
       var r = recs[i];
@@ -234,8 +259,24 @@
 
   function inBand(m, v) { var t = tierOf(m); return v >= t.lo && v <= t.hi; }
 
-  function startCondition(m) {
-    var pick = CONDITIONS[Math.floor(rnd(m) * CONDITIONS.length)];
+  /* Meter geometry, pure so the tests can run it: the display range is the
+     band padded 25% each side; state is "out" past an edge, "edge" within
+     12% of one, "ok" otherwise (and "gone" for a dropped-out reading). The
+     state styles the METER ONLY - lamp semantics stay untouched. */
+  function meterInfo(m, shown) {
+    var t = tierOf(m), span = (t.hi - t.lo) || 1, pad = span * 0.25;
+    var dLo = t.lo - pad, dHi = t.hi + pad, dSpan = dHi - dLo;
+    var out = { zoneLeft: (t.lo - dLo) / dSpan, zoneWidth: span / dSpan };
+    if (shown == null) { out.pos = 0; out.state = "gone"; return out; }
+    out.pos = Math.max(0, Math.min(1, (shown - dLo) / dSpan));
+    if (shown < t.lo || shown > t.hi) out.state = "out";
+    else if (shown - t.lo < span * 0.12 || t.hi - shown < span * 0.12) out.state = "edge";
+    else out.state = "ok";
+    return out;
+  }
+
+  function startCondition(m, forced) {
+    var pick = forced || CONDITIONS[Math.floor(rnd(m) * CONDITIONS.length)];
     m.cond = pick;
     m.condAge = 0;
     m.stuckAt = m.real;
@@ -260,6 +301,7 @@
     }
     m.cond = "none"; m.condAge = 0; m.sample = null;
     m.picoRead = null; m.nanoRead = null; m.driftLie = 0; m.hadStop = false;
+    m.windowLeft = 0;   // a healthy window redraws immediately
   }
 
   /* ---- the handover: models turning the knobs -------------------------- */
@@ -304,19 +346,68 @@
         m.autoNote = (G.giga ? "Giga" : "Micro") + " moved " + c.label + " to " + next + c.unit;
       }
     }
-    // With Giga the plant may also clear a fault it was actually told about.
-    if (G.giga && m.cond !== "none" && !m.servicing) {
-      var told = (m.picoRead && m.picoRead.kind === "caught") ||
-                 (m.nanoRead && m.nanoRead.kind === "resolved");
-      if (told && m.condAge > 2.5) {
-        m.autoNote = "Giga serviced this sensor on the models' word";
-        service(m.id);
+    /* A held knob may also EXECUTE maintenance, not just trim the dial - but
+       only on a fault the models actually raised. An alarm here means the
+       replayed read said a fault word (or the gateway resolved one); a
+       recorded miss said " none", raises nothing, and the automation is
+       fooled with everyone else - which is why the results panel still logs
+       missed incidents on a fully automated plant.
+       WITH Nano the action follows the doctrine (restart what restarts,
+       service what does not); WITHOUT it the automation buys certainty the
+       expensive way, exactly like a player without advice. */
+    if (m.cond !== "none" && !m.servicing && !m.restarting && m.lockout <= 0) {
+      var alarmed = (m.picoRead && m.picoRead.said !== "none") ||
+                    (m.nanoRead && m.nanoRead.kind === "resolved");
+      if (alarmed && m.condAge > 2.5) {
+        var holder = G.giga ? "Giga" : "Micro";
+        if (G.nano && (RESTART_ODDS[m.cond] || 0) >= 0.5) {
+          m.autoNote = holder + " restarted the " + m.spec.name.toLowerCase() + " on Nano's advice";
+          restart(m.id);
+        } else {
+          m.autoNote = holder + " called service on the models' word" +
+            (G.nano ? " - Nano ruled a restart out" : "");
+          service(m.id);
+        }
       }
     }
   }
 
+  /* Slow PROCESS CREEP - the hidden conditions the founder asked for. Every
+     so often the plant itself leans on a machine (afternoon sun on the oven,
+     dough thickening in the mixer, belt friction at the packer) and the real
+     value creeps toward the band edge while every sensor stays honest. The
+     dials are the fix; the models have nothing to say about it - it is not a
+     sensor fault, and Nano says exactly that. Game simulation, like all
+     plant physics here. */
+  var CREEP_FLAVOUR = {
+    mixer: "Dough is thickening - mixer load creeping up.",
+    oven: "Afternoon sun on the oven - ambient heat creeping up.",
+    packer: "Belt friction rising - packer load creeping up.",
+  };
+  function stepCreep(m, dt) {
+    var t = tierOf(m), span = t.hi - t.lo;
+    if (!m.event) {
+      if (!m.eventLeft) m.eventLeft = 22 + rnd(m) * 34;
+      m.eventLeft -= dt;
+      if (m.eventLeft <= 0) {
+        m.event = { t: 0, ramp: 12, hold: 10, decay: 9, mag: span * (0.14 + rnd(m) * 0.16) };
+        m.eventLeft = 0;
+        addLog(CREEP_FLAVOUR[m.id]);
+      }
+      m.ambient *= 0.995;
+      return;
+    }
+    var e = m.event;
+    e.t += dt;
+    if (e.t < e.ramp) m.ambient = e.mag * (e.t / e.ramp);
+    else if (e.t < e.ramp + e.hold) m.ambient = e.mag;
+    else if (e.t < e.ramp + e.hold + e.decay) m.ambient = e.mag * (1 - (e.t - e.ramp - e.hold) / e.decay);
+    else { m.ambient = 0; m.event = null; }
+  }
+
   function stepMachine(m, dt) {
     var t = tierOf(m);
+    if (m.lockout > 0) m.lockout = Math.max(0, m.lockout - dt);
     if (m.servicing > 0) {
       m.servicing -= dt;
       m.stopped = true;
@@ -328,13 +419,57 @@
       }
       return false;
     }
-    // the control pulls the real value toward its target
+    /* a RESTART holds the machine for a moment, then either clears the fault
+       (per the doctrine odds) or locks this machine's maintenance actions out
+       for a minute - the cost of guessing wrong. Adjusting the dials stays
+       available throughout: process control is not maintenance. */
+    if (m.restarting > 0) {
+      m.restarting -= dt;
+      m.stopped = true;
+      if (m.restarting <= 0) {
+        m.restarting = 0;
+        m.stoppedFor = 0;
+        if (m.cond === "none") {
+          addLog(m.spec.name + " restarted - nothing was wrong. " + RESTART_SECS + "s lost.");
+        } else if (rnd(m) < (RESTART_ODDS[m.cond] || 0)) {
+          addLog(m.spec.name + " restart cleared the " + CONDITION_WORD[m.cond] + " sensor.");
+          clearCondition(m);
+          m.drift = 0;
+        } else {
+          m.lockout = LOCKOUT_SECS;
+          addLog(m.spec.name + " restart did not take - its controls are locked " +
+            LOCKOUT_SECS + "s while it recovers. (Nano would have told you: " +
+            (CONDITION_FIX[m.cond] || "").split(". ").pop().toLowerCase() + ")");
+        }
+      }
+      return false;
+    }
+    stepCreep(m, dt);
+    // the control pulls the real value toward its target, plus whatever the
+    // plant is leaning on it with, plus the unwatched walk during a fault
     var target = targetFor(m);
-    m.real += (target + m.drift - m.real) * Math.min(1, dt * 1.6);
+    m.real += (target + m.ambient + m.drift - m.real) * Math.min(1, dt * 1.6);
 
     // a faulted sensor means nobody is truly watching, so the process walks
     if (m.cond === "none") {
       m.drift *= 0.985;
+      /* THE HEALTHY WINDOW REDRAW. Pico used to draw a record only when a
+         fault started, so its healthy face was a dead "steady" and its lit
+         face was whatever one record said for the whole incident - which is
+         why it read as useless. A real Pico reads a fresh window every few
+         seconds, so here it redraws a real truth-none record on a cadence:
+         mostly " none" with a fat margin, occasionally the bench's own
+         recorded false alarms and doubts, exactly as recorded. */
+      m.windowLeft -= dt;
+      if (m.windowLeft <= 0) {
+        m.windowLeft = HEALTHY_WINDOW * (0.7 + rnd(m) * 0.6);
+        if (m.pico) {
+          m.healthySample = sampleFor(m.spec.sensor.kind, "none", Math.floor(rnd(m) * 997));
+          m.healthyDraws += 1;
+          m.picoRead = picoRead(m.healthySample);
+          m.nanoRead = G.nano ? nanoRead(m.healthySample) : null;
+        }
+      }
       /* A COUNTDOWN, not a per-tick coin flip. A rare random draw made the
          first fault land anywhere between ten seconds and never, depending on
          the seed - and a teaching loop that sometimes never starts is not a
@@ -398,6 +533,9 @@
     G.runTime += dt;
     var allUp = G.machines.every(function (x) { return !x.stopped; });
     if (allUp) G.upTime += dt;
+    // the streak: how long the whole line has run clean, and the best yet
+    if (allUp) { G.cleanRun += dt; if (G.cleanRun > G.bestRun) G.bestRun = G.cleanRun; }
+    else G.cleanRun = 0;
     G.sampleAt += dt;
     if (G.sampleAt >= 1) {
       G.sampleAt = 0;
@@ -459,6 +597,7 @@
     G.coins -= MODEL_PRICE.pico;
     m.pico = true;
     if (m.cond !== "none") m.picoRead = picoRead(m.sample);
+    else m.windowLeft = 0;               // read the first healthy window now
     addLog("Wave Pico installed on the " + m.spec.name.toLowerCase() + ".");
     paint();
     return true;
@@ -476,14 +615,37 @@
     return true;
   }
 
+  /* RESTART: free, fast, and a gamble unless a model told you the fault kind.
+     The doctrine odds decide whether it takes; a restart that does not take
+     locks this machine's maintenance actions for a minute. */
+  function restart(id) {
+    var m = machine(id);
+    if (m.servicing > 0 || m.restarting > 0 || m.lockout > 0) return false;
+    m.restarting = RESTART_SECS;
+    addLog(m.spec.name + " restarting…");
+    paint();
+    return true;
+  }
+
+  /* SERVICE: the last rung - it always fixes, and it invoices. A wallet that
+     cannot cover it goes ON LOAN: the balance turns negative and earnings pay
+     the debt down before they pile up. That keeps service always available -
+     the v22 soft-lock (broke player, dead line, no way back) stays impossible,
+     now by credit instead of by making the work free. */
   function service(id) {
     var m = machine(id);
-    if (m.servicing > 0) return false;
+    if (m.servicing > 0 || m.restarting > 0 || m.lockout > 0) return false;
+    var hadFunds = G.coins >= SERVICE_COST;
+    G.coins -= SERVICE_COST;
     m.servicing = SERVICE_SECS;          // the machine is down while it happens
+    if (!hadFunds) {
+      addLog("The crew invoiced " + SERVICE_COST + " you did not have - it is on loan. " +
+        "Earnings pay the debt before they pile up.");
+    }
     if (m.cond === "none") {
       G.wasted = (G.wasted || 0) + 1;
-      addLog(m.spec.name + " sensor checked out fine - " + SERVICE_SECS +
-        "s of production spent finding that out.");
+      addLog(m.spec.name + " sensor checked out fine - " + SERVICE_COST + " coins and " +
+        SERVICE_SECS + "s of production spent finding that out.");
       paint();
       return true;
     }
@@ -531,9 +693,14 @@
     head.appendChild(brand);
     var hud = el("div", "cl-hud");
     DOM.coins = el("b", null, "0"); DOM.cookies2 = el("b", null, "0"); DOM.rate = el("b", null, "0.0");
-    [["COINS", DOM.coins], ["COOKIES", DOM.cookies2], ["PER SEC", DOM.rate]].forEach(function (p) {
-      var st = el("span", "cl-stat"); st.appendChild(p[1]); st.appendChild(el("i", null, p[0])); hud.appendChild(st);
-    });
+    DOM.best = el("b", null, "0s");
+    DOM.statEls = {};
+    [["COINS", DOM.coins], ["COOKIES", DOM.cookies2], ["PER SEC", DOM.rate], ["BEST RUN", DOM.best]]
+      .forEach(function (p) {
+        var st = el("span", "cl-stat"); st.appendChild(p[1]);
+        DOM.statEls[p[0]] = st;
+        st.appendChild(el("i", null, p[0])); hud.appendChild(st);
+      });
     DOM.shopBtn = btn("SHOP + UPGRADES", "cl-run cl-run--shop", openShop);
     hud.appendChild(DOM.shopBtn);
     DOM.runBtn = btn("PAUSE", "cl-run", toggleRun);
@@ -558,6 +725,12 @@
     // the belt runs the width of the floor, in front of the machine bases
     var belt = el("div", "clf-belt");
     floor.appendChild(belt);
+
+    // the dough bowl feeding the head of the line - scenery with a purpose:
+    // the mixer visibly has something to mix
+    var dough = el("i", "clf-doughfeed");
+    dough.setAttribute("aria-hidden", "true");
+    floor.appendChild(dough);
 
     // machines stand on the ground line
     G.machines.forEach(function (m) {
@@ -654,6 +827,12 @@
     s.lamp = el("span", "cl-lamp clf-lamp");
     block.appendChild(s.lamp);
 
+    // the service crew's wrench, over the machine while the work happens
+    s.wrench = el("i", "clf-wrench");
+    s.wrench.innerHTML = '<svg viewBox="0 0 24 24"><path d="M21 6.5a5 5 0 0 1-6.6 4.7L7 18.6a2.1 2.1 0 0 1-3-3l7.4-7.4A5 5 0 0 1 16.5 2l-2.8 2.8 1.4 4.1 4.1 1.4L22 7.5a5 5 0 0 1-1-.9Z"/></svg>';
+    s.wrench.hidden = true;
+    block.appendChild(s.wrench);
+
     // nameplate riveted to the base
     var plate = el("span", "clf-plate");
     plate.appendChild(el("b", null, m.spec.name));
@@ -683,10 +862,15 @@
     read.appendChild(s.value);
     read.appendChild(el("i", "cl-read__u", m.spec.sensor.unit));
     card.appendChild(read);
+    /* THE METER SHOWS THE BAND AS A ZONE, and the needle can visibly LEAVE
+       it: the display range is the band padded a quarter each side, so out-
+       of-band is a place on the meter, not an inference. Approaching an edge
+       tints the METER amber before anything breaks - the lamp keeps its own
+       honest rules and never pre-warns off the same hint. */
     s.band = el("div", "cl-band");
-    s.bandFill = el("i", "cl-band__fill");
+    s.bandZone = el("i", "cl-band__zone");
     s.bandMark = el("i", "cl-band__mark");
-    s.band.appendChild(s.bandFill); s.band.appendChild(s.bandMark);
+    s.band.appendChild(s.bandZone); s.band.appendChild(s.bandMark);
     card.appendChild(s.band);
     s.bandTxt = el("span", "cl-band__txt", "");
     card.appendChild(s.bandTxt);
@@ -710,10 +894,20 @@
     s.slot = el("div", "cl-slot");
     card.appendChild(s.slot);
 
+    /* THE ACTION LADDER, in cost order: the dial above is ADJUST (free,
+       fixes process problems), RESTART is the free gamble on a sensor fault,
+       SERVICE the sure thing that invoices. A wrong restart locks both
+       maintenance verbs out for a minute; the dial stays live throughout -
+       process control is not maintenance. */
     var acts = el("div", "cl-acts");
+    s.restart = btn("RESTART", "cl-act cl-act--restart", function () { restart(m.id); });
+    s.restart.title = "Free and fast. Usually clears a stuck or dropped-out sensor; rarely helps " +
+      "noise; never fixes drift or railing. A restart that does not take locks this machine's " +
+      "maintenance for " + LOCKOUT_SECS + "s.";
     s.service = btn("SERVICE", "cl-act cl-act--service", function () { service(m.id); });
+    s.service.title = "Always fixes. Costs " + SERVICE_COST + " coins - taken on loan if the wallet is short.";
     s.upgrade = btn("UPGRADE", "cl-act", function () { buyTier(m.id); });
-    acts.appendChild(s.service); acts.appendChild(s.upgrade);
+    acts.appendChild(s.restart); acts.appendChild(s.service); acts.appendChild(s.upgrade);
     card.appendChild(acts);
 
     return card;
@@ -818,13 +1012,16 @@
     s.value.textContent = fmt(shown, m.spec.sensor.dp);
     s.value.classList.toggle("is-gone", shown == null);
 
-    // the band meter always draws the REAL band; the needle draws what the
-    // sensor claims, so a lying sensor visibly sits in a comfortable place
-    var lo = t.lo, hi = t.hi, span = hi - lo || 1;
-    var pos = shown == null ? 0 : Math.max(0, Math.min(1, (shown - lo) / span));
-    s.bandMark.style.left = (pos * 100).toFixed(1) + "%";
-    s.bandFill.style.width = "100%";
-    s.bandTxt.textContent = "band " + lo + "-" + hi + " " + m.spec.sensor.unit;
+    // the meter always draws the REAL band as a zone inside a padded range;
+    // the needle draws what the sensor CLAIMS, so a lying sensor visibly
+    // sits in a comfortable place while the truth walks
+    var mi = meterInfo(m, shown);
+    s.bandZone.style.left = (mi.zoneLeft * 100).toFixed(1) + "%";
+    s.bandZone.style.width = (mi.zoneWidth * 100).toFixed(1) + "%";
+    s.bandMark.style.left = (mi.pos * 100).toFixed(1) + "%";
+    s.band.dataset.state = mi.state;
+    s.bandTxt.textContent = "band " + t.lo + "-" + t.hi + " " + m.spec.sensor.unit +
+      (mi.state === "edge" ? " \u00b7 near the edge" : mi.state === "out" ? " \u00b7 OUTSIDE" : "");
     s.setTxt.textContent = m.set + (m.spec.control.unit || "");
     if (s.input.value !== String(m.set)) s.input.value = m.set;
 
@@ -848,14 +1045,21 @@
     if (s.glow) {
       var baking = !m.stopped && m.real >= tierOf(m).lo && m.real <= tierOf(m).hi;
       s.glow.dataset.on = baking ? "1" : "0";
+      // running hot-edge: the porthole flickers before anything burns -
+      // decoration for a state the meter already words ("near the edge")
+      s.glow.dataset.hot = (baking && tierOf(m).hi - m.real < (tierOf(m).hi - tierOf(m).lo) * 0.12) ? "1" : "0";
     }
+    if (s.wrench) s.wrench.hidden = !(m.servicing > 0);
+    if (s.art) s.art.classList.toggle("is-restarting", m.restarting > 0);
 
     /* The model slot rebuilds only when its CONTENT changes. Rebuilding it
        every frame re-creates the very buy button under the player's cursor,
        which eats the click - and leaks a new entry into the price registry
        twelve times a second. */
     var slotKey = [m.pico, m.auto, m.cond, G.nano, autonomyReach(),
-      m.picoRead && m.picoRead.kind, m.nanoRead && m.nanoRead.kind,
+      m.picoRead && (m.picoRead.kind + m.picoRead.said + m.picoRead.margin),
+      m.nanoRead && m.nanoRead.kind, m.healthyDraws,
+      m.lockout > 0, m.restarting > 0, !inBand(m, m.real),
       m.autoNote, m.sample && m.sample.record.node_id].join("~");
     if (s.slotKey !== slotKey) {
     s.slotKey = slotKey;
@@ -870,52 +1074,90 @@
       var head = el("div", "cl-say cl-say--pico");
       head.appendChild(el("b", "cl-say__who", "WAVE PICO"));
       var r = m.picoRead;
+      /* PICO SPEAKS BY WHAT IT SAID, never by what the game knows. A recorded
+         miss whose child said " none" during a fault renders exactly like
+         health - a confident lie is the product truth, and colouring it warn
+         would leak the very answer the model failed to give. The margin now
+         rides every word ("steady \u00b7 3.0 sure"), and healthy windows
+         redraw on a cadence, so the display is a live instrument instead of
+         a dead label - which is what made Pico read as useless before. */
       if (!r) {
         head.appendChild(el("span", "cl-say__word", "steady"));
         head.dataset.verdict = "ok";
-      } else if (r.kind === "caught") {
-        head.appendChild(el("span", "cl-say__word", "“ " + r.said + "”"));
-        head.dataset.verdict = "bad";
       } else if (r.kind === "unsure") {
-        head.appendChild(el("span", "cl-say__word", "not sure"));
+        head.appendChild(el("span", "cl-say__word", "not sure \u00b7 only " + r.margin.toFixed(1)));
         head.dataset.verdict = "warn";
+      } else if (r.said === "none") {
+        head.appendChild(el("span", "cl-say__word", "steady \u00b7 " + r.margin.toFixed(1) + " sure"));
+        head.dataset.verdict = "ok";
       } else {
-        head.appendChild(el("span", "cl-say__word", "“ " + r.said + "”"));
-        head.dataset.verdict = "warn";
+        head.appendChild(el("span", "cl-say__word",
+          "\u201c " + r.said + "\u201d \u00b7 " + r.margin.toFixed(1) + " sure"));
+        // an alarm word is an alarm; on a healthy window it is the bench's
+        // own recorded false alarm, replayed exactly as recorded
+        head.dataset.verdict = m.cond !== "none" ? "bad" : "warn";
       }
       s.slot.appendChild(head);
 
-      // the same word, said AT the machine: badge + bubble on the floor
+      // the same word, said AT the machine: the bubble raises whenever Pico
+      // is not confidently steady - alarms, doubts, recorded false alarms
       if (s.bubble) {
         var r2 = m.picoRead;
-        if (m.cond !== "none" && r2) {
+        var raised = !!r2 && (r2.kind === "unsure" || r2.said !== "none");
+        if (raised) {
           s.bubble.hidden = false;
           s.bubble.textContent = r2.kind === "unsure" ? "not sure" : "\u201c " + r2.said + "\u201d";
-          s.bubble.dataset.verdict = r2.kind === "caught" ? "bad" : "warn";
+          s.bubble.dataset.verdict = (r2.said !== "none" && m.cond !== "none") ? "bad" : "warn";
         } else {
           s.bubble.hidden = true;
         }
       }
 
-      if (G.nano && m.nanoRead) {
-        var n = el("div", "cl-say cl-say--nano");
-        n.appendChild(el("b", "cl-say__who", "WAVE NANO"));
-        if (m.nanoRead.kind === "resolved") {
-          n.appendChild(el("span", "cl-say__why", CONDITION_FIX[m.cond]));
-          if (!inBand(m, m.real)) {
-            n.appendChild(el("span", "cl-say__fix",
-              m.id === "oven" ? "Then bring HEAT back inside the band." : "Then reduce SPEED - you are over the limit."));
+      /* THE GATEWAY'S COUNSEL - one Nano serves every Pico on the line
+         (founder-confirmed arrangement), so its advice appears per machine
+         but is signed by the site gateway. On a fault it prescribes the
+         ACTION per the maintenance doctrine; on a recorded false alarm it
+         clears the air; on a clean out-of-band it says the words that save
+         a wasted service: not a sensor fault, use the dial. */
+      if (G.nano) {
+        var advice = null, fixLine = null;
+        if (m.cond !== "none" && m.nanoRead) {
+          if (m.nanoRead.kind === "resolved") {
+            advice = CONDITION_FIX[m.cond];
+            if (!inBand(m, m.real)) {
+              fixLine = m.id === "oven" ? "Then bring HEAT back inside the band."
+                                        : "Then reduce SPEED - you are over the limit.";
+            }
+          } else {
+            advice = "says \u201c " + m.nanoRead.said + "\u201d - the recorded senior got this one wrong too.";
           }
-        } else {
-          n.appendChild(el("span", "cl-say__why",
-            "says “ " + m.nanoRead.said + "” - the recorded senior got this one wrong too."));
+        } else if (m.cond === "none" && r && r.kind !== "unsure" && r.said !== "none" && m.nanoRead) {
+          advice = m.nanoRead.kind === "resolved"
+            ? "checked that alarm at the gateway - no real fault behind it. Carry on."
+            : "the gateway read the same window and also called \u201c " + m.nanoRead.said +
+              "\u201d - SERVICE to be sure.";
+        } else if (m.cond === "none" && !inBand(m, m.real)) {
+          advice = "that is not a sensor fault - the process is out of its band.";
+          fixLine = m.real > tierOf(m).hi
+            ? (m.id === "oven" ? "Bring HEAT down." : "Reduce SPEED.")
+            : (m.id === "oven" ? "Bring HEAT up." : "Raise SPEED.");
         }
-        s.slot.appendChild(n);
+        if (advice) {
+          var n = el("div", "cl-say cl-say--nano");
+          var who = el("b", "cl-say__who", "WAVE NANO");
+          who.appendChild(el("i", "cl-say__site", " \u00b7 site gateway"));
+          n.appendChild(who);
+          n.appendChild(el("span", "cl-say__why", advice));
+          if (fixLine) n.appendChild(el("span", "cl-say__fix", fixLine));
+          s.slot.appendChild(n);
+        }
       }
-      if (m.sample && m.cond !== "none") {
+      // provenance rides whichever record is actually on display
+      var provSample = m.cond !== "none" ? m.sample : m.healthySample;
+      if (provSample) {
         var prov = el("i", "cl-say__prov",
-          "replayed record " + m.sample.record.node_id +
-          (m.sample.sameKind ? "" : " (recorded on another instrument - the bench has no " +
+          "replayed record " + provSample.record.node_id +
+          (provSample.sameKind ? "" : " (recorded on another instrument - the bench has no " +
             m.spec.sensor.label.toLowerCase() + " channel with this fault)"));
         s.slot.appendChild(prov);
       }
@@ -960,8 +1202,21 @@
       if (s.bubble) s.bubble.hidden = !(m.pico && m.cond !== "none" && m.picoRead);
     }
 
-    s.service.textContent = m.servicing > 0 ? "SERVICING " + m.servicing.toFixed(1) + "s" : "SERVICE";
-    s.service.disabled = m.servicing > 0;
+    // maintenance buttons carry their countdowns; a lockout is worded, not
+    // just greyed, so the cost of guessing reads as a consequence
+    if (m.lockout > 0) {
+      var lockTxt = "LOCKED " + Math.ceil(m.lockout) + "s";
+      s.restart.textContent = lockTxt;
+      s.service.textContent = lockTxt;
+      s.restart.disabled = true;
+      s.service.disabled = true;
+    } else {
+      s.restart.textContent = m.restarting > 0 ? "RESTARTING\u2026" : "RESTART";
+      s.restart.disabled = m.restarting > 0 || m.servicing > 0;
+      s.service.textContent = m.servicing > 0 ? "SERVICING " + m.servicing.toFixed(1) + "s"
+        : "SERVICE \u00b7 " + SERVICE_COST;
+      s.service.disabled = m.servicing > 0 || m.restarting > 0;
+    }
     s.service.classList.toggle("is-needed", !!told);
     var next = TIERS[m.id][m.tier + 1];
     s.upgrade.textContent = next ? "UPGRADE · " + next.price : "TOP TIER";
@@ -975,7 +1230,7 @@
     var rows = [];
     var picos = G.machines.filter(function (m) { return m.pico; }).length;
     rows.push(["SHIP", Math.floor(G.cookies) + " / 100 cookies",
-      G.cookies >= 100 ? "contract filled" : "keep every machine inside its band"]);
+      G.cookies >= 100 ? "contract filled" : "keep every needle inside its marked band - conditions creep"]);
     if (!picos) {
       rows.push(["NEXT", "WAVE PICO · " + MODEL_PRICE.pico,
         "puts a model on one machine so it tells you when its reading stops being trustworthy"]);
@@ -1194,10 +1449,10 @@
      Structure is rebuilt only when discrete state actually changes; the
      numbers repaint every frame, and prices update on the buttons in place. */
   function structureKey() {
-    return [G.nano, G.micro, G.giga, G.incidents.missed, G.ready,
+    return [G.nano, G.micro, G.giga, G.incidents.missed, G.ready, G.coins < 0,
       G.machines.map(function (m) {
-        return [m.pico, m.auto, m.cond, m.tier,
-          m.picoRead && m.picoRead.kind, m.nanoRead && m.nanoRead.kind].join(",");
+        return [m.pico, m.auto, m.cond, m.tier, m.lockout > 0, m.restarting > 0,
+          m.healthyDraws, m.picoRead && m.picoRead.kind, m.nanoRead && m.nanoRead.kind].join(",");
       }).join("|"),
       Math.floor(G.cookies) >= 100].join("~");
   }
@@ -1205,6 +1460,17 @@
   function paint() {
     if (!DOM.stations) return;
     DOM.coins.textContent = Math.floor(G.coins);
+    // debt is a state you can SEE: red coins and the label says loan
+    if (DOM.statEls && DOM.statEls.COINS) {
+      DOM.statEls.COINS.classList.toggle("is-debt", G.coins < 0);
+      DOM.statEls.COINS.lastChild.textContent = G.coins < 0 ? "ON LOAN" : "COINS";
+    }
+    if (DOM.best) {
+      var bestShow = Math.max(G.bestRun, G.cleanRun);
+      DOM.best.textContent = bestShow >= 60
+        ? Math.floor(bestShow / 60) + "m" + String(Math.floor(bestShow % 60)).padStart(2, "0") + "s"
+        : Math.floor(bestShow) + "s";
+    }
     DOM.cookies2.textContent = Math.floor(G.cookies);
     var pk = machine("packer");
     DOM.rate.textContent = (pk.stopped ? 0 : rateOf(pk) * 1.5).toFixed(1);
@@ -1217,9 +1483,19 @@
     if (DOM.crates) {
       var want = Math.min(8, Math.floor(G.cookies / 20));
       if (DOM.crateCount !== want) {
+        var grew = DOM.crateCount != null && want > DOM.crateCount;
         DOM.crateCount = want;
-        DOM.crates.textContent = "";
-        for (var ci = 0; ci < want; ci++) DOM.crates.appendChild(el("i", "clf-crate"));
+        // the crate-stack engraving reveals from the pallet up as real
+        // shipments accumulate - a clip on the plate, stepped per crate
+        DOM.crates.style.setProperty("--stack", (want / 8).toFixed(3));
+        /* a crate's worth of cookies just paid out: say so where it landed.
+           Chrome for arithmetic that already happened; skipped under
+           reduced motion, where the coin count itself is the report. */
+        if (grew && !REDUCED && DOM.cookieLayer) {
+          var f = el("b", "clf-payout", "+" + (20 * 4));
+          DOM.crates.appendChild(f);
+          window.setTimeout(function () { if (f.parentNode) f.parentNode.removeChild(f); }, 1400);
+        }
       }
     }
     // owned desk models sit at the desk end of the floor
@@ -1341,10 +1617,36 @@
       clearWith: function (state, id) {
         var s = G; G = state; clearCondition(machine(id)); G = s; return state.incidents;
       },
+      restartWith: function (state, id) {
+        var s = G; G = state; var ok = restart(id); G = s; return ok;
+      },
+      serviceWith: function (state, id) {
+        var s = G; G = state; var ok = service(id); G = s; return ok;
+      },
+      meterWith: function (state, id, shown) {
+        var s = G; G = state; var v = meterInfo(machine(id), shown); G = s; return v;
+      },
+      restartOdds: RESTART_ODDS,
+      serviceCost: SERVICE_COST,
+      lockoutSecs: LOCKOUT_SECS,
+      healthyWindow: HEALTHY_WINDOW,
+      conditionFix: CONDITION_FIX,
       flowWith: function (state, dt) {
         var s = G; G = state; step(dt); G = s; return state.flow;
       },
       segments: SEGS,
+      /* dev/test window into the LIVE game. forceFault schedules a fault NOW
+         through the exact same path the scheduler uses - same replay draw,
+         same honesty - so screenshots and drives stop depending on the dice. */
+      live: function () { return G; },
+      forceFault: function (id, kind) {
+        var m = machine(id);
+        if (!m || m.cond !== "none") return false;
+        startCondition(m, kind);
+        paint();
+        return true;
+      },
+      grant: function (n) { G.coins += n; paint(); },
     };
   }
 
