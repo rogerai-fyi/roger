@@ -1,11 +1,11 @@
 # Towers, Stations and Roger Core: who does what
 
-**Two paths now exist.** This document describes the **Core-relayed** path, which is what
-carries work today. The **edge** path - consumers connecting to a Tower directly, with Core
-reduced to authorizing and settling - is in `docs/tower-edge-design.md`, and its first two
-build steps have landed (`internal/relay`, `roger-station serve --tls`). Where this document
-says a Tower does not reduce Core's load, that is true of the path described here and is
-exactly what the edge path exists to change.
+**Largely historical.** This document describes the **Core-relayed** path and the invite-file
+Station ceremony - the generation that was RETIRED when the sealed-hub edge path shipped
+(`internal/towerhub`; providers run `roger share --tower` and self-attach, `roger-station`
+and `internal/relay` were deleted). The role separations and trust arguments below still
+inform the current design; the specific commands and components largely no longer exist.
+See `docs/tower-edge-design.md` and `docs/tower.md` for what runs today.
 
 Written because the roles are easy to get wrong in a way that only shows up as a security or
 billing surprise. Grounded in `features/tower/job_and_settlement.feature` and

@@ -154,6 +154,11 @@ could sign would make "signed by the Station" mean "signed by whoever is relayin
 with nothing in its offers directory pushes a valid inventory of zero leaves — "I am here and
 I have nothing."
 
+> **HISTORICAL:** the `roger-station` runbook below describes the retired leaf-station
+> generation. A provider now runs `roger share --tower` (one command: self-attach at their
+> own listed price, blind-serve sealed submits, audits answered automatically); a tower
+> operator runs `roger-tower serve --hub :8444 --relay-public HOST:PORT`.
+
 ### Serving work
 
 Given `--station ID=URL`, `serve` also collects work for its Stations:

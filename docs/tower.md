@@ -103,7 +103,14 @@ resource being bought.
 
 ## 4. Encryption: what is protected, by what, from whom
 
-### On the edge path — TLS passthrough
+### On the edge path — TLS passthrough (REMOVED — historical)
+
+> **This subsection describes the retired TLS-splice generation.** The edge path is now the
+> tower-hosted **sealed hub**: the consumer seals the request to the serving node's key
+> (handed over by Core at authorize), submits ciphertext to the tower's hub, and the node
+> seals the answer back to the consumer's grant-bound key. The tower routes by grant
+> metadata and carries only ciphertext; `internal/relay`, the Station TLS identity, and
+> Core-issued edge certificates were deleted with `roger-station`. Kept for the reasoning.
 
 The Tower is a **TCP relay that never terminates TLS**. It reads the SNI to learn which
 Station a connection is for and splices bytes. The session runs end to end from the consumer
@@ -187,19 +194,15 @@ granting it.**
 Enrollment is idempotent and the challenge survives restarts and instances, so a retry cannot
 mint a second Tower.
 
-### Attaching a Station
+### Attaching a node (self-attach)
 
-1. On the Station: `roger-station init` mints its keys and prints the public halves.
-2. On the operator's workstation: `roger-tower station invite` authorizes those exact keys —
-   signed by the **account**, because putting a machine on the network under your name is an
-   account decision.
-3. On the Tower: `roger-tower station attach` redeems the invitation — signed by the **Tower**,
-   because Core takes the Station's origin from whoever redeems. A relay cannot attach a
-   Station behind somebody else's origin.
-4. The invitation carries a **one-use secret**. Possession of the two public keys is not
-   enough: the operator chose those keys at invite time, so anyone who learned them and the
-   authorization id could otherwise attach in the Station's place.
-5. The Station lands in **quarantine**; an administrator promotes it.
+The invite-file ceremony (and the separate `roger-station` binary it served) is gone. A
+provider runs `roger share --tower`: the node mints its persistent station identity, makes
+ONE signed call to Roger Core (`/tower/edge/attach`) carrying its keys, model, and its own
+per-token price, and Core assigns a live tower and returns the hub endpoint plus the bearer
+token the node polls with. The call is idempotent - a lost reply is answered with the
+existing registration. `roger-tower station revoke` remains the tower operator's kill
+switch for a station serving under their tower.
 
 ### The lifecycle states
 
@@ -435,20 +438,20 @@ best-effort mirror still records evidence for the audit chain, but no money rest
 | piece | status |
 |---|---|
 | Tower enrollment, quarantine, lifecycle, leases | built |
-| Station invitation, attachment, promotion, revocation, rehoming | built |
+| Station invitation/attachment | **removed** — nodes SELF-ATTACH (`/tower/edge/attach`, one signed call at the node's own listed price); promotion, revocation, rehoming remain built |
 | Signed inventory, leaf verification, routable fleet projection | built |
 | Relayed dispatch: grants, one-use claiming, receipts, settlement | built |
 | Sealed envelopes (relayed path) | built |
 | Attempt ledger (hash-chained, signed) | built |
-| Blind SNI relay (`internal/relay`) | built |
-| Station TLS identity, CSR/install, HTTPS serving | built |
+| Blind SNI relay (`internal/relay`) | **removed** — superseded by the tower-hosted sealed hub (`internal/towerhub`); the tower carries ciphertext it cannot read |
+| Station TLS identity, CSR/install, HTTPS serving | **removed** with `roger-station` — providers run `roger share --tower` and blind-serve sealed submits |
 | Edge grant (scope-bounded), consumer ack, corroborated settlement | built |
 | Certificate + lease renewal (Core route and Tower schedule) | built |
 | Reputation ledger (per-Tower outcomes, rate, flag/suspend) | built |
 | Canaries (Core probes a Tower by using it) | built |
 | Sampled transcript audit (Station-signed, checked against receipt digests) | built |
-| Core-issued edge TLS certificates (`/tower/station/edge-cert`) | built |
-| First-party edge consumer (`internal/edgeclient`, `roger-tower probe`) | built |
+| Core-issued edge TLS certificates (`/tower/station/edge-cert`) | **removed** — the sealed path authenticates by keys in the Core-signed grant, not TLS names |
+| First-party sealed consumer (`internal/edgeclient` AuthorizeSealed/DoSealed/AckSealed, `roger-tower probe`) | built |
 | Mutual TLS on the link + certificate revocation enforcement | built — a revoked serial is refused on the Tower's next request, and the link authenticates the client cert when one is presented |
 | Compensation: funding-accrual ledger (accrual on settlement + operator "owed" read) | built — one idempotent row per settled attempt, priced on billable usage; `internal/towercore/earnings` |
 | Compensation: disbursement (moving money to an operator) | **not built** — behind the payment rails and its own authorization; nothing in this process moves a cent |

@@ -1,17 +1,21 @@
 # DRAFT SPEC - NOT YET APPROVED. Written for the founder approval gate.
 #
 # BUILD STATUS: PARTIAL. Approval is not implementation - this line says which.
-# Built: the blind relay (internal/relay), the Station's own TLS identity and two-surface
-# serving, the edge grant with signed usage in the receipt, Core's authorize/ack/settle
-# endpoints with one-use settlement, endpoint advertisement on the link, and the receipt
-# outbox + Tower courier, a first-party edge consumer (internal/edgeclient / `roger-tower
-# probe`), CANARIES (Core probes a Tower by using it), SAMPLED TRANSCRIPT AUDIT (Station-
-# signed transcripts checked against the receipt digests) with the ADAPTIVE elevation (new
-# stations and anomalous recent history raise the selection odds by an unpredictable coin),
-# the Tower WIRE-COUNT attestation (sealed-byte counts as settlement EVIDENCE - dispute +
-# forced audit, never money; the audit attributes an impossible count to the Tower), a
-# REPUTATION ledger that suspends
-# on repeated canary failures or an audit mismatch, and Core-issued edge TLS certificates.
+# Built (the SEALED-HUB generation, which superseded the TLS-splice relay + roger-station +
+# Core-issued edge TLS certificates - all three now REMOVED): the tower-hosted hub
+# (internal/towerhub) carrying sealed submits from consumers to self-attached
+# `roger share --tower` nodes, the edge grant with signed token usage in the receipt, Core's
+# authorize/ack/settle endpoints with one-use settlement and 70/10/20 splits at the node's
+# own pinned per-token price, the settle courier (retrying, spooled across restarts),
+# endpoint advertisement on the link, a first-party sealed consumer
+# (internal/edgeclient AuthorizeSealed/DoSealed/AckSealed, `roger-tower probe`), CANARIES
+# (Core probes a Tower by using it, sealed, marker-free, acknowledged), SAMPLED TRANSCRIPT
+# AUDIT (Station-signed transcripts, sealed to Core's envelope key so the tower stays blind,
+# checked against the receipt digests) with the ADAPTIVE elevation (new stations and
+# anomalous recent history raise the selection odds by an unpredictable coin), the Tower
+# WIRE-COUNT attestation (sealed-byte counts as settlement EVIDENCE - dispute + forced
+# audit, never money; the audit attributes an impossible count to the Tower), and a
+# REPUTATION ledger that suspends on repeated canary failures or an audit mismatch.
 # Built: the compensation ACCRUAL substrate - one durable idempotent row per settled attempt,
 # priced on billable usage, read by the operator (internal/towercore/earnings). Not built: the
 # DISBURSEMENT of it (payment rails), and the wider compensated-Tower revenue-share PROGRAM
