@@ -49,10 +49,15 @@ type Transcript struct {
 // count bound turned high throughput into "cannot produce" findings against the honest.)
 const auditRetention = 40 * time.Minute
 
-// transcriptHardCap bounds the store absolutely, retention notwithstanding: a node sustaining
-// enough traffic to hold this many un-aged transcripts is trading memory for auditability,
-// and at the cap the oldest goes regardless - loudly the day the eviction happens young.
-const transcriptHardCap = 16384
+// THE HARD BOUND IS BYTES, not entries. Retention protects young transcripts from the count
+// limit, and an audit found what that costs if the ceiling is a COUNT: a station keeping
+// 16384 request+response pairs of up to 8 MiB each is a remote-triggerable OOM - a consumer
+// who can drive traffic through a hub simply fills memory inside the retention window. A byte
+// budget bounds the actual resource; the entry cap remains as a cheap secondary guard.
+const (
+	transcriptHardCap  = 16384
+	transcriptMaxBytes = 256 << 20 // 256 MiB of retained transcripts, whatever their shape
+)
 
 // Transcripts is a bounded, sampled store of recent transcripts.
 type Transcripts struct {
@@ -60,9 +65,14 @@ type Transcripts struct {
 	by      map[string]Transcript
 	order   []string
 	keptAt  map[string]time.Time
+	bytes   int // retained request+response bytes, tracked incrementally
 	limit   int
 	sampleN uint32           // keep 1 in sampleN; 1 means keep all
 	now     func() time.Time // seam for the retention tests
+	// evictedYoung counts transcripts dropped BEFORE their audit window closed - the event
+	// that turns into an unexplained "cannot produce" at Core, so it is counted rather than
+	// merely commented about.
+	evictedYoung int
 }
 
 // NewTranscripts builds a store keeping at most `limit` transcripts, sampling 1 in `sampleN`.
@@ -105,21 +115,42 @@ func (s *Transcripts) Keep(t Transcript) {
 		return
 	}
 	now := s.now()
-	for len(s.order) >= s.limit {
+	size := len(t.Request) + len(t.Response)
+	for len(s.order) > 0 {
 		oldest := s.order[0]
-		// TIME-BASED PROTECTION: an entry younger than the audit-retention window is one an
-		// audit may still legitimately want, so the count limit yields and the store grows -
-		// up to the hard cap, past which the oldest goes regardless.
-		if now.Sub(s.keptAt[oldest]) < auditRetention && len(s.order) < transcriptHardCap {
+		overCount := len(s.order) >= s.limit
+		atHardCap := len(s.order) >= transcriptHardCap || s.bytes+size > transcriptMaxBytes
+		if !overCount && !atHardCap {
 			break
 		}
+		// TIME-BASED PROTECTION: an entry younger than the audit-retention window is one an
+		// audit may still legitimately want, so the COUNT limit yields and the store grows.
+		// The hard bounds do not yield - memory is finite - but dropping a young transcript
+		// is a real cost (an audit that cannot be answered), so it is counted.
+		young := now.Sub(s.keptAt[oldest]) < auditRetention
+		if young && !atHardCap {
+			break
+		}
+		if young {
+			s.evictedYoung++
+		}
+		s.bytes -= len(s.by[oldest].Request) + len(s.by[oldest].Response)
 		s.order = s.order[1:]
 		delete(s.by, oldest)
 		delete(s.keptAt, oldest)
 	}
 	s.by[t.AttemptID] = t
 	s.keptAt[t.AttemptID] = now
+	s.bytes += size
 	s.order = append(s.order, t.AttemptID)
+}
+
+// EvictedYoung is how many transcripts were dropped before their audit window closed - the
+// number an operator wants when Core reports audits this station could not answer.
+func (s *Transcripts) EvictedYoung() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.evictedYoung
 }
 
 // Get returns a kept transcript. The bool is false both for an attempt that was never sampled

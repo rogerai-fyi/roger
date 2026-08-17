@@ -56,7 +56,8 @@
 //	         authority: every dispatch re-checks the attachment before issuing anything.
 //	dispatch one unit of work handed to one Station and one verifiable answer back: a
 //	         one-use grant Core signs, and a receipt the Station signs over the exact bytes
-//	         it returned. Carries no money - Tower-backed work is uncompensated in v1.
+//	         it returned. Carries no money ITSELF: the receipt is what Core settles on, and
+//	         the earning lots that pay the node and the tower are minted in internal/store.
 //	audit    the sampled post-hoc content review that replaces pre-dispatch screening on the
 //	         edge path: the set of settled attempts Core selected to check, whose
 //	         Station-signed transcripts the courier forwards and Core verifies against the

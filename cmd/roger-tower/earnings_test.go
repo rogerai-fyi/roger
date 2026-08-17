@@ -13,7 +13,6 @@ import (
 
 func TestEarningsShowsWhatCoreSaysTheAccountHasEarned(t *testing.T) {
 	core := newCoreStub(t)
-	dir := joinedRegisteredTower(t)
 	core.reply["/tower/earnings/owed"] = func(w http.ResponseWriter, _ int) bool {
 		_, _ = w.Write([]byte(`{
 			"owner":"ab12","unit":"credits","held":4.5,"payable":30.25,"paid":12,
@@ -24,14 +23,15 @@ func TestEarningsShowsWhatCoreSaysTheAccountHasEarned(t *testing.T) {
 		return true
 	}
 
-	out, err := runCLI(t, "earnings", "--dir", dir)
+	out, err := runCLI(t, "earnings")
 	require.NoError(t, err)
 	require.Contains(t, out, "credits")
 	require.Contains(t, out, "payable now   30.2500")
 	require.Contains(t, out, "held          4.5000")
 	require.Contains(t, out, "paid to date  12.0000")
-	require.Contains(t, out, "from relaying 30.2500")
-	require.Contains(t, out, "from serving  16.5000")
+	require.Contains(t, out, "lifetime by stream:")
+	require.Contains(t, out, "relaying    30.2500")
+	require.Contains(t, out, "serving     16.5000")
 	require.Contains(t, out, "97 attempt(s)")
 	require.Contains(t, out, "cash out:", "the operator is told how to get it, not left guessing")
 }
@@ -39,13 +39,27 @@ func TestEarningsShowsWhatCoreSaysTheAccountHasEarned(t *testing.T) {
 // Core unreachable is an error the operator sees, not a zero balance they might believe.
 func TestEarningsSurfacesAnUnreachableCore(t *testing.T) {
 	core := newCoreStub(t)
-	dir := joinedRegisteredTower(t)
 	core.reply["/tower/earnings/owed"] = func(w http.ResponseWriter, _ int) bool {
 		http.Error(w, `{"error":{"message":"the funding ledger is not available"}}`,
 			http.StatusServiceUnavailable)
 		return true
 	}
-	_, err := runCLI(t, "earnings", "--dir", dir)
+	_, err := runCLI(t, "earnings")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "funding ledger")
+}
+
+// An ABSENT lifetime split (Core could not read the rollup) is reported as unavailable, not
+// as zeros: "relaying 0.0000" beside a real payable reads as earnings that vanished.
+func TestEarningsSaysUnavailableRatherThanZeroWhenTheSplitIsMissing(t *testing.T) {
+	core := newCoreStub(t)
+	core.reply["/tower/earnings/owed"] = func(w http.ResponseWriter, _ int) bool {
+		_, _ = w.Write([]byte(`{"unit":"credits","payable":30.25,"held":0,"paid":0}`))
+		return true
+	}
+	out, err := runCLI(t, "earnings")
+	require.NoError(t, err)
+	require.Contains(t, out, "payable now   30.2500")
+	require.Contains(t, out, "lifetime by stream: unavailable right now")
+	require.NotContains(t, out, "relaying    0.0000", "absent is not zero")
 }

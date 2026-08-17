@@ -6,8 +6,10 @@ package main
 // Contract: features/tower/edge_dispatch.feature (the "what the operator is paid for" scenario).
 
 import (
+	"crypto/ed25519"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -130,12 +132,50 @@ func TestAnOperatorReadsWhatTheyAreOwed(t *testing.T) {
 	require.Equal(t, float64(1), owed["attempts"], "the trail contributes COUNTS, not a balance")
 	require.NotContains(t, owed, "accrued", "the policy-priced accrual is never quoted as a balance")
 
-	// THE INVARIANT: this endpoint and the website's /payouts/earnings agree, because both
-	// read the ledger the payout rail pays from.
-	split, err := b.db.EarningSplitOf(owner, time.Now())
+	// THE INVARIANT, driven through the WEBSITE'S OWN ENDPOINT rather than re-reading the
+	// store the handler just read: /payouts/earnings and /tower/earnings/owed must answer
+	// the same money for the same account, or the CLI and the dashboard disagree again.
+	wp := httptest.NewRecorder()
+	b.payoutsEarnings(wp, signedReq(http.MethodGet, "/payouts/earnings", nil, op.priv))
+	require.Equal(t, http.StatusOK, wp.Code, wp.Body.String())
+	var web map[string]any
+	require.NoError(t, json.Unmarshal(wp.Body.Bytes(), &web))
+	require.InDelta(t, web["payable"].(float64), owed["payable"].(float64), 1e-9,
+		"the CLI and the dashboard report one payable")
+	require.InDelta(t, web["paid"].(float64), owed["paid"].(float64), 1e-9)
+	require.InDelta(t, web["tower_relay"].(float64), owed["from_relaying"].(float64), 1e-9,
+		"and one relay/serving split")
+	require.InDelta(t, web["serving"].(float64), owed["from_serving"].(float64), 1e-9)
+}
+
+// An operator reads THEIR OWN balance and nobody else's: the signature is verified over the
+// presented pubkey, so a second operator asking sees their own zeros, not the first's money.
+func TestEarningsAreScopedToTheAccountThatSigned(t *testing.T) {
+	t.Setenv("ROGERAI_PAYOUT_HOLD_DAYS", "0")
+	t.Setenv("ROGERAI_PAYOUT_RESERVE", "0")
+	b, srv := towerTestBroker(t)
+	earner := signedInOperator(t, b, "earner")
+	earnerAcct := ownerPubkeyOf(t, b, earner.login)
+	require.NoError(t, b.db.BindNode("n-1", earnerAcct))
+	consumer := signedInConsumer(t, b)
+	cw, ok := b.edgeConsumerWallet(consumer.Public().(ed25519.PublicKey))
+	require.True(t, ok)
+	_, err := b.db.AddCredits(cw, 100)
 	require.NoError(t, err)
-	require.InDelta(t, split.Payable, owed["payable"], 1e-9)
-	require.InDelta(t, split.Paid, owed["paid"], 1e-9)
+	_, err = b.db.Hold(cw, 10)
+	require.NoError(t, err)
+	_, err = b.db.Finalize(cw, "n-1", 10, 10, 7, rec("req-1"))
+	require.NoError(t, err)
+	earnerSplit, err := b.db.EarningSplitOf(earnerAcct, time.Now())
+	require.NoError(t, err)
+	require.Positive(t, earnerSplit.Payable, "the earner really has money to leak")
+
+	stranger := signedInOperator(t, b, "stranger")
+	var out map[string]any
+	code, raw := stranger.call(t, srv, http.MethodPost, "/tower/earnings/owed", map[string]any{}, &out)
+	require.Equal(t, http.StatusOK, code, raw)
+	require.Zero(t, out["payable"], "a stranger sees their own zero, never somebody else's balance")
+	require.Equal(t, ownerPubkeyOf(t, b, stranger.login), out["owner"])
 }
 
 // A stranger cannot read the ledger, and nobody's balance leaks to an unauthenticated caller.

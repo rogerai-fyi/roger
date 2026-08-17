@@ -466,6 +466,7 @@ best-effort mirror still records evidence for the audit chain, but no money rest
 | Mutual TLS on the link + certificate revocation enforcement | built — a revoked serial is refused on the Tower's next request, and the link authenticates the client cert when one is presented |
 | Compensation: funding-accrual ledger (accrual on settlement + operator "owed" read) | built — one idempotent row per settled attempt, priced on billable usage; `internal/towercore/earnings` |
 | Compensation: disbursement (moving money to an operator) | built — relay and serving lots both cash out through `/payouts/request` to a Stripe Connect transfer (hold, minimum, KYC, clawback all shared with the direct path) |
-| Compensation: the revenue-share PROGRAM (eligibility, funded-work verification, maturity, payout authority, clawback, self-dealing) | **not built** — its own approved spec corpus (`operator_revenue_share`, `compensation_state_machines`, `payment_authority`); the ledger above is substrate, not this |
+| Compensation: self-dealing exclusion | built — an operator buying from their own Station or through their own Tower pays in full and earns nothing; both shares are withheld at settlement (`captureEdgeCharge`) |
+| Compensation: the revenue-share PROGRAM (eligibility, funded-work verification, maturity, payout authority, program-level clawback) | **not built** — its own approved spec corpus (`operator_revenue_share`, `compensation_state_machines`, `payment_authority`); the ledgers above are substrate, not this |
 | Streaming to Towers | **not built** — a streamed answer can only be verified after the consumer has the bytes |
 | Multiplexed link (today it long-polls) | **not built** — correct but chattier |

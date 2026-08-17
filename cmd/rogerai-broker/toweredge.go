@@ -1113,6 +1113,26 @@ func (b *broker) captureEdgeCharge(towerID, stationID, stationOwner string, cons
 		log.Printf("edge settle: attempt %s - Tower %s operator has no resolvable wallet account; Tower earns nothing",
 			attemptID, towerID)
 	}
+	// SELF-DEALING, ON THE MONEY. An operator routing their OWN traffic through their OWN
+	// Station (or their own Tower) is buying from themselves; paying them a share of their
+	// own spend is wash-trading a revenue share, and - once earnings cash out to a bank -
+	// a way to convert credits into money at a discount. The attempt still settles and the
+	// consumer still pays in full (the usage is evidence, and free self-service would be its
+	// own exploit); the SHARE is what is withheld.
+	//
+	// This check used to exist only in accrueEarnings, which writes the read-only trail, and
+	// only against the STATION owner - so the money path minted both lots unconditionally and
+	// a Tower operator relaying their own traffic was not flagged anywhere. Both shares are
+	// checked here, independently, because the two parties can be different accounts.
+	consumerHex := hex.EncodeToString(consumerKey)
+	if stationShare > 0 && b.sameAccount(consumerHex, stationOwner) {
+		log.Printf("edge settle: attempt %s is self-dealing (consumer owns the Station) - recorded, not owed", attemptID)
+		stationShare = 0
+	}
+	if towerShare > 0 && towerAcct != "" && b.sameAccount(consumerHex, towerAcct) {
+		log.Printf("edge settle: attempt %s is self-dealing (consumer owns the Tower) - recorded, not owed", attemptID)
+		towerShare = 0
+	}
 	r := protocol.UsageReceipt{
 		RequestID: attemptID, Model: model,
 		PromptTokens: int(inUnits), CompletionTokens: int(outUnits), TS: now.Unix(),

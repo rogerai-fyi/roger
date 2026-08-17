@@ -321,7 +321,9 @@ func (c *Config) Unenforced() []string {
 	add(c.Limits.MaxInflight > 0, "limits.maxInflight", "not enforced by this build")
 	add(c.Limits.MaxAudioInflight > 0, "limits.maxAudioInflight", "not enforced by this build")
 	if c.Payout != nil {
-		add(c.Payout.Wallet != "", "payout.wallet", "not used by this build; Tower work is not yet compensated")
+		add(c.Payout.Wallet != "", "payout.wallet",
+			"not used by this build; earnings are paid to the ACCOUNT that enrolled the Tower "+
+				"(cash out on the Payouts page or with `roger-tower earnings`), not to a wallet named here")
 	}
 	if c.Standalone != nil {
 		add(c.Standalone.OfflineRootFile != "", "standalone.offlineRootFile", "not read by this build")

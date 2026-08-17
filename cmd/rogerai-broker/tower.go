@@ -513,7 +513,15 @@ func (b *broker) towerOperator(r *http.Request, body []byte) (string, bool) {
 	if o.Login != "" {
 		return o.Login, true
 	}
-	return id, true
+	// NO LOGIN (an Apple account carries none; an email account may not): fall back to the
+	// account PUBKEY, never the derived user id. The derived id resolves to nothing - it is
+	// a hash of the key, not a lookup key - so a Tower enrolled under one could not be
+	// resolved back to an account at settlement, and its operator silently earned NOTHING
+	// (their 10% lot was never minted, one log line the operator never sees). It also
+	// disagreed with towerOperatorReader, which already falls back to the pubkey, so the
+	// same operator's fleet was invisible on the website that enrolled it.
+	_ = id
+	return o.Pubkey, true
 }
 
 // towerOperatorReader resolves the operator key for a READ-ONLY tower view, accepting
@@ -751,12 +759,16 @@ func (b *broker) towerStatus(w http.ResponseWriter, r *http.Request) {
 		// may still watch a $0 line, and the note says why rather than the flag lying.)
 		entry["carries_traffic"] = true
 		entry["compensated"] = true
-		entry["note"] = "This tower's data plane is the sealed hub: nodes that ran " +
-			"`roger share --tower` self-attach and serve encrypted work at their own listed " +
-			"per-token price. Every settled request pays you 10% of gross (the node 70%, the " +
-			"platform 20%), as an ordinary earning: 120-day hold, $25 minimum, cashed out " +
-			"from the Payouts page like a serving node's. Volume is early - the figure is $0 " +
-			"until consumers route work through your hub."
+		// The hold and minimum are INTERPOLATED from the live policy, not written into the
+		// sentence: both are env-tunable, and a status line quoting numbers a deployment has
+		// changed is a status line that lies.
+		entry["note"] = fmt.Sprintf("This tower's data plane is the sealed hub: nodes that ran "+
+			"`roger share --tower` self-attach and serve encrypted work at their own listed "+
+			"per-token price. Every settled request pays you 10%% of gross (the node 70%%, the "+
+			"platform 20%%), as an ordinary earning: %d-day hold, $%g minimum, cashed out "+
+			"from the Payouts page like a serving node's. Volume is early - the figure is $0 "+
+			"until consumers route work through your hub.",
+			b.conn.policy.HoldDays, b.conn.policy.MinPayout)
 		out = append(out, entry)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"towers": out})

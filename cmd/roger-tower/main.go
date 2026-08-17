@@ -42,7 +42,7 @@ usage:
   roger-tower stations --dir DIR
   roger-tower route --dir DIR --client KEYHASH --model NAME
   roger-tower status --dir DIR
-  roger-tower earnings --dir DIR      (what this account has earned)
+  roger-tower earnings                (what this account has earned; no --dir needed)
   roger-tower login  --dir DIR        (joined mode only)
   roger-tower logout --dir DIR
   roger-tower probe    --model NAME [--broker URL]   (drive the edge path as a consumer)

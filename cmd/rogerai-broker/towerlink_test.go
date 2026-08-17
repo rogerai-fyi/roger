@@ -931,7 +931,6 @@ func TestTowerStatusShowsWhatCoreActuallyBelieves(t *testing.T) {
 	require.Equal(t, "st-live", got.Routable[0].StationID)
 	require.Equal(t, "roger-1", got.Routable[0].Model)
 
-	// DISPATCH SHIPS, but is NOT YET compensated for the operator: the overflow path real
 	// The status must be honest in BOTH directions: the sealed hub carries work and every
 	// settled request pays the operator 10% through the ordinary payout rail, so claiming
 	// otherwise would understate what they earn - while the note explains a $0 line as thin

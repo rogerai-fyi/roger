@@ -8,7 +8,7 @@
 //
 // # WHY IT EXISTS AT ALL
 //
-// Tower-backed work is uncompensated today, and the reason is this package: money needs a
+// Tower-backed work is compensated through the shared earning lots, and the reason is this package: money needs a
 // state nobody can dispute afterwards. Which attempt executed, exactly once, and what its
 // one terminal outcome was, has to be a fact recorded before the money moves rather than
 // something reconstructed from logs when somebody complains.
@@ -198,9 +198,9 @@ type Hold struct {
 
 // NoHold is the hold on work nobody is charged for.
 //
-// A truthful statement rather than a placeholder: Tower-backed work is uncompensated in this
-// version, so the amount reserved really is zero, and the event says so in the same members
-// a real hold uses. The alternative - omitting the hold - would make "this attempt reserved
+// A truthful statement rather than a placeholder: this attempt reserved nothing (the edge
+// path holds against the CONSUMER'S wallet at authorize, not here), so the amount really is
+// zero, and the event says so in the same members a real hold uses. The alternative - omitting the hold - would make "this attempt reserved
 // nothing" indistinguishable from "somebody forgot to record what it reserved", and only one
 // of those is safe to settle against.
 //

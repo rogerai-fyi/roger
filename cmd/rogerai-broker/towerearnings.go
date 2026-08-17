@@ -24,6 +24,7 @@ package main
 // in this process can move a cent, and the cash-out itself lives on the shared payout rail.
 
 import (
+	"fmt"
 	"net/http"
 	"time"
 )
@@ -57,14 +58,11 @@ func (b *broker) towerEarningsOwed(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusUnauthorized, "reading earnings requires a signed-in account - run `roger-tower login`")
 		return
 	}
-	ts := b.towerAvailable(w)
-	if ts == nil {
-		return
-	}
-	if ts.earnings == nil {
-		jsonErr(w, http.StatusServiceUnavailable, "the funding ledger is not available")
-		return
-	}
+	// THE MONEY FIRST, and it does not depend on the tower subsystem at all: an operator's
+	// balance lives in the shared store, so an unavailable trail (or a deployment with no
+	// tower subsystem) must not answer 503 over a real payable balance. Only the two count
+	// fields below need the trail, and they are optional.
+	//
 	// THE MONEY, from the ledger that pays it - the same numbers /payouts/earnings serves the
 	// website, so an operator reading the CLI and the dashboard can never see two answers.
 	now := time.Now()
@@ -76,7 +74,9 @@ func (b *broker) towerEarningsOwed(w http.ResponseWriter, r *http.Request) {
 	// Relaying vs serving, told apart by the "tower:" provenance prefix the settle path
 	// stamps on a relay lot. Lifetime attributed totals, as on the dashboard.
 	var relay, serving float64
+	splitKnown := false
 	if _, byNode, rerr := b.db.EarningRollups(ownerPubkey); rerr == nil {
+		splitKnown = true
 		for _, rr := range byNode {
 			if IsTowerNode(rr.Key) {
 				relay += rr.Amount
@@ -89,22 +89,34 @@ func (b *broker) towerEarningsOwed(w http.ResponseWriter, r *http.Request) {
 		"owner": ownerPubkey,
 		// CREDITS, the unit the website and the payout rail use. Stated so nobody reads one
 		// of these as the micros the trail below is priced in.
-		"unit":          "credits",
-		"held":          round6(split.Held),
-		"payable":       round6(split.Payable),
-		"paid":          round6(split.Paid),
-		"next_release":  split.NextRelease,
-		"from_relaying": round6(relay),
-		"from_serving":  round6(serving),
-		"cash_out": "POST /payouts/request once payable clears the minimum - the same rail, " +
-			"hold and Stripe Connect onboarding a serving node uses",
+		"unit":         "credits",
+		"held":         round6(split.Held),
+		"payable":      round6(split.Payable),
+		"paid":         round6(split.Paid),
+		"next_release": split.NextRelease,
+
+		"cash_out": fmt.Sprintf("POST /payouts/request once payable clears the $%g minimum - "+
+			"the same rail, %d-day hold and Stripe Connect onboarding a serving node uses",
+			b.conn.policy.MinPayout, b.conn.policy.HoldDays),
+	}
+	// OMITTED rather than zeroed when the rollup read failed: "from relaying 0.0000" beside a
+	// real payable reads as "my relay earnings vanished", which a transient query error is not.
+	if splitKnown {
+		// Lifetime attributed totals by stream - NOT a decomposition of held/payable/paid
+		// above (those are current and net of any reserve).
+		out["from_relaying"] = round6(relay)
+		out["from_serving"] = round6(serving)
 	}
 	// THE TRAIL, counts only: how many settled attempts stand behind that money, and how much
 	// was excluded as self-dealing (own traffic through own Station - recorded, never owed).
 	// Never quoted as a balance: it is priced by operations policy, not by what a consumer paid.
-	if owed, oerr := ts.earnings.OwedTo(ownerPubkey, time.Time{}); oerr == nil {
-		out["attempts"] = owed.Attempts
-		out["self_dealt_attempts"] = owed.SelfDealt > 0
+	if ts := b.tower; ts != nil && ts.earnings != nil {
+		if owed, oerr := ts.earnings.OwedTo(ownerPubkey, time.Time{}); oerr == nil {
+			out["attempts"] = owed.Attempts
+			// Self-dealt attempts earn NOTHING on the money ledger either (captureEdgeCharge
+			// withholds both shares), so this is provenance for the operator, not a caveat.
+			out["self_dealt_attempts"] = owed.SelfDealt > 0
+		}
 	}
 	writeJSON(w, http.StatusOK, out)
 }
