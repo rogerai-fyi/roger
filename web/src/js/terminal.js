@@ -358,7 +358,7 @@
       }
     },
 
-    // `share` - LEND your GPU: scan backends -> detected models -> SET A PRICE (the
+    // `share` - LEND your local model: scan backends -> detected models -> SET A PRICE (the
     // in-TUI pricing editor vs the live band median) + a free overnight schedule -> go
     // ON AIR -> the broker CANARY verifies you -> live requests stream in -> earnings +
     // the on-air slots. Richer + longer than a single go-live.
@@ -467,7 +467,7 @@
           c.show([onairHead, RULE,
             dim("  served today  ") + head("362 req") + dim("   ·   earned ") + money("+$3.78") + dim("  (70% keep)"),
             dim("  balance       ") + money("$42.18 payable") + dim("   ·   ON AIR ") + head("1/4 slots"), "",
-            dim("  ▸ your GPU is paying rent. cash out with ") + span("t-sel", " [$] PAYOUT ")
+            dim("  ▸ your local model is paying rent. cash out with ") + span("t-sel", " [$] PAYOUT ")
           ], END_HOLD);
         });
       }

@@ -51,7 +51,7 @@
     // lead phrase (kept first; the rest are shuffled below)
     "tune in / share / earn",
     // --- the originals ---
-    "now playing: your GPU",
+    "now playing: your local model",
     "70/30 split, live",
     "signed receipts only",
     "two-way radio for GPUs",
@@ -105,7 +105,7 @@
     "keep the channel open",
     // --- the marketplace, in radio idiom ---
     "ride the airwaves, pay per token",
-    "your GPU is paying rent",
+    "your local model is paying rent",
     "home GPUs, on the dial",
     "dial in a band, read the signal",
     "the band sets the price",
@@ -129,7 +129,7 @@
     "honest band, honest bill",
     "read the band before you tune in",
     "the strongest signal takes your prompt",
-    "broadcasting spare GPU, worldwide",
+    "broadcasting spare local models, worldwide",
     "tune in from the CLI",
     "one dial, both sides of the radio",
     "find your frequency",
@@ -143,7 +143,7 @@
     "the dial is live, the band is real",
     "every watt earns its keep",
     "signal verified, lineage intact",
-    "your spare GPU, someone's fast token",
+    "your spare local model, someone's fast token",
     "tune past the static to a clean station",
     "the band is busy tonight",
     "point your bot at the band",

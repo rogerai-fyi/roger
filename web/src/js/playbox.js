@@ -830,7 +830,7 @@
   var VOICE_CARDS = [
     { icon: "●○○", words: "What models are on the band right now, and which are free?" },
     { icon: "○●○", words: "Explain how a station earns money when I chat with it." },
-    { icon: "○○●", words: "I have one spare GPU. Walk me through going on air." }
+    { icon: "○○●", words: "I have a spare local model. Walk me through going on air." }
   ];
   // Preselected scenes: each card names its category and what the recorded
   // demonstration will read from it (real golden-set flavor, labelled RECORDED).
