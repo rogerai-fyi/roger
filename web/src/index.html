@@ -355,9 +355,12 @@
           <span class="mkt-cell mkt-cell--price">price · out</span>
         </div>
 
-        <!-- Live rows replace this honest static fallback after a successful read. -->
+        <!-- Live rows replace this honest static fallback after a successful read.
+             The fallback row is the no-JS state only (hidden once html.js is set,
+             see home.css) so it never stacks with the JS-on "No live data loaded
+             yet" foot line below. -->
         <ul class="mkt-list" id="marketList" aria-live="polite">
-          <li class="mkt-quiet">
+          <li class="mkt-quiet mkt-quiet--nojs">
             <span class="mkt-quiet__txt">
               Live data loads when JavaScript is available.
               <a href="/models.html">Open the Models directory &rarr;</a>
@@ -420,10 +423,13 @@
             trained from scratch on our data, sized for a Pi or an ESP32.
             No checkpoint has been released, and none ships until it passes the release
             contract on real devices.</p>
+          <!-- Licence detail (which network services fall under which terms) lives
+               with the catalogue on research-models.html#licence; the card keeps
+               the two promises a visitor needs and links out for the rest. -->
           <p>When it does release, the artifact licence is intended to be permissive
-            and local use will not require RogerAI or its broker. Optional network
-            services, including publication, routing, payments, failover, and signed
-            receipts, use separate network terms.</p>
+            and local use will not require RogerAI or its broker; optional network
+            services use separate network terms.
+            <a href="/research-models.html#licence">Licence details &rarr;</a></p>
           <p class="company__links">
             <a class="company__primary" href="/research.html">Follow the program</a>
             <a href="/broadcasts.html">Open Air Waves</a>

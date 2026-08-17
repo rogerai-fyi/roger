@@ -3,7 +3,10 @@
 <head>
   <!-- include: head.html title="Broadcasts - the RogerAI transmission log" desc="Broadcasts from RogerAI: release notes, field dispatches, and the story of an independent, own-your-GPU band. The station log - newest transmission first." theme=external og=post ogtype=website ogtitle="Broadcasts - the RogerAI transmission log" ogdesc="Dispatches from the band: release notes, field notes, and the running story of an independent radio for GPUs." ogurl="https://rogerai.fm/broadcasts.html" ogimage="https://rogerai.fm/assets/broadcasts/independence-v5-og.png" -->
 </head>
-<body>
+<!-- data-onair="idle": every marketing page that carries the rail also carries this
+     attribute, and base.css keys the spine offset (body padding-left) on it. Without it
+     the rail sat over a viewport-centred column ~54px left of every sibling page. -->
+<body data-onair="idle">
 
   <!-- ===== running head: this page is one bound document ===== -->
   <div class="rail" aria-hidden="true">

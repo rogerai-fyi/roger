@@ -139,8 +139,12 @@
    hero text and the directory. Idle / offline-seen labels read dimmed. */
 .dialwrap {
   --lock: 0; --sig: 0.4;
-  width: 100vw; max-width: 100vw;
-  margin-left: calc(50% - 50vw); margin-right: calc(50% - 50vw);
+  /* Bleed to the document column, not the viewport: body[data-onair] is
+     offset right of the fixed spine, so a 100vw/-50vw bleed overshot the
+     right edge by the spine width and made the page scroll sideways. The
+     spine covers the left edge either way, so the visible band is unchanged. */
+  width: 100%; max-width: 100%;
+  margin-left: 0; margin-right: 0;
   margin-top: var(--s-8); margin-bottom: 0;
   padding-inline: var(--gutter);
   border-top: 1px solid var(--hairline);

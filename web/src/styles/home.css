@@ -647,6 +647,9 @@
   line-height: 1.65;
 }
 .company__card code { overflow-wrap: anywhere; }
+/* inline "details ->" link inside card prose (the licence pointer on the Labs card) */
+.company__card > p a { color: var(--ink-700); border-bottom: 1px solid var(--hairline); }
+.company__card > p a:hover { color: var(--live); border-bottom-color: var(--live); }
 .company__links {
   display: flex;
   flex-wrap: wrap;
@@ -901,6 +904,9 @@
   color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body);
 }
 .mkt-quiet__txt { display: inline-block; max-width: 48ch; }
+/* the static "loads when JavaScript is available" row is the no-JS state only;
+   with JS on, the foot line ("No live data loaded yet") is the single empty state */
+html.js .mkt-quiet--nojs { display: none; }
 .mkt-quiet code { color: var(--ink-900); }
 .mkt-quiet a { color: var(--ink-700); border-bottom: 1px solid transparent; }
 .mkt-quiet a:hover { color: var(--live); border-bottom-color: var(--live); }

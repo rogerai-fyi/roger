@@ -16,6 +16,10 @@
 .research-hero__lead { max-width: 720px; margin: var(--s-6) 0 0; color: var(--ink-500); font-size: var(--t-lead); line-height: var(--lh-body); }
 .research-hero__layout { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(250px, .65fr); gap: var(--s-12); align-items: center; }
 .research-hero__mascot { min-width: 0; }
+/* The hub hero's four section buttons: a 2x2 block. As a flex row inside the narrower
+   copy column they wrapped 3+1 and orphaned the last button on its own line. */
+.research-hero__layout .research-actions { display: grid; grid-template-columns: repeat(2, minmax(0, max-content)); }
+.research-hero__layout .research-actions .research-button { justify-content: center; }
 .research-hero__mascot .tube-ping { grid-template-columns: 1fr; align-items: start; }
 .release-ticker {
   display: flex;
@@ -139,7 +143,10 @@
   background: var(--ink-900);
   color: var(--paper);
   font-size: var(--t-xs);
-  white-space: nowrap;
+  /* Wrap long commands inside the card (the hidden overlay scrollbar made
+     `nowrap` read as a clipped command); overflow-x stays as the fallback. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .research-tone { background: var(--paper-2); border-block: 1px solid var(--hairline); }
@@ -162,11 +169,20 @@
   border-block: 2px solid var(--ink-900);
 }
 .deployment-grid article { padding: var(--s-5); background: var(--paper); }
+/* Eight markets (research-industry): four across so the grid closes 4+4. At three across
+   the eighth card left an empty cell, and with the gap-as-divider technique that empty
+   cell painted hairline grey and read as a missing card. Keyed on the count itself so
+   the three-card hub grid keeps three across; browsers without :has() fall back to it. */
+.deployment-grid:has(> article:nth-child(8)) { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 1000px) { .deployment-grid:has(> article:nth-child(8)) { grid-template-columns: 1fr 1fr; } } /* 4x2 -> 2x4, never a cramped four */
 .deployment-grid b { color: var(--ink-900); }
 .deployment-grid p { margin-bottom: 0; color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body); }
 .device-contract { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: var(--s-6); background: var(--paper-2); }
 .device-contract p { margin: 0; padding: var(--s-5); border-right: 1px solid var(--hairline); color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body); }
 .device-contract p:last-child { border-right: 0; }
+/* A two-card contract (the healthcare/defense boundaries on research-industry): two equal
+   cells, no empty third. Keyed on the count, like the grid above. */
+.device-contract:has(> p:nth-child(2):last-child) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 /* The lead-in is a run-in heading, so it gets its own line: in a card the bold phrase and
    the sentence after it are two different things, and running them together made the
    sentence look like it continued the heading. Every card here is written as
@@ -181,9 +197,10 @@
   .research-hero__layout { grid-template-columns: 1fr; gap: var(--s-7); }
   .research-grid { grid-template-columns: 1fr; }
   .model-row { grid-template-columns: 1fr; gap: var(--s-4); }
-  .deployment-grid, .device-contract { grid-template-columns: 1fr 1fr; }
+  .deployment-grid, .deployment-grid:has(> article:nth-child(8)), .device-contract { grid-template-columns: 1fr 1fr; }
   .device-contract p:nth-child(2) { border-right: 0; }
   .device-contract p:last-child { grid-column: 1 / -1; border-top: 1px solid var(--hairline); }
+  .device-contract:has(> p:nth-child(2):last-child) p:last-child { grid-column: auto; border-top: 0; }
   .developer-steps { grid-template-columns: 1fr; }
   .developer-step { border-right: 0; border-bottom: 1px solid var(--hairline); }
   .developer-step:last-child { border-bottom: 0; }
@@ -194,13 +211,15 @@
   .research-hero { padding-block: 46px 54px; }
   .research-hero__lead { margin-top: var(--s-4); }
   .research-hero__mascot .tube-ping { margin-bottom: var(--s-3); }
-  .deployment-grid, .device-contract { grid-template-columns: 1fr; }
+  .deployment-grid, .deployment-grid:has(> article:nth-child(8)), .device-contract,
+  .device-contract:has(> p:nth-child(2):last-child) { grid-template-columns: 1fr; }
   .device-contract p, .device-contract p:nth-child(2), .device-contract p:last-child {
     grid-column: auto;
     border-right: 0;
     border-bottom: 1px solid var(--hairline);
   }
   .research-button { width: 100%; justify-content: center; }
+  .research-hero__layout .research-actions { grid-template-columns: 1fr; }
 }
 
 /* =====================================================================

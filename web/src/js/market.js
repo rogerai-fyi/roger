@@ -126,6 +126,12 @@
   var statusText = document.getElementById("marketStatusText");
   var statusWrap = document.getElementById("marketStatus");
   var footEl = document.getElementById("marketFoot");
+  // JS is running: the static "awaiting JavaScript" line is now untrue. The
+  // first broker read only starts when the band scrolls into view, so until
+  // then say exactly that much and let the foot line carry the empty state.
+  if (statusText && /awaiting JavaScript/.test(statusText.textContent)) {
+    statusText.textContent = "Live market · not loaded yet";
+  }
   var refreshBtn = document.getElementById("marketRefresh");
   var section = document.getElementById("market");
   var meterRateEl = document.getElementById("meterRate");

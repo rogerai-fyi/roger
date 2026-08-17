@@ -226,15 +226,17 @@
 }
 .wf-inf__requires b { color: var(--ink-900); }
 
-/* The measured hook, then the two-column ledger. Proven and not-proven are given the
-   same weight on purpose: publishing the second list is the point, not a disclaimer. */
+/* The measured hook, then the ledger. Proven and not-proven are given the same weight
+   on purpose: publishing the second list is the point, not a disclaimer. They stack:
+   side by side, four ledger rows faced one short paragraph and the block read lopsided,
+   with the not-proven half looking like an afterthought - the opposite of the intent. */
 .wf-inf__punch {
   display: block; margin-top: var(--s-4);
   color: var(--live); font-size: var(--t-h3); line-height: var(--lh-tight);
 }
 .wf-inf__proof {
-  display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
-  gap: var(--s-8); padding-top: var(--s-6);
+  display: grid; grid-template-columns: 1fr;
+  gap: var(--s-7); padding-top: var(--s-6);
 }
 .wf-inf__proven dl { margin: var(--s-4) 0 0; }
 .wf-inf__proven dl div {
@@ -245,10 +247,11 @@
 .wf-inf__proven dt { color: var(--ink-900); font-size: var(--t-sm); font-weight: var(--weight-semi); }
 .wf-inf__proven dd { margin: 0; color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body); }
 .wf-inf__proven dd b { color: var(--live); font-family: var(--font-mono); }
-.wf-inf__unproven p { margin: var(--s-4) 0 0; color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body); }
+.wf-inf__unproven { padding-top: var(--s-5); border-top: 1px solid var(--hairline); }
+.wf-inf__unproven p { max-width: 68ch; margin: var(--s-4) 0 0; color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body); }
 .wf-inf__unproven b { color: var(--ink-900); }
 @media (max-width: 860px) {
-  .wf-inf__proof { grid-template-columns: 1fr; gap: var(--s-6); }
+  .wf-inf__proof { gap: var(--s-6); }
   .wf-inf__proven dl div { grid-template-columns: 1fr; gap: var(--s-2); }
 }
 .wf-inf__provenance {
