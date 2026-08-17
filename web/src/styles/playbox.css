@@ -58,6 +58,17 @@
 
 /* ---------- the wide deck shell ---------------------------------- */
 .pg-console { padding-block: 0 var(--section-y); }
+/* SHELL DIET (layout audit 2026-08-17): the hero + selector + engraving stack
+   pushed every deck's first control below ~850px. The engravings stay (they
+   are the decks' catalogue plates) but as a strip, not a band; the tighter
+   hero and two-line blurbs above do the rest. Specificity (0,2,0) so the
+   plate heights in wave-patch.css yield whatever the bundle order. */
+.pg-hero { padding-block: clamp(16px, 2vw, 22px) var(--s-3); }
+.pg-hero__title { font-size: clamp(38px, 3.2vw, 48px); margin-top: var(--s-3); }
+.pg-hero__sub { margin-top: var(--s-4); font-size: var(--t-body, 1rem); }
+.pg-console .wm-masthead, .pg-mesh .wm-masthead, .pg-factory .wm-masthead,
+.wrap--deck .wm-masthead { height: 132px; margin-bottom: var(--s-3); }
+.wrap--deck .wm-masthead--tape { height: 120px; }
 .wrap--deck { max-width: min(1720px, 96vw); }
 .pg-deck {
   border: 1px solid var(--hairline-2);

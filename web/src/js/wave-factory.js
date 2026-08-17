@@ -3516,12 +3516,27 @@
         anyModel ? "a model that missed in the recording misses here too"
                  : "nobody was watching - a Pico would have been"]);
     }
+    /* v38 (layout audit: "goal findable? No"): the campaign goal is the
+       FIRST row, always - N/5 steps and the next unfinished item - and it is
+       a button that scrolls to the plaque. SHIP reads as the sub-goal it is. */
+    var items = certItems();
+    var doneN = items.filter(function (it) { return it.done; }).length;
+    var nxt = certNext();
+    rows.unshift(["GOAL", G.cert.done ? "FACTORY CERTIFIED" : "FACTORY CERTIFICATE · " + doneN + "/" + items.length,
+      G.cert.done ? "the plant runs itself, and proved it" : (nxt ? "next: " + nxt.label : "")]);
     DOM.goals.textContent = "";
-    rows.slice(0, 3).forEach(function (r) {
-      var li = el("li", "cl-goal");
+    rows.slice(0, 4).forEach(function (r, i) {
+      var li = el("li", "cl-goal" + (i === 0 ? " cl-goal--goal" : ""));
       li.appendChild(el("b", null, r[0]));
       li.appendChild(el("span", null, r[1]));
       li.appendChild(el("i", null, r[2]));
+      if (i === 0) {
+        li.setAttribute("role", "button"); li.tabIndex = 0;
+        li.title = "the goal - jump to the certificate";
+        var jump = function () { var c = DOM.certRows && DOM.certRows.parentNode; if (c && c.scrollIntoView) c.scrollIntoView({ behavior: "smooth", block: "start" }); };
+        li.addEventListener("click", jump);
+        li.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); jump(); } });
+      }
       DOM.goals.appendChild(li);
     });
   }

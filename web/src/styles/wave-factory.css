@@ -96,9 +96,13 @@
 .clf-machine .clf-buytag, .clf-desk .clf-buytag { pointer-events: auto; position: relative; z-index: 4; }
 .clf-machine .clf-lamp, .clf-machine .clf-bubble, .clf-machine .clf-mount { z-index: 3; }
 .clf-machine .clf-plate { z-index: 2; }
-.clf-machine--mixer  { left: 6%;  width: 190px; height: 268px; }
-.clf-machine--oven   { left: 38%; width: 250px; height: 230px; }
-.clf-machine--packer { left: 66%; width: 186px; height: 256px; }
+/* v38 (layout audit): every machine block shares ONE height - the art is
+   mask-size:contain anchored bottom, so the engravings render exactly as
+   before while the RUNNING lamps and buy tags land on one baseline (they
+   used to sit at three different heights, the packer's over its hopper). */
+.clf-machine--mixer  { left: 6%;  width: 190px; height: 276px; }
+.clf-machine--oven   { left: 38%; width: 250px; height: 276px; }
+.clf-machine--packer { left: 66%; width: 186px; height: 276px; }
 .clf-art {
   position: absolute; inset: 0; display: block;
   background: var(--ink-900);
@@ -552,6 +556,13 @@
 .cl-goal b { font-family: var(--font-mono); font-size: .5rem; letter-spacing: .14em; color: var(--ink-400); }
 .cl-goal span { font-family: var(--font-mono); font-size: .62rem; color: var(--ink-900); }
 .cl-goal i { font-size: .56rem; color: var(--ink-500); font-style: normal; }
+/* v38: the campaign GOAL leads the rows (the certificate used to live three
+   screens down while "SHIP 0/100" read as the goal). It is a button that
+   scrolls to the plaque; SHIP is visibly the sub-goal beneath it. */
+.cl-goal--goal { border-color: var(--ink-900); cursor: pointer; }
+.cl-goal--goal b { color: var(--ink-900); }
+.cl-goal--goal:hover span { text-decoration: underline; }
+.cl-goal--goal:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
 @media (max-width: 560px) {
   .cl-goal { grid-template-columns: 3.4rem 1fr; }
   .cl-goal i { grid-column: 1 / -1; }
@@ -889,12 +900,12 @@
 .clf-floor:has(.clf-machine[data-mk="2"]) { min-width: 960px; }
 .clf-floor:has(.clf-machine[data-mk="3"]) { min-width: 1040px; }
 
-.clf-machine--mixer[data-mk="2"] { width: 208px; height: 272px; }
-.clf-machine--mixer[data-mk="3"] { width: 230px; height: 272px; }
-.clf-machine--oven[data-mk="2"]  { left: 35%; width: 300px; height: 206px; }
-.clf-machine--oven[data-mk="3"]  { left: 31%; width: 350px; height: 219px; }
+.clf-machine--mixer[data-mk="2"] { width: 208px; height: 276px; }
+.clf-machine--mixer[data-mk="3"] { width: 230px; height: 276px; }
+.clf-machine--oven[data-mk="2"]  { left: 35%; width: 300px; height: 276px; }
+.clf-machine--oven[data-mk="3"]  { left: 31%; width: 350px; height: 276px; }
 .clf-machine--packer[data-mk="2"] { left: 68%; width: 145px; height: 276px; }
-.clf-machine--packer[data-mk="3"] { left: 65%; width: 260px; height: 193px; }
+.clf-machine--packer[data-mk="3"] { left: 65%; width: 260px; height: 276px; }
 
 .clf-machine--mixer[data-mk="2"] .clf-art { -webkit-mask-image: url("../assets/wave/game-mixer-mk2-ink.png"); mask-image: url("../assets/wave/game-mixer-mk2-ink.png"); }
 .clf-machine--mixer[data-mk="3"] .clf-art { -webkit-mask-image: url("../assets/wave/game-mixer-mk3-ink.png"); mask-image: url("../assets/wave/game-mixer-mk3-ink.png"); }
