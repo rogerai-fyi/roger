@@ -342,7 +342,10 @@
       var head = el("span", "dk__shelfgroup", grp.group);
       head.setAttribute("aria-hidden", "true");
       row.appendChild(head);
-      var strip = el("span", "dk__shelfstrip");
+      /* the Wave family WRAPS instead of scrolling: seven tiers in a narrow
+         column used to clip after the second spine with no hint of the rest
+         (founder: "i don't see all the models") */
+      var strip = el("span", "dk__shelfstrip" + (grp.group === "WAVE FAMILY" ? " dk__shelfstrip--wrap" : ""));
       row.appendChild(strip);
       shelf.appendChild(row);
       grp.entries.forEach(function (t) {
@@ -350,6 +353,9 @@
         var btn = el("button", "dk__spine" + (STATE.tape && STATE.tape.model === t.model ? " is-loaded" : "")
           + (t.spine ? " dk__spine--shelfonly" : ""));
         btn.type = "button";
+        // the tier's Spectrum colour on the spine's top edge - the same tokens
+        // the mesh and factory decks wear, so the ladder reads as one system
+        if (/^wave-(pico|nano|micro|giga|tera|peta|exa)$/.test(t.model)) btn.setAttribute("data-tier", t.model.slice(5));
         btn.setAttribute("aria-pressed", STATE.tape && STATE.tape.model === t.model ? "true" : "false");
         btn.appendChild(el("b", null, t.label));
         btn.appendChild(el("small", null, t.sub));

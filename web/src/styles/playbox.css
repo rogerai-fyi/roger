@@ -455,6 +455,29 @@
   display: flex; align-items: center; justify-content: flex-end;
 }
 .dk__shelfstrip { display: flex; gap: 8px; overflow-x: auto; padding: 4px 2px; scrollbar-width: thin; }
+/* the Wave family: all seven tiers VISIBLE, wrapping two-up in ladder order,
+   never a clipped strip (the founder saw two spines and no hint of five more) */
+.dk__shelfstrip--wrap { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); overflow: visible; }
+.dk__shelfstrip--wrap .dk__spine { min-width: 0; padding: 7px 9px 8px; }
+.dk__shelfstrip--wrap .dk__spine b { max-width: none; font-size: 10px; }
+.dk__shelfstrip--wrap .dk__spine small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* the tier's Spectrum colour on the top edge (light + dark values match the
+   founder's chart, same tokens as the mesh and factory decks) */
+.dk__spine[data-tier="pico"]  { border-top-color: #b23a2a; }
+.dk__spine[data-tier="nano"]  { border-top-color: #c96a1c; }
+.dk__spine[data-tier="micro"] { border-top-color: #b0891a; }
+.dk__spine[data-tier="giga"]  { border-top-color: #2f8a52; }
+.dk__spine[data-tier="tera"]  { border-top-color: #1f8f8f; }
+.dk__spine[data-tier="peta"]  { border-top-color: #2f63bf; }
+.dk__spine[data-tier="exa"]   { border-top-color: #5b3fbf; }
+:root[data-theme="dark"] .dk__spine[data-tier="pico"]  { border-top-color: #e6604f; }
+:root[data-theme="dark"] .dk__spine[data-tier="nano"]  { border-top-color: #e88b3c; }
+:root[data-theme="dark"] .dk__spine[data-tier="micro"] { border-top-color: #d4aa2e; }
+:root[data-theme="dark"] .dk__spine[data-tier="giga"]  { border-top-color: #48b873; }
+:root[data-theme="dark"] .dk__spine[data-tier="tera"]  { border-top-color: #39b7b7; }
+:root[data-theme="dark"] .dk__spine[data-tier="peta"]  { border-top-color: #5b8ee6; }
+:root[data-theme="dark"] .dk__spine[data-tier="exa"]   { border-top-color: #8a6df0; }
+.dk__spine--shelfonly[data-tier] { border-top-style: solid; opacity: 0.72; }
 /* honest placeholders: trained-off-air / planned family spines cannot load */
 .dk__spine--shelfonly { opacity: 0.55; cursor: help; border-top-style: dashed; border-top-width: 3px; }
 .dk__spine--shelfonly:hover { transform: none; border-color: var(--hairline-2); }
