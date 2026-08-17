@@ -767,26 +767,34 @@
 .cl-cert__sub { display: block; font-size: .7rem; color: var(--ink-500); margin: .4rem 0 .2rem; max-width: 34rem; }
 
 /* MICRO's SITE BOARD, on the wall of the floor scene.
-   v32 ANNOTATION LANES: the board owns the TOP-RIGHT CORNER exclusively -
-   it used to hang at left 34%, straight over the oven's bubbles and tags
-   (founder screenshot). Nothing else is placed in this corner: the Unit's
-   speech anchors low on the floor and the machine lanes ride their own
-   machines. */
+   v34: a SLIM FULL-WIDTH STRIP along the very top of the wall. The v32
+   "exclusive top-right corner" was never actually empty - the desk column
+   (right 8%, with its buy chips) and the packer's tag rungs + speech band
+   both live under it, and the founder's screenshot showed the board sitting
+   on all of them. A one-line marquee at y=0 is the only band no machine
+   lane, desk, or chip can reach; the desk card keeps the detailed rows. */
 .clf-siteboard {
-  position: absolute; top: 4%; right: 1.5%; left: auto; width: 12.5rem; z-index: 3;
-  padding: .45rem .55rem; border-radius: 6px;
-  background: var(--paper); border: 1px solid var(--ink-300);
+  /* z 6: a tall bubble stack can climb to within ~26px of the wall top;
+     the strip is a solid fixture, so it must paint over a grazing bubble
+     edge (its band is non-interactive, so it shadows no control) */
+  position: absolute; top: 0; left: 0; right: 0; z-index: 6;
+  display: flex; align-items: center; gap: .8rem;
+  padding: .26rem .6rem;
+  background: var(--paper); border-bottom: 1px solid var(--ink-300);
   border-left: 3px solid var(--tier-micro, var(--ink-500));
-  box-shadow: 0 2px 10px rgba(0,0,0,.25);
   font-family: var(--font-mono);
+  white-space: nowrap; overflow: hidden;
 }
-.clf-siteboard__k { display: block; font-size: .5rem; letter-spacing: .16em; color: var(--ink-400); margin-bottom: .25rem; }
-.clf-siteboard__row { display: flex; gap: .4rem; align-items: center; font-size: .54rem; color: var(--ink-700); padding: .08rem 0; }
-.clf-siteboard__row i { width: 3.2rem; font-style: normal; }
-.clf-siteboard__bar { flex: 1; height: .3rem; background: var(--paper-3); border-radius: 2px; overflow: hidden; display: block; }
+.clf-siteboard__k { font-size: .5rem; letter-spacing: .16em; color: var(--ink-400); flex: none; }
+.clf-siteboard__row { display: flex; gap: .3rem; align-items: center; font-size: .52rem; color: var(--ink-700); flex: none; }
+.clf-siteboard__row i { font-style: normal; }
+.clf-siteboard__bar { width: 2.2rem; height: .3rem; background: var(--paper-3); border-radius: 2px; overflow: hidden; display: block; }
 .clf-siteboard__bar b { display: block; height: 100%; background: var(--ink-500); }
-.clf-siteboard__row em { font-style: normal; color: var(--ink-500); min-width: 2.4rem; text-align: right; font-variant-numeric: tabular-nums; }
-.clf-siteboard__line { display: block; margin-top: .3rem; font-size: .52rem; color: var(--ink-500); font-style: normal; }
+.clf-siteboard__row em { font-style: normal; color: var(--ink-500); font-variant-numeric: tabular-nums; }
+.clf-siteboard__line {
+  font-size: .52rem; color: var(--ink-500); font-style: normal;
+  margin-left: auto; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1 auto;
+}
 
 /* the gateway's attention, standing at the machine it watches */
 .clf-gwtag {

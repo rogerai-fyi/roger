@@ -1794,9 +1794,13 @@ test("v32: annotation lanes - one spoken-word budget, priority executed, the boa
   assert.equal(plan.length, 1, "ambient speaks only to a quiet floor");
   // the paint consults the same plan (executed policy, not decoration)
   assert.match(js, /bubblePlan\(bubbleCands\(\), tight \? 1 : 2\)/, "one plan per paint, tight screens get 1");
-  // CSS lanes: the site board owns the top-right corner EXCLUSIVELY
-  assert.match(css, /\.clf-siteboard \{\n  position: absolute; top: 4%; right: 1\.5%; left: auto/,
-    "the board moved off the oven and pinned to its corner");
+  /* v34: the "exclusive corner" was never actually empty (the desk column
+     and the packer's lanes live under it - founder screenshot #42). The
+     lane guarantee is unchanged - the board overlaps nothing - but it is
+     now delivered by a full-width one-line strip at the very top of the
+     wall, a band no machine lane, desk, or chip can reach. */
+  assert.match(css, /position: absolute; top: 0; left: 0; right: 0; z-index: 6/,
+    "the board is the top-of-wall strip, off every lane");
   // speech band above the attribution lane, which stacks per anchor
   assert.match(css, /\.clf-bubble \{\n  position: absolute; top: -60px/, "the speech band");
   assert.match(css, /\.clf-autotag \{\n  position: absolute; top: -1\.6rem/, "the attribution lane at the machine");
@@ -1939,4 +1943,16 @@ test("v34: the proof rule is printed where the goal is read", () => {
   assert.match(proof.hint, /20s setback, not a restart/, "stating the touch rule");
   assert.match(js, /Math\.min\(CERT_TOUCH_SETBACK, G\.cert\.run\)/,
     "and touchPlant() cuts by the same named constant the hint prints");
+});
+
+test("v34: the site board is a strip no lane can reach", () => {
+  // founder screenshot: SITE BOARD - MICRO rendered on top of the desk's
+  // buy chips, a patrol pill, an autonomy tag, and a speech bubble. The
+  // corner placement collided by construction (desk at right 8% / top 26px,
+  // packer at left 66% with lanes above it). The strip owns y=0 alone.
+  assert.match(css, /border-bottom: 1px solid var\(--ink-300\)/, "it reads as a wall fixture");
+  assert.match(css, /position: absolute; top: 0; left: 0; right: 0; z-index: 6/,
+    "full width at the very top, over a grazing bubble edge");
+  assert.doesNotMatch(css, /\.clf-siteboard \{[^}]*width: 12\.5rem/,
+    "the floating corner panel is gone");
 });
