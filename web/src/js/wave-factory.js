@@ -217,7 +217,8 @@
   /* THE CERTIFICATE (v28) - the campaign goal the founder asked for: a fully
      automated, fully upgraded factory. The last item is the PROOF: the plant
      runs hands-off for a stretch while its own dashboard records it. */
-  var CERT_PROOF_SECS = 180;     // three untouched minutes...
+  var CERT_PROOF_SECS = 120;     /* two untouched minutes... (v35: the founder
+     lowered the stretch from three - the bar's uptime stays measured) */
   /* ...at EIGHTY percent uptime or better. v32, measured not vibed: the
      fixed-seed proof-run bots (test file, "the proof run is winnable")
      drove a fully-upgraded fully-automated plant hands-off for 15 sim-
@@ -233,7 +234,7 @@
   var TIER_COLOUR = { pico: "pico", nano: "nano", micro: "micro", giga: "giga" };
   /* the ONE build string every export stamps - the tape header shipped a
      stale hardcoded "v29" for three rounds (playtest round 3 caught it) */
-  var GAME_BUILD = "playbox v35";
+  var GAME_BUILD = "playbox v36";
   /* v34: the proof-window touch penalty, named so the goal card's hint and
      touchPlant() can never disagree about the rule */
   var CERT_TOUCH_SETBACK = 20;

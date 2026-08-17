@@ -1742,9 +1742,12 @@ test("v32: the proof run is winnable - measured, not vibed (the bar lives at 80%
      pass a MAJORITY of sliding 3-minute windows, and an un-upgraded Mk I
      automated plant must still fail. 90% never came close (the founder's
      exact complaint); 80% is the highest 5%-step that clears. This lock
-     RUNS both plants. */
+     RUNS both plants. v35: the founder lowered the stretch to 2 minutes;
+     the window below reads certProofSecs so the lock keeps measuring the
+     REAL bar. */
   const h = loadHook();
   assert.equal(h.certUptime, 0.8, "the bar the bots settled on");
+  assert.equal(h.certProofSecs, 120, "two untouched minutes (founder, 2026-08-17)");
   function run(tier) {
     const s = h.freshState();
     s.records = measured.records;
@@ -1759,7 +1762,7 @@ test("v32: the proof run is winnable - measured, not vibed (the bar lives at 80%
       h.stepWith(s, DT);
       up[i] = s.machines.every((m) => !m.stopped) ? 1 : 0;
     }
-    const w = Math.round(180 / DT), st = Math.round(5 / DT);
+    const w = Math.round(h.certProofSecs / DT), st = Math.round(5 / DT);
     let pass = 0, total = 0, sum = 0;
     for (let i = 0; i < w; i++) sum += up[i];
     for (let start = 0; start + w <= N; start += st) {
@@ -1818,7 +1821,7 @@ test("v32: playtest round-3 fixes - the win card is a pause not a hostage, the t
   /* v34: bumped v32->v34 - the stamp went stale AGAIN across v33 (round 5
      caught it); this lock is the ratchet, so it moves with every round that
      ships behaviour */
-  assert.match(js, /var GAME_BUILD = "playbox v35"/, "which is current");
+  assert.match(js, /var GAME_BUILD = "playbox v36"/, "which is current");
   // Ping guardrails: identity is local, gibberish is filtered with one retry
   assert.match(js, /isIdentityQ\(q\)/, "who-are-you never hits the network");
   assert.match(js, /I'm the radio, not the mind/, "and the canned answer names Ping honestly");
@@ -1934,7 +1937,7 @@ test("v34: the tape stamps the current build", () => {
   const h = loadHook();
   const s = h.freshState();
   const doc = h.buildTapeWith(s);
-  assert.equal(doc.build, "playbox v35", "the tape header names this round");
+  assert.equal(doc.build, "playbox v36", "the tape header names this round");
 });
 
 test("v34: the proof rule is printed where the goal is read", () => {
