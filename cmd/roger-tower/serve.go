@@ -400,6 +400,15 @@ func cmdServe(args []string, out io.Writer) error {
 				return err
 			}
 		}
+		// The hub block mirrors the relay's flag-beats-config rule.
+		if c.Hub != nil {
+			if *hubAddr == "" {
+				*hubAddr = c.Hub.Address
+			}
+			if *hubCert == "" && *hubKey == "" {
+				*hubCert, *hubKey = c.Hub.TLSCert, c.Hub.TLSKey
+			}
+		}
 	}
 	if *relayAddr != "" && len(routes) == 0 {
 		return fmt.Errorf("a relay address needs at least one Station to route to: " +

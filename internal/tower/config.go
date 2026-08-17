@@ -70,6 +70,7 @@ type Config struct {
 	StationListener ListenerConfig `yaml:"stationListener"`
 	AdminListener   ListenerConfig `yaml:"adminListener"`
 	Relay           *RelayConfig   `yaml:"relay,omitempty"`
+	Hub             *HubConfig     `yaml:"hub,omitempty"`
 	Observability   ObservConfig   `yaml:"observability"`
 	Limits          LimitsConfig   `yaml:"limits"`
 	Storage         *StorageConfig `yaml:"storage,omitempty"`
@@ -108,6 +109,16 @@ type LocalConfig struct {
 
 type ListenerConfig struct {
 	Address string `yaml:"address,omitempty"`
+}
+
+// HubConfig is the TOPOLOGY-2 DATA PLANE: the hub listener where consumers submit sealed
+// work and this tower's self-attached `roger share` nodes poll for it. The payload is
+// sealed end-to-end; TLS here covers the node polling tokens and grant metadata. Flags
+// (--hub, --hub-tls-cert, --hub-tls-key) win when both are given, like the relay's.
+type HubConfig struct {
+	Address string `yaml:"address,omitempty"`
+	TLSCert string `yaml:"tlsCert,omitempty"`
+	TLSKey  string `yaml:"tlsKey,omitempty"`
 }
 
 // RelayConfig is the DATA PLANE: the port consumers connect to, and the Stations behind it.
@@ -261,10 +272,14 @@ func (c *Config) applyDefaults() {
 // face the public internet. A security assessment of imaginary ports is worse than none,
 // because an operator reads "all listeners loopback" and stops looking.
 func (c *Config) ListenAddresses() []string {
-	if c.Relay == nil || c.Relay.Address == "" {
-		return nil
+	var out []string
+	if c.Relay != nil && c.Relay.Address != "" {
+		out = append(out, c.Relay.Address)
 	}
-	return []string{c.Relay.Address}
+	if c.Hub != nil && c.Hub.Address != "" {
+		out = append(out, c.Hub.Address)
+	}
+	return out
 }
 
 // Unenforced names every field this build decodes and validates but does not act on.
