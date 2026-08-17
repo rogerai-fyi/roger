@@ -1819,3 +1819,59 @@ test("v32: playtest round-3 fixes - the win card is a pause not a hostage, the t
   assert.match(js, /why === "insane" \? ask\(\) : Promise\.reject\(why\)/, "one retry, then the Unit's fallback");
   assert.match(js, /already at top tier/, "the summary tells Ping what is maxed so it stops selling it");
 });
+
+// ---------- v33: playtest round-4 punch list --------------------------------
+
+test("v33: the Unit stays hidden until Giga exists - the [hidden] guard", () => {
+  // Third occurrence of the display-rule-beats-[hidden] trap (mesh v20, shop
+  // v23, now the Unit). The guard is the lock; the pattern note rides it.
+  assert.ok(/\.clf-unit\[hidden\]\s*\{\s*display:\s*none/.test(css),
+    "the Unit's flex rule must not defeat the hidden attribute");
+});
+
+test("v33: a stopped oven cannot be burning - the tape bracket closes", () => {
+  const h = loadHook();
+  const state = h.freshState();
+  const oven = state.machines.find((m) => m.id === "oven");
+  oven.stopped = true;
+  state.burning = true;
+  h.stepWith(state, 0.5);
+  assert.equal(state.burning, false, "stopping the oven ends the burn");
+  assert.ok(/a stopped oven bakes nothing, so it cannot be burning/.test(js),
+    "and the rule is written where the bracket closes");
+});
+
+test("v33: inspection attribution names who looked", () => {
+  assert.ok(/m\.inspectedBy === "unit" \? "the Unit inspected it" : "you inspected it"/.test(js),
+    "the hold reason credits the actual inspector");
+  assert.ok(/m\.inspectedBy = m\.unitInspecting \? "unit" : "you"/.test(js),
+    "recorded at the moment the inspection completes");
+});
+
+test("v33: the Unit finishes what it started", () => {
+  const h = loadHook();
+  const state = h.freshState();
+  const oven = state.machines.find((m) => m.id === "oven");
+  oven.unitInspecting = true;
+  oven.inspecting = 8;
+  state.unit = { at: "oven", going: null, pauseLeft: -1, topic: 0, pose: "idle", say: "", sayUntil: 0 };
+  h.stepUnitWith(state, 2);
+  assert.equal(state.unit.at, "oven", "mid-inspection, the Unit does not wander");
+  assert.equal(state.unit.pose, "inspect", "and holds the inspect pose");
+});
+
+test("v33: doctrine questions are answered locally, never by advert", () => {
+  const h = loadHook();
+  const state = h.freshState();
+  const ok = h.sendChatWith(state, "the oven sensor is drifting - what do i do?");
+  assert.equal(ok, true);
+  const last = state.chat[state.chat.length - 1];
+  assert.equal(last.how, "local-doctrine", "no network round trip for the card's own word");
+  assert.ok(/RECALIBRATE/.test(last.text), "and the verb is the doctrine's");
+  assert.ok(/maintenance card/.test(last.text), "with its source named");
+});
+
+test("v33: a filled contract reads as filled in the radio summary", () => {
+  assert.ok(/already filled \(/.test(js),
+    "plantSummary must not hand Ping '1808\/100' to garble");
+});

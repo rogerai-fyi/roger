@@ -627,7 +627,7 @@
        incident invalidates the old story - the machine card's persistent
        automation line must never narrate the wrong fault. */
     m.autoNote = ""; m.autoNoteAt = 0; m.autoTier = "";
-    m.unitJob = null; m.unitInspecting = false; m.unitFixed = false;
+    m.unitJob = null; m.unitInspecting = false; m.unitFixed = false; m.inspectedBy = null;
     m.wordBurned = false;
     G.incidents.open += 1;
     tape("fault", { m: m.id, kind: pick,
@@ -696,7 +696,7 @@
     m.picoRead = null; m.nanoRead = null; m.driftLie = 0; m.hadStop = false;
     m.nanoDirect = false;
     m.inspected = false; m.inspecting = 0;
-    m.unitJob = null; m.unitInspecting = false; m.unitFixed = false;   // v32
+    m.unitJob = null; m.unitInspecting = false; m.unitFixed = false; m.inspectedBy = null;   // v32
     m.wordBurned = false;
     m.senseSuspect = false; m.heldForFlag = false;   // trust returns with the fix
     m.chaseFrom = null; m.chaseErr = null;
@@ -724,7 +724,7 @@
     var nanoClears = m.nanoRead && m.nanoRead.kind === "resolved" &&
       m.nanoRead.said === "none";
     if ((picoAlarm && !nanoClears) || nanoNamesFault) return "a model raised it";
-    if (m.inspected) return "you inspected it";
+    if (m.inspected) return m.inspectedBy === "unit" ? "the Unit inspected it" : "you inspected it";
     /* the needle checks read the CACHED last display (m.lastShown, recorded
        wherever a reading is actually taken) - shownValue() rolls the noisy
        sensor's dice, and a trust check must not advance anyone's seed */
@@ -1114,7 +1114,8 @@
         m.inspecting = 0;
         m.stoppedFor = 0;
         m.inspected = m.cond !== "none";
-        tape("inspected", { m: m.id, found: m.cond, by: m.unitInspecting ? "unit" : "you" });
+        m.inspectedBy = m.unitInspecting ? "unit" : "you";
+        tape("inspected", { m: m.id, found: m.cond, by: m.inspectedBy });
         if (m.unitInspecting) {
           /* v32: the Unit's look, attributed as the Unit's - and the next
              move named. The doctrine verb itself dispatches from autoAdjust
@@ -1256,7 +1257,11 @@
        count the founder watched climb was the oven RUNNING hot on a lying
        sensor. Intended rule, and taped as of v32 so the session tape can
        prove where every burnt cookie came from.) */
-    if (ov.stopped || ov.real > tierOf(ov).hi) {
+    if (ov.stopped) {
+      /* v33: a stopped oven bakes nothing, so it cannot be burning - close
+         the tape bracket that used to stay open until restart */
+      if (G.burning) { G.burning = false; tape("burn-end", { total: Math.floor(G.spoiled) }); }
+    } else if (ov.real > tierOf(ov).hi) {
       G.spoiled += bake;
       if (bake > 0 && !G.burning) { G.burning = true; tape("burn-start", { real: Math.round(ov.real) }); }
     } else {
@@ -1785,6 +1790,17 @@
        in (arrival alone used to be the only trigger, and a job assigned
        on-station never started) */
     startUnitJobs();
+    /* v33: the Unit finishes what it started - while ITS inspection timer
+       runs on a machine, it stands there; patrol decisions wait (the round-4
+       playtest caught it doing ambient patter at the oven while the packer's
+       "unit inspecting" clock ran) */
+    var busyAt = null;
+    G.machines.forEach(function (m) { if (m.unitInspecting && m.inspecting > 0) busyAt = m.id; });
+    if (busyAt) {
+      if (!u.going && u.at !== busyAt) unitGo(busyAt);
+      if (u.at === busyAt) { u.pose = "inspect"; if (u.pauseLeft < 1) u.pauseLeft = 1; }
+      return;
+    }
     u.pauseLeft -= dt;
     if (u.pauseLeft <= 0) {
       var next = unitFocus();
@@ -1836,7 +1852,9 @@
       (models.length ? models.join(", ") : "none yet") + "; " +
       (maxed.length ? "note: " + maxed.join(", ") + " - nothing to buy there; " : "") +
       Math.floor(G.coins) + " coins" + (G.coins < 0 ? " (on loan)" : "") +
-      "; contract " + G.contract.level + " at " + Math.floor(G.cookies) + "/" + G.contract.target +
+      "; contract " + G.contract.level + (Math.floor(G.cookies) >= G.contract.target
+        ? " already filled (" + Math.floor(G.cookies) + " shipped against a " + G.contract.target + "-cookie order)"
+        : " at " + Math.floor(G.cookies) + "/" + G.contract.target) +
       " cookies; " + G.incidents.missed + " incidents missed so far.";
   }
 
@@ -1874,6 +1892,28 @@
   var IDENTITY_LINE = "I'm the radio, not the mind. The live voice on this channel is " +
     "Ping, RogerAI's concierge - the Unit just carries the speaker. The Wave models " +
     "on this floor only speak in the verdicts you see at the machines.";
+  /* v33: verb-doctrine questions are the maintenance card's territory - the
+     round-4 playtest asked "the oven sensor is drifting - what do i do?" and
+     got a GPU-sharing advert back from the live radio. The card knows the
+     answer; answer it here, instantly, without the network. */
+  function doctrineAnswer(q) {
+    if (!/(what|how|why|should|do i|fix|help|handle|wrong|mean)/i.test(q)) return null;
+    var CARD = [
+      ["drift", "Drifting is calibration sliding - RECALIBRATE fixes it; a restart won't help."],
+      ["stuck", "A stuck sensor usually re-seats with a RESTART - free and quick. If it doesn't take, try once more before anything drastic."],
+      ["nois", "Noisy is interference on the pickup - CLEAN it; a restart rarely helps."],
+      ["rail", "Railed means the sensor is pinned at its limit - that's hardware, and only SERVICE fixes it."],
+      ["dropout", "A dropout usually clears with a RESTART - the wire went quiet, not the machine."],
+    ];
+    var lq = q.toLowerCase();
+    for (var i = 0; i < CARD.length; i++) {
+      if (lq.indexOf(CARD[i][0]) >= 0) {
+        return CARD[i][1] + " (That's the maintenance card's word - answered right here, no radio needed.)";
+      }
+    }
+    return null;
+  }
+
   function saneReply(t) {
     if (!t) return false;
     t = String(t).trim();
@@ -1891,6 +1931,14 @@
     if (isIdentityQ(q)) {
       G.chat.push({ who: "unit", text: IDENTITY_LINE });
       tapeChat(q, "local-identity", IDENTITY_LINE);
+      G.chat = G.chat.slice(-12);
+      paintChat();
+      return true;
+    }
+    var doctrine = doctrineAnswer(q);
+    if (doctrine) {
+      G.chat.push({ who: "unit", text: doctrine, how: "local-doctrine" });
+      tapeChat(q, "local-doctrine", doctrine);
       G.chat = G.chat.slice(-12);
       paintChat();
       return true;
@@ -4105,6 +4153,9 @@
       helpWith: function (state) { var s2 = G; G = state; var v = unitHelpTarget(); G = s2; return v; },
       gigaStepsPerSec: GIGA_STEPS_PER_SEC,
       live: function () { return G; },
+      /* v33 locks */
+      stepUnitWith: function (state, dt) { var s2 = G; G = state; stepUnit(dt); G = s2; return state; },
+      sendChatWith: function (state, q) { var s2 = G; G = state; var ok = sendChat(q); G = s2; return ok; },
       forceFault: function (id, kind) {
         var m = machine(id);
         if (!m || m.cond !== "none") return false;

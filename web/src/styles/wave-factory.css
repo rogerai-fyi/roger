@@ -960,6 +960,11 @@
    its pose is one of three committed engravings, its words are the tally
    engines in persona voice, and its TALK chip opens the plant radio.
    ===================================================================== */
+/* the same [hidden]-vs-display:flex trap that bit the mesh verdict face
+   (v20) and the shop overlay (v23): a display rule beats the UA's
+   [hidden]{display:none}. Every flex/grid element that uses the hidden
+   attribute needs this guard. */
+.clf-unit[hidden] { display: none !important; }
 .clf-unit {
   position: absolute; bottom: 34px; width: 92px; height: 128px; z-index: 3;
   transition: left 1.6s ease;
