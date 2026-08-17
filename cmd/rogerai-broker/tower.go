@@ -742,24 +742,21 @@ func (b *broker) towerStatus(w http.ResponseWriter, r *http.Request) {
 			entry["inventory_hash"] = hash
 		}
 		// DISPATCH SHIPS, but be precise about COMPENSATION or the status line lies to an
-		// operator. There are two relay paths and they pay differently:
-		//   - the mainstream overflow path (tunnel.go tryTowerDispatch) that real consumer
-		//     traffic actually takes today is carried FREE (X-RogerAI-Cost: 0) and mints no
-		//     earning; and
-		//   - the metered EDGE path (toweredge.go settleEdgeMoney -> tower_relay lot) that
-		//     DOES pay, but no shipping consumer drives it yet, and its payout/disbursement
-		//     rail is the last unbuilt milestone (docs/tower-compensation-roadmap.md).
-		// So for the traffic a Tower carries today, the honest answer is: not yet earning.
-		// `compensated` stays false until live consumer traffic reaches the metered path AND
-		// disbursement ships; flipping it early would have an operator watching a $0 relay
-		// line while the status claims they are being paid.
+		// operator, and the honest answer is now YES for every request this tower carries.
+		// (It was no for a long time, and the reasoning is worth keeping: the mainstream path
+		// used to be a FREE overflow relay that minted no earning, and disbursement was
+		// unbuilt. Both are gone - the free relay was retired with the leaf-station
+		// generation, and a relay share is an ordinary earning lot that cashes out through
+		// /payouts/request like a serving one. What is early is TRAFFIC, not pay: an operator
+		// may still watch a $0 line, and the note says why rather than the flag lying.)
 		entry["carries_traffic"] = true
-		entry["compensated"] = false
+		entry["compensated"] = true
 		entry["note"] = "This tower's data plane is the sealed hub: nodes that ran " +
 			"`roger share --tower` self-attach and serve encrypted work at their own listed " +
-			"per-token price, settled 70/10/20. The legacy free-relay path is retired. " +
-			"Earning is not live yet: settlement rails are built end-to-end, but the payout " +
-			"rail that moves money out is still being wired."
+			"per-token price. Every settled request pays you 10% of gross (the node 70%, the " +
+			"platform 20%), as an ordinary earning: 120-day hold, $25 minimum, cashed out " +
+			"from the Payouts page like a serving node's. Volume is early - the figure is $0 " +
+			"until consumers route work through your hub."
 		out = append(out, entry)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"towers": out})

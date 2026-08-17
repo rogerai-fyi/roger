@@ -16,11 +16,15 @@
 # WIRE-COUNT attestation (sealed-byte counts as settlement EVIDENCE - dispute + forced
 # audit, never money; the audit attributes an impossible count to the Tower), and a
 # REPUTATION ledger that suspends on repeated canary failures or an audit mismatch.
-# Built: the compensation ACCRUAL substrate - one durable idempotent row per settled attempt,
-# priced on billable usage, read by the operator (internal/towercore/earnings). Not built: the
-# DISBURSEMENT of it (payment rails), and the wider compensated-Tower revenue-share PROGRAM
-# (eligibility, funded-work verification, maturity, payout authority, clawback) which is its own
-# approved-but-unbuilt corpus - operator_revenue_share / compensation_state_machines /
+# Built: COMPENSATION, end to end. A settled attempt mints a real earning lot for the Tower
+# operator (10% of gross) and the serving node's owner (70%) on the SAME ledger a direct
+# node's serving share uses - so a relay share holds, releases, and cashes out through the
+# ordinary /payouts/request rail (Stripe Connect transfer, 120-day hold, $25 minimum, KYC
+# gate), with clawback on dispute. internal/towercore/earnings additionally records a
+# read-only per-attempt accrual (/tower/earnings/owed) as substrate for the wider program.
+# Not built: the compensated-Tower revenue-share PROGRAM around it (eligibility, funded-work
+# verification, maturity, payout authority, program-level clawback) - its own
+# approved-but-unbuilt corpus: operator_revenue_share / compensation_state_machines /
 # payment_authority. (Certificate revocation and mutual TLS are now enforced.)
 # Enforced by internal/towercore/featurestatus_test.go against the "Contract:"
 # references in the code. Changing the status without changing the code fails.

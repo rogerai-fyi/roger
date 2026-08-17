@@ -56,7 +56,7 @@ costs Core *slightly more* than one served by a directly-registered node. There 
 here worth paying an operator for, and that is a fact about the design rather than an
 implementation shortcut: Core cannot leave the path while it is required to inspect content.
 
-### The edge path (built end to end; only disbursement of earnings remains)
+### The edge path (built end to end, compensation included)
 
 ```
                  ┌────── control plane: two small, constant-size messages ──────┐
@@ -358,7 +358,13 @@ observation and stronger than trusting either alone**.
 
 ## 9. Compensation
 
-**The funding ledger is built; disbursement is not.** `internal/towercore/earnings` records
+**Operators are paid on the ordinary rail.** A settled edge attempt mints real earning lots -
+70% of gross to the serving node's owner, 10% to the Tower operator - on the same ledger a
+direct node's serving share uses. They hold, release, and cash out through `/payouts/request`
+like any other earning: Stripe Connect transfer, 120-day hold, $25 minimum, KYC gate, and
+clawback on dispute. The Payouts page shows relaying and serving apart (provenance only).
+
+Alongside that, `internal/towercore/earnings` records
 what each operator is *owed*: one durable row per settled attempt, keyed by attempt id, written
 after the one-use settlement commits. Two properties follow from that key — it accrues **exactly
 once** however the settle is retried or raced, and the amount is a **pure function of the
@@ -366,13 +372,13 @@ billable usage** stored with the receipt, so a dropped accrual under-pays (the s
 and can be re-derived, never invented. The operator reads their balance on
 `/tower/earnings/owed`, scoped to the account key that signs the request.
 
-Moving that money — the transfer to an operator's account — is deliberately **not** in this
-process. It plugs into the payment rails behind its own authorization, kept separate so the
-ledger can be accrued, read, disputed and reconciled without anything here being able to move a
-cent, and so a bug is a wrong *number* rather than a wrong *payment*. Today Tower-backed work is
-still free and says so (`X-RogerAI-Cost: 0`); the ledger accrues at whatever rate operations
-sets (`ROGERAI_TOWER_ACCRUAL_MICROS_IN`/`_OUT`, defaulting to zero, re-priceable from the stored
-usage).
+That read-only ledger moves nothing itself — the separation is deliberate, so it can be
+accrued, read, disputed and reconciled without any tower-facing endpoint being able to move a
+cent, and so a bug there is a wrong *number* rather than a wrong *payment*. It accrues at
+whatever rate operations sets (`ROGERAI_TOWER_ACCRUAL_MICROS_IN`/`_OUT`, defaulting to zero,
+re-priceable from the stored usage), which is why its figure and the money above are computed
+differently: the money is 10% of the actual gross the consumer paid at the node's pinned
+price; this ledger is program substrate priced by policy.
 
 The attempt ledger exists so that *which attempt executed, exactly once, and what its one
 terminal outcome was* is recorded before money moves, rather than reconstructed from logs when
@@ -454,7 +460,7 @@ best-effort mirror still records evidence for the audit chain, but no money rest
 | First-party sealed consumer (`internal/edgeclient` AuthorizeSealed/DoSealed/AckSealed, `roger-tower probe`) | built |
 | Mutual TLS on the link + certificate revocation enforcement | built — a revoked serial is refused on the Tower's next request, and the link authenticates the client cert when one is presented |
 | Compensation: funding-accrual ledger (accrual on settlement + operator "owed" read) | built — one idempotent row per settled attempt, priced on billable usage; `internal/towercore/earnings` |
-| Compensation: disbursement (moving money to an operator) | **not built** — behind the payment rails and its own authorization; nothing in this process moves a cent |
+| Compensation: disbursement (moving money to an operator) | built — relay and serving lots both cash out through `/payouts/request` to a Stripe Connect transfer (hold, minimum, KYC, clawback all shared with the direct path) |
 | Compensation: the revenue-share PROGRAM (eligibility, funded-work verification, maturity, payout authority, clawback, self-dealing) | **not built** — its own approved spec corpus (`operator_revenue_share`, `compensation_state_machines`, `payment_authority`); the ledger above is substrate, not this |
 | Streaming to Towers | **not built** — a streamed answer can only be verified after the consumer has the bytes |
 | Multiplexed link (today it long-polls) | **not built** — correct but chattier |

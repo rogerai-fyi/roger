@@ -932,15 +932,16 @@ func TestTowerStatusShowsWhatCoreActuallyBelieves(t *testing.T) {
 	require.Equal(t, "roger-1", got.Routable[0].Model)
 
 	// DISPATCH SHIPS, but is NOT YET compensated for the operator: the overflow path real
-	// The status must be honest: the data plane is the sealed hub, settlement rails exist end
-	// to end, and the payout rail that moves money OUT is not live - claiming compensation an
-	// operator cannot actually collect would make them distrust a $0 relay line.
+	// The status must be honest in BOTH directions: the sealed hub carries work and every
+	// settled request pays the operator 10% through the ordinary payout rail, so claiming
+	// otherwise would understate what they earn - while the note explains a $0 line as thin
+	// TRAFFIC rather than letting the flag imply the pay does not exist.
 	require.True(t, got.Carries, "the sealed hub carries work now")
-	require.False(t, got.Compensated, "earning is not live for the operator yet")
+	require.True(t, got.Compensated, "every settled request pays the operator 10% of gross")
 	require.Contains(t, got.Note, "sealed hub")
-	require.Contains(t, got.Note, "Earning is not live yet",
-		"the status is honest that the payout rail is not live for the operator")
-	require.Contains(t, got.Note, "payout rail")
+	require.Contains(t, got.Note, "10% of gross")
+	require.Contains(t, got.Note, "Volume is early",
+		"a $0 line is explained as traffic, not as missing compensation")
 }
 
 // A quarantined Station is attached and verified but NOT routable, and the operator can see
