@@ -880,11 +880,10 @@ func (b *broker) registerTowerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/tower/lifecycle", b.towerLifecycle)          // admin: the Tower quarantine gate
 	mux.HandleFunc("/tower/self/lifecycle", b.towerSelfLifecycle) // operator: drain/resume/retire my own
 
-	// DISPATCH. The Tower collects work for its Stations and returns the answer; the key is
-	// public so a Station can pin what a real grant is signed by.
-	mux.HandleFunc("/tower/dispatch", b.towerDispatchPoll)          // Tower: collect work
-	mux.HandleFunc("/tower/dispatch/result", b.towerDispatchResult) // Tower: return the answer
-	mux.HandleFunc("/tower/dispatch/key", b.towerDispatchKey)       // public: Core's grant key
+	// DISPATCH KEY. Public so a node can pin what a real grant is signed by. (The Topology-1
+	// collect/return routes died with the leaf-station generation: a registered tower could
+	// have used them to claim pending EDGE attempts and corrupt their signed ledger.)
+	mux.HandleFunc("/tower/dispatch/key", b.towerDispatchKey) // public: Core's grant key
 
 	// THE EDGE PATH. Core's whole involvement in a Tower-served request: it authorized one
 	// earlier, and here it takes the consumer's account of what came back. The payload went

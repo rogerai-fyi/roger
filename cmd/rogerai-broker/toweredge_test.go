@@ -20,6 +20,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -35,6 +36,7 @@ import (
 	"rogerai.fm/roger/v5/internal/towercore/attach"
 	"rogerai.fm/roger/v5/internal/towercore/audit"
 	"rogerai.fm/roger/v5/internal/towercore/dispatch"
+	"rogerai.fm/roger/v5/internal/towercore/envelope"
 	"rogerai.fm/roger/v5/internal/towercore/fleet"
 	"rogerai.fm/roger/v5/internal/towercore/link"
 	"rogerai.fm/roger/v5/internal/towercore/reputation"
@@ -573,10 +575,19 @@ func routableEdge(t *testing.T, b *broker, towerID, stationID, model, endpoint s
 		require.NoError(t, b.tower.registry.Transition(towerID, admit.StateActive))
 	}
 	require.NoError(t, b.tower.routable.Replace(towerID, []fleet.Station{{
-		TowerID: towerID, StationID: stationID, OfferID: "of-" + stationID,
+		TowerID: towerID, StationID: stationID, OfferID: "self-" + stationID,
 		Model: model, Modality: "text", Capacity: 4,
 		Expires: time.Now().Add(time.Hour), Endpoint: endpoint,
 	}}))
+}
+
+// testEnvKeyHex is a fresh consumer X25519 public key, hex - authorize requires one since
+// the sealed path became the only path.
+func testEnvKeyHex(t *testing.T) string {
+	t.Helper()
+	pub, _, err := envelope.NewKey()
+	require.NoError(t, err)
+	return hex.EncodeToString(pub)
 }
 
 // THE ON-RAMP, end to end at the API: a signed consumer asks for a model, Core answers with
@@ -590,7 +601,7 @@ func TestAConsumerIsAuthorizedOntoTheEdgePath(t *testing.T) {
 
 	consumerPriv := signedInConsumer(t, b)
 	code, out := consumerCall(t, srv, consumerPriv, "/tower/edge/authorize",
-		map[string]any{"model": "m"})
+		map[string]any{"model": "m", "consumer_env_key": testEnvKeyHex(t)})
 	require.Equal(t, http.StatusOK, code, out)
 
 	require.NotEmpty(t, out["attempt_id"])
@@ -634,19 +645,19 @@ func TestAuthorizeRefusalsAreUniform(t *testing.T) {
 	consumerPriv := signedInConsumer(t, b)
 
 	// No fleet row at all.
-	code, _ := consumerCall(t, srv, consumerPriv, "/tower/edge/authorize", map[string]any{"model": "m"})
+	code, _ := consumerCall(t, srv, consumerPriv, "/tower/edge/authorize", map[string]any{"model": "m", "consumer_env_key": testEnvKeyHex(t)})
 	require.Equal(t, http.StatusServiceUnavailable, code)
 
 	// Routable, but the Tower advertises NO data plane: healthy on the relayed path,
 	// invisible on the edge.
 	routableEdge(t, b, tw.id, "st-1", "m", "")
-	code, _ = consumerCall(t, srv, consumerPriv, "/tower/edge/authorize", map[string]any{"model": "m"})
+	code, _ = consumerCall(t, srv, consumerPriv, "/tower/edge/authorize", map[string]any{"model": "m", "consumer_env_key": testEnvKeyHex(t)})
 	require.Equal(t, http.StatusServiceUnavailable, code)
 
 	// An endpoint, but the Tower is quarantined: the projection is a hint, authority decides.
 	routableEdge(t, b, tw.id, "st-1", "m", "203.0.113.7:8443")
 	require.NoError(t, b.tower.registry.Transition(tw.id, admit.StateDraining))
-	code, _ = consumerCall(t, srv, consumerPriv, "/tower/edge/authorize", map[string]any{"model": "m"})
+	code, _ = consumerCall(t, srv, consumerPriv, "/tower/edge/authorize", map[string]any{"model": "m", "consumer_env_key": testEnvKeyHex(t)})
 	require.Equal(t, http.StatusServiceUnavailable, code)
 
 	// And a malformed ask is its own, earlier refusal.
@@ -663,7 +674,7 @@ func TestAuthorizeCapsWhatACallerMayAskFor(t *testing.T) {
 	consumerPriv := signedInConsumer(t, b)
 
 	code, out := consumerCall(t, srv, consumerPriv, "/tower/edge/authorize",
-		map[string]any{"model": "m", "max_in": 512, "max_out": edgeMaxBytes * 100})
+		map[string]any{"model": "m", "max_in": 512, "max_out": edgeMaxBytes * 100, "consumer_env_key": testEnvKeyHex(t)})
 	require.Equal(t, http.StatusOK, code, out)
 	require.Equal(t, float64(512), out["max_in"], "asking for less is honoured")
 	require.Equal(t, float64(edgeMaxBytes), out["max_out"], "asking for more is capped")
@@ -679,7 +690,7 @@ func TestAnAuthorizedAttemptSettlesExactlyOnce(t *testing.T) {
 
 	consumerPriv := signedInConsumer(t, b)
 	code, out := consumerCall(t, srv, consumerPriv, "/tower/edge/authorize",
-		map[string]any{"model": "m"})
+		map[string]any{"model": "m", "consumer_env_key": testEnvKeyHex(t)})
 	require.Equal(t, http.StatusOK, code, out)
 	attemptID := out["attempt_id"].(string)
 
@@ -1048,11 +1059,11 @@ func TestAuthorizeSkipsARowWithNoAttachment(t *testing.T) {
 	require.NoError(t, b.tower.registry.Transition(tw.id, admit.StateActive))
 	// A routable row for a Station that was never attached.
 	require.NoError(t, b.tower.routable.Replace(tw.id, []fleet.Station{{
-		TowerID: tw.id, StationID: "st-ghost", OfferID: "of-1", Model: "m",
+		TowerID: tw.id, StationID: "st-ghost", OfferID: "self-st-ghost", Model: "m",
 		Modality: "text", Expires: time.Now().Add(time.Hour), Endpoint: "203.0.113.7:8443",
 	}}))
 	consumerPriv := signedInConsumer(t, b)
-	code, _ := consumerCall(t, srv, consumerPriv, "/tower/edge/authorize", map[string]any{"model": "m"})
+	code, _ := consumerCall(t, srv, consumerPriv, "/tower/edge/authorize", map[string]any{"model": "m", "consumer_env_key": testEnvKeyHex(t)})
 	require.Equal(t, http.StatusServiceUnavailable, code)
 }
 
@@ -1066,7 +1077,7 @@ func TestAuthorizeDefaultsAbsentBounds(t *testing.T) {
 	consumerPriv := signedInConsumer(t, b)
 
 	code, out := consumerCall(t, srv, consumerPriv, "/tower/edge/authorize",
-		map[string]any{"model": "m", "max_in": 0, "max_out": -5})
+		map[string]any{"model": "m", "max_in": 0, "max_out": -5, "consumer_env_key": testEnvKeyHex(t)})
 	require.Equal(t, http.StatusOK, code, out)
 	require.Equal(t, float64(edgeMaxBytes), out["max_in"])
 	require.Equal(t, float64(edgeMaxBytes), out["max_out"])
@@ -1740,7 +1751,7 @@ func TestAuthorizeReportsARecordFailure(t *testing.T) {
 	}, putFailStore{dispatch.NewMemStore()})
 
 	consumerPriv := signedInConsumer(t, b)
-	code, _ := consumerCall(t, srv, consumerPriv, "/tower/edge/authorize", map[string]any{"model": "m"})
+	code, _ := consumerCall(t, srv, consumerPriv, "/tower/edge/authorize", map[string]any{"model": "m", "consumer_env_key": testEnvKeyHex(t)})
 	require.Equal(t, http.StatusServiceUnavailable, code)
 }
 

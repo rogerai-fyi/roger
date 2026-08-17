@@ -8,11 +8,10 @@
 //	            stays the admission, routing, settlement and revocation authority.
 //
 // Phase 1 of docs/tower-network-plan.md shipped standalone first; the joined protocol is
-// Phase 2. `serve` holds the relay link - session, signed inventory, heartbeat, clean drain -
-// and, given `--station ID=URL`, collects work for its Stations and carries the answers back.
-// That work is UNCOMPENSATED and is only routed here when no direct node offers the model.
-// The commands that still need something unbuilt say so plainly rather than pretending, and
-// name the one that covers the ordinary case.
+// Phase 2. `serve` holds the link - session, heartbeat, clean drain - and, given `--hub`,
+// hosts the SEALED data plane: consumers submit encrypted work, self-attached
+// `roger share --tower` nodes poll for it, and the settle courier carries receipts to Core.
+// The commands that still need something unbuilt say so plainly rather than pretending.
 package main
 
 import (
@@ -47,8 +46,8 @@ usage:
   roger-tower logout --dir DIR
   roger-tower probe    --model NAME [--broker URL]   (drive the edge path as a consumer)
   roger-tower register --dir DIR      (joined mode only; requires login)
-  roger-tower serve  --dir DIR [--station ID=URL ...]  (holds the link; serves work)
-  roger-tower station invite|attach|revoke   (joined mode; Stations on the public network)
+  roger-tower serve  --dir DIR [--hub :8444 --relay-public HOST:PORT]  (holds the link; hosts the sealed data plane)
+  roger-tower station revoke   (joined mode; the kill switch for a station under this tower)
   roger-tower drain  --dir DIR        (stop taking new work; keep the link)
   roger-tower resume --dir DIR        (take work again)
   roger-tower revoke --dir DIR --yes  (retire this Tower for good)

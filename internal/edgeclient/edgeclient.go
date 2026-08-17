@@ -77,13 +77,6 @@ type Result struct {
 	completed time.Time
 }
 
-// Receipt is the base64 Station receipt that came back in the response header, for a caller
-// that verifies it itself - a canary checks the receipt is a valid Station signature over the
-// bytes, which is how it tells a Tower that served from one that returned nothing.
-func (r Result) Receipt() string { return r.receipt }
-
-// ack tells Core what was actually received. Best effort by design: a consumer that cannot
-// reach Core has still been served, and the attempt settles uncorroborated without it.
 func (c *Client) ack(ctx context.Context, attemptID string, res Result) error {
 	if res.Status != http.StatusOK || len(res.Body) == 0 || res.receipt == "" {
 		// There is nothing to corroborate. A refusal produced no receipt, and acknowledging

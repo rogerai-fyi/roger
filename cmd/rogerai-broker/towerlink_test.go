@@ -932,16 +932,15 @@ func TestTowerStatusShowsWhatCoreActuallyBelieves(t *testing.T) {
 	require.Equal(t, "roger-1", got.Routable[0].Model)
 
 	// DISPATCH SHIPS, but is NOT YET compensated for the operator: the overflow path real
-	// traffic takes is carried free, and the metered edge path that pays has no live consumer
-	// and no payout rail yet. The status must say so plainly - claiming compensation an operator
-	// cannot actually collect would make them distrust a $0 relay line.
-	require.True(t, got.Carries, "Tower-backed work is dispatched now")
-	require.False(t, got.Compensated, "relayed traffic is not yet earning for the operator")
-	require.Contains(t, got.Note, "FREE")
-	require.Contains(t, got.Note, "not yet carrying live traffic",
-		"the status is honest that the paying path is not live for the operator")
-	require.Contains(t, got.Note, "no direct node",
-		"the most likely reason an eligible Station still sees nothing")
+	// The status must be honest: the data plane is the sealed hub, settlement rails exist end
+	// to end, and the payout rail that moves money OUT is not live - claiming compensation an
+	// operator cannot actually collect would make them distrust a $0 relay line.
+	require.True(t, got.Carries, "the sealed hub carries work now")
+	require.False(t, got.Compensated, "earning is not live for the operator yet")
+	require.Contains(t, got.Note, "sealed hub")
+	require.Contains(t, got.Note, "Earning is not live yet",
+		"the status is honest that the payout rail is not live for the operator")
+	require.Contains(t, got.Note, "payout rail")
 }
 
 // A quarantined Station is attached and verified but NOT routable, and the operator can see
@@ -1290,84 +1289,6 @@ func openLink(t *testing.T, srv *httptest.Server, lt linkTower) {
 	require.Equal(t, http.StatusOK, code, raw)
 }
 
-func TestARealStationsSignedOfferBecomesRoutable(t *testing.T) {
-	b, srv := towerTestBroker(t)
-	op := signedInOperator(t, b, "octocat")
-	lt := enrolledTower(t, b, op.login)
-	stn := attachReal(t, b, "auth-real", lt.id, ownerPubkeyOf(t, b, op.login))
-	openLink(t, srv, lt)
-
-	signed, err := stn.SignOffer(station.Offer{
-		Network: link.PublicNetwork, TowerID: lt.id, Model: "roger-1", Modality: "text",
-		PriceIn: 1000, PriceOut: 2000, EarnIn: 800, EarnOut: 1600, Capacity: 4,
-		Capabilities: []string{"chat"}, TTL: time.Hour,
-	}, time.Now())
-	require.NoError(t, err)
-
-	var out struct {
-		Routable int `json:"routable"`
-		Excluded []struct {
-			StationID string `json:"station_id"`
-			Reason    string `json:"reason"`
-		} `json:"excluded"`
-	}
-	code, raw := lt.call(t, srv, "/tower/inventory",
-		wrapLeaves(t, lt, 1, "genesis", []json.RawMessage{signed}), &out)
-	require.Equal(t, http.StatusOK, code, raw)
-	require.Empty(t, out.Excluded, "Core excluded a leaf a real Station really signed")
-	require.Equal(t, 1, out.Routable, "a real Station's real offer must be routable")
-}
-
-// THE OTHER HALF OF THE SAME PROOF: a leaf the relay altered after the Station signed it is
-// refused. Without this, the test above would pass just as well if Core were not checking
-// the signature at all.
-func TestARelayCannotAlterWhatTheStationSigned(t *testing.T) {
-	b, srv := towerTestBroker(t)
-	op := signedInOperator(t, b, "octocat")
-	lt := enrolledTower(t, b, op.login)
-	stn := attachReal(t, b, "auth-real2", lt.id, ownerPubkeyOf(t, b, op.login))
-	openLink(t, srv, lt)
-
-	signed, err := stn.SignOffer(station.Offer{
-		Network: link.PublicNetwork, TowerID: lt.id, Model: "roger-1", Modality: "text",
-		PriceIn: 1000, PriceOut: 2000, EarnIn: 800, EarnOut: 1600, Capacity: 4,
-		Capabilities: []string{"chat"}, TTL: time.Hour,
-	}, time.Now())
-	require.NoError(t, err)
-
-	// The relay raises what the Station said it would earn - the most profitable edit
-	// available to it, and the one the whole signature scheme exists to prevent.
-	var leaf map[string]any
-	require.NoError(t, json.Unmarshal(signed, &leaf))
-	leaf["earn_out"] = "2000"
-	tampered, err := json.Marshal(leaf)
-	require.NoError(t, err)
-
-	var out struct {
-		Routable int `json:"routable"`
-		Excluded []struct {
-			StationID string `json:"station_id"`
-			Reason    string `json:"reason"`
-		} `json:"excluded"`
-	}
-	code, raw := lt.call(t, srv, "/tower/inventory",
-		wrapLeaves(t, lt, 1, "genesis", []json.RawMessage{tampered}), &out)
-	require.Equal(t, http.StatusOK, code, raw)
-	require.Zero(t, out.Routable, "an altered offer must not be routable")
-	require.Len(t, out.Excluded, 1)
-	require.Contains(t, out.Excluded[0].Reason, "signature")
-}
-
-// --- an operator's control over their OWN Tower ------------------------------
-//
-// Distinct from the admin gate, and deliberately so. Promotion out of quarantine is a
-// decision about whether an operator may be trusted, and they cannot make it about
-// themselves. Pausing, resuming and retiring hardware they own is not that decision - it is
-// the ordinary operation of a machine they run, and needing an administrator for it means
-// nobody can take their own Tower out of service to swap a disk.
-
-// Draining stops new work AND keeps the link, which is the whole point: in-flight work needs
-// somewhere to finish.
 func TestAnOperatorCanDrainTheirOwnTower(t *testing.T) {
 	b, srv := towerTestBroker(t)
 	b.adminKey = "admin-secret"

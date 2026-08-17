@@ -5,7 +5,6 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -80,169 +79,6 @@ func execStation(t *testing.T) *Station {
 	require.NoError(t, err)
 	return s
 }
-
-// The whole point, end to end: an authorized request is served, and the receipt Core gets
-// back is one Core will accept.
-func TestAnAuthorizedRequestIsServedAndSignedForAcceptably(t *testing.T) {
-	c := newCore(t)
-	s := execStation(t)
-	request := []byte(`{"model":"m1","messages":[]}`)
-	g := c.grantFor(t, s, request)
-	_, err := c.reg.Claim(g.AttemptID, "tw-1")
-	require.NoError(t, err)
-
-	envPub, envPriv := coreEnvelope(t)
-	up := &stubUpstream{body: []byte(`{"choices":[{"message":{"content":"hello"}}]}`)}
-	got := Executor{
-		Station: s, CoreKey: c.pub, CoreEnvelopeKey: envPub, Network: execNetwork, Upstream: up,
-	}.Execute(context.Background(), ExecuteRequest{
-		Grant: g.Signed, Envelope: sealFor(t, s, g.AttemptID, request),
-	})
-
-	require.Empty(t, got.Failure)
-	require.NotNil(t, got.Receipt)
-	require.Equal(t, request, up.saw, "the model was given exactly what the grant authorized")
-
-	// Core opens the result and only then checks it.
-	sealed, err := envelope.Parse(got.Envelope)
-	require.NoError(t, err)
-	body, err := envelope.OpenWith(envPriv, sealed, g.AttemptID)
-	require.NoError(t, err)
-	require.Equal(t, up.body, body)
-
-	// CORE ACCEPTS IT. Verified through Core's own Complete rather than by re-checking the
-	// signature here: a receipt this package is happy with and Core is not would be worth
-	// nothing, and only this assertion can tell the two apart.
-	_, err = c.reg.Complete(g.AttemptID, *got.Receipt, body)
-	require.NoError(t, err)
-}
-
-// A Station with no pinned Core key refuses everything. Serving anyway would make every
-// other check theatre - it would have no way to tell a real grant from one the relay wrote.
-func TestAStationWithNoPinnedKeyRefusesEverything(t *testing.T) {
-	c := newCore(t)
-	s := execStation(t)
-	request := []byte(`{"x":1}`)
-	g := c.grantFor(t, s, request)
-	up := &stubUpstream{body: []byte(`{}`)}
-
-	got := Executor{Station: s, Network: execNetwork, Upstream: up}.
-		Execute(context.Background(), ExecuteRequest{
-			Grant: g.Signed, Envelope: sealFor(t, s, g.AttemptID, request),
-		})
-	require.Contains(t, got.Failure, "no pinned Roger Core key")
-	require.Nil(t, got.Receipt)
-	require.Nil(t, up.saw, "and it did not run the request while deciding")
-}
-
-// EVERY REFUSAL RETURNS NO RECEIPT AND RUNS NOTHING. Both halves matter: a receipt would be
-// something Core might accept, and running first would mean a relay could spend a Station's
-// compute with an authorization it does not have.
-func TestARefusedRequestIsNeverRunAndNeverSigned(t *testing.T) {
-	c := newCore(t)
-	other := newCore(t)
-	s := execStation(t)
-	request := []byte(`{"x":1}`)
-	g := c.grantFor(t, s, request)
-
-	envPub, _ := coreEnvelope(t)
-	for name, in := range map[string]struct {
-		key      ed25519.PublicKey
-		grant    json.RawMessage
-		envelope json.RawMessage
-	}{
-		"a grant Core did not sign":       {other.pub, g.Signed, sealFor(t, s, g.AttemptID, request)},
-		"a request the grant disowns":     {c.pub, g.Signed, sealFor(t, s, g.AttemptID, []byte(`{"x":2}`))},
-		"something that is not a grant":   {c.pub, json.RawMessage(`{nope`), sealFor(t, s, g.AttemptID, request)},
-		"an envelope that is not one":     {c.pub, g.Signed, json.RawMessage(`{"nope":1}`)},
-		"an envelope for another attempt": {c.pub, g.Signed, sealFor(t, s, "att-somebody-else", request)},
-	} {
-		t.Run(name, func(t *testing.T) {
-			up := &stubUpstream{body: []byte(`{}`)}
-			got := Executor{
-				Station: s, CoreKey: in.key, CoreEnvelopeKey: envPub,
-				Network: execNetwork, Upstream: up,
-			}.Execute(context.Background(), ExecuteRequest{Grant: in.grant, Envelope: in.envelope})
-			require.NotEmpty(t, got.Failure)
-			require.Nil(t, got.Receipt, "a refusal must not be signable as a result")
-			require.Nil(t, up.saw, "a refused request must not reach the model")
-		})
-	}
-}
-
-// A grant for another Station is somebody else's authorization, however valid.
-func TestAGrantForAnotherStationIsRefused(t *testing.T) {
-	c := newCore(t)
-	mine := execStation(t)
-	theirs := execStation(t)
-	request := []byte(`{"x":1}`)
-	g := c.grantFor(t, theirs, request)
-
-	envPub, _ := coreEnvelope(t)
-	up := &stubUpstream{body: []byte(`{}`)}
-	got := Executor{
-		Station: mine, CoreKey: c.pub, CoreEnvelopeKey: envPub, Network: execNetwork, Upstream: up,
-	}.Execute(context.Background(), ExecuteRequest{
-		Grant: g.Signed, Envelope: sealFor(t, mine, g.AttemptID, request),
-	})
-	require.Contains(t, got.Failure, "not this one")
-	require.Nil(t, up.saw)
-}
-
-// A model that fails is reported in its own words - an operator debugging a Station needs
-// what the model actually said - and produces no receipt.
-func TestAModelFailureIsReportedWithoutAReceipt(t *testing.T) {
-	c := newCore(t)
-	s := execStation(t)
-	request := []byte(`{"x":1}`)
-	g := c.grantFor(t, s, request)
-
-	envPub, _ := coreEnvelope(t)
-	up := &stubUpstream{err: errors.New("out of memory")}
-	got := Executor{
-		Station: s, CoreKey: c.pub, CoreEnvelopeKey: envPub, Network: execNetwork, Upstream: up,
-	}.Execute(context.Background(), ExecuteRequest{
-		Grant: g.Signed, Envelope: sealFor(t, s, g.AttemptID, request),
-	})
-	require.Contains(t, got.Failure, "out of memory")
-	require.Nil(t, got.Receipt)
-}
-
-func TestAStationWithNoUpstreamSaysSo(t *testing.T) {
-	c := newCore(t)
-	s := execStation(t)
-	request := []byte(`{"x":1}`)
-	g := c.grantFor(t, s, request)
-
-	envPub, _ := coreEnvelope(t)
-	got := Executor{Station: s, CoreKey: c.pub, CoreEnvelopeKey: envPub, Network: execNetwork}.
-		Execute(context.Background(), ExecuteRequest{
-			Grant: g.Signed, Envelope: sealFor(t, s, g.AttemptID, request),
-		})
-	require.Contains(t, got.Failure, "no upstream model")
-}
-
-// An expired grant is refused by the Station too, not only by Core. The Station is where the
-// compute would be spent, so it is the place worth refusing at.
-func TestAnExpiredGrantIsRefusedBeforeSpendingAnything(t *testing.T) {
-	c := newCore(t)
-	s := execStation(t)
-	request := []byte(`{"x":1}`)
-	g := c.grantFor(t, s, request)
-
-	envPub, _ := coreEnvelope(t)
-	up := &stubUpstream{body: []byte(`{}`)}
-	got := Executor{
-		Station: s, CoreKey: c.pub, CoreEnvelopeKey: envPub, Network: execNetwork, Upstream: up,
-		Now: func() time.Time { return g.Deadline.Add(time.Second) },
-	}.Execute(context.Background(), ExecuteRequest{
-		Grant: g.Signed, Envelope: sealFor(t, s, g.AttemptID, request),
-	})
-	require.NotEmpty(t, got.Failure)
-	require.Nil(t, up.saw)
-}
-
-// --- the upstream itself ---------------------------------------------------
 
 func TestTheHTTPUpstreamPassesTheRequestThroughUnchanged(t *testing.T) {
 	var saw []byte
@@ -321,25 +157,6 @@ func readAll(r *http.Request) ([]byte, error) {
 			return buf, nil
 		}
 	}
-}
-
-// Option C: the Station signs the model's own token counts into the receipt, so Core can bill
-// per-token on the blind path. A body carrying a usage object yields a token claim.
-func TestTheStationSignsTheModelsTokenUsage(t *testing.T) {
-	c := newCore(t)
-	s := execStation(t)
-	request := []byte(`{"model":"m1","messages":[]}`)
-	g := c.grantFor(t, s, request)
-	_, err := c.reg.Claim(g.AttemptID, "tw-1")
-	require.NoError(t, err)
-	envPub, _ := coreEnvelope(t)
-	up := &stubUpstream{body: []byte(`{"choices":[{"message":{"content":"hi"}}],"usage":{"prompt_tokens":12,"completion_tokens":7}}`)}
-	got := Executor{Station: s, CoreKey: c.pub, CoreEnvelopeKey: envPub, Network: execNetwork, Upstream: up}.
-		Execute(context.Background(), ExecuteRequest{Grant: g.Signed, Envelope: sealFor(t, s, g.AttemptID, request)})
-	require.Empty(t, got.Failure)
-	require.NotNil(t, got.Receipt)
-	require.Equal(t, dispatch.Usage{In: 12, Out: 7}, got.Receipt.TokUsage,
-		"the model's token usage is signed into the receipt for per-token billing")
 }
 
 func TestTokenUsageOfParsesUsageAndDefaultsToZero(t *testing.T) {

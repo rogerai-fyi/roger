@@ -62,22 +62,6 @@ func TestCollectHonoursItsCap(t *testing.T) {
 	require.Len(t, o.Collect(0), 5, "no cap means everything")
 }
 
-// Bounded, dropping the OLDEST: an outbox that only grows is a leak, and the oldest entries
-// are the ones closest to their settlement window closing anyway. The drop count is the
-// operator's view of pay walking out the door.
-func TestAFullOutboxDropsTheOldestAndCounts(t *testing.T) {
-	o := NewOutbox(3)
-	for i := 0; i < 5; i++ {
-		o.Add(ev(fmt.Sprintf("e%d", i)))
-	}
-	got := o.Collect(10)
-	require.Len(t, got, 3)
-	require.Equal(t, "e2", got[0].AttemptID, "the oldest must be the ones dropped")
-	pending, dropped := o.Stats()
-	require.Equal(t, 3, pending)
-	require.Equal(t, int64(2), dropped)
-}
-
 func TestEvidenceOfNothingIsRefused(t *testing.T) {
 	o := NewOutbox(10)
 	o.Add(Evidence{})
@@ -86,17 +70,6 @@ func TestEvidenceOfNothingIsRefused(t *testing.T) {
 	require.Empty(t, o.Collect(10))
 }
 
-func TestTheDefaultBoundIsGenerousButFinite(t *testing.T) {
-	o := NewOutbox(0)
-	for i := 0; i < 2000; i++ {
-		o.Add(ev(fmt.Sprintf("e%d", i)))
-	}
-	pending, dropped := o.Stats()
-	require.Equal(t, 1024, pending)
-	require.Equal(t, int64(976), dropped)
-}
-
-// The executor queues a copy of every receipt it signs, and no copy of any refusal.
 func TestServingQueuesTheEvidenceAndRefusalsDoNot(t *testing.T) {
 	e, _, grant := edgeSetup(t, timeUnix(), nil)
 	o := NewOutbox(10)

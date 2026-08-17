@@ -132,7 +132,6 @@ type towerSubsystem struct {
 	// a Tower collects work from, and the public half of the grant key a Station pins so it
 	// can tell a real grant from one its own relay made up.
 	dispatch    *dispatch.Registry
-	queue       *dispatchQueue
 	dispatchPub ed25519.PublicKey
 	// routable is the fleet-wide view of servable Stations, so an instance that is NOT
 	// holding a Tower's link can still route to it.
@@ -294,7 +293,6 @@ func newTowerSubsystem(b *broker, registryStore admit.Store, custody cert.Custod
 		Signer:   grantKey,
 		Lifetime: towerAttemptLifetime,
 	}, deps.attempts)
-	ts.queue = newDispatchQueue()
 	ts.routable = deps.routable
 	if ts.routable == nil {
 		ts.routable = fleet.NewMemStore()
@@ -753,11 +751,11 @@ func (b *broker) towerStatus(w http.ResponseWriter, r *http.Request) {
 		// line while the status claims they are being paid.
 		entry["carries_traffic"] = true
 		entry["compensated"] = false
-		entry["note"] = "Stations shown here are admitted, eligible and routable. " +
-			"Tower-backed work is used when no direct node offers the model, and today it is " +
-			"carried FREE - nothing is charged or earned for it yet. The metered relay path " +
-			"that pays operators is built but not yet carrying live traffic, and its payout " +
-			"rail is still being wired."
+		entry["note"] = "This tower's data plane is the sealed hub: nodes that ran " +
+			"`roger share --tower` self-attach and serve encrypted work at their own listed " +
+			"per-token price, settled 70/10/20. The legacy free-relay path is retired. " +
+			"Earning is not live yet: settlement rails are built end-to-end, but the payout " +
+			"rail that moves money out is still being wired."
 		out = append(out, entry)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"towers": out})

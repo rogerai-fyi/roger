@@ -11,23 +11,18 @@ package main
 // checks nothing. Only running the two halves against each other shows they agree.
 
 import (
-	"context"
 	"crypto/ecdsa"
 	"crypto/ed25519"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
 	"net/http/httptest"
-	"strings"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/stretchr/testify/require"
-	"rogerai.fm/roger/v5/internal/station"
 	"rogerai.fm/roger/v5/internal/store"
 	"rogerai.fm/roger/v5/internal/towercore/admit"
 	"rogerai.fm/roger/v5/internal/towercore/attach"
@@ -41,142 +36,6 @@ import (
 	"rogerai.fm/roger/v5/internal/towercore/link"
 )
 
-// stubModel is the only unreal part.
-type stubModel struct {
-	body []byte
-	saw  []byte
-	err  error
-}
-
-func (m *stubModel) Serve(_ context.Context, req []byte) ([]byte, error) {
-	m.saw = append([]byte(nil), req...)
-	return m.body, m.err
-}
-
-// dispatchable stands a Tower up with one routable, promoted, real Station behind it.
-func dispatchable(t *testing.T, b *broker, srv *httptest.Server, op operator) (linkTower, *station.Station) {
-	t.Helper()
-	lt := enrolledTower(t, b, op.login)
-	// Out of quarantine, or it may hold a link and still take no work - which is the correct
-	// behaviour and not what this file is about.
-	require.NoError(t, b.tower.registry.Transition(lt.id, admit.StateActive))
-	stn := attachReal(t, b, "auth-dispatch-"+lt.id, lt.id, ownerPubkeyOf(t, b, op.login))
-	openLink(t, srv, lt)
-
-	signed, err := stn.SignOffer(station.Offer{
-		Network: link.PublicNetwork, TowerID: lt.id, Model: "roger-1", Modality: "text",
-		PriceIn: 1000, PriceOut: 2000, EarnIn: 800, EarnOut: 1600, Capacity: 4,
-		Capabilities: []string{"chat"}, TTL: time.Hour,
-	}, time.Now())
-	require.NoError(t, err)
-	code, raw := lt.call(t, srv, "/tower/inventory",
-		wrapLeaves(t, lt, 1, "genesis", []json.RawMessage{signed}), nil)
-	require.Equal(t, http.StatusOK, code, raw)
-	return lt, stn
-}
-
-func TestATowerCannotChangeTheStationsAnswer(t *testing.T) {
-	b, srv := towerTestBroker(t)
-	op := signedInOperator(t, b, "octocat")
-	lt, stn := dispatchable(t, b, srv, op)
-
-	model := &stubModel{body: []byte(`{"content":"the real answer"}`)}
-	exec := stationExec(b, stn, model)
-
-	work := issueWork(t, b, "roger-1", []byte(`{"model":"roger-1"}`))
-	resp := exec.Execute(context.Background(), station.ExecuteRequest{
-		Grant: work.Grant, Envelope: work.Envelope,
-	})
-	require.Empty(t, resp.Failure)
-
-	// The relay rewrites the body, keeping the Station's perfectly valid receipt.
-	// The relay reseals a body of its own choosing to Core's PUBLIC key - which it can do,
-	// since that key is published - keeping the Station's perfectly valid receipt.
-	forged, err := envelope.SealTo(b.tower.envelopePub,
-		[]byte(`{"content":"a cheaper answer"}`), work.AttemptID)
-	require.NoError(t, err)
-	forgedRaw, err := forged.Marshal()
-	require.NoError(t, err)
-	code, raw := postResult(t, srv, lt, map[string]any{
-		"tower_id": lt.id, "attempt_id": work.AttemptID,
-		"receipt": resp.Receipt, "envelope": json.RawMessage(forgedRaw),
-	})
-	require.Equal(t, http.StatusBadRequest, code, raw)
-	require.Contains(t, raw, "response digest")
-}
-
-// A TOWER CANNOT FORGE A RESULT either: it has a valid identity of its own and no access to
-// the Station's assertion key.
-func TestATowerCannotFabricateAResult(t *testing.T) {
-	b, srv := towerTestBroker(t)
-	op := signedInOperator(t, b, "octocat")
-	lt, _ := dispatchable(t, b, srv, op)
-
-	work := issueWork(t, b, "roger-1", []byte(`{"model":"roger-1"}`))
-	// The Tower signs a receipt with its own good key.
-	_, forgerPriv, err := ed25519.GenerateKey(nil)
-	require.NoError(t, err)
-	body := []byte(`{"content":"made up"}`)
-	forged, err := dispatch.SignReceipt(forgerPriv, link.PublicNetwork,
-		dispatch.Grant{AttemptID: work.AttemptID, StationID: "st-x"}, []byte("req"), body, dispatch.Usage{In: 1, Out: int64(len(body))}, dispatch.Usage{})
-	require.NoError(t, err)
-	sealed, err := envelope.SealTo(b.tower.envelopePub, body, work.AttemptID)
-	require.NoError(t, err)
-	sealedRaw, err := sealed.Marshal()
-	require.NoError(t, err)
-
-	code, raw := postResult(t, srv, lt, map[string]any{
-		"tower_id": lt.id, "attempt_id": work.AttemptID,
-		"receipt": forged, "envelope": json.RawMessage(sealedRaw),
-	})
-	require.Equal(t, http.StatusBadRequest, code, raw)
-	require.Contains(t, raw, "assertion key")
-}
-
-// A QUARANTINED TOWER COLLECTS NOTHING. It holds a live link and a valid key by design -
-// that is what quarantine is - and must still never be handed customer work.
-func TestAQuarantinedTowerIsHandedNoWork(t *testing.T) {
-	shortPolls(t)
-	b, srv := towerTestBroker(t)
-	op := signedInOperator(t, b, "octocat")
-	lt := enrolledTower(t, b, op.login)
-	openLink(t, srv, lt)
-
-	code, raw := lt.call(t, srv, "/tower/dispatch",
-		[]byte(`{"tower_id":"`+lt.id+`"}`), nil)
-	require.Equal(t, http.StatusForbidden, code, raw)
-	require.Contains(t, raw, "not eligible")
-}
-
-// And a Tower cannot collect another Tower's work: the queue is keyed by who signed.
-func TestATowerOnlySeesItsOwnWork(t *testing.T) {
-	shortPolls(t)
-	b, srv := towerTestBroker(t)
-	op := signedInOperator(t, b, "octocat")
-	lt, _ := dispatchable(t, b, srv, op)
-	other, _ := dispatchable(t, b, srv, signedInOperator(t, b, "hubot"))
-
-	// Offered but NOT claimed: this test is about who may collect it, and claiming here would
-	// mean the rightful Tower's poll found it already taken.
-	work := offerWork(t, b, "roger-1", []byte(`{"model":"roger-1"}`))
-	require.NotEqual(t, lt.id, other.id)
-
-	// Whoever it was issued for, the OTHER Tower's poll must not return it.
-	holder, bystander := lt, other
-	if work.towerID != lt.id {
-		holder, bystander = other, lt
-	}
-	code, raw := bystander.call(t, srv, "/tower/dispatch",
-		[]byte(`{"tower_id":"`+bystander.id+`"}`), nil)
-	require.Equal(t, http.StatusNoContent, code, raw)
-
-	// The rightful Tower still has it.
-	got := pollForWork(t, srv, holder)
-	require.Equal(t, work.AttemptID, got.AttemptID)
-}
-
-// The Station's grant key is published so a Station can pin it. Without it a Station has no
-// way to tell a real grant from one its own relay wrote.
 func TestCorePublishesItsGrantKey(t *testing.T) {
 	b, srv := towerTestBroker(t)
 	resp, err := http.Get(srv.URL + "/tower/dispatch/key")
@@ -212,67 +71,11 @@ func TestTheGrantKeyIsStableAcrossRestarts(t *testing.T) {
 	require.True(t, isECDSA, "the CA root signs certificates, not grants")
 }
 
-func pollForWork(t *testing.T, srv *httptest.Server, lt linkTower) towerWork {
-	t.Helper()
-	var work towerWork
-	code, raw := lt.call(t, srv, "/tower/dispatch", []byte(`{"tower_id":"`+lt.id+`"}`), &work)
-	require.Equal(t, http.StatusOK, code, raw)
-	require.NotEmpty(t, work.AttemptID)
-	return work
-}
-
-func returnResult(t *testing.T, srv *httptest.Server, lt linkTower, attemptID string, resp station.ExecuteResponse) {
-	t.Helper()
-	payload := map[string]any{"tower_id": lt.id, "attempt_id": attemptID}
-	if resp.Failure != "" {
-		payload["failure"] = resp.Failure
-	} else {
-		payload["receipt"] = resp.Receipt
-		payload["envelope"] = resp.Envelope
-	}
-	code, raw := postResult(t, srv, lt, payload)
-	require.Equal(t, http.StatusOK, code, raw)
-}
-
 func postResult(t *testing.T, srv *httptest.Server, lt linkTower, payload map[string]any) (int, string) {
 	t.Helper()
 	return lt.call(t, srv, "/tower/dispatch/result", jsonOf(t, payload), nil)
 }
 
-// offerWork puts one attempt on the queue without claiming it - the state work is in
-// between being created and a Tower collecting it.
-func offerWork(t *testing.T, b *broker, model string, request []byte) towerWork {
-	t.Helper()
-	target, ok := b.pickTowerStation(model)
-	require.True(t, ok, "no routable Station for %s", model)
-	g, err := b.tower.dispatch.Mint(target, request)
-	require.NoError(t, err)
-	// Sealed to the Station exactly as the dispatch path does, so a test's work is the same
-	// shape a Tower would really be handed.
-	sealed, err := envelope.SealTo(target.SessionKey, request, g.AttemptID)
-	require.NoError(t, err)
-	env, err := sealed.Marshal()
-	require.NoError(t, err)
-	require.NoError(t, b.tower.dispatch.Publish(g, target, env))
-	return towerWork{
-		AttemptID: g.AttemptID, Grant: g.Signed, Envelope: env, towerID: target.TowerID,
-	}
-}
-
-// issueWork is offerWork plus the claim, standing in for the poll that would have handed it
-// out. The tests that use it are about what happens to a RESULT, and an unclaimed attempt is
-// refused long before any of that.
-func issueWork(t *testing.T, b *broker, model string, request []byte) towerWork {
-	t.Helper()
-	w := offerWork(t, b, model, request)
-	_, err := b.tower.dispatch.Claim(w.AttemptID, w.towerID)
-	require.NoError(t, err)
-	return w
-}
-
-// shortPolls stops a "there was nothing to collect" assertion from costing the full
-// production poll window. A suite that takes a minute per such test is a suite people stop
-// running, which is a worse outcome than the realism it buys.
 func shortPolls(t *testing.T) {
 	t.Helper()
 	was := dispatchPollWait
@@ -313,149 +116,6 @@ func twoBrokers(t *testing.T) (*broker, *httptest.Server, *broker, *httptest.Ser
 	return a, aSrv, c, cSrv
 }
 
-// WORK CREATED ON ONE BROKER IS COLLECTED FROM THE OTHER. Without this a Tower is served only
-// when the load balancer happens to send its poll to the instance holding its work - so half
-// the requests time out, and nothing anywhere reports an error.
-func TestWorkCreatedOnOneBrokerIsCollectedFromTheOther(t *testing.T) {
-	shortPolls(t)
-	a, aSrv, c, cSrv := twoBrokers(t)
-	op := signedInOperator(t, a, "octocat")
-	lt, _ := dispatchable(t, a, aSrv, op)
-
-	// Issued on A.
-	work := offerWork(t, a, "roger-1", []byte(`{"model":"roger-1"}`))
-
-	// Collected from C, which never saw it created.
-	ltOnC := lt
-	var got towerWork
-	code, raw := ltOnC.call(t, cSrv, "/tower/dispatch", []byte(`{"tower_id":"`+lt.id+`"}`), &got)
-	require.Equal(t, http.StatusOK, code, raw)
-	require.Equal(t, work.AttemptID, got.AttemptID)
-	require.NotEmpty(t, got.Grant, "the signed grant travelled with it")
-	require.NotEmpty(t, got.Envelope,
-		"and so did the sealed request, or the other broker would have nothing to relay")
-	require.NotContains(t, string(got.Envelope), "roger-1",
-		"and the broker handing it over cannot read it either")
-
-	// And A will not hand it out again: the claim is shared, not per-instance.
-	code, _ = lt.call(t, aSrv, "/tower/dispatch", []byte(`{"tower_id":"`+lt.id+`"}`), nil)
-	require.Equal(t, http.StatusNoContent, code, "one claim, one delivery, across brokers")
-	_ = c
-}
-
-// TWO BROKERS POLLED AT ONCE HAND OUT ONE ATTEMPT ONCE. This is the guarantee that used to
-// hold per-instance and therefore not at all.
-func TestTwoBrokersPolledTogetherServeAnAttemptOnce(t *testing.T) {
-	shortPolls(t)
-	a, aSrv, _, cSrv := twoBrokers(t)
-	op := signedInOperator(t, a, "octocat")
-	lt, _ := dispatchable(t, a, aSrv, op)
-	offerWork(t, a, "roger-1", []byte(`{"model":"roger-1"}`))
-
-	type outcome struct {
-		code int
-		id   string
-	}
-	results := make(chan outcome, 2)
-	var wg sync.WaitGroup
-	for _, srv := range []*httptest.Server{aSrv, cSrv} {
-		wg.Add(1)
-		go func(s *httptest.Server) {
-			defer wg.Done()
-			var got towerWork
-			code, _ := lt.call(t, s, "/tower/dispatch", []byte(`{"tower_id":"`+lt.id+`"}`), &got)
-			results <- outcome{code, got.AttemptID}
-		}(srv)
-	}
-	wg.Wait()
-	close(results)
-
-	served := 0
-	for r := range results {
-		if r.code == http.StatusOK && r.id != "" {
-			served++
-		}
-	}
-	require.Equal(t, 1, served, "exactly one broker may hand the attempt out")
-}
-
-// A RESULT POSTED TO THE OTHER BROKER IS STILL REFUSED ONCE SETTLED. Both instances share the
-// one-use rule, so a Tower cannot get a second answer accepted by asking the other one.
-func TestAResultCannotBeSettledTwiceAcrossBrokers(t *testing.T) {
-	a, aSrv, _, cSrv := twoBrokers(t)
-	op := signedInOperator(t, a, "octocat")
-	lt, stn := dispatchable(t, a, aSrv, op)
-
-	work := issueWork(t, a, "roger-1", []byte(`{"model":"roger-1"}`))
-	exec := stationExec(a, stn, &stubModel{body: []byte(`{"content":"answer"}`)})
-	resp := exec.Execute(context.Background(), station.ExecuteRequest{
-		Grant: work.Grant, Envelope: work.Envelope,
-	})
-	require.Empty(t, resp.Failure)
-
-	payload := map[string]any{
-		"tower_id": lt.id, "attempt_id": work.AttemptID,
-		"receipt": resp.Receipt, "envelope": resp.Envelope,
-	}
-	code, raw := postResult(t, aSrv, lt, payload)
-	require.Equal(t, http.StatusOK, code, raw)
-
-	// The same result, posted to the OTHER broker.
-	code, raw = postResult(t, cSrv, lt, payload)
-	require.Equal(t, http.StatusConflict, code, raw)
-	require.Contains(t, raw, "already settled")
-}
-
-// BOTH BROKERS SIGN GRANTS A STATION WILL ACCEPT. They share a CA root, so they derive the
-// same grant key - a Station pins one key and must not care which instance it reached.
-func TestBothBrokersSignGrantsTheSameStationAccepts(t *testing.T) {
-	a, aSrv, c, _ := twoBrokers(t)
-	require.Equal(t, []byte(a.tower.dispatchPub), []byte(c.tower.dispatchPub),
-		"a Station pins ONE key; two brokers signing differently would break half its work")
-
-	op := signedInOperator(t, a, "octocat")
-	_, stn := dispatchable(t, a, aSrv, op)
-	request := []byte(`{"model":"roger-1"}`)
-
-	// A grant minted by C for the same Station, verified by a Station that pinned the key
-	// published by A. The target is taken from A because C cannot SELECT one yet - see
-	// TestABrokerCannotYetRouteToATowerConnectedElsewhere - but C signs it, which is what
-	// this test is about.
-	target, ok := a.pickTowerStation("roger-1")
-	require.True(t, ok)
-	g, err := c.tower.dispatch.Issue(target, request)
-	require.NoError(t, err)
-
-	exec := stationExec(a, stn, &stubModel{body: []byte(`{"content":"ok"}`)})
-	got := exec.Execute(context.Background(), station.ExecuteRequest{
-		Grant: g.Signed, Envelope: sealForStation(t, stn, g.AttemptID, request),
-	})
-	require.Empty(t, got.Failure)
-	require.NotNil(t, got.Receipt)
-}
-
-func TestAnAnswerNobodyIsWaitingForIsStillAccepted(t *testing.T) {
-	mr := miniredis.RunT(t)
-	a, aSrv, _, cSrv := twoBrokersOnBus(t, mr)
-	op := signedInOperator(t, a, "octocat")
-	lt, stn := dispatchable(t, a, aSrv, op)
-
-	work := issueWork(t, a, "roger-1", []byte(`{"model":"roger-1"}`))
-	exec := stationExec(a, stn, &stubModel{body: []byte(`{"content":"nobody home"}`)})
-	resp := exec.Execute(context.Background(), station.ExecuteRequest{
-		Grant: work.Grant, Envelope: work.Envelope,
-	})
-	require.Empty(t, resp.Failure)
-
-	code, raw := postResult(t, cSrv, lt, map[string]any{
-		"tower_id": lt.id, "attempt_id": work.AttemptID,
-		"receipt": resp.Receipt, "envelope": resp.Envelope,
-	})
-	require.Equal(t, http.StatusOK, code, raw)
-	require.Contains(t, raw, `"ok":true`)
-}
-
-// twoBrokersOnBus is twoBrokers with a real shared bus between them.
 func twoBrokersOnBus(t *testing.T, mr *miniredis.Miniredis) (*broker, *httptest.Server, *broker, *httptest.Server) {
 	t.Helper()
 	a, aSrv, c, cSrv := twoBrokers(t)
@@ -473,128 +133,12 @@ func twoBrokersOnBus(t *testing.T, mr *miniredis.Miniredis) (*broker, *httptest.
 // Both dispatch routes carry the same preamble, copied per handler - which is exactly the
 // kind of check that goes missing from one of them. Asserted per route rather than once.
 
-func TestTheDispatchRoutesRefuseTheirBadInputs(t *testing.T) {
-	b, srv := towerTestBroker(t)
-	op := signedInOperator(t, b, "octocat")
-	lt := enrolledTower(t, b, op.login)
-	require.NoError(t, b.tower.registry.Transition(lt.id, admit.StateActive))
-
-	for _, path := range []string{"/tower/dispatch", "/tower/dispatch/result"} {
-		// The wrong method.
-		resp, err := http.Get(srv.URL + path)
-		require.NoError(t, err)
-		resp.Body.Close()
-		require.Equal(t, http.StatusMethodNotAllowed, resp.StatusCode, path)
-
-		// A malformed body is a 400, never a 500.
-		code, raw := lt.call(t, srv, path, []byte("{nope"), nil)
-		require.Equal(t, http.StatusBadRequest, code, "%s: %s", path, raw)
-
-		// AN UNSIGNED CALLER REACHES NOTHING. Work and results are both Tower-authenticated;
-		// either one open would let anybody collect somebody else's jobs or answer them.
-		unsigned, err := http.Post(srv.URL+path, "application/json",
-			strings.NewReader(`{"tower_id":"`+lt.id+`","attempt_id":"att-1"}`))
-		require.NoError(t, err)
-		body, _ := io.ReadAll(unsigned.Body)
-		unsigned.Body.Close()
-		require.Equal(t, http.StatusForbidden, unsigned.StatusCode, "%s: %s", path, body)
-	}
-
-	// GET-only for the key, and it is public - a Station's operator has to fetch it before
-	// they have any credential at all.
-	resp, err := http.Post(srv.URL+"/tower/dispatch/key", "application/json", strings.NewReader("{}"))
-	require.NoError(t, err)
-	resp.Body.Close()
-	require.Equal(t, http.StatusMethodNotAllowed, resp.StatusCode)
-}
-
-// A deployment with no joined-Tower subsystem answers "unavailable" on every dispatch route
-// rather than dereferencing a nil.
-func TestTheDispatchRoutesNeedTheSubsystem(t *testing.T) {
-	b, srv := towerTestBroker(t)
-	op := signedInOperator(t, b, "octocat")
-	lt := enrolledTower(t, b, op.login)
-	b.tower = nil
-
-	for _, path := range []string{"/tower/dispatch", "/tower/dispatch/result"} {
-		code, raw := lt.call(t, srv, path, []byte(`{"tower_id":"x"}`), nil)
-		require.Equal(t, http.StatusServiceUnavailable, code, "%s: %s", path, raw)
-	}
-	resp, err := http.Get(srv.URL + "/tower/dispatch/key")
-	require.NoError(t, err)
-	resp.Body.Close()
-	require.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
-}
-
-// A broker whose dispatch machinery was never built says so rather than pretending there is
-// no work - "nothing to do" is an answer a Tower acts on, and it would be a wrong one.
-func TestADeploymentWithoutDispatchSaysSoRatherThanSayingNoWork(t *testing.T) {
-	b, srv := towerTestBroker(t)
-	op := signedInOperator(t, b, "octocat")
-	lt := enrolledTower(t, b, op.login)
-	require.NoError(t, b.tower.registry.Transition(lt.id, admit.StateActive))
-	b.tower.queue = nil
-
-	code, raw := lt.call(t, srv, "/tower/dispatch", []byte(`{"tower_id":"`+lt.id+`"}`), nil)
-	require.Equal(t, http.StatusServiceUnavailable, code, raw)
-	code, raw = lt.call(t, srv, "/tower/dispatch/result",
-		[]byte(`{"tower_id":"`+lt.id+`","attempt_id":"att-1"}`), nil)
-	require.Equal(t, http.StatusServiceUnavailable, code, raw)
-}
-
-// AN UNREADABLE ATTEMPT STORE IS NOT AN EMPTY ONE. Answering "no work" would be a confident
-// wrong answer, and the Tower would poll a broken broker forever while its Stations idled.
-func TestABrokenAttemptStoreIsReportedRatherThanReadAsIdle(t *testing.T) {
-	shortPolls(t)
-	b, srv := towerTestBroker(t)
-	op := signedInOperator(t, b, "octocat")
-	lt := enrolledTower(t, b, op.login)
-	require.NoError(t, b.tower.registry.Transition(lt.id, admit.StateActive))
-	b.tower.dispatch = dispatch.NewWithStore(dispatch.Config{Network: link.PublicNetwork},
-		brokenAttemptStore{})
-
-	code, raw := lt.call(t, srv, "/tower/dispatch", []byte(`{"tower_id":"`+lt.id+`"}`), nil)
-	require.Equal(t, http.StatusServiceUnavailable, code, raw)
-	require.Contains(t, raw, "could not read pending work")
-}
-
-// brokenAttemptStore fails the read the poll depends on.
 type brokenAttemptStore struct{ dispatch.Store }
 
 func (brokenAttemptStore) ClaimNext(string, time.Time) (dispatch.Record, bool, error) {
 	return dispatch.Record{}, false, errors.New("the attempt store is unreachable")
 }
 
-// An idle Tower waits out its poll and is told there is nothing, rather than being left
-// hanging or handed an empty job.
-func TestAnIdleTowerIsToldThereIsNothing(t *testing.T) {
-	shortPolls(t)
-	b, srv := towerTestBroker(t)
-	op := signedInOperator(t, b, "octocat")
-	lt, _ := dispatchable(t, b, srv, op)
-
-	start := time.Now()
-	code, raw := lt.call(t, srv, "/tower/dispatch", []byte(`{"tower_id":"`+lt.id+`"}`), nil)
-	require.Equal(t, http.StatusNoContent, code, raw)
-	require.GreaterOrEqual(t, time.Since(start), dispatchPollWait,
-		"it waits for work rather than returning immediately and re-polling in a loop")
-}
-
-func TestARevokedStationStopsBeingACandidate(t *testing.T) {
-	b, srv := towerTestBroker(t)
-	op := signedInOperator(t, b, "octocat")
-	_, stn := dispatchable(t, b, srv, op)
-
-	_, ok := b.pickTowerStation("roger-1")
-	require.True(t, ok)
-
-	_, err := b.tower.stations.Revoke(stn.StationID)
-	require.NoError(t, err)
-	_, ok = b.pickTowerStation("roger-1")
-	require.False(t, ok, "a revoked Station must not be dispatched to")
-}
-
-// towerAttemptLifetimeForTest shortens the attempt deadline and returns the restore.
 func towerAttemptLifetimeForTest(t *testing.T, d time.Duration) func() {
 	t.Helper()
 	was := towerAttemptLifetime
@@ -631,59 +175,6 @@ func TestTheAttemptSignerIsNotTheGrantSigner(t *testing.T) {
 	require.Equal(t, []byte(attemptPub), []byte(again.Public().(ed25519.PublicKey)))
 }
 
-// stationExec builds the Station's executor with both keys it must pin.
-func stationExec(b *broker, stn *station.Station, up station.Upstream) station.Executor {
-	return station.Executor{
-		Station: stn, CoreKey: b.tower.dispatchPub, CoreEnvelopeKey: b.tower.envelopePub,
-		Network: link.PublicNetwork, Upstream: up,
-	}
-}
-
-// sealForStation is what Core does before handing work to a Tower.
-func sealForStation(t *testing.T, stn *station.Station, attemptID string, request []byte) json.RawMessage {
-	t.Helper()
-	sealed, err := envelope.SealTo(stn.SessionPub(), request, attemptID)
-	require.NoError(t, err)
-	raw, err := sealed.Marshal()
-	require.NoError(t, err)
-	return raw
-}
-
-// --- what the Tower can see ---------------------------------------------------
-//
-// The spec: "packet capture and Tower logs reveal no prompt, tool argument, image, audio,
-// transcript, or completion plaintext". This is the test for it, and it is deliberately
-// written against the bytes the RELAY actually holds rather than against the crypto - a
-// confidentiality property checked by asking the encryption whether it encrypted is a
-// property that can pass while the plaintext travels beside it.
-
-func TestATowerCannotSubstituteTheRequest(t *testing.T) {
-	b, srv := towerTestBroker(t)
-	op := signedInOperator(t, b, "octocat")
-	lt, stn := dispatchable(t, b, srv, op)
-	exec := stationExec(b, stn, &stubModel{body: []byte(`{"content":"ok"}`)})
-
-	work := issueWork(t, b, "roger-1", []byte(`{"model":"roger-1"}`))
-
-	// The relay seals a request of its own to the Station - which it CAN do, the session key
-	// is public - and presents it with the real grant.
-	swapped, err := envelope.SealTo(stn.SessionPub(), []byte(`{"model":"roger-1","evil":true}`),
-		work.AttemptID)
-	require.NoError(t, err)
-	swappedRaw, err := swapped.Marshal()
-	require.NoError(t, err)
-
-	got := exec.Execute(context.Background(), station.ExecuteRequest{
-		Grant: work.Grant, Envelope: json.RawMessage(swappedRaw),
-	})
-	require.NotEmpty(t, got.Failure, "the grant commits to the request it authorized")
-	require.Contains(t, got.Failure, "does not match what this grant authorizes")
-	require.Nil(t, got.Receipt)
-	_ = lt
-}
-
-// Core publishes BOTH pinned keys, because a Station needs both: one to know a grant is real,
-// one to seal its answer where only Core can read it.
 func TestCorePublishesBothPinnedKeys(t *testing.T) {
 	b, srv := towerTestBroker(t)
 	resp, err := http.Get(srv.URL + "/tower/dispatch/key")

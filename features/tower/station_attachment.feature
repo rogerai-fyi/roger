@@ -9,6 +9,13 @@
 # Core admission/origin lease, Tower-local bridge credentials, certificate lifecycle,
 # detach, revocation, and rehome for joined and standalone Towers.
 
+# SUPERSEDED MECHANISM NOTE (not a spec change): the invite-file CLI this spec's scenarios
+# ride (`roger-tower station invite` / `station attach`, the roger-station binary) was
+# RETIRED with the leaf-station generation. Its living successor is SELF-ATTACH: one signed
+# `/tower/edge/attach` call from `roger share --tower`, which reuses this spec's admission
+# machinery (authorization + one-use redemption + uniqueness + caps) atomically in-process.
+# The trust properties specified here are enforced there; the ceremony that carried them is
+# gone. Revocation and promotion remain as specified.
 Feature: A Tower can transport only a Station that proved its own keys and exact origin authority
   Tower-local access is not public Station authority. Joined service requires Roger Core's
   owner-bound admission and an end-to-end Station TLS identity the Tower cannot mint.

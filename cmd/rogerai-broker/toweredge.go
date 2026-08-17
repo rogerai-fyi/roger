@@ -197,14 +197,19 @@ func (b *broker) towerEdgeAuthorize(w http.ResponseWriter, r *http.Request) {
 		maxTokOut = edgeMaxTokens
 	}
 
-	var consumerEnvKey []byte
-	if req.ConsumerEnvKey != "" {
-		raw, derr := hex.DecodeString(req.ConsumerEnvKey)
-		if derr != nil || len(raw) != 32 {
-			jsonErr(w, http.StatusBadRequest, "consumer_env_key must be a hex-encoded 32-byte X25519 public key")
-			return
-		}
-		consumerEnvKey = raw
+	// REQUIRED since the leaf-station generation retired: the only surviving executor
+	// (ServeSealed) refuses a grant without a consumer envelope key, so authorizing one
+	// would take the consumer's hold for a guaranteed refusal - a stranded hold and a
+	// burned attempt, not a serve (P9 audit H3).
+	if req.ConsumerEnvKey == "" {
+		jsonErr(w, http.StatusBadRequest, "consumer_env_key is required: the edge path is sealed end-to-end, "+
+			"and the answer is encrypted to this key - without one nothing can serve you")
+		return
+	}
+	consumerEnvKey, derr := hex.DecodeString(req.ConsumerEnvKey)
+	if derr != nil || len(consumerEnvKey) != 32 {
+		jsonErr(w, http.StatusBadRequest, "consumer_env_key must be a hex-encoded 32-byte X25519 public key")
+		return
 	}
 
 	target, row, ok := b.edgeTargetFor(req.Model)
@@ -383,12 +388,18 @@ func (b *broker) edgeTargetFor(model string) (dispatch.Target, fleet.Station, bo
 		if row.Endpoint == "" {
 			continue
 		}
+		// Only SELF-ATTACHED (hub) rows are servable. A legacy leaf row can linger in the
+		// projection until it expires or its tower republishes; handing its endpoint to a
+		// consumer would authorize a hold against a plane nothing serves (P9 audit H3).
+		if !strings.HasPrefix(row.OfferID, "self-") {
+			continue
+		}
 		if !ts.registry.MayTakeWork(row.TowerID) {
 			continue
 		}
 		if target, ok := b.targetFor(row.TowerID, row.StationID, row.Model, row.Modality); ok {
-			// The whole ROW rides back: the endpoint the consumer connects to, and the signed
-			// leaf's consumer price that authorize pins into the grant.
+			// The whole ROW rides back: the endpoint the consumer submits to, and the
+			// attachment's listed price that authorize pins into the grant.
 			return target, row, true
 		}
 	}

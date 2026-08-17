@@ -215,7 +215,7 @@ func towerPost(st *tower.State, path string, body []byte, out any) error {
 // "nothing to do" (204) apart from "here is your work" (200). Folding that into towerPost
 // would make every other caller carry a status they have no use for.
 func towerPostStatus(st *tower.State, path string, body []byte, out any, client *http.Client) (int, error) {
-	// HubNodes delivers node bearer tokens over this channel and the edge-cert call delivers
+	// HubNodes delivers node bearer tokens over this channel and tower<->Core calls delivers
 	// certificate trust - so the transport guard applies to every tower<->Core call, here at
 	// the single entry point (audit M-3).
 	if err := protocol.TrustedBase(brokerBase()); err != nil {

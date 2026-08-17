@@ -112,10 +112,3 @@ func (o *Outbox) Settled(attemptIDs []string) {
 	}
 	o.pending = kept
 }
-
-// Stats reports how the outbox is doing, for the operator's eyes.
-func (o *Outbox) Stats() (pending int, dropped int64) {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	return len(o.pending), o.dropped
-}

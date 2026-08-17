@@ -269,7 +269,7 @@ func TestSelfAttachedNodeIsRoutableAtItsListedPrice(t *testing.T) {
 
 	// A signed-in consumer authorizes for the model and the response echoes the PINNED price.
 	consumer := signedInConsumer(t, b)
-	code, out := consumerCall(t, srv, consumer, "/tower/edge/authorize", map[string]any{"model": "my-model"})
+	code, out := consumerCall(t, srv, consumer, "/tower/edge/authorize", map[string]any{"model": "my-model", "consumer_env_key": testEnvKeyHex(t)})
 	require.Equal(t, http.StatusOK, code, out)
 	require.EqualValues(t, 180_000, out["price_in_micros"], "the grant pins the node's own listed price")
 	require.EqualValues(t, 300_000, out["price_out_micros"])

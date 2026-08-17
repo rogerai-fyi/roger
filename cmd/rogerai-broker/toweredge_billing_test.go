@@ -239,12 +239,12 @@ func TestEdgeAuthorizeRequiresASignedInAccount(t *testing.T) {
 	// A fresh key that signs correctly but belongs to no account.
 	_, strangerPriv, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
-	code, _ := consumerCall(t, srv, strangerPriv, "/tower/edge/authorize", map[string]any{"model": "m"})
+	code, _ := consumerCall(t, srv, strangerPriv, "/tower/edge/authorize", map[string]any{"model": "m", "consumer_env_key": testEnvKeyHex(t)})
 	require.Equal(t, http.StatusForbidden, code, "a key not bound to an account is refused")
 
 	// The same request from a signed-in, funded account is authorized.
 	member := signedInConsumer(t, b)
-	code, _ = consumerCall(t, srv, member, "/tower/edge/authorize", map[string]any{"model": "m"})
+	code, _ = consumerCall(t, srv, member, "/tower/edge/authorize", map[string]any{"model": "m", "consumer_env_key": testEnvKeyHex(t)})
 	require.Equal(t, http.StatusOK, code)
 }
 
@@ -267,7 +267,7 @@ func TestEdgeAuthorizeRefusesABannedAccount(t *testing.T) {
 	b.bannedOwners[memberPub] = true
 	b.metricsMu.Unlock()
 
-	code, _ := consumerCall(t, srv, member, "/tower/edge/authorize", map[string]any{"model": "m"})
+	code, _ := consumerCall(t, srv, member, "/tower/edge/authorize", map[string]any{"model": "m", "consumer_env_key": testEnvKeyHex(t)})
 	require.Equal(t, http.StatusForbidden, code, "a banned account is refused")
 }
 

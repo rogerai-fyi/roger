@@ -51,8 +51,6 @@ builds:
     flags: [-trimpath]
     ldflags: ["-s -w -X main.version={{.Version}}"]
 
-    ldflags: ["-s -w -X main.version={{.Version}}"]
-
 # ---- macOS code signing + notarization -----------------------------------------------
 # Signs + notarizes the darwin binaries so the OFFICIAL Homebrew cask route
 # (`brew install --cask roger` - no tap, no `brew trust`) becomes possible; homebrew-cask

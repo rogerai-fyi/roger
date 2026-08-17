@@ -38,7 +38,6 @@ import (
 	"time"
 
 	"rogerai.fm/roger/v5/internal/towercore/dispatch"
-	"rogerai.fm/roger/v5/internal/towercore/envelope"
 )
 
 // ExecuteRequest is what a Tower hands a Station.
@@ -83,81 +82,6 @@ type Executor struct {
 	Now             func() time.Time
 }
 
-func (e Executor) now() time.Time {
-	if e.Now != nil {
-		return e.Now()
-	}
-	return time.Now()
-}
-
-// Execute verifies, runs, and signs. Every refusal returns a Failure rather than a receipt.
-func (e Executor) Execute(ctx context.Context, in ExecuteRequest) ExecuteResponse {
-	if len(e.CoreKey) == 0 {
-		// FAIL CLOSED. A Station with no pinned key cannot tell a real grant from one its own
-		// relay wrote, and serving anyway would make every check below theatre.
-		return ExecuteResponse{Failure: "this Station has no pinned Roger Core key, so it cannot verify a grant"}
-	}
-	if len(e.CoreEnvelopeKey) == 0 {
-		// Without it a result could only be returned in the clear, past the relay this whole
-		// mechanism exists to keep content away from.
-		return ExecuteResponse{Failure: "this Station has no pinned Roger Core envelope key, " +
-			"so it cannot return a result the relay cannot read"}
-	}
-	// OPENED HERE AND NOWHERE ELSE. The attempt id is the additional data, so an envelope for
-	// another attempt will not open even though the relay may hold both.
-	attemptID := attemptOf(in.Grant)
-	sealed, err := envelope.Parse(in.Envelope)
-	if err != nil {
-		return ExecuteResponse{Failure: err.Error()}
-	}
-	request, err := envelope.OpenWith(e.Station.SessionPriv(), sealed, attemptID)
-	if err != nil {
-		return ExecuteResponse{Failure: err.Error()}
-	}
-	// The grant is checked against the PLAINTEXT, which is what it committed to. Checking the
-	// ciphertext would bind the envelope rather than the request, and a relay could then
-	// re-seal the same bytes under a different attempt.
-	grant, err := dispatch.ParseGrant(in.Grant, e.CoreKey, e.Network,
-		e.Station.StationID, request, e.now())
-	if err != nil {
-		return ExecuteResponse{Failure: err.Error()}
-	}
-	if e.Upstream == nil {
-		return ExecuteResponse{Failure: "this Station has no upstream model configured"}
-	}
-
-	body, err := e.Upstream.Serve(ctx, request)
-	if err != nil {
-		// The upstream's own words, not a reinterpretation of them: an operator debugging a
-		// Station needs what the model actually said.
-		return ExecuteResponse{Failure: "the model did not answer: " + err.Error()}
-	}
-	// SIGNED OVER WHAT IS BEING RETURNED, and produced from the same bytes that go on the
-	// wire. Signing anything else - a re-encoding, a copy made earlier - would leave a gap
-	// between what was attested and what was sent.
-	rec, err := dispatch.SignReceipt(e.Station.assertionPriv, e.Network, grant, request, body,
-		dispatch.Usage{In: int64(len(request)), Out: int64(len(body))}, tokenUsageOf(body))
-	if err != nil {
-		return ExecuteResponse{Failure: "this Station could not sign its result: " + err.Error()}
-	}
-	// Sealed to CORE, so the answer crosses the relay unreadable too. The receipt commits to
-	// the plaintext digest, so Core verifies what it opens rather than what it received.
-	out, err := envelope.SealTo(e.CoreEnvelopeKey, body, grant.AttemptID)
-	if err != nil {
-		return ExecuteResponse{Failure: "this Station could not seal its result: " + err.Error()}
-	}
-	raw, err := out.Marshal()
-	if err != nil {
-		return ExecuteResponse{Failure: err.Error()}
-	}
-	return ExecuteResponse{Receipt: &rec, Envelope: raw}
-}
-
-// attemptOf reads the attempt id out of a grant WITHOUT verifying it.
-//
-// Only used as the envelope's additional data, and a wrong value simply means the envelope
-// does not open - which is a refusal, not a bypass. The grant's real verification happens
-// immediately afterwards against the plaintext it protects.
 func attemptOf(grant []byte) string {
 	var obj struct {
 		AttemptID string `json:"attempt_id"`

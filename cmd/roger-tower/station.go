@@ -50,19 +50,6 @@ func cmdStation(args []string, out io.Writer) error {
 	}
 }
 
-// stationKeyFlags registers the pair every one of these commands needs.
-func stationKeyFlags(fs *flag.FlagSet) (assertion, session, id *string) {
-	assertion = fs.String("assertion-key", "", "the Station's assertion public key (hex)")
-	session = fs.String("session-key", "", "the Station's secure-session public key (hex)")
-	id = fs.String("station-id", "", "the Station's id (Roger Core allocates one if omitted)")
-	return
-}
-
-// cmdStationRevoke retires a Station identity.
-//
-// Signed by the ACCOUNT rather than the Tower, so an operator can still do it when the Tower
-// is the thing that has gone wrong. A revocation that needed a healthy relay would be
-// unavailable in precisely the situation it exists for.
 func cmdStationRevoke(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("station revoke", flag.ContinueOnError)
 	fs.SetOutput(out)

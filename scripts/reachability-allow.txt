@@ -284,3 +284,17 @@ internal/towercore/comp.ReserveSplit
 internal/towercore/comp.AccrueUnderCap
 internal/towercore/comp.ParsePPM
 internal/towercore/comp.canonicalUint
+# The attach MEM store is the reference implementation held against the durable pg store by
+# the parity tests; production reaches these through the Store interface when running
+# without Postgres, which the static sweep cannot prove.
+internal/towercore/attach.memStore.ByTower
+internal/towercore/attach.memStore.ReapTerminal
+# The verifier half of the classic relayed-grant format. Its mint side is retained by the
+# attempt ledger's recorded history; the parser stays so recorded grants remain readable
+# and the format's tests keep it stable.
+internal/towercore/dispatch.ParseGrant
+# The node-side outbox drain: the settle courier's spool is the primary rail today, and the
+# hub-node collection plane that would call these is a planned recovery path. Removing them
+# would delete the doctrine ("collection copies, confirmation removes") the outbox encodes.
+internal/station.Collect
+internal/station.Settled

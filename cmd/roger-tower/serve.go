@@ -11,12 +11,11 @@ package main
 // signed, heartbeats, and drains cleanly on shutdown. It does NOT carry customer traffic:
 // dispatch is not built.
 //
-// The offers it pushes come from FILES its Stations produced (`roger-station offer`), and
-// are relayed byte for byte. A Tower cannot make one up, because it does not hold a Station's
-// assertion key and must never hold one - if it could sign for a Station, "signed by the
-// Station" would mean "signed by the relay". A Tower with nothing in its offers directory
-// pushes a valid inventory of zero leaves, which is the honest "I am here and I have
-// nothing".
+// The inventory it pushes is typically EMPTY now: self-attached `roger share --tower` nodes
+// register their offers directly with Core at attach, and the legacy leaf-offer files (from
+// the retired roger-station binary) have no producer. An inventory of zero leaves is the
+// honest "I am here"; the offers directory remains read for byte-for-byte relay of any
+// legacy files an operator still carries, and Core excludes what nothing can serve.
 
 import (
 	"encoding/json"
@@ -83,15 +82,6 @@ func serveJoined(st *tower.State, out io.Writer, relayPublic, hubAddr, hubCert, 
 	return err
 }
 
-// multiFlag collects a repeatable flag.
-type multiFlag []string
-
-func (m *multiFlag) String() string     { return "" }
-func (m *multiFlag) Set(v string) error { *m = append(*m, v); return nil }
-
-// realTicker is the clock in production. A test passes one that fires on demand, which is
-// what makes the heartbeat path testable without a test that sleeps - and a test that sleeps
-// is a test that is flaky on a loaded machine.
 func realTicker(d time.Duration) (<-chan time.Time, func()) {
 	t := time.NewTicker(d)
 	return t.C, t.Stop
@@ -240,9 +230,9 @@ func pushInventory(st *tower.State, out io.Writer, revision int64, head towerjoi
 	return next, towerjoin.Head{Revision: res.Revision, Hash: res.Hash}, nil
 }
 
-// offersDir is where a Tower looks for the offers its Stations signed. One file per offer,
-// produced by `roger-station offer` ON THE STATION and copied here by whatever the operator
-// already trusts to move a file.
+// offersDir is where a Tower looks for legacy Station-signed offer files. The producer (the
+// roger-station binary) is retired; the directory is still read so an operator's existing
+// files surface as explicit Core-side exclusions rather than silently vanishing.
 const offersDir = "offers"
 
 // localOffers reads the Station-signed offers this Tower is relaying.
