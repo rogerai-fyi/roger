@@ -37,7 +37,7 @@ func TestDoctorReportsJoinedReachability(t *testing.T) {
 // A non-loopback bind is legitimate (LAN and cluster serving are supported) but must be
 // reported, so an operator never exposes a Tower without being told.
 func TestDoctorFlagsANonLoopbackBindAsDeliberate(t *testing.T) {
-	y := minimalStandalone + "relay:\n  address: 0.0.0.0:8443\n"
+	y := minimalStandalone + "hub:\n  address: 0.0.0.0:8444\n"
 	c, err := ParseConfig([]byte(y))
 	require.NoError(t, err)
 	rep := Doctor(c)
@@ -46,11 +46,11 @@ func TestDoctorFlagsANonLoopbackBindAsDeliberate(t *testing.T) {
 	require.True(t, rep.OK, "explicit LAN serving is supported, not an error")
 	require.NotEmpty(t, rep.Notes, "a non-loopback bind must be called out to the operator")
 	joined := strings.Join(rep.Notes, " ")
-	require.Contains(t, joined, "0.0.0.0:8443")
+	require.Contains(t, joined, "0.0.0.0:8444")
 }
 
 func TestDoctorRendersHumanReadably(t *testing.T) {
-	c, err := ParseConfig([]byte(minimalStandalone + "relay:\n  address: 127.0.0.1:8443\n"))
+	c, err := ParseConfig([]byte(minimalStandalone + "hub:\n  address: 127.0.0.1:8444\n"))
 	require.NoError(t, err)
 	out := Doctor(c).String()
 

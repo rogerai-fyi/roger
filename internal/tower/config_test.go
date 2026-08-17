@@ -142,9 +142,17 @@ func TestAConfiguredDataPlaneDefaultsToLoopback(t *testing.T) {
 	require.Empty(t, c.ListenAddresses(),
 		"a Tower that configures no data plane binds nothing, and must not claim otherwise")
 
+	// The HUB is what this build binds; a leftover relay.address binds nothing and must not
+	// be reported as a listener (doctor would assess a port that does not exist).
+	c, err = ParseConfig([]byte(minimalStandalone + "hub:\n  address: 127.0.0.1:8444\n"))
+	require.NoError(t, err)
+	require.Equal(t, []string{"127.0.0.1:8444"}, c.ListenAddresses())
+
 	c, err = ParseConfig([]byte(minimalStandalone + "relay:\n  address: 127.0.0.1:8443\n"))
 	require.NoError(t, err)
-	require.Equal(t, []string{"127.0.0.1:8443"}, c.ListenAddresses())
+	require.Empty(t, c.ListenAddresses(), "a dead relay address is not a listener")
+	require.Contains(t, strings.Join(c.Unenforced(), "\n"), "relay.address",
+		"and the operator is told it does nothing")
 }
 
 // Every field this build decodes but does not act on must be NAMED. A control that is
@@ -161,6 +169,15 @@ func TestConfiguredControlsThisBuildIgnoresAreNamed(t *testing.T) {
 	require.NoError(t, err)
 	joined := strings.Join(c.Unenforced(), "\n")
 	require.Contains(t, joined, "limits.maxStations")
+	// The retired relay keys: still parsed so an upgrade does not hard-fail a running
+	// Tower's config, but named as doing nothing and pointed at their replacement.
+	cr, rerr := ParseConfig([]byte(minimalStandalone +
+		"relay:\n  address: 127.0.0.1:8443\n  stations:\n    st-1: 127.0.0.1:9000\n"))
+	require.NoError(t, rerr)
+	relayIgnored := strings.Join(cr.Unenforced(), "\n")
+	require.Contains(t, relayIgnored, "relay.address")
+	require.Contains(t, relayIgnored, "relay.stations")
+	require.Contains(t, relayIgnored, "hub.address", "the replacement is named")
 	require.Contains(t, joined, "limits.maxInflight")
 	require.Contains(t, joined, "observability.metricsAddress")
 }

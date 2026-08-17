@@ -218,7 +218,7 @@ func TestConfigSubcommandErrors(t *testing.T) {
 }
 
 func TestDoctorReportsLocalStandalone(t *testing.T) {
-	p := writeConfig(t, standaloneYAML+"relay:\n  address: 127.0.0.1:8443\n")
+	p := writeConfig(t, standaloneYAML+"hub:\n  address: 127.0.0.1:8444\n")
 	out, err := runCLI(t, "doctor", "--config", p)
 	require.NoError(t, err)
 	require.Contains(t, out, "mode: standalone")
@@ -254,7 +254,7 @@ func TestDoctorReportsJoinedReachability(t *testing.T) {
 }
 
 func TestDoctorFlagsANonLoopbackBind(t *testing.T) {
-	p := writeConfig(t, standaloneYAML+"relay:\n  address: 0.0.0.0:8443\n")
+	p := writeConfig(t, standaloneYAML+"hub:\n  address: 0.0.0.0:8444\n")
 	out, err := runCLI(t, "doctor", "--config", p)
 	require.NoError(t, err)
 	require.Contains(t, out, "NOT loopback")

@@ -121,19 +121,26 @@ type HubConfig struct {
 	TLSKey  string `yaml:"tlsKey,omitempty"`
 }
 
-// RelayConfig is the DATA PLANE: the port consumers connect to, and the Stations behind it.
+// RelayConfig described the RETIRED TLS-splice data plane. Only Public survives as live
+// configuration - it is the address Core advertises for whichever plane serves, which is now
+// the hub. Address and Stations are kept ONLY so an existing operator's file still parses
+// (decoding is strict: deleting them would turn a running Tower's config into a hard error on
+// upgrade). They are reported by Unenforced so an operator is told they do nothing, rather
+// than believing a relay is configured.
 //
 // This is the only listener this build actually binds, and it is the one most likely to be
 // public - so it is the one an operator most needs `doctor` to talk about. See relay.go in
 // cmd/roger-tower: nothing here terminates TLS, so the address is a routing decision rather
 // than a place secrets live.
 type RelayConfig struct {
+	// Address is DEAD: the TLS-splice relay was removed. See Unenforced.
 	Address string `yaml:"address,omitempty"`
 	// Public is the host:port CONSUMERS reach this relay at, advertised to Roger Core on the
 	// link. The listen address is very often not it - ":8443" is not dialable by anyone -
 	// and without a public address Core will not route edge consumers here at all.
 	Public string `yaml:"public,omitempty"`
-	// Stations maps a Station ID to where this Tower reaches it, as host:port.
+	// Stations mapped a Station ID to where this Tower reached it. DEAD: nodes self-attach
+	// and poll the hub; a Tower dials nobody. See Unenforced.
 	Stations map[string]string `yaml:"stations,omitempty"`
 }
 
@@ -272,14 +279,14 @@ func (c *Config) applyDefaults() {
 // face the public internet. A security assessment of imaginary ports is worse than none,
 // because an operator reads "all listeners loopback" and stops looking.
 func (c *Config) ListenAddresses() []string {
-	var out []string
-	if c.Relay != nil && c.Relay.Address != "" {
-		out = append(out, c.Relay.Address)
+	// HUB ONLY. relay.address is dead configuration (see Unenforced) and listing it here
+	// would put doctor right back in the failure its own comment warns about: assessing a
+	// port nothing opens, while the operator reads a verdict about a listener that does not
+	// exist. What this build binds is the hub, or nothing.
+	if c.Hub == nil || c.Hub.Address == "" {
+		return nil
 	}
-	if c.Hub != nil && c.Hub.Address != "" {
-		out = append(out, c.Hub.Address)
-	}
-	return out
+	return []string{c.Hub.Address}
 }
 
 // Unenforced names every field this build decodes and validates but does not act on.
@@ -304,6 +311,12 @@ func (c *Config) Unenforced() []string {
 		"observability.metricsAddress", "not bound by this build; no metrics endpoint is served")
 	add(c.Observability.LogFormat != "" && c.Observability.LogFormat != "json",
 		"observability.logFormat", "not applied by this build; logs are plain lines")
+	if c.Relay != nil {
+		add(c.Relay.Address != "", "relay.address",
+			"the TLS-splice relay was removed; serve the sealed hub instead (hub.address, or --hub)")
+		add(len(c.Relay.Stations) > 0, "relay.stations",
+			"a Tower no longer dials Stations; nodes run `roger share --tower` and poll the hub")
+	}
 	add(c.Limits.MaxStations > 0, "limits.maxStations", "not enforced by this build")
 	add(c.Limits.MaxInflight > 0, "limits.maxInflight", "not enforced by this build")
 	add(c.Limits.MaxAudioInflight > 0, "limits.maxAudioInflight", "not enforced by this build")

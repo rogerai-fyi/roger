@@ -9,7 +9,8 @@ serve models. There are two ways to run one, and the difference matters:
 | Talks to RogerAI | Never | Yes |
 | Account needed | **No, none, ever** | Yes |
 | Who it serves | You and your machines | Other people's traffic |
-| Status | Available now | Not yet — Phase 2 |
+| Earns | Nothing (it is your own traffic) | 10% of gross on every request it carries |
+| Status | Available now | Available now |
 
 Standalone needs no account because nothing leaves your machine. Joined needs one
 because the moment you relay strangers' traffic you become infrastructure, and a Tower
@@ -61,8 +62,9 @@ directory** (identity, admission state, attached Stations); `--config` names a *
 file** (listeners, limits). `init`, `invite`, `admit`, `attach`, `stations`, `route` and
 `status` take `--dir`. `doctor` and `config` take `--config`.
 
-Joined mode adds `login`, `logout` and `register`. They exist today only to tell you the
-joined protocol has not shipped - see below.
+Joined mode adds `login`, `logout`, `register`, `serve`, `earnings`, `drain`, `resume` and
+`revoke`. They are real: a joined Tower holds a link to Roger Core and hosts the sealed data
+plane - see below.
 
 ## Configuration
 
@@ -117,12 +119,21 @@ preflight exists to prevent.
 
 ## Run it as a service
 
-**Not yet.** The unit runs `roger-tower serve`, which lands with the joined protocol
-(Phase 2); enabling it today gives you a crash loop. Drive a standalone Tower with the
-one-shot commands above.
+The unit runs `roger-tower serve`, which holds the link to Roger Core and hosts the sealed
+hub - the data plane consumers submit encrypted work to and `roger share --tower` nodes poll.
+Give it a hub listener and the public address consumers reach it at, in the config file the
+unit passes:
 
-The unit ships now so its hardening can be reviewed alongside the code it will protect.
-When `serve` exists, the install is:
+```yaml
+hub:
+  address: :8444          # what the process binds
+  tlsCert: /etc/roger-tower/hub.crt   # optional, and recommended: the payload is sealed
+  tlsKey:  /etc/roger-tower/hub.key   # end-to-end regardless, but node tokens ride TLS
+relay:
+  public: tower.example.com:8444      # what Core advertises to consumers and nodes
+```
+
+The install is:
 
 ```sh
 sudo useradd --system --home /var/lib/roger-tower --shell /usr/sbin/nologin roger-tower
@@ -136,21 +147,22 @@ capabilities, and no ability to gain privilege. If you run **standalone**, uncom
 `IPAddressDeny=any` block — it turns "this Tower does not phone home" from a property of
 the code into one the kernel enforces.
 
-## What is not built yet
+## What is and is not built
 
-Joined mode. `serve`, `drain`, `revoke`, `login` and `register` all exist today only to
-tell you so, rather than failing obscurely. Joining the public network needs the Phase 2
-protocol: admission, short-lived certificates, signed dispatch leases, and the receipt
-contract. Until that ships, a Tower is a local tool — a genuinely useful one, but a local
-one.
+**Joined mode is built.** Admission, short-lived certificates, the link (session, heartbeat,
+clean drain, renewal), the sealed hub data plane, self-attaching `roger share --tower` nodes,
+signed receipts, one-use settlement, and compensation: every settled request pays the serving
+node 70% of its own listed price, **your Tower 10%**, the platform 20%. Relay earnings are
+ordinary earnings — `roger-tower earnings` reads them, and they cash out on the same rail as
+serving (120-day hold, $25 minimum, Stripe Connect onboarding).
 
-**Do not enable the systemd unit yet.** It runs `roger-tower serve`, which does not
-exist, so it would crash-loop. The unit ships now so its hardening can be reviewed
-alongside the code it will protect.
+**Not built:** the wider revenue-share *program* around those earnings (eligibility tiers,
+maturity, payout authority, program-level clawback). Traffic is also early — the figure your
+Tower shows is $0 until consumers route work through your hub.
 
-Durable PostgreSQL storage is also pending; today state lives in the data directory,
-which is fine for a single node and is not yet the fail-closed durable profile the spec
-describes.
+Durable PostgreSQL storage for the Tower's own state is pending; today it lives in the data
+directory, which is fine for a single node and is not yet the fail-closed durable profile the
+spec describes.
 
 ## Security posture, stated plainly
 
