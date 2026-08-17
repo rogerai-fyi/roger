@@ -142,6 +142,12 @@
   var RESTART_ODDS = VERBS.restart.odds;   // v24 name, same table
   var RESTART_SECS = VERBS.restart.secs;
   var INSPECT_SECS = 10;
+  /* v35: MICRO'S REMOTE DIAGNOSTIC - the site brain runs the same look a
+     person gets, remotely. Slower (no body on the floor) and it spins up
+     only after a stop has stood a moment, so a person on the spot - or the
+     Unit's walk - still beats it. */
+  var MICRO_DIAG_MULT = 2;
+  var MICRO_DIAG_SPINUP = 4;
 
   // the cheapest correct verb per fault kind - what Nano prescribes, what a
   // finished INSPECT points at, and what automation-with-Nano executes
@@ -227,7 +233,7 @@
   var TIER_COLOUR = { pico: "pico", nano: "nano", micro: "micro", giga: "giga" };
   /* the ONE build string every export stamps - the tape header shipped a
      stale hardcoded "v29" for three rounds (playtest round 3 caught it) */
-  var GAME_BUILD = "playbox v34";
+  var GAME_BUILD = "playbox v35";
   /* v34: the proof-window touch penalty, named so the goal card's hint and
      touchPlant() can never disagree about the rule */
   var CERT_TOUCH_SETBACK = 20;
@@ -630,7 +636,7 @@
        incident invalidates the old story - the machine card's persistent
        automation line must never narrate the wrong fault. */
     m.autoNote = ""; m.autoNoteAt = 0; m.autoTier = "";
-    m.unitJob = null; m.unitInspecting = false; m.unitFixed = false; m.inspectedBy = null;
+    m.unitJob = null; m.unitInspecting = false; m.unitFixed = false; m.inspectedBy = null; m.microDiag = false;
     m.wordBurned = false;
     G.incidents.open += 1;
     tape("fault", { m: m.id, kind: pick,
@@ -699,7 +705,7 @@
     m.picoRead = null; m.nanoRead = null; m.driftLie = 0; m.hadStop = false;
     m.nanoDirect = false;
     m.inspected = false; m.inspecting = 0;
-    m.unitJob = null; m.unitInspecting = false; m.unitFixed = false; m.inspectedBy = null;   // v32
+    m.unitJob = null; m.unitInspecting = false; m.unitFixed = false; m.inspectedBy = null; m.microDiag = false;   // v32
     m.wordBurned = false;
     m.senseSuspect = false; m.heldForFlag = false;   // trust returns with the fix
     m.chaseFrom = null; m.chaseErr = null;
@@ -727,7 +733,8 @@
     var nanoClears = m.nanoRead && m.nanoRead.kind === "resolved" &&
       m.nanoRead.said === "none";
     if ((picoAlarm && !nanoClears) || nanoNamesFault) return "a model raised it";
-    if (m.inspected) return m.inspectedBy === "unit" ? "the Unit inspected it" : "you inspected it";
+    if (m.inspected) return m.inspectedBy === "unit" ? "the Unit inspected it"
+      : m.inspectedBy === "micro" ? "the site brain's diagnostic found it" : "you inspected it";
     /* the needle checks read the CACHED last display (m.lastShown, recorded
        wherever a reading is actually taken) - shownValue() rolls the noisy
        sensor's dice, and a trust check must not advance anyone's seed */
@@ -805,6 +812,24 @@
     var seniorSure = !!(nanoW && m.nanoRead.margin >= FLOOR);
     var actable = !(G.giga && G.unit) || corroborated || seniorSure || v === "service";
     return { word: word, verb: v, source: nanoW ? "nano" : "pico", actable: actable };
+  }
+
+  /* v35: the ONE definition of "waiting on a person" (founder: "we should
+     highlight it better that it's waiting on the human"). A live fault
+     with a public reason to look - a stop or a physics flag - nothing
+     already running, and no word to act on; and no automation able to take
+     it: Micro's remote diagnostic covers any model-held machine, and the
+     Unit walks for Giga. So this survives only where the ladder genuinely
+     ends with you - no site brain bought, or you kept the knob. The badge,
+     the button glow, and the locks all read this one function. */
+  function needsHuman(m) {
+    if (m.cond === "none" || m.inspected) return false;
+    if (m.servicing > 0 || m.restarting > 0 || m.inspecting > 0) return false;
+    if (!(m.stopped || sensorFlagged(m))) return false;
+    var aw = autoWord(m);
+    if (aw && m.lockout <= 0) return false;
+    if (m.auto && (G.micro > 0 || (G.giga && G.unit))) return false;
+    return true;
   }
 
   function autoAdjust(m, dt) {
@@ -991,6 +1016,43 @@
         unitGo(m.id);
       }
     }
+    /* v35: MICRO'S REMOTE DIAGNOSTIC (founder: "it gets stuck on manual
+       intervention too much - it should be more automated"). Same PUBLIC
+       triggers the Unit walks on - a visible stop no word explains, or a
+       physics flag - but run remotely by the site brain: x2 the look time
+       and a few seconds of spin-up, so a person or the robot still beats
+       it. With Giga on the floor the Unit takes the job first; the
+       diagnostic covers a machine only when the robot is tied up mid-look
+       somewhere else (founder: "when giga robot is on it should be even
+       less frequent"). Honesty rails: game-sim maintenance on public
+       knowledge only - the RECORDED miss stays a miss on the results
+       panel, and the you-caught-it acknowledgment stays human-only. */
+    var unitTied = false;
+    if (G.giga && G.unit) {
+      G.machines.forEach(function (x) {
+        if (x !== m && x.unitInspecting && x.inspecting > 0) unitTied = true;
+      });
+    }
+    if (G.micro > 0 && m.cond !== "none" && !m.inspected &&
+        !m.servicing && !m.restarting && !m.inspecting &&
+        (!m.unitJob || unitTied) && (!G.giga || unitTied)) {
+      var awM = autoWord(m);
+      var distrustM = !!sensorFlagged(m) ||
+        (m.stopped && m.stoppedFor >= MICRO_DIAG_SPINUP);
+      if (distrustM && (!awM || !awM.actable || m.lockout > 0)) {
+        if (m.unitJob) m.unitJob = null;   // the site brain takes it over
+        m.microDiag = true;
+        m.unitFixed = true;   // automation's save, never a person's credit
+        m.inspecting = verbSecsFor(m, INSPECT_SECS * MICRO_DIAG_MULT);
+        m.autoNote = holderOf(m) + " is running a remote diagnostic - " +
+          Math.ceil(m.inspecting) + "s, no walk needed";
+        m.autoNoteAt = G.elapsed; m.autoTier = G.giga ? "giga" : "micro";
+        tape("micro-diag", { m: m.id, secs: m.inspecting,
+          why: m.lockout > 0 ? "lockout" : awM ? "uncorroborated" : "unnamed" });
+        addLog(holderOf(m) + " is running a remote diagnostic on the " +
+          m.spec.name.toLowerCase() + " - nobody named this fault.");
+      }
+    }
   }
 
   /* Slow PROCESS CREEP - the hidden conditions the founder asked for. Every
@@ -1121,7 +1183,7 @@
         m.inspecting = 0;
         m.stoppedFor = 0;
         m.inspected = m.cond !== "none";
-        m.inspectedBy = m.unitInspecting ? "unit" : "you";
+        m.inspectedBy = m.unitInspecting ? "unit" : m.microDiag ? "micro" : "you";
         tape("inspected", { m: m.id, found: m.cond, by: m.inspectedBy });
         if (m.unitInspecting) {
           /* v32: the Unit's look, attributed as the Unit's - and the next
@@ -1134,6 +1196,15 @@
               (m.lockout > 0 ? " once the lockout clears" : " next") : "");
           m.autoNoteAt = G.elapsed; m.autoTier = "giga";
           addLog("The Unit inspected the " + m.spec.name.toLowerCase() + ": " + INSPECT_WORD[m.cond]);
+        } else if (m.microDiag) {
+          m.microDiag = false;
+          var mNext = m.cond === "none" ? null : verbFor(m.cond);
+          m.autoNote = holderOf(m) + "'s diagnostic: " + CONDITION_WORD[m.cond] +
+            (mNext ? " - " + (mNext === "service" ? "SERVICE" : VERBS[mNext].label) +
+              (m.lockout > 0 ? " once the lockout clears" : " next") : "");
+          m.autoNoteAt = G.elapsed; m.autoTier = G.giga ? "giga" : "micro";
+          addLog(holderOf(m) + "'s remote diagnostic on the " +
+            m.spec.name.toLowerCase() + ": " + INSPECT_WORD[m.cond]);
         } else {
           addLog(m.spec.name + " inspected: " + INSPECT_WORD[m.cond]);
         }
@@ -2613,6 +2684,12 @@
     s.lamp = el("span", "cl-lamp clf-lamp");
     block.appendChild(s.lamp);
 
+    /* v35: the NEEDS YOU badge - rides the lamp's own lane, shown only by
+       needsHuman() so it can never contradict the automation */
+    s.yours = el("span", "clf-yours", "NEEDS YOU · INSPECT");
+    s.yours.hidden = true;
+    block.appendChild(s.yours);
+
     // the service crew's wrench, over the machine while the work happens
     s.wrench = el("i", "clf-wrench");
     s.wrench.innerHTML = '<svg viewBox="0 0 24 24"><path d="M21 6.5a5 5 0 0 1-6.6 4.7L7 18.6a2.1 2.1 0 0 1-3-3l7.4-7.4A5 5 0 0 1 16.5 2l-2.8 2.8 1.4 4.1 4.1 1.4L22 7.5a5 5 0 0 1-1-.9Z"/></svg>';
@@ -2963,6 +3040,7 @@
     var state = m.stopped ? "stopped" : (!claimsOk ? "warn" : "ok");
     s.lamp.dataset.state = state;
     s.lamp.textContent = state === "stopped" ? "STOPPED" : state === "warn" ? "OUT OF BAND" : "RUNNING";
+    if (s.yours) s.yours.hidden = !needsHuman(m);
 
     /* the machine's physical tells - presentation of sim state, nothing more:
        a stopped machine's art dims and its working shimmer ends; the oven's
@@ -3142,8 +3220,11 @@
             advice = "says \u201c" + m.nanoRead.said + "\u201d - " +
               (m.nanoDirect ? "and per the recording, that is wrong."
                             : "and per the recording, the senior got this one wrong too.") +
-              " Both models missed this one. This one's yours: INSPECT it " +
-              "and see for yourself.";
+              " Both models missed this one. " +
+              (m.auto && G.micro > 0
+                ? "The site brain is on it - a remote diagnostic is coming. " +
+                  "INSPECT yourself if you want it faster."
+                : "This one's yours: INSPECT it and see for yourself.");
           }
         } else if (!m.pico && watchTarget() === m.id && G.sweepLeft != null && !m.nanoRead) {
           /* the patrol line rides the CLOCK, not the fault - it shows on the
@@ -3316,6 +3397,7 @@
        wrong per the recording, INSPECT is the doctrine's answer, and it
        lights exactly the way a known-kind verb does */
     s.inspect.classList.toggle("is-doctrine", chainMissed(m) && !m.inspected);
+    s.inspect.classList.toggle("is-yours", needsHuman(m));
     s.restart.classList.toggle("is-doctrine", rightVerb === "restart");
     s.clean.classList.toggle("is-doctrine", rightVerb === "clean");
     s.recal.classList.toggle("is-doctrine", rightVerb === "recal");
@@ -4140,6 +4222,9 @@
       verbs: VERBS,
       verbFor: verbFor,
       inspectSecs: INSPECT_SECS,
+      microDiagMult: MICRO_DIAG_MULT,
+      microDiagSpinup: MICRO_DIAG_SPINUP,
+      needsHumanWith: function (state, id) { var s2 = G; G = state; var v = needsHuman(machine(id)); G = s2; return v; },
       inspectWord: INSPECT_WORD,
       serviceCost: SERVICE_COST,
       serviceSecs: SERVICE_SECS,

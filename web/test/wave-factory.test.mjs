@@ -1818,7 +1818,7 @@ test("v32: playtest round-3 fixes - the win card is a pause not a hostage, the t
   /* v34: bumped v32->v34 - the stamp went stale AGAIN across v33 (round 5
      caught it); this lock is the ratchet, so it moves with every round that
      ships behaviour */
-  assert.match(js, /var GAME_BUILD = "playbox v34"/, "which is current");
+  assert.match(js, /var GAME_BUILD = "playbox v35"/, "which is current");
   // Ping guardrails: identity is local, gibberish is filtered with one retry
   assert.match(js, /isIdentityQ\(q\)/, "who-are-you never hits the network");
   assert.match(js, /I'm the radio, not the mind/, "and the canned answer names Ping honestly");
@@ -1851,9 +1851,14 @@ test("v33: a stopped oven cannot be burning - the tape bracket closes", () => {
 });
 
 test("v33: inspection attribution names who looked", () => {
-  assert.ok(/m\.inspectedBy === "unit" \? "the Unit inspected it" : "you inspected it"/.test(js),
+  /* v35: the attribution gained a third inspector - Micro's remote
+     diagnostic - so the two anchors widen; the guarantee (the hold reason
+     credits the ACTUAL inspector, recorded at completion) is unchanged. */
+  assert.ok(/m\.inspectedBy === "unit" \? "the Unit inspected it"/.test(js),
     "the hold reason credits the actual inspector");
-  assert.ok(/m\.inspectedBy = m\.unitInspecting \? "unit" : "you"/.test(js),
+  assert.ok(/m\.inspectedBy === "micro" \? "the site brain's diagnostic found it" : "you inspected it"/.test(js),
+    "including the site brain's diagnostic");
+  assert.ok(/m\.inspectedBy = m\.unitInspecting \? "unit" : m\.microDiag \? "micro" : "you"/.test(js),
     "recorded at the moment the inspection completes");
 });
 
@@ -1929,7 +1934,7 @@ test("v34: the tape stamps the current build", () => {
   const h = loadHook();
   const s = h.freshState();
   const doc = h.buildTapeWith(s);
-  assert.equal(doc.build, "playbox v34", "the tape header names this round");
+  assert.equal(doc.build, "playbox v35", "the tape header names this round");
 });
 
 test("v34: the proof rule is printed where the goal is read", () => {
@@ -1955,4 +1960,84 @@ test("v34: the site board is a strip no lane can reach", () => {
     "full width at the very top, over a grazing bubble edge");
   assert.doesNotMatch(css, /\.clf-siteboard \{[^}]*width: 12\.5rem/,
     "the floating corner panel is gone");
+});
+
+/* ---- v35: less waiting on a person - and louder when it truly is you ---- */
+
+test("v35: Micro runs a remote diagnostic on a fault nobody named", () => {
+  const h = loadHook();
+  const state = h.freshState();
+  state.micro = 1;
+  const oven = state.machines.find((m) => m.id === "oven");
+  oven.auto = true;
+  oven.cond = "stuck";
+  oven.stopped = true;
+  oven.stoppedFor = h.microDiagSpinup + 1;
+  oven.picoRead = { kind: "missed", said: "none" };
+  h.stepWith(state, 0.1);
+  assert.equal(oven.microDiag, true, "the site brain took the look");
+  assert.ok(oven.inspecting > 0, "a diagnostic clock is running");
+  assert.ok(oven.inspecting > h.inspectSecs, "slower than a person on the spot");
+  assert.equal(oven.unitFixed, true, "automation's save, never a person's credit");
+});
+
+test("v35: the diagnostic waits out the spin-up, so a person can beat it", () => {
+  const h = loadHook();
+  const state = h.freshState();
+  state.micro = 1;
+  const oven = state.machines.find((m) => m.id === "oven");
+  oven.auto = true;
+  oven.cond = "stuck";
+  oven.stopped = true;
+  oven.stoppedFor = 1;
+  oven.picoRead = { kind: "missed", said: "none" };
+  h.stepWith(state, 0.1);
+  assert.equal(!!oven.microDiag, false, "a fresh stop is still yours to take first");
+});
+
+test("v35: a finished diagnostic is attributed to the site brain", () => {
+  const h = loadHook();
+  const state = h.freshState();
+  state.micro = 1;
+  const oven = state.machines.find((m) => m.id === "oven");
+  oven.cond = "stuck";
+  oven.microDiag = true;
+  oven.inspecting = 0.05;
+  h.stepWith(state, 0.2);
+  assert.equal(oven.inspected, true);
+  assert.equal(oven.inspectedBy, "micro", "the look is the site brain's");
+  assert.equal(oven.microDiag, false, "and the flag is spent");
+});
+
+test("v35: needsHuman survives only where the ladder truly ends with you", () => {
+  const h = loadHook();
+  const state = h.freshState();
+  const oven = state.machines.find((m) => m.id === "oven");
+  oven.cond = "stuck";
+  oven.stopped = true;
+  oven.picoRead = { kind: "missed", said: "none" };
+  assert.equal(h.needsHumanWith(state, "oven"), true,
+    "no models bought, a stop nobody explains: yours");
+  state.micro = 1; oven.auto = true;
+  assert.equal(h.needsHumanWith(state, "oven"), false,
+    "a site brain on the knob takes it instead");
+  state.micro = 0; oven.auto = false;
+  oven.nanoRead = { kind: "resolved", said: "stuck", margin: 2 };
+  assert.equal(h.needsHumanWith(state, "oven"), false,
+    "a word to act on is not a plea - the verb lights instead");
+});
+
+test("v35: the NEEDS YOU badge and glow ride the one definition", () => {
+  assert.match(js, /clf-yours", "NEEDS YOU/, "the badge exists on the machine");
+  assert.match(js, /s\.yours\.hidden = !needsHuman\(m\)/, "shown only by needsHuman()");
+  assert.match(js, /toggle\("is-yours", needsHuman\(m\)\)/, "and the INSPECT button glows off the same call");
+  assert.match(css, /\.clf-yours\[hidden\] \{ display: none !important; \}/,
+    "with the [hidden] guard (fourth outing of that bug class, pre-empted)");
+});
+
+test("v35: with Micro on the knob the double-miss no longer dead-ends on you", () => {
+  assert.match(js, /The site brain is on it - a remote diagnostic is coming/,
+    "the advice hands off to the diagnostic");
+  assert.match(js, /INSPECT yourself if you want it faster/,
+    "and the person still strictly beats it");
 });
