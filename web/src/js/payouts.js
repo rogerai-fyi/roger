@@ -179,6 +179,7 @@
     loadEarnings();
     loadHistory();
     loadBreakdown();
+    loadTowers();
   });
 
   // ---- the release LADDER. /payouts/earnings carries releases[] - the still-held lots
@@ -213,8 +214,76 @@
 
   function loadEarnings() {
     get("/payouts/earnings").then(function (e) {
-      if (!e) return;
+      if (!e) { towerData.earningsDone = true; reconcileTowerPanel(); return; }
       renderLadder(e.releases);
+      // The serving/relay split rides on the SAME response (tower lots are tagged with a
+      // "tower:" node prefix at settlement). Surface both so an operator can tell the two
+      // revenue streams apart; the panel itself only appears if there is relay activity.
+      towerData.serving = e.serving || 0;
+      towerData.relay = e.tower_relay || 0;
+      text("servingEarn", cr(towerData.serving));
+      text("relayEarn", cr(towerData.relay));
+      towerData.earningsDone = true;
+      reconcileTowerPanel();
+    });
+  }
+
+  // ---- TOWERS: the operator's live relay fleet, from /tower/status (read-only, resolved
+  // from the same browser session). Honest-empty and privacy-scoped: an operator only ever
+  // sees their OWN Towers, and non-operators never see the panel at all. ----
+  var towerData = { earningsDone: false, statusDone: false, serving: 0, relay: 0, count: 0 };
+
+  // Reveal the Towers & relay panel once BOTH the earnings split and the fleet list have
+  // resolved, and only when there is something real to show (relay earnings OR an enrolled
+  // Tower). This keeps the panel invisible for the many operators who only ever serve.
+  function reconcileTowerPanel() {
+    if (!towerData.earningsDone || !towerData.statusDone) return;
+    if (towerData.relay <= 0 && towerData.count <= 0) return;
+    show("towerPanel");
+    if (towerData.count > 0) show("towersTitle");
+    else show("towersEmpty");
+  }
+
+  function towerStatePill(t) {
+    var pill = document.createElement("span");
+    var state = t.state || "unknown";
+    pill.className = "po-tower__state po-tower__state--" + state;
+    pill.textContent = t.may_take_work ? state + " · live" : state;
+    return pill;
+  }
+
+  function towerRow(t) {
+    var el = document.createElement("li");
+    el.className = "po-tower";
+    var left = document.createElement("span");
+    left.className = "r-model po-tower__left";
+    var name = document.createElement("b");
+    name.textContent = t.tower_id || "tower";
+    var meta = document.createElement("span");
+    meta.className = "po-tower__meta";
+    var n = (t.routable || []).length;
+    var bits = [t.link_live ? "link live" : "link down",
+                n + (n === 1 ? " station" : " stations") + " routable"];
+    if (t.lease_expires) bits.push("lease " + rel(t.lease_expires));
+    meta.textContent = bits.join(" · ");
+    left.appendChild(name);
+    left.appendChild(meta);
+    el.appendChild(left);
+    el.appendChild(towerStatePill(t));
+    return el;
+  }
+
+  function loadTowers() {
+    get("/tower/status").then(function (res) {
+      var towers = (res && res.towers) || [];
+      towerData.count = towers.length;
+      if (towers.length) {
+        var ul = document.getElementById("towers");
+        towers.forEach(function (t) { if (ul) ul.appendChild(towerRow(t)); });
+        show("towers");
+      }
+      towerData.statusDone = true;
+      reconcileTowerPanel();
     });
   }
 

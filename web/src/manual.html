@@ -104,6 +104,7 @@
             <li><a href="#s3"><span class="man-toc__no">§3</span>Tune in</a></li>
             <li><a href="#sPlay"><span class="man-toc__no">§P</span>Playbox</a></li>
             <li><a href="#s4"><span class="man-toc__no">§4</span>Go on air</a></li>
+            <li><a href="#sTower"><span class="man-toc__no">§T</span>Run a Tower</a></li>
             <li><a href="#sV"><span class="man-toc__no">§V</span>Voices</a></li>
             <li><a href="#s5"><span class="man-toc__no">§5</span>Private channels</a></li>
             <li><a href="#s6"><span class="man-toc__no">§6</span>Wallet &amp; billing</a></li>
@@ -582,6 +583,84 @@
               <code>--region</code>, <code>--parallel</code>, <code>--upstream</code>,
               <code>--ctx</code>, <code>--confidential</code>, <code>--free-window</code>,
               and <code>--schedule</code>.</p>
+          </section>
+
+          <!-- ============== §T RUN A TOWER ============== -->
+          <section class="man-sec" id="sTower">
+            <span class="man-sec__no">§T · Run a Tower (relay)</span>
+            <h2>Run a Tower</h2>
+            <p class="man-lead">A <b>Tower</b> is the relay every Station dials out to - the
+              thing the API and the manual call the <b>broker</b>. Running one puts a relay on
+              the network that carries traffic to Stations. It runs <b>no model</b> and holds
+              <b>no model keys</b>: it forwards opaque, encrypted work. The concept page is
+              <a href="/tower.html">The Tower</a>.</p>
+            <div class="man-note">
+              <span class="man-note__tag">earning: rolling out</span>
+              Paying Tower operators is designed and partly built - the metered relay path, the
+              signed-receipt settlement, and the earnings ledger that feeds
+              <a href="/payouts.html">Payouts &rarr; Towers &amp; relay</a> all exist. But it is
+              <b>not live for you yet</b>: today's relayed overflow traffic is carried free, and
+              the payout rail for relay earnings is the last milestone still being wired. Run a
+              Tower now to put your relay on the network and attach Stations; treat relay
+              <b>earnings as not-yet-live</b> until we say otherwise.
+            </div>
+
+            <div class="man-note man-note--live">
+              <span class="man-note__tag">Linux only</span>
+              A Tower is a long-running relay, so it ships for Linux (<code>amd64</code> ·
+              <code>arm64</code>) only - by design, not omission. macOS and Windows machines
+              run the <a href="#s4">Station</a> (serve a model) or the client, not a Tower.
+            </div>
+
+            <h3>Install</h3>
+            <p>One line, same installer as the client with the Tower component selected. It
+              verifies the release checksum and installs <code>roger-tower</code> to
+              <code>~/.local/bin</code>.</p>
+            <pre><span class="p">$</span> curl -fsSL https://rogerai.fm/install.sh | ROGERAI_COMPONENT=tower sh</pre>
+
+            <h3>Download a binary (advanced / air-gapped)</h3>
+            <p>Prefer to fetch and place the binary yourself? Pull it straight from the latest
+              release and verify it against the published checksums before you run it.</p>
+            <div class="man-plate">
+              <div class="man-plate__row"><span class="man-plate__k">Linux amd64</span><span class="man-plate__v"><a href="https://github.com/rogerai-fyi/roger/releases/latest/download/roger-tower-linux-amd64">roger-tower-linux-amd64 &darr;</a></span></div>
+              <div class="man-plate__row"><span class="man-plate__k">Linux arm64</span><span class="man-plate__v"><a href="https://github.com/rogerai-fyi/roger/releases/latest/download/roger-tower-linux-arm64">roger-tower-linux-arm64 &darr;</a></span></div>
+              <div class="man-plate__row"><span class="man-plate__k">Checksums</span><span class="man-plate__v"><a href="https://github.com/rogerai-fyi/roger/releases/latest/download/checksums.txt">checksums.txt</a> - verify with <code>sha256sum -c</code>, then <code>chmod +x</code> and move onto your <code>PATH</code></span></div>
+              <div class="man-plate__row"><span class="man-plate__k">All releases</span><span class="man-plate__v"><a href="https://github.com/rogerai-fyi/roger/releases">github.com/rogerai-fyi/roger/releases</a></span></div>
+            </div>
+
+            <h3>Bring it up</h3>
+            <p>Initialize state, run the pre-flight, then enroll against the network. Enrolling
+              is a signed act tied to your account (<code>roger-tower login</code> first), because
+              putting a relay on the network under your name is an account decision.</p>
+            <pre><span class="p">$</span> roger-tower login                                  <span class="c"># sign in - same account as the website</span>
+<span class="p">$</span> roger-tower init --dir /var/lib/roger-tower       <span class="c"># create keys + local state</span>
+<span class="p">$</span> roger-tower doctor                                 <span class="c"># pre-flight: config, reachability, clock</span>
+<span class="p">$</span> roger-tower register                               <span class="c"># enroll this Tower against the broker</span>
+<span class="p">$</span> roger-tower status                                 <span class="c"># admission state, lease, attached Stations</span></pre>
+            <p>Attach the Stations that will serve behind your Tower with
+              <code>invite</code> &rarr; <code>admit</code> &rarr; <code>attach</code>, then
+              <code>route</code> to see what Core will send where. <code>roger-tower --help</code>
+              lists every command (<code>drain</code>, <code>resume</code>, <code>revoke</code>,
+              <code>probe</code>, <code>stations</code>).</p>
+
+            <h3>Run it as a service</h3>
+            <p>A hardened <code>systemd</code> unit ships in the repo under
+              <code>packaging/tower/</code> (dynamic user, <code>ProtectSystem=strict</code>, a
+              dedicated state directory). Install the unit, drop your config in place, and
+              <code>systemctl enable --now roger-tower</code> so the relay comes back on boot.
+              Follow <code>packaging/tower/README.md</code> for the exact steps and the current
+              service status.</p>
+
+            <div class="man-note man-note--live">
+              <span class="man-note__tag">where it will show</span>
+              When relay earning goes live, what your Tower relays and earns appears in
+              <a href="/payouts.html">Payouts &rarr; Towers &amp; relay</a> - the serving vs
+              relaying split, your fleet's state, and the held &rarr; payable &rarr; paid
+              pipeline, keyed to your account. That surface already shows your fleet today; the
+              relay earnings figures fill in once the path is live. Payouts themselves work for
+              any sign-in (GitHub, Apple, or email) once you finish Stripe Connect onboarding
+              (§7).
+            </div>
           </section>
 
           <!-- ============== §V VOICES ============== -->

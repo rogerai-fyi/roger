@@ -33,8 +33,8 @@
         <b>Tower</b> - a relay operator who provides network reach and bandwidth so a node need
         not connect to us directly. A Tower cannot read the content it relays. When your request
         is served through a Tower, it is billed to your wallet exactly like any other request
-        (section 7), and the Tower operator earns a share of the platform fee for the traffic they
-        carried (section 8). <b>Tower-relayed inference requires a signed-in account</b> - see
+        (section 7), and the Tower operator earns a share of the request for the traffic they
+        carried, paid out of RogerAI's platform fee (section 8). <b>Tower-relayed inference requires a signed-in account</b> - see
         section 7.</p>
     </section>
 
@@ -177,11 +177,12 @@
         (section 11). We may change the fee for future usage with notice; the fee in effect when
         a request is served governs that request's earning.</p>
       <p><b>Tower operators.</b> When a request is relayed to a node through a Tower (section 1),
-        the Tower operator earns a <b>revenue share of the platform fee</b> for that request -
-        initially <b>10% of RogerAI's fee</b> - as compensation for the network reach and bandwidth
-        they provided. This share comes out of RogerAI's platform fee, not the serving node's
-        earning or your metered cost: the consumer pays the same, the node earns the same, and
-        RogerAI keeps the remainder of its fee. A Tower operator's earning moves through the same
+        the Tower operator earns a <b>revenue share of that request</b> - initially <b>10% of the
+        metered cost</b> - as compensation for the network reach and bandwidth they provided. This
+        share comes out of RogerAI's platform fee (RogerAI keeps <b>20%</b> of a relayed request
+        instead of 30%), not the serving node's <b>70%</b> earning or your metered cost: the
+        consumer pays the same and the node earns the same whether or not a Tower carried the
+        traffic. A Tower operator's earning moves through the same
         lifecycle, hold, payout, and clawback rules as a node operator's, and requires the same
         Stripe Connect onboarding and KYC before any payout. We may change the Tower revenue-share
         rate for future usage with notice; the rate in effect when a request is served governs

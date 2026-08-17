@@ -99,6 +99,32 @@
       <p class="fine" id="breakdownEmpty" hidden>No served traffic in this window yet.</p>
     </section>
 
+    <!-- ============ TOWERS & RELAY: shown only to operators who run Towers ============ -->
+    <section class="panel" id="towerPanel" hidden>
+      <h2>Towers &amp; relay</h2>
+      <p class="fine">Your Towers and the traffic they relay to Stations. Paying operators for
+        relayed traffic is <a href="/manual.html#sTower">still rolling out</a> - your fleet shows
+        here today and the relay figures fill in once that path is live. Serving earnings are live now.</p>
+
+      <dl class="po-legend">
+        <div class="po-legend__row">
+          <dt><span class="po-dot po-dot--paid"></span>From serving</dt>
+          <dd id="servingEarn">-</dd>
+          <span class="po-legend__note">your Stations ran the model</span>
+        </div>
+        <div class="po-legend__row">
+          <dt><span class="po-dot po-dot--payable"></span>From relaying</dt>
+          <dd id="relayEarn">-</dd>
+          <span class="po-legend__note">your Towers carried the traffic</span>
+        </div>
+      </dl>
+
+      <p class="fine po-towers__title" id="towersTitle" hidden>Your Towers</p>
+      <ul class="recent po-towers" id="towers"></ul>
+      <p class="fine" id="towersEmpty" hidden>No Towers on the network right now.
+        <a href="/manual.html#sTower">Run a Tower</a> on a Linux machine to relay traffic to Stations.</p>
+    </section>
+
     <!-- ============ GET PAID ============ -->
     <section class="panel">
       <h2>Get paid</h2>
