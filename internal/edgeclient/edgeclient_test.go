@@ -284,7 +284,7 @@ func TestOptionalFieldsAreHonoured(t *testing.T) {
 		reached = true
 		return &http.Response{StatusCode: 200, Body: nopCloser([]byte(`{"attempt_id":"a","grant":"g","relay_name":"n","endpoint":"e"}`)), Header: http.Header{}}, nil
 	})
-	c := &Client{Broker: "http://core", Key: mustKey(t), HTTP: &http.Client{Transport: rt}, Network: "roger-private"}
+	c := &Client{Broker: "http://localhost", Key: mustKey(t), HTTP: &http.Client{Transport: rt}, Network: "roger-private"}
 	require.Equal(t, "roger-private", c.network())
 	_, err := c.Authorize(context.Background(), "m", 1, 1)
 	require.NoError(t, err)
@@ -312,7 +312,7 @@ func TestAPlainErrorBodyStillReportsTheStatus(t *testing.T) {
 	rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: 500, Body: nopCloser([]byte("boom")), Header: http.Header{}}, nil
 	})
-	c := &Client{Broker: "http://core", Key: mustKey(t), HTTP: &http.Client{Transport: rt}}
+	c := &Client{Broker: "http://localhost", Key: mustKey(t), HTTP: &http.Client{Transport: rt}}
 	err := c.signedPost(context.Background(), "/x", []byte("{}"), nil)
 	require.ErrorContains(t, err, "500")
 }
@@ -341,7 +341,7 @@ func TestAnUnreadableAuthorizationReplyIsAnError(t *testing.T) {
 	rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: 200, Body: nopCloser([]byte("{not json")), Header: http.Header{}}, nil
 	})
-	c := &Client{Broker: "http://core", Key: mustKey(t), HTTP: &http.Client{Transport: rt}}
+	c := &Client{Broker: "http://localhost", Key: mustKey(t), HTTP: &http.Client{Transport: rt}}
 	_, err := c.Authorize(context.Background(), "m", 1, 1)
 	require.ErrorContains(t, err, "could not read")
 }

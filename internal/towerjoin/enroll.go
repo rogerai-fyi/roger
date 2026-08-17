@@ -35,6 +35,7 @@ import (
 	"time"
 
 	"rogerai.fm/roger/v5/internal/client"
+	"rogerai.fm/roger/v5/internal/protocol"
 	"rogerai.fm/roger/v5/internal/tower"
 )
 
@@ -201,6 +202,11 @@ func requestChallenge(broker string, identity ed25519.PrivateKey, token string) 
 // identity key. They are different proofs: this one says who is asking, and the challenge
 // signature inside the body says which machine.
 func signedPost(url string, _ ed25519.PrivateKey, body []byte, out any) error {
+	// Every operator call carries or receives trust material (tokens, registrations,
+	// certificates), so the transport guard applies here once rather than per call site.
+	if err := protocol.TrustedBase(url); err != nil {
+		return err
+	}
 	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return err
@@ -273,6 +279,9 @@ func brokerBase() string {
 // a POST produces a valid-looking request the server refuses for reasons that have nothing
 // to do with what the operator asked.
 func signedGet(url string, out any) error {
+	if err := protocol.TrustedBase(url); err != nil {
+		return err
+	}
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		return err

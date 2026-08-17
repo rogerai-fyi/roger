@@ -119,7 +119,7 @@ func AttachTower(cfg Config, priv ed25519.PrivateKey, dir string) (*station.Stat
 	req.Header.Set(protocol.HeaderPubkey, pub)
 	req.Header.Set(protocol.HeaderTS, fmt.Sprintf("%d", ts))
 	req.Header.Set(protocol.HeaderSig, sig)
-	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+	resp, err := (&http.Client{Timeout: 30 * time.Second, CheckRedirect: protocol.NoDowngradeRedirect}).Do(req)
 	if err != nil {
 		return nil, TowerAttachment{}, err
 	}
@@ -143,7 +143,7 @@ func fetchCoreGrantKey(broker string) ([]byte, error) {
 	if err := protocol.TrustedBase(broker); err != nil {
 		return nil, err
 	}
-	resp, err := (&http.Client{Timeout: 20 * time.Second}).Get(broker + "/tower/dispatch/key")
+	resp, err := (&http.Client{Timeout: 20 * time.Second, CheckRedirect: protocol.NoDowngradeRedirect}).Get(broker + "/tower/dispatch/key")
 	if err != nil {
 		return nil, err
 	}

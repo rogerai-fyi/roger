@@ -8,9 +8,9 @@ import "testing"
 func TestTrustedBase(t *testing.T) {
 	ok := []string{
 		"https://broker.rogerai.fm",
+		"HTTPS://broker.rogerai.fm", // url.Parse lowercases the scheme
 		"http://127.0.0.1:8080",
 		"http://localhost:9999",
-		"http://dev.localhost:9999",
 		"http://[::1]:8080",
 	}
 	for _, base := range ok {
@@ -21,6 +21,8 @@ func TestTrustedBase(t *testing.T) {
 	bad := []string{
 		"http://broker.rogerai.fm",
 		"http://10.0.0.5:8080",
+		"http://dev.localhost:9999", // *.localhost loopback is a resolver convention, not a guarantee
+		"broker.rogerai.fm:443",     // scheme-less: fails closed
 		"ftp://broker.rogerai.fm",
 		"://not-a-url",
 	}

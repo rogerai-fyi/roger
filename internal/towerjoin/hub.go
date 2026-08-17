@@ -30,7 +30,7 @@ func DispatchKey() (ed25519.PublicKey, error) {
 	if err := protocol.TrustedBase(base); err != nil {
 		return nil, err
 	}
-	client := &http.Client{Timeout: 20 * time.Second}
+	client := &http.Client{Timeout: 20 * time.Second, CheckRedirect: protocol.NoDowngradeRedirect}
 	resp, err := client.Get(base + "/tower/dispatch/key")
 	if err != nil {
 		return nil, err
@@ -80,6 +80,11 @@ func HubNodes(st *tower.State) ([]HubNode, error) {
 // TOWER (its own signed request - the same authentication the byte-path courier uses). The
 // receipt is opaque to the tower; Core verifies it against the station's recorded key. A 409
 // means the attempt already settled - a retry or a race, both fine.
+// ErrSettlePermanent marks a Core refusal retrying cannot fix - a 4xx other than the 409
+// already-settled answer. A courier should abandon (loudly) rather than hammer Core with a
+// receipt it has already judged invalid.
+var ErrSettlePermanent = errors.New("roger core refused this receipt permanently")
+
 func SettleEdgeReceipt(st *tower.State, stationID, attemptID string, receipt []byte) error {
 	body, err := json.Marshal(map[string]string{
 		"tower_id":   st.TowerID,
@@ -91,8 +96,11 @@ func SettleEdgeReceipt(st *tower.State, stationID, attemptID string, receipt []b
 		return err
 	}
 	status, err := towerPostStatus(st, "/tower/edge/settle", body, nil, nil)
-	if err != nil && status != http.StatusConflict {
-		return err
+	if err == nil || status == http.StatusConflict {
+		return nil
 	}
-	return nil
+	if status >= 400 && status < 500 {
+		return fmt.Errorf("%w: %v", ErrSettlePermanent, err)
+	}
+	return err
 }

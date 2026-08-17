@@ -266,5 +266,17 @@ func (s *Server) Complete(w http.ResponseWriter, r *http.Request) {
 	if s.OnComplete != nil && len(rec) > 0 && carried {
 		go s.OnComplete(req.StationID, res)
 	}
+	if len(rec) > 0 && !carried {
+		// HONEST ANSWER (audit H-2): a receipt for an attempt this hub has no record of
+		// handing out - a fabrication, or a hub that restarted between Poll and Complete -
+		// is accepted but NOT couriered, and a plain 200 would tell the node its pay is on
+		// its way when it is not. 202 lets an honest node's serve loop log the risk loudly.
+		writeJSON(w, http.StatusAccepted, map[string]any{
+			"carried": false,
+			"note": "this hub has no dispatch record for that attempt - the receipt was not " +
+				"forwarded for settlement (a fabricated id, or the hub restarted mid-job)",
+		})
+		return
+	}
 	w.WriteHeader(http.StatusOK)
 }

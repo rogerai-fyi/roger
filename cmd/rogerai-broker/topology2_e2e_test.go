@@ -16,7 +16,6 @@ import (
 	"context"
 	"crypto/ed25519"
 	"encoding/base64"
-	"encoding/hex"
 	"fmt"
 	"io"
 	"net"
@@ -28,8 +27,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"rogerai.fm/roger/v5/internal/agent"
+	"rogerai.fm/roger/v5/internal/edgeclient"
 	"rogerai.fm/roger/v5/internal/towercore/dispatch"
-	"rogerai.fm/roger/v5/internal/towercore/envelope"
 	"rogerai.fm/roger/v5/internal/towercore/link"
 	"rogerai.fm/roger/v5/internal/towerhub"
 )
@@ -67,13 +66,18 @@ func TestFullProductLoopANodeEarnsThroughATower(t *testing.T) {
 		att, station, _, gerr := dispatch.EdgeGrantMeta(grant, b.tower.dispatchPub, link.PublicNetwork, tw.id, time.Now())
 		return att, station, gerr
 	}, 10*time.Second, 500*time.Millisecond)
+	settleOut := make(chan map[string]any, 1)
 	hubServer.OnComplete = func(stationID string, res towerhub.Result) {
+		// The ack grace, as roger-tower's courier holds it: the consumer's acknowledgement
+		// gets a head start on the receipt, so the settlement it corroborates is corroborated.
+		time.Sleep(750 * time.Millisecond)
 		body := map[string]any{
 			"tower_id": tw.id, "station_id": stationID, "attempt_id": res.AttemptID,
 			"receipt": base64.StdEncoding.EncodeToString(res.Receipt),
 		}
 		var out map[string]any
 		tw.call(t, srv, "/tower/edge/settle", jsonOf(t, body), &out) // 200 or 409, both fine
+		settleOut <- out
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc(towerhub.PathSubmit, hubServer.Submit)
@@ -107,45 +111,37 @@ func TestFullProductLoopANodeEarnsThroughATower(t *testing.T) {
 		return true
 	}, 10*time.Second, 50*time.Millisecond, "the node self-attaches and the hub registers it")
 
-	// THE CONSUMER: authorize at Core with a sealing key; Core pins the node's listed price
-	// into the grant and hands back the station's session key.
+	// THE CONSUMER: the first-party edgeclient, end to end - authorize (Core pins the node's
+	// listed price and hands back the station's session key), seal, submit to the TOWER, open,
+	// and acknowledge. This is the P5e client path, dogfooded.
 	consumer := signedInConsumer(t, b)
 	consWallet, ok := b.edgeConsumerWallet(consumer.Public().(ed25519.PublicKey))
 	require.True(t, ok, "the consumer's account wallet resolves")
 	balBefore, err := b.db.BalanceOf(consWallet, 0)
 	require.NoError(t, err)
-	consEnvPub, consEnvPriv, err := envelope.NewKey()
-	require.NoError(t, err)
-	code, auth := consumerCall(t, srv, consumer, "/tower/edge/authorize", map[string]any{
-		"model": "my-model", "consumer_env_key": hex.EncodeToString(consEnvPub),
-	})
-	require.Equal(t, http.StatusOK, code, auth)
-	require.EqualValues(t, 300_000, auth["price_out_micros"], "the grant pins the node's own listed price")
-	attemptID, _ := auth["attempt_id"].(string)
-	grantRaw, err := base64.StdEncoding.DecodeString(auth["grant"].(string))
-	require.NoError(t, err)
-	sessionKey, err := hex.DecodeString(auth["station_session_key"].(string))
-	require.NoError(t, err)
-
-	// Seal the request to the NODE (Core handed us its key; the tower never chooses it),
-	// submit to the TOWER, and open the sealed answer.
-	plaintext := []byte(`{"model":"my-model","messages":[{"role":"user","content":"what is the answer"}]}`)
-	sealedReq, err := envelope.SealTo(sessionKey, plaintext, attemptID)
-	require.NoError(t, err)
-	sealedRaw, err := sealedReq.Marshal()
-	require.NoError(t, err)
-
-	hubClient := &towerhub.Client{BaseURL: "http://" + endpoint, HTTP: &http.Client{Timeout: 15 * time.Second}}
-	sctx, sc := context.WithTimeout(context.Background(), 15*time.Second)
+	ec := &edgeclient.Client{Broker: srv.URL, Key: consumer}
+	sctx, sc := context.WithTimeout(context.Background(), 20*time.Second)
 	defer sc()
-	res, err := hubClient.SubmitJob(sctx, grantRaw, sealedRaw)
+	auth, err := ec.AuthorizeSealed(sctx, "my-model")
 	require.NoError(t, err)
-	require.Empty(t, res.Failure)
-	sealedRes, err := envelope.Parse(res.Envelope)
+	require.EqualValues(t, 300_000, auth.PriceOutMicros, "the grant pins the node's own listed price")
+
+	plaintext := []byte(`{"model":"my-model","messages":[{"role":"user","content":"what is the answer"}]}`)
+	res, err := ec.DoSealed(sctx, auth, plaintext)
 	require.NoError(t, err)
-	answer, err := envelope.OpenWith(consEnvPriv, sealedRes, attemptID)
-	require.NoError(t, err)
-	require.Equal(t, []byte(modelBody), answer, "the consumer gets the model's own bytes, unreadable to the tower in transit")
+	require.Equal(t, http.StatusOK, res.Status)
+	require.Equal(t, []byte(modelBody), res.Body, "the consumer gets the model's own bytes, unreadable to the tower in transit")
+	require.NoError(t, ec.AckSealed(sctx, auth, res), "the acknowledgement lands")
+
+	// The courier's ack grace means the acknowledgement beat the receipt to Core: this
+	// settlement is CORROBORATED - the consumer's own signed account of the bytes agrees
+	// with the node's, and the tower's judged rate reflects it.
+	select {
+	case out := <-settleOut:
+		require.Equal(t, true, out["corroborated"], "the ack beat the receipt: corroborated, not merely funded (%v)", out)
+	case <-time.After(15 * time.Second):
+		t.Fatal("the settle courier never reported")
+	}
 
 	// THE MONEY: the courier settles, and the split lands - 500k tokens x $0.30/1M = 0.15
 	// credits: node owner 0.105 (70%), tower operator 0.015 (10%), consumer debited 0.15.

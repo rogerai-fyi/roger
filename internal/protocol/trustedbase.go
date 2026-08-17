@@ -11,9 +11,9 @@ package protocol
 import (
 	"fmt"
 	"net"
+	"net/http"
 	"net/url"
 	"os"
-	"strings"
 )
 
 // InsecureHTTPEnv is the explicit opt-in for a plaintext, non-loopback broker base.
@@ -31,7 +31,9 @@ func TrustedBase(base string) error {
 		return nil
 	case "http":
 		host := u.Hostname()
-		if host == "localhost" || strings.HasSuffix(host, ".localhost") {
+		// Exactly "localhost" - NOT "*.localhost", whose loopback resolution is a resolver
+		// convention (RFC 6761) an attacker-controlled DNS need not honor.
+		if host == "localhost" {
 			return nil
 		}
 		if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
@@ -44,4 +46,10 @@ func TrustedBase(base string) error {
 	default:
 		return fmt.Errorf("broker base %q: unsupported scheme %q", base, u.Scheme)
 	}
+}
+
+// NoDowngradeRedirect is an http.Client CheckRedirect that re-applies TrustedBase to every
+// hop, so an https base cannot be 30x'ed onto plaintext after the initial check passed.
+func NoDowngradeRedirect(req *http.Request, _ []*http.Request) error {
+	return TrustedBase(req.URL.Scheme + "://" + req.URL.Host)
 }

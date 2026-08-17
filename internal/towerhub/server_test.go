@@ -219,12 +219,14 @@ func TestOnCompleteFiresOnlyForDispatchedAttempts(t *testing.T) {
 	fired := make(chan string, 4)
 	s.OnComplete = func(_ string, res Result) { fired <- res.AttemptID }
 
-	// A fabricated completion: the hub never dispatched "made-up".
+	// A fabricated completion: the hub never dispatched "made-up". Answered 202, not 200 -
+	// the receipt was NOT couriered, and an honest node deserves to hear that loudly (a hub
+	// restart mid-job produces the same shape).
 	resp, _ := postJSON(t, srv.URL+"/complete", "tok", map[string]string{
 		"attempt_id": "made-up", "station_id": "st1",
 		"receipt": base64.StdEncoding.EncodeToString([]byte("forged")),
 	})
-	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.Equal(t, http.StatusAccepted, resp.StatusCode)
 
 	// A REAL round trip: submit -> poll (records the dispatch) -> complete.
 	go func() {

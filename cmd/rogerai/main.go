@@ -1274,6 +1274,11 @@ needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
 		fmt.Println("confidential: SEV-SNP device present - generating a real attestation quote at registration; the broker verifies it (signature chain + nonce binding + allowlisted launch measurement) before granting the ◆ badge.")
 	}
 
+	if *towerServe && *private {
+		// Checked BEFORE the private-mode banner prints anything: a refused combination must
+		// not first announce a private share that is not going to happen.
+		return fmt.Errorf("--tower and --private cannot be combined yet: a tower share is publicly routable")
+	}
 	if *private {
 		// A private band requires login (the broker 401s an anonymous private register).
 		// Fail clearly here rather than after a detection/upstream probe.
@@ -1320,9 +1325,6 @@ needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
 	// at a tower's hub. Self-attach at the listed price; Core assigns the tower; settlement
 	// pays this node 70% of ITS OWN price, the tower 10%, the platform 20%.
 	if *towerServe {
-		if *private {
-			return fmt.Errorf("--tower and --private cannot be combined yet: a tower share is publicly routable")
-		}
 		if client.LinkedLogin() == "" {
 			return fmt.Errorf("`--tower` needs a linked owner - run `roger login` first")
 		}
@@ -1332,7 +1334,9 @@ needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
 		}
 		tctx, tcancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer tcancel()
-		fmt.Println(onAirLine(mdl, station, *priceIn, *priceOut, false))
+		// No "on air" line HERE: nothing has attached yet, and the tower path serves under
+		// its own station identity, not the share callsign. ServeTower prints the one
+		// truthful line - "attached as <station> via <tower>" - after the attach succeeds.
 		fmt.Println(earningsLine())
 		return agent.ServeTower(tctx, cfgRun, agent.NodeKey(), filepath.Join(confDir, "rogerai"), os.Stdout)
 	}

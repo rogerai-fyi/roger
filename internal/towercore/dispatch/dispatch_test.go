@@ -447,7 +447,9 @@ func TestSigningAReceiptNeedsARealKey(t *testing.T) {
 	g, err := r.Issue(target(stPub), []byte(`x`))
 	require.NoError(t, err)
 
-	require.Panics(t, func() { _, _ = SignReceipt(ed25519.PrivateKey("short"), network, g, []byte(`r`), []byte(`a`), Usage{}, Usage{}) },
+	require.Panics(t, func() {
+		_, _ = SignReceipt(ed25519.PrivateKey("short"), network, g, []byte(`r`), []byte(`a`), Usage{}, Usage{})
+	},
 		"ed25519 panics on a malformed key; catching it here names the cause")
 }
 

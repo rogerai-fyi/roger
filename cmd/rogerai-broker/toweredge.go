@@ -813,11 +813,29 @@ func (b *broker) towerEdgeSettle(w http.ResponseWriter, r *http.Request) {
 	}
 	// The attempt chain hears about it AFTER the store's answer is final, mirroring the
 	// relayed path: evidence first, then the settlement commitment.
+	//
+	// TOPOLOGY-2 CATCH-UP first: on the hub path Core is BLIND between authorize and this
+	// receipt - there is no relay lease acceptance or grant claim for it to observe, so the
+	// attempt is still `issued` here and the evidence event would be refused (the spec's
+	// exhaustive table deliberately has no issued->settled shortcut). The tower-forwarded,
+	// station-signed receipt IS the first proof the grant was accepted for dispatch on its
+	// bound session, so the chain walks the spec's own rows: dispatch accepted, then the
+	// evidence, then the settlement.
+	if ts.attempts != nil {
+		if state, _, ok, serr := ts.attempts.State(req.AttemptID); serr == nil && ok && state == attempt.StateIssued {
+			b.noteAttempt(req.AttemptID, attempt.Observation{
+				Kind: attempt.KindDispatchAccepted, EvidenceHash: receipt.ResponseDigest,
+			})
+		}
+	}
 	b.noteAttempt(req.AttemptID, attempt.Observation{
 		Kind: attempt.KindEvidenceObserved, EvidenceHash: receipt.ResponseDigest,
 	})
+	// Settled is terminal, and a terminal event records why it ended (the ledger refuses it
+	// otherwise - the relayed path's "settled uncompensated" is the same rule).
 	b.noteAttempt(req.AttemptID, attempt.Observation{
 		Kind: attempt.KindSettlementCommitted, EvidenceHash: receipt.ResponseDigest,
+		Reason: "settled",
 	})
 	// AND THE REPUTATION LEDGER, so the RATE this Tower is judged on reflects this attempt.
 	// The outcome is a fact about what settled; whether the rate warrants action is decided

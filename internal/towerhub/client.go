@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -139,11 +140,23 @@ func (c *Client) CompleteResult(ctx context.Context, station string, res Result)
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode == http.StatusAccepted {
+		// The hub took the result but has no dispatch record, so the receipt was NOT couriered
+		// for settlement (audit H-2: typically a hub restart between poll and complete). The
+		// work is done and delivered where possible - but the pay is at risk, and the caller
+		// deserves to know loudly rather than see a quiet 200.
+		return ErrNotCarried
+	}
 	if resp.StatusCode != http.StatusOK {
 		return &HTTPError{Status: resp.StatusCode, Body: string(raw)}
 	}
 	return nil
 }
+
+// ErrNotCarried reports a completion the hub accepted but did not courier for settlement -
+// the serving node's receipt did not start its ride to Core.
+var ErrNotCarried = errors.New("the hub accepted this completion but did not forward the receipt for settlement " +
+	"(no dispatch record - likely a hub restart mid-job); this attempt's pay is at risk")
 
 // HTTPError carries a non-2xx status from the hub so callers can branch on it.
 type HTTPError struct {

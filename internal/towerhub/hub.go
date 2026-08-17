@@ -131,6 +131,13 @@ func (h *Hub) Unregister(stationID string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	delete(h.stations, stationID)
+	// Its dispatch records go with it: an unregistered node's token no longer authenticates
+	// a Complete, so the records could only linger as dead weight on a quiet tower.
+	for id, d := range h.dispatched {
+		if d.station == stationID {
+			delete(h.dispatched, id)
+		}
+	}
 }
 
 // Submit enqueues a job for its Station and blocks until the serving node Completes it or ctx
@@ -225,12 +232,21 @@ func (h *Hub) Poll(ctx context.Context, stationID string) (Job, bool) {
 }
 
 // Dispatched reports whether this hub handed the attempt to the given Station and the record
-// has not aged out - the gate on the settle courier.
+// has not aged out - the gate on the settle courier. An expired record encountered here is
+// deleted on the spot, so a tower that goes quiet does not carry the last busy window's
+// records forever (Poll's sweep only runs while jobs still flow).
 func (h *Hub) Dispatched(attemptID, stationID string) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	d, ok := h.dispatched[attemptID]
-	return ok && d.station == stationID && time.Now().Before(d.expires)
+	if !ok {
+		return false
+	}
+	if !time.Now().Before(d.expires) {
+		delete(h.dispatched, attemptID)
+		return false
+	}
+	return d.station == stationID
 }
 
 // Complete delivers a node's result to the waiting submitter. stationID is the Station the

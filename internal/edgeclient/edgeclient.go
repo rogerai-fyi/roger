@@ -211,6 +211,12 @@ func (c *Client) Ack(ctx context.Context, auth Authorization, res Result) error 
 
 // signedPost is the control-plane call, signed with the consumer's key.
 func (c *Client) signedPost(ctx context.Context, path string, body []byte, out any) error {
+	// Authorize hands back the STATION SESSION KEY - what the consumer seals its plaintext
+	// to - so the transport delivering it must be trusted (audit M-3): over plaintext http a
+	// MITM could substitute its own key and read every prompt.
+	if err := protocol.TrustedBase(c.Broker); err != nil {
+		return err
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		strings.TrimRight(c.Broker, "/")+path, bytes.NewReader(body))
 	if err != nil {
