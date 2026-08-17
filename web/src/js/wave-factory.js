@@ -65,7 +65,31 @@
     ],
   };
 
-  var MODEL_PRICE = { pico: 50, nano: 120, micro: 260, giga: 500 };
+  /* GIGA PRICING (v32, founder: "lets make Wave Giga cheaper to obtain,
+     maybe just 100 more than Micro"). Giga is the plant's one coordinated
+     mind AND the Unit AND auto-inspection - the endgame purchase should be
+     reachable, not a grind wall. Micro stays the budget stepping stone. */
+  var MODEL_PRICE = { pico: 50, nano: 120, micro: 260, giga: 360 };
+
+  /* MK BALANCE CANON (v32, founder: "upgraded machinery should fail less
+     or take less time to inspect/restart etc... fully upgraded machinery
+     should take less human need"). Better iron IS more reliable and easier
+     to work on: per-Mk multipliers on how often a sensor faults and how
+     long every maintenance verb takes (inspect, restart, clean, recal,
+     service). Mk I is the baseline the early game teaches on; contract 1
+     is all Mk I, so the taught opening is untouched. Surfaced in the shop
+     rows and the maintenance card - a buyer should know what reliability
+     they are buying. */
+  /* The Mk III interval multiplier is 4.0 BY MEASUREMENT, not vibes: the
+     proof-run bots (test file) drove a full Mk III automated plant with
+     auto-inspect live; at x1.7 and x3.0 no honest uptime bar cleared a
+     majority of 3-minute windows - x4.0 is where a majority clears 80% on
+     every seed while an all-Mk-I plant still fails every window. */
+  var MK_FAULT_MULT = [1.0, 1.5, 4.0];   // fault interval multiplier per Mk
+  var MK_VERB_MULT = [1.0, 0.8, 0.6];    // verb duration multiplier per Mk
+  function mkFaultMult(m) { return MK_FAULT_MULT[m.tier] || 1; }
+  function mkVerbMult(m) { return MK_VERB_MULT[m.tier] || 1; }
+  function verbSecsFor(m, secs) { return Math.round(secs * mkVerbMult(m) * 10) / 10; }
   /* THE ACTION LADDER (founder direction, v24; grown to a full vocabulary in
      v25 - "other ways we can try to fix the problem without service first").
      In cost order:
@@ -155,7 +179,11 @@
     railed: "the reading is pinned at its limit - that is hardware. Only SERVICE fixes a railed sensor.",
   };
   var HEALTHY_WINDOW = 7;        // seconds between healthy-window redraws
-  var GIGA_STEPS_PER_SEC = 1.8;  // v31: continuous, not instantaneous (vs Micro's 4s look)
+  /* v31: continuous, not instantaneous (vs Micro's 4s look). v32: raised
+     1.8 -> 2.8 by the proof-run bots - with the tightened no-answer wire
+     a lying sensor can't exploit the faster budget, and process creep was
+     out-running the old one on a hands-off plant. */
+  var GIGA_STEPS_PER_SEC = 2.8;
   /* NANO-DIRECT (v27). The founder asked whether a Nano alone should be
      enough - and the measured data says YES: parent-direct (the senior
      reading raw windows itself, no children) is the HIGHEST-accuracy config
@@ -184,9 +212,22 @@
      automated, fully upgraded factory. The last item is the PROOF: the plant
      runs hands-off for a stretch while its own dashboard records it. */
   var CERT_PROOF_SECS = 180;     // three untouched minutes...
-  var CERT_UPTIME = 0.9;         // ...at ninety percent uptime or better
+  /* ...at EIGHTY percent uptime or better. v32, measured not vibed: the
+     fixed-seed proof-run bots (test file, "the proof run is winnable")
+     drove a fully-upgraded fully-automated plant hands-off for 15 sim-
+     minutes across 3 seeds. At 90% only 4-32% of sliding 3-minute windows
+     passed - the founder's exact complaint ("hard to get 3 minutes at
+     90%+ is the only thing missing") was true BY CONSTRUCTION. 80% is the
+     highest 5%-step a majority of windows clears on every seed (67/86/79%)
+     while an un-upgraded Mk I automated plant still fails every window.
+     Recorded model misses, verb time and the Unit's walking are all real
+     costs; the bar honors them instead of pretending. */
+  var CERT_UPTIME = 0.8;
 
   var TIER_COLOUR = { pico: "pico", nano: "nano", micro: "micro", giga: "giga" };
+  /* the ONE build string every export stamps - the tape header shipped a
+     stale hardcoded "v29" for three rounds (playtest round 3 caught it) */
+  var GAME_BUILD = "playbox v32";
 
   /* ---- state ----------------------------------------------------------- */
   function freshMachine(spec) {
@@ -214,6 +255,7 @@
       nanoDirect: false,                     // this read came off the patrol
       auto: false,                          // the models turn this knob
       autoNote: "", autoNoteAt: 0, autoTier: "", hadStop: false, verbTries: 0,
+      unitJob: null, unitInspecting: false, unitFixed: false, wordBurned: false,
       /* v31 control doctrine: the automation's own trust bookkeeping.
          lastTrustedSet = the dial position last seen with a trusted,
          in-band reading (where a hold restores to); chaseFrom/chaseErr =
@@ -236,8 +278,10 @@
       machines: MACHINES.map(freshMachine),
       /* micro is a COUNT: the founder's scale-out-vs-scale-up decision.
          Up to three Micros, each able to hold ONE dial - three of them is
-         full coverage by quantity (780 coins of it), while one Giga (500)
-         is full coverage by coordination. More boxes is not more brain. */
+         full coverage by quantity (780 coins of it), while one Giga (360,
+         v32: Micro + 100) is full coverage by coordination - plus the Unit
+         on the floor and its auto-inspection. A single Micro is the budget
+         stepping stone; Giga is plainly the value play at scale. */
       nano: false, micro: 0, giga: false,
       nanoWatch: null,   // direct-watch pin: a machine id, or null = patrol
       sweepAt: null, sweepLeft: null,   // the gateway's patrol position/clock
@@ -578,6 +622,13 @@
     m.nanoRead = (G.nano && m.pico) ? nanoRead(m.sample) : null;
     m.nanoDirect = false;
     m.hadStop = false;
+    /* v32 (founder screenshot: a "ran RESTART on Nano's advice" tag from a
+       PREVIOUS incident still painted beside a fresh double-miss): a new
+       incident invalidates the old story - the machine card's persistent
+       automation line must never narrate the wrong fault. */
+    m.autoNote = ""; m.autoNoteAt = 0; m.autoTier = "";
+    m.unitJob = null; m.unitInspecting = false; m.unitFixed = false;
+    m.wordBurned = false;
     G.incidents.open += 1;
     tape("fault", { m: m.id, kind: pick,
       record: m.sample ? m.sample.record.node_id : null,
@@ -601,7 +652,7 @@
   }
 
   function clearCondition(m) {
-    m.nextFault = 14 + rnd(m) * 30;
+    m.nextFault = (14 + rnd(m) * 30) * mkFaultMult(m);   // better iron faults less (v32)
     if (m.cond !== "none") {
       G.incidents.open = Math.max(0, G.incidents.open - 1);
       if (m.hadStop) G.incidents.missed += 1; else G.incidents.caught += 1;
@@ -622,8 +673,14 @@
          have come from a person: automation acts on alarms, and a chain miss
          raises none. The founder hit exactly this ("even Wave Nano can't
          help"), and the one moment the player beats the models deserves to
-         feel like one. Fires only on a genuine recorded chain miss. */
-      if (chainMissed(m)) {
+         feel like one. Fires only on a genuine recorded chain miss - and
+         v32: NEVER for a save the Unit's auto-inspection set up. The robot
+         finding what the models missed is plant maintenance, not a medal. */
+      if (chainMissed(m) && m.unitFixed) {
+        tape("unit-save", { m: m.id, record: m.sample ? m.sample.record.node_id : null });
+        addLog("The Unit's inspection caught what both models missed on the " +
+          m.spec.name.toLowerCase() + " - still a recorded miss on the books.");
+      } else if (chainMissed(m)) {
         G.humanSaves += 1;
         tape("human-save", { m: m.id, record: m.sample ? m.sample.record.node_id : null });
         G.ackUntil = G.elapsed + 8;
@@ -639,6 +696,8 @@
     m.picoRead = null; m.nanoRead = null; m.driftLie = 0; m.hadStop = false;
     m.nanoDirect = false;
     m.inspected = false; m.inspecting = 0;
+    m.unitJob = null; m.unitInspecting = false; m.unitFixed = false;   // v32
+    m.wordBurned = false;
     m.senseSuspect = false; m.heldForFlag = false;   // trust returns with the fix
     m.chaseFrom = null; m.chaseErr = null;
     m.windowLeft = 0;   // a healthy window redraws immediately
@@ -719,6 +778,32 @@
     return "Micro-" + (idx || 1);
   }
 
+  /* v32: the ONE public-word policy for automated maintenance. What did a
+     model actually SAY (Nano's named kind first, else Pico's confident
+     raise - below-floor words are not orders), and may automation act on
+     it? GIGA VERIFIES BEFORE IT WAGERS: a coordinated plant with its own
+     robot does not bet a 60-second lockout on a single model's word - it
+     acts at once when the word is CORROBORATED (both models said the same
+     thing) or when the move cannot lock (service); an uncorroborated cheap
+     verb waits for the Unit's inspection instead. Micros keep the old
+     gamble - that judgment is part of what Giga sells. A word already
+     proven wrong by a lockout (wordBurned) is never followed twice. */
+  function autoWord(m) {
+    var nanoW = (m.nanoRead && m.nanoRead.said !== "none") ? m.nanoRead.said : null;
+    var picoW = (m.picoRead && m.picoRead.said !== "none" &&
+                 m.picoRead.kind !== "unsure") ? m.picoRead.said : null;
+    var word = nanoW || picoW;
+    if (!word || m.wordBurned) return null;
+    var v = G.nano ? verbFor(word) : "service";
+    var corroborated = !!(nanoW && picoW && nanoW === picoW);
+    /* the senior's word above the SAME margin floor Pico asserts on is an
+       order too - the measured bench says wrong parent words live almost
+       entirely below it (7 of 9 recorded wrong words < 1.5) */
+    var seniorSure = !!(nanoW && m.nanoRead.margin >= FLOOR);
+    var actable = !(G.giga && G.unit) || corroborated || seniorSure || v === "service";
+    return { word: word, verb: v, source: nanoW ? "nano" : "pico", actable: actable };
+  }
+
   function autoAdjust(m, dt) {
     if (!m.auto) return;
     /* THE COORDINATION GAP (v28, founder: "it just not as smart as the
@@ -762,6 +847,20 @@
         tape("hold", { m: m.id, why: flag, at: m.set });
         m.chaseFrom = null; m.chaseErr = null; m.gigaGas = 0;
       }
+      /* v32: SUSPICION CAN CALM DOWN. The no-answer deduction used to be
+         permanent outside a fault - one chase against process creep froze
+         the dial for the rest of the run, and every later creep event
+         became a guaranteed stop. Public rule: while held, a needle that
+         sits inside the band for a few seconds HAS answered - trust
+         returns and the dial may work again. A real fault re-flags through
+         the other tripwires the moment it lies again. */
+      if (m.senseSuspect) {
+        var shownHeld = m.lastShown, tH = tierOf(m);
+        if (shownHeld != null && shownHeld >= tH.lo && shownHeld <= tH.hi) {
+          m.suspectCalm = (m.suspectCalm || 0) + dt;
+          if (m.suspectCalm > 4) { m.senseSuspect = false; m.suspectCalm = 0; }
+        } else m.suspectCalm = 0;
+      }
     } else if (believed != null) {              // a dropout says nothing
       m.heldForFlag = false;
       var aim = t.lo + 0.62 * (t.hi - t.lo);
@@ -775,8 +874,16 @@
       if (Math.abs(err) > tol) {
         // rule 3 bookkeeping: where did this push start, how bad was it
         if (m.chaseFrom == null) { m.chaseFrom = m.set; m.chaseErr = Math.abs(err); }
-        if (Math.abs(m.set - m.chaseFrom) >= 0.4 * (c.max - c.min) &&
-            Math.abs(err) >= m.chaseErr * 0.9) {
+        /* v32, TIGHTENED (playtest round 3: a double-missed stuck oven
+           sensor was still dialed 190->240 in six seconds before the old
+           40%-of-range wire tripped). Two wires now:
+           - NEEDLE NOT ANSWERING, fast: the dial has moved 12% of its
+             range one way and the believed error has not shrunk AT ALL -
+             no honest process answers like that; flag immediately.
+           - the old long-chase wire, tightened 40% -> 25% of range. */
+        var chased = Math.abs(m.set - m.chaseFrom);
+        if ((chased >= 0.12 * (c.max - c.min) && Math.abs(err) >= m.chaseErr * 0.98) ||
+            (chased >= 0.25 * (c.max - c.min) && Math.abs(err) >= m.chaseErr * 0.9)) {
           m.senseSuspect = true;                // flags on the next look
           return;
         }
@@ -805,35 +912,76 @@
         }
       }
     }
-    /* A held knob may also EXECUTE maintenance, not just trim the dial - but
-       only on a fault the models actually raised. An alarm here means the
-       replayed read said a fault word (or the gateway resolved one); a
-       recorded miss said " none", raises nothing, and the automation is
-       fooled with everyone else - which is why the results panel still logs
-       missed incidents on a fully automated plant.
-       WITH Nano the action follows the doctrine (restart what restarts,
-       service what does not); WITHOUT it the automation buys certainty the
-       expensive way, exactly like a player without advice. */
-    if (m.cond !== "none" && !m.servicing && !m.restarting && !m.inspecting && m.lockout <= 0) {
-      var alarmed = (m.picoRead && m.picoRead.said !== "none") ||
-                    (m.nanoRead && m.nanoRead.kind === "resolved");
-      if (alarmed && m.condAge > 2.5) {
-        var holder = holderOf(m);
-        /* WITH Nano the automation runs the CHEAPEST CORRECT verb, exactly
-           as it would prescribe to a person; WITHOUT it, it buys certainty
-           the expensive way - service - like any player without advice. */
-        var v = G.nano ? verbFor(m.cond) : "service";
-        tape("auto-verb", { m: m.id, verb: v, by: holder, onNanoAdvice: G.nano });
-        if (v === "service") {
+    /* A held knob may also EXECUTE maintenance - but only on PUBLIC words.
+       v32 ATTRIBUTION FIX (founder screenshot: "Giga ran RESTART on Nano's
+       advice" on a machine whose fault both models had missed): the old
+       dispatch keyed the verb off the HIDDEN fault kind whenever any model
+       raised any word - a wrong raise became a secretly-correct verb wearing
+       Nano's name. Now automation acts only on what was actually said:
+       an INSPECT verdict first (ground truth someone paid for), else Nano's
+       named kind, else Pico's raised word (the actable policy lives in
+       autoWord()). A wrong word gets the wrong verb and eats the real
+       consequences (that is what the lockout is for), and a fault NOBODY
+       named is never guessed at - it goes to the Unit's auto-inspect
+       below, or to the human plea. */
+    if (m.cond !== "none" && !m.servicing && !m.restarting && !m.inspecting &&
+        // Giga's continuous watch reacts in ~1s; everything else double-checks
+        m.lockout <= 0 && m.condAge > (G.giga ? 1.2 : 2.5)) {
+      var holder = holderOf(m);
+      var aw = autoWord(m);
+      if (m.inspected) {
+        var vi = verbFor(m.cond);
+        var viLabel = vi === "service" ? "SERVICE" : VERBS[vi].label;
+        tape("auto-verb", { m: m.id, verb: vi, by: holder, on: "inspection" });
+        m.autoNote = holder + " ran " + viLabel + " on the inspection verdict: " +
+          CONDITION_WORD[m.cond];
+        m.autoNoteAt = G.elapsed; m.autoTier = G.giga ? "giga" : "micro";
+        G.autoActing = true;
+        if (vi === "service") service(m.id); else maintain(m.id, vi);
+        G.autoActing = false;
+      } else if (aw && aw.actable) {
+        tape("auto-verb", { m: m.id, verb: aw.verb, by: holder,
+          on: aw.source, word: aw.word });
+        if (aw.verb === "service") {
           m.autoNote = holder + " called service on the models' word" +
             (G.nano ? " - Nano ruled the cheap verbs out" : "");
-          m.autoNoteAt = G.elapsed; m.autoTier = G.giga ? "giga" : "micro";
-          service(m.id);
         } else {
-          m.autoNote = holder + " ran " + VERBS[v].label + " on Nano's advice";
-          m.autoNoteAt = G.elapsed; m.autoTier = G.giga ? "giga" : "micro";
-          maintain(m.id, v);
+          m.autoNote = holder + " ran " + VERBS[aw.verb].label + " on " +
+            (aw.source === "nano" ? "Nano's word: " : "Pico's raise: ") + CONDITION_WORD[aw.word];
         }
+        m.autoNoteAt = G.elapsed; m.autoTier = G.giga ? "giga" : "micro";
+        G.autoActing = true;
+        if (aw.verb === "service") service(m.id); else maintain(m.id, aw.verb);
+        G.autoActing = false;
+      }
+    }
+    /* v32 - GIGA AUTO-INSPECTS (founder: "Giga should be able to automate a
+       lot of it"; endgame screenshot: two simultaneous double-misses both
+       pleading for a person). A fault nobody NAMED used to be a dead stop
+       until a human inspected - 19 of the 50 recorded faults are double-
+       misses, so a hands-off proof run was nearly impossible by
+       construction. With Giga, the plant's own robot does the walking: when
+       a sensor is publicly untrusted (the physics tripwires in
+       sensorFlagged, or a visible stop) and there is no word to act on - or
+       the crew is locked out - the Unit rolls there and runs the SAME
+       inspection a person would, travel plus the full look. Honesty rails:
+       this is plant maintenance inside the game sim, never a model claim;
+       the RECORDED miss stays a miss on the results panel; and the
+       you-caught-what-the-models-missed acknowledgment stays human-only.
+       A person is still strictly better - no travel, instant start. */
+    if (G.giga && G.unit && m.cond !== "none" && !m.inspected &&
+        !m.servicing && !m.restarting && !m.inspecting && !m.unitJob) {
+      var aw2 = autoWord(m);
+      var distrust = !!sensorFlagged(m) || m.stopped;
+      if (distrust && (!aw2 || !aw2.actable || m.lockout > 0)) {
+        m.unitJob = "inspect";
+        m.autoNote = "Giga sent the Unit to inspect the " + m.spec.name.toLowerCase() +
+          (m.lockout > 0 ? " while the crew waits out the lockout"
+            : aw2 ? " - one model's word is not a wager" : " - nobody named this fault");
+        m.autoNoteAt = G.elapsed; m.autoTier = "giga";
+        tape("unit-dispatch", { m: m.id,
+          why: m.lockout > 0 ? "lockout" : aw2 ? "uncorroborated" : "unnamed" });
+        unitGo(m.id);
       }
     }
   }
@@ -933,6 +1081,13 @@
             tape("verb", { m: m.id, verb: m.fixVerb, outcome: "locked",
               kind: m.cond, tries: m.verbTries });
             m.lockout = LOCKOUT_SECS;
+            /* v32: a lockout DISCREDITS the word that ordered the verb -
+               public knowledge, honestly earned: the crew tried what the
+               models said and it was provably wrong. Automation won't run
+               the same discredited word again (it used to loop CLEAN ->
+               lockout -> CLEAN forever on a recorded wrong word); the fault
+               now falls to the Unit's inspection, or to a person. */
+            m.wordBurned = true;
             /* the reason lives AT THE STATION, not only on the radio - a
                countdown without a why reads as breakage, not consequence.
                Naming what Nano would have said leaks the diagnosis, and that
@@ -959,8 +1114,21 @@
         m.inspecting = 0;
         m.stoppedFor = 0;
         m.inspected = m.cond !== "none";
-        tape("inspected", { m: m.id, found: m.cond });
-        addLog(m.spec.name + " inspected: " + INSPECT_WORD[m.cond]);
+        tape("inspected", { m: m.id, found: m.cond, by: m.unitInspecting ? "unit" : "you" });
+        if (m.unitInspecting) {
+          /* v32: the Unit's look, attributed as the Unit's - and the next
+             move named. The doctrine verb itself dispatches from autoAdjust
+             off m.inspected, exactly as it would off a human inspection. */
+          m.unitInspecting = false;
+          var uNext = m.cond === "none" ? null : verbFor(m.cond);
+          m.autoNote = "the Unit inspected: " + CONDITION_WORD[m.cond] +
+            (uNext ? " - " + (uNext === "service" ? "SERVICE" : VERBS[uNext].label) +
+              (m.lockout > 0 ? " once the lockout clears" : " next") : "");
+          m.autoNoteAt = G.elapsed; m.autoTier = "giga";
+          addLog("The Unit inspected the " + m.spec.name.toLowerCase() + ": " + INSPECT_WORD[m.cond]);
+        } else {
+          addLog(m.spec.name + " inspected: " + INSPECT_WORD[m.cond]);
+        }
       }
       return false;
     }
@@ -1023,7 +1191,7 @@
       } else if (G.machines.some(function (x) { return x.lockout > 0; })) {
         // cascade cap: the countdown freezes while any machine is locked out
       } else {
-        if (!m.nextFault) m.nextFault = 10 + rnd(m) * 26;
+        if (!m.nextFault) m.nextFault = (10 + rnd(m) * 26) * mkFaultMult(m);
         m.nextFault -= dt;
         if (m.nextFault <= 0) { startCondition(m); m.nextFault = 0; }
       }
@@ -1039,7 +1207,12 @@
     }
 
     var ok = inBand(m, m.real);
-    if (!ok) { m.stoppedFor += dt; } else { m.stoppedFor = Math.max(0, m.stoppedFor - dt * 2); }
+    /* stoppedFor is a DEBOUNCE, not a debt: capped, or a long out-of-band
+       stretch kept the machine "stopped" for half a minute of phantom
+       downtime after the real value was already back in the band (v32,
+       found by the proof-run bots) */
+    if (!ok) { m.stoppedFor = Math.min(3, m.stoppedFor + dt); }
+    else { m.stoppedFor = Math.max(0, m.stoppedFor - dt * 2); }
     m.stopped = m.stoppedFor > 1.2;
     if (m.stopped && m.cond !== "none") m.hadStop = true;
     autoAdjust(m, dt);
@@ -1078,9 +1251,18 @@
     // oven consumes dough, makes baked
     var bake = Math.min(mx.buffer, rateOf(ov) * dt * 1.5);
     mx.buffer -= bake;
-    // an oven out of band burns what it bakes
-    if (ov.stopped || ov.real > tierOf(ov).hi) { G.spoiled += bake; }
-    else { ov.buffer = Math.min(CAP, ov.buffer + bake); }
+    /* an oven out of band burns what it bakes. (A STOPPED oven bakes
+       nothing - rateOf is 0 - so a stopped line does not burn; the burnt
+       count the founder watched climb was the oven RUNNING hot on a lying
+       sensor. Intended rule, and taped as of v32 so the session tape can
+       prove where every burnt cookie came from.) */
+    if (ov.stopped || ov.real > tierOf(ov).hi) {
+      G.spoiled += bake;
+      if (bake > 0 && !G.burning) { G.burning = true; tape("burn-start", { real: Math.round(ov.real) }); }
+    } else {
+      if (G.burning) { G.burning = false; tape("burn-end", { total: Math.floor(G.spoiled) }); }
+      ov.buffer = Math.min(CAP, ov.buffer + bake);
+    }
     // packer consumes baked, ships cookies
     var pack = Math.min(ov.buffer, rateOf(pk) * dt * 1.5);
     ov.buffer -= pack;
@@ -1249,16 +1431,54 @@
     G.machines.forEach(function (m) { (m.pico ? covered : bare).push(m.id); });
     return { show: bare.length > 0, bare: bare, covered: covered };
   }
-  /* a hand on the plant: the proof clock starts over. Dials, verbs, buys,
+  /* a hand on the plant sets the proof clock BACK. Dials, verbs, buys,
      autonomy toggles, pointing the gateway - all of it counts as touching. */
   function touchPlant() {
-    if (!G.cert.done) { G.cert.run = 0; G.cert.up = 0; }
+    /* v32: the plant's OWN moves are not your hands. Automated verbs route
+       through the same maintain()/service() a person uses, and before this
+       guard every one of them zeroed the hands-off proof clock - a fully
+       automated plant could never be "untouched". And (playtest round 3)
+       a human touch now COSTS a flat 20s setback instead of zeroing the
+       window: answering a plea mid-proof is a penalty, not a death. */
+    if (G.autoActing) return;
+    if (G.cert.done) return;
+    if (G.cert.run > 0) {
+      var cut = Math.min(20, G.cert.run);
+      G.cert.run -= cut;
+      G.cert.up = Math.max(0, G.cert.up - cut);
+      if (certReady() && G.cert.run > 1) {
+        addLog("Hands on during the proof - the clock steps back 20s (not a reset).");
+      }
+    }
+  }
+  /* pure pace check the paint and the locks both run: is this window on
+     pace, and can it still clear the bar at all? */
+  function certPace() {
+    var need = CERT_PROOF_SECS * CERT_UPTIME;
+    var bestPossible = G.cert.up + (CERT_PROOF_SECS - G.cert.run);
+    return {
+      pct: G.cert.run > 0 ? G.cert.up / G.cert.run : 1,
+      onPace: G.cert.run <= 0 || G.cert.up / G.cert.run >= CERT_UPTIME,
+      doomed: bestPossible < need,
+    };
   }
   function stepCert(dt, allUp) {
     if (G.cert.done) return;
     if (!certReady()) { G.cert.run = 0; G.cert.up = 0; return; }
     G.cert.run += dt;
     if (allUp) G.cert.up += dt;
+    /* v32 (playtest round 3: the clock counted to 178s over a dead plant,
+       then zeroed WORDLESSLY): a window that can no longer mathematically
+       clear the bar resets NOW and says why; the paint prints the live
+       pace beside the clock the whole way. */
+    var pace = certPace();
+    if (pace.doomed && G.cert.run > 5) {
+      addLog("Proof window reset - uptime is " + Math.round(pace.pct * 100) +
+        "% and even a perfect rest of the window can't reach the " +
+        Math.round(CERT_UPTIME * 100) + "% bar. A fresh window starts now.");
+      G.cert.run = 0; G.cert.up = 0;
+      return;
+    }
     if (G.cert.run >= CERT_PROOF_SECS) {
       if (G.cert.up / G.cert.run >= CERT_UPTIME) {
         G.cert.done = true;
@@ -1266,7 +1486,8 @@
         addLog("Three minutes untouched, uptime held. FACTORY CERTIFIED - it runs itself now.");
         if (DOM.stations) showCertified();
       } else {
-        // the window ran its course below the bar: start a fresh one
+        addLog("Proof window ended at " + Math.round((G.cert.up / G.cert.run) * 100) +
+          "% - under the " + Math.round(CERT_UPTIME * 100) + "% bar. A fresh window starts now.");
         G.cert.run = 0; G.cert.up = 0;
       }
     }
@@ -1380,12 +1601,24 @@
       if (m.servicing > 0 || m.restarting > 0 || m.inspecting > 0) continue;
       var alarmed = (m.picoRead && m.picoRead.said !== "none") ||
                     (m.nanoRead && m.nanoRead.said !== "none");
+      /* v32: with Giga on the floor the Unit auto-inspects unnamed faults
+         itself, so the plea survives only where the robot is stuck too -
+         the kind is known (a word or a look) but the crew is locked out,
+         and nothing mechanical can move until the clock runs. */
+      if (G.giga) {
+        if ((alarmed || m.inspected) && m.lockout > 0) return m;
+        continue;
+      }
       if (!alarmed || m.lockout > 0) return m;
     }
     return null;
   }
 
   function unitFocus() {
+    /* v32: a job in hand keeps the Unit on station - it does not wander
+       off mid-inspection or while waiting out a verb it must follow up */
+    var job = G.machines.filter(function (m) { return m.unitJob || m.unitInspecting; })[0];
+    if (job) return job.id;
     var help = unitHelpTarget();
     if (help) return help.id;
     var alarmed = G.machines.filter(function (m) {
@@ -1401,12 +1634,71 @@
     return ring[(ring.indexOf(G.unit.at) + 1) % ring.length];
   }
 
+  /* =====================================================================
+     v32 ANNOTATION LANES (founder screenshot: bubbles over the site board,
+     ambient chatter floating over the oven engraving, TALK riding into the
+     packer). The floor's words live in LANES with a spoken-word BUDGET,
+     decided in ONE pure policy that the painter and the locks both run:
+     - SPEECH (machine bubbles and the Unit's mouth) shares one budget -
+       2 bubbles at once, 1 on a tight screen - ranked plea > model
+       verdict > hold/job say-so > ambient chatter;
+     - ambient never shares the stage at all: it waits for a quiet floor
+       (any higher-priority word anywhere silences it);
+     - lamps, badges and the attribution tags are not speech - they ride
+       their own thin lanes (CSS) and are not budgeted here;
+     - the site board owns its corner exclusively (CSS pins it top-right;
+       nothing else is placed there). */
+  var BUBBLE_RANK = { plea: 0, verdict: 1, hold: 2, ambient: 3 };
+  function bubblePlan(cands, budget) {
+    var quiet = cands.every(function (c) { return c.kind === "ambient"; });
+    var sorted = cands.slice().sort(function (a, b) {
+      return (BUBBLE_RANK[a.kind] != null ? BUBBLE_RANK[a.kind] : 9) -
+             (BUBBLE_RANK[b.kind] != null ? BUBBLE_RANK[b.kind] : 9);
+    });
+    var out = [];
+    for (var i = 0; i < sorted.length && out.length < budget; i++) {
+      if (sorted[i].kind === "ambient" && !quiet) continue;
+      out.push(sorted[i]);
+    }
+    return out;
+  }
+  /* what WANTS to speak right now - machine verdict bubbles plus the Unit */
+  function bubbleCands() {
+    var cands = [];
+    G.machines.forEach(function (m) {
+      var r2 = m.picoRead;
+      if (m.pico && r2 && (r2.kind === "unsure" || r2.said !== "none")) {
+        cands.push({ id: m.id, kind: "verdict" });
+      }
+    });
+    if (G.giga && G.unit && G.unit.say && G.elapsed < G.unit.sayUntil && !G.unit.going) {
+      cands.push({ id: "unit", kind: G.unit.sayKind || "ambient" });
+    }
+    return cands;
+  }
+
   /* The Unit's ambient lines are the tally engines in persona voice - the
      SAME siteBoard()/plantView() that feed the wall board and the desk
      cards (one source, test-locked). It never mints a number of its own. */
   function unitLine() {
+    /* v32: a Unit on an inspection job narrates the job - the auto-inspect
+       flow is the new endgame beat and it should read on the floor. */
+    var jobHere = G.machines.filter(function (m2) {
+      return G.unit.at === m2.id && (m2.unitInspecting || m2.unitJob === "inspect");
+    })[0];
+    if (jobHere) {
+      G.unit.sayKind = "hold";
+      return "Nobody named this fault, so I'm inspecting the " +
+        jobHere.spec.name.toLowerCase() + " myself. The recorded miss stays on the books.";
+    }
     var help = unitHelpTarget();
     if (help && G.unit.at === help.id) {
+      G.unit.sayKind = "plea";
+      if (help.lockout > 0 && help.inspected) {
+        return "Crew's locked out of the " + help.spec.name.toLowerCase() +
+          " and we already know it's " + CONDITION_WORD[help.cond] +
+          " - we wait it out, about " + Math.ceil(help.lockout) + "s.";
+      }
       return help.lockout > 0
         ? "The crew's locked out here - INSPECT the " + help.spec.name.toLowerCase() +
           " while we wait. Inspecting never locks."
@@ -1417,9 +1709,11 @@
       return m2.heldForFlag && G.unit.at === m2.id;
     })[0];
     if (heldHere) {
+      G.unit.sayKind = "hold";
       return "The " + heldHere.spec.name.toLowerCase() + "'s sensor is lying - I'm holding " +
         heldHere.spec.control.label + " steady until it's fixed.";
     }
+    G.unit.sayKind = "ambient";
     var sb = siteBoard(), pv = plantView();
     var topics = [];
     topics.push(sb.line.charAt(0).toUpperCase() + sb.line.slice(1) + ".");
@@ -1442,6 +1736,25 @@
     return line;
   }
 
+  /* v32: jobs the Unit was sent to do land WITH the Unit. The inspection
+     starts on arrival - same cost a person pays, plus the walk it took. */
+  function startUnitJobs() {
+    G.machines.forEach(function (m) {
+      if (m.unitJob !== "inspect" || G.unit.at !== m.id || G.unit.going) return;
+      if (m.cond === "none" || m.inspected) { m.unitJob = null; return; }   // resolved en route
+      if (m.inspecting > 0 || m.servicing > 0 || m.restarting > 0) return;  // wait out the verb
+      m.unitJob = null;
+      m.unitInspecting = true;
+      m.unitFixed = true;              // this save belongs to the robot, not a person
+      m.inspecting = verbSecsFor(m, INSPECT_SECS);
+      m.autoNote = "the Unit is inspecting - " + m.inspecting + "s to look";
+      m.autoNoteAt = G.elapsed; m.autoTier = "giga";
+      tape("unit-inspect", { m: m.id, secs: m.inspecting });
+      addLog("The Unit is inspecting the " + m.spec.name.toLowerCase() +
+        " - the same look a person gets, plus the walk.");
+    });
+  }
+
   function flushUnitTags() {
     G.machines.forEach(function (m) {
       if (m.unitTagHold && G.unit.at === m.id) {
@@ -1460,12 +1773,18 @@
         u.at = u.going; u.going = null;
         u.pose = u.at === "desk" ? "idle" : "inspect";
         u.pauseLeft = 8 + (u.topic % 5);      // a supervisor, not a busy bee
+        flushUnitTags();
+        startUnitJobs();
         u.say = unitLine();
         u.sayUntil = G.elapsed + Math.min(u.pauseLeft, 7);
-        flushUnitTags();
       }
       return;
     }
+    /* v32: a pending job starts the moment conditions allow - including
+       when the Unit was ALREADY standing at the machine when the job came
+       in (arrival alone used to be the only trigger, and a job assigned
+       on-station never started) */
+    startUnitJobs();
     u.pauseLeft -= dt;
     if (u.pauseLeft <= 0) {
       var next = unitFocus();
@@ -1505,8 +1824,17 @@
     if (G.nano) models.push("Wave Nano at the gateway");
     if (G.micro) models.push(G.micro + " Wave Micro" + (G.micro > 1 ? "s" : ""));
     if (G.giga) models.push("Wave Giga running the dials");
+    /* v32 (playtest: Ping recommended packer upgrades with the packer
+       already at Mk III): say plainly what is maxed out, so the concierge
+       stops selling the player what they own */
+    var maxed = G.machines.filter(function (m) { return !TIERS[m.id][m.tier + 1]; })
+      .map(function (m) { return m.spec.name.toLowerCase() + " already at top tier"; });
+    if (G.giga && G.machines.every(function (m) { return m.pico; })) {
+      maxed.push("every model tier already installed");
+    }
     return mach + "; " + sb.line + "; models: " +
       (models.length ? models.join(", ") : "none yet") + "; " +
+      (maxed.length ? "note: " + maxed.join(", ") + " - nothing to buy there; " : "") +
       Math.floor(G.coins) + " coins" + (G.coins < 0 ? " (on loan)" : "") +
       "; contract " + G.contract.level + " at " + Math.floor(G.cookies) + "/" + G.contract.target +
       " cookies; " + G.incidents.missed + " incidents missed so far.";
@@ -1517,7 +1845,9 @@
       "a toy plant that teaches what RogerAI's Wave models do. Their line right now: " +
       plantSummary() + " The plant's little robot assistant relays your reply over the " +
       "factory radio. The player asks: \"" + q + "\" Answer in one or two sentences, in " +
-      "your DJ voice, using only the numbers above.";
+      "your DJ voice, using only the numbers above. Never recommend buying anything " +
+      "noted above as already owned or at top tier, and never invent causes the " +
+      "numbers don't show.";
   }
 
   // the Unit's own fallback voice: tally arithmetic, no radio required
@@ -1530,20 +1860,58 @@
                    note: String(text || "").slice(0, 40) });
   }
 
+  /* v32 PING GUARDRAILS (playtest round 3: one reply was raw numeric noise
+     shipped straight to the player, one confabulated a cause, and the
+     identity question got dodged).
+     - WHO-ARE-YOU is answered LOCALLY, off the network: the radio must
+       never let a live model improvise its own identity story;
+     - a live reply has to look like language before it airs - length,
+       actual letters, no long repeats, mostly word-characters. One retry,
+       then the Unit's own tally-arithmetic fallback. */
+  function isIdentityQ(q) {
+    return /who\s+(are|r)\s+(you|u)|what\s+are\s+you\b|are\s+you\s+(real|human|an?\s+(ai|model|bot|robot|person))|what('|’)?s\s+your\s+name/i.test(q);
+  }
+  var IDENTITY_LINE = "I'm the radio, not the mind. The live voice on this channel is " +
+    "Ping, RogerAI's concierge - the Unit just carries the speaker. The Wave models " +
+    "on this floor only speak in the verdicts you see at the machines.";
+  function saneReply(t) {
+    if (!t) return false;
+    t = String(t).trim();
+    if (t.length < 2 || t.length > 600) return false;
+    if (!/[a-zA-Z]{3}/.test(t)) return false;         // must contain a word
+    if (/(.)\1{7,}/.test(t)) return false;            // no keyboard-lean runs
+    var wordish = (t.match(/[a-zA-Z0-9\s.,'!?;:()\-%"’“”·]/g) || []).length;
+    return wordish / t.length >= 0.7;                 // mostly language
+  }
+
   function sendChat(q) {
     q = String(q || "").trim();
     if (!q || G.chatBusy) return false;
-    G.chatBusy = true;
     G.chat.push({ who: "you", text: q });
+    if (isIdentityQ(q)) {
+      G.chat.push({ who: "unit", text: IDENTITY_LINE });
+      tapeChat(q, "local-identity", IDENTITY_LINE);
+      G.chat = G.chat.slice(-12);
+      paintChat();
+      return true;
+    }
+    G.chatBusy = true;
     paintChat();
-    window.fetch(PING_URL, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      credentials: "omit", cache: "no-store",
-      body: JSON.stringify({ messages: [{ role: "user", content: pingFraming(q) }] }),
-    }).then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
-      .then(function (d) {
-        var reply = d && d.reply ? String(d.reply) : "";
-        if (!reply) throw 0;
+    function ask() {
+      return window.fetch(PING_URL, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        credentials: "omit", cache: "no-store",
+        body: JSON.stringify({ messages: [{ role: "user", content: pingFraming(q) }] }),
+      }).then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+        .then(function (d) {
+          var reply = d && d.reply ? String(d.reply) : "";
+          if (!saneReply(reply)) return Promise.reject("insane");
+          return reply;
+        });
+    }
+    ask()
+      .catch(function (why) { return why === "insane" ? ask() : Promise.reject(why); })
+      .then(function (reply) {
         G.chat.push({ who: "ping", text: reply });
         tapeChat(q, "live", reply);
       })
@@ -1647,7 +2015,8 @@
       G.unit = { at: "desk", going: null, travelLeft: 0, pauseLeft: 2, dir: 1,
                  pose: "idle", say: "", sayUntil: 0, topic: 0 };
       addLog("Wave Giga online - one mind on every dial, the line balanced as a " +
-        "whole. Its Unit is rolling onto the floor; press TALK to ask it anything.");
+        "whole. Its Unit is rolling onto the floor: it inspects faults nobody " +
+        "names, and TALK asks it anything.");
     } else {
       addLog("Wave " + which.charAt(0).toUpperCase() + which.slice(1) + " online at the desk.");
     }
@@ -1666,7 +2035,7 @@
     if (m.servicing > 0 || m.restarting > 0 || m.inspecting > 0 || m.lockout > 0) return false;
     if (verb.cost) G.coins -= verb.cost;
     m.fixVerb = verbName;
-    m.restarting = verb.secs;
+    m.restarting = verbSecsFor(m, verb.secs);   // Mk canon: better iron services faster
     m.verbTries += 1;
     tape("verb-start", { m: m.id, verb: verbName, tries: m.verbTries });
     addLog(m.spec.name + " " + verb.label.toLowerCase() +
@@ -1685,8 +2054,8 @@
     touchPlant();
     var m = machine(id);
     if (m.servicing > 0 || m.restarting > 0 || m.inspecting > 0) return false;
-    m.inspecting = INSPECT_SECS;
-    addLog(m.spec.name + " being inspected - " + INSPECT_SECS + "s of downtime to look.");
+    m.inspecting = verbSecsFor(m, INSPECT_SECS);   // Mk canon (v32)
+    addLog(m.spec.name + " being inspected - " + m.inspecting + "s of downtime to look.");
     paint();
     return true;
   }
@@ -1702,7 +2071,7 @@
     if (m.servicing > 0 || m.restarting > 0 || m.inspecting > 0 || m.lockout > 0) return false;
     var hadFunds = G.coins >= SERVICE_COST;
     G.coins -= SERVICE_COST;
-    m.servicing = SERVICE_SECS;          // the machine is down while it happens
+    m.servicing = verbSecsFor(m, SERVICE_SECS);   // Mk canon: the crew works faster on better iron
     tape("service", { m: m.id, invoiced: SERVICE_COST, onLoan: !hadFunds,
       wasHealthy: m.cond === "none" });
     if (!hadFunds) {
@@ -1712,7 +2081,7 @@
     if (m.cond === "none") {
       G.wasted = (G.wasted || 0) + 1;
       addLog(m.spec.name + " sensor checked out fine - " + SERVICE_COST + " coins and " +
-        SERVICE_SECS + "s of production spent finding that out.");
+        m.servicing + "s of production spent finding that out.");
       paint();
       return true;
     }
@@ -1720,7 +2089,7 @@
     // crediting the save to whoever actually told you, per the replay
     if (m.picoRead && m.picoRead.kind === "caught") G.saves.pico += 1;
     else if (m.nanoRead && m.nanoRead.kind === "resolved") G.saves.nano += 1;
-    addLog(m.spec.name + " sensor being serviced - back in " + SERVICE_SECS + "s.");
+    addLog(m.spec.name + " sensor being serviced - back in " + m.servicing + "s.");
     paint();
     return true;
   }
@@ -1760,7 +2129,7 @@
   function buildTape() {
     return {
       what: "THE COOKIE LINE · session tape",
-      build: "playbox v29",
+      build: GAME_BUILD,
       exportedAt: new Date().toISOString(),
       honesty: "model words in these events are replayed record fields from the " +
         "committed bench export; the plant itself is game simulation. This file " +
@@ -1821,6 +2190,12 @@
   function buildShell(host) {
     host.textContent = "";
     DOM = { stations: {}, cookies: [], pool: [] };
+    /* v32 lanes: a tight screen (or reduced motion) halves the spoken-word
+       budget - cached queries, read per paint */
+    if (typeof window.matchMedia === "function") {
+      DOM.tightMq = window.matchMedia("(max-width: 380px)");
+      DOM.motionMq = window.matchMedia("(prefers-reduced-motion: reduce)");
+    }
     var root = el("div", "cl");
 
     /* header */
@@ -1990,7 +2365,11 @@
     maint.appendChild(mt);
     maint.appendChild(el("p", "cl-maint__note",
       "If you pick a verb the card says is wrong and it fails, that machine's maintenance locks for " +
-      LOCKOUT_SECS + "s. Nano quotes this card instantly; INSPECT learns it the slow way."));
+      LOCKOUT_SECS + "s. Nano quotes this card instantly; INSPECT learns it the slow way. " +
+      "Better iron is easier iron: Mk II machines fault ~" + Math.round((MK_FAULT_MULT[1] - 1) * 100) +
+      "% less often and every verb runs " + Math.round((1 - MK_VERB_MULT[1]) * 100) + "% quicker; Mk III ~" +
+      Math.round((MK_FAULT_MULT[2] - 1) * 100) + "% less often, verbs " +
+      Math.round((1 - MK_VERB_MULT[2]) * 100) + "% quicker."));
     root.appendChild(maint);
 
     /* the desk views (site / plant / results) */
@@ -2326,6 +2705,12 @@
     if (!DOM.winOver) return;
     G.winWasRunning = G.running;
     G.running = false;
+    /* v32 (playtest round 3: a hands-off session sat frozen ten minutes
+       behind this card): the celebration waits a generous beat for a click,
+       then dismisses ITSELF the same way the button does - the line resumes
+       and the next offer moves to the desk. A pause, not a hostage. */
+    if (G.winAutoClose && window.clearTimeout) window.clearTimeout(G.winAutoClose);
+    G.winAutoClose = window.setTimeout(function () { dismissWin(); }, 45000);
     DOM.winOver.hidden = false;
     if (DOM.crates) DOM.crates.classList.add("is-stamped");
     // the run's numbers, laid out like the results view: game arithmetic
@@ -2352,6 +2737,7 @@
 
   function dismissWin() {
     if (!DOM.winOver || DOM.winOver.hidden) return;
+    if (G.winAutoClose) { if (window.clearTimeout) window.clearTimeout(G.winAutoClose); G.winAutoClose = null; }
     DOM.winOver.hidden = true;
     G.contractDone = true;            // the offer moves to the goals + shop
     if (G.winWasRunning) { G.running = true; lastT = 0; }
@@ -2471,7 +2857,8 @@
     if (s.bubble && !s.bubble.hidden) {
       var stillRaised = m.pico && m.picoRead &&
         (m.picoRead.kind === "unsure" || m.picoRead.said !== "none");
-      if (!stillRaised) s.bubble.hidden = true;
+      // v32: the lane budget can also silence a live bubble - it dies too
+      if (!stillRaised || (DOM.bubbleShow && !DOM.bubbleShow[m.id])) s.bubble.hidden = true;
     }
     var shown = shownValue(m);
     m.lastShown = shown;   // the cached display the trust checks read (v31)
@@ -2648,7 +3035,8 @@
       // is not confidently steady - alarms, doubts, recorded false alarms
       if (s.bubble) {
         var r2 = m.picoRead;
-        var raised = !!r2 && (r2.kind === "unsure" || r2.said !== "none");
+        var raised = !!r2 && (r2.kind === "unsure" || r2.said !== "none") &&
+          (!DOM.bubbleShow || DOM.bubbleShow[m.id]);   // v32 lane budget
         if (raised) {
           s.bubble.hidden = false;
           s.bubble.textContent = r2.kind === "unsure" ? "not sure" : "\u201c" + r2.said + "\u201d";
@@ -2793,7 +3181,8 @@
         (DOM.priced = DOM.priced || []).push({ b: tag, cost: MODEL_PRICE.pico, kind: "pico" });
         s.mount.appendChild(tag);
       }
-      if (s.bubble) s.bubble.hidden = !(m.pico && m.cond !== "none" && m.picoRead);
+      if (s.bubble) s.bubble.hidden = !(m.pico && m.cond !== "none" && m.picoRead &&
+        (!DOM.bubbleShow || DOM.bubbleShow[m.id]));   // v32 lane budget
     }
     // the nameplate sells the next tier in place
     var nextTier = TIERS[m.id][m.tier + 1];
@@ -2817,6 +3206,11 @@
         s.plateBuy.classList.toggle("is-reco", affordTier && !!recoTier);
         s.upgrade.classList.toggle("is-afford", affordTier);
         s.upgrade.classList.toggle("is-reco", affordTier && !!recoTier);
+      } else {
+        /* v32 (playtest): a bought-out Mk tag went hidden but kept its
+           is-afford glow classes in the DOM - strip them with the tier */
+        s.plateBuy.classList.remove("is-afford", "is-reco");
+        if (s.upgrade) s.upgrade.classList.remove("is-afford", "is-reco");
       }
     }
 
@@ -2897,8 +3291,10 @@
       var helpM = unitHelpTarget();
       if (helpM) {
         rows.push(["HELP", "the " + helpM.spec.name.toLowerCase() + " needs your eyes",
-          helpM.lockout > 0 ? "the crew's locked out - INSPECT it, inspecting never locks"
-                            : "automation can't clear this one - INSPECT it"]);
+          helpM.lockout > 0 ? (helpM.inspected
+              ? "wrong verb locked it and the kind is known - it clears in " + Math.ceil(helpM.lockout) + "s"
+              : "the crew's locked out - INSPECT it, inspecting never locks")
+            : "automation can't clear this one - INSPECT it"]);
       }
       var handedOffTo = G.machines.filter(function (mm) {
         return chainMissed(mm) && !mm.inspected && !(helpM && helpM.id === mm.id);
@@ -2932,13 +3328,13 @@
           "explains WHY and what to do - instant through Picos, or direct-watching one bare machine itself"]);
       } else if (k0 === "micro" && reco.length > 1) {
         rows.push(["NEXT", "MICRO · " + MODEL_PRICE.micro + " or GIGA · " + MODEL_PRICE.giga,
-          "your call: another Micro holds one more dial; Giga is one mind on the whole LINE"]);
+          "your call: another Micro holds one more dial; Giga is one mind on the LINE, with its Unit inspecting what nobody names"]);
       } else if (k0 === "micro") {
         rows.push(["NEXT", "WAVE MICRO · " + MODEL_PRICE.micro,
           "the site view - and it can hold one knob for you"]);
       } else if (k0 === "giga") {
         rows.push(["NEXT", "WAVE GIGA · " + MODEL_PRICE.giga,
-          "one mind on every dial - and its Unit on the floor, with a live radio to ask"]);
+          "one mind on every dial - its Unit walks the floor, inspects faults nobody names, and carries a live radio"]);
       } else if (k0 === "tier") {
         rows.push(["NEXT", "MK UPGRADES",
           "the certificate wants every machine at Mk III - faster, wider bands"]);
@@ -2949,10 +3345,13 @@
     } else if (G.cert.done) {
       rows.push(["DONE", "FACTORY CERTIFIED", "it runs itself - watch the results and keep it honest"]);
     } else if (certReady()) {
-      /* the proof window: hands off, and say how far along it is */
+      /* the proof window: hands off, how far along, and the LIVE PACE - a
+         clock silently counting over a dead plant read as a lie (playtest) */
+      var pr = certPace();
       rows.push(["PROVE", "hands-off demonstration \u00b7 " +
-        Math.floor(G.cert.run) + "s / " + CERT_PROOF_SECS + "s",
-        "don't touch anything - the plant is proving it runs itself"]);
+        Math.floor(G.cert.run) + "s / " + CERT_PROOF_SECS + "s \u00b7 " +
+        Math.round(pr.pct * 100) + "% " + (pr.onPace ? "- on pace" : "- below the bar"),
+        "don't touch anything - the plant is proving it runs itself (touching costs 20s)"]);
     } else {
       var cn2 = certNext();
       rows.push(["GOAL", cn2 ? cn2.label : "THE PLANT RUNS ITSELF",
@@ -3012,7 +3411,11 @@
         name: m.spec.name + " " + cur.name,
         owned: !next,
         does: "top tier · band " + cur.lo + "-" + cur.hi,
-        promise: next ? "faster, and a wider band (" + next.lo + "-" + next.hi + ") so a small lie is less fatal" : "",
+        /* v32 Mk canon, surfaced: a buyer should know the reliability they
+           are buying, not just the speed */
+        promise: next ? "faster, wider band (" + next.lo + "-" + next.hi + ") - and better iron: faults ~" +
+          Math.round((MK_FAULT_MULT[m.tier + 1] - 1) * 100) + "% less often, every verb " +
+          Math.round((1 - MK_VERB_MULT[m.tier + 1]) * 100) + "% quicker" : "",
         price: next ? "UPGRADE · " + next.price : "",
         cost: next ? next.price : 0,
         kind: "tier",
@@ -3039,7 +3442,7 @@
     col3.appendChild(el("span", "cl-branch__head", "THE DESK"));
     [["nano", "WAVE NANO", "tells you WHY, and what to change - instant through Picos, or direct-watching one bare machine on its own sweep", "explains the fault and gives the fix; no Picos needed to start"],
      ["micro", "WAVE MICRO", "the site view - and it can hold one knob", "all three machines at once"],
-     ["giga", "WAVE GIGA", "one mind on every dial - and its Unit on the floor", "bottleneck, forecast, full autonomy, a live radio to ask"]
+     ["giga", "WAVE GIGA", "one mind on every dial - its Unit walks the floor and inspects what nobody names", "bottleneck, forecast, full autonomy, auto-inspection, a live radio to ask"]
     ].forEach(function (row) {
       var id = row[0];
       var locked = (id !== "nano" && !G.nano) ? "NEEDS NANO" : "";
@@ -3283,12 +3686,19 @@
     DOM.unit.style.left = UNIT_POS[u.going || u.at] + "%";
     DOM.unit.dataset.pose = u.going ? "roll" : u.pose;
     DOM.unit.dataset.dir = String(u.dir);
+    /* v32 lanes: the radio's live exchange always shows (the player asked);
+       everything else the Unit says obeys the shared bubble plan */
     var line = G.chatBusy ? "\u2026asking over the radio"
-      : (!u.going && u.say && G.elapsed < u.sayUntil ? u.say : "");
+      : (!u.going && u.say && G.elapsed < u.sayUntil &&
+         (!DOM.bubbleShow || DOM.bubbleShow.unit) ? u.say : "");
     DOM.unitSay.hidden = !line;
     if (line) DOM.unitSay.textContent = line;
     var help = unitHelpTarget();
     DOM.unitSay.classList.toggle("is-help", !!(help && u.at === help.id && line));
+    /* the Unit at the floor's right edge speaks leftward and TALK flips to
+       its other shoulder - words stay on the floor, off the desk controls */
+    var atRight = UNIT_POS[u.going || u.at] >= 60;
+    DOM.unit.classList.toggle("at-right", atRight);
   }
 
   function paintChat() {
@@ -3332,6 +3742,11 @@
        answer - the chip and the glowing tag can never disagree */
     DOM.recoKinds = {};
     recommendedNext().forEach(function (r0) { DOM.recoKinds[r0.kind] = true; });
+    /* v32 annotation lanes: ONE spoken-word plan per paint - the machine
+       bubbles and the Unit's mouth all consult this same answer */
+    var tight = (DOM.tightMq && DOM.tightMq.matches) || (DOM.motionMq && DOM.motionMq.matches);
+    DOM.bubbleShow = {};
+    bubblePlan(bubbleCands(), tight ? 1 : 2).forEach(function (c0) { DOM.bubbleShow[c0.id] = true; });
     DOM.coins.textContent = Math.floor(G.coins);
     // debt is a state you can SEE: red coins plus a flag - the COINS label
     // itself never vanishes (playtest: "players scanning for money see their
@@ -3421,8 +3836,10 @@
         if (DOM.certStamp) DOM.certStamp.hidden = !G.cert.done;
       }
       if (DOM.certProof && !G.cert.done) {
+        var pr2 = certPace();
         DOM.certProof.textContent = certReady()
-          ? Math.floor(G.cert.run) + "s / " + CERT_PROOF_SECS + "s hands-off"
+          ? Math.floor(G.cert.run) + "s / " + CERT_PROOF_SECS + "s hands-off · " +
+            Math.round(pr2.pct * 100) + "% " + (pr2.onPace ? "- on pace" : "- below the bar")
           : "waiting on the checklist above";
       }
     }
@@ -3714,6 +4131,17 @@
       tapeEvents: function () { return TAPE.slice(); },
       tapeReset: function () { TAPE.length = 0; },
       tapePush: tape,
+      /* v32: Mk balance canon, the Unit's auto-inspection, the lane policy */
+      mkFaultMult: MK_FAULT_MULT,
+      mkVerbMult: MK_VERB_MULT,
+      verbSecsForWith: function (state, id, secs) {
+        var s2 = G; G = state; var v = verbSecsFor(machine(id), secs); G = s2; return v;
+      },
+      unitJobsWith: function (state) { var s2 = G; G = state; startUnitJobs(); G = s2; return state; },
+      bubblePlan: bubblePlan,
+      bubbleCandsWith: function (state) { var s2 = G; G = state; var v = bubbleCands(); G = s2; return v; },
+      certUptime: CERT_UPTIME,
+      certProofSecs: CERT_PROOF_SECS,
       buildTapeWith: function (state) { var s2 = G; G = state; var v = buildTape(); G = s2; return v; },
       persistTape: persistTape,
     };

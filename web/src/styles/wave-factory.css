@@ -168,9 +168,13 @@
 }
 .clf-badge b { font-family: var(--font-mono); font-size: .42rem; letter-spacing: .12em; color: var(--tier-pico, #b23a2a); }
 
-/* what the mounted model just said, at the machine */
+/* what the mounted model just said, at the machine.
+   v32 LANES: speech bubbles live in ONE BAND above the machines (-60px,
+   clear of the stacked attribution lane below), anchored to their machine,
+   never over the art - and the painter's bubblePlan() budget caps how many
+   speak at once, so bands cannot pile into each other. */
 .clf-bubble {
-  position: absolute; top: -34px; left: 55%; z-index: 3; white-space: nowrap;
+  position: absolute; top: -60px; left: 55%; z-index: 3; white-space: nowrap;
   font-family: var(--font-mono); font-size: .6rem;
   padding: .2rem .45rem; border: 1px solid var(--hairline-2); border-radius: 6px 6px 6px 0;
   background: var(--paper-2);
@@ -752,9 +756,14 @@
 .cl-win__stamp--cert { color: #1E7A3C; border-color: #1E7A3C; }
 .cl-cert__sub { display: block; font-size: .7rem; color: var(--ink-500); margin: .4rem 0 .2rem; max-width: 34rem; }
 
-/* MICRO's SITE BOARD, on the wall of the floor scene */
+/* MICRO's SITE BOARD, on the wall of the floor scene.
+   v32 ANNOTATION LANES: the board owns the TOP-RIGHT CORNER exclusively -
+   it used to hang at left 34%, straight over the oven's bubbles and tags
+   (founder screenshot). Nothing else is placed in this corner: the Unit's
+   speech anchors low on the floor and the machine lanes ride their own
+   machines. */
 .clf-siteboard {
-  position: absolute; top: 6%; left: 34%; width: 12.5rem; z-index: 3;
+  position: absolute; top: 4%; right: 1.5%; left: auto; width: 12.5rem; z-index: 3;
   padding: .45rem .55rem; border-radius: 6px;
   background: var(--paper); border: 1px solid var(--ink-300);
   border-left: 3px solid var(--tier-micro, var(--ink-500));
@@ -778,9 +787,13 @@
   padding: .12rem .5rem; background: var(--paper);
 }
 
-/* an autonomy move, floating off the machine it happened to */
+/* an autonomy move, floating off the machine it happened to.
+   v32 LANES: attribution tags ride the THIN LANE just above the machine
+   (-1.6rem, shared with the gateway's patrol pill) - and when the pill is
+   up, the tag steps one rung higher instead of landing on it. The speech
+   band starts at -60px, above both rungs. */
 .clf-autotag {
-  position: absolute; top: -3rem; left: 50%; transform: translateX(-50%);
+  position: absolute; top: -1.6rem; left: 50%; transform: translateX(-50%);
   white-space: nowrap; font-family: var(--font-mono); font-size: .54rem;
   font-style: normal; padding: .15rem .5rem; border-radius: 4px;
   background: var(--paper); border: 1px solid var(--hairline-2);
@@ -788,6 +801,8 @@
 }
 .clf-autotag[data-tier="micro"] { border-left-color: var(--tier-micro, var(--ink-500)); }
 .clf-autotag[data-tier="giga"] { border-left-color: var(--tier-giga, var(--ink-500)); }
+/* per-anchor stacking: patrol pill up -> the tag takes the next rung */
+.clf-gwtag:not([hidden]) ~ .clf-autotag { top: -3.1rem; }
 @media (prefers-reduced-motion: no-preference) {
   .clf-autotag { animation: clf-float 2.4s ease-out both; }
   @keyframes clf-float { from { opacity: 0; margin-top: .5rem; } 15% { opacity: 1; margin-top: 0; } 85% { opacity: 1; } to { opacity: 0; } }
@@ -976,9 +991,15 @@
 }
 @media (prefers-reduced-motion: reduce) { .clf-unit { transition: none; } }
 
-/* what it says when it pauses - same bubble language as the machines */
+/* what it says when it pauses - same bubble language as the machines.
+   v32 LANES: the bubble rides the Unit but CLAMPS to the floor - centered
+   normally, flipped to speak leftward when the Unit works the floor's
+   right side (.at-right, set by the painter from UNIT_POS), so its words
+   never run off the edge or into the desk. The site board's corner is
+   top-right and this bubble anchors low - they cannot meet. */
 .clf-unit__say {
   position: absolute; bottom: 100%; margin-bottom: 26px; z-index: 4;
+  left: 50%; transform: translateX(-50%);
   width: max-content; max-width: 190px;
   font-family: var(--font-mono); font-size: .54rem; line-height: 1.45;
   color: var(--ink-900); background: var(--paper);
@@ -987,6 +1008,14 @@
 }
 /* v31: the plea reads as a plea - amber edge, never the alarm red */
 .clf-unit__say.is-help { border-color: #C99700; color: var(--ink-900); }
+.clf-unit.at-right .clf-unit__say {
+  left: auto; right: 0; transform: none; border-radius: 7px 7px 0 7px;
+}
+/* TALK yields too: on the right side it flips to the Unit's other
+   shoulder instead of riding into the packer or the desk controls */
+.clf-unit.at-right .clf-unit__talk {
+  left: auto; right: 100%; margin-left: 0; margin-right: 3px;
+}
 /* the crown under strain drops the triumph tone */
 .cl-view__crown.is-strain { color: #C99700; }
 

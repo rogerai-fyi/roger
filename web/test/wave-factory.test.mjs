@@ -549,7 +549,10 @@ test("v25: concurrent draws avoid each other's records - the chorus fix", () => 
     "healthy draws too");
 });
 
-test("v25: automation runs the cheapest correct verb on Nano's advice", () => {
+test("v25: automation runs the cheapest correct verb on the model's word", () => {
+  /* AMENDED v32 (founder screenshot: "on Nano's advice" printed on a fault
+     Nano never named). Attribution now names the model whose WORD the verb
+     follows - here Pico raised "noisy", so the tag credits Pico's raise. */
   const h = loadHook();
   const s = h.freshState();
   s.nano = true; s.micro = 1;
@@ -559,7 +562,13 @@ test("v25: automation runs the cheapest correct verb on Nano's advice", () => {
   h.autoWith(s, "oven", 1 / 12);
   assert.ok(oven.restarting > 0, "a verb is running");
   assert.equal(oven.fixVerb, "clean", "and it is CLEAN - the doctrine's verb for noise, not a blanket service");
-  assert.match(oven.autoNote, /CLEAN on Nano's advice/i, "attributed");
+  assert.match(oven.autoNote, /CLEAN on Pico's raise: noisy/i, "attributed to the model that actually spoke");
+  // when the GATEWAY names the kind, the credit is Nano's
+  oven.restarting = 0; oven.fixVerb = null; oven.autoNote = "";
+  oven.microCycle = 0;   // a Micro acts on its 4s look; skip the wait
+  oven.nanoRead = { kind: "resolved", said: "noisy", margin: 2.0, truth: "noisy" };
+  h.autoWith(s, "oven", 1 / 12);
+  assert.match(oven.autoNote, /CLEAN on Nano's word: noisy/i, "Nano credited only when Nano spoke");
 });
 
 test("v25: the floor sells its own upgrades - buy points on the machines and the desk", () => {
@@ -1036,8 +1045,16 @@ test("v28: Micros stack to three, and more boxes is not more brain", () => {
   for (let i = 0; i < 12; i++) { m2.real = 4.9; m2.stuckAt = 0.2; m2.cond = "stuck"; h.autoWith(s2, "mixer", 1 / 12); }
   const g1 = m2.set;
   assert.notEqual(g1, g0, "Giga corrects within a second - no cycle gap");
-  for (let i = 0; i < 12; i++) { m2.real = 4.9; m2.stuckAt = 0.2; m2.cond = "stuck"; h.autoWith(s2, "mixer", 1 / 12); }
-  assert.notEqual(m2.set, g1, "and keeps correcting the next second - continuous, now rate-bounded");
+  /* AMENDED v32 (playtest round 3, the scorch): a needle that never answers
+     the dial now trips the fast no-answer wire at 12% of range instead of
+     being chased for another second - the dial holds, the sensor is
+     publicly flagged, and the stop is never reached. Continuity is proven
+     by the first second above; the second second proves the tripwire. */
+  for (let i = 0; i < 24; i++) { m2.real = 4.9; m2.stuckAt = 0.2; m2.cond = "stuck"; h.autoWith(s2, "mixer", 1 / 12); }
+  assert.ok(m2.senseSuspect || h.flaggedWith(s2, "mixer"),
+    "chasing a dead needle flags the sensor fast - the scorch is unconstructible");
+  assert.ok(m2.set > m2.spec.control.min && m2.set < m2.spec.control.max,
+    "and the dial never reaches a stop on a lying sensor");
 
   // the certificate accepts EITHER full-coverage route
   const s3 = h.freshState();
@@ -1387,7 +1404,7 @@ test("v30: the plant radio asks Ping with the line's summary, prose-framed", () 
   assert.match(framing, /using only the numbers above/, "and forbids invention");
   // the transport: the one documented outside call, credentials omitted
   assert.match(js, /var PING_URL = "https:\/\/broker\.rogerai\.fm\/concierge"/);
-  assert.match(js, /credentials: "omit", cache: "no-store",\n      body: JSON\.stringify\(\{ messages/);
+  assert.match(js, /credentials: "omit", cache: "no-store",\n\s+body: JSON\.stringify\(\{ messages/);
 });
 
 test("v30: Ping's reply is labeled Ping - never signed as Giga - and the fallback is local arithmetic", () => {
@@ -1507,8 +1524,14 @@ test("v31: automation that cannot clear a machine asks for a person, loudly", ()
   const m = s.machines.find((x) => x.id === "oven");
   m.auto = true; m.cond = "drifting"; m.stopped = true;
   m.picoRead = { kind: "wrong", said: "none", margin: 3, truth: "drifting" };  // chain miss: nothing raised
+  /* AMENDED v32: under Giga an unnamed fault is the UNIT's job now (it rolls
+     over and inspects), so the plea no longer fires for it... */
+  assert.equal(h.helpWith(s), null, "a double-miss under Giga goes to the Unit, not the person");
+  /* ...but WITHOUT Giga the plea survives exactly as v31 shipped it. */
+  s.giga = false;
   const help = h.helpWith(s);
-  assert.ok(help && help.id === "oven", "the unclearable machine is named");
+  assert.ok(help && help.id === "oven", "without a Unit the unclearable machine still names a person");
+  s.giga = true;
   // a machine with a live alarm and no lockout is NOT a plea - automation can act
   m.picoRead = { kind: "caught", said: "drifting", margin: 3, truth: "drifting" };
   assert.equal(h.helpWith(s), null, "an alarmed machine is automation's job, not the player's");
@@ -1563,4 +1586,236 @@ test("v31: the crown reads the room, and the plea wears amber", () => {
   assert.match(css, /\.clf-unit__say\.is-help \{ border-color: #C99700/,
     "the plea is amber - urgency without the alarm red");
   assert.match(js, /tape\("hold"/, "a hold goes on the session tape");
+});
+
+/* =====================================================================
+   v32 - THE FOUNDER'S BALANCE ROUND: Mk canon, Giga at 360, the Unit's
+   auto-inspection, the annotation lanes, and the proof run made winnable.
+   ===================================================================== */
+
+test("v32: Mk canon - better iron faults less often and services faster, and says so", () => {
+  const h = loadHook();
+  assert.deepEqual(h.mkFaultMult, [1.0, 1.5, 4.0], "fault-interval multipliers are canon");
+  assert.deepEqual(h.mkVerbMult, [1.0, 0.8, 0.6], "verb-duration multipliers are canon");
+  const s = h.freshState();
+  const oven = s.machines[1];
+  // Mk I baseline untouched - the taught opening plays exactly as before
+  assert.equal(h.verbSecsForWith(s, "oven", 10), 10, "Mk I pays full price");
+  oven.tier = 2;
+  assert.equal(h.verbSecsForWith(s, "oven", 10), 6, "Mk III inspects in 6s, not 10");
+  h.inspectWith(s, "oven");
+  assert.equal(oven.inspecting, 6, "the live inspect uses the scaled time");
+  oven.inspecting = 0;
+  h.maintainWith(s, "oven", "recal");
+  assert.equal(oven.restarting, 4.8, "recal 8s -> 4.8s at Mk III");
+  // fault scheduling stretches with the tier (clearCondition path)
+  oven.cond = "drifting";
+  h.clearWith(s, "oven");
+  assert.ok(oven.nextFault >= 14 * 4.0 && oven.nextFault <= 44 * 4.0,
+    "a cleared Mk III machine schedules its next fault 4x further out");
+  // and the buyer is TOLD what reliability they buy
+  assert.match(js, /faults ~" \+\s*Math\.round\(\(MK_FAULT_MULT\[m\.tier \+ 1\] - 1\) \* 100\)/,
+    "the shop row prints the reliability gain from the canon constants");
+  assert.match(js, /Better iron is easier iron/, "the maintenance card teaches the multipliers");
+});
+
+test("v32: Giga costs Micro + 100, and no surface remembers 500", () => {
+  const h = loadHook();
+  assert.equal(h.prices.giga, 360, "the founder's price");
+  assert.equal(h.prices.giga, h.prices.micro + 100, "exactly Micro + 100");
+  assert.ok(!/giga: 500/.test(js), "the old price is gone from the source");
+  assert.match(js, /MODEL_PRICE\.giga/, "surfaces print the constant, not a literal");
+});
+
+test("v32: the Unit auto-inspects what nobody names - gated on Giga, full cost, attributed", () => {
+  const h = loadHook();
+  const mkState = (giga) => {
+    const s = h.freshState();
+    s.records = measured.records;
+    s.nano = true; s.giga = giga; s.coins = 500;
+    if (giga) s.unit = { at: "desk", going: null, travelLeft: 0, pauseLeft: 5, dir: 1,
+                         pose: "idle", say: "", sayUntil: 0, topic: 0 };
+    const m = s.machines.find((x) => x.id === "oven");
+    m.pico = true; m.auto = true; m.cond = "drifting"; m.condAge = 3; m.stopped = true;
+    m.picoRead = { kind: "wrong", said: "none", margin: 3, truth: "drifting" };  // double-miss
+    return [s, m];
+  };
+  // WITHOUT Giga: no Unit, no dispatch - the double-miss stays the human's
+  const [s0, m0] = mkState(false);
+  h.autoWith(s0, "oven", 1 / 12);
+  assert.equal(m0.unitJob, null, "no Giga, no robot - the plea path handles it");
+  // WITH Giga: the visible stop dispatches the Unit (playtest round 3's dead trigger)
+  const [s1, m1] = mkState(true);
+  h.autoWith(s1, "oven", 1 / 12);
+  assert.equal(m1.unitJob, "inspect", "a stopped machine nobody named dispatches the Unit");
+  assert.equal(s1.unit.going, "oven", "and the Unit is actually rolling there");
+  // arrival starts the SAME inspection a person pays for, tier-scaled
+  s1.unit.going = null; s1.unit.at = "oven";
+  h.unitJobsWith(s1);
+  assert.equal(m1.unitInspecting, true, "the Unit inspects on arrival");
+  assert.equal(m1.inspecting, 10, "full Mk I inspection cost - no discount for robots");
+  assert.equal(m1.unitFixed, true, "the save is marked the robot's");
+  // completion reveals the kind and the doctrine verb follows, attributed
+  for (let i = 0; i < 11 * 12; i++) h.stepWith(s1, 1 / 12);
+  assert.equal(m1.inspected || m1.cond === "none", true, "the inspection landed");
+  assert.match(js, /the Unit inspected: /, "the verdict is attributed to the Unit at the machine");
+  // the human acknowledgment NEVER fires for a Unit-driven save
+  const [s2, m2] = mkState(true);
+  m2.unitFixed = true;
+  const saves = s2.humanSaves;
+  h.clearWith(s2, "oven");
+  assert.equal(s2.humanSaves, saves, "no medal for the robot - the ack stays human-only");
+  // and with Giga present the old double-miss plea is the Unit's job, not a plea
+  const [s3] = mkState(true);
+  assert.equal(h.helpWith(s3), null, "the plea narrows to locked-and-stuck cases");
+});
+
+test("v32: Giga verifies before it wagers - uncorroborated words go to the Unit, burned words never repeat", () => {
+  const h = loadHook();
+  const mk = () => {
+    const s = h.freshState();
+    s.nano = true; s.giga = true; s.coins = 500;
+    s.unit = { at: "desk", going: null, travelLeft: 0, pauseLeft: 5, dir: 1,
+               pose: "idle", say: "", sayUntil: 0, topic: 0 };
+    const m = s.machines.find((x) => x.id === "oven");
+    m.pico = true; m.auto = true; m.cond = "railed"; m.condAge = 3; m.stopped = true;
+    return [s, m];
+  };
+  // ONE model's cheap-verb word is not acted on - the Unit looks first
+  const [s1, m1] = mk();
+  m1.picoRead = { kind: "wrong", said: "noisy", margin: 3, truth: "railed" };
+  h.autoWith(s1, "oven", 1 / 12);
+  assert.equal(m1.restarting, 0, "no wagered CLEAN on a single uncorroborated word");
+  assert.equal(m1.unitJob, "inspect", "the Unit is sent to look instead");
+  // CORROBORATED words act at once - both models said the same thing
+  const [s2, m2] = mk();
+  m2.picoRead = { kind: "wrong", said: "noisy", margin: 3, truth: "railed" };
+  m2.nanoRead = { kind: "missed", said: "noisy", margin: 3, truth: "railed" };
+  h.autoWith(s2, "oven", 1 / 12);
+  assert.ok(m2.restarting > 0, "agreement is enough to act");
+  assert.match(m2.autoNote, /Nano's word: noisy/, "attributed to the word actually said");
+  // a word PROVEN wrong by a lockout is never followed twice
+  const [s3, m3] = mk();
+  m3.picoRead = { kind: "wrong", said: "noisy", margin: 3, truth: "railed" };
+  m3.nanoRead = { kind: "missed", said: "noisy", margin: 3, truth: "railed" };
+  m3.wordBurned = true;   // what the lockout branch sets
+  h.autoWith(s3, "oven", 1 / 12);
+  assert.equal(m3.restarting, 0, "the burned word is not re-run");
+  assert.equal(m3.unitJob, "inspect", "the fault falls to the Unit's inspection");
+  assert.match(js, /m\.wordBurned = true/, "the lockout brands the word in the live path");
+});
+
+test("v32: the proof clock is honest - automated moves don't touch it, hands cost 20s, doomed windows say why", () => {
+  const h = loadHook();
+  const s = h.freshState();
+  s.records = measured.records;
+  s.nano = true; s.giga = true; s.coins = 500;
+  s.unit = { at: "desk", going: null, travelLeft: 0, pauseLeft: 5, dir: 1,
+             pose: "idle", say: "", sayUntil: 0, topic: 0 };
+  s.machines.forEach((m) => { m.pico = true; m.tier = 2; m.auto = true; });
+  assert.equal(h.certReadyWith(s), true, "full kit - the proof window is live");
+  // a human touch is a 20s setback, not a reset
+  s.cert.run = 100; s.cert.up = 95;
+  h.touchWith(s);
+  assert.equal(s.cert.run, 80, "20s back, not zero");
+  assert.equal(s.cert.up, 75, "uptime credit steps back with it");
+  // an automated verb never touches the clock - the plant's own moves aren't hands
+  const oven = s.machines[1];
+  oven.cond = "noisy"; oven.condAge = 3;
+  oven.picoRead = { kind: "caught", said: "noisy", margin: 3, truth: "noisy" };
+  oven.nanoRead = { kind: "resolved", said: "noisy", margin: 3, truth: "noisy" };
+  s.cert.run = 80; s.cert.up = 75;
+  h.autoWith(s, "oven", 1 / 12);
+  assert.ok(oven.restarting > 0, "automation ran its verb");
+  assert.equal(s.cert.run, 80, "and the proof clock did not move");
+  // a window that can no longer clear the bar resets NOW, with words
+  s.cert.run = 100; s.cert.up = 20;
+  h.stepWith(s, 1 / 12);
+  assert.equal(s.cert.run, 0, "the doomed window resets instead of counting to a silent death");
+  assert.match(js, /- on pace|- below the bar/, "the live pace is printed beside the clock");
+  assert.match(js, /Proof window reset - uptime is/, "and the reset says why");
+});
+
+test("v32: the proof run is winnable - measured, not vibed (the bar lives at 80%)", () => {
+  /* The certificate's uptime bar is a MEASURED number: a fully-upgraded,
+     fully-automated, hands-off plant on the natural seeded scheduler must
+     pass a MAJORITY of sliding 3-minute windows, and an un-upgraded Mk I
+     automated plant must still fail. 90% never came close (the founder's
+     exact complaint); 80% is the highest 5%-step that clears. This lock
+     RUNS both plants. */
+  const h = loadHook();
+  assert.equal(h.certUptime, 0.8, "the bar the bots settled on");
+  function run(tier) {
+    const s = h.freshState();
+    s.records = measured.records;
+    s.nano = true; s.giga = true; s.coins = 5000;
+    s.unit = { at: "desk", going: null, travelLeft: 0, pauseLeft: 1, dir: 1,
+               pose: "idle", say: "", sayUntil: 0, topic: 0 };
+    for (const m of s.machines) { m.pico = true; m.tier = tier; m.auto = true; }
+    const DT = 1 / 12, N = Math.round(900 / DT);
+    for (let i = 0; i < Math.round(120 / DT); i++) h.stepWith(s, DT);   // warm up
+    const up = new Float64Array(N);
+    for (let i = 0; i < N; i++) {
+      h.stepWith(s, DT);
+      up[i] = s.machines.every((m) => !m.stopped) ? 1 : 0;
+    }
+    const w = Math.round(180 / DT), st = Math.round(5 / DT);
+    let pass = 0, total = 0, sum = 0;
+    for (let i = 0; i < w; i++) sum += up[i];
+    for (let start = 0; start + w <= N; start += st) {
+      if (start > 0) {
+        for (let i = start - st; i < start; i++) sum -= up[i];
+        for (let i = start + w - st; i < start + w; i++) sum += up[i];
+      }
+      total++;
+      if (sum / w >= h.certUptime) pass++;
+    }
+    return pass / total;
+  }
+  const full = run(2), mk1 = run(0);
+  assert.ok(full > 0.5, `full Mk III hands-off plant passes a majority of windows (got ${(full * 100).toFixed(0)}%)`);
+  assert.ok(mk1 < 0.2, `an un-upgraded Mk I plant still fails (got ${(mk1 * 100).toFixed(0)}%)`);
+});
+
+test("v32: annotation lanes - one spoken-word budget, priority executed, the board owns its corner", () => {
+  const h = loadHook();
+  // an ambient line CANNOT render while anything louder is up - it yields entirely
+  let plan = h.bubblePlan([{ id: "unit", kind: "ambient" }, { id: "mixer", kind: "verdict" }], 2);
+  assert.deepEqual(plan.map((c) => c.id), ["mixer"], "ambient yields the whole stage");
+  // priority: an escalation plea beats a model verdict when the budget is tight
+  plan = h.bubblePlan([{ id: "mixer", kind: "verdict" }, { id: "unit", kind: "plea" }], 1);
+  assert.deepEqual(plan.map((c) => c.kind), ["plea"], "the plea outranks the verdict");
+  // the budget is a hard cap
+  plan = h.bubblePlan([{ id: "mixer", kind: "verdict" }, { id: "oven", kind: "verdict" },
+                       { id: "packer", kind: "verdict" }], 2);
+  assert.equal(plan.length, 2, "two bubbles at most on a full floor");
+  // a quiet floor lets the Unit chatter
+  plan = h.bubblePlan([{ id: "unit", kind: "ambient" }], 2);
+  assert.equal(plan.length, 1, "ambient speaks only to a quiet floor");
+  // the paint consults the same plan (executed policy, not decoration)
+  assert.match(js, /bubblePlan\(bubbleCands\(\), tight \? 1 : 2\)/, "one plan per paint, tight screens get 1");
+  // CSS lanes: the site board owns the top-right corner EXCLUSIVELY
+  assert.match(css, /\.clf-siteboard \{\n  position: absolute; top: 4%; right: 1\.5%; left: auto/,
+    "the board moved off the oven and pinned to its corner");
+  // speech band above the attribution lane, which stacks per anchor
+  assert.match(css, /\.clf-bubble \{\n  position: absolute; top: -60px/, "the speech band");
+  assert.match(css, /\.clf-autotag \{\n  position: absolute; top: -1\.6rem/, "the attribution lane at the machine");
+  assert.match(css, /\.clf-gwtag:not\(\[hidden\]\) ~ \.clf-autotag \{ top: -3\.1rem; \}/,
+    "per-anchor stacking - the tag steps over the patrol pill, never onto it");
+  // the Unit's words clamp and flip at the floor's right edge; TALK yields too
+  assert.match(css, /\.clf-unit\.at-right \.clf-unit__say \{\n  left: auto; right: 0/, "say flips leftward");
+  assert.match(css, /\.clf-unit\.at-right \.clf-unit__talk \{\n  left: auto; right: 100%/, "TALK flips shoulders");
+});
+
+test("v32: playtest round-3 fixes - the win card is a pause not a hostage, the tape header tells the truth", () => {
+  assert.match(js, /G\.winAutoClose = window\.setTimeout\(function \(\) \{ dismissWin\(\); \}, 45000\)/,
+    "the contract card dismisses itself after a generous beat - a hands-off session never freezes");
+  assert.match(js, /build: GAME_BUILD/, "the tape header derives from the one build string");
+  assert.match(js, /var GAME_BUILD = "playbox v32"/, "which is current");
+  // Ping guardrails: identity is local, gibberish is filtered with one retry
+  assert.match(js, /isIdentityQ\(q\)/, "who-are-you never hits the network");
+  assert.match(js, /I'm the radio, not the mind/, "and the canned answer names Ping honestly");
+  assert.match(js, /saneReply\(reply\)/, "a live reply must look like language before it airs");
+  assert.match(js, /why === "insane" \? ask\(\) : Promise\.reject\(why\)/, "one retry, then the Unit's fallback");
+  assert.match(js, /already at top tier/, "the summary tells Ping what is maxed so it stops selling it");
 });
