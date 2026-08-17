@@ -1185,10 +1185,13 @@ func TestAStationThatCannotProduceIsSuspended(t *testing.T) {
 	tw := enrolledTower(t, b, "owner-1")
 	attachStation(t, b, "st-1", tw.id, "owner-1")
 	require.NoError(t, b.tower.registry.Transition(tw.id, admit.StateActive))
-	wantAudit(t, b, tw.id, "st-1", "att-1", []byte("q"), []byte("a"))
+	// A SAMPLED id: only the deterministic sample carries the retention promise whose breach
+	// suspends; an off-sample (adaptive/forced) miss is soft by design.
+	require.True(t, auditSampled("att-s0"))
+	wantAudit(t, b, tw.id, "st-1", "att-s0", []byte("q"), []byte("a"))
 
 	body, err := json.Marshal(map[string]any{
-		"tower_id": tw.id, "attempt_id": "att-1", "available": false,
+		"tower_id": tw.id, "attempt_id": "att-s0", "available": false,
 	})
 	require.NoError(t, err)
 	var out map[string]any
@@ -1258,8 +1261,9 @@ func TestTheSweepTurnsOverdueAuditsIntoFindings(t *testing.T) {
 	tw := enrolledTower(t, b, "owner-1")
 	attachStation(t, b, "st-1", tw.id, "owner-1")
 	require.NoError(t, b.tower.registry.Transition(tw.id, admit.StateActive))
+	require.True(t, auditSampled("att-s8"), "the sweep hardens only SAMPLED misses")
 	require.NoError(t, b.tower.auditWanted.Want(audit.Wanted{
-		TowerID: tw.id, AttemptID: "att-late", StationID: "st-1",
+		TowerID: tw.id, AttemptID: "att-s8", StationID: "st-1",
 		RequestDigest: "rq", ResponseDigest: "rs", Deadline: time.Now().Add(-time.Minute),
 	}))
 
@@ -1276,7 +1280,7 @@ func TestSelectionSamplesAFraction(t *testing.T) {
 	wanted := 0
 	for i := 0; i < 200; i++ {
 		id := "att-" + string(rune('a'+i%26)) + string(rune('0'+i/26))
-		b.selectForAudit(tw.id, "st-1", id, "rq", "rs", 0, 0)
+		b.selectForAudit(tw.id, "st-1", id, "rq", "rs", 0, 0, 0, 0)
 	}
 	p, err := b.tower.auditWanted.Pending(tw.id, time.Now())
 	require.NoError(t, err)
@@ -1376,7 +1380,7 @@ func TestTranscriptBytesMustHashToTheSignedDigests(t *testing.T) {
 // The audit helpers are safe on a broker with no Tower subsystem.
 func TestAuditHelpersAreSafeWithoutTheSubsystem(t *testing.T) {
 	b := testBrokerWithDB(store.NewMem())
-	require.NotPanics(t, func() { b.selectForAudit("tw", "st", "att", "rq", "rs", 0, 0) })
+	require.NotPanics(t, func() { b.selectForAudit("tw", "st", "att", "rq", "rs", 0, 0, 0, 0) })
 	require.NotPanics(t, func() { b.sweepAuditOverdue(time.Now()) })
 }
 
@@ -1480,7 +1484,7 @@ func TestStoreFailuresAreLoggedNotFatal(t *testing.T) {
 	require.NotPanics(t, func() { b.recordOutcome(tw.id, "att", reputation.Uncorroborated) })
 	// evaluateTower cannot read the tally, so it declines to act rather than acting on nothing.
 	require.Equal(t, reputation.Clean, b.evaluateTower(tw.id))
-	require.NotPanics(t, func() { b.selectForAudit(tw.id, "st-1", "att", "rq", "rs", 0, 0) })
+	require.NotPanics(t, func() { b.selectForAudit(tw.id, "st-1", "att", "rq", "rs", 0, 0, 0, 0) })
 	require.NotPanics(t, func() { b.sweepAuditOverdue(time.Now()) })
 }
 
@@ -1792,7 +1796,7 @@ func TestAnAckWhenTheStoreCannotBeReadIsUnavailable(t *testing.T) {
 // forceAudit and the audit helpers are safe without the subsystem, like the others.
 func TestForceAuditIsSafeWithoutTheSubsystem(t *testing.T) {
 	b := testBrokerWithDB(store.NewMem())
-	require.NotPanics(t, func() { b.forceAudit("tw", "st", "att", "rq", "rs", 0, 0) })
+	require.NotPanics(t, func() { b.forceAudit("tw", "st", "att", "rq", "rs", 0, 0, 0, 0) })
 }
 
 // A disputed settlement force-audits regardless of the sample, and records the outcome as a
@@ -1800,7 +1804,7 @@ func TestForceAuditIsSafeWithoutTheSubsystem(t *testing.T) {
 func TestForceAuditWantsTheAttempt(t *testing.T) {
 	b, _ := towerTestBroker(t)
 	tw := enrolledTower(t, b, "owner-1")
-	b.forceAudit(tw.id, "st-1", "att-forced", "rq", "rs", 0, 0)
+	b.forceAudit(tw.id, "st-1", "att-forced", "rq", "rs", 0, 0, 0, 0)
 	pending, err := b.tower.auditWanted.Pending(tw.id, time.Now())
 	require.NoError(t, err)
 	require.Len(t, pending, 1)
@@ -1808,7 +1812,7 @@ func TestForceAuditWantsTheAttempt(t *testing.T) {
 
 	// And with a failing store it logs rather than panicking.
 	b.tower.auditWanted = failingAudit{}
-	require.NotPanics(t, func() { b.forceAudit(tw.id, "st-1", "att-2", "rq", "rs", 0, 0) })
+	require.NotPanics(t, func() { b.forceAudit(tw.id, "st-1", "att-2", "rq", "rs", 0, 0, 0, 0) })
 }
 
 // The consumer-binding gate: an ack whose caller key is not the recorded consumer key is

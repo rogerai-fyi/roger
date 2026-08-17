@@ -59,7 +59,7 @@ const auditDeadline = 30 * time.Minute
 // Best effort, and downstream of settlement: a failure to enqueue an audit under-samples,
 // which reviews slightly less content, never more - it cannot wrongly accuse anyone, so it is
 // never a gate on the money.
-func (b *broker) selectForAudit(towerID, stationID, attemptID, requestDigest, responseDigest string, usageIn, usageOut int64) {
+func (b *broker) selectForAudit(towerID, stationID, attemptID, requestDigest, responseDigest string, usageIn, usageOut, wireIn, wireOut int64) {
 	ts := b.tower
 	if ts == nil || ts.auditWanted == nil {
 		return
@@ -70,7 +70,7 @@ func (b *broker) selectForAudit(towerID, stationID, attemptID, requestDigest, re
 	if err := ts.auditWanted.Want(audit.Wanted{
 		TowerID: towerID, AttemptID: attemptID, StationID: stationID,
 		RequestDigest: requestDigest, ResponseDigest: responseDigest,
-		UsageIn: usageIn, UsageOut: usageOut,
+		UsageIn: usageIn, UsageOut: usageOut, WireIn: wireIn, WireOut: wireOut,
 		Deadline: time.Now().Add(auditDeadline),
 	}); err != nil {
 		log.Printf("audit: could not select %s: %v", attemptID, err)
@@ -80,7 +80,7 @@ func (b *broker) selectForAudit(towerID, stationID, attemptID, requestDigest, re
 // forceAudit marks an attempt wanted regardless of the sample - used when settlement already
 // found something worth a closer look, like a disputed digest. The Station keeps everything
 // recent, so a forced audit lands on a transcript it should still hold.
-func (b *broker) forceAudit(towerID, stationID, attemptID, requestDigest, responseDigest string, usageIn, usageOut int64) {
+func (b *broker) forceAudit(towerID, stationID, attemptID, requestDigest, responseDigest string, usageIn, usageOut, wireIn, wireOut int64) {
 	ts := b.tower
 	if ts == nil || ts.auditWanted == nil {
 		return
@@ -88,11 +88,26 @@ func (b *broker) forceAudit(towerID, stationID, attemptID, requestDigest, respon
 	if err := ts.auditWanted.Want(audit.Wanted{
 		TowerID: towerID, AttemptID: attemptID, StationID: stationID,
 		RequestDigest: requestDigest, ResponseDigest: responseDigest,
-		UsageIn: usageIn, UsageOut: usageOut,
+		UsageIn: usageIn, UsageOut: usageOut, WireIn: wireIn, WireOut: wireOut,
 		Deadline: time.Now().Add(auditDeadline),
 	}); err != nil {
 		log.Printf("audit: could not force-select %s: %v", attemptID, err)
 	}
+}
+
+// hubNodeStation reports whether stationID is a SELF-ATTACHED hub node. Hub nodes serve the
+// sealed path and have NO transcript-fetch plane yet - the tower's audit courier collects
+// from dialable --station endpoints, which a polling node is not - so a hard "cannot
+// produce" finding against one would quarantine an honest tower for a plane that does not
+// exist. Their misses stay soft until the hub transcript plane ships (tracked follow-up);
+// their money is still bounded by the grant ceilings, tokens<=bytes, and the wire evidence.
+func (b *broker) hubNodeStation(stationID string) bool {
+	ts := b.tower
+	if ts == nil || ts.stations == nil {
+		return false
+	}
+	at, found, err := ts.stations.Station(stationID)
+	return err == nil && found && at.HubToken != ""
 }
 
 func auditSampled(attemptID string) bool {
@@ -175,12 +190,20 @@ func (b *broker) towerAuditTranscript(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !req.Available {
-		// The Station did not keep it. That is a "cannot produce" for a SAMPLED attempt, which
-		// the spec quarantines on - recorded as a mismatch outcome and resolved so it is not
-		// swept again.
-		b.recordOutcome(req.TowerID, req.AttemptID, reputation.AuditMismatch)
+		// The Station did not keep it. For a SAMPLED attempt that is the spec's quarantine
+		// trigger: the deterministic sample is the retention CONTRACT, so "cannot produce"
+		// there is a Station refusing to show work it promised to hold. An OFF-SAMPLE want -
+		// an adaptive or forced selection - carries no such promise: the Station's retention
+		// samples by the same deterministic rule, so an honest, busy Station may simply not
+		// have it (a review found one-strike-quarantining that punished exactly the honest).
+		// Off-sample misses are logged as a soft signal, not recorded as a mismatch.
+		if auditSampled(req.AttemptID) && !b.hubNodeStation(wanted.StationID) {
+			b.recordOutcome(req.TowerID, req.AttemptID, reputation.AuditMismatch)
+			b.evaluateTower(req.TowerID)
+		} else {
+			log.Printf("audit: attempt %s on tower %s not retained (off-sample or hub node) - soft miss, no finding", req.AttemptID, req.TowerID)
+		}
 		_ = ts.auditWanted.Resolve(req.AttemptID)
-		b.evaluateTower(req.TowerID)
 		writeJSON(w, http.StatusOK, map[string]any{"attempt_id": req.AttemptID, "resolved": true})
 		return
 	}
@@ -226,6 +249,22 @@ func (b *broker) towerAuditTranscript(w http.ResponseWriter, r *http.Request) {
 			matches = false
 			result.Reason = fmt.Sprintf("usage misreported: receipt claimed in=%d out=%d, transcript bytes in=%d out=%d",
 				wanted.UsageIn, wanted.UsageOut, len(reqBytes), len(respBytes))
+		} else {
+			// WIRE ARBITRATION (P8). The transcript just PROVED the true plaintext lengths
+			// (they hash to the digests both ends signed). Sealed bytes are always at least
+			// the plaintext they carry, so a Tower-attested wire count BELOW the proven
+			// length is a physical impossibility: the Tower lied low - the exact move that
+			// would have underpaid this node had the wire moved money. It never does (the
+			// count is evidence only), and here the lie becomes attributable TO THE TOWER:
+			// the Station's transcript passes, and the Tower eats the disputed outcome its
+			// false attestation caused.
+			if (wanted.WireIn > 0 && wanted.WireIn < int64(len(reqBytes))) ||
+				(wanted.WireOut > 0 && wanted.WireOut < int64(len(respBytes))) {
+				log.Printf("audit: TOWER %s attested an impossible wire count for %s (wire %d/%d < proven plaintext %d/%d) - the tower, not the station, is the liar here",
+					req.TowerID, req.AttemptID, wanted.WireIn, wanted.WireOut, len(reqBytes), len(respBytes))
+				b.recordOutcome(req.TowerID, req.AttemptID+"#wire", reputation.CanaryFail)
+				b.evaluateTower(req.TowerID)
+			}
 		}
 	}
 
@@ -302,7 +341,12 @@ func (b *broker) sweepAuditOverdue(now time.Time) {
 	}
 	for _, o := range overdue {
 		// A SAMPLED attempt whose transcript never came is a Station that cannot show its
-		// work - the spec's quarantine trigger.
+		// work - the spec's quarantine trigger. An off-sample (adaptive/forced) want carries
+		// no retention promise, so its silence is a soft signal, not a finding.
+		if !auditSampled(o.AttemptID) || b.hubNodeStation(o.StationID) {
+			log.Printf("audit: attempt %s on tower %s never produced (off-sample or hub node) - soft miss, no finding", o.AttemptID, o.TowerID)
+			continue
+		}
 		log.Printf("audit: attempt %s on tower %s was never produced", o.AttemptID, o.TowerID)
 		b.recordOutcome(o.TowerID, o.AttemptID, reputation.AuditMismatch)
 		b.evaluateTower(o.TowerID)
@@ -328,28 +372,52 @@ const (
 	adaptiveNewStationP = 0.5
 	// adaptiveReputationWindow is the recent-history window the anomaly rate is read from.
 	adaptiveReputationWindow = 24 * time.Hour
-	// adaptiveAnomalyGain scales the Tower's recent (disputed + uncorroborated) rate into
-	// extra selection probability: a fully-anomalous Tower is audited on every settlement.
+	// adaptiveAnomalyGain scales the Tower's recent STRONG-evidence rate - disputes, audit
+	// mismatches, canary failures - into extra selection probability: a fully-anomalous
+	// Tower is audited on every settlement.
 	adaptiveAnomalyGain = 1.0
+	// adaptiveUncorrGain scales the tower's uncorroborated EXCESS over the fleet baseline.
+	// Uncorroborated is the ORDINARY outcome (third-party clients never ack; acks race
+	// receipts), so the absolute rate must not drive the audit rate - a review found gain 1.0
+	// on it converged honest fleets on audit-everything, a privacy and load regression. What
+	// is anomalous is being MORE uncorroborated than everyone else.
+	adaptiveUncorrGain = 0.25
 )
 
-// adaptiveAuditP computes the elevated selection probability for one settlement.
-func (b *broker) adaptiveAuditP(towerID, stationID string, now time.Time) float64 {
+// adaptiveAuditP computes the elevated selection probability for one settlement. attachedAt
+// is the Station's attachment time, passed in because the settle handler already holds the
+// record (no second store round-trip per settlement).
+func (b *broker) adaptiveAuditP(towerID string, attachedAt, now time.Time) float64 {
 	ts := b.tower
 	if ts == nil {
 		return 0
 	}
 	p := 0.0
-	if ts.stations != nil {
-		if at, found, err := ts.stations.Station(stationID); err == nil && found &&
-			now.Sub(at.AttachedAt) < adaptiveNewStationWindow {
-			p += adaptiveNewStationP
-		}
+	if !attachedAt.IsZero() && now.Sub(attachedAt) < adaptiveNewStationWindow {
+		p += adaptiveNewStationP
 	}
 	if ts.outcomes != nil {
-		if tally, err := ts.outcomes.Tally(towerID, now.Add(-adaptiveReputationWindow)); err == nil && tally.Total > 0 {
-			anomaly := float64(tally.Disputed+tally.Uncorroborated) / float64(tally.Total)
-			p += adaptiveAnomalyGain * anomaly
+		since := now.Add(-adaptiveReputationWindow)
+		if tally, err := ts.outcomes.Tally(towerID, since); err == nil && tally.Total > 0 {
+			// STRONG evidence ramps directly: disputes, audit mismatches, canary failures.
+			// (A review found the earlier numerator EXCLUDED mismatches and canary fails, so
+			// the strongest evidence lowered the rate by growing only the denominator.)
+			strong := float64(tally.Disputed+tally.AuditMismatch+tally.CanaryFail) / float64(tally.Total)
+			p += adaptiveAnomalyGain * strong
+			// Uncorroborated ramps only on the EXCESS over the fleet's own rate, over settled
+			// outcomes - the same relative discipline evaluateTower applies.
+			settledHere := tally.Corroborated + tally.Uncorroborated + tally.Disputed
+			if fleet, ferr := ts.outcomes.FleetTally(since); ferr == nil && settledHere > 0 {
+				settledFleet := fleet.Corroborated + fleet.Uncorroborated + fleet.Disputed
+				towerRate := float64(tally.Uncorroborated) / float64(settledHere)
+				fleetRate := 0.0
+				if settledFleet > 0 {
+					fleetRate = float64(fleet.Uncorroborated) / float64(settledFleet)
+				}
+				if excess := towerRate - fleetRate; excess > 0 {
+					p += adaptiveUncorrGain * excess
+				}
+			}
 		}
 	}
 	if p > 1 {
@@ -362,8 +430,8 @@ func (b *broker) adaptiveAuditP(towerID, stationID string, now time.Time) float6
 // it wanted exactly as the baseline does. The coin is crypto/rand (a tower must not be able
 // to predict it the way it can predict the deterministic sample); a failed read of
 // randomness simply skips - under-sampling, never blocking.
-func (b *broker) adaptiveAudit(towerID, stationID, attemptID, requestDigest, responseDigest string, usageIn, usageOut int64) {
-	p := b.adaptiveAuditP(towerID, stationID, time.Now())
+func (b *broker) adaptiveAudit(towerID, stationID, attemptID, requestDigest, responseDigest string, usageIn, usageOut, wireIn, wireOut int64, attachedAt time.Time) {
+	p := b.adaptiveAuditP(towerID, attachedAt, time.Now())
 	if p <= 0 {
 		return
 	}
@@ -375,5 +443,5 @@ func (b *broker) adaptiveAudit(towerID, stationID, attemptID, requestDigest, res
 	if roll >= p {
 		return
 	}
-	b.forceAudit(towerID, stationID, attemptID, requestDigest, responseDigest, usageIn, usageOut)
+	b.forceAudit(towerID, stationID, attemptID, requestDigest, responseDigest, usageIn, usageOut, wireIn, wireOut)
 }

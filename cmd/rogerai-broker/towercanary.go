@@ -32,6 +32,7 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"log"
+	"strings"
 	"time"
 
 	"rogerai.fm/roger/v5/internal/edgeclient"
@@ -148,6 +149,13 @@ func (b *broker) canaryTargetFor(towerID string) (dispatch.Target, string, bool)
 	}
 	for _, row := range rows {
 		if row.Endpoint == "" {
+			continue
+		}
+		// SELF-ATTACHED rows serve the HUB path (sealed submits), not this canary's raw-TLS
+		// dial - probing one would fail every time and quarantine a healthy hub tower on
+		// evidence Core manufactured itself. Skipped until the canary is ported to the
+		// sealed path (the P9 recon's blocking item).
+		if strings.HasPrefix(row.OfferID, "self-") {
 			continue
 		}
 		if target, ok := b.targetFor(row.TowerID, row.StationID, row.Model, row.Modality); ok {

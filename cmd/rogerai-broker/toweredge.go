@@ -773,23 +773,20 @@ func (b *broker) towerEdgeSettle(w http.ResponseWriter, r *http.Request) {
 		disputed = true
 	}
 	// THE TOWER'S WIRE ATTESTATION (P8; spec: "The Tower's wire count bounds what a Station
-	// can bill"). The Tower cannot read the session, but it can WEIGH it: the sealed request
-	// and sealed result it relayed are each at least as large as the plaintext they carry, so
-	// the Tower's own byte counts are an upper bound on the Station's byte claim - and the
-	// Tower is an independent party (it earns a % of gross, so understating shrinks its own
-	// pay, and the clamp means overstating changes nothing). Absent/zero counts change
-	// nothing; a Station claim above the attested wire is provably inflated - clamped and
-	// disputed. Runs BEFORE tokens<=bytes so the tightened byte figure bounds tokens too.
-	if req.WireIn > 0 && settled.Billable.In > req.WireIn {
-		log.Printf("edge settle: attempt %s billable in %d exceeds the tower's wire count %d - clamped and disputed",
-			req.AttemptID, settled.Billable.In, req.WireIn)
-		settled.Billable.In = req.WireIn
-		disputed = true
-	}
-	if req.WireOut > 0 && settled.Billable.Out > req.WireOut {
-		log.Printf("edge settle: attempt %s billable out %d exceeds the tower's wire count %d - clamped and disputed",
-			req.AttemptID, settled.Billable.Out, req.WireOut)
-		settled.Billable.Out = req.WireOut
+	// can bill" - as EVIDENCE, not money). The Tower cannot read the session, but it can
+	// WEIGH it: the sealed bytes it relayed are at least as large as the plaintext they
+	// carry, so a Station byte claim above the wire count is inflated OR the Tower is lying
+	// low. Core cannot tell which from here - and the file's own doctrine holds: settlement
+	// uses the receipt and the acknowledgement, NEVER the Tower's word. So a mismatch flags
+	// the settlement disputed (which force-audits it below) and the AUDIT arbitrates: the
+	// transcript proves the true byte lengths against the signed digests, a wire count below
+	// them is a physical impossibility, and THAT is attributable to the Tower. A security
+	// review killed the earlier clamp here - it let a consumer running its own tower send
+	// wire_out:1 and buy near-free inference at an honest node's expense.
+	if (req.WireIn > 0 && settled.Billable.In > req.WireIn) ||
+		(req.WireOut > 0 && settled.Billable.Out > req.WireOut) {
+		log.Printf("edge settle: attempt %s claim (%d/%d) exceeds the tower's wire count (%d/%d) - disputed, audit arbitrates",
+			req.AttemptID, settled.Billable.In, settled.Billable.Out, req.WireIn, req.WireOut)
 		disputed = true
 	}
 	// TOKENS <= BYTES, enforced with data Core already holds. A token is at least one byte, so
@@ -868,17 +865,20 @@ func (b *broker) towerEdgeSettle(w http.ResponseWriter, r *http.Request) {
 	// unacknowledged attempt whose operator inflated its own usage_out.
 	if disputed {
 		b.forceAudit(req.TowerID, req.StationID, req.AttemptID,
-			receipt.RequestDigest, receipt.ResponseDigest, receipt.Usage.In, receipt.Usage.Out)
+			receipt.RequestDigest, receipt.ResponseDigest, receipt.Usage.In, receipt.Usage.Out,
+			req.WireIn, req.WireOut)
 	} else {
 		b.selectForAudit(req.TowerID, req.StationID, req.AttemptID,
-			receipt.RequestDigest, receipt.ResponseDigest, receipt.Usage.In, receipt.Usage.Out)
+			receipt.RequestDigest, receipt.ResponseDigest, receipt.Usage.In, receipt.Usage.Out,
+			req.WireIn, req.WireOut)
 		// THE ADAPTIVE LAYER (spec: "The audit rate adapts to the evidence"): a fresh
 		// Station or an anomalous recent history elevates this settlement's selection odds
 		// beyond the deterministic sample - by an unpredictable coin, so a tower cannot
 		// compute which attempts are watched. Skipped when the baseline already selected.
 		if !auditSampled(req.AttemptID) {
 			b.adaptiveAudit(req.TowerID, req.StationID, req.AttemptID,
-				receipt.RequestDigest, receipt.ResponseDigest, receipt.Usage.In, receipt.Usage.Out)
+				receipt.RequestDigest, receipt.ResponseDigest, receipt.Usage.In, receipt.Usage.Out,
+				req.WireIn, req.WireOut, at.AttachedAt)
 		}
 	}
 	// Judged AFTER the outcome is recorded, so this attempt is in the window. The verdict may

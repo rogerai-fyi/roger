@@ -409,8 +409,12 @@ func cmdServe(args []string, out io.Writer) error {
 	// often not it - ":8443" is not dialable by anyone. A relay with no public address still
 	// carries traffic for consumers who were told about it some other way, but Core will not
 	// route anyone new here, and the operator should know that is what they asked for.
-	if *relayPublic != "" && *relayAddr == "" {
-		return fmt.Errorf("--relay-public advertises a data plane, but no --relay is serving one")
+	// A HUB is a data plane too: --relay-public names the address Core advertises for
+	// whichever plane is serving, and a hub-only tower (the Topology-2 shape) is the one
+	// that NEEDS it - self-attach hands that address to every node and consumer. The earlier
+	// check refused exactly that combination and stranded hub towers unadvertised.
+	if *relayPublic != "" && *relayAddr == "" && *hubAddr == "" {
+		return fmt.Errorf("--relay-public advertises a data plane, but neither --relay nor --hub is serving one")
 	}
 	if *relayAddr != "" && *relayPublic == "" {
 		fmt.Fprint(out, "NOTE: the relay has no --relay-public address, so Roger Core will not "+

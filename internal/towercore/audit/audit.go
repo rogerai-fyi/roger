@@ -45,6 +45,12 @@ type Wanted struct {
 	// misreport - the one over-billing an honest-looking, unacknowledged attempt could hide.
 	UsageIn  int64
 	UsageOut int64
+	// WireIn and WireOut are the TOWER's own counts of the sealed bytes it relayed (0 =
+	// unattested). Sealed bytes are always at least the plaintext they carry, so at audit -
+	// when Core holds the proven plaintext - a wire count BELOW the true byte length is a
+	// physical impossibility: a Tower that reported one lied, attributably.
+	WireIn  int64
+	WireOut int64
 	// Deadline is when an unproduced transcript becomes a "cannot produce" finding.
 	Deadline time.Time
 }

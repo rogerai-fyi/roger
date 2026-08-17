@@ -8,8 +8,9 @@
 # probe`), CANARIES (Core probes a Tower by using it), SAMPLED TRANSCRIPT AUDIT (Station-
 # signed transcripts checked against the receipt digests) with the ADAPTIVE elevation (new
 # stations and anomalous recent history raise the selection odds by an unpredictable coin),
-# the Tower WIRE-COUNT attestation (sealed-byte counts bound the billable bytes, clamp-only,
-# forwarded by the settle courier), a REPUTATION ledger that suspends
+# the Tower WIRE-COUNT attestation (sealed-byte counts as settlement EVIDENCE - dispute +
+# forced audit, never money; the audit attributes an impossible count to the Tower), a
+# REPUTATION ledger that suspends
 # on repeated canary failures or an audit mismatch, and Core-issued edge TLS certificates.
 # Built: the compensation ACCRUAL substrate - one durable idempotent row per settled attempt,
 # priced on billable usage, read by the operator (internal/towercore/earnings). Not built: the
@@ -177,15 +178,20 @@ Feature: A Tower carries the data plane and Roger Core keeps the control plane
     And the elevation decays back toward the baseline as corroborated history accumulates
     And a failure to enqueue an adaptive selection under-samples and never gates the money
 
-  # THE TOWER'S OWN WIRE COUNT. The Tower cannot read the session, but it can weigh it - and
-  # sealed bytes bound the plaintext they carry. A count from the party that RELAYED the bytes
-  # is independent of the party PAID for them, and it can only ever lower a bill.
-  Scenario: The Tower's wire count bounds what a Station can bill
+  # THE TOWER'S OWN WIRE COUNT - EVIDENCE, NEVER MONEY. The Tower cannot read the session,
+  # but it can weigh it, and sealed bytes bound the plaintext they carry. A security review
+  # killed the clamp version of this scenario: letting the Tower's number move the bill let a
+  # consumer running its own tower attest tiny counts and buy near-free inference at an honest
+  # node's expense. So the count flags; the money continues to rest on the receipt and the
+  # acknowledgement, and the AUDIT arbitrates - the transcript proves the true byte lengths,
+  # and a wire count below them is a physical impossibility attributable to the Tower.
+  Scenario: The Tower's wire count is settlement evidence the audit arbitrates
     Given a Tower forwards a Station's receipt for settlement
     When the forward carries the byte sizes of the sealed request and sealed result the Tower actually relayed
-    Then settlement clamps the billable bytes to those wire counts
-    And a Station claim above the attested wire count is clamped and marked disputed
-    And an absent or zero wire count changes nothing - the attestation can only ever reduce a bill, never raise one
+    Then a Station claim above the attested wire count marks the settlement disputed and forces an audit
+    And the billable figures still come from the receipt and the acknowledgement - the Tower's word moves no money in either direction
+    And at audit, an attested wire count below the transcript's proven byte length is attributed to the Tower, not the Station
+    And an absent or zero wire count changes nothing
 
   # --- what the operator is paid for ---------------------------------------
 

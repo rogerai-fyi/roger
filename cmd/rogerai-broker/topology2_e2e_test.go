@@ -81,6 +81,9 @@ func TestFullProductLoopANodeEarnsThroughATower(t *testing.T) {
 		body := map[string]any{
 			"tower_id": tw.id, "station_id": stationID, "attempt_id": res.AttemptID,
 			"receipt": base64.StdEncoding.EncodeToString(res.Receipt),
+			// The REAL courier forwards the wire counts it observed; so does this stand-in,
+			// proving the honest path is never falsely disputed by its own attestation.
+			"wire_in": res.WireIn, "wire_out": len(res.Envelope),
 		}
 		var out map[string]any
 		tw.call(t, srv, "/tower/edge/settle", jsonOf(t, body), &out) // 200 or 409, both fine
@@ -146,6 +149,7 @@ func TestFullProductLoopANodeEarnsThroughATower(t *testing.T) {
 	select {
 	case out := <-settleOut:
 		require.Equal(t, true, out["corroborated"], "the ack beat the receipt: corroborated, not merely funded (%v)", out)
+		require.NotEqual(t, true, out["disputed"], "an honest serve with real wire counts is never disputed by its own attestation (%v)", out)
 	case <-time.After(15 * time.Second):
 		t.Fatal("the settle courier never reported")
 	}
