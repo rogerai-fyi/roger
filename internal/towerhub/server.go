@@ -46,7 +46,14 @@ type Server struct {
 	// tower's settle courier hangs here (it forwards the opaque receipt to Roger Core). It
 	// receives only what the tower may see: the station, the attempt, and the sealed/signed
 	// blobs it cannot read. Called on its own goroutine; it must not block the handler.
+	// Fires ONLY for attempts this hub actually dispatched to that Station (audit L2): a node
+	// fabricating attempt ids cannot ride the tower's signature to Core.
 	OnComplete func(stationID string, res Result)
+	// OnUnknownStation, when set, observes a Submit refused with ErrNoStation (audit M3): the
+	// tower hangs an immediate node-registration refresh here so a freshly self-attached node
+	// becomes servable without waiting out the periodic refresh. Called on its own goroutine;
+	// the caller is responsible for rate-limiting.
+	OnUnknownStation func(stationID string)
 
 	mu     sync.RWMutex
 	tokens map[string]string // stationID -> the serving node's bearer token
@@ -163,6 +170,9 @@ func (s *Server) Submit(w http.ResponseWriter, r *http.Request) {
 			Failure:  res.Failure,
 		})
 	case errors.Is(serr, ErrNoStation):
+		if s.OnUnknownStation != nil {
+			go s.OnUnknownStation(stationID)
+		}
 		writeErr(w, http.StatusNotFound, "no node is serving this Station on this tower")
 	case errors.Is(serr, ErrDuplicateAttempt):
 		writeErr(w, http.StatusConflict, "this attempt is already in flight")
@@ -247,8 +257,13 @@ func (s *Server) Complete(w http.ResponseWriter, r *http.Request) {
 	// Bound to the authenticated Station: hub.Complete drops a result whose attempt does not
 	// belong to req.StationID, so a node cannot resolve another Station's attempt.
 	res := Result{AttemptID: req.AttemptID, Envelope: env, Receipt: rec, Failure: req.Failure}
+	// THE COURIER GATE (audit L2): only completions for attempts this hub actually HANDED to
+	// this Station ride to Core. Checked before Complete (which consumes the waiter but not the
+	// dispatch record) so a consumer who gave up waiting still gets the node paid - the node
+	// honestly did the work - while a fabricated attempt id goes nowhere.
+	carried := s.hub.Dispatched(req.AttemptID, req.StationID)
 	s.hub.Complete(req.StationID, res)
-	if s.OnComplete != nil && len(rec) > 0 {
+	if s.OnComplete != nil && len(rec) > 0 && carried {
 		go s.OnComplete(req.StationID, res)
 	}
 	w.WriteHeader(http.StatusOK)

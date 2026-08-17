@@ -209,3 +209,81 @@ func TestHTTPTokenRotationInvalidatesTheOldToken(t *testing.T) {
 	resp.Body.Close()
 	require.Equal(t, http.StatusUnauthorized, resp.StatusCode, "the rotated-out token no longer authenticates")
 }
+
+// The settle courier only rides for attempts the hub actually HANDED to that node (audit L2):
+// a registered-but-hostile node fabricating attempt ids + self-signed receipts must not get
+// them forwarded to Core under the tower's signature.
+func TestOnCompleteFiresOnlyForDispatchedAttempts(t *testing.T) {
+	s, srv := testServer(t)
+	s.RegisterNode("st1", "tok")
+	fired := make(chan string, 4)
+	s.OnComplete = func(_ string, res Result) { fired <- res.AttemptID }
+
+	// A fabricated completion: the hub never dispatched "made-up".
+	resp, _ := postJSON(t, srv.URL+"/complete", "tok", map[string]string{
+		"attempt_id": "made-up", "station_id": "st1",
+		"receipt": base64.StdEncoding.EncodeToString([]byte("forged")),
+	})
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	// A REAL round trip: submit -> poll (records the dispatch) -> complete.
+	go func() {
+		r, _ := postJSON(t, srv.URL+"/submit", "", map[string]string{
+			"grant":    base64.StdEncoding.EncodeToString([]byte("att-real|st1")),
+			"envelope": base64.StdEncoding.EncodeToString([]byte("sealed")),
+		})
+		r.Body.Close()
+	}()
+	req, err := http.NewRequest(http.MethodGet, srv.URL+"/poll?station=st1", nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer tok")
+	var polled pollResp
+	require.Eventually(t, func() bool {
+		pr, perr := http.DefaultClient.Do(req)
+		if perr != nil || pr.StatusCode != http.StatusOK {
+			if pr != nil {
+				pr.Body.Close()
+			}
+			return false
+		}
+		defer pr.Body.Close()
+		return json.NewDecoder(pr.Body).Decode(&polled) == nil
+	}, 3*time.Second, 50*time.Millisecond)
+	resp, _ = postJSON(t, srv.URL+"/complete", "tok", map[string]string{
+		"attempt_id": polled.AttemptID, "station_id": "st1",
+		"envelope": base64.StdEncoding.EncodeToString([]byte("sealed-answer")),
+		"receipt":  base64.StdEncoding.EncodeToString([]byte("signed")),
+	})
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	select {
+	case id := <-fired:
+		require.Equal(t, "att-real", id, "only the dispatched attempt rides the courier")
+	case <-time.After(2 * time.Second):
+		t.Fatal("the dispatched attempt's completion never reached the courier")
+	}
+	select {
+	case id := <-fired:
+		t.Fatalf("a completion the hub never carried reached the courier: %q", id)
+	case <-time.After(300 * time.Millisecond):
+	}
+}
+
+// An unknown-Station submit tells the tower (audit M3), so it can refresh registrations
+// immediately instead of leaving a freshly attached node dark until the periodic tick.
+func TestSubmitToUnknownStationTriggersTheRefreshHook(t *testing.T) {
+	s, srv := testServer(t)
+	hit := make(chan string, 1)
+	s.OnUnknownStation = func(stationID string) { hit <- stationID }
+	resp, _ := postJSON(t, srv.URL+"/submit", "", map[string]string{
+		"grant":    base64.StdEncoding.EncodeToString([]byte("att|ghost")),
+		"envelope": base64.StdEncoding.EncodeToString([]byte("sealed")),
+	})
+	require.Equal(t, http.StatusNotFound, resp.StatusCode)
+	select {
+	case id := <-hit:
+		require.Equal(t, "ghost", id)
+	case <-time.After(2 * time.Second):
+		t.Fatal("the unknown-station hook never fired")
+	}
+}

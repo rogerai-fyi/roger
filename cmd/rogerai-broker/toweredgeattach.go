@@ -191,8 +191,8 @@ func (b *broker) towerEdgeAttach(w http.ResponseWriter, r *http.Request) {
 		ID: newInviteID(), Network: link.PublicNetwork, StationID: stationID, Owner: ownerPubkey,
 		Origin:       attach.Origin{Kind: attach.OriginJoined, TowerID: towerID},
 		AssertionKey: req.AssertionKey, SessionKey: req.SessionKey,
-		HubToken:     hubToken,
-		Model:        strings.TrimSpace(req.Model), Modality: strings.TrimSpace(req.Modality),
+		HubToken: hubToken,
+		Model:    strings.TrimSpace(req.Model), Modality: strings.TrimSpace(req.Modality),
 		PriceIn: req.PriceInMicros, PriceOut: req.PriceOutMicros,
 	}, stationInviteTTL, time.Now())
 	if err != nil {

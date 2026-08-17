@@ -35,8 +35,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"rogerai.fm/roger/v5/internal/protocol"
@@ -56,18 +58,37 @@ type TowerAttachment struct {
 }
 
 // microsPerDollarPer1M converts the share's float $/1M-token price to the tower path's
-// integer micro-USD per 1M tokens.
+// integer micro-USD per 1M tokens. Rounded, not truncated: a float that lands a hair under
+// the operator's listed price must not shave a micro off what they charge (audit N2).
 func microsPerDollarPer1M(price float64) int64 {
 	if price <= 0 {
 		return 0
 	}
-	return int64(price * 1_000_000)
+	return int64(math.Round(price * 1_000_000))
+}
+
+// hubBaseURL turns Core's advertised hub endpoint into a base URL. An endpoint that carries
+// its own scheme is honored verbatim (audit M1: this is how a TLS-fronted hub is reached);
+// a bare host:port defaults to http for today's dev topology - the PAYLOAD is sealed
+// end-to-end regardless, but the polling token rides the clear until Core's advertisements
+// carry an explicit https scheme.
+func hubBaseURL(endpoint string) string {
+	if strings.Contains(endpoint, "://") {
+		return endpoint
+	}
+	return "http://" + endpoint
 }
 
 // AttachTower self-attaches this node as a servable station: keys from the persistent station
 // identity under dir, the offer from cfg (model/modality/prices), the request signed with the
 // node's account-bound key. Idempotent on retry with the same identity.
 func AttachTower(cfg Config, priv ed25519.PrivateKey, dir string) (*station.Station, TowerAttachment, error) {
+	// KEY-TRUST TRANSPORT (audit M2): attach ships this node's keys up and a hub bearer token
+	// back, and the grant key is pinned over the same base - plaintext http to a non-loopback
+	// broker is refused.
+	if err := protocol.TrustedBase(cfg.Broker); err != nil {
+		return nil, TowerAttachment{}, err
+	}
 	st, err := station.Init(filepath.Join(dir, "tower-station"))
 	if err != nil {
 		return nil, TowerAttachment{}, fmt.Errorf("station identity: %w", err)
@@ -119,6 +140,9 @@ func AttachTower(cfg Config, priv ed25519.PrivateKey, dir string) (*station.Stat
 
 // fetchCoreGrantKey pins Roger Core's grant-signing key, from Core itself.
 func fetchCoreGrantKey(broker string) ([]byte, error) {
+	if err := protocol.TrustedBase(broker); err != nil {
+		return nil, err
+	}
 	resp, err := (&http.Client{Timeout: 20 * time.Second}).Get(broker + "/tower/dispatch/key")
 	if err != nil {
 		return nil, err
@@ -171,10 +195,7 @@ func ServeTower(ctx context.Context, cfg Config, priv ed25519.PrivateKey, dir st
 		Seen:     station.NewAttemptCache(),
 	}
 	client := &towerhub.Client{
-		// The hub speaks HTTP on its own port today; front it with TLS in production - the
-		// PAYLOAD is sealed end-to-end regardless (the tower carries ciphertext), but the
-		// polling token deserves transport cover too.
-		BaseURL: "http://" + at.Endpoint,
+		BaseURL: hubBaseURL(at.Endpoint),
 		Token:   at.HubToken,
 		HTTP:    &http.Client{Timeout: 60 * time.Second},
 	}
@@ -201,3 +222,8 @@ func ServeTower(ctx context.Context, cfg Config, priv ed25519.PrivateKey, dir st
 	}
 	return first
 }
+
+// NodeKey exposes this host's persistent node key (the same identity `roger share` registers
+// and `roger login` binds to an account) for the tower-serving path, which signs its
+// self-attach with it.
+func NodeKey() ed25519.PrivateKey { return loadOrCreateKey() }

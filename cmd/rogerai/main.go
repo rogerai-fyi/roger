@@ -18,11 +18,13 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"reflect"
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"rogerai.fm/roger/v5/internal/agent"
@@ -1009,6 +1011,7 @@ func cmdShare(cfg config, args []string) error {
 	voiceSpeed := fs.Float64("voice-speed", 0, "default speed for a tts share (0.5-2.0; 0 = server default)")
 	confidential := fs.Bool("confidential", false, "GATED enterprise tier: advertise as confidential - needs data-center silicon (AMD EPYC SEV-SNP + an H100-class confidential GPU), not consumer hardware. Apply at "+confidentialApplyURL+" (see docs/tee-eligibility.md)")
 	private := fs.Bool("private", false, "share on a PRIVATE band: hidden from the public market, reachable only by a secret frequency code (shown once). Requires `roger login`.")
+	towerServe := fs.Bool("tower", false, "serve THROUGH a Roger tower: self-attach at your listed price and poll the tower's hub instead of the broker's long-poll. Requires `roger login`.")
 	freeWindow := fs.String("free-window", "", "daily FREE window in UTC, e.g. 03:00-03:30")
 	schedule := fs.String("schedule", "", `time-of-use schedule, JSON e.g. '[{"start":"18:00","end":"22:00","price_in":0.5,"price_out":0.7}]'`)
 	advanced := fs.Bool("advanced", false, "show advanced flags (--node --region --parallel --upstream --modality --ctx --confidential --free-window --schedule)")
@@ -1313,6 +1316,26 @@ needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
 		return err
 	}
 	defer releaseLock()
+	// TOWER SERVING (Option C, Topology 2): the same share, with the serving fabric pointed
+	// at a tower's hub. Self-attach at the listed price; Core assigns the tower; settlement
+	// pays this node 70% of ITS OWN price, the tower 10%, the platform 20%.
+	if *towerServe {
+		if *private {
+			return fmt.Errorf("--tower and --private cannot be combined yet: a tower share is publicly routable")
+		}
+		if client.LinkedLogin() == "" {
+			return fmt.Errorf("`--tower` needs a linked owner - run `roger login` first")
+		}
+		confDir, derr := os.UserConfigDir()
+		if derr != nil {
+			return derr
+		}
+		tctx, tcancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer tcancel()
+		fmt.Println(onAirLine(mdl, station, *priceIn, *priceOut, false))
+		fmt.Println(earningsLine())
+		return agent.ServeTower(tctx, cfgRun, agent.NodeKey(), filepath.Join(confDir, "rogerai"), os.Stdout)
+	}
 	if !*private {
 		// Start (not Run) so we can confirm the broker actually ACCEPTED us (the heartbeat
 		// ACK) and print a SINGLE truthful "on air" line, instead of several sequential

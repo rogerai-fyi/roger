@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"time"
 )
 
 // Job is one authorized attempt handed to a serving node. Grant is Core's signed edge grant;
@@ -71,6 +72,10 @@ type waiter struct {
 	station string
 }
 
+// dispatchedTTL bounds how long the hub remembers having handed an attempt to a node - long
+// enough to outlive the settle window, so a legitimate late completion still couriers.
+const dispatchedTTL = 15 * time.Minute
+
 // Hub routes opaque jobs from consumers to serving nodes and results back, keyed only by
 // StationID and AttemptID. Safe for concurrent use.
 type Hub struct {
@@ -78,13 +83,23 @@ type Hub struct {
 	stations map[string]*stationQueue // stationID -> the node's pending-job queue
 	waiters  map[string]*waiter       // attemptID -> the parked submitter
 	inFlight int                      // count of parked Submits, capped at maxInFlight
+	// dispatched remembers which Station each attempt was actually HANDED to (recorded at
+	// Poll), so a completion for an attempt this hub never carried - a fabricated id from a
+	// hostile node - is refused a courier ride to Core rather than amplified tower-signed.
+	dispatched map[string]dispatchRecord
+}
+
+type dispatchRecord struct {
+	station string
+	expires time.Time
 }
 
 // New returns an empty Hub.
 func New() *Hub {
 	return &Hub{
-		stations: map[string]*stationQueue{},
-		waiters:  map[string]*waiter{},
+		stations:   map[string]*stationQueue{},
+		waiters:    map[string]*waiter{},
+		dispatched: map[string]dispatchRecord{},
 	}
 }
 
@@ -192,10 +207,30 @@ func (h *Hub) Poll(ctx context.Context, stationID string) (Job, bool) {
 	}
 	select {
 	case job := <-sq.jobs:
+		// Remember the hand-off: this attempt went to THIS station, and only its completion
+		// may ride the settle courier. Pruned lazily; TTL outlives the settle window.
+		now := time.Now()
+		h.mu.Lock()
+		for id, d := range h.dispatched {
+			if now.After(d.expires) {
+				delete(h.dispatched, id)
+			}
+		}
+		h.dispatched[job.AttemptID] = dispatchRecord{station: stationID, expires: now.Add(dispatchedTTL)}
+		h.mu.Unlock()
 		return job, true
 	case <-ctx.Done():
 		return Job{}, false
 	}
+}
+
+// Dispatched reports whether this hub handed the attempt to the given Station and the record
+// has not aged out - the gate on the settle courier.
+func (h *Hub) Dispatched(attemptID, stationID string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	d, ok := h.dispatched[attemptID]
+	return ok && d.station == stationID && time.Now().Before(d.expires)
 }
 
 // Complete delivers a node's result to the waiting submitter. stationID is the Station the

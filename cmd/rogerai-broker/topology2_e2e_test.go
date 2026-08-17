@@ -14,6 +14,7 @@ package main
 
 import (
 	"context"
+	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
@@ -109,6 +110,10 @@ func TestFullProductLoopANodeEarnsThroughATower(t *testing.T) {
 	// THE CONSUMER: authorize at Core with a sealing key; Core pins the node's listed price
 	// into the grant and hands back the station's session key.
 	consumer := signedInConsumer(t, b)
+	consWallet, ok := b.edgeConsumerWallet(consumer.Public().(ed25519.PublicKey))
+	require.True(t, ok, "the consumer's account wallet resolves")
+	balBefore, err := b.db.BalanceOf(consWallet, 0)
+	require.NoError(t, err)
 	consEnvPub, consEnvPriv, err := envelope.NewKey()
 	require.NoError(t, err)
 	code, auth := consumerCall(t, srv, consumer, "/tower/edge/authorize", map[string]any{
@@ -150,5 +155,9 @@ func TestFullProductLoopANodeEarnsThroughATower(t *testing.T) {
 	}, 10*time.Second, 100*time.Millisecond, "the node owner banks 70%% of their listed price")
 	sTw, _ := b.db.EarningSplitOf(towerAcct, time.Now().Add(time.Hour))
 	require.InDelta(t, 0.015, sTw.Payable, 1e-9, "the tower operator banks 10%% of gross")
+	// And the consumer paid EXACTLY tokens x price - the hold's excess was released, not kept.
+	balAfter, err := b.db.BalanceOf(consWallet, 0)
+	require.NoError(t, err)
+	require.InDelta(t, 0.15, balBefore-balAfter, 1e-9, "the consumer is debited exactly 500k x $0.30/1M")
 	require.NotEmpty(t, stationID)
 }

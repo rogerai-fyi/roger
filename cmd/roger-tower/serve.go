@@ -40,7 +40,7 @@ import (
 // serveJoined runs the link until the process is interrupted. It supplies the two things the
 // loop cannot invent for itself - a real signal and a real clock - and then gets out of the
 // way; everything that can go wrong is in runLink, where a test can reach it.
-func serveJoined(st *tower.State, out io.Writer, stations stationEndpoints, relayAddr string, routes relayRoutes, relayPublic, hubAddr string) error {
+func serveJoined(st *tower.State, out io.Writer, stations stationEndpoints, relayAddr string, routes relayRoutes, relayPublic, hubAddr, hubCert, hubKey string) error {
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(stop)
@@ -69,7 +69,7 @@ func serveJoined(st *tower.State, out io.Writer, stations stationEndpoints, rela
 	// very first submit after we advertise has somewhere to land; fails fast if Core's grant
 	// key cannot be fetched.
 	if hubAddr != "" {
-		waitForHub, herr := runHubInBackground(st, hubAddr, out, stopped)
+		waitForHub, herr := runHubInBackground(st, hubAddr, hubCert, hubKey, out, stopped)
 		if herr != nil {
 			windDown()
 			return herr
@@ -332,8 +332,19 @@ func cmdServe(args []string, out io.Writer) error {
 	relayAddr := fs.String("relay", "", "address to relay consumer traffic on, e.g. :8443")
 	relayPublic := fs.String("relay-public", "", "the PUBLIC host:port consumers reach the relay at (advertised to Roger Core)")
 	hubAddr := fs.String("hub", "", "address to serve the data-plane HUB on, e.g. :8444 - where consumers submit sealed work and this tower's self-attached nodes poll")
+	hubCert := fs.String("hub-tls-cert", "", "TLS certificate (PEM) for the hub listener - with --hub-tls-key, the hub serves https")
+	hubKey := fs.String("hub-tls-key", "", "TLS private key (PEM) for the hub listener")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	// The hub's payload is sealed end-to-end, but the node polling TOKEN and grant metadata
+	// ride the transport - so TLS here is real protection, not ceremony (audit M1). Half a
+	// key pair is a mistake, not a mode.
+	if (*hubCert == "") != (*hubKey == "") {
+		return fmt.Errorf("--hub-tls-cert and --hub-tls-key must be given together")
+	}
+	if *hubCert != "" && *hubAddr == "" {
+		return fmt.Errorf("--hub-tls-cert without --hub: there is no hub listener to protect")
 	}
 	stations, err := parseStationEndpoints(stationFlags)
 	if err != nil {
@@ -405,5 +416,5 @@ func cmdServe(args []string, out io.Writer) error {
 		fmt.Fprint(out, "NOTE: the relay has no --relay-public address, so Roger Core will not "+
 			"route edge consumers to this Tower.\n")
 	}
-	return serveJoined(st, out, stations, *relayAddr, routes, *relayPublic, *hubAddr)
+	return serveJoined(st, out, stations, *relayAddr, routes, *relayPublic, *hubAddr, *hubCert, *hubKey)
 }

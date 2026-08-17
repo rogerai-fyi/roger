@@ -16,15 +16,22 @@ import (
 	"net/http"
 	"time"
 
+	"rogerai.fm/roger/v5/internal/protocol"
 	"rogerai.fm/roger/v5/internal/tower"
 )
 
 // DispatchKey fetches Roger Core's grant-signing public key from the public
 // /tower/dispatch/key endpoint. The tower pins it for the lifetime of its serve: it is what
-// EdgeGrantMeta verifies consumer-submitted grants against.
+// EdgeGrantMeta verifies consumer-submitted grants against - which is exactly why the
+// transport that delivers it must be trusted (audit M2): a forged key here means every
+// attacker-signed grant verifies.
 func DispatchKey() (ed25519.PublicKey, error) {
+	base := brokerBase()
+	if err := protocol.TrustedBase(base); err != nil {
+		return nil, err
+	}
 	client := &http.Client{Timeout: 20 * time.Second}
-	resp, err := client.Get(brokerBase() + "/tower/dispatch/key")
+	resp, err := client.Get(base + "/tower/dispatch/key")
 	if err != nil {
 		return nil, err
 	}
