@@ -9,7 +9,6 @@ package towerhub
 // its work to Core, and it crosses this hub only because Core cannot dial the node either.
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"sync"
@@ -21,15 +20,21 @@ const (
 	PathAuditTranscript = "/audit/transcript"
 )
 
-// TranscriptReply is one answered audit: the Station-signed transcript object plus the
-// plaintext bytes Core re-hashes against the receipt's digests. Available=false is the
-// node saying "not retained" - itself an answer, so Core need not wait out the deadline.
+// TranscriptReply is one answered audit. On the hub path the whole payload rides SEALED to
+// Roger Core's envelope key: the sealed submit path promised the tower never reads content,
+// and an audit answer is content - handing it over plaintext (as the classic dial-out
+// courier did) would un-blind exactly the attempts Core watches. Available=false is the node
+// saying "not retained" - itself an answer, so Core need not wait out the deadline. The
+// plaintext fields remain for the classic courier's shape and stay empty on the hub path.
 type TranscriptReply struct {
-	AttemptID  string `json:"attempt_id"`
-	Available  bool   `json:"available"`
-	Transcript string `json:"transcript"` // base64 of the Station-signed object
-	Request    string `json:"request"`    // base64 plaintext
-	Response   string `json:"response"`   // base64 plaintext
+	AttemptID string `json:"attempt_id"`
+	Available bool   `json:"available"`
+	// SealedBundle is base64 of an envelope sealed to Core's envelope key (AAD = attempt id)
+	// holding {"transcript","request","response"} as base64 strings. Opaque to the tower.
+	SealedBundle string `json:"sealed_bundle,omitempty"`
+	Transcript   string `json:"transcript,omitempty"` // base64 of the Station-signed object (classic path)
+	Request      string `json:"request,omitempty"`    // base64 plaintext (classic path)
+	Response     string `json:"response,omitempty"`   // base64 plaintext (classic path)
 }
 
 // auditPlane is the Server's wanted-list state, per Station.
@@ -83,7 +88,11 @@ func (s *Server) AuditTranscript(w http.ResponseWriter, r *http.Request) {
 		StationID string `json:"station_id"`
 		TranscriptReply
 	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 32<<20)).Decode(&req); err != nil {
+	// 8MB: Roger Core's own tower-body cap. Accepting more here would take uploads that can
+	// never survive the forward, and the node would burn bandwidth re-answering a want that
+	// cannot close until its deadline lapses (audit M4). An attempt whose plaintext exceeds
+	// this simply misses its audit - the miss rules decide what that means.
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<20)).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
@@ -117,13 +126,9 @@ func (s *Server) AuditTranscript(w http.ResponseWriter, r *http.Request) {
 			"note": "this attempt is not on the wanted list for that Station"})
 		return
 	}
-	// Shape sanity before the courier spends a signed call on it.
-	for _, b64 := range []string{req.Transcript, req.Request, req.Response} {
-		if _, err := base64.StdEncoding.DecodeString(b64); err != nil {
-			writeErr(w, http.StatusBadRequest, "transcript fields must be base64")
-			return
-		}
-	}
+	// The payload is forwarded as-is: Core validates the base64 AND the signatures, and
+	// refuses garbage without resolving the want - decoding megabytes here just to throw the
+	// bytes away was pure allocation (audit L1).
 	if s.OnTranscript != nil {
 		go s.OnTranscript(req.StationID, req.TranscriptReply)
 	}

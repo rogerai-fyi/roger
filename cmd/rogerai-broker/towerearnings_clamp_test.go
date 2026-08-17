@@ -42,6 +42,9 @@ func issuedEdgeGrant(t *testing.T, b *broker, attemptID, towerID, stationID stri
 		Deadline: time.Now().Add(time.Hour), Grant: g.Signed, ConsumerKey: cpub,
 		State: dispatch.StateIssued,
 	}))
+	// FUNDED by default: the accrual gate skips traffic whose consumer resolves to no
+	// account (Core's canaries), and these fixtures stand in for real, signed-in consumers.
+	bindEdgeConsumer(t, b, cpub)
 	return cpub
 }
 
@@ -354,6 +357,9 @@ func issuedEdgeGrantTok(t *testing.T, b *broker, attemptID, towerID, stationID s
 		Deadline: time.Now().Add(time.Hour), Grant: g.Signed, ConsumerKey: cpub,
 		State: dispatch.StateIssued,
 	}))
+	// FUNDED by default: the accrual gate skips traffic whose consumer resolves to no
+	// account (Core's canaries), and these fixtures stand in for real, signed-in consumers.
+	bindEdgeConsumer(t, b, cpub)
 	return cpub
 }
 

@@ -8,7 +8,11 @@ package towerhub
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
+	"errors"
 	"time"
+
+	"rogerai.fm/roger/v5/internal/towercore/envelope"
 )
 
 // TranscriptSource yields a Station-signed transcript for an attempt, ok=false when the
@@ -22,8 +26,14 @@ type TranscriptSource interface {
 const auditAnswerEvery = 45 * time.Second
 
 // AnswerAudits runs until ctx is done. every <= 0 uses the default cadence. Errors are
-// reported and retried next round.
-func AnswerAudits(ctx context.Context, c *Client, station string, src TranscriptSource, every time.Duration, onError func(error)) {
+// reported and retried next round. coreEnvKey is Roger Core's X25519 envelope key (from the
+// same pinned fetch as the grant key): every transcript is SEALED to it, so the tower relays
+// audit content exactly as blind as it relays the jobs themselves.
+func AnswerAudits(ctx context.Context, c *Client, station string, src TranscriptSource, coreEnvKey []byte, every time.Duration, onError func(error)) {
+	if len(coreEnvKey) != 32 {
+		report(onError, errors.New("audit answering disabled: no Core envelope key to seal transcripts to"))
+		return
+	}
 	if every <= 0 {
 		every = auditAnswerEvery
 	}
@@ -48,10 +58,27 @@ func AnswerAudits(ctx context.Context, c *Client, station string, src Transcript
 				continue // retried next round rather than answered wrong
 			}
 			if ok {
+				bundle, berr := json.Marshal(map[string]string{
+					"transcript": base64.StdEncoding.EncodeToString(signed),
+					"request":    base64.StdEncoding.EncodeToString(reqB),
+					"response":   base64.StdEncoding.EncodeToString(respB),
+				})
+				if berr != nil {
+					report(onError, berr)
+					continue
+				}
+				sealed, serr := envelope.SealTo(coreEnvKey, bundle, attemptID)
+				if serr != nil {
+					report(onError, serr)
+					continue
+				}
+				raw, merr := sealed.Marshal()
+				if merr != nil {
+					report(onError, merr)
+					continue
+				}
 				reply.Available = true
-				reply.Transcript = base64.StdEncoding.EncodeToString(signed)
-				reply.Request = base64.StdEncoding.EncodeToString(reqB)
-				reply.Response = base64.StdEncoding.EncodeToString(respB)
+				reply.SealedBundle = base64.StdEncoding.EncodeToString(raw)
 			}
 			if aerr := c.AnswerAudit(ctx, station, reply); aerr != nil {
 				report(onError, aerr)

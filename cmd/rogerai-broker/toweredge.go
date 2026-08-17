@@ -967,7 +967,22 @@ func (b *broker) accrueEarnings(ts *towerSubsystem, towerID, owner, model string
 		log.Printf("tower %s: attempt %s is self-dealing (consumer owns the Station) - recorded, not owed",
 			towerID, settled.AttemptID)
 	}
+	// UNFUNDED traffic accrues nothing (audit M3): the ledger records what a CONSUMER'S spend
+	// makes the platform owe an operator, and a consumer key that resolves to no account -
+	// Core's own canary is the standing case; edge authorize requires a signed-in account for
+	// everything else - has no spend behind it. Recording an owed amount for probes Core
+	// itself sends would be the platform quietly funding a revenue share out of thin air.
+	// The row is still written (usage is evidence), flagged like self-dealing is.
+	unfunded := false
+	if len(consumerKey) > 0 {
+		if _, resolvable := b.edgeConsumerWallet(consumerKey); !resolvable {
+			unfunded = true
+		}
+	}
 	micros := edgeAccrualMicros(settled.Billable.In, settled.Billable.Out)
+	if unfunded {
+		micros = 0
+	}
 	if err := ts.earnings.Accrue(earnings.Accrual{
 		TowerID: towerID, Owner: owner, AttemptID: settled.AttemptID, Model: model,
 		UsageIn: settled.Billable.In, UsageOut: settled.Billable.Out, Micros: micros,

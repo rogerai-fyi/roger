@@ -123,7 +123,7 @@ func runHubInBackground(st *tower.State, addr, tlsCert, tlsKey string, out io.Wr
 	// soft/hard miss by its own rules; unlike the settle courier, no one's PAY rides on it.
 	server.OnTranscript = func(stationID string, reply towerhub.TranscriptReply) {
 		if err := towerjoin.ForwardAuditTranscript(st, reply.AttemptID, reply.Available,
-			reply.Transcript, reply.Request, reply.Response); err != nil {
+			reply.SealedBundle, reply.Transcript, reply.Request, reply.Response); err != nil {
 			fmt.Fprintf(out, "hub: audit forward for %s failed: %v\n", reply.AttemptID, err)
 		}
 	}
@@ -284,7 +284,9 @@ func runHubInBackground(st *tower.State, addr, tlsCert, tlsKey string, out io.Wr
 		known = seen
 		// The AUDIT WANTED lists ride the same refresh: Core's per-station wants are grouped
 		// and handed to the hub, where each node's own poll picks them up.
-		if wanted, werr := towerjoin.WantedAudits(st); werr == nil {
+		if wanted, werr := towerjoin.WantedAudits(st); werr != nil {
+			fmt.Fprintf(out, "hub: could not refresh the audit wanted lists: %v\n", werr)
+		} else {
 			byStation := map[string][]string{}
 			for _, wa := range wanted {
 				byStation[wa.StationID] = append(byStation[wa.StationID], wa.AttemptID)

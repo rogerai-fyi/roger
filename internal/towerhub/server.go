@@ -85,12 +85,16 @@ func (s *Server) RegisterNode(stationID, token string) {
 	s.mu.Unlock()
 }
 
-// UnregisterNode removes a Station and its token.
+// UnregisterNode removes a Station, its token, and its audit wanted list (a station Core
+// dropped must not keep a list a later re-registration could answer stale - audit M5).
 func (s *Server) UnregisterNode(stationID string) {
 	s.hub.Unregister(stationID)
 	s.mu.Lock()
 	delete(s.tokens, stationID)
 	s.mu.Unlock()
+	s.audit.mu.Lock()
+	delete(s.audit.wanted, stationID)
+	s.audit.mu.Unlock()
 }
 
 func (s *Server) authNode(stationID, token string) bool {

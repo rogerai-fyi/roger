@@ -35,6 +35,7 @@ import (
 
 	"rogerai.fm/roger/v5/internal/towercore/audit"
 	"rogerai.fm/roger/v5/internal/towercore/dispatch"
+	"rogerai.fm/roger/v5/internal/towercore/envelope"
 	"rogerai.fm/roger/v5/internal/towercore/link"
 	"rogerai.fm/roger/v5/internal/towercore/reputation"
 )
@@ -163,16 +164,49 @@ func (b *broker) towerAuditTranscript(w http.ResponseWriter, r *http.Request) {
 	}
 	body := readTowerBody(r)
 	var req struct {
-		TowerID    string `json:"tower_id"`
-		AttemptID  string `json:"attempt_id"`
-		Available  bool   `json:"available"`
-		Transcript string `json:"transcript"` // base64 of the Station-signed object
-		Request    string `json:"request"`    // base64 plaintext
-		Response   string `json:"response"`   // base64 plaintext
+		TowerID   string `json:"tower_id"`
+		AttemptID string `json:"attempt_id"`
+		Available bool   `json:"available"`
+		// SealedBundle is the HUB path's shape: the whole payload sealed to Core's envelope
+		// key (AAD = attempt id), so the relaying tower reads none of it.
+		SealedBundle string `json:"sealed_bundle"`
+		Transcript   string `json:"transcript"` // base64 of the Station-signed object (classic path)
+		Request      string `json:"request"`    // base64 plaintext (classic path)
+		Response     string `json:"response"`   // base64 plaintext (classic path)
 	}
 	if json.Unmarshal(body, &req) != nil || req.TowerID == "" || req.AttemptID == "" {
 		jsonErr(w, http.StatusBadRequest, "a transcript names its Tower and attempt")
 		return
+	}
+	if req.SealedBundle != "" {
+		// Open the sealed bundle into the classic fields; everything below is path-agnostic.
+		sealedRaw, derr := base64.StdEncoding.DecodeString(req.SealedBundle)
+		if derr != nil {
+			jsonErr(w, http.StatusBadRequest, "the sealed bundle is not valid base64")
+			return
+		}
+		parsed, perr := envelope.Parse(sealedRaw)
+		if perr != nil {
+			jsonErr(w, http.StatusBadRequest, "the sealed bundle is not a sealed envelope")
+			return
+		}
+		bundle, oerr := envelope.OpenWith(ts.envelopeKey, parsed, req.AttemptID)
+		if oerr != nil {
+			// Sealed to the wrong key or for another attempt: refused WITHOUT resolving the
+			// want, exactly like a transcript that fails verification.
+			jsonErr(w, http.StatusBadRequest, "the sealed bundle does not open for this attempt")
+			return
+		}
+		var inner struct {
+			Transcript string `json:"transcript"`
+			Request    string `json:"request"`
+			Response   string `json:"response"`
+		}
+		if json.Unmarshal(bundle, &inner) != nil {
+			jsonErr(w, http.StatusBadRequest, "the sealed bundle is not a transcript bundle")
+			return
+		}
+		req.Transcript, req.Request, req.Response = inner.Transcript, inner.Request, inner.Response
 	}
 	if _, _, ok := b.towerCaller(r, body, req.TowerID); !ok {
 		jsonErr(w, http.StatusForbidden, "submitting a transcript needs the Tower's own signed request")

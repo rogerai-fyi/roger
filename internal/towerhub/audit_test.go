@@ -4,9 +4,10 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"net/http"
+
 	"net/http/httptest"
+	"rogerai.fm/roger/v5/internal/towercore/envelope"
 	"testing"
 	"time"
 
@@ -42,10 +43,12 @@ func TestAuditPlaneCarriesTranscriptsFromAPollOnlyNode(t *testing.T) {
 
 	s.SetWanted("st1", []string{"att-kept", "att-lost"})
 	src := fakeTranscripts{"att-kept": {[]byte("signed"), []byte("q"), []byte("a")}}
+	corePub, corePriv, err := envelope.NewKey()
+	require.NoError(t, err)
 	c := &Client{BaseURL: srv.URL, Token: "tok"}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go AnswerAudits(ctx, c, "st1", src, 20*time.Millisecond, nil)
+	go AnswerAudits(ctx, c, "st1", src, corePub, 20*time.Millisecond, nil)
 
 	got := map[string]TranscriptReply{}
 	for len(got) < 2 {
@@ -57,7 +60,23 @@ func TestAuditPlaneCarriesTranscriptsFromAPollOnlyNode(t *testing.T) {
 		}
 	}
 	require.True(t, got["att-kept"].Available)
-	require.Equal(t, base64.StdEncoding.EncodeToString([]byte("signed")), got["att-kept"].Transcript)
+	// SEALED TO CORE: the tower relays the audit answer exactly as blind as the job. The
+	// plaintext fields stay empty; only Core's envelope key opens the bundle, and only for
+	// this attempt.
+	require.Empty(t, got["att-kept"].Transcript, "no plaintext crosses the tower")
+	require.Empty(t, got["att-kept"].Request)
+	require.Empty(t, got["att-kept"].Response)
+	sealedRaw, err := base64.StdEncoding.DecodeString(got["att-kept"].SealedBundle)
+	require.NoError(t, err)
+	parsed, err := envelope.Parse(sealedRaw)
+	require.NoError(t, err)
+	bundle, err := envelope.OpenWith(corePriv, parsed, "att-kept")
+	require.NoError(t, err, "Core opens the bundle with its own key + the attempt AAD")
+	var inner struct {
+		Transcript string `json:"transcript"`
+	}
+	require.NoError(t, json.Unmarshal(bundle, &inner))
+	require.Equal(t, base64.StdEncoding.EncodeToString([]byte("signed")), inner.Transcript)
 	require.False(t, got["att-lost"].Available, "not retained is answered truthfully, not silently")
 
 	// The list is consumed: nothing further is forwarded, and an unlisted upload is refused a ride.
@@ -79,5 +98,4 @@ func TestAuditPlaneCarriesTranscriptsFromAPollOnlyNode(t *testing.T) {
 	require.NoError(t, err)
 	r2.Body.Close()
 	require.Equal(t, http.StatusUnauthorized, r2.StatusCode)
-	_ = errors.Is
 }

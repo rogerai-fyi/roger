@@ -135,11 +135,11 @@ func WantedAudits(st *tower.State) ([]WantedAudit, error) {
 
 // ForwardAuditTranscript forwards a hub node's answered audit to Core, tower-signed - the
 // same shape the classic courier forwards, from the hub plane instead.
-func ForwardAuditTranscript(st *tower.State, attemptID string, available bool, transcript, request, response string) error {
+func ForwardAuditTranscript(st *tower.State, attemptID string, available bool, sealedBundle, transcript, request, response string) error {
 	body, err := json.Marshal(map[string]any{
 		"tower_id": st.TowerID, "attempt_id": attemptID,
-		"available": available, "transcript": transcript,
-		"request": request, "response": response,
+		"available": available, "sealed_bundle": sealedBundle,
+		"transcript": transcript, "request": request, "response": response,
 	})
 	if err != nil {
 		return err

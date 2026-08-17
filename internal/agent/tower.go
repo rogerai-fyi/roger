@@ -138,31 +138,38 @@ func AttachTower(cfg Config, priv ed25519.PrivateKey, dir string) (*station.Stat
 	return st, at, nil
 }
 
-// fetchCoreGrantKey pins Roger Core's grant-signing key, from Core itself.
-func fetchCoreGrantKey(broker string) ([]byte, error) {
+// fetchCoreKeys pins Roger Core's grant-signing key AND its envelope key, from Core itself.
+// The envelope key is what audit transcripts are sealed to, so the tower relays them exactly
+// as blind as the jobs.
+func fetchCoreKeys(broker string) (grantKey, envKey []byte, err error) {
 	if err := protocol.TrustedBase(broker); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	resp, err := (&http.Client{Timeout: 20 * time.Second, CheckRedirect: protocol.NoDowngradeRedirect}).Get(broker + "/tower/dispatch/key")
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("grant key fetch: %d: %s", resp.StatusCode, raw)
+		return nil, nil, fmt.Errorf("grant key fetch: %d: %s", resp.StatusCode, raw)
 	}
 	var out struct {
 		DispatchKey string `json:"dispatch_key"`
+		EnvelopeKey string `json:"envelope_key"`
 	}
 	if err := json.Unmarshal(raw, &out); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	key, err := hex.DecodeString(out.DispatchKey)
-	if err != nil || len(key) != ed25519.PublicKeySize {
-		return nil, errors.New("the grant key is not a hex ed25519 public key")
+	grantKey, err = hex.DecodeString(out.DispatchKey)
+	if err != nil || len(grantKey) != ed25519.PublicKeySize {
+		return nil, nil, errors.New("the grant key is not a hex ed25519 public key")
 	}
-	return key, nil
+	envKey, err = hex.DecodeString(out.EnvelopeKey)
+	if err != nil || len(envKey) != 32 {
+		return nil, nil, errors.New("the envelope key is not a hex X25519 public key")
+	}
+	return grantKey, envKey, nil
 }
 
 // sealedExec adapts the station's sealed serve to the towerhub Executor seam.
@@ -192,9 +199,9 @@ func ServeTower(ctx context.Context, cfg Config, priv ed25519.PrivateKey, dir st
 	if err != nil {
 		return err
 	}
-	coreKey, err := fetchCoreGrantKey(cfg.Broker)
+	coreKey, coreEnvKey, err := fetchCoreKeys(cfg.Broker)
 	if err != nil {
-		return fmt.Errorf("cannot pin Roger Core's grant key: %w", err)
+		return fmt.Errorf("cannot pin Roger Core's keys: %w", err)
 	}
 	fmt.Fprintf(out, "tower: attached as %s via %s (%s) - serving %s at your listed price\n",
 		at.StationID, at.TowerID, at.Endpoint, cfg.Model)
@@ -220,7 +227,7 @@ func ServeTower(ctx context.Context, cfg Config, priv ed25519.PrivateKey, dir st
 	}
 	// The audit-answer loop rides beside the workers: fetch what Core wants from this
 	// Station (relayed by the hub) and answer with signed transcripts.
-	go towerhub.AnswerAudits(ctx, client, at.StationID, transcriptSource{exec}, 0, func(err error) {
+	go towerhub.AnswerAudits(ctx, client, at.StationID, transcriptSource{exec}, coreEnvKey, 0, func(err error) {
 		fmt.Fprintf(out, "tower audit: %v\n", err)
 	})
 	done := make(chan error, workers)

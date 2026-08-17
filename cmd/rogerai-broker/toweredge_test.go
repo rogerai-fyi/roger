@@ -89,6 +89,9 @@ func issuedAttempt(t *testing.T, b *broker, attemptID, towerID, stationID string
 		Deadline: time.Now().Add(time.Hour), Grant: g.Signed, ConsumerKey: pub,
 		State: dispatch.StateIssued,
 	}))
+	// FUNDED by default: the accrual gate skips traffic whose consumer resolves to no
+	// account (Core's canaries), and this fixture stands in for a real, signed-in consumer.
+	bindEdgeConsumer(t, b, pub)
 	return priv
 }
 

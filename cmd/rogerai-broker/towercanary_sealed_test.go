@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -76,4 +77,16 @@ func TestSealedCanaryJudgesAHubNode(t *testing.T) {
 	// The node goes dark: the same probe fails - the 'serving nothing' finding.
 	hubServer.UnregisterNode(stationID)
 	require.Equal(t, reputation.CanaryFail, b.RunCanary(tw.id), "a dark hub node fails")
+}
+
+// THE INDISTINGUISHABILITY REGRESSION (audit CRITICAL): an earlier canary body literally
+// said "model":"canary", handing every node a grep-able marker for exactly the attempts
+// Core watches. The body must name the grant's real model and carry nothing canary-shaped.
+func TestCanaryBodyCarriesNoMarker(t *testing.T) {
+	for i := 0; i < 32; i++ {
+		body := string(canaryBodyFor("their-model"))
+		require.Contains(t, body, `"model":"their-model"`, "the body asks for the target's own model")
+		require.NotContains(t, strings.ToLower(body), "canary", "nothing in the plaintext says canary")
+		require.NotContains(t, strings.ToLower(body), "probe", "nothing in the plaintext says probe")
+	}
 }

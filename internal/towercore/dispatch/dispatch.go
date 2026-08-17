@@ -563,3 +563,7 @@ func ParseGrant(raw []byte, coreKey ed25519.PublicKey, network, stationID string
 		Deadline: deadline, Nonce: obj.Nonce, Signed: raw,
 	}, nil
 }
+
+// DigestOf exposes the evidence digest (sha256, raw-URL base64) so a first-party consumer -
+// Core's own canary - can bind a receipt's ResponseDigest to the bytes it actually opened.
+func DigestOf(b []byte) string { return digestOf(b) }
