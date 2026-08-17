@@ -803,40 +803,22 @@ func (b *broker) towerEdgeSettle(w http.ResponseWriter, r *http.Request) {
 	b.settleEdgeMoney(ts, req.TowerID, req.StationID, at.Owner, rec, settled, now)
 	if alreadySettled {
 		// A replay or a completion of an interrupted settle. The MONEY above is idempotent and now
-		// finished; we stop here rather than re-running the evidence/reputation/AUDIT steps below.
+		// finished; we stop here rather than re-running the reputation/AUDIT steps below.
 		// Audit selection is the one non-idempotent step: its Resolve deletes the wanted row when
 		// the transcript arrives, so re-selecting would RE-OPEN a resolved audit and make a Tower
 		// re-serve a transcript it already proved. The fresh settle recorded those; a replay must
-		// not disturb them. The one-use contract answers 409, which the courier treats as done.
+		// not disturb them. The ATTEMPT CHAIN, however, IS walked (state-gated, so a completed
+		// chain is untouched): a crash between the money committing and the chain events would
+		// otherwise strand the ledger at `issued` forever while the wallet says settled, and
+		// the courier's retry is exactly the call that can repair it. The one-use contract
+		// still answers 409, which the courier treats as done.
+		b.catchUpEdgeAttemptChain(req.AttemptID, receipt.ResponseDigest)
 		jsonErr(w, http.StatusConflict, "this attempt has already been settled")
 		return
 	}
 	// The attempt chain hears about it AFTER the store's answer is final, mirroring the
 	// relayed path: evidence first, then the settlement commitment.
-	//
-	// TOPOLOGY-2 CATCH-UP first: on the hub path Core is BLIND between authorize and this
-	// receipt - there is no relay lease acceptance or grant claim for it to observe, so the
-	// attempt is still `issued` here and the evidence event would be refused (the spec's
-	// exhaustive table deliberately has no issued->settled shortcut). The tower-forwarded,
-	// station-signed receipt IS the first proof the grant was accepted for dispatch on its
-	// bound session, so the chain walks the spec's own rows: dispatch accepted, then the
-	// evidence, then the settlement.
-	if ts.attempts != nil {
-		if state, _, ok, serr := ts.attempts.State(req.AttemptID); serr == nil && ok && state == attempt.StateIssued {
-			b.noteAttempt(req.AttemptID, attempt.Observation{
-				Kind: attempt.KindDispatchAccepted, EvidenceHash: receipt.ResponseDigest,
-			})
-		}
-	}
-	b.noteAttempt(req.AttemptID, attempt.Observation{
-		Kind: attempt.KindEvidenceObserved, EvidenceHash: receipt.ResponseDigest,
-	})
-	// Settled is terminal, and a terminal event records why it ended (the ledger refuses it
-	// otherwise - the relayed path's "settled uncompensated" is the same rule).
-	b.noteAttempt(req.AttemptID, attempt.Observation{
-		Kind: attempt.KindSettlementCommitted, EvidenceHash: receipt.ResponseDigest,
-		Reason: "settled",
-	})
+	b.catchUpEdgeAttemptChain(req.AttemptID, receipt.ResponseDigest)
 	// AND THE REPUTATION LEDGER, so the RATE this Tower is judged on reflects this attempt.
 	// The outcome is a fact about what settled; whether the rate warrants action is decided
 	// separately, in evaluateTower, on evidence this records.
@@ -1308,4 +1290,46 @@ func subtleConstEq(a, b []byte) int {
 		return 0
 	}
 	return subtle.ConstantTimeCompare(a, b)
+}
+
+// catchUpEdgeAttemptChain walks a hub-path attempt's evidence chain to settled, entering at
+// wherever the ledger currently stands (state-gated, so it is idempotent and safe on replays).
+//
+// On the hub path Core is BLIND between authorize and the settle receipt - there is no relay
+// lease acceptance or grant claim for it to observe, so the attempt may still be `issued`
+// when the receipt arrives, and the evidence event alone would be refused (the spec's
+// exhaustive table deliberately has no issued->settled shortcut). The tower-forwarded,
+// station-signed receipt IS the first proof the grant was accepted for dispatch on its bound
+// session, so the chain walks the spec's own rows: dispatch accepted, then the evidence,
+// then the settlement (terminal, so it records why it ended - the relayed path's rule).
+//
+// Called ONLY after the receipt has fully verified and the one-use settlement store has
+// answered: the events record what Core observed, never what a caller merely claimed.
+func (b *broker) catchUpEdgeAttemptChain(attemptID, evidenceHash string) {
+	ts := b.tower
+	if ts == nil || ts.attempts == nil {
+		return
+	}
+	state, _, ok, err := ts.attempts.State(attemptID)
+	if err != nil || !ok {
+		return
+	}
+	if state == attempt.StateIssued {
+		b.noteAttempt(attemptID, attempt.Observation{
+			Kind: attempt.KindDispatchAccepted, EvidenceHash: evidenceHash,
+		})
+		state = attempt.StateLeased
+	}
+	if state == attempt.StateLeased || state == attempt.StateExecuting {
+		b.noteAttempt(attemptID, attempt.Observation{
+			Kind: attempt.KindEvidenceObserved, EvidenceHash: evidenceHash,
+		})
+		state = attempt.StateEvidenceComplete
+	}
+	if state == attempt.StateEvidenceComplete {
+		b.noteAttempt(attemptID, attempt.Observation{
+			Kind: attempt.KindSettlementCommitted, EvidenceHash: evidenceHash,
+			Reason: "settled",
+		})
+	}
 }

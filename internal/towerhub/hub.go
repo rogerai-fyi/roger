@@ -231,11 +231,14 @@ func (h *Hub) Poll(ctx context.Context, stationID string) (Job, bool) {
 	}
 }
 
-// Dispatched reports whether this hub handed the attempt to the given Station and the record
-// has not aged out - the gate on the settle courier. An expired record encountered here is
-// deleted on the spot, so a tower that goes quiet does not carry the last busy window's
-// records forever (Poll's sweep only runs while jobs still flow).
-func (h *Hub) Dispatched(attemptID, stationID string) bool {
+// ConsumeDispatched reports whether this hub handed the attempt to the given Station and the
+// record has not aged out - the gate on the settle courier - and CONSUMES the record on a
+// hit: one carried completion per dispatch, so a node re-posting /complete for 15 minutes
+// cannot re-fire the courier per repeat (Core's one-use settle makes a second ride worthless
+// anyway). An expired record encountered here is deleted on the spot, so a tower that goes
+// quiet does not carry the last busy window's records forever (Poll's sweep only runs while
+// jobs still flow). A wrong-Station probe of a live record neither consumes nor confirms.
+func (h *Hub) ConsumeDispatched(attemptID, stationID string) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	d, ok := h.dispatched[attemptID]
@@ -246,7 +249,11 @@ func (h *Hub) Dispatched(attemptID, stationID string) bool {
 		delete(h.dispatched, attemptID)
 		return false
 	}
-	return d.station == stationID
+	if d.station != stationID {
+		return false
+	}
+	delete(h.dispatched, attemptID)
+	return true
 }
 
 // Complete delivers a node's result to the waiting submitter. stationID is the Station the

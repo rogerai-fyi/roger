@@ -81,6 +81,13 @@ func runHubInBackground(st *tower.State, addr, tlsCert, tlsKey string, out io.Wr
 	// one-use settlement makes a duplicate forward a harmless 409. A failed forward is
 	// QUEUED AND RETRIED until Core's settle window has certainly closed (audit H1) - the
 	// receipt is the node's pay, and this hub is its only ride.
+	// THE SPOOL: receipts persist to disk from the moment they are queued, so a tower crash
+	// or redeploy mid-window cannot unbank a node (in-memory queues die with the process).
+	spool, sperr := newSettleSpool(st.Dir())
+	if sperr != nil {
+		fmt.Fprintf(out, "hub: WARNING - settle spool unavailable (%v): receipts queued for Core survive only in memory until this is fixed\n", sperr)
+		spool = nil
+	}
 	settleQ := make(chan pendingSettle, settleQueueDepth)
 	// The overflow shares the retry backlog rather than making a doomed inline attempt: the
 	// queue only fills when Core is already unreachable, which is exactly when one more
@@ -91,6 +98,9 @@ func runHubInBackground(st *tower.State, addr, tlsCert, tlsKey string, out io.Wr
 		p := pendingSettle{stationID: stationID, attemptID: res.AttemptID,
 			receipt: res.Receipt, notBefore: time.Now().Add(settleAckGrace),
 			deadline: time.Now().Add(settleRetryWindow)}
+		if perr := spool.put(p); perr != nil {
+			fmt.Fprintf(out, "hub: could not spool settle for %s: %v\n", p.attemptID, perr)
+		}
 		select {
 		case settleQ <- p:
 		default:
@@ -103,23 +113,32 @@ func runHubInBackground(st *tower.State, addr, tlsCert, tlsKey string, out io.Wr
 			overflowMu.Unlock()
 		}
 	}
-	serveDone := make(chan struct{}) // closed when the HTTP server has fully wound down
+	serveDone := make(chan struct{})    // closed when the listener returns (Shutdown makes this fire IMMEDIATELY)
+	shutdownDone := make(chan struct{}) // closed only after Shutdown has finished draining handlers
 	courierDone := make(chan struct{})
 	go func() {
 		defer close(courierDone)
 		// Keyed by attempt id: a node retrying /complete re-fires OnComplete, and one receipt
 		// deserves one backlog slot, not N (audit L-1). Core 409s duplicates regardless.
 		retries := map[string]pendingSettle{}
+		// Receipts a previous run of this tower queued but never delivered rejoin the
+		// backlog; the expired ones were already discarded by load.
+		for _, p := range spool.load(time.Now()) {
+			retries[p.attemptID] = p
+			fmt.Fprintf(out, "hub: recovered spooled settle for %s from a previous run\n", p.attemptID)
+		}
 		t := time.NewTicker(settleRetryEvery)
 		defer t.Stop()
 		forward := func(p pendingSettle, final bool) bool {
 			err := towerjoin.SettleEdgeReceipt(st, p.stationID, p.attemptID, p.receipt)
 			switch {
 			case err == nil:
+				spool.drop(p.attemptID)
 				return true
 			case errors.Is(err, towerjoin.ErrSettlePermanent):
 				// Core judged the receipt itself invalid; retrying cannot fix it (audit L-2).
 				fmt.Fprintf(out, "hub: settle for %s ABANDONED - %v\n", p.attemptID, err)
+				spool.drop(p.attemptID)
 				return true
 			case final:
 				fmt.Fprintf(out, "hub: settle for %s ABANDONED at shutdown: %v\n", p.attemptID, err)
@@ -163,20 +182,26 @@ func runHubInBackground(st *tower.State, addr, tlsCert, tlsKey string, out io.Wr
 				for id, p := range retries {
 					if time.Now().After(p.deadline) {
 						fmt.Fprintf(out, "hub: settle for %s ABANDONED - the settle window closed before Core answered\n", id)
+						spool.drop(id)
 						delete(retries, id)
 						continue
+					}
+					if time.Now().Before(p.notBefore) {
+						continue // the ack grace applies on the overflow path too (audit L-D)
 					}
 					if forward(p, false) {
 						delete(retries, id)
 					}
 				}
 			case <-stop:
-				// FINAL DRAIN, sequenced AFTER the HTTP server has finished (audit H-1): a
-				// handler still draining under Shutdown can fire OnComplete after we saw stop,
-				// and a receipt enqueued then must not vanish into a buffer nobody reads. The
-				// quiet-window loop then catches OnComplete goroutines scheduled but not yet
-				// run when Shutdown returned.
-				<-serveDone
+				// FINAL DRAIN, sequenced AFTER Shutdown has finished draining handlers (audit
+				// H-B: ListenAndServe returns the instant Shutdown is called, while handlers -
+				// a /complete mid-body - keep running; serveDone is the WRONG signal). A
+				// receipt enqueued by a draining handler must not vanish into a buffer nobody
+				// reads. The quiet-window loop then catches OnComplete goroutines scheduled
+				// but not yet run when Shutdown returned; anything that still slips through
+				// is in the SPOOL for the next run.
+				<-shutdownDone
 				drainOverflow()
 			finalDrain:
 				for {
@@ -280,10 +305,13 @@ func runHubInBackground(st *tower.State, addr, tlsCert, tlsKey string, out io.Wr
 		}
 	}()
 	go func() {
+		defer close(shutdownDone)
 		<-stop
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		_ = httpSrv.Shutdown(ctx)
+		if serr := httpSrv.Shutdown(ctx); serr != nil {
+			fmt.Fprintf(out, "hub: shutdown drain incomplete (%v) - any receipt still in a live handler is in the spool for the next run\n", serr)
+		}
 	}()
 
 	return func() {

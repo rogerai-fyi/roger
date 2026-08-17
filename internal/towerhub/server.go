@@ -261,7 +261,12 @@ func (s *Server) Complete(w http.ResponseWriter, r *http.Request) {
 	// this Station ride to Core. Checked before Complete (which consumes the waiter but not the
 	// dispatch record) so a consumer who gave up waiting still gets the node paid - the node
 	// honestly did the work - while a fabricated attempt id goes nowhere.
-	carried := s.hub.Dispatched(req.AttemptID, req.StationID)
+	// Consumed only when there is a receipt to courier: a failure completion must not burn
+	// the record a node's later receipt-bearing retry would need.
+	carried := false
+	if len(rec) > 0 {
+		carried = s.hub.ConsumeDispatched(req.AttemptID, req.StationID)
+	}
 	s.hub.Complete(req.StationID, res)
 	if s.OnComplete != nil && len(rec) > 0 && carried {
 		go s.OnComplete(req.StationID, res)

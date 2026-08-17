@@ -70,7 +70,14 @@ func TestFullProductLoopANodeEarnsThroughATower(t *testing.T) {
 	hubServer.OnComplete = func(stationID string, res towerhub.Result) {
 		// The ack grace, as roger-tower's courier holds it: the consumer's acknowledgement
 		// gets a head start on the receipt, so the settlement it corroborates is corroborated.
-		time.Sleep(750 * time.Millisecond)
+		// The test waits for the ack to actually be RECORDED (not a fixed sleep - the ack
+		// races this goroutine from the very same /complete, and a loaded box loses races).
+		for waited := 0; waited < 8000; waited += 25 {
+			if _, found, _ := b.tower.acks.Get(res.AttemptID); found {
+				break
+			}
+			time.Sleep(25 * time.Millisecond)
+		}
 		body := map[string]any{
 			"tower_id": tw.id, "station_id": stationID, "attempt_id": res.AttemptID,
 			"receipt": base64.StdEncoding.EncodeToString(res.Receipt),
@@ -127,11 +134,11 @@ func TestFullProductLoopANodeEarnsThroughATower(t *testing.T) {
 	require.EqualValues(t, 300_000, auth.PriceOutMicros, "the grant pins the node's own listed price")
 
 	plaintext := []byte(`{"model":"my-model","messages":[{"role":"user","content":"what is the answer"}]}`)
-	res, err := ec.DoSealed(sctx, auth, plaintext)
+	res, err := ec.DoSealed(sctx, &auth, plaintext)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, res.Status)
 	require.Equal(t, []byte(modelBody), res.Body, "the consumer gets the model's own bytes, unreadable to the tower in transit")
-	require.NoError(t, ec.AckSealed(sctx, auth, res), "the acknowledgement lands")
+	require.NoError(t, ec.AckSealed(sctx, &auth, res), "the acknowledgement lands")
 
 	// The courier's ack grace means the acknowledgement beat the receipt to Core: this
 	// settlement is CORROBORATED - the consumer's own signed account of the bytes agrees
@@ -156,4 +163,72 @@ func TestFullProductLoopANodeEarnsThroughATower(t *testing.T) {
 	require.NoError(t, err)
 	require.InDelta(t, 0.15, balBefore-balAfter, 1e-9, "the consumer is debited exactly 500k x $0.30/1M")
 	require.NotEmpty(t, stationID)
+}
+
+// The FAILURE path: the node is attached and routable but its serving loop is DOWN. The
+// consumer's submit fails cleanly, nothing settles, nobody earns - and the pre-auth hold is
+// reclaimed by the backstop sweep, so the consumer is made whole to the credit.
+func TestTopology2NodeDownTheConsumerIsMadeWhole(t *testing.T) {
+	t.Setenv("ROGERAI_TOWER_EDGE_PRICE_IN", "0")
+	t.Setenv("ROGERAI_TOWER_EDGE_PRICE_OUT", "0")
+	b, srv := towerTestBroker(t)
+	b.feeRate = 0.30
+
+	// A real hub with NO registered node: the station self-attached, then its loop died.
+	hubLn, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = hubLn.Close() })
+	endpoint := hubLn.Addr().String()
+	tw := liveEdgeTower(t, b, srv, "tower-op-down", endpoint)
+	towerAcct := ownerPubkeyOf(t, b, "tower-op-down")
+	hub := towerhub.New()
+	hubServer := towerhub.NewServer(hub, func(grant []byte) (string, string, error) {
+		att, station, _, gerr := dispatch.EdgeGrantMeta(grant, b.tower.dispatchPub, link.PublicNetwork, tw.id, time.Now())
+		return att, station, gerr
+	}, 2*time.Second, 500*time.Millisecond)
+	mux := http.NewServeMux()
+	mux.HandleFunc(towerhub.PathSubmit, hubServer.Submit)
+	mux.HandleFunc(towerhub.PathPoll, hubServer.Poll)
+	mux.HandleFunc(towerhub.PathComplete, hubServer.Complete)
+	go func() { _ = http.Serve(hubLn, mux) }()
+
+	// The node self-attaches at its price (the attach IS the offer) - but never polls.
+	nodeOp := signedInOperator(t, b, "node-op-down")
+	nodeAcct := ownerPubkeyOf(t, b, "node-op-down")
+	body, _ := selfAttachBody(t)
+	body["model"], body["modality"], body["price_out_micros"] = "down-model", "chat", 300_000
+	var attached map[string]any
+	code, raw := nodeOp.call(t, srv, http.MethodPost, "/tower/edge/attach", body, &attached)
+	require.Equal(t, http.StatusOK, code, raw)
+
+	consumer := signedInConsumer(t, b)
+	consWallet, ok := b.edgeConsumerWallet(consumer.Public().(ed25519.PublicKey))
+	require.True(t, ok)
+	balBefore, err := b.db.BalanceOf(consWallet, 0)
+	require.NoError(t, err)
+
+	ec := &edgeclient.Client{Broker: srv.URL, Key: consumer}
+	sctx, sc := context.WithTimeout(context.Background(), 15*time.Second)
+	defer sc()
+	auth, err := ec.AuthorizeSealed(sctx, "down-model")
+	require.NoError(t, err)
+	balHeld, err := b.db.BalanceOf(consWallet, 0)
+	require.NoError(t, err)
+	require.Less(t, balHeld, balBefore, "authorize placed a pre-auth hold")
+
+	// The submit fails cleanly - no node is polling this Station.
+	_, err = ec.DoSealed(sctx, &auth, []byte(`{"model":"down-model","messages":[]}`))
+	require.Error(t, err, "with the node down, the consumer hears a clean refusal, not silence")
+
+	// Nothing settled, so nobody earned a cent of the consumer's money...
+	sN, _ := b.db.EarningSplitOf(nodeAcct, time.Now().Add(time.Hour))
+	require.Zero(t, sN.Payable, "a node that served nothing earns nothing")
+	sTw, _ := b.db.EarningSplitOf(towerAcct, time.Now().Add(time.Hour))
+	require.Zero(t, sTw.Payable, "a tower that relayed nothing earns nothing")
+
+	// ...and the backstop sweep reclaims the orphaned hold: the consumer is made whole.
+	b.releaseStaleHoldsSweepOnce(time.Now().Add(time.Hour))
+	balAfter, err := b.db.BalanceOf(consWallet, 0)
+	require.NoError(t, err)
+	require.InDelta(t, balBefore, balAfter, 1e-9, "the hold is released in full - no charge without service")
 }

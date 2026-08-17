@@ -61,7 +61,7 @@ func (c *Client) SubmitJob(ctx context.Context, grant, envelope []byte) (Result,
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 32<<20))
 	if resp.StatusCode != http.StatusOK {
-		return Result{}, &HTTPError{Status: resp.StatusCode, Body: string(raw)}
+		return Result{}, &HTTPError{Status: resp.StatusCode, Body: errSnippet(raw)}
 	}
 	var out submitResp
 	if err := json.Unmarshal(raw, &out); err != nil {
@@ -99,7 +99,7 @@ func (c *Client) PollJob(ctx context.Context, station string) (Job, bool, error)
 	}
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 32<<20))
 	if resp.StatusCode != http.StatusOK {
-		return Job{}, false, &HTTPError{Status: resp.StatusCode, Body: string(raw)}
+		return Job{}, false, &HTTPError{Status: resp.StatusCode, Body: errSnippet(raw)}
 	}
 	var pr pollResp
 	if err := json.Unmarshal(raw, &pr); err != nil {
@@ -148,15 +148,34 @@ func (c *Client) CompleteResult(ctx context.Context, station string, res Result)
 		return ErrNotCarried
 	}
 	if resp.StatusCode != http.StatusOK {
-		return &HTTPError{Status: resp.StatusCode, Body: string(raw)}
+		return &HTTPError{Status: resp.StatusCode, Body: errSnippet(raw)}
 	}
 	return nil
 }
 
 // ErrNotCarried reports a completion the hub accepted but did not courier for settlement -
-// the serving node's receipt did not start its ride to Core.
+// the serving node's receipt did not start its ride to Core. The consumer is NOT charged (no
+// settle ever runs); their pre-auth hold releases via Core's orphan-hold sweep.
 var ErrNotCarried = errors.New("the hub accepted this completion but did not forward the receipt for settlement " +
 	"(no dispatch record - likely a hub restart mid-job); this attempt's pay is at risk")
+
+// errSnippet bounds and sanitizes TOWER-CONTROLLED error text before it rides an error a
+// caller may print: a hostile hub must not inject megabytes or terminal escapes.
+func errSnippet(raw []byte) string {
+	const maxErrBody = 2048
+	if len(raw) > maxErrBody {
+		raw = raw[:maxErrBody]
+	}
+	b := make([]byte, 0, len(raw))
+	for _, c := range raw {
+		if c == '\n' || c == '\t' || (c >= 0x20 && c != 0x7f) {
+			b = append(b, c)
+		} else {
+			b = append(b, ' ')
+		}
+	}
+	return string(b)
+}
 
 // HTTPError carries a non-2xx status from the hub so callers can branch on it.
 type HTTPError struct {

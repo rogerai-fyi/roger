@@ -64,7 +64,10 @@ type Admission struct {
 
 // httpClient bounds every call. A Tower that hangs on enrollment looks broken to its
 // operator, and the operator is usually watching a terminal at the time.
-var httpClient = &http.Client{Timeout: 30 * time.Second}
+// httpClient carries every operator/tower<->Core call - hub tokens, registrations,
+// certificates - so the transport guard re-applies on every redirect hop (audit M-A): an
+// https base cannot be 30x'ed onto plaintext or another host after TrustedBase passed.
+var httpClient = &http.Client{Timeout: 30 * time.Second, CheckRedirect: protocol.NoDowngradeRedirect}
 
 // enroll is the real admission call, replacing the Phase-2 placeholder.
 func enroll(st *tower.State, a Account) error {

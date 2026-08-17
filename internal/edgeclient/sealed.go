@@ -114,9 +114,14 @@ func hubBase(endpoint string) string {
 // DoSealed sends one request through the tower's hub: seal to the Station, submit the
 // ciphertext, open the answer. The returned Result carries the opened plaintext and the
 // node's receipt, ready for Ack - the same acknowledgement flow as the TLS path.
-func (c *Client) DoSealed(ctx context.Context, auth SealedAuthorization, body []byte) (Result, error) {
-	if len(auth.envPriv) == 0 {
-		return Result{}, errors.New("this authorization cannot open an answer - it did not come from AuthorizeSealed")
+//
+// The submit can legitimately be HELD for the hub's full submit TTL (90s by default) while
+// the node serves, so ctx - not a client timeout - is the deadline: give it at least a
+// couple of minutes for a slow model. On success the authorization's opening key is zeroed;
+// the attempt is one-use end to end, and a spent key should not linger in memory.
+func (c *Client) DoSealed(ctx context.Context, auth *SealedAuthorization, body []byte) (Result, error) {
+	if auth == nil || len(auth.envPriv) == 0 {
+		return Result{}, errors.New("this authorization cannot open an answer - it did not come from AuthorizeSealed (or was already used)")
 	}
 	sealed, err := envelope.SealTo(auth.StationSessionKey, body, auth.AttemptID)
 	if err != nil {
@@ -126,7 +131,16 @@ func (c *Client) DoSealed(ctx context.Context, auth SealedAuthorization, body []
 	if err != nil {
 		return Result{}, err
 	}
-	hc := &towerhub.Client{BaseURL: hubBase(auth.Endpoint), HTTP: c.httpClient()}
+	// A dedicated DATA-PLANE client (audit H-A): the control-plane client's 30s timeout would
+	// abort a submit the hub is legitimately holding while the node serves - and an aborted
+	// wait is not an unserved attempt: the node may still complete, the receipt still settles,
+	// and re-submitting the same attempt is forbidden. No fixed timeout (ctx bounds the wait),
+	// and no redirects at all: a hub has no business redirecting a submit.
+	hc := &towerhub.Client{BaseURL: hubBase(auth.Endpoint), HTTP: &http.Client{
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return errors.New("the tower hub does not redirect")
+		},
+	}}
 	res, err := hc.SubmitJob(ctx, auth.Grant, sealedRaw)
 	if err != nil {
 		return Result{}, err
@@ -145,6 +159,11 @@ func (c *Client) DoSealed(ctx context.Context, auth SealedAuthorization, body []
 	if err != nil {
 		return Result{}, fmt.Errorf("could not open the sealed answer (wrong key or tampered in transit): %w", err)
 	}
+	// Spent: this attempt is one-use end to end, and the opening key has no further purpose.
+	for i := range auth.envPriv {
+		auth.envPriv[i] = 0
+	}
+	auth.envPriv = nil
 	return Result{
 		Status: http.StatusOK, Body: plain,
 		receipt:   base64.StdEncoding.EncodeToString(res.Receipt),
@@ -155,6 +174,9 @@ func (c *Client) DoSealed(ctx context.Context, auth SealedAuthorization, body []
 // AckSealed acknowledges a DoSealed result to Core. Identical alignment to Ack: an honest
 // acknowledgement can only ever reduce what the consumer is billed, and it is what turns a
 // settled attempt into a corroborated one.
-func (c *Client) AckSealed(ctx context.Context, auth SealedAuthorization, res Result) error {
+func (c *Client) AckSealed(ctx context.Context, auth *SealedAuthorization, res Result) error {
+	if auth == nil {
+		return errors.New("no authorization to acknowledge against")
+	}
 	return c.Ack(ctx, Authorization{AttemptID: auth.AttemptID}, res)
 }

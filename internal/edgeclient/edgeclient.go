@@ -80,7 +80,10 @@ func (c *Client) httpClient() *http.Client {
 	if c.HTTP != nil {
 		return c.HTTP
 	}
-	return &http.Client{Timeout: 30 * time.Second}
+	// The control plane delivers key-trust material (the station session key), so the guard
+	// re-applies on every redirect hop - an https broker front cannot 30x this client onto
+	// plaintext or another host after the initial TrustedBase check passed.
+	return &http.Client{Timeout: 30 * time.Second, CheckRedirect: protocol.NoDowngradeRedirect}
 }
 
 // Authorization is Core's answer: permission, and a place to use it.
