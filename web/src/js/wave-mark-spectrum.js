@@ -25,8 +25,16 @@
 (function () {
   "use strict";
   if (/[?&]mark=classic\b/.test(window.location.search)) return;
-  var svg = document.querySelector(".wave-mark__svg[data-animate]");
-  if (!svg) return;
+  var marks = document.querySelectorAll(".wave-mark__svg[data-animate]");
+  if (!marks.length) return;
+  if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  for (var mi = 0; mi < marks.length; mi++) build(marks[mi]);
+
+  /* SLIM marks (data-slim) run the same animation with the type stripped:
+     no callsign, no tier nameplate. The founder wanted the motion as a mark
+     in places where the explaining is already done by the page. */
+  function build(svg) {
+  var slim = svg.hasAttribute("data-slim");
   /* MORE ROOM (founder: "larger, especially taller"). The authored viewBox is
      360x116, but a charged Exa wave swings ~82 units either side of the
      centreline - so the art always drew OUTSIDE its own box (overflow is
@@ -38,7 +46,6 @@
      here, because it is the animation that decides how much room the art
      needs. */
   svg.setAttribute("viewBox", "-6 -16 360 188");
-  if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
 
   var X0 = 0, X1 = 348, CX = 174, CY = 78, N = 84, TWO_PI = Math.PI * 2;
   var NS = "http://www.w3.org/2000/svg";
@@ -86,6 +93,9 @@
     t.el = document.createElementNS(NS, "path");
     t.el.setAttribute("class", "wave-mark__tier");
     t.el.setAttribute("data-tier", t.id);
+    /* set here, not in a page stylesheet, so a mark works on any page that
+       has the palette tokens - which is now every page (base.css) */
+    t.el.style.stroke = "var(--tier-" + t.id + ")";
     layer.appendChild(t.el);
   });
   var node = svg.querySelector(".wave-mark__node");
@@ -104,7 +114,8 @@
      family name is spoken seven times a pass instead of never. Both carry a
      paper halo (paint-order: stroke) so they stay legible over the waves
      without a box around them. */
-  var ident = document.createElementNS(NS, "text");
+  var ident = slim ? null : document.createElementNS(NS, "text");
+  if (ident) {
   ident.setAttribute("class", "wave-mark__ident");
   ident.setAttribute("x", CX); ident.setAttribute("y", 34);
   ident.setAttribute("text-anchor", "middle");
@@ -117,23 +128,26 @@
     "fill: var(--ink-400); stroke: var(--paper); stroke-width: 3px;" +
     "paint-order: stroke; stroke-linejoin: round;");
   svg.appendChild(ident);
+  }
 
-  var onair = document.createElementNS(NS, "circle");
+  var onair = slim ? null : document.createElementNS(NS, "circle");
+  if (onair) {
   onair.setAttribute("class", "wave-mark__onair");
   onair.setAttribute("cy", 30); onair.setAttribute("r", 3.1);
   onair.setAttribute("style", "fill: var(--mark-lead, var(--live));");
   svg.appendChild(onair);
+  }
 
   /* the firing name sits on a small engraved plate rather than floating on
      the lines - a halo alone left a wave crossing the word like a strike */
-  var plate = document.createElementNS(NS, "rect");
+  var plate = slim ? null : document.createElementNS(NS, "rect");
+  var tag = slim ? null : document.createElementNS(NS, "text");
+  if (plate) {
   plate.setAttribute("class", "wave-mark__plate");
   plate.setAttribute("rx", 3); plate.setAttribute("height", 20);
   plate.setAttribute("style",
     "fill: var(--paper); stroke: var(--mark-lead, var(--live)); stroke-width: 1; opacity: 0;");
   svg.appendChild(plate);
-
-  var tag = document.createElementNS(NS, "text");
   tag.setAttribute("class", "wave-mark__tag");
   tag.setAttribute("x", CX); tag.setAttribute("y", CY + 44);
   tag.setAttribute("text-anchor", "middle");
@@ -145,6 +159,7 @@
   /* the dot sits just left of the callsign - measured, because the mono
      metrics differ per theme font stack */
   function placeOnAir() {
+    if (!ident || !onair) return;
     var w = 0;
     try { w = ident.getComputedTextLength(); } catch (e) { w = 78; }
     if (!w) w = 78;
@@ -152,6 +167,7 @@
   }
   placeOnAir();
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(placeOnAir);
+  }   /* nameplate + callsign, non-slim only */
 
   function pathFor(t, charge, u) {
     /* standing wave with a node at CX for every k, so the crossing is exact.
@@ -199,7 +215,7 @@
       t.el.setAttribute("d", pathFor(t, charge, u));
       t.el.style.opacity = (0.2 + 0.8 * charge).toFixed(3);
       t.el.style.strokeWidth = (1.7 + 4.6 * charge).toFixed(2);
-      t.el.style.stroke = inf > own ? "var(--ink-900)" : "";
+      t.el.style.stroke = inf > own ? "var(--ink-900)" : "var(--tier-" + t.id + ")";
       if (own > best) { best = own; lead = t; }
     }
     if (inf > best) { best = inf; lead = { id: null, name: "INFINITE" }; }
@@ -207,9 +223,9 @@
     if (lead) {
       svg.style.setProperty("--mark-lead",
         lead.id ? "var(--tier-" + lead.id + ")" : "var(--ink-900)");
-      var showing = best > 0.55;
+      var showing = !slim && best > 0.55;
       var op = showing ? ((best - 0.55) / 0.45) : 0;
-      if (showing && tag.textContent !== "WAVE " + lead.name) {
+      if (tag && showing && tag.textContent !== "WAVE " + lead.name) {
         tag.textContent = "WAVE " + lead.name;
         var w = 0;
         try { w = tag.getComputedTextLength(); } catch (e) { w = 96; }
@@ -218,9 +234,11 @@
         plate.setAttribute("width", (w + 18).toFixed(1));
         plate.setAttribute("y", (CY + 44 - 14).toFixed(1));
       }
-      if (!showing) tag.textContent = "";
-      tag.style.opacity = op.toFixed(2);
-      plate.style.opacity = op.toFixed(2);
+      if (tag) {
+        if (!showing) tag.textContent = "";
+        tag.style.opacity = op.toFixed(2);
+        plate.style.opacity = op.toFixed(2);
+      }
       /* the beacon rings each time a tier peaks */
       var r = 14 + 26 * Math.max(0, best - 0.35) / 0.65;
       ring.setAttribute("r", r.toFixed(1));
@@ -228,8 +246,10 @@
       if (node) node.style.transform = "scale(" + (1 + 0.16 * best).toFixed(3) + ")";
       /* the ident's dot is the on-air lamp: it rides the same charge, so the
          callsign visibly breathes with the ladder rather than sitting dead */
-      onair.style.opacity = (0.3 + 0.7 * best).toFixed(3);
-      onair.setAttribute("r", (2.6 + 1.1 * best).toFixed(2));
+      if (onair) {
+        onair.style.opacity = (0.3 + 0.7 * best).toFixed(3);
+        onair.setAttribute("r", (2.6 + 1.1 * best).toFixed(2));
+      }
     }
 
     if (!primed) { primed = true; svg.setAttribute("data-spectrum", "1"); }
@@ -247,4 +267,5 @@
   document.addEventListener("visibilitychange", function () {
     if (document.hidden) halt(); else if (svg.getBoundingClientRect().bottom > 0) go();
   });
+  }   /* build() */
 })();

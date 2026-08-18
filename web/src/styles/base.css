@@ -835,6 +835,36 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
 /* A panel row that is a CHILD of the row above it - the Playbox's two decks.
    The rule down the left is the nesting cue, so the pair reads as ways into one
    destination rather than three separate places. */
+/* THE WAVE SPECTRUM PALETTE, site-wide. The founder's own chart, light and
+   dark. It lived in three stylesheets that each redeclared it; the wave mark
+   is a brand component that can appear on any page, so the tokens belong
+   here. The per-deck copies still win where they are loaded - same values. */
+:root {
+  --tier-pico: #b23a2a; --tier-nano: #c96a1c; --tier-micro: #b0891a;
+  --tier-giga: #2f8a52; --tier-tera: #1f8f8f; --tier-peta: #2f63bf;
+  --tier-exa:  #5b3fbf;
+}
+:root[data-theme="dark"] {
+  --tier-pico: #e6604f; --tier-nano: #e88b3c; --tier-micro: #d4aa2e;
+  --tier-giga: #48b873; --tier-tera: #39b7b7; --tier-peta: #5b8ee6;
+  --tier-exa:  #8a6df0;
+}
+/* the SLIM mark: the same animation, graphics only - no callsign, no tier
+   nameplate. For places that want the motion as a mark rather than as an
+   explainer. */
+.wave-mark--slim { display: block; margin: 0; }
+.wave-mark--slim .wave-mark__svg {
+  width: 100%; max-width: 260px; height: auto; overflow: visible; display: block;
+}
+.wave-mark--slim .wave-mark__wave { fill: none; stroke-linecap: round; }
+.wave-mark--slim .wave-mark__node { fill: var(--mark-lead, var(--live)); }
+.wave-mark--slim .wave-mark__tier { fill: none; stroke-linecap: round; }
+.wave-mark--slim .wave-mark__ring { fill: none; stroke: var(--mark-lead, var(--live)); stroke-width: 2; opacity: 0; }
+.wave-mark--slim .wave-mark__svg[data-spectrum] .wave-mark__wave { display: none; }
+@media (prefers-reduced-motion: reduce) {
+  .wave-mark--slim .wave-mark__spectrum, .wave-mark--slim .wave-mark__ring { display: none; }
+}
+
 /* the Playbox row and its disclosure arrow share a line */
 .nav__deckrow { display: flex; align-items: flex-start; gap: 4px; }
 .nav__deckrow > a { flex: 1 1 auto; min-width: 0; }
