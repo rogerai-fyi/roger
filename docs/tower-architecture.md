@@ -2,7 +2,7 @@
 
 **Largely historical.** This document describes the **Core-relayed** path and the invite-file
 Station ceremony - the generation that was RETIRED when the sealed-hub edge path shipped
-(`internal/towerhub`; providers run `roger share --tower` and self-attach, `roger-station`
+(`internal/towerhub`; providers run `roger share` and self-attach, `roger-station`
 and `internal/relay` were deleted). The role separations and trust arguments below still
 inform the current design; the specific commands and components largely no longer exist.
 See `docs/tower-edge-design.md` and `docs/tower.md` for what runs today.

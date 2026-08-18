@@ -196,13 +196,24 @@ mint a second Tower.
 
 ### Attaching a node (self-attach)
 
-The invite-file ceremony (and the separate `roger-station` binary it served) is gone. A
-provider runs `roger share --tower`: the node mints its persistent station identity, makes
-ONE signed call to Roger Core (`/tower/edge/attach`) carrying its keys, model, and its own
+The invite-file ceremony (and the separate `roger-station` binary it served) is gone, and so
+is the flag that used to stand in for it. A provider runs `roger share` - nothing extra. The
+node registers and goes on air the ordinary way, and then, best effort, attaches: it mints (or
+reloads) its persistent station identity and makes ONE signed call to Roger Core
+(`/tower/edge/attach`) carrying its keys, its **broker node id**, its model and its own
 per-token price, and Core assigns a live tower and returns the hub endpoint plus the bearer
-token the node polls with. The call is idempotent - a lost reply is answered with the
-existing registration. `roger-tower station revoke` remains the tower operator's kill
-switch for a station serving under their tower.
+token the node polls with. The call is idempotent - a lost reply is answered with the existing
+registration - and so is the identity: the same host presents the same station keys on every
+run, because the attachment Core recorded names them.
+
+The node id is the JOIN, and Core checks it rather than believing it: there must be a live
+registration under that id whose pubkey is the key signing the attach. Without it a station
+and the probe history of the machine behind it have no name in common, and edge placement has
+nothing to rank by. Attaching is an account act, so an anonymous free share simply does not
+join - it serves the ordinary way and nothing is printed about it either way.
+
+`roger-tower station revoke` remains the tower operator's kill switch for a station serving
+under their tower.
 
 ### The lifecycle states
 
@@ -455,7 +466,7 @@ best-effort mirror still records evidence for the audit chain, but no money rest
 | Sealed envelopes (relayed path) | built |
 | Attempt ledger (hash-chained, signed) | built |
 | Blind SNI relay (`internal/relay`) | **removed** — superseded by the tower-hosted sealed hub (`internal/towerhub`); the tower carries ciphertext it cannot read |
-| Station TLS identity, CSR/install, HTTPS serving | **removed** with `roger-station` — providers run `roger share --tower` and blind-serve sealed submits |
+| Station TLS identity, CSR/install, HTTPS serving | **removed** with `roger-station` — providers run `roger share` and blind-serve sealed submits |
 | Edge grant (scope-bounded), consumer ack, corroborated settlement | built |
 | Certificate + lease renewal (Core route and Tower schedule) | built |
 | Reputation ledger (per-Tower outcomes, rate, flag/suspend) | built |

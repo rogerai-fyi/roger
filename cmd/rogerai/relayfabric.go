@@ -12,8 +12,10 @@ package main
 // fabric in addition to the broker's own long-poll.
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"rogerai.fm/roger/v5/internal/agent"
 	"rogerai.fm/roger/v5/internal/client"
@@ -59,3 +61,34 @@ func joinRelayFabric(cfg agent.Config) {
 type discardWriter struct{}
 
 func (discardWriter) Write(p []byte) (int, error) { return len(p), nil }
+
+// refusedTowerFlag explains `roger share --tower` instead of letting the flag package answer
+// it with "flag provided but not defined: -tower".
+//
+// The flag is gone and its absence IS the feature - a share reaches the relay fabric on its
+// own - but the flag is still in scripts, in systemd units, in older docs and in at least one
+// published article. Those operators get one line of output, and "not defined" tells them
+// their roger is broken rather than that their command is out of date. The same care already
+// went into `roger tower`, which is a word this product uses for a real thing and so answers
+// with an explanation rather than "unknown command"; this is the same courtesy for a flag
+// that used to work.
+//
+// It stays an ERROR. Silently accepting it would leave every one of those scripts passing a
+// flag forever, and the operator never learning that the mode it selected no longer exists.
+func refusedTowerFlag(args []string) error {
+	for _, a := range args {
+		if a == "--" {
+			return nil // everything after this is positional, by convention
+		}
+		name, _, _ := strings.Cut(strings.TrimLeft(a, "-"), "=")
+		if (strings.HasPrefix(a, "-") && a != "-") && name == "tower" {
+			return fmt.Errorf("`roger share --tower` is no longer a thing, and you do not need it:\n" +
+				"    roger share          # already offers your node to the relay fabric\n\n" +
+				"reaching the fabric was never a mode to pick. Which relay carries a request - one of\n" +
+				"ours or an operator's - is decided when a consumer tunes in, not by the provider hours\n" +
+				"earlier. Drop the flag and the share is the same share, plus that reach.\n\n" +
+				"To RUN a Tower (the relay itself) you want the separate roger-tower binary.")
+		}
+	}
+	return nil
+}

@@ -22,9 +22,14 @@ package agent
 //
 // # WHAT THE OPERATOR SEES
 //
-// `roger share --tower` (flag wiring in cmd/rogerai): the same share they already run, with
-// the serving fabric pointed at a tower instead of the broker's own long-poll. Prices are the
-// share's ordinary $/1M-token prices, converted to the tower path's micro-USD integers.
+// Nothing. This runs beside an ordinary `roger share` (cmd/rogerai/relayfabric.go), best
+// effort and silent: the node has already registered, gone on air and printed its one line by
+// the time this starts, and the relay fabric is an ADDITIONAL plane it serves on rather than a
+// fabric it was moved to. There is no flag - `roger share --tower` used to be one, and it was
+// wrong in shape: it made a provider choose a serving fabric for the life of the process, when
+// which relay carries a request is Core's decision at the moment a consumer tunes in. Prices
+// are the share's ordinary $/1M-token prices, converted to the tower path's micro-USD
+// integers.
 
 import (
 	"bytes"
@@ -248,6 +253,14 @@ func ServeTower(ctx context.Context, cfg Config, priv ed25519.PrivateKey, dir st
 		Token:   at.HubToken,
 		HTTP:    &http.Client{Timeout: 60 * time.Second},
 	}
+	// THESE ARE ADDITIONAL TO THE CLASSIC POLL WORKERS, not a share of them. agent.Start
+	// already spawns cfg.Parallel workers against the same local model, and since every public
+	// share now offers itself to the relay fabric as well, `--parallel 4` is a ceiling of eight
+	// concurrent generations rather than four. There is no shared limiter between the two
+	// planes and this is not the place to invent one: a hub worker costs nothing while no
+	// consumer is tuned in, so halving each plane would cut the throughput of the path most
+	// requests actually take in order to bound a case few nodes reach. The flag's help says
+	// "per serving plane" for exactly this reason.
 	workers := cfg.Parallel
 	if workers <= 0 {
 		workers = 2

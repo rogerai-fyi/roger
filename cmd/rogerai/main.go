@@ -986,6 +986,12 @@ func cmdShare(cfg config, args []string) error {
 	// args are what we hand to the flag parser. Without it, a bare `roger share` keeps
 	// falling back to the saved/first-detected model, and an explicit `--model` still works
 	// (and still wins when both are given, since flag parsing runs after this).
+	// `--tower` parsed until the relay fabric stopped being a mode. Answer it with the reason
+	// rather than with flag.ExitOnError's "flag provided but not defined: -tower", which reads
+	// as a broken binary to anybody running a script written a month ago.
+	if err := refusedTowerFlag(args); err != nil {
+		return err
+	}
 	posModel, rest := shareModelArg(args)
 	defModelFlag := defModel
 	if posModel != "" {
@@ -1002,7 +1008,17 @@ func cmdShare(cfg config, args []string) error {
 	upstream := fs.String("upstream", "", "local OpenAI endpoint (default: auto-detect)")
 	upKey := fs.String("upstream-key", "", "bearer key for the upstream (optional; auto-detected from env / saved)")
 	region := fs.String("region", "home", "region")
-	parallel := fs.Int("parallel", 4, "concurrent poll workers (per-node concurrency)")
+	// PER SERVING PLANE, and the help says so. A public share now serves on two: the broker's
+	// own long-poll and, when the node has a signed-in owner, the relay fabric's hub. Each runs
+	// this many workers against the SAME local model, so the ceiling on concurrent generations
+	// is up to twice this number, not this number.
+	//
+	// Not "fixed" by halving it. A relay-fabric worker is a long-poll that costs nothing while
+	// no consumer is tuned in, and relay traffic is currently thin - so splitting the budget
+	// would halve the throughput of every node on the fabric that most requests still take, to
+	// solve an over-subscription most of them will never reach. The honest number in the help
+	// beats a policy invented to make an old sentence true.
+	parallel := fs.Int("parallel", 4, "concurrent poll workers PER SERVING PLANE - a share that reaches the relay fabric runs this many again against the same local model (default 4)")
 	// FREE BY DEFAULT (price 0/0): a bare `roger share` goes on air with NO login
 	// (a priced node would require `roger login` and otherwise 403). Set a price to
 	// EARN (that does require login). See the onboarding wizard's earn branch.

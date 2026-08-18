@@ -120,7 +120,7 @@ preflight exists to prevent.
 ## Run it as a service
 
 The unit runs `roger-tower serve`, which holds the link to Roger Core and hosts the sealed
-hub - the data plane consumers submit encrypted work to and `roger share --tower` nodes poll.
+hub - the data plane consumers submit encrypted work to and `roger share` nodes poll.
 Give it a hub listener and the public address consumers reach it at, in the config file the
 unit passes:
 
@@ -150,7 +150,7 @@ the code into one the kernel enforces.
 ## What is and is not built
 
 **Joined mode is built.** Admission, short-lived certificates, the link (session, heartbeat,
-clean drain, renewal), the sealed hub data plane, self-attaching `roger share --tower` nodes,
+clean drain, renewal), the sealed hub data plane, self-attaching `roger share` nodes,
 signed receipts, one-use settlement, and compensation: every settled request pays the serving
 node 70% of its own listed price, **your Tower 10%**, the platform 20%. Relay earnings are
 ordinary earnings — `roger-tower earnings` reads them, and they cash out on the same rail as

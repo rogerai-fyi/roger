@@ -12,7 +12,7 @@
 # SUPERSEDED MECHANISM NOTE (not a spec change): the invite-file CLI this spec's scenarios
 # ride (`roger-tower station invite` / `station attach`, the roger-station binary) was
 # RETIRED with the leaf-station generation. Its living successor is SELF-ATTACH: one signed
-# `/tower/edge/attach` call from `roger share --tower`, which reuses this spec's admission
+# `/tower/edge/attach` call from `roger share`, which reuses this spec's admission
 # machinery (authorization + one-use redemption + uniqueness + caps) atomically in-process.
 # The trust properties specified here are enforced there; the ceremony that carried them is
 # gone. Revocation and promotion remain as specified.

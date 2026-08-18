@@ -563,7 +563,7 @@
             <div class="man-plate">
               <div class="man-plate__row"><span class="man-plate__k">--free-window</span><span class="man-plate__v">a daily FREE window in UTC, e.g. <code>03:00-03:30</code></span></div>
               <div class="man-plate__row"><span class="man-plate__k">--schedule</span><span class="man-plate__v">time-of-use pricing as JSON, e.g. <code>[{"start":"18:00","end":"22:00","price_in":0.5,"price_out":0.7}]</code></span></div>
-              <div class="man-plate__row"><span class="man-plate__k">--parallel</span><span class="man-plate__v">concurrent poll workers per node (max-concurrent); default <code>4</code></span></div>
+              <div class="man-plate__row"><span class="man-plate__k">--parallel</span><span class="man-plate__v">concurrent poll workers <em>per serving plane</em> - a share that reaches the relay fabric runs this many again against the same local model; default <code>4</code></span></div>
               <div class="man-plate__row"><span class="man-plate__k">--ctx</span><span class="man-plate__v">context length; auto-detected from the upstream, falls back to 32768</span></div>
             </div>
 

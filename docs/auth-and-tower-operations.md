@@ -155,9 +155,10 @@ with nothing in its offers directory pushes a valid inventory of zero leaves —
 I have nothing."
 
 > **HISTORICAL:** the `roger-station` runbook below describes the retired leaf-station
-> generation. A provider now runs `roger share --tower` (one command: self-attach at their
-> own listed price, blind-serve sealed submits, audits answered automatically); a tower
-> operator runs `roger-tower serve --hub :8444 --relay-public HOST:PORT`.
+> generation. A provider now runs plain `roger share` - no flag, no second binary - and the
+> share offers itself to the relay fabric on its own (self-attach at their own listed price,
+> blind-serve sealed submits, audits answered automatically) on top of going on air the
+> ordinary way; a tower operator runs `roger-tower serve --hub :8444 --relay-public HOST:PORT`.
 
 ### Serving work
 

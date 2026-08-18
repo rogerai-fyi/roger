@@ -4,7 +4,7 @@
 # Built (the SEALED-HUB generation, which superseded the TLS-splice relay + roger-station +
 # Core-issued edge TLS certificates - all three now REMOVED): the tower-hosted hub
 # (internal/towerhub) carrying sealed submits from consumers to self-attached
-# `roger share --tower` nodes, the edge grant with signed token usage in the receipt, Core's
+# `roger share` nodes, the edge grant with signed token usage in the receipt, Core's
 # authorize/ack/settle endpoints with one-use settlement and 70/10/20 splits at the node's
 # own pinned per-token price, the settle courier (retrying, spooled across restarts),
 # endpoint advertisement on the link, a first-party sealed consumer
