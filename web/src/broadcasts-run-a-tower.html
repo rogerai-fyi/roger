@@ -13,7 +13,7 @@
          never about the broker in front of it. -->
 <html lang="en">
 <head>
-  <!-- include: head.html title="Run a RogerAI Tower and earn as a relay operator" desc="The Tower is a program you can run. What a Tower does, why it cannot read the work it carries, what the 70/10/20 settlement pays a relay operator, and the exact commands to bring one up on Linux." theme=external og=post ogtype=article ogtitle="Run a RogerAI Tower and earn as a relay operator" ogdesc="A Tower carries sealed work between the people asking and the machines answering. It runs no model, holds no content key, and earns 10% of every request it carries." ogurl="https://rogerai.fm/broadcasts-run-a-tower.html" ogimage="https://rogerai.fm/assets/broadcasts/tower-hero.png" -->
+  <!-- include: head.html title="Run a RogerAI Tower and earn as a relay operator" desc="The Tower is a program you can run. What a Tower does, why the work crossing it stays sealed, what the 70/10/20 settlement pays a relay operator, how to run one as a private relay network for your own local models, and the exact commands to bring one up on Linux." theme=external og=post ogtype=article ogtitle="Run a RogerAI Tower and earn as a relay operator" ogdesc="A Tower carries sealed work between the people asking and the machines answering. It runs no model, is never handed a key to the traffic, and earns 10% of every request it carries - or runs standalone as your own private relay network." ogurl="https://rogerai.fm/broadcasts-run-a-tower.html" ogimage="https://rogerai.fm/assets/broadcasts/tower-hero.png" -->
 </head>
 <body data-onair="idle">
 
@@ -38,11 +38,13 @@
           <span class="hero__sep" aria-hidden="true">&middot;</span>
           <time datetime="2026-08-17">AUGUST 2026</time>
         </span>
-        <h1 class="bc-post__title">Run a Tower - and get paid to carry what you cannot read</h1>
+        <h1 class="bc-post__title">Run a Tower - and get paid for the carrying</h1>
         <p class="bc-post__dek">
           Until now there were two jobs on this network: ask, or answer. There is a third one now.
-          A Tower is the mast in the middle - it runs no model, holds no key to the content, and
-          earns a cut of everything that crosses it.
+          A Tower is the mast in the middle - it runs no model, is never handed a key to the
+          traffic, and earns a cut of everything that crosses it. Or point the same binary
+          inward and run a private relay network for your own local models, with nothing
+          leaving the building.
         </p>
       </header>
 
@@ -70,9 +72,13 @@
       <blockquote class="mono" style="margin:2rem 0;padding:1rem 1.25rem;border-left:3px solid #E0231C;background:rgba(224,35,28,.05);border-radius:0 6px 6px 0;line-height:1.6;" data-reveal>
         <b>Quick answer.</b> A <b>Tower</b> is a relay you run on your own Linux box. Consumers submit
         <b>sealed</b> work to its hub; providers' nodes poll that hub, serve the work, and seal the
-        answer back. The Tower carries both directions and can read neither. Every settled request
+        answer back. The Tower is on that path twice and is handed a key to it neither time.
+        Every settled request
         splits <b>70% to the serving node, 10% to you, 20% to the platform</b> - your 10% lands on
-        the same Stripe payout rail as any other earning. Install it with
+        the same Stripe payout rail as any other earning. Or initialize the same binary
+        <b>standalone</b> and it becomes a private relay network for your own local models -
+        its own trust root, loopback by default, no RogerAI lookup, no telemetry, and no
+        earning either. Install it with
         <code>curl -fsSL https://rogerai.fm/install.sh | ROGERAI_COMPONENT=tower sh</code>.
       </blockquote>
 
@@ -113,7 +119,7 @@
 
         <section class="bc-sec" data-reveal>
           <span class="bc-sec__no">&sect;2 &middot; What it can see</span>
-          <h2>Can a Tower read the traffic it carries?</h2>
+          <h2>What does a Tower see?</h2>
           <p>
             No, and that is a property of the design rather than a promise about our conduct. The
             consumer authorizes the spend at Core, then seals the request to the <i>node's</i>
@@ -124,10 +130,12 @@
           </p>
           <p>
             So a Tower operator sees traffic shape: which station, how many bytes, when. Not the
-            prompt, not the answer. It <b>holds no key to the content</b>, and it is paid for
-            carrying what it cannot read. That is also why running one carries less risk than
-            running a station: you are not choosing to host someone's words on your disk, because
-            you never had them in the clear.
+            prompt, not the answer. It is <b>never handed a key to the content</b>. That
+            distinction is the whole guarantee: this is not a rule an operator is asked to keep,
+            it is a key they were never given, and only the second kind survives contact with
+            somebody who would rather not keep it. It is also why running a Tower carries less
+            exposure than running a station - you are not choosing to keep someone's words off
+            your disk, because they were never on it in a form you could keep.
           </p>
 
           <figure class="bc-figure bc-figure--chart" data-reveal>
@@ -176,9 +184,9 @@
                    otherwise strike through the tail of this label. -->
               <text x="296" y="236" class="t-b">the answer returns the same way - still sealed</text>
 
-              <text x="24" y="286" class="t-b" style="opacity:.6">The dashed run is ciphertext end to end. Your Tower is on it twice and can open it neither time.</text>
+              <text x="24" y="286" class="t-b" style="opacity:.6">The dashed run is ciphertext end to end. Your Tower is on it twice and holds a key to it neither time.</text>
             </svg>
-            <figcaption class="fig mono">FIG. 2 - Sealed at the consumer, opened only at the node. The relay is on the path, never in the plaintext.</figcaption>
+            <figcaption class="fig mono">FIG. 2 - Sealed at the consumer, opened only at the node. The relay is on the path, never holding the key.</figcaption>
           </figure>
         </section>
 
@@ -242,7 +250,45 @@
         </section>
 
         <section class="bc-sec" data-reveal>
-          <span class="bc-sec__no">&sect;4 &middot; Bringing one up</span>
+          <span class="bc-sec__no">&sect;4 &middot; The other reason</span>
+          <h2>Can I run one privately, for my own models?</h2>
+          <p>
+            Yes, and it is the mode that shipped first. A Tower is initialized as one of two
+            kinds, chosen once and never changed in place:
+          </p>
+          <ul class="bc-dial">
+            <li><b>joined</b> - a child relay of the public network. Core stays the admission,
+              routing, settlement and revocation authority, consumers are routed to you, and
+              this is the mode that earns the 10%.</li>
+            <li><b>standalone</b> - your own local network with <b>its own trust root</b>. It
+              performs no RogerAI discovery, settlement or advertisement, and that is structural
+              rather than a setting you could flip: a standalone Tower's config will not even
+              accept a public authority URL, an enrollment token, or a payout setting.</li>
+          </ul>
+          <p>
+            A standalone Tower is the answer to "I have four machines with models on them and I
+            want one endpoint in front of all of them, without any of this leaving the building."
+            It binds to loopback by default, performs no RogerAI DNS lookup, sends no telemetry
+            and runs no update check. <code>roger-tower login</code> refuses outright in this
+            mode, and says why: <i>this Tower is standalone and needs no account - nothing it
+            does leaves this machine</i>. Stations on a private network get reachability they do
+            not have on their own, and the whole thing is governed by your trust root rather
+            than ours.
+          </p>
+          <pre><span class="p">$</span> roger-tower init --dir /var/lib/roger-tower --mode standalone</pre>
+          <div class="man-note">
+            <span class="man-note__tag">the trade</span>
+            <b>Standalone earns nothing.</b> Not "not yet" - a private network has no settlement
+            path to RogerAI by construction, and its configuration rejects payout settings
+            outright. Pick <code>standalone</code> because you want a private relay for your own
+            hardware; pick <code>joined</code> because you want to carry public traffic and be
+            paid for it. One data directory is one mode for life: switching means initializing a
+            new one, and nothing is copied across.
+          </div>
+        </section>
+
+        <section class="bc-sec" data-reveal>
+          <span class="bc-sec__no">&sect;5 &middot; Bringing one up</span>
           <h2>What do I need, and what are the commands?</h2>
           <p>
             A Linux box with a stable address and a port you can expose - <b>amd64 or arm64</b>.
@@ -257,7 +303,7 @@
             five commands take you from nothing to on air:
           </p>
           <pre><span class="p">$</span> roger-tower login                     <span class="c"># same account as the website - GitHub, Apple, or email</span>
-<span class="p">$</span> roger-tower init --dir /var/lib/roger-tower   <span class="c"># keys + local state</span>
+<span class="p">$</span> roger-tower init --dir /var/lib/roger-tower --mode joined   <span class="c"># keys + local state (see &sect;4)</span>
 <span class="p">$</span> roger-tower doctor                    <span class="c"># pre-flight: config, reachability, clock</span>
 <span class="p">$</span> roger-tower register                  <span class="c"># enroll this Tower against the network</span>
 <span class="p">$</span> roger-tower serve --hub :8444 --relay-public YOUR.HOST:8444</pre>
@@ -277,7 +323,7 @@
         </section>
 
         <section class="bc-sec" data-reveal>
-          <span class="bc-sec__no">&sect;5 &middot; Why bother</span>
+          <span class="bc-sec__no">&sect;6 &middot; Why bother</span>
           <h2>Why does the network need other people's Towers?</h2>
           <p>
             Because the alternative is that we are the only road. Every local model somebody puts
@@ -300,13 +346,13 @@
         </section>
 
         <section class="bc-sec" data-reveal>
-          <span class="bc-sec__no">&sect;6 &middot; FAQ</span>
+          <span class="bc-sec__no">&sect;7 &middot; FAQ</span>
           <h2>Frequently asked questions</h2>
           <dl class="bc-faq">
             <dt><b>Do I need a GPU to run a Tower?</b></dt>
             <dd>No. A Tower runs no model and answers no prompt - it carries sealed work between consumers and the nodes that do answer. A modest Linux box with a stable address and an exposed port is the whole requirement.</dd>
-            <dt><b>Can a Tower operator read the prompts or answers?</b></dt>
-            <dd>No. The consumer seals the request to the serving node's session key, so the Tower queues ciphertext and the answer comes back sealed the same way. The Tower holds no key to the content; it sees traffic shape - which station, how many bytes, when - and is paid for carrying what it cannot read.</dd>
+            <dt><b>What can a Tower operator see?</b></dt>
+            <dd>Traffic shape, and nothing more: which station, how many bytes, when. The consumer seals the request to the serving node's session key, so the Tower queues ciphertext and the answer comes back sealed the same way. The key to the content is never handed to the Tower in either direction, which is why the guarantee does not rest on the operator's restraint.</dd>
             <dt><b>How much does a Tower earn?</b></dt>
             <dd>10% of every settled request it carries, measured against the serving node's own listed price on Core's recount. The same request pays the node 70% and the platform 20%. Traffic through any one Tower is still early, so treat the figure as demand-driven rather than as a projection.</dd>
             <dt><b>How and when do relay earnings pay out?</b></dt>
@@ -315,6 +361,8 @@
             <dd>Linux on amd64 or arm64, by design. A Tower is a long-running server process; macOS and Windows machines run the Station (serve a model) or the client instead.</dd>
             <dt><b>Do I have to recruit nodes to attach to my Tower?</b></dt>
             <dd>No. You attach nobody by hand. Providers opt in by running <code>roger share --tower</code>, their node self-attaches with one signed call carrying its keys, model and price, and Core routes consumers to your hub. <code>roger-tower station revoke</code> removes one if you need to.</dd>
+            <dt><b>Can I run a Tower privately, just for my own machines?</b></dt>
+            <dd>Yes - initialize it with <code>--mode standalone</code> and it is a private relay network with its own trust root. It binds to loopback by default, performs no RogerAI discovery, advertisement or settlement, sends no telemetry and runs no update check, and its configuration refuses public-network and payout settings outright. The trade is that a standalone Tower earns nothing, by construction rather than by policy. A data directory is one mode for life; switching means initializing a new one.</dd>
             <dt><b>Is there a stake, a token, or hardware to buy?</b></dt>
             <dd>No. There is nothing to buy and nothing to lock up. You install a binary, sign in with the account you already have, and enroll.</dd>
             <dt><b>How do I know my Tower is actually carrying work?</b></dt>
@@ -337,7 +385,7 @@
 
   <!-- include: footer.html anchors=/ -->
 
-  <script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"Do I need a GPU to run a Tower?","acceptedAnswer":{"@type":"Answer","text":"No. A Tower runs no model and answers no prompt - it carries sealed work between consumers and the nodes that do answer. A modest Linux box with a stable address and an exposed port is the whole requirement."}},{"@type":"Question","name":"Can a Tower operator read the prompts or answers?","acceptedAnswer":{"@type":"Answer","text":"No. The consumer seals the request to the serving node's session key, so the Tower queues ciphertext and the answer comes back sealed the same way. The Tower holds no key to the content; it sees traffic shape - which station, how many bytes, when - and is paid for carrying what it cannot read."}},{"@type":"Question","name":"How much does a Tower earn?","acceptedAnswer":{"@type":"Answer","text":"10% of every settled request it carries, measured against the serving node's own listed price on Core's recount. The same request pays the node 70% and the platform 20%. Traffic through any one Tower is still early, so treat the figure as demand-driven rather than as a projection."}},{"@type":"Question","name":"How and when do relay earnings pay out?","acceptedAnswer":{"@type":"Answer","text":"On the same rail as serving earnings: a 120-day hold, a $25 minimum, Stripe Connect onboarding, and the same cash-out button on the payouts page. Relay earnings are listed separately as relaying rather than serving, but the money is identical."}},{"@type":"Question","name":"Which platforms can run a Tower?","acceptedAnswer":{"@type":"Answer","text":"Linux on amd64 or arm64, by design. A Tower is a long-running server process; macOS and Windows machines run the Station (serve a model) or the client instead."}},{"@type":"Question","name":"Do I have to recruit nodes to attach to my Tower?","acceptedAnswer":{"@type":"Answer","text":"No. You attach nobody by hand. Providers opt in by running roger share --tower, their node self-attaches with one signed call carrying its keys, model and price, and Core routes consumers to your hub. roger-tower station revoke removes one if you need to."}},{"@type":"Question","name":"Is there a stake, a token, or hardware to buy?","acceptedAnswer":{"@type":"Answer","text":"No. There is nothing to buy and nothing to lock up. You install a binary, sign in with the account you already have, and enroll."}},{"@type":"Question","name":"How do I know my Tower is actually carrying work?","acceptedAnswer":{"@type":"Answer","text":"Run roger-tower probe --model NAME. It drives the entire sealed loop as a real consumer would, end to end through your own hub, so a green probe means the path works rather than that the process is up. roger-tower status shows admission state and attached nodes."}}]}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"Do I need a GPU to run a Tower?","acceptedAnswer":{"@type":"Answer","text":"No. A Tower runs no model and answers no prompt - it carries sealed work between consumers and the nodes that do answer. A modest Linux box with a stable address and an exposed port is the whole requirement."}},{"@type":"Question","name":"What can a Tower operator see?","acceptedAnswer":{"@type":"Answer","text":"Traffic shape, and nothing more: which station, how many bytes, when. The consumer seals the request to the serving node's session key, so the Tower queues ciphertext and the answer comes back sealed the same way. The key to the content is never handed to the Tower in either direction, which is why the guarantee does not rest on the operator's restraint."}},{"@type":"Question","name":"How much does a Tower earn?","acceptedAnswer":{"@type":"Answer","text":"10% of every settled request it carries, measured against the serving node's own listed price on Core's recount. The same request pays the node 70% and the platform 20%. Traffic through any one Tower is still early, so treat the figure as demand-driven rather than as a projection."}},{"@type":"Question","name":"How and when do relay earnings pay out?","acceptedAnswer":{"@type":"Answer","text":"On the same rail as serving earnings: a 120-day hold, a $25 minimum, Stripe Connect onboarding, and the same cash-out button on the payouts page. Relay earnings are listed separately as relaying rather than serving, but the money is identical."}},{"@type":"Question","name":"Which platforms can run a Tower?","acceptedAnswer":{"@type":"Answer","text":"Linux on amd64 or arm64, by design. A Tower is a long-running server process; macOS and Windows machines run the Station (serve a model) or the client instead."}},{"@type":"Question","name":"Do I have to recruit nodes to attach to my Tower?","acceptedAnswer":{"@type":"Answer","text":"No. You attach nobody by hand. Providers opt in by running roger share --tower, their node self-attaches with one signed call carrying its keys, model and price, and Core routes consumers to your hub. roger-tower station revoke removes one if you need to."}},{"@type":"Question","name":"Can I run a Tower privately, just for my own machines?","acceptedAnswer":{"@type":"Answer","text":"Yes - initialize it with --mode standalone and it is a private relay network with its own trust root. It binds to loopback by default, performs no RogerAI discovery, advertisement or settlement, sends no telemetry and runs no update check, and its configuration refuses public-network and payout settings outright. The trade is that a standalone Tower earns nothing, by construction rather than by policy. A data directory is one mode for life; switching means initializing a new one."}},{"@type":"Question","name":"Is there a stake, a token, or hardware to buy?","acceptedAnswer":{"@type":"Answer","text":"No. There is nothing to buy and nothing to lock up. You install a binary, sign in with the account you already have, and enroll."}},{"@type":"Question","name":"How do I know my Tower is actually carrying work?","acceptedAnswer":{"@type":"Answer","text":"Run roger-tower probe --model NAME. It drives the entire sealed loop as a real consumer would, end to end through your own hub, so a green probe means the path works rather than that the process is up. roger-tower status shows admission state and attached nodes."}}]}</script>
 
   <script src="js/site.js" defer></script>
   <script src="js/session.js" defer></script>

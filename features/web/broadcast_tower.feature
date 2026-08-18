@@ -56,9 +56,33 @@ Feature: The field guide that turns the Tower into something a person can run
     And it makes no projection, estimate or per-month figure of relay income
 
   Scenario: The confidentiality claim is scoped to the relay
-    Then the article says the Tower holds no key to the content it carries
+    Then the article says the key to the content is never handed to the Tower
     And it explains that the consumer seals the work to the serving node's key
     And it admits the Tower still sees traffic shape - which station, how many bytes, when
+
+  # The first draft of this page was headlined "get paid to carry what you cannot read".
+  # Two things are wrong with that. It reads as a dare - the natural reply to "you cannot"
+  # is "watch me" - and it locates the guarantee in the operator's restraint, when the
+  # actual guarantee is that the key is never handed over. An operator who wanted to read
+  # the traffic could not, and that is a stronger and more honest sentence than one that
+  # asks them not to.
+  Scenario: The confidentiality claim is never phrased as a dare
+    Then no copy tells the reader what they cannot read
+    And the guarantee is stated as a key never given rather than a rule to keep
+    And this holds in the page metadata and the transmission log entry too
+
+  # THE SECOND REASON TO RUN ONE. features/tower/modes.feature: a Tower is initialized as
+  # exactly one of joined or standalone, once per data directory, forever. Standalone is a
+  # private local network with its own trust root, loopback by default, no RogerAI
+  # discovery or settlement, and it shipped FIRST (phase 1 of the network plan). It is a
+  # real product surface for anyone who wants one endpoint in front of their own machines,
+  # and the page should say so - the honesty rail is that it cannot earn.
+  Scenario: Standalone is offered as a private relay with its trade stated
+    Then the article names both modes and prints the --mode standalone flag
+    And it says a standalone Tower has its own trust root and binds to loopback by default
+    And it says outright that a standalone Tower earns nothing
+    And it attributes that to construction rather than to policy or to a missing feature
+    And it warns that a data directory is one mode for life
 
   Scenario: The install surface matches what the release actually ships
     Then the article prints the ROGERAI_COMPONENT=tower installer line

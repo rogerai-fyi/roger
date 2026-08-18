@@ -68,13 +68,48 @@ test("earning copy stays conditional on demand", () => {
 
 test("the confidentiality claim is scoped to the relay, and admits what leaks", () => {
   const c = copy();
-  assert.match(c, /holds no key to the content|no key to the content/i,
-    "the Tower holds no content key");
+  // The guarantee is stated as a key never handed over, NOT as a limit the operator is
+  // asked to respect - those two readings have very different failure modes.
+  assert.match(c, /never handed a key|no key to the content|never .{0,20}given/i,
+    "the content key is never given to the Tower");
   assert.match(c, /seal(s|ed)? .{0,40}(node's|node) .{0,20}key/i,
-    "the work is sealed to the SERVING NODE's key - that is why the relay cannot read it");
+    "the work is sealed to the SERVING NODE's key - that is the mechanism");
   // The honest limit: shape is visible even when content is not.
   assert.match(c, /traffic shape/i, "it names what a Tower does see");
   assert.match(c, /how many bytes/i, "and is concrete about it");
+});
+
+test("the confidentiality claim is never phrased as a dare", () => {
+  // "get paid to carry what YOU cannot read" reads as a challenge to try, and it puts the
+  // guarantee in the operator's restraint rather than in the key they were never given.
+  // Both are wrong, so the second-person framing is banned outright.
+  const c = copy();
+  const html = page();
+  for (const dare of [/what you cannot read/i, /what you can't read/i,
+                      /you cannot read (it|them|the)/i, /try to read/i,
+                      /dare|challenge you/i]) {
+    assert.doesNotMatch(c, dare, `challenge framing: ${dare}`);
+  }
+  // Including in the metadata and structured data, which is what gets syndicated.
+  assert.doesNotMatch(html, /what you cannot read/i, "not in <head> or JSON-LD either");
+  assert.doesNotMatch(read("broadcasts.html"), /what you cannot read/i,
+    "and not in the transmission log");
+});
+
+test("standalone is offered as a private relay, with the trade stated", () => {
+  const c = copy();
+  assert.match(c, /standalone/i, "the mode is named");
+  assert.match(c, /--mode standalone/, "and the exact flag is printed");
+  assert.match(c, /own trust root/i, "it has its own trust root");
+  assert.match(c, /private relay network/i, "described in the terms a person would search");
+  assert.match(c, /loopback/i, "and its default binding is stated");
+  // The trade is the honesty rail: standalone cannot earn, and not merely "not yet".
+  assert.match(c, /[Ss]tandalone earns nothing/,
+    "the page says outright that a private Tower earns nothing");
+  assert.match(c, /construction|structural/i, "and that this is structural, not a policy");
+  // The immutability catches people out, so it must be on the page.
+  assert.match(c, /one mode for life|never changed in place|initializing a new one/i,
+    "a data directory is one mode for life");
 });
 
 test("the install surface matches what the release ships", () => {
