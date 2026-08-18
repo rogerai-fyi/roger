@@ -4,6 +4,7 @@ package fleet
 // the durable one is held against.
 
 import (
+	"sort"
 	"sync"
 	"time"
 )
@@ -52,6 +53,16 @@ func (m *memStore) Candidates(model string, now time.Time) ([]Station, error) {
 			}
 		}
 	}
+	// The SAME total order Postgres returns. This map is ranged, so without a sort the
+	// reference implementation answers identical calls differently - which both diverges
+	// from the durable store the parity suites hold it against, and hides ordering bugs
+	// behind Go's map randomisation rather than surfacing them.
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].StationID != out[j].StationID {
+			return out[i].StationID < out[j].StationID
+		}
+		return out[i].OfferID < out[j].OfferID
+	})
 	return out, nil
 }
 

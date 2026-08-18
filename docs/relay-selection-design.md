@@ -160,11 +160,17 @@ there is nothing measured to rank them by.
 a Core-verified `node_id` joining a station to its broker registration; and `--tower` is
 gone, with an ordinary `roger share` offering itself to the relay fabric best-effort.
 
-**M1 — Stop the arbitrary pick.**
-With M0 landed there is health data under a joinable key. Give `Candidates` a deterministic
-order and run edge candidates through the existing scorer instead of taking `rows[0]`. Adds
-`ORDER BY` in PG, a sort in mem, and a call into `router.go`. Removes both the
-non-determinism and the magnet effect. No schema beyond M0, no protocol change.
+**M1 — done.** `Candidates` now returns a total, stable order (`ORDER BY station_id, offer_id`
+in PG; the same sort in mem, so the reference implementation stops diverging from the durable
+one under map randomisation). `fleet.Station` carries the join, and `edgeTargetFor` ranks with
+`edgeCandidateScore` — `quality / (1 + inflight)`, mirroring `router.go`'s shape — instead of
+returning `rows[0]`. Unmeasured scores neutral, not zero, so a newly attached station is not
+frozen out of the traffic it would need to earn a score.
+
+Deliberately not folded in yet: price (an edge consumer already authorizes against the
+station's pinned price, so undercutting is not this function's call) and speed-fit (TTFT is
+measured broker-to-node and says little about a path that avoids the broker). Both belong
+with the locality term in M5.
 
 **M2 — Collect locality.**
 A relay's advertised endpoint gets a coarse location, set by Core at admission (never

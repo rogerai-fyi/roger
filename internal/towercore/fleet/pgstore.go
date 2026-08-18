@@ -30,6 +30,10 @@ ALTER TABLE rogerai.tower_routable ADD COLUMN IF NOT EXISTS endpoint TEXT NOT NU
 -- Per-token pricing (Option C): micro-USD per 1,000,000 tokens, from the signed leaf.
 ALTER TABLE rogerai.tower_routable ADD COLUMN IF NOT EXISTS price_in  BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE rogerai.tower_routable ADD COLUMN IF NOT EXISTS price_out BIGINT NOT NULL DEFAULT 0;
+-- The broker node id of the same machine, so placement can rank a candidate by what the
+-- probes measured instead of taking whichever row came back first. Empty on rows published
+-- before the join existed, which reads as "unmeasured", not as "bad".
+ALTER TABLE rogerai.tower_routable ADD COLUMN IF NOT EXISTS node_id TEXT NOT NULL DEFAULT '';
 `
 
 // PGStore is the durable fleet view.
@@ -65,14 +69,15 @@ func (p *PGStore) Replace(towerID string, rows []Station) error {
 	for _, r := range rows {
 		if _, err := tx.Exec(`
 			INSERT INTO rogerai.tower_routable
-				(tower_id, station_id, offer_id, model, modality, capacity, expires, endpoint, price_in, price_out)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+				(tower_id, station_id, offer_id, model, modality, capacity, expires, endpoint, price_in, price_out, node_id)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
 			ON CONFLICT (tower_id, offer_id) DO UPDATE SET
 				station_id = EXCLUDED.station_id, model = EXCLUDED.model,
 				modality = EXCLUDED.modality, capacity = EXCLUDED.capacity,
 				expires = EXCLUDED.expires, endpoint = EXCLUDED.endpoint,
-				price_in = EXCLUDED.price_in, price_out = EXCLUDED.price_out`,
-			towerID, r.StationID, r.OfferID, r.Model, r.Modality, r.Capacity, r.Expires, r.Endpoint, r.PriceIn, r.PriceOut); err != nil {
+				price_in = EXCLUDED.price_in, price_out = EXCLUDED.price_out,
+				node_id = EXCLUDED.node_id`,
+			towerID, r.StationID, r.OfferID, r.Model, r.Modality, r.Capacity, r.Expires, r.Endpoint, r.PriceIn, r.PriceOut, r.NodeID); err != nil {
 			return err
 		}
 	}
@@ -81,9 +86,15 @@ func (p *PGStore) Replace(towerID string, rows []Station) error {
 
 func (p *PGStore) Candidates(model string, now time.Time) ([]Station, error) {
 	rows, err := p.db.Query(`
-		SELECT tower_id, station_id, offer_id, model, modality, capacity, expires, endpoint, price_in, price_out
+		SELECT tower_id, station_id, offer_id, model, modality, capacity, expires, endpoint, price_in, price_out, node_id
 		  FROM rogerai.tower_routable
-		 WHERE model = $1 AND expires > $2`, model, now)
+		 WHERE model = $1 AND expires > $2
+		 -- A TOTAL, STABLE ORDER. Without it this returned rows in whatever order the heap
+		 -- gave them, which made edge placement not merely unranked but non-reproducible:
+		 -- the same fleet could answer two identical requests differently. Callers rank
+		 -- properly on top of this; the point here is that the INPUT is deterministic, so a
+		 -- placement decision can be explained after the fact.
+		 ORDER BY station_id ASC, offer_id ASC`, model, now)
 	if err != nil {
 		return nil, err
 	}
@@ -93,7 +104,7 @@ func (p *PGStore) Candidates(model string, now time.Time) ([]Station, error) {
 	for rows.Next() {
 		var s Station
 		if err := rows.Scan(&s.TowerID, &s.StationID, &s.OfferID, &s.Model, &s.Modality,
-			&s.Capacity, &s.Expires, &s.Endpoint, &s.PriceIn, &s.PriceOut); err != nil {
+			&s.Capacity, &s.Expires, &s.Endpoint, &s.PriceIn, &s.PriceOut, &s.NodeID); err != nil {
 			return nil, err
 		}
 		s.Expires = s.Expires.UTC()

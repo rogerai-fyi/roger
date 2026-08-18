@@ -384,6 +384,20 @@ func (b *broker) edgeTargetFor(model string) (dispatch.Target, fleet.Station, bo
 		log.Printf("edge authorize: cannot read the routable fleet: %v", err)
 		return dispatch.Target{}, fleet.Station{}, false
 	}
+	// RANK, DO NOT TAKE THE FIRST (M1 of docs/relay-selection-design.md).
+	//
+	// This loop used to return rows[0]. That was not "first-fit" so much as arbitrary: the
+	// projection query had no ORDER BY and the memory store ranged a map, so the same fleet
+	// could answer two identical requests differently, and a strong station and a failing one
+	// were equally likely to win. It stayed that way because there was nothing to rank BY -
+	// probes record against the broker node id and a row is keyed by station id, with no name
+	// in common until the M0 join.
+	//
+	// There is now. Candidates arrive in a stable order, and each carries the node id, so a
+	// row can be scored on what was actually measured.
+	var best fleet.Station
+	var bestTarget dispatch.Target
+	bestScore := -1.0
 	for _, row := range rows {
 		if row.Endpoint == "" {
 			continue
@@ -397,13 +411,58 @@ func (b *broker) edgeTargetFor(model string) (dispatch.Target, fleet.Station, bo
 		if !ts.registry.MayTakeWork(row.TowerID) {
 			continue
 		}
-		if target, ok := b.targetFor(row.TowerID, row.StationID, row.Model, row.Modality); ok {
-			// The whole ROW rides back: the endpoint the consumer submits to, and the
-			// attachment's listed price that authorize pins into the grant.
-			return target, row, true
+		target, ok := b.targetFor(row.TowerID, row.StationID, row.Model, row.Modality)
+		if !ok {
+			continue
+		}
+		// Strictly greater, so an exact tie keeps the earlier row - and because the input
+		// order is now total and stable, "earlier" is a reproducible answer rather than
+		// whatever the heap happened to return.
+		if sc := b.edgeCandidateScore(row); sc > bestScore {
+			bestScore, best, bestTarget = sc, row, target
 		}
 	}
-	return dispatch.Target{}, fleet.Station{}, false
+	if bestScore < 0 {
+		return dispatch.Target{}, fleet.Station{}, false
+	}
+	// The whole ROW rides back: the endpoint the consumer submits to, and the attachment's
+	// listed price that authorize pins into the grant.
+	return bestTarget, best, true
+}
+
+// edgeCandidateScore ranks one routable row. Higher is better; the shape deliberately
+// mirrors router.go's `quality / load`, which is the classic path's answer to the same
+// question and has the property that matters here: no station becomes a magnet.
+//
+// It is NOT the full router. Price is absent because an edge consumer is quoted the
+// station's own pinned price and authorizes against it before dispatch, so undercutting is
+// not this function's decision to make; speed-fit is absent because TTFT is measured
+// broker-to-node and says little about a path that does not go through the broker. Both are
+// the subject of later milestones, along with the locality term this has no data for yet.
+//
+// UNMEASURED IS NOT BAD. A station with no node id, or one whose node the broker has never
+// probed, scores as neutral rather than as zero. Treating absent evidence as a bad result
+// would quietly freeze out every newly attached node - it would have to win traffic to earn
+// a score, and it could not win traffic without one.
+func (b *broker) edgeCandidateScore(row fleet.Station) float64 {
+	const neutral = 0.75 // no evidence: better than a known-bad node, worse than a proven one
+	quality, load := neutral, 0
+	if row.NodeID != "" {
+		// metricsMu, NOT b.mu: trust, inflight and the rest of the per-node metrics live
+		// under their own lock (see observeRecountInput and the /market reads), and taking
+		// the wrong one here would be a data race that happens to compile.
+		b.metricsMu.Lock()
+		tq, probed := b.trust[row.NodeID]
+		load = b.inflight[row.NodeID]
+		b.metricsMu.Unlock()
+		if probed {
+			quality = tq.score()
+		}
+	}
+	// The load divisor, exactly as the classic router uses it: a station already carrying
+	// work is a worse choice than an idle peer of equal quality, so work spreads instead of
+	// piling onto whichever row scores highest.
+	return quality / float64(1+load)
 }
 
 // towerEdgeAck accepts the consumer's signed statement about what it actually received.

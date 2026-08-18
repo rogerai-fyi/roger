@@ -241,6 +241,9 @@ func (b *broker) publishRoutable(towerID string) {
 					Expires:  time.Now().Add(selfOfferTTL),
 					Endpoint: endpoint,
 					PriceIn:  at.PriceIn, PriceOut: at.PriceOut,
+					// The join, carried from the attachment where Core verified it, so a
+					// reader of this projection can rank the row by measured health.
+					NodeID: at.NodeID,
 				})
 			}
 		}

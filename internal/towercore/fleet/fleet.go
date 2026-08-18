@@ -39,6 +39,12 @@ type Station struct {
 	// reachable only on the Core-relayed path - a row without an endpoint is simply never
 	// offered to an edge consumer.
 	Endpoint string
+	// NodeID is the BROKER node id of the same machine, copied from the attachment (M0 of
+	// docs/relay-selection-design.md). It is what makes a candidate rankable: reliability,
+	// probe outcomes and in-flight load are all recorded against the node id, and nothing
+	// else on this row can reach them. Empty means unmeasured, which placement must treat as
+	// "no evidence" rather than as "bad".
+	NodeID string
 	// PriceIn and PriceOut are what the consumer pays, in MICRO-USD PER 1,000,000 TOKENS -
 	// copied verbatim from the Station's signed, band-checked inventory leaf so authorize can
 	// pin them into the grant (Option C per-token billing). 0/0 means the offer is unpriced
