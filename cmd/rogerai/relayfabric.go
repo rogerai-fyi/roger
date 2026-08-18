@@ -12,11 +12,8 @@ package main
 // fabric in addition to the broker's own long-poll.
 
 import (
-	"context"
 	"os"
-	"os/signal"
 	"path/filepath"
-	"syscall"
 
 	"rogerai.fm/roger/v5/internal/agent"
 	"rogerai.fm/roger/v5/internal/client"
@@ -42,12 +39,19 @@ func joinRelayFabric(cfg agent.Config) {
 	if err != nil {
 		return
 	}
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer cancel()
+	// THE SHARED SHUTDOWN, not a signal notifier of our own. This used to call
+	// signal.NotifyContext here, which looks local and is not: the first registration anywhere
+	// in a program disables Go's default SIGINT-kills-the-process disposition for the whole
+	// program. Cancelling only this context would then leave the main goroutine sitting in
+	// select{} with the operator's Ctrl-C already spent - and it would do so ONLY on the happy
+	// path, since a join that fails returns before the notifier matters. `roger share` already
+	// has exactly one place that knows what Ctrl-C means (acquireOnAirLock, which clears the
+	// on-air lock and exits 130); this rides that one instead of racing it.
+	//
 	// io.Discard, not os.Stdout: the ordinary share has already printed its on-air line, and
 	// a second stream of relay chatter underneath it would describe a plane the operator did
 	// not opt into and cannot act on.
-	_ = agent.ServeTower(ctx, cfg, agent.NodeKey(), filepath.Join(confDir, "rogerai"), discardWriter{})
+	_ = agent.ServeTower(shareShutdown, cfg, agent.NodeKey(), filepath.Join(confDir, "rogerai"), discardWriter{})
 }
 
 // discardWriter swallows the relay path's progress output. Declared here rather than reaching
