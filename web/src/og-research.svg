@@ -6,7 +6,7 @@
   <text x="82" y="135" fill="#252432" font-family="DejaVu Sans Mono,monospace" font-size="32" font-weight="700" letter-spacing="6">ROGERAI LABS</text>
   <text x="82" y="286" fill="#252432" font-family="DejaVu Sans,sans-serif" font-size="62" font-weight="700">Models built for</text>
   <text x="82" y="360" fill="#252432" font-family="DejaVu Sans,sans-serif" font-size="62" font-weight="700">local constraints.</text>
-  <text x="86" y="428" fill="#646176" font-family="DejaVu Sans Mono,monospace" font-size="23">THE WAVE SPECTRUM · PICO 250–300M → EXA ~284B</text>
+  <text x="86" y="428" fill="#646176" font-family="DejaVu Sans Mono,monospace" font-size="23">THE WAVE SPECTRUM · PICO 250–300M → EXA >280B</text>
   <g transform="translate(835 205)">
     <path d="M48 49C18 65 18 125 48 141M22 35C-22 63-22 127 22 155M286 49c30 16 30 76 0 92M312 35c44 28 44 92 0 120" fill="none" stroke="#777389" stroke-width="8" stroke-linecap="square"/>
     <path d="M82 16h168v22H70V28h12z" fill="#252432"/>

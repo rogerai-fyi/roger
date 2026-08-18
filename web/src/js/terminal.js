@@ -75,11 +75,11 @@
   var RULE = dim("  ──────────────────────────────────────────────────────────────────");
 
   // BAND is the demo's through-line: the band you read on the dial, tune in to, point
-  // your tools at, and (in `share`) put on the air from your own box. qwen3.6-27b is
+  // your tools at, and (in `share`) put on the air from your own box. qwen3.8-27b is
   // the friendly first example - it fits a single 24GB card - and it is the band the
   // homepage dial + the two-way cards already use. PORT is roger's default local proxy
   // port (cmd/rogerai/main.go freePort(4141), manual Appendix B).
-  var BAND = "qwen3.6-27b";
+  var BAND = "qwen3.8-27b";
   var PORT = "4141";
 
   // Brand lockup + preset bank, matching the real TUI header (`▟█▙ R O G E R · A I`)

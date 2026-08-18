@@ -122,7 +122,7 @@
       does: "regional scale, pruned smaller",
       blurb: "regional scale - a leaner giant, distilled and pruned down from the " +
              "frontier; no recorded run on this bench" },
-    { id: "exa", label: "Wave Exa", size: "~284B", status: "frontier",
+    { id: "exa", label: "Wave Exa", size: ">280B", status: "frontier",
       recipe: "frontier", reach: "the family teacher",
       runs: "an exascale datacenter", art: "hall", span: 76,
       only: "TEACHES the rest. The small models are good because this one trained them - the flagship is why a 270M model on a Pi at the edge is worth trusting.",

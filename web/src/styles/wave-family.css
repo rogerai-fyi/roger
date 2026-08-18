@@ -5,6 +5,11 @@
    CSS_BUNDLES), which is what makes the hero-layout override below safe. */
 /* .wf-back moved to research.css - see the note there. */
 
+/* the band note under the tier matrix - a quiet aside, not a callout */
+.wf-bandnote {
+  margin: var(--s-4) 0 0; max-width: 68ch;
+  color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body);
+}
 .wf-rail { margin: 0; border-block: 2px solid var(--ink-900); background: var(--paper); }
 .wf-rail__head {
   display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-4); justify-content: space-between;

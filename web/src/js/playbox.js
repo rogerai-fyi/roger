@@ -288,7 +288,7 @@
       chip: "PLANNED", why: "A planned band: faults and trends correlated across many plants at once. Nothing to play yet." },
     { spine: true, model: "wave-peta", label: "WAVE PETA", sub: "150–200B · regional",
       chip: "PLANNED", why: "A planned band, expert-pruned down from the flagship for regional scale. Nothing to play yet." },
-    { spine: true, model: "wave-exa", label: "WAVE EXA", sub: "~284B · the teacher",
+    { spine: true, model: "wave-exa", label: "WAVE EXA", sub: ">280B · the teacher",
       chip: "PLANNED", why: "The planned flagship and the family's teacher - a training role, not a station. Nothing to play yet." }
   ];
 

@@ -130,7 +130,11 @@ test("deck: the shelf presents the network and the Wave family as honest groups"
   assert.ok(js.includes('"WAVE GIGA", sub: "27–35B'), "Giga replaced the dead Core spine");
   assert.ok(js.includes('"WAVE TERA", sub: "80–120B'), "Tera present");
   assert.ok(js.includes('"WAVE PETA", sub: "150–200B'), "Peta present");
-  assert.ok(js.includes('"WAVE EXA", sub: "~284B'), "Exa closes the ladder");
+  /* founder 2026-08-18: the tier reads ">280B" rather than "~284B" - the
+     bands are bands so a later family version can sit at a different point
+     inside one. 284B remains the upstream base's own count on the pages
+     about that model. */
+  assert.ok(js.includes('"WAVE EXA", sub: ">280B'), "Exa closes the ladder");
   /* AMENDED 2026-08-17 (layout audit): the guarantee here is that the WHOLE Spectrum
      is on the shelf, in ladder order, Pico first - not that it lives in one array
      expression. Seven equal cards, six of them unplayable, buried the one tape a
