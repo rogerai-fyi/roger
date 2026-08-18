@@ -1,6 +1,6 @@
 #!/bin/sh
 # =====================================================================
-# RogerAI installer - a two-way radio for GPUs.
+# RogerAI installer - a two-way radio for Local Models.
 #   curl -fsSL https://rogerai.fm/install.sh | sh
 #
 # Downloads the right `roger` binary for your OS/arch from GitHub
@@ -42,7 +42,7 @@ ok()   { printf '%s✓%s %s\n' "$C_OK" "$C_RESET" "$*" >&2; }
 die()  { printf '%s✗ %s%s\n' "$C_ERR" "$*" "$C_RESET" >&2; exit 1; }
 
 say ""
-say "  ${C_BOLD}${C_VOLT}RogerAI${C_RESET} ${C_DIM}- a two-way radio for GPUs${C_RESET}"
+say "  ${C_BOLD}${C_VOLT}RogerAI${C_RESET} ${C_DIM}- a two-way radio for Local Models${C_RESET}"
 say ""
 
 # ---- detect downloader ---------------------------------------------

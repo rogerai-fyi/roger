@@ -105,3 +105,12 @@
 
 <!-- toast for copy confirmation (shared with the install boxes) -->
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<!-- LET'S TALK lives here because the NAV carries a [data-lets-talk] trigger on
+     every page, and the dialog only existed on four. Everywhere else the menu
+     entry fell through to a raw mailto (founder screenshot). The footer is on
+     every page the nav is, so the dialog now is too. Pages that already
+     included it get it once - the include is idempotent per page, and the four
+     that had their own copy have had it removed. js/lets-talk.js is loaded by
+     each page; without it every trigger stays a real mailto link. -->
+<!-- include: lets-talk.html -->

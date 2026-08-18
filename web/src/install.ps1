@@ -1,7 +1,7 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-  RogerAI installer for Windows - a two-way radio for GPUs.
+  RogerAI installer for Windows - a two-way radio for Local Models.
 
 .DESCRIPTION
   Downloads the right rogerai.exe for your CPU architecture from the latest
@@ -43,7 +43,7 @@ function Die($m)        { Write-Host "✗ $m"   -ForegroundColor Red; exit 1 }
 
 Write-Host ''
 Write-Host '  RogerAI' -ForegroundColor Blue -NoNewline
-Write-Host ' - a two-way radio for GPUs' -ForegroundColor DarkGray
+Write-Host ' - a two-way radio for Local Models' -ForegroundColor DarkGray
 Write-Host ''
 
 # Modern TLS - older Windows PowerShell defaults can refuse GitHub's endpoints.
