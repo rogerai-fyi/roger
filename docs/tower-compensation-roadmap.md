@@ -42,8 +42,8 @@ GROSS externally funded revenue, met from the platform's own margin (founder, 20
 | # | Milestone | Depends on | Moves money? | Status |
 |---|---|---|---|---|
 | **0** | **Arithmetic foundation** — checked int math, ppm share, reserve split, exposure cap, rate_ppm wire form (`internal/towercore/comp`) | — | no | **built (this slice)** |
-| 1 | Canonical object + hashing kit — JCS canonicalization, `*V1` complete-hash, series-ID derivation, strict integer-string fields | 0 | no | next |
-| 2 | Payment authority — webhook auth (bounded hint), authenticated provider fetch → `AuthoritativePaymentRevisionV1`, fee-finality, push/pull reconciliation | 1 | no | |
+| 1 | Canonical object + hashing kit — JCS canonicalization, `*V1` complete-hash, series-ID derivation, strict integer-string fields | 0 | no | **built** — `internal/towerobj`: one canonical writer (`Canonical`/`CanonicalList`), `Hash` complete-hash, `HashList` for `strict JCS [tag, network, id, revision]` series IDs, `Sign`/`Verify` with a named signature member, and `ParseInt`/`FormatInt` for canonical integer strings. Proven in production by the attempt ledger, which derives its event and commitment IDs through it |
+| 2 | Payment authority — **next** — webhook auth (bounded hint), authenticated provider fetch → `AuthoritativePaymentRevisionV1`, fee-finality, push/pull reconciliation | 1 | no | |
 | 3 | Eligibility — `CompensatedTowerCapabilityV1`, the six fact heads, `GrantCompensationSnapshotV1` at grant issue, `SettlementReceiptV2` candidate (eligible only with external-cash lineage) | 1,2 | no | |
 | 4 | Entitlement aggregate — the CAS state machine (absent → pending_reconciliation → current_zero/positive → conflict_quarantined), signed deltas, the T_N/T_C/T_A cap as an independent backstop | 1,2,3 | no | |
 | 5 | Double-entry journal + control totals — the 16 closed accounts, balanced postings per event template, per-currency `CompensationControlTotalLeafV1`, full source replay | 4 | no (accounting only) | |
