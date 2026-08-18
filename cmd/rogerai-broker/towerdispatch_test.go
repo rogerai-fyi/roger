@@ -215,7 +215,7 @@ func TestABrokerAuthorizesOntoATowerLinkedElsewhere(t *testing.T) {
 	// projection with A's advertised endpoint.
 	tw := liveEdgeTower(t, a, aSrv, "xb-tower-op", "203.0.113.5:8444")
 	node := signedInOperator(t, a, "xb-node-op")
-	body, _ := selfAttachBody(t)
+	body, _ := selfAttachBodyFor(t, a, node)
 	body["model"], body["modality"], body["price_out_micros"] = "xb-model", "chat", 250_000
 	var attached map[string]any
 	code, raw := node.call(t, aSrv, http.MethodPost, "/tower/edge/attach", body, &attached)

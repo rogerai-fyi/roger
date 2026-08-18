@@ -103,6 +103,16 @@ ALTER TABLE rogerai.station_attachments ADD COLUMN IF NOT EXISTS model TEXT NOT 
 ALTER TABLE rogerai.station_attachments ADD COLUMN IF NOT EXISTS modality TEXT NOT NULL DEFAULT '';
 ALTER TABLE rogerai.station_attachments ADD COLUMN IF NOT EXISTS price_in  BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE rogerai.station_attachments ADD COLUMN IF NOT EXISTS price_out BIGINT NOT NULL DEFAULT 0;
+-- node_id joins a Station to the BROKER registration for the same machine, so edge
+-- placement can read the reliability, TTFT and TPS that probes record against the node id.
+-- Additive and defaulted: every row written before this migration has no roger-share half
+-- to point at, and an empty join key reads as "unmeasured" rather than as a broken row.
+ALTER TABLE rogerai.station_authorizations ADD COLUMN IF NOT EXISTS node_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE rogerai.station_attachments    ADD COLUMN IF NOT EXISTS node_id TEXT NOT NULL DEFAULT '';
+-- The lookup edge placement will make is "which attachments belong to this node id", and
+-- the one a re-attach makes is "does this node already have a station".
+CREATE INDEX IF NOT EXISTS station_attachments_node_id_idx
+  ON rogerai.station_attachments (node_id) WHERE node_id <> '';
 `
 
 // PGStore is the durable Store.
@@ -139,19 +149,20 @@ func (p *PGStore) PutAuthorization(a Authorization) error {
 	_, err := p.db.Exec(`
 		INSERT INTO rogerai.station_authorizations
 		  (id,network,station_id,owner,origin_kind,origin_tower,assertion_key,session_key,
-		   ceiling_hash,secret_hash,role,hub_token,model,modality,price_in,price_out,
+		   ceiling_hash,secret_hash,role,hub_token,node_id,model,modality,price_in,price_out,
 		   issued_at,expires_at,consumed,consumed_by)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
 		ON CONFLICT (id) DO UPDATE SET
 		  network=EXCLUDED.network, station_id=EXCLUDED.station_id, owner=EXCLUDED.owner,
 		  origin_kind=EXCLUDED.origin_kind, origin_tower=EXCLUDED.origin_tower,
 		  assertion_key=EXCLUDED.assertion_key, session_key=EXCLUDED.session_key,
 		  ceiling_hash=EXCLUDED.ceiling_hash, secret_hash=EXCLUDED.secret_hash,
-		  role=EXCLUDED.role, hub_token=EXCLUDED.hub_token, model=EXCLUDED.model,
+		  role=EXCLUDED.role, hub_token=EXCLUDED.hub_token, node_id=EXCLUDED.node_id,
+		  model=EXCLUDED.model,
 		  modality=EXCLUDED.modality, price_in=EXCLUDED.price_in, price_out=EXCLUDED.price_out,
 		  issued_at=EXCLUDED.issued_at, expires_at=EXCLUDED.expires_at`,
 		a.ID, a.Network, a.StationID, a.Owner, a.Origin.Kind, a.Origin.TowerID,
-		a.AssertionKey, a.SessionKey, a.CeilingHash, a.SecretHash, a.Role, a.HubToken,
+		a.AssertionKey, a.SessionKey, a.CeilingHash, a.SecretHash, a.Role, a.HubToken, a.NodeID,
 		a.Model, a.Modality, a.PriceIn, a.PriceOut,
 		a.IssuedAt.UTC(), a.ExpiresAt.UTC(), a.Consumed, a.ConsumedBy)
 	if err != nil {
@@ -190,11 +201,11 @@ func (p *PGStore) PutAuthorizationCapped(a Authorization, max int) (bool, error)
 	if _, err := tx.Exec(`
 		INSERT INTO rogerai.station_authorizations
 		  (id,network,station_id,owner,origin_kind,origin_tower,assertion_key,session_key,
-		   ceiling_hash,secret_hash,role,hub_token,model,modality,price_in,price_out,
+		   ceiling_hash,secret_hash,role,hub_token,node_id,model,modality,price_in,price_out,
 		   issued_at,expires_at,consumed,consumed_by)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,false,'')`,
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,false,'')`,
 		a.ID, a.Network, a.StationID, a.Owner, a.Origin.Kind, a.Origin.TowerID,
-		a.AssertionKey, a.SessionKey, a.CeilingHash, a.SecretHash, a.Role, a.HubToken,
+		a.AssertionKey, a.SessionKey, a.CeilingHash, a.SecretHash, a.Role, a.HubToken, a.NodeID,
 		a.Model, a.Modality, a.PriceIn, a.PriceOut,
 		a.IssuedAt.UTC(), a.ExpiresAt.UTC()); err != nil {
 		if isConstraintViolation(err) {
@@ -213,12 +224,12 @@ func (p *PGStore) Authorization(id string) (Authorization, bool, error) {
 	var a Authorization
 	err := p.db.QueryRow(`
 		SELECT id,network,station_id,owner,origin_kind,origin_tower,assertion_key,session_key,
-		       ceiling_hash,secret_hash,role,hub_token,model,modality,price_in,price_out,
+		       ceiling_hash,secret_hash,role,hub_token,node_id,model,modality,price_in,price_out,
 		       issued_at,expires_at,consumed,consumed_by
 		  FROM rogerai.station_authorizations WHERE id=$1`, id).
 		Scan(&a.ID, &a.Network, &a.StationID, &a.Owner, &a.Origin.Kind, &a.Origin.TowerID,
 			&a.AssertionKey, &a.SessionKey, &a.CeilingHash, &a.SecretHash, &a.Role, &a.HubToken,
-			&a.Model, &a.Modality, &a.PriceIn, &a.PriceOut,
+			&a.NodeID, &a.Model, &a.Modality, &a.PriceIn, &a.PriceOut,
 			&a.IssuedAt, &a.ExpiresAt, &a.Consumed, &a.ConsumedBy)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Authorization{}, false, nil
@@ -267,11 +278,11 @@ func (p *PGStore) Admit(authID string, at Attachment) (bool, error) {
 	if _, err := tx.Exec(`
 		INSERT INTO rogerai.station_attachments
 		  (station_id,owner,assertion_key,session_key,origin_kind,origin_tower,epoch,
-		   ceiling_hash,state,attached_at,auth_id,hub_token,model,modality,price_in,price_out)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
+		   ceiling_hash,state,attached_at,auth_id,hub_token,node_id,model,modality,price_in,price_out)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
 		at.StationID, at.Owner, at.AssertionKey, at.SessionKey, at.Origin.Kind,
 		at.Origin.TowerID, at.Epoch, at.CeilingHash, at.State, at.AttachedAt.UTC(),
-		at.AuthID, at.HubToken, at.Model, at.Modality, at.PriceIn, at.PriceOut); err != nil {
+		at.AuthID, at.HubToken, at.NodeID, at.Model, at.Modality, at.PriceIn, at.PriceOut); err != nil {
 		// A constraint violation here is a PERMANENT answer, not a blip: the station_id
 		// primary key means that Station is already attached, and a partial unique index
 		// means another live Station holds one of these keys. Reporting either as an outage
@@ -290,7 +301,7 @@ func (p *PGStore) Admit(authID string, at Attachment) (bool, error) {
 }
 
 const attachCols = `station_id,owner,assertion_key,session_key,origin_kind,origin_tower,
-                    epoch,ceiling_hash,state,attached_at,auth_id,audit_proven_at,hub_token,model,modality,
+                    epoch,ceiling_hash,state,attached_at,auth_id,audit_proven_at,hub_token,node_id,model,modality,
                     price_in,price_out`
 
 func scanAttachment(row interface{ Scan(...any) error }) (Attachment, error) {
@@ -300,7 +311,7 @@ func scanAttachment(row interface{ Scan(...any) error }) (Attachment, error) {
 	var proven sql.NullTime
 	err := row.Scan(&at.StationID, &at.Owner, &at.AssertionKey, &at.SessionKey,
 		&at.Origin.Kind, &at.Origin.TowerID, &at.Epoch, &at.CeilingHash, &at.State,
-		&at.AttachedAt, &at.AuthID, &proven, &at.HubToken, &at.Model, &at.Modality,
+		&at.AttachedAt, &at.AuthID, &proven, &at.HubToken, &at.NodeID, &at.Model, &at.Modality,
 		&at.PriceIn, &at.PriceOut)
 	if proven.Valid {
 		at.AuditProvenAt = proven.Time.UTC()

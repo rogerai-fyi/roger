@@ -61,3 +61,26 @@ func (b *broker) accountKeyOfPubkey(pubkey string) string {
 	}
 	return b.accountKeyOf(o)
 }
+
+// nodeRegisteredTo reports whether nodeID names a live broker registration whose pubkey is
+// exactly pubkey. It is the check behind the station<->node join (M0 of
+// docs/relay-selection-design.md).
+//
+// The join exists so edge placement can score a station on what the probes measured. That
+// makes a node id worth stealing: a fresh station naming a well-probed node would inherit
+// its reliability, and inherit the traffic that reputation attracts. So the claim is only
+// accepted from the machine it is about - the same key that registered the node must be the
+// key signing the attach.
+//
+// Registration itself is TOFU-bound (a node id belongs to the first pubkey that claims it,
+// and later registrations must use the same key), so equality here is a real identity check
+// rather than a name comparison.
+func (b *broker) nodeRegisteredTo(nodeID, pubkey string) bool {
+	if nodeID == "" || pubkey == "" {
+		return false
+	}
+	b.mu.Lock()
+	reg, ok := b.nodes[nodeID]
+	b.mu.Unlock()
+	return ok && reg.PubKey == pubkey
+}

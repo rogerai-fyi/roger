@@ -22,7 +22,7 @@ func TestAdaptiveAuditProbability(t *testing.T) {
 
 	// A freshly attached station is unproven: elevated.
 	node := signedInOperator(t, b, "adapt-node")
-	body, _ := selfAttachBody(t)
+	body, _ := selfAttachBodyFor(t, b, node)
 	var out struct {
 		StationID string `json:"station_id"`
 	}

@@ -19,7 +19,7 @@ func TestLeniencyEndsTheFirstTimeAStationAnswersAnAudit(t *testing.T) {
 	liveEdgeTower(t, b, srv, "len-op", "203.0.113.4:8444") // already active
 
 	node := signedInOperator(t, b, "len-node")
-	body, _ := selfAttachBody(t)
+	body, _ := selfAttachBodyFor(t, b, node)
 	var attached struct {
 		StationID string `json:"station_id"`
 	}
@@ -57,7 +57,7 @@ func TestAProvenStationsMissIsAHardFinding(t *testing.T) {
 	b, srv := towerTestBroker(t)
 	tw := liveEdgeTower(t, b, srv, "len-op2", "203.0.113.6:8444") // already active
 	node := signedInOperator(t, b, "len-node2")
-	body, _ := selfAttachBody(t)
+	body, _ := selfAttachBodyFor(t, b, node)
 	var attached struct {
 		StationID string `json:"station_id"`
 	}

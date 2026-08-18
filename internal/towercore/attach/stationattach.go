@@ -134,6 +134,20 @@ type Authorization struct {
 	// path), empty on the classic operator-invite flow. Stored plaintext like the broker's
 	// node BridgeToken: the Tower must compare the exact value the node presents.
 	HubToken string
+	// NodeID is the BROKER node id this station is the same machine as - the id under which
+	// `roger share` registered, heartbeats, and is probed. It is the join between the two
+	// halves of one provider.
+	//
+	// Without it the edge fabric is blind. Placement on the edge path has nothing to rank
+	// candidates by, because reliability, TTFT and TPS are all recorded against the broker
+	// node id while an edge row is keyed by station id - two names for one machine, with no
+	// way to get from either to the other. Carrying it here is what lets a scorer ask "how
+	// good is this station" and get an answer measured rather than assumed.
+	//
+	// It is CHECKED, not believed: the attach handler requires a live registration under
+	// this id whose pubkey is the one that signed the attach. Empty only on the classic
+	// operator-invite flow, which has no `roger share` half.
+	NodeID string
 	// Model/Modality/PriceIn/PriceOut are the self-attached node's OFFER: what it serves and
 	// what the consumer pays (micro-USD per 1,000,000 tokens), band-checked by the broker at
 	// attach. Empty/zero on the classic flow, whose offers ride the Tower's signed inventory.
@@ -167,6 +181,9 @@ type Attachment struct {
 	// Authorization.HubToken). The Tower reads it to RegisterNode; empty means this
 	// attachment predates (or never used) the self-attach path.
 	HubToken string
+	// NodeID is the broker node id this station is the same machine as - see
+	// Authorization.NodeID for why the join exists. Empty on the classic flow.
+	NodeID string
 	// The self-attached node's offer (see Authorization). Model empty = classic flow.
 	Model    string
 	Modality string
@@ -388,10 +405,14 @@ func (r *Registry) Admit(p Proof) (Attachment, error) {
 		AttachedAt:   now,
 		AuthID:       auth.ID,
 		HubToken:     auth.HubToken,
-		Model:        auth.Model,
-		Modality:     auth.Modality,
-		PriceIn:      auth.PriceIn,
-		PriceOut:     auth.PriceOut,
+		// The join travels with the authorization, not the attach parameters: it is a fact
+		// Core established when it issued the invitation, not something the attaching party
+		// restates and could restate differently.
+		NodeID:   auth.NodeID,
+		Model:    auth.Model,
+		Modality: auth.Modality,
+		PriceIn:  auth.PriceIn,
+		PriceOut: auth.PriceOut,
 	}
 
 	won, err := r.store.Admit(auth.ID, at)

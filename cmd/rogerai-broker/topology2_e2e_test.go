@@ -99,11 +99,14 @@ func TestFullProductLoopANodeEarnsThroughATower(t *testing.T) {
 	// serves through the tower - the whole agent path, self-attach included.
 	nodeOp := signedInOperator(t, b, "node-op")
 	nodeAcct := ownerPubkeyOf(t, b, "node-op")
+	// The `roger share` half, which M0 now requires to exist before a station may attach:
+	// the node registers with the broker first, and the attach names that registration.
+	shareNodeID := registerShareNode(t, b, nodeOp)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go func() {
 		_ = agent.ServeTower(ctx, agent.Config{
-			Broker: srv.URL, Model: "my-model", Modality: "chat",
+			NodeID: shareNodeID, Broker: srv.URL, Model: "my-model", Modality: "chat",
 			PriceIn: 0, PriceOut: 0.30, Upstream: upstream.URL, Parallel: 1,
 		}, nodeOp.priv, t.TempDir(), io.Discard)
 	}()
@@ -199,7 +202,7 @@ func TestTopology2NodeDownTheConsumerIsMadeWhole(t *testing.T) {
 	// The node self-attaches at its price (the attach IS the offer) - but never polls.
 	nodeOp := signedInOperator(t, b, "node-op-down")
 	nodeAcct := ownerPubkeyOf(t, b, "node-op-down")
-	body, _ := selfAttachBody(t)
+	body, _ := selfAttachBodyFor(t, b, nodeOp)
 	body["model"], body["modality"], body["price_out_micros"] = "down-model", "chat", 300_000
 	var attached map[string]any
 	code, raw := nodeOp.call(t, srv, http.MethodPost, "/tower/edge/attach", body, &attached)

@@ -98,6 +98,13 @@ func AttachTower(cfg Config, priv ed25519.PrivateKey, dir string) (*station.Stat
 		modality = "chat"
 	}
 	body, err := json.Marshal(map[string]any{
+		// THE JOIN. This is the same node id `roger share` registers, heartbeats and is
+		// probed under. Sending it is what lets Core rank this station by measured health
+		// instead of guessing: reliability, TTFT and TPS are all recorded against the broker
+		// node id, and a station row is keyed by station id, so without this the two halves
+		// of one machine have no name in common. Core does not take our word for it - it
+		// requires a live registration under this id signed by the same key signing here.
+		"node_id":          cfg.NodeID,
 		"station_id":       st.StationID,
 		"assertion_key":    hex.EncodeToString(st.AssertionPub()),
 		"session_key":      hex.EncodeToString(st.SessionPub()),

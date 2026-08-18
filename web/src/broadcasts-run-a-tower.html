@@ -99,9 +99,10 @@
           <p>
             A Tower extends the broker's data plane. It hosts the <b>hub</b>: the place consumers
             submit sealed work to, and the place providers' nodes poll to pick that work up. A
-            provider opts in by running <code>roger share --tower</code>; their node self-attaches
-            with one signed call carrying its keys, its model, and <b>its own</b> per-token price,
-            and Core starts routing consumers to your hub.
+            provider does not have to do anything special to reach you, and increasingly will not
+            get to choose: a node registers with the broker the ordinary way, is probed and scored
+            the ordinary way, and the relay it serves through is Core's decision. Attaching
+            carries the node's keys, its model, and <b>its own</b> per-token price.
           </p>
           <p>
             What a Tower is <i>not</i> is as important. It runs <b>no model</b> - there is no GPU
@@ -246,15 +247,17 @@
               have to happen before a single request crosses your relay, and neither is something
               you control:</p>
             <ol class="bc-dial">
-              <li><b>A provider has to opt in.</b> A plain <code>roger share</code> node never
-                touches a Tower at all - it long-polls the broker directly. Only a node started
-                with <code>roger share --tower</code> serves through the Tower fabric, so your
-                traffic depends on provider adoption of that flag, not just on consumer demand.</li>
-              <li><b>Core has to send them to you.</b> An attaching node does not choose its
-                Tower - Core assigns one, and today that assignment is <b>first-fit</b> among
-                live, admitted Towers that advertise a data-plane endpoint. Balancing across
-                Towers is named in the source as a later refinement. In practice that means an
-                established Tower can absorb attachments while a newer one waits.</li>
+              <li><b>Providers have to be on the relay fabric.</b> Reaching it is still opt-in
+                on the provider's side today, so your traffic depends on how many providers have
+                opted in, not only on consumer demand. That opt-in is being removed: the intent
+                is that sharing a model puts a node on the fabric by default, with placement
+                decided centrally rather than by a flag the provider types.</li>
+              <li><b>Core has to send them to you.</b> A node does not choose its Tower - Core
+                assigns one, and today that assignment is <b>first-fit</b> among live, admitted
+                Towers advertising a data-plane endpoint, with no weighting by load, health or
+                distance. In practice an established Tower can absorb attachments while a newer
+                one waits. Locality- and load-aware placement is designed and being built; until
+                it lands, which Tower gets a given node is close to arbitrary.</li>
             </ol>
             <p>So: expect your relay figure to start at zero and to move with those two things
               rather than with the day you installed. Run a Tower because you want this middle to
@@ -325,9 +328,8 @@
             Enrolling is a signed act tied to your account, because putting a relay on the network
             under your name is an account decision - that is what the <code>login</code> step is
             for, and it is also what makes the 10% yours. You attach nobody by hand - and cannot:
-            providers opt in with <code>roger share --tower</code>, and Core decides which Tower
-            each one lands on (see the note in &sect;3 for what that means for a new Tower). From
-            there,
+            Core decides which Tower each node lands on (see the note in &sect;3 for what that
+            means for a new Tower). From there,
             <code>roger-tower status</code> shows admission state and attached nodes,
             <code>roger-tower earnings</code> shows what you have carried,
             <code>roger-tower probe --model NAME</code> drives the whole sealed loop as a consumer
@@ -376,7 +378,7 @@
             <dt><b>Which platforms can run a Tower?</b></dt>
             <dd>Linux on amd64 or arm64, by design. A Tower is a long-running server process; macOS and Windows machines run the Station (serve a model) or the client instead.</dd>
             <dt><b>Do I have to recruit nodes to attach to my Tower?</b></dt>
-            <dd>You cannot, and that cuts both ways. A provider opts in by running <code>roger share --tower</code> - a plain <code>roger share</code> node never uses a Tower at all - and then Core, not the provider and not you, decides which Tower that node attaches to. Assignment is currently first-fit among live admitted Towers advertising a data-plane endpoint, so a new Tower may sit idle while an established one takes attachments. <code>roger-tower station revoke</code> removes a node serving under you if you need it gone.</dd>
+            <dd>You cannot, and that cuts both ways. Core, not the provider and not you, decides which Tower a node attaches to. Assignment is currently first-fit among live admitted Towers advertising a data-plane endpoint, with no weighting by load, health or distance, so a new Tower may sit idle while an established one takes attachments; locality-aware placement is designed and being built. <code>roger-tower station revoke</code> removes a node serving under you if you need it gone.</dd>
             <dt><b>Can I run a Tower privately, just for my own machines?</b></dt>
             <dd>Yes - initialize it with <code>--mode standalone</code> and it is a private relay network with its own trust root. It binds to loopback by default, performs no RogerAI discovery, advertisement or settlement, sends no telemetry and runs no update check, and its configuration refuses public-network and payout settings outright. The trade is that a standalone Tower earns nothing, by construction rather than by policy. A data directory is one mode for life; switching means initializing a new one.</dd>
             <dt><b>Is there a stake, a token, or hardware to buy?</b></dt>
@@ -401,7 +403,7 @@
 
   <!-- include: footer.html anchors=/ -->
 
-  <script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"Do I need a GPU to run a Tower?","acceptedAnswer":{"@type":"Answer","text":"No. A Tower runs no model and answers no prompt - it carries sealed work between consumers and the nodes that do answer. A modest Linux box with a stable address and an exposed port is the whole requirement."}},{"@type":"Question","name":"What can a Tower operator see?","acceptedAnswer":{"@type":"Answer","text":"Traffic shape, and nothing more: which station, how many bytes, when. The consumer seals the request to the serving node's session key, so the Tower queues ciphertext and the answer comes back sealed the same way. The key to the content is never handed to the Tower in either direction, which is why the guarantee does not rest on the operator's restraint."}},{"@type":"Question","name":"How much does a Tower earn?","acceptedAnswer":{"@type":"Answer","text":"10% of every settled request it carries, measured against the serving node's own listed price on Core's recount. The same request pays the node 70% and the platform 20%. Traffic through any one Tower is still early, so treat the figure as demand-driven rather than as a projection."}},{"@type":"Question","name":"How and when do relay earnings pay out?","acceptedAnswer":{"@type":"Answer","text":"On the same rail as serving earnings: a 120-day hold, a $25 minimum, Stripe Connect onboarding, and the same cash-out button on the payouts page. Relay earnings are listed separately as relaying rather than serving, but the money is identical."}},{"@type":"Question","name":"Which platforms can run a Tower?","acceptedAnswer":{"@type":"Answer","text":"Linux on amd64 or arm64, by design. A Tower is a long-running server process; macOS and Windows machines run the Station (serve a model) or the client instead."}},{"@type":"Question","name":"Do I have to recruit nodes to attach to my Tower?","acceptedAnswer":{"@type":"Answer","text":"You cannot, and that cuts both ways. A provider opts in by running roger share --tower - a plain roger share node never uses a Tower at all - and then Core, not the provider and not you, decides which Tower that node attaches to. Assignment is currently first-fit among live admitted Towers advertising a data-plane endpoint, so a new Tower may sit idle while an established one takes attachments. roger-tower station revoke removes a node serving under you if you need it gone."}},{"@type":"Question","name":"Can I run a Tower privately, just for my own machines?","acceptedAnswer":{"@type":"Answer","text":"Yes - initialize it with --mode standalone and it is a private relay network with its own trust root. It binds to loopback by default, performs no RogerAI discovery, advertisement or settlement, sends no telemetry and runs no update check, and its configuration refuses public-network and payout settings outright. The trade is that a standalone Tower earns nothing, by construction rather than by policy. A data directory is one mode for life; switching means initializing a new one."}},{"@type":"Question","name":"Is there a stake, a token, or hardware to buy?","acceptedAnswer":{"@type":"Answer","text":"No. There is nothing to buy and nothing to lock up. You install a binary, sign in with the account you already have, and enroll."}},{"@type":"Question","name":"How do I know my Tower is actually carrying work?","acceptedAnswer":{"@type":"Answer","text":"Run roger-tower probe --model NAME. It drives the entire sealed loop as a real consumer would, end to end through your own hub, so a green probe means the path works rather than that the process is up. roger-tower status shows admission state and attached nodes."}}]}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"Do I need a GPU to run a Tower?","acceptedAnswer":{"@type":"Answer","text":"No. A Tower runs no model and answers no prompt - it carries sealed work between consumers and the nodes that do answer. A modest Linux box with a stable address and an exposed port is the whole requirement."}},{"@type":"Question","name":"What can a Tower operator see?","acceptedAnswer":{"@type":"Answer","text":"Traffic shape, and nothing more: which station, how many bytes, when. The consumer seals the request to the serving node's session key, so the Tower queues ciphertext and the answer comes back sealed the same way. The key to the content is never handed to the Tower in either direction, which is why the guarantee does not rest on the operator's restraint."}},{"@type":"Question","name":"How much does a Tower earn?","acceptedAnswer":{"@type":"Answer","text":"10% of every settled request it carries, measured against the serving node's own listed price on Core's recount. The same request pays the node 70% and the platform 20%. Traffic through any one Tower is still early, so treat the figure as demand-driven rather than as a projection."}},{"@type":"Question","name":"How and when do relay earnings pay out?","acceptedAnswer":{"@type":"Answer","text":"On the same rail as serving earnings: a 120-day hold, a $25 minimum, Stripe Connect onboarding, and the same cash-out button on the payouts page. Relay earnings are listed separately as relaying rather than serving, but the money is identical."}},{"@type":"Question","name":"Which platforms can run a Tower?","acceptedAnswer":{"@type":"Answer","text":"Linux on amd64 or arm64, by design. A Tower is a long-running server process; macOS and Windows machines run the Station (serve a model) or the client instead."}},{"@type":"Question","name":"Do I have to recruit nodes to attach to my Tower?","acceptedAnswer":{"@type":"Answer","text":"You cannot, and that cuts both ways. Core, not the provider and not you, decides which Tower a node attaches to. Assignment is currently first-fit among live admitted Towers advertising a data-plane endpoint, with no weighting by load, health or distance, so a new Tower may sit idle while an established one takes attachments; locality-aware placement is designed and being built. roger-tower station revoke removes a node serving under you if you need it gone."}},{"@type":"Question","name":"Can I run a Tower privately, just for my own machines?","acceptedAnswer":{"@type":"Answer","text":"Yes - initialize it with --mode standalone and it is a private relay network with its own trust root. It binds to loopback by default, performs no RogerAI discovery, advertisement or settlement, sends no telemetry and runs no update check, and its configuration refuses public-network and payout settings outright. The trade is that a standalone Tower earns nothing, by construction rather than by policy. A data directory is one mode for life; switching means initializing a new one."}},{"@type":"Question","name":"Is there a stake, a token, or hardware to buy?","acceptedAnswer":{"@type":"Answer","text":"No. There is nothing to buy and nothing to lock up. You install a binary, sign in with the account you already have, and enroll."}},{"@type":"Question","name":"How do I know my Tower is actually carrying work?","acceptedAnswer":{"@type":"Answer","text":"Run roger-tower probe --model NAME. It drives the entire sealed loop as a real consumer would, end to end through your own hub, so a green probe means the path works rather than that the process is up. roger-tower status shows admission state and attached nodes."}}]}</script>
 
   <script src="js/site.js" defer></script>
   <script src="js/session.js" defer></script>

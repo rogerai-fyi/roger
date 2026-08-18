@@ -54,7 +54,7 @@ func TestSelfAttachRegistersAServableStation(t *testing.T) {
 	tw := liveEdgeTower(t, b, srv, "tower-op", "203.0.113.9:8443")
 
 	node := signedInOperator(t, b, "node-op")
-	body, apub := selfAttachBody(t)
+	body, apub := selfAttachBodyFor(t, b, node)
 	var out struct {
 		StationID string `json:"station_id"`
 		TowerID   string `json:"tower_id"`
@@ -86,7 +86,7 @@ func TestSelfAttachRegistersAServableStation(t *testing.T) {
 func TestSelfAttachRefusesWhenNoTowerCanHost(t *testing.T) {
 	b, srv := towerTestBroker(t)
 	node := signedInOperator(t, b, "node-op")
-	body, _ := selfAttachBody(t)
+	body, _ := selfAttachBodyFor(t, b, node)
 	var out map[string]any
 	code, _ := node.call(t, srv, http.MethodPost, "/tower/edge/attach", body, &out)
 	require.Equal(t, http.StatusServiceUnavailable, code)
@@ -97,6 +97,9 @@ func TestSelfAttachRefusesWhenNoTowerCanHost(t *testing.T) {
 func TestSelfAttachRequiresASignedInAccount(t *testing.T) {
 	b, srv := towerTestBroker(t)
 	liveEdgeTower(t, b, srv, "tower-op", "203.0.113.9:8443")
+	// No join here on purpose: this request is turned away for having no signature at all,
+	// which must happen BEFORE anything looks at the node id. An unauthenticated caller
+	// never gets far enough for the M0 check to be what refused it.
 	body, _ := selfAttachBody(t)
 	raw := jsonOf(t, body)
 	resp, err := http.Post(srv.URL+"/tower/edge/attach", "application/json", bytes.NewReader(raw))
@@ -113,13 +116,29 @@ func TestSelfAttachRefusesAnotherOwnersKeys(t *testing.T) {
 	b, srv := towerTestBroker(t)
 	liveEdgeTower(t, b, srv, "tower-op", "203.0.113.9:8443")
 	node := signedInOperator(t, b, "node-op")
-	body, _ := selfAttachBody(t)
+	body, _ := selfAttachBodyFor(t, b, node)
 	var out map[string]any
 	code, _ := node.call(t, srv, http.MethodPost, "/tower/edge/attach", body, &out)
 	require.Equal(t, http.StatusOK, code)
 
 	thief := signedInOperator(t, b, "thief-op")
+
+	// Replaying the victim's body VERBATIM is now refused earlier and for a sharper reason:
+	// the node id in it is not registered to the thief, so the M0 join fails before key
+	// uniqueness is ever consulted. This is the borrowed-reputation attack the join exists
+	// to stop - once placement scores on a node's measured history, claiming somebody's node
+	// id is claiming their traffic.
 	code, _ = thief.call(t, srv, http.MethodPost, "/tower/edge/attach", body, &out)
+	require.Equal(t, http.StatusForbidden, code, "a node id may only be claimed by the key that registered it")
+
+	// With a node of their own, the thief gets past the join - and is then refused by the
+	// key-uniqueness rule this test is really about.
+	stolen := map[string]any{}
+	for k, v := range body {
+		stolen[k] = v
+	}
+	stolen["node_id"] = registerShareNode(t, b, thief)
+	code, _ = thief.call(t, srv, http.MethodPost, "/tower/edge/attach", stolen, &out)
 	require.Equal(t, http.StatusConflict, code, "another account cannot claim live keys")
 }
 
@@ -134,7 +153,7 @@ func TestSelfAttachValidatesItsInput(t *testing.T) {
 		map[string]any{"assertion_key": "zz", "session_key": "zz", "model": "m", "modality": "text"}, &out)
 	require.Equal(t, http.StatusBadRequest, code)
 
-	body, _ := selfAttachBody(t)
+	body, _ := selfAttachBodyFor(t, b, node)
 	body["model"] = ""
 	code, _ = node.call(t, srv, http.MethodPost, "/tower/edge/attach", body, &out)
 	require.Equal(t, http.StatusBadRequest, code)
@@ -147,7 +166,7 @@ func TestTowerFetchesItsHubNodes(t *testing.T) {
 	tw := liveEdgeTower(t, b, srv, "tower-op", "203.0.113.9:8443")
 
 	node := signedInOperator(t, b, "node-op")
-	body, _ := selfAttachBody(t)
+	body, _ := selfAttachBodyFor(t, b, node)
 	var attached struct {
 		StationID string `json:"station_id"`
 		HubToken  string `json:"hub_token"`
@@ -187,7 +206,7 @@ func TestSelfAttachRetryIsIdempotent(t *testing.T) {
 	b, srv := towerTestBroker(t)
 	liveEdgeTower(t, b, srv, "tower-op", "203.0.113.9:8443")
 	node := signedInOperator(t, b, "node-op")
-	body, _ := selfAttachBody(t)
+	body, _ := selfAttachBodyFor(t, b, node)
 
 	var first, second struct {
 		StationID string `json:"station_id"`
@@ -222,7 +241,7 @@ func TestSelfAttachRefusesABannedAccount(t *testing.T) {
 	b.bannedOwners[node.login] = true
 	b.metricsMu.Unlock()
 
-	body, _ := selfAttachBody(t)
+	body, _ := selfAttachBodyFor(t, b, node)
 	var out map[string]any
 	code, _ := node.call(t, srv, http.MethodPost, "/tower/edge/attach", body, &out)
 	require.Equal(t, http.StatusForbidden, code)
@@ -247,7 +266,7 @@ func TestSelfAttachedNodeIsRoutableAtItsListedPrice(t *testing.T) {
 	liveEdgeTower(t, b, srv, "tower-op", "203.0.113.9:8443")
 
 	node := signedInOperator(t, b, "node-op")
-	body, _ := selfAttachBody(t)
+	body, _ := selfAttachBodyFor(t, b, node)
 	body["model"] = "my-model"
 	body["price_in_micros"] = int64(180_000)  // $0.18 / 1M tokens
 	body["price_out_micros"] = int64(300_000) // $0.30 / 1M tokens
@@ -280,7 +299,7 @@ func TestSelfAttachRefusesAnOutOfBandPrice(t *testing.T) {
 	b, srv := towerTestBroker(t)
 	liveEdgeTower(t, b, srv, "tower-op", "203.0.113.9:8443")
 	node := signedInOperator(t, b, "node-op")
-	body, _ := selfAttachBody(t)
+	body, _ := selfAttachBodyFor(t, b, node)
 	body["price_out_micros"] = int64(999_000_000_000) // absurd: far above any band ceiling
 	var out map[string]any
 	code, _ := node.call(t, srv, http.MethodPost, "/tower/edge/attach", body, &out)
@@ -293,7 +312,7 @@ func TestSelfAttachRetryWithADifferentOfferIsRefused(t *testing.T) {
 	b, srv := towerTestBroker(t)
 	liveEdgeTower(t, b, srv, "tower-op", "203.0.113.9:8443")
 	node := signedInOperator(t, b, "node-op")
-	body, _ := selfAttachBody(t)
+	body, _ := selfAttachBodyFor(t, b, node)
 	body["price_out_micros"] = int64(300_000)
 	var out map[string]any
 	code, _ := node.call(t, srv, http.MethodPost, "/tower/edge/attach", body, &out)
@@ -337,7 +356,7 @@ func TestSelfAttachRefusesADisallowedModality(t *testing.T) {
 	b, srv := towerTestBroker(t)
 	liveEdgeTower(t, b, srv, "tower-op", "203.0.113.9:8443")
 	node := signedInOperator(t, b, "node-op")
-	body, _ := selfAttachBody(t)
+	body, _ := selfAttachBodyFor(t, b, node)
 	body["modality"] = "voice"
 	var out map[string]any
 	code, _ := node.call(t, srv, http.MethodPost, "/tower/edge/attach", body, &out)

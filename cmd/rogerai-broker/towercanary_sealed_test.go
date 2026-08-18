@@ -49,11 +49,14 @@ func TestSealedCanaryJudgesAHubNode(t *testing.T) {
 	go func() { _ = http.Serve(hubLn, mux) }()
 
 	nodeOp := signedInOperator(t, b, "canary-node-op")
+	// The `roger share` half, which M0 now requires to exist before a station may attach:
+	// the node registers with the broker first, and the attach names that registration.
+	shareNodeID := registerShareNode(t, b, nodeOp)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go func() {
 		_ = agent.ServeTower(ctx, agent.Config{
-			Broker: srv.URL, Model: "canary-model", Modality: "chat",
+			NodeID: shareNodeID, Broker: srv.URL, Model: "canary-model", Modality: "chat",
 			PriceIn: 0, PriceOut: 0, Upstream: upstream.URL, Parallel: 1,
 		}, nodeOp.priv, t.TempDir(), io.Discard)
 	}()

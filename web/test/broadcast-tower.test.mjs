@@ -62,8 +62,13 @@ test("earning copy stays conditional on demand", () => {
 
   // "Traffic is early" is too vague on its own - an operator needs the two gates that
   // actually decide whether anything reaches them, neither of which they control.
-  assert.match(c, /plain roger share[^]{0,60}never (touches|uses) a Tower/i,
-    "gate 1: a plain share node never uses a Tower, so this depends on provider opt-in");
+  assert.match(c, /opt-in|opted in/i,
+    "gate 1: reaching the relay fabric is still opt-in on the provider's side");
+  // The flag is on its way out (M0 of docs/relay-selection-design.md), and it currently
+  // costs a provider their public listing. The article must never instruct anyone to type
+  // it - not in the copy, not in the metadata, not in the structured data.
+  assert.doesNotMatch(page(), /share\s+--tower/,
+    "the article never tells a provider to run `roger share --tower`");
   assert.match(c, /first[- ]fit/i,
     "gate 2: Core assigns the Tower, and today that assignment is first-fit");
   assert.match(c, /(new(er)? Tower|newer one) .{0,40}(wait|idle)/i,

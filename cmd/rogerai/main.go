@@ -1347,10 +1347,28 @@ needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
 		}
 		tctx, tcancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer tcancel()
-		// No "on air" line HERE: nothing has attached yet, and the tower path serves under
-		// its own station identity, not the share callsign. ServeTower prints the one
-		// truthful line - "attached as <station> via <tower>" - after the attach succeeds.
+		// REGISTER FIRST, ALWAYS (M0 of docs/relay-selection-design.md).
+		//
+		// This used to jump straight to ServeTower, and the cost was invisible: ServeTower
+		// neither registers nor long-polls, so a --tower node vanished from /discover and
+		// /market, was never probed, and accrued no reliability, TTFT or TPS. An operator
+		// asking to serve through a relay was silently delisted from the public band, and
+		// edge placement had nothing to rank it by - which is why edgeTargetFor ranks by
+		// nothing at all.
+		//
+		// Registration is not the alternative to the relay fabric, it is the prerequisite:
+		// the node goes on air the ordinary way, gets measured the ordinary way, and the
+		// relay attachment is an ADDITIONAL plane it also serves on.
+		sess, serr := agentStart(cfgRun)
+		if serr != nil {
+			return serr
+		}
+		defer sess.Stop()
+		waitOnAir(sess, 3*time.Second)
 		fmt.Println(earningsLine())
+		// ServeTower prints its own truthful line - "attached as <station> via <tower>" -
+		// once the attach succeeds. It blocks until ctx is done, with the registered
+		// session's heartbeat and poll loop running beside it.
 		return agent.ServeTower(tctx, cfgRun, agent.NodeKey(), filepath.Join(confDir, "rogerai"), os.Stdout)
 	}
 	if !*private {

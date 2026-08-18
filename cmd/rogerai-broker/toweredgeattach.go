@@ -90,7 +90,12 @@ func (b *broker) towerEdgeAttach(w http.ResponseWriter, r *http.Request) {
 		// (station.Init) attaches under it, so the grants Core signs name the id the node's
 		// executor answers to. Absent -> Core mints one. Shape-checked; uniqueness is the
 		// store's (PK + live-key indexes).
-		StationID    string `json:"station_id"`
+		StationID string `json:"station_id"`
+		// NodeID is the BROKER node id of the `roger share` half of this same machine. It is
+		// the join that lets edge placement rank a station by measured health - probes record
+		// reliability, TTFT and TPS against the node id, and nothing else here can reach them.
+		// Verified below against a live registration, never believed on its own.
+		NodeID       string `json:"node_id"`
 		AssertionKey string `json:"assertion_key"`
 		SessionKey   string `json:"session_key"`
 		Model        string `json:"model"`
@@ -116,6 +121,23 @@ func (b *broker) towerEdgeAttach(w http.ResponseWriter, r *http.Request) {
 	}
 	if strings.TrimSpace(req.Model) == "" || strings.TrimSpace(req.Modality) == "" {
 		jsonErr(w, http.StatusBadRequest, "a node names the model and modality it serves")
+		return
+	}
+	// THE JOIN IS PROVED, NOT CLAIMED. A node id is a routing identity that carries a
+	// reputation, so accepting whichever one the body names would let a fresh station borrow
+	// a well-probed node's history - and, once placement scores on that history, borrow its
+	// traffic. Two conditions: the registration must exist (an unregistered node has no
+	// measurements to join to, which is the whole point of M0), and its pubkey must be the
+	// key that signed THIS request, so the claim can only be made by the machine it is about.
+	nodeID := strings.TrimSpace(req.NodeID)
+	if nodeID == "" {
+		jsonErr(w, http.StatusBadRequest,
+			"node_id is required: attach with the same node this machine registered as (`roger share`)")
+		return
+	}
+	if !b.nodeRegisteredTo(nodeID, r.Header.Get("X-Roger-Pubkey")) {
+		jsonErr(w, http.StatusForbidden,
+			"node_id is not registered to this key - register with `roger share` before attaching")
 		return
 	}
 	// The SAME allowlists the signed-leaf path enforces - a self offer gets no wider a door.
@@ -197,7 +219,10 @@ func (b *broker) towerEdgeAttach(w http.ResponseWriter, r *http.Request) {
 		Origin:       attach.Origin{Kind: attach.OriginJoined, TowerID: towerID},
 		AssertionKey: req.AssertionKey, SessionKey: req.SessionKey,
 		HubToken: hubToken,
-		Model:    strings.TrimSpace(req.Model), Modality: strings.TrimSpace(req.Modality),
+		// The verified join rides on the authorization, so the attachment inherits a node id
+		// Core checked rather than one the attaching party restated.
+		NodeID: nodeID,
+		Model:  strings.TrimSpace(req.Model), Modality: strings.TrimSpace(req.Modality),
 		PriceIn: req.PriceInMicros, PriceOut: req.PriceOutMicros,
 	}, stationInviteTTL, time.Now())
 	if err != nil {
