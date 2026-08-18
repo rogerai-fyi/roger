@@ -53,15 +53,16 @@
          (t % span) form did.
        - each wave's idle drift completes a WHOLE number of cycles per loop,
          so the resting shapes match across the seam too. */
-  var SPAN  = 14.5;            // seconds for one full pass
-  var GAP   = 2.4;             // tier-units of quiet between Exa and Pico
-  var TOTAL = 7 + GAP;         // the ring, in tier-units
+  var SPAN  = 16.5;            // seconds for one full pass
+  var GAP   = 2.4;             // tier-units of quiet before the pass restarts
+  var INF   = 7;               // ring position of the Wave Infinite beat
+  var TOTAL = 8 + GAP;         // the ring: seven sizes, the loop, then quiet
   /* WHERE THE PASS BEGINS (founder: "start how it ends"). The ring starts in
      the middle of the QUIET gap, not on a tier - so the mark eases in the way
      it eases out, every wave faint and no name up, and Wave Pico rises into
      view a beat later. Starting at phase 0 opened on Pico at full charge,
      which read as a hard cut the moment the mark scrolled into view. */
-  var START = (7 + GAP / 2) / TOTAL;   // 0..1, mid-gap
+  var START = (8 + GAP / 2) / TOTAL;   // 0..1, mid-gap
 
   /* Build the spectrum layer. The resting markup underneath is left exactly
      as authored - it is the no-JS mark and what its locks assert - so this
@@ -167,21 +168,34 @@
     var phase = u * TOTAL;
     var lead = null, best = 0;
 
+    /* THE WAVE INFINITE BEAT. Infinite is not an eighth size, so it is not
+       another harmonic - it lights the WHOLE family at once, in the page's
+       strongest neutral (white on the dark theme), which is the growth loop
+       drawn over the family rather than a bigger model added to it. */
+    var dInf = phase - INF;
+    if (dInf >  TOTAL / 2) dInf -= TOTAL;
+    if (dInf < -TOTAL / 2) dInf += TOTAL;
+    var inf = dInf > -1.6 && dInf < 1.6 ? Math.exp(-(dInf * dInf) * 2.1) : 0;
+
     for (var i = 0; i < TIERS.length; i++) {
       var t = TIERS[i];
       /* distance ON THE RING - this is what closes the seam */
       var d = phase - i;
       if (d >  TOTAL / 2) d -= TOTAL;
       if (d < -TOTAL / 2) d += TOTAL;
-      var charge = d > -1.6 && d < 1.6 ? Math.exp(-(d * d) * 2.1) : 0;
+      var own = d > -1.6 && d < 1.6 ? Math.exp(-(d * d) * 2.1) : 0;
+      var charge = Math.max(own, inf);
       t.el.setAttribute("d", pathFor(t, charge, u));
       t.el.style.opacity = (0.2 + 0.8 * charge).toFixed(3);
       t.el.style.strokeWidth = (1.7 + 4.6 * charge).toFixed(2);
-      if (charge > best) { best = charge; lead = t; }
+      t.el.style.stroke = inf > own ? "var(--ink-900)" : "";
+      if (own > best) { best = own; lead = t; }
     }
+    if (inf > best) { best = inf; lead = { id: null, name: "INFINITE" }; }
 
     if (lead) {
-      svg.style.setProperty("--mark-lead", "var(--tier-" + lead.id + ")");
+      svg.style.setProperty("--mark-lead",
+        lead.id ? "var(--tier-" + lead.id + ")" : "var(--ink-900)");
       var showing = best > 0.55;
       var op = showing ? ((best - 0.55) / 0.45) : 0;
       if (showing && tag.textContent !== "WAVE " + lead.name) {
