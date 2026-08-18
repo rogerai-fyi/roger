@@ -847,12 +847,23 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
     var(--live) 47%, var(--live) 53%,
     var(--ink-900) 66%, var(--ink-900) 100%);
   background-size: 250% 100%;
+  /* WITHOUT THIS the gradient TILES: background-repeat defaults to repeat, so a
+     background 2.5x the element paints repeating copies - the sweep reads as
+     several carriers, and the tile seam makes the last one stop dead
+     (founder screenshot). One image, one pass. */
+  background-repeat: no-repeat;
   -webkit-background-clip: text; background-clip: text;
   color: transparent;
   animation: carrier-sweep 3.2s linear infinite;
 }
 /* one direction, continuously: a sweep that ping-pongs reads as a glitch */
-@keyframes carrier-sweep { from { background-position: 125% 0; } to { background-position: -125% 0; } }
+/* 100% -> 0%, not 125% -> -125%. With background-size 250% the element is
+   fully inside the gradient only while position stays in [0%, 100%]; past
+   either end the text ran off its own paint, and since the text colour is
+   transparent that meant the word DISAPPEARED at the extremes. Inside this
+   range the word is always painted and the band crosses it exactly once,
+   left to right. */
+@keyframes carrier-sweep { from { background-position: 100% 0; } to { background-position: 0% 0; } }
 @media (prefers-reduced-motion: reduce) {
   .carrier { animation: none; background: none; -webkit-background-clip: border-box; background-clip: border-box; color: inherit; }
 }

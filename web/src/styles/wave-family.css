@@ -357,12 +357,30 @@
     var(--live) 47%, var(--live) 53%,
     var(--ink-900) 66%, var(--ink-900) 100%);
   background-size: 250% 100%;
+  /* WITHOUT THIS the gradient TILES: background-repeat defaults to repeat, so a
+     background 2.5x the element paints repeating copies - the sweep reads as
+     several carriers, and the tile seam makes the last one stop dead
+     (founder screenshot). One image, one pass. */
+  background-repeat: no-repeat;
   -webkit-background-clip: text; background-clip: text;
   color: transparent;
   animation: wf-inf-sweep 3.2s linear infinite;
 }
 /* One direction, continuously: a sweep that ping-pongs reads as a glitch, not a carrier. */
-@keyframes wf-inf-sweep { from { background-position: 125% 0; } to { background-position: -125% 0; } }
+/* 100% -> 0%, not 125% -> -125%. With background-size 250% the element is
+   fully inside the gradient only while position stays in [0%, 100%]; past
+   either end the text ran off its own paint, and since the text colour is
+   transparent that meant the word DISAPPEARED at the extremes. Inside this
+   range the word is always painted and the band crosses it exactly once,
+   left to right. */
+@keyframes wf-inf-sweep { from { background-position: 100% 0; } to { background-position: 0% 0; } }
+/* SAFETY (2026-08-18, same guard as .carrier in base.css): this paints the word
+   with a gradient and sets the text itself transparent, so a browser without
+   background-clip:text would render the section's heading INVISIBLE. The
+   transparent colour applies only where the clip is actually supported. */
+@supports not ((background-clip: text) or (-webkit-background-clip: text)) {
+  .wf-inf__title .wf-inf__shimmer { background: none; color: var(--live); animation: none; }
+}
 
 .wf-inf { margin: 0 0 var(--s-7); border-block: 2px solid var(--ink-900); background: var(--paper); }
 .wf-inf__claim {

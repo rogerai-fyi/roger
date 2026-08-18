@@ -484,3 +484,22 @@ test("the beacon pulses about itself, on any page that carries the mark", () => 
   assert.match(js, /node\.style\.transformOrigin = CX \+ "px " \+ CY \+ "px"/,
     "the mark pins its own transform-origin to the crossing point");
 });
+
+test("text painted with a gradient can never render invisible", () => {
+  /* 2026-08-18. Two headings use background-clip:text with color:transparent -
+     the homepage's "Tune in" and this page's "grows". In a browser that does
+     not support the clip, that combination renders the text INVISIBLE, and on
+     the homepage that is the site's first sentence. Every stylesheet that
+     clips text to a gradient must carry an @supports fallback restoring a
+     real colour. This scans, so a third one cannot ship without the guard. */
+  const dir = path.join(WEB, "src", "styles");
+  for (const file of readdirSync(dir).filter((f) => f.endsWith(".css"))) {
+    const css = readFileSync(path.join(dir, file), "utf8");
+    if (!/background-clip:\s*text/.test(css)) continue;
+    assert.match(css, /@supports not \(\(background-clip: text\)/,
+      `${file} clips text to a gradient, so it needs the @supports fallback`);
+    const guard = css.slice(css.indexOf("@supports not ((background-clip: text)"));
+    assert.match(guard.slice(0, 400), /color:\s*(inherit|var\(--[\w-]+\))/,
+      `${file}'s fallback must restore a real colour, not leave it transparent`);
+  }
+});
