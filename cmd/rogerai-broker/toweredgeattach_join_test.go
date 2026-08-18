@@ -2,10 +2,8 @@ package main
 
 import (
 	"crypto/ed25519"
-	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -59,24 +57,68 @@ func TestAttachRequiresAProvenNodeJoin(t *testing.T) {
 
 // The handler must reject a body with no node_id BEFORE it stores anything, with a message
 // that tells the operator what to actually do.
+//
+// SIGNED, AND OTHERWISE COMPLETE. The first version of this test posted an UNSIGNED body and
+// asserted only "not 200" - which it got from towerOperator turning away an unauthenticated
+// caller, several gates before anything looked at a node id. It would have passed with the
+// entire M0 check deleted. So this one drives the real call: a signed-in operator, a live
+// edge tower ready to host, a body that is valid in every other respect, and the ONLY thing
+// missing is the join. That makes the 400 attributable, which is the whole point of a test
+// about one gate.
 func TestAttachWithoutNodeIDIsRefused(t *testing.T) {
-	b := &broker{nodes: map[string]protocol.NodeRegistration{}}
-	body, _ := json.Marshal(map[string]any{
-		"station_id":    "st-1",
-		"assertion_key": strings.Repeat("ab", 32),
-		"session_key":   strings.Repeat("cd", 32),
-		"model":         "test-model",
-		"modality":      "chat",
-	})
-	req := httptest.NewRequest(http.MethodPost, "/tower/edge/attach", strings.NewReader(string(body)))
-	rec := httptest.NewRecorder()
-	b.towerEdgeAttach(rec, req)
+	b, srv := towerTestBroker(t)
+	tw := liveEdgeTower(t, b, srv, "tower-op", "203.0.113.9:8443")
+	node := signedInOperator(t, b, "node-op")
 
-	// Unauthenticated requests are turned away before the node_id check, which is correct
-	// ordering; either refusal proves the attach did not silently succeed without a join.
-	if rec.Code == http.StatusOK {
-		t.Fatalf("attach succeeded with no node_id: %d %s", rec.Code, rec.Body.String())
+	body, _ := selfAttachBody(t) // deliberately NOT selfAttachBodyFor: no node_id
+	if _, present := body["node_id"]; present {
+		t.Fatal("this test is about a body with no node_id")
 	}
+	var out apiError
+	code, raw := node.call(t, srv, http.MethodPost, "/tower/edge/attach", body, &out)
+	if code != http.StatusBadRequest {
+		t.Fatalf("attach without a node_id answered %d, want 400: %s", code, raw)
+	}
+	if msg := out.Error.Message; !strings.Contains(msg, "node_id is required") ||
+		!strings.Contains(msg, "roger share") {
+		t.Errorf("the refusal must name the field and the command that fixes it, got %q (%s)", msg, raw)
+	}
+
+	// And nothing was recorded on the way out: a refusal that half-attaches is not a refusal.
+	if ats, err := b.tower.stations.ByTower(tw.id); err == nil && len(ats) > 0 {
+		t.Errorf("a refused attach left %d station(s) attached", len(ats))
+	}
+}
+
+// The join is not satisfied by a node id that exists - it must be THIS caller's. A signed,
+// otherwise-perfect attach naming somebody else's registration is the borrowed-reputation
+// case, and it is refused with 403 rather than 400: the field is present and well-formed, the
+// claim in it is not the caller's to make.
+func TestAttachWithAnotherNodesIDIsRefused(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	liveEdgeTower(t, b, srv, "tower-op", "203.0.113.9:8443")
+	victim := signedInOperator(t, b, "victim-op")
+	victimNode := registerShareNode(t, b, victim)
+
+	thief := signedInOperator(t, b, "thief-op")
+	body, _ := selfAttachBody(t)
+	body["node_id"] = victimNode
+	var out apiError
+	code, raw := thief.call(t, srv, http.MethodPost, "/tower/edge/attach", body, &out)
+	if code != http.StatusForbidden {
+		t.Fatalf("attach naming another node answered %d, want 403: %s", code, raw)
+	}
+	if msg := out.Error.Message; !strings.Contains(msg, "not registered to this key") {
+		t.Errorf("the refusal must say whose key the node belongs to, got %q (%s)", msg, raw)
+	}
+}
+
+// apiError is the broker's refusal envelope - {"error":{"message":...}} - so a test can
+// assert on the sentence an operator actually reads rather than on a status code alone.
+type apiError struct {
+	Error struct {
+		Message string `json:"message"`
+	} `json:"error"`
 }
 
 // --- M0 test support --------------------------------------------------------
