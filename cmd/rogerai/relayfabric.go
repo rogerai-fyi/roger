@@ -1,0 +1,57 @@
+package main
+
+// relayfabric.go puts a share on the relay fabric without making the operator ask.
+//
+// It replaces `roger share --tower`. That flag was a mode: it selected which of two serving
+// fabrics the node lived on for the life of the process, before any consumer existed, and it
+// read like an instruction to create a Tower rather than to be carried by one. Both are
+// wrong. Which relay carries a request is a placement decision that belongs to Core at the
+// moment it knows who is asking and from where - see docs/relay-selection-design.md.
+//
+// So `roger share` means "route me", and this is the half that offers the node to the relay
+// fabric in addition to the broker's own long-poll.
+
+import (
+	"context"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"syscall"
+
+	"rogerai.fm/roger/v5/internal/agent"
+	"rogerai.fm/roger/v5/internal/client"
+)
+
+// joinRelayFabric offers an already-registered, already-on-air node to the relay fabric.
+//
+// EVERY failure here is silent and harmless by construction. The node is registered,
+// discoverable, probed and serving before this is called, so the worst case is that it keeps
+// doing all of that over the broker's long-poll alone. A provider must never lose a working
+// share because a relay was unavailable, and must never be shown an error about a plane they
+// did not ask to be on.
+//
+// It is skipped entirely when the node has no signed-in owner: attaching is an account act
+// (it is what makes a station's earnings attributable), and an anonymous free share is a
+// perfectly ordinary thing to be. Nothing is printed in that case either - there is no
+// problem to report.
+func joinRelayFabric(cfg agent.Config) {
+	if client.LinkedLogin() == "" {
+		return
+	}
+	confDir, err := os.UserConfigDir()
+	if err != nil {
+		return
+	}
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+	// io.Discard, not os.Stdout: the ordinary share has already printed its on-air line, and
+	// a second stream of relay chatter underneath it would describe a plane the operator did
+	// not opt into and cannot act on.
+	_ = agent.ServeTower(ctx, cfg, agent.NodeKey(), filepath.Join(confDir, "rogerai"), discardWriter{})
+}
+
+// discardWriter swallows the relay path's progress output. Declared here rather than reaching
+// for io.Discard so the reason travels with it.
+type discardWriter struct{}
+
+func (discardWriter) Write(p []byte) (int, error) { return len(p), nil }

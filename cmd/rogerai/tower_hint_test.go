@@ -6,9 +6,9 @@ import (
 	"testing"
 )
 
-// Two commands carry the word "tower" and they do opposite jobs: `roger-tower serve` RUNS
-// a relay, `roger share --tower` makes your node serve THROUGH somebody else's. Guessing
-// `roger tower` is the natural mistake, and "unknown command" is a useless reply to it.
+// `roger-tower serve` RUNS a relay; being carried by one takes no command at all, because
+// an ordinary `roger share` reaches the fabric on its own. Guessing `roger tower` is the
+// natural mistake either way, and "unknown command" is a useless reply to it.
 func TestRogerTowerPointsAtBothRealCommands(t *testing.T) {
 	cfg := config{}
 	for _, verb := range []string{"tower", "roger-tower"} {
@@ -24,7 +24,7 @@ func TestRogerTowerPointsAtBothRealCommands(t *testing.T) {
 		for _, want := range []string{
 			"ROGERAI_COMPONENT=tower", // how to get the binary
 			"roger-tower init",        // how to start a relay
-			"roger share --tower",     // how to join one
+			"roger share",             // how to be carried by one (no flag: it is automatic)
 		} {
 			if !strings.Contains(msg, want) {
 				t.Errorf("dispatch(%q) error omits %q:\n%s", verb, want, msg)

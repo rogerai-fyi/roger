@@ -593,7 +593,7 @@
             <h2>Run a Tower</h2>
             <p class="man-lead">A <b>Tower</b> extends the broker&rsquo;s data plane: it hosts
               the <b>hub</b> that consumers submit sealed work to and that providers&rsquo;
-              nodes (<code>roger share --tower</code>) poll to serve it. It runs <b>no model</b>
+              shared nodes poll to serve it. It runs <b>no model</b>
               and holds <b>no keys to the content</b>: every request and every answer crosses it
               encrypted end-to-end, and it is paid for the carrying rather than trusted with the
               contents. The concept
@@ -642,9 +642,11 @@
 <span class="p">$</span> roger-tower register                               <span class="c"># enroll this Tower against the broker</span>
 <span class="p">$</span> roger-tower status                                 <span class="c"># admission state, lease, attached nodes</span>
 <span class="p">$</span> roger-tower serve --hub :8444 --relay-public YOUR.HOST:8444   <span class="c"># hold the link + host the data plane</span></pre>
-            <p>You attach nobody by hand: providers run <code>roger share --tower</code> and
-              their node <b>self-attaches</b> - one signed call registers its keys, model, and
-              its own listed price, and Core routes consumers to your hub.
+            <p>You attach nobody by hand, and cannot: an ordinary <code>roger share</code>
+              puts a node on the relay fabric by itself - one signed call registers its keys,
+              model and its own listed price - and <b>Core</b> decides which Tower it lands on.
+              Placement is first-fit today, so a new Tower may wait while an established one
+              takes attachments; locality- and load-aware placement is being built.
               <code>roger-tower station revoke</code> is your kill switch for a node serving
               under your Tower, and <code>roger-tower probe --model NAME</code> drives the
               whole sealed loop as a consumer to prove your Tower carries work.

@@ -29,7 +29,7 @@ const stationUsage = `roger-tower station - Stations on the public network
 
   roger-tower station revoke --dir DIR --station-id ID
 
-Nodes attach themselves now: a provider runs ` + "`roger share --tower`" + ` and Roger Core
+Nodes attach themselves now: a provider runs ` + "`roger share`" + ` and Roger Core
 records the attachment (the invite-file ceremony died with the roger-station binary).
 revoke remains the operator's kill switch for a station serving under their tower.
 `

@@ -315,7 +315,7 @@ func (c *Config) Unenforced() []string {
 		add(c.Relay.Address != "", "relay.address",
 			"the TLS-splice relay was removed; serve the sealed hub instead (hub.address, or --hub)")
 		add(len(c.Relay.Stations) > 0, "relay.stations",
-			"a Tower no longer dials Stations; nodes run `roger share --tower` and poll the hub")
+			"a Tower no longer dials Stations; shared nodes are placed on a hub and poll it")
 	}
 	add(c.Limits.MaxStations > 0, "limits.maxStations", "not enforced by this build")
 	add(c.Limits.MaxInflight > 0, "limits.maxInflight", "not enforced by this build")

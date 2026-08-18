@@ -135,7 +135,7 @@ down. A relay binding never outlives the work.
 owners. Selection ranks them together; the only difference at settlement is that a
 third-party relay mints a 10% earning lot and ours does not.
 
-**The flag disappears.** `roger share --tower` stops being how a node reaches the fabric. If
+**The flag disappears.** *(Done — see the M0/flag-removal commits.)* `roger share --tower` stops being how a node reaches the fabric. If
 anything survives it is a *constraint* — "only relays I am willing to be carried by" — which
 is a different feature with a different name, and is not needed for a node to participate.
 
@@ -155,6 +155,10 @@ identity with the node identity, or carrying the node id on the attachment so th
 
 Nothing downstream can rank edge candidates until this exists, because until this exists
 there is nothing measured to rank them by.
+
+**M0 — done.** Every share registers, is probed and is discoverable; the attachment carries
+a Core-verified `node_id` joining a station to its broker registration; and `--tower` is
+gone, with an ordinary `roger share` offering itself to the relay fabric best-effort.
 
 **M1 — Stop the arbitrary pick.**
 With M0 landed there is health data under a joinable key. Give `Candidates` a deterministic

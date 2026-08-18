@@ -18,13 +18,11 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"reflect"
 	"sort"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"rogerai.fm/roger/v5/internal/agent"
@@ -866,9 +864,9 @@ func dispatch(cfg config, args []string) error {
 		tui.PlayBoot(os.Stdout, time.Sleep)
 		return nil
 	case "tower", "roger-tower":
-		// Two commands carry the word "tower" and they do OPPOSITE jobs, so the wrong
-		// guess is likely and "unknown command" is a useless answer to it. Running a
-		// Tower is a different binary; `roger share --tower` joins somebody else's.
+		// "unknown command" is a useless answer to a word this product uses for a real
+		// thing. Running a Tower is a different binary; being CARRIED by one needs no
+		// command at all any more, which is the part worth saying out loud.
 		return fmt.Errorf(`%w %q.
 
 To RUN a Tower (the relay itself) use the separate roger-tower binary:
@@ -877,7 +875,8 @@ To RUN a Tower (the relay itself) use the separate roger-tower binary:
     roger-tower register && roger-tower serve --hub :8444
 
 To SERVE YOUR MODEL THROUGH a Tower (you are a station, not the relay):
-    roger share --tower`, errUnknownCommand, args[0])
+    roger share          # nothing extra - a share reaches the relay fabric on its own`,
+			errUnknownCommand, args[0])
 	case "version":
 		fmt.Printf("roger %s\n", Version)
 		return nil
@@ -1024,7 +1023,6 @@ func cmdShare(cfg config, args []string) error {
 	voiceSpeed := fs.Float64("voice-speed", 0, "default speed for a tts share (0.5-2.0; 0 = server default)")
 	confidential := fs.Bool("confidential", false, "GATED enterprise tier: advertise as confidential - needs data-center silicon (AMD EPYC SEV-SNP + an H100-class confidential GPU), not consumer hardware. Apply at "+confidentialApplyURL+" (see docs/tee-eligibility.md)")
 	private := fs.Bool("private", false, "share on a PRIVATE band: hidden from the public market, reachable only by a secret frequency code (shown once). Requires `roger login`.")
-	towerServe := fs.Bool("tower", false, "serve THROUGH a Roger tower: self-attach at your listed price and poll the tower's hub instead of the broker's long-poll. Requires `roger login`.")
 	freeWindow := fs.String("free-window", "", "daily FREE window in UTC, e.g. 03:00-03:30")
 	schedule := fs.String("schedule", "", `time-of-use schedule, JSON e.g. '[{"start":"18:00","end":"22:00","price_in":0.5,"price_out":0.7}]'`)
 	advanced := fs.Bool("advanced", false, "show advanced flags (--node --region --parallel --upstream --modality --ctx --confidential --free-window --schedule)")
@@ -1287,11 +1285,6 @@ needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
 		fmt.Println("confidential: SEV-SNP device present - generating a real attestation quote at registration; the broker verifies it (signature chain + nonce binding + allowlisted launch measurement) before granting the ◆ badge.")
 	}
 
-	if *towerServe && *private {
-		// Checked BEFORE the private-mode banner prints anything: a refused combination must
-		// not first announce a private share that is not going to happen.
-		return fmt.Errorf("--tower and --private cannot be combined yet: a tower share is publicly routable")
-	}
 	if *private {
 		// A private band requires login (the broker 401s an anonymous private register).
 		// Fail clearly here rather than after a detection/upstream probe.
@@ -1337,40 +1330,6 @@ needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
 	// TOWER SERVING (Option C, Topology 2): the same share, with the serving fabric pointed
 	// at a tower's hub. Self-attach at the listed price; Core assigns the tower; settlement
 	// pays this node 70% of ITS OWN price, the tower 10%, the platform 20%.
-	if *towerServe {
-		if client.LinkedLogin() == "" {
-			return fmt.Errorf("`--tower` needs a linked owner - run `roger login` first")
-		}
-		confDir, derr := os.UserConfigDir()
-		if derr != nil {
-			return derr
-		}
-		tctx, tcancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-		defer tcancel()
-		// REGISTER FIRST, ALWAYS (M0 of docs/relay-selection-design.md).
-		//
-		// This used to jump straight to ServeTower, and the cost was invisible: ServeTower
-		// neither registers nor long-polls, so a --tower node vanished from /discover and
-		// /market, was never probed, and accrued no reliability, TTFT or TPS. An operator
-		// asking to serve through a relay was silently delisted from the public band, and
-		// edge placement had nothing to rank it by - which is why edgeTargetFor ranks by
-		// nothing at all.
-		//
-		// Registration is not the alternative to the relay fabric, it is the prerequisite:
-		// the node goes on air the ordinary way, gets measured the ordinary way, and the
-		// relay attachment is an ADDITIONAL plane it also serves on.
-		sess, serr := agentStart(cfgRun)
-		if serr != nil {
-			return serr
-		}
-		defer sess.Stop()
-		waitOnAir(sess, 3*time.Second)
-		fmt.Println(earningsLine())
-		// ServeTower prints its own truthful line - "attached as <station> via <tower>" -
-		// once the attach succeeds. It blocks until ctx is done, with the registered
-		// session's heartbeat and poll loop running beside it.
-		return agent.ServeTower(tctx, cfgRun, agent.NodeKey(), filepath.Join(confDir, "rogerai"), os.Stdout)
-	}
 	if !*private {
 		// Start (not Run) so we can confirm the broker actually ACCEPTED us (the heartbeat
 		// ACK) and print a SINGLE truthful "on air" line, instead of several sequential
@@ -1393,6 +1352,19 @@ needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
 			fmt.Println(line)
 		}
 		fmt.Println(earningsLine())
+		// THE RELAY FABRIC IS NOT A MODE (docs/relay-selection-design.md).
+		//
+		// This used to be `roger share --tower`, which was the wrong shape twice over: it
+		// read like "create a tower", and it made a provider choose a serving fabric for the
+		// life of the process when that choice is Core's to make per request. Sharing a
+		// model now simply means "route me", and whether a given request arrives over the
+		// broker's own long-poll or an operator's relay is decided upstream.
+		//
+		// BEST EFFORT, ALWAYS. The node is already registered, on air and earning by the
+		// time this runs, so nothing here may take that away: no live relay, no signed-in
+		// account, or an attach that fails outright all leave a perfectly good node serving
+		// the ordinary way. It is additive reach, never a precondition.
+		go joinRelayFabric(cfgRun)
 		shareBlock() // serve forever (a test seam makes this return)
 		return nil
 	}

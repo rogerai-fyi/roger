@@ -762,8 +762,8 @@ func (b *broker) towerStatus(w http.ResponseWriter, r *http.Request) {
 		// The hold and minimum are INTERPOLATED from the live policy, not written into the
 		// sentence: both are env-tunable, and a status line quoting numbers a deployment has
 		// changed is a status line that lies.
-		entry["note"] = fmt.Sprintf("This tower's data plane is the sealed hub: nodes that ran "+
-			"`roger share --tower` self-attach and serve encrypted work at their own listed "+
+		entry["note"] = fmt.Sprintf("This tower's data plane is the sealed hub: shared nodes "+
+			"self-attach and serve encrypted work at their own listed "+
 			"per-token price. Every settled request pays you 10%% of gross (the node 70%%, the "+
 			"platform 20%%), as an ordinary earning: %d-day hold, $%g minimum, cashed out "+
 			"from the Payouts page like a serving node's. Volume is early - the figure is $0 "+
