@@ -43,9 +43,11 @@ test("the company page states what kind of company this is", () => {
   assert.match(page, /research/i);
   assert.match(page, /infrastructure/i);
   assert.match(page, /Orange County, California/);
-  // The page states its ownership character in its own words. "founder-led" replaced
-  // "independently owned and not venture funded" - see the note in the homepage test.
-  assert.match(page, /founder[- ]led/i);
+  /* REMOVED 2026-08-18 on founder instruction: the page no longer describes
+     the company's ownership character, so there is nothing here to assert.
+     What the surrounding assertions still guard is unchanged - the page says
+     what the company builds and where it is. If an ownership claim ever
+     returns it should come back with a test of its own. */
 });
 
 test("the company page invents no traction", () => {

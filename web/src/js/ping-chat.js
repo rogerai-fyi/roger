@@ -54,7 +54,7 @@
     "now playing: your local model",
     "70/30 split, live",
     "signed receipts only",
-    "two-way radio for GPUs",
+    "two-way radio for local models",
     "taking requests",
     "find a station, pay per token",
     "operators going on air worldwide",

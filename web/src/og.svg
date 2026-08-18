@@ -45,5 +45,5 @@
   <text x="160" y="448" class="word" font-size="124" fill="#15140F">RogerAI</text>
 
   <!-- tagline -->
-  <text x="166" y="500" class="tag" font-size="32" letter-spacing="1" fill="#6b6a63">a two-way radio for GPUs</text>
+  <text x="166" y="500" class="tag" font-size="32" letter-spacing="1" fill="#6b6a63">a two-way radio for local models</text>
 </svg>

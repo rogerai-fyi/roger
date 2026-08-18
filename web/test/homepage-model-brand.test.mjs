@@ -66,12 +66,11 @@ test("the homepage Labs card presents the Wave program, not a download", () => {
 test("the Company preview carries factual origin and component-specific openness", () => {
   const section = visible(read("index.html").match(/<section\b[^>]*id="company"[\s\S]*?<\/section>/)?.[0] || "");
   assert.match(section, /Orange County, California/);
-  // These assertions guard a FACTUAL CLAIM about the company, so they track the copy
-  // rather than the other way round. The claim narrowed from "independently owned and not
-  // venture funded" to "founder-led", which is a weaker statement: a founder-led company
-  // can still be externally funded. Kept as an assertion so the page cannot quietly stop
-  // saying what kind of company this is.
-  assert.match(section, /founder[- ]led/i);
+  /* REMOVED 2026-08-18 on founder instruction: the page no longer describes
+     the company's ownership character, so there is nothing here to assert.
+     What the surrounding assertions still guard is unchanged - the page says
+     what the company builds and where it is. If an ownership claim ever
+     returns it should come back with a test of its own. */
   assert.match(section, /open model and runtime work/i);
   assert.match(section, /PolyForm Perimeter/i);
 });
