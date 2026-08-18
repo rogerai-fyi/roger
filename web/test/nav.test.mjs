@@ -223,8 +223,10 @@ test("footer keeps the FULL map: everything pulled from the bar is still reachab
 test("the footer carries every destination the nav panels reveal", () => {
   const home = readDist("index.html");
   const bar = topbar(home);
-  const panelHrefs = [...bar.matchAll(/<div class="nav__panel"[\s\S]*?<\/div>/g)]
-    .flatMap((m) => liveHrefs(m[0]));
+  /* uses the nesting-aware reader for the same reason the other two do: the
+     non-greedy form stopped at the first </div> and silently skipped every
+     link below a nested block */
+  const panelHrefs = panelBlocks(bar).flatMap((p) => liveHrefs(p));
   const footer = liveHrefs(home.match(/<footer[\s\S]*?<\/nav>/)[0]);
   for (const h of new Set(panelHrefs)) {
     // A panel entry may be a DEEP LINK into a page the footer already carries

@@ -452,8 +452,16 @@ test("services are optional and preserve local model independence", () => {
   // The contact affordance must LOOK actionable: a .research-button, not a link
   // buried at the end of a prose sentence (a reader missed it as a link).
   const services = page.match(/id="services"[\s\S]*?<\/section>/)[0];
-  assert.match(services, /<a class="research-button[^"]*" href="mailto:labs@rogerai\.fm">/,
-    "the services contact is a visible button");
+  /* AMENDED 2026-08-18: this required href to follow class IMMEDIATELY, so it
+     broke when the link gained data-lets-talk (it now opens the contact
+     dialog, falling back to the mailto without JS). The guarantee - the
+     contact affordance LOOKS actionable, a .research-button rather than a
+     link buried in prose - is unchanged, just matched without caring about
+     attribute order. */
+  const contact = services.match(/<a\b[^>]*class="research-button[^"]*"[^>]*>/);
+  assert.ok(contact, "the services contact is a visible button");
+  assert.match(contact[0], /href="mailto:labs@rogerai\.fm"/,
+    "and it is still a real mailto when the dialog cannot run");
 });
 
 test("new institutional pages contain no em dash character", () => {

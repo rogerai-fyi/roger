@@ -937,6 +937,13 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
   position: fixed; inset: 0; z-index: 70;
   background: color-mix(in srgb, var(--ink-900) 55%, transparent);
 }
+/* A scrim has to DARKEN whatever is behind it. --ink-900 flips with the theme,
+   so on the dark theme this was a 55% WHITE veil - the page went milky instead
+   of receding (founder screenshot). --paper is the page ground, which is dark
+   there, so the veil darkens in both themes. */
+:root[data-theme="dark"] .lt-scrim {
+  background: color-mix(in srgb, var(--paper) 66%, transparent);
+}
 .lt-modal { position: fixed; inset: 0; z-index: 71; display: grid; place-items: center; padding: var(--s-4); }
 /* display:grid would override the hidden attribute and leave an invisible dialog
    blanketing the page, eating every click. Explicitly re-assert hidden. */
