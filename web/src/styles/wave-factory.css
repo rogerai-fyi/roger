@@ -42,7 +42,7 @@
   background: var(--paper);
 }
 .cl-stat b { font-family: var(--font-mono); font-size: .95rem; font-variant-numeric: tabular-nums; }
-.cl-stat i { font-family: var(--font-mono); font-size: .5rem; letter-spacing: .14em; color: var(--ink-400); font-style: normal; }
+.cl-stat i { font-family: var(--font-mono); font-size: .56rem; letter-spacing: .12em; color: var(--ink-400); font-style: normal; }
 .cl-run, .cl-reset {
   font-family: var(--font-mono); font-size: .6rem; letter-spacing: .12em;
   padding: .5rem .8rem; border-radius: 8px; cursor: pointer;
@@ -154,8 +154,8 @@
   padding: .12rem .5rem; border: 1px solid var(--hairline-2); border-radius: 4px;
   background: var(--paper-2);
 }
-.clf-plate b { font-family: var(--font-mono); font-size: .56rem; letter-spacing: .14em; }
-.clf-plate i { font-family: var(--font-mono); font-size: .48rem; color: var(--ink-400); font-style: normal; }
+.clf-plate b { font-family: var(--font-mono); font-size: .6rem; letter-spacing: .12em; }
+.clf-plate i { font-family: var(--font-mono); font-size: .54rem; color: var(--ink-400); font-style: normal; }
 
 /* the bought Pico, bolted on: the chip engraving with its tier edge */
 .clf-mount { position: absolute; top: 12%; right: -8px; z-index: 2; }
@@ -170,7 +170,7 @@
   -webkit-mask-size: contain; mask-size: contain;
   -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat; -webkit-mask-position: center; mask-position: center;
 }
-.clf-badge b { font-family: var(--font-mono); font-size: .42rem; letter-spacing: .12em; color: var(--tier-pico, #b23a2a); }
+.clf-badge b { font-family: var(--font-mono); font-size: .5rem; letter-spacing: .1em; color: var(--tier-pico, #b23a2a); }
 
 /* what the mounted model just said, at the machine.
    v32 LANES: speech bubbles live in ONE BAND above the machines (-60px,
@@ -201,7 +201,7 @@
   position: absolute; right: 1.2%; bottom: 36px; width: 86px;
   display: flex; flex-direction: column; align-items: center; gap: .2rem;
 }
-.clf-ship b { font-family: var(--font-mono); font-size: .5rem; letter-spacing: .12em; color: var(--ink-400); }
+.clf-ship b { font-family: var(--font-mono); font-size: .56rem; letter-spacing: .12em; color: var(--ink-400); }
 /* the shipped crates ARE the crate-stack engraving, revealed from the
    pallet up as real shipments accumulate: --stack is 0..1 in eighths */
 .clf-crates {
@@ -227,8 +227,8 @@
   20% { opacity: 1; }
   100% { opacity: 0; translate: 0 -20px; }
 }
-.clf-ship__n { font-family: var(--font-mono); font-size: .56rem; font-variant-numeric: tabular-nums; }
-.clf-ship__spoil { font-family: var(--font-mono); font-size: .48rem; color: var(--live); font-style: normal; }
+.clf-ship__n { font-family: var(--font-mono); font-size: .6rem; font-variant-numeric: tabular-nums; }
+.clf-ship__spoil { font-family: var(--font-mono); font-size: .56rem; color: var(--live); font-style: normal; }
 
 /* the operator desk, physically at the end of the floor */
 .clf-desk {
@@ -243,14 +243,14 @@
 }
 .clf-desk__rack { display: flex; gap: .2rem; }
 .clf-desk__chip {
-  font-family: var(--font-mono); font-size: .4rem; letter-spacing: .1em;
-  padding: .1rem .25rem; border: 1px solid var(--hairline-2); border-radius: 3px;
+  font-family: var(--font-mono); font-size: .5rem; letter-spacing: .08em;
+  padding: .12rem .28rem; border: 1px solid var(--hairline-2); border-radius: 3px;
   border-left-width: 3px; background: var(--paper);
 }
 .clf-desk__chip[data-tier="nano"] { border-left-color: var(--tier-nano, #c96a1c); color: var(--tier-nano, #c96a1c); }
 .clf-desk__chip[data-tier="micro"] { border-left-color: var(--tier-micro, #b0891a); color: var(--tier-micro, #b0891a); }
 .clf-desk__chip[data-tier="giga"] { border-left-color: var(--tier-giga, #2f8a52); color: var(--tier-giga, #2f8a52); }
-.clf-desk__k { font-family: var(--font-mono); font-size: .42rem; letter-spacing: .12em; color: var(--ink-300); }
+.clf-desk__k { font-family: var(--font-mono); font-size: .52rem; letter-spacing: .12em; color: var(--ink-400); }
 
 /* the consoles, tethered under their machines */
 .clf-panels { display: grid; grid-template-columns: repeat(3, 1fr); gap: .6rem; margin-top: .4rem; }
@@ -263,8 +263,8 @@
 
 /* the state lamp: colour AND word, never colour alone */
 .cl-lamp {
-  font-family: var(--font-mono); font-size: .5rem; letter-spacing: .1em;
-  padding: .2rem .4rem; border-radius: 999px; border: 1px solid var(--hairline-2);
+  font-family: var(--font-mono); font-size: .58rem; letter-spacing: .1em;
+  padding: .2rem .45rem; border-radius: 999px; border: 1px solid var(--hairline-2);
   color: var(--ink-500); white-space: nowrap;
 }
 .cl-lamp[data-state="ok"] { color: #1E7A3C; border-color: #1E7A3C; }
@@ -273,7 +273,7 @@
 
 /* the readout - in phase 0 this dial is the whole game */
 .cl-read { display: flex; align-items: baseline; gap: .35rem; }
-.cl-read i { font-family: var(--font-mono); font-size: .5rem; letter-spacing: .12em; color: var(--ink-400); font-style: normal; }
+.cl-read i { font-family: var(--font-mono); font-size: .58rem; letter-spacing: .1em; color: var(--ink-400); font-style: normal; }
 .cl-read__v {
   font-family: var(--font-mono); font-size: 1.6rem; font-variant-numeric: tabular-nums;
   line-height: 1; margin-left: auto;
@@ -296,10 +296,10 @@
 .cl-band[data-state="edge"] .cl-band__zone { border-color: #C99700; background: color-mix(in srgb, #C99700 14%, var(--paper)); }
 .cl-band[data-state="out"] .cl-band__mark { background: var(--live); }
 .cl-band[data-state="gone"] .cl-band__mark { opacity: .25; }
-.cl-band__txt { font-family: var(--font-mono); font-size: .5rem; color: var(--ink-400); }
+.cl-band__txt { font-family: var(--font-mono); font-size: .6rem; color: var(--ink-500); }
 
 .cl-ctl { display: flex; align-items: center; gap: .4rem; }
-.cl-ctl i { font-family: var(--font-mono); font-size: .5rem; letter-spacing: .12em; color: var(--ink-400); font-style: normal; }
+.cl-ctl i { font-family: var(--font-mono); font-size: .58rem; letter-spacing: .1em; color: var(--ink-400); font-style: normal; }
 .cl-ctl__range { flex: 1; accent-color: var(--ink-700); }
 .cl-ctl__range:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
 .cl-ctl__v { font-family: var(--font-mono); font-size: .66rem; font-variant-numeric: tabular-nums; min-width: 2.6rem; text-align: right; }
@@ -307,14 +307,14 @@
 /* ---- the model slot: the ladder, one rung at a time ------------------ */
 .cl-slot { display: flex; flex-direction: column; gap: .3rem; }
 .cl-slot__buy {
-  font-family: var(--font-mono); font-size: .56rem; letter-spacing: .1em;
-  padding: .45rem .5rem; border-radius: 8px; cursor: pointer;
+  font-family: var(--font-mono); font-size: .64rem; letter-spacing: .08em;
+  padding: .48rem .5rem; border-radius: 8px; cursor: pointer;
   border: 1px dashed var(--ink-300); background: var(--paper); color: var(--ink-700);
 }
 .cl-slot__buy:hover:not(:disabled) { border-color: var(--ink-900); color: var(--ink-900); }
 .cl-slot__buy:disabled { opacity: .45; cursor: not-allowed; }
 .cl-slot__buy:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
-.cl-slot__hint { font-family: var(--font-mono); font-size: .5rem; color: var(--ink-300); font-style: normal; }
+.cl-slot__hint { font-family: var(--font-mono); font-size: .62rem; color: var(--ink-400); font-style: normal; line-height: 1.45; }
 
 .cl-say {
   display: flex; flex-direction: column; gap: .12rem;
@@ -323,36 +323,51 @@
 }
 .cl-say--pico { border-left-color: var(--tier-pico, #b23a2a); }
 .cl-say--nano { border-left-color: var(--tier-nano, #c96a1c); }
-.cl-say__who { font-family: var(--font-mono); font-size: .5rem; letter-spacing: .12em; }
+.cl-say__who { font-family: var(--font-mono); font-size: .6rem; letter-spacing: .12em; }
 .cl-say--pico .cl-say__who { color: var(--tier-pico, #b23a2a); }
 .cl-say--nano .cl-say__who { color: var(--tier-nano, #c96a1c); }
 .cl-say__word { font-family: var(--font-mono); font-size: .74rem; }
 .cl-say[data-verdict="ok"] .cl-say__word { color: #1E7A3C; }
 .cl-say[data-verdict="warn"] .cl-say__word { color: #C99700; }
 .cl-say[data-verdict="bad"] .cl-say__word { color: var(--live); }
-.cl-say__why, .cl-say__fix { font-size: .6rem; color: var(--ink-700); line-height: 1.45; }
+.cl-say__why, .cl-say__fix { font-size: .7rem; color: var(--ink-700); line-height: 1.5; }
 .cl-say__fix { color: var(--ink-900); }
-.cl-say__prov { font-family: var(--font-mono); font-size: .48rem; color: var(--ink-300); font-style: normal; }
+/* v40: PROVENANCE IS EVIDENCE - "replayed record N" is the sentence that
+   makes the replay claim checkable, so it is readable, not a watermark. */
+.cl-say__prov { font-family: var(--font-mono); font-size: .6rem; color: var(--ink-400); font-style: normal; line-height: 1.45; }
 
 /* the handover */
 .cl-auto { display: flex; flex-direction: column; gap: .15rem; }
 .cl-auto__btn {
-  font-family: var(--font-mono); font-size: .52rem; letter-spacing: .1em;
-  padding: .35rem .5rem; border-radius: 8px; cursor: pointer;
+  font-family: var(--font-mono); font-size: .6rem; letter-spacing: .08em;
+  padding: .4rem .5rem; border-radius: 8px; cursor: pointer;
   border: 1px solid var(--hairline-2); background: var(--paper); color: var(--ink-500);
 }
 .cl-auto.is-on .cl-auto__btn { border-color: var(--tier-micro, #b0891a); color: var(--tier-micro, #b0891a); }
 .cl-auto__btn:disabled { opacity: .4; cursor: not-allowed; }
 .cl-auto__btn:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
-.cl-auto__note { font-family: var(--font-mono); font-size: .48rem; color: var(--ink-400); font-style: normal; }
+.cl-auto__note { font-family: var(--font-mono); font-size: .6rem; color: var(--ink-400); font-style: normal; line-height: 1.45; }
 
 /* six verbs now, so the row wraps into a tidy two-per-line grid on narrow
-   panels; the free gambles are dashed, the sure things solid */
-.cl-acts { display: flex; flex-wrap: wrap; gap: .35rem; }
+   panels. v40: the free-vs-paid distinction is carried by the BUTTON'S OWN
+   WORDS ("· FREE" / "· 10" / "· 60") - a dashed edge is not self-evident,
+   and this site already spends dashes on "empty slot" (buy tags, the Pico
+   mount). The dashed edge stays as a quiet echo of the same fact. */
+.cl-acts {
+  /* v40: a real grid, not a wrap - the buttons carry their price now, so a
+     column that cannot hold "RESTART · FREE" on one line must become two
+     columns instead of breaking the label in half. auto-fit does that at
+     every width the deck is read at. */
+  display: grid; gap: .35rem;
+  /* the 30% floor caps the row at THREE columns (a fourth would have to be
+     <=25%), so six verbs land as a tidy 3x2 wherever they fit and fall to
+     2x3 - never 4-then-2 - when the panel narrows */
+  grid-template-columns: repeat(auto-fit, minmax(max(6rem, 30%), 1fr));
+}
 .cl-act {
-  flex: 1 1 30%; min-width: 5.2rem;
-  font-family: var(--font-mono); font-size: .52rem; letter-spacing: .1em;
-  padding: .38rem .4rem; border-radius: 7px; cursor: pointer;
+  min-width: 0; white-space: nowrap; text-overflow: ellipsis; overflow: hidden;
+  font-family: var(--font-mono); font-size: .56rem; letter-spacing: .03em;
+  padding: .42rem .3rem; border-radius: 7px; cursor: pointer;
   border: 1px solid var(--hairline-2); background: var(--paper); color: var(--ink-700);
 }
 .cl-act:hover:not(:disabled) { border-color: var(--ink-900); }
@@ -382,7 +397,7 @@
 .clf-yours {
   position: absolute; top: 1.35rem; left: 50%; transform: translateX(-50%);
   z-index: 3; white-space: nowrap;
-  font-family: var(--font-mono); font-size: .5rem; letter-spacing: .12em;
+  font-family: var(--font-mono); font-size: .58rem; letter-spacing: .12em;
   color: #C99700; background: var(--paper);
   border: 1px solid #C99700; border-radius: 999px; padding: .12rem .5rem;
 }
@@ -394,7 +409,7 @@
 /* THE DIAL HINT - the free fix, said first. Amber like the meter's own edge
    state (the lamp's honest rules are untouched; this is the meter's family). */
 .cl-dialhint {
-  font-family: var(--font-mono); font-size: .56rem; line-height: 1.5;
+  font-family: var(--font-mono); font-size: .68rem; line-height: 1.5;
   letter-spacing: .04em; color: #C99700;
   border-left: 3px solid #C99700; padding: .25rem 0 .25rem .5rem;
   margin-bottom: .35rem;
@@ -408,7 +423,7 @@
 
 /* what INSPECT taught you, pinned until the incident clears */
 .cl-inspected {
-  font-family: var(--font-mono); font-size: .56rem; line-height: 1.5;
+  font-family: var(--font-mono); font-size: .68rem; line-height: 1.5;
   color: var(--ink-900); border-left: 3px solid var(--ink-500);
   padding: .25rem 0 .25rem .5rem; margin-bottom: .35rem;
 }
@@ -416,15 +431,15 @@
 /* in-world buy tags: the floor sells its own upgrades. Dashed like every
    empty slot on this site, dimmed when the wallet is short. */
 .clf-buytag {
-  font-family: var(--font-mono); font-size: .5rem; letter-spacing: .08em;
-  padding: .22rem .45rem; border-radius: 6px; cursor: pointer;
+  font-family: var(--font-mono); font-size: .58rem; letter-spacing: .06em;
+  padding: .24rem .5rem; border-radius: 6px; cursor: pointer;
   border: 1.5px dashed var(--ink-400); background: var(--paper);
   color: var(--ink-700); white-space: nowrap;
 }
 .clf-buytag:hover:not(:disabled) { border-color: var(--ink-900); color: var(--ink-900); }
 .clf-buytag:disabled { opacity: .38; cursor: not-allowed; }
 .clf-buytag:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
-.clf-buytag--tier { margin-left: .4rem; font-size: .46rem; padding: .12rem .35rem; }
+.clf-buytag--tier { margin-left: .4rem; font-size: .52rem; padding: .14rem .38rem; }
 .clf-buytag--desk { margin-left: .3rem; }
 
 /* the maintenance card: the doctrine, printed */
@@ -433,14 +448,14 @@
   background: var(--paper-2); padding: .45rem .7rem;
 }
 .cl-maint summary {
-  font-family: var(--font-mono); font-size: .56rem; letter-spacing: .12em;
+  font-family: var(--font-mono); font-size: .66rem; letter-spacing: .12em;
   color: var(--ink-500); cursor: pointer;
 }
 .cl-maint__rows { display: flex; flex-direction: column; gap: .15rem; margin-top: .45rem; }
 .cl-maint__row {
-  display: grid; grid-template-columns: 8.5rem 1fr auto; gap: .7rem;
-  font-family: var(--font-mono); font-size: .56rem; line-height: 1.5;
-  padding: .18rem 0; border-top: 1px dotted var(--hairline-2);
+  display: grid; grid-template-columns: 10.5rem 1fr auto; gap: .7rem;
+  font-family: var(--font-mono); font-size: .66rem; line-height: 1.55;
+  padding: .24rem 0; border-top: 1px dotted var(--hairline-2);
 }
 .cl-maint__row b { color: var(--ink-900); letter-spacing: .06em; }
 .cl-maint__row span { color: var(--ink-700); }
@@ -449,19 +464,19 @@
   .cl-maint__row { grid-template-columns: 1fr; gap: .05rem; }
   .cl-maint__row i { white-space: normal; }
 }
-.cl-maint__note { font-size: .56rem; color: var(--ink-500); font-family: var(--font-mono); margin: .4rem 0 0; }
+.cl-maint__note { font-size: .66rem; line-height: 1.55; color: var(--ink-500); font-family: var(--font-mono); margin: .5rem 0 0; }
 
 /* the debt state: red coins, worded ON LOAN by the paint code */
 .cl-stat.is-debt b, .cl-stat.is-debt i { color: var(--live); }
 
 /* the gateway attribution on Nano's counsel */
-.cl-say__site { font-style: normal; letter-spacing: .04em; color: var(--ink-400); font-size: .44rem; }
+.cl-say__site { font-style: normal; letter-spacing: .04em; color: var(--ink-400); font-size: .56rem; }
 
 /* ---- the desk -------------------------------------------------------- */
 .cl-desk { display: flex; flex-direction: column; gap: .6rem; border-top: 1px solid var(--hairline-2); padding-top: .8rem; }
 .cl-desk__head { display: flex; align-items: baseline; gap: .6rem; flex-wrap: wrap; }
 .cl-desk__head b { font-family: var(--font-mono); font-size: .66rem; letter-spacing: .14em; }
-.cl-desk__head span { font-family: var(--font-mono); font-size: .54rem; color: var(--ink-400); }
+.cl-desk__head span { font-family: var(--font-mono); font-size: .62rem; color: var(--ink-400); }
 
 .cl-shop { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: .5rem; }
 .cl-shopcard {
@@ -472,49 +487,60 @@
 .cl-shopcard[data-tier="nano"] { border-left-color: var(--tier-nano, #c96a1c); }
 .cl-shopcard[data-tier="micro"] { border-left-color: var(--tier-micro, #b0891a); }
 .cl-shopcard[data-tier="giga"] { border-left-color: var(--tier-giga, #2f8a52); }
-.cl-shopcard b { font-family: var(--font-mono); font-size: .62rem; letter-spacing: .1em; }
-.cl-shopcard i { font-size: .58rem; color: var(--ink-500); font-style: normal; }
-.cl-shopcard__on { font-family: var(--font-mono); font-size: .5rem; letter-spacing: .12em; color: var(--ink-400); }
+.cl-shopcard b { font-family: var(--font-mono); font-size: .68rem; letter-spacing: .1em; }
+.cl-shopcard i { font-size: .66rem; line-height: 1.5; color: var(--ink-500); font-style: normal; }
+.cl-shopcard__on { font-family: var(--font-mono); font-size: .58rem; letter-spacing: .12em; color: var(--ink-400); }
 .cl-shopcard.is-owned { background: var(--paper-2); }
 
 .cl-deskview { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: .6rem; }
-.cl-deskview__empty { font-size: .62rem; color: var(--ink-400); margin: 0; }
+.cl-deskview__empty { font-size: .7rem; line-height: 1.5; color: var(--ink-500); margin: 0; }
 .cl-view {
   display: flex; flex-direction: column; gap: .3rem;
   border: 1px solid var(--hairline-2); border-radius: 8px; padding: .6rem; background: var(--paper);
 }
 .cl-view.is-lead { grid-column: 1 / -1; border-color: var(--tier-giga, #2f8a52); }
 .cl-view__crown {
-  font-family: var(--font-mono); font-size: .54rem; letter-spacing: .12em;
+  font-family: var(--font-mono); font-size: .62rem; letter-spacing: .12em;
   color: var(--tier-giga, #2f8a52);
 }
-.cl-view__head { font-family: var(--font-mono); font-size: .56rem; letter-spacing: .12em; color: var(--ink-500); }
+.cl-view__head { font-family: var(--font-mono); font-size: .64rem; letter-spacing: .12em; color: var(--ink-500); }
 .cl-view--micro .cl-view__head { color: var(--tier-micro, #b0891a); }
 .cl-view--giga .cl-view__head { color: var(--tier-giga, #2f8a52); }
-.cl-view span { font-size: .6rem; color: var(--ink-700); }
+.cl-view span { font-size: .68rem; line-height: 1.5; color: var(--ink-700); }
 .cl-view__rows { display: flex; flex-direction: column; gap: .15rem; }
-.cl-view__row { display: grid; grid-template-columns: 4.5rem 1fr auto auto; gap: .4rem; align-items: baseline; }
-.cl-view__row b { font-family: var(--font-mono); font-size: .55rem; }
-.cl-view__row span { font-family: var(--font-mono); font-size: .52rem; color: var(--ink-400); }
-.cl-view__row i { font-family: var(--font-mono); font-size: .5rem; font-style: normal; color: var(--ink-500); }
-.cl-view__worst { font-size: .6rem; }
-.cl-view__note { font-family: var(--font-mono); font-size: .48rem; color: var(--ink-300); font-style: normal; }
-.cl-view__warn { font-size: .58rem; color: var(--ink-700); margin: .2rem 0 0; }
+/* v40: a wrapping FLEX row, not a rigid four-column grid. At the raised
+   type size the fixed columns squeezed "Mk III · band 0-12" into three
+   stacked lines inside a 300px desk card; each fact is now one unbreakable
+   unit that wraps as a whole. */
+.cl-view__row { display: flex; flex-wrap: wrap; gap: .1rem .55rem; align-items: baseline; }
+.cl-view__row b { min-width: 4.4rem; }
+.cl-view__row i { margin-left: auto; }
+.cl-view__row b { font-family: var(--font-mono); font-size: .62rem; }
+.cl-view__row span { font-family: var(--font-mono); font-size: .6rem; color: var(--ink-500); }
+.cl-view__row i { font-family: var(--font-mono); font-size: .6rem; font-style: normal; color: var(--ink-500); }
+.cl-view__worst { font-size: .68rem; line-height: 1.5; }
+/* v40: these carry the "no recorded run exists for this tier" caveats -
+   the deck's honesty rail, printed where the tier's numbers are read. */
+.cl-view__note { font-family: var(--font-mono); font-size: .62rem; line-height: 1.5; color: var(--ink-400); font-style: normal; }
+.cl-view__warn { font-size: .68rem; line-height: 1.5; color: var(--ink-700); margin: .3rem 0 0; }
 
-.cl-results { display: grid; grid-template-columns: repeat(auto-fit, minmax(84px, 1fr)); gap: .4rem; }
+.cl-results { display: grid; grid-template-columns: repeat(auto-fit, minmax(98px, 1fr)); gap: .4rem; }
 .cl-results__cell { display: flex; flex-direction: column; }
 .cl-results__cell b { font-family: var(--font-mono); font-size: .9rem; font-variant-numeric: tabular-nums; }
-.cl-results__cell i { font-family: var(--font-mono); font-size: .46rem; letter-spacing: .1em; color: var(--ink-400); font-style: normal; }
+.cl-results__cell i { font-family: var(--font-mono); font-size: .56rem; letter-spacing: .08em; color: var(--ink-400); font-style: normal; }
 .cl-results__spark { display: flex; flex-direction: column; gap: .1rem; }
-.cl-results__spark i { font-family: var(--font-mono); font-size: .46rem; color: var(--ink-400); font-style: normal; }
+.cl-results__spark i { font-family: var(--font-mono); font-size: .56rem; color: var(--ink-400); font-style: normal; }
 .cl-spark { width: 100%; height: 34px; }
 .cl-spark__line { fill: none; stroke: var(--ink-700); stroke-width: 1.4; vector-effect: non-scaling-stroke; }
 
-.cl-note { font-size: .55rem; color: var(--ink-400); line-height: 1.5; margin: 0; }
+/* v40 TYPE FLOOR: the honesty footer was a two-line 10px grey paragraph -
+   the least readable thing on a deck whose whole argument is honesty. It now
+   reads at body-adjacent size, in ink that has contrast to spend. */
+.cl-note { font-size: .78rem; color: var(--ink-500); line-height: 1.6; margin: 0; max-width: 78ch; }
 .cl-note b { font-family: var(--font-mono); letter-spacing: .1em; color: var(--ink-500); }
 
-.cl-log { font-size: .58rem; color: var(--ink-500); }
-.cl-log summary { font-family: var(--font-mono); font-size: .52rem; letter-spacing: .12em; cursor: pointer; }
+.cl-log { font-size: .68rem; line-height: 1.55; color: var(--ink-500); }
+.cl-log summary { font-family: var(--font-mono); font-size: .64rem; letter-spacing: .12em; cursor: pointer; }
 .cl-log ol { margin: .3rem 0 0; padding-left: 1.1rem; }
 .cl-log li { margin-bottom: .12rem; }
 
@@ -549,13 +575,13 @@
 /* ---- the goal chip (reference: a two-line objective, never a quest log) -- */
 .cl-goals { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .2rem; }
 .cl-goal {
-  display: grid; grid-template-columns: 3.6rem auto 1fr; gap: .5rem; align-items: baseline;
+  display: grid; grid-template-columns: 4.1rem auto 1fr; gap: .5rem; align-items: baseline;
   padding: .3rem .5rem; border-radius: 7px; background: var(--paper);
   border: 1px solid var(--hairline-2);
 }
-.cl-goal b { font-family: var(--font-mono); font-size: .5rem; letter-spacing: .14em; color: var(--ink-400); }
-.cl-goal span { font-family: var(--font-mono); font-size: .62rem; color: var(--ink-900); }
-.cl-goal i { font-size: .56rem; color: var(--ink-500); font-style: normal; }
+.cl-goal b { font-family: var(--font-mono); font-size: .56rem; letter-spacing: .14em; color: var(--ink-400); }
+.cl-goal span { font-family: var(--font-mono); font-size: .68rem; color: var(--ink-900); }
+.cl-goal i { font-size: .66rem; line-height: 1.5; color: var(--ink-500); font-style: normal; }
 /* v38: the campaign GOAL leads the rows (the certificate used to live three
    screens down while "SHIP 0/100" read as the goal). It is a button that
    scrolls to the plaque; SHIP is visibly the sub-goal beneath it. */
@@ -595,7 +621,7 @@
 .cl-shop { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: .6rem; }
 .cl-branch { display: flex; flex-direction: column; gap: .35rem; }
 .cl-branch__head {
-  font-family: var(--font-mono); font-size: .5rem; letter-spacing: .14em; color: var(--ink-400);
+  font-family: var(--font-mono); font-size: .58rem; letter-spacing: .14em; color: var(--ink-400);
 }
 .cl-node {
   display: flex; flex-direction: column; gap: .18rem;
@@ -606,12 +632,12 @@
 .cl-node[data-tier="nano"] { border-left-color: var(--tier-nano, #c96a1c); }
 .cl-node[data-tier="micro"] { border-left-color: var(--tier-micro, #b0891a); }
 .cl-node[data-tier="giga"] { border-left-color: var(--tier-giga, #2f8a52); }
-.cl-node b { font-family: var(--font-mono); font-size: .56rem; letter-spacing: .08em; }
-.cl-node i { font-size: .55rem; color: var(--ink-500); font-style: normal; line-height: 1.4; }
+.cl-node b { font-family: var(--font-mono); font-size: .66rem; letter-spacing: .08em; }
+.cl-node i { font-size: .66rem; color: var(--ink-500); font-style: normal; line-height: 1.5; }
 .cl-node.is-owned { background: var(--paper-2); }
 .cl-node.is-locked { opacity: .55; }
-.cl-node__on { font-family: var(--font-mono); font-size: .46rem; letter-spacing: .12em; color: var(--ink-400); }
-.cl-node__lock { font-family: var(--font-mono); font-size: .46rem; letter-spacing: .12em; color: var(--ink-300); }
+.cl-node__on { font-family: var(--font-mono); font-size: .56rem; letter-spacing: .12em; color: var(--ink-400); }
+.cl-node__lock { font-family: var(--font-mono); font-size: .56rem; letter-spacing: .12em; color: var(--ink-400); }
 
 /* ---- the shop overlay: the floor waits while you decide ---------------- */
 /* display:flex would beat the UA's [hidden]{display:none} and leave an
@@ -677,7 +703,7 @@
 
 /* the lockout's WHY, at the station - consequence, not breakage */
 .cl-lockwhy {
-  font-family: var(--font-mono); font-size: .56rem; line-height: 1.5;
+  font-family: var(--font-mono); font-size: .68rem; line-height: 1.5;
   color: #C99700; border-left: 2px solid #C99700; padding-left: .5rem;
 }
 
@@ -686,7 +712,7 @@
 
 /* debt: the COINS label stays; the flag rides beside it */
 .cl-stat__flag {
-  font-family: var(--font-mono); font-size: .5rem; letter-spacing: .1em;
+  font-family: var(--font-mono); font-size: .56rem; letter-spacing: .1em;
   font-style: normal; color: var(--live); border: 1px solid var(--live);
   border-radius: 999px; padding: 0 .35rem; margin-left: .3rem;
 }
@@ -745,12 +771,12 @@
 /* the WATCHING selector on the gateway's desk block */
 .cl-watchsel { display: flex; gap: .35rem; align-items: center; flex-wrap: wrap; margin: .3rem 0; }
 .cl-watchsel > i {
-  font-family: var(--font-mono); font-size: .54rem; letter-spacing: .14em;
+  font-family: var(--font-mono); font-size: .6rem; letter-spacing: .14em;
   color: var(--ink-400); font-style: normal;
 }
 .cl-watch {
-  font-family: var(--font-mono); font-size: .58rem; letter-spacing: .08em;
-  padding: .22rem .55rem; border-radius: 999px; cursor: pointer;
+  font-family: var(--font-mono); font-size: .64rem; letter-spacing: .08em;
+  padding: .26rem .6rem; border-radius: 999px; cursor: pointer;
   border: 1px solid var(--hairline-2); background: var(--paper); color: var(--ink-500);
 }
 .cl-watch:hover:not(:disabled) { border-color: var(--ink-500); color: var(--ink-900); }
@@ -819,21 +845,21 @@
   font-family: var(--font-mono);
   white-space: nowrap; overflow: hidden;
 }
-.clf-siteboard__k { font-size: .5rem; letter-spacing: .16em; color: var(--ink-400); flex: none; }
-.clf-siteboard__row { display: flex; gap: .3rem; align-items: center; font-size: .52rem; color: var(--ink-700); flex: none; }
+.clf-siteboard__k { font-size: .56rem; letter-spacing: .16em; color: var(--ink-400); flex: none; }
+.clf-siteboard__row { display: flex; gap: .3rem; align-items: center; font-size: .58rem; color: var(--ink-700); flex: none; }
 .clf-siteboard__row i { font-style: normal; }
 .clf-siteboard__bar { width: 2.2rem; height: .3rem; background: var(--paper-3); border-radius: 2px; overflow: hidden; display: block; }
 .clf-siteboard__bar b { display: block; height: 100%; background: var(--ink-500); }
 .clf-siteboard__row em { font-style: normal; color: var(--ink-500); font-variant-numeric: tabular-nums; }
 .clf-siteboard__line {
-  font-size: .52rem; color: var(--ink-500); font-style: normal;
+  font-size: .58rem; color: var(--ink-500); font-style: normal;
   margin-left: auto; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1 auto;
 }
 
 /* the gateway's attention, standing at the machine it watches */
 .clf-gwtag {
   position: absolute; top: -1.6rem; left: 50%; transform: translateX(-50%);
-  white-space: nowrap; font-family: var(--font-mono); font-size: .52rem;
+  white-space: nowrap; font-family: var(--font-mono); font-size: .6rem;
   letter-spacing: .06em; color: var(--tier-nano, var(--ink-500));
   border: 1px dashed var(--tier-nano, var(--ink-400)); border-radius: 999px;
   padding: .12rem .5rem; background: var(--paper);
@@ -846,8 +872,8 @@
    band starts at -60px, above both rungs. */
 .clf-autotag {
   position: absolute; top: -1.6rem; left: 50%; transform: translateX(-50%);
-  white-space: nowrap; font-family: var(--font-mono); font-size: .54rem;
-  font-style: normal; padding: .15rem .5rem; border-radius: 4px;
+  white-space: nowrap; font-family: var(--font-mono); font-size: .62rem;
+  font-style: normal; padding: .18rem .5rem; border-radius: 4px;
   background: var(--paper); border: 1px solid var(--hairline-2);
   border-left: 3px solid var(--ink-500);
 }
@@ -862,7 +888,7 @@
 
 /* the Pico badge's vigilance tally, and its glint on a fresh catch */
 .clf-badge__n {
-  text-decoration: none; font-family: var(--font-mono); font-size: .5rem;
+  text-decoration: none; font-family: var(--font-mono); font-size: .54rem;
   color: var(--paper); background: var(--tier-pico, var(--ink-700));
   border-radius: 999px; padding: .05rem .3rem; margin-left: .2rem;
 }
@@ -874,8 +900,9 @@
 /* ---- v28 playtest round 2: the ticker + the locked handover ---- */
 .cl-ticker {
   margin: 2px 0 6px;
-  padding: 3px 10px;
-  font-size: 11px;
+  padding: 5px 10px;
+  font-size: .72rem;
+  line-height: 1.5;
   letter-spacing: 0.02em;
   color: var(--cl-ink-dim, inherit);
   border-left: 3px solid var(--cl-line, currentColor);
@@ -986,7 +1013,7 @@
 
 /* the gateway's covered chips: not buttons, just the fact */
 .cl-watch--covered {
-  text-decoration: none; font-family: var(--font-mono); font-size: .52rem;
+  text-decoration: none; font-family: var(--font-mono); font-size: .6rem;
   letter-spacing: .1em; padding: .3rem .5rem; border-radius: 8px;
   border: 1px solid var(--hairline-2); color: var(--ink-300);
   background: var(--paper-2); cursor: help;
@@ -1058,7 +1085,7 @@
   position: absolute; bottom: 100%; margin-bottom: 26px; z-index: 4;
   left: 50%; transform: translateX(-50%);
   width: max-content; max-width: 190px;
-  font-family: var(--font-mono); font-size: .54rem; line-height: 1.45;
+  font-family: var(--font-mono); font-size: .64rem; line-height: 1.5;
   color: var(--ink-900); background: var(--paper);
   border: 1px solid var(--tier-giga, var(--ink-500)); border-radius: 7px;
   padding: .3rem .45rem;
@@ -1080,8 +1107,8 @@
   /* at the Unit's shoulder, not under its wheels - below is the nameplate
      strip, and the chip was landing on it */
   position: absolute; left: 100%; top: 42%; margin-left: 3px;
-  font-family: var(--font-mono); font-size: .52rem; letter-spacing: .12em;
-  padding: .16rem .5rem; border-radius: 999px; cursor: pointer;
+  font-family: var(--font-mono); font-size: .58rem; letter-spacing: .12em;
+  padding: .18rem .55rem; border-radius: 999px; cursor: pointer;
   border: 1px solid var(--tier-giga, var(--ink-500));
   background: var(--paper); color: var(--ink-900);
 }
@@ -1097,24 +1124,24 @@
 /* ---- THE PLANT RADIO - the chat card ---------------------------------- */
 .clf-chatcard { max-width: 30rem; }
 .cl-chat__sub {
-  margin: .3rem 0 .5rem; font-size: .58rem; line-height: 1.5; color: var(--ink-500);
+  margin: .3rem 0 .5rem; font-size: .7rem; line-height: 1.55; color: var(--ink-500);
 }
 .cl-chat__list {
   list-style: none; margin: 0 0 .5rem; padding: .45rem .55rem;
   max-height: 14rem; overflow-y: auto;
   border: 1px solid var(--hairline-2); border-radius: 8px; background: var(--paper);
 }
-.cl-chat__msg { padding: .22rem 0; font-size: .6rem; line-height: 1.5; }
+.cl-chat__msg { padding: .28rem 0; font-size: .7rem; line-height: 1.55; }
 .cl-chat__msg + .cl-chat__msg { border-top: 1px dotted var(--hairline-2); }
 .cl-chat__msg b {
-  display: block; font-family: var(--font-mono); font-size: .5rem;
+  display: block; font-family: var(--font-mono); font-size: .58rem;
   letter-spacing: .12em; color: var(--ink-400);
 }
 .cl-chat__msg--ping b { color: var(--tier-giga, var(--ink-700)); }
 .cl-chat__msg--wait span { color: var(--ink-400); font-style: italic; }
 .cl-chat__form { display: flex; gap: .4rem; }
 .cl-chat__input {
-  flex: 1; font-family: var(--font-mono); font-size: .62rem;
+  flex: 1; font-family: var(--font-mono); font-size: .7rem;
   padding: .4rem .5rem; border-radius: 7px;
   border: 1px solid var(--hairline-2); background: var(--paper); color: var(--ink-900);
 }

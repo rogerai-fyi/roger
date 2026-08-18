@@ -1167,6 +1167,15 @@ test("v29: one recommendation - the goal chip's NEXT row and the strong glow sha
   // the fork is a genuine choice: BOTH are recommended, no winner
   s.micro = 1;
   assert.deepEqual(h.recommendedNextWith(s), [{ kind: "micro" }, { kind: "giga" }]);
+  /* v40: BOTH routes to full coverage are "models done". certItems() has
+     always accepted three Micros as full coverage, but recommendedNext used
+     to return [] on that route - the scale-OUT player silently lost the NEXT
+     row and the Mk glow, and was never pointed at the Mk III line the
+     certificate still demands of them. */
+  s.micro = 3;
+  assert.deepEqual(h.recommendedNextWith(s), [{ kind: "tier", id: "mixer" }],
+    "three Micros is full coverage, so the gear inherits the recommendation");
+  s.micro = 1;
   // after the model ladder, the Mk line inherits the recommendation
   s.giga = true;
   assert.deepEqual(h.recommendedNextWith(s), [{ kind: "tier", id: "mixer" }]);
@@ -1621,8 +1630,15 @@ test("v32: Mk canon - better iron faults less often and services faster, and say
   assert.ok(oven.nextFault >= 14 * 4.0 && oven.nextFault <= 44 * 4.0,
     "a cleared Mk III machine schedules its next fault 4x further out");
   // and the buyer is TOLD what reliability they buy
-  assert.match(js, /faults ~" \+\s*Math\.round\(\(MK_FAULT_MULT\[m\.tier \+ 1\] - 1\) \* 100\)/,
+  /* AMENDED v40. The guarantee is unchanged - the shop row must print the
+     reliability gain OFF THE CANON CONSTANT, never a hand-typed figure. The
+     expression changed because the old one printed a quantity that does not
+     exist: MK_FAULT_MULT is an INTERVAL multiplier, so x4.0 rendered as
+     "faults ~300% less often". The row now states the multiplier itself. */
+  assert.match(js, /MK_FAULT_MULT\[m\.tier \+ 1\] \+ "× longer between faults/,
     "the shop row prints the reliability gain from the canon constants");
+  assert.doesNotMatch(js, /Math\.round\(\(MK_FAULT_MULT\[[^\]]+\] - 1\) \* 100\)/,
+    "and never as a percentage that can exceed 100");
   assert.match(js, /Better iron is easier iron/, "the maintenance card teaches the multipliers");
 });
 
@@ -1982,7 +1998,14 @@ test("v35: Micro runs a remote diagnostic on a fault nobody named", () => {
   oven.auto = true;
   oven.cond = "stuck";
   oven.stopped = true;
-  oven.stoppedFor = h.microDiagSpinup + 1;
+  /* AMENDED v40. The guarantee is unchanged: a visible stop that has STOOD
+     for MICRO_DIAG_SPINUP seconds spins the site brain's diagnostic up. The
+     field it is measured on changed, because the old one could not express
+     it: stoppedFor is a debounce capped at 3s (v32), so `stoppedFor >= 4`
+     was unreachable in a real run and this lock only ever passed on a state
+     the sim cannot reach. downFor is the uncapped duration of the stop. */
+  oven.stoppedFor = 3;   // the debounce says "stopped"...
+  oven.downFor = h.microDiagSpinup + 1;   // ...and this says how long it has stood
   oven.picoRead = { kind: "missed", said: "none" };
   h.stepWith(state, 0.1);
   assert.equal(oven.microDiag, true, "the site brain took the look");
@@ -1999,7 +2022,8 @@ test("v35: the diagnostic waits out the spin-up, so a person can beat it", () =>
   oven.auto = true;
   oven.cond = "stuck";
   oven.stopped = true;
-  oven.stoppedFor = 1;
+  oven.stoppedFor = 3;
+  oven.downFor = 1;   // amended v40 with the gate's field - see the lock above
   oven.picoRead = { kind: "missed", said: "none" };
   h.stepWith(state, 0.1);
   assert.equal(!!oven.microDiag, false, "a fresh stop is still yours to take first");
@@ -2104,4 +2128,118 @@ test("v36: a fully covered plant never waits on a person - either route, measure
     }
     assert.equal(pleas, 0, route + " route: automation covers every fault, no plea frames");
   }
+});
+
+/* ===================================================================== */
+/* v40 - the Micro deadlock, the attribution it printed, and the type    */
+/*       floor. Found by the play bots, not by reading.                  */
+/* ===================================================================== */
+
+test("v40: a Micro-held plant never deadlocks on a fault nobody named", () => {
+  /* THE BUG: v35 gated the remote diagnostic's "a stop nobody explained"
+     trigger on `stoppedFor >= MICRO_DIAG_SPINUP`, but stoppedFor is a v32
+     DEBOUNCE capped at 3 and the spin-up is 4 - so the trigger was dead in
+     every real run. A Micro plant that hit a fault no model named sat
+     stopped forever (450-800s on every seed), with needsHuman() silenced
+     because a Micro was nominally covering it. This lock EXECUTES the whole
+     rescue: a stopped, unnamed fault must reach a diagnostic and clear. */
+  const h = loadHook();
+  const s = h.freshState();
+  s.records = measured.records;
+  s.micro = 1;
+  const oven = s.machines.find((m) => m.id === "oven");
+  oven.auto = true;
+  h.conditionWith(s, "oven", "stuck");
+  oven.picoRead = null; oven.nanoRead = null;   // nobody named it
+  const DT = 1 / 12;
+  let sawDiag = false;
+  for (let i = 0; i < Math.round(240 / DT) && oven.cond !== "none"; i++) {
+    h.stepWith(s, DT);
+    if (oven.microDiag) sawDiag = true;
+  }
+  assert.equal(sawDiag, true, "the site brain took the look on its own");
+  assert.equal(oven.cond, "none", "and the fault actually cleared - no permanent stop");
+
+  // and the spin-up is still a real delay a person can beat
+  const s2 = h.freshState();
+  s2.micro = 1;
+  const ov2 = s2.machines.find((m) => m.id === "oven");
+  ov2.auto = true; ov2.cond = "stuck"; ov2.stopped = true;
+  ov2.stoppedFor = 3; ov2.downFor = h.microDiagSpinup - 1;
+  ov2.picoRead = { kind: "missed", said: "none" };
+  h.stepWith(s2, 0.1);
+  assert.equal(!!ov2.microDiag, false, "under the spin-up it is still yours to take first");
+});
+
+test("v40: an automated save is credited to the automation that actually looked", () => {
+  /* the save line hard-coded "The Unit's inspection" - and m.unitFixed is
+     set by Micro's REMOTE diagnostic too, so a Micro-only plant (which has
+     no robot on the floor at all) was told a robot it never bought saved it */
+  const h = loadHook();
+  const s = h.freshState();
+  s.records = measured.records;
+  s.nano = true; s.micro = 1;
+  const oven = s.machines.find((m) => m.id === "oven");
+  oven.pico = true; oven.auto = true;
+  oven.cond = "stuck"; oven.condAge = 3; oven.stopped = true;
+  oven.stoppedFor = 3; oven.downFor = h.microDiagSpinup + 1;
+  oven.picoRead = { kind: "wrong", said: "none", margin: 3, truth: "stuck" };
+  h.autoWith(s, "oven", 1 / 12);
+  assert.equal(oven.microDiag, true, "the site brain took it");
+  assert.match(oven.autoLookBy, /remote diagnostic/, "and it signed the look");
+  const saves = s.humanSaves;
+  h.clearWith(s, "oven");
+  assert.equal(s.humanSaves, saves, "still no medal for automation");
+  assert.match(s.log[0], /remote diagnostic caught what both models missed/,
+    "the radio names the site brain, not a Unit this plant does not have");
+  assert.doesNotMatch(s.log[0], /The Unit/,
+    "a Micro-only plant is never told a robot walked over");
+});
+
+test("v40: locked affordances stay quiet until they are close to reachable", () => {
+  /* three dead LET THE MODELS DRIVE buttons and three "unlocks with WAVE
+     MICRO" notes rendered from the first second, two rungs before the
+     purchase - noise over an opening whose whole lesson is reading the dial
+     yourself. The destination still shows before it unlocks, from the desk. */
+  assert.match(js, /if \(autonomyReach\(\) === 0 && G\.nano\) \{/,
+    "the ghost handover waits for the desk model that makes Micro the next rung");
+  assert.match(js, /unlocks with WAVE MICRO/, "and still names the destination when it shows");
+  // the shop never hides what it sells - Micro is listed the whole time
+  assert.match(js, /var locked = \(id !== "nano" && !G\.nano\) \? "NEEDS NANO" : "";/,
+    "the shop lists Micro from the start, marked with what it needs");
+});
+
+test("v40: the maintenance verbs say what they cost, in one grammar", () => {
+  /* free-vs-paid was encoded ONLY as dashed-vs-solid borders - a distinction
+     nothing on the page explains, and one this site already spends on
+     "empty slot" (buy tags, the Pico mount) */
+  for (const label of ["RESTART \\u00b7 FREE", "CLEAN \\u00b7 FREE", "INSPECT \\u00b7 FREE"]) {
+    assert.ok(js.includes(label), label.replace("\\u00b7", "·") + " prints its price");
+  }
+  assert.match(js, /"SERVICE \\u00b7 " \+ SERVICE_COST/, "and the paid ones print the figure");
+  assert.match(js, /"RECAL \\u00b7 " \+ VERBS\.recal\.cost/);
+  // the card's cost column uses the same grammar on every row
+  assert.match(js, /"FREE · " \+ VERBS\.restart\.secs \+ "s down"/);
+  assert.match(js, /"FREE · " \+ INSPECT_SECS \+ "s down · never locks"/);
+});
+
+test("v40: the type floor - what a visitor must READ is readable", () => {
+  /* ~68 declarations under .6rem, with the honesty footer - the single most
+     important disclaimer on the deck - a two-line 10px grey paragraph. */
+  const prose = [
+    [/\.cl-note \{[^}]*font-size: \.78rem/, "the RECORDED REPLAY honesty footer"],
+    [/\.cl-say__why, \.cl-say__fix \{ font-size: \.7rem/, "what the models say"],
+    [/\.cl-say__prov \{[^}]*font-size: \.6rem/, "the replayed-record provenance"],
+    [/\.cl-view__note \{[^}]*font-size: \.62rem/, "the per-tier no-recorded-run caveats"],
+    [/\.cl-maint__row \{[^}]*font-size: \.66rem/, "the maintenance doctrine"],
+    [/\.cl-maint__note \{ font-size: \.66rem/, "the lockout rule"],
+    [/\.cl-slot__hint \{[^}]*font-size: \.62rem/, "the no-model line"],
+    [/\.cl-chat__sub \{[^\n]*\n?[^}]*font-size: \.7rem/, "the plant radio's privacy note"],
+  ];
+  for (const [re, what] of prose) assert.match(css, re, what + " is above the floor");
+  // nothing a visitor must read is left under .6rem
+  const small = [...css.matchAll(/font-size: (\.[0-9]+)rem/g)]
+    .map((m) => Number(m[1])).filter((v) => v < 0.6);
+  assert.ok(small.length <= 32,
+    "the sub-.6rem population is short mono LABELS only, not prose (was 68)");
 });

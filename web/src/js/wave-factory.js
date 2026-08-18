@@ -277,7 +277,7 @@
       lastTrustedSet: null, chaseFrom: null, chaseErr: null,
       senseSuspect: false, heldForFlag: false, gigaGas: 0,
       buffer: 0,
-      stopped: false, stoppedFor: 0,
+      stopped: false, stoppedFor: 0, downFor: 0,
       spec: spec,
     };
   }
@@ -638,6 +638,7 @@
        automation line must never narrate the wrong fault. */
     m.autoNote = ""; m.autoNoteAt = 0; m.autoTier = "";
     m.unitJob = null; m.unitInspecting = false; m.unitFixed = false; m.inspectedBy = null; m.microDiag = false;
+    m.autoLookBy = null;
     m.wordBurned = false;
     G.incidents.open += 1;
     tape("fault", { m: m.id, kind: pick,
@@ -687,8 +688,15 @@
          v32: NEVER for a save the Unit's auto-inspection set up. The robot
          finding what the models missed is plant maintenance, not a medal. */
       if (chainMissed(m) && m.unitFixed) {
-        tape("unit-save", { m: m.id, record: m.sample ? m.sample.record.node_id : null });
-        addLog("The Unit's inspection caught what both models missed on the " +
+        /* v40: say WHO. m.unitFixed is set by the Unit's walk AND by
+           Micro's remote diagnostic, and this line hard-coded "The Unit" -
+           so a Micro-only plant, which has no robot on the floor at all,
+           was told a robot it never bought had saved it. autoLookBy is
+           written by whichever automation actually took the look. */
+        tape("unit-save", { m: m.id, by: m.autoLookBy || "the Unit",
+          record: m.sample ? m.sample.record.node_id : null });
+        addLog((m.autoLookBy || "The Unit's inspection") +
+          " caught what both models missed on the " +
           m.spec.name.toLowerCase() + " - still a recorded miss on the books.");
       } else if (chainMissed(m)) {
         G.humanSaves += 1;
@@ -707,6 +715,7 @@
     m.nanoDirect = false;
     m.inspected = false; m.inspecting = 0;
     m.unitJob = null; m.unitInspecting = false; m.unitFixed = false; m.inspectedBy = null; m.microDiag = false;   // v32
+    m.autoLookBy = null;
     m.wordBurned = false;
     m.senseSuspect = false; m.heldForFlag = false;   // trust returns with the fix
     m.chaseFrom = null; m.chaseErr = null;
@@ -1047,11 +1056,12 @@
         (!m.unitJob || unitTied) && (!G.giga || unitTied)) {
       var awM = autoWord(m);
       var distrustM = !!sensorFlagged(m) ||
-        (m.stopped && m.stoppedFor >= MICRO_DIAG_SPINUP);
+        (m.stopped && (m.downFor || 0) >= MICRO_DIAG_SPINUP);
       if (distrustM && (!awM || !awM.actable || m.lockout > 0)) {
         if (m.unitJob) m.unitJob = null;   // the site brain takes it over
         m.microDiag = true;
         m.unitFixed = true;   // automation's save, never a person's credit
+        m.autoLookBy = holderOf(m) + "'s remote diagnostic";
         m.inspecting = verbSecsFor(m, INSPECT_SECS * MICRO_DIAG_MULT);
         m.autoNote = holderOf(m) + " is running a remote diagnostic - " +
           Math.ceil(m.inspecting) + "s, no walk needed";
@@ -1110,7 +1120,7 @@
         m.servicing = 0;
         clearCondition(m);
         m.drift = 0;
-        m.stoppedFor = 0;
+        m.stoppedFor = 0; m.downFor = 0;
       }
       return false;
     }
@@ -1128,7 +1138,7 @@
       if (m.restarting <= 0) {
         var verb = VERBS[m.fixVerb] || VERBS.restart;
         m.restarting = 0;
-        m.stoppedFor = 0;
+        m.stoppedFor = 0; m.downFor = 0;
         if (m.cond === "none") {
           tape("verb", { m: m.id, verb: m.fixVerb, outcome: "nothing-wrong", tries: m.verbTries });
           addLog(m.spec.name + " " + verb.label.toLowerCase() + " done - nothing was wrong. " +
@@ -1190,7 +1200,7 @@
       m.stopped = true;
       if (m.inspecting <= 0) {
         m.inspecting = 0;
-        m.stoppedFor = 0;
+        m.stoppedFor = 0; m.downFor = 0;
         m.inspected = m.cond !== "none";
         m.inspectedBy = m.unitInspecting ? "unit" : m.microDiag ? "micro" : "you";
         tape("inspected", { m: m.id, found: m.cond, by: m.inspectedBy });
@@ -1302,6 +1312,18 @@
     if (!ok) { m.stoppedFor = Math.min(3, m.stoppedFor + dt); }
     else { m.stoppedFor = Math.max(0, m.stoppedFor - dt * 2); }
     m.stopped = m.stoppedFor > 1.2;
+    /* v40 - HOW LONG THIS STOP HAS STOOD, uncapped. stoppedFor above is a
+       DEBOUNCE capped at 3s, so v35's Micro spin-up gate (stoppedFor >=
+       MICRO_DIAG_SPINUP, which is 4) could never be true in a real run: the
+       remote diagnostic's "a stop nobody explained" trigger was dead, and a
+       Micro-held plant that hit a fault no model named sat stopped FOREVER
+       (measured on every seed by the play bots - machines held at cond
+       stuck for 450-800s with lockout 0, no verb running, and needsHuman()
+       silenced because a Micro was supposedly covering it). This counter is
+       the honest duration of the visible stop, and it is what the spin-up
+       reads; a finished verb restarts it, so the diagnostic never re-fires
+       the instant a retry fails. */
+    m.downFor = m.stopped ? (m.downFor || 0) + dt : 0;
     if (m.stopped && m.cond !== "none") m.hadStop = true;
     autoAdjust(m, dt);
     return ok;
@@ -1493,7 +1515,13 @@
     if (!G.giga) {
       if (G.micro === 0) return [{ kind: "micro" }];
       if (G.micro < MICRO_MAX) return [{ kind: "micro" }, { kind: "giga" }];
-      return [];               // full coverage by quantity - gear from here
+      /* v40: THREE MICROS IS "MODELS DONE" TOO, and the recommendation has
+         to agree with the certificate. certItems() accepts either route to
+         full coverage ("Giga, or three Micros"), but this branch used to
+         return [] on the Micro route - so a player who scaled OUT lost the
+         NEXT row and the Mk tags' strong glow for the rest of the campaign,
+         and was never pointed at the Mk III line the certificate still
+         demands. It falls through to the gear now, exactly like Giga. */
     }
     // models done: the certificate's Mk III line is the next purchase
     for (var j = 0; j < G.machines.length; j++) {
@@ -1842,6 +1870,7 @@
       m.unitJob = null;
       m.unitInspecting = true;
       m.unitFixed = true;              // this save belongs to the robot, not a person
+      m.autoLookBy = "The Unit's inspection";
       m.inspecting = verbSecsFor(m, INSPECT_SECS);
       m.autoNote = "the Unit is inspecting - " + m.inspecting + "s to look";
       m.autoNoteAt = G.elapsed; m.autoTier = "giga";
@@ -2498,11 +2527,15 @@
     var maint = el("details", "cl-maint");
     maint.appendChild(el("summary", null, "MAINTENANCE CARD · what fixes what"));
     var mt = el("div", "cl-maint__rows");
-    [["ADJUST (the dial)", "process out of its band - too fast, too hot", "free · never locks"],
-     ["RESTART", "a stuck or dropped-out sensor, usually; noise rarely", VERBS.restart.secs + "s down"],
-     ["CLEAN", "a noisy pickup (interference, dirt) - nothing else", VERBS.clean.secs + "s down"],
+    /* v40: the cost column leads with the PRICE on every row, in the same
+       grammar the buttons now use ("FREE" or a coin figure). The old column
+       mixed "free" on one row with a bare downtime on the next, so which
+       verbs actually cost money had to be inferred from what was missing. */
+    [["ADJUST (the dial)", "process out of its band - too fast, too hot", "FREE · no downtime · never locks"],
+     ["RESTART", "a stuck or dropped-out sensor, usually; noise rarely", "FREE · " + VERBS.restart.secs + "s down"],
+     ["CLEAN", "a noisy pickup (interference, dirt) - nothing else", "FREE · " + VERBS.clean.secs + "s down"],
      ["RECALIBRATE", "a drifting sensor, specifically", VERBS.recal.cost + " coins · " + VERBS.recal.secs + "s down"],
-     ["INSPECT", "fixes nothing - reveals what is actually wrong", INSPECT_SECS + "s down · never locks"],
+     ["INSPECT", "fixes nothing - reveals what is actually wrong", "FREE · " + INSPECT_SECS + "s down · never locks"],
      ["SERVICE", "everything, railed included - the sure thing", SERVICE_COST + " coins (loan if short) · " + SERVICE_SECS + "s down"],
     ].forEach(function (row) {
       var r = el("div", "cl-maint__row");
@@ -2515,9 +2548,14 @@
     maint.appendChild(el("p", "cl-maint__note",
       "If you pick a verb the card says is wrong and it fails, that machine's maintenance locks for " +
       LOCKOUT_SECS + "s. Nano quotes this card instantly. INSPECT learns it the slow way. " +
-      "Better iron is easier iron. Mk II machines fault ~" + Math.round((MK_FAULT_MULT[1] - 1) * 100) +
-      "% less often, and every verb runs " + Math.round((1 - MK_VERB_MULT[1]) * 100) + "% quicker. " +
-      "Mk III machines fault ~" + Math.round((MK_FAULT_MULT[2] - 1) * 100) + "% less often, with verbs " +
+      /* v40 ARITHMETIC FIX: MK_FAULT_MULT is an INTERVAL multiplier, so the
+         old copy turned x4.0 into "~300% less often" - which is not a
+         quantity that exists. It is stated as the multiplier it literally
+         is, which cannot be miscomputed. */
+      "Better iron is easier iron. A Mk II runs " + MK_FAULT_MULT[1] +
+      "× longer between faults, and every verb runs " +
+      Math.round((1 - MK_VERB_MULT[1]) * 100) + "% quicker. A Mk III runs " +
+      MK_FAULT_MULT[2] + "× longer between faults, with verbs " +
       Math.round((1 - MK_VERB_MULT[2]) * 100) + "% quicker."));
     root.appendChild(maint);
 
@@ -2786,20 +2824,26 @@
        live even through a lockout; SERVICE is the sure thing that invoices.
        Choosing a verb the doctrine rules out locks maintenance for a minute -
        the price of guessing when you could have asked. */
+    /* v40 - FREE-VS-PAID IS A WORD, not a border style. The row encoded it
+       as dashed-vs-solid, which nothing on the page explains and which this
+       site already spends on "empty slot" (buy tags, the Pico mount). Every
+       verb now carries its price in one grammar - "· FREE" or "· 10" - so
+       the cheapest correct move is readable at a glance; the dashed edge
+       stays as a quiet echo of the same fact, no longer the only carrier. */
     var acts = el("div", "cl-acts");
-    s.restart = btn("RESTART", "cl-act cl-act--restart", function () { restart(m.id); });
+    s.restart = btn("RESTART \u00b7 FREE", "cl-act cl-act--restart", function () { restart(m.id); });
     s.restart.title = "Free, " + VERBS.restart.secs + "s down. Usually re-seats a stuck or " +
       "dropped-out sensor; rarely helps noise; never fixes drift or railing.";
-    s.clean = btn("CLEAN", "cl-act cl-act--clean", function () { clean(m.id); });
+    s.clean = btn("CLEAN \u00b7 FREE", "cl-act cl-act--clean", function () { clean(m.id); });
     s.clean.title = "Free, " + VERBS.clean.secs + "s down. Clears a noisy pickup " +
       "(interference, dirt) - and nothing else.";
     s.recal = btn("RECAL · " + VERBS.recal.cost, "cl-act cl-act--recal", function () { recal(m.id); });
     s.recal.title = VERBS.recal.cost + " coins, " + VERBS.recal.secs + "s down. THE fix for a " +
       "drifting sensor; useless against anything else.";
-    s.inspect = btn("INSPECT", "cl-act cl-act--inspect", function () { inspect(m.id); });
+    s.inspect = btn("INSPECT \u00b7 FREE", "cl-act cl-act--inspect", function () { inspect(m.id); });
     s.inspect.title = "Free, " + INSPECT_SECS + "s down, fixes nothing: you look at the sensor " +
       "and learn what is actually wrong - what Nano tells you instantly. Never locked out.";
-    s.service = btn("SERVICE", "cl-act cl-act--service", function () { service(m.id); });
+    s.service = btn("SERVICE \u00b7 " + SERVICE_COST, "cl-act cl-act--service", function () { service(m.id); });
     s.service.title = "Always fixes everything, railed included. Costs " + SERVICE_COST +
       " coins - taken on loan if the wallet is short.";
     s.upgrade = btn("UPGRADE", "cl-act", function () { buyTier(m.id); });
@@ -3276,8 +3320,16 @@
     /* THE HANDOVER, per machine: once a desk model can hold a knob, the
        player may give this one away - and take it back at any time. Before
        any model can, the toggle still shows, locked - so the destination
-       (a plant that drives itself) is visible from minute one. */
-    if (autonomyReach() === 0) {
+       (a plant that drives itself) is visible before it unlocks.
+       v40 - QUIET UNTIL IT IS CLOSE. The locked row used to render from the
+       first second, on all three machines: three dead buttons and three
+       "unlocks with WAVE MICRO" notes advertising a purchase two rungs away,
+       stacked under a deck whose whole opening lesson is "read the dial
+       yourself". It now waits for the desk: with Nano bought, Micro IS the
+       next rung (recommendedNext agrees), so the destination shows exactly
+       when it becomes buyable. Nothing is hidden from the shop meanwhile -
+       the overlay lists Micro the whole time, marked NEEDS NANO. */
+    if (autonomyReach() === 0 && G.nano) {
       var ghost = el("div", "cl-auto is-locked");
       var gb = btn("LET THE MODELS DRIVE", "cl-auto__btn", null);
       gb.disabled = true;
@@ -3384,14 +3436,16 @@
         b.textContent = lockTxt;
         b.disabled = true;
       });
-      s.inspect.textContent = m.inspecting > 0 ? "INSPECTING " + m.inspecting.toFixed(0) + "s" : "INSPECT";
+      s.inspect.textContent = m.inspecting > 0
+        ? "INSPECTING " + m.inspecting.toFixed(0) + "s" : "INSPECT \u00b7 FREE";
       s.inspect.disabled = busy;
     } else {
       var running = m.restarting > 0 ? m.fixVerb : null;
-      s.restart.textContent = running === "restart" ? "RESTARTING\u2026" : "RESTART";
-      s.clean.textContent = running === "clean" ? "CLEANING\u2026" : "CLEAN";
+      s.restart.textContent = running === "restart" ? "RESTARTING\u2026" : "RESTART \u00b7 FREE";
+      s.clean.textContent = running === "clean" ? "CLEANING\u2026" : "CLEAN \u00b7 FREE";
       s.recal.textContent = running === "recal" ? "RECAL\u2026" : "RECAL \u00b7 " + VERBS.recal.cost;
-      s.inspect.textContent = m.inspecting > 0 ? "INSPECTING " + Math.ceil(m.inspecting) + "s" : "INSPECT";
+      s.inspect.textContent = m.inspecting > 0
+        ? "INSPECTING " + Math.ceil(m.inspecting) + "s" : "INSPECT \u00b7 FREE";
       s.service.textContent = m.servicing > 0 ? "SERVICING " + m.servicing.toFixed(1) + "s"
         : "SERVICE \u00b7 " + SERVICE_COST;
       [s.restart, s.clean, s.recal, s.inspect, s.service].forEach(function (b) { b.disabled = busy; });
@@ -3588,8 +3642,10 @@
         does: "top tier · band " + cur.lo + "-" + cur.hi,
         /* v32 Mk canon, surfaced: a buyer should know the reliability they
            are buying, not just the speed */
-        promise: next ? "faster, wider band (" + next.lo + "-" + next.hi + ") - and better iron: faults ~" +
-          Math.round((MK_FAULT_MULT[m.tier + 1] - 1) * 100) + "% less often, every verb " +
+        /* v40: the same interval-multiplier fix as the maintenance card -
+           the shop was selling "~300% less often" on a Mk III row. */
+        promise: next ? "faster, wider band (" + next.lo + "-" + next.hi + ") - and better iron: " +
+          MK_FAULT_MULT[m.tier + 1] + "× longer between faults, every verb " +
           Math.round((1 - MK_VERB_MULT[m.tier + 1]) * 100) + "% quicker" : "",
         price: next ? "UPGRADE · " + next.price : "",
         cost: next ? next.price : 0,
@@ -4143,6 +4199,13 @@
   function toggleRun() { G.running = !G.running; lastT = 0; paint(); }
 
   function resetGame() {
+    /* v40: the tape is a SESSION tape - its download button promises "every
+       event of this run". A reset used to leave the old run's events in the
+       buffer while the run clock restarted at 0, so a downloaded file
+       carried two interleaved timelines under one run's summary. Save the
+       finished run the way leaving the page does, then start a clean tape. */
+    persistTape();
+    TAPE.length = 0;
     G = freshState();
     beginRun(G);                 // a real run always opens with the lesson
     var host = document.getElementById("wfGame");
