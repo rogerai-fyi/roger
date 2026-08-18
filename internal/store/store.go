@@ -1663,7 +1663,15 @@ func (m *Mem) DeleteAccount(login string) (bool, error) {
 	defer m.mu.Unlock()
 	for pk, o := range m.owners {
 		if o.Login == login && !o.Anonymized {
+			// Clear every identifier, not just the two that used to go: privacy.html
+			// promises the GitHub id, the Apple sub, the name, and the address are all
+			// removed. Mirrors Postgres.DeleteAccount - see the note there for why
+			// nothing downstream misses them.
 			o.Email = ""
+			o.EmailVerifiedAt = 0
+			o.Name = ""
+			o.GitHubID = 0
+			o.AppleSub = ""
 			o.Login = "deleted_" + pk[:min(8, len(pk))]
 			o.Anonymized = true
 			o.DeletedAt = time.Now().Unix()

@@ -15,18 +15,37 @@
       <p>RogerAI is the platform behind rogerai.fm and the broker at broker.rogerai.fm. It
         routes prompts to self-hosted nodes and settles pay-per-token between consumers and
         node operators. This page covers the data the platform itself handles. Stripe (our
-        payments provider) and GitHub (our login provider) handle data under their own
-        policies, linked below. Groq (our moderation provider) also processes prompt text for
+        payments provider) and our sign-in providers - GitHub, Apple, and the service that
+        mails your sign-in code - handle data under their own policies, linked below. Groq (our moderation provider) also processes prompt text for
         a transient safety screen, described under "Prompt content and the safety screen".</p>
     </section>
 
     <section class="panel">
       <h2>Account and identity</h2>
-      <p>You sign in with GitHub OAuth. From GitHub we receive and store your numeric GitHub
-        user id and your login (handle), and - only if you choose to save one - a contact
-        email. We do not receive or store your GitHub password. Your avatar is loaded
-        directly from GitHub's public avatar CDN by your numeric id; we do not copy or host
-        it.</p>
+      <p>There are three ways to sign in, and each leaves a different amount behind. We never
+        receive or store a password for any of them.</p>
+      <p><b>GitHub.</b> We receive and store your numeric GitHub user id, your login (handle),
+        and your display name if you have set one. Only if you choose to save one do we store
+        a contact email. Your avatar is never copied or hosted by us - the page loads it
+        straight from GitHub's public avatar CDN by your numeric id, and only for accounts
+        that have a GitHub handle.</p>
+      <p><b>Apple.</b> Sign in with Apple gives us one identifier: the app-scoped
+        <code>sub</code> Apple issues for RogerAI. It is not your Apple ID, and it is specific
+        to us. If you let Apple share an address we store it as your contact email - including
+        Apple's private relay address, if that is the one you chose. Apple sends your name
+        only on the very first sign-in; we keep it to address the welcome email. Apple accounts
+        have no avatar and nothing is loaded from Apple.</p>
+      <p><b>Email.</b> We mail a short code to the address you type and you send it back.
+        While a code is outstanding we store <i>hashes only</i> - one of the address, one of
+        the code - never the code itself, and the record expires ten minutes after it is
+        issued. We also count recent requests per address and per sender, to stop our mailer
+        being used to flood someone's inbox. Once you complete the round trip we record the
+        address and the moment it was verified. A verified address is an identity; an address
+        you merely typed into your profile is not, and we never resolve a sign-in against
+        one.</p>
+      <p>One account can carry more than one of these. Linking GitHub and Apple on the same
+        device key, or verifying an address a provider already gave us, joins them into a
+        single account with a single wallet rather than quietly creating a second.</p>
     </section>
 
     <section class="panel">
@@ -108,8 +127,9 @@
       <p>We use a single cookie: a signed, http-only session cookie set by the broker after
         you log in. It is not readable by JavaScript and no access tokens are ever exposed to
         the page. We do not use advertising or third-party tracking cookies. Your browser may
-        send GitHub's own cookies when loading your avatar from GitHub's CDN; that is GitHub's
-        cookie, not ours.</p>
+        send GitHub's own cookies when loading a GitHub avatar from GitHub's CDN; that is
+        GitHub's cookie, not ours, and it does not happen at all on an Apple or email
+        account.</p>
     </section>
 
     <section class="panel">
@@ -126,15 +146,20 @@
       <p>You control your data from the <a href="/account.html">Account</a> page.</p>
       <p><b>Export.</b> "Export my data" calls <code>POST /account/export</code> and downloads
         a JSON copy of the account data we hold for you.</p>
-      <p><b>Delete.</b> "Delete account" calls <code>POST /account/delete</code>. It anonymizes
-        your identity (your GitHub id, login, and email are removed or scrambled) while
-        retaining de-identified financial records for the legal window described above. The
-        action cannot be undone.</p>
+      <p><b>Delete.</b> "Delete account" calls <code>POST /account/delete</code>. Every
+        identifier that could name you or sign you back in is cleared: your GitHub id and
+        handle, your Apple <code>sub</code>, your name, and your email address. The handle is
+        replaced with an opaque marker so it can never be resolved again, and no sign-in route
+        - GitHub, Apple, or email - can reach the account afterwards. What remains are
+        de-identified financial records, keyed only by the account's public key, kept for the
+        legal window described above. The action cannot be undone, and it is refused while you
+        still hold a balance, unswept earnings, or an open dispute - settle those first.</p>
     </section>
 
     <section class="panel">
       <h2>Third parties</h2>
-      <p>The processors we rely on: <b>GitHub</b> (login and avatars),
+      <p>The processors we rely on: <b>GitHub</b> (sign-in and avatars), <b>Apple</b>
+        (Sign in with Apple), <b>Resend</b> (delivering sign-in codes and account notices),
         <b>Stripe</b> (payments, payouts, KYC), <b>Groq</b> (the pre-dispatch safety screen
         described above, and Ping's fallback - prompt text is sent to Groq for those checks
         and replies), and our hosting provider (serving the site and broker). Each handles

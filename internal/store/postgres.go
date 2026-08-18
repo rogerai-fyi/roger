@@ -1395,11 +1395,19 @@ func (p *Postgres) SetConnect(login, connectID, status string) error {
 }
 
 func (p *Postgres) DeleteAccount(login string) (bool, error) {
-	// Soft-delete + anonymize: scrub email/login, mark deleted. Financial rows
+	// Soft-delete + anonymize: scrub EVERY identifier, mark deleted. Financial rows
 	// (ledger, receipts, earning_lots, payouts) are retained, de-identified by the
 	// opaque pubkey. The login is replaced so it can never be resolved again.
+	//
+	// The provider ids go too - github_id, apple_sub - and so do the name and the
+	// verification stamp. Marking the row anonymized already makes it unreachable (every
+	// OwnerBy* lookup filters on it), but "unreachable" is not "deleted", and privacy.html
+	// tells the user each of these is cleared. Nothing reads them afterwards: github_id is
+	// not a lookup key at all here, apple_sub and the verified email are, and both are
+	// gated on NOT anonymized. github_id is NOT NULL, hence 0 rather than NULL.
 	res, err := p.db.Exec(`UPDATE rogerai.owners
-		SET email=NULL, login='deleted_'||left(md5(pubkey),8), anonymized=true, deleted_at=now()
+		SET email=NULL, email_verified_at=NULL, name=NULL, github_id=0, apple_sub=NULL,
+		    login='deleted_'||left(md5(pubkey),8), anonymized=true, deleted_at=now()
 		WHERE login=$1 AND NOT COALESCE(anonymized,false)`, login)
 	if err != nil {
 		return false, err

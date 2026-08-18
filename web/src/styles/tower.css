@@ -187,7 +187,10 @@
   border-bottom: 1px solid var(--hairline);
 }
 .run__k {
-  flex: 0 0 12ch;
+  /* 15ch, not 12: "LINUX - AMD64" is 13 characters before the .04em tracking, and at
+     12ch it wrapped the platform onto a second line under the label. The row still
+     wraps as a whole on a narrow screen - that is flex-wrap's job, not the key's. */
+  flex: 0 0 15ch;
   font-family: var(--font-mono);
   font-size: var(--t-sm);
   letter-spacing: .04em;
