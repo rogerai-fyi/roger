@@ -34,13 +34,13 @@
   // Representative band readouts to sweep through (marketing data; the real,
   // live dial is on /models.html). model, stations, signal, rate $/1M, t/s.
   var BANDS = [
-    { m: "qwen3-coder-30b", stn: 7, sig: 87, rate: "$0.22", tps: 61, idle: false },
-    { m: "mixtral-8x7b",    stn: 6, sig: 82, rate: "$0.18", tps: 88, idle: false },
-    { m: "qwen3-72b",       stn: 4, sig: 74, rate: "$0.38", tps: 73, idle: false },
-    { m: "gpt-oss-120b",    stn: 3, sig: 66, rate: "$0.55", tps: 66, idle: false },
-    { m: "llama3.3-70b",    stn: 5, sig: 61, rate: "$0.31", tps: 44, idle: false },
-    { m: "gemma3-27b",      stn: 4, sig: 57, rate: "$0.27", tps: 57, idle: false },
-    { m: "mistral-large",   stn: 0, sig: 0,  rate: "-",     tps: 0,  idle: true  }
+    { m: "qwen3.6-27b",        stn: 9, sig: 91, rate: "$0.19", tps: 68, idle: false },
+    { m: "muse-glimmer-30b",   stn: 7, sig: 84, rate: "$0.24", tps: 59, idle: false },
+    { m: "qwen3-coder-30b",    stn: 6, sig: 79, rate: "$0.22", tps: 61, idle: false },
+    { m: "gpt-oss-120b",       stn: 3, sig: 68, rate: "$0.55", tps: 66, idle: false },
+    { m: "gemma3-27b",         stn: 5, sig: 62, rate: "$0.27", tps: 57, idle: false },
+    { m: "kimi-k2.6",          stn: 2, sig: 55, rate: "$0.94", tps: 31, idle: false },
+    { m: "mistral-large",      stn: 0, sig: 0,  rate: "-",     tps: 0,  idle: true  }
   ];
 
   var rows = listEl ? listEl.querySelectorAll(".teaser__band") : [];

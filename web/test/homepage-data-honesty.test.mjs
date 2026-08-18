@@ -36,7 +36,11 @@ test("the hard-coded tuner is a dated historical interface sample, never a live 
   const hero = home().match(/<section class="hero">[\s\S]*?<\/section>/)?.[0] || "";
   const teaser = hero.match(/<a class="teaser"[\s\S]*?<\/a>/)?.[0] || "";
   assert.match(compact(teaser), /historical interface sample/i);
-  assert.match(compact(teaser), /authored July 2026/i);
+  /* AMENDED 2026-08-18: the sample's model list was refreshed to models people
+     actually run now, so the date it was authored moved with it. The guarantee
+     is the date itself - a dated, explicitly not-live sample cannot be mistaken
+     for the live dial - not any particular month. */
+  assert.match(compact(teaser), /authored August 2026/i);
   assert.match(compact(teaser), /not live/i);
   assert.match(teaser, /href="\/models\.html"/);
 });
