@@ -56,6 +56,12 @@
   var SPAN  = 14.5;            // seconds for one full pass
   var GAP   = 2.4;             // tier-units of quiet between Exa and Pico
   var TOTAL = 7 + GAP;         // the ring, in tier-units
+  /* WHERE THE PASS BEGINS (founder: "start how it ends"). The ring starts in
+     the middle of the QUIET gap, not on a tier - so the mark eases in the way
+     it eases out, every wave faint and no name up, and Wave Pico rises into
+     view a beat later. Starting at phase 0 opened on Pico at full charge,
+     which read as a hard cut the moment the mark scrolled into view. */
+  var START = (7 + GAP / 2) / TOTAL;   // 0..1, mid-gap
 
   /* Build the spectrum layer. The resting markup underneath is left exactly
      as authored - it is the no-JS mark and what its locks assert - so this
@@ -157,7 +163,7 @@
 
   function frame(now) {
     if (!running) return;
-    var u = ((now - start) / 1000 % SPAN) / SPAN;   // one loop, 0 -> 1
+    var u = (START + ((now - start) / 1000 % SPAN) / SPAN) % 1;   // one loop, from mid-gap
     var phase = u * TOTAL;
     var lead = null, best = 0;
 
