@@ -824,6 +824,14 @@
      ends with you - no site brain bought, or you kept the knob. The badge,
      the button glow, and the locks all read this one function. */
   function needsHuman(m) {
+    /* v39 (founder): the NEEDS YOU badge is a MODEL telling you it has run
+       out of road - so with no models on the line at all there is nobody to
+       say it, and nothing should hint at what to press. Before any model is
+       bought the plant is exactly what the opening promises: you, reading
+       raw dials, deciding for yourself. */
+    var anyModel = G.nano || G.micro > 0 || G.giga ||
+      G.machines.some(function (x) { return x.pico; });
+    if (!anyModel) return false;
     if (m.cond === "none" || m.inspected) return false;
     if (m.servicing > 0 || m.restarting > 0 || m.inspecting > 0) return false;
     if (!(m.stopped || sensorFlagged(m))) return false;

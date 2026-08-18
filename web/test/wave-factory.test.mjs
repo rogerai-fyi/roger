@@ -2019,6 +2019,28 @@ test("v35: a finished diagnostic is attributed to the site brain", () => {
   assert.equal(oven.microDiag, false, "and the flag is spent");
 });
 
+test("v39: with no models on the line, nothing hints at what to press", () => {
+  /* founder: "the human highlight yellow thing should only happen only if at
+     least one model is installed - say i have no model, nothing should hint
+     on what to press." The badge is a MODEL saying it has run out of road;
+     before the first purchase there is nobody to say it. */
+  const h = loadHook();
+  const state = h.freshState();
+  const oven = state.machines.find((m) => m.id === "oven");
+  oven.cond = "stuck";
+  oven.stopped = true;
+  assert.equal(state.nano, false, "a fresh line owns nothing");
+  assert.equal(h.needsHumanWith(state, "oven"), false,
+    "a dead machine on a modelless line raises no badge");
+  oven.pico = true;
+  assert.equal(h.needsHumanWith(state, "oven"), true,
+    "one Pico on any machine is enough for the line to speak");
+  oven.pico = false;
+  state.nano = true;
+  assert.equal(h.needsHumanWith(state, "oven"), true,
+    "so is a Nano at the desk");
+});
+
 test("v35: needsHuman survives only where the ladder truly ends with you", () => {
   const h = loadHook();
   const state = h.freshState();
@@ -2026,8 +2048,11 @@ test("v35: needsHuman survives only where the ladder truly ends with you", () =>
   oven.cond = "stuck";
   oven.stopped = true;
   oven.picoRead = { kind: "missed", said: "none" };
+  /* v39: a model must be on the line before the badge can appear at all -
+     this case is about WHICH model, so give it the cheapest one. */
+  oven.pico = true;
   assert.equal(h.needsHumanWith(state, "oven"), true,
-    "no models bought, a stop nobody explains: yours");
+    "a Pico that missed, a stop nobody explains: yours");
   state.micro = 1; oven.auto = true;
   assert.equal(h.needsHumanWith(state, "oven"), false,
     "a site brain on the knob takes it instead");
