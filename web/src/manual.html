@@ -1193,17 +1193,25 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
             </div>
 
             <h3>Pre-dispatch safety screen</h3>
-            <p>The broker is the one choke point every prompt passes through, so it is where
-              illegal content (CSAM and the like) is blocked <b>before</b> it ever reaches a
-              provider. Before a prompt is relayed to a station - and on the public Ping
-              concierge on the site - its text is checked against a moderation model. Today
-              that screen runs on an open-weight content-safety model
+            <p>On the path where the broker relays the prompt, the broker is the choke point,
+              so it is where illegal content (CSAM and the like) is blocked <b>before</b> it
+              ever reaches a provider. Before such a prompt is passed to a station - and on the
+              public Ping concierge on the site - its text is checked against a moderation
+              model. Today that screen runs on an open-weight content-safety model
               (<b>gpt-oss-safeguard</b>), served via Groq; the
               check happens <b>in transit</b> (the prompt is not stored for it) but it does
               mean the text is read by the screen, and sent to Groq, at dispatch time. That
               is the one honest exception to the broker being content-blind, and it is
               spelled out on the <a href="privacy.html">privacy page</a>, the
               <a href="tos.html">Terms</a>, and the Acceptable Use Policy.</p>
+            <p><b>Relayed-through-a-Tower traffic is a different story, and not a screened
+              one.</b> A request can also reach a station through a <b>relay</b>, going around
+              the broker entirely: the broker issues an authorization naming a model and some
+              limits and never receives the prompt, which travels encrypted end to end to the
+              station. There is therefore nothing to screen at dispatch, and nothing is
+              screened - enforcement on that path is <b>post-hoc, on a sampled fraction</b>,
+              from signed transcripts the station retains. Any signed-in <code>roger
+              share</code> can serve that way, so it is a live path, not a corner case.</p>
 
             <h3>Report a station</h3>
             <p>If a station serves something off - low quality, the wrong model, or abuse -

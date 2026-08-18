@@ -11,19 +11,45 @@ open tier economically/legally hostile to logging, and (3) offer a tier where th
 *cryptographically cannot* read your data.
 
 ## What RogerAI does today
-1. **Encrypted transport, no inbound.** Everything is TLS/HTTPS; providers dial OUT (no open
-   ports). Prompts are never in cleartext on the wire.
+1. **Encrypted transport, no inbound.** Every consumer-facing surface is TLS/HTTPS, and providers
+   dial OUT (no open ports), so your prompt is never in cleartext on the wire. **One internal link
+   is not yet TLS, and it is not the one carrying your prompt.** When a node serves through a
+   *relay* (below), it long-polls that relay's hub over plain HTTP, because the endpoint format
+   relays advertise cannot currently express a scheme. What rides in the clear there is the
+   *node's own polling credential*, not your content: the job and its answer are sealed
+   end-to-end to keys the relay does not hold, so the relay - and anything on the path - carries
+   ciphertext either way. The exposure is the node operator's, not yours, and the node says so out
+   loud when it joins. This is a known defect with a fix in design, not an accepted design.
 2. **The broker is content-blind.** It relays request bytes but **persists only token counts +
    hashes** in receipts - never prompt or response text. No prompt logging at the broker, ever.
-   The one honest exception is a **transient, pre-dispatch safety screen**: before a prompt is
-   relayed, its text is checked against a moderation model (today **gpt-oss-safeguard**, run on Groq) so we can
-   refuse content we do not allow on the network (see the AUP in the ToS). That screen runs *in
-   transit* - the prompt is not stored for it - but it does mean the text is read by the screen at
-   dispatch time and sent to **Groq, a third-party processor**, for the check. The same applies to
-   the public **Ping** site concierge: a Ping message may be served by a free on-air community
-   station or fall back to **Groq**. Treat Ping as a public, unauthenticated demo, not a private
-   channel. Disclosed in the site privacy policy and ToS; no contradiction with content-blindness -
-   we do not *store* or *read for the marketplace*, the screen is a narrow in-transit exception.
+   The one honest exception is a **transient, pre-dispatch safety screen**, and it applies to
+   **the broker-relayed path only**. See item 2b for the path where it does not.
+
+   On the relayed path, before a prompt is dispatched its text is checked against a moderation
+   model (today **Groq Llama Guard**) so we can refuse content we do not allow on the network (see
+   the AUP in the ToS). That screen runs *in transit* - the prompt is not stored for it - but it
+   does mean the text is read by the screen at dispatch time and sent to **Groq, a third-party
+   processor**, for the check. The same applies to the public **Ping** site concierge: a Ping
+   message may be served by a free on-air community station or fall back to **Groq**. Treat Ping
+   as a public, unauthenticated demo, not a private channel. Disclosed in the site privacy policy
+   and ToS; no contradiction with content-blindness - we do not *store* or *read for the
+   marketplace*, the screen is a narrow in-transit exception.
+
+2b. **Relayed-through-a-Tower traffic is NOT pre-screened, and we will not pretend otherwise.**
+   A second serving path exists: a request can travel from you to the serving node through a
+   *relay* (a "Tower"), which may be run by us or by another operator. On that path the broker
+   never sees your prompt at all - it issues an authorization naming a model and some ceilings,
+   and the prompt and the completion go around it, encrypted end-to-end to the node. That is
+   better for confidentiality and it has a cost we are naming rather than burying: **there is
+   nothing to screen, so nothing is screened before dispatch.** Policy enforcement on that path is
+   entirely **post-hoc, on a sampled fraction**, from signed transcripts the node retains. Content
+   we do not allow can therefore be served and only found afterwards.
+
+   This used to be an opt-in plane a provider had to select with a flag. It is now the default:
+   any signed-in `roger share` offers itself to the relay fabric, and a consumer using the relay
+   API reaches it. So the honest statement is: **a prompt is pre-screened when it is dispatched by
+   the broker, and not when it is relayed around it.** (Same rule, stated for operators, in
+   `docs/tower.md` §8: no user-facing surface may describe edge traffic as pre-screened.)
 3. **Identity pseudonymization (shipped).** Providers never receive your real identity - only a
    per-`(user, node)` pseudonym. A host can count repeat customers but cannot tie usage to a
    person, and two colluding hosts get *different* pseudonyms for the same user, so they can't

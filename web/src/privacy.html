@@ -76,13 +76,24 @@
       <p><b>The broker is content-blind for the marketplace.</b> For a settled request it
         persists only token counts, cost, and hashes in the signed receipt - it does not
         store or read your prompt or the response text, and it never uses them to train
-        models. The one honest exception is a transient, pre-dispatch <b>safety screen</b>:
-        before a prompt is relayed to a node, its text is checked against a moderation model
-        so we can refuse content we do not allow on the network (see the Terms and the
-        Acceptable Use Policy). That screen runs <b>in transit</b> - the prompt is not stored
-        for it - but it does mean the text is read by the screen at dispatch time, and is
-        sent to <b>Groq</b> (below), our moderation provider, as a third party for that
-        check.</p>
+        models. The one honest exception is a transient, pre-dispatch <b>safety screen</b>,
+        and it covers <b>requests the broker relays</b>: before such a prompt is passed to a
+        node, its text is checked against a moderation model so we can refuse content we do
+        not allow on the network (see the Terms and the Acceptable Use Policy). That screen
+        runs <b>in transit</b> - the prompt is not stored for it - but it does mean the text
+        is read by the screen at dispatch time, and is sent to <b>Groq</b> (below), our
+        moderation provider, as a third party for that check.</p>
+      <p><b>Traffic that goes through a relay is not pre-screened.</b> There is a second way a
+        request can reach a node: straight from you to the node through a <b>relay</b> (a
+        "Tower"), which may be ours or another operator's. On that path the broker never
+        receives your prompt - it issues an authorization naming a model and some limits, and
+        the prompt and the answer travel around it, encrypted end to end to the node that
+        serves you. That is better for confidentiality, and the trade is worth saying plainly:
+        <b>there is nothing for the safety screen to read, so nothing is screened before
+        dispatch.</b> Policy enforcement on that path happens <b>afterwards, on a sample</b>,
+        from signed transcripts the serving node keeps. So content we do not allow can be
+        served on that path and only found later. Any signed-in node can serve this way, so
+        treat it as a live path rather than an exotic one.</p>
       <p><b>The one mandatory exception: child sexual abuse material (CSAM).</b> If the safety
         screen flags a prompt as apparent CSAM, US law (18 USC 2258A) requires us to preserve
         the offending request and report it to the National Center for Missing &amp; Exploited
