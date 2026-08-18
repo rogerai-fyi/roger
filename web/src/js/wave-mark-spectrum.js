@@ -99,6 +99,13 @@
     layer.appendChild(t.el);
   });
   var node = svg.querySelector(".wave-mark__node");
+  /* The beacon's pulse is a transform, and an SVG transform scales about the
+     USER-SPACE ORIGIN, not the element's middle - so without an explicit
+     origin the dot walks right and down as it breathes, off the crossing the
+     whole mark is about. wave-family.css sets this for the big mark; pages
+     that only carry the component (the Labs page) do not load that file, so
+     the mark sets it itself and is correct wherever it is dropped. */
+  if (node) node.style.transformOrigin = CX + "px " + CY + "px";
   svg.insertBefore(layer, node || null);
 
   var ring = document.createElementNS(NS, "circle");

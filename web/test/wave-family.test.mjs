@@ -472,3 +472,15 @@ test("the back-to-Labs link is styled on every page that has one", () => {
   // It is navigation above the callsign, not part of it.
   assert.match(research, /\.wf-back \{[^}]*display: block/, "it sits on its own line");
 });
+
+test("the beacon pulses about itself, on any page that carries the mark", () => {
+  /* 2026-08-18: the slim mark on the Labs page had its dot walking right and
+     down as it breathed. An SVG transform scales about the USER-SPACE ORIGIN,
+     not the element's middle, and the transform-origin that fixes it lived in
+     wave-family.css - which the Labs page does not load. The component sets
+     it itself now, so the beacon stays on the crossing the mark is about
+     wherever the mark is dropped. */
+  const js = readFileSync(path.join(WEB, "src", "js", "wave-mark-spectrum.js"), "utf8");
+  assert.match(js, /node\.style\.transformOrigin = CX \+ "px " \+ CY \+ "px"/,
+    "the mark pins its own transform-origin to the crossing point");
+});
