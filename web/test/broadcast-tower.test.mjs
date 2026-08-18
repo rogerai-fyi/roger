@@ -57,7 +57,17 @@ test("earning copy stays conditional on demand", () => {
   assert.match(c, /traffic through any one Tower is early/i,
     "the article says traffic is early, in those terms");
   assert.match(c, /start at zero/i, "and that a new Tower's figure starts at zero");
-  assert.match(c, /follow(s)? demand/i, "and that it tracks demand, not the install date");
+  assert.match(c, /(not|rather than) .{0,20}the day you installed/i,
+    "and that it does not track the install date");
+
+  // "Traffic is early" is too vague on its own - an operator needs the two gates that
+  // actually decide whether anything reaches them, neither of which they control.
+  assert.match(c, /plain roger share[^]{0,60}never (touches|uses) a Tower/i,
+    "gate 1: a plain share node never uses a Tower, so this depends on provider opt-in");
+  assert.match(c, /first[- ]fit/i,
+    "gate 2: Core assigns the Tower, and today that assignment is first-fit");
+  assert.match(c, /(new(er)? Tower|newer one) .{0,40}(wait|idle)/i,
+    "and the consequence for a new Tower is spelled out, not left to be discovered");
 
   // No projection of relay income, in any of the shapes a projection takes.
   assert.doesNotMatch(c, /\$\s?\d[\d,.]*\s*(\/|per\s*)?(mo|month|day|week|year)/i,
