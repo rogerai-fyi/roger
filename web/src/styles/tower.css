@@ -161,3 +161,39 @@
   .signal__sub { font-size: 9px; }
   .signal__labels text { font-size: 9px; }
 }
+
+/* ---- §4 RUN ONE ------------------------------------------------------------
+   The download surface. Deliberately plain: a row per artifact, hairline-ruled
+   like the rest of the notebook, so the page offers a binary without turning
+   into a product page. install__box comes from base.css and is shared with the
+   client installer, so the two commands look and behave identically. */
+.run__note {
+  margin: var(--s-4) 0 0;
+  color: var(--ink-500);
+  font-size: var(--t-sm);
+  line-height: var(--lh-body);
+  max-width: 68ch;
+}
+.run__grid {
+  margin-top: var(--s-5);
+  border-top: 1px solid var(--hairline);
+}
+.run__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2) var(--s-4);
+  align-items: baseline;
+  padding: var(--s-3) 0;
+  border-bottom: 1px solid var(--hairline);
+}
+.run__k {
+  flex: 0 0 12ch;
+  font-family: var(--font-mono);
+  font-size: var(--t-sm);
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--ink-300);
+}
+.run__v { flex: 1 1 20ch; font-size: var(--t-sm); color: var(--ink-500); }
+.run__v a { color: var(--ink-900); text-decoration: underline; text-underline-offset: 3px; }
+.run__v a:hover, .run__v a:focus-visible { color: var(--live); }

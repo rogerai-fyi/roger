@@ -238,6 +238,71 @@
       </div>
     </section>
 
+    <!-- §4 RUN ONE. Three sections explain what a Tower does; this is where a reader can
+         become one. Every number here is pinned elsewhere and none is invented: the split is
+         features/tower/edge_dispatch.feature, the artifacts are the goreleaser assets the
+         installer fetches by name, and "Linux only" is the installer's own refusal rather
+         than a preference. The hold and the minimum are deliberately NOT repeated here -
+         they are policy and env-tunable, so the page points at the manual instead of
+         printing a number that a deployment can change underneath it. -->
+    <section class="section" id="run">
+      <div class="wrap">
+        <div class="section__head section__head--left">
+          <span class="sectionno">&sect;4 / RUN ONE</span>
+          <h2>The tower is a program. You can run one.</h2>
+          <p>A Tower carries work between the people asking and the machines answering. It
+             runs no model of its own, and it is paid for the carrying: every settled request
+             pays the serving node <b>70%</b> of that node&rsquo;s own listed price, the
+             tower operator <b>10%</b>, and the platform the remaining <b>20%</b>. What a
+             Tower can and cannot see is the same as everything above on this page - the
+             <a href="/manual.html#sTower">runbook</a> is exact about it.</p>
+        </div>
+
+        <button class="install__box install__box--lg" id="installTower" type="button"
+                       data-os-lock="linux"
+                aria-label="Copy the Tower install command to clipboard">
+          <span class="install__prompt" aria-hidden="true">$</span>
+          <code class="install__code">curl -fsSL https://rogerai.fm/install.sh | ROGERAI_COMPONENT=tower sh</code>
+          <span class="install__copy" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="9" y="9" width="11" height="11" rx="2"></rect>
+              <path d="M5 15V5a2 2 0 0 1 2-2h10"></path>
+            </svg>
+          </span>
+        </button>
+        <p class="run__note">Linux only, and on purpose: a Tower is a long-running server
+           process. The installer verifies the release checksum before it installs anything,
+           and refuses outright on macOS or Windows rather than leaving you a binary that
+           cannot serve.</p>
+
+        <div class="run__grid">
+          <div class="run__row">
+            <span class="run__k">Linux &middot; amd64</span>
+            <span class="run__v"><a href="https://github.com/rogerai-fyi/roger/releases/latest/download/roger-tower-linux-amd64">roger-tower-linux-amd64 &darr;</a></span>
+          </div>
+          <div class="run__row">
+            <span class="run__k">Linux &middot; arm64</span>
+            <span class="run__v"><a href="https://github.com/rogerai-fyi/roger/releases/latest/download/roger-tower-linux-arm64">roger-tower-linux-arm64 &darr;</a></span>
+          </div>
+          <div class="run__row">
+            <span class="run__k">Verify</span>
+            <span class="run__v"><a href="https://github.com/rogerai-fyi/roger/releases/latest/download/checksums.txt">checksums.txt</a>
+              &middot; check with <code class="inline">sha256sum -c</code> before you run it</span>
+          </div>
+        </div>
+
+        <p class="run__note">What your Tower carries and earns shows up on your
+           <a href="/payouts.html">payouts page</a>, beside anything you earn from serving,
+           and cashes out the same way. Traffic through any one Tower is early, so expect
+           that figure to start at zero and follow demand rather than the day you install.</p>
+
+        <div class="research-actions">
+          <a class="research-button research-button--primary" href="/manual.html#sTower">The Tower runbook</a>
+          <a class="research-button" href="/payouts.html">Payouts</a>
+        </div>
+      </div>
+    </section>
+
     <!-- The close. "Verify it yourself" would be the obvious ending for a trust page and
          it is not available to us: node public keys are held broker-side and are not
          published, so a reader cannot check the station signature independently. What IS
@@ -246,7 +311,7 @@
          relay caveat stays, because the page must not imply a privacy property it lacks. -->
     <section class="section research-closing">
       <div class="wrap">
-        <span class="sectionno">&sect;4 / WHAT YOU GET BACK</span>
+        <span class="sectionno">&sect;5 / WHAT YOU GET BACK</span>
         <h2>The receipt leaves with the work.</h2>
         <p>Every response carries its co-signed receipt on the
            <code class="inline">X-RogerAI-Receipt</code> header, so the evidence arrives in

@@ -149,9 +149,10 @@
       } catch (e) { reject(e); }
     });
   }
-  ["installCmd", "installCmd2"].forEach(function (id) {
-    var btn = document.getElementById(id);
-    if (!btn) return;
+  // EVERY install box copies, not a hardcoded list of two ids. The list was a trap: the
+  // next page to offer an install command got a button that silently did nothing, which is
+  // exactly what happened when the Tower page grew one.
+  Array.prototype.forEach.call(document.querySelectorAll(".install__box"), function (btn) {
     btn.addEventListener("click", function () {
       // Copy the command currently displayed, not a hardcoded constant, so the
       // Windows PowerShell swap (below) always copies the right one.
@@ -217,14 +218,19 @@
 
   var os = detectOS();
   if (os === "Windows") {
-    // Swap the primary install command in BOTH boxes to PowerShell. The copy
-    // handler reads .install__code at click time, so the copy target follows.
-    ["installCmd", "installCmd2"].forEach(function (id) {
-      var btn = document.getElementById(id);
-      if (!btn) return;
-      var code = btn.querySelector(".install__code");
-      if (code) code.textContent = WIN_CMD;
-    });
+    // Swap the CLIENT install commands to PowerShell. The copy handler reads
+    // .install__code at click time, so the copy target follows.
+    //
+    // [data-os-lock] boxes are skipped: their command only runs on one platform, and
+    // rewriting one would hand a Windows reader a command for the wrong program. The Tower
+    // box is the case - roger-tower is a Linux server process, and the installer refuses
+    // anything else - so offering it a Windows client one-liner would be a lie the page
+    // told itself.
+    Array.prototype.forEach.call(
+      document.querySelectorAll(".install__box:not([data-os-lock])"), function (btn) {
+        var code = btn.querySelector(".install__code");
+        if (code) code.textContent = WIN_CMD;
+      });
     // Flip the note to point macOS / Linux users at the curl one-liner.
     var note = document.getElementById("installNote");
     if (note) {

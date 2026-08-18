@@ -87,6 +87,34 @@ Feature: The tower explains how a request is routed, metered and guaranteed
     And that the hold is refunded when settlement fails
     And that a zero-value receipt is still recorded, so the trail has no gaps
 
+  # ---- running one -----------------------------------------------------------
+
+  # The page spent three sections explaining a Tower. A reader who wants to BE one should not
+  # have to go looking, and what they are offered must be the artifact the release actually
+  # publishes rather than a promise of one.
+  Scenario: The page offers the Tower it describes
+    Then the page offers a copyable install command for the Tower component
+    And it links the published Linux amd64 and arm64 binaries by their release asset names
+    And it links the checksums that verify them
+    And it states that a Tower ships for Linux only, because it is a long-running server process
+    And it states the share a Tower operator earns on a settled request
+
+  # A number the page prints is a number the page must keep true. The split is founder-set and
+  # pinned in features/tower/edge_dispatch.feature; the payout hold and minimum are POLICY,
+  # env-tunable per deployment, so the page links them rather than printing them where they
+  # would quietly go stale.
+  Scenario: The download surface prints only numbers the specs pin
+    Then the operator share is stated as the split edge_dispatch.feature fixes
+    And no payout hold period, minimum, or projected earning figure is stated
+    And the earnings surface is linked rather than described in numbers
+
+  # The install command is platform-locked, and OS detection must not rewrite it. A Windows
+  # reader offered a PowerShell client one-liner under a Tower heading would be handed a
+  # command for a different program entirely.
+  Scenario: OS detection never rewrites a platform-locked command
+    Then the Tower install command is marked as locked to its platform
+    And the client install command is the only one operating-system detection rewrites
+
   # ---- honesty ---------------------------------------------------------------
 
   Scenario: The page does not claim privacy it does not provide

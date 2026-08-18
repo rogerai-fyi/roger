@@ -147,3 +147,58 @@ test("the manual and the tower page reconcile the same two names", () => {
   // And the claim on the tower page stays true in both directions.
   assert.match(visible(page()), /manual/i, "the tower page points back at the manual's term");
 });
+
+/* ---- §4 RUN ONE: the download surface ---------------------------------------
+   Locks features/web/tower.feature "running one". The page offers a binary, so these
+   assertions are about the artifact being the one the release actually publishes - a
+   download link that 404s is worse than no download link. */
+
+test("the page offers the Tower it describes", () => {
+  const p = page();
+  assert.match(p, /ROGERAI_COMPONENT=tower/,
+    "the install command selects the Tower component");
+  assert.match(p, /class="install__box[^"]*"[^>]*data-os-lock="linux"|data-os-lock="linux"[^>]*class="install__box/s,
+    "and it is a copyable install box, like the client one");
+  for (const asset of ["roger-tower-linux-amd64", "roger-tower-linux-arm64"]) {
+    assert.match(p, new RegExp(`releases/latest/download/${asset}`),
+      `${asset} is linked by its published release asset name`);
+  }
+  assert.match(p, /releases\/latest\/download\/checksums\.txt/,
+    "the checksums that verify those binaries are linked");
+  const c = copy();
+  assert.match(c, /Linux only/i, "the platform constraint is stated, not left to be discovered");
+  assert.match(c, /server process/i, "and the reason for it is given");
+});
+
+test("the download surface prints only numbers the specs pin", () => {
+  const c = copy();
+  // The split is founder-set and fixed in features/tower/edge_dispatch.feature.
+  assert.match(c, /70%/, "the serving node's share");
+  assert.match(c, /10%/, "the tower operator's share");
+  assert.match(c, /20%/, "the platform's remainder");
+  // Policy numbers are env-tunable per deployment. Printing them here is how a page starts
+  // lying quietly, so the page links the payouts surface instead.
+  assert.doesNotMatch(c, /120[- ]day|\$25 minimum|minimum payout/i,
+    "the hold and minimum are policy - link them, do not print them");
+  assert.doesNotMatch(c, /earn (up to|around|about) \$|per month|per day/i,
+    "no projected earnings");
+  assert.match(page(), /href="\/payouts\.html"/, "the earnings surface is linked");
+});
+
+test("OS detection never rewrites a platform-locked install command", () => {
+  const js = readFileSync(path.join(WEB, "src/js/site.js"), "utf8");
+  assert.match(js, /querySelectorAll\(["']\.install__box["']\)/,
+    "every install box copies - not a hardcoded list of ids that the next page falls off");
+  assert.match(js, /\.install__box:not\(\[data-os-lock\]\)/,
+    "and the Windows swap skips platform-locked commands, so a Tower box is never rewritten "
+    + "into a client one-liner for the wrong operating system");
+});
+
+test("the Tower download claims no privacy the page cannot provide", () => {
+  // The page-wide honesty rule applies to the new section too: the broker in the sections
+  // above CAN see prompts, so a 'run one' pitch must not imply otherwise while sharing a page
+  // with it.
+  const c = copy();
+  assert.doesNotMatch(c, /end[- ]to[- ]end encrypt/i);
+  assert.doesNotMatch(c, /(cannot|can't|never) (see|read) (your )?(prompts|completions)/i);
+});
