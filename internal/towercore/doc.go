@@ -77,6 +77,13 @@
 //	         checked add/subtract/multiply/sum that refuse to overflow. Pure - no time, no store,
 //	         no money movement, just integers that behave - so the ledger built on it can trust
 //	         its floor. The foundation-first slice of a large subsystem being built bottom-up.
+//	payauth  who may tell us money moved, and what we are allowed to believe them about. The
+//	         purpose-scoped credential (webhook / fetch / payout, each with its own secret and
+//	         validity window), signature verification over the EXACT raw bytes, the ingress
+//	         admission table that tells a replay from a mutation from a fresh delivery, and the
+//	         pure reconciliation that turns a provider reading into a revision. A delivery is a
+//	         HINT, never an amount: nothing here carries money, because a webhook that could
+//	         state a figure is a webhook that could be forged into stating one.
 //
 // # WHY THE IN-MEMORY STORES LOOK LIKE DEAD CODE AND ARE NOT
 //

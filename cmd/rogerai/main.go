@@ -865,6 +865,19 @@ func dispatch(cfg config, args []string) error {
 		// animation can be re-watched (and its timing tuned) without touching config.
 		tui.PlayBoot(os.Stdout, time.Sleep)
 		return nil
+	case "tower", "roger-tower":
+		// Two commands carry the word "tower" and they do OPPOSITE jobs, so the wrong
+		// guess is likely and "unknown command" is a useless answer to it. Running a
+		// Tower is a different binary; `roger share --tower` joins somebody else's.
+		return fmt.Errorf(`%w %q.
+
+To RUN a Tower (the relay itself) use the separate roger-tower binary:
+    curl -fsSL https://rogerai.fm/install.sh | ROGERAI_COMPONENT=tower sh
+    roger-tower init --dir /var/lib/roger-tower --mode joined
+    roger-tower register && roger-tower serve --hub :8444
+
+To SERVE YOUR MODEL THROUGH a Tower (you are a station, not the relay):
+    roger share --tower`, errUnknownCommand, args[0])
 	case "version":
 		fmt.Printf("roger %s\n", Version)
 		return nil
