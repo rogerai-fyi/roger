@@ -32,13 +32,28 @@ func stubCheck(grant []byte) (string, string, error) {
 	return parts[0], parts[1], nil
 }
 
+// testServer is the ordinary hub under test: this tower's id bound into every signature, and
+// the transition tolerance ON, which is what `roger-tower serve` defaults to today.
 func testServer(t *testing.T) (*Server, *httptest.Server) {
 	t.Helper()
-	s := NewServer(New(), stubCheck, 3*time.Second, 300*time.Millisecond)
+	return testServerWith(t, ServerOptions{TowerID: testTowerID, SubmitTTL: 3 * time.Second,
+		PollTTL: 300 * time.Millisecond, AllowLegacyBearer: true})
+}
+
+// testServerWith is for the tests that are ABOUT a setting - a different tower id, or a hub
+// that has ended the bearer tolerance. Those used to be written by reaching in and assigning
+// Server.AllowLegacyBearer after the fact, which is a data race in a test's clothing: the field
+// is read by live handlers. It is fixed at construction now, so a test that wants the other
+// posture builds the other server.
+func testServerWith(t *testing.T, opt ServerOptions) (*Server, *httptest.Server) {
+	t.Helper()
+	s := NewServer(New(), stubCheck, opt)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/submit", s.Submit)
 	mux.HandleFunc("/poll", s.Poll)
 	mux.HandleFunc("/complete", s.Complete)
+	mux.HandleFunc(PathAuditWanted, s.AuditWanted)
+	mux.HandleFunc(PathAuditTranscript, s.AuditTranscript)
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return s, srv
@@ -155,7 +170,8 @@ func TestHTTPPollReturns204WhenIdle(t *testing.T) {
 
 // A submit whose node never answers times out as a 504 rather than hanging forever.
 func TestHTTPSubmitTimesOutWhenNoNodeAnswers(t *testing.T) {
-	s := NewServer(New(), stubCheck, 120*time.Millisecond, 60*time.Millisecond)
+	s := NewServer(New(), stubCheck, ServerOptions{TowerID: testTowerID,
+		SubmitTTL: 120 * time.Millisecond, PollTTL: 60 * time.Millisecond})
 	mux := http.NewServeMux()
 	mux.HandleFunc("/submit", s.Submit)
 	srv := httptest.NewServer(mux)

@@ -27,6 +27,12 @@ type Client struct {
 	// BaseURL is the tower's hub root; endpoint sub-paths (PathSubmit/PathPoll/PathComplete) are
 	// appended to it.
 	BaseURL string
+	// TowerID is the hub this client signs FOR: Core names it in the attach response, and it
+	// rides in the target of every signed request so the signature is good at this hub and
+	// nowhere else (see nodeauth.go). Empty on the consumer side, which signs nothing, and
+	// empty against a Server that has no id of its own - the two are compared with plain
+	// equality, so they have to agree.
+	TowerID string
 	// Sign authenticates each NODE-side call. Nil for a consumer, which authorizes with a grant
 	// instead and has no Station identity to sign as.
 	//
@@ -153,7 +159,7 @@ func (c *Client) SubmitJob(ctx context.Context, grant, envelope []byte) (Result,
 // PollJob is the NODE side: long-poll for one job for `station`. ok=false with a nil error means
 // the poll returned empty (a normal timeout - poll again). An error is a transport/auth failure.
 func (c *Client) PollJob(ctx context.Context, station string) (Job, bool, error) {
-	target := hubTarget(PathPoll, url.Values{"station": {station}})
+	target := hubTarget(c.TowerID, PathPoll, url.Values{"station": {station}})
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(target), nil)
 	if err != nil {
 		return Job{}, false, err
@@ -196,7 +202,7 @@ func (c *Client) CompleteResult(ctx context.Context, station string, res Result)
 		Receipt:   base64.StdEncoding.EncodeToString(res.Receipt),
 		Failure:   res.Failure,
 	})
-	target := hubTarget(PathComplete, url.Values{})
+	target := hubTarget(c.TowerID, PathComplete, url.Values{})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(target), bytes.NewReader(body))
 	if err != nil {
 		return err
@@ -269,7 +275,7 @@ func (e *HTTPError) Error() string {
 // AuditWanted is the NODE side of the audit plane: fetch the attempt ids Core wants this
 // Station's transcripts for (relayed by the tower's hub).
 func (c *Client) AuditWanted(ctx context.Context, station string) ([]string, error) {
-	target := hubTarget(PathAuditWanted, url.Values{"station": {station}})
+	target := hubTarget(c.TowerID, PathAuditWanted, url.Values{"station": {station}})
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(target), nil)
 	if err != nil {
 		return nil, err
@@ -301,7 +307,7 @@ func (c *Client) AnswerAudit(ctx context.Context, station string, reply Transcri
 		StationID string `json:"station_id"`
 		TranscriptReply
 	}{StationID: station, TranscriptReply: reply})
-	target := hubTarget(PathAuditTranscript, url.Values{})
+	target := hubTarget(c.TowerID, PathAuditTranscript, url.Values{})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(target), bytes.NewReader(body))
 	if err != nil {
 		return err

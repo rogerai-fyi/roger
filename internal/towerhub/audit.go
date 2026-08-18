@@ -68,7 +68,12 @@ func (s *Server) AuditWanted(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	stationID := r.URL.Query().Get("station")
-	if auth := s.authNode(r, stationID, nil); !auth.ok {
+	body, berr := readGETBody(w, r)
+	if berr != nil {
+		writeErr(w, http.StatusBadRequest, "a hub GET carries no body")
+		return
+	}
+	if auth := s.authNode(r, stationID, body); !auth.ok {
 		writeErr(w, http.StatusUnauthorized, auth.why)
 		return
 	}
@@ -96,7 +101,14 @@ func (s *Server) AuditTranscript(w http.ResponseWriter, r *http.Request) {
 	// this simply misses its audit - the miss rules decide what that means.
 	//
 	// Read whole rather than streamed into the decoder, because the request signature covers a
-	// digest of these exact bytes - see Complete for why a re-serialization will not do.
+	// digest of these exact bytes - see Complete for why a re-serialization will not do. And
+	// refused before that read if the caller is nobody we have registered - see knownCredential,
+	// which is what stops a stranger making this tower buffer eight megabytes for free.
+	if !s.knownCredential(r) {
+		writeErr(w, http.StatusUnauthorized,
+			"this request presents no credential this tower has registered for any Station")
+		return
+	}
 	raw, rerr := io.ReadAll(http.MaxBytesReader(w, r.Body, 8<<20))
 	if rerr != nil {
 		writeErr(w, http.StatusBadRequest, "unreadable request body")

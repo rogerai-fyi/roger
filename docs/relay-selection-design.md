@@ -269,8 +269,10 @@ unproven, near one — otherwise the optimizer degrades the service it is meant 
 ## 5. Decided: signed hub polls (the credential is gone; the channel is still plaintext)
 
 **Status: DECIDED and IMPLEMENTED — option B of the three below, founder-approved, landed on
-`release/v5.7.0`.** This section was written up as NEEDS A DECISION; it is kept as the record of
-what was decided and why, because the reasoning is the part a later reader needs.
+`release/v5.7.0`, and AMENDED once after review (see 5.4b and the Tower half of 5.5).** This
+section was written up as NEEDS A DECISION; it is kept as the record of what was decided and why,
+because the reasoning is the part a later reader needs — including the parts of it that were
+wrong.
 
 ### 5.1 What was true
 
@@ -346,7 +348,7 @@ so an on-path attacker captures a fresh, unexpired poll signature every twenty-f
 never runs out. Timestamp skew alone would have narrowed "steal the token once, deny forever, from
 anywhere" to "stay on the path and deny continuously" — real, but not the fix.
 
-So the hole is **closed**, with a per-Station nonce carried in the request target (`?nonce=`, so
+So the hole is closed with a per-Station nonce carried in the request target (`?nonce=`, so
 `protocol.CanonicalRequest` binds it without forking the canonical string) and a nonce cache on
 the Tower. It applies to every route rather than only `/poll`, because a per-route exemption is a
 trap for whoever adds the next route.
@@ -355,10 +357,84 @@ The cache is bounded, which for an attacker-facing map is the design rather than
 signature is verified **before** anything is recorded, so only the holder of the Station's private
 key can make it grow; entries are per Station, so no station can evict another's; and each
 Station's set is two generations rotated on age or size, bounding memory at
-`2 × maxNoncesPerStation` regardless of traffic. **The residual, precisely:** a key holder signing
-more than that many requests inside one skew window forces early rotation, and those specific
-requests become replayable for the remainder of their timestamp window. At the real cadence a node
-needs hours to reach the cap.
+`2 × maxNoncesPerStation` regardless of traffic.
+
+### 5.4b Round two: the gate as first shipped was not closed, and this section said it was
+
+An independent correctness audit and an independent cryptographic review both went over the
+shipped change. They agreed the hard parts hold — no downgrade, no cross-station poisoning, clean
+domain separation between hub requests and receipts, redirects refused. They also converged, from
+different directions, on the same conclusion: the property shipped was **narrower than this
+section claimed**. The claims are corrected here rather than quietly edited out, because a design
+record that only ever describes what turned out to be right is a record nobody can trust.
+
+**"The hole is closed" was true of a nonce gate with no clock skew in it.** `protocol.VerifyRequest`
+accepts a timestamp within `SigMaxSkew` in *either* direction, so a single signature is acceptable
+across `2 × SigMaxSkew` of Tower time — while the gate rotated its generations on `SigMaxSkew`,
+guaranteeing only half that much memory. A node whose clock leads its Tower's by L therefore had
+each of its requests forgotten L before it expired. Proved end to end with a six-second lead: the
+replay is refused immediately, then accepted with a 200 and the job dequeued after two rotations.
+Retention is `2 × SigMaxSkew` now, and the invariant — *a nonce is remembered for at least as long
+as the timestamp that came with it will be accepted* — is stated where it is enforced.
+
+The cheaper fix, refusing timestamps more than a few seconds in the future, was **considered and
+rejected**. A node has no legitimate *need* to be ahead of its Tower, but plenty of nodes are: an
+unsynchronised clock is the ordinary condition of a machine in a spare room. Refusing those
+requests turns a clock problem into a node that silently stops earning, which is the harm this
+whole change exists to remove. Remembering longer costs bounded memory; refusing costs an honest
+operator their income.
+
+**"At the real cadence a node needs hours to reach the cap" was wrong, and so was calling the cap
+a fleet-management problem rather than an outsider's lever.** The nonce is recorded when a request
+authenticates, which is *before* the long poll blocks, and `ServeLoop` floors an empty poll cycle
+at 200ms — so an on-path attacker who forwards each poll and answers `204` himself drives the
+node's own key at roughly five signatures per second per worker: two full generations in about
+102 seconds at eight workers, inside one skew window. Proved: after 4104 genuine signed polls, a
+poll captured before them was accepted and dequeued the victim's job, while the same bytes
+replayed before the overflow were correctly refused.
+
+The bound is no longer a claim about traffic. **Every rotation records the newest timestamp the
+dropped generation held, and any request at or before that floor is refused outright** — so the
+gate either still remembers a nonce or refuses its whole era, at any cap and any rate. The floor
+is a request timestamp rather than a wall clock, so a node with a consistently offset clock is
+measured against its own past; at the ordinary cadence the floor sits two generations back and
+refuses nothing. The residual is now the other direction: an attacker who drives a node hard
+enough to move its floor can get an honest request refused if that node's clock *lags*. That is a
+denial available to anyone already on the path by simpler means, and it fails closed.
+
+**Nothing bound the Tower, so a captured signature was good at any hub process.** The canonical
+string covers method, target, timestamp and body digest — not the host — and the nonce ring is
+per process and in memory. The Tower id now rides in the signed target (`?tower=`), which both
+sides already know. On its own that would have been decorative, because the ways this was
+actually reachable all involve the *same* Tower id:
+
+| reachable via | closed by |
+|---|---|
+| the hub restarts or redeploys inside the skew window | the gate refuses anything signed before this process started |
+| Core's answer briefly omits a Station, so the refresher unregisters it and its ring is dropped | unregistering leaves a floor behind: the memory goes, the refusal stays |
+| a signature carried to a different Tower that has the same Station registered | the Tower id in the signed target |
+| **two hub processes answering one endpoint** | **nothing — see below** |
+
+**A Tower runs exactly one hub process per endpoint. That is now a constraint, not an
+assumption.** Two processes cannot agree on a nonce without shared state, and neither the ring nor
+the settle spool is shared. Putting a load balancer in front of two `roger-tower serve --hub`
+instances re-opens replay for the whole skew window; a Tower that needs to scale needs a shared
+gate first.
+
+**An unauthenticated caller could make the Tower buffer its whole body first.** `/complete` reads
+16MB and `/audit/transcript` 8MB before `authNode` runs, and that ordering is *required* — the
+signature covers a digest of the bytes that arrived, so verifying a re-serialization would verify
+the wrong thing. It stays, behind a cheap door: a request presenting no credential this Tower has
+registered for any Station is refused on its headers, before a byte is read. (The hub listener
+still has no connection cap and a two-minute read timeout. That is a separate, smaller exposure
+and it is not fixed here.)
+
+Two smaller corrections, neither exploitable on today's four routes and both fixed because the
+sentences they falsify are what the next route will be written against. The canonical target
+joined the percent-*decoded* path to the raw query, so `/poll?station=st-1&nonce=N` and
+`/poll%3Fstation=st-1&nonce=N` produced one identical canonical string — it uses `EscapedPath`
+now. And the GET routes passed `nil` as the body regardless of what arrived, so "the signature
+covers the body" was true of half the surface; they hand over what they read.
 
 ### 5.5 Transition: hard cutover on the node, one release of tolerance on the Tower
 
@@ -371,13 +447,48 @@ different versions in both directions. The two halves are deliberately **asymmet
   up) is not a security property. A current node therefore cannot serve a Tower older than this
   change, and says so on the notice channel (`agent.ErrHubRefusedThisNode`) rather than retrying
   into a discarded writer forever.
-- **The Tower accepts either, for one release.** `towerhub.Server.AllowLegacyBearer` (default
-  true) keeps a v5.7.1 node — which still presents a bearer — earning while it updates. It costs
-  the fleet nothing, because a current node puts nothing on the wire for an attacker to capture
-  and present; what it preserves is an exposure an already-released binary already has.
+- **The Tower accepts either, for one release.** `roger-tower serve --hub-legacy-bearer` (default
+  true; `hub.allowLegacyBearer` in the config file) keeps a v5.7.1 node — which still presents a
+  bearer — earning while it updates. What it preserves is an exposure an already-released binary
+  already has.
 
-**Delete `AllowLegacyBearer`, `NodeAuth.LegacyToken`, `newHubToken`, and the `hub_token` field one
-release after this ships.**
+  **"It costs the fleet nothing" was wrong, and it was wrong for exactly the operators this change
+  was written for.** The token was registered for *every* Station, including ones whose node had
+  already upgraded and was signing, and Core never rotates it — it returns the same value on every
+  re-attach. So a token lifted off the cleartext wire at any point *before* a node upgraded still
+  opened that node's queue afterwards, repeatably, from off-path, for a whole release. The claim
+  was about the NODE's behaviour (a current node transmits nothing capturable) and missed that the
+  TOWER still honoured yesterday's capture. Proved end to end against the real `Server`.
+
+  It ends per Station, on behaviour, the way Core's audit leniency does: **the first request a
+  Tower verifies as a genuine signature from a Station kills the bearer for that Station**, on
+  that Tower, from that instant. An old node never signs and keeps earning; an upgraded node
+  closes its own hole on its first poll. Neither an attacker holding the token nor one on the path
+  can produce the signature that flips the latch, or unflip it.
+
+  Two alternatives were rejected. Registering the token only for Stations with no assertion key is
+  the obvious one-liner — and since Core sends an assertion key for every self-attached Station,
+  it is `AllowLegacyBearer=false` in disguise: it would refuse every un-upgraded node on the
+  fleet, one commit after promising not to. Rotating the token at Core on each re-attach is
+  theatre against this attacker: a node old enough to present a bearer presents it in the clear
+  every twenty-five seconds, so the replacement is captured as easily as the original.
+
+  It was also, until now, **unturnable-off**: the field was documented here as "default true",
+  which promises a false, while the only assignment to it outside its constructor lived in a unit
+  test. It is a flag and a config field now, and immutable after construction rather than an
+  exported field read under a lock nothing ever wrote it under.
+
+**Delete the bearer path, `NodeAuth.LegacyToken`, `newHubToken`, `--hub-legacy-bearer` and the
+`hub_token` field one release after this ships.** Nothing else keys on the column: the three
+readers that used to ask "is this a hub-polling node?" by testing `HubToken != ""` — including the
+one deciding which Stations Core tells a Tower about at all — ask `attach.Attachment.SelfAttached()`
+now. Followed literally against the old code, that deletion instruction would have emptied every
+Tower's node list and taken the relay fabric offline.
+
+**DEPLOY CORE FIRST.** The ordering was known — `authNode` has a bespoke sentence for it — and
+written down nowhere. Core is the only source of a Station's assertion key, so a new node behind a
+new Tower whose Core has not been updated is 401'd forever: it signs, and the Tower has nothing to
+check the signature against. **Core, then Towers, then nodes.**
 
 ### 5.6 What is still open
 

@@ -20,9 +20,18 @@ open tier economically/legally hostile to logging, and (3) offer a tier where th
    anything on the path - carries ciphertext either way. Nor is the node's credential: it used to
    present a reusable polling token on that link, and it now signs each request with the key its
    receipts are already verified against, so nothing an observer captures there can be used again.
-   What still leaks is the *shape* of that traffic - when a node polls, how large each sealed job
-   is - which the relay operator can see in any case. The node says the link is unencrypted out
-   loud when it joins. TLS on that link remains a known gap, not an accepted design.
+   Two things do still leak there, and the second one is about the *provider*, not the consumer.
+   The *shape* of the traffic - when a node polls, how large each sealed job is - which the relay
+   operator can see in any case. And the node's **station assertion public key**, which every
+   signed request carries in a header in the clear. That key is not a session token: it is stable
+   for the life of that station and it is the identity the node's receipts are verified against
+   and its earnings are paid to. Anyone watching this link therefore learns a durable identifier
+   for a provider and the address it is polling from, and anyone watching two of these links can
+   tell it is the same provider on both - across networks, across relays, and across
+   re-attachments. Nothing captured there can be *used* (that is what signing fixed); being
+   identifiable is a separate harm and we would rather name it than let "traffic shape" stand in
+   for it. The node says the link is unencrypted out loud when it joins, and says what is on it.
+   TLS on that link remains a known gap, not an accepted design.
 2. **The broker is content-blind.** It relays request bytes but **persists only token counts +
    hashes** in receipts - never prompt or response text. No prompt logging at the broker, ever.
    The one honest exception is a **transient, pre-dispatch safety screen**, and it applies to

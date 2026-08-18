@@ -60,39 +60,90 @@ type Server struct {
 	// courier forwards it to Core, tower-signed. Called on its own goroutine.
 	OnTranscript func(stationID string, reply TranscriptReply)
 
-	// AllowLegacyBearer accepts the pre-signature bearer token from a node that does not
-	// sign yet. It is a TRANSITION affordance with an end date, not a mode.
+	// towerID is THIS hub's tower id, as Core assigned it, and every signed request must name
+	// it in its target. See nodeauth.go: the canonical string binds no host, and the nonce ring
+	// lives in one process's memory, so without this a signature captured here was good at any
+	// other hub process that had the same Station registered.
+	//
+	// It is set once at construction and never written again, which is why it is read without
+	// the lock. An empty id is only reachable from a test or an embedded hub, and it is
+	// compared with plain equality: a hub with no id is servable only by a client that names
+	// no tower, and both halves come from Core in production.
+	towerID string
+
+	// allowLegacyBearer accepts the pre-signature bearer token from a node that does not sign
+	// yet. It is a TRANSITION affordance with an end date, not a mode.
 	//
 	// The two programs update separately: `roger` is a provider's binary and `roger-tower` is
 	// an operator's, so a v5.7.1 node that still presents a token can meet a hub built after
 	// signatures landed. Refusing it would take a provider who did nothing off the fabric and
-	// stop paying them, for a defect on our side of the wire.
+	// stop paying them, for a defect on our side of the wire. `roger-tower serve` exposes it as
+	// --hub-legacy-bearer / hub.allowLegacyBearer, default on, so an operator who knows their
+	// fleet has updated can end the tolerance early on their own tower.
 	//
-	// It costs the fleet nothing, because the node half of this change is a HARD CUTOVER: a
-	// current node never transmits its token at all, so there is nothing on the plaintext
-	// wire for an attacker to lift and present here. What this keeps alive is the exposure an
-	// already-released node already has, for as long as it takes that node to update.
+	// PER STATION IT ENDS SOONER THAN THAT, and has to: this being on does NOT mean a
+	// registered token opens a queue. The moment a Station signs, its token stops working here
+	// - see the latch in authNode, which is the fix for the hole this flag used to leave open
+	// for every already-upgraded node on the tower.
+	//
+	// UNEXPORTED AND IMMUTABLE, deliberately. It was an exported field read under s.mu.RLock()
+	// and written by nobody but a test, which is the shape of a data race waiting for the first
+	// person to add a runtime toggle. There is no runtime toggle: it is a serve-time decision,
+	// like every other listener setting, so it is fixed at construction and read without a
+	// lock at all.
 	//
 	// DELETE IT, and NodeAuth.LegacyToken with it, one release after signed polls ship.
-	AllowLegacyBearer bool
+	allowLegacyBearer bool
 
 	audit  auditPlane
 	nonces nonceGate
 
 	mu    sync.RWMutex
 	nodes map[string]NodeAuth // stationID -> how its serving node authenticates
+	// signed records the Stations this tower has seen produce a valid SIGNATURE. It is what
+	// retires the legacy bearer per Station rather than per release (nodeauth.go), and it is
+	// deliberately in-memory and per-process: a tower restart re-opens the tolerance until the
+	// node's next poll, which is seconds away, and no operator should have to migrate a
+	// database row for a credential that is being deleted.
+	signed map[string]bool
+}
+
+// ServerOptions is everything a hub Server is configured with beyond its Hub and its grant
+// checker. It is a struct rather than four more positional arguments because two of the four
+// are security decisions - which tower this is, and whether a pre-signature node is tolerated -
+// and a bool in the seventh position is how those get set wrong.
+type ServerOptions struct {
+	// TowerID is this hub's tower id, bound into every signed request. See Server.towerID.
+	TowerID string
+	// SubmitTTL and PollTTL are the consumer's wait and the node's long poll. Zero takes the
+	// defaults.
+	SubmitTTL time.Duration
+	PollTTL   time.Duration
+	// AllowLegacyBearer opts IN to the transition tolerance. The zero value refuses bearer
+	// tokens, which is the state this whole change is heading for; `roger-tower` passes true
+	// unless the operator turned it off. See Server.allowLegacyBearer.
+	AllowLegacyBearer bool
 }
 
 // NewServer wires a Server over a Hub with a grant checker. Zero TTLs fall back to the defaults.
-func NewServer(hub *Hub, check GrantCheck, submitTTL, pollTTL time.Duration) *Server {
-	if submitTTL <= 0 {
-		submitTTL = defaultSubmitTTL
+func NewServer(hub *Hub, check GrantCheck, opt ServerOptions) *Server {
+	if opt.SubmitTTL <= 0 {
+		opt.SubmitTTL = defaultSubmitTTL
 	}
-	if pollTTL <= 0 {
-		pollTTL = defaultPollTTL
+	if opt.PollTTL <= 0 {
+		opt.PollTTL = defaultPollTTL
 	}
-	return &Server{hub: hub, check: check, submitTTL: submitTTL, pollTTL: pollTTL,
-		nodes: map[string]NodeAuth{}, AllowLegacyBearer: true}
+	return &Server{hub: hub, check: check, submitTTL: opt.SubmitTTL, pollTTL: opt.PollTTL,
+		towerID: opt.TowerID, allowLegacyBearer: opt.AllowLegacyBearer,
+		// The replay gate refuses anything signed before this process began - see
+		// nonceGate.since. A hub that restarts inside the skew window would otherwise accept
+		// every signature captured before it went down, and a redeploy is not an attack an
+		// operator should have to think of as one.
+		// Truncated to the second because that is the resolution of what it is compared
+		// against: protocol stamps a request in unix SECONDS, so a sub-second floor would
+		// refuse every request signed in the second this process started.
+		nonces: nonceGate{since: time.Now().Truncate(time.Second)},
+		nodes:  map[string]NodeAuth{}, signed: map[string]bool{}}
 }
 
 // RegisterNode makes a Station servable and binds the credential its serving node
@@ -107,6 +158,13 @@ func NewServer(hub *Hub, check GrantCheck, submitTTL, pollTTL time.Duration) *Se
 func (s *Server) RegisterNode(stationID string, auth NodeAuth) {
 	s.hub.Register(stationID)
 	s.mu.Lock()
+	// The refresher re-registers every Station every thirty seconds with the same answer, so
+	// the "this Station signs" latch must SURVIVE a re-registration or it would be cleared
+	// before it could ever protect anything. It is cleared on the one event that means a
+	// different node is behind the Station: a different assertion key.
+	if prior, had := s.nodes[stationID]; had && !prior.AssertionKey.Equal(auth.AssertionKey) {
+		delete(s.signed, stationID)
+	}
 	s.nodes[stationID] = auth
 	s.mu.Unlock()
 }
@@ -118,6 +176,7 @@ func (s *Server) UnregisterNode(stationID string) {
 	s.hub.Unregister(stationID)
 	s.mu.Lock()
 	delete(s.nodes, stationID)
+	delete(s.signed, stationID)
 	s.mu.Unlock()
 	s.nonces.forget(stationID)
 	s.audit.mu.Lock()
@@ -130,6 +189,21 @@ func (s *Server) UnregisterNode(stationID string) {
 // operation over public material - and it goes when that path does.
 func constantTimeEqual(a, b string) bool {
 	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
+}
+
+// maxGETBody is all the body a hub GET may carry, which is none - the cap exists so that
+// reading it is free. It is read rather than ignored because the signature covers a digest of
+// the body, and passing nil regardless of what arrived would make "the signature covers the
+// body" true of only half the routes: a signed GET would carry any unsigned payload an on-path
+// party cared to attach. Nothing reads that payload today, and it stays that way by being
+// refused rather than by nobody having written the line yet.
+const maxGETBody = 4 << 10
+
+func readGETBody(w http.ResponseWriter, r *http.Request) ([]byte, error) {
+	if r.Body == nil {
+		return nil, nil
+	}
+	return io.ReadAll(http.MaxBytesReader(w, r.Body, maxGETBody))
 }
 
 func bearer(r *http.Request) string {
@@ -240,7 +314,12 @@ func (s *Server) Poll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	stationID := r.URL.Query().Get("station")
-	if auth := s.authNode(r, stationID, nil); !auth.ok {
+	body, berr := readGETBody(w, r)
+	if berr != nil {
+		writeErr(w, http.StatusBadRequest, "a hub GET carries no body")
+		return
+	}
+	if auth := s.authNode(r, stationID, body); !auth.ok {
 		writeErr(w, http.StatusUnauthorized, auth.why)
 		return
 	}
@@ -274,6 +353,16 @@ type completeReq struct {
 func (s *Server) Complete(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeErr(w, http.StatusMethodNotAllowed, "POST only")
+		return
+	}
+	// THE CHEAP DOOR FIRST. The read below has to happen before authentication (see the note
+	// on the raw bytes), which handed an unauthenticated stranger sixteen megabytes of this
+	// tower's memory and two minutes of its read timeout for the price of one connection.
+	// knownCredential answers what the headers alone can answer - is this anybody we have
+	// registered - and refuses before a byte of body is buffered.
+	if !s.knownCredential(r) {
+		writeErr(w, http.StatusUnauthorized,
+			"this request presents no credential this tower has registered for any Station")
 		return
 	}
 	// THE RAW BYTES, KEPT. The signature covers a digest of the body exactly as it arrived, so

@@ -116,7 +116,7 @@ func (b *broker) auditLenientStation(stationID string) bool {
 		return false
 	}
 	at, found, err := ts.stations.Station(stationID)
-	if err != nil || !found || at.HubToken == "" {
+	if err != nil || !found || !at.SelfAttached() {
 		return false // classic attachment: always held to the standard
 	}
 	return at.AuditProvenAt.IsZero()

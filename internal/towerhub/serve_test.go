@@ -26,7 +26,8 @@ func (echoExec) Serve(_ context.Context, grant, envelope []byte) ([]byte, []byte
 
 func serveTestRig(t *testing.T) (*Server, string) {
 	t.Helper()
-	s := NewServer(New(), stubCheck, 3*time.Second, 300*time.Millisecond)
+	s := NewServer(New(), stubCheck, ServerOptions{TowerID: testTowerID,
+		SubmitTTL: 3 * time.Second, PollTTL: 300 * time.Millisecond})
 	mux := http.NewServeMux()
 	mux.HandleFunc(PathSubmit, s.Submit)
 	mux.HandleFunc(PathPoll, s.Poll)

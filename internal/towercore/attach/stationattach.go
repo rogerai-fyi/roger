@@ -208,6 +208,28 @@ type Attachment struct {
 	AuditProvenAt time.Time
 }
 
+// SelfAttached reports whether this attachment came from the one-call self-attach path - a
+// `roger share` node that SERVES BY POLLING its Tower's data-plane hub - as opposed to a
+// classic operator-invited Station the Tower reaches some other way.
+//
+// It exists because three separate readers were asking that question by testing HubToken != "",
+// including the one that decides which Stations Core even tells a Tower about. HubToken is the
+// credential signed hub polls replaced, and the instruction written beside it says to delete the
+// field one release from now; followed literally, that would have emptied every Tower's node
+// list and taken the relay fabric offline. A predicate keyed on the fields that describe WHAT
+// THIS ATTACHMENT IS survives the deletion of a credential, which is the whole point of not
+// keying on one.
+//
+// The OR is deliberate, and so is the order. Self-attach requires a node id and a model and
+// mints a hub token; the classic flow supplies none of the three. Any one of them is therefore
+// proof, and demanding all three would mean a future flow that stops setting one silently
+// de-lists a fleet. The two failure directions are nothing like each other: a false negative
+// takes a paying node off the network, a false positive registers a Station on a hub it never
+// polls, which is inert. HubToken is listed last because it is the one that disappears.
+func (a Attachment) SelfAttached() bool {
+	return a.NodeID != "" || a.Model != "" || a.HubToken != ""
+}
+
 // Live reports whether this attachment may carry public work at all. Quarantine is live-
 // but-not-yet-eligible; revoked and detached are terminal for this Station ID.
 func (a Attachment) Live() bool {

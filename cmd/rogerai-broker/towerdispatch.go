@@ -232,7 +232,7 @@ func (b *broker) publishRoutable(towerID string) {
 		}
 		{
 			for _, at := range ats {
-				if at.Model == "" || at.HubToken == "" {
+				if at.Model == "" || !at.SelfAttached() {
 					continue // classic-flow attachment: its offers come from the inventory
 				}
 				rows = append(rows, fleet.Station{

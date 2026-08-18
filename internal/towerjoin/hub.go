@@ -2,8 +2,9 @@ package towerjoin
 
 // hub.go is the joined Tower's HUB side of Option C, Topology 2: fetching Core's grant key
 // (so the tower can authorize consumer submits by grant METADATA while staying blind to
-// content) and the list of self-attached nodes it must serve, each with the bearer token
-// that node polls with.
+// content) and the list of self-attached nodes it must serve, each with the ASSERTION KEY the
+// hub verifies its signed polls against - and, for one release more, the bearer token a node
+// too old to sign still presents.
 
 import (
 	"crypto/ed25519"

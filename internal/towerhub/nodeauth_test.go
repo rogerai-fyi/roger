@@ -7,6 +7,7 @@ package towerhub
 // "signatures are computed somewhere" but "the specific attack no longer works".
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/ed25519"
@@ -15,10 +16,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -40,10 +43,15 @@ func newTestNode(t *testing.T) *testNode {
 	return &testNode{priv: priv, pub: pub}
 }
 
+// testTowerID is the hub id every test server and every test client agrees on. It is not a
+// detail: the tower id is signed into each request's target, so a mismatch here is a 401, which
+// is exactly the property TestASignatureIsGoodAtOneHubOnly relies on.
+const testTowerID = "tw-test"
+
 func (n *testNode) signer() Signer { return SignWith(n.priv) }
 func (n *testNode) auth() NodeAuth { return NodeAuth{AssertionKey: n.pub} }
 func (n *testNode) client(base string, timeout time.Duration) *Client {
-	return &Client{BaseURL: base, Sign: n.signer(), HTTP: &http.Client{Timeout: timeout}}
+	return &Client{BaseURL: base, TowerID: testTowerID, Sign: n.signer(), HTTP: &http.Client{Timeout: timeout}}
 }
 
 // signedRequest builds one authenticated hub request by hand. It exists because the tests that
@@ -71,7 +79,7 @@ func (n *testNode) signedRequest(t *testing.T, method, base, target string, body
 // getSigned is the ordinary one-shot: a freshly signed GET with its own nonce.
 func (n *testNode) getSigned(t *testing.T, base, path string, q url.Values) (*http.Response, []byte) {
 	t.Helper()
-	target := hubTarget(path, q)
+	target := hubTarget(testTowerID, path, q)
 	return do(t, n.signedRequest(t, http.MethodGet, base, target, nil)())
 }
 
@@ -81,7 +89,7 @@ func (n *testNode) postSigned(t *testing.T, base, path string, body any) (*http.
 	t.Helper()
 	raw, err := json.Marshal(body)
 	require.NoError(t, err)
-	target := hubTarget(path, url.Values{})
+	target := hubTarget(testTowerID, path, url.Values{})
 	return do(t, n.signedRequest(t, http.MethodPost, base, target, raw)())
 }
 
@@ -104,7 +112,7 @@ func TestAReplayedPollIsRefusedAndDoesNotSwallowTheJob(t *testing.T) {
 	s.RegisterNode("st-1", node.auth())
 
 	// What the attacker captured: one complete, valid, unexpired poll request.
-	target := hubTarget(PathPoll, url.Values{"station": {"st-1"}})
+	target := hubTarget(testTowerID, PathPoll, url.Values{"station": {"st-1"}})
 	captured := node.signedRequest(t, http.MethodGet, srv.URL, target, nil)
 
 	// It worked the first time, as it must - this is a real request the node made.
@@ -146,7 +154,8 @@ func TestAReplayedPollIsRefusedAndDoesNotSwallowTheJob(t *testing.T) {
 // transmits is reusable, and nothing it transmits is a credential.
 func TestNothingTheClientSendsCanBeCapturedAndReused(t *testing.T) {
 	node := newTestNode(t)
-	s := NewServer(New(), stubCheck, 3*time.Second, 200*time.Millisecond)
+	s := NewServer(New(), stubCheck, ServerOptions{TowerID: testTowerID,
+		SubmitTTL: 3 * time.Second, PollTTL: 200 * time.Millisecond, AllowLegacyBearer: true})
 	// The legacy token exists on this registration, as it does on every real one during the
 	// transition. The point is that the node never puts it on the wire.
 	s.RegisterNode("st-1", NodeAuth{AssertionKey: node.pub, LegacyToken: "the-old-bearer-token"})
@@ -229,8 +238,10 @@ func TestNothingTheClientSendsCanBeCapturedAndReused(t *testing.T) {
 }
 
 // The transition, both halves of it. A hub still accepts the old bearer so a node built before
-// this change keeps earning while it updates - and the moment that window closes, a stolen token
-// buys nothing at all.
+// this change keeps earning while it updates - and a hub whose operator has ended the tolerance
+// refuses it, which is a thing an operator can now actually do (see cmdServe's
+// -hub-legacy-bearer; it was documented as "default true" while being settable from nowhere but
+// a test).
 func TestAStolenBearerTokenDiesWithTheTransitionWindow(t *testing.T) {
 	node := newTestNode(t)
 	s, srv := testServer(t)
@@ -243,16 +254,68 @@ func TestAStolenBearerTokenDiesWithTheTransitionWindow(t *testing.T) {
 	require.Equal(t, http.StatusNoContent, resp.StatusCode,
 		"a pre-signature node must keep working through the transition release")
 
-	// After it: the token is not a credential any more, and the signing node is unaffected.
-	s.AllowLegacyBearer = false
-	req, _ = http.NewRequest(http.MethodGet, srv.URL+PathPoll+"?station=st-1", nil)
+	// A hub that has ended it: the token is not a credential any more, and the signing node is
+	// unaffected.
+	strict, strictSrv := testServerWith(t, ServerOptions{TowerID: testTowerID,
+		SubmitTTL: 3 * time.Second, PollTTL: 300 * time.Millisecond})
+	strict.RegisterNode("st-1", NodeAuth{AssertionKey: node.pub, LegacyToken: "stolen"})
+	req, _ = http.NewRequest(http.MethodGet, strictSrv.URL+PathPoll+"?station=st-1", nil)
 	req.Header.Set("Authorization", "Bearer stolen")
 	resp, body := do(t, req)
 	require.Equal(t, http.StatusUnauthorized, resp.StatusCode, "the stolen token still opened the queue")
-	require.Contains(t, string(body), "signed request")
+	require.Contains(t, string(body), "bearer tokens are no longer accepted")
 
-	ok, _ := node.getSigned(t, srv.URL, PathPoll, url.Values{"station": {"st-1"}})
+	ok, _ := node.getSigned(t, strictSrv.URL, PathPoll, url.Values{"station": {"st-1"}})
 	require.Equal(t, http.StatusNoContent, ok.StatusCode, "the signing node kept serving")
+}
+
+// THE HOLE THE TRANSITION LEFT OPEN, AND THE POINT OF THE WHOLE CHANGE.
+//
+// The tolerance was registered for every Station, including ones whose node had already
+// upgraded and was signing - and Core never rotates a hub token. So an attacker who lifted a
+// token off the cleartext wire at any point BEFORE the node upgraded could still poll that
+// node's queue afterwards, indefinitely, from off the path. For exactly the operators this
+// change was written for - the ones who ran the vulnerable build on a hostile network -
+// upgrading bought nothing for a whole release.
+//
+// The Station's first real signature is what ends it, because that is the moment this tower
+// learns the node is not the old build the tolerance exists for.
+func TestOnceAStationSignsItsStolenTokenIsDead(t *testing.T) {
+	node := newTestNode(t)
+	s, srv := testServer(t)
+	s.RegisterNode("st-1", NodeAuth{AssertionKey: node.pub, LegacyToken: "lifted-before-the-upgrade"})
+
+	// BEFORE THE UPGRADE. The node still presents a bearer, so the thief's copy works - this is
+	// the exposure an already-released binary already has, and the reason the tolerance exists.
+	stolen := func() *http.Request {
+		req, _ := http.NewRequest(http.MethodGet, srv.URL+PathPoll+"?station=st-1", nil)
+		req.Header.Set("Authorization", "Bearer lifted-before-the-upgrade")
+		return req
+	}
+	resp, _ := do(t, stolen())
+	require.Equal(t, http.StatusNoContent, resp.StatusCode, "the transition tolerance is on")
+
+	// THE UPGRADE: one signed poll. Nothing else about the registration changes - Core keeps
+	// sending the same token, which is precisely why the tower cannot wait for Core to tell it.
+	up, _ := node.getSigned(t, srv.URL, PathPoll, url.Values{"station": {"st-1"}})
+	require.Equal(t, http.StatusNoContent, up.StatusCode, "the upgraded node polls normally")
+
+	// AFTER IT: the same captured token, unchanged and unexpired, is no longer a credential.
+	resp, body := do(t, stolen())
+	require.Equal(t, http.StatusUnauthorized, resp.StatusCode,
+		"a token captured before the upgrade still opened the queue after it")
+	require.Contains(t, string(body), "authenticates by signature")
+
+	// And it stays dead across the refresher re-registering the Station every thirty seconds
+	// with the identical answer from Core, which is the shape that would quietly undo this.
+	s.RegisterNode("st-1", NodeAuth{AssertionKey: node.pub, LegacyToken: "lifted-before-the-upgrade"})
+	resp, _ = do(t, stolen())
+	require.Equal(t, http.StatusUnauthorized, resp.StatusCode,
+		"a routine re-registration reopened the bearer path")
+
+	// The honest node is untouched throughout.
+	ok, _ := node.getSigned(t, srv.URL, PathPoll, url.Values{"station": {"st-1"}})
+	require.Equal(t, http.StatusNoContent, ok.StatusCode)
 }
 
 // A SIGNED request never falls back to the token. Otherwise an attacker who strips the signature
@@ -291,7 +354,7 @@ func TestASignatureOutsideTheSkewWindowIsRefused(t *testing.T) {
 	s, srv := testServer(t)
 	s.RegisterNode("st-1", node.auth())
 
-	target := hubTarget(PathPoll, url.Values{"station": {"st-1"}})
+	target := hubTarget(testTowerID, PathPoll, url.Values{"station": {"st-1"}})
 	stale := time.Now().Add(-2 * protocol.SigMaxSkew).Unix()
 	sig := ed25519.Sign(node.priv, []byte(protocol.CanonicalRequest(http.MethodGet, target, stale, nil)))
 	req, _ := http.NewRequest(http.MethodGet, srv.URL+target, nil)
@@ -312,7 +375,7 @@ func TestATamperedBodyBreaksTheSignature(t *testing.T) {
 
 	honest, _ := json.Marshal(completeReq{AttemptID: "att-1", StationID: "st-1",
 		Envelope: base64.StdEncoding.EncodeToString([]byte("the real answer"))})
-	target := hubTarget(PathComplete, url.Values{})
+	target := hubTarget(testTowerID, PathComplete, url.Values{})
 	pub, ts, sig := node.signer()(http.MethodPost, target, honest)
 
 	tampered, _ := json.Marshal(completeReq{AttemptID: "att-1", StationID: "st-1",
@@ -346,7 +409,11 @@ func TestTheNonceCacheIsBoundedPerStation(t *testing.T) {
 	var g nonceGate
 	now := time.Now()
 	for i := 0; i < 20*maxNoncesPerStation; i++ {
-		require.True(t, g.fresh("st-1", strconv.Itoa(i), now), "a fresh nonce was called a replay")
+		// Timestamps advance with the traffic, as a real node's do; a burst all stamped with
+		// one instant would be refused by the floor rather than by the cache, which is a
+		// different test (TestTheNonceCapIsNotAReplayWindow).
+		require.True(t, g.fresh("st-1", strconv.Itoa(i), now.Add(time.Duration(i)*time.Millisecond), now),
+			"a fresh nonce was called a replay")
 	}
 	g.mu.Lock()
 	r := g.rings["st-1"]
@@ -356,35 +423,271 @@ func TestTheNonceCacheIsBoundedPerStation(t *testing.T) {
 		"the replay cache grows without bound: %d entries", total)
 
 	// And within a generation it still does its job.
-	require.True(t, g.fresh("st-2", "n", now))
-	require.False(t, g.fresh("st-2", "n", now), "a repeat inside the window was not caught")
+	require.True(t, g.fresh("st-2", "n", now, now))
+	require.False(t, g.fresh("st-2", "n", now, now), "a repeat inside the window was not caught")
 	// Stations do not share a namespace, so one node cannot evict or collide with another's.
-	require.True(t, g.fresh("st-3", "n", now))
+	require.True(t, g.fresh("st-3", "n", now, now))
 }
 
-// Nonces are remembered for at least as long as a timestamp stays acceptable. Rotation on age is
-// what makes that true without a per-entry sweeper, and rotating one generation too eagerly
-// would reopen the replay window silently.
-func TestANonceIsRememberedAcrossOneRotation(t *testing.T) {
+// A NONCE IS REMEMBERED FOR AS LONG AS ITS SIGNATURE IS ACCEPTABLE, which is the whole
+// invariant, and the first version of this file got it wrong by a factor of two.
+//
+// protocol.VerifyRequest accepts a timestamp within SigMaxSkew in EITHER direction, so a
+// signature stamped at T is acceptable from T-skew to T+skew: a 2 x SigMaxSkew span of tower
+// time. Rotating generations every SigMaxSkew therefore forgot a nonce while its own signature
+// was still good - and the code claimed the opposite in so many words, "exactly the window in
+// which its timestamp is still acceptable".
+//
+// This asserts the nonce is still IN the ring rather than merely refused, because the floor
+// (see TestTheNonceCapIsNotAReplayWindow) would refuse it either way and would therefore hide a
+// retention regression completely. Two overlapping defences are worth having; a test that
+// cannot tell which one is working is not.
+func TestANonceIsRememberedAsLongAsItsTimestampIsAccepted(t *testing.T) {
 	var g nonceGate
 	start := time.Now()
-	require.True(t, g.fresh("st-1", "n", start))
-	// One rotation later it is in the previous generation, and still refused.
-	require.False(t, g.fresh("st-1", "n", start.Add(protocol.SigMaxSkew+time.Second)))
-	// Two rotations later the timestamp check has long since taken over.
-	require.True(t, g.fresh("st-1", "n", start.Add(3*protocol.SigMaxSkew)))
+	require.True(t, g.fresh("st-1", "seed", start, start))
+
+	// THE WORST CASE, which is the only one worth testing: recorded a moment before a rotation
+	// (so it spends the least possible time in the live generation) and stamped a full skew in
+	// the FUTURE, by a node whose clock leads the tower's by the most protocol will tolerate.
+	wrote := start.Add(nonceRetention - time.Second)
+	ts := wrote.Add(protocol.SigMaxSkew)
+	require.True(t, g.fresh("st-1", "n", ts, wrote))
+	lastAcceptable := ts.Add(protocol.SigMaxSkew)
+
+	// The node keeps polling meanwhile, which is what drives rotation - a gate nobody calls
+	// rotates nothing, so a test that jumped straight to the end would prove the wrong thing.
+	step := protocol.SigMaxSkew / 4
+	for at := start.Add(step); at.Before(lastAcceptable); at = at.Add(step) {
+		require.True(t, g.fresh("st-1", "traffic-"+at.String(), at, at))
+	}
+
+	g.mu.Lock()
+	r := g.rings["st-1"]
+	_, inCur := r.cur["n"]
+	_, inPrev := r.prev["n"]
+	g.mu.Unlock()
+	require.True(t, inCur || inPrev,
+		"the gate forgot a nonce while protocol.VerifyRequest would still accept its timestamp")
+	require.False(t, g.fresh("st-1", "n", ts, lastAcceptable), "and the replay is refused")
 }
 
-// Dropping a Station drops its replay memory with it, so a tower serving a churning fleet does
-// not accumulate rings for stations that left.
-func TestUnregisteringAStationForgetsItsNonces(t *testing.T) {
+// THE CAP IS AN OUTSIDER'S LEVER, and the code used to say it was not - "a fleet-management
+// problem and not an outsider's lever", needing "hours" to reach at the real poll cadence.
+//
+// Both halves were wrong. The nonce is recorded when a request AUTHENTICATES, which is before
+// the long poll blocks, and ServeLoop's floor on an empty poll cycle is 200ms - so an on-path
+// attacker who forwards each poll and answers 204 immediately drives the node's own key at
+// about five signatures per second per worker and evicts two full generations in a couple of
+// minutes, well inside one skew window. Proved: after 4104 genuine signed polls a poll captured
+// before them was accepted and dequeued the job.
+//
+// The bound is no longer a claim about traffic. Whatever the cap and whatever the rate, an
+// evicted era is refused by its timestamp instead of being forgotten.
+func TestTheNonceCapIsNotAReplayWindow(t *testing.T) {
+	var g nonceGate
+	start := time.Now()
+	// The request the attacker captured: genuine, signed, and not yet replayed.
+	require.True(t, g.fresh("st-1", "captured", start, start))
+	// A verbatim replay right now is refused by the cache, which is the ordinary case and the
+	// control for the one below - if this passed, the test would be proving nothing.
+	require.False(t, g.fresh("st-1", "captured", start, start))
+
+	// Now the attacker drives the node past two full generations, inside the skew window.
+	for i := 0; i < 2*maxNoncesPerStation+8; i++ {
+		at := start.Add(time.Duration(i) * time.Millisecond)
+		require.True(t, g.fresh("st-1", "drive-"+strconv.Itoa(i), at, at))
+	}
+	// The captured nonce is long gone from both generations - and the replay is still refused,
+	// because its timestamp is behind everything this ring has forgotten.
+	end := start.Add(3 * time.Second)
+	require.False(t, g.fresh("st-1", "captured", start, end),
+		"a signed request captured before the cap overflowed became replayable again")
+	// While the node's own next request, stamped now, sails through: the floor refuses an era,
+	// not a station.
+	require.True(t, g.fresh("st-1", "the-node-keeps-working", end, end))
+}
+
+// DROPPING A STATION RELEASES ITS MEMORY BUT NOT ITS FLOOR, and the difference is a real hole
+// that used to be reachable without an attacker doing anything at all.
+//
+// The refresher unregisters any Station missing from ONE answer from Core, and unregistering
+// used to delete the replay ring outright - so a transient omission followed by a
+// re-registration, both inside the five-minute window, made every signature captured before it
+// work again. The maps still go (a churning fleet must not accumulate them); what stays is one
+// timestamp saying "everything I used to remember is refused on sight".
+func TestUnregisteringAStationKeepsItsFloorButNotItsMemory(t *testing.T) {
 	node := newTestNode(t)
 	s, _ := testServer(t)
 	s.RegisterNode("st-1", node.auth())
-	require.True(t, s.nonces.fresh("st-1", "n", time.Now()))
+	captured := time.Now()
+	require.True(t, s.nonces.fresh("st-1", "captured", captured, captured))
+
+	// Core's answer omits the Station; the refresher drops it. It comes back on the next one.
 	s.UnregisterNode("st-1")
+	s.RegisterNode("st-1", node.auth())
+
+	// THE ATTACK: the same captured request, still well inside its timestamp window.
+	require.False(t, s.nonces.fresh("st-1", "captured", captured, captured.Add(time.Second)),
+		"a registration flap made a captured signature usable again")
+	// The node itself is unaffected - it is signing new requests, not re-signing old ones.
+	now := captured.Add(2 * time.Second)
+	require.True(t, s.nonces.fresh("st-1", "fresh-one", now, now))
+
+	// And the memory really was released rather than kept: the ring holds no entries, and once
+	// nothing it could refuse is inside a timestamp window any more, the ring itself goes.
+	s.UnregisterNode("st-1")
+	s.nonces.mu.Lock()
+	r := s.nonces.rings["st-1"]
+	entries := len(r.cur) + len(r.prev)
+	r.rotated = time.Now().Add(-2 * nonceRetention) // age the tombstone past its usefulness
+	s.nonces.mu.Unlock()
+	require.Zero(t, entries, "an unregistered Station kept its nonces in memory")
+	s.UnregisterNode("st-2") // any forget sweeps the tombstones that have aged out
 	s.nonces.mu.Lock()
 	_, still := s.nonces.rings["st-1"]
 	s.nonces.mu.Unlock()
-	require.False(t, still, "an unregistered Station kept its replay ring")
+	require.False(t, still, "a tombstone outlived every timestamp it could have refused")
+}
+
+// A SIGNATURE NAMES THE HUB IT WAS MADE FOR. Nothing in protocol.CanonicalRequest does - it
+// binds the method, the target, the timestamp and a body digest, and not the host - so the same
+// captured bytes used to authenticate at any hub process holding the same Station. Proved by
+// presenting one node's real, already-used poll to a second Server; it returned 200 and the job.
+func TestASignatureIsGoodAtOneHubOnly(t *testing.T) {
+	node := newTestNode(t)
+	home, mine := testServer(t)
+	home.RegisterNode("st-1", node.auth())
+	other, otherSrv := testServerWith(t, ServerOptions{TowerID: "tw-somebody-else",
+		SubmitTTL: 3 * time.Second, PollTTL: 300 * time.Millisecond})
+	other.RegisterNode("st-1", node.auth())
+
+	// What an on-path observer has: one complete, valid request, signed for MY tower.
+	target := hubTarget(testTowerID, PathPoll, url.Values{"station": {"st-1"}})
+	captured := node.signedRequest(t, http.MethodGet, otherSrv.URL, target, nil)
+	resp, body := do(t, captured())
+	require.Equal(t, http.StatusUnauthorized, resp.StatusCode,
+		"a signature made for one tower authenticated at another")
+	require.Contains(t, string(body), "names a different tower")
+
+	// The control: the identical bytes at the hub they were signed for. Without this the test
+	// would pass just as well against a signature that was broken for a different reason.
+	sameBytes := node.signedRequest(t, http.MethodGet, mine.URL, target, nil)
+	ok, _ := do(t, sameBytes())
+	require.Equal(t, http.StatusNoContent, ok.StatusCode, "the request still works where it belongs")
+}
+
+// A HUB THAT RESTARTS DOES NOT FORGIVE EVERY SIGNATURE IT NEVER SAW. The nonce ring is memory,
+// so a redeploy inside the five-minute window used to hand an attacker back every request they
+// had captured before it - no attack required beyond waiting for a deploy. The replacement
+// process refuses anything stamped before it started.
+func TestASignatureFromBeforeARestartIsRefused(t *testing.T) {
+	node := newTestNode(t)
+	_, srv := testServer(t)
+
+	// Captured a moment before the redeploy - well inside its timestamp window.
+	target := hubTarget(testTowerID, PathPoll, url.Values{"station": {"st-1"}})
+	stamp := time.Now().Add(-30 * time.Second).Unix()
+	sig := ed25519.Sign(node.priv, []byte(protocol.CanonicalRequest(http.MethodGet, target, stamp, nil)))
+	replay := func(base string) (*http.Response, []byte) {
+		req, _ := http.NewRequest(http.MethodGet, base+target, nil)
+		req.Header.Set(protocol.HeaderPubkey, hex.EncodeToString(node.pub))
+		req.Header.Set(protocol.HeaderTS, strconv.FormatInt(stamp, 10))
+		req.Header.Set(protocol.HeaderSig, hex.EncodeToString(sig))
+		return do(t, req)
+	}
+	_ = srv
+
+	// THE NEW PROCESS: same tower, same Station, same registrations, no memory of anything.
+	restarted, restartedSrv := testServer(t)
+	restarted.RegisterNode("st-1", node.auth())
+	resp, body := replay(restartedSrv.URL)
+	require.Equal(t, http.StatusUnauthorized, resp.StatusCode,
+		"a hub restart made every captured signature usable again")
+	require.Contains(t, string(body), "already been made")
+
+	// And the node itself keeps serving through the restart, which is the constraint that makes
+	// this affordable: it signs a NEW request, and a new request is stamped now.
+	ok, _ := node.getSigned(t, restartedSrv.URL, PathPoll, url.Values{"station": {"st-1"}})
+	require.Equal(t, http.StatusNoContent, ok.StatusCode)
+}
+
+// ONE CANONICAL STRING IS ONE REQUEST. The server rebuilt what the client signed by joining the
+// percent-DECODED path to the RAW query, so `/poll?station=st-1&nonce=N` and
+// `/poll%3Fstation=st-1&nonce=N` produced the SAME canonical string - one signature, two
+// requests. Nothing reads a path segment on today's four routes, so nothing was exploitable;
+// the property was simply false, and the next route that takes an id from its path is where
+// that stops being a curiosity.
+func TestTheCanonicalTargetIsUnambiguous(t *testing.T) {
+	node := newTestNode(t)
+	s, srv := testServer(t)
+	s.RegisterNode("st-1", node.auth())
+
+	// The two requests that used to collide, reconstructed exactly as the server sees them.
+	honest, _ := http.NewRequest(http.MethodGet, srv.URL+PathPoll+"?station=st-1&nonce=abc", nil)
+	smuggled, _ := http.NewRequest(http.MethodGet, srv.URL+"/poll%3Fstation=st-1&nonce=abc", nil)
+	require.NotEqual(t, requestTarget(honest), requestTarget(smuggled),
+		"two different requests produce one identical canonical string, so one signature covers both")
+}
+
+// THE SIGNATURE COVERS THE BODY ON EVERY ROUTE, not on the half of them that have one by
+// convention. The GET handlers passed nil to authNode regardless of what arrived, so a signed
+// poll would be accepted with any unsigned payload attached to it. Nothing reads that payload
+// today. "The signature covers the body" was still only half true, and the reason to fix it is
+// that the sentence is what the next person will rely on.
+func TestASignedGETCannotCarryAnUnsignedBody(t *testing.T) {
+	node := newTestNode(t)
+	s, srv := testServer(t)
+	s.RegisterNode("st-1", node.auth())
+
+	target := hubTarget(testTowerID, PathPoll, url.Values{"station": {"st-1"}})
+	pub, ts, sig := node.signer()(http.MethodGet, target, nil)
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+target, bytes.NewReader([]byte("smuggled")))
+	req.Header.Set(protocol.HeaderPubkey, pub)
+	req.Header.Set(protocol.HeaderTS, strconv.FormatInt(ts, 10))
+	req.Header.Set(protocol.HeaderSig, sig)
+	resp, _ := do(t, req)
+	require.Equal(t, http.StatusUnauthorized, resp.StatusCode,
+		"a signed GET was accepted carrying a body its signature does not cover")
+
+	// The ordinary bodyless poll is untouched: an empty read and a nil body hash identically.
+	ok, _ := node.getSigned(t, srv.URL, PathPoll, url.Values{"station": {"st-1"}})
+	require.Equal(t, http.StatusNoContent, ok.StatusCode)
+}
+
+// A STRANGER DOES NOT GET TO FILL THIS TOWER'S MEMORY BEFORE BEING TOLD NO.
+//
+// /complete and /audit/transcript must read the whole body before they can authenticate it -
+// the signature covers a digest of the bytes that arrived, so verifying a re-serialization
+// would verify the wrong thing. That ordering is right and stays. What it meant is that anyone
+// at all could make this tower buffer sixteen megabytes, on a listener with no connection cap
+// and a two-minute read timeout, and only then be refused. Proved with 8,388,608 wasted bytes.
+//
+// The request here ANNOUNCES a body and then sends none of it, which is what makes the answer
+// unambiguous rather than a matter of counting: a hub that reads before it authenticates cannot
+// answer this at all, and one that refuses on the headers answers it at once. It is spoken over
+// a raw connection because Go's own client will not surrender an early response while it still
+// has a body to write - the thing being tested is precisely what happens before that.
+func TestAnUnauthenticatedCallerIsRefusedBeforeItsBodyIsRead(t *testing.T) {
+	node := newTestNode(t)
+	s, srv := testServer(t)
+	s.RegisterNode("st-1", node.auth())
+
+	conn, err := net.Dial("tcp", strings.TrimPrefix(srv.URL, "http://"))
+	require.NoError(t, err)
+	t.Cleanup(func() { conn.Close() })
+	// Sixteen megabytes promised, nothing sent.
+	_, err = conn.Write([]byte("POST " + PathComplete + " HTTP/1.1\r\nHost: hub\r\n" +
+		"Content-Type: application/json\r\nContent-Length: 16777216\r\n\r\n"))
+	require.NoError(t, err)
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(3*time.Second)))
+	status, rerr := bufio.NewReader(conn).ReadString('\n')
+	require.NoError(t, rerr, "the hub was still waiting for an unauthenticated body three seconds in")
+	require.Contains(t, status, "401", "the hub answered %q rather than refusing on the headers", status)
+
+	// And the node's own completion, which presents a credential this tower knows, is read and
+	// served exactly as before - the gate is an admission check, not the authorization.
+	resp, _ := node.postSigned(t, srv.URL, PathComplete, completeReq{AttemptID: "att-x", StationID: "st-1",
+		Envelope: base64.StdEncoding.EncodeToString([]byte("answer"))})
+	require.Equal(t, http.StatusOK, resp.StatusCode)
 }

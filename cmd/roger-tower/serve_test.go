@@ -518,7 +518,7 @@ func TestServeJoinedWiresTheRealSignalAndClock(t *testing.T) {
 	st, release, err := openDir(dir)
 	require.NoError(t, err)
 	defer release()
-	require.Error(t, serveJoined(st, &b, "", "", "", ""))
+	require.Error(t, serveJoined(st, &b, "", hubOptions{}))
 }
 
 // A standalone Tower asked to serve a HUB reaches nothing, and is refused before it tries.
@@ -538,7 +538,7 @@ func TestAStandaloneTowerWithAHubReachesNothing(t *testing.T) {
 	require.NoError(t, err)
 	defer release()
 
-	err = serveJoined(st, &b, "203.0.113.9:8444", "127.0.0.1:0", "", "")
+	err = serveJoined(st, &b, "203.0.113.9:8444", hubOptions{Addr: "127.0.0.1:0", AllowLegacyBearer: true})
 	require.ErrorIs(t, err, errStandaloneCannotServeJoined)
 	require.Zero(t, core.reached(), "a standalone Tower called Roger Core before being refused")
 }
@@ -673,4 +673,47 @@ func TestAFailedRefreshIsReportedAndTheLinkSurvives(t *testing.T) {
 
 	close(stop)
 	require.NoError(t, <-done)
+}
+
+// AN OPERATOR CAN ACTUALLY TURN THE BEARER TOLERANCE OFF, which is the whole of this test.
+//
+// towerhub.Server.AllowLegacyBearer was documented in docs/relay-selection-design.md as
+// "default true" - wording that promises a false - and the only assignment to it anywhere
+// outside its constructor was in a unit test. There was no flag, no config field, and
+// `roger-tower`'s one call site never touched it. An operator who had updated every node on
+// their tower and wanted the pre-signature path closed had no way to say so, and the
+// documentation told them there was.
+//
+// The serve itself is refused (this is a standalone directory, which cannot serve joined) -
+// which is fine, because what is under test is that the switch is reachable and reaches the
+// decision point, and both doors report it before that refusal.
+func TestTheLegacyBearerToleranceCanBeTurnedOff(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "tw")
+	var b bytes.Buffer
+	require.NoError(t, run([]string{"init", "--dir", dir, "--mode", "standalone"}, &b))
+
+	// The default is ON: an already-released node keeps earning while its operator updates.
+	out, err := runCLI(t, "serve", "--dir", dir, "--hub", "127.0.0.1:0")
+	require.ErrorIs(t, err, errStandaloneCannotServeJoined)
+	require.NotContains(t, out, "REFUSED", "the transition tolerance is on unless an operator says otherwise")
+
+	// The flag turns it off, and says so - an operator who does this is choosing to stop
+	// serving some of their own fleet, and should see that they did.
+	out, err = runCLI(t, "serve", "--dir", dir, "--hub", "127.0.0.1:0", "--hub-legacy-bearer=false")
+	require.ErrorIs(t, err, errStandaloneCannotServeJoined)
+	require.Contains(t, out, "bearer tokens are REFUSED",
+		"-hub-legacy-bearer=false did not reach the hub")
+
+	// And so does the config file, for an operator who does not hand-write the command line.
+	cfg := writeConfig(t, standaloneYAML+"hub:\n  address: 127.0.0.1:0\n  allowLegacyBearer: false\n")
+	out, err = runCLI(t, "serve", "--dir", dir, "--config", cfg)
+	require.ErrorIs(t, err, errStandaloneCannotServeJoined)
+	require.Contains(t, out, "bearer tokens are REFUSED", "hub.allowLegacyBearer did not reach the hub")
+
+	// The flag is the more deliberate of the two and wins, which is the rule the rest of
+	// cmdServe follows for every other hub setting.
+	cfgOff := writeConfig(t, standaloneYAML+"hub:\n  address: 127.0.0.1:0\n  allowLegacyBearer: false\n")
+	out, err = runCLI(t, "serve", "--dir", dir, "--config", cfgOff, "--hub-legacy-bearer=true")
+	require.ErrorIs(t, err, errStandaloneCannotServeJoined)
+	require.NotContains(t, out, "REFUSED", "the config file overrode an explicit flag")
 }

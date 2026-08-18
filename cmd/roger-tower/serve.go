@@ -39,7 +39,7 @@ import (
 // serveJoined runs the link until the process is interrupted. It supplies the two things the
 // loop cannot invent for itself - a real signal and a real clock - and then gets out of the
 // way; everything that can go wrong is in runLink, where a test can reach it.
-func serveJoined(st *tower.State, out io.Writer, relayPublic, hubAddr, hubCert, hubKey string) error {
+func serveJoined(st *tower.State, out io.Writer, relayPublic string, hub hubOptions) error {
 	// THE MODE CHECK COMES FIRST, BEFORE ANY LISTENER AND BEFORE ANY DIAL.
 	//
 	// runLink refuses a standalone Tower, and did so correctly - but it runs AFTER the hub, and
@@ -76,8 +76,8 @@ func serveJoined(st *tower.State, out io.Writer, relayPublic, hubAddr, hubCert, 
 	// to and self-attached roger share nodes poll. Started before the link so a consumer's
 	// very first submit after we advertise has somewhere to land; fails fast if Core's grant
 	// key cannot be fetched.
-	if hubAddr != "" {
-		waitForHub, herr := runHubInBackground(st, hubAddr, hubCert, hubKey, out, stopped)
+	if hub.Addr != "" {
+		waitForHub, herr := runHubInBackground(st, hub, out, stopped)
 		if herr != nil {
 			windDown()
 			return herr
@@ -308,12 +308,22 @@ func cmdServe(args []string, out io.Writer) error {
 	hubAddr := fs.String("hub", "", "address to serve the data-plane HUB on, e.g. :8444 - where consumers submit sealed work and this tower's self-attached nodes poll")
 	hubCert := fs.String("hub-tls-cert", "", "TLS certificate (PEM) for the hub listener - with --hub-tls-key, the hub serves https")
 	hubKey := fs.String("hub-tls-key", "", "TLS private key (PEM) for the hub listener")
+	// THE TRANSITION SWITCH, and it is a real switch. A node released before signed hub polls
+	// authenticates with a bearer token, and this tower keeps accepting one for a release so
+	// that provider keeps earning while they update. An operator who knows every node on their
+	// tower has updated can end that early; one release from now the flag and the code behind
+	// it both go. It had been documented as "default true" while being settable from nowhere
+	// but a test, which is a claim an operator cannot act on.
+	legacyBearer := fs.Bool("hub-legacy-bearer", true, "accept the pre-signature bearer token from nodes that have not updated yet (a station that has signed to this hub always refuses its own token from then on); -hub-legacy-bearer=false requires a signature from every node")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	// The hub's payload is sealed end-to-end, but the node polling TOKEN and grant metadata
-	// ride the transport - so TLS here is real protection, not ceremony (audit M1). Half a
-	// key pair is a mistake, not a mode.
+	// The hub's payload is sealed end-to-end, but the grant metadata and every node's
+	// long-term assertion PUBLIC KEY ride the transport in the clear - so TLS here is real
+	// protection, not ceremony (audit M1). It is no longer the polling token: a current node
+	// signs each request and transmits nothing reusable. What TLS buys now is that an observer
+	// cannot tie a station's payment identity to an address. Half a key pair is a mistake, not
+	// a mode.
 	if (*hubCert == "") != (*hubKey == "") {
 		return fmt.Errorf("--hub-tls-cert and --hub-tls-key must be given together")
 	}
@@ -361,6 +371,13 @@ func cmdServe(args []string, out io.Writer) error {
 			if *hubCert == "" && *hubKey == "" {
 				*hubCert, *hubKey = c.Hub.TLSCert, c.Hub.TLSKey
 			}
+			// The config can only turn the tolerance OFF, and only when the flag was left at
+			// its default. A file that said "true" while the operator typed
+			// -hub-legacy-bearer=false would be the config quietly overriding the more
+			// deliberate of the two, which is the rule this whole block exists to keep.
+			if c.Hub.AllowLegacyBearer != nil && !fsSet(fs, "hub-legacy-bearer") {
+				*legacyBearer = *c.Hub.AllowLegacyBearer
+			}
 		}
 	}
 	// The PUBLIC address is what Core hands to consumers and self-attaching nodes, and the
@@ -374,5 +391,24 @@ func cmdServe(args []string, out io.Writer) error {
 		fmt.Fprint(out, "NOTE: the hub has no --relay-public address, so Roger Core will not "+
 			"route edge consumers or self-attaching nodes to this Tower.\n")
 	}
-	return serveJoined(st, out, *relayPublic, *hubAddr, *hubCert, *hubKey)
+	if !*legacyBearer {
+		fmt.Fprint(out, "hub: pre-signature bearer tokens are REFUSED on this tower - a node "+
+			"older than signed hub polls will not be served here.\n")
+	}
+	return serveJoined(st, out, *relayPublic, hubOptions{
+		Addr: *hubAddr, TLSCert: *hubCert, TLSKey: *hubKey, AllowLegacyBearer: *legacyBearer,
+	})
+}
+
+// fsSet reports whether a flag was actually typed, as opposed to sitting at its default. It is
+// what lets configuration lower a default without ever overriding an explicit flag - the rule
+// the rest of cmdServe follows by checking for an empty string, which a bool cannot do.
+func fsSet(fs *flag.FlagSet, name string) bool {
+	found := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == name {
+			found = true
+		}
+	})
+	return found
 }

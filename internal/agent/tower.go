@@ -146,13 +146,25 @@ var ErrCoreKeysUnpinned = errors.New("Roger Core's grant key could not be pinned
 // It used to say the polling token rides in the clear, which was true and was the reason to care.
 // No credential is transmitted now, so repeating that sentence would be teaching operators to
 // fear the wrong thing - and an alarm that overstates its case is the one people learn to skip.
-// What is left is real and smaller, so it is stated at its real size.
+//
+// IT CHANGED AGAIN, because the first rewrite went one word too far. "Traffic shape" was not the
+// whole residual: X-Roger-Pubkey puts the Station's long-term ASSERTION PUBLIC KEY on the wire on
+// every single poll, in the clear. That is not a session token and not a nonce - it is the
+// identity the node's receipts are verified against and its earnings are paid to, stable for the
+// life of the station, and it makes every poll a linkable identifier tying that identity to an
+// IP address, across networks, across towers, and across re-attachments. Nothing an attacker
+// captures lets them TAKE anything, which is what the signing change bought; being permanently
+// identifiable is a different harm and it belongs in the same sentence rather than under it.
 var ErrHubChannelPlaintext = errors.New(
 	"this node's relay hub link is UNENCRYPTED (plain http): the sealed job and its answer stay " +
 		"private, and this node proves who it is by signing every request rather than by sending " +
-		"anything reusable, so nothing an observer captures here works twice - what still leaks " +
-		"is the SHAPE of the traffic (when you poll, how big each job is), which your relay " +
-		"operator can see in any case")
+		"anything reusable, so nothing an observer captures here works twice. Two things still " +
+		"leak. The shape of the traffic - when you poll, how big each job is - which your relay " +
+		"operator can see in any case. And your station's ASSERTION PUBLIC KEY, which every " +
+		"request carries in the clear: it is stable for the life of this station and it is the " +
+		"key your receipts and your earnings are tied to, so anyone watching this link can link " +
+		"that identity to this address, and anyone watching two links can tell it is the same " +
+		"operator on both")
 
 // ErrHubRefusedThisNode marks a hub that will not accept this node's identity at all - a 401 on
 // the polling route, repeated, rather than a blip.
@@ -219,9 +231,11 @@ func AttachTower(cfg Config, priv ed25519.PrivateKey, dir string) (*station.Stat
 	if cfg.Private {
 		return nil, TowerAttachment{}, ErrPrivateShareNeverRelays
 	}
-	// KEY-TRUST TRANSPORT (audit M2): attach ships this node's keys up and a hub bearer token
-	// back, and the grant key is pinned over the same base - plaintext http to a non-loopback
-	// broker is refused.
+	// KEY-TRUST TRANSPORT (audit M2): attach ships this node's keys up and the tower and
+	// endpoint it is placed on back, and the grant key is pinned over the same base - plaintext
+	// http to a non-loopback broker is refused. (It used to be described as bringing a hub
+	// bearer token back. Core still sends the field for a node too old to sign; this node
+	// ignores it and never transmits it - see towerhub's nodeauth.go.)
 	if err := protocol.TrustedBase(cfg.Broker); err != nil {
 		return nil, TowerAttachment{}, err
 	}
@@ -398,6 +412,11 @@ func ServeTower(ctx context.Context, cfg Config, priv ed25519.PrivateKey, dir st
 	}
 	client := &towerhub.Client{
 		BaseURL: base,
+		// THE TOWER IS PART OF WHAT IS SIGNED. Core named this tower in the attach response,
+		// and the hub refuses a signature that names any other, so a request captured off this
+		// plaintext link is good at this hub and nowhere else - not at a second instance behind
+		// the same endpoint, and not at this one after a restart inside the skew window.
+		TowerID: at.TowerID,
 		// SIGNED, NOT BEARER. st.SignRequest signs each hub call with the assertion key this
 		// Station's receipts are already verified against, so the plaintext link carries no
 		// reusable credential for anyone on the path to lift. See towerhub's nodeauth.go.

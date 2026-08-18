@@ -53,7 +53,7 @@ func TestTopology2BlindPathEndToEnd(t *testing.T) {
 		att, st, _, err := dispatch.EdgeGrantMeta(grant, corePub, "roger-public", "tw-1", time.Now())
 		return att, st, err
 	}
-	server := towerhub.NewServer(hub, check, 5*time.Second, 300*time.Millisecond)
+	server := towerhub.NewServer(hub, check, towerhub.ServerOptions{TowerID: "tw-1", SubmitTTL: 5 * time.Second, PollTTL: 300 * time.Millisecond})
 	mux := http.NewServeMux()
 	mux.HandleFunc(towerhub.PathSubmit, server.Submit)
 	mux.HandleFunc(towerhub.PathPoll, server.Poll)
@@ -68,7 +68,7 @@ func TestTopology2BlindPathEndToEnd(t *testing.T) {
 	// The node worker polls the tower and serves.
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	node := &towerhub.Client{BaseURL: srv.URL, Sign: s.SignRequest, HTTP: &http.Client{Timeout: 5 * time.Second}}
+	node := &towerhub.Client{BaseURL: srv.URL, TowerID: "tw-1", Sign: s.SignRequest, HTTP: &http.Client{Timeout: 5 * time.Second}}
 	go func() { _ = towerhub.ServeLoop(ctx, node, s.StationID, sealedAdapter{exec}, nil) }()
 
 	// --- THE CONSUMER: authorizes with Core (grant carries its sealing key), seals the request
@@ -148,7 +148,7 @@ func TestTopology2RejectsAGrantForAnotherTower(t *testing.T) {
 		att, st, _, err := dispatch.EdgeGrantMeta(grant, corePub, "roger-public", "tw-1", time.Now())
 		return att, st, err
 	}
-	server := towerhub.NewServer(hub, check, 2*time.Second, 200*time.Millisecond)
+	server := towerhub.NewServer(hub, check, towerhub.ServerOptions{TowerID: "tw-1", SubmitTTL: 2 * time.Second, PollTTL: 200 * time.Millisecond})
 	mux := http.NewServeMux()
 	mux.HandleFunc(towerhub.PathSubmit, server.Submit)
 	srv := httptest.NewServer(mux)

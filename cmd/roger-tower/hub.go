@@ -63,11 +63,31 @@ type pendingSettle struct {
 	deadline  time.Time
 }
 
+// hubOptions is how `roger-tower serve` is configured to run its data plane. It is a struct
+// because the fourth of these is a security posture rather than an address, and a bool trailing
+// three strings in a positional call is how a posture gets flipped by accident.
+type hubOptions struct {
+	// Addr is the listen address; empty means no hub at all.
+	Addr string
+	// TLSCert and TLSKey serve the hub over https when both are given. The endpoint format
+	// Core advertises cannot express a scheme, so today this only helps a hub reached some
+	// other way - see docs/relay-selection-design.md section 5.
+	TLSCert string
+	TLSKey  string
+	// AllowLegacyBearer keeps accepting the pre-signature bearer token from nodes that have
+	// not updated. Default ON (the flag's default), because the promise made when signatures
+	// landed was that an already-released provider keeps earning while they update - but an
+	// operator who knows their own fleet can end it early, and one release from now it goes
+	// altogether. Note that ON is not the same as "a token opens a queue": a Station that has
+	// signed to this hub refuses its own token from then on (internal/towerhub/nodeauth.go).
+	AllowLegacyBearer bool
+}
+
 // runHubInBackground starts the hub server and its node-registration refresher, returning a
 // waiter that blocks until both have wound down. It fails fast (before serving anything) if
 // Core's grant key cannot be fetched - a hub that cannot verify grants would either refuse
 // everything or, worse, be tempted to skip the check.
-func runHubInBackground(st *tower.State, addr, tlsCert, tlsKey string, out io.Writer, stop <-chan struct{}) (func(), error) {
+func runHubInBackground(st *tower.State, opt hubOptions, out io.Writer, stop <-chan struct{}) (func(), error) {
 	// THE GRANT CHECK CONTRACT (from the security audit): a REAL clock, so expired grants are
 	// refused, and THIS tower's own ID, so a grant minted for another tower is refused here.
 	coreKey, err := towerjoin.DispatchKey()
@@ -79,7 +99,14 @@ func runHubInBackground(st *tower.State, addr, tlsCert, tlsKey string, out io.Wr
 		att, station, _, gerr := dispatch.EdgeGrantMeta(grant, coreKey, link.PublicNetwork,
 			st.TowerID, time.Now())
 		return att, station, gerr
-	}, 0, 0)
+	}, towerhub.ServerOptions{
+		// THIS TOWER'S NAME, SIGNED INTO EVERY REQUEST. Without it a node's signature captured
+		// here was presentable at any other hub process holding the same Station - a second
+		// instance behind one endpoint, or this one after a redeploy inside the skew window.
+		// See internal/towerhub/nodeauth.go.
+		TowerID:           st.TowerID,
+		AllowLegacyBearer: opt.AllowLegacyBearer,
+	})
 	// THE SETTLE COURIER: every completed result's receipt is forwarded to Core, tower-signed,
 	// so the node is paid without holding its own line to Core. Opaque both ways; Core's
 	// one-use settlement makes a duplicate forward a harmless 409. A failed forward is
@@ -242,7 +269,7 @@ func runHubInBackground(st *tower.State, addr, tlsCert, tlsKey string, out io.Wr
 	mux.HandleFunc(towerhub.PathAuditWanted, server.AuditWanted)
 	mux.HandleFunc(towerhub.PathAuditTranscript, server.AuditTranscript)
 	httpSrv := &http.Server{
-		Addr:    addr,
+		Addr:    opt.Addr,
 		Handler: mux,
 		// Slow-loris bounds (the audit's mount-site contract). ReadTimeout covers the whole
 		// request read - generous enough for a 16MB sealed submit on a slow uplink, small
@@ -273,26 +300,7 @@ func runHubInBackground(st *tower.State, addr, tlsCert, tlsKey string, out io.Wr
 			fmt.Fprintf(out, "hub: could not refresh node registrations: %v\n", nerr)
 			return
 		}
-		seen := map[string]bool{}
-		for _, n := range nodes {
-			// The ASSERTION KEY is what a signed poll is verified against; Core sends it hex
-			// on the same call that already carried the token. A key that will not decode is
-			// dropped rather than registered short: a truncated key would refuse every one of
-			// that node's polls, and saying so once beats a silent 401 loop the operator sees
-			// only as a station that never serves.
-			var pub ed25519.PublicKey
-			if n.AssertionKey != "" {
-				raw, derr := hex.DecodeString(n.AssertionKey)
-				if derr != nil || len(raw) != ed25519.PublicKeySize {
-					fmt.Fprintf(out, "hub: station %s has an unusable assertion key from Core - "+
-						"it cannot make a signed poll here until that is fixed\n", n.StationID)
-				} else {
-					pub = ed25519.PublicKey(raw)
-				}
-			}
-			server.RegisterNode(n.StationID, towerhub.NodeAuth{AssertionKey: pub, LegacyToken: n.HubToken})
-			seen[n.StationID] = true
-		}
+		seen := registerHubNodes(server, nodes, out)
 		for id := range known {
 			if !seen[id] {
 				server.UnregisterNode(id)
@@ -336,14 +344,14 @@ func runHubInBackground(st *tower.State, addr, tlsCert, tlsKey string, out io.Wr
 
 	go func() {
 		defer close(serveDone)
-		if tlsCert != "" {
-			fmt.Fprintf(out, "hub: serving the data plane on %s (TLS)\n", addr)
-			if serr := httpSrv.ListenAndServeTLS(tlsCert, tlsKey); serr != nil && serr != http.ErrServerClosed {
+		if opt.TLSCert != "" {
+			fmt.Fprintf(out, "hub: serving the data plane on %s (TLS)\n", opt.Addr)
+			if serr := httpSrv.ListenAndServeTLS(opt.TLSCert, opt.TLSKey); serr != nil && serr != http.ErrServerClosed {
 				fmt.Fprintf(out, "hub: server stopped: %v\n", serr)
 			}
 			return
 		}
-		fmt.Fprintf(out, "hub: serving the data plane on %s - PLAINTEXT; pass --hub-tls-cert/--hub-tls-key (or front with TLS) before real traffic\n", addr)
+		fmt.Fprintf(out, "hub: serving the data plane on %s - PLAINTEXT; pass --hub-tls-cert/--hub-tls-key (or front with TLS) before real traffic\n", opt.Addr)
 		if serr := httpSrv.ListenAndServe(); serr != nil && serr != http.ErrServerClosed {
 			fmt.Fprintf(out, "hub: server stopped: %v\n", serr)
 		}
@@ -363,4 +371,38 @@ func runHubInBackground(st *tower.State, addr, tlsCert, tlsKey string, out io.Wr
 		<-refreshDone
 		<-courierDone
 	}, nil
+}
+
+// registerHubNodes turns Core's answer to /tower/hub/nodes into hub registrations. It is the
+// ONLY production path from Core's JSON to a towerhub.NodeAuth, and it lives out here as a
+// function rather than inside the refresher's closure so a test can reach it: the e2e test in
+// cmd/rogerai-broker proves the attachment CARRIES a hex assertion key and then registers the
+// node itself from a helper of its own, which proves nothing whatever about this code. A field
+// name that did not match, or a key Core sent base64 while this read hex, would have shipped
+// green. See hub_test.go.
+//
+// It returns the set of Station ids Core listed, which is what the caller diffs against the
+// previous answer to decide who to unregister.
+func registerHubNodes(server *towerhub.Server, nodes []towerjoin.HubNode, out io.Writer) map[string]bool {
+	seen := map[string]bool{}
+	for _, n := range nodes {
+		// The ASSERTION KEY is what a signed poll is verified against; Core sends it hex on the
+		// same call that already carried the token. A key that will not decode is dropped
+		// rather than registered short: a truncated key would refuse every one of that node's
+		// polls, and saying so once beats a silent 401 loop the operator sees only as a station
+		// that never serves.
+		var pub ed25519.PublicKey
+		if n.AssertionKey != "" {
+			raw, derr := hex.DecodeString(n.AssertionKey)
+			if derr != nil || len(raw) != ed25519.PublicKeySize {
+				fmt.Fprintf(out, "hub: station %s has an unusable assertion key from Core - "+
+					"it cannot make a signed poll here until that is fixed\n", n.StationID)
+			} else {
+				pub = ed25519.PublicKey(raw)
+			}
+		}
+		server.RegisterNode(n.StationID, towerhub.NodeAuth{AssertionKey: pub, LegacyToken: n.HubToken})
+		seen[n.StationID] = true
+	}
+	return seen
 }

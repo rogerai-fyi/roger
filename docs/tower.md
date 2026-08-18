@@ -209,9 +209,21 @@ because the hub link is plain HTTP (the endpoint format relays advertise cannot 
 scheme), so a reusable credential on it could be lifted by anyone on the path and used to poll
 that station's queue and swallow its work. Core hands the tower the station's public assertion
 key on the same call the tower already makes to list its nodes; each request also carries a
-nonce, so a captured request cannot be replayed either. A tower older than this still accepts
-the old bearer token for one release, so a node that has not updated keeps earning; a node that
-HAS updated will not talk to such a tower, and says so rather than failing quietly.
+nonce and this tower's own id, so a captured request cannot be replayed - not here, and not at
+another hub either.
+
+The transition runs one way round, and it is worth stating in the right direction. A tower
+running THIS code or later accepts the old bearer token as well, for one release, so a node
+whose operator has not updated `roger` yet keeps earning; that tolerance ends for a given
+station the moment the station signs once, and `roger-tower serve --hub-legacy-bearer=false`
+ends it outright for an operator who knows their fleet has updated. A tower running an OLDER
+`roger-tower` has no notion of any of this: it only knows the bearer, so a node that HAS updated
+cannot serve through it at all, and the node says so rather than failing quietly.
+
+**Update Core first.** The tower learns a station's assertion key from Core and from nowhere
+else, so a new node behind a new tower whose Core has not been updated is refused every time -
+it signs, and the tower has no key to check the signature against. Core, then towers, then
+nodes.
 
 The call is idempotent - a lost reply is answered with the existing
 registration - and so is the identity: the same host presents the same station keys on every

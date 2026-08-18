@@ -46,8 +46,20 @@ import (
 // It is still minted, and only for the transition: a node running a build from before signed hub
 // polls has no other way to authenticate, and refusing to issue one would take an already-shipped
 // provider off the fabric for a defect on our side of the wire. A current node receives it and
-// never transmits it. Delete this, the column, and towerhub.Server.AllowLegacyBearer together,
-// one release after signed polls ship.
+// never transmits it, and the moment it signs to its tower once, that tower stops accepting the
+// token for it at all (internal/towerhub/nodeauth.go) - so this is minted for a population that
+// shrinks to nothing on its own.
+//
+// IT IS NOT ROTATED ON RE-ATTACH, and that is a decision rather than an omission. The only node
+// that still presents this token puts it on a plaintext wire every twenty-five seconds, so an
+// attacker who captured the old one captures the new one just as easily; rotation would be
+// motion without protection. What actually retires the credential is the node that holds it
+// ceasing to send it, which is what the tower's latch detects.
+//
+// DELETE THIS, the column, and towerhub's bearer path together, one release after signed polls
+// ship. Nothing else keys on the field: attach.Attachment.SelfAttached is what the readers that
+// used to test it for emptiness ask now, precisely so this deletion is a deletion and not an
+// outage.
 func newHubToken() string {
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
@@ -341,7 +353,7 @@ func (b *broker) towerHubNodes(w http.ResponseWriter, r *http.Request) {
 	}
 	nodes := make([]map[string]any, 0, len(ats))
 	for _, at := range ats {
-		if at.HubToken == "" {
+		if !at.SelfAttached() {
 			continue // classic-flow attachment: it does not poll a hub
 		}
 		nodes = append(nodes, map[string]any{

@@ -113,12 +113,23 @@ type ListenerConfig struct {
 
 // HubConfig is the TOPOLOGY-2 DATA PLANE: the hub listener where consumers submit sealed
 // work and this tower's self-attached `roger share` nodes poll for it. The payload is
-// sealed end-to-end; TLS here covers the node polling tokens and grant metadata. Flags
-// (--hub, --hub-tls-cert, --hub-tls-key) win when both are given, like the relay's.
+// sealed end-to-end; TLS here covers the grant metadata and each node's long-term assertion
+// public key, which is its payment identity and rides every poll in the clear without it.
+// Flags (--hub, --hub-tls-cert, --hub-tls-key, --hub-legacy-bearer) win when given, like the
+// relay's.
 type HubConfig struct {
 	Address string `yaml:"address,omitempty"`
 	TLSCert string `yaml:"tlsCert,omitempty"`
 	TLSKey  string `yaml:"tlsKey,omitempty"`
+	// AllowLegacyBearer keeps accepting the pre-signature bearer token from serving nodes that
+	// have not updated to signed hub polls. It is a POINTER because the default is true and an
+	// operator has to be able to say false: a plain bool could not tell "not configured" from
+	// "turned off", and the whole reason this field exists is that the tolerance was documented
+	// as settable while being settable from nowhere at all.
+	//
+	// The flag -hub-legacy-bearer wins when it is typed. One release from now this field, the
+	// flag, and towerhub's bearer path all go together.
+	AllowLegacyBearer *bool `yaml:"allowLegacyBearer,omitempty"`
 }
 
 // RelayConfig described the RETIRED TLS-splice data plane. Only Public survives as live

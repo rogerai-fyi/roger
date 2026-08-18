@@ -16,8 +16,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"rogerai.fm/roger/v5/internal/towercore/admit"
+	"rogerai.fm/roger/v5/internal/towercore/attach"
 	"rogerai.fm/roger/v5/internal/towercore/fleet"
 	"rogerai.fm/roger/v5/internal/towercore/link"
+	"rogerai.fm/roger/v5/internal/towerjoin"
 )
 
 // liveEdgeTower enrolls a tower, promotes it, and opens a live link session advertising a
@@ -181,13 +183,12 @@ func TestTowerFetchesItsHubNodes(t *testing.T) {
 	code, _ := node.call(t, srv, http.MethodPost, "/tower/edge/attach", body, &attached)
 	require.Equal(t, http.StatusOK, code)
 
+	// DECODED INTO THE TYPE THE TOWER ACTUALLY USES, not a restatement of it. A local struct
+	// here would agree with whatever this handler happens to emit, which is the one thing a
+	// contract test must not do: rename a field on either side and both halves stay green while
+	// the fleet stops polling. towerjoin.HubNode is what cmd/roger-tower unmarshals.
 	var out struct {
-		Nodes []struct {
-			StationID    string `json:"station_id"`
-			AssertionKey string `json:"assertion_key"`
-			HubToken     string `json:"hub_token"`
-			State        string `json:"state"`
-		} `json:"nodes"`
+		Nodes []towerjoin.HubNode `json:"nodes"`
 	}
 	code, raw := tw.call(t, srv, "/tower/hub/nodes", jsonOf(t, map[string]any{"tower_id": tw.id}), &out)
 	require.Equal(t, http.StatusOK, code, raw)
@@ -207,6 +208,58 @@ func TestTowerFetchesItsHubNodes(t *testing.T) {
 	// named tower's own.
 	code, _ = other.call(t, srv, "/tower/hub/nodes", jsonOf(t, map[string]any{"tower_id": tw.id}), &out)
 	require.Equal(t, http.StatusForbidden, code, "a tower's node list is its own")
+}
+
+// THE FORWARD LANDMINE, and it would have taken the whole relay fabric offline.
+//
+// This handler decided which Stations to tell a Tower about with `if at.HubToken == ""` - keyed
+// on the very credential signed hub polls replaced, beside an instruction to delete that field
+// one release later. Followed literally, every Tower's node list goes empty: no station is
+// registered on any hub, every poll is refused, and nobody serves anything. The question the
+// code is asking is "is this a self-attached node that POLLS a hub", and it now asks that
+// (attach.Attachment.SelfAttached) rather than asking whether a doomed column is populated.
+//
+// The attachment below is what the fleet looks like the day after the deletion: a real
+// self-attached node, with no hub token at all.
+func TestATokenlessSelfAttachmentIsStillListedForItsTower(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	tw := liveEdgeTower(t, b, srv, "tower-op", "203.0.113.9:8443")
+	signedInOperator(t, b, "node-op")
+	owner := ownerPubkeyOf(t, b, "node-op")
+
+	apub, _, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	spub, _, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	auth, secret, err := attach.NewInvite(attach.Authorization{
+		ID: newInviteID(), Network: link.PublicNetwork, StationID: newStationID(), Owner: owner,
+		Origin:       attach.Origin{Kind: attach.OriginJoined, TowerID: tw.id},
+		AssertionKey: hexOf(apub), SessionKey: hexOf(spub),
+		// No HubToken. Everything else is exactly what the self-attach path records.
+		NodeID: "nd-after-the-deletion", Model: "m", Modality: "text",
+	}, time.Hour, time.Now())
+	require.NoError(t, err)
+	require.NoError(t, b.tower.stationStore.PutAuthorization(auth))
+	at, err := b.tower.stations.Admit(attach.Proof{
+		AuthID: auth.ID, Secret: secret, Network: link.PublicNetwork,
+		StationID: auth.StationID, Owner: owner,
+		Origin:       attach.Origin{Kind: attach.OriginJoined, TowerID: tw.id},
+		AssertionKey: hexOf(apub), SessionKey: hexOf(spub),
+	})
+	require.NoError(t, err)
+	require.Empty(t, at.HubToken, "this test is about an attachment with no token")
+
+	var out struct {
+		Nodes []towerjoin.HubNode `json:"nodes"`
+	}
+	code, raw := tw.call(t, srv, "/tower/hub/nodes", jsonOf(t, map[string]any{"tower_id": tw.id}), &out)
+	require.Equal(t, http.StatusOK, code, raw)
+	require.Len(t, out.Nodes, 1,
+		"a self-attached node with no hub token was hidden from its own tower - the fleet goes dark "+
+			"the day the column is deleted")
+	require.Equal(t, at.StationID, out.Nodes[0].StationID)
+	require.Equal(t, hexOf(apub), out.Nodes[0].AssertionKey,
+		"and the tower still gets the key it verifies that node's signed polls against")
 }
 
 // A lost-response retry with the SAME keys is answered idempotently: the existing

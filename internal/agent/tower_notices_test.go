@@ -151,18 +151,32 @@ func TestServeTowerSpeaksUpAboutTheThingsThatCost(t *testing.T) {
 	<-done
 }
 
-// THE NOTICE SAYS WHAT IS TRUE NOW, and not a word more.
+// THE NOTICE SAYS WHAT IS TRUE NOW - all of it, and not a word more.
 //
 // It used to say the polling token rides in the clear, which it did, and which was the reason to
 // care. Signed hub polls removed the token from the wire entirely, so keeping that sentence would
 // have taught operators to fear an exposure that no longer exists - and a standing alarm that
-// overstates its case is the one people learn to skip past. The channel is still unencrypted and
-// still says so; what is left is traffic shape.
-func TestThePlaintextNoticeNoLongerClaimsACredentialIsExposed(t *testing.T) {
+// overstates its case is the one people learn to skip past.
+//
+// The first correction then UNDERSTATED it, by naming traffic shape as the whole residual. It is
+// not: every poll carries the station's long-term assertion public key in an X-Roger-Pubkey
+// header, and that key is the operator's payment identity. An observer on this link learns a
+// stable global identifier and the address it is coming from, which is a privacy exposure the
+// operator cannot infer from "traffic shape". So this test pins both halves - no reusable
+// credential, AND the identity that genuinely is on the wire - because an honest notice is one
+// somebody could act on and each previous version was missing a different piece of it.
+func TestThePlaintextNoticeNamesTheWholeResidualAndNoCredential(t *testing.T) {
 	msg := ErrHubChannelPlaintext.Error()
 	require.Contains(t, msg, "UNENCRYPTED", "the operator is still told the channel is not encrypted")
-	require.Contains(t, msg, "SHAPE", "and told what an observer can actually still see")
-	for _, gone := range []string{"token", "credential", "in the clear"} {
+	require.Contains(t, msg, "shape of the traffic", "and told what an observer can see of the flow")
+	// THE UNDERSTATEMENT THIS TEST WAS ADDED FOR. The stable key is the part an operator would
+	// never guess from a note about volumes and timings.
+	require.Contains(t, msg, "ASSERTION PUBLIC KEY",
+		"the notice does not mention the long-term key every poll puts on the wire")
+	require.Contains(t, msg, "link",
+		"the notice names the key but not what an observer does with it - correlate it to an address")
+	// And still no claim that something reusable is exposed, which is what signed polls fixed.
+	for _, gone := range []string{"token", "credential"} {
 		require.NotContains(t, msg, gone,
 			"the notice still implies a reusable credential is exposed; signed polls removed it (%q)", gone)
 	}
