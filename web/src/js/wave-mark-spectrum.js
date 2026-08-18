@@ -43,8 +43,19 @@
     { id: "peta",  name: "PETA",  k: 2, amp: 50 },
     { id: "exa",   name: "EXA",   k: 1, amp: 58 }
   ];
-  var CYCLE = 11.5;            // seconds for one full pico -> exa pass
-  var HOLD  = 1.9;             // extra beats at the top before it starts over
+  /* THE LOOP CLOSES ON ITSELF (founder: "the way it ends should also be the
+     way it starts"). Everything below is a function of ONE normalised loop
+     position u in [0,1), and every term is periodic in u, so the last frame
+     of a pass is the first frame of the next one and the seam is invisible:
+       - the sweep runs on a RING of TOTAL tier-units, so as it leaves Exa it
+         is already approaching Pico from behind; Pico ramps up through the
+         wrap instead of snapping on at full charge, which is what the old
+         (t % span) form did.
+       - each wave's idle drift completes a WHOLE number of cycles per loop,
+         so the resting shapes match across the seam too. */
+  var SPAN  = 14.5;            // seconds for one full pass
+  var GAP   = 2.4;             // tier-units of quiet between Exa and Pico
+  var TOTAL = 7 + GAP;         // the ring, in tier-units
 
   /* Build the spectrum layer. The resting markup underneath is left exactly
      as authored - it is the no-JS mark and what its locks assert - so this
@@ -124,12 +135,13 @@
   placeOnAir();
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(placeOnAir);
 
-  function pathFor(t, charge, t0) {
+  function pathFor(t, charge, u) {
     /* standing wave with a node at CX for every k, so the crossing is exact.
        The charge swells the amplitude; a slow drift keeps an uncharged wave
        breathing rather than frozen. */
     var L = X1 - X0;
-    var drift = 0.88 + 0.12 * Math.sin(TWO_PI * t0 / (6 + t.k) + t.k);
+    /* u, not seconds: a whole number of cycles per loop, so it matches at the seam */
+    var drift = 0.88 + 0.12 * Math.sin(TWO_PI * u * (1 + (t.k % 2)) + t.k);
     var A = t.amp * drift * (1 + 0.42 * charge);
     var d = "";
     for (var i = 0; i <= N; i++) {
@@ -145,16 +157,18 @@
 
   function frame(now) {
     if (!running) return;
-    var t0 = (now - start) / 1000;
-    var span = CYCLE + HOLD;
-    var phase = (t0 % span) / CYCLE * TIERS.length;   // 0..7 then a hold
+    var u = ((now - start) / 1000 % SPAN) / SPAN;   // one loop, 0 -> 1
+    var phase = u * TOTAL;
     var lead = null, best = 0;
 
     for (var i = 0; i < TIERS.length; i++) {
       var t = TIERS[i];
+      /* distance ON THE RING - this is what closes the seam */
       var d = phase - i;
+      if (d >  TOTAL / 2) d -= TOTAL;
+      if (d < -TOTAL / 2) d += TOTAL;
       var charge = d > -1.6 && d < 1.6 ? Math.exp(-(d * d) * 2.1) : 0;
-      t.el.setAttribute("d", pathFor(t, charge, t0));
+      t.el.setAttribute("d", pathFor(t, charge, u));
       t.el.style.opacity = (0.2 + 0.8 * charge).toFixed(3);
       t.el.style.strokeWidth = (1.7 + 4.6 * charge).toFixed(2);
       if (charge > best) { best = charge; lead = t; }

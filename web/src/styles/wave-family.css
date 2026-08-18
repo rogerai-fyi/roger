@@ -49,6 +49,226 @@
   color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body);
 }
 
+/* The caption is a legend plus three short facts, not one paragraph of caveats.
+   Each fact gets its own line so the eye can leave after the one it came for. */
+.wf-rail figcaption p { margin: 0 0 var(--s-3); max-width: 78ch; }
+.wf-rail figcaption p:last-child { margin-bottom: 0; }
+.wf-rail figcaption b { color: var(--ink-900); }
+/* Wave Infinite is not on the axis, and the note that says so is not a caveat on
+   the axis either - it is set apart, inside the figure, where the lock reads it. */
+.wf-rail__note {
+  padding-left: var(--s-4); border-left: 2px solid var(--hairline-2);
+  color: var(--ink-400);
+}
+.wf-rail__note a { color: var(--ink-500); border-bottom: 1px solid var(--hairline-2); }
+
+/* ---------- §2 the bench note -----------------------------------------------
+   The one comparative claim, given a plate of its own so it cannot be read as
+   part of the pruning experiment above it. Same plate as .wf-inf__requires:
+   a constraint, not small print. */
+.wf-bench {
+  display: block; margin: var(--s-7) 0 0; padding: var(--s-5) var(--s-6);
+  border-left: 2px solid var(--ink-900); background: var(--paper);
+}
+.wf-bench p {
+  max-width: 74ch; margin: var(--s-3) 0 0;
+  color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body);
+}
+.wf-bench b { color: var(--ink-900); }
+.wf-bench__cite {
+  color: var(--ink-400); font-family: var(--font-mono); font-size: var(--t-micro);
+  letter-spacing: .04em;
+}
+
+/* §3 runs six cards rather than three, so the plate is a 3x2 grid instead of one
+   row with an orphan. Scoped to the section: .device-contract is shared. */
+#slots .device-contract { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+#slots .device-contract p { border-right: 1px solid var(--hairline); }
+#slots .device-contract p:nth-child(3n), #slots .device-contract p:last-child { border-right: 0; }
+#slots .device-contract p:nth-child(n+4) { border-top: 1px solid var(--hairline); }
+#slots .device-contract p:last-child { grid-column: auto; }
+#slots .device-contract code {
+  font-family: var(--font-mono); font-size: var(--t-xs); color: var(--ink-900);
+}
+#slots .device-contract a { color: var(--ink-900); border-bottom: 1px solid var(--hairline-2); }
+@media (max-width: 900px) {
+  #slots .device-contract { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  #slots .device-contract p:nth-child(3n) { border-right: 1px solid var(--hairline); }
+  #slots .device-contract p:nth-child(2n), #slots .device-contract p:last-child { border-right: 0; }
+  #slots .device-contract p:nth-child(n+3) { border-top: 1px solid var(--hairline); }
+}
+@media (max-width: 620px) {
+  #slots .device-contract { grid-template-columns: 1fr; }
+  #slots .device-contract p, #slots .device-contract p:nth-child(3n) { border-right: 0; }
+  #slots .device-contract p + p { border-top: 1px solid var(--hairline); }
+}
+
+/* ---------- §4 the job finder ------------------------------------------------
+   A table of 39 jobs is a wall if you print it and a filing cabinet if you frame
+   it. The frame: a toolbar that only exists once the script can drive it, groups
+   with their own headings, and a bounded panel so the section is one screen tall
+   however many jobs land here later. Every constraint is added by script
+   (.is-live) - the served page is the whole table, scrolling with the document. */
+.wj { position: relative; border-block: 2px solid var(--ink-900); background: var(--paper); }
+/* display:grid would beat the UA's [hidden] rule, and the toolbar ships hidden -
+   without this the filters appear, inert, on a page whose script never ran. */
+.wj__bar[hidden] { display: none; }
+.wj__bar {
+  display: grid; gap: var(--s-3);
+  padding: var(--s-4) var(--s-5); border-bottom: 1px solid var(--hairline);
+  background: var(--paper-2);
+}
+.wj__set { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s-2); }
+.wj__legend {
+  flex: 0 0 auto; min-width: 4.2rem;
+  color: var(--ink-400); font-family: var(--font-mono); font-size: var(--t-micro);
+  letter-spacing: var(--tracking-label); text-transform: uppercase;
+}
+.wj__chip {
+  display: inline-flex; align-items: baseline; gap: 6px;
+  padding: 5px 10px; border: 1px solid var(--hairline-2); border-radius: var(--r-sm);
+  background: var(--paper); color: var(--ink-700);
+  font-family: inherit; font-size: var(--t-xs); line-height: 1.3;
+  cursor: pointer;
+}
+.wj__chip--tier { font-family: var(--font-mono); letter-spacing: .04em; }
+.wj__chip--tier::before {
+  content: ""; align-self: center; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--wj-tier, var(--ink-300));
+}
+.wj__chip[data-wj-tier="Pico"]  { --wj-tier: var(--tier-pico); }
+.wj__chip[data-wj-tier="Nano"]  { --wj-tier: var(--tier-nano); }
+.wj__chip[data-wj-tier="Micro"] { --wj-tier: var(--tier-micro); }
+.wj__chip[data-wj-tier="Giga"]  { --wj-tier: var(--tier-giga); }
+.wj__chip[data-wj-tier="Tera"]  { --wj-tier: var(--tier-tera); }
+.wj__chip[data-wj-tier="Peta"]  { --wj-tier: var(--tier-peta); }
+.wj__chip[data-wj-tier="Exa"]   { --wj-tier: var(--tier-exa); }
+.wj__chip:hover { border-color: var(--ink-900); color: var(--ink-900); }
+.wj__chip[aria-pressed="true"] {
+  border-color: var(--ink-900); background: var(--ink-900); color: var(--paper);
+}
+.wj__chip[disabled] { opacity: .4; cursor: default; }
+.wj__chip[disabled]:hover { border-color: var(--hairline-2); color: var(--ink-700); }
+.wj__n {
+  color: var(--ink-400); font-family: var(--font-mono); font-size: var(--t-micro);
+  font-variant-numeric: tabular-nums;
+}
+.wj__chip[aria-pressed="true"] .wj__n { color: var(--paper); opacity: .7; }
+.wj__count {
+  margin: 0; justify-self: end; color: var(--ink-400); font-family: var(--font-mono);
+  font-size: var(--t-micro); letter-spacing: .06em; text-transform: uppercase;
+}
+.wj__scroll { overflow: auto; }
+/* Bounded ONLY when the filters exist to shorten it. */
+.wj.is-live .wj__scroll { max-height: min(64vh, 620px); }
+.wj.is-live .wj__scroll:focus-visible { outline: 2px solid var(--live); outline-offset: -2px; }
+.wj table { min-width: 0; }
+.wj table thead th { position: sticky; top: 0; z-index: 2; background: var(--paper); }
+/* The group heading is a row, so it can stay with its rows while they scroll. */
+.wj__group th {
+  position: sticky; top: var(--wj-head, 30px); z-index: 1;
+  padding: var(--s-3) var(--s-4);
+  border-bottom: 1px solid var(--hairline-2); background: var(--paper-2);
+  font-weight: 400;
+}
+.wj__group b {
+  color: var(--ink-900); font-family: var(--font-mono); font-size: var(--t-xs);
+  font-weight: 500; letter-spacing: .08em; text-transform: uppercase;
+}
+.wj__group span { color: var(--ink-400); font-size: var(--t-xs); }
+.wj__tally {
+  float: right; color: var(--ink-400); font-family: var(--font-mono);
+  font-size: var(--t-micro); font-variant-numeric: tabular-nums;
+}
+.wj table tbody[hidden], .wj table tr[hidden] { display: none; }
+.wj__nobody td {
+  padding: var(--s-6) var(--s-5); color: var(--ink-500); font-size: var(--t-sm);
+}
+/* The panel fades at its bottom edge when it is bounded, so a reader can see
+   there is more table under the fold rather than guessing. */
+.wj.is-live.has-more::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 40px;
+  background: linear-gradient(to bottom, transparent, var(--paper));
+  pointer-events: none;
+}
+.wj__play {
+  margin: var(--s-5) 0 0; color: var(--ink-500);
+  font-size: var(--t-sm); line-height: var(--lh-body);
+}
+.wj__play b { color: var(--ink-900); }
+.wj__play a { color: var(--ink-900); border-bottom: 1px solid var(--live); }
+
+/* ---------- narrow: every matrix on this page becomes cards --------------------
+   All three tables are 4-5 columns wide and .tier-scroll's 640px minimum turned
+   each of them into a sideways scroll on a phone - 27 rows of it in §4, which is
+   not reading. Under 760px a row becomes a card and the column headings become
+   labels on the fields. §4 labels from data-label (it grows); §3 and §5 label by
+   column position, so their rows need no attributes at all. */
+@media (max-width: 760px) {
+  #jobs .tier-matrix, #slots .tier-matrix, #variations .tier-matrix,
+  #jobs .tier-matrix tbody, #slots .tier-matrix tbody, #variations .tier-matrix tbody,
+  #jobs .tier-matrix tr, #slots .tier-matrix tr, #variations .tier-matrix tr,
+  #jobs .tier-matrix th, #slots .tier-matrix th, #variations .tier-matrix th,
+  #jobs .tier-matrix td, #slots .tier-matrix td, #variations .tier-matrix td {
+    display: block;
+  }
+  #jobs .tier-matrix thead, #slots .tier-matrix thead, #variations .tier-matrix thead {
+    position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%);
+  }
+  #slots .tier-scroll, #variations .tier-scroll { overflow-x: visible; }
+  #slots .tier-scroll table, #variations .tier-scroll table { min-width: 0; }
+  #jobs .tier-matrix tbody tr, #slots .tier-matrix tbody tr, #variations .tier-matrix tbody tr {
+    padding: var(--s-4) var(--s-5); border-bottom: 1px solid var(--hairline);
+  }
+  #jobs .tier-matrix tbody tr:last-child,
+  #slots .tier-matrix tbody tr:last-child,
+  #variations .tier-matrix tbody tr:last-child { border-bottom: 0; }
+  #jobs .tier-matrix tbody th, #slots .tier-matrix tbody th, #variations .tier-matrix tbody th,
+  #jobs .tier-matrix tbody td, #slots .tier-matrix tbody td, #variations .tier-matrix tbody td {
+    padding: 0; border: 0;
+  }
+  #jobs .tier-matrix tbody tr > th[scope="row"],
+  #slots .tier-matrix tbody tr > th[scope="row"],
+  #variations .tier-matrix tbody tr > th[scope="row"] {
+    color: var(--ink-900); font-size: var(--t-body); font-weight: 500;
+  }
+  #jobs .tier-matrix .tier-cell,
+  #slots .tier-matrix .tier-cell,
+  #variations .tier-matrix .tier-cell { white-space: normal; }
+  /* One label style, however the label is sourced. */
+  #jobs .tier-matrix td::before, #jobs .tier-matrix .tier-cell::before,
+  #slots .tier-matrix td::before, #variations .tier-matrix td::before {
+    display: block; margin-top: var(--s-3);
+    color: var(--ink-400); font-family: var(--font-mono); font-size: var(--t-micro);
+    letter-spacing: var(--tracking-label); text-transform: uppercase;
+  }
+  #jobs .tier-matrix .tier-cell::before { content: "Smallest slot"; margin-top: var(--s-2); }
+  #jobs .tier-matrix td[data-label]::before { content: attr(data-label); }
+  /* §3: Slot | Class | Job | Runs on | Recipe */
+  #slots .tier-matrix td:nth-of-type(1)::before { content: "Class"; margin-top: var(--s-2); }
+  #slots .tier-matrix td:nth-of-type(2)::before { content: "Job"; }
+  #slots .tier-matrix td:nth-of-type(3)::before { content: "Runs on"; }
+  #slots .tier-matrix td:nth-of-type(4)::before { content: "Recipe"; }
+  /* §5: Variation | What it does | Lives at | Gate */
+  #variations .tier-matrix td:nth-of-type(1)::before { content: "What it does"; margin-top: var(--s-2); }
+  #variations .tier-matrix td:nth-of-type(2)::before { content: "Lives at"; }
+  #variations .tier-matrix td:nth-of-type(3)::before { content: "Gate"; }
+
+  /* In card mode the heading row is a block, so it can be a flex line: name,
+     what the group is, and the tally pushed to the end instead of floated into
+     the wrapped sub-label. */
+  .wj__group th {
+    position: static; padding: var(--s-3) var(--s-5);
+    display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s-2);
+  }
+  .wj__tally { float: none; margin-left: auto; }
+  #jobs .tier-matrix tbody tr.wj__group { padding: 0; border-bottom: 0; }
+  .wj__bar { padding: var(--s-4); }
+  .wj__set { align-items: flex-start; }
+  .wj__legend { flex-basis: 100%; }
+  .wj__count { justify-self: start; }
+}
+
 /* ---------- §6 Wave Infinite ------------------------------------------------
    Different in KIND from the size classes above it, so it is drawn differently:
    a claim slab, a four-step loop, and a proven/not-proven ledger given equal
@@ -269,12 +489,15 @@
 /* THE SPECTRUM MARK (js/wave-mark-spectrum.js). Tier colours are the
    founder's own Spectrum chart - the same seven the mesh and factory decks
    wear - so the mark, the decks and the ladder all speak one palette. */
-.wave-mark__svg {
+/* Declared on the ROOT, not on the mark: the §4 slot chips wear the same seven
+   hues, so the mark, the decks and the ladder stay one palette rather than two
+   that drift. The mark inherits them exactly as before. */
+:root {
   --tier-pico: #b23a2a; --tier-nano: #c96a1c; --tier-micro: #b0891a;
   --tier-giga: #2f8a52; --tier-tera: #1f8f8f; --tier-peta: #2f63bf;
   --tier-exa:  #5b3fbf;
 }
-:root[data-theme="dark"] .wave-mark__svg {
+:root[data-theme="dark"] {
   --tier-pico: #e6604f; --tier-nano: #e88b3c; --tier-micro: #d4aa2e;
   --tier-giga: #48b873; --tier-tera: #39b7b7; --tier-peta: #5b8ee6;
   --tier-exa:  #8a6df0;
@@ -298,7 +521,8 @@
   fill: var(--mark-lead, var(--live)); opacity: 0;
 }
 
-.wave-mark__svg { width: 100%; max-width: 320px; height: auto; overflow: visible; }
+/* founder 2026-08-17: "lets make it a bit bigger" - 320 -> 420 */
+.wave-mark__svg { width: 100%; max-width: 420px; height: auto; overflow: visible; }
 .wave-mark__wave { fill: none; stroke-linecap: round; }
 .wave-mark__wave--wide { stroke: var(--hairline-2); stroke-width: 9; }
 .wave-mark__wave--live { stroke: var(--live); stroke-width: 6; }
