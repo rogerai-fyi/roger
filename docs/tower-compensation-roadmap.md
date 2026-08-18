@@ -21,14 +21,21 @@ disbursement layer, which is the last milestone and behind its own authorization
 Everything reduces to one program-cap invariant, checked independently of any per-operator logic:
 
 ```
-T_N = Σ externally-funded net revenue N over all eligible candidates (share atoms)
-T_C = Σ (N · rate_ppm)                        the policy ceiling
-T_A = Σ A over all entitlement aggregates     what operators are owed
-      T_A == T_C   and   0 ≤ T_A ≤ T_N
+N     = one candidate's externally funded GROSS revenue, in accounting quanta
+T_N   = Σ (N · 1e6)          the same revenue expressed in share atoms
+T_C   = Σ (N · rate_ppm)     the policy ceiling, already in share atoms
+T_A   = Σ A                  what operators are owed, in share atoms
+        T_A == T_C   and   0 ≤ T_A ≤ T_N
 ```
 
+One share atom is one millionth of one accounting quantum, so multiplying a quantum-valued `N`
+by `rate_ppm` yields atoms directly - no divisor, no rounding. Because `rate_ppm ≤ 1e6` is
+enforced at parse and at application, `T_C ≤ T_N` term by term, which makes the cap structural
+rather than a check that could be forgotten.
+
 This is what makes wash-trading unprofitable (you are paid `rate_ppm` of *funded* revenue, capped
-at what actually came in) and what a full source-replay must reproduce exactly.
+at what actually came in) and what a full source-replay must reproduce exactly. The basis is
+GROSS externally funded revenue, met from the platform's own margin (founder, 2026-08-17).
 
 ## Milestones (dependency order)
 
@@ -48,16 +55,36 @@ Milestones 1–7 are all money-*safe* (they decide numbers; only 8 disburses). S
 account-level floor is already built in `internal/towercore/earnings` (own-account traffic earns
 nothing); the sybil/funded-work defence is milestones 2–4.
 
-## Open questions to pin before milestone 4
+## Questions that were open before milestone 4 — both now settled from the specs
 
-- **`T_C` exact formula.** The state-machine spec says "the checked sum of each current N
-  multiplied by that candidate's grant-bound rate_ppm"; the reserve/rate scenarios apply ppm as
-  `floor(x · ppm / 1e6)`. Confirm whether `T_C` carries the `/1e6` per candidate (entitlement
-  atoms) or is a ppm-scaled control quantity divided once — this changes the atom accounting and
-  must be settled against a full reading of both specs before any aggregate math is written.
-- **Share-atom scale vs currency minor unit.** `N` is "expressed as 1000000 share atoms"; nail the
-  relationship between share atoms, the currency's minor unit, and each rail's minor unit (the tax
-  decision speaks of "accounting quanta per rail minor unit").
+Neither needed a ruling. The answers were already written in
+`operator_revenue_share.feature`'s "Compensation math uses fixed-point cumulative rounding",
+which the earlier reading of this roadmap had not cross-referenced.
+
+- **`T_C` carries no divisor, because the units do the work.** `N` in the ceiling is the
+  **quantum**-valued net figure, and `share atoms = checked_multiply(N_quanta, rate_ppm)` — the
+  ppm multiply *is* the conversion from quanta to atoms, since one atom is one millionth of one
+  quantum. `T_N` is that same `N` expressed in atoms (`N · 1e6`), so `T_A == T_C` compares atoms
+  with atoms, and `T_A ≤ T_N` reduces to `ppm ≤ 1e6` — which `ParsePPM` and `ApplyPPM` both
+  enforce. The invariant is therefore **structural**, not a runtime hope.
+- **There is no per-candidate rounding.** The spec requires exact atoms "retained through
+  aggregation without per-event rounding", and an integer multiply is exact, so nothing is
+  floored on the way in. `ApplyPPM` (which floors) is the primitive for taking a percentage OF
+  ATOMS — the rolling reserve — and is the wrong one for entitlement accrual, whose primitive is
+  `CheckedMul`. Getting this backwards would silently under-pay every operator by up to one atom
+  per settled attempt and break `T_A == T_C` exactness.
+- **Scale.** One share atom is exactly one millionth of one accounting quantum (the currency's
+  minor unit). Rounding happens **once**, at the payout boundary, converting atoms to the rail's
+  minor unit by flooring, with the remainder left as unpaid entitlement — which is what the dust
+  cycles exist for, and why payout lots are a separate state machine from entitlement.
+
+### The one genuinely open item
+
+**Quantum ↔ rail minor unit is not pinned.** For USD both are the cent, and it is tempting to
+assume 100 everywhere. A zero-decimal currency (JPY) has no minor unit at all, and a rail may
+quote a different scale again. The tax decision's "accounting quanta per rail minor unit" needs
+to be an explicit per-currency, per-rail value carried in policy, not a constant — settle this
+in milestone 2 (payment authority), where rail scope is already part of the adapter identity.
 
 ## Why milestone 0 first
 

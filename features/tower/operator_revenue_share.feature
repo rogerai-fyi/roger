@@ -1,14 +1,24 @@
 # APPROVED SPEC - founder approved 2026-08-03. Changes to an approved scenario need
 # re-approval; they are not a diff to be reviewed.
 #
-# RATE-BASIS OVERRIDE (founder, 2026-08-13): the share basis below - "10% of NET PLATFORM
-# REVENUE" (i.e. 10% of the platform's fee, ~3% of gross) - is SUPERSEDED for the shipped
-# edge path by a simpler founder decision: the Tower earns 10% of GROSS (the metered cost),
-# taken from the platform's margin (its 30% fee drops to 20%), with the Station keeping its
-# full 70%. The shipped behaviour is specified in features/tower/edge_dispatch.feature
-# ("overflow becomes paid relay"). When the fuller entitlement program below is built, its
-# "net platform revenue" scenarios and atom-conservation math must be revised to this
-# 10%-of-gross basis; until then they describe an unbuilt design, not shipped behaviour.
+# RATE-BASIS AMENDMENT - founder approved 2026-08-17, superseding the 2026-08-03 basis.
+#
+# The share is 10% of GROSS externally funded revenue (the metered cost the consumer actually
+# paid for), taken from the PLATFORM'S OWN MARGIN - its fee drops from 30% to 20% - with the
+# serving Station keeping its full 70%. The original basis was "10% of net platform revenue"
+# (10% of the platform's fee, ~3% of gross); the scenarios below have been amended to the
+# gross basis and this file is again the single description of the program.
+#
+# WHAT THE CHANGE COSTS, stated rather than discovered: processor fees no longer reduce the
+# operator's base. They are met out of the platform's 20%, so on a settlement whose fees
+# exceed that margin the platform loses money and the operator is still paid. That is the
+# deliberate trade - an operator can compute their earnings from the price the consumer saw,
+# without modelling our cost of collection, and a fee dispute can never reach into money
+# they have already earned.
+#
+# The shipped edge path already behaves this way (features/tower/edge_dispatch.feature,
+# "overflow becomes paid relay"); this file specifies the fuller entitlement program around
+# the same rate.
 #
 # BUILD STATUS: PARTIAL. Approval is not implementation - this line says which.
 # Built: the canonical money arithmetic this whole program rests on - the rate_ppm wire form and
@@ -22,8 +32,8 @@
 # Changing the status without changing the code fails.
 #
 # Scope: the compensated-Tower program — an opt-in tier in which a joined Tower operator
-# earns a founder-set revenue share (initially 10%) of the platform's net revenue on token
-# sales actually settled through that Tower. Covers eligibility, attribution, funds
+# earns a founder-set revenue share (initially 10%) of the externally funded GROSS revenue on
+# token sales actually settled through that Tower. Covers eligibility, attribution, funds
 # verification, accrual, payout, clawback, self-dealing, and forfeiture on enforcement.
 #
 # Money path: per the working agreement this domain is spec-first, exhaustive, and runs
@@ -31,14 +41,14 @@
 
 Feature: A compensated Tower earns a revenue share only on verified, attributed, funded work
   Tower admission alone earns nothing. A separately authorized compensated Tower accrues a
-  share of net platform revenue for jobs whose settlement receipt binds that Tower, whose
+  share of externally funded gross revenue for jobs whose settlement receipt binds that Tower, whose
   consumer funds are actually received and past the policy maturity window, and whose bound
   envelopes Roger Core observed on that Tower's authenticated session with consistent Tower
   corroboration. Roger Core is the sole accounting authority;
   no Tower statement can create, move, or inflate money.
 
   Background:
-    Given the public network revenue-share policy names a share rate of 10 percent of net platform revenue
+    Given the public network revenue-share policy names a share rate of 10 percent of externally funded gross revenue, met from the platform's own margin
     And that rate is represented as the integer value 100000 parts per million
     And the exact TowerCompensationPolicyV1 is signed by its purpose-specific key and listed in the independently accepted trust document's CompensationPolicyDirectorySetV1
     And an operator owns an active joined Tower
@@ -319,10 +329,10 @@ Feature: A compensated Tower earns a revenue share only on verified, attributed,
   Scenario: Grant-funded and promotional usage carries no operator share
     Given a job paid entirely from platform-issued grant or promotional credit
     When settlement runs
-    Then platform net revenue for the job is zero
+    Then externally funded revenue for the job is zero
     And the candidate is ineligible for positive compensation with reason "no external-cash funding"
 
-  Scenario: Mixed cash and grant funding shares only cash-attributable net revenue
+  Scenario: Mixed cash and grant funding shares only cash-attributable gross revenue
     Given one settled job is funded partly by captured cash and partly by platform grant credit
     When compensation is computed
     Then SettlementReceiptV2 contains immutable cash and grant funding slices whose consumer amounts sum exactly to cost
@@ -381,8 +391,8 @@ Feature: A compensated Tower earns a revenue share only on verified, attributed,
     When fee allocation runs
     Then the whole flat fee is allocated to the source interval of the disputed settlement
     And no unrelated settlement's entitlement on that lot is reduced by the flat fee
-    And a flat fee exceeding its own settlement's net revenue drives that settlement's base to zero and the excess is recorded as platform expense rather than silently discarded or spread
-    And the excess never creates operator debt unless a purpose-signed negative entitlement application does so explicitly
+    And the whole fee is recorded as platform expense rather than reducing any operator's base, because the share is computed on gross
+    And a fee exceeding the platform's own margin on that settlement is the platform's loss and never creates operator debt
 
   Scenario: A fee arriving without a declared kind fails closed
     Given an authoritative fee revision omits its fee kind or declares a kind outside the closed set
@@ -446,7 +456,7 @@ Feature: A compensated Tower earns a revenue share only on verified, attributed,
   Scenario Outline: Partial cash changes recompute cumulative entitlement
     Given a compensation candidate later receives "<event>"
     When authoritative cumulative cash and fee state is reconciled
-    Then net platform revenue and cumulative Tower entitlement are recomputed
+    Then externally funded gross revenue and cumulative Tower entitlement are recomputed
     And only the delta from previously appended compensation is accrued or clawed back
 
     Examples:
@@ -459,18 +469,23 @@ Feature: A compensated Tower earns a revenue share only on verified, attributed,
       | an added dispute fee          |
       | a won dispute cash recovery   |
 
-  Scenario: The share is computed on net platform revenue, not gross consumer price
+  # THE BASIS. An operator can read their earnings off the price the consumer saw. What it
+  # cost the platform to collect that money is the platform's business, met from its own
+  # margin - so no operator has to model our processor fees to know what they earned, and a
+  # fee dispute months later cannot reach into money they were already paid.
+  Scenario: The share is computed on gross externally funded revenue, not on what the platform keeps
     Given a settled funded job with a consumer charge, a Station earning, and payment-processor fees
     When share accrual runs
-    Then the share base is the consumer charge minus the Station earning and recorded processor fees
-    And a non-positive base accrues zero
+    Then the share base is the externally funded consumer charge itself, undiminished by the Station earning or by any processor fee
+    And the Station's own earning is unaffected, because the share is met from the platform's margin rather than taken from the Station
+    And a base with no external-cash funding accrues zero
     And the exact base, rate, policy version, share amount, and causal payment version are bound into TowerCompensationReceiptV1
 
   Scenario: Compensation math uses fixed-point cumulative rounding
     Given all money is represented as checked integer accounting quanta and the share rate as integer parts per million
     When cumulative entitlement is computed
     Then one share atom is exactly one millionth of one accounting quantum
-    And exact share atoms equal checked_multiply(max(0, mature cash G minus allocated Station cost S minus allocated fee F), rate parts per million)
+    And exact share atoms equal checked_multiply(mature externally funded cash G, rate parts per million), with neither the Station cost S nor the allocated fee F subtracted from the base
     And 1000000 parts per million therefore produces exactly one accounting quantum of monetary value per net accounting quantum
     And exact share atoms are retained through aggregation without per-event rounding
     And any multiplication overflow fails reconciliation before a delta or lot is created
