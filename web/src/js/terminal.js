@@ -1,23 +1,28 @@
 /* =====================================================================
    RogerAI - the demo console: a tape-deck / station-preset player.
 
-   Eight demos, selected from a radio-preset bar ( [ roger ] [ tune in ] [ agent ]
-   [ share ] [ payouts ] [ using ] [ hosting ] [ ping ] ) with the current preset lit
-   red. The first five are animated terminal replays that follow the roger arc - borrow
-   -> automate -> lend -> get paid - and mirror the real TUI preset bank you get from a
-   bare `roger` ( [0] AGENT  [1] TUNE IN  [2] SHARE ). The last three are MEDIA tapes
-   (using, hosting, ping): muted/looping inline <video>s. Transport controls (play /
-   pause / replay) and a tuning-bar progress readout, all radio/tape-deck styled. tune
-   in and agent are deliberately distinct: tune in hands an ENDPOINT to your tools;
-   agent is roger ITSELF running a multi-tool job.
+   Nine demos, selected from a radio-preset bar ( [ roger ] [ tune in ] [ your tools ]
+   [ agent ] [ share ] [ payouts ] [ using ] [ hosting ] [ ping ] ) with the current
+   preset lit red. The first six are animated terminal replays that follow the roger arc
+   - borrow -> integrate -> automate -> lend -> get paid - and mirror the real TUI preset
+   bank you get from a bare `roger` ( [0] AGENT  [1] TUNE IN  [2] SHARE ). The last three
+   are MEDIA tapes (using, hosting, ping): muted/looping inline <video>s. Transport
+   controls (play / pause / replay) and a tuning-bar progress readout, all radio/tape-deck
+   styled. tune in, your tools and agent are deliberately distinct: tune in OPENS and
+   HOLDS the channel; your tools points YOUR existing OpenAI clients at it; agent is
+   roger ITSELF running a multi-tool job.
 
      roger    - boot the dial: type `roger`, acquire the carrier (an animated
                 sweep), reveal the preset bank + brand lockup, then read the
                 live band (stations fade in, signal bars fill).
-     tune in  - BORROW: lock the strongest station -> CHANNEL OPEN + the drop-in
-                endpoint plate, then YOUR tool (a curl, the OpenAI SDK, Cursor,
-                bots) hits 127.0.0.1; tokens stream, the wallet debits live, and a
-                dropped station triggers under-the-hood failover (no retry).
+     tune in  - BORROW: lock the strongest station -> lineage handshake ->
+                CHANNEL OPEN + the drop-in endpoint plate; traffic rides the channel,
+                the wallet debits live + the receipt co-signs, and a dropped station
+                triggers under-the-hood failover (same URL + key, no retry).
+     your tools- INTEGRATE: the channel is an ordinary OpenAI endpoint. `roger use`
+                prints the three values (base URL / key / model), you export them, and
+                your EXISTING client runs unchanged - the OpenAI SDK, opencode,
+                Cursor, Cline. (Grounded in manual.html Appendix B + B2.)
      agent    - AUTOMATE: roger is itself an agent (the [0] AGENT dj.md harness) -
                 hand it a JOB and it plans + runs several tools (run/read/grep)
                 autonomously, then synthesizes an answer + a multi-tool receipt.
@@ -64,12 +69,18 @@
   function live(s) { return span("t-live", s); }
   function head(s) { return span("t-head", s); }
 
-  var PROMPT = span("t-prompt", "roger> ");
+  var PROMPT = span("t-prompt", "roger> ");   // the in-app (TUI) prompt: `/endpoint`, `/agent`
+  var SHELL = span("t-prompt", "$ ");         // a real shell: `roger use`, exports, YOUR tools
   var CURSOR = '<span class="t-cursor">&nbsp;</span>';
   var RULE = dim("  ──────────────────────────────────────────────────────────────────");
 
-  var BAND = "qwen3-coder-30b";
-  var PORT = "8779";
+  // BAND is the demo's through-line: the band you read on the dial, tune in to, point
+  // your tools at, and (in `share`) put on the air from your own box. qwen3.6-27b is
+  // the friendly first example - it fits a single 24GB card - and it is the band the
+  // homepage dial + the two-way cards already use. PORT is roger's default local proxy
+  // port (cmd/rogerai/main.go freePort(4141), manual Appendix B).
+  var BAND = "qwen3.6-27b";
+  var PORT = "4141";
 
   // Brand lockup + preset bank, matching the real TUI header (`▟█▙ R O G E R · A I`)
   // and the always-visible preset row ( [0] AGENT [1] TUNE IN [2] SHARE [3] CONFIG
@@ -138,22 +149,33 @@
   }
   function nStations() { var n = 0; stations.forEach(function (s) { if (!s.over) n++; }); return n; }
 
+  // plateRows: the three values any OpenAI client needs, printed exactly as `roger use`
+  // and the in-app `/endpoint` print them (manual.html, Appendix B). Shared by the
+  // tune in CHANNEL OPEN plate and the `your tools` tape so they can never drift.
+  function plateRows() {
+    return [
+      dim("  BASE URL  ") + money("http://127.0.0.1:" + PORT + "/v1"),
+      dim("  API KEY   ") + money("roger-local"),
+      dim("  MODEL     ") + money(BAND)
+    ];
+  }
   function endpointPlate(stationWho) {
     return [
       ok("  ◉ CHANNEL OPEN") + "  " + head(BAND) + " " + dim("via " + stationWho) + "   " + gold("◆ verified"),
-      "",
-      dim("  BASE URL  ") + money("http://127.0.0.1:" + PORT + "/v1"),
-      dim("  API KEY   ") + money("roger-local"),
-      dim("  MODEL     ") + money(BAND),
+      ""
+    ].concat(plateRows(), [
       "",
       dim("  drop-in, OpenAI-compatible - point any OpenAI tool here. ") + live("roger that.")
-    ];
+    ]);
   }
 
   /* =====================================================================
      Compile a demo to frames. Each demo builder uses:
-       c.show(lines, hold)            - print a screen, hold `hold` ms
-       c.type(prefixLines, cmd, hold) - type a command char-by-char, then settle
+       c.show(lines, hold)                    - print a screen, hold `hold` ms
+       c.type(prefixLines, cmd, hold, prompt) - type a command char-by-char, then
+                                                settle. `prompt` defaults to the
+                                                in-app `roger> `; pass SHELL for a
+                                                command you run in your own shell.
      ===================================================================== */
   var TYPE_MS = 60, AFTER_TYPE = 700, STEP = 600, STAGE = 1500, END_HOLD = 2800;
 
@@ -161,12 +183,13 @@
     var frames = [];
     var c = {
       show: function (lines, hold) { frames.push({ lines: lines.slice(), hold: hold == null ? STEP : hold }); },
-      type: function (prefixLines, cmd, settleHold) {
+      type: function (prefixLines, cmd, settleHold, prompt) {
         var prefix = prefixLines || [];
+        var p = prompt || PROMPT;
         for (var i = 1; i <= cmd.length; i++) {
-          frames.push({ lines: prefix.concat([PROMPT + head(cmd.slice(0, i)) + CURSOR]), hold: TYPE_MS });
+          frames.push({ lines: prefix.concat([p + head(cmd.slice(0, i)) + CURSOR]), hold: TYPE_MS });
         }
-        frames.push({ lines: prefix.concat([PROMPT + head(cmd)]), hold: settleHold == null ? AFTER_TYPE : settleHold });
+        frames.push({ lines: prefix.concat([p + head(cmd)]), hold: settleHold == null ? AFTER_TYPE : settleHold });
       }
     };
     builder(c);
@@ -236,10 +259,13 @@
       }
     },
 
-    // `tune in` - BORROW a model: tune in, get a drop-in OpenAI-compatible endpoint
-    // your OWN tools point at (curl / SDK / Cursor / bots), watch tokens stream + the
-    // wallet debit live, and see the one-stable-endpoint failover heal a dropped
-    // station under the hood. NOT in-TUI chat - that's what makes it != AGENT.
+    // `tune in` - BORROW a model: scan the band, lock the strongest station, verify its
+    // lineage, and OPEN THE CHANNEL - ending on the drop-in endpoint plate. Then the
+    // channel proves itself: traffic meters live against the wallet, the receipt is
+    // co-signed, and a station that drops mid-stream is healed by under-the-hood
+    // failover WITHOUT the URL or key moving. What you do with the endpoint from your
+    // own editor / SDK / bots is the next tape (`your tools`) - a raw HTTP request
+    // typed at the `roger>` prompt was never a thing roger does, so it is gone.
     tunein: {
       label: "tune in", title: "roger - tune in",
       build: function () {
@@ -262,40 +288,122 @@
           // CHANNEL OPEN + the drop-in BASE URL / API KEY / MODEL plate.
           c.show(base.concat(steps, [""], endpointPlate("@nightowl")), END_HOLD);
 
-          // THE POINT: point any OpenAI client at 127.0.0.1. Shown as a curl, but it is
-          // the same line for the OpenAI SDK, Cursor, Cline, your agents/bots.
-          var useHead = [
-            ok("  ◉ CHANNEL OPEN") + "  " + dim("point any OpenAI tool at ") + money("127.0.0.1:" + PORT) + "   " + gold("◆ verified"),
+          // The channel is the product: ONE stable endpoint, live-metered. Traffic rides
+          // it, the wallet debits per token and the receipt is co-signed 70/30 with the
+          // operator. Compact head = the endpoint itself, so the plate never leaves view.
+          var openHead = [
+            ok("  ◉ CHANNEL OPEN") + "  " + head(BAND) + dim(" via ") + head("@nightowl") + "   " + gold("◆ verified"),
+            dim("  ") + money("http://127.0.0.1:" + PORT + "/v1") + dim("  ·  key ") + money("roger-local"),
             RULE
           ];
-          c.type(useHead, "curl 127.0.0.1:" + PORT + "/v1/chat/completions \\", AFTER_TYPE);
-          var curl = useHead.concat([
-            PROMPT + head("curl 127.0.0.1:" + PORT + "/v1/chat/completions \\"),
-            dim("       -H ") + "\"Authorization: Bearer " + money("roger-local") + "\" \\",
-            dim("       -d ") + "'{\"model\":\"" + head(BAND) + "\", \"messages\": […]}'"
-          ]);
-          c.show(curl, STAGE);
-          // streaming response + the wallet ticking down per token.
-          c.show(curl.concat(["",
+          c.show(openHead.concat(["",
             dim("  ((•)) ") + live("◉ streaming") + dim("  @nightowl · 58 t/s") + CURSOR,
             walletLine("12.4802")
           ]), STEP);
-          c.show(curl.concat(["",
-            dim("  ((•)) ") + ok("◉") + dim("  @nightowl"), "",
-            "  Refactored the handler into three functions; tests still pass.", "",
+          c.show(openHead.concat(["",
+            dim("  ((•)) ") + ok("◉ complete") + dim("   @nightowl · 131 tok"), "",
             walletLine("12.4799"),
             dim("  ◆ receipt co-signed · ") + money("131 tok · $0.000039") + dim(" · 70% to @nightowl")
           ]), STAGE);
           // failover: ONE stable endpoint - a station drops mid-stream, roger re-routes
           // under the hood, no retry in your code (internal/client/failover.go).
-          c.show(curl.concat(["",
+          c.show(openHead.concat(["",
             dim("  ((•)) ") + live("◉ @nightowl dropped mid-stream") + dim(" …") + CURSOR
           ]), STEP);
-          c.show(curl.concat(["",
+          c.show(openHead.concat(["",
             ok("  ◉ failover") + dim("  re-routed ") + head("@nightowl") + dim(" → ") + head("@glacier") +
               dim("  · same URL + key, no retry in your code"), "",
             dim("  ((•)) ") + ok("◉") + dim("  @glacier · stream resumed · 47 t/s"),
-            walletLine("12.4796")
+            walletLine("12.4796"), "",
+            dim("  ▸ one endpoint, whatever the band does · point yours at it: ") + span("t-sel", " your tools ")
+          ]), END_HOLD);
+        });
+      }
+    },
+
+    // `your tools` - INTEGRATE: the half that used to be bolted onto `tune in` as a raw
+    // curl typed at the `roger>` prompt (which roger never accepts). On its own tape it
+    // can tell the whole developer story instead: the channel is an ORDINARY OpenAI
+    // endpoint, so it is three values - a base URL, a key, a model - and then the tool
+    // you already use, unchanged. Every line here is grounded in manual.html Appendix B
+    // (the plate + the SDK call) and B2 (the opencode provider block, and the fact that
+    // Cursor / Cline / Continue / a raw SDK all take those same three values). Nothing
+    // in this tape is a roger subcommand, flag or output the CLI does not have: the
+    // exports and the python file are YOUR shell and YOUR file, at a `$` prompt.
+    yourtools: {
+      label: "your tools", title: "roger - your tools",
+      build: function () {
+        return compile(function (c) {
+          var toolHead = [
+            "  " + BRAND + "   " + dim("your tools, unchanged") + "   " + gold("◆ OpenAI-compatible"),
+            RULE
+          ];
+          c.show(toolHead.concat(["",
+            dim("  tuning in runs a LOCAL OpenAI-compatible server on ") + head("127.0.0.1") + dim("."), "",
+            dim("  so there is nothing to port. it is three values:"),
+            dim("  a ") + head("base URL") + dim(", a ") + head("key") + dim(", and a ") + head("model") + dim(".")
+          ]), STAGE);
+
+          // headless: `roger use <band>` prints the endpoint. Typed at a SHELL prompt -
+          // this is your terminal, not the roger> app prompt. (In the app, /endpoint
+          // prints the same three for the channel you are on.)
+          c.type(toolHead, "roger use " + BAND, AFTER_TYPE, SHELL);
+          var used = toolHead.concat([SHELL + head("roger use " + BAND), ""]);
+          c.show(used.concat(plateRows()), STAGE);
+          c.show(used.concat(plateRows(), ["",
+            dim("  ▸ ") + money("roger-local") + dim(" is the LOCAL proxy key: it authorizes this server,"),
+            dim("    not the broker. in the app, ") + head("/endpoint") + dim(" prints the same three.")
+          ]), STAGE);
+
+          // the two vars every OpenAI SDK already reads - set once, in your own shell.
+          var envHead = [
+            "  " + BRAND + "   " + dim("point your own tools at it") + "   " + gold("◆ OpenAI-compatible"),
+            RULE
+          ];
+          var envCmd = "export OPENAI_BASE_URL=http://127.0.0.1:" + PORT + "/v1 OPENAI_API_KEY=roger-local";
+          c.type(envHead, envCmd, AFTER_TYPE, SHELL);
+          var env = envHead.concat([SHELL + head(envCmd)]);
+          c.show(env.concat(["",
+            dim("  ▸ that is the whole integration. the model param is the band id.")
+          ]), STEP);
+
+          // ...and now the file you already had runs against the band, untouched.
+          var app = env.concat([""], obox("your app.py · unchanged", [
+            "from openai import OpenAI",
+            "client = OpenAI()" + dim("            # reads the two vars above"),
+            "client.chat.completions.create(",
+            "    model=" + head("\"" + BAND + "\"") + ",",
+            "    messages=[{\"role\": \"user\", \"content\": \"Say roger.\"}],",
+            ")"
+          ]));
+          c.show(app, STAGE);
+          c.type(app, "python app.py", AFTER_TYPE, SHELL);
+          c.show(app.concat([SHELL + head("python app.py"), "",
+            dim("  ((•)) ") + ok("◉") + dim("  ") + head(BAND) + dim(" via ") + head("@nightowl") + dim(" · 58 t/s"),
+            "  Roger."
+          ]), STAGE);
+
+          // an editor is the same three values in a config file (manual Appendix B2).
+          var edHead = [
+            "  " + BRAND + "   " + dim("the same three, in your editor") + "   " + gold("◆ OpenAI-compatible"),
+            RULE
+          ];
+          c.show(edHead.concat([""], obox("opencode · opencode.json", [
+            '"roger": {',
+            '  "npm": "@ai-sdk/openai-compatible",',
+            '  "options": {',
+            '    "baseURL": "http://127.0.0.1:' + PORT + '/v1",',
+            '    "apiKey": "roger-local"',
+            '  },',
+            '  "models": { "' + BAND + '": { "tool_call": true } }',
+            '}'
+          ])), STAGE);
+          c.show(edHead.concat(["",
+            ok("  ◉ works unchanged") + dim("   ") + head("opencode") + dim(" · ") + head("Cursor") +
+              dim(" · ") + head("Cline") + dim(" · ") + head("Continue") + dim(" · your own bots"), "",
+            dim("  every one of them takes the same three: base URL, key, model."),
+            dim("  keep ") + head("roger use") + dim(" running - it IS the proxy."), "",
+            dim("  ◆ metered + co-signed per request · 70% to the operator. ") + live("roger that.")
           ]), END_HOLD);
         });
       }
@@ -396,7 +504,7 @@
           c.show(scanHead.concat(probes, ["",
             ok("  ◉") + dim("  3 backends up · ") + head("4 models") + dim(" detected across the box")
           ]), STAGE);
-          // the detected-models table; pick qwen3-coder-30b.
+          // the detected-models table; pick the band we are sharing (BAND).
           var shareHead = [
             "  " + BRAND + "   " + span("t-sel", " •[2] SHARE ") + dim("  your models, detected") + "   " + gold("◆ provider"),
             RULE,
@@ -404,7 +512,7 @@
           ];
           var locals = [
             { model: "gpt-oss-20b",      back: "ollama",    rate: "0.18" },
-            { model: "qwen3-coder-30b",  back: "vLLM",      rate: "0.30" },
+            { model: BAND,               back: "vLLM",      rate: "0.30" },
             { model: "llama-3.3-70b",    back: "llama.cpp", rate: "0.55" }
           ];
           function localRow(m, on) {
@@ -415,12 +523,12 @@
             c.show(shareHead.concat(locals.slice(0, li + 1).map(function (m) { return localRow(m, false); })), STEP);
           }
           c.show(shareHead.concat(locals.map(function (m, i) { return localRow(m, i === 1); }), [RULE,
-            dim("  ▸ ") + head("qwen3-coder-30b") + dim(" · set your rate…")
+            dim("  ▸ ") + head(BAND) + dim(" · set your rate…")
           ]), STAGE);
 
           // --- PRICE editor: set the out-price against the live band median ---
           var priceHead = [
-            "  " + BRAND + "   " + span("t-sel", " •[2] SHARE ") + dim("  set your rate · ") + head("qwen3-coder-30b") + "   " + gold("◆ provider"),
+            "  " + BRAND + "   " + span("t-sel", " •[2] SHARE ") + dim("  set your rate · ") + head(BAND) + "   " + gold("◆ provider"),
             RULE
           ];
           function priceScreen(out, note) {
@@ -538,8 +646,10 @@
 
   /* ---- engine -------------------------------------------------------- */
   // playlist order: when a demo finishes we auto-advance to the next preset and play
-  // it - the roger arc: roger -> tune in -> agent -> share -> payouts -> back to roger.
-  var ORDER = ["roger", "tunein", "agent", "share", "payouts"];
+  // it - the roger arc: roger -> tune in -> your tools -> agent -> share -> payouts ->
+  // back to roger. `your tools` follows `tune in` because it is what you do with the
+  // channel the moment it opens.
+  var ORDER = ["roger", "tunein", "yourtools", "agent", "share", "payouts"];
   var NEXT_HOLD = 1500;         // ms to show the "NEXT:" indicator before switching
   function nextOf(name) {
     var i = ORDER.indexOf(name);
