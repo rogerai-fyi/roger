@@ -77,6 +77,12 @@ func row(tower, station, offer, model string, expires time.Time) Station {
 		// The data-plane endpoint rides in every parity row so a store that DROPS it fails
 		// loudly here rather than as edge consumers silently never being routed anywhere.
 		Endpoint: "203.0.113.7:8443",
+		// And so does the broker node id, for exactly the same reason - a lesson learned the
+		// expensive way. When node_id was added this helper did not set it, so the value under
+		// test was "" on both stores and nothing could disagree; PGStore.ByTower had in fact
+		// failed to select the column at all. A field absent from this row is a field the
+		// parity suites cannot police, however carefully they compare.
+		NodeID: "n-" + station,
 	}
 }
 
@@ -304,6 +310,13 @@ func TestParityByTower(t *testing.T) {
 			require.Len(t, mine, 1, "only this Tower's unexpired rows")
 			require.Equal(t, "st-a", mine[0].StationID)
 			require.Equal(t, "203.0.113.7:8443", mine[0].Endpoint)
+			// Assert the WHOLE row, not two fields of it. Asserting field-by-field is how
+			// PGStore.ByTower came to drop node_id from its SELECT unnoticed: the column was
+			// added, this test kept checking the two fields it always had, and the store
+			// silently returned a zero value for the third. Comparing against what was
+			// written means the next column added is covered the day it is added.
+			require.Equal(t, row("tw-1", "st-a", "of-a", "m", mine[0].Expires), mine[0],
+				"every field written must come back, on both stores")
 
 			none, err := s.ByTower("tw-nobody", now)
 			require.NoError(t, err)

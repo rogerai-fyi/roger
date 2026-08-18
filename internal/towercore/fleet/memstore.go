@@ -125,5 +125,14 @@ func (m *memStore) ByTower(towerID string, now time.Time) ([]Station, error) {
 			out = append(out, r)
 		}
 	}
+	// Same total order Postgres returns, for the same reason Candidates sorts: the parity
+	// suites hold this implementation against the durable one, and an unordered result makes
+	// them disagree for reasons that have nothing to do with the code under test.
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].StationID != out[j].StationID {
+			return out[i].StationID < out[j].StationID
+		}
+		return out[i].OfferID < out[j].OfferID
+	})
 	return out, nil
 }
