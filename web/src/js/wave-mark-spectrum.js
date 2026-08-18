@@ -27,6 +27,18 @@
   if (/[?&]mark=classic\b/.test(window.location.search)) return;
   var svg = document.querySelector(".wave-mark__svg[data-animate]");
   if (!svg) return;
+  /* MORE ROOM (founder: "larger, especially taller"). The authored viewBox is
+     360x116, but a charged Exa wave swings ~82 units either side of the
+     centreline - so the art always drew OUTSIDE its own box (overflow is
+     visible, which hid the problem) and the layout only ever reserved the
+     short box. Widening the box to the height the art actually uses lets the
+     figure occupy the room it was already painting into, and the wider cap
+     scales every unit up with it.
+     Applied here rather than in wave-family.css / the page markup only
+     because both are being rewritten in parallel; fold it into the
+     stylesheet once that lands. */
+  svg.setAttribute("viewBox", "-6 -16 360 188");
+  svg.style.maxWidth = "560px";
   if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
 
   var X0 = 0, X1 = 348, CX = 174, CY = 78, N = 84, TWO_PI = Math.PI * 2;
