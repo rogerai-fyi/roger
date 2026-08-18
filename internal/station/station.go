@@ -35,9 +35,11 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"rogerai.fm/roger/v5/internal/towercore/envelope"
 )
@@ -94,6 +96,8 @@ func (s *Station) Dir() string { return s.dir }
 // new keys while the attachment Core recorded still names the OLD ones: the Station becomes
 // cryptographically unable to prove it is itself, and there is no way back that does not go
 // through revoking the identity and allocating a new Station ID.
+//
+// A caller that wants "this host's Station, whether or not it has one yet" wants InitOrOpen.
 func Init(dir string) (*Station, error) {
 	if _, err := os.Stat(filepath.Join(dir, stateFile)); err == nil {
 		return nil, fmt.Errorf("%s already holds an initialized Station: "+
@@ -123,6 +127,112 @@ func Init(dir string) (*Station, error) {
 		sessionPriv:   sessionPriv,
 	}
 	return s, s.save()
+}
+
+// Open loads the Station a directory already holds, keys and all.
+//
+// This is the other half of Init, and the reason it had to exist. Init is a MINT: it refuses
+// a directory that already holds a Station because re-minting would issue new keys while the
+// attachment Core recorded still names the old ones. That refusal is right, but with no way
+// to load, "mint" was the only verb this package had - so the second run of anything that
+// needed its Station identity got an error instead of the identity, and the caller that
+// treated attaching as best-effort silently stopped attaching for the life of the machine.
+//
+// A PARTIAL DIRECTORY FAILS LOUDLY. Every failure below is deliberately an error rather than
+// a fresh mint: a missing key file, an unreadable one, or a state file whose recorded public
+// halves do not match the private keys beside it all mean this directory is not the Station
+// it claims to be. Answering that by minting a new identity would be the exact outcome Init's
+// refusal exists to prevent, arrived at by a different road - the operator would come back
+// with a Station ID no attachment names and no clue why.
+func Open(dir string) (*Station, error) {
+	raw, err := os.ReadFile(filepath.Join(dir, stateFile))
+	if err != nil {
+		return nil, err
+	}
+	s := &Station{dir: dir}
+	if err := json.Unmarshal(raw, s); err != nil {
+		return nil, fmt.Errorf("%s: the Station state file is unreadable: %w", dir, err)
+	}
+	if s.StationID == "" {
+		return nil, fmt.Errorf("%s: the Station state file names no station id", dir)
+	}
+	assertion, err := readKey(filepath.Join(dir, assertionKeyFile), ed25519.PrivateKeySize)
+	if err != nil {
+		return nil, fmt.Errorf("%s: the assertion key: %w", dir, err)
+	}
+	s.assertionPriv = ed25519.PrivateKey(assertion)
+	session, err := readKey(filepath.Join(dir, sessionKeyFile), 32)
+	if err != nil {
+		return nil, fmt.Errorf("%s: the secure-session key: %w", dir, err)
+	}
+	// PublicKeyOf rather than SessionPub: SessionPub panics on a key X25519 will not take,
+	// and a corrupt file on disk is a condition to report, not to crash the share over.
+	sessionPub, err := envelope.PublicKeyOf(session)
+	if err != nil {
+		return nil, fmt.Errorf("%s: the secure-session key: %w", dir, err)
+	}
+	s.sessionPriv = session
+	// THE STATE FILE AND THE KEYS MUST AGREE. The state file is what a human reads and what
+	// an invitation was written from; the key files are what actually sign and decrypt. If
+	// they have drifted apart - a half-finished copy between machines, a restore of one file
+	// and not the others - then whatever this Station proves is not what anybody recorded
+	// about it, and every offer it signs will be rejected downstream for reasons that point
+	// nowhere near here.
+	if got := hex.EncodeToString(s.AssertionPub()); got != s.Assertion {
+		return nil, fmt.Errorf("%s: the assertion key does not match the one recorded in %s "+
+			"(recorded %s, on disk %s) - this directory has been partially overwritten",
+			dir, stateFile, short(s.Assertion), short(got))
+	}
+	if got := hex.EncodeToString(sessionPub); got != s.Session {
+		return nil, fmt.Errorf("%s: the secure-session key does not match the one recorded in %s "+
+			"(recorded %s, on disk %s) - this directory has been partially overwritten",
+			dir, stateFile, short(s.Session), short(got))
+	}
+	return s, nil
+}
+
+// InitOrOpen is what a long-lived process wants: the Station this directory already holds,
+// or a fresh one if it holds none. The distinction Init and Open draw is exactly right for a
+// human running a one-off command and exactly wrong for a daemon that restarts, which needs
+// the SAME identity every time and has no way to know whether this host has run before.
+//
+// It never falls back to minting. A directory that holds a broken Station is reported as
+// broken, because the alternative - quietly issuing a second identity beside a first one
+// that attachments still name - is unrecoverable in a way an error message is not.
+func InitOrOpen(dir string) (*Station, error) {
+	if _, err := os.Stat(filepath.Join(dir, stateFile)); err == nil {
+		return Open(dir)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	return Init(dir)
+}
+
+// readKey reads one hex-encoded private key file and checks its length. Length is checked
+// here rather than at the point of use because a truncated key file is the most likely shape
+// of corruption and the least obvious one at a call site.
+func readKey(path string, want int) ([]byte, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	key, err := hex.DecodeString(strings.TrimSpace(string(raw)))
+	if err != nil {
+		return nil, fmt.Errorf("%s is not hex: %w", filepath.Base(path), err)
+	}
+	if len(key) != want {
+		return nil, fmt.Errorf("%s is %d bytes, not %d", filepath.Base(path), len(key), want)
+	}
+	return key, nil
+}
+
+// short abbreviates a hex key for an error message: enough to tell two apart, never the
+// whole thing, because these strings end up in support threads.
+func short(hexKey string) string {
+	if len(hexKey) <= 12 {
+		return hexKey
+	}
+	return hexKey[:12] + "..."
 }
 
 func (s *Station) save() error {

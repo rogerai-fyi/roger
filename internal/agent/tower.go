@@ -89,7 +89,17 @@ func AttachTower(cfg Config, priv ed25519.PrivateKey, dir string) (*station.Stat
 	if err := protocol.TrustedBase(cfg.Broker); err != nil {
 		return nil, TowerAttachment{}, err
 	}
-	st, err := station.Init(filepath.Join(dir, "tower-station"))
+	// InitOrOpen, NOT Init. The station identity is PERSISTENT and this call is not: a host
+	// mints its keys the first time it ever attaches and must present the SAME ones on every
+	// later run, because Core recorded them on the attachment and verifies every receipt
+	// against them. Init alone refuses a directory that already holds a Station - correctly,
+	// since re-minting would strand that attachment - so calling it here meant the first
+	// `roger share` on a machine reached the relay fabric and every subsequent one failed at
+	// its first line. Silently, too: the caller treats the whole join as best-effort and
+	// prints nothing, which is right for "no relay is free" and quite wrong for "this host
+	// can never join again". A genuinely broken directory still errors out rather than
+	// minting a second identity beside the one attachments name.
+	st, err := station.InitOrOpen(filepath.Join(dir, "tower-station"))
 	if err != nil {
 		return nil, TowerAttachment{}, fmt.Errorf("station identity: %w", err)
 	}
