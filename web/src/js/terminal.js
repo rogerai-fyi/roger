@@ -301,9 +301,15 @@
             walletLine("12.4802")
           ]), STEP);
           c.show(openHead.concat(["",
-            dim("  ((•)) ") + ok("◉ complete") + dim("   @nightowl · 131 tok"), "",
+            dim("  ((•)) ") + ok("◉ complete") + dim("   @nightowl · 1,500 tok"), "",
             walletLine("12.4799"),
-            dim("  ◆ receipt co-signed · ") + money("131 tok · $0.000039") + dim(" · 70% to @nightowl")
+            /* the arithmetic is the demo's own: 1,500 tok at @nightowl's posted
+               0.22 $/M out = $0.00033, which is what the wallet above ticks
+               down by (12.4802 -> 12.4799 at four decimals). It used to say
+               131 tok / $0.000039 - a cost computed at ~0.30 $/M, a rate this
+               demo never shows, against a token count ten times too small for
+               the wallet movement beside it. */
+            dim("  ◆ receipt co-signed · ") + money("1,500 tok · $0.00033") + dim(" · 70% to @nightowl")
           ]), STAGE);
           // failover: ONE stable endpoint - a station drops mid-stream, roger re-routes
           // under the hood, no retry in your code (internal/client/failover.go).
