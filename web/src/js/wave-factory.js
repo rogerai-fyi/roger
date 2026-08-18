@@ -4047,7 +4047,10 @@
            Chrome for arithmetic that already happened; skipped under
            reduced motion, where the coin count itself is the report. */
         if (grew && !REDUCED && DOM.cookieLayer) {
-          var f = el("b", "clf-payout", "+" + (20 * 4));
+          /* the rate is 4/cookie normally and LOAN_RATE while in debt (see the
+             coin credit in stepShip) - this floater hardcoded 4, so a player on
+             loan was shown +80 while actually receiving +60. */
+          var f = el("b", "clf-payout", "+" + (20 * (G.coins < 0 ? LOAN_RATE : 4)));
           DOM.crates.appendChild(f);
           window.setTimeout(function () { if (f.parentNode) f.parentNode.removeChild(f); }, 1400);
         }

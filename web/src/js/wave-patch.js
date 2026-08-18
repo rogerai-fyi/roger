@@ -3125,10 +3125,24 @@
           "2026-08-14). Small is not a compromise at the edge; it is the design."));
         var q = browserTierQuant();
         if (q) {
+          /* HONESTY FIX 2026-08-18 (numeric audit). Two things were wrong here.
+             (1) The fault-ID macro was printed as a measurement, but the bundle's
+             own _provenance.retracted.guard says the Q4 and Q8 endpoint outputs
+             "return byte-identical aggregates; that is the signature of the
+             corrected grammar-spacing harness bug, not a measurement" - and they
+             ARE identical in the file (0.732 at n=150, both). The deck brags
+             elsewhere that the exporter refuses that signature, so it must not
+             publish the number. Dropped.
+             (2) The sentence sat under a paragraph about Wave Pico at 270M,
+             which reads as "Pico is 65 MB". 65 MB at this site's own 0.6 B per
+             parameter is a ~108M model - the 98M waypoint the retraction names,
+             not the 250-300M tier. The build is named now.
+             The SIZE is not in dispute and still comes from the quants row, so
+             the lock that requires q.size_mb and q.source still holds. */
           box.appendChild(el("p", "sn-why__p",
-            "Small also survives quantization: the " + q.quant + " build is " + q.size_mb +
-            "MB at " + (q.fault_id_macro * 100).toFixed(1) + " fault-ID macro - small enough " +
-            "for a browser tab (" + q.source + ")."));
+            "Small also survives quantization: the certified waypoint build - a " +
+            "100M-class model, not the 250-300M tier - is " + q.size_mb + "MB at " +
+            q.quant + ", small enough for a browser tab (" + q.source + ")."));
         }
       } },
       { key: "response", label: "what happens after a finding?", build: function (box) {
@@ -3951,8 +3965,11 @@
     var ratio = t.faults ? t.caught / t.faults : 0;
     var line = el("span", "sn-front__scoreline");
     line.appendChild(el("b", null, t.caught + "/" + t.faults + " FAULTS CAUGHT"));
+    /* "27 missed · 2 tunable" read as two parallel categories, but fixable is
+       set only inside the missed branch - the 2 are a SUBSET of the 27. Said
+       that way now; the detail panel already phrased it correctly. */
     line.appendChild(el("i", null, t.missed + " missed" +
-      (t.fixable ? " · " + t.fixable + " tunable" : " · no knob recoveries")));
+      (t.fixable ? " · " + t.fixable + " of them tunable" : " · none recoverable by knob")));
     score.appendChild(line);
     var meter = el("span", "sn-front__meter");
     var fill = el("span", "sn-front__meterfill");

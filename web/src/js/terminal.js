@@ -568,10 +568,14 @@
           ], STAGE);
 
           // --- live requests stream in (left-border log, grows row by row) ---
+          /* A "+$" line in an operator's own log reads as what the operator
+             KEEPS, so these are net of the 70% share, not gross. They were
+             gross - which meant the 70% got applied a second time by the
+             summary screen below. tok x 0.30/1M x 0.70 for each. */
           var reqs = [
-            ok("◉ ") + head(pad("@ssh-bot", 13)) + dim(pad("318 tok", 10)) + money("+$0.000095"),
-            ok("◉ ") + head(pad("@cursor-ide", 13)) + dim(pad("742 tok", 10)) + money("+$0.000223"),
-            ok("◉ ") + head(pad("@nightly-ci", 13)) + dim(pad("1.2k tok", 10)) + money("+$0.000360")
+            ok("◉ ") + head(pad("@ssh-bot", 13)) + dim(pad("318 tok", 10)) + money("+$0.000067"),
+            ok("◉ ") + head(pad("@cursor-ide", 13)) + dim(pad("742 tok", 10)) + money("+$0.000156"),
+            ok("◉ ") + head(pad("@nightly-ci", 13)) + dim(pad("1.2k tok", 10)) + money("+$0.000252")
           ];
           function liveLog(n) {
             var rows = [onairHead, RULE, dim("  ┌ live · incoming ") + dim(new Array(38).join("─"))];
@@ -584,7 +588,12 @@
 
           // --- earnings + on-air slots + the payout hint (segue to PAYOUTS) ---
           c.show([onairHead, RULE,
-            dim("  served today  ") + head("362 req") + dim("   ·   earned ") + money("+$3.78") + dim("  (70% keep)"),
+            /* 362 req x 753 tok avg is 0.27M tokens - it cannot yield $3.78.
+               $3.78 net at 0.30 $/M and a 70% share needs 18.0M tokens out,
+               which at this log's average request is ~23.9k requests, and sits
+               inside the operator panel's own 10M-30M/day band. The money was
+               right; the request count was two orders of magnitude short. */
+            dim("  served today  ") + head("23.9k req") + dim("   ·   earned ") + money("+$3.78") + dim("  (70% keep)"),
             dim("  balance       ") + money("$42.18 payable") + dim("   ·   ON AIR ") + head("1/4 slots"), "",
             dim("  ▸ your local model is paying rent. cash out with ") + span("t-sel", " [$] PAYOUT ")
           ], END_HOLD);
@@ -602,11 +611,17 @@
         return compile(function (c) {
           // the on-air earnings surface, balance ticking up, with the payout hint.
           var earnHead = "  " + BRAND + "   " + span("t-sel", " •[2] SHARE ") + dim("  earnings") + "   " + gold("◆ provider");
-          var bal = ["38.40", "41.02", "42.18"];
+          /* The ladder used to step 280 -> 320 -> 360 req while the balance
+             jumped +$2.62 then +$1.16 - two different per-request rates, both
+             ~400x what 40 requests can earn. One rate now: 6,000 req per step
+             at 753 tok avg, 0.30 $/M, 70% keep = +$0.95 a step, landing on the
+             same $42.18 the share tape shows. */
+          var bal = ["40.28", "41.23", "42.18"];
+          var reqK = ["11.9k", "17.9k", "23.9k"];
           for (var i = 0; i < bal.length; i++) {
             c.show([earnHead, RULE,
               ok("  ◉ ON AIR") + dim("  @you ◆ · ") + head(BAND) + dim(" · 1/4 slots"), "",
-              dim("  served today  ") + head((280 + i * 40) + " req") + dim("   ·   ") + money("$" + bal[i]) + dim(" balance · 70% keep"),
+              dim("  served today  ") + head(reqK[i] + " req") + dim("   ·   ") + money("$" + bal[i]) + dim(" balance · 70% keep"),
               dim("  ▸ ") + money("$" + bal[i] + " payable") + dim("  ·  run ") + span("t-sel", " roger payout ")
             ], i < bal.length - 1 ? STEP : STAGE);
           }
