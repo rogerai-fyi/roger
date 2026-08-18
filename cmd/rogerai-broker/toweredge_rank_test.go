@@ -61,13 +61,13 @@ func TestEdgeCandidateScoreSpreadsLoad(t *testing.T) {
 	b := &broker{
 		trust:        map[string]trustState{},
 		inflight:     map[string]int{},
-		edgeInflight: map[string]string{},
+		edgeInflight: map[string]edgeAttemptLoad{}, edgeLoad: map[string]int{},
 	}
 	healthy := trustState{probed: true, probeOK: true, probeCompleted: true}
 	b.trust["n-idle"] = healthy
 	b.trust["n-busy"] = healthy
 	for i := 0; i < 3; i++ {
-		b.edgeEnterInflight(fmt.Sprintf("at-%d", i), "n-busy", time.Now().Add(time.Hour))
+		b.edgeEnterInflight(fmt.Sprintf("at-%d", i), "n-busy", "u_test", time.Now().Add(time.Hour))
 	}
 
 	idle := b.edgeCandidateScore(fleet.Station{StationID: "s-idle", NodeID: "n-idle"})
@@ -102,7 +102,7 @@ func TestEdgeCandidateScoreSeesPeerInstanceLoad(t *testing.T) {
 	b := &broker{
 		trust:        map[string]trustState{},
 		inflight:     map[string]int{},
-		edgeInflight: map[string]string{},
+		edgeInflight: map[string]edgeAttemptLoad{}, edgeLoad: map[string]int{},
 		peerInflight: map[string]int{"n-elsewhere": 4},
 	}
 	healthy := trustState{probed: true, probeOK: true, probeCompleted: true}

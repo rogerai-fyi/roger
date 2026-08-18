@@ -98,16 +98,43 @@ type broker struct {
 	// node, on its own clock so it works even when b.db is nil. Guarded by metricsMu.
 	lastSharedSeen map[string]time.Time
 	inflight       map[string]int // in-flight (active) requests per node
-	// edgeInflight maps an OPEN edge attempt id to the broker node id it was placed on, so
-	// the count above can be decremented exactly once when the attempt closes. The edge path
-	// has no dispatch loop to bracket - Core authorizes, the payload goes consumer-to-Station
-	// through a Tower, and Core hears again only at settle - so without this ledger there is
-	// nothing that knows WHICH node an arriving receipt frees. Guarded by metricsMu; entries
-	// are removed at settle or by an expiry timer bounded by the attempt's own deadline, so an
-	// abandoned attempt cannot pin a station's load up forever.
-	edgeInflight map[string]string
-	success      map[string]float64    // EWMA success rate per node (0..1)
-	trust        map[string]trustState // L1 re-count + probe trust/quality per node
+	// edgeInflight maps an OPEN edge attempt id to the node it was placed on and the account
+	// that opened it, so the counters below can be decremented exactly once when the attempt
+	// closes. The edge path has no dispatch loop to bracket - Core authorizes, the payload goes
+	// consumer-to-Station through a Tower, and Core hears again only at settle - so without this
+	// ledger there is nothing that knows WHICH node an arriving receipt frees. Guarded by
+	// metricsMu; entries are removed at settle or by an expiry timer bounded by the attempt's own
+	// EXECUTION deadline, so an abandoned attempt cannot pin a station's load up forever.
+	edgeInflight map[string]edgeAttemptLoad
+	// edgeLoad is the per-node count of open EDGE attempts, and it is deliberately NOT
+	// b.inflight.
+	//
+	// It used to be. The argument for one counter was that it is one machine: a node serving
+	// both fabrics fills the same GPU either way, so splitting the accounting would let each
+	// plane fill a node the other already filled. That argument is sound about LOAD and wrong
+	// about EVIDENCE, and b.inflight is both. It is what the classic paid router divides by,
+	// what a peer instance merges as peerInflight, and what probeOnce skips on - so writing to
+	// it means an outside party can suppress a node's canary probes and depress its paid-fabric
+	// score. And an edge entry is opened at AUTHORIZE, before the consumer has submitted a
+	// single byte: the cheapest, least-proven signal in the system was steering the most
+	// consequential one. A relayed request in b.inflight is work this broker actually
+	// dispatched; an edge attempt is a reservation somebody asked for.
+	//
+	// So the two are separate and the read direction is one-way: edge placement adds both (it
+	// is still one machine, and that is the decision the sum is for), while the classic router
+	// and the prober see only work they themselves handed out. Guarded by metricsMu, and NOT
+	// written through to the shared inflight hash for the same reason - a peer's classic router
+	// reads that.
+	edgeLoad map[string]int
+	// edgeOpenByAccount caps how many edge attempts one account may hold open at once. An
+	// authorize is nearly free (a few hundred bytes, a ceiling hold that is refunded) and it
+	// reserves a real station for the grant's lifetime, so without a cap one account can hold
+	// the whole routable fleet at maximum apparent load for the price of nothing. Guarded by
+	// metricsMu; keyed by the consumer's account wallet, the same identity the hold is placed
+	// against. See maxOpenEdgeAttemptsPerAccount.
+	edgeOpenByAccount map[string]int
+	success           map[string]float64    // EWMA success rate per node (0..1)
+	trust             map[string]trustState // L1 re-count + probe trust/quality per node
 	// successCount is the count of QUALITY-VALIDATED served completions per node (a
 	// non-empty body with output tokens, status<500), feeding the UCB exploration
 	// radius (smart-router v2): it is the evidence for the reward dimension that only
@@ -546,8 +573,9 @@ func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, loc
 		capsules:  newCapsuleStore(),
 		pubOfUser: map[string]string{},
 		inflight:  map[string]int{}, success: map[string]float64{}, trust: map[string]trustState{},
-		edgeInflight: map[string]string{},
-		successCount: map[string]int{}, concurrentTPS: map[string]float64{},
+		edgeInflight: map[string]edgeAttemptLoad{}, edgeLoad: map[string]int{},
+		edgeOpenByAccount: map[string]int{},
+		successCount:      map[string]int{}, concurrentTPS: map[string]float64{},
 		toolsOK:      map[string]bool{},
 		toolsMerged:  map[string]bool{},
 		lastToolMark: map[string]time.Time{},

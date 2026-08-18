@@ -58,7 +58,7 @@ func TestSealedCanaryJudgesAHubNode(t *testing.T) {
 		_ = agent.ServeTower(ctx, agent.Config{
 			NodeID: shareNodeID, Broker: srv.URL, Model: "canary-model", Modality: "chat",
 			PriceIn: 0, PriceOut: 0, Upstream: upstream.URL, Parallel: 1,
-		}, nodeOp.priv, t.TempDir(), io.Discard)
+		}, nodeOp.priv, t.TempDir(), io.Discard, nil)
 	}()
 	var stationID string
 	require.Eventually(t, func() bool {

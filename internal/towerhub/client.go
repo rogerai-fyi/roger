@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 )
 
 // Client speaks the tower hub's HTTP protocol from the other two sides: a serving NODE (Poll +
@@ -25,15 +26,48 @@ type Client struct {
 	// Token is the node's per-Station bearer token, sent on Poll/Complete. Empty for a consumer.
 	Token string
 	// HTTP is the client used for requests; nil means http.DefaultClient. A node should set a
-	// timeout longer than the tower's poll TTL so a long poll is not cut short.
+	// timeout longer than the tower's poll TTL so a long poll is not cut short. Its redirect
+	// policy is replaced - see httpClient.
 	HTTP *http.Client
+
+	// once/http build the effective client exactly once, so the redirect policy below is
+	// installed without mutating a *http.Client the caller may be sharing (which would be a
+	// data race between the poll workers and the audit loop).
+	once sync.Once
+	http *http.Client
 }
 
+// httpClient is the client every call here uses: the caller's, with REDIRECTS REFUSED.
+//
+// It used to be the caller's client verbatim, which meant no CheckRedirect at all - unlike every
+// broker call the node makes, which all pass protocol.NoDowngradeRedirect. That gap matters more
+// here than almost anywhere: the request this Client makes most often is a long poll carrying the
+// node's per-Station bearer token in an Authorization header, and Go's default policy would carry
+// that header wherever the answering party pointed it.
+//
+// STRICTER THAN NoDowngradeRedirect, on purpose. That policy exists for the BROKER, a party the
+// node trusts, and it permits a redirect as long as the destination is not a plaintext downgrade
+// - which still lets the redirecting party name any https host it likes. A tower is explicitly an
+// UNTRUSTED party in this design; the whole sealed envelope exists because it is. And no hub has
+// any legitimate reason to redirect a poll: the endpoint the node uses was handed to it by Core,
+// not negotiated with the relay. So the answer is no, rather than "no, unless the relay picks a
+// destination we happen to like".
 func (c *Client) httpClient() *http.Client {
-	if c.HTTP != nil {
-		return c.HTTP
-	}
-	return http.DefaultClient
+	c.once.Do(func() {
+		base := c.HTTP
+		if base == nil {
+			base = http.DefaultClient
+		}
+		cp := *base
+		cp.CheckRedirect = refuseRedirect
+		c.http = &cp
+	})
+	return c.http
+}
+
+func refuseRedirect(req *http.Request, _ []*http.Request) error {
+	return fmt.Errorf("the relay hub tried to redirect this request to %s - refusing: "+
+		"a relay does not get to choose where this node sends its polling credential", req.URL.Redacted())
 }
 
 func (c *Client) url(path string) string {
@@ -152,6 +186,16 @@ func (c *Client) CompleteResult(ctx context.Context, station string, res Result)
 	}
 	return nil
 }
+
+// ErrResultUndelivered marks a completion the node SERVED but could not hand back: the hub was
+// unreachable, or refused it, between the serve and the return. It is wrapped around whatever
+// the transport said so a caller can branch on it.
+//
+// It is separated from an ordinary poll blip because the two cost the operator very different
+// things. A failed poll costs nothing - there was no work. A failed complete means the GPU time
+// was spent, the answer exists, and nobody will ever be billed for it or pay for it. That is the
+// same class of event as ErrNotCarried and belongs on the same channel.
+var ErrResultUndelivered = errors.New("this attempt was served but its result could not be returned to the hub")
 
 // ErrNotCarried reports a completion the hub accepted but did not courier for settlement -
 // the serving node's receipt did not start its ride to Core. The consumer is NOT charged (no

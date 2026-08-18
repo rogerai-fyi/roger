@@ -72,22 +72,112 @@ func microsPerDollarPer1M(price float64) int64 {
 	return int64(math.Round(price * 1_000_000))
 }
 
-// hubBaseURL turns Core's advertised hub endpoint into a base URL. An endpoint that carries
-// its own scheme is honored verbatim (audit M1: this is how a TLS-fronted hub is reached);
-// a bare host:port defaults to http for today's dev topology - the PAYLOAD is sealed
-// end-to-end regardless, but the polling token rides the clear until Core's advertisements
-// carry an explicit https scheme.
-func hubBaseURL(endpoint string) string {
+// hubBaseURL turns Core's advertised hub endpoint into a base URL, and says whether the result
+// is PLAINTEXT.
+//
+// # THE COMMENT THAT USED TO BE HERE WAS FALSE
+//
+// It said "an endpoint that carries its own scheme is honored verbatim - this is how a
+// TLS-fronted hub is reached". No such endpoint can exist. Both places a relay endpoint enters
+// the system validate it with net.SplitHostPort - internal/towercore/link/towerlink.go on the
+// tower's Hello, and cmd/roger-tower/serve.go on its own configuration - and
+// net.SplitHostPort("https://relay.example:443") fails with "too many colons in address". So an
+// endpoint carrying a scheme is refused at ingress and never reaches here, the scheme branch is
+// dead code, and the "http://" branch is the only one that has ever run.
+//
+// The scheme branch is KEPT, not deleted, because the fix is a wire-protocol change (an endpoint
+// format that can express a scheme, or channel-bound tokens instead of a bearer) touching Core,
+// the tower and the node at once - see the open decision in docs/relay-selection-design.md. What
+// is removed is the claim that the capability already exists, because that claim is what let the
+// plaintext default look deliberate.
+//
+// WHAT RIDES IN THE CLEAR. Not the payload: the job and its result are sealed to keys the tower
+// does not hold, and that is unchanged. What rides in the clear is the node's per-Station HUB
+// BEARER TOKEN, on every long poll, forever - and anything on the path that captures it can poll
+// for that Station's work. The second return value exists so the node can SAY so; before the
+// flag removal this was one operator's opt-in choice and now it is every signed-in share's
+// default, which is a change in who is owed the sentence.
+func hubBaseURL(endpoint string) (base string, plaintext bool) {
 	if strings.Contains(endpoint, "://") {
-		return endpoint
+		return endpoint, !strings.HasPrefix(endpoint, "https://")
 	}
-	return "http://" + endpoint
+	return "http://" + endpoint, true
+}
+
+// ErrPrivateShareNeverRelays refuses to put a PRIVATE band on the public relay fabric.
+//
+// A private share is hidden from /discover and /market and routable only by frequency code; the
+// relay fabric is public placement by definition. The two are mutually exclusive, and before the
+// flag removal the CLI said so out loud (`--tower` with `--private` was a usage error).
+//
+// The refusal now lives HERE, at the network act, and not only in the branch structure of
+// cmd/rogerai/main.go. As shipped, the only thing keeping a private band off the fabric was that
+// `go joinRelayFabric(cfgRun)` happened to sit inside `if !*private {` - a placement, not a rule.
+// Nothing in joinRelayFabric, ServeTower or towerEdgeAttach ever looked at the band. Merging the
+// two agentStart branches - which the duplicated setup in that function visibly invites - would
+// have published private bands to the public fabric with no compile error and no failing test.
+var ErrPrivateShareNeverRelays = errors.New(
+	"a private band is never offered to the relay fabric: it is reachable by frequency code only, " +
+		"and the fabric is public placement")
+
+// ErrCoreKeysUnpinned marks a failure to pin Roger Core's grant and envelope keys.
+//
+// It is a sentinel because of what the node cannot do without those keys: tell a real Core-signed
+// grant from one the TOWER forged. The tower is the party in front of the node and the exact party
+// a forged grant would come from, so this is not "a fetch failed", it is "the trust assumption
+// this whole plane rests on is not established". It must never be swallowed.
+var ErrCoreKeysUnpinned = errors.New("Roger Core's grant key could not be pinned")
+
+// ErrHubChannelPlaintext is the standing notice that this node's hub link is unencrypted. It is
+// carried as an error because it travels the channel errors travel - the one thing that is not
+// swallowed - and because it is, in fact, a defect: see hubBaseURL.
+var ErrHubChannelPlaintext = errors.New(
+	"this node's relay hub link is UNENCRYPTED (plain http): the sealed job and its answer stay " +
+		"private, but the polling token authenticating this node to its relay rides in the clear")
+
+// Notice is how the relay plane reports something the operator must not miss.
+//
+// # WHY THIS IS NOT THE io.Writer
+//
+// ServeTower used to have one output seam, an io.Writer, carrying both "attached, serving" and
+// "you did this work and will not be paid". `roger share` passes io.Discard for it - correctly,
+// because the ordinary share has already printed its on-air line and a stream of relay progress
+// underneath it would describe a plane the operator did not opt into. But one writer for two
+// kinds of message means discarding one discards both, and what went into the bin included
+// towerhub.ErrNotCarried (the hub took the completion and never couriered the receipt: the node
+// computed and will not be paid), a failed result return, every audit failure, transcripts
+// evicted inside their audit window, and the key-pinning failure above.
+//
+// So the writer was the wrong seam, not the wrong setting. Routine progress and consequential
+// errors now travel separately: the first is still discardable, the second is not.
+type Notice func(error)
+
+// notify is Notice's nil-safe call.
+func (n Notice) notify(err error) {
+	if n != nil && err != nil {
+		n(err)
+	}
+}
+
+// costlyRelayError reports whether a worker-level error is one the operator must be told about,
+// as opposed to the transport chatter a long-polling loop produces all day.
+//
+// The line is drawn at WORK DONE. A failed poll costs nothing - there was no job. A completion
+// the hub would not take, or took and did not courier, means the GPU time was spent and nobody
+// will pay for it. Everything else backs off and retries, which is what the loops are for.
+func costlyRelayError(err error) bool {
+	return errors.Is(err, towerhub.ErrNotCarried) || errors.Is(err, towerhub.ErrResultUndelivered)
 }
 
 // AttachTower self-attaches this node as a servable station: keys from the persistent station
 // identity under dir, the offer from cfg (model/modality/prices), the request signed with the
 // node's account-bound key. Idempotent on retry with the same identity.
 func AttachTower(cfg Config, priv ed25519.PrivateKey, dir string) (*station.Station, TowerAttachment, error) {
+	// A PRIVATE BAND IS NEVER ATTACHED. Structural, at the network act, so the guarantee does not
+	// depend on which branch of a caller happens to reach here. See ErrPrivateShareNeverRelays.
+	if cfg.Private {
+		return nil, TowerAttachment{}, ErrPrivateShareNeverRelays
+	}
 	// KEY-TRUST TRANSPORT (audit M2): attach ships this node's keys up and a hub bearer token
 	// back, and the grant key is pinned over the same base - plaintext http to a non-loopback
 	// broker is refused.
@@ -226,14 +316,27 @@ func (t transcriptSource) SignedTranscript(attemptID string) (signed, request, r
 // key, then Parallel ServeLoop workers polling the assigned tower's hub. Errors before the
 // workers start are returned; worker-level transport blips are reported to out and retried
 // by the loops themselves.
-func ServeTower(ctx context.Context, cfg Config, priv ed25519.PrivateKey, dir string, out io.Writer) error {
+func ServeTower(ctx context.Context, cfg Config, priv ed25519.PrivateKey, dir string, out io.Writer, notice Notice) error {
 	st, at, err := AttachTower(cfg, priv, dir)
 	if err != nil {
 		return err
 	}
+	// The station directory had something wrong with it that Open could repair rather than
+	// refuse - a permissive mode, most likely. Repairing it silently would leave the operator
+	// believing a key that has been readable was never readable.
+	for _, w := range st.Warnings {
+		notice.notify(errors.New(w))
+	}
 	coreKey, coreEnvKey, err := fetchCoreKeys(cfg.Broker)
 	if err != nil {
-		return fmt.Errorf("cannot pin Roger Core's keys: %w", err)
+		return fmt.Errorf("%w: %w", ErrCoreKeysUnpinned, err)
+	}
+	base, plaintext := hubBaseURL(at.Endpoint)
+	if plaintext {
+		// ONCE, and on the channel that is not discarded. This is a standing property of the
+		// link rather than an event, so it is said at the moment the link is established and
+		// not repeated per poll.
+		notice.notify(fmt.Errorf("%w (relay %s at %s)", ErrHubChannelPlaintext, at.TowerID, base))
 	}
 	fmt.Fprintf(out, "tower: attached as %s via %s (%s) - serving %s at your listed price\n",
 		at.StationID, at.TowerID, at.Endpoint, cfg.Model)
@@ -249,7 +352,7 @@ func ServeTower(ctx context.Context, cfg Config, priv ed25519.PrivateKey, dir st
 		Transcripts: station.NewTranscripts(0, 0),
 	}
 	client := &towerhub.Client{
-		BaseURL: hubBaseURL(at.Endpoint),
+		BaseURL: base,
 		Token:   at.HubToken,
 		HTTP:    &http.Client{Timeout: 60 * time.Second},
 	}
@@ -267,13 +370,25 @@ func ServeTower(ctx context.Context, cfg Config, priv ed25519.PrivateKey, dir st
 	}
 	// The audit-answer loop rides beside the workers: fetch what Core wants from this
 	// Station (relayed by the hub) and answer with signed transcripts.
+	// EVERY audit-plane error goes to the notice channel, not to out. An unanswered audit is a
+	// finding against this operator at Core - withholding is itself a finding - and a transcript
+	// evicted inside its window is evidence destroyed before it was asked for. Neither is
+	// transport chatter, even when its immediate cause is. The sink is expected to say a
+	// repeated thing once (see cmd/rogerai/relayfabric.go), which is what makes it safe to be
+	// generous here rather than trying to classify a hub's HTTP status.
 	go towerhub.AnswerAudits(ctx, client, at.StationID, transcriptSource{exec}, coreEnvKey, 0, func(err error) {
-		fmt.Fprintf(out, "tower audit: %v\n", err)
+		notice.notify(fmt.Errorf("relay audit: %w", err))
 	})
 	done := make(chan error, workers)
 	for i := 0; i < workers; i++ {
 		go func() {
 			done <- towerhub.ServeLoop(ctx, client, at.StationID, sealedExec{exec}, func(err error) {
+				// Work already done, and nobody will pay for it: the operator hears about it.
+				// A poll that could not reach the hub is retried by the loop and stays quiet.
+				if costlyRelayError(err) {
+					notice.notify(err)
+					return
+				}
 				fmt.Fprintf(out, "tower: %v\n", err)
 			})
 		}()

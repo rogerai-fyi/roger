@@ -2,6 +2,7 @@ package towerhub
 
 import (
 	"context"
+	"fmt"
 	"time"
 )
 
@@ -77,8 +78,10 @@ func ServeLoop(ctx context.Context, c *Client, station string, exec Executor, on
 		}); cerr != nil {
 			// The result could not be returned (tower blip / the consumer already gave up). The
 			// consumer will time out and the attempt is left unsettled - the safe direction; nothing
-			// is charged for a result nobody received. Report and carry on.
-			report(onError, cerr)
+			// is charged for a result nobody received. But the node DID the work, so this is not the
+			// same as a failed poll: it is wrapped in ErrResultUndelivered so a caller can tell the
+			// operator that a generation they paid electricity for will not be paid for.
+			report(onError, fmt.Errorf("%w: %w", ErrResultUndelivered, cerr))
 		}
 	}
 }

@@ -574,10 +574,26 @@ func routableEdge(t *testing.T, b *broker, towerID, stationID, model, endpoint s
 	if tw, ok := b.tower.registry.Get(towerID); ok && tw.State != admit.StateActive {
 		require.NoError(t, b.tower.registry.Transition(towerID, admit.StateActive))
 	}
+	// The M0 JOIN, and the `roger share` half it names. A published row carries the broker node
+	// id of the machine behind it, and placement now asks that node whether it is on air, banned
+	// or private (edgeEligible) - so a helper that published a row with no node behind it was
+	// standing up a fleet state no live provider produces.
+	nodeID := "n-" + stationID
+	b.mu.Lock()
+	if b.nodes == nil {
+		b.nodes = map[string]protocol.NodeRegistration{}
+	}
+	if b.lastSeen == nil {
+		b.lastSeen = map[string]time.Time{}
+	}
+	b.nodes[nodeID] = protocol.NodeRegistration{NodeID: nodeID}
+	b.lastSeen[nodeID] = time.Now()
+	b.mu.Unlock()
 	require.NoError(t, b.tower.routable.Replace(towerID, []fleet.Station{{
 		TowerID: towerID, StationID: stationID, OfferID: "self-" + stationID,
 		Model: model, Modality: "text", Capacity: 4,
 		Expires: time.Now().Add(time.Hour), Endpoint: endpoint,
+		NodeID: nodeID,
 	}}))
 }
 

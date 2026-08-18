@@ -51,7 +51,7 @@ func TestEdgePlacementSpreadsAcrossEquallyGoodStations(t *testing.T) {
 		_, row, ok := b.edgeTargetFor("m", edgePlacementRand())
 		require.True(t, ok, "placement %d found no station", i)
 		counts[row.StationID]++
-		b.edgeEnterInflight(fmt.Sprintf("at-%d", i), row.NodeID, time.Now().Add(time.Hour))
+		b.edgeEnterInflight(fmt.Sprintf("at-%d", i), row.NodeID, "u_test", time.Now().Add(time.Hour))
 	}
 
 	require.Len(t, counts, stations,
@@ -83,12 +83,12 @@ func TestEdgeDispatchCountsItsOwnInFlightWork(t *testing.T) {
 		_, row, ok := b.edgeTargetFor("m", nil) // deterministic: no sampling to hide behind
 		require.True(t, ok)
 		seen[row.StationID]++
-		b.edgeEnterInflight(fmt.Sprintf("at-%d", i), row.NodeID, time.Now().Add(time.Hour))
+		b.edgeEnterInflight(fmt.Sprintf("at-%d", i), row.NodeID, "u_test", time.Now().Add(time.Hour))
 
-		b.metricsMu.Lock()
-		load := b.inflight[row.NodeID]
-		b.metricsMu.Unlock()
-		require.Positive(t, load, "placing work on %s left its in-flight count at zero", row.NodeID)
+		require.Positive(t, b.nodeEdgeLoad(row.NodeID),
+			"placing work on %s left its edge load at zero", row.NodeID)
+		require.Zero(t, b.nodeInFlight(row.NodeID),
+			"an edge placement moved %s's RELAYED in-flight count, which the paid router divides by", row.NodeID)
 	}
 	require.Len(t, seen, 3, "deterministic placement still piled onto one station: %v", seen)
 }
@@ -97,43 +97,64 @@ func TestEdgeDispatchCountsItsOwnInFlightWork(t *testing.T) {
 // dispatch loop to unwind here - a consumer that never connects looks exactly like one still
 // thinking - so the entry carries its own expiry, set to the attempt's finalization ceiling.
 func TestEdgeInFlightExpiresWithTheAttempt(t *testing.T) {
-	b := &broker{inflight: map[string]int{}, edgeInflight: map[string]string{}}
+	b := &broker{inflight: map[string]int{}, edgeInflight: map[string]edgeAttemptLoad{}, edgeLoad: map[string]int{}, edgeOpenByAccount: map[string]int{}}
 
-	b.edgeEnterInflight("at-settles", "n-1", time.Now().Add(time.Hour))
-	b.edgeEnterInflight("at-abandoned", "n-1", time.Now().Add(50*time.Millisecond))
-	require.Equal(t, 2, b.nodeInFlight("n-1"))
+	b.edgeEnterInflight("at-settles", "n-1", "u_a", time.Now().Add(time.Hour))
+	b.edgeEnterInflight("at-abandoned", "n-1", "u_a", time.Now().Add(50*time.Millisecond))
+	require.Equal(t, 2, b.nodeEdgeLoad("n-1"))
 
 	// The receipt path closes its own attempt, and only its own.
 	b.edgeExitInflight("at-settles")
-	require.Equal(t, 1, b.nodeInFlight("n-1"))
+	require.Equal(t, 1, b.nodeEdgeLoad("n-1"))
 	b.edgeExitInflight("at-settles") // idempotent: the timer and the settle may both fire
-	require.Equal(t, 1, b.nodeInFlight("n-1"))
+	require.Equal(t, 1, b.nodeEdgeLoad("n-1"))
 
-	require.Eventually(t, func() bool { return b.nodeInFlight("n-1") == 0 }, 5*time.Second, 10*time.Millisecond,
+	require.Eventually(t, func() bool { return b.nodeEdgeLoad("n-1") == 0 }, 5*time.Second, 10*time.Millisecond,
 		"an abandoned attempt held the station's load up past its own settlement window")
 
 	// A settlement for an attempt this instance never opened is a no-op, not a decrement of
 	// somebody else's count - the ordinary multi-instance case, where authorize and settle
 	// land on different brokers.
-	b.edgeEnterInflight("at-mine", "n-2", time.Now().Add(time.Hour))
+	b.edgeEnterInflight("at-mine", "n-2", "u_a", time.Now().Add(time.Hour))
 	b.edgeExitInflight("at-somebody-elses")
-	require.Equal(t, 1, b.nodeInFlight("n-2"))
+	require.Equal(t, 1, b.nodeEdgeLoad("n-2"))
 }
 
-// nodeInFlight reads a node's live in-flight count under the lock that owns it.
+// nodeInFlight reads a node's live RELAYED in-flight count under the lock that owns it - the
+// number the classic paid router divides by.
 func (b *broker) nodeInFlight(nodeID string) int {
 	b.metricsMu.Lock()
 	defer b.metricsMu.Unlock()
 	return b.inflight[nodeID]
 }
 
-// totalInFlight sums every node's live in-flight count - what a test asks when it wants to
-// know whether the broker thinks anybody is busy right now.
+// nodeEdgeLoad reads a node's open EDGE attempt count. Separate from nodeInFlight on purpose:
+// keeping the two apart is the fix, so a test that means one must not be able to read the other
+// by accident.
+func (b *broker) nodeEdgeLoad(nodeID string) int {
+	b.metricsMu.Lock()
+	defer b.metricsMu.Unlock()
+	return b.edgeLoad[nodeID]
+}
+
+// totalInFlight sums every node's live RELAYED in-flight count - what a test asks when it
+// wants to know whether the broker thinks anybody is busy on the classic paid fabric.
 func (b *broker) totalInFlight() int {
 	b.metricsMu.Lock()
 	defer b.metricsMu.Unlock()
 	n := 0
 	for _, c := range b.inflight {
+		n += c
+	}
+	return n
+}
+
+// totalEdgeLoad sums every node's open EDGE attempts - the counter edge placement divides by.
+func (b *broker) totalEdgeLoad() int {
+	b.metricsMu.Lock()
+	defer b.metricsMu.Unlock()
+	n := 0
+	for _, c := range b.edgeLoad {
 		n += c
 	}
 	return n

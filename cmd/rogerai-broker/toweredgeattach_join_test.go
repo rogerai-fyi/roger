@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"rogerai.fm/roger/v5/internal/protocol"
 )
@@ -143,7 +144,15 @@ func registerShareNode(t *testing.T, b *broker, op operator) string {
 	if b.nodes == nil {
 		b.nodes = map[string]protocol.NodeRegistration{}
 	}
+	if b.lastSeen == nil {
+		b.lastSeen = map[string]time.Time{}
+	}
 	b.nodes[id] = protocol.NodeRegistration{NodeID: id, PubKey: hexOf(pub)}
+	// ON AIR, not merely registered. A real provider is heartbeating by the time it attaches,
+	// and edge placement now requires that (edgeEligible drops a node that has not been seen
+	// inside nodeTTL, because routing to one that has gone home is a guaranteed timeout). A
+	// helper that registered without a heartbeat was standing up a state no provider is ever in.
+	b.lastSeen[id] = time.Now()
 	b.mu.Unlock()
 	return id
 }

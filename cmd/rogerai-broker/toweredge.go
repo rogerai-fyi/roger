@@ -132,6 +132,16 @@ func (b *broker) towerEdgeAuthorize(w http.ResponseWriter, r *http.Request) {
 	// violation is found in audit and somebody has to be answerable for it.
 	_, authed, ok := b.identityOf(r, body)
 	if !ok || !authed {
+		// The tight per-IP bucket, on the way out. An unsigned caller here is by definition
+		// never going to be served, so it is exactly the anon surface anonRL exists for
+		// (tunnel.go applies it on the same condition), and hammering a 401 should cost the
+		// hammerer something. A signed caller never reaches this and keeps its own per-account
+		// bucket below.
+		if allowed, retry := b.anonRL.allow(clientIP(r)); !allowed {
+			w.Header().Set("Retry-After", strconv.Itoa(retry))
+			jsonErr(w, http.StatusTooManyRequests, "rate limit exceeded - slow down")
+			return
+		}
 		jsonErr(w, http.StatusUnauthorized, "an edge authorization needs a signed request")
 		return
 	}
@@ -176,6 +186,54 @@ func (b *broker) towerEdgeAuthorize(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusForbidden, "tower inference requires a signed-in account that has accepted the terms of service")
 		return
 	}
+	// Hold and capture MUST use the SAME wallet or funds move between pots. Both use the
+	// consumer's ACCOUNT wallet (u_gh_/u_apple_/u_email_) - resolved here from the owner the
+	// account gate already looked up - so a relayed request reserves from and bills the same
+	// balance a direct request would, not the device-key wallet. Resolved BEFORE placement
+	// because it is also the key both abuse bounds below are drawn on: one identity, one
+	// bucket, one standing cap.
+	consumerWallet, cwok := accountWalletForOwner(o)
+	if !cwok {
+		jsonErr(w, http.StatusForbidden, "tower inference requires a signed-in account that has accepted the terms of service")
+		return
+	}
+	// THIS ENDPOINT WAS REGISTERED BARE, and it should never have been.
+	//
+	// Every comparable route on this broker passes through b.rl or b.anonRL (see the relay in
+	// tunnel.go, /report, the audio surface); this one consulted neither, so the only cost of an
+	// authorize was the signature. That was survivable while the relay fabric was opt-in behind
+	// `roger share --tower`. It stopped being survivable when the flag was removed and the whole
+	// signed-in fleet joined by default, because an authorize reserves a real station and the
+	// number of stations reachable this way is now every share on the network.
+	//
+	// Keyed on the ACCOUNT wallet, not the device key: one identity, one bucket, so a caller
+	// cannot multiply its rate by generating keypairs against the same account. Same discipline
+	// the relay uses for a logged-in caller.
+	if allowed, retry := b.rl.allow("edge:" + consumerWallet); !allowed {
+		w.Header().Set("Retry-After", strconv.Itoa(retry))
+		jsonErr(w, http.StatusTooManyRequests, "rate limit exceeded - slow down")
+		return
+	}
+	// AND A STANDING CAP, which is the bound that actually matters here. The rate limiter
+	// bounds how fast attempts are opened; nothing in it bounds how many stay open, and an
+	// attempt pins a station for the grant's lifetime. See maxOpenEdgeAttemptsPerAccount.
+	//
+	// The slot is claimed HERE, before anything is minted, so a refusal costs the caller a 429
+	// rather than an orphaned grant. It is released on every path that abandons the attempt,
+	// and handed to edgeEnterInflight - which owns it from then until settle or expiry - on the
+	// one path that does not.
+	if !b.edgeAccountReserve(consumerWallet) {
+		w.Header().Set("Retry-After", "5")
+		jsonErr(w, http.StatusTooManyRequests,
+			"too many edge attempts open on this account at once - finish or abandon some before opening more")
+		return
+	}
+	slotHeld := true
+	defer func() {
+		if slotHeld {
+			b.edgeAccountRelease(consumerWallet)
+		}
+	}()
 	// The caller may ask for LESS than the ceiling, never more. The bounds are the only
 	// thing standing between one authorization and an unmetered Station.
 	maxIn, maxOut := req.MaxIn, req.MaxOut
@@ -261,15 +319,6 @@ func (b *broker) towerEdgeAuthorize(w http.ResponseWriter, r *http.Request) {
 	// settle-time capture refunds the unused remainder. Free (unpriced) edge traffic skips this.
 	// The grant was minted but is NOT recorded until the hold succeeds, so a refused hold leaves
 	// no usable attempt behind.
-	// Hold and capture MUST use the SAME wallet or funds move between pots. Both use the
-	// consumer's ACCOUNT wallet (u_gh_/u_apple_/u_email_) - resolved here from the owner the
-	// account gate already looked up - so a relayed request reserves from and bills the same
-	// balance a direct request would, not the device-key wallet.
-	consumerWallet, cwok := accountWalletForOwner(o)
-	if !cwok {
-		jsonErr(w, http.StatusForbidden, "tower inference requires a signed-in account that has accepted the terms of service")
-		return
-	}
 	// The hold covers the WORST CASE under whichever tariff can bill this attempt: the byte
 	// tariff's ceiling price, or the token ceiling at the grant's pinned per-token price. The
 	// settle-time capture charges the actual figure and refunds the remainder.
@@ -301,12 +350,15 @@ func (b *broker) towerEdgeAuthorize(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusServiceUnavailable, "could not record this attempt - try again")
 		return
 	}
-	// THE STATION IS NOW BUSY, and placement has to know. This is the edge path's half of the
-	// bracket the relayed path gets for free from its dispatch loop: from here until a receipt
-	// arrives (or the attempt's settlement window closes) the node is carrying work, and the
-	// load divisor every candidate is scored through is only meaningful if somebody says so.
-	// After the record and the hold, so nothing counts an attempt that was never handed out.
-	b.edgeEnterInflight(g.AttemptID, row.NodeID, g.Deadline.Add(edgeSettleGrace()))
+	// THE STATION IS NOW RESERVED, and placement has to know. This is the edge path's half of
+	// the bracket the relayed path gets for free from its dispatch loop: from here until a
+	// receipt arrives (or the grant's own deadline passes) the node is expected to be carrying
+	// this work, and the load divisor every candidate is scored through is only meaningful if
+	// somebody says so. After the record and the hold, so nothing counts an attempt that was
+	// never handed out. It counts on the EDGE counter only - see edgeEnterInflight for why a
+	// reservation nobody has submitted against must not touch the paid router's number.
+	b.edgeEnterInflight(g.AttemptID, row.NodeID, consumerWallet, g.Deadline)
+	slotHeld = false // the ledger entry owns the account slot now; it releases it at exit
 	writeJSON(w, http.StatusOK, map[string]any{
 		"attempt_id": g.AttemptID,
 		"grant":      base64.StdEncoding.EncodeToString(g.Signed),
@@ -413,8 +465,17 @@ func (b *broker) edgeTargetFor(model string, rng *rand.Rand) (dispatch.Target, f
 	// has answered this since spec 1.5 with power-of-two-choices, and this path simply omitted
 	// it. It is the same selectP2C over the same scoredCand shape - one anti-magnet mechanism
 	// for the whole product, not a second one invented here.
+	//
+	// PASS ONE is the AUTHORITY re-check, which needs no broker lock: is this row servable at
+	// all. Pass two (edgeEligible) is everything the broker knows about the NODE behind the
+	// row, and it runs under one acquisition of the two locks for the whole fleet - see there
+	// for why that matters.
+	//
+	// The owner-ban set is resolved BEFORE either lock, exactly as pickFor does it: it may
+	// consult the account binding cache, and doing that under metricsMu would serialize every
+	// placement behind a store round-trip per candidate.
+	bannedNode := b.bannedOwnerNodeSet()
 	var (
-		cands   []scoredCand
 		keep    []fleet.Station
 		targets []dispatch.Target
 	)
@@ -435,28 +496,121 @@ func (b *broker) edgeTargetFor(model string, rng *rand.Rand) (dispatch.Target, f
 		if !ok {
 			continue
 		}
-		// load is scoredCand's live-load tie-break, which router.go expresses as
-		// inflight/capacity. Edge rows have no usable capacity (see edgeCandidateScore), so
-		// this is the capacity=1 case: the raw count.
-		cands = append(cands, scoredCand{
-			idx: len(keep), score: b.edgeCandidateScore(row), load: float64(b.edgeCandidateLoad(row)),
-		})
 		keep = append(keep, row)
 		targets = append(targets, target)
 	}
-	if len(cands) == 0 {
+	if len(keep) == 0 {
+		return dispatch.Target{}, fleet.Station{}, false
+	}
+	tierA, tierB := b.edgeEligible(keep, bannedNode, time.Now())
+	// Healthy beats failing as an absolute gate, and Tier B exists so a transient blip never
+	// blanks the fleet - pickFor's own two-tier shape, for the same reason.
+	pool := tierA
+	if len(pool) == 0 {
+		pool = tierB
+	}
+	if len(pool) == 0 {
 		return dispatch.Target{}, fleet.Station{}, false
 	}
 	// edgeBeta concentrates the sampling on the strong end of the band. A tie, or a nil rng,
 	// still resolves to the first row of a total order, so "same fleet, same answer" survives
 	// wherever it was true before.
-	chosen := selectP2C(cands, edgeBeta, rng)
+	chosen := selectP2C(pool, edgeBeta, rng)
 	if chosen < 0 {
 		return dispatch.Target{}, fleet.Station{}, false
 	}
 	// The whole ROW rides back: the endpoint the consumer submits to, and the attachment's
 	// listed price that authorize pins into the grant.
 	return targets[chosen], keep[chosen], true
+}
+
+// edgeEligible is the edge path's half of pickFor's eligibility pass: given the rows that
+// survived the authority re-check, decide which nodes behind them may take work at all, and
+// score the survivors.
+//
+// # WHY THIS EXISTS
+//
+// edgeTargetFor filtered on three things - a non-empty endpoint, a self- offer, and a Tower
+// that may take work - all of them properties of the TOWER or the PROJECTION ROW. Nothing
+// asked whether the machine on the other end was alive, banned, or private. That was survivable
+// while the relay fabric was opt-in behind a flag and mostly empty. It is not survivable now
+// that every signed-in `roger share` joins it, because the M0 join means row.NodeID reaches
+// every one of those answers and there is no excuse left for not asking.
+//
+// Two holes in particular were live. MayEnroll is checked at ATTACH TIME ONLY, so a ban applied
+// afterwards - which is how the fraud pipeline actually works, since a ban follows evidence -
+// left the node taking paid edge traffic and accruing earnings under a banned account. And
+// nothing ever marks an attachment detached: publishRoutable republishes every live attachment
+// on every sweep, so a machine that ran `roger share` once and pressed Ctrl-C stayed a routable
+// candidate indefinitely, with its last trust score frozen beside it.
+//
+// # HARD DROPS VERSUS GRADED HEALTH
+//
+// Liveness and bans are HARD. Routing to a node that is not there is not degraded availability,
+// it is a guaranteed timeout, a stranded consumer hold and a burned attempt - strictly worse for
+// the consumer than "no Station can take this right now". A ban is a decision that has already
+// been made and must not be re-litigated by a placement function.
+//
+// Probe health is GRADED, and this is a deliberate divergence from pickFor, which drops a
+// probe-dead node outright. The classic fleet is large enough that dropping its sick members
+// leaves a fleet; the edge fleet routinely has a handful of stations for a model, and a probe
+// streak measured broker-to-node says less about a path that avoids the broker entirely. So a
+// probe-troubled node falls to Tier B and is used only when Tier A is empty.
+//
+// # ONE LOCK ACQUISITION, ONE INSTANT
+//
+// Every candidate is read under a single hold of b.mu then metricsMu (that order - b.mu outer,
+// metricsMu inner, as enrichOffersForNode in market.go establishes). The previous code called
+// edgeCandidateScore and edgeCandidateLoad per candidate and each took metricsMu for itself, so
+// a row's quality and its load came from two different instants and two rows came from four -
+// which is a ranking of a fleet state that never existed. It is also N times the lock traffic
+// on a path that runs per request.
+func (b *broker) edgeEligible(rows []fleet.Station, bannedNode map[string]bool, now time.Time) (tierA, tierB []scoredCand) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.metricsMu.Lock()
+	defer b.metricsMu.Unlock()
+	for i, row := range rows {
+		nodeID := row.NodeID
+		// NO JOIN, NO ROUTE. A row without a node id cannot be liveness-checked, ban-checked or
+		// privacy-checked - there is no name to ask about. Before M0 that described every row and
+		// scoring it neutral was the only option; now it describes only a pre-join leftover, and
+		// an unfalsifiable candidate is not one to hand a consumer's money to.
+		if nodeID == "" {
+			continue
+		}
+		// ABSENCE OF EVIDENCE IS NOT EVIDENCE OF ABSENCE - and on this path the distinction is
+		// load-bearing, because an edge attempt is authorized by whichever instance the consumer
+		// reached, which need not be the instance the node registered with. A node THIS instance
+		// has a registration for can be judged on its heartbeat; one it has never heard of is
+		// either genuinely gone or simply registered on a peer whose registry sync has not landed
+		// here yet, and those must not be treated alike. So the unknown node is not dropped - it
+		// falls to Tier B, reachable only when nothing better exists. (In a real multi-instance
+		// deployment the shared registry and liveness mirror both halves here, so this is the
+		// narrow window, not the normal case.)
+		_, registered := b.nodes[nodeID]
+		if registered && now.Sub(b.lastSeen[nodeID]) >= nodeTTL {
+			continue // the share went home; the attachment simply has not noticed yet
+		}
+		if b.banned[nodeID] || bannedNode[nodeID] {
+			continue // the node itself, or the account behind it, banned AFTER attach time
+		}
+		if b.private[nodeID] {
+			continue // a private band is reachable by frequency code, never by public placement
+		}
+		tq := b.trust[nodeID]
+		load := b.edgeLoadLocked(nodeID)
+		sc := scoredCand{idx: i, score: edgeScore(tq, load), load: float64(load)}
+		// The same Tier A bar pickFor draws (probeFails < 2), so "healthy" means one thing
+		// across both fabrics. Success EWMA is not folded in: edgeExitInflight deliberately does
+		// not feed it, so on this path it would be a classic-fabric reading judging edge work.
+		if registered && tq.probeFails < 2 {
+			tierA = append(tierA, sc)
+		} else {
+			tierB = append(tierB, sc)
+		}
+	}
+	return tierA, tierB
 }
 
 // edgeBeta is the P2C sampling concentration for edge placement (score^beta). The classic
@@ -472,9 +626,13 @@ var edgeBeta = prefBalanced.weights().beta
 // source, which is randomly seeded and IS concurrency-safe.
 func edgePlacementRand() *rand.Rand { return rand.New(rand.NewSource(rand.Int63())) }
 
-// edgeCandidateScore ranks one routable row. Higher is better; the shape deliberately
-// mirrors router.go's `quality / load`, which is the classic path's answer to the same
-// question and has the property that matters here: no station becomes a magnet.
+// edgeScore ranks one candidate. Higher is better; the shape deliberately mirrors router.go's
+// `quality / load`, which is the classic path's answer to the same question and has the
+// property that matters here: no station becomes a magnet.
+//
+// It is a PURE function of a trust reading and a load count so edgeEligible can score a whole
+// fleet from one lock acquisition. edgeCandidateScore is the same policy for a single row, and
+// exists for tests and for the single-row callers.
 //
 // # WHERE IT AGREES WITH router.go AND WHERE IT DOES NOT
 //
@@ -483,14 +641,14 @@ func edgePlacementRand() *rand.Rand { return rand.New(rand.NewSource(rand.Int63(
 // function than pickFor and the gaps are all in the direction of concentrating traffic, so
 // they are worth naming rather than glossing.
 //
-// Shared: the quality/load shape, this instance's live in-flight count PLUS the merged
-// cross-instance peer load, and - since the P2C draw in edgeTargetFor - the same
-// anti-all-to-one selection over the same band.
+// Shared: the quality/load shape, this instance's live load PLUS the merged cross-instance
+// peer load, and - since the P2C draw in edgeTargetFor - the same anti-all-to-one selection
+// over the same band.
 //
 // Still different, on purpose or for want of data:
 //
 //   - NO CAPACITY NORMALIZATION. router.go divides by 1+inflight/capacity, so a rig absorbs
-//     more concurrent work than a laptop before its score sags. Here the divisor is 1+inflight
+//     more concurrent work than a laptop before its score sags. Here the divisor is 1+load
 //     flat, which is the capacity=1 case. The projection row does carry a Capacity field, but
 //     publishRoutable hardcodes it to 1 for every self-attached station, so normalizing by it
 //     today would divide by a constant and merely look like it meant something. Deriving real
@@ -506,84 +664,204 @@ func edgePlacementRand() *rand.Rand { return rand.New(rand.NewSource(rand.Int63(
 //     unproven - with none of the self-extinguishing part.
 //
 // Price and speed-fit belong with the locality term in M5 (docs/relay-selection-design.md).
-//
-// UNMEASURED IS NOT BAD. A station with no node id, or one whose node the broker has never
-// probed, scores as neutral rather than as zero. Treating absent evidence as a bad result
-// would quietly freeze out every newly attached node - it would have to win traffic to earn
-// a score, and it could not win traffic without one.
-func (b *broker) edgeCandidateScore(row fleet.Station) float64 {
-	const neutral = 0.75 // no evidence: better than a known-bad node, worse than a proven one
-	quality := neutral
-	if row.NodeID != "" {
-		// metricsMu, NOT b.mu: trust, inflight and the rest of the per-node metrics live
-		// under their own lock (see observeRecountInput and the /market reads), and taking
-		// the wrong one here would be a data race that happens to compile.
-		b.metricsMu.Lock()
-		tq, probed := b.trust[row.NodeID]
-		b.metricsMu.Unlock()
-		if probed {
-			quality = tq.score()
-		}
-	}
-	return quality / float64(1+b.edgeCandidateLoad(row))
+func edgeScore(tq trustState, load int) float64 {
+	return edgeQuality(tq) / float64(1+load)
 }
 
-// edgeCandidateLoad is the row's live concurrency: this instance's exact count plus the
-// merged peer-instance snapshot, exactly as pickFor reads it. Peer load matters more here
-// than on the classic path, not less - an edge attempt is opened by whichever broker the
-// consumer's authorize landed on and settled by whichever one the Tower reaches, so a busy
-// station is routinely busy somewhere other than where it is being scored.
+// edgeNeutralQuality is what a station with no canary evidence is worth: better than a
+// known-bad node, worse than a proven one.
+//
+// UNMEASURED IS NOT BAD. A station the broker has never probed scores neutral rather than
+// zero. Treating absent evidence as a bad result would quietly freeze out every newly attached
+// node - it would have to win traffic to earn a score, and it could not win traffic without
+// one.
+const edgeNeutralQuality = 0.75
+
+// edgeQuality turns a node's trust reading into the 0..1 quality half of the score.
+//
+// # UNMEASURED IS NOT BAD, AND IT IS NOT GOOD EITHER
+//
+// This function used to be three lines and one of them was wrong in a way that inverted its
+// whole intent:
+//
+//	tq, probed := b.trust[row.NodeID]
+//	if probed { quality = tq.score() }
+//
+// `probed` there is MAP PRESENCE, not tq.probed - and observeRecount creates an entry the
+// first time ANY served request is re-counted, with probed=false. trustState.score() starts at
+// 1.0 and is only ever subtracted from, so one served request promoted a station from the 0.75
+// neutral to the 1.0 ceiling - the score reserved for a node that has passed a live canary -
+// on zero liveness evidence, and it stayed there for the seven days the trust entry lives. A
+// station that had never been proved to answer anything outranked every honest newly attached
+// one, permanently, and won the P2C band against them.
+//
+// So the three cases are now distinct, and the middle one is the point:
+//
+//   - PROBED: canary evidence exists. score() is the whole reading and may reach 1.0, because
+//     something actually confirmed this node answers.
+//   - RE-COUNTED BUT NEVER PROBED: there is evidence, but it is the wrong KIND. A re-count
+//     measures HONESTY (did the node's token claim match what it produced), not liveness, and
+//     nothing about an honest node proves it is up now. So recount evidence is admitted in one
+//     direction only: it may pull a station BELOW neutral - a node caught over-reporting is
+//     worse than an unknown one, and that is a finding we already trust - but it may never lift
+//     one above neutral, because there is no canary behind the lift.
+//   - NOTHING AT ALL: neutral, so a freshly attached station is reachable.
+func edgeQuality(tq trustState) float64 {
+	if tq.probed {
+		return tq.score()
+	}
+	if tq.recounts > 0 && tq.score() < edgeNeutralQuality {
+		return tq.score()
+	}
+	return edgeNeutralQuality
+}
+
+// edgeCandidateScore is edgeScore for a single row, taking the lock itself. The placement path
+// does NOT use it - it scores the whole fleet from one lock hold (see edgeEligible) so two
+// rows are never compared across two instants.
+func (b *broker) edgeCandidateScore(row fleet.Station) float64 {
+	if row.NodeID == "" {
+		return edgeScore(trustState{}, 0)
+	}
+	// metricsMu, NOT b.mu: trust, inflight and the rest of the per-node metrics live under
+	// their own lock (see observeRecountInput and the /market reads), and taking the wrong one
+	// here would be a data race that happens to compile.
+	b.metricsMu.Lock()
+	defer b.metricsMu.Unlock()
+	return edgeScore(b.trust[row.NodeID], b.edgeLoadLocked(row.NodeID))
+}
+
+// edgeCandidateLoad is the row's live concurrency as PLACEMENT sees it: relayed work this
+// instance dispatched, the merged peer-instance snapshot, and this instance's open edge
+// attempts. Peer load matters more here than on the classic path, not less - an edge attempt is
+// opened by whichever broker the consumer's authorize landed on and settled by whichever one
+// the Tower reaches, so a busy station is routinely busy somewhere other than where it is being
+// scored.
 func (b *broker) edgeCandidateLoad(row fleet.Station) int {
 	if row.NodeID == "" {
 		return 0
 	}
 	b.metricsMu.Lock()
 	defer b.metricsMu.Unlock()
-	return b.inflight[row.NodeID] + b.peerInflight[row.NodeID]
+	return b.edgeLoadLocked(row.NodeID)
 }
 
-// edgeEnterInflight / edgeExitInflight bracket one edge attempt in the SAME per-node
-// in-flight counter the classic router divides by.
+// edgeLoadLocked sums the two load signals for one node. Caller holds metricsMu.
 //
-// WITHOUT THIS THE DIVISOR WAS DECORATION. enterInflight is called only from tunnel.go, the
-// relayed path; nothing on the edge path ever touched the counter, so every edge candidate
-// scored at load 0 forever and the highest-scoring station absorbed the lot. The score said
-// it was spreading work and it was not, which is worse than not claiming to.
+// THE SUM IS ONE-WAY, and that asymmetry is the whole design (see broker.edgeLoad). Placement
+// on this path adds relayed load to edge load because it is one machine and one GPU. The
+// classic router and the prober add nothing back: they read b.inflight alone, so an edge
+// attempt - which any signed-in account can open for the price of a few hundred bytes, before
+// it has submitted anything - cannot depress a node's paid-fabric score or stop it being
+// canary-probed.
+func (b *broker) edgeLoadLocked(nodeID string) int {
+	return b.inflight[nodeID] + b.peerInflight[nodeID] + b.edgeLoad[nodeID]
+}
+
+// maxOpenEdgeAttemptsPerAccount bounds how many edge attempts one account may hold open at
+// once.
 //
-// ONE COUNTER, NOT TWO, because it is one machine. A node registered on the broker and
-// attached to the relay fabric serves both from the same GPU; splitting the accounting would
-// let each fabric fill a node the other already filled. The classic router now sees edge work
-// as load, which is the correct answer to "how busy is this node".
+// An authorize is the cheapest request on the tower path and one of the most consequential: it
+// pins a chosen station as busy for the grant's lifetime before the consumer has sent a byte,
+// and its only cost is a ceiling hold that is refunded in full when the attempt expires unused.
+// Without a cap, one funded account can hold every routable station at maximum apparent load
+// indefinitely for approximately nothing - measured at 500 simultaneous pins for $0.0001 of
+// held (not spent) balance. The rate limiter bounds the RATE of opening; this bounds the
+// STANDING number, which is the quantity that actually does the damage.
+//
+// Sized well above any real client's concurrency (a consumer waiting on 32 simultaneous
+// completions through relays is already at the edge of plausible) and far below what an
+// attacker needs.
+const maxOpenEdgeAttemptsPerAccount = 32
+
+// edgeAttemptLoad is one open edge attempt's ledger entry: which node it is pinning, and which
+// account is holding the slot.
+type edgeAttemptLoad struct{ nodeID, account string }
+
+// edgeAccountReserve claims one of an account's simultaneous-attempt slots, or reports that it
+// is at its cap. Every successful reserve must be matched by exactly one release - either
+// edgeAccountRelease on a path that abandons the attempt, or edgeEnterInflight, which takes
+// ownership of the slot and hands it to edgeExitInflight.
+func (b *broker) edgeAccountReserve(account string) bool {
+	if account == "" {
+		return true // unattributable traffic is refused before it gets here; nothing to cap
+	}
+	b.metricsMu.Lock()
+	defer b.metricsMu.Unlock()
+	if b.edgeOpenByAccount == nil {
+		b.edgeOpenByAccount = map[string]int{}
+	}
+	if b.edgeOpenByAccount[account] >= maxOpenEdgeAttemptsPerAccount {
+		return false
+	}
+	b.edgeOpenByAccount[account]++
+	return true
+}
+
+// edgeAccountRelease hands a reserved slot back. Idempotent below zero.
+func (b *broker) edgeAccountRelease(account string) {
+	if account == "" {
+		return
+	}
+	b.metricsMu.Lock()
+	defer b.metricsMu.Unlock()
+	if b.edgeOpenByAccount[account] > 0 {
+		b.edgeOpenByAccount[account]--
+	}
+	if b.edgeOpenByAccount[account] == 0 {
+		delete(b.edgeOpenByAccount, account)
+	}
+}
+
+// edgeEnterInflight / edgeExitInflight bracket one edge attempt in the EDGE load counter.
+//
+// WITHOUT THIS THE DIVISOR WAS DECORATION. Nothing on the edge path ever moved a load counter,
+// so every edge candidate scored at load 0 forever and the highest-scoring station absorbed the
+// lot. The score said it was spreading work and it was not, which is worse than not claiming
+// to.
+//
+// TWO COUNTERS, NOT ONE - the correction to the first version of this fix. It used to increment
+// b.inflight directly, on the argument that a node serving both fabrics fills one GPU either
+// way. That is true of load and false of what b.inflight IS: the classic paid router divides by
+// it, peers merge it, and probeOnce skips any node with a non-zero count. So opening an edge
+// attempt suppressed a victim's canary probes (freezing verifiedServing(), the /market signal
+// and the concierge gate) and depressed its score on the fabric that pays it - and an authorize
+// is available to any signed-in account for a refundable fraction of a cent. b.edgeLoad keeps
+// the placement signal without handing an outside party that lever; see edgeLoadLocked.
 //
 // AN EXIT IS NOT GUARANTEED, so it is bounded. The edge has no dispatch loop to unwind: Core
 // authorizes and then hears nothing until a receipt arrives, and plenty of attempts never
 // produce one - a consumer that never connects, a Station that dies mid-serve. A counter that
-// only goes up would slowly mark every station as saturated and, because the same counter
-// feeds the classic router, take it down with us. So every entry also carries an expiry timer
-// set to the attempt's own finalization ceiling: past that the attempt can no longer settle,
-// so it is by definition no longer in flight.
-func (b *broker) edgeEnterInflight(attemptID, nodeID string, until time.Time) {
+// only goes up would slowly mark every station as saturated. So every entry also carries an
+// expiry timer.
+//
+// THE EXPIRY IS THE EXECUTION DEADLINE, NOT THE SETTLEMENT ONE. It used to be the grant's
+// deadline plus the settlement grace - the window in which EVIDENCE may still arrive, which is
+// minutes longer than the window in which WORK may still be done. Past the grant's own deadline
+// the Station refuses the attempt, so the node is by definition no longer carrying it, and
+// holding the reservation open for the courier's sake pinned a station for eight minutes over a
+// request that could only have run for one. A receipt that arrives after the entry has expired
+// finds nothing to close, which is what edgeExitInflight is idempotent for.
+func (b *broker) edgeEnterInflight(attemptID, nodeID, account string, until time.Time) {
 	if attemptID == "" || nodeID == "" {
+		b.edgeAccountRelease(account) // nothing to bracket, so the slot is not ours to keep
 		return
 	}
 	b.metricsMu.Lock()
 	if b.edgeInflight == nil {
-		b.edgeInflight = map[string]string{}
+		b.edgeInflight = map[string]edgeAttemptLoad{}
 	}
 	if _, open := b.edgeInflight[attemptID]; open {
 		b.metricsMu.Unlock()
+		b.edgeAccountRelease(account)
 		return // idempotent: an attempt id is opened once
 	}
-	if b.inflight == nil {
-		b.inflight = map[string]int{}
+	if b.edgeLoad == nil {
+		b.edgeLoad = map[string]int{}
 	}
-	b.edgeInflight[attemptID] = nodeID
-	b.inflight[nodeID]++
-	count := b.inflight[nodeID]
+	b.edgeInflight[attemptID] = edgeAttemptLoad{nodeID: nodeID, account: account}
+	b.edgeLoad[nodeID]++
 	b.metricsMu.Unlock()
-	// Same write-through the relayed path does, so a peer instance's placement sees this
-	// instance's edge load and not just its relayed load.
-	b.writeThroughInflight(nodeID, count)
 	if d := time.Until(until); d > 0 {
 		time.AfterFunc(d, func() { b.edgeExitInflight(attemptID) })
 	} else {
@@ -597,24 +875,38 @@ func (b *broker) edgeEnterInflight(attemptID, nodeID string, until time.Time) {
 // instance never opened (the ordinary multi-instance case) is a no-op rather than a
 // decrement of somebody else's count.
 //
+// That last case is also the one honest gap left here: authorize-on-A, settle-on-B leaves A
+// counting until the timer fires. The timer is now the grant's execution deadline rather than
+// the settlement ceiling, so the worst case is bounded by the same window the work itself had,
+// and the count it holds is the edge-only one - it no longer reaches the paid router or the
+// prober. Closing it properly wants the attempt ledger to carry the placement, which is M3-shaped
+// work (the relay binding moves to dispatch), not something to bolt on here.
+//
 // Deliberately NOT folded into the success EWMA the way exitInflight does it. That EWMA gates
 // Tier A on the classic path, and an edge attempt that expired unsettled is not evidence the
 // node is unhealthy - a consumer closing a laptop looks identical. Marking a good node down
 // on the fabric it is not even being judged on would be a worse error than the one this fixes.
 func (b *broker) edgeExitInflight(attemptID string) {
 	b.metricsMu.Lock()
-	nodeID, open := b.edgeInflight[attemptID]
+	entry, open := b.edgeInflight[attemptID]
 	if !open {
 		b.metricsMu.Unlock()
 		return
 	}
 	delete(b.edgeInflight, attemptID)
-	if b.inflight[nodeID] > 0 {
-		b.inflight[nodeID]--
+	if b.edgeLoad[entry.nodeID] > 0 {
+		b.edgeLoad[entry.nodeID]--
 	}
-	count := b.inflight[nodeID]
+	if b.edgeLoad[entry.nodeID] == 0 {
+		delete(b.edgeLoad, entry.nodeID)
+	}
+	if b.edgeOpenByAccount[entry.account] > 0 {
+		b.edgeOpenByAccount[entry.account]--
+	}
+	if b.edgeOpenByAccount[entry.account] == 0 {
+		delete(b.edgeOpenByAccount, entry.account)
+	}
 	b.metricsMu.Unlock()
-	b.writeThroughInflight(nodeID, count)
 }
 
 // towerEdgeAck accepts the consumer's signed statement about what it actually received.

@@ -12,10 +12,13 @@ package main
 // fabric in addition to the broker's own long-poll.
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"rogerai.fm/roger/v5/internal/agent"
 	"rogerai.fm/roger/v5/internal/client"
@@ -23,17 +26,36 @@ import (
 
 // joinRelayFabric offers an already-registered, already-on-air node to the relay fabric.
 //
-// EVERY failure here is silent and harmless by construction. The node is registered,
-// discoverable, probed and serving before this is called, so the worst case is that it keeps
-// doing all of that over the broker's long-poll alone. A provider must never lose a working
-// share because a relay was unavailable, and must never be shown an error about a plane they
-// did not ask to be on.
+// ROUTINE FAILURE IS SILENT AND HARMLESS BY CONSTRUCTION. The node is registered, discoverable,
+// probed and serving before this is called, so "no relay is free right now" costs nothing and
+// the operator must never be shown an error about a plane they did not ask to be on.
+//
+// AN ERROR THAT COSTS THEM MONEY OR BREAKS THEIR TRUST ASSUMPTIONS IS NOT ROUTINE, and this used
+// to swallow those too. The whole call was `_ = agent.ServeTower(..., discardWriter{})`, one
+// discard covering both kinds of output, so into the bin went: towerhub.ErrNotCarried (the hub
+// accepted a completion and never couriered the receipt - the node computed and will not be
+// paid), a served result that could not be handed back, every audit failure, transcripts evicted
+// inside their audit window, and the failure to pin Core's grant key, which is the one error
+// meaning this node cannot tell a real grant from one its relay forged. Before `--tower` was
+// removed those went to os.Stdout; the flag's removal is what turned a mode's chatter into the
+// default's silence.
+//
+// So there are two seams now (see agent.Notice): progress still goes to a discard, and notices
+// go to stderr through relayNotices, once each.
 //
 // It is skipped entirely when the node has no signed-in owner: attaching is an account act
 // (it is what makes a station's earnings attributable), and an anonymous free share is a
 // perfectly ordinary thing to be. Nothing is printed in that case either - there is no
 // problem to report.
 func joinRelayFabric(cfg agent.Config) {
+	// A PRIVATE BAND NEVER JOINS. Asserted here as well as inside agent.AttachTower, because
+	// this is the seam a future caller reaches first and an early return is cheaper than a
+	// refused network call. Belt and braces on a guarantee that used to be neither: before
+	// this, the only thing keeping a private band off the public fabric was that the call to
+	// this function happened to sit inside `if !*private {` in main.go.
+	if cfg.Private {
+		return
+	}
 	if client.LinkedLogin() == "" {
 		return
 	}
@@ -41,6 +63,7 @@ func joinRelayFabric(cfg agent.Config) {
 	if err != nil {
 		return
 	}
+	notices := &relayNotices{}
 	// THE SHARED SHUTDOWN, not a signal notifier of our own. This used to call
 	// signal.NotifyContext here, which looks local and is not: the first registration anywhere
 	// in a program disables Go's default SIGINT-kills-the-process disposition for the whole
@@ -50,14 +73,66 @@ func joinRelayFabric(cfg agent.Config) {
 	// has exactly one place that knows what Ctrl-C means (acquireOnAirLock, which clears the
 	// on-air lock and exits 130); this rides that one instead of racing it.
 	//
-	// io.Discard, not os.Stdout: the ordinary share has already printed its on-air line, and
-	// a second stream of relay chatter underneath it would describe a plane the operator did
-	// not opt into and cannot act on.
-	_ = agent.ServeTower(shareShutdown, cfg, agent.NodeKey(), filepath.Join(confDir, "rogerai"), discardWriter{})
+	// io.Discard for PROGRESS, not for everything: the ordinary share has already printed its
+	// on-air line, and a second stream of relay chatter underneath it would describe a plane the
+	// operator did not opt into and cannot act on. Notices are the other channel.
+	err = agent.ServeTower(shareShutdown, cfg, agent.NodeKey(), filepath.Join(confDir, "rogerai"),
+		discardWriter{}, notices.report)
+	// The RETURNED error is the startup one, and only one shape of it is worth a word. An attach
+	// that was refused means no relay would take this node right now, which is the ordinary case
+	// this whole path is best-effort for. A key-pinning failure is not that: it means the node
+	// reached a relay and could not establish what a genuine grant looks like, so it cannot
+	// distinguish Core's work from the relay's invention. That is a trust assumption, not an
+	// availability blip.
+	if errors.Is(err, agent.ErrCoreKeysUnpinned) {
+		notices.report(err)
+	}
 }
 
-// discardWriter swallows the relay path's progress output. Declared here rather than reaching
-// for io.Discard so the reason travels with it.
+// relayNotices is the notice sink: stderr, prefixed, and each distinct message ONCE.
+//
+// Once matters. These loops retry forever by design - the audit poll every 45 seconds, the serve
+// workers on a two-second backoff - so a standing condition (a hub that is down, a plaintext
+// link, a transcript store that is too small) would otherwise scroll a `roger share` terminal
+// off the screen and bury the on-air line the operator actually needs. Saying it once keeps it
+// unmissable, which is the entire point of not discarding it.
+//
+// stderr, not stdout, so it never lands in the middle of anything a script is parsing out of a
+// share's output.
+type relayNotices struct {
+	mu   sync.Mutex
+	said map[string]bool
+	// out is where a notice lands; nil means os.Stderr. A field rather than a hardcoded
+	// os.Stderr so a test can assert what an operator actually reads, which is the whole
+	// property this type exists for.
+	out io.Writer
+}
+
+func (n *relayNotices) report(err error) {
+	if err == nil {
+		return
+	}
+	msg := err.Error()
+	n.mu.Lock()
+	if n.said == nil {
+		n.said = map[string]bool{}
+	}
+	if n.said[msg] {
+		n.mu.Unlock()
+		return
+	}
+	n.said[msg] = true
+	w := n.out
+	n.mu.Unlock()
+	if w == nil {
+		w = os.Stderr
+	}
+	fmt.Fprintf(w, "  relay: %s\n", msg)
+}
+
+// discardWriter swallows the relay path's routine PROGRESS output. Declared here rather than
+// reaching for io.Discard so the reason travels with it - and so it is visibly the progress
+// seam, not the only seam.
 type discardWriter struct{}
 
 func (discardWriter) Write(p []byte) (int, error) { return len(p), nil }

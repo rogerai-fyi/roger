@@ -51,10 +51,13 @@ func TestFullProductLoopANodeEarnsThroughATower(t *testing.T) {
 	// this station is busy. Edge placement divides every candidate's quality by this number,
 	// and for a long time nothing on this path ever moved it: the divisor read zero forever
 	// and the top-scoring station took everything.
-	inflightDuringServe := &atomic.Int64{}
-	inflightDuringServe.Store(-1)
+	edgeLoadDuringServe := &atomic.Int64{}
+	edgeLoadDuringServe.Store(-1)
+	relayInflightDuringServe := &atomic.Int64{}
+	relayInflightDuringServe.Store(-1)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		inflightDuringServe.Store(int64(b.totalInFlight()))
+		edgeLoadDuringServe.Store(int64(b.totalEdgeLoad()))
+		relayInflightDuringServe.Store(int64(b.totalInFlight()))
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(modelBody))
 	}))
@@ -117,7 +120,7 @@ func TestFullProductLoopANodeEarnsThroughATower(t *testing.T) {
 		_ = agent.ServeTower(ctx, agent.Config{
 			NodeID: shareNodeID, Broker: srv.URL, Model: "my-model", Modality: "chat",
 			PriceIn: 0, PriceOut: 0.30, Upstream: upstream.URL, Parallel: 1,
-		}, nodeOp.priv, t.TempDir(), io.Discard)
+		}, nodeOp.priv, t.TempDir(), io.Discard, nil)
 	}()
 
 	// The hub's node-registration refresher, as roger-tower runs it: fetch this tower's nodes
@@ -184,9 +187,15 @@ func TestFullProductLoopANodeEarnsThroughATower(t *testing.T) {
 	// was actually serving, and the receipt handed the slot back - so the next consumer's
 	// placement sees a free station rather than one that has been "busy" since the first
 	// request it ever took.
-	require.EqualValues(t, 1, inflightDuringServe.Load(),
+	require.EqualValues(t, 1, edgeLoadDuringServe.Load(),
 		"Core did not count the station as busy while it was serving - the placement load divisor reads zero")
-	require.Zero(t, b.totalInFlight(), "the settlement did not hand the station's slot back")
+	require.Zero(t, b.totalEdgeLoad(), "the settlement did not hand the station's slot back")
+	// AND THE OTHER FABRIC NEVER MOVED. An edge attempt is a reservation an outside party can
+	// open cheaply; b.inflight is what the classic paid router divides by and what probeOnce
+	// skips a node on. They are separate counters now, and this is the end-to-end proof that
+	// serving a real edge request through a real tower leaves the paid one alone.
+	require.EqualValues(t, 0, relayInflightDuringServe.Load(),
+		"an edge serve moved the RELAYED in-flight count - the paid router and the prober can be steered from the edge path")
 }
 
 // The FAILURE path: the node is attached and routable but its serving loop is DOWN. The

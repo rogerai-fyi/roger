@@ -31,6 +31,7 @@
 package station
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/hex"
@@ -59,6 +60,14 @@ type Station struct {
 	// one of those.
 	Assertion string `json:"assertion_key"`
 	Session   string `json:"session_key"`
+
+	// Warnings are conditions Open REPAIRED rather than refused - today, a data directory or key
+	// file whose mode was looser than the 0600/0700 Init writes. They are not returned as errors
+	// because refusing would take a working provider off the network over something we can simply
+	// fix, and they are not silent because a key that has been world-readable may already have
+	// been read, and only the operator can decide what to do about that. The serving loop prints
+	// them (internal/agent.ServeTower).
+	Warnings []string `json:"-"`
 
 	dir           string
 	assertionPriv ed25519.PrivateKey
@@ -106,6 +115,15 @@ func Init(dir string) (*Station, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
+	// MkdirAll DOES NOT CHANGE AN EXISTING DIRECTORY'S MODE, and it applies the process umask to
+	// one it creates - so "0o700" above is a request, not a result. A Station directory that came
+	// out of Init at 0755 (an existing parent path, a generous umask) holds the keys that sign an
+	// operator's receipts and is readable by every account on the box. Tighten it here rather than
+	// leaving Open to repair what the mint should not have produced.
+	//
+	// tighten only ever REMOVES bits, which matters: an operator who made this directory 0500 on
+	// purpose meant it, and a mint is not the place to hand out write permission nobody asked for.
+	warnings := tighten(dir, 0o700)
 	assertion, err := writeFreshKey(filepath.Join(dir, assertionKeyFile))
 	if err != nil {
 		return nil, err
@@ -119,6 +137,7 @@ func Init(dir string) (*Station, error) {
 		return nil, err
 	}
 	s := &Station{
+		Warnings:      warnings,
 		StationID:     "st-" + randomHex(12),
 		Assertion:     hex.EncodeToString(assertion.Public().(ed25519.PublicKey)),
 		Session:       hex.EncodeToString(sessionPub),
@@ -156,11 +175,40 @@ func Open(dir string) (*Station, error) {
 	if s.StationID == "" {
 		return nil, fmt.Errorf("%s: the Station state file names no station id", dir)
 	}
+	// PERMISSIONS ARE CHECKED AND REPAIRED, not assumed. Init creates 0700/0600, but Init is not
+	// the only way a directory gets here: a restore from a backup, a copy between machines, or a
+	// generous umask around a MkdirAll (which does NOT change an existing directory's mode) all
+	// leave keys that sign receipts readable by every account on the box. Nothing looked, so a
+	// world-readable Station loaded without a word.
+	s.Warnings = append(s.Warnings, tighten(dir, 0o700)...)
+	s.Warnings = append(s.Warnings, tighten(filepath.Join(dir, assertionKeyFile), 0o600)...)
+	s.Warnings = append(s.Warnings, tighten(filepath.Join(dir, sessionKeyFile), 0o600)...)
 	assertion, err := readKey(filepath.Join(dir, assertionKeyFile), ed25519.PrivateKeySize)
 	if err != nil {
 		return nil, fmt.Errorf("%s: the assertion key: %w", dir, err)
 	}
 	s.assertionPriv = ed25519.PrivateKey(assertion)
+	// THE SEED HALF IS CHECKED AGAINST THE PUBLIC HALF, and this is the check the cross-check
+	// below cannot make.
+	//
+	// In Go, ed25519.PrivateKey.Public() returns the private key's TRAILING 32 BYTES VERBATIM. It
+	// does not re-derive anything from the seed. So comparing hex(s.AssertionPub()) to the state
+	// file proves only that the state file and the tail of the key file agree - it says nothing
+	// whatever about the seed, which is the half that actually signs. A station whose seed was
+	// corrupted (a truncated write, a partial restore, one flipped byte) passed Open's cross-check
+	// with a clean bill of health and then signed receipts that do not verify under the key Core
+	// recorded at attachment: the node serves, produces evidence nobody can check, and its work
+	// settles nowhere. The doc comment above promised that case fails loudly and it did not.
+	//
+	// Re-deriving from the seed and comparing is the whole fix, and it is the cheapest possible
+	// one - a single scalar multiplication at load, once per process.
+	derived := ed25519.NewKeyFromSeed(assertion[:ed25519.SeedSize]).Public().(ed25519.PublicKey)
+	if !bytes.Equal(derived, s.AssertionPub()) {
+		return nil, fmt.Errorf("%s: the assertion key file is internally inconsistent - its seed derives "+
+			"%s but the key records %s. This Station would sign receipts that verify under neither, "+
+			"and nothing downstream would be able to say why", dir, short(hex.EncodeToString(derived)),
+			short(hex.EncodeToString(s.AssertionPub())))
+	}
 	session, err := readKey(filepath.Join(dir, sessionKeyFile), 32)
 	if err != nil {
 		return nil, fmt.Errorf("%s: the secure-session key: %w", dir, err)
@@ -206,6 +254,31 @@ func InitOrOpen(dir string) (*Station, error) {
 		return nil, err
 	}
 	return Init(dir)
+}
+
+// tighten repairs a path whose mode is looser than want, returning a warning describing what it
+// found. Group and other bits are the whole question: an 0644 key file is readable by every
+// account on the machine, and this one signs the receipts an operator is paid against.
+//
+// It REPAIRS rather than refuses on purpose. Refusing would take a running provider off the
+// network over a condition one chmod fixes, and would do it at the least convenient moment; the
+// warning is what makes the repair honest, because a key that has been readable may already have
+// been read and only the operator can weigh that.
+func tighten(path string, want os.FileMode) []string {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil // a missing file is the caller's problem to report, with a better message
+	}
+	mode := info.Mode().Perm()
+	if mode&^want == 0 {
+		return nil
+	}
+	if cerr := os.Chmod(path, want); cerr != nil {
+		return []string{fmt.Sprintf("station: %s is mode %#o (should be %#o) and could not be tightened: %v - "+
+			"a Station key readable by other accounts on this machine should be treated as exposed", path, mode, want, cerr)}
+	}
+	return []string{fmt.Sprintf("station: %s was mode %#o (should be %#o); tightened to %#o - "+
+		"if other accounts had access to this machine, treat these keys as exposed", path, mode, want, want)}
 }
 
 // readKey reads one hex-encoded private key file and checks its length. Length is checked
