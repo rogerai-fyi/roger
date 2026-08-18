@@ -45,7 +45,32 @@ const liveHrefs = (block) =>
 // Asserting over every anchor would conflate "what the bar shows" with "what the
 // panels reveal", which are different questions with different right answers.
 // Drop disclosure panels before asking "what does the BAR link to, in order".
-const withoutPanels = (block) => block.replace(/<div class="nav__panel"[\s\S]*?<\/div>/g, "");
+/* AMENDED 2026-08-17: these used a non-greedy /<div class="nav__panel">...<\/div>/,
+   which stops at the FIRST closing tag - so the moment a panel contained a nested
+   div (the Playbox deck disclosure) it read half a panel, and the links below the
+   nesting silently vanished from both the order lock and the reachability lock.
+   Now the div nesting is walked properly, so a panel is a whole panel. Same
+   guarantees, correctly measured. */
+function panelBlocks(block) {
+  var out = [], i = 0;
+  for (;;) {
+    var start = block.indexOf('<div class="nav__panel"', i);
+    if (start < 0) break;
+    var depth = 0, j = start;
+    for (;;) {
+      var open = block.indexOf("<div", j), close = block.indexOf("</div>", j);
+      if (close < 0) { j = block.length; break; }
+      if (open >= 0 && open < close) { depth++; j = open + 4; continue; }
+      depth--; j = close + 6;
+      if (depth === 0) break;
+    }
+    out.push(block.slice(start, j));
+    i = j;
+  }
+  return out;
+}
+const withoutPanels = (block) =>
+  panelBlocks(block).reduce(function (acc, p) { return acc.replace(p, ""); }, block);
 
 const barHrefs = (block) =>
   [...block.replace(/<!--[\s\S]*?-->/g, "").matchAll(/<a\b[^>]*class="nav__link[^"]*"[^>]*href="([^"]*)"/g)]
@@ -116,8 +141,7 @@ test("marketing top bar: order is Models·Research·Company | App | Manual·Sour
 // role promises arrow-key and typeahead behaviour this does not implement.
 test("the nav panels reveal every page that is otherwise hub-only", () => {
   const bar = topbar(readDist("index.html"));
-  const panelHrefs = [...bar.matchAll(/<div class="nav__panel"[\s\S]*?<\/div>/g)]
-    .flatMap((m) => liveHrefs(m[0]));
+  const panelHrefs = panelBlocks(bar).flatMap((p) => liveHrefs(p));
   for (const must of [
     "/research-models.html",
     "/research-wave-family.html",

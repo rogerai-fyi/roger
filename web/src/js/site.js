@@ -293,6 +293,20 @@
     panels.forEach(function (p) { if (p !== except) setOpen(p, false); });
   }
 
+  /* The Playbox decks are a disclosure nested INSIDE the Models panel. It is
+     not one of `panels` (those are the top-level groups and close each other),
+     so it gets its own tiny handler - same contract, same attributes. */
+  var deckBtn = document.getElementById("navDecksBtn");
+  var deckPanel = document.getElementById("navDecksPanel");
+  if (deckBtn && deckPanel) {
+    deckBtn.addEventListener("click", function (e) {
+      e.stopPropagation();
+      var open = deckBtn.getAttribute("aria-expanded") === "true";
+      deckBtn.setAttribute("aria-expanded", open ? "false" : "true");
+      deckPanel.hidden = open;
+    });
+  }
+
   panels.forEach(function (entry) {
     entry.btn.addEventListener("click", function () {
       var open = entry.btn.getAttribute("aria-expanded") === "true";

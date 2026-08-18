@@ -6084,6 +6084,16 @@
         next.focus();
       });
     });
+    /* A deck link from the nav only changes the HASH when you are already on
+       this page - no reload, so this function never ran again and the deck did
+       not change (founder: "clicking on them doesn't always go to the right
+       playbox"). Listening for hashchange makes every entry point behave the
+       same whether you arrive from another page or from this one. */
+    window.addEventListener("hashchange", function () {
+      var h = (window.location.hash || "").replace("#", "").toLowerCase();
+      if (h === "mesh" || h === "console" || h === "factory") showView(h);
+    });
+
     var hash = (window.location.hash || "").replace("#", "").toLowerCase();
     if (hash === "mesh" || hash === "console" || hash === "factory") { showView(hash); return; }
     var saved = "console";

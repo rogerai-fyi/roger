@@ -47,10 +47,26 @@
                  now; the mesh entry deep-links to #mesh, which the deck already
                  boots from. The three are indented CHILDREN of the Playbox row, not
                  siblings, so the menu still reads as one destination, two ways in. -->
-            <a href="/playbox.html" {{playboxcurrent}}><b>Playbox</b><span>Three decks: talk to a model, inspect the mesh, or build a factory.</span></a>
-            <a class="nav__sub" href="/playbox.html#console"><b>Console</b><span>Load a model like a cassette: chat, voice, image, tools, embeds.</span></a>
-            <a class="nav__sub" href="/playbox.html#mesh"><b>Wave Mesh</b><span>Sensors, wire formats, and the Wave models that read them.</span></a>
-            <a class="nav__sub" href="/playbox.html#factory"><b>Factory</b><span>Build machines, ship crates, fix holds, and expand the line.</span></a>
+            <!-- The three decks are a DISCLOSURE, not a permanent list: they used to
+                 sit open under Playbox and made this menu read as six destinations
+                 instead of two. Same idiom as the top-level nav groups (a .nav__more
+                 button owning aria-expanded over a hidden panel), one level down, so
+                 the keyboard and screen-reader behaviour is the one already learned.
+                 The Playbox row itself stays a plain link - the arrow is a separate
+                 control, so opening the decks never costs you the way in. -->
+            <span class="nav__deckrow">
+              <a href="/playbox.html" {{playboxcurrent}}><b>Playbox</b><span>Three decks: talk to a model, inspect the mesh, or build a factory.</span></a>
+              <button class="nav__more nav__more--sub" type="button" id="navDecksBtn"
+                      aria-expanded="false" aria-controls="navDecksPanel"
+                      aria-label="Show the three Playbox decks">
+                <svg viewBox="0 0 10 6" width="10" height="6" aria-hidden="true" focusable="false"><path d="M1 1l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+              </button>
+            </span>
+            <div class="nav__decks" id="navDecksPanel" hidden>
+              <a class="nav__sub" href="/playbox.html#console"><b>Console</b><span>Load a model like a cassette: chat, voice, image, tools, embeds.</span></a>
+              <a class="nav__sub" href="/playbox.html#mesh"><b>Wave Mesh</b><span>Sensors, wire formats, and the Wave models that read them.</span></a>
+              <a class="nav__sub" href="/playbox.html#factory"><b>Factory</b><span>Build machines, ship crates, fix holds, and expand the line.</span></a>
+            </div>
             <a href="/voices.html" {{voicescurrent}}><b>Voices</b><span>On-air text-to-speech voices, each one an operator&rsquo;s station.</span></a>
             <a href="/tower.html" {{towercurrent}}><b>Tower</b><span>How a station is chosen, metered, and made to sign for what it billed.</span></a>
           </div>
