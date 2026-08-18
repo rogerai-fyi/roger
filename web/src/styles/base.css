@@ -835,6 +835,35 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
 /* A panel row that is a CHILD of the row above it - the Playbox's two decks.
    The rule down the left is the nesting cue, so the pair reads as ways into one
    destination rather than three separate places. */
+/* THE CARRIER SWEEP, site-wide. Lifted from the Wave Infinite title on the
+   family field guide, where it earned its place: a carrier moving across a
+   word, which is the right metaphor for a station. Same ink-to-live gradient
+   the rest of the site already spends - a second palette would make whichever
+   page wears it look like a different product. Purely decorative: the word
+   reads normally with the animation off, and nothing is encoded in it. */
+.carrier {
+  background: linear-gradient(100deg,
+    var(--ink-900) 0%, var(--ink-900) 34%,
+    var(--live) 47%, var(--live) 53%,
+    var(--ink-900) 66%, var(--ink-900) 100%);
+  background-size: 250% 100%;
+  -webkit-background-clip: text; background-clip: text;
+  color: transparent;
+  animation: carrier-sweep 3.2s linear infinite;
+}
+/* one direction, continuously: a sweep that ping-pongs reads as a glitch */
+@keyframes carrier-sweep { from { background-position: 125% 0; } to { background-position: -125% 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .carrier { animation: none; background: none; -webkit-background-clip: border-box; background-clip: border-box; color: inherit; }
+}
+/* SAFETY. This treatment paints the word with a gradient and sets the text
+   itself transparent, so a browser that does not do background-clip:text
+   would render INVISIBLE TEXT - unacceptable on a hero headline. The
+   transparent colour is applied only where the clip is actually supported. */
+@supports not ((background-clip: text) or (-webkit-background-clip: text)) {
+  .carrier { background: none; color: inherit; animation: none; }
+}
+
 /* THE WAVE SPECTRUM PALETTE, site-wide. The founder's own chart, light and
    dark. It lived in three stylesheets that each redeclared it; the wave mark
    is a brand component that can appear on any page, so the tokens belong
