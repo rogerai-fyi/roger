@@ -20,6 +20,11 @@
    which is the original mark to the pixel. */
 (function () {
   "use strict";
+  /* KEPT AS THE CLASSIC MARK. The flashier spectrum version
+     (js/wave-mark-spectrum.js) is the default; add ?mark=classic to the URL
+     to see this one instead. Both read the same resting markup, so whichever
+     runs, the mark at rest is identical. */
+  if (!/[?&]mark=classic\b/.test(window.location.search)) return;
   var svg = document.querySelector(".wave-mark__svg[data-animate]");
   if (!svg) return;
   var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;

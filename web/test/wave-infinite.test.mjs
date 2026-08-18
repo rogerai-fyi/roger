@@ -143,7 +143,14 @@ test("no page anywhere reduces it to a runtime or claims self-training", () => {
 
 test("the shimmer stays inside the RogerAI palette and carries no information", () => {
   const css = readFileSync(path.join(WEB, "src", "styles", "wave-family.css"), "utf8");
-  const block = css.slice(css.indexOf(".wf-inf"));
+  /* AMENDED 2026-08-17: this sliced from the first .wf-inf to the END OF THE
+     FILE, so it policed every rule that happened to sit below it - it failed
+     on the Wave Spectrum MARK's tier colours, which are seven hues on
+     purpose (the mark IS the spectrum; the section is titled "pico to exa").
+     The guarantee here is about INFINITE specifically - it must never be
+     dressed as a rainbow, because it is a mode, not a size - so the lock now
+     reads exactly the .wf-inf rules and nothing else. */
+  const block = (css.match(/\.wf-inf[^{]*\{[^}]*\}/g) || []).join("\n");
   assert.ok(block.length > 0, "the treatment is styled");
   const hues = [...block.matchAll(/#[0-9a-f]{3,8}\b/gi)].map((m) => m[0].toLowerCase());
   assert.equal(hues.length, 0, `no raw hex colours in the treatment, found ${hues.join(", ")}`);

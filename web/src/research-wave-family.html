@@ -512,7 +512,12 @@
   <!-- include: footer.html anchors=/ -->
 
   <script src="js/site.js" defer></script>
+  <!-- The spectrum mark is the default; js/wave-mark.js is the previous
+       "classic" mark, kept and reachable with ?mark=classic for comparison.
+       Both animate the SAME resting markup above, so with JS off - or under
+       prefers-reduced-motion - the page shows the original static mark. -->
   <script src="js/wave-mark.js" defer></script>
+  <script src="js/wave-mark-spectrum.js" defer></script>
   <script src="js/session.js" defer></script>
   <script src="js/promo.js" defer></script>
 </body>

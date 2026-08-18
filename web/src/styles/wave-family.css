@@ -266,6 +266,38 @@
    beacon exactly where they cross. Stroke widths and geometry are the card's, so the two
    are the same mark rather than a lookalike. */
 .wave-mark { margin: 0; display: grid; justify-items: center; gap: var(--s-4); }
+/* THE SPECTRUM MARK (js/wave-mark-spectrum.js). Tier colours are the
+   founder's own Spectrum chart - the same seven the mesh and factory decks
+   wear - so the mark, the decks and the ladder all speak one palette. */
+.wave-mark__svg {
+  --tier-pico: #b23a2a; --tier-nano: #c96a1c; --tier-micro: #b0891a;
+  --tier-giga: #2f8a52; --tier-tera: #1f8f8f; --tier-peta: #2f63bf;
+  --tier-exa:  #5b3fbf;
+}
+:root[data-theme="dark"] .wave-mark__svg {
+  --tier-pico: #e6604f; --tier-nano: #e88b3c; --tier-micro: #d4aa2e;
+  --tier-giga: #48b873; --tier-tera: #39b7b7; --tier-peta: #5b8ee6;
+  --tier-exa:  #8a6df0;
+}
+/* once the spectrum has its first frame the resting curves stand down - the
+   markup stays in the DOM, so it is still the mark without JS */
+.wave-mark__svg[data-spectrum] .wave-mark__wave { display: none; }
+.wave-mark__tier { transition: none; }
+.wave-mark__tier[data-tier="pico"]  { stroke: var(--tier-pico); }
+.wave-mark__tier[data-tier="nano"]  { stroke: var(--tier-nano); }
+.wave-mark__tier[data-tier="micro"] { stroke: var(--tier-micro); }
+.wave-mark__tier[data-tier="giga"]  { stroke: var(--tier-giga); }
+.wave-mark__tier[data-tier="tera"]  { stroke: var(--tier-tera); }
+.wave-mark__tier[data-tier="peta"]  { stroke: var(--tier-peta); }
+.wave-mark__tier[data-tier="exa"]   { stroke: var(--tier-exa); }
+/* the beacon and its ring take the colour of whichever tier is firing */
+.wave-mark__svg[data-spectrum] .wave-mark__node { fill: var(--mark-lead, var(--live)); animation: none; }
+.wave-mark__ring { fill: none; stroke: var(--mark-lead, var(--live)); stroke-width: 2; opacity: 0; }
+.wave-mark__tag {
+  font-family: var(--font-mono); font-size: 15px; letter-spacing: .22em;
+  fill: var(--mark-lead, var(--live)); opacity: 0;
+}
+
 .wave-mark__svg { width: 100%; max-width: 320px; height: auto; overflow: visible; }
 .wave-mark__wave { fill: none; stroke-linecap: round; }
 .wave-mark__wave--wide { stroke: var(--hairline-2); stroke-width: 9; }
@@ -304,6 +336,8 @@
   letter-spacing: var(--tracking-label); text-transform: uppercase;
 }
 @media (prefers-reduced-motion: reduce) {
+  /* ONE escape hatch for the mark: no beat, no ripple, and no spectrum layer
+     - what is left is the static resting markup, which is the classic mark. */
   .wave-mark__node, .wave-mark__ripple { animation: none; }
-  .wave-mark__ripple { display: none; }
+  .wave-mark__ripple, .wave-mark__spectrum, .wave-mark__ring, .wave-mark__tag { display: none; }
 }
