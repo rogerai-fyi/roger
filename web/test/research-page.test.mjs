@@ -424,8 +424,17 @@ test("device and roadmap claims remain gated", () => {
     "a Wave model runs whether or not one is present");
   // Nothing to download, and no install path for a thing that does not exist.
   assert.doesNotMatch(edge, /class="model-download"/);
-  assert.doesNotMatch(edgeCopy, /\b(SDK|pip install|arduino-cli|PlatformIO)\b/i,
-    "no install path is offered for an unbuilt line");
+  /* AMENDED 2026-08-18: this banned the bare WORD "PlatformIO", which caught
+     copy that merely NAMES the existing ecosystem (Arduino, ESP-IDF, Zephyr,
+     PlatformIO, TFLite Micro, Edge Impulse) while explaining what Roger Edge
+     would add to it. Naming a tool that exists is not offering an install
+     path for one that does not. The guarantee is unchanged and now bans what
+     it was always about: a command to run, a thing to clone or fetch, or an
+     SDK of ours claimed as a deliverable. */
+  assert.doesNotMatch(edgeCopy, /\b(pip install|arduino-cli|npm install|git clone|apt install|brew install)\b/i,
+    "no install command for an unbuilt line");
+  assert.doesNotMatch(edgeCopy, /\b(our|the Roger Edge) SDK\b/i,
+    "and no SDK of ours is claimed as a thing that exists");
 });
 
 test("services are optional and preserve local model independence", () => {

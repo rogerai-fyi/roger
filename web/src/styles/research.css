@@ -183,6 +183,11 @@
 /* A two-card contract (the healthcare/defense boundaries on research-industry): two equal
    cells, no empty third. Keyed on the count, like the grid above. */
 .device-contract:has(> p:nth-child(2):last-child) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+/* Four cards read as 2x2 rather than four narrow columns, and the middle rule
+   has to stop at the row break. Count-keyed like the rule above. */
+.device-contract:has(> p:nth-child(4):last-child) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.device-contract:has(> p:nth-child(4):last-child) > p:nth-child(2n) { border-right: 0; }
+.device-contract:has(> p:nth-child(4):last-child) > p:nth-child(-n+2) { border-bottom: 1px solid var(--hairline); }
 /* The lead-in is a run-in heading, so it gets its own line: in a card the bold phrase and
    the sentence after it are two different things, and running them together made the
    sentence look like it continued the heading. Every card here is written as
