@@ -10,6 +10,11 @@ package main
 // reads as a broken install.
 //
 // It sweeps rather than pinning known paths, because pinning paths is how the four survived.
+//
+// And it sweeps web/src, which the first version of this test did not - an omission with the
+// shape of its own subject, since web/src/manual.html was one of the files the audit caught
+// and the removal commit had to fix by hand. A sweep that skips the directory containing the
+// most-read operator documentation is a sweep with a hole in exactly the wrong place.
 
 import (
 	"os"
@@ -28,13 +33,13 @@ var historicalAccounts = map[string]bool{
 func TestNoDocTeachesTheRemovedTowerFlag(t *testing.T) {
 	root := filepath.Join("..", "..")
 	var offenders []string
-	for _, dir := range []string{"docs", "packaging", "features"} {
+	for _, dir := range []string{"docs", "packaging", "features", "web/src"} {
 		err := filepath.Walk(filepath.Join(root, dir), func(path string, info os.FileInfo, err error) error {
 			if err != nil || info.IsDir() {
 				return err
 			}
 			switch strings.ToLower(filepath.Ext(path)) {
-			case ".md", ".feature", ".txt":
+			case ".md", ".feature", ".txt", ".html":
 			default:
 				return nil
 			}
