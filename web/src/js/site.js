@@ -304,6 +304,10 @@
       var open = deckBtn.getAttribute("aria-expanded") === "true";
       deckBtn.setAttribute("aria-expanded", open ? "false" : "true");
       deckPanel.hidden = open;
+      /* the label states the ACTION the press will perform, matching the
+         way the arrow turns - a screen reader hears what the arrow shows */
+      deckBtn.setAttribute("aria-label",
+        open ? "Show the three Playbox decks" : "Hide the three Playbox decks");
     });
   }
 

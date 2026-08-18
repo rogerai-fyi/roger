@@ -840,6 +840,13 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
 .nav__deckrow > a { flex: 1 1 auto; min-width: 0; }
 .nav__more--sub { flex: 0 0 auto; align-self: center; opacity: .6; }
 .nav__more--sub:hover, .nav__more--sub:focus-visible { opacity: 1; }
+/* The arrow shows the ACTION, not the state: closed it points down ("open
+   this"), open it points up ("close this"), and the label says the same
+   words. It will not match the parent group's chevron above it, and that is
+   correct - the parent is already open, so its arrow reads "close", while
+   this one still reads "open". Two controls in opposite states point
+   opposite ways. */
+.nav__more--sub svg { transition: transform .18s ease; }
 .nav__more--sub[aria-expanded="true"] svg { transform: rotate(180deg); }
 .nav__decks[hidden] { display: none !important; }
 .nav__panel a.nav__sub {
