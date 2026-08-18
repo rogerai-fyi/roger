@@ -516,8 +516,13 @@
             RULE,
             "  " + dim(pad("MODEL", 20)) + dim(pad("BACKEND", 12)) + dim(pad("STATUS", 11)) + dim("YOUR RATE")
           ];
+          /* The probe above counts ollama 2 + llama.cpp 1 + vLLM 1 = "4 models
+             detected", so this table must have four rows. It had three -
+             ollama's second model was never listed, and a reader who counted
+             found the summary wrong. */
           var locals = [
             { model: "gpt-oss-20b",      back: "ollama",    rate: "0.18" },
+            { model: "gemma3-27b",       back: "ollama",    rate: "0.27" },
             { model: BAND,               back: "vLLM",      rate: "0.30" },
             { model: "llama-3.3-70b",    back: "llama.cpp", rate: "0.55" }
           ];

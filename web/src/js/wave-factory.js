@@ -1607,7 +1607,11 @@
       if (G.cert.up / G.cert.run >= CERT_UPTIME) {
         G.cert.done = true;
         G.cert.doneAt = G.elapsed;
-        addLog("Three minutes untouched, uptime held. FACTORY CERTIFIED - it runs itself now.");
+        /* derived, not typed: this line still said "Three minutes" two rounds
+           after CERT_PROOF_SECS dropped to 120 (v36), so the win message
+           contradicted the checklist directly above it. */
+        addLog(Math.round(CERT_PROOF_SECS / 60) +
+          " minutes untouched, uptime held. FACTORY CERTIFIED - it runs itself now.");
         if (DOM.stations) showCertified();
       } else {
         addLog("Proof window ended at " + Math.round((G.cert.up / G.cert.run) * 100) +
@@ -2575,7 +2579,11 @@
     DOM.certStamp.hidden = true;
     cert.appendChild(DOM.certStamp);
     cert.appendChild(el("i", "cl-view__note",
-      "the checklist is the game's own - touch anything during the proof and the clock starts over"));
+      /* said "the clock starts over" while the checklist hint eight lines up
+         said "a 20s setback, not a restart" - and the code does the setback
+         (touchPlant cuts CERT_TOUCH_SETBACK, it does not zero the run). */
+      "the checklist is the game's own - stepping in during the proof costs " +
+      CERT_TOUCH_SETBACK + "s, it does not start the clock over"));
     root.appendChild(cert);
 
     /* honesty footer */
