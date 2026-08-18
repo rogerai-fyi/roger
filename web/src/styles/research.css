@@ -193,6 +193,21 @@
    and must stay inline, or the card breaks mid-thought. */
 .device-contract p > b:first-child { display: block; margin-bottom: var(--s-2); }
 
+/* ---- Roger Edge: a separate line, drawn as a separate block ------------------
+   Roger Edge is not a Wave tier and must not read as one more row of the Wave list,
+   so the section sits on the tinted band the site already uses for "a different
+   thing". The cards inside take the paper ground back, or they dissolve into the
+   band they are sitting on. The list rule turns red for the same reason the Purdue
+   figure draws the Roger Edge box in red: ours, but not the model above it. */
+.section--edge .device-contract, .section--edge .model-roadmap { background: var(--paper); }
+.section--edge .model-list { border-top-color: var(--live); }
+/* The band already opens the block, so the group head does not need the gap it uses to
+   separate two groups sharing one section. */
+.section--edge .model-group-head { margin-top: 0; }
+/* The one fact a reader must not miss is that nothing is trained, so this chip is the
+   only status on the page that carries the accent. It says the absence, not a stage. */
+.status--none { border-color: var(--live); color: var(--live); }
+
 @media (max-width: 820px) {
   .research-hero__layout { grid-template-columns: 1fr; gap: var(--s-7); }
   .research-grid { grid-template-columns: 1fr; }

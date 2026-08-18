@@ -2,7 +2,9 @@
 <!-- The model catalogue. Split out of research.html so the hub can stay inside
      its conciseness budget and each destination has room to be itself. This page
      carries every release contract, lineage badge and download control; the hub
-     keeps only the family and points here.
+     keeps only the family and points here. It also carries Roger Edge, which is NOT a
+     Wave tier: it is the microcontroller line, and it lives in its own banded section
+     so the catalogue cannot be read as one ladder.
      Registered in build.mjs CSS_BUNDLES. -->
 <html lang="en">
 <head>
@@ -227,6 +229,78 @@
             </div>
           </article>
         </div>
+      </div>
+    </section>
+
+    <!-- Roger Edge is a SECOND LINE, not an eighth Wave tier. It is deliberately NOT a
+         third group inside #models: a reader who scans one list comes away thinking
+         everything in it is the same kind of thing, and the one mistake this section
+         exists to prevent is "Roger Edge is the small Wave". So it gets its own banded
+         section, its own list rule, and a status chip in the accent - because the fact a
+         reader must not miss is that nothing is trained. Everything else here is written
+         as INTENT: there is no artifact, no library and no standard, and nothing on this
+         page may read as though there were. -->
+    <section class="section band section--edge" id="roger-edge">
+      <div class="wrap">
+        <div class="model-group-head">
+          <div>
+            <span class="research-kicker">DESIGNED BY ROGERAI &middot; A SEPARATE LINE</span>
+            <h3>The microcontroller line</h3>
+          </div>
+          <p>Task models, not language models &middot; not a Wave tier &middot; nothing trained yet</p>
+        </div>
+
+        <div class="model-list model-list--native">
+          <article class="model-row">
+            <div class="model-row__identity">
+              <span class="status status--none">NOT TRAINED YET</span>
+              <h3>Roger Edge</h3>
+              <p class="research-parent">ESP32 class boards &middot; intent and anomaly classifiers</p>
+              <code class="model-id">no artifact exists</code>
+            </div>
+            <div>
+              <span class="research-kicker">ROLE</span>
+              <p>The sensing and glue layer, down where the sensor already is: wake,
+                 voice-activity detection, sensing, and fixed commands. It would classify
+                 against a fixed set of labels, emit the result, and escalate upward
+                 whatever it cannot classify. Roger Edge detects; Wave reasons.</p>
+              <div class="model-row__actions">
+                <span class="model-stage">Design only &middot; no training run yet</span>
+                <a class="model-note" href="/research-industry.html#devices">Where it sits in a plant</a>
+              </div>
+            </div>
+          </article>
+        </div>
+
+        <div class="device-contract">
+          <p><b>Not a Wave tier.</b> Roger Edge is a different kind of model, not a
+             smaller rung on the Wave Spectrum. A Wave tier is a language model that
+             reasons about a machine. Roger Edge would be a classifier with a fixed label
+             set, distilled from Wave Pico and quantized to int8, small enough to sit in a
+             microcontroller&rsquo;s flash: kilobytes to a few megabytes, against tens of
+             megabytes for the smallest Wave tier. No Wave tier runs on an ESP32 or an
+             Arduino. The board is the sensor, and a Raspberry Pi is the smallest model
+             host.</p>
+          <p><b>Wave does not depend on it.</b> A Wave model runs on whatever machine
+             hosts it, with or without a Roger Edge board anywhere near. This line is a way
+             to put a small decision where the sensor is, not a part a deployment has to
+             buy into, and no tier of the Spectrum waits on it.</p>
+          <p><b>Hobbyists and professionals, one line.</b> The same job turns up at both
+             ends of the bench: someone with an ESP32 and a Pi at home, and someone wiring
+             a plant sensor to a model in a cabinet. We intend one line for both rather
+             than a toy version and a real one. Which boards it covers is not settled, and
+             we are not claiming support for a board we have not built for.</p>
+        </div>
+
+        <p class="model-roadmap"><b>Status: nothing trained, nothing published.</b> There is
+          no Roger Edge model, no library, no board package, no download and no
+          specification. What exists today is a design and a position in the plant diagram.
+          What we intend to publish is the contract for the hop a small board makes to a
+          model: what the board sends, what comes back, and how it escalates what it cannot
+          classify, so a sensor node and a Wave model can be built by different people and
+          still meet. That is intent, not a standard, and it will not be described as one
+          here until it is written and published. Wave models go on working on any device
+          without it in the meantime, which is why this line can take the time it needs.</p>
       </div>
     </section>
 

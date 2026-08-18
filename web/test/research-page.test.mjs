@@ -386,6 +386,28 @@ test("device and roadmap claims remain gated", () => {
   for (const unshipped of ["Wave Tool", "Wave Vision", "Wave Audio"]) {
     assert.doesNotMatch(page, new RegExp(unshipped), `${unshipped} is not advertised`);
   }
+
+  // ROGER EDGE (2026-08-17). The founder asked for the microcontroller line to appear
+  // beside the Wave catalogue, AND for the material a hobbyist or a professional would
+  // use to wire a small board to a model. None of the second half exists: no Roger Edge
+  // model is trained, and no library, board package or specification is published. So the
+  // section is written as intent, and the failure it invites is the next edit quietly
+  // promoting that intent into something a reader believes they can go and get. The
+  // guarantee this test already carried - a device claim is gated by what was measured -
+  // is the same guarantee, re-anchored to the line that has measured nothing at all.
+  const edge = read("research-models.html").match(/<section[^>]+id="roger-edge"[\s\S]*?<\/section>/)?.[0] || "";
+  assert.ok(edge, "the Roger Edge section is on the catalogue page");
+  const edgeCopy = edge.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+  assert.match(edgeCopy, /nothing trained/i, "the status says no model exists");
+  assert.match(edgeCopy, /no Roger Edge model, no library/i, "and that nothing is published to use");
+  assert.match(edgeCopy, /No Wave tier runs on an ESP32 or an Arduino/i);
+  // A separate line, not an eighth Wave tier, and Wave must never read as needing it.
+  assert.match(edgeCopy, /Not a Wave tier/i);
+  assert.match(edgeCopy, /Wave does not depend on it/i);
+  // Nothing to download, and no install path for a thing that does not exist.
+  assert.doesNotMatch(edge, /class="model-download"/);
+  assert.doesNotMatch(edgeCopy, /\b(SDK|pip install|arduino-cli|PlatformIO)\b/i,
+    "no install path is offered for an unbuilt line");
 });
 
 test("services are optional and preserve local model independence", () => {
