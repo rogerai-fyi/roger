@@ -444,28 +444,38 @@
             dim("  ((•)) ") + ok("◉") + dim("  step 1/3 · run")
           ], obox("tool · run", [
             head("$ ") + "go test ./... -cover | sort -t% -k1 | head -1",
-            ok("internal/store") + dim("   ") + live("71.2%") + dim("   ← lowest")
+            /* measured, not invented: `go test ./internal/store/ -cover` on
+               2026-08-18 reported 50.5% of statements. It said 71.2% before,
+               which was not traceable to any run. */
+            ok("internal/store") + dim("   ") + live("50.5%") + dim("   ← lowest")
           ])), STAGE);
           // step 2/3 - read the offending file
           c.show(agentHead.concat([P, "",
             dim("  ((•)) ") + ok("◉") + dim("  step 2/3 · read")
           ], obox("tool · read", [
-            head("internal/store/ledger.go") + dim("  (412 lines)"),
-            dim("  cold: ") + "settleRecount() error branches"
+            /* every fact in this tape is checkable against the repo now:
+               ledger.go really is 243 lines, holdDuration() really is in it,
+               and `grep -c holdDuration internal/store/*_test.go` really is 0.
+               It used to name 412 lines and settleRecount(), a function that
+               does not exist anywhere in internal/. */
+            head("internal/store/ledger.go") + dim("  (243 lines)"),
+            dim("  cold: ") + "holdDuration() branches"
           ])), STAGE);
           // step 3/3 - grep the tests to confirm the gap
           c.show(agentHead.concat([P, "",
             dim("  ((•)) ") + ok("◉") + dim("  step 3/3 · grep")
           ], obox("tool · grep", [
-            head("$ ") + "grep -c settleRecount internal/store/*_test.go",
-            ok("0") + dim("   no test exercises the recount error path")
+            head("$ ") + "grep -c holdDuration internal/store/*_test.go",
+            ok("0") + dim("   no test names it directly")
           ])), STAGE);
           // synthesized answer + the multi-tool receipt
           c.show(agentHead.concat([P, "",
             dim("  ((•)) ") + ok("◉") + dim("  done · 3 tools"), "",
-            "  " + head("internal/store") + " is lowest at " + live("71.2%") + " - settleRecount()'s",
-            "  error branches are untested. Add a case where the broker recount",
-            "  disagrees with the node's claim and assert the hold is refunded.", "",
+            /* the "71.2%" figure was unverifiable without running the suite,
+               so the finding now rests on the grep, which anyone can re-run. */
+            "  " + head("internal/store") + " is the lowest package, and no test",
+            "  names " + head("holdDuration()") + ". Add one that pins the hold window",
+            "  against a policy with a custom ROGERAI_PAYOUT_HOLD_DAYS.", "",
             dim("  ◆ receipt co-signed · ") + money("3 tools · 1.24k tok · $0.00031") + dim(" · ") + live("roger that.")
           ]), END_HOLD);
         });
