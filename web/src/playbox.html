@@ -151,7 +151,7 @@
           <div class="dk__body">
             <!-- ================= LEFT: THE INPUT CONSOLE ================= -->
             <div class="dk__col dk__inputcol">
-              <h2 class="dk__colhead">INPUT</h2>
+              <h2 class="dk__colhead"><b>1</b> INPUT <small>what goes in</small></h2>
 
               <!-- rotary selector: exactly one input kind is active -->
               <div class="dk__selector" role="radiogroup" aria-label="Input kind" data-active="text">
@@ -328,6 +328,7 @@
 
             <!-- ================= CENTER: THE CASSETTE BAY ================= -->
             <div class="dk__col dk__baycol">
+              <h2 class="dk__colhead"><b>2</b> THE TAPE <small>load one, press play</small></h2>
               <div class="dk__bay" id="dkBay">
                 <div class="dk__baylegend" aria-hidden="true">
                   <span>MODEL BAY</span>
@@ -398,25 +399,22 @@
                    key that does nothing would be worse than no legend at all. -->
 
 
-              <p class="dk__keys" aria-hidden="true">
-
-
-                <kbd>space</kbd> play <kbd>esc</kbd> stop <kbd>&larr;</kbd><kbd>&rarr;</kbd> tape
-
-
-                <kbd>1</kbd>&ndash;<kbd>6</kbd> input <kbd>E</kbd> eject
-
-
-              </p>
-
+              <!-- The transport comes FIRST (nothing sits between the cassette and
+                   Play), each key cap rides its own button, and the legend keeps only
+                   the keys that have no button. The keyboard row, the buttons and the
+                   transport graphic used to say the same thing three times. -->
               <div class="dk__transport" role="group" aria-label="Transport">
                 <button class="dk__tbtn pg-send--key" id="dkPlay" type="button" disabled>
-                  <span class="pg-send__cap" aria-hidden="true">&#9654;</span> Play</button>
+                  <span class="pg-send__cap" aria-hidden="true">&#9654;</span> Play <kbd aria-hidden="true">space</kbd></button>
                 <button class="dk__tbtn" id="dkStop" type="button" disabled>
-                  <span class="pg-send__cap" aria-hidden="true">&#9632;</span> Stop</button>
+                  <span class="pg-send__cap" aria-hidden="true">&#9632;</span> Stop <kbd aria-hidden="true">esc</kbd></button>
                 <button class="dk__tbtn" id="dkEject" type="button" disabled>
-                  <span class="pg-send__cap" aria-hidden="true">&#9650;</span> Eject</button>
+                  <span class="pg-send__cap" aria-hidden="true">&#9650;</span> Eject <kbd aria-hidden="true">E</kbd></button>
               </div>
+
+              <p class="dk__keys" aria-hidden="true">
+                <kbd>&larr;</kbd><kbd>&rarr;</kbd> change tape <kbd>1</kbd>&ndash;<kbd>6</kbd> change input
+              </p>
 
               <div class="dk__shelfwrap">
                 <h2 class="dk__colhead">MODEL LIBRARY <small id="dkShelfNote">reading the band&hellip;</small></h2>
@@ -434,7 +432,7 @@
             <!-- ================= RIGHT: THE OUTPUT MONITOR ================= -->
             <div class="dk__col dk__outcol">
               <div class="dk__outhead">
-                <h2 class="dk__colhead">OUTPUT</h2>
+                <h2 class="dk__colhead"><b>3</b> OUTPUT <small>what came back</small></h2>
                 <span class="pg-smeter" id="pgSMeter" role="img" aria-label="Signal strength">
                   <svg viewBox="0 0 100 58" aria-hidden="true">
                     <path class="pg-smeter__arc" d="M 12 50 A 43 43 0 0 1 88 50" />

@@ -131,8 +131,27 @@ test("deck: the shelf presents the network and the Wave family as honest groups"
   assert.ok(js.includes('"WAVE TERA", sub: "80–120B'), "Tera present");
   assert.ok(js.includes('"WAVE PETA", sub: "150–200B'), "Peta present");
   assert.ok(js.includes('"WAVE EXA", sub: "~284B'), "Exa closes the ladder");
-  assert.ok(js.includes("[PICO_SPINE, DEMO_TAPE].concat(FAMILY_SPINES)"),
-    "and the row runs in ladder order, Pico first");
+  /* AMENDED 2026-08-17 (layout audit): the guarantee here is that the WHOLE Spectrum
+     is on the shelf, in ladder order, Pico first - not that it lives in one array
+     expression. Seven equal cards, six of them unplayable, buried the one tape a
+     visitor can actually press, so the ladder now runs across two rows: PICO + NANO
+     at full size, the five PLANNED tiers as a quiet list under them. Re-anchored on
+     the order the visitor reads rather than the expression that used to build it. */
+  const declared = [...js.matchAll(/model: "(wave-[a-z]+)"/g)].map((m) => m[1]).sort();
+  assert.deepEqual(declared,
+    ["wave-exa", "wave-giga", "wave-micro", "wave-nano", "wave-peta", "wave-pico", "wave-tera"],
+    "all seven tiers are declared, each exactly once");
+  // the tail of the ladder keeps its own order inside FAMILY_SPINES...
+  const tail = js.slice(js.indexOf("var FAMILY_SPINES"), js.indexOf('group: "CHAT"'));
+  assert.deepEqual([...tail.matchAll(/model: "(wave-[a-z]+)"/g)].map((m) => m[1]),
+    ["wave-micro", "wave-giga", "wave-tera", "wave-peta", "wave-exa"], "micro → exa stay in ladder order");
+  // ...and the shelf puts Pico and Nano ahead of it, so the visitor reads pico → exa.
+  const famRow = js.indexOf('group: "WAVE FAMILY"');
+  const planned = js.indexOf('group: "PLANNED TIERS"');
+  assert.ok(famRow !== -1 && js.slice(famRow, famRow + 160).includes("[PICO_SPINE, DEMO_TAPE]"),
+    "the two tiers with something behind them lead the family row, Pico first");
+  assert.ok(planned > famRow && js.slice(planned, planned + 160).includes("FAMILY_SPINES"),
+    "and the planned tiers follow it on the shelf - quieter, never dropped");
   assert.ok(!js.includes('chip: "TRAINED"') || true, "no bare training claims");
   assert.ok(js.includes("certified against our own release gate"),
     "Pico's waypoint claim names whose gate, same words as the research pages");
@@ -419,7 +438,49 @@ test("shelf: the network and the Wave family get their own rows", () => {
   assert.ok(js.includes("dk__shelfrow"), "each group is a row");
   assert.ok(css.includes(".dk__shelfrow"), "rows are styled");
   assert.ok(js.includes("Wave family keeps its own row"), "the reason is recorded in code");
-  assert.ok(css.includes(".dk__shelfstrip"), "each row scrolls independently");
+  assert.ok(css.includes(".dk__shelfstrip"), "each row has its own strip");
+});
+
+test("shelf: no row hides models off the side of the strip", () => {
+  // The family row was fixed for this once (founder: "under wave family i don't see
+  // all the models"), but ALSO ON AIR and OFF AIR kept the clipping strip - with four
+  // models off air the row showed two and a half and gave no hint of the rest, so the
+  // count in the library heading and the spines under it disagreed. Every group that
+  // can hold more than one entry now wraps.
+  const entries = js.slice(js.indexOf("function shelfEntries"), js.indexOf("function renderShelf"));
+  for (const g of ["ALSO ON AIR", "OFF AIR", "WAVE FAMILY", "PLANNED TIERS"]) {
+    const at = entries.indexOf(`group: "${g}"`);
+    assert.ok(at !== -1, `${g} must be a shelf group`);
+    assert.ok(/\b(wrap|ladder): true/.test(entries.slice(at, at + 90)),
+      `${g} must wrap rather than clip its spines off the side`);
+  }
+  for (const g of ["CHAT", "VOICE"]) {
+    const at = entries.indexOf(`group: "${g}"`);
+    assert.ok(/playable: true/.test(entries.slice(at, at + 90)),
+      `${g} carries tapes that really load, so its row fills the shelf`);
+  }
+});
+
+test("shelf: an unchanged shelf is not torn down under the visitor's hands", () => {
+  // /discover is re-read every 25 seconds and usually comes back identical. Rebuilding
+  // anyway threw away keyboard focus and reset every strip's scroll offset on a timer.
+  assert.ok(js.includes("function shelfSignature"), "the shelf can tell whether anything visible changed");
+  assert.ok(/if \(sig === shelfSig/.test(js), "an unchanged shelf skips the rebuild");
+  assert.ok(js.includes("STATE.tape ? STATE.tape.model : \"\""),
+    "the signature includes the loaded tape, since is-loaded is drawn from it");
+  // ...but a skipped rebuild must not freeze the numbers. The band objects are new on
+  // every poll, and a spine pressed later must load the newest ones, not last poll's.
+  assert.ok(js.includes("RENDERED"), "the drawn tapes are tracked so their bands can be re-pointed");
+  assert.ok(/RENDERED\.forEach\(function \(t\) \{ if \(t\.band && byModel\[t\.model\]\) t\.band = byModel\[t\.model\]; \}\);/.test(js),
+    "the skip path hands every drawn spine the newest band");
+});
+
+test("console: restoring the remembered tape does not re-load the one boot already put in", () => {
+  // Boot loads Ping before the band is read. When Ping is ALSO the remembered tape the
+  // restore loaded it again: the logbook printed "Loaded PING - live tape." twice and
+  // the bay replayed its load animation for a tape that had never left it.
+  assert.ok(js.includes("if (!STATE.tape || STATE.tape.model !== found.model) loadTape(found);"),
+    "restore loads only a tape that is not already in the deck");
 });
 
 test("bay: the cassette can be thrown sideways to change tapes, and by keyboard too", () => {
@@ -590,8 +651,18 @@ test("console: every position is reachable by key, because selectKind loads the 
 test("console: the faceplate prints only keys the deck honours", () => {
   const legend = html.match(/<p class="dk__keys"[\s\S]*?<\/p>/);
   assert.ok(legend, "the key legend must be printed on the faceplate");
-  const caps = [...legend[0].matchAll(/<kbd>([^<]+)<\/kbd>/g)].map((m) => m[1]);
-  assert.ok(caps.length >= 5, "the legend should name the transport keys");
+  /* AMENDED 2026-08-17 (layout audit item 5): the printed legend, the Play/Stop/Eject
+     buttons and the cassette graphic were three ways of saying the same thing, stacked
+     between the tape and the button you are meant to press. The caps for keys that ALSO
+     have a button may now ride on that button instead of in the legend. The guarantee is
+     unchanged and is the one that matters - EVERY cap printed anywhere on the faceplate
+     is a key the keydown handler really honours - so it is asserted over the transport
+     and the legend together rather than over the legend alone. */
+  const transport = html.match(/<div class="dk__transport"[\s\S]*?<\/div>/);
+  assert.ok(transport, "the transport group must exist");
+  const faceplate = legend[0] + transport[0];
+  const caps = [...faceplate.matchAll(/<kbd[^>]*>([^<]+)<\/kbd>/g)].map((m) => m[1]);
+  assert.ok(caps.length >= 5, "the faceplate should name the transport keys");
   // each printed cap must correspond to a branch in the handler
   const claims = { "space": '=== " "', "esc": '"Escape"', "&larr;": "ArrowLeft",
                    "&rarr;": "ArrowRight", "1": 'k >= "1"', "6": 'k <= "6"', "E": '"E"' };

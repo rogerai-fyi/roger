@@ -257,14 +257,23 @@
 
   /* The WHOLE Wave Spectrum on the shelf, honestly, in ladder order (founder:
      "under wave family i don't see all the models"). One compact spine per
-     tier, "band · reach" - the strip scrolls, so the ladder reads left to
-     right without crowding the row. Nothing is faked: Nano's spine is the
-     playable recorded demo; every other tier says exactly why it cannot
-     play yet, and no training is claimed that the research pages don't back
-     (Pico holds the only trained waypoint - its recorded contracts run on
-     the WAVE MESH deck, which its spine points to). */
+     tier, "band · reach". Nothing is faked: Nano's spine is the playable
+     recorded demo; every other tier says exactly why it cannot play yet, and
+     no training is claimed that the research pages don't back (Pico holds the
+     only trained waypoint - its recorded contracts run on the WAVE MESH deck,
+     which its spine points to).
+
+     LAYOUT AUDIT 2026-08-17: seven equal cards, six of them unplayable, buried
+     the one tape a visitor can actually press. The ladder now runs across TWO
+     rows - the two tiers with something behind them at full size, the five
+     PLANNED tiers as a quiet list under them. Every tier is still on the shelf,
+     still in ladder order, still carrying its band, its PLANNED chip and the
+     reason it cannot play. Only the WEIGHT changed; nothing was hidden. */
   var PICO_SPINE = {
-    spine: true, model: "wave-pico", label: "WAVE PICO", sub: "250–300M · on the machine",
+    // "one machine", not "on the machine": the reach word has to survive the
+    // narrowest spine without an ellipsis eating it (audit item 6). It is the same
+    // reach the homepage ladder states - "one machine's telemetry · Raspberry Pi".
+    spine: true, model: "wave-pico", label: "WAVE PICO", sub: "250–300M · one machine",
     chip: "WAYPOINT TRAINED",
     why: "A 100M-class waypoint is trained (certified against our own release gate; " +
       "250–300M is the tier target). No public checkpoint yet - its recorded " +
@@ -321,22 +330,65 @@
         : "On air, but the deck has no panel for this kind of model yet.";
       other.push(t);
     });
-    var groups = [{ group: "CHAT", entries: chat }];
-    if (voice.length) groups.push({ group: "VOICE", entries: voice });
-    groups.push({ group: "WAVE FAMILY", entries: [PICO_SPINE, DEMO_TAPE].concat(FAMILY_SPINES) });
-    if (other.length) groups.push({ group: "ALSO ON AIR", entries: other });
-    if (dark.length) groups.push({ group: "OFF AIR", entries: dark });
+    // playable: true marks a row of tapes the visitor can actually put in the deck.
+    // Those rows fill the shelf width so the pressable thing is the loudest thing
+    // in the library - the audit's "six unusable cards crowd the one usable one".
+    var groups = [{ group: "CHAT", playable: true, entries: chat }];
+    if (voice.length) groups.push({ group: "VOICE", playable: true, entries: voice });
+    // Ladder order is preserved ACROSS the two family rows: pico, nano, then
+    // micro → exa. Splitting the row is a weighting change, not an edit to the
+    // Spectrum - see the LAYOUT AUDIT note on PICO_SPINE.
+    groups.push({ group: "WAVE FAMILY", wrap: true, entries: [PICO_SPINE, DEMO_TAPE] });
+    groups.push({ group: "PLANNED TIERS", wrap: true, ladder: true, entries: FAMILY_SPINES });
+    // NO shelf row scrolls sideways. The family row was fixed for that once already
+    // (founder: "under wave family i don't see all the models") but ALSO ON AIR and
+    // OFF AIR kept the clipping strip: with four models off air, the row showed two
+    // and a half and gave no hint of the rest. Every row wraps, so the count in the
+    // library heading and the spines under it can never disagree.
+    if (other.length) groups.push({ group: "ALSO ON AIR", wrap: true, entries: other });
+    if (dark.length) groups.push({ group: "OFF AIR", wrap: true, entries: dark });
     return groups;
   }
 
+  // What the shelf would draw right now, as one comparable string. The directory
+  // is re-read every 25 seconds and the band usually comes back identical; tearing
+  // the whole shelf down anyway threw away keyboard focus and reset every strip's
+  // scroll offset on a timer. Rebuild only when something a visitor could SEE has
+  // changed - which includes which tape is loaded, since that is what is-loaded draws.
+  var shelfSig = null;
+  function shelfSignature(groups) {
+    return groups.map(function (g) {
+      return g.group + "|" + (g.wrap ? "w" : "") + (g.ladder ? "l" : "") + (g.playable ? "p" : "") + "|" +
+        g.entries.map(function (t) {
+          return [t.model, t.label, t.sub, t.chip, t.demo ? 1 : 0, t.spine ? 1 : 0, t.band ? 1 : 0].join("~");
+        }).join(",");
+    }).join("||") + "##" + (STATE.tape ? STATE.tape.model : "");
+  }
+
   function renderShelf() {
-    var shelf = $("dkShelf"), note = $("dkShelfNote");
+    var shelf = $("dkShelf");
     if (!shelf) return;
+    var groups = shelfEntries();
+    var sig = shelfSignature(groups);
+    if (sig === shelfSig && shelf.childNodes.length) {
+      // The spines are unchanged, but the band objects behind them are rebuilt on
+      // every poll. Re-point the tapes the existing buttons hold, or a spine pressed
+      // later would load a J-card printing the previous poll's measurements.
+      var byModel = {};
+      groups.forEach(function (g) {
+        g.entries.forEach(function (t) { if (t.band) byModel[t.model] = t.band; });
+      });
+      RENDERED.forEach(function (t) { if (t.band && byModel[t.model]) t.band = byModel[t.model]; });
+      renderShelfNote();
+      return;
+    }
+    shelfSig = sig;
     shelf.textContent = "";
     // Two ROWS, not one strip: however many models the network is carrying, the
     // Wave family keeps its own row and never gets pushed off the end.
     ORDER = [];
-    shelfEntries().forEach(function (grp) {
+    RENDERED = [];
+    groups.forEach(function (grp) {
       var row = document.createElement("li");
       row.className = "dk__shelfrow";
       var head = el("span", "dk__shelfgroup", grp.group);
@@ -344,12 +396,19 @@
       row.appendChild(head);
       /* the Wave family WRAPS instead of scrolling: seven tiers in a narrow
          column used to clip after the second spine with no hint of the rest
-         (founder: "i don't see all the models") */
-      var strip = el("span", "dk__shelfstrip" + (grp.group === "WAVE FAMILY" ? " dk__shelfstrip--wrap" : ""));
+         (founder: "i don't see all the models"). --ladder is the same wrapped
+         grid worn quietly - one planned tier per line, full width, so no band or
+         reach word can ellipsize however narrow the column gets. --playable is a
+         row of tapes that really load, stretched to fill the shelf. */
+      var strip = el("span", "dk__shelfstrip"
+        + (grp.wrap || grp.ladder ? " dk__shelfstrip--wrap" : "")
+        + (grp.ladder ? " dk__shelfstrip--ladder" : "")
+        + (grp.playable ? " dk__shelfstrip--playable" : ""));
       row.appendChild(strip);
       shelf.appendChild(row);
       grp.entries.forEach(function (t) {
         if (!t.spine) ORDER.push(t);
+        RENDERED.push(t);
         var btn = el("button", "dk__spine" + (STATE.tape && STATE.tape.model === t.model ? " is-loaded" : "")
           + (t.spine ? " dk__spine--shelfonly" : ""));
         btn.type = "button";
@@ -377,6 +436,13 @@
         strip.appendChild(btn);
       });
     });
+    renderShelfNote();
+  }
+
+  // The library's own count, kept out of the rebuild so an unchanged shelf can skip
+  // the teardown and still keep its heading current.
+  function renderShelfNote() {
+    var note = $("dkShelfNote");
     var chatCount = STATE.bands.filter(function (b) { return b.online && b.chatable; }).length;
     var darkCount = STATE.bands.filter(function (b) { return !b.online; }).length;
     if (note) note.textContent = (chatCount
@@ -626,8 +692,11 @@
   /* =====================================================================
      THE BAY IS DRAGGABLE - throw the tape sideways to change cassettes.
      ORDER is the loadable sequence (shelf order, placeholders skipped).
+     RENDERED is every tape a drawn spine holds, loadable or not, so a shelf that
+     was NOT torn down and rebuilt can still be handed the newest band figures.
      ===================================================================== */
   var ORDER = [];
+  var RENDERED = [];
   function neighbourTape(dir) {
     if (!ORDER.length) return null;
     var i = -1;
@@ -732,7 +801,11 @@
       g.entries.forEach(function (t) { if (!found && t.model === saved.model) found = t; });
     });
     if (!found) return false;
-    loadTape(found);
+    // Boot loads Ping BEFORE the band is read, so when Ping is also the remembered
+    // tape the restore would load it a second time - the log printed "Loaded PING -
+    // live tape." twice and the bay replayed its load animation for a tape that had
+    // never left it. Restore what changed, not what is already in the deck.
+    if (!STATE.tape || STATE.tape.model !== found.model) loadTape(found);
     selectKind(STATE.kind);
     return true;
   }

@@ -137,7 +137,13 @@
   gap: 0; min-height: clamp(640px, 70svh, 760px);
 }
 .dk__col { padding: clamp(16px, 2.2vw, 28px); min-width: 0; }
-.dk__inputcol { border-right: 1px solid var(--hairline); background: color-mix(in srgb, var(--paper-2) 48%, transparent); }
+/* the composer grows into the column instead of leaving a tall blank flank */
+.dk__inputcol {
+  border-right: 1px solid var(--hairline); background: color-mix(in srgb, var(--paper-2) 48%, transparent);
+  display: grid; grid-template-rows: auto auto minmax(0, 1fr); align-content: start;
+}
+.dk__surface[data-kind="text"] { display: grid; grid-template-rows: auto minmax(120px, 1fr) auto; min-height: 0; }
+.dk__surface[data-kind="text"] .dk__text { height: 100%; min-height: 0; }
 .dk__outcol { border-left: 1px solid var(--hairline); display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: var(--s-3); background: color-mix(in srgb, var(--paper-2) 48%, transparent); }
 .dk__colhead {
   font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.24em;
@@ -145,6 +151,14 @@
   font-weight: var(--weight-medium);
 }
 .dk__colhead small { color: var(--ink-400); letter-spacing: var(--tracking-label); margin-left: 8px; text-transform: none; }
+/* 1 / 2 / 3 on the columns the deck's own FIG.1 caption already names -
+   INPUT / TAPE / OUTPUT - so the order is stated in the deck's furniture
+   rather than borrowed from the mesh deck's look. */
+.dk__colhead b {
+  display: inline-block; min-width: 15px; height: 15px; line-height: 15px; text-align: center;
+  margin-right: 5px; border-radius: 50%; background: var(--ink-900); color: var(--paper);
+  font-size: 9px; letter-spacing: 0; font-weight: var(--weight-semi); vertical-align: 1px;
+}
 @media (max-width: 1100px) {
   .dk__body { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); min-height: 0; }
   .dk__baycol { order: 1; grid-column: 1 / -1; }
@@ -277,7 +291,7 @@
 .dk__device--plc::before { background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28"><rect x="4" y="4" width="20" height="20" rx="2" fill="none" stroke="%23777" stroke-width="2"/><path d="M9 8v12M14 8v12M19 8v12" stroke="%23777"/><circle cx="9" cy="8" r="2" fill="%23E0231C"/><circle cx="14" cy="8" r="2" fill="%23777"/><circle cx="19" cy="8" r="2" fill="%23777"/></svg>'); }
 
 /* ---------- the cassette bay -------------------------------------- */
-.dk__baycol { display: grid; grid-template-rows: auto auto 1fr auto; gap: var(--s-4); }
+.dk__baycol { display: grid; grid-template-rows: auto auto auto 1fr auto; gap: var(--s-4); }
 .dk__bay {
   position: relative; display: grid; place-items: center;
   min-height: 330px; padding: clamp(48px, 5vw, 66px) clamp(14px, 2vw, 24px) clamp(20px, 2vw, 30px);
@@ -379,7 +393,17 @@
 .dk__jcard dd:has(+ dt) { border-bottom: 0; }
 
 /* transport */
-.dk__transport { display: flex; gap: 8px; justify-content: center; }
+/* three transport keys, one row, always - the key caps made them wide enough
+   to wrap Eject onto a line of its own */
+.dk__transport { display: grid; grid-template-columns: repeat(3, minmax(0, auto)); gap: 6px; justify-content: center; }
+/* the key cap rides its own button, so the legend only carries keys that
+   have no button (the triple redundancy the layout audit flagged) */
+.dk__tbtn kbd {
+  font-family: var(--font-mono); font-size: 8px; letter-spacing: 0.06em;
+  padding: 1px 3px; border: 1px solid currentColor; border-radius: 3px; opacity: 0.55;
+  margin-left: 2px;
+}
+@media (max-width: 480px) { .dk__tbtn kbd { display: none; } }
 .dk__tbtn {
   appearance: none; cursor: pointer;
   display: inline-flex; align-items: center; gap: 8px;
@@ -480,7 +504,20 @@
 .dk__shelfstrip--wrap { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); overflow: visible; }
 .dk__shelfstrip--wrap .dk__spine { min-width: 0; padding: 7px 9px 8px; }
 .dk__shelfstrip--wrap .dk__spine b { max-width: none; font-size: 10px; }
-.dk__shelfstrip--wrap .dk__spine small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* a reach word must never be silently eaten - the ellipsis ate "on the mac[hine]"
+   at desktop width; wrapping cures it at EVERY width for every tier */
+.dk__shelfstrip--wrap .dk__spine small { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }
+/* PLAYABLE rows fill the shelf, so the tape you can actually press is the
+   biggest thing in the library; the PLANNED ladder is a quiet list beneath -
+   every tier still present, in order, with its band and its reason. */
+.dk__shelfstrip--playable { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); overflow: visible; }
+.dk__shelfstrip--ladder { display: grid; grid-template-columns: 1fr; gap: 3px; overflow: visible; }
+.dk__shelfstrip--ladder .dk__spine {
+  grid-template-columns: 78px minmax(0, 1fr) auto; align-items: center; gap: 8px;
+  padding: 4px 9px 5px; border-top-width: 3px; box-shadow: none; min-width: 0;
+}
+.dk__shelfstrip--ladder .dk__spine b { font-size: 9px; }
+.dk__shelfstrip--ladder .dk__spinechip { margin-top: 0; text-align: right; }
 /* the tier's Spectrum colour on the top edge (light + dark values match the
    founder's chart, same tokens as the mesh and factory decks) */
 .dk__spine[data-tier="pico"]  { border-top-color: #b23a2a; }
@@ -538,12 +575,18 @@
 .pg-log {
   list-style: none; margin: 0; padding: var(--s-3);
   display: grid; gap: var(--s-4); align-content: start;
-  min-height: 300px; max-height: 520px; overflow: auto;
+  min-height: 300px; overflow: auto;
   border: 1px solid var(--hairline); border-radius: var(--r-md);
   background-color: var(--paper);
+  box-shadow: inset 0 1px 3px rgba(0,0,0,0.025);
+}
+/* The ruling belongs to the ENTRIES, not the box. On the box it drew empty
+   rows under the last line (an unfinished spreadsheet) AND the text slid off
+   the rules the moment the log scrolled. */
+.pg-line {
   background-image: repeating-linear-gradient(
     to bottom, transparent 0, transparent 27px, var(--hairline) 27px, var(--hairline) 28px);
-  box-shadow: inset 0 1px 3px rgba(0,0,0,0.025);
+  background-position: left -3px;
 }
 .pg-line { display: grid; grid-template-columns: 1fr auto; column-gap: var(--s-3); row-gap: 3px; align-items: start; }
 .pg-line__who {
