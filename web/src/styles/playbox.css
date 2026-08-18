@@ -56,6 +56,15 @@
   .pg-hero__sub { margin-top: var(--s-3); }
 }
 
+/* The house attribution that signs each deck. It had no rule at all, so it
+   rendered as body copy at the foot of the mesh deck; it reads as what it is
+   now, on every deck that carries it. */
+.wm-attrib {
+  margin: var(--s-5) 0 0;
+  color: var(--ink-400); font-family: var(--font-mono);
+  font-size: var(--t-micro); letter-spacing: var(--tracking-label);
+}
+
 /* ---------- the wide deck shell ---------------------------------- */
 .pg-console { padding-block: 0 var(--section-y); }
 /* SHELL DIET (layout audit 2026-08-17): the hero + selector + engraving stack
