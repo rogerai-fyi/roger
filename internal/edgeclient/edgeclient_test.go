@@ -59,7 +59,7 @@ func newSealedWorld(t *testing.T, model, answer string) *sealedWorld {
 		}
 		return att, stationID, nil
 	}, 10*time.Second, 300*time.Millisecond)
-	hub.RegisterNode(st.StationID, "tok")
+	hub.RegisterNode(st.StationID, towerhub.NodeAuth{AssertionKey: st.AssertionPub()})
 	mux := http.NewServeMux()
 	mux.HandleFunc(towerhub.PathSubmit, hub.Submit)
 	mux.HandleFunc(towerhub.PathPoll, hub.Poll)
@@ -67,7 +67,7 @@ func newSealedWorld(t *testing.T, model, answer string) *sealedWorld {
 	hubSrv := httptest.NewServer(mux)
 	t.Cleanup(hubSrv.Close)
 	ctx, cancel := context.WithCancel(context.Background())
-	nodeClient := &towerhub.Client{BaseURL: hubSrv.URL, Token: "tok"}
+	nodeClient := &towerhub.Client{BaseURL: hubSrv.URL, Sign: st.SignRequest}
 	go func() {
 		_ = towerhub.ServeLoop(ctx, nodeClient, st.StationID, sealedServe{exec}, nil)
 	}()

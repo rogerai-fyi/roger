@@ -10,21 +10,38 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
+
+	"rogerai.fm/roger/v5/internal/protocol"
 )
 
 // Client speaks the tower hub's HTTP protocol from the other two sides: a serving NODE (Poll +
-// Complete, authenticated by its per-Station token) and a CONSUMER (Submit, presenting a
-// Core-signed grant). It is the counterpart to Server and shares the wire types with it, so the
-// two cannot drift. Everything it carries - grant, sealed request, sealed result, receipt - is
-// opaque bytes; the Client no more reads content than the tower does.
+// Complete, authenticated by SIGNING each request with its Station's assertion key) and a
+// CONSUMER (Submit, presenting a Core-signed grant). It is the counterpart to Server and shares
+// the wire types with it, so the two cannot drift. Everything it carries - grant, sealed
+// request, sealed result, receipt - is opaque bytes; the Client no more reads content than the
+// tower does.
 type Client struct {
 	// BaseURL is the tower's hub root; endpoint sub-paths (PathSubmit/PathPoll/PathComplete) are
 	// appended to it.
 	BaseURL string
-	// Token is the node's per-Station bearer token, sent on Poll/Complete. Empty for a consumer.
-	Token string
+	// Sign authenticates each NODE-side call. Nil for a consumer, which authorizes with a grant
+	// instead and has no Station identity to sign as.
+	//
+	// THERE IS NO TOKEN FIELD ANY MORE, and its absence is the fix. The node used to hold a
+	// reusable per-Station bearer and put it in an Authorization header on every long poll,
+	// over a channel that is plaintext by construction (see nodeauth.go). A current node never
+	// transmits a reusable credential at all: it proves possession of the key its receipts are
+	// already signed with, per request, and what an on-path attacker captures authenticates
+	// nothing a second time.
+	//
+	// A hub built before this still expects the token, so a current node cannot serve an
+	// out-of-date tower. That is deliberate - the alternative is a downgrade any on-path
+	// attacker could provoke by answering 401 - and internal/agent surfaces the refusal on the
+	// notice channel rather than retrying into silence.
+	Sign Signer
 	// HTTP is the client used for requests; nil means http.DefaultClient. A node should set a
 	// timeout longer than the tower's poll TTL so a long poll is not cut short. Its redirect
 	// policy is replaced - see httpClient.
@@ -40,10 +57,15 @@ type Client struct {
 // httpClient is the client every call here uses: the caller's, with REDIRECTS REFUSED.
 //
 // It used to be the caller's client verbatim, which meant no CheckRedirect at all - unlike every
-// broker call the node makes, which all pass protocol.NoDowngradeRedirect. That gap matters more
-// here than almost anywhere: the request this Client makes most often is a long poll carrying the
-// node's per-Station bearer token in an Authorization header, and Go's default policy would carry
-// that header wherever the answering party pointed it.
+// broker call the node makes, which all pass protocol.NoDowngradeRedirect. That gap mattered
+// most when the request this Client makes most often was a long poll carrying a reusable bearer
+// token, which Go's default policy would have carried wherever the answering party pointed it.
+//
+// IT STILL MATTERS NOW THAT THE TOKEN IS GONE. A signature binds the method, the target and the
+// body - not the HOST - so a hub that redirected a poll to a machine of its choosing would be
+// handing that machine a signature it could present to the real hub. Refusing outright is what
+// keeps "the signature is only good for the request it was made for" true of the destination
+// too.
 //
 // STRICTER THAN NoDowngradeRedirect, on purpose. That policy exists for the BROKER, a party the
 // node trusts, and it permits a redirect as long as the destination is not a plaintext downgrade
@@ -67,11 +89,27 @@ func (c *Client) httpClient() *http.Client {
 
 func refuseRedirect(req *http.Request, _ []*http.Request) error {
 	return fmt.Errorf("the relay hub tried to redirect this request to %s - refusing: "+
-		"a relay does not get to choose where this node sends its polling credential", req.URL.Redacted())
+		"a relay does not get to choose where this node sends its signed requests", req.URL.Redacted())
 }
 
-func (c *Client) url(path string) string {
-	return strings.TrimRight(c.BaseURL, "/") + path
+func (c *Client) url(target string) string {
+	return strings.TrimRight(c.BaseURL, "/") + target
+}
+
+// authenticate signs one node-side request in place. target must be the path AND query exactly
+// as they will be sent - hubTarget builds both from one place so they cannot disagree.
+//
+// A nil Signer is not an error here: the consumer side of this Client (SubmitJob) has no Station
+// identity, and a node without one is refused by the hub with a sentence rather than by a panic
+// three layers from the cause.
+func (c *Client) authenticate(req *http.Request, target string, body []byte) {
+	if c.Sign == nil {
+		return
+	}
+	pub, ts, sig := c.Sign(req.Method, target, body)
+	req.Header.Set(protocol.HeaderPubkey, pub)
+	req.Header.Set(protocol.HeaderTS, strconv.FormatInt(ts, 10))
+	req.Header.Set(protocol.HeaderSig, sig)
 }
 
 // SubmitJob is the CONSUMER side: hand the tower a Core-signed grant + a request sealed to the
@@ -115,14 +153,12 @@ func (c *Client) SubmitJob(ctx context.Context, grant, envelope []byte) (Result,
 // PollJob is the NODE side: long-poll for one job for `station`. ok=false with a nil error means
 // the poll returned empty (a normal timeout - poll again). An error is a transport/auth failure.
 func (c *Client) PollJob(ctx context.Context, station string) (Job, bool, error) {
-	u := c.url(PathPoll) + "?station=" + url.QueryEscape(station)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	target := hubTarget(PathPoll, url.Values{"station": {station}})
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(target), nil)
 	if err != nil {
 		return Job{}, false, err
 	}
-	if c.Token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.Token)
-	}
+	c.authenticate(req, target, nil)
 	resp, err := c.httpClient().Do(req)
 	if err != nil {
 		return Job{}, false, err
@@ -160,14 +196,13 @@ func (c *Client) CompleteResult(ctx context.Context, station string, res Result)
 		Receipt:   base64.StdEncoding.EncodeToString(res.Receipt),
 		Failure:   res.Failure,
 	})
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(PathComplete), bytes.NewReader(body))
+	target := hubTarget(PathComplete, url.Values{})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(target), bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	if c.Token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.Token)
-	}
+	c.authenticate(req, target, body)
 	resp, err := c.httpClient().Do(req)
 	if err != nil {
 		return err
@@ -234,14 +269,12 @@ func (e *HTTPError) Error() string {
 // AuditWanted is the NODE side of the audit plane: fetch the attempt ids Core wants this
 // Station's transcripts for (relayed by the tower's hub).
 func (c *Client) AuditWanted(ctx context.Context, station string) ([]string, error) {
-	u := c.url(PathAuditWanted) + "?station=" + url.QueryEscape(station)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	target := hubTarget(PathAuditWanted, url.Values{"station": {station}})
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(target), nil)
 	if err != nil {
 		return nil, err
 	}
-	if c.Token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.Token)
-	}
+	c.authenticate(req, target, nil)
 	resp, err := c.httpClient().Do(req)
 	if err != nil {
 		return nil, err
@@ -268,14 +301,13 @@ func (c *Client) AnswerAudit(ctx context.Context, station string, reply Transcri
 		StationID string `json:"station_id"`
 		TranscriptReply
 	}{StationID: station, TranscriptReply: reply})
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(PathAuditTranscript), bytes.NewReader(body))
+	target := hubTarget(PathAuditTranscript, url.Values{})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(target), bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	if c.Token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.Token)
-	}
+	c.authenticate(req, target, body)
 	resp, err := c.httpClient().Do(req)
 	if err != nil {
 		return err

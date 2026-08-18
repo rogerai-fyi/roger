@@ -521,6 +521,28 @@ func TestServeJoinedWiresTheRealSignalAndClock(t *testing.T) {
 	require.Error(t, serveJoined(st, &b, "", "", "", ""))
 }
 
+// A standalone Tower asked to serve a HUB reaches nothing, and is refused before it tries.
+//
+// The refusal already existed, in runLink - which runs after the hub is started, and the hub's
+// first act is to fetch Core's grant key and this Tower's node list. So the one flag combination
+// that could break standalone's "no RogerAI DNS lookup or network connection" guarantee
+// (features/tower/modes.feature) was the one nobody had exercised. Signed hub polls make that
+// worse rather than better: the assertion keys the hub verifies polls against ride the same
+// fetch, so the hub depends on Core for MORE than it used to.
+func TestAStandaloneTowerWithAHubReachesNothing(t *testing.T) {
+	core := newCoreStub(t)
+	dir := filepath.Join(t.TempDir(), "tw")
+	var b bytes.Buffer
+	require.NoError(t, run([]string{"init", "--dir", dir, "--mode", "standalone"}, &b))
+	st, release, err := openDir(dir)
+	require.NoError(t, err)
+	defer release()
+
+	err = serveJoined(st, &b, "203.0.113.9:8444", "127.0.0.1:0", "", "")
+	require.ErrorIs(t, err, errStandaloneCannotServeJoined)
+	require.Zero(t, core.reached(), "a standalone Tower called Roger Core before being refused")
+}
+
 // An offers directory that cannot be listed is FATAL, unlike a single bad file inside it.
 // The difference matters: one unreadable offer is a fleet minus one, but an unreadable
 // directory means we have no idea what this Tower is meant to be relaying, and pushing an

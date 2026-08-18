@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -159,14 +160,20 @@ func TestSelfAttachValidatesItsInput(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, code)
 }
 
-// The tower fetches its self-attached nodes + hub tokens with its OWN signed request - and
-// only its own: another tower sees nothing, and an unauthenticated caller is refused.
+// The tower fetches its self-attached nodes - and how to AUTHENTICATE each of them - with its
+// OWN signed request, and only its own: another tower sees nothing, and an unauthenticated
+// caller is refused.
+//
+// The assertion key is the part that makes signed hub polls possible at all. A tower verifies a
+// node's signed poll against it and has no other way to learn it: the attachment holds it, the
+// node is the party being authenticated so it cannot supply its own, and nobody else may. This
+// call is where it crosses.
 func TestTowerFetchesItsHubNodes(t *testing.T) {
 	b, srv := towerTestBroker(t)
 	tw := liveEdgeTower(t, b, srv, "tower-op", "203.0.113.9:8443")
 
 	node := signedInOperator(t, b, "node-op")
-	body, _ := selfAttachBodyFor(t, b, node)
+	body, assertionPub := selfAttachBodyFor(t, b, node)
 	var attached struct {
 		StationID string `json:"station_id"`
 		HubToken  string `json:"hub_token"`
@@ -176,15 +183,18 @@ func TestTowerFetchesItsHubNodes(t *testing.T) {
 
 	var out struct {
 		Nodes []struct {
-			StationID string `json:"station_id"`
-			HubToken  string `json:"hub_token"`
-			State     string `json:"state"`
+			StationID    string `json:"station_id"`
+			AssertionKey string `json:"assertion_key"`
+			HubToken     string `json:"hub_token"`
+			State        string `json:"state"`
 		} `json:"nodes"`
 	}
 	code, raw := tw.call(t, srv, "/tower/hub/nodes", jsonOf(t, map[string]any{"tower_id": tw.id}), &out)
 	require.Equal(t, http.StatusOK, code, raw)
 	require.Len(t, out.Nodes, 1)
 	require.Equal(t, attached.StationID, out.Nodes[0].StationID)
+	require.Equal(t, hex.EncodeToString(assertionPub), out.Nodes[0].AssertionKey,
+		"the tower reads the key it must verify this node's signed polls against")
 	require.Equal(t, attached.HubToken, out.Nodes[0].HubToken, "the tower reads exactly the node's polling token")
 
 	// A DIFFERENT tower sees nothing of it.

@@ -10,6 +10,7 @@ package towerhub
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"sync"
 )
@@ -58,16 +59,17 @@ func (s *Server) SetWanted(stationID string, attempts []string) {
 	s.audit.wanted[stationID] = attempts
 }
 
-// AuditWanted handles GET /audit/wanted?station=: the node's view of what Core wants from it.
-// Authenticated exactly as Poll is - only the Station's own node may read its list.
+// AuditWanted handles GET /audit/wanted?station=&nonce=: the node's view of what Core wants
+// from it. Authenticated exactly as Poll is - a signature over this request with the Station's
+// assertion key, so only the Station's own node may read its list.
 func (s *Server) AuditWanted(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeErr(w, http.StatusMethodNotAllowed, "GET only")
 		return
 	}
 	stationID := r.URL.Query().Get("station")
-	if !s.authNode(stationID, bearer(r)) {
-		writeErr(w, http.StatusUnauthorized, "not the registered node for this Station")
+	if auth := s.authNode(r, stationID, nil); !auth.ok {
+		writeErr(w, http.StatusUnauthorized, auth.why)
 		return
 	}
 	s.audit.mu.Lock()
@@ -92,12 +94,20 @@ func (s *Server) AuditTranscript(w http.ResponseWriter, r *http.Request) {
 	// never survive the forward, and the node would burn bandwidth re-answering a want that
 	// cannot close until its deadline lapses (audit M4). An attempt whose plaintext exceeds
 	// this simply misses its audit - the miss rules decide what that means.
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<20)).Decode(&req); err != nil {
+	//
+	// Read whole rather than streamed into the decoder, because the request signature covers a
+	// digest of these exact bytes - see Complete for why a re-serialization will not do.
+	raw, rerr := io.ReadAll(http.MaxBytesReader(w, r.Body, 8<<20))
+	if rerr != nil {
+		writeErr(w, http.StatusBadRequest, "unreadable request body")
+		return
+	}
+	if err := json.Unmarshal(raw, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
-	if !s.authNode(req.StationID, bearer(r)) {
-		writeErr(w, http.StatusUnauthorized, "not the registered node for this Station")
+	if auth := s.authNode(r, req.StationID, raw); !auth.ok {
+		writeErr(w, http.StatusUnauthorized, auth.why)
 		return
 	}
 	if req.AttemptID == "" {

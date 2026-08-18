@@ -33,8 +33,9 @@ func (e *evictingSource) EvictedYoung() int {
 // the cause, not the effect (audits failing at Core weeks later). Counting it silently was
 // the half-fix an audit flagged.
 func TestYoungEvictionsAreReportedToTheOperator(t *testing.T) {
+	id := newTestNode(t)
 	s := NewServer(New(), stubCheck, time.Second, 50*time.Millisecond)
-	s.RegisterNode("st1", "tok")
+	s.RegisterNode("st1", id.auth())
 	mux := http.NewServeMux()
 	mux.HandleFunc(PathAuditWanted, s.AuditWanted)
 	mux.HandleFunc(PathAuditTranscript, s.AuditTranscript)
@@ -47,7 +48,7 @@ func TestYoungEvictionsAreReportedToTheOperator(t *testing.T) {
 	defer cancel()
 	pub, _, err := envelope.NewKey()
 	require.NoError(t, err)
-	go AnswerAudits(ctx, &Client{BaseURL: srv.URL, Token: "tok"}, "st1", &evictingSource{},
+	go AnswerAudits(ctx, id.client(srv.URL, 0), "st1", &evictingSource{},
 		pub, 20*time.Millisecond, func(e error) {
 			select {
 			case said <- e.Error():

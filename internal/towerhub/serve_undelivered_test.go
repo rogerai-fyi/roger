@@ -23,8 +23,9 @@ func TestAServedResultThatCouldNotBeReturnedIsDistinguishable(t *testing.T) {
 	var seen []error
 	record := func(err error) { mu.Lock(); seen = append(seen, err); mu.Unlock() }
 
+	id := newTestNode(t)
 	s, base := serveTestRig(t)
-	s.RegisterNode("st-1", "node-token")
+	s.RegisterNode("st-1", id.auth())
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -40,8 +41,8 @@ func TestAServedResultThatCouldNotBeReturnedIsDistinguishable(t *testing.T) {
 
 	// The redirect is refused by the client's own policy, so point the poll at the real rig and
 	// only the completion at the broken one.
-	node := &Client{BaseURL: base, Token: "node-token", HTTP: &http.Client{Timeout: 5 * time.Second}}
-	completeOnly := &Client{BaseURL: broken.URL, Token: "node-token", HTTP: &http.Client{Timeout: 5 * time.Second}}
+	node := id.client(base, 5*time.Second)
+	completeOnly := id.client(broken.URL, 5*time.Second)
 	go func() { _ = ServeLoop(ctx, node, "st-1", echoExec{}, record) }()
 
 	// A consumer submits, the loop serves it, and the completion goes back through the healthy

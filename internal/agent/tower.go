@@ -52,14 +52,20 @@ import (
 	"rogerai.fm/roger/v5/internal/towerhub"
 )
 
-// TowerAttachment is what self-attach resolved: where to poll and with what credential.
+// TowerAttachment is what self-attach resolved: where to poll, and as whom.
 type TowerAttachment struct {
 	StationID string `json:"station_id"`
 	TowerID   string `json:"tower_id"`
 	Endpoint  string `json:"endpoint"`
-	HubToken  string `json:"hub_token"`
-	State     string `json:"state"`
-	Note      string `json:"note"`
+	// HubToken is the pre-signature bearer credential. THIS NODE NO LONGER SENDS IT: hub
+	// requests are signed with the Station's assertion key instead (internal/towerhub's
+	// nodeauth.go), which is what stops an on-path attacker on a plaintext link from lifting a
+	// reusable credential and polling this Station's queue. It is still parsed because Core
+	// still mints one for towers serving nodes that have not updated, and a field silently
+	// dropped from a wire type is how the next reader concludes it was never there.
+	HubToken string `json:"hub_token"`
+	State    string `json:"state"`
+	Note     string `json:"note"`
 }
 
 // microsPerDollarPer1M converts the share's float $/1M-token price to the tower path's
@@ -91,12 +97,16 @@ func microsPerDollarPer1M(price float64) int64 {
 // is removed is the claim that the capability already exists, because that claim is what let the
 // plaintext default look deliberate.
 //
-// WHAT RIDES IN THE CLEAR. Not the payload: the job and its result are sealed to keys the tower
-// does not hold, and that is unchanged. What rides in the clear is the node's per-Station HUB
-// BEARER TOKEN, on every long poll, forever - and anything on the path that captures it can poll
-// for that Station's work. The second return value exists so the node can SAY so; before the
-// flag removal this was one operator's opt-in choice and now it is every signed-in share's
-// default, which is a change in who is owed the sentence.
+// WHAT RIDES IN THE CLEAR, AND WHAT NO LONGER DOES. Not the payload: the job and its result are
+// sealed to keys the tower does not hold, and that was always true. It used to be the node's
+// per-Station HUB BEARER TOKEN as well, on every long poll, forever - so anything on the path
+// could capture it and poll that Station's queue until the attachment was revoked. That is gone:
+// hub requests are SIGNED per request with the Station's assertion key (internal/towerhub's
+// nodeauth.go), so what an observer captures now authenticates nothing a second time. What is
+// left in the clear is traffic shape - when this node polls, how big the sealed bodies are -
+// which the tower operator sees anyway by virtue of being the tower. The second return value
+// exists so the node can still SAY so, because "unencrypted" remains true and the operator is
+// owed the sentence.
 func hubBaseURL(endpoint string) (base string, plaintext bool) {
 	if strings.Contains(endpoint, "://") {
 		return endpoint, !strings.HasPrefix(endpoint, "https://")
@@ -131,9 +141,32 @@ var ErrCoreKeysUnpinned = errors.New("Roger Core's grant key could not be pinned
 // ErrHubChannelPlaintext is the standing notice that this node's hub link is unencrypted. It is
 // carried as an error because it travels the channel errors travel - the one thing that is not
 // swallowed - and because it is, in fact, a defect: see hubBaseURL.
+//
+// ITS TEXT CHANGED WHEN SIGNED POLLS SHIPPED, and the change is the point rather than a tidy-up.
+// It used to say the polling token rides in the clear, which was true and was the reason to care.
+// No credential is transmitted now, so repeating that sentence would be teaching operators to
+// fear the wrong thing - and an alarm that overstates its case is the one people learn to skip.
+// What is left is real and smaller, so it is stated at its real size.
 var ErrHubChannelPlaintext = errors.New(
 	"this node's relay hub link is UNENCRYPTED (plain http): the sealed job and its answer stay " +
-		"private, but the polling token authenticating this node to its relay rides in the clear")
+		"private, and this node proves who it is by signing every request rather than by sending " +
+		"anything reusable, so nothing an observer captures here works twice - what still leaks " +
+		"is the SHAPE of the traffic (when you poll, how big each job is), which your relay " +
+		"operator can see in any case")
+
+// ErrHubRefusedThisNode marks a hub that will not accept this node's identity at all - a 401 on
+// the polling route, repeated, rather than a blip.
+//
+// It exists because of what the relay plane does with ordinary transport errors: retries them
+// forever and prints them to a writer `roger share` discards. That is right for a tower that is
+// down and wrong for a tower that has decided this node is nobody, which never resolves on its
+// own. The most likely cause is a version split - a relay running a roger-tower from before
+// signed polls cannot verify a signature and will refuse every request from a current node - and
+// an operator can only act on that if someone tells them.
+var ErrHubRefusedThisNode = errors.New(
+	"this node's relay hub refuses its identity (401): it is not serving any work through this " +
+		"relay. The usual cause is a relay running a roger-tower older than signed hub polls; a " +
+		"revoked attachment and a badly wrong system clock look the same from here")
 
 // Notice is how the relay plane reports something the operator must not miss.
 //
@@ -157,6 +190,14 @@ func (n Notice) notify(err error) {
 	if n != nil && err != nil {
 		n(err)
 	}
+}
+
+// hubRefusedIdentity reports whether a hub error is an authentication refusal - the one
+// transport failure that will never come right by retrying, because nothing about the next
+// request will differ from this one.
+func hubRefusedIdentity(err error) bool {
+	var he *towerhub.HTTPError
+	return errors.As(err, &he) && he.Status == http.StatusUnauthorized
 }
 
 // costlyRelayError reports whether a worker-level error is one the operator must be told about,
@@ -244,8 +285,12 @@ func AttachTower(cfg Config, priv ed25519.PrivateKey, dir string) (*station.Stat
 	if err := json.Unmarshal(raw, &at); err != nil {
 		return nil, TowerAttachment{}, fmt.Errorf("unreadable attach response: %w", err)
 	}
-	if at.Endpoint == "" || at.HubToken == "" {
-		return nil, TowerAttachment{}, errors.New("attach answered without an endpoint or token")
+	// AN ENDPOINT IS ALL THIS NEEDS NOW. It used to also demand a hub token, which was right
+	// when the token was how the node authenticated and is wrong now that it signs: refusing to
+	// serve because Core did not send a credential we no longer use would strand a node over an
+	// unused field.
+	if at.Endpoint == "" {
+		return nil, TowerAttachment{}, errors.New("attach answered without an endpoint")
 	}
 	return st, at, nil
 }
@@ -353,8 +398,11 @@ func ServeTower(ctx context.Context, cfg Config, priv ed25519.PrivateKey, dir st
 	}
 	client := &towerhub.Client{
 		BaseURL: base,
-		Token:   at.HubToken,
-		HTTP:    &http.Client{Timeout: 60 * time.Second},
+		// SIGNED, NOT BEARER. st.SignRequest signs each hub call with the assertion key this
+		// Station's receipts are already verified against, so the plaintext link carries no
+		// reusable credential for anyone on the path to lift. See towerhub's nodeauth.go.
+		Sign: st.SignRequest,
+		HTTP: &http.Client{Timeout: 60 * time.Second},
 	}
 	// THESE ARE ADDITIONAL TO THE CLASSIC POLL WORKERS, not a share of them. agent.Start
 	// already spawns cfg.Parallel workers against the same local model, and since every public
@@ -387,6 +435,15 @@ func ServeTower(ctx context.Context, cfg Config, priv ed25519.PrivateKey, dir st
 				// A poll that could not reach the hub is retried by the loop and stays quiet.
 				if costlyRelayError(err) {
 					notice.notify(err)
+					return
+				}
+				// A REFUSED IDENTITY IS NOT A BLIP. The loop will retry it every two seconds
+				// until the process ends and never get anywhere, and the writer it would
+				// otherwise be printed to is discarded, so this is the difference between an
+				// operator learning their relay is too old and an operator seeing a station
+				// that quietly never earns. The notice sink says a repeated message once.
+				if hubRefusedIdentity(err) {
+					notice.notify(fmt.Errorf("%w: %w", ErrHubRefusedThisNode, err))
 					return
 				}
 				fmt.Fprintf(out, "tower: %v\n", err)

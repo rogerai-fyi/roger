@@ -40,6 +40,22 @@ import (
 // loop cannot invent for itself - a real signal and a real clock - and then gets out of the
 // way; everything that can go wrong is in runLink, where a test can reach it.
 func serveJoined(st *tower.State, out io.Writer, relayPublic, hubAddr, hubCert, hubKey string) error {
+	// THE MODE CHECK COMES FIRST, BEFORE ANY LISTENER AND BEFORE ANY DIAL.
+	//
+	// runLink refuses a standalone Tower, and did so correctly - but it runs AFTER the hub, and
+	// the hub's very first act is to fetch Roger Core's grant key and then this Tower's node
+	// list from Core. So `roger-tower serve --hub` on a standalone data directory made two
+	// public-network calls before being told it should not have. features/tower/modes.feature
+	// says a standalone Tower "performs no RogerAI DNS lookup or network connection", and that
+	// was true only of the flag combination nobody had tried.
+	//
+	// Signed hub polls make the hub's dependence on Core heavier still - the assertion keys it
+	// verifies node polls against arrive on that same fetch - so the refusal moves ahead of it
+	// rather than the fetch being made conditional. runLink keeps its own check: it is called
+	// directly, and a guarantee this size should hold at both doors.
+	if st.Mode != tower.ModeJoined {
+		return errStandaloneCannotServeJoined
+	}
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(stop)
@@ -82,6 +98,13 @@ func serveJoined(st *tower.State, out io.Writer, relayPublic, hubAddr, hubCert, 
 	return err
 }
 
+// errStandaloneCannotServeJoined is the one refusal both doors give, so the two cannot drift
+// into saying different things about the same rule.
+var errStandaloneCannotServeJoined = errors.New(
+	"this Tower is standalone: it serves its own local network and needs nothing from " +
+		"RogerAI. `serve` here is for a joined Tower - initialize a new data directory " +
+		"with --mode joined to join the public network")
+
 func realTicker(d time.Duration) (<-chan time.Time, func()) {
 	t := time.NewTicker(d)
 	return t.C, t.Stop
@@ -90,10 +113,7 @@ func realTicker(d time.Duration) (<-chan time.Time, func()) {
 // runLink is the link loop proper: open, push, heartbeat, re-open on refusal, drain on exit.
 func runLink(st *tower.State, out io.Writer, stop <-chan struct{}, ticker func(time.Duration) (<-chan time.Time, func()), relayEndpoint string) error {
 	if st.Mode != tower.ModeJoined {
-		return errors.New(
-			"this Tower is standalone: it serves its own local network and needs nothing from " +
-				"RogerAI. `serve` here is for a joined Tower - initialize a new data directory " +
-				"with --mode joined to join the public network")
+		return errStandaloneCannotServeJoined
 	}
 
 	// The head we last had accepted. Quoting it on connect is what lets Core say "resume"

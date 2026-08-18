@@ -129,10 +129,16 @@ type Authorization struct {
 	// unusable rather than open - see validate.
 	SecretHash string
 	Role       string
-	// HubToken is the bearer token the serving node will present to its Tower's data-plane
+	// HubToken is the bearer token the serving node USED to present to its Tower's data-plane
 	// hub (Option C, Topology 2). Minted by Core at SELF-attach (the invite+redeem-in-one
 	// path), empty on the classic operator-invite flow. Stored plaintext like the broker's
 	// node BridgeToken: the Tower must compare the exact value the node presents.
+	//
+	// A current node does not present it. It signs each hub request with AssertionKey instead,
+	// because the hub link is plaintext by construction and a reusable secret on it is a
+	// denial-of-earnings primitive for anyone on the path (internal/towerhub/nodeauth.go). This
+	// stays minted for one release so a node built before that change still authenticates, and
+	// goes with towerhub.Server.AllowLegacyBearer.
 	HubToken string
 	// NodeID is the BROKER node id this station is the same machine as - the id under which
 	// `roger share` registered, heartbeats, and is probed. It is the join between the two
@@ -177,8 +183,9 @@ type Attachment struct {
 	State       string
 	AttachedAt  time.Time
 	AuthID      string
-	// HubToken is the node's bearer token for its Tower's data-plane hub (see
-	// Authorization.HubToken). The Tower reads it to RegisterNode; empty means this
+	// HubToken is the node's pre-signature bearer token for its Tower's data-plane hub (see
+	// Authorization.HubToken for why it is on its way out). The Tower reads it alongside
+	// AssertionKey, which is what it actually verifies a signed poll against; empty means this
 	// attachment predates (or never used) the self-attach path.
 	HubToken string
 	// NodeID is the broker node id this station is the same machine as - see

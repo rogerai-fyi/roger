@@ -110,6 +110,8 @@ func relayRig(t *testing.T) (broker string, notices *noticeSink) {
 			// validate it: net.SplitHostPort accepts nothing else, which is the whole reason
 			// the hub channel cannot express https today.
 			Endpoint: hub.Listener.Addr().String(),
+			// Core still mints one, for towers serving nodes too old to sign. This node
+			// receives it and never transmits it - see towerhub.Client's missing Token field.
 			HubToken: "hub-token", State: "active",
 		})
 	})
@@ -142,9 +144,87 @@ func TestServeTowerSpeaksUpAboutTheThingsThatCost(t *testing.T) {
 	}()
 
 	require.Eventually(t, func() bool { return notices.sawContaining("UNENCRYPTED") }, 3*time.Second, 20*time.Millisecond,
-		"the node joined a plaintext hub and said nothing; its polling token rides in the clear")
+		"the node joined a plaintext hub and said nothing about it")
 	require.Eventually(t, func() bool { return notices.sawContaining("did not forward the receipt") }, 3*time.Second, 20*time.Millisecond,
 		"the hub took a completion and never couriered the receipt, and the operator was told nothing")
+	cancel()
+	<-done
+}
+
+// THE NOTICE SAYS WHAT IS TRUE NOW, and not a word more.
+//
+// It used to say the polling token rides in the clear, which it did, and which was the reason to
+// care. Signed hub polls removed the token from the wire entirely, so keeping that sentence would
+// have taught operators to fear an exposure that no longer exists - and a standing alarm that
+// overstates its case is the one people learn to skip past. The channel is still unencrypted and
+// still says so; what is left is traffic shape.
+func TestThePlaintextNoticeNoLongerClaimsACredentialIsExposed(t *testing.T) {
+	msg := ErrHubChannelPlaintext.Error()
+	require.Contains(t, msg, "UNENCRYPTED", "the operator is still told the channel is not encrypted")
+	require.Contains(t, msg, "SHAPE", "and told what an observer can actually still see")
+	for _, gone := range []string{"token", "credential", "in the clear"} {
+		require.NotContains(t, msg, gone,
+			"the notice still implies a reusable credential is exposed; signed polls removed it (%q)", gone)
+	}
+}
+
+// A HUB THAT REFUSES THIS NODE'S IDENTITY IS NOT TRANSPORT CHATTER, and the relay plane's
+// default output seam is a discard - so without this the node polls into a 401 every two seconds
+// for the life of the process and the operator sees a station that simply never earns.
+//
+// The realistic cause is a version split: `roger` and `roger-tower` install and update
+// separately, and a relay running a roger-tower older than signed polls cannot verify a
+// signature, so it refuses every request a current node makes. Nothing about the next poll will
+// differ from this one, which is exactly what separates it from a tower being down.
+func TestARefusedIdentityIsSaidOutLoud(t *testing.T) {
+	hubMux := http.NewServeMux()
+	hubMux.HandleFunc(towerhub.PathPoll, func(w http.ResponseWriter, _ *http.Request) {
+		// What a pre-signature hub answers a signed poll: it looked for a bearer token and
+		// found none.
+		http.Error(w, "not the registered node for this Station", http.StatusUnauthorized)
+	})
+	hubMux.HandleFunc(towerhub.PathAuditWanted, func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "not the registered node for this Station", http.StatusUnauthorized)
+	})
+	hub := httptest.NewServer(hubMux)
+	t.Cleanup(hub.Close)
+
+	corePub, _, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	envKey := make([]byte, 32)
+	_, err = rand.Read(envKey)
+	require.NoError(t, err)
+	coreMux := http.NewServeMux()
+	coreMux.HandleFunc("/tower/edge/attach", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(TowerAttachment{
+			StationID: "st-test", TowerID: "tw-old",
+			Endpoint: hub.Listener.Addr().String(), State: "active",
+		})
+	})
+	coreMux.HandleFunc("/tower/dispatch/key", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"dispatch_key": hex.EncodeToString(corePub),
+			"envelope_key": hex.EncodeToString(envKey),
+		})
+	})
+	core := httptest.NewServer(coreMux)
+	t.Cleanup(core.Close)
+
+	notices := &noticeSink{}
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = ServeTower(ctx, Config{
+			Broker: core.URL, Model: "m", Modality: "chat", Parallel: 1, Upstream: "http://127.0.0.1:1",
+		}, priv, t.TempDir(), io.Discard, notices.report)
+	}()
+	require.Eventually(t, func() bool { return notices.sawContaining("refuses its identity") },
+		5*time.Second, 20*time.Millisecond,
+		"the hub refused this node on every poll and the operator was never told")
 	cancel()
 	<-done
 }
@@ -161,6 +241,12 @@ func TestOnlyWorkDoneAndUnpaidIsLoud(t *testing.T) {
 	require.False(t, costlyRelayError(&towerhub.HTTPError{Status: 502, Body: "bad gateway"}),
 		"a poll that could not reach the hub is retried by the loop and costs nothing")
 	require.False(t, costlyRelayError(context.Canceled))
+
+	// A refused IDENTITY is its own class: no work was done, so it is not costly, but it will
+	// never come right on retry either - which is what earns it the notice channel.
+	require.True(t, hubRefusedIdentity(&towerhub.HTTPError{Status: 401, Body: "no"}))
+	require.False(t, hubRefusedIdentity(&towerhub.HTTPError{Status: 502, Body: "bad gateway"}))
+	require.False(t, hubRefusedIdentity(context.Canceled))
 }
 
 // hubBaseURL's comment used to promise a capability the wire format cannot express. The promise

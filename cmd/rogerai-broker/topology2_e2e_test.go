@@ -16,6 +16,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net"
@@ -29,10 +30,27 @@ import (
 	"github.com/stretchr/testify/require"
 	"rogerai.fm/roger/v5/internal/agent"
 	"rogerai.fm/roger/v5/internal/edgeclient"
+	"rogerai.fm/roger/v5/internal/towercore/attach"
 	"rogerai.fm/roger/v5/internal/towercore/dispatch"
 	"rogerai.fm/roger/v5/internal/towercore/link"
 	"rogerai.fm/roger/v5/internal/towerhub"
 )
+
+// hubAuthOf is the tower's side of a node registration, taken from the attachment exactly as
+// cmd/roger-tower's refresher takes it from /tower/hub/nodes: the Station's assertion key is
+// what a signed poll is verified against, and the hub token rides along only for a node too
+// old to sign.
+//
+// It is here rather than in the hub package because it is the JOIN these tests exist to prove:
+// Core records the key at attach, ships it to the tower, and the tower can then authenticate a
+// node it has never spoken to. Before this the tower had no way to learn the key at all.
+func hubAuthOf(t *testing.T, at attach.Attachment) towerhub.NodeAuth {
+	t.Helper()
+	raw, err := hex.DecodeString(at.AssertionKey)
+	require.NoError(t, err)
+	require.Len(t, raw, ed25519.PublicKeySize)
+	return towerhub.NodeAuth{AssertionKey: ed25519.PublicKey(raw), LegacyToken: at.HubToken}
+}
 
 func TestFullProductLoopANodeEarnsThroughATower(t *testing.T) {
 	t.Setenv("ROGERAI_TOWER_EDGE_PRICE_IN", "0")
@@ -132,7 +150,7 @@ func TestFullProductLoopANodeEarnsThroughATower(t *testing.T) {
 			return false
 		}
 		stationID = ats[0].StationID
-		hubServer.RegisterNode(ats[0].StationID, ats[0].HubToken)
+		hubServer.RegisterNode(ats[0].StationID, hubAuthOf(t, ats[0]))
 		return true
 	}, 10*time.Second, 50*time.Millisecond, "the node self-attaches and the hub registers it")
 

@@ -22,7 +22,10 @@ package main
 // The node does not pick where it serves; Core matchmakes a live, admitted tower that
 // advertises a data-plane endpoint (mirroring edgeTargetFor's own eligibility rules). The
 // tower relaying a stranger's node is safe precisely because it is blind - it carries sealed
-// bytes it cannot read, and the node's HubToken is what binds polling rights to this node.
+// bytes it cannot read - and polling rights are bound to the node by SIGNATURE: it signs each
+// hub request with the assertion key recorded here, and the tower verifies against the copy
+// Core hands it. The HubToken below is the credential that scheme replaced, kept for one
+// release so a node built before signed polls still authenticates somewhere.
 
 import (
 	"crypto/ed25519"
@@ -38,7 +41,13 @@ import (
 	"rogerai.fm/roger/v5/internal/towercore/link"
 )
 
-// newHubToken mints the bearer token a self-attached node presents to its tower's hub.
+// newHubToken mints the bearer token a self-attached node USED to present to its tower's hub.
+//
+// It is still minted, and only for the transition: a node running a build from before signed hub
+// polls has no other way to authenticate, and refusing to issue one would take an already-shipped
+// provider off the fabric for a defect on our side of the wire. A current node receives it and
+// never transmits it. Delete this, the column, and towerhub.Server.AllowLegacyBearer together,
+// one release after signed polls ship.
 func newHubToken() string {
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
@@ -277,21 +286,34 @@ func (b *broker) towerEdgeAttach(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"station_id": at.StationID,
 		"tower_id":   towerID,
-		// Where the node POLLS for work: the tower's data-plane endpoint. The token is its
-		// polling credential, shown once here and readable by the tower from the attachment.
+		// Where the node POLLS for work: the tower's data-plane endpoint. A current node
+		// authenticates there by signing each request with its assertion key; the token is the
+		// pre-signature credential, shown once here and readable by the tower from the
+		// attachment, and is transmitted only by a node too old to sign.
 		"endpoint":  endpoint,
 		"hub_token": hubToken,
 		"state":     at.State,
-		"note": "poll the endpoint's hub with this token to serve; the tower relays sealed " +
-			"work it cannot read",
+		"note": "poll the endpoint's hub to serve, signing each request with this station's " +
+			"assertion key; the tower relays sealed work it cannot read",
 	})
 }
 
 // towerHubNodes handles POST /tower/hub/nodes: a TOWER (its own signed request, exactly the
-// settle path's authentication) fetches the stations self-attached to it and each node's
-// HubToken, so it can Server.RegisterNode them on its data-plane hub. Only the tower the
+// settle path's authentication) fetches the stations self-attached to it and how each node
+// authenticates, so it can Server.RegisterNode them on its data-plane hub. Only the tower the
 // attachment names ever sees a token - the response is scoped by the authenticated tower id,
 // and no other surface serializes HubToken.
+//
+// # THE ASSERTION KEY RIDES HERE, AND IT HAD TO COME FROM SOMEWHERE
+//
+// A hub verifies a node's signed poll against the Station's assertion key, and before this the
+// tower had NO WAY to learn it: the attachment records it (attach.Attachment.AssertionKey) but
+// nothing shipped it outward, and towerhub.Server.RegisterNode took a token and nothing else.
+// The tower cannot derive it, cannot be told it by the node (the node is the party being
+// authenticated), and must not accept it from anyone else. So Core - which recorded it at
+// attach and is the only party both ends already trust - sends it on the one call the tower
+// already makes for exactly this purpose. Additive: the key is public, it is already on the
+// attachment, and an older tower ignores the field.
 func (b *broker) towerHubNodes(w http.ResponseWriter, r *http.Request) {
 	if !allow(w, r, http.MethodPost) {
 		return
@@ -324,8 +346,13 @@ func (b *broker) towerHubNodes(w http.ResponseWriter, r *http.Request) {
 		}
 		nodes = append(nodes, map[string]any{
 			"station_id": at.StationID,
-			"hub_token":  at.HubToken,
-			"state":      at.State,
+			// What the hub verifies a signed poll against. Public by nature - it is the same
+			// key Core verifies this Station's receipts with.
+			"assertion_key": at.AssertionKey,
+			// The pre-signature bearer, still sent so a tower can keep serving a node that
+			// has not updated yet. It goes when towerhub.Server.AllowLegacyBearer goes.
+			"hub_token": at.HubToken,
+			"state":     at.State,
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"nodes": nodes})

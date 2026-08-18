@@ -60,12 +60,15 @@ func TestTopology2BlindPathEndToEnd(t *testing.T) {
 	mux.HandleFunc(towerhub.PathComplete, server.Complete)
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
-	server.RegisterNode(s.StationID, "node-token")
+	// The hub authenticates the node by the Station's ASSERTION KEY - the same key its
+	// receipts are verified against - rather than by a bearer token it could lose off the
+	// plaintext wire. See internal/towerhub/nodeauth.go.
+	server.RegisterNode(s.StationID, towerhub.NodeAuth{AssertionKey: s.AssertionPub()})
 
 	// The node worker polls the tower and serves.
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	node := &towerhub.Client{BaseURL: srv.URL, Token: "node-token", HTTP: &http.Client{Timeout: 5 * time.Second}}
+	node := &towerhub.Client{BaseURL: srv.URL, Sign: s.SignRequest, HTTP: &http.Client{Timeout: 5 * time.Second}}
 	go func() { _ = towerhub.ServeLoop(ctx, node, s.StationID, sealedAdapter{exec}, nil) }()
 
 	// --- THE CONSUMER: authorizes with Core (grant carries its sealing key), seals the request
@@ -150,7 +153,7 @@ func TestTopology2RejectsAGrantForAnotherTower(t *testing.T) {
 	mux.HandleFunc(towerhub.PathSubmit, server.Submit)
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
-	server.RegisterNode(s.StationID, "tok")
+	server.RegisterNode(s.StationID, towerhub.NodeAuth{AssertionKey: s.AssertionPub()})
 
 	envPub, _, err := envelope.NewKey()
 	require.NoError(t, err)

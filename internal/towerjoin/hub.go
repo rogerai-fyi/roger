@@ -53,15 +53,22 @@ func DispatchKey() (ed25519.PublicKey, error) {
 	return ed25519.PublicKey(key), nil
 }
 
-// HubNode is one self-attached node this Tower's hub serves.
+// HubNode is one self-attached node this Tower's hub serves, and how the hub authenticates it.
 type HubNode struct {
 	StationID string `json:"station_id"`
-	HubToken  string `json:"hub_token"`
-	State     string `json:"state"`
+	// AssertionKey is the Station's hex Ed25519 assertion key, as recorded on its attachment
+	// at Core. The hub verifies every signed poll and completion against it. Empty only from
+	// a Core older than signed polls, which is the one case the legacy token still covers.
+	AssertionKey string `json:"assertion_key"`
+	// HubToken is the pre-signature bearer credential, kept for one release so a node built
+	// before signed polls keeps earning. See towerhub.Server.AllowLegacyBearer.
+	HubToken string `json:"hub_token"`
+	State    string `json:"state"`
 }
 
-// HubNodes fetches the Tower's own self-attached nodes + their polling tokens, over the
-// Tower's signed request (only the named tower's own signature is accepted by Core).
+// HubNodes fetches the Tower's own self-attached nodes + the credentials its hub authenticates
+// them with, over the Tower's signed request (only the named tower's own signature is accepted
+// by Core).
 func HubNodes(st *tower.State) ([]HubNode, error) {
 	body, err := json.Marshal(map[string]string{"tower_id": st.TowerID})
 	if err != nil {

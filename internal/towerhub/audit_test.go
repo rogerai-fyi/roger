@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
+	"net/url"
 
 	"net/http/httptest"
 	"rogerai.fm/roger/v5/internal/towercore/envelope"
@@ -28,8 +29,9 @@ func (f fakeTranscripts) SignedTranscript(id string) (signed, req, resp []byte, 
 // loop fetches its slice, uploads the signed transcript for what it kept and a truthful
 // "not retained" for what it did not, and only LISTED attempts reach the courier.
 func TestAuditPlaneCarriesTranscriptsFromAPollOnlyNode(t *testing.T) {
+	id := newTestNode(t)
 	s := NewServer(New(), stubCheck, time.Second, 100*time.Millisecond)
-	s.RegisterNode("st1", "tok")
+	s.RegisterNode("st1", id.auth())
 	forwarded := make(chan TranscriptReply, 4)
 	s.OnTranscript = func(station string, r TranscriptReply) {
 		require.Equal(t, "st1", station)
@@ -45,7 +47,7 @@ func TestAuditPlaneCarriesTranscriptsFromAPollOnlyNode(t *testing.T) {
 	src := fakeTranscripts{"att-kept": {[]byte("signed"), []byte("q"), []byte("a")}}
 	corePub, corePriv, err := envelope.NewKey()
 	require.NoError(t, err)
-	c := &Client{BaseURL: srv.URL, Token: "tok"}
+	c := id.client(srv.URL, 0)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go AnswerAudits(ctx, c, "st1", src, corePub, 20*time.Millisecond, nil)
@@ -80,9 +82,9 @@ func TestAuditPlaneCarriesTranscriptsFromAPollOnlyNode(t *testing.T) {
 	require.False(t, got["att-lost"].Available, "not retained is answered truthfully, not silently")
 
 	// The list is consumed: nothing further is forwarded, and an unlisted upload is refused a ride.
-	body, _ := json.Marshal(map[string]any{"station_id": "st1", "attempt_id": "att-unasked",
+	resp, raw := id.postSigned(t, srv.URL, PathAuditTranscript, map[string]any{
+		"station_id": "st1", "attempt_id": "att-unasked",
 		"available": true, "transcript": "", "request": "", "response": ""})
-	resp, raw := postJSON(t, srv.URL+PathAuditTranscript, "tok", json.RawMessage(body))
 	require.Equal(t, http.StatusAccepted, resp.StatusCode, string(raw))
 	select {
 	case r := <-forwarded:
@@ -90,12 +92,8 @@ func TestAuditPlaneCarriesTranscriptsFromAPollOnlyNode(t *testing.T) {
 	case <-time.After(200 * time.Millisecond):
 	}
 
-	// Wrong token: the plane is bearer-gated like Poll.
-	req, err := http.NewRequest(http.MethodGet, srv.URL+PathAuditWanted+"?station=st1", nil)
-	require.NoError(t, err)
-	req.Header.Set("Authorization", "Bearer wrong")
-	r2, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	r2.Body.Close()
+	// Someone else's signature: the audit plane is gated exactly as Poll is, so a station's
+	// wanted list is not readable by whoever asks first.
+	r2, _ := newTestNode(t).getSigned(t, srv.URL, PathAuditWanted, url.Values{"station": {"st1"}})
 	require.Equal(t, http.StatusUnauthorized, r2.StatusCode)
 }

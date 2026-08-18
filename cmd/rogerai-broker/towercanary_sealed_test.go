@@ -67,7 +67,7 @@ func TestSealedCanaryJudgesAHubNode(t *testing.T) {
 			return false
 		}
 		stationID = ats[0].StationID
-		hubServer.RegisterNode(ats[0].StationID, ats[0].HubToken)
+		hubServer.RegisterNode(ats[0].StationID, hubAuthOf(t, ats[0]))
 		return true
 	}, 10*time.Second, 50*time.Millisecond)
 

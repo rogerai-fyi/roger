@@ -42,6 +42,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"rogerai.fm/roger/v5/internal/protocol"
 	"rogerai.fm/roger/v5/internal/towercore/envelope"
 )
 
@@ -95,6 +96,30 @@ func (s *Station) SessionPub() []byte {
 // SessionPriv is the private half, for opening what Core sealed. Unexported elsewhere: it
 // leaves this package only to the executor in it.
 func (s *Station) SessionPriv() []byte { return s.sessionPriv }
+
+// SignRequest signs an outbound HTTP request with this Station's ASSERTION key, in the house
+// scheme (protocol.SignRequest: method + target + timestamp + body digest). It returns the
+// three values the caller puts in the X-Roger-Pubkey / X-Roger-TS / X-Roger-Sig headers.
+//
+// # WHY A METHOD RATHER THAN AN ACCESSOR FOR THE KEY
+//
+// The obvious alternative was an AssertionPriv() accessor, and it is worse: the assertion key
+// is what every receipt this Station ever signs is verified against, so handing the raw
+// private half to another package makes that package one more place it can be copied, logged,
+// or used to sign material this Station never chose. SessionPriv() is exported only because
+// OPENING a sealed envelope needs the bytes themselves; signing does not, so this hands out
+// signatures instead of the thing that makes them.
+//
+// The caller supplies the request TARGET - the path, plus the query when there is one -
+// rather than a bare path, because the canonical string binds exactly what it is given and
+// the query is where a hub request carries its anti-replay nonce. See
+// internal/towerhub/nodeauth.go for why that nonce lives in the target and not in a header.
+//
+// NOTHING HERE DIALS, and this does not change that: it produces the three header values and
+// leaves the caller to make the request.
+func (s *Station) SignRequest(method, target string, body []byte) (pubHex string, ts int64, sigHex string) {
+	return protocol.SignRequest(s.assertionPriv, method, target, body)
+}
 
 // Dir is the data directory this Station was loaded from.
 func (s *Station) Dir() string { return s.dir }

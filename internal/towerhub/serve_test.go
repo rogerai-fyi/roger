@@ -39,13 +39,14 @@ func serveTestRig(t *testing.T) (*Server, string) {
 // The whole Topology-2 data path over HTTP, end to end: a node worker (ServeLoop) polls the
 // tower and serves; a consumer submits a sealed job and gets the sealed result + receipt back.
 func TestServeLoopServesAConsumerSubmissionEndToEnd(t *testing.T) {
+	id := newTestNode(t)
 	s, base := serveTestRig(t)
-	s.RegisterNode("st-1", "node-token")
+	s.RegisterNode("st-1", id.auth())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	node := &Client{BaseURL: base, Token: "node-token", HTTP: &http.Client{Timeout: 5 * time.Second}}
+	node := id.client(base, 5*time.Second)
 	go func() { _ = ServeLoop(ctx, node, "st-1", echoExec{}, nil) }()
 
 	consumer := &Client{BaseURL: base}
@@ -60,11 +61,12 @@ func TestServeLoopServesAConsumerSubmissionEndToEnd(t *testing.T) {
 // A node's serving failure comes back to the consumer as a failure with no receipt - a failure
 // must never carry a settleable receipt.
 func TestServeLoopPropagatesAServingFailure(t *testing.T) {
+	id := newTestNode(t)
 	s, base := serveTestRig(t)
-	s.RegisterNode("st-1", "tok")
+	s.RegisterNode("st-1", id.auth())
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	node := &Client{BaseURL: base, Token: "tok", HTTP: &http.Client{Timeout: 5 * time.Second}}
+	node := id.client(base, 5*time.Second)
 	go func() { _ = ServeLoop(ctx, node, "st-1", echoExec{}, nil) }()
 
 	consumer := &Client{BaseURL: base}
@@ -96,9 +98,10 @@ func TestSubmitJobSurfacesHTTPStatus(t *testing.T) {
 
 // PollJob returns ok=false (not an error) on an idle long-poll, so a node worker just loops.
 func TestPollJobReturnsFalseWhenIdle(t *testing.T) {
+	id := newTestNode(t)
 	s, base := serveTestRig(t)
-	s.RegisterNode("st-1", "tok")
-	node := &Client{BaseURL: base, Token: "tok"}
+	s.RegisterNode("st-1", id.auth())
+	node := id.client(base, 0)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	_, ok, err := node.PollJob(ctx, "st-1")
@@ -106,11 +109,13 @@ func TestPollJobReturnsFalseWhenIdle(t *testing.T) {
 	require.False(t, ok, "an idle long poll is ok=false, nil error")
 }
 
-// A node with the wrong token gets an auth error from PollJob (not a silent empty).
-func TestPollJobWithABadTokenErrors(t *testing.T) {
+// A node signing with a key the Station is not attached with gets an auth error from PollJob
+// (not a silent empty), so a re-keyed or revoked node learns it is no longer serving.
+func TestPollJobWithTheWrongKeyErrors(t *testing.T) {
+	attached, stranger := newTestNode(t), newTestNode(t)
 	s, base := serveTestRig(t)
-	s.RegisterNode("st-1", "right")
-	node := &Client{BaseURL: base, Token: "wrong"}
+	s.RegisterNode("st-1", attached.auth())
+	node := stranger.client(base, 0)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	_, ok, err := node.PollJob(ctx, "st-1")
@@ -122,9 +127,10 @@ func TestPollJobWithABadTokenErrors(t *testing.T) {
 
 // ServeLoop returns when its context is cancelled.
 func TestServeLoopStopsOnContextCancel(t *testing.T) {
+	id := newTestNode(t)
 	s, base := serveTestRig(t)
-	s.RegisterNode("st-1", "tok")
-	node := &Client{BaseURL: base, Token: "tok", HTTP: &http.Client{Timeout: 2 * time.Second}}
+	s.RegisterNode("st-1", id.auth())
+	node := id.client(base, 2*time.Second)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- ServeLoop(ctx, node, "st-1", echoExec{}, nil) }()
@@ -146,11 +152,12 @@ func (hostileFailExec) Serve(_ context.Context, _, _ []byte) ([]byte, []byte, st
 }
 
 func TestServeLoopStripsTheReceiptOnFailure(t *testing.T) {
+	id := newTestNode(t)
 	s, base := serveTestRig(t)
-	s.RegisterNode("st-1", "tok")
+	s.RegisterNode("st-1", id.auth())
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	node := &Client{BaseURL: base, Token: "tok", HTTP: &http.Client{Timeout: 5 * time.Second}}
+	node := id.client(base, 5*time.Second)
 	go func() { _ = ServeLoop(ctx, node, "st-1", hostileFailExec{}, nil) }()
 
 	consumer := &Client{BaseURL: base}
@@ -166,7 +173,7 @@ func TestServeLoopStripsTheReceiptOnFailure(t *testing.T) {
 // than tight-spinning or exiting.
 func TestServeLoopReportsHardErrors(t *testing.T) {
 	// A port nothing listens on: PollJob errors immediately.
-	node := &Client{BaseURL: "http://127.0.0.1:1", Token: "tok", HTTP: &http.Client{Timeout: 150 * time.Millisecond}}
+	node := newTestNode(t).client("http://127.0.0.1:1", 150*time.Millisecond)
 	ctx, cancel := context.WithCancel(context.Background())
 	var count int32
 	got := make(chan struct{}, 1)

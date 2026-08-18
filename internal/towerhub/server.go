@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"sync"
 	"time"
@@ -36,7 +37,8 @@ const (
 // Server exposes a Hub over HTTP: consumers submit sealed jobs, serving nodes long-poll for
 // them and return sealed results. It is the tower's data-plane face - the broker never appears
 // in it. The tower authorizes a submit by the Core-signed grant and authenticates a polling
-// node by the per-registration bearer token, but reads no content.
+// node by a SIGNATURE over each request, made with the Station's assertion key (nodeauth.go),
+// but reads no content.
 type Server struct {
 	hub       *Hub
 	check     GrantCheck
@@ -58,10 +60,27 @@ type Server struct {
 	// courier forwards it to Core, tower-signed. Called on its own goroutine.
 	OnTranscript func(stationID string, reply TranscriptReply)
 
-	audit auditPlane
+	// AllowLegacyBearer accepts the pre-signature bearer token from a node that does not
+	// sign yet. It is a TRANSITION affordance with an end date, not a mode.
+	//
+	// The two programs update separately: `roger` is a provider's binary and `roger-tower` is
+	// an operator's, so a v5.7.1 node that still presents a token can meet a hub built after
+	// signatures landed. Refusing it would take a provider who did nothing off the fabric and
+	// stop paying them, for a defect on our side of the wire.
+	//
+	// It costs the fleet nothing, because the node half of this change is a HARD CUTOVER: a
+	// current node never transmits its token at all, so there is nothing on the plaintext
+	// wire for an attacker to lift and present here. What this keeps alive is the exposure an
+	// already-released node already has, for as long as it takes that node to update.
+	//
+	// DELETE IT, and NodeAuth.LegacyToken with it, one release after signed polls ship.
+	AllowLegacyBearer bool
 
-	mu     sync.RWMutex
-	tokens map[string]string // stationID -> the serving node's bearer token
+	audit  auditPlane
+	nonces nonceGate
+
+	mu    sync.RWMutex
+	nodes map[string]NodeAuth // stationID -> how its serving node authenticates
 }
 
 // NewServer wires a Server over a Hub with a grant checker. Zero TTLs fall back to the defaults.
@@ -72,39 +91,45 @@ func NewServer(hub *Hub, check GrantCheck, submitTTL, pollTTL time.Duration) *Se
 	if pollTTL <= 0 {
 		pollTTL = defaultPollTTL
 	}
-	return &Server{hub: hub, check: check, submitTTL: submitTTL, pollTTL: pollTTL, tokens: map[string]string{}}
+	return &Server{hub: hub, check: check, submitTTL: submitTTL, pollTTL: pollTTL,
+		nodes: map[string]NodeAuth{}, AllowLegacyBearer: true}
 }
 
-// RegisterNode makes a Station servable and binds the bearer token its serving node authenticates
-// with. It is the tower's one-node-per-Station enforcement point (the Hub itself has no node
-// identity): re-registering a Station replaces its token, so only the current node can poll it.
-func (s *Server) RegisterNode(stationID, token string) {
+// RegisterNode makes a Station servable and binds the credential its serving node
+// authenticates with - now the Station's ASSERTION KEY (and, for one transition release, the
+// bearer token an older node still presents). It is the tower's one-node-per-Station
+// enforcement point (the Hub itself has no node identity): re-registering a Station replaces
+// what authenticates it, so only the current node can poll it.
+//
+// It took a token string before. The signature changed rather than gaining an overload
+// because there is no version of this call that should still be reachable with a secret and
+// nothing else: the compiler finding every caller is the point.
+func (s *Server) RegisterNode(stationID string, auth NodeAuth) {
 	s.hub.Register(stationID)
 	s.mu.Lock()
-	s.tokens[stationID] = token
+	s.nodes[stationID] = auth
 	s.mu.Unlock()
 }
 
-// UnregisterNode removes a Station, its token, and its audit wanted list (a station Core
-// dropped must not keep a list a later re-registration could answer stale - audit M5).
+// UnregisterNode removes a Station, its credential, its replay memory, and its audit wanted
+// list (a station Core dropped must not keep a list a later re-registration could answer
+// stale - audit M5).
 func (s *Server) UnregisterNode(stationID string) {
 	s.hub.Unregister(stationID)
 	s.mu.Lock()
-	delete(s.tokens, stationID)
+	delete(s.nodes, stationID)
 	s.mu.Unlock()
+	s.nonces.forget(stationID)
 	s.audit.mu.Lock()
 	delete(s.audit.wanted, stationID)
 	s.audit.mu.Unlock()
 }
 
-func (s *Server) authNode(stationID, token string) bool {
-	s.mu.RLock()
-	want, ok := s.tokens[stationID]
-	s.mu.RUnlock()
-	if !ok || token == "" {
-		return false
-	}
-	return subtle.ConstantTimeCompare([]byte(want), []byte(token)) == 1
+// constantTimeEqual compares two secrets without leaking their divergence point through
+// timing. Only the legacy bearer path needs it - a signature comparison is a public-key
+// operation over public material - and it goes when that path does.
+func constantTimeEqual(a, b string) bool {
+	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
 }
 
 func bearer(r *http.Request) string {
@@ -199,17 +224,24 @@ type pollResp struct {
 	Envelope  string `json:"envelope"` // base64
 }
 
-// Poll handles GET /poll?station=<id>: the serving node long-polls for a job. It authenticates
-// the node by its per-registration bearer token, so only the node that owns a Station can pull
-// its work. 204 means "no job yet, poll again" (a normal long-poll timeout).
+// Poll handles GET /poll?station=<id>&nonce=<hex>: the serving node long-polls for a job. It
+// authenticates the node by a SIGNATURE over this exact request, made with the Station's
+// assertion key, so only the node that owns a Station can pull its work - and so nothing an
+// on-path observer captures can be used twice (nodeauth.go). 204 means "no job yet, poll
+// again" (a normal long-poll timeout).
+//
+// This is the route replay protection exists for. Every other hub route is idempotent or a
+// read; this one DEQUEUES, so a reused signature would take a job the attacker cannot open
+// and the honest node therefore never serves - the denial-of-earnings attack, rebuilt on top
+// of the fix for it.
 func (s *Server) Poll(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeErr(w, http.StatusMethodNotAllowed, "GET only")
 		return
 	}
 	stationID := r.URL.Query().Get("station")
-	if !s.authNode(stationID, bearer(r)) {
-		writeErr(w, http.StatusUnauthorized, "not the registered node for this Station")
+	if auth := s.authNode(r, stationID, nil); !auth.ok {
+		writeErr(w, http.StatusUnauthorized, auth.why)
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), s.pollTTL)
@@ -235,22 +267,32 @@ type completeReq struct {
 }
 
 // Complete handles POST /complete: the serving node returns a sealed result + receipt for an
-// attempt it pulled. Authenticated by the node's token for the named Station. Delivering a wrong
-// result cannot steal money - it is sealed to the consumer (who fails to open a forgery) and the
-// receipt is node-signed and settled one-use at Core - but the token still binds a completion to
-// the Station's own node.
+// attempt it pulled. Authenticated by the node's SIGNATURE over this request, body included, for
+// the named Station. Delivering a wrong result cannot steal money - it is sealed to the consumer
+// (who fails to open a forgery) and the receipt is node-signed and settled one-use at Core - but
+// the signature still binds a completion to the Station's own node.
 func (s *Server) Complete(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeErr(w, http.StatusMethodNotAllowed, "POST only")
 		return
 	}
+	// THE RAW BYTES, KEPT. The signature covers a digest of the body exactly as it arrived, so
+	// this reads once and hands the same slice to both the verifier and the decoder. Decoding
+	// straight off the stream and re-serializing to check the signature would verify a
+	// reconstruction rather than the request, and any encoder difference - field order, escaping,
+	// whitespace - would show up as an authentication failure nobody could reproduce.
+	raw, rerr := io.ReadAll(http.MaxBytesReader(w, r.Body, 16<<20))
+	if rerr != nil {
+		writeErr(w, http.StatusBadRequest, "unreadable request body")
+		return
+	}
 	var req completeReq
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<20)).Decode(&req); err != nil {
+	if err := json.Unmarshal(raw, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
-	if !s.authNode(req.StationID, bearer(r)) {
-		writeErr(w, http.StatusUnauthorized, "not the registered node for this Station")
+	if auth := s.authNode(r, req.StationID, raw); !auth.ok {
+		writeErr(w, http.StatusUnauthorized, auth.why)
 		return
 	}
 	env, err := base64.StdEncoding.DecodeString(req.Envelope)

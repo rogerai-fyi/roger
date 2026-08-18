@@ -15,11 +15,14 @@ open tier economically/legally hostile to logging, and (3) offer a tier where th
    dial OUT (no open ports), so your prompt is never in cleartext on the wire. **One internal link
    is not yet TLS, and it is not the one carrying your prompt.** When a node serves through a
    *relay* (below), it long-polls that relay's hub over plain HTTP, because the endpoint format
-   relays advertise cannot currently express a scheme. What rides in the clear there is the
-   *node's own polling credential*, not your content: the job and its answer are sealed
-   end-to-end to keys the relay does not hold, so the relay - and anything on the path - carries
-   ciphertext either way. The exposure is the node operator's, not yours, and the node says so out
-   loud when it joins. This is a known defect with a fix in design, not an accepted design.
+   relays advertise cannot currently express a scheme. Your content is not exposed there: the job
+   and its answer are sealed end-to-end to keys the relay does not hold, so the relay - and
+   anything on the path - carries ciphertext either way. Nor is the node's credential: it used to
+   present a reusable polling token on that link, and it now signs each request with the key its
+   receipts are already verified against, so nothing an observer captures there can be used again.
+   What still leaks is the *shape* of that traffic - when a node polls, how large each sealed job
+   is - which the relay operator can see in any case. The node says the link is unencrypted out
+   loud when it joins. TLS on that link remains a known gap, not an accepted design.
 2. **The broker is content-blind.** It relays request bytes but **persists only token counts +
    hashes** in receipts - never prompt or response text. No prompt logging at the broker, ever.
    The one honest exception is a **transient, pre-dispatch safety screen**, and it applies to

@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -43,6 +44,9 @@ func testServer(t *testing.T) (*Server, *httptest.Server) {
 	return s, srv
 }
 
+// postJSON posts with an optional BEARER token. It is the consumer's helper (which authorizes
+// with a grant in the body and needs no token) and the legacy-bearer path's; a node-side signed
+// POST is testNode.postSigned.
 func postJSON(t *testing.T, url, token string, body any) (*http.Response, []byte) {
 	t.Helper()
 	b, _ := json.Marshal(body)
@@ -61,22 +65,21 @@ func postJSON(t *testing.T, url, token string, body any) (*http.Response, []byte
 // A consumer's sealed job reaches the polling node over HTTP and the node's sealed result comes
 // back to the consumer - the whole tower data plane, end to end, with the tower blind.
 func TestHTTPSubmitReachesTheNodeAndReturnsTheResult(t *testing.T) {
+	node := newTestNode(t)
 	s, srv := testServer(t)
-	s.RegisterNode("st-1", "node-token")
+	s.RegisterNode("st-1", node.auth())
 
-	// The serving node: long-poll, then complete with a sealed result + receipt.
+	// The serving node: long-poll, then complete with a sealed result + receipt. Both calls are
+	// signed with the Station's assertion key - see nodeauth.go.
 	go func() {
-		req, _ := http.NewRequest(http.MethodGet, srv.URL+"/poll?station=st-1", nil)
-		req.Header.Set("Authorization", "Bearer node-token")
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil || resp.StatusCode != http.StatusOK {
+		resp, raw := node.getSigned(t, srv.URL, PathPoll, url.Values{"station": {"st-1"}})
+		if resp.StatusCode != http.StatusOK {
 			return
 		}
 		var job pollResp
-		_ = json.NewDecoder(resp.Body).Decode(&job)
-		resp.Body.Close()
+		_ = json.Unmarshal(raw, &job)
 		// The node sees the consumer's sealed request (opaque here), returns a sealed answer.
-		postJSON(t, srv.URL+"/complete", "node-token", completeReq{
+		node.postSigned(t, srv.URL, PathComplete, completeReq{
 			AttemptID: job.AttemptID, StationID: job.StationID,
 			Envelope: base64.StdEncoding.EncodeToString([]byte("sealed-answer")),
 			Receipt:  base64.StdEncoding.EncodeToString([]byte("token-receipt")),
@@ -116,41 +119,36 @@ func TestHTTPSubmitToAnUnservedStationIs404(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, resp.StatusCode)
 }
 
-// Poll and Complete require the Station's own node token: a wrong or missing token is 401.
-func TestHTTPPollAndCompleteRequireTheNodeToken(t *testing.T) {
+// Poll and Complete require the Station's own signature: unsigned, or signed by another key, is
+// a 401 on both.
+func TestHTTPPollAndCompleteRequireTheStationsSignature(t *testing.T) {
+	node, stranger := newTestNode(t), newTestNode(t)
 	s, srv := testServer(t)
-	s.RegisterNode("st-1", "the-token")
+	s.RegisterNode("st-1", node.auth())
 
-	// Poll with no token.
+	// Poll with nothing at all.
 	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/poll?station=st-1", nil)
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	resp.Body.Close()
 	require.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 
-	// Poll with a wrong token.
-	req, _ = http.NewRequest(http.MethodGet, srv.URL+"/poll?station=st-1", nil)
-	req.Header.Set("Authorization", "Bearer wrong")
-	resp, err = http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	resp.Body.Close()
-	require.Equal(t, http.StatusUnauthorized, resp.StatusCode)
-
-	// Complete with a wrong token.
-	resp2, _ := postJSON(t, srv.URL+"/complete", "wrong", completeReq{AttemptID: "att-1", StationID: "st-1"})
+	// Poll signed by someone else's key.
+	resp2, _ := stranger.getSigned(t, srv.URL, PathPoll, url.Values{"station": {"st-1"}})
 	require.Equal(t, http.StatusUnauthorized, resp2.StatusCode)
+
+	// Complete signed by someone else's key.
+	resp3, _ := stranger.postSigned(t, srv.URL, PathComplete, completeReq{AttemptID: "att-1", StationID: "st-1"})
+	require.Equal(t, http.StatusUnauthorized, resp3.StatusCode)
 }
 
 // An empty queue long-poll returns 204 (poll again), not a hang.
 func TestHTTPPollReturns204WhenIdle(t *testing.T) {
+	node := newTestNode(t)
 	s, srv := testServer(t)
-	s.RegisterNode("st-1", "t")
-	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/poll?station=st-1", nil)
-	req.Header.Set("Authorization", "Bearer t")
+	s.RegisterNode("st-1", node.auth())
 	start := time.Now()
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	resp.Body.Close()
+	resp, _ := node.getSigned(t, srv.URL, PathPoll, url.Values{"station": {"st-1"}})
 	require.Equal(t, http.StatusNoContent, resp.StatusCode)
 	require.Less(t, time.Since(start), 2*time.Second, "the long poll returns near its TTL, not the submit TTL")
 }
@@ -162,7 +160,7 @@ func TestHTTPSubmitTimesOutWhenNoNodeAnswers(t *testing.T) {
 	mux.HandleFunc("/submit", s.Submit)
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
-	s.RegisterNode("st-1", "t") // registered, but no node polls
+	s.RegisterNode("st-1", newTestNode(t).auth()) // registered, but no node polls
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -185,7 +183,7 @@ func TestHTTPMethodGuards(t *testing.T) {
 	resp.Body.Close()
 	require.Equal(t, http.StatusMethodNotAllowed, resp.StatusCode)
 
-	resp2, _ := postJSON(t, srv.URL+"/poll", "t", map[string]any{})
+	resp2, _ := postJSON(t, srv.URL+"/poll", "", map[string]any{})
 	require.Equal(t, http.StatusMethodNotAllowed, resp2.StatusCode)
 }
 
@@ -196,33 +194,35 @@ func TestHTTPSubmitBadBase64Is400(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
 }
 
-// Rotating a node's token (RegisterNode again) invalidates the old token immediately.
-func TestHTTPTokenRotationInvalidatesTheOldToken(t *testing.T) {
+// Re-registering a Station (RegisterNode again) replaces what authenticates it immediately -
+// which is how a revoked or re-keyed node stops polling within one refresh of the tower's node
+// list, and why the credential lives in one map rather than being remembered per connection.
+func TestHTTPReRegisteringAStationRetiresTheOldKey(t *testing.T) {
+	old, current := newTestNode(t), newTestNode(t)
 	s, srv := testServer(t)
-	s.RegisterNode("st-1", "old")
-	s.RegisterNode("st-1", "new") // rotate
+	s.RegisterNode("st-1", old.auth())
+	s.RegisterNode("st-1", current.auth()) // re-key
 
-	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/poll?station=st-1", nil)
-	req.Header.Set("Authorization", "Bearer old")
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	resp.Body.Close()
-	require.Equal(t, http.StatusUnauthorized, resp.StatusCode, "the rotated-out token no longer authenticates")
+	resp, _ := old.getSigned(t, srv.URL, PathPoll, url.Values{"station": {"st-1"}})
+	require.Equal(t, http.StatusUnauthorized, resp.StatusCode, "the retired key still authenticated")
+	ok, _ := current.getSigned(t, srv.URL, PathPoll, url.Values{"station": {"st-1"}})
+	require.Equal(t, http.StatusNoContent, ok.StatusCode)
 }
 
 // The settle courier only rides for attempts the hub actually HANDED to that node (audit L2):
 // a registered-but-hostile node fabricating attempt ids + self-signed receipts must not get
 // them forwarded to Core under the tower's signature.
 func TestOnCompleteFiresOnlyForDispatchedAttempts(t *testing.T) {
+	node := newTestNode(t)
 	s, srv := testServer(t)
-	s.RegisterNode("st1", "tok")
+	s.RegisterNode("st1", node.auth())
 	fired := make(chan string, 4)
 	s.OnComplete = func(_ string, res Result) { fired <- res.AttemptID }
 
 	// A fabricated completion: the hub never dispatched "made-up". Answered 202, not 200 -
 	// the receipt was NOT couriered, and an honest node deserves to hear that loudly (a hub
 	// restart mid-job produces the same shape).
-	resp, _ := postJSON(t, srv.URL+"/complete", "tok", map[string]string{
+	resp, _ := node.postSigned(t, srv.URL, PathComplete, map[string]string{
 		"attempt_id": "made-up", "station_id": "st1",
 		"receipt": base64.StdEncoding.EncodeToString([]byte("forged")),
 	})
@@ -236,22 +236,15 @@ func TestOnCompleteFiresOnlyForDispatchedAttempts(t *testing.T) {
 		})
 		r.Body.Close()
 	}()
-	req, err := http.NewRequest(http.MethodGet, srv.URL+"/poll?station=st1", nil)
-	require.NoError(t, err)
-	req.Header.Set("Authorization", "Bearer tok")
 	var polled pollResp
 	require.Eventually(t, func() bool {
-		pr, perr := http.DefaultClient.Do(req)
-		if perr != nil || pr.StatusCode != http.StatusOK {
-			if pr != nil {
-				pr.Body.Close()
-			}
+		pr, raw := node.getSigned(t, srv.URL, PathPoll, url.Values{"station": {"st1"}})
+		if pr.StatusCode != http.StatusOK {
 			return false
 		}
-		defer pr.Body.Close()
-		return json.NewDecoder(pr.Body).Decode(&polled) == nil
+		return json.Unmarshal(raw, &polled) == nil
 	}, 3*time.Second, 50*time.Millisecond)
-	resp, _ = postJSON(t, srv.URL+"/complete", "tok", map[string]string{
+	resp, _ = node.postSigned(t, srv.URL, PathComplete, map[string]string{
 		"attempt_id": polled.AttemptID, "station_id": "st1",
 		"envelope": base64.StdEncoding.EncodeToString([]byte("sealed-answer")),
 		"receipt":  base64.StdEncoding.EncodeToString([]byte("signed")),

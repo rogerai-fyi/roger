@@ -201,8 +201,19 @@ is the flag that used to stand in for it. A provider runs `roger share` - nothin
 node registers and goes on air the ordinary way, and then, best effort, attaches: it mints (or
 reloads) its persistent station identity and makes ONE signed call to Roger Core
 (`/tower/edge/attach`) carrying its keys, its **broker node id**, its model and its own
-per-token price, and Core assigns a live tower and returns the hub endpoint plus the bearer
-token the node polls with. The call is idempotent - a lost reply is answered with the existing
+per-token price, and Core assigns a live tower and returns the hub endpoint it polls.
+
+The node **authenticates each hub request by signing it** with its station assertion key - the
+same key its receipts are verified against - rather than by presenting a token. That matters
+because the hub link is plain HTTP (the endpoint format relays advertise cannot express a
+scheme), so a reusable credential on it could be lifted by anyone on the path and used to poll
+that station's queue and swallow its work. Core hands the tower the station's public assertion
+key on the same call the tower already makes to list its nodes; each request also carries a
+nonce, so a captured request cannot be replayed either. A tower older than this still accepts
+the old bearer token for one release, so a node that has not updated keeps earning; a node that
+HAS updated will not talk to such a tower, and says so rather than failing quietly.
+
+The call is idempotent - a lost reply is answered with the existing
 registration - and so is the identity: the same host presents the same station keys on every
 run, because the attachment Core recorded names them.
 

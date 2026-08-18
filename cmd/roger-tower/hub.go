@@ -8,6 +8,8 @@ package main
 
 import (
 	"context"
+	"crypto/ed25519"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -251,8 +253,8 @@ func runHubInBackground(st *tower.State, addr, tlsCert, tlsKey string, out io.Wr
 	}
 
 	// The refresher: keep the hub's node registrations in step with Core's attachment
-	// registry. RegisterNode also rotates tokens, and nodes that disappear are unregistered
-	// so a revoked node's token stops polling within one refresh.
+	// registry. RegisterNode also rotates a node's credential, and nodes that disappear are
+	// unregistered so a revoked node stops polling within one refresh.
 	var refreshMu sync.Mutex
 	known := map[string]bool{}
 	lastAttempt := time.Time{}
@@ -273,7 +275,22 @@ func runHubInBackground(st *tower.State, addr, tlsCert, tlsKey string, out io.Wr
 		}
 		seen := map[string]bool{}
 		for _, n := range nodes {
-			server.RegisterNode(n.StationID, n.HubToken)
+			// The ASSERTION KEY is what a signed poll is verified against; Core sends it hex
+			// on the same call that already carried the token. A key that will not decode is
+			// dropped rather than registered short: a truncated key would refuse every one of
+			// that node's polls, and saying so once beats a silent 401 loop the operator sees
+			// only as a station that never serves.
+			var pub ed25519.PublicKey
+			if n.AssertionKey != "" {
+				raw, derr := hex.DecodeString(n.AssertionKey)
+				if derr != nil || len(raw) != ed25519.PublicKeySize {
+					fmt.Fprintf(out, "hub: station %s has an unusable assertion key from Core - "+
+						"it cannot make a signed poll here until that is fixed\n", n.StationID)
+				} else {
+					pub = ed25519.PublicKey(raw)
+				}
+			}
+			server.RegisterNode(n.StationID, towerhub.NodeAuth{AssertionKey: pub, LegacyToken: n.HubToken})
 			seen[n.StationID] = true
 		}
 		for id := range known {

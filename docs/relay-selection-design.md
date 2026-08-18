@@ -266,12 +266,13 @@ unproven, near one — otherwise the optimizer degrades the service it is meant 
 
 ---
 
-## 5. Open decision: the hub channel is structurally forced to plaintext
+## 5. Decided: signed hub polls (the credential is gone; the channel is still plaintext)
 
-**Status: NEEDS A DECISION. Nothing here is implemented.** This section exists because the code
-now says the true thing about the channel and the true thing is bad.
+**Status: DECIDED and IMPLEMENTED — option B of the three below, founder-approved, landed on
+`release/v5.7.0`.** This section was written up as NEEDS A DECISION; it is kept as the record of
+what was decided and why, because the reasoning is the part a later reader needs.
 
-### 5.1 What is actually true
+### 5.1 What was true
 
 `internal/agent/tower.go`'s `hubBaseURL` used to claim that "an endpoint that carries its own
 scheme is honored verbatim… this is how a TLS-fronted hub is reached". It cannot be, and no
@@ -280,71 +281,107 @@ deployment has ever done it. Both places a relay endpoint enters the system pars
 `cmd/roger-tower/serve.go` on its own configuration — and `net.SplitHostPort` rejects
 `"https://relay.example:443"` outright ("too many colons in address"). So the scheme branch is
 unreachable through every real ingress, the `"http://" + endpoint` branch is the only one that has
-ever run, and **a serving node long-polls its hub over plain HTTP, presenting its per-Station
+ever run, and **a serving node long-polled its hub over plain HTTP, presenting its per-Station
 bearer token in an `Authorization` header, for the life of the process.**
 
-What that does and does not expose:
+What that did and did not expose:
 
 - **Not the payload.** The job and its answer are sealed to keys the relay does not hold. An
   on-path observer sees ciphertext, exactly as the relay does.
-- **The node's polling credential.** Anyone on the path can capture the `HubToken` and poll for
-  that Station's work — which is a theft-of-work and a denial-of-earnings primitive, not merely an
-  eavesdropping one.
+- **The node's polling credential.** Anyone on the path could capture the `HubToken` and poll for
+  that Station's work — a theft-of-work and **denial-of-earnings** primitive, not merely an
+  eavesdropping one. Steal it once and it works forever, from anywhere, because the token was
+  minted at attach and never rotated or expired.
 
 `--tower` made this one operator's opt-in. Its removal made it the default for every signed-in
-`roger share`, which is why it is worth a section rather than a TODO.
+`roger share`, which is why it was worth a section rather than a TODO.
 
-### 5.2 What has been done in the meantime (and what it does not fix)
-
-1. `hubBaseURL` no longer claims a capability that does not exist, and reports whether the channel
-   it produced is plaintext.
-2. `towerhub.Client` refuses redirects outright (stricter than `protocol.NoDowngradeRedirect`,
-   which the broker calls use: a relay is an untrusted counterparty and has no legitimate reason to
-   redirect a poll, so "not a downgrade" is too weak a bar for a request carrying a bearer token).
-3. The node **says so, once, on a channel that is not discarded** (`agent.ErrHubChannelPlaintext`
-   through `agent.Notice`).
-4. `PRIVACY.md` no longer asserts "everything is TLS/HTTPS" without the carve-out.
-
-None of that encrypts anything. The channel is still plaintext.
-
-### 5.3 The options, and what each costs
+### 5.2 The options, and what each cost
 
 **A. Let the endpoint express a scheme.** Change the advertised endpoint from `host:port` to a
 URL, or add a sibling `scheme`/`tls` field on the Tower's `Hello` and on the attach response.
+Touches `link.Hello` validation, `cmd/roger-tower/serve.go` config, `RelayEndpoint`, the
+`tower_routable` projection's endpoint column, `towerEdgeAuthorize`'s `endpoint` response field,
+the consumer client that dials it, and `hubBaseURL`. The cheap half is a parse that accepts both
+forms; the expensive half is that a Tower operator now needs a certificate for a name the node
+will verify, which is a real operational burden on volunteers.
 
-- *Touches:* `link.Hello` validation, `cmd/roger-tower/serve.go` config, `RelayEndpoint`, the
-  `tower_routable` projection's endpoint column, `towerEdgeAuthorize`'s `endpoint` response field,
-  the consumer client that dials it, and `hubBaseURL`.
-- *Migration:* the endpoint is consumed by three independently-deployed programs, so it must be
-  additive and tolerant in both directions for at least one release — old Towers advertising
-  `host:port` must keep working while new ones advertise a scheme, and an old node receiving a
-  scheme must not crash. A parse that accepts both forms is the cheap half; the expensive half is
-  that a Tower operator now needs a certificate for a name the node will verify, which is a real
-  operational burden on volunteers and the reason this was not done at the start.
-- *Note:* the consumer-facing side already has an answer to the certificate problem — the grant
-  carries `relay_name` (`<station>.relay.rogerai.fm`) and the consumer connects with that as the
-  TLS server name. Reusing that name for the hub link is the obvious shape, and it makes the
-  certificate Core's problem rather than each operator's.
-
-**B. Channel-bound (or short-lived) credentials instead of a long-lived bearer.** Leave the
-transport alone and make the captured token useless: sign each poll with the Station's assertion
-key (it already holds one, and Core already knows the public half from the attachment) rather than
-presenting a reusable secret.
-
-- *Touches:* `towerhub` client and server, the hub's `checkToken` seam, `towerHubNodes`.
-- *Migration:* additive — the hub can accept either for a release. No certificates, no operator
-  burden, and it fixes the credential-capture case completely.
-- *Does not fix:* traffic analysis, and it leaves the channel unauthenticated in the other
-  direction (a node cannot tell it is talking to the hub Core named).
+**B. Sign each request instead of presenting a reusable secret.** Leave the transport alone and
+make a captured request useless.
 
 **C. Both.** B is the cheaper and larger risk reduction and does not depend on A; A is the
-complete answer. They are independent, and B first is the sensible order.
+complete answer.
 
-### 5.4 The question that actually needs answering first
+### 5.3 The decision: B now, A still open
 
-Given that the join is now automatic and fleet-wide: **should offering a share to the relay
-fabric be opt-out until at least option B ships?** The engineering answer is that the exposure is
-the operator's credential rather than the consumer's content, which argues it can wait. The
-counter-argument is that operators did not choose it and are not in a position to weigh it — and
-that "we made it the default while it was known-broken" is a much worse sentence than "we shipped
-the flag one release later". That is a founder call, not an engineering one.
+B shipped. A node signs every hub request with the Station's **assertion key** — the Ed25519 key
+it already signs receipts with, which Core already records on the attachment — using
+`protocol.SignRequest`, the same scheme the node already authenticates to Core with. Core ships
+the public half to the Tower on `/tower/hub/nodes` (the Tower previously had no way to learn it),
+and `towerhub.Server` verifies against it instead of comparing a token string. No certificates,
+no key distribution, nothing asked of Tower operators.
+
+**A is not closed and is not scheduled.** After B the plaintext channel leaks traffic *shape* —
+when a node polls, how large each sealed body is — which the Tower operator can see in any case
+by virtue of being the Tower. It also leaves the link unauthenticated in the other direction: a
+node still cannot tell it is talking to the hub Core named. Those are the reasons to do A
+eventually. They are not reasons to hold B.
+
+### 5.4 Replay, which is the part that needed thinking about
+
+`protocol`'s scheme is timestamp-window based (`SigMaxSkew`, five minutes), not nonce based, so
+signatures alone do not stop reuse. What a reuse *buys* differs per route, and only one route
+matters:
+
+| route | what a replay achieves |
+|---|---|
+| `POST /complete` | nothing — `hub.Complete` consumes the waiter once and `ConsumeDispatched` consumes the dispatch record once |
+| `POST /audit/transcript` | nothing — the want is cleared on first success, so a repeat is refused a courier ride |
+| `GET /audit/wanted` | a read whose answer the on-path attacker already watched go past in the clear |
+| `GET /poll` | **dequeues a job** the attacker cannot open and the honest node therefore never serves |
+
+The tempting conclusion — "the window narrows the attack from forever to five minutes, which is a
+large improvement" — is wrong, and it is worth writing down why. A node long-polls continuously,
+so an on-path attacker captures a fresh, unexpired poll signature every twenty-five seconds and
+never runs out. Timestamp skew alone would have narrowed "steal the token once, deny forever, from
+anywhere" to "stay on the path and deny continuously" — real, but not the fix.
+
+So the hole is **closed**, with a per-Station nonce carried in the request target (`?nonce=`, so
+`protocol.CanonicalRequest` binds it without forking the canonical string) and a nonce cache on
+the Tower. It applies to every route rather than only `/poll`, because a per-route exemption is a
+trap for whoever adds the next route.
+
+The cache is bounded, which for an attacker-facing map is the design rather than a detail: the
+signature is verified **before** anything is recorded, so only the holder of the Station's private
+key can make it grow; entries are per Station, so no station can evict another's; and each
+Station's set is two generations rotated on age or size, bounding memory at
+`2 × maxNoncesPerStation` regardless of traffic. **The residual, precisely:** a key holder signing
+more than that many requests inside one skew window forces early rotation, and those specific
+requests become replayable for the remainder of their timestamp window. At the real cadence a node
+needs hours to reach the cap.
+
+### 5.5 Transition: hard cutover on the node, one release of tolerance on the Tower
+
+`roger` and `roger-tower` are installed and updated separately, so a node and its Tower can be at
+different versions in both directions. The two halves are deliberately **asymmetric**:
+
+- **The node never sends the token again.** `towerhub.Client` has no `Token` field. Accepting a
+  fall-back would mean the credential is still on the wire, which is the whole exposure — and a
+  downgrade an attacker can provoke (strip the signature headers; answer 401 until the node gives
+  up) is not a security property. A current node therefore cannot serve a Tower older than this
+  change, and says so on the notice channel (`agent.ErrHubRefusedThisNode`) rather than retrying
+  into a discarded writer forever.
+- **The Tower accepts either, for one release.** `towerhub.Server.AllowLegacyBearer` (default
+  true) keeps a v5.7.1 node — which still presents a bearer — earning while it updates. It costs
+  the fleet nothing, because a current node puts nothing on the wire for an attacker to capture
+  and present; what it preserves is an exposure an already-released binary already has.
+
+**Delete `AllowLegacyBearer`, `NodeAuth.LegacyToken`, `newHubToken`, and the `hub_token` field one
+release after this ships.**
+
+### 5.6 What is still open
+
+The question §5 originally asked first — *should offering a share to the relay fabric be opt-out
+until the exposure is fixed?* — is answered by B shipping in the same release as the automatic
+join: there is no window in which the fleet is joined by default and holding a stealable
+credential. TLS (option A) remains deferred, and the endpoint wire format stays `host:port`.
