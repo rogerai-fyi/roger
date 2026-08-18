@@ -1,7 +1,9 @@
 package main
 
 import (
+	"fmt"
 	"testing"
+	"time"
 
 	"rogerai.fm/roger/v5/internal/towercore/fleet"
 )
@@ -49,15 +51,24 @@ func TestEdgeCandidateScoreRanksOnMeasuredHealth(t *testing.T) {
 
 // The load divisor is what stops a strong station becoming a magnet: two equally healthy
 // stations are not equally good choices if one is already busy.
+//
+// THE LOAD COMES FROM THE REAL PATH. This test used to write b.inflight by hand, which made
+// it green over a value nothing on the edge path ever set - the divisor was inert in
+// production and the test said otherwise. It now opens the busy station's work through
+// edgeEnterInflight, the same call towerEdgeAuthorize makes, so if the edge path ever stops
+// accounting for what it hands out this goes red.
 func TestEdgeCandidateScoreSpreadsLoad(t *testing.T) {
 	b := &broker{
-		trust:    map[string]trustState{},
-		inflight: map[string]int{},
+		trust:        map[string]trustState{},
+		inflight:     map[string]int{},
+		edgeInflight: map[string]string{},
 	}
 	healthy := trustState{probed: true, probeOK: true, probeCompleted: true}
 	b.trust["n-idle"] = healthy
 	b.trust["n-busy"] = healthy
-	b.inflight["n-busy"] = 3
+	for i := 0; i < 3; i++ {
+		b.edgeEnterInflight(fmt.Sprintf("at-%d", i), "n-busy", time.Now().Add(time.Hour))
+	}
 
 	idle := b.edgeCandidateScore(fleet.Station{StationID: "s-idle", NodeID: "n-idle"})
 	busy := b.edgeCandidateScore(fleet.Station{StationID: "s-busy", NodeID: "n-busy"})
@@ -71,6 +82,37 @@ func TestEdgeCandidateScoreSpreadsLoad(t *testing.T) {
 	idleBad := b.edgeCandidateScore(fleet.Station{StationID: "s-idlebad", NodeID: "n-idlebad"})
 	if busy <= idleBad {
 		t.Errorf("a busy healthy node (%v) should still beat an idle failing one (%v)", busy, idleBad)
+	}
+
+	// A settled attempt frees the station again - the divisor tracks work in flight, not work
+	// ever done.
+	for i := 0; i < 3; i++ {
+		b.edgeExitInflight(fmt.Sprintf("at-%d", i))
+	}
+	if freed := b.edgeCandidateScore(fleet.Station{StationID: "s-busy", NodeID: "n-busy"}); freed != idle {
+		t.Errorf("a drained station scores %v, not the idle %v", freed, idle)
+	}
+}
+
+// Cross-instance load counts too, and on this path it counts for more than on the classic
+// one: an edge attempt is opened by whichever broker the consumer's authorize reached and
+// settled by whichever one the Tower reaches, so a station is routinely busy somewhere other
+// than where it is being scored.
+func TestEdgeCandidateScoreSeesPeerInstanceLoad(t *testing.T) {
+	b := &broker{
+		trust:        map[string]trustState{},
+		inflight:     map[string]int{},
+		edgeInflight: map[string]string{},
+		peerInflight: map[string]int{"n-elsewhere": 4},
+	}
+	healthy := trustState{probed: true, probeOK: true, probeCompleted: true}
+	b.trust["n-here"] = healthy
+	b.trust["n-elsewhere"] = healthy
+
+	here := b.edgeCandidateScore(fleet.Station{StationID: "s-here", NodeID: "n-here"})
+	elsewhere := b.edgeCandidateScore(fleet.Station{StationID: "s-elsewhere", NodeID: "n-elsewhere"})
+	if elsewhere >= here {
+		t.Errorf("a station busy on another instance (%v) outranked an idle one (%v)", elsewhere, here)
 	}
 }
 

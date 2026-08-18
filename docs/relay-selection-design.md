@@ -167,10 +167,27 @@ one under map randomisation). `fleet.Station` carries the join, and `edgeTargetF
 returning `rows[0]`. Unmeasured scores neutral, not zero, so a newly attached station is not
 frozen out of the traffic it would need to earn a score.
 
-Deliberately not folded in yet: price (an edge consumer already authorizes against the
-station's pinned price, so undercutting is not this function's call) and speed-fit (TTFT is
-measured broker-to-node and says little about a path that avoids the broker). Both belong
-with the locality term in M5.
+**M1 correction (audit).** As first shipped, M1 claimed the load divisor "spreads work without
+overriding quality" and it did not. `enterInflight` is called only from `tunnel.go`, the
+relayed path, so nothing on the edge path ever moved the counter: every candidate scored at
+load zero forever, and a total order plus a strictly-greater comparison made the
+lexicographically first station a permanent all-to-one magnet — 200 placements, one station.
+The shipped test passed only because it wrote `b.inflight` by hand, a value the real path never
+sets. Both halves are now closed: an edge attempt increments the same per-node counter the
+classic router divides by (bracketed at authorize and released at settle, with an expiry bound
+by the attempt's own finalization ceiling, since the edge has no dispatch loop to unwind), and
+placement draws with `selectP2C` — the same power-of-two-choices this document's §1.5 already
+names as the anti-magnet mechanism, rather than a second one invented for this path.
+
+Deliberately not folded in yet, and now stated in `edgeCandidateScore`'s own comment rather
+than implied: price (an edge consumer already authorizes against the station's pinned price, so
+undercutting is not this function's call); speed-fit (TTFT is measured broker-to-node and says
+little about a path that avoids the broker); capacity normalization (`router.go` divides by
+`1+inflight/capacity`, the edge by `1+inflight` — `publishRoutable` hardcodes every
+self-attached row's capacity to 1, so normalizing by it today would divide by a constant and
+merely look meaningful); and a decaying UCB radius (an unmeasured edge row scores a flat
+neutral that never self-extinguishes). The first two belong with the locality term in M5; the
+capacity one wants real per-node capacity in the projection, which is M2-shaped work.
 
 **M2 — Collect locality.**
 A relay's advertised endpoint gets a coarse location, set by Core at admission (never

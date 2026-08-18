@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -45,7 +46,15 @@ func TestFullProductLoopANodeEarnsThroughATower(t *testing.T) {
 	// padded past the token count, since tokens<=bytes is a hard clamp).
 	modelBody := fmt.Sprintf(`{"choices":[{"message":{"content":"the answer"}}],"usage":{"prompt_tokens":0,"completion_tokens":500000},"pad":%q}`,
 		strings.Repeat("x", 600_000))
+	// IN-FLIGHT, OBSERVED FROM INSIDE THE SERVE. The upstream handler runs on the node while
+	// the attempt is genuinely open, which is the only honest place to ask whether Core knows
+	// this station is busy. Edge placement divides every candidate's quality by this number,
+	// and for a long time nothing on this path ever moved it: the divisor read zero forever
+	// and the top-scoring station took everything.
+	inflightDuringServe := &atomic.Int64{}
+	inflightDuringServe.Store(-1)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		inflightDuringServe.Store(int64(b.totalInFlight()))
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(modelBody))
 	}))
@@ -170,6 +179,14 @@ func TestFullProductLoopANodeEarnsThroughATower(t *testing.T) {
 	require.NoError(t, err)
 	require.InDelta(t, 0.15, balBefore-balAfter, 1e-9, "the consumer is debited exactly 500k x $0.30/1M")
 	require.NotEmpty(t, stationID)
+
+	// THE LOAD BRACKET, both ends, on the real loop. Core counted this node as busy while it
+	// was actually serving, and the receipt handed the slot back - so the next consumer's
+	// placement sees a free station rather than one that has been "busy" since the first
+	// request it ever took.
+	require.EqualValues(t, 1, inflightDuringServe.Load(),
+		"Core did not count the station as busy while it was serving - the placement load divisor reads zero")
+	require.Zero(t, b.totalInFlight(), "the settlement did not hand the station's slot back")
 }
 
 // The FAILURE path: the node is attached and routable but its serving loop is DOWN. The

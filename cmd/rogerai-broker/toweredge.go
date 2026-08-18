@@ -33,6 +33,7 @@ import (
 	"errors"
 	"log"
 	"math"
+	"math/rand"
 	"net/http"
 	"os"
 	"strconv"
@@ -212,7 +213,7 @@ func (b *broker) towerEdgeAuthorize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	target, row, ok := b.edgeTargetFor(req.Model)
+	target, row, ok := b.edgeTargetFor(req.Model, edgePlacementRand())
 	endpoint := row.Endpoint
 	if !ok {
 		// The same refusal whether the model is unknown, every Station is busy, or no Tower
@@ -300,6 +301,12 @@ func (b *broker) towerEdgeAuthorize(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusServiceUnavailable, "could not record this attempt - try again")
 		return
 	}
+	// THE STATION IS NOW BUSY, and placement has to know. This is the edge path's half of the
+	// bracket the relayed path gets for free from its dispatch loop: from here until a receipt
+	// arrives (or the attempt's settlement window closes) the node is carrying work, and the
+	// load divisor every candidate is scored through is only meaningful if somebody says so.
+	// After the record and the hold, so nothing counts an attempt that was never handed out.
+	b.edgeEnterInflight(g.AttemptID, row.NodeID, g.Deadline.Add(edgeSettleGrace()))
 	writeJSON(w, http.StatusOK, map[string]any{
 		"attempt_id": g.AttemptID,
 		"grant":      base64.StdEncoding.EncodeToString(g.Signed),
@@ -374,7 +381,10 @@ func (b *broker) openEdgeAttempt(g dispatch.EdgeGrant, target dispatch.Target) e
 // registry and the attachment record - never by the read model. And only rows with an
 // endpoint qualify: a Tower that relays nothing has no edge to route a consumer to, however
 // healthy its Stations are on the relayed path.
-func (b *broker) edgeTargetFor(model string) (dispatch.Target, fleet.Station, bool) {
+//
+// rng is the placement's randomness. Pass nil for a reproducible top-1 (tests, and the
+// single-candidate case where there is nothing to choose between anyway).
+func (b *broker) edgeTargetFor(model string, rng *rand.Rand) (dispatch.Target, fleet.Station, bool) {
 	ts := b.tower
 	if ts == nil || ts.routable == nil {
 		return dispatch.Target{}, fleet.Station{}, false
@@ -395,9 +405,19 @@ func (b *broker) edgeTargetFor(model string) (dispatch.Target, fleet.Station, bo
 	//
 	// There is now. Candidates arrive in a stable order, and each carries the node id, so a
 	// row can be scored on what was actually measured.
-	var best fleet.Station
-	var bestTarget dispatch.Target
-	bestScore := -1.0
+	//
+	// AND RANKING ALONE IS NOT ENOUGH, which is the correction M1 needed. A pure
+	// highest-score-wins over a stable order is a permanent magnet: the same station wins
+	// every identical request until its own load drags it down, and until edge work counted
+	// against that load (edgeEnterInflight, below) nothing ever dragged. The classic router
+	// has answered this since spec 1.5 with power-of-two-choices, and this path simply omitted
+	// it. It is the same selectP2C over the same scoredCand shape - one anti-magnet mechanism
+	// for the whole product, not a second one invented here.
+	var (
+		cands   []scoredCand
+		keep    []fleet.Station
+		targets []dispatch.Target
+	)
 	for _, row := range rows {
 		if row.Endpoint == "" {
 			continue
@@ -415,30 +435,77 @@ func (b *broker) edgeTargetFor(model string) (dispatch.Target, fleet.Station, bo
 		if !ok {
 			continue
 		}
-		// Strictly greater, so an exact tie keeps the earlier row - and because the input
-		// order is now total and stable, "earlier" is a reproducible answer rather than
-		// whatever the heap happened to return.
-		if sc := b.edgeCandidateScore(row); sc > bestScore {
-			bestScore, best, bestTarget = sc, row, target
-		}
+		// load is scoredCand's live-load tie-break, which router.go expresses as
+		// inflight/capacity. Edge rows have no usable capacity (see edgeCandidateScore), so
+		// this is the capacity=1 case: the raw count.
+		cands = append(cands, scoredCand{
+			idx: len(keep), score: b.edgeCandidateScore(row), load: float64(b.edgeCandidateLoad(row)),
+		})
+		keep = append(keep, row)
+		targets = append(targets, target)
 	}
-	if bestScore < 0 {
+	if len(cands) == 0 {
+		return dispatch.Target{}, fleet.Station{}, false
+	}
+	// edgeBeta concentrates the sampling on the strong end of the band. A tie, or a nil rng,
+	// still resolves to the first row of a total order, so "same fleet, same answer" survives
+	// wherever it was true before.
+	chosen := selectP2C(cands, edgeBeta, rng)
+	if chosen < 0 {
 		return dispatch.Target{}, fleet.Station{}, false
 	}
 	// The whole ROW rides back: the endpoint the consumer submits to, and the attachment's
 	// listed price that authorize pins into the grant.
-	return bestTarget, best, true
+	return targets[chosen], keep[chosen], true
 }
+
+// edgeBeta is the P2C sampling concentration for edge placement (score^beta). The classic
+// router takes this from the consumer's routing preference, which the edge path does not
+// have - an edge consumer authorizes against one Station's pinned price and never expresses
+// cheap/fast/reliable - so it uses the balanced anchor, the same value a request with no
+// stated preference gets on the other fabric.
+var edgeBeta = prefBalanced.weights().beta
+
+// edgePlacementRand is the per-request PRNG behind the power-of-two-choices draw. A fresh
+// Rand per authorize rather than one shared source, because *rand.Rand is not safe for
+// concurrent use and placement runs on the request goroutine; the seed comes from the global
+// source, which is randomly seeded and IS concurrency-safe.
+func edgePlacementRand() *rand.Rand { return rand.New(rand.NewSource(rand.Int63())) }
 
 // edgeCandidateScore ranks one routable row. Higher is better; the shape deliberately
 // mirrors router.go's `quality / load`, which is the classic path's answer to the same
 // question and has the property that matters here: no station becomes a magnet.
 //
-// It is NOT the full router. Price is absent because an edge consumer is quoted the
-// station's own pinned price and authorizes against it before dispatch, so undercutting is
-// not this function's decision to make; speed-fit is absent because TTFT is measured
-// broker-to-node and says little about a path that does not go through the broker. Both are
-// the subject of later milestones, along with the locality term this has no data for yet.
+// # WHERE IT AGREES WITH router.go AND WHERE IT DOES NOT
+//
+// An earlier version of this comment claimed the load divisor was used "exactly as the
+// classic router uses it". It was not, and the difference mattered: this is a smaller
+// function than pickFor and the gaps are all in the direction of concentrating traffic, so
+// they are worth naming rather than glossing.
+//
+// Shared: the quality/load shape, this instance's live in-flight count PLUS the merged
+// cross-instance peer load, and - since the P2C draw in edgeTargetFor - the same
+// anti-all-to-one selection over the same band.
+//
+// Still different, on purpose or for want of data:
+//
+//   - NO CAPACITY NORMALIZATION. router.go divides by 1+inflight/capacity, so a rig absorbs
+//     more concurrent work than a laptop before its score sags. Here the divisor is 1+inflight
+//     flat, which is the capacity=1 case. The projection row does carry a Capacity field, but
+//     publishRoutable hardcodes it to 1 for every self-attached station, so normalizing by it
+//     today would divide by a constant and merely look like it meant something. Deriving real
+//     capacity needs the node's concurrentTPS and hw class, which live behind a different lock
+//     than this read path holds - that belongs with the locality work, not here.
+//   - NO SPEED-FIT. TTFT and TPS are probed broker-to-node; an edge request never goes through
+//     the broker, so the number describes a path this placement is not choosing.
+//   - NO PRICE MODIFIER. An edge consumer is quoted the Station's own pinned price and
+//     authorizes against it before dispatch, so undercutting is not this function's decision.
+//   - A FLAT NEUTRAL, NOT A DECAYING UCB RADIUS. router.go gives a fresh node an exploration
+//     lift that shrinks as evidence accumulates; here an unmeasured row simply scores neutral
+//     forever until a probe says otherwise. It is the same intent - do not freeze out the
+//     unproven - with none of the self-extinguishing part.
+//
+// Price and speed-fit belong with the locality term in M5 (docs/relay-selection-design.md).
 //
 // UNMEASURED IS NOT BAD. A station with no node id, or one whose node the broker has never
 // probed, scores as neutral rather than as zero. Treating absent evidence as a bad result
@@ -446,23 +513,108 @@ func (b *broker) edgeTargetFor(model string) (dispatch.Target, fleet.Station, bo
 // a score, and it could not win traffic without one.
 func (b *broker) edgeCandidateScore(row fleet.Station) float64 {
 	const neutral = 0.75 // no evidence: better than a known-bad node, worse than a proven one
-	quality, load := neutral, 0
+	quality := neutral
 	if row.NodeID != "" {
 		// metricsMu, NOT b.mu: trust, inflight and the rest of the per-node metrics live
 		// under their own lock (see observeRecountInput and the /market reads), and taking
 		// the wrong one here would be a data race that happens to compile.
 		b.metricsMu.Lock()
 		tq, probed := b.trust[row.NodeID]
-		load = b.inflight[row.NodeID]
 		b.metricsMu.Unlock()
 		if probed {
 			quality = tq.score()
 		}
 	}
-	// The load divisor, exactly as the classic router uses it: a station already carrying
-	// work is a worse choice than an idle peer of equal quality, so work spreads instead of
-	// piling onto whichever row scores highest.
-	return quality / float64(1+load)
+	return quality / float64(1+b.edgeCandidateLoad(row))
+}
+
+// edgeCandidateLoad is the row's live concurrency: this instance's exact count plus the
+// merged peer-instance snapshot, exactly as pickFor reads it. Peer load matters more here
+// than on the classic path, not less - an edge attempt is opened by whichever broker the
+// consumer's authorize landed on and settled by whichever one the Tower reaches, so a busy
+// station is routinely busy somewhere other than where it is being scored.
+func (b *broker) edgeCandidateLoad(row fleet.Station) int {
+	if row.NodeID == "" {
+		return 0
+	}
+	b.metricsMu.Lock()
+	defer b.metricsMu.Unlock()
+	return b.inflight[row.NodeID] + b.peerInflight[row.NodeID]
+}
+
+// edgeEnterInflight / edgeExitInflight bracket one edge attempt in the SAME per-node
+// in-flight counter the classic router divides by.
+//
+// WITHOUT THIS THE DIVISOR WAS DECORATION. enterInflight is called only from tunnel.go, the
+// relayed path; nothing on the edge path ever touched the counter, so every edge candidate
+// scored at load 0 forever and the highest-scoring station absorbed the lot. The score said
+// it was spreading work and it was not, which is worse than not claiming to.
+//
+// ONE COUNTER, NOT TWO, because it is one machine. A node registered on the broker and
+// attached to the relay fabric serves both from the same GPU; splitting the accounting would
+// let each fabric fill a node the other already filled. The classic router now sees edge work
+// as load, which is the correct answer to "how busy is this node".
+//
+// AN EXIT IS NOT GUARANTEED, so it is bounded. The edge has no dispatch loop to unwind: Core
+// authorizes and then hears nothing until a receipt arrives, and plenty of attempts never
+// produce one - a consumer that never connects, a Station that dies mid-serve. A counter that
+// only goes up would slowly mark every station as saturated and, because the same counter
+// feeds the classic router, take it down with us. So every entry also carries an expiry timer
+// set to the attempt's own finalization ceiling: past that the attempt can no longer settle,
+// so it is by definition no longer in flight.
+func (b *broker) edgeEnterInflight(attemptID, nodeID string, until time.Time) {
+	if attemptID == "" || nodeID == "" {
+		return
+	}
+	b.metricsMu.Lock()
+	if b.edgeInflight == nil {
+		b.edgeInflight = map[string]string{}
+	}
+	if _, open := b.edgeInflight[attemptID]; open {
+		b.metricsMu.Unlock()
+		return // idempotent: an attempt id is opened once
+	}
+	if b.inflight == nil {
+		b.inflight = map[string]int{}
+	}
+	b.edgeInflight[attemptID] = nodeID
+	b.inflight[nodeID]++
+	count := b.inflight[nodeID]
+	b.metricsMu.Unlock()
+	// Same write-through the relayed path does, so a peer instance's placement sees this
+	// instance's edge load and not just its relayed load.
+	b.writeThroughInflight(nodeID, count)
+	if d := time.Until(until); d > 0 {
+		time.AfterFunc(d, func() { b.edgeExitInflight(attemptID) })
+	} else {
+		b.edgeExitInflight(attemptID)
+	}
+}
+
+// edgeExitInflight closes an open edge attempt. Idempotent by construction - the ledger entry
+// is what authorizes the decrement, and it is removed with it - so the settle path and the
+// expiry timer can both fire without double-counting, and a settlement for an attempt this
+// instance never opened (the ordinary multi-instance case) is a no-op rather than a
+// decrement of somebody else's count.
+//
+// Deliberately NOT folded into the success EWMA the way exitInflight does it. That EWMA gates
+// Tier A on the classic path, and an edge attempt that expired unsettled is not evidence the
+// node is unhealthy - a consumer closing a laptop looks identical. Marking a good node down
+// on the fabric it is not even being judged on would be a worse error than the one this fixes.
+func (b *broker) edgeExitInflight(attemptID string) {
+	b.metricsMu.Lock()
+	nodeID, open := b.edgeInflight[attemptID]
+	if !open {
+		b.metricsMu.Unlock()
+		return
+	}
+	delete(b.edgeInflight, attemptID)
+	if b.inflight[nodeID] > 0 {
+		b.inflight[nodeID]--
+	}
+	count := b.inflight[nodeID]
+	b.metricsMu.Unlock()
+	b.writeThroughInflight(nodeID, count)
 }
 
 // towerEdgeAck accepts the consumer's signed statement about what it actually received.
@@ -779,6 +931,10 @@ func (b *broker) towerEdgeSettle(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	// THE STATION IS FREE AGAIN. The receipt is the edge path's only "work finished" signal,
+	// so this is where the in-flight count opened at authorize comes back down. Idempotent, and
+	// a no-op on any instance that did not open this attempt.
+	b.edgeExitInflight(req.AttemptID)
 	// BOUND THE BILLABLE FIGURE TO WHAT THE GRANT AUTHORIZED. On the no-acknowledgement path
 	// (the common one) the billable usage is the Station's own signed number, and the Station's
 	// operator is the party being paid - so without this the amount owed is bounded only by the

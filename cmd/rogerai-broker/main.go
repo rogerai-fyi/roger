@@ -97,9 +97,17 @@ type broker struct {
 	// lastSharedSeen throttles the shared-state (Valkey) liveness write-through per
 	// node, on its own clock so it works even when b.db is nil. Guarded by metricsMu.
 	lastSharedSeen map[string]time.Time
-	inflight       map[string]int        // in-flight (active) requests per node
-	success        map[string]float64    // EWMA success rate per node (0..1)
-	trust          map[string]trustState // L1 re-count + probe trust/quality per node
+	inflight       map[string]int // in-flight (active) requests per node
+	// edgeInflight maps an OPEN edge attempt id to the broker node id it was placed on, so
+	// the count above can be decremented exactly once when the attempt closes. The edge path
+	// has no dispatch loop to bracket - Core authorizes, the payload goes consumer-to-Station
+	// through a Tower, and Core hears again only at settle - so without this ledger there is
+	// nothing that knows WHICH node an arriving receipt frees. Guarded by metricsMu; entries
+	// are removed at settle or by an expiry timer bounded by the attempt's own deadline, so an
+	// abandoned attempt cannot pin a station's load up forever.
+	edgeInflight map[string]string
+	success      map[string]float64    // EWMA success rate per node (0..1)
+	trust        map[string]trustState // L1 re-count + probe trust/quality per node
 	// successCount is the count of QUALITY-VALIDATED served completions per node (a
 	// non-empty body with output tokens, status<500), feeding the UCB exploration
 	// radius (smart-router v2): it is the evidence for the reward dimension that only
@@ -538,6 +546,7 @@ func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, loc
 		capsules:  newCapsuleStore(),
 		pubOfUser: map[string]string{},
 		inflight:  map[string]int{}, success: map[string]float64{}, trust: map[string]trustState{},
+		edgeInflight: map[string]string{},
 		successCount: map[string]int{}, concurrentTPS: map[string]float64{},
 		toolsOK:      map[string]bool{},
 		toolsMerged:  map[string]bool{},
