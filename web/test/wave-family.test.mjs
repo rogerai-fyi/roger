@@ -26,20 +26,41 @@ const jobsTable = () => {
   assert.ok(section, "the family page has a §4 JOBS section");
   return section.match(/<table class="tier-matrix"[\s\S]*?<\/table>/)?.[0] || "";
 };
-const rows = (table) => [...table.matchAll(/<tr>(?!\s*<th scope="col")[\s\S]*?<\/tr>/g)]
+/* AMENDED 2026-08-17: this matched a BARE <tr> only. §4 now carries two row forms -
+   the 27 plant jobs stay attribute-free because research-page.test.mjs counts them out
+   of this table and pins them to the scope figure's job arcs, while rows beyond the
+   plant set (the workshop bench, the top of the ladder) carry data-scope. A regex that
+   reads only the bare form would have let every new row into the page unchecked, which
+   is the opposite of what these assertions are for. It reads both forms now, so "every
+   job names a real slot", "no job twice" and the clinical sweep cover the whole table. */
+const rows = (table) => [...table.matchAll(/<tr\b[^>]*>(?!\s*<th scope="col")[\s\S]*?<\/tr>/g)]
   .map((m) => m[0]).filter((r) => /<th scope="row"/.test(r));
 
 // Every slot the family actually has. A jobs row may name only these.
 // SPECTRUM RENAME (founder, 2026-08-14): the ladder is Pico -> Nano -> Micro ->
 // Giga -> Tera -> Peta -> Exa; the jobs table names the four deployable-on-site
 // tiers, mapped 1:1 from the old vocabulary (Edge->Pico, Core->Giga).
-const SLOTS = ["Pico", "Nano", "Micro", "Giga"];
+/* AMENDED 2026-08-17: the list was the four deployable-on-site tiers, because §4 only
+   ever named those four. The guarantee is "a job may point only at a slot the family
+   actually HAS", and the family has seven - so the list is now the locked ladder in
+   full. §4 covers the whole of it (founder: it thinned out above Micro), and a typo or
+   an invented tier is still caught, which is the point. */
+const SLOTS = ["Pico", "Nano", "Micro", "Giga", "Tera", "Peta", "Exa"];
 
 test("the jobs table covers the plant broadly, not as a token gesture", () => {
   const table = jobsTable();
   const jobs = rows(table);
   assert.ok(jobs.length >= 16,
     `the jobs table is the breadth claim for the whole programme, found ${jobs.length} rows`);
+  /* AMENDED 2026-08-17: §4 gained a filter toolbar. The breadth claim is only a claim
+     if a reader can SEE it, so the same guarantee now covers the JS-off page: every row
+     is served in the markup (asserted above, which reads dist/ HTML, not a rendered
+     DOM), and the toolbar ships hidden so nothing is filtered away by a script that may
+     never run. If a future edit moves rows into JavaScript, this fails. */
+  const section = read("research-wave-family.html").match(/<section[^>]*id="jobs"[\s\S]*?<\/section>/)[0];
+  assert.doesNotMatch(section, /<script/i, "no inline script builds the table");
+  assert.match(section, /<div class="wj__bar"[^>]*\bhidden\b/,
+    "the toolbar is served hidden, so a reader without JS sees the whole table");
 });
 
 test("every job names a slot the family actually has", () => {
