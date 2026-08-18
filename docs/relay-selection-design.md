@@ -189,6 +189,38 @@ merely look meaningful); and a decaying UCB radius (an unmeasured edge row score
 neutral that never self-extinguishes). The first two belong with the locality term in M5; the
 capacity one wants real per-node capacity in the projection, which is M2-shaped work.
 
+**M1 correction, round two (security + enhancement review).** Three more things were wrong, and
+all three were promoted from "opt-in defect" to "fleet default" by the flag removal rather than
+caused by it.
+
+- *A never-probed node scored the ceiling.* `edgeCandidateScore` read `tq, probed :=
+  b.trust[id]` — MAP PRESENCE, not `tq.probed`. `observeRecount` creates an entry on the first
+  re-count of any served request with `probed=false`, and `trustState.score()` starts at 1.0, so
+  one served request promoted a station from the 0.75 neutral to the score reserved for a
+  canary-verified node, permanently, on zero liveness evidence. `edgeQuality` now distinguishes
+  three states, and admits recount evidence in one direction only: it measures HONESTY, not
+  liveness, so it may pull a station below neutral and may never lift one above it.
+- *Edge load was the classic router's counter.* "One counter, not two, because it is one machine"
+  was right about load and wrong about what `b.inflight` IS — the paid router divides by it, peers
+  merge it, and `probeOnce` skips any node with a non-zero count. Since an edge attempt is opened
+  at AUTHORIZE, before the consumer submits anything, and costs a refundable fraction of a cent,
+  that handed any signed-in account a lever to suppress a victim's canary probing and depress its
+  paid-fabric score (measured: 500 pins for $0.0001; edge score 0.7500 → 0.0147 at 50). The
+  counters are separate now and the read is one-way: edge placement adds both, the classic router
+  and the prober see only work they dispatched. `/tower/edge/authorize` is also rate-limited per
+  account and capped on simultaneously-open attempts, and the reservation expires with the grant's
+  EXECUTION deadline rather than its settlement window.
+- *There was no eligibility gate at all.* `edgeTargetFor` filtered on three properties of the
+  tower and the projection row and asked nothing about the machine. `edgeEligible` now mirrors
+  `pickFor`'s hard filters — stale heartbeat, node ban, durable owner ban, private band — under one
+  acquisition of `b.mu` then `metricsMu` for the whole fleet, so two rows are never compared across
+  two instants. Probe health is graded rather than hard (Tier A/B), because the edge fleet is small
+  and a broker-to-node probe streak says little about a path that avoids the broker. This is what
+  closes two live holes: `MayEnroll` is checked at attach time only, so a ban applied afterwards —
+  which is how the fraud pipeline works — left a node earning; and nothing assigns `StateDetached`
+  outside terminal reaping, so a machine that ran `roger share` once and pressed Ctrl-C stayed a
+  candidate indefinitely.
+
 **M2 — Collect locality.**
 A relay's advertised endpoint gets a coarse location, set by Core at admission (never
 self-declared — see §4). A node gets one at registration, resolved from the connecting IP
@@ -231,3 +263,88 @@ unproven, near one — otherwise the optimizer degrades the service it is meant 
 4. **Ephemeral sessions cost round trips.** Per-session relay setup adds a handshake to the
    first token of each session. Whether that is cheaper than the bandwidth it saves is an
    empirical question, and M1–M3 are worth doing whether or not M4 pays for itself.
+
+---
+
+## 5. Open decision: the hub channel is structurally forced to plaintext
+
+**Status: NEEDS A DECISION. Nothing here is implemented.** This section exists because the code
+now says the true thing about the channel and the true thing is bad.
+
+### 5.1 What is actually true
+
+`internal/agent/tower.go`'s `hubBaseURL` used to claim that "an endpoint that carries its own
+scheme is honored verbatim… this is how a TLS-fronted hub is reached". It cannot be, and no
+deployment has ever done it. Both places a relay endpoint enters the system parse it with
+`net.SplitHostPort` — `internal/towercore/link/towerlink.go` on the Tower's `Hello`, and
+`cmd/roger-tower/serve.go` on its own configuration — and `net.SplitHostPort` rejects
+`"https://relay.example:443"` outright ("too many colons in address"). So the scheme branch is
+unreachable through every real ingress, the `"http://" + endpoint` branch is the only one that has
+ever run, and **a serving node long-polls its hub over plain HTTP, presenting its per-Station
+bearer token in an `Authorization` header, for the life of the process.**
+
+What that does and does not expose:
+
+- **Not the payload.** The job and its answer are sealed to keys the relay does not hold. An
+  on-path observer sees ciphertext, exactly as the relay does.
+- **The node's polling credential.** Anyone on the path can capture the `HubToken` and poll for
+  that Station's work — which is a theft-of-work and a denial-of-earnings primitive, not merely an
+  eavesdropping one.
+
+`--tower` made this one operator's opt-in. Its removal made it the default for every signed-in
+`roger share`, which is why it is worth a section rather than a TODO.
+
+### 5.2 What has been done in the meantime (and what it does not fix)
+
+1. `hubBaseURL` no longer claims a capability that does not exist, and reports whether the channel
+   it produced is plaintext.
+2. `towerhub.Client` refuses redirects outright (stricter than `protocol.NoDowngradeRedirect`,
+   which the broker calls use: a relay is an untrusted counterparty and has no legitimate reason to
+   redirect a poll, so "not a downgrade" is too weak a bar for a request carrying a bearer token).
+3. The node **says so, once, on a channel that is not discarded** (`agent.ErrHubChannelPlaintext`
+   through `agent.Notice`).
+4. `PRIVACY.md` no longer asserts "everything is TLS/HTTPS" without the carve-out.
+
+None of that encrypts anything. The channel is still plaintext.
+
+### 5.3 The options, and what each costs
+
+**A. Let the endpoint express a scheme.** Change the advertised endpoint from `host:port` to a
+URL, or add a sibling `scheme`/`tls` field on the Tower's `Hello` and on the attach response.
+
+- *Touches:* `link.Hello` validation, `cmd/roger-tower/serve.go` config, `RelayEndpoint`, the
+  `tower_routable` projection's endpoint column, `towerEdgeAuthorize`'s `endpoint` response field,
+  the consumer client that dials it, and `hubBaseURL`.
+- *Migration:* the endpoint is consumed by three independently-deployed programs, so it must be
+  additive and tolerant in both directions for at least one release — old Towers advertising
+  `host:port` must keep working while new ones advertise a scheme, and an old node receiving a
+  scheme must not crash. A parse that accepts both forms is the cheap half; the expensive half is
+  that a Tower operator now needs a certificate for a name the node will verify, which is a real
+  operational burden on volunteers and the reason this was not done at the start.
+- *Note:* the consumer-facing side already has an answer to the certificate problem — the grant
+  carries `relay_name` (`<station>.relay.rogerai.fm`) and the consumer connects with that as the
+  TLS server name. Reusing that name for the hub link is the obvious shape, and it makes the
+  certificate Core's problem rather than each operator's.
+
+**B. Channel-bound (or short-lived) credentials instead of a long-lived bearer.** Leave the
+transport alone and make the captured token useless: sign each poll with the Station's assertion
+key (it already holds one, and Core already knows the public half from the attachment) rather than
+presenting a reusable secret.
+
+- *Touches:* `towerhub` client and server, the hub's `checkToken` seam, `towerHubNodes`.
+- *Migration:* additive — the hub can accept either for a release. No certificates, no operator
+  burden, and it fixes the credential-capture case completely.
+- *Does not fix:* traffic analysis, and it leaves the channel unauthenticated in the other
+  direction (a node cannot tell it is talking to the hub Core named).
+
+**C. Both.** B is the cheaper and larger risk reduction and does not depend on A; A is the
+complete answer. They are independent, and B first is the sensible order.
+
+### 5.4 The question that actually needs answering first
+
+Given that the join is now automatic and fleet-wide: **should offering a share to the relay
+fabric be opt-out until at least option B ships?** The engineering answer is that the exposure is
+the operator's credential rather than the consumer's content, which argues it can wait. The
+counter-argument is that operators did not choose it and are not in a position to weigh it — and
+that "we made it the default while it was known-broken" is a much worse sentence than "we shipped
+the flag one release later". That is a founder call, not an engineering one.
