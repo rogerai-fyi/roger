@@ -34,9 +34,15 @@
           lineage on every token. Read it once, keep it by the dial.
         </p>
         <div class="man-cover__meta">
+<<<<<<< Updated upstream
           <span>Set: <b>roger</b></span>
           <span>Version: <b data-cli-version>v5.7.1</b></span>
           <span>Broker: <b>broker.rogerai.fm</b></span>
+=======
+          <span>Set: <b>rogerai</b></span>
+          <span>Version: <b data-cli-version>v4.12.0</b></span>
+          <span>Broker: <b>broker.rogerai.fyi</b></span>
+>>>>>>> Stashed changes
           <span>Protocol: <b>OpenAI-compatible</b></span>
         </div>
       </div>
@@ -139,7 +145,7 @@
               OpenAI-compatible endpoint on <code>127.0.0.1</code> and bills your wallet
               per token. To provide, you point the same binary at a model you already run
               (Ollama, LM Studio, llama.cpp, vLLM, LiteLLM) and flip the switch. Free by
-              default, no login; set a price and link a GitHub account to earn.
+              default, no login; set a price and sign in once to earn.
             </p>
 
             <h3>Glossary</h3>
@@ -237,7 +243,7 @@
               <div class="man-plate__row"><span class="man-plate__k">[1] TUNE IN</span><span class="man-plate__v">browse the live band, filter/sort, and tune in to a station to chat (§3)</span></div>
               <div class="man-plate__row"><span class="man-plate__k">[2] SHARE</span><span class="man-plate__v">your provider table - flip your own models on / off air (§4)</span></div>
               <div class="man-plate__row"><span class="man-plate__k">[3] CONFIG</span><span class="man-plate__v">the in-app spend-limits editor (§8)</span></div>
-              <div class="man-plate__row"><span class="man-plate__k">[L] LOGIN / LOGOUT</span><span class="man-plate__v">link or unlink GitHub - the label flips with your state (§6)</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">[L] LOGIN / LOGOUT</span><span class="man-plate__v">sign in or out - the label flips with your state (§6)</span></div>
               <div class="man-plate__row"><span class="man-plate__k">[?] HELP</span><span class="man-plate__v">the in-app help screen; the version is printed here</span></div>
             </div>
             <p>The lit preset is the screen you are on. <kbd>&larr;</kbd> / <kbd>&rarr;</kbd>
@@ -524,17 +530,19 @@
               band within about ten seconds.</p>
             <div class="man-note man-note--live">
               <span class="man-note__tag">free path</span>
-              No login is required to share for free. Login (a linked GitHub account) is
-              required only once you set a price - a priced node without a login is
-              refused by the broker.
+              No login is required to share for free. A signed-in account is required only
+              once you set a price - a priced node without a login is refused by the broker.
+              Any provider counts: GitHub, Apple, or an emailed code.
             </div>
 
             <h3>Earn: set a price</h3>
             <p>Set a per-token rate to earn. Prices are in $/1M tokens, input and output,
               and you keep <b>70%</b> of every token you serve (70/30 in the operator's
-              favor). Earning needs a linked GitHub: <code>roger login</code>, then
-              share.</p>
-            <pre><span class="p">$</span> roger login                 <span class="c"># link GitHub (device flow) - only to earn</span>
+              favor). Earning needs an account: <code>roger login</code>, then
+              share. The CLI never talks to a provider itself - it prints a code, you
+              approve it on rogerai.fm, and you pick GitHub, Apple or an emailed code
+              there.</p>
+            <pre><span class="p">$</span> roger login                 <span class="c"># approve on rogerai.fm - any provider - only to earn</span>
 <span class="p">$</span> roger share --price-in 0.18 --price-out 0.30</pre>
             <p>Two price guards keep you honest by accident: if your out-price is more than
               <b>3&times;</b> the live market median for that model, <code>share</code> prints
@@ -905,7 +913,8 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
           <section class="man-sec" id="s6">
             <span class="man-sec__no">§6 · Wallet &amp; billing</span>
             <h2>One account, one wallet</h2>
-            <p>Your account is your GitHub login, and your account is your wallet. You can
+            <p>Your account is however you signed in - GitHub, Apple, or an emailed code - and
+              your account is your wallet. You can
               browse and open free endpoints with no account; you log in once you want a
               funded wallet to spend on paid stations. Top-ups run through Stripe Checkout;
               Stripe is the payments provider and the licensed money transmitter - RogerAI
@@ -1009,7 +1018,8 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
 
             <h3>Cash out from the CLI</h3>
             <p>The whole payout flow is also headless. You must be logged in
-              (<code>roger login</code>); KYC and a GitHub link gate every payout.</p>
+              (<code>roger login</code>); Stripe KYC and a proven identity - a GitHub link, an
+              Apple link, or a verified email address - gate every payout.</p>
             <pre><span class="p">$</span> roger payout                  <span class="c"># same as `payout status`</span>
 <span class="p">$</span> roger payout status           <span class="c"># Connect/KYC state, payable vs held, next-payable date, policy</span>
 <span class="p">$</span> roger payout onboard           <span class="c"># complete Stripe Connect KYC (opens the browser)</span>
@@ -1058,7 +1068,11 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
           <section class="man-sec" id="s9">
             <span class="man-sec__no">§9 · Command reference</span>
             <h2>Every command, every key</h2>
+<<<<<<< Updated upstream
             <p>The full surface as of <b data-cli-version>v5.7.1</b>: the top-level CLI
+=======
+            <p>The full surface as of <b data-cli-version>v4.12.0</b>: the top-level CLI
+>>>>>>> Stashed changes
               commands with their key flags, then the in-app keys and slash commands grouped
               by context. Commands with flag surfaces document <code>--help</code>; advanced
               flags hide behind <code>--advanced</code>. Run <code>roger</code> with no
@@ -1090,9 +1104,9 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
                   <tr><td><code>account</code></td><td>who you are; <code>account login</code> / <code>account logout</code> (alias: <code>identity</code>)</td></tr>
                   <tr><td><code>remote</code></td><td>your private BASE STATION sessions (aliases: <code>rc</code>): <code>list</code> (default) · <code>attach &lt;code&gt;</code> (continue a session from another terminal) · <code>off [id]</code> (end one or all) · <code>link</code> (how to put a session on the air). Enable one from inside the app with <code>/remote-control</code></td></tr>
                   <tr><td><code>resume [session-id]</code></td><td>resume a saved local AGENT session from the interactive picker or a known ID (alias: <code>continue</code>; <code>--help</code> prints usage)</td></tr>
-                  <tr><td><code>login</code></td><td>link GitHub (device flow) - only needed to earn</td></tr>
-                  <tr><td><code>logout</code></td><td>forget the local GitHub link</td></tr>
-                  <tr><td><code>whoami</code></td><td>show your signed identity + linked GitHub</td></tr>
+                  <tr><td><code>login</code></td><td>sign in - prints a code you approve on rogerai.fm, where you pick GitHub, Apple or an emailed code; only needed to earn</td></tr>
+                  <tr><td><code>logout</code></td><td>forget the local account link</td></tr>
+                  <tr><td><code>whoami</code></td><td>show your signed identity + the account it is linked to</td></tr>
                   <tr><td><code>onboard</code></td><td>re-run the first-run setup (alias: <code>setup</code>)</td></tr>
                   <tr><td><code>config</code></td><td>broker, user, webui-open, palette, spend limits: <code>config get/set broker|user|webui-open|palette</code> · <code>config set-limit &lt;model|default&gt; --max-out P [--max-in P] [--min-tps N]</code> · <code>config clear-limit &lt;model&gt;</code> · <code>config limits</code> (see §8)</td></tr>
                   <tr><td><code>perms</code> <span class="man-note">[confirm|edits|all]</span></td><td>set the persisted default for the AGENT's tool-approval mode (also <code>/perms</code> / <kbd>ctrl+p</kbd> in the app; <code>--yolo</code> / <code>--perms</code> override per run)</td></tr>
@@ -1351,6 +1365,7 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
               Newest first. The set self-updates - <code>roger upgrade</code> pulls the
               latest, <code>roger upgrade --check</code> just reports.</p>
             <div class="man-plate">
+<<<<<<< Updated upstream
               <div class="man-plate__row"><span class="man-plate__k">v5.7.1</span><span class="man-plate__v">Security repair: Unicode normalization no longer hangs on malformed UTF-8, and a reachable-vulnerability scan now gates both main and every tagged release. The broker exposes its release and exact deployed source revision at <code>GET /version</code>, with stale caching forbidden.</span></div>
               <div class="man-plate__row"><span class="man-plate__k">v5.7.0</span><span class="man-plate__v">Private bands become manageable identities: list, move to another model without rotating the frequency code, or revoke explicitly; the PATCH API also gains the first label write. Mutations now prove possession of the owner key, and the database enforces one live band per node even under concurrent moves. The agent can select a model running on this machine, the browser console gains its playbox deck, and the signed Tower inventory/object foundation lands without enabling Tower traffic yet.</span></div>
               <div class="man-plate__row"><span class="man-plate__k">v5.5.0</span><span class="man-plate__v">The Go module path becomes <code>rogerai.fm/roger/v5</code>. Go only considers release tags whose major version matches the module path, so the suffix-less path meant <code>go install</code> quietly resolved to the newest v0 tag - five major versions behind - for anyone installing from source. The correct command is now <code>go install rogerai.fm/roger/v5/cmd/rogerai@latest</code>; the installer and the prebuilt binaries were never affected. RogerAI Labs gains a careers page, and the Wave family is plotted on a radar scope with a true logarithmic parameter scale rather than a bar chart.</span></div>
@@ -1389,6 +1404,8 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
               <div class="man-plate__row"><span class="man-plate__k">v4.13.2</span><span class="man-plate__v">The tune-in confirm screen now shows the price-tier signal (the $-tier + a "good price" chip), matching the band list - so you can judge the deal before opening a channel.</span></div>
               <div class="man-plate__row"><span class="man-plate__k">v4.13.1</span><span class="man-plate__v">Steadier terminal UI: no more duplicated/ghosted headers, node messages tucked behind <code>/log</code>, a clearer shift-tab label, and a calmer (readable) Ping ticker.</span></div>
               <div class="man-plate__row"><span class="man-plate__k">v4.13.0</span><span class="man-plate__v">Sign in with Apple on the web, alongside GitHub.</span></div>
+=======
+>>>>>>> Stashed changes
               <div class="man-plate__row"><span class="man-plate__k">v4.12.0</span><span class="man-plate__v">The "Ping World" screensaver now has color, a full day/night world, and live on-air signal towers - plus a steadier dial and an <code>/agent</code> shortcut in the channel.</span></div>
               <div class="man-plate__row"><span class="man-plate__k">v4.11.0</span><span class="man-plate__v">A full-screen "Ping World" screensaver (<code>roger --ping</code>, or <kbd>z</kbd> / <code>/ping</code> in the TUI) you can leave up without dropping your channel - plus a compact "windowshade" minimize (<kbd>m</kbd>) and a <code>/</code> command palette.</span></div>
               <div class="man-plate__row"><span class="man-plate__k">v4.10.0</span><span class="man-plate__v">Bands now show a price tier ($ to $$$$) at a glance, with a <code>good price</code> tag on the best deals - in the terminal and on the web.</span></div>

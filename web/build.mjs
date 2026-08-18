@@ -64,6 +64,7 @@ const CSS_BUNDLES = {
   "broadcasts-connect-bots-openai-api.html": [...CSS_MARKETING, "broadcasts.css"], // broadcast 007 · SEO field guide (connect bots / OpenAI API)
   "broadcasts-deepseek-mtp-gguf.html": [...CSS_MARKETING, "broadcasts.css"], // broadcast 008 · field guide (DeepSeek MTP GGUF build story)
   "broadcasts-how-rogerai-routes-models.html": [...CSS_MARKETING, "broadcasts.css", "broadcast-routing.css"], // broadcast 009 · capacity-aware smart routing
+  "broadcasts-run-a-tower.html": [...CSS_MARKETING, "broadcasts.css"], // broadcast 010 · field guide (run a Tower / relay operator)
   "bands.html":     [...CSS_MARKETING],                  // redirect shell: shared chrome only
   "app.html":       [...CSS_MARKETING, "app.css"],       // the App Store launch page (shipped 2026-07-09)
   "404.html":       [...CSS_MARKETING, "notfound.css"],
