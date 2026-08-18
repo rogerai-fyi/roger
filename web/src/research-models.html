@@ -273,30 +273,31 @@
         </div>
 
         <div class="device-contract">
-          <p><b>Not a Wave tier.</b> Roger Edge is a different kind of model, not a
-             smaller rung on the Wave Spectrum. A Wave tier is a language model that
-             reasons about a machine. Roger Edge would be a classifier with a fixed label
-             set, distilled from Wave Pico and quantized to int8, small enough to sit in a
-             microcontroller&rsquo;s flash: kilobytes to a few megabytes, against tens of
-             megabytes for the smallest Wave tier. No Wave tier runs on an ESP32 or an
-             Arduino. The board is the sensor, and a Raspberry Pi is the smallest model
-             host.</p>
-          <p><b>Wave does not depend on it.</b> A Wave model runs on whatever machine
-             hosts it, with or without a Roger Edge board anywhere near. This line is a way
-             to put a small decision where the sensor is, not a part a deployment has to
-             buy into, and no tier of the Spectrum waits on it.</p>
-          <p><b>Hobbyists and professionals, one line.</b> The same job turns up at both
-             ends of the bench: someone with an ESP32 and a Pi at home, and someone wiring
-             a plant sensor to a model in a cabinet. We intend one line for both rather
-             than a toy version and a real one. Which boards it covers is not settled, and
-             we are not claiming support for a board we have not built for.</p>
+          <p><b>A classifier in the sensor&rsquo;s own flash.</b> Roger Edge is a task
+             model: a small classifier with a fixed set of labels, distilled from Wave
+             Pico and quantized to int8, sized to sit in a microcontroller&rsquo;s flash
+             at kilobytes to a few megabytes. It wakes, watches the signal, names what it
+             recognises, and hands anything it cannot name up to a Wave model. Roger Edge
+             detects; Wave reasons. No Wave tier runs on an ESP32 or an Arduino - the
+             board is the sensor, and a Raspberry Pi is the smallest model host.</p>
+          <p><b>The decision happens where the measurement does.</b> A node that can name
+             what it is seeing does not have to send everything it sees. That saves the
+             round trip, the bandwidth and the wait on a link that may not be there, and
+             it fits the power budget of a board running off a panel and a battery. A Wave
+             model runs on whatever machine hosts it, with or without a board like this
+             near the sensor, so this is something a deployment adds where it earns its
+             place.</p>
+          <p><b>One line, bench to cabinet.</b> The same job turns up at both ends: an
+             ESP32 and a Pi on a bench at home, and a plant sensor wired to a model in a
+             cabinet. We intend one line for both - the same classifier, and the same
+             contract for what the node sends and what comes back - so what you learn on
+             the bench is what runs in the plant. Which boards ship first is still
+             open.</p>
         </div>
 
-        <p class="model-roadmap"><b>Prototype phase.</b> Roger Edge is early: there is
-           no Roger Edge model, no library and nothing to download yet. What we intend
-           to publish is the contract for the hop a small board makes to a model - what
-           it sends, what comes back, what it escalates - so a sensor node and a Wave
-           model can be built by different people and still meet.</p>
+        <p class="model-roadmap"><b>Prototype phase.</b> Roger Edge is in prototype.
+           We will publish the pieces as the work advances and each one is ready to be
+           used in public.</p>
       </div>
     </section>
 

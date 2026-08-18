@@ -399,11 +399,29 @@ test("device and roadmap claims remain gated", () => {
   assert.ok(edge, "the Roger Edge section is on the catalogue page");
   const edgeCopy = edge.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
   assert.match(edgeCopy, /nothing trained/i, "the status says no model exists");
-  assert.match(edgeCopy, /no Roger Edge model, no library/i, "and that nothing is published to use");
+  /* AMENDED 2026-08-18: the status paragraph used to enumerate what does not
+     exist ("no Roger Edge model, no library and nothing to download yet");
+     the founder replaced it with a prototype-phase note. The guarantee -
+     that a reader can never think there is something here to go and get -
+     is unchanged and now rests on three things asserted together: the
+     section says nothing is trained (above), it declares itself prototype,
+     and it offers no download control or install path (below). */
+  assert.match(edgeCopy, /in prototype/i, "the line declares itself unfinished");
   assert.match(edgeCopy, /No Wave tier runs on an ESP32 or an Arduino/i);
-  // A separate line, not an eighth Wave tier, and Wave must never read as needing it.
-  assert.match(edgeCopy, /Not a Wave tier/i);
-  assert.match(edgeCopy, /Wave does not depend on it/i);
+  /* AMENDED 2026-08-18: these pinned two HEADINGS that defined Roger Edge by
+     what it is not ("Not a Wave tier", "Wave does not depend on it"). The
+     founder asked for the section to say what the line IS, so the copy is
+     positive now. The GUARANTEE is unchanged and still asserted, just on the
+     sentences that carry it: it must read as a CLASSIFIER rather than a
+     language model (so it can never be mistaken for an eighth Wave tier),
+     and a Wave model must still be described as running WITH OR WITHOUT
+     one (so Wave never reads as needing it). */
+  assert.match(edgeCopy, /classifier with a fixed set of labels/i,
+    "Roger Edge reads as a task model, never as a smaller Wave tier");
+  assert.match(edgeCopy, /Roger Edge detects; Wave reasons/i,
+    "and the division of labour is stated");
+  assert.match(edgeCopy, /with or without a board like this/i,
+    "a Wave model runs whether or not one is present");
   // Nothing to download, and no install path for a thing that does not exist.
   assert.doesNotMatch(edge, /class="model-download"/);
   assert.doesNotMatch(edgeCopy, /\b(SDK|pip install|arduino-cli|PlatformIO)\b/i,
