@@ -1342,6 +1342,10 @@
 
 /* THE FLEET tab - the rollup as bar rows over the recorded records */
 .sn-fleet { display: flex; flex-direction: column; gap: .3rem; margin: .5rem 0; }
+/* the line that separates the fleet PARTITION from the two cross-cutting
+   counts below it, so the bars stop reading as one breakdown */
+.sn-fleet__split { margin: .3rem 0 .15rem; padding-top: .28rem; border-top: 1px dashed var(--hairline-2); }
+.sn-fleet__split i { font-style: normal; font-family: var(--font-mono); font-size: .56rem; color: var(--ink-400); letter-spacing: .04em; }
 .sn-fleet__row { display: flex; align-items: center; gap: .6rem; }
 .sn-fleet__k {
   font-family: var(--font-mono); font-size: .58rem; letter-spacing: .08em;

@@ -3653,10 +3653,24 @@
     box.appendChild(lead);
 
     var rows = el("div", "sn-fleet");
+    /* These six were drawn as one list against the same denominator, which read
+       as a breakdown of the fleet - and they summed to 129%. Four of them ARE a
+       partition (caught + missed + false alarms + quiet = every channel);
+       escalated and unheard are CROSS-CUTTING - an escalated read is also
+       counted caught or missed above. So the partition is drawn first, and the
+       two overlapping counts are separated and labelled as subsets. */
     [["caught", t.caught, "ok"], ["missed", t.missed, "bad"],
-     ["escalated", t.escalated, null], ["unheard", t.deadEnd, "dead"],
      ["false alarms", t.falseAlarms, "dead"], ["quiet (healthy)", t.quiet, null],
+     ["__split", 0, null],
+     ["escalated", t.escalated, null], ["unheard", t.deadEnd, "dead"],
     ].forEach(function (rw) {
+      if (rw[0] === "__split") {
+        var note = el("div", "sn-fleet__split");
+        note.appendChild(el("i", null,
+          "of those same " + t.n + " channels - these overlap the four above, they do not add to them"));
+        rows.appendChild(note);
+        return;
+      }
       var row = el("div", "sn-fleet__row");
       row.appendChild(el("span", "sn-fleet__k" + (rw[2] ? " wp-read__mark--" + rw[2] : ""), rw[0]));
       var bar = el("span", "sn-fleet__bar");
@@ -6133,7 +6147,17 @@
       if (!PATCH.catalog || !PATCH.measured) { fail(); return; }
       var prov = $("wpProv");
       if (prov) {
-        prov.textContent = "Recorded fleet: " + PATCH.measured.escalation.n + " items of " +
+        /* This said "Recorded fleet: 800 items ... every reading here is a
+           recount of these records" - but the deck holds TWO populations and
+           the readings on screen come from the smaller one. The 120 replayed
+           records drive the monitor, the fleet tab and the score strip; the
+           800-item escalation sweep drives the chain economics. Naming one as
+           the source of everything made the same knob print two answers
+           (28.5% escalate from the sweep, 35/120 = 29.2% from the records).
+           Both are real; the banner says which is which now. */
+        prov.textContent = "Recorded: " + PATCH.measured.records.length +
+          " replayed records (every reading on this deck) and a " +
+          PATCH.measured.escalation.n + "-item escalation sweep (the chain economics) of " +
           shortName(PATCH.measured.escalation.child) + " under " +
           shortName(PATCH.measured.escalation.parent) + " on " +
           shortName(PATCH.measured.escalation.bench) + " · " + PATCH.measured._provenance.suite +

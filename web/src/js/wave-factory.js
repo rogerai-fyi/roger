@@ -80,11 +80,21 @@
      is all Mk I, so the taught opening is untouched. Surfaced in the shop
      rows and the maintenance card - a buyer should know what reliability
      they are buying. */
-  /* The Mk III interval multiplier is 4.0 BY MEASUREMENT, not vibes: the
-     proof-run bots (test file) drove a full Mk III automated plant with
-     auto-inspect live; at x1.7 and x3.0 no honest uptime bar cleared a
-     majority of 3-minute windows - x4.0 is where a majority clears 80% on
-     every seed while an all-Mk-I plant still fails every window. */
+  /* The Mk III interval multiplier was tuned BY MEASUREMENT at the v32 bar,
+     which was a THREE-minute proof window: at x1.7 and x3.0 no honest uptime
+     bar cleared a majority of those windows, and x4.0 did on every seed while
+     an all-Mk-I plant failed every one.
+
+     STALE JUSTIFICATION, CORRECTED 2026-08-18. The founder lowered the window
+     to two minutes (v36), so that sentence no longer measured the bar it
+     justifies. Re-measured at the shipped 120s window, 80% uptime, three
+     seeds: x1.7 clears 13/9/4% of windows, x3.0 clears 60/74/76%, x4.0
+     clears 68/75/48% - and an all-Mk-I plant still clears 0% at every
+     setting. So the FLOOR the constant exists to hold is intact (Mk III is
+     winnable, Mk I is not), but "x4.0 is where a majority clears on every
+     seed" is no longer true of x4.0 alone - x3.0 now clears a majority on
+     all three seeds and x4.0 misses on one. The constant is founder balance
+     canon and is NOT retuned here; only the claim about it is corrected. */
   var MK_FAULT_MULT = [1.0, 1.5, 4.0];   // fault interval multiplier per Mk
   var MK_VERB_MULT = [1.0, 0.8, 0.6];    // verb duration multiplier per Mk
   function mkFaultMult(m) { return MK_FAULT_MULT[m.tier] || 1; }
@@ -219,9 +229,14 @@
      runs hands-off for a stretch while its own dashboard records it. */
   var CERT_PROOF_SECS = 120;     /* two untouched minutes... (v35: the founder
      lowered the stretch from three - the bar's uptime stays measured) */
-  /* ...at EIGHTY percent uptime or better. v32, measured not vibed: the
-     fixed-seed proof-run bots (test file, "the proof run is winnable")
-     drove a fully-upgraded fully-automated plant hands-off for 15 sim-
+  /* ...at EIGHTY percent uptime or better. v32, measured not vibed - but note
+     the figures below were measured against the THREE-minute window of that
+     round; the shipped window is two (v36). What re-verifies the bar at its
+     current value is the executed lock "the proof run is winnable", which
+     reads certProofSecs rather than a hardcoded 180 and still shows a full
+     Mk III plant clearing a majority while an Mk I plant clears none.
+     The original v32 measurement, for the record: the fixed-seed proof-run
+     bots drove a fully-upgraded fully-automated plant hands-off for 15 sim-
      minutes across 3 seeds. At 90% only 4-32% of sliding 3-minute windows
      passed - the founder's exact complaint ("hard to get 3 minutes at
      90%+ is the only thing missing") was true BY CONSTRUCTION. 80% is the
@@ -2927,7 +2942,11 @@
      ["BURNT", String(Math.floor(G.spoiled))],
      ["UPTIME", up.toFixed(0) + "%"],
      ["CAUGHT IN TIME", String(G.incidents.caught)],
-     ["RIGHT VERB, FIRST TRY", G.diag.total ? G.diag.first + "/" + G.diag.total : "—"],
+     /* the denominator is incidents CLEARED BY A VERB (G.diag.total only
+        increments on a successful clear), so an incident you serviced or left
+        broken never enters it. The label used to imply a rate over all
+        incidents; it names its own denominator now. */
+     ["FIRST TRY, OF FIXES", G.diag.total ? G.diag.first + "/" + G.diag.total : "—"],
      ["LINE STOPPED", String(G.incidents.missed)],
      [G.coins < 0 ? "ON LOAN" : "COINS", String(Math.floor(G.coins))],
     ].forEach(function (p) {

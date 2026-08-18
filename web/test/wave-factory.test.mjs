@@ -1121,7 +1121,11 @@ test("v28: playtest round 2 - verdicts silence coaching, absurd readings confess
   assert.match(js, /cl-ticker/, "the radio's last line rides a visible ticker");
   assert.match(js, /nobody was watching - a Pico would have been/,
     "the recorded-miss line is conditioned on actually owning a model");
-  assert.match(js, /RIGHT VERB, FIRST TRY/, "the win card scores the diagnosis");
+  /* AMENDED 2026-08-18 (numeric audit): the label was renamed to "FIRST TRY,
+     OF FIXES" because its denominator counts incidents CLEARED BY A VERB, not
+     all incidents - the old wording implied a rate over everything that went
+     wrong. The guarantee is unchanged: the win card scores the diagnosis. */
+  assert.match(js, /FIRST TRY, OF FIXES/, "the win card scores the diagnosis");
   assert.match(js, /unlocks with WAVE MICRO/, "the handover destination is visible before it unlocks");
 });
 
