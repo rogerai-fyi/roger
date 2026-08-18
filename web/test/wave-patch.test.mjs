@@ -1726,10 +1726,33 @@ test("v14: the Spectrum menu carries the mesh-baked line and the recipe legend",
 test("v14: ONE WHY WAVE entry with the five questions as an internal nav", () => {
   assert.ok(/WHY WAVE\? · the story in five questions/.test(js), "one entry point");
   const topics = js.slice(js.indexOf("function whyTopics"), js.indexOf("function renderWhys"));
-  for (const q of ["why task-native\\?", "why a senior\\?", "why not one big model\\?",
-                   "why so small\\?", "what happens after a finding\\?"]) {
-    assert.ok(new RegExp(q).test(topics), `${q} is a topic inside the panel`);
+  /* v39 (UX audit items 1+2): two labels changed, and the lock changed shape
+     with them. The GUARANTEE is unchanged - five questions, one panel, a
+     tablist - but two of the five asked the wrong question:
+       "why task-native?"      -> a term you must already know to click it,
+                                  over content that answers the question a
+                                  visitor actually arrives with;
+       "why not one big model?" -> reads as "why not a frontier chat model",
+                                  over content that is Wave-only (Pico alone
+                                  vs the Pico+Nano mesh vs Nano direct).
+     The label list also now matches on `label: "..."` - the string the visitor
+     reads - instead of a bare regex. The bare form matched anywhere in the
+     slice, so the prose of this very rename would have kept the old lock
+     green while the tab said something else. */
+  for (const q of ["why not a general model?", "why a senior?",
+                   "why a chain, not just the bigger Wave?",
+                   "why so small?", "what happens after a finding?"]) {
+    assert.ok(topics.includes(`label: "${q}"`), `${q} is a topic label inside the panel`);
   }
+  assert.ok(!/label: "why task-native\?"/.test(topics) &&
+            !/label: "why not one big model\?"/.test(topics),
+    "the two questions that did not match their own content are gone");
+  assert.ok(/Because nothing on this bench is a conversation/.test(topics),
+    "the general-model tab answers with what the job demands, not with a comparison");
+  assert.ok(/is not a measurement of anyone else's/.test(topics),
+    "and says in the same paragraph that it is not measuring anyone else");
+  assert.ok(!/WHY NOT ONE BIG MODEL\?/.test(topics),
+    "no tab cross-reference still points at the retired label");
   assert.ok(/role", "tablist"/.test(js.replace(/setAttribute\(/g, '", "').slice(0)) ||
             js.includes('setAttribute("role", "tablist")'),
     "the mini-nav is a tablist");
@@ -2743,4 +2766,118 @@ test("v38: the rail reads whole at desktop width, the bezel keys sit in front of
     "and the legends are ink-900 at the type floor");
   const k = css.slice(css.indexOf(".wp-console__k {"), css.indexOf("}", css.indexOf(".wp-console__k {")));
   assert.ok(/font-size: \.72rem/.test(k) && /var\(--ink-900\)/.test(k), "the 1 · 2 · 3 labels win visually");
+});
+
+// ---------- v39: the room audit ---------------------------------------------
+// Every lock below was written against a defect MEASURED in a browser at
+// 1425 / 1300 / 1200 / 900 / 700px, not against a hunch. They guard the
+// instrument's two failure modes: content the bezel eats, and controls that
+// look live and do nothing.
+
+test("v39: the face of the set never crops its own words", () => {
+  /* MEASURED: the glance screen is a fixed % of a fixed-aspect engraving, so
+     from 1400px down it silently clipped itself - 56px lost at 1300, 110px at
+     1200, 288px at 950, taking the mystery-case row and the whole OPEN FULL
+     MODEL OUTPUT affordance off the glass with no cue at all. Three rules hold
+     the fix: the deck stacks a step earlier, the plate steps aside a step
+     earlier, and the trace is the block that gives when neither is enough. */
+  assert.ok(/@media \(max-width: 1400px\) \{ \.sn-deck \{ grid-template-columns: 1fr; \} \}/.test(css),
+    "the two-column deck ends where the television stops fitting in it");
+  const narrow = css.slice(css.indexOf("@media (max-width: 1100px)"));
+  assert.ok(/\.sn-tv__plate \{ display: none; \}/.test(narrow),
+    "below the stacked deck the engraving steps aside for the output");
+  assert.ok(/\.sn-tv__front \{[^}]*position: static/.test(narrow),
+    "and the face follows it into flow, where it can grow to its content");
+  const trace = css.slice(css.indexOf(".sn-front__trace {"));
+  assert.ok(/flex: 0 1 auto/.test(trace.slice(0, 220)),
+    "the recorded trace is the one block allowed to shrink");
+  assert.ok(/\.sn-front__trace svg \{[^}]*flex: 1 1 61px/.test(css),
+    "at full size it is the same 61px trace as before - it only gives under pressure");
+});
+
+test("v39: the narrow deck draws one side of the screen, not both", () => {
+  /* MEASURED at 700px: the face and the detail are two sides of one screen,
+     but stacked in flow they BOTH rendered - the full detail, and under it a
+     face inviting you to "open full model output" that was already open above
+     it. */
+  const narrow = css.slice(css.indexOf("@media (max-width: 1100px)"));
+  assert.ok(/\.sn-tv:has\(> \.sn-tv__front:not\(\[hidden\]\)\) \.sn-tv__screen \{ display: none; \}/.test(narrow),
+    "with the face up, the detail behind it is not drawn a second time");
+  assert.ok(/\.sn-tvctl \{[^}]*position: static/.test(narrow),
+    "and the working keys leave the engraved bezel with the engraving");
+});
+
+test("v39: every control on the glass does something the moment it is pressed", () => {
+  const tabs = js.slice(js.indexOf("function renderTabs"), js.indexOf("function stageResponse"));
+  assert.ok(/if \(!detailOpen\(\)\) setDetail\(true\)/.test(tabs),
+    "a stage tab opens the layer it filters instead of repainting a hidden one");
+  const face = js.slice(js.indexOf("function paintFront"), js.indexOf("function wireFront"));
+  assert.ok(/ctl\.classList\.toggle\("is-lean", !detailOpen\(\)\)/.test(face),
+    "the strip goes lean while the face is up");
+  assert.ok(/\.sn-tvctl\.is-lean \[data-scroll="up"\], \.sn-tvctl\.is-lean \[data-scroll="down"\] \{ display: none; \}/.test(css),
+    "because the scroll keys drive the detail's scrollport and the face never scrolls");
+});
+
+test("v39: the remove key sits beside the model's name, not on it", () => {
+  /* MEASURED: an unstyled UA button is 22x27px at the inherited 16px, dropped
+     at top/right 4px on a card whose text ended 1.25rem from the same edge -
+     6px of overlap on Wave Nano and Wave Micro at every width tested. */
+  const x = css.slice(css.indexOf(".sn-slot--model .ws-resp__x {"),
+    css.indexOf("}", css.indexOf(".sn-slot--model .ws-resp__x {")) + 1);
+  assert.ok(/width: 1\.15rem; height: 1\.15rem/.test(x), "the key is sized instead of inheriting a body em");
+  assert.ok(/\.sn-chainrail \.sn-slot--model \{ padding: \.3rem 1\.6rem/.test(css),
+    "and the card's right padding clears it");
+});
+
+test("v39: the line says there is more line, at the edge you can see", () => {
+  assert.ok(/\.sn-chainrail \.sn-linefade \{[^}]*position: sticky/.test(css),
+    "the fade is pinned to the visible right edge of the scrollport");
+  assert.ok(/\.sn-chainrail \.sn-linefade \{[^}]*margin-left: -2\.2rem/.test(css),
+    "and adds nothing to the scroll width it is reporting on");
+  assert.ok(/host\.classList\.toggle\("is-more"/.test(js), "it only shows while there is more line");
+});
+
+test("v39: the plant's floor marker is measured against the plant", () => {
+  /* PLANT_FLOORS was measured off the plate (the building spans ~6%-99% of the
+     ART). The marker used to hang off the FIGURE - art plus headroom plus
+     caption - so the ground-floor band finished 46px below the building. */
+  const panel = js.slice(js.indexOf("function whereTheyLive"), js.indexOf("function paintLive"));
+  assert.ok(/art\.appendChild\(band\)/.test(panel),
+    "the floor band hangs off the art the percentages were measured against");
+  assert.ok(!/fig\.appendChild\(band\)/.test(panel),
+    "and no longer off the figure, whose box includes the caption under the building");
+  assert.ok(/\.sn-live__above \{[^}]*order: -1/.test(css),
+    'and "above the roof" is printed above the roof');
+});
+
+test("v39: nothing a visitor must read on this deck is under the type floor", () => {
+  /* v38 raised the interactive text; this finishes the sweep for the read-only
+     labels, the citations, the record ids and the instrument faces. Sizes are
+     asserted where a shrink would be a regression, not as decoration. */
+  const at = (selector) => {
+    const i = css.indexOf(selector);
+    assert.ok(i >= 0, `${selector} exists`);
+    const block = css.slice(i, css.indexOf("}", i) + 1);
+    const m = block.match(/font-size:\s*([\d.]+)rem/);
+    assert.ok(m, `${selector} declares a font size`);
+    return parseFloat(m[1]);
+  };
+  // controls first: a thing you click is never smaller than .58rem
+  for (const sel of [".sn-tab {", ".sn-watch__opt {", ".wp-dialect {", ".syn-pad__k {",
+                     ".sn-why__tab {", ".sn-why > summary {", ".sn-rawfold > summary {",
+                     ".sn-field__more, .sn-field__less {", ".sn-cert summary {"]) {
+    assert.ok(at(sel) >= 0.58, `${sel} is at or above the interactive type floor (got ${at(sel)})`);
+  }
+  // then the read-only labels that carry meaning
+  for (const sel of [".sn-band__cap b {", ".sn-band__ghost {", ".sn-slot__meta {",
+                     ".sn-live__at {", ".sn-live__k {", ".sn-live__size {",
+                     ".sn-why__cite {", ".syn__prov {", ".sn-prompt__wire {",
+                     ".sn-watch__k {", ".sn-scope__tag {", ".sn-stage__tech {",
+                     ".sn-front__hintkey {", ".sn-front__answerk {"]) {
+    assert.ok(at(sel) >= 0.54, `${sel} is readable (got ${at(sel)})`);
+  }
+  assert.ok(/\.sn-fm__t \{ font-family: var\(--font-mono\); font-size: 9px/.test(css),
+    "the knob's own read-out was 6.5px in a 230-unit box - the smallest type on the deck");
+  assert.ok(/\.sn-side__pads \{ padding-top: 1\.1rem/.test(css),
+    "and the pads panel opens below its own decorative screw, which sat on the W of WHAT'S");
 });

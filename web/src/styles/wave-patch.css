@@ -37,7 +37,7 @@
 
 
 .wp-tag {
-  font-family: var(--font-mono); font-size: .56rem; letter-spacing: .1em;
+  font-family: var(--font-mono); font-size: .6rem; letter-spacing: .1em;
   padding: .1rem .35rem; border: 1px solid var(--ink-300); border-radius: 3px; color: var(--ink-500);
 }
 
@@ -78,7 +78,7 @@
 /* ---- cable inspection: the same truth in eight dialects ---------------- */
 .wp-dialects { display: flex; flex-wrap: wrap; gap: .25rem; margin: .4rem 0; }
 .wp-dialect {
-  font-family: var(--font-mono); font-size: .58rem; letter-spacing: .04em;
+  font-family: var(--font-mono); font-size: .62rem; letter-spacing: .04em;
   padding: .2rem .45rem; border-radius: 4px; cursor: pointer;
   border: 1px solid var(--hairline-2); background: var(--paper); color: var(--ink-500);
 }
@@ -228,7 +228,7 @@
 .wp-knob__cap { fill: var(--paper); stroke: var(--ink-700); stroke-width: 1.5; }
 .wp-knob__needle { stroke: var(--ink-900); stroke-width: 2.5; stroke-linecap: round; }
 .wp-knob__k {
-  font-family: var(--font-mono); font-size: .54rem; letter-spacing: .1em;
+  font-family: var(--font-mono); font-size: .6rem; letter-spacing: .1em;
   color: var(--ink-400); text-transform: uppercase;
 }
 
@@ -286,7 +286,7 @@
 /* the shelf rail: the family in one row, wrapping on small screens */
 .wp-rail { display: flex; gap: .5rem; align-items: stretch; flex-wrap: wrap; }
 .wp-rail__k {
-  font-family: var(--font-mono); font-size: .56rem; letter-spacing: .16em;
+  font-family: var(--font-mono); font-size: .6rem; letter-spacing: .16em;
   color: var(--ink-400); text-transform: uppercase; align-self: center;
 }
 
@@ -348,10 +348,10 @@
 .ws-meter__rail { stroke: var(--ink-300); stroke-width: 1.5; }
 .ws-meter__stop { stroke: var(--ink-500); stroke-width: 1.5; }
 .ws-meter__needle { fill: var(--ink-900); }
-.ws-meter__t { font-family: var(--font-mono); font-size: 7px; fill: var(--ink-400); }
+.ws-meter__t { font-family: var(--font-mono); font-size: 8.6px; fill: var(--ink-400); }
 .ws-rec {
   display: inline-flex; gap: .35rem; align-items: center;
-  font-family: var(--font-mono); font-size: .52rem; letter-spacing: .14em;
+  font-family: var(--font-mono); font-size: .58rem; letter-spacing: .14em;
   color: var(--ink-400);
 }
 .ws-rec__dot {
@@ -424,7 +424,7 @@
 .ws-menu__item--quiet { opacity: .66; }
 .ws-menu__txt { display: flex; flex-direction: column; gap: .1rem; }
 .ws-menu__txt b { font-family: var(--font-mono); font-size: .64rem; letter-spacing: .1em; }
-.ws-menu__txt span { font-family: var(--font-mono); font-size: .54rem; color: var(--ink-500); }
+.ws-menu__txt span { font-family: var(--font-mono); font-size: .58rem; color: var(--ink-500); }
 .ws-menu__status { color: var(--ink-400); }
 
 
@@ -474,7 +474,7 @@
 }
 .syn__brand i { font-style: normal; color: var(--ink-400); letter-spacing: .18em; }
 .syn__prov {
-  font-family: var(--font-mono); font-size: .54rem; color: var(--ink-400);
+  font-family: var(--font-mono); font-size: .58rem; color: var(--ink-400);
   line-height: 1.5; max-width: 46rem;
 }
 .syn__screw {
@@ -515,7 +515,7 @@
   box-shadow: inset 0 2px 5px rgba(0, 0, 0, .1), inset 0 -1px 0 var(--paper);
 }
 .syn-pad__k {
-  font-family: var(--font-mono); font-size: .5rem; letter-spacing: .1em;
+  font-family: var(--font-mono); font-size: .6rem; letter-spacing: .1em;
   color: var(--ink-400);
 }
 .syn-pad:hover .syn-pad__cap { border-color: var(--ink-500); }
@@ -551,7 +551,15 @@
    THE SENTENCE - selector -> chain -> monitor
    ===================================================================== */
 .sn-deck { display: grid; grid-template-columns: 16rem minmax(0, 1fr); gap: 1rem; }
-@media (max-width: 900px) { .sn-deck { grid-template-columns: 1fr; } }
+/* v39 (UX audit item 3): the deck used to hold two columns down to 900px. It
+   cannot: the right column carries the television, whose glass is a fixed
+   percentage of a fixed-aspect engraving, so from 1400px down the face of the
+   set silently CLIPPED its own content - measured 56px lost at 1300, 110px at
+   1200, 288px at 950, taking the mystery-case row and the whole "OPEN FULL
+   MODEL OUTPUT" affordance off the glass with no cue. Stacking one step earlier
+   gives the instrument the page width and the face fits again at every width
+   above the narrow layout. */
+@media (max-width: 1400px) { .sn-deck { grid-template-columns: 1fr; } }
 .sn-side { display: flex; flex-direction: column; gap: .6rem; min-width: 0; }
 .sn-flow { display: flex; flex-direction: column; gap: .6rem; min-width: 0; }
 .sn-sub { font-family: var(--font-mono); font-size: .58rem; letter-spacing: .06em; color: var(--ink-400); }
@@ -589,7 +597,7 @@
 .sn-type__art--junction .wb-plate__ink { -webkit-mask-image: url("../assets/wave/sensor-junction-ink.png"); mask-image: url("../assets/wave/sensor-junction-ink.png"); }
 .sn-type__txt { display: flex; flex-direction: column; gap: .12rem; min-width: 0; }
 .sn-type__txt b { font-family: var(--font-mono); font-size: .66rem; letter-spacing: .1em; color: var(--ink-900); }
-.sn-type__txt span { font-family: var(--font-mono); font-size: .56rem; color: var(--ink-400); }
+.sn-type__txt span { font-family: var(--font-mono); font-size: .6rem; color: var(--ink-400); }
 .sn-side__pads { padding: .65rem; }
 .sn-now { margin: .3rem 0 0; font-family: var(--font-mono); font-size: .56rem; color: var(--ink-500); overflow-wrap: anywhere; }
 .sn-now b { color: var(--ink-900); letter-spacing: .06em; }
@@ -625,13 +633,24 @@
 .sn-slot::after { right: -5px; }
 .sn-slot--sensor::before { display: none; }
 .sn-slot--monitor::after { display: none; }
-.sn-slot b { font-family: var(--font-mono); font-size: .56rem; letter-spacing: .08em; color: var(--ink-900); }
+.sn-slot b { font-family: var(--font-mono); font-size: .6rem; letter-spacing: .08em; color: var(--ink-900); }
 .sn-slot--sensor { border-width: 2px; }
 .sn-slot--sensor .sn-type__art { width: 1.6rem; height: 1.6rem; }
 .sn-slot--monitor { border-style: dashed; }
-.sn-slot--model { position: relative; padding-right: 1.4rem; }
+.sn-slot--model { position: relative; padding-right: 1.7rem; }
 .sn-slot--model .ws-icon { max-height: 26px; max-width: 34px; }
-.sn-slot--model .ws-resp__x { position: absolute; top: 4px; right: 4px; }
+/* v39 (UX audit item 3): the remove key is a UA-sized button - 22x27px at
+   the inherited 16px - dropped at top/right 4px on a card whose text box ends
+   1.25rem from the same edge. On Nano and Micro it sat ON the model's name
+   (measured 6px of overlap, every width). It is now a sized, centred key with
+   a hit box the card's padding actually clears. */
+.sn-slot--model .ws-resp__x {
+  position: absolute; top: 3px; right: 3px;
+  display: flex; align-items: center; justify-content: center;
+  width: 1.15rem; height: 1.15rem; padding: 0; line-height: 1;
+  font-size: .82rem; color: var(--ink-400); border-radius: 5px;
+}
+.sn-slot--model .ws-resp__x:hover { color: var(--ink-900); background: var(--paper-3); }
 .sn-slot--quiet { border-style: dashed; opacity: .8; }
 .sn-slot__txt { display: flex; flex-direction: column; gap: .1rem; }
 .sn-rail { display: inline-flex; align-items: center; flex: none; }
@@ -671,7 +690,7 @@
 .sn-verdict > b { font-family: var(--font-mono); letter-spacing: .12em; }
 .sn-gloss { color: var(--ink-500); }
 .sn-gloss__k {
-  font-style: normal; font-family: var(--font-mono); font-size: .57rem;
+  font-style: normal; font-family: var(--font-mono); font-size: .6rem;
   letter-spacing: .12em; color: var(--ink-300); text-transform: uppercase;
   border: 1px solid var(--hairline-2); border-radius: 3px; padding: 0 .25rem;
   vertical-align: middle;
@@ -685,7 +704,7 @@
 .sn-foot .wp-why { flex: 1; min-width: 12rem; margin: 0; }
 .wp-strip--ticker { min-height: auto; flex: none; }
 .sn-cert { font-size: var(--t-micro, .7rem); color: var(--ink-500); }
-.sn-cert summary { cursor: pointer; font-family: var(--font-mono); font-size: .56rem; letter-spacing: .1em; }
+.sn-cert summary { cursor: pointer; font-family: var(--font-mono); font-size: .6rem; letter-spacing: .1em; }
 
 /* =====================================================================
    FACEPLATE CRAFT - the zones read as radio hardware, not admin boxes
@@ -896,13 +915,16 @@
 @media (max-width: 620px) {
   .sn-field__controls { grid-template-columns: 1fr; }
 }
-.sn-vu { display: block; }
+/* v39: the gauge had no cap of its own - it was sized by the 16rem left bay.
+   Once the deck stacks (<=1400px) that bay is the whole page, and the needle
+   inflated to ~940px of instrument for one number. It keeps its own size now. */
+.sn-vu { display: block; width: 100%; max-width: 13rem; }
 .sn-vu__arc { fill: none; stroke: var(--ink-300); stroke-width: 1.4; }
 .sn-vu__tick { stroke: var(--ink-400); stroke-width: 1; }
 .sn-vu__tick.is-major { stroke: var(--ink-700); stroke-width: 1.4; }
 .sn-vu__needle { stroke: var(--ink-900); stroke-width: 1.8; stroke-linecap: round; }
 .sn-vu__hub { fill: var(--ink-900); }
-.sn-vu__t { font-family: var(--font-mono); font-size: 7.5px; fill: var(--ink-400); }
+.sn-vu__t { font-family: var(--font-mono); font-size: 8.6px; fill: var(--ink-400); }
 .sn-vu__t--mean { fill: var(--ink-700); }
 
 /* the chain menu inherits the bay treatment */
@@ -928,7 +950,7 @@
 .sn-tabs { display: flex; gap: .35rem; flex-wrap: wrap; }
 .sn-tab {
   padding: .3rem .7rem; border-radius: 6px; cursor: pointer; font: inherit;
-  font-family: var(--font-mono); font-size: .56rem; letter-spacing: .12em;
+  font-family: var(--font-mono); font-size: .64rem; letter-spacing: .12em;
   background: var(--paper); color: var(--ink-500);
   border: 1px solid var(--hairline-2);
   box-shadow: inset 0 -2px 0 rgba(0, 0, 0, .06);
@@ -1007,11 +1029,11 @@
 .sn-prompt__ta:focus-visible { outline: 2px solid var(--live); outline-offset: 1px; }
 .sn-prompt__row { display: flex; gap: .8rem; align-items: center; }
 .sn-prompt__wire {
-  font-family: var(--font-mono); font-size: .54rem; letter-spacing: .08em;
+  font-family: var(--font-mono); font-size: .6rem; letter-spacing: .08em;
   color: var(--ink-400); flex: 1;
 }
 .sn-reco {
-  font-family: var(--font-mono); font-size: .5rem; letter-spacing: .14em;
+  font-family: var(--font-mono); font-size: .58rem; letter-spacing: .14em;
   color: var(--ink-500); border: 1px solid var(--hairline-2); border-radius: 999px;
   padding: .15rem .5rem; background: var(--paper);
 }
@@ -1100,7 +1122,7 @@
 .sn-why { position: relative; }
 .sn-why > summary {
   list-style: none; cursor: pointer; display: inline-flex; gap: .35rem; align-items: center;
-  font-family: var(--font-mono); font-size: .56rem; letter-spacing: .12em;
+  font-family: var(--font-mono); font-size: .62rem; letter-spacing: .12em;
   text-transform: uppercase; color: var(--ink-500);
   padding: .25rem .55rem; border: 1px solid var(--hairline-2); border-radius: 999px;
   background: var(--paper);
@@ -1125,7 +1147,7 @@
 }
 .sn-why__cite {
   max-width: 34rem; margin: .35rem 0 0; font-family: var(--font-mono);
-  font-size: .54rem; color: var(--ink-400); letter-spacing: .04em; overflow-wrap: anywhere;
+  font-size: .6rem; color: var(--ink-400); letter-spacing: .04em; overflow-wrap: anywhere;
 }
 /* on a chain card the chip is icon-only so the rail stays one line; the
    summary keeps its accessible name via the visually-hidden label */
@@ -1215,7 +1237,7 @@
    ===================================================================== */
 
 /* the MARGIN-vs-FLOOR meter: bar = recorded margin, tick = the floor */
-.sn-fm { display: block; width: 15rem; max-width: 100%; margin: .3rem 0 .1rem; }
+.sn-fm { display: block; width: 16.5rem; max-width: 100%; margin: .3rem 0 .1rem; }
 .sn-fm__track { stroke: var(--ink-300); stroke-width: 1.2; }
 .sn-fm__detent { stroke: var(--ink-300); stroke-width: 1; }
 .sn-fm__bar { stroke: #1E7A3C; stroke-width: 3.5; stroke-linecap: round; }
@@ -1223,7 +1245,9 @@
 .sn-fm__bar.is-esc { stroke: #C99700; }
 .sn-fm__tip.is-esc { fill: #C99700; }
 .sn-fm__floor { stroke: var(--ink-900); stroke-width: 2; }
-.sn-fm__t { font-family: var(--font-mono); font-size: 6.5px; fill: var(--ink-500); letter-spacing: .06em; }
+/* v39: 6.5px in a 230-unit box rendered at ~6.8px on glass - the knob's own
+   read-out was the smallest type on the deck. */
+.sn-fm__t { font-family: var(--font-mono); font-size: 9px; fill: var(--ink-500); letter-spacing: .06em; }
 .sn-fm__t--m { fill: var(--ink-400); }
 
 /* semantic tint on VERDICT WORDS only - the word and the shape carry the
@@ -1293,7 +1317,7 @@
   display: flex; flex-direction: column; gap: .25rem;
 }
 .sn-shimread__k {
-  font-family: var(--font-mono); font-size: .56rem; letter-spacing: .14em;
+  font-family: var(--font-mono); font-size: .6rem; letter-spacing: .14em;
   color: var(--ink-400);
 }
 .sn-shimread__trace { width: 100%; max-width: 15rem; height: auto; display: block; }
@@ -1344,7 +1368,7 @@
   margin-bottom: .6rem;
 }
 .sn-why__tab {
-  font-family: var(--font-mono); font-size: .56rem; letter-spacing: .1em;
+  font-family: var(--font-mono); font-size: .64rem; letter-spacing: .1em;
   text-transform: uppercase; padding: .3rem .55rem; border-radius: 999px;
   border: 1px solid var(--hairline-2); background: var(--paper); color: var(--ink-500);
   cursor: pointer;
@@ -1651,7 +1675,7 @@
 .syn__provfold { margin-left: auto; }
 .syn__provfold > summary {
   cursor: pointer; list-style: none;
-  font-family: var(--font-mono); font-size: .54rem; letter-spacing: .1em;
+  font-family: var(--font-mono); font-size: .6rem; letter-spacing: .1em;
   text-transform: uppercase; color: var(--ink-400);
 }
 .syn__provfold > summary::-webkit-details-marker { display: none; }
@@ -1663,12 +1687,12 @@
 /* a stage says its plain name big, its protocol name small, its job quietly */
 .sn-stage__tech {
   margin-left: .4rem;
-  font-family: var(--font-mono); font-size: .5rem; letter-spacing: .1em;
+  font-family: var(--font-mono); font-size: .56rem; letter-spacing: .1em;
   text-transform: lowercase; color: var(--ink-300); font-style: normal;
   border: 1px solid var(--hairline-2); border-radius: 4px; padding: 0 .28rem;
 }
 .sn-stage__role {
-  font-family: var(--font-body, inherit); font-size: .56rem; color: var(--ink-400);
+  font-family: var(--font-body, inherit); font-size: .6rem; color: var(--ink-400);
   font-style: normal; letter-spacing: 0; text-transform: none;
 }
 
@@ -1677,7 +1701,7 @@
    follow the story. One click, always, and the SENSOR DATA tab shows it open. */
 .sn-rawfold > summary {
   cursor: pointer; list-style: none;
-  font-family: var(--font-mono); font-size: .54rem; letter-spacing: .06em;
+  font-family: var(--font-mono); font-size: .6rem; letter-spacing: .06em;
   color: var(--ink-400);
 }
 .sn-rawfold > summary::-webkit-details-marker { display: none; }
@@ -1690,12 +1714,12 @@
 .sn-watch { display: flex; align-items: center; gap: .65rem; flex-wrap: wrap; }
 .sn-watch__lead { display: flex; flex-direction: column; gap: .12rem; }
 .sn-watch__on {
-  color: var(--ink-700); font-family: var(--font-mono); font-size: .52rem;
+  color: var(--ink-700); font-family: var(--font-mono); font-size: .58rem;
   font-weight: 500; letter-spacing: .1em;
 }
 :root[data-theme="dark"] .sn-watch__on { color: var(--ink-300); }
 .sn-watch__k {
-  font-family: var(--font-mono); font-size: .48rem; letter-spacing: .12em;
+  font-family: var(--font-mono); font-size: .56rem; letter-spacing: .12em;
   color: var(--ink-400); text-transform: uppercase;
 }
 .sn-watch__row {
@@ -1704,7 +1728,7 @@
 }
 .sn-watch__opt {
   border: 0; background: transparent; cursor: pointer; color: var(--ink-500);
-  font-family: var(--font-mono); font-size: .54rem; letter-spacing: .08em;
+  font-family: var(--font-mono); font-size: .62rem; letter-spacing: .08em;
   padding: .3rem .6rem; border-radius: 999px;
 }
 .sn-watch__opt:hover { color: var(--ink-900); }
@@ -1730,7 +1754,7 @@
    role and fan-in ride the card's tooltip (they are still rendered, so the
    locks that read them hold, and the detail view prints them in full). */
 .sn-chainrail .sn-slot__role, .sn-chainrail .sn-slot__takes { display: none; }
-.sn-chainrail .sn-slot--model { padding: .3rem 1.25rem .3rem .4rem; }   /* right room for the x */
+.sn-chainrail .sn-slot--model { padding: .3rem 1.6rem .3rem .4rem; }   /* right room for the x (v39: was 1.25rem, the key overlapped the name) */
 .sn-chainrail .sn-slot--model .sn-slot__art { height: 46px; min-width: 32px; }
 .sn-chainrail .sn-slot--model .sn-slot__art .ws-icon { max-height: 46px; }
 .sn-chainrail .sn-slot--model .wp-knob { max-width: 3.4rem; }
@@ -1758,7 +1782,7 @@
 .sn-slot__state.is-esc { color: #C99700; border-color: #C99700; }
 .sn-slot__state.is-idle { color: var(--ink-300); }
 .sn-slot__meta {
-  font-family: var(--font-mono); font-size: .56rem; color: var(--ink-400);
+  font-family: var(--font-mono); font-size: .6rem; color: var(--ink-400);
   cursor: help;
 }
 
@@ -1831,7 +1855,7 @@
 .ws-menu__art .ws-icon { max-width: 100px; max-height: 78px; }
 .ws-menu__txt { padding-bottom: .3rem; }
 .ws-menu__runs {
-  font-family: var(--font-mono); font-size: .52rem; color: var(--ink-400);
+  font-family: var(--font-mono); font-size: .56rem; color: var(--ink-400);
 }
 /* the ladder is the point, so the rows stay in one column even on wide
    screens - two columns would break the staircase into two half-stories */
@@ -1886,9 +1910,9 @@
   font-family: var(--font-mono); line-height: 1.25;
 }
 .sn-band__cap b {
-  font-size: .54rem; letter-spacing: .14em; color: var(--tc, var(--ink-500));
+  font-size: .6rem; letter-spacing: .14em; color: var(--tc, var(--ink-500));
 }
-.sn-band__cap span { font-size: .5rem; letter-spacing: .06em; color: var(--ink-300); }
+.sn-band__cap span { font-size: .56rem; letter-spacing: .06em; color: var(--ink-400); }
 .sn-band:not(.is-seated) .sn-band__cap b { color: var(--ink-300); }
 
 /* an empty zone IS the add button - you click where the model would live */
@@ -1907,7 +1931,7 @@
 .sn-band__empty:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
 .sn-band__plus { font-size: 1rem; line-height: 1; }
 .sn-band__ghost {
-  font-family: var(--font-mono); font-size: .44rem; letter-spacing: .08em;
+  font-family: var(--font-mono); font-size: .56rem; letter-spacing: .08em;
   text-align: center;
 }
 
@@ -1979,7 +2003,7 @@
   background: color-mix(in srgb, var(--tc, transparent) var(--tier-wash), transparent);
 }
 .sn-answer__k {
-  font-family: var(--font-mono); font-size: .46rem; letter-spacing: .18em; color: var(--ink-400);
+  font-family: var(--font-mono); font-size: .56rem; letter-spacing: .18em; color: var(--ink-400);
 }
 .sn-answer__word {
   font-family: var(--font-mono); font-size: 1.5rem; line-height: 1.05; letter-spacing: .04em;
@@ -2020,7 +2044,7 @@
 }
 .sn-trail__row {
   display: flex; gap: .4rem; align-items: baseline;
-  font-family: var(--font-mono); font-size: .56rem;
+  font-family: var(--font-mono); font-size: .6rem;
 }
 .sn-trail__dot {
   width: .38rem; height: .38rem; border-radius: 50%; flex: none;
@@ -2060,16 +2084,16 @@
 }
 .sn-tiercase__head b, .sn-tiercase__card b,
 .sn-tiercase__mechanic b, .sn-tiercase__family b {
-  color: var(--ink-900); font-family: var(--font-mono); font-size: .48rem; letter-spacing: .11em;
+  color: var(--ink-900); font-family: var(--font-mono); font-size: .56rem; letter-spacing: .11em;
 }
 .sn-tiercase__head i {
-  color: var(--ink-400); font-family: var(--font-mono); font-size: .42rem;
+  color: var(--ink-400); font-family: var(--font-mono); font-size: .56rem;
   font-style: normal; letter-spacing: .07em; text-align: right;
 }
 .sn-tiercase__identity strong {
   color: var(--tc, var(--ink-900)); font-family: var(--font-mono); font-size: .68rem; letter-spacing: .06em;
 }
-.sn-tiercase__identity code { color: var(--ink-400); font-family: var(--font-mono); font-size: .48rem; }
+.sn-tiercase__identity code { color: var(--ink-400); font-family: var(--font-mono); font-size: .54rem; }
 .sn-tiercase__signal { margin: 0; color: var(--ink-700); font-size: .64rem; line-height: 1.45; }
 .sn-tiercase__cards { display: grid; grid-template-columns: 1fr 1fr; gap: .38rem; }
 .sn-tiercase__card {
@@ -2077,12 +2101,12 @@
   border-radius: 5px; background: var(--paper);
 }
 .sn-tiercase__card.is-tier { box-shadow: inset 0 -2px 0 var(--tc, var(--ink-500)); }
-.sn-tiercase__card p { margin: .18rem 0 0; color: var(--ink-500); font-size: .59rem; line-height: 1.42; }
+.sn-tiercase__card p { margin: .18rem 0 0; color: var(--ink-500); font-size: .62rem; line-height: 1.42; }
 .sn-tiercase__mechanic, .sn-tiercase__family {
   justify-content: flex-start; padding-top: .3rem; border-top: 1px dotted var(--hairline-2);
 }
 .sn-tiercase__mechanic span, .sn-tiercase__family span {
-  color: var(--ink-500); font-family: var(--font-mono); font-size: .5rem; line-height: 1.4;
+  color: var(--ink-500); font-family: var(--font-mono); font-size: .58rem; line-height: 1.4;
 }
 .sn-tiercase__family { opacity: .82; }
 .sn-scope { margin: .35rem 0 0; display: flex; flex-direction: column; gap: .4rem; }
@@ -2098,7 +2122,7 @@
 }
 .sn-scope__stat { display: flex; flex-direction: column; gap: .05rem; min-width: 4rem; }
 .sn-scope__grid dt {
-  font-family: var(--font-mono); font-size: .5rem; letter-spacing: .1em;
+  font-family: var(--font-mono); font-size: .56rem; letter-spacing: .1em;
   text-transform: uppercase; color: var(--ink-400);
 }
 .sn-scope__grid dd {
@@ -2112,12 +2136,12 @@
 }
 .sn-scope__casehead > span:first-child { display: flex; min-width: 0; flex-direction: column; gap: .12rem; }
 .sn-scope__casehead i {
-  color: var(--tc, var(--ink-700)); font-family: var(--font-mono); font-size: .46rem;
+  color: var(--tc, var(--ink-700)); font-family: var(--font-mono); font-size: .54rem;
   font-style: normal; letter-spacing: .12em;
 }
 .sn-scope__casehead b { color: var(--ink-900); font-size: .72rem; }
 .sn-scope__casehead > span:last-child {
-  color: var(--ink-500); font-family: var(--font-mono); font-size: .46rem; text-align: right;
+  color: var(--ink-500); font-family: var(--font-mono); font-size: .56rem; text-align: right;
 }
 .sn-scope__grid.is-case { border-radius: 5px; padding-block: .4rem; }
 .sn-scope__cases { display: flex; flex-direction: column; gap: .24rem; margin: 0; padding: 0; list-style: none; }
@@ -2130,18 +2154,18 @@
   border-color: var(--tc, var(--ink-700)); box-shadow: inset 3px 0 0 var(--tc, var(--ink-700));
 }
 .sn-scope__casemark {
-  color: var(--ink-400); font-family: var(--font-mono); font-size: .42rem; letter-spacing: .1em;
+  color: var(--ink-400); font-family: var(--font-mono); font-size: .52rem; letter-spacing: .1em;
 }
 .sn-scope__cases li.is-current .sn-scope__casemark { color: var(--tc, var(--ink-900)); }
 .sn-scope__caseid { display: flex; min-width: 0; flex-direction: column; }
 .sn-scope__caseid b { color: var(--ink-900); font-family: var(--font-mono); font-size: .58rem; }
-.sn-scope__caseid code { overflow: hidden; color: var(--ink-400); font-size: .42rem; text-overflow: ellipsis; }
+.sn-scope__caseid code { overflow: hidden; color: var(--ink-400); font-size: .52rem; text-overflow: ellipsis; }
 .sn-scope__casecondition, .sn-scope__caseout {
-  color: var(--ink-500); font-family: var(--font-mono); font-size: .48rem; letter-spacing: .06em;
+  color: var(--ink-500); font-family: var(--font-mono); font-size: .56rem; letter-spacing: .06em;
 }
 .sn-scope__caseout { color: var(--ink-900); text-align: right; }
 .sn-scope__policy {
-  margin: 0; font-family: var(--font-mono); font-size: .5rem; letter-spacing: .06em;
+  margin: 0; font-family: var(--font-mono); font-size: .56rem; letter-spacing: .06em;
   color: var(--ink-400);
 }
 
@@ -2151,7 +2175,7 @@
   font-size: var(--t-micro, .72rem);
 }
 .sn-scope__pair dt {
-  font-family: var(--font-mono); font-size: .5rem; letter-spacing: .1em;
+  font-family: var(--font-mono); font-size: .56rem; letter-spacing: .1em;
   text-transform: uppercase; color: var(--ink-400); padding-top: .12rem;
 }
 .sn-scope__pair dd { margin: 0; color: var(--ink-700); line-height: 1.45; }
@@ -2162,7 +2186,7 @@
   border-left: 2px solid var(--hairline-2); padding-left: .5rem;
 }
 .sn-scope__tag {
-  font-style: normal; font-family: var(--font-mono); font-size: .5rem;
+  font-style: normal; font-family: var(--font-mono); font-size: .56rem;
   letter-spacing: .12em; text-transform: uppercase; color: var(--ink-900);
   border: 1px solid var(--ink-300); border-radius: 3px; padding: 0 .28rem;
   margin-right: .25rem; white-space: nowrap;
@@ -2170,7 +2194,7 @@
 
 /* fan-in, stated on the card: what this tier takes IN */
 .sn-slot__takes {
-  font-family: var(--font-mono); font-size: .5rem; letter-spacing: .04em;
+  font-family: var(--font-mono); font-size: .56rem; letter-spacing: .04em;
   color: var(--ink-400); line-height: 1.3;
 }
 .sn-slot__takes-k { font-style: normal; color: var(--ink-300); }
@@ -2234,7 +2258,7 @@
 .ws-menu__item.is-seated { opacity: .55; }
 .ws-menu__item.is-seated:hover { opacity: .8; }
 .ws-menu__seated {
-  font-family: var(--font-mono); font-size: .54rem; letter-spacing: .04em;
+  font-family: var(--font-mono); font-size: .58rem; letter-spacing: .04em;
   color: var(--tc, var(--ink-500));
 }
 
@@ -2248,7 +2272,13 @@
    engraving is illustration; every fact beside it is a deployment fact. */
 .sn-live { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: var(--s-4, 1rem); align-items: start; }
 @media (max-width: 760px) { .sn-live { grid-template-columns: 1fr; } }
-.sn-live__plant { position: relative; margin: 0; padding-top: 9%; }
+/* v39: the caption said "above the roof" from a position BELOW the building.
+   The figure stacks, and the caption takes the top - where the tiers it names
+   actually are, and where the beyond-the-plant marker parks. */
+.sn-live__plant {
+  position: relative; margin: 0; padding-top: 0;
+  display: flex; flex-direction: column;
+}
 .sn-live__art { display: block; width: 100%; aspect-ratio: 280 / 630; position: relative; }
 .sn-live__art .wb-plate__ink {
   position: absolute; inset: 0; background: var(--ink-900);
@@ -2266,7 +2296,7 @@
 }
 @media (prefers-reduced-motion: reduce) { .sn-live__band { transition: none; } }
 .sn-live__above {
-  margin-top: .35rem; font-family: var(--font-mono); font-size: .5rem;
+  order: -1; margin: 0 0 .3rem; font-family: var(--font-mono); font-size: .56rem;
   letter-spacing: .06em; color: var(--ink-400); text-align: center;
 }
 .sn-live__right { display: flex; flex-direction: column; gap: .6rem; min-width: 0; }
@@ -2283,7 +2313,7 @@
 .sn-live__tier b { font-family: var(--font-mono); font-size: .6rem; letter-spacing: .1em; }
 .sn-live__ic { display: inline-flex; width: 22px; height: 22px; align-items: flex-end; justify-content: center; }
 .sn-live__ic .ws-icon { max-width: 22px; max-height: 22px; }
-.sn-live__at { font-family: var(--font-mono); font-size: .5rem; color: var(--ink-400); }
+.sn-live__at { font-family: var(--font-mono); font-size: .58rem; color: var(--ink-400); }
 @media (max-width: 560px) { .sn-live__at { display: none; } }
 .sn-live__detail {
   border: 1px solid var(--hairline-2); border-left: 3px solid var(--tc, var(--ink-300));
@@ -2291,11 +2321,11 @@
 }
 .sn-live__head { display: flex; gap: .5rem; align-items: baseline; flex-wrap: wrap; }
 .sn-live__head b { font-family: var(--font-mono); font-size: .72rem; letter-spacing: .1em; }
-.sn-live__size { font-family: var(--font-mono); font-size: .54rem; color: var(--ink-400); }
+.sn-live__size { font-family: var(--font-mono); font-size: .58rem; color: var(--ink-400); }
 .sn-live__where { margin: .3rem 0 .45rem; font-size: var(--t-micro, .7rem); color: var(--ink-700); }
 .sn-live__row { display: grid; grid-template-columns: 7.2rem minmax(0, 1fr); gap: .5rem; margin: 0 0 .3rem; font-size: var(--t-micro, .7rem); line-height: 1.5; }
 @media (max-width: 560px) { .sn-live__row { grid-template-columns: 1fr; gap: .05rem; } }
-.sn-live__k { font-family: var(--font-mono); font-size: .5rem; letter-spacing: .12em; color: var(--ink-400); }
+.sn-live__k { font-family: var(--font-mono); font-size: .56rem; letter-spacing: .12em; color: var(--ink-400); }
 /* the scene is a VIGNETTE - it grounds the tier in a place, it is not the
    content. Capped so it can never outshout the facts above it. */
 .sn-live__scene { margin: .5rem 0 0; position: relative; width: 100%; max-width: 21rem; opacity: .85; }
@@ -2389,8 +2419,17 @@
 }
 .sn-front__sensor { color: #f4f5eb; }
 .sn-front__tag { color: #869283; font-size: .6rem; }
-.sn-front__trace { display: block; height: 78px; position: relative; }
-.sn-front__trace svg { display: block; width: 100%; height: 61px; overflow: hidden; }
+/* v39 (UX audit item 3): the glance screen is a fixed box inside a fixed-aspect
+   engraving, so its content had no way to give and the bezel simply ate the
+   bottom of it. The recorded trace is the only block here that carries its
+   meaning in SHAPE rather than in words, so it is the block that flexes: the
+   same 61px whenever there is room, squeezed - never cropped - when there is
+   not. Words never lose a line to the bezel again. */
+.sn-front__trace {
+  position: relative; display: flex; flex-direction: column; gap: .1rem;
+  flex: 0 1 auto; height: auto; min-height: 3.1rem;
+}
+.sn-front__trace svg { display: block; width: 100%; flex: 1 1 61px; height: auto; min-height: 1.9rem; overflow: hidden; }
 .sn-front__grid { stroke: rgba(199, 220, 187, .1); stroke-width: 1; }
 .sn-front__beam {
   fill: none; stroke: var(--phosphor, #b9f397); stroke-width: 1.35; opacity: .56;
@@ -2407,7 +2446,7 @@
 }
 .sn-front__tracemeta, .sn-front__traceoff {
   display: block; color: #7f8b7d; font-family: var(--font-mono);
-  font-size: .53rem; letter-spacing: .07em; line-height: 1;
+  font-size: .57rem; letter-spacing: .07em; line-height: 1;
 }
 .sn-front__result {
   display: grid; grid-template-columns: minmax(7.5rem, .8fr) minmax(0, 1.35fr);
@@ -2422,7 +2461,7 @@
 }
 .sn-front__answer { display: flex; flex-direction: column; min-width: 0; }
 .sn-front__answerk {
-  color: #879484; font-family: var(--font-mono); font-size: .55rem; letter-spacing: .12em;
+  color: #879484; font-family: var(--font-mono); font-size: .58rem; letter-spacing: .12em;
 }
 .sn-front__word {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -2436,7 +2475,7 @@
   color: #9aa697; font-size: .63rem; line-height: 1.25;
 }
 .sn-front__truth {
-  color: var(--signal); font-family: var(--font-mono); font-size: .55rem;
+  color: var(--signal); font-family: var(--font-mono); font-size: .58rem;
   letter-spacing: .08em; line-height: 1.35;
 }
 .sn-front__route, .sn-front__score { display: flex; flex-direction: column; gap: .22rem; }
@@ -2484,7 +2523,7 @@
   font-family: var(--font-mono);
 }
 .sn-front__missionk {
-  flex: none; color: var(--signal); font-size: .56rem; font-weight: 500; letter-spacing: .13em;
+  flex: none; color: var(--signal); font-size: .58rem; font-weight: 500; letter-spacing: .13em;
 }
 .sn-front__missiontext {
   min-width: 0; overflow: hidden; color: #d8dfd2; font-size: .6rem;
@@ -2492,7 +2531,7 @@
 }
 .sn-front__foot { margin-top: 0; padding-top: .25rem; }
 .sn-front__response {
-  color: #a4afa1; font-family: var(--font-mono); font-size: .55rem; letter-spacing: .08em;
+  color: #a4afa1; font-family: var(--font-mono); font-size: .58rem; letter-spacing: .08em;
 }
 .sn-front__hint {
   display: flex; flex: 0 0 auto; flex-direction: column; align-items: flex-start;
@@ -2503,13 +2542,13 @@
               0 0 7px color-mix(in srgb, var(--signal) 14%, transparent);
 }
 .sn-front__hintkey {
-  color: var(--signal); font-size: .5rem; letter-spacing: .14em;
+  color: var(--signal); font-size: .56rem; letter-spacing: .14em;
 }
 .sn-front__hintmain {
   margin-top: .08rem; font-size: .66rem; font-weight: 500; letter-spacing: .1em;
 }
 .sn-front__hintmore {
-  margin-top: .09rem; color: #a9b5a6; font-size: .5rem; font-style: normal;
+  margin-top: .09rem; color: #a9b5a6; font-size: .54rem; font-style: normal;
   letter-spacing: .055em;
 }
 /* v38: with the score gated and the dangling response label gone, the
@@ -2845,12 +2884,12 @@
 .ws-menu__div {
   margin: .55rem 0 .4rem; padding-top: .5rem;
   border-top: 1px dotted var(--hairline-2);
-  font-family: var(--font-mono); font-size: .54rem; letter-spacing: .08em;
+  font-family: var(--font-mono); font-size: .58rem; letter-spacing: .08em;
   color: var(--ink-400);
 }
 .ws-menu__lives {
   color: var(--tc, var(--ink-900)); font-family: var(--font-mono);
-  font-size: .56rem; letter-spacing: .06em;
+  font-size: .58rem; letter-spacing: .06em;
 }
 .ws-menu__item.is-lives {
   border-color: var(--tc, var(--ink-500));
@@ -2886,3 +2925,75 @@
    asking us to remove. */
 .wp-console__lamp.is-lean { gap: .6rem; }
 .wp-console__lamp.is-lean .wp-why[hidden] { display: none; }
+
+/* =====================================================================
+   v39 - THE ROOM AUDIT: nothing clipped, nothing inert, nothing unreadable
+   Every rule here was written against a measured defect on the mesh deck
+   (1425 / 900 / 700 and the whole band between). Presentation only: no
+   number, label or state on this deck changes meaning because of it.
+   ===================================================================== */
+
+/* ---- 2) below the two-column deck, the engraving steps aside earlier -------
+   Same trade the 700px rule already makes, moved to the width where it starts
+   being a trade: under ~1100px the engraved glass is shorter than its own
+   readable content, so the plate steps aside and the glass becomes a plain
+   card that grows to what it has to say. */
+@media (max-width: 1100px) {
+  .sn-tv { aspect-ratio: auto; perspective: none; }
+  .sn-tv__plate { display: none; }
+  .sn-tv__screen {
+    position: static; width: 100%; height: auto; min-height: 18rem;
+    transform: none; border: 1px solid var(--hairline-2);
+  }
+  .sn-tv__front {
+    position: static; width: 100%; height: auto; min-height: 22rem;
+    transform: none; padding: .9rem;
+  }
+  /* the working keys leave the engraved bezel with the engraving. Left
+     absolute, the strip floated across the lower third of the plain card and
+     sat ON TOP of the OPEN FULL MODEL OUTPUT hint. */
+  .sn-tvctl {
+    position: static; width: auto; transform: none; justify-content: flex-end;
+    margin-top: .4rem; padding: 0; border: 0; background: none; box-shadow: none;
+  }
+  /* THE FACE AND THE DETAIL ARE TWO SIDES OF ONE SCREEN. Stacked in flow they
+     both rendered, so the narrow deck showed the summary AND the full detail
+     at once, under a face inviting you to "open full model output" that was
+     already open below it. Only the side that is up is drawn; the JS already
+     hides the face when the detail opens. */
+  .sn-tv:has(> .sn-tv__front:not([hidden])) .sn-tv__screen { display: none; }
+}
+
+/* ---- 3) the line says there is more line ---------------------------------
+   The edge fade was appended INSIDE the scrolling rail, so it sat at the end
+   of the CONTENT - visible only once you had already scrolled to the end it
+   was meant to advertise. Sticky pins it to the visible right edge, and the
+   negative margin keeps it out of the scroll width it is reporting on. */
+.sn-chainrail .sn-linefade {
+  position: sticky; right: 0; top: 0; bottom: 0;
+  flex: none; align-self: stretch; margin-left: -2.2rem;
+}
+
+/* ---- 4) a corner screw is not a letter ------------------------------------
+   The decorative screw at top-left .4rem sat on the "W" of WHAT'S HAPPENING
+   TO IT, whose panel padding was .8rem. The panel opens below its own
+   hardware. */
+.sn-side__pads { padding-top: 1.1rem; padding-left: 1rem; }
+
+/* ---- 5) the sensor list, when the deck is stacked -------------------------
+   Six full-width bands with a 2.6rem engraving and two short lines each is a
+   column of mostly empty paper once the left bay spans the page. Stacked, the
+   list becomes a tile grid - same buttons, same order, one screenful. */
+@media (max-width: 1400px) {
+  .sn-types {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(13.5rem, 1fr));
+    align-items: stretch;
+  }
+  .sn-type.is-sel { transform: none; }   /* a 2px nudge inside a grid cell reads as a misprint */
+}
+
+/* ---- 6) the set's scroll keys belong to the side that scrolls -------------
+   ▲ and ▼ move the detail layer's scrollport. While the face of the set is
+   up, that layer is behind it and one screenful tall: the keys moved nothing
+   and read as broken hardware. The strip keeps DEAL and the wide key. */
+.sn-tvctl.is-lean [data-scroll="up"], .sn-tvctl.is-lean [data-scroll="down"] { display: none; }

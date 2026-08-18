@@ -2980,7 +2980,25 @@
     var m = PATCH.measured;
     var nano = familyById("nano");
     return [
-      { key: "tasknative", label: "why task-native?", build: function (box) {
+      { key: "tasknative", label: "why not a general model?", build: function (box) {
+        /* v39 (UX audit item 2): the five questions never carried the one a
+           visitor actually arrives with. This tab was labelled "why task-native?"
+           - a term you have to know already before you would click it - while
+           its content is the answer to "why not just use a general model?". The
+           label now asks the arriving question and the content answers it in
+           this order: what the job demands of ANY model here (a requirement of
+           our own contract, not a claim about anyone else's), then the only
+           measurement we hold, with its limits in the same breath. Nothing about
+           an unmeasured model is asserted anywhere in this tab - the cite line
+           at the bottom is the whole of the evidence and says so. */
+        box.appendChild(el("p", "sn-why__p",
+          "Because nothing on this bench is a conversation. The job is a window of " +
+          "raw telemetry in, and out ONE word from a LOCKED ENUM with a MARGIN " +
+          "beside it - how sure the model is. The margin is what the handoff runs " +
+          "on: below the floor the read goes up the chain, at or above it the model " +
+          "answers alone. An answer in prose carries nothing the escalation " +
+          "contract can use. That is a requirement this bench puts on any model, " +
+          "ours included; it is not a measurement of anyone else's."));
         /* HONESTY FIX 2026-08-17 (audit): this paragraph used to open "A chat
            model free-sampled on these bytes dreams a Modbus register table."
            That is a real recorded incident - but it happened to OUR OWN Wave
@@ -3031,8 +3049,8 @@
             "At the selected " + PATCH.floor.toFixed(1) + " floor, our recorded " +
             m.escalation.n + "-record sweep sent " + upward + " reads (" +
             (selected.escalation_rate * 100).toFixed(1) + "%) upward. The other " +
-            (m.escalation.n - upward) + " ended at Pico. Open WHY NOT ONE BIG MODEL? " +
-            "to compare the quality and residency-proxy result."));
+            (m.escalation.n - upward) + " ended at Pico. Open WHY A CHAIN, NOT JUST THE " +
+            "BIGGER WAVE? to compare the quality and residency-proxy result."));
         }
         box.appendChild(el("p", "sn-why__p",
           "Wave Nano is placed on " + nano.runs + ". In that layout, the " +
@@ -3040,7 +3058,14 @@
           "topology, not a privacy guarantee. The operator still has to secure transport, " +
           "storage, access control, and any egress they configure."));
       } },
-      { key: "econ", label: "why not one big model?", build: function (box) {
+      /* v39 (UX audit item 1): the label read "why not one big model?" - which
+         a visitor reads as "why not a frontier chat model", a comparison this
+         deck has never measured and must not imply. The content underneath has
+         always been Wave-only: Pico alone vs the Pico+Nano mesh vs Nano direct,
+         every point a recorded config from our own sweep. The label now names
+         exactly that question. The general-model question is answered, within
+         what we can prove, in the first tab. */
+      { key: "econ", label: "why a chain, not just the bigger Wave?", build: function (box) {
         var chart = econChart();
         if (chart) box.appendChild(chart);
         var cfg = function (name) {
@@ -3193,9 +3218,15 @@
     var art = el("span", "sn-live__art");
     art.appendChild(el("span", "wb-plate__ink"));
     fig.appendChild(art);
+    /* v39 (UX audit item 3): the floor marker used to hang off the FIGURE,
+       whose box is the art PLUS its headroom padding PLUS the caption - so
+       percentages measured off the plate landed roughly a third of a floor
+       low, and the ground-floor band (Pico, bolted to the machine) finished
+       46px BELOW the building. It hangs off the art itself now, which is what
+       PLANT_FLOORS was measured against. */
     var band = el("span", "sn-live__band");
     band.setAttribute("aria-hidden", "true");
-    fig.appendChild(band);
+    art.appendChild(band);
     var above = el("figcaption", "sn-live__above",
       "above the roof: many plants, a region, the teacher");
     fig.appendChild(above);
@@ -3747,6 +3778,13 @@
         : "just this model's stage, on its own";
       b.addEventListener("click", function () {
         PATCH.tab = t.id;
+        /* v39 (UX audit item 5): these six tabs filter the DETAIL layer, which
+           sits UNDER the face of the set. With the face showing - the state the
+           deck opens in - picking a tab repainted a layer nobody could see: the
+           chip lit up, the glass did not move, and six controls read as broken.
+           A tab is explicit intent to look at a stage, so it opens the detail
+           the way DETAILS does, then lands on it. */
+        if (!detailOpen()) setDetail(true);
         paintMonitor();
         renderTabs();
         glassScrollTo(null, true); // a tab pick is explicit intent - always land
@@ -4670,6 +4708,12 @@
     f.dataset.state = state;
     f.hidden = detailOpen();
     f.setAttribute("aria-expanded", detailOpen() ? "true" : "false");
+    /* v39 (UX audit item 3): the strip's two scroll keys drive the DETAIL
+       layer's scrollport. With the face up there is nothing behind them to
+       move - the face is one screenful and never scrolls - so pressing them
+       did nothing at all. They belong to the detail, so they arrive with it. */
+    var ctl = $("wsTvCtl");
+    if (ctl) ctl.classList.toggle("is-lean", !detailOpen());
     paintAnswerKey();
     if (detailOpen()) return;
 
