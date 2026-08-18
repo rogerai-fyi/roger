@@ -876,11 +876,21 @@
 .pg-deckswitch .pg-mode[aria-selected="true"] .pg-mode__hint { color: var(--ink-500); }
 
 @media (max-width: 620px) {
+  /* On a phone the switch used to stack three full deck cards - name, blurb
+     AND route hint each - about 340px of chrome before the instrument, which
+     is the same below-the-fold problem the desktop shell diet fixed. The
+     seated deck keeps its blurb (it describes what you are looking at); the
+     other two collapse to their names, which is all a tab needs to be
+     pressable. Nothing is hidden from a screen reader: the blurb stays in
+     the DOM, and the deck you are on always explains itself. */
   .pg-deckswitch .pg-modes__tabs { grid-template-columns: 1fr; }
-  .pg-deckswitch .pg-mode + .pg-mode { border-left: 0; border-top: 1px solid var(--hairline); }
   .pg-deckswitch .pg-mode + .pg-mode {
     border-left: 0; border-top: 1px solid var(--hairline);
   }
+  .pg-deckswitch .pg-mode { padding-block: .5rem; }
+  .pg-deckswitch .pg-mode[aria-selected="false"] > .pg-mode__face > span,
+  .pg-deckswitch .pg-mode[aria-selected="false"] .pg-mode__hint { display: none; }
+  .pg-deckswitch .pg-mode[aria-selected="true"] .pg-mode__hint { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   .pg-deckswitch .pg-mode, .pg-mode__lamp { transition: none; }
