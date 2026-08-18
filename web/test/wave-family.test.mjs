@@ -161,51 +161,72 @@ test("the models directory offers the voices directory in its own body", () => {
   }
 });
 
-// §2 CAPABILITY read as a post-mortem - "we cut a model and measured what BROKE" - when
-// the finding is the opposite: delete 93.3% of a frontier model's experts and the plant's
-// actual work still lands. The section now leads with the survivor and DRAWS the ratio
-// instead of describing it, because the number is the whole argument.
-const capability = () => {
-  const page = read("research-wave-family.html");
-  const s = page.match(/<section[^>]*id="capability"[\s\S]*?<\/section>/)?.[0]
-        || page.match(/<!-- §2 CAPABILITY -->[\s\S]*?<\/section>/)?.[0];
-  assert.ok(s, "the family page has a §2 CAPABILITY section");
-  return s;
-};
+/* FOUNDER RULING 2026-08-17: §2 CAPABILITY is off this page entirely. It was the
+   expert-pruning experiment - a frontier model cut to 60 of its 896 parts, the ratio
+   drawn as a bar, three score meters, and the pump line - and the founder's words on
+   the whole block were "lets not add this ... it doesn't make any sense with what we
+   are doing right there, that was an old test." So the section, the figure and every
+   sentence built on it are gone, and the remaining sections renumbered (§3 SLOTS ->
+   §2, and so on down to Wave Infinite at §5).
 
-test("the capability section leads with what survived, not what broke", () => {
-  const copy = visible(capability());
-  assert.doesNotMatch(copy, /measured what broke/i, "the post-mortem framing is gone");
-  assert.match(copy, /6\.7|93/, "the compression ratio is the headline fact");
-  // The three outcomes and their scores all survive the rewrite.
-  for (const fact of [/3\s*\/\s*3/, /3\s*\/\s*4/, /0\s*\/\s*10/]) assert.match(copy, fact);
-  assert.match(copy, /extraction/i);
-  assert.match(copy, /explanation/i);
-});
+   THIS IS A RE-ANCHORING, NOT A DELETION. Four assertions lived here:
+     "leads with what survived, not what broke", "the compression is drawn, not just
+     asserted", "the numbers keep their model and settings attribution", and "the zero
+     is explained as a non-answer".
+   The first, second and fourth were about the shape of a figure that no longer exists,
+   and there is nothing honest left for them to hold. The THIRD one's guarantee outlives
+   its subject and is the reason this block still exists: a borrowed model's numbers may
+   never appear on this page stripped of the model that produced them and the settings
+   they were produced under. That is now stated as a conditional - it binds whatever
+   borrowed figure lands here next - and it is joined by the assertion that the retired
+   experiment does not creep back, which is the founder's ruling made executable.
 
-test("the compression is drawn, not just asserted", () => {
-  const fig = capability();
-  // A bar whose width IS the ratio: a reader sees 6.7% before reading a word.
-  const pct = fig.match(/--kept:\s*([\d.]+)%/);
-  assert.ok(pct, "the kept fraction is expressed as a drawn width");
-  assert.ok(Math.abs(Number(pct[1]) - 6.7) < 0.2, `the bar draws the real ratio, got ${pct[1]}%`);
-  // Each result carries a meter whose fill matches its own score.
-  const meters = [...fig.matchAll(/data-score="(\d+)\/(\d+)"[^>]*style="--fill:\s*([\d.]+)%/g)];
-  assert.equal(meters.length, 3, "each of the three results is metered");
-  for (const [, got, of_, fill] of meters) {
-    const expected = (Number(got) / Number(of_)) * 100;
-    assert.ok(Math.abs(Number(fill) - expected) < 0.6,
-      `${got}/${of_} should fill ${expected.toFixed(1)}%, drew ${fill}%`);
+   Kimi-K3 still appears on research-models.html, which is a different page with its own
+   lock in research-page.test.mjs. Nothing here touches it. */
+const family = () => read("research-wave-family.html");
+
+test("the retired pruning experiment stays off the family page", () => {
+  const page = family();
+  const copy = visible(page.match(/<main[\s\S]*?<\/main>/)[0]);
+  assert.doesNotMatch(copy, /Kimi-K3/,
+    "the borrowed pruning model is not named on this page any more");
+  assert.doesNotMatch(page, /class="capability/,
+    "and the figure it was drawn in is gone, not merely emptied");
+  for (const relic of [/896/, /60 of \d+ experts/i, /route coverage/i, /0\s*\/\s*10/]) {
+    assert.doesNotMatch(copy, relic, `the retired experiment must not come back (${relic})`);
   }
+  // The section numbering has to close over the gap, or the page cites a §2 it lost.
+  const nos = [...page.matchAll(/class="sectionno">&sect;(\d+) \/ ([A-Z ]+)</g)].map((n) => n[1]);
+  assert.deepEqual(nos, ["1", "2", "3", "4", "5"], "the sections are numbered without a hole");
+  assert.doesNotMatch(copy, /Section 2 says/i, "and nothing still points at the section that left");
 });
 
-// Founder ruling 2026-07-31: the Controlled/Scope caveats paragraph and the
-// "failure worth having" paragraph came off the page. What must survive is the
-// attribution: the named model and settings stay attached to the numbers.
-test("the capability numbers keep their model and settings attribution", () => {
-  const copy = visible(capability());
-  assert.match(copy, /Kimi-K3/);
-  assert.match(copy, /temperature 0/i);
+test("any borrowed-model figure on this page carries its model and settings", () => {
+  /* The guarantee the attribution test was written for, kept alive past its subject:
+     if a number measured on somebody else's model appears here, the model and the
+     settings it was measured under travel with it. Today no such figure exists, and
+     the assertion says so in a way that will bind the next one that does. */
+  const copy = visible(family().match(/<main[\s\S]*?<\/main>/)[0]);
+  const MODELS = /\b(Kimi[- ]?K\d|Qwen|Llama|Nemotron|Mistral|DeepSeek|GPT-\d|Gemini|Claude)\b/i;
+  if (MODELS.test(copy)) {
+    const named = copy.match(MODELS)[0];
+    assert.match(copy, /temperature\s*\d/i,
+      `${named} is named with numbers attached, so the settings must be named too`);
+  }
+  // The one comparative claim we are allowed stays qualitative and stays cited.
+  const bench = family().match(/<aside class="wf-bench"[\s\S]*?<\/aside>/)?.[0];
+  if (bench) {
+    const said = visible(bench);
+    assert.match(said, /30B-class open models/, "the claim names the roster it is about");
+    assert.match(said, /near chance/i, "and stays qualitative");
+    assert.match(said, /No frontier or chat-tuned model has ever been measured there/i,
+      "and bounds itself to what was actually put on the bench");
+    assert.match(said, /IEB-Signals public-release plan, 2026-08-14/,
+      "and carries its citation");
+    assert.doesNotMatch(said, /\b1[34]\.\d\b/, "no embargoed IEB figure is printed");
+  }
+  assert.equal((family().match(/class="wf-bench"/g) || []).length <= 1, true,
+    "the comparative claim appears at most once on the page");
 });
 
 // The promo strip advertised "next 1000 new accounts". The cap is real, but a visible
@@ -221,16 +242,6 @@ test("the promo strip offers the credit without advertising a remaining count", 
   // The separator span existed only to divide the two clauses; it must not be orphaned.
   const css = readFileSync(path.join(WEB, "src", "styles", "base.css"), "utf8");
   assert.doesNotMatch(css, /\.promo__sep/, "the separator's CSS went with the clause it divided");
-});
-
-// A reader asked whether 0/10 was good or bad, which is the page's fault: the cell said
-// "never reached an answer" without saying that means NO answer rather than ten wrong
-// ones. In a plant those are different events, and the difference is the whole safety
-// argument for shipping a small model at all.
-test("the zero is explained as a non-answer, not ten wrong answers", () => {
-  const copy = visible(capability());
-  assert.match(copy, /no answer at all|not ten wrong/i,
-    "the cell distinguishes not-answering from answering wrongly");
 });
 
 // The market set grew four -> six -> eight (healthcare and defense sustainment, founder-

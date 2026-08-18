@@ -23,6 +23,7 @@
   var scroll = root.querySelector("[data-wj-scroll]");
   var count = root.querySelector("[data-wj-count]");
   var empty = root.querySelector("[data-wj-empty]");
+  var slotPick = root.querySelector("[data-wj-slot]");
   var table = root.querySelector("table");
   if (!bar || !scroll || !table) return;
 
@@ -98,11 +99,11 @@
     syncHead();
   }
 
-  /* Chip counts come from the DOM rather than from a number typed into the
-     markup, so a job added to the table can never disagree with its own label. */
-  function tally(chip) {
-    var setting = chip.getAttribute("data-wj-setting");
-    var tier = chip.getAttribute("data-wj-tier");
+  /* Filter counts come from the DOM rather than from a number typed into the
+     markup, so a job added to the table can never disagree with its own label.
+     Both controls are counted the same way: `setting` for the chips, `tier` for
+     the slot select's options. */
+  function tally(setting, tier) {
     var n = 0;
     bodies.forEach(function (group) {
       group.rows.forEach(function (row) {
@@ -115,7 +116,7 @@
 
   var chips = Array.prototype.slice.call(bar.querySelectorAll(".wj__chip"));
   chips.forEach(function (chip) {
-    var n = tally(chip);
+    var n = tally(chip.getAttribute("data-wj-setting"), null);
     var badge = document.createElement("span");
     badge.className = "wj__n";
     badge.textContent = String(n);
@@ -128,18 +129,33 @@
       chip.setAttribute("aria-disabled", "true");
     }
     chip.addEventListener("click", function () {
-      var key = chip.getAttribute("data-wj-setting") ? "setting" : "tier";
-      var value = chip.getAttribute("data-wj-" + key);
-      state[key] = state[key] === value ? "all" : value;
+      var value = chip.getAttribute("data-wj-setting");
+      state.setting = state.setting === value ? "all" : value;
       chips.forEach(function (other) {
-        var otherKey = other.getAttribute("data-wj-setting") ? "setting" : "tier";
-        if (otherKey !== key) return;
-        var otherValue = other.getAttribute("data-wj-" + otherKey);
-        other.setAttribute("aria-pressed", state[key] === otherValue ? "true" : "false");
+        other.setAttribute("aria-pressed",
+          state.setting === other.getAttribute("data-wj-setting") ? "true" : "false");
       });
       apply();
     });
   });
+
+  /* THE SLOT FILTER, as a select rather than eight chips (founder 2026-08-17:
+     the toolbar took too many rows). A native control is keyboard reachable
+     without a line of code, and each option still carries its slot's NAME - the
+     tier colours were never the only signal and are not needed here at all. The
+     live counts ride in the option labels, tallied from the same DOM the chips
+     are, and a slot no job names is disabled rather than offered. */
+  if (slotPick) {
+    Array.prototype.forEach.call(slotPick.options, function (opt) {
+      var n = tally(null, opt.value);
+      opt.textContent = opt.textContent.replace(/\s*\(\d+\)$/, "") + " (" + n + ")";
+      if (n === 0 && opt.value !== "all") opt.disabled = true;
+    });
+    slotPick.addEventListener("change", function () {
+      state.tier = slotPick.value || "all";
+      apply();
+    });
+  }
 
   /* Add the group tallies to the heading rows once, in script, so the served
      markup carries no number that could go stale. */

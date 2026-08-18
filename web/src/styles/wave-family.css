@@ -1,6 +1,8 @@
-/* Wave family field guide. Only the family rail is page-specific; the
-   capability figure and the matrix tables come from research.css so the two
-   pages cannot drift apart. */
+/* Wave family field guide. Only the family rail, the job finder and the Wave
+   Infinite treatment are page-specific; the matrix tables and the section
+   furniture come from research.css so the two pages cannot drift apart.
+   This sheet is loaded by research-wave-family.html ALONE (build.mjs
+   CSS_BUNDLES), which is what makes the hero-layout override below safe. */
 /* .wf-back moved to research.css - see the note there. */
 
 .wf-rail { margin: 0; border-block: 2px solid var(--ink-900); background: var(--paper); }
@@ -44,43 +46,101 @@
    It drops rather than lifts because above the axis is the tick row. */
 .wf-node--up b { transform: translateY(15px); }
 .wf-node.is-live b { color: var(--live); }
+/* The end of the axis is the infinity symbol, not another decade: 100 GB is the
+   last number any tier needs. It is set in the display face, not the mono one -
+   the mono glyph is a lozenge, and this has to read as infinity at 11px. */
+.wf-tick--end b {
+  font-family: var(--font-ui); font-size: 1.05rem; line-height: .8;
+  color: var(--ink-900); letter-spacing: 0;
+}
+/* WAVE INFINITE, on the rail on the founder's instruction (2026-08-17). It is
+   deliberately not a wf-node: the ladder assertion in wave-infinite.test.mjs
+   reads that class and still requires exactly the seven sizes in order, which is
+   what stops Infinite being read as an eighth size. It is a different object - a
+   DIAMOND rather than a dot - at the infinity tick, which is the one position on
+   this axis that is not a finite size. Drawn in the strongest neutral
+   (--ink-900, white on the dark theme), never the live red, because red on this
+   rail means "a trained artifact exists".
+   It is the LAST thing on the rail, so its label runs back along the axis rather
+   than straddling the end: centred, a 13-character name at 100% hangs half its
+   width past the track and the scroller clips it. Right-aligned, the text ends
+   exactly under the diamond, which is the axis point. */
+.wf-beyond {
+  position: absolute; left: var(--at); top: 23px; transform: translateX(-100%);
+  width: 108px; text-align: right;
+}
+/* HOLLOW, and that is not decoration: the legend at the top of this figure says
+   a filled marker means a trained artifact exists. Wave Infinite is a prototype
+   programme, so it wears the program-stage treatment - outline only - and the
+   diamond is what keeps it from being read as one of the round size dots. */
+.wf-beyond i {
+  display: block; width: 8px; height: 8px; margin: 1px -6px var(--s-2) auto;
+  border: 2px solid var(--ink-900); background: var(--paper);
+  transform: rotate(45deg);
+}
+.wf-beyond b {
+  display: block; color: var(--ink-900); font-family: var(--font-mono);
+  font-size: var(--t-micro); font-weight: 500; letter-spacing: .06em;
+  text-transform: uppercase; white-space: nowrap;
+}
+/* The legend lives in the figure's head, beside the axis it describes: the two
+   marker states drawn at the size they appear on the track, each with its word. */
+.wf-rail__key { display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-4); }
+.wf-rail__keyitem { display: inline-flex; align-items: center; gap: 6px; }
+.wf-rail__keyitem i {
+  width: 9px; height: 9px; border: 2px solid var(--ink-900); border-radius: 50%;
+  background: var(--paper);
+}
+.wf-rail__keyitem i.is-live { border-color: var(--live); background: var(--live); }
+
+/* The facts the axis cannot draw: which marker is real, and what the marker at
+   the infinity end is. Figure furniture, under the track, set apart from the
+   caption so the caption can do the reader's job instead of ours. Side by side
+   while there is room, so they cost one band rather than two. */
+.wf-rail__notes {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr));
+  gap: var(--s-3) var(--s-6);
+  padding: 0 var(--s-5) var(--s-5);
+}
+.wf-rail__note {
+  margin: 0; padding-left: var(--s-4); border-left: 2px solid var(--hairline-2);
+  color: var(--ink-400); font-size: var(--t-sm); line-height: var(--lh-body);
+}
+.wf-rail__note b { color: var(--ink-900); }
+.wf-rail__note a { color: var(--ink-500); border-bottom: 1px solid var(--hairline-2); }
+
+/* THE CAPTION (founder 2026-08-17): a reader at a size rail wants to know what a
+   size MEANS. Four bands, each one a real point on the axis above, each saying
+   what you would have to own to run it. */
 .wf-rail figcaption {
   padding: var(--s-4) var(--s-5); border-top: 1px solid var(--hairline);
   color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body);
 }
-
-/* The caption is a legend plus three short facts, not one paragraph of caveats.
-   Each fact gets its own line so the eye can leave after the one it came for. */
-.wf-rail figcaption p { margin: 0 0 var(--s-3); max-width: 78ch; }
-.wf-rail figcaption p:last-child { margin-bottom: 0; }
-.wf-rail figcaption b { color: var(--ink-900); }
-/* Wave Infinite is not on the axis, and the note that says so is not a caveat on
-   the axis either - it is set apart, inside the figure, where the lock reads it. */
-.wf-rail__note {
-  padding-left: var(--s-4); border-left: 2px solid var(--hairline-2);
-  color: var(--ink-400);
+.wf-rail__meanslead {
+  margin: 0 0 var(--s-3); color: var(--ink-400);
+  font-family: var(--font-mono); font-size: var(--t-micro);
+  letter-spacing: var(--tracking-label); text-transform: uppercase;
 }
-.wf-rail__note a { color: var(--ink-500); border-bottom: 1px solid var(--hairline-2); }
-
-/* ---------- §2 the bench note -----------------------------------------------
-   The one comparative claim, given a plate of its own so it cannot be read as
-   part of the pruning experiment above it. Same plate as .wf-inf__requires:
-   a constraint, not small print. */
-.wf-bench {
-  display: block; margin: var(--s-7) 0 0; padding: var(--s-5) var(--s-6);
-  border-left: 2px solid var(--ink-900); background: var(--paper);
+.wf-rail__means ol {
+  list-style: none; margin: 0; padding: 0;
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: var(--s-4) var(--s-5);
 }
-.wf-bench p {
-  max-width: 74ch; margin: var(--s-3) 0 0;
+.wf-rail__means li { min-width: 0; border-top: 2px solid var(--ink-900); padding-top: var(--s-3); }
+.wf-rail__means b {
+  color: var(--ink-900); font-family: var(--font-mono); font-size: var(--t-xs);
+  font-weight: 500; letter-spacing: .06em; text-transform: uppercase;
+}
+.wf-rail__means li > span {
+  margin-left: 6px; color: var(--ink-400); font-family: var(--font-mono); font-size: var(--t-micro);
+  letter-spacing: .06em;
+}
+.wf-rail__means small {
+  display: block; margin-top: var(--s-2);
   color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body);
 }
-.wf-bench b { color: var(--ink-900); }
-.wf-bench__cite {
-  color: var(--ink-400); font-family: var(--font-mono); font-size: var(--t-micro);
-  letter-spacing: .04em;
-}
 
-/* §3 runs six cards rather than three, so the plate is a 3x2 grid instead of one
+/* §2 (was §3) runs six cards rather than three, so the plate is a 3x2 grid instead of one
    row with an orphan. Scoped to the section: .device-contract is shared. */
 #slots .device-contract { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 #slots .device-contract p { border-right: 1px solid var(--hairline); }
@@ -103,7 +163,7 @@
   #slots .device-contract p + p { border-top: 1px solid var(--hairline); }
 }
 
-/* ---------- §4 the job finder ------------------------------------------------
+/* ---------- §3 (was §4) the job finder ------------------------------------------------
    A table of 39 jobs is a wall if you print it and a filing cabinet if you frame
    it. The frame: a toolbar that only exists once the script can drive it, groups
    with their own headings, and a bounded panel so the section is one screen tall
@@ -113,36 +173,40 @@
 /* display:grid would beat the UA's [hidden] rule, and the toolbar ships hidden -
    without this the filters appear, inert, on a page whose script never ran. */
 .wj__bar[hidden] { display: none; }
+/* ONE wrapping line, not four rows (founder 2026-08-17). The setting chips take
+   the room they need and the slot control and the live count ride along at the
+   end of the flow, so the bar costs one or two bands instead of four. */
 .wj__bar {
-  display: grid; gap: var(--s-3);
-  padding: var(--s-4) var(--s-5); border-bottom: 1px solid var(--hairline);
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2) var(--s-5);
+  padding: var(--s-3) var(--s-5); border-bottom: 1px solid var(--hairline);
   background: var(--paper-2);
 }
-.wj__set { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s-2); }
+.wj__set {
+  flex: 1 1 34rem; min-width: 0;
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2);
+}
+.wj__pick { flex: 0 0 auto; display: flex; align-items: center; gap: var(--s-2); margin: 0; }
 .wj__legend {
-  flex: 0 0 auto; min-width: 4.2rem;
+  flex: 0 0 auto;
   color: var(--ink-400); font-family: var(--font-mono); font-size: var(--t-micro);
   letter-spacing: var(--tracking-label); text-transform: uppercase;
 }
 .wj__chip {
-  display: inline-flex; align-items: baseline; gap: 6px;
-  padding: 5px 10px; border: 1px solid var(--hairline-2); border-radius: var(--r-sm);
+  display: inline-flex; align-items: baseline; gap: 5px;
+  padding: 4px 9px; border: 1px solid var(--hairline-2); border-radius: var(--r-sm);
   background: var(--paper); color: var(--ink-700);
-  font-family: inherit; font-size: var(--t-xs); line-height: 1.3;
+  font-family: inherit; font-size: var(--t-xs); line-height: 1.35;
   cursor: pointer;
 }
-.wj__chip--tier { font-family: var(--font-mono); letter-spacing: .04em; }
-.wj__chip--tier::before {
-  content: ""; align-self: center; width: 7px; height: 7px; border-radius: 50%;
-  background: var(--wj-tier, var(--ink-300));
+/* The slot filter, as a native control: keyboard reachable with no code, and
+   every option carries its slot's name and its live count. */
+.wj__select {
+  padding: 4px 9px; border: 1px solid var(--hairline-2); border-radius: var(--r-sm);
+  background: var(--paper); color: var(--ink-900);
+  font-family: var(--font-mono); font-size: var(--t-xs); line-height: 1.35;
+  letter-spacing: .04em; cursor: pointer;
 }
-.wj__chip[data-wj-tier="Pico"]  { --wj-tier: var(--tier-pico); }
-.wj__chip[data-wj-tier="Nano"]  { --wj-tier: var(--tier-nano); }
-.wj__chip[data-wj-tier="Micro"] { --wj-tier: var(--tier-micro); }
-.wj__chip[data-wj-tier="Giga"]  { --wj-tier: var(--tier-giga); }
-.wj__chip[data-wj-tier="Tera"]  { --wj-tier: var(--tier-tera); }
-.wj__chip[data-wj-tier="Peta"]  { --wj-tier: var(--tier-peta); }
-.wj__chip[data-wj-tier="Exa"]   { --wj-tier: var(--tier-exa); }
+.wj__select:hover, .wj__select:focus-visible { border-color: var(--ink-900); }
 .wj__chip:hover { border-color: var(--ink-900); color: var(--ink-900); }
 .wj__chip[aria-pressed="true"] {
   border-color: var(--ink-900); background: var(--ink-900); color: var(--paper);
@@ -155,7 +219,8 @@
 }
 .wj__chip[aria-pressed="true"] .wj__n { color: var(--paper); opacity: .7; }
 .wj__count {
-  margin: 0; justify-self: end; color: var(--ink-400); font-family: var(--font-mono);
+  flex: 0 0 auto; margin: 0 0 0 auto;
+  color: var(--ink-400); font-family: var(--font-mono);
   font-size: var(--t-micro); letter-spacing: .06em; text-transform: uppercase;
 }
 .wj__scroll { overflow: auto; }
@@ -249,9 +314,9 @@
   #slots .tier-matrix td:nth-of-type(2)::before { content: "Job"; }
   #slots .tier-matrix td:nth-of-type(3)::before { content: "Runs on"; }
   #slots .tier-matrix td:nth-of-type(4)::before { content: "Recipe"; }
-  /* §5: Variation | What it does | Lives at | Gate */
+  /* §4: Variation | What it does | Planned for | Gate */
   #variations .tier-matrix td:nth-of-type(1)::before { content: "What it does"; margin-top: var(--s-2); }
-  #variations .tier-matrix td:nth-of-type(2)::before { content: "Lives at"; }
+  #variations .tier-matrix td:nth-of-type(2)::before { content: "Planned for"; }
   #variations .tier-matrix td:nth-of-type(3)::before { content: "Gate"; }
 
   /* In card mode the heading row is a block, so it can be a flex line: name,
@@ -261,15 +326,17 @@
     position: static; padding: var(--s-3) var(--s-5);
     display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s-2);
   }
-  .wj__tally { float: none; margin-left: auto; }
+  /* In card mode the heading is a flex line and the sub-label can consume the
+     whole width, which leaves auto margin nothing to give - the count ended up
+     welded to the last word ("manufacturing18"). Pad it off explicitly. */
+  .wj__tally { float: none; margin-left: auto; padding-left: var(--s-3); }
   #jobs .tier-matrix tbody tr.wj__group { padding: 0; border-bottom: 0; }
-  .wj__bar { padding: var(--s-4); }
-  .wj__set { align-items: flex-start; }
-  .wj__legend { flex-basis: 100%; }
-  .wj__count { justify-self: start; }
+  .wj__bar { padding: var(--s-3) var(--s-4); }
+  .wj__set { align-items: flex-start; flex-basis: 100%; }
+  .wj__count { margin-left: 0; }
 }
 
-/* ---------- §6 Wave Infinite ------------------------------------------------
+/* ---------- §5 (was §6) Wave Infinite ------------------------------------------------
    Different in KIND from the size classes above it, so it is drawn differently:
    a claim slab, a four-step loop, and a proven/not-proven ledger given equal
    weight. The distinction must read as "another sort of thing", never as
@@ -350,19 +417,40 @@
   letter-spacing: var(--tracking-label); text-transform: uppercase;
 }
 
-/* ---------- the loop, drawn (§6 showcase) ------------------------------------
+/* ---------- the loop, drawn (§5 showcase) ------------------------------------
    The one inverted slab on the page: ink ground, paper hairlines, live-red carriers.
    Different in KIND from every other figure - which is the point - while staying inside
    the ink+live palette the spec pins. Visuals are not claims; the badge and the state
    pills carry the truth. */
+/* FOUNDER 2026-08-17 (round 2): "can we make a dark version of this animation,
+   actually there is already one but maybe they are switched, can you flip it."
+   Exactly that. The slab was painted straight onto --ink-900 with --paper lines,
+   and both of those tokens FLIP with the theme - so the one figure on the site
+   that is meant to be an inverted dark panel came out as a glaring white slab
+   with dark lines the moment the reader chose the dark theme. The two colours
+   are now the figure's own tokens, and the dark theme swaps the roles, so the
+   panel is dark ground with light lines in BOTH themes.
+   ATTRIBUTE ONLY, on purpose: tokens.css has no prefers-color-scheme block at
+   all - the theme is decided before first paint by js/theme-init.js writing
+   data-theme, and nothing else. A media-query form here would flip this figure
+   on a page still rendering in LIGHT tokens whenever that script does not run
+   (JS off, or localStorage throwing in private mode) on a dark-OS machine,
+   which is the very bug being fixed. This rule follows the tokens. */
 .wf-orbit {
+  --orbit-ground: var(--ink-900);
+  --orbit-line: var(--paper);
   margin: 0 0 var(--s-7); padding: var(--s-5) var(--s-5) var(--s-4);
-  background: var(--ink-900); display: grid; gap: var(--s-3);
+  background: var(--orbit-ground); display: grid; gap: var(--s-3);
+}
+:root[data-theme="dark"] .wf-orbit {
+  --orbit-ground: var(--paper-3);
+  --orbit-line: var(--ink-900);
+  border: 1px solid var(--hairline-2);
 }
 .wf-orbit__svg { width: 100%; height: auto; display: block; }
-.wf-orbit__path { fill: none; stroke: var(--paper); stroke-opacity: .22; stroke-width: 2; }
-.wf-orbit__feed { fill: none; stroke: var(--paper); stroke-opacity: .16; stroke-width: 1.5; }
-.wf-orbit__node { fill: var(--paper); fill-opacity: .7; }
+.wf-orbit__path { fill: none; stroke: var(--orbit-line); stroke-opacity: .22; stroke-width: 2; }
+.wf-orbit__feed { fill: none; stroke: var(--orbit-line); stroke-opacity: .16; stroke-width: 1.5; }
+.wf-orbit__node { fill: var(--orbit-line); fill-opacity: .7; }
 /* Two carriers chase the lemniscate: pathLength=100 makes the dash arithmetic exact,
    and one direction only - the same rule as the shimmer. */
 .wf-orbit__comet {
@@ -392,15 +480,15 @@
   100%      { opacity: 0; transform: scale(.5); }
 }
 .wf-orbit__label {
-  fill: var(--paper); font-family: var(--font-mono); font-size: 13px;
+  fill: var(--orbit-line); font-family: var(--font-mono); font-size: 13px;
   letter-spacing: .16em;
 }
 .wf-orbit__feedlabel {
-  fill: var(--paper); fill-opacity: .6; font-family: var(--font-mono); font-size: 11px;
+  fill: var(--orbit-line); fill-opacity: .6; font-family: var(--font-mono); font-size: 11px;
   letter-spacing: .14em;
 }
 .wf-orbit figcaption {
-  color: var(--paper); opacity: .65; font-family: var(--font-mono);
+  color: var(--orbit-line); opacity: .65; font-family: var(--font-mono);
   font-size: var(--t-micro); letter-spacing: var(--tracking-label);
   text-transform: uppercase;
 }
@@ -480,6 +568,24 @@
   letter-spacing: .04em; line-height: var(--lh-body);
 }
 
+/* FOUNDER 2026-08-17 (round 2): "make the wave animation larger even, specially
+   taller." The mark was not capped by its own max-width at all - the hero's
+   second column was 299px wide, so a 560px figure rendered as a thumbnail beside
+   a 500px-tall headline block. The two columns are now near-even on THIS page
+   only: wave-family.css is loaded by research-wave-family.html alone
+   (build.mjs CSS_BUNDLES), so the hub and the industrial page keep research.css's
+   1.35/.65 split untouched. */
+/* ONLY where there are two columns to rebalance. research.css stacks this hero
+   to one column under 900px, and that rule is EARLIER in the cascade at the same
+   specificity - an unguarded override here beat it and left the copy column about
+   20px wide on a phone, one word per line, with the mark sitting on top of it. */
+@media (min-width: 901px) {
+  .research-hero__layout {
+    grid-template-columns: minmax(0, 1fr) minmax(320px, 1.15fr);
+    gap: var(--s-7);
+  }
+}
+
 /* ---------- the wave mark ----------------------------------------------------
    The homepage social card's mark, on the page the family is named after. Two S-curves
    sharing one centreline: the wide one behind, the live one tighter in front, and the
@@ -489,9 +595,11 @@
 /* THE SPECTRUM MARK (js/wave-mark-spectrum.js). Tier colours are the
    founder's own Spectrum chart - the same seven the mesh and factory decks
    wear - so the mark, the decks and the ladder all speak one palette. */
-/* Declared on the ROOT, not on the mark: the §4 slot chips wear the same seven
-   hues, so the mark, the decks and the ladder stay one palette rather than two
-   that drift. The mark inherits them exactly as before. */
+/* Declared on the ROOT, not on the mark, so the mark, the mesh deck and the
+   factory deck all read one palette rather than three that drift. (§4's slot
+   chips wore these too until 2026-08-17, when the eight chips became one select
+   and the toolbar lost two rows; the tokens stay on the root, where the other
+   decks and any future ladder art still reach them.) */
 :root {
   --tier-pico: #b23a2a; --tier-nano: #c96a1c; --tier-micro: #b0891a;
   --tier-giga: #2f8a52; --tier-tera: #1f8f8f; --tier-peta: #2f63bf;
@@ -521,8 +629,11 @@
   fill: var(--mark-lead, var(--live)); opacity: 0;
 }
 
-/* founder 2026-08-17: "lets make it a bit bigger" - 320 -> 420 */
-.wave-mark__svg { width: 100%; max-width: 420px; height: auto; overflow: visible; }
+/* founder 2026-08-17: "lets make it a bit bigger" - 320 -> 420, then "larger
+   even, specially taller" -> 560. The cap now lives HERE and nowhere else:
+   js/wave-mark-spectrum.js was setting max-width inline, which beat this rule
+   and split one number across two files. */
+.wave-mark__svg { width: 100%; max-width: 560px; height: auto; overflow: visible; }
 .wave-mark__wave { fill: none; stroke-linecap: round; }
 .wave-mark__wave--wide { stroke: var(--hairline-2); stroke-width: 9; }
 .wave-mark__wave--live { stroke: var(--live); stroke-width: 6; }

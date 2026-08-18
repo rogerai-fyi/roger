@@ -173,19 +173,62 @@ test("the prototype badge is always visible in the section", () => {
     "the badge ships with the section, per the web brief hard rule");
 });
 
-test("the rail carries sizes only - Infinite is a mode, not a size", () => {
-  // AMENDED 2026-08-14: this used to require Infinite as a trailing rail marker with
-  // its own treatment. It sat past the axis end (111%), where it collided with the top
-  // tiers and clipped out of the scroller. The guarantee this test exists for - that
-  // Infinite is never read as another size - is now enforced the strongest way there
-  // is: it is not on the size axis at all, and the caption says why. Section 6 owns it.
+test("the rail places Infinite past the numbers, hollow, and never as an eighth size", () => {
+  /* AMENDED 2026-08-14: this used to require Infinite as a trailing rail marker with
+     its own treatment. It sat past the axis end (111%), where it collided with the top
+     tiers and clipped out of the scroller. It was removed from the axis entirely and the
+     caption said why.
+
+     AMENDED 2026-08-17: the founder reversed that, directly and in these words - "let's
+     replace the 1 TB with an infinite sign and add it with it's own dot ... and remove
+     the text where it says it's not there." So Infinite is back on the rail and the
+     disclaimer copy is gone, and this test is re-anchored rather than deleted: the
+     guarantee it exists for is that Infinite is never read as another SIZE, nor as
+     something that has been trained. That is now carried by three structural facts
+     instead of by absence plus a sentence, and all three are asserted here.
+       1. The seven sized markers are still exactly the locked ladder, in order, and
+          Infinite is not among them - it is a separate element with its own class,
+          outside the wf-node set the ladder assertion reads.
+       2. It sits at the infinity tick. The numeric ticks stop at 100 GB, so every real
+          size still reads against a number, and the position Infinite occupies is the
+          one point on the axis that is not a finite size.
+       3. Its marker is HOLLOW, which under this figure's own legend means a program
+          stage rather than a trained artifact. Pico's is still the only filled marker
+          on the rail.
+     Section 6 still owns what Infinite is, and the prototype badge and the
+     preregistered/unrun caveats there are asserted unchanged by the tests above. */
   const page = read("research-wave-family.html");
   const rail = page.match(/<figure class="wf-rail"[\s\S]*?<\/figure>/)[0];
+
+  // 1. the ladder, and Infinite outside it
   const nodes = [...rail.matchAll(/class="wf-node[^"]*"[^>]*>[\s\S]*?<b>([^<]+)<\/b>/g)].map((m) => m[1]);
   assert.deepEqual(nodes, ["Pico", "Nano", "Micro", "Giga", "Tera", "Peta", "Exa"],
-    "the axis carries the seven fixed sizes of the locked ladder, in order");
-  assert.ok(!/wf-node--infinite/.test(rail), "Infinite is not a dot on the size axis");
-  assert.match(visible(rail), /not a size/i, "and the caption says it is not a size");
+    "the sized markers are the seven fixed sizes of the locked ladder, in order");
+  assert.ok(!nodes.some((n) => /infinite/i.test(n)), "Infinite is not one of the seven sizes");
+  const beyond = rail.match(/<span class="wf-beyond"[^>]*style="--at:\s*100%[^"]*"[\s\S]*?<\/span>/)?.[0];
+  assert.ok(beyond, "Infinite has its own marker, with its own class, at the end of the axis");
+  assert.match(visible(beyond), /Wave Infinite/i, "and it is named on the rail");
+
+  // 2. it sits where the numbers stop
+  assert.match(rail, /class="wf-tick wf-tick--end"[^>]*style="--at:\s*100%[^"]*"[\s\S]*?<b>&infin;<\/b>/,
+    "the end of the axis is the infinity symbol, not a finite size");
+  assert.doesNotMatch(visible(rail), /\b1\s?TB\b/, "so no tier is read against a terabyte tick");
+  assert.match(rail, /<b>100 GB<\/b>/, "and the numeric decades still run up to 100 GB");
+
+  // 3. hollow: a program stage, never a trained artifact
+  const css = readFileSync(path.join(WEB, "src", "styles", "wave-family.css"), "utf8");
+  const marker = css.match(/\.wf-beyond i \{([^}]*)\}/)?.[1];
+  assert.ok(marker, "the Infinite marker is styled");
+  assert.match(marker, /border:\s*2px solid var\(--ink-900\)/, "it is drawn as an outline");
+  assert.match(marker, /background:\s*var\(--paper\)/,
+    "with no fill - a program stage under this figure's legend, not a trained artifact");
+  assert.doesNotMatch(beyond, /is-live/, "and it never wears the trained-artifact treatment");
+  const filled = rail.match(/class="wf-node is-live"[^>]*>[\s\S]*?<b>([^<]+)<\/b>/g) || [];
+  assert.equal(filled.length, 1, "exactly one filled marker on the rail");
+  assert.match(filled[0], /<b>Pico<\/b>/, "and it is Pico's");
+  // The legend that gives the hollow marker its meaning has to be in the figure.
+  assert.match(visible(rail), /trained artifact[\s\S]{0,40}program stage/i,
+    "the filled/hollow legend is present, or hollow means nothing");
 });
 
 test("the loop figure is described and safe", () => {

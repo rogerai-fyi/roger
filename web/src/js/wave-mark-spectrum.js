@@ -34,11 +34,10 @@
      short box. Widening the box to the height the art actually uses lets the
      figure occupy the room it was already painting into, and the wider cap
      scales every unit up with it.
-     Applied here rather than in wave-family.css / the page markup only
-     because both are being rewritten in parallel; fold it into the
-     stylesheet once that lands. */
+     The width cap now lives in wave-family.css; only the viewBox is set
+     here, because it is the animation that decides how much room the art
+     needs. */
   svg.setAttribute("viewBox", "-6 -16 360 188");
-  svg.style.maxWidth = "560px";
   if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
 
   var X0 = 0, X1 = 348, CX = 174, CY = 78, N = 84, TWO_PI = Math.PI * 2;
