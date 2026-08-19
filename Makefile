@@ -1,4 +1,4 @@
-.PHONY: build demo clean kill test check site site-serve smoke smoke-live beta cover cover-html cover-gate cover-gate-fast tdd reach
+.PHONY: build demo clean kill test test-db check site site-serve smoke smoke-live beta cover cover-html cover-gate cover-gate-fast tdd reach
 GOTOOLCHAIN := local
 export GOTOOLCHAIN
 
@@ -41,6 +41,50 @@ site-serve: site
 # admission registry both assert properties that the plain runner cannot observe.
 test:
 	go test -race ./...
+
+# ---- the DATABASE-backed suites, which `make test` silently skips ------------
+#
+# Every PG-backed suite in this tree does `t.Skip` unless ROGERAI_TEST_DATABASE_URL is set,
+# so a green `make test` says NOTHING about the durable stores: not the migrations, not the
+# column lists, not mem/PG parity. CI sets it (see .github/workflows/coverage.yml) and a
+# developer almost never does, which is how a dropped column in PGStore.ByTower once sat
+# behind a passing parity suite.
+#
+# TWO things have to be right, and both are easy to get wrong by hand:
+#
+#   the schema  - production provisions `rogerai` out-of-band and NewPostgres owns only the
+#                 tables inside it, by design. A bare container has no such schema, and the
+#                 suites that do not create their own (admit, enroll) fail with
+#                 `schema "rogerai" does not exist` in a way that reads like a code defect.
+#
+#   -p 1        - a dozen suites TRUNCATE tables in that ONE shared schema, so packages run
+#                 in parallel wipe each other's fixtures. It scales with core count: a
+#                 2-core CI runner almost never trips it and a 64-core workstation trips it
+#                 most runs, which is the worst possible distribution for believing a
+#                 failure. Serial here costs minutes and buys a result you can act on.
+#
+# Usage: make test-db            (starts and stops its own postgres:16)
+#        make test-db PKGS=./internal/towercore/attach/...
+PG_TEST_PORT ?= 55432
+PKGS ?= ./internal/towercore/... ./internal/store/...
+.PHONY: test-db
+test-db:
+	@docker rm -f rogerai-test-pg >/dev/null 2>&1 || podman rm -f rogerai-test-pg >/dev/null 2>&1 || true
+	@(docker run -d --rm --name rogerai-test-pg -e POSTGRES_PASSWORD=test -e POSTGRES_DB=roger_test \
+		-p $(PG_TEST_PORT):5432 postgres:16 >/dev/null 2>&1 \
+		|| podman run -d --rm --name rogerai-test-pg -e POSTGRES_PASSWORD=test -e POSTGRES_DB=roger_test \
+		-p $(PG_TEST_PORT):5432 postgres:16 >/dev/null) \
+		&& echo "postgres:16 up on $(PG_TEST_PORT)"
+	@until (docker exec rogerai-test-pg pg_isready -U postgres >/dev/null 2>&1 \
+		|| podman exec rogerai-test-pg pg_isready -U postgres >/dev/null 2>&1); do sleep 1; done
+	@(docker exec rogerai-test-pg psql -U postgres -d roger_test -c "CREATE SCHEMA IF NOT EXISTS rogerai;" >/dev/null 2>&1 \
+		|| podman exec rogerai-test-pg psql -U postgres -d roger_test -c "CREATE SCHEMA IF NOT EXISTS rogerai;" >/dev/null)
+	@echo "running $(PKGS) with -p 1"
+	@ROGERAI_TEST_DATABASE_URL="postgres://postgres:test@127.0.0.1:$(PG_TEST_PORT)/roger_test?sslmode=disable" \
+		go test -p 1 -count=1 $(PKGS); \
+		status=$$?; \
+		(docker stop rogerai-test-pg >/dev/null 2>&1 || podman stop rogerai-test-pg >/dev/null 2>&1 || true); \
+		exit $$status
 
 # ---- spec-first TDD / coverage (see TDD-WORKFLOW.md) -------------------------
 # cover: full self-coverage profile across the module + the total line.
