@@ -115,7 +115,25 @@ test("the company page makes no unearned model claims", () => {
   assert.doesNotMatch(page, /wave-micro-350m-instruct/i, "no artifact id for an unpublished model");
   assert.doesNotMatch(page, /released (?:model|checkpoint)/i);
   assert.doesNotMatch(page, /Wave (?:Micro|Nano|Core).{0,30}available/i);
-  assert.match(page, /No Wave checkpoint has been released/i, "the page states the truth plainly");
+  /* AMENDED 2026-08-19 on founder instruction: the sentence "No Wave checkpoint
+     has been released yet" came off this page. Recording why this assertion
+     existed, because it is not an ordinary style lock - an EARLIER version of
+     this test required release copy and FORBADE that sentence, and that is how
+     a fabricated release once survived a green suite.
+
+     What is lost is the page stating the fact positively. What still holds is
+     everything that stops it claiming the opposite: no artifact id, no
+     "released model/checkpoint", no "Wave <tier> ... available". The fact
+     itself still ships on research.html, research-models.html and the family
+     field guide, which are where a reader goes for status.
+
+     Strengthened to compensate, because this page links a public weights org:
+     the weights row must not name a Wave tier, so nobody can read it as "Wave
+     weights are downloadable here". */
+  const weights = page.match(/Weights[\s\S]{0,160}/);
+  assert.ok(weights, "the Labs card still points at the weights org");
+  assert.doesNotMatch(weights[0], /Wave\s+(Pico|Nano|Micro|Giga|Tera|Peta|Exa)/i,
+    "the weights link must not be labelled as a Wave tier's weights");
   // optimization of an upstream is never described as RogerAI pretraining
   assert.doesNotMatch(page, /we (pre)?trained (DeepSeek|Kimi)/i);
 });
