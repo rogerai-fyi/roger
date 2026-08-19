@@ -4029,7 +4029,13 @@
     }
     DOM.cookies2.textContent = Math.floor(G.cookies);
     var pk = machine("packer");
-    DOM.rate.textContent = (pk.stopped ? 0 : rateOf(pk) * 1.5).toFixed(1);
+    /* THE SAME NUMBER THE RESULTS PANEL PRINTS. This used to show the packer's
+       UNSTARVED capacity - rateOf(pk) * 1.5 - which ignores whether the oven is
+       actually feeding it, so the HUD read high the whole time an upstream
+       machine was the bottleneck while the results panel's COOKIES/S showed
+       what really shipped. Both now read the sampled actual rate. */
+    var lastSample = G.history.length ? G.history[G.history.length - 1].rate : 0;
+    DOM.rate.textContent = (pk.stopped ? 0 : lastSample).toFixed(1);
     paintUnit();
     DOM.runBtn.textContent = G.running ? "PAUSE" : "START";
     DOM.runBtn.dataset.on = G.running ? "1" : "0";
