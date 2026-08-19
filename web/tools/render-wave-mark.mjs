@@ -20,6 +20,11 @@ const OUT     = arg("out", "/tmp/wave-frames");
 const WIDTH   = parseInt(arg("w", "1200"), 10);
 const FPS     = parseInt(arg("fps", "25"), 10);
 const SECONDS = parseFloat(arg("seconds", "16.5"));
+/* --labels no drops the WAVE <TIER> nameplate and keeps the ROGERAI.FM
+   callsign: the mark as a mark, for places where the tier names are noise
+   rather than the point. The beacon still takes the firing tier's colour, so
+   the spectrum still reads. */
+const LABELS  = arg("labels", "yes") !== "no";
 
 /* ---- constants, mirrored from js/wave-mark-spectrum.js -------------------- */
 const X0 = 0, X1 = 348, CX = 174, CY = 78, N = 84, TWO_PI = Math.PI * 2;
@@ -88,7 +93,7 @@ function frame(u) {
   const nodeR = 14 * (1 + 0.16 * best);
 
   // callsign with its on-air lamp, and the firing nameplate
-  const showTag = best > 0.55;
+  const showTag = LABELS && best > 0.55;
   const tagOp = showTag ? ((best - 0.55) / 0.45).toFixed(2) : 0;
   const label = showTag && lead ? "WAVE " + lead.name : "";
   const plateW = label.length * 10 + 18;

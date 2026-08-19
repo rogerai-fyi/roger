@@ -3,12 +3,22 @@
 Four files, one loop: seven Wave tiers as standing waves that all cross at the
 beacon, sweeping Pico → Exa and closing on the Wave Infinite beat.
 
-| file | use |
-|---|---|
-| `wave-mark-dark.mp4` | social posts, iMessage, Slack — dark backgrounds |
-| `wave-mark-light.mp4` | the same on light backgrounds |
-| `wave-mark-dark.gif` | anywhere that will not play video |
-| `wave-mark-light.gif` | " |
+Two cuts of the same loop. The **labelled** one names each tier as it fires
+(WAVE PICO … WAVE EXA); the **clean** one drops the nameplate and keeps only the
+ROGERAI.FM callsign, for places where the tier names are noise rather than the
+point. The beacon still takes the firing tier's colour in both, so the spectrum
+still reads.
+
+| file | cut | use |
+|---|---|---|
+| `wave-mark-dark.mp4` | labelled | social posts, iMessage, Slack — dark backgrounds |
+| `wave-mark-light.mp4` | labelled | the same on light backgrounds |
+| `wave-mark-dark.gif` | labelled | anywhere that will not play video |
+| `wave-mark-light.gif` | labelled | " |
+| `wave-mark-dark-clean.mp4` | clean | the mark alone, dark |
+| `wave-mark-light-clean.mp4` | clean | the mark alone, light |
+| `wave-mark-dark-clean.gif` | clean | " |
+| `wave-mark-light-clean.gif` | clean | " |
 
 MP4: 1200×628 (the 1.91:1 social-card ratio), H.264 high@4.0, **yuv420p**, 25 fps,
 `+faststart`. That pixel format and profile are what make it play inline in
@@ -23,6 +33,7 @@ from the first by ~0.3 k pixels against ~17 k for an ordinary frame step.
 ## Regenerating
 
     node tools/render-wave-mark.mjs --theme dark --out /tmp/wf --w 1200 --fps 25 --seconds 8.25
+    # add --labels no for the clean cut (callsign kept, tier nameplate dropped)
     cd /tmp/wf && ls *.svg | xargs -P 8 -I{} sh -c 'rsvg-convert -w 1200 "{}" -o "${1%.svg}.png"' _ {}
     ffmpeg -framerate 25 -i f%04d.png -vf scale=1200:628:flags=lanczos \
       -c:v libx264 -profile:v high -level 4.0 -pix_fmt yuv420p -crf 18 -preset slow \
