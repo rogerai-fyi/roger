@@ -51,6 +51,16 @@ const PALETTE = {
            ground:"#0E0D0B", ink:"#F3F1EA", ident:"#9A968B", live:"#e0231c" },
 }[THEME];
 
+/* The on-air lamp sits clear of the callsign. It was hardcoded at CX-47, but
+   "ROGERAI.FM" at 11px mono with 3.3 letter-spacing is ~96px wide, so its left
+   edge is CX-48 - the dot was painted ON the R (founder caught it). Derived
+   from the string now, so it stays right if the callsign or its type changes.
+   DejaVu Sans Mono advances 0.602em per glyph. */
+const IDENT      = "ROGERAI.FM";
+const IDENT_FS   = 11, IDENT_LS = 3.3;
+const IDENT_W    = IDENT.length * IDENT_FS * 0.602 + (IDENT.length - 1) * IDENT_LS;
+const IDENT_DOT_X = CX - IDENT_W / 2 - 8;
+
 function pathFor(t, charge, u) {
   const L = X1 - X0;
   const drift = 0.88 + 0.12 * Math.sin(TWO_PI * u * (1 + (t.k % 2)) + t.k);
@@ -109,9 +119,9 @@ function frame(u) {
   <g>${paths}</g>
   <circle cx="${CX}" cy="${CY}" r="${ringR.toFixed(1)}" fill="none" stroke="${leadCol}" stroke-width="2" opacity="${ringO}"/>
   <circle cx="${CX}" cy="${CY}" r="${nodeR.toFixed(2)}" fill="${leadCol}"/>
-  <circle cx="${(CX - 47).toFixed(1)}" cy="30" r="${(2.6 + 1.1 * best).toFixed(2)}" fill="${leadCol}" opacity="${(0.3 + 0.7 * best).toFixed(3)}"/>
+  <circle cx="${IDENT_DOT_X.toFixed(1)}" cy="30" r="${(2.6 + 1.1 * best).toFixed(2)}" fill="${leadCol}" opacity="${(0.3 + 0.7 * best).toFixed(3)}"/>
   <text x="${CX}" y="34" text-anchor="middle" fill="${PALETTE.ident}"
-    font-family="DejaVu Sans Mono, monospace" font-size="11" letter-spacing="3.3">ROGERAI.FM</text>
+    font-family="DejaVu Sans Mono, monospace" font-size="${IDENT_FS}" letter-spacing="${IDENT_LS}">${IDENT}</text>
   ${plate}
 </svg>`;
 }
