@@ -405,14 +405,20 @@ test("device and roadmap claims remain gated", () => {
   const edge = read("research-models.html").match(/<section[^>]+id="roger-edge"[\s\S]*?<\/section>/)?.[0] || "";
   assert.ok(edge, "the Roger Edge section is on the catalogue page");
   const edgeCopy = edge.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
-  assert.match(edgeCopy, /nothing trained/i, "the status says no model exists");
-  /* AMENDED 2026-08-18: the status paragraph used to enumerate what does not
-     exist ("no Roger Edge model, no library and nothing to download yet");
-     the founder replaced it with a prototype-phase note. The guarantee -
-     that a reader can never think there is something here to go and get -
-     is unchanged and now rests on three things asserted together: the
-     section says nothing is trained (above), it declares itself prototype,
-     and it offers no download control or install path (below). */
+  /* AMENDED 2026-08-19: the group head read "nothing trained yet"; the founder
+     replaced it with "experimental". The guarantee this lock exists for - that
+     a reader can never think there is something here to go and get - is
+     unchanged, and the third leg it used to rest on is simply carried by a
+     different word now. So the assertion moves from the phrase to the CLAIM:
+     the head must mark the line as unfinished with one of the words the site
+     actually uses for that, and it must never assert the opposite. The other
+     two legs (declares itself prototype, offers no download or install path)
+     are asserted below exactly as before. */
+  const groupHead = edge.match(/<p>Task models[^<]*<\/p>/)?.[0] || "";
+  assert.match(groupHead, /experimental|prototype|nothing trained/i,
+    "the microcontroller line's head marks it unfinished");
+  assert.doesNotMatch(edgeCopy, /\b(available|released|download it|ship(ping|ped)) (now|today)\b/i,
+    "and nothing on this line may read as obtainable");
   assert.match(edgeCopy, /in prototype/i, "the line declares itself unfinished");
   assert.match(edgeCopy, /No Wave tier runs on an ESP32 or an Arduino/i);
   /* AMENDED 2026-08-18: these pinned two HEADINGS that defined Roger Edge by
