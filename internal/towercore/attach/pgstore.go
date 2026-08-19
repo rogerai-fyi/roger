@@ -389,11 +389,16 @@ func (p *PGStore) TouchRoutable(stationIDs []string, at time.Time) error {
 // what it retired. One statement, so the read and the write cannot disagree: selecting the
 // candidates first and updating them after would retire a Station that got stamped in
 // between, which is the machine coming back at exactly the wrong moment.
+//
+// THE NODE-ID FILTER IS THE WHOLE CORRECTNESS ARGUMENT, not a clause added for tidiness - see
+// the Store interface for why. It is also the predicate the partial index
+// station_attachments_node_id_idx is built on, so the scoping costs nothing.
 func (p *PGStore) DetachIdle(towerID string, before time.Time) ([]string, error) {
 	rows, err := p.db.Query(`UPDATE rogerai.station_attachments
 		   SET state = $3
 		 WHERE origin_tower = $1
 		   AND state IN ('quarantine','active')
+		   AND node_id <> ''
 		   AND COALESCE(last_routable, attached_at) < $2
 		RETURNING station_id`, towerID, before.UTC(), StateDetached)
 	if err != nil {

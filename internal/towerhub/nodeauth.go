@@ -152,7 +152,30 @@ package towerhub
 // timestamped behind the floor is then refused - including an honest one from a node whose
 // clock LAGS by more than the storm is long. That is a denial available to anyone who can do
 // the driving, since being on the path already means being able to drop the request, and it
-// fails closed rather than open.
+// fails closed rather than open. It is also the ONLY refusal that turns on a timestamp now, and
+// it says so in its own sentence rather than borrowing the replay one.
+//
+// # AND A THIRD THING, WHICH IS WHY THERE IS AN EPOCH
+//
+// The gate used to carry a process-start floor as well - `since = time.Now()`, refusing any
+// request stamped before this process began - so that a redeploy inside the skew window did not
+// hand back every signature captured before it. It compared a TOWER WALL CLOCK to a NODE-DOMAIN
+// timestamp, which is the mistake the ring's own floor is careful to avoid, and it failed in
+// both directions at once: a node leading by L kept its captured signatures replayable for L
+// seconds after every restart, and a node lagging by L was refused for L seconds after every
+// restart and told it had made a replay. Proved both ways - a 60s lead replayed after a restart
+// and got the job; a 45s lag got a 401 saying "already been made".
+//
+// The comparison cannot be repaired, because a signature's only tie to time is the timestamp
+// its signer chose: a fresh request from a node leading by L is byte-for-byte the same claim as
+// a stale one from a node leading by L plus its age. Separating them needs memory of that node
+// from before the restart, and a restart is the loss of exactly that memory.
+//
+// So the process is named in the signature instead. Server.epoch is minted per process, rides
+// in the signed target as `?hub=`, and is published on every node-facing response so a client
+// learns it and re-signs - one extra round trip per hub restart, which is rarer than a poll by
+// several orders of magnitude. A captured request names the run it was made for, and that run
+// is over. No clock is consulted, so there is nothing left for a clock to be wrong about.
 //
 // # THE LEGACY BEARER, AND WHAT ENDS IT
 //
@@ -205,7 +228,19 @@ import (
 const (
 	nonceParam = "nonce"
 	towerParam = "tower"
+	// hubParam names the hub PROCESS a request was signed for. See Server.epoch: it is what
+	// makes a signature captured before a restart worthless after one, without any reasoning
+	// about whose clock is ahead of whose.
+	hubParam = "hub"
 )
+
+// HubEpochHeader carries the hub's process epoch on every node-facing response, including the
+// 401 a client gets for not knowing it yet. It is how a client learns the value it must sign:
+// there is no other channel - Core assigns the tower id but knows nothing about when a tower
+// last restarted - and it is public by construction, since an on-path observer can read it off
+// any response. Publishing it costs nothing, because knowing the epoch is not what an attacker
+// lacks. Being able to SIGN over it is.
+const HubEpochHeader = "X-Roger-Hub-Epoch"
 
 // nonceBytes is how much randomness a nonce carries. 16 bytes makes an accidental collision
 // (which would refuse an honest request) impossible in practice at any traffic a hub sees.
@@ -253,6 +288,22 @@ func SignWith(priv ed25519.PrivateKey) Signer {
 	}
 }
 
+// newEpoch mints one hub process epoch. Same randomness and same failure posture as newNonce:
+// a hub that could not read crypto/rand would otherwise mint a predictable epoch, which is the
+// one property this value has to have.
+func newEpoch() string {
+	raw := make([]byte, nonceBytes)
+	if _, err := rand.Read(raw); err != nil {
+		panic("crypto/rand unavailable: " + err.Error())
+	}
+	return hex.EncodeToString(raw)
+}
+
+// Epoch is this hub run's identity, for a caller that mounts the Server itself and wants to
+// hand it to a client out of band. Nothing in production needs it - clients learn it from
+// HubEpochHeader - but a test that builds requests by hand does.
+func (s *Server) Epoch() string { return s.epoch }
+
 // newNonce mints one request nonce. crypto/rand cannot fail on any platform this runs on, and
 // a signing path that silently degraded to a predictable nonce would be worse than a stop.
 func newNonce() string {
@@ -274,10 +325,13 @@ func newNonce() string {
 //
 // url.Values.Encode sorts by key, so the ordering is a property of the encoder rather than of
 // the caller's map iteration.
-func hubTarget(towerID, path string, q url.Values) string {
+func hubTarget(towerID, hubEpoch, path string, q url.Values) string {
 	q.Set(nonceParam, newNonce())
 	if towerID != "" {
 		q.Set(towerParam, towerID)
+	}
+	if hubEpoch != "" {
+		q.Set(hubParam, hubEpoch)
 	}
 	return path + "?" + q.Encode()
 }
@@ -338,29 +392,53 @@ type nonceRing struct {
 }
 
 // nonceGate is the Server's replay guard across all Stations.
+//
+// IT HAS NO PROCESS-START FLOOR ANY MORE, and deleting one is the fix rather than a
+// simplification. It used to hold `since = time.Now()` - a TOWER WALL CLOCK - and refuse any
+// request whose `ts` was before it. `ts` is a NODE-domain unix second, and comparing the two is
+// exactly the mistake the ring's own floor documents avoiding two fields down ("these are
+// request timestamps, not wall clocks, so a node with a consistently offset clock is measured
+// against its own past").
+//
+// The consequences ran in both directions and neither was small. A node whose clock LEADS the
+// tower's by L stamps everything L in the future, so every signature captured in the L seconds
+// before a redeploy was still above the floor after it - the replay the floor existed to refuse,
+// accepted, dequeuing the victim's job. And a node whose clock LAGS by L is refused for L
+// seconds after every redeploy, up to the full five-minute skew, which is five minutes of an
+// honest operator not earning per deploy - the precise harm this whole file says it exists to
+// prevent, and it told them they had made a replay.
+//
+// No amount of care with that comparison can fix it, and it is worth saying why rather than
+// leaving the next person to re-derive it: a signature's only tie to time is the timestamp its
+// signer chose, so a fresh request from a node leading by L and a stale one from a node leading
+// by L+age are the same bytes with the same claim. The tower cannot separate offset from age.
+// A floor in the node's own domain would need memory of that node from before the restart,
+// which is the one thing a restart destroys.
+//
+// So the restart hole is closed by binding the signature to the PROCESS instead of to a moment
+// - see Server.epoch. That is the same move the previous round made for the tower id, one level
+// finer, and it needs no clock at all.
 type nonceGate struct {
-	mu sync.Mutex
-	// since is the floor this whole gate starts life with: nothing signed before this process
-	// began is accepted by it. A nonce ring is memory, so a hub that restarts remembers
-	// nothing - and a redeploy inside the five-minute window would otherwise hand every
-	// signature an attacker captured before it a second life, with no attack needed beyond
-	// waiting for a deploy. Refusing the era instead of remembering it costs a node with a
-	// LAGGING clock one refused poll per lag-second after a restart, and stops mattering
-	// altogether once the process is older than the skew window, because protocol's own
-	// timestamp check refuses everything older than that anyway.
-	since time.Time
+	mu    sync.Mutex
 	rings map[string]*nonceRing
 }
 
-// fresh records a nonce for a Station and reports whether the request may proceed: it must
-// carry a nonce this ring has not seen AND a timestamp newer than anything the ring has
-// forgotten. A false answer is a replay, a collision (which at 128 bits of randomness it is
-// not), or a timestamp from before this Station's floor.
+// admit records a nonce for a Station and returns "" if the request may proceed, or the reason
+// it may not: it must carry a nonce this ring has not seen AND a timestamp newer than anything
+// the ring has forgotten.
+//
+// IT RETURNS A REASON RATHER THAN A BOOL because the two refusals are not the same event and
+// the node can only act on one of them. "This exact request has already been made" is true of a
+// verbatim replay and false of everything else, and it used to be printed for both - so a node
+// pushed behind its own floor was told it had replayed a request it had never made, on a file
+// whose authResult doc says the point is that a node "would otherwise poll into a wall forever
+// without saying why". Saying the wrong why is worse than saying nothing, because it sends the
+// operator looking for a second copy of their node.
 //
 // ts is the request's own signed timestamp; now is the tower's clock, which decides rotation.
 // The caller must have verified the request's signature first. That ordering is what bounds
 // this map: see "BOUNDING THE CACHE".
-func (g *nonceGate) fresh(stationID, nonce string, ts, now time.Time) bool {
+func (g *nonceGate) admit(stationID, nonce string, ts, now time.Time) string {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if g.rings == nil {
@@ -382,27 +460,32 @@ func (g *nonceGate) fresh(stationID, nonce string, ts, now time.Time) bool {
 		r.prev, r.prevMax = r.cur, r.curMax
 		r.cur, r.curMax, r.rotated = map[string]struct{}{}, time.Time{}, now
 	}
-	// Strictly BEFORE for the gate floor and at-or-before for the ring's. The difference is
-	// the resolution of the thing being compared: a request timestamp is unix SECONDS, so a
-	// request signed in the same second the process started is a fresh request and must be
-	// served, while a timestamp equal to one this ring has already forgotten is exactly the
-	// replay the floor is there to refuse.
-	if ts.Before(g.since) || !ts.After(r.floor) {
-		return false
+	// At-or-before the ring's floor, not strictly before: a request timestamp is unix SECONDS,
+	// and a timestamp equal to one this ring has already forgotten is exactly the replay the
+	// floor is there to refuse.
+	if !ts.After(r.floor) {
+		return "this request is older than the oldest one this tower still remembers for this " +
+			"Station, so it cannot be checked for replay and is refused; if this machine's " +
+			"clock is behind, correcting it will fix this"
 	}
 	if _, seen := r.cur[nonce]; seen {
-		return false
+		return replayedWhy
 	}
 	if _, seen := r.prev[nonce]; seen {
-		return false
+		return replayedWhy
 	}
 	r.cur[nonce] = struct{}{}
 	r.tombstoned = false
 	if ts.After(r.curMax) {
 		r.curMax = ts
 	}
-	return true
+	return ""
 }
+
+// replayedWhy is what a VERBATIM replay is told, and nothing else is told it. Tests pin the
+// wording, which is the point: the last version of this sentence was pinned while being wrong
+// for one of the two cases that reached it.
+const replayedWhy = "this exact request has already been made - a replay is refused"
 
 // forget releases a Station's replay memory when the Station itself is dropped, and leaves a
 // TOMBSTONE where it was: the maps go, the floor stays.
@@ -464,6 +547,20 @@ type authResult struct {
 // That is fine - this is an admission gate, not an authorization. authNode still decides
 // everything, against the Station the body names, with the signature over the bytes that
 // actually arrived.
+// IT IS TWO MAP LOOKUPS, NOT A SCAN. It was a linear walk of every registered Station calling
+// hex.EncodeToString per station, under the read lock authNode also needs - so an
+// unauthenticated stranger sending a header got a thousand allocations and a thousand
+// comparisons per request on a thousand-station tower, on the one lock the serving path
+// contends for. That is a CPU-and-lock amplifier standing where a memory amplifier used to be,
+// which is not a trade worth making. The hex is precomputed at RegisterNode instead
+// (setKeyIndexLocked), where it is paid once per registration rather than once per hostile
+// packet.
+//
+// The token half is answered by an index too, and it is deliberately NOT constant-time: this
+// door reveals only "somebody on this tower has this token", the same fact a 401-versus-204 on
+// the real route reveals, and authLegacyBearer still does the constant-time compare against the
+// ONE token registered for the Station the request actually names. Making the index
+// constant-time would mean walking every token, which is the scan this is removing.
 func (s *Server) knownCredential(r *http.Request) bool {
 	pubHex := strings.ToLower(strings.TrimSpace(r.Header.Get(protocol.HeaderPubkey)))
 	tok := bearer(r)
@@ -472,19 +569,15 @@ func (s *Server) knownCredential(r *http.Request) bool {
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	for id, node := range s.nodes {
-		if pubHex != "" && len(node.AssertionKey) == ed25519.PublicKeySize &&
-			pubHex == hex.EncodeToString(node.AssertionKey) {
-			return true
-		}
-		// The latch applies here too. A token belonging to a Station that has signed is not a
-		// credential any more, so it does not buy the holder a body read either.
-		if tok != "" && s.allowLegacyBearer && !s.signed[id] && node.LegacyToken != "" &&
-			constantTimeEqual(node.LegacyToken, tok) {
-			return true
-		}
+	if pubHex != "" && s.keyHex[pubHex] > 0 {
+		return true
 	}
-	return false
+	// The latch cannot be consulted here - this door does not know which Station the caller
+	// claims to be, which is the whole reason it exists (on /complete and /audit/transcript the
+	// Station is named inside the body nobody has read yet). So a token registered for ANY
+	// unsigned Station opens the door, and authNode still refuses it for a Station that has
+	// signed. Admission, not authorization.
+	return tok != "" && s.allowLegacyBearer && s.tokens[tok] > 0
 }
 
 // authNode authenticates a hub request as the registered node for stationID.
@@ -525,6 +618,17 @@ func (s *Server) authNode(r *http.Request, stationID string, body []byte) authRe
 		return authResult{why: "this signature names a different tower: a hub request is signed " +
 			"for the hub it is sent to, and this one was not signed for this one"}
 	}
+	// THE HUB PROCESS, for the same reason and by the same means. A tower id is stable across a
+	// redeploy, and the nonce ring is not: a hub that restarts inside the skew window remembers
+	// no nonce and would accept every signature captured before it went down. The epoch is
+	// minted per process, rides in the signed target, and is handed back on this very response
+	// (HubEpochHeader) so a client that does not know it yet learns it and re-signs. An on-path
+	// attacker can read the new epoch as easily as the client can - and cannot sign over it,
+	// which is the only thing that matters.
+	if r.URL.Query().Get(hubParam) != s.epoch {
+		return authResult{why: "this signature was made for a different run of this hub - it has " +
+			"restarted since; re-sign against the epoch in the " + HubEpochHeader + " header"}
+	}
 	if len(node.AssertionKey) != ed25519.PublicKeySize {
 		return authResult{why: "this tower holds no assertion key for that Station, so it cannot " +
 			"check a signature: its registration predates signed polls and Roger Core has not " +
@@ -548,8 +652,8 @@ func (s *Server) authNode(r *http.Request, stationID string, body []byte) authRe
 		return authResult{why: "a signed hub request carries a hex " + strconv.Itoa(nonceBytes) +
 			"-byte nonce in its query"}
 	}
-	if !s.nonces.fresh(stationID, nonce, time.Unix(ts, 0), time.Now()) {
-		return authResult{why: "this exact request has already been made - a replay is refused"}
+	if why := s.nonces.admit(stationID, nonce, time.Unix(ts, 0), time.Now()); why != "" {
+		return authResult{why: why}
 	}
 	// THE LATCH. This Station has now proved, by doing it, that its node signs - so the bearer
 	// token Core still sends for it is not a credential here any more. Set after every other

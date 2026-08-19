@@ -221,6 +221,49 @@ caused by it.
   outside terminal reaping, so a machine that ran `roger share` once and pressed Ctrl-C stayed a
   candidate indefinitely.
 
+**M1 correction, round three (independent audit of `17d15cdd` and `9e53f30e`).** Two more, and
+both are the same species as the last round: a sentence in a comment that was true of the case
+the test happened to exercise.
+
+- *Every classic Station was retired seven days after it attached, permanently, by its own
+  Tower.* `detachIdleAttachments` was added to stop the attachment table growing, and its
+  evidence is `last_routable`, stamped by `publishRoutable` where an attachment's node id joins
+  to a live broker registration. A CLASSIC operator-invited Station has no node id - it is
+  reached through its Tower's signed inventory and its machine never registers with a broker at
+  all - so `publishRoutable` skips it before it can be stamped, by construction. But
+  `DetachIdle`'s WHERE clause was scoped by origin tower and live state only, so
+  `COALESCE(last_routable, attached_at)` sat at `attached_at` forever, the row crossed the
+  horizon on schedule, and the sweep retired it. `StateDetached` is terminal AND unrecoverable
+  (`checkBindings`: "this Station ID has been retired and cannot be reattached"), and the id is
+  not freed for a month. `publishRoutable` runs on every inventory push and for every live tower
+  on the housekeeping tick, so a Tower did this to its own operator's Stations. Both stores now
+  retire only rows that carry a node id, which is exactly the set the stamp can reach: a sweep
+  that retires on ABSENCE of evidence may only judge a row that could have produced some. The
+  alternative - giving classic attachments a liveness source - has nothing to build from; there
+  is no signal on this side of the wire that has ever seen that machine.
+  The suite missed it because `TestRetirementDoesNotReachAcrossTowers` created exactly the
+  Station being wrongly retired and then swept the OTHER tower: it passed on tower scoping while
+  concealing the defect it had constructed.
+- *A self-declared string moved edge placement by 2x.* `edgeEligible` derives capacity with
+  `capacityOf(concurrentTPS, hw)`, and the commit claimed "an unmeasured node falls back to the
+  same conservative hardware prior `pickFor` uses, which is 1 - so nothing about placement on an
+  unmeasured fleet changes". `capacityOf` returns 1 only for cpu/unknown/empty; `single-gpu` and
+  `apple` return 2 and `multi-gpu` returns 4, and `hw` is a field on
+  `protocol.NodeRegistration` that the node's own binary fills in, sitting next to `Region` -
+  the field §4.1 names as the thing the supply side may never declare. Measured: `hw=""` scored
+  0.2500 against `hw="multi-gpu"` 0.5000 on identical evidence and load, with the P2C tie-break
+  (`load/capacity`) quartered by the same word. The edge path now uses the MEASURED branch only
+  (`edgeCapacityOf`), which makes the sentence above true of every hw value rather than of the
+  one the test used.
+  **The classic router keeps `hw`, and that is not an inconsistency.** There the claim is
+  self-correcting: `loadFactor` is 1 at zero load whatever the capacity, so the prior only bites
+  once the node is busy, and `recordServed` measures `concurrentTPS` under load and replaces it -
+  after which degraded TTFT and reliability follow the over-claim down. None of that loop exists
+  on the edge: edge work deliberately does not feed the classic counters, and `edgeQuality`
+  admits evidence downward only, so the claim would never be corrected. The cost of dropping it
+  is that a real rig sharing only through the fabric is normalized as one slot until it takes
+  classic traffic - under-using a rig, rather than over-trusting a claim.
+
 **M2 — Collect locality.**
 A relay's advertised endpoint gets a coarse location, set by Core at admission (never
 self-declared — see §4). A node gets one at registration, resolved from the connecting IP
@@ -410,10 +453,10 @@ actually reachable all involve the *same* Tower id:
 
 | reachable via | closed by |
 |---|---|
-| the hub restarts or redeploys inside the skew window | the gate refuses anything signed before this process started |
+| the hub restarts or redeploys inside the skew window | the gate refuses anything signed before this process started — **wrong in both clock directions; see 5.4c** |
 | Core's answer briefly omits a Station, so the refresher unregisters it and its ring is dropped | unregistering leaves a floor behind: the memory goes, the refusal stays |
 | a signature carried to a different Tower that has the same Station registered | the Tower id in the signed target |
-| **two hub processes answering one endpoint** | **nothing — see below** |
+| **two hub processes answering one endpoint** | **nothing when this was written; the per-process epoch in 5.4c now makes it fail closed** |
 
 **A Tower runs exactly one hub process per endpoint. That is now a constraint, not an
 assumption.** Two processes cannot agree on a nonce without shared state, and neither the ring nor
@@ -435,6 +478,52 @@ joined the percent-*decoded* path to the raw query, so `/poll?station=st-1&nonce
 `/poll%3Fstation=st-1&nonce=N` produced one identical canonical string — it uses `EscapedPath`
 now. And the GET routes passed `nil` as the body regardless of what arrived, so "the signature
 covers the body" was true of half the surface; they hand over what they read.
+
+### 5.4c Round three: the process-start floor was a clock, and clocks were the thing
+
+The gate's last remaining defence against a redeploy was `nonceGate.since = time.Now()` - refuse
+anything stamped before this process began. It compared a **tower wall clock** to `ts`, a
+**node-domain unix second**, which is precisely the mistake the ring's own eviction floor
+documents avoiding one field below it ("these are request timestamps, not wall clocks, so a node
+with a consistently offset clock is measured against its own past"). It failed in both
+directions, and the row in 5.4b's table that reads "the gate refuses anything signed before this
+process started" was true only of a node whose clock was level or behind.
+
+- **A node leading by L kept its captured signatures replayable for L seconds after every
+  restart.** Proved with a 60-second lead: replay after a redeploy returned 200 with the job -
+  the dequeue-the-victim's-job attack, surviving the change that closed it. This section argues
+  at length that leading clocks are ordinary, which is what makes it the reachable case rather
+  than the exotic one. (A perfectly synchronised node had a sub-second window too, from the
+  `Truncate(time.Second)` that was added so the floor would not refuse requests signed in the
+  second the process started.)
+- **A node lagging by L was refused for L seconds after every restart, and told it was a
+  replay.** Up to `SigMaxSkew`, five minutes of an honest operator not earning per deploy - the
+  harm this whole change exists to prevent, and the stated reason for not refusing future
+  timestamps, applied in one direction only. The 401 read "this exact request has already been
+  made", for a request the node had never made, and the test pinned that wording.
+
+**The comparison cannot be repaired.** A signature's only tie to time is the timestamp its signer
+chose, so a fresh request from a node leading by L and a stale one from a node leading by L plus
+its age are the same bytes making the same claim; separating them needs memory of that node from
+before the restart, and a restart is the loss of exactly that memory. Persisting a per-station
+high-water mark would work and was considered - it is the only alternative that does - and it was
+rejected for putting disk state, and a crash window, into a hub that deliberately holds none.
+
+So the process is named in the signature instead. `towerhub.Server` mints a random **epoch** per
+run, every signed request carries it in the target as `?hub=`, and the hub publishes it on every
+node-facing response in `X-Roger-Hub-Epoch` so a client that does not know it yet learns it and
+re-signs. This is the same move the tower id made one level finer, and it costs one extra round
+trip per hub restart against a poll every twenty-five seconds. No clock is consulted, so there is
+nothing left for a clock to be wrong about, and 5.4b's residual about the ring floor is now the
+only refusal in the gate that turns on a timestamp - which is why it has been given a sentence of
+its own instead of borrowing the replay one.
+
+It also closes the row 5.4b's table left open. **Two hub processes behind one endpoint** now have
+two epochs, so a signature made for one is refused by the other rather than silently replayable
+at it. That configuration is still unsupported and will flap; it now fails closed.
+
+There is no compatibility cost: signed polls have not shipped in any tagged release, so both
+halves of the wire change land together.
 
 ### 5.5 Transition: hard cutover on the node, one release of tolerance on the Tower
 
@@ -472,6 +561,44 @@ different versions in both directions. The two halves are deliberately **asymmet
   fleet, one commit after promising not to. Rotating the token at Core on each re-attach is
   theatre against this attacker: a node old enough to present a bearer presents it in the clear
   every twenty-five seconds, so the replacement is captured as easily as the original.
+
+  **"Neither an attacker holding the token nor one on the path can produce the signature that
+  flips the latch, or unflip it" was false, and so was "the only thing that clears it is the
+  Station being dropped by Core".** Two events cleared it, and neither is an attack because
+  neither has to be.
+
+  `UnregisterNode` deleted the latch outright - and the hub's refresher unregisters any Station
+  missing from a SINGLE answer from Core, re-registering it on the next tick. That is the exact
+  occurrence the nonce ring's tombstone was added for, and 5.4b calls it "entirely outside
+  anybody's control": the ring got a tombstone, the latch got a plain delete. Since Core never
+  rotates the token, one bad refresh handed a stolen bearer its whole life back.
+  And `RegisterNode` cleared it whenever the incoming assertion key differed from the one held,
+  on the reasoning that a different key means a different node. That trigger is unreachable -
+  `checkBindings` makes a Station's assertion key immutable for the life of the Station ID, and a
+  retired ID can never be reattached - so the branch existed in practice only to be tripped by
+  the one thing that produces a differing key without a different node: a key Core sent that
+  would not decode, which `registerHubNodes` drops to nil while registering the token beside it.
+  Both were proved end to end: 204 on a signed Station's queue with the stolen bearer.
+
+  The latch is **set-only within a process** now. Nothing deletes from it, because every event
+  that did was a registration flap rather than evidence about the node. It costs a bool per
+  Station id this tower has verified a signature from - a set only the holder of that Station's
+  private key can add to.
+
+  And an **unusable** assertion key no longer registers a bearer alongside it. The two cases were
+  conflated: an EMPTY key describes the old node the tolerance was written for and still gets its
+  token, while a key that is present and will not decode describes corruption on a Station that
+  certainly has a good key at Core. Honouring a bearer there opens a queue, on a plaintext link,
+  to a string any on-path observer holds, for a Station that can no longer authenticate any other
+  way - so nothing would ever flip the latch that closes it again. It fails closed and says so
+  once.
+
+  One more, from the same audit and on the same door. `knownCredential` - the cheap door added to
+  stop an unauthenticated stranger making the tower buffer sixteen megabytes - scanned every
+  registered Station calling `hex.EncodeToString` per station, under the read lock `authNode`
+  needs. Measured at 128KB of allocation per bogus request on a thousand-station tower: a
+  CPU-and-lock amplifier standing where a memory amplifier used to be, which is not closing one.
+  The hex is precomputed at registration and indexed now.
 
   It was also, until now, **unturnable-off**: the field was documented here as "default true",
   which promises a false, while the only assignment to it outside its constructor lived in a unit

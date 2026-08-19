@@ -58,6 +58,95 @@ type Client struct {
 	// data race between the poll workers and the audit loop).
 	once sync.Once
 	http *http.Client
+
+	// epochMu/epoch cache the hub PROCESS this client is currently signing for. The tower id
+	// comes from Core; the epoch cannot, because Core knows nothing about when a tower last
+	// restarted (see Server.epoch). So it is learned from the hub itself: the first request
+	// carries none, the hub refuses it and names its epoch in HubEpochHeader, and signedDo
+	// re-signs and sends once more. That costs one extra round trip per hub restart, against
+	// eight poll workers each polling every twenty-five seconds - and it is what makes a
+	// signature captured before a redeploy worthless after one.
+	//
+	// A mutex rather than an atomic because the workers write it concurrently on the same
+	// restart and a torn read would send an epoch nobody minted.
+	epochMu sync.RWMutex
+	epoch   string
+}
+
+// hubEpoch reads the cached process epoch.
+func (c *Client) hubEpoch() string {
+	c.epochMu.RLock()
+	defer c.epochMu.RUnlock()
+	return c.epoch
+}
+
+// learnEpoch records the epoch a hub named on a response and reports whether it is NEW, which
+// is what decides a retry. Returning false for a value we already had is what keeps a genuine
+// 401 - a Station this hub does not know, a bad signature - from becoming an infinite retry.
+func (c *Client) learnEpoch(fresh string) bool {
+	if fresh == "" {
+		return false
+	}
+	c.epochMu.Lock()
+	defer c.epochMu.Unlock()
+	if c.epoch == fresh {
+		return false
+	}
+	c.epoch = fresh
+	return true
+}
+
+// signedDo is every NODE-side call: build the target, sign it, send it, and - if the hub says
+// the signature was made for a different run of itself - learn the new epoch and send exactly
+// one more.
+//
+// ONE RETRY, NOT A LOOP. The retry is triggered only by an epoch this client had not seen, and
+// learnEpoch will not report the same value twice, so a hub that answered 401 with a constant
+// epoch gets one extra request and no more. A hub restarting between the two attempts costs the
+// caller one failed request, which its own poll loop retries anyway.
+//
+// The body is a []byte rather than a reader precisely so the second attempt can send the same
+// bytes; the signature covers their digest, so re-reading a stream would not do.
+func (c *Client) signedDo(ctx context.Context, method, path string, q url.Values, body []byte) (*http.Response, error) {
+	attempt := func() (*http.Response, error) {
+		target := hubTarget(c.TowerID, c.hubEpoch(), path, cloneValues(q))
+		var rdr io.Reader
+		if body != nil {
+			rdr = bytes.NewReader(body)
+		}
+		req, err := http.NewRequestWithContext(ctx, method, c.url(target), rdr)
+		if err != nil {
+			return nil, err
+		}
+		if body != nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		c.authenticate(req, target, body)
+		return c.httpClient().Do(req)
+	}
+	resp, err := attempt()
+	if err != nil || resp.StatusCode != http.StatusUnauthorized {
+		return resp, err
+	}
+	if !c.learnEpoch(resp.Header.Get(HubEpochHeader)) {
+		return resp, nil
+	}
+	// The refused response is drained and closed before the retry: leaving it open leaks a
+	// connection per restart per worker, on a client whose whole job is to hold long polls.
+	io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
+	resp.Body.Close()
+	return attempt()
+}
+
+// cloneValues copies a caller's query so hubTarget's per-request additions (a fresh nonce, the
+// tower, the epoch) never mutate a map the caller reuses - which, on the retry above, would
+// otherwise carry the FIRST attempt's nonce into the second.
+func cloneValues(q url.Values) url.Values {
+	out := make(url.Values, len(q)+3)
+	for k, v := range q {
+		out[k] = append([]string(nil), v...)
+	}
+	return out
 }
 
 // httpClient is the client every call here uses: the caller's, with REDIRECTS REFUSED.
@@ -159,13 +248,7 @@ func (c *Client) SubmitJob(ctx context.Context, grant, envelope []byte) (Result,
 // PollJob is the NODE side: long-poll for one job for `station`. ok=false with a nil error means
 // the poll returned empty (a normal timeout - poll again). An error is a transport/auth failure.
 func (c *Client) PollJob(ctx context.Context, station string) (Job, bool, error) {
-	target := hubTarget(c.TowerID, PathPoll, url.Values{"station": {station}})
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(target), nil)
-	if err != nil {
-		return Job{}, false, err
-	}
-	c.authenticate(req, target, nil)
-	resp, err := c.httpClient().Do(req)
+	resp, err := c.signedDo(ctx, http.MethodGet, PathPoll, url.Values{"station": {station}}, nil)
 	if err != nil {
 		return Job{}, false, err
 	}
@@ -202,14 +285,7 @@ func (c *Client) CompleteResult(ctx context.Context, station string, res Result)
 		Receipt:   base64.StdEncoding.EncodeToString(res.Receipt),
 		Failure:   res.Failure,
 	})
-	target := hubTarget(c.TowerID, PathComplete, url.Values{})
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(target), bytes.NewReader(body))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	c.authenticate(req, target, body)
-	resp, err := c.httpClient().Do(req)
+	resp, err := c.signedDo(ctx, http.MethodPost, PathComplete, url.Values{}, body)
 	if err != nil {
 		return err
 	}
@@ -275,13 +351,7 @@ func (e *HTTPError) Error() string {
 // AuditWanted is the NODE side of the audit plane: fetch the attempt ids Core wants this
 // Station's transcripts for (relayed by the tower's hub).
 func (c *Client) AuditWanted(ctx context.Context, station string) ([]string, error) {
-	target := hubTarget(c.TowerID, PathAuditWanted, url.Values{"station": {station}})
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(target), nil)
-	if err != nil {
-		return nil, err
-	}
-	c.authenticate(req, target, nil)
-	resp, err := c.httpClient().Do(req)
+	resp, err := c.signedDo(ctx, http.MethodGet, PathAuditWanted, url.Values{"station": {station}}, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -307,14 +377,7 @@ func (c *Client) AnswerAudit(ctx context.Context, station string, reply Transcri
 		StationID string `json:"station_id"`
 		TranscriptReply
 	}{StationID: station, TranscriptReply: reply})
-	target := hubTarget(c.TowerID, PathAuditTranscript, url.Values{})
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(target), bytes.NewReader(body))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	c.authenticate(req, target, body)
-	resp, err := c.httpClient().Do(req)
+	resp, err := c.signedDo(ctx, http.MethodPost, PathAuditTranscript, url.Values{}, body)
 	if err != nil {
 		return err
 	}

@@ -326,6 +326,33 @@ type Store interface {
 	// horizon its caller passes is DAYS rather than minutes on purpose: the harm being fixed
 	// is unbounded growth, which is slow, and the cost of being wrong is an operator's node
 	// having to re-attach, which is not.
+	//
+	// IT RETIRES ONLY ROWS THAT CARRY A NODE ID, AND THAT SCOPE IS THE CORRECTNESS ARGUMENT
+	// RATHER THAN AN OPTIMIZATION. A sweep may only judge a row it could have found evidence
+	// FOR; measured against a row whose liveness is unknowable it is not a retirement, it is
+	// a timer.
+	//
+	// TouchRoutable is the one and only source of that evidence, and publishRoutable stamps
+	// it by joining the attachment's node id to this broker's live registrations - so a row
+	// with no node id can never be stamped, by anybody, ever. Without this filter the
+	// COALESCE fell back to attached_at forever, the row crossed the horizon on schedule, and
+	// a CLASSIC operator-invited Station - which carries no node id, is skipped by
+	// publishRoutable's stamping loop by construction, and has no roger-share half to
+	// heartbeat - was retired seven days after it attached, every time, on its own Tower's
+	// housekeeping tick. StateDetached is terminal AND unrecoverable (checkBindings answers
+	// "this Station ID has been retired and cannot be reattached"), so that was a permanent
+	// loss of an operator's Station on a fixed timer, produced by the sweep that was added to
+	// stop the table growing.
+	//
+	// The alternative considered was to give classic attachments a liveness source of their
+	// own. There is none to give: their machine is reached through the Tower's signed
+	// inventory and never registers with a broker, so there is nothing on this side of the
+	// wire that has ever seen it. A retirement pass for those rows would have to be written
+	// against evidence that does not exist yet, and inventing one to justify a sweep is how
+	// this defect happened in the first place. The table still shrinks for the population it
+	// was growing from - self-attach is the frictionless attach/revoke loop, and every
+	// self-attached row carries a proved node id (toweredgeattach.go refuses the attach
+	// without one).
 	DetachIdle(towerID string, before time.Time) ([]string, error)
 	// ByTower lists the LIVE attachments whose origin is the given Tower - what that Tower's
 	// hub must serve (Option C: the tower reads each node's HubToken from here).

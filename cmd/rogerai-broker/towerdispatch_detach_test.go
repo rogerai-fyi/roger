@@ -101,13 +101,20 @@ func TestALiveMachineIsNeverRetiredHoweverLongTheSweepRuns(t *testing.T) {
 
 // The retirement is scoped to ONE Tower - the sweep runs per Tower, and a Tower's housekeeping
 // must not reach across to somebody else's fleet.
+//
+// IT ALSO SWEEPS A CLASSIC STATION ON THE TOWER IT IS SWEEPING, and that leg is here because
+// this test used to be the reason nobody noticed the defect below. It created exactly the
+// Station that was being wrongly retired and then asserted about it behind the OTHER Tower -
+// so it passed on the tower-scoping rule while concealing that the Station would have been
+// retired had the sweep reached it. A test that constructs the failing case and then looks
+// somewhere else is worse than no test, because it reads like coverage.
 func TestRetirementDoesNotReachAcrossTowers(t *testing.T) {
 	shortenIdleHorizon(t, 40*time.Millisecond)
 	b, srv := towerTestBroker(t)
 	quietTower, quietStation, quietNode := attachedStation(t, b, srv, "quiet-op")
 
-	// A second Tower with its own Station, equally quiet - attached directly so it is
-	// unambiguously behind a DIFFERENT origin (self-attach picks its own tower).
+	// A classic Station on the tower that IS swept, and one on a tower that is not.
+	attachStation(t, b, "st-classichere", quietTower, "quiet-op")
 	other := enrolledTower(t, b, "other-owner")
 	require.NoError(t, b.tower.registry.Transition(other.id, admit.StateActive))
 	attachStation(t, b, "st-elsewhere", other.id, "other-owner")
@@ -120,8 +127,47 @@ func TestRetirementDoesNotReachAcrossTowers(t *testing.T) {
 	b.publishRoutable(quietTower) // only this one sweeps
 
 	require.Equal(t, attach.StateDetached, stateOf(t, b, quietStation))
+	require.Equal(t, attach.StateActive, stateOf(t, b, "st-classichere"),
+		"the swept Tower retired its own classic Station - see TestAClassicStationOutlivesTheHorizon")
 	require.Equal(t, attach.StateActive, stateOf(t, b, "st-elsewhere"),
 		"sweeping one Tower retired an attachment behind another")
+}
+
+// EVERY CLASSIC STATION WAS RETIRED SEVEN DAYS AFTER IT ATTACHED, PERMANENTLY, BY ITS OWN
+// TOWER. This is the whole defect, end to end through the real publish path.
+//
+// Two halves, both of which had to be true. publishRoutable `continue`s past a classic
+// attachment before it can enter `alive`, so TouchRoutable never stamps one - correctly, since
+// there is no node id on it to join to a live registration, and no roger-share half to
+// heartbeat. And DetachIdle's WHERE clause was scoped by origin tower and live state only, with
+// nothing about whether a stamp was ever POSSIBLE. So COALESCE(last_routable, attached_at) sat
+// at attached_at forever, the row crossed the horizon on schedule, and publishRoutable - which
+// runs on every inventory push and for every live tower on the housekeeping tick - retired it.
+//
+// What makes it unrecoverable rather than annoying: StateDetached is terminal. checkBindings
+// answers "this Station ID has been retired and cannot be reattached", and the row is not even
+// freed for a fresh attach under the same id until terminalAttachmentHorizon, a month later.
+//
+// The horizon here is 40ms and the sweep runs six times, which is a hundred and fifty horizons.
+// A classic Station is not "retired slowly"; it is never retired by this sweep at all.
+func TestAClassicStationOutlivesTheHorizon(t *testing.T) {
+	shortenIdleHorizon(t, 40*time.Millisecond)
+	b, srv := towerTestBroker(t)
+	towerID, _, _ := attachedStation(t, b, srv, "classic-op")
+	attachStation(t, b, "st-classic", towerID, "classic-op")
+
+	for i := 0; i < 6; i++ {
+		time.Sleep(50 * time.Millisecond)
+		b.publishRoutable(towerID)
+		require.Equal(t, attach.StateActive, stateOf(t, b, "st-classic"),
+			"sweep %d retired a Station whose liveness this broker has no way to observe", i)
+	}
+
+	// And it is still attachable-to: the terminal state is what would have made this permanent.
+	at, found, err := b.tower.stations.Station("st-classic")
+	require.NoError(t, err)
+	require.True(t, found)
+	require.True(t, at.Live(), "a retired Station ID can never be reattached (checkBindings)")
 }
 
 // stateOf reads an attachment's lifecycle state straight from the registry.

@@ -87,6 +87,58 @@ func TestTheCanaryPrefersTheStationItHasNeverProbed(t *testing.T) {
 		"the third probe went back to an already-probed station while one had never been probed")
 }
 
+// WHEN NOTHING BEHIND A TOWER IS PLACEABLE, THE CANARY PROBES EVERYTHING ANYWAY - and it still
+// rotates.
+//
+// This is the fallback canaryTargetFor takes when edgeEligible returns both tiers empty, and it
+// had no test at all. The reasoning for it is written down and is the right reasoning: a Tower
+// whose machines have all gone quiet would otherwise stop being probed at exactly the moment it
+// stopped working, and its reputation would freeze at whatever it last was - unable to degrade,
+// and unable to recover when the machines came back. A Tower carrying nothing reachable IS the
+// finding the probe exists to make.
+//
+// What was untested is that the fallback path still SPREADS. It builds its candidates from
+// scratch (scoredCand{idx: i}, load zero, because there is no eligibility reading to carry over
+// for a candidate eligibility rejected), so it is a second construction of the thing the rest of
+// this file is about, and a magnet here would be as invisible as the magnet that was here
+// before: the probes all succeed, nothing errors, and one Station's health silently becomes the
+// whole Tower's.
+func TestTheCanaryStillRotatesWhenNothingBehindATowerIsPlaceable(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	towerID := canaryFleet(t, b, srv, 3)
+
+	// Every machine goes home. edgeEligible drops a registered node whose heartbeat is older
+	// than nodeTTL outright - not to Tier B - so both tiers come back empty and the fallback is
+	// the only thing left.
+	b.mu.Lock()
+	for id := range b.nodes {
+		b.lastSeen[id] = time.Now().Add(-2 * nodeTTL)
+	}
+	b.mu.Unlock()
+
+	rows, err := b.tower.routable.ByTower(towerID, time.Now())
+	require.NoError(t, err)
+	require.Len(t, rows, 3)
+	tierA, tierB := b.edgeEligible(rows, nil, time.Now())
+	require.Empty(t, tierA)
+	require.Empty(t, tierB, "the premise of this test is gone: something is still eligible")
+	_, _, placeable := b.edgeTargetFor("m", edgePlacementRand())
+	require.False(t, placeable, "a consumer can still be placed, so this is not the fallback case")
+
+	probed := map[string]int{}
+	for i := 0; i < 30; i++ {
+		_, row, ok := b.canaryTargetFor(towerID)
+		require.True(t, ok,
+			"probe %d found nothing to canary, so a Tower whose fleet went quiet stops being measured", i)
+		probed[row.StationID]++
+		b.recordEdgeCanary(row.StationID, reputation.CanaryFail)
+	}
+	require.Len(t, probed, 3, "30 probes reached %d of 3 unplaceable stations: %v", len(probed), probed)
+	for id, n := range probed {
+		require.Less(t, n, 15, "station %s absorbed %d of 30 probes: %v", id, n, probed)
+	}
+}
+
 // THE EVIDENCE BELONGS TO THE STATION THAT PRODUCED IT. A failing machine must cost itself
 // placement and must not cost the Stations beside it anything.
 func TestAFailingCanaryDemotesOnlyItsOwnStation(t *testing.T) {

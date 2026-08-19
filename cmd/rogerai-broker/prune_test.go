@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	"rogerai.fm/roger/v5/internal/protocol"
 	"rogerai.fm/roger/v5/internal/store"
 )
@@ -75,6 +76,59 @@ func TestPruneStaleNodes(t *testing.T) {
 	if acct, ok, _ := b.db.AccountOfNode(dead); !ok || acct != "owner-pubkey" {
 		t.Fatalf("owner binding lost on prune: acct=%q ok=%v (want owner-pubkey/true)", acct, ok)
 	}
+}
+
+// EVERY PER-NODE MAP GOES, INCLUDING THE ONES ADDED AFTER THIS SWEEP WAS WRITTEN.
+//
+// The prune deletes from a hand-maintained list of maps, which is a shape that rots: a map added
+// later is correct everywhere except in the one place that cleans it up, and nothing fails. Two
+// had rotted. b.netBucket - the observed network locality bucket, added with the locality work -
+// held a prefix for every node the registry had already forgotten, forever. And b.edgeCanary is
+// keyed by STATION rather than by node, so no node-id delete could ever reach it; it is aged out
+// on its own evidence instead, and that sweep must not be conditional on some node happening to
+// be stale, because the two go stale independently.
+func TestPruneStaleNodesDropsTheLocalityAndCanaryMaps(t *testing.T) {
+	b := pruneTestBroker()
+	b.netBucket = map[string]string{}
+	b.edgeCanary = map[string]edgeCanaryHealth{}
+	now := time.Now()
+
+	dead, alive := "dead-node", "live-node"
+	for _, id := range []string{dead, alive} {
+		b.nodes[id] = protocol.NodeRegistration{NodeID: id, Offers: []protocol.ModelOffer{{Model: "m"}}}
+		b.netBucket[id] = "198.51.100.0/24"
+	}
+	b.lastSeen[dead] = now.Add(-staleNodeTTL - time.Hour)
+	b.lastSeen[alive] = now.Add(-time.Minute)
+
+	// Two canary readings: one for a Station probed recently, one nobody has looked at since
+	// before the horizon.
+	b.edgeCanary["st-recent"] = edgeCanaryHealth{at: now.Add(-time.Minute)}
+	b.edgeCanary["st-ancient"] = edgeCanaryHealth{at: now.Add(-staleNodeTTL - time.Hour)}
+
+	require.Equal(t, 1, b.pruneStaleNodes(now))
+
+	_, keptDead := b.netBucket[dead]
+	require.False(t, keptDead, "the pruned node's observed network prefix was retained forever")
+	_, keptAlive := b.netBucket[alive]
+	require.True(t, keptAlive, "a live node's locality was pruned with somebody else's")
+
+	_, ancient := b.edgeCanary["st-ancient"]
+	require.False(t, ancient, "a canary reading nobody has refreshed since the horizon is kept forever")
+	_, recent := b.edgeCanary["st-recent"]
+	require.True(t, recent, "a fresh canary reading was swept with the stale ones")
+}
+
+// AND THE STATION-KEYED SWEEP RUNS WHEN NO NODE IS STALE, which is the ordinary case and the one
+// where the map grows fastest. Putting it after the early return would have made it dead code on
+// a healthy fleet.
+func TestTheCanaryMapIsAgedEvenWhenNoNodeIsPruned(t *testing.T) {
+	b := pruneTestBroker()
+	b.edgeCanary = map[string]edgeCanaryHealth{
+		"st-ancient": {at: time.Now().Add(-staleNodeTTL - time.Hour)},
+	}
+	require.Zero(t, b.pruneStaleNodes(time.Now()), "no node should have been pruned")
+	require.Empty(t, b.edgeCanary, "the canary sweep only runs when some node happens to be stale")
 }
 
 // TestPruneStaleNodesDisabled: a zero/negative TTL is a no-op (the env opt-out).

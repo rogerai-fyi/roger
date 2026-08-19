@@ -15,6 +15,7 @@ package main
 // id on every row with which to ask each of those questions.
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"fmt"
 	"net/http"
@@ -245,4 +246,34 @@ func TestEdgePlacementRefusesARowWithNoJoin(t *testing.T) {
 
 	_, _, ok := b.edgeTargetFor("m", edgePlacementRand())
 	require.False(t, ok, "a row with no node id behind it was handed to a consumer")
+}
+
+// EVERY REFUSAL SAYS SO, INCLUDING THE FIRST ONE. logEdgePlacementRefusal exists because the
+// 503 a consumer gets is deliberately uninformative and was uninformative to us as well: an
+// empty fleet, a wholly banned fleet and a wholly unresolvable one produce the same answer and
+// want completely different responses. Its own doc calls that "one line per refusal".
+//
+// The earliest return in edgeTargetFor - a broker with no tower subsystem, or one whose
+// projection is not wired - was the hole in that. It is the case with no other symptom either:
+// every edge consumer is refused, permanently, and it looks exactly like a fleet with nothing
+// in it.
+func TestEveryEdgePlacementRefusalIsLogged(t *testing.T) {
+	var logged bytes.Buffer
+	defer captureLog(&logged)()
+
+	// No tower subsystem at all, which is what a broker deployed without one looks like.
+	bare := &broker{}
+	_, _, ok := bare.edgeTargetFor("m", nil)
+	require.False(t, ok)
+	require.Contains(t, logged.String(), "REFUSED",
+		"the earliest refusal on the placement path returns in silence")
+	require.Contains(t, logged.String(), "no tower subsystem")
+
+	// And the case just after it - a wired subsystem with an empty projection - still says its
+	// own, different thing, so the two are told apart in an aggregator.
+	logged.Reset()
+	b, _ := towerTestBroker(t)
+	_, _, ok = b.edgeTargetFor("nobody-serves-this", nil)
+	require.False(t, ok)
+	require.Contains(t, logged.String(), "no Tower publishes a routable Station for this model")
 }

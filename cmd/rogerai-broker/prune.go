@@ -48,8 +48,35 @@ func (b *broker) pruneStaleNodes(now time.Time) int {
 		delete(b.bandOf, id)
 		delete(b.attestedAt, id)
 		delete(b.localRegAt, id)
+		// netBucket was added with the locality work and never added here, so the observed
+		// network prefix of every pruned node was retained for the life of the process - a map
+		// that only ever grew, holding a coarse location for machines the registry has already
+		// forgotten. It is written at registration under b.mu, so it is dropped here with the
+		// rest of what b.mu guards.
+		delete(b.netBucket, id)
 	}
 	b.mu.Unlock()
+
+	// edgeCanary CANNOT BE DROPPED BY NODE ID, because it is keyed by STATION - the tower
+	// fabric's own probe results, filed against the thing that was probed. There is no join from
+	// a pruned node id to its stations here (that lives in Core's attachment registry, behind a
+	// database this sweep deliberately does not consult), so it is aged out on its own evidence
+	// instead: a Station nobody has canaried since the same horizon has no reading worth
+	// keeping. edgeCanaryAgeLocked already answers "never probed" for a Station with no entry,
+	// which is the correct reading for one whose entry has been dropped and the one that puts it
+	// at the front of the coverage rotation.
+	//
+	// AHEAD OF THE EARLY RETURN, deliberately. Station entries and node registrations go stale
+	// independently - a fleet whose nodes are all still live can still be carrying canary
+	// readings for Stations that were revoked months ago - so tying this sweep to "some node was
+	// pruned" would leave the map growing on exactly the healthy fleet where it grows fastest.
+	b.metricsMu.Lock()
+	for id, h := range b.edgeCanary {
+		if h.at.Before(cutoff) {
+			delete(b.edgeCanary, id)
+		}
+	}
+	b.metricsMu.Unlock()
 
 	if len(stale) == 0 {
 		return 0

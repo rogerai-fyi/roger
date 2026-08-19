@@ -12,7 +12,12 @@ package main
 
 import (
 	"bytes"
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -56,7 +61,12 @@ func newCoreStub(t *testing.T) *coreStub {
 		// Every link call is the MACHINE talking, and Core authenticates it by the Tower's
 		// key. An unsigned call would be refused in production; catching it here is the only
 		// place the client's side of that rule is checked from this package.
-		require.NotEmpty(c.t, r.Header.Get("X-Roger-Pubkey"), "%s was unsigned", r.URL.Path)
+		//
+		// /tower/dispatch/key is the one exception, and it is one in production too: it is a
+		// public read of a public key, fetched before the tower has any session to sign with.
+		if r.URL.Path != "/tower/dispatch/key" {
+			require.NotEmpty(c.t, r.Header.Get("X-Roger-Pubkey"), "%s was unsigned", r.URL.Path)
+		}
 
 		c.mu.Lock()
 		c.seen = append(c.seen, r.URL.Path)
@@ -95,6 +105,30 @@ func newCoreStub(t *testing.T) *coreStub {
 	t.Cleanup(c.srv.Close)
 	c.t.Setenv("ROGER_BROKER", c.srv.URL)
 	return c
+}
+
+// answerDispatchKey makes the stub serve a real (throwaway) grant-signing key, which is what
+// runHubInBackground fetches before it will start a hub at all.
+func (c *coreStub) answerDispatchKey(t *testing.T) {
+	t.Helper()
+	pub, _, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.reply["/tower/dispatch/key"] = func(w http.ResponseWriter, _ int) bool {
+		_ = json.NewEncoder(w).Encode(map[string]any{"dispatch_key": hex.EncodeToString(pub)})
+		return true
+	}
+}
+
+// answerHubNodes makes the stub serve a fixed /tower/hub/nodes body.
+func (c *coreStub) answerHubNodes(body string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.reply["/tower/hub/nodes"] = func(w http.ResponseWriter, _ int) bool {
+		_, _ = io.WriteString(w, body)
+		return true
+	}
 }
 
 func (c *coreStub) called(path string) int {
@@ -675,19 +709,19 @@ func TestAFailedRefreshIsReportedAndTheLinkSurvives(t *testing.T) {
 	require.NoError(t, <-done)
 }
 
-// AN OPERATOR CAN ACTUALLY TURN THE BEARER TOLERANCE OFF, which is the whole of this test.
+// THE SWITCH IS PARSED FROM BOTH DOORS, AND THE FLAG WINS. That is all this test proves, and
+// saying so is a correction.
 //
-// towerhub.Server.AllowLegacyBearer was documented in docs/relay-selection-design.md as
-// "default true" - wording that promises a false - and the only assignment to it anywhere
-// outside its constructor was in a unit test. There was no flag, no config field, and
-// `roger-tower`'s one call site never touched it. An operator who had updated every node on
-// their tower and wanted the pre-signature path closed had no way to say so, and the
-// documentation told them there was.
+// It used to claim more. Its failure messages read "-hub-legacy-bearer=false did not reach the
+// hub", and it asserted require.ErrorIs(err, errStandaloneCannotServeJoined) on every leg -
+// which serveJoined returns BEFORE any hub is constructed, deliberately (see
+// TestAStandaloneTowerWithAHubReachesNothing). So the only thing it could observe was the banner
+// cmdServe prints from its own local variable. Hardcoding AllowLegacyBearer: true in hub.go -
+// dropping the operator's switch on the floor entirely - left this whole package green.
 //
-// The serve itself is refused (this is a standalone directory, which cannot serve joined) -
-// which is fine, because what is under test is that the switch is reachable and reaches the
-// decision point, and both doors report it before that refusal.
-func TestTheLegacyBearerToleranceCanBeTurnedOff(t *testing.T) {
+// The reaches-the-hub half is TestTheBearerToleranceSwitchReachesTheHub, below, which builds a
+// real hub through the real function and asks it.
+func TestTheLegacyBearerToleranceIsParsedFromFlagAndConfig(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "tw")
 	var b bytes.Buffer
 	require.NoError(t, run([]string{"init", "--dir", dir, "--mode", "standalone"}, &b))
@@ -702,13 +736,13 @@ func TestTheLegacyBearerToleranceCanBeTurnedOff(t *testing.T) {
 	out, err = runCLI(t, "serve", "--dir", dir, "--hub", "127.0.0.1:0", "--hub-legacy-bearer=false")
 	require.ErrorIs(t, err, errStandaloneCannotServeJoined)
 	require.Contains(t, out, "bearer tokens are REFUSED",
-		"-hub-legacy-bearer=false did not reach the hub")
+		"-hub-legacy-bearer=false was not parsed")
 
 	// And so does the config file, for an operator who does not hand-write the command line.
 	cfg := writeConfig(t, standaloneYAML+"hub:\n  address: 127.0.0.1:0\n  allowLegacyBearer: false\n")
 	out, err = runCLI(t, "serve", "--dir", dir, "--config", cfg)
 	require.ErrorIs(t, err, errStandaloneCannotServeJoined)
-	require.Contains(t, out, "bearer tokens are REFUSED", "hub.allowLegacyBearer did not reach the hub")
+	require.Contains(t, out, "bearer tokens are REFUSED", "hub.allowLegacyBearer was not parsed")
 
 	// The flag is the more deliberate of the two and wins, which is the rule the rest of
 	// cmdServe follows for every other hub setting.
@@ -716,4 +750,78 @@ func TestTheLegacyBearerToleranceCanBeTurnedOff(t *testing.T) {
 	out, err = runCLI(t, "serve", "--dir", dir, "--config", cfgOff, "--hub-legacy-bearer=true")
 	require.ErrorIs(t, err, errStandaloneCannotServeJoined)
 	require.NotContains(t, out, "REFUSED", "the config file overrode an explicit flag")
+}
+
+// AND THE SWITCH REACHES THE HUB, which is the half nothing checked.
+//
+// This runs the real runHubInBackground - the only production path from hubOptions to
+// towerhub.ServerOptions - against a stub Core, and then asks the listening hub the only
+// question that matters: does a pre-signature bearer open a queue here. Both postures, because
+// a test of an off switch that never sees it on cannot tell "off works" from "nothing works".
+//
+// Hardcoding AllowLegacyBearer: true at the NewServer call in hub.go fails the second leg.
+func TestTheBearerToleranceSwitchReachesTheHub(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		allow bool
+		want  int
+	}{
+		{"tolerated by default", true, http.StatusOK},
+		{"turned off by the operator", false, http.StatusUnauthorized},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			core := newCoreStub(t)
+			core.answerDispatchKey(t)
+			core.answerHubNodes(`{"nodes":[{"station_id":"st-old","assertion_key":"","hub_token":"tok-old","state":"active"}]}`)
+			st := servingTower(t)
+
+			addr := freeAddr(t)
+			var out syncBuffer
+			stop := make(chan struct{})
+			wait, err := runHubInBackground(st, hubOptions{Addr: addr, AllowLegacyBearer: tc.allow}, &out, stop)
+			require.NoError(t, err)
+			t.Cleanup(func() { close(stop); wait() })
+
+			// Poll until the listener is up and Core's answer has landed, then assert on the
+			// last answer rather than inside the retry - a require.Eventually message is built
+			// from arguments Go evaluates BEFORE the wait, so it can only ever report the state
+			// the test started in.
+			var status int
+			var lastErr error
+			deadline := time.Now().Add(5 * time.Second)
+			for time.Now().Before(deadline) {
+				// /audit/wanted rather than /poll: it is authenticated identically and answers
+				// at once, where an authorized poll parks on the hub's 25-second long-poll TTL.
+				req, _ := http.NewRequest(http.MethodGet, "http://"+addr+"/audit/wanted?station=st-old", nil)
+				req.Header.Set("Authorization", "Bearer tok-old")
+				resp, rerr := http.DefaultClient.Do(req)
+				if rerr != nil {
+					lastErr = rerr
+					time.Sleep(20 * time.Millisecond)
+					continue
+				}
+				io.Copy(io.Discard, resp.Body)
+				resp.Body.Close()
+				status, lastErr = resp.StatusCode, nil
+				if status == tc.want {
+					break
+				}
+				time.Sleep(20 * time.Millisecond)
+			}
+			require.NoError(t, lastErr, "the hub never came up; it said: %s", out.String())
+			require.Equal(t, tc.want, status,
+				"AllowLegacyBearer=%v did not reach the hub; it said: %s", tc.allow, out.String())
+		})
+	}
+}
+
+// freeAddr picks a loopback address nothing is listening on. The hub takes its listen address
+// at construction, so a test cannot ask it afterwards which port it got.
+func freeAddr(t *testing.T) string {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	addr := ln.Addr().String()
+	require.NoError(t, ln.Close())
+	return addr
 }

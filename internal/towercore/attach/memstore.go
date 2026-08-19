@@ -187,12 +187,15 @@ func (m *memStore) TouchRoutable(stationIDs []string, at time.Time) error {
 
 // DetachIdle retires this Tower's live attachments that have gone quiet, measuring each from
 // its stamp or, absent one, from when it attached - the COALESCE the durable store does.
+//
+// SCOPED TO THE ROWS THE STAMP CAN REACH - the ones carrying a node id, which is the same
+// filter the durable store's WHERE clause applies. See the Store interface for the argument.
 func (m *memStore) DetachIdle(towerID string, before time.Time) ([]string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	var out []string
 	for id, rec := range m.byID {
-		if rec.Origin.TowerID != towerID || !rec.Live() {
+		if rec.Origin.TowerID != towerID || !rec.Live() || rec.NodeID == "" {
 			continue
 		}
 		seen := m.lastRoutable[id]

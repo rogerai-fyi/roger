@@ -2,8 +2,10 @@ package towerhub
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/subtle"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -71,6 +73,28 @@ type Server struct {
 	// no tower, and both halves come from Core in production.
 	towerID string
 
+	// epoch names THIS RUN of this hub, and every signed request must carry it. It is minted
+	// once at construction, never written again, and read without the lock for the same reason
+	// towerID is.
+	//
+	// It exists because a tower id is stable across a redeploy and the nonce ring is not. A hub
+	// that restarts inside the five-minute skew window remembers no nonce, so every signature
+	// an attacker captured before it went down was good again - the hole the gate used to
+	// paper over with a wall-clock floor that could not work (see nodeauth.go). Naming the
+	// process in the signature closes it without consulting a clock: the captured request is
+	// signed for a run that has ended, and no timestamp can make it otherwise.
+	//
+	// It is PUBLIC. Every node-facing response carries it in HubEpochHeader, because a client
+	// has no other way to learn it - Core assigns tower ids and knows nothing about restarts -
+	// and because knowing it buys an attacker nothing. What an attacker cannot do is sign over
+	// it.
+	//
+	// A note the doc's §5.4b table left open: two hub processes behind one endpoint now have
+	// two epochs, so a signature made for one is refused by the other rather than silently
+	// replayable at it. That configuration is still unsupported - it will flap - but it fails
+	// closed instead of failing open, which is the better of the two ways to be unsupported.
+	epoch string
+
 	// allowLegacyBearer accepts the pre-signature bearer token from a node that does not sign
 	// yet. It is a TRANSITION affordance with an end date, not a mode.
 	//
@@ -105,7 +129,76 @@ type Server struct {
 	// deliberately in-memory and per-process: a tower restart re-opens the tolerance until the
 	// node's next poll, which is seconds away, and no operator should have to migrate a
 	// database row for a credential that is being deleted.
+	//
+	// IT IS SET-ONLY WITHIN A PROCESS. Nothing deletes from it - not a re-registration, not an
+	// unregistration - because every event that used to was a registration FLAP rather than
+	// evidence that the node behind the Station had changed, and un-latching on a flap hands
+	// the bearer back to whoever captured it. See UnregisterNode and RegisterNode.
 	signed map[string]bool
+	// keyHex indexes the registered assertion keys by their lowercase hex, so the cheap door
+	// (knownCredential) can answer "does this tower know this key" with one map lookup instead
+	// of hex-encoding every registered Station under the lock authNode also needs. The value is
+	// a refcount rather than a bool: two Stations sharing an assertion key is refused at Core,
+	// not here, and an index that assumed uniqueness would silently un-register a live key the
+	// first time that assumption broke.
+	keyHex map[string]int
+	// tokens is the same index for the legacy bearer. It is a set of the tokens registered for
+	// Stations that have not signed, and it disappears with the bearer path itself.
+	tokens map[string]int
+	// indexed remembers which strings each Station contributed to the two indexes above, so a
+	// re-registration releases exactly what it added. Without it the indexes could only ever
+	// grow, and a rotated credential would keep opening the cheap door forever.
+	indexed map[string]credentialIndex
+}
+
+// setKeyIndexLocked moves stationID's entry in the credential indexes to auth, which may be the
+// zero NodeAuth to remove it. Caller holds s.mu for writing.
+//
+// It reads the PREVIOUS registration to know what to release, which is why the two maps and
+// s.nodes are written under one lock hold: an index that drifts from s.nodes either refuses a
+// live node's body read (visible as a station that mysteriously cannot complete) or admits a
+// credential that is no longer registered.
+func (s *Server) setKeyIndexLocked(stationID string, auth NodeAuth) {
+	if s.keyHex == nil {
+		s.keyHex, s.tokens = map[string]int{}, map[string]int{}
+	}
+	if prior, had := s.indexed[stationID]; had {
+		if prior.key != "" {
+			if s.keyHex[prior.key]--; s.keyHex[prior.key] <= 0 {
+				delete(s.keyHex, prior.key)
+			}
+		}
+		if prior.token != "" {
+			if s.tokens[prior.token]--; s.tokens[prior.token] <= 0 {
+				delete(s.tokens, prior.token)
+			}
+		}
+		delete(s.indexed, stationID)
+	}
+	cur := credentialIndex{token: auth.LegacyToken}
+	if len(auth.AssertionKey) == ed25519.PublicKeySize {
+		cur.key = hex.EncodeToString(auth.AssertionKey)
+	}
+	if cur.key == "" && cur.token == "" {
+		return
+	}
+	if s.indexed == nil {
+		s.indexed = map[string]credentialIndex{}
+	}
+	s.indexed[stationID] = cur
+	if cur.key != "" {
+		s.keyHex[cur.key]++
+	}
+	if cur.token != "" {
+		s.tokens[cur.token]++
+	}
+}
+
+// credentialIndex is what setKeyIndexLocked has to give back when a Station is re-registered:
+// the exact strings it put into the two indexes last time.
+type credentialIndex struct {
+	key   string
+	token string
 }
 
 // ServerOptions is everything a hub Server is configured with beyond its Hub and its grant
@@ -135,15 +228,13 @@ func NewServer(hub *Hub, check GrantCheck, opt ServerOptions) *Server {
 	}
 	return &Server{hub: hub, check: check, submitTTL: opt.SubmitTTL, pollTTL: opt.PollTTL,
 		towerID: opt.TowerID, allowLegacyBearer: opt.AllowLegacyBearer,
-		// The replay gate refuses anything signed before this process began - see
-		// nonceGate.since. A hub that restarts inside the skew window would otherwise accept
-		// every signature captured before it went down, and a redeploy is not an attack an
-		// operator should have to think of as one.
-		// Truncated to the second because that is the resolution of what it is compared
-		// against: protocol stamps a request in unix SECONDS, so a sub-second floor would
-		// refuse every request signed in the second this process started.
-		nonces: nonceGate{since: time.Now().Truncate(time.Second)},
-		nodes:  map[string]NodeAuth{}, signed: map[string]bool{}}
+		// THE PROCESS EPOCH. Random rather than a timestamp: a wall clock is what the thing
+		// this replaces got wrong, and a hub restarted twice inside one second must not mint
+		// the same epoch twice. See Server.epoch.
+		epoch: newEpoch(),
+		nodes: map[string]NodeAuth{}, signed: map[string]bool{},
+		keyHex: map[string]int{}, tokens: map[string]int{},
+		indexed: map[string]credentialIndex{}}
 }
 
 // RegisterNode makes a Station servable and binds the credential its serving node
@@ -158,25 +249,33 @@ func NewServer(hub *Hub, check GrantCheck, opt ServerOptions) *Server {
 func (s *Server) RegisterNode(stationID string, auth NodeAuth) {
 	s.hub.Register(stationID)
 	s.mu.Lock()
-	// The refresher re-registers every Station every thirty seconds with the same answer, so
-	// the "this Station signs" latch must SURVIVE a re-registration or it would be cleared
-	// before it could ever protect anything. It is cleared on the one event that means a
-	// different node is behind the Station: a different assertion key.
-	if prior, had := s.nodes[stationID]; had && !prior.AssertionKey.Equal(auth.AssertionKey) {
-		delete(s.signed, stationID)
-	}
 	s.nodes[stationID] = auth
+	s.setKeyIndexLocked(stationID, auth)
 	s.mu.Unlock()
 }
 
 // UnregisterNode removes a Station, its credential, its replay memory, and its audit wanted
 // list (a station Core dropped must not keep a list a later re-registration could answer
 // stale - audit M5).
+//
+// THE SIGNED LATCH IS NOT AMONG THEM, and the reason is the same one that put a tombstone in
+// the nonce ring rather than deleting it. The refresher unregisters any Station missing from a
+// SINGLE answer from Core, so a transient omission - which nodeauth.go's own forget() calls
+// "entirely outside anybody's control" - and a re-registration seconds later used to clear the
+// latch and re-open the bearer path for an upgraded node. Core never rotates LegacyToken, so
+// the stolen bearer came straight back, and the sentence in nodeauth.go promising that "an
+// attacker can neither produce the signature that flips the latch nor unflip it" was false: an
+// attacker who could not do either could simply wait for one bad refresh.
+//
+// So the latch outlives the registration, for the life of the process. It costs a bool per
+// Station id this tower has ever verified a signature from - a set only the holder of a
+// Station's assertion private key can add to, bounded by Core's own fleet, and gone on
+// restart like the rest of this map.
 func (s *Server) UnregisterNode(stationID string) {
 	s.hub.Unregister(stationID)
 	s.mu.Lock()
 	delete(s.nodes, stationID)
-	delete(s.signed, stationID)
+	s.setKeyIndexLocked(stationID, NodeAuth{})
 	s.mu.Unlock()
 	s.nonces.forget(stationID)
 	s.audit.mu.Lock()
@@ -204,6 +303,16 @@ func readGETBody(w http.ResponseWriter, r *http.Request) ([]byte, error) {
 		return nil, nil
 	}
 	return io.ReadAll(http.MaxBytesReader(w, r.Body, maxGETBody))
+}
+
+// stampEpoch publishes this hub run's epoch on a node-facing response. It is called before
+// anything else in each node route so that EVERY answer carries it - a 401 most of all, since
+// that is the one a client gets when it does not know the epoch yet and the header is how it
+// finds out. Set before any WriteHeader, which is the only ordering that works.
+func (s *Server) stampEpoch(w http.ResponseWriter) {
+	if s.epoch != "" {
+		w.Header().Set(HubEpochHeader, s.epoch)
+	}
 }
 
 func bearer(r *http.Request) string {
@@ -309,6 +418,7 @@ type pollResp struct {
 // and the honest node therefore never serves - the denial-of-earnings attack, rebuilt on top
 // of the fix for it.
 func (s *Server) Poll(w http.ResponseWriter, r *http.Request) {
+	s.stampEpoch(w)
 	if r.Method != http.MethodGet {
 		writeErr(w, http.StatusMethodNotAllowed, "GET only")
 		return
@@ -351,6 +461,7 @@ type completeReq struct {
 // (who fails to open a forgery) and the receipt is node-signed and settled one-use at Core - but
 // the signature still binds a completion to the Station's own node.
 func (s *Server) Complete(w http.ResponseWriter, r *http.Request) {
+	s.stampEpoch(w)
 	if r.Method != http.MethodPost {
 		writeErr(w, http.StatusMethodNotAllowed, "POST only")
 		return

@@ -440,6 +440,13 @@ func (b *broker) openEdgeAttempt(g dispatch.EdgeGrant, target dispatch.Target) e
 func (b *broker) edgeTargetFor(model string, rng *rand.Rand) (dispatch.Target, fleet.Station, bool) {
 	ts := b.tower
 	if ts == nil || ts.routable == nil {
+		// SAID OUT LOUD, like every other refusal on this path. This one used to return in
+		// silence, so "one line per refusal" - the property logEdgePlacementRefusal exists to
+		// give - had a hole in exactly the case that produces no other symptom either: a broker
+		// with the tower subsystem unconfigured refuses every edge consumer, forever, and looks
+		// from the outside identical to an empty fleet.
+		b.logEdgePlacementRefusal(model, 0, 0, 0,
+			"this broker has no tower subsystem, so it can place nothing on the edge fabric")
 		return dispatch.Target{}, fleet.Station{}, false
 	}
 	rows, err := ts.routable.Candidates(model, time.Now())
@@ -752,21 +759,17 @@ func (b *broker) edgeEligible(rows []fleet.Station, bannedNode map[string]bool, 
 		}
 		tq := b.trust[nodeID]
 		load := b.edgeLoadLocked(nodeID)
-		// REAL CAPACITY, DERIVED HERE RATHER THAN CARRIED. This is the one place both inputs are
-		// already under the locks that guard them - concurrentTPS under metricsMu, the
-		// registration's hardware class under b.mu - so capacityOf costs two map reads and gives
-		// the same number the classic router divides by. It replaces the flat 1+load divisor,
-		// which was the capacity=1 case pretending to be a policy.
+		// REAL CAPACITY, DERIVED HERE RATHER THAN CARRIED. This is the one place the input is
+		// already under the lock that guards it - concurrentTPS under metricsMu - so it costs a
+		// map read and gives the same number the classic router divides by. It replaces the flat
+		// 1+load divisor, which was the capacity=1 case pretending to be a policy.
 		//
 		// The projection USED to carry a Capacity column for this, hardcoded to 1 on every
 		// self-attached row, and the honest reading of that was "there is no capacity model".
 		// The column is gone from fleet.Station (see its comment): a snapshot as stale as the
 		// last publish sweep, of a quantity that moves with every served request, is worse than
-		// deriving it at the moment of the decision. An unmeasured node falls back to the same
-		// conservative hardware prior pickFor uses, which is 1 - so nothing about placement
-		// changes for a fleet nobody has measured yet, and a measured rig stops being scored as
-		// though it were a laptop.
-		capacity := capacityOf(b.concurrentTPS[nodeID], b.nodes[nodeID].HW)
+		// deriving it at the moment of the decision.
+		capacity := edgeCapacityOf(b.concurrentTPS[nodeID])
 		sc := scoredCand{
 			idx: i, score: edgeScore(tq, load, capacity),
 			// The P2C tie-break is load PER UNIT OF CAPACITY, exactly as router.go computes it -
@@ -880,6 +883,47 @@ func edgeScore(tq trustState, load, capacity int) float64 {
 	return edgeQuality(tq) * loadFactor(load, capacity)
 }
 
+// edgeCapacityOf is capacityOf WITHOUT the hardware class: the measured branch, or the
+// conservative prior of 1.
+//
+// # WHY THE EDGE PATH DROPS A FIELD THE CLASSIC ROUTER KEEPS
+//
+// capacityOf takes two inputs. concurrentTPS is MEASURED, and measured under load specifically
+// so that it cannot be won from an idle canary. `hw` is a STRING THE NODE SENDS - a field on
+// protocol.NodeRegistration, sitting immediately beside Region, which §4.1 of
+// docs/relay-selection-design.md names as the thing a supply-side location may never be. It maps
+// "multi-gpu" to 4 and "single-gpu"/"apple" to 2, so on an unmeasured fleet a node doubles or
+// quadruples its own placement score by typing a different word: measured at 0.2500 for hw=""
+// against 0.5000 for hw="multi-gpu" at the same load, with the P2C tie-break quartered by the
+// same string.
+//
+// The commit that introduced the capacity term said "an unmeasured node falls back to the same
+// conservative hardware prior pickFor uses, which is 1 - so nothing about placement changes for
+// a fleet nobody has measured yet". That is true of exactly one hw value, the empty one the test
+// happened to use. This function makes the sentence true of all of them.
+//
+// THE CLASSIC ROUTER IS NOT WRONG TO KEEP IT, and the difference is not inconsistency. There,
+// the claim is self-correcting and cheap: loadFactor is 1 at zero load whatever the capacity, so
+// the prior only bites once the node is already busy - and a node that wins concurrent work it
+// cannot serve is measured doing it (recordServed folds servedTPS into concurrentTPS whenever
+// two requests shared the node), after which the measurement replaces the claim and the
+// degraded TTFT and reliability follow it down. The lie costs the liar.
+//
+// None of that loop exists here. Edge work does not feed concurrentTPS - edgeExitInflight
+// deliberately does not touch the classic counters, so a node whose traffic is all edge is never
+// measured at all - and edgeQuality admits recount and canary evidence in the DOWNWARD direction
+// only. So the claim would not be corrected by anything, ever: it is a permanent multiplier on a
+// self-declared string, which is the shape §4.1 exists to refuse.
+//
+// The cost of dropping it is that a genuine rig sharing only through the fabric is normalized as
+// though it had one slot, so its score sags a little faster under concurrent edge attempts than
+// it strictly needs to. That is a small efficiency loss, recoverable the moment the node takes
+// any classic traffic, and it is the right side to be wrong on: under-using a rig is worse
+// service, over-trusting a claim is a lever.
+func edgeCapacityOf(concurrentTPS float64) int {
+	return capacityOf(concurrentTPS, "")
+}
+
 // edgeNeutralQuality is what a station with no canary evidence is worth: better than a
 // known-bad node, worse than a proven one.
 //
@@ -936,15 +980,15 @@ func (b *broker) edgeCandidateScore(row fleet.Station) float64 {
 		return edgeScore(trustState{}, 0, 1)
 	}
 	// BOTH locks, b.mu outer then metricsMu inner - the order enrichOffersForNode in market.go
-	// establishes and edgeEligible follows. It was metricsMu alone while the score read nothing
-	// but trust and load, which live there; the capacity term reads the node's REGISTRATION for
-	// its hardware class, and that is b.mu's. Taking the wrong one is a data race that compiles.
+	// establishes and edgeEligible follows. Everything this function reads today lives under
+	// metricsMu, but it is called from paths that hold b.mu around it and the pair must always
+	// be taken in that order; acquiring them the other way round is a deadlock that compiles.
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.metricsMu.Lock()
 	defer b.metricsMu.Unlock()
 	return edgeScore(b.trust[row.NodeID], b.edgeLoadLocked(row.NodeID),
-		capacityOf(b.concurrentTPS[row.NodeID], b.nodes[row.NodeID].HW))
+		edgeCapacityOf(b.concurrentTPS[row.NodeID]))
 }
 
 // edgeCandidateLoad is the row's live concurrency as PLACEMENT sees it: relayed work this

@@ -88,17 +88,66 @@ func TestHubNodeRegistrationReadsCoresAssertionKey(t *testing.T) {
 			"%s was registered with a key Core sent unusably", station)
 	}
 
-	// And those two Stations still hold their LEGACY token, which is the only reason a hub
-	// keeps a registration it cannot check a signature against: a node too old to sign is the
-	// case an unusable-or-absent assertion key actually describes.
-	req, _ := http.NewRequest(http.MethodGet, srv.URL+towerhub.PathPoll+"?station=st-unusable", nil)
-	req.Header.Set("Authorization", "Bearer tok-unusable")
+	// AND NEITHER OF THEM HOLDS ITS LEGACY TOKEN EITHER, which is a correction to what this
+	// test used to assert.
+	//
+	// It pinned the opposite - that the bearer survives an unusable key - on the reading that
+	// "no usable assertion key" describes a node too old to sign. It does not. An EMPTY key
+	// describes that node, and that case still registers the token (see the empty-key leg
+	// below). A key that is PRESENT and will not decode describes corruption on a Station that
+	// definitely has a good key at Core: every self-attached Station is admitted with a hex
+	// assertion key, and checkBindings makes it immutable for the life of the Station ID.
+	//
+	// Honouring the bearer there is the worst available answer. It opens that Station's queue,
+	// over a plaintext link, to a string any on-path observer already holds - for a Station
+	// that can no longer be authenticated any other way, so nothing will ever flip the latch
+	// that would close it again. It also used to UNLATCH a Station that had been signing for
+	// days, because the changed key cleared the "this Station signs" flag (see
+	// internal/towerhub: TestAnUndecodableKeyDoesNotUnlatchAStationThatSigns).
+	for _, station := range []string{"st-unusable", "st-short"} {
+		req, _ := http.NewRequest(http.MethodGet, srv.URL+towerhub.PathPoll+"?station="+station, nil)
+		req.Header.Set("Authorization", "Bearer tok-"+strings.TrimPrefix(station, "st-"))
+		resp, rerr := http.DefaultClient.Do(req)
+		require.NoError(t, rerr)
+		io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+		require.Equal(t, http.StatusUnauthorized, resp.StatusCode,
+			"%s: a bearer was registered against a key this tower cannot check", station)
+	}
+}
+
+// THE EMPTY KEY IS THE CASE THE TOLERANCE IS ACTUALLY FOR, and it is still served.
+//
+// A Station Core sends no assertion key for is one whose Core predates signed polls, or whose
+// attachment does - the genuine "this node is older than the change" population the transition
+// promise was made to. Its bearer is registered, it keeps earning, and its own first signature
+// would end the tolerance for it if it ever made one. The distinction between this and a
+// mangled key is the whole of the fix above, so it is pinned from both sides.
+func TestAStationWithNoAssertionKeyKeepsItsLegacyBearer(t *testing.T) {
+	server := towerhub.NewServer(towerhub.New(),
+		func(grant []byte) (string, string, error) { return "att", "st-old", nil },
+		towerhub.ServerOptions{TowerID: hubTestTowerID, PollTTL: 100 * time.Millisecond,
+			AllowLegacyBearer: true})
+	var warnings strings.Builder
+	seen := registerHubNodes(server, []towerjoin.HubNode{
+		{StationID: "st-old", AssertionKey: "", HubToken: "tok-old"},
+	}, &warnings)
+	require.Equal(t, map[string]bool{"st-old": true}, seen)
+	require.Empty(t, warnings.String(), "an absent key is the expected state of an old node, not a fault")
+
+	mux := http.NewServeMux()
+	mux.HandleFunc(towerhub.PathPoll, server.Poll)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+towerhub.PathPoll+"?station=st-old", nil)
+	req.Header.Set("Authorization", "Bearer tok-old")
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	io.Copy(io.Discard, resp.Body)
 	resp.Body.Close()
 	require.Equal(t, http.StatusNoContent, resp.StatusCode,
-		"the legacy token Core sent alongside the key was dropped on the floor")
+		"the transition tolerance no longer reaches the nodes it was written for")
 }
 
 // pollWithSignature signs a poll for `station` with priv and returns the status. It builds the

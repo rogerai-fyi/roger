@@ -767,6 +767,64 @@ func TestParityDetachIdleRetiresOnlyTheQuietStations(t *testing.T) {
 	}
 }
 
+// seedClassicAttachment admits ONE operator-invited Station: no node id, no model, no hub
+// token - the three things SelfAttached() keys on, all absent, which is exactly what the
+// classic invite flow produces.
+func seedClassicAttachment(t *testing.T, s Store, now time.Time, tw, id string) {
+	t.Helper()
+	auth := withSecret(Authorization{
+		ID: "auth-" + id, Network: net, StationID: id, Owner: owner,
+		Origin:       Origin{Kind: OriginJoined, TowerID: tw},
+		AssertionKey: "A-" + id, SessionKey: "K-" + id,
+		IssuedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Hour),
+	})
+	require.NoError(t, s.PutAuthorization(auth))
+	ok, err := s.Admit(auth.ID, Attachment{
+		StationID: id, Owner: owner, AssertionKey: auth.AssertionKey,
+		SessionKey: auth.SessionKey, Origin: auth.Origin, Epoch: 1,
+		State: StateActive, AttachedAt: now, AuthID: auth.ID,
+	})
+	require.NoError(t, err)
+	require.True(t, ok)
+}
+
+// A CLASSIC STATION IS NEVER RETIRED BY THIS SWEEP, HOWEVER LONG IT SITS THERE.
+//
+// This is the leg that was missing, and its absence was not a coverage gap so much as an
+// unstated assumption that turned out to be false. The sweep measures
+// COALESCE(last_routable, attached_at), and last_routable is stamped by exactly one writer:
+// publishRoutable, which joins an attachment's NODE ID to a broker's live registrations.
+// A classic operator-invited Station has no node id - it is reached through its Tower's signed
+// inventory and its machine never registers with a broker at all - so nothing on this side of
+// the wire has ever seen it or ever can. Its COALESCE therefore stayed at attached_at forever,
+// it crossed the seven-day horizon on schedule, and its own Tower's housekeeping tick retired
+// it. StateDetached is terminal and unrecoverable, so that was an operator losing a Station
+// permanently, on a timer, for being the kind of Station the stamp was never written for.
+//
+// The rule the stores now share: a row with no node id has no liveness evidence and no way to
+// acquire any, so it is not a candidate for a sweep that retires on absence of evidence.
+func TestParityAClassicStationIsNeverRetiredForBeingUnstampable(t *testing.T) {
+	for name, s := range parityStores(t) {
+		t.Run(name, func(t *testing.T) {
+			now := time.Unix(1_700_000_000, 0).UTC()
+			seedClassicAttachment(t, s, now, tower, "st-classic")
+			seedAttachments(t, s, now, tower, "st-self")
+
+			// A horizon a year past everything either row could possibly be measured from.
+			gone, err := s.DetachIdle(tower, now.Add(365*24*time.Hour))
+			require.NoError(t, err)
+			require.Equal(t, []string{"st-self"}, gone,
+				"the sweep retired a Station it has no way to see alive")
+
+			classic, _, err := s.ByStation("st-classic")
+			require.NoError(t, err)
+			require.Equal(t, StateActive, classic.State,
+				"a classic Station was retired for having no node id to be stamped by")
+			require.True(t, classic.Live())
+		})
+	}
+}
+
 // An UNSTAMPED row is measured from when it attached, not from the zero time. Getting this
 // backwards would have retired every attachment in the fleet on the first sweep after deploy,
 // because no existing row carries a stamp.

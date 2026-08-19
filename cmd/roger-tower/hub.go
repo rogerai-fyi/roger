@@ -391,18 +391,34 @@ func registerHubNodes(server *towerhub.Server, nodes []towerjoin.HubNode, out io
 		// rather than registered short: a truncated key would refuse every one of that node's
 		// polls, and saying so once beats a silent 401 loop the operator sees only as a station
 		// that never serves.
+		seen[n.StationID] = true
 		var pub ed25519.PublicKey
 		if n.AssertionKey != "" {
 			raw, derr := hex.DecodeString(n.AssertionKey)
 			if derr != nil || len(raw) != ed25519.PublicKeySize {
+				// AND THE TOKEN GOES WITH IT. This used to register the bearer anyway, on the
+				// reading that "no usable key" describes a node too old to sign. It does not:
+				// an EMPTY key describes that node (Core older than signed polls, or an
+				// attachment that predates them), and it is handled below. A key that is
+				// PRESENT and unusable describes a Station whose assertion key Core has, and
+				// mangled - corruption, not a version skew - because every self-attached
+				// Station is admitted with a hex assertion key and it is immutable thereafter.
+				//
+				// Registering a bearer for that Station would open its queue, on a plaintext
+				// wire, to a string an on-path observer already has, for a Station that can no
+				// longer authenticate any other way. So this registration is not applied at
+				// all: whatever the hub already holds for the Station stays (an earlier good
+				// answer keeps a working node working), and a Station with nothing held is
+				// simply not servable until Core sends something usable. Fail closed, and say
+				// so once.
 				fmt.Fprintf(out, "hub: station %s has an unusable assertion key from Core - "+
-					"it cannot make a signed poll here until that is fixed\n", n.StationID)
-			} else {
-				pub = ed25519.PublicKey(raw)
+					"it cannot make a signed poll here until that is fixed, and its legacy "+
+					"bearer token is NOT registered against a key this tower cannot check\n", n.StationID)
+				continue
 			}
+			pub = ed25519.PublicKey(raw)
 		}
 		server.RegisterNode(n.StationID, towerhub.NodeAuth{AssertionKey: pub, LegacyToken: n.HubToken})
-		seen[n.StationID] = true
 	}
 	return seen
 }

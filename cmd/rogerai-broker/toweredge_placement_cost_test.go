@@ -297,8 +297,68 @@ func TestEdgeScoreNormalizesLoadByMeasuredCapacity(t *testing.T) {
 		"an unmeasured node must still be quality/(1+load)")
 }
 
+// A NODE CANNOT TYPE ITS WAY TO A BIGGER SHARE OF THE FABRIC.
+//
+// The claim made when the capacity term landed was that "an unmeasured node falls back to the
+// same conservative hardware prior pickFor uses, which is 1 - so nothing about placement changes
+// for a fleet nobody has measured yet". capacityOf returns 1 only when the hardware string is
+// cpu, unknown or empty; single-gpu and apple return 2 and multi-gpu returns 4. The test above
+// passes because nodeReg sets no HW at all - it exercises the one value for which the claim is
+// true, which is how a sentence about "an unmeasured node" came to be checked against one
+// unmeasured node.
+//
+// HW is on protocol.NodeRegistration, next to Region, and it is whatever the node's own binary
+// says it is. §4.1 of docs/relay-selection-design.md: the supply side does not get to declare
+// the inputs to its own placement, because a declaration is a lever - claim to be everything,
+// receive everything. Measured: hw="" scored 0.2500 and hw="multi-gpu" scored 0.5000 on the same
+// evidence and the same load, with the P2C tie-break quartered by the same string.
+func TestADeclaredHardwareClassDoesNotMovePlacement(t *testing.T) {
+	b := towerTestBrokerNoServer(t)
+	honest, boastful := nodeReg("n-honest"), nodeReg("n-boastful")
+	boastful.HW = "multi-gpu" // one word, in a field nobody verifies
+	b.mu.Lock()
+	b.nodes["n-honest"], b.nodes["n-boastful"] = honest, boastful
+	b.lastSeen["n-honest"], b.lastSeen["n-boastful"] = time.Now(), time.Now()
+	b.mu.Unlock()
+
+	b.metricsMu.Lock()
+	b.concurrentTPS = map[string]float64{} // neither has ever been measured under load
+	b.edgeLoad = map[string]int{"n-honest": 2, "n-boastful": 2}
+	b.metricsMu.Unlock()
+
+	honestScore := b.edgeCandidateScore(fleet.Station{StationID: "s-honest", NodeID: "n-honest"})
+	boastScore := b.edgeCandidateScore(fleet.Station{StationID: "s-boast", NodeID: "n-boastful"})
+	require.InDelta(t, honestScore, boastScore, 1e-9,
+		"a self-declared hardware string moved placement: honest %.4f, boastful %.4f",
+		honestScore, boastScore)
+	require.InDelta(t, edgeNeutralQuality/3.0, boastScore, 1e-9,
+		"the unmeasured fallback is 1 slot, whatever the node calls itself")
+
+	// The tie-break the P2C draw uses is load PER UNIT OF CAPACITY, so it is the same lever
+	// wearing a different hat and has to be checked separately - a scoring fix that left the
+	// divisor in the tie-break would still hand the boaster the draw.
+	tierA, tierB := b.edgeEligible([]fleet.Station{
+		{StationID: "s-honest", NodeID: "n-honest"},
+		{StationID: "s-boast", NodeID: "n-boastful"},
+	}, nil, time.Now())
+	pool := append(append([]scoredCand{}, tierA...), tierB...)
+	require.Len(t, pool, 2)
+	require.InDelta(t, pool[0].load, pool[1].load, 1e-9,
+		"the P2C tie-break is still divided by a string the node chose")
+
+	// And the MEASURED branch is untouched: the whole point is that evidence still counts.
+	b.metricsMu.Lock()
+	b.concurrentTPS["n-honest"] = 400
+	b.metricsMu.Unlock()
+	measured := b.edgeCandidateScore(fleet.Station{StationID: "s-honest", NodeID: "n-honest"})
+	require.Greater(t, measured, boastScore,
+		"dropping the declared class also dropped the measured one")
+}
+
 // nodeReg is the minimum registration edgeEligible and the capacity derivation need: a node the
-// broker knows about, with no hardware string, so capacityOf falls to its conservative prior.
+// broker knows about, with no hardware string. It deliberately leaves HW empty, and
+// TestADeclaredHardwareClassDoesNotMovePlacement is the test that fills it in - a helper that
+// only ever produces the benign value is how the declared-hardware lever went unnoticed.
 func nodeReg(id string) protocol.NodeRegistration { return protocol.NodeRegistration{NodeID: id} }
 
 // --- the per-request PRNG ------------------------------------------------------
