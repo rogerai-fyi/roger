@@ -152,6 +152,11 @@
 #slots .device-contract p:nth-child(3n), #slots .device-contract p:last-child { border-right: 0; }
 #slots .device-contract p:nth-child(n+4) { border-top: 1px solid var(--hairline); }
 #slots .device-contract p:last-child { grid-column: auto; }
+/* The plate is built for six cards (above). The Wave Mesh note is a SEVENTH and
+   would sit alone in a third row, which is the orphan this grid exists to avoid.
+   It spans the full width instead, so it closes the plate rather than trailing
+   off it. Scoped to the class, so only a card marked wide takes it. */
+#slots .device-contract p.wf-contract__wide { grid-column: 1 / -1; border-right: 0; }
 #slots .device-contract code {
   font-family: var(--font-mono); font-size: var(--t-xs); color: var(--ink-900);
 }

@@ -158,10 +158,11 @@
                wave-infinite.test.mjs reads the whole figure for "not a size", and the
                fact belongs beside the axis it is excluded from. -->
           <div class="wf-rail__notes">
-            <p class="wf-rail__note"><b>Only Wave Pico is filled.</b> A 100M-class build
-              exists and cleared our own release gate. It is a waypoint on the road to the
-              tier rather than the tier itself &ndash; Pico targets 250&ndash;300M. No
-              public checkpoint has been released yet.</p>
+            <p class="wf-rail__note"><b>The rail is the argument.</b> Where a tier sits is
+              decided by the machine that has to run it &ndash; a Raspberry Pi at one end, a
+              regional cloud at the other &ndash; not by a leaderboard. Each tier is a band
+              rather than a fixed count, so a later version can move within its decade and
+              still fit the hardware the tier was drawn for.</p>
             <!-- FOUNDER 2026-08-17: "remove the text where it says it's not there."
                  The disclaimer is gone. Then: "make it sound better and more informative
                  about what it will be" - the note was defining Wave Infinite by its own
@@ -206,7 +207,7 @@
         <div class="section__head section__head--left">
           <span class="sectionno">&sect;2 / SLOTS</span>
           <h2>What each size is for.</h2>
-          <p>The build recipe travels with each tier. The only trained waypoint today is Wave Pico&rsquo;s; no tier has released a public checkpoint yet.</p>
+          <p>The build recipe travels with each tier, and so does the job. Read the table across rather than down: the class is chosen by the machine in the <b>Runs on</b> column, and the job is what that much model can actually hold.</p>
         </div>
 
         <div class="tier-scroll">
@@ -231,7 +232,7 @@
               <tr>
                 <th scope="row">Wave Micro</th><td class="tier-cell">7&ndash;8B</td>
                 <td>The site brain: multi-fleet reasoning across a facility, general-capable and industrial</td>
-                <td>On-site server</td><td class="tier-cell">Base+specialize &middot; planned</td>
+                <td>On-site server</td><td class="tier-cell">Scratch &middot; planned</td>
               </tr>
               <tr>
                 <th scope="row">Wave Giga</th><td class="tier-cell">27&ndash;35B</td>
@@ -285,30 +286,40 @@
              sentence about it. That is what training from scratch buys. The vocabulary is
              the plant&rsquo;s rather than the web&rsquo;s, and a tier can read the output
              of the tier beneath it.</p>
-          <p><b>How the recipes split.</b> Scratch means trained from random init on our
-             data, and it is bounded by diverse tokens, not GPUs - measured healthy with no
-             starvation knee through 1.5 billion parameters. Pico and Nano are the scratch
-             tiers. From Micro up, base + specialize: a strong
-             open base, industrial continued-pretrain, and the mesh. Peta and Exa are
-             carved from the flagship rather than trained. Sizes are targets and bands,
-             not final specifications.</p>
-          <p><b>The microcontroller is the sensor, not the model.</b> An ESP32 or an
-             Arduino is what reads the vibration, the temperature or the current and hands
-             it up. No Wave tier runs on one: Wave Pico&rsquo;s weights are
-             <b>150&ndash;180 MB</b> quantized at its 250&ndash;300M target &ndash; the
-             rail above places it at 165 MB &ndash; and a microcontroller has a few
-             megabytes of flash. The
-             smallest thing that runs a Wave tier is a Pi-class board with no GPU.
-             <a href="/research-industry.html#devices">Roger Edge</a>, a classifier of a
-             few hundred kilobytes, is what lives down on the node.</p>
+          <p><b>How the recipes split.</b> There are two ways to get a model. You can
+             start from someone else&rsquo;s finished model and teach it your work &ndash;
+             fast, and it arrives already shaped by the web it was trained on. Or you can
+             start from nothing, an empty network that has never seen a word, and raise it
+             on your own data. That second way is <b>scratch</b>, and it is the harder,
+             slower one: what limits it is the variety of data you can feed it, not the
+             GPUs you can point at it. We have run that path with no sign of it starving
+             through 1.5 billion parameters.</p>
+          <p><b>Where each tier lands.</b> Pico, Nano and Micro are scratch tiers, so the
+             plant&rsquo;s vocabulary is the only one they ever learn. Micro is on the plan
+             rather than on the meter: at 7&ndash;8B it sits well above anything we have
+             measured. Giga and Tera take the other road &ndash; a strong open base, then
+             industrial training on top, plus the mesh &ndash; because at that size a model
+             is expected to hold its own on general questions too. Peta and Exa are carved
+             down from the flagship rather than trained up from anything. Sizes are targets
+             and bands, not final specifications.</p>
+          <p><b>The microcontroller is the sensor, not the model.</b> An ESP32 or an Arduino reads the vibration, the temperature or the current and hands it up. It cannot also be the model: that board has a few megabytes of flash, and Wave Pico&rsquo;s weights are <b>150&ndash;180 MB</b> quantized at its 250&ndash;300M target. Nothing closes that gap, so no Wave tier runs on one. What does live down on the node is <a href="/research-industry.html#devices">Roger Edge</a>, a classifier of a few hundred kilobytes; the smallest thing that runs a Wave tier is the Pi-class board above it, with no GPU.</p>
           <p><b>Run it where you like.</b> Every tier is a model you host - on the board
              beside the machine, on a server in the plant, or on your own GPU at home. A
              model you run locally can also go on air as a band with
              <code>roger share</code>, which is how anything on RogerAI is reached
              remotely. Local or remote is a deployment choice, not a different product.</p>
-          <p><b>One family on one wire.</b> Every tier ships with Wave Mesh baked in and
-             understands the output of every tier beneath it.</p>
-        </div>
+                  <p class="wf-contract__wide"><b>One family on one wire.</b> Wave Mesh is the
+             protocol the tiers speak to each other, and every tier ships with it built in
+             &ndash; not an add-on, not a separate service to stand up. The shape is fan-in:
+             a Pico reads one machine&rsquo;s channels, a Nano rolls up many Picos, a Micro
+             reasons across many fleets. When a small model is not sure of a read, it sends
+             that read up rather than guessing, and the tier above can take it directly
+             because both were trained on the same machine vocabulary &ndash; no translation
+             layer, no re-encoding. That is the whole trade: small models everywhere, a
+             bigger one only on the reads that need it. How much climbs is a dial you set,
+             not a fixed property of the chain, and moving it trades accuracy against how
+             much hardware you have to keep upstream.</p>
+</div>
       </div>
     </section>
 
@@ -320,8 +331,7 @@
           <h2>Which slot for which job.</h2>
           <p>The smallest slot that can carry the work. The shape repeats everywhere: small
              slots turn messy reality into structure, larger slots reason over that
-             structure. These are the jobs the family is built for; &sect;2 has what is
-             built today.</p>
+             structure. These are the jobs the family is built for.</p>
         </div>
 
         <!-- THE JOB FINDER. Progressive enhancement, in that order:

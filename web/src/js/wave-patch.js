@@ -80,8 +80,8 @@
       does: "answers when the small one is unsure",
       blurb: "the fleet gateway - rolls up many children and resolves conflicts; " +
              "the recorded senior on this bench (run params pending export)" },
-    { id: "micro", label: "Wave Micro", size: "7-8B", status: "base+specialize",
-      recipe: "base+specialize", reach: "site · a facility",
+    { id: "micro", label: "Wave Micro", size: "7-8B", status: "scratch",
+      recipe: "scratch", reach: "site · a facility",
       runs: "an on-site server", art: "server", span: 52,
       only: "reasons in general language across many fleets - not just a fault enum. It can be ASKED things, and answer about a facility.",
       belowCant: "a gateway rolls up its own fleet; it cannot reason about the site around it",
@@ -3120,9 +3120,10 @@
           "placement does not itself prove confidentiality or prevent configured egress."));
         box.appendChild(el("p", "sn-why__p",
           "Why not just make them all huge? From-scratch quality is bounded by DIVERSE " +
-          "TOKENS, not GPUs - scratch wins through roughly half a billion params, and " +
-          "above that the family switches to base+specialize (tier-scaling strategy, " +
-          "2026-08-14). Small is not a compromise at the edge; it is the design."));
+          "TOKENS, not GPUs - measured healthy with no starvation knee through 1.5B, and " +
+          "the plan carries scratch up through Micro; Giga and above switch to " +
+          "base+specialize (tier-scaling strategy, 2026-08-14). Small is not a " +
+          "compromise at the edge; it is the design."));
         var q = browserTierQuant();
         if (q) {
           /* HONESTY FIX 2026-08-18 (numeric audit). Two things were wrong here.

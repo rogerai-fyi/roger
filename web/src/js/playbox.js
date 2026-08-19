@@ -281,7 +281,7 @@
   };
   var FAMILY_SPINES = [
     { spine: true, model: "wave-micro", label: "WAVE MICRO", sub: "7–8B · the site",
-      chip: "PLANNED", why: "A planned specialization (base+specialize) - no checkpoint exists to put on air yet." },
+      chip: "PLANNED", why: "A planned scratch build - no checkpoint exists to put on air yet." },
     { spine: true, model: "wave-giga", label: "WAVE GIGA", sub: "27–35B · the plant",
       chip: "PLANNED", why: "A planned band, not a final specification - nothing to play yet." },
     { spine: true, model: "wave-tera", label: "WAVE TERA", sub: "80–120B · enterprise",

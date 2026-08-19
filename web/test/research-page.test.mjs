@@ -251,9 +251,16 @@ test("Wave Micro publishes its program status instead of a release contract", ()
   // programme detail (bake-off state, decision rule, licence intent) is not what a reader
   // scanning a model list came for. What must survive is the status a reader could be
   // misled about, and it does: the chip, the id, and no artifact link or evidence fields.
-  // SPECTRUM RENAME (2026-08-14): Micro is now the 7-8B base+specialize site
-  // tier - no trained-artifact claim, its honest status is the selected base.
-  assert.match(cardText, /BASE SELECTED/i);
+  // SPECTRUM RENAME (2026-08-14): Micro is the 7-8B site tier - no trained-artifact
+  // claim, and its status must name a stage rather than an artifact.
+  // FOUNDER RULING 2026-08-19: Micro is a SCRATCH tier, not base+specialize. So
+  // "BASE SELECTED" is no longer even true - there is no base to select - and the
+  // honest status is the same PLANNED the other untrained tiers carry. The
+  // guarantee this lock exists for is unchanged and is re-anchored below: the card
+  // states a stage, never a released artifact.
+  assert.match(cardText, /PLANNED/i);
+  assert.doesNotMatch(cardText, /base ?\+ ?specialize|BASE SELECTED/i,
+    "Micro is trained from scratch; no base-selection claim may survive here");
   assert.match(cardText, /pipeline standing up/i);
   assert.match(cardText, /no checkpoint released/i);
   // No placeholder evidence: the earlier version listed five fields that all deferred to
