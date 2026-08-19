@@ -126,9 +126,93 @@ func (b *broker) RunCanary(towerID string) reputation.Outcome {
 
 	outcome := b.driveSealedCanary(grant, target, endpoint, consumerKey, envPriv)
 	b.recordOutcome(towerID, grant.AttemptID, outcome)
+	// AND AGAINST THE STATION, which is the half that was missing. The reputation ledger is
+	// keyed on (tower, attempt) - there is no station column - so a canary's finding landed
+	// entirely on the Tower, and with a first-fit target that meant one Station's health WAS
+	// its Tower's reputation: one bad machine suspended a relay carrying twenty good ones, and
+	// the nineteen were never probed at all. Spreading the selection fixes the coverage; this
+	// fixes the attribution, so the evidence a probe produces is recorded about the thing it
+	// actually tested.
+	//
+	// In process, not in the ledger. Making this durable means a station id on reputation.Event
+	// and on its Postgres table, which is a schema change in a package this work was scoped out
+	// of - so the limitation is stated rather than forced: this evidence lives on the instance
+	// that gathered it and does not cross to a peer, exactly like the probe trust it sits
+	// beside in b.trust.
+	b.recordEdgeCanary(row.StationID, outcome)
 	b.evaluateTower(towerID)
 	return outcome
 }
+
+// edgeCanaryHealth is what the edge fabric's own probes have found out about ONE Station.
+//
+// Separate from trustState, deliberately, and the separation is the same one M1's second
+// correction drew between edge load and relayed load. trustState is the CLASSIC fabric's
+// record: pickFor drops on its probeFails, probeOnce skips on it, /discover prints it. Folding
+// a tower canary's verdict into it would let a Tower operator who black-holes traffic depress
+// the paid-fabric score of every node behind them - the exact lever that was closed on the
+// load counter one release ago, re-opened on the health counter.
+//
+// So it is its own record, read only by edge placement, and read in one direction: it can send
+// a Station to Tier B and it can never lift one.
+type edgeCanaryHealth struct {
+	// fails is the CONSECUTIVE failure streak, reset by a pass - the same shape as
+	// trustState.probeFails, so "troubled" means the same thing on both fabrics.
+	fails int
+	// at is when this Station was last probed, which is what spreads the next probe: coverage
+	// is the point of a canary, and a rotation needs to know who has waited longest.
+	at time.Time
+}
+
+// edgeCanaryFailBar is how many consecutive failed canaries send a Station to Tier B. Two,
+// matching pickFor's probeFails bar: one failure is a blip and the fleet is small enough that
+// treating every blip as a demotion would empty Tier A.
+const edgeCanaryFailBar = 2
+
+// recordEdgeCanary files a probe's verdict against the Station it actually probed.
+func (b *broker) recordEdgeCanary(stationID string, outcome reputation.Outcome) {
+	if stationID == "" || (outcome != reputation.CanaryPass && outcome != reputation.CanaryFail) {
+		return // an aborted probe is not evidence about anybody
+	}
+	b.metricsMu.Lock()
+	defer b.metricsMu.Unlock()
+	if b.edgeCanary == nil {
+		b.edgeCanary = map[string]edgeCanaryHealth{}
+	}
+	h := b.edgeCanary[stationID]
+	if outcome == reputation.CanaryFail {
+		h.fails++
+	} else {
+		h.fails = 0
+	}
+	h.at = time.Now()
+	b.edgeCanary[stationID] = h
+}
+
+// edgeCanaryTroubledLocked reports whether this Station's own edge probes are failing. Caller
+// holds metricsMu (edgeEligible holds it for the whole fleet).
+func (b *broker) edgeCanaryTroubledLocked(stationID string) bool {
+	return b.edgeCanary[stationID].fails >= edgeCanaryFailBar
+}
+
+// edgeCanaryAgeLocked is how long since this Station was last probed, and it answers a very
+// long time for one that never has been - a Station with no evidence is the one a coverage
+// rotation most needs to reach. Caller holds metricsMu.
+func (b *broker) edgeCanaryAgeLocked(stationID string, now time.Time) time.Duration {
+	h, seen := b.edgeCanary[stationID]
+	if !seen || h.at.IsZero() {
+		return neverCanariedAge
+	}
+	if age := now.Sub(h.at); age > 0 {
+		return age
+	}
+	return 0
+}
+
+// neverCanariedAge is the staleness a never-probed Station is scored at. Any value far past
+// canaryInterval works; it is a constant rather than a literal so the intent - "longer ago than
+// anything real" - is stated where the score is computed.
+const neverCanariedAge = 1000 * canaryInterval
 
 // driveSealedCanary probes a HUB-path (self-attached) node exactly as a sealed consumer
 // does: seal the canary body to the node's session key, submit the ciphertext to the tower's
@@ -192,6 +276,40 @@ func (b *broker) driveSealedCanary(grant dispatch.EdgeGrant, target dispatch.Tar
 //
 // Per-Tower, unlike edgeTargetFor which picks the best Station for a model across the whole
 // fleet: a canary tests ONE Tower, so it must route to that Tower or not at all.
+//
+// # IT USED TO TAKE THE FIRST ONE, FOREVER
+//
+// This loop returned the first row that resolved, over a projection query that sorts by station
+// id - so behind each Tower the lexicographically first Station was canaried on every sweep for
+// the life of the deployment, and every other Station behind it was never probed at all. That is
+// the pre-M1 bug, surviving in the one place that produces edge-SPECIFIC health evidence, and it
+// did three separate kinds of damage: the one probed Station's health became its whole Tower's
+// reputation, one bad machine could suspend a relay carrying twenty good ones, and nineteen
+// operators rode free on a twentieth's uptime.
+//
+// # WHAT IT SELECTS ON, AND WHY IT IS NOT SCORE
+//
+// The same selectP2C the paid router and edge placement both use, but weighted by STALENESS
+// rather than quality, because a canary and a placement want opposite things. A placement wants
+// the best Station; a canary wants the one whose health is least known, and ranking probes by
+// quality would probe the healthy Stations most and leave a sick one un-probed precisely
+// because it is sick - a feedback loop that keeps its own evidence from ever arriving.
+//
+// So the score is how long it has been since this Station was last probed, normalized against
+// the sweep interval, and a Station that has NEVER been probed scores the ceiling. P2C's live-
+// load tie-break is kept as it comes out of edgeEligible, which means that between two equally
+// overdue Stations the idler one is probed - the same courtesy probeOnce extends on the classic
+// fabric, and it costs the busy one nothing.
+//
+// Eligibility is edgeEligible's, both tiers merged, and it is a PREFERENCE rather than a gate.
+// A canary must reach a Tier B Station - being in Tier B is a reason to probe it, not a reason
+// not to - and it should prefer Stations a consumer could actually be sent to, so a failure it
+// records against the Tower is a failure on the path consumers use. But when NOTHING behind a
+// Tower is placeable it falls back to every Station that resolved, because the alternative is
+// worse: a Tower whose machines have all gone quiet would stop being probed at exactly the
+// moment it stopped working, and its reputation would freeze at whatever it last was, unable to
+// degrade or to recover. A Tower with nothing reachable behind it is not carrying work, and that
+// IS the finding this probe exists to make.
 func (b *broker) canaryTargetFor(towerID string) (dispatch.Target, fleet.Station, bool) {
 	ts := b.tower
 	if ts == nil || ts.routable == nil || !ts.registry.MayTakeWork(towerID) {
@@ -204,6 +322,7 @@ func (b *broker) canaryTargetFor(towerID string) (dispatch.Target, fleet.Station
 	if err != nil {
 		return dispatch.Target{}, fleet.Station{}, false
 	}
+	shortlist := make([]fleet.Station, 0, len(rows))
 	for _, row := range rows {
 		if row.Endpoint == "" {
 			continue
@@ -214,11 +333,64 @@ func (b *broker) canaryTargetFor(towerID string) (dispatch.Target, fleet.Station
 		if !strings.HasPrefix(row.OfferID, "self-") {
 			continue
 		}
-		if target, ok := b.targetFor(row.TowerID, row.StationID, row.Model, row.Modality); ok {
-			return target, row, true
+		shortlist = append(shortlist, row)
+	}
+	// One read for the whole shortlist, and the same authority re-check placement makes - a
+	// canary that dispatched to an attachment placement would refuse is not probing the fabric
+	// consumers use.
+	keep, targets := b.resolveEdgeCandidates(shortlist)
+	if len(keep) == 0 {
+		return dispatch.Target{}, fleet.Station{}, false
+	}
+	now := time.Now()
+	tierA, tierB := b.edgeEligible(keep, b.bannedOwnerNodeSet(), now)
+	probable := make([]scoredCand, 0, len(tierA)+len(tierB))
+	probable = append(probable, tierA...)
+	probable = append(probable, tierB...)
+	if len(probable) == 0 {
+		// The fallback: everything that resolved, scored at zero load, because there is no
+		// eligibility reading to carry over for a candidate eligibility rejected.
+		for i := range keep {
+			probable = append(probable, scoredCand{idx: i})
 		}
 	}
-	return dispatch.Target{}, fleet.Station{}, false
+	chosen := selectP2C(b.canaryCoverage(keep, probable, now), canaryBeta, edgePlacementRand())
+	if chosen < 0 {
+		return dispatch.Target{}, fleet.Station{}, false
+	}
+	return targets[chosen], keep[chosen], true
+}
+
+// canaryBeta is the sampling concentration for canary coverage. ONE - draw in proportion to how
+// overdue a Station is, and no more sharply than that. Edge placement uses the router's balanced
+// beta because it is trying to route to the best Station; a rotation that concentrated the same
+// way would over-probe whichever Station happened to be most overdue and starve the rest, which
+// is the magnet this function exists to remove wearing a different hat.
+const canaryBeta = 1.0
+
+// canaryCoverage scores the probable Stations by how overdue each one's probe is.
+//
+// age/(age+canaryInterval) is a bounded 0..1 staleness: zero for a Station probed just now, a
+// half at one sweep interval, approaching one for a Station nobody has looked at in a long time
+// - and exactly the ceiling for one that has never been probed at all. Bounded matters because
+// selectP2C's band is a RELATIVE gap from the best score, so an unbounded score would make one
+// very old Station push every other out of the band and become the magnet again.
+//
+// The load comes from edgeEligible's own scoring pass, so no second lock acquisition and no
+// second instant: the number the tie-break uses is the number placement saw.
+func (b *broker) canaryCoverage(keep []fleet.Station, probable []scoredCand, now time.Time) []scoredCand {
+	b.metricsMu.Lock()
+	defer b.metricsMu.Unlock()
+	out := make([]scoredCand, 0, len(probable))
+	for _, c := range probable {
+		age := b.edgeCanaryAgeLocked(keep[c.idx].StationID, now)
+		out = append(out, scoredCand{
+			idx:   c.idx,
+			score: float64(age) / float64(age+canaryInterval),
+			load:  c.load,
+		})
+	}
+	return out
 }
 
 // canaryInterval is how often Core probes the fleet. Frequent enough that a Tower that goes

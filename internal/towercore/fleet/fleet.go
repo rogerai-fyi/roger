@@ -26,13 +26,27 @@ package fleet
 import "time"
 
 // Station is one routable offer, as an instance that does not hold the link sees it.
+//
+// THERE IS NO CAPACITY FIELD, and its absence is deliberate. There used to be one: written,
+// stored, scanned, and read by nothing. Every self-attached row was published with a
+// hardcoded `Capacity: 1`, so it carried no information while implying the projection knew
+// how much concurrent work a machine could absorb. A reader had no way to tell the constant
+// from a measurement.
+//
+// The real capacity signal is `capacityOf(concurrentTPS, hw)` in the broker's memory - EWMA
+// tokens-per-second observed while the node was already busy, falling back to a hardware-class
+// prior - and since the M0 node_id join it is reachable from a row by NodeID. Placement derives
+// it there, at score time, where it is fresh and where the locks that guard it are already
+// held. Copying that number into this projection would give every reader a snapshot as old as
+// the last publish sweep, of a quantity that changes with every served request, for no gain.
+// The `capacity` column survives in Postgres because dropping a column mid-rolling-deploy
+// breaks the instance still writing it; nothing writes or reads it.
 type Station struct {
 	TowerID   string
 	StationID string
 	OfferID   string
 	Model     string
 	Modality  string
-	Capacity  int64
 	Expires   time.Time
 	// Endpoint is where CONSUMERS reach this Tower's data plane, host:port, as the Tower
 	// advertised on its link. Empty means this Tower relays nothing, and its Stations are

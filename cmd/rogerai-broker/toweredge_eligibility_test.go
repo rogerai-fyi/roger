@@ -239,7 +239,7 @@ func TestEdgePlacementRefusesARowWithNoJoin(t *testing.T) {
 	// and nothing to identify the machine.
 	require.NoError(t, b.tower.routable.Replace(tw.id, []fleet.Station{{
 		TowerID: tw.id, StationID: out.StationID, OfferID: "self-" + out.StationID,
-		Model: "m", Modality: "text", Capacity: 1,
+		Model: "m", Modality: "text",
 		Expires: time.Now().Add(time.Hour), Endpoint: "203.0.113.9:8443",
 	}}))
 

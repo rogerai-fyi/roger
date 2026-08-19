@@ -34,6 +34,7 @@ import (
 	"log"
 	"math"
 	"math/rand"
+	randv2 "math/rand/v2"
 	"net/http"
 	"os"
 	"strconv"
@@ -474,11 +475,41 @@ func (b *broker) edgeTargetFor(model string, rng *rand.Rand) (dispatch.Target, f
 	// The owner-ban set is resolved BEFORE either lock, exactly as pickFor does it: it may
 	// consult the account binding cache, and doing that under metricsMu would serialize every
 	// placement behind a store round-trip per candidate.
+	//
+	// # AND PASS ONE USED TO COST 2N DATABASE ROUND TRIPS
+	//
+	// It ran MayTakeWork and targetFor per candidate, each a single-row SELECT, serialized, on
+	// the consumer's critical path - so a model with thirty routable Stations meant sixty-one
+	// queries before a placement could be made. Neither was cached and both were being asked
+	// the same small number of distinct questions over and over.
+	//
+	// The reason that is urgent rather than merely slow is WHICH POOL it spends. internal/store's
+	// poolLimits caps maxOpen at 8 because production is a small shared managed Postgres with
+	// about twenty-two usable backends across every app, and the tower subsystem is handed that
+	// same *sql.DB - so these queries queue behind, and ahead of, the wallet reads, holds and
+	// settlements. Under concurrent authorize load the observable failure is not slow routing.
+	// It is payment timeouts.
+	//
+	// Both are now bounded by the number of TOWERS rather than the number of Stations:
+	//
+	//   - MayTakeWork is memoized for the duration of one placement. A tower's eligibility is a
+	//     property of the tower, and asking twice within one placement can only ever get the
+	//     same answer - or a DIFFERENT one, which would be worse: two rows compared across two
+	//     instants of the same tower's lease is a ranking of a fleet state that never existed.
+	//     The fleet has one to ten towers, so this is at most ten queries and usually one.
+	//   - The attachment re-check is ONE query for the whole shortlist (attach.ByStations,
+	//     `WHERE station_id = ANY($1)`), replacing N.
+	//
+	// The alternative considered and rejected was to score first and resolve only the winner,
+	// looping down the drawn order on a miss. It is sound - the loop is what makes it sound,
+	// since a single shot would 503 whenever the top pick happened to be stale - but it changes
+	// the draw distribution whenever a drawn candidate turns out to be unresolvable, and it
+	// costs an extra round trip every time that happens. The batch read reaches the same query
+	// count with the filter-then-rank semantics exactly as they were, so there is no reordering
+	// argument to make and none to get wrong later.
 	bannedNode := b.bannedOwnerNodeSet()
-	var (
-		keep    []fleet.Station
-		targets []dispatch.Target
-	)
+	mayTakeWork := make(map[string]bool, 4)
+	shortlist := make([]fleet.Station, 0, len(rows))
 	for _, row := range rows {
 		if row.Endpoint == "" {
 			continue
@@ -489,27 +520,40 @@ func (b *broker) edgeTargetFor(model string, rng *rand.Rand) (dispatch.Target, f
 		if !strings.HasPrefix(row.OfferID, "self-") {
 			continue
 		}
-		if !ts.registry.MayTakeWork(row.TowerID) {
+		may, asked := mayTakeWork[row.TowerID]
+		if !asked {
+			may = ts.registry.MayTakeWork(row.TowerID)
+			mayTakeWork[row.TowerID] = may
+		}
+		if !may {
 			continue
 		}
-		target, ok := b.targetFor(row.TowerID, row.StationID, row.Model, row.Modality)
-		if !ok {
-			continue
-		}
-		keep = append(keep, row)
-		targets = append(targets, target)
+		shortlist = append(shortlist, row)
 	}
+	if len(shortlist) == 0 {
+		reason := "no Tower publishes a routable Station for this model"
+		if len(rows) > 0 {
+			reason = "every routable row is a legacy offer, has no data plane, or sits behind a Tower that may not take work"
+		}
+		b.logEdgePlacementRefusal(model, len(rows), 0, 0, reason)
+		return dispatch.Target{}, fleet.Station{}, false
+	}
+	keep, targets := b.resolveEdgeCandidates(shortlist)
 	if len(keep) == 0 {
+		b.logEdgePlacementRefusal(model, len(rows), len(shortlist), 0,
+			"no candidate survived the attachment re-check")
 		return dispatch.Target{}, fleet.Station{}, false
 	}
 	tierA, tierB := b.edgeEligible(keep, bannedNode, time.Now())
 	// Healthy beats failing as an absolute gate, and Tier B exists so a transient blip never
 	// blanks the fleet - pickFor's own two-tier shape, for the same reason.
-	pool := tierA
+	pool, tier := tierA, "A"
 	if len(pool) == 0 {
-		pool = tierB
+		pool, tier = tierB, "B"
 	}
 	if len(pool) == 0 {
+		b.logEdgePlacementRefusal(model, len(rows), len(shortlist), len(keep),
+			"every resolvable candidate's node is stale, banned or on a private band")
 		return dispatch.Target{}, fleet.Station{}, false
 	}
 	// edgeBeta concentrates the sampling on the strong end of the band. A tie, or a nil rng,
@@ -517,11 +561,119 @@ func (b *broker) edgeTargetFor(model string, rng *rand.Rand) (dispatch.Target, f
 	// wherever it was true before.
 	chosen := selectP2C(pool, edgeBeta, rng)
 	if chosen < 0 {
+		b.logEdgePlacementRefusal(model, len(rows), len(shortlist), len(keep),
+			"the selector drew nothing from a non-empty pool")
 		return dispatch.Target{}, fleet.Station{}, false
 	}
+	b.logEdgePlacement(model, keep[chosen], pool, tier, chosen, len(rows), len(shortlist))
 	// The whole ROW rides back: the endpoint the consumer submits to, and the attachment's
 	// listed price that authorize pins into the grant.
 	return targets[chosen], keep[chosen], true
+}
+
+// resolveEdgeCandidates re-checks a shortlist against the attachment registry - the authority
+// on whether a Station may be dispatched to at all - in ONE read for the whole list.
+//
+// The rule it applies is targetFromAttachment's, not a copy of it: liveness, the origin tower,
+// and both keys being usable. What changes here is only how the attachments are fetched. A row
+// whose attachment has vanished, been rehomed or been retired since the projection was written
+// is dropped, exactly as the per-row read dropped it, so an unresolvable candidate still never
+// wins a draw and never even enters one.
+func (b *broker) resolveEdgeCandidates(shortlist []fleet.Station) ([]fleet.Station, []dispatch.Target) {
+	if len(shortlist) == 0 {
+		return nil, nil
+	}
+	ts := b.tower
+	if ts == nil || ts.stationStore == nil {
+		return nil, nil
+	}
+	ids := make([]string, 0, len(shortlist))
+	for _, row := range shortlist {
+		ids = append(ids, row.StationID)
+	}
+	// The STORE rather than the Registry, which is what towerSubsystem.stationStore is kept for:
+	// the Registry deliberately exposes admission and single lookups, and this is neither. The
+	// only thing the Registry adds on this read is an error wrapper nothing here reads.
+	ats, err := ts.stationStore.ByStations(ids)
+	if err != nil {
+		// FAIL CLOSED, and loudly. Losing this read means Core cannot check who any of these
+		// Stations are, and dispatching to a Station whose recorded key we could not read means
+		// accepting a receipt we cannot verify - the same reason the per-row read refused on an
+		// error. The consumer gets the ordinary "not here, not now".
+		log.Printf("edge placement: cannot read %d candidate attachment(s): %v", len(ids), err)
+		return nil, nil
+	}
+	keep := make([]fleet.Station, 0, len(shortlist))
+	targets := make([]dispatch.Target, 0, len(shortlist))
+	for _, row := range shortlist {
+		at, found := ats[row.StationID]
+		if !found {
+			continue
+		}
+		target, ok := targetFromAttachment(row.TowerID, row.StationID, row.Model, row.Modality, at)
+		if !ok {
+			continue
+		}
+		keep = append(keep, row)
+		targets = append(targets, target)
+	}
+	return keep, targets
+}
+
+// logEdgePlacement says where a consumer was sent, and on what evidence.
+//
+// # THERE WAS NO OBSERVABILITY ON PLACEMENT AT ALL
+//
+// Not the chosen station, not the candidate count, not the score. That is a bad property for
+// any routing decision and a specific hazard for this one, because the failure mode this path
+// has ALREADY had once - every request collapsing onto the lexicographically first station,
+// with the other operators earning nothing - produces no error, no timeout and no unhappy
+// consumer. The requests are served. Had it recurred, the first report would have come from an
+// operator noticing their machine had stopped earning, if it came at all.
+//
+// So the line carries what is needed to see that shape in an aggregator: which station won,
+// which tower carries it, how many candidates there were, how many survived each gate, and the
+// score and load the decision actually turned on. Counting placements per station over a window
+// is then a query rather than a new subsystem.
+//
+// # WHAT IS IN IT, AND WHAT IS DELIBERATELY NOT
+//
+// Station, tower and node ids are already in this broker's logs - the price-refusal log two
+// hundred lines up prints a tower and a station, `station %s revoked by %s` prints one beside
+// an owner, and probe.go prints node ids on every probe - so this is not a new exposure class.
+// The CONSUMER is not here: no account, no wallet, no attempt id. Placement is a supply-side
+// decision and there is no operational question it answers that needs to name the customer.
+//
+// Not sampled. One line per authorize is one line per paid inference request on a fabric whose
+// authorize rate is bounded per account by b.rl and whose standing attempts are capped at 32,
+// and it is the same order of volume as the probe lines already emitted. If edge volume ever
+// makes that untrue the fix is a sampler here, not a quieter line.
+func (b *broker) logEdgePlacement(model string, row fleet.Station, pool []scoredCand, tier string, chosen, candidates, shortlisted int) {
+	score, load := 0.0, 0.0
+	for _, c := range pool {
+		if c.idx == chosen {
+			score, load = c.score, c.load
+			break
+		}
+	}
+	log.Printf("edge placement model=%s station=%s tower=%s node=%s tier=%s score=%.4f load=%.0f candidates=%d servable=%d eligible=%d",
+		model, row.StationID, row.TowerID, row.NodeID, tier, score, load, candidates, shortlisted, len(pool))
+}
+
+// logEdgePlacementRefusal says why nothing could be placed.
+//
+// The 503 a consumer sees is deliberately uninformative - "not here, not now", because
+// enumerating which Towers exist is nobody's business - and it was uninformative to US as well:
+// a bare jsonErr with no log line, so an operator seeing edge traffic dry up had no way to tell
+// an empty fleet from a fleet that was entirely banned, entirely stale, or entirely
+// unresolvable. Those want completely different responses and looked identical.
+//
+// The counts are the diagnosis: candidates is what the projection offered, servable is what
+// survived the row-shape and tower-eligibility gates, resolvable is what still had a live
+// attachment, and the reason names the gate that emptied the pool.
+func (b *broker) logEdgePlacementRefusal(model string, candidates, shortlisted, resolvable int, reason string) {
+	log.Printf("edge placement model=%s REFUSED candidates=%d servable=%d resolvable=%d - %s",
+		model, candidates, shortlisted, resolvable, reason)
 }
 
 // edgeEligible is the edge path's half of pickFor's eligibility pass: given the rows that
@@ -600,11 +752,40 @@ func (b *broker) edgeEligible(rows []fleet.Station, bannedNode map[string]bool, 
 		}
 		tq := b.trust[nodeID]
 		load := b.edgeLoadLocked(nodeID)
-		sc := scoredCand{idx: i, score: edgeScore(tq, load), load: float64(load)}
+		// REAL CAPACITY, DERIVED HERE RATHER THAN CARRIED. This is the one place both inputs are
+		// already under the locks that guard them - concurrentTPS under metricsMu, the
+		// registration's hardware class under b.mu - so capacityOf costs two map reads and gives
+		// the same number the classic router divides by. It replaces the flat 1+load divisor,
+		// which was the capacity=1 case pretending to be a policy.
+		//
+		// The projection USED to carry a Capacity column for this, hardcoded to 1 on every
+		// self-attached row, and the honest reading of that was "there is no capacity model".
+		// The column is gone from fleet.Station (see its comment): a snapshot as stale as the
+		// last publish sweep, of a quantity that moves with every served request, is worse than
+		// deriving it at the moment of the decision. An unmeasured node falls back to the same
+		// conservative hardware prior pickFor uses, which is 1 - so nothing about placement
+		// changes for a fleet nobody has measured yet, and a measured rig stops being scored as
+		// though it were a laptop.
+		capacity := capacityOf(b.concurrentTPS[nodeID], b.nodes[nodeID].HW)
+		sc := scoredCand{
+			idx: i, score: edgeScore(tq, load, capacity),
+			// The P2C tie-break is load PER UNIT OF CAPACITY, exactly as router.go computes it -
+			// two open attempts mean something different on a four-slot rig than on a laptop.
+			load: float64(load) / float64(capacity),
+		}
 		// The same Tier A bar pickFor draws (probeFails < 2), so "healthy" means one thing
 		// across both fabrics. Success EWMA is not folded in: edgeExitInflight deliberately does
 		// not feed it, so on this path it would be a classic-fabric reading judging edge work.
-		if registered && tq.probeFails < 2 {
+		//
+		// AND the edge fabric's own evidence, which is the only kind that has actually exercised
+		// this path: a Station whose last canary probes through its Tower failed falls to Tier B
+		// (see edgeCanaryTroubledLocked). One-directional, like the recount evidence in
+		// edgeQuality - a canary result may demote a Station and may never promote one - because
+		// a canary that PASSED tested a route, and a canary that FAILED may have been the Tower's
+		// fault rather than this Station's. Demoting on ambiguous evidence costs a slightly worse
+		// placement; promoting on it would hand a consumer's money to a machine on the strength
+		// of somebody else's uptime.
+		if registered && tq.probeFails < 2 && !b.edgeCanaryTroubledLocked(row.StationID) {
 			tierA = append(tierA, sc)
 		} else {
 			tierB = append(tierB, sc)
@@ -622,9 +803,38 @@ var edgeBeta = prefBalanced.weights().beta
 
 // edgePlacementRand is the per-request PRNG behind the power-of-two-choices draw. A fresh
 // Rand per authorize rather than one shared source, because *rand.Rand is not safe for
-// concurrent use and placement runs on the request goroutine; the seed comes from the global
-// source, which is randomly seeded and IS concurrency-safe.
-func edgePlacementRand() *rand.Rand { return rand.New(rand.NewSource(rand.Int63())) }
+// concurrent use and placement runs on the request goroutine.
+//
+// # WHY IT IS NOT rand.NewSource
+//
+// It was, and that cost about five kilobytes and eighteen hundred iterations of setup per
+// authorize to produce at most two random numbers. math/rand's default source is a lagged
+// Fibonacci generator: seeding it fills a 607-element int64 table (~4.9KB) and stirs it, and
+// then this function's entire consumer draws two band members and throws the whole thing away.
+// The waste is not the allocation so much as the seeding loop, on a path that already runs
+// under a rate limiter for good reasons.
+//
+// A v2 PCG is 16 bytes of state, seeds in two assignments, and has better statistical
+// properties than the generator it replaces. It is adapted to the math/rand Source64 the
+// classic router's selectP2C already takes, rather than changing that signature: selectP2C is
+// shared with the paid fabric, and this is a performance fix on one caller, not a reason to
+// touch the other one's randomness.
+func edgePlacementRand() *rand.Rand {
+	// Seeded from the v2 global generator, which is randomly seeded at startup and IS safe for
+	// concurrent use - the same property the old code relied on rand.Int63 for.
+	return rand.New(&pcgSource{p: randv2.NewPCG(randv2.Uint64(), randv2.Uint64())})
+}
+
+// pcgSource adapts math/rand/v2's PCG to the math/rand Source64 interface.
+//
+// Seed is a no-op and must be: this source is constructed already seeded, and math/rand only
+// calls Seed when someone asks it to, which nothing here does. Making it re-seed from an int64
+// would silently narrow the state a caller thought it had.
+type pcgSource struct{ p *randv2.PCG }
+
+func (s *pcgSource) Uint64() uint64 { return s.p.Uint64() }
+func (s *pcgSource) Int63() int64   { return int64(s.p.Uint64() >> 1) }
+func (s *pcgSource) Seed(int64)     {}
 
 // edgeScore ranks one candidate. Higher is better; the shape deliberately mirrors router.go's
 // `quality / load`, which is the classic path's answer to the same question and has the
@@ -642,18 +852,20 @@ func edgePlacementRand() *rand.Rand { return rand.New(rand.NewSource(rand.Int63(
 // they are worth naming rather than glossing.
 //
 // Shared: the quality/load shape, this instance's live load PLUS the merged cross-instance
-// peer load, and - since the P2C draw in edgeTargetFor - the same anti-all-to-one selection
-// over the same band.
+// peer load, the SAME capacity-normalized loadFactor (1/(1+inflight/capacity)) over the same
+// capacityOf derivation, and - since the P2C draw in edgeTargetFor - the same anti-all-to-one
+// selection over the same band.
+//
+// The capacity term is new here, and it is the same function rather than a second one: it used
+// to be a flat 1+load, which is the capacity=1 case, and the reason given was that the only
+// capacity in reach was the projection's hardcoded 1. That was true when it was written and
+// stopped being true at M0 - the node_id join reaches concurrentTPS and the hardware class, and
+// edgeEligible already holds both locks that guard them. So the column is gone and the number is
+// derived at the moment of the decision (see edgeEligible). A rig now absorbs more concurrent
+// edge work than a laptop before its score sags, which is what the divisor was always claiming.
 //
 // Still different, on purpose or for want of data:
 //
-//   - NO CAPACITY NORMALIZATION. router.go divides by 1+inflight/capacity, so a rig absorbs
-//     more concurrent work than a laptop before its score sags. Here the divisor is 1+load
-//     flat, which is the capacity=1 case. The projection row does carry a Capacity field, but
-//     publishRoutable hardcodes it to 1 for every self-attached station, so normalizing by it
-//     today would divide by a constant and merely look like it meant something. Deriving real
-//     capacity needs the node's concurrentTPS and hw class, which live behind a different lock
-//     than this read path holds - that belongs with the locality work, not here.
 //   - NO SPEED-FIT. TTFT and TPS are probed broker-to-node; an edge request never goes through
 //     the broker, so the number describes a path this placement is not choosing.
 //   - NO PRICE MODIFIER. An edge consumer is quoted the Station's own pinned price and
@@ -664,8 +876,8 @@ func edgePlacementRand() *rand.Rand { return rand.New(rand.NewSource(rand.Int63(
 //     unproven - with none of the self-extinguishing part.
 //
 // Price and speed-fit belong with the locality term in M5 (docs/relay-selection-design.md).
-func edgeScore(tq trustState, load int) float64 {
-	return edgeQuality(tq) / float64(1+load)
+func edgeScore(tq trustState, load, capacity int) float64 {
+	return edgeQuality(tq) * loadFactor(load, capacity)
 }
 
 // edgeNeutralQuality is what a station with no canary evidence is worth: better than a
@@ -721,14 +933,18 @@ func edgeQuality(tq trustState) float64 {
 // rows are never compared across two instants.
 func (b *broker) edgeCandidateScore(row fleet.Station) float64 {
 	if row.NodeID == "" {
-		return edgeScore(trustState{}, 0)
+		return edgeScore(trustState{}, 0, 1)
 	}
-	// metricsMu, NOT b.mu: trust, inflight and the rest of the per-node metrics live under
-	// their own lock (see observeRecountInput and the /market reads), and taking the wrong one
-	// here would be a data race that happens to compile.
+	// BOTH locks, b.mu outer then metricsMu inner - the order enrichOffersForNode in market.go
+	// establishes and edgeEligible follows. It was metricsMu alone while the score read nothing
+	// but trust and load, which live there; the capacity term reads the node's REGISTRATION for
+	// its hardware class, and that is b.mu's. Taking the wrong one is a data race that compiles.
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	b.metricsMu.Lock()
 	defer b.metricsMu.Unlock()
-	return edgeScore(b.trust[row.NodeID], b.edgeLoadLocked(row.NodeID))
+	return edgeScore(b.trust[row.NodeID], b.edgeLoadLocked(row.NodeID),
+		capacityOf(b.concurrentTPS[row.NodeID], b.nodes[row.NodeID].HW))
 }
 
 // edgeCandidateLoad is the row's live concurrency as PLACEMENT sees it: relayed work this

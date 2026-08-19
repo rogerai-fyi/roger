@@ -2,6 +2,7 @@ package attach
 
 import (
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 )
@@ -28,11 +29,20 @@ type memStore struct {
 	mu    sync.Mutex
 	auths map[string]Authorization
 	byID  map[string]Attachment
+	// lastRoutable is the TouchRoutable stamp, kept BESIDE the record rather than on it - the
+	// Postgres store keeps it as a column scanAttachment does not read, and the two stores are
+	// only interchangeable if the reference one hides it the same way. It is housekeeping
+	// about a Station rather than part of what Core recorded about it, and putting it on
+	// Attachment would put it in front of every reader of an attachment for one sweep's sake.
+	lastRoutable map[string]time.Time
 }
 
 // NewMemStore builds an empty in-process store.
 func NewMemStore() Store {
-	return &memStore{auths: map[string]Authorization{}, byID: map[string]Attachment{}}
+	return &memStore{
+		auths: map[string]Authorization{}, byID: map[string]Attachment{},
+		lastRoutable: map[string]time.Time{},
+	}
 }
 
 func (m *memStore) PutAuthorization(a Authorization) error {
@@ -143,6 +153,64 @@ func (m *memStore) ByStation(stationID string) (Attachment, bool, error) {
 	defer m.mu.Unlock()
 	at, ok := m.byID[stationID]
 	return at, ok, nil
+}
+
+// ByStations is the batch read, and it answers exactly what len(ids) calls to ByStation
+// would: every state, absent ids absent from the map. A duplicate id in the request is
+// collapsed by the map, which is also what the Postgres `= ANY($1)` does.
+func (m *memStore) ByStations(stationIDs []string) (map[string]Attachment, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make(map[string]Attachment, len(stationIDs))
+	for _, id := range stationIDs {
+		if at, ok := m.byID[id]; ok {
+			out[id] = at
+		}
+	}
+	return out, nil
+}
+
+// TouchRoutable stamps only Stations that EXIST. Postgres cannot stamp a row that is not
+// there, so neither may this: a stamp for an unknown Station would otherwise linger and
+// pre-date a later attachment under the same id, which is exactly the kind of divergence the
+// parity suites exist to catch.
+func (m *memStore) TouchRoutable(stationIDs []string, at time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, id := range stationIDs {
+		if _, ok := m.byID[id]; ok {
+			m.lastRoutable[id] = at
+		}
+	}
+	return nil
+}
+
+// DetachIdle retires this Tower's live attachments that have gone quiet, measuring each from
+// its stamp or, absent one, from when it attached - the COALESCE the durable store does.
+func (m *memStore) DetachIdle(towerID string, before time.Time) ([]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []string
+	for id, rec := range m.byID {
+		if rec.Origin.TowerID != towerID || !rec.Live() {
+			continue
+		}
+		seen := m.lastRoutable[id]
+		if seen.IsZero() {
+			seen = rec.AttachedAt
+		}
+		if !seen.Before(before) {
+			continue
+		}
+		rec.State = StateDetached
+		m.byID[id] = rec
+		out = append(out, id)
+	}
+	// A total order, because a Go map has none and the durable store's answer is sorted. A
+	// caller logs these ids; two stores that disagree about their order would make the same
+	// sweep unreproducible between a test and production.
+	sort.Strings(out)
+	return out, nil
 }
 
 func (m *memStore) ByTower(towerID string) ([]Attachment, error) {

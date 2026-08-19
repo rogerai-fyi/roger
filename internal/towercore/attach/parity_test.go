@@ -661,3 +661,145 @@ func TestParityADuplicateInvitationIDIsRefusedByBoth(t *testing.T) {
 			"a duplicate id is a permanent answer, and both stores must give it")
 	})
 }
+
+// --- the batch read and the detach path, in both stores ----------------------
+
+// seedAttachments writes attachments straight through Admit so both stores go through their
+// real commit path, and returns them keyed by Station. Each needs its own invitation: an
+// invitation is one-use, which is the property half this file exists to protect.
+func seedAttachments(t *testing.T, s Store, now time.Time, tw string, ids ...string) {
+	t.Helper()
+	for i, id := range ids {
+		auth := withSecret(Authorization{
+			ID: "auth-" + id, Network: net, StationID: id, Owner: owner,
+			Origin:       Origin{Kind: OriginJoined, TowerID: tw},
+			AssertionKey: fmt.Sprintf("A-%s-%d", id, i), SessionKey: fmt.Sprintf("K-%s-%d", id, i),
+			IssuedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Hour),
+		})
+		require.NoError(t, s.PutAuthorization(auth))
+		ok, err := s.Admit(auth.ID, Attachment{
+			StationID: id, Owner: owner, AssertionKey: auth.AssertionKey,
+			SessionKey: auth.SessionKey, Origin: auth.Origin, Epoch: 1,
+			State: StateActive, AttachedAt: now, AuthID: auth.ID,
+			NodeID: "n-" + id, Model: "m",
+		})
+		require.NoError(t, err)
+		require.True(t, ok)
+	}
+}
+
+// ByStations must answer EXACTLY what the same number of ByStation calls would, because that
+// is the only thing that makes it a safe substitution on the placement path. Absent ids are
+// absent (not zero values), a terminal row still comes back (the caller checks Live itself),
+// and duplicates in the request collapse.
+func TestParityByStationsMatchesByStationOneAtATime(t *testing.T) {
+	for name, s := range parityStores(t) {
+		t.Run(name, func(t *testing.T) {
+			now := time.Unix(1_700_000_000, 0).UTC()
+			seedAttachments(t, s, now, tower, "st-a", "st-b", "st-gone")
+			ok, err := s.SetState("st-gone", StateRevoked)
+			require.NoError(t, err)
+			require.True(t, ok)
+
+			ask := []string{"st-a", "st-b", "st-a", "st-gone", "st-never-existed"}
+			batch, err := s.ByStations(ask)
+			require.NoError(t, err)
+
+			for _, id := range ask {
+				one, found, oerr := s.ByStation(id)
+				require.NoError(t, oerr)
+				got, inBatch := batch[id]
+				require.Equal(t, found, inBatch,
+					"%s: the batch read and the singular read disagree about whether it exists", id)
+				if found {
+					require.Equal(t, one, got, "%s: the batch read returned a different record", id)
+				}
+			}
+			require.Len(t, batch, 3, "a duplicated id is one row, and an unknown id is no row")
+			require.Equal(t, StateRevoked, batch["st-gone"].State,
+				"a terminal row must still come back - the caller is the one that decides about liveness")
+
+			// The empty ask is a real call on the authorize path (every candidate filtered out
+			// before this point), and it must not be an error or a round trip's worth of nothing.
+			empty, err := s.ByStations(nil)
+			require.NoError(t, err)
+			require.Empty(t, empty)
+		})
+	}
+}
+
+// THE DETACH PATH, which until now did not exist: nothing ever assigned StateDetached outside
+// terminal reaping, so a machine that ran `roger share` once and pressed Ctrl-C stayed a live
+// attachment forever. A Station whose machine has been seen recently must survive the sweep,
+// one whose machine has not must not, and neither may reach across to another Tower.
+func TestParityDetachIdleRetiresOnlyTheQuietStations(t *testing.T) {
+	for name, s := range parityStores(t) {
+		t.Run(name, func(t *testing.T) {
+			now := time.Unix(1_700_000_000, 0).UTC()
+			seedAttachments(t, s, now, tower, "st-live", "st-quiet")
+			seedAttachments(t, s, now, "tw-other", "st-elsewhere")
+
+			// Only the live one is stamped, and the horizon sits between the stamp and the
+			// attach instant every row shares.
+			require.NoError(t, s.TouchRoutable([]string{"st-live"}, now.Add(time.Hour)))
+			detached, err := s.DetachIdle(tower, now.Add(30*time.Minute))
+			require.NoError(t, err)
+			require.Equal(t, []string{"st-quiet"}, detached)
+
+			quiet, _, err := s.ByStation("st-quiet")
+			require.NoError(t, err)
+			require.Equal(t, StateDetached, quiet.State)
+			require.False(t, quiet.Live())
+
+			live, _, err := s.ByStation("st-live")
+			require.NoError(t, err)
+			require.Equal(t, StateActive, live.State, "a stamped Station is not idle")
+
+			other, _, err := s.ByStation("st-elsewhere")
+			require.NoError(t, err)
+			require.Equal(t, StateActive, other.State, "the sweep is scoped to one Tower")
+
+			// Idempotent: the row is no longer live, so a second sweep finds nothing to do.
+			again, err := s.DetachIdle(tower, now.Add(30*time.Minute))
+			require.NoError(t, err)
+			require.Empty(t, again)
+		})
+	}
+}
+
+// An UNSTAMPED row is measured from when it attached, not from the zero time. Getting this
+// backwards would have retired every attachment in the fleet on the first sweep after deploy,
+// because no existing row carries a stamp.
+func TestParityAnUnstampedAttachmentIsMeasuredFromItsAttachTime(t *testing.T) {
+	for name, s := range parityStores(t) {
+		t.Run(name, func(t *testing.T) {
+			now := time.Unix(1_700_000_000, 0).UTC()
+			seedAttachments(t, s, now, tower, "st-fresh")
+
+			none, err := s.DetachIdle(tower, now.Add(-time.Second))
+			require.NoError(t, err)
+			require.Empty(t, none, "a never-stamped row attached a second ago is not idle")
+
+			gone, err := s.DetachIdle(tower, now.Add(time.Second))
+			require.NoError(t, err)
+			require.Equal(t, []string{"st-fresh"}, gone,
+				"past the horizon it is idle, measured from attached_at")
+		})
+	}
+}
+
+// A stamp for a Station that does not exist must not be remembered - otherwise it would
+// pre-date a later attachment under the same id and make a fresh Station look ancient.
+func TestParityTouchingAnUnknownStationRecordsNothing(t *testing.T) {
+	for name, s := range parityStores(t) {
+		t.Run(name, func(t *testing.T) {
+			now := time.Unix(1_700_000_000, 0).UTC()
+			require.NoError(t, s.TouchRoutable([]string{"st-ghost"}, now.Add(-999*time.Hour)))
+			seedAttachments(t, s, now, tower, "st-ghost")
+
+			none, err := s.DetachIdle(tower, now.Add(-time.Second))
+			require.NoError(t, err)
+			require.Empty(t, none, "the ghost stamp outlived the Station it named")
+		})
+	}
+}

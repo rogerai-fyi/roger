@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"math/rand"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
@@ -432,6 +433,18 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 	b.nodes[reg.NodeID] = reg
 	b.lastSeen[reg.NodeID] = now
 	b.confidential[reg.NodeID] = confidential
+	// COLLECT THE ONE LOCALITY SIGNAL WE HAVE NEVER KEPT (M2 groundwork,
+	// docs/relay-selection-design.md). Nothing routes on it - see nodeNetBucket.
+	if b.netBucket == nil {
+		b.netBucket = map[string]string{}
+	}
+	if bucket := coarseNetBucket(clientIP(r)); bucket != "" {
+		b.netBucket[reg.NodeID] = bucket
+	} else {
+		// An address we could not parse leaves NO stale bucket behind: a node that moves from
+		// a knowable network to an unknowable one must not keep claiming the old one.
+		delete(b.netBucket, reg.NodeID)
+	}
 	// Re-apply the signed Private flag on EVERY register so it survives a broker
 	// restart (the node re-asserts it) and a node can also go back PUBLIC by
 	// re-registering with Private=false. The flag is part of regSigningBytes, so it
@@ -2978,4 +2991,68 @@ func parseNodeSet(s string) map[string]bool {
 		}
 	}
 	return set
+}
+
+// --- coarse supply-side locality (M2 groundwork: collect only) ----------------
+
+// coarseNetBucket derives a COARSE network bucket from the address a node connected FROM.
+//
+// # WHY THE SIGNAL HAS TO BE OBSERVED
+//
+// The relay-selection design's §4.1 says supply-side location must never be self-declared, and
+// it says it for a specific reason: `--region` is a string the operator types, defaulting to the
+// literal "home", and it is read today only for display. The moment a typed string feeds
+// placement it becomes a lever - claim to be everywhere, receive everything - and the operators
+// with the most to gain from lying are exactly the ones a locality term is supposed to
+// deprioritize. The connecting address is the one location signal in the system that the party
+// being located does not get to choose: it is where the TCP session actually came from, resolved
+// by concierge.go's clientIP with CF-Connecting-IP preferred over the client-appendable
+// X-Forwarded-For for precisely this reason.
+//
+// The broker has been computing this on every registration - for the free-registration rate
+// limiter - and throwing it away. This keeps a bucket of it, and nothing more.
+//
+// # WHAT IT IS, AND WHAT IT IS NOT
+//
+// It IS the network prefix: 203.0.113.0/24 for IPv4, and the /32 allocation for IPv6. It is NOT
+// an address, not a host, not a geolocation lookup, and not anything that reaches an outside
+// service. Nothing is logged.
+//
+// The IPv6 width is /32 rather than the /48 that mirrors a v4 /24 by name, because /48 is a
+// SUBSCRIBER SITE - one household - which would be finer-grained than the v4 bucket, not coarser.
+// /32 is the ISP's allocation, which is the honest analogue of "a network somebody shares".
+//
+// Loopback and private ranges collapse to "local" rather than being bucketed. A 192.168.x
+// address says nothing about where anybody is, and preserving its prefix would be preserving the
+// developer's LAN layout for no purpose.
+//
+// # NOTHING ROUTES ON IT
+//
+// This is M2's first half - collect the signal so there is something to build a locality term
+// out of - and deliberately not M5. No scorer reads it, no response carries it, and until a
+// distance term is designed against the constraint in §4.2 (a naive "nearest wins" recreates the
+// all-to-one magnet with a geographic shape) none should.
+func coarseNetBucket(addr string) string {
+	ip := net.ParseIP(strings.TrimSpace(addr))
+	if ip == nil {
+		return ""
+	}
+	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
+		return "local"
+	}
+	if v4 := ip.To4(); v4 != nil {
+		return v4.Mask(net.CIDRMask(24, 32)).String() + "/24"
+	}
+	return ip.Mask(net.CIDRMask(32, 128)).String() + "/32"
+}
+
+// nodeNetBucket reads back what was collected for a node, or "" when nothing was.
+//
+// It exists so the signal is reachable by whatever eventually uses it, and so the map has a
+// reader - a collected signal with no way to read it is indistinguishable from a leak. The one
+// caller today is the test that pins the collection.
+func (b *broker) nodeNetBucket(nodeID string) string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.netBucket[nodeID]
 }

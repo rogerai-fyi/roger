@@ -25,6 +25,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -113,6 +114,13 @@ ALTER TABLE rogerai.station_attachments    ADD COLUMN IF NOT EXISTS node_id TEXT
 -- the one a re-attach makes is "does this node already have a station".
 CREATE INDEX IF NOT EXISTS station_attachments_node_id_idx
   ON rogerai.station_attachments (node_id) WHERE node_id <> '';
+-- last_routable is when some instance last saw the MACHINE behind this Station alive while
+-- publishing it as routable. It is the evidence DetachIdle acts on, and it is NULLABLE
+-- rather than defaulted: a row written before this column existed has never been stamped,
+-- and "never stamped" has to read as "measure it from attached_at" rather than as "last seen
+-- at the zero time" - the second reading would retire the entire existing fleet on the first
+-- sweep. Nothing SELECTs it into an Attachment; it is housekeeping, not identity.
+ALTER TABLE rogerai.station_attachments ADD COLUMN IF NOT EXISTS last_routable TIMESTAMPTZ;
 `
 
 // PGStore is the durable Store.
@@ -329,6 +337,83 @@ func (p *PGStore) ByStation(stationID string) (Attachment, bool, error) {
 		return Attachment{}, false, pgwrap("read attachment", err)
 	}
 	return at, true, nil
+}
+
+// ByStations answers for a whole placement in one round trip. `= ANY($1)` rather than a
+// generated IN-list: one prepared statement whatever N is, no string building on a path that
+// takes caller-supplied ids, and the driver already carries []string as text[] (the ledger's
+// kind filter in internal/store does the same).
+//
+// State-agnostic, exactly like ByStation - see the Store interface for why the batch form must
+// not quietly become stricter than the singular one.
+func (p *PGStore) ByStations(stationIDs []string) (map[string]Attachment, error) {
+	out := make(map[string]Attachment, len(stationIDs))
+	if len(stationIDs) == 0 {
+		// Not merely an optimization: `= ANY('{}')` is a round trip that can only return
+		// nothing, and this is called on the authorize path.
+		return out, nil
+	}
+	rows, err := p.db.Query(`SELECT `+attachCols+`
+		FROM rogerai.station_attachments WHERE station_id = ANY($1)`, stationIDs)
+	if err != nil {
+		return nil, pgwrap("read attachments", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		at, serr := scanAttachment(rows)
+		if serr != nil {
+			return nil, pgwrap("read attachments", serr)
+		}
+		out[at.StationID] = at
+	}
+	if err := rows.Err(); err != nil {
+		return nil, pgwrap("read attachments", err)
+	}
+	return out, nil
+}
+
+// TouchRoutable stamps the liveness evidence for a whole Tower's Stations in one statement.
+// Rows that do not exist are simply not updated, which is what the Mem store also does.
+func (p *PGStore) TouchRoutable(stationIDs []string, at time.Time) error {
+	if len(stationIDs) == 0 {
+		return nil
+	}
+	if _, err := p.db.Exec(`UPDATE rogerai.station_attachments
+		SET last_routable = $2 WHERE station_id = ANY($1)`, stationIDs, at.UTC()); err != nil {
+		return pgwrap("stamp routable", err)
+	}
+	return nil
+}
+
+// DetachIdle retires the quiet attachments and RETURNS which, so the caller can say out loud
+// what it retired. One statement, so the read and the write cannot disagree: selecting the
+// candidates first and updating them after would retire a Station that got stamped in
+// between, which is the machine coming back at exactly the wrong moment.
+func (p *PGStore) DetachIdle(towerID string, before time.Time) ([]string, error) {
+	rows, err := p.db.Query(`UPDATE rogerai.station_attachments
+		   SET state = $3
+		 WHERE origin_tower = $1
+		   AND state IN ('quarantine','active')
+		   AND COALESCE(last_routable, attached_at) < $2
+		RETURNING station_id`, towerID, before.UTC(), StateDetached)
+	if err != nil {
+		return nil, pgwrap("detach idle attachments", err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id string
+		if serr := rows.Scan(&id); serr != nil {
+			return nil, pgwrap("detach idle attachments", serr)
+		}
+		out = append(out, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, pgwrap("detach idle attachments", err)
+	}
+	// UPDATE ... RETURNING has no defined order; the Mem store sorts, so this does too.
+	sort.Strings(out)
+	return out, nil
 }
 
 // ByAssertionKey and BySessionKey look only at LIVE rows, matching the partial indexes and

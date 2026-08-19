@@ -73,7 +73,7 @@ func each(t *testing.T, fn func(t *testing.T, s Store)) {
 func row(tower, station, offer, model string, expires time.Time) Station {
 	return Station{
 		TowerID: tower, StationID: station, OfferID: offer, Model: model,
-		Modality: "text", Capacity: 4, Expires: expires,
+		Modality: "text", Expires: expires,
 		// The data-plane endpoint rides in every parity row so a store that DROPS it fails
 		// loudly here rather than as edge consumers silently never being routed anywhere.
 		Endpoint: "203.0.113.7:8443",
@@ -129,7 +129,6 @@ func TestParityCandidatesComeBackWhole(t *testing.T) {
 		require.Equal(t, "st-1", got[0].StationID)
 		require.Equal(t, "off-1", got[0].OfferID)
 		require.Equal(t, "text", got[0].Modality)
-		require.Equal(t, int64(4), got[0].Capacity)
 
 		none, err := s.Candidates("nobody-serves-this", now)
 		require.NoError(t, err)

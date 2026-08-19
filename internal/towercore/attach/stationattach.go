@@ -286,6 +286,47 @@ type Store interface {
 	Admit(authID string, at Attachment) (bool, error)
 	// ByStation, ByAssertionKey and BySessionKey are the uniqueness and lookup reads.
 	ByStation(stationID string) (Attachment, bool, error)
+	// ByStations is ByStation for a whole placement's worth of Stations, in ONE round trip.
+	//
+	// IT EXISTS FOR THE CONNECTION POOL, not for the rows. Edge placement re-checks every
+	// candidate against this registry before it ranks them, and it did that one ByStation at
+	// a time - N sequential queries per authorize, on the pool the wallets, holds and
+	// settlement share (internal/store's poolLimits caps maxOpen at 8, because production is
+	// a small shared managed Postgres). At thirty candidates that is thirty serialized round
+	// trips standing between a consumer and a placement, and under concurrent authorize load
+	// it starves the money path: the symptom is a payment timeout, not slow routing, which is
+	// why this is worth a store method rather than a comment about being careful.
+	//
+	// SAME SEMANTICS AS ByStation, deliberately, INCLUDING that it returns rows in any state.
+	// Its callers decide about liveness themselves (dispatch refuses anything not Live), and a
+	// batch form that quietly dropped terminal rows would answer "no such Station" where the
+	// singular form answers "that Station is revoked" - a distinction the next caller may need
+	// and cannot recover once it is gone. Absent ids are simply absent from the map, so
+	// len(result) <= len(stationIDs) and a caller must not index it blindly.
+	ByStations(stationIDs []string) (map[string]Attachment, error)
+	// TouchRoutable stamps "the machine behind this Station was seen alive just now" onto each
+	// of these attachments - the durable half of the detach path below.
+	//
+	// It is stamped by whichever instance publishes the Station as routable, because that is
+	// the only place in the system holding both halves of the join at once: the attachment,
+	// and this broker's live view of the node id written on it. Any instance's stamp counts,
+	// so a node heartbeating to one broker keeps its attachment fresh everywhere.
+	TouchRoutable(stationIDs []string, at time.Time) error
+	// DetachIdle retires the live attachments behind one Tower whose machine has not been seen
+	// alive since `before`, and reports which ones it retired.
+	//
+	// THE ATTACHMENT TABLE HAD NO WAY TO SHRINK. Nothing assigned StateDetached outside
+	// terminal reaping, so an attachment lived until its owner revoked it - and a machine that
+	// ran `roger share` once and pressed Ctrl-C stayed a live attachment, and a republished
+	// routable row, for as long as the database existed. An eligibility gate keeps such a row
+	// from taking traffic; it does nothing about a table that only grows.
+	//
+	// Measured on COALESCE(last_routable, attached_at), so a row written before the stamp
+	// existed is judged from when it attached rather than treated as infinitely stale. The
+	// horizon its caller passes is DAYS rather than minutes on purpose: the harm being fixed
+	// is unbounded growth, which is slow, and the cost of being wrong is an operator's node
+	// having to re-attach, which is not.
+	DetachIdle(towerID string, before time.Time) ([]string, error)
 	// ByTower lists the LIVE attachments whose origin is the given Tower - what that Tower's
 	// hub must serve (Option C: the tower reads each node's HubToken from here).
 	ByTower(towerID string) ([]Attachment, error)

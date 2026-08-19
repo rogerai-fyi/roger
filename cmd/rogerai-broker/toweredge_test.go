@@ -591,7 +591,7 @@ func routableEdge(t *testing.T, b *broker, towerID, stationID, model, endpoint s
 	b.mu.Unlock()
 	require.NoError(t, b.tower.routable.Replace(towerID, []fleet.Station{{
 		TowerID: towerID, StationID: stationID, OfferID: "self-" + stationID,
-		Model: model, Modality: "text", Capacity: 4,
+		Model: model, Modality: "text",
 		Expires: time.Now().Add(time.Hour), Endpoint: endpoint,
 		NodeID: nodeID,
 	}}))

@@ -133,8 +133,19 @@ type broker struct {
 	// metricsMu; keyed by the consumer's account wallet, the same identity the hold is placed
 	// against. See maxOpenEdgeAttemptsPerAccount.
 	edgeOpenByAccount map[string]int
-	success           map[string]float64    // EWMA success rate per node (0..1)
-	trust             map[string]trustState // L1 re-count + probe trust/quality per node
+	// edgeCanary is what the TOWER canaries found out about each STATION, keyed by station id
+	// and guarded by metricsMu. It is deliberately not folded into trust below: that map is the
+	// classic fabric's record, and a Tower operator who black-holed traffic could otherwise
+	// depress the paid-fabric score of every node behind them. See towercanary.go
+	// (edgeCanaryHealth) for the whole argument and for what it is allowed to decide.
+	edgeCanary map[string]edgeCanaryHealth
+	// netBucket is a COARSE, OBSERVED network locality bucket per node id, guarded by b.mu and
+	// written only at registration from the connecting address. Collection only - see
+	// nodeNetBucket in tunnel.go for what it is, what it deliberately is not, and why the
+	// supply side's location may never be self-declared.
+	netBucket map[string]string
+	success   map[string]float64    // EWMA success rate per node (0..1)
+	trust     map[string]trustState // L1 re-count + probe trust/quality per node
 	// successCount is the count of QUALITY-VALIDATED served completions per node (a
 	// non-empty body with output tokens, status<500), feeding the UCB exploration
 	// radius (smart-router v2): it is the evidence for the reward dimension that only
