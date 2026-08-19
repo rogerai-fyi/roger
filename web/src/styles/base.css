@@ -835,6 +835,52 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
 /* A panel row that is a CHILD of the row above it - the Playbox's two decks.
    The rule down the left is the nesting cue, so the pair reads as ways into one
    destination rather than three separate places. */
+/* IN-PROSE LINKS, site-wide. The base rule above is `a { color: inherit;
+   text-decoration: none }`, which is right for nav, cards and buttons - and
+   wrong inside a sentence, where it leaves a link with no affordance at all
+   (founder: "i see many occurences of links that i didn't know where links").
+
+   So: any classless <a> sitting directly in a <p> or <li> gets the house
+   treatment - ink text on a live hairline at rest, committing to full live on
+   hover and focus. Classless is the tell: every link that is really a button,
+   card, tab or nav item on this site already carries a class, so it keeps its
+   own look untouched. `.tlink` is the manual opt-in for the rare link that
+   needs a class for other reasons.
+
+   Deliberately NOT a dotted underline - that mark is spoken for by .rfmt,
+   where it means "this value expands"; two meanings on one mark is worse than
+   an invisible link. */
+p > a:not([class]),
+li > a:not([class]),
+.tlink {
+  border-bottom: 1px solid color-mix(in srgb, var(--live) 55%, transparent);
+  transition: color .15s ease, border-color .15s ease;
+}
+p > a:not([class]):hover,
+li > a:not([class]):hover,
+.tlink:hover { color: var(--live); border-bottom-color: var(--live); }
+p > a:not([class]):focus-visible,
+li > a:not([class]):focus-visible,
+.tlink:focus-visible {
+  color: var(--live); border-bottom-color: var(--live);
+  outline: 2px solid var(--live); outline-offset: 2px; border-radius: 2px;
+}
+
+/* Rows that are ALREADY nothing but links - sub-navs, sibling rails, tables of
+   contents, apply rows. They read as links from their layout alone and carry
+   their own hover, so a hairline under every entry is noise, not a clue. */
+.acctsubnav > a,
+.company__links > a,
+.role__apply > a,
+.dir-sibling > a,
+.wj__play > a,
+.man-toc li > a,
+.man-quick li > a { border-bottom-color: transparent; }
+.acctsubnav > a:hover, .company__links > a:hover, .role__apply > a:hover,
+.dir-sibling > a:hover, .wj__play > a:hover,
+.man-toc li > a:hover, .man-quick li > a:hover { border-bottom-color: inherit; }
+.wj__play > a { border-bottom-color: var(--live); }
+
 /* THE CARRIER SWEEP, site-wide. Lifted from the Wave Infinite title on the
    family field guide, where it earned its place: a carrier moving across a
    word, which is the right metaphor for a station. Same ink-to-live gradient
@@ -961,7 +1007,12 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
    links. Kept under its original names so no page markup had to change. */
 .research-actions { display: flex; flex-wrap: wrap; gap: var(--s-3); margin-top: var(--s-8); }
 .research-button {
-  display: inline-flex; padding: 10px 16px; border: 1px solid var(--hairline-2);
+  /* inline-flex drops the whitespace between a text node and a trailing
+     <span>, so a button written `Become a Tower <span>&darr;</span>` rendered
+     as "TOWERv". gap restores it; buttons with a single text node have one
+     flex item and are unaffected. */
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 10px 16px; border: 1px solid var(--hairline-2);
   color: var(--ink-700); font-family: var(--font-mono); font-size: var(--t-xs);
   text-transform: uppercase; letter-spacing: .08em;
 }

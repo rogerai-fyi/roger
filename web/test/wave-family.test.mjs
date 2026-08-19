@@ -503,3 +503,31 @@ test("text painted with a gradient can never render invisible", () => {
       `${file}'s fallback must restore a real colour, not leave it transparent`);
   }
 });
+
+test("a multi-word include arg is quoted, so the build cannot eat half of it", () => {
+  /* 2026-08-19: the family page's mark read "RIGHT-SIZED" and stopped there
+     (founder). The include was written `caption=Right-sized intelligence, on
+     air.` - and build.mjs's parseArgs falls back to (\S+) for an unquoted
+     value, so it captured one word and dropped the rest with no warning. The
+     syntax has always supported quotes; the caller just did not use them.
+     This scans EVERY include marker on the site: any arg whose value is
+     followed by more prose must be quoted, so the next multi-word caption
+     fails the suite instead of shipping truncated. */
+  const srcDir = path.join(WEB, "src");
+  const pages = readdirSync(srcDir).filter((f) => f.endsWith(".html"));
+  const partials = readdirSync(path.join(srcDir, "_partials")).map((f) => path.join("_partials", f));
+  for (const rel of [...pages, ...partials]) {
+    const html = readFileSync(path.join(srcDir, rel), "utf8");
+    for (const m of html.matchAll(/<!--\s*include:\s*(\S+)\s*(.*?)\s*-->/g)) {
+      const [, file, argStr] = m;
+      // Strip well-formed args (quoted, or a single bare token). What is left
+      // over is text the parser silently discarded.
+      const leftover = argStr
+        .replace(/[\w-]+=("[^"]*"|'[^']*'|\S+)/g, "")
+        .trim();
+      assert.equal(leftover, "",
+        `${rel}: include of ${file} drops ${JSON.stringify(leftover)} - ` +
+        `quote the multi-word value, e.g. caption="two words here"`);
+    }
+  }
+});

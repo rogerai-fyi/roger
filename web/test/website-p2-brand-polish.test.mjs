@@ -158,3 +158,34 @@ test("the signal arcs clear the head they are supposed to be leaving", () => {
   assert.ok(Number(origin[1]) <= bracketTop + 2,
     "the arcs pivot on the antenna line, not on the beacon further down");
 });
+
+test("a link inside a sentence looks like a link, on every page", () => {
+  /* 2026-08-19, founder: "i see many occurences of links that i didn't know
+     where links". Cause: base.css opens with `a { color: inherit;
+     text-decoration: none }` - correct for nav, cards, tabs and buttons, and
+     wrong inside prose, where it strips a link of every affordance.
+
+     The fix keys on the one reliable tell: a link that is really a control on
+     this site always carries a class, so a CLASSLESS <a> sitting directly in
+     a <p> or <li> is prose and gets the house hairline. Rows that are nothing
+     but links (sub-navs, sibling rails, the manual's contents) are excluded -
+     they read as links from their layout and carry their own hover.
+
+     This locks the rule's existence and its exclusions, so a later cascade
+     edit cannot quietly return the site to invisible links. */
+  const css = readFileSync(path.join(WEB, "src", "styles", "base.css"), "utf8");
+  assert.match(css, /p > a:not\(\[class\]\),\s*\n\s*li > a:not\(\[class\]\),\s*\n\s*\.tlink \{/,
+    "base.css must style classless in-prose links");
+  const rule = css.slice(css.indexOf("p > a:not([class]),"));
+  assert.match(rule.slice(0, 300), /border-bottom: 1px solid color-mix\(in srgb, var\(--live\) 55%, transparent\)/,
+    "at rest the link wears a live hairline, not a full underline");
+  assert.match(rule.slice(0, 900), /:hover \{ color: var\(--live\); border-bottom-color: var\(--live\); \}/,
+    "hover commits to full live");
+  assert.match(rule.slice(0, 1400), /:focus-visible \{[\s\S]{0,160}outline: 2px solid var\(--live\)/,
+    "keyboard focus is at least as loud as hover");
+  for (const sel of [".acctsubnav", ".company__links", ".role__apply",
+                     ".dir-sibling", ".wj__play", ".man-toc li", ".man-quick li"]) {
+    assert.ok(rule.includes(`${sel} > a,`) || rule.includes(`${sel} > a:hover`),
+      `${sel} is an all-links row and must be excluded from the prose hairline`);
+  }
+});
