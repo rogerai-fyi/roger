@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"sync"
 	"time"
@@ -27,6 +28,9 @@ import (
 // hubNodeRefresh is how often the hub re-fetches its node registrations from Core, picking up
 // freshly self-attached nodes and dropping revoked ones.
 const hubNodeRefresh = 30 * time.Second
+
+// maxHubConns caps concurrent connections to the data plane. See where it is applied.
+const maxHubConns = 512
 
 // Settle-courier retry policy (audit H1). A completed job's receipt is the NODE'S PAY: if the
 // one forward to Core fails - a deploy, a blip, a 503 at exactly the wrong moment - the hub
@@ -108,6 +112,18 @@ func runHubInBackground(st *tower.State, opt hubOptions, out io.Writer, stop <-c
 	if err != nil {
 		return nil, fmt.Errorf("cannot read this tower's identity key (the hub proves its epoch with it): %w", err)
 	}
+	// THE SIGNED LATCH, ON DISK. Without it every redeploy re-opened the pre-signature bearer
+	// for nodes that upgraded long ago, because Core never rotates the token - see
+	// towerhub.SignedLatchStore. Best effort with a loud line, exactly like the settle spool
+	// beside it: a tower that cannot write here still works, and the operator is told what they
+	// have lost rather than left to find out from an audit.
+	latch, lerr := newSignedLatch(st.Dir(), out)
+	if lerr != nil {
+		fmt.Fprintf(out, "hub: WARNING - signed-station latch unavailable (%v): a stolen legacy "+
+			"bearer token will work again after every restart of this tower, until each node's "+
+			"next signed request closes its own latch\n", lerr)
+		latch = nil
+	}
 	hub := towerhub.New()
 	server := towerhub.NewServer(hub, func(grant []byte) (string, string, error) {
 		att, station, _, gerr := dispatch.EdgeGrantMeta(grant, coreKey, link.PublicNetwork,
@@ -121,6 +137,7 @@ func runHubInBackground(st *tower.State, opt hubOptions, out io.Writer, stop <-c
 		TowerID:           st.TowerID,
 		AllowLegacyBearer: opt.AllowLegacyBearer,
 		EpochKey:          identity,
+		SignedLatch:       latchStore(latch),
 	})
 	// THE SETTLE COURIER: every completed result's receipt is forwarded to Core, tower-signed,
 	// so the node is paid without holding its own line to Core. Opaque both ways; Core's
@@ -294,6 +311,32 @@ func runHubInBackground(st *tower.State, opt hubOptions, out io.Writer, stop <-c
 		ReadTimeout:       2 * time.Minute,
 	}
 
+	// THE LISTENER IS BOUNDED NOW, and that bound is what turns every remaining pre-auth cost on
+	// this hub from unbounded into arithmetic.
+	//
+	// Two of them are unavoidable by construction. /complete and /audit/transcript must READ the
+	// body before they can authenticate it, because the signature covers a digest of the bytes
+	// that arrived - so a caller admitted at the door gets up to 16MB buffered before authNode
+	// sees it. And every node-facing answer carries an Ed25519 proof of this hub's epoch, so a
+	// request that reaches a handler costs a signature. Neither can be removed; both are
+	// per-connection, and until now nothing bounded connections at all. With no cap and a
+	// two-minute read timeout, one machine could hold as many of both as it cared to open.
+	//
+	// A cap makes the worst case a number an operator can reason about: at most maxHubConns
+	// concurrent bodies in memory, at most maxHubConns concurrent verifies. Excess connections
+	// WAIT in the accept queue rather than being refused, which is the right direction for a
+	// serving node - a poll that queues for a moment is a poll; a poll refused is an operator
+	// not earning.
+	//
+	// It is generous on purpose. A tower's real concurrency is its Stations' poll workers plus
+	// consumer submits, a few per Station; 512 is far above any tower this design contemplates
+	// and far below what an unbounded listener hands an attacker.
+	ln, lerr := net.Listen("tcp", opt.Addr)
+	if lerr != nil {
+		return nil, fmt.Errorf("cannot listen on %s: %w", opt.Addr, lerr)
+	}
+	ln = limitConns(ln, maxHubConns)
+
 	// The refresher: keep the hub's node registrations in step with Core's attachment
 	// registry. RegisterNode also rotates a node's credential, and nodes that disappear are
 	// unregistered so a revoked node stops polling within one refresh.
@@ -360,14 +403,14 @@ func runHubInBackground(st *tower.State, opt hubOptions, out io.Writer, stop <-c
 	go func() {
 		defer close(serveDone)
 		if opt.TLSCert != "" {
-			fmt.Fprintf(out, "hub: serving the data plane on %s (TLS)\n", opt.Addr)
-			if serr := httpSrv.ListenAndServeTLS(opt.TLSCert, opt.TLSKey); serr != nil && serr != http.ErrServerClosed {
+			fmt.Fprintf(out, "hub: serving the data plane on %s (TLS)\n", ln.Addr())
+			if serr := httpSrv.ServeTLS(ln, opt.TLSCert, opt.TLSKey); serr != nil && serr != http.ErrServerClosed {
 				fmt.Fprintf(out, "hub: server stopped: %v\n", serr)
 			}
 			return
 		}
-		fmt.Fprintf(out, "hub: serving the data plane on %s - PLAINTEXT; pass --hub-tls-cert/--hub-tls-key (or front with TLS) before real traffic\n", opt.Addr)
-		if serr := httpSrv.ListenAndServe(); serr != nil && serr != http.ErrServerClosed {
+		fmt.Fprintf(out, "hub: serving the data plane on %s - PLAINTEXT; pass --hub-tls-cert/--hub-tls-key (or front with TLS) before real traffic\n", ln.Addr())
+		if serr := httpSrv.Serve(ln); serr != nil && serr != http.ErrServerClosed {
 			fmt.Fprintf(out, "hub: server stopped: %v\n", serr)
 		}
 	}()
@@ -436,4 +479,61 @@ func registerHubNodes(server *towerhub.Server, nodes []towerjoin.HubNode, out io
 		server.RegisterNode(n.StationID, towerhub.NodeAuth{AssertionKey: pub, LegacyToken: n.HubToken})
 	}
 	return seen
+}
+
+// limitConns bounds how many connections a listener will hand out at once.
+//
+// It is written here rather than pulled in (golang.org/x/net/netutil has one) because it is
+// twenty lines and this repository does not otherwise depend on x/net - a dependency added for a
+// semaphore is a dependency to keep patched forever.
+//
+// EXCESS CONNECTIONS WAIT, THEY ARE NOT REFUSED. Accept blocks until a slot frees, so a burst
+// queues in the kernel's backlog and is served a moment later. Refusing would be the wrong
+// direction on a hub whose entire purpose is to let providers earn: a poll delayed is a poll, a
+// poll refused is a node that stopped serving.
+func limitConns(inner net.Listener, max int) net.Listener {
+	return &limitedListener{Listener: inner, slots: make(chan struct{}, max)}
+}
+
+type limitedListener struct {
+	net.Listener
+	slots chan struct{}
+}
+
+func (l *limitedListener) Accept() (net.Conn, error) {
+	l.slots <- struct{}{}
+	c, err := l.Listener.Accept()
+	if err != nil {
+		<-l.slots
+		return nil, err
+	}
+	return &limitedConn{Conn: c, release: l.release}, nil
+}
+
+// release is idempotent per connection: Close can be called more than once (net/http does), and
+// a double release would hand out a slot that is still in use.
+func (l *limitedListener) release() { <-l.slots }
+
+type limitedConn struct {
+	net.Conn
+	once    sync.Once
+	release func()
+}
+
+func (c *limitedConn) Close() error {
+	err := c.Conn.Close()
+	c.once.Do(c.release)
+	return err
+}
+
+// latchStore turns a possibly-nil *signedLatch into a possibly-nil interface value, which is not
+// the same thing: a nil *signedLatch stored in an interface is a NON-nil interface holding a nil
+// pointer, and every call on it would panic on the serving path. The two-line conversion is here
+// rather than inline because that distinction is exactly the kind that reads as noise until it
+// takes a tower down.
+func latchStore(l *signedLatch) towerhub.SignedLatchStore {
+	if l == nil {
+		return nil
+	}
+	return l
 }

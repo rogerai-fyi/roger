@@ -388,6 +388,19 @@ func (c *Client) authenticate(req *http.Request, target string, body []byte) {
 	req.Header.Set(protocol.HeaderPubkey, pub)
 	req.Header.Set(protocol.HeaderTS, strconv.FormatInt(ts, 10))
 	req.Header.Set(protocol.HeaderSig, sig)
+	// AND THE DOOR SIGNATURE, which is the same key over the same method and target with NO
+	// BODY. It is what lets the hub establish possession of this key before it has read a byte
+	// of the body - which on /complete and /audit/transcript it cannot do with the signature
+	// above, because that one covers a digest of bytes that have not arrived yet. See
+	// HeaderDoorSig for why the public key alone could not be the admission credential.
+	//
+	// Sent on every signed call rather than only the two that need it: a per-route exemption is
+	// a trap for whoever adds the next route, the same argument the nonce applies to every route
+	// rather than only to the one that dequeues. On a GET it costs one signature over four
+	// dozen bytes.
+	_, dts, dsig := c.Sign(doorMethod(req.Method), target, nil)
+	req.Header.Set(HeaderDoorTS, strconv.FormatInt(dts, 10))
+	req.Header.Set(HeaderDoorSig, dsig)
 }
 
 // SubmitJob is the CONSUMER side: hand the tower a Core-signed grant + a request sealed to the

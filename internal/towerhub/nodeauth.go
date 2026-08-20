@@ -291,6 +291,50 @@ func hubEpochStatement(towerID, epoch, nonce string) []byte {
 	return []byte(hubEpochProofLabel + "\n" + towerID + "\n" + epoch + "\n" + nonce)
 }
 
+// HeaderDoorTS and HeaderDoorSig carry the DOOR SIGNATURE: a second, cheaper signature over
+// this request's method and target WITH NO BODY, which is the only kind of proof a hub can check
+// before it has read the body.
+//
+// # WHY A PUBLIC KEY COULD NOT BE THE ADMISSION CREDENTIAL
+//
+// knownCredential exists because /complete and /audit/transcript must read the whole body before
+// they can authenticate anything - the signature covers a digest of the bytes that arrived, so
+// verifying a re-serialization would verify the wrong thing. It asked "is this X-Roger-Pubkey a
+// key this tower has registered for SOMEBODY", and that question has a free answer: the pubkey
+// is on the plaintext wire on every single poll, and a hostile Station on the same tower holds a
+// registered one BY DEFINITION - its own. So the door opened for anybody, and behind it sat a
+// 16MB buffer, a two-minute read timeout and no connection cap. Twelve and a half megabytes were
+// buffered pre-auth in the review's reproducer, presenting nothing but a public key.
+//
+// # WHAT THIS IS AND IS NOT
+//
+// It is a proof of POSSESSION, not an authorization. It says the caller holds the private half
+// of a key this tower has registered, which is the one thing a header-only check can establish
+// and the one thing a public identifier never could. authNode still decides everything, against
+// the Station the body names, with the full signature over the bytes that actually arrived.
+//
+// It is DOMAIN-SEPARATED from the real signature by the method it covers (see doorMethod), so a
+// door signature can never be presented as a request signature or the reverse. It is NOT
+// recorded in the nonce ring, deliberately: the ring is bounded precisely by "nothing is stored
+// until a signature has verified against a named Station", and a pre-auth write would hand an
+// attacker the growable map that ordering exists to deny them. So it is REPLAYABLE inside the
+// skew window by someone on the path - who could equally just drop the packet - and it is not
+// replayable by anyone else, which is the population that was making this tower buffer megabytes
+// for free.
+//
+// The remaining pre-auth cost is one Ed25519 verify per request that names a registered key, and
+// the listener's connection cap is what bounds that (cmd/roger-tower/hub.go).
+const (
+	HeaderDoorTS  = "X-Roger-Hub-Door-TS"
+	HeaderDoorSig = "X-Roger-Hub-Door-Sig"
+)
+
+// doorMethod domain-separates the door signature from the request signature by putting a label
+// where CanonicalRequest expects the method. Same canonical form, same verifier, no fork - and
+// no string that a real HTTP method could ever equal, so the two signatures are good for exactly
+// one thing each.
+func doorMethod(method string) string { return "roger-hub-door-v1 " + method }
+
 // nonceBytes is how much randomness a nonce carries. 16 bytes makes an accidental collision
 // (which would refuse an honest request) impossible in practice at any traffic a hub sees.
 const nonceBytes = 16
@@ -617,16 +661,45 @@ func (s *Server) knownCredential(r *http.Request) bool {
 		return false
 	}
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if pubHex != "" && s.keyHex[pubHex] > 0 {
-		return true
-	}
+	knownKey := pubHex != "" && s.keyHex[pubHex] > 0
 	// The latch cannot be consulted here - this door does not know which Station the caller
 	// claims to be, which is the whole reason it exists (on /complete and /audit/transcript the
 	// Station is named inside the body nobody has read yet). So a token registered for ANY
 	// unsigned Station opens the door, and authNode still refuses it for a Station that has
 	// signed. Admission, not authorization.
-	return tok != "" && s.allowLegacyBearer && s.tokens[tok] > 0
+	knownToken := tok != "" && s.allowLegacyBearer && s.tokens[tok] > 0
+	s.mu.RUnlock()
+	// A REGISTERED KEY IS NOT ENOUGH; POSSESSION OF IT IS. The map lookup is first because it is
+	// free and an unregistered key must cost this tower nothing at all; the verify runs only for
+	// a key this tower actually knows. See HeaderDoorSig for why the public half could never
+	// have been the credential.
+	if knownKey && s.doorProved(r, pubHex) {
+		return true
+	}
+	// THE BEARER HALF IS UNCHANGED, and it cannot be improved without breaking the promise the
+	// bearer exists to keep: a node old enough to present a token cannot produce a door
+	// signature, so requiring one here would be AllowLegacyBearer=false in disguise. What keeps
+	// it bounded is that a token is at least a SECRET rather than a public identifier - a
+	// hostile Station holds its own and not a stranger's - and that this whole path is deleted
+	// with the bearer one release from now.
+	return knownToken
+}
+
+// doorProved verifies the door signature: possession of the private half of the key named in the
+// request, over this request's method and target with no body. See HeaderDoorSig.
+//
+// It hands protocol.VerifyRequest a nil body, which is not the same as "the body is unchecked" -
+// it is a signature over a DIFFERENT statement, one that deliberately says nothing about the
+// body because the body has not been read. The real signature, over the real bytes, is still
+// the only thing that authorizes anything.
+func (s *Server) doorProved(r *http.Request, pubHex string) bool {
+	ts, err := strconv.ParseInt(r.Header.Get(HeaderDoorTS), 10, 64)
+	if err != nil {
+		return false
+	}
+	_, ok := protocol.VerifyRequest(pubHex, r.Header.Get(HeaderDoorSig), ts,
+		doorMethod(r.Method), requestTarget(r), nil)
+	return ok
 }
 
 // authNode authenticates a hub request as the registered node for stationID.
@@ -723,6 +796,15 @@ func (s *Server) authNode(r *http.Request, stationID string, body []byte) authRe
 		s.mu.Lock()
 		s.signed[stationID] = true
 		s.mu.Unlock()
+		// AND IT OUTLIVES THIS PROCESS. A latch that died with the hub handed the stolen bearer
+		// its whole life back on every redeploy, because Core never rotates HubToken - see
+		// SignedLatchStore. Written after the in-memory flip and outside the lock: the flip is
+		// what this request depends on, and a slow disk must not hold the serving path's write
+		// lock. Best effort - a store that will not write leaves the latch correct for this
+		// process, which is where this started.
+		if s.latchStore != nil {
+			_ = s.latchStore.Add(stationID)
+		}
 	}
 	return authResult{ok: true}
 }

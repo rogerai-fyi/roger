@@ -15,6 +15,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -173,4 +174,67 @@ func pollWithSignature(t *testing.T, base, station string, priv ed25519.PrivateK
 	io.Copy(io.Discard, resp.Body)
 	resp.Body.Close()
 	return resp.StatusCode
+}
+
+// THE LISTENER IS WHAT BOUNDS EVERY REMAINING PRE-AUTH COST ON THIS HUB.
+//
+// Two of them cannot be removed. /complete and /audit/transcript must READ the body before they
+// can authenticate it, because the signature covers a digest of the bytes that arrived - so an
+// admitted caller gets up to 16MB buffered before authNode sees it. And every node-facing answer
+// carries an Ed25519 proof of this hub's epoch, so a request that reaches a handler costs a
+// signature. With no connection cap and a two-minute read timeout, one machine could hold as
+// many of both as it cared to open, which is a memory-exhaustion denial of earnings against
+// every Station on the tower.
+//
+// A cap makes the worst case arithmetic. This pins the two halves that matter: the cap holds,
+// and a connection that finishes RETURNS ITS SLOT - a leak there would be the same outage
+// arriving slowly instead of quickly, and it is the half a test that only counted refusals
+// would miss entirely.
+func TestTheHubListenerCapsConcurrentConnections(t *testing.T) {
+	raw, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = raw.Close() })
+	ln := limitConns(raw, 2)
+
+	accepted := make(chan net.Conn, 8)
+	go func() {
+		for {
+			c, aerr := ln.Accept()
+			if aerr != nil {
+				return
+			}
+			accepted <- c
+		}
+	}()
+
+	dial := func() net.Conn {
+		c, derr := net.Dial("tcp", raw.Addr().String())
+		require.NoError(t, derr)
+		t.Cleanup(func() { _ = c.Close() })
+		return c
+	}
+	dial()
+	dial()
+	first := <-accepted
+	second := <-accepted
+
+	// The third connects at the TCP level (the kernel's backlog answers the handshake) but the
+	// listener must not hand it to a handler while both slots are held.
+	dial()
+	select {
+	case <-accepted:
+		t.Fatal("a third connection was accepted while the cap was full")
+	case <-time.After(150 * time.Millisecond):
+	}
+
+	// A finished connection frees its slot, and the waiting one is served.
+	require.NoError(t, first.Close())
+	select {
+	case third := <-accepted:
+		_ = third.Close()
+	case <-time.After(2 * time.Second):
+		t.Fatal("closing a connection did not release its slot - the cap leaks and the hub " +
+			"stops accepting anything at all once it has seen 512 connections")
+	}
+	_ = second.Close()
 }

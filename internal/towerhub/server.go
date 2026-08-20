@@ -159,6 +159,9 @@ type Server struct {
 	// evidence that the node behind the Station had changed, and un-latching on a flap hands
 	// the bearer back to whoever captured it. See UnregisterNode and RegisterNode.
 	signed map[string]bool
+	// latchStore persists `signed` across restarts. See SignedLatchStore for why a per-process
+	// latch was a window an attacker could reopen on every redeploy. Nil means memory only.
+	latchStore SignedLatchStore
 	// keyHex indexes the registered assertion keys by their lowercase hex, so the cheap door
 	// (knownCredential) can answer "does this tower know this key" with one map lookup instead
 	// of hex-encoding every registered Station under the lock authNode also needs. The value is
@@ -243,6 +246,46 @@ type ServerOptions struct {
 	// EpochKey is the tower's admitted identity key, used to PROVE this hub's epoch to a node.
 	// See Server.epochKey. Nil mints an ephemeral one.
 	EpochKey ed25519.PrivateKey
+	// SignedLatch persists the set of Stations this tower has seen SIGN, so a restart does not
+	// re-open the legacy bearer for a node that upgraded months ago. Nil keeps the latch in
+	// memory, which is what it was.
+	SignedLatch SignedLatchStore
+}
+
+// SignedLatchStore is where the "this Station's node signs" latch survives a restart.
+//
+// # WHY IT IS NOT JUST A MAP ANY MORE
+//
+// The latch is what retires the legacy bearer per Station rather than per release: the first
+// request a tower verifies as a genuine signature from a Station kills the token for that
+// Station, from that instant. In memory that guarantee ended at the process boundary. After a
+// redeploy the same stolen bearer returned 204 on the victim's queue again, because Core never
+// rotates HubToken - the same value, forever, for the life of the attachment.
+//
+// The window was not one round trip either. A node's first post-restart request carries the OLD
+// epoch and is refused, so the latch closes on its SECOND request; and until the epoch's
+// provenance was fixed, an on-path attacker could keep a node signing for an epoch of their
+// choosing and hold the window open indefinitely. So the honest statement was "a bearer captured
+// before a node upgraded works again, for a window an on-path attacker controls, every time the
+// tower redeploys".
+//
+// It costs a small file per Station this tower has ever verified a signature from - a set only
+// the holder of that Station's private key can add to, bounded by Core's own fleet. The
+// objection recorded when the latch was written was that "no operator should have to migrate a
+// database row for a credential that is being deleted", and that is still right: this is not a
+// database row. The hub already spools receipts to disk under the same data dir (spool.go),
+// because losing them costs a node its pay - and losing this costs a node its queue.
+//
+// BEST EFFORT, BOTH WAYS. A store that cannot be read starts empty, which is exactly the
+// behaviour of the map it replaces; a store that cannot be written leaves the latch set in
+// memory for this process. Neither degrades below where this started, and the implementation is
+// where the operator gets told.
+type SignedLatchStore interface {
+	// Load returns every Station id previously recorded. Called once, at construction.
+	Load() ([]string, error)
+	// Add records one Station id. Called at most once per Station per process, on the request
+	// that flips the latch, and must be safe for concurrent use.
+	Add(stationID string) error
 }
 
 // NewServer wires a Server over a Hub with a grant checker. Zero TTLs fall back to the defaults.
@@ -264,15 +307,28 @@ func NewServer(hub *Hub, check GrantCheck, opt ServerOptions) *Server {
 		}
 		opt.EpochKey = eph
 	}
+	// THE LATCH IS SEEDED BEFORE THE FIRST REQUEST, which is the whole point: a Station that has
+	// ever signed to this tower refuses its bearer from the instant the process comes up, rather
+	// than from its second request afterwards. A store that cannot be read leaves the set empty,
+	// which is where it used to start every time.
+	seeded := map[string]bool{}
+	if opt.SignedLatch != nil {
+		if ids, err := opt.SignedLatch.Load(); err == nil {
+			for _, id := range ids {
+				seeded[id] = true
+			}
+		}
+	}
 	return &Server{hub: hub, check: check, submitTTL: opt.SubmitTTL, pollTTL: opt.PollTTL,
-		towerID: opt.TowerID, allowLegacyBearer: opt.AllowLegacyBearer,
+		latchStore: opt.SignedLatch,
+		towerID:    opt.TowerID, allowLegacyBearer: opt.AllowLegacyBearer,
 		epochKey:    opt.EpochKey,
 		epochPubHex: hex.EncodeToString(opt.EpochKey.Public().(ed25519.PublicKey)),
 		// THE PROCESS EPOCH. Random rather than a timestamp: a wall clock is what the thing
 		// this replaces got wrong, and a hub restarted twice inside one second must not mint
 		// the same epoch twice. See Server.epoch.
 		epoch: newEpoch(),
-		nodes: map[string]NodeAuth{}, signed: map[string]bool{},
+		nodes: map[string]NodeAuth{}, signed: seeded,
 		keyHex: map[string]int{}, tokens: map[string]int{},
 		indexed: map[string]credentialIndex{}}
 }

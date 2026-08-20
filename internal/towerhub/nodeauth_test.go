@@ -16,6 +16,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -23,6 +24,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -83,6 +85,9 @@ func (n *testNode) client(base string, timeout time.Duration) *Client {
 func (n *testNode) signedRequest(t *testing.T, method, base, target string, body []byte) func() *http.Request {
 	t.Helper()
 	pub, ts, sig := n.signer()(method, target, body)
+	// The door signature the real Client sends beside it: the same key over the same method and
+	// target with no body, which is the only proof the hub can check before it has read one.
+	_, dts, dsig := n.signer()(doorMethod(method), target, nil)
 	return func() *http.Request {
 		var r io.Reader
 		if body != nil {
@@ -94,6 +99,8 @@ func (n *testNode) signedRequest(t *testing.T, method, base, target string, body
 		req.Header.Set(protocol.HeaderPubkey, pub)
 		req.Header.Set(protocol.HeaderTS, strconv.FormatInt(ts, 10))
 		req.Header.Set(protocol.HeaderSig, sig)
+		req.Header.Set(HeaderDoorTS, strconv.FormatInt(dts, 10))
+		req.Header.Set(HeaderDoorSig, dsig)
 		return req
 	}
 }
@@ -963,9 +970,15 @@ func TestTheCredentialIndexForgetsWhatIsNoLongerRegistered(t *testing.T) {
 	s := NewServer(New(), stubCheck, ServerOptions{TowerID: testTowerID, EpochKey: testHubKey, AllowLegacyBearer: true})
 	s.RegisterNode("st-1", NodeAuth{AssertionKey: a.pub, LegacyToken: "first-token"})
 
+	// A REGISTERED KEY IS NOT ENOUGH ANY MORE - the door wants possession of it - so this builds
+	// the door signature too. What the test is about is the INDEX: which keys the door still
+	// recognises after a re-registration, which is orthogonal to proving you hold one.
 	withKey := func(n *testNode) *http.Request {
 		r, _ := http.NewRequest(http.MethodPost, "http://hub"+PathComplete, nil)
 		r.Header.Set(protocol.HeaderPubkey, hex.EncodeToString(n.pub))
+		_, dts, dsig := n.signer()(doorMethod(http.MethodPost), PathComplete, nil)
+		r.Header.Set(HeaderDoorTS, strconv.FormatInt(dts, 10))
+		r.Header.Set(HeaderDoorSig, dsig)
 		return r
 	}
 	withToken := func(tok string) *http.Request {
@@ -994,4 +1007,224 @@ func TestTheCredentialIndexForgetsWhatIsNoLongerRegistered(t *testing.T) {
 
 	s.UnregisterNode("st-2")
 	require.False(t, s.knownCredential(withKey(bkey)), "the index kept a key after its last holder went")
+}
+
+// A PUBLIC IDENTIFIER CANNOT BE THE ADMISSION CREDENTIAL, which is what the cheap door made it.
+//
+// The door existed to stop an unauthenticated stranger making this tower buffer sixteen
+// megabytes before being told no, and it asked the only question the headers could answer: is
+// this X-Roger-Pubkey a key we have registered for somebody. That question has a free answer.
+// The assertion key is on the plaintext wire on every single poll - internal/agent's own notice
+// channel warns the operator that it is - so anybody who has watched the link for twenty-five
+// seconds holds one, and a hostile Station on the same tower holds a registered one by
+// definition without watching anything.
+//
+// Proved by the review at 12,582,947 bytes buffered pre-auth on /complete, presenting nothing
+// but the victim's public key: a memory-exhaustion denial of earnings against every Station on
+// a tower, for the price of one connection.
+//
+// The door asks for POSSESSION now. Everything else about it is unchanged - it is still an
+// admission check, still answered from headers alone, still followed by the real authentication
+// over the real bytes.
+func TestTheVictimsPublicKeyNoLongerOpensTheDoor(t *testing.T) {
+	victim := newTestNode(t)
+	s, srv := testServer(t)
+	s.RegisterNode("st-1", victim.auth())
+
+	// What an on-path observer has after one poll: the public key, and nothing else.
+	stolen := hex.EncodeToString(victim.pub)
+
+	body := bytes.Repeat([]byte("x"), 1<<20)
+	req, err := http.NewRequest(http.MethodPost, srv.URL+PathComplete, bytes.NewReader(body))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(protocol.HeaderPubkey, stolen)
+	resp, raw := do(t, req)
+	require.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+	require.Contains(t, string(raw), "credential",
+		"a megabyte was buffered for a caller holding nothing but a public key")
+
+	// AND THE HOLDER OF THE KEY IS STILL LET IN, which is the half a fix like this most easily
+	// breaks: the door is an admission check, and refusing the real node would be a denial of
+	// earnings by another route.
+	ok, _ := victim.postSigned(t, srv.URL, PathComplete, completeReq{AttemptID: "att-x", StationID: "st-1",
+		Envelope: base64.StdEncoding.EncodeToString([]byte("answer"))})
+	require.Equal(t, http.StatusOK, ok.StatusCode, "the Station's own node was refused at its own door")
+}
+
+// The door signature is DOMAIN-SEPARATED from the request signature, so neither can be presented
+// as the other. Without that, a captured door signature would be a valid request signature for
+// an empty body at the same target - and the reverse would let a request signature open a door
+// for bytes it never covered.
+func TestADoorSignatureIsNotARequestSignature(t *testing.T) {
+	node := newTestNode(t)
+	s, srv := testServer(t)
+	s.RegisterNode("st-1", node.auth())
+
+	target := hubTarget(testTowerID, hubEpochAt(t, srv.URL), PathPoll, url.Values{"station": {"st-1"}})
+	// The door signature, presented in the REQUEST signature's headers.
+	_, dts, dsig := node.signer()(doorMethod(http.MethodGet), target, nil)
+	req, err := http.NewRequest(http.MethodGet, srv.URL+target, nil)
+	require.NoError(t, err)
+	req.Header.Set(protocol.HeaderPubkey, hex.EncodeToString(node.pub))
+	req.Header.Set(protocol.HeaderTS, strconv.FormatInt(dts, 10))
+	req.Header.Set(protocol.HeaderSig, dsig)
+	resp, _ := do(t, req)
+	require.Equal(t, http.StatusUnauthorized, resp.StatusCode,
+		"a door signature authenticated a real request")
+
+	// And the request signature, presented as a door signature, does not open the door.
+	pub, ts, sig := node.signer()(http.MethodPost, PathComplete, nil)
+	dreq, err := http.NewRequest(http.MethodPost, "http://hub"+PathComplete, nil)
+	require.NoError(t, err)
+	dreq.Header.Set(protocol.HeaderPubkey, pub)
+	dreq.Header.Set(HeaderDoorTS, strconv.FormatInt(ts, 10))
+	dreq.Header.Set(HeaderDoorSig, sig)
+	require.False(t, s.knownCredential(dreq), "a request signature opened the door it does not cover")
+}
+
+// memLatch is a SignedLatchStore that survives a Server but not a test - which is exactly the
+// property under test: the latch has to outlive the PROCESS, and a map shared across two Servers
+// is the smallest thing that models one.
+type memLatch struct {
+	mu  sync.Mutex
+	ids map[string]bool
+	// fail makes Add error, so the degraded path can be exercised rather than assumed.
+	fail bool
+}
+
+func newMemLatch() *memLatch { return &memLatch{ids: map[string]bool{}} }
+
+func (m *memLatch) Load() ([]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]string, 0, len(m.ids))
+	for id := range m.ids {
+		out = append(out, id)
+	}
+	return out, nil
+}
+
+func (m *memLatch) Add(id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.fail {
+		return errors.New("disk is full")
+	}
+	m.ids[id] = true
+	return nil
+}
+
+// A HUB RESTART USED TO HAND A STOLEN BEARER ITS WHOLE LIFE BACK.
+//
+// The latch that retires the pre-signature token per Station - "this Station's node has proved,
+// by doing it, that it signs" - lived in one process's memory. Core never rotates HubToken; it
+// returns the same value on every re-attach for the life of the attachment. So after every
+// redeploy, a token lifted off the plaintext wire before that node upgraded opened its queue
+// again, and the sentence promising that "an attacker can neither produce the signature that
+// flips the latch nor unflip it" was true only until the next deploy.
+//
+// The window was never one round trip either: the node's first post-restart request carries the
+// old hub epoch and is refused, so the latch closes on its SECOND request - and while the epoch
+// could be chosen by whoever answered the socket, an on-path attacker could hold that window
+// open for as long as they liked.
+func TestARestartDoesNotReopenAStolenBearer(t *testing.T) {
+	node := newTestNode(t)
+	latch := newMemLatch()
+	const stolen = "the-old-bearer-token"
+	opts := ServerOptions{TowerID: testTowerID, EpochKey: testHubKey, AllowLegacyBearer: true,
+		PollTTL: 100 * time.Millisecond, SignedLatch: latch}
+
+	before := NewServer(New(), stubCheck, opts)
+	before.RegisterNode("st-1", NodeAuth{AssertionKey: node.pub, LegacyToken: stolen})
+	mux := http.NewServeMux()
+	mux.HandleFunc(PathPoll, before.Poll)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	// The node signs once, which is what closes the latch.
+	_, _, err := node.client(srv.URL, 5*time.Second).PollJob(t.Context(), "st-1")
+	require.NoError(t, err)
+
+	pollWithBearer := func(base string) int {
+		req, rerr := http.NewRequest(http.MethodGet, base+PathPoll+"?station=st-1", nil)
+		require.NoError(t, rerr)
+		req.Header.Set("Authorization", "Bearer "+stolen)
+		resp, _ := do(t, req)
+		return resp.StatusCode
+	}
+	require.Equal(t, http.StatusUnauthorized, pollWithBearer(srv.URL),
+		"the latch did not close on this Station's own signature")
+
+	// THE REDEPLOY. Same tower, same identity key, a new process - and the same durable latch,
+	// which is the whole change.
+	after := NewServer(New(), stubCheck, opts)
+	after.RegisterNode("st-1", NodeAuth{AssertionKey: node.pub, LegacyToken: stolen})
+	mux2 := http.NewServeMux()
+	mux2.HandleFunc(PathPoll, after.Poll)
+	srv.Config.Handler = mux2
+
+	require.Equal(t, http.StatusUnauthorized, pollWithBearer(srv.URL),
+		"a bearer captured before this node upgraded opened its queue again after a restart, "+
+			"before the node had made a single request to the new process")
+}
+
+// AN OLD NODE THAT HAS NEVER SIGNED STILL KEEPS EARNING ACROSS A RESTART, which is the promise
+// the tolerance exists to keep and the half a durable latch could quietly break by seeding
+// something it should not.
+func TestAnUnupgradedNodeStillPollsAfterARestart(t *testing.T) {
+	old := newTestNode(t)
+	latch := newMemLatch()
+	opts := ServerOptions{TowerID: testTowerID, EpochKey: testHubKey, AllowLegacyBearer: true,
+		PollTTL: 50 * time.Millisecond, SignedLatch: latch}
+
+	first := NewServer(New(), stubCheck, opts)
+	first.RegisterNode("st-old", NodeAuth{AssertionKey: old.pub, LegacyToken: "tok-old"})
+	mux := http.NewServeMux()
+	mux.HandleFunc(PathPoll, first.Poll)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	poll := func() int {
+		req, rerr := http.NewRequest(http.MethodGet, srv.URL+PathPoll+"?station=st-old", nil)
+		require.NoError(t, rerr)
+		req.Header.Set("Authorization", "Bearer tok-old")
+		resp, _ := do(t, req)
+		return resp.StatusCode
+	}
+	require.Equal(t, http.StatusNoContent, poll())
+
+	second := NewServer(New(), stubCheck, opts)
+	second.RegisterNode("st-old", NodeAuth{AssertionKey: old.pub, LegacyToken: "tok-old"})
+	mux2 := http.NewServeMux()
+	mux2.HandleFunc(PathPoll, second.Poll)
+	srv.Config.Handler = mux2
+	require.Equal(t, http.StatusNoContent, poll(),
+		"a node that has never signed was cut off by a restart it had nothing to do with")
+	require.Empty(t, latch.ids, "a node that never signed was recorded as one that does")
+}
+
+// A LATCH STORE THAT WILL NOT WRITE MUST NOT COST THE REQUEST. The degradation is back to where
+// this started - correct for this process, re-opened by a restart - and the tower says so once.
+// Failing the poll instead would turn a full disk into a node that stops earning.
+func TestALatchStoreThatCannotWriteStillServesTheRequest(t *testing.T) {
+	node := newTestNode(t)
+	latch := newMemLatch()
+	latch.fail = true
+	s := NewServer(New(), stubCheck, ServerOptions{TowerID: testTowerID, EpochKey: testHubKey,
+		AllowLegacyBearer: true, PollTTL: 50 * time.Millisecond, SignedLatch: latch})
+	s.RegisterNode("st-1", NodeAuth{AssertionKey: node.pub, LegacyToken: "tok"})
+	mux := http.NewServeMux()
+	mux.HandleFunc(PathPoll, s.Poll)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	_, _, err := node.client(srv.URL, 5*time.Second).PollJob(t.Context(), "st-1")
+	require.NoError(t, err, "a failing latch store took an honest node off the fabric")
+
+	// And the in-memory latch is still correct for this process.
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+PathPoll+"?station=st-1", nil)
+	req.Header.Set("Authorization", "Bearer tok")
+	resp, _ := do(t, req)
+	require.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 }
