@@ -1886,10 +1886,35 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 				log.Printf("relay settle FAILED user=%s node=%s: %v - releasing hold", user, node.NodeID, ferr)
 			} else {
 				settled = true
+				// THE CAPACITY SIGNAL IS MEASURED ON THE COUNT THE BROKER VERIFIED, NOT ON THE
+				// NODE'S CLAIM - and the clamp it uses is the one computed three lines above
+				// for billing.
+				//
+				// This read rec.CompletionTokens. Two axes were derived from the same receipt
+				// field, and only ONE of them was clamped: the money took
+				// min(claim, brokerRecount) and the capacity estimate took the raw claim, on
+				// the very line under a log that prints "(billed/claim)". So a node that
+				// over-reported was billed honestly and RANKED dishonestly - concurrentTPS is
+				// what edgeCapacityOf reads, and capacity is the divisor in both the edge score
+				// and the power-of-two-choices tie-break. Measured at 1.88x placement advantage
+				// at load 1 rising to 6.00x at load 8, with the tie-break moving 1.000 against
+				// 0.062: a LARGER lever than the self-declared `hw` string removed one commit
+				// ago, and the argument for removing that one applies here word for word.
+				//
+				// recordServed has no prior to average against, so ONE served-under-load
+				// request sets the EWMA outright. The under-load gate (concurrentAtDispatch>=2)
+				// was doing what it says - stopping an idle canary from winning capacity - and
+				// nothing at all about the token count inside a genuinely concurrent request.
+				//
+				// The residual is honest and named: settleRecount FAILS OPEN when the tokenizer
+				// sidecar is disabled or unreachable, so on a broker with no re-count capability
+				// billedCompletion IS the claim and this signal is exactly as trustworthy as the
+				// billing on the same request. That is a property of the deployment rather than
+				// of this line, and it is the same trade the money already makes.
 				tps := 0.0
-				if rec.CompletionTokens > 0 {
+				if billedCompletion > 0 {
 					if el := time.Since(start).Seconds(); el > 0 {
-						tps = float64(rec.CompletionTokens) / el
+						tps = float64(billedCompletion) / el
 						b.updateTPS(node.NodeID, tps)
 					}
 				}
@@ -2251,10 +2276,16 @@ func (b *broker) relayStream(w http.ResponseWriter, t *nodeTunnel, node protocol
 				} else {
 					settled = true
 				}
+				// THE SAME CLAMP AS THE RELAY PATH, for the same reason and off the same
+				// figure. A capacity input that is verified on one path and self-declared on
+				// the other is not a fixed capacity input - it is one with a `"stream":true`
+				// bypass, and streaming is the path most real traffic takes. See the note in
+				// the relay path above for what the unclamped claim was worth as a placement
+				// lever.
 				streamTPS := 0.0
-				if rec.CompletionTokens > 0 {
+				if billedCompletion > 0 {
 					if el := time.Since(start).Seconds(); el > 0 {
-						streamTPS = float64(rec.CompletionTokens) / el
+						streamTPS = float64(billedCompletion) / el
 						b.updateTPS(node.NodeID, streamTPS)
 					}
 				}

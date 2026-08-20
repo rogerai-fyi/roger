@@ -695,7 +695,26 @@ func (b *broker) evalCanary(res protocol.JobResult, elapsed time.Duration, fp ca
 	completed = res.Receipt.CompletionTokens > 0
 	if completed {
 		if s := elapsed.Seconds(); s > 0 {
-			tps = float64(res.Receipt.CompletionTokens) / s
+			// THE COUNT IS THE NODE'S CLAIM, SO IT GETS THE ZERO-DOUBT FLOOR.
+			//
+			// This divided res.Receipt.CompletionTokens - a number the node chose - by real
+			// elapsed time and folded the answer into b.tps, which is the speed band pickFor's
+			// speedFit ranks on, the minTPS filter drops on, and /discover displays. A canary
+			// asks for a single bare word; claiming ten thousand output tokens for a twenty-byte
+			// answer inflated that band by three orders of magnitude for free.
+			//
+			// No tokenizer can emit more tokens than the text has UTF-8 bytes, so the byte count
+			// is an arithmetic upper bound that needs no sidecar and cannot be wrong. It is the
+			// same defence settleRecountPrompt already applies to the input axis, and it is used
+			// here rather than the tokenizer re-count on purpose: the re-count path records
+			// trust evidence and promotion holds against a request id, and a canary is not a
+			// consumer's request. An honest node is never touched by this - its claim is always
+			// far below its own output's byte count.
+			claimed := res.Receipt.CompletionTokens
+			if floor := len(text) + len(reasoning); claimed > floor {
+				claimed = floor
+			}
+			tps = float64(claimed) / s
 		}
 	}
 	low := strings.ToLower(text)
