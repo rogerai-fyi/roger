@@ -96,6 +96,20 @@ func freshPostgres(t *testing.T, dsn string) *Postgres {
 	if err != nil {
 		t.Fatalf("postgres: %v", err)
 	}
+	// GIVE THE POOL BACK. Every Postgres-backed helper in this package routes through here,
+	// across ~66 call sites, and NewPostgres opens a pool bounded to 8 connections. Without
+	// this the package leaked one pool per test: a single serial `make test-db` run walked a
+	// stock postgres:16 from 15 connections to 81, of which 80 were idle, against 97 usable.
+	//
+	// Sixteen short of a wall, and the way it fails is the reason this is a Cleanup and not a
+	// comment: past the limit Postgres answers "sorry, too many clients already", which
+	// surfaces here as a dozen tests failing at 0.00s, as `deadlock detected`, and once as a
+	// balance reading 906 where the test wanted 6. That is a money-suite failure that looks
+	// exactly like a money bug, and somebody would have spent a day on it.
+	//
+	// Parent-scoped on purpose: parityStores hands one store to `t.Run` subtests, and a
+	// parent's Cleanup runs after every subtest has finished with it.
+	t.Cleanup(func() { _ = pg.Close() })
 	if _, err := pg.db.Exec(`TRUNCATE
 		rogerai.wallet, rogerai.earnings, rogerai.earning_lots, rogerai.receipts,
 		rogerai.ledger, rogerai.node_owner, rogerai.nodes, rogerai.owners,
