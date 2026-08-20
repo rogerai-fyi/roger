@@ -1097,10 +1097,20 @@ running.
 - **A tower that does not act goes dark on the edge path** the day it is enforced: its Stations
   stop being routable and its nodes stop earning. That is the whole cost, and it is why it needs
   a date and an announcement rather than a release note.
-- **Nodes attached before their tower's restart must re-attach**, because the tower's endpoint
-  becomes TLS while they hold no pin. They will fail, retry, and recover on re-attach; a node
-  that does not re-attach on a persistent hub failure would sit broken, and that path is worth
-  checking before the deadline rather than after it.
+- **Every node attached before its tower turns TLS on must be RESTARTED, and nothing in the
+  product does that for it.** This was checked rather than assumed, and the assumption was wrong.
+  `cmd/rogerai/relayfabric.go` calls `agent.ServeTower` exactly once per `roger share` process,
+  and `ServeTower` attaches once: the endpoint and the pin are read at attach and held for the
+  life of the process, while the serve workers retry a failing hub every two seconds forever.
+  So a tower that restarts with TLS on strands every node already serving through it — they
+  retry into a handshake that cannot succeed until their operator restarts the share. The same
+  is true of any certificate ROTATION, which is the ongoing version of the same cost.
+
+  It is at least no longer silent: a pin mismatch now goes to the notice channel with the
+  instruction to restart, rather than looking exactly like a relay that is down. Two things
+  would remove the cost rather than announce it, and neither is built: re-attaching on a
+  standing hub failure, or a tower that keeps serving plaintext for a grace period beside its
+  new TLS listener. **Whichever is chosen should land before a deadline is set, not after.**
 - **Consumers need no action**: the pin arrives per authorization, and an unpinned authorization
   keeps working for as long as unpinned towers exist.
 - **Off-box TLS terminators and multi-process hubs cannot comply** without the pin-override

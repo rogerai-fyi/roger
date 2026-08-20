@@ -332,3 +332,67 @@ func TestAPrivateShareNeverAttachesToTheRelayFabric(t *testing.T) {
 
 	require.False(t, dialled, "a private share opened a connection to the relay fabric")
 }
+
+// A HUB WHOSE CERTIFICATE IS NOT THE ONE CORE NAMED IS AN ALARM, NOT A BLIP.
+//
+// The failure arrives at the serve loop as an ordinary transport error, and the loop's honest
+// response to those is to retry every two seconds into a discarded writer. That is right for a
+// hub that is down and wrong for this: the pin was handed to this node at attach and is held for
+// the life of the process, so retrying cannot fix it - either somebody is on the path, or the
+// relay replaced its certificate and Core has not been told. Either way this station is not
+// earning, and without this line nobody would ever find out why.
+//
+// The test also pins the OTHER half: a node given a pin does not print the plaintext warning.
+// An alarm that fires on the encrypted channel is how operators learn to skip alarms.
+func TestACertificateCoreDidNotNameIsSaidOutLoud(t *testing.T) {
+	// A real TLS hub, and a pin for a DIFFERENT certificate - the on-path attacker, and equally
+	// a relay that rotated its key. Any handler will do: nothing gets past the handshake.
+	hub := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(hub.Close)
+	wrongPin := strings.Repeat("ab", 32)
+
+	corePub, _, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	envKey := make([]byte, 32)
+	_, err = rand.Read(envKey)
+	require.NoError(t, err)
+	coreMux := http.NewServeMux()
+	coreMux.HandleFunc("/tower/edge/attach", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(TowerAttachment{
+			StationID: "st-test", TowerID: "tw-test",
+			Endpoint: hub.Listener.Addr().String(), EndpointTLSSPKI: wrongPin,
+			HubToken: "hub-token", State: "active", TowerKeyHash: "00",
+		})
+	})
+	coreMux.HandleFunc("/tower/dispatch/key", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"dispatch_key": hex.EncodeToString(corePub),
+			"envelope_key": hex.EncodeToString(envKey),
+		})
+	})
+	core := httptest.NewServer(coreMux)
+	t.Cleanup(core.Close)
+
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	notices := &noticeSink{}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = ServeTower(ctx, Config{
+			Broker: core.URL, Model: "m", Modality: "chat", Parallel: 1, Upstream: "http://127.0.0.1:1",
+		}, priv, t.TempDir(), io.Discard, notices.report)
+	}()
+
+	require.Eventually(t, func() bool { return notices.sawContaining("not the one Roger Core named") },
+		3*time.Second, 20*time.Millisecond,
+		"this node is talking to a hub Core did not name, or to nobody, and said neither")
+	require.False(t, notices.sawContaining("UNENCRYPTED"),
+		"the link is encrypted - warning about plaintext here is how a real alarm gets ignored")
+	cancel()
+	<-done
+}

@@ -563,6 +563,22 @@ func ServeTower(ctx context.Context, cfg Config, priv ed25519.PrivateKey, dir st
 					notice.notify(err)
 					return
 				}
+				// A CERTIFICATE THAT IS NOT THE ONE CORE NAMED, which without this line would be
+				// indistinguishable from a hub that is down: a handshake failure arrives here as
+				// an ordinary transport error, the loop retries it every two seconds until the
+				// process ends, and the writer it would otherwise print to is discarded. The two
+				// causes are an on-path attacker and a relay that changed its certificate without
+				// Core learning the new one, and NEITHER resolves by retrying - this node holds
+				// the pin it was handed at attach for the life of the process, so recovery means
+				// restarting the share. It belongs on the channel that is not discarded, beside
+				// the other standing properties of a relay.
+				if errors.Is(err, towerhub.ErrHubCertificateUnpinned) {
+					notice.notify(fmt.Errorf("%w (relay %s at %s): this node holds the "+
+						"fingerprint Roger Core published at attach and will not accept another "+
+						"one; if the relay's operator has replaced their certificate, restart "+
+						"this share to pick up the new one", err, at.TowerID, at.Endpoint))
+					return
+				}
 				fmt.Fprintf(out, "tower: %v\n", err)
 			})
 		}()
