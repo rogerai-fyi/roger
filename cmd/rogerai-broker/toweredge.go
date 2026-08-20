@@ -1446,6 +1446,32 @@ func (b *broker) towerEdgeSettle(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	// WHO IS BEING PAID, ESTABLISHED WHILE REFUSING IS STILL FREE.
+	//
+	// Everything below this line commits: the one-use claim, the settle, the wallet capture,
+	// the lots. The three "is this the same account" questions the money split depends on used
+	// to be asked from INSIDE that committed region, at the moment the shares were computed,
+	// where the only two answers available were pay and do-not-pay - so a store error had to
+	// become one of them, and it became pay (see sameAccount). Asked here, a store error has a
+	// third answer that harms nobody: not yet.
+	//
+	// The position is deliberate on both sides. It is AFTER settleEdgeAttempt so that a receipt
+	// that cannot be reconciled is still refused 400 on its own merits, unchanged, and an
+	// unreachable owner index cannot mask a bad receipt. It is BEFORE ClaimByID so that a
+	// refusal here consumes nothing: no claim, no settle, no evidence write, no capture. The
+	// hold stays exactly where authorize put it, the Tower's spooled courier re-forwards the
+	// same receipt in fifteen seconds, and the retry settles it properly.
+	//
+	// 503 and not 4xx, and the distinction is load-bearing rather than cosmetic:
+	// towerjoin.SettleEdgeReceipt treats any 4xx other than 409 as ErrSettlePermanent and
+	// ABANDONS the receipt, dropping it from the spool. A 4xx here would turn a five-second
+	// database blip into an operator's pay deleted forever.
+	parties, perr := b.resolveEdgeParties(req.TowerID, at.Owner, rec.ConsumerKey)
+	if perr != nil {
+		log.Printf("edge settle: attempt %s - could not resolve the paying and earning accounts (%v); settling nothing, the courier will retry", req.AttemptID, perr)
+		jsonErr(w, http.StatusServiceUnavailable, "could not establish who this settlement pays - retry")
+		return
+	}
 
 	// ONE-USE, ENFORCED HERE, through the same shared store the relayed path uses. The claim is
 	// a compare-and-swap keyed by Tower, so a Tower cannot close out an attempt granted through
@@ -1612,11 +1638,11 @@ func (b *broker) towerEdgeSettle(w http.ResponseWriter, r *http.Request) {
 	// amount is computed from the BILLABLE usage - now bounded by the grant ceiling above, and
 	// itself the reconciled receipt/ack figure, never the Tower's own count. Owner comes from
 	// the attachment record, not the message. This records what is OWED; nothing here moves money.
-	b.accrueEarnings(ts, req.TowerID, at.Owner, model, rec.ConsumerKey, settled, now)
+	b.accrueEarnings(ts, req.TowerID, at.Owner, model, parties, settled, now)
 	// AND THE REAL WALLET: when edge traffic is priced, this captures the consumer's hold and
 	// pays the Station owner and the Tower operator their shares through the same EarningLot
 	// lifecycle as direct-node serving. Free (unpriced) traffic is a no-op here.
-	b.settleEdgeMoney(ts, req.TowerID, req.StationID, at.Owner, rec, settled, now)
+	b.settleEdgeMoney(ts, req.TowerID, req.StationID, at.Owner, parties, rec, settled, now)
 	if alreadySettled {
 		// A replay or a completion of an interrupted settle. The MONEY above is idempotent and now
 		// finished; we stop here rather than re-running the reputation/AUDIT steps below.
@@ -1698,26 +1724,49 @@ func (b *broker) towerEdgeSettle(w http.ResponseWriter, r *http.Request) {
 // the wallet lifecycle needs. A compensated operator has a verified account, so the login
 // resolves; if it cannot be resolved to a wallet account, the Tower earns nothing (logged) rather
 // than crediting a guess.
-func (b *broker) towerOperatorAccount(towerID string) (string, bool) {
+//
+// THREE ANSWERS, NOT TWO, and the third is why this returns an error. "No wallet account" and
+// "I could not reach the store to look" used to be the same (`"", false`), and the difference
+// decides money: the first means this Tower earns nothing and no self-dealing check is owed,
+// the second means we do not yet know WHO earns and must not guess in either direction. A
+// lookup that errored still lets the other lookup answer - one unreachable index is not a
+// verdict - and the error only surfaces when neither did.
+func (b *broker) towerOperatorAccount(towerID string) (string, bool, error) {
 	ts := b.tower
 	if ts == nil {
-		return "", false
+		return "", false, nil
 	}
 	tw, ok := ts.registry.Get(towerID)
 	if !ok || tw.Owner == "" {
-		return "", false
+		return "", false, nil
+	}
+	var firstErr error
+	keep := func(err error) {
+		if err != nil && firstErr == nil {
+			firstErr = err
+		}
 	}
 	// Already a wallet account key (an owner pubkey the store knows)?
-	if o, found, err := b.db.OwnerByPubkey(tw.Owner); err == nil && found && !o.Anonymized {
+	o, found, err := b.db.OwnerByPubkey(tw.Owner)
+	keep(err)
+	if err == nil && found && !o.Anonymized {
 		// CANONICAL, so the lot is minted under the same key a cash-out from any of this
-		// operator's devices will read.
-		return b.accountKeyOf(o), true
+		// operator's devices will read. Canonicalization is itself a set of store reads, and a
+		// failed one silently keys the lot under a DEVICE row instead of the account - money
+		// the operator cannot see from any other device. So its error joins the rest.
+		c, cerr := b.accountOwnerOfChecked(o)
+		keep(cerr)
+		return c.Pubkey, true, firstErr
 	}
 	// The usual case: the owner is a login; resolve it to the account's pubkey.
-	if o, found, err := b.db.OwnerByLogin(tw.Owner); err == nil && found && !o.Anonymized && o.Pubkey != "" {
-		return b.accountKeyOf(o), true
+	o, found, err = b.db.OwnerByLogin(tw.Owner)
+	keep(err)
+	if err == nil && found && !o.Anonymized && o.Pubkey != "" {
+		c, cerr := b.accountOwnerOfChecked(o)
+		keep(cerr)
+		return c.Pubkey, true, firstErr
 	}
-	return "", false
+	return "", false, firstErr
 }
 
 func (b *broker) recordOutcome(towerID, attemptID string, o reputation.Outcome) {
@@ -1743,7 +1792,7 @@ func (b *broker) recordOutcome(towerID, attemptID string, o reputation.Outcome) 
 //
 // The amount is computed from settled.Billable - the reconciled receipt/ack usage - never from
 // anything the relaying Tower put in a message. Nothing here moves money.
-func (b *broker) accrueEarnings(ts *towerSubsystem, towerID, owner, model string, consumerKey []byte, settled dispatch.Settlement, at time.Time) {
+func (b *broker) accrueEarnings(ts *towerSubsystem, towerID, owner, model string, parties edgeParties, settled dispatch.Settlement, at time.Time) {
 	if ts == nil || ts.earnings == nil || owner == "" {
 		return
 	}
@@ -1755,7 +1804,12 @@ func (b *broker) accrueEarnings(ts *towerSubsystem, towerID, owner, model string
 	// is evidence), just excluded from what is owed. This catches the same-account case; sybil
 	// accounts funded from one source are caught by the funded-work and linkage checks that
 	// belong to the revenue-share program, not here.
-	selfDealing := len(consumerKey) > 0 && b.sameAccount(hex.EncodeToString(consumerKey), owner)
+	//
+	// The verdict is the one resolveEdgeParties already took, before this settlement was allowed
+	// to commit. Asking again here would be a second chance to get a different answer from the
+	// same question - and a chance for a store error to answer it, which is precisely what this
+	// path no longer does.
+	selfDealing := parties.consumerIsStation
 	if selfDealing {
 		log.Printf("tower %s: attempt %s is self-dealing (consumer owns the Station) - recorded, not owed",
 			towerID, settled.AttemptID)
@@ -1766,12 +1820,7 @@ func (b *broker) accrueEarnings(ts *towerSubsystem, towerID, owner, model string
 	// everything else - has no spend behind it. Recording an owed amount for probes Core
 	// itself sends would be the platform quietly funding a revenue share out of thin air.
 	// The row is still written (usage is evidence), flagged like self-dealing is.
-	unfunded := false
-	if len(consumerKey) > 0 {
-		if _, resolvable := b.edgeConsumerWallet(consumerKey); !resolvable {
-			unfunded = true
-		}
-	}
+	unfunded := parties.keyed && !parties.billable
 	micros := edgeAccrualMicros(settled.Billable.In, settled.Billable.Out)
 	if unfunded {
 		micros = 0
@@ -1791,7 +1840,7 @@ func (b *broker) accrueEarnings(ts *towerSubsystem, towerID, owner, model string
 // earns its share of the platform's margin (cost*fee*towerRate, the founder-approved 10%). Both
 // credits are clawed back together if the request is refunded. FREE (unpriced) edge traffic does
 // nothing here - billing turns on only when a per-byte edge price is configured.
-func (b *broker) settleEdgeMoney(ts *towerSubsystem, towerID, stationID, stationOwner string, rec dispatch.Record, settled dispatch.Settlement, now time.Time) {
+func (b *broker) settleEdgeMoney(ts *towerSubsystem, towerID, stationID, stationOwner string, parties edgeParties, rec dispatch.Record, settled dispatch.Settlement, now time.Time) {
 	// TOKEN-PRICED FIRST (Option C). The price was pinned into the Core-signed grant at
 	// authorize, so settlement honors it REGARDLESS of the env byte-tariff switch - exactly the
 	// lock-price property the direct path has. Billable tokens have already been clamped to the
@@ -1800,7 +1849,7 @@ func (b *broker) settleEdgeMoney(ts *towerSubsystem, towerID, stationID, station
 		link.PublicNetwork, rec.StationID); perr == nil && (pin > 0 || pout > 0) {
 		if settled.BillableTokens.In > 0 || settled.BillableTokens.Out > 0 {
 			cost := tokenCostCredits(settled.BillableTokens.In, settled.BillableTokens.Out, pin, pout)
-			b.captureEdgeCharge(towerID, stationID, stationOwner, rec.ConsumerKey, settled.AttemptID,
+			b.captureEdgeCharge(towerID, stationID, stationOwner, parties, settled.AttemptID,
 				rec.Model, cost, settled.BillableTokens.In, settled.BillableTokens.Out, now)
 			return
 		}
@@ -1817,7 +1866,7 @@ func (b *broker) settleEdgeMoney(ts *towerSubsystem, towerID, stationID, station
 				byteCost = ceilingCost
 			}
 		}
-		b.captureEdgeCharge(towerID, stationID, stationOwner, rec.ConsumerKey, settled.AttemptID,
+		b.captureEdgeCharge(towerID, stationID, stationOwner, parties, settled.AttemptID,
 			rec.Model, byteCost, settled.Billable.In, settled.Billable.Out, now)
 		return
 	}
@@ -1839,7 +1888,7 @@ func (b *broker) settleEdgeMoney(ts *towerSubsystem, towerID, stationID, station
 	// token-priced branch above prices tokens at the grant's pinned rate. Both share the
 	// split + wallet + SettleEdge logic in captureEdgeCharge.
 	cost := edgePriceCredits(settled.Billable.In, settled.Billable.Out)
-	b.captureEdgeCharge(towerID, stationID, stationOwner, rec.ConsumerKey, settled.AttemptID, rec.Model,
+	b.captureEdgeCharge(towerID, stationID, stationOwner, parties, settled.AttemptID, rec.Model,
 		cost, settled.Billable.In, settled.Billable.Out, now)
 }
 
@@ -1849,12 +1898,22 @@ func (b *broker) settleEdgeMoney(ts *towerSubsystem, towerID, stationID, station
 // ok=false for a key not bound to a non-anonymized account (e.g. an ephemeral canary key),
 // in which case nothing is billed. The authorize-time account gate already requires a bound
 // account, so a real relayed request always resolves here.
-func (b *broker) edgeConsumerWallet(consumerKey []byte) (string, bool) {
+//
+// The error is separated from ok for the same reason towerOperatorAccount separates them, and
+// the consequence here was the sharper one: an unreadable owner index answered "not a billable
+// account", and captureEdgeCharge returns silently on that - no capture, no lots, HTTP 200. A
+// store blip could therefore hand a consumer free inference and both operators nothing, with
+// the courier told the settlement succeeded and the hold left for the sweep.
+func (b *broker) edgeConsumerWallet(consumerKey []byte) (string, bool, error) {
 	o, ok, err := b.db.OwnerByPubkey(hex.EncodeToString(consumerKey))
-	if err != nil || !ok {
-		return "", false
+	if err != nil {
+		return "", false, err
 	}
-	return accountWalletForOwner(o)
+	if !ok {
+		return "", false, nil
+	}
+	w, wok := accountWalletForOwner(o)
+	return w, wok, nil
 }
 
 // edgeShares splits an edge/relay charge of `cost` credits three ways, all fractions of
@@ -1882,16 +1941,19 @@ func (b *broker) edgeShares(cost float64) (stationShare, towerShare float64) {
 // earning lots via the 70/10/20 split. inUnits/outUnits are recorded on the lineage
 // receipt (bytes on the blind path, tokens on the overflow path). Shared by the
 // byte-priced settle and the token-priced overflow path so both bill identically.
-func (b *broker) captureEdgeCharge(towerID, stationID, stationOwner string, consumerKey []byte, attemptID, model string, cost float64, inUnits, outUnits int64, now time.Time) {
-	wallet, ok := b.edgeConsumerWallet(consumerKey)
-	if !ok {
+func (b *broker) captureEdgeCharge(towerID, stationID, stationOwner string, parties edgeParties, attemptID, model string, cost float64, inUnits, outUnits int64, now time.Time) {
+	if !parties.billable {
 		// Not a billable account (e.g. an ephemeral canary key). No hold was ever placed
 		// against an account wallet, so there is nothing to capture and nothing to earn.
+		// Distinguished from "the store could not say" upstream, which never reaches here:
+		// resolveEdgeParties refuses the settlement instead, so this really is a no-op and
+		// not a failure wearing one.
 		return
 	}
+	wallet := parties.consumerWallet
 	stationShare, towerShare := b.edgeShares(cost)
-	towerAcct, ok := b.towerOperatorAccount(towerID)
-	if !ok {
+	towerAcct := parties.towerAcct
+	if !parties.towerPaid {
 		log.Printf("edge settle: attempt %s - Tower %s operator has no resolvable wallet account; Tower earns nothing",
 			attemptID, towerID)
 	}
@@ -1905,16 +1967,28 @@ func (b *broker) captureEdgeCharge(towerID, stationID, stationOwner string, cons
 	// This check used to exist only in accrueEarnings, which writes the read-only trail, and
 	// only against the STATION owner - so the money path minted both lots unconditionally and
 	// a Tower operator relaying their own traffic was not flagged anywhere. Both shares are
-	// checked here, independently, because the two parties can be different accounts.
-	consumerHex := hex.EncodeToString(consumerKey)
-	if stationShare > 0 && b.sameAccount(consumerHex, stationOwner) {
+	// checked, independently, because the two parties can be different accounts.
+	//
+	// THE VERDICTS ARE NOT TAKEN HERE. They were taken by resolveEdgeParties before the
+	// settlement was permitted to commit, and this function only spends them. That is the fix
+	// for the failure mode this comment used to describe with a straight face: the old checks
+	// asked the store, at this line, at a moment when the answer could no longer be refused -
+	// so a database error read as "not the same account", which reads as "pay".
+	if stationShare > 0 && parties.consumerIsStation {
 		log.Printf("edge settle: attempt %s is self-dealing (consumer owns the Station) - recorded, not owed", attemptID)
 		stationShare = 0
 	}
-	if towerShare > 0 && towerAcct != "" && b.sameAccount(consumerHex, towerAcct) {
+	// NO ACCOUNT, NO LOT, NO CHECK NEEDED - and the guard now says which of those it means.
+	// This used to read `towerShare > 0 && towerAcct != "" && sameAccount(...)`, where an
+	// unresolvable account silently switched off the self-dealing test standing beside it
+	// rather than declaring the Tower unpayable (relay-selection-design.md section 6.7, item
+	// 4). towerPaid is that declaration, taken once, upstream, where an error could still be
+	// told apart from an absence.
+	if towerShare > 0 && parties.towerPaid && parties.consumerIsTower {
 		log.Printf("edge settle: attempt %s is self-dealing (consumer owns the Tower) - recorded, not owed", attemptID)
 		towerShare = 0
 	}
+	selfRelayed := b.recordSelfRelayed(attemptID, stationID, towerID, parties)
 	r := protocol.UsageReceipt{
 		RequestID: attemptID, Model: model,
 		PromptTokens: int(inUnits), CompletionTokens: int(outUnits), TS: now.Unix(),
@@ -1924,40 +1998,258 @@ func (b *broker) captureEdgeCharge(towerID, stationID, stationOwner string, cons
 	// them separately). It is provenance only - clawback and payout key on the account and request,
 	// not the node - so the prefix changes no money.
 	if _, err := b.db.SettleEdge(wallet, stationID, stationOwner, towerNode(towerID), towerAcct,
-		cost, stationShare, towerShare, r); err != nil {
+		cost, stationShare, towerShare, selfRelayed, r); err != nil {
 		log.Printf("edge settle: could not bill attempt %s: %v", attemptID, err)
 	}
 }
 
+// recordSelfRelayed is the STATION-OWNER-versus-TOWER-OPERATOR pair: the third comparison, the
+// one nothing in this file made until now. It returns whether to stamp this attempt's lots as
+// self-relayed, and it never changes an amount.
+//
+// # WHAT IT IS
+//
+// One account serving through its own relay is paid twice for one request - 70% as the Station
+// and 10% as the Tower, 80% of what an arms-length consumer paid. The two existing checks are
+// both consumer-versus-someone; neither of them can see this, because the consumer here is a
+// stranger who did nothing wrong and got what they paid for.
+//
+// # WHY IT IS EVIDENCE AND NOT ENFORCEMENT
+//
+// Because under the milestone that makes it reachable it is frequently the RIGHT answer.
+// Today an operator cannot arrange it at all: Core picks the tower first-fit at attach
+// (toweredgeattach.go), hours before any consumer exists, so nobody can choose to land on
+// their own relay. Under M3 the relay becomes a per-request, locality-aware choice
+// (docs/relay-selection-design.md section 6) - and at that point your own node behind your own
+// relay in the same building genuinely is the lowest-latency path for a consumer in that city.
+// Blocking it would mean paying the network to route traffic the long way round, and zeroing
+// the share would mean charging an operator for being well placed.
+//
+// So the rule is the one the design review recommended and the founder endorsed: make it
+// MEASURABLE. A policy - a threshold on the fraction of an operator's relay earnings that come
+// from their own stations, say - can then be written against a fact that has been accumulating,
+// rather than invented in an incident with no data and no column to put it in.
+// store.SelfRelayedRollup is the read side; internal/store/ledger.go EarningLot.SelfRelayed is
+// the fact.
+//
+// # WHY THE LOT AND NOT SOMEWHERE CHEAPER
+//
+// Both of an attempt's lots already share a request id, and both account keys are canonical, so
+// for the LITERAL case a self-join over earning_lots would have found the pair without any
+// schema at all. What a self-join cannot recover is the linkage verdict - two device keys under
+// one GitHub id, one Apple subject or one verified email are one account to sameAccount and two
+// unequal strings to SQL. Storing the verdict, taken by the code that already had to take it,
+// is the smallest thing that makes the real question answerable rather than the easy half of it.
+func (b *broker) recordSelfRelayed(attemptID, stationID, towerID string, p edgeParties) bool {
+	if !p.stationIsTower {
+		return false
+	}
+	// Logged at settle as well as stored, because the store is where the pattern lives and the
+	// log is where the first person to wonder about it will look.
+	log.Printf("edge settle: attempt %s is self-relayed - Station %s and Tower %s are one account (%s); recorded, NOT withheld",
+		attemptID, stationID, towerID, p.towerAcct)
+	return true
+}
+
 // sameAccount reports whether two user pubkeys belong to the same account. Two pubkeys are the
 // same account if they are literally equal, or if they resolve to owner records that share a
-// binding identity - the GitHub id, the Apple subject, or the login. A person may hold several
-// device keys under one account, so comparing raw pubkeys alone would miss the operator who
-// consumes on one key and runs a Station under another.
-func (b *broker) sameAccount(pubA, pubB string) bool {
+// binding identity - the GitHub id, the Apple subject, the login, or a VERIFIED email - or if
+// they resolve to the same canonical account row. A person may hold several device keys under
+// one account, so comparing raw pubkeys alone would miss the operator who consumes on one key
+// and runs a Station under another.
+//
+// # A STORE ERROR IS NOT EVIDENCE OF INNOCENCE
+//
+// This used to return a bare bool, and every failure - an unreachable owner index, a timeout,
+// a closed pool - produced `false`. Read forward from there: false means "not the same
+// account", which means "this is not self-dealing", which means PAY. A transient database
+// blip during settlement was therefore a payment instruction, on the one path where the payee
+// and the beneficiary are the same person and the whole point of the check is that they might
+// be. The error now comes back, and every caller must decide what to do about not knowing.
+// None of them may treat it as a clean "no".
+//
+// The symmetric hazard is real and is NOT solved by leaning the bool the other way: answering
+// "yes, self-dealt" on an error withholds an honest operator's pay permanently, because the
+// lot is minted once and never revisited. Neither bool is safe, which is exactly why the
+// answer is three-valued. See resolveEdgeParties for what settlement does with the third one.
+//
+// # WHAT COUNTS AS ONE ACCOUNT, AND KEEPING IT LEVEL WITH accountOwnerOf
+//
+// accountkey.go already knows how to fold an account's device rows into one canonical row -
+// AppleSub, then Login+GitHubID, then verified Email - because the EARNING side has to mint
+// and read lots under one key. That knowledge and this check drifted apart: accountOwnerOf
+// learned verified email and sameAccount never did, so two device keys that the money path
+// considered one account were two strangers to the self-dealing check. A hole with exactly the
+// shape of the one above, arrived at from the other side.
+//
+// So the last clause compares CANONICAL keys, which is by construction everything
+// accountOwnerOf knows, today and after the next linkage is added to it. The explicit switch
+// stays in front of it because it is strictly broader in two cases accountOwnerOf deliberately
+// is not: a shared GitHub id with no login, and a shared login under different GitHub ids.
+// accountOwnerOf refuses those because a rename must not silently re-key an operator's
+// earnings; here, where a false positive only withholds a share and invites a look, breadth is
+// the safe direction.
+//
+// What none of this catches is the attack that matters most: several DISTINCT verified
+// identities held by one person (unresolved risk E44, docs/tower-network-plan.md). That is an
+// evidence problem - shared payout destination, funding instrument, device fingerprint - and
+// it belongs to the revenue-share program's linkage review, not to an equality test.
+func (b *broker) sameAccount(pubA, pubB string) (bool, error) {
 	if pubA == "" || pubB == "" {
-		return false
+		return false, nil
 	}
 	if pubA == pubB {
-		return true
+		return true, nil
 	}
 	oa, foundA, err := b.db.OwnerByPubkey(pubA)
-	if err != nil || !foundA {
-		return false
+	if err != nil {
+		return false, err
 	}
 	ob, foundB, err := b.db.OwnerByPubkey(pubB)
-	if err != nil || !foundB {
-		return false
+	if err != nil {
+		return false, err
+	}
+	// NOT FOUND IS AN ANSWER, unlike an error: a pubkey bound to no owner row shares no
+	// identity with anything, because there is nothing recorded to share.
+	if !foundA || !foundB {
+		return false, nil
 	}
 	switch {
 	case oa.GitHubID != 0 && oa.GitHubID == ob.GitHubID:
-		return true
+		return true, nil
 	case oa.AppleSub != "" && oa.AppleSub == ob.AppleSub:
-		return true
+		return true, nil
 	case oa.Login != "" && oa.Login == ob.Login:
-		return true
+		return true, nil
+	case oa.EmailVerifiedAt != 0 && ob.EmailVerifiedAt != 0 && oa.Email != "" &&
+		strings.EqualFold(oa.Email, ob.Email):
+		// PROVED, not merely typed in: an unverified profile email is a string anybody may
+		// claim, and treating it as a binding identity would let one account withhold
+		// another's earnings by claiming their address. EqualFold matches the store's own
+		// verified-email lookup.
+		return true, nil
 	}
-	return false
+	// The canonical backstop. A resolution error here is only fatal if it did not already
+	// find the link - a positive is a positive however incomplete the lookup was.
+	ca, errA := b.accountOwnerOfChecked(oa)
+	cb, errB := b.accountOwnerOfChecked(ob)
+	if ca.Pubkey != "" && ca.Pubkey == cb.Pubkey {
+		return true, nil
+	}
+	if errA != nil {
+		return false, errA
+	}
+	if errB != nil {
+		return false, errB
+	}
+	return false, nil
+}
+
+// edgeParties is one settled edge attempt's answer to "who are the three parties, and which of
+// them are one account". It is resolved ONCE, before anything commits, and then carried through
+// the money path so that no wallet write is preceded by a store read whose failure would change
+// who gets paid.
+//
+// The three parties are the CONSUMER (who is charged), the STATION OWNER (who earns 70% of the
+// node's own listed price) and the TOWER OPERATOR (who earns 10% for carrying it). The platform
+// keeps the remaining 20% and is not a party that can be self-dealt with.
+type edgeParties struct {
+	// consumerWallet is the account wallet the hold was placed against and the capture is
+	// billed to; billable is false for a key bound to no billable account (an ephemeral
+	// canary), which means there is nothing to capture and nothing to earn. keyed records
+	// whether there was a consumer key to resolve AT ALL, which is a different thing from an
+	// unresolvable one and is kept apart so the accrual trail's unfunded rule reads exactly as
+	// it always has.
+	consumerWallet string
+	billable       bool
+	keyed          bool
+	// towerAcct is the operator's canonical account key, or "" with towerPaid false when the
+	// Tower has no resolvable wallet account. No account, no lot, no check needed - stated
+	// here as a fact about the Tower rather than left as a conjunct inside an if, where a
+	// falsy guard silently disables the self-dealing test standing next to it.
+	towerAcct string
+	towerPaid bool
+	// consumerIsStation and consumerIsTower withhold a share: buying from yourself is not
+	// earning, and once earnings cash out to a bank it is a way to convert credits into money
+	// at a discount.
+	consumerIsStation bool
+	consumerIsTower   bool
+	// stationIsTower is EVIDENCE ONLY and withholds nothing. See recordSelfRelayed.
+	stationIsTower bool
+}
+
+// resolveEdgeParties answers every "are these two the same account" question this settlement
+// needs, in one place, BEFORE the settlement commits.
+//
+// # WHY IT RUNS BEFORE THE COMMIT AND NOT WHERE THE MONEY IS SPLIT
+//
+// The checks used to live inside captureEdgeCharge, which runs after the one-use dispatch
+// settle has already committed. At that point the handler has no way to refuse: the share is
+// either paid or zeroed, both are final (the lot mints exactly once), and a store error had to
+// be resolved into one of them. Moving the question in front of the commit gives settlement a
+// third option that costs nobody anything - DECLINE TO ANSWER YET.
+//
+// # WHICH WAY THE ERROR LEANS, AND WHY IT IS NEITHER OF THE TWO OBVIOUS ONES
+//
+// Fail open (pay) hands a self-dealer their share for the price of a database blip they can
+// provoke. Fail closed (withhold) burns an honest operator's pay for a blip they cannot even
+// see, permanently, because nothing revisits a lot that was never minted. Both convert an
+// unknown into a wrong answer, and settlement does not have to: this exchange has a retry rail
+// under it. The Tower spools the receipt durably and re-forwards it every 15s
+// (cmd/roger-tower/hub.go), treating 5xx as retryable and only 4xx as final; Core's own settle
+// handler is written to complete a half-finished settlement on a re-drive. So the honest answer
+// to "I cannot tell who these people are" is 503 - decide nothing, commit nothing, and be asked
+// again in fifteen seconds, by which time the store is almost certainly back.
+//
+// That is also what the spec says to do, and it is not the self-dealing scenario:
+// features/tower/operator_revenue_share.feature "Ledger or payment-store failure fails closed
+// for share money" - "no share is accrued, CANCELLED, or paid" and "the operation is retried
+// only from durable authoritative state". Note "cancelled": zeroing the share on unverified
+// state is forbidden by the same sentence that forbids paying it.
+//
+// The residual cost is real and bounded, and it is the price of not guessing: if the store is
+// still unreachable when the settlement window closes, ClaimByID expires the attempt, the
+// consumer's hold is returned by the orphan sweep, and the work was done for free. The
+// consumer is made whole, the operator is not paid, and nothing was attributed to the wrong
+// account. Compare the failure it replaces - the consumer charged in full, the share paid to
+// someone we could not identify - and this is the one to prefer.
+func (b *broker) resolveEdgeParties(towerID, stationOwner string, consumerKey []byte) (edgeParties, error) {
+	var p edgeParties
+	p.keyed = len(consumerKey) > 0
+	wallet, billable, err := b.edgeConsumerWallet(consumerKey)
+	if err != nil {
+		return edgeParties{}, err
+	}
+	p.consumerWallet, p.billable = wallet, billable
+	acct, paid, err := b.towerOperatorAccount(towerID)
+	if err != nil {
+		return edgeParties{}, err
+	}
+	p.towerAcct, p.towerPaid = acct, paid
+	consumerHex := ""
+	if len(consumerKey) > 0 {
+		consumerHex = hex.EncodeToString(consumerKey)
+	}
+	if consumerHex != "" && stationOwner != "" {
+		if p.consumerIsStation, err = b.sameAccount(consumerHex, stationOwner); err != nil {
+			return edgeParties{}, err
+		}
+	}
+	if consumerHex != "" && p.towerPaid {
+		if p.consumerIsTower, err = b.sameAccount(consumerHex, p.towerAcct); err != nil {
+			return edgeParties{}, err
+		}
+	}
+	// THE THIRD PAIR, which nothing compared until now: the Station's owner against the Tower's
+	// operator. One account on both sides of the split collects 70% + 10% = 80% of a request an
+	// arms-length consumer paid for in full. It is not refused and not withheld - see
+	// recordSelfRelayed for why - but it is no longer invisible.
+	if stationOwner != "" && p.towerPaid {
+		if p.stationIsTower, err = b.sameAccount(stationOwner, p.towerAcct); err != nil {
+			return edgeParties{}, err
+		}
+	}
+	return p, nil
 }
 
 // edgeAccrualMicros prices one attempt's billable usage.

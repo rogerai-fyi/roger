@@ -73,6 +73,19 @@ type EarningLot struct {
 	ReserveReleaseAt int64   `json:"reserve_release_at"` // unix: reserve becomes payable
 	CreatedAt        int64   `json:"created_at"`
 	PayoutID         int64   `json:"payout_id,omitempty"` // the payout that paid this lot (0 = none); rollback key
+	// SelfRelayed records that the two earnings this request minted - the serving Station's
+	// 70% and the relaying Tower's 10% - were determined at settle time to belong to ONE
+	// account. It is EVIDENCE, not enforcement: nothing here withholds, scales or refuses the
+	// lot, and no read path treats a flagged lot differently from any other.
+	//
+	// WHY IT IS A STORED FACT RATHER THAN A QUERY. For the literal case the pair is already
+	// recoverable - both lots carry the same request_id, and both account_ids are canonical
+	// account keys, so a self-join finds them. What a self-join cannot recover is the LINKAGE
+	// determination: two device keys under one GitHub id, one Apple subject, or one verified
+	// email are one account to the self-dealing checks and two different strings here. This
+	// field is that verdict, taken once, by the code that already had to take it, at the only
+	// moment the inputs were all in hand.
+	SelfRelayed bool `json:"self_relayed,omitempty"`
 }
 
 // EarningSplit is the held/reserved/payable/paid breakdown an operator sees, derived

@@ -94,7 +94,7 @@ func TestSettleEdgeParity(t *testing.T) {
 				t.Fatalf("HoldFor: ok=%v err=%v", ok, err)
 			}
 			bal, err := db.SettleEdge("alice", "st-1", "station-owner", "tw-1", "tower-operator",
-				100, 70, 3, protocol.UsageReceipt{RequestID: "req-1", Model: "m", PromptTokens: 1, CompletionTokens: 1, TS: now.Unix()})
+				100, 70, 3, false, protocol.UsageReceipt{RequestID: "req-1", Model: "m", PromptTokens: 1, CompletionTokens: 1, TS: now.Unix()})
 			if err != nil {
 				t.Fatalf("SettleEdge: %v", err)
 			}
@@ -138,7 +138,7 @@ func TestSettleEdgeSeedFundedMintsNothing(t *testing.T) {
 				t.Fatalf("HoldFor: ok=%v err=%v", ok, err)
 			}
 			if _, err := db.SettleEdge("bob", "st-1", "station-owner", "tw-1", "tower-operator",
-				100, 70, 3, protocol.UsageReceipt{RequestID: "req-2", Model: "m", PromptTokens: 1, CompletionTokens: 1, TS: now.Unix()}); err != nil {
+				100, 70, 3, false, protocol.UsageReceipt{RequestID: "req-2", Model: "m", PromptTokens: 1, CompletionTokens: 1, TS: now.Unix()}); err != nil {
 				t.Fatalf("SettleEdge: %v", err)
 			}
 			if s, _ := db.EarningSplitOf("station-owner", now.Add(time.Hour)); s.Payable != 0 || s.Held != 0 {
@@ -166,7 +166,7 @@ func TestSettleEdgeWithoutAHoldIsANoOp(t *testing.T) {
 			}
 			// No HoldFor for req-x. SettleEdge must do nothing.
 			if _, err := db.SettleEdge("alice", "st-1", "station-owner", "tw-1", "tower-operator",
-				50, 35, 3, protocol.UsageReceipt{RequestID: "req-x", Model: "m", PromptTokens: 1, CompletionTokens: 1, TS: now.Unix()}); err != nil {
+				50, 35, 3, false, protocol.UsageReceipt{RequestID: "req-x", Model: "m", PromptTokens: 1, CompletionTokens: 1, TS: now.Unix()}); err != nil {
 				t.Fatalf("SettleEdge: %v", err)
 			}
 			if bal, _ := db.PeekBalance("alice"); !approx(bal, 1000) {
@@ -207,7 +207,7 @@ func TestWalletRecencyClawGroupsEdgeLotsPerRequest(t *testing.T) {
 			if ok, _ := db.HoldFor("alice", "e1", 100); !ok {
 				t.Fatal("hold e1")
 			}
-			if _, err := db.SettleEdge("alice", "st", "station-owner", "tw", "tower-op", 100, 70, 3, protocol.UsageReceipt{RequestID: "e1", Model: "m", PromptTokens: 1, CompletionTokens: 1, TS: 2000}); err != nil {
+			if _, err := db.SettleEdge("alice", "st", "station-owner", "tw", "tower-op", 100, 70, 3, false, protocol.UsageReceipt{RequestID: "e1", Model: "m", PromptTokens: 1, CompletionTokens: 1, TS: 2000}); err != nil {
 				t.Fatal(err)
 			}
 
@@ -257,7 +257,7 @@ func TestSettleEdgeScalesSharesWithACappedCost(t *testing.T) {
 
 			// A (defensively impossible) cost of 20 with shares computed from it: 14 / 2.
 			rec := protocol.UsageReceipt{RequestID: "req-" + uid, Model: "m", TS: time.Now().Unix()}
-			if _, err := db.SettleEdge(user, station, stAcct, twNode, twAcct, 20, 14, 2, rec); err != nil {
+			if _, err := db.SettleEdge(user, station, stAcct, twNode, twAcct, 20, 14, 2, false, rec); err != nil {
 				t.Fatal(err)
 			}
 

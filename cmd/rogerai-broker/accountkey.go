@@ -20,30 +20,56 @@ import "rogerai.fm/roger/v5/internal/store"
 
 // accountOwnerOf resolves any of an account's device rows to its canonical one. Falls back to
 // the row it was given - a device key bound to no shared identity IS its own account.
+//
+// It swallows store errors on purpose, and the purpose is narrow: on the MINT path a lookup
+// that failed must not stop an operator being paid, and the fallback keys the lot under a row
+// that really is theirs. A caller for whom "I could not tell" and "they are unrelated" are
+// different answers must use accountOwnerOfChecked instead - self-dealing is exactly such a
+// caller, because there the fallback silently means "not the same account", which means pay.
 func (b *broker) accountOwnerOf(o store.Owner) store.Owner {
+	c, _ := b.accountOwnerOfChecked(o)
+	return c
+}
+
+// accountOwnerOfChecked is accountOwnerOf with the store errors KEPT rather than dropped. It
+// still tries every linkage - one unreachable index must not hide a link another would have
+// found - and returns the first error it met alongside whatever it managed to resolve. So a
+// non-nil error means "this answer may be incomplete", never "this answer is wrong".
+func (b *broker) accountOwnerOfChecked(o store.Owner) (store.Owner, error) {
 	if o.Pubkey == "" || o.Anonymized {
-		return o
+		return o, nil
+	}
+	var firstErr error
+	keep := func(err error) {
+		if err != nil && firstErr == nil {
+			firstErr = err
+		}
 	}
 	// Ordered by how strongly the identity binds an account together: a provider subject is
 	// unforgeable and permanent, a verified email is proven, a login is neither (it can be
 	// renamed, and a rename must not silently re-key an operator's earnings).
 	if o.AppleSub != "" {
-		if c, found, err := b.db.OwnerByAppleSub(o.AppleSub); err == nil && found && c.Pubkey != "" {
-			return c
+		c, found, err := b.db.OwnerByAppleSub(o.AppleSub)
+		keep(err)
+		if err == nil && found && c.Pubkey != "" {
+			return c, firstErr
 		}
 	}
 	if o.GitHubID != 0 && o.Login != "" {
-		if c, found, err := b.db.OwnerByLogin(o.Login); err == nil && found && c.Pubkey != "" &&
-			c.GitHubID == o.GitHubID {
-			return c
+		c, found, err := b.db.OwnerByLogin(o.Login)
+		keep(err)
+		if err == nil && found && c.Pubkey != "" && c.GitHubID == o.GitHubID {
+			return c, firstErr
 		}
 	}
 	if o.EmailVerifiedAt != 0 && o.Email != "" {
-		if c, found, err := b.db.OwnerByVerifiedEmail(o.Email); err == nil && found && c.Pubkey != "" {
-			return c
+		c, found, err := b.db.OwnerByVerifiedEmail(o.Email)
+		keep(err)
+		if err == nil && found && c.Pubkey != "" {
+			return c, firstErr
 		}
 	}
-	return o
+	return o, firstErr
 }
 
 // accountKeyOf is the pubkey an account's earning lots are minted under and read back from.

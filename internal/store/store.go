@@ -112,7 +112,11 @@ type Store interface {
 	// the relaying Tower's operator in one transaction, each scaled by the same real-paid
 	// fraction (seed credits earn neither). Both are explicit-account lots keyed by the requestID,
 	// so a refund/chargeback of that request claws both. towerAcct/towerShare may be zero.
-	SettleEdge(user, stationNode, stationAcct, towerNode, towerAcct string, cost, stationShare, towerShare float64, rec protocol.UsageReceipt) (newBalance float64, err error)
+	//
+	// selfRelayed stamps BOTH lots with the caller's determination that the Station owner and
+	// the Tower operator are one account (see EarningLot.SelfRelayed). It changes no money and
+	// no lifecycle - the store records it and SelfRelayedRollup reads it back.
+	SettleEdge(user, stationNode, stationAcct, towerNode, towerAcct string, cost, stationShare, towerShare float64, selfRelayed bool, rec protocol.UsageReceipt) (newBalance float64, err error)
 	// ReleaseHold returns a full reservation to the user (request failed, no charge).
 	ReleaseHold(user string, held float64) (newBalance float64, err error)
 	// HoldFor is Hold with a requestID so the reservation is TRACKED in the pending-hold
@@ -309,6 +313,16 @@ type Store interface {
 	// show where the money came from. Cheap rollup off the same lots+receipts the split
 	// reads. accountID is the owner pubkey.
 	EarningRollups(accountID string) (byModel, byNode []EarningRollup, err error)
+	// SelfRelayedRollup is EarningRollups' by-NODE half restricted to the account's
+	// SELF-RELAYED lots: the ones whose request paid this same account on both sides of the
+	// split, its Station's 70% and its Tower's 10% (see EarningLot.SelfRelayed).
+	//
+	// It exists so the fact is ANSWERABLE rather than merely stored. Divided by the byNode
+	// rollup above it gives, per node, the fraction of that node's earnings that came from
+	// traffic the account both served and carried - the exact quantity a later policy
+	// threshold would be set on. Nothing in the store reads it; it is a reporting query, and
+	// deliberately not a gate.
+	SelfRelayedRollup(accountID string) ([]EarningRollup, error)
 	// PayoutLots returns the funding earning lots behind a payout (the request-level
 	// lineage a payout-history row expands into): {request_id, node, model, gross,
 	// created_at} per lot. Owner-scoped: ok=false if the payout id is not the caller's
@@ -933,7 +947,7 @@ func (m *Mem) addLotLocked(node, requestID string, ownerShare float64, now time.
 	if !ok || ownerShare <= 0 {
 		return
 	}
-	m.addLotForAccountLocked(node, acct, requestID, ownerShare, now)
+	m.addLotForAccountLocked(node, acct, requestID, ownerShare, false, now)
 }
 
 // AddOperatorLot mints an earning lot for an EXPLICIT account rather than one resolved from a
@@ -949,13 +963,14 @@ func (m *Mem) AddOperatorLot(node, accountID, requestID string, gross float64, n
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.addLotForAccountLocked(node, accountID, requestID, gross, now)
+	m.addLotForAccountLocked(node, accountID, requestID, gross, false, now)
 	return nil
 }
 
 // addLotForAccountLocked is the shared mint: one lot + earn/reserve ledger rows for an explicit
-// payee account. Caller holds m.mu and has already checked gross > 0.
-func (m *Mem) addLotForAccountLocked(node, acct, requestID string, ownerShare float64, now time.Time) {
+// payee account. Caller holds m.mu and has already checked gross > 0. selfRelayed is stamped
+// onto the lot as evidence and read by nothing in the money lifecycle.
+func (m *Mem) addLotForAccountLocked(node, acct, requestID string, ownerShare float64, selfRelayed bool, now time.Time) {
 	reserve := ownerShare * m.policy.Reserve
 	rel := now.Add(m.policy.holdDuration())
 	m.lotID++
@@ -966,6 +981,7 @@ func (m *Mem) addLotForAccountLocked(node, acct, requestID string, ownerShare fl
 		// with the lot, not on a later tail. promoteLocked + RequestPayout rely on this
 		// coupling; a separate tail is unimplemented (see holdDuration / promoteLocked).
 		ReleaseAt: rel.Unix(), ReserveReleaseAt: rel.Unix(), CreatedAt: now.Unix(),
+		SelfRelayed: selfRelayed,
 	})
 	m.appendLedgerLocked(acct, "operator", KindEarn, ownerShare, "earn:"+requestID, StatePending, requestID, now.Unix())
 	if reserve > 0 {
@@ -1311,7 +1327,7 @@ func (m *Mem) Finalize(user, node string, held, cost, ownerShare float64, rec pr
 // binding - and both lots are keyed by the requestID, so a refund or chargeback of that request
 // claws both back. This is how a Tower earns its share of net platform revenue on relayed traffic
 // through the one wallet. towerAcct/towerShare may be zero (a non-compensated Tower earns nothing).
-func (m *Mem) SettleEdge(user, stationNode, stationAcct, towerNode, towerAcct string, cost, stationShare, towerShare float64, rec protocol.UsageReceipt) (float64, error) {
+func (m *Mem) SettleEdge(user, stationNode, stationAcct, towerNode, towerAcct string, cost, stationShare, towerShare float64, selfRelayed bool, rec protocol.UsageReceipt) (float64, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if rec.RequestID != "" && m.settled[rec.RequestID] {
@@ -1357,11 +1373,15 @@ func (m *Mem) SettleEdge(user, stationNode, stationAcct, towerNode, towerAcct st
 	m.appendLedgerLocked(user, "consumer", KindHoldRelease, held, "", StatePosted, rec.RequestID, rec.TS)
 	m.appendLedgerLocked(user, "consumer", KindSpend, -cost, "spend:"+rec.RequestID, StatePosted, rec.RequestID, rec.TS)
 	m.appendAdjustLocked(user, rec, cost)
+	// BOTH lots carry the self-relayed verdict, not just the Tower's. The concentration this
+	// records is 80% of one request landing in one account, and half of that 80% is the
+	// Station's lot; flagging only the relay half would make the evidence answer a smaller
+	// question than the one that was asked.
 	if stationAcct != "" && stationEarn > 0 {
-		m.addLotForAccountLocked(stationNode, stationAcct, rec.RequestID, stationEarn, time.Now())
+		m.addLotForAccountLocked(stationNode, stationAcct, rec.RequestID, stationEarn, selfRelayed, time.Now())
 	}
 	if towerAcct != "" && towerEarn > 0 {
-		m.addLotForAccountLocked(towerNode, towerAcct, rec.RequestID, towerEarn, time.Now())
+		m.addLotForAccountLocked(towerNode, towerAcct, rec.RequestID, towerEarn, selfRelayed, time.Now())
 	}
 	return m.wallet[user], nil
 }
@@ -2125,6 +2145,41 @@ func (m *Mem) EarningRollups(accountID string) (byModel, byNode []EarningRollup,
 		return out
 	}
 	return flat(mAgg), flat(nAgg), nil
+}
+
+// SelfRelayedRollup returns the account's per-NODE gross across its non-clawed lots that were
+// stamped self-relayed - the requests where this same account was paid on both sides of the
+// split. See the Store interface for what the number is for; nothing in the money lifecycle
+// reads it.
+func (m *Mem) SelfRelayedRollup(accountID string) ([]EarningRollup, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	byNode := map[string]*EarningRollup{}
+	for _, l := range m.lots {
+		if l.AccountID != accountID || l.State == LotClawed || !l.SelfRelayed {
+			continue
+		}
+		r := byNode[l.Node]
+		if r == nil {
+			r = &EarningRollup{Key: l.Node}
+			byNode[l.Node] = r
+		}
+		r.Amount += l.Gross
+		r.Lots++
+	}
+	out := make([]EarningRollup, 0, len(byNode))
+	for _, r := range byNode {
+		out = append(out, *r)
+	}
+	// The SAME total order EarningRollups uses (amount desc, then key), so the two rollups can
+	// be read side by side and the postgres twin has one order to match rather than two.
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Amount != out[j].Amount {
+			return out[i].Amount > out[j].Amount
+		}
+		return out[i].Key < out[j].Key
+	})
+	return out, nil
 }
 
 func (m *Mem) PayoutLots(accountID string, payoutID int64) ([]PayoutLot, bool, error) {

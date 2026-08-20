@@ -222,6 +222,11 @@ CREATE INDEX IF NOT EXISTS rc_attach_session ON rogerai.rc_attach_tokens (sessio
 -- tag paid lots with the payout that paid them, so a failed transfer can roll the
 -- exact lots back to 'payable'. Additive.
 ALTER TABLE rogerai.earning_lots ADD COLUMN IF NOT EXISTS payout_id BIGINT;
+-- self_relayed marks a lot whose request paid ONE account on both sides of the edge split
+-- (the Station's 70% and its relay Tower's 10%). EVIDENCE ONLY - no query in the money
+-- lifecycle reads it, and the default is the honest one for every lot minted before the
+-- column existed: not known to be self-relayed. Additive, backfill-free by construction.
+ALTER TABLE rogerai.earning_lots ADD COLUMN IF NOT EXISTS self_relayed BOOLEAN NOT NULL DEFAULT FALSE;
 -- seed cap (bound free-credit liability): seed_grants is the per-wallet "this wallet
 -- was offered the starter seed" guard (one row per wallet, idempotent); seed_counter
 -- is the single-row durable count of wallets actually granted a non-zero seed. The
@@ -464,7 +469,7 @@ func (p *Postgres) addLot(tx *sql.Tx, node, requestID string, ownerShare float64
 	if err != nil {
 		return err
 	}
-	return p.addLotForAccount(tx, node, acct, requestID, ownerShare, now)
+	return p.addLotForAccount(tx, node, acct, requestID, ownerShare, false, now)
 }
 
 // AddOperatorLot mints an earning lot for an EXPLICIT account (the Tower operator, who earns on
@@ -479,7 +484,7 @@ func (p *Postgres) AddOperatorLot(node, accountID, requestID string, gross float
 		return err
 	}
 	defer tx.Rollback()
-	if err := p.addLotForAccount(tx, node, accountID, requestID, gross, now); err != nil {
+	if err := p.addLotForAccount(tx, node, accountID, requestID, gross, false, now); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -494,13 +499,13 @@ func (p *Postgres) AddOperatorLot(node, accountID, requestID string, gross float
 // clawback's "l.id DESC" recency order identical to the mem store's, and therefore claw the same
 // operator on both backends. Minting a lot before taking the wallet lock would let two requests'
 // lot ids interleave under concurrency and silently reintroduce backend-divergent attribution.
-func (p *Postgres) addLotForAccount(tx *sql.Tx, node, acct, requestID string, ownerShare float64, now time.Time) error {
+func (p *Postgres) addLotForAccount(tx *sql.Tx, node, acct, requestID string, ownerShare float64, selfRelayed bool, now time.Time) error {
 	reserve := ownerShare * p.policy.Reserve
 	rel := now.Add(p.policy.holdDuration()).Unix()
 	if _, err := tx.Exec(`INSERT INTO rogerai.earning_lots
-		(node,account_id,request_id,gross,reserve,state,release_at,reserve_release_at,created_at)
-		VALUES($1,$2,$3,$4,$5,'held',$6,$6,$7)`,
-		node, acct, requestID, ownerShare, reserve, rel, now.Unix()); err != nil {
+		(node,account_id,request_id,gross,reserve,state,release_at,reserve_release_at,created_at,self_relayed)
+		VALUES($1,$2,$3,$4,$5,'held',$6,$6,$7,$8)`,
+		node, acct, requestID, ownerShare, reserve, rel, now.Unix(), selfRelayed); err != nil {
 		return err
 	}
 	if err := appendLedger(tx, acct, "operator", KindEarn, ownerShare, "earn:"+requestID, StatePending, requestID, now.Unix()); err != nil {
@@ -1052,7 +1057,7 @@ func (p *Postgres) Finalize(user, node string, held, cost, ownerShare float64, r
 // SettleEdge is the Postgres twin of the mem SettleEdge: capture the consumer's hold and credit
 // both the Station owner and the Tower operator, each scaled by the one real-paid fraction, as
 // explicit-account lots keyed by the requestID. See the mem doc for the rationale.
-func (p *Postgres) SettleEdge(user, stationNode, stationAcct, towerNode, towerAcct string, cost, stationShare, towerShare float64, rec protocol.UsageReceipt) (float64, error) {
+func (p *Postgres) SettleEdge(user, stationNode, stationAcct, towerNode, towerAcct string, cost, stationShare, towerShare float64, selfRelayed bool, rec protocol.UsageReceipt) (float64, error) {
 	tx, err := p.db.Begin()
 	if err != nil {
 		return 0, err
@@ -1115,13 +1120,16 @@ func (p *Postgres) SettleEdge(user, stationNode, stationAcct, towerNode, towerAc
 	if err := appendAdjust(tx, user, rec, cost); err != nil {
 		return 0, err
 	}
+	// BOTH lots carry the self-relayed verdict, mirroring the mem store: the concentration
+	// being recorded is 80% of one request landing in one account, and the Station's lot is
+	// half of that 80%.
 	if stationAcct != "" && stationEarn > 0 {
-		if err := p.addLotForAccount(tx, stationNode, stationAcct, rec.RequestID, stationEarn, time.Now()); err != nil {
+		if err := p.addLotForAccount(tx, stationNode, stationAcct, rec.RequestID, stationEarn, selfRelayed, time.Now()); err != nil {
 			return 0, err
 		}
 	}
 	if towerAcct != "" && towerEarn > 0 {
-		if err := p.addLotForAccount(tx, towerNode, towerAcct, rec.RequestID, towerEarn, time.Now()); err != nil {
+		if err := p.addLotForAccount(tx, towerNode, towerAcct, rec.RequestID, towerEarn, selfRelayed, time.Now()); err != nil {
 			return 0, err
 		}
 	}
@@ -1946,6 +1954,31 @@ func (p *Postgres) EarningRollups(accountID string) (byModel, byNode []EarningRo
 		return nil, nil, err
 	}
 	return byModel, byNode, nil
+}
+
+// SelfRelayedRollup is the postgres twin of the mem SelfRelayedRollup: the account's per-NODE
+// gross across its non-clawed SELF-RELAYED lots. Same predicate and same total order as the
+// by-node half of EarningRollups above, plus `self_relayed`, so the two are divisible.
+func (p *Postgres) SelfRelayedRollup(accountID string) ([]EarningRollup, error) {
+	rows, err := p.db.Query(`SELECT COALESCE(node,''), COALESCE(SUM(gross),0), COUNT(*)
+		FROM rogerai.earning_lots
+		WHERE account_id=$1 AND state<>'clawed' AND self_relayed
+		GROUP BY 1 ORDER BY 2 DESC, 1 ASC`, accountID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []EarningRollup{}
+	for rows.Next() {
+		var r EarningRollup
+		var key sql.NullString
+		if err := rows.Scan(&key, &r.Amount, &r.Lots); err != nil {
+			return nil, err
+		}
+		r.Key = key.String
+		out = append(out, r)
+	}
+	return out, rows.Err()
 }
 
 // PayoutLots returns the funding earning lots behind a payout (request-level lineage),

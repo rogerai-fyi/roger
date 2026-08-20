@@ -1454,6 +1454,85 @@ dormant check into a load-bearing one. Four findings, in the order they cost mon
    way — but it is a guard whose falsity silently disables a check, and it should be an explicit
    "no account, no lot, no check needed" rather than a conjunct.
 
+**Items 2, 3 and 4 are DONE, landed on `release/v5.7.0`. Item 1 is unchanged and still the one
+decision that has to be made before M3's code is written.** What follows is what was built and
+the reasoning that is not obvious from the diff.
+
+**One resolution, taken before the settlement commits.** All three comparisons now happen in
+`resolveEdgeParties` (`toweredge.go`), called from `towerEdgeSettle` *after* `settleEdgeAttempt`
+and *before* `ClaimByID`. The position is the fix, not the checks: the old checks ran inside
+`captureEdgeCharge`, which is downstream of the one-use settle, where the only two answers
+available are pay and do-not-pay. In front of the commit there is a third answer that costs
+nobody anything.
+
+**Item 3, the fail-open, leans to REFUSE - neither pay nor withhold.** `sameAccount` now returns
+`(bool, error)`, and a store error at settle answers **503**, commits nothing, and lets the
+Tower's spooled courier re-forward the same receipt fifteen seconds later. The reasoning, since
+this section previously said only "fail closed":
+
+- *Fail open pays a self-dealer for the price of a database blip.* That was the live behaviour.
+- *Fail closed burns an honest operator's pay for the same blip*, permanently. A lot is minted
+  once and nothing revisits one that was never minted. Section 6.7 item 3's own recommendation -
+  "withhold and flag for review" - would need a withheld-lot state that does not exist; without
+  it, "withhold" is just "delete", quietly.
+- *Both convert an unknown into a wrong answer, and this exchange does not have to.* It has a
+  durable retry rail underneath it (`cmd/roger-tower/hub.go`, 15s, spooled across restarts) and a
+  Core handler already written to complete a half-finished settlement on re-drive.
+- The spec agrees, and it is **not** the scenario item 3 cited. `operator_revenue_share.feature`
+  line 832 is about *actual* self-dealing being withheld. The line that covers *not knowing* is
+  "Ledger or payment-store failure fails closed for share money": "no share is accrued,
+  **cancelled**, or paid" and "the operation is retried only from durable authoritative state".
+  Note *cancelled* - zeroing the share on unverified state is forbidden by the same sentence that
+  forbids paying it.
+
+The residual cost is real, bounded, and the one to prefer: if the store is still unreachable when
+the settlement window closes, the attempt expires, the orphan sweep returns the consumer's hold,
+and the work was done for free. Consumer whole, operator unpaid, nothing attributed to the wrong
+account. The **status code is load-bearing** - `towerjoin.SettleEdgeReceipt` treats any 4xx but
+409 as `ErrSettlePermanent` and drops the receipt from the spool, so refusing with a 4xx would
+turn a five-second blip into an operator's pay deleted forever.
+
+Two neighbouring fail-opens on the same path were closed by the same move, because the resolution
+now needs them anyway: `towerOperatorAccount` conflated "no wallet account" with "could not
+look" (the second silently minted no relay lot), and `edgeConsumerWallet` did the same, on a
+branch where `captureEdgeCharge` returns **200 having billed nobody** - a store blip could hand a
+consumer free inference and both operators nothing, with the courier told it succeeded.
+
+**`sameAccount` had a second hole, of the same shape, entered from the other side.**
+`accountkey.go`'s `accountOwnerOf` folds an account's device rows into one canonical row on
+AppleSub, Login+GitHubID, then **verified email** - and `sameAccount` had never learned the last
+one. So two device keys the *money* path treats as one account (it mints and reads their lots
+under one key) were two strangers to the self-dealing check. It now compares verified email
+directly and, as a backstop, compares canonical keys - which is by construction everything
+`accountOwnerOf` knows today and after the next linkage is added to it. The explicit switch stays
+in front because it is deliberately broader in two cases `accountOwnerOf` refuses (a shared
+GitHub id with no login; a shared login under different GitHub ids): a rename must not re-key an
+operator's earnings, but here a false positive only withholds a share and invites a look.
+
+What none of this touches is **E44** - several distinct verified identities held by one person.
+That is still an evidence problem, not an equality test, and item 1 below remains the defence.
+
+**Item 2, the station-owner-versus-tower-operator pair, is now RECORDED and still not enforced.**
+`earning_lots` gained one additive column, `self_relayed BOOLEAN NOT NULL DEFAULT FALSE`, stamped
+on **both** of an attempt's lots (the concentration being recorded is 80% of one request landing
+in one account, and the Station's 70% is most of it). `store.SelfRelayedRollup(accountID)` is the
+read side: the per-node gross of an account's self-relayed, non-clawed lots, in the same shape and
+the same order as `EarningRollups`' by-node half, so "what fraction of this node's earnings were
+self-relayed" is one division rather than a second schema. Parity-tested on mem and Postgres.
+
+*Why a column and not a query.* For the literal case the pair was already recoverable - both lots
+carry one `request_id` and both `account_id`s are canonical (`at.Owner` is stamped through
+`accountKeyOfPubkey` at attach) - so a self-join finds them. What a self-join cannot recover is the
+**linkage verdict**: two device keys under one GitHub id, one Apple subject or one verified email
+are one account to `sameAccount` and two unequal strings to SQL. The column stores that verdict,
+taken once, by the code that already had to take it, at the only moment every input was in hand.
+That is the whole of what it adds, and it is stated here rather than oversold.
+
+*Why evidence and not enforcement.* Because under the milestone that makes it reachable it is
+frequently the right answer - your own node behind your own relay in the same building genuinely
+is the low-latency path - and because the alternative to measuring it is a threshold invented
+during an incident, with no data behind it and no column to put it in.
+
 ### 6.8 Failure, fallback, and the hold
 
 The consumer's hold is placed at authorize, before the attempt is recorded, at the worst case of

@@ -158,7 +158,8 @@ func TestFullProductLoopANodeEarnsThroughATower(t *testing.T) {
 	// listed price and hands back the station's session key), seal, submit to the TOWER, open,
 	// and acknowledge. This is the P5e client path, dogfooded.
 	consumer := signedInConsumer(t, b)
-	consWallet, ok := b.edgeConsumerWallet(consumer.Public().(ed25519.PublicKey))
+	consWallet, ok, cwerr := b.edgeConsumerWallet(consumer.Public().(ed25519.PublicKey))
+	require.NoError(t, cwerr)
 	require.True(t, ok, "the consumer's account wallet resolves")
 	balBefore, err := b.db.BalanceOf(consWallet, 0)
 	require.NoError(t, err)
@@ -253,7 +254,8 @@ func TestTopology2NodeDownTheConsumerIsMadeWhole(t *testing.T) {
 	require.Equal(t, http.StatusOK, code, raw)
 
 	consumer := signedInConsumer(t, b)
-	consWallet, ok := b.edgeConsumerWallet(consumer.Public().(ed25519.PublicKey))
+	consWallet, ok, cwerr := b.edgeConsumerWallet(consumer.Public().(ed25519.PublicKey))
+	require.NoError(t, cwerr)
 	require.True(t, ok)
 	balBefore, err := b.db.BalanceOf(consWallet, 0)
 	require.NoError(t, err)
