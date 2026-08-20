@@ -12,6 +12,7 @@ package main
 // fabric in addition to the broker's own long-poll.
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -23,6 +24,29 @@ import (
 	"rogerai.fm/roger/v5/internal/agent"
 	"rogerai.fm/roger/v5/internal/client"
 )
+
+// startRelayFabric is how a share puts itself on the relay fabric: on a goroutine, best effort,
+// under the process-wide shutdown that Ctrl-C cancels. It is what `go joinRelayFabric(cfgRun)`
+// used to be, and production behaviour is that line exactly.
+//
+// IT IS A VAR BECAUSE A BARE `go` CANNOT BE JOINED, and an unjoinable worker is not a style
+// question here - it was a live defect in the suite. cmdShare returns as soon as the shareBlock
+// seam returns, while this goroutine is still inside its first AttachTower, which opens (and
+// creates) a Station directory under XDG_CONFIG_HOME. A test points XDG_CONFIG_HOME at its own
+// t.TempDir(), so the TempDir cleanup's RemoveAll raced a live writer: one whole-package run in
+// six here, two in six for the hunt that found it. And the loser of that race keeps going - the
+// first attach retries on a 30-second backoff, five times - underneath every test that runs
+// after it, resolving os.UserConfigDir() afresh each time it is scheduled, which is a
+// PROCESS-GLOBAL environment variable some entirely unrelated test has since repointed at its
+// own temporary directory. The observed whole-package failure was not in a share test at all.
+//
+// The fix a test needs is to WAIT for the worker, and waiting needs two things this seam
+// supplies together: a context of the test's own to cancel (shareShutdown is process-wide and
+// cancelling it is terminal - see TestEveryLongLivedPlaneWaitsOnTheSharedShutdown, which pays a
+// subprocess for exactly that reason) and a handle on the goroutine. A test swaps in a spawner
+// that calls the SAME joinRelayFabric under a cancellable child and a WaitGroup it can wait on;
+// production keeps the line below, which is why the shape of the real share is unchanged.
+var startRelayFabric = func(cfg agent.Config) { go joinRelayFabric(shareShutdown, cfg) }
 
 // joinRelayFabric offers an already-registered, already-on-air node to the relay fabric.
 //
@@ -47,7 +71,7 @@ import (
 // (it is what makes a station's earnings attributable), and an anonymous free share is a
 // perfectly ordinary thing to be. Nothing is printed in that case either - there is no
 // problem to report.
-func joinRelayFabric(cfg agent.Config) {
+func joinRelayFabric(ctx context.Context, cfg agent.Config) {
 	// A PRIVATE BAND NEVER JOINS. Asserted here as well as inside agent.AttachTower, because
 	// this is the seam a future caller reaches first and an early return is cheaper than a
 	// refused network call. Belt and braces on a guarantee that used to be neither: before
@@ -64,7 +88,9 @@ func joinRelayFabric(cfg agent.Config) {
 		return
 	}
 	notices := &relayNotices{}
-	// THE SHARED SHUTDOWN, not a signal notifier of our own. This used to call
+	// THE SHARED SHUTDOWN, not a signal notifier of our own - handed in by startRelayFabric
+	// rather than reached for here, so the one caller that serves a real share and the one that
+	// serves a test's are the same code under two different lifetimes. This used to call
 	// signal.NotifyContext here, which looks local and is not: the first registration anywhere
 	// in a program disables Go's default SIGINT-kills-the-process disposition for the whole
 	// program. Cancelling only this context would then leave the main goroutine sitting in
@@ -76,7 +102,7 @@ func joinRelayFabric(cfg agent.Config) {
 	// io.Discard for PROGRESS, not for everything: the ordinary share has already printed its
 	// on-air line, and a second stream of relay chatter underneath it would describe a plane the
 	// operator did not opt into and cannot act on. Notices are the other channel.
-	err = agent.ServeTower(shareShutdown, cfg, agent.NodeKey(), filepath.Join(confDir, "rogerai"),
+	err = agent.ServeTower(ctx, cfg, agent.NodeKey(), filepath.Join(confDir, "rogerai"),
 		discardWriter{}, notices.report)
 	// The RETURNED error is the startup one, and only one shape of it is worth a word. An attach
 	// that was refused means no relay would take this node right now, which is the ordinary case

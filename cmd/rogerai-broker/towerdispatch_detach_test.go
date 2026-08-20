@@ -86,22 +86,47 @@ func TestAnAttachmentWhoseMachineWentHomeIsRetired(t *testing.T) {
 // leg that matters: the failure direction of a retirement sweep is an operator's node silently
 // falling off the network, and a stamp that does not actually stamp would look exactly like a
 // working sweep until somebody's Station disappeared.
+//
+// IT DRIVES THE CLOCK RATHER THAN RACING IT, and that is not a style preference - the previous
+// shape could not state the property it was testing. It shortened the horizon to 20ms and slept
+// 30ms between sweeps, so the only thing keeping the live Station alive was that publishRoutable
+// gets from TouchRoutable(alive, now) to DetachIdle(tower, now-20ms) in under twenty
+// milliseconds. Those are two adjacent statements and usually microseconds apart; they are also
+// separated by whatever the runtime feels like doing in between, and a GC pause or a busy CI box
+// is worth more than 20ms often enough to matter. The test would then retire a live machine and
+// report the retirement bug it exists to catch, on code that has no bug. It was never observed
+// failing on its own here - it is a margin rather than an active flake - but a 25ms sleep
+// injected between those two statements, which is all a loaded box is, failed it three runs out
+// of three. Margins are only ever paid in.
+//
+// Widening the margin (a bigger horizon, bigger sleeps) buys probability and costs seconds, and
+// still leaves a number that a slow enough machine beats. So instead the pass is handed its
+// instant: publishRoutableAt takes the `now` that the stamp and the cutoff are both measured
+// from, so "the row was stamped this pass, therefore it is one horizon inside the cutoff" is
+// arithmetic on one variable rather than a bet on the scheduler. Nothing can be stalled
+// through, because no wall-clock duration appears in the property at all.
+//
+// The clock is advanced by THIRTY PRODUCTION HORIZONS between sweeps - 210 days at the real
+// seven-day setting, which is why this no longer shortens the horizon either. That keeps the
+// test's teeth: every sweep after the first judges a row whose previous stamp is 209 days past
+// the cutoff, so if the stamping loop stops stamping (the whole point of the leg) the very next
+// require fails. And it runs in microseconds instead of 180ms.
 func TestALiveMachineIsNeverRetiredHoweverLongTheSweepRuns(t *testing.T) {
-	shortenIdleHorizon(t, 20*time.Millisecond)
 	b, srv := towerTestBroker(t)
 	towerID, stationID, nodeID := attachedStation(t, b, srv, "keepalive-op")
 
+	now := time.Now()
 	for i := 0; i < 6; i++ {
-		time.Sleep(30 * time.Millisecond) // longer than the whole horizon, every time
+		now = now.Add(30 * attachmentIdleHorizon) // longer than the whole horizon, every time
 		b.mu.Lock()
-		b.lastSeen[nodeID] = time.Now() // the node is heartbeating, as a live node does
+		b.lastSeen[nodeID] = now // the node is heartbeating, as a live node does
 		b.mu.Unlock()
-		b.publishRoutable(towerID)
+		b.publishRoutableAt(towerID, now)
 		require.Equal(t, attach.StateActive, stateOf(t, b, stationID),
 			"sweep %d retired a station whose machine is right there", i)
 	}
 
-	rows, err := b.tower.routable.ByTower(towerID, time.Now())
+	rows, err := b.tower.routable.ByTower(towerID, now)
 	require.NoError(t, err)
 	require.Len(t, rows, 1, "a live station must still be routable")
 }
@@ -209,8 +234,29 @@ func stateOf(t *testing.T, b *broker, stationID string) string {
 // validator two packages away and the scope argument is a property of THESE TWO LOOPS. The
 // previous version of this defect was also unreachable right up until the classic-invite flow
 // made it reachable.
+//
+// THIS TEST DID NOT PIN ANY OF THAT UNTIL NOW, and the way it failed to is worth keeping in
+// view. It asserted `stateOf(...) != attach.StateDetached` - and the idle sweep does not write
+// StateDetached and has not since the soft/terminal split: DetachIdle writes StateDormant, in
+// both stores, deliberately, because retiring a Station terminally is what made a fortnight
+// away cost an operator their identity. So the assertion was true of a row the sweep had just
+// retired, and disabling the stamping loop outright - the exact defect above, in its strongest
+// form - left this test passing. It now asserts that five sweeps leave the row in the state
+// admission put it in, and that mutation fails it on the first sweep.
+//
+// The state is READ rather than named, and it is StateQuarantine rather than StateActive
+// today, because this row is written straight through the registry: Admit always admits into
+// quarantine and it is the self-attach handler, deliberately skipped here, that promotes. What
+// the sweep's WHERE clause judges is `state IN ('quarantine','active')` - both halves of
+// Live() - so a quarantined row is squarely in scope, and naming the literal would turn a test
+// about the sweep into a test about admission's opening state.
+//
+// The clock is driven for the same reason as the live-machine test above: with the horizon
+// shortened to 40ms, a stall between TouchRoutable(alive, now) and DetachIdle(tower, now-40ms)
+// retires a row that was stamped microseconds earlier, and the test would then report this
+// defect against code that does not have it. publishRoutableAt hands both halves one instant,
+// so the margin is a horizon of driven time and nothing can be stalled through it.
 func TestAnyRowTheSweepCanJudgeIsARowTheStampCanReach(t *testing.T) {
-	shortenIdleHorizon(t, 40*time.Millisecond)
 	b, srv := towerTestBroker(t)
 	towerID, _, _ := attachedStation(t, b, srv, "parity-op")
 
@@ -245,13 +291,17 @@ func TestAnyRowTheSweepCanJudgeIsARowTheStampCanReach(t *testing.T) {
 	b.mu.Lock()
 	b.nodes[nodeID] = protocol.NodeRegistration{NodeID: nodeID}
 	b.mu.Unlock()
+	admitted := stateOf(t, b, stationID)
+	require.NotEqual(t, attach.StateDormant, admitted,
+		"the row has to start in a state the sweep would judge, or this proves nothing")
+	now := time.Now()
 	for i := 0; i < 5; i++ {
-		time.Sleep(50 * time.Millisecond) // longer than the whole horizon, every time
+		now = now.Add(30 * attachmentIdleHorizon) // longer than the whole horizon, every time
 		b.mu.Lock()
-		b.lastSeen[nodeID] = time.Now()
+		b.lastSeen[nodeID] = now
 		b.mu.Unlock()
-		b.publishRoutable(towerID)
-		require.True(t, stateOf(t, b, stationID) != attach.StateDetached,
+		b.publishRoutableAt(towerID, now)
+		require.Equal(t, admitted, stateOf(t, b, stationID),
 			"sweep %d retired a live machine the stamping loop had no way to vouch for", i)
 	}
 }

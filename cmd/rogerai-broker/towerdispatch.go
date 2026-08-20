@@ -219,6 +219,29 @@ func (b *broker) towerDispatchKey(w http.ResponseWriter, r *http.Request) {
 // which is what the whole system did until now) rather than correctness, and taking the push
 // down over it would be trading a real outage for a partial one.
 func (b *broker) publishRoutable(towerID string) {
+	// ONE CLOCK READ FOR THE WHOLE PASS, taken here and threaded through everything below.
+	//
+	// The pass stamps live attachments (TouchRoutable) and then retires the ones whose stamp is
+	// older than the horizon (DetachIdle), and those two statements are adjacent on purpose -
+	// see "STAMP FIRST, THEN RETIRE" below. Reading the clock separately in each of them makes
+	// the distance between the stamp it writes and the cutoff it is then judged against the
+	// WALL-CLOCK GAP BETWEEN TWO STATEMENTS rather than the horizon: a GC pause or a descheduled
+	// goroutine between them carries the cutoff forward while the stamp stays where it was
+	// written, so a row that was stamped a moment ago is judged as though it were as old as the
+	// stall. With a seven-day horizon that is a rounding error and nothing operational turns on
+	// it (nothing here is a fix for a production defect); with a
+	// horizon a test can wait for it is the difference between a property and a race, and a
+	// property that is only true because the machine happened to be fast is not one this suite
+	// can pin. Taking the instant once makes "a row stamped in this pass survives this pass"
+	// arithmetic - stamp == now, cutoff == now-horizon, and no stall can come between them.
+	b.publishRoutableAt(towerID, time.Now())
+}
+
+// publishRoutableAt is publishRoutable with the instant supplied rather than read, so one pass
+// judges everything it touches against the same moment. Production has exactly one caller (the
+// wrapper above, passing time.Now()); a test drives the clock through it instead of racing the
+// scheduler for a margin - see TestALiveMachineIsNeverRetiredHoweverLongTheSweepRuns.
+func (b *broker) publishRoutableAt(towerID string, now time.Time) {
 	ts := b.tower
 	if ts == nil || ts.routable == nil {
 		return
@@ -255,7 +278,7 @@ func (b *broker) publishRoutable(towerID string) {
 		// one place both halves are in hand at once - so it is stamped here (TouchRoutable) and
 		// nowhere else. See below for what it is NOT used for.
 		var alive []string
-		live := b.liveNodeSet(ats, time.Now())
+		live := b.liveNodeSet(ats, now)
 		for _, at := range ats {
 			// STAMP BY THE PREDICATE THE SWEEP JUDGES BY, WHICH IS "DOES THIS ROW CARRY A NODE
 			// ID", AND NOTHING ELSE.
@@ -283,7 +306,7 @@ func (b *broker) publishRoutable(towerID string) {
 			rows = append(rows, fleet.Station{
 				TowerID: towerID, StationID: at.StationID, OfferID: "self-" + at.StationID,
 				Model: at.Model, Modality: at.Modality,
-				Expires:  time.Now().Add(selfOfferTTL),
+				Expires:  now.Add(selfOfferTTL),
 				Endpoint: plane.Endpoint,
 				// What a consumer must see the hub present before it submits sealed work. Empty
 				// for a plaintext hub, which is what every tower published before this column
@@ -306,7 +329,7 @@ func (b *broker) publishRoutable(towerID string) {
 		// The stamp carries no such risk, because it only ever says YES: an instance that cannot
 		// see the node writes nothing, and some other instance's stamp still counts.
 		if len(alive) > 0 && ts.stationStore != nil {
-			if terr := ts.stationStore.TouchRoutable(alive, time.Now()); terr != nil {
+			if terr := ts.stationStore.TouchRoutable(alive, now); terr != nil {
 				log.Printf("tower %s: could not stamp %d live attachment(s): %v", towerID, len(alive), terr)
 			}
 		}
@@ -314,7 +337,11 @@ func (b *broker) publishRoutable(towerID string) {
 		// retirement pass that ran before the stamp would judge every live Station on the
 		// PREVIOUS sweep's evidence, which is fine while the horizon is days and the sweep is
 		// minutes and is a live node silently retired the moment those two ever converge.
-		if gone := b.detachIdleAttachments(towerID); len(gone) > 0 {
+		//
+		// Both halves are handed the SAME instant, so what separates the stamp from the cutoff
+		// it is judged against is the horizon and not the time it takes to get from this line
+		// to the next one. See the clock note on publishRoutable.
+		if gone := b.detachIdleAttachments(towerID, now); len(gone) > 0 {
 			// And the rows go with them in the SAME pass. The attachments were read before the
 			// retirement, so publishing what was read would put a retired Station straight back
 			// into the projection and leave it there until the next sweep - a fixed lifecycle
@@ -392,12 +419,16 @@ var attachmentIdleHorizon = 7 * 24 * time.Hour
 // already the one thing that runs per Tower on the housekeeping tick AND holds the Tower id.
 // It is idempotent and scoped to one Tower, so running it on an attach or a revoke as well
 // costs one indexed UPDATE and changes nothing.
-func (b *broker) detachIdleAttachments(towerID string) []string {
+//
+// `now` is the caller's instant rather than this function's own reading of the clock, so the
+// cutoff it measures against is exactly one horizon back from the moment the same pass stamped
+// its live rows - see the clock note on publishRoutable.
+func (b *broker) detachIdleAttachments(towerID string, now time.Time) []string {
 	ts := b.tower
 	if ts == nil || ts.stationStore == nil {
 		return nil
 	}
-	gone, err := ts.stationStore.DetachIdle(towerID, time.Now().Add(-attachmentIdleHorizon))
+	gone, err := ts.stationStore.DetachIdle(towerID, now.Add(-attachmentIdleHorizon))
 	if err != nil {
 		// Best effort, like everything else on this path: a failed sweep means the table is
 		// still too big, which is what it already was.

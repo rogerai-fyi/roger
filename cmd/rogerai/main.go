@@ -1402,7 +1402,7 @@ needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
 		// time this runs, so nothing here may take that away: no live relay, no signed-in
 		// account, or an attach that fails outright all leave a perfectly good node serving
 		// the ordinary way. It is additive reach, never a precondition.
-		go joinRelayFabric(cfgRun)
+		startRelayFabric(cfgRun)
 		shareBlock() // serve forever (a test seam makes this return)
 		return nil
 	}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"io"
 	"net"
@@ -9,9 +10,12 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"rogerai.fm/roger/v5/internal/agent"
 	"rogerai.fm/roger/v5/internal/detect"
 	"rogerai.fm/roger/v5/internal/node"
 	"rogerai.fm/roger/v5/internal/tui"
@@ -52,11 +56,93 @@ func brokerRouting(t *testing.T, routes map[string]string) string {
 	return srv.URL
 }
 
+// joinShareWorkers makes a share's background relay-fabric join END WITH THE TEST instead of
+// outliving it, and it is the difference between a suite that passes and a suite that means
+// something.
+//
+// WHAT WENT WRONG WITHOUT IT. cmdShare spawns the relay-fabric join and returns as soon as the
+// shareBlock seam returns; the worker is then still inside its first AttachTower, which creates
+// a Station directory under XDG_CONFIG_HOME - pointed by these tests at t.TempDir(). Two harms,
+// and the visible one is the lesser. TestCmdShareEarnDisclosureAndPriceWarn failed whole-package
+// runs with "TempDir RemoveAll cleanup: unlinkat .../rogerai/tower-station: directory not empty"
+// - two in six when it was found, one in six when it was fixed - because RemoveAll was walking a
+// tree a live writer was still filling.
+//
+// Underneath that, the same worker keeps going after the test that started it is over: the first
+// attach retries on a 30-second backoff, five times, against a broker whose httptest server has
+// been closed, into a config directory that has been deleted and which it recreates. And it does
+// not even stay in its own test's directory. It resolves os.UserConfigDir() when it is
+// SCHEDULED, and XDG_CONFIG_HOME is one process-global variable that the next test has already
+// repointed at its own t.TempDir() - so the whole-package failure this actually produced was in
+// TestRemoteListEmptyAndError, a test with nothing to do with sharing, which found a
+// rogerai/tower-station in its temporary directory that it never created.
+//
+// WHY WAITING NEEDS A SEAM AT ALL. Ending the worker means cancelling the context it serves
+// under, and the production one is shareShutdown: process-wide and terminal, so a test that
+// cancelled it would end the relay plane for every test after it (the wiring test in
+// share_interrupt_test.go pays for a subprocess rather than cancel it in-process). So this
+// swaps the SPAWNER, not the work: the same joinRelayFabric runs, under a context this test
+// owns and a WaitGroup this test can wait on.
+//
+// IT IS A JOIN, NOT A SLEEP AND NOT A RETRY OF THE CLEANUP. The cleanup below returns only when
+// the goroutine has actually returned, so "the worker is gone" is observed rather than assumed;
+// a sleep would restore the same race one order of magnitude quieter, which is how a flake
+// becomes a mystery. The spawn count is asserted too, because a seam nobody exercises is a
+// helper that silently stops helping: if the share path ever stops going through
+// startRelayFabric, these tests say so instead of going back to leaking.
+//
+// Cleanup order is load-bearing and free: t.Cleanup is LIFO and every caller takes its
+// t.TempDir() before it calls into cmdShare, so this join always runs BEFORE the RemoveAll it
+// used to race.
+func joinShareWorkers(t *testing.T) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	var wg sync.WaitGroup
+	var spawned, stopped atomic.Int64
+	orig := startRelayFabric
+	startRelayFabric = func(cfg agent.Config) {
+		spawned.Add(1)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			defer stopped.Add(1)
+			joinRelayFabric(ctx, cfg)
+		}()
+	}
+	t.Cleanup(func() {
+		startRelayFabric = orig
+		cancel()
+		joined := make(chan struct{})
+		go func() { wg.Wait(); close(joined) }()
+		select {
+		case <-joined:
+		case <-time.After(60 * time.Second):
+			// Deliberately not fatal-and-move-on: if the worker cannot be joined the test's
+			// TempDir is about to be removed underneath it, and the next test in this package
+			// inherits it. Say which one leaked.
+			t.Errorf("a share worker outlived its test: %d spawned, %d stopped - the relay join "+
+				"is not ending on its context", spawned.Load(), stopped.Load())
+		}
+	})
+	t.Cleanup(func() {
+		if spawned.Load() == 0 {
+			t.Errorf("no share worker was spawned through startRelayFabric - the share path no " +
+				"longer goes through the seam this join depends on, so nothing is being waited for")
+		}
+	})
+}
+
 // runShareAsync runs cmdShare on a goroutine (its go-live tail would otherwise block on
 // shareBlock) and asserts it returns nil within a bound. The caller must have installed
 // stubShareSeams so shareBlock returns.
+//
+// It also JOINS the share's background relay-fabric worker at the end of the test
+// (joinShareWorkers). cmdShare returning is not the share being over: the go-live tail spawns a
+// worker that keeps writing under XDG_CONFIG_HOME, and every caller here has pointed that at a
+// t.TempDir() that is about to be deleted.
 func runShareAsync(t *testing.T, cfg config, args []string) {
 	t.Helper()
+	joinShareWorkers(t)
 	done := make(chan error, 1)
 	go func() { done <- cmdShare(cfg, args) }()
 	select {
