@@ -247,11 +247,12 @@
               have to happen before a single request crosses your relay, and neither is something
               you control:</p>
             <ol class="bc-dial">
-              <li><b>Providers have to be on the relay fabric.</b> Reaching it is still opt-in
-                on the provider's side today, so your traffic depends on how many providers have
-                opted in, not only on consumer demand. That opt-in is being removed: the intent
-                is that sharing a model puts a node on the fabric by default, with placement
-                decided centrally rather than by a flag the provider types.</li>
+              <li><b>Providers have to be on the relay fabric.</b> They no longer opt in - an
+                ordinary <code>roger share</code> offers a signed-in node to the fabric on its
+                own, and there is no flag to type. But it is best effort: a node with no
+                signed-in account, or one that cannot reach a relay, simply keeps serving the
+                ordinary way and never reaches you. So your traffic still depends on how much of
+                the fleet is both signed in and reachable, not on consumer demand alone.</li>
               <li><b>Core has to send them to you.</b> A node does not choose its Tower - Core
                 assigns one, and today that assignment is <b>first-fit</b> among live, admitted
                 Towers advertising a data-plane endpoint, with no weighting by load, health or

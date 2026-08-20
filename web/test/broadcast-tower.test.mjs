@@ -62,11 +62,21 @@ test("earning copy stays conditional on demand", () => {
 
   // "Traffic is early" is too vague on its own - an operator needs the two gates that
   // actually decide whether anything reaches them, neither of which they control.
-  assert.match(c, /opt-in|opted in/i,
-    "gate 1: reaching the relay fabric is still opt-in on the provider's side");
-  // The flag is on its way out (M0 of docs/relay-selection-design.md), and it currently
-  // costs a provider their public listing. The article must never instruct anyone to type
-  // it - not in the copy, not in the metadata, not in the structured data.
+  //
+  // This assertion used to require the word "opt-in", because reaching the fabric was
+  // opt-in when the article was written. Then `--tower` was removed, the sentence stopped
+  // being true, and the test failed for the copy being CORRECTED. A test that pins a
+  // transient fact turns every fix into a failure and teaches the next person to edit the
+  // test instead of the claim. What endures is that the join is BEST EFFORT - a node with
+  // no signed-in account, or one that cannot reach a relay, silently never arrives - so
+  // that is what gets pinned.
+  assert.match(c, /best effort|best-effort/i,
+    "gate 1: the article says the relay join is best effort, not guaranteed");
+  assert.match(c, /(signed[- ]in|cannot reach)/i,
+    "and names at least one concrete way a node never arrives");
+  // The flag is gone (see the --tower removal commit) and typing it now fails outright.
+  // The article must never instruct anyone to run it - not in the copy, not in the
+  // metadata, not in the structured data.
   assert.doesNotMatch(page(), /share\s+--tower/,
     "the article never tells a provider to run `roger share --tower`");
   assert.match(c, /first[- ]fit/i,
