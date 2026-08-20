@@ -3,6 +3,7 @@ package towerhub
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
@@ -94,6 +95,29 @@ type Server struct {
 	// replayable at it. That configuration is still unsupported - it will flap - but it fails
 	// closed instead of failing open, which is the better of the two ways to be unsupported.
 	epoch string
+
+	// epochKey is THIS TOWER'S ADMITTED IDENTITY KEY, and it is what makes the epoch above
+	// worth having.
+	//
+	// The epoch is published on an unauthenticated 401 over a plaintext channel, so a client
+	// that believed it was believing whoever answered the socket - and re-signing over an
+	// attacker's chosen value, which is a genuine unconsumed signature rather than a replay.
+	// This key signs the epoch (hubEpochStatement, bound to the refused request's own nonce),
+	// and Core hands the node this key's fingerprint in the attach response, so the node checks
+	// the epoch against material it got from Core rather than from the relay. See
+	// HubKeyHeader.
+	//
+	// It is the SAME key Core admitted this tower under - roger-tower passes
+	// tower.State.IdentityKey() - deliberately, because that is the only key both ends already
+	// have a trusted path to. Nothing new is enrolled, distributed or rotated, exactly as
+	// nothing was when node authentication moved onto the Station's assertion key.
+	//
+	// NewServer mints an ephemeral one when the caller supplies none, rather than leaving the
+	// hub unable to prove itself: an embedded hub or a test then still exercises the real path,
+	// and a caller that forgot the key gets a hub whose epoch no node will adopt (loudly, on
+	// the node's notice channel) instead of a hub that silently reopens the hole.
+	epochKey    ed25519.PrivateKey
+	epochPubHex string
 
 	// allowLegacyBearer accepts the pre-signature bearer token from a node that does not sign
 	// yet. It is a TRANSITION affordance with an end date, not a mode.
@@ -216,6 +240,9 @@ type ServerOptions struct {
 	// tokens, which is the state this whole change is heading for; `roger-tower` passes true
 	// unless the operator turned it off. See Server.allowLegacyBearer.
 	AllowLegacyBearer bool
+	// EpochKey is the tower's admitted identity key, used to PROVE this hub's epoch to a node.
+	// See Server.epochKey. Nil mints an ephemeral one.
+	EpochKey ed25519.PrivateKey
 }
 
 // NewServer wires a Server over a Hub with a grant checker. Zero TTLs fall back to the defaults.
@@ -226,8 +253,21 @@ func NewServer(hub *Hub, check GrantCheck, opt ServerOptions) *Server {
 	if opt.PollTTL <= 0 {
 		opt.PollTTL = defaultPollTTL
 	}
+	if len(opt.EpochKey) != ed25519.PrivateKeySize {
+		// A hub with no way to prove its epoch would be refused by every current node, so one
+		// is minted here rather than left nil. It is per process, like the epoch it signs, and
+		// a node holding Core's fingerprint for the real key will refuse it - which is the
+		// correct outcome for a hub that was wired without its identity.
+		_, eph, err := ed25519.GenerateKey(nil)
+		if err != nil {
+			panic("crypto/rand unavailable: " + err.Error())
+		}
+		opt.EpochKey = eph
+	}
 	return &Server{hub: hub, check: check, submitTTL: opt.SubmitTTL, pollTTL: opt.PollTTL,
 		towerID: opt.TowerID, allowLegacyBearer: opt.AllowLegacyBearer,
+		epochKey:    opt.EpochKey,
+		epochPubHex: hex.EncodeToString(opt.EpochKey.Public().(ed25519.PublicKey)),
 		// THE PROCESS EPOCH. Random rather than a timestamp: a wall clock is what the thing
 		// this replaces got wrong, and a hub restarted twice inside one second must not mint
 		// the same epoch twice. See Server.epoch.
@@ -305,14 +345,51 @@ func readGETBody(w http.ResponseWriter, r *http.Request) ([]byte, error) {
 	return io.ReadAll(http.MaxBytesReader(w, r.Body, maxGETBody))
 }
 
-// stampEpoch publishes this hub run's epoch on a node-facing response. It is called before
-// anything else in each node route so that EVERY answer carries it - a 401 most of all, since
-// that is the one a client gets when it does not know the epoch yet and the header is how it
-// finds out. Set before any WriteHeader, which is the only ordering that works.
-func (s *Server) stampEpoch(w http.ResponseWriter) {
-	if s.epoch != "" {
-		w.Header().Set(HubEpochHeader, s.epoch)
+// stampEpoch publishes this hub run's epoch on a node-facing response, TOGETHER WITH THE PROOF
+// THAT IT IS THIS TOWER'S. It is called before anything else in each node route so that EVERY
+// answer carries all three - a 401 most of all, since that is the one a client gets when it does
+// not know the epoch yet and these headers are how it finds out. Set before any WriteHeader,
+// which is the only ordering that works.
+//
+// THE PROOF IS ON EVERY ANSWER, NOT ONLY ON THE EPOCH REFUSAL, and that is a deliberate choice
+// over a narrower one. A node adopts an epoch whenever a response names one it did not send, and
+// that response is not always the epoch refusal - the door refusal and the unknown-Station
+// refusal reach a client with a stale epoch too. Emitting the proof from one place means the
+// next route added here cannot forget it, which is the same argument the nonce gate makes for
+// applying to every route rather than only to the one that dequeues.
+//
+// It costs one Ed25519 signature per node-facing request. At the real cadence - a poll per
+// worker per twenty-five seconds - that is a third of a signature a second on a fully loaded
+// eight-worker node, and the pathological case (a stranger spraying the route) is bounded by the
+// listener's connection cap rather than by this being cheap.
+func (s *Server) stampEpoch(w http.ResponseWriter, r *http.Request) {
+	if s.epoch == "" {
+		return
 	}
+	w.Header().Set(HubEpochHeader, s.epoch)
+	if len(s.epochKey) != ed25519.PrivateKeySize {
+		return
+	}
+	// The nonce of the request being answered, so the proof is a response to THIS challenge and
+	// cannot be stockpiled and replayed into a later one. A request that carries no nonce (a
+	// stranger, or a pre-signature node) gets a proof over the empty string, which is exactly
+	// as useful to it as no proof at all.
+	nonce := r.URL.Query().Get(nonceParam)
+	sig := ed25519.Sign(s.epochKey, hubEpochStatement(s.towerID, s.epoch, nonce))
+	w.Header().Set(HubKeyHeader, s.epochPubHex)
+	w.Header().Set(HubProofHeader, hex.EncodeToString(sig))
+}
+
+// EpochKeyHash is the fingerprint a node checks this hub's epoch proof against - hex
+// sha256 of the raw identity public key, the same string Core keeps in its admission registry
+// and hands the node at attach. Exposed for a caller that mounts the Server itself and has to
+// give a client the value Core would have given it.
+func (s *Server) EpochKeyHash() string {
+	if len(s.epochKey) != ed25519.PrivateKeySize {
+		return ""
+	}
+	sum := sha256.Sum256(s.epochKey.Public().(ed25519.PublicKey))
+	return hex.EncodeToString(sum[:])
 }
 
 func bearer(r *http.Request) string {
@@ -418,7 +495,7 @@ type pollResp struct {
 // and the honest node therefore never serves - the denial-of-earnings attack, rebuilt on top
 // of the fix for it.
 func (s *Server) Poll(w http.ResponseWriter, r *http.Request) {
-	s.stampEpoch(w)
+	s.stampEpoch(w, r)
 	if r.Method != http.MethodGet {
 		writeErr(w, http.StatusMethodNotAllowed, "GET only")
 		return
@@ -461,7 +538,7 @@ type completeReq struct {
 // (who fails to open a forgery) and the receipt is node-signed and settled one-use at Core - but
 // the signature still binds a completion to the Station's own node.
 func (s *Server) Complete(w http.ResponseWriter, r *http.Request) {
-	s.stampEpoch(w)
+	s.stampEpoch(w, r)
 	if r.Method != http.MethodPost {
 		writeErr(w, http.StatusMethodNotAllowed, "POST only")
 		return

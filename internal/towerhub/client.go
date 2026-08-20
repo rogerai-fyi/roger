@@ -3,7 +3,10 @@ package towerhub
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -53,6 +56,18 @@ type Client struct {
 	// policy is replaced - see httpClient.
 	HTTP *http.Client
 
+	// TowerKeyHash is the fingerprint of the TOWER IDENTITY KEY Core admitted this relay
+	// under - hex sha256 of the raw Ed25519 public key, exactly the string Core keeps in its
+	// admission registry and hands the node in the attach response. It is what makes the epoch
+	// below the HUB'S value rather than the ATTACKER'S; see epochFrom.
+	//
+	// A node-side Client without one cannot learn an epoch at all, and that refusal is
+	// deliberate rather than a gap to fill in later: the whole point is that the epoch may not
+	// be adopted on the word of an unauthenticated 401, and "we could not check, so we believed
+	// it" is that 401 with an extra step. A consumer-side Client (Sign == nil) never signs and
+	// never learns, so it needs none.
+	TowerKeyHash string
+
 	// once/http build the effective client exactly once, so the redirect policy below is
 	// installed without mutating a *http.Client the caller may be sharing (which would be a
 	// data race between the poll workers and the audit loop).
@@ -69,9 +84,49 @@ type Client struct {
 	//
 	// A mutex rather than an atomic because the workers write it concurrently on the same
 	// restart and a torn read would send an epoch nobody minted.
+	//
+	// retired is every epoch this client has MOVED OFF, newest last and bounded. It exists
+	// because an epoch is 128 bits of crypto/rand minted once per process, so a hub that has
+	// restarted can never name an epoch this client abandoned - only a SECOND LIVE PROCESS can.
+	// See adoptEpoch: coming back to a retired epoch is therefore proof of the one deployment
+	// this design does not support, with no false positive available to anybody, and the client
+	// stops rather than keeps flapping.
 	epochMu sync.RWMutex
 	epoch   string
+	retired []string
 }
+
+// maxRetiredEpochs bounds the abandoned-epoch memory. A client that legitimately moves epoch
+// does so once per hub redeploy; eight is a fortnight of daily deploys and costs 8 x 32 bytes.
+const maxRetiredEpochs = 8
+
+// ErrHubEpochUnproved is a hub epoch this client cannot attribute to the relay Core named.
+//
+// It is an ERROR RATHER THAN A SHRUG because of what the alternative costs. The epoch rides in
+// the SIGNED target, so adopting one means emitting a genuine Ed25519 signature over a target
+// naming it - with a fresh nonce and a fresh timestamp, bytes no hub has ever seen and no nonce
+// ring has recorded. Believing an unauthenticated 401 therefore turns this node into a signing
+// oracle for whatever epoch the party in front of it names. Refusing costs a poll; believing
+// costs a signature the node did not choose to make.
+var ErrHubEpochUnproved = errors.New(
+	"this relay named a new hub epoch it could not prove: the epoch a node signs over must be " +
+		"corroborated with the relay's admitted identity key, and this one was not, so it is " +
+		"refused rather than signed over")
+
+// ErrHubMultipleProcesses reports an endpoint answered by more than one live hub process.
+//
+// See Client.retired for why the detection is exact. A tower is documented as running exactly
+// one hub process per endpoint (docs/relay-selection-design.md section 5) because the replay
+// gate is per process and in memory; two of them behind a load balancer make this client flap
+// between their epochs, and every request that lands on the process it did not sign for
+// MANUFACTURES a genuine, unconsumed signature for the other one - readable in the clear and
+// replayable there. Stopping is the fail-closed answer, and saying so is how the operator finds
+// out their deployment is the unsupported one.
+var ErrHubMultipleProcesses = errors.New(
+	"this relay endpoint is answered by more than one live hub process, which is an unsupported " +
+		"deployment: the replay gate is per process, so a request signed for one of them is " +
+		"refused by the other and left unconsumed for anyone watching the link to replay. " +
+		"This node has stopped signing for it rather than keep flapping between them")
 
 // hubEpoch reads the cached process epoch.
 func (c *Client) hubEpoch() string {
@@ -80,62 +135,190 @@ func (c *Client) hubEpoch() string {
 	return c.epoch
 }
 
-// learnEpoch records the epoch a hub named on a response and reports whether it is NEW, which
-// is what decides a retry. Returning false for a value we already had is what keeps a genuine
-// 401 - a Station this hub does not know, a bad signature - from becoming an infinite retry.
-func (c *Client) learnEpoch(fresh string) bool {
+// adoptEpoch moves this client onto a hub epoch it has already PROVED (see epochFrom), retiring
+// the one it was using. It is idempotent: adopting the value already held is a no-op, which is
+// what makes two workers learning the same restart cost one adoption rather than a race.
+//
+// It refuses an epoch this client previously moved off, which is the passive half of the
+// two-process defect - see ErrHubMultipleProcesses.
+func (c *Client) adoptEpoch(fresh string) error {
 	if fresh == "" {
-		return false
+		return nil
 	}
 	c.epochMu.Lock()
 	defer c.epochMu.Unlock()
 	if c.epoch == fresh {
-		return false
+		return nil
+	}
+	for _, old := range c.retired {
+		if old == fresh {
+			return ErrHubMultipleProcesses
+		}
+	}
+	if c.epoch != "" {
+		c.retired = append(c.retired, c.epoch)
+		if len(c.retired) > maxRetiredEpochs {
+			c.retired = c.retired[len(c.retired)-maxRetiredEpochs:]
+		}
 	}
 	c.epoch = fresh
-	return true
+	return nil
+}
+
+// epochFrom reads the epoch a hub named on a refusal and PROVES it belongs to the relay Core
+// placed this node on, or refuses to read it at all.
+//
+// # THE CHECK WAS SOUND AND THE PROVENANCE WAS NOT
+//
+// Binding the hub process into the signed target closes the redeploy replay (see nodeauth.go),
+// and the hub-side check of that binding is exact. What was missing is on this side: the value
+// being checked arrived on an UNAUTHENTICATED 401 over a channel that is plaintext by
+// construction. Anyone on the path could answer a poll with a forged "401 +
+// X-Roger-Hub-Epoch: <anything>" and this client would cache it and re-sign - producing a
+// genuine signature over an epoch of the attacker's choosing, with a fresh nonce and a fresh
+// timestamp, which is bytes no hub has seen and therefore an UNCONSUMED signature rather than
+// a replay. Everything the epoch bought was conditional on that 401 being honest.
+//
+// # WHY THE RELAY'S OWN IDENTITY KEY, AND NOT TLS
+//
+// TLS is the complete answer and it is a separate, later change (option A in section 5.2 of
+// docs/relay-selection-design.md); making this fix wait on it would leave the hole open for
+// the sake of tidiness. The material for a narrower answer is already in every node's hands:
+// Core ADMITTED this tower under an Ed25519 identity key, keeps its fingerprint in the
+// admission registry, verifies every one of the tower's own requests against it, and now hands
+// that fingerprint to the node in the attach response. The tower holds the private half and
+// signs its epoch with it. So the node checks the epoch against a key it got from Core - the
+// party it already trusts for the tower id, the endpoint and the grant key - rather than
+// against the word of whoever answered the socket.
+//
+// # THE PROOF BINDS THIS REQUEST'S NONCE, WHICH IS WHAT MAKES IT A CHALLENGE
+//
+// A signature over (tower, epoch) alone would be a bearer token for an epoch: captured once
+// before a redeploy, it would let an on-path attacker point a node back at a dead epoch
+// whenever it liked. The nonce this client minted for THIS request is in the statement, so a
+// proof is good for one request and cannot be stockpiled. What an on-path attacker can still
+// do is RELAY - forward the node's own request to a hub and hand back that hub's genuine
+// answer - which is why this closes the forge-any-epoch attack outright and leaves the
+// two-live-processes case to ErrHubMultipleProcesses above.
+//
+// It returns ("", nil) when there is nothing new to learn, so the ordinary 401 - an unknown
+// Station, a bad signature, a hub that names the epoch this client already signed with - costs
+// no cryptography at all.
+func (c *Client) epochFrom(resp *http.Response, sentEpoch, nonce string) (string, error) {
+	fresh := resp.Header.Get(HubEpochHeader)
+	if fresh == "" || fresh == sentEpoch {
+		return "", nil
+	}
+	if c.Sign == nil {
+		return "", nil // a consumer signs nothing, so it has no epoch to be wrong about
+	}
+	if c.TowerKeyHash == "" {
+		return "", ErrHubEpochUnproved
+	}
+	keyHex := strings.TrimSpace(resp.Header.Get(HubKeyHeader))
+	raw, err := hex.DecodeString(keyHex)
+	if err != nil || len(raw) != ed25519.PublicKeySize {
+		return "", ErrHubEpochUnproved
+	}
+	sum := sha256.Sum256(raw)
+	// Not constant time, and it must not be mistaken for a secret comparison: both sides of
+	// this are public material (a public key and its published fingerprint), and the thing an
+	// attacker lacks is the private half, not knowledge of the hash.
+	if !strings.EqualFold(hex.EncodeToString(sum[:]), c.TowerKeyHash) {
+		return "", ErrHubEpochUnproved
+	}
+	sig, err := hex.DecodeString(strings.TrimSpace(resp.Header.Get(HubProofHeader)))
+	if err != nil || len(sig) != ed25519.SignatureSize {
+		return "", ErrHubEpochUnproved
+	}
+	if !ed25519.Verify(ed25519.PublicKey(raw), hubEpochStatement(c.TowerID, fresh, nonce), sig) {
+		return "", ErrHubEpochUnproved
+	}
+	return fresh, nil
 }
 
 // signedDo is every NODE-side call: build the target, sign it, send it, and - if the hub says
-// the signature was made for a different run of itself - learn the new epoch and send exactly
-// one more.
+// the signature was made for a different run of itself AND PROVES that claim - learn the new
+// epoch and send exactly one more.
 //
-// ONE RETRY, NOT A LOOP. The retry is triggered only by an epoch this client had not seen, and
-// learnEpoch will not report the same value twice, so a hub that answered 401 with a constant
-// epoch gets one extra request and no more. A hub restarting between the two attempts costs the
-// caller one failed request, which its own poll loop retries anyway.
+// ONE RETRY, NOT A LOOP. The retry is triggered only by a proved epoch that differs from the
+// one this attempt actually SENT, and the second attempt never retries, so the worst case is
+// two requests per call however a hub answers.
+//
+// THE TRIGGER IS "DIFFERENT FROM WHAT WAS SENT", NOT "DIFFERENT FROM WHAT WAS CACHED", and the
+// distinction is the whole of a defect worth naming. The old code retried only when the value
+// was new to the CACHE, so on a hub restart the first worker to notice learned the epoch and
+// retried while every other worker - which had already sent the stale epoch and got the same
+// 401 - was told "nothing new" and hard-failed. Measured at three of four workers failing a
+// single epoch change, each turning into a 2s backoff plus an ErrHubRefusedThisNode notice: an
+// operator-facing "your relay refuses this node's identity" alarm on every routine redeploy,
+// fired on the one channel deliberately designed not to be discardable. A worker's retry
+// decision has to be about its OWN request.
+//
+// AND THE SECOND RESPONSE IS LEARNED FROM TOO. A hub that restarts between the two attempts
+// answers the retry with a third epoch; not reading it meant the next call started from a value
+// already known to be stale and burned its retry rediscovering that. No third attempt is made -
+// the caller's own poll loop is the retry - but the cache is left correct.
 //
 // The body is a []byte rather than a reader precisely so the second attempt can send the same
 // bytes; the signature covers their digest, so re-reading a stream would not do.
 func (c *Client) signedDo(ctx context.Context, method, path string, q url.Values, body []byte) (*http.Response, error) {
-	attempt := func() (*http.Response, error) {
-		target := hubTarget(c.TowerID, c.hubEpoch(), path, cloneValues(q))
+	attempt := func() (sent, nonce string, resp *http.Response, err error) {
+		sent = c.hubEpoch()
+		vals := cloneValues(q)
+		target := hubTarget(c.TowerID, sent, path, vals)
 		var rdr io.Reader
 		if body != nil {
 			rdr = bytes.NewReader(body)
 		}
-		req, err := http.NewRequestWithContext(ctx, method, c.url(target), rdr)
-		if err != nil {
-			return nil, err
+		req, rerr := http.NewRequestWithContext(ctx, method, c.url(target), rdr)
+		if rerr != nil {
+			return sent, "", nil, rerr
 		}
 		if body != nil {
 			req.Header.Set("Content-Type", "application/json")
 		}
 		c.authenticate(req, target, body)
-		return c.httpClient().Do(req)
+		resp, err = c.httpClient().Do(req)
+		// The nonce hubTarget minted is read back off the values it wrote it into, so the
+		// challenge the proof must answer is the one that actually went on the wire rather
+		// than a second guess at it.
+		return sent, vals.Get(nonceParam), resp, err
 	}
-	resp, err := attempt()
+	drain := func(resp *http.Response) {
+		// The refused response is drained and closed before the retry: leaving it open leaks a
+		// connection per restart per worker, on a client whose whole job is to hold long polls.
+		io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
+		resp.Body.Close()
+	}
+	sent, nonce, resp, err := attempt()
 	if err != nil || resp.StatusCode != http.StatusUnauthorized {
 		return resp, err
 	}
-	if !c.learnEpoch(resp.Header.Get(HubEpochHeader)) {
+	fresh, ferr := c.epochFrom(resp, sent, nonce)
+	if ferr != nil {
+		drain(resp)
+		return nil, ferr
+	}
+	if fresh == "" {
 		return resp, nil
 	}
-	// The refused response is drained and closed before the retry: leaving it open leaks a
-	// connection per restart per worker, on a client whose whole job is to hold long polls.
-	io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
-	resp.Body.Close()
-	return attempt()
+	if aerr := c.adoptEpoch(fresh); aerr != nil {
+		drain(resp)
+		return nil, aerr
+	}
+	drain(resp)
+	sent2, nonce2, resp2, err := attempt()
+	if err != nil || resp2.StatusCode != http.StatusUnauthorized {
+		return resp2, err
+	}
+	if fresh2, ferr2 := c.epochFrom(resp2, sent2, nonce2); ferr2 == nil && fresh2 != "" {
+		if aerr := c.adoptEpoch(fresh2); aerr != nil {
+			drain(resp2)
+			return nil, aerr
+		}
+	}
+	return resp2, nil
 }
 
 // cloneValues copies a caller's query so hubTarget's per-request additions (a fresh nonce, the

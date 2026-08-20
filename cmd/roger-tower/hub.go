@@ -94,6 +94,20 @@ func runHubInBackground(st *tower.State, opt hubOptions, out io.Writer, stop <-c
 	if err != nil {
 		return nil, fmt.Errorf("cannot fetch Roger Core's grant key: %w", err)
 	}
+	// THIS TOWER'S ADMITTED IDENTITY KEY, which the hub uses to PROVE its process epoch to a
+	// polling node. The epoch rides in the node's signed target, and it is published on an
+	// unauthenticated 401 over a plaintext link - so without a proof, anyone on the path could
+	// answer a poll with an epoch of their choosing and collect a genuine signature over it
+	// (see internal/towerhub/nodeauth.go, HubKeyHeader). The node checks that proof against
+	// this key's fingerprint, which Core hands it at attach.
+	//
+	// FAIL FAST, like the grant key above and for the same reason: a hub that cannot prove its
+	// epoch is a hub every current node refuses to sign for, and discovering that as "no
+	// station ever serves" is worse than not starting.
+	identity, err := st.IdentityKey()
+	if err != nil {
+		return nil, fmt.Errorf("cannot read this tower's identity key (the hub proves its epoch with it): %w", err)
+	}
 	hub := towerhub.New()
 	server := towerhub.NewServer(hub, func(grant []byte) (string, string, error) {
 		att, station, _, gerr := dispatch.EdgeGrantMeta(grant, coreKey, link.PublicNetwork,
@@ -106,6 +120,7 @@ func runHubInBackground(st *tower.State, opt hubOptions, out io.Writer, stop <-c
 		// See internal/towerhub/nodeauth.go.
 		TowerID:           st.TowerID,
 		AllowLegacyBearer: opt.AllowLegacyBearer,
+		EpochKey:          identity,
 	})
 	// THE SETTLE COURIER: every completed result's receipt is forwarded to Core, tower-signed,
 	// so the node is paid without holding its own line to Core. Opaque both ways; Core's

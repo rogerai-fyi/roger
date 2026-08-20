@@ -36,7 +36,7 @@ func stubCheck(grant []byte) (string, string, error) {
 // the transition tolerance ON, which is what `roger-tower serve` defaults to today.
 func testServer(t *testing.T) (*Server, *httptest.Server) {
 	t.Helper()
-	return testServerWith(t, ServerOptions{TowerID: testTowerID, SubmitTTL: 3 * time.Second,
+	return testServerWith(t, ServerOptions{TowerID: testTowerID, EpochKey: testHubKey, SubmitTTL: 3 * time.Second,
 		PollTTL: 300 * time.Millisecond, AllowLegacyBearer: true})
 }
 
@@ -170,7 +170,7 @@ func TestHTTPPollReturns204WhenIdle(t *testing.T) {
 
 // A submit whose node never answers times out as a 504 rather than hanging forever.
 func TestHTTPSubmitTimesOutWhenNoNodeAnswers(t *testing.T) {
-	s := NewServer(New(), stubCheck, ServerOptions{TowerID: testTowerID,
+	s := NewServer(New(), stubCheck, ServerOptions{TowerID: testTowerID, EpochKey: testHubKey,
 		SubmitTTL: 120 * time.Millisecond, PollTTL: 60 * time.Millisecond})
 	mux := http.NewServeMux()
 	mux.HandleFunc("/submit", s.Submit)

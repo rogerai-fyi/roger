@@ -35,6 +35,8 @@ func attachStub(t *testing.T) (*httptest.Server, func() []string) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"station_id": body.StationID, "tower_id": "tw-1",
 			"endpoint": "203.0.113.9:8443", "hub_token": "t", "state": "active",
+			// AttachTower refuses an answer with no relay fingerprint - see TowerAttachment.
+			"tower_key_hash": "00",
 		})
 	}))
 	t.Cleanup(srv.Close)

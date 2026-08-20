@@ -113,6 +113,12 @@ func relayRig(t *testing.T) (broker string, notices *noticeSink) {
 			// Core still mints one, for towers serving nodes too old to sign. This node
 			// receives it and never transmits it - see towerhub.Client's missing Token field.
 			HubToken: "hub-token", State: "active",
+			// The relay's admitted identity fingerprint. A current node refuses to attach
+			// without one: it is what lets it tell the hub's own epoch from an on-path
+			// attacker's, and the epoch is a value it signs over. These stub hubs publish no
+			// epoch at all, so nothing here ever adopts one - the field is present because
+			// AttachTower requires it, which is itself the point.
+			TowerKeyHash: "00",
 		})
 	})
 	coreMux.HandleFunc("/tower/dispatch/key", func(w http.ResponseWriter, _ *http.Request) {
@@ -212,7 +218,10 @@ func TestARefusedIdentityIsSaidOutLoud(t *testing.T) {
 	coreMux.HandleFunc("/tower/edge/attach", func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(TowerAttachment{
 			StationID: "st-test", TowerID: "tw-old",
-			Endpoint: hub.Listener.Addr().String(), State: "active",
+			// A fingerprint is present because attach requires one; this pre-signature hub
+			// publishes no epoch header at all, so nothing here is ever adopted and the 401
+			// stays what the test is about - a refused identity, not an unproved epoch.
+			Endpoint: hub.Listener.Addr().String(), TowerKeyHash: "00", State: "active",
 		})
 	})
 	coreMux.HandleFunc("/tower/dispatch/key", func(w http.ResponseWriter, _ *http.Request) {

@@ -71,7 +71,11 @@ func TestHubNodeRegistrationReadsCoresAssertionKey(t *testing.T) {
 	// THE PROOF: a real signed poll, made exactly as a node makes one, is accepted - which can
 	// only be true if the key Core sent as hex arrived at RegisterNode as 32 raw bytes.
 	client := &towerhub.Client{BaseURL: srv.URL, TowerID: hubTestTowerID,
-		Sign: towerhub.SignWith(priv), HTTP: &http.Client{Timeout: 5 * time.Second}}
+		// The fingerprint Core would have handed the node at attach: without it a client
+		// refuses to adopt the epoch this hub names, because on the real link that value
+		// arrives on an unauthenticated 401.
+		TowerKeyHash: server.EpochKeyHash(),
+		Sign:         towerhub.SignWith(priv), HTTP: &http.Client{Timeout: 5 * time.Second}}
 	_, ok, perr := client.PollJob(t.Context(), "st-signing")
 	require.NoError(t, perr, "the hub refused a poll signed with the key Core sent it")
 	require.False(t, ok, "an idle queue answers empty")

@@ -242,6 +242,55 @@ const (
 // lacks. Being able to SIGN over it is.
 const HubEpochHeader = "X-Roger-Hub-Epoch"
 
+// HubKeyHeader and HubProofHeader are what turn the epoch above from a value the ANSWERING
+// PARTY chose into a value THIS TOWER chose.
+//
+// # THE HOLE THEY CLOSE
+//
+// The epoch is published on an unauthenticated 401 over a channel that is plaintext by
+// construction, and a client that simply believed it would re-sign against whatever it was
+// told. So anyone on the path could answer a node's poll with a forged "401 + a made-up epoch"
+// and collect a genuine Ed25519 signature over a target naming that epoch, with a fresh nonce
+// and a fresh timestamp - not a replay of anything, but an UNCONSUMED signature no nonce ring
+// has recorded. The epoch CHECK below was always exact; its PROVENANCE was not, and everything
+// the epoch bought was conditional on that 401 being honest.
+//
+// # WHAT THEY CARRY
+//
+// HubKeyHeader is this tower's ADMITTED IDENTITY KEY in hex - the Ed25519 key Core enrolled it
+// under and verifies its every request against - and HubProofHeader is that key's signature
+// over hubEpochStatement: the label, the tower id, the epoch, and THE NONCE OF THE REQUEST
+// BEING REFUSED. Core hands the node the key's fingerprint in the attach response, so the node
+// checks the epoch against a key it got from the party it already trusts for the tower id, the
+// endpoint and the grant key, rather than against whoever answered the socket.
+//
+// The key material is public and the proof is over public values; nothing here is a secret and
+// publishing it costs nothing. What an attacker cannot do is produce the signature.
+//
+// # WHY THE NONCE IS IN THE STATEMENT
+//
+// Without it the proof is a bearer token for an epoch: captured once, it would let an on-path
+// attacker point a node at a dead epoch whenever it suited them. Binding the client's own
+// freshly minted nonce makes the proof answer one request and no other. The cost is one
+// signature per epoch refusal rather than one per process - paid only on the refusal path, and
+// bounded with the rest of the pre-auth work by the listener's connection cap.
+const (
+	HubKeyHeader   = "X-Roger-Hub-Key"
+	HubProofHeader = "X-Roger-Hub-Proof"
+)
+
+// hubEpochProofLabel domain-separates this statement from every other use of the tower's
+// identity key - the link Hello, the settle forward, the audit forward. A key that signs two
+// kinds of statement with no label is a key whose signatures can be moved between them.
+const hubEpochProofLabel = "rogerai tower hub epoch proof v1"
+
+// hubEpochStatement is the exact bytes a hub signs and a node verifies. One function for both
+// sides, for the same reason hubTarget is one function for both sides of the request target: a
+// second copy of a canonical form is how a signing scheme grows a hole.
+func hubEpochStatement(towerID, epoch, nonce string) []byte {
+	return []byte(hubEpochProofLabel + "\n" + towerID + "\n" + epoch + "\n" + nonce)
+}
+
 // nonceBytes is how much randomness a nonce carries. 16 bytes makes an accidental collision
 // (which would refuse an honest request) impossible in practice at any traffic a hub sees.
 const nonceBytes = 16
@@ -625,7 +674,18 @@ func (s *Server) authNode(r *http.Request, stationID string, body []byte) authRe
 	// (HubEpochHeader) so a client that does not know it yet learns it and re-signs. An on-path
 	// attacker can read the new epoch as easily as the client can - and cannot sign over it,
 	// which is the only thing that matters.
-	if r.URL.Query().Get(hubParam) != s.epoch {
+	// TWO CAUSES, TWO SENTENCES. "Carries no epoch" and "carries the wrong epoch" are different
+	// events for the node reading them, and telling the first one it has "restarted since" sends
+	// an operator hunting a redeploy that did not happen - the same class of mistake the nonce
+	// gate's two refusals were separated for one round ago. A client's very FIRST request to a
+	// hub carries no epoch by construction (there is no other way to learn one), so the empty
+	// case is the ordinary opening move rather than a fault, and it should read like one.
+	switch hub := r.URL.Query().Get(hubParam); {
+	case hub == "":
+		return authResult{why: "this signature names no hub run: a signed hub request carries the " +
+			"epoch this hub published in the " + HubEpochHeader + " header, so sign again with it " +
+			"(the first request to a hub never has it, and this is that answer)"}
+	case hub != s.epoch:
 		return authResult{why: "this signature was made for a different run of this hub - it has " +
 			"restarted since; re-sign against the epoch in the " + HubEpochHeader + " header"}
 	}

@@ -41,7 +41,7 @@ func TestSealedCanaryJudgesAHubNode(t *testing.T) {
 	hubServer := towerhub.NewServer(hub, func(grant []byte) (string, string, error) {
 		att, station, _, gerr := dispatch.EdgeGrantMeta(grant, b.tower.dispatchPub, link.PublicNetwork, tw.id, time.Now())
 		return att, station, gerr
-	}, towerhub.ServerOptions{TowerID: tw.id, SubmitTTL: 10 * time.Second, PollTTL: 500 * time.Millisecond})
+	}, towerhub.ServerOptions{TowerID: tw.id, EpochKey: tw.priv, SubmitTTL: 10 * time.Second, PollTTL: 500 * time.Millisecond})
 	mux := http.NewServeMux()
 	mux.HandleFunc(towerhub.PathSubmit, hubServer.Submit)
 	mux.HandleFunc(towerhub.PathPoll, hubServer.Poll)

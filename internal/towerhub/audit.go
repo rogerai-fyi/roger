@@ -63,7 +63,7 @@ func (s *Server) SetWanted(stationID string, attempts []string) {
 // from it. Authenticated exactly as Poll is - a signature over this request with the Station's
 // assertion key, so only the Station's own node may read its list.
 func (s *Server) AuditWanted(w http.ResponseWriter, r *http.Request) {
-	s.stampEpoch(w)
+	s.stampEpoch(w, r)
 	if r.Method != http.MethodGet {
 		writeErr(w, http.StatusMethodNotAllowed, "GET only")
 		return
@@ -88,7 +88,7 @@ func (s *Server) AuditWanted(w http.ResponseWriter, r *http.Request) {
 // via OnTranscript (the tower's courier to Core) and clears the want so the node is not
 // asked again; Core's own resolve is the authoritative close either way.
 func (s *Server) AuditTranscript(w http.ResponseWriter, r *http.Request) {
-	s.stampEpoch(w)
+	s.stampEpoch(w, r)
 	if r.Method != http.MethodPost {
 		writeErr(w, http.StatusMethodNotAllowed, "POST only")
 		return

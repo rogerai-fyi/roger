@@ -12,6 +12,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -48,10 +49,31 @@ func newTestNode(t *testing.T) *testNode {
 // is exactly the property TestASignatureIsGoodAtOneHubOnly relies on.
 const testTowerID = "tw-test"
 
+// testHubKey stands in for the identity key Core admitted a Tower under - the key a real hub
+// signs its process epoch with (Server.epochKey) and the one a node checks that proof against.
+// One key shared by every test server here, because a hub RESTART keeps its identity and only
+// changes its epoch: a per-server key would make the redeploy tests exercise a tower swap
+// instead of a redeploy.
+var testHubKey = func() ed25519.PrivateKey {
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		panic(err)
+	}
+	return priv
+}()
+
+// testHubKeyHash is what Core hands a node in the attach response, and what a Client must hold
+// before it will adopt an epoch a hub names.
+func testHubKeyHash() string {
+	sum := sha256.Sum256(testHubKey.Public().(ed25519.PublicKey))
+	return hex.EncodeToString(sum[:])
+}
+
 func (n *testNode) signer() Signer { return SignWith(n.priv) }
 func (n *testNode) auth() NodeAuth { return NodeAuth{AssertionKey: n.pub} }
 func (n *testNode) client(base string, timeout time.Duration) *Client {
-	return &Client{BaseURL: base, TowerID: testTowerID, Sign: n.signer(), HTTP: &http.Client{Timeout: timeout}}
+	return &Client{BaseURL: base, TowerID: testTowerID, TowerKeyHash: testHubKeyHash(),
+		Sign: n.signer(), HTTP: &http.Client{Timeout: timeout}}
 }
 
 // signedRequest builds one authenticated hub request by hand. It exists because the tests that
@@ -176,7 +198,7 @@ func TestAReplayedPollIsRefusedAndDoesNotSwallowTheJob(t *testing.T) {
 // transmits is reusable, and nothing it transmits is a credential.
 func TestNothingTheClientSendsCanBeCapturedAndReused(t *testing.T) {
 	node := newTestNode(t)
-	s := NewServer(New(), stubCheck, ServerOptions{TowerID: testTowerID,
+	s := NewServer(New(), stubCheck, ServerOptions{TowerID: testTowerID, EpochKey: testHubKey,
 		SubmitTTL: 3 * time.Second, PollTTL: 200 * time.Millisecond, AllowLegacyBearer: true})
 	// The legacy token exists on this registration, as it does on every real one during the
 	// transition. The point is that the node never puts it on the wire.
@@ -278,7 +300,7 @@ func TestAStolenBearerTokenDiesWithTheTransitionWindow(t *testing.T) {
 
 	// A hub that has ended it: the token is not a credential any more, and the signing node is
 	// unaffected.
-	strict, strictSrv := testServerWith(t, ServerOptions{TowerID: testTowerID,
+	strict, strictSrv := testServerWith(t, ServerOptions{TowerID: testTowerID, EpochKey: testHubKey,
 		SubmitTTL: 3 * time.Second, PollTTL: 300 * time.Millisecond})
 	strict.RegisterNode("st-1", NodeAuth{AssertionKey: node.pub, LegacyToken: "stolen"})
 	req, _ = http.NewRequest(http.MethodGet, strictSrv.URL+PathPoll+"?station=st-1", nil)
@@ -687,7 +709,7 @@ func TestASignatureIsGoodAtOneHubOnly(t *testing.T) {
 	node := newTestNode(t)
 	home, mine := testServer(t)
 	home.RegisterNode("st-1", node.auth())
-	other, otherSrv := testServerWith(t, ServerOptions{TowerID: "tw-somebody-else",
+	other, otherSrv := testServerWith(t, ServerOptions{TowerID: "tw-somebody-else", EpochKey: testHubKey,
 		SubmitTTL: 3 * time.Second, PollTTL: 300 * time.Millisecond})
 	other.RegisterNode("st-1", node.auth())
 
@@ -797,7 +819,7 @@ func TestALaggingNodeKeepsEarningAcrossARedeploy(t *testing.T) {
 
 	// A node 45 seconds behind its tower. Inside protocol's window, and further behind than any
 	// plausible restart is long.
-	lagging := &Client{BaseURL: srv.URL, TowerID: testTowerID,
+	lagging := &Client{BaseURL: srv.URL, TowerID: testTowerID, TowerKeyHash: testHubKeyHash(),
 		HTTP: &http.Client{Timeout: 5 * time.Second}, Sign: signingAt(node.priv, -45*time.Second)}
 	_, ok, err := lagging.PollJob(t.Context(), "st-1")
 	require.NoError(t, err, "a lagging node could not poll a hub it had never met")
@@ -805,7 +827,7 @@ func TestALaggingNodeKeepsEarningAcrossARedeploy(t *testing.T) {
 
 	// THE REDEPLOY. Same mux, new Server: the client's cached epoch is now stale, which is
 	// exactly the state a node is in a millisecond after its tower restarts.
-	restarted := NewServer(New(), stubCheck, ServerOptions{TowerID: testTowerID,
+	restarted := NewServer(New(), stubCheck, ServerOptions{TowerID: testTowerID, EpochKey: testHubKey,
 		SubmitTTL: 3 * time.Second, PollTTL: 300 * time.Millisecond, AllowLegacyBearer: true})
 	restarted.RegisterNode("st-1", node.auth())
 	mux := http.NewServeMux()
@@ -911,7 +933,7 @@ func TestAnUnauthenticatedCallerIsRefusedBeforeItsBodyIsRead(t *testing.T) {
 // assertion count would be satisfied by any constant, and the old code allocated in proportion
 // to the fleet. The bound is generous - the point is O(1) against O(n), not a byte budget.
 func TestTheCheapDoorDoesNotScaleWithTheFleet(t *testing.T) {
-	s := NewServer(New(), stubCheck, ServerOptions{TowerID: testTowerID, AllowLegacyBearer: true})
+	s := NewServer(New(), stubCheck, ServerOptions{TowerID: testTowerID, EpochKey: testHubKey, AllowLegacyBearer: true})
 	for i := 0; i < 1000; i++ {
 		n := newTestNode(t)
 		s.RegisterNode("st-"+strconv.Itoa(i), NodeAuth{AssertionKey: n.pub, LegacyToken: "tok-" + strconv.Itoa(i)})
@@ -938,7 +960,7 @@ func TestTheCheapDoorDoesNotScaleWithTheFleet(t *testing.T) {
 // the first time that assumption did not hold.
 func TestTheCredentialIndexForgetsWhatIsNoLongerRegistered(t *testing.T) {
 	a, bkey := newTestNode(t), newTestNode(t)
-	s := NewServer(New(), stubCheck, ServerOptions{TowerID: testTowerID, AllowLegacyBearer: true})
+	s := NewServer(New(), stubCheck, ServerOptions{TowerID: testTowerID, EpochKey: testHubKey, AllowLegacyBearer: true})
 	s.RegisterNode("st-1", NodeAuth{AssertionKey: a.pub, LegacyToken: "first-token"})
 
 	withKey := func(n *testNode) *http.Request {

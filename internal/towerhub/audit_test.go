@@ -30,7 +30,7 @@ func (f fakeTranscripts) SignedTranscript(id string) (signed, req, resp []byte, 
 // "not retained" for what it did not, and only LISTED attempts reach the courier.
 func TestAuditPlaneCarriesTranscriptsFromAPollOnlyNode(t *testing.T) {
 	id := newTestNode(t)
-	s := NewServer(New(), stubCheck, ServerOptions{TowerID: testTowerID, SubmitTTL: time.Second, PollTTL: 100 * time.Millisecond})
+	s := NewServer(New(), stubCheck, ServerOptions{TowerID: testTowerID, EpochKey: testHubKey, SubmitTTL: time.Second, PollTTL: 100 * time.Millisecond})
 	s.RegisterNode("st1", id.auth())
 	forwarded := make(chan TranscriptReply, 4)
 	s.OnTranscript = func(station string, r TranscriptReply) {

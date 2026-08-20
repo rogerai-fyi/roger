@@ -34,7 +34,7 @@ func (e *evictingSource) EvictedYoung() int {
 // the half-fix an audit flagged.
 func TestYoungEvictionsAreReportedToTheOperator(t *testing.T) {
 	id := newTestNode(t)
-	s := NewServer(New(), stubCheck, ServerOptions{TowerID: testTowerID, SubmitTTL: time.Second, PollTTL: 50 * time.Millisecond})
+	s := NewServer(New(), stubCheck, ServerOptions{TowerID: testTowerID, EpochKey: testHubKey, SubmitTTL: time.Second, PollTTL: 50 * time.Millisecond})
 	s.RegisterNode("st1", id.auth())
 	mux := http.NewServeMux()
 	mux.HandleFunc(PathAuditWanted, s.AuditWanted)

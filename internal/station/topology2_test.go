@@ -68,7 +68,8 @@ func TestTopology2BlindPathEndToEnd(t *testing.T) {
 	// The node worker polls the tower and serves.
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	node := &towerhub.Client{BaseURL: srv.URL, TowerID: "tw-1", Sign: s.SignRequest, HTTP: &http.Client{Timeout: 5 * time.Second}}
+	node := &towerhub.Client{BaseURL: srv.URL, TowerID: "tw-1", TowerKeyHash: server.EpochKeyHash(),
+		Sign: s.SignRequest, HTTP: &http.Client{Timeout: 5 * time.Second}}
 	go func() { _ = towerhub.ServeLoop(ctx, node, s.StationID, sealedAdapter{exec}, nil) }()
 
 	// --- THE CONSUMER: authorizes with Core (grant carries its sealing key), seals the request

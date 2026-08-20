@@ -64,8 +64,21 @@ type TowerAttachment struct {
 	// still mints one for towers serving nodes that have not updated, and a field silently
 	// dropped from a wire type is how the next reader concludes it was never there.
 	HubToken string `json:"hub_token"`
-	State    string `json:"state"`
-	Note     string `json:"note"`
+	// TowerKeyHash is the fingerprint of the identity key Core ADMITTED this relay under - hex
+	// sha256 of its raw Ed25519 public key. It is what lets this node tell the relay's own
+	// statements from an on-path attacker's.
+	//
+	// It is needed for exactly one thing, and that one thing is load-bearing. A node signs every
+	// hub request over a target naming the hub's PROCESS EPOCH, and it can only learn that value
+	// from the hub's own 401 - which is unauthenticated, on a link that is plaintext by
+	// construction. Believing it means signing over whatever the party in front of the node
+	// names: a genuine Ed25519 signature, fresh nonce, fresh timestamp, over bytes no hub has
+	// ever seen. With this fingerprint the node checks the hub's signature over its own epoch
+	// instead (internal/towerhub, HubKeyHeader), so the epoch is the tower's value rather than
+	// the attacker's.
+	TowerKeyHash string `json:"tower_key_hash"`
+	State        string `json:"state"`
+	Note         string `json:"note"`
 }
 
 // microsPerDollarPer1M converts the share's float $/1M-token price to the tower path's
@@ -306,6 +319,21 @@ func AttachTower(cfg Config, priv ed25519.PrivateKey, dir string) (*station.Stat
 	if at.Endpoint == "" {
 		return nil, TowerAttachment{}, errors.New("attach answered without an endpoint")
 	}
+	// AND A FINGERPRINT FOR THE RELAY, WHICH IS NOT OPTIONAL. Without it this node cannot tell
+	// the hub's own epoch from one an on-path attacker named, and the epoch is a value it signs
+	// over - so "carry on without it" means emitting signatures over an attacker's choosing.
+	// Refusing here is the same posture the node already takes on the credential itself (it
+	// never sends a bearer, whatever the hub answers): a downgrade an attacker could provoke is
+	// not a security property. Signed hub polls have not shipped in a tagged release, so
+	// nothing in the field is stranded by this - but a Core older than the fingerprint is, and
+	// the deployment order was already written down: Core, then Towers, then nodes.
+	if at.TowerKeyHash == "" {
+		return nil, TowerAttachment{}, errors.New(
+			"attach answered without the relay's identity fingerprint (tower_key_hash): this node " +
+				"cannot verify which hub process it is signing for without it, and signing for an " +
+				"unverified one hands an on-path attacker a signature it chose. Roger Core must be " +
+				"updated before the towers and nodes that talk to it")
+	}
 	return st, at, nil
 }
 
@@ -417,6 +445,12 @@ func ServeTower(ctx context.Context, cfg Config, priv ed25519.PrivateKey, dir st
 		// plaintext link is good at this hub and nowhere else - not at a second instance behind
 		// the same endpoint, and not at this one after a restart inside the skew window.
 		TowerID: at.TowerID,
+		// WHAT MAKES THE EPOCH THE HUB'S VALUE AND NOT THE ATTACKER'S. Core admitted this relay
+		// under an identity key and handed over its fingerprint above; the hub signs its process
+		// epoch with the private half, and this client refuses to adopt an epoch it cannot check
+		// against this hash. Without it, a forged 401 on the plaintext link would make this node
+		// sign over any epoch the party in front of it liked.
+		TowerKeyHash: at.TowerKeyHash,
 		// SIGNED, NOT BEARER. st.SignRequest signs each hub call with the assertion key this
 		// Station's receipts are already verified against, so the plaintext link carries no
 		// reusable credential for anyone on the path to lift. See towerhub's nodeauth.go.
@@ -463,6 +497,15 @@ func ServeTower(ctx context.Context, cfg Config, priv ed25519.PrivateKey, dir st
 				// that quietly never earns. The notice sink says a repeated message once.
 				if hubRefusedIdentity(err) {
 					notice.notify(fmt.Errorf("%w: %w", ErrHubRefusedThisNode, err))
+					return
+				}
+				// THE RELAY SAID SOMETHING IT COULD NOT PROVE, or the endpoint is answered by
+				// two hub processes. Both are standing properties of the relay rather than
+				// transport chatter, both mean this node is not earning through it, and neither
+				// resolves by retrying - so they travel the channel that is not discarded,
+				// beside the refused-identity alarm. The sink says a repeated thing once.
+				if errors.Is(err, towerhub.ErrHubEpochUnproved) || errors.Is(err, towerhub.ErrHubMultipleProcesses) {
+					notice.notify(err)
 					return
 				}
 				fmt.Fprintf(out, "tower: %v\n", err)

@@ -67,7 +67,8 @@ func newSealedWorld(t *testing.T, model, answer string) *sealedWorld {
 	hubSrv := httptest.NewServer(mux)
 	t.Cleanup(hubSrv.Close)
 	ctx, cancel := context.WithCancel(context.Background())
-	nodeClient := &towerhub.Client{BaseURL: hubSrv.URL, TowerID: "tw-1", Sign: st.SignRequest}
+	nodeClient := &towerhub.Client{BaseURL: hubSrv.URL, TowerID: "tw-1",
+		TowerKeyHash: hub.EpochKeyHash(), Sign: st.SignRequest}
 	go func() {
 		_ = towerhub.ServeLoop(ctx, nodeClient, st.StationID, sealedServe{exec}, nil)
 	}()

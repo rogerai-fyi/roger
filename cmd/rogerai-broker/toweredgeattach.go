@@ -201,8 +201,12 @@ func (b *broker) towerEdgeAttach(w http.ResponseWriter, r *http.Request) {
 			"tower_id":   prior.Origin.TowerID,
 			"endpoint":   endpoint,
 			"hub_token":  prior.HubToken,
-			"state":      prior.State,
-			"note":       "already attached - this is your existing registration",
+			// The relay's admitted identity fingerprint, on the retry answer as well as on the
+			// fresh one: a node that lost the first reply is the same node, and leaving it off
+			// here would strand exactly the caller this branch exists to rescue.
+			"tower_key_hash": b.towerKeyFingerprint(prior.Origin.TowerID),
+			"state":          prior.State,
+			"note":           "already attached - this is your existing registration",
 		})
 		return
 	}
@@ -304,10 +308,48 @@ func (b *broker) towerEdgeAttach(w http.ResponseWriter, r *http.Request) {
 		// attachment, and is transmitted only by a node too old to sign.
 		"endpoint":  endpoint,
 		"hub_token": hubToken,
-		"state":     at.State,
+		// What the node checks the hub's PROCESS EPOCH against - see towerKeyFingerprint. The
+		// epoch rides in the node's signed target and is published on an unauthenticated 401,
+		// so without this the value a node signs over is chosen by whoever answers the socket.
+		"tower_key_hash": b.towerKeyFingerprint(towerID),
+		"state":          at.State,
 		"note": "poll the endpoint's hub to serve, signing each request with this station's " +
 			"assertion key; the tower relays sealed work it cannot read",
 	})
+}
+
+// towerKeyFingerprint is the admitted identity-key hash of one Tower, as the attach response
+// hands it to a node.
+//
+// # WHY A NODE IS GIVEN THIS AT ALL
+//
+// A serving node signs every hub request over a target naming the hub's PROCESS EPOCH, which
+// exists so a signature captured before a redeploy is worthless after one. The node has no way
+// to know that value in advance - Core assigns tower ids and knows nothing about when a tower
+// restarted - so it learns it from the hub's own 401. That 401 is unauthenticated and the link
+// is plaintext by construction, which made the epoch the ATTACKER'S choice rather than the
+// hub's: answer a poll with a forged epoch and the node signs over it, producing bytes no hub
+// has seen and no nonce ring has recorded.
+//
+// So the hub signs its epoch with the identity key Core admitted it under, and the node checks
+// that signature against this fingerprint. Core is the right party to hand it over: it is
+// already the node's source of truth for the tower id, the endpoint and the grant key, and it
+// is the only party that knows which key it admitted this tower under. The value is a hash of a
+// public key - it is not a secret, and it is already compared against on every request the
+// Tower makes here (towerCaller).
+//
+// An empty answer means Core has no admission record for that Tower, which a current node
+// treats as a refusal rather than as permission to believe whatever the relay says.
+func (b *broker) towerKeyFingerprint(towerID string) string {
+	ts := b.tower
+	if ts == nil || towerID == "" {
+		return ""
+	}
+	tw, ok := ts.registry.Get(towerID)
+	if !ok {
+		return ""
+	}
+	return tw.KeyHash
 }
 
 // towerHubNodes handles POST /tower/hub/nodes: a TOWER (its own signed request, exactly the
