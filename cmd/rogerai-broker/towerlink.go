@@ -512,6 +512,28 @@ const stationInviteTTL = time.Hour
 // sweep deletes it - forensic history, bounded.
 const terminalAttachmentHorizon = 30 * 24 * time.Hour
 
+// dormantRetireHorizon is how long a Station may sleep before its IDENTITY ends.
+//
+// The idle sweep takes a Station out of service after attachmentIdleHorizon (seven days, the
+// same figure this broker uses to decide a registration is dead) and puts it in StateDormant,
+// which is recoverable: the same machine, with the same id and the same keys, attaches again
+// and picks up where it left off. This is the second horizon, where "not seen for a while"
+// finally becomes "not coming back", and it is deliberately a different ORDER OF MAGNITUDE
+// rather than a longer version of the first.
+//
+// A HUNDRED AND EIGHTY DAYS, and the size is the argument. The two horizons buy different
+// things and their failure directions are nothing alike. The first stops the table growing and
+// stops dead rows being published, and getting it wrong costs an operator a re-attach - which
+// is now automatic, because the node re-attaches on every start. The second is irreversible: a
+// Station ID retired here can never be reattached, and the operator's earnings lineage,
+// reputation and audit history hang off that identity. Six months is longer than any absence
+// anybody has offered a reason for, and an owner who actually wants the identity gone has
+// Revoke, which is immediate and does not wait for a sweep at all.
+//
+// A var only so a test can shorten it, exactly like attachmentIdleHorizon; production never
+// assigns it.
+var dormantRetireHorizon = 180 * 24 * time.Hour
+
 // maxOpenInvitesPerOwner bounds unredeemed invitations per account. Generous enough that an
 // operator attaching a rack of Stations never notices; low enough that the table cannot be
 // used as free storage.
@@ -766,6 +788,20 @@ func (b *broker) towerInviteSweepOnce(now time.Time) {
 	// Terminal (revoked/detached) attachments age out too: without this, an attach -> revoke ->
 	// attach loop - frictionless on the self-attach path - grows the attachment table without
 	// bound. A month keeps plenty of forensic history; live rows are never touched.
+	// THE SECOND HORIZON, and it runs BEFORE the reap so a row that becomes terminal here waits
+	// out the full forensic month afterwards rather than being deleted in the same pass.
+	//
+	// This is where a Station's IDENTITY ends, and it is the only place it ends without an owner
+	// asking. The idle sweep used to do it - seven days with no stamp, terminal, unrecoverable -
+	// which meant a holiday, a fortnight of downtime, or one week of a broken liveness mirror on
+	// the instance holding a Tower's link permanently retired the Stations behind it. Splitting
+	// the two is the fix: out of service on a horizon measured in days, out of existence on one
+	// measured in months.
+	if dn, derr := b.tower.stationStore.RetireDormant(now.Add(-dormantRetireHorizon)); derr != nil {
+		log.Printf("station attachments: dormant retirement failed: %v", derr)
+	} else if dn > 0 {
+		log.Printf("station attachments: retired %d attachment(s) dormant for more than %s", dn, dormantRetireHorizon)
+	}
 	if tn, terr := b.tower.stationStore.ReapTerminal(now.Add(-terminalAttachmentHorizon)); terr != nil {
 		log.Printf("station attachments: terminal sweep failed: %v", terr)
 	} else if tn > 0 {

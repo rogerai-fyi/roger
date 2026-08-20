@@ -254,11 +254,28 @@ func (b *broker) publishRoutable(towerID string) {
 		var alive []string
 		live := b.liveNodeSet(ats, time.Now())
 		for _, at := range ats {
-			if at.Model == "" || !at.SelfAttached() {
-				continue // classic-flow attachment: its offers come from the inventory
-			}
+			// STAMP BY THE PREDICATE THE SWEEP JUDGES BY, WHICH IS "DOES THIS ROW CARRY A NODE
+			// ID", AND NOTHING ELSE.
+			//
+			// This sat below the `continue` that skips a classic-flow attachment, so the set of
+			// rows that could be stamped was "self-attached AND carrying a model" while
+			// DetachIdle judges every live row where node_id <> ''. Two predicates for one
+			// question, and the gap between them is a row with a node id and no model: never
+			// stamped by anybody, judged by the sweep on the schedule, retired. That is
+			// precisely the defect fixed one commit ago for classic Stations, one corner over.
+			//
+			// It is not reachable today - self-attach refuses an attach with no model, so no
+			// such row can be written - and it is fixed anyway, because the argument for
+			// scoping the sweep to node-id rows is "a sweep may only judge a row it could have
+			// found evidence FOR". That argument is only true while the two predicates ARE one
+			// predicate, and "unreachable" is a property of a validator two packages away
+			// rather than of this loop. liveNodeSet already answers only about rows with a node
+			// id, so the set below is exactly DetachIdle's scope intersected with liveness.
 			if live[at.StationID] {
 				alive = append(alive, at.StationID)
+			}
+			if at.Model == "" || !at.SelfAttached() {
+				continue // classic-flow attachment: its offers come from the inventory
 			}
 			rows = append(rows, fleet.Station{
 				TowerID: towerID, StationID: at.StationID, OfferID: "self-" + at.StationID,

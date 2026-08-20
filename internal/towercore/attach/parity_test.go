@@ -748,8 +748,10 @@ func TestParityDetachIdleRetiresOnlyTheQuietStations(t *testing.T) {
 
 			quiet, _, err := s.ByStation("st-quiet")
 			require.NoError(t, err)
-			require.Equal(t, StateDetached, quiet.State)
-			require.False(t, quiet.Live())
+			require.Equal(t, StateDormant, quiet.State,
+				"the idle sweep is out-of-service, not end-of-identity - see StateDormant")
+			require.False(t, quiet.Live(), "a dormant Station must carry no work")
+			require.True(t, quiet.Recoverable(), "and must be able to come back")
 
 			live, _, err := s.ByStation("st-live")
 			require.NoError(t, err)
@@ -858,6 +860,161 @@ func TestParityTouchingAnUnknownStationRecordsNothing(t *testing.T) {
 			none, err := s.DetachIdle(tower, now.Add(-time.Second))
 			require.NoError(t, err)
 			require.Empty(t, none, "the ghost stamp outlived the Station it named")
+		})
+	}
+}
+
+// SEVEN DAYS UNSEEN WAS A PERMANENT LOSS OF THE STATION IDENTITY, AND THAT IS THE WHOLE
+// FINDING.
+//
+// DetachIdle wrote StateDetached, which is terminal: checkBindings answers "this Station ID has
+// been retired and cannot be reattached" to the very call agent.AttachTower makes on every
+// single start - same persistent on-disk identity, same id, same keys - and ReapTerminal does
+// not free the row for a fresh Station under that id for another month. So a two-week holiday,
+// or a fortnight of downtime, converted a temporary outage into a permanent one.
+//
+// Worse than the timer is the dependency. The stamp DetachIdle measures has exactly one writer:
+// publishRoutable joining an attachment's node id to a live registration. A liveness mirror
+// broken for a week on the instance holding a Tower's link therefore retired every
+// self-attached Station behind that Tower, irrecoverably, with nobody deciding anything.
+//
+// So the sweep is soft now, and this is the leg that says so: the same machine comes back.
+func TestParityADormantStationComesBack(t *testing.T) {
+	for name, s := range parityStores(t) {
+		t.Run(name, func(t *testing.T) {
+			now := time.Unix(1_700_000_000, 0).UTC()
+			seedAttachments(t, s, now, tower, "st-holiday")
+			// Stamped once while it was alive, so the row carries a real last_routable to be
+			// wrong about later.
+			require.NoError(t, s.TouchRoutable([]string{"st-holiday"}, now))
+			before, _, err := s.ByStation("st-holiday")
+			require.NoError(t, err)
+
+			// A fortnight away.
+			gone, err := s.DetachIdle(tower, now.Add(14*24*time.Hour))
+			require.NoError(t, err)
+			require.Equal(t, []string{"st-holiday"}, gone)
+
+			// AttachTower's call, verbatim in shape: the same Station ID, the same assertion
+			// key, the same session key, the same owner, a fresh invitation.
+			back := now.Add(15 * 24 * time.Hour)
+			auth := withSecret(Authorization{
+				ID: "auth-holiday-2", Network: net, StationID: "st-holiday", Owner: owner,
+				Origin:       before.Origin,
+				AssertionKey: before.AssertionKey, SessionKey: before.SessionKey,
+				IssuedAt: back.Add(-time.Minute), ExpiresAt: back.Add(time.Hour),
+			})
+			require.NoError(t, s.PutAuthorization(auth))
+			ok, err := s.Admit(auth.ID, Attachment{
+				StationID: "st-holiday", Owner: owner, AssertionKey: before.AssertionKey,
+				SessionKey: before.SessionKey, Origin: before.Origin, Epoch: before.Epoch + 1,
+				State: StateActive, AttachedAt: back, AuthID: auth.ID,
+				NodeID: before.NodeID, Model: before.Model,
+			})
+			require.NoError(t, err, "the machine that went on holiday could not come home")
+			require.True(t, ok)
+
+			woke, _, err := s.ByStation("st-holiday")
+			require.NoError(t, err)
+			require.Equal(t, StateActive, woke.State)
+			require.True(t, woke.Live())
+			require.Equal(t, before.Epoch+1, woke.Epoch, "a revival is a rehome and must fence the old origin")
+
+			// AND THE OLD STAMP DID NOT COME WITH IT. Leaving last_routable in place would put
+			// the fresh attachment straight back over the idle horizon - retired again on the
+			// next sweep, seconds after coming home.
+			// This horizon is past the OLD stamp and short of the new attach, so the row
+			// survives only if the stale stamp was cleared and it is being measured from the
+			// life it is actually living.
+			none, err := s.DetachIdle(tower, back.Add(-time.Hour))
+			require.NoError(t, err)
+			require.Empty(t, none, "the revived Station was measured from its previous life's stamp")
+		})
+	}
+}
+
+// A DORMANT STATION KEEPS ITS KEYS. The assertion key is public - it rides in the clear on every
+// hub poll and the node's own notice channel says so - so if going quiet released it, anybody
+// could bind it to a Station of their own and the sleeping operator's return would be refused
+// for a key they never gave up. Recovery that a stranger can block is not recovery.
+func TestParityADormantStationStillHoldsItsKeys(t *testing.T) {
+	for name, s := range parityStores(t) {
+		t.Run(name, func(t *testing.T) {
+			now := time.Unix(1_700_000_000, 0).UTC()
+			seedAttachments(t, s, now, tower, "st-asleep")
+			sleeping, _, err := s.ByStation("st-asleep")
+			require.NoError(t, err)
+			_, err = s.DetachIdle(tower, now.Add(14*24*time.Hour))
+			require.NoError(t, err)
+
+			// A lookup by either key still finds it, which is what refuses the impostor below
+			// and what the durable store's partial unique index enforces underneath.
+			found, ok, err := s.ByAssertionKey(sleeping.AssertionKey)
+			require.NoError(t, err)
+			require.True(t, ok, "a dormant Station's assertion key reads as free")
+			require.Equal(t, "st-asleep", found.StationID)
+
+			// Somebody else, holding the public key they read off the wire, tries to take it.
+			auth := withSecret(Authorization{
+				ID: "auth-impostor", Network: net, StationID: "st-impostor", Owner: "other-owner-pub",
+				Origin:       Origin{Kind: OriginJoined, TowerID: tower},
+				AssertionKey: sleeping.AssertionKey, SessionKey: sleeping.SessionKey,
+				IssuedAt: now, ExpiresAt: now.Add(time.Hour),
+			})
+			require.NoError(t, s.PutAuthorization(auth))
+			won, err := s.Admit(auth.ID, Attachment{
+				StationID: "st-impostor", Owner: "other-owner-pub",
+				AssertionKey: sleeping.AssertionKey, SessionKey: sleeping.SessionKey,
+				Origin: auth.Origin, Epoch: 1, State: StateActive, AttachedAt: now, AuthID: auth.ID,
+				NodeID: "n-impostor", Model: "m",
+			})
+			require.Error(t, err, "a stranger took a sleeping Station's keys and blocked its return")
+			require.False(t, won)
+		})
+	}
+}
+
+// AND THE SECOND HORIZON STILL ENDS IT, because a soft state that never hardens is just a table
+// that grows. RetireDormant is the only sweep that makes a Station terminal, it runs on a
+// horizon an order of magnitude longer, and nothing else may take that step for it.
+func TestParityOnlyRetireDormantEndsAStationIdentity(t *testing.T) {
+	for name, s := range parityStores(t) {
+		t.Run(name, func(t *testing.T) {
+			now := time.Unix(1_700_000_000, 0).UTC()
+			seedAttachments(t, s, now, tower, "st-gone")
+			_, err := s.DetachIdle(tower, now.Add(14*24*time.Hour))
+			require.NoError(t, err)
+
+			// The TERMINAL reap must not touch it, however far past its own horizon it is:
+			// dormant is not terminal, and a reap that deleted it would be the permanent loss
+			// arriving by another route.
+			n, err := s.ReapTerminal(now.Add(365 * 24 * time.Hour))
+			require.NoError(t, err)
+			require.Zero(t, n, "the terminal reap deleted a recoverable Station")
+			still, ok, err := s.ByStation("st-gone")
+			require.NoError(t, err)
+			require.True(t, ok)
+			require.True(t, still.Recoverable())
+
+			// Nor does a horizon short of the dormant one.
+			n, err = s.RetireDormant(now.Add(-time.Second))
+			require.NoError(t, err)
+			require.Zero(t, n)
+
+			// Past it, the identity ends - and now it reads terminal to everybody.
+			n, err = s.RetireDormant(now.Add(365 * 24 * time.Hour))
+			require.NoError(t, err)
+			require.Equal(t, int64(1), n)
+			dead, _, err := s.ByStation("st-gone")
+			require.NoError(t, err)
+			require.Equal(t, StateDetached, dead.State)
+			require.False(t, dead.Live())
+			require.False(t, dead.Recoverable())
+
+			// And its keys are free again, which terminal has always meant.
+			_, ok, err = s.ByAssertionKey(dead.AssertionKey)
+			require.NoError(t, err)
+			require.False(t, ok, "a terminally retired Station still holds its keys hostage")
 		})
 	}
 }

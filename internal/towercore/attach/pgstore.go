@@ -89,6 +89,22 @@ CREATE UNIQUE INDEX IF NOT EXISTS station_attachments_live_assertion_key
 CREATE UNIQUE INDEX IF NOT EXISTS station_attachments_live_session_key
     ON rogerai.station_attachments (session_key)
     WHERE state IN ('quarantine','active');
+-- AND THE SAME UNIQUENESS OVER THE STATES THAT HOLD A KEY, which is one state wider: dormant.
+-- A dormant Station is asleep, not gone, and its assertion key is PUBLIC material that rides in
+-- the clear on every hub poll - so if going quiet freed the key, anyone could bind it to a
+-- Station of their own and the rightful owner's return would be refused for a key they never
+-- gave up. Terminal rows still release theirs.
+--
+-- ADDED BESIDE THE LIVE INDEXES RATHER THAN REPLACING THEM. These predicates are a strict
+-- superset, so the pair is redundant rather than contradictory, and adding an index is a safe
+-- migration where dropping a live uniqueness constraint and rebuilding it is a window in which
+-- there is none. The old pair can go in a later, deliberate migration.
+CREATE UNIQUE INDEX IF NOT EXISTS station_attachments_held_assertion_key
+    ON rogerai.station_attachments (assertion_key)
+    WHERE state IN ('quarantine','active','dormant');
+CREATE UNIQUE INDEX IF NOT EXISTS station_attachments_held_session_key
+    ON rogerai.station_attachments (session_key)
+    WHERE state IN ('quarantine','active','dormant');
 CREATE INDEX IF NOT EXISTS station_attachments_owner ON rogerai.station_attachments (owner);
 -- Option C self-attach: the node's bearer token for its Tower's data-plane hub. Plaintext,
 -- like the broker's node BridgeToken - the Tower must compare the exact presented value.
@@ -283,14 +299,41 @@ func (p *PGStore) Admit(authID string, at Attachment) (bool, error) {
 		return false, nil
 	}
 
-	if _, err := tx.Exec(`
+	// THE ONE ROW THIS MAY WRITE OVER IS A DORMANT ONE BELONGING TO THE SAME MACHINE.
+	//
+	// The plain INSERT this replaces made a returning Station structurally impossible: the
+	// station_id primary key refused it, so a machine coming back after a long silence was told
+	// its own identity was taken. The conflict clause is scoped as narrowly as the recovery it
+	// exists for - dormant state, same owner, same origin kind, same assertion key, same session
+	// key - and every other conflict still lands in the constraint-violation branch below, which
+	// is the answer a live, revoked or detached row deserves.
+	//
+	// last_routable is NULLED on the way through. It is the stamp from the machine's previous
+	// life, and leaving it would put the fresh attachment straight back over the idle horizon:
+	// retired again on the next sweep, seconds after coming home. audit_proven_at is left
+	// untouched deliberately - it is a fact about the machine, and Registry.Admit carries the
+	// same value forward on its own copy so the two stores agree.
+	res, err = tx.Exec(`
 		INSERT INTO rogerai.station_attachments
 		  (station_id,owner,assertion_key,session_key,origin_kind,origin_tower,epoch,
 		   ceiling_hash,state,attached_at,auth_id,hub_token,node_id,model,modality,price_in,price_out)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+		ON CONFLICT (station_id) DO UPDATE SET
+		    origin_tower=EXCLUDED.origin_tower, epoch=EXCLUDED.epoch,
+		    ceiling_hash=EXCLUDED.ceiling_hash, state=EXCLUDED.state,
+		    attached_at=EXCLUDED.attached_at, auth_id=EXCLUDED.auth_id,
+		    hub_token=EXCLUDED.hub_token, node_id=EXCLUDED.node_id, model=EXCLUDED.model,
+		    modality=EXCLUDED.modality, price_in=EXCLUDED.price_in, price_out=EXCLUDED.price_out,
+		    last_routable=NULL
+		  WHERE rogerai.station_attachments.state = 'dormant'
+		    AND rogerai.station_attachments.owner = EXCLUDED.owner
+		    AND rogerai.station_attachments.origin_kind = EXCLUDED.origin_kind
+		    AND rogerai.station_attachments.assertion_key = EXCLUDED.assertion_key
+		    AND rogerai.station_attachments.session_key = EXCLUDED.session_key`,
 		at.StationID, at.Owner, at.AssertionKey, at.SessionKey, at.Origin.Kind,
 		at.Origin.TowerID, at.Epoch, at.CeilingHash, at.State, at.AttachedAt.UTC(),
-		at.AuthID, at.HubToken, at.NodeID, at.Model, at.Modality, at.PriceIn, at.PriceOut); err != nil {
+		at.AuthID, at.HubToken, at.NodeID, at.Model, at.Modality, at.PriceIn, at.PriceOut)
+	if err != nil {
 		// A constraint violation here is a PERMANENT answer, not a blip: the station_id
 		// primary key means that Station is already attached, and a partial unique index
 		// means another live Station holds one of these keys. Reporting either as an outage
@@ -301,6 +344,13 @@ func (p *PGStore) Admit(authID string, at Attachment) (bool, error) {
 			return false, reject(errors.New("that Station ID or key is already attached"))
 		}
 		return false, pgwrap("record attachment", err)
+	}
+	// A CONFLICT WHOSE `WHERE` DID NOT HOLD AFFECTS NO ROWS AND RAISES NO ERROR, so silence here
+	// is a refusal rather than a success: the Station ID exists and is not a dormant row this
+	// machine may wake. Rolling back leaves the invitation unspent, which is what a refused
+	// attachment is owed.
+	if n, _ := res.RowsAffected(); n == 0 {
+		return false, reject(errors.New("that Station ID or key is already attached"))
 	}
 	if err := tx.Commit(); err != nil {
 		return false, pgwrap("commit", err)
@@ -400,7 +450,7 @@ func (p *PGStore) DetachIdle(towerID string, before time.Time) ([]string, error)
 		   AND state IN ('quarantine','active')
 		   AND node_id <> ''
 		   AND COALESCE(last_routable, attached_at) < $2
-		RETURNING station_id`, towerID, before.UTC(), StateDetached)
+		RETURNING station_id`, towerID, before.UTC(), StateDormant)
 	if err != nil {
 		return nil, pgwrap("detach idle attachments", err)
 	}
@@ -421,8 +471,9 @@ func (p *PGStore) DetachIdle(towerID string, before time.Time) ([]string, error)
 	return out, nil
 }
 
-// ByAssertionKey and BySessionKey look only at LIVE rows, matching the partial indexes and
-// the Mem store. A retired Station's keys are free again.
+// ByAssertionKey and BySessionKey look at the rows that HOLD a key - live plus dormant -
+// matching the partial indexes and the Mem store. A dormant Station's keys are still its own
+// (see StateDormant); a terminal Station's are free again.
 func (p *PGStore) ByAssertionKey(key string) (Attachment, bool, error) {
 	return p.byLiveKey("assertion_key", key)
 }
@@ -434,7 +485,7 @@ func (p *PGStore) BySessionKey(key string) (Attachment, bool, error) {
 func (p *PGStore) byLiveKey(col, key string) (Attachment, bool, error) {
 	at, err := scanAttachment(p.db.QueryRow(
 		`SELECT `+attachCols+` FROM rogerai.station_attachments
-		  WHERE `+col+`=$1 AND state IN ('quarantine','active')`, key))
+		  WHERE `+col+`=$1 AND state IN ('quarantine','active','dormant')`, key))
 	if errors.Is(err, sql.ErrNoRows) {
 		return Attachment{}, false, nil
 	}
@@ -510,6 +561,24 @@ func (p *PGStore) ByTower(towerID string) ([]Attachment, error) {
 		out = append(out, at)
 	}
 	return out, rows.Err()
+}
+
+// RetireDormant is the second, much later horizon: a dormant Station nobody has seen since
+// `before` becomes terminal. One statement, like DetachIdle, and measured on the same
+// COALESCE(last_routable, attached_at) so the two horizons are two points on one timeline.
+//
+// Fleet-wide rather than per Tower: this is the pass that ends an identity, and it belongs
+// beside the other irreversible housekeeping rather than inside the per-Tower publish loop.
+func (p *PGStore) RetireDormant(before time.Time) (int64, error) {
+	res, err := p.db.Exec(`UPDATE rogerai.station_attachments
+		   SET state = $2
+		 WHERE state = 'dormant'
+		   AND COALESCE(last_routable, attached_at) < $1`, before.UTC(), StateDetached)
+	if err != nil {
+		return 0, pgwrap("retire dormant attachments", err)
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
 }
 
 // ReapTerminal deletes revoked/detached attachments attached before the horizon (see the

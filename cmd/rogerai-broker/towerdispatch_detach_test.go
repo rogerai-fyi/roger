@@ -10,14 +10,19 @@ package main
 // stopped such a row from taking traffic; nothing stopped the table from growing.
 
 import (
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"rogerai.fm/roger/v5/internal/protocol"
 	"rogerai.fm/roger/v5/internal/towercore/admit"
 	"rogerai.fm/roger/v5/internal/towercore/attach"
+	"rogerai.fm/roger/v5/internal/towercore/link"
 )
 
 // attachedStation brings one self-attached station on air behind a live tower and returns both
@@ -66,8 +71,10 @@ func TestAnAttachmentWhoseMachineWentHomeIsRetired(t *testing.T) {
 	time.Sleep(60 * time.Millisecond)
 	b.publishRoutable(towerID)
 
-	require.Equal(t, attach.StateDetached, stateOf(t, b, stationID),
+	require.Equal(t, attach.StateDormant, stateOf(t, b, stationID),
 		"a station whose machine has not been seen since before the horizon is still live")
+	require.False(t, mustAttachment(t, b, stationID).Live(),
+		"a dormant station must not carry work")
 
 	rows, err := b.tower.routable.ByTower(towerID, time.Now())
 	require.NoError(t, err)
@@ -126,7 +133,7 @@ func TestRetirementDoesNotReachAcrossTowers(t *testing.T) {
 	time.Sleep(60 * time.Millisecond)
 	b.publishRoutable(quietTower) // only this one sweeps
 
-	require.Equal(t, attach.StateDetached, stateOf(t, b, quietStation))
+	require.Equal(t, attach.StateDormant, stateOf(t, b, quietStation))
 	require.Equal(t, attach.StateActive, stateOf(t, b, "st-classichere"),
 		"the swept Tower retired its own classic Station - see TestAClassicStationOutlivesTheHorizon")
 	require.Equal(t, attach.StateActive, stateOf(t, b, "st-elsewhere"),
@@ -170,6 +177,15 @@ func TestAClassicStationOutlivesTheHorizon(t *testing.T) {
 	require.True(t, at.Live(), "a retired Station ID can never be reattached (checkBindings)")
 }
 
+// mustAttachment reads one attachment straight from the registry.
+func mustAttachment(t *testing.T, b *broker, stationID string) attach.Attachment {
+	t.Helper()
+	at, found, err := b.tower.stations.Station(stationID)
+	require.NoError(t, err)
+	require.True(t, found)
+	return at
+}
+
 // stateOf reads an attachment's lifecycle state straight from the registry.
 func stateOf(t *testing.T, b *broker, stationID string) string {
 	t.Helper()
@@ -177,4 +193,174 @@ func stateOf(t *testing.T, b *broker, stationID string) string {
 	require.NoError(t, err)
 	require.True(t, found)
 	return at.State
+}
+
+// THE STAMP PREDICATE AND THE RETIRE PREDICATE HAVE TO BE ONE PREDICATE.
+//
+// The fix above scoped DetachIdle to rows carrying a node id, and the argument given for it -
+// "a sweep may only judge a row it could have found evidence FOR" - is exactly right. It is
+// also only true while the STAMPING loop and the SWEEP agree on which rows those are, and they
+// did not. publishRoutable stamped rows that were self-attached AND carried a model; DetachIdle
+// judged every live row where node_id <> ”. The gap between the two is a row with a node id and
+// no model: skipped by the stamp, judged by the sweep, retired on the horizon, terminally.
+//
+// It is not reachable today - self-attach refuses an attach with no model - so this is a latent
+// defect rather than a live one. It is pinned anyway, because "unreachable" is a property of a
+// validator two packages away and the scope argument is a property of THESE TWO LOOPS. The
+// previous version of this defect was also unreachable right up until the classic-invite flow
+// made it reachable.
+func TestAnyRowTheSweepCanJudgeIsARowTheStampCanReach(t *testing.T) {
+	shortenIdleHorizon(t, 40*time.Millisecond)
+	b, srv := towerTestBroker(t)
+	towerID, _, _ := attachedStation(t, b, srv, "parity-op")
+
+	// A row DetachIdle would judge (it carries a node id) that the stamping loop used to skip
+	// (it carries no model). Written straight through the registry, because the attach handler
+	// is the validator that makes it unreachable and the point is that the sweep must not
+	// depend on that validator.
+	const stationID, nodeID = "st-nomodel", "n-nomodel"
+	apub, _, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	sessionRaw := make([]byte, 32)
+	copy(sessionRaw, stationID)
+	auth, secret, err := attach.NewInvite(attach.Authorization{
+		ID: "auth-" + stationID, Network: link.PublicNetwork, StationID: stationID,
+		Owner:        ownerPubkeyOf(t, b, "parity-op"),
+		Origin:       attach.Origin{Kind: attach.OriginJoined, TowerID: towerID},
+		AssertionKey: hex.EncodeToString(apub), SessionKey: hex.EncodeToString(sessionRaw),
+		NodeID: nodeID, // the join is there; the offer is not
+	}, time.Hour, time.Now())
+	require.NoError(t, err)
+	require.NoError(t, b.tower.stationStore.PutAuthorization(auth))
+	_, err = b.tower.stations.Admit(attach.Proof{
+		AuthID: auth.ID, Secret: secret, Network: link.PublicNetwork, StationID: stationID,
+		Owner:        ownerPubkeyOf(t, b, "parity-op"),
+		Origin:       attach.Origin{Kind: attach.OriginJoined, TowerID: towerID},
+		AssertionKey: hex.EncodeToString(apub), SessionKey: hex.EncodeToString(sessionRaw),
+	})
+	require.NoError(t, err)
+
+	// Its machine is right there, heartbeating, on every sweep. That is the evidence the sweep
+	// exists to look for, and the stamp is the only thing that records it.
+	b.mu.Lock()
+	b.nodes[nodeID] = protocol.NodeRegistration{NodeID: nodeID}
+	b.mu.Unlock()
+	for i := 0; i < 5; i++ {
+		time.Sleep(50 * time.Millisecond) // longer than the whole horizon, every time
+		b.mu.Lock()
+		b.lastSeen[nodeID] = time.Now()
+		b.mu.Unlock()
+		b.publishRoutable(towerID)
+		require.True(t, stateOf(t, b, stationID) != attach.StateDetached,
+			"sweep %d retired a live machine the stamping loop had no way to vouch for", i)
+	}
+}
+
+// A FORTNIGHT AWAY MUST NOT COST AN OPERATOR THEIR STATION, and this is that end to end,
+// through the real self-attach handler with the real registry underneath.
+//
+// The idle sweep used to write StateDetached, which is terminal: the very next `roger share`
+// re-attaches with the SAME persistent on-disk identity - same station id, same assertion key,
+// same session key, because that identity is deliberately persistent and Core verifies every
+// receipt against it - and got 409 "this Station ID has been retired and cannot be reattached".
+// The row was not even freed for a fresh Station under that id for another month.
+//
+// The dependency is the part that made it unacceptable rather than merely harsh. The stamp the
+// sweep measures has exactly ONE writer, publishRoutable joining a node id to a live
+// registration, so a week of that mirror being broken on the instance holding a Tower's link
+// retired every self-attached Station behind it, permanently, with nobody deciding anything.
+func TestAStationThatWentQuietForAFortnightCanComeBack(t *testing.T) {
+	shortenIdleHorizon(t, 40*time.Millisecond)
+	b, srv := towerTestBroker(t)
+	tw := liveEdgeTower(t, b, srv, "holiday-op", "203.0.113.9:8443")
+	op := signedInOperator(t, b, "holiday-op-node")
+	body, _ := selfAttachBodyFor(t, b, op)
+	// The node names its own persistent Station id, exactly as agent.AttachTower does from the
+	// identity on disk. Without that this test would be about minting a NEW Station, which is
+	// not what a returning machine does and not what was broken.
+	const stationID = "st-holidaymachine"
+	body["station_id"] = stationID
+
+	var first struct {
+		StationID string `json:"station_id"`
+	}
+	code, raw := op.call(t, srv, http.MethodPost, "/tower/edge/attach", body, &first)
+	require.Equal(t, http.StatusOK, code, raw)
+	require.Equal(t, stationID, first.StationID)
+	nodeID := body["node_id"].(string)
+
+	// Two weeks off: the machine stops heartbeating and the sweep runs.
+	b.mu.Lock()
+	b.lastSeen[nodeID] = time.Now().Add(-14 * 24 * time.Hour)
+	b.mu.Unlock()
+	time.Sleep(60 * time.Millisecond)
+	b.publishRoutable(tw.id)
+
+	require.Equal(t, attach.StateDormant, stateOf(t, b, stationID),
+		"the idle sweep still ends a Station's identity outright")
+	rows, err := b.tower.routable.ByTower(tw.id, time.Now())
+	require.NoError(t, err)
+	require.Empty(t, rows, "a dormant Station must carry no work and appear in no projection")
+
+	// THE OPERATOR COMES HOME. Same identity, same keys, same node - one `roger share`.
+	b.mu.Lock()
+	b.lastSeen[nodeID] = time.Now()
+	b.mu.Unlock()
+	var second struct {
+		StationID string `json:"station_id"`
+		State     string `json:"state"`
+	}
+	code, raw = op.call(t, srv, http.MethodPost, "/tower/edge/attach", body, &second)
+	require.Equal(t, http.StatusOK, code,
+		"a machine that was away for a fortnight was refused its own Station: %s", raw)
+	require.Equal(t, stationID, second.StationID, "coming back must not mint a second identity")
+	require.Equal(t, attach.StateActive, stateOf(t, b, stationID))
+
+	// And it is routable again on the very next publish, rather than waiting out a sweep.
+	b.publishRoutable(tw.id)
+	rows, err = b.tower.routable.ByTower(tw.id, time.Now())
+	require.NoError(t, err)
+	require.Len(t, rows, 1, "the returning Station is not back in the projection")
+}
+
+// AND A STRANGER CANNOT WAKE SOMEBODY ELSE'S SLEEPING STATION. The assertion key is public and
+// on the wire; what the revival branch requires is the whole identity - owner, origin kind and
+// BOTH keys - and a mismatch is refused with the sentence for a mismatch rather than with the
+// terminal one.
+func TestADormantStationIsOnlyWokenByTheMachineThatHoldsIt(t *testing.T) {
+	shortenIdleHorizon(t, 40*time.Millisecond)
+	b, srv := towerTestBroker(t)
+	tw := liveEdgeTower(t, b, srv, "sleep-op", "203.0.113.9:8443")
+	owner := signedInOperator(t, b, "sleep-op-node")
+	body, _ := selfAttachBodyFor(t, b, owner)
+	const stationID = "st-sleeping1"
+	body["station_id"] = stationID
+	code, raw := op0(t, owner, srv, body)
+	require.Equal(t, http.StatusOK, code, raw)
+
+	b.mu.Lock()
+	b.lastSeen[body["node_id"].(string)] = time.Now().Add(-14 * 24 * time.Hour)
+	b.mu.Unlock()
+	time.Sleep(60 * time.Millisecond)
+	b.publishRoutable(tw.id)
+	require.Equal(t, attach.StateDormant, stateOf(t, b, stationID))
+
+	// A different account, a different machine, the SAME station id and the same public
+	// assertion key it read off the plaintext hub link.
+	thief := signedInOperator(t, b, "thief-op")
+	stolen, _ := selfAttachBodyFor(t, b, thief)
+	stolen["station_id"] = stationID
+	stolen["assertion_key"] = body["assertion_key"]
+	code, raw = op0(t, thief, srv, stolen)
+	require.NotEqual(t, http.StatusOK, code,
+		"a stranger woke somebody else's dormant Station: %s", raw)
+	require.Equal(t, attach.StateDormant, stateOf(t, b, stationID),
+		"the refused attempt still moved the sleeping Station's state")
+}
+
+// op0 posts a self-attach body and returns the status and raw answer.
+func op0(t *testing.T, o operator, srv *httptest.Server, body map[string]any) (int, string) {
+	t.Helper()
+	var out map[string]any
+	return o.call(t, srv, http.MethodPost, "/tower/edge/attach", body, &out)
 }

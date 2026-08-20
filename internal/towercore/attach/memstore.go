@@ -131,11 +131,24 @@ func (m *memStore) Admit(authID string, at Attachment) (bool, error) {
 	// matters: two concurrent Admits under DISTINCT authorizations sharing a session key
 	// both win in memory while Postgres rejects one. checkBindings hides that sequentially,
 	// which is why a sequential parity test cannot see it.
-	if existing, taken := m.byID[at.StationID]; taken && existing.Live() && existing.AuthID != authID {
-		return false, errAlreadyAttached
+	if existing, taken := m.byID[at.StationID]; taken && existing.AuthID != authID {
+		// A DORMANT ROW IS THE ONE THING THIS MAY OVERWRITE, and only by the machine that holds
+		// its keys. Everything else - live, revoked, detached - is a Station ID that is somebody
+		// else's, and the durable store's PRIMARY KEY says so whatever this thinks. This used to
+		// test only Live(), so a terminal row here was silently REPLACED in memory while
+		// Postgres refused the insert: a parity divergence that checkBindings happened to hide
+		// sequentially, which is exactly how the last one in this function went unnoticed.
+		if !(existing.Recoverable() && existing.Owner == at.Owner &&
+			existing.Origin.Kind == at.Origin.Kind &&
+			existing.AssertionKey == at.AssertionKey && existing.SessionKey == at.SessionKey) {
+			return false, errAlreadyAttached
+		}
 	}
 	for _, other := range m.byID {
-		if other.StationID == at.StationID || !other.Live() {
+		// HELD, NOT LIVE. A dormant Station keeps its keys reserved - see StateDormant - and
+		// the durable store's partial unique index is built on the same three states, so the
+		// two agree about who may take a key that is asleep.
+		if other.StationID == at.StationID || !other.Held() {
 			continue
 		}
 		if other.AssertionKey == at.AssertionKey || other.SessionKey == at.SessionKey {
@@ -145,6 +158,11 @@ func (m *memStore) Admit(authID string, at Attachment) (bool, error) {
 	a.Consumed, a.ConsumedBy = true, at.StationID
 	m.auths[authID] = a
 	m.byID[at.StationID] = at
+	// THE STAMP GOES WITH THE OLD LIFE. A revived Station's last_routable belongs to the machine
+	// as it was before it went quiet, and leaving it in place would put the fresh attachment
+	// straight back over the idle horizon - retired again on the next sweep, seconds after
+	// coming back. The durable store NULLs the column on the same write for the same reason.
+	delete(m.lastRoutable, at.StationID)
 	return true, nil
 }
 
@@ -205,7 +223,8 @@ func (m *memStore) DetachIdle(towerID string, before time.Time) ([]string, error
 		if !seen.Before(before) {
 			continue
 		}
-		rec.State = StateDetached
+		// DORMANT, NOT DETACHED: out of service, not out of existence. See StateDormant.
+		rec.State = StateDormant
 		m.byID[id] = rec
 		out = append(out, id)
 	}
@@ -235,7 +254,10 @@ func (m *memStore) ByAssertionKey(key string) (Attachment, bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, at := range m.byID {
-		if at.AssertionKey == key && at.Live() {
+		// Held rather than Live: a dormant Station's keys are still its own, so a lookup for
+		// them must find it - both to refuse another Station taking them, and so the durable
+		// store's partial unique index and this scan answer the same question.
+		if at.AssertionKey == key && at.Held() {
 			return at, true, nil
 		}
 	}
@@ -246,11 +268,36 @@ func (m *memStore) BySessionKey(key string) (Attachment, bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, at := range m.byID {
-		if at.SessionKey == key && at.Live() {
+		if at.SessionKey == key && at.Held() {
 			return at, true, nil
 		}
 	}
 	return Attachment{}, false, nil
+}
+
+// RetireDormant is the second, much later horizon: a Station nobody has seen since `before`
+// stops being recoverable and becomes terminal. Measured on the same stamp-or-attach clock as
+// DetachIdle, so the two horizons are two points on one timeline rather than two timers.
+func (m *memStore) RetireDormant(before time.Time) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var n int64
+	for id, rec := range m.byID {
+		if rec.State != StateDormant {
+			continue
+		}
+		seen := m.lastRoutable[id]
+		if seen.IsZero() {
+			seen = rec.AttachedAt
+		}
+		if !seen.Before(before) {
+			continue
+		}
+		rec.State = StateDetached
+		m.byID[id] = rec
+		n++
+	}
+	return n, nil
 }
 
 func (m *memStore) ReapTerminal(before time.Time) (int64, error) {

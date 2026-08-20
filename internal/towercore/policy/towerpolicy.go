@@ -158,10 +158,16 @@ func (p *Policy) Station(stationID string) inv.Registration {
 		Quarantined: at.State == attach.StateQuarantine,
 	}
 
-	// Detached is not revoked - the key is not burnt - but it is not serving either, so it
-	// must not be routable. Reporting it banned is the honest mapping onto the fields
+	// Detached and DORMANT are not revoked - the key is not burnt - but neither is serving, so
+	// neither may be routable. Reporting them banned is the honest mapping onto the fields
 	// towerinv has.
-	if at.State == attach.StateDetached {
+	//
+	// Dormant is listed explicitly rather than being folded into a !Live() test, because the two
+	// mean different things everywhere else in this system - one is recoverable and one is not -
+	// and a reader arriving here needs to see that the difference makes no difference TO
+	// ROUTING. A sleeping Station carries no work; that it can wake up is somebody else's
+	// question.
+	if at.State == attach.StateDetached || at.State == attach.StateDormant {
 		reg.Banned = true
 	}
 

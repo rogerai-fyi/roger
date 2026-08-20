@@ -71,6 +71,33 @@ const (
 	StateActive     = "active"
 	StateRevoked    = "revoked"
 	StateDetached   = "detached"
+	// StateDormant is "this machine has not been seen for a long time", and it is the state
+	// the idle sweep assigns. It is NOT terminal: a Station in it carries no traffic, appears
+	// in no Tower's node list and is published in no projection, but the SAME machine, with
+	// the same Station ID and the same keys, may attach again and pick up where it left off.
+	//
+	// # WHY IT HAD TO EXIST
+	//
+	// DetachIdle used to write StateDetached, which is terminal AND unrecoverable: checkBindings
+	// answers "this Station ID has been retired and cannot be reattached", and ReapTerminal does
+	// not even free the row for a fresh Station under that id for a month. So one crossing of
+	// one horizon - seven days with no stamp - turned a temporary absence into a permanent loss
+	// of an operator's Station identity. A fortnight's holiday did it. A fortnight of downtime
+	// did it. And because the stamp is written by exactly one thing (publishRoutable joining a
+	// node id to a live registration), the liveness mirror being broken for a week on the
+	// instance holding a Tower's link retired EVERY self-attached Station behind that Tower,
+	// irrecoverably, with no operator action and nothing to appeal to.
+	//
+	// A single thin dependency in front of an irreversible action is the wrong shape whatever
+	// the dependency is. So the sweep's job is now to stop the table growing and stop dead rows
+	// being published - which is all it was ever for - and the irreversible half is a SEPARATE,
+	// much later pass (RetireDormant) or an owner's explicit Revoke.
+	//
+	// A dormant Station KEEPS ITS KEYS RESERVED. That is what makes the recovery promise real
+	// rather than nominal: an assertion key is public and rides in the clear on every hub poll,
+	// so if dormancy freed it, anyone could bind it to a Station of their own and the rightful
+	// owner's return would be refused for a key they never gave up.
+	StateDormant = "dormant"
 )
 
 // ErrRejected is every refusal. The reason is wrapped for operators; callers branch on this
@@ -231,10 +258,25 @@ func (a Attachment) SelfAttached() bool {
 }
 
 // Live reports whether this attachment may carry public work at all. Quarantine is live-
-// but-not-yet-eligible; revoked and detached are terminal for this Station ID.
+// but-not-yet-eligible; revoked and detached are terminal for this Station ID; dormant is
+// neither - it carries no work and can come back. Nothing that routes, publishes or pays may
+// widen to include dormant, which is why it is not in this list.
 func (a Attachment) Live() bool {
 	return a.State == StateQuarantine || a.State == StateActive
 }
+
+// Recoverable reports whether this Station ID can be attached to again by the machine that
+// holds it. It is the one state where "not live" does not mean "gone", and it is a named
+// predicate rather than an inline comparison because the whole point of the soft/terminal split
+// is that the two are asked about separately from now on.
+func (a Attachment) Recoverable() bool { return a.State == StateDormant }
+
+// Held reports whether this attachment still RESERVES its assertion and session keys. It is
+// broader than Live on purpose: a dormant Station is not serving, and its keys are still its
+// own, because an assertion key is public material that rides in the clear on every hub poll
+// and freeing it would let anybody take the identity a sleeping operator is entitled to return
+// to. Terminal states release their keys, as they always have.
+func (a Attachment) Held() bool { return a.Live() || a.Recoverable() }
 
 // Proof is what a Station presents. Every field must match the authorization exactly; this
 // type exists so the comparison is explicit rather than a pile of arguments.
@@ -339,10 +381,24 @@ type Store interface {
 	// a CLASSIC operator-invited Station - which carries no node id, is skipped by
 	// publishRoutable's stamping loop by construction, and has no roger-share half to
 	// heartbeat - was retired seven days after it attached, every time, on its own Tower's
-	// housekeeping tick. StateDetached is terminal AND unrecoverable (checkBindings answers
-	// "this Station ID has been retired and cannot be reattached"), so that was a permanent
-	// loss of an operator's Station on a fixed timer, produced by the sweep that was added to
-	// stop the table growing.
+	// housekeeping tick. The state it assigned was terminal AND unrecoverable (checkBindings
+	// answers "this Station ID has been retired and cannot be reattached"), so that was a
+	// permanent loss of an operator's Station on a fixed timer, produced by the sweep that was
+	// added to stop the table growing.
+	//
+	// IT WRITES StateDormant NOW, NOT StateDetached, and that is the other half of the same
+	// lesson. Scoping the sweep to rows it can find evidence for stopped it retiring a
+	// population it could never see; it did nothing about the population it CAN see going
+	// quiet for ordinary reasons. Seven days with no stamp is a holiday, a house move, a
+	// fortnight of downtime, or - since the stamp has exactly one writer - a liveness mirror
+	// that was broken for a week on the instance holding this Tower'"'"'s link. Every one of those
+	// used to end an operator'"'"'s Station identity forever.
+	//
+	// Dormant does everything the sweep was for: the row stops being live, stops being
+	// published, stops appearing in the Tower'"'"'s node list, and stops counting against the
+	// owner'"'"'s live cap. What it no longer does is decide, on a seven-day timer and a single
+	// dependency, that a machine is never coming back. RetireDormant below is where that
+	// decision is made, much later, and Revoke is where an owner makes it immediately.
 	//
 	// The alternative considered was to give classic attachments a liveness source of their
 	// own. There is none to give: their machine is reached through the Tower's signed
@@ -354,6 +410,22 @@ type Store interface {
 	// self-attached row carries a proved node id (toweredgeattach.go refuses the attach
 	// without one).
 	DetachIdle(towerID string, before time.Time) ([]string, error)
+	// RetireDormant moves long-dormant attachments to the terminal StateDetached, and reports
+	// how many. It is the second half of the soft/terminal split: DetachIdle takes a Station
+	// out of service on a horizon measured in days, and this takes its IDENTITY on one measured
+	// in months.
+	//
+	// It is deliberately NOT scoped to a Tower and NOT run from publishRoutable. The sweep that
+	// takes a row out of service belongs beside the thing that publishes rows, per Tower, on
+	// the tick that already holds the id; the pass that ends an identity is fleet-wide
+	// housekeeping and belongs beside the other reap, where a reader looking for irreversible
+	// deletions finds all of them in one place.
+	//
+	// Measured on the same COALESCE(last_routable, attached_at) as DetachIdle, so the clock a
+	// Station is judged by never changes underneath it: one horizon takes it out of service and
+	// a much later one takes its name, both counted from the last time anybody saw the machine.
+	// A Station that comes back before the second horizon keeps everything.
+	RetireDormant(before time.Time) (int64, error)
 	// ByTower lists the LIVE attachments whose origin is the given Tower - what that Tower's
 	// hub must serve (Option C: the tower reads each node's HubToken from here).
 	ByTower(towerID string) ([]Attachment, error)
@@ -361,7 +433,9 @@ type Store interface {
 	BySessionKey(key string) (Attachment, bool, error)
 	// SetState moves an attachment through its lifecycle.
 	SetState(stationID, state string) (bool, error)
-	// ReapTerminal deletes revoked/detached attachments attached before the horizon. Terminal
+	// ReapTerminal deletes revoked/detached attachments attached before the horizon. DORMANT IS
+	// NOT TERMINAL and is never reaped here - RetireDormant is what makes a dormant row
+	// terminal, and only then does this delete it. Terminal
 	// rows are kept a while for forensics, but not forever: without a reap, an attach ->
 	// revoke -> attach loop (frictionless on the self-attach path) grows the table without
 	// bound - the same vector the invitation reap closes one table over.
@@ -472,7 +546,8 @@ func (r *Registry) Admit(p Proof) (Attachment, error) {
 
 	// Uniqueness, read before the commit. The commit itself is what settles a race; these
 	// give a clear refusal in the ordinary case.
-	if err := r.checkBindings(auth.ID, p); err != nil {
+	revived, err := r.checkBindings(auth.ID, p)
+	if err != nil {
 		return Attachment{}, err
 	}
 
@@ -510,6 +585,23 @@ func (r *Registry) Admit(p Proof) (Attachment, error) {
 		Modality: auth.Modality,
 		PriceIn:  auth.PriceIn,
 		PriceOut: auth.PriceOut,
+	}
+	if revived.StationID != "" {
+		// A DORMANT STATION WAKING UP CARRIES TWO THINGS FORWARD, and neither is cosmetic.
+		//
+		// THE EPOCH ADVANCES. It is the fence that lets an old origin's in-flight work be
+		// refused after a move, and a revival may well land on a different Tower - Core picks
+		// the first live one with an endpoint, and months have passed. Reusing the old epoch
+		// would leave anything still holding the previous one indistinguishable from the
+		// present.
+		//
+		// THE AUDIT PROOF STAYS. AuditProvenAt records that this Station has ANSWERED a content
+		// audit, which is a fact about the machine and its software rather than about the
+		// current attachment, and it is what retires a temporary leniency per node. Dropping it
+		// would put a proven operator back behind the tolerance written for nodes that could not
+		// answer at all - a downgrade for having been away.
+		at.Epoch = revived.Epoch + 1
+		at.AuditProvenAt = revived.AuditProvenAt
 	}
 
 	won, err := r.store.Admit(auth.ID, at)
@@ -625,11 +717,13 @@ func (r *Registry) validate(auth Authorization, p Proof, now time.Time) error {
 	return nil
 }
 
-// checkBindings enforces the uniqueness rules and the immutability of origin kind.
-func (r *Registry) checkBindings(authID string, p Proof) error {
+// checkBindings enforces the uniqueness rules and the immutability of origin kind, and - when
+// the Station ID in front of it is a DORMANT one coming back - reports the row being revived so
+// the caller can carry its history forward.
+func (r *Registry) checkBindings(authID string, p Proof) (revived Attachment, err error) {
 	existing, ok, err := r.store.ByStation(p.StationID)
 	if err != nil {
-		return fmt.Errorf("%w: %v", ErrUnavailable, err)
+		return Attachment{}, fmt.Errorf("%w: %v", ErrUnavailable, err)
 	}
 	if ok {
 		// A racer that read the invitation BEFORE the winner committed arrives here after it
@@ -638,45 +732,68 @@ func (r *Registry) checkBindings(authID string, p Proof) error {
 		// permanent failure. Let it through to the store, which reports the authorization
 		// already consumed, and the replay path answers with the committed outcome.
 		if existing.AuthID == authID {
-			return nil
+			return Attachment{}, nil
+		}
+		// THE SAME MACHINE, COMING BACK. A dormant Station presenting the SAME assertion key,
+		// the SAME session key, the SAME owner and the SAME origin kind is not a new claimant to
+		// a used name - it is the identity that was put to sleep, and the four things it has to
+		// match are the four that describe who it is. agent.AttachTower produces exactly this
+		// call, because the Station identity on disk is persistent by design: the same id and
+		// the same keys, every run, forever.
+		//
+		// Everything below still applies to it. A different key, a different owner or a
+		// different origin kind is refused with the sentence for that mismatch rather than with
+		// the retirement one, which is the same distinction the two epoch refusals just got:
+		// "you are somebody else" and "this Station is finished" want different sentences.
+		if existing.Recoverable() && existing.Origin.Kind == p.Origin.Kind &&
+			existing.AssertionKey == p.AssertionKey && existing.SessionKey == p.SessionKey &&
+			existing.Owner == p.Owner {
+			return existing, nil
 		}
 		switch {
 		case existing.Origin.Kind != p.Origin.Kind:
 			// The whole point of v1's immutability rule. Earnings lineage, capacity and held
 			// compensation hang off this identity; letting the kind change would move all of
 			// it silently.
-			return reject(errors.New(
+			return Attachment{}, reject(errors.New(
 				"this Station was admitted under a different origin kind, and origin kind cannot change: " +
 					"revoke it and attach a new Station ID"))
 		case existing.AssertionKey != p.AssertionKey:
-			return reject(errors.New("this Station ID is already bound to another assertion key"))
+			return Attachment{}, reject(errors.New("this Station ID is already bound to another assertion key"))
+		case existing.Recoverable():
+			// Dormant, but not the same machine - the keys or the owner do not match, and the
+			// branch above already let the real one through. Say which, rather than borrowing
+			// the terminal sentence: this Station is asleep and answerable, just not to you.
+			return Attachment{}, reject(errors.New(
+				"this Station ID is dormant and can only be reattached by the machine that holds " +
+					"its keys, which these are not"))
 		case !existing.Live():
-			return reject(errors.New("this Station ID has been retired and cannot be reattached"))
+			return Attachment{}, reject(errors.New("this Station ID has been retired and cannot be reattached"))
 		default:
 			// Already attached and still live. Two invitations can exist for one Station ID -
 			// the invite route only refuses one whose Station is ALREADY attached - so
 			// redeeming the second must be refused here rather than silently replacing the
 			// first, which would reset its state, epoch and lineage.
-			return reject(errors.New("this Station is already attached"))
+			return Attachment{}, reject(errors.New("this Station is already attached"))
 		}
 	}
 
 	// A secure-session key belonging to another Station would let one machine terminate
 	// another's end-to-end channel.
 	if bound, ok, err := r.store.BySessionKey(p.SessionKey); err != nil {
-		return fmt.Errorf("%w: %v", ErrUnavailable, err)
+		return Attachment{}, fmt.Errorf("%w: %v", ErrUnavailable, err)
 	} else if ok && bound.StationID != p.StationID {
-		return reject(errors.New("that secure-session key is already bound to another Station"))
+		return Attachment{}, reject(errors.New("that secure-session key is already bound to another Station"))
 	}
 
 	// Likewise an assertion key: two Stations signing offers with one key are one signer
 	// wearing two identities.
 	if bound, ok, err := r.store.ByAssertionKey(p.AssertionKey); err != nil {
-		return fmt.Errorf("%w: %v", ErrUnavailable, err)
+		return Attachment{}, fmt.Errorf("%w: %v", ErrUnavailable, err)
 	} else if ok && bound.StationID != p.StationID {
-		return reject(errors.New("that assertion key is already bound to another Station"))
+		return Attachment{}, reject(errors.New("that assertion key is already bound to another Station"))
 	}
-	return nil
+	return Attachment{}, nil
 }
 
 // Station is the read inv.Policy needs: what Core knows about a Station ID.
