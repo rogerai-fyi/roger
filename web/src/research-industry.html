@@ -69,14 +69,23 @@
              restated here because healthcare and defense are where a reader will
              (correctly) ask what we are claiming. -->
         <div class="device-contract">
-            <p><b>Healthcare: equipment and facilities, not patients.</b> The models read the
-              machines, the logs, and the paperwork. They do not diagnose, do not treat, do not
-              recommend or adjust care, and do not read scans or physiologic waveforms. Alarm work
-              is offline review of alarm <i>journals</i> to find misconfiguration - never a
-              decision about a live alarm at a bedside. It is the same no-actuation contract that
-              keeps a model out of a plant&rsquo;s control loop, applied to a hospital.</p>
-            <p><b>Defense: sustainment, not effects.</b> Maintenance, readiness, and supply.
-              No targeting, no weapons employment, and no intelligence exploitation.</p>
+            <p><b>Healthcare: equipment and facilities, not patients.</b> What these models
+              read is the hospital&rsquo;s equipment and the paperwork around it &ndash;
+              imaging-fleet service logs, biomedical work orders, cold-chain records. They do
+              not diagnose, do not treat, do not recommend or adjust care, and do not read
+              scans or physiologic waveforms. Alarm-configuration review means reading past
+              alarm <i>journals</i> to find a threshold set wrong; it is never a decision
+              about a live alarm at a bedside. Software that makes clinical decisions is
+              regulated as a medical device, and this line is what keeps us on the equipment
+              side of it.</p>
+            <p><b>Defense: sustainment, not effects.</b> Sustainment is the logistics half of
+              defense work &ndash; keeping equipment running and supplied. That means
+              maintenance histories, readiness reporting, and parts and supply questions,
+              answered on site over links that are denied, degraded or intermittent, with no
+              reachback to a cloud. It does not mean the other half: no targeting, no weapons
+              employment, and no intelligence exploitation. The same models, the same
+              constraint as every other industry here &ndash; they read and they explain, and
+              nothing they say moves a machine or a decision on its own.</p>
         </div>
 
         <!-- Where the box sits - the first question asked in OT, and one prose cannot
@@ -160,9 +169,9 @@
              full delegation, partial delegation, and CPU fallback, not merely a successful load.</p>
           <p><b>ESP32.</b> Roger Edge is the sensing and glue layer: wake, VAD, sensing,
              and fixed commands. No Wave tier runs on an ESP32 - the board is the sensor
-             and a Raspberry Pi is the model host. ESP32-P4 claims name the companion radio.
-             Nothing is trained yet: the <a href="/research-models.html#roger-edge">Roger Edge
-             line</a> carries its own status.</p>
+             and a Raspberry Pi is the model host. The
+             <a href="/research-models.html#roger-edge">Roger Edge line</a> carries its own
+             status.</p>
         </div>
       </div>
         </section>
