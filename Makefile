@@ -70,6 +70,15 @@ PKGS ?= ./internal/towercore/... ./internal/store/...
 .PHONY: test-db
 test-db:
 	@docker rm -f rogerai-test-pg >/dev/null 2>&1 || podman rm -f rogerai-test-pg >/dev/null 2>&1 || true
+	@# WAIT FOR THE NAME TO BE FREE. `stop` and `rm` both return before the container is
+	@# actually gone, so back-to-back runs used to start while the previous postgres was
+	@# still shutting down: pg_isready answered from the dying instance, and the schema
+	@# create then failed with "the database system is shutting down". A target whose whole
+	@# purpose is a result you can act on must not have its own flake.
+	@for i in $$(seq 1 60); do \
+		if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -qx rogerai-test-pg \
+			|| podman ps -a --format '{{.Names}}' 2>/dev/null | grep -qx rogerai-test-pg; then sleep 1; else break; fi; \
+	done
 	@(docker run -d --rm --name rogerai-test-pg -e POSTGRES_PASSWORD=test -e POSTGRES_DB=roger_test \
 		-p $(PG_TEST_PORT):5432 postgres:16 >/dev/null 2>&1 \
 		|| podman run -d --rm --name rogerai-test-pg -e POSTGRES_PASSWORD=test -e POSTGRES_DB=roger_test \
@@ -77,8 +86,14 @@ test-db:
 		&& echo "postgres:16 up on $(PG_TEST_PORT)"
 	@until (docker exec rogerai-test-pg pg_isready -U postgres >/dev/null 2>&1 \
 		|| podman exec rogerai-test-pg pg_isready -U postgres >/dev/null 2>&1); do sleep 1; done
-	@(docker exec rogerai-test-pg psql -U postgres -d roger_test -c "CREATE SCHEMA IF NOT EXISTS rogerai;" >/dev/null 2>&1 \
-		|| podman exec rogerai-test-pg psql -U postgres -d roger_test -c "CREATE SCHEMA IF NOT EXISTS rogerai;" >/dev/null)
+	@# Retried: pg_isready can answer before the server will accept a real statement, and a
+	@# single attempt here is the difference between a usable target and a coin flip.
+	@for i in $$(seq 1 30); do \
+		if (docker exec rogerai-test-pg psql -U postgres -d roger_test -c "CREATE SCHEMA IF NOT EXISTS rogerai;" >/dev/null 2>&1 \
+			|| podman exec rogerai-test-pg psql -U postgres -d roger_test -c "CREATE SCHEMA IF NOT EXISTS rogerai;" >/dev/null 2>&1); then break; fi; \
+		if [ $$i = 30 ]; then echo "could not create the rogerai schema" >&2; exit 1; fi; \
+		sleep 1; \
+	done
 	@echo "running $(PKGS) with -p 1"
 	@ROGERAI_TEST_DATABASE_URL="postgres://postgres:test@127.0.0.1:$(PG_TEST_PORT)/roger_test?sslmode=disable" \
 		go test -p 1 -count=1 $(PKGS); \

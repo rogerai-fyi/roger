@@ -32,7 +32,18 @@ func TestChargebackWalletRecencyParity(t *testing.T) {
 	t.Setenv("ROGERAI_PAYOUT_RESERVE", "0")
 	for name, db := range parityStores(t) {
 		t.Run(name, func(t *testing.T) {
-			now := time.Now()
+			// A SECOND AHEAD, deliberately. These tests run with ROGERAI_PAYOUT_HOLD_DAYS=0, so a
+			// lot's ReleaseAt is its creation time - and ReleaseAt is stored in WHOLE SECONDS
+			// (store.go writes rel.Unix()) while promotion asks now.Unix() >= ReleaseAt. A clock
+			// read BEFORE the spend therefore loses to its own lot whenever the spend crosses a
+			// second boundary: the lot releases at now+1 and is still held, EarningSplitOf
+			// reports nothing payable, and RequestPayout answers "below minimum payout".
+			//
+			// It failed about one run in three on Postgres and never on mem, which is the tell:
+			// the round trips widen the window between the two clock reads. Nothing about the
+			// money is wrong - the test was asking what was payable at an instant before the
+			// earning existed.
+			now := time.Now().Add(time.Second)
 			_ = db.BindNode("n", "op1")
 			if _, err := db.AddCredits("alice", 1000); err != nil {
 				t.Fatal(err)
@@ -99,7 +110,9 @@ func TestChargebackPartialProRataParity(t *testing.T) {
 	t.Setenv("ROGERAI_PAYOUT_RESERVE", "0")
 	for name, db := range parityStores(t) {
 		t.Run(name, func(t *testing.T) {
-			now := time.Now()
+			// A second ahead, for the whole-second ReleaseAt boundary explained in
+			// TestChargebackWalletRecencyParity.
+			now := time.Now().Add(time.Second)
 			_ = db.BindNode("n", "op1")
 			if _, err := db.AddCredits("alice", 1000); err != nil {
 				t.Fatal(err)
@@ -139,7 +152,9 @@ func TestChargebackPaidLotReversalParity(t *testing.T) {
 	t.Setenv("ROGERAI_PAYOUT_RESERVE", "0")
 	for name, db := range parityStores(t) {
 		t.Run(name, func(t *testing.T) {
-			now := time.Now()
+			// A second ahead, for the whole-second ReleaseAt boundary explained in
+			// TestChargebackWalletRecencyParity.
+			now := time.Now().Add(time.Second)
 			_ = db.BindNode("n", "acct1")
 			if _, err := db.AddCredits("u", 100); err != nil {
 				t.Fatal(err)
@@ -193,7 +208,9 @@ func TestChargebackExplicitRequestParity(t *testing.T) {
 	t.Setenv("ROGERAI_PAYOUT_RESERVE", "0")
 	for name, db := range parityStores(t) {
 		t.Run(name, func(t *testing.T) {
-			now := time.Now()
+			// A second ahead, for the whole-second ReleaseAt boundary explained in
+			// TestChargebackWalletRecencyParity.
+			now := time.Now().Add(time.Second)
 			_ = db.BindNode("n", "opx")
 			if _, err := db.AddCredits("u", 1000); err != nil {
 				t.Fatal(err)
