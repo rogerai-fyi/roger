@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"rogerai.fm/roger/v5/internal/client"
+	"rogerai.fm/roger/v5/internal/clockprobe"
 	"rogerai.fm/roger/v5/internal/tower"
 	"rogerai.fm/roger/v5/internal/towerjoin"
 	"rogerai.fm/roger/v5/internal/towerstore"
@@ -34,7 +35,7 @@ usage:
   roger-tower init --dir DIR --mode joined|standalone
   roger-tower config validate --config FILE
   roger-tower config print --config FILE [--redact]
-  roger-tower doctor --config FILE
+  roger-tower doctor --config FILE [--clock-check] [--offline] [--ntp HOST:PORT]
   roger-tower ready  --config FILE     (durable startup preflight)
   roger-tower invite --dir DIR --client KEYHASH [--ttl 15m] [--attempts 5]
   roger-tower admit  --dir DIR --client KEYHASH --id ID --code CODE
@@ -199,6 +200,21 @@ func cmdDoctor(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
 	fs.SetOutput(out)
 	path := fs.String("config", "", "path to the Tower configuration file")
+	// A Tower needs no GPU and runs no model. Its requirements are a stable address, an
+	// exposed port, bandwidth and a SYNCHRONISED CLOCK - and the clock is the one an
+	// operator has no other way to find out is wrong, because a Tower past the signature
+	// window refuses every honest node with a 401 that says nothing about time.
+	//
+	// Measuring it needs an external reference, which means one UDP packet to an NTP
+	// server, and WHETHER THAT IS ALLOWED DEPENDS ON THE MODE. A standalone Tower's whole
+	// promise is that it makes no outbound connection - that is a Phase 1 gate, not a
+	// setting - so doctor does not quietly break it to check a clock: standalone measures
+	// nothing unless the operator asks with --clock-check, and says in the report that it
+	// did not. A joined Tower already talks to Roger Core, so it measures by default and
+	// --offline opts out.
+	clockCheck := fs.Bool("clock-check", false, "measure this machine's clock against an NTP server even in standalone mode (standalone otherwise makes no outbound connection at all)")
+	offline := fs.Bool("offline", false, "skip the network clock check entirely; the kernel's own time-sync state is still reported")
+	ntpServer := fs.String("ntp", clockprobe.DefaultServer, "NTP server to measure this machine's clock against")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -206,7 +222,18 @@ func cmdDoctor(args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	rep := tower.Doctor(c)
+	var opts []tower.DoctorOption
+	if measure := !*offline && (c.Mode != tower.ModeStandalone || *clockCheck); measure {
+		// Two seconds: doctor is interactive, and an unreachable NTP server is an ordinary
+		// condition in a hardened network rather than something to hang on. A timeout is
+		// reported as "not determined", never as a clock fault.
+		opts = append(opts, tower.WithClockSource(clockprobe.NTP(*ntpServer, 2*time.Second)))
+	} else if !*offline {
+		opts = append(opts, tower.WithClockSourceRefused(
+			"this is a standalone Tower, which makes no outbound connection by design, so its clock "+
+				"was not measured against anything. Run `roger-tower doctor --clock-check` to allow one NTP query"))
+	}
+	rep := tower.Doctor(c, opts...)
 	fmt.Fprint(out, rep.String())
 	if !rep.OK {
 		return fmt.Errorf("doctor found %d problem(s)", len(rep.Problems))

@@ -1041,6 +1041,10 @@ func cmdShare(cfg config, args []string) error {
 	private := fs.Bool("private", false, "share on a PRIVATE band: hidden from the public market, reachable only by a secret frequency code (shown once). Requires `roger login`.")
 	freeWindow := fs.String("free-window", "", "daily FREE window in UTC, e.g. 03:00-03:30")
 	schedule := fs.String("schedule", "", `time-of-use schedule, JSON e.g. '[{"start":"18:00","end":"22:00","price_in":0.5,"price_out":0.7}]'`)
+	// --check answers "is this box worth putting on the network?" without putting it on
+	// the network. It is the local, advisory minimum-hardware preflight (see preflight.go);
+	// it reports and exits, and it gates nothing - a share below the bar still runs.
+	check := fs.Bool("check", false, "check this machine against the suggested minimum hardware and exit. Local only - nothing is sent, and nothing is blocked either way")
 	advanced := fs.Bool("advanced", false, "show advanced flags (--node --region --parallel --upstream --modality --ctx --confidential --free-window --schedule)")
 	fs.Usage = func() {
 		fmt.Print(`roger share - go on air as a provider (auto-detects your local model)
@@ -1048,11 +1052,13 @@ func cmdShare(cfg config, args []string) error {
   roger share                       go on air FREE - no login needed
   roger share <model>               expose a specific model
   roger share --price-out 0.30      EARN: set a price (needs ` + "`roger login`" + `)
+  roger share --check               is this machine fast enough? (local, sends nothing)
   roger login                       link GitHub - only needed to EARN
 
   --model <name>      model to expose (default: first detected)
   --price-out <P>     $/1M output tokens to earn (default 0 = free, no login)
   --private           hidden band, frequency-code only (needs ` + "`roger login`" + `)
+  --check             hardware preflight: report and exit (never blocks a share)
   --advanced          reveal: --node --region --parallel --upstream --modality --ctx --confidential --free-window --schedule
 
 Earning needs a GitHub-linked owner: run ` + "`roger login`" + ` first. Free sharing
@@ -1060,6 +1066,12 @@ needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
 `)
 	}
 	fs.Parse(rest)
+	// The preflight answers a question about the MACHINE, so it runs before anything that
+	// touches the model server or the broker: an operator asking "is this box worth it?"
+	// should not have their upstream probed, or a login demanded, to find out.
+	if *check {
+		return runSharePreflight(os.Stdout, sharePreflight())
+	}
 	if *advanced {
 		fmt.Println("advanced flags: --node --region --parallel --upstream --upstream-key --modality --ctx --confidential --free-window --schedule")
 	}
@@ -1314,6 +1326,16 @@ needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
 	if msg := softPriceWarn(*broker, mdl, *priceOut); msg != "" {
 		fmt.Println(msg)
 	}
+	// Hardware preflight, ONE probe for two purposes (preflight.go). The advisory is
+	// printed here rather than at parse time so it lands next to the on-air line, where an
+	// operator is actually reading; it is one line and it never blocks. `pre.HW.Class` is
+	// the same privacy bucket detectHWClass() returns - reusing it is what keeps the
+	// advertised class and the operator's own report from ever describing two different
+	// machines, and it saves shelling out to nvidia-smi a second time.
+	pre := sharePreflight()
+	if line := shareAdvisory(pre); line != "" {
+		fmt.Println(line)
+	}
 	// Osaurus shares Jan's :1337 and needs two relay hardenings (X-Persist + model-pin). Decide
 	// ONCE here whether the resolved upstream is Osaurus (root-banner fingerprint) so the relay
 	// applies them without re-probing per job; a no-op flag for every other backend.
@@ -1323,7 +1345,7 @@ needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
 		// HW carries the PRIVACY-BUCKETED class (multi-gpu / single-gpu / apple / cpu),
 		// NOT the raw CPU/GPU string - so a consumer learns the band's tier without the
 		// node leaking its exact rig.
-		NodeID: nodeID, Station: station, Region: *region, HW: detectHWClass(), Model: mdl, Modality: foundModality,
+		NodeID: nodeID, Station: station, Region: *region, HW: pre.HW.Class, Model: mdl, Modality: foundModality,
 		Capabilities: foundCapabilities,
 		PriceIn:      *priceIn, PriceOut: *priceOut, Ctx: ctxLen, CtxEstimated: ctxEstimated, Parallel: *parallel,
 		Confidential: *confidential, Private: *private, Schedule: sched,
