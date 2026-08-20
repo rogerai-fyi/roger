@@ -78,12 +78,11 @@ type opBDD struct {
 	tuiPaths      map[string]string // guest bin -> fake path for the TUI-side detect seam
 	deskMkt       []offer           // accumulated market offers for the pickAutoBand pure steps
 
-	// money servers (real HTTP through the real proxy handler)
+	// money servers (real HTTP through the real proxy handler). Everything their HANDLERS
+	// touch lives behind s.money rather than in this struct - see moneyRig.
 	brokerSrv *httptest.Server
 	proxySrv  *httptest.Server
-	proxyHits atomic.Int64
-	costMu    sync.Mutex
-	costs     []string // per-call X-RogerAI-Cost values the stub broker bills
+	money     *moneyRig
 
 	// exec seam recordings
 	execCmds     []*exec.Cmd
@@ -154,14 +153,33 @@ func (s *opBDD) reset(t *testing.T) {
 }
 
 func (s *opBDD) closeServers() {
-	if s.bridge != nil {
-		s.bridge.Stop()
-	}
-	for _, srv := range []*httptest.Server{s.brokerSrv, s.proxySrv, s.rcSrv} {
+	s.closeMoneyServers()
+	s.closeRCBroker()
+}
+
+// closeMoneyServers takes down this scenario's stub broker and proxy and forgets them.
+//
+// Split out of closeServers so that STARTING a pair can close the previous one - see
+// startMoneyServers. Nil-ing the fields is what makes it safe to call twice.
+func (s *opBDD) closeMoneyServers() {
+	for _, srv := range []*httptest.Server{s.brokerSrv, s.proxySrv} {
 		if srv != nil {
 			srv.Close()
 		}
 	}
+	s.brokerSrv, s.proxySrv = nil, nil
+}
+
+// closeRCBroker stops the bridge and takes down the stub RC broker, for the same reason and
+// with the same twice-callable shape as closeMoneyServers.
+func (s *opBDD) closeRCBroker() {
+	if s.bridge != nil {
+		s.bridge.Stop()
+	}
+	if s.rcSrv != nil {
+		s.rcSrv.Close()
+	}
+	s.bridge, s.rcSrv = nil, nil
 }
 
 // --- model plumbing ---------------------------------------------------------------------
@@ -215,18 +233,60 @@ func (s *opBDD) view() string { return stripANSI(s.model().View()) }
 
 // --- money servers: a stub billing broker + the REAL hardened proxy over it -------------
 
+// moneyRig is the per-scenario state the two money-server HANDLERS touch, held behind a
+// pointer that each handler closes over directly instead of reaching through the opBDD it was
+// started from.
+//
+// THAT INDIRECTION IS THE WHOLE POINT, and it is not style. A scenario ends by overwriting the
+// entire shared state in one plain store - `*s = opBDD{...}` in reset - so any field a handler
+// goroutine can still reach is a field the next scenario's reset writes underneath it. The
+// race detector caught exactly that pair: the atomic add on the proxy hit counter against
+// reset's struct store, "previous write by goroutine N (finished)", i.e. an httptest handler
+// whose server was never Closed and therefore never ordered against anything afterwards. A
+// handler that cannot see `s` cannot lose that race however late it finishes.
+//
+// It also makes the counter mean what its assertion says. A straggler request now increments
+// the counter for the scenario that ISSUED it; before, it would have been miscounted into
+// whichever scenario happened to be running when it landed, and "no request hit the local
+// proxy" would have failed on somebody else's traffic.
+type moneyRig struct {
+	hits  atomic.Int64
+	mu    sync.Mutex
+	costs []string // per-call X-RogerAI-Cost values the stub broker bills
+}
+
+// hitCount is the proxy hit total for the scenario's own rig; zero when it never started one.
+func (s *opBDD) hitCount() int64 {
+	if s.money == nil {
+		return 0
+	}
+	return s.money.hits.Load()
+}
+
 func (s *opBDD) startMoneyServers(model string) {
+	// CLOSE BEFORE REPLACING. A scenario can seed the TUI twice - a feature Background that
+	// seeds and a scenario-level Given that re-seeds, which is four scenarios in
+	// features/operator today (desk_view 40/125/173, prelaunch_plate 197) - and the pair
+	// started by the first seed used to be dropped on the floor: never Closed, its listener
+	// and connection goroutines alive for the rest of the package's run, and its handlers
+	// still holding a live pointer into the opBDD every later reset overwrites. Close is what
+	// puts a happens-before edge between those handlers and the next reset; leaking a server
+	// is precisely what removes it, which is why this reads as a data race rather than as a
+	// tidiness problem.
+	s.closeMoneyServers()
+	rig := &moneyRig{}
+	s.money = rig
 	s.brokerSrv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/chat/completions" {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
-		s.costMu.Lock()
+		rig.mu.Lock()
 		cost := "0"
-		if len(s.costs) > 0 {
-			cost, s.costs = s.costs[0], s.costs[1:]
+		if len(rig.costs) > 0 {
+			cost, rig.costs = rig.costs[0], rig.costs[1:]
 		}
-		s.costMu.Unlock()
+		rig.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		if cost != "0" {
 			w.Header().Set("X-RogerAI-Cost", cost)
@@ -238,7 +298,7 @@ func (s *opBDD) startMoneyServers(model string) {
 	})
 	inner := client.ProxyHandlerLive(s.holder)
 	s.proxySrv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		s.proxyHits.Add(1)
+		rig.hits.Add(1)
 		inner.ServeHTTP(w, r)
 	}))
 }
@@ -248,9 +308,9 @@ func (s *opBDD) startMoneyServers(model string) {
 func (s *opBDD) proxyCallsCosts(costs []string) error {
 	key := s.holder.Get().SessionKey
 	for _, c := range costs {
-		s.costMu.Lock()
-		s.costs = append(s.costs, c)
-		s.costMu.Unlock()
+		s.money.mu.Lock()
+		s.money.costs = append(s.money.costs, c)
+		s.money.mu.Unlock()
 		req, _ := http.NewRequest(http.MethodPost, s.proxySrv.URL+"/v1/chat/completions",
 			strings.NewReader(`{"model":"whatever-the-guest-defaults-to"}`))
 		req.Header.Set("Authorization", "Bearer "+key)
@@ -1212,6 +1272,12 @@ func envValue(env []string, key string) string {
 const opRCSession = "opsess"
 
 func (s *opBDD) startRCBroker() {
+	// CLOSE BEFORE REPLACING, for the reason spelled out at startMoneyServers: a second call
+	// in one scenario would strand the first bridge and the first stub broker, and a stranded
+	// server's handlers keep writing s.frames and reading s.rcQueue after reset has replaced
+	// both. No feature does that today - the money pair is the one that does - and this is
+	// here so that adding a Background which seeds the bridge cannot quietly reintroduce it.
+	s.closeRCBroker()
 	s.rcQueue = make(chan protocol.RCInbound, 32)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/rc/"+opRCSession+"/poll", func(w http.ResponseWriter, r *http.Request) {

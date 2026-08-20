@@ -25,6 +25,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -37,7 +38,18 @@ type searchState struct {
 	root string
 	srv  *httptest.Server
 
-	// provider behavior knobs
+	// PROVIDER BEHAVIOUR KNOBS, ALL UNDER stubMu.
+	//
+	// Every field below is written by a step function on the test goroutine and read - or, for
+	// hits/gotQuery/gotCount, written - by the stub provider's HTTP handler on a server
+	// goroutine, and nothing used to order the two. "The step waits for the response" is not
+	// the synchronisation it reads as: a socket round trip is not a happens-before edge, and
+	// the connect-timeout scenario deliberately leaves one handler PARKED inside the closure
+	// while the turn moves on, so two handlers overlap outright. The race detector caught that
+	// pair on hits/gotQuery/gotCount (1 run in 12 of `-run TestWebSearchBDD -race`), and a
+	// lost hits++ is not a detector curiosity here - three Thens assert an EXACT provider
+	// request count, one of them the no-retry-on-429 invariant.
+	stubMu   sync.Mutex
 	results  []map[string]any // the "web.results" array the stub returns
 	status   int              // provider HTTP status (0 = 200)
 	rawBody  string           // when set, returned verbatim (malformed-JSON case)
@@ -60,22 +72,29 @@ type searchState struct {
 }
 
 func (s *searchState) reset() {
+	// TEAR THE PREVIOUS PROVIDER DOWN FIRST, THEN CLEAR WHAT IT WAS WRITING. This used to be
+	// the other way round, which is a race with the same shape as the one stubMu exists for
+	// and one the mutex alone would not fix: Close is what WAITS for a handler still inside
+	// the closure, so clearing hits and the captured query above it meant zeroing counters
+	// that the last scenario's parked timeout handler could still be incrementing.
+	if s.srv != nil {
+		s.srv.Close()
+		s.srv = nil
+	}
 	s.root = s.t.TempDir()
+	s.stubMu.Lock()
 	s.results = []map[string]any{
 		{"title": "Valkey pubsub reconnect", "url": "https://valkey.io/topics/pubsub/", "description": "reconnect and backoff"},
 		{"title": "Redis client backoff", "url": "https://redis.io/docs/backoff/", "description": "exponential backoff"},
 		{"title": "Bus resubscribe notes", "url": "https://example.org/bus", "description": "resubscribe after a drop"},
 	}
 	s.status, s.rawBody, s.hang, s.hits = 0, "", false, 0
-	searchTimeout = 15 * time.Second // restore the seam any scenario shortened
 	s.gotQuery, s.gotCount = "", ""
+	s.stubMu.Unlock()
+	searchTimeout = 15 * time.Second // restore the seam any scenario shortened
 	s.result, s.err = "", nil
 	s.loop, s.calls, s.confirms = nil, 0, 0
 	s.final, s.loopErr, s.toolResIn = "", nil, ""
-	if s.srv != nil {
-		s.srv.Close()
-		s.srv = nil
-	}
 	// Each scenario starts from a clean config dir: "configured" is a real file.
 	cfg := t_configDir(s.t)
 	_ = os.RemoveAll(filepath.Join(cfg, "rogerai", "search.json"))
@@ -95,27 +114,84 @@ func t_configDir(t *testing.T) string {
 // startProvider stands up the Brave-shaped stub and returns its URL.
 func (s *searchState) startProvider() string {
 	s.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// RECORD AND SNAPSHOT UNDER THE LOCK, THEN ANSWER WITHOUT IT. The release is not an
+		// optimisation: the hang branch below parks this handler on the request context until
+		// the ADAPTER's deadline fires, and holding stubMu across that would turn a scenario
+		// about a hanging provider into a hanging suite - every later step and the reset that
+		// closes this server would queue behind a handler waiting to be cancelled.
+		s.stubMu.Lock()
 		s.hits++
 		s.gotQuery = r.URL.Query().Get("q")
 		s.gotCount = r.URL.Query().Get("count")
-		if s.hang {
+		hang, status, rawBody, results := s.hang, s.status, s.rawBody, s.results
+		s.stubMu.Unlock()
+		if hang {
 			// A response that never arrives: the adapter's own deadline must end this.
 			<-r.Context().Done()
 			return
 		}
-		if s.status != 0 {
-			w.WriteHeader(s.status)
+		if status != 0 {
+			w.WriteHeader(status)
 			_, _ = w.Write([]byte(`{"error":"nope"}`))
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		if s.rawBody != "" {
-			_, _ = w.Write([]byte(s.rawBody))
+		if rawBody != "" {
+			_, _ = w.Write([]byte(rawBody))
 			return
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"web": map[string]any{"results": s.results}})
+		_ = json.NewEncoder(w).Encode(map[string]any{"web": map[string]any{"results": results}})
 	}))
 	return s.srv.URL
+}
+
+// --- the step-side doors onto the knobs the handler shares --------------------------
+//
+// Every one of these is called from the test goroutine while a provider handler may be
+// running - the connect-timeout scenario guarantees one is - so they take the same stubMu the
+// handler takes. Reaching past them and touching a field directly is the defect this replaced.
+
+func (s *searchState) setResults(r []map[string]any) {
+	s.stubMu.Lock()
+	defer s.stubMu.Unlock()
+	s.results = r
+}
+
+func (s *searchState) prependResult(r map[string]any) {
+	s.stubMu.Lock()
+	defer s.stubMu.Unlock()
+	s.results = append([]map[string]any{r}, s.results...)
+}
+
+func (s *searchState) setStatus(code int) {
+	s.stubMu.Lock()
+	defer s.stubMu.Unlock()
+	s.status = code
+}
+
+func (s *searchState) setHang() {
+	s.stubMu.Lock()
+	defer s.stubMu.Unlock()
+	s.hang = true
+}
+
+func (s *searchState) setRawBody(b string) {
+	s.stubMu.Lock()
+	defer s.stubMu.Unlock()
+	s.rawBody = b
+}
+
+func (s *searchState) hitCount() int {
+	s.stubMu.Lock()
+	defer s.stubMu.Unlock()
+	return s.hits
+}
+
+// captured is the query and count the provider actually received on the wire.
+func (s *searchState) captured() (query, count string) {
+	s.stubMu.Lock()
+	defer s.stubMu.Unlock()
+	return s.gotQuery, s.gotCount
 }
 
 // writeConfig writes the real search.json the adapter reads.
@@ -298,13 +374,14 @@ func (s *searchState) searchThroughLoop() error {
 
 func (s *searchState) callSearchCount(count string) error {
 	// Seed more results than any cap so the BOUND is what limits the output, not supply.
-	s.results = nil
+	var seeded []map[string]any
 	for i := 0; i < searchMaxCount*3; i++ {
-		s.results = append(s.results, map[string]any{
+		seeded = append(seeded, map[string]any{
 			"title": fmt.Sprintf("result %d", i), "url": fmt.Sprintf("https://r%d.example/x", i),
 			"description": "snippet",
 		})
 	}
+	s.setResults(seeded)
 	args := map[string]any{"query": "bounded count"}
 	if strings.TrimSpace(count) != "" {
 		n, err := strconv.Atoi(strings.TrimSpace(count))
@@ -328,8 +405,8 @@ func (s *searchState) resultsInRankOrder() error {
 	if s.err != nil {
 		return fmt.Errorf("web_search errored: %v", s.err)
 	}
-	if s.gotQuery != "valkey pubsub reconnect backoff" {
-		return fmt.Errorf("the provider received query %q, want the model's query verbatim", s.gotQuery)
+	if gotQuery, _ := s.captured(); gotQuery != "valkey pubsub reconnect backoff" {
+		return fmt.Errorf("the provider received query %q, want the model's query verbatim", gotQuery)
 	}
 	first := strings.Index(s.result, "valkey.io")
 	second := strings.Index(s.result, "redis.io")
@@ -357,8 +434,8 @@ func (s *searchState) atMostNResults(n int) error {
 		return fmt.Errorf("web_search errored: %v", s.err)
 	}
 	// The bound is asked for on the wire too, not just trimmed after the fact.
-	if s.gotCount != fmt.Sprint(n) {
-		return fmt.Errorf("the provider was asked for count=%q, want %d", s.gotCount, n)
+	if _, gotCount := s.captured(); gotCount != fmt.Sprint(n) {
+		return fmt.Errorf("the provider was asked for count=%q, want %d", gotCount, n)
 	}
 	got := strings.Count(s.result, "https://r")
 	if got > n {
@@ -371,10 +448,10 @@ func (s *searchState) atMostNResults(n int) error {
 }
 
 func (s *searchState) providerReturnsMarkedUpSnippet(tag string) error {
-	s.results = []map[string]any{{
+	s.setResults([]map[string]any{{
 		"title": "Valkey", "url": "https://valkey.io/",
 		"description": "Valkey is " + tag + "an open source" + strings.Replace(tag, "<", "</", 1) + " datastore",
-	}}
+	}})
 	return s.callSearchQuery("valkey")
 }
 
@@ -398,17 +475,17 @@ func (s *searchState) noMarkupSurvives() error {
 }
 
 func (s *searchState) providerReturnsEscapedMarkup(esc string) error {
-	s.results = []map[string]any{{
+	s.setResults([]map[string]any{{
 		"title": "Valkey", "url": "https://valkey.io/",
 		"description": "Valkey is " + esc + "fast" + strings.Replace(esc, "&lt;", "&lt;/", 1),
-	}}
+	}})
 	return s.callSearchQuery("escaped")
 }
 
 func (s *searchState) providerReturnsEntities(a, b string) error {
-	s.results = []map[string]any{{
+	s.setResults([]map[string]any{{
 		"title": "Ben " + a + " Jerry" + b + "s", "url": "https://x.example/", "description": "snip",
-	}}
+	}})
 	return s.callSearchQuery("entities")
 }
 
@@ -420,7 +497,7 @@ func (s *searchState) entitiesDecoded() error {
 }
 
 func (s *searchState) providerReturnsURL(u string) error {
-	s.results = append([]map[string]any{{"title": "bad scheme", "url": u, "description": "should be dropped"}}, s.results...)
+	s.prependResult(map[string]any{"title": "bad scheme", "url": u, "description": "should be dropped"})
 	return nil
 }
 
@@ -449,14 +526,15 @@ func (s *searchState) onlyHTTPResults() error {
 }
 
 func (s *searchState) resultsExceedCap() error {
-	s.results = nil
+	var huge []map[string]any
 	for i := 0; i < searchMaxCount; i++ {
-		s.results = append(s.results, map[string]any{
+		huge = append(huge, map[string]any{
 			"title":       fmt.Sprintf("huge %d", i),
 			"url":         fmt.Sprintf("https://r%d.example/x", i),
 			"description": strings.Repeat("long snippet ", 400),
 		})
 	}
+	s.setResults(huge)
 	return s.callSearchQuery("huge")
 }
 
@@ -475,14 +553,14 @@ func (s *searchState) clippedAndMarked() error {
 func (s *searchState) providerRespondsWith(failure string) error {
 	switch {
 	case strings.Contains(failure, "500"):
-		s.status = http.StatusInternalServerError
+		s.setStatus(http.StatusInternalServerError)
 	case strings.Contains(failure, "429"):
-		s.status = http.StatusTooManyRequests
+		s.setStatus(http.StatusTooManyRequests)
 	case strings.Contains(failure, "timeout"):
-		s.hang = true
+		s.setHang()
 		searchTimeout = 300 * time.Millisecond // the seam, restored in reset()
 	case strings.Contains(failure, "malformed"):
-		s.rawBody = `{"web":{"results":[{"title":`
+		s.setRawBody(`{"web":{"results":[{"title":`)
 	default:
 		return fmt.Errorf("unknown provider failure %q", failure)
 	}
@@ -526,14 +604,14 @@ func (s *searchState) modelCanContinue() error {
 }
 
 func (s *searchState) exactlyOneProviderRequest() error {
-	if s.hits != 1 {
-		return fmt.Errorf("made %d provider requests for one call, want exactly 1 (no retry against a rate-limited provider)", s.hits)
+	if n := s.hitCount(); n != 1 {
+		return fmt.Errorf("made %d provider requests for one call, want exactly 1 (no retry against a rate-limited provider)", n)
 	}
 	return nil
 }
 
 func (s *searchState) providerReturnsZero() error {
-	s.results = []map[string]any{}
+	s.setResults([]map[string]any{})
 	return s.callSearchQuery("nothing matches this")
 }
 
@@ -561,8 +639,8 @@ func (s *searchState) errorNamesEmptyQuery() error {
 	if s.err != nil && !strings.Contains(strings.ToLower(s.err.Error()), "empty query") {
 		return fmt.Errorf("the error should name the empty query, got %v", s.err)
 	}
-	if s.hits != 0 {
-		return fmt.Errorf("an empty query reached the provider (%d requests)", s.hits)
+	if n := s.hitCount(); n != 0 {
+		return fmt.Errorf("an empty query reached the provider (%d requests)", n)
 	}
 	return nil
 }
@@ -610,8 +688,8 @@ func (s *searchState) errorNamesCap() error {
 }
 
 func (s *searchState) noProviderRequest() error {
-	if s.hits != 0 {
-		return fmt.Errorf("%d provider requests were made, want 0 (rejected before the wire)", s.hits)
+	if n := s.hitCount(); n != 0 {
+		return fmt.Errorf("%d provider requests were made, want 0 (rejected before the wire)", n)
 	}
 	return nil
 }

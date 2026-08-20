@@ -350,7 +350,7 @@ func (s *opBDD) noFileWrittenAnywhere() error {
 }
 
 func (s *opBDD) noRequestHitProxy() error {
-	if n := s.proxyHits.Load(); n != 0 {
+	if n := s.hitCount(); n != 0 {
 		return fmt.Errorf("%d request(s) hit the local proxy during a read-only scan", n)
 	}
 	return nil
