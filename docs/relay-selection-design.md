@@ -264,6 +264,75 @@ the test happened to exercise.
   is that a real rig sharing only through the fabric is normalized as one slot until it takes
   classic traffic - under-using a rig, rather than over-trusting a claim.
 
+**M1 correction, round four (adversarial review with executable reproducers).** Both of the
+round-three fixes were correct and both were incomplete in the same way: they fixed the *instance*
+and left the *shape*.
+
+- *The surviving capacity input was still self-declared — and it was a bigger lever than the
+  string that had just been removed.* Dropping `hw` from `edgeCapacityOf` left `concurrentTPS`,
+  described everywhere as the MEASURED input. It is measured off `rec.CompletionTokens`, **the
+  node's own claim**, on a line three below the block that computes
+  `billedCompletion = min(claim, broker re-count)` and settles money on it — under a log that
+  prints `(billed/claim)`. One receipt field fed two decisions and only the money half was
+  clamped, so an over-reporting node was billed honestly and *ranked* dishonestly. Measured by the
+  review at 1.88x placement advantage at load 1 rising to 6.00x at load 8, with the P2C tie-break
+  moving 1.000 against 0.062; reproduced on the EWMA itself at 561x, because `recordServed` has no
+  prior to average against and one served-under-load request sets the estimate outright. The
+  under-load gate was never the hole — it stops an idle canary, and says nothing about the token
+  count inside a genuinely concurrent request. Both the relay and the STREAM paths now use the
+  re-counted figure; a capacity input verified on one path and self-declared on the other is one
+  with a `"stream":true` bypass, and streaming is the path most traffic takes.
+  **The residual, stated:** `settleRecount` fails OPEN when the tokenizer sidecar is disabled or
+  unreachable, so on a broker with no re-count capability the billed figure *is* the claim and
+  this signal is exactly as trustworthy as the billing on the same request. That is a property of
+  the deployment, and it is the trade the money already makes there.
+  Re-audited while fixing it: every other edge-placement input (`edgeQuality`'s trust reading,
+  `edgeLoadLocked`, the peer-load snapshot) is broker-observed, and `concurrentTPS` has exactly
+  one writer. But `updateTPS` has a third caller — `recordProbe` — and it had the same defect:
+  a canary's tok/s came from the node's claimed `CompletionTokens`, feeding `b.tps`, which
+  `pickFor`'s `speedFit` ranks on and the `minTPS` filter drops on. A canary asks for one bare
+  word, so claiming ten thousand output tokens for a five-letter answer moved that band by three
+  orders of magnitude. Bounded by the zero-doubt byte floor (no tokenizer can emit more tokens
+  than the text has UTF-8 bytes), the same defence `settleRecountPrompt` already applies to the
+  input axis.
+
+- *Seven days unseen was a PERMANENT loss of the Station identity, and scoping the sweep did not
+  change that.* Round three stopped `DetachIdle` judging rows it could never find evidence for.
+  It did nothing about the rows it CAN see going quiet for ordinary reasons: the state it assigned
+  was `StateDetached`, which is terminal and unrecoverable, and the very next `roger share`
+  re-attaches with the same persistent on-disk identity — same id, same keys, by design — and got
+  "this Station ID has been retired and cannot be reattached", with the row not even freed for a
+  month. A two-week holiday did it. A fortnight of downtime did it. And because the stamp has
+  exactly one writer, a liveness mirror broken for a week on the instance holding a Tower's link
+  retired **every** self-attached Station behind that Tower, with nobody deciding anything. A
+  single thin dependency in front of an irreversible action is the wrong shape whatever the
+  dependency is.
+  **Split into soft and terminal.** The idle sweep writes `StateDormant`: out of service — not
+  live, not published, not in the Tower's node list, not counted against the owner's cap, routed
+  nowhere — and RECOVERABLE by the machine that holds its keys. `RetireDormant`, a separate
+  fleet-wide pass on a horizon an order of magnitude longer (180 days), is where an identity
+  ends without an owner asking; `Revoke` is where an owner ends it immediately. Both horizons
+  measure the same `COALESCE(last_routable, attached_at)`, so they are two points on one timeline
+  rather than two timers that can disagree.
+  A dormant Station **keeps its keys reserved** (`Attachment.Held()`, and a partial unique index
+  over the same three states). The assertion key is public and rides in the clear on every poll,
+  so if dormancy freed it, anyone watching the link could bind it elsewhere and the rightful
+  owner's return would be refused for a key they never gave up — recovery a stranger can block is
+  not recovery. Waking is narrow: dormant state, same owner, same origin kind, both keys. The
+  epoch advances (a revival may land on a different Tower, and the epoch is the fence), the audit
+  proof carries forward (a fact about the machine, not the attachment), and `last_routable` is
+  cleared (or the fresh attachment would sit past the idle horizon and be swept again seconds
+  after coming home).
+  Found while fixing it: the Mem store's `Admit` refused an existing Station ID only when the
+  existing row was LIVE, so a terminal row was silently replaced in memory while Postgres refused
+  the insert on its primary key — a parity divergence `checkBindings` happened to hide
+  sequentially. And the STAMP predicate (`Model != "" && SelfAttached()`) and the RETIRE predicate
+  (`node_id <> ''`) were not the same set: a row with a node id and no model would be skipped by
+  the stamp and judged by the sweep. Unreachable today because self-attach requires a model — and
+  fixed anyway, because "a sweep may only judge a row it could have found evidence for" is only
+  true while the two predicates are one predicate, and the previous version of this defect was
+  also unreachable right up until the classic invite flow made it reachable.
+
 **M2 — Collect locality.**
 A relay's advertised endpoint gets a coarse location, set by Core at admission (never
 self-declared — see §4). A node gets one at registration, resolved from the connecting IP
@@ -312,10 +381,48 @@ unproven, near one — otherwise the optimizer degrades the service it is meant 
 ## 5. Decided: signed hub polls (the credential is gone; the channel is still plaintext)
 
 **Status: DECIDED and IMPLEMENTED — option B of the three below, founder-approved, landed on
-`release/v5.7.0`, and AMENDED once after review (see 5.4b and the Tower half of 5.5).** This
-section was written up as NEEDS A DECISION; it is kept as the record of what was decided and why,
-because the reasoning is the part a later reader needs — including the parts of it that were
-wrong.
+`release/v5.7.0`, and AMENDED THREE TIMES after review (5.4b, 5.4c, 5.4d).** This section was
+written up as NEEDS A DECISION; it is kept as the record of what was decided and why, because the
+reasoning is the part a later reader needs — including the parts of it that were wrong, which by
+now is most of the first draft's confident sentences.
+
+### 5.0 What signed hub polls actually buy, with every qualifier attached
+
+This list exists because each round of review has found the previous round's summary to be
+*narrower in reality than in prose*, and a compressed claim is how the next reader inherits a
+hole. Read it as the security statement; everything below is the working.
+
+1. **A serving node transmits no reusable credential** — with one exception, `--hub-legacy-bearer`
+   (default on), which is honoured only for a Station that has never signed to that tower and is
+   deleted one release from now.
+2. **A captured request cannot be replayed** at the same hub process, for any route, bounded by a
+   per-Station nonce ring that remembers for at least as long as a timestamp is accepted.
+3. **A captured request cannot be carried to a different tower**, because the tower id is in the
+   signed target.
+4. **A captured request cannot survive that hub's restart**, because the hub *process* is in the
+   signed target too.
+5. **The epoch a node signs over is the hub's value, not the answering party's** — the hub proves
+   it with the identity key Core admitted it under, bound to the request's own nonce, and the node
+   checks it against the fingerprint Core hands it at attach. Before this, a forged `401` on the
+   plaintext link made a node mint a genuine signature over any epoch an attacker chose.
+6. **One hub process per endpoint is a hard deployment constraint, not a preference.** Two live
+   processes behind one endpoint still let an on-path attacker harvest usable signatures, by
+   relaying rather than by forging. The client now *detects* that configuration exactly and stops;
+   it does not make it safe. See 5.4d.
+7. **Pre-auth work is bounded by possession and by a connection cap.** The body of `/complete`
+   and `/audit/transcript` must be read before it can be authenticated; admission now requires a
+   signature rather than a public identifier, and the listener caps concurrent connections at 512.
+8. **A stolen bearer does not come back after a redeploy**, because the signed-latch is durable.
+   It still works for a Station whose node has never signed — that is the tolerance, and it is
+   what the flag turns off.
+9. **The channel is still plaintext, and always was.** Content is sealed end to end, but traffic
+   shape leaks, and every poll puts the Station's long-term assertion **public key** in the clear —
+   a stable identifier linking that identity to an IP address across networks and towers. TLS
+   (option A) is deferred, not done.
+10. **A node still cannot authenticate the hub for anything except its epoch.** The epoch proof is
+    the only statement a relay makes that a node can check. Everything else the relay says — a
+    job, a 204, a 401 — is taken on trust, and a hostile relay can still refuse to serve a node or
+    drop its work. The sealed envelope is what makes that a denial rather than a theft.
 
 ### 5.1 What was true
 
@@ -456,7 +563,7 @@ actually reachable all involve the *same* Tower id:
 | the hub restarts or redeploys inside the skew window | the gate refuses anything signed before this process started — **wrong in both clock directions; see 5.4c** |
 | Core's answer briefly omits a Station, so the refresher unregisters it and its ring is dropped | unregistering leaves a floor behind: the memory goes, the refusal stays |
 | a signature carried to a different Tower that has the same Station registered | the Tower id in the signed target |
-| **two hub processes answering one endpoint** | **nothing when this was written; the per-process epoch in 5.4c now makes it fail closed** |
+| **two hub processes answering one endpoint** | **nothing when this was written. 5.4c claimed the per-process epoch closed it. THAT CLAIM IS FALSE — see 5.4d; the client now detects the configuration and stops, which is not the same thing** |
 
 **A Tower runs exactly one hub process per endpoint. That is now a constraint, not an
 assumption.** Two processes cannot agree on a nonce without shared state, and neither the ring nor
@@ -518,12 +625,174 @@ nothing left for a clock to be wrong about, and 5.4b's residual about the ring f
 only refusal in the gate that turns on a timestamp - which is why it has been given a sentence of
 its own instead of borrowing the replay one.
 
-It also closes the row 5.4b's table left open. **Two hub processes behind one endpoint** now have
+~~It also closes the row 5.4b's table left open. **Two hub processes behind one endpoint** now have
 two epochs, so a signature made for one is refused by the other rather than silently replayable
-at it. That configuration is still unsupported and will flap; it now fails closed.
+at it. That configuration is still unsupported and will flap; it now fails closed.~~
+
+**THAT PARAGRAPH IS WITHDRAWN. It is false, and it is false in the direction that matters.** Two
+epochs do mean each process refuses the other's signature — and a refused signature is an
+*unconsumed* one, sitting in the clear on a plaintext link, still valid at the process it was
+made for. The flap does not close the hole; it MANUFACTURES the material the hole needs. Measured
+with no attacker present at all: 7 of 12 recorded requests were signatures for a hub that never
+saw them, and replaying one at its matching hub dequeued a submitted job. "Fails closed" described
+each individual 401 and missed what the pile of them added up to. See 5.4d.
 
 There is no compatibility cost: signed polls have not shipped in any tagged release, so both
 halves of the wire change land together.
+
+One smaller correction to this section, because the next person to weigh the same option deserves
+the real constraint. Persisting a per-station high-water mark was rejected here for "putting disk
+state, and a crash window, into a hub that deliberately holds none". **The hub already holds disk
+state**: `cmd/roger-tower/spool.go` writes every pending receipt to the tower's data dir precisely
+because losing one costs a node its pay, and 5.4d adds the signed-latch beside it. The honest
+objection to a persisted high-water mark is that it is a *clock* in the node's domain that a hub
+would have to trust and could never re-derive for a Station it has not seen — not that the hub is
+stateless, because it is not.
+
+### 5.4d Round four: the epoch was the attacker's value, the cheap door opened on a public key, and the two-process row was never closed
+
+A third independent review — adversarial this time, with executable reproducers against the real
+`towerhub.Server`, the real `Client` and the real broker — went over everything 5.4b and 5.4c
+landed. The hub-side checks all hold. What it found is that two of them were checking a value
+somebody else got to choose, and that one row in 5.4b's table had been marked closed by a
+paragraph rather than by code.
+
+#### The epoch's PROVENANCE, which nothing established
+
+`signedDo` answered **any** `401` by caching whatever `X-Roger-Hub-Epoch` said and re-signing.
+That `401` is unauthenticated and the channel is plaintext by construction. So an on-path
+attacker answering a node's poll with a forged `401 + X-Roger-Hub-Epoch: <anything>` made that
+node emit a **genuine Ed25519 signature over a target naming an epoch of the attacker's
+choosing**, with a fresh nonce and a fresh timestamp — bytes no hub has seen, and therefore an
+*unconsumed* signature rather than a replay, which is the one thing the whole gate is built to
+refuse. The poisoned value then stuck in `c.epoch` for every worker sharing the `Client`.
+
+The epoch CHECK was exact. Everything the epoch bought was conditional on the `401` being honest.
+
+**The hub proves its epoch now, with the identity key Core admitted it under.** No new key is
+enrolled or distributed: `roger-tower` already holds that key, Core already keeps its fingerprint
+and verifies every one of the tower's own requests against it, and the attach response now hands
+that fingerprint to the node beside the tower id and the endpoint it already trusted Core for.
+The hub signs `(label, tower id, epoch, THE NONCE OF THE REQUEST BEING REFUSED)` and publishes
+the key and the signature on every node-facing answer; a node refuses to adopt an epoch it cannot
+check.
+
+The nonce is in the statement deliberately. Without it the proof is a bearer token for an epoch —
+captured once before a redeploy, replayable forever to point a node back at a dead run. With it,
+a proof answers one request and cannot be stockpiled.
+
+**Not TLS, and not because TLS is wrong.** TLS is the complete answer and it is a separate change
+(option A, §5.2); making this wait on it would leave the hole open for tidiness. Core is already
+the node's source of truth for the tower id, the endpoint and the grant key, so one more field on
+the same response needs no new trust and no certificate on a volunteer's box.
+
+**A node whose Core is too old to send the fingerprint refuses to attach**, rather than carrying
+on unverified. Same posture as the credential itself: a downgrade an attacker can provoke is not
+a security property. Signed polls have not shipped in a tagged release, so nothing in the field is
+stranded — and the deployment order was already written down below: Core, then Towers, then nodes.
+
+#### Two hub processes: what is actually true
+
+The ACTIVE attack the review demonstrated — read hub B's epoch off an unauthenticated `GET /poll`,
+assert it to the node in a forged `401` in front of hub A, capture the re-signed poll, replay it
+at B for a `200` and the victim's job — is dissolved by the fix above. An assertion is not a
+proof.
+
+**What survives is relaying, and it needs two live processes to exist.** An on-path attacker can
+forward the node's own request to hub B and hand back B's genuine, nonce-bound answer; the node
+then signs for B's epoch and the attacker replays that at B. Nothing about the epoch's provenance
+prevents this, because B's answer is not forged.
+
+And the PASSIVE half needed no attacker at all, which is the part 5.4c got backwards: a
+round-robin load balancer over two hub processes makes the client flap between epochs, and every
+request that lands on the process it did not sign for leaves an unconsumed genuine signature for
+the other one, in the clear. The flap *manufactures* replay material — arguably a worse state than
+before the epoch existed.
+
+**So the client detects the configuration exactly and stops.** An epoch is 128 bits of
+`crypto/rand` minted once per process, so a hub that RESTARTED can never name an epoch this client
+has already moved off — only a second live process can. The client keeps a bounded set of retired
+epochs and fails with `ErrHubMultipleProcesses` when one comes back, which reaches the operator on
+the notice channel. There is no false positive available to anybody, and it fails closed after two
+requests instead of flapping all day.
+
+**This is detection, not a fix.** A tower that needs to scale still needs a shared nonce gate
+first. The constraint stated in 5.4b — *a Tower runs exactly one hub process per endpoint* — is
+unchanged and is now enforced by the node refusing to serve rather than by hoping nobody tries.
+
+#### The cheap door opened on a public identifier
+
+`knownCredential` was added in 5.4b to stop an unauthenticated stranger making the tower buffer
+16MB before being told no. It asked the only question headers can answer — *is this
+`X-Roger-Pubkey` a key we have registered for somebody* — and that question has a free answer. The
+assertion key is on the plaintext wire on every poll (the node's own notice channel warns the
+operator that it is), and a hostile Station on the same tower holds a registered one **by
+definition**: its own. Measured at 12,582,947 bytes buffered pre-auth on `/complete` presenting
+nothing but the victim's public key. With no connection cap and a two-minute read timeout, that is
+a memory-exhaustion denial of earnings against every Station on a tower for the price of one
+connection.
+
+The index change 5.5 describes did fix what it targeted — the CPU-and-lock amplifier — and left
+the memory one open, because the question was still the wrong question.
+
+**The door asks for POSSESSION now.** A *door signature* rides beside the request signature: the
+same key over the same method and target with **no body**, which is the only proof available
+before a body has been read. It is domain-separated by the method it covers, so neither signature
+can be presented as the other. It is deliberately NOT recorded in the nonce ring — the ring is
+bounded by "nothing is stored until a signature has verified against a named Station", and a
+pre-auth write would hand an attacker exactly the growable map that ordering denies them. So a
+door signature IS replayable inside the skew window by someone already on the path, who could
+equally drop the packet, and by nobody else.
+
+The bearer half of the door cannot be improved: a node old enough to present a token cannot
+produce a door signature, so requiring one would be `AllowLegacyBearer=false` in disguise. What
+bounds it is that a token is a secret rather than a public identifier, and that the path is
+deleted one release from now.
+
+**And the listener has a connection cap**, which 5.4b explicitly left open ("that is a separate,
+smaller exposure and it is not fixed here"). Two pre-auth costs cannot be removed — the body read
+that must precede authentication, and the Ed25519 epoch proof on every node-facing answer — and
+both are per-connection. 512 concurrent, generous against any real tower's poll workers. Excess
+connections *wait* rather than being refused: on a hub whose purpose is letting providers earn, a
+poll delayed is a poll and a poll refused is a node that stopped serving.
+
+#### A restart reopened the stolen bearer
+
+The latch that retires the bearer per Station lived in one process's memory, and Core never
+rotates `HubToken` — the same value, every re-attach, for the life of the attachment. So after
+every redeploy, a token lifted off the wire before that node upgraded opened its queue again. The
+window was not one round trip: the node's first post-restart request carries the old epoch and is
+refused, so the latch closes on its SECOND request, and (before the fix above) an attacker could
+hold that window open at will. The honest statement was *"a bearer captured before a node upgraded
+works again for a window an on-path attacker controls, every time the tower redeploys"*.
+
+The latch is durable now — a directory under the tower's own data dir, one file per Station, so
+an `Add` is a create with no read-modify-write. The objection recorded when the latch was written
+("no operator should have to migrate a database row for a credential that is being deleted") still
+stands and is not what this is: the hub already writes receipts to that same directory, because
+losing one costs a node its pay. Losing this costs a node its queue. Best effort both ways, and it
+never refuses an honest request for a full disk.
+
+**`--hub-legacy-bearer` stays default true, and the reason has changed rather than been
+restated.** It was defensible before only if you accepted that every redeploy reopened the hole.
+It no longer does, so the population the flag covers is now exactly the population it was written
+for: nodes that have never signed to this tower. An operator who knows their fleet has updated
+still turns it off, and the whole path goes one release from now.
+
+#### One more sentence corrected
+
+The epoch refusal told a client that had sent **no** epoch that the hub "has restarted since". A
+first request cannot carry an epoch — the `401` is the only way to learn one — so that sent
+operators hunting a redeploy that never happened. Two causes, two sentences; the same correction
+the nonce gate's two refusals got in 5.4b.
+
+And `learnEpoch` reported "new" against the CACHE rather than against what the request had SENT,
+so on a redeploy the first worker to notice learned the epoch and retried while every other worker
+hard-failed. Seven of eight, measured. In `ServeLoop` each is a 2s backoff plus an
+`agent.ErrHubRefusedThisNode` notice — an operator-facing "your relay refuses this node's identity"
+alarm on every routine redeploy, fired on the one channel deliberately built not to be
+discardable. The retry now turns on the worker's own request, and the second answer's epoch is
+learned too.
 
 ### 5.5 Transition: hard cutover on the node, one release of tolerance on the Tower
 
@@ -623,3 +892,24 @@ The question §5 originally asked first — *should offering a share to the rela
 until the exposure is fixed?* — is answered by B shipping in the same release as the automatic
 join: there is no window in which the fleet is joined by default and holding a stealable
 credential. TLS (option A) remains deferred, and the endpoint wire format stays `host:port`.
+
+Still open after round four, and worth naming so the next reader does not have to re-derive them:
+
+- **TLS (option A).** Unchanged, and it is what closes the remaining plaintext leaks: traffic
+  shape, and the Station's long-term assertion **public key** on the wire on every poll, which is
+  a stable identifier linking that identity to an address across networks and towers.
+- **A shared nonce gate.** Until there is one, a Tower runs exactly one hub process per endpoint.
+  The node now refuses to serve a flapping endpoint rather than manufacturing signatures for it,
+  but that is detection, not scale.
+- **The door signature is replayable on-path** inside the skew window, deliberately: recording it
+  would make the nonce ring attacker-growable, which is the one property that bounds it. It costs
+  an on-path attacker one buffered body per captured request, and an on-path attacker can drop
+  the request instead.
+- **The re-count fail-open.** A broker with no tokenizer sidecar bills, and now ranks, on the
+  node's claim. The two are consistent; neither is verified.
+- **Key squatting on an unattached assertion key.** `/tower/edge/attach` takes the assertion key
+  from the request body and does not require a signature from it, so a party who learns a key
+  before its owner first attaches can bind it to a Station of their own. Pre-existing, unrelated
+  to dormancy (a dormant Station's keys are reserved), and the obvious fix — require the attach
+  to be co-signed by the assertion key — is a wire change on a path §5.4d has already touched
+  once this release.
