@@ -338,15 +338,32 @@ A relay's advertised endpoint gets a coarse location, set by Core at admission (
 self-declared — see §4). A node gets one at registration, resolved from the connecting IP
 rather than the `--region` string, which stays cosmetic. Carry both into `tower_routable`.
 
-**M3 — Move the binding to dispatch.**
+**M3 — Move the binding to dispatch. NOT INDEPENDENT OF M4 — see section 6.**
 Split "which relay" out of `towerEdgeAttach` and into the authorize path. Attach becomes
 "this node is servable"; the tower field on the attachment becomes a default, not a
 commitment. `edgeTargetFor` gains the consumer's location and picks the relay per request.
 
-**M4 — Ephemeral hub sessions.**
+*Corrected 2026-08-20.* This entry was written as if it could ship on its own and it cannot.
+Choosing a different relay at dispatch is meaningless unless the node can be REACHED at that
+relay, and being reachable at a relay it did not attach to is exactly what M4 is. A node attaches
+once per share and polls that one hub; the tower is not a variable at dispatch time, it is a
+property of the station (`attach.Origin.TowerID`, enforced at placement by `targetFromAttachment`
+and again at settlement). Section 6 works this through, costs the three candidate shapes, and
+gives the order the two must actually land in - which also turns out to include a third piece
+neither entry mentions: the relay has to know the station's assertion key BEFORE the consumer's
+request arrives, and today it learns that from a 30-second pull.
+
+**M4 — Ephemeral hub sessions. A PREREQUISITE OF M3, NOT A SEQUEL — see section 6.**
 The node's long-poll response can carry a "serve this attempt at relay R" instruction; the
 node opens a hub session to R for that work and closes it. Requires the hub to accept a
 short-lived, per-attempt credential rather than only the long-lived `HubToken`.
+
+*Corrected 2026-08-20.* M0 built the channel this needs and the entry predates it: every node now
+holds an ordinary broker long-poll (`/agent/poll`, 25s, bus-backed and single-delivery across
+instances), so Core already has an authenticated sub-second push to every node in the fleet.
+What M4 still owes is the per-session state - the epoch, the nonce ring, the latch, the pin and
+the key registration - and section 6.5 is the itemized list of what each of them costs when it
+stops being per-tower.
 
 **M5 — Locality in the score.**
 Add a distance term to `router.go`'s product, tuned so it breaks ties and shifts marginal
@@ -375,6 +392,13 @@ unproven, near one — otherwise the optimizer degrades the service it is meant 
 4. **Ephemeral sessions cost round trips.** Per-session relay setup adds a handshake to the
    first token of each session. Whether that is cheaper than the bandwidth it saves is an
    empirical question, and M1–M3 are worth doing whether or not M4 pays for itself.
+
+   *Corrected 2026-08-20.* The last clause is wrong about M3, which cannot ship without M4 at all
+   (see section 6). It is right about M1 and M2. The empirical question stands and section 6.9
+   slice 2 is how to answer it - a shadow session against the tower the node is already attached
+   to, measured before any traffic depends on the answer. Section 6.4 costs it in advance: one
+   node-to-relay round trip, provided the registration problem is solved in the grant rather than
+   with a call to Core.
 
 ---
 
@@ -1111,8 +1135,330 @@ running.
   would remove the cost rather than announce it, and neither is built: re-attaching on a
   standing hub failure, or a tower that keeps serving plaintext for a grace period beside its
   new TLS listener. **Whichever is chosen should land before a deadline is set, not after.**
+
+  **UPDATE 2026-08-20: the first of the two is built, and this bullet is now historical.**
+  `agent.ServeTower` is a loop over TENANCIES rather than a single attach: a relay that has been
+  continuously unusable for ninety seconds - and a certificate that is not the one Core named,
+  immediately, because that one cannot be ninety seconds of bad luck - ends the tenancy, and the
+  node goes back to Core on a jittered exponential backoff for the relay's current advertisement.
+  The endpoint, the pin, the tower id and the identity fingerprint are all re-read; the station
+  identity, the transcripts, the attempt cache and Core's pinned keys are not, because they are
+  facts about the machine rather than about the relay. So a tower turning TLS on, rotating its
+  certificate, moving, or coming back on a different address costs its nodes a couple of minutes
+  rather than a manual restart each, and **nothing in the migration now requires an operator to
+  touch a node they did not know was affected.** The one failure deliberately excluded is a 401:
+  the hub is answering and has refused this node, attach is idempotent for a live attachment, and
+  Core repeating itself changes nothing - so that stays a notice with an instruction, which is the
+  whole of the available remedy. The operator-facing pin-mismatch sentence no longer says "restart
+  this share"; a ritual an operator learns outlives the reason for it.
 - **Consumers need no action**: the pin arrives per authorization, and an unpinned authorization
   keeps working for as long as unpinned towers exist.
 - **Off-box TLS terminators and multi-process hubs cannot comply** without the pin-override
   extension above. Anyone running one should be identified before a deadline is set; today they
   are already outside the supported deployment.
+
+---
+
+## 6. M3 and M4 are one change, and the money is where you find out
+
+**Status: PROPOSAL. Written 2026-08-20 against `release/v5.7.0`, after re-reading the three
+files that actually decide where a request goes.** Section 3 lists M3 ("move the binding to
+dispatch") and M4 ("ephemeral hub sessions") as sequential, independent milestones. They are
+neither. M3 cannot ship without M4, for a reason that is one sentence long and was not written
+down anywhere: **choosing a different relay at dispatch time is meaningless unless the node can
+be REACHED at that relay, and being reachable at a relay is exactly what M4 is.** Section 3's
+entries have been corrected; this section is the working.
+
+### 6.1 The three lines that make it true
+
+Nothing here is inference. The path is:
+
+- `cmd/rogerai-broker/toweredgeattach.go:207-219` picks the tower **first-fit** from
+  `ts.link.LiveTowers()` at ATTACH time and bakes it into the attachment as
+  `attach.Origin{Kind: OriginJoined, TowerID: towerID}`.
+- `cmd/rogerai-broker/toweredge.go` `edgeTargetFor` ranks STATIONS and then reads `row.TowerID`
+  off the projection row — i.e. whatever tower the PROVIDER landed on, hours before any consumer
+  existed. `resolveEdgeCandidates` → `targetFromAttachment` (`towerdispatch.go:162`) then
+  *enforces* that pairing: `if at.Origin.TowerID != towerID { return false }`.
+- `internal/agent/tower.go` attaches once per share and its `ServeLoop` workers poll that one
+  hub. (As of this branch it re-attaches on a standing hub failure — see §6.8 slice 2 for why
+  that is the seed of M4 and not a substitute for it.)
+
+So a consumer in Lisbon asking for a node in Lisbon is dragged through whichever tower that node
+happened to attach to, possibly in Ohio, and the placement code that would like to do better has
+no other choice to offer: **the tower is not a variable at dispatch time, it is a property of the
+station.** M3 rewrites the sentence that reads it. M4 is what makes a second value legal.
+
+### 6.2 What the founder actually described
+
+> "as soon as someone is going to tune-in ... this is when the connectivity magic happens ...
+> only at that point do we know who is using it and what tower or broker is closest or should be
+> better to serve the requests, and it should not be live forever, it should disconnect when
+> done."
+
+Three claims, and they are load-bearing in different places. *Only at that point do we know* is a
+statement about information: the relay decision needs an input (the consumer) that does not exist
+at attach. *Closest or better* is a ranking problem, which is M2/M5 and is not the hard part.
+*It should not be live forever, it should disconnect when done* is the part that sounds like a
+nicety and is in fact the mechanism: a binding that outlives the work is a binding that had to be
+made before the work existed.
+
+**And M0 already built the channel this needs.** Every node now holds an ordinary broker
+long-poll (`GET /agent/poll`, `tunnel.go:1276`, held 25s) in addition to whatever it does on the
+relay plane. In multi-instance mode that poll is served off a per-node bus channel
+(`busSubscribeJobs`), with `busClaimJob` guaranteeing exactly one poller receives each message.
+So Core already has an authenticated, sub-second, cross-instance push channel to every node in
+the fleet, with single-delivery semantics, that nobody has to build. That is almost certainly the
+"connectivity magic" the founder was describing, and it is the strongest argument for shape (c)
+below.
+
+### 6.3 The three shapes, costed
+
+The unit of comparison is one consumer's first token on the edge path. Today's baseline:
+`POST /tower/edge/authorize` (one round trip to Core, which returns the grant, the endpoint, the
+pin and the station's session key), then one connect + submit to the relay. The node's presence
+at that relay costs **zero** on the critical path because it was established hours earlier. Every
+shape below is measured against that.
+
+| | (a) multi-attach | (b) choose among the already-attached | (c) ephemeral session per attempt |
+|---|---|---|---|
+| **First token** | baseline (node already present everywhere) | baseline | baseline **+ ~1 RTT** worst case; see §6.4 |
+| **Connections held per node** | N long polls × `Parallel` workers, standing, whether or not anyone tunes in | same as (a) — it *is* (a) | 1, and it is the broker poll the node already holds |
+| **Connections held per tower** | N× the stations it serves, against a hard cap of 512 (`maxHubConns`) | same | only stations with live work |
+| **State at Core** | N attachment rows per station; `Origin.TowerID` stops being singular, which is a schema and an identity change | same | 1 attachment (unchanged) + a per-attempt relay, which `dispatch.Record.TowerID` already is |
+| **State at tower** | NodeAuth + nonce ring + latch + wanted-audits for N× more stations than it serves | same | the same objects, created per session and reaped with it (§6.5) |
+| **Delivers "disconnect when done"** | no — it is the exact opposite | no | yes |
+| **Ships without the others** | yes, and it is wasted if (c) later wins | **no: with today's single attach the choice set has one member** | yes |
+
+**(b) is not a shape.** It is the second half of (a), written as if it were independent. With one
+attachment per station, "dispatch chooses among the towers the node is already attached to" is a
+loop over a list of length one. This is worth saying plainly because (b) is the version that
+looks cheapest on a slide.
+
+**(a)'s real cost is the tower's connection cap, not the node's sockets.** A hub caps concurrent
+connections at 512 (`cmd/roger-tower/hub.go:34`), so it can host roughly 256 station-workers at
+`Parallel: 2` — and multi-attach divides that by N. Fanning every node out to five relays does
+not give the fabric five times the choice; it gives each relay one fifth of the fleet it could
+otherwise carry, in exchange for choice that (c) provides for free. It also inverts the
+economics: a volunteer's home connection would hold hundreds of idle long polls for traffic that
+mostly goes somewhere else.
+
+**Recommendation: (c), and do not build (a) as a stepping stone.** (a) is not a subset of (c)
+and nothing built for it survives — the identity model change (multi-valued `Origin.TowerID`) is
+work that (c) explicitly does not want, because in (c) the attachment stays singular and the
+relay lives on the grant, where it already is.
+
+### 6.4 Where the round trip goes, exactly
+
+The honest cost of (c) is not "a handshake". It is three specific things, two of which can be
+made free.
+
+1. **The consumer's submit must not arrive before the relay knows the station.** Today
+   `Hub.Submit` refuses an unregistered station with `ErrNoStation` and the server answers
+   **404** while kicking an async refresh (`OnUnknownStation`, debounced to once a second,
+   `cmd/roger-tower/hub.go:414`). The comment says this "closes the window to roughly one round
+   trip"; what it actually does is convert a 30-second window into a 404 the consumer has to
+   retry. For per-request relay that is the *normal* path, not the corner. **Fix it in the grant,
+   not with a push** — see §6.5 item 5.
+2. **The node's first signed request to a relay costs an extra round trip**, because it does not
+   know that hub's process epoch and may only learn it from the hub's own 401 plus an Ed25519
+   proof bound to the request's nonce (`internal/towerhub/client.go` `epochFrom`). This one is
+   **unavoidable and must be budgeted**: Core cannot supply the epoch, because Core does not know
+   when a tower last restarted — that is the entire reason the epoch is learned from the hub.
+   What removes it in the common case is a per-relay epoch CACHE on the node that outlives one
+   session, so the second attempt at the same relay within the process's lifetime costs nothing.
+   That keeps the proof (the value was proved when it was learned) and keeps the two-live-processes
+   detection working (`Client.retired` sees more, not less).
+3. **Whether any of it is on the critical path depends on ordering.** `Hub.Submit` enqueues into
+   a buffered channel (`jobQueueDepth = 64`) and blocks for `submitTTL`; the node does not have to
+   be polling at the instant the job arrives, only before the TTL expires. So if Core pushes
+   "serve attempt A at relay R" down the node's already-parked `/agent/poll` *at the same moment*
+   it answers the consumer's authorize, the node's two round trips to R overlap the consumer's
+   one. The added first-token latency is then `max(0, node→R − consumer→R)`, roughly one RTT
+   between the node and the relay: single-digit milliseconds on a well-placed relay, ~100ms
+   across an ocean. Against a first token that is typically hundreds of milliseconds of model
+   time, that is the number §4.4 asked for and it is small — **but it is only small if the
+   registration problem in item 1 is solved without a Core round trip.**
+
+### 6.5 The per-tower state that becomes per-session
+
+| State | Where it lives | What per-session does to it |
+|---|---|---|
+| **Hub epoch** | `towerhub.Client.epoch`, per hub process, learned from a proved 401 | The one unavoidable cost. Cache it per relay across sessions (§6.4 item 2); it is per-PROCESS, not per-session, so nothing about ephemerality makes it wrong. |
+| **Retired-epoch memory** | `towerhub.Client.retired`, bounded at 8 | Must be cached with the epoch, per relay. A fresh list per session is a fresh list that cannot detect two hub processes — the one thing it exists for. This is also why the re-attachment landed on this branch deliberately excludes `ErrHubMultipleProcesses` from its triggers. |
+| **Nonce ring** | `internal/towerhub/nodeauth.go`, per (station, hub process), in memory, floored at process start | **The tombstone stops being a corner case and becomes the mechanism.** `forget` keeps a floor after unregistering so that register→unregister→register does not reopen the replay window. Under (c) that cycle is the normal traffic pattern, many times an hour per station. A tower must therefore hold tombstones for **every station that passed through it inside the signature skew window (5 minutes)**, not for the handful attached to it. Bounded and cheap, but it must be sized on purpose, and it must be reaped on a clock rather than on unregister. |
+| **Signed-bearer latch** | `Server.signed[stationID]`, durable, per (tower, station) | Must **not** be reaped with the session. It is a one-way fact ("this station has signed here, so its legacy bearer is dead") and reaping it per session would re-open the stolen-bearer path on every attempt. It is deleted one release from now anyway; until then, session teardown must be explicit about what it does not touch. |
+| **TLS pin** | published by Core beside the endpoint; read at attach today | Gets **better**. It travels with the per-attempt instruction, so it is re-read every attempt: a certificate rotation costs at most one attempt instead of stranding a node until it restarts. Ephemeral sessions retire the whole class of problem §5.7's migration-cost bullet is about. |
+| **Assertion-key registration** (`POST /tower/hub/nodes`) | PULL: the tower asks Core every 30s (`hubNodeRefresh`) plus on-demand on an unknown-station submit | The one that has to change. 30 seconds is not a cadence for a relay chosen milliseconds ago, and the on-demand path answers the triggering submit with a 404. |
+
+**The registration answer: put the key in the grant, not in a push.** The hub already verifies the
+Core-signed grant on every submit, against Core's own dispatch key AND scoped to its own tower id
+- `dispatch.EdgeGrantMeta(grant, coreKey, link.PublicNetwork, st.TowerID, now)`,
+`cmd/roger-tower/hub.go:156`. Two things follow from that line, and the second is the important
+one. First, Core already records the station's assertion and session keys on the attachment, so
+the grant could CARRY the assertion key and the hub could register the station from the object it
+is already verifying. Second - **the relay is ALREADY a per-attempt fact on the wire.** The grant
+names one tower and a hub refuses a grant minted for another. What is per-attachment is only the
+SELECTION (`edgeTargetFor` reading `row.TowerID`) and the settlement gate (§6.6). The transport
+has been ready for M3 the whole time. That removes the
+Core round trip entirely, removes the 404-and-retry, and tightens a property rather than
+loosening one: a relay could then only serve a station Core authorized **for this attempt**,
+instead of any station on a list it pulled thirty seconds ago.
+
+Two things to say out loud about it. The grant is presented by the CONSUMER, so this discloses
+the station's assertion public key to consumers; that key is public by nature and consumers
+already receive `station_session_key` from authorize, so it is not a new class of exposure — but
+it is the key an operator's earnings are paid against, and §5.0 item 9 already treats putting it
+on an unpinned wire as a privacy cost worth naming. And the pull must **stay**, scoped to
+revocation: registration-from-grant can only ever add a station, and something has to be able to
+take one away.
+
+### 6.6 Money: what attribution keys on today, and why M3 is one gate rather than a schema
+
+This is the part that had to be checked rather than assumed, and the answer is better than
+expected in one place and worse in another.
+
+**Checked:**
+
+- The tower that earns the 10% is `req.TowerID` — **a field in the settle body the Tower sends
+  about itself** (`toweredge.go:1354`). It is bound three ways: the request must be signed by the
+  key Core admitted that tower under (`towerCaller`); `at.Origin.TowerID != req.TowerID` → 403;
+  and `ClaimByID(attemptID, req.TowerID)` must match the dispatch record's `tower_id`, on both
+  stores (`memstore.go:59`, `pgstore.go:136`).
+- **The receipt carries no relay identifier at all.** `dispatch.SignReceipt` signs network, type,
+  version, attempt id, station id, the two digests, and usage. The Station never attests who
+  carried its bytes, and cannot: it talks to one hub and has no way to know what that hub is
+  called beyond what Core told it.
+- **`earning_lots` has no tower column.** The relay share is a lot whose `node` is
+  `"tower:" + towerID` (a string prefix, `toweredge.go:83`) and whose `account_id` is the
+  operator's canonical account key. Payout and clawback key on `account_id` and `request_id`
+  only; the prefix is provenance for a dashboard.
+
+**So is per-request attribution easy? Two of the three bindings are already per-attempt.**
+`rec.TowerID` comes from the grant, minted at authorize; `towerCaller` is per-request. The only
+thing in the way is the middle gate, `at.Origin.TowerID != req.TowerID` — and **that gate is
+redundant with `ClaimByID` for the property it claims to protect.** Its comment says it stops "a
+Tower settling for a Station behind somebody else's origin", and `ClaimByID` already refuses any
+tower that is not the one the grant named. So M3's money change is: delete the standing-fact gate
+and rely on the per-attempt one. One gate, no schema, no new column.
+
+**But it is doing a second job nobody named, and removing it exposes that.** It is currently the
+only reason `at.Owner` — the payee of the 70% — is read from an attachment known to still be
+behind the settling tower. Without it, the station owner is read from whatever the attachment says
+at settle time. That is still correct (the station's owner is the station's owner) and it should
+be stated rather than discovered.
+
+**And the gate is losing money today, before any of this.** If a station is rehomed, swept dormant
+or revoked between authorize and settle — a window of up to the grant lifetime plus
+`maxEdgeSettleGrace` (10 minutes) — the attempt becomes **unsettleable by anybody**. The relay
+that actually carried the bytes and holds the receipt is refused 403 by this gate; a different
+tower would be refused 404 by `ClaimByID`. `towerjoin.SettleEdgeReceipt` treats any 4xx as
+`ErrSettlePermanent` and abandons, so there is no retry that could ever repair it. The consumer's
+hold is swept (nobody is charged, which is the safe direction), the station operator earns nothing
+for work actually performed, and the relay operator earns nothing for bytes actually carried. The
+loss is silent, asymmetric, and falls entirely on the honest parties. **Replacing the gate fixes
+this today, independent of M3** — see slice 0.
+
+One thing this design does **not** need: a relay identifier on the receipt. It was the obvious
+first idea and it is wrong twice over. The Station cannot know it (it knows the endpoint it was
+sent to, not the id Core bills against), and even if it could, it is the party being paid — an
+attribution the payee signs is not an attribution.
+
+### 6.7 Self-dealing: a check that has never had to work
+
+There are exactly two checks, both at settle, both in `cmd/rogerai-broker/toweredge.go`:
+
+- `accrueEarnings:1758` compares the consumer against the **station owner** only, and writes a
+  `self_dealing` boolean on the evidence trail.
+- `captureEdgeCharge:1909-1917` compares the consumer against the **station owner** and,
+  independently, against the **tower operator**, and zeroes the offending share. The consumer is
+  still charged in full; nothing is refused; one line is logged.
+
+`sameAccount:1937` is identity equality: literal pubkey match, or a shared GitHub id, Apple
+subject, or login.
+
+**Does it cover per-request relay? On the pair it compares, yes — and that is the problem.**
+Today a consumer cannot choose the relay at all; they are handed whichever tower the *provider*
+attached to. Steering is not a thing that can be done, so the consumer-vs-tower check has never
+had to work. M3 makes the relay a function of inputs the consumer partly supplies, and turns a
+dormant check into a load-bearing one. Four findings, in the order they cost money:
+
+1. **The rule that keeps it bounded is a ranking rule, not a settlement rule.** §4.1 already says
+   location must never be self-declared on the supply side, because "claim to be everywhere,
+   receive everything" is a lever. The same sentence has to be written for the DEMAND side, and it
+   is the whole defence: **the relay must be chosen by Core from server-observed inputs only — the
+   connecting IP, never a client-declared hint, and never a list the client picks from.** If the
+   authorize response ever becomes "here are three relays, choose", a consumer who runs a tower
+   steers 10% of their own spend to themselves and `sameAccount` is the only thing standing in the
+   way. Three distinct verified identities defeat it; that is already logged as unresolved risk
+   E44 in `docs/tower-network-plan.md`. This is the single decision in this section that must be
+   made before code is written, because it is a shape, not a check.
+2. **The third pair is not compared anywhere: station owner vs tower operator.** An operator who
+   owns both collects 70% + 10% = 80% of gross from an arms-length consumer, unflagged. Today they
+   cannot arrange it. Under locality-aware relay selection they can, and **often should** — the
+   nearest relay to a node is frequently on the node's own network, which is exactly the outcome
+   the milestone exists to produce. The recommendation is therefore not to block it: **record the
+   pair on the lot so it is measurable, and set a policy threshold on the fraction of an
+   operator's relay earnings that come from their own stations.** Unmeasurable is the current
+   state and it is the only unacceptable one.
+3. **`sameAccount` fails open on a store error.** Any error resolving either owner returns `false`,
+   which pays out. Under (c) that turns a settlement-time database blip into money. It should
+   fail *closed* — withhold and flag for review, which is what
+   `features/tower/operator_revenue_share.feature:832` already specs and the code does not do.
+4. **The tower check is skipped entirely when `towerAcct == ""`** (`towerShare > 0 && towerAcct
+   != "" && sameAccount(...)`). Benign today, because an unresolvable account mints no lot either
+   way — but it is a guard whose falsity silently disables a check, and it should be an explicit
+   "no account, no lot, no check needed" rather than a conjunct.
+
+### 6.8 Failure, fallback, and the hold
+
+The consumer's hold is placed at authorize, before the attempt is recorded, at the worst case of
+the grant's ceiling (`toweredge.go:331`), and it is released only by a settle or by the orphan
+sweep at `holdTTL`. So "the relay was unreachable at dispatch" must never resolve to "authorize
+again": a second authorize is a second hold against the same wallet, a second slot against
+`maxOpenEdgeAttemptsPerAccount`, and a second hit on the per-account rate limiter — a consumer
+whose chosen relay died would be rate-limited for their relay's fault.
+
+**Recommendation: name two relays in the grant, ranked.** `ClaimByID` accepts either; the
+consumer tries the first and falls back to the second on a connect failure. This needs one extra
+field on the grant, no new state machine, no second hold, and no re-signing. It is safe on the
+money because only one relay can ever produce a receipt: the hub's courier gate
+(`ConsumeDispatched`) means only the hub that actually HANDED the job to the node may forward its
+receipt, so the relay that did not carry it has nothing to file. The cost to state honestly is
+that a captured grant is now good at two hubs instead of one — which changes nothing, because the
+grant is the consumer's to present and the envelope is sealed to the node either way.
+
+The alternative — re-targeting the attempt to a new relay under the same id and the same hold —
+is strictly more powerful and needs `dispatch.Record.TowerID` to become mutable under a state
+machine while the nonce and the one-use claim stay intact. That is the right end state and it is
+not the right first move.
+
+### 6.9 Migration, in slices, with the ones that are safe alone marked
+
+- **Slice 0 — replace the settle gate. SAFE ALONE, AND IT FIXES A LIVE MONEY BUG.** Drop
+  `at.Origin.TowerID != req.TowerID` in favour of the grant-derived binding `ClaimByID` already
+  enforces. Today the two are equal by construction, so there is no behaviour change on the happy
+  path; what changes is that a rehome inside the settlement window stops making an attempt
+  unsettleable by anybody (§6.6). It must land first regardless, because it is what makes "which
+  relay carried this" a per-attempt fact on the money path.
+- **Slice 1 — carry the station's assertion key in the Core-signed grant, and let the hub register
+  from it. SAFE ALONE.** Keep the `/tower/hub/nodes` pull for revocation. No placement change.
+  Measurable immediately as the disappearance of `OnUnknownStation` 404s.
+- **Slice 2 — the ephemeral session, as a shadow path. SAFE ALONE.** Build the node-side "open a
+  session at relay R, serve, close" driven by an instruction on the broker long-poll, and point it
+  at the SAME tower the node is already attached to, while the standing attachment keeps serving.
+  This ships M4's mechanism with none of M3's risk and answers §4.4's empirical question — *is the
+  handshake cheaper than the bandwidth it saves* — with real numbers before any traffic depends on
+  the answer. Depends on slice 1: a session at a relay that does not know the station is a 404.
+  The re-attachment on this branch (`internal/agent/tower.go`, `serveTowerTenancy`) is the seed of
+  this: it already makes a node's relay a value that can change without a restart, and a tenancy
+  is a session with a very long lifetime.
+- **Slice 3 — move the choice. NOT SAFE ALONE; this is M3 and it needs 0, 1 and 2.**
+  `edgeTargetFor` splits into two decisions, station and relay; the attachment's tower becomes a
+  default rather than a commitment; the grant names two relays (§6.8).
+- **Slice 4 — locality enters the relay half** (M2 and M5), with the demand-side rule from §6.7
+  item 1 written into the ranking rather than into a comment.
+
+**The correction §3 needed:** M3 depends on M4, and M4's own dependency is the registration
+change (slice 1), which section 3 does not mention at all. The order is 0 → 1 → 2 → 3 → 4, and
+only the first three are individually shippable.

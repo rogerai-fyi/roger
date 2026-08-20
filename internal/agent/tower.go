@@ -41,8 +41,10 @@ import (
 	"fmt"
 	"io"
 	"math"
+	randv2 "math/rand/v2"
 	"net/http"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"rogerai.fm/roger/v5/internal/protocol"
@@ -267,6 +269,221 @@ func costlyRelayError(err error) bool {
 	return errors.Is(err, towerhub.ErrNotCarried) || errors.Is(err, towerhub.ErrResultUndelivered)
 }
 
+// # RE-ATTACHMENT: WHAT A NODE DOES WHEN ITS RELAY STOPS BEING ITS RELAY
+//
+// Everything from here to ServeTower exists to close a hole that was not a bug in any one line:
+// ServeTower attached ONCE per `roger share` process and the serve workers retried a failing hub
+// every two seconds forever, so ANY permanent change on the relay's side stranded every node
+// behind it until a human restarted the share. A tower turning TLS on did it. A certificate
+// rotation did it, and does it again on every renewal. A tower going away, losing its lease or
+// being revoked did it. So did anything else Core would answer differently if it were asked
+// again - and nothing ever asked it again.
+//
+// WHY IT WAS QUIET, WHICH IS THE PART THAT MADE IT EXPENSIVE. Since the `--tower` flag was
+// removed the same process holds an ordinary broker registration and long-poll throughout, so a
+// stranded node keeps serving and keeps earning on the classic path. Nothing goes down. What
+// stops is the relay plane, and the only symptom is an operator eventually noticing that one of
+// their two income lines went to zero - if they were watching two.
+//
+// THE FIX IS NOT A TIMER. "Re-attach every N minutes" would put an attach at Core for every node
+// in the fleet on a schedule, forever, in exchange for recovering a case that almost never
+// happens; and because the event that strands one node strands every node on that tower at the
+// same instant, the schedule would arrive as a spike rather than as a trickle. So the trigger is
+// EVIDENCE - a relay that has stopped answering, continuously, for long enough that it is not
+// having a bad minute - and the response is a jittered exponential backoff so a broken tower
+// produces a slow drip of attaches rather than a stampede.
+
+// hubFailureQuiet is how long the workers must go without a single complaint before a failure
+// streak is considered over. A healthy serve loop is SILENT - an empty long poll is not an error
+// and reports nothing - so a full minute of quiet is strong evidence, and it is what stops one
+// bad poll an hour accumulating into a "standing" failure on a node that has served all day.
+var hubFailureQuiet = 60 * time.Second
+
+// hubStandingWindow is how long a relay must be continuously unusable before this node stops
+// believing in it. Three poll cycles, or forty-five two-second backoffs: long enough that a
+// redeploy, a lease renewal or a bad network minute has had its chance, short enough that an
+// operator does not lose an afternoon of relay earnings to a certificate they never saw rotate.
+var hubStandingWindow = 90 * time.Second
+
+// reattachBackoffBase and reattachBackoffCap bound the wait before asking Core again.
+//
+// The FIRST wait is deliberately long rather than immediate, and nothing is lost by it: the node
+// is registered, discoverable, probed and earning on the classic path the whole time this is
+// happening, which is exactly why the stranding was quiet in the first place. What the wait buys
+// is that a tower restarting with TLS on does not turn its whole fleet into a simultaneous
+// attach at Core.
+var (
+	reattachBackoffBase = 30 * time.Second
+	reattachBackoffCap  = 15 * time.Minute
+)
+
+// reattachStreakReset is how long a tenancy must have LASTED for the backoff to start over. A
+// relay that carried work for ten minutes and then broke is a fresh event, not the eleventh
+// attempt at an old one; without this a node that recovers, serves for an hour and breaks again
+// would begin its next recovery at the fifteen-minute cap.
+var reattachStreakReset = 10 * time.Minute
+
+// ErrRelayReattaching is what the operator is told when this node gives up on its relay and goes
+// back to Core for a current one.
+//
+// It is a notice rather than a silence because the two halves of the sentence are both news. The
+// first is that something is wrong with a plane they never opted into and cannot see. The second
+// is that the node is handling it - which matters because the previous version of this software
+// told them, in the pin-mismatch case, to restart their share by hand, and an operator who
+// learns to do that will keep doing it long after it stopped being necessary.
+var ErrRelayReattaching = errors.New(
+	"this node's relay has stopped carrying work in a way that will not come right by retrying, so " +
+		"the node is asking Roger Core for its current relay instead of polling this one forever. " +
+		"Your ordinary share is unaffected: it has been registered, discoverable and earning " +
+		"throughout, because the relay fabric is an additional plane rather than a replacement for it")
+
+// ErrRelayReattachFailed marks a RE-attachment that Core would not answer. It is separated from
+// the first attach of a process - which is best-effort and silent by design, because "no relay is
+// free right now" is an ordinary answer to a question nobody asked - because this one is not
+// speculative: this node WAS on the fabric a moment ago, and is now off it.
+var ErrRelayReattachFailed = errors.New("this node could not get back onto the relay fabric")
+
+// errHubStanding is the internal signal from one tenancy to the loop that supervises it: this
+// relay is finished, re-attach. It never reaches an operator; ErrRelayReattaching does.
+var errHubStanding = errors.New("this relay has stopped being usable")
+
+// staleAdvertisement reports whether a hub error means THE THING CORE TOLD THIS NODE IS NO LONGER
+// TRUE - the endpoint, or the certificate that answers at it - as opposed to something neither
+// Core nor this node can do anything about.
+//
+// It is written as an EXCLUSION LIST on purpose. The default for an unrecognised failure is "ask
+// Core again", because the opposite default is the one that shipped, and the one that shipped
+// stranded nodes in silence. Three things are excluded, each for its own reason:
+//
+//   - A REFUSED IDENTITY (401). The hub is there, it is answering, and it has decided this node is
+//     nobody. Core cannot change that by repeating itself: attach is idempotent for a live
+//     attachment, so a re-attach hands back the same tower, the same endpoint and the same keys,
+//     and the next poll is refused exactly as this one was. The STALE-EPOCH flavour of a 401 -
+//     the ordinary one, produced by every hub redeploy - never reaches here at all, because
+//     towerhub's signedDo learns the hub's proved epoch and re-sends once; what reaches here is a
+//     hub that will not have this node, and ErrHubRefusedThisNode already hands the operator the
+//     sentence they can act on.
+//   - TWO HUB PROCESSES BEHIND ONE ENDPOINT. The only state that DETECTS this is the client's
+//     retired-epoch memory, and a re-attach builds a fresh client with an empty one - so the node
+//     would flap between the two processes, detect it again, re-attach again, and turn a hard stop
+//     that names an unsupported deployment into a loop that hides it. The address is not stale
+//     here; what is behind it is wrong, and saying so is the whole point.
+//   - A COMPLETION THE HUB TOOK BUT DID NOT COURIER, or a result that could not be handed back.
+//     Both cost the operator real money and both are already loud - but both PROVE the relay is
+//     up and handing this node work, which is the opposite of the evidence this function is for.
+//
+// Everything else has one property in common: a dial that is refused, a TLS handshake against a
+// listener that was plaintext when this node attached, a "malformed HTTP response" from something
+// that is no longer a hub, a 404 or a 410 from a route that has moved, a hub that has been
+// answering 503 for minutes. None of them can be fixed by this node retrying, and Core is the
+// only party that can hand out a different endpoint or a different pin.
+func staleAdvertisement(err error) bool {
+	switch {
+	case err == nil, errors.Is(err, context.Canceled):
+		return false
+	case hubRefusedIdentity(err):
+		return false
+	case errors.Is(err, towerhub.ErrHubMultipleProcesses):
+		return false
+	case costlyRelayError(err):
+		return false
+	}
+	return true
+}
+
+// hubFailureStreak decides when a relay has STOPPED BEING A RELAY, as opposed to having a bad
+// minute. One error cannot draw that line and a clock must not: see the block comment above.
+//
+// It is written for concurrent callers because every serve worker reports into it, and on a
+// broken hub all of them report at once.
+type hubFailureStreak struct {
+	mu    sync.Mutex
+	first time.Time
+	last  time.Time
+}
+
+// observe folds one worker error into the streak and reports whether this relay should now be
+// treated as finished.
+func (h *hubFailureStreak) observe(err error, now time.Time) bool {
+	if !staleAdvertisement(err) {
+		// Not evidence about the address - but it may still be evidence AGAINST a streak. A
+		// completion the hub answered, or a job it handed out and then could not take back,
+		// proves the relay is up; letting either sit in the middle of a streak and keep it alive
+		// would have a node abandon a working relay because that relay was losing its receipts.
+		// That is a different (and worse) problem, and re-attaching to the same tower does not
+		// fix it.
+		if costlyRelayError(err) {
+			h.mu.Lock()
+			h.first, h.last = time.Time{}, time.Time{}
+			h.mu.Unlock()
+		}
+		return false
+	}
+	// A CERTIFICATE THAT IS NOT THE ONE CORE NAMED SKIPS THE WINDOW, and it is the only failure
+	// that does. Every other symptom might be ninety seconds of bad luck; this one cannot be, by
+	// construction. The pin is read at attach and held for the life of the tenancy, so no number
+	// of retries can produce a different outcome - the two causes are an on-path attacker and a
+	// relay that replaced its certificate without Core learning the new one, and both are
+	// resolved (or not) by asking Core rather than by waiting. Waiting would buy forty-five more
+	// doomed handshakes and nothing else.
+	//
+	// It does NOT skip the backoff, which is what keeps this safe against the attacker half of
+	// that pair: a party who can hold the handshake down still cannot make this node attach
+	// faster than the backoff allows.
+	if errors.Is(err, towerhub.ErrHubCertificateUnpinned) {
+		return true
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.first.IsZero() || now.Sub(h.last) > hubFailureQuiet {
+		h.first = now
+	}
+	h.last = now
+	return now.Sub(h.first) >= hubStandingWindow
+}
+
+// reattachDelay is how long to wait before asking Core again, given how many times in a row this
+// node has had to.
+//
+// EXPONENTIAL AND JITTERED, because the population this runs on is correlated. The event that
+// strands one node - a tower restarting with TLS on, a lease expiring, a certificate rotation -
+// strands every node on that tower in the same instant, so an un-jittered backoff would have all
+// of them attach in the same second, wait the same amount, and attach in the same second again.
+// The spread is a full factor of two rather than a token few percent, because half a spread in
+// front of one door is still a queue.
+func reattachDelay(consecutive int) time.Duration {
+	if consecutive < 0 {
+		consecutive = 0
+	}
+	d := reattachBackoffBase
+	for i := 0; i < consecutive; i++ {
+		if d >= reattachBackoffCap {
+			break
+		}
+		d *= 2
+	}
+	if d > reattachBackoffCap {
+		d = reattachBackoffCap
+	}
+	half := d / 2
+	if half <= 0 {
+		return d
+	}
+	return half + time.Duration(randv2.Int64N(int64(half))+1)
+}
+
+// waitFor sleeps unless ctx ends first. false means the share is shutting down.
+func waitFor(ctx context.Context, d time.Duration) bool {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-t.C:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
 // AttachTower self-attaches this node as a servable station: keys from the persistent station
 // identity under dir, the offer from cfg (model/modality/prices), the request signed with the
 // node's account-bound key. Idempotent on retry with the same identity.
@@ -431,43 +648,186 @@ func (t transcriptSource) SignedTranscript(attemptID string) (signed, request, r
 	return tr.Signed, tr.Request, tr.Response, true, nil
 }
 
-// ServeTower runs the tower-serving fabric until ctx is done: self-attach, pin Core's grant
-// key, then Parallel ServeLoop workers polling the assigned tower's hub. Errors before the
-// workers start are returned; worker-level transport blips are reported to out and retried
-// by the loops themselves.
+// ServeTower runs the tower-serving fabric until ctx is done, RE-ATTACHING whenever the relay it
+// was placed on stops being one.
+//
+// # WHY THIS IS A LOOP AND NOT A CALL
+//
+// It used to be a call: attach once, build a client from the endpoint and the certificate pin
+// that answer named, spawn the workers, and let them retry a failing hub every two seconds for
+// the life of the process. Every value that decides WHERE and HOW this node polls was read once
+// and then frozen - so every permanent change on the relay's side was permanent for this node
+// too. See the block comment above hubFailureQuiet for what that cost and why it was quiet.
+//
+// # WHAT IS PER-TENANCY AND WHAT SURVIVES ONE, WHICH IS THE WHOLE DESIGN
+//
+// A "tenancy" is one attachment: one tower, one endpoint, one pin, one hub process.
+//
+// PER-TENANCY, and rebuilt from scratch every time, because every one of them is a fact about a
+// particular hub rather than about this node: the towerhub.Client (its cached process EPOCH, and
+// its RETIRED-epoch memory - carrying either across a re-attach would have a fresh client accuse
+// a perfectly ordinary hub of being two hub processes), the pinned TLS transport and its
+// sockets, the tower id that rides in every signed target, the identity fingerprint the hub's
+// epoch proof is checked against, the serve workers and the audit loop.
+//
+// SURVIVES EVERY TENANCY, because it belongs to this MACHINE:
+//
+//   - The station identity. It is persistent on disk and AttachTower opens rather than mints it
+//     (InitOrOpen), so a re-attach presents the same keys Core recorded and is answered
+//     idempotently with the same registration. This is verified by
+//     TestAttachTowerReusesThePersistentStationIdentity, and it is the property that makes
+//     re-attachment safe to do at all rather than a way to mint a second identity per outage.
+//   - The executor, and with it the TRANSCRIPTS and the attempt cache. The transcripts are the
+//     evidence behind receipts this node has already signed, and Core's audit will ask for them
+//     by attempt id for as long as the settlement window is open. Rebuilding the executor on
+//     every re-attach would answer those audits with "not retained" - and withholding is itself
+//     a finding against the operator, so a relay hiccup would turn into a reputation event. The
+//     attempt cache is the one-serve-per-attempt guard, and forgetting it across a re-attach
+//     would let a replayed attempt be served twice.
+//   - Core's grant and envelope keys. They are Core's, fetched from Core, and the relay is
+//     precisely the party they exist to distrust; re-fetching them per tenancy would cost a round
+//     trip to establish something that did not change.
+//
+// # THE FIRST ATTACH IS STILL THE FIRST ATTACH
+//
+// An error out of the FIRST attach is returned exactly as it always was, because the caller's
+// contract is built on it: cmd/rogerai's joinRelayFabric treats this whole join as best-effort
+// and silent, and picks out ErrCoreKeysUnpinned - the one failure meaning this node cannot tell
+// a real grant from one its relay invented - from the returned error. "No relay is free right
+// now" is an ordinary answer to a question the operator did not ask, and it stays silent. A
+// later attach is a different event with a different meaning: this node WAS on the fabric, so
+// its absence is a change rather than a non-event, and it is retried and said out loud.
 func ServeTower(ctx context.Context, cfg Config, priv ed25519.PrivateKey, dir string, out io.Writer, notice Notice) error {
-	st, at, err := AttachTower(cfg, priv, dir)
-	if err != nil {
-		return err
+	var (
+		exec                station.EdgeExecutor
+		coreKey, coreEnvKey []byte
+		consecutive         int
+	)
+	for gen := 0; ; gen++ {
+		if ctx.Err() != nil {
+			return nil
+		}
+		st, at, err := AttachTower(cfg, priv, dir)
+		if err != nil {
+			if gen == 0 {
+				return err
+			}
+			// This node was serving through a relay a moment ago and now cannot get back on. That
+			// is worth saying once, and worth asking again about: a tower whose lease is being
+			// renewed, an instance of Core that is redeploying, or a fabric with nothing free
+			// right now are all conditions that end.
+			notice.notify(fmt.Errorf("%w: %w", ErrRelayReattachFailed, err))
+			if !waitFor(ctx, reattachDelay(consecutive)) {
+				return nil
+			}
+			consecutive++
+			continue
+		}
+		if gen == 0 {
+			// The station directory had something wrong with it that Open could repair rather
+			// than refuse - a permissive mode, most likely. Repairing it silently would leave the
+			// operator believing a key that has been readable was never readable. Said on the
+			// first attach only: it is a property of the directory, and a re-attach re-opens the
+			// same one, so repeating it per tenancy would be describing one fact many times.
+			for _, w := range st.Warnings {
+				notice.notify(errors.New(w))
+			}
+			coreKey, coreEnvKey, err = fetchCoreKeys(cfg.Broker)
+			if err != nil {
+				return fmt.Errorf("%w: %w", ErrCoreKeysUnpinned, err)
+			}
+			exec = station.EdgeExecutor{
+				Station: st, CoreKey: coreKey, Network: link.PublicNetwork,
+				Upstream: station.HTTPUpstream{URL: cfg.Upstream},
+				Outbox:   station.NewOutbox(256),
+				Seen:     station.NewAttemptCache(),
+				// Transcripts make this node AUDITABLE: Core's sampled/adaptive audit asks for the
+				// exact bytes behind a settled receipt, and a node that retains nothing can only
+				// answer "not retained". Keep-all over the recent window (the store is bounded).
+				Transcripts: station.NewTranscripts(0, 0),
+			}
+		}
+		started := time.Now()
+		terr := serveTowerTenancy(ctx, cfg, at, exec, coreEnvKey, out, notice)
+		switch {
+		case ctx.Err() != nil:
+			return nil
+		case errors.Is(terr, errHubStanding):
+			// terr ITSELF, not errors.Unwrap(terr). A `fmt.Errorf("%w: %w", ...)` has an
+			// `Unwrap() []error`, not an `Unwrap() error`, so errors.Unwrap returns NIL on it and
+			// the cause would have been formatted as "%!w(<nil>)" - an operator handed a rendering
+			// artefact where the reason should be. errors.Is still walks the tree either way,
+			// which is what made it silent.
+			notice.notify(fmt.Errorf("%w (relay %s at %s): %w", ErrRelayReattaching,
+				at.TowerID, at.Endpoint, terr))
+		case gen == 0:
+			// The first tenancy could not be started at all - an endpoint Core advertised that
+			// cannot be reached as advertised, most likely a malformed pin. Returned, as it always
+			// was, so the caller's best-effort handling is unchanged.
+			return terr
+		case terr == nil:
+			// Every worker returned without ctx being done. ServeLoop only returns on ctx, so this
+			// is unreachable today; if it ever becomes reachable it is a stopped plane, not a
+			// failure, and leaving the fabric silently is the wrong answer to it.
+			return nil
+		default:
+			// A LATER tenancy could not be started. Same event as a failed re-attach: say it, and
+			// ask Core again rather than leaving the plane for the life of the process.
+			notice.notify(fmt.Errorf("%w: %w", ErrRelayReattachFailed, terr))
+		}
+		// A tenancy that CARRIED for a while and then broke is a fresh event, not the next attempt
+		// at an old one, so it starts the backoff over.
+		if time.Since(started) >= reattachStreakReset {
+			consecutive = 0
+		}
+		if !waitFor(ctx, reattachDelay(consecutive)) {
+			return nil
+		}
+		consecutive++
 	}
-	// The station directory had something wrong with it that Open could repair rather than
-	// refuse - a permissive mode, most likely. Repairing it silently would leave the operator
-	// believing a key that has been readable was never readable.
-	for _, w := range st.Warnings {
-		notice.notify(errors.New(w))
-	}
-	coreKey, coreEnvKey, err := fetchCoreKeys(cfg.Broker)
-	if err != nil {
-		return fmt.Errorf("%w: %w", ErrCoreKeysUnpinned, err)
-	}
-	// THE HUB CLIENT IS BUILT ONCE, HERE, AND ITS TLS SETTINGS ARE NOT NEGOTIABLE LATER. A
-	// timeout longer than the tower's poll TTL so a long poll is not cut short - and, when Core
-	// published a pin, a transport that accepts exactly the certificate the pin names.
+}
+
+// serveTowerTenancy serves ONE attachment: build a client for the endpoint and pin this
+// attachment named, run the workers and the audit loop against it, and return when the relay is
+// finished or the share is shutting down.
+//
+// It returns nil when ctx ended, an error wrapping errHubStanding when the relay stopped being
+// usable, and any other error when the tenancy could not be started at all.
+func serveTowerTenancy(ctx context.Context, cfg Config, at TowerAttachment,
+	exec station.EdgeExecutor, coreEnvKey []byte, out io.Writer, notice Notice) error {
+	// THE HUB CLIENT IS BUILT ONCE PER TENANCY, HERE, AND ITS TLS SETTINGS ARE NOT NEGOTIABLE
+	// LATER. A timeout longer than the tower's poll TTL so a long poll is not cut short - and,
+	// when Core published a pin, a transport that accepts exactly the certificate the pin names.
 	//
-	// TLS IS NOT REQUIRED, and that is a decision rather than an omission. Requiring it in this
-	// change would take every relay whose operator has not yet turned it on off the air, and
-	// with it every node attached to one; the capability has to work before its deadline can be
-	// set. See docs/relay-selection-design.md section 5.7 for the recommendation and what
-	// making it mandatory would cost.
+	// TLS IS NOT REQUIRED, and that is a decision rather than an omission. Requiring it would take
+	// every relay whose operator has not yet turned it on off the air, and with it every node
+	// attached to one; the capability has to work before its deadline can be set. See
+	// docs/relay-selection-design.md section 5.7 for the recommendation and what making it
+	// mandatory would cost - a paragraph this function is named in, because re-attachment is one
+	// of the two changes that turn "every node must be restarted by hand" into a migration
+	// operators do not have to attend.
 	base, hubHTTP, plaintext, err := hubBaseURL(at.Endpoint, at.EndpointTLSSPKI,
 		&http.Client{Timeout: 60 * time.Second})
 	if err != nil {
 		return fmt.Errorf("this relay's data plane cannot be reached as advertised: %w", err)
 	}
+	// THE TENANCY'S SOCKETS GO WITH THE TENANCY. A pinned link gets a transport of its own (see
+	// towerhub.Reach), and its idle connections are long-poll connections to a hub this node is
+	// about to stop believing in; leaving them pooled would keep an outage's worth of sockets open
+	// against a relay that has been replaced. An UNPINNED link is left alone deliberately: it has
+	// no transport of its own, so it is sharing http.DefaultTransport with the ordinary share's
+	// broker poll, and closing that would reach into a plane this one has no business touching.
+	defer func() {
+		if tr, ok := hubHTTP.Transport.(*http.Transport); ok && tr != nil {
+			tr.CloseIdleConnections()
+		}
+	}()
 	if plaintext {
-		// ONCE, and on the channel that is not discarded. This is a standing property of the
-		// link rather than an event, so it is said at the moment the link is established and
-		// not repeated per poll.
+		// ONCE PER TENANCY, and on the channel that is not discarded. This is a standing property
+		// of the link rather than an event, so it is said at the moment the link is established
+		// and not repeated per poll. The notice sink says a repeated message once, so a node that
+		// re-attaches to the same plaintext relay does not say it twice - and one that lands on a
+		// DIFFERENT plaintext relay does, because the sentence names the relay.
 		notice.notify(fmt.Errorf("%w (relay %s at %s)", ErrHubChannelPlaintext, at.TowerID, base))
 	}
 	channel := "unencrypted"
@@ -480,16 +840,6 @@ func ServeTower(ctx context.Context, cfg Config, priv ed25519.PrivateKey, dir st
 	fmt.Fprintf(out, "tower: attached as %s via %s (%s, %s) - serving %s at your listed price\n",
 		at.StationID, at.TowerID, at.Endpoint, channel, cfg.Model)
 
-	exec := station.EdgeExecutor{
-		Station: st, CoreKey: coreKey, Network: link.PublicNetwork,
-		Upstream: station.HTTPUpstream{URL: cfg.Upstream},
-		Outbox:   station.NewOutbox(256),
-		Seen:     station.NewAttemptCache(),
-		// Transcripts make this node AUDITABLE: Core's sampled/adaptive audit asks for the
-		// exact bytes behind a settled receipt, and a node that retains nothing can only
-		// answer "not retained". Keep-all over the recent window (the store is bounded).
-		Transcripts: station.NewTranscripts(0, 0),
-	}
 	client := &towerhub.Client{
 		BaseURL: base,
 		// THE TOWER IS PART OF WHAT IS SIGNED. Core named this tower in the attach response,
@@ -498,20 +848,53 @@ func ServeTower(ctx context.Context, cfg Config, priv ed25519.PrivateKey, dir st
 		// the same endpoint, and not at this one after a restart inside the skew window.
 		TowerID: at.TowerID,
 		// WHAT MAKES THE EPOCH THE HUB'S VALUE AND NOT THE ATTACKER'S. Core admitted this relay
-		// under an identity key and handed over its fingerprint above; the hub signs its process
-		// epoch with the private half, and this client refuses to adopt an epoch it cannot check
-		// against this hash. Without it, a forged 401 on the plaintext link would make this node
-		// sign over any epoch the party in front of it liked.
+		// under an identity key and handed over its fingerprint at attach; the hub signs its
+		// process epoch with the private half, and this client refuses to adopt an epoch it cannot
+		// check against this hash. Without it, a forged 401 on the plaintext link would make this
+		// node sign over any epoch the party in front of it liked.
 		TowerKeyHash: at.TowerKeyHash,
 		// SIGNED, NOT BEARER. st.SignRequest signs each hub call with the assertion key this
 		// Station's receipts are already verified against, so the plaintext link carries no
 		// reusable credential for anyone on the path to lift. See towerhub's nodeauth.go.
-		Sign: st.SignRequest,
+		Sign: exec.Station.SignRequest,
 		// Built above, because the certificate check belongs with the base URL that decided
 		// there would be one. A client assembled here from scratch is a client that dials
 		// https and verifies nothing.
 		HTTP: hubHTTP,
 	}
+
+	// THE TENANCY'S OWN CONTEXT. Cancelling it is how a standing failure stops the workers and the
+	// audit loop for THIS relay without touching the share's shutdown, which is the caller's.
+	tctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	streak := &hubFailureStreak{}
+	// Buffered and non-blocking: several workers usually notice the same standing failure within
+	// milliseconds of each other, and the first one to say so is the one that ends the tenancy.
+	standing := make(chan error, 1)
+	trip := func(err error) {
+		select {
+		case standing <- err:
+			cancel()
+		default:
+		}
+	}
+
+	// The audit-answer loop rides beside the workers: fetch what Core wants from this
+	// Station (relayed by the hub) and answer with signed transcripts.
+	// EVERY audit-plane error goes to the notice channel, not to out. An unanswered audit is a
+	// finding against this operator at Core - withholding is itself a finding - and a transcript
+	// evicted inside its window is evidence destroyed before it was asked for. Neither is
+	// transport chatter, even when its immediate cause is. The sink is expected to say a
+	// repeated thing once (see cmd/rogerai/relayfabric.go), which is what makes it safe to be
+	// generous here rather than trying to classify a hub's HTTP status.
+	//
+	// IT DOES NOT FEED THE FAILURE STREAK, and that is deliberate. The audit plane failing while
+	// the serve plane works is a real and separate problem (an old tower, a Core that cannot be
+	// reached through this hub) and re-attaching would not fix it; letting it trip the streak
+	// would have a node abandon a relay that is paying it.
+	go towerhub.AnswerAudits(tctx, client, at.StationID, transcriptSource{exec}, coreEnvKey, 0, func(err error) {
+		notice.notify(fmt.Errorf("relay audit: %w", err))
+	})
 	// THESE ARE ADDITIONAL TO THE CLASSIC POLL WORKERS, not a share of them. agent.Start
 	// already spawns cfg.Parallel workers against the same local model, and since every public
 	// share now offers itself to the relay fabric as well, `--parallel 4` is a ceiling of eight
@@ -524,21 +907,17 @@ func ServeTower(ctx context.Context, cfg Config, priv ed25519.PrivateKey, dir st
 	if workers <= 0 {
 		workers = 2
 	}
-	// The audit-answer loop rides beside the workers: fetch what Core wants from this
-	// Station (relayed by the hub) and answer with signed transcripts.
-	// EVERY audit-plane error goes to the notice channel, not to out. An unanswered audit is a
-	// finding against this operator at Core - withholding is itself a finding - and a transcript
-	// evicted inside its window is evidence destroyed before it was asked for. Neither is
-	// transport chatter, even when its immediate cause is. The sink is expected to say a
-	// repeated thing once (see cmd/rogerai/relayfabric.go), which is what makes it safe to be
-	// generous here rather than trying to classify a hub's HTTP status.
-	go towerhub.AnswerAudits(ctx, client, at.StationID, transcriptSource{exec}, coreEnvKey, 0, func(err error) {
-		notice.notify(fmt.Errorf("relay audit: %w", err))
-	})
 	done := make(chan error, workers)
 	for i := 0; i < workers; i++ {
 		go func() {
-			done <- towerhub.ServeLoop(ctx, client, at.StationID, sealedExec{exec}, func(err error) {
+			done <- towerhub.ServeLoop(tctx, client, at.StationID, sealedExec{exec}, func(err error) {
+				// EVERY worker error is weighed for whether this relay is finished, BEFORE it is
+				// classified for the operator - because the two questions have different answers.
+				// A pin mismatch is both loud and terminal; a dial that is refused is neither loud
+				// nor terminal on its own and terminal after ninety seconds of it.
+				if streak.observe(err, time.Now()) {
+					trip(err)
+				}
 				// Work already done, and nobody will pay for it: the operator hears about it.
 				// A poll that could not reach the hub is retried by the loop and stays quiet.
 				if costlyRelayError(err) {
@@ -550,6 +929,10 @@ func ServeTower(ctx context.Context, cfg Config, priv ed25519.PrivateKey, dir st
 				// otherwise be printed to is discarded, so this is the difference between an
 				// operator learning their relay is too old and an operator seeing a station
 				// that quietly never earns. The notice sink says a repeated message once.
+				//
+				// It is deliberately NOT a re-attach trigger - see staleAdvertisement. This is the
+				// one standing failure Core cannot answer differently, so telling the operator is
+				// the whole of the available remedy.
 				if hubRefusedIdentity(err) {
 					notice.notify(fmt.Errorf("%w: %w", ErrHubRefusedThisNode, err))
 					return
@@ -565,18 +948,21 @@ func ServeTower(ctx context.Context, cfg Config, priv ed25519.PrivateKey, dir st
 				}
 				// A CERTIFICATE THAT IS NOT THE ONE CORE NAMED, which without this line would be
 				// indistinguishable from a hub that is down: a handshake failure arrives here as
-				// an ordinary transport error, the loop retries it every two seconds until the
-				// process ends, and the writer it would otherwise print to is discarded. The two
-				// causes are an on-path attacker and a relay that changed its certificate without
-				// Core learning the new one, and NEITHER resolves by retrying - this node holds
-				// the pin it was handed at attach for the life of the process, so recovery means
-				// restarting the share. It belongs on the channel that is not discarded, beside
-				// the other standing properties of a relay.
+				// an ordinary transport error, and the writer it would otherwise print to is
+				// discarded. The two causes are an on-path attacker and a relay that changed its
+				// certificate without Core learning the new one.
+				//
+				// THE INSTRUCTION USED TO BE "RESTART THIS SHARE" AND IT IS NOT ANY MORE. That was
+				// true when the pin was read once and held for the life of the process; this node
+				// now goes back to Core for the relay's current advertisement on its own, so
+				// teaching the operator to restart would be teaching them a ritual that has
+				// stopped being necessary and will outlive the reason for it.
 				if errors.Is(err, towerhub.ErrHubCertificateUnpinned) {
 					notice.notify(fmt.Errorf("%w (relay %s at %s): this node holds the "+
-						"fingerprint Roger Core published at attach and will not accept another "+
-						"one; if the relay's operator has replaced their certificate, restart "+
-						"this share to pick up the new one", err, at.TowerID, at.Endpoint))
+						"fingerprint Roger Core published when it attached and will not accept "+
+						"another one. It is not waiting for you: it is asking Core for this "+
+						"relay's current advertisement, and will pick up a replaced certificate "+
+						"on its own", err, at.TowerID, at.Endpoint))
 					return
 				}
 				fmt.Fprintf(out, "tower: %v\n", err)
@@ -588,6 +974,14 @@ func ServeTower(ctx context.Context, cfg Config, priv ed25519.PrivateKey, dir st
 		if werr := <-done; werr != nil && first == nil {
 			first = werr
 		}
+	}
+	// The standing failure is read AFTER the workers have drained, so a tenancy that ends because
+	// its relay is finished is never mistaken for one that ended because the share is shutting
+	// down - both cancel the same context, and only one of them wants a re-attach.
+	select {
+	case serr := <-standing:
+		return fmt.Errorf("%w: %w", errHubStanding, serr)
+	default:
 	}
 	if errors.Is(first, context.Canceled) {
 		return nil
