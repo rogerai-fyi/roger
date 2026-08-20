@@ -232,7 +232,10 @@ func (b *broker) publishRoutable(towerID string) {
 	// ONLY self-attached nodes are routable now: the tower-pushed LEAF rows died with the
 	// leaf-station generation (their endpoint fed a raw-TLS dial nothing serves anymore, and
 	// with the invite flow gone no leaf can be attached to verify against).
-	endpoint, _ := ts.link.RelayEndpoint(towerID)
+	// THE PIN COMES WITH THE ADDRESS, FROM THE SAME READ. A row stamped with one session's
+	// endpoint and another's certificate fingerprint would fail every handshake behind it, and
+	// fail it in the shape of an attack - see link.RelayPlane.
+	plane, _ := ts.link.RelayPlane(towerID)
 	var rows []fleet.Station
 	// SELF-ATTACHED nodes (Option C): their offer lives on the attachment (band-checked at
 	// attach), not in a tower's signed inventory - the tower is pure transport for them and
@@ -281,8 +284,12 @@ func (b *broker) publishRoutable(towerID string) {
 				TowerID: towerID, StationID: at.StationID, OfferID: "self-" + at.StationID,
 				Model: at.Model, Modality: at.Modality,
 				Expires:  time.Now().Add(selfOfferTTL),
-				Endpoint: endpoint,
-				PriceIn:  at.PriceIn, PriceOut: at.PriceOut,
+				Endpoint: plane.Endpoint,
+				// What a consumer must see the hub present before it submits sealed work. Empty
+				// for a plaintext hub, which is what every tower published before this column
+				// existed.
+				TLSSPKI: plane.TLSSPKI,
+				PriceIn: at.PriceIn, PriceOut: at.PriceOut,
 				// The join, carried from the attachment where Core verified it, so a
 				// reader of this projection can rank the row by measured health.
 				NodeID: at.NodeID,

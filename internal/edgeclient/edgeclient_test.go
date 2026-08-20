@@ -11,10 +11,14 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"io"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -38,6 +42,18 @@ type sealedWorld struct {
 }
 
 func newSealedWorld(t *testing.T, model, answer string) *sealedWorld {
+	t.Helper()
+	return newSealedWorldWith(t, model, answer, false)
+}
+
+// newSealedWorldWith is the same world with the tower hub optionally behind REAL TLS, pinned the
+// way Core pins it in production: the tower states its certificate's fingerprint, Core relays it
+// in the authorize answer, and the consumer accepts that certificate and no other.
+//
+// The TLS variant exists because the consumer's leg reaches the hub through a completely
+// different call site from the node's, in a different package, and "we threaded the pin" is a
+// claim only an end-to-end submit can settle.
+func newSealedWorldWith(t *testing.T, model, answer string, hubTLS bool) *sealedWorld {
 	t.Helper()
 
 	corePub, corePriv, err := ed25519.GenerateKey(rand.Reader)
@@ -64,11 +80,24 @@ func newSealedWorld(t *testing.T, model, answer string) *sealedWorld {
 	mux.HandleFunc(towerhub.PathSubmit, hub.Submit)
 	mux.HandleFunc(towerhub.PathPoll, hub.Poll)
 	mux.HandleFunc(towerhub.PathComplete, hub.Complete)
-	hubSrv := httptest.NewServer(mux)
+	hubSrv := httptest.NewUnstartedServer(mux)
+	var hubPin string
+	if hubTLS {
+		cert := selfSignedHubCert(t)
+		hubSrv.TLS = &tls.Config{MinVersion: tls.VersionTLS13, Certificates: []tls.Certificate{cert}}
+		hubSrv.StartTLS()
+		hubPin = towerhub.CertPin(cert.Leaf)
+	} else {
+		hubSrv.Start()
+	}
 	t.Cleanup(hubSrv.Close)
+	// THE NODE'S LEG GOES THROUGH THE SAME HELPER THE PRODUCT USES, so this world cannot
+	// accidentally prove the consumer's leg works while the node's is left dialling plaintext.
+	nodeBase, nodeHTTP, err := towerhub.Reach(hubSrv.Listener.Addr().String(), hubPin, nil)
+	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(context.Background())
-	nodeClient := &towerhub.Client{BaseURL: hubSrv.URL, TowerID: "tw-1",
-		TowerKeyHash: hub.EpochKeyHash(), Sign: st.SignRequest}
+	nodeClient := &towerhub.Client{BaseURL: nodeBase, TowerID: "tw-1",
+		TowerKeyHash: hub.EpochKeyHash(), Sign: st.SignRequest, HTTP: nodeHTTP}
 	go func() {
 		_ = towerhub.ServeLoop(ctx, nodeClient, st.StationID, sealedServe{exec}, nil)
 	}()
@@ -99,6 +128,7 @@ func newSealedWorld(t *testing.T, model, answer string) *sealedWorld {
 		writeJSON(rw, map[string]any{
 			"attempt_id": g.AttemptID, "grant": base64.StdEncoding.EncodeToString(g.Signed),
 			"endpoint":            hubSrv.Listener.Addr().String(),
+			"endpoint_tls_spki":   hubPin,
 			"station_session_key": hex.EncodeToString(st.SessionPub()),
 			"price_out_micros":    300_000,
 		})
@@ -296,4 +326,79 @@ func edgeConsumerKey() ed25519.PublicKey {
 		panic(err)
 	}
 	return pub
+}
+
+// selfSignedHubCert mints what a tower mints for itself with --hub-tls: Ed25519, self-signed,
+// nameless, and pinned by its public key rather than by anybody's authority.
+func selfSignedHubCert(t *testing.T) tls.Certificate {
+	t.Helper()
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "roger tower hub test"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(24 * time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, pub, priv)
+	require.NoError(t, err)
+	leaf, err := x509.ParseCertificate(der)
+	require.NoError(t, err)
+	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: priv, Leaf: leaf}
+}
+
+// THE CONSUMER'S LEG OVER A PINNED HUB, END TO END: authorize at Core, submit sealed work over
+// verified TLS, open the answer, acknowledge. This is the half of the change most likely to be
+// left behind - the node's leg and the consumer's leg reach the same hub from different
+// packages - and it is the half that carries the money, since it is the consumer who is billed.
+func TestTheConsumerSubmitsSealedWorkOverAPinnedTLSHub(t *testing.T) {
+	answer := `{"choices":[{"text":"the answer"}]}`
+	w := newSealedWorldWith(t, "m", answer, true)
+	defer w.cancel()
+
+	ctx := context.Background()
+	auth, err := w.client.AuthorizeSealed(ctx, "m")
+	require.NoError(t, err)
+	require.True(t, towerhub.ValidPin(auth.EndpointTLSSPKI),
+		"Core must hand the consumer the fingerprint the tower advertised")
+
+	res, err := w.client.DoSealed(ctx, &auth, []byte(`{"prompt":"hi"}`))
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, res.Status)
+	require.JSONEq(t, answer, string(res.Body))
+	require.NoError(t, w.client.AckSealed(ctx, &auth, res))
+}
+
+// AND THE CERTIFICATE IS ACTUALLY CHECKED. Core hands the consumer a pin for a certificate this
+// hub does not present - which is the on-path attacker, or a tower that swapped its key - and
+// the submit must fail rather than proceed over an encrypted channel to whoever answered.
+//
+// It fails against a client that dials https with verification disabled: that client submits
+// happily, the answer comes back, and the assertion goes red.
+func TestASubmitToAHubWithTheWrongCertificateIsRefused(t *testing.T) {
+	w := newSealedWorldWith(t, "m", `{"choices":[{"text":"x"}]}`, true)
+	defer w.cancel()
+
+	ctx := context.Background()
+	auth, err := w.client.AuthorizeSealed(ctx, "m")
+	require.NoError(t, err)
+	auth.EndpointTLSSPKI = towerhub.CertPin(selfSignedHubCert(t).Leaf)
+
+	_, err = w.client.DoSealed(ctx, &auth, []byte(`{"prompt":"hi"}`))
+	require.ErrorIs(t, err, towerhub.ErrHubCertificateUnpinned)
+}
+
+// A hub with no pin is reached exactly as it always was. The whole existing suite runs this way,
+// which is the compatibility statement; this says it out loud so a future change that makes TLS
+// mandatory has to delete a test rather than quietly strand every tower that has not moved.
+func TestAnUnpinnedHubIsStillReachedOverPlainHTTP(t *testing.T) {
+	w := newSealedWorldWith(t, "m", `{"choices":[{"text":"x"}]}`, false)
+	defer w.cancel()
+	auth, err := w.client.AuthorizeSealed(context.Background(), "m")
+	require.NoError(t, err)
+	require.Empty(t, auth.EndpointTLSSPKI)
+	_, err = w.client.DoSealed(context.Background(), &auth, []byte(`{"prompt":"hi"}`))
+	require.NoError(t, err)
 }

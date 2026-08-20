@@ -9,6 +9,7 @@ package main
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/tls"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -73,11 +74,24 @@ type pendingSettle struct {
 type hubOptions struct {
 	// Addr is the listen address; empty means no hub at all.
 	Addr string
-	// TLSCert and TLSKey serve the hub over https when both are given. The endpoint format
-	// Core advertises cannot express a scheme, so today this only helps a hub reached some
-	// other way - see docs/relay-selection-design.md section 5.
+	// TLS serves the hub over https. It is implied by TLSCert, and on its own it means "mint
+	// and keep a self-signed certificate" - see hubtls.go for why that is a complete answer
+	// rather than a development shortcut.
+	//
+	// IT USED TO BE A TRAP. The flags behind TLSCert have existed for a while and no node
+	// could ever use them: a Tower advertises its data plane as bare host:port, both ingress
+	// points parse that with net.SplitHostPort, and the node's base-URL builder therefore had
+	// only one reachable branch - "http://" + endpoint. An operator who went to the trouble of
+	// obtaining a certificate got a TLS listener that every node connected to in plaintext and
+	// failed against. The pin advertised beside the endpoint (link.Hello.RelayTLSSPKI) is what
+	// makes it real.
+	TLS     bool
 	TLSCert string
 	TLSKey  string
+	// cert is the resolved certificate, loaded by serveJoined before either the listener or
+	// the link starts. Unexported: it is not a configuration knob, it is the ONE loaded copy
+	// whose fingerprint was advertised to Core, and a second load could disagree with it.
+	cert *tls.Certificate
 	// AllowLegacyBearer keeps accepting the pre-signature bearer token from nodes that have
 	// not updated. Default ON (the flag's default), because the promise made when signatures
 	// landed was that an already-released provider keeps earning while they update - but an
@@ -87,11 +101,25 @@ type hubOptions struct {
 	AllowLegacyBearer bool
 }
 
+// tlsWanted reports whether this hub should terminate TLS. A certificate implies it, so an
+// operator who was already passing --hub-tls-cert does not have to learn a second flag to keep
+// what they had.
+func (o hubOptions) tlsWanted() bool { return o.TLS || o.TLSCert != "" }
+
 // runHubInBackground starts the hub server and its node-registration refresher, returning a
 // waiter that blocks until both have wound down. It fails fast (before serving anything) if
 // Core's grant key cannot be fetched - a hub that cannot verify grants would either refuse
 // everything or, worse, be tempted to skip the check.
 func runHubInBackground(st *tower.State, opt hubOptions, out io.Writer, stop <-chan struct{}) (func(), error) {
+	// FAIL CLOSED ON A TLS POSTURE WITH NOTHING BEHIND IT. serveJoined resolves the certificate
+	// before it calls this, so a nil one here means a caller asked for TLS and did not supply
+	// it - and the only alternative to stopping is to serve plaintext on a listener the operator
+	// believes is protected, with Core publishing a pin for a certificate that will never be
+	// presented. That is the trap this whole change removes, one layer up.
+	if opt.tlsWanted() && opt.cert == nil {
+		return nil, errors.New("the hub was asked to serve TLS with no certificate resolved: " +
+			"refusing to serve plaintext under a TLS posture")
+	}
 	// THE GRANT CHECK CONTRACT (from the security audit): a REAL clock, so expired grants are
 	// refused, and THIS tower's own ID, so a grant minted for another tower is refused here.
 	coreKey, err := towerjoin.DispatchKey()
@@ -402,14 +430,28 @@ func runHubInBackground(st *tower.State, opt hubOptions, out io.Writer, stop <-c
 
 	go func() {
 		defer close(serveDone)
-		if opt.TLSCert != "" {
-			fmt.Fprintf(out, "hub: serving the data plane on %s (TLS)\n", ln.Addr())
-			if serr := httpSrv.ServeTLS(ln, opt.TLSCert, opt.TLSKey); serr != nil && serr != http.ErrServerClosed {
+		if opt.cert != nil {
+			// TLS 1.3 ONLY, matching towerhub.PinnedTLSConfig on the other end. Both ends of
+			// this connection are this codebase, so there is no compatibility to trade away -
+			// and under 1.2 the server's certificate crosses the wire in the clear, which
+			// would hand a passive observer the very fingerprint that identifies which tower a
+			// node is attached to.
+			httpSrv.TLSConfig = &tls.Config{
+				MinVersion:   tls.VersionTLS13,
+				Certificates: []tls.Certificate{*opt.cert},
+			}
+			fmt.Fprintf(out, "hub: serving the data plane on %s (TLS, pinned by fingerprint)\n", ln.Addr())
+			// EMPTY PATHS ON PURPOSE: ServeTLS uses TLSConfig.Certificates when it is given no
+			// files, and the loaded certificate is the one whose fingerprint Core is already
+			// publishing. Re-reading the files here would let a certificate replaced on disk
+			// since startup be served under the advertised pin, which is an outage that looks
+			// exactly like an attack.
+			if serr := httpSrv.ServeTLS(ln, "", ""); serr != nil && serr != http.ErrServerClosed {
 				fmt.Fprintf(out, "hub: server stopped: %v\n", serr)
 			}
 			return
 		}
-		fmt.Fprintf(out, "hub: serving the data plane on %s - PLAINTEXT; pass --hub-tls-cert/--hub-tls-key (or front with TLS) before real traffic\n", ln.Addr())
+		fmt.Fprintf(out, "hub: serving the data plane on %s - PLAINTEXT; pass --hub-tls (or front with TLS) before real traffic\n", ln.Addr())
 		if serr := httpSrv.Serve(ln); serr != nil && serr != http.ErrServerClosed {
 			fmt.Fprintf(out, "hub: server stopped: %v\n", serr)
 		}

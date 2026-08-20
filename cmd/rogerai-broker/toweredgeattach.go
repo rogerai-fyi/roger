@@ -195,12 +195,17 @@ func (b *broker) towerEdgeAttach(w http.ResponseWriter, r *http.Request) {
 				"revoke and re-attach with fresh keys to change model or price")
 			return
 		}
-		endpoint, _ := ts.link.RelayEndpoint(prior.Origin.TowerID)
+		plane, _ := ts.link.RelayPlane(prior.Origin.TowerID)
 		writeJSON(w, http.StatusOK, map[string]any{
 			"station_id": prior.StationID,
 			"tower_id":   prior.Origin.TowerID,
-			"endpoint":   endpoint,
-			"hub_token":  prior.HubToken,
+			"endpoint":   plane.Endpoint,
+			// The hub certificate pin, on the retry answer as well as on the fresh one and for
+			// the same reason the fingerprint below is: a node that lost the first reply is the
+			// same node, and a retry that came back without it would connect in plaintext to a
+			// TLS listener and never serve again.
+			"endpoint_tls_spki": plane.TLSSPKI,
+			"hub_token":         prior.HubToken,
 			// The relay's admitted identity fingerprint, on the retry answer as well as on the
 			// fresh one: a node that lost the first reply is the same node, and leaving it off
 			// here would strand exactly the caller this branch exists to rescue.
@@ -214,13 +219,14 @@ func (b *broker) towerEdgeAttach(w http.ResponseWriter, r *http.Request) {
 	// CORE ASSIGNS THE TOWER: the first live, admitted tower advertising a data-plane
 	// endpoint. (LiveTowers reflects this instance's link sessions - the instance holding the
 	// links is the one that can answer; matchmaking beyond first-fit is a later refinement.)
-	var towerID, endpoint string
+	var towerID string
+	var plane link.RelayPlane
 	for _, tw := range ts.link.LiveTowers() {
 		if !ts.registry.MayTakeWork(tw) {
 			continue
 		}
-		if ep, has := ts.link.RelayEndpoint(tw); has && ep != "" {
-			towerID, endpoint = tw, ep
+		if p, has := ts.link.RelayPlane(tw); has && p.Endpoint != "" {
+			towerID, plane = tw, p
 			break
 		}
 	}
@@ -306,8 +312,14 @@ func (b *broker) towerEdgeAttach(w http.ResponseWriter, r *http.Request) {
 		// authenticates there by signing each request with its assertion key; the token is the
 		// pre-signature credential, shown once here and readable by the tower from the
 		// attachment, and is transmitted only by a node too old to sign.
-		"endpoint":  endpoint,
-		"hub_token": hubToken,
+		"endpoint": plane.Endpoint,
+		// WHAT THE NODE MUST SEE THE HUB PRESENT, or empty for a plaintext hub. The node dials
+		// https and accepts exactly this certificate when it is set - which is how a tower on a
+		// home connection with no domain gets a VERIFIED channel: the pin is the tower's own
+		// advertisement, relayed by the party the node already trusts for the address itself.
+		// See internal/towerhub/pin.go.
+		"endpoint_tls_spki": plane.TLSSPKI,
+		"hub_token":         hubToken,
 		// What the node checks the hub's PROCESS EPOCH against - see towerKeyFingerprint. The
 		// epoch rides in the node's signed target and is published on an unauthenticated 401,
 		// so without this the value a node signs over is chosen by whoever answers the socket.

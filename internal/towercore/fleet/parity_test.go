@@ -83,6 +83,11 @@ func row(tower, station, offer, model string, expires time.Time) Station {
 		// failed to select the column at all. A field absent from this row is a field the
 		// parity suites cannot police, however carefully they compare.
 		NodeID: "n-" + station,
+		// AND THE HUB CERTIFICATE PIN, for the third time and the same reason. It is what a
+		// consumer checks the tower's certificate against before it submits sealed work; a
+		// store that drops it hands that consumer a plaintext URL for a TLS listener, which
+		// looks from the outside exactly like the tower being down.
+		TLSSPKI: strings.Repeat("ab", 32),
 	}
 }
 
@@ -112,6 +117,35 @@ func TestParityTheEndpointSurvivesTheRoundTrip(t *testing.T) {
 			}
 		})
 	}
+}
+
+// The hub certificate pin must survive the round trip through BOTH stores, on BOTH read paths.
+//
+// ByTower is named explicitly because it is where the same mistake was made last time: when
+// node_id was added, PGStore.ByTower did not select the column and nothing caught it, because
+// the value being compared was empty on both sides. A canary reads its target through ByTower,
+// so a pin lost there means Core probes over plaintext and records a reputation failure against
+// every tower that turned TLS on - the change would punish exactly the right operators.
+func TestParityTheHubCertificatePinSurvivesBothReadPaths(t *testing.T) {
+	each(t, func(t *testing.T, s Store) {
+		now := time.Now()
+		pinned := row("tw-1", "st-1", "of-1", "m", now.Add(time.Hour))
+		plain := row("tw-1", "st-2", "of-2", "m", now.Add(time.Hour))
+		plain.TLSSPKI = "" // an operator who has not turned TLS on: still legal, still routable
+		require.NoError(t, s.Replace("tw-1", []Station{pinned, plain}))
+
+		cands, err := s.Candidates("m", now)
+		require.NoError(t, err)
+		require.Len(t, cands, 2)
+		require.Equal(t, strings.Repeat("ab", 32), cands[0].TLSSPKI)
+		require.Empty(t, cands[1].TLSSPKI, "a plaintext tower stays plaintext rather than inheriting a pin")
+
+		byTower, err := s.ByTower("tw-1", now)
+		require.NoError(t, err)
+		require.Len(t, byTower, 2)
+		require.Equal(t, strings.Repeat("ab", 32), byTower[0].TLSSPKI)
+		require.Empty(t, byTower[1].TLSSPKI)
+	})
 }
 
 func TestParityCandidatesComeBackWhole(t *testing.T) {

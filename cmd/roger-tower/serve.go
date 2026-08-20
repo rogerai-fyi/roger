@@ -33,6 +33,7 @@ import (
 	"time"
 
 	"rogerai.fm/roger/v5/internal/tower"
+	"rogerai.fm/roger/v5/internal/towercore/link"
 	"rogerai.fm/roger/v5/internal/towerjoin"
 )
 
@@ -55,6 +56,36 @@ func serveJoined(st *tower.State, out io.Writer, relayPublic string, hub hubOpti
 	// directly, and a guarantee this size should hold at both doors.
 	if st.Mode != tower.ModeJoined {
 		return errStandaloneCannotServeJoined
+	}
+	// THE HUB'S CERTIFICATE IS RESOLVED HERE, BEFORE EITHER THE LISTENER OR THE LINK, because
+	// both halves of the change depend on it and they must not be able to disagree. The
+	// listener presents these bytes; the link advertises their fingerprint to Core, which hands
+	// it to every node and consumer routed here. Resolving it in one place, once, is what makes
+	// "the pin Core published is the certificate this hub presents" true by construction rather
+	// than by two code paths happening to read the same file.
+	//
+	// AFTER THE MODE CHECK, deliberately. A standalone Tower must not so much as mint a key on
+	// the strength of a joined-mode flag; it is refused above with nothing written.
+	relay := link.RelayPlane{Endpoint: relayPublic}
+	if hub.Addr != "" && hub.tlsWanted() {
+		mat, terr := hubTLS(st.Dir(), st.TowerID, hub.TLSCert, hub.TLSKey)
+		if terr != nil {
+			return terr
+		}
+		hub.cert = &mat.Cert
+		relay.TLSSPKI = mat.Pin
+		fmt.Fprintf(out, "hub: TLS certificate pin %s - Roger Core publishes this to every node "+
+			"and consumer it routes here, and they accept no other certificate\n", mat.Pin)
+	}
+	if relay.TLSSPKI == "" && relay.Endpoint != "" {
+		// SAID AT THE TOWER, NOT ONLY AT THE NODE. The node has always printed a plaintext
+		// notice, but the operator who could fix it never saw it: they run this process, not
+		// somebody else's `roger share`. One line, at the moment the tower decides to advertise
+		// a plaintext data plane.
+		fmt.Fprint(out, "NOTE: this tower advertises a PLAINTEXT hub. The sealed job and its "+
+			"answer stay private either way, but every poll puts a Station's long-term "+
+			"assertion public key - its payment identity - on the wire in the clear, and "+
+			"nothing authenticates this hub's answers to a node. Pass --hub-tls to close both.\n")
 	}
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
@@ -89,7 +120,7 @@ func serveJoined(st *tower.State, out io.Writer, relayPublic string, hub hubOpti
 	// an operator who did nothing wrong. It runs independently of the link for the same
 	// reason the relay does: a control-plane blip must not also cost the credential.
 	go towerjoin.KeepRenewed(st, out, stopped, realTicker)
-	err := runLink(st, out, stopped, realTicker, relayPublic)
+	err := runLink(st, out, stopped, realTicker, relay)
 	// THE LINK RETURNING WINDS EVERYTHING DOWN, error or not. Without this, a serve whose
 	// link failed at startup - not registered, wrong mode - HUNG forever: the deferred
 	// relay-wait was waiting on a stop signal only ctrl-c could send, over a loop whose
@@ -111,7 +142,7 @@ func realTicker(d time.Duration) (<-chan time.Time, func()) {
 }
 
 // runLink is the link loop proper: open, push, heartbeat, re-open on refusal, drain on exit.
-func runLink(st *tower.State, out io.Writer, stop <-chan struct{}, ticker func(time.Duration) (<-chan time.Time, func()), relayEndpoint string) error {
+func runLink(st *tower.State, out io.Writer, stop <-chan struct{}, ticker func(time.Duration) (<-chan time.Time, func()), relay link.RelayPlane) error {
 	if st.Mode != tower.ModeJoined {
 		return errStandaloneCannotServeJoined
 	}
@@ -121,7 +152,7 @@ func runLink(st *tower.State, out io.Writer, stop <-chan struct{}, ticker func(t
 	head := towerjoin.Head{}
 	var revision int64
 
-	sess, err := towerjoin.OpenSession(st, head, relayEndpoint)
+	sess, err := towerjoin.OpenSession(st, head, relay)
 	if err != nil {
 		return err
 	}
@@ -188,7 +219,7 @@ func runLink(st *tower.State, out io.Writer, stop <-chan struct{}, ticker func(t
 			// Refused: the session is gone (Core restarted, or our lease lapsed). Re-open and
 			// find out which, rather than heartbeating into nothing.
 			fmt.Fprintln(out, "the session was refused - re-opening")
-			sess, err = towerjoin.OpenSession(st, head, relayEndpoint)
+			sess, err = towerjoin.OpenSession(st, head, relay)
 			if err != nil {
 				return err
 			}
@@ -306,7 +337,8 @@ func cmdServe(args []string, out io.Writer) error {
 	dir, cfg := dirAndConfig(fs)
 	relayPublic := fs.String("relay-public", "", "the PUBLIC host:port consumers reach this tower's data plane (the hub) at, advertised to Roger Core")
 	hubAddr := fs.String("hub", "", "address to serve the data-plane HUB on, e.g. :8444 - where consumers submit sealed work and this tower's self-attached nodes poll")
-	hubCert := fs.String("hub-tls-cert", "", "TLS certificate (PEM) for the hub listener - with --hub-tls-key, the hub serves https")
+	hubTLSOn := fs.Bool("hub-tls", false, "serve the hub over TLS. With no --hub-tls-cert, this tower mints and keeps a self-signed certificate and Roger Core publishes its fingerprint to every node and consumer it routes here, so no publicly-trusted certificate and no domain name are needed")
+	hubCert := fs.String("hub-tls-cert", "", "TLS certificate (PEM) for the hub listener - implies --hub-tls, and with --hub-tls-key the hub serves https")
 	hubKey := fs.String("hub-tls-key", "", "TLS private key (PEM) for the hub listener")
 	// THE TRANSITION SWITCH, and it is a real switch. A node released before signed hub polls
 	// authenticates with a bearer token, and this tower keeps accepting one for a release so
@@ -327,8 +359,8 @@ func cmdServe(args []string, out io.Writer) error {
 	if (*hubCert == "") != (*hubKey == "") {
 		return fmt.Errorf("--hub-tls-cert and --hub-tls-key must be given together")
 	}
-	if *hubCert != "" && *hubAddr == "" {
-		return fmt.Errorf("--hub-tls-cert without --hub: there is no hub listener to protect")
+	if (*hubCert != "" || *hubTLSOn) && *hubAddr == "" {
+		return fmt.Errorf("--hub-tls without --hub: there is no hub listener to protect")
 	}
 	// Checked BEFORE the data directory is touched when there is no config to fill the gap:
 	// a flag mistake should be reported as a flag mistake, not as whatever the directory
@@ -371,6 +403,12 @@ func cmdServe(args []string, out io.Writer) error {
 			if *hubCert == "" && *hubKey == "" {
 				*hubCert, *hubKey = c.Hub.TLSCert, c.Hub.TLSKey
 			}
+			// The file can only turn TLS ON. A config saying tls:false while the operator typed
+			// --hub-tls would be the file quietly downgrading the more deliberate of the two,
+			// and the thing it would be downgrading is the channel's confidentiality.
+			if c.Hub.TLS {
+				*hubTLSOn = true
+			}
 			// The config can only turn the tolerance OFF, and only when the flag was left at
 			// its default. A file that said "true" while the operator typed
 			// -hub-legacy-bearer=false would be the config quietly overriding the more
@@ -396,7 +434,8 @@ func cmdServe(args []string, out io.Writer) error {
 			"older than signed hub polls will not be served here.\n")
 	}
 	return serveJoined(st, out, *relayPublic, hubOptions{
-		Addr: *hubAddr, TLSCert: *hubCert, TLSKey: *hubKey, AllowLegacyBearer: *legacyBearer,
+		Addr: *hubAddr, TLS: *hubTLSOn, TLSCert: *hubCert, TLSKey: *hubKey,
+		AllowLegacyBearer: *legacyBearer,
 	})
 }
 

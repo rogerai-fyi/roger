@@ -38,6 +38,11 @@ ALTER TABLE rogerai.tower_routable ADD COLUMN IF NOT EXISTS price_out BIGINT NOT
 -- probes measured instead of taking whichever row came back first. Empty on rows published
 -- before the join existed, which reads as "unmeasured", not as "bad".
 ALTER TABLE rogerai.tower_routable ADD COLUMN IF NOT EXISTS node_id TEXT NOT NULL DEFAULT '';
+-- The hub certificate pin that belongs with the endpoint column: hex sha256 over the
+-- SubjectPublicKeyInfo of the certificate that Tower's hub presents, or empty for a hub that
+-- serves plaintext. Empty on every row published before this column existed, which reads as
+-- "plaintext" - which is what those towers were.
+ALTER TABLE rogerai.tower_routable ADD COLUMN IF NOT EXISTS tls_spki TEXT NOT NULL DEFAULT '';
 `
 
 // PGStore is the durable fleet view.
@@ -73,15 +78,15 @@ func (p *PGStore) Replace(towerID string, rows []Station) error {
 	for _, r := range rows {
 		if _, err := tx.Exec(`
 			INSERT INTO rogerai.tower_routable
-				(tower_id, station_id, offer_id, model, modality, expires, endpoint, price_in, price_out, node_id)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+				(tower_id, station_id, offer_id, model, modality, expires, endpoint, price_in, price_out, node_id, tls_spki)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
 			ON CONFLICT (tower_id, offer_id) DO UPDATE SET
 				station_id = EXCLUDED.station_id, model = EXCLUDED.model,
 				modality = EXCLUDED.modality,
 				expires = EXCLUDED.expires, endpoint = EXCLUDED.endpoint,
 				price_in = EXCLUDED.price_in, price_out = EXCLUDED.price_out,
-				node_id = EXCLUDED.node_id`,
-			towerID, r.StationID, r.OfferID, r.Model, r.Modality, r.Expires, r.Endpoint, r.PriceIn, r.PriceOut, r.NodeID); err != nil {
+				node_id = EXCLUDED.node_id, tls_spki = EXCLUDED.tls_spki`,
+			towerID, r.StationID, r.OfferID, r.Model, r.Modality, r.Expires, r.Endpoint, r.PriceIn, r.PriceOut, r.NodeID, r.TLSSPKI); err != nil {
 			return err
 		}
 	}
@@ -90,7 +95,7 @@ func (p *PGStore) Replace(towerID string, rows []Station) error {
 
 func (p *PGStore) Candidates(model string, now time.Time) ([]Station, error) {
 	rows, err := p.db.Query(`
-		SELECT tower_id, station_id, offer_id, model, modality, expires, endpoint, price_in, price_out, node_id
+		SELECT tower_id, station_id, offer_id, model, modality, expires, endpoint, price_in, price_out, node_id, tls_spki
 		  FROM rogerai.tower_routable
 		 WHERE model = $1 AND expires > $2
 		 -- A TOTAL, STABLE ORDER. Without it this returned rows in whatever order the heap
@@ -108,7 +113,7 @@ func (p *PGStore) Candidates(model string, now time.Time) ([]Station, error) {
 	for rows.Next() {
 		var s Station
 		if err := rows.Scan(&s.TowerID, &s.StationID, &s.OfferID, &s.Model, &s.Modality,
-			&s.Expires, &s.Endpoint, &s.PriceIn, &s.PriceOut, &s.NodeID); err != nil {
+			&s.Expires, &s.Endpoint, &s.PriceIn, &s.PriceOut, &s.NodeID, &s.TLSSPKI); err != nil {
 			return nil, err
 		}
 		s.Expires = s.Expires.UTC()
@@ -145,7 +150,7 @@ func (p *PGStore) RoutableTowers(now time.Time) ([]string, error) {
 // ByTower is a Tower's unexpired rows.
 func (p *PGStore) ByTower(towerID string, now time.Time) ([]Station, error) {
 	rows, err := p.db.Query(`
-		SELECT tower_id, station_id, offer_id, model, modality, expires, endpoint, price_in, price_out, node_id
+		SELECT tower_id, station_id, offer_id, model, modality, expires, endpoint, price_in, price_out, node_id, tls_spki
 		  FROM rogerai.tower_routable WHERE tower_id = $1 AND expires > $2
 		 ORDER BY station_id ASC, offer_id ASC`, towerID, now.UTC())
 	if err != nil {
@@ -156,7 +161,7 @@ func (p *PGStore) ByTower(towerID string, now time.Time) ([]Station, error) {
 	for rows.Next() {
 		var st Station
 		if err := rows.Scan(&st.TowerID, &st.StationID, &st.OfferID, &st.Model, &st.Modality,
-			&st.Expires, &st.Endpoint, &st.PriceIn, &st.PriceOut, &st.NodeID); err != nil {
+			&st.Expires, &st.Endpoint, &st.PriceIn, &st.PriceOut, &st.NodeID, &st.TLSSPKI); err != nil {
 			return nil, err
 		}
 		st.Expires = st.Expires.UTC()

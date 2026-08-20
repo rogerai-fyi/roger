@@ -69,10 +69,16 @@ type Head struct {
 
 // OpenSession starts (or resumes) the link.
 //
-// relayEndpoint is where consumers reach this Tower's data plane, or "" for a Tower that
-// relays nothing. It rides in the Hello because the Tower is the only party that knows its
-// own public address, and Core needs it to route edge consumers here.
-func OpenSession(st *tower.State, head Head, relayEndpoint string) (Session, error) {
+// relay is where consumers reach this Tower's data plane and what certificate will answer
+// there - both empty for a Tower that relays nothing. It rides in the Hello because the Tower
+// is the only party that knows either fact about itself, and Core needs both to route an edge
+// consumer here: the address to send them to, and the fingerprint that lets them tell this
+// hub from whoever else answers that address.
+//
+// The two travel as ONE VALUE rather than two arguments on purpose - see link.RelayPlane. An
+// address advertised without its pin is a tower serving TLS that every client dials in
+// plaintext, which is the exact defect this field was added to remove.
+func OpenSession(st *tower.State, head Head, relay link.RelayPlane) (Session, error) {
 	adm, ok := LoadAdmission(st.Dir())
 	if !ok || adm.TowerID == "" {
 		return Session{}, errors.New("this Tower is not registered yet - run `roger-tower register` first")
@@ -87,7 +93,8 @@ func OpenSession(st *tower.State, head Head, relayEndpoint string) (Session, err
 		Capabilities:  []string{link.CapIntegrity, link.CapInnerSession},
 		HeadRevision:  head.Revision,
 		HeadHash:      head.Hash,
-		RelayEndpoint: relayEndpoint,
+		RelayEndpoint: relay.Endpoint,
+		RelayTLSSPKI:  relay.TLSSPKI,
 	})
 	if err != nil {
 		return Session{}, err

@@ -119,6 +119,12 @@ type ListenerConfig struct {
 // relay's.
 type HubConfig struct {
 	Address string `yaml:"address,omitempty"`
+	// TLS serves the hub over https. With no tlsCert it means "mint and keep a self-signed
+	// certificate", which is a complete answer here rather than a development shortcut: a node
+	// and a consumer verify this hub by pinning the public key Core told them to expect, so
+	// there is nothing for a certificate authority to add and no domain name to obtain. It is
+	// implied by tlsCert, and the --hub-tls flag sets it too.
+	TLS     bool   `yaml:"tls,omitempty"`
 	TLSCert string `yaml:"tlsCert,omitempty"`
 	TLSKey  string `yaml:"tlsKey,omitempty"`
 	// AllowLegacyBearer keeps accepting the pre-signature bearer token from serving nodes that

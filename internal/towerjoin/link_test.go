@@ -86,7 +86,7 @@ func TestTheClientOpensASessionAndPushesAnInventory(t *testing.T) {
 	core := newLinkCore(t)
 	st := registeredTower(t)
 
-	sess, err := OpenSession(st, Head{}, "")
+	sess, err := OpenSession(st, Head{}, link.RelayPlane{})
 	require.NoError(t, err)
 	require.Equal(t, "tw-1", sess.TowerID)
 	require.Equal(t, "sess-1", sess.SessionID)
@@ -155,7 +155,7 @@ func TestTheClientTellsResendApartFromRefuse(t *testing.T) {
 			w.WriteHeader(http.StatusForbidden)
 			_, _ = w.Write([]byte(`{"error":{"message":"this link requires a registered Tower's own signed request"}}`))
 		}
-		_, err := OpenSession(st, Head{}, "")
+		_, err := OpenSession(st, Head{}, link.RelayPlane{})
 		require.ErrorIs(t, err, ErrRefused)
 		require.Contains(t, err.Error(), "own signed request",
 			"the sentence Core wrote is what an operator can act on")
@@ -169,7 +169,7 @@ func TestTheClientTellsResendApartFromRefuse(t *testing.T) {
 		core.reply["/tower/session"] = func(w http.ResponseWriter) {
 			w.WriteHeader(http.StatusForbidden)
 		}
-		_, err := OpenSession(st, Head{}, "")
+		_, err := OpenSession(st, Head{}, link.RelayPlane{})
 		require.ErrorIs(t, err, ErrRefused)
 		require.Contains(t, err.Error(), "lease lapsed")
 	})
@@ -180,7 +180,7 @@ func TestAnUnreachableCoreIsNotARefusal(t *testing.T) {
 	st := registeredTower(t)
 	t.Setenv("ROGER_BROKER", "http://127.0.0.1:1")
 
-	_, err := OpenSession(st, Head{}, "")
+	_, err := OpenSession(st, Head{}, link.RelayPlane{})
 	require.ErrorIs(t, err, ErrUnreachable)
 	require.NotErrorIs(t, err, ErrRefused)
 }
@@ -204,7 +204,7 @@ func TestAReconnectQuotesTheHeadItHolds(t *testing.T) {
 		})
 	})
 
-	sess, err := OpenSession(st, Head{Revision: 7, Hash: "hash-7"}, "")
+	sess, err := OpenSession(st, Head{Revision: 7, Hash: "hash-7"}, link.RelayPlane{})
 	require.NoError(t, err)
 	require.False(t, sess.NeedFullInventory, "Core is in step, so no snapshot is demanded")
 	require.Equal(t, int64(7), got.HeadRevision, "the client quotes what it holds")
@@ -215,7 +215,7 @@ func TestAReconnectQuotesTheHeadItHolds(t *testing.T) {
 func TestServingBeforeRegisteringSaysSo(t *testing.T) {
 	st := joinedTower(t) // no admission record: never registered
 
-	_, err := OpenSession(st, Head{}, "")
+	_, err := OpenSession(st, Head{}, link.RelayPlane{})
 	require.Error(t, err)
 	require.True(t, strings.Contains(err.Error(), "register"),
 		"the error must name the command that fixes it")
@@ -296,7 +296,7 @@ func TestAConflictThatIsNotAResendIsARefusal(t *testing.T) {
 func TestHeartbeatAndCloseDistinguishTransportFailure(t *testing.T) {
 	core := newLinkCore(t)
 	st := registeredTower(t)
-	sess, err := OpenSession(st, Head{}, "")
+	sess, err := OpenSession(st, Head{}, link.RelayPlane{})
 	require.NoError(t, err)
 
 	core.srv.Close() // Core goes away mid-session

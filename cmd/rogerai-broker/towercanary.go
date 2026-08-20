@@ -82,7 +82,7 @@ func (b *broker) RunCanary(towerID string) reputation.Outcome {
 		return ""
 	}
 	target, row, ok := b.canaryTargetFor(towerID)
-	endpoint := row.Endpoint
+	endpoint, endpointPin := row.Endpoint, row.TLSSPKI
 	if !ok {
 		// No routable Station with a data plane behind this Tower to probe. Not a failure -
 		// there is nothing to canary - so nothing is recorded.
@@ -124,7 +124,7 @@ func (b *broker) RunCanary(towerID string) reputation.Outcome {
 		return ""
 	}
 
-	outcome := b.driveSealedCanary(grant, target, endpoint, consumerKey, envPriv)
+	outcome := b.driveSealedCanary(grant, target, endpoint, endpointPin, consumerKey, envPriv)
 	b.recordOutcome(towerID, grant.AttemptID, outcome)
 	// AND AGAINST THE STATION, which is the half that was missing. The reputation ledger is
 	// keyed on (tower, attempt) - there is no station column - so a canary's finding landed
@@ -218,7 +218,14 @@ const neverCanariedAge = 1000 * canaryInterval
 // does: seal the canary body to the node's session key, submit the ciphertext to the tower's
 // hub, open the answer with the grant-bound envelope key, and demand a valid station receipt
 // over real bytes. A tower that served nothing, or made something up, fails every step.
-func (b *broker) driveSealedCanary(grant dispatch.EdgeGrant, target dispatch.Target, endpoint string, consumerKey ed25519.PrivateKey, envPriv []byte) reputation.Outcome {
+// THE CANARY IS THE THIRD PARTY THAT DIALS A HUB, and it was the easiest one to leave behind:
+// it is not the node's leg and not the consumer's client, it is Core probing its own fleet, and
+// it built its base URL inline with a copy of the same "http://" + endpoint the other two had.
+// Left as it was it would have gone on probing over plaintext against a TLS listener and
+// recorded a REPUTATION FAILURE for every tower that turned TLS on - the change would have
+// suspended exactly the operators who did the right thing. It goes through towerhub.Reach with
+// everyone else.
+func (b *broker) driveSealedCanary(grant dispatch.EdgeGrant, target dispatch.Target, endpoint, endpointPin string, consumerKey ed25519.PrivateKey, envPriv []byte) reputation.Outcome {
 	firstByte := time.Now()
 	sealedReq, err := envelope.SealTo(target.SessionKey, canaryBodyFor(grant.Model), grant.AttemptID)
 	if err != nil {
@@ -228,11 +235,15 @@ func (b *broker) driveSealedCanary(grant dispatch.EdgeGrant, target dispatch.Tar
 	if err != nil {
 		return reputation.CanaryFail
 	}
-	base := endpoint
-	if !strings.Contains(base, "://") {
-		base = "http://" + base
+	base, httpc, err := towerhub.Reach(endpoint, endpointPin, nil)
+	if err != nil {
+		// An endpoint or pin this process cannot even build a client for is the tower's own
+		// advertisement being malformed. That is a finding about the tower, not a skip: a
+		// consumer routed there would fail in exactly the same way.
+		log.Printf("canary: tower %s advertises an unusable data plane: %v", target.TowerID, err)
+		return reputation.CanaryFail
 	}
-	hc := &towerhub.Client{BaseURL: base}
+	hc := &towerhub.Client{BaseURL: base, HTTP: httpc}
 	ctx, cancel := context.WithTimeout(context.Background(), canaryTimeout)
 	defer cancel()
 	res, err := hc.SubmitJob(ctx, grant.Signed, sealedRaw)

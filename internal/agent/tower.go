@@ -43,7 +43,6 @@ import (
 	"math"
 	"net/http"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"rogerai.fm/roger/v5/internal/protocol"
@@ -77,8 +76,24 @@ type TowerAttachment struct {
 	// instead (internal/towerhub, HubKeyHeader), so the epoch is the tower's value rather than
 	// the attacker's.
 	TowerKeyHash string `json:"tower_key_hash"`
-	State        string `json:"state"`
-	Note         string `json:"note"`
+	// EndpointTLSSPKI is the hub certificate pin Core published for Endpoint: hex sha256 over
+	// the SubjectPublicKeyInfo of the certificate that hub presents. Non-empty means this node
+	// polls over https and accepts THAT CERTIFICATE AND NO OTHER; empty means the relay serves
+	// plaintext, which is what every relay did before this field existed and is still legal.
+	//
+	// IT IS A DIFFERENT KEY FROM TowerKeyHash, DOING A DIFFERENT JOB, and the two are worth
+	// telling apart. TowerKeyHash is the relay's long-term IDENTITY, and it authenticates one
+	// statement - the hub's process epoch - inside a channel anyone can read. This pin
+	// authenticates the CHANNEL, so that everything else the hub says (a job, a 204, a 401, a
+	// completion accepted) comes from the relay rather than from whoever is on the path, and so
+	// that this station's assertion public key stops riding every poll in the clear.
+	//
+	// Optional on purpose: see ServeTower. Making it mandatory would take every relay whose
+	// operator has not turned TLS on off the air, and that is the founder's call to make on a
+	// date, not a side effect of shipping the capability.
+	EndpointTLSSPKI string `json:"endpoint_tls_spki"`
+	State           string `json:"state"`
+	Note            string `json:"note"`
 }
 
 // microsPerDollarPer1M converts the share's float $/1M-token price to the tower path's
@@ -91,40 +106,46 @@ func microsPerDollarPer1M(price float64) int64 {
 	return int64(math.Round(price * 1_000_000))
 }
 
-// hubBaseURL turns Core's advertised hub endpoint into a base URL, and says whether the result
-// is PLAINTEXT.
+// hubBaseURL turns Core's advertisement of a relay's data plane - an endpoint, and a hub
+// certificate pin that may be empty - into a base URL and a client that will verify whatever
+// answers, and says whether the result is PLAINTEXT.
 //
-// # THE COMMENT THAT USED TO BE HERE WAS FALSE
+// # THE COMMENT THAT USED TO BE HERE WAS FALSE, AND THE FIX IS WHY THIS SIGNATURE CHANGED
 //
 // It said "an endpoint that carries its own scheme is honored verbatim - this is how a
 // TLS-fronted hub is reached". No such endpoint can exist. Both places a relay endpoint enters
 // the system validate it with net.SplitHostPort - internal/towercore/link/towerlink.go on the
 // tower's Hello, and cmd/roger-tower/serve.go on its own configuration - and
 // net.SplitHostPort("https://relay.example:443") fails with "too many colons in address". So an
-// endpoint carrying a scheme is refused at ingress and never reaches here, the scheme branch is
-// dead code, and the "http://" branch is the only one that has ever run.
+// endpoint carrying a scheme was refused at ingress and never reached here, the scheme branch
+// was dead code, and the "http://" branch was the only one that had ever run. A tower operator
+// who obtained a certificate and passed --hub-tls-cert got a TLS listener that every node in the
+// fleet connected to in plaintext and failed against: the flags were not a path to safety, they
+// were a trap.
 //
-// The scheme branch is KEPT, not deleted, because the fix is a wire-protocol change (an endpoint
-// format that can express a scheme, or channel-bound tokens instead of a bearer) touching Core,
-// the tower and the node at once - see the open decision in docs/relay-selection-design.md. What
-// is removed is the claim that the capability already exists, because that claim is what let the
-// plaintext default look deliberate.
+// What replaced the dead branch is not a scheme in the endpoint - that would have been a
+// breaking change to a field three clients concatenate onto - but a PIN advertised beside it.
+// Core relays the fingerprint of the certificate the tower's hub presents, and this node accepts
+// that certificate and no other. No public certificate authority is involved and no domain name
+// is needed, which matters because the operators this fabric is built on are volunteers on home
+// connections who can obtain neither. The whole argument is in internal/towerhub/pin.go.
 //
-// WHAT RIDES IN THE CLEAR, AND WHAT NO LONGER DOES. Not the payload: the job and its result are
-// sealed to keys the tower does not hold, and that was always true. It used to be the node's
-// per-Station HUB BEARER TOKEN as well, on every long poll, forever - so anything on the path
-// could capture it and poll that Station's queue until the attachment was revoked. That is gone:
-// hub requests are SIGNED per request with the Station's assertion key (internal/towerhub's
-// nodeauth.go), so what an observer captures now authenticates nothing a second time. What is
-// left in the clear is traffic shape - when this node polls, how big the sealed bodies are -
-// which the tower operator sees anyway by virtue of being the tower. The second return value
-// exists so the node can still SAY so, because "unencrypted" remains true and the operator is
-// owed the sentence.
-func hubBaseURL(endpoint string) (base string, plaintext bool) {
-	if strings.Contains(endpoint, "://") {
-		return endpoint, !strings.HasPrefix(endpoint, "https://")
+// WHAT RIDES IN THE CLEAR ON AN UNPINNED LINK, AND WHAT NO LONGER DOES. Not the payload: the job
+// and its result are sealed to keys the tower does not hold, and that was always true. It used
+// to be the node's per-Station HUB BEARER TOKEN as well, on every long poll, forever - so
+// anything on the path could capture it and poll that Station's queue until the attachment was
+// revoked. That is gone: hub requests are SIGNED per request with the Station's assertion key
+// (internal/towerhub's nodeauth.go), so what an observer captures authenticates nothing a second
+// time. What is left is traffic shape, this station's assertion public key on every poll, and
+// the fact that nothing authenticates the hub's ANSWERS. The second return value exists so the
+// node can still say so, because "unencrypted" remains true of a relay whose operator has not
+// turned TLS on, and the operator is owed the sentence.
+func hubBaseURL(endpoint, pin string, hc *http.Client) (base string, client *http.Client, plaintext bool, err error) {
+	base, client, err = towerhub.Reach(endpoint, pin, hc)
+	if err != nil {
+		return "", nil, false, err
 	}
-	return "http://" + endpoint, true
+	return base, client, pin == "", nil
 }
 
 // ErrPrivateShareNeverRelays refuses to put a PRIVATE band on the public relay fabric.
@@ -168,16 +189,27 @@ var ErrCoreKeysUnpinned = errors.New("Roger Core's grant key could not be pinned
 // IP address, across networks, across towers, and across re-attachments. Nothing an attacker
 // captures lets them TAKE anything, which is what the signing change bought; being permanently
 // identifiable is a different harm and it belongs in the same sentence rather than under it.
+//
+// AND ONCE MORE, FOR TWO REASONS. The residual was still understated: nothing on an unpinned
+// link authenticates the hub's ANSWERS, so a party on the path can inject the status codes this
+// node reasons about its own work with - a 204 for "nothing to do" while real jobs go elsewhere,
+// a 401 that reads as a revoked attachment. And the notice can now name a fix, which is the
+// difference between a warning and a complaint: the relay's operator passes --hub-tls, Core
+// publishes the fingerprint, and this node verifies it with no certificate authority and no
+// domain name involved. A standing alarm nobody can act on is one people learn to skip.
 var ErrHubChannelPlaintext = errors.New(
 	"this node's relay hub link is UNENCRYPTED (plain http): the sealed job and its answer stay " +
 		"private, and this node proves who it is by signing every request rather than by sending " +
-		"anything reusable, so nothing an observer captures here works twice. Two things still " +
-		"leak. The shape of the traffic - when you poll, how big each job is - which your relay " +
-		"operator can see in any case. And your station's ASSERTION PUBLIC KEY, which every " +
+		"anything reusable, so nothing an observer captures here works twice. Three things still " +
+		"leak or bend. The shape of the traffic - when you poll, how big each job is - which your " +
+		"relay operator can see in any case. Your station's ASSERTION PUBLIC KEY, which every " +
 		"request carries in the clear: it is stable for the life of this station and it is the " +
 		"key your receipts and your earnings are tied to, so anyone watching this link can link " +
 		"that identity to this address, and anyone watching two links can tell it is the same " +
-		"operator on both")
+		"operator on both. And the relay's ANSWERS are unauthenticated, so anyone on the path can " +
+		"feed this node a 204 or a 401 the relay never sent. The relay's operator closes all " +
+		"three by running their hub with --hub-tls, which needs no certificate authority and no " +
+		"domain name")
 
 // ErrHubRefusedThisNode marks a hub that will not accept this node's identity at all - a 401 on
 // the polling route, repeated, rather than a blip.
@@ -418,15 +450,35 @@ func ServeTower(ctx context.Context, cfg Config, priv ed25519.PrivateKey, dir st
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrCoreKeysUnpinned, err)
 	}
-	base, plaintext := hubBaseURL(at.Endpoint)
+	// THE HUB CLIENT IS BUILT ONCE, HERE, AND ITS TLS SETTINGS ARE NOT NEGOTIABLE LATER. A
+	// timeout longer than the tower's poll TTL so a long poll is not cut short - and, when Core
+	// published a pin, a transport that accepts exactly the certificate the pin names.
+	//
+	// TLS IS NOT REQUIRED, and that is a decision rather than an omission. Requiring it in this
+	// change would take every relay whose operator has not yet turned it on off the air, and
+	// with it every node attached to one; the capability has to work before its deadline can be
+	// set. See docs/relay-selection-design.md section 5.7 for the recommendation and what
+	// making it mandatory would cost.
+	base, hubHTTP, plaintext, err := hubBaseURL(at.Endpoint, at.EndpointTLSSPKI,
+		&http.Client{Timeout: 60 * time.Second})
+	if err != nil {
+		return fmt.Errorf("this relay's data plane cannot be reached as advertised: %w", err)
+	}
 	if plaintext {
 		// ONCE, and on the channel that is not discarded. This is a standing property of the
 		// link rather than an event, so it is said at the moment the link is established and
 		// not repeated per poll.
 		notice.notify(fmt.Errorf("%w (relay %s at %s)", ErrHubChannelPlaintext, at.TowerID, base))
 	}
-	fmt.Fprintf(out, "tower: attached as %s via %s (%s) - serving %s at your listed price\n",
-		at.StationID, at.TowerID, at.Endpoint, cfg.Model)
+	channel := "unencrypted"
+	if !plaintext {
+		// Named rather than assumed: an operator reading this line is entitled to know which of
+		// the two channels they got, and "encrypted" alone would be the claim an unverified TLS
+		// client could also make.
+		channel = "encrypted, certificate verified against the fingerprint Roger Core published"
+	}
+	fmt.Fprintf(out, "tower: attached as %s via %s (%s, %s) - serving %s at your listed price\n",
+		at.StationID, at.TowerID, at.Endpoint, channel, cfg.Model)
 
 	exec := station.EdgeExecutor{
 		Station: st, CoreKey: coreKey, Network: link.PublicNetwork,
@@ -455,7 +507,10 @@ func ServeTower(ctx context.Context, cfg Config, priv ed25519.PrivateKey, dir st
 		// Station's receipts are already verified against, so the plaintext link carries no
 		// reusable credential for anyone on the path to lift. See towerhub's nodeauth.go.
 		Sign: st.SignRequest,
-		HTTP: &http.Client{Timeout: 60 * time.Second},
+		// Built above, because the certificate check belongs with the base URL that decided
+		// there would be one. A client assembled here from scratch is a client that dials
+		// https and verifies nothing.
+		HTTP: hubHTTP,
 	}
 	// THESE ARE ADDITIONAL TO THE CLASSIC POLL WORKERS, not a share of them. agent.Start
 	// already spawns cfg.Parallel workers against the same local model, and since every public

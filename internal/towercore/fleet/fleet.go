@@ -53,6 +53,16 @@ type Station struct {
 	// reachable only on the Core-relayed path - a row without an endpoint is simply never
 	// offered to an edge consumer.
 	Endpoint string
+	// TLSSPKI is the hub certificate pin that goes WITH that endpoint: hex sha256 over the
+	// SubjectPublicKeyInfo of the certificate the Tower's hub presents, as the Tower advertised
+	// on its link, or empty for a hub that serves plaintext. A consumer dials https and accepts
+	// exactly that certificate when it is set, and plain http when it is not - see
+	// internal/towerhub/pin.go.
+	//
+	// IT IS STAMPED FROM THE SAME LIVE SESSION AS THE ENDPOINT, IN THE SAME STATEMENT. The two
+	// are one fact (link.RelayPlane); a row carrying one tower's address beside another
+	// session's fingerprint would fail every handshake, and fail it in the shape of an attack.
+	TLSSPKI string
 	// NodeID is the BROKER node id of the same machine, copied from the attachment (M0 of
 	// docs/relay-selection-design.md). It is what makes a candidate rankable: reliability,
 	// probe outcomes and in-flight load are all recorded against the node id, and nothing

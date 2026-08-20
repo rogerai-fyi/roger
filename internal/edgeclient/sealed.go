@@ -21,7 +21,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
 	"rogerai.fm/roger/v5/internal/towercore/envelope"
@@ -33,9 +32,23 @@ import (
 type SealedAuthorization struct {
 	AttemptID string
 	Grant     []byte
-	// Endpoint is the tower hub's address. A bare host:port submits over http (dev); an
-	// endpoint carrying its own scheme is honored verbatim.
+	// Endpoint is the tower hub's address, always bare host:port. The comment here used to
+	// promise that "an endpoint carrying its own scheme is honored verbatim", which was the same
+	// false promise the node's side of this carried: no such endpoint can exist, because both
+	// places one enters the system validate it with net.SplitHostPort.
 	Endpoint string
+	// EndpointTLSSPKI is the hub certificate pin Core published for that endpoint: hex sha256
+	// over the SubjectPublicKeyInfo of the certificate the tower's hub presents. Non-empty means
+	// this client submits over https and accepts THAT CERTIFICATE AND NO OTHER - not a chain to
+	// a public root, not a matching hostname, which are the wrong questions for a volunteer's
+	// box on a dynamic address. Empty means the tower serves plaintext, which is what every
+	// tower did before this field existed.
+	//
+	// It comes from Core rather than from the tower, and that is the whole mechanism: Core
+	// already tells this client where to connect, which key to seal to and which grant key to
+	// trust, so the certificate to expect is one more fact from a party it cannot function
+	// without. See internal/towerhub/pin.go.
+	EndpointTLSSPKI string
 	// StationSessionKey is the node's X25519 public key - what the request is sealed to.
 	// Core hands it over, so the tower never chooses an encryption key.
 	StationSessionKey []byte
@@ -71,6 +84,7 @@ func (c *Client) AuthorizeSealed(ctx context.Context, model string) (SealedAutho
 		AttemptID         string  `json:"attempt_id"`
 		Grant             string  `json:"grant"`
 		Endpoint          string  `json:"endpoint"`
+		EndpointTLSSPKI   string  `json:"endpoint_tls_spki"`
 		StationSessionKey string  `json:"station_session_key"`
 		PriceInMicros     int64   `json:"price_in_micros"`
 		PriceOutMicros    int64   `json:"price_out_micros"`
@@ -95,20 +109,12 @@ func (c *Client) AuthorizeSealed(ctx context.Context, model string) (SealedAutho
 	}
 	return SealedAuthorization{
 		AttemptID: out.AttemptID, Grant: grant, Endpoint: out.Endpoint,
+		EndpointTLSSPKI:   out.EndpointTLSSPKI,
 		StationSessionKey: sessionKey,
 		PriceInMicros:     out.PriceInMicros, PriceOutMicros: out.PriceOutMicros,
 		MaxTokIn: out.MaxTokIn, MaxTokOut: out.MaxTokOut, MaxHoldCredits: out.MaxHoldCredits,
 		envPriv: envPriv,
 	}, nil
-}
-
-// hubBase mirrors the node side: honor an endpoint's own scheme, default http for a bare
-// host:port (the payload is sealed end-to-end either way).
-func hubBase(endpoint string) string {
-	if strings.Contains(endpoint, "://") {
-		return endpoint
-	}
-	return "http://" + endpoint
 }
 
 // DoSealed sends one request through the tower's hub: seal to the Station, submit the
@@ -136,11 +142,20 @@ func (c *Client) DoSealed(ctx context.Context, auth *SealedAuthorization, body [
 	// wait is not an unserved attempt: the node may still complete, the receipt still settles,
 	// and re-submitting the same attempt is forbidden. No fixed timeout (ctx bounds the wait),
 	// and no redirects at all: a hub has no business redirecting a submit.
-	hc := &towerhub.Client{BaseURL: hubBase(auth.Endpoint), HTTP: &http.Client{
+	//
+	// THE SCHEME AND THE CERTIFICATE CHECK COME FROM towerhub.Reach, which is the one place in
+	// the tree that turns Core's (endpoint, pin) into a dialable client. This used to be a local
+	// hubBase() with its own copy of the rule, and the node's leg had a third; three copies of
+	// "how do I reach a hub" is how half the traffic to a TLS tower stays plaintext.
+	base, httpc, err := towerhub.Reach(auth.Endpoint, auth.EndpointTLSSPKI, &http.Client{
 		CheckRedirect: func(*http.Request, []*http.Request) error {
 			return errors.New("the tower hub does not redirect")
 		},
-	}}
+	})
+	if err != nil {
+		return Result{}, err
+	}
+	hc := &towerhub.Client{BaseURL: base, HTTP: httpc}
 	res, err := hc.SubmitJob(ctx, auth.Grant, sealedRaw)
 	if err != nil {
 		return Result{}, err

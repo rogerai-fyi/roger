@@ -13,6 +13,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -20,6 +21,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -272,18 +274,36 @@ func TestOnlyWorkDoneAndUnpaidIsLoud(t *testing.T) {
 	require.False(t, hubRefusedIdentity(context.Canceled))
 }
 
-// hubBaseURL's comment used to promise a capability the wire format cannot express. The promise
-// is gone; this is the property that replaces it.
-func TestHubBaseURLReportsThePlaintextChannel(t *testing.T) {
-	base, plaintext := hubBaseURL("203.0.113.9:8443")
+// hubBaseURL's comment used to promise a capability the wire format cannot express: it claimed
+// an endpoint carrying its own scheme would be honoured, on a wire that refuses one. This is the
+// property that replaces the promise - the scheme is decided by the PIN Core publishes beside
+// the endpoint, and by nothing else.
+func TestHubBaseURLTakesItsSchemeFromThePin(t *testing.T) {
+	// No pin: exactly what every relay does today, and it says so.
+	base, client, plaintext, err := hubBaseURL("203.0.113.9:8443", "", nil)
+	require.NoError(t, err)
 	require.Equal(t, "http://203.0.113.9:8443", base)
-	require.True(t, plaintext, "a bare host:port - the only form the wire accepts - is plaintext")
+	require.True(t, plaintext, "a relay that published no certificate pin serves plaintext")
+	require.Nil(t, client.Transport, "an unpinned client is the caller's, untouched")
 
-	// The scheme branch is unreachable through the real ingress (net.SplitHostPort refuses a
-	// scheme), and is kept only so the day the wire format changes it is already honest.
-	base, plaintext = hubBaseURL("https://relay.example:443")
-	require.Equal(t, "https://relay.example:443", base)
+	// A pin: https, and a transport that will check the certificate. Verifying the CHECK
+	// rather than the string is the point - a test that only looked at the "https" prefix
+	// would pass just as happily against a client with verification switched off.
+	pin := strings.Repeat("ab", 32)
+	base, client, plaintext, err = hubBaseURL("203.0.113.9:8443", pin, nil)
+	require.NoError(t, err)
+	require.Equal(t, "https://203.0.113.9:8443", base)
 	require.False(t, plaintext)
+	tr, ok := client.Transport.(*http.Transport)
+	require.True(t, ok, "a pinned client dials through its own transport")
+	require.NotNil(t, tr.TLSClientConfig.VerifyPeerCertificate,
+		"a pinned client that verifies nothing is the thing this whole change removes")
+	require.Equal(t, uint16(tls.VersionTLS13), tr.TLSClientConfig.MinVersion)
+
+	// A MALFORMED PIN IS A REFUSAL, NOT A FALLBACK. Silently dropping to http here would be a
+	// downgrade reachable by corrupting one field.
+	_, _, _, err = hubBaseURL("203.0.113.9:8443", "not-a-fingerprint", nil)
+	require.Error(t, err)
 }
 
 // A PRIVATE BAND NEVER REACHES THE FABRIC, and the guarantee is structural rather than a

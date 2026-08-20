@@ -273,7 +273,7 @@ func (b *broker) towerEdgeAuthorize(w http.ResponseWriter, r *http.Request) {
 	}
 
 	target, row, ok := b.edgeTargetFor(req.Model, edgePlacementRand())
-	endpoint := row.Endpoint
+	endpoint, endpointPin := row.Endpoint, row.TLSSPKI
 	if !ok {
 		// The same refusal whether the model is unknown, every Station is busy, or no Tower
 		// carries a data plane: what a consumer needs to know is "not here, not now", and
@@ -368,9 +368,16 @@ func (b *broker) towerEdgeAuthorize(w http.ResponseWriter, r *http.Request) {
 		// link. The Station's own address appears nowhere - reachability is the Tower's
 		// contribution, and hiding the Station is part of what the operator provides.
 		"endpoint": endpoint,
-		"deadline": g.Deadline.Unix(),
-		"max_in":   g.MaxIn,
-		"max_out":  g.MaxOut,
+		// AND WHAT MUST ANSWER THERE. The hub certificate pin the Tower advertised beside that
+		// address: with it the consumer dials https and accepts exactly that certificate, and
+		// without it (an older tower, or one whose operator has not turned TLS on) it dials
+		// plain http exactly as it always has. It is the SAME string the serving node is given
+		// at attach, from the same session, so the two ends of one hub cannot end up disagreeing
+		// about whether it speaks TLS.
+		"endpoint_tls_spki": endpointPin,
+		"deadline":          g.Deadline.Unix(),
+		"max_in":            g.MaxIn,
+		"max_out":           g.MaxOut,
 		// THE PRICE, IN THE OPEN. The pinned per-token price, the token ceilings, and the
 		// worst-case hold are what the consumer is agreeing to by using this grant - inside
 		// the base64 grant is not "shown", so they are echoed here where a client can display
@@ -384,7 +391,13 @@ func (b *broker) towerEdgeAuthorize(w http.ResponseWriter, r *http.Request) {
 		// seals its REQUEST to on the hub path. Handed here - Core to consumer - so the tower
 		// never gets to name the key its relayed bytes are encrypted to.
 		"station_session_key": hex.EncodeToString(target.SessionKey),
-		"note": "connect to endpoint with TLS server name relay_name, send the grant in the " +
+		// THE NOTE USED TO SAY "connect to endpoint with TLS server name relay_name", which
+		// described the RETIRED TLS-splice relay and was false of this path for its whole life:
+		// the sealed hub is plain HTTP unless the tower advertises a pin, and relay_name is a
+		// label inside the grant, not a server name anybody presents. A client that believed it
+		// would have been trying to negotiate SNI against an http listener.
+		"note": "submit to endpoint over https, accepting only the certificate whose public key " +
+			"hashes to endpoint_tls_spki (plain http when it is empty); send the grant in the " +
 			"X-Rogerai-Grant header, and acknowledge what you receive at /tower/edge/ack - an " +
 			"honest acknowledgement can only ever reduce what you are billed",
 	})

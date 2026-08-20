@@ -378,19 +378,35 @@ unproven, near one — otherwise the optimizer degrades the service it is meant 
 
 ---
 
-## 5. Decided: signed hub polls (the credential is gone; the channel is still plaintext)
+## 5. Decided: signed hub polls, and a channel that can now be encrypted and verified
 
 **Status: DECIDED and IMPLEMENTED — option B of the three below, founder-approved, landed on
-`release/v5.7.0`, and AMENDED THREE TIMES after review (5.4b, 5.4c, 5.4d).** This section was
-written up as NEEDS A DECISION; it is kept as the record of what was decided and why, because the
-reasoning is the part a later reader needs — including the parts of it that were wrong, which by
-now is most of the first draft's confident sentences.
+`release/v5.7.0`, and AMENDED FOUR TIMES after review (5.4b, 5.4c, 5.4d, and 5.7 — which is
+option A, the one this section spent four rounds calling deferred).** This section was written up
+as NEEDS A DECISION; it is kept as the record of what was decided and why, because the reasoning
+is the part a later reader needs — including the parts of it that were wrong, which by now is
+most of the first draft's confident sentences.
+
+~~the credential is gone; the channel is still plaintext~~ was this section's title through round
+four. **Option A shipped in round five (5.7): a Tower advertises the fingerprint of its hub's
+certificate, Core relays it, and a node and a consumer accept that certificate and no other.** It
+is not mandatory, so "the channel is plaintext" remains true of every relay whose operator has
+not turned TLS on — which is why the property list below now states each item TWICE, once for a
+pinned link and once for an unpinned one, rather than replacing one blanket claim with another.
 
 ### 5.0 What signed hub polls actually buy, with every qualifier attached
 
 This list exists because each round of review has found the previous round's summary to be
 *narrower in reality than in prose*, and a compressed claim is how the next reader inherits a
 hole. Read it as the security statement; everything below is the working.
+
+**Every item now has to be read against ONE OF TWO CHANNELS**, because since 5.7 a hub link is
+either *pinned* (the Tower advertises its hub certificate's fingerprint, Core relays it, the node
+and the consumer accept that certificate and no other) or *unpinned* (plaintext, exactly as
+before). TLS is not mandatory and is not scheduled to become mandatory in this release, so both
+channels are live in the fleet at once. Where an item differs, it says so; **where it does not
+differ, that is the more important sentence** — TLS is defence in depth here, and several of the
+properties below were bought by the in-band work and would survive its removal.
 
 1. **A serving node transmits no reusable credential** — with one exception, `--hub-legacy-bearer`
    (default on), which is honoured only for a Station that has never signed to that tower and is
@@ -405,24 +421,49 @@ hole. Read it as the security statement; everything below is the working.
    it with the identity key Core admitted it under, bound to the request's own nonce, and the node
    checks it against the fingerprint Core hands it at attach. Before this, a forged `401` on the
    plaintext link made a node mint a genuine signature over any epoch an attacker chose.
+   **Unchanged by TLS, and deliberately not conditional on it.** TLS closes the forged 401 from a
+   third party as a side effect, but the proof is still demanded on a pinned link: making an
+   in-band defence dependent on the transport would mean the fleet's unpinned half quietly lost
+   it, and it is the half that needs it.
 6. **One hub process per endpoint is a hard deployment constraint, not a preference.** Two live
    processes behind one endpoint still let an on-path attacker harvest usable signatures, by
    relaying rather than by forging. The client now *detects* that configuration exactly and stops;
-   it does not make it safe. See 5.4d.
+   it does not make it safe. See 5.4d. **TLS narrows this and does not close it**: on a pinned
+   link the harvested signature is no longer readable by a party on the path, but both processes
+   hold the same certificate, so each still refuses the other's signature and leaves it unconsumed
+   at a peer that would accept it. The deployment stays unsupported.
 7. **Pre-auth work is bounded by possession and by a connection cap.** The body of `/complete`
    and `/audit/transcript` must be read before it can be authenticated; admission now requires a
    signature rather than a public identifier, and the listener caps concurrent connections at 512.
 8. **A stolen bearer does not come back after a redeploy**, because the signed-latch is durable.
    It still works for a Station whose node has never signed — that is the tolerance, and it is
-   what the flag turns off.
-9. **The channel is still plaintext, and always was.** Content is sealed end to end, but traffic
-   shape leaks, and every poll puts the Station's long-term assertion **public key** in the clear —
-   a stable identifier linking that identity to an IP address across networks and towers. TLS
-   (option A) is deferred, not done.
-10. **A node still cannot authenticate the hub for anything except its epoch.** The epoch proof is
-    the only statement a relay makes that a node can check. Everything else the relay says — a
-    job, a 204, a 401 — is taken on trust, and a hostile relay can still refuse to serve a node or
-    drop its work. The sealed envelope is what makes that a denial rather than a theft.
+   what the flag turns off. On a **pinned** link a bearer from a node too old to sign is at least
+   no longer readable off the wire; it remains readable by the tower, and the tolerance is deleted
+   next release regardless.
+9. ~~**The channel is still plaintext, and always was.**~~ **The channel is plaintext unless the
+   Tower's operator has turned TLS on, and TLS is now a thing they can turn on.** Content is
+   sealed end to end either way. On an **unpinned** link traffic shape leaks and every poll puts
+   the Station's long-term assertion **public key** in the clear — a stable identifier linking
+   that identity to an IP address across networks and towers. On a **pinned** link both are
+   inside TLS 1.3: an observer sees a connection to the tower and its byte counts and timings,
+   and nothing else. Option A is DONE (5.7) and NOT REQUIRED; the fleet will run mixed until a
+   deadline is set.
+10. **A node cannot authenticate the hub for anything except its epoch — on an unpinned link.**
+    The epoch proof is the only statement a relay makes that such a node can check. Everything
+    else the relay says — a job, a 204, a 401 — is taken on trust, and **anyone on the path can
+    forge those answers**, not merely the relay. On a **pinned** link the whole channel is
+    authenticated to the certificate Core named, so response injection by a third party is gone
+    and every answer is attributable to the relay itself.
+11. **A HOSTILE RELAY IS UNCHANGED BY ANY OF THIS, pinned or not.** It can refuse to serve a node,
+    drop its work, or lie about what it saw; the sealed envelope is what makes that a denial
+    rather than a theft. TLS authenticates *which* relay is answering. It has never had anything
+    to say about whether that relay is honest, and a reader who takes "verified" for "trusted"
+    has inherited the next hole.
+12. **A pinned link does not check a hostname, a chain, or an expiry**, and that is the design
+    rather than a shortcut. The question a node needs answered is "is this the tower Roger Core
+    assigned me?", not "is this relay.example?"; the pin answers the first directly and the Web
+    PKI only ever answered it by proxy. What withdraws trust in a key is Core ceasing to advertise
+    its fingerprint, on the same channel that distributed it — see 5.7.
 
 ### 5.1 What was true
 
@@ -455,8 +496,19 @@ URL, or add a sibling `scheme`/`tls` field on the Tower's `Hello` and on the att
 Touches `link.Hello` validation, `cmd/roger-tower/serve.go` config, `RelayEndpoint`, the
 `tower_routable` projection's endpoint column, `towerEdgeAuthorize`'s `endpoint` response field,
 the consumer client that dials it, and `hubBaseURL`. The cheap half is a parse that accepts both
-forms; the expensive half is that a Tower operator now needs a certificate for a name the node
-will verify, which is a real operational burden on volunteers.
+forms; ~~the expensive half is that a Tower operator now needs a certificate for a name the node
+will verify, which is a real operational burden on volunteers.~~
+
+**THE EXPENSIVE HALF WAS IMAGINARY, and believing in it is what deferred this for four rounds.**
+It assumed the node would verify the certificate the way a browser does — a chain to a public
+root, for a name in DNS — which is the one form of verification a volunteer on a dynamic address
+cannot supply and, more to the point, *the wrong question*. A node does not care whether it is
+talking to `relay.example`; it cares whether it is talking to the tower Core assigned it, and
+Core can simply say which certificate that is. The change that shipped (5.7) needs no certificate
+authority, no domain name, and no new key material, and the accurate cost of it is one additive
+string field carried through the same six places the endpoint already travels. The list of
+touched components above was right; the conclusion drawn from it was not. Note also that the
+URL-shaped variant of A stayed rejected: the sibling field is what makes it backward compatible.
 
 **B. Sign each request instead of presenting a reusable secret.** Leave the transport alone and
 make a captured request useless.
@@ -473,11 +525,14 @@ the public half to the Tower on `/tower/hub/nodes` (the Tower previously had no 
 and `towerhub.Server` verifies against it instead of comparing a token string. No certificates,
 no key distribution, nothing asked of Tower operators.
 
-**A is not closed and is not scheduled.** After B the plaintext channel leaks traffic *shape* —
-when a node polls, how large each sealed body is — which the Tower operator can see in any case
-by virtue of being the Tower. It also leaves the link unauthenticated in the other direction: a
-node still cannot tell it is talking to the hub Core named. Those are the reasons to do A
-eventually. They are not reasons to hold B.
+~~**A is not closed and is not scheduled.**~~ **A shipped in round five — see 5.7.** The
+paragraph that followed was right about the residual and wrong about its size: "the Tower
+operator can see it in any case" is true of the tower and says nothing about the *thousands of
+other parties* on a home operator's path, and "a node cannot tell it is talking to the hub Core
+named" was written as a wistful note rather than as what it was, an unauthenticated channel a
+node reasons about its own pay over. What stands is the last sentence, and it is the reason the
+order was right: **those were reasons to do A eventually; they were never reasons to hold B.** B
+is what makes a captured request worthless, and it needed no certificate on anybody's box.
 
 ### 5.4 Replay, which is the part that needed thinking about
 
@@ -891,13 +946,20 @@ check the signature against. **Core, then Towers, then nodes.**
 The question §5 originally asked first — *should offering a share to the relay fabric be opt-out
 until the exposure is fixed?* — is answered by B shipping in the same release as the automatic
 join: there is no window in which the fleet is joined by default and holding a stealable
-credential. TLS (option A) remains deferred, and the endpoint wire format stays `host:port`.
+credential. ~~TLS (option A) remains deferred, and the endpoint wire format stays `host:port`.~~
+**Half of that is still true and the half that matters is not:** the endpoint wire format is
+still `host:port`, deliberately — but TLS shipped in round five (5.7) as an additive pin carried
+beside it, and what remains deferred is not the capability, only the decision to require it.
 
-Still open after round four, and worth naming so the next reader does not have to re-derive them:
+Still open after round five, and worth naming so the next reader does not have to re-derive them:
 
-- **TLS (option A).** Unchanged, and it is what closes the remaining plaintext leaks: traffic
-  shape, and the Station's long-term assertion **public key** on the wire on every poll, which is
-  a stable identifier linking that identity to an address across networks and towers.
+- ~~**TLS (option A).** Unchanged, and it is what closes the remaining plaintext leaks…~~
+  **DONE in round five (5.7), and it did not close traffic shape** — which the bullet promised it
+  would. TLS hides the Station's assertion public key and authenticates the relay's answers; it
+  leaves the timing and the byte counts of a long-polling connection exactly as visible as they
+  were. What remains open here is not the capability but the DEADLINE: TLS is optional, most of
+  the fleet is still plaintext, and whether and when to require it is a founder decision with the
+  migration cost written out at the end of 5.7.
 - **A shared nonce gate.** Until there is one, a Tower runs exactly one hub process per endpoint.
   The node now refuses to serve a flapping endpoint rather than manufacturing signatures for it,
   but that is detection, not scale.
@@ -913,3 +975,134 @@ Still open after round four, and worth naming so the next reader does not have t
   to dormancy (a dormant Station's keys are reserved), and the obvious fix — require the attach
   to be co-signed by the assertion key — is a wire change on a path §5.4d has already touched
   once this release.
+
+### 5.7 Round five: option A, and why it needed no certificate authority
+
+**Status: DECIDED and IMPLEMENTED, founder-approved, on `release/v5.7.0`. NOT MANDATORY — see
+"should it be required" at the end, which is a founder decision this section does not take.**
+
+#### What was actually broken
+
+The Tower could already serve TLS and no node could ever use it. `cmd/roger-tower/serve.go` had
+`--hub-tls-cert`/`--hub-tls-key`, `internal/tower/config.go` had `Hub.TLSCert`/`TLSKey`, and
+`cmd/roger-tower/hub.go` called `ServeTLS`. But a Tower advertises its data plane as bare
+`host:port` in `link.Hello.RelayEndpoint`, both ingress points validate that with
+`net.SplitHostPort` (which rejects anything containing `://`), and so `internal/agent`'s
+`hubBaseURL` had exactly one reachable branch: `"http://" + endpoint`. **An operator who obtained
+a certificate got a TLS listener that every node in the fleet connected to in plaintext and
+failed against.** The flags were not a path to safety; they were a trap, and the more diligent
+the operator the worse it treated them.
+
+#### The decision: pin the hub's certificate through Core
+
+A Tower computes the SHA-256 of the **SubjectPublicKeyInfo** of the certificate its hub presents
+and advertises it in its `Hello` (`relay_tls_spki`, additive, absent meaning plaintext meaning
+today's behaviour). Core stamps it onto the routable projection beside the endpoint and hands it
+to both parties that dial the hub — the serving node at `/tower/edge/attach`, the consumer at
+`/tower/edge/authorize` — as `endpoint_tls_spki`. Each dials `https` and accepts **that
+certificate and no other**: no chain, no hostname, no expiry.
+
+**There is deliberately no separate "does this hub speak TLS" boolean.** The pin is the
+advertisement, so the state the whole change exists to prevent — a TLS listener whose clients
+cannot check it — has no representation on the wire. It is also why the endpoint format is
+untouched: a URL would have been a breaking change to a field three clients concatenate onto.
+
+`roger-tower serve --hub-tls` with no certificate files mints an Ed25519 self-signed certificate,
+keeps it in the data directory, and advertises its fingerprint. That is the whole operator
+experience: one flag, no authority, no domain, no renewal.
+
+#### Why not the alternatives
+
+- **Require a publicly-trusted certificate.** This is the option the design assumed for four
+  rounds. It would not have made volunteer towers secure; it would have made them *ineligible*.
+  A home connection on a dynamic address with no domain cannot obtain one at any price, so the
+  policy silently restricts Towers to operators who already run infrastructure — against the
+  point of the programme. And it answers the wrong question: a public certificate proves control
+  of a **name**, which is only ever a proxy for "the tower Core admitted", and the name in
+  question is one the tower itself asserted. The pin answers the real question directly, and does
+  it without trusting ~150 certificate authorities not to mis-issue.
+- **Support both.** Rejected as a false generosity. It doubles the verification matrix, splits
+  the fleet into two classes of operator, and adds a second trust root that is strictly weaker
+  for this purpose than the one already in hand. An operator who *has* a publicly-trusted
+  certificate loses nothing: `--hub-tls-cert` still works, and the pin is computed from whatever
+  certificate they supplied.
+- **ACME.** Same domain requirement as the above, plus renewal machinery, plus port-80/DNS
+  reachability, plus a dependency, inside a binary that volunteers run on home boxes. It solves a
+  problem the pin does not have.
+- **Bind the certificate to the tower's IDENTITY key** (make the SPKI *be* `admit.Tower.KeyHash`,
+  or attest the certificate with an identity-key signature). Seriously considered, and it is the
+  most elegant version: no new field at all, since the node already receives `tower_key_hash`
+  (commit `6480cd05`). Rejected on two counts. It forces the tower's long-term identity key — the
+  key that authenticates every request it makes to Core, including settlement — into the TLS
+  stack, collapsing a separation `admit.Tower` maintains on purpose ("a stolen TLS key proves
+  nothing about its identity"). And it forbids an operator from using any certificate they did
+  not mint from that key, including a corporate or ACME one. The pin costs one string on a
+  message that already carries the endpoint, and Core is already the node's source of truth for
+  that endpoint — so it adds no trust root that was not already load-bearing.
+
+#### What this closes, and what it does not
+
+**Closes, on a pinned link:**
+
+- **Response injection.** Nothing authenticated the hub's answers, so anyone on the path could
+  forge the status codes a node reasons about its own pay with — a `204` "nothing for you" while
+  real work went elsewhere, a `401` that reads as a revoked attachment. Now every answer is
+  attributable to the certificate Core named.
+- **The Station's payment identity in the clear.** `X-Roger-Pubkey` carried the long-term
+  assertion public key on every poll: stable for the life of the station, the key its receipts
+  are verified against and its earnings paid to, and therefore a linkable identifier tying that
+  identity to an IP address across networks, towers and re-attachments. It is now inside TLS 1.3.
+- **The forged-401 epoch attack, a second time and independently.** The in-band proof already
+  closed it; a party who cannot speak on the channel cannot mount it at all.
+- **The bearer still on the wire during the legacy-tolerance window**, for towers that turn TLS
+  on before the tolerance is deleted.
+
+**Does NOT close:**
+
+- **Anything a hostile relay does.** The relay terminates the TLS. It can refuse to serve, drop
+  work, or lie about what it saw, exactly as before; the sealed envelope is what makes that a
+  denial rather than a theft. *Verified is not trusted.*
+- **Traffic analysis.** An observer still sees a connection to that tower, its timing and its
+  byte counts. Long polls and sealed bodies have shape.
+- **Two hub processes behind one endpoint.** Both hold the same certificate. See 5.0 item 6.
+- **The unpinned half of the fleet**, which is every tower whose operator has not turned TLS on
+  and, until it is required, may always be most of them.
+- **Certificate validity, revocation, and names.** A pinned client accepts an expired,
+  nameless, self-signed certificate — that is the design, since the pin is what confers trust and
+  Core ceasing to advertise a fingerprint is what withdraws it. The consequence to be honest
+  about: **withdrawal is only as fast as re-attachment.** A node holds its pin for the life of
+  its process, so a tower whose key is compromised is believed by already-attached nodes until
+  they re-attach. There is no push revocation, and building one is a bigger change than this.
+- **Off-box TLS termination.** A reverse proxy in front of the hub presents its own certificate,
+  which is not the one the tower computed its pin from. Such a deployment must advertise
+  plaintext today. The extension is one string field (an operator-supplied pin override) and is
+  not built, because the load-balanced case it usually accompanies is already unsupported.
+
+#### Should it be required? A recommendation, not a decision
+
+**Recommendation: require it, but not in this release, and on a date rather than on a build.**
+Make it work first — that is this change — then set a deadline, announce it to tower operators,
+and enforce it at Core rather than at the node.
+
+The mechanism, when the founder calls it: `towerEdgeAttach` and `towerEdgeAuthorize` refuse to
+route to a Tower whose live session advertises no pin, and `publishRoutable` stops stamping rows
+for one. Enforcing at Core rather than in the node's client is what makes it a fleet decision
+with one switch and one revert, instead of a property of whichever binary each node happens to be
+running.
+
+**The migration cost, stated plainly:**
+
+- **Every joined tower operator must act**, and the action is one flag (`--hub-tls`, or
+  `hub.tls: true`) plus a restart. No certificate to obtain, nothing to renew.
+- **A tower that does not act goes dark on the edge path** the day it is enforced: its Stations
+  stop being routable and its nodes stop earning. That is the whole cost, and it is why it needs
+  a date and an announcement rather than a release note.
+- **Nodes attached before their tower's restart must re-attach**, because the tower's endpoint
+  becomes TLS while they hold no pin. They will fail, retry, and recover on re-attach; a node
+  that does not re-attach on a persistent hub failure would sit broken, and that path is worth
+  checking before the deadline rather than after it.
+- **Consumers need no action**: the pin arrives per authorization, and an unpinned authorization
+  keeps working for as long as unpinned towers exist.
+- **Off-box TLS terminators and multi-process hubs cannot comply** without the pin-override
+  extension above. Anyone running one should be identified before a deadline is set; today they
+  are already outside the supported deployment.

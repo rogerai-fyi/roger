@@ -27,6 +27,8 @@ import (
 	"net"
 	"sync"
 	"time"
+
+	"rogerai.fm/roger/v5/internal/towerhub"
 )
 
 // PublicNetwork is the only network a joined Tower may speak on. A standalone Tower mints
@@ -88,6 +90,38 @@ type Hello struct {
 	// the operator's to change, and a value Core had to be told out of band would go stale
 	// the first time an operator moved a box.
 	RelayEndpoint string `json:"relay_endpoint,omitempty"`
+	// RelayTLSSPKI is the hex sha256 of the SubjectPublicKeyInfo of the certificate this
+	// Tower's hub presents, or empty for a hub that serves plaintext. It is what lets a node
+	// and a consumer VERIFY the hub they were sent to without a publicly-trusted certificate
+	// and without a domain name - see internal/towerhub/pin.go for the whole argument.
+	//
+	// ADDITIVE, AND THE ENDPOINT FORMAT IS UNTOUCHED. The obvious alternative was to let
+	// RelayEndpoint carry a URL, which would have been a breaking change to a field two
+	// ingress points parse with net.SplitHostPort and three clients concatenate onto - every
+	// one of which would have had to land in the same release as every tower binary in the
+	// fleet. A field that is absent on an older Tower, means "plaintext", and therefore means
+	// exactly what the system does today is backward compatible by construction.
+	//
+	// THERE IS NO SEPARATE "does this hub speak TLS" BOOLEAN, deliberately. The pin IS the
+	// advertisement, so the state it exists to prevent - a TLS listener whose clients cannot
+	// check it - has no representation on the wire.
+	RelayTLSSPKI string `json:"relay_tls_spki,omitempty"`
+}
+
+// RelayPlane is where a Tower's data plane is, and what will answer there: the two facts a
+// party needs before it can dial one, kept together because they are only true together.
+//
+// They travel as one value rather than as two lookups because of what a MIX of them is. The
+// endpoint from one session and the pin from another - a reconnect landing between the two
+// calls - is an address paired with the fingerprint of a certificate it will not present,
+// which at the client is indistinguishable from the attack the pin exists to detect. It is
+// also the shape of the obvious half-done change: read the endpoint, forget the pin, and dial
+// plaintext into a TLS listener.
+type RelayPlane struct {
+	// Endpoint is host:port. Never a URL - see Hello.RelayTLSSPKI.
+	Endpoint string
+	// TLSSPKI is the hub certificate pin, or empty for plaintext.
+	TLSSPKI string
 }
 
 // Accepted is what Core replies with.
@@ -116,9 +150,9 @@ type session struct {
 	version  int
 	opened   time.Time
 	lastSeen time.Time
-	// relayEndpoint is the data-plane address the Tower advertised in its Hello, kept so
-	// the fleet projection can stamp it onto routable rows.
-	relayEndpoint string
+	// relay is the data plane the Tower advertised in its Hello - address and hub certificate
+	// pin - kept so the fleet projection can stamp both onto routable rows.
+	relay RelayPlane
 }
 
 type head struct {
@@ -204,6 +238,26 @@ func (s *Sessions) Open(h Hello, certTowerID string) (Accepted, error) {
 				ErrNegotiation, h.RelayEndpoint)
 		}
 	}
+	// THE PIN IS CHECKED FOR SHAPE AT THE SAME DOOR, AND FOR THE SAME REASON. A malformed
+	// fingerprint accepted here would be published into the fleet projection, handed to every
+	// node and consumer routed to this Tower, and would surface as each of them refusing to
+	// dial - attributed to the tower being down rather than to one bad field. It is also the
+	// one error whose fallback would be a silent downgrade to plaintext, which is not a
+	// degraded mode but the exact outcome this field exists to prevent.
+	if h.RelayTLSSPKI != "" {
+		if h.RelayEndpoint == "" {
+			// A pin without an address is a Tower saying how to verify a hub it does not
+			// advertise. Nothing can ever act on it, so it is a configuration mistake, and a
+			// mistake in this particular field is worth naming rather than dropping.
+			return Accepted{}, fmt.Errorf("%w: a hub certificate pin was advertised without a "+
+				"relay endpoint to reach it at", ErrNegotiation)
+		}
+		if !towerhub.ValidPin(h.RelayTLSSPKI) {
+			return Accepted{}, fmt.Errorf("%w: the hub certificate pin must be %d hex characters "+
+				"of sha256 over the certificate's public key, got %q",
+				ErrNegotiation, towerhub.PinLen, h.RelayTLSSPKI)
+		}
+	}
 	version, ok := s.bestVersion(h.Versions)
 	if !ok {
 		return Accepted{}, fmt.Errorf("%w: no mutually supported protocol version", ErrNegotiation)
@@ -229,7 +283,7 @@ func (s *Sessions) Open(h Hello, certTowerID string) (Accepted, error) {
 	}
 	now := s.now()
 	s.byID[id] = &session{towerID: h.TowerID, version: version, opened: now, lastSeen: now,
-		relayEndpoint: h.RelayEndpoint}
+		relay: RelayPlane{Endpoint: h.RelayEndpoint, TLSSPKI: h.RelayTLSSPKI}}
 	s.byTower[h.TowerID] = id
 
 	need := true
@@ -248,23 +302,29 @@ func (s *Sessions) Open(h Hello, certTowerID string) (Accepted, error) {
 	}, nil
 }
 
-// RelayEndpoint reports where a Tower's data plane is reachable, from its live session.
+// RelayPlane reports where a Tower's data plane is reachable and what certificate will answer
+// there, from its live session.
 //
 // From the SESSION rather than a durable record, deliberately: an endpoint is only worth
 // routing a consumer to while the Tower behind it is connected and heartbeating, and a
 // stored address for a Tower that went away is a timeout handed to a customer.
-func (s *Sessions) RelayEndpoint(towerID string) (string, bool) {
+//
+// IT RETURNS BOTH OR NEITHER. This used to be RelayEndpoint, returning the address alone, and
+// the pin was added as a value that has to travel with it - see RelayPlane for why a mixture
+// of the two is worse than either. Callers that only want the address say `.Endpoint`, which
+// is a visible act rather than an omission.
+func (s *Sessions) RelayPlane(towerID string) (RelayPlane, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	id, ok := s.byTower[towerID]
 	if !ok {
-		return "", false
+		return RelayPlane{}, false
 	}
 	sess, ok := s.byID[id]
-	if !ok || sess.relayEndpoint == "" {
-		return "", false
+	if !ok || sess.relay.Endpoint == "" {
+		return RelayPlane{}, false
 	}
-	return sess.relayEndpoint, true
+	return sess.relay, true
 }
 
 // Adopt reports whether a session id may be claimed. It exists so a replayed session id is

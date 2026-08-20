@@ -29,6 +29,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"rogerai.fm/roger/v5/internal/tower"
+	"rogerai.fm/roger/v5/internal/towercore/link"
 	"rogerai.fm/roger/v5/internal/towerjoin"
 )
 
@@ -46,7 +47,12 @@ type coreStub struct {
 	seen []string
 	// keys records the public key that signed each path, so a test can assert that the
 	// operator's account key and the Tower's identity key are not the same key.
-	keys        map[string]string
+	keys map[string]string
+	// bodies is the LAST request body seen on each path. It exists because the Hello is the
+	// only place the tower states its own data plane - the endpoint and, since TLS, the hub
+	// certificate pin - and a test that cannot read it cannot tell an advertisement that was
+	// made from one that was silently dropped.
+	bodies      map[string][]byte
 	sessions    int
 	inventories int
 	// reply overrides the canned answer for a path; the func returns true when it handled it.
@@ -56,7 +62,7 @@ type coreStub struct {
 func newCoreStub(t *testing.T) *coreStub {
 	t.Helper()
 	c := &coreStub{t: t, reply: map[string]func(http.ResponseWriter, int) bool{},
-		keys: map[string]string{}}
+		keys: map[string]string{}, bodies: map[string][]byte{}}
 	c.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Every link call is the MACHINE talking, and Core authenticates it by the Tower's
 		// key. An unsigned call would be refused in production; catching it here is the only
@@ -68,9 +74,11 @@ func newCoreStub(t *testing.T) *coreStub {
 			require.NotEmpty(c.t, r.Header.Get("X-Roger-Pubkey"), "%s was unsigned", r.URL.Path)
 		}
 
+		raw, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 		c.mu.Lock()
 		c.seen = append(c.seen, r.URL.Path)
 		c.keys[r.URL.Path] = r.Header.Get("X-Roger-Pubkey")
+		c.bodies[r.URL.Path] = raw
 		n := 0
 		for _, p := range c.seen {
 			if p == r.URL.Path {
@@ -105,6 +113,13 @@ func newCoreStub(t *testing.T) *coreStub {
 	t.Cleanup(c.srv.Close)
 	c.t.Setenv("ROGER_BROKER", c.srv.URL)
 	return c
+}
+
+// body is the last request body seen on a path.
+func (c *coreStub) body(path string) []byte {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.bodies[path]
 }
 
 // answerDispatchKey makes the stub serve a real (throwaway) grant-signing key, which is what
@@ -237,7 +252,7 @@ func TestServingAStandaloneTowerRefusesAndExplainsWhy(t *testing.T) {
 	require.NoError(t, err)
 	defer release()
 
-	err = runLink(st, &b, closedStop(), manualTicker(nil), "")
+	err = runLink(st, &b, closedStop(), manualTicker(nil), link.RelayPlane{})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "standalone")
 	require.Contains(t, err.Error(), "--mode joined", "it says how to get a Tower that can")
@@ -255,7 +270,7 @@ func TestTheLinkOpensPushesHeartbeatsAndDrains(t *testing.T) {
 
 	b := &syncBuffer{}
 	done := make(chan error, 1)
-	go func() { done <- runLink(st, b, stop, manualTicker(beats), "") }()
+	go func() { done <- runLink(st, b, stop, manualTicker(beats), link.RelayPlane{}) }()
 
 	beats <- time.Now()
 	require.Eventually(t, func() bool { return core.called("/tower/session/heartbeat") > 0 },
@@ -295,7 +310,7 @@ func TestALostHeartbeatDoesNotTearTheSessionDown(t *testing.T) {
 	stop := make(chan struct{})
 	b := &syncBuffer{}
 	done := make(chan error, 1)
-	go func() { done <- runLink(st, b, stop, manualTicker(beats), "") }()
+	go func() { done <- runLink(st, b, stop, manualTicker(beats), link.RelayPlane{}) }()
 
 	beats <- time.Now()
 	require.Eventually(t, func() bool { return strings.Contains(b.String(), "will retry") },
@@ -337,7 +352,7 @@ func TestARefusedHeartbeatReopensTheSessionAndRepushes(t *testing.T) {
 	stop := make(chan struct{})
 	b := &syncBuffer{}
 	done := make(chan error, 1)
-	go func() { done <- runLink(st, b, stop, manualTicker(beats), "") }()
+	go func() { done <- runLink(st, b, stop, manualTicker(beats), link.RelayPlane{}) }()
 
 	beats <- time.Now()
 	require.Eventually(t, func() bool { return core.called("/tower/inventory") >= 2 },
@@ -372,7 +387,7 @@ func TestAFailedReopenStopsAndStillDrains(t *testing.T) {
 	beats := make(chan time.Time, 1)
 	var b bytes.Buffer
 	beats <- time.Now()
-	err := runLink(st, &b, nil, manualTicker(beats), "")
+	err := runLink(st, &b, nil, manualTicker(beats), link.RelayPlane{})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "may not hold a link")
 	require.Equal(t, 1, core.called("/tower/session/close"), "it drained on the way out")
@@ -388,7 +403,7 @@ func TestAnUnopenableSessionFailsBeforePushing(t *testing.T) {
 		return true
 	}
 	var b bytes.Buffer
-	err := runLink(st, &b, closedStop(), manualTicker(nil), "")
+	err := runLink(st, &b, closedStop(), manualTicker(nil), link.RelayPlane{})
 	require.Error(t, err)
 	require.Zero(t, core.called("/tower/inventory"))
 	require.Zero(t, core.called("/tower/session/close"), "nothing to drain")
@@ -405,7 +420,7 @@ func TestARefusedInventoryStopsTheLoop(t *testing.T) {
 		return true
 	}
 	var b bytes.Buffer
-	err := runLink(st, &b, closedStop(), manualTicker(nil), "")
+	err := runLink(st, &b, closedStop(), manualTicker(nil), link.RelayPlane{})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "never verify")
 }
@@ -428,7 +443,7 @@ func TestBeingAskedForAFullInventoryRestartsTheChain(t *testing.T) {
 	stop := make(chan struct{})
 	close(stop)
 	var b bytes.Buffer
-	require.NoError(t, runLink(st, &b, stop, manualTicker(nil), ""))
+	require.NoError(t, runLink(st, &b, stop, manualTicker(nil), link.RelayPlane{}))
 	require.Equal(t, 2, core.called("/tower/inventory"), "it resent from genesis")
 	require.Contains(t, b.String(), "revision 1 accepted")
 }
@@ -447,7 +462,7 @@ func TestARefusedRestartAfterANeedFullIsReported(t *testing.T) {
 		return true
 	}
 	var b bytes.Buffer
-	err := runLink(st, &b, closedStop(), manualTicker(nil), "")
+	err := runLink(st, &b, closedStop(), manualTicker(nil), link.RelayPlane{})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "still no")
 }
@@ -465,7 +480,7 @@ func TestAFailedDrainWarnsRatherThanPassingQuietly(t *testing.T) {
 	stop := make(chan struct{})
 	close(stop)
 	var b bytes.Buffer
-	require.NoError(t, runLink(st, &b, stop, manualTicker(nil), ""))
+	require.NoError(t, runLink(st, &b, stop, manualTicker(nil), link.RelayPlane{}))
 	require.Contains(t, b.String(), "could not drain cleanly")
 }
 
@@ -649,7 +664,7 @@ func TestTheInventoryIsRepushedBeforeItExpires(t *testing.T) {
 	stop := make(chan struct{})
 	b := &syncBuffer{}
 	done := make(chan error, 1)
-	go func() { done <- runLink(st, b, stop, tickerFor(beats, refresh), "") }()
+	go func() { done <- runLink(st, b, stop, tickerFor(beats, refresh), link.RelayPlane{}) }()
 
 	require.Eventually(t, func() bool { return core.called("/tower/inventory") == 1 },
 		2*time.Second, 5*time.Millisecond, "the first push")
@@ -692,7 +707,7 @@ func TestAFailedRefreshIsReportedAndTheLinkSurvives(t *testing.T) {
 	stop := make(chan struct{})
 	b := &syncBuffer{}
 	done := make(chan error, 1)
-	go func() { done <- runLink(st, b, stop, tickerFor(beats, refresh), "") }()
+	go func() { done <- runLink(st, b, stop, tickerFor(beats, refresh), link.RelayPlane{}) }()
 
 	require.Eventually(t, func() bool { return core.called("/tower/inventory") == 1 },
 		2*time.Second, 5*time.Millisecond)

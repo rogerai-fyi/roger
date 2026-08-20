@@ -9,6 +9,8 @@ package link
 // or there is nothing to send a message on.
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -343,7 +345,7 @@ func TestTheRelayEndpointLivesAndDiesWithTheSession(t *testing.T) {
 		Heartbeat: time.Minute, Freshness: 5 * time.Minute})
 
 	// Before any session: nothing.
-	_, ok := s.RelayEndpoint("tw-1")
+	_, ok := s.RelayPlane("tw-1")
 	require.False(t, ok)
 
 	acc, err := s.Open(Hello{Network: "roger-public", Versions: []int{1}, TowerID: "tw-1",
@@ -351,16 +353,17 @@ func TestTheRelayEndpointLivesAndDiesWithTheSession(t *testing.T) {
 		RelayEndpoint: "203.0.113.7:8443"}, "tw-1")
 	require.NoError(t, err)
 
-	got, ok := s.RelayEndpoint("tw-1")
+	got, ok := s.RelayPlane("tw-1")
 	require.True(t, ok)
-	require.Equal(t, "203.0.113.7:8443", got)
+	require.Equal(t, "203.0.113.7:8443", got.Endpoint)
+	require.Empty(t, got.TLSSPKI, "a Tower that advertised no pin serves plaintext")
 
 	// A Tower that advertises nothing reports nothing - and a reconnect REPLACES the old
 	// session, so its endpoint replaces too rather than lingering.
 	_, err = s.Open(Hello{Network: "roger-public", Versions: []int{1}, TowerID: "tw-1",
 		Capabilities: []string{CapIntegrity, CapInnerSession}}, "tw-1")
 	require.NoError(t, err)
-	_, ok = s.RelayEndpoint("tw-1")
+	_, ok = s.RelayPlane("tw-1")
 	require.False(t, ok, "the new session advertised no endpoint, so there is none")
 
 	s.Close(acc.SessionID, "tw-1")
@@ -375,4 +378,54 @@ func TestAnUnparseableRelayEndpointIsRefusedAtTheDoor(t *testing.T) {
 		Capabilities:  []string{CapIntegrity, CapInnerSession},
 		RelayEndpoint: "not-an-endpoint"}, "tw-1")
 	require.ErrorContains(t, err, "host:port")
+}
+
+// The hub certificate PIN travels the same road the endpoint does - Hello -> session ->
+// RelayPlane - and it is checked for shape at the same door.
+//
+// Both halves matter. A pin that did not travel is a Tower serving TLS that Core tells every
+// node to reach over http; a malformed one accepted here is published into the fleet
+// projection and surfaces as every consumer refusing to dial, blamed on the tower being down.
+func TestTheHubCertificatePinTravelsWithTheEndpoint(t *testing.T) {
+	s := New(Config{Network: "roger-public", Versions: []int{1},
+		Heartbeat: time.Minute, Freshness: 5 * time.Minute})
+	pin := strings.Repeat("ab", 32)
+
+	_, err := s.Open(Hello{Network: "roger-public", Versions: []int{1}, TowerID: "tw-tls",
+		Capabilities:  []string{CapIntegrity, CapInnerSession},
+		RelayEndpoint: "203.0.113.7:8443", RelayTLSSPKI: pin}, "tw-tls")
+	require.NoError(t, err)
+
+	got, ok := s.RelayPlane("tw-tls")
+	require.True(t, ok)
+	require.Equal(t, "203.0.113.7:8443", got.Endpoint)
+	require.Equal(t, pin, got.TLSSPKI, "the pin must reach the projection with its endpoint")
+
+	// SHAPE IS CHECKED AT THE DOOR. Anything else is refused before it can be published.
+	_, err = s.Open(Hello{Network: "roger-public", Versions: []int{1}, TowerID: "tw-bad",
+		Capabilities:  []string{CapIntegrity, CapInnerSession},
+		RelayEndpoint: "203.0.113.7:8443", RelayTLSSPKI: "not-a-fingerprint"}, "tw-bad")
+	require.ErrorContains(t, err, "hub certificate pin")
+
+	// A pin with nothing to reach is a configuration mistake nobody could ever act on.
+	_, err = s.Open(Hello{Network: "roger-public", Versions: []int{1}, TowerID: "tw-orphan",
+		Capabilities: []string{CapIntegrity, CapInnerSession}, RelayTLSSPKI: pin}, "tw-orphan")
+	require.ErrorContains(t, err, "without a relay endpoint")
+}
+
+// A Tower released before the pin existed sends no such field, and must be admitted exactly as
+// it always was. This is the backward-compatibility claim made concrete: absent means plaintext
+// means today's behaviour, so the fleet does not have to be upgraded in one step.
+func TestATowerThatKnowsNothingOfTLSIsStillAdmitted(t *testing.T) {
+	s := New(Config{Network: "roger-public", Versions: []int{1},
+		Heartbeat: time.Minute, Freshness: 5 * time.Minute})
+	var h Hello
+	require.NoError(t, json.Unmarshal([]byte(`{"network":"roger-public","versions":[1],
+		"tower_id":"tw-old","capabilities":["frame-integrity-v1","inner-station-session-v1"],
+		"relay_endpoint":"203.0.113.7:8443"}`), &h))
+	_, err := s.Open(h, "tw-old")
+	require.NoError(t, err)
+	plane, ok := s.RelayPlane("tw-old")
+	require.True(t, ok)
+	require.Empty(t, plane.TLSSPKI, "no pin advertised means plaintext, which is what it serves")
 }
