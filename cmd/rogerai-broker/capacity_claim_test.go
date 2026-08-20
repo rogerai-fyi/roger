@@ -28,6 +28,22 @@ import (
 	"rogerai.fm/roger/v5/internal/store"
 )
 
+// The rig's three numbers, named rather than typed at each call site, because the assertions
+// below are DERIVED from them. A test that computes its expected bucket from the same constants
+// the rig serves under cannot drift out of step with the rig, and cannot fall back on a magic
+// number that was true of one machine on one afternoon.
+const (
+	// rigServeFloor is the minimum wall time one round trip through the rig takes, enforced by
+	// a sleep inside the node's own handler. It is the denominator's floor, so it is also the
+	// ceiling on any honest tokens-per-second the broker can measure here.
+	rigServeFloor = 50 * time.Millisecond
+	// rigHonestWords is how many words the node actually emits - and, because the sidecar
+	// counts one token per word, the TRUE token count of every completion in this file.
+	rigHonestWords = 10
+	// rigInflatedClaim is what the boastful node writes on its receipt for that same work.
+	rigInflatedClaim = 6000
+)
+
 // truthfulSidecar is a tokenizer stub that counts one token per whitespace-separated word -
 // which is what the node's completion text actually is here, so its answer is the TRUE count
 // and any gap between it and the receipt is the node's inflation and nothing else.
@@ -90,7 +106,7 @@ func capacityRig(t *testing.T, stream bool) (b *broker, drive func(claim, words 
 			// token count - which would make an assertion about the COUNT pass or fail on
 			// timing. Fifty milliseconds puts the elapsed term firmly in the denominator's
 			// control and leaves the count as the only thing that moves.
-			time.Sleep(50 * time.Millisecond)
+			time.Sleep(rigServeFloor)
 			if stream {
 				// The streamed path re-counts the text it CAPTURED, so the node has to
 				// actually stream it - a receipt with no deltas behind it is the
@@ -152,15 +168,16 @@ func measuredCapacity(b *broker) float64 {
 // the EWMA outright: one lie is the whole measurement.
 func TestTheCapacityEstimateUsesTheRecountedCountNotTheClaim(t *testing.T) {
 	b, drive := capacityRig(t, false)
-	drive(6000, 10)
+	drive(rigInflatedClaim, rigHonestWords)
 
 	measured := measuredCapacity(b)
 	require.Greater(t, measured, 0.0, "the under-load sample was never recorded at all")
 
-	// The node held the request for at least 50ms, so ten verified tokens cannot read above
-	// 200 tok/s however the scheduler behaves. The claim of 6000 reads around 120000, which is
-	// three thousand capacity slots against five.
-	require.LessOrEqual(t, measured, 200.0,
+	// The node held the request for at least rigServeFloor, so rigHonestWords verified tokens
+	// cannot read above that ratio however the scheduler behaves - 200 tok/s at the constants as
+	// they stand. The claim of 6000 reads around 120000, which is three thousand capacity slots
+	// against five. Derived rather than typed so the bound moves with the rig.
+	require.LessOrEqual(t, measured, float64(rigHonestWords)/rigServeFloor.Seconds(),
 		"the capacity EWMA (%.1f tok/s) was measured off the node's CLAIM of 6000 output tokens "+
 			"for a ten-word completion; the broker re-counted it at 10 and billed on that", measured)
 	require.Less(t, edgeCapacityOf(measured), 10,
@@ -172,36 +189,71 @@ func TestTheCapacityEstimateUsesTheRecountedCountNotTheClaim(t *testing.T) {
 // `"stream":true` bypass.
 func TestTheStreamedCapacityEstimateUsesTheRecountedCountToo(t *testing.T) {
 	b, drive := capacityRig(t, true)
-	drive(6000, 10)
+	drive(rigInflatedClaim, rigHonestWords)
 
 	measured := measuredCapacity(b)
 	require.Greater(t, measured, 0.0, "the streamed under-load sample was never recorded at all")
-	require.LessOrEqual(t, measured, 200.0,
+	require.LessOrEqual(t, measured, float64(rigHonestWords)/rigServeFloor.Seconds(),
 		"the streamed capacity EWMA (%.1f tok/s) was measured off the node's claim", measured)
 	require.Less(t, edgeCapacityOf(measured), 10,
 		"an over-reporting node won extra edge capacity slots through the streaming path")
 }
 
-// AND THE PLACEMENT CONSEQUENCE, stated as placement rather than as arithmetic: an honest node
-// and a boastful one that did identical work must score identically and tie in the P2C draw.
-// The `hw` fix asserted exactly this shape one commit ago; the lever simply moved one field
-// over, so the assertion has to move with it.
+// AND THE PLACEMENT CONSEQUENCE, stated as placement rather than as arithmetic: a boastful node
+// must win no more concurrency than the work it actually did can buy. The `hw` fix asserted this
+// shape one commit ago; the lever simply moved one field over, so the assertion moved with it.
+//
+// # WHY IT IS A BOUND AND NOT AN EQUALITY, WHICH IS A CORRECTION TO THIS TEST RATHER THAN TO THE CODE
+//
+// It used to time two independent rigs off the wall clock and then require.Equal on
+// edgeCapacityOf's output - EXACT equality on a step function, one line after tolerating fifty
+// percent divergence in the same underlying quantity. edgeCapacityOf rounds tok/s into buckets
+// forty wide, ten real tokens over a fifty-millisecond floor lands near two hundred, and two
+// hundred is five buckets almost exactly. So the two independently-scheduled rigs straddled the
+// boundary and the test failed roughly one run in five under -race: "expected: 4 actual: 5".
+// A shipped flake on the money path's neighbour, failing for a reason that has nothing to do
+// with what it guards.
+//
+// It was also insensitive to the thing it is named for. The rigs are timed separately, so the
+// equality would hold - or fail - identically if BOTH nodes claimed ten and no inflation existed
+// anywhere in the test. What it actually compared was two stopwatches.
+//
+// So the comparison is against a bound the rig's own constants make DETERMINISTIC. A serve that
+// takes at least rigServeFloor cannot report more than rigHonestWords over that floor, whatever
+// the scheduler does, so honest work here can never buy more than `honest` slots. If the claim
+// reached the divisor instead, the same round trip would read rigInflatedClaim over the same
+// floor and buy `lever` slots - six hundred times the throughput, and the clamp's ceiling. The
+// first assertion proves the lever is still there to be pulled, which is what stops the rest
+// from being vacuous; the second is the property, and it goes red the moment the claim reaches
+// concurrentTPS again.
 func TestAnInflatedTokenClaimDoesNotMovePlacement(t *testing.T) {
+	honest := edgeCapacityOf(float64(rigHonestWords) / rigServeFloor.Seconds())
+	lever := edgeCapacityOf(float64(rigInflatedClaim) / rigServeFloor.Seconds())
+	require.Greater(t, lever, honest,
+		"the rig no longer contains an inflation big enough to move a capacity bucket, so nothing "+
+			"below is testing anything: raise rigInflatedClaim or lower rigServeFloor")
+
 	honestB, honestDrive := capacityRig(t, false)
-	honestDrive(10, 10) // ten words, honestly counted
+	honestDrive(rigHonestWords, rigHonestWords) // ten words, honestly counted
 	boastB, boastDrive := capacityRig(t, false)
-	boastDrive(6000, 10) // the same ten words, claimed as six thousand
+	boastDrive(rigInflatedClaim, rigHonestWords) // the same ten words, claimed as six thousand
 
 	honestCap := measuredCapacity(honestB)
 	boastCap := measuredCapacity(boastB)
 	require.InDelta(t, honestCap, boastCap, honestCap*0.5+1,
 		"the boaster's measured capacity (%.1f) diverged from the honest node's (%.1f) on "+
 			"identical work", boastCap, honestCap)
-	require.Equal(t, edgeCapacityOf(honestCap), edgeCapacityOf(boastCap),
-		"a token claim bought a bigger concurrency allotment")
+	require.LessOrEqual(t, edgeCapacityOf(boastCap), honest,
+		"a token claim bought a bigger concurrency allotment: %d slots against the %d that ten "+
+			"real tokens over %s can buy, and the %d the claim would have bought",
+		edgeCapacityOf(boastCap), honest, rigServeFloor, lever)
+	require.LessOrEqual(t, edgeCapacityOf(honestCap), honest,
+		"the honest node exceeded the bound its own work implies; the rig's floor is not holding")
+
 	// And the tie-break the P2C draw uses, which is load PER UNIT OF CAPACITY - the same lever
-	// wearing a different hat, and the half a scoring-only fix would leave open.
-	require.InDelta(t, 1.0/float64(edgeCapacityOf(honestCap)), 1.0/float64(edgeCapacityOf(boastCap)), 1e-9,
+	// wearing a different hat, and the half a scoring-only fix would leave open. Smaller is
+	// better here, so the boaster must not get BELOW what honest work allows.
+	require.GreaterOrEqual(t, 1.0/float64(edgeCapacityOf(boastCap)), 1.0/float64(honest),
 		"the boaster still wins the power-of-two-choices draw")
 }
 

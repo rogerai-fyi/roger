@@ -31,6 +31,15 @@ func (m *memStore) Replace(towerID string, rows []Station) error {
 	seen := map[string]int{}
 	out := make([]Station, 0, len(rows))
 	for _, r := range rows {
+		// THE TOWER IS THE ARGUMENT, NOT THE FIELD, because that is what the durable store
+		// does: PGStore.Replace binds `towerID` into the INSERT and never reads r.TowerID, so
+		// a row whose field disagrees with the tower it is being published under comes back
+		// under the ARGUMENT there and under the FIELD here. Every caller passes them equal
+		// (publishRoutable stamps both from one variable), which is exactly why nothing has
+		// ever noticed - and why a parity suite that only ever writes them equal cannot. The
+		// reference store is not allowed to be more permissive than the store it is a
+		// reference for.
+		r.TowerID = towerID
 		if i, dup := seen[r.OfferID]; dup {
 			out[i] = r
 			continue
@@ -112,6 +121,13 @@ func (m *memStore) RoutableTowers(now time.Time) ([]string, error) {
 			}
 		}
 	}
+	// SORTED, for the same reason Candidates and ByTower are: this ranges a map, so without it
+	// the reference store answers identical calls in different orders while the durable one
+	// (which now says ORDER BY tower_id) does not. A parity assertion over a single-element
+	// result cannot see that, which is the whole reason it went unnoticed - a canary sweep
+	// walking this list would probe the fleet in a different order on every tick, and any
+	// ordering bug would hide behind Go's map randomisation rather than surface.
+	sort.Strings(out)
 	return out, nil
 }
 

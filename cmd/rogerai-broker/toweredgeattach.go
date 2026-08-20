@@ -195,7 +195,40 @@ func (b *broker) towerEdgeAttach(w http.ResponseWriter, r *http.Request) {
 				"revoke and re-attach with fresh keys to change model or price")
 			return
 		}
-		plane, _ := ts.link.RelayPlane(prior.Origin.TowerID)
+		// THE RELAY PLANE HAS TO BE THERE, AND `has` IS NOT A BOOL TO DROP.
+		//
+		// This read was `plane, _ := ts.link.RelayPlane(...)`, so a miss answered 200 with
+		// endpoint:"" and endpoint_tls_spki:"" - a reply shaped like a successful attach that
+		// cannot be used as one. The node refuses it ("attach answered without an endpoint"),
+		// counts its own re-attach as failed, backs off and asks again, and the discarded bool
+		// turns "I cannot answer this right now" into a loop with no error in it anywhere. Since
+		// re-attach became routine (internal/agent's serveTowerTenancy) this stopped being a
+		// lost-response corner and became a path nodes take whenever their relay has a bad day,
+		// which is what makes it worth a refusal rather than a silence.
+		//
+		// IT IS A REFUSAL AND NOT A RE-PLACEMENT, and that is a decision rather than laziness.
+		// A miss here has two causes and this handler cannot tell them apart. The first is
+		// ordinary and temporary: LiveTowers and RelayPlane reflect THIS instance's link
+		// sessions, and a Tower's link is held by exactly one broker, so a node that attached
+		// through the instance holding its Tower and re-attaches through a different one finds
+		// nothing with nothing wrong anywhere. The second is the one that hurts - the Tower is
+		// gone for good and this attachment names a relay that will never answer again.
+		//
+		// Re-placing would answer the second by breaking the first: a Station would ping-pong
+		// between Towers on nothing but which instance happened to take its attach. And it would
+		// do it by writing origin_tower, which today has exactly one writer - Admit's upsert,
+		// scoped by its WHERE clause to a dormant row - precisely so that a live Station's origin
+		// is not a value that moves underneath an attempt already in flight. Rehoming a LIVE
+		// Station is a real change with a real design (docs/relay-selection-design.md section 6),
+		// and it needs a settle-time fence that does not exist yet. What is owed here is an
+		// honest, retryable answer, which is what this is: the node's re-attach loop backs off
+		// and asks again, and the operator is told once rather than never.
+		plane, has := ts.link.RelayPlane(prior.Origin.TowerID)
+		if !has {
+			jsonErr(w, http.StatusServiceUnavailable,
+				"the tower this node is attached to has no data plane right now - try again shortly")
+			return
+		}
 		writeJSON(w, http.StatusOK, map[string]any{
 			"station_id": prior.StationID,
 			"tower_id":   prior.Origin.TowerID,

@@ -6,10 +6,21 @@ import (
 	"time"
 )
 
-// pollBackoff is how long a node waits after a hard poll/complete failure before retrying, so a
+// PollBackoff is how long a node waits after a hard poll/complete failure before retrying, so a
 // tower that is down or rejecting is not hammered. A normal empty long-poll is NOT an error and
 // carries no backoff.
-const pollBackoff = 2 * time.Second
+//
+// IT IS EXPORTED BECAUSE ANOTHER PACKAGE HAS TO DO ARITHMETIC WITH IT, and that is worth a
+// sentence rather than a shrug. internal/agent decides when a relay has stopped being a relay by
+// watching how long the errors coming out of this loop go on for, and the SPACING of those
+// errors is set here: one failure costs the client's timeout plus this backoff. When those two
+// numbers lived in different packages and neither was named at the other's declaration, the
+// agent's "quiet window" was chosen against this constant alone and turned out to be shorter
+// than one whole failure, so a hub that accepted a connection and never answered produced errors
+// too far apart to ever be a streak. A node polled a dead address forever and nothing tripped.
+// See hubFailureQuiet in internal/agent/tower.go, which is now DERIVED from this and from the
+// poll timeout rather than guessed alongside them.
+const PollBackoff = 2 * time.Second
 
 // emptyPollFloor is the minimum time an empty-poll cycle may take, a guard against a fast or
 // misbehaving tower returning 204 immediately (which would otherwise busy-spin the worker). A
@@ -48,7 +59,7 @@ func ServeLoop(ctx context.Context, c *Client, station string, exec Executor, on
 			}
 			report(onError, err)
 			select {
-			case <-time.After(pollBackoff):
+			case <-time.After(PollBackoff):
 			case <-ctx.Done():
 				return ctx.Err()
 			}

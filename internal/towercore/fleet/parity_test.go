@@ -88,7 +88,52 @@ func row(tower, station, offer, model string, expires time.Time) Station {
 		// store that drops it hands that consumer a plaintext URL for a TLS listener, which
 		// looks from the outside exactly like the tower being down.
 		TLSSPKI: strings.Repeat("ab", 32),
+		// AND THE PRICE, WHICH IS THE FOURTH TIME AND THE FIRST ONE ON THE MONEY PATH.
+		//
+		// These two were the last fields this helper left at their zero value, and zero is the
+		// one value the parity suites cannot police: both stores returned 0, 0 == 0, and every
+		// postgres subtest passed with price_in and price_out deleted from BOTH SELECTs and BOTH
+		// Scans. That is not a hypothetical - it was run.
+		//
+		// The blast radius is the reason this is worse than node_id was. Authorize re-checks the
+		// routable row's price against the public band with `if row.PriceIn != 0 || row.PriceOut
+		// != 0 { ...band check... }` (cmd/rogerai-broker/toweredge.go), so a dropped column does
+		// not read as "wrong price", it reads as "unpriced" - the band check is SKIPPED, the
+		// grant is minted with no price pinned into it, and the attempt bills under the byte
+		// tariff instead of the operator's listed per-token rate. No error, no log line, and the
+		// canary mints at the same row's price. A guard that a missing column switches off is
+		// worse than no guard, because the fleet view is where the number comes from.
+		//
+		// The two are DIFFERENT and neither is round, so a store that swaps the columns, or
+		// binds one argument twice, fails here rather than comparing equal to itself. Both sit
+		// inside towerPriceBand's public band for an ordinary model.
+		PriceIn:  1200,
+		PriceOut: 3400,
 	}
+}
+
+// wholeRow asserts a row came back EXACTLY as it was written, on either store.
+//
+// Field-by-field assertions are how PGStore.ByTower came to drop node_id from its SELECT
+// unnoticed, and how price_in/price_out could be deleted from both queries with ten postgres
+// subtests still green. Comparing the whole struct means the next column added is covered the
+// day it is added rather than the day somebody remembers to extend an assertion list.
+//
+// EXPIRES IS COMPARED SEPARATELY AND ON PURPOSE, rather than being copied from the result into
+// the expectation to make the structs match - which is what the ByTower assertion used to do,
+// and which compares the value against itself and could never fail. The two stores genuinely
+// disagree about the REPRESENTATION of an instant: Postgres round-trips timestamptz at
+// microsecond precision in UTC, and the in-memory store hands back the caller's own time.Time,
+// wall clock, monotonic reading and location intact. Neither is wrong; a struct equality over
+// them would fail for a reason that is not about the projection. So the instant is asserted as
+// an instant, to a tolerance that is looser than Postgres's precision and far tighter than any
+// divergence that would matter, and only then is the representation normalised away.
+func wholeRow(t *testing.T, want, got Station) {
+	t.Helper()
+	require.WithinDuration(t, want.Expires, got.Expires, time.Millisecond,
+		"the expiry came back as a different instant, not merely a different representation")
+	want.Expires = got.Expires
+	require.Equal(t, want, got, "every field written must come back, on both stores")
 }
 
 // The endpoint must survive the round trip through BOTH stores: it is what an edge consumer
@@ -148,25 +193,60 @@ func TestParityTheHubCertificatePinSurvivesBothReadPaths(t *testing.T) {
 	})
 }
 
+// The name has always said WHOLE; it used to check four fields of eleven. It checks the row now,
+// which is what makes the price columns - the ones an authorize prices a grant from - covered on
+// the placement read path and not only on the canary's.
 func TestParityCandidatesComeBackWhole(t *testing.T) {
 	each(t, func(t *testing.T, s Store) {
 		now := time.Now()
+		exp := now.Add(time.Minute)
+		want := row("tw-1", "st-1", "off-1", "m1", exp)
 		require.NoError(t, s.Replace("tw-1", []Station{
-			row("tw-1", "st-1", "off-1", "m1", now.Add(time.Minute)),
-			row("tw-1", "st-2", "off-2", "m2", now.Add(time.Minute)),
+			want,
+			row("tw-1", "st-2", "off-2", "m2", exp),
 		}))
 
 		got, err := s.Candidates("m1", now)
 		require.NoError(t, err)
 		require.Len(t, got, 1)
-		require.Equal(t, "tw-1", got[0].TowerID)
-		require.Equal(t, "st-1", got[0].StationID)
-		require.Equal(t, "off-1", got[0].OfferID)
-		require.Equal(t, "text", got[0].Modality)
+		wholeRow(t, want, got[0])
 
 		none, err := s.Candidates("nobody-serves-this", now)
 		require.NoError(t, err)
 		require.Empty(t, none)
+	})
+}
+
+// A ROW IS PUBLISHED UNDER THE TOWER REPLACE WAS CALLED FOR, not under the one its own field
+// happens to name, and the two stores must agree about that.
+//
+// PGStore binds the towerID ARGUMENT into every insert and never reads r.TowerID; the in-memory
+// store used to keep the field. Every caller passes them equal - publishRoutable stamps both
+// from one variable - so the divergence was invisible to a fixture that also always passed them
+// equal, which is the same shape of blindness as a field left at its zero value. It is asserted
+// rather than merely fixed because "the argument wins" is the durable store's behaviour and the
+// reference has to be held to it.
+func TestParityTheTowerAnArgumentNamesIsTheTowerTheRowIsPublishedUnder(t *testing.T) {
+	each(t, func(t *testing.T, s Store) {
+		now := time.Now()
+		exp := now.Add(time.Hour)
+		mislabelled := row("tw-somebody-else", "st-1", "of-1", "m", exp)
+		require.NoError(t, s.Replace("tw-1", []Station{mislabelled}))
+
+		got, err := s.Candidates("m", now)
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+		require.Equal(t, "tw-1", got[0].TowerID,
+			"the row was published under the tower Replace names, so that is the tower it belongs to")
+
+		mine, err := s.ByTower("tw-1", now)
+		require.NoError(t, err)
+		require.Len(t, mine, 1, "and it is that tower's row on the canary's read path too")
+		require.Equal(t, "tw-1", mine[0].TowerID)
+
+		none, err := s.ByTower("tw-somebody-else", now)
+		require.NoError(t, err)
+		require.Empty(t, none, "the field on the row never made it a second tower's row")
 	})
 }
 
@@ -318,10 +398,19 @@ func TestParityRoutableTowers(t *testing.T) {
 			stale := row("tw-stale", "st-3", "of-3", "m", now.Add(-time.Minute))
 			require.NoError(t, s.Replace("tw-stale", []Station{stale}))
 
+			// A SECOND ROUTABLE TOWER, so the assertion below is about a LIST and not about a
+			// single element. With one expected member neither store's ordering could be wrong:
+			// PGStore returned whatever DISTINCT gave it and the mem store ranged a map, and a
+			// one-element result is sorted whatever you do to it. Both are ordered now, and this
+			// is what would notice if either stopped being.
+			alsoEdge := row("tw-alpha", "st-4", "of-4", "m", exp)
+			require.NoError(t, s.Replace("tw-alpha", []Station{alsoEdge}))
+
 			towers, err := s.RoutableTowers(now)
 			require.NoError(t, err)
-			require.Equal(t, []string{"tw-edge"}, towers,
-				"only a Tower with an unexpired data plane can be canaried")
+			require.Equal(t, []string{"tw-alpha", "tw-edge"}, towers,
+				"only a Tower with an unexpired data plane can be canaried, and the fleet comes "+
+					"back in the same order on both stores so a sweep walks it the same way twice")
 		})
 	}
 }
@@ -332,9 +421,10 @@ func TestParityByTower(t *testing.T) {
 	now := time.Now()
 	for name, s := range stores(t) {
 		t.Run(name, func(t *testing.T) {
+			live := now.Add(time.Hour)
 			require.NoError(t, s.Replace("tw-1", []Station{
-				row("tw-1", "st-a", "of-a", "m", now.Add(time.Hour)),
-				func() Station { r := row("tw-1", "st-old", "of-old", "m", now.Add(-time.Minute)); return r }(),
+				row("tw-1", "st-a", "of-a", "m", live),
+				row("tw-1", "st-old", "of-old", "m", now.Add(-time.Minute)),
 			}))
 			require.NoError(t, s.Replace("tw-2", []Station{row("tw-2", "st-b", "of-b", "m", now.Add(time.Hour))}))
 
@@ -343,13 +433,9 @@ func TestParityByTower(t *testing.T) {
 			require.Len(t, mine, 1, "only this Tower's unexpired rows")
 			require.Equal(t, "st-a", mine[0].StationID)
 			require.Equal(t, "203.0.113.7:8443", mine[0].Endpoint)
-			// Assert the WHOLE row, not two fields of it. Asserting field-by-field is how
-			// PGStore.ByTower came to drop node_id from its SELECT unnoticed: the column was
-			// added, this test kept checking the two fields it always had, and the store
-			// silently returned a zero value for the third. Comparing against what was
-			// written means the next column added is covered the day it is added.
-			require.Equal(t, row("tw-1", "st-a", "of-a", "m", mine[0].Expires), mine[0],
-				"every field written must come back, on both stores")
+			// Assert the WHOLE row, not two fields of it - see wholeRow, including why the
+			// expiry is compared as an instant rather than copied out of the answer.
+			wholeRow(t, row("tw-1", "st-a", "of-a", "m", live), mine[0])
 
 			none, err := s.ByTower("tw-nobody", now)
 			require.NoError(t, err)

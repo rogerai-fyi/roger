@@ -131,7 +131,12 @@ func (p *PGStore) Forget(towerID string) error {
 func (p *PGStore) RoutableTowers(now time.Time) ([]string, error) {
 	rows, err := p.db.Query(`
 		SELECT DISTINCT tower_id FROM rogerai.tower_routable
-		 WHERE endpoint <> '' AND expires > $1`, now.UTC())
+		 WHERE endpoint <> '' AND expires > $1
+		 -- ORDERED, so a canary sweep walks the fleet the same way twice and so the in-memory
+		 -- reference has something deterministic to be held against. DISTINCT does not promise
+		 -- an order, and the parity suite could not see that while it only ever asserted a
+		 -- one-element result.
+		 ORDER BY tower_id ASC`, now.UTC())
 	if err != nil {
 		return nil, err
 	}

@@ -292,17 +292,88 @@ func costlyRelayError(err error) bool {
 // EVIDENCE - a relay that has stopped answering, continuously, for long enough that it is not
 // having a bad minute - and the response is a jittered exponential backoff so a broken tower
 // produces a slow drip of attaches rather than a stampede.
+//
+// # WHAT THIS RECOVERS, AND WHAT IT ONLY MAKES VISIBLE
+//
+// The list above is the list of things that STRANDED a node. It is not the list of things asking
+// Core again fixes, and the two were written as though they were the same. Core's attach handler
+// answers a live attachment from its idempotent-retry branch, which never re-runs placement: the
+// tower named in the reply is the tower this Station was placed on the first time, and nothing
+// in the system rewrites that for a live Station. So what a re-attach re-reads is the TOWER'S
+// LINK - the endpoint, the certificate pin, the identity fingerprint - and what it recovers is
+// exactly the failures that change one of those:
+//
+//   - a tower turning TLS on, or off
+//   - a certificate rotation, which is the same bill on every renewal
+//   - a tower that moved: a new address, a new port, a rescheduled container, a renewed lease
+//   - anything else Core would answer differently about the SAME tower
+//
+// A tower that stops EXISTING - lease lost, revoked, switched off - is a different case, and
+// asking Core again does not solve it. Core refuses (there is no relay plane for a tower with no
+// link session), the node backs off and asks again, and the operator is told. That is bounded
+// and visible instead of silent and permanent, which is worth having, and it is not a recovery.
+// Moving a live Station onto another tower is section 6 of docs/relay-selection-design.md; it
+// needs a settle-time fence that does not exist yet, because an in-flight attempt settles
+// against the origin the attachment names. TestATowerThatStopsExistingIsNotRecoveredByReattaching
+// pins the limitation so that nobody has to re-derive it from a hopeful test name.
+
+// hubPollTimeout is the deadline on every hub call a tenancy makes, and it is declared HERE,
+// beside the streak constants, rather than inline at the http.Client it configures - because it
+// is not only a timeout, it is the dominant term in how long a single failure takes to arrive.
+// It has to be longer than the tower's own long-poll TTL or an ordinary empty poll would be cut
+// short and reported as a failure; everything below is derived from it.
+const hubPollTimeout = 60 * time.Second
 
 // hubFailureQuiet is how long the workers must go without a single complaint before a failure
 // streak is considered over. A healthy serve loop is SILENT - an empty long poll is not an error
-// and reports nothing - so a full minute of quiet is strong evidence, and it is what stops one
-// bad poll an hour accumulating into a "standing" failure on a node that has served all day.
-var hubFailureQuiet = 60 * time.Second
+// and reports nothing - so a stretch of quiet is strong evidence, and it is what stops one bad
+// poll an hour accumulating into a "standing" failure on a node that has served all day.
+//
+// IT IS DERIVED, AND THE DERIVATION IS THE FIX FOR A DEFECT THAT MADE THIS WHOLE MECHANISM
+// UNREACHABLE FOR THE COMMONEST OUTAGE THERE IS.
+//
+// This was a flat sixty seconds, chosen as "a minute of quiet", which sounds like a judgement
+// about evidence and is in fact a race against a number in another package. The workers report
+// one error per FAILURE, and a failure costs hubPollTimeout (waiting for an answer that is not
+// coming) plus towerhub.PollBackoff (the wait before trying again): sixty-two seconds, against a
+// quiet window of sixty. Every error therefore arrived AFTER the window it was supposed to
+// extend, restarted the streak instead of continuing it, and the standing window below was never
+// reached - not once, not ever, on a node polling for hours.
+//
+// And it was not an exotic failure that produced it. It was a hub that accepts the connection
+// and answers nothing: powered off with the socket still listening, an IP reassigned under a
+// running listener, a firewall or NAT rule that black-holes rather than refuses. That is
+// precisely "a tower going away", the case this file exists for. The refusing variant - a closed
+// port, an RST in milliseconds - recovered in ninety seconds exactly as designed, which is why
+// the tests all passed: they were written against the failure that answers fast.
+//
+// So the number is no longer chosen. The quiet window is the slowest single failure this loop
+// can produce, plus a margin, which makes it STRUCTURALLY impossible for one error to outlast
+// it however slow the failure gets. Change the timeout, change the backoff, and this moves with
+// them; that relationship is the actual invariant and it is now written down in code rather than
+// re-derived by whoever reads it next. TestASlowFailureStillAccumulatesIntoAStreak asserts it at
+// production values.
+var hubFailureQuiet = hubPollTimeout + towerhub.PollBackoff + hubQuietMargin
+
+// hubQuietMargin is what separates "the errors stopped" from "the errors are just slow". It is
+// the only judgement call left in hubFailureQuiet: a gap longer than one whole failure plus this
+// is a relay that answered something, or a worker that had nothing to complain about, and either
+// way it is not the same streak.
+const hubQuietMargin = 30 * time.Second
 
 // hubStandingWindow is how long a relay must be continuously unusable before this node stops
-// believing in it. Three poll cycles, or forty-five two-second backoffs: long enough that a
-// redeploy, a lease renewal or a bad network minute has had its chance, short enough that an
-// operator does not lose an afternoon of relay earnings to a certificate they never saw rotate.
+// believing in it. Long enough that a redeploy, a lease renewal or a bad network minute has had
+// its chance, short enough that an operator does not lose an afternoon of relay earnings to a
+// certificate they never saw rotate.
+//
+// IT IS WALL CLOCK, AND HOW MANY FAILURES FIT INSIDE IT IS NOT FIXED - which is the sentence the
+// first version of this comment got wrong. It said "three poll cycles, or forty-five two-second
+// backoffs", costing the window against towerhub.PollBackoff alone as though the request in
+// front of the backoff were free. It is not: a hub that REFUSES fails in milliseconds and
+// produces the forty-five errors that sentence imagines, while a hub that ACCEPTS AND HANGS
+// costs hubPollTimeout per failure and produces two. Both trip this window, because it is
+// measured in seconds rather than in complaints, and the quiet window above is what guarantees
+// the second case accumulates at all.
 var hubStandingWindow = 90 * time.Second
 
 // reattachBackoffBase and reattachBackoffCap bound the wait before asking Core again.
@@ -317,11 +388,54 @@ var (
 	reattachBackoffCap  = 15 * time.Minute
 )
 
+// firstAttachAttempts is how many times a node asks for its FIRST relay before giving up until
+// the next `roger share`.
+//
+// IT IS BOUNDED WHERE A RE-ATTACH IS NOT, and the asymmetry is the whole of the reasoning. A
+// later attach is retried for the life of the process because this node WAS on the fabric - its
+// absence is a change, and the population that asks is the population behind one broken tower.
+// A first attach that keeps being refused is a different population: "no relay is free" is a
+// fleet-wide condition, so retrying it forever would put every node in the fleet at Core's door
+// on a schedule, which is the spike this design refused on its first page.
+//
+// Five, on the jittered exponential backoff below, is between four and eight minutes of asking -
+// long enough to cover a Core redeploy or a tower reconnecting, short enough that a fabric with
+// genuinely nothing free is not being polled all afternoon by nodes that are already registered,
+// discoverable and earning on the classic path.
+var firstAttachAttempts = 5
+
 // reattachStreakReset is how long a tenancy must have LASTED for the backoff to start over. A
-// relay that carried work for ten minutes and then broke is a fresh event, not the eleventh
-// attempt at an old one; without this a node that recovers, serves for an hour and breaks again
-// would begin its next recovery at the fifteen-minute cap.
+// relay that STOOD for ten minutes and then broke is a fresh event, not the eleventh attempt at
+// an old one; without this a node that recovers, serves for an hour and breaks again would begin
+// its next recovery at the fifteen-minute cap - fifteen minutes off the relay plane for an
+// outage that has nothing to do with the one before it.
+//
+// IT IS TENANCY DURATION AND NOT WORK CARRIED, which the first version of this comment claimed.
+// The distinction matters because they are not the same evidence and only one of them is
+// available here: a node has no say in whether any consumer tuned in, so a relay that held up
+// perfectly through a quiet ten minutes would be judged as harshly as one that was broken the
+// whole time. Duration is also the stronger signal for the question actually being asked. A
+// tenancy ends only when the relay has been continuously unusable for hubStandingWindow, so ten
+// minutes of tenancy IS ten minutes of a hub answering its polls - an empty long poll is a
+// successful poll - whether or not there was work to hand out.
 var reattachStreakReset = 10 * time.Minute
+
+// streakAfterTenancy folds one finished tenancy into the consecutive-failure count the backoff
+// is computed from: a tenancy that lasted starts the count over, a short one carries it on.
+//
+// IT IS A FUNCTION BECAUSE IT HAD NO COVERAGE AS A LINE. Every test in this package shortens the
+// re-attach timings through fastReattach, which sets reattachStreakReset to an hour so that no
+// test's tenancy ever reaches it - deliberately, because none of them are about the backoff's
+// memory. The consequence was that the reset never executed under test at all: a decision on the
+// operator-visible recovery path, reachable in production on any node whose relay breaks twice in
+// a day, with nothing asserting it in either direction. Pulling it out of the loop is what makes
+// it addressable without standing up a ten-minute tenancy.
+func streakAfterTenancy(consecutive int, lasted time.Duration) int {
+	if lasted >= reattachStreakReset {
+		return 0
+	}
+	return consecutive
+}
 
 // ErrRelayReattaching is what the operator is told when this node gives up on its relay and goes
 // back to Core for a current one.
@@ -363,11 +477,27 @@ var errHubStanding = errors.New("this relay has stopped being usable")
 //     towerhub's signedDo learns the hub's proved epoch and re-sends once; what reaches here is a
 //     hub that will not have this node, and ErrHubRefusedThisNode already hands the operator the
 //     sentence they can act on.
+//
+//     ON AN UNPINNED LINK THIS EXCLUSION IS ALSO A SUPPRESSION SWITCH FOR ANYONE ON THE PATH, and
+//     that has to be said rather than left for the next reader to find. ErrHubChannelPlaintext
+//     states the premise outright: on a link with no certificate pin, anyone between this node
+//     and its relay can feed it a 204 or a 401 the relay never sent. A 401 is excluded here and a
+//     204 is not an error at all, so an injector holds this node's failure streak at zero
+//     indefinitely - it never reaches hubStandingWindow, never asks Core again, and never learns
+//     that its relay moved or that its certificate changed. The reasoning above is still right
+//     for an HONEST hub, which is the only party a pinned link lets answer; what an unpinned link
+//     adds is that "the hub has decided this node is nobody" is a sentence this node cannot
+//     attribute to the hub. The suppression is not new - before re-attachment there was nothing
+//     to suppress - and the answer is not a different classifier, because a node that re-attached
+//     on 401s would hand every mismatched pair in the fleet a permanent load at Core. The answer
+//     is the pin. See docs/relay-selection-design.md section 5.0 item 10.
+//
 //   - TWO HUB PROCESSES BEHIND ONE ENDPOINT. The only state that DETECTS this is the client's
 //     retired-epoch memory, and a re-attach builds a fresh client with an empty one - so the node
 //     would flap between the two processes, detect it again, re-attach again, and turn a hard stop
 //     that names an unsupported deployment into a loop that hides it. The address is not stale
 //     here; what is behind it is wrong, and saying so is the whole point.
+//
 //   - A COMPLETION THE HUB TOOK BUT DID NOT COURIER, or a result that could not be handed back.
 //     Both cost the operator real money and both are already loud - but both PROVE the relay is
 //     up and handing this node work, which is the opposite of the evidence this function is for.
@@ -702,15 +832,49 @@ func ServeTower(ctx context.Context, cfg Config, priv ed25519.PrivateKey, dir st
 		exec                station.EdgeExecutor
 		coreKey, coreEnvKey []byte
 		consecutive         int
+		firstTries          int
+		gen                 int
 	)
-	for gen := 0; ; gen++ {
+	for {
 		if ctx.Err() != nil {
 			return nil
 		}
 		st, at, err := AttachTower(cfg, priv, dir)
 		if err != nil {
 			if gen == 0 {
-				return err
+				// THE FIRST ATTACH IS RETRIED NOW, A FEW TIMES, AND THAT IS A CHANGE OF MIND.
+				//
+				// It used to return on the first failure, and the reasoning was that "no relay is
+				// free right now" is an ordinary answer to a question the operator did not ask.
+				// True, and it left generation zero holding exactly the defect this whole loop
+				// exists to remove: a `roger share` that starts while Core is mid-redeploy, or
+				// while its tower's link is reconnecting, gets no relay plane for the life of the
+				// process and the only remedy is an operator restarting a share that is otherwise
+				// working perfectly. A redeploy is minutes; a share runs for days.
+				//
+				// BOUNDED RATHER THAN ENDLESS, because the two cases are genuinely different.
+				// A LATER attach is retried forever: that node WAS on the fabric, so its absence
+				// is a change, and the population asking is the population behind one broken
+				// tower. A FIRST attach that keeps being refused may be every node in the fleet
+				// at once - "the fabric has nothing free" is a fleet-wide condition, not a
+				// per-tower one - and turning that into a permanent poll at Core is the schedule
+				// this design refused on the first page. firstAttachAttempts covers a redeploy
+				// and stops well short of a standing load.
+				//
+				// It costs the operator nothing to wait: `roger share` calls this on a goroutine
+				// of its own, after the node is registered, discoverable, probed and earning on
+				// the classic path. And the contract the caller depends on is unchanged - the
+				// same error is still RETURNED, just after this node has given the condition a
+				// chance to end, and ErrPrivateShareNeverRelays is structural rather than
+				// temporary so it never waits at all.
+				firstTries++
+				if errors.Is(err, ErrPrivateShareNeverRelays) || firstTries >= firstAttachAttempts {
+					return err
+				}
+				if !waitFor(ctx, reattachDelay(firstTries-1)) {
+					return nil
+				}
+				continue
 			}
 			// This node was serving through a relay a moment ago and now cannot get back on. That
 			// is worth saying once, and worth asking again about: a tower whose lease is being
@@ -762,9 +926,25 @@ func ServeTower(ctx context.Context, cfg Config, priv ed25519.PrivateKey, dir st
 				at.TowerID, at.Endpoint, terr))
 		case gen == 0:
 			// The first tenancy could not be started at all - an endpoint Core advertised that
-			// cannot be reached as advertised, most likely a malformed pin. Returned, as it always
-			// was, so the caller's best-effort handling is unchanged.
-			return terr
+			// cannot be reached as advertised, most likely a malformed pin. It is asked about
+			// again, on the same bounded budget as a refused first attach and for the same
+			// reason: the plane Core publishes is read from the tower's LIVE link session, so an
+			// endpoint that is malformed or unreachable this second is a thing a tower
+			// reconnecting can fix without anybody restarting a share. When the budget is spent
+			// the error is RETURNED exactly as it always was, so the caller's best-effort
+			// handling is unchanged - it just happens a few minutes later, on a goroutine nobody
+			// is waiting on. Looping here re-enters the gen == 0 block above, so Core's keys are
+			// re-fetched and the executor rebuilt: free, because a tenancy that never started
+			// served nothing, and correct, because a Core that could not be reached a minute ago
+			// is exactly the condition being waited out.
+			firstTries++
+			if firstTries >= firstAttachAttempts {
+				return terr
+			}
+			if !waitFor(ctx, reattachDelay(firstTries-1)) {
+				return nil
+			}
+			continue
 		case terr == nil:
 			// Every worker returned without ctx being done. ServeLoop only returns on ctx, so this
 			// is unreachable today; if it ever becomes reachable it is a stopped plane, not a
@@ -775,15 +955,14 @@ func ServeTower(ctx context.Context, cfg Config, priv ed25519.PrivateKey, dir st
 			// ask Core again rather than leaving the plane for the life of the process.
 			notice.notify(fmt.Errorf("%w: %w", ErrRelayReattachFailed, terr))
 		}
-		// A tenancy that CARRIED for a while and then broke is a fresh event, not the next attempt
+		// A tenancy that STOOD for a while and then broke is a fresh event, not the next attempt
 		// at an old one, so it starts the backoff over.
-		if time.Since(started) >= reattachStreakReset {
-			consecutive = 0
-		}
+		consecutive = streakAfterTenancy(consecutive, time.Since(started))
 		if !waitFor(ctx, reattachDelay(consecutive)) {
 			return nil
 		}
 		consecutive++
+		gen++
 	}
 }
 
@@ -796,8 +975,10 @@ func ServeTower(ctx context.Context, cfg Config, priv ed25519.PrivateKey, dir st
 func serveTowerTenancy(ctx context.Context, cfg Config, at TowerAttachment,
 	exec station.EdgeExecutor, coreEnvKey []byte, out io.Writer, notice Notice) error {
 	// THE HUB CLIENT IS BUILT ONCE PER TENANCY, HERE, AND ITS TLS SETTINGS ARE NOT NEGOTIABLE
-	// LATER. A timeout longer than the tower's poll TTL so a long poll is not cut short - and,
-	// when Core published a pin, a transport that accepts exactly the certificate the pin names.
+	// LATER. hubPollTimeout is longer than the tower's poll TTL so a long poll is not cut short -
+	// it is declared with the streak constants because it is also the dominant term in how long a
+	// single failure takes to surface, and hubFailureQuiet is derived from it. When Core published
+	// a pin, the transport accepts exactly the certificate the pin names.
 	//
 	// TLS IS NOT REQUIRED, and that is a decision rather than an omission. Requiring it would take
 	// every relay whose operator has not yet turned it on off the air, and with it every node
@@ -807,7 +988,7 @@ func serveTowerTenancy(ctx context.Context, cfg Config, at TowerAttachment,
 	// of the two changes that turn "every node must be restarted by hand" into a migration
 	// operators do not have to attend.
 	base, hubHTTP, plaintext, err := hubBaseURL(at.Endpoint, at.EndpointTLSSPKI,
-		&http.Client{Timeout: 60 * time.Second})
+		&http.Client{Timeout: hubPollTimeout})
 	if err != nil {
 		return fmt.Errorf("this relay's data plane cannot be reached as advertised: %w", err)
 	}

@@ -26,6 +26,16 @@ import (
 // data-plane endpoint - the state a real roger-tower reaches after `register` + serve.
 func liveEdgeTower(t *testing.T, b *broker, srv *httptest.Server, login, endpoint string) linkTower {
 	t.Helper()
+	lt, _ := liveEdgeTowerSession(t, b, srv, login, endpoint)
+	return lt
+}
+
+// liveEdgeTowerSession is liveEdgeTower plus the session id it opened, which is what a test
+// needs to hang that link UP again. It is a separate signature rather than a wider one because
+// every existing caller wants the Tower and nothing else, and the session id is only interesting
+// to the handful of tests about what Core does when a Tower's link is no longer here.
+func liveEdgeTowerSession(t *testing.T, b *broker, srv *httptest.Server, login, endpoint string) (linkTower, string) {
+	t.Helper()
 	op := signedInOperator(t, b, login)
 	lt := enrolledTower(t, b, op.login)
 	require.NoError(t, b.tower.registry.Transition(lt.id, admit.StateActive))
@@ -35,7 +45,8 @@ func liveEdgeTower(t *testing.T, b *broker, srv *httptest.Server, login, endpoin
 		Capabilities: mandatoryCaps(), RelayEndpoint: endpoint,
 	}), &acc)
 	require.Equal(t, http.StatusOK, code, raw)
-	return lt
+	require.NotEmpty(t, acc.SessionID)
+	return lt, acc.SessionID
 }
 
 func selfAttachBody(t *testing.T) (map[string]any, ed25519.PublicKey) {
@@ -290,6 +301,71 @@ func TestSelfAttachRetryIsIdempotent(t *testing.T) {
 	ats, err := b.tower.stations.ByTower(first.TowerID)
 	require.NoError(t, err)
 	require.Len(t, ats, 1)
+}
+
+// A RE-ATTACH WHOSE TOWER HAS NO DATA PLANE IS REFUSED, NOT ANSWERED WITH AN EMPTY ENDPOINT.
+//
+// The idempotent branch above reads the relay plane off the Tower this Station is attached to,
+// and it used to discard RelayPlane's second return value. A miss therefore produced a 200
+// carrying endpoint:"" and endpoint_tls_spki:"" - a reply shaped exactly like a successful attach
+// that no node can act on. `roger share` refuses it ("attach answered without an endpoint"),
+// counts its own re-attach as failed and backs off, so the whole exchange is a round trip that
+// says nothing, logs nothing, and repeats. It mattered little when the only caller was a node
+// that had lost a reply; it matters now that internal/agent re-attaches whenever its relay has a
+// standing failure, which is the case where the plane is most likely to be missing.
+//
+// AND THE SECOND HALF IS THE ONE WORTH READING: THE STATION IS NOT RE-PLACED. There is a live,
+// edge-capable Tower standing right there with a data plane, and Core still refuses rather than
+// moving the Station onto it. That is deliberate. A missing plane means "no live link session on
+// THIS instance", and a Tower's link is held by exactly one broker - so re-placing would move a
+// Station between Towers on nothing but which instance answered its attach, by writing
+// origin_tower, whose single writer (Admit's upsert) is scoped to dormant rows precisely so a
+// live Station's origin cannot move under an attempt in flight. Rehoming a live Station is
+// section 6 of docs/relay-selection-design.md and it needs a settle-time fence that does not
+// exist. Until then the honest answer is "not now", and this test is what stops the quiet
+// non-answer coming back.
+func TestSelfAttachRetryIsRefusedWhenItsTowerHasNoDataPlane(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	tw, sess := liveEdgeTowerSession(t, b, srv, "tower-op", "203.0.113.9:8443")
+	node := signedInOperator(t, b, "node-op")
+	body, _ := selfAttachBodyFor(t, b, node)
+
+	var first struct {
+		StationID string `json:"station_id"`
+		TowerID   string `json:"tower_id"`
+		Endpoint  string `json:"endpoint"`
+	}
+	code, raw := node.call(t, srv, http.MethodPost, "/tower/edge/attach", body, &first)
+	require.Equal(t, http.StatusOK, code, raw)
+	require.Equal(t, tw.id, first.TowerID)
+	require.Equal(t, "203.0.113.9:8443", first.Endpoint)
+
+	// THE TOWER'S LINK GOES. From this instance's side that is indistinguishable between a
+	// Tower that hung up, one whose link is held by a sibling broker, and one that is never
+	// coming back - which is the whole reason the answer below is a refusal.
+	b.tower.link.Close(sess, tw.id)
+	require.False(t, b.tower.link.Live(tw.id))
+
+	// A SECOND TOWER IS LIVE AND EDGE-CAPABLE, so "no tower can host this node" is not the
+	// reason for what happens next. Placement is simply not re-run for a live attachment.
+	other := liveEdgeTower(t, b, srv, "tower-op-2", "203.0.113.11:8443")
+	require.NotEqual(t, tw.id, other.id)
+
+	var out map[string]any
+	code, raw = node.call(t, srv, http.MethodPost, "/tower/edge/attach", body, &out)
+	require.Equal(t, http.StatusServiceUnavailable, code,
+		"a retry whose tower has no data plane was answered 200 with an unusable endpoint: %s", raw)
+	require.Empty(t, out["endpoint"], "an attach answer that names no endpoint is not an attach answer")
+
+	// NOTHING MOVED. The attachment still names the Tower it was placed on, still live, so a
+	// receipt already in flight against that origin still settles.
+	at, found, err := b.tower.stations.Station(first.StationID)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, tw.id, at.Origin.TowerID,
+		"the refusal must not have quietly rehomed a live Station; that is section 6 work and it "+
+			"needs a settle-time fence this branch does not have")
+	require.True(t, at.Live())
 }
 
 // A banned account cannot attach a node, however validly it signs.

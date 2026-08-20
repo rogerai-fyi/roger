@@ -319,7 +319,9 @@ and left the *shape*.
   so if dormancy freed it, anyone watching the link could bind it elsewhere and the rightful
   owner's return would be refused for a key they never gave up — recovery a stranger can block is
   not recovery. Waking is narrow: dormant state, same owner, same origin kind, both keys. The
-  epoch advances (a revival may land on a different Tower, and the epoch is the fence), the audit
+  epoch advances (a revival may land on a different Tower, and the epoch is *meant* to be the
+  fence — see §6.6: it is minted, signed into the grant and stored on the dispatch record, and it
+  is compared against nothing at settle, so the fence is a field and not yet a check), the audit
   proof carries forward (a fact about the machine, not the attachment), and `last_routable` is
   cleared (or the fresh attachment would sit past the idle horizon and be swept again seconds
   after coming home).
@@ -478,6 +480,16 @@ properties below were bought by the in-band work and would survive its removal.
     forge those answers**, not merely the relay. On a **pinned** link the whole channel is
     authenticated to the certificate Core named, so response injection by a third party is gone
     and every answer is attributable to the relay itself.
+    **And since re-attachment landed, an injector on an unpinned link can hold a node on a dead
+    relay indefinitely.** The re-attach trigger deliberately excludes a `401` — for an honest hub
+    that is right, because attach is idempotent and Core would answer with the same tower and the
+    same refusal from every mismatched pair in the fleet — but the exclusion is a decision made
+    about an answer this node cannot attribute. A party on the path who feeds a node `401`s (or
+    `204`s: an empty long poll is not an error and reports nothing) suppresses the standing-failure
+    streak entirely, so the node never asks Core again and never learns that its relay moved.
+    The suppression is not new; what is new is that there is now something to suppress. It is one
+    more item on the list of things a pinned link buys and an unpinned one does not, and it is
+    another reason 5.7's recommendation is the direction of travel rather than an optional extra.
 11. **A HOSTILE RELAY IS UNCHANGED BY ANY OF THIS, pinned or not.** It can refuse to serve a node,
     drop its work, or lie about what it saw; the sealed envelope is what makes that a denial
     rather than a theft. TLS authenticates *which* relay is answering. It has never had anything
@@ -1181,8 +1193,13 @@ Nothing here is inference. The path is:
   existed. `resolveEdgeCandidates` → `targetFromAttachment` (`towerdispatch.go:162`) then
   *enforces* that pairing: `if at.Origin.TowerID != towerID { return false }`.
 - `internal/agent/tower.go` attaches once per share and its `ServeLoop` workers poll that one
-  hub. (As of this branch it re-attaches on a standing hub failure — see §6.8 slice 2 for why
-  that is the seed of M4 and not a substitute for it.)
+  hub. (As of this branch it re-attaches on a standing hub failure — see §6.9 slice 2 for why that
+  is the seed of M4 and not a substitute for it. What a re-attach can change is everything about
+  the SAME tower — its address, its certificate pin, its identity fingerprint — because those are
+  re-read from the tower's live link session. It cannot change the TOWER, for the reason this
+  section is about: Core's attach handler answers a live attachment from its idempotent-retry
+  branch and never re-runs placement, and no writer anywhere moves a live station's
+  `origin_tower`.)
 
 So a consumer in Lisbon asking for a node in Lisbon is dragged through whichever tower that node
 happened to attach to, possibly in Ohio, and the placement code that would like to do better has
@@ -1348,16 +1365,43 @@ behind the settling tower. Without it, the station owner is read from whatever t
 at settle time. That is still correct (the station's owner is the station's owner) and it should
 be stated rather than discovered.
 
-**And the gate is losing money today, before any of this.** If a station is rehomed, swept dormant
-or revoked between authorize and settle — a window of up to the grant lifetime plus
-`maxEdgeSettleGrace` (10 minutes) — the attempt becomes **unsettleable by anybody**. The relay
-that actually carried the bytes and holds the receipt is refused 403 by this gate; a different
-tower would be refused 404 by `ClaimByID`. `towerjoin.SettleEdgeReceipt` treats any 4xx as
-`ErrSettlePermanent` and abandons, so there is no retry that could ever repair it. The consumer's
-hold is swept (nobody is charged, which is the safe direction), the station operator earns nothing
-for work actually performed, and the relay operator earns nothing for bytes actually carried. The
-loss is silent, asymmetric, and falls entirely on the honest parties. **Replacing the gate fixes
-this today, independent of M3** — see slice 0.
+**And the gate would lose money the moment M3 lands — but it is NOT losing money today, and an
+earlier version of this section said it was.** The claim was that a station rehomed, swept dormant
+or revoked between authorize and settle makes the attempt **unsettleable by anybody**: the relay
+that carried the bytes and holds the receipt is refused 403 by this gate, a different tower is
+refused 404 by `ClaimByID`, and `towerjoin.SettleEdgeReceipt` treats any 4xx as
+`ErrSettlePermanent` and abandons, so nothing can repair it. The mechanism is right and the
+*reachability* was never checked. It was checked afterwards, and none of the three triggers fires
+inside a settlement window:
+
+- **Rehome cannot happen at all.** `origin_tower` has exactly ONE writer in either store — Admit's
+  upsert (`attach/pgstore.go:322-332`, `attach/memstore.go:141`) — and its `WHERE` requires
+  `state = 'dormant'`. Dormancy requires seven days with no `last_routable` stamp. A station that
+  has just done real work has a fresh stamp by construction, so the precondition cannot be met
+  inside a window of the grant's lifetime plus ten minutes. There is no other writer: nothing in
+  the codebase moves a live station's origin, which is also why re-attachment cannot move a node
+  off a dead tower (§6.9 slice 2, and `internal/agent/tower.go`).
+- **Revoke and DetachIdle do not touch `origin_tower` at all.** Both write `state` and nothing
+  else (`UPDATE ... SET state = $3`), so a revoked or swept-dormant station still satisfies
+  `at.Origin.TowerID == req.TowerID` and settles normally. For two of the three triggers this
+  section named, the stated mechanism was simply wrong.
+
+**So it is an M3 RISK, not a live bug, and it is a real one.** M3's whole point is that the relay
+becomes a per-attempt choice — at which moment "the tower that carried this attempt" and "the tower
+this station is attached to" stop being equal by construction, and this gate starts refusing the
+honest relay on the ordinary path rather than on a path nothing can reach. Slice 0 is therefore
+worth landing *before* M3 for the reason it was always worth landing — it makes "which relay
+carried this" a per-attempt fact on the money path — and not because it recovers money today. It
+recovers none.
+
+**And the fence M3 counts on does not exist yet.** `dispatch.Record.StationEpoch` is documented
+as the thing that "fences a rehome: work granted under the old origin cannot be completed"
+(`internal/towercore/dispatch/dispatch.go:85`). It is minted from `at.Epoch` at authorize, signed
+into the grant, carried on the wire and stored on the dispatch record — and it is **never compared
+against anything** in `towerEdgeSettle`, or anywhere else. Removing the standing-fact gate without
+building that comparison leaves nothing at all between an in-flight attempt and an origin that
+moved under it. Today that is harmless, because nothing moves a live origin; the day something
+does, this is the check that has to exist first.
 
 One thing this design does **not** need: a relay identifier on the receipt. It was the obvious
 first idea and it is wrong twice over. The Station cannot know it (it knows the endpoint it was
@@ -1435,12 +1479,26 @@ not the right first move.
 
 ### 6.9 Migration, in slices, with the ones that are safe alone marked
 
-- **Slice 0 — replace the settle gate. SAFE ALONE, AND IT FIXES A LIVE MONEY BUG.** Drop
-  `at.Origin.TowerID != req.TowerID` in favour of the grant-derived binding `ClaimByID` already
-  enforces. Today the two are equal by construction, so there is no behaviour change on the happy
-  path; what changes is that a rehome inside the settlement window stops making an attempt
-  unsettleable by anybody (§6.6). It must land first regardless, because it is what makes "which
-  relay carried this" a per-attempt fact on the money path.
+- **Slice 0 — replace the settle gate. SAFE ALONE. IT FIXES NO LIVE BUG; it removes an M3
+  blocker.** Drop `at.Origin.TowerID != req.TowerID` in favour of the grant-derived binding
+  `ClaimByID` already enforces. Today the two are equal by construction, so there is no behaviour
+  change on any path — including the ones an earlier draft of this list claimed it repaired, which
+  are unreachable (§6.6). It must land first because it is what makes "which relay carried this" a
+  per-attempt fact on the money path, and because the gate refuses the honest relay the moment M3
+  makes the two values differ.
+
+  **Two cautions that are narrow and real.** First, `StationEpoch` is not a fence yet (§6.6): it is
+  carried and never compared, so this slice removes the only standing-fact check without the
+  per-attempt one it was supposed to be redundant against ever having been built. That is fine
+  while nothing moves a live origin and is a prerequisite the day something does. Second — and this
+  is about the POSITION rather than the check — the gate currently sits at `toweredge.go:1414`,
+  **before** `ParseReceipt` (`:1424`) and before `settleEdgeAttempt` (`:1440`), and
+  `settleEdgeAttempt`'s error path WRITES `noteAttempt(KindExecutionFailed)` (`:1443`).
+  `ClaimByID` is at `:1463`. So "redundant with `ClaimByID`" is true of the CHECK and false of
+  where it stands: deleting the gate and relying on `ClaimByID` lets a tower that was never granted
+  this attempt reach a write on the evidence trail before it is turned away. Narrow, and the answer
+  is narrow too — the grant-derived refusal has to move UP to where the gate is, not the gate down
+  to where `ClaimByID` is.
 - **Slice 1 — carry the station's assertion key in the Core-signed grant, and let the hub register
   from it. SAFE ALONE.** Keep the `/tower/hub/nodes` pull for revocation. No placement change.
   Measurable immediately as the disappearance of `OnUnknownStation` 404s.
@@ -1451,8 +1509,25 @@ not the right first move.
   handshake cheaper than the bandwidth it saves* — with real numbers before any traffic depends on
   the answer. Depends on slice 1: a session at a relay that does not know the station is a 404.
   The re-attachment on this branch (`internal/agent/tower.go`, `serveTowerTenancy`) is the seed of
-  this: it already makes a node's relay a value that can change without a restart, and a tenancy
-  is a session with a very long lifetime.
+  this: it already makes a node's relay ENDPOINT a value that can change without a restart, and a
+  tenancy is a session with a very long lifetime.
+
+  **What it is NOT is rehoming, and the gap is worth stating because the milestone above needs the
+  thing it does not have.** A re-attach re-reads the tower's link plane, so it recovers a tower
+  that moved, rotated its certificate or turned TLS on. It cannot move a node to a *different*
+  tower, because Core will not re-place a live station: `toweredgeattach.go`'s idempotent-retry
+  branch fires on `prior.Live()` and answers with `prior.Origin.TowerID`. The only thing that ever
+  makes a station's origin writable again is `DetachIdle` — it writes `state = 'dormant'` and
+  nothing else, which is exactly the one precondition Admit's upsert needs before it may write
+  `origin_tower` — and `DetachIdle` is driven from `publishRoutable`, which the housekeeping tick
+  runs only `for _, tw := range link.LiveTowers()` (`towerlink.go:816`), on a seven-day horizon.
+  A tower that is permanently gone is in no such list, so its stations are never swept: the one
+  escape hatch does not fire for the one case that needs it. What Core does instead, since this branch, is
+  REFUSE honestly when the origin has no relay plane rather than answering 200 with an empty
+  endpoint — it used to discard `RelayPlane`'s `has` — so the node backs off, keeps asking, and
+  tells its operator. That is bounded and visible instead of silent, and it is not a recovery.
+  Slice 3 is where a live station's relay becomes re-choosable, and §6.6's `StationEpoch` note is
+  the fence it has to build first.
 - **Slice 3 — move the choice. NOT SAFE ALONE; this is M3 and it needs 0, 1 and 2.**
   `edgeTargetFor` splits into two decisions, station and relay; the attachment's tower becomes a
   default rather than a commitment; the grant names two relays (§6.8).
