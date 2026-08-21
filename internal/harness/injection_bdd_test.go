@@ -367,7 +367,12 @@ func (s *injectState) rejectedAsUnknown() error {
 }
 
 func (s *injectState) schemaUnchanged() error {
-	want := len(BuiltinTools())
+	// AMENDED 2026-08-21: a root Loop advertises the builtins PLUS `delegate`, which is
+	// registered at construction (subagent.go) and never on a child. The guarantee this
+	// step exists for is unchanged and is what the loop below actually checks - retrieved
+	// content cannot ADD a tool mid-turn - so the count follows the real turn-start
+	// toolset instead of being pinned to the builtin list.
+	want := len(BuiltinTools()) + 1
 	if got := len(s.loop.Tools()); got != want {
 		return fmt.Errorf("the turn's toolset is %d tools, want the %d advertised at turn start", got, want)
 	}

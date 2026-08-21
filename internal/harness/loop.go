@@ -131,10 +131,15 @@ type Loop struct {
 	turnStart int
 	// turnCalls are this turn's earlier tool-call signatures, feeding the repeat guard.
 	turnCalls []string
-	// searches / fetches are this turn's retrieval spend against the per-turn budget.
-	// They reset on every Send: the budget bounds one answer, not a session.
-	searches int
-	fetches  int
+	// budget is THIS TURN's retrieval ceiling, SHARED with every subagent spawned
+	// under it (budget.go). Attribution is per-agent; authority is per-turn.
+	//
+	// steps counts this agent's own model calls for its receipt; childReceipts holds
+	// one per subagent it delegated to. Both reset with the turn - a receipt describes
+	// one turn, and carrying them across would bill a question for the last one's work.
+	budget        *turnBudget
+	steps         int
+	childReceipts []Receipt
 }
 
 // The per-turn retrieval budget (founder-approved 2026-07-27). It bounds the tokens a
@@ -168,10 +173,41 @@ func NewLoop(root, persona string, complete Completer, confirm Confirmer) *Loop 
 		confirm:    confirm,
 		MaxSteps:   8,
 	}
+	// DELEGATE is registered on the ROOT loop only. newSubagent builds its child's
+	// toolset by filtering this one, and drops delegate along with the mutating tools -
+	// so depth is capped at one by construction rather than by a counter someone has to
+	// remember to check (subagent.go).
+	l.tools = append(l.tools, l.delegateTool())
+	l.toolByName["delegate"] = l.tools[len(l.tools)-1]
 	if persona != "" {
 		l.messages = append(l.messages, Message{Role: "system", Content: persona})
 	}
 	return l
+}
+
+// TurnReceipt is this turn's spend, rolled up over every subagent the turn delegated
+// to. This - not the root's own numbers - is what a UI should show as the turn's total:
+// the root's own spend excludes its children and would understate.
+func (l *Loop) TurnReceipt() Rollup {
+	searches, fetches := 0, 0
+	if l.budget != nil {
+		searches, fetches = l.budget.spent()
+	}
+	// The root's OWN retrieval spend is the turn's total minus what the children
+	// charged - they share one budget, so the shared counter already includes them.
+	for _, c := range l.childReceipts {
+		searches -= c.Searches
+		fetches -= c.Fetches
+	}
+	own := Receipt{Steps: l.steps, Searches: max0(searches), Fetches: max0(fetches), Complete: true}
+	return NewRollup(own, l.childReceipts)
+}
+
+func max0(n int) int {
+	if n < 0 {
+		return 0
+	}
+	return n
 }
 
 // RestoreConversation seeds a newly constructed loop with completed semantic user/assistant
@@ -288,7 +324,12 @@ func (l *Loop) Send(ctx context.Context, userText string, emit func(Event)) (str
 	// later is a legitimate thing for an operator to do, and re-running the call that
 	// answers it is the right response.
 	l.turnStart = len(l.messages)
-	l.searches, l.fetches = 0, 0
+	if l.budget == nil {
+		l.budget = &turnBudget{}
+	}
+	l.budget.reset()
+	l.steps = 0
+	l.childReceipts = nil
 	l.turnCalls = l.turnCalls[:0]
 	compacted := false // auto-compaction fires at most once per turn (see below)
 	l.messages = append(l.messages, Message{Role: "user", Content: userText})
@@ -304,6 +345,7 @@ func (l *Loop) Send(ctx context.Context, userText string, emit func(Event)) (str
 			emitStep(Event{Kind: EventError, Text: "turn cancelled"})
 			return "", ctx.Err()
 		}
+		l.steps++
 		msg, err := l.complete(ctx, l.messages, ToolSchemas(l.tools))
 		if err != nil && IsContextOverflow(err.Error()) && !compacted {
 			// AUTO-COMPACTION (founder 2026-08-20). The conversation outgrew the band's
@@ -515,17 +557,11 @@ func (l *Loop) cancelRemaining(call ToolCall, emit func(Event)) {
 // chargeRetrieval charges one retrieval against this turn's budget, returning "" when the
 // call may proceed or the refusal to feed back when the budget is spent.
 func (l *Loop) chargeRetrieval(name string) string {
-	switch name {
-	case "web_search":
-		if l.searches >= maxSearchesPerTurn {
-			return fmt.Sprintf("retrieval budget for this turn is used up (%d searches) - answer with what you already have", maxSearchesPerTurn)
-		}
-		l.searches++
-	case "web_fetch":
-		if l.fetches >= maxFetchesPerTurn {
-			return fmt.Sprintf("retrieval budget for this turn is used up (%d fetches) - answer with what you already have", maxFetchesPerTurn)
-		}
-		l.fetches++
+	if l.budget == nil {
+		l.budget = &turnBudget{}
+	}
+	if refusal := l.budget.charge(name); refusal != "" {
+		return refusal
 	}
 	return ""
 }
