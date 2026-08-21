@@ -39,6 +39,10 @@ func TestCmdSharePrivate(t *testing.T) {
 func TestCmdShareFree(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	stubShareSeams(t)
+	// The free path goes on air, so it spawns the relay-fabric join - wait for it rather
+	// than letting it outlive this test's TempDir. TestCmdSharePrivate above needs no join:
+	// a private band never relays, which is structural in AttachTower, not incidental here.
+	joinShareWorkers(t)
 
 	cfg := config{Broker: "https://b", User: "u"}
 	done := make(chan error, 1)

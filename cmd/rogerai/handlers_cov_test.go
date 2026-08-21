@@ -24,6 +24,10 @@ func TestMainVersion(t *testing.T) {
 func TestCmdShareFlagBranches(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	stubShareSeams(t)
+	// The refusal cases below never reach go-live, but the last case does, and that one
+	// spawns the relay-fabric join. One join for the test covers it - joinShareWorkers is
+	// per-test and its own guard fails if nothing was spawned at all.
+	joinShareWorkers(t)
 	const up = "http://127.0.0.1:1234/v1"
 	cfg := config{Broker: "https://b", User: "u"}
 

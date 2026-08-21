@@ -27,6 +27,16 @@ func captureShareConfig(t *testing.T) *agent.Config {
 // return) and returns its error, bounded so a hang fails loudly instead of stalling the suite.
 func runShare(t *testing.T, cfg config, args []string) error {
 	t.Helper()
+	// JOIN THE RELAY WORKER, same as runShareAsync. Every caller of this helper reaches
+	// go-live, so every one of them spawns the relay-fabric join - a goroutine that outlives
+	// cmdShare and keeps writing under XDG_CONFIG_HOME.
+	//
+	// The subtle part is WHERE it writes. The worker resolves os.UserConfigDir() when it is
+	// SCHEDULED, not when it is spawned, and XDG_CONFIG_HOME is process-global - so a worker
+	// leaked here lands in whichever test's TempDir is current when the runtime gets to it.
+	// That is why the symptom appeared in TestRemoteListEmptyAndError, a test with nothing to
+	// do with sharing, finding a tower-station directory it never created.
+	joinShareWorkers(t)
 	done := make(chan error, 1)
 	go func() { done <- cmdShare(cfg, args) }()
 	select {
