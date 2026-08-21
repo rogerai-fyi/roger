@@ -184,21 +184,47 @@ func (p *PGStore) PutAuthorization(a Authorization) error {
 		  role=EXCLUDED.role, hub_token=EXCLUDED.hub_token, node_id=EXCLUDED.node_id,
 		  model=EXCLUDED.model,
 		  modality=EXCLUDED.modality, price_in=EXCLUDED.price_in, price_out=EXCLUDED.price_out,
-		  issued_at=EXCLUDED.issued_at, expires_at=EXCLUDED.expires_at`,
-		// consumed / consumed_by ARE DELIBERATELY ABSENT from the update list: whether an
-		// invitation has been spent is this store's record of a race it arbitrated, and a later
-		// writer restating the invitation does not get to reopen it. The memory store now
-		// enforces the same one-way rule (see memstore.PutAuthorization).
-		//
-		// RECORDED, NOT FIXED: absent is not the same as one-way, and the difference is a live
-		// defect on this side. toweredgeattach marks its internal invitation consumed by
-		// re-putting it when a self-attach is REFUSED, so that a refusal loop cannot fill an
-		// owner's open-invite cap - and that write lands nowhere here. Twenty-five refusals can
-		// therefore bar an account from attaching until the invitations expire, up to an hour.
-		// The fix is `consumed = station_authorizations.consumed OR EXCLUDED.consumed` with
-		// consumed_by carried across the same CASE, and it wants a durable-store test written
-		// against a real database before it goes in; it is out of scope for the change that
-		// found it.
+		  issued_at=EXCLUDED.issued_at, expires_at=EXCLUDED.expires_at,
+		  -- SPENT IS ONE-WAY, AND ONE-WAY IS NOT THE SAME AS ABSENT. That difference was this
+		  -- store's live defect and it is what these two lines close.
+		  --
+		  -- Both columns used to be missing from the update list entirely, for a reason that was
+		  -- and remains correct: whether an invitation has been redeemed is this store's record
+		  -- of a race it arbitrated under a locked row, and a later writer restating the
+		  -- invitation from a stale struct does not get to reopen it. Admit's very first question
+		  -- is auth.Consumed, and an un-consume skips the replay branch entirely - the caller
+		  -- runs on into checkBindings, takes the same-authorization short-circuit, is handed an
+		  -- EMPTY revived attachment and writes Epoch 1 over a Station sitting at 2. An epoch
+		  -- that goes DOWN is the one thing the settlement fence cannot survive, because its
+		  -- permanent 410 is licensed by monotonicity.
+		  --
+		  -- But omitting the columns defends that direction by refusing BOTH, and the other
+		  -- direction is a write this system genuinely needs. toweredgeattach marks its internal
+		  -- invitation consumed by re-putting it when a self-attach is REFUSED, precisely so that
+		  -- a refusal loop cannot fill the owner's open-invite cap and lock them out; against
+		  -- this store that write landed nowhere, so twenty-five refusals barred an account from
+		  -- attaching for up to the invitation TTL - an hour - and the operator was told "too
+		  -- many open attachments in flight", which names neither the cause nor the cure. The
+		  -- memory store had the mirror-image bug: it overwrote the whole row, so the refusal
+		  -- path worked there and an un-consume also went straight through.
+		  --
+		  -- The rule that satisfies both intents is MONOTONIC rather than symmetric: an
+		  -- invitation may be spent once and may never be unspent. That is an OR, and it is now
+		  -- what both stores implement (see memstore.PutAuthorization, which reaches the same
+		  -- rule by carrying the prior row's pair forward).
+		  consumed = station_authorizations.consumed OR EXCLUDED.consumed,
+		  -- consumed_by MOVES ONLY ON THE TRANSITION, which is the half that is easy to drop and
+		  -- expensive to lose. It names the Station that resulted, and that name is the whole of
+		  -- what answers a lost-response retry: Registry.replay looks the attachment up BY it.
+		  -- An already-consumed row being re-put is the refusal path arriving late on an
+		  -- invitation some racer already redeemed for real, and letting EXCLUDED win there would
+		  -- overwrite a real Station id with the "self-attach-refused" placeholder - converting
+		  -- an answerable retry into "this invitation has already been used" for a caller who did
+		  -- nothing wrong. So the pair moves together or not at all: if the row was already
+		  -- consumed, both columns keep what the arbitrated race wrote.
+		  consumed_by = CASE WHEN station_authorizations.consumed
+		                     THEN station_authorizations.consumed_by
+		                     ELSE EXCLUDED.consumed_by END`,
 		a.ID, a.Network, a.StationID, a.Owner, a.Origin.Kind, a.Origin.TowerID,
 		a.AssertionKey, a.SessionKey, a.CeilingHash, a.SecretHash, a.Role, a.HubToken, a.NodeID,
 		a.Model, a.Modality, a.PriceIn, a.PriceOut,

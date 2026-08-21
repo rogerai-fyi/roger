@@ -1034,13 +1034,13 @@ func TestParityOnlyRetireDormantEndsAStationIdentity(t *testing.T) {
 // attachment and writes Epoch 1 over a Station sitting at 2. The next test is that failure seen
 // from the store's side.
 //
-// THE OTHER DIRECTION IS DELIBERATELY NOT ASSERTED HERE, because the two stores still disagree
-// about it and closing that gap is a separate piece of work with its own durable-store test.
-// Marking an invitation consumed BY re-putting it - which toweredgeattach does when a
-// self-attach is refused, so a refusal loop cannot fill an owner's invite cap - lands in the
-// memory store and is dropped by Postgres. Asserting it here would make this test fail on the
-// durable side for a defect it is not the fix for. See memstore.PutAuthorization for the rule
-// both stores should end up on and pgstore.PutAuthorization for what is missing.
+// THE OTHER DIRECTION IS ASSERTED SEPARATELY, and it used to be unassertable. Marking an
+// invitation consumed BY re-putting it - which toweredgeattach does when a self-attach is
+// refused, so a refusal loop cannot fill an owner's invite cap - landed in the memory store and
+// was dropped by Postgres, because omitting the columns refuses BOTH directions rather than only
+// the dangerous one. Both stores are monotonic now, so both halves hold on both:
+// TestParityARefusedSelfAttachSpendsItsOwnInvitation is the consume, this is the un-consume, and
+// TestParityALateRefusalDoesNotRenameTheWinningStation guards the trap between them.
 func TestParityRewritingAnInvitationDoesNotUnconsumeIt(t *testing.T) {
 	eachStore(t, func(t *testing.T, s Store, r *Registry, now time.Time) {
 		at, err := r.Admit(goodProof())
@@ -1139,5 +1139,169 @@ func TestParityAnAttachmentsEpochNeverGoesBackwards(t *testing.T) {
 		require.NoError(t, err)
 		require.True(t, ok)
 		require.False(t, unspent.Consumed, "a refused attachment must not spend the invitation")
+	})
+}
+
+// utcAuth normalises the two timestamps so a whole-STRUCT comparison is meaningful across the
+// stores. The memory store hands back exactly the time.Time it was given; Postgres round-trips
+// through timestamptz and returns a value carrying the session's location. Same instant, and
+// require.Equal on a struct compares the monotonic-clock-free wall fields plus the *Location
+// POINTER, so without this every durable comparison fails on a difference that is not one.
+//
+// It normalises the LOCATION ONLY and deliberately does not truncate. Postgres keeps
+// microseconds and the fixtures here are whole seconds, so a truncation would be hiding a
+// precision loss rather than tolerating one, and precision loss on expires_at is exactly the
+// kind of thing this suite exists to catch.
+func utcAuth(a Authorization) Authorization {
+	a.IssuedAt, a.ExpiresAt = a.IssuedAt.UTC(), a.ExpiresAt.UTC()
+	return a
+}
+
+// refusedInvite is the internal invitation toweredgeattach mints and redeems inside ONE
+// self-attach, built with EVERY field set to a distinctive non-zero value.
+//
+// The "distinctive non-zero" part is the point and it is not decoration. This suite has twice
+// shipped a parity test that compared a struct whose fields under test were still at their zero
+// value, so the assertion held while the column it was meant to guard was being dropped on the
+// floor - a zero read back from a write that never happened is indistinguishable from a zero
+// read back from a write that did. Every field here is therefore something no store could
+// produce by accident.
+func refusedInvite(id string, now time.Time) Authorization {
+	return withSecret(Authorization{
+		ID: id, Network: net, StationID: station, Owner: owner,
+		Origin:       Origin{Kind: OriginJoined, TowerID: tower},
+		AssertionKey: keyA, SessionKey: keyK, CeilingHash: "ceil-9",
+		Role:     "station",
+		HubToken: "hub-token-9", NodeID: "nd-9",
+		Model: "llama3", Modality: "chat", PriceIn: 1234, PriceOut: 5678,
+		IssuedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Hour),
+	})
+}
+
+// A REFUSED SELF-ATTACH CAN SPEND ITS OWN INVITATION, ON BOTH STORES.
+//
+// This is the other half of TestParityRewritingAnInvitationDoesNotUnconsumeIt, and until the
+// durable store learned the difference between "one-way" and "absent" the two halves could not
+// both be asserted. Postgres omitted consumed and consumed_by from its ON CONFLICT update list
+// entirely, which defends the dangerous direction by refusing BOTH directions.
+//
+// WHAT THAT COST AN OPERATOR, which is why this test asserts the cap and not just the flag.
+// toweredgeattach mints an internal invitation, redeems it in the same call, and - when Admit
+// refuses, because the keys are already attached or the account is at its live-station cap -
+// marks that invitation consumed by re-putting it, precisely so a refusal loop cannot fill the
+// owner's open-invite cap. Against Postgres that write landed nowhere. The invitation stayed
+// open, PutAuthorizationCapped counts exactly the open ones, and maxOpenInvitesPerOwner is 25
+// against a one-hour invitation TTL: twenty-five refusals and the operator could not attach at
+// all for an hour, told only "too many open attachments in flight" - a message that names
+// neither the cause nor the cure, and which they would hit again the moment they retried.
+//
+// So the flag assertion alone would have been the weaker test. The lockout is the thing that
+// happened to people, and PutAuthorizationCapped accepting a fresh invitation afterwards is the
+// only assertion that actually says it stopped happening.
+func TestParityARefusedSelfAttachSpendsItsOwnInvitation(t *testing.T) {
+	eachStore(t, func(t *testing.T, s Store, r *Registry, now time.Time) {
+		// eachStore seeds authorID; this test owns its own id so the shared seed is not part
+		// of what is being measured.
+		const id = "auth-refused"
+		open := refusedInvite(id, now)
+		require.NoError(t, s.PutAuthorization(open))
+
+		// The refusal path's exact write: the SAME struct the handler is holding, with the two
+		// flags flipped and nothing else touched.
+		refused := open
+		refused.Consumed, refused.ConsumedBy = true, "self-attach-refused"
+		require.NoError(t, s.PutAuthorization(refused))
+
+		got, ok, err := s.Authorization(id)
+		require.NoError(t, err)
+		require.True(t, ok)
+		require.True(t, got.Consumed,
+			"a refused self-attach could not spend its own invitation: its owner's open-invite "+
+				"cap now fills up one refusal at a time and locks them out for the invitation TTL")
+		require.Equal(t, "self-attach-refused", got.ConsumedBy)
+
+		// THE WHOLE ROW, not the two fields the change is about. The fleet parity suite once
+		// compared two fields of a struct and missed a dropped column for a release; an
+		// upsert is exactly the shape of statement where a column goes missing, because the
+		// insert list and the update list are written twice and only one of them is read on
+		// the path anybody exercises.
+		require.Equal(t, utcAuth(refused), utcAuth(got),
+			"the consume rewrote or dropped some other column on its way through")
+
+		// AND THE CAP IS ACTUALLY FREED, which is the operator-visible half and the reason any
+		// of this matters.
+		//
+		// THE THRESHOLD IS CHOSEN TO DISCRIMINATE, not to pass. This owner has exactly one
+		// OPEN invitation left - eachStore's seed - plus the one just refused, so a cap of two
+		// is the single value that separates the two outcomes: it accepts if and only if the
+		// refused invitation stopped counting, and refuses if it is still standing. Picking a
+		// looser cap would make this assertion true either way, which is how a test comes to
+		// pass for the wrong reason.
+		fresh := refusedInvite("auth-refused-2", now)
+		wrote, err := s.PutAuthorizationCapped(fresh, 2)
+		require.NoError(t, err)
+		require.True(t, wrote,
+			"the refused invitation still counts against the owner's open-invite cap, so a "+
+				"refusal loop can still lock an operator out of attaching")
+
+		// AND THE COUNTER IS STILL A COUNTER. Two open invitations now stand (the seed and the
+		// one just written), so the same cap must refuse the next mint. Without this the
+		// assertion above would also be satisfied by a cap that had simply stopped counting -
+		// which is the failure mode that would silently un-bound the abuse this cap exists for.
+		third := refusedInvite("auth-refused-3", now)
+		wrote, err = s.PutAuthorizationCapped(third, 2)
+		require.NoError(t, err)
+		require.False(t, wrote, "the open-invite cap stopped bounding open invitations")
+	})
+}
+
+// A LATE REFUSAL MUST NOT RENAME THE STATION THAT ACTUALLY WON.
+//
+// This is the trap in the fix rather than the fix, and it is worth a test of its own because the
+// obvious way to write the SQL walks straight into it. Making consumed monotonic with an OR and
+// then letting consumed_by take EXCLUDED unconditionally looks symmetric and is wrong: an
+// already-consumed row being re-put is the refusal path arriving LATE on an invitation some
+// racer already redeemed for real, and EXCLUDED there overwrites a genuine Station id with the
+// "self-attach-refused" placeholder.
+//
+// What that breaks is the retry answer. Registry.replay looks the attachment up BY ConsumedBy,
+// so a clobbered name turns an answerable lost-response retry - the caller re-presenting the
+// identical proof, which is the case replay exists for - into "this invitation has already been
+// used", permanently, for a caller who did nothing wrong. The pair therefore moves together or
+// not at all.
+//
+// It is a GUARD, not a red-then-green proof: both stores already happened to satisfy it, the
+// durable one because it wrote neither column and the memory one because it carries the prior
+// pair forward wholesale. It goes red against the plausible wrong fix, which is what it is for.
+func TestParityALateRefusalDoesNotRenameTheWinningStation(t *testing.T) {
+	eachStore(t, func(t *testing.T, s Store, r *Registry, now time.Time) {
+		// A real redemption, arbitrated by the store under its own lock.
+		at, err := r.Admit(goodProof())
+		require.NoError(t, err)
+		require.Equal(t, station, at.StationID)
+
+		// The refusal path arriving afterwards, holding the pre-Admit copy of the invitation.
+		late := withSecret(Authorization{
+			ID: authorID, Network: net, StationID: station, Owner: owner,
+			Origin:       Origin{Kind: OriginJoined, TowerID: tower},
+			AssertionKey: keyA, SessionKey: keyK, CeilingHash: "ceil-1",
+			IssuedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Hour),
+			Consumed: true, ConsumedBy: "self-attach-refused",
+		})
+		require.NoError(t, s.PutAuthorization(late))
+
+		after, ok, err := s.Authorization(authorID)
+		require.NoError(t, err)
+		require.True(t, ok)
+		require.True(t, after.Consumed)
+		require.Equal(t, station, after.ConsumedBy,
+			"a late refusal renamed the Station that won the race: every lost-response retry on "+
+				"this invitation is now refused instead of answered")
+
+		// And the retry it protects is still answered, end to end through the caller that
+		// actually depends on the name - the assertion the field-level one stands in for.
+		replayed, err := r.Admit(goodProof())
+		require.NoError(t, err, "the identical-proof retry stopped being answerable")
+		require.Equal(t, station, replayed.StationID)
 	})
 }

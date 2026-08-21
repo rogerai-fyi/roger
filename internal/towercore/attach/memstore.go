@@ -65,10 +65,14 @@ func NewMemStore() Store {
 // loop cannot fill an owner's open-invite cap and lock them out; on Postgres that write is
 // silently dropped today (an audit found it: twenty-five refusals can bar an account from
 // attaching for up to the invite TTL, an hour), and it works here only because this store
-// overwrites. So the two stores are wrong in OPPOSITE directions on one method, and the rule
+// overwrites. So the two stores WERE wrong in OPPOSITE directions on one method, and the rule
 // that satisfies both intents is monotonic: an invitation may be spent once and never unspent.
-// This store now follows it. Postgres still drops the mark - that is the recorded defect, it
-// needs a durable-store test of its own, and the fix there is the same OR in SQL.
+//
+// BOTH STORES NOW FOLLOW IT. Postgres carries the same rule as `consumed = <row>.consumed OR
+// EXCLUDED.consumed`, with consumed_by moved only on the transition - which is what this store
+// does by carrying the prior row's pair forward wholesale. The pair is held to it from both
+// directions against a real database by TestParityARefusedSelfAttachSpendsItsOwnInvitation and
+// TestParityRewritingAnInvitationDoesNotUnconsumeIt.
 func (m *memStore) PutAuthorization(a Authorization) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

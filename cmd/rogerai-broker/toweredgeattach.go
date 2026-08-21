@@ -34,6 +34,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -83,6 +84,17 @@ func (b *broker) towerEdgeAttach(w http.ResponseWriter, r *http.Request) {
 	// signature must verify and its pubkey must be bound to a non-anonymized account.
 	owner, ok := b.towerOperator(r, body)
 	if !ok {
+		// THE TIGHT PER-IP BUCKET, ON THE WAY OUT - the same treatment /tower/edge/authorize
+		// got when it was found bare, on the same condition and for the same reason. An
+		// unsigned caller here is by definition never going to be served, but reaching this
+		// line has already cost an ed25519 verification and an owner lookup, and until now
+		// that cost was free to the caller and unbounded. A signed caller never reaches this
+		// branch and keeps its own per-account bucket below.
+		if allowed, retry := b.anonRL.allow(clientIP(r)); !allowed {
+			w.Header().Set("Retry-After", strconv.Itoa(retry))
+			jsonErr(w, http.StatusTooManyRequests, "rate limit exceeded - slow down")
+			return
+		}
 		jsonErr(w, http.StatusUnauthorized, "attaching a node requires a signed-in account - run `roger login`")
 		return
 	}
@@ -95,6 +107,36 @@ func (b *broker) towerEdgeAttach(w http.ResponseWriter, r *http.Request) {
 	// A provider who attaches from their server and cashes out from their laptop is one
 	// account, and their money must not be split across the two.
 	ownerPubkey := b.accountKeyOfPubkey(r.Header.Get("X-Roger-Pubkey"))
+	// AND A PER-ACCOUNT BUCKET, WHICH THIS ENDPOINT HAS NEVER HAD. /tower/edge/authorize was
+	// found registered bare and given exactly this pair; attach sits on the same mux, does
+	// strictly more work per call, and was missed.
+	//
+	// IT BECAME LOAD-BEARING WITH THE CONSUME FIX ABOVE THIS RELEASE, which is the part worth
+	// reading before anyone decides it is redundant. A self-attach mints an invitation, tries
+	// to redeem it, and on refusal marks it spent. That mark used to land nowhere on Postgres,
+	// so a refusal loop filled the owner's 25-invitation cap and every further attempt was
+	// turned away cheaply at PutAuthorizationCapped - an accidental brake, and the reason
+	// nobody noticed there was no limiter here. Making the refusal path work as designed
+	// removes that brake by construction: refusals no longer accumulate, so the cap never
+	// fills, and the loop can run at line rate doing a lock, two transactions and a rollback
+	// each time. Fixing the lockout without this would trade an operator-facing bug for a
+	// database-facing one.
+	//
+	// Keyed on the ACCOUNT key rather than the device key - one identity, one bucket, so a
+	// caller cannot multiply its rate by generating keypairs against the same account. That is
+	// the same discipline authorize uses, and it is the same key the cap and the payee are
+	// drawn on, so all three bound the same thing.
+	//
+	// A REAL FLEET DOES NOT FEEL THIS. The default is 120/minute with a burst of 40 per
+	// account, and a node attaches once per tenancy, not once per request; a hundred-machine
+	// operator restarting everything at once clears the whole fleet inside a minute, and the
+	// nodes that are briefly turned away are already on the jittered re-attach backoff that
+	// exists for exactly this (internal/agent's reattachDelay). It bounds a loop, not a fleet.
+	if allowed, retry := b.rl.allow("attach:" + ownerPubkey); !allowed {
+		w.Header().Set("Retry-After", strconv.Itoa(retry))
+		jsonErr(w, http.StatusTooManyRequests, "rate limit exceeded - slow down")
+		return
+	}
 	// The same standing check enrollment uses: a banned or barred account may not put
 	// machines on the network under its name.
 	if err := (brokerOperatorPolicy{b: b}).MayEnroll(owner); err != nil {

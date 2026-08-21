@@ -501,3 +501,66 @@ func TestSelfAttachRefusesADisallowedModality(t *testing.T) {
 	code, _ := node.call(t, srv, http.MethodPost, "/tower/edge/attach", body, &out)
 	require.Equal(t, http.StatusBadRequest, code, "the self path gets no wider a modality door than the leaf path")
 }
+
+// SELF-ATTACH IS RATE LIMITED PER ACCOUNT, and until this release it was not limited at all.
+//
+// /tower/edge/authorize was found registered bare and given a per-account bucket plus a per-IP
+// bucket on its 401; attach sits on the same mux, does strictly more work per call - a signature
+// verification, an owner lookup, a node-registration lookup, an advisory-locked mint and a second
+// transaction for the redeem - and was missed. The `allow(w, r, http.MethodPost)` at the top of
+// the handler is the HTTP METHOD check, not a limiter, which is most of why the gap survived a
+// reading.
+//
+// WHY IT IS NOT MERELY TIDY. The refusal path used to be self-limiting on Postgres by accident:
+// a refused self-attach marks its invitation consumed, that write was dropped, so a refusal loop
+// filled the owner's 25-invitation cap within 25 attempts and everything after was turned away
+// cheaply. Fixing that drop - which is what unlocks the honest operator this release - removes
+// the accidental brake, because refusals stop accumulating against the cap. The limiter is what
+// replaces it, and it is a better bound than the one it replaces: the cap turned a refusal loop
+// into an HOUR-LONG LOCKOUT for the account that ran it, where the limiter just slows it down.
+func TestSelfAttachIsRateLimitedPerAccount(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	liveEdgeTower(t, b, srv, "tower-op", "203.0.113.9:8443")
+	node := signedInOperator(t, b, "node-op")
+	body, _ := selfAttachBodyFor(t, b, node)
+
+	// One token, refilling at one a minute: the second call within the test cannot have earned
+	// another. Installed AFTER the fixtures above, which make their own signed calls.
+	b.rl = &rateLimiter{buckets: map[string]*tokenBucket{}, rpm: 1, burst: 1}
+
+	var out map[string]any
+	code, raw := node.call(t, srv, http.MethodPost, "/tower/edge/attach", body, &out)
+	require.Equal(t, http.StatusOK, code, raw)
+
+	// The same node asking again immediately. Without a limiter this is the idempotent-retry
+	// branch and answers 200 forever, which is precisely the loop that had no cost.
+	code, raw = node.call(t, srv, http.MethodPost, "/tower/edge/attach", body, &out)
+	require.Equal(t, http.StatusTooManyRequests, code, raw)
+}
+
+// AND THE 401 PATH COSTS THE HAMMERER SOMETHING, keyed per IP.
+//
+// An unsigned caller is never going to be served, but reaching the refusal has already spent an
+// ed25519 verification and an owner lookup on an UNAUTHENTICATED request - so an attacker with no
+// account at all could burn Core's CPU for the price of a TCP connection. /tower/edge/authorize
+// applies anonRL on exactly this condition; this is the same treatment on the same reasoning.
+//
+// A signed caller never reaches this branch, so no honest node is bucketed by IP - which matters
+// because nodes behind one NAT are a normal deployment and would otherwise share a bucket.
+func TestSelfAttachRateLimitsUnsignedCallersByIP(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	liveEdgeTower(t, b, srv, "tower-op", "203.0.113.9:8443")
+	b.anonRL = &rateLimiter{buckets: map[string]*tokenBucket{}, rpm: 1, burst: 1}
+
+	body, _ := selfAttachBody(t)
+	raw := jsonOf(t, body)
+	post := func() int {
+		resp, err := http.Post(srv.URL+"/tower/edge/attach", "application/json", bytes.NewReader(raw))
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		return resp.StatusCode
+	}
+	require.Equal(t, http.StatusUnauthorized, post(), "the first unsigned attempt is answered")
+	require.Equal(t, http.StatusTooManyRequests, post(),
+		"an unsigned caller could hammer the signature path for free")
+}

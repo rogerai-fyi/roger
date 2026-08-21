@@ -1012,6 +1012,35 @@ Still open after round five, and worth naming so the next reader does not have t
   to be co-signed by the assertion key — is a wire change on a path §5.4d has already touched
   once this release.
 
+  **The window is wider than "before its owner first attaches", which is how this was first
+  written.** Two things extend it, and both were found while auditing the invite path:
+
+  - *Revocation reopens it, on a key that is by then public.* The live/held uniqueness indexes
+    are partial, and terminal states release their keys — deliberately, so a retired Station
+    does not hold its keys hostage forever. But a Station that ever served on a plaintext hub
+    has put its assertion **public** key on the wire every twenty-five seconds, so any observer
+    of that path already knows it. The moment its owner revokes, that known key is free, and an
+    observer can bind it before the owner re-attaches with fresh ones. So the population at risk
+    is not only keys that never attached; it is every key that has ever attached over plaintext
+    and is later released. TLS (§5.7) closes the observation half for the towers that enable it,
+    which is another argument for the deadline that section leaves open.
+  - *It composes with the open-invite cap into a lockout the victim cannot diagnose.* This is
+    the part worth acting on. Squatting costs the attacker one attach and thereafter refuses the
+    victim's own attach on key uniqueness. The victim's node then does what it is built to do
+    and re-attaches on a backoff (`internal/agent`, `serveTowerTenancy`) — and **each refusal
+    used to burn one of the victim's 25 open invitations against a one-hour TTL**, because the
+    refusal path marks its internal invitation consumed by re-putting it and Postgres dropped
+    that write. After 25 attempts the answer changed from "these keys are attached" to "this
+    account has too many open attachments in flight", which names neither the cause nor the
+    cure and points the operator at their own account rather than at the squat. So a
+    one-request attack produced an hour-long, self-renewing, misattributed outage.
+
+    **The durable-store half is FIXED** (`consumed = <row>.consumed OR EXCLUDED.consumed`, with
+    `consumed_by` moving only on the transition; both stores are now held to it against a real
+    database in `internal/towercore/attach/parity_test.go`). The squat itself is **not** fixed —
+    it is still the wire change above. What the fix changes is that the victim now gets the
+    honest, actionable refusal every time instead of a misleading 429 after the twenty-fifth.
+
 ### 5.7 Round five: option A, and why it needed no certificate authority
 
 **Status: DECIDED and IMPLEMENTED, founder-approved, on `release/v5.7.0`. NOT MANDATORY — see
