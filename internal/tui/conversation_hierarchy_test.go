@@ -87,8 +87,11 @@ func TestRecoveredApprovalCardAbsorbsResult(t *testing.T) {
 		Kind: harness.EventToolResult, Tool: "run_shell", Result: "hi",
 	})
 	m = asModel(out)
-	plain := stripANSI(strings.Join(m.agentLines, "\n"))
-	if strings.Count(plain, "run_shell") != 1 {
+	// Rendered: a call is a record now and the buffer holds a reference to it.
+	m.showToolCalls = true
+	plain := stripANSI(strings.Join(m.displayAgentLines(100), "\n"))
+	// Count CARDS, not name occurrences - the lid names its tools too.
+	if strings.Count(plain, "run_shell   ") > 1 {
 		t.Fatalf("fallback approval produced duplicate cards:\n%s", plain)
 	}
 	if !strings.Contains(plain, "approved") || !strings.Contains(plain, "2 bytes") {

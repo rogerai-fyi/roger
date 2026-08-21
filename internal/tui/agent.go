@@ -1688,12 +1688,13 @@ func (m model) onAgentEvent(e agentEventMsg) (tea.Model, tea.Cmd) {
 		}
 	case harness.EventToolCall:
 		m.agentTurnState = poseTool
-		m.agentLines = append(m.agentLines, toolCardMark+agentToolCallLine(e.Tool, toolArgSummary(e.Tool, e.Args)))
-		m.agentActivityLine = len(m.agentLines) - 1
-		m.agentActivityTool = e.Tool
-		m.agentActivityTarget = toolArgSummary(e.Tool, e.Args)
-		m.agentActivityRunning = true
-		m.agentActivityApproved = false
+		m.agentRuns = append(m.agentRuns, toolRun{
+			Name:   e.Tool,
+			Arg:    toolArgSummary(e.Tool, e.Args),
+			Status: toolRunning,
+		})
+		m.agentLines = append(m.agentLines, toolRef(len(m.agentRuns)-1))
+		m.agentOpenRun = len(m.agentRuns) - 1
 		m.noteAgentToolCall(fmt.Sprintf("call_%d", len(m.agentTurnCalls)+1), e.Tool, argsJSON(e.Args))
 	case harness.EventToolResult:
 		m.agentTurnState = poseThinking // result is back; the model reasons on it next
@@ -1706,29 +1707,31 @@ func (m model) onAgentEvent(e agentEventMsg) (tea.Model, tea.Cmd) {
 		default:
 			m.agentNextHint = "continue with the next step"
 		}
-		var mark, tail string
+		// SETTLE THE RECORD. The card the operator sees is rendered from these fields at
+		// display time, so a result is a state change on one value rather than a rebuilt
+		// string that has to reconstruct the arg summary and the approved flag it was
+		// already told once.
+		status, detail := toolOK, "ok"+resultHint(e.Result)
 		switch {
 		case e.Denied:
-			mark, tail = stRed.Render("  ✕ "), stEmber.Render("denied")
+			status, detail = toolDenied, "denied"
 		case e.IsError:
-			mark, tail = stRed.Render("  ✕ "), stEmber.Render(firstLine(e.Result))
-		default:
-			mark, tail = stLive.Render("  ✓ "), stDim.Render("ok"+resultHint(e.Result))
+			status, detail = toolFailed, firstLine(e.Result)
 		}
-		card := toolCardMark + mark + stDim.Render(e.Tool)
-		if m.agentActivityTarget != "" {
-			card += stDim.Render("   " + m.agentActivityTarget)
-		}
-		if m.agentActivityApproved && !e.Denied {
-			card += stDim.Render(" · approved")
-		}
-		card += stDim.Render(" · ") + tail
-		if m.agentActivityRunning && m.agentActivityLine >= 0 && m.agentActivityLine < len(m.agentLines) {
-			m.agentLines[m.agentActivityLine] = card
+		if r := m.openRun(); r != nil {
+			if r.Name == "" {
+				r.Name = e.Tool
+			}
+			r.Status, r.Detail = status, detail
 		} else {
-			m.agentLines = append(m.agentLines, card)
+			// A result with no open call (a tool that settled before its call event, or
+			// after a reset). Record it whole rather than dropping it on the floor.
+			m.agentRuns = append(m.agentRuns, toolRun{
+				Name: e.Tool, Arg: toolArgSummary(e.Tool, nil), Status: status, Detail: detail,
+			})
+			m.agentLines = append(m.agentLines, toolRef(len(m.agentRuns)-1))
 		}
-		m.agentActivityLine, m.agentActivityTool, m.agentActivityTarget, m.agentActivityRunning, m.agentActivityApproved = -1, "", "", false, false
+		m.agentOpenRun = -1
 		m.noteAgentToolResult(harness.Event(e))
 		// Show the user the ACTUAL output, not just "ok · N bytes": a short preview of
 		// the result is the real UX gap behind a truncated answer (the user could never
@@ -1737,10 +1740,12 @@ func (m model) onAgentEvent(e agentEventMsg) (tea.Model, tea.Cmd) {
 		// result keeps just the line above (its error text already rode in the tail). In
 		// compact mode the summary line is enough.
 		if !m.compact && !e.Denied && !e.IsError && previewableTool(e.Tool) {
-			// Tagged with toolOutMark: kept in the buffer but HIDDEN by default - the `d`
-			// toggle (displayAgentLines) expands the full output across the whole view.
-			for _, pl := range resultPreview(e.Result) {
-				m.agentLines = append(m.agentLines, toolOutMark+pl)
+			// The preview belongs TO the call, so it hangs off the record rather than
+			// riding the transcript as separate tagged lines. That is what stopped the
+			// fold lid from scraping tool names out of fetched page text: preview text
+			// is no longer in the same list as cards, so it cannot be mistaken for one.
+			if i := len(m.agentRuns) - 1; i >= 0 {
+				m.agentRuns[i].Preview = resultPreview(e.Result)
 			}
 		}
 	case harness.EventFinal:
@@ -2427,39 +2432,47 @@ func (m model) agentModeLine(w int) string {
 	return truncVisible(line, w)
 }
 
-func (m *model) markAgentActivityApproved(tool string) {
-	m.agentActivityApproved = true
-	if !m.agentActivityRunning || m.agentActivityLine < 0 || m.agentActivityLine >= len(m.agentLines) {
-		m.agentLines = append(m.agentLines, toolCardMark+"  "+lampStyle(roleDial).Render("◐")+stDim.Render(" ⚙ "+tool+" · approved · running"))
-		m.agentActivityLine = len(m.agentLines) - 1
-		m.agentActivityTool = tool
-		m.agentActivityRunning = true
-		return
+// openRun returns a pointer to the call still in flight, or nil. One index replaces the
+// five agentActivity* fields that used to track "the card we are about to rewrite" -
+// with records there is nothing to track but which record is open.
+func (m *model) openRun() *toolRun {
+	if m.agentOpenRun < 0 || m.agentOpenRun >= len(m.agentRuns) {
+		return nil
 	}
-	target := m.agentActivityTarget
-	if tool == "" {
-		tool = m.agentActivityTool
+	if m.agentRuns[m.agentOpenRun].Done() {
+		return nil
 	}
-	line := "  " + lampStyle(roleDial).Render("◐") + stDim.Render(" ⚙ "+tool)
-	if target != "" {
-		line += stDim.Render("   " + target)
-	}
-	m.agentLines[m.agentActivityLine] = line + stDim.Render(" · approved · running")
+	return &m.agentRuns[m.agentOpenRun]
 }
 
-func (m *model) markAgentActivityDenied(tool string) {
-	if !m.agentActivityRunning || m.agentActivityLine < 0 || m.agentActivityLine >= len(m.agentLines) {
-		m.agentLines = append(m.agentLines, "  "+stRed.Render("✕ ")+stEmber.Render("denied · "+tool+" was not run"))
+// markAgentActivityApproved records the operator's y on a side-effecting call. If no
+// call is open (an approval arriving without its call event, which the confirm path can
+// do) it opens one, so the approval is never silently dropped.
+func (m *model) markAgentActivityApproved(tool string) {
+	if r := m.openRun(); r != nil {
+		r.Approved = true
+		if r.Name == "" {
+			r.Name = tool
+		}
 		return
 	}
-	if tool == "" {
-		tool = m.agentActivityTool
+	m.agentRuns = append(m.agentRuns, toolRun{Name: tool, Status: toolRunning, Approved: true})
+	m.agentOpenRun = len(m.agentRuns) - 1
+	m.agentLines = append(m.agentLines, toolRef(m.agentOpenRun))
+}
+
+// markAgentActivityDenied settles the open call as refused.
+func (m *model) markAgentActivityDenied(tool string) {
+	if r := m.openRun(); r != nil {
+		if r.Name == "" {
+			r.Name = tool
+		}
+		r.Status, r.Detail = toolDenied, "not run"
+		m.agentOpenRun = -1
+		return
 	}
-	line := "  " + stRed.Render("✕ ") + stDim.Render(tool)
-	if m.agentActivityTarget != "" {
-		line += stDim.Render("   " + m.agentActivityTarget)
-	}
-	m.agentLines[m.agentActivityLine] = line + stEmber.Render(" · denied · not run")
+	m.agentRuns = append(m.agentRuns, toolRun{Name: tool, Status: toolDenied, Detail: "not run"})
+	m.agentLines = append(m.agentLines, toolRef(len(m.agentRuns)-1))
 }
 
 // agentAnswerMark tags canonical assistant Markdown. It stays byte-for-byte intact
@@ -2471,14 +2484,8 @@ const agentAnswerMark = "\x1d"
 // real content, so displayAgentLines can recognize + strip it.
 const toolOutMark = "\x1e"
 
-// toolCardMark tags a tool CALL or RESULT card in agentLines - the "⚙ read_file" /
-// "✓ read_file · ok · 51 bytes" machinery lines. Kept in the buffer, but FOLDED to a
-// single count line by default (founder 2026-08-20: "i want this to be hidden ... lets
-// hide a lot of the extra noise and keep it clean"). ⌃o opens the fold.
-//
-// A C0 control byte for the same reason toolOutMark is one: it survives ansi.Strip,
-// so anything that leaks it (clipboard, the RC wire) has to strip it explicitly.
-const toolCardMark = "\x1f"
+// Tool machinery lives in toolrun.go now: the transcript holds a REFERENCE
+// (toolRefMark + index) and the facts live in a toolRun record. See that file for why.
 
 // askMark tags a sent ask so displayAgentLines can paint it as a full-width slate at
 // the CURRENT view width. Same C0-byte discipline as the other two marks, and stripped
@@ -2491,59 +2498,41 @@ const askMark = "\x02"
 // So the machinery stays one dim line each by default, with the full output a `d` away.
 func (m model) displayAgentLines(w int) []string {
 	out := make([]string, 0, len(m.agentLines))
-	fold := make([]string, 0, 8)
-	hinted := false
+	fold := make([]toolRun, 0, 8)
 	// flush closes any open machinery box before something that is NOT machinery is
 	// drawn. It has to run on EVERY such line, not just the plain ones: an answer or
-	// an ask that skipped it jumped ahead of the cards it came after, and the box
+	// an ask that skipped it jumped ahead of the calls it came after, and the box
 	// landed under prose it happened before (caught on a rendered transcript, not in
 	// review - the ordering reads fine in code).
 	flush := func() {
 		out = m.flushFold(out, fold, w)
 		fold = fold[:0]
 	}
-	for i, ln := range m.agentLines {
-		// The confirmation gate is the sole command surface while approval is
-		// pending. The same activity card returns in-place after the decision.
-		if m.agentPendingConfirm != nil && m.agentActivityRunning && i == m.agentActivityLine {
+	for _, ln := range m.agentLines {
+		if i := toolRefIndex(ln); i >= 0 {
+			if i >= len(m.agentRuns) {
+				continue // a reference with no record: drop it rather than render a stub
+			}
+			// The confirmation gate is the sole command surface while approval is
+			// pending, so the call waiting on it is not also drawn in the transcript.
+			if m.agentPendingConfirm != nil && i == m.agentOpenRun {
+				continue
+			}
+			// Buffered in BOTH states: the run is one box either way, and flushFold
+			// decides whether to draw it shut or open. Rendering the open case inline
+			// here instead would leave the cards loose in the flow with no lid and no
+			// way back - a drawer you can open but not see the edges of.
+			fold = append(fold, m.agentRuns[i])
 			continue
 		}
 		if strings.HasPrefix(ln, agentAnswerMark) {
 			flush()
 			out = append(out, agentAnswerBlock(strings.TrimPrefix(ln, agentAnswerMark))...)
-			hinted = false
 			continue
 		}
-		if strings.HasPrefix(ln, toolOutMark) {
-			// A tool-output preview is MACHINERY: it belongs to the card above it. With
-			// the box shut it goes in the box (invisible, and no "d·output" hint on the
-			// lid - the lid is not a result line and hanging the hint there points at a
-			// row the output does not belong to). With the box open it behaves exactly
-			// as it always has: shown under `d`, hinted once per group otherwise.
-			if !m.showToolCalls {
-				fold = append(fold, toolOutMark+ln[len(toolOutMark):])
-				continue
-			}
-			if m.showToolOutput {
-				out = append(out, ln[len(toolOutMark):])
-			} else if len(out) > 0 && !hinted {
-				out[len(out)-1] += stDim.Render("   d·output") // hint on the result line, once per group
-				hinted = true
-			}
-			continue
-		}
-		hinted = false
 		if strings.HasPrefix(ln, askMark) {
 			flush()
 			out = append(out, askSlate(ln[len(askMark):], w)...)
-			continue
-		}
-		if strings.HasPrefix(ln, toolCardMark) {
-			// Buffered in BOTH states: the run is one box either way, and flushFold
-			// decides whether to draw it shut or open. Rendering the open case inline
-			// here instead would leave the cards loose in the flow with no lid and no
-			// way back - a drawer you can open but not see the edges of.
-			fold = append(fold, ln[len(toolCardMark):])
 			continue
 		}
 		flush()
@@ -2553,12 +2542,12 @@ func (m model) displayAgentLines(w int) []string {
 	return out
 }
 
-// flushFold turns a swallowed run of tool cards into a DIM COLLAPSIBLE BOX: a
-// disclosure lid saying how many ran and which tools they were, plus the key that
-// opens it. Closed, that is the whole box; open, the lid turns down and the cards sit
-// behind a quiet left rail so the region still has visible edges.
+// flushFold turns a run of tool calls into a DIM COLLAPSIBLE BOX: a disclosure lid
+// saying how many ran and which tools they were, plus the key that opens it. Closed,
+// that is the whole box; open, the lid turns down and the cards sit behind a quiet left
+// rail so the region still has visible edges.
 //
-// FOUNDER 2026-08-20 (round 2): a LONE card used to be left alone, on the reasoning
+// FOUNDER 2026-08-20 (round 2): a LONE call used to be left alone, on the reasoning
 // that swapping one line for a one-line summary says less. Wrong call - the founder
 // screenshotted a single "✓ web_fetch … ok · 132 bytes" still sitting in the flow and
 // asked why it had not folded. The point is not saving rows, it is that machinery
@@ -2566,42 +2555,26 @@ func (m model) displayAgentLines(w int) []string {
 // calls a turn made to predict what the transcript looks like.
 //
 // The tool NAMES stay on the lid. They are what a reader scans for ("did it run a
-// shell? did it search?"), so folding costs no information a glance was using.
-func (m model) flushFold(out, fold []string, w int) []string {
+// shell? did it search?"), so folding costs no information a glance was using - and
+// they come from the record's Name field now, not from re-reading a rendered line.
+func (m model) flushFold(out []string, fold []toolRun, w int) []string {
 	if len(fold) == 0 {
 		return out
 	}
-	// A call and its result are two cards for ONE tool run, so count the results -
-	// every completed run has exactly one - and fall back to the raw card count for a
-	// run still in flight (a call with no result yet).
 	names, seen, done := make([]string, 0, 4), map[string]bool{}, 0
-	for _, c := range fold {
-		// SKIP OUTPUT PREVIEWS. They ride this same buffer when the box is shut, and
-		// they are raw fetched page / file text - scraping "the first identifier" out
-		// of those produced lids reading "web_search, brings, a, is, +3" (founder
-		// screenshot 2026-08-20): three of those are words from a Reddit page, not
-		// tools. Only CARDS name tools.
-		if strings.HasPrefix(c, toolOutMark) {
-			continue
-		}
-		flat := strings.TrimSpace(ansi.Strip(c))
-		if strings.HasPrefix(flat, "✓") || strings.HasPrefix(flat, "✕") || strings.HasPrefix(flat, "x ") {
+	for _, r := range fold {
+		if r.Done() {
 			done++
 		}
-		if n := foldToolName(flat); n != "" && !seen[n] {
-			seen[n] = true
-			names = append(names, n)
+		if r.Name != "" && !seen[r.Name] {
+			seen[r.Name] = true
+			names = append(names, r.Name)
 		}
 	}
+	// Count SETTLED calls; fall back to the run count while one is still in flight.
 	n := done
 	if n == 0 {
-		// No completed results yet (a call still in flight). Count CARDS, not buffer
-		// entries - output previews are in here too and would inflate the count.
-		for _, c := range fold {
-			if !strings.HasPrefix(c, toolOutMark) {
-				n++
-			}
-		}
+		n = len(fold)
 	}
 	unit := "tool calls"
 	if n == 1 {
@@ -2618,14 +2591,26 @@ func (m model) flushFold(out, fold []string, w int) []string {
 			label += fmt.Sprintf(", +%d", extra)
 		}
 	}
-	if m.showToolCalls {
-		out = append(out, foldRow(glyphs.Fold("▾"), label, w))
-		for _, c := range fold {
-			out = append(out, stDim.Render("  │ ")+strings.TrimLeft(c, " "))
-		}
-		return append(out, stDim.Render("  └"))
+	if !m.showToolCalls {
+		return append(out, foldRow(glyphs.Fold("▸"), label, w))
 	}
-	return append(out, foldRow(glyphs.Fold("▸"), label, w))
+	// OPEN: the same lid turned down, every card behind a rail, and each call's output
+	// preview under its own card where it belongs - `d` still gates the preview, so the
+	// two doors nest rather than fight.
+	out = append(out, foldRow(glyphs.Fold("▾"), label, w))
+	for _, r := range fold {
+		card := stDim.Render("  │ ") + strings.TrimLeft(r.render(), " ")
+		if len(r.Preview) > 0 && !m.showToolOutput {
+			card += stDim.Render("   d·output")
+		}
+		out = append(out, card)
+		if m.showToolOutput {
+			for _, pl := range r.Preview {
+				out = append(out, stDim.Render("  │ ")+pl)
+			}
+		}
+	}
+	return append(out, stDim.Render("  └"))
 }
 
 // foldRow paints the disclosure lid: a triangle, the label, and the ⌃o affordance
@@ -2647,42 +2632,6 @@ func foldRow(tri, label string, w int) string {
 	return lipgloss.NewStyle().Foreground(cDim).Background(cBand).Render(truncVisible(line, w))
 }
 
-// foldToolName pulls the tool name out of a stripped card line. The card shapes put
-// a varying number of glyphs in front of it - "⚙ read_file …" (a call), "✓ read_file
-// · ok" (a result), "◐ ⚙ read_file · running" (an approved call in flight) - so this
-// takes the first field that LOOKS like a tool name rather than a fixed position.
-// Taking f[1] blind picked "⚙" out of the three-glyph shape.
-//
-// Tool names in this harness are snake_case ASCII identifiers; anything else returns
-// "", so a card shape that changes degrades to a bare count rather than to garbage.
-func foldToolName(flat string) string {
-	for _, f := range strings.Fields(flat) {
-		if isToolIdent(f) {
-			return f
-		}
-	}
-	return ""
-}
-
-func isToolIdent(s string) bool {
-	if s == "" || len(s) > 32 {
-		return false
-	}
-	for i, r := range s {
-		switch {
-		case r >= 'a' && r <= 'z', r == '_':
-		case r >= '0' && r <= '9' && i > 0:
-		default:
-			return false
-		}
-	}
-	// A bare "ok"/"running"/"approved" is a status word, not a tool.
-	switch s {
-	case "ok", "running", "approved", "denied", "error", "bytes":
-		return false
-	}
-	return true
-}
 
 // agentToolCallLine renders a tool CALL as dim machinery-texture (design overhaul §4): a
 // ⚙ gear + the tool + its arg summary, ALL dim, so the tool chatter recedes behind the

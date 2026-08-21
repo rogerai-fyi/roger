@@ -18,7 +18,17 @@ import (
 )
 
 // allLines joins the transcript, ANSI stripped, for substring assertions.
-func allLines(m model) string { return stripANSI(strings.Join(m.agentLines, "\n")) }
+// allLines is the RENDERED transcript, machinery box open.
+//
+// AMENDED 2026-08-20: this used to join m.agentLines raw. Tool calls are records now
+// (toolrun.go) and the buffer holds references to them, so a raw join shows "\x1f0"
+// where a card used to be. Rendering is also the more honest thing to assert on: what
+// these tests are about is what the OPERATOR sees after approving or denying, not how
+// the transcript happens to be stored.
+func allLines(m model) string {
+	m.showToolCalls = true // the cards are what is under test; open the box
+	return stripANSI(strings.Join(m.displayAgentLines(100), "\n"))
+}
 
 // Approving a tool transitions one truthful activity card and still answers the loop.
 func TestProwordWilcoOnApprove(t *testing.T) {

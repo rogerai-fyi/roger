@@ -893,11 +893,14 @@ type model struct {
 	agentTokensIn         int            // running AGENT session BILLED prompt (↑) tokens — the broker re-count, for display
 	agentTokensOut        int            // running AGENT session BILLED completion (↓) tokens — the broker re-count, for display
 	agentTPS              float64        // LATEST relay call's throughput (tokens/sec) for the live meter; not summed
-	agentActivityLine     int            // agentLines index of the currently-running compact tool card; -1 when none
-	agentActivityTool     string         // tool name carried through approval/result transitions
-	agentActivityTarget   string         // target summary carried from call into its result card
-	agentActivityRunning  bool           // distinguishes a real index 0 card from no active tool
-	agentActivityApproved bool           // approval updates the active card instead of appending narration
+	// TOOL CALLS AS DATA (toolrun.go). agentRuns holds the records; the transcript
+	// holds ordered references into it. This replaced five fields that between them
+	// hand-tracked "the card we are about to rewrite" (line index, tool, target,
+	// running, approved) - with records the only thing to track is which record is
+	// still open, and the facts live on the record instead of being re-derived from
+	// the string it was formatted into.
+	agentRuns    []toolRun // every tool call this session, oldest first
+	agentOpenRun int       // index of the call still in flight; -1 when none
 	agentStep             int            // current model/tool-loop iteration (1-based; 0 between untouched turns)
 	agentMaxSteps         int            // harness safety ceiling shown in the truthful session rail
 	// /model selection state. agentPicked marks that the user chose the model
@@ -3047,10 +3050,24 @@ func (m model) agentTranscriptText() string {
 			lines = append(lines, strings.TrimPrefix(l, agentAnswerMark))
 			continue
 		}
-		// Un-mark tool-output preview lines: toolOutMark (\x1e) is a C0 control byte that
-		// ansi.Strip preserves, so it would otherwise leak invisibly into the clipboard and
-		// across the RC wire. The full content is kept, only the tag byte is dropped.
-		l = strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(l, toolOutMark), toolCardMark), askMark)
+		// A tool REFERENCE is resolved to the call it names, plus its output preview.
+		// The copied transcript is what the operator saw with the box OPEN - a copy that
+		// silently dropped the machinery would be a worse record than the screen.
+		if i := toolRefIndex(l); i >= 0 {
+			if i >= len(m.agentRuns) {
+				continue
+			}
+			r := m.agentRuns[i]
+			lines = append(lines, ansi.Strip(r.render()))
+			for _, pl := range r.Preview {
+				lines = append(lines, ansi.Strip(pl))
+			}
+			continue
+		}
+		// Un-mark the remaining tagged lines: these are C0 control bytes that ansi.Strip
+		// preserves, so they would otherwise leak invisibly into the clipboard and across
+		// the RC wire. The content is kept, only the tag byte is dropped.
+		l = strings.TrimPrefix(strings.TrimPrefix(l, toolOutMark), askMark)
 		lines = append(lines, ansi.Strip(l))
 	}
 	return strings.Join(lines, "\n")

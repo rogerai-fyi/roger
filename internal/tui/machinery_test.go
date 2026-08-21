@@ -77,16 +77,20 @@ func TestToolOutputDToggle(t *testing.T) {
 // invisible \x1e into the clipboard and across the RC wire (claude-audit regression).
 func TestAgentTranscriptTextHasNoToolOutMark(t *testing.T) {
 	m := agentWithToolOutput(t)
-	// The mark is present in the raw buffer (that is how the toggle works)...
-	marked := false
-	for _, l := range m.agentLines {
-		if strings.HasPrefix(l, toolOutMark) {
-			marked = true
+	// AMENDED 2026-08-20: previews used to ride the buffer as toolOutMark-tagged lines;
+	// they hang off the tool RECORD now (toolrun.go), which is what stopped the fold lid
+	// from scraping tool names out of fetched page text. The precondition moves to where
+	// the preview lives; the guarantee below - the exported transcript carries the
+	// content and none of the control bytes - is unchanged and is the point of the test.
+	held := false
+	for _, r := range m.agentRuns {
+		if len(r.Preview) > 0 {
+			held = true
 			break
 		}
 	}
-	if !marked {
-		t.Fatal("precondition: the buffer should hold a toolOutMark-tagged preview line")
+	if !held {
+		t.Fatal("precondition: a tool record should hold its preview")
 	}
 	// ...but the exported transcript (copy / RC / park) must be clean of it, and must still
 	// carry the actual preview content.

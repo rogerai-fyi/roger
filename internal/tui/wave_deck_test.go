@@ -191,18 +191,17 @@ func foldSeed(t *testing.T) model {
 	m.width, m.height = 110, 30
 	m.mode = modeAgent
 	m.agent = m.newAgentRuntime()
-	card := func(tool, arg string) []string {
-		return []string{
-			toolCardMark + agentToolCallLine(tool, arg),
-			toolCardMark + stLive.Render("  ✓ ") + stDim.Render(tool) + stDim.Render("   "+arg) + stDim.Render(" · ok · 51 bytes"),
-		}
+	add := func(tool, arg string) {
+		m.agentRuns = append(m.agentRuns, toolRun{
+			Name: tool, Arg: arg, Status: toolOK, Detail: "ok · 51 bytes",
+		})
+		m.agentLines = append(m.agentLines, toolRef(len(m.agentRuns)-1))
 	}
-	var ls []string
-	ls = append(ls, card("read_file", "settings.yaml")...)
-	ls = append(ls, card("web_search", "dsh local models")...)
-	ls = append(ls, card("run_shell", "echo ports")...)
-	ls = append(ls, "  Endpoints are live.")
-	m.agentLines = ls
+	add("read_file", "settings.yaml")
+	add("web_search", "dsh local models")
+	add("run_shell", "echo ports")
+	m.agentLines = append(m.agentLines, "  Endpoints are live.")
+	m.agentOpenRun = -1
 	return m
 }
 
@@ -213,10 +212,9 @@ func TestToolMachineryFoldsByDefault(t *testing.T) {
 	}
 	got := m.displayAgentLines(110)
 	if len(got) != 2 {
-		t.Fatalf("six cards + one prose line should fold to 2 rows, got %d:\n%s", len(got), strings.Join(got, "\n"))
+		t.Fatalf("three calls + one prose line should fold to 2 rows, got %d:\n%s", len(got), strings.Join(got, "\n"))
 	}
 	flat := stripANSI(got[0])
-	// Counts RESULTS, not cards: a call and its result are one tool run.
 	if !strings.Contains(flat, "3 tool calls") {
 		t.Errorf("the fold must count runs, not cards: %q", flat)
 	}
@@ -250,8 +248,8 @@ func TestToolMachineryOpensWithCtrlO(t *testing.T) {
 	// 6 cards + a lid + a closing rail + the prose line. The lid and rail are the
 	// box's visible EDGES: an opened drawer you cannot see the sides of is just
 	// machinery loose in the flow again.
-	if len(got) != 9 {
-		t.Errorf("opened: want lid + 6 cards + rail + prose = 9 rows, got %d:\n%s", len(got), strings.Join(got, "\n"))
+	if len(got) != 6 {
+		t.Errorf("opened: want lid + 3 cards + rail + prose = 6 rows, got %d:\n%s", len(got), strings.Join(got, "\n"))
 	}
 	if !strings.Contains(stripANSI(got[0]), "▾") {
 		t.Errorf("the open box needs a turned-down lid, got %q", stripANSI(got[0]))
@@ -260,8 +258,8 @@ func TestToolMachineryOpensWithCtrlO(t *testing.T) {
 		t.Error("the open lid must still advertise the way back")
 	}
 	for _, l := range got {
-		if strings.Contains(l, toolCardMark) {
-			t.Error("the card mark leaked into a rendered line")
+		if toolRefIndex(l) >= 0 || strings.Contains(l, toolRefMark) {
+			t.Error("an unresolved tool reference leaked into a rendered line")
 		}
 	}
 	out, _ = m.onAgentKey(tea.KeyMsg{Type: tea.KeyCtrlO})
@@ -278,7 +276,8 @@ func TestToolMachineryOpensWithCtrlO(t *testing.T) {
 // predict what the transcript looks like. Now inverted, with the tool name kept.
 func TestSingleToolRunFoldsToo(t *testing.T) {
 	m := foldSeed(t)
-	m.agentLines = []string{toolCardMark + agentToolCallLine("web_fetch", "https://example.com")}
+	m.agentRuns = []toolRun{{Name: "web_fetch", Arg: "https://example.com", Status: toolOK, Detail: "ok · 132 bytes"}}
+	m.agentLines = []string{toolRef(0)}
 	got := m.displayAgentLines(110)
 	if len(got) != 1 {
 		t.Fatalf("a lone card folds to one lid, got %d rows", len(got))
@@ -299,12 +298,13 @@ func TestSingleToolRunFoldsToo(t *testing.T) {
 // drop it explicitly or it rides invisibly into a clipboard or across the RC wire.
 func TestToolCardMarkNeverEscapes(t *testing.T) {
 	m := foldSeed(t)
-	if txt := m.agentTranscriptText(); strings.Contains(txt, toolCardMark) {
-		t.Error("the card mark leaked into the copied/streamed transcript")
+	if txt := m.agentTranscriptText(); strings.Contains(txt, toolRefMark) {
+		t.Error("an unresolved tool reference leaked into the copied/streamed transcript")
 	}
-	m.showToolCalls = true
-	if txt := m.agentTranscriptText(); strings.Contains(txt, toolCardMark) {
-		t.Error("the card mark leaked with the fold open")
+	// A copy must carry the machinery even when the box is SHUT on screen: a record
+	// that silently dropped it would be a worse record than the screen.
+	if txt := m.agentTranscriptText(); !strings.Contains(txt, "read_file") {
+		t.Errorf("the copied transcript must resolve tool calls, got:\n%s", txt)
 	}
 }
 
@@ -390,10 +390,10 @@ func TestAgentFooterKeepsSpecdWordsWhileItHasRoom(t *testing.T) {
 // Caught on a rendered transcript, not in review: the ordering reads fine in code.
 func TestToolBoxLandsBetweenTheAskAndTheAnswer(t *testing.T) {
 	m := foldSeed(t)
+	m.agentRuns = []toolRun{{Name: "web_fetch", Arg: "https://example.com", Status: toolOK, Detail: "ok · 132 bytes"}}
 	m.agentLines = []string{
 		askMark + "how are things",
-		toolCardMark + agentToolCallLine("web_fetch", "https://example.com"),
-		toolCardMark + "  ✓ web_fetch · ok · 132 bytes",
+		toolRef(0),
 		agentAnswerMark + "Things are good.",
 	}
 	got := m.displayAgentLines(96)
@@ -421,10 +421,11 @@ func TestToolBoxLandsBetweenTheAskAndTheAnswer(t *testing.T) {
 // hint must not hang off the lid, which is not a result line.
 func TestClosedBoxSwallowsTheOutputHint(t *testing.T) {
 	m := foldSeed(t)
-	m.agentLines = []string{
-		toolCardMark + "  ✓ read_file · ok · 51 bytes",
-		toolOutMark + "some file contents",
-	}
+	m.agentRuns = []toolRun{{
+		Name: "read_file", Status: toolOK, Detail: "ok · 51 bytes",
+		Preview: []string{"some file contents"},
+	}}
+	m.agentLines = []string{toolRef(0)}
 	flat := stripANSI(strings.Join(m.displayAgentLines(96), "\n"))
 	if strings.Contains(flat, "d·output") {
 		t.Errorf("the shut lid must not carry the output hint:\n%s", flat)

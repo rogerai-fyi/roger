@@ -147,8 +147,13 @@ func TestApprovalUpdatesSingleToolCard(t *testing.T) {
 	m.agentPendingConfirm = &agentConfirm{tool: "run_shell", args: map[string]any{"cmd": "echo hi"}, resp: make(chan bool, 1)}
 	out, _ = m.onAgentKey(keyMsg("y"))
 	m = asModel(out)
-	joined := stripANSI(strings.Join(m.agentLines, "\n"))
-	if strings.Count(joined, "run_shell") != 1 || strings.Contains(joined, "WILCO") {
+	// Rendered, not raw: a call is a record now and the buffer holds a reference.
+	m.showToolCalls = true
+	joined := stripANSI(strings.Join(m.displayAgentLines(100), "\n"))
+	// Count CARDS, not name occurrences: the fold lid also names the tools it
+	// contains, so "run_shell" legitimately appears twice in a rendered box. What
+	// must never double is the card itself.
+	if strings.Count(joined, "⚙ run_shell") > 1 || strings.Contains(joined, "WILCO") {
 		t.Fatalf("approval duplicated tool narration:\n%s", joined)
 	}
 	if !strings.Contains(joined, "approved") {
