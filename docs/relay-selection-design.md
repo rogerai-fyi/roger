@@ -1303,15 +1303,22 @@ the epoch fence below implements, and it is what makes the fence four lines rath
 subsystem.
 
 **Two facts already in the tree make it cheap, and neither needed building.** *Idle is already
-knowable*: `edgeLoadLocked(nodeID)` in `cmd/rogerai-broker/toweredge.go` sums
-`b.inflight + b.peerInflight + b.edgeLoad`, and zero means no work in flight on either the
-classic or the edge path — that is the quiescence signal a placement change gates on.
-**With one qualifier that matters for M4**: `b.edgeLoad` is this instance's own map and
-`peerInflight` is a periodically merged snapshot of other instances' *classic* counts
-(`mergeSharedInflight`), so "zero" is zero as one broker currently sees it, not a fleet-wide
-proof of quiescence. Good enough to *choose* to re-place; not good enough to be the only check
-before a node acts on it, which is why §6.10 has the node re-check locally. *An
-unsettled attempt is already handled*: the orphan sweep (`holdsweep.go`,
+knowable*: `edgeLoadLocked(nodeID)` in `cmd/rogerai-broker/toweredge.go` sums the load signals
+for a node, and zero means no work in flight on either the classic or the edge path — that is
+the quiescence signal a placement change gates on.
+
+> **CORRECTED 2026-08-20, and the correction is now code.** As first written this paragraph read
+> `b.inflight + b.peerInflight + b.edgeLoad` and carried a qualifier: `b.edgeLoad` was this
+> instance's own map with no cross-instance half at all, so an edge attempt open on instance B
+> was invisible to instance A and A's "zero" was a statement about A rather than about the
+> fleet. That is fixed. Edge load now write-throughs to its own shared key and merges back as
+> `b.peerEdgeLoad` (`cmd/rogerai-broker/edgeload.go`), so the sum is four terms and fleet-wide on
+> both fabrics. **The zero is still not by itself a proof of quiescence**, for a different and
+> much smaller reason — the merge runs on a tick, so it lags by up to `syncTickInterval` — and the
+> gate must therefore read `stationQuiescent` rather than `edgeLoadLocked`, and must take a
+> durable lock rather than trust a snapshot. §6.3c is that argument in full.
+
+*An unsettled attempt is already handled*: the orphan sweep (`holdsweep.go`,
 `store.ReleaseStaleHolds`) reclaims a consumer's hold after `holdTTL` with no reference to a
 receipt or a dispatch row, and `edgeSettleGrace` is capped strictly under `holdTTL` so the hold
 always outlives the settlement window. "The relay moved, cancel that request" is the existing
@@ -1321,6 +1328,189 @@ failure path.
 which failures, over what window, before Core re-places a node whose relay is degrading rather
 than gone. And a re-placement still has to be delivered to a node that is not attached to
 anything new yet, which is §6.10's instruction channel.
+
+### 6.3c The mobility gate: when Core may move an idle Station, recorded, NOT built
+
+Written 2026-08-20, immediately after the cross-instance edge-load work landed in the same
+session, at the coordinator's request and while the constraints were fresh. **Nothing in this section is
+implemented.** §6.3b decided the model; §6.6b built the backstop; this is the shape of the thing
+between them. One finding reordered it and is worth putting first: **almost all of this
+mechanism already exists.** The move is not a new writer, a new state or a new object. It is the
+dormant-and-revive transition the attachment table already performs, fired for a new reason and
+on a much shorter horizon.
+
+#### What "idle" must mean concretely
+
+`edgeLoadLocked(nodeID) == 0` is the wrong test and always was, for the reason §6.3b flagged and
+this session fixed: it is the RANKING reader. It is now four terms rather than three
+(`b.inflight + b.peerInflight + b.edgeLoad + b.peerEdgeLoad` — the edge counter finally has the
+cross-instance half the classic one has had since Stage 2), so its zero is a much better zero
+than it was. It is still not proof, because the thing that makes it a good ranking input is
+exactly what makes it a bad gate: when the shared store cannot be read it keeps the last
+snapshot, and a fleet that looks empty because we went blind ranks the same as a fleet that is
+empty.
+
+The gate reads `stationQuiescent(nodeID)` (`cmd/rogerai-broker/edgeload.go`) instead, which is
+the same numbers with the opposite posture on every failure:
+
+- **Zero locally on both fabrics.** `b.inflight + b.edgeLoad`. One machine, one GPU: classic
+  relay work and edge attempts both count, exactly as placement sums them.
+- **Zero across the fleet**, from `b.peerInflight + b.peerEdgeLoad` — and the edge half of that
+  is the term that did not exist until now. Without it a Station serving a consumer through
+  instance B was invisible to instance A, and A's "idle" was a statement about A.
+- **From a snapshot that was actually refreshed.** `peerLoadAt` is stamped only on a tick where
+  BOTH peer reads came back clean, and the gate refuses once it is older than
+  `peerLoadFreshness()` (two sync ticks, 10s). An unreadable peer view means "I cannot prove
+  idle", never "idle" — the whole reason this is a second function rather than a second
+  comparison.
+- **Exactly, when there is one instance.** With no peers this broker's counters ARE the fleet's,
+  so the freshness machinery is skipped rather than refusing forever on a snapshot that will
+  never be taken.
+
+#### The window a snapshot cannot close, and the ordering that does
+
+A peer's write-through lands in a round trip but is not merged here until the next tick, so an
+attempt opened elsewhere is invisible for up to `syncTickInterval` — 5s, and up to
+`peerLoadFreshness()` if a tick was missed. Nothing on the reading side can shrink that; it is
+the price of keeping Valkey off the placement path, and a gate built only on it would be a
+narrower version of the same race rather than a fix for it.
+
+**So the move must not be gated on the snapshot. It must be gated on a durable lock, with the
+snapshot as the cheap pre-filter.** The lock already exists and costs nothing to adopt:
+`targetFromAttachment` (`towerdispatch.go:163`) refuses any attachment that is not `Live()`, so
+**a Station in `StateDormant` cannot be authorized by any instance, immediately, without a
+merge.** That is a Postgres fact, not a cached one. The order is therefore:
+
+1. **Pre-filter** on `stationQuiescent`. Cheap, in-memory, and wrong by up to a tick — which is
+   fine, because its only job is to avoid churning Stations that are obviously busy.
+2. **Take the lock: write `StateDormant`.** From this instant no instance can open a new attempt
+   against this Station anywhere. Whatever was already in flight is still in flight.
+3. **Wait one full `peerLoadFreshness()`, then re-check `stationQuiescent`.** Anything opened
+   before step 2 on any instance is now certainly visible, because a full merge interval has
+   passed and nothing new can have started. A non-zero here means back out (revive to the same
+   tower) or wait for it to drain — it does NOT mean proceed.
+4. **Move.** Which, as below, means letting the node re-attach.
+
+Steps 2 and 3 are what turn "the snapshot said zero" into a proof. Without them the epoch fence
+would be carrying the whole load, and the fence's job is to catch the case where this reasoning
+is wrong, not to be the reasoning.
+
+#### Who performs the move: nobody new, and that is the finding
+
+§6 has said since it was written that no writer moves a live Station's `origin_tower` outside
+`Admit`'s upsert, which is scoped by its `WHERE` clause to a dormant row. That is still true.
+What was not written down is that **the dormant row is reachable and the rest of the move is
+already built**:
+
+- `DetachIdle` writes `StateDormant` (`internal/towercore/attach/stationattach.go`). It is the
+  only thing that makes an origin writable again.
+- A node whose attachment is not `Live()` falls THROUGH the idempotent-retry branch in
+  `toweredgeattach.go:187` (`prior.Live()` is part of that condition) into the full attach.
+- The full attach re-runs Core's placement — `LiveTowers()` first-fit — mints its own internal
+  invitation on the stack, and calls `Admit`.
+- `Admit`'s `checkBindings` recognises the dormant row as a revival, and `Admit` writes the new
+  `origin_tower` and sets `at.Epoch = revived.Epoch + 1`.
+
+So the move is: **mark dormant, let the node re-attach.** What has to be built is not a rehome
+writer. It is a *per-Station, quiescence-gated caller* of the dormant write — because the one
+that exists is per-Tower, runs from `publishRoutable` only for towers in `LiveTowers()`, and is
+scoped to a seven-day silence horizon. Every one of those three is wrong for a deliberate move
+and right for the sweep it was written for, so this wants a sibling entry point rather than a
+loosened one; a `DetachIdle` that can fire in seconds is a foot-gun aimed at the whole fleet.
+
+#### What increments the epoch, and why that is what makes it safe
+
+`at.Epoch = revived.Epoch + 1`, inside `Admit`, on the revival branch — an existing line, written
+for dormant machines waking up months later, which is the same fact this move produces on a
+shorter timescale. Nothing new increments it and nothing should: **the epoch's whole authority
+comes from having exactly one writer that only ever raises it**, which is what lets §6.6b answer
+`moved` with a permanent 410 instead of a retryable 503. A second incrementer would make
+monotonicity a convention rather than a property, and the fence's status-code argument would stop
+holding.
+
+What that buys, concretely: a grant minted under epoch N and still in flight when the Station
+revives at N+1 settles 410, writes nothing — no evidence, no claim, no capture, no lot — and the
+consumer's hold is reclaimed on age by `ReleaseStaleHolds`. That is the §6.3b failed-delivery
+policy, and it is the reason the gate above is allowed to be merely very good rather than perfect.
+The fence is the backstop for a gate that races; the gate is what keeps the backstop from being
+the normal path, because "we voided your request" is a bad outcome even when it is a safe one,
+and the consumer attributes it to the relay rather than to us.
+
+#### What a move does to the node
+
+**The attach reply is the only channel that has ever named a tower**, and the node learns its
+placement exactly once. The reply carries `tower_id`, `endpoint`, `endpoint_tls_spki`,
+`hub_token`, `tower_key_hash` and `state`; a move rotates all of them, and the hub token in
+particular is minted fresh, so this is a full re-establishment rather than a redirect.
+
+The mechanism for picking up a new one already exists and is `serveTowerTenancy`
+(`internal/agent/tower.go`): the node re-attaches on a standing hub failure, keeping its Station
+identity and its keys, and takes whatever the reply says. **And that is precisely the problem
+with the cheap version of this design.** The re-attach loop fires on FAILURE. A Station we
+deliberately made dormant while its hub was perfectly healthy has no reason to re-attach, and
+dormant is not a state it can serve from — so a move that is not delivered does not degrade, it
+strands. The Station stops taking work, its operator stops earning, and nothing in the system is
+waiting to notice.
+
+So under this shape **the nudge is mandatory, not an optimisation** — which is the opposite of
+its status in §6.10, where placement was pushed as a signed instruction and the node's own loop
+was a fallback. The minimum viable nudge is much smaller than §6.10's object, though, and the
+difference is worth stating because it changes what has to be secured: a "re-attach now" nudge
+names no tower, so **it is not a redirect and cannot be used as one**. The worst an attacker who
+forges it can do is make a node re-attach to Core over its already-pinned base URL and get told
+where to go by Core — a nuisance, a re-attach storm at worst, not a steering primitive. §6.10's
+object is signed because it NAMES the relay; a bare nudge does not, and the two should not be
+conflated into one piece of work. If Core is choosing the relay anyway inside `Admit`, the signed
+placement object buys a saved round trip and a `OnUnknownStation` avoidance, not a safety
+property.
+
+An honest cost of the cheap version: between the dormant write and the node's re-attach the
+Station is off the network. That window is the nudge's delivery latency plus one attach round
+trip — sub-second on the existing long poll — but it is not zero, and it is unbounded if the
+nudge is lost. Whatever is built needs the dormant write to be self-healing: a Station that has
+been dormant for more than a few seconds with a live node behind it should be nudged again, and
+after N attempts revived where it was rather than left dark.
+
+#### What triggers a move at all
+
+Three, and the founder's ruling makes the third legitimate rather than merely tolerable — **a
+genuinely better relay is a valid reason to move, not only a failing one.** In descending order
+of how well the current tree can actually serve them:
+
+1. **The relay is gone.** The tower is no longer in `LiveTowers()` or has no data plane. This one
+   works today with no ranking change at all, because the dead tower simply is not in the list
+   `Admit` picks from, and it is the case
+   `TestATowerThatStopsExistingIsNotRecoveredByReattaching` currently pins as NOT working. That
+   test is the one that changes when this lands, and it says so.
+2. **The relay is failing or too slow.** `edgeCanaryHealth` (`towercanary.go`) is the existing
+   per-Tower data-plane measurement and is the right input; §6.3b left "bad" undefined and it
+   still is. What must be decided is not the metric but the HYSTERESIS: a Station that re-places
+   on a bad minute will re-place back on the next one, and a flapping Station is worse than a
+   slow one because every flap is a window where it serves nothing. Whatever threshold is chosen
+   needs a dwell on both edges and a per-Station rate limit, and the rate limit is the part that
+   is easy to leave out.
+3. **A materially better relay exists, by locality.** This is the founder's case and **the
+   current tree cannot serve it at all**, for a reason that has nothing to do with the gate:
+   `Admit`'s placement is first-fit over `LiveTowers()`. A dormant-and-revive move therefore
+   lands on the same tower it started on, deterministically, unless the list changed. So trigger
+   3 is not gated on the mobility work — it is gated on placement becoming a ranked choice, which
+   is M2/M5 and is where the locality signal (§1.5: there is none in the system today, and
+   `netBucket` is collection-only) has to arrive first. **Building the gate does not deliver the
+   founder's stated reason for wanting it.** Triggers 1 and 2 it delivers in full.
+
+#### What is deliberately not decided here
+
+- **The hysteresis and rate limits for trigger 2.** Named above as the hard part; not chosen.
+- **The nudge's wire shape.** Whether it rides `protocol.Job` under the discard rule §6.10 works
+  out, or something narrower, and whether Core waits for an acknowledgement or observes the
+  re-attach it already receives. The re-attach IS an acknowledgement, arriving on an
+  authenticated path, which is a considerably cheaper answer to §6.10's open ordering question
+  than the one recorded there — but only for this shape, where Core is not authorizing against
+  the new relay until it has run `Admit` itself.
+- **Whether a move may cross owners' expectations.** A move rotates the hub token and the
+  endpoint; an operator watching their console sees their Station go dormant and come back
+  somewhere else, with no explanation unless one is written. That is a notice, and notices on
+  this path already exist (`ErrRelayReattaching`).
 
 ### 6.4 Where the round trip goes, exactly
 
@@ -1580,7 +1770,11 @@ the exemption removed, a grant stating no epoch is answered **410**, permanently
 **What this does NOT do.** It does not move a placement, refuse a re-placement while work is in
 flight, or define "idle" for the mobility rule — the gate that stops a move landing on a busy
 Station is the *other* half of §6.3b and is not built. The fence is the backstop for the case
-where that gate is wrong or races, not a substitute for it.
+where that gate is wrong or races, not a substitute for it. **§6.3c now records that gate's
+shape**, and one line of it belongs here: the epoch this fence compares is incremented by
+`Admit`'s revival branch (`at.Epoch = revived.Epoch + 1`) and by nothing else, which is exactly
+what lets `moved` be answered permanently rather than retryably. A second incrementer would turn
+the epoch's monotonicity from a property into a convention and this table's third row with it.
 
 ### 6.7 Self-dealing: a check that has never had to work
 
@@ -1865,11 +2059,18 @@ the tree (`internal/towerobj`, string-encoded integers, one signature member):
    the arrival order of pushes on a channel that makes no ordering promise.
 4. **`expires` has not passed**, against the node's own clock, with the skew the rest of the
    tree already uses.
-5. **The node is idle** — §6.3b's rule, enforced at BOTH ends. Core gates the send on
-   `edgeLoadLocked(nodeID) == 0`; the node re-checks locally, because Core's view is a cache and
-   the node is the only party that knows what it is actually serving. If the node is busy it
-   declines and Core retries later; it does not queue the instruction, because a queued placement
-   is a placement made against stale information.
+5. **The node is idle** — §6.3b's rule, enforced at BOTH ends. The node re-checks locally,
+   because Core's view is a cache and the node is the only party that knows what it is actually
+   serving. If the node is busy it declines and Core retries later; it does not queue the
+   instruction, because a queued placement is a placement made against stale information.
+
+   **Core's half of that check is NOT `edgeLoadLocked(nodeID) == 0`, which is what this item said
+   when it was written.** That expression is the ranking reader: it keeps the last peer snapshot
+   when the shared store is unreadable, so it answers "idle" about an entire fleet it has lost
+   sight of. The gate reads `stationQuiescent` (`cmd/rogerai-broker/edgeload.go`), which refuses
+   on an unreadable or stale peer view, and even that is only the pre-filter — see §6.3c for why
+   the move has to be gated on a durable dormant write rather than on any snapshot, and for the
+   finding that most of the move already exists.
 
 #### What still has to be decided before it is built
 

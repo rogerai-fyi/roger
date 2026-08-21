@@ -2792,9 +2792,17 @@ func (b *broker) syncInflight(stop <-chan struct{}) {
 	}
 }
 
-// mergeSharedInflight refreshes b.peerInflight from the shared store (one round). Split
-// out so a test can drive it deterministically. On a snapshot error it leaves the prior
-// peerInflight intact (graceful degrade).
+// mergeSharedInflight refreshes the whole peer LOAD view from the shared store (one round for
+// each of the two counters). Split out so a test can drive it deterministically. On a snapshot
+// error it leaves the prior maps intact (graceful degrade) - stale load is a better placement
+// input than no load.
+//
+// IT ALSO STAMPS peerLoadAt, AND ONLY ON A CLEAN ROUND. Both snapshots have to come back without
+// error for the view to count as refreshed. That stamp is not for ranking, which never reads it;
+// it is the freshness evidence the quiescence reader needs in order to fail the OTHER way from
+// this function on the same error. Keeping the graceful degrade and the freshness stamp in one
+// place is what makes the two behaviors provably about the same round trip. See
+// stationQuiescent and peerLoadFreshness in edgeload.go.
 func (b *broker) mergeSharedInflight() {
 	if b.shared == nil {
 		return
@@ -2805,13 +2813,26 @@ func (b *broker) mergeSharedInflight() {
 	if b.multiInstance && b.instanceID != "" {
 		_ = b.shared.markInstance(b.instanceID, time.Now())
 	}
-	snap, err := b.shared.inflightByNode(b.instanceID)
-	if err != nil {
-		return
+	// Republish before reading, so this instance's long-running work refreshes its TTL on the
+	// same tick every other instance is about to read - see refreshSharedLoad for the expiry
+	// hole this closes.
+	b.refreshSharedLoad()
+	clean := true
+	if snap, err := b.shared.inflightByNode(b.instanceID); err == nil {
+		b.metricsMu.Lock()
+		b.peerInflight = snap
+		b.metricsMu.Unlock()
+	} else {
+		clean = false
 	}
-	b.metricsMu.Lock()
-	b.peerInflight = snap
-	b.metricsMu.Unlock()
+	if !b.mergeSharedEdgeLoad() {
+		clean = false
+	}
+	if clean {
+		b.metricsMu.Lock()
+		b.peerLoadAt = time.Now()
+		b.metricsMu.Unlock()
+	}
 }
 
 // recordServed folds the smart-router v2 reward + capacity evidence from one

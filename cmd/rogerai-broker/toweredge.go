@@ -1019,7 +1019,7 @@ func (b *broker) edgeCandidateLoad(row fleet.Station) int {
 	return b.edgeLoadLocked(row.NodeID)
 }
 
-// edgeLoadLocked sums the two load signals for one node. Caller holds metricsMu.
+// edgeLoadLocked sums the load signals for one node. Caller holds metricsMu.
 //
 // THE SUM IS ONE-WAY, and that asymmetry is the whole design (see broker.edgeLoad). Placement
 // on this path adds relayed load to edge load because it is one machine and one GPU. The
@@ -1027,8 +1027,23 @@ func (b *broker) edgeCandidateLoad(row fleet.Station) int {
 // attempt - which any signed-in account can open for the price of a few hundred bytes, before
 // it has submitted anything - cannot depress a node's paid-fabric score or stop it being
 // canary-probed.
+//
+// FOUR TERMS, NOT THREE, AND THEY PAIR UP. Each counter has a local half and a merged
+// peer-instance half, and the one-way rule holds across the pair exactly as it holds locally:
+// peerInflight is other instances' CLASSIC load and peerEdgeLoad is their EDGE load, published
+// under a separate shared key for the same reason the local maps are separate (see
+// markEdgeInflight in sharedstore.go). The peer edge term is the one that was missing, and it
+// mattered most here: an edge attempt is authorized by whichever broker the consumer reached and
+// settled by whichever one the Tower reaches, so on any multi-instance deployment a station's
+// edge load is routinely being carried somewhere other than where it is being scored. Without
+// the term every instance under-counted the same stations and over-ranked them in the same
+// direction, which is a magnet dressed as a spread.
+//
+// IT IS STILL THE RANKING READER. A missing peer snapshot degrades to the last one, which is
+// right for a divisor and wrong for a gate; anything asking "is this station idle" must use
+// stationQuiescent instead. See edgeload.go.
 func (b *broker) edgeLoadLocked(nodeID string) int {
-	return b.inflight[nodeID] + b.peerInflight[nodeID] + b.edgeLoad[nodeID]
+	return b.inflight[nodeID] + b.peerInflight[nodeID] + b.edgeLoad[nodeID] + b.peerEdgeLoad[nodeID]
 }
 
 // maxOpenEdgeAttemptsPerAccount bounds how many edge attempts one account may hold open at
@@ -1134,7 +1149,12 @@ func (b *broker) edgeEnterInflight(attemptID, nodeID, account string, until time
 	}
 	b.edgeInflight[attemptID] = edgeAttemptLoad{nodeID: nodeID, account: account}
 	b.edgeLoad[nodeID]++
+	count := b.edgeLoad[nodeID]
 	b.metricsMu.Unlock()
+	// Publish OUTSIDE the lock, exactly as exitInflight does for the classic counter: metricsMu
+	// is held on the hot placement path and a shared-store round trip must never be taken under
+	// it. A no-op unless multi-instance is on. See writeThroughEdgeLoad.
+	b.writeThroughEdgeLoad(nodeID, count)
 	if d := time.Until(until); d > 0 {
 		time.AfterFunc(d, func() { b.edgeExitInflight(attemptID) })
 	} else {
@@ -1179,7 +1199,15 @@ func (b *broker) edgeExitInflight(attemptID string) {
 	if b.edgeOpenByAccount[entry.account] == 0 {
 		delete(b.edgeOpenByAccount, entry.account)
 	}
+	count := b.edgeLoad[entry.nodeID]
 	b.metricsMu.Unlock()
+	// The DECREMENT is the write that matters most to a peer: it is the one that can let a
+	// placement or a re-placement proceed, and it is the only one refreshSharedLoad will not
+	// re-send for us (it republishes non-zero counts only, so that a stale republish can never
+	// under-state load). A lost zero here therefore over-states this station's load until the
+	// hash ages out at inflightTTL - the safe direction, and the reason this is still allowed to
+	// be best-effort.
+	b.writeThroughEdgeLoad(entry.nodeID, count)
 }
 
 // towerEdgeAck accepts the consumer's signed statement about what it actually received.

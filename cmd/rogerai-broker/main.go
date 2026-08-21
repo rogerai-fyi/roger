@@ -288,6 +288,40 @@ type broker struct {
 	// unused when multi-instance is off (zero behavior change).
 	peerInflight map[string]int
 
+	// peerEdgeLoad is the same merge for the EDGE counter: the summed count of open edge
+	// attempts OTHER instances are holding against each node, refreshed on the same tick and
+	// guarded by metricsMu. It is a SECOND map rather than a second contribution to
+	// peerInflight for the reason edgeLoad is a second map rather than part of inflight (see
+	// broker.edgeLoad above, and markEdgeInflight in sharedstore.go): peerInflight is added to
+	// the CLASSIC router's load divisor in pickFor, so folding edge attempts into it would let
+	// any signed-in account depress a node's paid-fabric score on every instance except the
+	// one they opened the attempt on. The split has to survive the instance boundary or it is
+	// not a split.
+	//
+	// WHY IT HAD TO EXIST AT ALL. edgeLoadLocked was the only load signal on the edge path
+	// that had no cross-instance half, so on a two-instance deployment every instance
+	// under-counted every station's real edge load and over-ranked the busiest ones - the
+	// magnet failure mode. And it is the signal the sticky-placement mobility gate (§6.3b of
+	// docs/relay-selection-design.md) reads to decide a Station is idle enough to be re-placed;
+	// a zero that is only one broker's view is not proof of quiescence, and acting on it moves
+	// a Station out from under a live request on some other instance.
+	peerEdgeLoad map[string]int
+
+	// peerLoadAt is when the peer view above was LAST FULLY REFRESHED - stamped only when both
+	// the classic and the edge snapshot came back clean on the same tick. Zero means "never".
+	// Guarded by metricsMu.
+	//
+	// It exists because the two readers of the peer view want opposite things from a failed
+	// merge. RANKING wants the last known numbers: a stale load estimate is better than
+	// pretending an entire fleet is idle, and a mis-ranked placement is a slightly worse
+	// choice, not a wrong one - which is why mergeSharedInflight keeps the previous maps on
+	// error. A QUIESCENCE GATE wants the opposite: "the peer view is unreadable" must mean "I
+	// cannot prove this Station is idle", never "it is idle", because the action on the other
+	// side of that gate voids a live request. Keeping the maps and the freshness stamp separate
+	// is what lets one function serve both without either lying to the other. See
+	// stationQuiescent in edgeload.go.
+	peerLoadAt time.Time
+
 	// cacheFlight collapses a CONCURRENT cache miss/expiry on a single hot key into ONE
 	// compute (a dogpile/thundering-herd guard for serveCachedJSON). Without it, every
 	// in-flight request on the one hot key (e.g. the single discover:/market: entry)
@@ -703,6 +737,7 @@ func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, loc
 			b.multiInstance = true
 			b.instanceID = newInstanceID()
 			b.peerInflight = map[string]int{}
+			b.peerEdgeLoad = map[string]int{}
 			// Announce this instance's presence immediately so the ops panel counts the full
 			// live fleet from the first read (before the first sync tick refreshes it).
 			// Best-effort: a shared-store hiccup just defers presence to the next tick.
