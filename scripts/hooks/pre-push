@@ -60,6 +60,7 @@ while read -r _lref lsha _rref rsha; do
 	# discard the web signal from the refs not yet examined.
 	if printf '%s\n' "$changed" | grep -q '\.go$'; then any_go=1; fi
 	if printf '%s\n' "$changed" | grep -q '^web/'; then any_web=1; fi
+	push_shas="${push_shas:-} $lsha"
 done
 
 # Deletes only: nothing is being added, so nothing needs proving.
@@ -69,6 +70,43 @@ if [ "$saw_ref" = "0" ] && [ "$saw_delete" = "1" ]; then
 fi
 [ "$saw_ref" = "0" ] && unknown=1                               # read nothing -> run everything
 if [ "$unknown" = "1" ]; then any_go=1; any_web=1; fi
+
+# ---- THE COMMIT MUST BUILD, not the desk it was written on -------------------
+#
+# Everything below this point - cover-gate, cover-gate-fast, web-gate - reads the WORKING
+# TREE. That is the right thing for a coverage number and the wrong thing for the question
+# "does what I am about to push compile", because the tree contains files git does not have.
+#
+# It is not hypothetical. `roger-tower` shipped a commit that did not build: the change
+# added cmd/roger-tower/main.go calling tower.DoctorOption and left the file DEFINING it
+# unstaged. `go build ./...`, `go vet ./...`, `go test ./...` and five cross-compiles all
+# passed, every one of them against a tree that still held the missing file. Twenty-four
+# commits later it was still broken and nothing had noticed, because nothing ever compiled
+# what was actually committed.
+#
+# CI would have caught it and does not run here: coverage.yml triggers on main and pull
+# requests, and long-lived release branches reach neither until the very end.
+#
+# So: check out each pushed sha into a throwaway worktree and build THAT. Detached, so it
+# cannot disturb the working tree or another session mid-edit; --no-checkout would defeat
+# the point. Cheap - a compile, no tests - and it fails closed like everything else here.
+if [ -n "${push_shas:-}" ]; then
+	for sha in $push_shas; do
+		wt="$(mktemp -d)"
+		echo "[pre-push] clean-checkout build of ${sha:0:12}" >&2
+		if ! git worktree add --detach "$wt" "$sha" >/dev/null 2>&1; then
+			echo "[pre-push] FAILED: cannot check out $sha to verify it builds" >&2
+			rm -rf "$wt"; exit 1
+		fi
+		if ! ( cd "$wt" && go build ./... ); then
+			echo "[pre-push] FAILED: $sha does not build from a clean checkout." >&2
+			echo "[pre-push] Your working tree builds; the commit does not. Something is unstaged." >&2
+			git worktree remove "$wt" --force >/dev/null 2>&1 || rm -rf "$wt"
+			exit 1
+		fi
+		git worktree remove "$wt" --force >/dev/null 2>&1 || rm -rf "$wt"
+	done
+fi
 
 if [ "$any_go" = "1" ]; then
 	echo "[pre-push] .go in range -> FULL coverage gate (bypass: COVER_GATE_SKIP=1 git push)" >&2
