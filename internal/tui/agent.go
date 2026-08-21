@@ -2504,6 +2504,15 @@ const askMark = "\x02"
 // line above them gains a dim `d·output` hint; when on, the previews render (tag stripped).
 // So the machinery stays one dim line each by default, with the full output a `d` away.
 func (m model) displayAgentLines(w int) []string {
+	// THE CONTENT WIDTH, not the viewport width. transcriptContent wraps every entry at
+	// width-2 and then prefixes each resulting line with a two-space indent, so a row
+	// built to the full width is two cells too wide: it wrapped, and the overflow came
+	// back as a 2-cell fragment on the next line. That is what broke the ask slate -
+	// the founder screenshotted a plate whose lips had come off it.
+	//
+	// Anything here that paints to its own edges (the slate, the fold lid) must be
+	// built to THIS width. Ordinary prose is unaffected: it was always shorter.
+	cw := max(1, w-2)
 	out := make([]string, 0, len(m.agentLines))
 	fold := make([]toolRun, 0, 8)
 	// flush closes any open machinery box before something that is NOT machinery is
@@ -2512,7 +2521,7 @@ func (m model) displayAgentLines(w int) []string {
 	// landed under prose it happened before (caught on a rendered transcript, not in
 	// review - the ordering reads fine in code).
 	flush := func() {
-		out = m.flushFold(out, fold, w)
+		out = m.flushFold(out, fold, cw)
 		fold = fold[:0]
 	}
 	for _, ln := range m.agentLines {
@@ -2539,7 +2548,7 @@ func (m model) displayAgentLines(w int) []string {
 		}
 		if strings.HasPrefix(ln, askMark) {
 			flush()
-			out = append(out, askSlate(ln[len(askMark):], w)...)
+			out = append(out, askSlate(ln[len(askMark):], cw)...)
 			continue
 		}
 		flush()
@@ -2672,24 +2681,25 @@ func (m model) agentAskLines(p string) []string {
 	return []string{"", rule, ask}
 }
 
-// askSlate paints one sent ask as a RAISED SLATE: a block with the question glowing on
-// a lifted face, a lit top edge and a fallen bottom edge that read as light landing on
-// a physical panel.
+// askSlate paints one sent ask as a RAISED CARD: the question on a face lifted above
+// the deck, with a shadow row beneath it.
 //
-// FOUNDER 2026-08-20 (round 3): the flat band was right about spanning the view and
-// wrong about everything else - "enclose the section in this 3d block ... with glowing
-// text ... like radio for roger". A terminal has no shadows, so the depth is made the
-// way a radio faceplate makes it: the top lip catches light, the bottom lip falls away,
-// and the face between sits a shade above the surrounding ground. The question is the
-// brightest ink on the screen against that face - contrast is the only glow a terminal
-// has.
+// FOUNDER 2026-08-21 (round 2): the first version drew a lit top lip, a face, and a
+// fallen bottom lip - three rows of ▔ and ▁ glyphs - and it looked wrong for two
+// reasons. It was two cells too wide, so every plate wrapped and came back as a
+// stray fragment; and even fixed, three rows per question is heavy, and the top lip
+// scrolls off on its own in a moving transcript, leaving an orphan line above the text.
 //
-// Every row is painted to the full width, so the block has four straight edges, and a
-// long question wraps INSIDE the face rather than escaping it.
+// TWO ROWS NOW, and no glyphs. Depth in a terminal is just relative brightness: a face
+// lighter than the ground reads as raised, and one darker row under it reads as the
+// shadow it casts. Painting both as plain background means nothing depends on whether
+// a font has ▔, and there is no glyph to wrap.
 //
-// Mono / dumb terminals keep the bare ▌ bar - the escape hatch bandUser always had, and
-// the reason the depth is decoration over an already-legible line rather than the thing
-// carrying the meaning.
+// Every row is padded to exactly the width it is given - which is the CONTENT width,
+// not the viewport's, because transcriptContent wraps at width-2 and then indents.
+//
+// Mono / dumb terminals keep the bare ▌ bar: the escape hatch bandUser always had, and
+// the reason the depth is decoration over an already-legible line.
 func askSlate(text string, w int) []string {
 	if paletteMono || !canTint(lipgloss.DefaultRenderer().ColorProfile()) {
 		rows := strings.Split(ansi.Wrap(text, max(1, w-4), ""), "\n")
@@ -2704,17 +2714,10 @@ func askSlate(text string, w int) []string {
 		return out
 	}
 	face := lipgloss.NewStyle().Background(cSlate).Foreground(cSlateText).Bold(true)
-	// The lit and fallen lips, drawn as full-width runs of the half-block glyphs so the
-	// bevel is a real row of pixels rather than a colour change the eye has to infer.
-	top := lipgloss.NewStyle().Foreground(cSlateLit).Background(cSlate).Render(strings.Repeat("▔", w))
-	bottom := lipgloss.NewStyle().Foreground(cSlateShade).Background(cSlate).Render(strings.Repeat("▁", w))
+	bar := lipgloss.NewStyle().Background(cSlate).Foreground(cLive).Bold(true)
 
-	// ansi.Wrap, not wrapPlain: wrapPlain is a HARD character wrap, which is right for
-	// its own callers (a shell command must be shown whole, never re-flowed) and wrong
-	// here - it broke "that" across two rows of the plate. A question is prose.
-	rows := strings.Split(ansi.Wrap(text, max(1, w-6), ""), "\n")
-	out := make([]string, 0, len(rows)+2)
-	out = append(out, top)
+	rows := strings.Split(ansi.Wrap(text, max(1, w-4), ""), "\n")
+	out := make([]string, 0, len(rows)+1)
 	for i, r := range rows {
 		mark := "  "
 		if i == 0 {
@@ -2725,15 +2728,14 @@ func askSlate(text string, w int) []string {
 			cell += strings.Repeat(" ", pad)
 		}
 		if i == 0 {
-			// The red bar is the beacon this palette is built around; it rides the face
-			// so the lit block is unbroken behind it.
-			bar := lipgloss.NewStyle().Background(cSlate).Foreground(cLive).Bold(true)
 			out = append(out, bar.Render("▌ ")+face.Render(cell[len("▌ "):]))
 			continue
 		}
 		out = append(out, face.Render(cell))
 	}
-	return append(out, bottom)
+	// The shadow: one darker row, the width of the card. It is what makes the face
+	// read as lifted rather than merely tinted.
+	return append(out, lipgloss.NewStyle().Background(cSlateShade).Render(strings.Repeat(" ", w)))
 }
 
 // agentAnswerBlock renders the model's prose with a left gutter on every line ("◂" on

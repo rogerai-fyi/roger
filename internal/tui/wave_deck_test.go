@@ -450,44 +450,82 @@ func TestAskRendersAsAFullWidthSlate(t *testing.T) {
 	quiet = false
 	t.Cleanup(func() { quiet = oldQ })
 
-	// AMENDED 2026-08-20 (round 3): the flat band became a RAISED block - a lit top lip,
-	// the face, a fallen bottom lip - so a short ask is three rows, not one. Spanning
-	// the full width is the part that did not change and is what keeps the block's
-	// edges straight.
+	// AMENDED 2026-08-21 (round 4): the three-row plate (lit lip / face / fallen lip)
+	// is now a two-row CARD - face plus shadow, no glyphs. Two reasons, both from a
+	// founder screenshot: it was built to the VIEWPORT width while transcriptContent
+	// wraps at width-2 and then indents, so every plate wrapped and came back as a
+	// stray fragment; and even fixed, a top lip scrolls off on its own in a moving
+	// transcript, leaving an orphan line above the text. Depth in a terminal is just
+	// relative brightness - a lighter face over a darker row under it - and painting
+	// both as background means nothing depends on a font having ▔.
 	const w = 96
 	rows := askSlate("hi", w)
-	if len(rows) != 3 {
-		t.Fatalf("a short ask is lip + face + lip = 3 rows, got %d", len(rows))
+	if len(rows) != 2 {
+		t.Fatalf("a short ask is face + shadow = 2 rows, got %d", len(rows))
 	}
-	if !strings.Contains(stripANSI(rows[0]), "▔") {
-		t.Errorf("the top lip catches the light: %q", stripANSI(rows[0]))
+	if !strings.Contains(stripANSI(rows[0]), "▌ hi") {
+		t.Errorf("the face keeps the ▌ band and the question: %q", stripANSI(rows[0]))
 	}
-	if !strings.Contains(stripANSI(rows[2]), "▁") {
-		t.Errorf("the bottom lip falls away: %q", stripANSI(rows[2]))
+	if strings.TrimSpace(stripANSI(rows[1])) != "" {
+		t.Errorf("the shadow is a painted row, not text: %q", stripANSI(rows[1]))
 	}
-	if !strings.Contains(stripANSI(rows[1]), "▌ hi") {
-		t.Errorf("the face keeps the ▌ band and the question: %q", stripANSI(rows[1]))
-	}
-	// Every row spans, or the block has a ragged edge and stops reading as an object.
+	// Every row spans exactly, or the card has a ragged edge - and one cell over is
+	// what made it wrap in the first place.
 	for i, r := range rows {
 		if got := lipgloss.Width(r); got != w {
-			t.Errorf("slate row %d width %d, want %d", i, got, w)
+			t.Errorf("card row %d width %d, want exactly %d", i, got, w)
 		}
 	}
-	// A long ask wraps INSIDE the face, on word boundaries - wrapPlain is a hard
-	// character wrap and split "that" across two rows before this was fixed.
+	// A long ask wraps INSIDE the face, on word boundaries.
 	long := askSlate(strings.Repeat("what are some things i can do today that has to wrap ", 3), w)
-	if len(long) < 4 {
-		t.Fatalf("a long ask should wrap inside the block, got %d rows", len(long))
+	if len(long) < 3 {
+		t.Fatalf("a long ask should wrap inside the card, got %d rows", len(long))
 	}
 	for i, r := range long {
 		if got := lipgloss.Width(r); got != w {
-			t.Errorf("wrapped slate row %d width %d, want %d", i, got, w)
+			t.Errorf("wrapped card row %d width %d, want %d", i, got, w)
 		}
 	}
-	joined := stripANSI(strings.Join(long, ""))
-	if !strings.Contains(joined, "that") {
+	if !strings.Contains(stripANSI(strings.Join(long, "")), "that") {
 		t.Error("wrapping must not break a word in half")
+	}
+}
+
+// THE WIDTH CONTRACT. transcriptContent wraps every entry at width-2 and then indents
+// by two, so anything that paints to its own edges must be built to the CONTENT width.
+// Getting this wrong is invisible in code and obvious on screen: the founder
+// screenshotted a card whose rows had wrapped into fragments.
+func TestFullWidthRowsFitTheTranscriptContentWidth(t *testing.T) {
+	m := browseSeed(80)
+	m.width, m.height = 80, 26
+	m.mode = modeAgent
+	m.agent = m.newAgentRuntime()
+	m.agentRuns = []toolRun{{Name: "web_search", Status: toolOK, Detail: "ok"}}
+	m.agentLines = []string{askMark + "how are things", toolRef(0)}
+	m.agentOpenRun = -1
+
+	// The invariant is EXCEEDS, not equals: the mono fallback deliberately does not pad
+	// (there is no background to carry), and only an over-long row wraps into a
+	// fragment. TestAskRendersAsAFullWidthSlate covers the tinted path's exact padding.
+	content := transcriptContent(m.displayAgentLines(m.effWidth()), m.effWidth())
+	for i, ln := range strings.Split(content, "\n") {
+		if got := lipgloss.Width(ln); got > m.effWidth() {
+			t.Errorf("content row %d is %d cells, over %d - it will wrap into a fragment",
+				i, got, m.effWidth())
+		}
+	}
+
+	// And with colour on, where the card DOES paint to its edges, nothing overflows
+	// either - that is the case the founder's screenshot came from.
+	colorOn(t, true)
+	oldQ := quiet
+	quiet = false
+	defer func() { quiet = oldQ }()
+	content = transcriptContent(m.displayAgentLines(m.effWidth()), m.effWidth())
+	for i, ln := range strings.Split(content, "\n") {
+		if got := lipgloss.Width(ln); got > m.effWidth() {
+			t.Errorf("tinted content row %d is %d cells, over %d", i, got, m.effWidth())
+		}
 	}
 }
 
