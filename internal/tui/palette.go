@@ -163,3 +163,43 @@ func canTint(p termenv.Profile) bool {
 	}
 	return p == termenv.ANSI256 || p == termenv.TrueColor
 }
+
+// ── THE WAVE SPECTRUM ────────────────────────────────────────────────────────
+// The seven Wave tiers, in ladder order, in the founder's own Spectrum hues -
+// the SAME seven the website's animated wave mark, the mesh deck and the factory
+// deck wear (web/src/styles/base.css --tier-*). Carried here so the terminal and
+// the site speak one palette: the carrier sweep under a working turn is literally
+// the Wave Spectrum sweeping past, tier by tier.
+//
+// AdaptiveColor per tier (light ground / dark ground) exactly as the stylesheet
+// defines them, so a light terminal gets the darker, higher-contrast set rather
+// than the dark theme's brighter hues washed out on paper.
+//
+// These are TEXT colors, so lipgloss downsamples them for free at lower profiles
+// and no canTint() gate is needed. Under mono they collapse with everything else
+// (see spectrumTier) - the escape hatch stays one switch.
+var waveSpectrum = []lipgloss.AdaptiveColor{
+	{Light: "#b23a2a", Dark: "#e6604f"}, // Pico  - the edge child
+	{Light: "#c96a1c", Dark: "#e88b3c"}, // Nano  - the fleet gateway
+	{Light: "#b0891a", Dark: "#d4aa2e"}, // Micro - the site brain
+	{Light: "#2f8a52", Dark: "#48b873"}, // Giga  - the plant
+	{Light: "#1f8f8f", Dark: "#39b7b7"}, // Tera  - cross-site enterprise
+	{Light: "#2f63bf", Dark: "#5b8ee6"}, // Peta  - regional
+	{Light: "#5b3fbf", Dark: "#8a6df0"}, // Exa   - the flagship
+}
+
+// waveTierNames are the ladder's names in the same order as waveSpectrum. Index
+// alignment between these two is load-bearing (spectrum_test.go locks it).
+var waveTierNames = []string{"Pico", "Nano", "Micro", "Giga", "Tera", "Peta", "Exa"}
+
+// spectrumStyle returns the style for tier i (0=Pico .. 6=Exa), wrapping the index
+// so a caller can walk a longer track without bounds-checking. Under the mono
+// escape hatch every tier collapses to the one red - the Spectrum is decoration
+// over an already-legible glyph, never the thing carrying the meaning.
+func spectrumStyle(i int) lipgloss.Style {
+	if paletteMono {
+		return stLive
+	}
+	n := len(waveSpectrum)
+	return lipgloss.NewStyle().Foreground(waveSpectrum[((i%n)+n)%n])
+}

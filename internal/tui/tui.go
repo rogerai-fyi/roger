@@ -4796,6 +4796,20 @@ func (m model) View() string {
 	// duplicated brand/header/"scanning…" the founder hit after going on-air. Guarded
 	// on height>0 so headless tests (no WindowSizeMsg) keep their exact, unpadded output.
 	out := b.String()
+	// THE BOTTOM PIN: agentView marks where its slack belongs (agentPinMark); spend it
+	// HERE, where the whole frame - chrome, footer, status - has actually been built
+	// and can be counted. Padding inside the view instead only knows that view's row
+	// budget, which is a ceiling with approximate chrome accounting, and overshoots.
+	// Always resolved, even with no slack, so the marker can never reach a terminal.
+	if i := strings.Index(out, agentPinMark+"\n"); i >= 0 {
+		out = strings.Replace(out, agentPinMark+"\n", "", 1)
+		if m.height > 0 {
+			rows := strings.Count(strings.TrimRight(out, "\n"), "\n") + 1
+			if slack := m.height - rows; slack > 0 {
+				out = out[:i] + strings.Repeat("\n", slack) + out[i:]
+			}
+		}
+	}
 	if m.height > 0 {
 		out = strings.TrimRight(out, "\n")
 		if n := strings.Count(out, "\n") + 1; n < m.height {
@@ -4826,7 +4840,7 @@ var paletteCmds = []paletteCmd{
 	{"/config", "broker + identity", ""},
 	{"/compact", "minimize to the dense windowshade", "m · alt+m"},
 	{"/ping", "the Ping World screensaver", "z"},
-	{"/webui", "open the browser node console", "w"},
+	{"/webui", "open the browser node console", "w · ⌃w"},
 	{"/support", "rogerai.fm - community + Discord", ""},
 	{"/help", "the full operating manual", "?"},
 	{"/log", "node + broker messages", ""},
@@ -7503,6 +7517,25 @@ func (m model) agentMascotCompact() bool {
 	return m.compact || (m.height > 0 && m.height < 20)
 }
 
+// agentWorkingRows is the READOUT SLOT under the composer: one status line while a
+// turn runs, plus a second for the Spectrum carrier where there is room for it (the
+// same gate agentWorkingLine uses for its sweep).
+//
+// It is reserved WHETHER OR NOT a turn is running, and that is the point. Sizing it
+// to the live state instead made the composer hop up a row the instant a turn began
+// and back down when it ended - the one element on the screen that must never move
+// was the one that moved on every single turn. Holding the slot open costs one or
+// two quiet rows above TOOLS: and buys an input that sits in exactly one place for
+// the whole session (founder 2026-08-20).
+//
+// Deterministic in width and mode alone, so the pin above it is stable too.
+func (m model) agentWorkingRows() int {
+	if !m.compact && !quiet && !m.narrow() {
+		return 2 // status line + carrier sweep
+	}
+	return 1
+}
+
 // agentTranscriptRows is chatTranscriptRows for the AGENT view (minus the corner Ping).
 func (m model) agentTranscriptRows(cornerRows, promptRows int) int {
 	// Expanded AGENT lives inside the global preset/header/footer chrome (7 rows)
@@ -7515,6 +7548,7 @@ func (m model) agentTranscriptRows(cornerRows, promptRows int) int {
 	// The original budget reserved one prompt row. Wrapped/multiline input gives
 	// back its extra rows, and a non-empty transcript reserves one separator seam.
 	budgetMax -= max(0, promptRows-1)
+	budgetMax -= m.agentWorkingRows()
 	if len(m.agentLines) > 0 {
 		budgetMax--
 	}
@@ -8948,14 +8982,30 @@ func (m model) footer(w int) string {
 		default:
 			if m.agentBusy {
 				left = stDim.Render("enter queue  ·  esc cancel (2× force)  ·  ") + stKey.Render("⌃y") + stDim.Render(" copy  ·  ⌃c quit")
-			} else {
-				left = stDim.Render("enter ask  ·  tab transcript  ·  ") + stKey.Render("⌃y") +
-					stDim.Render(" copy  ·  ⌃p perms  ·  /model  ·  /operator  ·  esc exit")
+				break
 			}
-			if m.effWidth() < 60 {
-				left = stDim.Render("ask · tab · copy · perms · exit")
-			} else if m.effWidth() < 100 {
-				left = stDim.Render("ask · tab transcript · ") + stKey.Render("⌃y") + stDim.Render(" copy · ⌃p perms · esc exit")
+			// PICK BY FIT, not by magic width. Every one of these teaches ⌃w (a
+			// shortcut nobody is told about does not exist), and each drops the least
+			// load-bearing words of the one above it. Hard-coded cut-offs kept being
+			// off by a cell or two as the line's content changed - 100 was already
+			// stale by 6 cells, and 118 by one at width 64 - so the ladder now MEASURES
+			// each candidate and takes the richest one that actually fits beside the
+			// account tag. Adding a key here can no longer overflow a terminal.
+			for _, cand := range []string{
+				stDim.Render("enter ask  ·  tab transcript  ·  ") + stKey.Render("⌃y") +
+					stDim.Render(" copy  ·  ⌃p perms  ·  ") + stKey.Render("⌃w") +
+					stDim.Render(" console  ·  /model  ·  /operator  ·  esc exit"),
+				stDim.Render("ask · tab transcript · ") + stKey.Render("⌃y") +
+					stDim.Render(" copy · ⌃p perms · ") + stKey.Render("⌃w") + stDim.Render(" console · esc exit"),
+				stDim.Render("ask · tab · ") + stKey.Render("⌃y") + stDim.Render(" copy · ⌃p perms · ") +
+					stKey.Render("⌃w") + stDim.Render(" console · esc exit"),
+				stDim.Render("ask · tab · copy · perms · ") + stKey.Render("⌃w") + stDim.Render(" web · exit"),
+				stDim.Render("ask · tab · copy · perms · exit"),
+			} {
+				left = cand
+				if lipgloss.Width(cand)+lipgloss.Width(m.accountTag(true))+2 <= m.effWidth() {
+					break
+				}
 			}
 		}
 		return modalFooter(m.effWidth(), left, m.accountTag(true), m.status)

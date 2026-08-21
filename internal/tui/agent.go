@@ -1024,6 +1024,18 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m = m.applyPermMode((agentPermMode(m.agent.perms.Load()) + 1) % 3)
 		return m, nil
+	case "ctrl+w":
+		// THE CONSOLE KEY (founder 2026-08-20): open the browser node console, the same
+		// thing /webui does, without leaving the keyboard or the turn. Instant - the
+		// console is a separate surface, so it works mid-turn like /webui does.
+		//
+		// TRADE-OFF, recorded so the next reader does not have to rediscover it: ctrl+w
+		// is Bubbles' textarea binding for delete-word-backward, and this shadows it in
+		// AGENT. alt+backspace still deletes a word (it is the other half of the same
+		// default binding), so the editing verb is not lost - it moves. Asked for by
+		// name; revert by deleting this case if the typing cost outweighs the shortcut.
+		m.status = stDim.Render(ansi.Strip(m.openConsole()))
+		return m, nil
 	case "ctrl+o":
 		m.mouseOff = !m.mouseOff
 		m.smartSel = smartSelState{}
@@ -2066,6 +2078,24 @@ func (m model) agentView(w int) string {
 	if m.agentVP.Height > 0 {
 		b.WriteString(m.agentVP.View() + "\n")
 	}
+	// THE BOTTOM PIN (founder 2026-08-20: "the ask › area should always be at the
+	// bottom footer but on top of the helper info parts"). The transcript viewport is
+	// sized to min(content, budget), so on a short session it ends high up the screen
+	// and everything under it - seam, composer, working readout, TOOLS - floated up
+	// with it, landing somewhere new every turn. This marks where the slack belongs;
+	// View() spends it once the WHOLE frame (chrome, footer and all) has been measured
+	// and drops that block onto the floor instead.
+	//
+	// The measurement has to happen there, not here: this view only knows its own row
+	// budget, which is a ceiling with approximate chrome accounting, and padding to it
+	// blind overshot the terminal by a row (render_fit's wrapped-prompt regression).
+	//
+	// Skipped for the modal paths below (plate, pickers, confirm) - those own the
+	// screen and return before the composer, so there is nothing to pin - and when
+	// there is no measured height at all, so headless renders stay byte-identical.
+	if m.height > 0 && m.operatorPlate == nil && !m.operatorPicker && !m.agentPicker && m.agentPendingConfirm == nil {
+		b.WriteString(agentPinMark + "\n")
+	}
 	// Desk availability belongs to the transcript side of the seam. Keeping it
 	// above the separator leaves `── ask` immediately adjacent to the composer.
 	b.WriteString(desk)
@@ -2165,18 +2195,6 @@ func (m model) agentView(w int) string {
 		b.WriteString(truncVisible("  "+stDim.Render(prompt)+stEmber.Render("[y/N]")+stDim.Render("  deny=default"), w) + "\n")
 		return b.String()
 	}
-	// While a turn runs, a one-line working readout (radio voice): elapsed secs + an honest
-	// receiving-vs-stalled state and the per-call cap (see agentWorkingLine).
-	if m.agentBusy {
-		elapsed, sinceLast := 0, 0
-		if !m.agentStart.IsZero() {
-			elapsed = int(time.Since(m.agentStart).Seconds())
-		}
-		if !m.agentLastEvent.IsZero() {
-			sinceLast = int(time.Since(m.agentLastEvent).Seconds())
-		}
-		b.WriteString("  " + m.agentWorkingLine(elapsed, sinceLast) + "\n")
-	}
 	// SLASH STRIP: the passive autocomplete hint for the command word being typed -
 	// every prefix match (ALL commands on a bare "/"), the Tab-cycled pick carated.
 	// One footer-styled line directly ABOVE the input; agentSlashStrip returns ""
@@ -2187,6 +2205,32 @@ func (m model) agentView(w int) string {
 	// The always-live prompt soft-wraps instead of horizontally scrolling pasted text
 	// out of sight. Continuations align under the value after `ask ›`.
 	b.WriteString("\n" + strings.Join(m.agentPromptLines(w), "\n") + "\n")
+	// While a turn runs, a one-line working readout (radio voice): elapsed secs + an
+	// honest receiving-vs-stalled state and the per-call cap (see agentWorkingLine),
+	// with the Spectrum carrier sweeping beneath it.
+	//
+	// FOUNDER 2026-08-20: this used to sit ABOVE the input, which pushed the whole
+	// composer down by one or two rows the moment a turn started and back up when it
+	// finished - the one element on the screen that must never move was the one that
+	// moved most. It now renders BELOW the ask, in the readout zone with TOOLS:, so
+	// the input keeps its line and the working state reads as instrumentation under
+	// it rather than as a thing shoving it around.
+	if m.agentBusy {
+		elapsed, sinceLast := 0, 0
+		if !m.agentStart.IsZero() {
+			elapsed = int(time.Since(m.agentStart).Seconds())
+		}
+		if !m.agentLastEvent.IsZero() {
+			sinceLast = int(time.Since(m.agentLastEvent).Seconds())
+		}
+		b.WriteString("  " + m.agentWorkingLine(elapsed, sinceLast) + "\n")
+	} else if m.height > 0 {
+		// Idle: hold the readout slot open with blank rows so the composer above it
+		// does not move when a turn starts. agentWorkingRows() is the same count the
+		// transcript budget reserved, so the two always agree. Headless renders have
+		// no layout to protect and stay byte-identical.
+		b.WriteString(strings.Repeat("\n", m.agentWorkingRows()))
+	}
 	if !m.compact {
 		// The control-panel mode line, always on directly under the input: TOOLS: <mode>
 		// (never empty) + a STANDBY chip. The founder's original "did /perms toggle?" fix.
@@ -2245,6 +2289,13 @@ func (m model) agentPromptPlaceholder() string {
 
 // agentPromptLines keeps Bubbles textinput for editing/history/paste handling, but
 // paints its complete value as a losslessly wrapped multi-row input zone.
+// agentPinMark is the one-line sentinel agentView drops where the bottom pin's slack
+// belongs. View() replaces it with however many blank rows put the composer on the
+// floor of the terminal, or removes it when the frame already fills the height. It is
+// deliberately un-typeable (NUL-delimited) so no transcript content can forge it, and
+// View() always resolves it - a frame can never ship with the marker still in it.
+const agentPinMark = "\x00rogerai-pin\x00"
+
 const (
 	agentPromptLead      = "  ▌ ask › "
 	agentPromptLeadWidth = 10

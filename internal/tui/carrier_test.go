@@ -31,16 +31,59 @@ func TestCarrierSweepShape(t *testing.T) {
 	}
 }
 
-// C2 - the carrier SELF-TINTS (tintBar only knows ▰): the wave rides the accent, the
+// C2 - the carrier SELF-TINTS (tintBar only knows ▰): the wave carries colour, the
 // quiet line is dim.
+//
+// AMENDED 2026-08-20 (WAVE SPECTRUM): the wave used to be one flat stLive red and
+// this asserted that exact style. The block now wears the seven Spectrum tier hues
+// so the carrier reads as the ladder sweeping past, which is the same guarantee -
+// the wave is TINTED and the quiet line is DIM - just no longer one hue. So the
+// assertion moves off stLive and onto the property: every wave cell must be
+// styled (never bare), the quiet line dim, and under the mono escape hatch the
+// whole spectrum must still collapse back to the one red.
 func TestCarrierSweepSelfTinted(t *testing.T) {
 	colorOn(t, true)
 	out := carrierSweep(sweepStep*6, meterWidth)
-	if !strings.Contains(out, stLive.Render("∿")) {
-		t.Error("C2: the carrier wave should carry the accent (self-tinted)")
+	if strings.Contains(out, "\x1b[0m∿") || strings.HasPrefix(out, "∿") {
+		t.Error("C2: the carrier wave must be tinted, not bare")
 	}
 	if !strings.Contains(out, stDim.Render("·")) {
 		t.Error("C2: the carrier quiet line should be dim")
+	}
+	// Every tier hue is a distinct style, so a mid-track block paints more than one.
+	seen := map[string]bool{}
+	for i := 0; i < len(waveSpectrum); i++ {
+		seen[spectrumStyle(i).Render("∿")] = true
+	}
+	if len(seen) < 2 {
+		t.Error("C2: the Spectrum must render as more than one hue")
+	}
+	hits := 0
+	for style := range seen {
+		if strings.Contains(out, style) {
+			hits++
+		}
+	}
+	if hits == 0 {
+		t.Error("C2: the carrier wave should carry Spectrum tier hues")
+	}
+}
+
+// C2b - the mono escape hatch collapses the whole Spectrum to the one red. The
+// Spectrum is decoration over an already-legible glyph; it must never be the thing
+// carrying the meaning, and one config flip must revert the entire colour layer.
+func TestCarrierSweepMonoCollapsesSpectrum(t *testing.T) {
+	colorOn(t, true)
+	SetPalette("mono")
+	t.Cleanup(func() { SetPalette("full") })
+	out := carrierSweep(sweepStep*6, meterWidth)
+	if !strings.Contains(out, stLive.Render("∿")) {
+		t.Error("C2b: under mono the carrier must collapse to the one red")
+	}
+	for i := range waveSpectrum {
+		if s := spectrumStyle(i); s.Render("x") != stLive.Render("x") {
+			t.Errorf("C2b: tier %d (%s) did not collapse under mono", i, waveTierNames[i])
+		}
 	}
 }
 

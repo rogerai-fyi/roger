@@ -49,7 +49,15 @@ func carrierSweep(frame, width int) string {
 	b.Grow(width * 8)
 	for i := 0; i < width; i++ {
 		if i < head && i >= head-sweepBlock {
-			b.WriteString(stLive.Render(wave))
+			// WAVE SPECTRUM (2026-08-20): the moving block is no longer one flat red -
+			// each cell wears the next tier's hue, so the carrier reads as the ladder
+			// sweeping past: Pico, Nano, Micro, Giga, Tera, Peta, Exa. Same seven hues,
+			// same order, as the site's animated wave mark. The tier is keyed to the
+			// cell's position on the TRACK, not to its offset within the block, so the
+			// colours stay pinned to the line while the block travels over them -
+			// a spectrum being revealed rather than a coloured object sliding along.
+			// Mono collapses every tier back to the one red (spectrumStyle).
+			b.WriteString(spectrumStyle(i).Render(wave))
 		} else {
 			b.WriteString(stDim.Render(quiet))
 		}
