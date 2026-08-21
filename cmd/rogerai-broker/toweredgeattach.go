@@ -173,15 +173,52 @@ func (b *broker) towerEdgeAttach(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
+	// EVERY IDENTITY FIELD IS CANONICALIZED ONCE, HERE, BEFORE ANYTHING READS IT - the gate
+	// below, the proof statement, the uniqueness lookups and the row that gets written all take
+	// the value from this one normalization. Two defects came out of not doing that, and both
+	// were the same defect wearing different clothes: THE VALUE CHECKED WAS NOT THE VALUE USED.
+	//
+	// THE STATION ID WAS TRIMMED TWICE AND SIGNED UNTRIMMED. The shape gate below validated
+	// strings.TrimSpace(req.StationID) and the mint used the trimmed form, but the proof
+	// statement named the RAW field - so a proof over "\n\n\nst-advlf\n" verified and the
+	// Station was bound as "st-advlf". The id SIGNED was not the id BOUND, which defeats the
+	// stated reason for naming the id in the statement at all ("a reader of a log line can see
+	// what was proved"), and it falsified the claim that every field of that statement is drawn
+	// from a closed alphabet - TrimSpace strips \n \r \t \v \f U+0085 U+00A0, none of which
+	// attach.ValidStationID would have allowed.
+	//
+	// THE KEYS ARE COMPARED AS STRINGS AND WERE ACCEPTED IN ANY CASE. protocol.AttachProof
+	// hex-decodes, which is case-insensitive, but every uniqueness path in the store compares
+	// the STRING: memStore.ByAssertionKey, PGStore.byLiveKey (an exact match on a TEXT column in
+	// a deterministic collation, on Postgres too - the parity tests pin it), attach's
+	// checkBindings, and the lost-response retry below. So ONE real keypair, presented as
+	// lowercase hex and then as uppercase, produced TWO Stations from one signer - contradicting
+	// the invariant checkBindings states in as many words ("two Stations signing offers with one
+	// key are one signer wearing two identities"). It was never an attacker primitive, since the
+	// private half is still required both times, but the new scheme would otherwise INHERIT it:
+	// what a possession proof binds must be the KEY, not the spelling the caller chose for it.
+	//
+	// Normalizing BEFORE the proof rather than after is the whole point. The statement then
+	// names the canonical value, so what the node signs is what Core binds; a caller that signs
+	// over some other spelling is refused by the proof rather than silently bound to it.
+	req.StationID = strings.TrimSpace(req.StationID)
+	req.AssertionKey = strings.ToLower(req.AssertionKey)
+	req.SessionKey = strings.ToLower(req.SessionKey)
+
 	// Key SHAPE is checked here, before anything is stored, exactly as the invite path does.
 	// (Both keys happen to be 32 bytes: the assertion key is ed25519, the session key X25519 -
 	// ed25519.PublicKeySize is used as the shared "32" for both, as the classic path does.)
-	for name, k := range map[string]string{"assertion_key": req.AssertionKey, "session_key": req.SessionKey} {
-		raw, derr := hex.DecodeString(k)
-		if derr != nil || len(raw) != ed25519.PublicKeySize {
-			jsonErr(w, http.StatusBadRequest, name+" must be a hex-encoded 32-byte public key")
-			return
-		}
+	//
+	// The assertion key is decoded into a variable rather than discarded, because the Station id
+	// is derived from it below; the session key only has to be well-formed.
+	assertionKey, derr := hex.DecodeString(req.AssertionKey)
+	if derr != nil || len(assertionKey) != ed25519.PublicKeySize {
+		jsonErr(w, http.StatusBadRequest, "assertion_key must be a hex-encoded 32-byte public key")
+		return
+	}
+	if raw, serr := hex.DecodeString(req.SessionKey); serr != nil || len(raw) != ed25519.PublicKeySize {
+		jsonErr(w, http.StatusBadRequest, "session_key must be a hex-encoded 32-byte public key")
+		return
 	}
 	// THE STATION ID'S SHAPE IS CHECKED HERE NOW, before the possession proof rather than at
 	// the mint below, and the move is not cosmetic. The id is one of the terms the proof is
@@ -192,8 +229,39 @@ func (b *broker) towerEdgeAttach(w http.ResponseWriter, r *http.Request) {
 	// order: an ill-formed identifier is a broken client, and answering that before spending an
 	// Ed25519 verification on it costs nothing. The name-injection reasoning that makes the
 	// alphabet closed in the first place is in attach/stationid.go.
-	if strings.TrimSpace(req.StationID) != "" && !attach.ValidStationID(strings.TrimSpace(req.StationID)) {
+	if req.StationID != "" && !attach.ValidStationID(req.StationID) {
 		jsonErr(w, http.StatusBadRequest, "station_id is not a valid station identifier")
+		return
+	}
+	// AND THE ID MUST BE THE ONE THIS KEY MINTS, which is what makes the id in the proof
+	// statement MEAN something rather than merely appear in it.
+	//
+	// The possession proof binds the Station id, but it is signed by the CLAIMANT's own
+	// assertion key - so "I claim somebody else's id, with keys that are honestly mine" was a
+	// valid proof, and this handler minted whatever the body named. The only thing refusing it
+	// was a row in the store, and rows are reaped: ReapTerminal DELETES a terminal attachment
+	// thirty days after a revoke, and the id it frees is PUBLIC (it is the relay_name in every
+	// authorize answer that Station ever served, the leftmost label of its relay DNS name, and
+	// it is in the placement logs). Revoke, wait out the reaper, take the name - and because
+	// station.InitOrOpen keeps the id on disk forever with no re-mint path, the rightful machine
+	// then meets "this Station ID is already bound to another assertion key" on every re-attach,
+	// indefinitely. Denial, never theft, and unrecoverable without destroying the identity.
+	//
+	// An ownership lookup cannot close that, because after the reap there is nothing to look up
+	// for EITHER party; deriving the id from the key closes it with no lookup at all. See
+	// protocol.DeriveStationID for the whole argument, including why the migration is free.
+	//
+	// REFUSED RATHER THAN SILENTLY CORRECTED. Binding a different id than the caller named would
+	// be the same "the value signed is not the value bound" defect the trim above just fixed,
+	// one layer up. An EMPTY id is still allowed and still means "Core mints it": the caller has
+	// then claimed no particular identity, and what Core mints is a function of the key the
+	// proof proves, so the bound id is determined by proved material either way.
+	derivedStationID := protocol.DeriveStationID(assertionKey)
+	if req.StationID != "" && req.StationID != derivedStationID {
+		jsonErr(w, http.StatusBadRequest,
+			"station_id is not the identity this assertion key mints - a Station's id is derived "+
+				"from its assertion key so that nobody else can claim it; send "+derivedStationID+
+				" or omit station_id and Core will mint it")
 		return
 	}
 	// THE KEYS MUST PROVE THEY ARE THE CALLER'S. Everything above this line establishes WHO is
@@ -393,12 +461,15 @@ func (b *broker) towerEdgeAttach(w http.ResponseWriter, r *http.Request) {
 
 	// The internal invitation: minted and redeemed in this one call. The secret exists only
 	// on this stack; the cap and one-use guarantees are the store's, unchanged.
-	// Shape was settled with the other input checks, above the possession proof - the id is one
-	// of the terms that proof is signed over, so it cannot be validated after it.
-	stationID := strings.TrimSpace(req.StationID)
-	if stationID == "" {
-		stationID = newStationID()
-	}
+	//
+	// THE ID IS THE DERIVED ONE, ALWAYS - whether the caller named it (in which case the check
+	// above proved it equal to this) or left it empty for Core to mint. There is no random
+	// minter on this path any more, which is the point: an id nobody can predict is also an id
+	// its own owner cannot reclaim once the reaper has freed it, and an id derived from the key
+	// is unclaimable by anybody who does not hold that key. Shape and derivation were both
+	// settled with the other input checks, above the possession proof - the id is one of the
+	// terms that proof is signed over, so it cannot be decided after it.
+	stationID := derivedStationID
 	hubToken := newHubToken()
 	auth, secret, err := attach.NewInvite(attach.Authorization{
 		ID: newInviteID(), Network: link.PublicNetwork, StationID: stationID, Owner: ownerPubkey,

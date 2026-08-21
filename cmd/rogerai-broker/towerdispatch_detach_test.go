@@ -324,11 +324,13 @@ func TestAStationThatWentQuietForAFortnightCanComeBack(t *testing.T) {
 	b, srv := towerTestBroker(t)
 	tw := liveEdgeTower(t, b, srv, "holiday-op", "203.0.113.9:8443")
 	op := signedInOperator(t, b, "holiday-op-node")
-	body, _ := selfAttachBodyFor(t, b, op)
+	body, apub := selfAttachBodyFor(t, b, op)
 	// The node names its own persistent Station id, exactly as agent.AttachTower does from the
 	// identity on disk. Without that this test would be about minting a NEW Station, which is
-	// not what a returning machine does and not what was broken.
-	const stationID = "st-holidaymachine"
+	// not what a returning machine does and not what was broken. The id is DERIVED from the
+	// assertion key (protocol.DeriveStationID) rather than chosen, which is what station.Init
+	// stamps on disk and the only id Core will accept beside this key.
+	stationID := protocol.DeriveStationID(apub)
 	body["station_id"] = stationID
 
 	var first struct {
@@ -382,8 +384,8 @@ func TestADormantStationIsOnlyWokenByTheMachineThatHoldsIt(t *testing.T) {
 	b, srv := towerTestBroker(t)
 	tw := liveEdgeTower(t, b, srv, "sleep-op", "203.0.113.9:8443")
 	owner := signedInOperator(t, b, "sleep-op-node")
-	body, _ := selfAttachBodyFor(t, b, owner)
-	const stationID = "st-sleeping1"
+	body, apub := selfAttachBodyFor(t, b, owner)
+	stationID := protocol.DeriveStationID(apub)
 	body["station_id"] = stationID
 	code, raw := op0(t, owner, srv, body)
 	require.Equal(t, http.StatusOK, code, raw)
@@ -396,7 +398,10 @@ func TestADormantStationIsOnlyWokenByTheMachineThatHoldsIt(t *testing.T) {
 	require.Equal(t, attach.StateDormant, stateOf(t, b, stationID))
 
 	// A different account, a different machine, the SAME station id and the same public
-	// assertion key it read off the plaintext hub link.
+	// assertion key it read off the plaintext hub link. It must be the same assertion key, and
+	// not merely the same id: the id is derived from that key, so a thief naming this id beside
+	// a key of their own is turned away by the derivation check without ever reaching the
+	// dormant-revival branch this test is about.
 	thief := signedInOperator(t, b, "thief-op")
 	stolen, _ := selfAttachBodyFor(t, b, thief)
 	stolen["station_id"] = stationID

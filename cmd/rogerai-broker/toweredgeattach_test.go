@@ -330,7 +330,8 @@ func TestATokenlessSelfAttachmentIsStillListedForItsTower(t *testing.T) {
 	spub, _, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
 	auth, secret, err := attach.NewInvite(attach.Authorization{
-		ID: newInviteID(), Network: link.PublicNetwork, StationID: newStationID(), Owner: owner,
+		ID: newInviteID(), Network: link.PublicNetwork,
+		StationID: protocol.DeriveStationID(apub), Owner: owner,
 		Origin:       attach.Origin{Kind: attach.OriginJoined, TowerID: tw.id},
 		AssertionKey: hexOf(apub), SessionKey: hexOf(spub),
 		// No HubToken. Everything else is exactly what the self-attach path records.

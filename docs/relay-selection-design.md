@@ -1008,7 +1008,10 @@ Still open after round five, and worth naming so the next reader does not have t
 - ~~**Key squatting on an unattached assertion key.**~~ **CLOSED 2026-08-21 on
   `release/v5.7.0`.** The record of what it was, how much wider it turned out to be than this
   bullet first said, and what closing it did and did not cover, is kept below rather than
-  deleted, because the two rounds of widening are the part a later reader needs.
+  deleted, because the two rounds of widening are the part a later reader needs. **Read "Round
+  two" at the end of this entry as well**: the possession proof was itself reviewed, three things
+  it does not cover were proved against the running handler, and two claims made in this section
+  turned out to be false.
 
   **What it was.** `/tower/edge/attach` took the assertion key out of the request body and
   never required a signature from it. The request was signed - with the caller's ACCOUNT key,
@@ -1070,7 +1073,24 @@ Still open after round five, and worth naming so the next reader does not have t
 
   Within the skew window the only party who can present a captured proof is one who can also
   sign as that account for a body naming those same keys - which is the owner, whose replay is
-  the idempotent retry the handler already answers. So there is no residual replay to bound.
+  the idempotent retry the handler already answers. ~~So there is no residual replay to bound.~~
+  **That last sentence was false and is struck.** A second review captured a whole exchange and
+  replayed it: the four headers and the body, byte for byte, signing nothing, and got 200. Of
+  course it did - a verbatim replay IS the owner's own request, and the handler is built to
+  answer that idempotently. The real bound, which is what should have been written:
+
+  - **The position needed is the expensive part.** The attach rides a base `protocol.TrustedBase`
+    refuses to leave plaintext, so capture means a TLS-terminating position or Core itself.
+  - **Nothing new is bound.** The answer is the idempotent-retry answer: the same Station, the
+    same tower, the same keys. The replayer changes no state and acquires no identity.
+  - **But the answer DISCLOSES `hub_token`, which the original write-up did not mention.** That
+    is a credential wherever a tower still runs `--hub-legacy-bearer` and the Station has not yet
+    signed a poll (after the first signed poll the tower latches and stops accepting the token
+    for that node - `internal/towerhub/nodeauth.go`). So the residual is a credential-disclosure
+    replay in a shrinking population, not an identity replay - and the honest way to close it is
+    to delete the bearer path on schedule, not to add a nonce here.
+  - **And it is bounded by the skew window** either way: outside `SigMaxSkew` the request
+    signature the proof is bound to no longer verifies.
 
   **Domain separation, which is load-bearing rather than tidy.** The assertion key already
   signed in two byte-spaces - `protocol.CanonicalRequest` (hub polls, `/complete`, `/audit/*`,
@@ -1091,6 +1111,15 @@ Still open after round five, and worth naming so the next reader does not have t
     rather than at the mint. A byte string with no LF is not in the image of `CanonicalRequest`
     for **any** input, so the separation holds whatever a future scheme puts in the method
     slot - and the door signature has already put a label there once.
+
+    **This was FALSE as shipped and is true now - see "Round two" below.** The handler validated
+    the TRIMMED Station id and signed the UNTRIMMED one, so the alphabet was not closed and a
+    statement with three leading line feeds was reachable on the live path. The separation
+    survived by a DIFFERENT invariant, which nobody had written down: the statement always ends
+    `…\0<assertion>\0<session>\0<digest>`, so whatever follows its last line feed carries a
+    NUL, while `CanonicalRequest` always ends in a bare hex digest, which cannot. Both invariants
+    are now stated in `internal/protocol/attachproof.go` and asserted structurally - the tail one
+    against a statement whose every field deliberately carries a line feed.
 
   It also cannot be produced as a side effect of ordinary operation: every path that hands the
   assertion key anything to sign (`station.SignRequest`, `towerobj.Sign`) canonicalizes into one
@@ -1118,12 +1147,26 @@ Still open after round five, and worth naming so the next reader does not have t
     ciphertext it cannot open, can never serve, and earns nothing. And the victim's traffic is
     not redirected - a consumer is handed the session key of the Station it was actually routed
     to. It is denial only.
-  - **The exposure is materially narrower than the assertion key's, which is why this is
-    recorded rather than rushed.** The session public key is never on the hub link: it travels
-    node -> Core at attach (over a base `protocol.TrustedBase` refuses to leave plaintext) and
-    Core -> consumer in the `station_session_key` field of an authorize answer. So the
-    population that can learn it is Core plus the consumers actually routed to that Station,
-    over TLS in both directions - not "anybody who has ever been on the path".
+  - **The exposure is narrower than the assertion key's, but NOT as narrow as this bullet first
+    said.** The session public key is never on the hub link: it travels node -> Core at attach
+    (over a base `protocol.TrustedBase` refuses to leave plaintext) and Core -> consumer in the
+    `station_session_key` field of an authorize answer. That much is true and is why this is
+    recorded rather than rushed. ~~So the population that can learn it is Core plus the consumers
+    actually routed to that Station~~ - **which described a passive set and it is a SELF-SERVE
+    one.** `cmd/rogerai-broker/toweredge.go`'s authorize handler returns `station_session_key` to
+    ANY signed-in, funded consumer that asks for that Station's model: one call, a hold that is
+    never spent, no traffic served. For a niche model with a single provider that is one request
+    to obtain the exact input to a permanent denial. So the cost of the session-key squat is one
+    authorize call, not "be on the path at the right moment", and the correct reading of the
+    narrowness is that the population is *bounded and identified* (signed-in accounts, which
+    MayEnroll and the ban list already reach) rather than *small*.
+  - **What remains true about the tower, and is worth keeping.** The tower never learns the
+    session key at all: `/tower/hub/nodes` hands it `station_id`, `assertion_key`, `hub_token`
+    and `state`, and nothing else serializes `SessionKey` outward. And node -> Core is TLS-gated
+    by `TrustedBase` - with two qualifiers that belong beside it rather than in a footnote: the
+    gate is bypassable with `ROGER_INSECURE_HTTP=1`, and an `https` base is validated against the
+    system trust store with **no pin**, so it is transport authentication of the ordinary web
+    kind and not the pinned channel the hub link now has.
   - **Two things would close it, and neither is a header.** (a) A challenge-response at attach:
     Core seals a nonce to the presented session key and the node returns it - complete, and a
     second round trip on a path that is currently one call. (b) A non-interactive static-static
@@ -1147,6 +1190,136 @@ Still open after round five, and worth naming so the next reader does not have t
   production caller in the tree - the self-attach handler this change fixes. The package still
   supports the flow, and the secret is the reason it would be safe if it returned; adding a
   co-signature there would be a redundant check on a dead route.
+
+  ---
+
+  #### Round two: the proof was reviewed, and three things it does not cover were proved
+
+  **Closed 2026-08-21 on `release/v5.7.0`, the same branch and the same release.** An adversarial
+  review of the fix above confirmed the assertion-key squat itself is shut - three attack
+  variants refused, the control answers 200, the victim recovers - and then proved three defects
+  the proof does not reach. All three are ONE defect wearing different clothes: **the value that
+  was CHECKED was not the value that was USED.**
+
+  **1. The proof bound the Station id and proved nothing about it (MEDIUM-HIGH, proved).** The
+  statement names the id, but it is signed by the CLAIMANT's own assertion key - so "I claim
+  somebody else's id with keys that are honestly mine" was a perfectly valid proof, and the
+  handler minted whatever `station_id` the body said. The only thing refusing a taken id was a
+  row in the store, and the reachability of that is the whole finding:
+
+  - before the first attach the id is 96 bits of `crypto/rand` on the node's disk, so it is not
+    guessable - that door is shut;
+  - while a row exists in ANY state, dormant and terminal included, `checkBindings` protects it -
+    that door is shut too;
+  - **but `ReapTerminal` DELETES terminal rows** (`towerlink.go`, thirty days after a revoke; a
+    dormant Station reaches terminal after a hundred and eighty more, via `RetireDormant`). After
+    the reap the id is free - and it is PUBLIC, because it was the `relay_name` in every
+    `/tower/edge/authorize` answer that Station ever served, plus the relay DNS name, plus the
+    placement logs.
+
+  Proved end to end: revoke, reap, squat, 200. And it does not end, because `station.InitOrOpen`
+  keeps the id on disk forever with no re-mint path: the rightful machine re-attaches on its
+  backoff and meets `409 this Station ID is already bound to another assertion key` for as long
+  as the squat stands. Recovery is deleting the Station directory - destroying the identity and
+  its lineage - or a human at Core. Denial, never theft, and indefinite.
+
+  **DECIDED: derive the id from the assertion key** - `protocol.DeriveStationID`, `st-` +
+  `sha256(tag + key)[:12]`. The node stamps it at `station.Init`; Core recomputes it from the key
+  in the body and refuses anything else.
+
+  - *Why not the other candidate.* Refusing an operator-supplied id that has no prior row owned
+    by this account cannot work, and the reaper is exactly why: after the reap **there is no row
+    to look up, for the attacker or for the rightful owner**. The lookup would either refuse
+    everybody - denying the owner their own return, which is the outcome being prevented - or
+    refuse nobody, which is today. Making it work needs a permanent tombstone of every Station id
+    ever issued, an unbounded table whose growth is precisely what `ReapTerminal` exists to
+    prevent.
+  - *Why derivation costs nothing to run.* No lookup, no state, no window. To attach as `st-<h>`
+    you must present the key whose digest is `h`, and the possession proof already makes you
+    prove you hold its private half. It is also what makes the id in the proof statement MEAN
+    something rather than merely appear in it.
+  - *Migration, which is what made this a real decision.* It is a wire and identity change, and
+    `station.InitOrOpen` already persists an id. **The cost is zero, and that is checked rather
+    than assumed:** `internal/agent/tower.go`, `internal/station` and
+    `cmd/rogerai-broker/toweredgeattach.go` are all ABSENT from tag `v5.7.1`, the newest tag in
+    the tree, so self-attach has never shipped and no deployed node holds a random id. Hard
+    cutover, the same posture and the same reasoning as the possession proof itself.
+    `station.Open` RESTAMPS a directory minted before the rule and says so in a warning the
+    serving loop prints - repaired rather than refused, because unlike the key mismatches beside
+    it nothing has been lost: the correct id is a pure function of a key that is right there.
+  - *Sizing.* Second preimage - one specific victim's id - is 2^96 keygens. Honest collisions are
+    the birthday bound and cost a refusal rather than a compromise. Twelve bytes is the width the
+    random minter used, so relay DNS names, log lines and column widths are unchanged.
+  - *Refused, not silently corrected.* Binding a different id than the caller named would be
+    defect 2 below, one layer up. An empty `station_id` still means "Core mints it", and what
+    Core mints is a function of the key the proof proves.
+
+  **2. A documented invariant was false, and the separation survived for an undocumented reason
+  (MEDIUM, proved).** The handler validated `strings.TrimSpace(req.StationID)` and put the
+  UNTRIMMED field in the proof statement. `TrimSpace` strips `\n \r \t \v \f U+0085 U+00A0`, so
+  the field's alphabet was NOT closed and the claim above - "every field is hex, a decimal
+  integer, a constant network name, or a Station id whose alphabet is closed by the
+  name-injection gate" - was untrue. Proved on the live path: a proof signed over
+  `"\n\n\nst-advlf\n"` was accepted and the Station was bound as `st-advlf`. **The id SIGNED was
+  not the id BOUND**, which defeats the stated reason for naming the id in the statement at all.
+
+  It is MEDIUM and not HIGH because the separation from `CanonicalRequest` still held - the
+  reviewer attacked it and could not break it - **but by a property nobody had claimed.** The
+  statement always ends `...\0<assertion>\0<session>\0<digest>`, so whatever follows its last
+  line feed carries a NUL, and `CanonicalRequest`'s last field is bare hex, which never can. That
+  is the invariant actually doing the work; it is not what the moved shape check protects; and **a
+  future field reorder moving the digest off the end would silently delete it.**
+
+  Fixed by trimming once, above the gate and the proof both, so the canonical value is what is
+  validated, what is signed and what is bound. The documented invariant is now true rather than
+  accidentally true, and the tail-NUL property is written down in `attachproof.go` and asserted
+  structurally against a statement whose every field carries a line feed - a test that goes red
+  the moment the digest stops being last.
+
+  **3. One key could become two Stations (LOW-MEDIUM, proved, pre-existing but now inherited).**
+  `AttachProof.Verify` hex-decodes, which is case-insensitive, while every uniqueness path
+  compares STRINGS: `memStore.ByAssertionKey`, `PGStore.byLiveKey`, `checkBindings`, and the
+  retry-idempotence branch. Proved: one real keypair attached twice - lowercase, then uppercase
+  with a second node id - producing TWO Stations from one signer, contradicting `stationattach.go`
+  in as many words ("two Stations signing offers with one key are one signer wearing two
+  identities"). Never an attacker primitive, since the private half is required both times; but
+  the new scheme inherits it, because what gets bound is the string the caller chose rather than
+  the key.
+
+  Fixed by lower-casing both keys at the shape gate, before the proof - so the statement names
+  the canonical spelling and a caller that signs over another one is refused rather than bound.
+  **Settled against a real Postgres:** the columns are plain `TEXT` in a deterministic collation,
+  so `byLiveKey` is exact-string and the defect reproduces there exactly as on Mem. NOT fixed in
+  the store, deliberately: that layer holds keys as opaque strings and the classic invite path
+  takes whatever an operator wrote, so the canonical form belongs at the door.
+  `TestParityKeyLookupsAreExactStrings` records the assumption the door's fix rests on, in both
+  stores, and goes red if a later migration makes those columns `citext`.
+
+  **4. And the test that called itself the contract was half of one (INFO, and the reason 2 was
+  invisible).** `internal/agent/tower_attach_proof_test.go` runs the real `AttachTower` against
+  the real `Verify` - but Core's FIELD WIRING is hand-copied into its `httptest` handler, because
+  the real handler lives in `package main` and no test in `internal/agent` can reach it. The real
+  handler passed `req.StationID` raw; the copy did the same by accident; a real node sends a
+  clean id; both agreed; green. Two independent restatements of one wiring agreeing with each
+  other is not a contract, it is the same mistake made twice.
+
+  The pairing is now pinned where both halves are production code:
+  `cmd/rogerai-broker/toweredgeattach_contract_test.go` drives the real `agent.AttachTower`
+  against the broker's own route table and asserts on the ROW that results. Falsified by making
+  the handler bind an id other than the one it verified - the new test goes red, the old one
+  stays green.
+
+  **5. `station.SignAttachProof`: documented, not narrowed (INFO, judgement).** It signs
+  `(network, callerPubHex, ts, body)` from its caller and fills only its own id and keys from
+  disk. The domain tag bounds it hard - it cannot be steered into the poll or receipt spaces - so
+  it is not an oracle over the assertion key. What a second caller COULD do is pass somebody
+  else's account key, timestamp and body and get a proof binding this Station's keys to their
+  attach, which is the squat with the victim's own software as the accomplice. There is one
+  caller and it supplies values it produced itself moments earlier; narrowing would mean this
+  method building the whole attach body, which puts the offer into a package whose stated
+  boundary is "nothing here dials". So the RULE is recorded at the function instead: every one of
+  those four values must be the caller's own request, freshly signed by it, and never a value
+  that arrived from outside the process.
 
 ### 5.7 Round five: option A, and why it needed no certificate authority
 

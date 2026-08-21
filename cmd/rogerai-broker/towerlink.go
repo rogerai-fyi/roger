@@ -539,8 +539,13 @@ var dormantRetireHorizon = 180 * 24 * time.Hour
 // used as free storage.
 const maxOpenInvitesPerOwner = 25
 
-func newStationID() string { return "st-" + randomHex(12) }
-func newInviteID() string  { return "sinv-" + randomHex(12) }
+// newStationID IS GONE, and its absence is the point. A self-attached Station's id is now
+// DERIVED from its assertion key (protocol.DeriveStationID), because a random id is one nobody
+// can predict and also one its own owner cannot reclaim after ReapTerminal frees it - which is
+// how an attacker took a reaped, and publicly known, Station name for good. Nothing on this
+// path mints an unpredictable id any more; if a future caller needs one, read that function's
+// note before reaching for crypto/rand.
+func newInviteID() string { return "sinv-" + randomHex(12) }
 
 func randomHex(n int) string {
 	raw := make([]byte, n)
