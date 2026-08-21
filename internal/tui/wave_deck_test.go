@@ -458,16 +458,22 @@ func TestAskRendersAsAFullWidthSlate(t *testing.T) {
 	// transcript, leaving an orphan line above the text. Depth in a terminal is just
 	// relative brightness - a lighter face over a darker row under it - and painting
 	// both as background means nothing depends on a font having ▔.
+	// AMENDED again 2026-08-21 (round 5): the block gained INTERIOR PADDING - a tinted
+	// blank row above and below the text - which is what makes it read as a box rather
+	// than a highlighted line, and is the thing opencode's blocks have that ours did
+	// not. So a short ask is pad + face + pad + shadow = 4 rows.
 	const w = 96
 	rows := askSlate("hi", w)
-	if len(rows) != 2 {
-		t.Fatalf("a short ask is face + shadow = 2 rows, got %d", len(rows))
+	if len(rows) != 4 {
+		t.Fatalf("a short ask is pad + face + pad + shadow = 4 rows, got %d", len(rows))
 	}
-	if !strings.Contains(stripANSI(rows[0]), "▌ hi") {
-		t.Errorf("the face keeps the ▌ band and the question: %q", stripANSI(rows[0]))
+	if !strings.Contains(stripANSI(rows[1]), "▌ hi") {
+		t.Errorf("the face keeps the ▌ band and the question: %q", stripANSI(rows[1]))
 	}
-	if strings.TrimSpace(stripANSI(rows[1])) != "" {
-		t.Errorf("the shadow is a painted row, not text: %q", stripANSI(rows[1]))
+	for _, i := range []int{0, 2, 3} {
+		if strings.TrimSpace(stripANSI(rows[i])) != "" {
+			t.Errorf("row %d is padding or shadow, not text: %q", i, stripANSI(rows[i]))
+		}
 	}
 	// Every row spans exactly, or the card has a ragged edge - and one cell over is
 	// what made it wrap in the first place.
@@ -478,7 +484,7 @@ func TestAskRendersAsAFullWidthSlate(t *testing.T) {
 	}
 	// A long ask wraps INSIDE the face, on word boundaries.
 	long := askSlate(strings.Repeat("what are some things i can do today that has to wrap ", 3), w)
-	if len(long) < 3 {
+	if len(long) < 5 {
 		t.Fatalf("a long ask should wrap inside the card, got %d rows", len(long))
 	}
 	for i, r := range long {

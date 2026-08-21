@@ -408,6 +408,16 @@ func (l *Loop) Send(ctx context.Context, userText string, emit func(Event)) (str
 			emitStep(Event{Kind: EventError, Text: err.Error()})
 			return "", err
 		}
+		// STRIP A RECITED PROMPT before the message enters history (echo.go). A model
+		// that reads its own prompt back is not just ugly: the echo is appended, re-sent
+		// next turn, and echoed again, so the conversation roughly doubles per turn and a
+		// small band runs out of context in three. Cleaning it here fixes the display and
+		// the compounding at once.
+		if cleaned, stripped := stripPromptEcho(msg.Content, l.Persona); stripped {
+			msg.Content = cleaned
+			emitStep(Event{Kind: EventNotice, Text: "trimmed a recited prompt from the reply - " +
+				"this band echoes its instructions back, which fills its own context window"})
+		}
 		l.messages = append(l.messages, msg)
 
 		if len(msg.ToolCalls) == 0 {

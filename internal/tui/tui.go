@@ -7682,7 +7682,7 @@ func (m model) chatView(w int) string {
 	// input below keeps typing. Sized to min(content, budget) so a short transcript reads
 	// exactly as before and a tall one caps + scrolls. The persisted scroll position (and
 	// auto-stick-to-bottom) is managed in refreshScroll; here we only render at it.
-	content := transcriptContent(m.transcript, w)
+	content := transcriptContent(m.displayChatLines(w), w)
 	m.chatVP.Width = w
 	m.chatVP.Height = clampRows(lineRows(content), m.chatTranscriptRows())
 	m.chatVP.SetContent(content)
@@ -7743,18 +7743,48 @@ func (m model) chatPromptLines(w int) []string {
 	return tintComposerLines(strings.Split(view, "\n"), w)
 }
 
-func chatUserBlock(text string) string {
-	return bandUser(stKey.Render("YOU › ") + text)
-}
+// The CHANNEL's turns are TAGGED, not pre-rendered, for the same reason the agent's
+// are: the telegram blocks span the view, and only the display path knows how wide that
+// is. A block built at append time is stuck at whatever the width was when the message
+// arrived, and wrong after the next resize.
+const (
+	chatAskMark   = "\x02" // a YOU turn; payload is the text
+	chatReplyMark = "\x1d" // a ROGER turn; payload is "model\x00text"
+)
+
+func chatUserBlock(text string) string { return chatAskMark + text }
 
 func chatAnswerBlock(modelName, text string) []string {
+	return []string{"", chatReplyMark + modelName + "\x00" + text}
+}
+
+// chatUserRows paints a YOU turn's rows (before enclosure).
+func chatUserRows(text string, w int) []string {
+	rows := strings.Split(ansi.Wrap(ansi.Strip(text), max(1, w-8), ""), "\n")
+	out := make([]string, 0, len(rows))
+	for i, r := range rows {
+		if i == 0 {
+			out = append(out, lipgloss.NewStyle().Foreground(cLive).Bold(true).Render("▌ ")+
+				lipgloss.NewStyle().Foreground(cSlateText).Bold(true).Render("YOU › "+r))
+			continue
+		}
+		out = append(out, lipgloss.NewStyle().Foreground(cSlateText).Bold(true).Render("      "+r))
+	}
+	return out
+}
+
+// chatReplyRows paints a ROGER turn's rows (before enclosure): a header naming the
+// station, then the prose.
+func chatReplyRows(modelName, text string, w int) []string {
 	head := stLive.Render("◂ ") + lampStyle(roleDial).Bold(true).Render("ROGER ›")
 	if modelName != "" {
 		head += stDim.Render(" " + modelName)
 	}
-	out := []string{"", head}
-	for _, line := range strings.Split(text, "\n") {
-		out = append(out, stLive.Render("▏ ")+line)
+	out := []string{head}
+	for _, para := range strings.Split(text, "\n") {
+		for _, line := range strings.Split(ansi.Wrap(para, max(1, w-4), ""), "\n") {
+			out = append(out, stLive.Render("▏ ")+line)
+		}
 	}
 	return out
 }
@@ -9804,4 +9834,42 @@ func RunResumedWithController(
 var runProgram = func(m tea.Model, opts ...tea.ProgramOption) error {
 	_, err := tea.NewProgram(m, opts...).Run()
 	return err
+}
+
+// displayChatLines renders the CHANNEL transcript, enclosing each turn in its telegram
+// block (slate.go). Same shape as the AGENT view's, so the two surfaces of one product
+// look like one product - and same reason for doing it at display time: the blocks span
+// the view, and only here is the width known.
+//
+// The width passed in is the VIEWPORT's; transcriptContent then wraps at width-2 and
+// indents by two, so anything painting to its own edges is built to that content width.
+func (m model) displayChatLines(w int) []string {
+	cw := max(1, w-2)
+	out := make([]string, 0, len(m.transcript))
+	for _, ln := range m.transcript {
+		switch {
+		case strings.HasPrefix(ln, chatAskMark):
+			rows := chatUserRows(ln[len(chatAskMark):], cw)
+			if !slatesOn() {
+				out = append(out, rows...)
+				continue
+			}
+			out = append(out, slateBlock(rows, cw, cSlate, cSlateShade)...)
+		case strings.HasPrefix(ln, chatReplyMark):
+			body := ln[len(chatReplyMark):]
+			model, text := "", body
+			if i := strings.IndexByte(body, 0); i >= 0 {
+				model, text = body[:i], body[i+1:]
+			}
+			rows := chatReplyRows(model, text, cw)
+			if !slatesOn() {
+				out = append(out, rows...)
+				continue
+			}
+			out = append(out, slateBlock(rows, cw, cReply, cSlateShade)...)
+		default:
+			out = append(out, ln)
+		}
+	}
+	return out
 }

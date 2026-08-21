@@ -16,7 +16,12 @@ func TestTuneInConversationHasStructuralRoleHierarchy(t *testing.T) {
 
 	out, _ := m.update(chatMsg{reply: "There are six words.", tokensIn: 8, tokensOut: 5})
 	m = asModel(out)
-	plain := stripANSI(transcriptContent(m.transcript, 100))
+	// AMENDED 2026-08-21: the CHANNEL's turns are tagged and rendered at display time
+	// now (the telegram blocks span the view, and only the display path knows how wide
+	// that is), so the assertions read the rendered transcript rather than the raw
+	// buffer. The guarantee - explicit roles, a breathing row between blocks, prose
+	// before its metadata - is unchanged.
+	plain := stripANSI(transcriptContent(m.displayChatLines(100), 100))
 	if !strings.Contains(plain, "YOU ›") || !strings.Contains(plain, "ROGER ›") {
 		t.Fatalf("conversation roles are not explicit:\n%s", plain)
 	}

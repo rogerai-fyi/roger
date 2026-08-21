@@ -110,17 +110,21 @@ func TestSelectionRowsChromeWrapAndGaps(t *testing.T) {
 			want:    []selRow{{text: "", startCol: 2, hard: true}},
 		},
 		{
+			// AMENDED 2026-08-21: chatUserBlock/chatAnswerBlock TAG a turn now and the
+			// rows are painted at display time, so these feed the RENDERED rows - which
+			// is also what selection actually sees (smartselect reads displayChatLines).
+			// The guarantee is unchanged: the bar and the role label are chrome, the
+			// words are content.
 			name:    "user band bar and YOU label are chrome",
-			entries: []string{chatUserBlock("hi there")},
+			entries: chatUserRows("hi there", 78),
 			width:   80,
 			want:    []selRow{{text: "hi there", startCol: 10, hard: true}},
 		},
 		{
 			name:    "answer head is a label row; gutter rows keep content",
-			entries: chatAnswerBlock("gpt-oss-20b", "line one\nline two"),
+			entries: chatReplyRows("gpt-oss-20b", "line one\nline two", 78),
 			width:   80,
 			want: []selRow{
-				{text: "", startCol: 2, hard: true},
 				{text: "", startCol: 2, hard: true},
 				{text: "line one", startCol: 4, hard: true},
 				{text: "line two", startCol: 4, hard: true},
@@ -195,8 +199,11 @@ func TestSelectionTextJoins(t *testing.T) {
 		require.Equal(t, "one\ntwo\nthree", selectionText(rows, 0, 0, 2, 80))
 	})
 	t.Run("label and blank edge rows are trimmed away", func(t *testing.T) {
-		rows := selectionRows(chatAnswerBlock("gpt-oss-20b", "line one\nline two"), 80)
-		require.Equal(t, "line one\nline two", selectionText(rows, 0, 0, 3, 80))
+		// AMENDED 2026-08-21: the rendered rows, for the same reason as the cases above -
+		// and one row fewer, since the leading blank separator belongs to the transcript
+		// between blocks rather than to the reply itself.
+		rows := selectionRows(chatReplyRows("gpt-oss-20b", "line one\nline two", 78), 80)
+		require.Equal(t, "line one\nline two", selectionText(rows, 0, 0, 2, 80))
 	})
 }
 

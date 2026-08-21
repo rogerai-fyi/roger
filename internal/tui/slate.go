@@ -37,13 +37,23 @@ func slateBlock(rows []string, w int, face lipgloss.TerminalColor, shade lipglos
 	if len(rows) == 0 {
 		return nil
 	}
-	out := make([]string, 0, len(rows)+1)
+	// INTERIOR PADDING is what makes this read as a BOX rather than a tinted line, and
+	// it is the thing opencode's blocks have that the first version of these did not:
+	// their text sits inside its panel with clear space above and below, so the panel is
+	// an object. Flush text just looks like a highlighted row.
+	//
+	// One blank row each side, painted in the face colour, so the padding is part of the
+	// block rather than a gap in it.
+	blank := strings.Repeat(" ", w)
+	out := make([]string, 0, len(rows)+3)
+	out = append(out, blank)
 	for _, r := range rows {
 		if pad := w - lipgloss.Width(r); pad > 0 {
 			r += strings.Repeat(" ", pad)
 		}
 		out = append(out, r)
 	}
+	out = append(out, blank)
 	painted := strings.Split(solidBackground(strings.Join(out, "\n"), face), "\n")
 	// The shadow: one darker row the width of the block. It is what makes the face read
 	// as lifted rather than merely tinted.

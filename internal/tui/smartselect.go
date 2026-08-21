@@ -352,7 +352,11 @@ func (m model) smartSelectionCopyText(sel smartSelState) string {
 	var entries []string
 	switch m.mode {
 	case modeChat:
-		yOff, entries = m.chatVP.YOffset, m.transcript
+		// The RENDERED transcript, not the raw buffer: the CHANNEL's turns are tagged
+		// now and rendered at display time, so a selection over m.transcript would map
+		// screen rows onto tagged entries - copying the mark bytes and mis-numbering
+		// every row, since one entry can render as several.
+		yOff, entries = m.chatVP.YOffset, m.displayChatLines(m.effWidth())
 	case modeAgent:
 		yOff, entries = m.agentVP.YOffset, m.displayAgentLines(m.effWidth())
 	}
