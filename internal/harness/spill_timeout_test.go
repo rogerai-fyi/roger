@@ -194,3 +194,55 @@ func TestEveryBuiltinToolDeclaresADeadline(t *testing.T) {
 		}
 	}
 }
+
+// A SPILL MUST NOT LITTER SOMEONE'S REPO. The files have to live under the workspace
+// root - that is the sandbox read_file is bounded by - and the workspace root is
+// usually a git repo, so without care `.roger-spill/` turns up in the operator's
+// `git status`. A .gitignore containing "*" inside the directory hides its whole
+// contents including itself.
+func TestSpillIsInvisibleToGit(t *testing.T) {
+	root := t.TempDir()
+	l := NewLoop(root, "sys", nil, nil)
+	l.MaxToolOutput = 300
+	l.clipOrSpill("web_fetch", strings.Repeat("q", 5000))
+
+	ignore := filepath.Join(root, spillDirName, ".gitignore")
+	body, err := os.ReadFile(ignore)
+	if err != nil {
+		t.Fatalf("the spill directory must ignore itself: %v", err)
+	}
+	if strings.TrimSpace(string(body)) != "*" {
+		t.Errorf("the ignore must cover everything including itself, got %q", body)
+	}
+}
+
+// A finished session leaves NOTHING behind - not even an empty marker directory.
+func TestSpillCleanupRemovesTheParentToo(t *testing.T) {
+	root := t.TempDir()
+	l := NewLoop(root, "sys", nil, nil)
+	l.MaxToolOutput = 300
+	l.clipOrSpill("web_fetch", strings.Repeat("q", 5000))
+	l.Close()
+	if _, err := os.Stat(filepath.Join(root, spillDirName)); !os.IsNotExist(err) {
+		t.Error("a finished session must not leave an empty spill directory in the project")
+	}
+}
+
+// ...but it must not take a CONCURRENT session's spill with it, and must leave that
+// session's ignore file in place or its files become visible to git.
+func TestSpillCleanupSparesAnotherSession(t *testing.T) {
+	root := t.TempDir()
+	a := NewLoop(root, "sys", nil, nil)
+	b := NewLoop(root, "sys", nil, nil)
+	a.MaxToolOutput, b.MaxToolOutput = 300, 300
+	a.clipOrSpill("web_fetch", strings.Repeat("a", 5000))
+	b.clipOrSpill("web_fetch", strings.Repeat("b", 5000))
+
+	a.Close()
+	if _, err := os.Stat(b.spill.dir); err != nil {
+		t.Errorf("one session's cleanup must not delete another's spill: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, spillDirName, ".gitignore")); err != nil {
+		t.Error("the surviving session's spill must stay invisible to git")
+	}
+}

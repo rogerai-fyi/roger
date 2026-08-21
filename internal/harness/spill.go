@@ -66,6 +66,19 @@ func (s *spillStore) save(tool, text string) string {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			return ""
 		}
+		// A SELF-IGNORING DIRECTORY. The spill has to live under the workspace root -
+		// that is the sandbox read_file is bounded by, so anywhere else and the model
+		// could not read back what it was just told to read. But the workspace root is
+		// usually someone's git repo, and `.roger-spill/` turning up in their
+		// `git status` is us littering in their project.
+		//
+		// A .gitignore containing "*" inside the directory ignores the directory's whole
+		// contents INCLUDING ITSELF, so git never sees any of it. Verified against a real
+		// repo, not assumed: without this the directory shows as untracked.
+		//
+		// Best-effort like everything else here - failing to write it must not fail the
+		// spill, it just means a tidier repo was not achievable.
+		_ = os.WriteFile(filepath.Join(s.root, spillDirName, ".gitignore"), []byte("*\n"), 0o600)
 		s.dir = dir
 	}
 	s.n++
@@ -92,6 +105,15 @@ func (s *spillStore) cleanup() {
 	if s.dir != "" {
 		_ = os.RemoveAll(s.dir)
 		s.dir = ""
+		// Take the parent with it when it is empty, so a finished session leaves NOTHING
+		// behind - not even an empty marker directory. RemoveAll on the parent would be
+		// wrong: a concurrent session may have its own directory in there.
+		_ = os.Remove(filepath.Join(s.root, spillDirName, ".gitignore"))
+		if err := os.Remove(filepath.Join(s.root, spillDirName)); err != nil {
+			// Not empty: another session is still using it. Put the ignore file back, or
+			// that session's spill becomes visible to git.
+			_ = os.WriteFile(filepath.Join(s.root, spillDirName, ".gitignore"), []byte("*\n"), 0o600)
+		}
 	}
 }
 
