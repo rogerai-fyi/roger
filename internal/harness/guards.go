@@ -43,7 +43,9 @@ type ConversationView struct {
 	PriorCalls []string
 }
 
-// DefaultGuards are the guards every Loop runs unless a caller replaces them.
+// DefaultGuards are the stateless guards every Loop runs unless a caller replaces them.
+// The loop adds its own stateful ones on top (see Loop.guards) - they need to consult
+// what this agent has observed, which a package-level function cannot.
 func DefaultGuards() []Guard { return []Guard{GuardFetchProvenance, GuardRepeatCall} }
 
 // GuardFetchProvenance refuses a web_fetch of a URL nobody put in front of the model.

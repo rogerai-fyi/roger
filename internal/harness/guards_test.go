@@ -127,13 +127,17 @@ func TestGuardsCanOnlyDeny(t *testing.T) {
 // The defaults are on unless a caller explicitly opts out. Nil means "the defaults";
 // an empty non-nil slice means "none", which is what the suites that test below this
 // layer use.
+// AMENDED 2026-08-21: the loop prepends its own stateful write guard, which is ALWAYS
+// on - even for a caller that empties the chain. The others shape behaviour; that one
+// prevents losing someone's file, and a test or surface asking for the raw tools was
+// never asking to be allowed to clobber an unread file.
 func TestLoopGuardsDefaultOn(t *testing.T) {
 	l := NewLoop(t.TempDir(), "sys", nil, nil)
-	if len(l.guards()) != len(DefaultGuards()) {
-		t.Errorf("a fresh Loop must carry the default guards, got %d", len(l.guards()))
+	if got, want := len(l.guards()), len(DefaultGuards())+1; got != want {
+		t.Errorf("a fresh Loop carries the defaults plus the write guard: got %d, want %d", got, want)
 	}
 	l.Guards = []Guard{}
-	if len(l.guards()) != 0 {
-		t.Error("an explicitly empty chain must disable guards")
+	if len(l.guards()) != 1 {
+		t.Error("emptying the chain must still leave the write guard - it protects files, not behaviour")
 	}
 }

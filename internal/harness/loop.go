@@ -162,6 +162,9 @@ type Loop struct {
 	// the part that did not fit, instead of being told it was truncated and left there
 	// (spill.go). Lazily created; Reset cleans it up.
 	spill *spillStore
+	// observed is what this agent has actually looked at, so a write cannot destroy
+	// content it never read or that changed underneath it (observe.go).
+	observed observations
 }
 
 // The per-turn retrieval budget (founder-approved 2026-07-27). It bounds the tokens a
@@ -258,10 +261,15 @@ func (l *Loop) Tools() []Tool { return l.tools }
 // guards resolves the chain: nil means the defaults, an explicitly empty (non-nil)
 // slice means none. Callers that want raw tool behaviour set Guards to []Guard{}.
 func (l *Loop) guards() []Guard {
-	if l.Guards == nil {
-		return DefaultGuards()
+	// The write guard is ALWAYS on, even when a caller replaces or empties the chain.
+	// The others shape behaviour; this one prevents losing someone's file, and a test
+	// or a surface that wanted the raw tools was never asking to be allowed to clobber
+	// an unread file. Deny-only like the rest, so adding it can only narrow.
+	base := l.Guards
+	if base == nil {
+		base = DefaultGuards()
 	}
-	return l.Guards
+	return append([]Guard{l.GuardWriteNeedsRead}, base...)
 }
 
 // conversationView assembles the narrow read-only slice guards may consult. Built per
@@ -538,6 +546,12 @@ func (l *Loop) settle(p plannedCall, out string, err error, emit func(Event)) {
 		res := l.appendToolResult(p.call, "error: "+err.Error())
 		emit(Event{Kind: EventToolResult, Tool: name, Result: res, IsError: true})
 	default:
+		// A SUCCESSFUL read or write is what the agent has now observed (observe.go).
+		// Recorded HERE, in the ordered settle phase, so nothing is ever recorded for a
+		// call that failed, was denied, or was refused by a guard - an observation of a
+		// read that did not happen would license a write that must not.
+		l.noteObserved(name, p.args)
+		l.noteWritten(name, p.args)
 		// Clip to the model's budget BEFORE it enters the conversation. The UI still emits
 		// the clipped text, so what the operator sees is what the model saw - a result that
 		// silently differed between the two would make a truncation-caused answer
