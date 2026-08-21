@@ -22,8 +22,15 @@ func agentWithToolOutput(t *testing.T) model {
 }
 
 // E1 - tool OUTPUT is HIDDEN by default; the result line carries a d·output hint instead.
+//
+// AMENDED 2026-08-20: there are TWO doors now. The machinery box (⌃o) is the outer one
+// and is shut by default, and with it shut the output preview and its hint are inside
+// it - correctly, since a hint hanging off a closed lid would point at a row the output
+// does not belong to (TestClosedBoxSwallowsTheOutputHint owns that). This test is about
+// the INNER door, `d`, so it opens the outer one first. The guarantee is unchanged.
 func TestToolOutputHiddenByDefault(t *testing.T) {
 	m := agentWithToolOutput(t)
+	m.showToolCalls = true // open the machinery box; `d` is what is under test
 	joined := stripANSI(strings.Join(m.displayAgentLines(80), "\n"))
 	if strings.Contains(joined, "a.go") {
 		t.Errorf("tool output must be hidden by default:\n%s", joined)
@@ -36,6 +43,7 @@ func TestToolOutputHiddenByDefault(t *testing.T) {
 // E2 - with showToolOutput the preview content expands (retroactive, over the whole view).
 func TestToolOutputExpands(t *testing.T) {
 	m := agentWithToolOutput(t)
+	m.showToolCalls = true // the outer ⌃o door; see E1
 	m.showToolOutput = true
 	joined := stripANSI(strings.Join(m.displayAgentLines(80), "\n"))
 	if !strings.Contains(joined, "a.go") || !strings.Contains(joined, "c.go") {

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // wave_deck_test.go - the 2026-08-20 AGENT deck revamp, locked.
@@ -246,8 +247,17 @@ func TestToolMachineryOpensWithCtrlO(t *testing.T) {
 		t.Fatal("ctrl+o must open the fold")
 	}
 	got := m.displayAgentLines(110)
-	if len(got) != 7 {
-		t.Errorf("opened, every card shows: want 7 rows, got %d", len(got))
+	// 6 cards + a lid + a closing rail + the prose line. The lid and rail are the
+	// box's visible EDGES: an opened drawer you cannot see the sides of is just
+	// machinery loose in the flow again.
+	if len(got) != 9 {
+		t.Errorf("opened: want lid + 6 cards + rail + prose = 9 rows, got %d:\n%s", len(got), strings.Join(got, "\n"))
+	}
+	if !strings.Contains(stripANSI(got[0]), "▾") {
+		t.Errorf("the open box needs a turned-down lid, got %q", stripANSI(got[0]))
+	}
+	if !strings.Contains(stripANSI(got[0]), "⌃o") {
+		t.Error("the open lid must still advertise the way back")
 	}
 	for _, l := range got {
 		if strings.Contains(l, toolCardMark) {
@@ -260,14 +270,28 @@ func TestToolMachineryOpensWithCtrlO(t *testing.T) {
 	}
 }
 
-// A single tool run does not fold: swapping one line for a one-line summary that says
-// less is pure loss.
-func TestSingleToolRunDoesNotFold(t *testing.T) {
+// AMENDED 2026-08-20 (round 2): this asserted that a LONE card does not fold, on my
+// reasoning that swapping one line for a one-line summary says less. The founder
+// screenshotted exactly that case - a single "✓ web_fetch … ok · 132 bytes" still in
+// the flow - and asked why it had not folded. The point is not saving rows: machinery
+// belongs behind ONE door, so a reader never has to know how many calls a turn made to
+// predict what the transcript looks like. Now inverted, with the tool name kept.
+func TestSingleToolRunFoldsToo(t *testing.T) {
 	m := foldSeed(t)
-	m.agentLines = []string{toolCardMark + agentToolCallLine("read_file", "settings.yaml")}
+	m.agentLines = []string{toolCardMark + agentToolCallLine("web_fetch", "https://example.com")}
 	got := m.displayAgentLines(110)
-	if len(got) != 1 || strings.Contains(stripANSI(got[0]), "tool call ·") {
-		t.Errorf("a lone card must render as itself, got %q", got)
+	if len(got) != 1 {
+		t.Fatalf("a lone card folds to one lid, got %d rows", len(got))
+	}
+	flat := stripANSI(got[0])
+	for _, want := range []string{"▸", "1 tool call", "web_fetch", "⌃o"} {
+		if !strings.Contains(flat, want) {
+			t.Errorf("the lid must carry %q: %q", want, flat)
+		}
+	}
+	// Singular, not "1 tool calls".
+	if strings.Contains(flat, "1 tool calls") {
+		t.Errorf("count must agree with its noun: %q", flat)
 	}
 }
 
@@ -355,5 +379,107 @@ func TestAgentFooterKeepsSpecdWordsWhileItHasRoom(t *testing.T) {
 				t.Errorf("width %d: the footer dropped %q while it still had room:\n%s", w, want, f)
 			}
 		}
+	}
+}
+
+// ── THE SLATE + THE BOX'S PLACE IN THE FLOW ──────────────────────────────────
+
+// The machinery box must land where the cards actually happened. flushFold was only
+// called before PLAIN lines, so an answer or a following ask skipped it and jumped
+// ahead of the cards it came after - the box then rendered under prose it preceded.
+// Caught on a rendered transcript, not in review: the ordering reads fine in code.
+func TestToolBoxLandsBetweenTheAskAndTheAnswer(t *testing.T) {
+	m := foldSeed(t)
+	m.agentLines = []string{
+		askMark + "how are things",
+		toolCardMark + agentToolCallLine("web_fetch", "https://example.com"),
+		toolCardMark + "  ✓ web_fetch · ok · 132 bytes",
+		agentAnswerMark + "Things are good.",
+	}
+	got := m.displayAgentLines(96)
+	ask, box, answer := -1, -1, -1
+	for i, l := range got {
+		flat := stripANSI(l)
+		switch {
+		case strings.Contains(flat, "how are things"):
+			ask = i
+		case strings.Contains(flat, "tool call"):
+			box = i
+		case strings.Contains(flat, "Things are good"):
+			answer = i
+		}
+	}
+	if ask < 0 || box < 0 || answer < 0 {
+		t.Fatalf("expected ask, box and answer; got %d/%d/%d in:\n%s", ask, box, answer, strings.Join(got, "\n"))
+	}
+	if !(ask < box && box < answer) {
+		t.Errorf("the box must sit between the ask and the answer, got ask=%d box=%d answer=%d", ask, box, answer)
+	}
+}
+
+// With the box shut, a tool-output preview belongs IN the box - and the "d·output"
+// hint must not hang off the lid, which is not a result line.
+func TestClosedBoxSwallowsTheOutputHint(t *testing.T) {
+	m := foldSeed(t)
+	m.agentLines = []string{
+		toolCardMark + "  ✓ read_file · ok · 51 bytes",
+		toolOutMark + "some file contents",
+	}
+	flat := stripANSI(strings.Join(m.displayAgentLines(96), "\n"))
+	if strings.Contains(flat, "d·output") {
+		t.Errorf("the shut lid must not carry the output hint:\n%s", flat)
+	}
+	if strings.Contains(flat, "some file contents") {
+		t.Errorf("a shut box must not leak its output:\n%s", flat)
+	}
+	// Open it and the old behaviour returns intact.
+	m.showToolCalls, m.showToolOutput = true, true
+	if open := stripANSI(strings.Join(m.displayAgentLines(96), "\n")); !strings.Contains(open, "some file contents") {
+		t.Errorf("opened, the output must show:\n%s", open)
+	}
+}
+
+// The ask is a full-width slate, not a smudge the width of its own text (founder:
+// each section "more aggressively visually showned ... slate boxes for each section").
+func TestAskRendersAsAFullWidthSlate(t *testing.T) {
+	colorOn(t, true)
+	oldQ := quiet
+	quiet = false
+	t.Cleanup(func() { quiet = oldQ })
+
+	const w = 96
+	rows := askSlate("hi", w)
+	if len(rows) != 1 {
+		t.Fatalf("a short ask is one row, got %d", len(rows))
+	}
+	if got := lipgloss.Width(rows[0]); got != w {
+		t.Errorf("the slate must span the view: width %d, want %d", got, w)
+	}
+	if !strings.Contains(stripANSI(rows[0]), "▌ hi") {
+		t.Errorf("the slate keeps the ▌ band and the text: %q", stripANSI(rows[0]))
+	}
+	// A long ask wraps INSIDE the plate, every row spanning, so it never goes ragged.
+	long := askSlate(strings.Repeat("word ", 60), w)
+	if len(long) < 2 {
+		t.Fatalf("a long ask should wrap, got %d rows", len(long))
+	}
+	for i, r := range long {
+		if got := lipgloss.Width(r); got != w {
+			t.Errorf("wrapped slate row %d width %d, want %d", i, got, w)
+		}
+	}
+}
+
+// The mark must not escape into the clipboard or across the RC wire - it is a C0 byte
+// that ansi.Strip preserves, exactly like the other two.
+func TestAskMarkNeverEscapes(t *testing.T) {
+	m := foldSeed(t)
+	m.agentLines = []string{askMark + "a private question"}
+	txt := m.agentTranscriptText()
+	if strings.Contains(txt, askMark) {
+		t.Error("the ask mark leaked into the copied/streamed transcript")
+	}
+	if !strings.Contains(txt, "a private question") {
+		t.Errorf("the ask text itself must survive: %q", txt)
 	}
 }

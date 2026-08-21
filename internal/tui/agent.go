@@ -2472,6 +2472,11 @@ const toolOutMark = "\x1e"
 // so anything that leaks it (clipboard, the RC wire) has to strip it explicitly.
 const toolCardMark = "\x1f"
 
+// askMark tags a sent ask so displayAgentLines can paint it as a full-width slate at
+// the CURRENT view width. Same C0-byte discipline as the other two marks, and stripped
+// on every path that leaves the TUI.
+const askMark = "\x02"
+
 // displayAgentLines is the render view of agentLines with the tool-output toggle applied:
 // when showToolOutput is off (default), the tagged preview lines are dropped and the result
 // line above them gains a dim `d·output` hint; when on, the previews render (tag stripped).
@@ -2480,6 +2485,15 @@ func (m model) displayAgentLines(w int) []string {
 	out := make([]string, 0, len(m.agentLines))
 	fold := make([]string, 0, 8)
 	hinted := false
+	// flush closes any open machinery box before something that is NOT machinery is
+	// drawn. It has to run on EVERY such line, not just the plain ones: an answer or
+	// an ask that skipped it jumped ahead of the cards it came after, and the box
+	// landed under prose it happened before (caught on a rendered transcript, not in
+	// review - the ordering reads fine in code).
+	flush := func() {
+		out = m.flushFold(out, fold, w)
+		fold = fold[:0]
+	}
 	for i, ln := range m.agentLines {
 		// The confirmation gate is the sole command surface while approval is
 		// pending. The same activity card returns in-place after the decision.
@@ -2487,11 +2501,21 @@ func (m model) displayAgentLines(w int) []string {
 			continue
 		}
 		if strings.HasPrefix(ln, agentAnswerMark) {
+			flush()
 			out = append(out, agentAnswerBlock(strings.TrimPrefix(ln, agentAnswerMark))...)
 			hinted = false
 			continue
 		}
 		if strings.HasPrefix(ln, toolOutMark) {
+			// A tool-output preview is MACHINERY: it belongs to the card above it. With
+			// the box shut it goes in the box (invisible, and no "d·output" hint on the
+			// lid - the lid is not a result line and hanging the hint there points at a
+			// row the output does not belong to). With the box open it behaves exactly
+			// as it always has: shown under `d`, hinted once per group otherwise.
+			if !m.showToolCalls {
+				fold = append(fold, toolOutMark+ln[len(toolOutMark):])
+				continue
+			}
 			if m.showToolOutput {
 				out = append(out, ln[len(toolOutMark):])
 			} else if len(out) > 0 && !hinted {
@@ -2501,39 +2525,43 @@ func (m model) displayAgentLines(w int) []string {
 			continue
 		}
 		hinted = false
-		if strings.HasPrefix(ln, toolCardMark) {
-			body := ln[len(toolCardMark):]
-			if m.showToolCalls {
-				out = append(out, body)
-				continue
-			}
-			// FOLDED: swallow the card. The run of them is replaced by one count line
-			// below, so a turn that touched eleven files reads as one row of machinery
-			// instead of eleven (founder 2026-08-20).
-			fold = append(fold, body)
+		if strings.HasPrefix(ln, askMark) {
+			flush()
+			out = append(out, askSlate(ln[len(askMark):], w)...)
 			continue
 		}
-		out = flushFold(out, fold, w)
-		fold = fold[:0]
+		if strings.HasPrefix(ln, toolCardMark) {
+			// Buffered in BOTH states: the run is one box either way, and flushFold
+			// decides whether to draw it shut or open. Rendering the open case inline
+			// here instead would leave the cards loose in the flow with no lid and no
+			// way back - a drawer you can open but not see the edges of.
+			fold = append(fold, ln[len(toolCardMark):])
+			continue
+		}
+		flush()
 		out = append(out, ln)
 	}
-	return flushFold(out, fold, w)
+	flush()
+	return out
 }
 
-// flushFold turns a swallowed run of tool cards into ONE line: how many ran, which
-// tools they were (in first-seen order, deduped), and the key that opens them. It is
-// deliberately a real summary rather than a bare "6 tool calls" - the tool NAMES are
-// the part a reader actually scans for ("did it run a shell? did it search?"), and
-// keeping them means folding costs no information a glance was using.
+// flushFold turns a swallowed run of tool cards into a DIM COLLAPSIBLE BOX: a
+// disclosure lid saying how many ran and which tools they were, plus the key that
+// opens it. Closed, that is the whole box; open, the lid turns down and the cards sit
+// behind a quiet left rail so the region still has visible edges.
 //
-// A single card does not fold: replacing one line with a different one-line summary
-// that says less is pure loss.
-func flushFold(out, fold []string, w int) []string {
+// FOUNDER 2026-08-20 (round 2): a LONE card used to be left alone, on the reasoning
+// that swapping one line for a one-line summary says less. Wrong call - the founder
+// screenshotted a single "✓ web_fetch … ok · 132 bytes" still sitting in the flow and
+// asked why it had not folded. The point is not saving rows, it is that machinery
+// belongs behind ONE consistent door: a reader should never have to know how many
+// calls a turn made to predict what the transcript looks like.
+//
+// The tool NAMES stay on the lid. They are what a reader scans for ("did it run a
+// shell? did it search?"), so folding costs no information a glance was using.
+func (m model) flushFold(out, fold []string, w int) []string {
 	if len(fold) == 0 {
 		return out
-	}
-	if len(fold) == 1 {
-		return append(out, fold[0])
 	}
 	// A call and its result are two cards for ONE tool run, so count the results -
 	// every completed run has exactly one - and fall back to the raw card count for a
@@ -2557,21 +2585,44 @@ func flushFold(out, fold []string, w int) []string {
 	if n == 1 {
 		unit = "tool call"
 	}
-	line := "  " + stDim.Render(glyphs.Fold("⋯")+" "+fmt.Sprintf("%d %s", n, unit))
+	label := fmt.Sprintf("%d %s", n, unit)
 	if len(names) > 0 {
-		shown := names
-		extra := 0
+		shown, extra := names, 0
 		if len(shown) > 4 {
 			extra, shown = len(shown)-4, shown[:4]
 		}
-		tail := strings.Join(shown, ", ")
+		label += " · " + strings.Join(shown, ", ")
 		if extra > 0 {
-			tail += fmt.Sprintf(", +%d", extra)
+			label += fmt.Sprintf(", +%d", extra)
 		}
-		line += stDim.Render(" · " + tail)
 	}
-	line += stDim.Render("  ·  ") + stKey.Render("⌃o") + stDim.Render(" opens")
-	return append(out, truncVisible(line, w))
+	if m.showToolCalls {
+		out = append(out, foldRow(glyphs.Fold("▾"), label, w))
+		for _, c := range fold {
+			out = append(out, stDim.Render("  │ ")+strings.TrimLeft(c, " "))
+		}
+		return append(out, stDim.Render("  └"))
+	}
+	return append(out, foldRow(glyphs.Fold("▸"), label, w))
+}
+
+// foldRow paints the disclosure lid: a triangle, the label, and the ⌃o affordance
+// pushed to the right margin. The row wears the faint neutral tint so it reads as a
+// LID - a closed drawer sitting in the flow - rather than as another line of
+// transcript. Tint is gated exactly like every other band on this screen (canTint /
+// mono); without it the triangle and the dim ink still carry the meaning.
+func foldRow(tri, label string, w int) string {
+	key := "⌃o"
+	head := "  " + tri + " " + label
+	pad := w - lipgloss.Width(head) - lipgloss.Width(key) - 2
+	if pad < 1 {
+		pad = 1
+	}
+	line := head + strings.Repeat(" ", pad) + key + " "
+	if paletteMono || !canTint(lipgloss.DefaultRenderer().ColorProfile()) {
+		return truncVisible(stDim.Render(line), w)
+	}
+	return lipgloss.NewStyle().Foreground(cDim).Background(cBand).Render(truncVisible(line, w))
 }
 
 // foldToolName pulls the tool name out of a stripped card line. The card shapes put
@@ -2632,12 +2683,65 @@ func agentToolCallLine(tool, argSummary string) string {
 // precedes it, chunking the transcript into visibly separate turns - the difference
 // between a wall of interleaved tool output and a session you can scan.
 func (m model) agentAskLines(p string) []string {
-	ask := bandUser(p)
+	// Tagged, not painted: the SLATE has to span the view, and only the display path
+	// knows how wide that is (a stored line would be stuck at whatever the width was
+	// when it was typed, and wrong after the next resize).
+	ask := askMark + p
 	if len(m.agentLines) == 0 {
 		return []string{ask}
 	}
 	rule := stDim.Render("── " + time.Now().Format("15:04") + " " + strings.Repeat("─", 24))
 	return []string{"", rule, ask}
+}
+
+// askSlate paints one sent ask as a full-width plate: the red bar, the text, and the
+// tint carried all the way to the right margin.
+//
+// FOUNDER 2026-08-20: the ask used to be tinted only as far as its own text, so a
+// two-word question was a two-word smudge and the turns did not read as separate
+// blocks. Spanning the width turns each one into a crisp slab you can find while
+// scrolling - the "aggressively shown sections" the founder asked for, done with this
+// palette's own faint band rather than a new colour.
+//
+// A long ask wraps INSIDE the slate, every row tinted, so the plate never has a
+// ragged edge. Mono / dumb terminals keep the bare ▌ bar, which is the same escape
+// hatch bandUser has always had.
+func askSlate(text string, w int) []string {
+	if paletteMono || !canTint(lipgloss.DefaultRenderer().ColorProfile()) {
+		rows := wrapPlain(text, max(1, w-4))
+		out := make([]string, 0, len(rows))
+		for i, r := range rows {
+			lead := "  "
+			if i == 0 {
+				lead = ""
+			}
+			out = append(out, stSelBar.Render("▌ ")+lead+r)
+		}
+		return out
+	}
+	body := lipgloss.NewStyle().Background(cBand).Foreground(cInk).Bold(true)
+	bar := lipgloss.NewStyle().Background(cBand).Foreground(cLive).Bold(true)
+	rows := wrapPlain(text, max(1, w-6))
+	out := make([]string, 0, len(rows))
+	for i, r := range rows {
+		mark := "  "
+		if i == 0 {
+			mark = "▌ "
+		}
+		cell := mark + r
+		// Padded to EXACTLY the view width. An earlier version reserved a two-cell
+		// right margin, which read as a notch cut out of every plate - the opposite of
+		// the crisp slab this is for.
+		if pad := w - lipgloss.Width(cell); pad > 0 {
+			cell += strings.Repeat(" ", pad)
+		}
+		if i == 0 {
+			out = append(out, bar.Render("▌ ")+body.Render(cell[len("▌ "):]))
+		} else {
+			out = append(out, body.Render(cell))
+		}
+	}
+	return out
 }
 
 // agentAnswerBlock renders the model's prose with a left gutter on every line ("◂" on

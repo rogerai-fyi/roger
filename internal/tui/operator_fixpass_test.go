@@ -49,7 +49,11 @@ func TestStartQueuedPromptOriginDispatch(t *testing.T) {
 			if nm.agentBusy != tc.wantTurn {
 				t.Fatalf("agentBusy = %v, want %v", nm.agentBusy, tc.wantTurn)
 			}
-			if got := stripANSI(strings.Join(nm.agentLines, "\n")); !strings.Contains(got, tc.wantMark) {
+			// AMENDED 2026-08-20: the ▌ band is painted at display time now (askSlate),
+			// so the buffer holds a tagged ask. What this asserts - the queued prompt
+			// reaches the transcript as a user turn - is unchanged; it just reads the
+			// rendered view, which is where the mark now appears.
+			if got := stripANSI(strings.Join(nm.displayAgentLines(120), "\n")); !strings.Contains(got, tc.wantMark) {
 				t.Fatalf("transcript lacks %q:\n%s", tc.wantMark, got)
 			}
 			if nm.operatorHandoff != nil {

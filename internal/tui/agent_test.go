@@ -273,7 +273,12 @@ func TestAgentEventRendering(t *testing.T) {
 	am, _ = am.Update(agentEventMsg{Kind: harness.EventToolCall, Tool: "list_dir", Args: map[string]any{"path": "."}})
 	am, _ = am.Update(agentEventMsg{Kind: harness.EventToolResult, Tool: "list_dir", Result: "a.go\nb.go\n"})
 	am, _ = am.Update(agentEventMsg{Kind: harness.EventFinal, Text: "there are two go files"})
-	out := stripANSI(asModel(am).View())
+	// AMENDED 2026-08-20: tool cards fold behind a ⌃o box now (founder), so open it -
+	// what this test is about is what a CARD says, not whether it is on screen by
+	// default. TestToolMachineryFoldsByDefault owns the default.
+	om := asModel(am)
+	om.showToolCalls = true
+	out := stripANSI(om.View())
 	for _, want := range []string{"✓ list_dir", ".", "ok", "9 bytes", "there are two go files"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("agent transcript missing %q:\n%s", want, out)
@@ -297,7 +302,7 @@ func TestAgentToolResultPreviewLong(t *testing.T) {
 	am, _ = am.Update(keyMsg("0"))
 	am, _ = am.Update(agentEventMsg{Kind: harness.EventToolResult, Tool: "list_dir", Result: result})
 	m := asModel(am)
-	m.showToolOutput = true // previews are default-hidden now (inc 7b); expand to assert the output
+	m.showToolOutput, m.showToolCalls = true, true // both fold by default now; open them to assert content
 	out := stripANSI(m.View())
 
 	if !strings.Contains(out, "list_dir") || !strings.Contains(out, "bytes") {
@@ -323,7 +328,7 @@ func TestAgentToolResultPreviewShort(t *testing.T) {
 	am, _ = am.Update(keyMsg("0"))
 	am, _ = am.Update(agentEventMsg{Kind: harness.EventToolResult, Tool: "read_file", Result: "alpha\nbeta\ngamma\n"})
 	m := asModel(am)
-	m.showToolOutput = true // previews are default-hidden now (inc 7b); expand to assert inline output
+	m.showToolOutput, m.showToolCalls = true, true // both fold by default now; open them to assert content
 	out := stripANSI(m.View())
 	for _, want := range []string{"alpha", "beta", "gamma"} {
 		if !strings.Contains(out, want) {
@@ -347,6 +352,7 @@ func TestAgentToolResultPreviewCompact(t *testing.T) {
 	if !gm.compact {
 		t.Fatalf("compact should persist across Update")
 	}
+	gm.showToolCalls = true // cards fold behind ⌃o now; this test is about the card
 	out := stripANSI(gm.View())
 	if !strings.Contains(out, "list_dir") || !strings.Contains(out, "bytes") {
 		t.Errorf("compact should still show the summary line:\n%s", out)

@@ -537,6 +537,11 @@ func (s *agentPromptBDD) toolSucceeds(n int) error {
 }
 
 func (s *agentPromptBDD) successCard() error {
+	// AMENDED 2026-08-20: tool cards fold behind a ⌃o box by default (founder). This
+	// scenario is about what the CARD says once you look at it - the stateful
+	// running→success transition - so it opens the box. Whether cards are hidden by
+	// default is owned by TestToolMachineryFoldsByDefault.
+	s.m.showToolCalls = true
 	view := stripANSI(s.m.agentView(s.m.effWidth()))
 	card := ""
 	for _, line := range strings.Split(view, "\n") {

@@ -86,13 +86,21 @@ func TestAgentFinalRenderShapes(t *testing.T) {
 // TestAgentAskSeparator: the first ask echoes bare; later asks are preceded by the
 // dim time-stamped rule that chunks the transcript into turns.
 func TestAgentAskSeparator(t *testing.T) {
+	// AMENDED 2026-08-20: agentAskLines now TAGS the ask (askMark) and the ▌ slate is
+	// painted at display time, because the plate spans the view and only the display
+	// path knows how wide that is. The guarantee is unchanged - first ask bare, later
+	// asks preceded by the rule, and the ▌ band on the ask itself - so it is asserted
+	// through the same path the screen uses.
 	m := browseSeed(120)
 	m.agentLines = nil
 	first := m.agentAskLines("one")
-	if len(first) != 1 || !strings.Contains(stripANSI(first[0]), "▌ one") {
+	if len(first) != 1 {
 		t.Errorf("first ask should echo bare, got %q", first)
 	}
 	m.agentLines = append(m.agentLines, first...)
+	if shown := stripANSI(strings.Join(m.displayAgentLines(120), "\n")); !strings.Contains(shown, "▌ one") {
+		t.Errorf("first ask should render on the ▌ band, got %q", shown)
+	}
 	second := m.agentAskLines("two")
 	if len(second) != 3 {
 		t.Fatalf("later asks should carry blank+rule+ask, got %q", second)
@@ -100,7 +108,8 @@ func TestAgentAskSeparator(t *testing.T) {
 	if !strings.Contains(stripANSI(second[1]), "──") {
 		t.Errorf("separator rule missing, got %q", stripANSI(second[1]))
 	}
-	if !strings.Contains(stripANSI(second[2]), "▌ two") {
-		t.Errorf("ask line missing, got %q", second)
+	m.agentLines = append(m.agentLines, second...)
+	if shown := stripANSI(strings.Join(m.displayAgentLines(120), "\n")); !strings.Contains(shown, "▌ two") {
+		t.Errorf("later ask should render on the ▌ band, got %q", shown)
 	}
 }

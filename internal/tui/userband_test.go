@@ -67,9 +67,12 @@ func TestChatInputUsesBand(t *testing.T) {
 // B4 - the echoed AGENT ask uses the band (the red ▌ bar), replacing the old ▸ marker.
 func TestAgentAskUsesBand(t *testing.T) {
 	m := agentAt(t, permConfirm)
+	// AMENDED 2026-08-20: the ▌ band is painted at DISPLAY time now (askSlate), so the
+	// plate can span the view. Same guarantee, asserted where it now lives.
 	m.agentLines = nil // first ask: no time rule
-	first := m.agentAskLines("commit what's staged")
-	flat := stripANSI(first[len(first)-1])
+	m.agentLines = append(m.agentLines, m.agentAskLines("commit what's staged")...)
+	shown := m.displayAgentLines(120)
+	flat := stripANSI(shown[len(shown)-1])
 	if !strings.Contains(flat, "▌ commit what's staged") {
 		t.Errorf("B4: the ask should echo on the ▌ band: %q", flat)
 	}
