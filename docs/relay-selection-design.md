@@ -1009,9 +1009,12 @@ Still open after round five, and worth naming so the next reader does not have t
   `release/v5.7.0`.** The record of what it was, how much wider it turned out to be than this
   bullet first said, and what closing it did and did not cover, is kept below rather than
   deleted, because the two rounds of widening are the part a later reader needs. **Read "Round
-  two" at the end of this entry as well**: the possession proof was itself reviewed, three things
-  it does not cover were proved against the running handler, and two claims made in this section
-  turned out to be false.
+  two" AND "Round three" at the end of this entry as well**: in round two the possession proof
+  was itself reviewed, three things it does not cover were proved against the running handler,
+  and two claims made in this section turned out to be false; in round three the SESSION key -
+  the last of the three values this endpoint names, and the residual this section carried - was
+  closed by deleting a uniqueness rule that turned out to be the whole attack rather than a
+  defence against it.
 
   **What it was.** `/tower/edge/attach` took the assertion key out of the request body and
   never required a signature from it. The request was signed - with the caller's ACCOUNT key,
@@ -1134,14 +1137,19 @@ Still open after round five, and worth naming so the next reader does not have t
   `TestARefusedPossessionProofSpendsNoInvitation` asserts it past the cap that used to lock
   accounts out.
 
-  **STILL OPEN: the same squat on the SESSION key.** This is the residual, and it is stated
-  precisely because it is the same shape of denial:
+  ~~**STILL OPEN: the same squat on the SESSION key.**~~ **CLOSED 2026-08-21 on
+  `release/v5.7.0`, and not by proving the key - by deleting the rule that made naming it
+  worth anything. The decision and its two rejected alternatives are "Round three" at the end
+  of this entry; what follows here is the residual as it stood, kept because the corrections
+  in it are the part that led to the answer.**
 
   - The session key is X25519. It cannot sign, so it can get no co-signature; including it in
     the statement is the assertion key VOUCHING for it, which is a weaker claim than possession.
     An attacker holding their own assertion key can therefore still name **somebody else's**
     session public key on their own attach, and `checkBindings`' `BySessionKey` uniqueness then
-    refuses the rightful owner exactly as the assertion-key squat did.
+    refuses the rightful owner exactly as the assertion-key squat did. **Proved against the real
+    route table before it was closed: the squat answers 200 and the victim, with two keys
+    entirely their own, answers 409.**
   - **What it does NOT get them, in either direction.** They cannot read anything: Core seals
     each request to that key and they hold no private half, so their squatted Station receives
     ciphertext it cannot open, can never serve, and earns nothing. And the victim's traffic is
@@ -1167,15 +1175,17 @@ Still open after round five, and worth naming so the next reader does not have t
     gate is bypassable with `ROGER_INSECURE_HTTP=1`, and an `https` base is validated against the
     system trust store with **no pin**, so it is transport authentication of the ordinary web
     kind and not the pinned channel the hub link now has.
-  - **Two things would close it, and neither is a header.** (a) A challenge-response at attach:
-    Core seals a nonce to the presented session key and the node returns it - complete, and a
-    second round trip on a path that is currently one call. (b) A non-interactive static-static
-    proof: a raw X25519 agreement between the node's session key and Core's envelope key
+  - ~~**Two things would close it, and neither is a header.**~~ **Two things would close it by
+    PROVING the key, and a third closes it by removing the reason to want it proved - which is
+    what shipped. See Round three.** The two are still the right answer the day the key has to
+    be proved for some other reason, so they are kept: (a) a challenge-response at attach, Core
+    sealing a nonce to the presented session key and the node returning it - complete, and a
+    second round trip on a path that is currently one call; (b) a non-interactive static-static
+    proof, a raw X25519 agreement between the node's session key and Core's envelope key
     (`/tower/dispatch/key`), authenticating the same statement under an HMAC. Core already holds
     that private half and the node already fetches the public one - but it fetches it AFTER
     attach (`ServeTower` calls `fetchCoreKeys` on the tenancy, not before), so (b) costs an
-    extra fetch and a new primitive in `internal/towercore/envelope`. Both are wire changes with
-    their own review; neither belongs in the same commit as the fix above.
+    extra fetch and a new primitive in `internal/towercore/envelope`.
 
   **The classic operator-invite path needed nothing, and the reason is not the one the design
   assumed.** It was worth checking because `attach.Authorization` carries an assertion key
@@ -1320,6 +1330,123 @@ Still open after round five, and worth naming so the next reader does not have t
   boundary is "nothing here dials". So the RULE is recorded at the function instead: every one of
   those four values must be the caller's own request, freshly signed by it, and never a value
   that arrived from outside the process.
+
+  ---
+
+  #### Round three: the session key, closed by deleting the rule rather than proving the key
+
+  **Closed 2026-08-21 on `release/v5.7.0`, the same branch and the same release as the two
+  rounds above.** This is the last of the three values `/tower/edge/attach` names. The assertion
+  key is proved by a co-signature and the Station id by derivation; the session key is now
+  **harmless** rather than unsquattable, which is the other half of the bar this section set.
+
+  **The defect, proved before it was closed.** An attacker with their own account, their own
+  assertion keypair, their own registered and heartbeating node id and a live tower attaches
+  while naming the VICTIM's session public key: 200. The victim, whose two keys are entirely
+  their own, then meets `409 that secure-session key is already bound to another Station` on
+  every attach, indefinitely - `station.InitOrOpen` keeps the key on disk with no re-mint path.
+  Same shape, same permanence and same recovery cost as the assertion-key squat, and cheaper to
+  mount: the input is self-serve out of `/tower/edge/authorize`.
+
+  **THE UNIQUENESS RULE WAS THE BUG.** Its stated reason, in `checkBindings`, was: *"A
+  secure-session key belonging to another Station would let one machine terminate another's
+  end-to-end channel."* That is false, and the whole of it is checkable from three files:
+
+  - **Nothing routes by the session key.** A consumer is placed onto a STATION, and the key it
+    seals to is read out of that Station's own row - `toweredge.go` hands out
+    `station_session_key` beside `relay_name`, `towerdispatch.go` seals to the `SessionKey` of
+    the attachment it is dispatching to. No routing, placement or dispatch path ever resolved a
+    Station FROM a session key: the only lookup that did was `BySessionKey`, whose sole caller
+    was the uniqueness check, and it is deleted with it. Two rows carrying one key are two
+    destinations, not one. Nobody's traffic moves.
+  - **The squatter's own Station is the only casualty.** It receives ciphertext sealed to a
+    private half it does not hold, serves nothing, earns nothing and burns one of its own live
+    slots. It cannot pass the work to the machine that CAN open it either: the grant names its
+    relay, and the receipt closing the attempt must be signed by ITS assertion key, which the
+    other machine does not have.
+  - **And the rule never bounded the case it named.** Nothing at attach proves anybody holds the
+    private half of a session key - it is X25519, it cannot sign, and the possession proof only
+    has the assertion key VOUCH for it. Thirty-two zero bytes are admitted today. So "a Station
+    that cannot open its own envelopes" was always reachable; the rule's ONLY observable effect
+    was to refuse the second of two attaches naming one key, and the attacker chooses who is
+    second.
+
+  So the check was providing the entire lockout primitive and defending nothing. It is removed -
+  in `checkBindings`, in `memStore.Admit`, and as two `DROP INDEX` statements against the
+  partial unique indexes on `session_key` in both the live and held predicates. `BySessionKey`
+  goes with it, out of the `Store` interface and both implementations, because a lookup whose
+  only caller was the deleted rule is how the rule comes back.
+
+  **This does not contradict the spec; it correctly implements half of a pair.**
+  `features/tower/station_attachment.feature` specifies TWO clauses that belong together - *"A
+  Station proves both independent private keys during attachment"*, where K is proved by a CSR
+  bound to the attachment challenge, and the defect row *"secure-session key already bound to
+  another Station"*. In the specified world the pair is coherent: nobody can name a K they do not
+  hold, so a duplicate can only ever be a genuine collision. **What shipped was the second clause
+  alone.** There is no CSR and no inner TLS session - `internal/towercore/envelope` says so in its
+  own package comment - so K is asserted, not proved. Uniqueness without possession is not half a
+  defence, it is a weapon. A superseded-mechanism note now says this at the top of that feature
+  file, in the same idiom `edge_dispatch.feature` already uses, and **the rule returns the day K
+  is genuinely proved, in the same commit as the proof and never before it.**
+
+  **Why not (A), derive the session key from the assertion key** - the direct analogue of the
+  Station-id fix, and the option with the strongest surface appeal: Ed25519 public keys map to
+  X25519 by a standard birational conversion, so Core could compute the expected session key and
+  refuse anything else. Free at runtime, no round trip, no new state, unsquattable by
+  construction. Rejected on four counts, in ascending order of how much they matter:
+
+  - *It needs a primitive the tree does not have.* Go's standard library will not convert an
+    Ed25519 key to X25519 in either direction. It means `filippo.io/edwards25519` or hand-rolled
+    field arithmetic on the money path, to save a field that already exists.
+  - *It is a wire and identity change for no denial that C does not also remove.* Both options
+    end the squat; only one of them adds a conversion, a dependency and a new failure mode.
+  - *The cross-algorithm reuse concern is real here rather than theoretical, and this is the
+    honest reading of it.* The generic guidance against reusing a signing key for key agreement
+    is largely precautionary - Signal's XEd25519 does exactly this at enormous scale, and Go's
+    `crypto/ecdh` rejects the all-zero shared secret that low-order points produce, so the
+    invalid-curve family that actually extracts scalars is not reachable. What IS specific to
+    this system is the shape of the exposure: the node performs static DH against ephemerals
+    chosen by ARBITRARY consumers, and the key doing it would be the key its receipts - its
+    money - are verified against. A weakness in that reuse is not a confidentiality bug here, it
+    is a signing-key compromise. The concern is not that a break is likely; it is that the blast
+    radius of an unlikely break is the whole payment identity, for a saving of nothing.
+  - *And it collapses a separation this tree maintains on purpose, in code, today.*
+    `internal/station` exports `SessionPriv()` because opening an envelope needs the bytes, and
+    deliberately does NOT export the assertion private half - "handing the raw private half to
+    another package makes that package one more place it can be copied, logged, or used to sign
+    material this Station never chose". Under (A) the executor that opens envelopes would need
+    material derived from the assertion seed, and that refusal becomes unmaintainable. The rule
+    is also written down one layer up, in `attach`'s own validation: *"the assertion and
+    secure-session keys must be different keys"*. (A) makes them one key in two encodings - it
+    would pass that check on the letter while voiding it in substance, which is precisely the
+    "the value checked is not the value used" defect that Round two found three times.
+
+  **Why not (B), prove possession** - a challenge-response at attach, or a static-static X25519
+  agreement against Core's envelope key. It is the spec's answer and it is not wrong; it is
+  simply the wrong shape for THIS defect. It costs either a second round trip on a path that is
+  one call, or a reordering (`ServeTower` fetches Core's envelope key AFTER attach) plus a new
+  primitive in `internal/towercore/envelope` - and it spends all of that to make a uniqueness
+  rule safe that earns nothing when it is safe. **Adding cryptography to protect a constraint
+  that protects nothing is a worse outcome than removing the constraint**, and it leaves the DoS
+  standing for however long the wire change takes to review. B is what to build when the session
+  key must be proved for a reason of its own; it is not what to build to stop a lockout.
+
+  **What is now residual, stated so the next reader does not have to re-derive it.**
+
+  - **A Station may attach with a session key it cannot open.** That is unchanged by this
+    commit - it was always true, since nothing proves possession - and it is now the only
+    remaining consequence of naming somebody else's key. It costs the attacker one of their own
+    live slots and costs consumers routed there a failed attempt and a released hold, which is
+    the same cost any dead node imposes and which probes, quarantine and the canary already
+    handle. Closing it needs (B), and (B) is the same change that would let uniqueness return.
+  - **The session key is still self-serve.** `/tower/edge/authorize` still returns
+    `station_session_key` to any signed-in funded consumer that asks. That is no longer a denial
+    primitive, but it is still a linkable identifier handed out for the price of one call, and
+    whether authorize should hand it out before the consumer has committed to the attempt is a
+    separate question this change does not take.
+  - **Duplicate session keys are now possible in the store, so nothing may key on them.** The
+    interface no longer offers a lookup by session key, which is the enforcement; a future reader
+    adding one should read `checkBindings` first.
 
 ### 5.7 Round five: option A, and why it needed no certificate authority
 

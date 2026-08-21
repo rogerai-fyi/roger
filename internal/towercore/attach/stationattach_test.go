@@ -245,14 +245,29 @@ func TestOriginKindIsImmutable(t *testing.T) {
 	require.Equal(t, OriginJoined, got.Origin.Kind, "the original origin must be untouched")
 }
 
-func TestAKeyCannotBeSharedBetweenTwoStations(t *testing.T) {
+// THE TWO KEYS ARE NOT SUBJECT TO THE SAME RULE, and this table is where the difference is
+// stated. It used to assert the same refusal for both, which read as symmetry and was in fact
+// one justified rule sitting beside one that was never justified.
+//
+// The ASSERTION key signs - offers, receipts, hub polls, the door signature - so two Stations
+// holding one is one signer wearing two identities and every piece of evidence either produces
+// verifies against the other. Refused.
+//
+// The SECURE-SESSION key only receives. Nothing at attach proves the presenter holds its private
+// half (it is X25519 and cannot sign), nothing routes by it, and a Station that names a key it
+// cannot open simply gets ciphertext it cannot read. Uniqueness bought nothing there and cost a
+// permanent denial: the key is self-serve out of /tower/edge/authorize, so naming a victim's
+// locked the victim out of their own identity for as long as the row stood. Admitted, on
+// purpose. checkBindings holds the argument; TestParitySessionKeysAreNotUniqueAndMustNotBecomeSo
+// holds both stores to it.
+func TestOnlyTheAssertionKeyCannotBeSharedBetweenTwoStations(t *testing.T) {
 	for _, tc := range []struct {
 		name, want string
 		mutate     func(a *Authorization, p *Proof)
 	}{
-		{"a shared secure-session key", "already bound to another Station",
+		{"a shared secure-session key", "",
 			func(a *Authorization, p *Proof) { a.AssertionKey, p.AssertionKey = "A2", "A2" }},
-		{"a shared assertion key", "already bound to another Station",
+		{"a shared assertion key", "assertion key is already bound to another Station",
 			func(a *Authorization, p *Proof) { a.SessionKey, p.SessionKey = "K2", "K2" }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -274,7 +289,19 @@ func TestAKeyCannotBeSharedBetweenTwoStations(t *testing.T) {
 			tc.mutate(&auth, &p)
 			require.NoError(t, s.PutAuthorization(withSecret(auth)))
 
-			_, err = r.Admit(p)
+			at, err := r.Admit(p)
+			if tc.want == "" {
+				require.NoError(t, err, "a shared session key must not refuse an honest attach")
+				require.Equal(t, "st-2", at.StationID)
+				// AND THE FIRST STATION IS UNTOUCHED. Letting the second in by evicting the
+				// first would be the same denial with the parties swapped.
+				first, ok, ferr := r.Station(station)
+				require.NoError(t, ferr)
+				require.True(t, ok)
+				require.Equal(t, keyA, first.AssertionKey)
+				require.True(t, first.Held())
+				return
+			}
 			require.ErrorIs(t, err, ErrRejected)
 			require.Contains(t, err.Error(), tc.want)
 		})

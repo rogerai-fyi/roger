@@ -204,9 +204,9 @@ func TestTheStationIdInTheProofIsTheStationIdBound(t *testing.T) {
 // ONE KEY IS ONE STATION, WHATEVER CASE ITS HEX IS SPELLED IN - finding 3.
 //
 // protocol.AttachProof.Verify hex-decodes, and hex decoding is case-insensitive. Every
-// uniqueness path compares STRINGS: memStore.ByAssertionKey, PGStore.byLiveKey, checkBindings,
-// and the lost-response retry. So one real keypair, presented as lowercase and then as
-// uppercase, produced TWO Stations from one signer - which is exactly what stationattach.go
+// uniqueness path compares STRINGS: memStore.ByAssertionKey, PGStore.ByAssertionKey,
+// checkBindings, and the lost-response retry. So one real keypair, presented as lowercase and
+// then as uppercase, produced TWO Stations from one signer - which is exactly what stationattach.go
 // says cannot happen ("two Stations signing offers with one key are one signer wearing two
 // identities"). It was never an attacker's primitive, since the private half is needed both
 // times; it is an invariant that was false, and the possession proof would have inherited it.

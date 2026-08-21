@@ -189,8 +189,8 @@ func (b *broker) towerEdgeAttach(w http.ResponseWriter, r *http.Request) {
 	//
 	// THE KEYS ARE COMPARED AS STRINGS AND WERE ACCEPTED IN ANY CASE. protocol.AttachProof
 	// hex-decodes, which is case-insensitive, but every uniqueness path in the store compares
-	// the STRING: memStore.ByAssertionKey, PGStore.byLiveKey (an exact match on a TEXT column in
-	// a deterministic collation, on Postgres too - the parity tests pin it), attach's
+	// the STRING: memStore.ByAssertionKey, PGStore.ByAssertionKey (an exact match on a TEXT
+	// column in a deterministic collation, on Postgres too - the parity tests pin it), attach's
 	// checkBindings, and the lost-response retry below. So ONE real keypair, presented as
 	// lowercase hex and then as uppercase, produced TWO Stations from one signer - contradicting
 	// the invariant checkBindings states in as many words ("two Stations signing offers with one

@@ -62,9 +62,6 @@ func TestAClosedPoolReportsAnOutageOnEveryPath(t *testing.T) {
 	_, _, err = pg.ByAssertionKey("Ac")
 	require.ErrorIs(t, err, ErrUnavailable)
 
-	_, _, err = pg.BySessionKey("Kc")
-	require.ErrorIs(t, err, ErrUnavailable)
-
 	_, err = pg.SetState("st-closed", StateRevoked)
 	require.ErrorIs(t, err, ErrUnavailable)
 

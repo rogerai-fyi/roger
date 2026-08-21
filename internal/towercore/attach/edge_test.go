@@ -53,13 +53,6 @@ func (r *refusingStore) ByAssertionKey(k string) (Attachment, bool, error) {
 	return r.Store.ByAssertionKey(k)
 }
 
-func (r *refusingStore) BySessionKey(k string) (Attachment, bool, error) {
-	if r.fail == "bysession" {
-		return Attachment{}, false, errBoom
-	}
-	return r.Store.BySessionKey(k)
-}
-
 func (r *refusingStore) SetState(id, state string) (bool, error) {
 	if r.fail == "setstate" {
 		return false, errBoom
@@ -81,7 +74,7 @@ func armed(t *testing.T, op string) (*Registry, *refusingStore) {
 }
 
 func TestAStoreThatCannotAnswerIsNotARefusal(t *testing.T) {
-	for _, op := range []string{"authorization", "admit", "bystation", "byassertion", "bysession"} {
+	for _, op := range []string{"authorization", "admit", "bystation", "byassertion"} {
 		t.Run(op, func(t *testing.T) {
 			r, _ := armed(t, op)
 			_, err := r.Admit(goodProof())

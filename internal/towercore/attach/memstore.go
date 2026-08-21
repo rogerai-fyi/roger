@@ -199,7 +199,13 @@ func (m *memStore) Admit(authID string, at Attachment) (bool, error) {
 		if other.StationID == at.StationID || !other.Held() {
 			continue
 		}
-		if other.AssertionKey == at.AssertionKey || other.SessionKey == at.SessionKey {
+		// THE ASSERTION KEY ONLY. The secure-session key used to be tested here too, beside a
+		// partial unique index in Postgres that matched it, and both are gone: that key does not
+		// sign, nothing routes by it, and the only thing its uniqueness ever achieved was
+		// letting one account lock another out of an identity by naming a key it had asked Core
+		// for. checkBindings holds the whole argument. The two stores still agree - the durable
+		// half dropped its session-key indexes in the same change.
+		if other.AssertionKey == at.AssertionKey {
 			return false, errKeyHeldByAnother
 		}
 	}
@@ -295,9 +301,12 @@ func (m *memStore) ByTower(towerID string) ([]Attachment, error) {
 	return out, nil
 }
 
-// ByAssertionKey and BySessionKey scan rather than index. The set is small, and a scan
-// cannot fall out of step with the records the way a side index can - which is precisely
-// the bug the band occupancy check shipped with.
+// ByAssertionKey scans rather than indexes. The set is small, and a scan cannot fall out of
+// step with the records the way a side index can - which is precisely the bug the band
+// occupancy check shipped with.
+//
+// There is no BySessionKey beside it any more. It had one caller, the session-key uniqueness
+// rule, and that rule is gone: see checkBindings.
 func (m *memStore) ByAssertionKey(key string) (Attachment, bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -306,17 +315,6 @@ func (m *memStore) ByAssertionKey(key string) (Attachment, bool, error) {
 		// them must find it - both to refuse another Station taking them, and so the durable
 		// store's partial unique index and this scan answer the same question.
 		if at.AssertionKey == key && at.Held() {
-			return at, true, nil
-		}
-	}
-	return Attachment{}, false, nil
-}
-
-func (m *memStore) BySessionKey(key string) (Attachment, bool, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	for _, at := range m.byID {
-		if at.SessionKey == key && at.Held() {
 			return at, true, nil
 		}
 	}

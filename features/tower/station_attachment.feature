@@ -16,6 +16,32 @@
 # machinery (authorization + one-use redemption + uniqueness + caps) atomically in-process.
 # The trust properties specified here are enforced there; the ceremony that carried them is
 # gone. Revocation and promotion remain as specified.
+#
+# SECOND SUPERSEDED MECHANISM NOTE (also not a spec change), 2026-08-21, and it narrows the
+# word "uniqueness" above. Two clauses of this spec are a PAIR:
+#
+#   "A Station proves both independent private keys during attachment" - which proves the
+#   secure-session key K by "the exact CSR/TLS proof bound by the challenge"; and
+#   the defect row "secure-session key already bound to another Station".
+#
+# In the specified world the pair is coherent: nobody can name a K they do not hold, so
+# refusing a duplicate K can only ever refuse a genuine collision. What shipped is only the
+# SECOND clause. There is no CSR and no inner TLS session - internal/towercore/envelope says
+# so in its own package comment - so K is asserted rather than proved, and the possession
+# proof added in this release (protocol.AttachProof) has the assertion key merely VOUCH for
+# it, because K is X25519 and cannot sign.
+#
+# Uniqueness without possession is not half a defence, it is a weapon: K is handed to any
+# funded consumer that asks (`station_session_key`, /tower/edge/authorize), so naming a
+# victim's K first refused the victim's own attach for as long as the row stood, and the
+# victim's node keeps K on disk with no re-mint path. The refusal has therefore been REMOVED
+# on the implemented path, in checkBindings, in memStore.Admit, and as two dropped partial
+# unique indexes in the durable store. It returns with the
+# clause it belongs to: whenever K is actually proved - the CSR of this spec, a challenge
+# sealed to K, or a static-static agreement against Core's envelope key - uniqueness is free
+# again and should come back with it. The assertion key's uniqueness and the "Station ID
+# already bound to another assertion key" row are untouched and enforced.
+# See docs/relay-selection-design.md 5.6.
 Feature: A Tower can transport only a Station that proved its own keys and exact origin authority
   Tower-local access is not public Station authority. Joined service requires Roger Core's
   owner-bound admission and an end-to-end Station TLS identity the Tower cannot mint.

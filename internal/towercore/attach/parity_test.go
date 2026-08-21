@@ -180,29 +180,94 @@ func TestParityRefusalLeavesTheInvitationSpendable(t *testing.T) {
 	})
 }
 
-func TestParityAKeyIsHeldByOneLiveStationOnly(t *testing.T) {
+// AN ASSERTION KEY IS HELD BY ONE LIVE STATION ONLY, in both stores. That key SIGNS - offers,
+// receipts, hub polls - so two Stations holding one is one signer wearing two identities, and
+// every piece of evidence either of them produces would verify against the other.
+//
+// This test used to make the conflicting key the SESSION key, which read as the stronger case
+// and was in fact the only one being covered. That rule is gone (see checkBindings), and the one
+// that remains is now what is asserted; TestParitySessionKeysAreNotUniqueAndMustNotBecomeSo is
+// the other half of the pair.
+func TestParityAnAssertionKeyIsHeldByOneLiveStationOnly(t *testing.T) {
 	eachStore(t, func(t *testing.T, s Store, r *Registry, now time.Time) {
 		_, err := r.Admit(goodProof())
 		require.NoError(t, err)
 
-		// A second Station presenting the SAME secure-session key.
+		// A second Station presenting the SAME assertion key, under its own id and its own
+		// session key - so nothing but the signing key collides.
 		require.NoError(t, s.PutAuthorization(withSecret(Authorization{
 			ID: "auth-2", Network: net, StationID: "st-2", Owner: owner,
 			Origin:       Origin{Kind: OriginJoined, TowerID: tower},
-			AssertionKey: "A2", SessionKey: keyK,
+			AssertionKey: keyA, SessionKey: "K2",
 			IssuedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Hour),
 		})))
 		p := Proof{
 			AuthID: "auth-2", Secret: inviteSecret, Network: net, StationID: "st-2", Owner: owner,
-			Origin: Origin{Kind: OriginJoined, TowerID: tower}, AssertionKey: "A2", SessionKey: keyK,
+			Origin: Origin{Kind: OriginJoined, TowerID: tower}, AssertionKey: keyA, SessionKey: "K2",
 		}
 		_, err = r.Admit(p)
 		require.ErrorIs(t, err, ErrRejected)
-		require.Contains(t, err.Error(), "already bound to another Station")
+		require.Contains(t, err.Error(), "assertion key is already bound to another Station")
 
 		_, ok, err := s.ByStation("st-2")
 		require.NoError(t, err)
 		require.False(t, ok, "the refused Station must not exist in either store")
+	})
+}
+
+// AND A SECURE-SESSION KEY IS NOT UNIQUE, IN EITHER STORE, ON PURPOSE.
+//
+// This is the store-level half of the session-key squat close. There used to be a rule in
+// checkBindings and a matching partial unique index in Postgres, and between them they let one
+// account permanently deny another the use of its own Station: the session key is self-serve out
+// of /tower/edge/authorize, the victim's node keeps the key on disk with no re-mint path, and
+// every re-attach met the refusal. The key does not sign and nothing routes by it, so the rule
+// bought nothing for the denial it sold.
+//
+// Asserted in BOTH stores because the rule lived in both, expressed differently - a Go
+// comparison under memStore.Admit's mutex and a partial unique index in the schema. Dropping one
+// and not the other would make Mem admit what Postgres refuses, and a sequential test through
+// checkBindings could not see the difference. This one writes the second row and reads it back.
+func TestParitySessionKeysAreNotUniqueAndMustNotBecomeSo(t *testing.T) {
+	eachStore(t, func(t *testing.T, s Store, r *Registry, now time.Time) {
+		first, err := r.Admit(goodProof())
+		require.NoError(t, err)
+		require.Equal(t, keyK, first.SessionKey)
+
+		// A second Station, everything of its own except the session key, which is the first
+		// Station's. In the squat this is the attacker; here it is simply the second row.
+		require.NoError(t, s.PutAuthorization(withSecret(Authorization{
+			ID: "auth-2", Network: net, StationID: "st-2", Owner: "owner-2",
+			Origin:       Origin{Kind: OriginJoined, TowerID: tower},
+			AssertionKey: "A2", SessionKey: keyK,
+			IssuedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Hour),
+		})))
+		second, err := r.Admit(Proof{
+			AuthID: "auth-2", Secret: inviteSecret, Network: net, StationID: "st-2", Owner: "owner-2",
+			Origin: Origin{Kind: OriginJoined, TowerID: tower}, AssertionKey: "A2", SessionKey: keyK,
+		})
+		require.NoError(t, err, "a shared session key must not refuse an otherwise honest attach")
+		require.Equal(t, "st-2", second.StationID)
+
+		// BOTH ROWS ARE THERE, read back rather than inferred from the returned struct - the
+		// discipline the Postgres CAS bug taught, and the only way to catch a unique index that
+		// silently swallowed the write.
+		for _, id := range []string{station, "st-2"} {
+			got, ok, err := s.ByStation(id)
+			require.NoError(t, err)
+			require.True(t, ok, "%s is missing", id)
+			require.Equal(t, keyK, got.SessionKey)
+		}
+
+		// AND THE FIRST STATION IS UNDISTURBED - same owner, same assertion key, still live.
+		// A "fix" that let the second attach through by evicting the first would be the same
+		// denial with the parties swapped.
+		got, ok, err := s.ByStation(station)
+		require.NoError(t, err)
+		require.True(t, ok)
+		require.Equal(t, owner, got.Owner)
+		require.Equal(t, keyA, got.AssertionKey)
+		require.True(t, got.Held())
 	})
 }
 
@@ -213,19 +278,18 @@ func TestParityARetiredStationReleasesItsKeys(t *testing.T) {
 		_, err := r.Admit(goodProof())
 		require.NoError(t, err)
 
-		_, ok, err := s.BySessionKey(keyK)
+		_, ok, err := s.ByAssertionKey(keyA)
 		require.NoError(t, err)
 		require.True(t, ok, "a live Station holds its key")
 
 		_, err = r.Revoke(station)
 		require.NoError(t, err)
 
-		_, ok, err = s.BySessionKey(keyK)
-		require.NoError(t, err)
-		require.False(t, ok, "a revoked Station must not hold its keys hostage")
+		// The ASSERTION key is the only one with a reservation to release; the session key never
+		// had one to begin with, which is why there is no BySessionKey to ask.
 		_, ok, err = s.ByAssertionKey(keyA)
 		require.NoError(t, err)
-		require.False(t, ok)
+		require.False(t, ok, "a revoked Station must not hold its key hostage")
 
 		// And the freed key may be attached to a genuinely new Station ID - which is exactly
 		// the path the spec requires for a cross-kind migration.
@@ -357,16 +421,21 @@ func TestParityALiveStationCannotBeReattached(t *testing.T) {
 	})
 }
 
-// Two DISTINCT invitations sharing a key, redeemed concurrently. Postgres refuses one via a
-// partial unique index; the memory store must refuse one too, or the stores disagree exactly
-// where it matters. A sequential test cannot see this - checkBindings catches it first.
-func TestParityConcurrentAttachmentsCannotShareAKey(t *testing.T) {
+// Two DISTINCT invitations sharing an ASSERTION key, redeemed concurrently. Postgres refuses one
+// via a partial unique index; the memory store must refuse one too, or the stores disagree
+// exactly where it matters. A sequential test cannot see this - checkBindings catches it first.
+//
+// The colliding key used to be the SECURE-SESSION one, which no longer collides at all: its
+// uniqueness rule and its two partial indexes were removed as a denial primitive that protected
+// nothing (checkBindings). The race this test exists for is unchanged; only the key that runs
+// into it is, and the assertion key is the one that was worth serializing all along.
+func TestParityConcurrentAttachmentsCannotShareAnAssertionKey(t *testing.T) {
 	eachStore(t, func(t *testing.T, s Store, r *Registry, now time.Time) {
 		second, secret, err := NewInvite(Authorization{
 			ID: "auth-2", Network: net, StationID: "st-2", Owner: owner,
 			Origin: Origin{Kind: OriginJoined, TowerID: tower},
-			// A DIFFERENT Station, the SAME secure-session key.
-			AssertionKey: "A2", SessionKey: keyK,
+			// A DIFFERENT Station, the SAME assertion key.
+			AssertionKey: keyA, SessionKey: "K2",
 		}, time.Hour, now.Add(-time.Minute))
 		require.NoError(t, err)
 		require.NoError(t, s.PutAuthorization(second))
@@ -376,7 +445,7 @@ func TestParityConcurrentAttachmentsCannotShareAKey(t *testing.T) {
 		start := make(chan struct{})
 		proofs := []Proof{goodProof(), {
 			AuthID: "auth-2", Secret: secret, Network: net, StationID: "st-2", Owner: owner,
-			Origin: Origin{Kind: OriginJoined, TowerID: tower}, AssertionKey: "A2", SessionKey: keyK,
+			Origin: Origin{Kind: OriginJoined, TowerID: tower}, AssertionKey: keyA, SessionKey: "K2",
 		}}
 		for i := range proofs {
 			wg.Add(1)
@@ -392,7 +461,7 @@ func TestParityConcurrentAttachmentsCannotShareAKey(t *testing.T) {
 			}
 		}
 		require.Equal(t, 1, wins,
-			"exactly one may hold a secure-session key, whichever store is underneath")
+			"exactly one may hold an assertion key, whichever store is underneath")
 
 		// And the loser left nothing behind.
 		live := 0
@@ -1312,7 +1381,7 @@ func TestParityALateRefusalDoesNotRenameTheWinningStation(t *testing.T) {
 //
 // protocol.AttachProof.Verify hex-DECODES the assertion key, and hex decoding is
 // case-insensitive: "AB" and "ab" are one key. Every uniqueness path in this package compares
-// the STRING - memStore.ByAssertionKey scans for equality, PGStore.byLiveKey is a `WHERE
+// the STRING - memStore.ByAssertionKey scans for equality, PGStore.ByAssertionKey is a `WHERE
 // assertion_key=$1`, checkBindings compares the two. So one real keypair, offered twice in
 // different hex cases, satisfied the proof both times and produced TWO Stations, contradicting
 // the invariant checkBindings states in as many words: "two Stations signing offers with one key
@@ -1340,7 +1409,6 @@ func TestParityKeyLookupsAreExactStrings(t *testing.T) {
 			upperA = "AABBCCDDEEFF00112233445566778899AABBCCDDEEFF001122334455667788AA"
 			lowerA = "aabbccddeeff00112233445566778899aabbccddeeff001122334455667788aa"
 			upperK = "FFEEDDCCBBAA99887766554433221100FFEEDDCCBBAA998877665544332211FF"
-			lowerK = "ffeeddccbbaa99887766554433221100ffeeddccbbaa998877665544332211ff"
 			mixedS = "st-mixedcase"
 			mixedI = "sinv-mixedcase"
 		)
@@ -1371,8 +1439,5 @@ func TestParityKeyLookupsAreExactStrings(t *testing.T) {
 			"this store matches assertion keys case-INSENSITIVELY; the door's canonicalization is "+
 				"no longer the only thing holding 'one key, one Station' up, and the two stores now "+
 				"disagree about who is who")
-		_, ok, err = s.BySessionKey(lowerK)
-		require.NoError(t, err)
-		require.False(t, ok, "this store matches session keys case-INSENSITIVELY - see above")
 	})
 }

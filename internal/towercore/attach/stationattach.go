@@ -326,7 +326,10 @@ type Store interface {
 	// error when the authorization was already consumed - the caller then decides whether
 	// this is an idempotent retry or divergent reuse.
 	Admit(authID string, at Attachment) (bool, error)
-	// ByStation, ByAssertionKey and BySessionKey are the uniqueness and lookup reads.
+	// ByStation and ByAssertionKey are the uniqueness and lookup reads. There is no
+	// BySessionKey and there must not be one: the session key has no uniqueness rule (see
+	// checkBindings for why the one that existed was a denial primitive protecting nothing),
+	// so a lookup whose only purpose was to serve that rule is how it comes back.
 	ByStation(stationID string) (Attachment, bool, error)
 	// ByStations is ByStation for a whole placement's worth of Stations, in ONE round trip.
 	//
@@ -430,7 +433,6 @@ type Store interface {
 	// hub must serve (Option C: the tower reads each node's HubToken from here).
 	ByTower(towerID string) ([]Attachment, error)
 	ByAssertionKey(key string) (Attachment, bool, error)
-	BySessionKey(key string) (Attachment, bool, error)
 	// SetState moves an attachment through its lifecycle.
 	SetState(stationID, state string) (bool, error)
 	// ReapTerminal deletes revoked/detached attachments attached before the horizon. DORMANT IS
@@ -778,16 +780,62 @@ func (r *Registry) checkBindings(authID string, p Proof) (revived Attachment, er
 		}
 	}
 
-	// A secure-session key belonging to another Station would let one machine terminate
-	// another's end-to-end channel.
-	if bound, ok, err := r.store.BySessionKey(p.SessionKey); err != nil {
-		return Attachment{}, fmt.Errorf("%w: %v", ErrUnavailable, err)
-	} else if ok && bound.StationID != p.StationID {
-		return Attachment{}, reject(errors.New("that secure-session key is already bound to another Station"))
-	}
-
-	// Likewise an assertion key: two Stations signing offers with one key are one signer
-	// wearing two identities.
+	// THERE IS DELIBERATELY NO UNIQUENESS RULE ON THE SECURE-SESSION KEY, and the absence is
+	// load-bearing rather than an omission. Do not add one back.
+	//
+	// There used to be one, and the sentence it gave for itself was: "A secure-session key
+	// belonging to another Station would let one machine terminate another's end-to-end
+	// channel." That is false, and the whole of it is checkable from this file plus two others.
+	//
+	// NOTHING ROUTES BY THE SESSION KEY. A consumer is placed onto a STATION, and the key it
+	// seals to is read out of THAT Station's own row - cmd/rogerai-broker/toweredge.go hands out
+	// station_session_key beside relay_name, and towerdispatch.go seals to the SessionKey of the
+	// attachment it is dispatching to. No routing, placement or dispatch path ever resolved a
+	// Station FROM a session key - the only lookup that did was BySessionKey, whose sole caller
+	// was this check, so it is deleted with it. Two rows carrying one key are therefore two
+	// destinations and not one: nobody's traffic moves. A Station that names a key it cannot
+	// open receives ciphertext it cannot open, serves nothing and earns nothing - and it cannot
+	// hand the work to the machine that CAN open it either, because the grant names its own
+	// relay and the receipt that closes the attempt has to be signed by ITS assertion key,
+	// which the other machine does not hold. The rule was protecting against nothing.
+	//
+	// IT DID NOT EVEN BOUND THE CASE IT NAMED. Nothing anywhere proves the presenter holds the
+	// private half of a session key: it is X25519, so it cannot sign, and the possession proof
+	// has the assertion key merely VOUCH for it. A caller may present thirty-two zero bytes and
+	// be admitted. "A Station that cannot open its own envelopes" was always reachable, so the
+	// rule's only observable effect was to refuse the SECOND of two attaches naming one key.
+	//
+	// AND THAT EFFECT WAS A WEAPON. The key is self-serve: /tower/edge/authorize returns
+	// station_session_key to any signed-in, funded consumer that asks for that Station's model.
+	// So an attacker with their own account, their own assertion keypair and their own
+	// registered node id could attach naming a VICTIM's session key and have the victim refused
+	// right here, on every attach, indefinitely - station.InitOrOpen keeps that key on disk with
+	// no re-mint path. The same shape as the assertion-key squat, bought for one request. The
+	// cheapest close was to DELETE the rule rather than defend it: deleting removes a denial
+	// primitive, where proving possession of the session key would have added a round trip and a
+	// new primitive to protect a rule that earns nothing. docs/relay-selection-design.md 5.6
+	// carries the argument in full, including why deriving the session key from the assertion
+	// key - the direct analogue of what closed the Station id - was rejected.
+	//
+	// THE SPEC IS NOT BEING CONTRADICTED, IT IS BEING HALVED CORRECTLY, and this is the part
+	// worth reading before anybody puts the rule back. features/tower/station_attachment.feature
+	// specifies TWO clauses that go together: "A Station proves both independent private keys
+	// during attachment" (K proved by a CSR bound to the attachment challenge) and the defect row
+	// "secure-session key already bound to another Station". In THAT world the pair is coherent -
+	// nobody can name a K they do not hold, so a duplicate can only ever be a genuine collision.
+	// What was built is the second clause alone: there is no CSR and no inner TLS session (the
+	// envelope package says so in its own comment), so K is asserted rather than proved. The
+	// clause that refuses duplicates is the one that hurts the honest party; the clause that
+	// makes it safe is the one that is missing.
+	//
+	// SO THIS IS A REMOVAL WITH A CONDITION ON ITS RETURN. The day K is genuinely proved - the
+	// spec's CSR, a challenge Core seals to K and the node returns, or a static-static X25519
+	// agreement against Core's envelope key - uniqueness costs nothing again and should come back
+	// in the same commit as the proof, never before it and never without it.
+	//
+	// The ASSERTION key's rule below is a different rule and stays. That key SIGNS: two Stations
+	// signing with one key are one signer wearing two identities, which is a statement about
+	// evidence and money rather than about who can read what.
 	if bound, ok, err := r.store.ByAssertionKey(p.AssertionKey); err != nil {
 		return Attachment{}, fmt.Errorf("%w: %v", ErrUnavailable, err)
 	} else if ok && bound.StationID != p.StationID {

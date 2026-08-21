@@ -80,14 +80,11 @@ CREATE TABLE IF NOT EXISTS rogerai.station_attachments (
     auth_id       TEXT        NOT NULL DEFAULT ''
 );
 
--- One live Station per key, enforced by the database. PARTIAL on the live states: a revoked
--- or detached Station must not hold its keys hostage forever, but a live one must be the
+-- One live Station per ASSERTION key, enforced by the database. PARTIAL on the live states: a
+-- revoked or detached Station must not hold its keys hostage forever, but a live one must be the
 -- only holder even when two transactions check at the same instant.
 CREATE UNIQUE INDEX IF NOT EXISTS station_attachments_live_assertion_key
     ON rogerai.station_attachments (assertion_key)
-    WHERE state IN ('quarantine','active');
-CREATE UNIQUE INDEX IF NOT EXISTS station_attachments_live_session_key
-    ON rogerai.station_attachments (session_key)
     WHERE state IN ('quarantine','active');
 -- AND THE SAME UNIQUENESS OVER THE STATES THAT HOLD A KEY, which is one state wider: dormant.
 -- A dormant Station is asleep, not gone, and its assertion key is PUBLIC material that rides in
@@ -102,9 +99,27 @@ CREATE UNIQUE INDEX IF NOT EXISTS station_attachments_live_session_key
 CREATE UNIQUE INDEX IF NOT EXISTS station_attachments_held_assertion_key
     ON rogerai.station_attachments (assertion_key)
     WHERE state IN ('quarantine','active','dormant');
-CREATE UNIQUE INDEX IF NOT EXISTS station_attachments_held_session_key
-    ON rogerai.station_attachments (session_key)
-    WHERE state IN ('quarantine','active','dormant');
+-- AND THE MATCHING PAIR ON session_key IS DROPPED, which is a deliberate REMOVAL of a
+-- constraint rather than a tidy-up, so it is written out here where a reader looking for it
+-- will find the reason instead of concluding somebody forgot.
+--
+-- The secure-session key is X25519. It cannot sign, so nothing at attach proves the presenter
+-- holds its private half - a caller may name thirty-two zero bytes, or a key they read out of an
+-- /tower/edge/authorize answer, and be admitted either way. Nothing routes by it: a consumer is
+-- placed onto a STATION and seals to the key in that Station's row, so two rows carrying one key
+-- are two destinations and the second one simply receives ciphertext it cannot open. What the
+-- uniqueness DID achieve was a lockout - name a victim's session key first and their own attach
+-- is refused for as long as the row stands, on a key any funded consumer can ask Core for.
+-- internal/towercore/attach/stationattach.go's checkBindings carries the full argument, and
+-- docs/relay-selection-design.md 5.6 records the decision against the alternatives.
+--
+-- IF EXISTS, and unconditional: this schema is applied at every start, so a database created
+-- before this change loses the indexes on the next boot and one created after never gets them.
+-- Nothing in the field is in the first category - internal/towercore is absent from tag v5.7.1,
+-- so no deployed Core has ever created these tables - which is why this is a hard drop rather
+-- than a migration with a window in it.
+DROP INDEX IF EXISTS rogerai.station_attachments_live_session_key;
+DROP INDEX IF EXISTS rogerai.station_attachments_held_session_key;
 CREATE INDEX IF NOT EXISTS station_attachments_owner ON rogerai.station_attachments (owner);
 -- Option C self-attach: the node's bearer token for its Tower's data-plane hub. Plaintext,
 -- like the broker's node BridgeToken - the Tower must compare the exact presented value.
@@ -520,21 +535,23 @@ func (p *PGStore) DetachIdle(towerID string, before time.Time) ([]string, error)
 	return out, nil
 }
 
-// ByAssertionKey and BySessionKey look at the rows that HOLD a key - live plus dormant -
-// matching the partial indexes and the Mem store. A dormant Station's keys are still its own
-// (see StateDormant); a terminal Station's are free again.
+// ByAssertionKey looks at the rows that HOLD the key - live plus dormant - matching the partial
+// index and the Mem store. A dormant Station's key is still its own (see StateDormant); a
+// terminal Station's is free again.
+//
+// There is no BySessionKey beside it any more - it had exactly one caller, the session-key
+// uniqueness rule, which is gone (checkBindings) - and the column is written into the query
+// rather than passed in, so the shape that used to serve two keys no longer invites a second.
+//
+// The comparison is an EXACT STRING MATCH on a plain TEXT column in a deterministic collation,
+// which is the assumption the door's key canonicalization rests on: the attach handler
+// lower-cases the hex before it verifies the possession proof precisely because this lookup
+// would otherwise treat one key's two spellings as two keys. TestParityKeyLookupsAreExactStrings
+// pins that and goes red if a migration ever makes this column citext.
 func (p *PGStore) ByAssertionKey(key string) (Attachment, bool, error) {
-	return p.byLiveKey("assertion_key", key)
-}
-
-func (p *PGStore) BySessionKey(key string) (Attachment, bool, error) {
-	return p.byLiveKey("session_key", key)
-}
-
-func (p *PGStore) byLiveKey(col, key string) (Attachment, bool, error) {
 	at, err := scanAttachment(p.db.QueryRow(
 		`SELECT `+attachCols+` FROM rogerai.station_attachments
-		  WHERE `+col+`=$1 AND state IN ('quarantine','active','dormant')`, key))
+		  WHERE assertion_key=$1 AND state IN ('quarantine','active','dormant')`, key))
 	if errors.Is(err, sql.ErrNoRows) {
 		return Attachment{}, false, nil
 	}
