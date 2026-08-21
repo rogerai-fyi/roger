@@ -132,3 +132,41 @@ func (m model) delegationStrip(w int) string {
 	// mid-label into something that reads like a different agent.
 	return truncVisible(head+stDim.Render("…"), w)
 }
+
+// delegationReceiptLine summarises what this turn's subagents cost, for the transcript,
+// or "" when the turn delegated to nobody.
+//
+// It is the closing half of the live strip: the strip says who is working, this says
+// what they did. Without it the per-agent receipts the harness keeps would never reach
+// a human - and attribution nobody can see is bookkeeping for its own sake.
+//
+// The numbers come from the HARNESS's receipt, not from what the surface happened to
+// observe. A surface that counted the events it saw would undercount a child whose
+// events were dropped while the operator was scrolled away, and would then disagree
+// with the bill.
+func (m model) delegationReceiptLine() string {
+	if m.agent == nil || m.agent.loop == nil {
+		return ""
+	}
+	rc := m.agent.loop.TurnReceipt()
+	if len(rc.Children) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(rc.Children))
+	for _, c := range rc.Children {
+		cell := c.Agent + " " + plural(c.Steps, "step")
+		if !c.Complete {
+			// A child that did not finish is named as such, here, rather than folded
+			// silently into a total that would then read as final.
+			cell += " · unfinished"
+		}
+		parts = append(parts, cell)
+	}
+	head := fmt.Sprintf("%d delegated", len(rc.Children))
+	tail := ""
+	if rc.Searches > 0 || rc.Fetches > 0 {
+		tail = stDim.Render("  ·  " + plural(rc.Searches, "search") + ", " +
+			plural(rc.Fetches, "fetch") + " this turn")
+	}
+	return stDim.Render("  ⋮ "+head+" · ") + stDim.Render(strings.Join(parts, " · ")) + tail
+}

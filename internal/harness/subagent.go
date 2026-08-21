@@ -216,3 +216,12 @@ func (l *Loop) newSubagent(root string) *Loop {
 	c.messages = append(c.messages, Message{Role: "system", Content: subagentPersona})
 	return c
 }
+
+// SetChildReceiptsForTest seeds this turn's child receipts. Test-only seam: a surface
+// that renders receipts needs a turn that HAS them, and driving a real delegation
+// through a stub model to get one would test the stub, not the rendering.
+func (l *Loop) SetChildReceiptsForTest(rs []Receipt) {
+	l.receiptMu.Lock()
+	defer l.receiptMu.Unlock()
+	l.childReceipts = rs
+}

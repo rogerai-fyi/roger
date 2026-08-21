@@ -770,3 +770,54 @@ func TestSubagentEventsStayOutOfTheTranscript(t *testing.T) {
 		t.Error("...and it must reach the strip")
 	}
 }
+
+// The delegation RECEIPT closes the loop the strip opens: the strip says who is
+// working, this says what they did. Without it the per-agent receipts the harness
+// keeps never reach a human, and attribution nobody can see is bookkeeping for its own
+// sake.
+func TestDelegationReceiptNamesEachChild(t *testing.T) {
+	m := browseSeed(96)
+	m.mode = modeAgent
+	m.agent = m.newAgentRuntime()
+	m.agent.loop.Guards = []harness.Guard{}
+	// Two children, one of which did not finish.
+	m.agent.loop.SetChildReceiptsForTest([]harness.Receipt{
+		{Agent: "#1", Steps: 4, Complete: true},
+		{Agent: "#2", Steps: 1, Complete: false},
+	})
+	line := stripANSI(m.delegationReceiptLine())
+	for _, want := range []string{"2 delegated", "#1", "4 steps", "#2", "1 step", "unfinished"} {
+		if !strings.Contains(line, want) {
+			t.Errorf("the receipt must carry %q: %q", want, line)
+		}
+	}
+	// "1 steps" is the kind of small wrongness that makes a reader stop trusting the
+	// rest of the numbers.
+	if strings.Contains(line, "1 steps") {
+		t.Errorf("count must agree with its noun: %q", line)
+	}
+}
+
+// A turn that delegated to nobody says nothing.
+func TestNoDelegationNoReceiptLine(t *testing.T) {
+	m := browseSeed(96)
+	m.mode = modeAgent
+	m.agent = m.newAgentRuntime()
+	if got := m.delegationReceiptLine(); got != "" {
+		t.Errorf("a turn with no children must add no line: %q", got)
+	}
+}
+
+// The shared plural helper must be able to spell the nouns it is now used for.
+func TestPluralHandlesTheEsCases(t *testing.T) {
+	cases := map[string]string{"search": "3 searches", "fetch": "2 fetches", "step": "5 steps", "band": "4 bands"}
+	counts := map[string]int{"search": 3, "fetch": 2, "step": 5, "band": 4}
+	for noun, want := range cases {
+		if got := plural(counts[noun], noun); got != want {
+			t.Errorf("plural(%d, %q) = %q, want %q", counts[noun], noun, got, want)
+		}
+	}
+	if got := plural(1, "search"); got != "1 search" {
+		t.Errorf("singular must not pluralise: %q", got)
+	}
+}

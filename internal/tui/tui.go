@@ -1897,6 +1897,14 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.agentBusy = false
 		m.agentCanceling = false
 		m.agentTurnState = poseWaiting // turn finished: the corner Ping stands by
+		// THE DELEGATION RECEIPT. The live strip showed the children while they worked;
+		// this is what they cost, once. Without it the per-agent receipts the harness
+		// keeps would be invisible - and attribution nobody can see is not attribution,
+		// it is bookkeeping for its own sake.
+		if line := m.delegationReceiptLine(); line != "" {
+			m.agentLines = append(m.agentLines, line)
+		}
+		m.agentDelegates = nil
 		// Auto-send the next queued prompt (typed mid-turn), Claude-style. dequeue runs any
 		// leading slash-commands inline and starts the first chat turn; the rest wait for it.
 		if len(m.agentQueued) > 0 {
@@ -9518,12 +9526,21 @@ func tintSignal(raw string, signal int, tps float64, online bool) string {
 // in-process /share has no host dependency).
 func normalizeUpstream(u string) string { return node.NormalizeUpstream(u) }
 
-// plural renders "1 band" / "3 bands": a count with its noun, +s unless n == 1.
+// plural renders "1 band" / "3 bands": a count with its noun, pluralised unless n == 1.
+//
+// The -es cases are here because a bare +s produced "searchs" and "fetchs" the moment
+// this was used for anything but bands. A count is a thing a reader is being asked to
+// trust, and a line that cannot spell its own noun is a line they stop trusting.
 func plural(n int, noun string) string {
 	if n == 1 {
 		return "1 " + noun
 	}
-	return fmt.Sprintf("%d %ss", n, noun)
+	suffix := "s"
+	if strings.HasSuffix(noun, "s") || strings.HasSuffix(noun, "x") ||
+		strings.HasSuffix(noun, "ch") || strings.HasSuffix(noun, "sh") {
+		suffix = "es"
+	}
+	return fmt.Sprintf("%d %s%s", n, noun, suffix)
 }
 
 func countOnline(o []offer) int {
