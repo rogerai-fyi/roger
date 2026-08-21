@@ -14,9 +14,18 @@ package attach
 //   - Admit runs in a transaction with the authorization row locked FOR UPDATE, so
 //     consuming the invitation and writing the attachment cannot interleave with another
 //     attempt. The Mem store gets the same property from a held mutex.
-//   - A PARTIAL UNIQUE INDEX on each key, over LIVE rows only, so two Stations cannot share
-//     an assertion or secure-session key even if two transactions check simultaneously.
-//     Partial, because a revoked Station must not poison its keys forever.
+//   - A PARTIAL UNIQUE INDEX on the ASSERTION key, over held rows, so two Stations cannot
+//     share it even if two transactions check simultaneously. Partial, because a revoked
+//     Station must not poison its key forever.
+//
+//     THE SECURE-SESSION KEY HAS NO SUCH INDEX, deliberately, and this is the line to read
+//     before adding one back. Its index was dropped because uniqueness without possession is
+//     not half a defence: X25519 cannot sign, so nothing proves a caller holds the key they
+//     name, and the rule's only reachable effect was to refuse whoever attached SECOND - which
+//     an attacker arranges by attaching first with a key read off /tower/edge/authorize. The
+//     spec pairs uniqueness with a CSR-based possession proof that was never built; the half
+//     that shipped alone was the half that only hurt. If the proof is ever built, the index
+//     comes back IN THE SAME COMMIT and not before.
 //   - The consume is a CAS: `UPDATE ... WHERE NOT consumed`, and zero rows affected means
 //     somebody else won. Reading `consumed` and then writing would be the same read-then-
 //     write race the whole design exists to remove.
@@ -399,8 +408,8 @@ func (p *PGStore) Admit(authID string, at Attachment) (bool, error) {
 		at.AuthID, at.HubToken, at.NodeID, at.Model, at.Modality, at.PriceIn, at.PriceOut)
 	if err != nil {
 		// A constraint violation here is a PERMANENT answer, not a blip: the station_id
-		// primary key means that Station is already attached, and a partial unique index
-		// means another live Station holds one of these keys. Reporting either as an outage
+		// primary key means that Station is already attached, and the partial unique index
+		// means another held Station holds this assertion key. Reporting either as an outage
 		// invites a caller to retry forever against something that will never change.
 		// Rolling back leaves the invitation UNSPENT, which is what the spec asks for: a
 		// refused attachment must not cost the owner their invitation.

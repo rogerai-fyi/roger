@@ -157,11 +157,15 @@ func (m *memStore) Admit(authID string, at Attachment) (bool, error) {
 	}
 	// THE SAME INVARIANTS THE DATABASE ENFORCES, enforced here too.
 	//
-	// Postgres has a station_id primary key and partial unique indexes on each live key.
+	// Postgres has a station_id primary key and a partial unique index on the ASSERTION key.
 	// Without the equivalent under this mutex the two stores disagree exactly where it
-	// matters: two concurrent Admits under DISTINCT authorizations sharing a session key
+	// matters: two concurrent Admits under DISTINCT authorizations sharing an assertion key
 	// both win in memory while Postgres rejects one. checkBindings hides that sequentially,
 	// which is why a sequential parity test cannot see it.
+	//
+	// The worked example here used to be the SESSION key, which is now legal in both stores -
+	// see the essay at the top of pgstore.go. A justification that cites a rule the tree no
+	// longer has is how the rule grows back, so it names the one that is still enforced.
 	if existing, taken := m.byID[at.StationID]; taken && existing.AuthID != authID {
 		// A DORMANT ROW IS THE ONE THING THIS MAY OVERWRITE, and only by the machine that holds
 		// its keys. Everything else - live, revoked, detached - is a Station ID that is somebody

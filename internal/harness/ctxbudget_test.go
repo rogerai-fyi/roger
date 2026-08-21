@@ -24,9 +24,16 @@ func TestToolBudgetScalesWithTheContextWindow(t *testing.T) {
 	}{
 		{
 			// The incident: an 8K window must NOT allow a 10KB tool result.
+			//
+			// AMENDED 2026-08-21: a tight band gets a SMALLER share (1/8, not 1/4 -
+			// smallwindow.go). Measured: on 8192 tokens the persona and tool schemas are
+			// already 32% of the window, so a quarter more for one result left two calls
+			// unable to fit - which is exactly the overflow the founder hit on a freshly
+			// cleared session. The guarantee here is unchanged and is what the name says:
+			// the cap leaves room for the conversation. It just has to leave more of it.
 			name: "an 8K band gets a cap that leaves room for the conversation",
 			ctx:  8192,
-			want: 8192 * bytesPerToken * toolOutputShareNum / toolOutputShareDen,
+			want: 8192 * bytesPerToken / 8,
 		},
 		{
 			// A big band is unchanged: the flat 16 KiB stays the ceiling, so this is not a
