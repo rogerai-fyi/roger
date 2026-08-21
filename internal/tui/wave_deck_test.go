@@ -1,12 +1,14 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"rogerai.fm/roger/v5/internal/harness"
 )
 
 // wave_deck_test.go - the 2026-08-20 AGENT deck revamp, locked.
@@ -602,5 +604,169 @@ func TestNoRowOverflowsAtAnyWidth(t *testing.T) {
 				t.Errorf("width %d: row %d overflows at %d cells: %q", w, i, got, ln)
 			}
 		}
+	}
+}
+
+// ── LARGE PASTES ─────────────────────────────────────────────────────────────
+// Founder 2026-08-21: "when pasting a large amount of text into the tui, it breaks
+// the text box". A 300-line paste is 300 rows trying to live in a six-row composer.
+
+func pasteInto(t *testing.T, m model, text string) model {
+	t.Helper()
+	m.agentIn.Focus()
+	out, _ := m.onAgentKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(text), Paste: true})
+	return asModel(out)
+}
+
+func TestLargePasteBecomesAPlaceholder(t *testing.T) {
+	m := browseSeed(96)
+	m.mode = modeAgent
+	m.agent = m.newAgentRuntime()
+	big := strings.Repeat("a line of pasted content\n", 247)
+	m = pasteInto(t, m, big)
+
+	got := m.agentIn.Value()
+	if strings.Contains(got, "pasted content") {
+		t.Errorf("the composer must hold a placeholder, not the paste: %q", got)
+	}
+	if !strings.Contains(got, "247 lines") {
+		t.Errorf("the placeholder must say how much arrived: %q", got)
+	}
+	// The MODEL still gets every byte.
+	if exp := m.expandPastes(got); exp != big {
+		t.Errorf("expansion must be lossless: got %d bytes, pasted %d", len(exp), len(big))
+	}
+}
+
+// A single enormous line (a JSON blob, a key) has no useful line count, so the
+// placeholder reports size instead.
+func TestOneHugeLinePasteReportsSize(t *testing.T) {
+	m := browseSeed(96)
+	m.mode = modeAgent
+	m.agent = m.newAgentRuntime()
+	m = pasteInto(t, m, strings.Repeat("x", 5000))
+	got := m.agentIn.Value()
+	if !strings.Contains(got, "KB") {
+		t.Errorf("a one-line paste should report size, not lines: %q", got)
+	}
+}
+
+// SMALL pastes stay inline: a URL or a short snippet is something you want to SEE
+// before sending, and hiding it would be strictly worse than the bug this fixes.
+func TestSmallPasteStaysInline(t *testing.T) {
+	m := browseSeed(96)
+	m.mode = modeAgent
+	m.agent = m.newAgentRuntime()
+	m = pasteInto(t, m, "https://rogerai.fm/models")
+	if got := m.agentIn.Value(); got != "https://rogerai.fm/models" {
+		t.Errorf("a small paste must land as itself: %q", got)
+	}
+	if len(m.agentPastes) != 0 {
+		t.Error("a small paste must not be held")
+	}
+}
+
+// Typed text that merely LOOKS like a placeholder expands to nothing - substituting
+// there would silently delete what the operator wrote.
+func TestUnbackedPlaceholderIsLeftAlone(t *testing.T) {
+	m := browseSeed(96)
+	m.agentPastes = []string{"real content"}
+	in := "see [Pasted text #9 +3 lines] and [Pasted text #1 +2 lines]"
+	got := m.expandPastes(in)
+	if !strings.Contains(got, "[Pasted text #9 +3 lines]") {
+		t.Errorf("a placeholder with nothing behind it must survive verbatim: %q", got)
+	}
+	if !strings.Contains(got, "real content") {
+		t.Errorf("a backed placeholder must expand: %q", got)
+	}
+}
+
+// ── THE DELEGATION STRIP ─────────────────────────────────────────────────────
+// Founder 2026-08-21: show delegation "neatly and beautifully under the ask footer".
+
+func withDelegates(t *testing.T, tools ...string) model {
+	t.Helper()
+	m := browseSeed(96)
+	m.width, m.height = 96, 26
+	m.mode = modeAgent
+	m.agent = m.newAgentRuntime()
+	for i, tool := range tools {
+		m.noteDelegateEvent(fmt.Sprintf("#%d", i+1),
+			agentEventMsg{Kind: harness.EventToolCall, Tool: tool, Step: i + 1})
+	}
+	return m
+}
+
+// The strip names each child and what it is DOING - "reading", not "read_file". A
+// status line is read by a person.
+func TestDelegationStripNamesWhatEachChildIsDoing(t *testing.T) {
+	m := withDelegates(t, "read_file", "web_search")
+	got := stripANSI(m.delegationStrip(96))
+	for _, want := range []string{"2 delegated", "#1", "reading", "#2", "searching"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the strip must carry %q: %q", want, got)
+		}
+	}
+	if strings.Contains(got, "read_file") {
+		t.Errorf("the strip speaks human, not tool names: %q", got)
+	}
+}
+
+// It NEVER wraps: the readout is a fixed two rows, and that fixed height is what keeps
+// the composer from moving. It sheds verbs before it sheds a child, because knowing
+// three are running matters more than knowing what the third is doing.
+func TestDelegationStripNeverWraps(t *testing.T) {
+	m := withDelegates(t, "read_file", "web_search", "web_fetch", "list_dir")
+	for w := 24; w <= 120; w += 4 {
+		strip := m.delegationStrip(w)
+		if got := lipgloss.Width(strip); got > w {
+			t.Errorf("width %d: strip is %d cells: %q", w, got, stripANSI(strip))
+		}
+	}
+	// Wide enough: the verbs are there. Narrow: the children still are.
+	if !strings.Contains(stripANSI(m.delegationStrip(120)), "reading") {
+		t.Error("a wide terminal should show the verbs")
+	}
+	if !strings.Contains(stripANSI(m.delegationStrip(40)), "#4") {
+		t.Error("a narrow one must still account for every child")
+	}
+}
+
+// A finished child leaves the strip; when the last one goes, the carrier returns and
+// the row is never empty.
+func TestFinishedDelegatesLeaveTheStrip(t *testing.T) {
+	m := withDelegates(t, "read_file", "web_search")
+	m.noteDelegateEvent("#1", agentEventMsg{AgentDone: true})
+	got := stripANSI(m.delegationStrip(96))
+	if strings.Contains(got, "#1") {
+		t.Errorf("a finished child must leave the strip: %q", got)
+	}
+	if !strings.Contains(got, "#2") {
+		t.Errorf("the running one must stay: %q", got)
+	}
+	m.noteDelegateEvent("#2", agentEventMsg{AgentDone: true})
+	if s := m.delegationStrip(96); s != "" {
+		t.Errorf("with no live children the strip yields the row back to the carrier: %q", s)
+	}
+}
+
+// A subagent's own tool calls must NOT walk into the parent's transcript: a child can
+// make a dozen calls to answer one question, and pouring those into the parent's flow
+// is the noise the machinery fold exists to remove.
+func TestSubagentEventsStayOutOfTheTranscript(t *testing.T) {
+	m := browseSeed(96)
+	m.mode = modeAgent
+	m.agent = m.newAgentRuntime()
+	before := len(m.agentLines)
+	out, _ := m.onAgentEvent(agentEventMsg{
+		Kind: harness.EventToolCall, Tool: "read_file", Agent: "#1",
+	})
+	m2 := asModel(out)
+	if len(m2.agentLines) != before {
+		t.Errorf("a child's event added %d transcript lines; it belongs on the strip",
+			len(m2.agentLines)-before)
+	}
+	if len(m2.agentDelegates) != 1 {
+		t.Error("...and it must reach the strip")
 	}
 }

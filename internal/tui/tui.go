@@ -878,6 +878,13 @@ type model struct {
 	// chat's (Up = older sent prompt, Down = newer; Down past the newest restores the
 	// draft). It persists to <config>/rogerai/history-agent. See history.go.
 	agentHist             *inputHistory
+	// agentPastes holds large pasted blocks by 1-based number while the composer shows
+	// only a placeholder for each (paste.go). Expanded back at submit, so the model
+	// receives what was pasted and the input stays legible.
+	agentPastes []string
+	// agentDelegates is the live view of subagents this turn, keyed by label. Fed by
+	// forwarded child events (delegation.go) and cleared with the turn.
+	agentDelegates map[string]*delegateState
 	agentLines            []string       // the rendered AGENT transcript (you ▸ / tool ◉ / answer ◂)
 	agentVP               viewport.Model // the AGENT transcript's independent scroll region (mirror of chatVP)
 	agentBusy             bool           // a turn is in flight (drives the working line)

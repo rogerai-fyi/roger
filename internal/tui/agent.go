@@ -1127,7 +1127,10 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.agentIn.CursorEnd()
 		return m, nil
 	case "enter":
-		p := strings.TrimSpace(m.agentIn.Value())
+		// Expand held pastes BEFORE anything else looks at the text: history, the
+		// slash-command check and the model must all see what was actually pasted, or a
+		// recalled prompt would replay a placeholder whose content is long gone.
+		p := strings.TrimSpace(m.expandPastes(m.agentIn.Value()))
 		if p == "" {
 			return m, nil
 		}
@@ -1136,6 +1139,8 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.agentIn.SetValue("")
+		m.agentPastes = nil    // sent: the held blocks are in the prompt now
+		m.agentDelegates = nil // a new turn delegates afresh
 		// Record the sent prompt in the AGENT recall history (collapses a repeat of the
 		// previous entry, resets the Up/Down cursor). Both chat turns and /commands count.
 		m.agentHist.add(p)
@@ -1166,6 +1171,14 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	var c tea.Cmd
 	if len(k.Runes) > 0 || k.Type == tea.KeyBackspace || k.Type == tea.KeyDelete {
 		m.agentNextHint = ""
+	}
+	// A LARGE BRACKETED PASTE is held and replaced with a one-line placeholder before it
+	// reaches the textarea (paste.go): 300 lines of content in a six-row composer stopped
+	// being an input the operator could read. Small pastes fall through untouched - a URL
+	// or a short snippet is something you want to SEE before sending.
+	if k.Paste && bigPaste(string(k.Runes)) {
+		ref := m.holdPaste(string(k.Runes))
+		k = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(ref)}
 	}
 	m.agentIn, c = m.agentIn.Update(k)
 	return m, c
@@ -1674,6 +1687,15 @@ func (m model) onAgentEvent(e agentEventMsg) (tea.Model, tea.Cmd) {
 	// STILL-RECEIVING from STALLED (agentWorkingLine) - the founder's "be smarter about
 	// detecting working vs hung".
 	m.agentLastEvent = time.Now()
+	// A SUBAGENT's event feeds the delegation strip and stops there. It must NOT walk
+	// into the transcript: a child can make a dozen calls to answer one question, and
+	// pouring them into the parent's flow is exactly the noise the machinery fold was
+	// built to remove. What the parent's transcript shows is the one `delegate` card and
+	// the answer that came back; what the strip shows is that the child is alive.
+	if e.Agent != "" {
+		m.noteDelegateEvent(e.Agent, e)
+		return m, m.waitAgentEvent()
+	}
 	if e.MaxSteps > 0 {
 		m.agentStep, m.agentMaxSteps = e.Step, e.MaxSteps
 	}
@@ -2920,9 +2942,24 @@ func (m model) agentWorkingLine(elapsedSec, sinceLastSec int) string {
 	}
 	line := withMeta(label)
 	if withBar {
-		// The carrier (catalog #7): a scrolling ∿ proof-of-life that the station is
-		// transmitting, with the esc:BREAK interrupt named the radio way (inc-2 proword).
-		line += "\n  " + carrierSweep(m.frame, meterWidth) + stDim.Render("   esc: BREAK")
+		// THE SECOND ROW is either the carrier or the delegation strip - never both, and
+		// never neither. The slot is a fixed two rows because that is what keeps the
+		// composer from moving (agentWorkingRows), so a strip that ADDED a row would put
+		// the movement straight back.
+		//
+		// While children are running the strip wins, and that is the honest trade: both
+		// rows are proof-of-life, and naming what each child is doing says strictly more
+		// than a sweep that only says "something is happening".
+		// The strip gets the REAL view width less the esc:BREAK tail, not the carrier's
+		// fixed track: passing meterWidth pushed it to its terse form on a wide terminal,
+		// hiding verbs there was plenty of room for.
+		if strip := m.delegationStrip(max(20, m.effWidth()-14)); strip != "" {
+			line += "\n" + strip + stDim.Render("   esc: BREAK")
+		} else {
+			// The carrier (catalog #7): a scrolling ∿ proof-of-life that the station is
+			// transmitting, with the esc:BREAK interrupt named the radio way (inc-2 proword).
+			line += "\n  " + carrierSweep(m.frame, meterWidth) + stDim.Render("   esc: BREAK")
+		}
 	}
 	return line
 }

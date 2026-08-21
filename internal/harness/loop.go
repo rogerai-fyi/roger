@@ -1,6 +1,7 @@
 package harness
 
 import (
+	"sync"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -73,6 +74,16 @@ type Event struct {
 	// presentation metadata for live progress surfaces; zero means unavailable.
 	Step     int
 	MaxSteps int
+	// Agent attributes an event to a SUBAGENT ("" = the operator's own turn). A child
+	// runs inside a tool body where nothing was previously visible, so the operator
+	// watched a `delegate` card sit there with no sign of life. Forwarding the child's
+	// events with its label is what lets a surface show what the delegation is doing -
+	// and attribution is the same field a receipt is keyed on, so the live view and the
+	// bill name the same agent.
+	Agent string
+	// AgentDone marks the child's last event, so a surface can retire its strip without
+	// waiting for the tool result to land.
+	AgentDone bool
 }
 
 // EventKind tags an Event.
@@ -140,6 +151,13 @@ type Loop struct {
 	budget        *turnBudget
 	steps         int
 	childReceipts []Receipt
+	// emit is the CURRENT turn's event sink, held so a subagent running inside a tool
+	// body can forward its own events up to the same surface (subagent.go). Guarded
+	// because `delegate` is Concurrent: two children may emit at once, and the surface
+	// was written for one sequential stream.
+	emit      func(Event)
+	emitMu    sync.Mutex
+	receiptMu sync.Mutex
 }
 
 // The per-turn retrieval budget (founder-approved 2026-07-27). It bounds the tokens a
@@ -330,6 +348,7 @@ func (l *Loop) Send(ctx context.Context, userText string, emit func(Event)) (str
 	l.budget.reset()
 	l.steps = 0
 	l.childReceipts = nil
+	l.emit = emit
 	l.turnCalls = l.turnCalls[:0]
 	compacted := false // auto-compaction fires at most once per turn (see below)
 	l.messages = append(l.messages, Message{Role: "user", Content: userText})

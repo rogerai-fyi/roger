@@ -135,15 +135,28 @@ func (l *Loop) delegateTool() Tool {
 				return "", fmt.Errorf("delegate needs a task to hand over")
 			}
 			child := l.newSubagent(root)
-			label := fmt.Sprintf("subagent %d", subagentCounter.Add(1))
+			n := subagentCounter.Add(1)
+			label := fmt.Sprintf("#%d", n)
 
-			out, err := child.Send(ctx, task, func(Event) {})
+			// FORWARD the child's events upward, tagged with its label. Without this a
+			// delegation is a card that sits there with no sign of life for however long
+			// the child takes - the operator cannot tell working from hung, which is the
+			// same complaint that produced the working line in the first place.
+			//
+			// The forwarder is called from the child's goroutine, and `delegate` is
+			// Concurrent, so two children can emit at once: the parent's emit must be
+			// safe to call concurrently. l.emitMu guards it.
+			emit := l.forwardFrom(label)
+			out, err := child.Send(ctx, task, emit)
+			emit(Event{Kind: EventNotice, Agent: label, AgentDone: true})
 			// The receipt is recorded either way. A child that failed still spent the
 			// budget it spent, and a rollup that quietly dropped it would understate.
 			searches, fetches := child.budget.spent()
 			rec := Receipt{Agent: label, Steps: child.steps, Complete: err == nil}
 			rec.Searches, rec.Fetches = searches, fetches
+			l.receiptMu.Lock()
 			l.childReceipts = append(l.childReceipts, rec)
+			l.receiptMu.Unlock()
 			if err != nil {
 				return "", fmt.Errorf("%s could not finish: %w", label, err)
 			}
@@ -152,6 +165,22 @@ func (l *Loop) delegateTool() Tool {
 			}
 			return out, nil
 		},
+	}
+}
+
+// forwardFrom returns an emitter that tags a child's events with its label and hands
+// them to the parent's own emitter, under a mutex - two concurrent children would
+// otherwise race on a surface that was written for one sequential stream.
+func (l *Loop) forwardFrom(label string) func(Event) {
+	return func(e Event) {
+		if e.Agent == "" {
+			e.Agent = label
+		}
+		l.emitMu.Lock()
+		defer l.emitMu.Unlock()
+		if l.emit != nil {
+			l.emit(e)
+		}
 	}
 }
 
