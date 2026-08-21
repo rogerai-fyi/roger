@@ -74,7 +74,11 @@ func (s *toolBudgetState) thenCutToAShareOfTheWindow() error {
 }
 
 func (s *toolBudgetState) thenMarkedTruncated() error {
-	if !strings.Contains(s.seen, "truncated") {
+	// AMENDED 2026-08-21: an oversized result is SPILLED to a file now and the notice
+	// names the path rather than only saying "truncated" (spill.go). The scenario's
+	// guarantee is unchanged - a cut result must SAY it was cut, never arrive silently
+	// partial - so both wordings satisfy it.
+	if !strings.Contains(s.seen, "truncated") && !strings.Contains(s.seen, "read_file it for the rest") {
 		return fmt.Errorf("a cut result must say so, got %q", lastChars(s.seen))
 	}
 	return nil

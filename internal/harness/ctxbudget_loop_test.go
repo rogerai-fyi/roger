@@ -65,8 +65,12 @@ func TestLoopClipsToolOutputForASmallWindow(t *testing.T) {
 	if len(*seen) >= len(huge) {
 		t.Fatalf("the loop passed %d bytes through unclipped on an 8K band", len(*seen))
 	}
-	if !strings.Contains(*seen, "truncated") {
-		t.Error("the clipped result must say it was truncated")
+	// AMENDED 2026-08-21: an oversized result is now SPILLED to a file and the notice
+	// names the path instead of just saying "truncated" (spill.go). The guarantee is
+	// unchanged and is what matters - the model must never be handed a silently partial
+	// result - so this asserts the CUT IS DECLARED, in whichever of the two ways applies.
+	if !strings.Contains(*seen, "truncated") && !strings.Contains(*seen, "read_file it for the rest") {
+		t.Errorf("the clipped result must declare that it was cut: %q", tailOf(*seen))
 	}
 }
 
@@ -113,4 +117,12 @@ func TestLoopUnsetBudgetIsUnbounded(t *testing.T) {
 	if seen != body {
 		t.Errorf("an unset budget clipped the result (%d bytes of %d)", len(seen), len(body))
 	}
+}
+
+// tailOf is the last chunk of a long result, for a readable failure message.
+func tailOf(s string) string {
+	if len(s) <= 200 {
+		return s
+	}
+	return "..." + s[len(s)-200:]
 }

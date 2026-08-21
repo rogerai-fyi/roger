@@ -32,6 +32,26 @@ type Tool struct {
 	// Mutating tool is excluded by construction - a side-effecting call is a barrier -
 	// so this is really a claim that a READ is independent of its siblings.
 	Concurrent bool
+	// Timeout bounds ONE call of this tool. Zero means no deadline.
+	//
+	// It exists because a tool that hangs hangs the TURN: the loop is waiting on
+	// tool.Run, the operator sees a working line that never settles, and esc is the
+	// only way out - which is a poor answer for a `run_shell` that shelled into
+	// something interactive, or a fetch to a host that accepts the connection and then
+	// says nothing. A deadline turns "stuck forever" into "failed after N seconds",
+	// which the model can read and route around.
+	//
+	// COOPERATIVE, not a kill: the loop cancels the call's context and reports the
+	// timeout, and a well-behaved Run returns when its ctx is done. Go cannot preempt a
+	// goroutine that ignores its context, so a tool that never checks ctx will keep
+	// running in the background even though its call has been reported failed. Every
+	// tool here honours ctx; anything added later must, and declaring a Timeout is the
+	// promise that it does.
+	//
+	// NEVER sent to the model: ToolSchemas advertises name, description and parameters
+	// only, so this stays a harness concern rather than something a model can reason
+	// about or try to talk its way around.
+	Timeout time.Duration
 	// Params is the JSON-schema "parameters" object for the OpenAI tool definition.
 	Params map[string]any
 	// Run executes the tool with the model-supplied args, sandboxed under root, and
@@ -126,6 +146,7 @@ func BuiltinTools() []Tool {
 			Description: "Read a UTF-8 text file in the working directory and return its contents. Read-only.",
 			Mutating:    false,
 			Concurrent:  true, // a read is independent of its siblings
+			Timeout:     10 * time.Second, // a local file read that takes 10s is a mount that is gone
 			Params: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -150,6 +171,7 @@ func BuiltinTools() []Tool {
 			Description: "List the entries of a directory in the working directory (default: the working directory itself). Read-only.",
 			Mutating:    false,
 			Concurrent:  true, // a read is independent of its siblings
+			Timeout:     10 * time.Second, // same: local, or something is wrong
 			Params: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -189,6 +211,7 @@ func BuiltinTools() []Tool {
 			Description: "Fetch the text body of an http(s) URL and return it. Read-only; no JavaScript, text only.",
 			Mutating:    false,
 			Concurrent:  true, // a read is independent of its siblings
+			Timeout:     45 * time.Second, // a slow site is normal; a site that never answers is not
 			Params: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -204,6 +227,7 @@ func BuiltinTools() []Tool {
 			Name:        "write_file",
 			Description: "Write (create or overwrite) a UTF-8 text file in the working directory. Side-effecting: the user confirms before this runs.",
 			Mutating:    true,
+			Timeout:     10 * time.Second, // local write
 			Params: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -231,6 +255,9 @@ func BuiltinTools() []Tool {
 			Name:        "run_shell",
 			Description: "Run a shell command in the working directory and return its combined output. Side-effecting: the user confirms before this runs. NOT sandboxed - an approved command can reach outside the working directory, so keep it minimal.",
 			Mutating:    true,
+			Timeout:     120 * time.Second, // the widest: a build or a test run is legitimately slow.
+			// The bound is what stops an interactive command (a shell waiting on a prompt
+			// nobody will type into) from hanging the turn forever.
 			Params: map[string]any{
 				"type": "object",
 				"properties": map[string]any{

@@ -104,6 +104,8 @@ func searchTool(cfg searchConfig) Tool {
 		// ordered decide phase, never in the overlapped body - so two searches in one
 		// batch cannot both slip past a budget with room for one.
 		Concurrent: true,
+		// A search provider that has not answered in 30s is not going to.
+		Timeout: 30 * time.Second,
 		Params: map[string]any{
 			"type": "object",
 			"properties": map[string]any{

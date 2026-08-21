@@ -86,7 +86,7 @@ func (l *Loop) runBodies(ctx context.Context, plans []plannedCall) ([]string, []
 					errs[i] = &toolPanic{tool: p.tool.Name, val: r}
 				}
 			}()
-			outs[i], errs[i] = p.tool.Run(ctx, l.Root, p.args)
+			outs[i], errs[i] = runWithTimeout(ctx, p)
 		}(i, p)
 	}
 	wg.Wait()

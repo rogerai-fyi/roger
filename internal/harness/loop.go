@@ -158,6 +158,10 @@ type Loop struct {
 	emit      func(Event)
 	emitMu    sync.Mutex
 	receiptMu sync.Mutex
+	// spill saves oversized tool results under the workspace root so the model can read
+	// the part that did not fit, instead of being told it was truncated and left there
+	// (spill.go). Lazily created; Reset cleans it up.
+	spill *spillStore
 }
 
 // The per-turn retrieval budget (founder-approved 2026-07-27). It bounds the tokens a
@@ -184,6 +188,7 @@ func NewLoop(root, persona string, complete Completer, confirm Confirmer) *Loop 
 	}
 	l := &Loop{
 		Root:       root,
+		spill:      newSpillStore(root),
 		Persona:    persona,
 		tools:      tools,
 		toolByName: byName,
@@ -458,6 +463,7 @@ func (l *Loop) Send(ctx context.Context, userText string, emit func(Event)) (str
 type plannedCall struct {
 	call    ToolCall
 	tool    Tool
+	root    string
 	args    map[string]any
 	settled bool   // decided without running; result holds what to report
 	result  string // the decided result text
@@ -483,7 +489,7 @@ func (l *Loop) decide(call ToolCall, emit func(Event)) plannedCall {
 		return plannedCall{call: call, args: args, settled: true, isError: true,
 			result: fmt.Sprintf("unknown tool %q", name)}
 	}
-	p := plannedCall{call: call, tool: tool, args: args}
+	p := plannedCall{call: call, tool: tool, root: l.Root, args: args}
 
 	// SAFETY MODEL: read-only tools auto-run; mutating tools (write_file, run_shell)
 	// REQUIRE an explicit y/N confirm (default DENY). A denied confirm never runs the
@@ -548,8 +554,36 @@ func (l *Loop) runOne(ctx context.Context, call ToolCall, emit func(Event)) {
 		l.settle(p, "", nil, emit)
 		return
 	}
-	out, err := p.tool.Run(ctx, l.Root, p.args)
+	out, err := runWithTimeout(ctx, p)
 	l.settle(p, out, err, emit)
+}
+
+// runWithTimeout runs one tool body under its declared deadline, if it has one.
+//
+// The deadline is COOPERATIVE: the context is cancelled and the call is reported
+// failed, which is what the model and the operator need. Go cannot preempt a goroutine
+// that ignores its context, so a tool that never checks ctx keeps running in the
+// background - reporting the timeout anyway is still right, because the alternative is
+// a turn that hangs forever on a call nobody can see the end of.
+//
+// The error names the tool and the bound so the model can act on it rather than
+// guessing what went wrong: a shell command that needs longer than its budget is a
+// different problem from a command that failed.
+func runWithTimeout(ctx context.Context, p plannedCall) (string, error) {
+	if p.tool.Timeout <= 0 {
+		return p.tool.Run(ctx, p.root, p.args)
+	}
+	tctx, cancel := context.WithTimeout(ctx, p.tool.Timeout)
+	defer cancel()
+	out, err := p.tool.Run(tctx, p.root, p.args)
+	// Only OUR deadline turns into a timeout. A parent cancellation (esc) reaching the
+	// same call is a cancellation and must keep saying so, or an interrupted turn would
+	// report a timeout that never happened.
+	if tctx.Err() == context.DeadlineExceeded && ctx.Err() == nil {
+		return "", fmt.Errorf("%s took longer than %s and was stopped - try a smaller step, or a narrower command",
+			p.tool.Name, p.tool.Timeout)
+	}
+	return out, err
 }
 
 // runGroup is the overlapped path: decide every call in order, run their bodies
@@ -596,7 +630,7 @@ func (l *Loop) chargeRetrieval(name string) string {
 // differed between the operator's screen and the model's context would make a
 // truncation-caused answer impossible to explain.
 func (l *Loop) appendToolResult(call ToolCall, result string) string {
-	result = clipTo(result, l.MaxToolOutput)
+	result = l.clipOrSpill(call.Function.Name, result)
 	l.messages = append(l.messages, Message{
 		Role:       "tool",
 		ToolCallID: call.ID,
@@ -624,7 +658,15 @@ func (l *Loop) Reset() {
 	if l.Persona != "" {
 		l.messages = append(l.messages, Message{Role: "system", Content: l.Persona})
 	}
+	// The spilled files belong to the conversation that produced them. /clear throws
+	// that conversation away, so leaving a directory of its tool output behind in
+	// someone's project would be both untidy and a small privacy leak.
+	l.spill.cleanup()
 }
+
+// Close releases session-scoped resources - today the spill directory. Safe to call
+// more than once, and safe to skip: a leftover directory is untidy, never harmful.
+func (l *Loop) Close() { l.spill.cleanup() }
 
 // parseArgs decodes a tool_call's JSON-string arguments into a map. A malformed or
 // empty arguments string yields an empty map (the tool's own validation then reports
