@@ -932,3 +932,60 @@ func TestMoveKeyIsInertWithoutAnOffer(t *testing.T) {
 		t.Error("...and must not claim to be moving anything")
 	}
 }
+
+// ── THE PRICE EDITOR'S ARROW KEYS ────────────────────────────────────────────
+// Founder 2026-08-21: up and down did nothing while editing a limit, so setting a
+// price meant typing every digit - and the arrows are the first thing anyone tries in
+// a numeric field.
+func TestArrowKeysNudgeALimitByOneUnit(t *testing.T) {
+	// The price field steps by a cent and formats to two places.
+	if got := nudgeLimit("0.30", true, true); got != "0.31" {
+		t.Errorf("up on a price = %q, want 0.31", got)
+	}
+	if got := nudgeLimit("0.30", true, false); got != "0.29" {
+		t.Errorf("down on a price = %q, want 0.29", got)
+	}
+	// min t/s is whole tokens.
+	if got := nudgeLimit("7", false, true); got != "8" {
+		t.Errorf("up on t/s = %q, want 8", got)
+	}
+}
+
+// DOWN FLOORS AT ZERO. A negative cap is not a smaller cap, it is a nonsense the commit
+// would have to reject - so the field never offers one.
+func TestNudgeNeverGoesNegative(t *testing.T) {
+	for _, start := range []string{"0", "0.00", "0.01", ""} {
+		if got := nudgeLimit(start, true, false); got != "0.00" {
+			t.Errorf("down from %q = %q, want 0.00", start, got)
+		}
+	}
+	if got := nudgeLimit("0", false, false); got != "0" {
+		t.Errorf("down from 0 t/s = %q, want 0", got)
+	}
+}
+
+// An empty or unparsable field starts from zero, so the first press does the obvious
+// thing rather than nothing.
+func TestNudgeStartsFromZeroWhenTheFieldIsBlank(t *testing.T) {
+	if got := nudgeLimit("", true, true); got != "0.01" {
+		t.Errorf("up on a blank price = %q, want 0.01", got)
+	}
+	if got := nudgeLimit("abc", false, true); got != "1" {
+		t.Errorf("up on junk = %q, want 1", got)
+	}
+}
+
+// Repeated steps must not drift: a price field showing "0.30000000000000004" has lost
+// the operator's trust over a rounding artifact.
+func TestNudgeDoesNotAccumulateFloatDrift(t *testing.T) {
+	v := "0.00"
+	for i := 0; i < 30; i++ {
+		v = nudgeLimit(v, true, true)
+	}
+	if v != "0.30" {
+		t.Errorf("30 cent-steps from zero = %q, want 0.30", v)
+	}
+	if strings.Contains(v, "000000") {
+		t.Errorf("float drift reached the field: %q", v)
+	}
+}

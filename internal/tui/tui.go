@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"net/http"
 	"os"
@@ -877,7 +878,7 @@ type model struct {
 	// agentHist is the [0] AGENT prompt's shell-style recall buffer, separate from the
 	// chat's (Up = older sent prompt, Down = newer; Down past the newest restores the
 	// draft). It persists to <config>/rogerai/history-agent. See history.go.
-	agentHist             *inputHistory
+	agentHist *inputHistory
 	// agentPastes holds large pasted blocks by 1-based number while the composer shows
 	// only a placeholder for each (paste.go). Expanded back at submit, so the model
 	// receives what was pasted and the input stays legible.
@@ -887,32 +888,32 @@ type model struct {
 	agentFullPersona string
 	// agentDelegates is the live view of subagents this turn, keyed by label. Fed by
 	// forwarded child events (delegation.go) and cleared with the turn.
-	agentDelegates map[string]*delegateState
-	agentLines            []string       // the rendered AGENT transcript (you ▸ / tool ◉ / answer ◂)
-	agentVP               viewport.Model // the AGENT transcript's independent scroll region (mirror of chatVP)
-	agentBusy             bool           // a turn is in flight (drives the working line)
-	agentCanceling        bool           // esc-cancel requested for the in-flight turn; a 2nd esc force-stops
-	agentQueued           []queuedPrompt // prompts parked mid-turn, auto-sent FIFO when the turn finishes (Claude-style queue); each entry carries its origin - a remote entry never slash-dispatches at drain
-	agentLastEvent        time.Time      // last streamed event time; powers the receiving-vs-stalled working line (hung detection)
-	agentTurnState        agentPose      // the reactive corner-Ping pose (waiting/thinking/streaming/tool), derived from the harness event stream
-	agentHadToolResult    bool           // the current/previous turn produced a result; drives the next-step prompt hint
-	agentNextHint         string         // outcome-derived next action shown by the idle composer
-	agentStart            time.Time      // when the in-flight turn began (elapsed readout)
-	agentPendingConfirm   *agentConfirm  // non-nil while a mutating tool awaits y/N
-	agentCost             float64        // running AGENT session cost in dollars
-	agentTokensIn         int            // running AGENT session BILLED prompt (↑) tokens — the broker re-count, for display
-	agentTokensOut        int            // running AGENT session BILLED completion (↓) tokens — the broker re-count, for display
-	agentTPS              float64        // LATEST relay call's throughput (tokens/sec) for the live meter; not summed
+	agentDelegates      map[string]*delegateState
+	agentLines          []string       // the rendered AGENT transcript (you ▸ / tool ◉ / answer ◂)
+	agentVP             viewport.Model // the AGENT transcript's independent scroll region (mirror of chatVP)
+	agentBusy           bool           // a turn is in flight (drives the working line)
+	agentCanceling      bool           // esc-cancel requested for the in-flight turn; a 2nd esc force-stops
+	agentQueued         []queuedPrompt // prompts parked mid-turn, auto-sent FIFO when the turn finishes (Claude-style queue); each entry carries its origin - a remote entry never slash-dispatches at drain
+	agentLastEvent      time.Time      // last streamed event time; powers the receiving-vs-stalled working line (hung detection)
+	agentTurnState      agentPose      // the reactive corner-Ping pose (waiting/thinking/streaming/tool), derived from the harness event stream
+	agentHadToolResult  bool           // the current/previous turn produced a result; drives the next-step prompt hint
+	agentNextHint       string         // outcome-derived next action shown by the idle composer
+	agentStart          time.Time      // when the in-flight turn began (elapsed readout)
+	agentPendingConfirm *agentConfirm  // non-nil while a mutating tool awaits y/N
+	agentCost           float64        // running AGENT session cost in dollars
+	agentTokensIn       int            // running AGENT session BILLED prompt (↑) tokens — the broker re-count, for display
+	agentTokensOut      int            // running AGENT session BILLED completion (↓) tokens — the broker re-count, for display
+	agentTPS            float64        // LATEST relay call's throughput (tokens/sec) for the live meter; not summed
 	// TOOL CALLS AS DATA (toolrun.go). agentRuns holds the records; the transcript
 	// holds ordered references into it. This replaced five fields that between them
 	// hand-tracked "the card we are about to rewrite" (line index, tool, target,
 	// running, approved) - with records the only thing to track is which record is
 	// still open, and the facts live on the record instead of being re-derived from
 	// the string it was formatted into.
-	agentRuns    []toolRun // every tool call this session, oldest first
-	agentOpenRun int       // index of the call still in flight; -1 when none
-	agentStep             int            // current model/tool-loop iteration (1-based; 0 between untouched turns)
-	agentMaxSteps         int            // harness safety ceiling shown in the truthful session rail
+	agentRuns     []toolRun // every tool call this session, oldest first
+	agentOpenRun  int       // index of the call still in flight; -1 when none
+	agentStep     int       // current model/tool-loop iteration (1-based; 0 between untouched turns)
+	agentMaxSteps int       // harness safety ceiling shown in the truthful session rail
 	// /model selection state. agentPicked marks that the user chose the model
 	// explicitly (so auto-resolution does not snap it back). agentPicker is the modal
 	// list (open with 2+ candidates); agentPickerRows is the candidate models and
@@ -4486,6 +4487,17 @@ func (m *model) onLimitsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.commitLimitField()
 		m.editField = -1
 		return m, nil
+	case "up", "down":
+		// NUDGE THE VALUE (founder 2026-08-21). Up and down did nothing while editing,
+		// so setting a price meant typing every digit - and up/down are the first thing
+		// anyone tries in a numeric field.
+		//
+		// A cent for the price and one for min t/s: those are the units the field is
+		// actually denominated in, and a step that moves by a unit is the one nobody has
+		// to think about. DOWN FLOORS AT ZERO rather than going negative - a negative
+		// cap is not a smaller cap, it is a nonsense the commit would have to reject.
+		m.editBuf = nudgeLimit(m.editBuf, m.editField == 0, k.String() == "up")
+		return m, nil
 	case "backspace":
 		if len(m.editBuf) > 0 {
 			m.editBuf = m.editBuf[:len(m.editBuf)-1]
@@ -4497,6 +4509,38 @@ func (m *model) onLimitsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+}
+
+// nudgeLimit steps an edit buffer by one unit of its field. price==true is the $/1M cap
+// (cents, two decimals); false is min t/s (whole tokens).
+//
+// An unparsable or empty buffer starts from zero, so the first press of up on a blank
+// field gives the smallest real value rather than doing nothing - which is what an
+// operator reaching for the arrow keys is asking for.
+func nudgeLimit(buf string, price, up bool) string {
+	v, err := strconv.ParseFloat(strings.TrimSpace(buf), 64)
+	if err != nil || v < 0 {
+		v = 0
+	}
+	step := 1.0
+	if price {
+		step = 0.01
+	}
+	if up {
+		v += step
+	} else {
+		v -= step
+	}
+	if v < 0 {
+		v = 0
+	}
+	if price {
+		// Round to the cent: repeated float steps drift ("0.30000000000000004"), and a
+		// price field that shows that has lost the operator's trust over a rounding
+		// artifact.
+		return strconv.FormatFloat(math.Round(v*100)/100, 'f', 2, 64)
+	}
+	return strconv.FormatFloat(math.Round(v), 'f', -1, 64)
 }
 
 // commitLimitField writes the current edit buffer into the focused field of the
@@ -5448,7 +5492,23 @@ func (m model) limitsView(w int) string {
 		if m.editField == 1 {
 			field = "min t/s"
 		}
-		b.WriteString("\n  " + stPanel.Render(stDim.Render("edit "+m.limModels[m.limCursor]+"   "+field+"  ")+stSelText.Render("▏"+m.editBuf+"▏")+stDim.Render("   ⏎ save   tab next field   esc cancel")) + "\n")
+		// THE EDIT PLATE. Bounded to the terminal: lipgloss draws a border at the
+		// content's natural width, so a plate wider than the screen had its right edge
+		// pushed off and the box read as broken open on one side (founder screenshot).
+		//
+		// The KEYS are what gets dropped when it does not fit, never the field being
+		// edited or its value - an operator mid-edit needs to see what they are typing
+		// into far more than they need to be re-told that esc cancels.
+		lead := stDim.Render("edit " + m.limModels[m.limCursor] + "   " + field + "  ")
+		val := stSelText.Render("▏" + m.editBuf + "▏")
+		plate := lead + val + stDim.Render("   ⏎ save   tab next field   esc cancel")
+		if lipgloss.Width(plate)+6 > w { // +6: the border, its padding, and the indent
+			plate = lead + val + stDim.Render("   ⏎ save   esc cancel")
+		}
+		if lipgloss.Width(plate)+6 > w {
+			plate = lead + val
+		}
+		b.WriteString("\n  " + stPanel.MaxWidth(max(10, w-2)).Render(plate) + "\n")
 	}
 	b.WriteString("\n    " + stDim.Render("↑↓ move   ⏎ edit   tab next field   d clear   esc done") + "\n")
 	// Cross-link the two split "config" surfaces: this screen is what you PAY as a
@@ -9906,7 +9966,6 @@ func (m model) displayChatLines(w int) []string {
 	}
 	return out
 }
-
 
 // wrapStatus soft-wraps a footer status to the terminal, indenting continuations so the
 // block reads as one message rather than as several. ANSI-aware, because a status
