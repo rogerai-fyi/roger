@@ -1265,6 +1265,63 @@ and nothing built for it survives — the identity model change (multi-valued `O
 work that (c) explicitly does not want, because in (c) the attachment stays singular and the
 relay lives on the grant, where it already is.
 
+> **SUPERSEDED IN PART, 2026-08-20 — read §6.3b before acting on this.** The founder's ruling
+> keeps (c)'s *mechanism* (an ephemeral session opened at a relay and closed when done) and
+> rejects its *cadence*: the placement is chosen per STATION and stays sticky, not per attempt.
+> The costing above is unchanged and still the reason (a) and (b) are dead.
+
+### 6.3b DECIDED: sticky placement with supervised mobility (founder, 2026-08-20)
+
+**A Station keeps one relay binding. Core may move it only while the Station is IDLE, or when
+the current relay is genuinely bad — failing, too slow, or gone.** That is the model. It is not
+a weaker version of (c); it is a different answer to the question (c) was trying to solve, and
+it is worth writing down what it trades.
+
+**What it gives up.** Locality precision. A consumer in Lisbon reaching a node whose sticky
+binding is in Ohio gets Ohio until the node next goes quiet, rather than being re-placed for the
+duration of their request. §6.2's "only at that point do we know" is answered approximately — by
+the last consumer to arrive while the node was free — instead of exactly.
+
+**What it buys, and this is the trade the ruling is making.** The money surface shrinks to
+almost nothing. Every hard problem in §6.6, §6.7 and §6.8 comes from the relay being a
+*per-attempt* variable while the money is settled against *standing* facts. Sticky placement
+removes the mid-flight case rather than solving it:
+
+- The self-dealing lever §6.7 item 1 spends a section defending against — a consumer steering
+  their own spend to a relay they own — needs a per-request choice to pull. There isn't one. A
+  consumer's arrival can at most influence where an IDLE node is placed next, which is a much
+  poorer lever and a much slower one.
+- §6.8's ranked-two-relays grant, the second hold, the re-target state machine: not needed. The
+  relay is known before the consumer arrives, exactly as it is today.
+- The attribution question — who carried this attempt — stays answerable from standing state
+  for the whole life of an attempt, because the binding cannot move while the attempt exists.
+
+**And a move that catches live work is a FAILED DELIVERY, not an attribution puzzle.** No
+partial payment, no paying the Station but not the relay, no courier tracing. The attempt is
+void, nobody is paid, the consumer's hold refunds and the consumer retries. That is the policy
+the epoch fence below implements, and it is what makes the fence four lines rather than a
+subsystem.
+
+**Two facts already in the tree make it cheap, and neither needed building.** *Idle is already
+knowable*: `edgeLoadLocked(nodeID)` in `cmd/rogerai-broker/toweredge.go` sums
+`b.inflight + b.peerInflight + b.edgeLoad`, and zero means no work in flight on either the
+classic or the edge path — that is the quiescence signal a placement change gates on.
+**With one qualifier that matters for M4**: `b.edgeLoad` is this instance's own map and
+`peerInflight` is a periodically merged snapshot of other instances' *classic* counts
+(`mergeSharedInflight`), so "zero" is zero as one broker currently sees it, not a fleet-wide
+proof of quiescence. Good enough to *choose* to re-place; not good enough to be the only check
+before a node acts on it, which is why §6.10 has the node re-check locally. *An
+unsettled attempt is already handled*: the orphan sweep (`holdsweep.go`,
+`store.ReleaseStaleHolds`) reclaims a consumer's hold after `holdTTL` with no reference to a
+receipt or a dispatch row, and `edgeSettleGrace` is capped strictly under `holdTTL` so the hold
+always outlives the settlement window. "The relay moved, cancel that request" is the existing
+failure path.
+
+**What is still open under this model.** *Bad* is a policy word and nothing defines it yet —
+which failures, over what window, before Core re-places a node whose relay is degrading rather
+than gone. And a re-placement still has to be delivered to a node that is not attached to
+anything new yet, which is §6.10's instruction channel.
+
 ### 6.4 Where the round trip goes, exactly
 
 The honest cost of (c) is not "a handshake". It is three specific things, two of which can be
@@ -1394,7 +1451,9 @@ worth landing *before* M3 for the reason it was always worth landing — it make
 carried this" a per-attempt fact on the money path — and not because it recovers money today. It
 recovers none.
 
-**And the fence M3 counts on does not exist yet.** `dispatch.Record.StationEpoch` is documented
+**And the fence M3 counts on does not exist yet — IT DOES NOW; see §6.6b.** The paragraph below
+is left as written because it is the diagnosis, and the fix is recorded separately rather than
+folded in. `dispatch.Record.StationEpoch` is documented
 as the thing that "fences a rehome: work granted under the old origin cannot be completed"
 (`internal/towercore/dispatch/dispatch.go:85`). It is minted from `at.Epoch` at authorize, signed
 into the grant, carried on the wire and stored on the dispatch record — and it is **never compared
@@ -1407,6 +1466,121 @@ One thing this design does **not** need: a relay identifier on the receipt. It w
 first idea and it is wrong twice over. The Station cannot know it (it knows the endpoint it was
 sent to, not the id Core bills against), and even if it could, it is the party being paid — an
 attribution the payee signs is not an attribution.
+
+### 6.6b The Station-epoch fence, as built (landed 2026-08-20)
+
+`towerEdgeSettle` now compares the epoch the grant was minted under against the epoch the
+attachment reads at settle time. Everything below is the reasoning that is not obvious from the
+diff.
+
+**Where it sits, and why the position is the design.** Immediately after the attachment read and
+the origin-tower gate (`toweredge.go`), and **before** `hex.DecodeString(at.AssertionKey)` /
+`ParseReceipt`. Three boundaries decide what a refusal writes, and this is the only slot that
+clears all of them:
+
+- Before `settleEdgeAttempt`, whose error path writes `noteAttempt(KindExecutionFailed)`. A
+  placement that moved is not an execution that failed, and blaming the Station on the evidence
+  trail for Core's own re-placement would be the wrong record permanently.
+- Before `ClaimByID`, so the one-use claim is not consumed — the same reason `resolveEdgeParties`
+  sits where it does.
+- **Before `ParseReceipt`, which is the non-obvious one.** The receipt is verified against
+  `at.AssertionKey` — the CURRENT attachment's key, not `rec.AssertionKey` from the dispatch row.
+  An epoch mismatch is precisely the statement "this is not the attachment the grant was minted
+  from", so verifying against it first can produce a **403 on the key** for the epoch's reason.
+  A 403 is `ErrSettlePermanent`, which drops the receipt from the tower's spool. The fence has to
+  answer before the key is used, or the fence's careful status code is bypassed by an accident of
+  ordering.
+
+  **A second finding fell out of checking that, and it is the same defect as the one this section
+  fixes.** `dispatch.Record.AssertionKey` is written by `openEdgeAttempt` and read by NOTHING —
+  `grep '\.AssertionKey' cmd/rogerai-broker` finds one write and no read. Its own comment says it
+  exists "because the RECEIPT is verified against it, and the instance verifying is very often not
+  the instance that issued", which is exactly what the settle path does not do. Today the two keys
+  are the same by construction (`Admit` refuses a revival that presents a different assertion key
+  — `checkBindings`, "this Station ID is already bound to another assertion key" — so a key change
+  requires revoke-and-new-Station, which is a new attempt id too), so this is latent in the same
+  way and for the same reason the epoch was. **Not fixed here**, deliberately: switching the
+  verification key is a change to what "signed by the Station" means on the money path and wants
+  its own change and its own argument, not a rider on a fence.
+
+So a refusal writes **nothing**: no evidence, no claim, no settle, no capture, no lot. The
+consumer's hold stays exactly where authorize put it, and the Station's in-flight reservation
+comes down on its own (`edgeEnterInflight` arms a `time.AfterFunc` at the grant deadline).
+
+**It gates ENTRY into a settlement, not the completion of one Core already began.** A record
+that is not `issued` is not re-judged. This handler is the only caller of `ClaimByID` or `Settle`
+on an edge attempt anywhere in the tree — `dispatch.Registry`'s `Claim` and `ClaimNext` have no
+production callers — so a record in `claimed` or `settled` got there through these lines, past
+this fence, when the placement agreed. The handler is deliberately built to finish such a
+settlement (claim, settle and wallet capture are three non-atomic steps and the courier re-drives
+across a fault between any two of them), and refusing that repair because the placement has since
+moved would punish an operator for *our* interruption, on the one path where Core has already
+judged the attempt payable — and would leave the money half-committed with the consumer's hold
+swept for work that really happened. The failed-delivery rule is about work whose settlement
+never started. This is the reachability that makes it worth a branch: `edgeExitInflight` runs
+*after* the settle, so a half-committed settlement is exactly the window in which a Station looks
+idle to `edgeLoadLocked` while its receipt is still outstanding — which is when a
+quiescence-gated re-placement would fire.
+
+**It compares `rec.StationEpoch`, not a re-parse of the signed grant.** Same trust domain —
+Core's own row, the same row whose `StationID` already gated this request twenty lines above —
+and re-parsing to recover a value we stored *from* that parse adds a failure mode without adding
+authority.
+
+**Which way it fails, in two directions rather than one.**
+
+| verdict | condition | answer | why |
+|---|---|---|---|
+| agrees | equal | continue | the only verdict that reaches the money |
+| unstated | either side is 0 | continue, and log | 0 is "not stated", never "epoch zero" |
+| moved | grant < attachment | **410 Gone**, permanent | the epoch is monotonic; no retry un-supersedes it |
+| regressed | grant > attachment | **503**, transient | no writer produces this; it is a read that lagged |
+
+**Why `moved` is the one case where a permanent refusal is right.** The rule on this path is that
+any 4xx but 409 becomes `towerjoin.ErrSettlePermanent` and the tower's courier drops the receipt
+from a spool that survives restarts — which is why the party-resolution path chose 503 (commit
+`69340c40`). That rule is about *unknowns*, and a superseded placement is not one:
+`attach.Registry.Admit` is the only writer of an epoch and it only ever raises it, so retrying
+cannot change the answer. A 503 here would not preserve any possibility of payment; it would
+spend the settlement window returning the same refusal every fifteen seconds and then hand the
+operator a silent expiry instead of a loud, named abandonment on their own console.
+
+**And it was checked that the money is not stranded by that, because "permanent refusal" is only
+acceptable if something else releases the hold.** It does: `releaseStaleHoldsSweepOnce` →
+`store.ReleaseStaleHolds(cutoff)` reclaims every tracked hold older than `holdTTL` with no
+reference to a receipt, a dispatch row or an attempt state, and `edgeSettleGrace` is capped
+strictly under `holdTTL` so the hold always outlives the window it guards. Consumer whole,
+operator unpaid, nothing attributed to an account that did not earn it — the residual §6.7
+already named as the one to prefer.
+
+**What it deliberately does not do: work out an alternative payee.** No "pay the Station but not
+the relay". `features/tower/operator_revenue_share.feature` — "Ledger or payment-store failure
+fails closed for share money": *no share is accrued, **cancelled**, or paid* — forbids zeroing a
+share on unverified state in the same breath as paying it, and there is no withheld-lot state to
+park one in. Under §6.3b's ruling this is also simply the right answer: a move that catches live
+work is a failed delivery.
+
+**The rollout guard, and the archaeology that corrected the reason for it.** The fence treats a
+zero on *either* side as "not stated" and passes. The stated worry was that grants minted before
+this change carry `StationEpoch` 0 while attachments say 1, and that a strict fence would refuse
+the entire existing fleet on the deploy. Checked, and the fleet was never actually at risk:
+`tower_attempts.station_epoch` and the attachment `epoch` column have both been in their
+`CREATE TABLE` bodies since those tables existed (`git log --diff-filter=A`), `Admit` assigns 1
+or higher, and every minting path in the tree sources the value from `at.Epoch` via
+`targetFromAttachment`. So a production zero is not reachable through any path that exists today.
+
+The guard stays anyway, for a better reason than the one it was asked for: **a zero-valued int64
+is the shape a future refactor's silence takes.** If something stops stating the epoch, a strict
+fence turns into a fleet-wide permanent refusal that deletes pay, and a lenient one turns the
+whole check off in silence. So the exemption logs every time it fires, and that line is its own
+retirement notice — zero occurrences in a healthy fleet means the arm can be deleted; a sudden
+volume of them means the fence has been disarmed by something upstream. This was watched: with
+the exemption removed, a grant stating no epoch is answered **410**, permanently.
+
+**What this does NOT do.** It does not move a placement, refuse a re-placement while work is in
+flight, or define "idle" for the mobility rule — the gate that stops a move landing on a busy
+Station is the *other* half of §6.3b and is not built. The fence is the backstop for the case
+where that gate is wrong or races, not a substitute for it.
 
 ### 6.7 Self-dealing: a check that has never had to work
 
@@ -1566,10 +1740,11 @@ not the right first move.
   per-attempt fact on the money path, and because the gate refuses the honest relay the moment M3
   makes the two values differ.
 
-  **Two cautions that are narrow and real.** First, `StationEpoch` is not a fence yet (§6.6): it is
-  carried and never compared, so this slice removes the only standing-fact check without the
-  per-attempt one it was supposed to be redundant against ever having been built. That is fine
-  while nothing moves a live origin and is a prerequisite the day something does. Second — and this
+  **Two cautions that are narrow and real.** First, `StationEpoch` was not a fence — carried and
+  never compared — so this slice would have removed the only standing-fact check without the
+  per-attempt one it was supposed to be redundant against ever having been built. **That
+  prerequisite is now done (§6.6b), landed on its own ahead of this slice**, and slice 0 no
+  longer carries it. Second — and this
   is about the POSITION rather than the check — the gate currently sits at `toweredge.go:1414`,
   **before** `ParseReceipt` (`:1424`) and before `settleEdgeAttempt` (`:1440`), and
   `settleEdgeAttempt`'s error path WRITES `noteAttempt(KindExecutionFailed)` (`:1443`).
@@ -1605,8 +1780,9 @@ not the right first move.
   REFUSE honestly when the origin has no relay plane rather than answering 200 with an empty
   endpoint — it used to discard `RelayPlane`'s `has` — so the node backs off, keeps asking, and
   tells its operator. That is bounded and visible instead of silent, and it is not a recovery.
-  Slice 3 is where a live station's relay becomes re-choosable, and §6.6's `StationEpoch` note is
-  the fence it has to build first.
+  Slice 3 is where a live station's relay becomes re-choosable; the `StationEpoch` fence it had to
+  build first is built (§6.6b), and under §6.3b slice 3 is now "re-place an idle station" rather
+  than "choose a relay per attempt".
 - **Slice 3 — move the choice. NOT SAFE ALONE; this is M3 and it needs 0, 1 and 2.**
   `edgeTargetFor` splits into two decisions, station and relay; the attachment's tower becomes a
   default rather than a commitment; the grant names two relays (§6.8).
@@ -1616,3 +1792,98 @@ not the right first move.
 **The correction §3 needed:** M3 depends on M4, and M4's own dependency is the registration
 change (slice 1), which section 3 does not mention at all. The order is 0 → 1 → 2 → 3 → 4, and
 only the first three are individually shippable.
+
+### 6.10 The M4 instruction channel: the shape, recorded, NOT built
+
+Written while the epoch work was fresh, at the coordinator's request. **Nothing here is
+implemented.** Under §6.3b this is a smaller object than it would have been under per-attempt
+placement: it re-places an **idle Station**, it does not route an individual attempt. The
+forgery concern is unchanged, because the thing an attacker wants is the same either way — a
+node dialling a relay of their choosing.
+
+**The carrier already exists and nothing has to be built for it.** M0 restored an ordinary
+broker long poll for every node (`GET /agent/poll`, `tunnel.go`, held 25s), served in
+multi-instance mode off a per-node bus channel with `busClaimJob` guaranteeing single delivery.
+Core already has an authenticated, sub-second, cross-instance push to every node in the fleet.
+
+**Why `protocol.Job` cannot carry it as it stands.** `Job` is `{ID, User, Body, Path}` and a
+node's bridge POSTs `Body` to the upstream named by `Path`. There is no field that says "this is
+not work", so an instruction shaped as a Job would be *served* by any node that does not know
+about it — the compatibility hazard is not that old nodes ignore the instruction, it is that
+they execute it.
+
+#### The minimal field set
+
+One new optional field on `protocol.Job`:
+
+```go
+// Placement, when present, means this message is not work: it is a Core-signed instruction to
+// re-place this node's relay binding. A node that does not understand it MUST discard the whole
+// message rather than fall through to serving Body.
+Placement json.RawMessage `json:"placement,omitempty"`
+```
+
+**That rule binds new nodes and cannot bind old ones, so the field is not sufficient on its
+own.** An old binary unmarshals `Job`, ignores the unknown member, and serves an empty `Body` at
+`Path` — the failure mode is a spurious upstream call, not a dropped message. There is no node
+version or capability on the registration path today (`protocol` carries chat `Capabilities`
+only, and those are about models), so **Core must not send a placement to a node that has not
+declared it can read one.** The cheapest declaration is the one the node already makes: it
+self-attaches, and the attachment is a Core-side row the placement sender already has to read.
+Whatever carries it, the gate belongs at the SEND, because the receive side is exactly the code
+that is too old to have a gate.
+
+Its content is one `towerobj`-signed object, in the same shape as every other signed object in
+the tree (`internal/towerobj`, string-encoded integers, one signature member):
+
+| member | why it must be inside the signature |
+|---|---|
+| `network`, `type` (`"dispatch.placement"`), `version` | the standard anti-substitution triple: without a distinct type, a signed object of another kind with a compatible field set can be replayed as this one |
+| `station_id` | binds the instruction to one Station. The poll is authenticated by the node's bridge token, i.e. by NODE identity; the money and the keys hang off STATION identity, and the two must be tied together inside Core's signature |
+| `epoch` | **the new placement epoch this instruction establishes.** It is what makes the instruction ordered rather than merely fresh: a node that has already moved to epoch N must ignore an instruction for N−1, which is the only defence against a captured-but-genuine instruction being replayed to drag a node back to a relay the operator has since been moved off. It is also the value that must reach `attach.Epoch`, so the settle fence in §6.6b keeps meaning what it means |
+| `tower_id` | the relay's identity as Core bills it — the value the hub checks a grant against (`EdgeGrantMeta(..., st.TowerID, ...)`) and the value that ends up on the relay lot |
+| `endpoint` | where to dial |
+| `endpoint_tls_spki` | the certificate pin, **and its emptiness must be signed too.** An unsigned pin field is a downgrade primitive: an on-path party strips it and the node dials plain HTTP. Signed, "no pin" is a statement Core made rather than an omission an attacker produced |
+| `issued_at`, `expires` | a short window (seconds to a minute). The instruction is a push, not a credential, and does not need to outlive its delivery |
+| `nonce` | one-use per station, against the same replay ring the hub polls already use |
+| `core_sig` | Ed25519 over the canonical object, by **Core's grant key — the key the node already pins**, fetched from Core over a trusted base and never from the tower (`internal/agent/tower.go`, `ErrCoreKeysUnpinned`). No new key, no new distribution problem, no certificate authority |
+
+#### What the node must check before it acts, and why each one is load-bearing
+
+1. **`core_sig` verifies against the pinned grant key**, for this network, this type and this
+   version. This is the whole of the defence against a hostile broker instance or an on-path
+   party: the poll channel is authenticated by a bearer token the broker holds, so the broker is
+   *not* a trusted source for where a node should take its work. The instruction is trusted
+   because Core signed it, not because it arrived on the poll.
+2. **`station_id` is this node's own Station.** A signed instruction for somebody else's Station
+   is a valid object and still not addressed here.
+3. **`epoch` is strictly greater than the epoch the node is currently serving under.** Equal or
+   lower is a replay of a genuine instruction and must be dropped silently. **The node does not
+   know its epoch today** — the attach response returns endpoint, pin, hub token, `tower_key_hash`
+   and state, and no epoch — so this check needs `attach.Epoch` added to that reply first. It is
+   one field and it is a prerequisite, not a detail: without it the node's only ordering signal is
+   the arrival order of pushes on a channel that makes no ordering promise.
+4. **`expires` has not passed**, against the node's own clock, with the skew the rest of the
+   tree already uses.
+5. **The node is idle** — §6.3b's rule, enforced at BOTH ends. Core gates the send on
+   `edgeLoadLocked(nodeID) == 0`; the node re-checks locally, because Core's view is a cache and
+   the node is the only party that knows what it is actually serving. If the node is busy it
+   declines and Core retries later; it does not queue the instruction, because a queued placement
+   is a placement made against stale information.
+
+#### What still has to be decided before it is built
+
+- **Where the epoch is written, and in what order.** The instruction's epoch has to become
+  `attach.Epoch`, and `attach.Registry.Admit` is currently the only writer of one and reaches it
+  only through dormancy. A second writer is a real change to the attachment's state machine and
+  is the substance of the work, not this object.
+- **Whether the node acknowledges.** Core needs to know the move landed before it starts
+  authorizing against the new relay, or the fence in §6.6b will refuse honest work — the
+  attachment would read the new epoch while the node is still serving at the old relay. The
+  cheapest shape is that the node's next signed poll at the NEW relay is the acknowledgement, and
+  Core does not advance the attachment until it sees one. **That ordering is the correctness
+  question of M4** and it is not answered here.
+- **Whether the instruction carries the station's assertion key** so the new relay can register
+  it from the object it is already verifying (slice 1's idea, applied to the placement object
+  instead of the grant). It removes the `OnUnknownStation` 404 on the first submit after a move.
+

@@ -88,7 +88,14 @@ func issuedAttempt(t *testing.T, b *broker, attemptID, towerID, stationID string
 	require.NoError(t, b.tower.dispatch.Store().Put(dispatch.Record{
 		AttemptID: attemptID, JobID: "job-" + attemptID, TowerID: towerID,
 		StationID: stationID, Model: "m", Modality: "text", Nonce: "n-" + attemptID,
-		Deadline: time.Now().Add(time.Hour), Grant: g.Signed, ConsumerKey: pub,
+		// THE EPOCH THE GRANT WAS MINTED UNDER, matching what attachStation's Admit assigns a
+		// fresh attachment. It used to be left at the zero value here while the grant above
+		// carried 1, which openEdgeAttempt never does - it copies the grant's epoch onto the
+		// row - so every settle test in this package was exercising the epoch fence's
+		// "nobody stated one" exemption instead of the fence. A fixture that can only pass
+		// through an exemption is a fixture that proves nothing about the rule.
+		StationEpoch: 1,
+		Deadline:     time.Now().Add(time.Hour), Grant: g.Signed, ConsumerKey: pub,
 		State: dispatch.StateIssued,
 	}))
 	// FUNDED by default: the accrual gate skips traffic whose consumer resolves to no

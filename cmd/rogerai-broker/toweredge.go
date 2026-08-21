@@ -1313,6 +1313,48 @@ func (b *broker) settleEdgeAttempt(attemptID string, receipt dispatch.Receipt) (
 	return settled, settled.UsageDisputed, err
 }
 
+// epochFenceVerdict is what the Station-epoch fence has to say about one settlement: whether
+// the attachment in front of the settle path is the one the grant was minted against.
+//
+// It is an enumeration rather than a bool because the three ways it can fail to agree mean
+// different things - the placement moved forward, Core's own view of it went backward, or
+// nobody stated an epoch at all - and a bool would have collapsed the third into one of the
+// first two. Which is what a bool would have done on rollout, to the whole fleet.
+type epochFenceVerdict int
+
+const (
+	// epochFenceAgrees: the grant and the attachment name the same placement. The only verdict
+	// that reaches the money.
+	epochFenceAgrees epochFenceVerdict = iota
+	// epochFenceUnstated: one side carries the int64 zero value, which means "no epoch here",
+	// never "epoch zero". The fence has nothing to compare and declines to guess.
+	epochFenceUnstated
+	// epochFenceMoved: the attachment has advanced past the grant. This is the rehome the fence
+	// was written for - the Station was re-placed while its work was in flight.
+	epochFenceMoved
+	// epochFenceRegressed: the attachment is BEHIND the grant, which no writer in the tree can
+	// produce, since attach.Registry.Admit only ever raises an epoch. A read that lags a write,
+	// or state that was restored under a live grant.
+	epochFenceRegressed
+)
+
+// stationEpochFence compares the epoch a grant was minted under against the attachment's epoch
+// now. It is a pure function of two integers so that the VERDICT can be tested apart from the
+// eight-hundred-line settlement path that acts on it, and so that adding a fourth answer later
+// is a change to one switch rather than to a chain of inequalities read three times.
+func stationEpochFence(grantEpoch, attachmentEpoch int64) epochFenceVerdict {
+	switch {
+	case grantEpoch == 0 || attachmentEpoch == 0:
+		return epochFenceUnstated
+	case grantEpoch == attachmentEpoch:
+		return epochFenceAgrees
+	case grantEpoch < attachmentEpoch:
+		return epochFenceMoved
+	default:
+		return epochFenceRegressed
+	}
+}
+
 // towerEdgeSettle takes the Station's receipt, relayed by its Tower on the link it already
 // holds, and settles the attempt.
 //
@@ -1415,6 +1457,127 @@ func (b *broker) towerEdgeSettle(w http.ResponseWriter, r *http.Request) {
 		// A Tower settling for a Station behind somebody else's origin.
 		jsonErr(w, http.StatusForbidden, "that Station is not attached to this Tower")
 		return
+	}
+	// THE STATION-EPOCH FENCE, WHICH WAS CARRIED FOR ITS WHOLE LIFE AND NEVER COMPARED.
+	//
+	// dispatch.Record.StationEpoch is documented as the thing that "fences a rehome: work
+	// granted under the old origin cannot be completed after the move". It was minted from
+	// at.Epoch at authorize, signed into the grant, written to the dispatch row and read back
+	// out again - and nothing anywhere ever put it beside the attachment it came from. The
+	// fence the whole placement-mobility story rests on did not exist. This is it.
+	//
+	// WHY IT IS QUIET TODAY AND LOAD-BEARING THE DAY PLACEMENT MOVES. attach.Registry.Admit is
+	// the only writer of an epoch (1 on a fresh attach, revived.Epoch+1 on a revival) and it
+	// only reaches a live Station through dormancy, which needs seven days with no routable
+	// stamp - so inside a settlement window (the grant's lifetime plus the settle grace) the
+	// two values are equal by construction and this costs an integer compare. The relay
+	// milestone makes a Station's placement something Core may CHANGE, at which point "the
+	// placement this work was granted under" and "the placement in front of us now" stop being
+	// the same sentence, and this compare is the only thing standing between an in-flight
+	// attempt and an origin that moved under it.
+	//
+	// WHAT A SUPERSEDED GRANT IS WORTH: NOTHING, AND THAT IS A DECISION RATHER THAN A DEFAULT.
+	// The founder's ruling on the placement model is that a Station keeps a STICKY binding to
+	// one relay and Core may move it only when the Station is idle or its relay is genuinely
+	// bad - so a move under live work is not a routine event to be attributed carefully, it is
+	// a FAILED DELIVERY. Nobody is paid, the consumer's hold refunds, the consumer retries.
+	// This code therefore works out no alternative payee: there is deliberately no "pay the
+	// Station but not the relay" branch, because a share zeroed on one integer is exactly the
+	// "no share is accrued, CANCELLED, or paid" that
+	// features/tower/operator_revenue_share.feature forbids, and there is no withheld-lot state
+	// to park one in.
+	//
+	// AND THE HOLD REFUNDS WITHOUT US. That had to be checked rather than assumed, because a
+	// refusal that also stranded the consumer's money would be the wrong answer whatever it
+	// did for the operator. It does not: releaseStaleHoldsSweepOnce calls
+	// store.ReleaseStaleHolds(cutoff), which reclaims every tracked hold older than holdTTL
+	// with no reference to a receipt, a dispatch row or an attempt state - and edgeSettleGrace
+	// is capped strictly UNDER holdTTL precisely so the hold always outlives the window it
+	// guards. The Station's in-flight reservation comes down on its own too: edgeEnterInflight
+	// arms a time.AfterFunc at the grant's deadline. So refusing here commits nothing and
+	// strands nothing, and the consumer is made whole by machinery that was already there.
+	//
+	// WHICH REFUSAL, AND WHY THE TWO DIRECTIONS GET DIFFERENT ONES. This is the load-bearing
+	// part. towerjoin.SettleEdgeReceipt turns any 4xx but 409 into ErrSettlePermanent, and the
+	// tower's courier then ABANDONS the receipt and drops it from a spool that survives
+	// restarts (cmd/roger-tower/hub.go). A 4xx is Core saying "never bring this back", so it is
+	// only ever correct when retrying provably cannot help - and the neighbouring 503 on the
+	// party-resolution path below exists because a store blip is the opposite of that.
+	//
+	// A MOVED placement is the case where permanence is true. The epoch is monotonic per
+	// Station: nothing lowers it, so no number of retries un-supersedes this grant. Answering
+	// 503 would not preserve any possibility of payment - the settlement window would close on
+	// a receipt that was refused identically every fifteen seconds - it would only spend the
+	// window pretending, and hand the operator a silent expiry instead of a loud abandonment
+	// naming the reason on their own console. (It would also hold a spool slot for the whole
+	// window; bounded at 65536, so that is a footnote and not the argument.)
+	//
+	// A REGRESSED epoch is the opposite and must stay transient, which is why these are not one
+	// branch. An attachment BEHIND the grant is not a state any writer can produce; it is a read
+	// that has not caught up with a write, or restored state. Retrying is exactly what heals it,
+	// and a 4xx there would delete an honest operator's pay for a replication delay.
+	//
+	// IT GATES ENTRY INTO A SETTLEMENT, NOT THE COMPLETION OF ONE CORE ALREADY BEGAN, and that
+	// exemption is narrow enough to state exhaustively. This handler is the ONLY caller of
+	// ClaimByID or Settle on an edge attempt anywhere in the tree - dispatch.Registry's Claim
+	// and ClaimNext have no production callers - so a record that is not `issued` got there
+	// through these lines, past this fence, at a moment when the placement agreed.
+	//
+	// The handler below is deliberately built to finish such a settlement: a fault between the
+	// claim and the settle, or between the settle and the wallet capture, leaves an attempt that
+	// the courier's next forward re-drives, and the alternative to re-driving it is the
+	// consumer's hold swept for work that was really done and both operators unpaid. Refusing
+	// that repair because the placement has since moved would punish an operator for OUR
+	// interruption, on the one path where Core has already judged this attempt payable under the
+	// placement it had. The failed-delivery rule is about work whose settlement never started.
+	if rec.State != dispatch.StateIssued {
+		log.Printf("edge settle: attempt %s is re-driving a settlement already begun (state %q) - the placement fence does not re-judge it",
+			req.AttemptID, rec.State)
+	} else {
+		switch stationEpochFence(rec.StationEpoch, at.Epoch) {
+		case epochFenceAgrees:
+			// The ordinary path, and the only one that reaches the money.
+		case epochFenceUnstated:
+			// ONE SIDE CARRIES NO EPOCH, so the fence has nothing to compare and must not invent a
+			// verdict. Zero is the int64 zero value, which is "not stated" and never "epoch zero":
+			// treating it as a number would refuse every grant minted before the comparison existed
+			// and take the fleet down on the deploy that added a check nothing had been failing.
+			//
+			// Deliberately symmetric. The grant side goes unstated on a dispatch row that predates
+			// the column (tower_attempts.station_epoch defaults to 0); the attachment side goes
+			// unstated on any attachment built outside Registry.Admit, which is the only thing that
+			// has ever assigned an epoch.
+			//
+			// This logs on purpose and the line is the exemption's own retirement notice. Every
+			// minting path in the tree today - targetFromAttachment, and therefore authorize and
+			// the canary - sources the epoch from at.Epoch, which Admit sets to 1 or higher, and
+			// both epoch columns have been in their CREATE TABLE since the table existed, so a
+			// healthy fleet should print this zero times and the arm can then be deleted. If it
+			// starts appearing in volume, something stopped stating the epoch and the fence has been
+			// silently disarmed - which is precisely the failure a quiet exemption would hide.
+			log.Printf("edge settle: attempt %s carries no Station epoch on one side (grant %d, attachment %d) - the placement fence cannot speak for it",
+				req.AttemptID, rec.StationEpoch, at.Epoch)
+		case epochFenceMoved:
+			// PERMANENT, AND SAID IN A STATUS THAT MEANS WHAT HAPPENED. 410 rather than the 403s
+			// this path already uses for "you had no business here": nobody did anything wrong, the
+			// placement this receipt was earned under is simply gone. It reads differently in a
+			// tower's log, which is the only place an operator will ever see it.
+			log.Printf("edge settle: attempt %s was granted under Station %s epoch %d and the attachment is now at epoch %d - the placement moved under work already in flight; this delivery failed, nothing is paid, and the consumer's hold returns on the orphan sweep",
+				req.AttemptID, req.StationID, rec.StationEpoch, at.Epoch)
+			jsonErr(w, http.StatusGone, "this Station's placement changed after this attempt was authorized - the attempt is void and nothing is owed on it")
+			return
+		case epochFenceRegressed:
+			// THE ATTACHMENT IS BEHIND THE GRANT, which no writer in the tree can produce, since the
+			// epoch is monotonic per Station. So this is a lagging or restored read of Core's own
+			// state rather than a claim anybody made on the wire - and settling through it would
+			// verify the receipt against, and pay from, an attachment that is not the one the grant
+			// was minted from. Transient in shape, so transient in answer: nothing commits and the
+			// courier brings the same receipt back in fifteen seconds.
+			log.Printf("edge settle: attempt %s was granted under Station %s epoch %d but the attachment reads epoch %d - Core's own attachment state is behind the grant it issued; settling nothing, the courier will retry",
+				req.AttemptID, req.StationID, rec.StationEpoch, at.Epoch)
+			jsonErr(w, http.StatusServiceUnavailable, "this Station's attachment is behind the attempt authorized against it - retry")
+			return
+		}
 	}
 	key, err := hex.DecodeString(at.AssertionKey)
 	if err != nil || len(key) != 32 {
