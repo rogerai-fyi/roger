@@ -1814,9 +1814,41 @@ func FormatUSD(v float64) string {
 // chat is bounded like every other consume path: 0 means "use the default consumer cap"
 // (effectiveMaxOut), a positive value is the user's explicit opt-in to pay up to that.
 func ChatDetailed(broker, user, model, prompt string, confidential bool, maxOut float64) (ChatResult, error) {
+	return ChatTurns(broker, user, model, []ChatTurn{{Role: "user", Content: prompt}}, confidential, maxOut)
+}
+
+// ChatTurn is one message in a multi-turn conversation. Role is the OpenAI role
+// ("system", "user", "assistant"); anything else is rejected by ChatTurns rather than
+// forwarded, so a caller cannot smuggle an unknown role past the broker.
+type ChatTurn struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+// ChatTurns is ChatDetailed with HISTORY: the browser console's chat tab needs the
+// conversation so far, not one isolated prompt, or every answer would arrive with no
+// memory of the question before it. Same broker path, same failover, same billing and
+// the same honest error surfacing - only the request body differs, so the two can never
+// drift on retry policy or receipts.
+//
+// The turn list must be non-empty and every role known; an empty or malformed list is a
+// caller bug and returns an error rather than a request the broker has to reject.
+func ChatTurns(broker, user, model string, turns []ChatTurn, confidential bool, maxOut float64) (ChatResult, error) {
+	if len(turns) == 0 {
+		return ChatResult{}, errors.New("chat: no messages to send")
+	}
+	msgs := make([]map[string]string, 0, len(turns))
+	for _, t := range turns {
+		switch t.Role {
+		case "system", "user", "assistant":
+		default:
+			return ChatResult{}, fmt.Errorf("chat: unknown role %q", t.Role)
+		}
+		msgs = append(msgs, map[string]string{"role": t.Role, "content": t.Content})
+	}
 	reqBody, _ := json.Marshal(map[string]any{
 		"model":      model,
-		"messages":   []map[string]string{{"role": "user", "content": prompt}},
+		"messages":   msgs,
 		"max_tokens": MaxAnswerTokens,
 	})
 	httpClient := &http.Client{Timeout: chatTimeout}

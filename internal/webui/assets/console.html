@@ -38,6 +38,7 @@
         </span>
       </div>
       <nav class="tabs" role="tablist" aria-label="Sections">
+        <button class="tab" data-tab="chat" role="tab" aria-selected="false">CHAT</button>
         <button class="tab" data-tab="share" role="tab" aria-selected="true">SHARE</button>
         <button class="tab" data-tab="account" role="tab" aria-selected="false">ACCOUNT</button>
         <button class="tab" data-tab="browse" role="tab" aria-selected="false">BROWSE</button>
@@ -50,6 +51,48 @@
     </header>
 
     <main class="content">
+
+      <!-- ===================== CHAT =====================
+           Founder 2026-08-20: the chat mechanics lived only in the TUI, so the console
+           could put a GPU on air and read receipts but never actually talk to a band.
+           The shape follows the harness consoles people already know - an empty state
+           that is just a title over a big composer, then a message flow with the
+           composer pinned to the bottom - with one thing they do not have: every
+           answer carries its RECEIPT (which machine served it, what it cost, how fast),
+           because that is this product's whole claim.
+
+           The conversation lives in the PAGE, not on the server. The console is a live
+           twin of a node, not a chat host, and a server-side transcript would be one
+           more place a private conversation could sit. -->
+      <section class="panel panel--chat" id="panel-chat" role="tabpanel" hidden>
+        <div class="chat">
+          <div class="chat-flow" id="chat-flow">
+            <div class="chat-empty" id="chat-empty">
+              <div class="chat-empty-mark" aria-hidden="true">((&bull;))</div>
+              <h2>Tune in and ask.</h2>
+              <p>Every answer names the machine that served it and what the turn cost.</p>
+            </div>
+          </div>
+
+          <div class="chat-dock">
+            <div class="chat-composer">
+              <textarea id="chat-input" class="chat-input" rows="1"
+                        placeholder="Ask the band anything&hellip;"
+                        aria-label="Message"></textarea>
+              <div class="chat-tools">
+                <label class="chat-model-wrap">
+                  <span class="sr-only">Model</span>
+                  <select id="chat-model" class="chat-model mono" aria-label="Model"></select>
+                </label>
+                <span class="chat-spacer"></span>
+                <span class="chat-hint mono" id="chat-hint">&crarr; send &middot; shift+&crarr; newline</span>
+                <button class="chat-send" id="chat-send" title="Send" aria-label="Send">&uarr;</button>
+              </div>
+            </div>
+            <p class="chat-foot mono" id="chat-foot">&mdash;</p>
+          </div>
+        </div>
+      </section>
 
       <!-- ===================== SHARE ===================== -->
       <section class="panel" id="panel-share" role="tabpanel">

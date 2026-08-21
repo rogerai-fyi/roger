@@ -95,6 +95,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/account/logout", s.action(s.handleLogout))
 	s.mux.HandleFunc("/api/account/topup", s.action(s.handleTopup))
 	s.mux.HandleFunc("/api/account/limit", s.auth(s.handleLimit)) // GET reads, POST sets
+	s.mux.HandleFunc("/api/chat", s.action(s.handleChat))
 	s.mux.HandleFunc("/api/payout", s.auth(s.handlePayout))
 	s.mux.HandleFunc("/api/payout/onboard", s.action(s.handlePayoutOnboard))
 	s.mux.HandleFunc("/api/payout/request", s.action(s.handlePayoutRequest))

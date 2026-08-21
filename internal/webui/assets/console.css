@@ -997,3 +997,123 @@ noscript {
   .meter-fill,
   .tab::after { animation: none; transition: none; }
 }
+
+/* ===================== CHAT =========================================
+   The console's chat surface (founder 2026-08-20). Two states in one panel:
+   an EMPTY state that is a title over a big composer, and a live flow with
+   the composer docked to the bottom. The dock never moves between them -
+   the same lesson the TUI's composer pin taught, applied here.
+
+   Message bubbles are deliberately quiet: this palette has exactly one red,
+   spent on the on-air beacon and on live data, so a chat turn is separated
+   by hairlines and a small mono label rather than by colour. */
+/* CHAT is the one panel that wants the WHOLE viewport rather than flowing with the
+   page: the composer docks to the bottom, so the panel has to know where the bottom
+   is. Every other panel keeps the shell's ordinary top-down flow untouched - this is
+   scoped to .panel--chat and to the body class the chat tab sets, so nothing else
+   inherits a height it did not ask for.
+
+   The height budget is the viewport minus the topbar and the content padding; the
+   flow scrolls inside it and the dock never leaves the floor. */
+body.is-chat .content { padding-bottom: var(--s-6); }
+.panel--chat {
+  display: flex; flex-direction: column; padding: 0;
+  min-height: 0;
+  height: calc(100vh - var(--topbar-h, 56px) - var(--s-8) - var(--s-6));
+}
+.chat {
+  display: grid; grid-template-rows: 1fr auto;
+  min-height: 0; height: 100%; max-width: 860px; width: 100%; margin: 0 auto;
+}
+.chat-flow {
+  overflow-y: auto; min-height: 0; padding: 24px 20px 8px;
+  display: flex; flex-direction: column; gap: 20px;
+}
+/* The empty state centres itself in whatever room the flow has. */
+.chat-empty { margin: auto 0; text-align: center; color: var(--ink-500); }
+.chat-empty-mark { font-family: var(--font-mono); color: var(--live); letter-spacing: .12em; }
+.chat-empty h2 { margin: 10px 0 6px; color: var(--ink-900); }
+.chat-empty p { margin: 0; font-size: 14px; }
+
+.chat-turn { display: block; }
+.chat-role {
+  font-family: var(--font-mono); font-size: 11px; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--ink-400); margin-bottom: 6px;
+}
+.chat-body { color: var(--ink-700); line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.chat-turn--you .chat-body {
+  background: var(--paper-2); border-left: 2px solid var(--ink-300);
+  padding: 10px 14px; border-radius: 0 4px 4px 0;
+}
+.chat-turn--err .chat-body { color: var(--live); }
+
+/* THE RECEIPT. Not decoration - the console's claim is that you can see what a
+   turn cost and which machine served it, so it rides under every answer. */
+.chat-receipt {
+  margin-top: 8px; font-family: var(--font-mono); font-size: 11px;
+  color: var(--ink-400); display: flex; flex-wrap: wrap; gap: 10px;
+}
+.chat-receipt b { color: var(--ink-500); font-weight: 500; }
+
+.chat-dock { padding: 8px 20px 16px; background: var(--paper); }
+.chat-composer {
+  border: 1px solid var(--hairline-2); border-radius: 10px;
+  background: var(--white); padding: 10px 12px 8px;
+  transition: border-color .15s ease;
+}
+.chat-composer:focus-within { border-color: var(--ink-400); }
+.chat-input {
+  width: 100%; border: 0; outline: 0; resize: none; background: transparent;
+  color: var(--ink-900); font: inherit; line-height: 1.5; max-height: 40vh;
+}
+.chat-tools { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+.chat-spacer { flex: 1; }
+.chat-model {
+  font-family: var(--font-mono); font-size: 12px; color: var(--ink-700);
+  background: var(--paper-2); border: 1px solid var(--hairline);
+  border-radius: 999px; padding: 4px 10px; max-width: 320px;
+}
+.chat-hint { font-size: 11px; color: var(--ink-300); }
+.chat-send {
+  width: 30px; height: 30px; border-radius: 999px; border: 0; cursor: pointer;
+  background: var(--ink-900); color: var(--paper); font-size: 15px; line-height: 1;
+}
+.chat-send:hover:not(:disabled) { background: var(--live); }
+.chat-send:disabled { background: var(--ink-300); cursor: not-allowed; }
+.chat-foot { margin: 8px 2px 0; font-size: 11px; color: var(--ink-400); }
+
+/* WORKING. The carrier from the TUI, in the browser: a scrolling wave that says
+   "a station is transmitting" without claiming a percentage it cannot know. It
+   wears the Wave Spectrum - the same seven tiers, in the same order, as the
+   family page's animated mark - so the console and the site read as one product. */
+.chat-working { display: flex; align-items: center; gap: 10px; color: var(--ink-400); }
+.chat-carrier {
+  font-family: var(--font-mono); letter-spacing: 2px; font-size: 13px;
+  background: linear-gradient(90deg,
+    var(--tier-pico), var(--tier-nano), var(--tier-micro), var(--tier-giga),
+    var(--tier-tera), var(--tier-peta), var(--tier-exa), var(--tier-pico));
+  background-size: 200% 100%;
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  animation: chat-carrier 2.4s linear infinite;
+}
+/* Without background-clip the text would paint transparent-on-paper - invisible.
+   Restore a real colour before anything else (the site's own guard, same class
+   of bug as the family page's shimmer). */
+@supports not ((background-clip: text) or (-webkit-background-clip: text)) {
+  .chat-carrier { color: var(--ink-500); background: none; }
+}
+@keyframes chat-carrier { from { background-position: 0% 50%; } to { background-position: 200% 50%; } }
+@media (prefers-reduced-motion: reduce) { .chat-carrier { animation: none; } }
+
+@media (max-width: 620px) {
+  .chat-flow { padding: 16px 12px 4px; }
+  .chat-dock { padding: 6px 12px 12px; }
+  .chat-hint { display: none; }
+}
+
+/* Visually hidden, still announced: the model <select> needs a label for a screen
+   reader, and the chip beside it is not one. */
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}

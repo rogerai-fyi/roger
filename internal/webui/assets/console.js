@@ -535,10 +535,17 @@
       if (!offers.length) {
         var er = el("tr", "empty-row");
         var td = el("td", null, "No models on the market right now."); td.colSpan = 8;
-        er.appendChild(td); tbody.appendChild(er); return;
+        er.appendChild(td); tbody.appendChild(er); chatFillModels([]); return;
       }
       offers.forEach(function (o) { tbody.appendChild(buildBrowseRow(o)); });
+      // One fetch feeds both surfaces: the chat picker offers exactly the bands
+      // BROWSE just listed, so it can never name something there is no way to reach.
+      chatFillModels(offers);
     }).catch(function (e) {
+      // The chat picker is fed from this same call, so a failed browse has to reach
+      // it too - otherwise the picker sits blank with no reason given and "pick a
+      // band first" becomes an instruction the user cannot follow.
+      chatFillModels([]);
       tbody.innerHTML = "";
       var er = el("tr", "empty-row");
       var td = el("td", null, e.status === 503 ? "Browse needs a configured broker." : "Could not load the market.");
@@ -576,20 +583,201 @@
     return tr;
   }
 
-  /* TABS ------------------------------------------------------------------- */
-  function setTab(name) {
-    ["share", "account", "browse"].forEach(function (n) {
-      show($("panel-" + n), n === name);
+  /* CHAT -------------------------------------------------------------------
+     The console's chat surface (founder 2026-08-20). The conversation lives HERE,
+     in the page, and is posted whole each turn: the console is a live twin of a
+     node, not a chat host, and a server-side transcript would be one more place a
+     private conversation could sit.
+
+     One turn at a time on purpose. The relay bills per turn and the receipt under
+     each answer has to belong to a turn you actually watched happen; letting two
+     run at once would put two receipts in flight with nothing tying them to the
+     questions that caused them. */
+  var chatTurns = [];   // [{role, content}] - exactly what the API takes
+  var chatBusy = false;
+
+  function chatFlow() { return $("chat-flow"); }
+
+  function chatScroll() {
+    var f = chatFlow();
+    if (f) f.scrollTop = f.scrollHeight;
+  }
+
+  // chatAppend paints one turn. Text goes in via textContent (never innerHTML) -
+  // a model's reply is untrusted input and must never be able to inject markup
+  // into the console that holds the operator's key.
+  function chatAppend(role, text, cls) {
+    show($("chat-empty"), false);
+    var turn = el("div", "chat-turn " + (cls || ""));
+    turn.appendChild(el("div", "chat-role", role));
+    turn.appendChild(el("div", "chat-body", text));
+    chatFlow().appendChild(turn);
+    chatScroll();
+    return turn;
+  }
+
+  // The receipt under an answer: which machine served it, what it cost, how fast.
+  // Only the fields the broker actually returned are shown - a missing value is
+  // omitted rather than printed as a zero, because a zero here reads as a claim.
+  function chatReceipt(turn, r) {
+    var rc = el("div", "chat-receipt");
+    if (r.provider) { var p = el("span", null, "via "); p.appendChild(el("b", null, r.provider)); rc.appendChild(p); }
+    if (r.tokens_in || r.tokens_out) rc.appendChild(el("span", null, "↑" + fmtInt(r.tokens_in) + " ↓" + fmtInt(r.tokens_out)));
+    if (r.cost) rc.appendChild(el("span", null, "$" + Number(r.cost).toFixed(4)));
+    if (r.tps) rc.appendChild(el("span", null, Math.round(r.tps) + " t/s"));
+    if (r.latency_ms) rc.appendChild(el("span", null, (r.latency_ms / 1000).toFixed(1) + "s"));
+    if (rc.childNodes.length) turn.appendChild(rc);
+  }
+
+  // The working row: the Wave Spectrum carrier, the browser twin of the TUI's
+  // sweep. Indeterminate on purpose - a relayed turn has no honest "% done".
+  function chatWorking() {
+    var w = el("div", "chat-turn chat-working");
+    w.appendChild(el("span", "chat-carrier", "∿∿∿∿∿∿∿∿∿∿∿∿"));
+    w.appendChild(el("span", "mono", "on air…"));
+    chatFlow().appendChild(w);
+    chatScroll();
+    return w;
+  }
+
+  function chatSetBusy(on) {
+    chatBusy = on;
+    var b = $("chat-send"), i = $("chat-input");
+    if (b) b.disabled = on;
+    if (i) i.disabled = on;
+    if (!on && i) i.focus();
+  }
+
+  // The model list is the bands this node can actually reach, so the picker can
+  // never offer something there is no way to send to. Selection survives a
+  // refresh of the list; if the chosen band goes away, the first one takes over.
+  function chatFillModels(offers) {
+    var sel = $("chat-model");
+    if (!sel) return;
+    var keep = sel.value;
+    // Cleared by removing children rather than by innerHTML: the chat block bans every
+    // HTML-writing sink outright (chat_test.go), because the one place a reply could
+    // slip markup into this console is worth more than the convenience of one
+    // assignment. A blanket ban is enforceable; "innerHTML but only for clearing" is
+    // not, and the next edit is where it stops being for clearing.
+    while (sel.firstChild) sel.removeChild(sel.firstChild);
+    (offers || []).forEach(function (o) {
+      var name = o.model || o.name;
+      if (!name) return;
+      var opt = el("option", null, name + (o.price_out ? "  ·  $" + o.price_out + "/1M" : ""));
+      opt.value = name;
+      sel.appendChild(opt);
     });
+    if (!sel.options.length) {
+      var none = el("option", null, "no band on the dial");
+      none.value = "";
+      sel.appendChild(none);
+      sel.disabled = true;
+    } else {
+      sel.disabled = false;
+    }
+    if (keep) sel.value = keep;
+    if (!sel.value && sel.options.length) sel.selectedIndex = 0;
+    chatFoot();
+  }
+
+  function chatFoot(msg) {
+    var f = $("chat-foot");
+    if (!f) return;
+    if (msg) { f.textContent = msg; return; }
+    var m = $("chat-model");
+    f.textContent = m && m.value
+      ? "relayed through the broker · the station never sees who you are"
+      : "tune in to a band on BROWSE to start a conversation";
+  }
+
+  function chatSend() {
+    if (chatBusy) return;
+    var input = $("chat-input"), sel = $("chat-model");
+    var text = (input.value || "").trim();
+    if (!text) return;
+    if (!sel || !sel.value) { toast("pick a band first", "err"); return; }
+
+    chatAppend("you", text, "chat-turn--you");
+    chatTurns.push({ role: "user", content: text });
+    input.value = "";
+    chatAutoGrow();
+    chatSetBusy(true);
+    var working = chatWorking();
+
+    apiPost("/api/chat", { model: sel.value, messages: chatTurns })
+      .then(function (r) {
+        working.remove();
+        var reply = (r && r.reply) || "";
+        if (!reply) {
+          // An empty reply is a real outcome (a refusal, a stripped answer) and must
+          // read as one rather than as a silent no-op.
+          chatAppend(sel.value, "(the station returned an empty answer)", "chat-turn--err");
+          return;
+        }
+        chatTurns.push({ role: "assistant", content: reply });
+        chatReceipt(chatAppend(sel.value, reply), r || {});
+      })
+      .catch(function (err) {
+        working.remove();
+        // The failing turn comes back OUT of the history: leaving a question in with
+        // no answer would send it again on the next turn and bill for it twice.
+        chatTurns.pop();
+        chatAppend("error", (err && err.message) || "the turn did not go through", "chat-turn--err");
+      })
+      .then(function () { chatSetBusy(false); });
+  }
+
+  function chatAutoGrow() {
+    var i = $("chat-input");
+    if (!i) return;
+    i.style.height = "auto";
+    i.style.height = Math.min(i.scrollHeight, window.innerHeight * 0.4) + "px";
+  }
+
+  function wireChat() {
+    var input = $("chat-input"), send = $("chat-send"), model = $("chat-model");
+    if (!input) return;
+    input.addEventListener("input", chatAutoGrow);
+    input.addEventListener("keydown", function (e) {
+      // Enter sends, shift+enter is a newline - the convention every chat surface
+      // the operator already uses shares.
+      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); chatSend(); }
+    });
+    if (send) send.addEventListener("click", chatSend);
+    if (model) model.addEventListener("change", function () { chatFoot(); });
+  }
+
+  /* TABS ------------------------------------------------------------------- */
+  var TABS = ["chat", "share", "account", "browse"];
+
+  function tabFromHash() {
+    var h = (location.hash || "").replace(/^#/, "").toLowerCase();
+    return TABS.indexOf(h) !== -1 ? h : "share";
+  }
+
+  function setTab(name) {
+    TABS.forEach(function (n) { show($("panel-" + n), n === name); });
+    // CHAT docks its composer to the bottom, so it needs the viewport; the class is
+    // what lets the stylesheet give it one without touching any other panel.
+    document.body.classList.toggle("is-chat", name === "chat");
     Array.prototype.forEach.call(document.querySelectorAll(".tab"), function (b) {
       b.setAttribute("aria-selected", b.getAttribute("data-tab") === name ? "true" : "false");
     });
     if (name === "account") loadAccount();
     if (name === "browse") loadBrowse();
+    if (name === "chat") {
+      // Fill the picker from whatever the browse surface last saw, then focus the
+      // composer - opening CHAT means you intend to type.
+      loadBrowse();
+      var i = $("chat-input");
+      if (i) i.focus();
+    }
   }
 
   /* 9. BOOT / WIRING ------------------------------------------------------- */
   function wire() {
+    wireChat();
     // tabs + any [data-goto] / [data-tab] click
     document.addEventListener("click", function (e) {
       var tabBtn = e.target.closest("[data-tab]");
@@ -656,7 +844,11 @@
     if (!TOKEN) { show($("auth-gate"), true); return; }
     show($("app"), true);
     wire();
-    setTab("share");
+    // Deep-link the tab from the hash (#chat, #browse, …) so a console URL can point
+    // at a surface rather than always landing on SHARE. Unknown or absent falls back
+    // to SHARE, which is what the operator opened this for most of the time.
+    setTab(tabFromHash());
+    window.addEventListener("hashchange", function () { setTab(tabFromHash()); });
     // one-shot state for an instant paint, then live stream
     apiGet("/api/state").then(renderSnapshot).catch(function (e) {
       if (e.status === 403) { show($("app"), false); show($("auth-gate"), true); }

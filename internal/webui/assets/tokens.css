@@ -37,6 +37,15 @@
      the on-air dot, focus rings, the on-air underline, a §-marker rule,
      install-box hover, the live-market dot. */
   --live:         #E0231C; /* on air / live / primary action / focus */
+
+  /* THE WAVE SPECTRUM - the seven tiers, in ladder order, in the founder's own
+     hues. Byte-identical to web/src/styles/base.css --tier-* and to the TUI's
+     waveSpectrum (internal/tui/palette.go), so the site, the terminal and this
+     console all paint one ladder. Used here for the chat carrier; anything else
+     that wants the family's colours takes them from these, never a fresh hex. */
+  --tier-pico: #b23a2a; --tier-nano: #c96a1c; --tier-micro: #b0891a;
+  --tier-giga: #2f8a52; --tier-tera: #1f8f8f; --tier-peta: #2f63bf;
+  --tier-exa:  #5b3fbf;
   --live-tint:    #FBE7E5; /* the only red fill (behind a dot / on hover) */
   --live-glow:    rgba(224, 35, 28, 0.26);
   --live-wash:    rgba(224, 35, 28, 0.10);
