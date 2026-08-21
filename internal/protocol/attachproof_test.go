@@ -142,3 +142,52 @@ func hexEncode(b []byte) string {
 	}
 	return string(out)
 }
+
+// THE SEPARATION SURVIVES A FIELD THAT CARRIES A SEPARATOR, and this is the invariant that was
+// silently doing the work while a different one was written down.
+//
+// The argument above says an attach statement contains no line feed, so it cannot be in the
+// image of CanonicalRequest. That is true only if every caller validates every field, and one
+// did not: cmd/rogerai-broker/toweredgeattach.go validated the TRIMMED Station id and put the
+// RAW one in the statement, so "\n\n\nst-x\n" reached these bytes and the alphabet was not
+// closed. The separation held anyway, by a property nobody had claimed: this statement always
+// ends "...\x00<assertion>\x00<session>\x00<digest>", so whatever follows its LAST line feed
+// carries at least one NUL, while CanonicalRequest always ends with a BARE HEX digest after its
+// last line feed and hex can never contain a NUL.
+//
+// So this is the assertion that must hold for ANY input, including the ones a caller should
+// never send. It also fails the moment somebody reorders the fields and the digest stops being
+// last, which is the drift it exists to catch.
+func TestAnAttachStatementStaysOutOfCanonicalRequestEvenWithSeparatorsInItsFields(t *testing.T) {
+	hostile := AttachProof{
+		Network:      "roger\npublic",
+		CallerPubkey: "aa\nbb",
+		TS:           1755000000,
+		StationID:    "\n\n\nst-advlf\n",
+		AssertionKey: "cc\ndd",
+		SessionKey:   "ee\nff",
+		Body:         []byte("{\n}\n"),
+	}
+	stmt := string(hostile.statement())
+	tail := stmt[strings.LastIndex(stmt, "\n")+1:]
+	if !strings.ContainsRune(tail, 0) {
+		t.Fatalf("nothing after this statement's last line feed carries a NUL (%q), so it could be "+
+			"read as a CanonicalRequest's trailing digest - the digest is no longer last", tail)
+	}
+	// And the other half, against the real function: what follows CanonicalRequest's last line
+	// feed is bare hex, which can never carry a NUL.
+	for _, m := range []string{"GET", "POST", "roger-hub-door-v1 GET", ""} {
+		cr := CanonicalRequest(m, "/poll?nonce=\x00x", 1755000000, []byte("\x00"))
+		crTail := cr[strings.LastIndex(cr, "\n")+1:]
+		if strings.ContainsRune(crTail, 0) {
+			t.Fatalf("CanonicalRequest(%q) ends %q, which carries a NUL - the tail argument no "+
+				"longer separates the two spaces", m, crTail)
+		}
+	}
+	// The two together: a signature over one is never valid over the other, even here.
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	mustBe(t, err == nil, "keygen")
+	hostile.AssertionKey = hexEncode(pub)
+	reqSig := hexEncode(ed25519.Sign(priv, []byte(CanonicalRequest("POST", "/tower/edge/attach", hostile.TS, hostile.Body))))
+	mustBe(t, !hostile.Verify(reqSig), "a hub-request signature verified as an attach proof")
+}

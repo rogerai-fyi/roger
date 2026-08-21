@@ -1305,3 +1305,74 @@ func TestParityALateRefusalDoesNotRenameTheWinningStation(t *testing.T) {
 		require.Equal(t, station, replayed.StationID)
 	})
 }
+
+// KEY LOOKUPS ARE EXACT-STRING IN BOTH STORES, and that is RECORDED here rather than fixed.
+//
+// # WHY THIS TEST EXISTS
+//
+// protocol.AttachProof.Verify hex-DECODES the assertion key, and hex decoding is
+// case-insensitive: "AB" and "ab" are one key. Every uniqueness path in this package compares
+// the STRING - memStore.ByAssertionKey scans for equality, PGStore.byLiveKey is a `WHERE
+// assertion_key=$1`, checkBindings compares the two. So one real keypair, offered twice in
+// different hex cases, satisfied the proof both times and produced TWO Stations, contradicting
+// the invariant checkBindings states in as many words: "two Stations signing offers with one key
+// are one signer wearing two identities."
+//
+// # WHY THE FIX IS NOT HERE
+//
+// It was tempting to normalize in this package, and it would be wrong. This store holds keys as
+// OPAQUE STRINGS - the classic invite path takes whatever an operator wrote, and nothing here
+// knows or should know that a key is hex rather than base64 or a label. Lower-casing at this
+// layer would be a silent transformation of somebody else's identifier, and it would only cover
+// the callers that happen to route through here. The canonical form belongs at the door, where
+// the request is parsed and the shape is checked - cmd/rogerai-broker/toweredgeattach.go, which
+// now lower-cases both keys once, before the proof is verified and before anything is read.
+//
+// # WHAT THIS THEREFORE ASSERTS
+//
+// That the assumption the door's fix rests on is TRUE, on Postgres as well as in memory. If a
+// future migration makes these columns `citext`, or gives them a nondeterministic
+// case-insensitive collation, this test goes red - and that is the notification to want, because
+// the two stores would then disagree with each other while both looked correct.
+func TestParityKeyLookupsAreExactStrings(t *testing.T) {
+	eachStore(t, func(t *testing.T, s Store, r *Registry, now time.Time) {
+		const (
+			upperA = "AABBCCDDEEFF00112233445566778899AABBCCDDEEFF001122334455667788AA"
+			lowerA = "aabbccddeeff00112233445566778899aabbccddeeff001122334455667788aa"
+			upperK = "FFEEDDCCBBAA99887766554433221100FFEEDDCCBBAA998877665544332211FF"
+			lowerK = "ffeeddccbbaa99887766554433221100ffeeddccbbaa998877665544332211ff"
+			mixedS = "st-mixedcase"
+			mixedI = "sinv-mixedcase"
+		)
+		require.NoError(t, s.PutAuthorization(withSecret(Authorization{
+			ID: mixedI, Network: net, StationID: mixedS, Owner: owner,
+			Origin:       Origin{Kind: OriginJoined, TowerID: tower},
+			AssertionKey: upperA, SessionKey: upperK,
+			IssuedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Hour),
+		})))
+		at, err := r.Admit(Proof{
+			AuthID: mixedI, Secret: inviteSecret, Network: net, StationID: mixedS, Owner: owner,
+			Origin: Origin{Kind: OriginJoined, TowerID: tower}, AssertionKey: upperA, SessionKey: upperK,
+		})
+		require.NoError(t, err)
+		require.Equal(t, mixedS, at.StationID)
+
+		// The row is found by the spelling it was written with...
+		got, ok, err := s.ByAssertionKey(upperA)
+		require.NoError(t, err)
+		require.True(t, ok)
+		require.Equal(t, mixedS, got.StationID)
+
+		// ...and NOT by the same key spelled the other way, in either store. This is the whole
+		// finding: the store binds a spelling, not a key.
+		_, ok, err = s.ByAssertionKey(lowerA)
+		require.NoError(t, err)
+		require.False(t, ok,
+			"this store matches assertion keys case-INSENSITIVELY; the door's canonicalization is "+
+				"no longer the only thing holding 'one key, one Station' up, and the two stores now "+
+				"disagree about who is who")
+		_, ok, err = s.BySessionKey(lowerK)
+		require.NoError(t, err)
+		require.False(t, ok, "this store matches session keys case-INSENSITIVELY - see above")
+	})
+}

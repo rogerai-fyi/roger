@@ -390,12 +390,12 @@ func (l *Loop) Send(ctx context.Context, userText string, emit func(Event)) (str
 			// even without its raw material, and re-sending it would spend another billed
 			// call to fail the same way; the operator's /clear or /model is the real fix
 			// and the error now says so honestly.
-			if have := l.compactableBytes(); have > 0 {
+			if have := l.compactableBytes(); have >= minCompactionGain {
 				compacted = true
 				freed, dropped := l.compactForWindow(have)
 				emitStep(Event{Kind: EventNotice, Text: fmt.Sprintf(
-					"compacted the session: dropped %d KB of tool output from %d earlier tool %s to fit the window",
-					freed/1024, dropped, map[bool]string{true: "call", false: "calls"}[dropped == 1])})
+					"compacted the session: dropped %s of tool output from %d earlier tool %s to fit the window",
+					humanBytes(freed), dropped, map[bool]string{true: "call", false: "calls"}[dropped == 1])})
 				continue
 			}
 		}

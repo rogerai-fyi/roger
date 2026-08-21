@@ -1893,6 +1893,18 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// 835s freeze: working line + corner Ping spin on, input blocked, esc stuck on
 		// "cancelling…"). Re-arm so the rest of the turn keeps flowing.
 		return m, m.waitAgentEvent()
+	case agentDrainRetryMsg:
+		// The parked-queue re-check (see submitAgentPrompt). If the previous goroutine
+		// has finished, drain; if it somehow has not, arm one more beat rather than
+		// dropping the prompt on the floor - which is the bug this exists to fix.
+		if len(m.agentQueued) == 0 || m.agentBusy {
+			return m, nil
+		}
+		if m.agent != nil && m.agent.running.Load() {
+			return m, agentDrainSoon()
+		}
+		nm, cmd := m.dequeueAgentPrompts()
+		return nm, cmd
 	case agentDoneMsg:
 		m.agentBusy = false
 		m.agentCanceling = false

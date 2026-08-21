@@ -1,7 +1,7 @@
 package agent
 
-// tower_attach_proof_test.go is the CONTRACT between the two halves of the attach possession
-// proof: what this node emits, and what Roger Core verifies.
+// tower_attach_proof_test.go is THIS NODE'S HALF of the attach possession proof: what
+// AttachTower emits, checked against the real protocol.AttachProof verifier.
 //
 // It exists because protocol.AttachProof is deliberately ONE type used by both sides, which is
 // the right shape (a second copy of a canonical form is how a signing scheme grows a hole) and
@@ -10,6 +10,23 @@ package agent
 // verifier that leaves out the same field, and both stay green. What can still drift is what the
 // CLIENT puts in the struct - the timestamp it names, the account key it names, the body it
 // hashes - and that is what this pins, against the real AttachTower and the real verifier.
+//
+// # IT IS NOT THE WHOLE CONTRACT, AND IT USED TO SAY IT WAS
+//
+// It called itself "the contract between the halves" and it is only one of them. CORE's half -
+// which value the handler pulls from where before it rebuilds the statement - is HAND-COPIED
+// into the httptest handler below, because the real handler lives in package main under
+// cmd/rogerai-broker and no test in this package can reach it.
+//
+// A review found what that costs. The real handler put the UNTRIMMED station id into the
+// statement while validating and binding the TRIMMED one; the copy below did the same thing by
+// accident; a real node sends a clean id, so both agreed and this stayed green while the id that
+// was signed and the id that was bound were different values. The copy is kept - it is a
+// readable statement of what a verifier has to do, and it is what makes the client-side
+// assertions here meaningful - but the PAIRING is pinned where both halves are production code:
+// cmd/rogerai-broker/toweredgeattach_contract_test.go runs this same AttachTower against the
+// broker's own route table and asserts on the row that results. Anything about what CORE does
+// with a field belongs there, not here.
 
 import (
 	"crypto/ed25519"
@@ -36,9 +53,11 @@ func TestAttachTowerProvesItHoldsTheAssertionKey(t *testing.T) {
 	)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
-		// EXACTLY WHAT THE BROKER DOES (cmd/rogerai-broker/toweredgeattach.go): the keys and the
-		// station id come out of the BODY, the caller key and timestamp out of the headers that
-		// authenticated the request, and the proof is checked against the key being claimed.
+		// A RESTATEMENT of what the broker does (cmd/rogerai-broker/toweredgeattach.go): the keys
+		// and the station id come out of the BODY, the caller key and timestamp out of the headers
+		// that authenticated the request, and the proof is checked against the key being claimed.
+		// A restatement is all it can be from this package, which is exactly why it is not the
+		// authority on the handler's wiring - see the file header.
 		var req struct {
 			StationID    string `json:"station_id"`
 			AssertionKey string `json:"assertion_key"`

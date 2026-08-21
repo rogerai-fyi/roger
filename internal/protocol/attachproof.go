@@ -70,16 +70,28 @@ package protocol
 //     or version can bridge them.
 //   - BY SHAPE, which is what covers space 1, whose strings carry no domain tag at all.
 //     CanonicalRequest is method + "\n" + path + "\n" + ts + "\n" + digest, so EVERY string in
-//     it contains at least three line feeds. This statement contains NONE: its separator is NUL,
-//     its fields are hex, a decimal integer, a network name and a Station ID (st-[a-z0-9]+ - the
-//     name-injection gate in attach/stationid.go is what makes that a closed alphabet), and not
-//     one of those can carry a line feed. A byte string with no LF is not in the image of
-//     CanonicalRequest for ANY input, so the separation does not depend on what the method
-//     happens to be - which matters, because the door signature already puts a label where
-//     CanonicalRequest expects a method and the next scheme may put something else there.
+//     it contains at least three line feeds. This statement contains none WHEN ITS FIELDS ARE
+//     WELL-FORMED: its separator is NUL, its fields are hex, a decimal integer, a network name
+//     and a Station ID (st-[a-z0-9]+ - the name-injection gate in attach/stationid.go is what
+//     makes that a closed alphabet, and the handler now runs it on the same value it signs), and
+//     not one of those can carry a line feed. A byte string with no LF is not in the image of
+//     CanonicalRequest for ANY input.
+//   - AND BY TAIL, WHICH IS THE ARGUMENT ACTUALLY DOING THE WORK - recorded here because it was
+//     load-bearing for a release before anybody had written it down. The no-line-feed argument
+//     above depends on every caller validating every field, and one of them did not: the handler
+//     validated the TRIMMED Station id and signed the RAW one, so "\n\n\nst-x\n" reached this
+//     statement and its alphabet was not closed after all. The separation survived anyway, by a
+//     property nobody had claimed. This statement ALWAYS ends
+//     "...\x00<assertion>\x00<session>\x00<body digest>", so whatever appears after its last
+//     line feed contains at least one NUL. CanonicalRequest always ends with a BARE HEX DIGEST
+//     after its last line feed, and hex can never contain a NUL. So the two spaces are disjoint
+//     even when a field carries a separator, and they stay disjoint as long as this statement
+//     KEEPS ITS DIGEST LAST. A future field reorder that moves the digest away from the end
+//     silently removes this, which is why it is stated rather than left to be re-derived - and
+//     why the version suffix on the domain tag must be bumped by any such reorder.
 //
-// Neither argument depends on the other, and the second holds even if somebody later adds a
-// third tagged space that collides with the first.
+// No argument depends on another, and the shape ones hold even if somebody later adds a third
+// tagged space that collides with the first.
 //
 // It also cannot be produced as a SIDE EFFECT of ordinary operation, which is the half that is
 // easy to forget: a node signs hub requests through Station.SignRequest and receipts through

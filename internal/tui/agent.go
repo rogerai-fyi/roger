@@ -1201,6 +1201,16 @@ type queuedPrompt struct {
 	echoed bool
 }
 
+// agentDrainRetryMsg re-attempts a parked queue after the previous turn's goroutine has
+// had a moment to exit. See the deadlock note in submitAgentPrompt.
+type agentDrainRetryMsg struct{}
+
+// agentDrainSoon schedules one drain re-check. Short, because the only thing being
+// waited on is a goroutine finishing its return - not a model call.
+func agentDrainSoon() tea.Cmd {
+	return tea.Tick(120*time.Millisecond, func(time.Time) tea.Msg { return agentDrainRetryMsg{} })
+}
+
 // submitAgentPrompt starts ONE agent turn for prompt q: it echoes the ask, re-resolves
 // the model, flips the busy/streaming state, and launches the loop goroutine + the drain.
 // It assumes q is a chat turn (not a slash command - those are handled by the caller / by
@@ -1215,7 +1225,17 @@ func (m model) submitAgentPrompt(q queuedPrompt) (model, tea.Cmd) {
 	if m.agent != nil && m.agent.running.Load() {
 		m.agentQueued = append([]queuedPrompt{q}, m.agentQueued...) // jump the queue: it was next
 		m.agentLines = append(m.agentLines, stDim.Render("⏳ STANDBY · ")+stDim.Render(clipLine(p))+stDim.Render(" (previous turn still wrapping up)"))
-		return m, nil
+		// AND ARM A RE-TRY. Returning nil here was a deadlock (founder screenshot: two
+		// STANDBY prompts parked while the deck read "standing by" with no turn running).
+		//
+		// The race: the loop goroutine sends agentDoneMsg and only THEN clears `running`.
+		// A prompt submitted in that window sees running=true and parks - but the drain
+		// it was waiting for has already happened, and nothing sends another. The queue
+		// sat there forever.
+		//
+		// Re-checking on a short beat closes it without restructuring the handoff: the
+		// goroutine exits within milliseconds, so this fires once and drains.
+		return m, agentDrainSoon()
 	}
 	// No model tuned in: don't fire a doomed turn (the "no station on air" spam). Echo the
 	// ask, park it, and kick a SILENT auto-tune; runAutoTune sends it the moment a free
@@ -2543,7 +2563,7 @@ func (m model) displayAgentLines(w int) []string {
 		}
 		if strings.HasPrefix(ln, agentAnswerMark) {
 			flush()
-			out = append(out, agentAnswerBlock(strings.TrimPrefix(ln, agentAnswerMark))...)
+			out = append(out, answerSlate(agentAnswerBlock(strings.TrimPrefix(ln, agentAnswerMark)), cw)...)
 			continue
 		}
 		if strings.HasPrefix(ln, askMark) {
@@ -2701,8 +2721,8 @@ func (m model) agentAskLines(p string) []string {
 // Mono / dumb terminals keep the bare ▌ bar: the escape hatch bandUser always had, and
 // the reason the depth is decoration over an already-legible line.
 func askSlate(text string, w int) []string {
-	if paletteMono || !canTint(lipgloss.DefaultRenderer().ColorProfile()) {
-		rows := strings.Split(ansi.Wrap(text, max(1, w-4), ""), "\n")
+	rows := strings.Split(ansi.Wrap(text, max(1, w-4), ""), "\n")
+	if !slatesOn() {
 		out := make([]string, 0, len(rows))
 		for i, r := range rows {
 			lead := "  "
@@ -2713,34 +2733,35 @@ func askSlate(text string, w int) []string {
 		}
 		return out
 	}
-	face := lipgloss.NewStyle().Background(cSlate).Foreground(cSlateText).Bold(true)
-	bar := lipgloss.NewStyle().Background(cSlate).Foreground(cLive).Bold(true)
-
-	rows := strings.Split(ansi.Wrap(text, max(1, w-4), ""), "\n")
-	out := make([]string, 0, len(rows)+1)
+	bar := lipgloss.NewStyle().Foreground(cLive).Bold(true)
+	body := lipgloss.NewStyle().Foreground(cSlateText).Bold(true)
+	styled := make([]string, 0, len(rows))
 	for i, r := range rows {
-		mark := "  "
 		if i == 0 {
-			mark = "▌ "
-		}
-		cell := mark + r
-		if pad := w - lipgloss.Width(cell); pad > 0 {
-			cell += strings.Repeat(" ", pad)
-		}
-		if i == 0 {
-			out = append(out, bar.Render("▌ ")+face.Render(cell[len("▌ "):]))
+			styled = append(styled, bar.Render("▌ ")+body.Render(r))
 			continue
 		}
-		out = append(out, face.Render(cell))
+		styled = append(styled, body.Render("  "+r))
 	}
-	// The shadow: one darker row, the width of the card. It is what makes the face
-	// read as lifted rather than merely tinted.
-	return append(out, lipgloss.NewStyle().Background(cSlateShade).Render(strings.Repeat(" ", w)))
+	return slateBlock(styled, w, cSlate, cSlateShade)
 }
 
 // agentAnswerBlock renders the model's prose with a left gutter on every line ("◂" on
 // the first, a quiet bar on the rest), so a multi-line answer reads as ONE block
 // against the surrounding tool chatter instead of dissolving into it.
+// answerSlate encloses a rendered answer in the station's block - the other half of the
+// telegram pair (slate.go). Quieter than the ask: same shape so the exchange reads as
+// one, a step darker so it reads as the other side of it.
+//
+// The rows arrive already styled (code fences, diff colours, bullets), which is exactly
+// the case slateBlock's re-armed background exists for.
+func answerSlate(rows []string, w int) []string {
+	if !slatesOn() || len(rows) == 0 {
+		return rows
+	}
+	return slateBlock(rows, w, cReply, cSlateShade)
+}
+
 func agentAnswerBlock(t string) []string {
 	lines := strings.Split(t, "\n")
 	out := make([]string, 0, len(lines))

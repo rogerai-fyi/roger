@@ -141,6 +141,33 @@ func (s *Station) SignRequest(method, target string, body []byte) (pubHex string
 // Same reasoning as SignRequest for why this is a method and not an AssertionPriv() accessor:
 // it hands out a signature over bytes this package chose, rather than the material to sign
 // anything at all.
+//
+// # THE HAZARD IN THE FOUR ARGUMENTS, WHICH IS RECORDED RATHER THAN NARROWED
+//
+// A security review asked what a SECOND caller could do with this, and the answer is worth
+// writing down before there is one. The domain tag bounds it hard: these bytes cannot be read
+// as a hub poll (protocol.CanonicalRequest) or as a receipt (towerobj), so no caller can steer
+// this method into signing in either of those spaces, and that is the property that keeps this
+// from being an oracle over the assertion key.
+//
+// What a caller CAN do is choose the request the proof is bound to. Pass somebody else's
+// account key as callerPubHex, their timestamp and their body, and you get a valid proof that
+// binds THIS Station's keys to THEIR attach - which is the assertion-key squat with the victim's
+// own software as the accomplice. Nothing in this file can detect that, because a proof for a
+// legitimate attach and a proof for a hostile one differ only in whose request the four
+// arguments describe.
+//
+// It is not narrowed today because there is exactly ONE caller, internal/agent's AttachTower,
+// and it supplies values it produced itself, in the same function, moments earlier: the account
+// key and timestamp come straight out of its own protocol.SignRequest and the body is the one
+// it is about to send. Narrowing would mean this method building the whole attach body, which
+// puts the offer (model, modality, prices) into a package whose stated boundary is "nothing here
+// dials" and which knows nothing about offers.
+//
+// SO THE RULE FOR A SECOND CALLER IS THE THING TO CHECK, not the signature: every one of these
+// four values must be the caller's OWN request, freshly signed by it, and never a value that
+// arrived from outside the process. A caller that cannot say that needs a different design, not
+// this method.
 func (s *Station) SignAttachProof(network, callerPubHex string, ts int64, body []byte) string {
 	return protocol.AttachProof{
 		Network:      network,
@@ -193,9 +220,18 @@ func Init(dir string) (*Station, error) {
 		[]byte(hex.EncodeToString(sessionPriv)), 0o600); err != nil {
 		return nil, err
 	}
+	// THE ID IS DERIVED FROM THE ASSERTION KEY, not drawn from crypto/rand, and that is a
+	// security property rather than a tidy-up. A random id is unguessable, which sounds like the
+	// stronger choice and is not: it is also unRECLAIMABLE. Core's reaper deletes a terminal
+	// attachment thirty days after a revoke, and the id it frees is public - it has been the
+	// leftmost label of this Station's relay DNS name and the relay_name in every authorize
+	// answer it ever served - so anybody could then bind that name to a Station of their own,
+	// and this directory, which keeps its id forever with no re-mint path, would be refused its
+	// own identity on every re-attach from then on. An id that is a function of the key can only
+	// be claimed by the machine holding that key. See protocol.DeriveStationID.
 	s := &Station{
 		Warnings:      warnings,
-		StationID:     "st-" + randomHex(12),
+		StationID:     protocol.DeriveStationID(assertion.Public().(ed25519.PublicKey)),
 		Assertion:     hex.EncodeToString(assertion.Public().(ed25519.PublicKey)),
 		Session:       hex.EncodeToString(sessionPub),
 		dir:           dir,
@@ -293,6 +329,35 @@ func Open(dir string) (*Station, error) {
 			"(recorded %s, on disk %s) - this directory has been partially overwritten",
 			dir, stateFile, short(s.Session), short(got))
 	}
+	// AND THE ID IS RESTAMPED IF IT PREDATES DERIVATION - repaired, like the file modes above,
+	// rather than refused like the mismatches above THAT.
+	//
+	// The distinction is which value is recoverable. A state file whose recorded public key
+	// disagrees with the key file has lost information: nobody can say which half is the real
+	// Station, so Open refuses. A state file whose id is not the one its key derives has lost
+	// nothing at all - the correct id is a pure function of a key that is right here, so there
+	// is exactly one possible answer and computing it is the whole repair. Refusing instead
+	// would take a working provider off the network over a value we can recompute, with no
+	// remedy but deleting the identity, which is precisely the outcome the derivation exists to
+	// prevent.
+	//
+	// It is loud because a Station that Core already attached under the OLD id keeps serving
+	// under that old id - the handler answers a re-attach idempotently from the assertion key,
+	// so the row is found and its recorded id is what comes back - while this file now says
+	// something else. That divergence is harmless and confusing, and only an operator can decide
+	// whether to revoke and start clean. No node in the field is in this position: self-attach
+	// is absent from tag v5.7.1, so the population is development directories.
+	if want := protocol.DeriveStationID(s.AssertionPub()); s.StationID != want {
+		s.Warnings = append(s.Warnings, fmt.Sprintf(
+			"this Station's id (%s) predates identity derivation and has been restamped as %s, "+
+				"which is the id its assertion key mints; if Core already attached it under the "+
+				"old id it will keep serving under that one until it is revoked and re-attached",
+			s.StationID, want))
+		s.StationID = want
+		if err := s.save(); err != nil {
+			return nil, fmt.Errorf("%s: restamping the Station id: %w", dir, err)
+		}
+	}
 	return s, nil
 }
 
@@ -384,12 +449,4 @@ func writeFreshKey(path string) (ed25519.PrivateKey, error) {
 		return nil, err
 	}
 	return priv, nil
-}
-
-func randomHex(n int) string {
-	raw := make([]byte, n)
-	if _, err := rand.Read(raw); err != nil {
-		panic("crypto/rand unavailable: " + err.Error())
-	}
-	return hex.EncodeToString(raw)
 }

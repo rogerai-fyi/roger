@@ -91,15 +91,35 @@ func (l *Loop) compactForWindow(want int) (freed, dropped int) {
 	return freed, dropped
 }
 
-// compactableBytes is how much compaction could free right now - the size of every
-// prunable tool result before this turn. The caller uses it to decide whether a retry
-// is worth attempting at all: freeing nothing and re-sending the same conversation
-// would just spend another billed call to fail the same way.
+// minCompactionGain is the least a compaction must be able to free to be worth a retry.
+//
+// FOUNDER SCREENSHOT 2026-08-21: "compacted the session: dropped 0 KB of tool output
+// from 1 earlier tool call". Two bugs in one line. compactableBytes counted the SIZE of
+// prunable results, but pruning replaces each one with a marker of its own - so a 200
+// byte result frees about a hundred bytes, and a handful of small results frees
+// effectively nothing. We spent a billed model call to re-send a conversation that had
+// barely changed, and then told the operator we had freed 0 KB, which is both useless
+// and slightly insulting.
+//
+// The floor makes the decision honest: unless there is real material to drop, the
+// overflow is not coming from tool output and compaction is not the answer - /clear or
+// a roomier band is, which is what the error already says.
+const minCompactionGain = 4 << 10 // 4 KiB
+
+// compactableBytes is how much compaction could actually free right now: the size of
+// every prunable tool result before this turn, MINUS the marker each one leaves behind.
+// The caller uses it to decide whether a retry is worth attempting at all - freeing
+// nothing and re-sending the same conversation just spends another billed call to fail
+// the same way.
 func (l *Loop) compactableBytes() int {
 	total := 0
 	for i := 0; i < l.turnStart && i < len(l.messages); i++ {
 		if m := l.messages[i]; prunable(m) {
-			total += len(m.Content)
+			// The NET gain, not the gross size: what is dropped is the content, what is
+			// added back is the marker naming it.
+			if gain := len(m.Content) - len(prunedMarker(m.Name, len(m.Content))); gain > 0 {
+				total += gain
+			}
 		}
 	}
 	return total

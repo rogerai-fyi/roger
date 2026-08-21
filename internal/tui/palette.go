@@ -69,6 +69,13 @@ var (
 	cSlateShade = lipgloss.AdaptiveColor{Light: "#C9C6BC", Dark: "#0A0908"} // bottom lip, falling away
 	cSlateText  = lipgloss.AdaptiveColor{Light: "#0F0E0A", Dark: "#FFFDF6"} // the question, brightest ink
 
+	// THE STATION'S FACE. The answer's block, quieter than the operator's: the same
+	// shape so the pair reads as one exchange, a step darker so it reads as the other
+	// side of it. Sitting between the deck (#0E0D0B) and the ask face (#221F19) puts
+	// the two blocks either side of the ground, which is what separates them at a
+	// glance without a second accent colour.
+	cReply = lipgloss.AdaptiveColor{Light: "#F4F2EC", Dark: "#17150F"}
+
 	// cLiveSurface is the solid but restrained red-wine plate behind a truthfully
 	// broker-acknowledged ON AIR provider panel. The text still says ON AIR; color
 	// improves hierarchy but never carries state alone.

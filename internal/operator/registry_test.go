@@ -94,7 +94,7 @@ func TestRegistryMVPSet(t *testing.T) {
 	for _, g := range reg {
 		names = append(names, g.Name)
 	}
-	if want := []string{"opencode", "hermes", "aider", "claude", "codex"}; !reflect.DeepEqual(names, want) {
+	if want := []string{"opencode", "hermes", "aider", "dsh", "claude", "codex"}; !reflect.DeepEqual(names, want) {
 		t.Fatalf("registry must be the guest set in order %v, got %v", want, names)
 	}
 	for _, g := range reg {

@@ -103,6 +103,23 @@ func TestBrandArtsExactBytes(t *testing.T) {
 			},
 			lockup: ">_ codex · openai",
 		},
+		{
+			// dsh is the one COMPOSED plate: it ships no ASCII banner to reproduce, so
+			// this is the house's drawing of their name in the same block family as its
+			// neighbours. Pinned byte-for-byte like the traced ones anyway - composed is
+			// not licence to let it drift.
+			name: "dsh",
+			rows: []string{
+				"██████╗ ███████╗██╗  ██╗",
+				"██╔══██╗██╔════╝██║  ██║",
+				"██║  ██║███████╗███████║",
+				"██║  ██║╚════██║██╔══██║",
+				"██████╔╝███████║██║  ██║",
+				"╚═════╝ ╚══════╝╚═╝  ╚═╝",
+				"        deepseek harness",
+			},
+			lockup: "dsh · deepseek harness",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -123,8 +140,12 @@ func TestBrandArtsExactBytes(t *testing.T) {
 			}
 		})
 	}
-	if len(arts) != 5 {
-		t.Fatalf("BrandArts() carries exactly the five doc plates, got %d", len(arts))
+	// AMENDED 2026-08-21: dsh joined the desk (founder), so six. The guarantee this
+	// count holds is that a plate cannot be added WITHOUT being described here - the
+	// table above is the doc, and a plate nobody documented is one nobody checked the
+	// spans, width or lockup of. dsh has its own case in that table.
+	if len(arts) != 6 {
+		t.Fatalf("BrandArts() carries exactly the six doc plates, got %d", len(arts))
 	}
 }
 

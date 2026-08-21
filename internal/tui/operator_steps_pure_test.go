@@ -78,12 +78,23 @@ func (s *opBDD) detectionNames() []string {
 
 func (s *opBDD) theGuestOperatorRegistry() error { return nil } // Background anchor
 
-func (s *opBDD) registryListsExactly(a, b, c, d, e string) error {
+// AMENDED 2026-08-21: this took exactly five arguments, so the regex behind it stopped
+// matching the moment a sixth guest joined the desk - and godog reports that as an
+// UNDEFINED step, not a failing one, which reads like a missing test rather than a list
+// that grew. It takes the whole quoted list now and splits it, so adding a guest is a
+// one-line change in the .feature and nothing else.
+func (s *opBDD) registryListsExactly(list string) error {
+	var want []string
+	for _, part := range strings.Split(list, ",") {
+		if n := strings.Trim(strings.TrimSpace(part), `"`); n != "" {
+			want = append(want, n)
+		}
+	}
 	var names []string
 	for _, g := range operator.Registry() {
 		names = append(names, g.Name)
 	}
-	if want := []string{a, b, c, d, e}; !reflect.DeepEqual(names, want) {
+	if !reflect.DeepEqual(names, want) {
 		return fmt.Errorf("registry = %v, want %v", names, want)
 	}
 	return nil

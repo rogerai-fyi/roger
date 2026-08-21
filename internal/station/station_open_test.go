@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"rogerai.fm/roger/v5/internal/protocol"
 )
 
 // The property the relay join depends on: the same directory answers with the same identity
@@ -127,4 +128,73 @@ func TestOpenLoadsKeysThatStillWork(t *testing.T) {
 	require.Equal(t, hex.EncodeToString(loaded.AssertionPub()), loaded.Assertion)
 	require.Equal(t, hex.EncodeToString(loaded.SessionPub()), loaded.Session)
 	require.Equal(t, minted.SessionPub(), loaded.SessionPub())
+}
+
+// THE STATION ID IS THE ASSERTION KEY'S, and a directory minted before that rule is restamped
+// rather than refused.
+//
+// A random id is unguessable, which reads as the safer choice and is not: it is also
+// unreclaimable. Core's reaper DELETES a terminal attachment thirty days after a revoke, and the
+// id it frees has been public the whole time - it was the leftmost label of this Station's relay
+// DNS name and the relay_name in every authorize answer it served. Anybody could then bind that
+// name to a Station of their own, and this directory, which keeps its id forever with no re-mint
+// path, would meet "this Station ID is already bound to another assertion key" on every
+// re-attach from then on. Deriving the id from the key makes it claimable only by the machine
+// that holds the key. See protocol.DeriveStationID.
+func TestAFreshStationsIdIsDerivedFromItsAssertionKey(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "st")
+	s, err := Init(dir)
+	require.NoError(t, err)
+	require.Equal(t, protocol.DeriveStationID(s.AssertionPub()), s.StationID)
+
+	// Written down, not merely returned: the next process reads it from the file.
+	again, err := Open(dir)
+	require.NoError(t, err)
+	require.Equal(t, s.StationID, again.StationID)
+
+	// Two Stations are two identities, which is the other half of "the id is the key": nothing
+	// about the derivation makes distinct keys share a name.
+	other, err := Init(filepath.Join(t.TempDir(), "st"))
+	require.NoError(t, err)
+	require.NotEqual(t, s.StationID, other.StationID)
+}
+
+// A LEGACY DIRECTORY IS REPAIRED AND SAYS SO, which is the migration in one test.
+//
+// Open REFUSES a state file whose recorded public key disagrees with the key file, because that
+// has lost information and nobody can say which half is the real Station. An id that is not the
+// one its key derives has lost nothing at all - there is exactly one possible answer and it is
+// computable from a key that is right here - so refusing would take a working provider off the
+// network over a value we can recompute, with no remedy but deleting the identity. That is the
+// precise outcome the derivation exists to prevent, so this repairs, and warns.
+func TestOpenRestampsAStationIdMintedBeforeDerivation(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "st")
+	s, err := Init(dir)
+	require.NoError(t, err)
+	want := s.StationID
+
+	// The shape the OLD Init wrote: "st-" + 12 random bytes of hex.
+	const legacy = "st-0f1e2d3c4b5a69788796a5b4"
+	raw, err := os.ReadFile(filepath.Join(dir, stateFile))
+	require.NoError(t, err)
+	var onDisk map[string]any
+	require.NoError(t, json.Unmarshal(raw, &onDisk))
+	onDisk["station_id"] = legacy
+	rewritten, err := json.Marshal(onDisk)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, stateFile), rewritten, 0o600))
+
+	reopened, err := Open(dir)
+	require.NoError(t, err, "a legacy id must not be a refusal - there is no remedy but deletion")
+	require.Equal(t, want, reopened.StationID)
+	require.NotEmpty(t, reopened.Warnings)
+	require.Contains(t, reopened.Warnings[len(reopened.Warnings)-1], legacy,
+		"the warning names the id that was replaced, so an operator can match it to their records")
+
+	// AND THE REPAIR IS DURABLE AND QUIET THE SECOND TIME. A restamp that only ever lived in
+	// memory would warn on every start and re-do the work forever.
+	third, err := Open(dir)
+	require.NoError(t, err)
+	require.Equal(t, want, third.StationID)
+	require.Empty(t, third.Warnings, "a repaired directory has nothing left to report")
 }

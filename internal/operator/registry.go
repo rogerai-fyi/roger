@@ -86,6 +86,17 @@ func Registry() []Guest {
 			Brand:       plates["aider"],
 		},
 		{
+			// dsh - the DeepSeek Harness. A FULL guest, not context-only: it reaches a
+			// custom OpenAI-compatible provider through its own .dsh/settings.yaml, which
+			// is exactly what a scratch config is for, so a RogerAI band can be handed to
+			// it the same way opencode's is.
+			Name: "dsh", Bin: "dsh", Provider: "openai",
+			InstallHint: "npm install -g @deepseek-ai/dsh",
+			KnownGood:   "0.1.0-rc.7", // the build verified on the dev box, 2026-08-21
+			Strategy:    StrategyScratchConfig,
+			Brand:       plates["dsh"],
+		},
+		{
 			Name: "claude", Bin: "claude", Provider: "anthropic",
 			InstallHint: "npm install -g @anthropic-ai/claude-code",
 			KnownGood:   "2.1.220", // verified on the dev box, 2026-07-28

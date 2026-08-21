@@ -185,6 +185,41 @@ func BrandArts() map[string]*BrandArt {
 			Width:  15,
 			Lockup: BrandRow{Text: ">_ codex · openai"}, // plain: no hue, honestly
 		},
+		// §6 dsh - the DeepSeek Harness (founder 2026-08-21: add it to the desk).
+		//
+		// HONESTY NOTE, because it breaks this file's rule. Every plate above is a
+		// character-exact reproduction of the wordmark that tool actually prints:
+		// opencode's `--help` mark, hermes's banner.py, codex's own glyph. dsh prints
+		// NO banner - its identity is a whale glyph and a "deepseek HARNESS" lockup in
+		// the web UI, neither of which is an ASCII artifact to copy. So this one is
+		// COMPOSED, in the same block family as its neighbours, from their real name.
+		// It is the house's drawing of their name, not their drawing, and the next
+		// reader should know that rather than assume it was traced like the rest.
+		//
+		// Two-tone ink rather than their blue (#4D6BFE): the desk maps every guest to
+		// the house ramp so five plates read as one shelf, and hermes's gold is the
+		// single exception because its banner IS the gold.
+		"dsh": {
+			Rows: []BrandRow{
+				{Text: "██████╗ ███████╗██╗  ██╗", Ink: BrandInk{Token: InkKey}},
+				{Text: "██╔══██╗██╔════╝██║  ██║", Ink: BrandInk{Token: InkKey}},
+				{Text: "██║  ██║███████╗███████║", Ink: BrandInk{Token: InkKey}},
+				{Text: "██║  ██║╚════██║██╔══██║", Ink: BrandInk{Token: InkDim}},
+				{Text: "██████╔╝███████║██║  ██║", Ink: BrandInk{Token: InkDim}},
+				{Text: "╚═════╝ ╚══════╝╚═╝  ╚═╝", Ink: BrandInk{Token: InkDim}},
+				// Right-aligned under the mark like hermes's byline: the wordmark is 24
+				// runes and "deepseek harness" is 16, so it starts at col 8 and the plate
+				// stays exactly 24 wide. (First pass had it 28 wide against a declared 27 -
+				// caught by the span lock, which is what that lock is for.)
+				{Text: "        deepseek harness",
+					Spans: []BrandSpan{{From: 8, To: 24, Ink: BrandInk{Token: InkDim}}}},
+			},
+			Width: 24,
+			Lockup: BrandRow{Text: "dsh · deepseek harness", Spans: []BrandSpan{
+				{From: 0, To: 3, Ink: BrandInk{Token: InkKey}},
+				{From: 6, To: 22, Ink: BrandInk{Token: InkDim}},
+			}},
+		},
 	}
 }
 
