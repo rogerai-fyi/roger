@@ -1037,13 +1037,19 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.status = stDim.Render(ansi.Strip(m.openConsole()))
 		return m, nil
 	case "ctrl+o":
-		m.mouseOff = !m.mouseOff
-		m.smartSel = smartSelState{}
-		m.status = mouseStatusLine(m.mouseOff)
-		if m.mouseOff {
-			return m, tea.DisableMouse
+		// OPEN THE MACHINERY (founder 2026-08-20). Tool cards fold to one count line by
+		// default; this expands the run and folds it back.
+		//
+		// ⌃o used to toggle the mouse here. That verb is not lost - /mouse still does it,
+		// and it is a thing you set once a session, not a thing you reach for mid-turn,
+		// which is exactly what this fold IS. The key goes to the frequent verb.
+		m.showToolCalls = !m.showToolCalls
+		if m.showToolCalls {
+			m.status = stDim.Render("tool machinery open · ⌃o folds it back")
+		} else {
+			m.status = stDim.Render("tool machinery folded · ⌃o opens it")
 		}
-		return m, tea.EnableMouseCellMotion
+		return m, nil
 	case "ctrl+n":
 		// Recall a NEWER sent prompt; past the newest it restores the stashed draft.
 		if !m.agentBusy {
@@ -1663,7 +1669,7 @@ func (m model) onAgentEvent(e agentEventMsg) (tea.Model, tea.Cmd) {
 		}
 	case harness.EventToolCall:
 		m.agentTurnState = poseTool
-		m.agentLines = append(m.agentLines, agentToolCallLine(e.Tool, toolArgSummary(e.Tool, e.Args)))
+		m.agentLines = append(m.agentLines, toolCardMark+agentToolCallLine(e.Tool, toolArgSummary(e.Tool, e.Args)))
 		m.agentActivityLine = len(m.agentLines) - 1
 		m.agentActivityTool = e.Tool
 		m.agentActivityTarget = toolArgSummary(e.Tool, e.Args)
@@ -1690,7 +1696,7 @@ func (m model) onAgentEvent(e agentEventMsg) (tea.Model, tea.Cmd) {
 		default:
 			mark, tail = stLive.Render("  ✓ "), stDim.Render("ok"+resultHint(e.Result))
 		}
-		card := mark + stDim.Render(e.Tool)
+		card := toolCardMark + mark + stDim.Render(e.Tool)
 		if m.agentActivityTarget != "" {
 			card += stDim.Render("   " + m.agentActivityTarget)
 		}
@@ -2064,7 +2070,7 @@ func (m model) agentView(w int) string {
 	// can page through (PgUp/PgDn, Ctrl+U/D, mouse wheel, arrows) even while a turn
 	// streams, so a long answer or tool dump can be read back. Sized to min(content,
 	// budget); the persisted scroll position + auto-stick-to-bottom live in refreshScroll.
-	content := transcriptContent(m.displayAgentLines(), w)
+	content := transcriptContent(m.displayAgentLines(w), w)
 	m.agentVP.Width = w
 	promptRows := m.agentPromptRowCount(w)
 	budget := m.agentTranscriptRows(cornerRows, promptRows)
@@ -2397,7 +2403,7 @@ func (m model) agentModeLine(w int) string {
 func (m *model) markAgentActivityApproved(tool string) {
 	m.agentActivityApproved = true
 	if !m.agentActivityRunning || m.agentActivityLine < 0 || m.agentActivityLine >= len(m.agentLines) {
-		m.agentLines = append(m.agentLines, "  "+lampStyle(roleDial).Render("◐")+stDim.Render(" ⚙ "+tool+" · approved · running"))
+		m.agentLines = append(m.agentLines, toolCardMark+"  "+lampStyle(roleDial).Render("◐")+stDim.Render(" ⚙ "+tool+" · approved · running"))
 		m.agentActivityLine = len(m.agentLines) - 1
 		m.agentActivityTool = tool
 		m.agentActivityRunning = true
@@ -2438,12 +2444,22 @@ const agentAnswerMark = "\x1d"
 // real content, so displayAgentLines can recognize + strip it.
 const toolOutMark = "\x1e"
 
+// toolCardMark tags a tool CALL or RESULT card in agentLines - the "⚙ read_file" /
+// "✓ read_file · ok · 51 bytes" machinery lines. Kept in the buffer, but FOLDED to a
+// single count line by default (founder 2026-08-20: "i want this to be hidden ... lets
+// hide a lot of the extra noise and keep it clean"). ⌃o opens the fold.
+//
+// A C0 control byte for the same reason toolOutMark is one: it survives ansi.Strip,
+// so anything that leaks it (clipboard, the RC wire) has to strip it explicitly.
+const toolCardMark = "\x1f"
+
 // displayAgentLines is the render view of agentLines with the tool-output toggle applied:
 // when showToolOutput is off (default), the tagged preview lines are dropped and the result
 // line above them gains a dim `d·output` hint; when on, the previews render (tag stripped).
 // So the machinery stays one dim line each by default, with the full output a `d` away.
-func (m model) displayAgentLines() []string {
+func (m model) displayAgentLines(w int) []string {
 	out := make([]string, 0, len(m.agentLines))
+	fold := make([]string, 0, 8)
 	hinted := false
 	for i, ln := range m.agentLines {
 		// The confirmation gate is the sole command surface while approval is
@@ -2466,9 +2482,114 @@ func (m model) displayAgentLines() []string {
 			continue
 		}
 		hinted = false
+		if strings.HasPrefix(ln, toolCardMark) {
+			body := ln[len(toolCardMark):]
+			if m.showToolCalls {
+				out = append(out, body)
+				continue
+			}
+			// FOLDED: swallow the card. The run of them is replaced by one count line
+			// below, so a turn that touched eleven files reads as one row of machinery
+			// instead of eleven (founder 2026-08-20).
+			fold = append(fold, body)
+			continue
+		}
+		out = flushFold(out, fold, w)
+		fold = fold[:0]
 		out = append(out, ln)
 	}
-	return out
+	return flushFold(out, fold, w)
+}
+
+// flushFold turns a swallowed run of tool cards into ONE line: how many ran, which
+// tools they were (in first-seen order, deduped), and the key that opens them. It is
+// deliberately a real summary rather than a bare "6 tool calls" - the tool NAMES are
+// the part a reader actually scans for ("did it run a shell? did it search?"), and
+// keeping them means folding costs no information a glance was using.
+//
+// A single card does not fold: replacing one line with a different one-line summary
+// that says less is pure loss.
+func flushFold(out, fold []string, w int) []string {
+	if len(fold) == 0 {
+		return out
+	}
+	if len(fold) == 1 {
+		return append(out, fold[0])
+	}
+	// A call and its result are two cards for ONE tool run, so count the results -
+	// every completed run has exactly one - and fall back to the raw card count for a
+	// run still in flight (a call with no result yet).
+	names, seen, done := make([]string, 0, 4), map[string]bool{}, 0
+	for _, c := range fold {
+		flat := strings.TrimSpace(ansi.Strip(c))
+		if strings.HasPrefix(flat, "✓") || strings.HasPrefix(flat, "✕") || strings.HasPrefix(flat, "x ") {
+			done++
+		}
+		if n := foldToolName(flat); n != "" && !seen[n] {
+			seen[n] = true
+			names = append(names, n)
+		}
+	}
+	n := done
+	if n == 0 {
+		n = len(fold)
+	}
+	unit := "tool calls"
+	if n == 1 {
+		unit = "tool call"
+	}
+	line := "  " + stDim.Render(glyphs.Fold("⋯")+" "+fmt.Sprintf("%d %s", n, unit))
+	if len(names) > 0 {
+		shown := names
+		extra := 0
+		if len(shown) > 4 {
+			extra, shown = len(shown)-4, shown[:4]
+		}
+		tail := strings.Join(shown, ", ")
+		if extra > 0 {
+			tail += fmt.Sprintf(", +%d", extra)
+		}
+		line += stDim.Render(" · " + tail)
+	}
+	line += stDim.Render("  ·  ") + stKey.Render("⌃o") + stDim.Render(" opens")
+	return append(out, truncVisible(line, w))
+}
+
+// foldToolName pulls the tool name out of a stripped card line. The card shapes put
+// a varying number of glyphs in front of it - "⚙ read_file …" (a call), "✓ read_file
+// · ok" (a result), "◐ ⚙ read_file · running" (an approved call in flight) - so this
+// takes the first field that LOOKS like a tool name rather than a fixed position.
+// Taking f[1] blind picked "⚙" out of the three-glyph shape.
+//
+// Tool names in this harness are snake_case ASCII identifiers; anything else returns
+// "", so a card shape that changes degrades to a bare count rather than to garbage.
+func foldToolName(flat string) string {
+	for _, f := range strings.Fields(flat) {
+		if isToolIdent(f) {
+			return f
+		}
+	}
+	return ""
+}
+
+func isToolIdent(s string) bool {
+	if s == "" || len(s) > 32 {
+		return false
+	}
+	for i, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r == '_':
+		case r >= '0' && r <= '9' && i > 0:
+		default:
+			return false
+		}
+	}
+	// A bare "ok"/"running"/"approved" is a status word, not a tool.
+	switch s {
+	case "ok", "running", "approved", "denied", "error", "bytes":
+		return false
+	}
+	return true
 }
 
 // agentToolCallLine renders a tool CALL as dim machinery-texture (design overhaul §4): a

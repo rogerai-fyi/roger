@@ -181,6 +181,11 @@ func TestCtrlOTogglesNativeSelect(t *testing.T) {
 	}
 }
 
+// AMENDED 2026-08-20: this pressed ctrl+o to toggle the mouse. That key now opens the
+// tool-machinery fold (founder), and mouse mode - a set-once-a-session thing rather
+// than a mid-turn one - keeps /mouse. The guarantee is unchanged and re-anchored: the
+// mouse can still be handed to the terminal and taken back from inside AGENT, and the
+// toggle must still emit the terminal command that actually does it.
 func TestAgentCanToggleMouseCapture(t *testing.T) {
 	m := browseSeed(120)
 	m.mode = modeAgent
@@ -189,15 +194,25 @@ func TestAgentCanToggleMouseCapture(t *testing.T) {
 	if m.mouseOff {
 		t.Fatal("smart selection must own the mouse initially")
 	}
-	out, cmd := m.onAgentKey(tea.KeyMsg{Type: tea.KeyCtrlO})
+	out, cmd := m.runAgentCommand("/mouse")
 	m = asModel(out)
 	if !m.mouseOff || cmd == nil {
-		t.Fatal("AGENT ctrl+o must restore native selection")
+		t.Fatal("AGENT /mouse must restore native selection")
 	}
 	out, cmd = m.runAgentCommand("/mouse")
 	m = asModel(out)
 	if m.mouseOff || cmd == nil {
-		t.Fatal("AGENT /mouse must restore smart selection")
+		t.Fatal("AGENT /mouse again must restore smart selection")
+	}
+	// ...and ctrl+o now belongs to the fold, leaving the mouse alone entirely.
+	before := m.mouseOff
+	out, _ = m.onAgentKey(tea.KeyMsg{Type: tea.KeyCtrlO})
+	m2 := asModel(out)
+	if m2.mouseOff != before {
+		t.Error("ctrl+o must not touch mouse mode any more")
+	}
+	if !m2.showToolCalls {
+		t.Error("ctrl+o must open the folded tool machinery")
 	}
 }
 

@@ -36,9 +36,12 @@ Feature: TUNE IN prompt wrapping and vertical fit
     And ordinary click-drag selection belongs to the terminal
     And running "/mouse" again restores smart selection and wheel scrolling
 
-  Scenario: Mouse mode can be changed from AGENT
+  # ctrl+o moved to the tool-machinery fold (founder 2026-08-20). Mouse mode is a
+  # thing you set once a session, not one you reach for mid-turn, so it keeps the
+  # command and gives up the key. The verb is not lost - only its shortcut moved.
+  Scenario: Mouse mode can be changed from AGENT with the command
     Given I am typing in AGENT mode
-    When I press ctrl+o
+    When I run the AGENT command "/mouse"
     Then terminal mouse reporting is disabled
     When I run the AGENT command "/mouse"
     Then terminal mouse reporting is enabled

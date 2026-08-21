@@ -354,7 +354,7 @@ func (m model) smartSelectionCopyText(sel smartSelState) string {
 	case modeChat:
 		yOff, entries = m.chatVP.YOffset, m.transcript
 	case modeAgent:
-		yOff, entries = m.agentVP.YOffset, m.displayAgentLines()
+		yOff, entries = m.agentVP.YOffset, m.displayAgentLines(m.effWidth())
 	}
 	rows := selectionRows(entries, m.effWidth())
 	clampY := func(y int) int { return min(max(y, top), top+h-1) }

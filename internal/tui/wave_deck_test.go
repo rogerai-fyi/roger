@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 // wave_deck_test.go - the 2026-08-20 AGENT deck revamp, locked.
@@ -173,5 +175,111 @@ func TestWaveSpectrumMatchesTheSiteLadder(t *testing.T) {
 		if got := waveSpectrum[i].Dark; got != w.dark {
 			t.Errorf("%s dark = %s, want %s (must match the site's dark --tier-%s)", w.name, got, w.dark, strings.ToLower(w.name))
 		}
+	}
+}
+
+// ── THE TOOL-MACHINERY FOLD ──────────────────────────────────────────────────
+// Founder 2026-08-20, with a screenshot of a turn whose ⚙/✓ chatter had pushed the
+// answer off the screen: "i want this to be hidden ... lets hide a lot of the extra
+// noise and keep it clean".
+
+// foldSeed builds a transcript with a run of tool cards around some prose.
+func foldSeed(t *testing.T) model {
+	t.Helper()
+	m := browseSeed(110)
+	m.width, m.height = 110, 30
+	m.mode = modeAgent
+	m.agent = m.newAgentRuntime()
+	card := func(tool, arg string) []string {
+		return []string{
+			toolCardMark + agentToolCallLine(tool, arg),
+			toolCardMark + stLive.Render("  ✓ ") + stDim.Render(tool) + stDim.Render("   "+arg) + stDim.Render(" · ok · 51 bytes"),
+		}
+	}
+	var ls []string
+	ls = append(ls, card("read_file", "settings.yaml")...)
+	ls = append(ls, card("web_search", "dsh local models")...)
+	ls = append(ls, card("run_shell", "echo ports")...)
+	ls = append(ls, "  Endpoints are live.")
+	m.agentLines = ls
+	return m
+}
+
+func TestToolMachineryFoldsByDefault(t *testing.T) {
+	m := foldSeed(t)
+	if m.showToolCalls {
+		t.Fatal("the machinery must start folded - that is the whole ask")
+	}
+	got := m.displayAgentLines(110)
+	if len(got) != 2 {
+		t.Fatalf("six cards + one prose line should fold to 2 rows, got %d:\n%s", len(got), strings.Join(got, "\n"))
+	}
+	flat := stripANSI(got[0])
+	// Counts RESULTS, not cards: a call and its result are one tool run.
+	if !strings.Contains(flat, "3 tool calls") {
+		t.Errorf("the fold must count runs, not cards: %q", flat)
+	}
+	// The tool NAMES survive - they are what a reader scans for.
+	for _, want := range []string{"read_file", "web_search", "run_shell"} {
+		if !strings.Contains(flat, want) {
+			t.Errorf("the fold must name %q: %q", want, flat)
+		}
+	}
+	if !strings.Contains(flat, "⌃o") {
+		t.Errorf("the fold must say how to open it: %q", flat)
+	}
+	// A glyph is not a tool name (the extractor used to read "⚙" as one).
+	if strings.Contains(flat, "⚙") {
+		t.Errorf("a glyph leaked into the tool-name list: %q", flat)
+	}
+	// Prose is never folded.
+	if !strings.Contains(stripANSI(got[1]), "Endpoints are live") {
+		t.Errorf("prose must survive the fold: %q", got[1])
+	}
+}
+
+func TestToolMachineryOpensWithCtrlO(t *testing.T) {
+	m := foldSeed(t)
+	out, _ := m.onAgentKey(tea.KeyMsg{Type: tea.KeyCtrlO})
+	m = asModel(out)
+	if !m.showToolCalls {
+		t.Fatal("ctrl+o must open the fold")
+	}
+	got := m.displayAgentLines(110)
+	if len(got) != 7 {
+		t.Errorf("opened, every card shows: want 7 rows, got %d", len(got))
+	}
+	for _, l := range got {
+		if strings.Contains(l, toolCardMark) {
+			t.Error("the card mark leaked into a rendered line")
+		}
+	}
+	out, _ = m.onAgentKey(tea.KeyMsg{Type: tea.KeyCtrlO})
+	if asModel(out).showToolCalls {
+		t.Error("ctrl+o must fold it back")
+	}
+}
+
+// A single tool run does not fold: swapping one line for a one-line summary that says
+// less is pure loss.
+func TestSingleToolRunDoesNotFold(t *testing.T) {
+	m := foldSeed(t)
+	m.agentLines = []string{toolCardMark + agentToolCallLine("read_file", "settings.yaml")}
+	got := m.displayAgentLines(110)
+	if len(got) != 1 || strings.Contains(stripANSI(got[0]), "tool call ·") {
+		t.Errorf("a lone card must render as itself, got %q", got)
+	}
+}
+
+// The mark is a C0 byte that ansi.Strip preserves, so anything leaving the TUI has to
+// drop it explicitly or it rides invisibly into a clipboard or across the RC wire.
+func TestToolCardMarkNeverEscapes(t *testing.T) {
+	m := foldSeed(t)
+	if txt := m.agentTranscriptText(); strings.Contains(txt, toolCardMark) {
+		t.Error("the card mark leaked into the copied/streamed transcript")
+	}
+	m.showToolCalls = true
+	if txt := m.agentTranscriptText(); strings.Contains(txt, toolCardMark) {
+		t.Error("the card mark leaked with the fold open")
 	}
 }

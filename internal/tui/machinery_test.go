@@ -24,7 +24,7 @@ func agentWithToolOutput(t *testing.T) model {
 // E1 - tool OUTPUT is HIDDEN by default; the result line carries a d·output hint instead.
 func TestToolOutputHiddenByDefault(t *testing.T) {
 	m := agentWithToolOutput(t)
-	joined := stripANSI(strings.Join(m.displayAgentLines(), "\n"))
+	joined := stripANSI(strings.Join(m.displayAgentLines(80), "\n"))
 	if strings.Contains(joined, "a.go") {
 		t.Errorf("tool output must be hidden by default:\n%s", joined)
 	}
@@ -37,7 +37,7 @@ func TestToolOutputHiddenByDefault(t *testing.T) {
 func TestToolOutputExpands(t *testing.T) {
 	m := agentWithToolOutput(t)
 	m.showToolOutput = true
-	joined := stripANSI(strings.Join(m.displayAgentLines(), "\n"))
+	joined := stripANSI(strings.Join(m.displayAgentLines(80), "\n"))
 	if !strings.Contains(joined, "a.go") || !strings.Contains(joined, "c.go") {
 		t.Errorf("expanded output should show the preview content:\n%s", joined)
 	}

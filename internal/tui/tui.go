@@ -961,6 +961,12 @@ type model struct {
 	// dims to texture: the tool CALL + result stay one dim line each, the full output rides
 	// behind this toggle (design overhaul §4).
 	showToolOutput bool
+
+	// showToolCalls opens the folded tool-machinery cards (⌃o). Default FALSE: a turn
+	// that touched eleven files used to print twenty-two rows of ⚙/✓ chatter and push
+	// the actual answer off the screen (founder 2026-08-20, with a screenshot of it).
+	// Folded, that same turn reads as one line naming what ran.
+	showToolCalls bool
 	// async, cached update check (non-blocking) + the in-TUI upgrade banner state
 	updateLine string // "update available v<cur> -> v<new>" or "" (set by updateMsg)
 	upg        upgState
@@ -3044,7 +3050,7 @@ func (m model) agentTranscriptText() string {
 		// Un-mark tool-output preview lines: toolOutMark (\x1e) is a C0 control byte that
 		// ansi.Strip preserves, so it would otherwise leak invisibly into the clipboard and
 		// across the RC wire. The full content is kept, only the tag byte is dropped.
-		l = strings.TrimPrefix(l, toolOutMark)
+		l = strings.TrimPrefix(strings.TrimPrefix(l, toolOutMark), toolCardMark)
 		lines = append(lines, ansi.Strip(l))
 	}
 	return strings.Join(lines, "\n")
@@ -7586,7 +7592,7 @@ func (m model) refreshScroll() model {
 	}
 
 	agentBottom := m.agentVP.AtBottom()
-	agentContent := transcriptContent(m.displayAgentLines(), w)
+	agentContent := transcriptContent(m.displayAgentLines(w), w)
 	m.agentVP.Width = w
 	m.agentVP.Height = clampRows(lineRows(agentContent), m.agentTranscriptRows(m.agentCornerRows(), m.agentPromptRowCount(w)))
 	m.agentVP.SetContent(agentContent)

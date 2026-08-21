@@ -33,7 +33,7 @@ func TestAgentFinalRenderShapes(t *testing.T) {
 	if len(stored) != 1 || stored[0] != agentAnswerMark+"first\nsecond" {
 		t.Fatalf("canonical answer storage = %q", stored)
 	}
-	got := rendered.displayAgentLines()
+	got := rendered.displayAgentLines(80)
 	got = got[len(got)-2:]
 	if !strings.HasPrefix(stripANSI(got[0]), "◂ first") || !strings.HasPrefix(stripANSI(got[1]), "▏ second") {
 		t.Errorf("display answer block = %q", got)
