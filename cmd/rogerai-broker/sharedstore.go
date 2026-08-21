@@ -158,6 +158,16 @@ type sharedStore interface {
 	// instance's own dispatch decisions).
 	markInflight(instanceID, node string, count int, now time.Time) error
 
+	// markInflightBatch is markInflight for MANY nodes in ONE round trip, and it is what the
+	// publisher (edgeload.go) actually calls; the singular form above is one entry through the
+	// same code. The batch exists because the refresh tick republishes every node this instance
+	// is carrying, and doing that one pipelined call per node per counter made the tick's cost
+	// linear in the fleet: ~100ms at a hundred busy nodes and a couple of seconds at two
+	// thousand, all of it sequential, with a sick backend charging sharedOpTimeout for each.
+	// The batched READ (inflightByNodeKeyed) has worked this way since it was written; this is
+	// the write side catching up.
+	markInflightBatch(instanceID string, counts map[string]int, now time.Time) error
+
 	// inflightByNode returns, for every node any instance has reported, the SUM of all
 	// instances' in-flight counts EXCEPT this instance's own (selfInstanceID is excluded
 	// so the caller can add its exact live local count without double-counting). The
@@ -174,11 +184,20 @@ type sharedStore interface {
 	// b.inflight is not merely load, it is EVIDENCE: the classic paid router divides by it,
 	// and probeOnce refuses to canary any node whose count is non-zero. An edge attempt is a
 	// reservation any signed-in account can open for a refundable fraction of a cent, before
-	// it has submitted a byte. Publishing edge load into the CLASSIC hash would hand that
-	// lever straight back across the instance boundary: a peer merges inflightByNode into
-	// peerInflight, and peerInflight is added to the classic load divisor in pickFor. The
-	// split therefore has to survive the write-through or it is not a split at all - it is a
-	// split on one process and a merge on every other.
+	// it has submitted a byte.
+	//
+	// EXACTLY WHICH HALF OF THAT CROSSES THE INSTANCE BOUNDARY, because the first version of
+	// this comment claimed both and an audit proved only one. Publishing edge load into the
+	// CLASSIC hash would hand a peer's PAID ROUTER the lever: a peer merges inflightByNode into
+	// peerInflight, and pickFor adds peerInflight to the classic load divisor, so an attempt
+	// opened on one instance would depress the node's score on every other. It would NOT reach
+	// probe suppression, and saying it would was wrong: probeOnce reads `b.inflight[n.NodeID]`
+	// and nothing else - it never consults peerInflight - so the canary lever is a same-process
+	// property that the split in broker.edgeLoad already keeps, with or without a second key.
+	// The correction matters because the false half is the more alarming half, and a later
+	// reader weighing "restore the symmetry, it is only ranking" has to be able to see that
+	// ranking IS the whole of what is at stake here, and that it is enough on its own: the
+	// score being depressed is the one that decides who gets paid work.
 	//
 	// Same shape as the classic pair in every other respect: per-instance hash fields under a
 	// per-node key, a TTL so a crashed instance's count ages out, and self-excluded sums so
@@ -186,6 +205,7 @@ type sharedStore interface {
 	// means the snapshot is unavailable this round, and the two callers of that snapshot want
 	// OPPOSITE things from the failure - see mergeSharedInflight and stationQuiescent.
 	markEdgeInflight(instanceID, node string, count int, now time.Time) error
+	markEdgeInflightBatch(instanceID string, counts map[string]int, now time.Time) error
 	edgeInflightByNode(selfInstanceID string) (map[string]int, error)
 
 	// markInstance records THIS broker process's presence heartbeat so peers (and the ops
@@ -387,7 +407,14 @@ func (m *memStore) Close() error  { return nil }
 func (m *memStore) markInflight(string, string, int, time.Time) error { return errNoSharedStore }
 func (m *memStore) inflightByNode(string) (map[string]int, error)     { return nil, errNoSharedStore }
 
+func (m *memStore) markInflightBatch(string, map[string]int, time.Time) error {
+	return errNoSharedStore
+}
+
 func (m *memStore) markEdgeInflight(string, string, int, time.Time) error { return errNoSharedStore }
+func (m *memStore) markEdgeInflightBatch(string, map[string]int, time.Time) error {
+	return errNoSharedStore
+}
 func (m *memStore) edgeInflightByNode(string) (map[string]int, error) {
 	return nil, errNoSharedStore
 }
@@ -1041,11 +1068,15 @@ func inflightKey(node string) string { return keyPrefix + "inflight:" + node }
 const inflightNodesKey = keyPrefix + "inflight:nodes"
 
 // The EDGE counter gets its own key namespace, not a second field in the classic hash.
-// See the interface comment on markEdgeInflight: the one-way split between edge load and
-// classic load is a security property, and a shared key would undo it on every instance
-// except the one that opened the attempt. The cost of the second namespace is one more
-// hash per busy node and one more pipelined round trip on the merge tick - which is the
-// whole cost, because the merge runs on the background loop and never on a request path.
+// See the interface comment on markEdgeInflight: sharing the key would put every instance's
+// edge attempts into the peer sum the CLASSIC paid router divides by, so a reservation
+// anybody can open for a fraction of a cent would depress the victim's score on the fabric
+// that pays it - everywhere except the instance that opened it. (It would not suppress the
+// victim's canary probes; that reader is local-only. The interface comment says which is
+// which and why the difference is worth keeping straight.) The cost of the second namespace
+// is one more hash per busy node and one more pipelined round trip on the merge tick - which
+// is the whole cost, because the merge runs on the background loop and never on a request
+// path.
 func edgeInflightKey(node string) string { return keyPrefix + "edgeinflight:" + node }
 
 const edgeInflightNodesKey = keyPrefix + "edgeinflight:nodes"
@@ -1060,17 +1091,34 @@ const inflightTTL = 60 * time.Second
 // under, so the classic and edge counters are the SAME algorithm over DIFFERENT keys -
 // which is exactly the relationship the design wants, and the only way to be sure a later
 // fix to one of them does not quietly apply to only one of them.
-func (v *valkeyStore) markInflightKeyed(op string, keyOf func(string) string, nodesKey, instanceID, node string, count int) error {
+// markInflightKeyed writes MANY nodes' counts in ONE pipelined round trip.
+//
+// ONE CALL FOR THE WHOLE SET, not one per node. The publisher that drives this republishes
+// every node this instance is carrying on the sync tick, and the per-node form made that
+// sequential: at two thousand busy nodes it was two thousand round trips, several seconds of a
+// five-second tick, and sharedOpTimeout apiece the moment the backend got sick. Batching the
+// write is the same shape the READ has had since inflightByNodeKeyed was written, and it costs
+// nothing at one node: a map of one produces exactly the four commands the old code sent.
+//
+// EMPTY IS A NO-OP AND NOT AN ERROR. The publisher can legitimately be handed nothing for one
+// of the two counters (a tick where only edge load moved), and issuing an empty pipeline just
+// to say so would be a round trip for no information.
+func (v *valkeyStore) markInflightKeyed(op string, keyOf func(string) string, nodesKey, instanceID string, counts map[string]int) error {
 	if v == nil || v.rdb == nil {
 		return errNoSharedStore
 	}
+	if len(counts) == 0 {
+		return nil
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
 	defer cancel()
-	key := keyOf(node)
 	pipe := v.rdb.Pipeline()
-	pipe.HSet(ctx, key, instanceID, count)
-	pipe.PExpire(ctx, key, inflightTTL)
-	pipe.SAdd(ctx, nodesKey, node)
+	for node, count := range counts {
+		key := keyOf(node)
+		pipe.HSet(ctx, key, instanceID, count)
+		pipe.PExpire(ctx, key, inflightTTL)
+		pipe.SAdd(ctx, nodesKey, node)
+	}
 	pipe.PExpire(ctx, nodesKey, inflightTTL)
 	if _, err := pipe.Exec(ctx); err != nil {
 		v.noteErr(op, err)
@@ -1081,11 +1129,19 @@ func (v *valkeyStore) markInflightKeyed(op string, keyOf func(string) string, no
 }
 
 func (v *valkeyStore) markInflight(instanceID, node string, count int, now time.Time) error {
-	return v.markInflightKeyed("markInflight", inflightKey, inflightNodesKey, instanceID, node, count)
+	return v.markInflightBatch(instanceID, map[string]int{node: count}, now)
+}
+
+func (v *valkeyStore) markInflightBatch(instanceID string, counts map[string]int, now time.Time) error {
+	return v.markInflightKeyed("markInflight", inflightKey, inflightNodesKey, instanceID, counts)
 }
 
 func (v *valkeyStore) markEdgeInflight(instanceID, node string, count int, now time.Time) error {
-	return v.markInflightKeyed("markEdgeInflight", edgeInflightKey, edgeInflightNodesKey, instanceID, node, count)
+	return v.markEdgeInflightBatch(instanceID, map[string]int{node: count}, now)
+}
+
+func (v *valkeyStore) markEdgeInflightBatch(instanceID string, counts map[string]int, now time.Time) error {
+	return v.markInflightKeyed("markEdgeInflight", edgeInflightKey, edgeInflightNodesKey, instanceID, counts)
 }
 
 func (v *valkeyStore) edgeInflightByNode(selfInstanceID string) (map[string]int, error) {

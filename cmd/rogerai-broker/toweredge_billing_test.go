@@ -211,8 +211,17 @@ func TestAReplayDoesNotReopenAResolvedAudit(t *testing.T) {
 // window is grantLifetime + edgeSettleGrace(). If the window ever outran holdTTL, a late-but-valid
 // receipt would find its hold already swept and settle for FREE with the operator unpaid. That
 // coupling is arithmetic (edgeSettleGrace derives from holdTTL) and easy to break with a future
-// change to the grant lifetime, the grace, or the margin - so it is asserted here across the
-// realistic holdTTL range, default included.
+// change to the grant lifetime, the grace, or the margin - so it is asserted here at every
+// holdTTL a deployment can actually produce, default included.
+//
+// THE SHORT VALUES ARE THE POINT, and they were missing. This test used to run from six minutes
+// upward and called that "the realistic range", which made the invariant read as unconditional
+// when it was only true above a threshold nobody had written down. edgeSettleGrace clamps at
+// minEdgeSettleGrace, and once it has clamped it no longer tracks holdTTL at all: at
+// ROGERAI_HOLD_TTL=2m the window was 2m against a 2m hold, so a receipt arriving in the last
+// seconds of its own window found the hold swept - free work, operator unpaid, reachable by
+// setting one environment variable. holdTTL is floored at minHoldTTL now, which is why every
+// row below passes; before the floor the first three failed.
 func TestEdgeSettleWindowStaysInsideTheHoldTTL(t *testing.T) {
 	check := func(t *testing.T) {
 		window := towerAttemptLifetime + edgeSettleGrace()
@@ -221,7 +230,7 @@ func TestEdgeSettleWindowStaysInsideTheHoldTTL(t *testing.T) {
 			window, holdTTL())
 	}
 	t.Run("default", check) // no ROGERAI_HOLD_TTL set
-	for _, ttl := range []string{"6m", "10m", "15m", "30m", "1h"} {
+	for _, ttl := range []string{"30s", "1m", "2m", "3m", "4m", "6m", "10m", "15m", "30m", "1h"} {
 		t.Run(ttl, func(t *testing.T) { t.Setenv("ROGERAI_HOLD_TTL", ttl); check(t) })
 	}
 }

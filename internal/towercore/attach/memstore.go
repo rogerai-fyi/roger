@@ -45,9 +45,36 @@ func NewMemStore() Store {
 	}
 }
 
+// PutAuthorization writes an invitation. SPENT IS ONE-WAY: a re-write may mark an invitation
+// consumed and may never un-consume one.
+//
+// THE TWO STORES DISAGREED HERE and nobody had noticed, because nothing in production re-writes
+// an invitation id with a stale flag. Postgres' ON CONFLICT DO UPDATE lists every column EXCEPT
+// consumed and consumed_by; this store replaced the whole row, so the same call handed the
+// caller back an UNSPENT invitation. That direction of the divergence is the dangerous one, and
+// it is the one closed here: Admit's first question is `auth.Consumed`, and answering it wrongly
+// skips the replay branch entirely - the caller runs on into checkBindings, hits the racer
+// short-circuit (`existing.AuthID == authID`), gets an EMPTY revived attachment back, and writes
+// Epoch 1 over a Station sitting at 2. An epoch that goes DOWN is the one thing the §6.6b fence
+// cannot survive, since its permanent 410 is licensed by monotonicity.
+//
+// WHY THIS IS AN "OR" AND NOT A COPY OF POSTGRES' RULE, which is the part worth reading twice.
+// Copying Postgres exactly - ignore both flags on an overwrite - looks like the parity fix and
+// is not: it would import a live defect INTO this store. `toweredgeattach.go` marks the internal
+// invitation consumed by re-putting it when a self-attach is refused, precisely so a refusal
+// loop cannot fill an owner's open-invite cap and lock them out; on Postgres that write is
+// silently dropped today (an audit found it: twenty-five refusals can bar an account from
+// attaching for up to the invite TTL, an hour), and it works here only because this store
+// overwrites. So the two stores are wrong in OPPOSITE directions on one method, and the rule
+// that satisfies both intents is monotonic: an invitation may be spent once and never unspent.
+// This store now follows it. Postgres still drops the mark - that is the recorded defect, it
+// needs a durable-store test of its own, and the fix there is the same OR in SQL.
 func (m *memStore) PutAuthorization(a Authorization) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if prior, exists := m.auths[a.ID]; exists && prior.Consumed {
+		a.Consumed, a.ConsumedBy = prior.Consumed, prior.ConsumedBy
+	}
 	m.auths[a.ID] = a
 	return nil
 }
@@ -143,6 +170,23 @@ func (m *memStore) Admit(authID string, at Attachment) (bool, error) {
 			existing.AssertionKey == at.AssertionKey && existing.SessionKey == at.SessionKey) {
 			return false, errAlreadyAttached
 		}
+	}
+	// AN EPOCH MAY ONLY GO UP, AND THAT IS NOW THIS STORE'S RULE RATHER THAN ITS CALLER'S.
+	//
+	// Registry.Admit is the only writer of an epoch and it only ever raises one, which is what
+	// lets the settlement fence answer a superseded grant with a permanent 410 instead of a
+	// retryable 503 - "no retry can un-supersede this placement" is a statement about
+	// monotonicity, and it was resting entirely on one function's control flow. A caller that
+	// reaches here with a LOWER epoch has computed the wrong attachment (Admit does so today if
+	// it is handed a revived invitation whose consumed flag was cleared underneath it), and the
+	// cheapest place to make that impossible is the write itself. The durable store carries the
+	// same clause in the same position; see pgstore.Admit.
+	//
+	// It refuses rather than clamps: a write whose epoch has not advanced is a write whose
+	// whole attachment is suspect, and silently keeping the old number would leave the rest of
+	// the row - origin tower, hub token, keys - written from the same bad computation.
+	if existing, taken := m.byID[at.StationID]; taken && at.Epoch <= existing.Epoch {
+		return false, errAlreadyAttached
 	}
 	for _, other := range m.byID {
 		// HELD, NOT LIVE. A dormant Station keeps its keys reserved - see StateDormant - and

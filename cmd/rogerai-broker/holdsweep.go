@@ -13,9 +13,32 @@ import (
 // Override with ROGERAI_HOLD_TTL (a Go duration, e.g. "10m"); <=0 disables the sweep.
 const defaultHoldTTL = 10 * time.Minute
 
+// minHoldTTL is the floor under a CONFIGURED hold TTL, and it is derived rather than chosen.
+//
+// The edge settlement window is an attempt's lifetime plus edgeSettleGrace(), and the whole
+// design of that grace is that the window stays strictly inside holdTTL: a receipt that arrives
+// late but valid must not find the consumer's hold already swept, because then the work
+// settles for free and the operator is unpaid. edgeSettleGrace() derives itself from holdTTL to
+// keep that true - but it also has a one-minute floor, and below a certain holdTTL the floor
+// wins and the relationship inverts. At ROGERAI_HOLD_TTL=2m the grace clamps to 1m, the window
+// is 2m, and the hold no longer outlives it. The invariant was asserted in a test across the
+// "realistic" range and was simply false outside it.
+//
+// So the floor is the two terms it has to clear plus a minute of margin, written as the sum
+// rather than as a number so that changing either term moves it, and the result is asserted at
+// production values - including the ones this clamps - by the settle-window test in
+// toweredge_billing_test.go.
+func minHoldTTL() time.Duration { return towerAttemptLifetime + minEdgeSettleGrace + time.Minute }
+
+// holdTTL is the configured hold lifetime, floored so the settlement window it bounds cannot
+// outrun it. A value of zero or less is left alone: that DISABLES the sweep, and a hold that is
+// never reclaimed cannot be reclaimed too early.
 func holdTTL() time.Duration {
 	if v := os.Getenv("ROGERAI_HOLD_TTL"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil {
+			if d > 0 && d < minHoldTTL() {
+				return minHoldTTL()
+			}
 			return d
 		}
 	}

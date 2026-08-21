@@ -2732,9 +2732,8 @@ func maxInt(a, b int) int {
 func (b *broker) enterInflight(node string) {
 	b.metricsMu.Lock()
 	b.inflight[node]++
-	count := b.inflight[node]
 	b.metricsMu.Unlock()
-	b.writeThroughInflight(node, count)
+	b.writeThroughInflight(node)
 }
 
 func (b *broker) exitInflight(node string, ok bool) {
@@ -2742,7 +2741,6 @@ func (b *broker) exitInflight(node string, ok bool) {
 	if b.inflight[node] > 0 {
 		b.inflight[node]--
 	}
-	count := b.inflight[node]
 	sample := 0.0
 	if ok {
 		sample = 1.0
@@ -2753,7 +2751,7 @@ func (b *broker) exitInflight(node string, ok bool) {
 		b.success[node] = sample
 	}
 	b.metricsMu.Unlock()
-	b.writeThroughInflight(node, count)
+	b.writeThroughInflight(node)
 }
 
 // writeThroughInflight mirrors THIS instance's current inflight count for a node into
@@ -2762,12 +2760,14 @@ func (b *broker) exitInflight(node string, ok bool) {
 // stale capacity (it falls back to its last merged value), never blocking a request. A
 // no-op when multi-instance is off (b.shared==nil / instanceID==""), so the
 // single-instance path is byte-for-byte unchanged.
-func (b *broker) writeThroughInflight(node string, count int) {
-	if !b.multiInstance || b.shared == nil || b.instanceID == "" {
-		return
-	}
-	_ = b.shared.markInflight(b.instanceID, node, count, time.Now())
-}
+//
+// IT NO LONGER TAKES THE COUNT ITS CALLER READ. Handing the value across meant publishing a
+// snapshot taken before the round trip, and two concurrent changes to one node then raced to
+// the store carrying different numbers - which under-stated load as readily as it over-stated
+// it, and under-stating RAISES the paid router's score for the node. The publisher reads the
+// count itself, under metricsMu, inside the critical section that owns the write order. See
+// publishSharedLoad in edgeload.go.
+func (b *broker) writeThroughInflight(node string) { b.markLoadDirty(node, false) }
 
 // syncInflight runs only under multi-instance: it periodically pulls the cross-instance
 // inflight snapshot (the SUM of OTHER instances' counts per node, self excluded) and

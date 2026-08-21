@@ -59,6 +59,12 @@ import (
 // done in time must not fail because its courier ran on a schedule.
 const maxEdgeSettleGrace = 10 * time.Minute
 
+// minEdgeSettleGrace is the shortest courier window Core will ever allow. A grace under a minute
+// would start refusing honest receipts for the ordinary cost of the road they travel - Station
+// outbox, Tower collection, one hop to Core - so the derivation below is floored rather than
+// allowed to shrink to nothing.
+const minEdgeSettleGrace = time.Minute
+
 // edgeSettleGrace keeps the settlement window strictly INSIDE the pre-auth hold's lifetime when
 // edge billing is on. A consumer's hold is reclaimed by the orphan sweep after holdTTL; if the
 // settlement window (grant lifetime + this grace) outran that, a late-but-valid receipt would
@@ -66,15 +72,47 @@ const maxEdgeSettleGrace = 10 * time.Minute
 // capped a few minutes under holdTTL, so the hold always outlives the deadline it guards. With a
 // generous holdTTL it is just maxEdgeSettleGrace; a short holdTTL shortens the courier window
 // rather than silently losing the money.
+//
+// THE FLOOR BELOW IS WHY holdTTL HAS ONE. Once this clamps at minEdgeSettleGrace the derivation
+// has stopped tracking holdTTL, and a small enough configured holdTTL made the window outrun the
+// hold - the exact failure the derivation exists to prevent, reachable by setting one
+// environment variable. holdTTL now refuses to be configured below the sum of the terms here;
+// see minHoldTTL. The two constraints have to be read together, which is why each names the
+// other.
 func edgeSettleGrace() time.Duration {
 	g := holdTTL() - 3*time.Minute // margin over the (sub-2m) grant lifetime
 	if g > maxEdgeSettleGrace {
 		g = maxEdgeSettleGrace
 	}
-	if g < time.Minute {
-		g = time.Minute
+	if g < minEdgeSettleGrace {
+		g = minEdgeSettleGrace
 	}
 	return g
+}
+
+// edgeExecDeadline recovers the instant a dispatch record's WORK had to be finished by, which
+// is not the instant the record carries.
+//
+// THE RECORD'S DEADLINE IS THE EVIDENCE CEILING. openEdgeAttempt writes
+// `Deadline: g.Deadline.Add(edgeSettleGrace())` under its own comment - "the grant bounds
+// execution, the record bounds evidence" - so a receipt is still admissible for minutes after
+// the Station has stopped being allowed to serve. Reading that field as though it were the
+// execution window is how the fence's deadline_open came to be a constant: the courier retries
+// every fifteen seconds inside a settlement window measured in minutes, so essentially every
+// firing found the EVIDENCE window open and logged true, and the one distinction the field was
+// built to draw - a consumer still waiting versus a spool that caught up late - could not be
+// drawn from it at all.
+//
+// SUBTRACTED RATHER THAN STORED, and the trade is worth naming. The exact alternative is a
+// second timestamp on the dispatch row, which is a column, a migration and a parity obligation
+// on both stores for a field that appears in one log line; the subtraction is exact whenever
+// edgeSettleGrace() is what it was at authorize time, and edgeSettleGrace derives from
+// ROGERAI_HOLD_TTL, which is deployment configuration and does not change under a live
+// attempt's feet. If it ever does change mid-window the field is off by the delta for the
+// attempts already in flight - a diagnostic reading slightly wrong for one settlement window,
+// which is a different order of thing from the constant it replaces.
+func edgeExecDeadline(rec dispatch.Record) time.Time {
+	return rec.Deadline.Add(-edgeSettleGrace())
 }
 
 // towerNodePrefix tags an earning lot's node as a Tower-RELAY share, so the earnings surface can
@@ -1149,12 +1187,13 @@ func (b *broker) edgeEnterInflight(attemptID, nodeID, account string, until time
 	}
 	b.edgeInflight[attemptID] = edgeAttemptLoad{nodeID: nodeID, account: account}
 	b.edgeLoad[nodeID]++
-	count := b.edgeLoad[nodeID]
 	b.metricsMu.Unlock()
 	// Publish OUTSIDE the lock, exactly as exitInflight does for the classic counter: metricsMu
 	// is held on the hot placement path and a shared-store round trip must never be taken under
-	// it. A no-op unless multi-instance is on. See writeThroughEdgeLoad.
-	b.writeThroughEdgeLoad(nodeID, count)
+	// it. The publisher re-reads the count under that lock itself, so nothing is carried across
+	// the gap and two concurrent brackets on one node cannot publish out of order. A no-op
+	// unless multi-instance is on. See writeThroughEdgeLoad and publishSharedLoad.
+	b.writeThroughEdgeLoad(nodeID)
 	if d := time.Until(until); d > 0 {
 		time.AfterFunc(d, func() { b.edgeExitInflight(attemptID) })
 	} else {
@@ -1199,15 +1238,15 @@ func (b *broker) edgeExitInflight(attemptID string) {
 	if b.edgeOpenByAccount[entry.account] == 0 {
 		delete(b.edgeOpenByAccount, entry.account)
 	}
-	count := b.edgeLoad[entry.nodeID]
 	b.metricsMu.Unlock()
 	// The DECREMENT is the write that matters most to a peer: it is the one that can let a
-	// placement or a re-placement proceed, and it is the only one refreshSharedLoad will not
-	// re-send for us (it republishes non-zero counts only, so that a stale republish can never
-	// under-state load). A lost zero here therefore over-states this station's load until the
-	// hash ages out at inflightTTL - the safe direction, and the reason this is still allowed to
-	// be best-effort.
-	b.writeThroughEdgeLoad(entry.nodeID, count)
+	// placement or a re-placement proceed. It is still best-effort, and it is now REPAIRABLE,
+	// which it was not: refreshSharedLoad republished non-zero counts only, so a zero that
+	// failed to land was skipped by every subsequent tick and the station stayed over-stated
+	// until the hash aged out at inflightTTL - a minute, on the counter whose whole purpose is
+	// to say when a Station is free. The tick now re-marks every node this instance believes it
+	// has a live non-zero published for, so a lost zero is corrected on the next one.
+	b.writeThroughEdgeLoad(entry.nodeID)
 }
 
 // towerEdgeAck accepts the consumer's signed statement about what it actually received.
@@ -1631,7 +1670,9 @@ func (b *broker) towerEdgeSettle(w http.ResponseWriter, r *http.Request) {
 			//                   verified until after this branch, so nothing here can assert the
 			//                   Station really served. False means the courier's spool caught up
 			//                   after the work had finished - still an operator unpaid, but not a
-			//                   consumer left waiting.
+			//                   consumer left waiting. It reads the EXECUTION deadline and not the
+			//                   record's own, which is a distinction this line got wrong for its
+			//                   whole (short) life - see edgeExecDeadline.
 			//   tower           WHICH relay was superseded, which is what makes "our moves off
 			//                   tower X keep destroying work" answerable at all.
 			//
@@ -1641,7 +1682,7 @@ func (b *broker) towerEdgeSettle(w http.ResponseWriter, r *http.Request) {
 			// gate's job and belongs at the gate, where the load at move time is known.
 			log.Printf("edge fence MOVED attempt=%s station=%s node=%s tower=%s grant_epoch=%d attach_epoch=%d epochs_skipped=%d deadline_open=%t - the placement moved under work already in flight; this delivery failed, nothing is paid, and the consumer's hold returns on the orphan sweep",
 				req.AttemptID, req.StationID, at.NodeID, req.TowerID, rec.StationEpoch, at.Epoch,
-				at.Epoch-rec.StationEpoch, time.Now().Before(rec.Deadline))
+				at.Epoch-rec.StationEpoch, time.Now().Before(edgeExecDeadline(rec)))
 			jsonErr(w, http.StatusGone, "this Station's placement changed after this attempt was authorized - the attempt is void and nothing is owed on it")
 			return
 		case epochFenceRegressed:

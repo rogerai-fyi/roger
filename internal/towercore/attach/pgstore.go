@@ -185,6 +185,20 @@ func (p *PGStore) PutAuthorization(a Authorization) error {
 		  model=EXCLUDED.model,
 		  modality=EXCLUDED.modality, price_in=EXCLUDED.price_in, price_out=EXCLUDED.price_out,
 		  issued_at=EXCLUDED.issued_at, expires_at=EXCLUDED.expires_at`,
+		// consumed / consumed_by ARE DELIBERATELY ABSENT from the update list: whether an
+		// invitation has been spent is this store's record of a race it arbitrated, and a later
+		// writer restating the invitation does not get to reopen it. The memory store now
+		// enforces the same one-way rule (see memstore.PutAuthorization).
+		//
+		// RECORDED, NOT FIXED: absent is not the same as one-way, and the difference is a live
+		// defect on this side. toweredgeattach marks its internal invitation consumed by
+		// re-putting it when a self-attach is REFUSED, so that a refusal loop cannot fill an
+		// owner's open-invite cap - and that write lands nowhere here. Twenty-five refusals can
+		// therefore bar an account from attaching until the invitations expire, up to an hour.
+		// The fix is `consumed = station_authorizations.consumed OR EXCLUDED.consumed` with
+		// consumed_by carried across the same CASE, and it wants a durable-store test written
+		// against a real database before it goes in; it is out of scope for the change that
+		// found it.
 		a.ID, a.Network, a.StationID, a.Owner, a.Origin.Kind, a.Origin.TowerID,
 		a.AssertionKey, a.SessionKey, a.CeilingHash, a.SecretHash, a.Role, a.HubToken, a.NodeID,
 		a.Model, a.Modality, a.PriceIn, a.PriceOut,
@@ -329,7 +343,16 @@ func (p *PGStore) Admit(authID string, at Attachment) (bool, error) {
 		    AND rogerai.station_attachments.owner = EXCLUDED.owner
 		    AND rogerai.station_attachments.origin_kind = EXCLUDED.origin_kind
 		    AND rogerai.station_attachments.assertion_key = EXCLUDED.assertion_key
-		    AND rogerai.station_attachments.session_key = EXCLUDED.session_key`,
+		    AND rogerai.station_attachments.session_key = EXCLUDED.session_key
+		    -- AND THE EPOCH MAY ONLY GO UP. Monotonicity was a caller invariant and nothing
+		    -- else: Registry.Admit is the only writer and it only ever raises the number, so
+		    -- the settlement fence is allowed to answer a superseded grant with a PERMANENT
+		    -- 410 rather than a retryable 503. That argument rests on one function's control
+		    -- flow; this clause makes it a property of the row. The revival path always
+		    -- satisfies it (revived.Epoch+1 is by construction greater), so it refuses only a
+		    -- write that has computed the wrong attachment - which Admit can do today if it is
+		    -- handed a revived invitation whose consumed flag was cleared underneath it.
+		    AND rogerai.station_attachments.epoch < EXCLUDED.epoch`,
 		at.StationID, at.Owner, at.AssertionKey, at.SessionKey, at.Origin.Kind,
 		at.Origin.TowerID, at.Epoch, at.CeilingHash, at.State, at.AttachedAt.UTC(),
 		at.AuthID, at.HubToken, at.NodeID, at.Model, at.Modality, at.PriceIn, at.PriceOut)
@@ -347,8 +370,8 @@ func (p *PGStore) Admit(authID string, at Attachment) (bool, error) {
 	}
 	// A CONFLICT WHOSE `WHERE` DID NOT HOLD AFFECTS NO ROWS AND RAISES NO ERROR, so silence here
 	// is a refusal rather than a success: the Station ID exists and is not a dormant row this
-	// machine may wake. Rolling back leaves the invitation unspent, which is what a refused
-	// attachment is owed.
+	// machine may wake, or the epoch it was handed does not advance the one on the row.
+	// Rolling back leaves the invitation unspent, which is what a refused attachment is owed.
 	if n, _ := res.RowsAffected(); n == 0 {
 		return false, reject(errors.New("that Station ID or key is already attached"))
 	}

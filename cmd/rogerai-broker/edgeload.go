@@ -1,6 +1,9 @@
 package main
 
-import "time"
+import (
+	"sync"
+	"time"
+)
 
 // Cross-instance EDGE load: the second half of a counter that only ever had one.
 //
@@ -27,9 +30,14 @@ import "time"
 //     consumer's hold refunds on age - but "we voided a live request" is an outcome the design
 //     claims not to have, and the consumer would attribute it to the relay rather than to us.
 //
-// The mechanism is the sibling of the classic one, deliberately not the same key. See
-// markEdgeInflight in sharedstore.go for why sharing the key would undo the split that keeps an
-// edge attempt from suppressing a node's canary probes and depressing its paid-fabric score.
+// The mechanism is the sibling of the classic one, deliberately not the same key: sharing the
+// key would put edge attempts into the peer sum the CLASSIC paid router divides by, so a
+// reservation anybody can open for a fraction of a cent would depress a node's score on the
+// fabric that pays it, on every instance except the one that opened it. It would NOT reach the
+// canary - an earlier version of this comment said it would, and an audit disproved it:
+// probeOnce reads `b.inflight[n.NodeID]` and never peerInflight, so probe suppression is a
+// same-process concern that the split in broker.edgeLoad already handles. See markEdgeInflight
+// in sharedstore.go.
 
 // writeThroughEdgeLoad mirrors THIS instance's open-edge-attempt count for a node into the
 // shared edge hash, so a peer's placement sees it. Called on every change (open and close),
@@ -37,43 +45,157 @@ import "time"
 // on a path that can fail a request. A write that does not land only means a peer's count is
 // stale until the next refresh tick republishes it.
 //
+// IT TAKES NO COUNT, and that is the fix rather than a tidy-up. It used to be handed the value
+// the caller read while it held metricsMu, and publish it after unlocking - so two concurrent
+// changes to one node raced to the shared store carrying two different snapshots, and whichever
+// round trip finished last won. See publishSharedLoad: the value is now read inside the
+// publisher's own critical section, so the caller has nothing to hand over and cannot hand over
+// something stale.
+//
 // EXACTLY FREE WHEN MULTI-INSTANCE IS OFF. The guard is the first thing in the function and it
 // is the same guard writeThroughInflight uses, so a single-instance broker does no allocation,
 // takes no lock and makes no call - the edge path is byte-for-byte what it was.
-func (b *broker) writeThroughEdgeLoad(node string, count int) {
+func (b *broker) writeThroughEdgeLoad(node string) { b.markLoadDirty(node, true) }
+
+// markLoadDirty records that a node's published count may no longer match its local one and
+// then tries to publish. Both counters go through here; the bool picks which.
+func (b *broker) markLoadDirty(node string, edge bool) {
+	if !b.multiInstance || b.shared == nil || b.instanceID == "" || node == "" {
+		return
+	}
+	b.loadPub.dirty(node, edge)
+	b.publishSharedLoad()
+}
+
+// publishSharedLoad is the ONE writer of both shared load hashes, and the serialization it
+// provides is a correctness property that three separate defects came out of.
+//
+// WHAT WAS WRONG. Every write used to be "read the count under metricsMu, unlock, publish what
+// you read". Unlocking before the round trip is mandatory - metricsMu is held on the hot
+// placement path and must never span a network call - but it also means two concurrent changes
+// to one node reach the shared store on two different pool connections carrying two different
+// snapshots, and the LAST ONE TO LAND WINS whatever it says. That produced:
+//
+//   - A STALE ZERO OVER LIVE WORK. Open and close race; the close's 0 lands after the open's 1,
+//     and the shared hash then says a serving Station is idle until something else writes it.
+//     Nothing corrected it either, because the refresh tick republished non-zero counts only,
+//     so a node the tick reads as locally zero was skipped: the wrong value stood for a full
+//     inflightTTL, sixty seconds, not the "next tick" the old comment promised. That is the one
+//     reading edgeload.go's own header says must never be produced by our own bookkeeping, and
+//     the quiescence gate the founder's no-drain ruling rests on would have read it as proof.
+//
+//   - A STALE UNDER-COUNT. The same race with two opens: 1 lands after 2, and the fleet sees
+//     one classic request where a node is carrying two. "Can over-state, never under-state" was
+//     the claim, and it was false in the direction that costs money: loadFactor is
+//     1/(1+inflight/capacity), so an under-stated count RAISES the node's paid-router score and
+//     it attracts more work than it should.
+//
+// WHAT IS TRUE NOW. A publisher holds one token across the round trip and reads the counts it
+// is about to publish INSIDE that critical section. Writes for a node are therefore totally
+// ordered, and each carries a value that was current when its own write began. A change that
+// lands after a publisher has read is not lost: it marked the node dirty first, so the
+// publisher picks it up on its next round. The strongest honest statement is that a superseded
+// value can be in the store for at most one further round trip and is then corrected - never
+// that it stands until a TTL, and never that a correction depends on the counter's direction.
+//
+// A CALLER NEVER WAITS ON THE ROUND TRIP. If another goroutine already holds the token this
+// returns immediately; the node is already marked, and the holder re-reads the dirty set after
+// every write specifically so it publishes what the callers it skipped were carrying. That is
+// strictly better than what it replaces, where every writer blocked on its own Valkey call and
+// a sick backend charged all of them sharedOpTimeout.
+//
+// AND IT BATCHES. The dirty set is written in one pipeline per counter, so a burst of opens
+// across many nodes - and the refresh tick, which marks every node this instance is carrying -
+// costs one round trip rather than one per node.
+func (b *broker) publishSharedLoad() {
 	if !b.multiInstance || b.shared == nil || b.instanceID == "" {
 		return
 	}
-	_ = b.shared.markEdgeInflight(b.instanceID, node, count, time.Now())
+	// BOUNDED, because the goroutine doing this work is usually a request's. Each round is one
+	// pipeline that clears everything outstanding, so hitting the cap means writes are arriving
+	// faster than the backend answers - and in that case the right thing is to hand the rest to
+	// the next writer or to the sync tick (which marks and drains everything this instance
+	// believes it has published) rather than to conscript one request into an unbounded loop.
+	const maxRounds = 4
+	for round := 0; round < maxRounds; round++ {
+		if !b.loadPub.publishMu.TryLock() {
+			return // somebody else holds the token; what we marked is theirs to publish
+		}
+		classic, edge := b.loadPub.take()
+		if len(classic) == 0 && len(edge) == 0 {
+			b.loadPub.publishMu.Unlock()
+			// A writer can mark a node between our take and our unlock, find the token held,
+			// and return - so an empty take is not proof that there is nothing to do. Look
+			// again before leaving, or that node waits for the tick.
+			if !b.loadPub.pending() {
+				return
+			}
+			continue
+		}
+		now := time.Now()
+		b.metricsMu.Lock()
+		classicCounts := countsFor(b.inflight, classic)
+		edgeCounts := countsFor(b.edgeLoad, edge)
+		b.metricsMu.Unlock()
+		if len(classicCounts) > 0 {
+			if err := b.shared.markInflightBatch(b.instanceID, classicCounts, now); err == nil {
+				b.loadPub.published(classicCounts, false)
+			}
+		}
+		if len(edgeCounts) > 0 {
+			if err := b.shared.markEdgeInflightBatch(b.instanceID, edgeCounts, now); err == nil {
+				b.loadPub.published(edgeCounts, true)
+			}
+		}
+		b.loadPub.publishMu.Unlock()
+	}
 }
 
-// refreshSharedLoad republishes this instance's NON-ZERO counts for both load counters on the
-// sync tick, and it closes a hole that has been in the classic counter since it was written.
+// countsFor reads the current value of each named node out of a counter map. The caller holds
+// metricsMu; a node that is absent reads zero, which is the right answer and the one the
+// publisher must be able to send - an absent entry is how edgeLoad says "nothing open here".
+func countsFor(src map[string]int, nodes []string) map[string]int {
+	if len(nodes) == 0 {
+		return nil
+	}
+	out := make(map[string]int, len(nodes))
+	for _, n := range nodes {
+		out[n] = src[n]
+	}
+	return out
+}
+
+// refreshSharedLoad is the sync tick's half of the write side: it marks everything this
+// instance might owe the shared store and lets the publisher above send it in one round trip
+// per counter.
 //
-// THE HOLE. markInflight PExpires the node's hash at inflightTTL (60s) on every write, and a
-// write only happens when the count CHANGES. So a single request that runs longer than the TTL -
-// a long completion on the classic path, an edge attempt whose grant deadline is minutes out -
-// has its hash expire underneath it, and every peer instance stops seeing the load entirely
+// IT CLOSES TWO HOLES, and the second one used to be a deliberate omission.
+//
+// THE EXPIRY. markInflight PExpires the node's hash at inflightTTL (60s) on every write, and a
+// write only happens when the count CHANGES. So a single request that runs longer than the TTL
+// - a long completion on the classic path, an edge attempt whose grant deadline is minutes out
+// - has its hash expire underneath it, and every peer instance stops seeing the load entirely
 // while the work is still in flight. For RANKING that is a wrong divisor for a while. For a
 // QUIESCENCE GATE it is the exact failure the gate exists to prevent: the longest-running work
 // in the fleet is precisely the work that disappears from the peer view, so the gate would
 // conclude "idle" about the busiest Stations first.
 //
-// ONLY NON-ZERO COUNTS ARE REPUBLISHED, and that asymmetry is deliberate. Republishing is a
-// snapshot read under metricsMu followed by a write outside it, so it can in principle land
-// after a newer write from the enter/exit path and briefly restore a superseded value. Bounded
-// to non-zero values, the only error that can produce is an OVER-statement of load that heals on
-// the next tick - which under-ranks a node slightly and makes the quiescence gate refuse a move
-// it could have allowed. Both are the safe direction. Publishing zeros here would make the
-// opposite error reachable: a stale zero landing over a live count is a station that looks idle
-// while it is serving, which is the one reading that must never be produced by our own
-// bookkeeping. A count that drops to zero is published by the exit path itself, and if THAT
-// write is lost the residue ages out at inflightTTL - over-stating load for a minute, again in
-// the safe direction.
+// THE LOST DECREMENT. A write is best-effort; the one that says "this node is now at zero" can
+// fail like any other. This tick used to republish NON-ZERO counts only, on the argument that a
+// stale republish could otherwise restore a zero over live work - which was true of a publisher
+// that shipped a value read before the write, and is no longer true of the one above. The cost
+// of that filter was that the residue it protected was also unreachable: a node the tick reads
+// as locally zero was skipped, so the only thing that ever cleared a lost zero was the hash
+// ageing out sixty seconds later. On a capacity-1 node a spurious +1 HALVES the paid router's
+// score (loadFactor is 1/(1+inflight/capacity)) for that whole minute, and the quiescence gate
+// refuses a move it could have allowed. Now the tick marks every node it believes it has
+// published a non-zero for, so a dropped zero is corrected on the next tick, five seconds -
+// which is what the old comment claimed and the old code could not do.
 //
-// Cost is one pipelined round trip per node this instance is currently serving, once per tick,
-// on the background loop. Nodes at rest cost nothing because they are not in the maps (edgeLoad
-// deletes its entry at zero) or are skipped (inflight keeps a zero entry and it is filtered).
+// WHAT IT DOES NOT MARK is every node that ever existed. The candidates are the nodes carrying
+// local work plus the nodes this instance believes it has a live non-zero for in the store;
+// everything else is already absent or already zero there, and republishing zeros for the whole
+// registry every five seconds would be a fleet-sized write for no information.
 func (b *broker) refreshSharedLoad() {
 	if !b.multiInstance || b.shared == nil || b.instanceID == "" {
 		return
@@ -82,12 +204,8 @@ func (b *broker) refreshSharedLoad() {
 	classic := nonZeroCounts(b.inflight)
 	edge := nonZeroCounts(b.edgeLoad)
 	b.metricsMu.Unlock()
-	for node, n := range classic {
-		_ = b.shared.markInflight(b.instanceID, node, n, time.Now())
-	}
-	for node, n := range edge {
-		_ = b.shared.markEdgeInflight(b.instanceID, node, n, time.Now())
-	}
+	b.loadPub.dirtyAll(classic, edge)
+	b.publishSharedLoad()
 }
 
 // nonZeroCounts copies the entries of a counter map that are actually carrying something, so the
@@ -105,6 +223,121 @@ func nonZeroCounts(src map[string]int) map[string]int {
 		out[k] = v
 	}
 	return out
+}
+
+// sharedLoadMirror is the bookkeeping behind publishSharedLoad: what this instance still owes
+// the shared store, and what it believes the shared store currently holds for it.
+//
+// TWO LOCKS, AND THEY GUARD DIFFERENT THINGS. publishMu is the publisher's token - held across
+// a network round trip, and the reason writes for one node cannot overtake each other. mu
+// guards the maps, is never held across anything slower than a map write, and is what lets a
+// caller mark a node dirty without waiting for whatever is currently in flight. Neither is
+// metricsMu, which must not be held across a shared-store call at all.
+//
+// A ZERO VALUE IS READY, because a broker built as a struct literal in a test must behave like
+// one built by newBroker. The maps are made on first use.
+type sharedLoadMirror struct {
+	publishMu sync.Mutex
+	mu        sync.Mutex
+	classic   loadCounterMirror
+	edge      loadCounterMirror
+}
+
+// loadCounterMirror is one counter's half: the nodes whose published value may be wrong, and
+// the last value successfully written for each. `sent` holds only NON-ZERO values - a node
+// published at zero is a node the store need not be told about again, which is what keeps the
+// tick's candidate set proportional to work in flight rather than to the size of the fleet.
+type loadCounterMirror struct {
+	dirty map[string]struct{}
+	sent  map[string]int
+}
+
+func (m *sharedLoadMirror) side(edge bool) *loadCounterMirror {
+	if edge {
+		return &m.edge
+	}
+	return &m.classic
+}
+
+// dirty marks one node as owing the shared store a value.
+func (m *sharedLoadMirror) dirty(node string, edge bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	side := m.side(edge)
+	if side.dirty == nil {
+		side.dirty = map[string]struct{}{}
+	}
+	side.dirty[node] = struct{}{}
+}
+
+// dirtyAll marks the sync tick's candidate set: the nodes carrying local work, plus every node
+// this instance believes it has a live non-zero published for. The second half is what repairs
+// a decrement whose write was lost, and it is why the tick can publish zeros safely.
+func (m *sharedLoadMirror) dirtyAll(classic, edge map[string]int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, s := range []struct {
+		side  *loadCounterMirror
+		local map[string]int
+	}{{&m.classic, classic}, {&m.edge, edge}} {
+		if s.side.dirty == nil {
+			s.side.dirty = map[string]struct{}{}
+		}
+		for node := range s.local {
+			s.side.dirty[node] = struct{}{}
+		}
+		for node := range s.side.sent {
+			s.side.dirty[node] = struct{}{}
+		}
+	}
+}
+
+// take empties both dirty sets and returns what was in them. Emptying here rather than after
+// the write is what makes a change arriving DURING a write re-dirty the node instead of being
+// swallowed by it.
+func (m *sharedLoadMirror) take() (classic, edge []string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.classic.take(), m.edge.take()
+}
+
+func (c *loadCounterMirror) take() []string {
+	if len(c.dirty) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(c.dirty))
+	for node := range c.dirty {
+		out = append(out, node)
+		delete(c.dirty, node)
+	}
+	return out
+}
+
+// pending reports whether anything is waiting to be published.
+func (m *sharedLoadMirror) pending() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.classic.dirty) > 0 || len(m.edge.dirty) > 0
+}
+
+// published records what actually landed. A zero drops the node from the set, because the
+// store now agrees with us and there is nothing left to repair or to keep alive against the
+// TTL. Only called on a write that returned no error: a failed write leaves the previous
+// belief in place, which is exactly what makes the next tick retry it.
+func (m *sharedLoadMirror) published(counts map[string]int, edge bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	side := m.side(edge)
+	for node, n := range counts {
+		if n <= 0 {
+			delete(side.sent, node)
+			continue
+		}
+		if side.sent == nil {
+			side.sent = map[string]int{}
+		}
+		side.sent[node] = n
+	}
 }
 
 // mergeSharedEdgeLoad pulls the peer edge-attempt snapshot and swaps it into b.peerEdgeLoad,

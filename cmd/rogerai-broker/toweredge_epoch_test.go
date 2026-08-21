@@ -65,10 +65,22 @@ func reviveStation(t *testing.T, b *broker, stationID, towerID, owner string) in
 	require.NoError(t, err)
 	require.True(t, moved)
 
-	// UNIQUE PER REVIVAL. An authorization is one-use: reusing the id would take Admit's
-	// `replay` branch on the second call and hand back the FIRST revival's attachment, so a test
-	// that moves a Station twice would silently be testing a Station that moved once. (Found by
-	// TestTheMovedFenceLogsFieldsAnAggregationCanCount, which needs an epoch gap greater than 1.)
+	// UNIQUE PER REVIVAL, and the reason is worse than the one first written here.
+	//
+	// The first explanation was that a reused id would take Admit's `replay` branch and hand
+	// back the previous revival's attachment. It does not: PutAuthorization is an overwrite, so
+	// the second call finds the invitation UNCONSUMED and never reaches replay. What fires is
+	// checkBindings' racer short-circuit - `existing.AuthID == authID`, written for a caller
+	// retrying after a lost reply - which returns an EMPTY revived attachment. Admit then
+	// carries nothing forward and writes `Epoch: 1` over a Station sitting at 2: an epoch
+	// REGRESSION, which no writer in the tree is supposed to be able to produce and which the
+	// settlement fence's permanent 410 is licensed by the absence of.
+	//
+	// Both stores now refuse a write that fails to raise the epoch
+	// (TestParityAnAttachmentsEpochNeverGoesBackwards), so a reused id here fails loudly instead
+	// of silently testing a Station that moved once. Keeping the ids unique is still the right
+	// fixture: this helper is supposed to be a revival, not a probe of the guard.
+	// (Found by TestTheMovedFenceLogsFieldsAnAggregationCanCount, which needs a gap above 1.)
 	authID := "auth-revive-" + stationID + "-" + strconv.FormatInt(before.Epoch, 10)
 	auth, secret, err := attach.NewInvite(attach.Authorization{
 		ID: authID, Network: link.PublicNetwork, StationID: stationID, Owner: owner,
@@ -97,6 +109,20 @@ func reviveStation(t *testing.T, b *broker, stationID, towerID, owner string) in
 func issuedAttemptAtEpoch(t *testing.T, b *broker, attemptID, towerID, stationID string,
 	epoch int64) ed25519.PrivateKey {
 	t.Helper()
+	return issuedAttemptUntil(t, b, attemptID, towerID, stationID, epoch, time.Now().Add(time.Hour))
+}
+
+// issuedAttemptUntil is the same fixture with the attempt's EXECUTION deadline spelled out.
+//
+// THE RECORD'S DEADLINE IS DERIVED FROM IT, not written beside it, because that is the one
+// relationship production maintains and the fixture used to bypass: openEdgeAttempt stores
+// `g.Deadline.Add(edgeSettleGrace())`, so the row's deadline is the EVIDENCE ceiling and the
+// execution window closed a settle-grace earlier. A fixture that sets the row's deadline
+// directly cannot tell the two apart, which is exactly why a field reading the wrong one of
+// them went unnoticed under a test that asserted the field was present.
+func issuedAttemptUntil(t *testing.T, b *broker, attemptID, towerID, stationID string,
+	epoch int64, exec time.Time) ed25519.PrivateKey {
+	t.Helper()
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
 	apub, _, err := ed25519.GenerateKey(rand.Reader)
@@ -110,7 +136,7 @@ func issuedAttemptAtEpoch(t *testing.T, b *broker, attemptID, towerID, stationID
 	require.NoError(t, b.tower.dispatch.Store().Put(dispatch.Record{
 		AttemptID: attemptID, JobID: "job-" + attemptID, TowerID: towerID,
 		StationID: stationID, StationEpoch: epoch, Model: "m", Modality: "text",
-		Nonce: "n-" + attemptID, Deadline: time.Now().Add(time.Hour), Grant: g.Signed,
+		Nonce: "n-" + attemptID, Deadline: exec.Add(edgeSettleGrace()), Grant: g.Signed,
 		ConsumerKey: pub, State: dispatch.StateIssued,
 	}))
 	bindEdgeConsumer(t, b, pub)
@@ -381,8 +407,8 @@ func TestTheMovedFenceLogsFieldsAnAggregationCanCount(t *testing.T) {
 		"tower=" + tw.id, // WHICH relay was superseded: the slice that makes a bad mover findable
 		"grant_epoch=1",
 		"attach_epoch=3",
-		"epochs_skipped=2", // one attempt, two moves - the churn signal
-		"deadline_open=",   // stated either way; its absence would hide whether work was live
+		"epochs_skipped=2",   // one attempt, two moves - the churn signal
+		"deadline_open=true", // this attempt's execution window IS open; see the test below
 	} {
 		require.Contains(t, line, field,
 			"the moved fence dropped a field an aggregation groups by: %s", field)
@@ -395,4 +421,65 @@ func TestTheMovedFenceLogsFieldsAnAggregationCanCount(t *testing.T) {
 	// statement about that population and not a dropped field. What must never happen is the key
 	// disappearing, because then the two populations become indistinguishable in the aggregate.
 	require.Contains(t, line, "node=", "the moved fence must state the node behind the Station")
+}
+
+// THE FIELD THAT WAS BUILT TO DRAW ONE DISTINCTION HAS TO ACTUALLY DRAW IT.
+//
+// `deadline_open` exists to separate the two harms hiding inside one 410: a consumer still
+// waiting for an answer that is now never coming, and a courier whose spool caught up after the
+// work had already finished - an operator unpaid, but nobody left hanging. Those want different
+// responses from whoever reads the aggregation, which is the whole reason the field is there.
+//
+// IT COULD NOT DRAW IT. The line read `rec.Deadline`, and a dispatch record's deadline is the
+// EVIDENCE ceiling: openEdgeAttempt writes the grant's deadline PLUS edgeSettleGrace(), under a
+// comment that says so. The courier re-forwards every fifteen seconds inside a settlement
+// window measured in minutes, so essentially every firing found that ceiling in the future and
+// logged `deadline_open=true` - a constant, on the line whose entire thesis is that it is the
+// instrument. The test that shipped with it asserted only that the KEY was present, and its
+// fixture set the row's deadline directly, so the grant-plus-grace relationship the field
+// depends on was not represented in the test at all.
+//
+// Both directions are asserted here, because a field that is always false is exactly as useless
+// as one that is always true.
+func TestTheMovedFenceSaysWhetherTheExecutionWindowWasOpen(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		exec time.Duration // relative to now: the grant's own deadline
+		want string
+	}{
+		{"a consumer is still waiting", time.Hour, "deadline_open=true"},
+		// PAST THE GRANT'S DEADLINE BUT INSIDE THE SETTLE GRACE, which is not a corner case: it
+		// is the ordinary shape of a late receipt, and the only reason the record outlives the
+		// grant at all. The row's own deadline is still minutes in the future here, so a field
+		// reading it says "true" and the distinction is lost.
+		{"the spool caught up late", -30 * time.Second, "deadline_open=false"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b, srv := towerTestBroker(t)
+			op := signedInOperator(t, b, "octocat")
+			owner := ownerPubkeyOf(t, b, op.login)
+			tw := enrolledTower(t, b, op.login)
+			stationPriv := attachStation(t, b, "st-w", tw.id, owner)
+
+			issuedAttemptUntil(t, b, "att-window", tw.id, "st-w", 1, time.Now().Add(tc.exec))
+			require.Equal(t, int64(2), reviveStation(t, b, "st-w", tw.id, owner))
+
+			var logs bytes.Buffer
+			old := log.Writer()
+			log.SetOutput(&logs)
+			t.Cleanup(func() { log.SetOutput(old) })
+
+			var out map[string]any
+			code, _ := tw.call(t, srv, "/tower/edge/settle",
+				settleBody(t, tw.id, "st-w", "att-window", stationPriv, 4), &out)
+			require.Equal(t, http.StatusGone, code, out)
+
+			line := logs.String()
+			require.Contains(t, line, "edge fence MOVED ")
+			require.Contains(t, line, tc.want,
+				"deadline_open must answer for the EXECUTION window (the grant's deadline), not "+
+					"for the record's, which is that plus edgeSettleGrace() and is open for "+
+					"almost every firing: %s", line)
+		})
+	}
 }

@@ -1018,3 +1018,126 @@ func TestParityOnlyRetireDormantEndsAStationIdentity(t *testing.T) {
 		})
 	}
 }
+
+// A RE-WRITTEN INVITATION STAYS SPENT, AND THE TWO STORES HAVE TO AGREE ABOUT THAT.
+//
+// Postgres' PutAuthorization lists every column in its ON CONFLICT DO UPDATE except consumed
+// and consumed_by: whether an invitation has been redeemed is the store's record of a race it
+// arbitrated, and a later writer restating the invitation does not get to reopen it. The memory
+// store replaced the whole row, so the same call left the same invitation UNSPENT - one store
+// silently un-consuming what the other kept.
+//
+// It is not a difference anything in production exercises today, and it is still the most
+// dangerous shape a parity gap can have, because Admit's very first question is
+// `auth.Consumed`. Answer it wrongly and the replay branch is skipped: the caller runs on into
+// checkBindings, hits the same-authorization short-circuit, is handed an EMPTY revived
+// attachment and writes Epoch 1 over a Station sitting at 2. The next test is that failure seen
+// from the store's side.
+//
+// THE OTHER DIRECTION IS DELIBERATELY NOT ASSERTED HERE, because the two stores still disagree
+// about it and closing that gap is a separate piece of work with its own durable-store test.
+// Marking an invitation consumed BY re-putting it - which toweredgeattach does when a
+// self-attach is refused, so a refusal loop cannot fill an owner's invite cap - lands in the
+// memory store and is dropped by Postgres. Asserting it here would make this test fail on the
+// durable side for a defect it is not the fix for. See memstore.PutAuthorization for the rule
+// both stores should end up on and pgstore.PutAuthorization for what is missing.
+func TestParityRewritingAnInvitationDoesNotUnconsumeIt(t *testing.T) {
+	eachStore(t, func(t *testing.T, s Store, r *Registry, now time.Time) {
+		at, err := r.Admit(goodProof())
+		require.NoError(t, err)
+		require.Equal(t, int64(1), at.Epoch)
+
+		spent, ok, err := s.Authorization(authorID)
+		require.NoError(t, err)
+		require.True(t, ok)
+		require.True(t, spent.Consumed, "redeeming an invitation consumes it")
+
+		// The same id written again, carrying the zero value for both flags - which is what any
+		// caller re-minting from a fresh Authorization struct hands over.
+		reissued := withSecret(Authorization{
+			ID: authorID, Network: net, StationID: station, Owner: owner,
+			Origin:       Origin{Kind: OriginJoined, TowerID: tower},
+			AssertionKey: keyA, SessionKey: keyK, CeilingHash: "ceil-1",
+			IssuedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Hour),
+		})
+		require.NoError(t, s.PutAuthorization(reissued))
+
+		after, ok, err := s.Authorization(authorID)
+		require.NoError(t, err)
+		require.True(t, ok)
+		require.True(t, after.Consumed,
+			"a re-written invitation came back unspent: Admit would skip its replay branch and "+
+				"attach against a station it has already attached")
+		require.Equal(t, station, after.ConsumedBy)
+	})
+}
+
+// AN EPOCH MAY ONLY GO UP, AND IT IS THE STORE THAT SAYS SO NOW.
+//
+// The Station epoch is what lets a settlement fence answer a grant minted under a superseded
+// placement with a PERMANENT 410 instead of a retryable 503, and that argument is exactly one
+// sentence long: nothing lowers it, so no retry can un-supersede the grant. Until this test the
+// sentence was true only because Registry.Admit happened to be written that way - neither store
+// had a constraint, and a caller that computed the wrong attachment could write the epoch
+// backwards on either. An operator would then see honest receipts refused forever with a status
+// code that tells the courier to throw them away.
+//
+// Driven through the STORE rather than through Admit deliberately: the invariant belongs to the
+// row, and a test that could only reach it through the one caller that already respects it
+// would be asserting the caller, not the rule.
+func TestParityAnAttachmentsEpochNeverGoesBackwards(t *testing.T) {
+	eachStore(t, func(t *testing.T, s Store, r *Registry, now time.Time) {
+		at, err := r.Admit(goodProof())
+		require.NoError(t, err)
+		require.Equal(t, int64(1), at.Epoch)
+
+		// Wake it once the honest way, so the row is at epoch 2 with a real history behind it.
+		moved, err := s.SetState(station, StateDormant)
+		require.NoError(t, err)
+		require.True(t, moved)
+		require.NoError(t, s.PutAuthorization(withSecret(Authorization{
+			ID: "auth-2", Network: net, StationID: station, Owner: owner,
+			Origin:       Origin{Kind: OriginJoined, TowerID: tower},
+			AssertionKey: keyA, SessionKey: keyK, CeilingHash: "ceil-1",
+			IssuedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Hour),
+		})))
+		revived := at
+		revived.Epoch, revived.AuthID, revived.State = 2, "auth-2", StateQuarantine
+		revived.AttachedAt = now
+		won, err := s.Admit("auth-2", revived)
+		require.NoError(t, err)
+		require.True(t, won)
+
+		// Now the write that must not land: same machine, same everything, an epoch that does
+		// not advance. This is what Admit produces if it is handed a revived invitation whose
+		// consumed flag was cleared underneath it.
+		moved, err = s.SetState(station, StateDormant)
+		require.NoError(t, err)
+		require.True(t, moved)
+		require.NoError(t, s.PutAuthorization(withSecret(Authorization{
+			ID: "auth-3", Network: net, StationID: station, Owner: owner,
+			Origin:       Origin{Kind: OriginJoined, TowerID: tower},
+			AssertionKey: keyA, SessionKey: keyK, CeilingHash: "ceil-1",
+			IssuedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Hour),
+		})))
+		regressed := revived
+		regressed.Epoch, regressed.AuthID = 1, "auth-3"
+		won, err = s.Admit("auth-3", regressed)
+		require.False(t, won)
+		require.ErrorIs(t, err, ErrRejected,
+			"a write that lowers a Station's epoch must be refused, not merged")
+
+		got, ok, err := s.ByStation(station)
+		require.NoError(t, err)
+		require.True(t, ok)
+		require.Equal(t, int64(2), got.Epoch, "the row kept the higher epoch")
+
+		// AND THE REFUSAL COST NOBODY THEIR INVITATION, which is the standing rule for every
+		// refusal on this path: the durable store does this by rolling its transaction back,
+		// and the memory store by refusing before it consumes.
+		unspent, ok, err := s.Authorization("auth-3")
+		require.NoError(t, err)
+		require.True(t, ok)
+		require.False(t, unspent.Consumed, "a refused attachment must not spend the invitation")
+	})
+}

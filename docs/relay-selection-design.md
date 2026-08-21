@@ -1368,6 +1368,22 @@ the same numbers with the opposite posture on every failure:
   so the freshness machinery is skipped rather than refusing forever on a snapshot that will
   never be taken.
 
+**And the WRITE side had to be fixed before any of the above meant anything, which was found by
+audit after this section was first written.** Every load write used to publish a count read
+before the round trip began, outside the lock, so two concurrent changes to one node raced to
+the shared store and the last one to LAND won regardless of which was newer — a closing
+attempt's zero could settle on top of an opening attempt's one and leave the fleet believing a
+serving Station was idle. The refresh tick could not repair it either: it republished non-zero
+counts only, so a node that reads locally zero was skipped and the wrong value stood for
+`inflightTTL`, a minute, rather than the "next tick" its comment claimed. Both are fixed
+(`publishSharedLoad` in `edgeload.go`): one publisher token is held across the round trip and
+the count is read inside it, so writes for a node are totally ordered; and the tick now
+re-publishes every node it believes it has a live non-zero for, so a lost decrement is corrected
+in one tick. The honest residual is that a superseded value can be in the store for one further
+round trip before its successor lands — never until a TTL, and never depending on which
+direction the count moved. **The gate's zero is only as good as the writes behind it, and that
+half was wrong in exactly the direction the gate cannot tolerate.**
+
 #### The window a snapshot cannot close, and the founder's ruling on it
 
 A peer's write-through lands in a round trip but is not merged here until the next tick, so an
@@ -1397,6 +1413,16 @@ interval, re-check, and back out if anything appeared.
 > relay no reputation and writes nothing to the Station's evidence trail. The consumer's hold is
 > reclaimed on age by `ReleaseStaleHolds`, with `edgeSettleGrace` capped strictly under
 > `holdTTL` so the hold always outlives the window. Consumer whole, nobody blamed, nobody paid.
+>
+> **That last claim was unconditional and was not true at every setting, which an audit caught.**
+> `edgeSettleGrace` derives from `holdTTL` but has a one-minute floor, and once the floor wins the
+> derivation has stopped tracking anything: at `ROGERAI_HOLD_TTL=2m` the settlement window was
+> 2m against a 2m hold, so a late-but-valid receipt could find the hold already swept — free work
+> and an unpaid operator, reachable by setting one environment variable. `holdTTL` is now floored
+> at `minHoldTTL()` (`towerAttemptLifetime + minEdgeSettleGrace + 1m`, derived rather than
+> chosen), the invariant is asserted from thirty seconds upward instead of from six minutes, and
+> the claim above is once again unconditional. A configured zero still disables the sweep
+> entirely, and a hold that is never reclaimed cannot be reclaimed too early.
 
 **What survives from the drain proposal is not a protocol but an accident of mechanism, and it is
 worth naming so nobody re-adds the protocol to get it.** The move IS a dormant write followed by
@@ -1421,6 +1447,13 @@ already built**:
   invitation on the stack, and calls `Admit`.
 - `Admit`'s `checkBindings` recognises the dormant row as a revival, and `Admit` writes the new
   `origin_tower` and sets `at.Epoch = revived.Epoch + 1`.
+- **And the re-attach lands on the SAME Station only because the node re-sends its own
+  `station_id`** (`internal/agent/tower.go:660`, from the persistent on-disk identity). That is
+  the load-bearing link in the chain above and the easiest one to miss, because it is a field in
+  a JSON body rather than a branch: `toweredgeattach.go:272-277` mints a NEW station id when the
+  field arrives empty, and a "move" that minted a new identity would not be a move at all — it
+  would be a second Station beside the first, with the epoch, the earnings lineage and the
+  attachment history stranded on a dormant row nobody ever comes back to.
 
 So the move is: **mark dormant, let the node re-attach.** What has to be built is not a rehome
 writer. It is a *per-Station, quiescence-gated caller* of the dormant write — because the one
@@ -1529,7 +1562,12 @@ work" answerable. `epochs_skipped` is `attach_epoch − grant_epoch`: 1 is one m
 attempt, and anything above 1 means the Station moved more than once during a single attempt's
 life — the churn the signal hysteresis below exists to prevent, and the first number to look at if this
 line ever appears in volume. `deadline_open` says whether the attempt's execution window was
-still open when the fence fired. The `UNSTATED` and `REGRESSED` verdicts carry the same fields
+still open when the fence fired — the GRANT's deadline, recovered by subtracting the settle
+grace, and not the dispatch record's own, which is the EVIDENCE ceiling and sits minutes later.
+As first written the line read the record's, so with the courier retrying every fifteen seconds
+inside a window measured in minutes it logged `true` on essentially every firing and could not
+draw the one distinction it exists for. `edgeExecDeadline`, and a test that asserts the value
+rather than the presence of the key, fixed it. The `UNSTATED` and `REGRESSED` verdicts carry the same fields
 under their own leading token, so the three are separable — summing them together would be
 meaningless, since only `MOVED` is harm.
 
@@ -1572,9 +1610,22 @@ move is worth making at all; signal hysteresis decides whether the observation i
 **Nothing here is added to the tree as a constant, a predicate or a column.** This session has
 twice been bitten by exactly that: `fleet.Station.Capacity` was written, stored, scanned and read
 by nothing, and `StationEpoch` was carried on five objects and compared nowhere — which is the
-defect §6.6b's fence just fixed. A hysteresis constant with no caller is the same anti-pattern.
-**The numbers below are proposals with their reasoning attached, and they are the founder's to
-set.**
+defect §6.6b's fence just fixed. **The numbers below are proposals with their reasoning
+attached, and they are the founder's to set.**
+
+> **An earlier draft of this paragraph called a hysteresis constant with no caller "the same
+> anti-pattern". That was rhetoric standing in for a distinction, it was caught by audit, and it
+> is withdrawn.** `peerLoadFreshness()` and `stationQuiescent` were added in the same session
+> with no production caller either, and the section that added them said so in capitals — the
+> rule as written condemns them too. The honest version is about REACHABILITY rather than about
+> callers: an unread FIELD on a stored object (`Capacity`, `StationEpoch`) is invisible —
+> nothing fails, nothing logs, and its wrongness surfaces years later in an audit — whereas an
+> unused FUNCTION is read, reviewed and testable the day it is written, and `stationQuiescent`
+> shipped with tests pinning every one of its refusals. What must not be added ahead of its
+> caller is anything whose correctness cannot be demonstrated without one. A hysteresis
+> THRESHOLD fails a different test again, and that is the one worth saying out loud: its value
+> is a policy judgement the founder has not made, so writing it into the tree would be recording
+> a decision nobody took.
 
 > **An earlier draft of this section specified a COOLDOWN — a minimum dwell in wall-clock time
 > before a Station's placement could move again. That was the wrong control and is withdrawn.**

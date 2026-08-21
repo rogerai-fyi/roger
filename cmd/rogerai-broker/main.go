@@ -298,6 +298,13 @@ type broker struct {
 	// one they opened the attempt on. The split has to survive the instance boundary or it is
 	// not a split.
 	//
+	// THE PAID-ROUTER HALF IS THE WHOLE OF IT, and the difference was mis-stated when this
+	// landed. The other thing b.edgeLoad protects a node from is probe suppression, and that
+	// one does NOT cross instances in either direction: probeOnce tests `b.inflight[n.NodeID]`
+	// and never peerInflight, so no peer map has ever been able to freeze a node's canary.
+	// Keeping the maps apart out here buys the paid-fabric score and nothing else - which is
+	// reason enough, and is the reason to state.
+	//
 	// WHY IT HAD TO EXIST AT ALL. edgeLoadLocked was the only load signal on the edge path
 	// that had no cross-instance half, so on a two-instance deployment every instance
 	// under-counted every station's real edge load and over-ranked the busiest ones - the
@@ -321,6 +328,15 @@ type broker struct {
 	// is what lets one function serve both without either lying to the other. See
 	// stationQuiescent in edgeload.go.
 	peerLoadAt time.Time
+
+	// loadPub owns the WRITE side of the two counters above: which nodes still owe the shared
+	// store a value, what this instance last managed to publish for each, and the single token
+	// that serializes the publishing itself. It carries its own locks and is deliberately NOT
+	// under metricsMu, because publishing takes a round trip and metricsMu is held on the hot
+	// placement path. Zero value is ready to use and costs nothing when multi-instance is off.
+	// See publishSharedLoad in edgeload.go for why the ordering it enforces is a correctness
+	// property rather than a tidiness one.
+	loadPub sharedLoadMirror
 
 	// cacheFlight collapses a CONCURRENT cache miss/expiry on a single hot key into ONE
 	// compute (a dogpile/thundering-herd guard for serveCachedJSON). Without it, every
