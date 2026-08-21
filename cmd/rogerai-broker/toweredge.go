@@ -1583,15 +1583,65 @@ func (b *broker) towerEdgeSettle(w http.ResponseWriter, r *http.Request) {
 			// healthy fleet should print this zero times and the arm can then be deleted. If it
 			// starts appearing in volume, something stopped stating the epoch and the fence has been
 			// silently disarmed - which is precisely the failure a quiet exemption would hide.
-			log.Printf("edge settle: attempt %s carries no Station epoch on one side (grant %d, attachment %d) - the placement fence cannot speak for it",
-				req.AttemptID, rec.StationEpoch, at.Epoch)
+			log.Printf("edge fence UNSTATED attempt=%s station=%s node=%s tower=%s grant_epoch=%d attach_epoch=%d - one side states no epoch, so the placement fence cannot speak for it",
+				req.AttemptID, req.StationID, at.NodeID, req.TowerID, rec.StationEpoch, at.Epoch)
 		case epochFenceMoved:
 			// PERMANENT, AND SAID IN A STATUS THAT MEANS WHAT HAPPENED. 410 rather than the 403s
 			// this path already uses for "you had no business here": nobody did anything wrong, the
 			// placement this receipt was earned under is simply gone. It reads differently in a
 			// tower's log, which is the only place an operator will ever see it.
-			log.Printf("edge settle: attempt %s was granted under Station %s epoch %d and the attachment is now at epoch %d - the placement moved under work already in flight; this delivery failed, nothing is paid, and the consumer's hold returns on the orphan sweep",
-				req.AttemptID, req.StationID, rec.StationEpoch, at.Epoch)
+			// THE ONE LINE IN THE TREE THAT COUNTS THE COST OF MOBILITY, so it is written to be
+			// summed rather than read.
+			//
+			// The sticky-placement model (§6.3b) accepts a race between "Core observed this
+			// Station idle" and "the move landed", and relies on this fence to make the loser of
+			// that race safe rather than silent. The whole justification for accepting it is that
+			// it will be RARE, and nobody can currently check that claim, because moves do not
+			// exist yet. Every time this branch fires is exactly one request destroyed by a
+			// placement change - so this line IS the instrument, and it has to carry the fields an
+			// aggregation would slice by, in the key=value shape the rest of the broker's
+			// operational logging already uses (probe.go, report.go, strikes.go).
+			//
+			// WHY A LINE AND NOT A COUNTER, following the reasoning an earlier review used to
+			// reject an in-process per-station placement counter, which applies here with more
+			// force rather than less. This event fires on whichever instance the settling Tower's
+			// courier happens to reach - not the instance that authorized the attempt and not the
+			// one that moved the placement - so a per-process count is partitioned by a variable
+			// with no relationship to the thing being measured, and no single instance's number
+			// means anything. The quantity we need is a RATE over weeks; a process-lifetime
+			// counter resets on every deploy, and we deploy more often than this is supposed to
+			// happen. And the useful slices are per-station and per-tower, which in a counter is
+			// an unbounded-cardinality map on the money path with a retention policy nobody wrote.
+			// The aggregated log stream is already cross-instance and already instance-tagged
+			// (main.go sets a per-instance log prefix in multi-instance mode), which is precisely
+			// the property the counter would lack. The shared-store counters (counterIncr) are
+			// cross-instance but are documented as never authoritative and always reconciled from
+			// Postgres; borrowing a money fast-path to hold a metric would be inventing a metrics
+			// system in the wrong place.
+			//
+			// WHAT THE FIELDS ARE FOR:
+			//   epochs_skipped  1 is a single move catching one attempt. Greater than 1 means the
+			//                   Station moved more than once during ONE attempt's life, which is
+			//                   the churn §6.3c's signal hysteresis exists to prevent; it is the first
+			//                   number to look at if this line ever appears in volume.
+			//   deadline_open   whether the attempt's EXECUTION window was still open when the
+			//                   fence fired. It is the closest honest answer available to "was
+			//                   work actually in flight": Core never observes an edge dispatch (the
+			//                   consumer submits to the relay, not to us) and the receipt is not
+			//                   verified until after this branch, so nothing here can assert the
+			//                   Station really served. False means the courier's spool caught up
+			//                   after the work had finished - still an operator unpaid, but not a
+			//                   consumer left waiting.
+			//   tower           WHICH relay was superseded, which is what makes "our moves off
+			//                   tower X keep destroying work" answerable at all.
+			//
+			// AND WHAT IT DOES NOT MEASURE, which matters as much: it counts requests HARMED, not
+			// moves that RACED. A move that lands on a Station with live work whose attempts all
+			// settle before the move commits never appears here. Measuring the near-miss is the
+			// gate's job and belongs at the gate, where the load at move time is known.
+			log.Printf("edge fence MOVED attempt=%s station=%s node=%s tower=%s grant_epoch=%d attach_epoch=%d epochs_skipped=%d deadline_open=%t - the placement moved under work already in flight; this delivery failed, nothing is paid, and the consumer's hold returns on the orphan sweep",
+				req.AttemptID, req.StationID, at.NodeID, req.TowerID, rec.StationEpoch, at.Epoch,
+				at.Epoch-rec.StationEpoch, time.Now().Before(rec.Deadline))
 			jsonErr(w, http.StatusGone, "this Station's placement changed after this attempt was authorized - the attempt is void and nothing is owed on it")
 			return
 		case epochFenceRegressed:
@@ -1601,8 +1651,8 @@ func (b *broker) towerEdgeSettle(w http.ResponseWriter, r *http.Request) {
 			// verify the receipt against, and pay from, an attachment that is not the one the grant
 			// was minted from. Transient in shape, so transient in answer: nothing commits and the
 			// courier brings the same receipt back in fifteen seconds.
-			log.Printf("edge settle: attempt %s was granted under Station %s epoch %d but the attachment reads epoch %d - Core's own attachment state is behind the grant it issued; settling nothing, the courier will retry",
-				req.AttemptID, req.StationID, rec.StationEpoch, at.Epoch)
+			log.Printf("edge fence REGRESSED attempt=%s station=%s node=%s tower=%s grant_epoch=%d attach_epoch=%d - Core's own attachment state is behind the grant it issued; settling nothing, the courier will retry",
+				req.AttemptID, req.StationID, at.NodeID, req.TowerID, rec.StationEpoch, at.Epoch)
 			jsonErr(w, http.StatusServiceUnavailable, "this Station's attachment is behind the attempt authorized against it - retry")
 			return
 		}

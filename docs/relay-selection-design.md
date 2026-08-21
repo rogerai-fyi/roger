@@ -1334,7 +1334,8 @@ anything new yet, which is §6.10's instruction channel.
 Written 2026-08-20, immediately after the cross-instance edge-load work landed in the same
 session, at the coordinator's request and while the constraints were fresh. **Nothing in this section is
 implemented.** §6.3b decided the model; §6.6b built the backstop; this is the shape of the thing
-between them. One finding reordered it and is worth putting first: **almost all of this
+between them. Extended the same day by a second founder ruling — **no drain state, the race is
+accepted** — and by the two conditions attached to it, which are the last three subsections here. One finding reordered it and is worth putting first: **almost all of this
 mechanism already exists.** The move is not a new writer, a new state or a new object. It is the
 dormant-and-revive transition the attachment table already performs, fired for a new reason and
 on a much shorter horizon.
@@ -1367,33 +1368,43 @@ the same numbers with the opposite posture on every failure:
   so the freshness machinery is skipped rather than refusing forever on a snapshot that will
   never be taken.
 
-#### The window a snapshot cannot close, and the ordering that does
+#### The window a snapshot cannot close, and the founder's ruling on it
 
 A peer's write-through lands in a round trip but is not merged here until the next tick, so an
 attempt opened elsewhere is invisible for up to `syncTickInterval` — 5s, and up to
 `peerLoadFreshness()` if a tick was missed. Nothing on the reading side can shrink that; it is
-the price of keeping Valkey off the placement path, and a gate built only on it would be a
-narrower version of the same race rather than a fix for it.
+the price of keeping Valkey off the placement path.
 
-**So the move must not be gated on the snapshot. It must be gated on a durable lock, with the
-snapshot as the cheap pre-filter.** The lock already exists and costs nothing to adopt:
-`targetFromAttachment` (`towerdispatch.go:163`) refuses any attachment that is not `Live()`, so
-**a Station in `StateDormant` cannot be authorized by any instance, immediately, without a
-merge.** That is a Postgres fact, not a cached one. The order is therefore:
+This section originally proposed closing it with a two-phase drain: mark the Station dormant,
+which stops every instance authorizing against it immediately because `targetFromAttachment`
+(`towerdispatch.go:163`) refuses any attachment that is not `Live()`; then wait a full merge
+interval, re-check, and back out if anything appeared.
 
-1. **Pre-filter** on `stationQuiescent`. Cheap, in-memory, and wrong by up to a tick — which is
-   fine, because its only job is to avoid churning Stations that are obviously busy.
-2. **Take the lock: write `StateDormant`.** From this instant no instance can open a new attempt
-   against this Station anywhere. Whatever was already in flight is still in flight.
-3. **Wait one full `peerLoadFreshness()`, then re-check `stationQuiescent`.** Anything opened
-   before step 2 on any instance is now certainly visible, because a full merge interval has
-   passed and nothing new can have started. A non-zero here means back out (revive to the same
-   tower) or wait for it to drain — it does NOT mean proceed.
-4. **Move.** Which, as below, means letting the node re-attach.
+> **DECIDED (founder, 2026-08-20): no drain state. The race is ACCEPTED, and made harmless by
+> the epoch fence rather than eliminated.** There is no settling period, no re-verification after
+> the dormant write, and no back-out. A move that catches live work voids it, exactly as §6.3b
+> says, and the consumer retries.
+>
+> The argument that decided it: **moves are mostly triggered by relay trouble, and in that case
+> the in-flight attempts were already doomed.** Voiding them cleans up work that was going to
+> fail anyway, and the retry lands somewhere better. Paying for a drain protocol — a second
+> state machine, a back-out path, and a Station held out of service while it settles — to protect
+> requests that were mostly about to fail is a bad trade.
+>
+> The fence's containment was checked before the ruling was taken and re-checked here, because
+> the ruling depends on it entirely: the 410 returns at `toweredge.go:1645`, **before**
+> `noteAttempt` (`:1683`) and **before** `recordOutcome` (`:1917`), so a voided attempt costs the
+> relay no reputation and writes nothing to the Station's evidence trail. The consumer's hold is
+> reclaimed on age by `ReleaseStaleHolds`, with `edgeSettleGrace` capped strictly under
+> `holdTTL` so the hold always outlives the window. Consumer whole, nobody blamed, nobody paid.
 
-Steps 2 and 3 are what turn "the snapshot said zero" into a proof. Without them the epoch fence
-would be carrying the whole load, and the fence's job is to catch the case where this reasoning
-is wrong, not to be the reasoning.
+**What survives from the drain proposal is not a protocol but an accident of mechanism, and it is
+worth naming so nobody re-adds the protocol to get it.** The move IS a dormant write followed by
+a re-attach (see below), so the Station is unauthorizable from the instant the dormant row lands
+— fleet-wide, from Postgres, with no merge involved. That is free. What the ruling removes is
+the *waiting and re-checking* between those two events, not the ordering itself. `stationQuiescent`
+therefore stops being a proof and becomes what it should always have been: a filter that keeps us
+from moving Stations that are obviously working.
 
 #### Who performs the move: nobody new, and that is the finding
 
@@ -1482,13 +1493,15 @@ of how well the current tree can actually serve them:
    `Admit` picks from, and it is the case
    `TestATowerThatStopsExistingIsNotRecoveredByReattaching` currently pins as NOT working. That
    test is the one that changes when this lands, and it says so.
-2. **The relay is failing or too slow.** `edgeCanaryHealth` (`towercanary.go`) is the existing
-   per-Tower data-plane measurement and is the right input; §6.3b left "bad" undefined and it
-   still is. What must be decided is not the metric but the HYSTERESIS: a Station that re-places
-   on a bad minute will re-place back on the next one, and a flapping Station is worse than a
-   slow one because every flap is a window where it serves nothing. Whatever threshold is chosen
-   needs a dwell on both edges and a per-Station rate limit, and the rate limit is the part that
-   is easy to leave out.
+2. **The relay is failing or too slow.** §6.3b left "bad" undefined; the two inputs it should be
+   defined against both exist. `edgeCanaryHealth` (`towercanary.go`) is what a Tower canary found
+   out about each STATION — keyed by station id, carrying a consecutive-failure streak (`fails`)
+   and the instant of the sample (`at`) — and the per-TOWER record is the reputation ledger
+   `recordOutcome` writes `CanaryFail` into, read over `reputationWindow`. What must be decided
+   is not the metric but the HYSTERESIS: a Station that re-places on a bad minute will re-place
+   back on the next one, and a flapping Station is worse than a slow one because every flap is a
+   window where it serves nothing. That is hysteresis on the SIGNAL rather than a cooldown on the
+   action, and it is specified with numbers two subsections below.
 3. **A materially better relay exists, by locality.** This is the founder's case and **the
    current tree cannot serve it at all**, for a reason that has nothing to do with the gate:
    `Admit`'s placement is first-fit over `LiveTowers()`. A dormant-and-revive move therefore
@@ -1498,9 +1511,202 @@ of how well the current tree can actually serve them:
    `netBucket` is collection-only) has to arrive first. **Building the gate does not deliver the
    founder's stated reason for wanting it.** Triggers 1 and 2 it delivers in full.
 
+#### Condition 1: instrument the race, so "rare" stops being a prediction
+
+The ruling above rests on the race being rare. Nobody can currently check that, because moves do
+not exist — so the claim would ship unfalsifiable and stay that way until somebody noticed
+refunds. **The harm is measurable from the side that already exists: the fence firing.** Every
+`epochFenceMoved` is exactly one request destroyed by a placement change, and as of this session
+that branch logs in the shape an aggregation can sum:
+
+```
+edge fence MOVED attempt=… station=… node=… tower=… grant_epoch=… attach_epoch=…
+                 epochs_skipped=… deadline_open=…
+```
+
+`tower` is which relay was superseded, which is what makes "our moves off tower X keep destroying
+work" answerable. `epochs_skipped` is `attach_epoch − grant_epoch`: 1 is one move catching one
+attempt, and anything above 1 means the Station moved more than once during a single attempt's
+life — the churn the signal hysteresis below exists to prevent, and the first number to look at if this
+line ever appears in volume. `deadline_open` says whether the attempt's execution window was
+still open when the fence fired. The `UNSTATED` and `REGRESSED` verdicts carry the same fields
+under their own leading token, so the three are separable — summing them together would be
+meaningless, since only `MOVED` is harm.
+
+**A log line and not a counter, and the precedent it follows is the right one.** An earlier
+review in this repo rejected an in-process per-station counter for placement because it is
+per-process, resets on deploy, is invisible cross-instance, and needs a new admin surface to stay
+truthful, concluding that the structured line queried across instances is the better instrument.
+That reasoning applies here with *more* force, not less:
+
+- The fence fires on whichever instance the settling Tower's courier reaches — not the instance
+  that authorized the attempt, and not the one that moved the placement. A per-process count is
+  therefore partitioned by a variable with no relationship to the thing being measured, and no
+  single instance's number means anything on its own.
+- The quantity wanted is a rate over weeks. A process-lifetime counter resets on deploy, and we
+  deploy far more often than this is supposed to happen.
+- The useful slices are per-station and per-tower, which in a counter is an unbounded-cardinality
+  map on the money path with a retention policy nobody has written.
+- The aggregated log stream is already instance-tagged (`main.go` sets a per-instance log prefix
+  in multi-instance mode), which is exactly the property the counter would lack.
+
+The one cross-instance counter primitive that does exist, `counterIncr`, is documented as never
+authoritative and always reconciled from Postgres. Borrowing a money fast-path to hold a metric
+would be inventing a metrics system in the wrong place.
+
+**What it measures and what it does not, stated plainly because the difference will be forgotten
+otherwise. It counts requests HARMED, not moves that RACED.** A move that lands on a Station with
+live work whose attempts all settle before the move commits produces no line at all. So this
+instrument gives the numerator of "how much did mobility cost us" and none of the denominator:
+it cannot say how many moves happened, how many were close calls, or what the load was at the
+moment of the decision. That measurement — "I am moving S and `stationQuiescent` says N > 0" — is
+the *gate's* to emit, at the gate, where the load at move time is known. Both halves are needed
+before the rate is meaningful, and only the harm half can be built before the gate exists.
+
+#### Condition 2: hysteresis on the SIGNAL, not a cooldown on the action
+
+Without hysteresis "the race is rare" stops being true, because **the rate of races is the rate
+of moves.** Two controls are required and they are complementary: **materiality decides whether a
+move is worth making at all; signal hysteresis decides whether the observation is real yet.**
+
+**Nothing here is added to the tree as a constant, a predicate or a column.** This session has
+twice been bitten by exactly that: `fleet.Station.Capacity` was written, stored, scanned and read
+by nothing, and `StationEpoch` was carried on five objects and compared nowhere — which is the
+defect §6.6b's fence just fixed. A hysteresis constant with no caller is the same anti-pattern.
+**The numbers below are proposals with their reasoning attached, and they are the founder's to
+set.**
+
+> **An earlier draft of this section specified a COOLDOWN — a minimum dwell in wall-clock time
+> before a Station's placement could move again. That was the wrong control and is withdrawn.**
+> A cooldown damps the *action*; churn is caused by the decision *input* oscillating, and damping
+> the action gets both cases wrong in opposite directions: it delays a genuinely and persistently
+> worse relay from being left, and it merely rate-limits a flapping one instead of ignoring it.
+> Requiring the condition to hold across N consecutive observations does the opposite on both —
+> a persistent problem is acted on at once, a flapping signal never fires at all — and it needs
+> no durable state, no column and no migration.
+
+**The precedent is `internal/agent/tower.go`'s re-attach classifier, and its lesson matters more
+than its numbers.** A "standing failure" there requires `hubStandingWindow` of *continuous*
+failure, with `hubFailureQuiet` of quiet resetting the streak. The first version of those
+constants was **unreachable**: the quiet window was a flat sixty seconds costed against the
+backoff alone, while one slow failure costs `hubPollTimeout + towerhub.PollBackoff` = sixty-two
+seconds — so every error arrived after the window it was meant to extend, restarted the streak
+instead of continuing it, and the standing window was never reached, ever. The fix was to stop
+choosing the number: `hubFailureQuiet` is now *derived* from the things that actually gate it,
+with the invariant asserted in a test at production values. **Any consecutive-observation rule
+here has to be built the same way or it will have the same defect.**
+
+**So the streak advances on a NEW OBSERVATION, not on a tick.** This is the whole of the
+derivation and it is what keeps the policy meaning what it says:
+
+- The mover would live on the housekeeping tick that already iterates
+  `b.tower.link.LiveTowers()` — which is this instance's own link sessions, so the mover is
+  naturally single-owner per Tower and in-memory streak state is coherent without any
+  cross-instance concern. That tick runs at `towerInviteSweepInterval`, **10 minutes**.
+- The input refreshes at `canaryInterval`, **5 minutes**.
+- Today 10 > 5, so each evaluation happens to see a fresh sample. **That is a coincidence of two
+  constants in two files, and it is exactly the shape of the `hubFailureQuiet` defect.** Invert
+  them — speed the mover up, slow the canary down — and "three consecutive evaluations" is
+  satisfied by one measurement counted three times, with no test failing.
+- The fix is not to assert `moverInterval >= canaryInterval`; it is to stop counting ticks.
+  `edgeCanaryHealth` already carries `at`, the instant the sample was taken. The mover records
+  the `at` it last counted and advances its streak only when `at` has moved. The count is then in
+  units of *observations*, which is what the policy actually means, and it survives any later
+  change to either cadence.
+- **The one clock still needed is a staleness guard, and it is the direct analogue of
+  `hubFailureQuiet`.** A streak counted in observations cannot notice that observations have
+  STOPPED: if the canary stalls, the counter freezes at two and the next sample an hour later
+  completes a "three consecutive" streak spanning an hour. So a gap between counted observations
+  longer than **`2 × canaryInterval`** discards the streak — derived from the cadence, not
+  written as a bare number, for the same reason `hubFailureQuiet` is.
+- **No quiet window, deliberately.** A reader arriving from the precedent will look for one; its
+  absence is a decision. Any observation in which the condition does not hold resets the streak
+  to zero, and the failure `hubFailureQuiet` exists to prevent — evidence arriving more slowly
+  than the window meant to extend it — cannot arise when the counter advances on observations
+  rather than on elapsed time.
+
+**The counts. Three consecutive fresh observations for the improvement trigger; two for the
+failure trigger.**
+
+- **Two for failure, because that bar already exists and was already argued.**
+  `edgeCanaryFailBar` is 2 — "one failure is a blip and the fleet is small enough that treating
+  every blip as a demotion would empty Tier A" — and `edgeCanaryHealth.fails` is already a
+  consecutive-failure streak reset by a pass. Inventing a second number for the same kind of
+  evidence on the same signal would be two bars that must be kept in step by hand.
+- **Three for improvement, because it is a different kind of claim.** "The relay did not answer"
+  is binary and cheap to be right about, which is why two suffices. "Relay B is materially better
+  than relay A" compares two noisy continuous measurements, where a single spurious pair is far
+  likelier; three is the smallest count that requires the comparison to survive two independent
+  refreshes of *both* sides. At today's cadence that is roughly fifteen minutes of corroboration
+  — but it is three measurements agreeing, not fifteen minutes, and if the cadence changes the
+  policy still means what it says.
+- **The trade, stated:** a genuinely better relay is adopted about three canary rounds late, and
+  a flapping comparison never fires at all. That is the right way round, because the cost of
+  firing is a possible voided request and the benefit of the move accrues over the following
+  hours.
+
+**Materiality: a candidate relay must beat the incumbent by BOTH ≥25% on the ranking score AND
+≥30 ms of measured round trip.** Both, not either, because each alone has a regime where it is
+nonsense:
+
+- Relative alone is meaningless at the fast end — 25% better than 4 ms is 3 ms, and a move that
+  buys 1 ms has spent a lottery ticket on the race for nothing.
+- Absolute alone never fires in a well-provisioned region and fires constantly in a badly served
+  one, because it has no sense of what good looks like locally.
+- **25%** because the input is a single canary sample on a 5-minute cadence over the public
+  internet, where run-to-run spread of 10–15% is ordinary. A threshold under about 20% fires on
+  noise; much above 25% and the trigger never fires at all.
+- **30 ms** because a move risks one destroyed request and the improvement has to repay it.
+  Thirty milliseconds repays a voided request within a few hundred subsequent requests; under
+  that it does not repay within any plausible interval at the traffic a single Station sees.
+
+**And no rate cap, which an earlier draft also proposed.** A "maximum N moves per Station per
+hour" is a cooldown wearing a different hat, and the two rules above subsume the case it was for.
+A stable A→B→A oscillation would require each relay to be ≥25% better than the other across
+three consecutive fresh observations, in both directions, alternately — which the materiality
+threshold makes self-contradictory unless the measurement is genuinely bimodal. That residual is
+real and is precisely what `epochs_skipped` in the instrument above is for: a Station churning
+between two relays shows up there before anyone has to guess.
+
+#### The data the gate needs that does not exist yet
+
+Named, not built — and shorter than it was, because the observation-counting form above needs no
+durable state at all. Its streak lives in memory on the instance that owns the Tower's link,
+which is the same instance the housekeeping tick runs on.
+
+**One correction to the record first, because it will matter to whoever wants the rate cap back
+or a placement audit trail.** `Attachment.AttachedAt` is *not* only the first attach.
+`internal/towercore/attach/pgstore.go`'s revival upsert sets `attached_at=EXCLUDED.attached_at`
+in the same `ON CONFLICT DO UPDATE` that sets `origin_tower` and `epoch`, so every write of a
+Station's placement carries a write of that timestamp in the same statement and the two cannot
+drift. A wall-clock dwell would therefore have needed no new column, no migration and no parity
+work. **This does not revive the dwell** — it was withdrawn above for being the wrong control,
+not for being expensive — but "there is no timestamp" should not be carried forward as a fact,
+and anything later wanting "when did this Station last move" should read `AttachedAt` rather than
+add a column beside it. The one caveat: a revival that re-runs placement and lands back on the
+same Tower still bumps it, so it answers "when was this placement last decided", not "when did it
+last change".
+
+**What is genuinely missing is the PREVIOUS placement.** `origin_tower` is overwritten in place
+and no history is kept anywhere in the tree — no placement-history table, no `prev_tower` column,
+nothing. So an A→B→A oscillation is indistinguishable from two independent good decisions, and
+an explicit "do not move back to the relay we just left" rule has nothing to evaluate. Under the
+signal-hysteresis form this is a *diagnostic* gap rather than a control gap: the rule is not
+needed, but confirming the residual bimodal case above from Core's own state is not currently
+possible, and the aggregated `epochs_skipped` line is the only witness.
+
+**And the materiality threshold has no consumer-relative input to threshold on.** §1.5 is still
+true: there is no geography in the system, `netBucket` is collection-only, and
+`edgeCanaryHealth` measures Core→Tower rather than consumer→Tower. So the 25%/30 ms rule is
+specified against a signal that does not exist yet — the same M2/M5 dependency the better-relay
+trigger already has. The failure trigger needs none of it and can be built first.
+
 #### What is deliberately not decided here
 
-- **The hysteresis and rate limits for trigger 2.** Named above as the hard part; not chosen.
+- **Whether the founder takes the numbers above.** The consecutive-observation counts (3 for
+  improvement, 2 for failure, reusing `edgeCanaryFailBar`'s argued bar) and the materiality pair
+  (25% and 30 ms) are proposals with their reasoning attached, and they are the founder's to set.
+  Nothing is in the tree until they are.
 - **The nudge's wire shape.** Whether it rides `protocol.Job` under the discard rule §6.10 works
   out, or something narrower, and whether Core waits for an acknowledgement or observes the
   re-attach it already receives. The re-attach IS an acknowledgement, arriving on an

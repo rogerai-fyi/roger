@@ -20,10 +20,13 @@ package main
 // Contract: features/tower/edge_dispatch.feature, features/tower/operator_revenue_share.feature.
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json"
+	"log"
 	"net/http"
+	"strconv"
 	"testing"
 	"time"
 
@@ -62,7 +65,11 @@ func reviveStation(t *testing.T, b *broker, stationID, towerID, owner string) in
 	require.NoError(t, err)
 	require.True(t, moved)
 
-	authID := "auth-revive-" + stationID
+	// UNIQUE PER REVIVAL. An authorization is one-use: reusing the id would take Admit's
+	// `replay` branch on the second call and hand back the FIRST revival's attachment, so a test
+	// that moves a Station twice would silently be testing a Station that moved once. (Found by
+	// TestTheMovedFenceLogsFieldsAnAggregationCanCount, which needs an epoch gap greater than 1.)
+	authID := "auth-revive-" + stationID + "-" + strconv.FormatInt(before.Epoch, 10)
 	auth, secret, err := attach.NewInvite(attach.Authorization{
 		ID: authID, Network: link.PublicNetwork, StationID: stationID, Owner: owner,
 		Origin:       attach.Origin{Kind: attach.OriginJoined, TowerID: towerID},
@@ -321,4 +328,71 @@ func TestAPlacementChangeDoesNotReJudgeASettlementAlreadyBegun(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, owed.Attempts, "and it does not accrue twice either")
 	require.Equal(t, int64(20), owed.Accrued)
+}
+
+// THE FENCE IS ALSO THE ONLY INSTRUMENT WE HAVE FOR THE COST OF PLACEMENT MOBILITY, AND AN
+// INSTRUMENT NOBODY CAN AGGREGATE IS A PARAGRAPH.
+//
+// §6.3b accepts a race between "Core observed this Station idle" and "the move landed", on the
+// argument that the fence makes the loser safe and that losing will be rare. Rare is a
+// prediction, and the only way it stops being one is if every occurrence is countable across a
+// fleet and over months. Every firing of the MOVED branch is exactly one request destroyed by a
+// placement change, so this line is the count - and it is written in the key=value shape the
+// rest of the broker's operational logging uses (probe.go, report.go, strikes.go) rather than in
+// prose, so an aggregation slices it instead of regexing English.
+//
+// The assertions here are on the FIELDS, not on the wording. A future edit may say it better;
+// what it may not do is drop a field an operator's query is grouping by, or stop naming which
+// relay was superseded, and those are the failures this test exists to catch.
+func TestTheMovedFenceLogsFieldsAnAggregationCanCount(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	op := signedInOperator(t, b, "octocat")
+	owner := ownerPubkeyOf(t, b, op.login)
+	tw := enrolledTower(t, b, op.login)
+	stationPriv := attachStation(t, b, "st-log", tw.id, owner)
+
+	issuedAttemptAtEpoch(t, b, "att-logged", tw.id, "st-log", 1)
+	// TWO revivals, not one. epochs_skipped is the field that distinguishes an ordinary single
+	// move catching an attempt from a Station being churned between relays while one attempt is
+	// still alive, and the second is what §6.3c's signal hysteresis exists to prevent - so the test
+	// has to produce a value the arithmetic could get wrong.
+	require.Equal(t, int64(2), reviveStation(t, b, "st-log", tw.id, owner))
+	require.Equal(t, int64(3), reviveStation(t, b, "st-log", tw.id, owner))
+
+	var logs bytes.Buffer
+	old := log.Writer()
+	log.SetOutput(&logs)
+	t.Cleanup(func() { log.SetOutput(old) })
+
+	var out map[string]any
+	code, _ := tw.call(t, srv, "/tower/edge/settle",
+		settleBody(t, tw.id, "st-log", "att-logged", stationPriv, 4), &out)
+	require.Equal(t, http.StatusGone, code, out)
+
+	line := logs.String()
+	// The verdict token leads, so the three fence outcomes are separable without parsing the
+	// sentence - MOVED is harm, REGRESSED is a lagging read, UNSTATED is the rollout arm's own
+	// retirement notice, and summing them together would be meaningless.
+	require.Contains(t, line, "edge fence MOVED ",
+		"the moved fence must name its verdict in a token an aggregation can filter on")
+	for _, field := range []string{
+		"attempt=att-logged",
+		"station=st-log",
+		"tower=" + tw.id, // WHICH relay was superseded: the slice that makes a bad mover findable
+		"grant_epoch=1",
+		"attach_epoch=3",
+		"epochs_skipped=2", // one attempt, two moves - the churn signal
+		"deadline_open=",   // stated either way; its absence would hide whether work was live
+	} {
+		require.Contains(t, line, field,
+			"the moved fence dropped a field an aggregation groups by: %s", field)
+	}
+	// The node id joins the destroyed request back to the machine that served it, which is the
+	// only identity probes, trust and the classic fabric are keyed by. Asserted as PRESENT
+	// rather than as non-empty on purpose: a classic operator-invited Station carries no node id
+	// by construction (it is reached through the Tower's signed inventory and never registers
+	// with a broker - see DetachIdle's scope argument), so an empty value here is a true
+	// statement about that population and not a dropped field. What must never happen is the key
+	// disappearing, because then the two populations become indistinguishable in the aggregate.
+	require.Contains(t, line, "node=", "the moved fence must state the node behind the Station")
 }
