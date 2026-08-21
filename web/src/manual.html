@@ -299,7 +299,7 @@
                   <tr><td><code>/operator</code></td><td>hand the mic to a guest operator CLI (opencode / hermes / aider) on your tuned band</td></tr>
                   <tr><td><code>/webui</code></td><td>open this station's browser console (aliases <code>/console</code>, <code>/web</code>)</td></tr>
                   <tr><td><code>/clear</code></td><td>reset the session and clear the transcript</td></tr>
-                  <tr><td><code>/remote-control</code></td><td>put THIS live session on your private BASE STATION so you can continue it from another terminal, the web console, or the app (aliases: <code>/remote</code>, <code>/rc</code>; <code>off</code> takes it off the air). Private to your account, broker-relayed (not end-to-end encrypted); tools still run here and still ask first</td></tr>
+                  <tr><td><code>/remote-control</code></td><td>put THIS live session on your private BASE STATION so you can continue it from another terminal, the web console, or the app (aliases: <code>/remote</code>, <code>/rc</code>; <code>off</code> takes it off the air). Private to your account, broker-relayed over TLS (encrypted in transit, but the relay forwards the frames so it is not end-to-end); tools still run here and still ask first</td></tr>
                   <tr><td><code>/persona</code></td><td>show the <code>dj.md</code> path + its first line</td></tr>
                   <tr><td><code>/help</code></td><td>list the in-agent commands</td></tr>
                   <tr><td><kbd>esc</kbd></td><td>leave AGENT (the session is kept)</td></tr>

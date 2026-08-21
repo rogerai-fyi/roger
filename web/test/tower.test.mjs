@@ -202,3 +202,20 @@ test("the Tower download claims no privacy the page cannot provide", () => {
   assert.doesNotMatch(c, /end[- ]to[- ]end encrypt/i);
   assert.doesNotMatch(c, /(cannot|can't|never) (see|read) (your )?(prompts|completions)/i);
 });
+
+// THE PHRASE MUST NEVER STAND ALONE. "not end-to-end encrypted" read bare sounds like
+// "not encrypted", which is false and alarming - the founder read it that way. Both
+// halves are true and both have to be present: the relay IS carried over TLS, and it is
+// NOT end-to-end because the broker forwards the frames (and re-counts their tokens, so
+// it demonstrably reads them).
+//
+// This is an honesty rail in both directions: the page may not claim a privacy property
+// it lacks, and it may not scare an operator out of one it has.
+test("wherever we say 'not end-to-end', we also say it is encrypted in transit", () => {
+  for (const page of ["private.html", "r.html", "manual.html", "privacy.html"]) {
+    const text = visible(read(page));
+    if (!/not end-to-end/i.test(text)) continue;
+    assert.match(text, /TLS|encrypted in transit/i,
+      `${page} says "not end-to-end" without saying it IS encrypted in transit - which reads as "not encrypted"`);
+  }
+});

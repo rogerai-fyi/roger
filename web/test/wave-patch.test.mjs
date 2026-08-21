@@ -1775,12 +1775,15 @@ test("v14: the deck never puts our own model's behaviour in a competitor's mouth
 
 test("v14: the specialist-vs-dual story is cited, and stays qualitative where uncited", () => {
   const topics = js.slice(js.indexOf("function whyTopics"), js.indexOf("function renderWhys"));
-  // Pico 1.0 = v4 (R.125, 2026-08-15); v4 measures MMLU 26.9 against a 25 chance
-  // line (AUDIT-PICO-V4). The superseded 23.2 belonged to an earlier build.
-  assert.ok(/MMLU 26\.9[\s\S]{0,80}Pico v4 audit/.test(topics),
+  // Pico 1.0 = v4 (R.125, 2026-08-15). R.159 found an order-dependence defect in the
+  // enum scorer that std_bench.py used; R.160 re-ran the honesty row on the fixed
+  // scorer and MMLU v4 moved 26.9 -> 26.4. AUDIT-PICO-V4 §3 is marked SUPERSEDED and
+  // the re-run is the quotable number. 23.2 belonged to an older checkpoint entirely.
+  assert.ok(/MMLU 26\.4[\s\S]{0,80}Pico v4 audit/.test(topics),
     "the at-chance-by-design number carries its citation");
-  assert.ok(!/MMLU 23\.2/.test(topics),
-    "the superseded build's MMLU must not return");
+  for (const stale of [/MMLU 23\.2/, /MMLU 26\.9/]) {
+    assert.ok(!stale.test(topics), `superseded MMLU figure ${stale} must not return`);
+  }
   /* 2026-08-17 (honesty audit): the claim used to say "generalist models",
      a population never sampled - it now names the 30B-class OPEN models
      actually benched and states that no frontier or chat-tuned model has

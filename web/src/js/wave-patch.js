@@ -3016,7 +3016,7 @@
           "escalation contract is built on: one token of meaning, scored."));
         box.appendChild(el("p", "sn-why__p",
           "The split runs up the Spectrum: Wave Pico and Nano are TOTAL specialists - " +
-          "at chance on general benchmarks BY DESIGN (measured MMLU 26.9 against a " +
+          "at chance on general benchmarks BY DESIGN (measured MMLU 26.4 against a " +
           "25 chance line - Pico v4 audit). Wave Micro and above are dual-capable by requirement: competitive " +
           "on general benchmarks AND on industrial ones, with capability " +
           "retention a gating metric (tier-scaling strategy, 2026-08-14)."));
