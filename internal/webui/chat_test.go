@@ -146,19 +146,31 @@ func TestChatAnswerCarriesItsReceipt(t *testing.T) {
 	}
 }
 
-// The console must never print a zero as though it were a measurement.
-func TestChatReceiptOmitsMissingNumbers(t *testing.T) {
-	js, _ := os.ReadFile("assets/console.js")
-	src := string(js)
-	i := strings.Index(src, "function chatReceipt")
-	if i < 0 {
-		t.Fatal("chatReceipt not found")
+// AMENDED 2026-08-21: the chat tab is AGENTIC now, so a turn is many relayed calls -
+// one per model step, plus any subagent's. The old per-call receipt renderer would have
+// shown one call's numbers as the turn's cost, which understates: the one direction
+// this console must never round. It is gone until the server streams the rollup the
+// harness already computes (Loop.TurnReceipt).
+//
+// The guarantee it protected is still worth holding, so it moves up a level: the page
+// must not display a turn cost it cannot substantiate.
+func TestConsoleDoesNotClaimAnUnsubstantiatedTurnCost(t *testing.T) {
+	js, err := os.ReadFile("assets/console.js")
+	if err != nil {
+		t.Fatal(err)
 	}
-	block := src[i : i+900]
-	for _, guard := range []string{"if (r.cost)", "if (r.tps)", "if (r.provider)"} {
-		if !strings.Contains(block, guard) {
-			t.Errorf("the receipt must guard %s - a printed zero reads as a claim", guard)
-		}
+	src := string(js)
+	if strings.Contains(src, "function chatReceipt") {
+		t.Error("the per-CALL receipt renderer must not return without the turn rollup behind it")
+	}
+	// The reason is written down where the next reader will look for it.
+	if !strings.Contains(src, "would understate") {
+		t.Error("the removal must carry its reason, or someone re-adds the wrong number")
+	}
+	// The /api/chat receipt fields still exist server-side and are still tested; this is
+	// about what the PAGE claims.
+	if strings.Contains(src, `"$" + Number(r.cost)`) {
+		t.Error("a per-call cost must not be presented as the turn's cost")
 	}
 }
 

@@ -51,6 +51,11 @@ type Server struct {
 
 	loginMu     sync.Mutex
 	loginDevice *client.Device // the in-flight device-flow login between begin and poll
+
+	// agentSess is the console's own agent conversation (agent.go). Its own, not the
+	// TUI's: sharing one would mean a write approved in the browser waits for a y/N at
+	// a terminal nobody may be sitting at.
+	agentSess agentSession
 }
 
 // New builds a console server over ctrl with a freshly-minted access token. Call
@@ -96,6 +101,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/account/topup", s.action(s.handleTopup))
 	s.mux.HandleFunc("/api/account/limit", s.auth(s.handleLimit)) // GET reads, POST sets
 	s.mux.HandleFunc("/api/chat", s.action(s.handleChat))
+	s.mux.HandleFunc("/api/agent", s.action(s.handleAgent))
 	s.mux.HandleFunc("/api/payout", s.auth(s.handlePayout))
 	s.mux.HandleFunc("/api/payout/onboard", s.action(s.handlePayoutOnboard))
 	s.mux.HandleFunc("/api/payout/request", s.action(s.handlePayoutRequest))

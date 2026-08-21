@@ -1140,3 +1140,67 @@ body.is-chat .content { padding-bottom: var(--s-6); }
   border-radius: 2px;
   padding: 2px 7px;
 }
+
+/* THE MACHINERY BOX. Shut by default and one click open - the same trade the TUI's
+   fold makes: a turn that touched eleven files reads as one row, and the detail is
+   there when you want it. Quiet on purpose; this palette spends its one red on the
+   on-air beacon, so a tool row is separated by weight and a hairline, never by hue. */
+.chat-tools-box {
+  border: 1px solid var(--hairline);
+  border-radius: 4px;
+  background: var(--paper-2);
+  overflow: hidden;
+}
+.chat-tools-lid {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink-500);
+  text-align: left;
+}
+.chat-tools-lid:hover { color: var(--ink-900); }
+.chat-tools-lid:focus-visible { outline: 2px solid var(--live); outline-offset: -2px; }
+.chat-tools-caret { color: var(--ink-400); width: 10px; }
+.chat-tools-rows { border-top: 1px solid var(--hairline); }
+.chat-tool-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 6px 12px 6px 30px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink-500);
+  border-top: 1px solid var(--hairline);
+}
+.chat-tool-row:first-child { border-top: 0; }
+.chat-tool-status { color: var(--ink-400); flex: none; }
+.chat-tool-row.is-ok .chat-tool-status { color: var(--ink-700); }
+.chat-tool-row.is-error .chat-tool-status { color: var(--live); }
+.chat-tool-name { color: var(--ink-700); flex: none; }
+/* The argument is the long part - it truncates rather than wrapping the row, so a
+   pasted URL cannot turn one tool call into four lines of box. */
+.chat-tool-arg {
+  color: var(--ink-400);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1;
+}
+.chat-tool-detail { color: var(--ink-400); flex: none; }
+
+/* A harness NOTICE (auto-compaction, and anything else the harness did on the turn's
+   behalf): quiet, and never styled as an error - nothing is broken and there is
+   nothing to act on. */
+.chat-turn--note .chat-body {
+  color: var(--ink-400);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}

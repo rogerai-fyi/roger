@@ -616,18 +616,12 @@
     return turn;
   }
 
-  // The receipt under an answer: which machine served it, what it cost, how fast.
-  // Only the fields the broker actually returned are shown - a missing value is
-  // omitted rather than printed as a zero, because a zero here reads as a claim.
-  function chatReceipt(turn, r) {
-    var rc = el("div", "chat-receipt");
-    if (r.provider) { var p = el("span", null, "via "); p.appendChild(el("b", null, r.provider)); rc.appendChild(p); }
-    if (r.tokens_in || r.tokens_out) rc.appendChild(el("span", null, "↑" + fmtInt(r.tokens_in) + " ↓" + fmtInt(r.tokens_out)));
-    if (r.cost) rc.appendChild(el("span", null, "$" + Number(r.cost).toFixed(4)));
-    if (r.tps) rc.appendChild(el("span", null, Math.round(r.tps) + " t/s"));
-    if (r.latency_ms) rc.appendChild(el("span", null, (r.latency_ms / 1000).toFixed(1) + "s"));
-    if (rc.childNodes.length) turn.appendChild(rc);
-  }
+  /* The per-turn RECEIPT is not shown on an agent turn yet: a turn is now many relayed
+     calls (one per model step, plus any subagent's), so a single "what this cost" line
+     would have to be a rollup the server does not stream yet. Showing one call's numbers
+     and calling it the turn's cost would understate it, which is the one direction this
+     console must never round. The harness already computes the rollup
+     (Loop.TurnReceipt); surfacing it here is the next step. */
 
   // The working row: the Wave Spectrum carrier, the browser twin of the TUI's
   // sweep. Indeterminate on purpose - a relayed turn has no honest "% done".
@@ -707,28 +701,169 @@
     chatSetBusy(true);
     var working = chatWorking();
 
-    apiPost("/api/chat", { model: sel.value, messages: chatTurns })
-      .then(function (r) {
-        working.remove();
-        var reply = (r && r.reply) || "";
-        if (!reply) {
-          // An empty reply is a real outcome (a refusal, a stripped answer) and must
-          // read as one rather than as a silent no-op.
-          chatAppend(sel.value, "(the station returned an empty answer)", "chat-turn--err");
-          return;
-        }
-        chatTurns.push({ role: "assistant", content: reply });
-        chatReceipt(chatAppend(sel.value, reply), r || {});
-      })
-      .catch(function (err) {
-        working.remove();
-        // The failing turn comes back OUT of the history: leaving a question in with
-        // no answer would send it again on the next turn and bill for it twice.
-        chatTurns.pop();
-        chatAppend("error", (err && err.message) || "the turn did not go through", "chat-turn--err");
-      })
-      .then(function () { chatSetBusy(false); });
+    chatRunAgent(sel.value, text, working);
   }
+
+  /* THE AGENT TURN. Streams newline-delimited JSON off the POST response - EventSource
+     is GET-only, and a turn that spends the operator's money must not be reachable by a
+     GET, which is the rule every other write on this console follows.
+
+     Tool calls render as a FOLDED box, the same shape the TUI uses: a turn that touched
+     eleven files should read as one row of machinery, not eleven. Click to open. */
+  function chatRunAgent(model, text, working) {
+    var box = null;      // the current machinery box, if any
+    var answered = false;
+    fetch(withToken("/api/agent"), {
+      method: "POST",
+      headers: { "X-Roger-Token": TOKEN, "Content-Type": "application/json" },
+      body: JSON.stringify({ model: model, message: text })
+    }).then(function (res) {
+      if (!res.ok || !res.body) {
+        return res.text().then(function (t) { throw new Error(chatErrText(t, res)); });
+      }
+      var reader = res.body.getReader(), dec = new TextDecoder(), buf = "";
+      return (function pump() {
+        return reader.read().then(function (r) {
+          if (r.done) { flushLine(buf, true); return; }
+          buf += dec.decode(r.value, { stream: true });
+          var lines = buf.split("\n");
+          buf = lines.pop();            // the tail may be a partial line
+          lines.forEach(function (l) { flushLine(l, false); });
+          return pump();
+        });
+      })();
+    }).then(function () {
+      working.remove();
+      if (!answered) chatAppend(model, "(the agent finished with no text)", "chat-turn--err");
+    }).catch(function (err) {
+      working.remove();
+      chatTurns.pop();  // a failed turn leaves history clean, or it is re-sent and re-billed
+      chatAppend("error", (err && err.message) || "the turn did not go through", "chat-turn--err");
+    }).then(function () { chatSetBusy(false); });
+
+    function flushLine(line, last) {
+      line = (line || "").trim();
+      if (!line) return;
+      var e;
+      try { e = JSON.parse(line); } catch (_) { return; }
+      // A SUBAGENT's steps stay out of the flow, exactly as in the TUI: a child can make
+      // a dozen calls to answer one question, and pouring those in is the noise the fold
+      // exists to remove.
+      if (e.agent) return;
+      switch (e.kind) {
+        case "tool_call":
+          box = chatToolBox(box);
+          chatToolRow(box, e);
+          break;
+        case "tool_result":
+          chatSettleTool(box, e);
+          break;
+        case "assistant":
+          box = null;
+          if (e.text) chatAppend(model, e.text);
+          break;
+        case "notice":
+          box = null;
+          if (e.text) chatAppend("", e.text, "chat-turn--note");
+          break;
+        case "final":
+          box = null;
+          if (e.text) {
+            answered = true;
+            chatTurns.push({ role: "assistant", content: e.text });
+            chatAppend(model, e.text);
+          }
+          break;
+        case "error":
+          box = null;
+          chatAppend("error", e.text || "the turn failed", "chat-turn--err");
+          answered = true;
+          break;
+      }
+      if (last) { /* nothing: the tail is handled by the branches above */ }
+    }
+  }
+
+  function chatErrText(body, res) {
+    try { var j = JSON.parse(body); if (j && (j.message || j.error)) return j.message || j.error; }
+    catch (_) {}
+    return res.statusText || "the turn did not go through";
+  }
+
+  // One machinery box per run of tool calls. Starts SHUT: the summary is what a reader
+  // scans, and the detail is one click away.
+  function chatToolBox(existing) {
+    if (existing) return existing;
+    var box = el("div", "chat-tools-box");
+    var lid = el("button", "chat-tools-lid");
+    lid.type = "button";
+    lid.setAttribute("aria-expanded", "false");
+    var caret = el("span", "chat-tools-caret", "▸");
+    var label = el("span", "chat-tools-label", "0 tool calls");
+    lid.appendChild(caret);
+    lid.appendChild(label);
+    var rows = el("div", "chat-tools-rows");
+    rows.hidden = true;
+    lid.addEventListener("click", function () {
+      rows.hidden = !rows.hidden;
+      caret.textContent = rows.hidden ? "▸" : "▾";
+      lid.setAttribute("aria-expanded", rows.hidden ? "false" : "true");
+    });
+    box.appendChild(lid);
+    box.appendChild(rows);
+    box._rows = rows;
+    box._label = label;
+    box._names = [];
+    box._done = 0;
+    chatFlow().appendChild(box);
+    chatScroll();
+    return box;
+  }
+
+  function chatToolRow(box, e) {
+    var row = el("div", "chat-tool-row");
+    row.appendChild(el("span", "chat-tool-status", "◐"));
+    row.appendChild(el("span", "chat-tool-name", e.tool || "tool"));
+    if (e.arg) row.appendChild(el("span", "chat-tool-arg", e.arg));
+    box._rows.appendChild(row);
+    box._open = row;
+    if (e.tool && box._names.indexOf(e.tool) === -1) box._names.push(e.tool);
+    chatToolLabel(box);
+  }
+
+  function chatSettleTool(box, e) {
+    if (!box || !box._open) return;
+    var row = box._open;
+    var status = row.firstChild;
+    status.textContent = e.is_error || e.denied ? "✕" : "✓";
+    row.classList.add(e.is_error || e.denied ? "is-error" : "is-ok");
+    if (e.result) {
+      var d = el("span", "chat-tool-detail", chatResultHint(e));
+      row.appendChild(d);
+    }
+    box._open = null;
+    box._done++;
+    chatToolLabel(box);
+  }
+
+  // The lid counts SETTLED runs and names the tools, the same summary the TUI's lid
+  // carries - the names are what a reader scans for ("did it run a search?").
+  function chatToolLabel(box) {
+    var n = box._done || box._rows.childNodes.length;
+    box._label.textContent = n + (n === 1 ? " tool call" : " tool calls") +
+      (box._names.length ? " · " + box._names.slice(0, 4).join(", ") : "");
+  }
+
+  function chatResultHint(e) {
+    if (e.denied) return "denied";
+    if (e.is_error) return (e.result || "").split("\n")[0].slice(0, 80);
+    return chatHumanSize((e.result || "").length);
+  }
+
+  /* The plain one-shot relay (/api/chat) is still served and tested - it is the
+     simplest possible way to reach a band and useful for a caller that wants no tools.
+     The console itself no longer uses it: the chat tab is agentic now, so keeping a
+     second, unreferenced path in the page would just be a second thing to keep working. */
 
   /* LARGE PASTES, held (the same rule the TUI uses - internal/tui/paste.go).
      A browser textarea has the same problem the composer had: it auto-grows, so a

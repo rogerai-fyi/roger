@@ -370,3 +370,69 @@ func str(v any) string {
 		return fmt.Sprintf("%v", t)
 	}
 }
+
+// ToolArgSummary renders a tool call's key argument inline - the command, the path, the
+// url - so a surface can show "read_file  notes.md" at a glance.
+//
+// It lives HERE, not in a surface, because the terminal and the browser console must
+// derive the same summary from the same call. When this was a TUI-private helper the
+// console had no way to reach it, and the only options were to reimplement it (two
+// definitions of what a call looks like, drifting apart) or to show the raw argument
+// JSON (worse for the reader). This is the same rule the tool record follows: one
+// definition of a call, rendered by whoever is showing it.
+//
+// Pure: same arguments in, same summary out, with no dependence on when it is called.
+// That matters because a surface may render a call LIVE and again from a session log,
+// and the two must agree - a view function that is not pure produces a record that
+// disagrees with itself.
+func ToolArgSummary(tool string, args map[string]any) string {
+	switch tool {
+	case "run_shell":
+		return clipLine(argStr(args["cmd"]))
+	case "write_file", "read_file":
+		return argStr(args["path"])
+	case "list_dir":
+		if p := argStr(args["path"]); p != "" {
+			return p
+		}
+		return "."
+	case "web_fetch":
+		return clipLine(argStr(args["url"]))
+	case "web_search":
+		return clipLine(argStr(args["query"]))
+	case "delegate":
+		return clipLine(argStr(args["task"]))
+	}
+	return ""
+}
+
+// argStr reads a string argument, tolerating a missing or non-string value.
+func argStr(v any) string {
+	if s, ok := v.(string); ok {
+		return s
+	}
+	return ""
+}
+
+// clipLine keeps an inline summary to one short line: a pasted command or a long URL
+// must not push everything else off the row it shares.
+func clipLine(s string) string {
+	s = strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(s, "\r", " "), "\n", " "))
+	const max = 72
+	if len(s) <= max {
+		return s
+	}
+	return s[:max-1] + "…"
+}
+
+// SetTools replaces the loop's toolset. Used by a surface that may only offer a subset -
+// the browser console runs read-only, because a run_shell reachable from a browser is a
+// materially bigger blast radius than one reachable from the terminal you are already
+// typing in.
+func (l *Loop) SetTools(tools []Tool) {
+	l.tools = tools
+	l.toolByName = make(map[string]Tool, len(tools))
+	for _, t := range tools {
+		l.toolByName[t.Name] = t
+	}
+}

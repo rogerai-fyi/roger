@@ -1829,28 +1829,13 @@ func (m model) onAgentEvent(e agentEventMsg) (tea.Model, tea.Cmd) {
 	return m, m.waitAgentEvent()
 }
 
-// toolArgSummary renders a tool call's key argument inline (the cmd, the path, the
-// url) so the transcript reads "◉ run_shell: ls -la" at a glance.
+// toolArgSummary delegates to the harness, which owns the ONE definition of how a call
+// summarises its arguments (harness.ToolArgSummary). It lived here until the browser
+// console needed the same summary and had no way to reach it - at which point the only
+// options were a second implementation that would drift, or raw argument JSON in the
+// browser. One definition, rendered by whichever surface is showing it.
 func toolArgSummary(tool string, args map[string]any) string {
-	switch tool {
-	case "run_shell":
-		return clipLine(argStr(args["cmd"]))
-	case "write_file":
-		return argStr(args["path"])
-	case "read_file":
-		return argStr(args["path"])
-	case "list_dir":
-		p := argStr(args["path"])
-		if p == "" {
-			p = "."
-		}
-		return p
-	case "web_fetch":
-		return clipLine(argStr(args["url"]))
-	case "web_search":
-		return clipLine(argStr(args["query"]))
-	}
-	return ""
+	return harness.ToolArgSummary(tool, args)
 }
 
 // argsJSON renders a tool call's parsed arguments back to a JSON string for the capsule,
