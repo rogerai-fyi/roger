@@ -4582,7 +4582,11 @@ func (m model) presetBar(w int) string {
 		parts = append(parts, cell)
 	}
 	bar := strings.Join(parts, stPreset.Render(" "))
-	return "  " + bar
+	// CLIPPED to the terminal. Below ~80 columns the full bank is wider than the screen
+	// and wrapped, which cost a row and - now that the frame is painted on a deck ground
+	// - broke the ground's rectangle where it spilled. Every other row on this screen
+	// already clips; this one was the exception.
+	return truncVisible("  "+bar, w)
 }
 
 // presetForKey maps a top-level key press to its preset action, returning the new
@@ -4841,7 +4845,12 @@ func (m model) View() string {
 	}
 	// A live smart-mode selection paints reverse-video over its cells (restyle
 	// only - the frame's text is untouched).
-	return m.overlaySelection(out)
+	out = m.overlaySelection(out)
+	// THE DECK GROUND goes on LAST, over the finished frame including the selection
+	// overlay: it fills the cells nothing else claimed, and solidBackground re-arms it
+	// after every nested style's reset. Painting earlier would let each later styled
+	// span punch a hole straight back through to the terminal's own ground.
+	return paintDeck(out, w)
 }
 
 // paletteCmd is one entry in the `/` command palette (A.5 progressive disclosure): a runnable

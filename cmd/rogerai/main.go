@@ -92,6 +92,7 @@ type config struct {
 	Webui           *bool                 `json:"webui,omitempty"`             // browser node console: nil/true = on (default), false = off; --no-webui overrides off for a run
 	WebuiOpen       *bool                 `json:"webui_open,omitempty"`        // auto-open the console in a browser at launch: nil/false = no (default; founder respec 2026-07-14 - it hijacked terminal-embedded browsers), true = yes
 	Palette         string                `json:"palette,omitempty"`           // TUI color layer: ""/"full" = the lamp board (default), "mono" = the mono+red escape hatch. ROGER_PALETTE overrides per-run. (design overhaul increment 0)
+	Deck            string                `json:"deck,omitempty"`              // the painted deck ground behind the whole TUI: ""/"on" = the RogerAI faceplate (default), "off" = inherit the terminal's own background. ROGER_DECK overrides per-run.
 	LastSeenVersion string                `json:"last_seen_version,omitempty"` // the Version last launched; the tube warm-up boot plays only when this differs (first run + after an upgrade). (design overhaul increment 10)
 	// Station is this install's friendly, NON-SENSITIVE broadcast callsign (e.g.
 	// `brave-otter-37`). It is the public-facing identity in /discover - NOT the
@@ -360,6 +361,18 @@ func bootShouldPlay(lastSeen, version string) bool { return lastSeen != version 
 // the persisted config, with the ROGER_PALETTE env winning for the run (mirrors
 // ROGER_BROKER / ROGER_USER) - the test-time flip the design brief wants. An empty
 // or unrecognized value (config OR env) falls back to the full lamp board.
+// deckFromConfig resolves the painted-ground switch: config, with ROGER_DECK winning
+// for the run (mirrors ROGER_PALETTE). Default ON - the deck is the product's look -
+// and "off" hands the background back to the operator's terminal theme. Anything
+// unrecognized falls back to on, so a typo never silently removes the look.
+func deckFromConfig(c config) bool {
+	pick := c.Deck
+	if env := os.Getenv("ROGER_DECK"); env == "on" || env == "off" {
+		pick = env
+	}
+	return pick != "off"
+}
+
 func paletteFromConfig(c config) string {
 	pick := c.Palette
 	if env := os.Getenv("ROGER_PALETTE"); env == "full" || env == "mono" {
@@ -720,6 +733,7 @@ func main() {
 func run(argv []string, cfg config) error {
 	tui.SetVersion(Version)                // help/about surfaces match `roger version`
 	tui.SetPalette(paletteFromConfig(cfg)) // point the lamp/mono color switch from config+ROGER_PALETTE
+	tui.SetDeck(deckFromConfig(cfg))       // and the painted deck ground from config+ROGER_DECK
 	// Sweep a leftover binary from a prior Windows self-update (the locked .old that
 	// couldn't be deleted while the old process was still running). No-op elsewhere.
 	update.CleanupOld()
@@ -2019,8 +2033,12 @@ func cmdAccount(cfg config, args []string) error {
 func cmdConfig(args []string) error {
 	if len(args) == 0 {
 		c := loadConfig()
-		fmt.Printf("broker = %s\nuser   = %s\nwebui-open = %v\npalette = %s\nagent-timeout = %s\n",
-			c.Broker, c.User, c.webuiOpenEnabled(), paletteFromConfig(c), formatAgentTimeout(c.AgentTimeoutSeconds))
+		deck := "off"
+		if deckFromConfig(c) {
+			deck = "on"
+		}
+		fmt.Printf("broker = %s\nuser   = %s\nwebui-open = %v\npalette = %s\ndeck   = %s\nagent-timeout = %s\n",
+			c.Broker, c.User, c.webuiOpenEnabled(), paletteFromConfig(c), deck, formatAgentTimeout(c.AgentTimeoutSeconds))
 		printLimits(c)
 		fmt.Printf("(%s)\n", configPath())
 		return nil
@@ -2048,6 +2066,13 @@ func cmdConfig(args []string) error {
 		c := loadConfig()
 		if len(args) > 1 {
 			switch args[1] {
+			case "deck":
+				if c.Deck == "" {
+					fmt.Println("on")
+				} else {
+					fmt.Println(c.Deck)
+				}
+				return nil
 			case "broker":
 				fmt.Println(c.Broker)
 			case "user":
@@ -2087,6 +2112,15 @@ func cmdConfig(args []string) error {
 				return fmt.Errorf("usage: roger config set palette full|mono")
 			}
 			c.Palette = args[2]
+		case "deck":
+			// The painted deck ground behind the whole TUI: "on" = the RogerAI faceplate
+			// (default), "off" = inherit the terminal's own background. ROGER_DECK
+			// overrides per-run. Same reversibility rule as the palette: no visual layer
+			// may be unremovable.
+			if args[2] != "on" && args[2] != "off" {
+				return fmt.Errorf("usage: roger config set deck on|off")
+			}
+			c.Deck = args[2]
 		case "agent-timeout":
 			seconds, err := parseAgentTimeout(args[2])
 			if err != nil {

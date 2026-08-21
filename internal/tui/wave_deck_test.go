@@ -502,3 +502,105 @@ func TestAskMarkNeverEscapes(t *testing.T) {
 		t.Errorf("the ask text itself must survive: %q", txt)
 	}
 }
+
+// ── THE PAINTED DECK GROUND ──────────────────────────────────────────────────
+// Founder: "i want the background a different color, lets make it more roger like
+// like a radio". A terminal hands you whatever ground the operator's theme picked -
+// the founder's is purple - and a faceplate that changes colour with the room is not
+// a faceplate.
+
+func deckOn(t *testing.T) {
+	t.Helper()
+	colorOn(t, true)
+	oldQ, oldD := quiet, deckGround
+	quiet, deckGround = false, true
+	t.Cleanup(func() { quiet, deckGround = oldQ, oldD })
+}
+
+// The ground reaches the EDGES: every row padded to the full width, or the paint
+// stops where the text does and the screen reads as a ragged column.
+func TestDeckPaintsEveryRowToTheEdge(t *testing.T) {
+	deckOn(t)
+	const w = 80
+	frame := paintDeck("short\nalso short\n", w)
+	for i, ln := range strings.Split(strings.TrimRight(frame, "\n"), "\n") {
+		if got := len([]rune(stripANSI(ln))); got != w {
+			t.Errorf("row %d painted to %d cells, want %d", i, got, w)
+		}
+	}
+}
+
+// Nested foreground styles emit SGR resets, which punch holes in an outer background
+// and leave a mottled screen. solidBackground re-arms the ground after each one; this
+// pins that it is actually being used.
+func TestDeckSurvivesNestedStyles(t *testing.T) {
+	deckOn(t)
+	inner := stLive.Render("red") + " plain " + stDim.Render("dim")
+	frame := paintDeck(inner, 40)
+	resets := strings.Count(frame, "\x1b[0m")
+	if resets == 0 {
+		t.Fatal("precondition: nested styles should emit resets")
+	}
+	// Every reset except the line's final one must be followed by the ground being
+	// re-armed, or the rest of that span paints on the terminal's own background.
+	ground := lipgloss.NewStyle().Background(cDeck).Render("X")
+	prefix := ground[:strings.Index(ground, "X")]
+	if !strings.Contains(frame, "\x1b[0m"+prefix) {
+		t.Error("the ground must be re-armed after a nested reset, or the screen mottles")
+	}
+}
+
+// REVERSIBILITY - the same rule the lamp board follows: no visual layer may be
+// unremovable. Three independent off switches, and each must fully restore the frame.
+func TestDeckIsFullyRemovable(t *testing.T) {
+	deckOn(t)
+	const raw = "a line\n"
+
+	deckGround = false
+	if got := paintDeck(raw, 40); got != raw {
+		t.Error("`deck off` must hand the background back untouched")
+	}
+	deckGround = true
+
+	SetPalette("mono")
+	if got := paintDeck(raw, 40); got != raw {
+		t.Error("the mono escape hatch must drop the deck too")
+	}
+	SetPalette("full")
+
+	quiet = true
+	if got := paintDeck(raw, 40); got != raw {
+		t.Error("a terminal that cannot tint must never be painted")
+	}
+	quiet = false
+}
+
+// Headless renders (tests, pipes, NO_COLOR) must be byte-identical to what they always
+// were - which is what lets the rest of this suite keep asserting on exact frames.
+func TestDeckIsInertHeadless(t *testing.T) {
+	m := browseSeed(80)
+	m.width, m.height = 80, 24
+	m.mode = modeAgent
+	m.agent = m.newAgentRuntime()
+	if strings.Contains(m.View(), "\x1b[48") {
+		t.Error("a headless frame must carry no background paint")
+	}
+}
+
+// The preset bar was the one row on the screen that did not clip, so below ~80 columns
+// it wrapped - costing a row and breaking the painted ground's rectangle where it
+// spilled. Every row fits its terminal now.
+func TestNoRowOverflowsAtAnyWidth(t *testing.T) {
+	for w := 60; w <= 160; w += 5 {
+		m := browseSeed(w)
+		m.width, m.height = w, 24
+		m.mode = modeAgent
+		m.connected = &offer{NodeID: "station", Model: "m", Online: true}
+		m.agent = m.newAgentRuntime()
+		for i, ln := range strings.Split(stripANSI(m.View()), "\n") {
+			if got := len([]rune(ln)); got > w {
+				t.Errorf("width %d: row %d overflows at %d cells: %q", w, i, got, ln)
+			}
+		}
+	}
+}

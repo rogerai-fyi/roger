@@ -41,6 +41,21 @@ var (
 	// (ANSI256+) and full palette; mono / dumb terminals drop it to the bare red ▌ bar.
 	cBand = lipgloss.AdaptiveColor{Light: "#F1EFE8", Dark: "#191712"}
 
+	// THE DECK GROUND. The one surface the whole app sits on, painted rather than
+	// inherited (founder: "i want the background a different color, lets make it more
+	// roger like like a radio").
+	//
+	// A terminal hands you whatever ground the operator's theme picked - the founder's
+	// is purple - and a radio faceplate that changes colour with the room is not a
+	// faceplate. These are the site's own paper tokens, so the TUI, the browser console
+	// and rogerai.fm stand on the same two grounds.
+	//
+	// AdaptiveColor, not a fixed dark: a light terminal gets the warm paper and a dark
+	// one the warm black, so the ground is OURS without inverting anyone's polarity. On
+	// a terminal already near either value this is close to a no-op, which is the right
+	// outcome - it only asserts itself where the theme had wandered off.
+	cDeck = lipgloss.AdaptiveColor{Light: "#FBFBFA", Dark: "#0E0D0B"}
+
 	// THE SLATE. A raised faceplate for a sent question (askSlate): a face a shade
 	// above the ground, a lit top edge, a fallen bottom edge, and the brightest ink on
 	// the screen for the question itself. A terminal has no shadows, so depth is made
@@ -88,6 +103,35 @@ var paletteMono bool
 // collapses; anything else ("full", "", junk) is the full lamp board. The
 // cross-package seam cmd/rogerai calls at launch.
 func SetPalette(mode string) { paletteMono = mode == "mono" }
+
+// deckGround gates the painted ground. On by default - it is the product's look - and
+// one config flip (`roger config set deck off`) or the mono escape hatch turns it off,
+// which is the same reversibility rule the lamp board follows: no visual layer may be
+// unremovable.
+var deckGround = true
+
+// SetDeck points the painted-ground switch from the resolved config/env.
+func SetDeck(on bool) { deckGround = on }
+
+// paintDeck lays the frame on the deck ground: every line padded to the full width so
+// the ground reaches the edges, then carried through nested styles by solidBackground
+// (nested foreground spans emit SGR resets, which would otherwise punch holes in it and
+// leave a mottled screen).
+//
+// OFF under mono and at any profile that cannot tint, which is also every headless
+// render - so tests, pipes and dumb terminals produce exactly the frame they always did.
+func paintDeck(frame string, width int) string {
+	if !deckGround || paletteMono || !canTint(lipgloss.DefaultRenderer().ColorProfile()) {
+		return frame
+	}
+	lines := strings.Split(frame, "\n")
+	for i, ln := range lines {
+		if pad := width - lipgloss.Width(ln); pad > 0 {
+			lines[i] = ln + strings.Repeat(" ", pad)
+		}
+	}
+	return solidBackground(strings.Join(lines, "\n"), cDeck)
+}
 
 // lamp resolves a semantic role to its color for the active palette mode. In full
 // mode each role is its own lamp hue; in mono every lamp but the one red collapses
