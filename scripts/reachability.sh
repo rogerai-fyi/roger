@@ -101,6 +101,34 @@ while IFS='|' read -r loc fn; do
   fail=1
 done <<< "$found"
 
+# STALE ALLOWLIST LINES. An entry that no longer matches anything deadcode reports is a
+# line that does nothing - the symbol was deleted, or it became reachable. Either way the
+# line is inert, and an inert line is worse than no line: it sits there pre-authorizing a
+# name, so if that name ever comes back the check waves it through and nobody is told.
+#
+# That is not hypothetical. `internal/towercore/attach.memStore.BySessionKey` was deleted
+# with the session-key uniqueness rule it served, and its allowlist entry stayed behind -
+# silently guaranteeing that re-adding the exact lookup the removal was careful to delete
+# would pass this gate. An audit found it by reading, which is the wrong way to find it.
+#
+# Advisory rather than fatal: a stale line breaks nothing today, and this check's own
+# header says a gate that cries wolf gets disabled. Loud enough to fix, quiet enough to
+# ignore during an unrelated push.
+stale=""
+while IFS= read -r line; do
+  case "$line" in ''|'#'*|'method '*) continue ;; esac
+  if ! printf '%s\n' "$found" | grep -qF "|${line##*.}"; then
+    stale="${stale}${line}\n"
+  fi
+done < "$ALLOW"
+if [ -n "$stale" ]; then
+  echo
+  echo "[reach] allowlist lines that no longer match anything — delete them, or the name"
+  echo "        they pre-authorize comes back unnoticed:"
+  printf "%b" "$stale" | sed 's/^/        /'
+  echo
+fi
+
 # Advisory, printed after the hard check so it cannot be mistaken for one. These are the
 # methods deadcode structurally cannot rule on; each is a question, not a verdict.
 sweep="$(methods_sweep || true)"

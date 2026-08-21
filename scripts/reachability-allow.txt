@@ -19,7 +19,6 @@
 internal/towercore/attach.memStore.Admit
 internal/towercore/attach.memStore.Authorization
 internal/towercore/attach.memStore.ByAssertionKey
-internal/towercore/attach.memStore.BySessionKey
 internal/towercore/attach.memStore.ByStation
 internal/towercore/attach.memStore.CountLiveAttachments
 internal/towercore/attach.memStore.PutAuthorization
