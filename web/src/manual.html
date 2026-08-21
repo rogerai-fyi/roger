@@ -641,7 +641,31 @@
 <span class="p">$</span> roger-tower doctor                                 <span class="c"># pre-flight: config, reachability, clock</span>
 <span class="p">$</span> roger-tower register                               <span class="c"># enroll this Tower against the broker</span>
 <span class="p">$</span> roger-tower status                                 <span class="c"># admission state, lease, attached nodes</span>
-<span class="p">$</span> roger-tower serve --hub :8444 --relay-public YOUR.HOST:8444   <span class="c"># hold the link + host the data plane</span></pre>
+<span class="p">$</span> roger-tower serve --hub :8444 --relay-public YOUR.HOST:8444 --hub-tls   <span class="c"># hold the link + host the data plane, encrypted</span></pre>
+            <div class="man-note">
+              <span class="man-note__tag">--hub-tls</span>
+              With no certificate files your Tower <b>mints and keeps a self-signed
+              certificate</b>, and Core publishes its fingerprint to every node and consumer it
+              routes to you - each accepts that certificate and no other. No domain name, no
+              publicly-trusted certificate, no renewal. That is deliberate: a relay on a home
+              connection with a dynamic address cannot get a public certificate at any price,
+              and a node does not need to know it reached <i>relay.example</i> - it needs to know
+              it reached <b>the Tower Core assigned it</b>, which is what the fingerprint proves.
+              Bring your own with <code>--hub-tls-cert</code> / <code>--hub-tls-key</code> if you
+              have one. Turn it on <b>before</b> you have nodes where you can: changing the
+              certificate changes the fingerprint, and nodes already serving through you fail
+              until they re-attach - they recover by themselves, but not instantly.
+            </div>
+            <div class="man-note">
+              <span class="man-note__tag">your clock is load-bearing</span>
+              <code>doctor</code> reports whether the kernel thinks your clock is disciplined and
+              how far off it measures. Not hygiene: nodes authenticate by <b>signing</b> each
+              request, and past the accepted skew your Tower refuses <b>every honest node's
+              poll</b> while looking perfectly healthy - process up, port answering, link to Core
+              fine, no work moving. A standalone Tower measures nothing unless you ask
+              (<code>--clock-check</code>), because it promises no outbound connection at all and
+              that promise is not ours to break to read a clock.
+            </div>
             <p>You attach nobody by hand, and cannot: an ordinary <code>roger share</code>
               puts a node on the relay fabric by itself - one signed call registers its keys,
               model and its own listed price - and <b>Core</b> decides which Tower it lands on.

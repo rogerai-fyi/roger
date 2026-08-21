@@ -164,6 +164,65 @@ Durable PostgreSQL storage for the Tower's own state is pending; today it lives 
 directory, which is fine for a single node and is not yet the fail-closed durable profile the
 spec describes.
 
+## Encrypting the hub link
+
+One flag:
+
+```bash
+roger-tower serve --hub :8444 --relay-public YOUR.HOST:8444 --hub-tls
+```
+
+With no certificate files this Tower mints a self-signed certificate, keeps it, and
+advertises its public-key fingerprint to Roger Core on the link. Core hands that fingerprint
+to every node and every consumer it routes here, and each of them accepts that certificate
+and no other.
+
+**No domain name, no publicly-trusted certificate, no renewal.** That is deliberate rather
+than a shortcut: a volunteer relay on a home connection with a dynamic address cannot obtain
+a public certificate at any price, so requiring one would not make Towers secure, it would
+make most operators ineligible. And it answers a sharper question than the Web PKI does — a
+node does not care whether it is talking to `relay.example`, it cares whether it is talking
+to the Tower Core assigned it, which is exactly what the pinned fingerprint proves.
+
+If you already have a real certificate, `--hub-tls-cert` and `--hub-tls-key` still work and
+the fingerprint is computed from it. Nothing is lost by having one; nothing is required.
+
+**What it protects.** Without TLS the hub link is plaintext, and anyone on the path — the
+node's ISP, a shared host, your own hosting network — can read the traffic shape and forge
+the status codes a node uses to reason about its own pay. They cannot read the work: every
+request and answer is sealed end to end to the serving node's key, and a Tower never holds
+that key with or without TLS. What TLS adds is that nobody can impersonate your hub to a
+node, and the Station's long-term public identity stops riding every poll in the clear.
+
+**One thing to know before you turn it on.** A node picks up its Tower's certificate when it
+attaches. Turning TLS on, or later rotating the certificate, changes the fingerprint — nodes
+already serving through you will fail against the new listener until they re-attach. They do
+recover on their own (a node that keeps failing against its hub asks Core again and picks up
+the new details), but it is not instant. Prefer to enable it before you have nodes, and treat
+a rotation as a brief interruption rather than a transparent one.
+
+## Your clock is load-bearing
+
+```bash
+roger-tower doctor --config /etc/roger-tower/config.yaml
+```
+
+Doctor reports two things about time: whether the kernel believes its clock is disciplined —
+the half that tells you there is a repair to make — and the measured offset against an NTP
+server.
+
+This is not hygiene. Nodes authenticate to your hub by signing each request, and a signature
+carries the signer's timestamp. Past the accepted skew your Tower refuses **every honest
+node's poll** and relays nothing, while looking perfectly healthy from the outside: the
+process is up, the port answers, the link to Core is fine, and no work moves. Doctor is where
+you find that out, and the offset is reported as a problem rather than a note precisely
+because of how quiet the failure is.
+
+A standalone Tower measures nothing unless you ask. It promises no outbound connection at
+all, and that promise is not ours to break to check a clock — pass `--clock-check` if you
+want the measurement, and `--ntp HOST:PORT` to name your own server. A joined Tower measures
+by default; `--offline` opts out.
+
 ## Security posture, stated plainly
 
 - A standalone Tower makes **no outbound network call at all**. That is enforced by a test
