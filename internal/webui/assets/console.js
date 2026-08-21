@@ -694,13 +694,15 @@
   function chatSend() {
     if (chatBusy) return;
     var input = $("chat-input"), sel = $("chat-model");
-    var text = (input.value || "").trim();
+    var text = chatExpandPastes(input.value || "").trim();
     if (!text) return;
     if (!sel || !sel.value) { toast("pick a band first", "err"); return; }
 
     chatAppend("you", text, "chat-turn--you");
     chatTurns.push({ role: "user", content: text });
     input.value = "";
+    chatPastes = []; // sent: the held blocks are in the message now
+    chatRenderHeld();
     chatAutoGrow();
     chatSetBusy(true);
     var working = chatWorking();
@@ -728,6 +730,81 @@
       .then(function () { chatSetBusy(false); });
   }
 
+  /* LARGE PASTES, held (the same rule the TUI uses - internal/tui/paste.go).
+     A browser textarea has the same problem the composer had: it auto-grows, so a
+     300-line paste fills 40% of the viewport and pushes the thing you were typing in
+     off the screen. A big paste is held and shown as one chip; the real text goes back
+     in at send.
+
+     The THRESHOLDS ARE THE TUI'S ON PURPOSE - four lines or 400 bytes. Two surfaces of
+     one product that disagree about what counts as a big paste would be a worse bug
+     than either one getting the number wrong. */
+  var CHAT_PASTE_MIN_LINES = 4;
+  var CHAT_PASTE_MIN_BYTES = 400;
+  var chatPastes = [];
+
+  function chatBigPaste(t) {
+    return t.split("\n").length >= CHAT_PASTE_MIN_LINES || t.length >= CHAT_PASTE_MIN_BYTES;
+  }
+
+  function chatHumanSize(n) {
+    if (n >= 1048576) return (n / 1048576).toFixed(1) + " MB";
+    if (n >= 1024) return (n / 1024).toFixed(1) + " KB";
+    return n + " bytes";
+  }
+
+  function chatHoldPaste(text) {
+    chatPastes.push(text);
+    var n = chatPastes.length;
+    // Count CONTENT lines: a paste ending in a newline has a trailing empty line that
+    // is not a line of anything.
+    var lines = text.replace(/\n+$/, "").split("\n").length;
+    return lines >= CHAT_PASTE_MIN_LINES
+      ? "[Pasted text #" + n + " +" + lines + " lines]"
+      : "[Pasted text #" + n + " " + chatHumanSize(text.length) + "]";
+  }
+
+  // Put the held text back before sending. A chip with nothing behind it - typed, or
+  // edited to a number that was never held - is left exactly as written, because
+  // substituting nothing there would silently delete what the user wrote.
+  function chatExpandPastes(s) {
+    if (!chatPastes.length) return s;
+    return s.replace(/\[Pasted text #(\d+)[^\]]*\]/g, function (ref, num) {
+      var i = parseInt(num, 10);
+      return (i >= 1 && i <= chatPastes.length) ? chatPastes[i - 1] : ref;
+    });
+  }
+
+  function chatOnPaste(e) {
+    var text = (e.clipboardData || window.clipboardData).getData("text");
+    if (!text || !chatBigPaste(text)) return; // small pastes land as themselves
+    e.preventDefault();
+    var input = $("chat-input");
+    var chip = chatHoldPaste(text);
+    var at = input.selectionStart, end = input.selectionEnd;
+    input.value = input.value.slice(0, at) + chip + input.value.slice(end);
+    var pos = at + chip.length;
+    input.setSelectionRange(pos, pos);
+    chatAutoGrow();
+    chatRenderHeld();
+  }
+
+  // Show what is being held under the composer. The chip inside the textarea is plain
+  // text the user can edit or delete; this line is the console saying what will
+  // actually be sent, which is the thing worth being sure about.
+  function chatRenderHeld() {
+    var host = $("chat-held");
+    if (!host) return;
+    while (host.firstChild) host.removeChild(host.firstChild);
+    if (!chatPastes.length) { show(host, false); return; }
+    host.appendChild(el("span", null, chatPastes.length === 1 ? "holding" : "holding"));
+    chatPastes.forEach(function (p, i) {
+      var lines = p.replace(/\n+$/, "").split("\n").length;
+      host.appendChild(el("b", null, "#" + (i + 1) + " · " + lines + " lines · " + chatHumanSize(p.length)));
+    });
+    show(host, true);
+  }
+
   function chatAutoGrow() {
     var i = $("chat-input");
     if (!i) return;
@@ -739,6 +816,7 @@
     var input = $("chat-input"), send = $("chat-send"), model = $("chat-model");
     if (!input) return;
     input.addEventListener("input", chatAutoGrow);
+    input.addEventListener("paste", chatOnPaste);
     input.addEventListener("keydown", function (e) {
       // Enter sends, shift+enter is a newline - the convention every chat surface
       // the operator already uses shares.

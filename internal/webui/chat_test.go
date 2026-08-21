@@ -200,3 +200,91 @@ func TestChatTabIsWiredIntoTheShell(t *testing.T) {
 		}
 	}
 }
+
+// ── LARGE PASTES, in the console ─────────────────────────────────────────────
+// The same bug the TUI had (founder 2026-08-21): a browser textarea auto-grows, so a
+// 300-line paste fills 40% of the viewport and pushes what you were typing off screen.
+
+func chatJS(t *testing.T) string {
+	t.Helper()
+	b, err := os.ReadFile("assets/console.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+// The THRESHOLDS must match the TUI's. Two surfaces of one product that disagree about
+// what counts as a big paste is a worse bug than either getting the number wrong, and
+// the numbers live in two languages so nothing but a test can hold them together.
+func TestConsolePasteThresholdsMatchTheTUI(t *testing.T) {
+	js := chatJS(t)
+	for _, want := range []string{
+		"CHAT_PASTE_MIN_LINES = 4",
+		"CHAT_PASTE_MIN_BYTES = 400",
+	} {
+		if !strings.Contains(js, want) {
+			t.Errorf("the console must use the TUI's threshold (%s)", want)
+		}
+	}
+	// Cross-check against the Go side so a change there fails HERE too.
+	tui, err := os.ReadFile("../tui/paste.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"pasteMinLines = 4", "pasteMinBytes = 400"} {
+		if !strings.Contains(string(tui), want) {
+			t.Errorf("the TUI threshold moved (%s) - the console's copy in console.js must move with it", want)
+		}
+	}
+}
+
+// A small paste must land as itself: a URL or a short snippet is something you want to
+// SEE before sending.
+func TestConsoleSmallPasteIsNotIntercepted(t *testing.T) {
+	js := chatJS(t)
+	i := strings.Index(js, "function chatOnPaste")
+	if i < 0 {
+		t.Fatal("chatOnPaste not found")
+	}
+	block := js[i : i+600]
+	if !strings.Contains(block, "if (!text || !chatBigPaste(text)) return") {
+		t.Error("small pastes must fall through untouched, before preventDefault")
+	}
+	// preventDefault must come AFTER that guard, or every paste would be intercepted.
+	if strings.Index(block, "preventDefault") < strings.Index(block, "chatBigPaste") {
+		t.Error("the size guard must run before preventDefault")
+	}
+}
+
+// Held text is expanded before the message is sent, and a chip with nothing behind it
+// survives verbatim - substituting there would silently delete what the user wrote.
+func TestConsoleExpandsHeldPastesOnSend(t *testing.T) {
+	js := chatJS(t)
+	if !strings.Contains(js, "var text = chatExpandPastes(input.value") {
+		t.Error("the send path must expand held pastes, or the model gets a placeholder")
+	}
+	i := strings.Index(js, "function chatExpandPastes")
+	block := js[i : i+500]
+	if !strings.Contains(block, "chatPastes[i - 1] : ref") {
+		t.Error("an unbacked chip must be returned as written")
+	}
+	if !strings.Contains(js, "chatPastes = []") {
+		t.Error("held blocks must be released once sent")
+	}
+}
+
+// The console tells the user what it is holding. The chip inside the textarea is text
+// they can edit or delete; the note is what will actually be sent.
+func TestConsoleShowsWhatItIsHolding(t *testing.T) {
+	html, err := os.ReadFile("assets/console.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(html), `id="chat-held"`) {
+		t.Error("the composer needs somewhere to report held blocks")
+	}
+	if !strings.Contains(chatJS(t), "function chatRenderHeld") {
+		t.Error("...and something to fill it")
+	}
+}

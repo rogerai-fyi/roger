@@ -1117,3 +1117,26 @@ body.is-chat .content { padding-bottom: var(--s-6); }
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
   overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
 }
+
+/* The paste chip is plain text inside a textarea - a textarea cannot carry markup, so
+   it cannot be styled directly. What CAN be styled is the note under the composer,
+   which names what is being held. That is the honest place for it anyway: the chip is
+   a placeholder the user may edit or delete, and the note is the console telling them
+   what will actually be sent. */
+.chat-held {
+  margin: 6px 2px 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-400);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.chat-held b {
+  font-weight: 500;
+  color: var(--ink-500);
+  border: 1px solid var(--hairline);
+  background: var(--paper-2);
+  border-radius: 2px;
+  padding: 2px 7px;
+}
