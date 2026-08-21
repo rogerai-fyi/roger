@@ -89,6 +89,11 @@ const (
 	EventFinal
 	// EventError is an unrecoverable loop error (e.g. the model call failed).
 	EventError
+	// EventNotice is something the harness DID on the turn's behalf that the operator
+	// should know about but does not have to act on - today, auto-compaction. Not an
+	// error (the turn continues) and not an answer, so it renders as a quiet line
+	// rather than a red one.
+	EventNotice
 )
 
 // Loop is the embedded agent. It owns the session-only conversation (NO persistent
@@ -115,9 +120,17 @@ type Loop struct {
 	// window. Zero means unbounded, so callers that never set it behave exactly as before.
 	MaxToolOutput int
 
+	// Guards run between the confirm gate and the tool body. Each may only DENY (see
+	// guards.go): a non-empty return refuses the call and becomes the result the model
+	// reads. Nil means DefaultGuards(); an explicitly empty slice disables them, which
+	// is what tests that exercise raw tool behaviour want.
+	Guards []Guard
+
 	// turnStart marks where the CURRENT turn begins in messages, so sources are derived
 	// from this turn's retrievals only (a citation list must not accumulate across turns).
 	turnStart int
+	// turnCalls are this turn's earlier tool-call signatures, feeding the repeat guard.
+	turnCalls []string
 	// searches / fetches are this turn's retrieval spend against the per-turn budget.
 	// They reset on every Send: the budget bounds one answer, not a session.
 	searches int
@@ -183,6 +196,54 @@ func (l *Loop) RestoreConversation(history []Message) error {
 // Tools exposes the toolset (for the UI to describe the available capabilities).
 func (l *Loop) Tools() []Tool { return l.tools }
 
+// guards resolves the chain: nil means the defaults, an explicitly empty (non-nil)
+// slice means none. Callers that want raw tool behaviour set Guards to []Guard{}.
+func (l *Loop) guards() []Guard {
+	if l.Guards == nil {
+		return DefaultGuards()
+	}
+	return l.Guards
+}
+
+// conversationView assembles the narrow read-only slice guards may consult. Built per
+// call rather than cached: a guard must see what is true NOW, including a URL that
+// arrived from a search earlier in this same turn.
+func (l *Loop) conversationView() ConversationView {
+	var user strings.Builder
+	for _, m := range l.messages {
+		if m.Role == "user" {
+			user.WriteString(m.Content)
+			user.WriteByte('\n')
+		}
+	}
+	from := l.turnStart
+	if from < 0 || from > len(l.messages) {
+		from = 0
+	}
+	// Grounded URLs are BOTH halves of a retrieval:
+	//   - what a web_search returned, which is the whole point of searching first, and
+	//   - what a fetch already followed, so a re-read of a page is not refused.
+	// Search results were the half I nearly left out, and leaving them out would have
+	// broken the one flow the fetch guard is meant to encourage: search, then read a
+	// result. A guard that refuses the behaviour it is asking for is worse than none.
+	var urls []string
+	for _, m := range l.messages[from:] {
+		if m.Role == "tool" && m.Name == "web_search" {
+			for u := range titlesFromResults(m.Content) {
+				urls = append(urls, u)
+			}
+		}
+	}
+	for _, s := range sourcesFrom(l.messages[from:]) {
+		urls = append(urls, s.URL)
+	}
+	return ConversationView{
+		UserText:   user.String(),
+		Retrieved:  urls,
+		PriorCalls: l.turnCalls,
+	}
+}
+
 // sources returns the citations for the CURRENT (most recent) turn, derived from what was
 // actually retrieved. See sources.go for why this is the only derivation.
 func (l *Loop) sources() []source {
@@ -222,9 +283,14 @@ func (l *Loop) Send(ctx context.Context, userText string, emit func(Event)) (str
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	// A new turn: its own citation window and its own retrieval budget.
+	// A new turn: its own citation window, retrieval budget, and call history. The
+	// repeat guard is scoped to a TURN on purpose - asking the same question again
+	// later is a legitimate thing for an operator to do, and re-running the call that
+	// answers it is the right response.
 	l.turnStart = len(l.messages)
 	l.searches, l.fetches = 0, 0
+	l.turnCalls = l.turnCalls[:0]
+	compacted := false // auto-compaction fires at most once per turn (see below)
 	l.messages = append(l.messages, Message{Role: "user", Content: userText})
 
 	for step := 0; step < l.MaxSteps; step++ {
@@ -239,6 +305,26 @@ func (l *Loop) Send(ctx context.Context, userText string, emit func(Event)) (str
 			return "", ctx.Err()
 		}
 		msg, err := l.complete(ctx, l.messages, ToolSchemas(l.tools))
+		if err != nil && IsContextOverflow(err.Error()) && !compacted {
+			// AUTO-COMPACTION (founder 2026-08-20). The conversation outgrew the band's
+			// window. Rather than ending the turn and telling the operator to run /clear
+			// by hand, drop the oldest raw tool material - model-free, deterministic, and
+			// never touching what anyone SAID - and try the call once more.
+			//
+			// ONCE per turn, and only when there is something to free. A second overflow
+			// after a successful prune means the conversation is too big for this band
+			// even without its raw material, and re-sending it would spend another billed
+			// call to fail the same way; the operator's /clear or /model is the real fix
+			// and the error now says so honestly.
+			if have := l.compactableBytes(); have > 0 {
+				compacted = true
+				freed, dropped := l.compactForWindow(have)
+				emitStep(Event{Kind: EventNotice, Text: fmt.Sprintf(
+					"compacted the session: dropped %d KB of tool output from %d earlier tool %s to fit the window",
+					freed/1024, dropped, map[bool]string{true: "call", false: "calls"}[dropped == 1])})
+				continue
+			}
+		}
 		if err != nil {
 			// A cancelled context surfaces as a clean "cancelled", not a scary network error.
 			if ctx.Err() != nil {
@@ -322,6 +408,20 @@ func (l *Loop) runOne(ctx context.Context, call ToolCall, emit func(Event)) {
 			return
 		}
 	}
+
+	// GUARDS: the last word before the tool body. Deny-only and monotonic, so no
+	// ordering of them can widen what the agent may do (guards.go). A denial is fed
+	// back as the tool result - the model reads WHY and can adapt - and is marked
+	// IsError so the transcript shows it as a refused call rather than a success.
+	conv := l.conversationView()
+	for _, g := range l.guards() {
+		if reason := g(name, args, conv); reason != "" {
+			res := l.appendToolResult(call, reason)
+			emit(Event{Kind: EventToolResult, Tool: name, Result: res, IsError: true, Denied: true})
+			return
+		}
+	}
+	l.turnCalls = append(l.turnCalls, callSignature(name, args))
 
 	// RETRIEVAL BUDGET: charged BEFORE the tool runs, so an exhausted budget costs no
 	// network round trip - which is also what makes it useless as an injection lever.

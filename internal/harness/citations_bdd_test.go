@@ -96,6 +96,13 @@ func (s *citeState) runScript(finalText string, calls [][2]string) error {
 		return Message{Role: "assistant", Content: finalText}, nil
 	}
 	s.loop = NewLoop(s.t.TempDir(), "sys", complete, nil)
+	// GUARDS OFF (2026-08-20). These scenarios drive web_fetch directly on fixture
+	// URLs no user ever typed, because what they exercise is the layer BELOW the
+	// guards: retrieval, citation derivation and injection wrapping. With the default
+	// chain on, GuardFetchProvenance would refuse every one of those fetches - which
+	// is correct behaviour and would make these tests assert nothing. The guards have
+	// their own suite (guards_test.go).
+	s.loop.Guards = []Guard{}
 	s.final, s.err = s.loop.Send(context.Background(), "what is the backoff?", func(e Event) {
 		if e.Kind == EventToolResult {
 			s.eventsSeen = append(s.eventsSeen, e)
@@ -208,6 +215,13 @@ func (s *citeState) runScriptWithSearch(finalText, searchResults string, calls [
 		return Message{Role: "assistant", Content: finalText}, nil
 	}
 	s.loop = NewLoop(s.t.TempDir(), "sys", complete, nil)
+	// GUARDS OFF (2026-08-20). These scenarios drive web_fetch directly on fixture
+	// URLs no user ever typed, because what they exercise is the layer BELOW the
+	// guards: retrieval, citation derivation and injection wrapping. With the default
+	// chain on, GuardFetchProvenance would refuse every one of those fetches - which
+	// is correct behaviour and would make these tests assert nothing. The guards have
+	// their own suite (guards_test.go).
+	s.loop.Guards = []Guard{}
 	s.loop.MaxSteps = 12
 	// The search tool is only advertised when configured; inject the rendered results
 	// directly as the tool's output so the citation derivation is what is under test here
@@ -431,6 +445,13 @@ func (s *citeState) twoTurnsFetchedDifferentPages() error {
 		return Message{Role: "assistant", Content: "answered"}, nil
 	}
 	s.loop = NewLoop(s.t.TempDir(), "sys", complete, nil)
+	// GUARDS OFF (2026-08-20). These scenarios drive web_fetch directly on fixture
+	// URLs no user ever typed, because what they exercise is the layer BELOW the
+	// guards: retrieval, citation derivation and injection wrapping. With the default
+	// chain on, GuardFetchProvenance would refuse every one of those fetches - which
+	// is correct behaviour and would make these tests assert nothing. The guards have
+	// their own suite (guards_test.go).
+	s.loop.Guards = []Guard{}
 	if _, err := s.loop.Send(context.Background(), "turn one", nil); err != nil {
 		return err
 	}

@@ -1773,6 +1773,14 @@ func (m model) onAgentEvent(e agentEventMsg) (tea.Model, tea.Cmd) {
 		if f := sessionFooter(m.agentTokensIn, m.agentTokensOut, m.agentCost); f != "" {
 			m.agentLines = append(m.agentLines, "   "+f)
 		}
+	case harness.EventNotice:
+		// Something the harness did on the turn's behalf - today, auto-compaction. It
+		// rides the transcript as a QUIET line, not a red one: the turn is still going,
+		// nothing is broken, and there is nothing for the operator to do. But it is
+		// never silent, because a session that quietly dropped material the model had
+		// read is exactly the kind of thing an operator should be told about.
+		m.agentLines = append(m.agentLines, stDim.Render("  ⋮ ")+stDim.Render(e.Text))
+		return m, nil
 	case harness.EventError:
 		// A failed turn is a dead end unless we say what to do next. Replace the bare
 		// "status NNN / no reply" with a tight two-liner: the short cause (naming the
@@ -2568,6 +2576,14 @@ func (m model) flushFold(out, fold []string, w int) []string {
 	// run still in flight (a call with no result yet).
 	names, seen, done := make([]string, 0, 4), map[string]bool{}, 0
 	for _, c := range fold {
+		// SKIP OUTPUT PREVIEWS. They ride this same buffer when the box is shut, and
+		// they are raw fetched page / file text - scraping "the first identifier" out
+		// of those produced lids reading "web_search, brings, a, is, +3" (founder
+		// screenshot 2026-08-20): three of those are words from a Reddit page, not
+		// tools. Only CARDS name tools.
+		if strings.HasPrefix(c, toolOutMark) {
+			continue
+		}
 		flat := strings.TrimSpace(ansi.Strip(c))
 		if strings.HasPrefix(flat, "✓") || strings.HasPrefix(flat, "✕") || strings.HasPrefix(flat, "x ") {
 			done++
@@ -2579,7 +2595,13 @@ func (m model) flushFold(out, fold []string, w int) []string {
 	}
 	n := done
 	if n == 0 {
-		n = len(fold)
+		// No completed results yet (a call still in flight). Count CARDS, not buffer
+		// entries - output previews are in here too and would inflate the count.
+		for _, c := range fold {
+			if !strings.HasPrefix(c, toolOutMark) {
+				n++
+			}
+		}
 	}
 	unit := "tool calls"
 	if n == 1 {
@@ -2694,21 +2716,27 @@ func (m model) agentAskLines(p string) []string {
 	return []string{"", rule, ask}
 }
 
-// askSlate paints one sent ask as a full-width plate: the red bar, the text, and the
-// tint carried all the way to the right margin.
+// askSlate paints one sent ask as a RAISED SLATE: a block with the question glowing on
+// a lifted face, a lit top edge and a fallen bottom edge that read as light landing on
+// a physical panel.
 //
-// FOUNDER 2026-08-20: the ask used to be tinted only as far as its own text, so a
-// two-word question was a two-word smudge and the turns did not read as separate
-// blocks. Spanning the width turns each one into a crisp slab you can find while
-// scrolling - the "aggressively shown sections" the founder asked for, done with this
-// palette's own faint band rather than a new colour.
+// FOUNDER 2026-08-20 (round 3): the flat band was right about spanning the view and
+// wrong about everything else - "enclose the section in this 3d block ... with glowing
+// text ... like radio for roger". A terminal has no shadows, so the depth is made the
+// way a radio faceplate makes it: the top lip catches light, the bottom lip falls away,
+// and the face between sits a shade above the surrounding ground. The question is the
+// brightest ink on the screen against that face - contrast is the only glow a terminal
+// has.
 //
-// A long ask wraps INSIDE the slate, every row tinted, so the plate never has a
-// ragged edge. Mono / dumb terminals keep the bare ▌ bar, which is the same escape
-// hatch bandUser has always had.
+// Every row is painted to the full width, so the block has four straight edges, and a
+// long question wraps INSIDE the face rather than escaping it.
+//
+// Mono / dumb terminals keep the bare ▌ bar - the escape hatch bandUser always had, and
+// the reason the depth is decoration over an already-legible line rather than the thing
+// carrying the meaning.
 func askSlate(text string, w int) []string {
 	if paletteMono || !canTint(lipgloss.DefaultRenderer().ColorProfile()) {
-		rows := wrapPlain(text, max(1, w-4))
+		rows := strings.Split(ansi.Wrap(text, max(1, w-4), ""), "\n")
 		out := make([]string, 0, len(rows))
 		for i, r := range rows {
 			lead := "  "
@@ -2719,29 +2747,37 @@ func askSlate(text string, w int) []string {
 		}
 		return out
 	}
-	body := lipgloss.NewStyle().Background(cBand).Foreground(cInk).Bold(true)
-	bar := lipgloss.NewStyle().Background(cBand).Foreground(cLive).Bold(true)
-	rows := wrapPlain(text, max(1, w-6))
-	out := make([]string, 0, len(rows))
+	face := lipgloss.NewStyle().Background(cSlate).Foreground(cSlateText).Bold(true)
+	// The lit and fallen lips, drawn as full-width runs of the half-block glyphs so the
+	// bevel is a real row of pixels rather than a colour change the eye has to infer.
+	top := lipgloss.NewStyle().Foreground(cSlateLit).Background(cSlate).Render(strings.Repeat("▔", w))
+	bottom := lipgloss.NewStyle().Foreground(cSlateShade).Background(cSlate).Render(strings.Repeat("▁", w))
+
+	// ansi.Wrap, not wrapPlain: wrapPlain is a HARD character wrap, which is right for
+	// its own callers (a shell command must be shown whole, never re-flowed) and wrong
+	// here - it broke "that" across two rows of the plate. A question is prose.
+	rows := strings.Split(ansi.Wrap(text, max(1, w-6), ""), "\n")
+	out := make([]string, 0, len(rows)+2)
+	out = append(out, top)
 	for i, r := range rows {
 		mark := "  "
 		if i == 0 {
 			mark = "▌ "
 		}
 		cell := mark + r
-		// Padded to EXACTLY the view width. An earlier version reserved a two-cell
-		// right margin, which read as a notch cut out of every plate - the opposite of
-		// the crisp slab this is for.
 		if pad := w - lipgloss.Width(cell); pad > 0 {
 			cell += strings.Repeat(" ", pad)
 		}
 		if i == 0 {
-			out = append(out, bar.Render("▌ ")+body.Render(cell[len("▌ "):]))
-		} else {
-			out = append(out, body.Render(cell))
+			// The red bar is the beacon this palette is built around; it rides the face
+			// so the lit block is unbroken behind it.
+			bar := lipgloss.NewStyle().Background(cSlate).Foreground(cLive).Bold(true)
+			out = append(out, bar.Render("▌ ")+face.Render(cell[len("▌ "):]))
+			continue
 		}
+		out = append(out, face.Render(cell))
 	}
-	return out
+	return append(out, bottom)
 }
 
 // agentAnswerBlock renders the model's prose with a left gutter on every line ("◂" on
@@ -3011,14 +3047,11 @@ func failureHint(raw, model string, narrow bool) []string {
 // size"; llama.cpp / vLLM / OpenAI-compatible servers phrase it as "context length
 // exceeded", "maximum context length", "too many tokens", or a full "kv cache"). Matched
 // on the lowered raw text so every server's spelling lands on the same remedy.
-func isContextOverflow(low string) bool {
-	return strings.Contains(low, "context window") ||
-		strings.Contains(low, "context length") ||
-		strings.Contains(low, "context_length_exceeded") ||
-		strings.Contains(low, "maximum context") ||
-		strings.Contains(low, "too many tokens") ||
-		strings.Contains(low, "kv cache")
-}
+// MOVED 2026-08-20: the spelling list now lives in the harness (harness.IsContextOverflow)
+// beside the compaction that acts on it. Two copies would drift, and the failure mode is
+// nasty: the harness would compact on a shape the TUI still explained away, or the TUI
+// would offer /clear for a turn the harness had already recovered.
+func isContextOverflow(low string) bool { return harness.IsContextOverflow(low) }
 
 // remedyFor picks the actionable second line for a failure. Most relay failures mean
 // nobody is serving the band, and [2]/[1] are the right moves - but a CONTEXT-WINDOW

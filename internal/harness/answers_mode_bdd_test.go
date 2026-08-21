@@ -206,6 +206,13 @@ func (s *modeState) searchLoop(n int) {
 		return Message{Role: "assistant", Content: "answered with what I have"}, nil
 	}
 	s.loop = NewLoop(s.t.TempDir(), "sys", complete, nil)
+	// GUARDS OFF (2026-08-20). These scenarios drive web_fetch directly on fixture
+	// URLs no user ever typed, because what they exercise is the layer BELOW the
+	// guards: retrieval, citation derivation and injection wrapping. With the default
+	// chain on, GuardFetchProvenance would refuse every one of those fetches - which
+	// is correct behaviour and would make these tests assert nothing. The guards have
+	// their own suite (guards_test.go).
+	s.loop.Guards = []Guard{}
 	s.loop.MaxSteps = n + 2
 	stub := Tool{Name: "web_search", Run: func(context.Context, string, map[string]any) (string, error) {
 		s.searchHits++
@@ -341,6 +348,13 @@ func (s *modeState) providerDownAllTurn() error {
 		return Message{Role: "assistant", Content: "answered from what I know"}, nil
 	}
 	s.loop = NewLoop(s.t.TempDir(), "sys", complete, nil)
+	// GUARDS OFF (2026-08-20). These scenarios drive web_fetch directly on fixture
+	// URLs no user ever typed, because what they exercise is the layer BELOW the
+	// guards: retrieval, citation derivation and injection wrapping. With the default
+	// chain on, GuardFetchProvenance would refuse every one of those fetches - which
+	// is correct behaviour and would make these tests assert nothing. The guards have
+	// their own suite (guards_test.go).
+	s.loop.Guards = []Guard{}
 	down := Tool{Name: "web_search", Run: func(context.Context, string, map[string]any) (string, error) {
 		return "search failed: search provider returned HTTP 503", nil
 	}}
@@ -391,6 +405,13 @@ func (s *modeState) escPressed() error {
 		return toolCall("c1", "web_fetch", fetchArgs(s.pageURL)), nil
 	}
 	s.loop = NewLoop(s.t.TempDir(), "sys", complete, nil)
+	// GUARDS OFF (2026-08-20). These scenarios drive web_fetch directly on fixture
+	// URLs no user ever typed, because what they exercise is the layer BELOW the
+	// guards: retrieval, citation derivation and injection wrapping. With the default
+	// chain on, GuardFetchProvenance would refuse every one of those fetches - which
+	// is correct behaviour and would make these tests assert nothing. The guards have
+	// their own suite (guards_test.go).
+	s.loop.Guards = []Guard{}
 	go func() {
 		time.Sleep(150 * time.Millisecond)
 		cancel()

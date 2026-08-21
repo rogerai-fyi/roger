@@ -101,6 +101,7 @@ func (s *injectState) obedientLoop(follow []ToolCall) {
 		return s.approve
 	}
 	s.loop = NewLoop(s.t.TempDir(), "sys", complete, confirm)
+	s.loop.Guards = []Guard{} // see the note above: this suite tests below the guards
 }
 
 // call builds a tool call.
@@ -391,6 +392,13 @@ func (s *injectState) modelComplies() error {
 		return toolCall(fmt.Sprintf("c%d", s.modelCalls), "web_fetch", fetchArgs(s.pageURL)), nil
 	}
 	s.loop = NewLoop(s.t.TempDir(), "sys", complete, nil)
+	// GUARDS OFF (2026-08-20). These scenarios drive web_fetch directly on fixture
+	// URLs no user ever typed, because what they exercise is the layer BELOW the
+	// guards: retrieval, citation derivation and injection wrapping. With the default
+	// chain on, GuardFetchProvenance would refuse every one of those fetches - which
+	// is correct behaviour and would make these tests assert nothing. The guards have
+	// their own suite (guards_test.go).
+	s.loop.Guards = []Guard{}
 	s.run()
 	return nil
 }
@@ -423,6 +431,13 @@ func (s *injectState) budgetExhausted() error {
 		return Message{Role: "assistant", Content: "answered"}, nil
 	}
 	s.loop = NewLoop(s.t.TempDir(), "sys", complete, nil)
+	// GUARDS OFF (2026-08-20). These scenarios drive web_fetch directly on fixture
+	// URLs no user ever typed, because what they exercise is the layer BELOW the
+	// guards: retrieval, citation derivation and injection wrapping. With the default
+	// chain on, GuardFetchProvenance would refuse every one of those fetches - which
+	// is correct behaviour and would make these tests assert nothing. The guards have
+	// their own suite (guards_test.go).
+	s.loop.Guards = []Guard{}
 	s.loop.MaxSteps = n + 3
 	return nil
 }
@@ -472,6 +487,13 @@ func (s *injectState) userPressesEsc() error {
 		return toolCall(fmt.Sprintf("c%d", s.modelCalls), "web_fetch", fetchArgs(s.pageURL)), nil
 	}
 	s.loop = NewLoop(s.t.TempDir(), "sys", complete, nil)
+	// GUARDS OFF (2026-08-20). These scenarios drive web_fetch directly on fixture
+	// URLs no user ever typed, because what they exercise is the layer BELOW the
+	// guards: retrieval, citation derivation and injection wrapping. With the default
+	// chain on, GuardFetchProvenance would refuse every one of those fetches - which
+	// is correct behaviour and would make these tests assert nothing. The guards have
+	// their own suite (guards_test.go).
+	s.loop.Guards = []Guard{}
 	go func() {
 		time.Sleep(150 * time.Millisecond)
 		cancel()
@@ -518,6 +540,7 @@ func (s *injectState) batchQueued() error {
 		return true // even an APPROVING user must not see a prompt after the cancel
 	}
 	s.loop = NewLoop(s.t.TempDir(), "sys", complete, confirm)
+	s.loop.Guards = []Guard{} // see the note above: this suite tests below the guards
 	return nil
 }
 

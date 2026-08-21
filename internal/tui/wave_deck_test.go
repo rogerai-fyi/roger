@@ -447,26 +447,44 @@ func TestAskRendersAsAFullWidthSlate(t *testing.T) {
 	quiet = false
 	t.Cleanup(func() { quiet = oldQ })
 
+	// AMENDED 2026-08-20 (round 3): the flat band became a RAISED block - a lit top lip,
+	// the face, a fallen bottom lip - so a short ask is three rows, not one. Spanning
+	// the full width is the part that did not change and is what keeps the block's
+	// edges straight.
 	const w = 96
 	rows := askSlate("hi", w)
-	if len(rows) != 1 {
-		t.Fatalf("a short ask is one row, got %d", len(rows))
+	if len(rows) != 3 {
+		t.Fatalf("a short ask is lip + face + lip = 3 rows, got %d", len(rows))
 	}
-	if got := lipgloss.Width(rows[0]); got != w {
-		t.Errorf("the slate must span the view: width %d, want %d", got, w)
+	if !strings.Contains(stripANSI(rows[0]), "▔") {
+		t.Errorf("the top lip catches the light: %q", stripANSI(rows[0]))
 	}
-	if !strings.Contains(stripANSI(rows[0]), "▌ hi") {
-		t.Errorf("the slate keeps the ▌ band and the text: %q", stripANSI(rows[0]))
+	if !strings.Contains(stripANSI(rows[2]), "▁") {
+		t.Errorf("the bottom lip falls away: %q", stripANSI(rows[2]))
 	}
-	// A long ask wraps INSIDE the plate, every row spanning, so it never goes ragged.
-	long := askSlate(strings.Repeat("word ", 60), w)
-	if len(long) < 2 {
-		t.Fatalf("a long ask should wrap, got %d rows", len(long))
+	if !strings.Contains(stripANSI(rows[1]), "▌ hi") {
+		t.Errorf("the face keeps the ▌ band and the question: %q", stripANSI(rows[1]))
+	}
+	// Every row spans, or the block has a ragged edge and stops reading as an object.
+	for i, r := range rows {
+		if got := lipgloss.Width(r); got != w {
+			t.Errorf("slate row %d width %d, want %d", i, got, w)
+		}
+	}
+	// A long ask wraps INSIDE the face, on word boundaries - wrapPlain is a hard
+	// character wrap and split "that" across two rows before this was fixed.
+	long := askSlate(strings.Repeat("what are some things i can do today that has to wrap ", 3), w)
+	if len(long) < 4 {
+		t.Fatalf("a long ask should wrap inside the block, got %d rows", len(long))
 	}
 	for i, r := range long {
 		if got := lipgloss.Width(r); got != w {
 			t.Errorf("wrapped slate row %d width %d, want %d", i, got, w)
 		}
+	}
+	joined := stripANSI(strings.Join(long, ""))
+	if !strings.Contains(joined, "that") {
+		t.Error("wrapping must not break a word in half")
 	}
 }
 

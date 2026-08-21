@@ -41,6 +41,19 @@ var (
 	// (ANSI256+) and full palette; mono / dumb terminals drop it to the bare red ▌ bar.
 	cBand = lipgloss.AdaptiveColor{Light: "#F1EFE8", Dark: "#191712"}
 
+	// THE SLATE. A raised faceplate for a sent question (askSlate): a face a shade
+	// above the ground, a lit top edge, a fallen bottom edge, and the brightest ink on
+	// the screen for the question itself. A terminal has no shadows, so depth is made
+	// the way a radio faceplate makes it - light on the top lip, dark on the bottom -
+	// and "glow" is contrast, the only glow a terminal has.
+	//
+	// Dark values are the real target (the console is a dark instrument); the light set
+	// inverts the same relationship so the bevel still reads as raised on paper.
+	cSlate      = lipgloss.AdaptiveColor{Light: "#ECEAE3", Dark: "#221F19"} // the face
+	cSlateLit   = lipgloss.AdaptiveColor{Light: "#FFFFFF", Dark: "#4A443A"} // top lip, catching light
+	cSlateShade = lipgloss.AdaptiveColor{Light: "#C9C6BC", Dark: "#0A0908"} // bottom lip, falling away
+	cSlateText  = lipgloss.AdaptiveColor{Light: "#0F0E0A", Dark: "#FFFDF6"} // the question, brightest ink
+
 	// cLiveSurface is the solid but restrained red-wine plate behind a truthfully
 	// broker-acknowledged ON AIR provider panel. The text still says ON AIR; color
 	// improves hierarchy but never carries state alone.
