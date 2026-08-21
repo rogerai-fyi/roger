@@ -1000,6 +1000,10 @@ type model struct {
 	rcBands    []BandRow
 	// Band management (modeBandManage / modeBandMove / modeBandRevokeConfirm): which band
 	// the card is acting on, and the cursor in the move picker's local-model list.
+	// bandMoveOffer is the model a quota refusal just happened for: the share screen
+	// offers to move the existing band here rather than sending the operator away
+	// (band_manage.go). "" when there is no offer standing.
+	bandMoveOffer  string
 	bandManageID   string
 	bandManageDisp string
 	bandManageNode string
@@ -3009,7 +3013,12 @@ func (m *model) togglePrivateAt(i int) {
 		// A quota refusal is the one failure the operator can fix themselves, so point at
 		// the surface that can fix it rather than leaving them at a dead end.
 		if strings.Contains(strings.ToLower(reason), "band limit reached") {
-			state = stDim.Render(" - " + bandQuotaHint())
+			// OFFER THE FIX HERE. A refusal that names another screen is still a dead
+			// end; the operator wanted this model on a private band, and moving their
+			// existing one does exactly that while keeping its code, so everyone already
+			// tuned in keeps working.
+			m.offerBandMove(model)
+			state = bandQuotaOffer(model)
 		}
 		m.status = stEmber.Render("! "+reason) + state
 	case !res.NowPrivate:
@@ -3247,6 +3256,22 @@ func (m *model) onShareKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// HIDE / PRIVATE: toggle the selected row onto a hidden frequency band
 		// (login-gated). A fresh mint routes into the one-time code card (modeBandCard).
 		m.togglePrivateAt(m.shareCursor)
+	case "y":
+		// Accept a standing quota offer: move the existing band onto the model the
+		// operator just tried to hide.
+		//
+		// `y`, not `m`: m already toggles the compact windowshade everywhere, and
+		// shadowing a global key inside one view is how an operator learns not to trust
+		// their own muscle memory. y also matches every other confirm on this screen -
+		// the offer is a question, and y is what answers one.
+		//
+		// Inert without an offer standing, so it stays free the rest of the time.
+		if m.bandMoveOffer != "" {
+			cmd := m.acceptBandMove()
+			m.status = stDim.Render("moving your band to ") + stKey.Render(m.bandMoveOffer) + stDim.Render("…")
+			m.bandMoveOffer = ""
+			return m, cmd
+		}
 	case "n":
 		// RENAME the station callsign (the friendly, non-sensitive broadcast name shown in
 		// /discover). Opens the inline editor seeded with the current station; commit

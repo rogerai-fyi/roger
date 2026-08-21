@@ -253,3 +253,61 @@ func (m model) bandRevokeConfirmView(w int) string {
 	line(stKey.Render("y") + stDim.Render(" revoke · any other key cancels"))
 	return b.String()
 }
+
+// ── THE QUOTA OFFER ──────────────────────────────────────────────────────────
+// FOUNDER 2026-08-21: hitting the private-band limit on the SHARE screen produced a
+// refusal and a signpost - "manage your bands in BASE STATION [p]" - and the operator
+// wanted to be ASKED whether to put the band here instead. A dead end that names
+// another screen is still a dead end; the fix is to offer the action where the refusal
+// happens.
+//
+// The offer is unambiguous on the free plan, which allows exactly ONE band: there is no
+// choosing which to move. On a plan with several this would need a picker, so the offer
+// only appears when the list holds one - otherwise BASE STATION, which already has that
+// picker, remains the right place.
+
+// offerBandMove records that a quota refusal just happened for this model, so the share
+// screen can take a single key and act on it.
+func (m *model) offerBandMove(model string) { m.bandMoveOffer = model }
+
+// bandQuotaOffer is what a quota refusal says: the ACTION, not a signpost. It names the
+// key, the model, and the reason moving beats revoking - the code survives, so everyone
+// already tuned in keeps working - and still points at BASE STATION for anything else.
+func bandQuotaOffer(model string) string {
+	return stDim.Render(" - press ") + stKey.Render("y") +
+		stDim.Render(" to move your band to "+model+" (keeps its code), or ") +
+		stKey.Render("p") + stDim.Render(" to manage bands")
+}
+
+// acceptBandMove fetches the operator's bands and moves the only one onto this model,
+// keeping its frequency code - everyone already tuned in keeps working, which is the
+// whole reason to move rather than revoke and re-mint.
+func (m model) acceptBandMove() tea.Cmd {
+	broker, list, move := m.broker, m.hooks.BandList, m.hooks.BandMove
+	model := m.bandMoveOffer
+	station := m.ctrl.Station()
+	return func() tea.Msg {
+		if list == nil || move == nil {
+			return bandActionMsg{err: "band management is unavailable in this build"}
+		}
+		bands, err := list(broker)
+		if err != nil {
+			return bandActionMsg{err: err.Error()}
+		}
+		switch len(bands) {
+		case 0:
+			// The refusal said the quota was full, and the list says otherwise. Report
+			// that honestly rather than inventing a band to move.
+			return bandActionMsg{err: "no band to move - try going private again"}
+		case 1:
+			// The node id MUST come from the same helper the share path registers with,
+			// or the band binds to an id no node ever announces and is silently stranded.
+			if err := move(broker, bands[0].ID, agent.ShareNodeID(station, model, 0)); err != nil {
+				return bandActionMsg{err: err.Error()}
+			}
+			return bandActionMsg{moved: true, model: model}
+		default:
+			return bandActionMsg{err: "you have several bands - pick one in BASE STATION [p]"}
+		}
+	}
+}

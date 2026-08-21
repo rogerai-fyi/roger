@@ -894,3 +894,41 @@ func TestFooterStatusWrapsInsteadOfRunningOff(t *testing.T) {
 		}
 	}
 }
+
+// ── THE PRIVATE-BAND QUOTA OFFER ─────────────────────────────────────────────
+// Founder 2026-08-21: hitting the limit on the SHARE screen produced a refusal and a
+// signpost to another screen. A dead end that names another screen is still a dead end;
+// the operator wanted this model on a private band, and moving their existing one does
+// exactly that while keeping its code, so everyone already tuned in keeps working.
+
+func TestQuotaRefusalOffersTheMove(t *testing.T) {
+	flat := stripANSI(bandQuotaOffer("grok-4.3"))
+	for _, want := range []string{"press y", "grok-4.3", "keeps its code"} {
+		if !strings.Contains(flat, want) {
+			t.Errorf("the refusal must offer the fix HERE, not signpost another screen: missing %q in %q", want, flat)
+		}
+	}
+	// It still names the other surface for anything the one-key offer cannot do.
+	if !strings.Contains(flat, "manage bands") {
+		t.Errorf("the fuller surface should still be reachable: %q", flat)
+	}
+}
+
+// `m` only means "move" while an offer is standing, so it keeps its usual meaning
+// everywhere else.
+// The accept key must not shadow a global one: m already toggles the compact
+// windowshade everywhere, and shadowing it inside one view teaches an operator not to
+// trust their own muscle memory. y matches the other confirms on this screen.
+func TestMoveKeyIsInertWithoutAnOffer(t *testing.T) {
+	m := browseSeed(120)
+	m.mode = modeShare
+	m.bandMoveOffer = ""
+	before := m.status
+	out, cmd := m.onKey(keyMsg("y"))
+	if cmd != nil {
+		t.Error("with no offer standing, y must not fire a band move")
+	}
+	if asModel(out).status != before {
+		t.Error("...and must not claim to be moving anything")
+	}
+}
