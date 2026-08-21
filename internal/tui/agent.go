@@ -1758,7 +1758,11 @@ func (m model) onAgentEvent(e agentEventMsg) (tea.Model, tea.Cmd) {
 		case e.Denied:
 			status, detail = toolDenied, "denied"
 		case e.IsError:
-			status, detail = toolFailed, firstLine(e.Result)
+			// A guard refusal opens with "refused: " and then explains at length so the
+			// MODEL can act on it. The card wants the short form - the reason without the
+			// prose - or one refusal wraps across three rows of the box (founder
+			// screenshot). The model still gets the whole thing; this is presentation.
+			status, detail = toolFailed, shortToolFailure(e.Result)
 		}
 		if r := m.openRun(); r != nil {
 			if r.Name == "" {
@@ -1883,6 +1887,24 @@ func resultHint(s string) string {
 }
 
 // firstLine returns the first line of s (for a one-line error in the transcript).
+// shortToolFailure is a tool failure as a CARD reads it: one clipped line, and for a guard
+// refusal just the refusal itself rather than the paragraph of guidance aimed at the
+// model. The full text is what the model receives; this is what the operator sees on a
+// single row.
+func shortToolFailure(result string) string {
+	line := firstLine(result)
+	if rest, ok := strings.CutPrefix(line, "refused: "); ok {
+		// Keep up to the first sentence: "refused: <url> was not given to you." reads on
+		// one row; the "web_fetch may only follow..." that follows is instruction, not
+		// news.
+		if i := strings.IndexByte(rest, '.'); i > 0 {
+			rest = rest[:i]
+		}
+		return "refused · " + clipLine(rest)
+	}
+	return line
+}
+
 func firstLine(s string) string {
 	if i := strings.IndexByte(s, '\n'); i >= 0 {
 		s = s[:i]
@@ -2258,6 +2280,14 @@ func (m model) agentView(w int) string {
 			b.WriteString(truncVisible("  "+stEmber.Render("? ")+stKey.Render(c.summary()), w) + "\n")
 		}
 		b.WriteString(truncVisible("  "+stDim.Render(prompt)+stEmber.Render("[y/N]")+stDim.Render("  deny=default"), w) + "\n")
+		// The standing answer, named where the question is asked (founder 2026-08-21:
+		// "put a note that ctrl+p changes permissions when asking"). An operator who is
+		// about to approve the fourth write in a row wants to know they can stop being
+		// asked - and the only place they will read that is here, not in /help.
+		if !m.narrow() {
+			b.WriteString(truncVisible("  "+stDim.Render("  ")+stKey.Render("⌃p")+
+				stDim.Render(" changes the approval mode for the rest of the session"), w) + "\n")
+		}
 		return b.String()
 	}
 	// SLASH STRIP: the passive autocomplete hint for the command word being typed -

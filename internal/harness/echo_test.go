@@ -139,3 +139,97 @@ func TestMarkerWithNothingAfterItKeepsTheReply(t *testing.T) {
 		t.Errorf("nothing to keep means keep everything, got %q (stripped=%v)", got, stripped)
 	}
 }
+
+// ── THE STEP-CAP FALLBACK ────────────────────────────────────────────────────
+// Founder screenshot 2026-08-21: two different questions came back with the SAME
+// answer, and the second did not fit its question - it was the first turn's reply.
+// lastAssistantText scanned the whole session, so a turn that burned its steps on
+// tools without ever producing prose walked back past its own beginning.
+//
+// That is the worst kind of wrong: not an error, not a blank, but a confident answer
+// to a question nobody asked, indistinguishable from a real one.
+
+func TestStepCapNeverReturnsAnEarlierTurnsAnswer(t *testing.T) {
+	l := NewLoop(t.TempDir(), "sys", nil, nil)
+	l.messages = []Message{
+		{Role: "system", Content: "sys"},
+		{Role: "user", Content: "what model are you?"},
+		{Role: "assistant", Content: "Roger that! I'm running on the latest model."},
+		{Role: "user", Content: "what is rogerai?"},
+		// This turn spent every step on tools and never spoke.
+		{Role: "assistant", Content: ""},
+		{Role: "tool", Name: "web_fetch", Content: "some page"},
+	}
+	l.turnStart = 3 // where "what is rogerai?" began
+	if got := l.lastAssistantText(); got != "" {
+		t.Errorf("a turn with nothing to say must say nothing, got %q - that is the previous turn's answer", got)
+	}
+}
+
+func TestStepCapReturnsThisTurnsOwnProse(t *testing.T) {
+	l := NewLoop(t.TempDir(), "sys", nil, nil)
+	l.messages = []Message{
+		{Role: "user", Content: "old"},
+		{Role: "assistant", Content: "old answer"},
+		{Role: "user", Content: "new"},
+		{Role: "assistant", Content: "partial thinking about the new one"},
+		{Role: "tool", Name: "read_file", Content: "x"},
+	}
+	l.turnStart = 2
+	if got := l.lastAssistantText(); got != "partial thinking about the new one" {
+		t.Errorf("this turn's own prose is the right fallback, got %q", got)
+	}
+}
+
+// ── A GUARD REFUSAL IS NOT A DENIAL ──────────────────────────────────────────
+// Founder screenshot: a screen of "denied" tool calls read as a permissions problem,
+// and the operator waited for a prompt that was never coming because nothing had asked
+// them anything. Those were GUARD refusals - the harness applying a rule - and they
+// must not wear the word that means "the operator said no".
+func TestGuardRefusalIsNotReportedAsUserDenial(t *testing.T) {
+	l := NewLoop(t.TempDir(), "sys", nil, nil)
+	l.Guards = []Guard{func(string, map[string]any, ConversationView) string { return "refused: because" }}
+
+	var c ToolCall
+	c.ID = "1"
+	c.Function.Name = "web_fetch"
+	c.Function.Arguments = `{"url":"https://example.com"}`
+
+	var got Event
+	p := l.decide(c, func(e Event) {})
+	l.settle(p, "", nil, func(e Event) {
+		if e.Kind == EventToolResult {
+			got = e
+		}
+	})
+	if !got.IsError {
+		t.Error("a refusal is an error - the call did not happen")
+	}
+	if got.Denied {
+		t.Error("Denied means the OPERATOR said no; a guard refusal must not claim they did")
+	}
+	if !strings.Contains(got.Result, "refused") {
+		t.Errorf("the reason must reach the model: %q", got.Result)
+	}
+}
+
+// A real user denial still reports as one - the distinction only helps if both halves
+// are true.
+func TestUserDenialStillReportsAsDenied(t *testing.T) {
+	l := NewLoop(t.TempDir(), "sys", nil, func(string, map[string]any) bool { return false })
+	var c ToolCall
+	c.ID = "1"
+	c.Function.Name = "write_file"
+	c.Function.Arguments = `{"path":"a.txt","content":"x"}`
+
+	var got Event
+	p := l.decide(c, func(e Event) {})
+	l.settle(p, "", nil, func(e Event) {
+		if e.Kind == EventToolResult {
+			got = e
+		}
+	})
+	if !got.Denied {
+		t.Error("a denied confirm must still report as denied")
+	}
+}

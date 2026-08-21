@@ -760,7 +760,7 @@
           break;
         case "assistant":
           box = null;
-          if (e.text) chatAppend(model, e.text);
+          if (e.text) chatAppend(model, e.text, "chat-turn--reply");
           break;
         case "notice":
           box = null;
@@ -771,7 +771,7 @@
           if (e.text) {
             answered = true;
             chatTurns.push({ role: "assistant", content: e.text });
-            chatAppend(model, e.text);
+            chatAppend(model, e.text, "chat-turn--reply");
           }
           break;
         case "error":
@@ -854,9 +854,26 @@
       (box._names.length ? " · " + box._names.slice(0, 4).join(", ") : "");
   }
 
+  // A tool's outcome as the ROW reads it. Mirrors the TUI's shortToolFailure, because
+  // the two surfaces must describe the same refusal the same way.
+  //
+  // "denied" means the OPERATOR said no. A guard refusal is the harness applying a rule
+  // and says "refused · <reason>" instead - conflating the two is what made a screen of
+  // tool calls read as a permissions problem nobody was ever asked about.
   function chatResultHint(e) {
     if (e.denied) return "denied";
-    if (e.is_error) return (e.result || "").split("\n")[0].slice(0, 80);
+    if (e.is_error) {
+      var line = (e.result || "").split("\n")[0];
+      if (line.indexOf("refused: ") === 0) {
+        // Keep the refusal, drop the paragraph of guidance aimed at the model - it is
+        // instruction, not news, and it wraps the row across three lines.
+        var rest = line.slice("refused: ".length);
+        var dot = rest.indexOf(".");
+        if (dot > 0) rest = rest.slice(0, dot);
+        return "refused · " + rest.slice(0, 70);
+      }
+      return line.slice(0, 80);
+    }
     return chatHumanSize((e.result || "").length);
   }
 

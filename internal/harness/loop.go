@@ -470,8 +470,14 @@ func (l *Loop) Send(ctx context.Context, userText string, emit func(Event)) (str
 		// Loop: feed the tool results (appended below in runOne) back to the model.
 	}
 
-	// Hit the step cap: return the last assistant text we have as the final answer.
-	last := l.withSources(l.lastAssistantText())
+	// Hit the step cap: return the last assistant text FROM THIS TURN as the answer. If
+	// the turn produced none - every step spent on tools, nothing ever said - say that
+	// plainly rather than reaching back to an older turn for something to show.
+	last := l.lastAssistantText()
+	if last == "" {
+		last = "I used up this turn's steps without reaching an answer. Ask again, or ask for a narrower step."
+	}
+	last = l.withSources(last)
 	emit(Event{Kind: EventFinal, Text: last, Step: l.MaxSteps, MaxSteps: l.MaxSteps})
 	return last, nil
 }
@@ -526,7 +532,12 @@ func (l *Loop) decide(call ToolCall, emit func(Event)) plannedCall {
 	conv := l.conversationView()
 	for _, g := range l.guards() {
 		if reason := g(name, args, conv); reason != "" {
-			p.settled, p.isError, p.denied, p.result = true, true, true, reason
+			// REFUSED BY A GUARD, not denied by the operator. Those are different things
+			// and the card must not say the same word for both: the founder read a screen
+			// of "denied" tool calls as a permissions problem and waited for a prompt that
+			// was never coming, because nothing had asked them anything. A guard refusal
+			// is an error WITH A REASON, and the reason is what the card should show.
+			p.settled, p.isError, p.result = true, true, reason
 			return p
 		}
 	}
@@ -664,12 +675,28 @@ func (l *Loop) appendToolResult(call ToolCall, result string) string {
 	return result
 }
 
-// lastAssistantText returns the most recent assistant message's text (used when the
-// step cap is hit without a clean final answer).
+// lastAssistantText returns the most recent assistant text FROM THIS TURN, used when
+// the step cap is hit without a clean final answer.
+//
+// FOUNDER SCREENSHOT 2026-08-21: two different questions came back with the same
+// answer, and the second one did not even fit its question - it was the FIRST turn's
+// reply, presented as the second's. This scanned the whole session backwards, so a turn
+// that burned its steps on tool calls without ever producing prose walked back past its
+// own beginning and returned a previous turn's answer as its own.
+//
+// That is the worst kind of wrong: not an error, not a blank, but a confident answer to
+// a question nobody asked, indistinguishable from a real one. Bounded to this turn now,
+// and a turn with genuinely nothing to say says so.
 func (l *Loop) lastAssistantText() string {
-	for i := len(l.messages) - 1; i >= 0; i-- {
+	from := l.turnStart
+	if from < 0 || from > len(l.messages) {
+		from = 0
+	}
+	for i := len(l.messages) - 1; i >= from; i-- {
 		if l.messages[i].Role == "assistant" {
-			return strings.TrimSpace(l.messages[i].Content)
+			if t := strings.TrimSpace(l.messages[i].Content); t != "" {
+				return t
+			}
 		}
 	}
 	return ""

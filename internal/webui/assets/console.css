@@ -1204,3 +1204,19 @@ body.is-chat .content { padding-bottom: var(--s-6); }
   font-family: var(--font-mono);
   font-size: 12px;
 }
+
+/* THE REPLY BLOCK. The operator's turn already sat on its own surface; the station's
+   did not, so an exchange read as one framed line and one bare one. Both are enclosed
+   now - same shape so the pair reads as one exchange, a lighter surface for the reply
+   so it reads as the other side of it, which is the same relationship the TUI's two
+   faces have.
+
+   Padded rather than flush: text with clear space above and below reads as an object,
+   which is the whole difference between a box and a highlighted line. */
+.chat-turn--reply .chat-body {
+  background: var(--paper-2);
+  border-left: 2px solid var(--hairline-2);
+  padding: 12px 14px;
+  border-radius: 0 4px 4px 0;
+}
+.chat-turn--you .chat-body { padding: 12px 14px; }

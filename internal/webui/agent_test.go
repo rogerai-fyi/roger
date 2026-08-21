@@ -160,3 +160,47 @@ func TestAgentWithoutBrokerSaysSo(t *testing.T) {
 		t.Errorf("status %d, want 503", res.StatusCode)
 	}
 }
+
+// BOTH SURFACES MUST DESCRIBE A REFUSAL THE SAME WAY. "denied" means the OPERATOR said
+// no; a guard refusal is the harness applying a rule. Conflating them is what made a
+// screen of tool calls read as a permissions problem nobody was ever asked about
+// (founder screenshot 2026-08-21), and a console that still conflated them would
+// reintroduce the same confusion on the other surface.
+func TestConsoleDistinguishesRefusalFromDenial(t *testing.T) {
+	js, err := os.ReadFile("assets/console.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	i := strings.Index(string(js), "function chatResultHint")
+	if i < 0 {
+		t.Fatal("chatResultHint not found")
+	}
+	block := string(js)[i : i+900]
+	if !strings.Contains(block, `if (e.denied) return "denied"`) {
+		t.Error("an operator denial must still read as denied")
+	}
+	if !strings.Contains(block, `"refused · "`) {
+		t.Error("a guard refusal must read as refused, not denied")
+	}
+	// ...and the model-facing guidance must not be dumped on the row.
+	if !strings.Contains(block, `indexOf(".")`) {
+		t.Error("the refusal should stop at its first sentence - the rest is instruction for the model")
+	}
+}
+
+// Both sides of an exchange are enclosed, or one reads as framed and the other as bare.
+func TestConsoleEnclosesBothSidesOfAnExchange(t *testing.T) {
+	css, err := os.ReadFile("assets/console.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{".chat-turn--you .chat-body", ".chat-turn--reply .chat-body"} {
+		if !strings.Contains(string(css), want) {
+			t.Errorf("both turns need a surface: missing %s", want)
+		}
+	}
+	js, _ := os.ReadFile("assets/console.js")
+	if !strings.Contains(string(js), `"chat-turn--reply"`) {
+		t.Error("the reply must actually be given the class")
+	}
+}
