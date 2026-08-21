@@ -178,7 +178,7 @@ func TestAgentPromptSeamAlwaysSeparatesTranscript(t *testing.T) {
 }
 
 func TestAgentAnswerBlockRendersCodingStructure(t *testing.T) {
-	got := strings.Join(agentAnswerBlock("**Edited 2 files**\n\n- `agent.go` prompt rendering\n```diff\n-old\n+new\n@@ seam @@\n```"), "\n")
+	got := strings.Join(agentAnswerBlock("**Edited 2 files**\n\n- `agent.go` prompt rendering\n```diff\n-old\n+new\n@@ seam @@\n```", 100), "\n")
 	plain := stripANSI(got)
 	for _, want := range []string{"Edited 2 files", "• agent.go prompt rendering", "DIFF", "-old", "+new", "@@ seam @@"} {
 		if !strings.Contains(plain, want) {
@@ -199,7 +199,7 @@ func TestAgentAnswerBlockRendersCodingStructure(t *testing.T) {
 }
 
 func TestAgentAnswerBlockInfersUnlabeledDiffFence(t *testing.T) {
-	got := strings.Join(agentAnswerBlock("```\ndiff --git a/a.go b/a.go\n-old\n+new\n@@ -1 +1 @@\n```"), "\n")
+	got := strings.Join(agentAnswerBlock("```\ndiff --git a/a.go b/a.go\n-old\n+new\n@@ -1 +1 @@\n```", 100), "\n")
 	plain := stripANSI(got)
 	if !strings.Contains(plain, "DIFF") {
 		t.Fatalf("unlabeled diff fence should be identified as DIFF:\n%s", plain)

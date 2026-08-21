@@ -537,6 +537,12 @@ func (l *Loop) decide(call ToolCall, emit func(Event)) plannedCall {
 			// of "denied" tool calls as a permissions problem and waited for a prompt that
 			// was never coming, because nothing had asked them anything. A guard refusal
 			// is an error WITH A REASON, and the reason is what the card should show.
+			// RECORD IT ANYWAY. The signature was only appended after the guards passed,
+			// so a refused call left no trace - and the repeat guard, which reads that
+			// list, could never see the model re-issuing it. The founder screenshotted
+			// the same refused web_fetch three times in one turn, burning steps on a call
+			// that could not succeed. A refusal is still a call that happened.
+			l.turnCalls = append(l.turnCalls, callSignature(name, args))
 			p.settled, p.isError, p.result = true, true, reason
 			return p
 		}

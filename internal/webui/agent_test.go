@@ -182,9 +182,12 @@ func TestConsoleDistinguishesRefusalFromDenial(t *testing.T) {
 	if !strings.Contains(block, `"refused · "`) {
 		t.Error("a guard refusal must read as refused, not denied")
 	}
-	// ...and the model-facing guidance must not be dumped on the row.
-	if !strings.Contains(block, `indexOf(".")`) {
-		t.Error("the refusal should stop at its first sentence - the rest is instruction for the model")
+	// ...and the model-facing guidance must not be dumped on the row. It stops at the
+	// first SENTENCE END (". "), not at any period: cutting on a bare "." sliced URLs in
+	// half, so "https://rogerai.fyi/..." became "https://rogerai" - the wrong host,
+	// reading like a different refusal entirely.
+	if !strings.Contains(block, `indexOf(". ")`) {
+		t.Error("the refusal must stop at a sentence end, not inside a URL")
 	}
 }
 

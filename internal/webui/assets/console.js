@@ -867,10 +867,13 @@
       if (line.indexOf("refused: ") === 0) {
         // Keep the refusal, drop the paragraph of guidance aimed at the model - it is
         // instruction, not news, and it wraps the row across three lines.
+        // First SENTENCE END, not any period: a bare "." sliced URLs in half, so
+        // "https://rogerai.fyi/..." became "https://rogerai" - the wrong host, reading
+        // like a different refusal (founder screenshot). Mirrors shortToolFailure.
         var rest = line.slice("refused: ".length);
-        var dot = rest.indexOf(".");
-        if (dot > 0) rest = rest.slice(0, dot);
-        return "refused · " + rest.slice(0, 70);
+        var stop = rest.indexOf(". ");
+        if (stop > 0) rest = rest.slice(0, stop);
+        return "refused · " + rest.replace(/\.$/, "").slice(0, 70);
       }
       return line.slice(0, 80);
     }

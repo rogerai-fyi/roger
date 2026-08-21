@@ -46,7 +46,12 @@ type ConversationView struct {
 // DefaultGuards are the stateless guards every Loop runs unless a caller replaces them.
 // The loop adds its own stateful ones on top (see Loop.guards) - they need to consult
 // what this agent has observed, which a package-level function cannot.
-func DefaultGuards() []Guard { return []Guard{GuardFetchProvenance, GuardRepeatCall} }
+// ORDER MATTERS, and repeat comes first. A call refused for one reason and re-issued
+// should be told "you already tried this" rather than the same reason again - the same
+// reason invites another attempt, which is exactly the loop the founder screenshotted
+// (one refused fetch, three times, in a single turn). Guards are deny-only, so ordering
+// cannot change WHETHER something is refused, only which reason the model reads.
+func DefaultGuards() []Guard { return []Guard{GuardRepeatCall, GuardFetchProvenance} }
 
 // GuardFetchProvenance refuses a web_fetch of a URL nobody put in front of the model.
 //

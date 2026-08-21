@@ -1274,7 +1274,13 @@ func (m model) submitAgentPrompt(q queuedPrompt) (model, tea.Cmd) {
 	// so a guest handoff carries the work the user is ACTUALLY doing, not just the
 	// channel's turns (features/handoff/agent_turns.feature).
 	m.recordAgentPrompt(p)
-	return m, tea.Batch(m.startAgentTurn(p), m.waitAgentEvent())
+	// KICK THE FAST TICK. When the app is idle the clock drops to a calm 5s beat so the
+	// screen stays static and natively selectable. Flipping agentBusy makes the tick
+	// handler animate again - but only on its NEXT beat, which can be five seconds away,
+	// so the working line and the carrier sat frozen at the start of every turn (founder:
+	// "i'm not always seeing the animation move"). Starting a turn restarts the fast
+	// chain, which is exactly what kickTick is for.
+	return m, tea.Batch(m.kickTick(), m.startAgentTurn(p), m.waitAgentEvent())
 }
 
 // startParkedTurn starts a turn for a prompt that was PARKED while no model was tuned
@@ -1300,7 +1306,13 @@ func (m model) startParkedTurn(q queuedPrompt) (model, tea.Cmd) {
 	m.agentStart = now
 	m.agentLastEvent = now
 	m.recordAgentPrompt(p)
-	return m, tea.Batch(m.startAgentTurn(p), m.waitAgentEvent())
+	// KICK THE FAST TICK. When the app is idle the clock drops to a calm 5s beat so the
+	// screen stays static and natively selectable. Flipping agentBusy makes the tick
+	// handler animate again - but only on its NEXT beat, which can be five seconds away,
+	// so the working line and the carrier sat frozen at the start of every turn (founder:
+	// "i'm not always seeing the animation move"). Starting a turn restarts the fast
+	// chain, which is exactly what kickTick is for.
+	return m, tea.Batch(m.kickTick(), m.startAgentTurn(p), m.waitAgentEvent())
 }
 
 // startQueuedPrompt sends one dequeued item: a LOCALLY-typed slash-command runs inline
@@ -1894,12 +1906,14 @@ func resultHint(s string) string {
 func shortToolFailure(result string) string {
 	line := firstLine(result)
 	if rest, ok := strings.CutPrefix(line, "refused: "); ok {
-		// Keep up to the first sentence: "refused: <url> was not given to you." reads on
-		// one row; the "web_fetch may only follow..." that follows is instruction, not
-		// news.
-		if i := strings.IndexByte(rest, '.'); i > 0 {
+		// Cut at the first SENTENCE END - a period followed by a space - not at any
+		// period. Cutting on a bare "." sliced URLs in half: "https://rogerai.fyi/..."
+		// became "https://rogerai", which names the wrong host and reads like a
+		// different refusal entirely (founder screenshot).
+		if i := strings.Index(rest, ". "); i > 0 {
 			rest = rest[:i]
 		}
+		rest = strings.TrimSuffix(rest, ".")
 		return "refused · " + clipLine(rest)
 	}
 	return line
@@ -2593,7 +2607,7 @@ func (m model) displayAgentLines(w int) []string {
 		}
 		if strings.HasPrefix(ln, agentAnswerMark) {
 			flush()
-			out = append(out, answerSlate(agentAnswerBlock(strings.TrimPrefix(ln, agentAnswerMark)), cw)...)
+			out = append(out, answerSlate(agentAnswerBlock(strings.TrimPrefix(ln, agentAnswerMark), cw), cw)...)
 			continue
 		}
 		if strings.HasPrefix(ln, askMark) {
@@ -2792,7 +2806,7 @@ func answerSlate(rows []string, w int) []string {
 	return slateBlock(rows, w, cReply, cSlateShade)
 }
 
-func agentAnswerBlock(t string) []string {
+func agentAnswerBlock(t string, w int) []string {
 	lines := strings.Split(t, "\n")
 	out := make([]string, 0, len(lines))
 	inCode := false
@@ -2840,7 +2854,17 @@ func agentAnswerBlock(t string) []string {
 			clean = strings.TrimPrefix(strings.TrimSpace(clean), "- ")
 			out = append(out, gutter+lampStyle(roleDial).Render("• ")+clean)
 		default:
-			out = append(out, gutter+clean)
+			// WRAP HERE, and gutter every row. Emitting one row per source line and
+			// letting transcriptContent wrap it meant the continuation had no gutter and
+			// started at column 0 - it escaped the block's left edge (founder screenshot:
+			// the same multiline that reads correctly in TUNE-IN, broken in AGENT). The
+			// channel's renderer already wrapped first for exactly this reason.
+			//
+			// Prose only: a code or diff line is verbatim, and re-flowing it would change
+			// what it says.
+			for _, row := range strings.Split(ansi.Wrap(clean, max(1, w-2), ""), "\n") {
+				out = append(out, gutter+row)
+			}
 		}
 	}
 	return out

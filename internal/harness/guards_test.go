@@ -141,3 +141,31 @@ func TestLoopGuardsDefaultOn(t *testing.T) {
 		t.Error("emptying the chain must still leave the write guard - it protects files, not behaviour")
 	}
 }
+
+// A REFUSED CALL IS STILL A CALL THAT HAPPENED. The signature used to be recorded only
+// after the guards passed, so a refusal left no trace and the repeat guard - which reads
+// that list - could never see the model re-issuing it. The founder screenshotted the
+// same refused web_fetch three times in one turn, burning steps on a call that could
+// not succeed.
+func TestARefusedCallIsNotRepeatable(t *testing.T) {
+	l := NewLoop(t.TempDir(), "sys", nil, nil)
+	var c ToolCall
+	c.ID = "1"
+	c.Function.Name = "web_fetch"
+	c.Function.Arguments = `{"url":"https://rogerai.fyi/install.sh"}`
+
+	// First attempt: refused for provenance (nobody mentioned that host).
+	p1 := l.decide(c, func(Event) {})
+	if !p1.settled || !strings.Contains(p1.result, "not given to you") {
+		t.Fatalf("expected a provenance refusal, got %+v", p1)
+	}
+	// Second attempt: the REPEAT guard must catch it, so the model is told something
+	// new rather than the same refusal a third time.
+	p2 := l.decide(c, func(Event) {})
+	if !p2.settled {
+		t.Fatal("a repeat of a refused call must not be allowed to run")
+	}
+	if !strings.Contains(p2.result, "already ran this turn") {
+		t.Errorf("the second attempt should be caught as a repeat, got %q", p2.result)
+	}
+}
