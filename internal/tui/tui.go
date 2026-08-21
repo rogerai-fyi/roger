@@ -1,4 +1,4 @@
-// Package tui is the interactive `rogerai` experience - a two-way radio for GPUs,
+// Package tui is the interactive `rogerai` experience - a two-way radio for Local Models,
 // and the terminal twin of the website's "Live Operating Manual". Stations
 // (providers) go on air; you tune in to a channel and talk. The look is the web's:
 // ~95% monochrome + ONE red beacon, the shared instrument glyphs (◉ on air, ○ off
@@ -8998,9 +8998,26 @@ func (m model) footer(w int) string {
 			// each candidate and takes the richest one that actually fits beside the
 			// account tag. Adding a key here can no longer overflow a terminal.
 			for _, cand := range []string{
-				stDim.Render("enter ask  ·  tab transcript  ·  ") + stKey.Render("⌃y") +
+				// RUNG ORDER IS A SPEC, not a preference. Two behavioural specs pin words
+				// here: desk_view.feature requires the AGENT footer to advertise
+				// /operator, and agent_prompt_fixes.feature requires it to teach
+				// "transcript". So those two are the LAST things dropped - the rungs
+				// shed joins, then "enter", then /model, before either of them goes.
+				stDim.Render("enter ask  ·  tab transcript  ·  ") + stKey.Render("⇧tab") +
+					stDim.Render(" channel  ·  ") + stKey.Render("⌃y") +
 					stDim.Render(" copy  ·  ⌃p perms  ·  ") + stKey.Render("⌃w") +
 					stDim.Render(" console  ·  /model  ·  /operator  ·  esc exit"),
+				stDim.Render("ask · tab transcript · ") + stKey.Render("⇧tab") +
+					stDim.Render(" channel · ") + stKey.Render("⌃y") +
+					stDim.Render(" copy · ⌃p perms · ") + stKey.Render("⌃w") +
+					stDim.Render(" console · /model · /operator · esc exit"),
+				stDim.Render("ask · tab transcript · ") + stKey.Render("⇧tab") +
+					stDim.Render(" channel · ") + stKey.Render("⌃y") +
+					stDim.Render(" copy · ⌃p perms · ") + stKey.Render("⌃w") +
+					stDim.Render(" console · /operator · esc exit"),
+				stDim.Render("ask · tab transcript · ") + stKey.Render("⌃y") +
+					stDim.Render(" copy · ⌃p perms · ") + stKey.Render("⌃w") +
+					stDim.Render(" console · /operator · esc exit"),
 				stDim.Render("ask · tab transcript · ") + stKey.Render("⌃y") +
 					stDim.Render(" copy · ⌃p perms · ") + stKey.Render("⌃w") + stDim.Render(" console · esc exit"),
 				stDim.Render("ask · tab · ") + stKey.Render("⌃y") + stDim.Render(" copy · ⌃p perms · ") +
@@ -9159,7 +9176,7 @@ func (m model) helpView() string {
 	ping := renderPing(pingIdleFrames[pf%len(pingIdleFrames)], "•")
 	b.WriteString("\n" + indentBlock(ping, "    ") + "\n")
 	b.WriteString("    " + stPingDim.Render("Ping · on air, go ahead") + "\n\n")
-	b.WriteString(stBrand.Render("  start here") + stDim.Render("  (a two-way radio for GPUs)") + "\n\n")
+	b.WriteString(stBrand.Render("  start here") + stDim.Render("  (a two-way radio for Local Models)") + "\n\n")
 	for _, c := range start {
 		b.WriteString("  " + stKey.Render(fmt.Sprintf("%-20s", c[0])) + stDim.Render(c[1]) + "\n")
 	}

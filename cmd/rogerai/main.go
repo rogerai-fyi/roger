@@ -2254,7 +2254,7 @@ func normalizeUpstream(u string) string {
 }
 
 func usage() {
-	fmt.Printf(`roger - a two-way radio for GPUs. run with no args for the interactive app.
+	fmt.Printf(`roger - a two-way radio for Local Models. run with no args for the interactive app.
 
   roger                       open the app (browse, tune in, chat) + browser console
                               (press w in the app to open the console in your browser;

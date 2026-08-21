@@ -1024,6 +1024,25 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m = m.applyPermMode((agentPermMode(m.agent.perms.Load()) + 1) % 3)
 		return m, nil
+	case "shift+tab":
+		// THE RETURN LEG (founder 2026-08-20). shift+tab in TUNE-IN opens the tuned band
+		// in AGENT; pressing it again here goes back, so the pair is a toggle between
+		// the two ways of talking to the same station rather than a one-way door.
+		//
+		// The channel has to still be open: AGENT can be reached with nothing tuned in
+		// (and can outlive a disconnect), and sending someone to a CHANNEL with no
+		// station would be a worse answer than saying so. The session is kept either
+		// way - this looks away, it does not end anything.
+		if m.connected == nil {
+			m.status = stDim.Render("no channel open to go back to · [1] tunes one in")
+			return m, nil
+		}
+		m.agentIn.Blur()
+		m.agentPaneFocus = false
+		m.mode = modeChat
+		m.chatIn.Focus()
+		m.status = stDim.Render("back on the channel · shift+tab returns to AGENT · the agent session is kept")
+		return m, textinput.Blink
 	case "ctrl+w":
 		// THE CONSOLE KEY (founder 2026-08-20): open the browser node console, the same
 		// thing /webui does, without leaving the keyboard or the turn. Instant - the

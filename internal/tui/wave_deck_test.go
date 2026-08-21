@@ -283,3 +283,77 @@ func TestToolCardMarkNeverEscapes(t *testing.T) {
 		t.Error("the card mark leaked with the fold open")
 	}
 }
+
+// ── SHIFT+TAB IS A TOGGLE ────────────────────────────────────────────────────
+// Founder 2026-08-20: "just how pressing shift-tab on a chat [1] Tune In section
+// moves me to the [0] Agent section, pressing shift-tab again on the Agent section
+// should move me back". It was a one-way door; the way back is the same key.
+func TestShiftTabTogglesBetweenChannelAndAgent(t *testing.T) {
+	m := browseSeed(100)
+	m.width, m.height = 100, 30
+	m.connected = &offer{NodeID: "amber-fox", Model: "m1", Online: true}
+	m.mode = modeChat
+	m.chatIn.Focus()
+
+	// TUNE IN -> AGENT (the leg that already existed)
+	out, _ := m.onKey(tea.KeyMsg{Type: tea.KeyShiftTab})
+	m = asModel(out)
+	if m.mode != modeAgent {
+		t.Fatalf("shift+tab from the channel should open AGENT, got mode %v", m.mode)
+	}
+
+	// AGENT -> TUNE IN (the return leg)
+	out, _ = m.onAgentKey(tea.KeyMsg{Type: tea.KeyShiftTab})
+	m = asModel(out)
+	if m.mode != modeChat {
+		t.Fatalf("shift+tab from AGENT should go back to the channel, got mode %v", m.mode)
+	}
+	// Looking away must not end anything: the station stays tuned and the agent
+	// session is kept, so the toggle can be pressed all day.
+	if m.connected == nil {
+		t.Error("the channel must stay open across the toggle")
+	}
+	if m.agent == nil {
+		t.Error("the agent session must be kept, not torn down")
+	}
+
+	// ...and it keeps toggling.
+	out, _ = m.onKey(tea.KeyMsg{Type: tea.KeyShiftTab})
+	if asModel(out).mode != modeAgent {
+		t.Error("the toggle must keep working, not fire once")
+	}
+}
+
+// AGENT can be reached with nothing tuned in, and can outlive a disconnect. Sending
+// someone to a channel with no station would be worse than saying so.
+func TestShiftTabInAgentWithNoChannelExplains(t *testing.T) {
+	m := browseSeed(100)
+	m.width, m.height = 100, 30
+	m.mode = modeAgent
+	m.agent = m.newAgentRuntime()
+	m.connected = nil
+	out, _ := m.onAgentKey(tea.KeyMsg{Type: tea.KeyShiftTab})
+	m2 := asModel(out)
+	if m2.mode != modeAgent {
+		t.Errorf("with no channel open shift+tab must stay put, got mode %v", m2.mode)
+	}
+	if !strings.Contains(stripANSI(m2.status), "no channel open") {
+		t.Errorf("it must say why nothing happened, got %q", stripANSI(m2.status))
+	}
+}
+
+// The footer ladder sheds words as the terminal narrows, and twice now a new key
+// pushed a spec'd word off the rung that was actually chosen - /operator
+// (desk_view.feature) and "transcript" (agent_prompt_fixes.feature). Both failures
+// looked like unrelated BDD breakage. This says it directly: at any width with real
+// room, the chosen line still teaches what those specs require.
+func TestAgentFooterKeepsSpecdWordsWhileItHasRoom(t *testing.T) {
+	for w := 96; w <= 200; w += 4 {
+		f := stripANSI(agentDeckSeed(t, w, 24, false).footer(w))
+		for _, want := range []string{"transcript", "/operator", "ask", "copy", "perms", "esc"} {
+			if !strings.Contains(f, want) {
+				t.Errorf("width %d: the footer dropped %q while it still had room:\n%s", w, want, f)
+			}
+		}
+	}
+}
