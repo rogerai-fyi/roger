@@ -58,7 +58,7 @@ func TestSelfAttachHandsTheNodeTheHubCertificatePin(t *testing.T) {
 		Endpoint        string `json:"endpoint"`
 		EndpointTLSSPKI string `json:"endpoint_tls_spki"`
 	}
-	code, raw := node.call(t, srv, http.MethodPost, "/tower/edge/attach", body, &out)
+	code, raw := node.attach(t, srv, body, &out)
 	require.Equal(t, http.StatusOK, code, raw)
 	require.Equal(t, "203.0.113.9:8443", out.Endpoint)
 	require.Equal(t, testHubPin(), out.EndpointTLSSPKI,
@@ -71,7 +71,7 @@ func TestSelfAttachHandsTheNodeTheHubCertificatePin(t *testing.T) {
 		EndpointTLSSPKI string `json:"endpoint_tls_spki"`
 		Note            string `json:"note"`
 	}
-	code, raw = node.call(t, srv, http.MethodPost, "/tower/edge/attach", body, &retry)
+	code, raw = node.attach(t, srv, body, &retry)
 	require.Equal(t, http.StatusOK, code, raw)
 	require.Contains(t, retry.Note, "already attached")
 	require.Equal(t, testHubPin(), retry.EndpointTLSSPKI)
@@ -90,7 +90,7 @@ func TestAuthorizeHandsTheConsumerTheSameHubCertificatePin(t *testing.T) {
 	var attached struct {
 		StationID string `json:"station_id"`
 	}
-	code, raw := node.call(t, srv, http.MethodPost, "/tower/edge/attach", body, &attached)
+	code, raw := node.attach(t, srv, body, &attached)
 	require.Equal(t, http.StatusOK, code, raw)
 
 	// The projection is where the consumer's answer and the canary's target both come from.
@@ -124,7 +124,7 @@ func TestAPlaintextTowerIsAdvertisedExactlyAsItAlwaysWas(t *testing.T) {
 		Endpoint        string `json:"endpoint"`
 		EndpointTLSSPKI string `json:"endpoint_tls_spki"`
 	}
-	code, raw := node.call(t, srv, http.MethodPost, "/tower/edge/attach", body, &out)
+	code, raw := node.attach(t, srv, body, &out)
 	require.Equal(t, http.StatusOK, code, raw)
 	require.Equal(t, "203.0.113.9:8443", out.Endpoint)
 	require.Empty(t, out.EndpointTLSSPKI, "no pin means plaintext means what this fleet does today")

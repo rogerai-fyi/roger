@@ -121,6 +121,38 @@ func (s *Station) SignRequest(method, target string, body []byte) (pubHex string
 	return protocol.SignRequest(s.assertionPriv, method, target, body)
 }
 
+// SignAttachProof signs the possession proof that binds THIS Station's keys to ONE self-attach
+// request (protocol.AttachProof, and the long note in that file for what the statement covers
+// and why it cannot be confused with a hub request or a receipt).
+//
+// # WHY THE STATION FILLS IN ITS OWN KEYS AND ITS OWN ID
+//
+// The caller supplies only what belongs to the REQUEST - the network, the account key signing
+// it, its timestamp, and its body. The three fields the proof is ABOUT are taken from this
+// Station, derived from the private halves on disk rather than copied from the state file, so
+// the proof necessarily names the keys this Station can actually sign and decrypt with. A
+// signature over keys handed in by the caller would prove possession of whatever the caller
+// chose to name, which is the defect the proof exists to close, one layer down.
+//
+// The caller is expected to have put exactly these three values in the body it passes here -
+// internal/agent's AttachTower does, from the same accessors - and if it has not, the body
+// digest in the statement makes the mismatch a refusal rather than a silent success.
+//
+// Same reasoning as SignRequest for why this is a method and not an AssertionPriv() accessor:
+// it hands out a signature over bytes this package chose, rather than the material to sign
+// anything at all.
+func (s *Station) SignAttachProof(network, callerPubHex string, ts int64, body []byte) string {
+	return protocol.AttachProof{
+		Network:      network,
+		CallerPubkey: callerPubHex,
+		TS:           ts,
+		StationID:    s.StationID,
+		AssertionKey: hex.EncodeToString(s.AssertionPub()),
+		SessionKey:   hex.EncodeToString(s.SessionPub()),
+		Body:         body,
+	}.Sign(s.assertionPriv)
+}
+
 // Dir is the data directory this Station was loaded from.
 func (s *Station) Dir() string { return s.dir }
 

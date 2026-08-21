@@ -35,7 +35,7 @@ func attachedStation(t *testing.T, b *broker, srv *httptest.Server, towerLogin s
 	var out struct {
 		StationID string `json:"station_id"`
 	}
-	code, raw := node.call(t, srv, http.MethodPost, "/tower/edge/attach", body, &out)
+	code, raw := node.attach(t, srv, body, &out)
 	require.Equal(t, http.StatusOK, code, raw)
 
 	at, found, err := b.tower.stations.Station(out.StationID)
@@ -334,7 +334,7 @@ func TestAStationThatWentQuietForAFortnightCanComeBack(t *testing.T) {
 	var first struct {
 		StationID string `json:"station_id"`
 	}
-	code, raw := op.call(t, srv, http.MethodPost, "/tower/edge/attach", body, &first)
+	code, raw := op.attach(t, srv, body, &first)
 	require.Equal(t, http.StatusOK, code, raw)
 	require.Equal(t, stationID, first.StationID)
 	nodeID := body["node_id"].(string)
@@ -360,7 +360,7 @@ func TestAStationThatWentQuietForAFortnightCanComeBack(t *testing.T) {
 		StationID string `json:"station_id"`
 		State     string `json:"state"`
 	}
-	code, raw = op.call(t, srv, http.MethodPost, "/tower/edge/attach", body, &second)
+	code, raw = op.attach(t, srv, body, &second)
 	require.Equal(t, http.StatusOK, code,
 		"a machine that was away for a fortnight was refused its own Station: %s", raw)
 	require.Equal(t, stationID, second.StationID, "coming back must not mint a second identity")
@@ -412,5 +412,5 @@ func TestADormantStationIsOnlyWokenByTheMachineThatHoldsIt(t *testing.T) {
 func op0(t *testing.T, o operator, srv *httptest.Server, body map[string]any) (int, string) {
 	t.Helper()
 	var out map[string]any
-	return o.call(t, srv, http.MethodPost, "/tower/edge/attach", body, &out)
+	return o.attach(t, srv, body, &out)
 }

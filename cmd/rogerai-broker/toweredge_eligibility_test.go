@@ -43,7 +43,7 @@ func edgeFleet(t *testing.T, n int) (*broker, []string) {
 		var out struct {
 			StationID string `json:"station_id"`
 		}
-		code, raw := op.call(t, srv, http.MethodPost, "/tower/edge/attach", body, &out)
+		code, raw := op.attach(t, srv, body, &out)
 		require.Equal(t, http.StatusOK, code, raw)
 		nodeID := body["node_id"].(string)
 		// The durable node -> account binding a real registration writes. It is what the
@@ -233,7 +233,7 @@ func TestEdgePlacementRefusesARowWithNoJoin(t *testing.T) {
 	var out struct {
 		StationID string `json:"station_id"`
 	}
-	code, raw := op.call(t, srv, http.MethodPost, "/tower/edge/attach", body, &out)
+	code, raw := op.attach(t, srv, body, &out)
 	require.Equal(t, http.StatusOK, code, raw)
 
 	// Rewrite the projection the way a pre-M0 publisher left it: an endpoint, a self- offer,

@@ -250,7 +250,7 @@ func TestTopology2NodeDownTheConsumerIsMadeWhole(t *testing.T) {
 	body, _ := selfAttachBodyFor(t, b, nodeOp)
 	body["model"], body["modality"], body["price_out_micros"] = "down-model", "chat", 300_000
 	var attached map[string]any
-	code, raw := nodeOp.call(t, srv, http.MethodPost, "/tower/edge/attach", body, &attached)
+	code, raw := nodeOp.attach(t, srv, body, &attached)
 	require.Equal(t, http.StatusOK, code, raw)
 
 	consumer := signedInConsumer(t, b)

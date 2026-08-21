@@ -39,7 +39,7 @@ func TestEdgePlacementSpreadsAcrossEquallyGoodStations(t *testing.T) {
 		var out struct {
 			StationID string `json:"station_id"`
 		}
-		code, raw := node.call(t, srv, http.MethodPost, "/tower/edge/attach", body, &out)
+		code, raw := node.attach(t, srv, body, &out)
 		require.Equal(t, http.StatusOK, code, raw)
 		require.NotEmpty(t, out.StationID)
 	}
@@ -74,7 +74,7 @@ func TestEdgeDispatchCountsItsOwnInFlightWork(t *testing.T) {
 		node := signedInOperator(t, b, fmt.Sprintf("node-op-%d", i))
 		body, _ := selfAttachBodyFor(t, b, node)
 		var out map[string]any
-		code, raw := node.call(t, srv, http.MethodPost, "/tower/edge/attach", body, &out)
+		code, raw := node.attach(t, srv, body, &out)
 		require.Equal(t, http.StatusOK, code, raw)
 	}
 

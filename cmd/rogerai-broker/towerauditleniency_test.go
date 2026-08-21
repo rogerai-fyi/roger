@@ -23,7 +23,7 @@ func TestLeniencyEndsTheFirstTimeAStationAnswersAnAudit(t *testing.T) {
 	var attached struct {
 		StationID string `json:"station_id"`
 	}
-	code, raw := node.call(t, srv, http.MethodPost, "/tower/edge/attach", body, &attached)
+	code, raw := node.attach(t, srv, body, &attached)
 	require.Equal(t, http.StatusOK, code, raw)
 	station := attached.StationID
 
@@ -61,7 +61,7 @@ func TestAProvenStationsMissIsAHardFinding(t *testing.T) {
 	var attached struct {
 		StationID string `json:"station_id"`
 	}
-	code, raw := node.call(t, srv, http.MethodPost, "/tower/edge/attach", body, &attached)
+	code, raw := node.attach(t, srv, body, &attached)
 	require.Equal(t, http.StatusOK, code, raw)
 	b.markAuditProven(attached.StationID)
 

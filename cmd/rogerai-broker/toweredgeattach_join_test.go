@@ -76,7 +76,7 @@ func TestAttachWithoutNodeIDIsRefused(t *testing.T) {
 		t.Fatal("this test is about a body with no node_id")
 	}
 	var out apiError
-	code, raw := node.call(t, srv, http.MethodPost, "/tower/edge/attach", body, &out)
+	code, raw := node.attach(t, srv, body, &out)
 	if code != http.StatusBadRequest {
 		t.Fatalf("attach without a node_id answered %d, want 400: %s", code, raw)
 	}
@@ -105,7 +105,7 @@ func TestAttachWithAnotherNodesIDIsRefused(t *testing.T) {
 	body, _ := selfAttachBody(t)
 	body["node_id"] = victimNode
 	var out apiError
-	code, raw := thief.call(t, srv, http.MethodPost, "/tower/edge/attach", body, &out)
+	code, raw := thief.attach(t, srv, body, &out)
 	if code != http.StatusForbidden {
 		t.Fatalf("attach naming another node answered %d, want 403: %s", code, raw)
 	}

@@ -26,7 +26,7 @@ func TestAdaptiveAuditProbability(t *testing.T) {
 	var out struct {
 		StationID string `json:"station_id"`
 	}
-	code, raw := node.call(t, srv, "POST", "/tower/edge/attach", body, &out)
+	code, raw := node.attach(t, srv, body, &out)
 	require.Equal(t, 200, code, raw)
 	at, found, err := b.tower.stations.Station(out.StationID)
 	require.NoError(t, err)

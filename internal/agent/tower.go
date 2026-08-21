@@ -678,6 +678,19 @@ func AttachTower(cfg Config, priv ed25519.PrivateKey, dir string) (*station.Stat
 	req.Header.Set(protocol.HeaderPubkey, pub)
 	req.Header.Set(protocol.HeaderTS, fmt.Sprintf("%d", ts))
 	req.Header.Set(protocol.HeaderSig, sig)
+	// AND THE ASSERTION KEY CO-SIGNS, which is a SECOND signature by a DIFFERENT key and not a
+	// second copy of the first. The signature above is the account's: it proves who is asking.
+	// It has never proved anything at all about the two keys in the body, so Core used to bind
+	// whatever public key a signed-in caller named - and the assertion public key is in the
+	// clear in a header of every hub poll on an unpinned link, twenty-five seconds apart, for
+	// the life of the process. This is the Station saying "these are mine", over this exact
+	// request: see protocol.AttachProof.
+	//
+	// It is minted AFTER SignRequest and from its return values on purpose. The proof names the
+	// account key and the timestamp that signature used, so the two are bound to one request and
+	// the proof is fresh exactly as long as the request is. Signing it first would mean guessing
+	// a timestamp SignRequest had not chosen yet.
+	req.Header.Set(protocol.HeaderAttachProof, st.SignAttachProof(link.PublicNetwork, pub, ts, body))
 	resp, err := (&http.Client{Timeout: 30 * time.Second, CheckRedirect: protocol.NoDowngradeRedirect}).Do(req)
 	if err != nil {
 		return nil, TowerAttachment{}, err

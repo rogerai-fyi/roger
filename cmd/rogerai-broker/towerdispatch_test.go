@@ -218,7 +218,7 @@ func TestABrokerAuthorizesOntoATowerLinkedElsewhere(t *testing.T) {
 	body, _ := selfAttachBodyFor(t, a, node)
 	body["model"], body["modality"], body["price_out_micros"] = "xb-model", "chat", 250_000
 	var attached map[string]any
-	code, raw := node.call(t, aSrv, http.MethodPost, "/tower/edge/attach", body, &attached)
+	code, raw := node.attach(t, aSrv, body, &attached)
 	require.Equal(t, http.StatusOK, code, raw)
 
 	// Broker C never saw this tower's link - and still authorizes a consumer onto it, at the

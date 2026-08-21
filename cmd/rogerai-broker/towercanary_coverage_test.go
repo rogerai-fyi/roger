@@ -32,7 +32,7 @@ func canaryFleet(t *testing.T, b *broker, srv *httptest.Server, n int) string {
 		var out struct {
 			StationID string `json:"station_id"`
 		}
-		code, raw := node.call(t, srv, http.MethodPost, "/tower/edge/attach", body, &out)
+		code, raw := node.attach(t, srv, body, &out)
 		require.Equal(t, http.StatusOK, code, raw)
 	}
 	return tw.id

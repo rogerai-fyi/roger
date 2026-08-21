@@ -9,12 +9,15 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"rogerai.fm/roger/v5/internal/protocol"
 	"rogerai.fm/roger/v5/internal/towercore/admit"
 	"rogerai.fm/roger/v5/internal/towercore/attach"
 	"rogerai.fm/roger/v5/internal/towercore/fleet"
@@ -51,14 +54,98 @@ func liveEdgeTowerSession(t *testing.T, b *broker, srv *httptest.Server, login, 
 
 func selfAttachBody(t *testing.T) (map[string]any, ed25519.PublicKey) {
 	t.Helper()
-	apub, _, err := ed25519.GenerateKey(rand.Reader)
+	apub, apriv, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
 	spub, _, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
+	rememberAssertionKey(hexOf(apub), apriv)
 	return map[string]any{
 		"assertion_key": hexOf(apub), "session_key": hexOf(spub),
 		"model": "m", "modality": "text",
 	}, apub
+}
+
+// The self-attach test keyring: assertion pubkey hex -> the private half a REAL node would be
+// holding on disk.
+//
+// It exists because attach now demands a possession proof (protocol.AttachProof) and the tests
+// that mint a body are not the tests that send it. A helper that quietly skipped the proof when
+// it could not find a key would make every one of these forty call sites pass for the wrong
+// reason, which is why attach() below FATALS on an unknown key instead: a hand-built body has
+// to be signed deliberately, by the test that knows what it is proving.
+var (
+	assertionKeysMu sync.Mutex
+	assertionKeys   = map[string]ed25519.PrivateKey{}
+)
+
+func rememberAssertionKey(pubHex string, priv ed25519.PrivateKey) {
+	assertionKeysMu.Lock()
+	defer assertionKeysMu.Unlock()
+	assertionKeys[pubHex] = priv
+}
+
+func assertionKeyOf(pubHex string) (ed25519.PrivateKey, bool) {
+	assertionKeysMu.Lock()
+	defer assertionKeysMu.Unlock()
+	priv, ok := assertionKeys[pubHex]
+	return priv, ok
+}
+
+// attach is operator.call for POST /tower/edge/attach, plus the one thing that call cannot do:
+// co-sign the request with the ASSERTION key named in the body, as a real node does.
+//
+// It is a named method rather than a branch inside call so every one of these call sites SAYS
+// that a possession proof went with it. The proof is built through the production type, because
+// a test-local restatement of a canonical form is how the two halves of a signing scheme drift
+// apart while both stay green.
+func (o operator) attach(t *testing.T, srv *httptest.Server, in map[string]any, out any) (int, string) {
+	t.Helper()
+	apub, _ := in["assertion_key"].(string)
+	priv, known := assertionKeyOf(apub)
+	require.True(t, known,
+		"this body's assertion key was not minted by selfAttachBody, so the test harness cannot "+
+			"prove possession of it - sign the attach explicitly if that is the point of the test")
+	stationID, _ := in["station_id"].(string)
+	skey, _ := in["session_key"].(string)
+	return o.attachSigned(t, srv, in, func(callerPub string, ts int64, body []byte) string {
+		return protocol.AttachProof{
+			Network: link.PublicNetwork, CallerPubkey: callerPub, TS: ts,
+			StationID: stationID, AssertionKey: apub, SessionKey: skey, Body: body,
+		}.Sign(priv)
+	}, out)
+}
+
+// attachSigned is attach with the possession proof left to the caller, which is what the
+// squatting tests need: an attacker's request has to carry whatever proof an attacker could
+// actually produce, and that is never the honest one. proof returns the header value; returning
+// "" sends no header at all.
+func (o operator) attachSigned(t *testing.T, srv *httptest.Server, in map[string]any,
+	proof func(callerPub string, ts int64, body []byte) string, out any) (int, string) {
+	t.Helper()
+	body, err := json.Marshal(in)
+	require.NoError(t, err)
+
+	const path = "/tower/edge/attach"
+	req, err := http.NewRequest(http.MethodPost, srv.URL+path, bytes.NewReader(body))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	pub, ts, sig := protocol.SignRequest(o.priv, http.MethodPost, path, body)
+	req.Header.Set(protocol.HeaderPubkey, pub)
+	req.Header.Set(protocol.HeaderTS, itoa64(ts))
+	req.Header.Set(protocol.HeaderSig, sig)
+	if p := proof(pub, ts, body); p != "" {
+		req.Header.Set(protocol.HeaderAttachProof, p)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	var raw json.RawMessage
+	_ = json.NewDecoder(resp.Body).Decode(&raw)
+	if out != nil && len(raw) > 0 {
+		_ = json.Unmarshal(raw, out)
+	}
+	return resp.StatusCode, string(raw)
 }
 
 // The whole point: one signed call attaches the node, assigns a tower, and hands back the
@@ -76,7 +163,7 @@ func TestSelfAttachRegistersAServableStation(t *testing.T) {
 		HubToken  string `json:"hub_token"`
 		State     string `json:"state"`
 	}
-	code, raw := node.call(t, srv, http.MethodPost, "/tower/edge/attach", body, &out)
+	code, raw := node.attach(t, srv, body, &out)
 	require.Equal(t, http.StatusOK, code, raw)
 	require.NotEmpty(t, out.StationID)
 	require.Equal(t, tw.id, out.TowerID, "Core assigned the live edge tower")
@@ -102,7 +189,7 @@ func TestSelfAttachRefusesWhenNoTowerCanHost(t *testing.T) {
 	node := signedInOperator(t, b, "node-op")
 	body, _ := selfAttachBodyFor(t, b, node)
 	var out map[string]any
-	code, _ := node.call(t, srv, http.MethodPost, "/tower/edge/attach", body, &out)
+	code, _ := node.attach(t, srv, body, &out)
 	require.Equal(t, http.StatusServiceUnavailable, code)
 }
 
@@ -132,7 +219,7 @@ func TestSelfAttachRefusesAnotherOwnersKeys(t *testing.T) {
 	node := signedInOperator(t, b, "node-op")
 	body, _ := selfAttachBodyFor(t, b, node)
 	var out map[string]any
-	code, _ := node.call(t, srv, http.MethodPost, "/tower/edge/attach", body, &out)
+	code, _ := node.attach(t, srv, body, &out)
 	require.Equal(t, http.StatusOK, code)
 
 	thief := signedInOperator(t, b, "thief-op")
@@ -142,7 +229,7 @@ func TestSelfAttachRefusesAnotherOwnersKeys(t *testing.T) {
 	// uniqueness is ever consulted. This is the borrowed-reputation attack the join exists
 	// to stop - once placement scores on a node's measured history, claiming somebody's node
 	// id is claiming their traffic.
-	code, _ = thief.call(t, srv, http.MethodPost, "/tower/edge/attach", body, &out)
+	code, _ = thief.attach(t, srv, body, &out)
 	require.Equal(t, http.StatusForbidden, code, "a node id may only be claimed by the key that registered it")
 
 	// With a node of their own, the thief gets past the join - and is then refused by the
@@ -152,7 +239,7 @@ func TestSelfAttachRefusesAnotherOwnersKeys(t *testing.T) {
 		stolen[k] = v
 	}
 	stolen["node_id"] = registerShareNode(t, b, thief)
-	code, _ = thief.call(t, srv, http.MethodPost, "/tower/edge/attach", stolen, &out)
+	code, _ = thief.attach(t, srv, stolen, &out)
 	require.Equal(t, http.StatusConflict, code, "another account cannot claim live keys")
 }
 
@@ -169,7 +256,7 @@ func TestSelfAttachValidatesItsInput(t *testing.T) {
 
 	body, _ := selfAttachBodyFor(t, b, node)
 	body["model"] = ""
-	code, _ = node.call(t, srv, http.MethodPost, "/tower/edge/attach", body, &out)
+	code, _ = node.attach(t, srv, body, &out)
 	require.Equal(t, http.StatusBadRequest, code)
 }
 
@@ -191,7 +278,7 @@ func TestTowerFetchesItsHubNodes(t *testing.T) {
 		StationID string `json:"station_id"`
 		HubToken  string `json:"hub_token"`
 	}
-	code, _ := node.call(t, srv, http.MethodPost, "/tower/edge/attach", body, &attached)
+	code, _ := node.attach(t, srv, body, &attached)
 	require.Equal(t, http.StatusOK, code)
 
 	// DECODED INTO THE TYPE THE TOWER ACTUALLY USES, not a restatement of it. A local struct
@@ -289,9 +376,9 @@ func TestSelfAttachRetryIsIdempotent(t *testing.T) {
 		HubToken  string `json:"hub_token"`
 		Note      string `json:"note"`
 	}
-	code, _ := node.call(t, srv, http.MethodPost, "/tower/edge/attach", body, &first)
+	code, _ := node.attach(t, srv, body, &first)
 	require.Equal(t, http.StatusOK, code)
-	code, _ = node.call(t, srv, http.MethodPost, "/tower/edge/attach", body, &second)
+	code, _ = node.attach(t, srv, body, &second)
 	require.Equal(t, http.StatusOK, code, "a same-key retry is answered, not refused")
 	require.Equal(t, first.StationID, second.StationID, "the SAME registration comes back")
 	require.Equal(t, first.HubToken, second.HubToken, "the hub token is recoverable by its owner")
@@ -335,7 +422,7 @@ func TestSelfAttachRetryIsRefusedWhenItsTowerHasNoDataPlane(t *testing.T) {
 		TowerID   string `json:"tower_id"`
 		Endpoint  string `json:"endpoint"`
 	}
-	code, raw := node.call(t, srv, http.MethodPost, "/tower/edge/attach", body, &first)
+	code, raw := node.attach(t, srv, body, &first)
 	require.Equal(t, http.StatusOK, code, raw)
 	require.Equal(t, tw.id, first.TowerID)
 	require.Equal(t, "203.0.113.9:8443", first.Endpoint)
@@ -352,7 +439,7 @@ func TestSelfAttachRetryIsRefusedWhenItsTowerHasNoDataPlane(t *testing.T) {
 	require.NotEqual(t, tw.id, other.id)
 
 	var out map[string]any
-	code, raw = node.call(t, srv, http.MethodPost, "/tower/edge/attach", body, &out)
+	code, raw = node.attach(t, srv, body, &out)
 	require.Equal(t, http.StatusServiceUnavailable, code,
 		"a retry whose tower has no data plane was answered 200 with an unusable endpoint: %s", raw)
 	require.Empty(t, out["endpoint"], "an attach answer that names no endpoint is not an attach answer")
@@ -382,7 +469,7 @@ func TestSelfAttachRefusesABannedAccount(t *testing.T) {
 
 	body, _ := selfAttachBodyFor(t, b, node)
 	var out map[string]any
-	code, _ := node.call(t, srv, http.MethodPost, "/tower/edge/attach", body, &out)
+	code, _ := node.attach(t, srv, body, &out)
 	require.Equal(t, http.StatusForbidden, code)
 }
 
@@ -413,7 +500,7 @@ func TestSelfAttachedNodeIsRoutableAtItsListedPrice(t *testing.T) {
 		StationID string `json:"station_id"`
 		TowerID   string `json:"tower_id"`
 	}
-	code, raw := node.call(t, srv, http.MethodPost, "/tower/edge/attach", body, &attached)
+	code, raw := node.attach(t, srv, body, &attached)
 	require.Equal(t, http.StatusOK, code, raw)
 
 	// The projection carries the node's row at its price.
@@ -441,7 +528,7 @@ func TestSelfAttachRefusesAnOutOfBandPrice(t *testing.T) {
 	body, _ := selfAttachBodyFor(t, b, node)
 	body["price_out_micros"] = int64(999_000_000_000) // absurd: far above any band ceiling
 	var out map[string]any
-	code, _ := node.call(t, srv, http.MethodPost, "/tower/edge/attach", body, &out)
+	code, _ := node.attach(t, srv, body, &out)
 	require.Equal(t, http.StatusBadRequest, code)
 }
 
@@ -454,11 +541,11 @@ func TestSelfAttachRetryWithADifferentOfferIsRefused(t *testing.T) {
 	body, _ := selfAttachBodyFor(t, b, node)
 	body["price_out_micros"] = int64(300_000)
 	var out map[string]any
-	code, _ := node.call(t, srv, http.MethodPost, "/tower/edge/attach", body, &out)
+	code, _ := node.attach(t, srv, body, &out)
 	require.Equal(t, http.StatusOK, code)
 
 	body["price_out_micros"] = int64(500_000) // a "price update"
-	code, _ = node.call(t, srv, http.MethodPost, "/tower/edge/attach", body, &out)
+	code, _ = node.attach(t, srv, body, &out)
 	require.Equal(t, http.StatusConflict, code, "a changed offer must fail loudly, never silently keep the old price")
 }
 
@@ -498,7 +585,7 @@ func TestSelfAttachRefusesADisallowedModality(t *testing.T) {
 	body, _ := selfAttachBodyFor(t, b, node)
 	body["modality"] = "voice"
 	var out map[string]any
-	code, _ := node.call(t, srv, http.MethodPost, "/tower/edge/attach", body, &out)
+	code, _ := node.attach(t, srv, body, &out)
 	require.Equal(t, http.StatusBadRequest, code, "the self path gets no wider a modality door than the leaf path")
 }
 
@@ -529,12 +616,12 @@ func TestSelfAttachIsRateLimitedPerAccount(t *testing.T) {
 	b.rl = &rateLimiter{buckets: map[string]*tokenBucket{}, rpm: 1, burst: 1}
 
 	var out map[string]any
-	code, raw := node.call(t, srv, http.MethodPost, "/tower/edge/attach", body, &out)
+	code, raw := node.attach(t, srv, body, &out)
 	require.Equal(t, http.StatusOK, code, raw)
 
 	// The same node asking again immediately. Without a limiter this is the idempotent-retry
 	// branch and answers 200 forever, which is precisely the loop that had no cost.
-	code, raw = node.call(t, srv, http.MethodPost, "/tower/edge/attach", body, &out)
+	code, raw = node.attach(t, srv, body, &out)
 	require.Equal(t, http.StatusTooManyRequests, code, raw)
 }
 

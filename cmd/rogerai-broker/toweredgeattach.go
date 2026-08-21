@@ -38,6 +38,7 @@ import (
 	"strings"
 	"time"
 
+	"rogerai.fm/roger/v5/internal/protocol"
 	"rogerai.fm/roger/v5/internal/towercore/attach"
 	"rogerai.fm/roger/v5/internal/towercore/link"
 )
@@ -182,6 +183,86 @@ func (b *broker) towerEdgeAttach(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// THE STATION ID'S SHAPE IS CHECKED HERE NOW, before the possession proof rather than at
+	// the mint below, and the move is not cosmetic. The id is one of the terms the proof is
+	// signed over, and every OTHER term of that statement is drawn from a closed alphabet - hex,
+	// a decimal integer, a constant network name. Validating the id here is what makes that true
+	// of the whole statement, which is half of the argument that these bytes can never be read
+	// as a protocol.CanonicalRequest (see protocol.AttachProof). It is also simply the right
+	// order: an ill-formed identifier is a broken client, and answering that before spending an
+	// Ed25519 verification on it costs nothing. The name-injection reasoning that makes the
+	// alphabet closed in the first place is in attach/stationid.go.
+	if strings.TrimSpace(req.StationID) != "" && !attach.ValidStationID(strings.TrimSpace(req.StationID)) {
+		jsonErr(w, http.StatusBadRequest, "station_id is not a valid station identifier")
+		return
+	}
+	// THE KEYS MUST PROVE THEY ARE THE CALLER'S. Everything above this line establishes WHO is
+	// asking; nothing above it establishes that the two keys in the body belong to them, and
+	// until now nothing anywhere did.
+	//
+	// # WHAT WAS OPEN
+	//
+	// The request signature is the ACCOUNT's, so a signed-in caller could name ANY assertion
+	// public key and have Core bind it to a Station of theirs. The key is not secret and was
+	// never treated as one: on an unpinned hub link it is in the clear in the X-Roger-Pubkey
+	// header of every poll, one every twenty-five seconds for the life of the process, so any
+	// party on that path already holds every serving Station's. And the window is not only
+	// "before its owner first attaches" - the uniqueness indexes are partial and terminal states
+	// release their keys on purpose, so a revocation frees a key the world has already seen.
+	//
+	// A squat is denial and never theft: the squatter has no private half, so the Station they
+	// took can never poll, serve, sign a receipt or be paid. But the denial is the point. The
+	// squat refuses the rightful owner's own attach on key uniqueness, their node re-attaches on
+	// the backoff built for a relay having a bad day (internal/agent's serveTowerTenancy), and
+	// every retry is refused for as long as the squat stands - an outage that renews itself for
+	// the price of one request and one of the attacker's own live-station slots.
+	//
+	// # WHY THIS PARTICULAR STATEMENT
+	//
+	// A signature over the public key alone would have been a bearer token: lift it off the wire
+	// once, replay it forever, and the check would exist and prove nothing. The proof is bound
+	// to the account key that signed THIS request, to that request's timestamp, to both keys, to
+	// the Station id and to a digest of the whole body - so it can be presented only by a party
+	// that can also produce the account signature, only inside the window that signature is good
+	// for, and only for this attach. protocol.AttachProof carries the full argument, including
+	// why these bytes cannot be confused with a hub request or a receipt signed by the same key.
+	//
+	// # WHERE IT SITS, WHICH IS PART OF THE FIX
+	//
+	// BEFORE the invitation is minted, before PutAuthorizationCapped, before Admit - so a refused
+	// proof writes nothing, consumes no invitation, and moves nobody's cap. That ordering is
+	// deliberate rather than incidental: the composition this whole change exists to close was a
+	// refusal loop eating an owner's twenty-five open invitations, and reintroducing it through
+	// the fix would be a poor outcome. What a refusal does cost is one token of the CALLER's own
+	// per-account rate bucket, which is the attacker's, never the victim's.
+	//
+	// # NO DUAL-ACCEPT PATH, AND NO TRANSITION
+	//
+	// This is a hard cutover. internal/agent/tower.go does not exist in v5.7.1: self-attach has
+	// never shipped in a tagged release, so there is no deployed node to strand and nothing to
+	// tolerate. An "accept it if present" branch here would be a downgrade any attacker could
+	// provoke by simply omitting the header - the same posture the node already takes on the
+	// bearer and on the tower fingerprint. Do not add one later for safety; it would not be
+	// safety.
+	proofTS, tserr := strconv.ParseInt(r.Header.Get(protocol.HeaderTS), 10, 64)
+	if tserr != nil || !(protocol.AttachProof{
+		Network:      link.PublicNetwork,
+		CallerPubkey: r.Header.Get(protocol.HeaderPubkey),
+		TS:           proofTS,
+		StationID:    req.StationID,
+		AssertionKey: req.AssertionKey,
+		SessionKey:   req.SessionKey,
+		Body:         body,
+	}).Verify(r.Header.Get(protocol.HeaderAttachProof)) {
+		// ONE SENTENCE FOR FOUR CAUSES, and that is the design. Missing header, not hex, wrong
+		// length, does not verify: telling a caller which one refused it is a probing oracle for
+		// somebody working out what Core checks, and it is worth nothing to an honest operator,
+		// whose remedy is identical in all four cases.
+		jsonErr(w, http.StatusForbidden,
+			"this attach is not co-signed by the assertion key it names - a node proves the keys "+
+				"are its own by signing the attach with the assertion key's private half")
+		return
+	}
 	if strings.TrimSpace(req.Model) == "" || strings.TrimSpace(req.Modality) == "" {
 		jsonErr(w, http.StatusBadRequest, "a node names the model and modality it serves")
 		return
@@ -312,12 +393,11 @@ func (b *broker) towerEdgeAttach(w http.ResponseWriter, r *http.Request) {
 
 	// The internal invitation: minted and redeemed in this one call. The secret exists only
 	// on this stack; the cap and one-use guarantees are the store's, unchanged.
+	// Shape was settled with the other input checks, above the possession proof - the id is one
+	// of the terms that proof is signed over, so it cannot be validated after it.
 	stationID := strings.TrimSpace(req.StationID)
 	if stationID == "" {
 		stationID = newStationID()
-	} else if !attach.ValidStationID(stationID) {
-		jsonErr(w, http.StatusBadRequest, "station_id is not a valid station identifier")
-		return
 	}
 	hubToken := newHubToken()
 	auth, secret, err := attach.NewInvite(attach.Authorization{

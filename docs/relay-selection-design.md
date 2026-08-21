@@ -1005,41 +1005,148 @@ Still open after round five, and worth naming so the next reader does not have t
   the request instead.
 - **The re-count fail-open.** A broker with no tokenizer sidecar bills, and now ranks, on the
   node's claim. The two are consistent; neither is verified.
-- **Key squatting on an unattached assertion key.** `/tower/edge/attach` takes the assertion key
-  from the request body and does not require a signature from it, so a party who learns a key
-  before its owner first attaches can bind it to a Station of their own. Pre-existing, unrelated
-  to dormancy (a dormant Station's keys are reserved), and the obvious fix — require the attach
-  to be co-signed by the assertion key — is a wire change on a path §5.4d has already touched
-  once this release.
+- ~~**Key squatting on an unattached assertion key.**~~ **CLOSED 2026-08-21 on
+  `release/v5.7.0`.** The record of what it was, how much wider it turned out to be than this
+  bullet first said, and what closing it did and did not cover, is kept below rather than
+  deleted, because the two rounds of widening are the part a later reader needs.
 
-  **The window is wider than "before its owner first attaches", which is how this was first
+  **What it was.** `/tower/edge/attach` took the assertion key out of the request body and
+  never required a signature from it. The request was signed - with the caller's ACCOUNT key,
+  which proves who is asking and says nothing about whether the keys they are handing over are
+  theirs. So a party who learned a Station's assertion PUBLIC key could bind it to a Station of
+  their own.
+
+  **The window was wider than "before its owner first attaches", which is how this was first
   written.** Two things extend it, and both were found while auditing the invite path:
 
-  - *Revocation reopens it, on a key that is by then public.* The live/held uniqueness indexes
-    are partial, and terminal states release their keys — deliberately, so a retired Station
-    does not hold its keys hostage forever. But a Station that ever served on a plaintext hub
-    has put its assertion **public** key on the wire every twenty-five seconds, so any observer
-    of that path already knows it. The moment its owner revokes, that known key is free, and an
-    observer can bind it before the owner re-attaches with fresh ones. So the population at risk
-    is not only keys that never attached; it is every key that has ever attached over plaintext
-    and is later released. TLS (§5.7) closes the observation half for the towers that enable it,
-    which is another argument for the deadline that section leaves open.
-  - *It composes with the open-invite cap into a lockout the victim cannot diagnose.* This is
-    the part worth acting on. Squatting costs the attacker one attach and thereafter refuses the
-    victim's own attach on key uniqueness. The victim's node then does what it is built to do
-    and re-attaches on a backoff (`internal/agent`, `serveTowerTenancy`) — and **each refusal
-    used to burn one of the victim's 25 open invitations against a one-hour TTL**, because the
-    refusal path marks its internal invitation consumed by re-putting it and Postgres dropped
-    that write. After 25 attempts the answer changed from "these keys are attached" to "this
-    account has too many open attachments in flight", which names neither the cause nor the
-    cure and points the operator at their own account rather than at the squat. So a
-    one-request attack produced an hour-long, self-renewing, misattributed outage.
+  - *Learning the key was never a barrier.* The live/held uniqueness indexes are partial, and
+    terminal states release their keys - deliberately, so a retired Station does not hold its
+    keys hostage forever. But a Station that ever served on a plaintext hub has put its
+    assertion **public** key on the wire every twenty-five seconds, so any observer of that
+    path already knows it. The moment its owner revokes, that known key is free. So the
+    population at risk was not only keys that never attached; it was every key that has ever
+    attached over plaintext and is later released. TLS (§5.7) closes the observation half for
+    the towers that enable it, which is another argument for the deadline that section leaves
+    open - but it was never the fix here, because the tower itself has always been able to read
+    that header, and because most of the fleet is unpinned.
+  - *It composed with the open-invite cap into a lockout the victim could not diagnose.*
+    Squatting cost the attacker one attach and thereafter refused the victim's own attach on
+    key uniqueness. The victim's node then did what it is built to do and re-attached on a
+    backoff (`internal/agent`, `serveTowerTenancy`) - and **each refusal used to burn one of
+    the victim's 25 open invitations against a one-hour TTL**, because the refusal path marks
+    its internal invitation consumed by re-putting it and Postgres dropped that write. After 25
+    attempts the answer changed from "these keys are attached" to "this account has too many
+    open attachments in flight", which names neither the cause nor the cure and points the
+    operator at their own account rather than at the squat. So a one-request attack produced an
+    hour-long, self-renewing, MISATTRIBUTED outage.
 
-    **The durable-store half is FIXED** (`consumed = <row>.consumed OR EXCLUDED.consumed`, with
-    `consumed_by` moving only on the transition; both stores are now held to it against a real
-    database in `internal/towercore/attach/parity_test.go`). The squat itself is **not** fixed —
-    it is still the wire change above. What the fix changes is that the victim now gets the
-    honest, actionable refusal every time instead of a misleading 429 after the twenty-fifth.
+    **That half was fixed first** (`consumed = <row>.consumed OR EXCLUDED.consumed`, with
+    `consumed_by` moving only on the transition; both stores held to it against a real database
+    in `internal/towercore/attach/parity_test.go`), which left the victim getting the honest,
+    actionable refusal every time instead of a misleading 429 after the twenty-fifth. **The
+    outage itself survived that fix** - honestly reported and still indefinite - because the
+    squat was still standing. This is the change that removes the squat.
+
+  **The fix: the attach is co-signed by the key being claimed** (`protocol.AttachProof`,
+  `internal/protocol/attachproof.go`). A hard cutover, with no dual-accept branch: `internal/
+  agent/tower.go` does not exist in tag v5.7.1, so self-attach has never shipped in a tagged
+  release, there is no deployed node to strand, and an "accept it if absent" path would be a
+  downgrade any attacker could provoke by omitting a header.
+
+  **What the signature covers, and why each term is in it.** A signature over the public key
+  alone would have been a bearer token - liftable off the wire once, replayable by anybody
+  forever, and one more check that exists and proves nothing. The statement binds:
+
+  - the **caller key** (the `X-Roger-Pubkey` whose signature authenticates the request), which
+    is what makes the proof non-transferable: a captured proof can be presented only by a party
+    that can also produce that account's request signature.
+  - the **timestamp** of that same request, so freshness is the request's own `SigMaxSkew`
+    window rather than a second clock to reason about.
+  - the **Station id and both keys**, so the statement says in full what is being claimed
+    instead of deferring all of it to a digest.
+  - a **digest of the whole body**, so the proof cannot be moved onto an attach that differs in
+    any byte - a different node id, model or price.
+  - the **network**, because a standalone Tower is a different trust root.
+
+  Within the skew window the only party who can present a captured proof is one who can also
+  sign as that account for a body naming those same keys - which is the owner, whose replay is
+  the idempotent retry the handler already answers. So there is no residual replay to bound.
+
+  **Domain separation, which is load-bearing rather than tidy.** The assertion key already
+  signed in two byte-spaces - `protocol.CanonicalRequest` (hub polls, `/complete`, `/audit/*`,
+  and the door signature) and `towerobj` signing bytes (receipts and transcripts) - and a prior
+  review verified those two cannot collide. This is a THIRD use of one key, and it is separated
+  from both by two arguments that do not depend on each other:
+
+  - *By prefix, against towerobj.* Both spaces open with a fixed, NUL-terminated tag
+    (`rogerobj-v1\x00` and `rogerai-station-attach-proof-v1\x00`) that differ at their sixth
+    byte, and neither is a prefix of the other, so no combination of network, object type or
+    version can bridge them.
+  - *By shape, against CanonicalRequest*, which carries no domain tag at all and therefore
+    cannot be separated by one. `CanonicalRequest` is `method \n path \n ts \n digest`, so
+    every string in that space contains at least three line feeds. The attach statement
+    contains none: its separator is NUL and every field is hex, a decimal integer, a constant
+    network name, or a Station id - whose alphabet is closed by the name-injection gate in
+    `attach/stationid.go`, which is why that shape check now runs BEFORE the proof is verified
+    rather than at the mint. A byte string with no LF is not in the image of `CanonicalRequest`
+    for **any** input, so the separation holds whatever a future scheme puts in the method
+    slot - and the door signature has already put a label there once.
+
+  It also cannot be produced as a side effect of ordinary operation: every path that hands the
+  assertion key anything to sign (`station.SignRequest`, `towerobj.Sign`) canonicalizes into one
+  of the two older spaces first, so no honest operation can be steered into emitting a valid
+  attach proof, and no receipt or poll can be replayed as one.
+
+  **The refusal spends nothing of the victim's, and that is part of the fix rather than a
+  detail.** The check runs before the invitation is minted, before `PutAuthorizationCapped` and
+  before `Admit`, so a refused proof writes nothing and moves no cap. What it does cost is one
+  token of the CALLER's own per-account rate bucket, which is the attacker's. Reintroducing the
+  very composition being closed, through the fix that closes it, would have been a poor outcome;
+  `TestARefusedPossessionProofSpendsNoInvitation` asserts it past the cap that used to lock
+  accounts out.
+
+  **STILL OPEN: the same squat on the SESSION key.** This is the residual, and it is stated
+  precisely because it is the same shape of denial:
+
+  - The session key is X25519. It cannot sign, so it can get no co-signature; including it in
+    the statement is the assertion key VOUCHING for it, which is a weaker claim than possession.
+    An attacker holding their own assertion key can therefore still name **somebody else's**
+    session public key on their own attach, and `checkBindings`' `BySessionKey` uniqueness then
+    refuses the rightful owner exactly as the assertion-key squat did.
+  - **What it does NOT get them, in either direction.** They cannot read anything: Core seals
+    each request to that key and they hold no private half, so their squatted Station receives
+    ciphertext it cannot open, can never serve, and earns nothing. And the victim's traffic is
+    not redirected - a consumer is handed the session key of the Station it was actually routed
+    to. It is denial only.
+  - **The exposure is materially narrower than the assertion key's, which is why this is
+    recorded rather than rushed.** The session public key is never on the hub link: it travels
+    node -> Core at attach (over a base `protocol.TrustedBase` refuses to leave plaintext) and
+    Core -> consumer in the `station_session_key` field of an authorize answer. So the
+    population that can learn it is Core plus the consumers actually routed to that Station,
+    over TLS in both directions - not "anybody who has ever been on the path".
+  - **Two things would close it, and neither is a header.** (a) A challenge-response at attach:
+    Core seals a nonce to the presented session key and the node returns it - complete, and a
+    second round trip on a path that is currently one call. (b) A non-interactive static-static
+    proof: a raw X25519 agreement between the node's session key and Core's envelope key
+    (`/tower/dispatch/key`), authenticating the same statement under an HMAC. Core already holds
+    that private half and the node already fetches the public one - but it fetches it AFTER
+    attach (`ServeTower` calls `fetchCoreKeys` on the tenancy, not before), so (b) costs an
+    extra fetch and a new primitive in `internal/towercore/envelope`. Both are wire changes with
+    their own review; neither belongs in the same commit as the fix above.
+
+  **The classic operator-invite path needed nothing, and the reason is not the one the design
+  assumed.** It was worth checking because `attach.Authorization` carries an assertion key
+  there too, and the answer is in two parts. First, the invitation SECRET already does this job
+  and does it better: `attach.Proof.Secret` proves the presenter was GIVEN the invitation, which
+  is a stronger statement than possession of the key named in it, and Admit refuses a proof
+  whose keys differ from the authorization's - so a squatter must both hold the secret and match
+  the keys the operator chose. Second, and more simply: **there is no classic path left to
+  attack.** `/tower/station/invite` and `/tower/station/attach` are gone from the broker's route
+  table, `roger-tower station` offers only `revoke` ("the invite-file ceremony died with the
+  roger-station binary"), and `attach.NewInvite` and `Registry.Admit` each have exactly ONE
+  production caller in the tree - the self-attach handler this change fixes. The package still
+  supports the flow, and the secret is the reason it would be safe if it returned; adding a
+  co-signature there would be a redundant check on a dead route.
 
 ### 5.7 Round five: option A, and why it needed no certificate authority
 
