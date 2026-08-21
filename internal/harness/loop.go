@@ -357,7 +357,7 @@ func (l *Loop) Send(ctx context.Context, userText string, emit func(Event)) (str
 		if t := strings.TrimSpace(msg.Content); t != "" {
 			emitStep(Event{Kind: EventAssistant, Text: t})
 		}
-		for _, call := range msg.ToolCalls {
+		for i := 0; i < len(msg.ToolCalls); {
 			// Cancellation is checked per CALL, not just per step: one assistant message can
 			// queue several tool calls, and a hostile page's whole play is to provoke exactly
 			// that churn. Without this, esc still ran (and still confirm-prompted for) every
@@ -368,10 +368,20 @@ func (l *Loop) Send(ctx context.Context, userText string, emit func(Event)) (str
 			// stations reject, and the TUI keeps this session across turns - so simply
 			// breaking out would poison every later turn until /clear.
 			if ctx.Err() != nil {
-				l.cancelRemaining(call, emitStep)
+				l.cancelRemaining(msg.ToolCalls[i], emitStep)
+				i++
 				continue
 			}
-			l.runOne(ctx, call, emitStep)
+			// A run of consecutive read-only calls overlaps its BODIES; anything else runs
+			// alone. Either path decides and settles in the model's order, so the resulting
+			// conversation is byte-identical to the serial one (parallel.go).
+			if n := l.concurrentGroup(msg.ToolCalls, i); n > 1 {
+				l.runGroup(ctx, msg.ToolCalls[i:i+n], emitStep)
+				i += n
+				continue
+			}
+			l.runOne(ctx, msg.ToolCalls[i], emitStep)
+			i++
 		}
 		// Loop: feed the tool results (appended below in runOne) back to the model.
 	}
@@ -382,43 +392,57 @@ func (l *Loop) Send(ctx context.Context, userText string, emit func(Event)) (str
 	return last, nil
 }
 
-// runOne executes a single tool call: it parses the args, confirm-gates a mutating
-// tool, runs it (or records a denial), emits the call + result events, and appends a
-// tool-role result message so the next model turn sees the outcome.
-func (l *Loop) runOne(ctx context.Context, call ToolCall, emit func(Event)) {
+// plannedCall is one call after the DECIDE phase: either settled already (refused by a
+// guard, denied at the confirm, out of budget, unknown tool) or cleared to run.
+type plannedCall struct {
+	call    ToolCall
+	tool    Tool
+	args    map[string]any
+	settled bool   // decided without running; result holds what to report
+	result  string // the decided result text
+	isError bool
+	denied  bool
+}
+
+// decide runs everything that determines WHETHER a call happens, in the model's order:
+// tool lookup, the confirm gate, the guard chain, the retrieval budget. It emits the
+// EventToolCall so the operator sees the call appear in the order the model asked for
+// it, and never runs the tool body.
+//
+// Order-dependent by nature: guards read the calls before them, the budget is a running
+// counter, and a confirm is a question to a human. Racing any of it would make refusals
+// depend on scheduling.
+func (l *Loop) decide(call ToolCall, emit func(Event)) plannedCall {
 	name := call.Function.Name
 	args := parseArgs(call.Function.Arguments)
 	emit(Event{Kind: EventToolCall, Tool: name, Args: args})
 
 	tool, ok := l.toolByName[name]
 	if !ok {
-		res := l.appendToolResult(call, fmt.Sprintf("unknown tool %q", name))
-		emit(Event{Kind: EventToolResult, Tool: name, Result: res, IsError: true})
-		return
+		return plannedCall{call: call, args: args, settled: true, isError: true,
+			result: fmt.Sprintf("unknown tool %q", name)}
 	}
+	p := plannedCall{call: call, tool: tool, args: args}
 
 	// SAFETY MODEL: read-only tools auto-run; mutating tools (write_file, run_shell)
 	// REQUIRE an explicit y/N confirm (default DENY). A denied confirm never runs the
 	// tool - it feeds a clear "user denied" result back so the model can adapt.
 	if tool.Mutating {
-		approved := l.confirm != nil && l.confirm(name, args)
-		if !approved {
-			res := l.appendToolResult(call, "user denied this "+name+" call - it was not run")
-			emit(Event{Kind: EventToolResult, Tool: name, Result: res, IsError: true, Denied: true})
-			return
+		if approved := l.confirm != nil && l.confirm(name, args); !approved {
+			p.settled, p.isError, p.denied = true, true, true
+			p.result = "user denied this " + name + " call - it was not run"
+			return p
 		}
 	}
 
 	// GUARDS: the last word before the tool body. Deny-only and monotonic, so no
 	// ordering of them can widen what the agent may do (guards.go). A denial is fed
-	// back as the tool result - the model reads WHY and can adapt - and is marked
-	// IsError so the transcript shows it as a refused call rather than a success.
+	// back as the tool result - the model reads WHY and can adapt.
 	conv := l.conversationView()
 	for _, g := range l.guards() {
 		if reason := g(name, args, conv); reason != "" {
-			res := l.appendToolResult(call, reason)
-			emit(Event{Kind: EventToolResult, Tool: name, Result: res, IsError: true, Denied: true})
-			return
+			p.settled, p.isError, p.denied, p.result = true, true, true, reason
+			return p
 		}
 	}
 	l.turnCalls = append(l.turnCalls, callSignature(name, args))
@@ -428,21 +452,56 @@ func (l *Loop) runOne(ctx context.Context, call ToolCall, emit func(Event)) {
 	if over := l.chargeRetrieval(name); over != "" {
 		// Not IsError: an exhausted budget is information the model acts on, not a failure
 		// (features/answers/answers_mode.feature - "budget-exhausted is information").
-		emit(Event{Kind: EventToolResult, Tool: name, Result: l.appendToolResult(call, over)})
-		return
+		p.settled, p.result = true, over
+		return p
 	}
+	return p
+}
 
-	out, err := tool.Run(ctx, l.Root, args)
-	if err != nil {
-		res := l.appendToolResult(call, "error: "+err.Error())
+// settle appends one call's result to the conversation and emits its EventToolResult.
+// Called in the model's order regardless of what order the bodies finished in, so the
+// transcript and the tool_call_id sequence read exactly as they would have serially.
+func (l *Loop) settle(p plannedCall, out string, err error, emit func(Event)) {
+	name := p.call.Function.Name
+	switch {
+	case p.settled:
+		res := l.appendToolResult(p.call, p.result)
+		emit(Event{Kind: EventToolResult, Tool: name, Result: res, IsError: p.isError, Denied: p.denied})
+	case err != nil:
+		res := l.appendToolResult(p.call, "error: "+err.Error())
 		emit(Event{Kind: EventToolResult, Tool: name, Result: res, IsError: true})
+	default:
+		// Clip to the model's budget BEFORE it enters the conversation. The UI still emits
+		// the clipped text, so what the operator sees is what the model saw - a result that
+		// silently differed between the two would make a truncation-caused answer
+		// impossible to explain.
+		res := l.appendToolResult(p.call, out)
+		emit(Event{Kind: EventToolResult, Tool: name, Result: res})
+	}
+}
+
+// runOne is the serial path: decide, run, settle, for exactly one call.
+func (l *Loop) runOne(ctx context.Context, call ToolCall, emit func(Event)) {
+	p := l.decide(call, emit)
+	if p.settled {
+		l.settle(p, "", nil, emit)
 		return
 	}
-	// Clip to the model's budget BEFORE it enters the conversation. The UI still emits the
-	// clipped text, so what the operator sees is what the model saw - a result that silently
-	// differed between the two would make a truncation-caused answer impossible to explain.
-	out = l.appendToolResult(call, out)
-	emit(Event{Kind: EventToolResult, Tool: name, Result: out})
+	out, err := p.tool.Run(ctx, l.Root, p.args)
+	l.settle(p, out, err, emit)
+}
+
+// runGroup is the overlapped path: decide every call in order, run their bodies
+// together, then settle in order. See parallel.go for why the phases are split this way.
+func (l *Loop) runGroup(ctx context.Context, calls []ToolCall, emit func(Event)) {
+	plans := make([]plannedCall, 0, len(calls))
+	for _, c := range calls {
+		plans = append(plans, l.decide(c, emit))
+	}
+	outs, errs := l.runBodies(ctx, plans)
+	for i, p := range plans {
+		l.settle(p, outs[i], errs[i], emit)
+	}
 }
 
 // cancelRemaining records a queued call the turn was cancelled before reaching: nothing

@@ -100,6 +100,10 @@ func searchTool(cfg searchConfig) Tool {
 		Description: "Search the web and return ranked results (title, URL, snippet) to read with web_fetch. " +
 			"Read-only. Use it when the answer depends on current or external information.",
 		Mutating: false,
+		// A search is a read, and the retrieval BUDGET that bounds it is charged in the
+		// ordered decide phase, never in the overlapped body - so two searches in one
+		// batch cannot both slip past a budget with room for one.
+		Concurrent: true,
 		Params: map[string]any{
 			"type": "object",
 			"properties": map[string]any{

@@ -22,6 +22,16 @@ type Tool struct {
 	// y/N confirm for these before Run; a denied confirm returns a "user denied" result
 	// to the model instead of running. Read-only tools auto-run.
 	Mutating bool
+	// Concurrent opts a tool into overlapping with its neighbours when the model queues
+	// several calls at once (parallel.go). Only the BODY overlaps; the decision to run
+	// and the recording of the result stay strictly ordered, so an overlapped batch
+	// produces a byte-identical conversation to a serial one.
+	//
+	// Declaring it is a promise about Run: it must not touch state another call in the
+	// same batch could be touching, and it must be safe to have several in flight. Every
+	// Mutating tool is excluded by construction - a side-effecting call is a barrier -
+	// so this is really a claim that a READ is independent of its siblings.
+	Concurrent bool
 	// Params is the JSON-schema "parameters" object for the OpenAI tool definition.
 	Params map[string]any
 	// Run executes the tool with the model-supplied args, sandboxed under root, and
@@ -115,6 +125,7 @@ func BuiltinTools() []Tool {
 			Name:        "read_file",
 			Description: "Read a UTF-8 text file in the working directory and return its contents. Read-only.",
 			Mutating:    false,
+			Concurrent:  true, // a read is independent of its siblings
 			Params: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -138,6 +149,7 @@ func BuiltinTools() []Tool {
 			Name:        "list_dir",
 			Description: "List the entries of a directory in the working directory (default: the working directory itself). Read-only.",
 			Mutating:    false,
+			Concurrent:  true, // a read is independent of its siblings
 			Params: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -176,6 +188,7 @@ func BuiltinTools() []Tool {
 			Name:        "web_fetch",
 			Description: "Fetch the text body of an http(s) URL and return it. Read-only; no JavaScript, text only.",
 			Mutating:    false,
+			Concurrent:  true, // a read is independent of its siblings
 			Params: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
