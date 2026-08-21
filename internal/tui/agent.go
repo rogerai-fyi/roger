@@ -564,6 +564,12 @@ func (m *model) applyToolBudget() {
 		ctx = r.ctx // a local model is on no band; its window comes from detect
 	}
 	m.agent.loop.MaxToolOutput = harness.ToolOutputBudget(ctx)
+	// AND THE PERSONA. On a tight band the full brief is 5 KB - about a fifth of an 8k
+	// window before the question is even asked - so a small band gets the compact one,
+	// which keeps every rule that changes what the agent DOES and drops the coaching
+	// about how to sound (harness/smallwindow.go). Re-applied here rather than at
+	// construction because the band can change under a session with /model.
+	m.agent.loop.SetPersona(harness.PersonaFor(m.agentFullPersona, ctx))
 }
 
 // newAgentRuntime builds the harness loop + bridge channels. The completer relays
@@ -638,6 +644,7 @@ func (m model) newAgentRuntime() *agentRuntime {
 		return <-c.resp    // blocks until the user answers y/N
 	}
 	persona := harness.LoadPersona(harness.PersonaPath())
+	m.agentFullPersona = persona // kept so a band change can swap between full and compact
 	root := agentRoot()
 	if m.sessionWorkdir != "" && m.sessionWorkdirAvailable {
 		root = m.sessionWorkdir

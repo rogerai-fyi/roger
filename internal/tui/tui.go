@@ -882,6 +882,9 @@ type model struct {
 	// only a placeholder for each (paste.go). Expanded back at submit, so the model
 	// receives what was pasted and the input stays legible.
 	agentPastes []string
+	// agentFullPersona is the operator's own dj.md, kept so refreshAgentBudget can swap
+	// between it and the compact brief as the tuned band's window changes.
+	agentFullPersona string
 	// agentDelegates is the live view of subagents this turn, keyed by label. Fed by
 	// forwarded child events (delegation.go) and cleared with the turn.
 	agentDelegates map[string]*delegateState
@@ -8942,9 +8945,14 @@ func (m model) shareSetupView(w int) string {
 // can't fit. status rides under the rule like the main footer.
 func modalFooter(w int, left, right, status string) string {
 	rule := stHeadRule.Render(strings.Repeat("─", w))
+	// WRAP THE STATUS. It was emitted on one line and ran straight off the right edge,
+	// so a long refusal - "private band limit reached (free plan allows 1) - yours is on
+	// <station>. Move it to this model..." - lost the half that says what to DO about it
+	// (founder screenshot). A message the operator cannot finish reading is worse than
+	// no message, because they know something is wrong and not what.
 	st := ""
 	if status != "" {
-		st = "\n" + stDim.Render("  ") + status
+		st = "\n" + wrapStatus(status, w)
 	}
 	gap := w - lipgloss.Width(left) - lipgloss.Width(right)
 	if gap < 1 {
@@ -9872,4 +9880,19 @@ func (m model) displayChatLines(w int) []string {
 		}
 	}
 	return out
+}
+
+
+// wrapStatus soft-wraps a footer status to the terminal, indenting continuations so the
+// block reads as one message rather than as several. ANSI-aware, because a status
+// usually carries styling and a naive wrap would count escape bytes as width and break
+// far too early.
+func wrapStatus(status string, w int) string {
+	const indent = "  "
+	body := max(20, w-len(indent))
+	rows := strings.Split(ansi.Wrap(status, body, ""), "\n")
+	for i, r := range rows {
+		rows[i] = stDim.Render(indent) + r
+	}
+	return strings.Join(rows, "\n")
 }

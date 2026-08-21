@@ -115,9 +115,26 @@ func TestAgentTurnStreamsItsToolSteps(t *testing.T) {
 	if callEv.Arg != "notes.md" {
 		t.Errorf("the call must carry the shared arg summary, got %q", callEv.Arg)
 	}
-	last := events[len(events)-1]
-	if last.Kind != "final" || !strings.Contains(last.Text, "hello") {
-		t.Errorf("the turn must end with the answer, got %+v", last)
+	// The stream ends with the RECEIPT now (the turn's billed total), so the answer is
+	// the event before it. Both must be present and in that order: an answer with no
+	// receipt hides what it cost, and a receipt with no answer is a bill for nothing.
+	var final, receipt *agentEvent
+	for i := range events {
+		switch events[i].Kind {
+		case "final":
+			final = &events[i]
+		case "receipt":
+			receipt = &events[i]
+		}
+	}
+	if final == nil || !strings.Contains(final.Text, "hello") {
+		t.Fatalf("the turn must produce the answer, got %+v", events)
+	}
+	if receipt == nil {
+		t.Fatal("...and the receipt with it")
+	}
+	if events[len(events)-1].Kind != "receipt" {
+		t.Errorf("the receipt is last - it totals everything before it, got %q", events[len(events)-1].Kind)
 	}
 }
 
@@ -205,5 +222,98 @@ func TestConsoleEnclosesBothSidesOfAnExchange(t *testing.T) {
 	js, _ := os.ReadFile("assets/console.js")
 	if !strings.Contains(string(js), `"chat-turn--reply"`) {
 		t.Error("the reply must actually be given the class")
+	}
+}
+
+// ── THE TURN RECEIPT ─────────────────────────────────────────────────────────
+// A turn is many relayed calls now - one per model step, plus any subagent's - so the
+// only honest total is their sum. The per-CALL renderer was removed rather than left
+// showing one call's numbers as the turn's; this is what replaces it.
+
+func TestTurnReceiptSumsTheWholeTurn(t *testing.T) {
+	step := 0
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		step++
+		// Every relayed call reports its own billed numbers.
+		w.Header().Set("X-RogerAI-Cost", "0.001")
+		if step == 1 {
+			_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","tool_calls":[
+				{"id":"c1","type":"function","function":{"name":"list_dir","arguments":"{\"path\":\".\"}"}}]}}]}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"done"}}]}`))
+	}))
+	defer up.Close()
+
+	s := New(testCtrl(), Options{Broker: up.URL, User: "u"})
+	_, events := agentPost(t, s, `{"model":"m1","message":"what is here"}`)
+
+	var rc *agentEvent
+	for i := range events {
+		if events[i].Kind == "receipt" {
+			rc = &events[i]
+		}
+	}
+	if rc == nil {
+		t.Fatal("a turn must end with a receipt - being able to see what a turn cost is why this console exists")
+	}
+	// TWO model calls were relayed, so the receipt counts two - not one.
+	if rc.Calls != 2 {
+		t.Errorf("the receipt must sum every relayed call, got %d", rc.Calls)
+	}
+	if rc.Steps < 2 {
+		t.Errorf("steps = %d, want the turn's own steps", rc.Steps)
+	}
+	if rc.Incomplete {
+		t.Error("a turn that finished must not read as incomplete")
+	}
+}
+
+// A turn that FAILED still spent what it spent; dropping the receipt would understate
+// the bill.
+func TestFailedTurnStillReceipts(t *testing.T) {
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte(`{"error":{"message":"no node offers that model"}}`))
+	}))
+	defer up.Close()
+	s := New(testCtrl(), Options{Broker: up.URL, User: "u"})
+	_, events := agentPost(t, s, `{"model":"m1","message":"hi"}`)
+	var sawErr, sawReceipt bool
+	for _, e := range events {
+		if e.Kind == "error" {
+			sawErr = true
+		}
+		if e.Kind == "receipt" {
+			sawReceipt = true
+		}
+	}
+	if !sawErr {
+		t.Error("the failure must be reported")
+	}
+	if !sawReceipt {
+		t.Error("...and the receipt with it - a failed turn still spent what it spent")
+	}
+}
+
+// The browser must not print a zero as though it were a measurement: a free local band
+// and a turn whose cost never arrived are not the same thing.
+func TestConsoleOmitsZeroesFromTheReceipt(t *testing.T) {
+	js, err := os.ReadFile("assets/console.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	i := strings.Index(string(js), "function chatShowReceipt")
+	if i < 0 {
+		t.Fatal("chatShowReceipt not found")
+	}
+	block := string(js)[i : i+1200]
+	for _, guard := range []string{"if (e.calls)", "if (e.cost)", "if (e.delegated)"} {
+		if !strings.Contains(block, guard) {
+			t.Errorf("the receipt must guard %s - a printed zero reads as a claim", guard)
+		}
+	}
+	if !strings.Contains(block, "incomplete") {
+		t.Error("a partial tree must say it is a lower bound")
 	}
 }

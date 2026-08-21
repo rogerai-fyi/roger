@@ -51,7 +51,69 @@ type ConversationView struct {
 // reason invites another attempt, which is exactly the loop the founder screenshotted
 // (one refused fetch, three times, in a single turn). Guards are deny-only, so ordering
 // cannot change WHETHER something is refused, only which reason the model reads.
-func DefaultGuards() []Guard { return []Guard{GuardRepeatCall, GuardFetchProvenance} }
+func DefaultGuards() []Guard {
+	return []Guard{GuardRepeatCall, GuardIdentitySearch, GuardFetchProvenance}
+}
+
+// GuardIdentitySearch refuses a web SEARCH for who or what RogerAI is.
+//
+// THE THIRD NAMESAKE. Asked "who made you?", the agent has now confidently reported
+// the founders of Roger.ai (a Danish invoicing company, now Corpay One) and then of a
+// sales-automation startup - neither of them us. The persona was told not to search for
+// this after the first one, and the model searched anyway. That settles it the same way
+// the invented URLs did: a prompt rule is advice a small band ignores, a guard is not.
+//
+// The refusal carries the ANSWER rather than just a no, so the turn still completes -
+// the model reads the brief back and replies from it.
+//
+// SEARCH ONLY, never fetch. If the operator names a page on our own site, fetching it
+// is grounded and useful, and GuardFetchProvenance already governs that. What is never
+// useful is asking the open web who we are: the web's answer is somebody else.
+func GuardIdentitySearch(name string, args map[string]any, _ ConversationView) string {
+	if name != "web_search" {
+		return ""
+	}
+	q := strings.ToLower(argString(args, "query"))
+	if q == "" || !mentionsUs(q) {
+		return ""
+	}
+	if !asksIdentity(q) {
+		return ""
+	}
+	return "refused: do not search the web for who RogerAI is - the web will answer with a " +
+		"different company of the same name, and reporting it as us is worse than saying " +
+		"nothing. Answer from what you already know: RogerAI is at rogerai.fm. The network " +
+		"routes work to models running on hardware other people own; RogerAI Labs builds " +
+		"the open edge models (the Wave family) and publishes the weights. Operators put a " +
+		"machine ON AIR, listeners TUNE IN and pay per token, and every relayed request " +
+		"carries a signed receipt. If the question needs more than that, say you do not know."
+}
+
+// mentionsUs reports whether a query is about RogerAI by name, in the spellings a model
+// actually types.
+func mentionsUs(q string) bool {
+	for _, n := range []string{"rogerai", "roger ai", "roger.ai", "rogerai.fm"} {
+		if strings.Contains(q, n) {
+			return true
+		}
+	}
+	return false
+}
+
+// asksIdentity reports whether a query is asking WHO or WHAT rather than about some
+// specific fact. "who made rogerai" is the web's to get wrong; "rogerai broker API
+// error 504" is a real search a real operator might want.
+func asksIdentity(q string) bool {
+	for _, w := range []string{
+		"who ", "what is", "what's", "whats", "about", "founded", "founder",
+		"made", "creator", "company", "ceo", "history", "owns",
+	} {
+		if strings.Contains(q, w) {
+			return true
+		}
+	}
+	return false
+}
 
 // GuardFetchProvenance refuses a web_fetch of a URL nobody put in front of the model.
 //

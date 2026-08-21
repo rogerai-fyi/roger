@@ -1220,3 +1220,19 @@ body.is-chat .content { padding-bottom: var(--s-6); }
   border-radius: 0 4px 4px 0;
 }
 .chat-turn--you .chat-body { padding: 12px 14px; }
+
+/* THE TURN RECEIPT: what the whole turn cost, under the answer it belongs to. Quiet
+   mono, because it is a record rather than an announcement - but always present, since
+   being able to see what a turn cost is the reason this console exists rather than a
+   generic chat window. */
+.chat-receipt-row {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-400);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 0 2px;
+  margin-top: -8px;
+}
+.chat-receipt-row b { font-weight: 500; color: var(--live); }

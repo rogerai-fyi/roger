@@ -102,7 +102,11 @@ func toolOutputBudget(ctx int) int {
 	if ctx <= 0 {
 		return maxToolOutput
 	}
-	b := ctx * bytesPerToken * toolOutputShareNum / toolOutputShareDen
+	// The SHARE scales with the band: a quarter is right when the fixed overhead
+	// (persona + tool schemas) is a rounding error, and wrong when it is already a third
+	// of the window (smallwindow.go).
+	num, den := toolOutputShareFor(ctx)
+	b := ctx * bytesPerToken * num / den
 	if b > maxToolOutput {
 		return maxToolOutput
 	}

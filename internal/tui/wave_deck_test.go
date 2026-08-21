@@ -865,3 +865,32 @@ func TestPluralHandlesTheEsCases(t *testing.T) {
 		t.Errorf("singular must not pluralise: %q", got)
 	}
 }
+
+// A footer status must be READABLE, not run off the right edge. The founder hit the
+// private-band limit and the refusal was cut mid-sentence, losing the half that says
+// what to do about it - a message you cannot finish reading is worse than none, because
+// you know something is wrong and not what.
+func TestFooterStatusWrapsInsteadOfRunningOff(t *testing.T) {
+	long := "! private band limit reached (free plan allows 1) - yours is on " +
+		"roggentoo-gemma-4-31b-8086. Move it to this model to keep the same frequency code, " +
+		"or revoke it first - manage your bands in the console."
+	for _, w := range []int{60, 80, 120} {
+		out := wrapStatus(long, w)
+		rows := strings.Split(out, "\n")
+		if len(rows) < 2 {
+			t.Errorf("width %d: a long status must wrap, got one row", w)
+		}
+		for i, r := range rows {
+			if got := lipgloss.Width(r); got > w {
+				t.Errorf("width %d: row %d is %d cells - still running off", w, i, got)
+			}
+		}
+		// Nothing may be lost: the actionable half is the point.
+		flat := stripANSI(strings.ReplaceAll(out, "\n", " "))
+		for _, want := range []string{"limit reached", "Move it to this model", "revoke it first"} {
+			if !strings.Contains(flat, want) {
+				t.Errorf("width %d: wrapping dropped %q", w, want)
+			}
+		}
+	}
+}

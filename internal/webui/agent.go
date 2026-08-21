@@ -38,6 +38,47 @@ type agentSession struct {
 	mu    sync.Mutex
 	loop  *harness.Loop
 	model string
+
+	// spend accumulates THIS TURN's relayed cost. A turn is many calls now - one per
+	// model step, plus any subagent's - so the only honest turn total is their sum.
+	// Reset when the turn starts; read when it ends.
+	spend turnSpend
+}
+
+// turnSpend is one turn's billed total, summed over every relayed call it made.
+type turnSpend struct {
+	mu        sync.Mutex
+	cost      float64
+	tokensIn  int
+	tokensOut int
+	calls     int
+}
+
+func (s *turnSpend) reset() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	// Zero the FIELDS, never the struct: `*s = turnSpend{}` overwrites the mutex with a
+	// fresh one while it is held, so the deferred Unlock then releases a lock nobody
+	// took - a panic, and one the race detector would not have caught either.
+	s.cost, s.tokensIn, s.tokensOut, s.calls = 0, 0, 0, 0
+}
+
+// add is the CostFunc the relay calls per completed request. It runs from whichever
+// goroutine made the call - subagents relay from inside overlapped tool bodies - so it
+// is guarded.
+func (s *turnSpend) add(credits float64, in, out int, _ float64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.cost += credits
+	s.tokensIn += in
+	s.tokensOut += out
+	s.calls++
+}
+
+func (s *turnSpend) snapshot() (cost float64, in, out, calls int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.cost, s.tokensIn, s.tokensOut, s.calls
 }
 
 // agentReq is one turn from the browser.
@@ -59,6 +100,18 @@ type agentEvent struct {
 	Denied  bool   `json:"denied,omitempty"`
 	Agent   string `json:"agent,omitempty"` // a subagent's label, "" for the main turn
 	Step    int    `json:"step,omitempty"`
+
+	// Receipt fields, set only on the final "receipt" event: the whole turn's billed
+	// spend, summed over every relayed call including any subagent's. Never one call's
+	// numbers presented as the turn's - that understates, which is the one direction
+	// this console must not round.
+	Cost       float64 `json:"cost,omitempty"`
+	TokensIn   int     `json:"tokens_in,omitempty"`
+	TokensOut  int     `json:"tokens_out,omitempty"`
+	Calls      int     `json:"calls,omitempty"`
+	Steps      int     `json:"steps,omitempty"`
+	Delegated  int     `json:"delegated,omitempty"`
+	Incomplete bool    `json:"incomplete,omitempty"`
 }
 
 // readOnlyTools is the console's toolset: everything that runs without a confirm.
@@ -89,7 +142,9 @@ func (s *Server) agentLoop(model string) (*harness.Loop, error) {
 	// The SAME completer the TUI relays through, so failover, the price cap, billing and
 	// the receipts are shared rather than reimplemented. A second relay path here would
 	// be a second set of bugs and, worse, a second set of receipts.
-	complete := harness.BrokerCompleter(s.opts.Broker, s.opts.User, model, false, 0, nil)
+	// The cost hook is what makes a turn receipt possible at all: the relay reports each
+	// call's billed cost and token counts, and the turn's total is their sum.
+	complete := harness.BrokerCompleter(s.opts.Broker, s.opts.User, model, false, 0, s.agentSess.spend.add)
 	l := harness.NewLoop(root, harness.LoadPersona(harness.PersonaPath()), complete, nil)
 	l.SetTools(readOnlyTools(l.Tools()))
 	s.agentSess.loop, s.agentSess.model = l, model
@@ -144,14 +199,19 @@ func (s *Server) handleAgent(w http.ResponseWriter, r *http.Request) {
 	s.agentSess.mu.Lock()
 	defer s.agentSess.mu.Unlock()
 
+	s.agentSess.spend.reset()
 	out, rerr := loop.Send(r.Context(), req.Message, func(e harness.Event) {
 		send(flattenEvent(e))
 	})
 	if rerr != nil {
 		send(agentEvent{Kind: "error", Text: rerr.Error()})
+		// The receipt still goes out: a turn that failed part-way still spent what it
+		// spent, and dropping it would understate the bill.
+		send(s.turnReceipt(loop))
 		return
 	}
 	send(agentEvent{Kind: "final", Text: out})
+	send(s.turnReceipt(loop))
 }
 
 // flattenEvent turns a harness event into the browser's shape.
@@ -176,4 +236,17 @@ func flattenEvent(e harness.Event) agentEvent {
 		out.Kind = "error"
 	}
 	return out
+}
+
+// turnReceipt is the whole turn's spend, for the browser. The rollup - not the root's
+// own numbers - is the turn total: the root's spend excludes its subagents and would
+// understate. Incomplete rides along so a partial tree reads as a lower bound rather
+// than a final figure.
+func (s *Server) turnReceipt(l *harness.Loop) agentEvent {
+	cost, in, out, calls := s.agentSess.spend.snapshot()
+	rc := l.TurnReceipt()
+	return agentEvent{
+		Kind: "receipt", Cost: cost, TokensIn: in, TokensOut: out, Calls: calls,
+		Steps: rc.Steps, Delegated: len(rc.Children), Incomplete: !rc.Complete,
+	}
 }

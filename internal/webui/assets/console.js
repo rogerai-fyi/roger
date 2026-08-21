@@ -774,6 +774,10 @@
             chatAppend(model, e.text, "chat-turn--reply");
           }
           break;
+        case "receipt":
+          box = null;
+          chatShowReceipt(e);
+          break;
         case "error":
           box = null;
           chatAppend("error", e.text || "the turn failed", "chat-turn--err");
@@ -782,6 +786,32 @@
       }
       if (last) { /* nothing: the tail is handled by the branches above */ }
     }
+  }
+
+  /* THE TURN RECEIPT. A turn is many relayed calls now - one per model step, plus any
+     subagent's - so this is their SUM, which is the only honest turn total: the root's
+     own numbers exclude its children and would understate.
+
+     Zeros are omitted rather than printed. A displayed 0 reads as a measurement ("this
+     cost nothing"), and a free local band and a turn whose cost never arrived are not
+     the same thing. */
+  function chatShowReceipt(e) {
+    var parts = [];
+    if (e.calls) parts.push(e.calls + (e.calls === 1 ? " call" : " calls"));
+    if (e.steps) parts.push(e.steps + (e.steps === 1 ? " step" : " steps"));
+    if (e.delegated) parts.push(e.delegated + " delegated");
+    if (e.tokens_in || e.tokens_out) parts.push("↑" + fmtInt(e.tokens_in) + " ↓" + fmtInt(e.tokens_out));
+    if (e.cost) parts.push("$" + Number(e.cost).toFixed(4));
+    if (!parts.length) return;
+    var row = el("div", "chat-receipt-row");
+    row.appendChild(el("span", null, parts.join("  ·  ")));
+    if (e.incomplete) {
+      // A partial tree is a LOWER BOUND, and saying so is the difference between a
+      // receipt and a guess.
+      row.appendChild(el("b", null, "incomplete — a delegated task did not finish"));
+    }
+    chatFlow().appendChild(row);
+    chatScroll();
   }
 
   function chatErrText(body, res) {

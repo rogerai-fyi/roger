@@ -170,3 +170,119 @@ func TestNoPointlessRetryWhenThereIsNothingToFree(t *testing.T) {
 		t.Errorf("must not retry when compaction can free nothing, got %d calls", calls)
 	}
 }
+
+// A DECLINED COMPACTION MUST SAY WHY (founder: "why didn't it auto compact"). Declining
+// silently looks identical to being broken, and the operator is left to guess which.
+func TestDeclinedCompactionExplainsItself(t *testing.T) {
+	complete := func(ctx context.Context, msgs []Message, _ []map[string]any) (Message, error) {
+		return Message{}, errors.New("Exceeded model context window size")
+	}
+	l := NewLoop(t.TempDir(), "sys", complete, nil)
+	l.MaxSteps = 4
+	// A window full of CONVERSATION - which compaction may never drop - rather than of
+	// old tool output.
+	l.messages = append(l.messages,
+		Message{Role: "user", Content: strings.Repeat("q", 4000)},
+		Message{Role: "assistant", Content: strings.Repeat("a", 8000)},
+	)
+	var notices []string
+	_, err := l.Send(context.Background(), "and now this", func(e Event) {
+		if e.Kind == EventNotice {
+			notices = append(notices, e.Text)
+		}
+	})
+	if err == nil {
+		t.Fatal("with nothing to compact the turn must still fail")
+	}
+	if len(notices) == 0 {
+		t.Fatal("the operator must be told compaction was considered and declined")
+	}
+	if !strings.Contains(notices[0], "nothing to compact") {
+		t.Errorf("the notice must say what happened: %q", notices[0])
+	}
+	// ...and it must explain the RULE, not just report the outcome.
+	if !strings.Contains(notices[0], "never drops what was said") {
+		t.Errorf("the notice should say why it could not help: %q", notices[0])
+	}
+}
+
+// ── SMALL WINDOWS ────────────────────────────────────────────────────────────
+// Founder 2026-08-21: "are we able to manage low context window models like foundation
+// ... i understand it only has 8k". A cleared session and one web_fetch was enough to
+// overflow it. Measured on 8192 tokens (~24 KB at 3 B/token): persona 5058 B + tool
+// schemas 2897 B = 32% of the window before the question is asked, and one tool result
+// could take another 25%. Two calls put a fresh session at 82%.
+
+func TestSmallBandGetsTheCompactPersona(t *testing.T) {
+	full := DefaultPersona
+	if got := PersonaFor(full, 8192); got != CompactPersona {
+		t.Error("an 8k band must get the compact brief")
+	}
+	if len(CompactPersona) >= len(full) {
+		t.Errorf("the compact brief must actually be smaller: %d vs %d", len(CompactPersona), len(full))
+	}
+	// EVERY RULE THAT CHANGES BEHAVIOUR SURVIVES. Trimming the coaching is fine;
+	// trimming a rule that produced a real failure is how the failure comes back.
+	for _, must := range []string{
+		"rogerai.fm",                  // the identity brief - two wrong companies without it
+		"never search the web",        // the third namesake
+		"Never invent",                // invented URLs and file contents
+		"read_file a file before you", // the blind overwrite
+		"Do not use a tool when",      // tool calls on conversational turns
+	} {
+		if !strings.Contains(CompactPersona, must) {
+			t.Errorf("the compact brief dropped a load-bearing rule: %q", must)
+		}
+	}
+}
+
+// A roomy band is untouched: this must not quietly cut instructions for the models most
+// people actually use.
+func TestRoomyBandKeepsTheFullPersona(t *testing.T) {
+	for _, ctx := range []int{16384, 32768, 131072} {
+		if got := PersonaFor(DefaultPersona, ctx); got != DefaultPersona {
+			t.Errorf("ctx %d must keep the full persona", ctx)
+		}
+	}
+	// UNKNOWN is not small. Guessing a band is tight and silently cutting its
+	// instructions is worse than a turn that overflows and says so.
+	if got := PersonaFor(DefaultPersona, 0); got != DefaultPersona {
+		t.Error("an unknown window must keep the full persona")
+	}
+}
+
+// A tight band also gets a smaller slice for one tool result - a quarter of the window
+// is reasonable when overhead is 2%, not when it is already a third.
+func TestSmallBandGetsASmallerToolSlice(t *testing.T) {
+	small, big := ToolOutputBudget(8192), ToolOutputBudget(32768)
+	if small >= big {
+		t.Errorf("a tight band must get a smaller slice: %d vs %d", small, big)
+	}
+	if small < minToolOutput {
+		t.Errorf("...but never below the floor (%d), or the result is too mutilated to be worth the call", minToolOutput)
+	}
+	// The whole point: the fixed overhead plus one result must leave room to think.
+	fixed := len(CompactPersona) + 2897 // measured schema size
+	if fixed+small > 8192*bytesPerToken/2 {
+		t.Errorf("compact persona + schemas + one result = %d B, over half of an 8k window", fixed+small)
+	}
+}
+
+// Swapping the persona rewrites the system message rather than adding a second one -
+// two system messages would send both, costing more than the swap saves.
+func TestSetPersonaRewritesRatherThanAppends(t *testing.T) {
+	l := NewLoop(t.TempDir(), DefaultPersona, nil, nil)
+	l.SetPersona(CompactPersona)
+	n := 0
+	for _, m := range l.messages {
+		if m.Role == "system" {
+			n++
+			if m.Content != CompactPersona {
+				t.Error("the system message must carry the new brief")
+			}
+		}
+	}
+	if n != 1 {
+		t.Errorf("exactly one system message, got %d", n)
+	}
+}

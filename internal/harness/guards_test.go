@@ -169,3 +169,56 @@ func TestARefusedCallIsNotRepeatable(t *testing.T) {
 		t.Errorf("the second attempt should be caught as a repeat, got %q", p2.result)
 	}
 }
+
+// ── THE THIRD NAMESAKE ───────────────────────────────────────────────────────
+// Asked "who made you?", the agent confidently reported the founders of Roger.ai (a
+// Danish invoicing company, now Corpay One) and then of a sales-automation startup -
+// neither of them us. The persona was told not to search for this after the first one,
+// and the model searched anyway. A prompt rule is advice; a guard is not.
+
+func TestIdentitySearchesAreRefusedWithTheAnswer(t *testing.T) {
+	for _, q := range []string{
+		"who made rogerai",
+		"what is rogerai",
+		"rogerai founder",
+		"roger ai company history",
+		"about RogerAI",
+	} {
+		got := GuardIdentitySearch("web_search", map[string]any{"query": q}, ConversationView{})
+		if got == "" {
+			t.Errorf("%q asks the web who we are and must be refused", q)
+			continue
+		}
+		// The refusal must carry the ANSWER, or the turn just fails instead of replying.
+		for _, want := range []string{"rogerai.fm", "Wave", "signed receipt"} {
+			if !strings.Contains(got, want) {
+				t.Errorf("%q: the refusal must hand back the brief (missing %q)", q, want)
+			}
+		}
+	}
+}
+
+// A real search a real operator might want must still run. Refusing everything with our
+// name in it would be its own kind of broken.
+func TestOrdinarySearchesMentioningUsStillRun(t *testing.T) {
+	for _, q := range []string{
+		"rogerai broker 504 error",
+		"rogerai install.sh checksum mismatch",
+		"llama.cpp gguf quantization",
+	} {
+		if got := GuardIdentitySearch("web_search", map[string]any{"query": q}, ConversationView{}); got != "" {
+			t.Errorf("%q is a real search and must run: %s", q, got)
+		}
+	}
+}
+
+// SEARCH ONLY. If the operator names a page on our own site, fetching it is grounded
+// and useful - GuardFetchProvenance governs that, and this must not double-block it.
+func TestIdentityGuardDoesNotTouchFetch(t *testing.T) {
+	if got := GuardIdentitySearch("web_fetch", map[string]any{"url": "https://rogerai.fm/company.html"}, ConversationView{}); got != "" {
+		t.Errorf("fetching our own page is grounded, not an identity search: %s", got)
+	}
+	if got := GuardIdentitySearch("read_file", map[string]any{"path": "rogerai.md"}, ConversationView{}); got != "" {
+		t.Errorf("the guard is scoped to web_search: %s", got)
+	}
+}

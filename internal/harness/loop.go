@@ -397,6 +397,20 @@ func (l *Loop) Send(ctx context.Context, userText string, emit func(Event)) (str
 					"compacted the session: dropped %s of tool output from %d earlier tool %s to fit the window",
 					humanBytes(freed), dropped, map[bool]string{true: "call", false: "calls"}[dropped == 1])})
 				continue
+			} else {
+				// SAY WHY IT DID NOT (founder: "why didn't it auto compact"). Compaction
+				// declining silently looks identical to compaction being broken, and the
+				// operator is left to guess which.
+				//
+				// It only drops EARLIER turns' tool output. It never touches what anyone
+				// said - the questions and the answers are the session - and never this
+				// turn's own material, because pruning what the model just fetched strands
+				// the turn mid-thought. So when the window fills with conversation rather
+				// than with old tool results, there is genuinely nothing it may drop, and
+				// /clear or a roomier band is the real answer.
+				compacted = true // do not re-check on a later step of the same turn
+				emitStep(Event{Kind: EventNotice, Text: "nothing to compact - the window is full of " +
+					"conversation, not old tool output, and compaction never drops what was said"})
 			}
 		}
 		if err != nil {
@@ -738,4 +752,24 @@ func parseArgs(raw string) map[string]any {
 		return map[string]any{}
 	}
 	return m
+}
+
+// SetPersona swaps the system prompt for the CURRENT conversation, in place.
+//
+// It rewrites the leading system message rather than appending one: a conversation with
+// two system messages sends both, which on the band this exists for (a tight window)
+// would cost more than the swap saves. If the conversation has no system message yet -
+// a loop built without a persona - one is inserted.
+func (l *Loop) SetPersona(p string) {
+	if p == "" || p == l.Persona {
+		return
+	}
+	l.Persona = p
+	for i := range l.messages {
+		if l.messages[i].Role == "system" {
+			l.messages[i].Content = p
+			return
+		}
+	}
+	l.messages = append([]Message{{Role: "system", Content: p}}, l.messages...)
 }
