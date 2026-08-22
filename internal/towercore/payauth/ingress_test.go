@@ -81,3 +81,24 @@ func TestAnIngressRecordNeedsItsEventID(t *testing.T) {
 		t.Fatal("an empty event id would collapse every anonymous delivery onto one row")
 	}
 }
+
+// Get had never been run - 0.0% - which matters because it is the read the DURABLE store is
+// held to parity against: a reference implementation nobody reads from is a reference for
+// nothing. The read must return exactly what Admit recorded, and a miss must be a clean
+// (zero, false), never an invented row.
+func TestGetReturnsWhatAdmitRecordedAndNothingElse(t *testing.T) {
+	m := NewMemIngress()
+	if _, _, err := m.Admit(hint("evt-1", "h1")); err != nil {
+		t.Fatal(err)
+	}
+	got, ok, err := m.Get("evt-1")
+	if err != nil || !ok {
+		t.Fatalf("Get(evt-1) = ok=%v err=%v, want the admitted record", ok, err)
+	}
+	if got.RawBodyHash != "h1" || got.Merchant != "acct_1" || !got.ReceivedAt.Equal(time.Unix(1_700_000_000, 0)) {
+		t.Fatalf("Get returned %+v, not what Admit recorded", got)
+	}
+	if _, ok, err := m.Get("evt-nobody"); err != nil || ok {
+		t.Fatalf("a miss must be (zero, false, nil), got ok=%v err=%v", ok, err)
+	}
+}

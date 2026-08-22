@@ -101,3 +101,14 @@ func TestNTPTimestampDecoding(t *testing.T) {
 
 	require.True(t, ntpTimestamp(make([]byte, 8)).IsZero(), "an all-zero timestamp must decode as unset, not as 1900")
 }
+
+// A server that cannot even be DIALLED - an unresolvable name, a hardened network with no
+// DNS - fails cleanly, exactly like one that never answers. doctor turns either into "not
+// determined", never into a clock fault, so the error path must be an error and not a hang
+// or a zero offset presented as a measurement.
+func TestNTPFailsCleanlyWhenTheServerCannotBeDialed(t *testing.T) {
+	// .invalid is reserved (RFC 2606): resolution fails locally, no packet leaves.
+	probe := NTP("no-such-ntp-host.invalid:123", 500*time.Millisecond)
+	_, _, err := probe()
+	require.Error(t, err)
+}

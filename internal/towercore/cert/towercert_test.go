@@ -422,3 +422,21 @@ func TestAReloadedAuthorityKeepsIssuing(t *testing.T) {
 	require.NoError(t, err, "and one issued after it is recognised by the original too")
 	require.Equal(t, "tw-def456", id)
 }
+
+// SerialRevoked is the per-Tower kill switch: this deployment authenticates by signed
+// request rather than TLS handshake, so the request-auth layer asks THIS question to make a
+// revoked certificate actually stop its Tower. It had never been asked in a test.
+func TestSerialRevokedIsTheKillSwitchTheAuthLayerAsks(t *testing.T) {
+	a, err := NewAuthority(Config{TTL: time.Hour})
+	require.NoError(t, err)
+
+	serial := big.NewInt(424242)
+	require.False(t, a.SerialRevoked(serial.String()), "an unrevoked serial must not read as killed")
+	require.NoError(t, a.Revoke(serial))
+	require.True(t, a.SerialRevoked(serial.String()), "the revocation must be visible to the auth layer")
+
+	// Pre-enrollment: no serial recorded yet is NOT a revocation - killing every
+	// not-yet-enrolled Tower would make enrollment impossible.
+	require.False(t, a.SerialRevoked(""))
+	require.False(t, a.SerialRevoked("999999"), "somebody else's serial stays alive")
+}
