@@ -210,6 +210,62 @@ func (m *Mem) UpdateBand(id, owner string, patch BandPatch) (Band, bool, error) 
 	return b, true, nil
 }
 
+// RotateBandCode swaps a LIVE band's secret for a fresh one, in place: same id, same node
+// binding, same label, same quota slot, same cosmetic frequency. Only the key changes.
+//
+// THE byHash SWAP IS THE WHOLE OPERATION. bands[id] is what the dashboard reads, but
+// byHash is what RESOLVE reads - so a rotation that updated the row and left the old hash
+// in the index would leave the OLD CODE STILL WORKING while telling the operator it had
+// been replaced. That is worse than not shipping rotation at all: it is a security promise
+// that silently is not kept. The delete of the old key happens first, unconditionally.
+//
+// It refuses (false, nil) an unknown id, another owner's band, and a REVOKED band. The last
+// one matters: revoke is final and surrenders the quota slot, so rotating a revoked band
+// would resurrect a burnt band under a working code and hand back a slot the owner gave up.
+// The remedy for a revoked band is a fresh mint, which goes through the quota check.
+func (m *Mem) RotateBandCode(id, owner, newHash, newDisplay string) (Band, bool, error) {
+	m.bs.mu.Lock()
+	defer m.bs.mu.Unlock()
+	b, ok := m.bs.bands[id]
+	if !ok || b.Owner != owner { // owner-scoped: never touch another owner's band
+		return Band{}, false, nil
+	}
+	if b.Revoked {
+		return Band{}, false, nil
+	}
+	delete(m.bs.byHash, b.CodeHash) // the old code stops resolving HERE
+	b.CodeHash, b.CodeDisplay = newHash, newDisplay
+	m.bs.bands[id] = b
+	m.bs.byHash[newHash] = id
+	return b, true, nil
+}
+
+// ForgetBand deletes a REVOKED band row outright, owner-scoped.
+//
+// Revoking leaves the row behind as history, and nothing could ever remove it - so an
+// operator who rotated or re-minted a few times accumulated a permanent list of dead
+// entries they could neither tune nor clear. History nobody can delete is not an audit
+// trail, it is clutter, and it buried the one live band among the corpses.
+//
+// It refuses (false, nil) a LIVE band. Deleting a live row would drop its code out of the
+// resolve index while every consumer holding that code carries on believing it works, and
+// would silently free a quota slot without the operator ever confirming a revoke. Revoke
+// first, then forget - two steps, because the destructive half deserves its own confirm.
+func (m *Mem) ForgetBand(id, owner string) (bool, error) {
+	m.bs.mu.Lock()
+	defer m.bs.mu.Unlock()
+	b, ok := m.bs.bands[id]
+	if !ok || b.Owner != owner {
+		return false, nil
+	}
+	if !b.Revoked {
+		return false, nil
+	}
+	delete(m.bs.byHash, b.CodeHash)
+	delete(m.bs.bands, id)
+	return true, nil
+}
+
 // MoveBand rebinds a LIVE band to a different node, owner-scoped. It is the only write
 // path Band.NodeID has ever had: until now NodeID was set once at CreateBand, and since a
 // node id is "<station>-<model>" that meant a band was hard-bound to ONE model for life.

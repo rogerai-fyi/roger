@@ -147,6 +147,59 @@ func (p *Postgres) UpdateBand(id, owner string, patch BandPatch) (Band, bool, er
 	return b, true, nil
 }
 
+// RotateBandCode swaps a LIVE band's secret in place. Same id, node, label, quota slot and
+// cosmetic frequency; only code_hash and code_display change, so the OLD code stops
+// resolving the instant this commits.
+//
+// The row is locked FOR UPDATE before the revoked check so a concurrent revoke cannot land
+// between the read and the write - otherwise a rotate could resurrect a band that was
+// burnt a microsecond earlier, handing back a working code for something the owner had
+// just destroyed.
+func (p *Postgres) RotateBandCode(id, owner, newHash, newDisplay string) (Band, bool, error) {
+	tx, err := p.db.Begin()
+	if err != nil {
+		return Band{}, false, err
+	}
+	defer tx.Rollback() //nolint:errcheck // no-op after commit
+	b, err := p.scanBand(tx.QueryRow(`SELECT `+bandCols+` FROM rogerai.private_bands
+		WHERE id=$1 AND owner=$2 FOR UPDATE`, id, owner))
+	if err == sql.ErrNoRows {
+		return Band{}, false, nil
+	}
+	if err != nil {
+		return Band{}, false, err
+	}
+	if b.Revoked {
+		// Revoke is final and surrendered the quota slot: rotating would resurrect a burnt
+		// band under a working code. A fresh mint is the remedy, and it pays the quota.
+		return Band{}, false, nil
+	}
+	if _, err := tx.Exec(`UPDATE rogerai.private_bands SET code_hash=$3,code_display=$4
+		WHERE id=$1 AND owner=$2`, id, owner, newHash, newDisplay); err != nil {
+		return Band{}, false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Band{}, false, err
+	}
+	b.CodeHash, b.CodeDisplay = newHash, newDisplay
+	return b, true, nil
+}
+
+// ForgetBand deletes a REVOKED band row, owner-scoped. Revoked rows were previously
+// permanent and unremovable, so a list of dead entries grew forever around the live band.
+// A LIVE band is refused: deleting it would drop its code out of the resolve index while
+// consumers holding that code believe it still works, and free a quota slot with no
+// confirm. Revoke first, then forget.
+func (p *Postgres) ForgetBand(id, owner string) (bool, error) {
+	res, err := p.db.Exec(`DELETE FROM rogerai.private_bands
+		WHERE id=$1 AND owner=$2 AND revoked=true`, id, owner)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
 // MoveBand is the node-only compatibility wrapper around UpdateBand. The source-row lock
 // serializes a concurrent revoke; the partial unique index serializes different source rows
 // racing for one destination.

@@ -431,6 +431,16 @@ type Store interface {
 	// Nil patch members are unchanged; an empty label clears it. A move of a revoked
 	// band is refused, and ErrBandNodeOccupied protects the destination invariant.
 	UpdateBand(id, owner string, patch BandPatch) (Band, bool, error)
+	// RotateBandCode swaps a LIVE band's secret in place: same id, node binding, label,
+	// quota slot and cosmetic frequency - only the key changes, so the OLD code stops
+	// resolving immediately. ok=false for an unknown id, another owner's band, or a
+	// REVOKED one (revoke is final and gave up the quota slot; a fresh mint is the remedy).
+	RotateBandCode(id, owner, newHash, newDisplay string) (Band, bool, error)
+	// ForgetBand deletes a REVOKED band row outright, owner-scoped - the only way to clear
+	// the dead history that otherwise accumulates around a live band forever. ok=false for
+	// an unknown id, another owner's band, or a LIVE one (revoke it first: the destructive
+	// half deserves its own confirm, and deleting a live row would strand its consumers).
+	ForgetBand(id, owner string) (bool, error)
 	// MoveBand is the node-only convenience wrapper around UpdateBand: it points a band
 	// at a different model WITHOUT rotating its secret code. ok=false for an unknown id,
 	// another owner's band, or a revoked one; ErrBandNodeOccupied when the destination

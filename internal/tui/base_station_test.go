@@ -60,13 +60,21 @@ func TestPrivateFootnoteStates(t *testing.T) {
 		{"two live sessions pluralize", func(m *model) {
 			m.rcSessions = []RemoteSessionRow{{ID: "r1", Online: true}, {ID: "r2", Online: true}}
 		}, []string{"live: 2 remote sessions"}, false},
+		// AMENDED 2026-08-21: these fixtures carried no Status, back when the footnote
+		// counted every row. It now counts LIVE bands only - a revoked row is history, not
+		// a station anyone can tune, and counting it told the founder they had "2 private
+		// bands" when they had one and a corpse. The fixtures now say which they are.
 		{"a revoked session is not live", func(m *model) {
 			m.rcSessions = []RemoteSessionRow{{ID: "r1", Online: true, Revoked: true}}
-			m.rcBands = []BandRow{{ID: "b1"}}
+			m.rcBands = []BandRow{{ID: "b1", Status: "active"}}
 		}, []string{"base station: 1 private band", "[p]"}, false},
 		{"bands only stays dim", func(m *model) {
-			m.rcBands = []BandRow{{ID: "b1"}, {ID: "b2"}}
+			m.rcBands = []BandRow{{ID: "b1", Status: "active"}, {ID: "b2", Status: "active"}}
 		}, []string{"base station: 2 private bands", "[p]"}, false},
+		// THE NEW GUARANTEE, negative-tested: a revoked row must not inflate the count.
+		{"a revoked band is not counted", func(m *model) {
+			m.rcBands = []BandRow{{ID: "b1", Status: "active"}, {ID: "b2", Status: "revoked"}}
+		}, []string{"base station: 1 private band"}, false},
 		{"hosting here counts as live before the roster refreshes", func(m *model) {
 			m.rcBridge = newFakeBridge()
 		}, []string{"live: 1 remote session"}, false},

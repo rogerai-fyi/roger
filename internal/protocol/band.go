@@ -173,3 +173,44 @@ func itoa3(n int) string {
 	}
 	return string(buf[i:])
 }
+
+// RotateBandCode mints a NEW secret tail for an EXISTING band, KEEPING its cosmetic
+// frequency, and returns the same three strings NewBandCode does.
+//
+// ROTATE-IN-PLACE. Until this existed, the only way to change a band's code was to revoke
+// it and go private again - which mints a DIFFERENT band: new id, new dial, new quota slot
+// taken after the old one was surrendered. That is a poor answer to "my code leaked":
+//
+//   - it is two steps, and the window between them is a state where the operator owns no
+//     band at all. If the second step fails (the quota check, the network, a crash) they
+//     have destroyed their band and gained nothing.
+//   - it throws away the band's IDENTITY. The dial, the label and the binding are how an
+//     operator recognises their own band; rotating the key should not rename the thing.
+//
+// Keeping the frequency is SAFE, and that is not a convenience call: the cosmetic frequency
+// is documented at the top of this file as never folded into the key, and CanonicalBandTail
+// discards it before hashing. Only the trailing Crockford symbols are the secret, so a
+// rotation that reuses the frequency changes 100% of the key material.
+//
+// The OLD code stops resolving the moment the store swaps the hash - that is the point of
+// the operation, and every caller must say so out loud rather than implying continuity for
+// people already tuned in.
+//
+// `display` is the band's PERSISTED masked display ("145.225 MHz · ••••-••••"). A display
+// with no separator was never produced by a mint (or predates the mask migration), so
+// rather than trust it, this falls back to a wholly fresh code: an unrecognised input must
+// never be spliced into something a user will read as their band's frequency.
+func RotateBandCode(display string) (code, newDisplay, tail string) {
+	freq, _, ok := strings.Cut(display, bandSep)
+	if !ok || strings.TrimSpace(freq) == "" {
+		return NewBandCode()
+	}
+	raw := make([]byte, bandTailLen)
+	_, _ = rand.Read(raw)
+	var sb strings.Builder
+	for i := 0; i < bandTailLen; i++ {
+		sb.WriteByte(crockfordAlphabet[int(raw[i])&0x1f])
+	}
+	t := sb.String()
+	return freq + bandSep + t[:4] + "-" + t[4:], freq + bandSep + maskedTail, t
+}

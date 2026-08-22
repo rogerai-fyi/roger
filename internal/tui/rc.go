@@ -322,7 +322,15 @@ func (m model) privateFootnote() string {
 			live++
 		}
 	}
-	bands := len(m.rcBands)
+	// Count only LIVE bands. A revoked row is history, not a station anyone can tune, so
+	// counting it advertised "2 private bands" to an operator who had one - and sent them
+	// to BASE STATION to find out which. (The list itself now says the status in words.)
+	bands := 0
+	for _, bd := range m.rcBands {
+		if bd.Status == "active" {
+			bands++
+		}
+	}
 	sessions := len(m.rcSessions)
 	if m.rcBridge != nil && live == 0 {
 		live = 1 // this machine is hosting even if the roster hasn't refreshed yet
@@ -419,10 +427,17 @@ func (m model) privateView(w int) string {
 	if len(m.rcBands) == 0 {
 		line(stDim.Render("none yet — roger share --private mints one (a one-time frequency code)"))
 	}
+	dead := 0
 	for i, bd := range m.rcBands {
-		mark := stDim.Render("· ")
+		// STATUS IN WORDS. The only thing separating a live band from a burnt one was a
+		// ◉ against a ·, which is far too quiet for the difference between "this is my
+		// band" and "this is a corpse" - the founder read two rows on one model and could
+		// not tell why. The glyph stays as the at-a-glance cue; the word is the answer.
+		mark, state := stDim.Render("· "), stDim.Render("revoked")
 		if bd.Status == "active" {
-			mark = stRed.Render(glyphOnAir + " ")
+			mark, state = stRed.Render(glyphOnAir+" "), stLive.Render("live")
+		} else {
+			dead++
 		}
 		cursor := "  "
 		if m.rcCursor == len(m.rcSessions)+i {
@@ -431,10 +446,16 @@ func (m model) privateView(w int) string {
 		// The node id names the model (and the machine) a band is on. Without it an operator
 		// cannot tell WHICH band is holding their one free slot - the founder's dead end.
 		line(cursor + mark + fmt.Sprintf("%-16s", trimName(bandName(bd))) + " " +
-			stDim.Render(bd.Display) + "  " + stDim.Render(bandWhere(bd)))
+			stDim.Render(bd.Display) + "  " + state + "  " + stDim.Render(bandWhere(bd)))
 	}
 	if len(m.rcBands) > 0 {
-		b.WriteString("\n  " + stDim.Render("⏎ manage a band (move · revoke)") + "\n")
+		b.WriteString("\n  " + stDim.Render("⏎ manage a band (tune in · move · new code · revoke)") + "\n")
+	}
+	if dead > 0 {
+		// Revoked rows used to be permanent with nothing able to remove them, so they piled
+		// up around the live band. Name the count and the key that clears them.
+		b.WriteString("  " + stDim.Render(plural(dead, "revoked row")+" here - ⏎ then ") +
+			stKey.Render("f") + stDim.Render(" forgets one for good") + "\n")
 	}
 	b.WriteString("\n  " + stDim.Render("tune a code from elsewhere ") + stKey.Render("[~]") + "\n")
 	if m.rcErr != "" {

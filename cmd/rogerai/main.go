@@ -616,6 +616,8 @@ func tuiHooks(cfg config) tui.Hooks {
 			return out, nil
 		},
 		BandRevoke: func(broker, bandID string) error { return client.RevokeBand(broker, bandID) },
+		BandRotate: func(broker, bandID string) (string, string, error) { return client.RotateBand(broker, bandID) },
+		BandForget: func(broker, bandID string) error { return client.ForgetBand(broker, bandID) },
 		BandMove:   func(broker, bandID, nodeID string) error { return client.MoveBand(broker, bandID, nodeID) },
 		RCAttach: func(broker, code string) (string, string, string, error) {
 			res, err := client.AttachRC(broker, code)

@@ -63,10 +63,17 @@ const (
 // which models run here, and only together do they answer "can I actually use this?".
 type privRow struct {
 	band  BandRow
-	model string // the local model behind it ("" = the band is on another machine)
+	model string // the local model behind it ("" = no share row matched)
 	chat  string // local chat-completions URL, when the model is served here
 	key   string // bearer for a key-protected local server
 	onAir bool   // that model is registered on a private band RIGHT NOW
+	// here reports that the band's node id belongs to THIS STATION, even when no share row
+	// matched it. The two are not the same fact, and conflating them was a bug the founder
+	// hit immediately: a band on eager-puma-54 read "another machine · needs its code"
+	// purely because its model server was not running at that moment. The remedy for a
+	// stopped server ("start it") is nothing like the remedy for a remote band ("find the
+	// code"), so the two cases must never share a message.
+	here bool
 }
 
 // reachable reports whether Enter can do anything. A band is reachable when it is live
@@ -91,12 +98,23 @@ func (m model) privRows() []privRow {
 	for _, r := range m.shareRows {
 		byNode[agent.ShareNodeID(station, r.model, 0)] = r
 	}
+	// The station PREFIX is a separate, weaker test that still answers a different
+	// question. agent.ShareNodeID builds "<slugified station>-<slugified model>", so
+	// matching the slugified station plus its separator is a prefix test against a KNOWN
+	// string - not the guess-where-the-boundary-is that splitting on "-" would be.
+	//
+	// Two machines CAN share a callsign, so this can be wrong. The blast radius is bounded
+	// on purpose: `here` only ever changes the WORDING. Offering a direct channel still
+	// requires a resolved share row with a real upstream, so a false `here` can never route
+	// a turn anywhere.
+	prefix := agent.ShareNodeID(station, "", 0) + "-"
 	out := make([]privRow, 0, len(m.rcBands))
 	for _, bd := range m.rcBands {
-		row := privRow{band: bd}
+		row := privRow{band: bd, here: strings.HasPrefix(bd.NodeID, prefix)}
 		if sr, ok := byNode[bd.NodeID]; ok {
 			row.model, row.chat, row.key = sr.model, sr.upstream, sr.upstreamKey
 			row.onAir = m.sharePrivate[sr.model]
+			row.here = true
 		}
 		out = append(out, row)
 	}
@@ -159,6 +177,33 @@ func (m model) onPrivateTabKey(k tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 	case "r":
 		m.status = stDim.Render("refreshing your bands…")
 		return m, m.fetchRemoteRoster(), true
+	case "n", "N":
+		// n = a NEW CODE for the band under the cursor, in place. The founder's "reset the
+		// key": the band keeps its dial, model, label and slot; only the secret changes.
+		r, ok := m.privSelected()
+		if !ok {
+			return m, nil, true
+		}
+		if r.band.Status != "active" {
+			m.status = stEmber.Render("a revoked band cannot be rotated - its code is burnt")
+			return m, nil, true
+		}
+		return m.openBandRotateConfirm(r.band), nil, true
+	case "f", "F":
+		// f = FORGET a revoked row. The founder's "i also don't see a way to delete them":
+		// revoking left a row nothing could remove, so dead entries piled up around the
+		// live band. Only ever offered on a band that is already dead.
+		r, ok := m.privSelected()
+		if !ok {
+			return m, nil, true
+		}
+		if r.band.Status == "active" {
+			m.status = stEmber.Render("only a revoked band can be forgotten - revoke it first in BASE STATION [") +
+				stKey.Render("p") + stEmber.Render("]")
+			return m, nil, true
+		}
+		m.status = stDim.Render("forgetting ") + stKey.Render(bandDial(r.band)) + stDim.Render("…")
+		return m, m.forgetBand(r.band.ID), true
 	case "enter":
 		return m.tuneInPrivate()
 	}
@@ -182,27 +227,40 @@ func (m model) tuneInPrivate() (tea.Model, tea.Cmd, bool) {
 	if !ok {
 		return m, nil, true
 	}
+	return m.tuneInPrivateRow(r)
+}
+
+// tuneInPrivateRow is the shared opener. BASE STATION's manage card routes through it too,
+// so the two surfaces can never drift into disagreeing about whether a band is reachable.
+func (m model) tuneInPrivateRow(r privRow) (tea.Model, tea.Cmd, bool) {
 	switch {
 	case r.band.Status != "active":
 		m.status = stEmber.Render("this band is revoked - its code is burnt. Press ") +
 			stKey.Render("h") + stEmber.Render(" on the model in [2] SHARE for a fresh one")
 		return m, nil, true
-	case r.model == "":
-		// The band points at another machine. We hold the hash of its code, never the
-		// code, so there is genuinely nothing here to tune WITH - say so and name the key
-		// that can, rather than opening something that would fail on the first turn.
+	case r.chat != "":
+		return m.openLocalChannel(r), nil, true
+	case r.here:
+		// THIS station, but nothing is serving the model right now. The remedy is to start
+		// the server, and saying "another machine" here (as the first cut did) would send
+		// the operator hunting for a code they already cannot use. If a share row resolved
+		// the model, name it; otherwise name the node, because the model half of a node id
+		// is slugified and is NOT safe to present as a model id.
+		what := stKey.Render(r.band.NodeID)
+		if r.model != "" {
+			what = stKey.Render(r.model)
+		}
+		m.status = stDim.Render("that band is on this machine, but no local server is serving ") +
+			what + stDim.Render(" right now - start it, then press ") + stKey.Render("r")
+		return m, nil, true
+	default:
+		// Another machine. We hold the hash of its code, never the code, so there is
+		// genuinely nothing here to tune WITH - say so and name the key that can, rather
+		// than opening something that would fail on the first turn.
 		m.status = stDim.Render("this band is on ") + stKey.Render(r.band.NodeID) +
 			stDim.Render(" - not this machine. Tune it with its code: ") + stKey.Render("~")
 		return m, nil, true
-	case r.chat == "":
-		// Known model, unknown endpoint: the share row exists but carries no upstream (the
-		// server it was detected on is gone). Naming the server as the thing to fix is the
-		// remedy; sending them to the broker would not help.
-		m.status = stEmber.Render("no local server is serving ") + stKey.Render(r.model) +
-			stEmber.Render(" right now - start it and press ") + stKey.Render("r")
-		return m, nil, true
 	}
-	return m.openLocalChannel(r), nil, true
 }
 
 // openLocalChannel binds the CHANNEL to a model on this machine, bypassing the broker.
@@ -242,8 +300,23 @@ func (m model) privateTabView(w int) string {
 	line := func(s string) { b.WriteString("  " + truncVisible(s, w-2) + "\n") }
 
 	rows := m.privRows()
+	// The count separates LIVE from DEAD. "3 bands" over a list holding one live band and
+	// two corpses is the same overstatement the BASE STATION footnote made - it reads as
+	// three things you can use.
+	live, dead := 0, 0
+	for _, r := range rows {
+		if r.band.Status == "active" {
+			live++
+			continue
+		}
+		dead++
+	}
+	count := plural(live, "band")
+	if dead > 0 {
+		count += " · " + plural(dead, "revoked row")
+	}
 	head := "  " + stRed.Render("▌") + " " + stBrand.Render("YOUR BANDS") +
-		stDim.Render("   "+plural(len(rows), "band")) +
+		stDim.Render("   "+count) +
 		stDim.Render(" · ") + stRed.Render(glyphOnAir+" PRIVATE") +
 		stDim.Render(" · ") + stKey.Render("t") + stDim.Render(" open market")
 	b.WriteString(truncVisible(head, w) + "\n")
@@ -301,7 +374,7 @@ func (m model) privRowLine(r privRow, sel bool) string {
 func (m model) privReach(r privRow) string {
 	switch {
 	case r.band.Status != "active":
-		return stDim.Render("revoked · code burnt")
+		return stDim.Render("revoked · f forgets it")
 	case r.chat != "" && r.onAir:
 		return stLive.Render(glyphOnAir+" here") + stDim.Render(" · direct, nothing metered")
 	case r.chat != "":
@@ -309,8 +382,8 @@ func (m model) privReach(r privRow) string {
 		// currently registered private. The channel still works (it is a direct call to
 		// the local server), so this is a note, not a refusal.
 		return stLive.Render("here") + stDim.Render(" · direct · not on air")
-	case r.model != "":
-		return stDim.Render("here · no server running")
+	case r.here:
+		return stDim.Render("here · its server is not running")
 	default:
 		return stDim.Render("another machine · needs its code")
 	}
@@ -321,13 +394,13 @@ func (m model) privReach(r privRow) string {
 func privReachPlain(r privRow) string {
 	switch {
 	case r.band.Status != "active":
-		return "revoked · code burnt"
+		return "revoked · f forgets it"
 	case r.chat != "" && r.onAir:
 		return glyphOnAir + " here · direct, nothing metered"
 	case r.chat != "":
 		return "here · direct · not on air"
-	case r.model != "":
-		return "here · no server running"
+	case r.here:
+		return "here · its server is not running"
 	default:
 		return "another machine · needs its code"
 	}

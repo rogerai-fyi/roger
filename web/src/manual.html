@@ -337,6 +337,7 @@
                   <tr><td><kbd>Enter</kbd></td><td>tune in to the selected station (opens the cost-confirm); on the connected row, jump into chat</td></tr>
                   <tr><td><kbd>d</kbd></td><td>disconnect the open channel without entering it</td></tr>
                   <tr><td><kbd>c</kbd> · <kbd>tab</kbd></td><td>jump into the open channel</td></tr>
+                  <tr><td><kbd>t</kbd></td><td>switch the dial between <b>OPEN MARKET</b> and <b>PRIVATE</b> - your own bands (&sect;5). Your private bands are hidden from the public list by design, so this tab is where you find them</td></tr>
                   <tr><td><kbd>f</kbd></td><td>live name filter - type to search models (re-opens to edit, esc clears)</td></tr>
                   <tr><td><kbd>S</kbd></td><td>cycle the sort dial: strongest / cheapest / fastest / most-stations (mirrors the web Models page)</td></tr>
                   <tr><td><kbd>F</kbd></td><td>toggle: only bands with a FREE-now station</td></tr>
@@ -899,7 +900,11 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
             <div class="man-note">
               <span class="man-note__tag">the code is shown once</span>
               The frequency code prints exactly once, at share time. Copy it then - the
-              broker keeps only its hash, so a lost code is re-issued, never recovered.
+              broker keeps only its hash, so it can never be shown to you again. A lost or
+              leaked code is <b>replaced</b>, not recovered: press <kbd>n</kbd> on the band
+              in the app for a new one. The band keeps its dial, its model and its slot -
+              only the key changes, so anyone still on the old code is cut off until you
+              send them the new one.
             </div>
             <p>On the box that should use it, tune to the frequency instead of the open
               band:</p>
@@ -911,7 +916,7 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
               they pay your price per token, or nothing if the band is free.</p>
             <div class="man-plate">
               <div class="man-plate__row"><span class="man-plate__k">--private</span><span class="man-plate__v">requires <code>roger login</code> - a private band is tied to your account</span></div>
-              <div class="man-plate__row"><span class="man-plate__k">free limit</span><span class="man-plate__v">1 private band per account (the broker enforces it: a second mint is refused with "private band limit reached"). Need it on a different model? <b>Move</b> the band you already have from BASE STATION <code>[p]</code>  -  it keeps its frequency code, so nobody tuned in is cut off. Revoking frees the slot instead, but burns that code for good.</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">free limit</span><span class="man-plate__v">1 private band per account (the broker enforces it: a second mint is refused with "private band limit reached"). Need it on a different model? <b>Move</b> the band you already have from BASE STATION <code>[p]</code>  -  it keeps its frequency code, so nobody tuned in is cut off. Need a different <em>code</em> on the same band? <b>New code</b> (<kbd>n</kbd>) rotates the key in place and keeps everything else. <b>Revoke</b> frees the slot, burns that code for good, and removes the band from your list.</span></div>
               <div class="man-plate__row"><span class="man-plate__k">--freq</span><span class="man-plate__v">tune a consuming box to a code: the MHz part is cosmetic, the code after it is what matters</span></div>
               <div class="man-plate__row"><span class="man-plate__k">vs. grant keys</span><span class="man-plate__v">a grant is a bearer API key for many users; a private band is one off-market frequency two boxes share</span></div>
             </div>
@@ -921,13 +926,52 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
               HIDE it onto a private band; a fresh band drops you on a one-time
               <b>code card</b> where <kbd>c</kbd> copies the frequency code (shown once) and
               the broker keeps only its hash. Press <kbd>h</kbd> again to put the model back
-              on the open market. To consume a private band from the app, tune in with the
-              code: from <b>[1] TUNE IN</b> press <kbd>~</kbd> (a guarded key, deliberately
-              not <kbd>f</kbd> - it pre-seeds the prompt with <code>/freq&nbsp;</code> so you
+              on the open market.</p>
+            <p>To tune <em>someone else's</em> private band you need its code: from
+              <b>[1] TUNE IN</b> press <kbd>~</kbd> (a guarded key, deliberately not
+              <kbd>f</kbd> - it pre-seeds the prompt with <code>/freq&nbsp;</code> so you
               just paste the code) or run <code>/freq &lt;code&gt;</code> yourself. The
               band list then shows ONLY that frequency and the header reads
               <b>FREQ &lt;display&gt;</b> instead of <b>OPEN MARKET</b>; <kbd>esc</kbd> (or a
               bare <code>/freq</code>) clears the tune back to the open market.</p>
+
+            <h3>Your own bands: the PRIVATE tab</h3>
+            <p>A private band is hidden from the public dial - including from you. That used
+              to mean the band you had just minted was missing from the only list you
+              browse, and the one documented way back to it was the code you had been told
+              you would never need again.</p>
+            <p>Press <kbd>t</kbd> in <b>[1] TUNE IN</b> to switch the dial from
+              <b>OPEN MARKET</b> to <b>PRIVATE</b>: your own bands, each one saying what
+              this machine can actually do with it.</p>
+            <div class="man-plate">
+              <div class="man-plate__row"><span class="man-plate__k">here</span><span class="man-plate__v">the band's model is running on this machine. <kbd>Enter</kbd> opens a <b>direct</b> channel to your own server - no broker, no relay, no meter, and no code needed. Your model was always here; routing the turn out so it could be relayed back was a round trip to reach your own box</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">here, server not running</span><span class="man-plate__v">the band belongs to this station but nothing is serving it right now. Start the model server and press <kbd>r</kbd></span></div>
+              <div class="man-plate__row"><span class="man-plate__k">another machine</span><span class="man-plate__v">the band is on a different box. Only its code can reach it, and the broker never had the code to give back - tune it with <kbd>~</kbd></span></div>
+            </div>
+            <p>The tab shows each band's cosmetic dial and never a code: only the hash is
+              stored, so there is nothing to show. Your local models also appear in
+              <b>[0] AGENT</b>'s <code>/model</code> picker, marked as your private band, and
+              run direct there for the same reason.</p>
+            <div class="man-table-wrap">
+              <table class="man-table">
+                <caption>Managing a band - the PRIVATE tab, or BASE STATION <kbd>p</kbd></caption>
+                <thead><tr><th>Key</th><th>What it does</th></tr></thead>
+                <tbody>
+                  <tr><td><kbd>Enter</kbd></td><td>tune in. Direct when the band's model runs here; otherwise it tells you why not</td></tr>
+                  <tr><td><kbd>m</kbd></td><td><b>move</b> the band to another model. Keeps the code - nobody tuned in is cut off</td></tr>
+                  <tr><td><kbd>n</kbd></td><td><b>new code</b>. Rotates the key in place: same band, same dial, same model, same slot. The old code stops working immediately, so everyone you gave it to is cut off until you send the new one. This is what to press for a leaked or lost code</td></tr>
+                  <tr><td><kbd>x</kbd></td><td><b>revoke</b>. Burns the code for good, frees your slot, and removes the band from your list</td></tr>
+                  <tr><td><kbd>f</kbd></td><td><b>forget</b> a revoked row. Bands revoked before revoking cleaned up after itself are still listed; this clears them</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="man-note">
+              <span class="man-note__tag">move or new code?</span>
+              They look similar and cost opposite things. <b>Move</b> changes which model
+              answers and keeps the code, so nobody notices. <b>New code</b> keeps the model
+              and changes the key, so everybody notices. Reach for move when the band should
+              point somewhere else; reach for new code when the key itself is the problem.
+            </div>
           </section>
 
           <!-- ============== §6 WALLET & BILLING ============== -->

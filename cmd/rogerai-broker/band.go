@@ -150,8 +150,12 @@ func (b *broker) bandsByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	corsCreds(w, r)
-	id := strings.Trim(strings.TrimPrefix(r.URL.Path, "/bands/"), "/")
-	if id == "" || id == "resolve" {
+	// The path is "/bands/{id}" or "/bands/{id}/{action}". Splitting on the FIRST slash is
+	// safe because a band id is "band_<hex>" and can never contain one; anything past the
+	// second segment is not a route we serve.
+	rest := strings.Trim(strings.TrimPrefix(r.URL.Path, "/bands/"), "/")
+	id, action, _ := strings.Cut(rest, "/")
+	if id == "" || id == "resolve" || strings.Contains(action, "/") {
 		jsonErr(w, http.StatusNotFound, "no such band")
 		return
 	}
@@ -181,6 +185,22 @@ func (b *broker) bandsByID(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusForbidden, "managing private bands requires a GitHub-linked owner - run `roger login`")
 		return
 	}
+	// The action segment carries the two operations that are neither a plain revoke nor a
+	// patch. They get their own paths rather than a flag on PATCH because a rotate RETURNS
+	// A SECRET: folding it into the patch would make the response shape depend on the
+	// request body, and a caller that logs a band view would eventually log a code.
+	switch action {
+	case "":
+	case "rotate":
+		b.rotateBand(w, r, owner, id)
+		return
+	case "forget":
+		b.forgetBand(w, r, owner, id)
+		return
+	default:
+		jsonErr(w, http.StatusNotFound, "no such band action")
+		return
+	}
 	if r.Method == http.MethodPatch {
 		b.moveBand(w, r, owner, id, body)
 		return
@@ -190,6 +210,26 @@ func (b *broker) bandsByID(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
+	// REVOKE DELETES THE ROW (founder 2026-08-21: "why is there even a dead one, shouldn't
+	// it be deleted or something").
+	//
+	// It used to be a tombstone, justified as "the row is kept precisely so the burnt code
+	// stays burnt". That justification does not survive reading bandOffers: it returns the
+	// SAME uniform negative for `!found` as for `!band.Active(now)`, so a deleted row and a
+	// revoked row are byte-identical to anyone tuning a code. The tombstone bought exactly
+	// nothing at the only place it could have mattered - and cost the owner a row in their
+	// band list that nothing in the product could ever remove.
+	//
+	// Nothing else depended on it either: CountActiveBands already skipped revoked rows, and
+	// the re-register path in tunnel.go only ever reuses an UNREVOKED band, so a node whose
+	// tombstone is gone mints a fresh band exactly as it did when the tombstone was there.
+	//
+	// The one thing a tombstone could genuinely have supported - answering "what happened to
+	// my band?" during support - is a LOG's job, so it is logged here. A log entry is
+	// durable, timestamped and out of the owner's way; a row they cannot delete is not.
+	//
+	// Bands revoked BEFORE this change are still rows in the wild, so POST /bands/{id}/forget
+	// stays as the way to clear them.
 	revoked, err := b.db.SetBandRevoked(id, owner.Pubkey, true)
 	if err != nil {
 		jsonErr(w, http.StatusInternalServerError, "store error")
@@ -198,6 +238,14 @@ func (b *broker) bandsByID(w http.ResponseWriter, r *http.Request) {
 	if !revoked {
 		jsonErr(w, http.StatusNotFound, "no such band")
 		return
+	}
+	log.Printf("band %s revoked by owner %s", id, owner.Login)
+	// The delete is best-effort AFTER the revoke commits, and that order is deliberate: the
+	// revoke is what makes the code stop working, so it must never be at risk of being
+	// rolled back by a failed cleanup. A row that survives the delete is a stale list entry
+	// the owner can clear with `f` - not a live code.
+	if _, err := b.db.ForgetBand(id, owner.Pubkey); err != nil {
+		log.Printf("band %s revoked but its row could not be removed: %v", id, err)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "revoked": true})
 }
@@ -278,6 +326,111 @@ func (b *broker) moveBand(w http.ResponseWriter, r *http.Request, owner store.Ow
 // hash or the secret code. CodeDisplay is the MASKED cosmetic display ("147.520 MHz ·
 // ••••-••••") - non-recoverable, so it cannot reconstruct the band; the secret full code
 // is shown ONLY once at mint and is not retrievable here (lost => revoke + re-mint).
+// rotateBand handles POST /bands/{id}/rotate: a fresh secret for an EXISTING band.
+//
+// WHY THIS EXISTS. The only way to change a band's code was revoke + go private again,
+// which mints a DIFFERENT band - new id, new dial, and a quota slot re-taken after the old
+// one was surrendered. As an answer to "my code leaked" that is two steps with a window in
+// between where the operator owns no band, and if the second step fails they have destroyed
+// their band and gained nothing. It also throws away the band's identity: the dial and the
+// label are how an owner recognises their own band, and rotating a key should not rename
+// the thing it belongs to.
+//
+// Keeping the cosmetic frequency is safe by construction, not by convenience: the frequency
+// is never folded into the key (protocol/band.go) and CanonicalBandTail discards it before
+// hashing, so a rotation that reuses it still replaces 100% of the key material.
+//
+// WHAT IT COSTS THE OPERATOR, stated plainly because the response has to carry it: the old
+// code stops resolving immediately, so everyone already tuned in IS cut off. That is the
+// point of rotating, and it is the one way this differs from a move.
+//
+// The new code is returned ONCE, exactly like a mint. It is never persisted - only
+// sha256(tail) and the masked display are - so it can never be shown again.
+func (b *broker) rotateBand(w http.ResponseWriter, r *http.Request, owner store.Owner, id string) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
+		jsonErr(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	// The existing band is read first so the new code can keep ITS cosmetic frequency.
+	// Scoped to this owner: a band belonging to someone else answers exactly like one that
+	// does not exist, so this can never be used to enumerate other people's band ids.
+	list, err := b.db.BandsByOwner(owner.Pubkey)
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, "store error")
+		return
+	}
+	var cur store.Band
+	found := false
+	for _, bd := range list {
+		if bd.ID == id {
+			cur, found = bd, true
+			break
+		}
+	}
+	if !found {
+		jsonErr(w, http.StatusNotFound, "no such band")
+		return
+	}
+	if cur.Revoked {
+		// Revoke is final and gave the quota slot back. Rotating would resurrect a burnt
+		// band under a working code, so name the remedy that pays the quota instead.
+		jsonErr(w, http.StatusConflict, "that band is revoked - its code is burnt. Go private again to mint a new band")
+		return
+	}
+	code, display, tail := protocol.RotateBandCode(cur.CodeDisplay)
+	updated, ok, err := b.db.RotateBandCode(id, owner.Pubkey, protocol.BandCodeHash(tail), display)
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, "store error")
+		return
+	}
+	if !ok {
+		// The row changed under us (a concurrent revoke is the realistic case). Report it
+		// as the conflict it is rather than a 500.
+		jsonErr(w, http.StatusConflict, "that band changed while rotating - re-read your bands and try again")
+		return
+	}
+	log.Printf("band %s code rotated by owner %s (node %s)", id, owner.Login, updated.NodeID)
+	view := bandView(updated, time.Now())
+	// The one-time secret. Named "code" to match the mint response, so a caller that
+	// already knows to show-once-and-forget a mint needs no new rule.
+	view["code"] = code
+	view["rotated"] = true
+	writeJSON(w, http.StatusOK, view)
+}
+
+// forgetBand handles POST /bands/{id}/forget: delete a REVOKED band row for good.
+//
+// Revoking left the row behind forever with nothing able to remove it, so an operator who
+// rotated or re-minted a few times accumulated a permanent list of dead entries they could
+// neither tune nor clear - burying the one live band among them. History nobody can delete
+// is clutter, not an audit trail.
+//
+// A LIVE band is refused: deleting it would drop its code out of the resolve index while
+// every consumer holding that code carries on believing it works, and would free a quota
+// slot with no confirm anywhere. Revoke first, then forget - the destructive half keeps its
+// own gate.
+func (b *broker) forgetBand(w http.ResponseWriter, r *http.Request, owner store.Owner, id string) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
+		jsonErr(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	ok, err := b.db.ForgetBand(id, owner.Pubkey)
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, "store error")
+		return
+	}
+	if !ok {
+		// One message for "no such band" and "that band is still live", because the
+		// remedy differs and the caller cannot tell which it hit otherwise. Naming both is
+		// safe: an id that is not yours already answers as not-found above.
+		jsonErr(w, http.StatusConflict, "only a revoked band can be forgotten - revoke it first")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "forgotten": true})
+}
+
 func bandView(bd store.Band, now time.Time) map[string]any {
 	status := "active"
 	if bd.Revoked {

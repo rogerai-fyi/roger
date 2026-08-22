@@ -137,6 +137,15 @@ type Hooks struct {
 	// BandMove repoints a band at another node ("<station>-<model>") WITHOUT rotating its
 	// secret, so everyone already tuned in keeps working.
 	BandMove func(broker, bandID, nodeID string) error
+	// BandRotate mints a FRESH secret for an existing band, in place: same id, same node,
+	// same label, same quota slot, same cosmetic frequency. Returns the new code, shown
+	// ONCE. The OLD code stops resolving immediately - anyone already tuned in IS cut off,
+	// which is the whole difference from BandMove.
+	BandRotate func(broker, bandID string) (code, display string, err error)
+	// BandForget deletes a REVOKED band row for good. It is the only way to clear the dead
+	// history that otherwise accumulates around a live band forever; the broker refuses a
+	// live band, so this can never strand a working code.
+	BandForget func(broker, bandID string) error
 	// RCAttach exchanges a link code for a per-device attach token, so the TUI can view a
 	// session hosted on ANOTHER machine. Returns (attachToken, sessionID, name).
 	RCAttach func(broker, code string) (attach, sessionID, name string, err error)
@@ -546,6 +555,7 @@ const (
 	modeBandManage        // BASE STATION: the actions card for ONE of your own bands (move / revoke) (rc.go)
 	modeBandMove          // BASE STATION: pick which local model to MOVE a band to - the code survives (rc.go)
 	modeBandRevokeConfirm // BASE STATION: the explicit y/N confirm before burning a band's code forever (rc.go)
+	modeBandRotateConfirm // BASE STATION: the y/N confirm before replacing a band's code (cuts off everyone tuned in)
 	modePingWorld         // [z] / `/ping`: the fullscreen Ping World screensaver; any key wakes back to prevMode
 	modeLog               // /log: the captured node + broker log buffer (any key closes)
 	modeVoicePreview      // a VOICE band (tts/stt): a sample-play/preview panel, NOT a chat channel (voice.go)
@@ -1068,10 +1078,20 @@ type model struct {
 	// hidden band (h toggles it). The band-card buffers hold the one-time secret code +
 	// cosmetic display to show ONCE on a modeBandCard card (c copies it). The card
 	// returns to SHARE on any key.
-	sharePrivate  map[string]bool // model -> shared on a private (hidden) band
-	bandCardCode  string          // the one-time secret frequency code (cleared on leave)
-	bandCardDisp  string          // cosmetic "147.520 MHz · ..." for the card
-	bandCardModel string          // which model the card is for
+	sharePrivate map[string]bool // model -> shared on a private (hidden) band
+	// bandCardReturn is where the one-time code card goes back to, and bandCardReturnSet
+	// says whether it was chosen. The card was written for the SHARE mint flow and
+	// hard-returned to modeShare; a ROTATE can be started from BASE STATION or the PRIVATE
+	// tab, and dumping the operator on the share table after it would be a silent teleport.
+	//
+	// The BOOL is load-bearing: modeBrowse is the ZERO value of mode, so a "return to the
+	// band browser" was indistinguishable from "nothing was set" and got silently replaced
+	// by modeShare - which is exactly the teleport this field exists to prevent.
+	bandCardReturn    mode
+	bandCardReturnSet bool
+	bandCardCode      string // the one-time secret frequency code (cleared on leave)
+	bandCardDisp      string // cosmetic "147.520 MHz · ..." for the card
+	bandCardModel     string // which model the card is for
 	// TUNE-IN private band: tuneFreq is the active frequency code (empty = OPEN MARKET);
 	// tuneFreqLabel is the cosmetic display shown in the header (e.g. "147.520 MHz").
 	// /freq sets them after a successful resolve; esc clears back to OPEN MARKET.
@@ -1827,13 +1847,28 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case bandActionMsg:
-		// A move/revoke landed. Either way we return to BASE STATION and re-fetch the
+		// A move/revoke/rotate/forget landed. We return to BASE STATION and re-fetch the
 		// roster, so the list reflects what actually happened rather than what we hoped.
+		// A ROTATE is the exception: it carries a one-time secret, so it routes to the
+		// show-once card instead - and remembers where to go back to, since the card was
+		// written for the SHARE flow and would otherwise drop the operator on a screen
+		// they did not come from.
+		if msg.rotated && msg.code != "" {
+			m.bandCardCode, m.bandCardDisp, m.bandCardModel = msg.code, msg.display, ""
+			m.bandCardReturn, m.bandCardReturnSet = m.rotateReturnMode(), true
+			m.mode = modeBandCard
+			m.status = stRed.Render(glyphOnAir+" NEW CODE ") +
+				stDim.Render("- the old one stopped working. Send this to anyone who needs the band.")
+			return m, m.fetchRemoteRoster()
+		}
 		m.mode = modePrivate
 		switch {
 		case msg.err != "":
 			m.status = stEmber.Render("! " + msg.err)
 			return m, nil
+		case msg.forgotten:
+			m.status = stLive.Render("forgotten") +
+				stDim.Render(" - that dead row is gone from your list for good")
 		case msg.moved:
 			m.status = stLive.Render("moved - ") + stKey.Render(msg.model) +
 				stDim.Render(" now answers on the same frequency code")
@@ -2327,6 +2362,8 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.onBandMoveKey(k)
 	case modeBandRevokeConfirm:
 		return m.onBandRevokeConfirmKey(k)
+	case modeBandRotateConfirm:
+		return m.onBandRotateConfirmKey(k)
 	case modeRemoteSession:
 		return m.onRemoteSessionKey(k)
 	case modeBandDetail:
@@ -3113,8 +3150,22 @@ func (m *model) onBandCardKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.bandCardCode = ""
 		m.bandCardModel = ""
 		m.mode = modeShare
+		if m.bandCardReturnSet {
+			m.mode = m.bandCardReturn
+			m.bandCardReturn, m.bandCardReturnSet = 0, false
+		}
 		return m, nil
 	}
+}
+
+// rotateReturnMode is where a rotate should land the operator once they have saved the new
+// code: back on the screen they started from. modeShare is not a candidate - a rotate can
+// only be started from BASE STATION or the PRIVATE tab.
+func (m model) rotateReturnMode() mode {
+	if m.tuneTab == tabPrivate {
+		return modeBrowse
+	}
+	return modePrivate
 }
 
 // osc52 is the OSC 52 clipboard escape for s (base64, BEL-terminated). It is a
@@ -4937,6 +4988,8 @@ func (m model) View() string {
 		b.WriteString(m.bandMoveView(w))
 	case modeBandRevokeConfirm:
 		b.WriteString(m.bandRevokeConfirmView(w))
+	case modeBandRotateConfirm:
+		b.WriteString(m.bandRotateConfirmView(w))
 	case modeRemoteSession:
 		b.WriteString(m.remoteSessionView(w))
 	case modeFreqEntry:
@@ -9330,15 +9383,19 @@ func (m model) footer(w int) string {
 		// footer has to agree: offering a key the screen will ignore is the same lie in
 		// a different place, and it was caught by the lock that guards the card.
 		if m.bandManageActive() {
-			left = stKey.Render("m") + stDim.Render(" move to another model  ·  ") +
+			left = stKey.Render("⏎") + stDim.Render(" tune in  ·  ") + stKey.Render("m") +
+				stDim.Render(" move  ·  ") + stKey.Render("n") + stDim.Render(" new code  ·  ") +
 				stKey.Render("x") + stDim.Render(" revoke  ·  esc back")
 			if m.narrow() {
-				left = stDim.Render("m move · x revoke · esc")
+				left = stDim.Render("⏎ tune · m move · n code · x revoke · esc")
 			}
 		} else {
-			left = stDim.Render("this band is revoked  ·  ") + stKey.Render("esc") + stDim.Render(" back")
+			// A revoked band can do exactly one thing, and before `f` existed it could do
+			// nothing at all - the row simply sat there forever.
+			left = stDim.Render("this band is revoked  ·  ") + stKey.Render("f") +
+				stDim.Render(" forget it  ·  ") + stKey.Render("esc") + stDim.Render(" back")
 			if m.narrow() {
-				left = stDim.Render("revoked · esc back")
+				left = stDim.Render("revoked · f forget · esc")
 			}
 		}
 		return modalFooter(m.effWidth(), left, m.accountTag(true), m.status)
@@ -9353,6 +9410,14 @@ func (m model) footer(w int) string {
 		left = stDim.Render("y revoke - burns the code forever  ·  n/esc keep it")
 		if m.narrow() {
 			left = stDim.Render("y revoke · n/esc keep")
+		}
+		return modalFooter(m.effWidth(), left, m.accountTag(true), m.status)
+	case modeBandRotateConfirm:
+		// The cost, not the action, is what the operator has to weigh here: a rotate looks
+		// like a move until you notice it cuts everyone off.
+		left = stDim.Render("y new code - cuts off everyone on the old one  ·  n/esc keep it")
+		if m.narrow() {
+			left = stDim.Render("y new code · n/esc keep")
 		}
 		return modalFooter(m.effWidth(), left, m.accountTag(true), m.status)
 	case modeBandDetail:
@@ -9399,11 +9464,13 @@ func (m model) footer(w int) string {
 		// carousel - just move, tune, and the two ways out. Teaching the market keys here
 		// is the exact failure BASE STATION had (a footer describing another screen).
 		if m.narrow() {
-			left = stDim.Render("↑↓ · ⏎ tune · t market · ~ code · r")
+			left = stDim.Render("↑↓ · ⏎ tune · n code · f forget · t market")
 		} else {
 			left = stDim.Render("↑↓ pick · ") + stKey.Render("⏎") +
-				stDim.Render(" tune in direct · ") + stKey.Render("t") +
-				stDim.Render(" OPEN MARKET · ~ tune by code · p manage · r refresh")
+				stDim.Render(" tune in · ") + stKey.Render("n") +
+				stDim.Render(" new code · ") + stKey.Render("f") +
+				stDim.Render(" forget a revoked one · ") + stKey.Render("t") +
+				stDim.Render(" OPEN MARKET · ~ by code")
 		}
 	} else if m.narrow() {
 		discKey := ""
@@ -9475,7 +9542,8 @@ func (m model) helpView() string {
 		{"←/→", "switch section: cycle the [0] AGENT … [?] HELP bar (same as pressing its number)"},
 		{"↑↓ then enter", "TUNE IN: pick a band, open a channel, chat"},
 		{"f", "FILTER the band by name (live) - esc clears, enter keeps it applied"},
-		{"~", "PRIVATE FREQ: enter a frequency code to tune onto a hidden band - esc returns to OPEN MARKET"},
+		{"t", "YOUR BANDS: switch the dial between OPEN MARKET and your own PRIVATE bands. A private band is hidden from the public list - including from you - so this is where you find it. ⏎ on one whose model runs here opens a DIRECT channel (no broker, no meter); n mints a new code, f clears a revoked row"},
+		{"~", "PRIVATE FREQ: enter SOMEONE ELSE'S frequency code to tune onto their hidden band - esc returns to OPEN MARKET"},
 		{"s", "SORT cycle (strongest / cheapest / fastest / most-stations)"},
 		{"F/C/O", "filters: free-now / confidential / on-air"},
 		{"m  ·  alt+m", "MINIMIZE to the dense compact windowshade · alt+m (or /compact) works from anywhere, even mid-chat"},

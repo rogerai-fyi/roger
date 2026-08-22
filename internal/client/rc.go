@@ -142,6 +142,65 @@ func MoveBand(broker, id, nodeID string) error {
 	return nil
 }
 
+// RotateBand mints a FRESH secret for an existing band (POST /bands/{id}/rotate,
+// owner-signed) and returns the new full code, shown ONCE, plus its masked display.
+//
+// The band keeps its id, its node binding, its label, its quota slot and its cosmetic
+// frequency - only the key changes. The OLD code stops resolving immediately, so anyone
+// already tuned in IS cut off: that is the difference from MoveBand, and every caller must
+// say it out loud rather than implying continuity.
+//
+// The returned code is never persisted by the broker (only sha256(tail) + the masked
+// display are), so it can never be fetched again. Treat it exactly like a mint.
+func RotateBand(broker, id string) (code, display string, err error) {
+	resp, err := signedDo(http.MethodPost, broker, "/bands/"+id+"/rotate", nil)
+	if err != nil {
+		return "", "", fmt.Errorf("%w: %v", ErrBrokerUnreachable, err)
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
+	if resp.StatusCode == http.StatusNotFound {
+		// A 404 here is ambiguous in a way that matters: it is either "no such band" or a
+		// broker too old to know this route. Guessing wrong sends the operator to fix the
+		// wrong thing, so name both possibilities.
+		return "", "", fmt.Errorf("no such band - or this broker does not support rotating a code yet")
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", "", bandErr(resp.StatusCode, raw)
+	}
+	var out struct {
+		Code    string `json:"code"`
+		Display string `json:"display"`
+	}
+	_ = json.Unmarshal(raw, &out)
+	if strings.TrimSpace(out.Code) == "" {
+		// A 2xx with no code means the band was NOT rotated in any usable way. Reporting
+		// success would leave the operator believing their old code was burnt when it was
+		// not - the one lie this whole feature exists to prevent.
+		return "", "", fmt.Errorf("the broker rotated the band but returned no code - your old code may still work; re-read your bands")
+	}
+	return out.Code, out.Display, nil
+}
+
+// ForgetBand deletes a REVOKED band row for good (POST /bands/{id}/forget, owner-signed).
+// A live band is refused by the broker - revoke it first. This is the only way to clear the
+// dead history that otherwise accumulates around a live band forever.
+func ForgetBand(broker, id string) error {
+	resp, err := signedDo(http.MethodPost, broker, "/bands/"+id+"/forget", nil)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrBrokerUnreachable, err)
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
+	if resp.StatusCode == http.StatusNotFound {
+		return fmt.Errorf("no such band - or this broker does not support forgetting a band yet")
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return bandErr(resp.StatusCode, raw)
+	}
+	return nil
+}
+
 // bandErr decodes a broker refusal into the SENTENCE the broker wrote. The band handlers
 // reply {"error":{"message":"..."}} (jsonErr), a shape payoutErr's {"error":"..."} does
 // NOT match - so payoutErr would hand the raw JSON envelope, braces and all, to a status

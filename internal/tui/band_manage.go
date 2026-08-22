@@ -71,6 +71,12 @@ func (m model) openBandManage(bd BandRow) model {
 	return m
 }
 
+func (m model) openBandRotateConfirm(bd BandRow) model {
+	m.mode = modeBandRotateConfirm
+	m.bandManageID, m.bandManageDisp, m.bandManageNode = bd.ID, bd.Display, bd.NodeID
+	return m
+}
+
 func (m model) openBandRevokeConfirm(bd BandRow) model {
 	m.mode = modeBandRevokeConfirm
 	m.bandManageID, m.bandManageDisp, m.bandManageNode = bd.ID, bd.Display, bd.NodeID
@@ -115,11 +121,92 @@ func (m model) onBandManageKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = modeBandMove
 		m.bandMoveCursor = 0
 		return m, nil
+	case "n", "N":
+		// n = a NEW CODE for this band, in place. Refused on a revoked band for the same
+		// reason a move is: its code is burnt, and rotating would resurrect it.
+		if !m.bandManageActive() {
+			m.status = stEmber.Render("a revoked band cannot be rotated - its code is burnt")
+			return m, nil
+		}
+		m.mode = modeBandRotateConfirm
+		return m, nil
+	case "f", "F":
+		// f = FORGET this row. Only offered on a REVOKED band: the broker refuses a live
+		// one, and deleting a live row would strand every consumer holding its code.
+		if m.bandManageActive() {
+			m.status = stEmber.Render("only a revoked band can be forgotten - revoke it first (") +
+				stKey.Render("x") + stEmber.Render(")")
+			return m, nil
+		}
+		return m, m.forgetBand(m.bandManageID)
+	case "enter", "t", "T":
+		// TUNE IN from the card (founder 2026-08-21: "if i can connect it should allow me
+		// to TUNE IN to it and chat as an option like i do from the bands"). The card
+		// already knows the node; if that node is a model on THIS machine the channel is
+		// direct, and if it is not, there is nothing here to tune with but its code.
+		return m.tuneInBand()
 	case "x", "X":
 		m.mode = modeBandRevokeConfirm
 		return m, nil
 	}
 	return m, nil
+}
+
+// tuneInBand opens a channel on the band the manage card is showing, by handing the same
+// privRow the PRIVATE tab builds to the same opener - so the two surfaces can never drift
+// into disagreeing about whether a band is reachable.
+func (m model) tuneInBand() (tea.Model, tea.Cmd) {
+	for _, r := range m.privRows() {
+		if r.band.ID != m.bandManageID {
+			continue
+		}
+		mm, cmd, _ := m.tuneInPrivateRow(r)
+		return mm, cmd
+	}
+	m.status = stEmber.Render("that band is no longer in your list - press r in BASE STATION")
+	return m, nil
+}
+
+func (m model) onBandRotateConfirmKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch k.String() {
+	case "y", "Y":
+		return m, m.rotateBand(m.bandManageID)
+	default:
+		m.mode = modeBandManage
+		return m, nil
+	}
+}
+
+// rotateBand asks the broker for a fresh secret on this band. The band keeps everything
+// else: id, node binding, label, quota slot, cosmetic frequency.
+func (m model) rotateBand(bandID string) tea.Cmd {
+	broker, rotate := m.broker, m.hooks.BandRotate
+	return func() tea.Msg {
+		if rotate == nil {
+			return bandActionMsg{err: "band management is unavailable in this build"}
+		}
+		code, display, err := rotate(broker, bandID)
+		if err != nil {
+			return bandActionMsg{err: err.Error()}
+		}
+		return bandActionMsg{rotated: true, code: code, display: display}
+	}
+}
+
+// forgetBand deletes a revoked band row. No confirm: the band is already dead - its code
+// was burnt behind an explicit y/N - so what is being removed is a corpse, not a capability.
+// The broker refuses a live band, so a slip here cannot strand anyone.
+func (m model) forgetBand(bandID string) tea.Cmd {
+	broker, forget := m.broker, m.hooks.BandForget
+	return func() tea.Msg {
+		if forget == nil {
+			return bandActionMsg{err: "band management is unavailable in this build"}
+		}
+		if err := forget(broker, bandID); err != nil {
+			return bandActionMsg{err: err.Error()}
+		}
+		return bandActionMsg{forgotten: true}
+	}
 }
 
 func (m model) onBandMoveKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -196,7 +283,14 @@ func (m model) revokeBand(bandID string) tea.Cmd {
 type bandActionMsg struct {
 	moved   bool
 	revoked bool
-	model   string
+	// rotated carries a FRESH secret for the same band. code is shown ONCE and is never
+	// persisted anywhere, so the handler must route it straight to the one-time card and
+	// nothing else may retain it.
+	rotated   bool
+	forgotten bool
+	code      string
+	display   string
+	model     string
 	// node is the band's node id ("<station>-<model>"), carried so a revoke can find
 	// which local model was behind the band and reconcile it. Without it the controller
 	// is left registered private with no band - see BandRevoked.
@@ -212,14 +306,23 @@ func (m model) bandManageView(w int) string {
 	line(stDim.Render("on ") + stKey.Render(m.bandManageNode))
 	b.WriteString("\n")
 	if m.bandManageActive() {
+		// The three live actions, ordered by how much they cost the people already tuned
+		// in: none, then all of them, then the band itself.
+		line(stKey.Render("⏎") + stDim.Render(" tune in ") + stDim.Render("- open a channel on it from here"))
 		line(stKey.Render("m") + stDim.Render(" move it to another model ") +
 			stDim.Render("- keeps this frequency code, nobody tuned in is cut off"))
+		line(stKey.Render("n") + stDim.Render(" new code ") +
+			stDim.Render("- same band, fresh key · everyone on the old code is cut off"))
+		line(stKey.Render("x") + stDim.Render(" revoke it ") + stDim.Render("- burns the code forever, frees your slot"))
+		b.WriteString("\n")
+		line(stDim.Render("the code itself was shown once and never stored - it cannot be shown again."))
+		line(stDim.Render("lost it? ") + stKey.Render("n") + stDim.Render(" mints a new one without giving up the band"))
 	} else {
-		line(stDim.Render("this band is revoked - its code is burnt and cannot be moved"))
+		line(stDim.Render("this band is revoked - its code is burnt. It cannot be moved, rotated or tuned."))
+		b.WriteString("\n")
+		line(stKey.Render("f") + stDim.Render(" forget it ") + stDim.Render("- remove this dead row from your list for good"))
 	}
-	line(stKey.Render("x") + stDim.Render(" revoke it ") + stDim.Render("- burns the code forever, frees your slot"))
 	b.WriteString("\n")
-	line(stDim.Render("the code itself was shown once and never stored - it cannot be shown again"))
 	line(stDim.Render("esc returns"))
 	return b.String()
 }
@@ -256,6 +359,29 @@ func (m model) bandRevokeConfirmView(w int) string {
 		stKey.Render("m") + stDim.Render(")"))
 	b.WriteString("\n")
 	line(stKey.Render("y") + stDim.Render(" revoke · any other key cancels"))
+	return b.String()
+}
+
+// bandRotateConfirmView is the y/N before replacing a code. It leads with the cost, because
+// the cost is the ONLY thing that distinguishes this from a move: a move keeps everyone
+// tuned in, a rotate cuts every one of them off. An operator who confuses the two would
+// silently break every consumer they had handed the code to.
+func (m model) bandRotateConfirmView(w int) string {
+	var b strings.Builder
+	line := func(s string) { b.WriteString(truncVisibleTail("  "+s, w) + "\n") }
+	b.WriteString("\n" + stHeadRule.Render(strings.Repeat("─", w)) + "\n")
+	line(stKey.Render("NEW CODE for ") + stKey.Render(m.bandManageDisp) + stDim.Render("?"))
+	b.WriteString("\n")
+	line(stEmber.Render("the current code stops working immediately."))
+	line(stEmber.Render("everyone you gave it to is cut off until you send them the new one."))
+	b.WriteString("\n")
+	line(stDim.Render("the band itself survives: same dial, same model, same slot - only the key changes."))
+	line(stDim.Render("the new code is shown ONCE and never stored."))
+	b.WriteString("\n")
+	line(stDim.Render("just changing which model answers? move it instead (esc, then ") +
+		stKey.Render("m") + stDim.Render(") - that keeps the code."))
+	b.WriteString("\n")
+	line(stKey.Render("y") + stDim.Render(" mint a new code · any other key cancels"))
 	return b.String()
 }
 

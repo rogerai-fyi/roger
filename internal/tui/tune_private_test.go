@@ -267,7 +267,7 @@ func TestDirectChannelHeaderShowsTheRouteNotACost(t *testing.T) {
 func TestPrivateTabFooterTeachesItsOwnKeys(t *testing.T) {
 	m := privateTab(t)
 	foot := stripANSI(m.footer(m.width))
-	for _, want := range []string{"tune in direct", "OPEN MARKET", "~"} {
+	for _, want := range []string{"tune in", "new code", "forget", "OPEN MARKET", "~"} {
 		if !strings.Contains(foot, want) {
 			t.Errorf("the PRIVATE footer must teach %q, got %q", want, foot)
 		}
@@ -315,5 +315,165 @@ func TestAgentPickerNamesYourPrivateBand(t *testing.T) {
 	m.sharePrivate = map[string]bool{}
 	if m.localAgentRows()[0].band {
 		t.Fatal("a plain local model was marked as a private band")
+	}
+}
+
+// ── THE STATION-PREFIX FIX ───────────────────────────────────────────────────
+//
+// FOUNDER, on the first cut: "but it is on the same machine". A band whose node id was
+// eager-puma-54-grok-4-6 read "another machine · needs its code" purely because no share
+// row matched it at that instant - the model's server was not running. The remedy for a
+// stopped server ("start it") is nothing like the remedy for a remote band ("find the
+// code"), so the two cases must never share a message.
+
+// privateTabNoServer is the founder's exact state: the band is on THIS station, and nothing
+// is serving its model right now.
+func privateTabNoServer(t *testing.T) model {
+	t.Helper()
+	m := privateTab(t)
+	m.ctrl.SetRows(nil) // the local server went away
+	m.syncShareCache()
+	return m
+}
+
+func TestABandOnThisStationIsNotCalledAnotherMachine(t *testing.T) {
+	m := privateTabNoServer(t)
+	rows := m.privRows()
+	if !rows[0].here {
+		t.Fatal("a band whose node id carries this station must resolve as here")
+	}
+	if rows[0].chat != "" {
+		t.Fatal("precondition: no server should be serving it")
+	}
+	// Assert on THIS band's row, not the whole view - a genuinely remote band lives two
+	// rows down and must keep saying "another machine" (locked below).
+	row := stripANSI(m.privRowLine(rows[0], false))
+	if strings.Contains(row, "another machine") {
+		t.Errorf("a band on THIS station was reported as another machine: %q", row)
+	}
+	if !strings.Contains(row, "server is not running") {
+		t.Errorf("the row must name the stopped server as the thing to fix, got %q", row)
+	}
+}
+
+// And Enter on it must send the operator to the server, not to a code they cannot use.
+func TestEnterOnAStoppedLocalBandNamesTheServer(t *testing.T) {
+	m := privateTabNoServer(t)
+	m.privCursor = 0
+	var tm tea.Model = m
+	tm, _ = tm.Update(keyMsg2(tea.KeyEnter))
+	st := stripANSI(asModel(tm).status)
+	if !strings.Contains(st, "on this machine") || !strings.Contains(st, "no local server") {
+		t.Errorf("the refusal must name the stopped server, got %q", st)
+	}
+}
+
+// NEGATIVE HALF: a band on a DIFFERENT station must still say so, or the fix above could be
+// satisfied by calling every band local.
+func TestABandOnAnotherStationStillSaysSo(t *testing.T) {
+	m := privateTabNoServer(t)
+	rows := m.privRows()
+	if rows[1].here {
+		t.Fatal("a band on other-box was reported as being on this station")
+	}
+	out := stripANSI(m.browseView(m.width))
+	if !strings.Contains(out, "another machine") {
+		t.Errorf("a genuinely remote band must still say so:\n%s", out)
+	}
+}
+
+// ── ROTATE ──────────────────────────────────────────────────────────────────
+
+// n on a live band asks first. A rotation looks like a move until you notice it cuts off
+// everyone tuned in, so it can never be one keystroke.
+func TestNewCodeConfirmsBeforeRotating(t *testing.T) {
+	m := privateTab(t)
+	m.privCursor = 0
+	var tm tea.Model = m
+	tm, _ = tm.Update(keyMsg("n"))
+	gm := asModel(tm)
+	if gm.mode != modeBandRotateConfirm {
+		t.Fatalf("n did not open the rotate confirm (mode %v)", gm.mode)
+	}
+	out := stripANSI(gm.bandRotateConfirmView(100))
+	// The confirm must lead with the COST, because that is the only thing separating this
+	// from a move.
+	if !strings.Contains(out, "cut off") {
+		t.Errorf("the rotate confirm must say who it cuts off, got:\n%s", out)
+	}
+	if !strings.Contains(out, "move it instead") {
+		t.Errorf("the confirm must name the non-destructive alternative, got:\n%s", out)
+	}
+	// Any key but y backs out.
+	tm, _ = gm.Update(keyMsg("z"))
+	if asModel(tm).mode == modeBandRotateConfirm {
+		t.Error("a non-y key must back out of the rotate confirm")
+	}
+}
+
+// A revoked band cannot be rotated: its code is burnt, and rotating would resurrect it.
+func TestNewCodeRefusedOnARevokedBand(t *testing.T) {
+	m := privateTab(t)
+	m.privCursor = 2 // band_dead
+	var tm tea.Model = m
+	tm, _ = tm.Update(keyMsg("n"))
+	gm := asModel(tm)
+	if gm.mode == modeBandRotateConfirm {
+		t.Fatal("a revoked band opened the rotate confirm")
+	}
+	if !strings.Contains(stripANSI(gm.status), "burnt") {
+		t.Errorf("the refusal must say the code is burnt, got %q", stripANSI(gm.status))
+	}
+}
+
+// A landed rotation routes the new code to the SHOW-ONCE card, and back to where the
+// operator started - not to the SHARE table the card was originally written for.
+func TestARotatedCodeGoesToTheShowOnceCard(t *testing.T) {
+	m := privateTab(t)
+	var tm tea.Model = m
+	tm, _ = tm.Update(bandActionMsg{rotated: true, code: "145.225 MHz · AAAA-BBBB", display: "145.225 MHz · ••••-••••"})
+	gm := asModel(tm)
+	if gm.mode != modeBandCard {
+		t.Fatalf("a rotation did not open the one-time card (mode %v)", gm.mode)
+	}
+	if gm.bandCardCode != "145.225 MHz · AAAA-BBBB" {
+		t.Fatalf("the card is not holding the new code, got %q", gm.bandCardCode)
+	}
+	// Leaving the card clears the secret (shown exactly once) and returns to the tab.
+	after, _ := (&gm).onBandCardKey(keyMsg("x"))
+	am := asModel(after)
+	if am.bandCardCode != "" {
+		t.Error("the one-time code survived leaving the card")
+	}
+	if am.mode != modeBrowse {
+		t.Errorf("a rotation started in the PRIVATE tab returned to mode %v, not the tab", am.mode)
+	}
+}
+
+// ── FORGET ──────────────────────────────────────────────────────────────────
+
+// f clears a revoked row - the founder's "i also don't see a way to delete them".
+func TestForgetActsOnARevokedRow(t *testing.T) {
+	m := privateTab(t)
+	m.privCursor = 2 // band_dead
+	var tm tea.Model = m
+	_, cmd := tm.Update(keyMsg("f"))
+	if cmd == nil {
+		t.Fatal("f on a revoked band issued no action")
+	}
+}
+
+// NEGATIVE HALF: f must never touch a LIVE band. Deleting a live row would strand every
+// consumer holding its code with no revoke anywhere.
+func TestForgetRefusesALiveBandInTheTUI(t *testing.T) {
+	m := privateTab(t)
+	m.privCursor = 0 // the live one
+	var tm tea.Model = m
+	tm, cmd := tm.Update(keyMsg("f"))
+	if cmd != nil {
+		t.Fatal("f on a LIVE band issued an action")
+	}
+	if !strings.Contains(stripANSI(asModel(tm).status), "revoke it first") {
+		t.Errorf("the refusal must name the required first step, got %q", stripANSI(asModel(tm).status))
 	}
 }

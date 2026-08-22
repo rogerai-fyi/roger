@@ -88,14 +88,28 @@ func TestBandsByIDHandler(t *testing.T) {
 		t.Fatalf("DELETE unknown = %d, want 404", wn.Code)
 	}
 
-	// Real revoke -> 200, and the band is now revoked in the store.
+	// Real revoke -> 200, and THE CODE NO LONGER RESOLVES.
+	//
+	// AMENDED 2026-08-21: this asserted the band was still listed with Revoked=true, which
+	// pinned the TOMBSTONE rather than the guarantee. Revoke now deletes the row (founder:
+	// "why is there even a dead one"), and the tombstone was earning nothing: bandOffers
+	// returns the same uniform negative for `!found` as for `!Active`, so a deleted row and
+	// a revoked row are indistinguishable to anyone tuning a code. Re-anchored to what a
+	// revoke is actually FOR - the code stops working - which holds under either storage
+	// choice and would have caught a revoke that forgot to burn the code.
 	wd := httptest.NewRecorder()
 	b.bandsByID(wd, ownerReq(http.MethodDelete, "/bands/band_x", o.Pubkey))
 	if wd.Code != http.StatusOK {
 		t.Fatalf("DELETE owned band = %d, want 200 (%s)", wd.Code, wd.Body.String())
 	}
+	if _, found, _ := b.db.BandByCodeHash("hash_x"); found {
+		t.Error("the revoked band's code still resolves - the revoke did not burn it")
+	}
+	// And it is gone from the owner's list, so dead rows cannot accumulate there.
 	bands, _ := b.db.BandsByOwner(o.Pubkey)
-	if len(bands) != 1 || !bands[0].Revoked {
-		t.Errorf("band should be revoked after DELETE, got %+v", bands)
+	for _, bd := range bands {
+		if bd.ID == "band_x" {
+			t.Errorf("the revoked band is still listed: %+v", bd)
+		}
 	}
 }
