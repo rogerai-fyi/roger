@@ -386,6 +386,16 @@ type ProxyOptions struct {
 	MaxPriceOut  float64 // X-Roger-Max-Price-Out cap on output price (0 = none)
 	Freq         string  // X-Roger-Freq private band code (empty = open market)
 	Pref         string  // X-Roger-Pref routing knob: cheap/balanced/fast/reliable (empty = balanced)
+	// ExcludeNodes are stations this caller will NOT accept, sent as X-Roger-Exclude-Nodes
+	// on every request (unioned with the failover set the proxy builds as nodes drop).
+	//
+	// This is how a quant choice BINDS (MODEL-VARIANTS-DESIGN-2026-08-22). A band is
+	// grouped by (model, quant), so tuning a row means "these weights" - and the way to
+	// make the broker honour that is to name the stations running a DIFFERENT quant of the
+	// same model. Excluding rather than pinning is deliberate: a pin collapses the choice
+	// to one station, so the first failure is a dead turn, while an exclusion preserves
+	// failover WITHIN the chosen quant.
+	ExcludeNodes []string
 	// Model is the TUNED band's model. It is the /v1/models identity AND the rewrite
 	// target: every incoming request's `model` field is rewritten to this before relay,
 	// so an agent's arbitrary default ("gpt-4o", "sonnet") just works. Empty = legacy
@@ -830,8 +840,10 @@ func relayWithFailover(ctx context.Context, w http.ResponseWriter, opts ProxyOpt
 		if pin != "" {
 			req.Header.Set("X-Roger-Node", pin)
 		}
-		if len(failed) > 0 {
-			req.Header.Set("X-Roger-Exclude-Nodes", joinSet(failed))
+		// The caller's standing exclusions and the live failover set are ONE header, so a
+		// station that is both wrong-quant and failing is named once.
+		if skip := unionSet(failed, opts.ExcludeNodes); skip != "" {
+			req.Header.Set("X-Roger-Exclude-Nodes", skip)
 		}
 
 		resp, err := httpClient.Do(req)
@@ -1345,6 +1357,31 @@ func streamRelayBody(w http.ResponseWriter, body io.Reader, reasoningFallbackOn 
 }
 
 // joinSet renders a set as a comma-separated header value.
+// unionSet renders the live failover set plus the caller's standing exclusions as one
+// comma-separated header value, deduped and sorted so the same set always produces the
+// same bytes (a header that reordered per request would defeat any caching or diffing
+// downstream and make a log impossible to compare against itself).
+func unionSet(set map[string]bool, extra []string) string {
+	all := make(map[string]bool, len(set)+len(extra))
+	for k := range set {
+		all[k] = true
+	}
+	for _, k := range extra {
+		if k = strings.TrimSpace(k); k != "" {
+			all[k] = true
+		}
+	}
+	if len(all) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(all))
+	for k := range all {
+		parts = append(parts, k)
+	}
+	sort.Strings(parts)
+	return strings.Join(parts, ",")
+}
+
 func joinSet(set map[string]bool) string {
 	parts := make([]string, 0, len(set))
 	for k := range set {

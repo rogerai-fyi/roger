@@ -481,14 +481,21 @@ type offer struct {
 	// Decode-only on this side: the browser NEVER fabricates a capability the station
 	// did not declare, so an ABSENT set claims nothing (no "text-only" badge).
 	Capabilities []string `json:"capabilities,omitempty"`
-	Online       bool     `json:"online"`
-	Confidential bool     `json:"confidential"`
-	FreeNow      bool     `json:"free_now"`
-	TPS          float64  `json:"tps"`
-	TTFTMs       float64  `json:"ttft_ms"`      // probe-measured time-to-first-token (ms; 0 = unmeasured)
-	SuccessRate  float64  `json:"success"`      // 0..1 time-decayed success evidence
-	SuccessSeen  bool     `json:"success_seen"` // SuccessRate is REAL (not the no-evidence fallback)
-	Verified     bool     `json:"verified"`     // recent PASSED serving canary (distinct from confidential ◆)
+	// Quant / Weights / Variant tell this station's offer apart from another station's
+	// offer of the SAME model (MODEL-VARIANTS-DESIGN-2026-08-22). Decode-only, like
+	// Capabilities: the browser never fabricates one, so an ABSENT value claims nothing -
+	// it is not a quant, and it is never rendered as though the station stated one.
+	Quant        string  `json:"quant,omitempty"`
+	Weights      string  `json:"weights,omitempty"`
+	Variant      string  `json:"variant,omitempty"`
+	Online       bool    `json:"online"`
+	Confidential bool    `json:"confidential"`
+	FreeNow      bool    `json:"free_now"`
+	TPS          float64 `json:"tps"`
+	TTFTMs       float64 `json:"ttft_ms"`      // probe-measured time-to-first-token (ms; 0 = unmeasured)
+	SuccessRate  float64 `json:"success"`      // 0..1 time-decayed success evidence
+	SuccessSeen  bool    `json:"success_seen"` // SuccessRate is REAL (not the no-evidence fallback)
+	Verified     bool    `json:"verified"`     // recent PASSED serving canary (distinct from confidential ◆)
 	// Signal is the broker's 0..100 channel-health score (online + quality + tps +
 	// reliability). It carries even when TPS==0, so a freshly-on-air band meters at
 	// its baseline strength instead of a blank tps-driven bar.
@@ -665,6 +672,12 @@ func (s *LimitStore) clear(model string) {
 // out-price range (semantics A in the design doc).
 type band struct {
 	model string
+	// quant is the compression label every station in this band is running ("Q4_K_M",
+	// "IQ4_XS", ""). It is part of the band's IDENTITY, not a detail of it: bands are
+	// grouped by (model, quant), so every station here is running the same weights and
+	// tuning the row can never land on a different quant than the one displayed. Empty
+	// means the stations did not state one - an absence, rendered as absent.
+	quant string
 	// modality is what the band DOES, canonical: "chat" (the back-compat default), "tts"
 	// (speak), or "stt" (listen). A band groups offers of ONE model, which share a modality;
 	// groupBands sets it. isVoice() (tts/stt) drives BOTH the separate "Voices" section in the
@@ -884,22 +897,26 @@ type model struct {
 	fFree            bool            // toggle: only bands with a FREE-now station
 	fConf            bool            // toggle: only confidential / verified (lineage) bands
 	fOn              bool            // toggle: only bands with a station on air
-	browseTop        int             // first visible row index in the virtualized window
-	loadedOnce       bool            // a /discover scan has come back at least once (drives the initial ((•)) scanning pose)
-	q                quote           // the in-flight connect quote (confirm / over-limit)
-	editBuf          string          // inline numeric edit buffer (over-limit + limits edit)
-	editField        int             // which field is focused in the limits editor (0=out,1=tps)
-	limCursor        int             // cursor in the limits view
-	limModels        []string
-	watching         string    // band we are "wait & notify" watching (stub label)
-	detailBand       band      // the band whose expanded per-station view (modeBandDetail) is showing
-	showDetail       bool      // [d] expands the connect-confirm screen; default off (simple)
-	relaying         bool      // a chat request is in flight (drives Ping's transmit line)
-	relayStart       time.Time // when the in-flight chat began (for the elapsed "transmitting Ns")
-	scanErr          bool      // last band scan failed (broker unreachable) -> Ping "...static"
-	scanned          bool      // at least one scan has come back (good or empty) -> Ping idle, not tx
-	emptyScans       int       // consecutive EMPTY /discover scans; debounces a transient empty (a rescan that load-balanced onto a still-syncing broker instance) so a populated list doesn't flicker to "no stations". See the offersMsg handler.
-	minimized        bool      // header toggle: thin one-line bar vs the full lockup
+	// fQuant narrows the dial to ONE compression label (Q cycles it). Empty = every band.
+	// It is a VIEW, not a rule: it changes what you are looking at and binds nothing. The
+	// standing rule that binds an unattended turn is the [3] CONFIG preference.
+	fQuant     string
+	browseTop  int    // first visible row index in the virtualized window
+	loadedOnce bool   // a /discover scan has come back at least once (drives the initial ((•)) scanning pose)
+	q          quote  // the in-flight connect quote (confirm / over-limit)
+	editBuf    string // inline numeric edit buffer (over-limit + limits edit)
+	editField  int    // which field is focused in the limits editor (0=out,1=tps)
+	limCursor  int    // cursor in the limits view
+	limModels  []string
+	watching   string    // band we are "wait & notify" watching (stub label)
+	detailBand band      // the band whose expanded per-station view (modeBandDetail) is showing
+	showDetail bool      // [d] expands the connect-confirm screen; default off (simple)
+	relaying   bool      // a chat request is in flight (drives Ping's transmit line)
+	relayStart time.Time // when the in-flight chat began (for the elapsed "transmitting Ns")
+	scanErr    bool      // last band scan failed (broker unreachable) -> Ping "...static"
+	scanned    bool      // at least one scan has come back (good or empty) -> Ping idle, not tx
+	emptyScans int       // consecutive EMPTY /discover scans; debounces a transient empty (a rescan that load-balanced onto a still-syncing broker instance) so a populated list doesn't flicker to "no stations". See the offersMsg handler.
+	minimized  bool      // header toggle: thin one-line bar vs the full lockup
 	// compact is the "windowshade" mode (XMMS/Winamp collapse): a calm, dense,
 	// animation-free alternate view toggled by [m] in every non-text-entry context.
 	// When set the header drops to one strip, all motion freezes (carrier beat, Ping,
@@ -2645,6 +2662,12 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.fOn = !m.fOn
 			m.clampBrowse()
 			return m, nil
+		case "Q":
+			// CYCLE the quant filter: off -> each quant on the dial -> off. It joins the
+			// F/C/O family deliberately - one keypress, no input box - because splitting
+			// bands by quant made the list longer and the cost has to be payable with a
+			// key an operator already has a finger on.
+			return m.cycleQuantFilter(), nil
 		case "~":
 			// PRIVATE FREQUENCY entry. `~` is the dial-tune mnemonic (a radio dial sweep),
 			// deliberately NOT `f` (the name-filter) so the two never collide. It opens a
@@ -4429,6 +4452,10 @@ func (m model) liveProxyOpts(o offer, alert *alertBox) client.ProxyOptions {
 		Confidential: m.confidentialOnly,
 		MaxPriceIn:   m.q.limit.MaxIn, MaxPriceOut: m.q.limit.MaxOut, MinTPS: m.q.limit.MinTPS,
 		Freq: m.tuneFreq, // private band tune-in: route via X-Roger-Freq (empty = open market)
+		// The tuned row IS a quant, so the stations running a different one are named as
+		// exclusions - otherwise the broker (which groups by model alone) could route this
+		// turn to weights the operator did not choose. See quant_route.go.
+		ExcludeNodes: m.quantExcludes(m.q.b),
 		// ROGERAI_REASONING_RAW is a global session knob: honor it in the TUI booth too, not just
 		// `roger use --raw`, so exporting it disables the reasoning->content fallback everywhere.
 		ReasoningFallbackOff: client.RawReasoningEnv(),
@@ -6559,7 +6586,15 @@ func (m model) visibleBands() []band {
 		if b.isVoice() {
 			continue
 		}
-		if q != "" && !strings.Contains(strings.ToLower(b.model), q) {
+		// The name filter matches the QUANT too, so "q4_k_m" narrows the dial to those
+		// rows and "qwen q4" is not needed as separate syntax. Splitting by quant made the
+		// list longer; letting the filter already in everyone's fingers cut it by quant is
+		// the cheapest way to make that cost back.
+		if q != "" && !strings.Contains(strings.ToLower(b.model), q) &&
+			!strings.Contains(strings.ToLower(b.quant), q) {
+			continue
+		}
+		if m.fQuant != "" && !strings.EqualFold(b.quant, m.fQuant) {
 			continue
 		}
 		if m.fFree && !b.free {
@@ -6605,7 +6640,57 @@ func (m model) visibleBands() []band {
 // filtersActive reports whether any name filter or quick toggle is narrowing the
 // list (used to show the "filter: ... (n/total)" line + the clear hint).
 func (m model) filtersActive() bool {
-	return strings.TrimSpace(m.filterApplied) != "" || m.fFree || m.fConf || m.fOn
+	return strings.TrimSpace(m.filterApplied) != "" || m.fFree || m.fConf || m.fOn || m.fQuant != ""
+}
+
+// quantsOnAir is every distinct quant currently on the dial, in a stable order - the set
+// the Q toggle cycles through. A dial where nothing states a quant yields nothing, and the
+// toggle then has nothing to do, which is the honest outcome rather than an empty filter
+// that hides every row.
+func (m model) quantsOnAir() []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, b := range m.bands {
+		if b.isVoice() || b.quant == "" || seen[b.quant] {
+			continue
+		}
+		seen[b.quant] = true
+		out = append(out, b.quant)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// cycleQuantFilter advances the quant filter: off -> each quant on air -> off. Cycling
+// rather than prompting keeps it in the same family as F/C/O, which are all one keypress
+// and no input box.
+func (m model) cycleQuantFilter() model {
+	qs := m.quantsOnAir()
+	if len(qs) == 0 {
+		m.status = stDim.Render("no band on the dial states a quant to filter by")
+		return m
+	}
+	next := ""
+	for i, q := range qs {
+		if strings.EqualFold(q, m.fQuant) {
+			if i+1 < len(qs) {
+				next = qs[i+1]
+			}
+			break
+		}
+		if m.fQuant == "" {
+			next = qs[0]
+			break
+		}
+	}
+	m.fQuant = next
+	m.clampBrowse()
+	if next == "" {
+		m.status = stDim.Render("quant filter off - every band showing")
+		return m
+	}
+	m.status = stDim.Render("showing only ") + stKey.Render(next) + stDim.Render(" bands · Q cycles")
+	return m
 }
 
 // browseRows is how many band rows the virtualized window may draw at the current
@@ -7034,18 +7119,18 @@ func (m model) browseView(w int) string {
 			// whole row (a colored cell inside an accent bg reads as noise).
 			rawSig := m.bandSMeter(m.sigFrame(), sigSignal, sigTPS, online, sigInFlight, bd.stations, true)
 			plain := fmt.Sprintf("%s  %s  %s%s%s  %s  %s",
-				pad(bd.model, nameW), pad(stationsLbl, 9), pad(priceInOutTier(bd, 17), 17), ctxSelCell, tpsSelCell, rawSig, plainBandBadge(bd, m.limits, connected))
+				bandNameCell(bd, nameW), pad(stationsLbl, 9), pad(priceInOutTier(bd, 17), 17), ctxSelCell, tpsSelCell, rawSig, plainBandBadge(bd, m.limits, connected))
 			b.WriteString(m.caratGutter() + rowSel(true, plain, tableW) + "\n")
 			continue
 		}
 		rng := stEmber.Render(pad(priceInOutTier(bd, 17), 17))
 		sig := m.bandSMeter(m.sigFrame(), sigSignal, sigTPS, online, sigInFlight, bd.stations, false)
-		nameCell := stDim.Render(pad(bd.model, nameW))
+		nameCell := stDim.Render(bandNameCell(bd, nameW))
 		statCell := stDim.Render(pad(stationsLbl, 9))
 		if connected {
 			// The connected band's name + on-air cell light up so the open channel is
 			// obvious in the list (the "◉ connected" badge is in the flags cell too).
-			nameCell = stKey.Render(pad(bd.model, nameW))
+			nameCell = stKey.Render(bandNameCell(bd, nameW))
 			statCell = stRed.Render(pad(stationsLbl, 9))
 		}
 		b.WriteString(selCarat(false) + " " + nameCell + "  " +
@@ -7139,6 +7224,11 @@ func (m model) filterLine(matched, total int) string {
 	}
 	if m.fOn {
 		toggles = append(toggles, stRed.Render("on-air"))
+	}
+	if m.fQuant != "" {
+		// Named, not a bare "quant" lamp: WHICH one is the whole content of this filter,
+		// and an operator who cannot see it cannot tell a narrowed dial from an empty one.
+		toggles = append(toggles, stKey.Render(m.fQuant))
 	}
 	if len(toggles) > 0 {
 		parts = append(parts, stDim.Render("["+strings.Join(toggles, " ")+"]"))
@@ -7281,15 +7371,54 @@ func bandBadgeLegend() string {
 // the cheapest station, and flags. Bands are sorted cheapest-first, with any band
 // whose cheapest station is over the user's limit sorted last (it still shows,
 // flagged "above limit" per the design). Offline-only bands sort after online.
+// bandNameCell renders a band's identity in exactly w cells: the model, and the quant when
+// the band has one.
+//
+// The quant is part of the IDENTITY now, not a decoration, because bands are grouped by
+// (model, quant): two rows can carry the same model name and differ only here. So when
+// space is short the MODEL NAME gives way, not the quant - a truncated name next to
+// "Q4_K_M" still tells you which row you are on, while a full name with no quant leaves
+// two rows that differ in no visible way, which is the failure splitting was meant to fix.
+//
+// A band with no stated quant renders as just the model. Absent is absent: no placeholder,
+// no "unknown", nothing that could be mistaken for a station's claim.
+func bandNameCell(bd band, w int) string {
+	if bd.quant == "" || w <= 0 {
+		return pad(bd.model, w)
+	}
+	// Keep at least a few characters of the model, or the row loses the other half of its
+	// identity; below that there is no room for both and the name wins.
+	const minModel = 6
+	if w < minModel+1+len([]rune(bd.quant)) {
+		return pad(bd.model, w)
+	}
+	name := truncVisible(bd.model, w-1-len([]rune(bd.quant)))
+	return pad(name+" "+bd.quant, w)
+}
+
 func groupBands(offers []offer, limits *LimitStore) []band {
-	byModel := map[string]*band{}
+	// GROUPED BY (MODEL, QUANT), not by model alone (MODEL-VARIANTS-DESIGN-2026-08-22,
+	// founder ruling: split into rows).
+	//
+	// Two stations both offering "qwen3.8-27b" can be running very different weights - one
+	// Q4_K_M on a laptop, one bf16 on a 4090 - and merging them made the dial claim they
+	// were interchangeable while the broker routed between them on price. Splitting is the
+	// honest shape AND the one that makes choosing work: a row is now a routable set, so
+	// "tune this row" already means "only these weights" without the router learning a new
+	// concept.
+	//
+	// Offers with NO stated quant collapse into ONE row per model, which falls out of the
+	// key for free: they are not a quant, they are an absence, and splitting absences by
+	// nothing would produce rows that differ in no visible way.
+	byKey := map[string]*band{}
 	order := []string{}
 	for _, o := range offers {
-		b, ok := byModel[o.Model]
+		key := o.Model + "\x00" + o.Quant
+		b, ok := byKey[key]
 		if !ok {
-			b = &band{model: o.Model, modality: canonModality(o.Modality)}
-			byModel[o.Model] = b
-			order = append(order, o.Model)
+			b = &band{model: o.Model, quant: o.Quant, modality: canonModality(o.Modality)}
+			byKey[key] = b
+			order = append(order, key)
 		}
 		oc := o
 		b.all = append(b.all, oc)
@@ -7339,8 +7468,8 @@ func groupBands(offers []offer, limits *LimitStore) []band {
 		b.online = true
 	}
 	out := make([]band, 0, len(order))
-	for _, m := range order {
-		out = append(out, *byModel[m])
+	for _, k := range order {
+		out = append(out, *byKey[k])
 	}
 	sort.SliceStable(out, func(i, j int) bool {
 		oi := bandOverLimit(out[i], limits)

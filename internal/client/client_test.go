@@ -271,3 +271,29 @@ func TestSignalLevelMapping(t *testing.T) {
 		t.Error("signalLevel should be non-decreasing in signal")
 	}
 }
+
+// THE EXCLUSION HEADER carries the caller's standing exclusions unioned with the live
+// failover set. That union is how a quant choice binds: the broker groups by model alone,
+// so naming the stations running a different quant is what stops it routing there.
+func TestUnionSetMergesFailoverAndStandingExclusions(t *testing.T) {
+	// Deduped across both sources, and SORTED - a header that reordered per request would
+	// be impossible to compare a log against itself with.
+	got := unionSet(map[string]bool{"b-node": true, "a-node": true}, []string{"c-node", "a-node", "  "})
+	if got != "a-node,b-node,c-node" {
+		t.Errorf("unionSet = %q, want a-node,b-node,c-node", got)
+	}
+	// Either source alone still works.
+	if got := unionSet(nil, []string{"only"}); got != "only" {
+		t.Errorf("standing-only = %q", got)
+	}
+	if got := unionSet(map[string]bool{"only": true}, nil); got != "only" {
+		t.Errorf("failover-only = %q", got)
+	}
+	// Nothing to skip must send NO header value, so an ordinary request is unchanged.
+	if got := unionSet(nil, nil); got != "" {
+		t.Errorf("empty = %q, want the header omitted", got)
+	}
+	if got := unionSet(nil, []string{"", "   "}); got != "" {
+		t.Errorf("blank entries produced %q", got)
+	}
+}
