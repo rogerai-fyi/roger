@@ -35,6 +35,12 @@ type agentPickerRow struct {
 	chat  string // full local chat-completions URL (detect.Found.Chat), local rows only
 	key   string // bearer for a key-protected local server, local rows only
 	ctx   int    // context window when known (sizes the tool-output budget)
+	// band marks a local row that is ALSO on one of your private bands right now, so the
+	// picker can say so. It is read from the controller (m.sharePrivate), not from the
+	// broker's /bands: local state is always known, so the badge is present every time the
+	// picker opens rather than only after a roster fetch happened to land. A badge that
+	// blinks in and out teaches the operator nothing.
+	band bool
 }
 
 // localModelsMsg carries a finished background scan back into the model.
@@ -69,6 +75,7 @@ func (m model) localAgentRows() []agentPickerRow {
 			out = append(out, agentPickerRow{
 				model: mdl, local: true, via: f.Name,
 				chat: f.Chat, key: f.Key, ctx: f.Ctx[mdl],
+				band: m.sharePrivate[mdl],
 			})
 		}
 	}

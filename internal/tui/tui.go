@@ -39,6 +39,7 @@ import (
 	"rogerai.fm/roger/v5/internal/client"
 	"rogerai.fm/roger/v5/internal/detect"
 	"rogerai.fm/roger/v5/internal/glyphs"
+	"rogerai.fm/roger/v5/internal/harness"
 	"rogerai.fm/roger/v5/internal/node"
 	"rogerai.fm/roger/v5/internal/operator"
 	"rogerai.fm/roger/v5/internal/pricetier"
@@ -1076,6 +1077,19 @@ type model struct {
 	// /freq sets them after a successful resolve; esc clears back to OPEN MARKET.
 	tuneFreq      string
 	tuneFreqLabel string
+	// [1] TUNE IN's two halves: tabOpenMarket (the public dial) and tabPrivate (your own
+	// bands, from /bands). t switches. privCursor is the private list's own cursor - it is
+	// separate from m.cursor so switching tabs never lands the market cursor on a band
+	// index that only existed in the other list. See tune_private.go.
+	tuneTab    tuneTab
+	privCursor int
+	// A LOCAL channel: the open CHANNEL runs DIRECT against a server on this machine
+	// (harness.LocalCompleter) instead of through the broker relay. Set by openLocalChannel
+	// when tuning one of your own private bands whose model runs here; cleared by
+	// disconnect. Non-empty is what makes the chat send path, the pre-flight and the
+	// channel header all take the direct route - so it must never outlive the channel.
+	chatLocalChat string
+	chatLocalKey  string
 	// async SHARE detection: probing the host's open ports for local LLMs can take a
 	// few seconds on a busy box (120+ listening ports). shareLoading marks the
 	// provider table as "scanning the band…" while detection runs OFF the Bubble Tea
@@ -1219,6 +1233,9 @@ type chatMsg struct {
 	tps                 float64
 	priceIn, priceOut   float64
 	latency             time.Duration
+	// local marks a turn that ran DIRECT on this machine. It is not "cost 0": it is "there
+	// is no cost", and the footer says so in words rather than printing a dollar figure.
+	local bool
 }
 type chatErrMsg string // a chat turn failed - surfaced INLINE in the CHANNEL transcript
 type errMsg string
@@ -2192,7 +2209,11 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// transcript immediately instead of firing a request the broker will bounce
 			// with a 503 the user might never see. (Best-effort: a stale scan still falls
 			// through to the real request + its inline error.)
-			if !m.bandOnAir(m.connected.Model) {
+			// A LOCAL channel skips this pre-flight entirely: the check asks the broker's
+			// band list whether a STATION is on air, and a direct channel has no station -
+			// its model is the local server, which /discover has never heard of. Running it
+			// would refuse every turn on a channel that works.
+			if m.chatLocalChat == "" && !m.bandOnAir(m.connected.Model) {
 				m.transcript = append(m.transcript,
 					stRed.Render("✕ ")+stEmber.Render(noStationServing(m.connected.Model)),
 					hintTuneOrShare(m.narrow()))
@@ -2206,6 +2227,9 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.recordTurn("user", p, "user", nil, nil)
 			// Carry the user's explicit out-price cap for this model (0 -> the default
 			// consumer cap applies broker-side); keeps the in-channel chat bounded like use.
+			if m.chatLocalChat != "" {
+				return m, sendChatLocal(m.chatLocalChat, m.chatLocalKey, m.connected.Model, turn)
+			}
 			return m, sendChat(m.broker, m.user, m.connected.Model, turn, m.confidentialOnly, m.limits.resolve(m.connected.Model).MaxOut, m.tuneFreq)
 		}
 		var c tea.Cmd
@@ -2386,7 +2410,20 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if nm, cmd, ok := m.presetForKey(k.String()); ok {
 			return nm, cmd
 		}
+		// The PRIVATE half of [1] TUNE IN owns its own movement + enter (tune_private.go).
+		// It hands back ok=false for the keys that belong to the whole TUI, so those keep
+		// working from here; the market-only keys stop at its door.
+		if m.tuneTab == tabPrivate {
+			if nm, cmd, ok := m.onPrivateTabKey(k); ok {
+				return nm, cmd
+			}
+		}
 		switch k.String() {
+		case "t", "T":
+			// t = switch halves of the dial: OPEN MARKET ⇄ your own PRIVATE bands. The
+			// founder's ask - a private band was invisible to the operator who minted it,
+			// because /discover hides private nodes with no owner exemption.
+			return m.enterPrivateTab()
 		case "q":
 			return m.requestQuit()
 		case "z":
@@ -4361,6 +4398,10 @@ func (m model) disconnect() (tea.Model, tea.Cmd) {
 		m.proxyHolder.Disconnect()
 	}
 	m.connected = nil
+	// The direct-route binding dies WITH the channel. Left set, the next channel - a real
+	// broker band - would send its turns to the previous band's local server under the new
+	// band's name, which is the same class of bug bindAgentEndpoint's clear exists to stop.
+	m.chatLocalChat, m.chatLocalKey = "", ""
 	m.transcript = nil
 	m.lastReply = "" // leaving the channel: don't let ctrl+y / /copy yank a prior channel's reply
 	m.sessCost = 0
@@ -6327,6 +6368,13 @@ func (m model) compactBandCell(bd band, sel bool, width int) string {
 }
 
 func (m model) browseView(w int) string {
+	// The PRIVATE half is checked FIRST, ahead of the empty-market branch: a private band
+	// is hidden from /discover by design, so m.bands can be empty at the exact moment the
+	// operator has bands to show. Falling through would print "no stations on air" over a
+	// list of their own models.
+	if m.tuneTab == tabPrivate {
+		return m.privateTabView(w)
+	}
 	if len(m.bands) == 0 {
 		// ASYNC LOADING: the initial /discover (and any r re-scan) runs off the Bubble
 		// Tea event loop, so until the first offers land we show the SAME ((•)) scanning
@@ -7803,15 +7851,24 @@ func (m model) chatView(w int) string {
 	// here the accent bar is MONO (vs the AGENT's red bar) and the label spells out
 	// "TUNE-IN · chat (no tools)". Matches the [1] TUNE IN preset naming. COMPACT keeps the
 	// identity but trims the parenthetical.
+	// The cost readout is the header's last field on a MARKET channel. A DIRECT channel
+	// (your own private band, model running here) has no meter at all, so it prints the
+	// route in its place - never "cost $0.00", which would assert a measured charge.
+	costField := stDim.Render("   cost ") + stEmber.Render(dollars(m.sessCost))
+	costFieldCompact := stDim.Render(" · ") + stEmber.Render(dollars(m.sessCost))
+	if m.chatLocalChat != "" {
+		costField = stDim.Render("   ") + stRed.Render(glyphOnAir) + stDim.Render(" direct · nothing metered")
+		costFieldCompact = stDim.Render(" · ") + stRed.Render(glyphOnAir) + stDim.Render(" direct")
+	}
 	if m.compact {
 		head := "  " + stDim.Render("▌") + " " + stBrand.Render("TUNE-IN") + stDim.Render(" · chat  ") +
 			stGold.Render(channelGlyph(m.connected)) + stDim.Render(" "+m.connected.NodeID+" · ") + stKey.Render(m.connected.Model) +
-			stDim.Render(" · ") + stEmber.Render(dollars(m.sessCost)) + sys
+			costFieldCompact + sys
 		b.WriteString(truncVisible(head, w) + "\n")
 	} else {
 		b.WriteString("  " + stDim.Render("▌") + " " + stBrand.Render("TUNE-IN") + stDim.Render(" · chat (no tools)") +
 			stDim.Render("   ") + stGold.Render(channelGlyph(m.connected)) + stDim.Render(" "+m.connected.NodeID+" · ") + stKey.Render(m.connected.Model) +
-			stDim.Render("   cost ") + stEmber.Render(dollars(m.sessCost)) + sys + "\n")
+			costField + sys + "\n")
 	}
 	// Scrollable transcript: an independent viewport (you ▸ / them ◂) that the user can
 	// page through (PgUp/PgDn, mouse wheel, arrows once history is exhausted) while the
@@ -9337,6 +9394,17 @@ func (m model) footer(w int) string {
 		} else {
 			left = stDim.Render("type to filter the band by name  ·  esc clears + closes  ·  ⏎ keeps it applied")
 		}
+	} else if m.tuneTab == tabPrivate {
+		// The PRIVATE half owns a different key set: no sort, no filter, no section
+		// carousel - just move, tune, and the two ways out. Teaching the market keys here
+		// is the exact failure BASE STATION had (a footer describing another screen).
+		if m.narrow() {
+			left = stDim.Render("↑↓ · ⏎ tune · t market · ~ code · r")
+		} else {
+			left = stDim.Render("↑↓ pick · ") + stKey.Render("⏎") +
+				stDim.Render(" tune in direct · ") + stKey.Render("t") +
+				stDim.Render(" OPEN MARKET · ~ tune by code · p manage · r refresh")
+		}
 	} else if m.narrow() {
 		discKey := ""
 		if m.connected != nil {
@@ -9364,9 +9432,9 @@ func (m model) footer(w int) string {
 		// here ONLY when a voice band is actually on air, so a pure-LLM screen never teaches a
 		// voice key. The trailing "s" (share) is terse so it all fits the 80-col grid.
 		if m.voiceBandsOnAir() > 0 {
-			left = stDim.Render("↑↓ pick · enter tune in · i log · f filter · v voices · s sort · ←/→ section")
+			left = stDim.Render("↑↓ pick · enter tune in · i log · f filter · t private · v voices · s sort")
 		} else {
-			left = stDim.Render("↑↓ pick · enter tune in · i log · f filter · ~ freq · s sort · ←/→ section")
+			left = stDim.Render("↑↓ pick · enter tune in · i log · f filter · t private · s sort · ←/→ section")
 		}
 	}
 	confMode := ""
@@ -9903,6 +9971,17 @@ func replyFooter(msg chatMsg, verbose bool) []string {
 		return []string{stDim.Render("   " + msg.status)}
 	}
 	sep := stDim.Render(" · ")
+	// A LOCAL turn: name the route and the fact nothing was metered, and print no dollar
+	// figure at all. "$0.00" is the wrong claim twice over - it implies a meter ran, and it
+	// implies the number could have been higher. Latency is real and stays.
+	if msg.local {
+		parts := []string{stDim.Render("direct · this machine")}
+		if msg.latency > 0 {
+			parts = append(parts, stDim.Render(humanLatency(msg.latency)))
+		}
+		parts = append(parts, stDim.Render("nothing metered"))
+		return []string{"   " + strings.Join(parts, sep)}
+	}
 	var parts []string
 	if msg.provider != "" {
 		parts = append(parts, stDim.Render(msg.provider))
@@ -9947,6 +10026,35 @@ func humanLatency(d time.Duration) string {
 // broker hides every private node from routing, so a channel opened on a private band
 // green-lit the turn and then failed with "no station is serving <model>" - the
 // operator had done everything right.
+// sendChatLocal runs ONE chat turn DIRECT against a server on this machine - the route a
+// private band of your own deserves, since the model is already here and relaying the turn
+// out to the broker so it can come back is a round trip to reach localhost.
+//
+// It reuses harness.LocalCompleter (the agent's local route) with a nil tools array: TUNE-IN
+// is chat, no tools, and passing tools here would let a model emit a tool_call this view has
+// no loop to run.
+//
+// WHAT THE RECEIPT MAY CLAIM. Latency is measured here, so it is reported. Tokens and t/s
+// are NOT reported by every local server and are not parsed on this path, so they are left
+// zero and the renderer omits them - a printed zero would read as a measurement. Cost is the
+// one number that is genuinely known: nothing is metered, no wallet is touched, so the local
+// footer prints the ROUTE rather than a "$0.00" that would read as a charge that happened to
+// round down.
+func sendChatLocal(chatURL, key, mdl, prompt string) tea.Cmd {
+	return func() tea.Msg {
+		start := time.Now()
+		reply, err := harness.LocalCompleter(chatURL, key, mdl)(
+			context.Background(), []harness.Message{{Role: "user", Content: prompt}}, nil)
+		if err != nil {
+			return chatErrMsg(err.Error())
+		}
+		return chatMsg{
+			reply: reply.Content, status: "direct · this machine",
+			local: true, latency: time.Since(start),
+		}
+	}
+}
+
 func sendChat(broker, user, mdl, prompt string, confidential bool, maxOut float64, freq string) tea.Cmd {
 	return func() tea.Msg {
 		r, err := client.ChatTurns(broker, user, mdl,
@@ -10075,7 +10183,6 @@ func wrapStatus(status string, w int) string {
 	}
 	return strings.Join(rows, "\n")
 }
-
 
 // secretArgCommands are the palette verbs whose ARGUMENT is a secret. The band
 // frequency code is the one that exists today; the set is a list rather than a special

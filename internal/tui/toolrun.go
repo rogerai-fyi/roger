@@ -40,8 +40,8 @@ const (
 // toolRun is one tool call and its outcome. Pure data: no styling, no glyphs, nothing
 // that assumes a terminal - which is what lets the console render the same record.
 type toolRun struct {
-	Name     string   // the tool, e.g. "web_fetch"
-	Arg      string   // the human arg summary, e.g. the path or URL
+	Name     string // the tool, e.g. "web_fetch"
+	Arg      string // the human arg summary, e.g. the path or URL
 	Status   toolStatus
 	Detail   string   // the settled tail: "ok · 132 bytes", or the error's first line
 	Approved bool     // the operator confirmed a side-effecting call

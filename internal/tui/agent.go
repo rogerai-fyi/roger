@@ -2265,6 +2265,13 @@ func (m model) agentView(w int) string {
 			tail := m.modelBadgeTail(r.model)
 			if r.local {
 				tail = r.via
+				// The founder's ask: a private band should ALWAYS be visible in the agent
+				// section. It always was - as a plain LOCAL row - but nothing said the row
+				// and the band were the same thing, so an operator hunting for the band
+				// they minted had no way to recognise it here. Naming it closes that.
+				if r.band {
+					tail += " · " + glyphOnAir + " your private band"
+				}
 			}
 			if i == m.agentPickerCursor {
 				line := " ▸ " + row
@@ -2724,7 +2731,6 @@ func foldRow(tri, label string, w int) string {
 	}
 	return lipgloss.NewStyle().Foreground(cDim).Background(cBand).Render(truncVisible(line, w))
 }
-
 
 // agentToolCallLine renders a tool CALL as dim machinery-texture (design overhaul §4): a
 // ⚙ gear + the tool + its arg summary, ALL dim, so the tool chatter recedes behind the

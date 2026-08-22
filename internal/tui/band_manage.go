@@ -317,7 +317,6 @@ func (m model) acceptBandMove() tea.Cmd {
 	}
 }
 
-
 // modelForNodeID maps a band's node id back to a model ON THIS MACHINE, or "" when the
 // band points somewhere else.
 //
