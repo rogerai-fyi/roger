@@ -54,7 +54,7 @@ func TestFetchCommands(t *testing.T) {
 // chatErrMsg INLINE (the silent-no-response fix), not a footer error or a panic.
 func TestSendChat(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	if _, ok := sendChat("http://127.0.0.1:0", "u", "m", "hello", false, 0, "")().(chatErrMsg); !ok {
+	if _, ok := sendChat("http://127.0.0.1:0", "u", "m", "hello", false, 0, "", nil)().(chatErrMsg); !ok {
 		t.Error("sendChat(unreachable) should yield chatErrMsg")
 	}
 }

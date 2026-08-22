@@ -2362,13 +2362,23 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// Record the user turn into the per-turn context ring (Q4) before it is sent,
 			// so an operator handoff can carry the conversation. The flat transcript above
 			// stays the render source.
+			// THE CONVERSATION SO FAR, taken BEFORE this question joins the ring - so the
+			// history is exactly the prior turns and needs no trimming afterwards. (An
+			// earlier cut computed it after recordTurn and dropped the last element, which
+			// is correct only while that element is guaranteed to be the question: one
+			// empty-content filter away from silently dropping a real turn instead.)
+			hist := m.chatHistory(m.connected.Model)
 			m.recordTurn("user", p, "user", nil, nil)
 			// Carry the user's explicit out-price cap for this model (0 -> the default
 			// consumer cap applies broker-side); keeps the in-channel chat bounded like use.
 			if m.chatLocalChat != "" {
-				return m, sendChatLocal(m.chatLocalChat, m.chatLocalKey, m.connected.Model, turn)
+				msgs := make([]harness.Message, 0, len(hist)+1)
+				for _, t := range hist {
+					msgs = append(msgs, harness.Message{Role: t.Role, Content: t.Content})
+				}
+				return m, sendChatLocal(m.chatLocalChat, m.chatLocalKey, m.connected.Model, turn, msgs)
 			}
-			return m, sendChat(m.broker, m.user, m.connected.Model, turn, m.confidentialOnly, m.limits.resolve(m.connected.Model).MaxOut, m.tuneFreq)
+			return m, sendChat(m.broker, m.user, m.connected.Model, turn, m.confidentialOnly, m.limits.resolve(m.connected.Model).MaxOut, m.tuneFreq, hist)
 		}
 		var c tea.Cmd
 		m.chatIn, c = m.chatIn.Update(k)
@@ -10447,11 +10457,12 @@ func humanLatency(d time.Duration) string {
 // one number that is genuinely known: nothing is metered, no wallet is touched, so the local
 // footer prints the ROUTE rather than a "$0.00" that would read as a charge that happened to
 // round down.
-func sendChatLocal(chatURL, key, mdl, prompt string) tea.Cmd {
+func sendChatLocal(chatURL, key, mdl, prompt string, history []harness.Message) tea.Cmd {
 	return func() tea.Msg {
 		start := time.Now()
+		msgs := append(append([]harness.Message{}, history...), harness.Message{Role: "user", Content: prompt})
 		reply, err := harness.LocalCompleter(chatURL, key, mdl)(
-			context.Background(), []harness.Message{{Role: "user", Content: prompt}}, nil)
+			context.Background(), msgs, nil)
 		if err != nil {
 			return chatErrMsg(err.Error())
 		}
@@ -10462,10 +10473,10 @@ func sendChatLocal(chatURL, key, mdl, prompt string) tea.Cmd {
 	}
 }
 
-func sendChat(broker, user, mdl, prompt string, confidential bool, maxOut float64, freq string) tea.Cmd {
+func sendChat(broker, user, mdl, prompt string, confidential bool, maxOut float64, freq string, history []client.ChatTurn) tea.Cmd {
 	return func() tea.Msg {
-		r, err := client.ChatTurns(broker, user, mdl,
-			[]client.ChatTurn{{Role: "user", Content: prompt}}, confidential, maxOut, freq)
+		turns := append(append([]client.ChatTurn{}, history...), client.ChatTurn{Role: "user", Content: prompt})
+		r, err := client.ChatTurns(broker, user, mdl, turns, confidential, maxOut, freq)
 		if err != nil {
 			// A chat failure is surfaced INLINE in the transcript (chatErrMsg), not on
 			// the footer status line - that was the silent-no-response bug: the user

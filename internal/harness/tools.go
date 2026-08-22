@@ -95,6 +95,12 @@ const (
 // Loop from the tuned band's reported context window).
 func ToolOutputBudget(ctx int) int { return toolOutputBudget(ctx) }
 
+// BytesPerToken is the harness's working estimate, exported so a front-end sizing its own
+// budget against a band's context window uses the SAME number the harness does. Two
+// estimates would disagree about how much fits, and the disagreement would only show up as
+// a context overflow on somebody's 8k band.
+const BytesPerToken = bytesPerToken
+
 // toolOutputBudget returns the byte cap for ONE tool result on a model with the given
 // context window (in tokens). A ctx of 0 or less means "unknown" - the broker did not
 // report one - and keeps the historical flat cap rather than guessing a smaller one.
@@ -149,7 +155,7 @@ func BuiltinTools() []Tool {
 			Name:        "read_file",
 			Description: "Read a UTF-8 text file in the working directory and return its contents. Read-only.",
 			Mutating:    false,
-			Concurrent:  true, // a read is independent of its siblings
+			Concurrent:  true,             // a read is independent of its siblings
 			Timeout:     10 * time.Second, // a local file read that takes 10s is a mount that is gone
 			Params: map[string]any{
 				"type": "object",
@@ -174,7 +180,7 @@ func BuiltinTools() []Tool {
 			Name:        "list_dir",
 			Description: "List the entries of a directory in the working directory (default: the working directory itself). Read-only.",
 			Mutating:    false,
-			Concurrent:  true, // a read is independent of its siblings
+			Concurrent:  true,             // a read is independent of its siblings
 			Timeout:     10 * time.Second, // same: local, or something is wrong
 			Params: map[string]any{
 				"type": "object",
@@ -214,7 +220,7 @@ func BuiltinTools() []Tool {
 			Name:        "web_fetch",
 			Description: "Fetch the text body of an http(s) URL and return it. Read-only; no JavaScript, text only.",
 			Mutating:    false,
-			Concurrent:  true, // a read is independent of its siblings
+			Concurrent:  true,             // a read is independent of its siblings
 			Timeout:     45 * time.Second, // a slow site is normal; a site that never answers is not
 			Params: map[string]any{
 				"type": "object",
