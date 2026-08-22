@@ -71,10 +71,18 @@ type Config struct {
 	// Capabilities are the offer's chat sub-capabilities (e.g. ["vision"]) from the detected
 	// server; empty/nil for a plain text model. See docs/BROKER-VISION-CAPABILITY.md.
 	Capabilities []string
-	Name         string // display name for the /voices picker (e.g. "1950s Operator")
-	Language     string
-	SampleURL    string
-	LatencyMS    int
+	// Quant / Weights / Variant tell this offer apart from another station's offer of the
+	// SAME model id ("qwen3.8-27b" at Q4_K_M is not the one at bf16). Detected from the
+	// local runtime - see internal/detect - and passed through to the offer; the broker
+	// routes on none of them. Empty means the runtime and the file said nothing, which is
+	// common and must render as absent rather than as a guess.
+	Quant     string
+	Weights   string
+	Variant   string
+	Name      string // display name for the /voices picker (e.g. "1950s Operator")
+	Language  string
+	SampleURL string
+	LatencyMS int
 	// Voice/Speed: the operator's chosen DEFAULT voice (a single Kokoro id OR a blend string,
 	// from the SHARE VOICE BOOTH) + default speed. The node injects them into a /v1/audio/speech
 	// request that OMITS `voice` (see serve), so a consumer gets the operator's picked voice.
@@ -405,6 +413,7 @@ func Start(cfg Config) (*Session, error) {
 	}
 
 	offer := protocol.ModelOffer{Model: cfg.Model, Modality: cfg.Modality, Capabilities: cfg.Capabilities,
+		Quant: cfg.Quant, Weights: cfg.Weights, Variant: cfg.Variant,
 		PriceIn: cfg.PriceIn, PriceOut: cfg.PriceOut,
 		Ctx: cfg.Ctx, CtxEstimated: cfg.CtxEstimated, Schedule: cfg.Schedule,
 		Name: cfg.Name, Language: cfg.Language, SampleURL: cfg.SampleURL, LatencyMS: cfg.LatencyMS,

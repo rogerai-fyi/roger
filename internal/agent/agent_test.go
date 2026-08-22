@@ -610,3 +610,43 @@ func TestServeStreamRedactsUpstreamKey(t *testing.T) {
 		t.Errorf("stream usage = %d/%d, want 7/11", rec.PromptTokens, rec.CompletionTokens)
 	}
 }
+
+// THE VARIANT FIELDS REACH THE OFFER a node registers. detect fills them, the controller
+// carries them onto agent.Config, and this is the last link: they must appear in the
+// registration the broker actually receives, or every surface downstream renders "absent"
+// for a model we know all about. MODEL-VARIANTS-DESIGN-2026-08-22.
+func TestVariantFieldsReachTheRegisteredOffer(t *testing.T) {
+	var got protocol.NodeRegistration
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/nodes/register" {
+			_ = json.NewDecoder(r.Body).Decode(&got)
+			_, _ = w.Write([]byte(`{"ok":true}`))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	sess, err := Start(Config{
+		Broker: srv.URL, NodeID: "amber-fox-qwen", Station: "amber-fox",
+		Model: "qwen3.8-27b", Upstream: "http://127.0.0.1:0/v1/chat/completions",
+		Quant: "Q4_K_M", Weights: "unsloth", Variant: "thinking",
+	})
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer sess.Stop()
+
+	if len(got.Offers) != 1 {
+		t.Fatalf("the broker received %d offers", len(got.Offers))
+	}
+	o := got.Offers[0]
+	if o.Quant != "Q4_K_M" || o.Weights != "unsloth" || o.Variant != "thinking" {
+		t.Errorf("the variants did not reach the offer: %+v", o)
+	}
+	// And the registration it rode in on is still valid - the fields are excluded from
+	// the possession proof, so carrying them must not break the signature.
+	if !got.VerifyRegistration() {
+		t.Error("carrying the variant fields broke the registration signature")
+	}
+}

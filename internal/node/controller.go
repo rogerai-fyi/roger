@@ -96,6 +96,12 @@ type ShareRow struct {
 	CtxEstimated bool
 	Upstream     string
 	UpstreamKey  string
+	// Quant / Weights / Variant tell this row apart from another station's offer of the
+	// SAME model id, and ride onto the offer when it goes on air. Detected only - empty
+	// means the runtime and the file said nothing, which is common and renders as absent.
+	Quant   string
+	Weights string
+	Variant string
 }
 
 // VoiceConfig is the SHARE VOICE BOOTH's result for one tts model: the on-air DJ identity the
@@ -291,7 +297,11 @@ func (c *Controller) loadRows(found []detect.Found, persist bool) {
 			// One ctx resolver shared with the CLI/TUI: the real detected window when the
 			// upstream reported it, else the estimated default (flagged).
 			ctxLen, ctxEst := detect.ResolveCtx(srv.Ctx, mdl)
-			rows = append(rows, ShareRow{Model: mdl, Modality: srv.Modality[mdl], Ctx: ctxLen, CtxEstimated: ctxEst, Upstream: up, UpstreamKey: srv.Key})
+			rows = append(rows, ShareRow{
+				Model: mdl, Modality: srv.Modality[mdl], Ctx: ctxLen, CtxEstimated: ctxEst,
+				Upstream: up, UpstreamKey: srv.Key,
+				Quant: srv.Quant[mdl], Weights: srv.Weights[mdl], Variant: srv.Variant[mdl],
+			})
 		}
 	}
 	// Saved onboarding model first, so the obvious default is at the cursor.
@@ -480,6 +490,7 @@ func (c *Controller) startLocked(row ShareRow, p Pricing, private bool) (*agent.
 		Broker: c.broker, Upstream: up, UpstreamKey: upKey, NodeID: node, Station: c.station,
 		Region: "home", HW: c.hw, Model: row.Model, Modality: row.Modality,
 		PriceIn: p.In, PriceOut: p.Out, Ctx: row.Ctx, CtxEstimated: row.CtxEstimated, Parallel: 4,
+		Quant: row.Quant, Weights: row.Weights, Variant: row.Variant,
 		Private: private, Schedule: SchedToProtocol(p.Windows),
 		Name: vc.Name, Voice: vc.Voice, Speed: vc.Speed, Language: vc.Language, SampleURL: vc.SampleURL,
 	})

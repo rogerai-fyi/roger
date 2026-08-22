@@ -46,9 +46,31 @@ type ModelOffer struct {
 	// this field and one that carries it produce byte-identical signed bytes - otherwise a broker
 	// upgrade rejects validly-signed nodes with a 401 (the rollout-break this reverts).
 	Capabilities []string `json:"capabilities,omitempty"`
-	PriceIn      float64  `json:"price_in"`  // credits per 1,000,000 input units (tokens or chars; see Unit)
-	PriceOut     float64  `json:"price_out"` // credits per 1,000,000 output units (tokens or audio-bytes)
-	Ctx          int      `json:"ctx"`
+	// Quant / Weights / Variant tell two offers of the SAME model id apart
+	// (MODEL-VARIANTS-DESIGN-2026-08-22). Two stations both offering "qwen3.8-27b" can be
+	// running very different weights, and without these the dial merged them into one row
+	// and routed between them as though they were interchangeable.
+	//
+	//	Quant   the compression label VERBATIM ("Q4_K_M", "IQ4_XS", "BF16"). Never bucketed
+	//	        into "4-bit": Q4_K_M and IQ4_XS are both four-bit and people choose between
+	//	        them deliberately.
+	//	Weights who built the weights ("unsloth", "bartowski") - GGUF general.quantized_by.
+	//	Variant what the base model was tuned toward ("thinking") - general.finetune.
+	//
+	// DISPLAY + FILTER attributes only. The broker passes them through and routes on none
+	// of them; a consumer that wants a particular quant excludes the stations that do not
+	// match (X-Roger-Exclude-Nodes), which needs no routing change.
+	//
+	// omitempty is REQUIRED and they are EXCLUDED from the possession proof, for exactly
+	// the reason spelled out on Capabilities above: a node and a broker on different
+	// binaries must produce byte-identical signed bytes, or a broker upgrade 401s validly-
+	// signed nodes. Locked in registration_test.go / variants_test.go.
+	Quant    string  `json:"quant,omitempty"`
+	Weights  string  `json:"weights,omitempty"`
+	Variant  string  `json:"variant,omitempty"`
+	PriceIn  float64 `json:"price_in"`  // credits per 1,000,000 input units (tokens or chars; see Unit)
+	PriceOut float64 `json:"price_out"` // credits per 1,000,000 output units (tokens or audio-bytes)
+	Ctx      int     `json:"ctx"`
 	// CtxEstimated is true when Ctx is the last-resort default (no upstream reported a
 	// real per-model window), so the UI can render it as an estimate (~32k, dim) instead
 	// of a detected value (131k, solid). Truth-in-labeling, like TokenizerExact on the
@@ -107,6 +129,58 @@ func (o *ModelOffer) Normalize() {
 	}
 	o.Unit = canonicalUnit(o.Modality)
 	o.Capabilities = CanonicalCapabilities(o.Capabilities)
+	o.Quant = CanonicalQuant(o.Quant)
+	o.Weights = CanonicalVariantText(o.Weights)
+	o.Variant = CanonicalVariantText(o.Variant)
+}
+
+// variantTextMax bounds ONE variant field. These are node-supplied strings that end up on
+// a terminal row and in a browser table, so an unbounded one is a layout weapon: a node
+// could ship a 10 KB "quant" and push every column off the dial for everyone looking at
+// that band. The cap is generous next to the longest real label (MXFP4_MOE, IQ2_XXS) and
+// far below anything that could distort a row.
+const variantTextMax = 40
+
+// CanonicalQuant normalizes a compression label: trimmed, control characters stripped,
+// bounded, and UPPER-CASED because the label is a name - a publisher writing "q4_k_m"
+// means the same weights as one writing "Q4_K_M", and a consumer filtering on one must
+// match the other.
+//
+// It is deliberately NOT checked against a closed set, unlike Capabilities. That
+// asymmetry is the point: a capability GRANTS behaviour, so an unknown one must be
+// dropped; a quant only DESCRIBES, and its vocabulary genuinely moves - MXFP4_MOE and
+// NVFP4 are recent additions to llama.cpp and the next one is not in any list we could
+// ship today. A closed set here would be stale by design and would silently erase the
+// exact distinctions this field exists to carry.
+func CanonicalQuant(s string) string {
+	return strings.ToUpper(CanonicalVariantText(s))
+}
+
+// CanonicalVariantText trims, strips control characters, and bounds a node-supplied
+// display string.
+//
+// Control characters are removed rather than escaped: this text is rendered into a
+// terminal, and a node that could embed an ANSI escape or a newline in its "weights" could
+// repaint another operator's screen or break a row in half. Nothing legitimate needs them.
+func CanonicalVariantText(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		// Drop C0/C1 controls and DEL. Everything printable survives, including the
+		// non-ASCII a publisher might legitimately use in a name.
+		if r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f) {
+			continue
+		}
+		b.WriteRune(r)
+		if b.Len() >= variantTextMax {
+			break
+		}
+	}
+	return strings.TrimSpace(b.String())
 }
 
 // CapVision marks a chat model that accepts image_url content (the photo path). It is
@@ -298,7 +372,8 @@ type NodeRegistration struct {
 }
 
 // regSigningBytes is the canonical form a node signs to prove it owns PubKey (the Sig field
-// itself is excluded). It also EXCLUDES each offer's Capabilities: that is an optional, later-
+// itself is excluded). It also EXCLUDES each offer's Capabilities and variant fields
+// (Quant/Weights/Variant): those are optional, later-
 // added DISPLAY attribute (vision labelling), not part of key possession, so signing over it
 // would make the proof version-fragile - a broker/node binary mismatch on whether the field is
 // present would change the bytes and reject a valid signature (a 401 rollout-break). Clearing it
@@ -311,6 +386,9 @@ func (r NodeRegistration) regSigningBytes() []byte {
 		copy(offers, c.Offers)
 		for i := range offers {
 			offers[i].Capabilities = nil
+			// The variant fields are excluded for the same reason and with the same
+			// consequence if they are not: see their doc on ModelOffer.
+			offers[i].Quant, offers[i].Weights, offers[i].Variant = "", "", ""
 		}
 		c.Offers = offers
 	}
