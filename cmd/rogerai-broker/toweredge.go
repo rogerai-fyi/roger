@@ -1955,7 +1955,7 @@ func (b *broker) towerEdgeSettle(w http.ResponseWriter, r *http.Request) {
 		// is a consumer who may be lying; a Tower's unusual dispute rate is a Tower to look at.
 		outcome = reputation.Disputed
 	}
-	b.recordOutcome(req.TowerID, req.AttemptID, outcome)
+	b.recordOutcome(req.TowerID, req.StationID, req.AttemptID, outcome)
 	// A sampled fraction is selected for post-hoc content review, and a DISPUTED attempt is
 	// audited regardless of the sample - the transcript is the closest look available at
 	// whether the Station is self-consistent about the bytes it signed. The digests AND the
@@ -2051,13 +2051,19 @@ func (b *broker) towerOperatorAccount(towerID string) (string, bool, error) {
 	return "", false, firstErr
 }
 
-func (b *broker) recordOutcome(towerID, attemptID string, o reputation.Outcome) {
+// stationID is WHICH Station the outcome concerns, and it is a separate question from whose
+// fault the outcome is - that one is answered by the outcome itself (see reputation.StationFault).
+// Pass the Station whenever there is exactly one, including on findings that stay the Tower's:
+// evidence an operator may one day have to dispute should name the machine it is about even
+// when the machine is not the one being judged. Empty where a finding genuinely concerns no
+// single Station.
+func (b *broker) recordOutcome(towerID, stationID, attemptID string, o reputation.Outcome) {
 	ts := b.tower
 	if ts == nil || ts.outcomes == nil {
 		return
 	}
 	if err := ts.outcomes.Record(reputation.Event{
-		TowerID: towerID, AttemptID: attemptID, Outcome: o, At: time.Now(),
+		TowerID: towerID, StationID: stationID, AttemptID: attemptID, Outcome: o, At: time.Now(),
 	}); err != nil {
 		log.Printf("tower %s: could not record outcome %s for %s: %v", towerID, o, attemptID, err)
 	}

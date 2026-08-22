@@ -986,7 +986,7 @@ func TestFlaggingNeverReversesASettlement(t *testing.T) {
 
 	// Enough uncorroborated attempts, against no fleet baseline, to flag.
 	for i := 0; i < 30; i++ {
-		b.recordOutcome(tw.id, "att-"+string(rune('a'+i%26))+string(rune('0'+i/26)),
+		b.recordOutcome(tw.id, "", "att-"+string(rune('a'+i%26))+string(rune('0'+i/26)),
 			reputation.Uncorroborated)
 	}
 	verdict := b.evaluateTower(tw.id)
@@ -1005,7 +1005,7 @@ func TestAnAuditMismatchQuarantinesTheTower(t *testing.T) {
 	tw := enrolledTower(t, b, "owner-1")
 	require.NoError(t, b.tower.registry.Transition(tw.id, admit.StateActive))
 
-	b.recordOutcome(tw.id, "att-bad", reputation.AuditMismatch)
+	b.recordOutcome(tw.id, "", "att-bad", reputation.AuditMismatch)
 	require.Equal(t, reputation.Quarantine, b.evaluateTower(tw.id))
 
 	// An ACTIVE Tower is SUSPENDED - the legal "take it off now" move - not put back in
@@ -1040,7 +1040,7 @@ func TestTheSweepReapsAgedOutcomes(t *testing.T) {
 // than panic, because a reputation write is downstream of the money and must never be a gate.
 func TestReputationHelpersAreSafeWithoutTheSubsystem(t *testing.T) {
 	b := testBrokerWithDB(store.NewMem())
-	require.NotPanics(t, func() { b.recordOutcome("tw", "att", reputation.Uncorroborated) })
+	require.NotPanics(t, func() { b.recordOutcome("tw", "", "att", reputation.Uncorroborated) })
 	require.Equal(t, reputation.Clean, b.evaluateTower("tw"))
 }
 
@@ -1052,7 +1052,7 @@ func TestATowerWithLittleEvidenceIsLeftActive(t *testing.T) {
 	require.NoError(t, b.tower.registry.Transition(tw.id, admit.StateActive))
 
 	for i := 0; i < 3; i++ {
-		b.recordOutcome(tw.id, "att-"+string(rune('a'+i)), reputation.Uncorroborated)
+		b.recordOutcome(tw.id, "", "att-"+string(rune('a'+i)), reputation.Uncorroborated)
 	}
 	require.Equal(t, reputation.Clean, b.evaluateTower(tw.id))
 	got, _ := b.tower.registry.Get(tw.id)
@@ -1067,7 +1067,7 @@ func TestRepeatedCanaryFailuresSuspend(t *testing.T) {
 	require.NoError(t, b.tower.registry.Transition(tw.id, admit.StateActive))
 
 	for i := 0; i < 8; i++ {
-		b.recordOutcome(tw.id, "canary-"+string(rune('a'+i)), reputation.CanaryFail)
+		b.recordOutcome(tw.id, "", "canary-"+string(rune('a'+i)), reputation.CanaryFail)
 	}
 	require.Equal(t, reputation.Quarantine, b.evaluateTower(tw.id))
 	got, _ := b.tower.registry.Get(tw.id)
@@ -1189,32 +1189,11 @@ func TestAMatchingTranscriptPassesTheAudit(t *testing.T) {
 	require.Equal(t, true, out["resolved"])
 }
 
-// A transcript whose digests do not match the receipt is attributed to the Station and
-// suspends the Tower - the audit found content that is not what was signed for.
-func TestAMismatchedTranscriptFailsAndSuspends(t *testing.T) {
-	b, srv := towerTestBroker(t)
-	tw := enrolledTower(t, b, "owner-1")
-	stationPriv := attachStation(t, b, "st-1", tw.id, "owner-1")
-	require.NoError(t, b.tower.registry.Transition(tw.id, admit.StateActive))
-
-	// Core wanted a transcript for these digests; the Station signs a DIFFERENT response.
-	wantAudit(t, b, tw.id, "st-1", "att-1", []byte("the prompt"), []byte("the real answer"))
-	obj, reqB64, respB64 := signedTranscript(t, stationPriv, "att-1",
-		[]byte("the prompt"), []byte("a substituted answer"))
-
-	body, err := json.Marshal(map[string]any{
-		"tower_id": tw.id, "attempt_id": "att-1", "available": true,
-		"transcript": obj, "request": reqB64, "response": respB64,
-	})
-	require.NoError(t, err)
-	var out map[string]any
-	code, _ := tw.call(t, srv, "/tower/audit/transcript", body, &out)
-	require.Equal(t, http.StatusOK, code)
-	require.Equal(t, false, out["matched"])
-
-	got, _ := b.tower.registry.Get(tw.id)
-	require.Equal(t, admit.StateSuspended, got.State)
-}
+// MOVED. What used to sit here was TestAMismatchedTranscriptFailsAndSuspends, and its own
+// comment carried the contradiction the founder's ruling names: "attributed to the Station and
+// suspends the Tower". A finding cannot be attributed to one party and charged to another. It
+// now lives in towerfaultattribution_test.go beside the neighbouring cases that keep the
+// Tower's half of the split honest.
 
 // A Station that cannot produce a sampled transcript is the spec's quarantine trigger.
 func TestAStationThatCannotProduceIsSuspended(t *testing.T) {
@@ -1451,7 +1430,7 @@ func TestEvaluatingAnAlreadyRevokedTowerIsHarmless(t *testing.T) {
 	tw := enrolledTower(t, b, "owner-1")
 	require.NoError(t, b.tower.registry.Transition(tw.id, admit.StateRevoked))
 
-	b.recordOutcome(tw.id, "att-bad", reputation.AuditMismatch)
+	b.recordOutcome(tw.id, "", "att-bad", reputation.AuditMismatch)
 	require.Equal(t, reputation.Quarantine, b.evaluateTower(tw.id),
 		"the verdict stands even when the Tower cannot be moved")
 	got, _ := b.tower.registry.Get(tw.id)
@@ -1496,6 +1475,9 @@ func (failingOutcomes) Tally(string, time.Time) (reputation.Tally, error) {
 func (failingOutcomes) FleetTally(time.Time) (reputation.Tally, error) {
 	return reputation.Tally{}, assertErr2
 }
+func (failingOutcomes) TallyByStation(string, time.Time) (map[string]reputation.Tally, error) {
+	return nil, assertErr2
+}
 func (failingOutcomes) Reap(time.Time) (int64, error) { return 0, assertErr2 }
 
 type failingAudit struct{}
@@ -1518,7 +1500,7 @@ func TestStoreFailuresAreLoggedNotFatal(t *testing.T) {
 	b.tower.outcomes = failingOutcomes{}
 	b.tower.auditWanted = failingAudit{}
 
-	require.NotPanics(t, func() { b.recordOutcome(tw.id, "att", reputation.Uncorroborated) })
+	require.NotPanics(t, func() { b.recordOutcome(tw.id, "", "att", reputation.Uncorroborated) })
 	// evaluateTower cannot read the tally, so it declines to act rather than acting on nothing.
 	require.Equal(t, reputation.Clean, b.evaluateTower(tw.id))
 	require.NotPanics(t, func() { b.selectForAudit(tw.id, "st-1", "att", "rq", "rs", 0, 0, 0, 0) })

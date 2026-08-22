@@ -259,7 +259,16 @@ func (b *broker) towerAuditTranscript(w http.ResponseWriter, r *http.Request) {
 		// have it (a review found one-strike-quarantining that punished exactly the honest).
 		// Off-sample misses are logged as a soft signal, not recorded as a mismatch.
 		if auditSampled(req.AttemptID) && !b.auditLenientStation(wanted.StationID) {
-			b.recordOutcome(req.TowerID, req.AttemptID, reputation.AuditMismatch)
+			// THE TOWER'S, and this is the one attribution in this handler that stays with the
+			// Tower even though it is a claim about a Station. "The Station did not keep it"
+			// arrives over the TOWER's signature and there is nothing in it Core can check -
+			// no station-signed material, no bytes, nothing. If an unverifiable excuse moved a
+			// finding off the Tower, it would be both the cheapest lie a Tower can tell and its
+			// cheapest way out of an audit: answer `available:false` to everything, resolve
+			// every want, never be measured again. So a Tower stands behind the excuses it
+			// forwards. The Station is named on the row regardless, because the operator who
+			// has to answer for this deserves to be told which machine it was about.
+			b.recordOutcome(req.TowerID, wanted.StationID, req.AttemptID, reputation.AuditMismatch)
 			b.evaluateTower(req.TowerID)
 		} else {
 			log.Printf("audit: attempt %s on tower %s not retained (off-sample, or a hub node that has never answered one) - soft miss, no finding", req.AttemptID, req.TowerID)
@@ -291,13 +300,31 @@ func (b *broker) towerAuditTranscript(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	matches := result.Matches
+	// WHOSE FAULT A MISMATCH IS, decided branch by branch below rather than by which party
+	// happened to deliver the message.
+	//
+	// The default is the STATION, because reaching this line at all means a transcript arrived
+	// that verified under the assertion key recorded at ATTACHMENT - not a key from the message
+	// - over this exact attempt in this exact network. The Tower does not hold that key and
+	// cannot make one. So a transcript that verifies and then contradicts the digests the
+	// Station already signed into its receipt is the Station having signed two incompatible
+	// accounts of one attempt, and no behaviour by the Tower produces it.
+	//
+	// Two branches below take it back: the loose plaintext bytes (which the Tower supplies
+	// unsigned) and the wire count (which is the Tower's own attestation). Each says why.
+	stationFault := true
 	if matches {
 		// The bytes must also hash to the signed digests, or the content Core is about to
 		// screen is not the content that was attested.
 		reqBytes, _ := base64.StdEncoding.DecodeString(req.Request)
 		respBytes, _ := base64.StdEncoding.DecodeString(req.Response)
 		if verr := tr.VerifyBytes(reqBytes, respBytes); verr != nil {
+			// THE TOWER'S. The transcript itself verified and its digests agreed with the
+			// receipt (we are inside `matches`), so the Station's signed account of this
+			// attempt is intact and the only thing wrong is the PLAINTEXT that rode beside
+			// it - which the Tower supplies, unsigned, in fields of its own submission.
 			matches = false
+			stationFault = false
 			result.Reason = verr.Error()
 		} else if int64(len(reqBytes)) != wanted.UsageIn || int64(len(respBytes)) != wanted.UsageOut {
 			// USAGE MUST EQUAL THE BYTES THE STATION SIGNED FOR. This is the post-hoc backstop for
@@ -323,7 +350,7 @@ func (b *broker) towerAuditTranscript(w http.ResponseWriter, r *http.Request) {
 				(wanted.WireOut > 0 && wanted.WireOut < int64(len(respBytes))) {
 				log.Printf("audit: TOWER %s attested an impossible wire count for %s (wire %d/%d < proven plaintext %d/%d) - the tower, not the station, is the liar here",
 					req.TowerID, req.AttemptID, wanted.WireIn, wanted.WireOut, len(reqBytes), len(respBytes))
-				b.recordOutcome(req.TowerID, req.AttemptID+"#wire", reputation.CanaryFail)
+				b.recordOutcome(req.TowerID, wanted.StationID, req.AttemptID+"#wire", reputation.CanaryFail)
 				b.evaluateTower(req.TowerID)
 			}
 		}
@@ -335,8 +362,22 @@ func (b *broker) towerAuditTranscript(w http.ResponseWriter, r *http.Request) {
 	b.markAuditProven(wanted.StationID)
 	_ = ts.auditWanted.Resolve(req.AttemptID)
 	if !matches {
-		log.Printf("audit: attempt %s on tower %s did not match: %s", req.AttemptID, req.TowerID, result.Reason)
-		b.recordOutcome(req.TowerID, req.AttemptID, reputation.AuditMismatch)
+		outcome := reputation.AuditMismatch
+		who := "TOWER"
+		if stationFault {
+			// Recorded against the Station and NOT counted toward its Tower's suspension. The
+			// spec has said so all along - "a transcript that does not match is attributed to
+			// the Station and not to the consumer" - and the half that was missing is that it
+			// is not the Tower's either. Before this, one Station misreporting its own usage
+			// suspended its Tower on a SINGLE event, taking every honest node behind it off the
+			// fabric for a fault none of them had any part in and none of them could have
+			// prevented.
+			outcome = reputation.StationFault
+			who = "STATION"
+		}
+		log.Printf("audit: attempt %s on tower %s did not match (%s's fault): %s",
+			req.AttemptID, req.TowerID, who, result.Reason)
+		b.recordOutcome(req.TowerID, wanted.StationID, req.AttemptID, outcome)
 		b.evaluateTower(req.TowerID)
 		writeJSON(w, http.StatusOK, map[string]any{"attempt_id": req.AttemptID, "matched": false})
 		return
@@ -413,7 +454,10 @@ func (b *broker) sweepAuditOverdue(now time.Time) {
 			continue
 		}
 		log.Printf("audit: attempt %s on tower %s was never produced", o.AttemptID, o.TowerID)
-		b.recordOutcome(o.TowerID, o.AttemptID, reputation.AuditMismatch)
+		// THE TOWER'S, for the same reason a forwarded `available:false` is: a transcript that
+		// never arrived is a non-delivery, and delivery is what a Tower is for. Core asked and
+		// nothing came back, so it has no evidence at all about whether the Station answered.
+		b.recordOutcome(o.TowerID, o.StationID, o.AttemptID, reputation.AuditMismatch)
 		b.evaluateTower(o.TowerID)
 	}
 }
@@ -467,7 +511,17 @@ func (b *broker) adaptiveAuditP(towerID string, attachedAt, now time.Time) float
 			// STRONG evidence ramps directly: disputes, audit mismatches, canary failures.
 			// (A review found the earlier numerator EXCLUDED mismatches and canary fails, so
 			// the strongest evidence lowered the rate by growing only the denominator.)
-			strong := float64(tally.Disputed+tally.AuditMismatch+tally.CanaryFail) / float64(tally.Total)
+			// The denominator drops the outcomes that are not this Tower's to answer for.
+			// StationFault rows are recorded under the Tower's id (that is how they are found
+			// again) but describe a machine behind it, so leaving them in would grow the
+			// denominator without the numerator and make a Tower look CALMER the more its
+			// Stations misbehaved - the same shape as the review finding that put mismatches
+			// and canary fails into the numerator in the first place.
+			judged := tally.Total - tally.StationFault
+			if judged <= 0 {
+				judged = 1
+			}
+			strong := float64(tally.Disputed+tally.AuditMismatch+tally.CanaryFail) / float64(judged)
 			p += adaptiveAnomalyGain * strong
 			// Uncorroborated ramps only on the EXCESS over the fleet's own rate, over settled
 			// outcomes - the same relative discipline evaluateTower applies.

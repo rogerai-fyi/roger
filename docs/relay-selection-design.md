@@ -1359,7 +1359,16 @@ Still open after round five, and worth naming so the next reader does not have t
     Station FROM a session key: the only lookup that did was `BySessionKey`, whose sole caller
     was the uniqueness check, and it is deleted with it. Two rows carrying one key are two
     destinations, not one. Nobody's traffic moves.
-  - **The squatter's own Station is the only casualty.** It receives ciphertext sealed to a
+  - **~~The squatter's own Station is the only casualty.~~ FALSE WHEN WRITTEN, and closed in
+    round six below.** Everything the bullet says about ROUTING is right and unchanged - nobody
+    else's traffic moves. What it missed is REPUTATION: the reputation ledger was keyed on
+    (tower, attempt) with no station column at all, so every probe of a Station that cannot serve
+    was recorded as its TOWER failing to carry work, and enough of them suspend the Tower and
+    every honest node behind it. The squatter's Station was never the only casualty; its Tower
+    was the other one, and the Tower had not chosen it. Read the bullet as written and then read
+    round six.
+
+    The original text, which is correct about routing: it receives ciphertext sealed to a
     private half it does not hold, serves nothing, earns nothing and burns one of its own live
     slots. It cannot pass the work to the machine that CAN open it either: the grant names its
     relay, and the receipt closing the attempt must be signed by ITS assertion key, which the
@@ -1447,6 +1456,102 @@ Still open after round five, and worth naming so the next reader does not have t
   - **Duplicate session keys are now possible in the store, so nothing may key on them.** The
     interface no longer offers a lookup by session key, which is the enforcement; a future reader
     adding one should read `checkBindings` first.
+
+  ---
+
+  #### Round six: attribution follows fault, because a Station's failure was spending its Tower
+
+  **Closed 2026-08-21 on `release/v5.7.0`.** The founder's ruling: *"Our core broker should pick
+  up any failures or issues with the towers or squatter bouncing etc to prevent as much pain
+  from the original users as possible."* Read as: harm lands on the party responsible, and an
+  honest operator does not lose standing for somebody else's failure.
+
+  **The defect, and it was worse than a mis-blamed probe.** `reputation.Event` was
+  `{TowerID, AttemptID, Outcome, At}` - no station column, and the canary said so in its own
+  comment. Every finding therefore landed on the Tower, and `evaluateTower` moves a Tower to
+  `admit.StateSuspended` on repeated canary failures or a SINGLE audit mismatch. Two consequences,
+  both reachable by anyone with an account:
+
+  - **A denial primitive built out of a health probe.** Attaching is self-serve. Probe budget is
+    spent per Station and the verdict is read per Tower, so three attachments that never answer,
+    behind a Tower carrying two honest machines, is a sixty percent canary fail rate against a
+    forty percent quarantine bar. The suspended operator has done nothing, can see nothing wrong
+    on their own side, and cannot make it stop. Thirty-two zero bytes as a session key is enough:
+    Core's own `SealTo` refuses that key before it has dialed anything, and the refusal was
+    recorded as the Tower failing to carry work.
+  - **One event, one suspension.** A Station that misreported its own usage - provable only
+    against material that Station itself signed - suspended its Tower on the first audit, taking
+    every other node behind it off the fabric. `features/tower/edge_dispatch.feature` has said
+    the right thing all along ("a transcript that does not match is attributed to the Station and
+    not to the consumer"); what shipped attributed it to the Station in the log line and charged
+    it to the Tower in the ledger.
+
+  **The column, and why it is not derived.** `reputation.Event` gains `StationID`, and the
+  Postgres table gains `station_id` as an `ALTER` (a line added to the `CREATE` would never reach
+  a deployment that already has the table). Derivation was the first thing considered, and it
+  loses on LIFETIME: the only place an attempt id resolves to a Station is the dispatch record,
+  whose whole design is to be dropped at the attempt's deadline - a grant lives about two minutes
+  and this ledger is read over twenty-four hours. It works today only because nothing is currently
+  wired to call `dispatch.Registry.Reap`, so the property would evaporate, silently, the day
+  somebody wires the cleanup that store was built to have. It is also not total: the wire-count
+  finding is filed under a synthetic `<attempt>#wire` id that resolves to nothing. And the
+  objection that killed the Station-id registry does not transfer - nothing here becomes
+  permanent, these rows are reaped at the edge of their own window, and the Station id is public
+  material the attachment row already holds.
+
+  **The column answers WHICH Station; the OUTCOME answers WHOSE FAULT.** Conflating the two is
+  the laundering hole: almost every outcome on this path concerns some Station, so if naming one
+  moved the blame, a Tower that black-holed every byte handed to it would have every failure land
+  on the machines it was starving. So a new outcome, `StationFault`, is recorded only where the
+  Station produced the proof of its own failure, and it is deliberately absent from `Evaluate`.
+
+  **What stays the Tower's, exhaustively.**
+
+  | finding | whose | why |
+  |---|---|---|
+  | any canary failure past the seal | Tower | the probe rides the Tower end to end; it can drop, stall, or substitute anything Core sees |
+  | an unusable advertised endpoint or pin | Tower | its own advertisement |
+  | `available:false` forwarded for a sampled want | Tower | an excuse over the Tower's signature with nothing in it Core can check |
+  | a transcript Core asked for that never arrived | Tower | non-delivery, and delivery is what a Tower is for |
+  | plaintext that does not hash to a VERIFYING transcript | Tower | the bytes ride beside the transcript, unsigned, in the Tower's own submission |
+  | a wire count below the proven plaintext | Tower | already, and the spec says so |
+  | uncorroborated / disputed rates | Tower | unchanged; neither can quarantine |
+  | a verifying transcript contradicting the receipt's digests | **Station** | only its key can sign a transcript at all; it signed two incompatible accounts of one attempt |
+  | usage contradicted by proven byte lengths | **Station** | the lengths hash to digests the Station signed; the Tower cannot produce other bytes that do |
+  | a session key nothing can be sealed to | **Station** | the failure is in Core's own process, before the Tower is dialed |
+
+  A hostile Tower cannot launder through this, and the reason is one line: **every exemption
+  requires material the Tower cannot produce.** A transcript needs the Station's assertion key. A
+  canary PASS needs a Station receipt over bytes Core sealed to an ephemeral key of its own. The
+  two things a Tower CAN do freely - stay silent, and make claims about its Stations - both stay
+  its own, which is deliberate: the cheapest lie must not also be the cheapest escape.
+
+  **The amplification, fixed where it is caused.** No canary failure can be moved off a Tower
+  without handing a black-holing Tower a way to point at its own victims, so none is. What is
+  fixed is the probe BUDGET: a Station the durable window says has answered nothing (zero passes,
+  at least the two failures that already demote it in placement) has its staleness measured
+  against ten sweep intervals instead of one. It still costs its Tower - it must, or the fix
+  would be a laundry - but a tenth as much per sweep. The effect is proportional and has no
+  threshold to sit underneath: one Station failing in twenty scores near zero, nineteen in twenty
+  still fails most of the sweep and still quarantines. It is a SLOWER CLOCK and not an exclusion,
+  because the score stays bounded and keeps climbing, so the evidence that could clear a Station
+  can always arrive - and one pass restores it immediately.
+
+  **The in-process/durable split, kept, with the jobs separated.** `b.edgeCanary` stays exactly
+  what its comment says: this instance's placement reading, off the authorize path, deliberately
+  NOT folded into `b.trust` (that would let a Tower operator who black-holes traffic depress the
+  paid-fabric score of every node behind them - unchanged, and nothing here touches it). What
+  became durable is the evidence the JUDGEMENT reads, because a rotation shaping a shared verdict
+  out of one process's memory is one broker's fraction of the evidence mistaken for the whole.
+
+  **What was deliberately NOT built.** Nothing automatic happens to a Station on a `StationFault`.
+  There is no station-suspension mechanism to reuse - `attach.StateQuarantine` is the state a
+  fresh attachment starts in and is still routable - and inventing one is a denial primitive that
+  needs the founder, not an agent. A plainly dead machine is already handled by paths that exist:
+  no heartbeat inside `nodeTTL` and `edgeEligible` drops it before placement or the canary sees
+  it; seven days without a routable stamp and `DetachIdle` makes it dormant; a hundred and eighty
+  more and `RetireDormant` ends it. What was missing was only the heartbeating-but-unserving
+  case, and that is now on the slow clock rather than on a new gallows.
 
 ### 5.7 Round five: option A, and why it needed no certificate authority
 

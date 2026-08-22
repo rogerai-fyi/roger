@@ -38,15 +38,15 @@ func TestAdaptiveAuditProbability(t *testing.T) {
 
 	// Anomalous recent history ramps the rate; corroborated history decays it.
 	for i := 0; i < 6; i++ {
-		b.recordOutcome(tw.id, attemptIDf("bad", i), reputation.Disputed)
+		b.recordOutcome(tw.id, "", attemptIDf("bad", i), reputation.Disputed)
 	}
 	for i := 0; i < 2; i++ {
-		b.recordOutcome(tw.id, attemptIDf("ok", i), reputation.Corroborated)
+		b.recordOutcome(tw.id, "", attemptIDf("ok", i), reputation.Corroborated)
 	}
 	p := b.adaptiveAuditP(tw.id, time.Time{}, now)
 	require.InDelta(t, 0.75, p, 1e-9, "6 disputed of 8 recent = 75%% elevation")
 	for i := 0; i < 24; i++ {
-		b.recordOutcome(tw.id, attemptIDf("good", i), reputation.Corroborated)
+		b.recordOutcome(tw.id, "", attemptIDf("good", i), reputation.Corroborated)
 	}
 	require.InDelta(t, 6.0/32.0, b.adaptiveAuditP(tw.id, time.Time{}, now), 1e-9,
 		"corroborated history decays the elevation")

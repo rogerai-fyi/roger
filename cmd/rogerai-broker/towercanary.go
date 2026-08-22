@@ -125,20 +125,29 @@ func (b *broker) RunCanary(towerID string) reputation.Outcome {
 	}
 
 	outcome := b.driveSealedCanary(grant, target, endpoint, endpointPin, consumerKey, envPriv)
-	b.recordOutcome(towerID, grant.AttemptID, outcome)
-	// AND AGAINST THE STATION, which is the half that was missing. The reputation ledger is
-	// keyed on (tower, attempt) - there is no station column - so a canary's finding landed
-	// entirely on the Tower, and with a first-fit target that meant one Station's health WAS
-	// its Tower's reputation: one bad machine suspended a relay carrying twenty good ones, and
-	// the nineteen were never probed at all. Spreading the selection fixes the coverage; this
-	// fixes the attribution, so the evidence a probe produces is recorded about the thing it
-	// actually tested.
+	if outcome == "" {
+		// Core could not build the probe out of its own materials. Nobody is at fault but this
+		// process, and an aborted probe is not evidence about anybody - see driveSealedCanary.
+		return ""
+	}
+	// ON THE LEDGER, NAMING BOTH PARTIES. The row carries the Station it probed as well as the
+	// Tower that carried it, which is the half that used to be missing: the ledger was keyed on
+	// (tower, attempt) with no station column at all, so a probe's finding could only ever land
+	// on the Tower. The Station is named on EVERY outcome here, pass or fail, tower's fault or
+	// station's - naming the machine is a separate question from judging it.
 	//
-	// In process, not in the ledger. Making this durable means a station id on reputation.Event
-	// and on its Postgres table, which is a schema change in a package this work was scoped out
-	// of - so the limitation is stated rather than forced: this evidence lives on the instance
-	// that gathered it and does not cross to a peer, exactly like the probe trust it sits
-	// beside in b.trust.
+	// The OUTCOME is what decides whose fault it is, and for a canary that is almost always the
+	// Tower's: a probe rides the Tower end to end, so a Tower can drop it, stall it past the
+	// deadline, substitute the sealed answer, or simply report that nobody is serving the
+	// Station. There is no failure on this path a hostile Tower could not have caused, which is
+	// exactly why none of them may be moved to the Station on the Tower's say-so. The single
+	// exception is a probe that never reached the Tower at all (see driveSealedCanary).
+	b.recordOutcome(towerID, row.StationID, grant.AttemptID, outcome)
+	// AND IN PROCESS, for placement. This map is not a duplicate of the ledger row above: it is
+	// this instance's own placement reading, deliberately kept out of b.trust and read on the
+	// authorize path with no store round trip - see edgeCanaryHealth for the whole argument.
+	// The DURABLE half is what the probe rotation and the Tower's verdict now read, so a peer's
+	// probes count and a restart forgets nothing that matters.
 	b.recordEdgeCanary(row.StationID, outcome)
 	b.evaluateTower(towerID)
 	return outcome
@@ -170,8 +179,15 @@ type edgeCanaryHealth struct {
 const edgeCanaryFailBar = 2
 
 // recordEdgeCanary files a probe's verdict against the Station it actually probed.
+//
+// A StationFault counts here exactly as a CanaryFail does. For PLACEMENT the question is only
+// "can a consumer be served here", and a Station whose own advertised key Core cannot seal to
+// answers that with a no as flatly as one that never replies. The two are distinguished on the
+// durable ledger, where the question is whose fault it is; they are not distinguished here,
+// where it is not.
 func (b *broker) recordEdgeCanary(stationID string, outcome reputation.Outcome) {
-	if stationID == "" || (outcome != reputation.CanaryPass && outcome != reputation.CanaryFail) {
+	if stationID == "" || (outcome != reputation.CanaryPass && outcome != reputation.CanaryFail &&
+		outcome != reputation.StationFault) {
 		return // an aborted probe is not evidence about anybody
 	}
 	b.metricsMu.Lock()
@@ -180,7 +196,7 @@ func (b *broker) recordEdgeCanary(stationID string, outcome reputation.Outcome) 
 		b.edgeCanary = map[string]edgeCanaryHealth{}
 	}
 	h := b.edgeCanary[stationID]
-	if outcome == reputation.CanaryFail {
+	if outcome != reputation.CanaryPass {
 		h.fails++
 	} else {
 		h.fails = 0
@@ -225,15 +241,33 @@ const neverCanariedAge = 1000 * canaryInterval
 // recorded a REPUTATION FAILURE for every tower that turned TLS on - the change would have
 // suspended exactly the operators who did the right thing. It goes through towerhub.Reach with
 // everyone else.
+// The verdict is one of three things, and the third is new: an empty outcome means the probe
+// never happened and nothing is recorded about anybody, because the only thing that went wrong
+// was inside this process.
 func (b *broker) driveSealedCanary(grant dispatch.EdgeGrant, target dispatch.Target, endpoint, endpointPin string, consumerKey ed25519.PrivateKey, envPriv []byte) reputation.Outcome {
 	firstByte := time.Now()
 	sealedReq, err := envelope.SealTo(target.SessionKey, canaryBodyFor(grant.Model), grant.AttemptID)
 	if err != nil {
-		return reputation.CanaryFail
+		// THE STATION'S, and it is the cleanest attribution in the whole system: sealing happens
+		// before Core has dialed anything, so the Tower has not been given the chance to do
+		// anything wrong yet. What failed is the SESSION KEY the Station itself put on its
+		// attachment - the X25519 half nothing proves possession of, so a Station may advertise
+		// a key that no envelope can be sealed to, and thirty-two zero bytes is admitted today.
+		// This used to record a canary failure against the TOWER, so a squatter's dead
+		// attachment spent its Tower's reputation on every sweep, forever, for the price of one
+		// attach. That is the sentence docs/relay-selection-design.md 5.6 kept repeating - "the
+		// squatter's own Station is the only casualty" - and this is the line that had made it
+		// false.
+		log.Printf("canary: station %s on tower %s advertises a session key nothing can be sealed to: %v",
+			target.StationID, target.TowerID, err)
+		return reputation.StationFault
 	}
 	sealedRaw, err := sealedReq.Marshal()
 	if err != nil {
-		return reputation.CanaryFail
+		// Core's own encoding of Core's own envelope. Not evidence about the Tower and not
+		// evidence about the Station: an empty outcome records nothing at all.
+		log.Printf("canary: could not encode a probe for tower %s: %v", target.TowerID, err)
+		return ""
 	}
 	base, httpc, err := towerhub.Reach(endpoint, endpointPin, nil)
 	if err != nil {
@@ -365,7 +399,8 @@ func (b *broker) canaryTargetFor(towerID string) (dispatch.Target, fleet.Station
 			probable = append(probable, scoredCand{idx: i})
 		}
 	}
-	chosen := selectP2C(b.canaryCoverage(keep, probable, now), canaryBeta, edgePlacementRand())
+	chosen := selectP2C(b.canaryCoverage(keep, probable, b.stationCanaryEvidence(towerID, now), now),
+		canaryBeta, edgePlacementRand())
 	if chosen < 0 {
 		return dispatch.Target{}, fleet.Station{}, false
 	}
@@ -379,6 +414,76 @@ func (b *broker) canaryTargetFor(towerID string) (dispatch.Target, fleet.Station
 // is the magnet this function exists to remove wearing a different hat.
 const canaryBeta = 1.0
 
+// canaryTroubledSlowdown is how much longer a Station that is failing every probe waits between
+// them: its staleness is measured against ten sweep intervals instead of one.
+//
+// # WHY THE PROBE BUDGET IS WHERE THE FOUNDER'S RULING LANDS
+//
+// The harm was never that one probe was blamed on the wrong party. It was AMPLIFICATION: probe
+// budget is spent per Station and the verdict is read per Tower, so a Station that can never
+// answer soaked the rotation forever and its Tower paid for every failure. One dead machine
+// behind a two-Station Tower was half the sweep and forty percent is the quarantine bar; and
+// because attaching is self-serve, anyone could attach a handful of Stations that do not serve
+// and take somebody else's honest Tower off the fabric with them. That is a denial primitive
+// against an operator who did nothing, built out of a health probe.
+//
+// So a Station that is failing everything keeps costing its Tower - it must, or the fix would be
+// a laundry - but it costs it a TENTH as much per sweep. The effect is proportional, which is
+// the property that makes it safe: a Tower failing one Station in twenty scores near zero, a
+// Tower failing nineteen in twenty still fails most of its probes and still quarantines, and
+// there is no threshold for an attacker to sit just underneath.
+//
+// # WHY IT IS A SLOWER CLOCK AND NOT AN EXCLUSION
+//
+// Because the score stays bounded and keeps climbing. A Station probed rarely eventually becomes
+// stale enough to win a draw whatever its history, so the evidence that could clear it can
+// always arrive - the same reason canaryTargetFor probes a demoted Station rather than skipping
+// it. An exclusion would freeze a Station's record at its worst moment, and it would freeze a
+// black-holing Tower's too, by leaving it nothing to probe.
+const canaryTroubledSlowdown = 10
+
+// stationCanaryEvidence reads what the DURABLE ledger knows about each Station behind one Tower.
+//
+// From the ledger rather than from b.edgeCanary, deliberately, and this is the answer to "should
+// the per-station evidence become durable too". Both, with different jobs. The in-process map
+// stays exactly what its comment says it is - this instance's placement reading, off the
+// authorize path, deliberately not in b.trust. But the probe ROTATION shapes the evidence a
+// Tower is judged on, and a judgement built out of one process's memory is one broker's fraction
+// of the evidence mistaken for the whole: an attempt is probed by whichever instance holds the
+// Tower's link, that instance restarts, and the rotation begins again from nothing while the
+// verdict it feeds is computed from a shared table that remembers everything. Reading the same
+// ledger the verdict reads is what stops the two disagreeing.
+//
+// It costs one grouped scan of one Tower's window per sweep - every five minutes, not per
+// request - and a failure to read it simply damps nobody, which is today's behaviour.
+func (b *broker) stationCanaryEvidence(towerID string, now time.Time) map[string]reputation.Tally {
+	ts := b.tower
+	if ts == nil || ts.outcomes == nil {
+		return nil
+	}
+	byStation, err := ts.outcomes.TallyByStation(towerID, now.Add(-reputationWindow))
+	if err != nil {
+		log.Printf("canary: could not read per-station evidence for tower %s: %v", towerID, err)
+		return nil
+	}
+	return byStation
+}
+
+// canaryTroubled reports whether the durable window says this Station has answered nothing.
+//
+// Both halves are required. ZERO PASSES, because one pass is proof the machine can serve through
+// this Tower and the failures around it are then a question about carriage rather than about the
+// machine - and it is what makes recovery instant: the first probe that gets through puts a
+// Station back on the fast clock. AND AT LEAST THE FAIL BAR, the same two consecutive failures
+// that demote a Station in placement, because one failure is a blip and a Station with a single
+// fail and no pass yet is usually one that has simply not been probed twice.
+//
+// A StationFault counts with the fails: for the purpose of "is it worth spending probes here",
+// a Station whose key nothing can seal to is as unanswerable as one that never replies.
+func canaryTroubled(t reputation.Tally) bool {
+	return t.CanaryPass == 0 && t.CanaryFail+t.StationFault >= edgeCanaryFailBar
+}
+
 // canaryCoverage scores the probable Stations by how overdue each one's probe is.
 //
 // age/(age+canaryInterval) is a bounded 0..1 staleness: zero for a Station probed just now, a
@@ -387,17 +492,26 @@ const canaryBeta = 1.0
 // selectP2C's band is a RELATIVE gap from the best score, so an unbounded score would make one
 // very old Station push every other out of the band and become the magnet again.
 //
+// A Station the ledger says has answered nothing is measured against a LONGER interval instead -
+// see canaryTroubledSlowdown for why the probe budget is where a dead Station's cost to its
+// Tower is bounded.
+//
 // The load comes from edgeEligible's own scoring pass, so no second lock acquisition and no
 // second instant: the number the tie-break uses is the number placement saw.
-func (b *broker) canaryCoverage(keep []fleet.Station, probable []scoredCand, now time.Time) []scoredCand {
+func (b *broker) canaryCoverage(keep []fleet.Station, probable []scoredCand, byStation map[string]reputation.Tally, now time.Time) []scoredCand {
 	b.metricsMu.Lock()
 	defer b.metricsMu.Unlock()
 	out := make([]scoredCand, 0, len(probable))
 	for _, c := range probable {
-		age := b.edgeCanaryAgeLocked(keep[c.idx].StationID, now)
+		stationID := keep[c.idx].StationID
+		age := b.edgeCanaryAgeLocked(stationID, now)
+		interval := time.Duration(canaryInterval)
+		if canaryTroubled(byStation[stationID]) {
+			interval *= canaryTroubledSlowdown
+		}
 		out = append(out, scoredCand{
 			idx:   c.idx,
-			score: float64(age) / float64(age+canaryInterval),
+			score: float64(age) / float64(age+interval),
 			load:  c.load,
 		})
 	}

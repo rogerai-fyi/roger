@@ -259,8 +259,14 @@ func TestAStrandedClaimCanBeReDriven(t *testing.T) {
 // Review finding 1 backstop: on the unacknowledged path the billable usage is the Station's own
 // signed byte count, bounded only by the grant ceiling. The sampled audit re-derives the true
 // length from the transcript bytes (which must hash to the signed digest) and holds the claim to
-// it: a Station that billed more bytes than it signed for is caught as a usage misreport and
-// quarantined - attributable, because it signed both the receipt's usage and the transcript.
+// it: a Station that billed more bytes than it signed for is caught as a usage misreport -
+// attributable, because it signed both the receipt's usage and the transcript, and the Tower
+// holds neither key and cannot produce bytes that hash to the Station's own signed digests.
+//
+// So the finding lands on the STATION and its Tower is untouched. This assertion used to read
+// "an audit mismatch takes the Tower off (suspended)", which contradicted the sentence directly
+// above it: an inflation only the Station could have committed took every other node behind that
+// Tower off the fabric with it. See towerfaultattribution_test.go for the whole split.
 func TestAuditCatchesAUsageMisreport(t *testing.T) {
 	b, srv := towerTestBroker(t)
 	tw := enrolledTower(t, b, "owner-1")
@@ -290,7 +296,12 @@ func TestAuditCatchesAUsageMisreport(t *testing.T) {
 	require.Equal(t, false, out["matched"], "a usage misreport fails the audit")
 
 	got, _ := b.tower.registry.Get(tw.id)
-	require.Equal(t, admit.StateSuspended, got.State, "an audit mismatch takes the Tower off (suspended)")
+	require.Equal(t, admit.StateActive, got.State,
+		"a Station inflated its own usage claim and its Tower was taken off the network for it")
+	byStation, err := b.tower.outcomes.TallyByStation(tw.id, time.Now().Add(-reputationWindow))
+	require.NoError(t, err)
+	require.Equal(t, 1, byStation["st-1"].StationFault,
+		"the misreport is not recorded against the Station that signed it: %+v", byStation)
 }
 
 // Self-dealing defence, end to end: an operator who routes their OWN traffic through their OWN
