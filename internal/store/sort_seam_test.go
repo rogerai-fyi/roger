@@ -96,7 +96,7 @@ func TestSeedLedgerForTest(t *testing.T) {
 	prevEnd := start - 1 // 23:59:59 UTC on May 31 — excluded from June
 	m.SeedLedgerForTest([]LedgerRow{
 		{Holder: "alice", Kind: KindSpend, Amount: -10, State: StatePosted, TS: now.Unix()},
-		{Holder: "alice", Kind: KindSpend, Amount: -20, State: StatePosted, TS: start},      // boundary: included
+		{Holder: "alice", Kind: KindSpend, Amount: -20, State: StatePosted, TS: start},       // boundary: included
 		{Holder: "alice", Kind: KindSpend, Amount: -5, State: StateReversed, TS: now.Unix()}, // reversed: excluded
 		{Holder: "alice", Kind: KindSpend, Amount: -100, State: StatePosted, TS: prevEnd},    // last month: excluded
 		{Holder: "alice", Kind: KindTopup, Amount: 50, State: StatePosted, TS: now.Unix()},   // not spend
