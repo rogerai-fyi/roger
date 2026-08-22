@@ -35,16 +35,16 @@ import (
 	"time"
 
 	"golang.org/x/sync/singleflight"
-	"rogerai.fm/roger/v5/internal/deviceauth"
-	"rogerai.fm/roger/v5/internal/emailauth"
-	"rogerai.fm/roger/v5/internal/protocol"
-	"rogerai.fm/roger/v5/internal/store"
+	"rogerai.fm/roger/v6/internal/deviceauth"
+	"rogerai.fm/roger/v6/internal/emailauth"
+	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v6/internal/store"
 )
 
 // version is the broker's reported version (also in ServiceInfo + logs). Keep a
 // truthful source-build fallback; release builders may override it with
 // -ldflags "-X main.version=<tag>".
-var version = "5.7.1"
+var version = "6.0.0"
 
 // openapiSpec is the served API contract (see openapi.yaml). Single source of
 // truth for the broker's HTTP surface.

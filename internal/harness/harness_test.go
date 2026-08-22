@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"rogerai.fm/roger/v5/internal/client"
+	"rogerai.fm/roger/v6/internal/client"
 )
 
 // stubCompleter returns a scripted sequence of assistant messages, one per call, so a

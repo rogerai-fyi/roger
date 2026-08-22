@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"rogerai.fm/roger/v5/internal/agent"
+	"rogerai.fm/roger/v6/internal/agent"
 )
 
 // BASE STATION band management. Until now bands were RENDERED but not selectable: the

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"rogerai.fm/roger/v5/internal/store"
+	"rogerai.fm/roger/v6/internal/store"
 )
 
 // The quota refusal must NAME THE BAND IN THE WAY, not just state the limit.

@@ -37,7 +37,7 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
-	"rogerai.fm/roger/v5/internal/emailauth"
+	"rogerai.fm/roger/v6/internal/emailauth"
 )
 
 const (

@@ -12,7 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"rogerai.fm/roger/v5/internal/protocol"
+	"rogerai.fm/roger/v6/internal/protocol"
 )
 
 // probe.go is the active canary + latency probe (see docs-internal/

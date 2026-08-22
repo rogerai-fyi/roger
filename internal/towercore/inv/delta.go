@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"rogerai.fm/roger/v5/internal/towerobj"
+	"rogerai.fm/roger/v6/internal/towerobj"
 )
 
 // Deltas exist for one reason: a Tower with a stable fleet should send nothing, and a Tower

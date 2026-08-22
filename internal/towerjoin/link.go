@@ -32,11 +32,11 @@ import (
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v5/internal/protocol"
-	"rogerai.fm/roger/v5/internal/tower"
-	"rogerai.fm/roger/v5/internal/towercore/inv"
-	"rogerai.fm/roger/v5/internal/towercore/link"
-	"rogerai.fm/roger/v5/internal/towerobj"
+	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v6/internal/tower"
+	"rogerai.fm/roger/v6/internal/towercore/inv"
+	"rogerai.fm/roger/v6/internal/towercore/link"
+	"rogerai.fm/roger/v6/internal/towerobj"
 )
 
 // ErrNeedFullInventory is Core saying it cannot place what we sent and wants a snapshot. It

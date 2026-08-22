@@ -24,8 +24,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"rogerai.fm/roger/v5/internal/protocol"
-	"rogerai.fm/roger/v5/internal/store"
+	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v6/internal/store"
 )
 
 // The rig's three numbers, named rather than typed at each call site, because the assertions

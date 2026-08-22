@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>rogerai.fm/roger/v6 - Go module</title>
+
+<!-- The go-import tag is what makes `go get rogerai.fm/roger/v6` work. It is the ONE place the
+     code host is named: the import path belongs to this domain, so moving or renaming the
+     repository is a one-line change here rather than an edit to every import in the tree.
+     Pinned by test/smoke/module_path_test.go, which fails if this drifts from go.mod. -->
+<meta name="go-import" content="rogerai.fm/roger/v6 git https://github.com/rogerai-fyi/roger">
+<meta name="go-source" content="rogerai.fm/roger/v6 https://github.com/rogerai-fyi/roger https://github.com/rogerai-fyi/roger/tree/main{/dir} https://github.com/rogerai-fyi/roger/blob/main{/dir}/{file}#L{line}">
+
+<meta name="robots" content="noindex">
+<link rel="canonical" href="https://rogerai.fm/roger/v6/">
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    margin: 0; padding: 3rem 1.5rem; font: 16px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+    max-width: 46rem; margin-inline: auto;
+  }
+  h1 { font-size: 1.25rem; letter-spacing: .04em; text-transform: uppercase; }
+  code, pre { background: rgba(128,128,128,.14); border-radius: 4px; }
+  code { padding: .1em .35em; }
+  pre { padding: .8rem 1rem; overflow-x: auto; }
+  a { color: inherit; }
+</style>
+</head>
+<body>
+<h1>rogerai.fm/roger/v6</h1>
+
+<p>The Go module path for RogerAI. This page exists to serve the
+<code>go-import</code> meta tag above; there is nothing to read here.</p>
+
+<p>To install the CLI, use the installer, which fetches a prebuilt binary:</p>
+
+<pre><code>curl -fsSL https://rogerai.fm/install.sh | sh</code></pre>
+
+<p>
+  Source lives at
+  <a href="https://github.com/rogerai-fyi/roger">github.com/rogerai-fyi/roger</a>.
+  The import path is this domain rather than the code host, so the repository can move
+  without breaking anyone's build.
+</p>
+
+<p><a href="/">Back to rogerai.fm</a></p>
+</body>
+</html>

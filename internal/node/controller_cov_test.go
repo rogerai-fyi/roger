@@ -5,8 +5,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"rogerai.fm/roger/v5/internal/agent"
-	"rogerai.fm/roger/v5/internal/protocol"
+	"rogerai.fm/roger/v6/internal/agent"
+	"rogerai.fm/roger/v6/internal/protocol"
 )
 
 // TestSchedToProtocolConverts: an empty/nil window set yields no schedule, and a non-empty

@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"rogerai.fm/roger/v5/internal/protocol"
+	"rogerai.fm/roger/v6/internal/protocol"
 )
 
 // M0 (docs/relay-selection-design.md): a Station attaching to the relay fabric must name the

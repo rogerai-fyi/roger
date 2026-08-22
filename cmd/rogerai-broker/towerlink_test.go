@@ -21,16 +21,16 @@ import (
 
 	"path/filepath"
 
-	"rogerai.fm/roger/v5/internal/protocol"
-	"rogerai.fm/roger/v5/internal/station"
-	"rogerai.fm/roger/v5/internal/store"
-	"rogerai.fm/roger/v5/internal/towercore/admit"
-	"rogerai.fm/roger/v5/internal/towercore/attach"
-	"rogerai.fm/roger/v5/internal/towercore/dispatch"
-	"rogerai.fm/roger/v5/internal/towercore/inv"
-	"rogerai.fm/roger/v5/internal/towercore/link"
-	towerpolicy "rogerai.fm/roger/v5/internal/towercore/policy"
-	"rogerai.fm/roger/v5/internal/towerobj"
+	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v6/internal/station"
+	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v6/internal/towercore/admit"
+	"rogerai.fm/roger/v6/internal/towercore/attach"
+	"rogerai.fm/roger/v6/internal/towercore/dispatch"
+	"rogerai.fm/roger/v6/internal/towercore/inv"
+	"rogerai.fm/roger/v6/internal/towercore/link"
+	towerpolicy "rogerai.fm/roger/v6/internal/towercore/policy"
+	"rogerai.fm/roger/v6/internal/towerobj"
 )
 
 // THE LINK, OVER REAL HTTP.

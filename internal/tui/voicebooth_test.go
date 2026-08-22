@@ -33,7 +33,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
-	"rogerai.fm/roger/v5/internal/glyphs"
+	"rogerai.fm/roger/v6/internal/glyphs"
 )
 
 // foldRune returns the ASCII fold of a single rune (glyphs.Fold under a forced-ASCII env), so a

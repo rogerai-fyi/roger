@@ -13,7 +13,7 @@ import (
 	"fmt"
 	"time"
 
-	"rogerai.fm/roger/v5/internal/towercore/envelope"
+	"rogerai.fm/roger/v6/internal/towercore/envelope"
 )
 
 // TranscriptSource yields a Station-signed transcript for an attempt, ok=false when the

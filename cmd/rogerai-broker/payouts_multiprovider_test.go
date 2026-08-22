@@ -19,7 +19,7 @@ import (
 	"testing"
 	"time"
 
-	"rogerai.fm/roger/v5/internal/store"
+	"rogerai.fm/roger/v6/internal/store"
 )
 
 // earningsFor drives the REAL GET /payouts/earnings handler with the given session cookie

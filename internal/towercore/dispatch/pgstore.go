@@ -33,7 +33,7 @@ import (
 	"errors"
 	"time"
 
-	"rogerai.fm/roger/v5/internal/pgmigrate"
+	"rogerai.fm/roger/v6/internal/pgmigrate"
 )
 
 // schema is applied on first use. Additive and idempotent, and it creates TABLES only -

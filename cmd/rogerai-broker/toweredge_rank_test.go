@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"rogerai.fm/roger/v5/internal/towercore/fleet"
+	"rogerai.fm/roger/v6/internal/towercore/fleet"
 )
 
 // M1 (docs/relay-selection-design.md): edge placement ranks candidates on what was measured

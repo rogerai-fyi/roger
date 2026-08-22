@@ -6,9 +6,9 @@ import (
 	"os"
 	"strings"
 
-	"rogerai.fm/roger/v5/internal/node"
-	"rogerai.fm/roger/v5/internal/tui"
-	"rogerai.fm/roger/v5/internal/webui"
+	"rogerai.fm/roger/v6/internal/node"
+	"rogerai.fm/roger/v6/internal/tui"
+	"rogerai.fm/roger/v6/internal/webui"
 )
 
 // defaultWebuiPort is where the browser node console binds first; if it's taken the

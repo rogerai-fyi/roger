@@ -20,7 +20,7 @@ import (
 	"fmt"
 	"time"
 
-	"rogerai.fm/roger/v5/internal/pgmigrate"
+	"rogerai.fm/roger/v6/internal/pgmigrate"
 )
 
 // schema is applied on first use. Additive and idempotent, so opening against an existing

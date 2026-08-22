@@ -8,8 +8,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"rogerai.fm/roger/v5/internal/protocol"
-	"rogerai.fm/roger/v5/internal/store"
+	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v6/internal/store"
 )
 
 // brokerWithOwner builds a broker (Mem store + signing key) plus one GitHub-linked

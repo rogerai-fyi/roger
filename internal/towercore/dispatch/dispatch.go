@@ -54,7 +54,7 @@ import (
 	"strconv"
 	"time"
 
-	"rogerai.fm/roger/v5/internal/towerobj"
+	"rogerai.fm/roger/v6/internal/towerobj"
 )
 
 // TypeGrant and Version identify the signed object, so a grant can never be replayed as some

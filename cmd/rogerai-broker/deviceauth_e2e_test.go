@@ -18,8 +18,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"rogerai.fm/roger/v5/internal/client"
-	"rogerai.fm/roger/v5/internal/store"
+	"rogerai.fm/roger/v6/internal/client"
+	"rogerai.fm/roger/v6/internal/store"
 )
 
 // liveBroker serves the real device routes over HTTP and points the client package at it.

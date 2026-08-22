@@ -38,9 +38,9 @@ import (
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v5/internal/protocol"
-	"rogerai.fm/roger/v5/internal/towercore/attach"
-	"rogerai.fm/roger/v5/internal/towercore/link"
+	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v6/internal/towercore/attach"
+	"rogerai.fm/roger/v6/internal/towercore/link"
 )
 
 // newHubToken mints the bearer token a self-attached node USED to present to its tower's hub.

@@ -21,8 +21,8 @@ import (
 	"strings"
 	"sync"
 
-	"rogerai.fm/roger/v5/internal/agent"
-	"rogerai.fm/roger/v5/internal/client"
+	"rogerai.fm/roger/v6/internal/agent"
+	"rogerai.fm/roger/v6/internal/client"
 )
 
 // startRelayFabric is how a share puts itself on the relay fabric: on a goroutine, best effort,

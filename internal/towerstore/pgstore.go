@@ -22,8 +22,8 @@ import (
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib" // database/sql driver
-	"rogerai.fm/roger/v5/internal/pgmigrate"
-	"rogerai.fm/roger/v5/internal/tower"
+	"rogerai.fm/roger/v6/internal/pgmigrate"
+	"rogerai.fm/roger/v6/internal/tower"
 )
 
 // execCtx carries the caller's deadline into the shared migration helper, which speaks the

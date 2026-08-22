@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"rogerai.fm/roger/v5/internal/detect"
+	"rogerai.fm/roger/v6/internal/detect"
 )
 
 // LOCAL MODELS IN /model. Founder ask 2026-08-07: run the TUI agent on your own models

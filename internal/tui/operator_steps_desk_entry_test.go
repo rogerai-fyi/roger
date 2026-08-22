@@ -13,7 +13,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/cucumber/godog"
-	"rogerai.fm/roger/v5/internal/operator"
+	"rogerai.fm/roger/v6/internal/operator"
 )
 
 // --- fresh-session seeding (no proxy holder = nothing tuned in) --------------------------

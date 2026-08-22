@@ -14,7 +14,7 @@ import (
 	"strings"
 	"testing"
 
-	"rogerai.fm/roger/v5/internal/protocol"
+	"rogerai.fm/roger/v6/internal/protocol"
 )
 
 // TestSpeakSignsAndPostsBody: Speak signs the request (X-Roger-Pubkey/TS/Sig verify) and POSTs the

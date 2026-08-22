@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"rogerai.fm/roger/v5/internal/store"
+	"rogerai.fm/roger/v6/internal/store"
 )
 
 // TestReportRetentionIsDerivedNotChosen pins the horizon to the windows it is made of. The

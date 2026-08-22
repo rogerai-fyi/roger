@@ -17,7 +17,7 @@ import (
 	"strings"
 	"sync"
 
-	"rogerai.fm/roger/v5/internal/protocol"
+	"rogerai.fm/roger/v6/internal/protocol"
 )
 
 // Client speaks the tower hub's HTTP protocol from the other two sides: a serving NODE (Poll +

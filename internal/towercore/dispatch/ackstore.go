@@ -29,7 +29,7 @@ import (
 	"sync"
 	"time"
 
-	"rogerai.fm/roger/v5/internal/pgmigrate"
+	"rogerai.fm/roger/v6/internal/pgmigrate"
 )
 
 // AckStore is where acknowledgements wait for their settlement.

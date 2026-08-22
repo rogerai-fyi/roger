@@ -22,8 +22,8 @@ import (
 	"testing"
 	"time"
 
-	"rogerai.fm/roger/v5/internal/detect"
-	"rogerai.fm/roger/v5/internal/protocol"
+	"rogerai.fm/roger/v6/internal/detect"
+	"rogerai.fm/roger/v6/internal/protocol"
 )
 
 const osaLiveBase = "http://127.0.0.1:1337/v1"

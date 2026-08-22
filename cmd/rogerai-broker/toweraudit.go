@@ -33,12 +33,12 @@ import (
 	"net/http"
 	"time"
 
-	"rogerai.fm/roger/v5/internal/store"
-	"rogerai.fm/roger/v5/internal/towercore/audit"
-	"rogerai.fm/roger/v5/internal/towercore/dispatch"
-	"rogerai.fm/roger/v5/internal/towercore/envelope"
-	"rogerai.fm/roger/v5/internal/towercore/link"
-	"rogerai.fm/roger/v5/internal/towercore/reputation"
+	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v6/internal/towercore/audit"
+	"rogerai.fm/roger/v6/internal/towercore/dispatch"
+	"rogerai.fm/roger/v6/internal/towercore/envelope"
+	"rogerai.fm/roger/v6/internal/towercore/link"
+	"rogerai.fm/roger/v6/internal/towercore/reputation"
 )
 
 // auditSampleN selects 1 in N settled attempts for audit. It matches the Station's own

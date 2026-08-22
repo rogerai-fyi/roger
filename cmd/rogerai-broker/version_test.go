@@ -26,8 +26,13 @@ func TestPublicVersionReportsReleaseAndExactCommit(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("decode /version: %v", err)
 	}
-	if got.Version != "5.7.1" || got.Commit != commit {
-		t.Fatalf("/version = %+v, want version 5.7.1 commit %s", got, commit)
+	// Compared against the package's own `version`, NOT a literal. What this endpoint has
+	// to get right is that it reports THE BUILD IT IS - the value -ldflags stamps - and a
+	// hardcoded string tests the opposite: it passes when the endpoint is wired to a
+	// constant and fails on every release, naming a version instead of a defect. The
+	// literal here was "5.7.1", and it failed the v6.0.0 bump for no reason.
+	if got.Version != version || got.Commit != commit {
+		t.Fatalf("/version = %+v, want version %s commit %s", got, version, commit)
 	}
 	if cc := rec.Header().Get("Cache-Control"); cc != "no-store" {
 		t.Fatalf("Cache-Control = %q, want no-store so a rolling deploy cannot serve stale identity", cc)

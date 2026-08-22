@@ -16,8 +16,8 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"rogerai.fm/roger/v5/internal/client"
-	"rogerai.fm/roger/v5/internal/operator"
+	"rogerai.fm/roger/v6/internal/client"
+	"rogerai.fm/roger/v6/internal/operator"
 )
 
 // phase3Seed builds an AGENT-mode model with a connected proxy holder on gpt-oss-20b,

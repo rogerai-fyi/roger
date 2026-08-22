@@ -27,7 +27,7 @@ import (
 	"errors"
 	"io"
 
-	"rogerai.fm/roger/v5/internal/protocol"
+	"rogerai.fm/roger/v6/internal/protocol"
 )
 
 // transportSalt is the fixed HKDF salt, versioned so a future key-derivation change is a new

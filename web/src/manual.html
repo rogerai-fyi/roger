@@ -35,7 +35,7 @@
         </p>
         <div class="man-cover__meta">
           <span>Set: <b>roger</b></span>
-          <span>Version: <b data-cli-version>v5.7.1</b></span>
+          <span>Version: <b data-cli-version>v6.0.0</b></span>
           <span>Broker: <b>broker.rogerai.fm</b></span>
           <span>Protocol: <b>OpenAI-compatible</b></span>
         </div>
@@ -233,7 +233,7 @@
               bottom of every screen - press the key, jump to that screen:</p>
             <pre><span class="p">[0] AGENT</span>   <span class="p">[1] TUNE IN</span>   <span class="p">[2] SHARE</span>   <span class="p">[3] CONFIG</span>   <span class="p">[L] LOGIN</span>   <span class="p">[?] HELP</span></pre>
             <div class="man-plate">
-              <div class="man-plate__row"><span class="man-plate__k">[0] AGENT</span><span class="man-plate__v">the embedded tool-using agent - it can read/list/fetch and (with your y/N) write/run, on a model you tune in (§A)</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">[0] AGENT</span><span class="man-plate__v">the embedded tool-using agent - it can read/list/search on its own and (with your y/N) fetch/write/run, on a model you tune in (§A)</span></div>
               <div class="man-plate__row"><span class="man-plate__k">[1] TUNE IN</span><span class="man-plate__v">browse the live band, filter/sort, and tune in to a station to chat (§3)</span></div>
               <div class="man-plate__row"><span class="man-plate__k">[2] SHARE</span><span class="man-plate__v">your provider table - flip your own models on / off air (§4)</span></div>
               <div class="man-plate__row"><span class="man-plate__k">[3] CONFIG</span><span class="man-plate__v">the in-app spend-limits editor (§8)</span></div>
@@ -264,14 +264,23 @@
               than failing.</p>
 
             <h3>The tools, and what asks first</h3>
-            <p>The tool set is small and bounded. Read-only tools run on their own;
-              anything that changes your machine is confirm-gated (<kbd>y</kbd> /
-              <kbd>N</kbd>, default <b>no</b>). File tools are sandboxed to the directory
-              you launched in - absolute paths and <code>../</code> escapes are rejected.</p>
+            <p>The tool set is small and bounded. Tools that only read what is already
+              on your machine run on their own; anything that <b>acts</b> &mdash; changes a
+              file, runs a command, or reaches out to the network &mdash; is confirm-gated
+              (<kbd>y</kbd> / <kbd>N</kbd>, default <b>no</b>). File tools are sandboxed to
+              the directory you launched in &mdash; absolute paths and <code>../</code>
+              escapes are rejected.</p>
+            <p>A fetch asks even though it changes nothing here, and that is deliberate: it
+              reaches an arbitrary host, the URL itself leaves your machine, and it pulls
+              text you did not write back into a conversation that also holds
+              <code>write_file</code> and <code>run_shell</code>. It is also the tool an
+              ordinary question actually reaches for &mdash; so without it, a confirm mode
+              could go a whole session without confirming anything.</p>
             <div class="man-plate">
               <div class="man-plate__row"><span class="man-plate__k">read_file</span><span class="man-plate__v">read a file under the working dir - runs on its own</span></div>
               <div class="man-plate__row"><span class="man-plate__k">list_dir</span><span class="man-plate__v">list a directory under the working dir - runs on its own</span></div>
-              <div class="man-plate__row"><span class="man-plate__k">web_fetch</span><span class="man-plate__v">fetch a URL - runs on its own</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">web_search</span><span class="man-plate__v">search the web - runs on its own (it returns results, it does not open them)</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">web_fetch</span><span class="man-plate__v">fetch a URL - <b>asks first</b> (y/N); auto-runs under AUTO-EDITS</span></div>
               <div class="man-plate__row"><span class="man-plate__k">write_file</span><span class="man-plate__v">write a file (sandboxed) - <b>asks first</b> (y/N)</span></div>
               <div class="man-plate__row"><span class="man-plate__k">run_shell</span><span class="man-plate__v">run a shell command in the working dir - <b>asks first</b> (y/N); runs in the cwd but is not sandboxed</span></div>
             </div>
@@ -292,7 +301,7 @@
                   <tr><td>type + <kbd>Enter</kbd></td><td>give the agent a task; it loops until done</td></tr>
                   <tr><td><kbd>&uarr;</kbd> <kbd>&darr;</kbd></td><td>recall your previous prompts (shell-style history)</td></tr>
                   <tr><td><code>/model</code></td><td>switch the model the agent runs on (picker, or by name)</td></tr>
-                  <tr><td><kbd>ctrl+p</kbd> · <code>/perms</code></td><td>cycle the tool-approval mode &mdash; <b>CONFIRM</b> (default: write/run ask first) &rarr; <b>AUTO-EDITS</b> (writes auto-run, shell still asks) &rarr; <b>AUTO-ALL</b> (nothing asks). Applies instantly, even mid-turn; the current mode always shows on the <code>TOOLS:</code> line under the input. (<code>/yolo</code> jumps to AUTO-ALL; <code>--yolo</code> / <code>--perms</code> set it per run; <code>roger perms</code> persists a default.)</td></tr>
+                  <tr><td><kbd>ctrl+p</kbd> · <code>/perms</code></td><td>cycle the tool-approval mode &mdash; <b>CONFIRM</b> (default: fetch/write/run ask first) &rarr; <b>AUTO-EDITS</b> (writes and fetches auto-run, shell still asks) &rarr; <b>AUTO-ALL</b> (nothing asks). Applies instantly, even mid-turn; the current mode always shows on the <code>TOOLS:</code> line under the input. (<code>/yolo</code> jumps to AUTO-ALL; <code>--yolo</code> / <code>--perms</code> set it per run; <code>roger perms</code> persists a default.)</td></tr>
                   <tr><td><kbd>tab</kbd></td><td>focus the transcript to scroll it (arrows / PgUp-PgDn); <kbd>tab</kbd>/<kbd>esc</kbd> or typing hands the keyboard back</td></tr>
                   <tr><td><kbd>d</kbd> <span class="man-note">(transcript focused)</span></td><td>expand / collapse the full tool OUTPUT &mdash; tool runs collapse to one dim <code>&#9881;</code> line by default, with the output a <kbd>d</kbd> away</td></tr>
                   <tr><td><kbd>ctrl+y</kbd></td><td>copy the last reply to the clipboard</td></tr>
@@ -337,6 +346,7 @@
                   <tr><td><kbd>Enter</kbd></td><td>tune in to the selected station (opens the cost-confirm); on the connected row, jump into chat</td></tr>
                   <tr><td><kbd>d</kbd></td><td>disconnect the open channel without entering it</td></tr>
                   <tr><td><kbd>c</kbd> · <kbd>tab</kbd></td><td>jump into the open channel</td></tr>
+                  <tr><td><kbd>b</kbd></td><td>the <b>band card</b>: every setting for the band under the cursor in one place &mdash; on air, public/private, its dial, its price, your spend caps (&sect;5)</td></tr>
                   <tr><td><kbd>t</kbd></td><td>switch the dial between <b>OPEN MARKET</b> and <b>PRIVATE</b> - your own bands (&sect;5). Your private bands are hidden from the public list by design, so this tab is where you find them</td></tr>
                   <tr><td><kbd>f</kbd></td><td>live name filter - type to search models (re-opens to edit, esc clears)</td></tr>
                   <tr><td><kbd>S</kbd></td><td>cycle the sort dial: strongest / cheapest / fastest / most-stations (mirrors the web Models page)</td></tr>
@@ -968,9 +978,22 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
               stored, so there is nothing to show. Your local models also appear in
               <b>[0] AGENT</b>'s <code>/model</code> picker, marked as your private band, and
               run direct there for the same reason.</p>
+            <h3>One card per band</h3>
+            <p>A band&rsquo;s settings used to be spread across four screens: on air and
+              visibility in <b>[2] SHARE</b>, its price in that screen&rsquo;s editor, your
+              spend caps in <b>[3] CONFIG</b>, and the dial itself in BASE STATION. Nothing
+              anywhere could answer &ldquo;how is this band set up?&rdquo;</p>
+            <p>Press <kbd>b</kbd> on any band, from any list that shows one, for a card
+              that carries every setting that applies to it &mdash; each row naming the key
+              that changes it. Sections appear only when they are true: a band you do not
+              serve shows no price, and a model that only runs locally shows no spend caps,
+              because nothing is metered on your own hardware.</p>
+            <p>The card owns no editor of its own. Every row hands off to the screen that
+              already owns that setting and comes back, so there is one implementation of
+              each edit rather than two that can drift.</p>
             <div class="man-table-wrap">
               <table class="man-table">
-                <caption>Managing a band - the PRIVATE tab, or BASE STATION <kbd>p</kbd></caption>
+                <caption>Managing a band - the card (<kbd>b</kbd>), the PRIVATE tab, or BASE STATION <kbd>p</kbd></caption>
                 <thead><tr><th>Key</th><th>What it does</th></tr></thead>
                 <tbody>
                   <tr><td><kbd>Enter</kbd></td><td><b>use it</b>. Direct when the band's model runs here - it goes straight to your own server, so it works even while the band is off air. Otherwise it tells you why not</td></tr>
@@ -1169,7 +1192,7 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
           <section class="man-sec" id="s9">
             <span class="man-sec__no">§9 · Command reference</span>
             <h2>Every command, every key</h2>
-            <p>The full surface as of <b data-cli-version>v5.7.1</b>: the top-level CLI
+            <p>The full surface as of <b data-cli-version>v6.0.0</b>: the top-level CLI
               commands with their key flags, then the in-app keys and slash commands grouped
               by context. Commands with flag surfaces document <code>--help</code>; advanced
               flags hide behind <code>--advanced</code>. Run <code>roger</code> with no
@@ -1472,6 +1495,7 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
               Newest first. The set self-updates - <code>roger upgrade</code> pulls the
               latest, <code>roger upgrade --check</code> just reports.</p>
             <div class="man-plate">
+              <div class="man-plate__row"><span class="man-plate__k">v6.0.0</span><span class="man-plate__v">The Go module path becomes <code>rogerai.fm/roger/v6</code>, so installing from source is now <code>go install rogerai.fm/roger/v6/cmd/rogerai@latest</code> (<code>/v5</code> keeps resolving for anyone who has not moved). Self-hosted relays arrive: <code>roger-tower</code> runs a standalone or joined Tower, and the browser console gains settings, chat and <code>roger webui</code>. Private bands become usable rather than merely mintable: a <b>PRIVATE</b> tab on the dial, one settings card per band, a new code without giving up the band, and a direct channel to your own models that never touches the broker. A fetch now asks before it runs, and the channel remembers the conversation.</span></div>
               <div class="man-plate__row"><span class="man-plate__k">v5.7.1</span><span class="man-plate__v">Security repair: Unicode normalization no longer hangs on malformed UTF-8, and a vulnerability scan now gates every release.</span></div>
               <div class="man-plate__row"><span class="man-plate__k">v5.7.0</span><span class="man-plate__v">Private bands become manageable identities - list, move to another model, or revoke, with every change proving the owner key.</span></div>
               <div class="man-plate__row"><span class="man-plate__k">v5.5.0</span><span class="man-plate__v">The Go module path becomes <code>rogerai.fm/roger/v5</code>, so installing from source is now <code>go install rogerai.fm/roger/v5/cmd/rogerai@latest</code>.</span></div>

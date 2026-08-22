@@ -21,8 +21,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"rogerai.fm/roger/v5/internal/towercore/link"
-	"rogerai.fm/roger/v5/internal/towerhub"
+	"rogerai.fm/roger/v6/internal/towercore/link"
+	"rogerai.fm/roger/v6/internal/towerhub"
 )
 
 // THE JOIN. The hub is started through the real runHubInBackground with a real minted

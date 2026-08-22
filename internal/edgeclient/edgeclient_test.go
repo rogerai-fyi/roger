@@ -26,10 +26,10 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"rogerai.fm/roger/v5/internal/station"
-	"rogerai.fm/roger/v5/internal/towercore/dispatch"
-	"rogerai.fm/roger/v5/internal/towercore/link"
-	"rogerai.fm/roger/v5/internal/towerhub"
+	"rogerai.fm/roger/v6/internal/station"
+	"rogerai.fm/roger/v6/internal/towercore/dispatch"
+	"rogerai.fm/roger/v6/internal/towercore/link"
+	"rogerai.fm/roger/v6/internal/towerhub"
 )
 
 // sealedWorld stands up the whole path: Core (authorize + ack), a node blind-serving through

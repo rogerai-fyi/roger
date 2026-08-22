@@ -7,7 +7,7 @@ import (
 	"strings"
 	"syscall"
 
-	"rogerai.fm/roger/v5/internal/tui"
+	"rogerai.fm/roger/v6/internal/tui"
 )
 
 // `roger webui` - THE CONSOLE ON ITS OWN.

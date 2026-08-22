@@ -3,8 +3,8 @@ package tui
 import (
 	"strings"
 
-	"rogerai.fm/roger/v5/internal/client"
-	"rogerai.fm/roger/v5/internal/harness"
+	"rogerai.fm/roger/v6/internal/client"
+	"rogerai.fm/roger/v6/internal/harness"
 )
 
 // THE CHANNEL REMEMBERS.

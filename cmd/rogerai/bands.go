@@ -3,8 +3,8 @@ package main
 import (
 	"fmt"
 
-	"rogerai.fm/roger/v5/internal/agent"
-	"rogerai.fm/roger/v5/internal/client"
+	"rogerai.fm/roger/v6/internal/agent"
+	"rogerai.fm/roger/v6/internal/client"
 )
 
 // cmdBands is the owner-facing private-band verb group: list | move | new-code | revoke |

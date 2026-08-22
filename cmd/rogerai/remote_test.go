@@ -19,8 +19,8 @@ import (
 	"testing"
 	"time"
 
-	"rogerai.fm/roger/v5/internal/protocol"
-	"rogerai.fm/roger/v5/internal/tui"
+	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v6/internal/tui"
 )
 
 // TestConfirmGate: set arms the gate with an id; take consumes it exactly once; clear disarms.

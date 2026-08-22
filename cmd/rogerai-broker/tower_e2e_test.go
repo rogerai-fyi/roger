@@ -21,13 +21,13 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"rogerai.fm/roger/v5/internal/protocol"
-	"rogerai.fm/roger/v5/internal/store"
-	"rogerai.fm/roger/v5/internal/towercore/admit"
-	"rogerai.fm/roger/v5/internal/towercore/attach"
-	"rogerai.fm/roger/v5/internal/towercore/cert"
-	"rogerai.fm/roger/v5/internal/towercore/enroll"
-	"rogerai.fm/roger/v5/internal/towercore/head"
+	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v6/internal/towercore/admit"
+	"rogerai.fm/roger/v6/internal/towercore/attach"
+	"rogerai.fm/roger/v6/internal/towercore/cert"
+	"rogerai.fm/roger/v6/internal/towercore/enroll"
+	"rogerai.fm/roger/v6/internal/towercore/head"
 )
 
 // towerTestBroker wires the real subsystem over in-process stores and serves the real mux.

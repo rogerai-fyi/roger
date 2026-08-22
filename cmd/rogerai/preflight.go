@@ -39,7 +39,7 @@ import (
 	"fmt"
 	"io"
 
-	"rogerai.fm/roger/v5/internal/detect"
+	"rogerai.fm/roger/v6/internal/detect"
 )
 
 // sharePreflight is the seam the whole surface hangs off: gather the local picture, apply

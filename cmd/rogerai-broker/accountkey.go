@@ -16,7 +16,7 @@ package main
 // The canonical key is the account's EARLIEST owner row (the store now orders on that). Every
 // device of one account resolves to it, so mint and read agree by construction.
 
-import "rogerai.fm/roger/v5/internal/store"
+import "rogerai.fm/roger/v6/internal/store"
 
 // accountOwnerOf resolves any of an account's device rows to its canonical one. Falls back to
 // the row it was given - a device key bound to no shared identity IS its own account.

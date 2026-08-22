@@ -4,7 +4,7 @@ import (
 	"math"
 	"testing"
 
-	"rogerai.fm/roger/v5/internal/protocol"
+	"rogerai.fm/roger/v6/internal/protocol"
 )
 
 func eq(a, b float64) bool { return math.Abs(a-b) < 1e-9 }

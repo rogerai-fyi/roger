@@ -32,9 +32,9 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"rogerai.fm/roger/v5/internal/agent"
-	"rogerai.fm/roger/v5/internal/protocol"
-	"rogerai.fm/roger/v5/internal/towercore/attach"
+	"rogerai.fm/roger/v6/internal/agent"
+	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v6/internal/towercore/attach"
 )
 
 // A REAL `roger share` ATTACHES TO A REAL CORE, and what Core records is the identity the node

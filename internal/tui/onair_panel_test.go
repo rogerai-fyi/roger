@@ -9,7 +9,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"rogerai.fm/roger/v5/internal/agent"
+	"rogerai.fm/roger/v6/internal/agent"
 )
 
 // okBroker is an httptest server that 200s everything (incl. heartbeats), so any

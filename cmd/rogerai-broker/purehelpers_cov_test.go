@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"rogerai.fm/roger/v5/internal/protocol"
+	"rogerai.fm/roger/v6/internal/protocol"
 )
 
 // TestSignalAndLoadHelpers covers the pure market/router math: offerSignal, loadFactor,

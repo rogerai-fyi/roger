@@ -52,7 +52,7 @@ import (
 	"fmt"
 	"time"
 
-	"rogerai.fm/roger/v5/internal/protocol"
+	"rogerai.fm/roger/v6/internal/protocol"
 )
 
 // ClockFatalSkew is where a Tower stops working rather than merely working badly: at or

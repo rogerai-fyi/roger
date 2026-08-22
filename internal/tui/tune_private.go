@@ -4,8 +4,8 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"rogerai.fm/roger/v5/internal/agent"
-	"rogerai.fm/roger/v5/internal/node"
+	"rogerai.fm/roger/v6/internal/agent"
+	"rogerai.fm/roger/v6/internal/node"
 )
 
 // THE PRIVATE TAB IN [1] TUNE IN.

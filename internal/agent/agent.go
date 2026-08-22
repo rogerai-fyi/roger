@@ -27,8 +27,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"rogerai.fm/roger/v5/internal/client"
-	"rogerai.fm/roger/v5/internal/protocol"
+	"rogerai.fm/roger/v6/internal/client"
+	"rogerai.fm/roger/v6/internal/protocol"
 )
 
 // shareFeeRate is the platform take used only to ESTIMATE the session's live

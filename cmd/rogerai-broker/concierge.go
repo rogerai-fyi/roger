@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"rogerai.fm/roger/v5/internal/protocol"
+	"rogerai.fm/roger/v6/internal/protocol"
 )
 
 // concierge is "Ping" - the homepage mascot chatbot. It is the broker's FIRST

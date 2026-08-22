@@ -31,6 +31,18 @@ func TestIsNewer(t *testing.T) {
 		{"0.1.0", "", false},
 		{"1.0", "1.0.1", true},
 		{"1.2.3", "1.2.3", false},
+
+		// MAJOR BOUNDARIES. Every user on a 5.x build has to be told that 6.0.0 exists,
+		// and the comparison is left-to-right, so the major decides before the minor is
+		// ever read - which is exactly the case a table of 0.x and 1.x examples never
+		// exercised. The downgrade direction matters just as much: 6.x must never be
+		// offered 5.7.1 as an "update", or a release that lands late in the tag list
+		// walks people backwards across a module-path change.
+		{"5.7.1", "6.0.0", true},
+		{"6.0.0", "5.7.1", false},
+		{"5.9.9", "6.0.0", true}, // the minor rolling over must not out-rank the major
+		{"6.0.0", "6.0.1", true},
+		{"6.0.0", "6.0.0", false},
 	}
 	for _, c := range cases {
 		if got := isNewer(c.cur, c.lat); got != c.want {

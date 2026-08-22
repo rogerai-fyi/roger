@@ -24,7 +24,7 @@ import (
 	"fmt"
 	"time"
 
-	"rogerai.fm/roger/v5/internal/towercore/admit"
+	"rogerai.fm/roger/v6/internal/towercore/admit"
 )
 
 // RenewRequest is one renewal attempt, arriving on an authenticated session.

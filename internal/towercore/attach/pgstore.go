@@ -40,7 +40,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 
-	"rogerai.fm/roger/v5/internal/pgmigrate"
+	"rogerai.fm/roger/v6/internal/pgmigrate"
 )
 
 // schema is applied on first use. Additive and idempotent.

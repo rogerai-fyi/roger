@@ -19,8 +19,8 @@ import (
 	"time"
 
 	"github.com/cucumber/godog"
-	"rogerai.fm/roger/v5/internal/capsule"
-	"rogerai.fm/roger/v5/internal/protocol"
+	"rogerai.fm/roger/v6/internal/capsule"
+	"rogerai.fm/roger/v6/internal/protocol"
 )
 
 func bddErrf(format string, a ...any) error { return fmt.Errorf(format, a...) }

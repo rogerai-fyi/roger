@@ -23,7 +23,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"rogerai.fm/roger/v5/internal/towercore/fleet"
+	"rogerai.fm/roger/v6/internal/towercore/fleet"
 )
 
 // edgeFleet stands up a live tower with n self-attached, on-air stations and returns their

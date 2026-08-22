@@ -31,9 +31,9 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"rogerai.fm/roger/v5/internal/towercore/attach"
-	"rogerai.fm/roger/v5/internal/towercore/dispatch"
-	"rogerai.fm/roger/v5/internal/towercore/link"
+	"rogerai.fm/roger/v6/internal/towercore/attach"
+	"rogerai.fm/roger/v6/internal/towercore/dispatch"
+	"rogerai.fm/roger/v6/internal/towercore/link"
 )
 
 // stationEpochOf reads the epoch Core currently records for a Station - the value the fence

@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"rogerai.fm/roger/v5/internal/detect"
+	"rogerai.fm/roger/v6/internal/detect"
 )
 
 // withColor temporarily forces the animated (non-quiet) render path so the ping

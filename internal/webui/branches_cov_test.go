@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"rogerai.fm/roger/v5/internal/client"
-	"rogerai.fm/roger/v5/internal/node"
+	"rogerai.fm/roger/v6/internal/client"
+	"rogerai.fm/roger/v6/internal/node"
 )
 
 // nonFlusherRecorder is an http.ResponseWriter that deliberately does NOT implement

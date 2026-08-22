@@ -33,8 +33,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"rogerai.fm/roger/v5/internal/protocol"
-	"rogerai.fm/roger/v5/internal/towercore/link"
+	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v6/internal/towercore/link"
 )
 
 // derivedRefusal is the sentence a Station id that is not the one its key mints gets. Asserted

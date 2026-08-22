@@ -42,8 +42,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"rogerai.fm/roger/v5/internal/protocol"
-	"rogerai.fm/roger/v5/internal/towercore/envelope"
+	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v6/internal/towercore/envelope"
 )
 
 const (

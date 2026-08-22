@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"rogerai.fm/roger/v5/internal/node"
+	"rogerai.fm/roger/v6/internal/node"
 )
 
 // actionResp is the uniform reply to every write action: the resulting node snapshot

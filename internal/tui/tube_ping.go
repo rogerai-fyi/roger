@@ -4,7 +4,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"rogerai.fm/roger/v5/internal/glyphs"
+	"rogerai.fm/roger/v6/internal/glyphs"
 )
 
 const (

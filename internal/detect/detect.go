@@ -32,7 +32,7 @@ import (
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v5/internal/protocol"
+	"rogerai.fm/roger/v6/internal/protocol"
 )
 
 // Found is a reachable local OpenAI-compatible server discovered by DetectFull.

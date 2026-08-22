@@ -29,9 +29,9 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/cucumber/godog"
-	"rogerai.fm/roger/v5/internal/client"
-	"rogerai.fm/roger/v5/internal/operator"
-	"rogerai.fm/roger/v5/internal/protocol"
+	"rogerai.fm/roger/v6/internal/client"
+	"rogerai.fm/roger/v6/internal/operator"
+	"rogerai.fm/roger/v6/internal/protocol"
 )
 
 // opBDD is the shared per-scenario state for the whole operator spec set (the pure

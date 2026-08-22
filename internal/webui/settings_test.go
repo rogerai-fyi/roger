@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"rogerai.fm/roger/v5/internal/node"
+	"rogerai.fm/roger/v6/internal/node"
 )
 
 // THE FULLER SURFACE. Per-band spend caps and private-band management were TUI-only, so an

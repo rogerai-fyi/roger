@@ -5,9 +5,9 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"rogerai.fm/roger/v5/internal/agent"
-	"rogerai.fm/roger/v5/internal/detect"
-	"rogerai.fm/roger/v5/internal/node"
+	"rogerai.fm/roger/v6/internal/agent"
+	"rogerai.fm/roger/v6/internal/detect"
+	"rogerai.fm/roger/v6/internal/node"
 )
 
 // testFoundGrok is a local server serving the same model the private band is bound to.

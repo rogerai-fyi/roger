@@ -6,7 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"rogerai.fm/roger/v5/internal/operator"
+	"rogerai.fm/roger/v6/internal/operator"
 )
 
 // TestChatKeybarShiftTabLabel: the agent shortcut in the chat keybar must read as a

@@ -24,7 +24,7 @@ import (
 	"os"
 	"time"
 
-	"rogerai.fm/roger/v5/internal/edgeclient"
+	"rogerai.fm/roger/v6/internal/edgeclient"
 )
 
 func cmdProbe(args []string, out io.Writer) error {

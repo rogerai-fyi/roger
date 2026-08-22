@@ -8,7 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"rogerai.fm/roger/v5/internal/harness"
+	"rogerai.fm/roger/v6/internal/harness"
 )
 
 // wave_deck_test.go - the 2026-08-20 AGENT deck revamp, locked.

@@ -23,7 +23,7 @@ import (
 	"errors"
 	"fmt"
 
-	"rogerai.fm/roger/v5/internal/towerobj"
+	"rogerai.fm/roger/v6/internal/towerobj"
 )
 
 // TypeTranscript identifies the signed object.

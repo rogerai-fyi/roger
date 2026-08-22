@@ -19,10 +19,10 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"rogerai.fm/roger/v5/internal/protocol"
-	"rogerai.fm/roger/v5/internal/towercore/admit"
-	"rogerai.fm/roger/v5/internal/towercore/attach"
-	"rogerai.fm/roger/v5/internal/towercore/link"
+	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v6/internal/towercore/admit"
+	"rogerai.fm/roger/v6/internal/towercore/attach"
+	"rogerai.fm/roger/v6/internal/towercore/link"
 )
 
 // attachedStation brings one self-attached station on air behind a live tower and returns both

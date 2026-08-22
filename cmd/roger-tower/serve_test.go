@@ -28,9 +28,9 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"rogerai.fm/roger/v5/internal/tower"
-	"rogerai.fm/roger/v5/internal/towercore/link"
-	"rogerai.fm/roger/v5/internal/towerjoin"
+	"rogerai.fm/roger/v6/internal/tower"
+	"rogerai.fm/roger/v6/internal/towercore/link"
+	"rogerai.fm/roger/v6/internal/towerjoin"
 )
 
 // coreStub is Roger Core's link surface, as much of it as the loop touches.

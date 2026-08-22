@@ -218,7 +218,7 @@ import (
 	"sync"
 	"time"
 
-	"rogerai.fm/roger/v5/internal/protocol"
+	"rogerai.fm/roger/v6/internal/protocol"
 )
 
 // nonceParam is the query parameter carrying each hub request's anti-replay nonce, and

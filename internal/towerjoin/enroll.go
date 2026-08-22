@@ -34,9 +34,9 @@ import (
 	"path/filepath"
 	"time"
 
-	"rogerai.fm/roger/v5/internal/client"
-	"rogerai.fm/roger/v5/internal/protocol"
-	"rogerai.fm/roger/v5/internal/tower"
+	"rogerai.fm/roger/v6/internal/client"
+	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v6/internal/tower"
 )
 
 // protocolVersion is the joined protocol this build speaks.

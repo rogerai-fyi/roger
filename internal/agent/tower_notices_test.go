@@ -28,7 +28,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"rogerai.fm/roger/v5/internal/towerhub"
+	"rogerai.fm/roger/v6/internal/towerhub"
 )
 
 // noticeSink collects what the relay plane insists on saying.

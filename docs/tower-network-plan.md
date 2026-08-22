@@ -1227,8 +1227,8 @@ modified.
 - Ran the focused baseline command recorded in E12. Raw result:
 
   ```text
-  ok  rogerai.fm/roger/v5/internal/protocol       0.005s
-  ok  rogerai.fm/roger/v5/cmd/rogerai-broker     0.009s
+  ok  rogerai.fm/roger/v6/internal/protocol       0.005s
+  ok  rogerai.fm/roger/v6/cmd/rogerai-broker     0.009s
   ```
 
 - Classified the existing trusted-replica path as unsuitable for independent operators and

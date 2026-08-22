@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"rogerai.fm/roger/v5/internal/protocol"
+	"rogerai.fm/roger/v6/internal/protocol"
 )
 
 // TestStartReturnsRegisterError: Start surfaces a failed initial registration (the prod

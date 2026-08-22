@@ -11,8 +11,8 @@ package main
 import (
 	"testing"
 
-	"rogerai.fm/roger/v5/internal/agent"
-	"rogerai.fm/roger/v5/internal/protocol"
+	"rogerai.fm/roger/v6/internal/agent"
+	"rogerai.fm/roger/v6/internal/protocol"
 )
 
 func TestApplyShareVoiceExactKey(t *testing.T) {

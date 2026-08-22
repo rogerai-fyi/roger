@@ -21,7 +21,7 @@ import (
 	"strings"
 	"testing"
 
-	"rogerai.fm/roger/v5/internal/protocol"
+	"rogerai.fm/roger/v6/internal/protocol"
 )
 
 // TestOperatorStatusFrameEnriched pins the enriched constructor: it sets Operator/Model/

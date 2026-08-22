@@ -8,9 +8,9 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"rogerai.fm/roger/v5/internal/agent"
-	"rogerai.fm/roger/v5/internal/glyphs"
-	"rogerai.fm/roger/v5/internal/node"
+	"rogerai.fm/roger/v6/internal/agent"
+	"rogerai.fm/roger/v6/internal/glyphs"
+	"rogerai.fm/roger/v6/internal/node"
 )
 
 // The SHARE view's terse per-cell text (e.g. "set voice…") is ambiguous: it reads

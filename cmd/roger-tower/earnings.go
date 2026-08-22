@@ -13,7 +13,7 @@ import (
 	"io"
 	"time"
 
-	"rogerai.fm/roger/v5/internal/towerjoin"
+	"rogerai.fm/roger/v6/internal/towerjoin"
 )
 
 // NO DATA DIRECTORY. Earnings are an ACCOUNT question answered by Core over a signed

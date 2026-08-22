@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"rogerai.fm/roger/v5/internal/store"
+	"rogerai.fm/roger/v6/internal/store"
 )
 
 // PATCH /bands/{id} is the MOVE: it repoints a band at a different node so an owner can

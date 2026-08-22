@@ -8,7 +8,7 @@ import (
 	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"rogerai.fm/roger/v5/internal/detect"
+	"rogerai.fm/roger/v6/internal/detect"
 )
 
 // TestShareRowsFlattenAcrossEndpoints is the SHARE-shows-only-one-model regression:

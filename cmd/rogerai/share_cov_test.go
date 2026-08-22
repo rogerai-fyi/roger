@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"rogerai.fm/roger/v5/internal/agent"
+	"rogerai.fm/roger/v6/internal/agent"
 )
 
 // stubShareSeams points cmdShare's register+serve seams at a no-op stub session and a

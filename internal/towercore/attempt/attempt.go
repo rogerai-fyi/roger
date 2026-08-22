@@ -41,7 +41,7 @@ import (
 	"fmt"
 	"time"
 
-	"rogerai.fm/roger/v5/internal/towerobj"
+	"rogerai.fm/roger/v6/internal/towerobj"
 )
 
 // The object identities, and the tags their deterministic IDs derive from. The tags are part

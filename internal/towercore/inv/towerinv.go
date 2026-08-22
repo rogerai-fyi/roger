@@ -56,7 +56,7 @@ import (
 	"sync"
 	"time"
 
-	"rogerai.fm/roger/v5/internal/towerobj"
+	"rogerai.fm/roger/v6/internal/towerobj"
 )
 
 // The object types and version this package speaks. They are part of the signing domain, so

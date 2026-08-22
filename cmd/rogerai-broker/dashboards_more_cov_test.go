@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"rogerai.fm/roger/v5/internal/protocol"
+	"rogerai.fm/roger/v6/internal/protocol"
 )
 
 // TestBalanceHandler covers GET /balance across its three resolutions: a logged-in session

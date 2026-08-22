@@ -21,7 +21,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"rogerai.fm/roger/v5/internal/tower"
+	"rogerai.fm/roger/v6/internal/tower"
 )
 
 const accountFile = "account.json"

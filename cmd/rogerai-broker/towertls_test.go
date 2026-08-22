@@ -20,8 +20,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"rogerai.fm/roger/v5/internal/towercore/admit"
-	"rogerai.fm/roger/v5/internal/towercore/link"
+	"rogerai.fm/roger/v6/internal/towercore/admit"
+	"rogerai.fm/roger/v6/internal/towercore/link"
 )
 
 // testHubPin is the shape a tower computes from its own certificate: hex sha256 over the

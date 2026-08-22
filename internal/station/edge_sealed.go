@@ -33,8 +33,8 @@ import (
 	"sync"
 	"time"
 
-	"rogerai.fm/roger/v5/internal/towercore/dispatch"
-	"rogerai.fm/roger/v5/internal/towercore/envelope"
+	"rogerai.fm/roger/v6/internal/towercore/dispatch"
+	"rogerai.fm/roger/v6/internal/towercore/envelope"
 )
 
 // AttemptCache is the node's one-serve-per-attempt guard for the sealed path: a TTL'd set of

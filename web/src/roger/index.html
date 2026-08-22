@@ -9,8 +9,9 @@
      the major-version suffix. A go-import prefix must be a prefix of the URL Go requested,
      so declaring `.../v5` here would make Go reject this page outright at /roger. Keeping
      the bare prefix means `go get rogerai.fm/roger` fails with the useful "module declares
-     its path as rogerai.fm/roger/v5" instead of an opaque meta-tag mismatch. The module
-     Go actually fetches is served by /roger/v5/ - see that page.
+     its path as rogerai.fm/roger/v6" instead of an opaque meta-tag mismatch. The module
+     Go actually fetches is served by /roger/v6/ - see that page (and /roger/v5/, still
+     served for anyone who has not migrated).
      The go-import tag is what makes `go get` work. It is the ONE place the
      code host is named: the import path belongs to this domain, so moving or renaming the
      repository is a one-line change here rather than an edit to every import in the tree.
@@ -36,7 +37,7 @@
 <body>
 <h1>rogerai.fm/roger</h1>
 
-<p>The Go module lives at <code>rogerai.fm/roger/v5</code>. This page exists to serve the
+<p>The Go module lives at <code>rogerai.fm/roger/v6</code>. This page exists to serve the
 <code>go-import</code> meta tag above; there is nothing to read here.</p>
 
 <p>To install the CLI, use the installer, which fetches a prebuilt binary:</p>

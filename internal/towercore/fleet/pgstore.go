@@ -7,7 +7,7 @@ import (
 	"errors"
 	"time"
 
-	"rogerai.fm/roger/v5/internal/pgmigrate"
+	"rogerai.fm/roger/v6/internal/pgmigrate"
 )
 
 // schema is additive and idempotent, and creates TABLES only: `rogerai` is provisioned by an

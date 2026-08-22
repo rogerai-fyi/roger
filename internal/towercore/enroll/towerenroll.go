@@ -27,9 +27,9 @@ import (
 	"fmt"
 	"time"
 
-	"rogerai.fm/roger/v5/internal/keypurpose"
-	"rogerai.fm/roger/v5/internal/towercore/admit"
-	"rogerai.fm/roger/v5/internal/towercore/cert"
+	"rogerai.fm/roger/v6/internal/keypurpose"
+	"rogerai.fm/roger/v6/internal/towercore/admit"
+	"rogerai.fm/roger/v6/internal/towercore/cert"
 )
 
 // defaultChallengeTTL bounds how long a challenge may go unanswered. Short, because its

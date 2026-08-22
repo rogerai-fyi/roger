@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"rogerai.fm/roger/v5/internal/agent"
+	"rogerai.fm/roger/v6/internal/agent"
 )
 
 // TestTogglePrivateRestoresOnFailure pins the invariant that a REJECTED visibility change

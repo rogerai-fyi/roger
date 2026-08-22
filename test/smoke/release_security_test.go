@@ -8,6 +8,18 @@ import (
 	"testing"
 )
 
+// TestBrokerAndClientFallbackVersionsMatch keeps the two binaries' UN-STAMPED fallbacks in
+// step. Both are overwritten by -ldflags at release time, so this is about the builds nobody
+// stamps - a `go build` from source, a developer's local run - where a client reporting one
+// version and a broker reporting another makes a bug report impossible to place.
+//
+// IT NO LONGER PINS A LITERAL. It used to also assert client == "5.7.1", added by
+// 6c9cecec as part of that release's contract. That served its purpose - v5.7.1 shipped and
+// is live - but a hardcoded version in a test that guards versioning fails on EVERY
+// subsequent bump, and the failure names the release it was written for rather than
+// anything wrong with the change in front of you. The durable property is that the two
+// agree; which value they agree on is decided by the tag and pinned against the manual by
+// the version-sync gate in cover-gate-fast.
 func TestBrokerAndClientFallbackVersionsMatch(t *testing.T) {
 	root := repoRoot(t)
 	client := readVersionAssignment(t, filepath.Join(root, "cmd", "rogerai", "main.go"), "Version")
@@ -15,8 +27,9 @@ func TestBrokerAndClientFallbackVersionsMatch(t *testing.T) {
 	if client != broker {
 		t.Fatalf("client fallback version %q != broker fallback version %q", client, broker)
 	}
-	if client != "5.7.1" {
-		t.Fatalf("release repair must be v5.7.1, got %q", client)
+	if !regexp.MustCompile(`^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$`).MatchString(client) {
+		t.Fatalf("fallback version %q is not a semver: -ldflags stamps a tag-derived value, "+
+			"so the fallback has to be shaped like one too", client)
 	}
 }
 

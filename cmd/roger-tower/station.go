@@ -22,7 +22,7 @@ import (
 	"fmt"
 	"io"
 
-	"rogerai.fm/roger/v5/internal/towerjoin"
+	"rogerai.fm/roger/v6/internal/towerjoin"
 )
 
 const stationUsage = `roger-tower station - Stations on the public network

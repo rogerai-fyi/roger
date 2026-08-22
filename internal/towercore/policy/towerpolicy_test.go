@@ -9,7 +9,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"rogerai.fm/roger/v5/internal/towercore/attach"
+	"rogerai.fm/roger/v6/internal/towercore/attach"
 )
 
 // The property under test throughout is FAIL CLOSED.

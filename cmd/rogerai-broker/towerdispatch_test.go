@@ -23,17 +23,17 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/stretchr/testify/require"
-	"rogerai.fm/roger/v5/internal/store"
-	"rogerai.fm/roger/v5/internal/towercore/admit"
-	"rogerai.fm/roger/v5/internal/towercore/attach"
-	"rogerai.fm/roger/v5/internal/towercore/attempt"
-	"rogerai.fm/roger/v5/internal/towercore/cert"
-	"rogerai.fm/roger/v5/internal/towercore/dispatch"
-	"rogerai.fm/roger/v5/internal/towercore/enroll"
-	"rogerai.fm/roger/v5/internal/towercore/envelope"
-	"rogerai.fm/roger/v5/internal/towercore/fleet"
-	"rogerai.fm/roger/v5/internal/towercore/head"
-	"rogerai.fm/roger/v5/internal/towercore/link"
+	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v6/internal/towercore/admit"
+	"rogerai.fm/roger/v6/internal/towercore/attach"
+	"rogerai.fm/roger/v6/internal/towercore/attempt"
+	"rogerai.fm/roger/v6/internal/towercore/cert"
+	"rogerai.fm/roger/v6/internal/towercore/dispatch"
+	"rogerai.fm/roger/v6/internal/towercore/enroll"
+	"rogerai.fm/roger/v6/internal/towercore/envelope"
+	"rogerai.fm/roger/v6/internal/towercore/fleet"
+	"rogerai.fm/roger/v6/internal/towercore/head"
+	"rogerai.fm/roger/v6/internal/towercore/link"
 )
 
 func TestCorePublishesItsGrantKey(t *testing.T) {

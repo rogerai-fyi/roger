@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"rogerai.fm/roger/v5/internal/store"
+	"rogerai.fm/roger/v6/internal/store"
 )
 
 // ghAppleBroker binds a GitHub owner "apple" (the real high-value collision target) + returns

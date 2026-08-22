@@ -25,7 +25,7 @@ import (
 	"net/http"
 	"os"
 
-	"rogerai.fm/roger/v5/internal/tokenizer"
+	"rogerai.fm/roger/v6/internal/tokenizer"
 )
 
 type countRequest struct {

@@ -34,12 +34,12 @@ import (
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v5/internal/towercore/dispatch"
-	"rogerai.fm/roger/v5/internal/towercore/envelope"
-	"rogerai.fm/roger/v5/internal/towercore/fleet"
-	"rogerai.fm/roger/v5/internal/towercore/link"
-	"rogerai.fm/roger/v5/internal/towercore/reputation"
-	"rogerai.fm/roger/v5/internal/towerhub"
+	"rogerai.fm/roger/v6/internal/towercore/dispatch"
+	"rogerai.fm/roger/v6/internal/towercore/envelope"
+	"rogerai.fm/roger/v6/internal/towercore/fleet"
+	"rogerai.fm/roger/v6/internal/towercore/link"
+	"rogerai.fm/roger/v6/internal/towercore/reputation"
+	"rogerai.fm/roger/v6/internal/towerhub"
 )
 
 // canaryPrompts are innocuous requests a canary rotates between. The BODY names the grant's

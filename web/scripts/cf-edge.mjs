@@ -144,10 +144,10 @@ export function legacyRedirectRule(opts = {}) {
 
 // The live zone still carries the single-path 2026-07-30 rule (/roger only). The two-path,
 // request-derived rule below has NOT been applied yet, so `--check` reports drift for
-// /roger/v5 until someone re-runs `--apply` against the zone. That is the intended order:
-// the site must ship /roger/v5/ first, or the redirect would point at a 404.
+// /roger/v6 until someone re-runs `--apply` against the zone. That is the intended order:
+// the site must ship /roger/v6/ first, or the redirect would point at a 404.
 //
-// `go get rogerai.fm/roger/v5` fetches the module path with NO trailing slash, and this
+// `go get rogerai.fm/roger/v6` fetches the module path with NO trailing slash, and this
 // host does no extensionless resolution - measured, not assumed:
 //     https://rogerai.fm/manual       404
 //     https://rogerai.fm/manual.html  200
@@ -161,18 +161,23 @@ export function vanityImportRule(opts = {}) {
     action_parameters: {
       from_value: {
         status_code: 301,
-        // Trailing slash derived from the request, so /roger/v5 lands on /roger/v5/ rather
+        // Trailing slash derived from the request, so /roger/v6 lands on /roger/v6/ rather
         // than on /roger/ - which would answer with a tag for the wrong module path.
         target_url: { expression: `concat("https://${zone}", http.request.uri.path, "/")` },
         preserve_query_string: true,
       },
     },
     // Exact set membership, never a prefix: starts_with(..., "/roger") would also swallow
-    // /roger-ios and every future page whose name begins with "roger". Both the bare path
-    // and the major-version path are listed because Go fetches the FULL module path.
+    // /roger-ios and every future page whose name begins with "roger". The bare path and
+    // EVERY live major-version path are listed because Go fetches the FULL module path.
+    //
+    // The superseded major stays listed on purpose. Its tags still carry a go.mod naming
+    // that path, so `go install rogerai.fm/roger/v5/...` must keep resolving for everyone
+    // who has not moved yet; dropping it here would break their builds at the edge while
+    // the repository still serves them perfectly well.
     // The ACME exclusion is redundant against an exact-path test and carried anyway: "every
     // redirect carries this" is only a guarantee if it holds without a case-by-case argument.
-    expression: `(http.host eq "${zone}" and http.request.uri.path in {"/roger" "/roger/v5"} and ${ACME_EXCLUSION})`,
+    expression: `(http.host eq "${zone}" and http.request.uri.path in {"/roger" "/roger/v5" "/roger/v6"} and ${ACME_EXCLUSION})`,
     description: DESC_VANITY,
     enabled: true,
   };
@@ -240,7 +245,7 @@ function stripReadOnly(r) {
 //
 // Returns a drift description, or null when the redirect is correct. Both the ORIGIN and the
 // EXACT pathname are checked. Either half alone has a hole: a prefix/startsWith test lets
-// /roger accept /roger/v5/ (the collapse the two-path rule exists to prevent), while a
+// /roger accept /roger/v6/ (the collapse the multi-path rule exists to prevent), while a
 // pathname-only test lets a 301 to the legacy apex or to www read as "in sync".
 export function vanityRedirectDrift(status, location, path, apex = APEX) {
   const want = `https://${apex}${path}/`;
@@ -252,7 +257,7 @@ export function vanityRedirectDrift(status, location, path, apex = APEX) {
     return (
       `vanity-import redirect drift for ${path}: expected 301 -> ${want}, ` +
       `got ${status} -> ${location || "(none)"}; ` +
-      "`go install rogerai.fm/roger/v5/cmd/rogerai@latest` is broken while this is wrong"
+      "`go install rogerai.fm/roger/v6/cmd/rogerai@latest` is broken while this is wrong"
     );
   }
   // Go drops the response when the redirect eats its query, so a 301 to the right path is
@@ -321,17 +326,17 @@ if (check) {
       drift.push(`www redirect drift: expected 301 -> https://${APEX}/..., got ${www.res.status} -> ${loc || "(none)"}`);
     }
   }
-  // The vanity-import hop is the ONLY thing that makes `go get rogerai.fm/roger/v5` resolve,
+  // The vanity-import hop is the ONLY thing that makes `go get rogerai.fm/roger/v6` resolve,
   // and nothing else fails loudly if it disappears: verify-artifacts treats its go-import
   // result as advisory, and a rule deleted in the Cloudflare dashboard leaves no trace in
   // the repo. Check it here, where drift is the whole point of the job.
-  // BOTH paths are probed. /roger/v5 is the one Go actually fetches - it filters candidate
+  // EVERY path is probed. /roger/v6 is the one Go fetches for the current major - it filters candidate
   // tags by the module path's major suffix - so checking only /roger would leave the real
-  // route unguarded: dropping "/roger/v5" from the rule would keep this check green while
+  // route unguarded: dropping "/roger/v6" from the rule would keep this check green while
   // `go install` was broken. Each path must land on ITS OWN path plus a slash; asserting a
-  // substring like "/roger/" would accept /roger/v5 collapsing onto /roger/, which is
+  // substring like "/roger/" would accept /roger/v6 collapsing onto /roger/, which is
   // precisely the regression the request-derived target expression exists to prevent.
-  for (const path of ["/roger", "/roger/v5"]) {
+  for (const path of ["/roger", "/roger/v5", "/roger/v6"]) {
     const vanity = await probe(`https://${APEX}${path}?go-get=1`);
     if (vanity.err) {
       drift.push(vanity.err);

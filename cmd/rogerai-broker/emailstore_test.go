@@ -19,7 +19,7 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/stretchr/testify/require"
-	"rogerai.fm/roger/v5/internal/emailauth"
+	"rogerai.fm/roger/v6/internal/emailauth"
 )
 
 func newSharedEmailStore(t *testing.T) (emailauth.Store, *miniredis.Miniredis) {

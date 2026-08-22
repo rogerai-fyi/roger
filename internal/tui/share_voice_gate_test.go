@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"rogerai.fm/roger/v5/internal/node"
+	"rogerai.fm/roger/v6/internal/node"
 )
 
 // The broker 400s a tts offer whose display name is empty ("voice name is empty after

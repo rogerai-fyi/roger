@@ -30,7 +30,7 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
-	"rogerai.fm/roger/v5/internal/deviceauth"
+	"rogerai.fm/roger/v6/internal/deviceauth"
 )
 
 const (

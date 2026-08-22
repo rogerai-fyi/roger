@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v5/internal/protocol"
+	"rogerai.fm/roger/v6/internal/protocol"
 )
 
 // recount.go is the broker side of L1 - the independent token re-count (see

@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"rogerai.fm/roger/v5/internal/protocol"
+	"rogerai.fm/roger/v6/internal/protocol"
 )
 
 // Price-safety: hard ceilings that stop an absurd price from ever landing on the

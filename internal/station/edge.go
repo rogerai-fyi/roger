@@ -34,7 +34,7 @@ import (
 	"errors"
 	"time"
 
-	"rogerai.fm/roger/v5/internal/towercore/dispatch"
+	"rogerai.fm/roger/v6/internal/towercore/dispatch"
 )
 
 // GrantHeader carries Core's authorization from the consumer to the Station, base64 so it

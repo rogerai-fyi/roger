@@ -25,9 +25,9 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"rogerai.fm/roger/v5/internal/protocol"
-	"rogerai.fm/roger/v5/internal/towerhub"
-	"rogerai.fm/roger/v5/internal/towerjoin"
+	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v6/internal/towerhub"
+	"rogerai.fm/roger/v6/internal/towerjoin"
 )
 
 const hubTestTowerID = "tw-hub-test"

@@ -13,7 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"rogerai.fm/roger/v5/internal/protocol"
+	"rogerai.fm/roger/v6/internal/protocol"
 )
 
 // rc.go is the client half of /remote-control (BASE STATION, v5.0.0): the host-side RCBridge

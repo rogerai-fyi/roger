@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"rogerai.fm/roger/v5/internal/protocol"
-	"rogerai.fm/roger/v5/internal/store"
+	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v6/internal/store"
 )
 
 // POST /bands/{id}/rotate is the ROTATE: a fresh secret for an EXISTING band, keeping its

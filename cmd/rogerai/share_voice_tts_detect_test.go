@@ -33,9 +33,9 @@ import (
 	"testing"
 	"time"
 
-	"rogerai.fm/roger/v5/internal/agent"
-	"rogerai.fm/roger/v5/internal/detect"
-	"rogerai.fm/roger/v5/internal/protocol"
+	"rogerai.fm/roger/v6/internal/agent"
+	"rogerai.fm/roger/v6/internal/detect"
+	"rogerai.fm/roger/v6/internal/protocol"
 )
 
 // operatorProfile is the live box's share_voices entry (plus a default voice/speed so

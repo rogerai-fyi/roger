@@ -2,8 +2,8 @@ package tui
 
 import (
 	tea "github.com/charmbracelet/bubbletea"
-	"rogerai.fm/roger/v5/internal/detect"
-	"rogerai.fm/roger/v5/internal/protocol"
+	"rogerai.fm/roger/v6/internal/detect"
+	"rogerai.fm/roger/v6/internal/protocol"
 )
 
 // LOCAL MODELS IN THE AGENT'S /model PICKER.

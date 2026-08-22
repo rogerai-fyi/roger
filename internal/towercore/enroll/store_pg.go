@@ -10,7 +10,7 @@ import (
 	"errors"
 	"time"
 
-	"rogerai.fm/roger/v5/internal/towercore/admit"
+	"rogerai.fm/roger/v6/internal/towercore/admit"
 )
 
 // pgStore is the durable in-flight enrollment state.

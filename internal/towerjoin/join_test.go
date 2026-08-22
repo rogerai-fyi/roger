@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"rogerai.fm/roger/v5/internal/tower"
+	"rogerai.fm/roger/v6/internal/tower"
 )
 
 // This package holds the JOINED-mode account flow. It lives outside internal/tower on

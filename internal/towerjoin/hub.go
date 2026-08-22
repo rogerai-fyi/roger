@@ -17,8 +17,8 @@ import (
 	"net/http"
 	"time"
 
-	"rogerai.fm/roger/v5/internal/protocol"
-	"rogerai.fm/roger/v5/internal/tower"
+	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v6/internal/tower"
 )
 
 // DispatchKey fetches Roger Core's grant-signing public key from the public

@@ -3,7 +3,7 @@ package tui
 import (
 	"testing"
 
-	"rogerai.fm/roger/v5/internal/harness"
+	"rogerai.fm/roger/v6/internal/harness"
 )
 
 // The agent's tool-output budget must track the model it is RUNNING ON, and must follow a

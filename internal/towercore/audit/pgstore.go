@@ -5,7 +5,7 @@ import (
 	"errors"
 	"time"
 
-	"rogerai.fm/roger/v5/internal/pgmigrate"
+	"rogerai.fm/roger/v6/internal/pgmigrate"
 )
 
 const schema = `

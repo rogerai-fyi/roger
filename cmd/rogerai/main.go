@@ -25,13 +25,13 @@ import (
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v5/internal/agent"
-	"rogerai.fm/roger/v5/internal/client"
-	"rogerai.fm/roger/v5/internal/detect"
-	"rogerai.fm/roger/v5/internal/protocol"
-	"rogerai.fm/roger/v5/internal/session"
-	"rogerai.fm/roger/v5/internal/tui"
-	"rogerai.fm/roger/v5/internal/update"
+	"rogerai.fm/roger/v6/internal/agent"
+	"rogerai.fm/roger/v6/internal/client"
+	"rogerai.fm/roger/v6/internal/detect"
+	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v6/internal/session"
+	"rogerai.fm/roger/v6/internal/tui"
+	"rogerai.fm/roger/v6/internal/update"
 )
 
 // Version is the client version (compared against the latest GitHub release for
@@ -42,7 +42,7 @@ import (
 //
 // The default below is the fallback for a plain `go build`. Keep it in sync with
 // releases. Use semver, optionally with a prerelease suffix (e.g. 4.8.0-beta.1).
-var Version = "5.7.1"
+var Version = "6.0.0"
 
 // The production broker is the default - `rogerai` works out of the box, no config.
 // Override per-session with ROGER_BROKER=... or persist with `roger config set broker`.

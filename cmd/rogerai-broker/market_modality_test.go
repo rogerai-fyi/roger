@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"rogerai.fm/roger/v5/internal/protocol"
+	"rogerai.fm/roger/v6/internal/protocol"
 )
 
 // TestMarketRowsCarryModality: every /market row carries the canonical modality of its

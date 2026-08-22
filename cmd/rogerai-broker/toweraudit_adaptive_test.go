@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"rogerai.fm/roger/v5/internal/towercore/reputation"
+	"rogerai.fm/roger/v6/internal/towercore/reputation"
 )
 
 func TestAdaptiveAuditProbability(t *testing.T) {

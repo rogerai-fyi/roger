@@ -24,8 +24,8 @@ import (
 	"strconv"
 	"time"
 
-	"rogerai.fm/roger/v5/internal/deviceauth"
-	"rogerai.fm/roger/v5/internal/store"
+	"rogerai.fm/roger/v6/internal/deviceauth"
+	"rogerai.fm/roger/v6/internal/store"
 )
 
 // deviceVerificationURI is the page a human opens. Ours, always: handing the CLI a

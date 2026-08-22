@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"rogerai.fm/roger/v5/internal/agent"
-	"rogerai.fm/roger/v5/internal/detect"
-	"rogerai.fm/roger/v5/internal/tui"
+	"rogerai.fm/roger/v6/internal/agent"
+	"rogerai.fm/roger/v6/internal/detect"
+	"rogerai.fm/roger/v6/internal/tui"
 )
 
 // dateServer stands up a broker whose /health (and every) response carries a FIXED Date

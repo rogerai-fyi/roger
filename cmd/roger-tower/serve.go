@@ -32,9 +32,9 @@ import (
 	"syscall"
 	"time"
 
-	"rogerai.fm/roger/v5/internal/tower"
-	"rogerai.fm/roger/v5/internal/towercore/link"
-	"rogerai.fm/roger/v5/internal/towerjoin"
+	"rogerai.fm/roger/v6/internal/tower"
+	"rogerai.fm/roger/v6/internal/towercore/link"
+	"rogerai.fm/roger/v6/internal/towerjoin"
 )
 
 // serveJoined runs the link until the process is interrupted. It supplies the two things the

@@ -28,7 +28,7 @@ import (
 	"sync"
 	"time"
 
-	"rogerai.fm/roger/v5/internal/towerhub"
+	"rogerai.fm/roger/v6/internal/towerhub"
 )
 
 // PublicNetwork is the only network a joined Tower may speak on. A standalone Tower mints

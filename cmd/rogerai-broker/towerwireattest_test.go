@@ -14,9 +14,9 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"rogerai.fm/roger/v5/internal/towercore/admit"
-	"rogerai.fm/roger/v5/internal/towercore/audit"
-	"rogerai.fm/roger/v5/internal/towercore/dispatch"
+	"rogerai.fm/roger/v6/internal/towercore/admit"
+	"rogerai.fm/roger/v6/internal/towercore/audit"
+	"rogerai.fm/roger/v6/internal/towercore/dispatch"
 )
 
 // A Station byte claim above the Tower's wire count means SOMEBODY is lying - the station

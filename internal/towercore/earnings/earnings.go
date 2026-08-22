@@ -44,7 +44,7 @@ import (
 	"math"
 	"time"
 
-	"rogerai.fm/roger/v5/internal/towercore/comp"
+	"rogerai.fm/roger/v6/internal/towercore/comp"
 )
 
 // Accrual is one attempt's earning for one Tower operator.

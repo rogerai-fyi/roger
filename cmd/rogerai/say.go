@@ -12,8 +12,8 @@ import (
 	"fmt"
 	"strings"
 
-	"rogerai.fm/roger/v5/internal/audio"
-	"rogerai.fm/roger/v5/internal/client"
+	"rogerai.fm/roger/v6/internal/audio"
+	"rogerai.fm/roger/v6/internal/client"
 )
 
 // sayPlayer is the injectable audio player seam (default the shared real player). A test points it

@@ -9,9 +9,9 @@ import (
 	"io"
 	"os"
 
-	"rogerai.fm/roger/v5/internal/capsule"
-	"rogerai.fm/roger/v5/internal/client"
-	"rogerai.fm/roger/v5/internal/protocol"
+	"rogerai.fm/roger/v6/internal/capsule"
+	"rogerai.fm/roger/v6/internal/client"
+	"rogerai.fm/roger/v6/internal/protocol"
 )
 
 // context.go is the `roger context` verb group: portable signed context capsules

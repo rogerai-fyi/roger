@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"rogerai.fm/roger/v5/internal/client"
+	"rogerai.fm/roger/v6/internal/client"
 )
 
 // chat.go - the console's CHAT tab (founder 2026-08-20: the chat mechanics lived only

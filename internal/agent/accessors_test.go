@@ -5,7 +5,7 @@ import (
 	"encoding/hex"
 	"testing"
 
-	"rogerai.fm/roger/v5/internal/protocol"
+	"rogerai.fm/roger/v6/internal/protocol"
 )
 
 // TestSessionAccessors covers the read-only Session accessors plus record(): the

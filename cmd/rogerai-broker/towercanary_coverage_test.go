@@ -18,7 +18,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"rogerai.fm/roger/v5/internal/towercore/reputation"
+	"rogerai.fm/roger/v6/internal/towercore/reputation"
 )
 
 // canaryFleet stands up one live tower with n self-attached stations on air behind it, and

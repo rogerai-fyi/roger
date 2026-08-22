@@ -40,7 +40,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"rogerai.fm/roger/v5/internal/towerhub"
+	"rogerai.fm/roger/v6/internal/towerhub"
 )
 
 // fastReattach shortens the re-attachment timings for a test and restores them afterwards.

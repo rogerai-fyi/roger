@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"rogerai.fm/roger/v5/internal/protocol"
+	"rogerai.fm/roger/v6/internal/protocol"
 )
 
 // The consumer's signing identity: an Ed25519 keypair at

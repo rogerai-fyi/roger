@@ -39,8 +39,8 @@ import (
 	"strconv"
 	"testing"
 
-	"rogerai.fm/roger/v5/internal/protocol"
-	"rogerai.fm/roger/v5/internal/towercore/link"
+	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v6/internal/towercore/link"
 )
 
 // AttachTower co-signs its attach with the Station's assertion key, over a statement Core can

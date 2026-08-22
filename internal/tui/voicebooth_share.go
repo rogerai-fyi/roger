@@ -26,8 +26,8 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"rogerai.fm/roger/v5/internal/glyphs"
-	"rogerai.fm/roger/v5/internal/node"
+	"rogerai.fm/roger/v6/internal/glyphs"
+	"rogerai.fm/roger/v6/internal/node"
 )
 
 // sampleBoothText is the fixed line the LOCAL preview synthesizes (short — it's the operator's own

@@ -94,14 +94,14 @@ async function check(url) {
 
 // The go-import tag is an artifact too, and the most brittle one: `go get` fetches
 // the module path as a URL with NO trailing slash, so it depends on the edge resolving
-// /roger/v5 to /roger/v5/index.html. Nothing offline can prove that, and if it is wrong
-// `go install rogerai.fm/roger/v5/...` fails for every user while the whole site looks fine.
+// /roger/v6 to /roger/v6/index.html. Nothing offline can prove that, and if it is wrong
+// `go install rogerai.fm/roger/v6/...` fails for every user while the whole site looks fine.
 //
 // The VERSIONED path is what must be probed. Go filters candidate tags by the module
-// path's major suffix, so the module is `rogerai.fm/roger/v5` and that - not the bare
+// path's major suffix, so the module is `rogerai.fm/roger/v6` and that - not the bare
 // /roger page - is the URL the toolchain actually fetches.
-const GO_GET_URL = "https://rogerai.fm/roger/v5?go-get=1";
-const GO_IMPORT_PREFIX = "rogerai.fm/roger/v5 ";
+const GO_GET_URL = "https://rogerai.fm/roger/v6?go-get=1";
+const GO_IMPORT_PREFIX = "rogerai.fm/roger/v6 ";
 
 async function checkGoImport() {
   const ctrl = new AbortController();
@@ -159,7 +159,7 @@ async function main() {
   if (!goImport.ok) {
     console.error(
       `\nverify-artifacts: ${GO_GET_URL} is not serving the go-import tag (${goImport.why}).\n` +
-        "`go install rogerai.fm/roger/v5/cmd/rogerai@latest` cannot work until it does.\n"
+        "`go install rogerai.fm/roger/v6/cmd/rogerai@latest` cannot work until it does.\n"
     );
   }
   for (const r of results.sort((a, b) => a.url.localeCompare(b.url))) {
@@ -184,13 +184,13 @@ async function main() {
   // than a safe default - so this comment records exactly what has to be true to flip it.
   //
   // Two of the original reasons have expired. The Cloudflare hop is NOT fully applied: the
-  // live zone still carries the single-path rule, so /roger/v5 - the path Go actually
+  // live zone still carries the older path rule, so /roger/v6 - the path Go actually
   // fetches, since it filters tags by the module path's major suffix - does not redirect
   // yet (see cf-edge.mjs). And the manual now DOES advertise
-  // `go install rogerai.fm/roger/v5/cmd/rogerai@latest`, so a missing tag breaks a public
+  // `go install rogerai.fm/roger/v6/cmd/rogerai@latest`, so a missing tag breaks a public
   // promise where it previously broke none.
   //
-  // Flip this to blocking once BOTH hold: the site has deployed /roger/v5/, and
+  // Flip this to blocking once BOTH hold: the site has deployed /roger/v6/, and
   // `cf-edge.mjs --apply` has published the two-path rule. Until then a blocking check
   // would be red for reasons nobody can fix from this repo, and a gate that is always red
   // is a gate everyone learns to ignore. `cf-edge.mjs --check` covers the hop meanwhile,

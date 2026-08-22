@@ -9,7 +9,7 @@ import (
 	"errors"
 	"time"
 
-	"rogerai.fm/roger/v5/internal/towerobj"
+	"rogerai.fm/roger/v6/internal/towerobj"
 )
 
 // Record is one committed event as a store holds it.

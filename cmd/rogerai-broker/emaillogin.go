@@ -24,7 +24,7 @@ import (
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v5/internal/emailauth"
+	"rogerai.fm/roger/v6/internal/emailauth"
 )
 
 // walletForEmail is the email account-wallet namespace, mirroring u_gh_<id> and

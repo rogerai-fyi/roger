@@ -6,7 +6,7 @@ import (
 	"errors"
 	"testing"
 
-	"rogerai.fm/roger/v5/internal/protocol"
+	"rogerai.fm/roger/v6/internal/protocol"
 )
 
 // TestConfidentialPreflightNoDevice: the CI/dev box is not an SEV-SNP CVM (no

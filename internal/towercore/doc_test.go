@@ -22,7 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const mod = "rogerai.fm/roger/v5"
+const mod = "rogerai.fm/roger/v6"
 
 // THE DIRECTION OF TRUST, checked rather than asserted in prose: a standalone Tower is a
 // private network with its own trust root, and it must not be able to reach Roger Core's

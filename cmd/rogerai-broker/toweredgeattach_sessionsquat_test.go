@@ -39,7 +39,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"rogerai.fm/roger/v5/internal/protocol"
+	"rogerai.fm/roger/v6/internal/protocol"
 )
 
 // THE ATTACK, RUN IN FULL, AGAINST THE REAL ROUTE TABLE - and nobody is denied.

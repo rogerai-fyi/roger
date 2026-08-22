@@ -24,11 +24,11 @@ import (
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v5/internal/client"
-	"rogerai.fm/roger/v5/internal/clockprobe"
-	"rogerai.fm/roger/v5/internal/tower"
-	"rogerai.fm/roger/v5/internal/towerjoin"
-	"rogerai.fm/roger/v5/internal/towerstore"
+	"rogerai.fm/roger/v6/internal/client"
+	"rogerai.fm/roger/v6/internal/clockprobe"
+	"rogerai.fm/roger/v6/internal/tower"
+	"rogerai.fm/roger/v6/internal/towerjoin"
+	"rogerai.fm/roger/v6/internal/towerstore"
 )
 
 const usage = `roger-tower - the self-hosted RogerAI relay

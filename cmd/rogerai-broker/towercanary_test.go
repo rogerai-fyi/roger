@@ -13,10 +13,10 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"rogerai.fm/roger/v5/internal/store"
-	"rogerai.fm/roger/v5/internal/towercore/admit"
-	"rogerai.fm/roger/v5/internal/towercore/fleet"
-	"rogerai.fm/roger/v5/internal/towercore/reputation"
+	"rogerai.fm/roger/v6/internal/store"
+	"rogerai.fm/roger/v6/internal/towercore/admit"
+	"rogerai.fm/roger/v6/internal/towercore/fleet"
+	"rogerai.fm/roger/v6/internal/towercore/reputation"
 )
 
 // deadHubTower is a tower whose self-attached node's hub endpoint is DEAD - attached and

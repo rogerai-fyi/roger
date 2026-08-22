@@ -16,8 +16,8 @@ import (
 
 	"net/http"
 
-	"rogerai.fm/roger/v5/internal/protocol"
-	"rogerai.fm/roger/v5/internal/store"
+	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v6/internal/store"
 
 	"github.com/stretchr/testify/require"
 )

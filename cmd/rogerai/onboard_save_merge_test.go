@@ -29,8 +29,8 @@ import (
 	"strings"
 	"testing"
 
-	"rogerai.fm/roger/v5/internal/detect"
-	"rogerai.fm/roger/v5/internal/protocol"
+	"rogerai.fm/roger/v6/internal/detect"
+	"rogerai.fm/roger/v6/internal/protocol"
 )
 
 // addSectionsBehindOurBack simulates the OTHER writer: after the process under test

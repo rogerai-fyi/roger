@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/v5/internal/store"
+	"rogerai.fm/roger/v6/internal/store"
 )
 
 // report.go is the safety surface: the CSAM preserve+queue path (18 USC 2258A), the

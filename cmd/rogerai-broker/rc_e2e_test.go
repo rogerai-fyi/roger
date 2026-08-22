@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"rogerai.fm/roger/v5/internal/client"
-	"rogerai.fm/roger/v5/internal/protocol"
-	"rogerai.fm/roger/v5/internal/store"
+	"rogerai.fm/roger/v6/internal/client"
+	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v6/internal/store"
 )
 
 // rc_e2e_test.go is the LIVE end-to-end for BASE STATION: it drives the REAL client bridge +

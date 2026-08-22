@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"rogerai.fm/roger/v5/internal/agent"
-	"rogerai.fm/roger/v5/internal/detect"
+	"rogerai.fm/roger/v6/internal/agent"
+	"rogerai.fm/roger/v6/internal/detect"
 )
 
 // stubPreflight points the share path's hardware probe at a chosen machine, so the

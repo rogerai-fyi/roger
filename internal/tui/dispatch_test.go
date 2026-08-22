@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"rogerai.fm/roger/v5/internal/agent"
+	"rogerai.fm/roger/v6/internal/agent"
 )
 
 // P1 - the pilot-lamp mapping: glyph + lamp by (on-air, link state).

@@ -44,7 +44,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"rogerai.fm/roger/v5/internal/tower"
+	"rogerai.fm/roger/v6/internal/tower"
 )
 
 // renewAt is the fraction of a certificate's life after which renewal is attempted.

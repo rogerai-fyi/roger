@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"rogerai.fm/roger/v5/internal/towercore/audit"
+	"rogerai.fm/roger/v6/internal/towercore/audit"
 )
 
 func TestLeniencyEndsTheFirstTimeAStationAnswersAnAudit(t *testing.T) {
