@@ -200,8 +200,28 @@ func (s *Server) handleAgent(w http.ResponseWriter, r *http.Request) {
 	defer s.agentSess.mu.Unlock()
 
 	s.agentSess.spend.reset()
+	// THE ANSWER MUST BE SENT ONCE (founder: "i'm seeing two replies").
+	//
+	// The HARNESS already emits the model's answer as EventFinal - that is what
+	// EventFinal is - and loop.Send then RETURNS the same text. This handler streamed the
+	// event and then sent the return as a second `final`, so a plain question (one step,
+	// no tools) rendered its reply twice in the browser while the receipt honestly said
+	// "1 call · 1 step". The duplicate was in the transport, not the model.
+	//
+	// The trailing send still earns its place: loop.Send's return is the authoritative
+	// answer and can legitimately differ from anything streamed - a step-capped or
+	// recovered turn ends with text the stream never carried, and dropping it wholesale
+	// would lose those answers. So it goes out only when it actually adds something.
+	var lastText string
 	out, rerr := loop.Send(r.Context(), req.Message, func(e harness.Event) {
-		send(flattenEvent(e))
+		ev := flattenEvent(e)
+		// Both kinds carry model prose. A THOUGHT final carries reasoning rather than the
+		// answer, and its text differs from the answer anyway, so comparing text alone is
+		// enough - no need to reason about which kind a client is looking at.
+		if (ev.Kind == "final" || ev.Kind == "assistant") && strings.TrimSpace(ev.Text) != "" {
+			lastText = strings.TrimSpace(ev.Text)
+		}
+		send(ev)
 	})
 	if rerr != nil {
 		send(agentEvent{Kind: "error", Text: rerr.Error()})
@@ -210,7 +230,9 @@ func (s *Server) handleAgent(w http.ResponseWriter, r *http.Request) {
 		send(s.turnReceipt(loop))
 		return
 	}
-	send(agentEvent{Kind: "final", Text: out})
+	if trimmed := strings.TrimSpace(out); trimmed != "" && trimmed != lastText {
+		send(agentEvent{Kind: "final", Text: out})
+	}
 	send(s.turnReceipt(loop))
 }
 

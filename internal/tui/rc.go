@@ -398,15 +398,64 @@ func (m model) onRemoteRoster(msg remoteRosterMsg) (tea.Model, tea.Cmd) {
 func (m model) privateView(w int) string {
 	var b strings.Builder
 	line := func(s string) { b.WriteString("  " + truncVisible(s, w-2) + "\n") }
-	b.WriteString("  " + stSelBar.Render("▌") + " " + stBrand.Render("BASE STATION") + stDim.Render("   your private side of the dial") + "\n")
-	b.WriteString("  " + stRed.Render(glyphOnAir) + stDim.Render(" your account only · relayed through the broker · not end-to-end encrypted") + "\n\n")
+	// Every ROW goes through `line`, which clamps; these headers bypassed it and ran off a
+	// narrow or minimized terminal while the rows beneath them fitted - the compact audit
+	// caught it across the whole screen. On a slim width the prose drops to its
+	// load-bearing half rather than being cut mid-clause.
+	line(stSelBar.Render("▌") + " " + stBrand.Render("BASE STATION") + stDim.Render("   your private side of the dial"))
+	privacy := " your account only · relayed through the broker · not end-to-end encrypted"
+	if w < 80 {
+		privacy = " your account only · broker relay"
+	}
+	line(stRed.Render(glyphOnAir) + stDim.Render(privacy))
+	b.WriteString("\n")
+
+	// BOUND THE TWO LISTS TO THE TERMINAL. BASE STATION printed every session and every
+	// band unconditionally, so an operator with a few of each produced a frame taller than
+	// their window - and a frame taller than the terminal SCROLLS THE ALT BUFFER, stranding
+	// the previous frame's top above it. That is the stacked-ROGER-logos failure, and this
+	// screen had the same hole the station log had.
+	//
+	// rcChrome is every row this view emits that is NOT a session or a band: the app header
+	// and preset bar, the BASE STATION line, the privacy line, the two section heads, the
+	// blanks, the manage hint, the revoked-row note, the tune-a-code line and the footer.
+	// MEASURED at 18 by counting a real frame: a 20-row terminal emitted 18 non-content
+	// rows around 3 bands and came out at 21. It VARIES by a row either way - the sessions
+	// empty state appears only with no sessions, the revoked-row note only with a dead band
+	// - so the constant carries a row of slack rather than sitting exactly on the measured
+	// worst case. (My first guess here was 17, and the audit caught it, exactly as an
+	// earlier guess of 10 for the station log was caught.)
+	const rcChrome = 19
+	maxRows := len(m.rcSessions) + len(m.rcBands)
+	if m.height > 0 {
+		if room := m.height - rcChrome; room > 0 {
+			maxRows = room
+		} else {
+			maxRows = 1 // a very short terminal still shows something to act on
+		}
+	}
+	// The cursor must stay visible: a bounded list that always shows the TOP would hide
+	// the row the operator is on the moment they scrolled past the fold.
+	rcStart := 0
+	if m.rcCursor >= maxRows {
+		rcStart = m.rcCursor - maxRows + 1
+	}
+	shownSess, shownBands := rcWindow(len(m.rcSessions), len(m.rcBands), rcStart, maxRows)
+	hidden := (len(m.rcSessions) + len(m.rcBands)) - (shownSess[1] - shownSess[0]) - (shownBands[1] - shownBands[0])
 
 	// REMOTE SESSIONS
-	b.WriteString("  " + stKey.Render("REMOTE SESSIONS") + stDim.Render("   agent sessions live on your other machines · ⏎ continues") + "\n")
+	sessHint := "   agent sessions live on your other machines · ⏎ continues"
+	if w < 80 {
+		sessHint = "   on your other machines"
+	}
+	line(stKey.Render("REMOTE SESSIONS") + stDim.Render(sessHint))
 	if len(m.rcSessions) == 0 {
 		line(stDim.Render("none yet — run /remote-control inside [0] AGENT on any machine"))
 	}
 	for i, s := range m.rcSessions {
+		if i < shownSess[0] || i >= shownSess[1] {
+			continue
+		}
 		cursor := "  "
 		if i == m.rcCursor {
 			cursor = stSelText.Render("▸ ")
@@ -423,12 +472,20 @@ func (m model) privateView(w int) string {
 	}
 
 	// PRIVATE BANDS
-	b.WriteString("\n  " + stKey.Render("PRIVATE BANDS") + stDim.Render("   hidden stations only a frequency code can tune") + "\n")
+	b.WriteString("\n")
+	bandHint := "   hidden stations only a frequency code can tune"
+	if w < 80 {
+		bandHint = "   only a code can tune them"
+	}
+	line(stKey.Render("PRIVATE BANDS") + stDim.Render(bandHint))
 	if len(m.rcBands) == 0 {
 		line(stDim.Render("none yet — roger share --private mints one (a one-time frequency code)"))
 	}
 	dead := 0
 	for i, bd := range m.rcBands {
+		if i < shownBands[0] || i >= shownBands[1] {
+			continue
+		}
 		// STATUS IN WORDS. The only thing separating a live band from a burnt one was a
 		// ◉ against a ·, which is far too quiet for the difference between "this is my
 		// band" and "this is a corpse" - the founder read two rows on one model and could
@@ -449,22 +506,47 @@ func (m model) privateView(w int) string {
 			stDim.Render(bd.Display) + "  " + state + "  " + stDim.Render(bandWhere(bd)))
 	}
 	if len(m.rcBands) > 0 {
-		b.WriteString("\n  " + stDim.Render("⏎ manage a band (tune in · move · new code · revoke)") + "\n")
+		b.WriteString("\n")
+		line(stDim.Render("⏎ manage a band (tune in · move · new code · revoke)"))
 	}
 	if dead > 0 {
 		// Revoked rows used to be permanent with nothing able to remove them, so they piled
 		// up around the live band. Name the count and the key that clears them.
-		b.WriteString("  " + stDim.Render(plural(dead, "revoked row")+" here - ⏎ then ") +
-			stKey.Render("f") + stDim.Render(" forgets one for good") + "\n")
+		line(stDim.Render(plural(dead, "revoked row")+" here - ⏎ then ") +
+			stKey.Render("f") + stDim.Render(" forgets one for good"))
 	}
-	b.WriteString("\n  " + stDim.Render("tune a code from elsewhere ") + stKey.Render("[~]") + "\n")
+	if hidden > 0 {
+		// Never silently truncate: a list that just stops reads as a complete list.
+		line(stDim.Render(fmt.Sprintf("… %d more - widen or resize to see them", hidden)))
+	}
+	b.WriteString("\n")
+	line(stDim.Render("tune a code from elsewhere ") + stKey.Render("[~]"))
 	if m.rcErr != "" {
-		b.WriteString("  " + stRed.Render("✕ ") + stEmber.Render(m.rcErr) + "\n")
+		line(stRed.Render("✕ ") + stEmber.Render(m.rcErr))
 	}
 	return b.String()
 }
 
 func trimName(s string) string { return truncVisible(s, 18) }
+
+// rcWindow maps a flat [start, start+n) window over the CONCATENATED sessions-then-bands
+// list back onto per-list [lo, hi) ranges. The two lists share one cursor and one budget,
+// so they must be windowed together - bounding them separately would let a long session
+// list push the bands off the bottom while the band budget sat unused.
+func rcWindow(nSess, nBands, start, n int) (sess [2]int, bands [2]int) {
+	if n < 0 {
+		n = 0
+	}
+	end := start + n
+	clip := func(lo, hi, off int) [2]int {
+		a, b := max(0, start-off), min(hi-lo, max(0, end-off))
+		if a > b {
+			a = b
+		}
+		return [2]int{a, b}
+	}
+	return clip(0, nSess, 0), clip(0, nBands, nSess)
+}
 
 // onPrivateKey drives BASE STATION. j/k move; ⏎ opens a session; x revokes; ~ freq entry;
 // esc returns to THE BAND. Unmatched keys fall through to the preset bank (windowshade + jumps).

@@ -759,6 +759,9 @@
           chatSettleTool(box, e);
           break;
         case "assistant":
+          // INTERIM prose, emitted alongside tool calls - the model narrating between
+          // steps. It is shown but NOT recorded as the turn's answer: the answer arrives
+          // as `final`, which is what EventFinal means.
           box = null;
           if (e.text) chatAppend(model, e.text, "chat-turn--reply");
           break;

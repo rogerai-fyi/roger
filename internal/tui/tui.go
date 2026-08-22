@@ -4190,7 +4190,7 @@ func (m model) loginView(w int) string {
 			stGold.Render("  "+pulse) + stDim.Render(" waiting for authorization...") + "\n" +
 			stDim.Render("  "+note) + "\n\n" +
 			stDim.Render("  esc backs out (you can /login again any time)")
-		return "\n" + stPanel.Render(body) + "\n"
+		return "\n" + panelFit(body, w) + "\n"
 	}
 
 	// LOGGED IN -> the log-out confirm (#5). Never auto-logs-out.
@@ -4207,14 +4207,14 @@ func (m model) loginView(w int) string {
 		body += "\n\n" +
 			"  " + stDim.Render("log out? ") + stEmber.Render("[y/N]") + "\n\n" +
 			stDim.Render("  y logs out (clears this session) · n / esc keeps you logged in")
-		return "\n" + stPanel.Render(body) + "\n"
+		return "\n" + panelFit(body, w) + "\n"
 	}
 
 	// LOGGED OUT -> press enter to start the GitHub device flow (#5).
 	body := stKey.Render("GITHUB LOGIN") + "\n\n" +
 		stDim.Render("  log in with GitHub to use your wallet + earn as a provider") + "\n\n" +
 		"  " + stDim.Render("press ") + stKey.Render("enter") + stDim.Render(" to start (opens your browser) · esc cancels")
-	return "\n" + stPanel.Render(body) + "\n"
+	return "\n" + panelFit(body, w) + "\n"
 }
 
 // doTopup opens checkout (async; the URL lands as a topupMsg).
@@ -5299,6 +5299,48 @@ func (m model) promptLine(w int) string {
 // quitConfirmView is the on-air quit-guard: a clear "you are ON AIR - quit and go
 // off air?" prompt with the SAFE default on NO (keep sharing). Shown only while at
 // least one model is live (requestQuit gates entry).
+// panelFit renders body inside the standard bordered panel, CLAMPED to the terminal.
+//
+// stPanel sizes its border to the CONTENT, so a panel built from prose was whatever width
+// its longest line happened to be - 68 cells for the quit guard, regardless of the
+// terminal. On a narrow or minimized window every one of those boxes ran off the screen,
+// which the compact audit caught across four screens at once.
+//
+// Two geometry facts, learned the hard way on the [3] CONFIG edit box and stated here so
+// they are stated once: Style.Width() sets the TOTAL width INCLUDING padding (so the
+// content gets width-2), and MaxWidth does NOT prevent a wrap - it clips a block that has
+// already wrapped. Prose is allowed to wrap here, unlike a single-line field; what must
+// never happen is a border wider than the screen.
+// clampLines trims every line of a rendered view to w.
+//
+// It is the LAST line of defence, not the design: a view should shorten its own prose and
+// compress its own columns, because a clamp cuts mid-word and tells the operator nothing
+// about what was lost. But a screen that runs off the terminal wraps, and a wrapped dense
+// view is what makes the whole app look broken - so the invariant is worth holding
+// unconditionally even where the fix above it is imperfect.
+func clampLines(s string, w int) string {
+	if w <= 0 {
+		return s
+	}
+	lines := strings.Split(s, "\n")
+	for i, ln := range lines {
+		if lipgloss.Width(ln) > w {
+			lines[i] = truncVisible(ln, w)
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+func panelFit(body string, w int) string {
+	const chrome = 4 // 2 border + 2 padding
+	avail := max(8, w-chrome)
+	inner := lipgloss.Width(body)
+	if inner > avail {
+		inner = avail
+	}
+	return stPanel.Width(inner + 2).Render(body)
+}
+
 func (m model) quitConfirmView(w int) string {
 	n := m.onAirCount()
 	body := stRed.Render(glyphOnAir+" ON AIR") + stDim.Render(" - you are sharing ") +
@@ -5306,7 +5348,7 @@ func (m model) quitConfirmView(w int) string {
 		"  You are ON AIR sharing " + stKey.Render(fmt.Sprintf("%d model(s)", n)) +
 		stDim.Render(" - quit and go off air? ") + stEmber.Render("[y/N]") + "\n\n" +
 		stDim.Render("  y quits + goes off air cleanly · n / esc keeps you on air")
-	return "\n" + stPanel.Render(body) + "\n"
+	return "\n" + panelFit(body, w) + "\n"
 }
 
 // confirmView is the connect-time cost confirmation (3.2): the deal + an explicit
@@ -5336,11 +5378,18 @@ func (m model) bandDetailView(w int) string {
 	if bd.online {
 		on = stLive.Render(fmt.Sprintf("%d on air", bd.stations))
 	}
-	b.WriteString("  " + stSelBar.Render("▌") + " " + stBrand.Render("STATION LOG") +
-		stDim.Render("   ") + stKey.Render(bd.model) + stDim.Render(" · ") + on + ctxTag + "\n\n")
+	// Clamped: the header and the empty state both ran off a narrow or minimized
+	// terminal (the compact audit). The empty state also drops to its keys on a slim
+	// width - the two keys ARE the message there, the sentence around them is not.
+	b.WriteString("  " + truncVisible(stSelBar.Render("▌")+" "+stBrand.Render("STATION LOG")+
+		stDim.Render("   ")+stKey.Render(bd.model)+stDim.Render(" · ")+on+ctxTag, w-2) + "\n\n")
 
 	if len(bd.all) == 0 {
-		b.WriteString("  " + stDim.Render("no station detail for this band right now - r to re-scan, esc to go back") + "\n")
+		empty := "no station detail for this band right now - r to re-scan, esc to go back"
+		if w < 80 {
+			empty = "no station detail - r re-scan · esc back"
+		}
+		b.WriteString("  " + truncVisible(stDim.Render(empty), w-2) + "\n")
 		return b.String()
 	}
 
@@ -5688,7 +5737,13 @@ func monthlyBudgetLine(m model) string {
 		return label + stDim.Render("log in to set a monthly spend limit")
 	}
 	if m.monthlyCap <= 0 {
-		return label + stLive.Render("no cap") + stDim.Render("   ·   used "+dollars(m.monthlySpend)+" this month   ·   set: roger limit --monthly $X")
+		line := label + stLive.Render("no cap") + stDim.Render("   ·   used "+dollars(m.monthlySpend)+" this month")
+		// The how-to tail is the first thing to go: it is a CLI reminder, not state, and
+		// it was pushing this row past an ordinary 80-column terminal.
+		if m.width == 0 || m.width >= 92 {
+			line += stDim.Render("   ·   set: roger limit --monthly $X")
+		}
+		return line
 	}
 	used := dollars(m.monthlySpend) + stDim.Render(" of ") + stEmber.Render(dollars(m.monthlyCap))
 	tail := ""
@@ -5733,14 +5788,37 @@ func (m model) walletPanel() string {
 }
 
 // limitsView is the per-model spend-limits editor (3.4).
+//
+// Its output goes through clampLines: the screen is a TABLE plus prose, and a table is
+// exactly the shape that quietly grows a column past the terminal. The targeted narrow
+// forms below keep the clamp from biting; the clamp is the guarantee that it cannot run
+// off the screen even when someone adds a column and forgets this file.
 func (m model) limitsView(w int) string {
+	return clampLines(m.limitsBody(w), w)
+}
+
+func (m model) limitsBody(w int) string {
 	var b strings.Builder
-	b.WriteString("\n" + stBrand.Render("  spend limits") + stDim.Render("    what you are willing to pay, per band") + "\n\n")
+	head := stBrand.Render("  spend limits") + stDim.Render("    what you are willing to pay, per band")
+	if w < 60 {
+		head = stBrand.Render("  spend limits")
+	}
+	b.WriteString("\n" + head + "\n\n")
 	// The dedicated WALLET panel: balance + running session totals + the monthly-budget bar
 	// (a per-account spend cap, enforced server-side at every paid path). Read-only here; set
 	// the cap with `roger limit --monthly $X`.
 	b.WriteString(m.walletPanel() + "\n\n")
-	b.WriteString(stDim.Render(fmt.Sprintf("    %-22s %-13s %-10s %-15s %s", "band", "max $/1M out", "min t/s", "live now", "status")) + "\n")
+	// A DENSE TABLE on a slim terminal. The full grid is 76 cells and simply did not fit
+	// a minimized or narrow window, which is where an operator most often IS when they
+	// glance at their caps. What goes is "live now" and "status" - status is DERIVED from
+	// the two caps beside it, and live-now is a market reading rather than a setting - so
+	// the columns that remain are the ones this screen exists to edit.
+	dense := w < 80
+	if dense {
+		b.WriteString(stDim.Render(fmt.Sprintf("    %-18s %-13s %s", "band", "max $/1M out", "min t/s")) + "\n")
+	} else {
+		b.WriteString(stDim.Render(fmt.Sprintf("    %-22s %-13s %-10s %-15s %s", "band", "max $/1M out", "min t/s", "live now", "status")) + "\n")
+	}
 	if len(m.limModels) == 0 {
 		b.WriteString(stDim.Render("    (none yet - press a / set one in `roger config set-limit`)") + "\n")
 	}
@@ -5772,8 +5850,13 @@ func (m model) limitsView(w int) string {
 				break
 			}
 		}
-		b.WriteString(fmt.Sprintf("%s   %s %s %s %s %s\n",
-			cur, nameStyle.Render(pad(mdl, 22)), stEmber.Render(pad(maxOut, 13)), stDim.Render(pad(mtps, 10)), stDim.Render(pad(live, 15)), status))
+		row := fmt.Sprintf("%s   %s %s %s %s %s",
+			cur, nameStyle.Render(pad(mdl, 22)), stEmber.Render(pad(maxOut, 13)), stDim.Render(pad(mtps, 10)), stDim.Render(pad(live, 15)), status)
+		if dense {
+			row = fmt.Sprintf("%s   %s %s %s",
+				cur, nameStyle.Render(pad(mdl, 18)), stEmber.Render(pad(maxOut, 13)), stDim.Render(mtps))
+		}
+		b.WriteString(truncVisible(row, w) + "\n")
 	}
 	if m.editField >= 0 && m.limCursor < len(m.limModels) {
 		field := "max $/1M out"
@@ -5830,11 +5913,20 @@ func (m model) limitsView(w int) string {
 		inner := lipgloss.Width(plate) + 2 // + the style's horizontal padding
 		b.WriteString("\n  " + stPanel.Width(inner).Render(plate) + "\n")
 	}
-	b.WriteString("\n    " + stDim.Render("↑↓ move   ⏎ edit   tab next field   d clear   esc done") + "\n")
+	keys := "↑↓ move   ⏎ edit   tab next field   d clear   esc done"
+	if w < 60 {
+		keys = "↑↓ · ⏎ edit · d clear · esc"
+	}
+	b.WriteString("\n    " + stDim.Render(keys) + "\n")
 	// Cross-link the two split "config" surfaces: this screen is what you PAY as a
 	// consumer; the provider PRICING editor (what you EARN, with time-of-use windows)
 	// lives on a SHARE row. Signpost it so the operator isn't left hunting for it.
-	b.WriteString("    " + stDim.Render("(this is what you PAY · to set what you EARN, go to ") + stKey.Render("[2] SHARE") + stDim.Render(" and press ") + stKey.Render("p") + stDim.Render(" on a row)") + "\n")
+	signpost := stDim.Render("(this is what you PAY · to set what you EARN, go to ") + stKey.Render("[2] SHARE") +
+		stDim.Render(" and press ") + stKey.Render("p") + stDim.Render(" on a row)")
+	if w < 92 {
+		signpost = stDim.Render("(what you PAY · what you EARN is ") + stKey.Render("[2] SHARE") + stDim.Render(" · p)")
+	}
+	b.WriteString("    " + truncVisible(signpost, w-4) + "\n")
 	return b.String()
 }
 
@@ -9395,6 +9487,17 @@ func modalFooter(w int, left, right, status string) string {
 // terse per-mode hint, then the account tag and the `m expand` reminder. Width-safe:
 // the hint is trimmed to fit before the rule, and a fresh status note (if any) rides
 // one line under it so an action still surfaces an outcome.
+// compactKnowsMode reports whether the windowshade footer has a key line written FOR this
+// screen. Anything else must not be handed the default, which teaches the dial's keys.
+func compactKnowsMode(md mode) bool {
+	switch md {
+	case modeBrowse, modeChat, modeAgent, modeShare, modeLimits,
+		modeShareEditor, modeShareSetup, modeConnectConfirm, modeOverLimit:
+		return true
+	}
+	return false
+}
+
 func (m model) compactFooter(w int) string {
 	rule := stHeadRule.Render(strings.Repeat("-", w))
 	var keys string
@@ -9404,7 +9507,9 @@ func (m model) compactFooter(w int) string {
 	case modeAgent:
 		keys = "ask · ⌃y copy · /model · esc exit · write/run confirm"
 	case modeShare:
-		keys = "↑↓ · ⏎/a air · p price · r"
+		// esc was missing entirely: the windowshade's densest screen was also the one
+		// with no stated exit.
+		keys = "↑↓ · ⏎/a air · p price · b card · esc"
 	case modeLimits:
 		keys = "↑↓ · ⏎ edit · d clear · esc"
 	case modeShareEditor:
@@ -9435,7 +9540,20 @@ func (m model) footer(w int) string {
 	// COMPACT (windowshade): a single, terse key-hint footer under one hairline rule -
 	// no sprawling bal/broker/status block. It still adapts the leading hint to the
 	// mode so the right keys are taught, and always carries the `m expand` reminder.
-	if m.compact {
+	// COMPACT has its own terse one-liner, but ONLY for the screens it actually knows.
+	// Its switch was a second, parallel copy of the per-mode key knowledge, and it drifted:
+	// every screen added since (BASE STATION, the band card, the confirms, the PRIVATE tab)
+	// fell to its default and was taught the BAND BROWSER's keys - "↑↓ · ⏎ tune · s sort" -
+	// on screens where none of them do anything.
+	//
+	// That is the exact failure BASE STATION had before it got a footer case, and the note
+	// there still applies: a footer that describes a different screen is worse than none,
+	// because it is the one place an operator looks to learn what a screen can do.
+	//
+	// So an unknown mode now FALLS THROUGH to the per-mode footer below. It is a little
+	// longer than the windowshade line, and correct; the sub-screens it affects are all
+	// transient, so the density cost is paid for seconds and the lie is paid for always.
+	if m.compact && compactKnowsMode(m.mode) {
 		return m.compactFooter(w)
 	}
 	// Keybindings adapt to the mode so the footer always teaches the right keys. At
@@ -9559,10 +9677,17 @@ func (m model) footer(w int) string {
 		// nothing here. A footer that describes a different screen is worse than none:
 		// it is the one place an operator looks to learn what a screen can do, and this
 		// one was actively lying. `x` (revoke) and `r` (refresh) were taught nowhere.
-		left = stDim.Render("↑↓ move  ·  ") + stKey.Render("⏎") + stDim.Render(" manage a band  ·  ") +
-			stKey.Render("x") + stDim.Render(" revoke  ·  r refresh  ·  ~ tune a freq  ·  esc back")
-		if m.narrow() {
-			left = stDim.Render("↑↓ · ⏎ manage · x revoke · r · esc")
+		// A LADDER, not one wide line and one narrow one: the wide form is 85 cells and
+		// overflowed every terminal between narrow() and 86 - including an ordinary 80.
+		for _, cand := range []string{
+			"↑↓ move  ·  ⏎ manage a band  ·  x revoke  ·  r refresh  ·  ~ tune a freq  ·  esc back",
+			"↑↓ · ⏎ manage · x revoke · r refresh · ~ freq · esc back",
+			"↑↓ · ⏎ manage · x revoke · r · esc",
+		} {
+			left = stDim.Render(cand)
+			if lipgloss.Width(cand)+lipgloss.Width(m.accountTag(true))+2 <= m.effWidth() {
+				break
+			}
 		}
 		return modalFooter(m.effWidth(), left, m.accountTag(true), m.status)
 	case modeBandManage:

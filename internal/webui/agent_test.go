@@ -317,3 +317,35 @@ func TestConsoleOmitsZeroesFromTheReceipt(t *testing.T) {
 		t.Error("a partial tree must say it is a lower bound")
 	}
 }
+
+// THE ANSWER IS SENT ONCE (founder 2026-08-21: "i'm seeing two replies").
+//
+// The loop emits an `assistant` event per model step, and the LAST of those already
+// carries the answer. Sending it again as `final` made a plain question - one step, no
+// tools - render its reply TWICE in the browser, while the receipt honestly said
+// "1 call · 1 step". The duplicate was in the transport, not the model.
+func TestTheAnswerIsNotSentTwice(t *testing.T) {
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"Roger that."}}]}`))
+	}))
+	defer up.Close()
+
+	s := New(testCtrl(), Options{Broker: up.URL, User: "u"})
+	_, events := agentPost(t, s, `{"model":"m1","message":"hi"}`)
+
+	replies, kinds := 0, []string{}
+	for _, e := range events {
+		kinds = append(kinds, e.Kind)
+		if (e.Kind == "assistant" || e.Kind == "final") && strings.TrimSpace(e.Text) == "Roger that." {
+			replies++
+		}
+	}
+	if replies != 1 {
+		t.Errorf("the answer was streamed %d times, want 1 (kinds=%v)", replies, kinds)
+	}
+	// And the browser must still have SOMETHING to render - suppressing the duplicate
+	// must not have suppressed the answer.
+	if replies == 0 {
+		t.Error("no answer reached the browser at all")
+	}
+}
