@@ -444,6 +444,30 @@ func (s *hostingState) noEngineManagement() error {
 				": RogerAI is drifting from a protocol client toward an engine wrapper")
 		}
 	}
+	// EXTENDED 2026-08-22, when reading a model's quant label (the variant fields) put
+	// format knowledge in this package for the first time.
+	//
+	// That knowledge lives in quant.go and gguf.go, which is what keeps detect.go clean
+	// above - but moving code next door must not move the boundary with it. So the checks
+	// that actually define "not an engine wrapper" apply there too: no child processes, no
+	// weight downloads, no GPU offload settings.
+	//
+	// "quantiz" is deliberately NOT banned in these two: reading the label a runtime and a
+	// file already carry is protocol-client behaviour, and it is the whole reason they
+	// exist. The scenario's words are "does not CHOOSE quantization or GPU offload
+	// settings" - reading is not choosing.
+	for _, f := range []string{"internal/detect/quant.go", "internal/detect/gguf.go"} {
+		b, err := s.read(f)
+		if err != nil {
+			return err
+		}
+		for _, banned := range []string{"os/exec", "huggingface.co/", "n_gpu_layers"} {
+			if strings.Contains(strings.ToLower(b), strings.ToLower(banned)) {
+				return hcErr(f + " references " + strconv.Quote(banned) +
+					": RogerAI is drifting from a protocol client toward an engine wrapper")
+			}
+		}
+	}
 	return nil
 }
 

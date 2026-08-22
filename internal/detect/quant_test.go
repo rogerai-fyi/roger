@@ -1,6 +1,9 @@
 package detect
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
 
 // THE LABEL IS STORED VERBATIM. Q4_K_M and IQ4_XS are both four-bit and people choose
 // between them on purpose, so anything that collapsed them into "4-bit" would destroy the
@@ -109,5 +112,60 @@ func TestQuantLabelsNormaliseCase(t *testing.T) {
 	}
 	if got := quantInName("model-q5_k_s.gguf"); got != "Q5_K_S" {
 		t.Errorf("got %q, want Q5_K_S", got)
+	}
+}
+
+// The model_info readers must treat a missing, malformed or wrongly-typed key as ABSENT
+// rather than as a zero value. file_type 0 is all-F32, a real answer, so "absent" and
+// "zero" cannot be the same thing.
+func TestModelInfoReadersDistinguishAbsentFromZero(t *testing.T) {
+	info := map[string]json.RawMessage{
+		"general.quantized_by": json.RawMessage(`"unsloth"`),
+		"general.finetune":     json.RawMessage(`123`),  // wrong type
+		"general.file_type":    json.RawMessage(`"Q4"`), // wrong type
+		"general.organization": json.RawMessage(`  " Qwen "  `),
+	}
+	w, v := modelInfoVariants(info)
+	if w != "unsloth" {
+		t.Errorf("quantized_by = %q, want unsloth", w)
+	}
+	if v != "" {
+		t.Errorf("a numeric finetune became %q", v)
+	}
+	if _, ok := ggufFileTypeKey(info); ok {
+		t.Error("a string file_type was reported as present")
+	}
+	if got := ggufStringKey(info, "general.organization"); got != "Qwen" {
+		t.Errorf("surrounding space survived: %q", got)
+	}
+	if got := ggufStringKey(info, "general.nope"); got != "" {
+		t.Errorf("a missing key returned %q", got)
+	}
+
+	// A REAL zero must read as present: file_type 0 is all-F32.
+	zero := map[string]json.RawMessage{"general.file_type": json.RawMessage(`0`)}
+	n, ok := ggufFileTypeKey(zero)
+	if !ok || n != 0 {
+		t.Errorf("file_type 0 = (%d,%v), want (0,true) - it is a value, not a gap", n, ok)
+	}
+	if _, ok := ggufFileTypeKey(nil); ok {
+		t.Error("an empty map reported a file_type")
+	}
+}
+
+// headerVariants renders a header into the three labels, falling back to the file name for
+// the compression label when the header does not carry one.
+func TestHeaderVariantsFallsBackToTheFileName(t *testing.T) {
+	q, w, v := headerVariants(ggufMeta{QuantizedBy: "bartowski", Finetune: "instruct"},
+		"/models/Qwen3.8-27B-IQ4_XS.gguf")
+	if q != "IQ4_XS" {
+		t.Errorf("quant = %q, want IQ4_XS from the file name", q)
+	}
+	if w != "bartowski" || v != "instruct" {
+		t.Errorf("publisher axes lost: %q / %q", w, v)
+	}
+	// Nothing anywhere yields nothing anywhere.
+	if q, w, v := headerVariants(ggufMeta{}, ""); q != "" || w != "" || v != "" {
+		t.Errorf("empty input produced %q / %q / %q", q, w, v)
 	}
 }

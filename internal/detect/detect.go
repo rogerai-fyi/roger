@@ -50,6 +50,25 @@ type Found struct {
 	// classifyCapabilities from the served /v1/models metadata + an id heuristic. See
 	// docs/BROKER-VISION-CAPABILITY.md.
 	Capabilities map[string][]string
+	// Quant / Weights / Variant tell two offers of the SAME model id apart
+	// (MODEL-VARIANTS-DESIGN-2026-08-22). Two operators sharing "qwen3.8-27b" can be
+	// running very different weights, and until these existed the dial merged them into
+	// one row and routed between them as though they were interchangeable.
+	//
+	//	Quant   the compression label VERBATIM ("Q4_K_M", "IQ4_XS", "BF16") - never
+	//	        bucketed into "4-bit", because Q4_K_M and IQ4_XS are both four-bit and
+	//	        people choose between them on purpose.
+	//	Weights who built those weights ("unsloth", "bartowski") - the "from various
+	//	        sources" axis people argue about.
+	//	Variant what the base model was tuned toward (GGUF general.finetune:
+	//	        "thinking", "instruct").
+	//
+	// Everything here is DETECTED. An absent entry means the runtime and the file said
+	// nothing, and it must render as absent - never as a guess, and never as a claim an
+	// operator typed. See quant.go for the source order.
+	Quant   map[string]string
+	Weights map[string]string
+	Variant map[string]string
 }
 
 // Status is the tri-state result of probing a single endpoint: a 401/403 means an
@@ -510,10 +529,11 @@ func mergeOllamaNative(f *Found, base string) {
 			return
 		}
 		var d struct {
-			Models []struct {
-				Name  string `json:"name"`
-				Model string `json:"model"`
-			} `json:"models"`
+			// The fleet listing already carries each model's quant label. Taking it costs
+			// nothing - no extra request, no extra round trip - the field was on the wire
+			// and simply not being read. The TYPE lives in quant.go, which is where every
+			// piece of quant-format knowledge belongs (see the note there).
+			Models []OllamaTagModel `json:"models"`
 		}
 		_ = json.NewDecoder(resp.Body).Decode(&d)
 		resp.Body.Close()
@@ -522,9 +542,15 @@ func mergeOllamaNative(f *Found, base string) {
 			if id == "" {
 				id = m.Model
 			}
-			if id != "" && !have[id] {
+			if id == "" {
+				continue
+			}
+			if !have[id] {
 				have[id] = true
 				f.Models = append(f.Models, id)
+			}
+			if q := quantFromDetails(m.Details); q != "" {
+				setVariantField(&f.Quant, id, q)
 			}
 		}
 	}
@@ -807,7 +833,10 @@ func enrichOllamaCtx(f *Found, root string) {
 	// /api/show: the model's trained context window, keyed under "<arch>.context_length"
 	// in model_info. Used for installed-but-not-loaded models (no live num_ctx yet).
 	for _, id := range f.Models {
-		if f.Ctx[id] > 0 {
+		// Ask when EITHER the context window or the publisher metadata is still missing.
+		// The two ride the same response, so a model that already has its ctx from
+		// /api/ps still needs this call to learn who published it.
+		if f.Ctx[id] > 0 && f.Weights[id] != "" && f.Variant[id] != "" {
 			continue
 		}
 		body := strings.NewReader(`{"model":` + strconv.Quote(id) + `}`)
@@ -820,11 +849,22 @@ func enrichOllamaCtx(f *Found, root string) {
 		}
 		var d struct {
 			ModelInfo map[string]json.RawMessage `json:"model_info"`
+			Details   OllamaDetails              `json:"details"`
 		}
 		_ = json.NewDecoder(resp.Body).Decode(&d)
 		resp.Body.Close()
 		if c := ollamaContextFromInfo(d.ModelInfo); c > 0 {
 			f.Ctx[id] = c
+		}
+		// model_info IS the GGUF key/value map - which is why the context window is read
+		// from "<arch>.context_length" above - so the publisher metadata is in the same
+		// response, on a call already being made. The KEYS live in quant.go.
+		w, v := modelInfoVariants(d.ModelInfo)
+		setVariantField(&f.Weights, id, w)
+		setVariantField(&f.Variant, id, v)
+		if f.Quant[id] == "" {
+			n, ok := ggufFileTypeKey(d.ModelInfo)
+			setVariantField(&f.Quant, id, quantFromShow(d.Details, n, ok))
 		}
 	}
 }
@@ -862,9 +902,22 @@ func enrichLlamaCppCtx(f *Found, root string) {
 		DefaultGen struct {
 			NCtx int `json:"n_ctx"`
 		} `json:"default_generation_settings"`
+		// llama.cpp exposes the LOADED file. Its header carries the labels above, none of
+		// which this HTTP API will report.
+		ModelPath string `json:"model_path"`
 	}
 	_ = json.NewDecoder(resp.Body).Decode(&d)
 	resp.Body.Close()
+	if p := strings.TrimSpace(d.ModelPath); p != "" {
+		// A local station is on the same machine by definition, so this is a bounded file
+		// read, never a fetch. Every failure is silent (see readGGUFMeta).
+		q, w, v := headerVariants(readGGUFMeta(p), p)
+		for _, id := range f.Models {
+			setVariantField(&f.Quant, id, q)
+			setVariantField(&f.Weights, id, w)
+			setVariantField(&f.Variant, id, v)
+		}
+	}
 	if d.DefaultGen.NCtx <= 0 {
 		return
 	}
@@ -873,6 +926,20 @@ func enrichLlamaCppCtx(f *Found, root string) {
 			f.Ctx[id] = d.DefaultGen.NCtx
 		}
 	}
+}
+
+// setVariantField writes into a lazily-created map. The maps stay nil until something is
+// actually detected, so a Found with nothing to say serialises with no keys rather than
+// with three empty objects.
+func setVariantField(m *map[string]string, id, v string) {
+	v = strings.TrimSpace(v)
+	if id == "" || v == "" {
+		return
+	}
+	if *m == nil {
+		*m = map[string]string{}
+	}
+	(*m)[id] = v
 }
 
 // enrichLMStudioCtx reads LM Studio's per-model context from GET /api/v0/models,

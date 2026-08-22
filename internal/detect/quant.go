@@ -1,6 +1,7 @@
 package detect
 
 import (
+	"encoding/json"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -87,4 +88,80 @@ func quantLabel(runtime string, meta ggufMeta, path string) string {
 		return s
 	}
 	return quantInName(path)
+}
+
+// ── DECODE TARGETS ───────────────────────────────────────────────────────────
+//
+// These live HERE, not in detect.go, and that placement is enforced by a spec.
+// features/share/hosting_compatibility.feature asserts that detect.go contains no
+// reference to quantization, weight downloads, GPU offload or child processes, on the
+// reasoning that "this is the file that would need to know about model files,
+// quantization, or child processes" if RogerAI ever drifted from a protocol client into an
+// inference-engine wrapper.
+//
+// That guardrail is right and this change keeps it: detect.go ORCHESTRATES (it asks an
+// HTTP endpoint and hands the body over), while every byte of quant-format knowledge sits
+// in this file and gguf.go. Nothing here downloads weights, sets a GPU layer count, or
+// starts a process - it reads labels the runtime and the file already carry.
+
+// OllamaDetails is the per-model block Ollama returns on /api/tags and /api/show.
+type OllamaDetails struct {
+	QuantizationLevel string `json:"quantization_level"`
+}
+
+// OllamaTagModel is one entry of Ollama's /api/tags fleet listing.
+type OllamaTagModel struct {
+	Name    string        `json:"name"`
+	Model   string        `json:"model"`
+	Details OllamaDetails `json:"details"`
+}
+
+// quantFromDetails renders the runtime's own label, or "" when it said nothing usable.
+func quantFromDetails(d OllamaDetails) string { return quantLabel(d.QuantizationLevel, ggufMeta{}, "") }
+
+// quantFromShow resolves a label from an /api/show response: the runtime string first,
+// then general.file_type out of the GGUF key/value map.
+func quantFromShow(d OllamaDetails, fileType uint32, fileTypeSet bool) string {
+	return quantLabel(d.QuantizationLevel, ggufMeta{FileType: fileType, FileTypeSet: fileTypeSet}, "")
+}
+
+// modelInfoVariants pulls the publisher axes out of Ollama's model_info - the GGUF
+// key/value map, which is why the context window is read from "<arch>.context_length"
+// elsewhere. Both keys are optional in the spec and usually absent; an absent key returns
+// "" and is never presented as a value.
+func modelInfoVariants(info map[string]json.RawMessage) (weights, variant string) {
+	return ggufStringKey(info, "general.quantized_by"), ggufStringKey(info, "general.finetune")
+}
+
+// ggufStringKey reads one string out of a GGUF key/value map decoded as JSON.
+func ggufStringKey(info map[string]json.RawMessage, key string) string {
+	raw, ok := info[key]
+	if !ok {
+		return ""
+	}
+	var s string
+	if json.Unmarshal(raw, &s) != nil {
+		return ""
+	}
+	return strings.TrimSpace(s)
+}
+
+// ggufFileTypeKey reads general.file_type. The bool separates "absent" from a real 0,
+// which means all-F32 and is a value rather than a gap.
+func ggufFileTypeKey(info map[string]json.RawMessage) (uint32, bool) {
+	raw, ok := info["general.file_type"]
+	if !ok {
+		return 0, false
+	}
+	var n uint32
+	if json.Unmarshal(raw, &n) != nil {
+		return 0, false
+	}
+	return n, true
+}
+
+// headerVariants renders a file header into the three display labels. path is the loaded
+// file, used as the last-resort source for the compression label.
+func headerVariants(meta ggufMeta, path string) (quant, weights, variant string) {
+	return quantLabel("", meta, path), meta.QuantizedBy, meta.Finetune
 }

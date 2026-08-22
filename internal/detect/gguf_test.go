@@ -214,3 +214,112 @@ func TestReadGGUFMetaIsSilentOnOrdinaryMisses(t *testing.T) {
 	}
 	_ = strings.TrimSpace("")
 }
+
+// A TRUNCATION AT EVERY OFFSET must be an error, never a partial value presented as whole.
+// This walks the cut point across a complete header: each prefix either parses cleanly or
+// fails, and none of them may invent a field that was not fully read.
+func TestGGUFTruncationAtAnyOffsetNeverInventsAField(t *testing.T) {
+	raw := ggufBytes(t, 3, []kv{
+		{"general.organization", ggufTypeString, "Qwen"},
+		{"general.quantized_by", ggufTypeString, "unsloth"},
+		{"general.file_type", ggufTypeUint32, uint32(15)},
+	})
+	for cut := 0; cut < len(raw); cut++ {
+		m, err := parseGGUFHeader(bytes.NewReader(raw[:cut]))
+		if err == nil {
+			continue // a clean prefix boundary
+		}
+		// On error, whatever came back must be a PREFIX of the truth - never a value the
+		// bytes did not contain.
+		if m.QuantizedBy != "" && m.QuantizedBy != "unsloth" {
+			t.Errorf("cut=%d invented quantized_by %q", cut, m.QuantizedBy)
+		}
+		if m.Organization != "" && m.Organization != "Qwen" {
+			t.Errorf("cut=%d invented organization %q", cut, m.Organization)
+		}
+		if m.FileTypeSet && m.FileType != 15 {
+			t.Errorf("cut=%d invented file_type %d", cut, m.FileType)
+		}
+	}
+}
+
+// A general.* key carrying the WRONG TYPE is stepped over, not coerced. A file_type
+// written as a string is a malformed file, and reading it as a label would be the
+// "confident nonsense" this parser is built to avoid.
+func TestGGUFStepsOverAGeneralKeyOfTheWrongType(t *testing.T) {
+	raw := ggufBytes(t, 3, []kv{
+		{"general.file_type", ggufTypeString, "Q4_K_M"},     // wrong type for this key
+		{"general.quantized_by", ggufTypeUint32, uint32(7)}, // wrong type for this key
+		{"general.finetune", ggufTypeString, "thinking"},    // right type, AFTER them
+	})
+	m, err := parseGGUFHeader(bytes.NewReader(raw))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if m.FileTypeSet {
+		t.Errorf("a string file_type was coerced to %d", m.FileType)
+	}
+	if m.QuantizedBy != "" {
+		t.Errorf("a numeric quantized_by became %q", m.QuantizedBy)
+	}
+	// And the walk stayed in step: the correctly-typed key after them still reads.
+	if m.Finetune != "thinking" {
+		t.Errorf("finetune = %q - stepping over a mistyped key desynchronised the walk", m.Finetune)
+	}
+}
+
+// An array of an UNKNOWN element type cannot be stepped over - its width is unknowable -
+// so the walk stops rather than guessing a stride and reading garbage as fields.
+func TestGGUFStopsAtAnArrayItCannotStepOver(t *testing.T) {
+	var b bytes.Buffer
+	b.Write(ggufMagic[:])
+	_ = binary.Write(&b, binary.LittleEndian, uint32(3))
+	_ = binary.Write(&b, binary.LittleEndian, uint64(0))
+	_ = binary.Write(&b, binary.LittleEndian, uint64(2))
+	writeGGUFString(&b, "weird.array")
+	_ = binary.Write(&b, binary.LittleEndian, ggufTypeArray)
+	_ = binary.Write(&b, binary.LittleEndian, uint32(0xdead)) // unknown element type
+	_ = binary.Write(&b, binary.LittleEndian, uint64(3))
+	writeGGUFString(&b, "general.quantized_by")
+	_ = binary.Write(&b, binary.LittleEndian, ggufTypeString)
+	writeGGUFString(&b, "unsloth")
+
+	m, err := parseGGUFHeader(bytes.NewReader(b.Bytes()))
+	if err == nil {
+		t.Fatal("an unknown array element type was accepted")
+	}
+	if m.QuantizedBy != "" {
+		t.Errorf("a field past an unsteppable array was read as %q", m.QuantizedBy)
+	}
+}
+
+// Nested arrays are stepped over element by element, so a key after one still reads.
+func TestGGUFStepsOverAnArrayOfArrays(t *testing.T) {
+	var b bytes.Buffer
+	b.Write(ggufMagic[:])
+	_ = binary.Write(&b, binary.LittleEndian, uint32(3))
+	_ = binary.Write(&b, binary.LittleEndian, uint64(0))
+	_ = binary.Write(&b, binary.LittleEndian, uint64(2))
+	writeGGUFString(&b, "nested")
+	_ = binary.Write(&b, binary.LittleEndian, ggufTypeArray)
+	_ = binary.Write(&b, binary.LittleEndian, ggufTypeArray) // elements are arrays
+	_ = binary.Write(&b, binary.LittleEndian, uint64(2))     // two of them
+	for i := 0; i < 2; i++ {
+		_ = binary.Write(&b, binary.LittleEndian, ggufTypeUint32)
+		_ = binary.Write(&b, binary.LittleEndian, uint64(3))
+		for j := 0; j < 3; j++ {
+			_ = binary.Write(&b, binary.LittleEndian, uint32(j))
+		}
+	}
+	writeGGUFString(&b, "general.finetune")
+	_ = binary.Write(&b, binary.LittleEndian, ggufTypeString)
+	writeGGUFString(&b, "instruct")
+
+	m, err := parseGGUFHeader(bytes.NewReader(b.Bytes()))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if m.Finetune != "instruct" {
+		t.Errorf("finetune = %q - a nested array desynchronised the walk", m.Finetune)
+	}
+}
