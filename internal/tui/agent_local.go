@@ -142,3 +142,24 @@ func (m model) rowForModel(mdl string) (agentPickerRow, bool) {
 	}
 	return agentPickerRow{}, false
 }
+
+// agentFreqFor returns the tuned PRIVATE band's frequency code when THIS model is the one
+// that band serves, and "" otherwise.
+//
+// The guard is the point. While a freq is tuned, m.bands holds ONLY that band's offers
+// (freqResolvedMsg replaces the list), so "the model is in the current band list" is
+// exactly "the model is served by the band we are tuned to". Sending the code for any
+// other model would attach a private-band credential to a request that has nothing to do
+// with it - a broadening of what the header authorises, for no benefit.
+//
+// A LOCAL row never reaches here: it is routed direct, and a direct call never touches the
+// broker that the code is addressed to.
+func (m model) agentFreqFor(mdl string) string {
+	if m.tuneFreq == "" || mdl == "" {
+		return ""
+	}
+	if _, ok := m.bandForModel(mdl); !ok {
+		return ""
+	}
+	return m.tuneFreq
+}

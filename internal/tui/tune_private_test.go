@@ -356,15 +356,30 @@ func TestABandOnThisStationIsNotCalledAnotherMachine(t *testing.T) {
 	}
 }
 
-// And Enter on it must send the operator to the server, not to a code they cannot use.
-func TestEnterOnAStoppedLocalBandNamesTheServer(t *testing.T) {
+// Enter on it must send the operator to the LOCAL remedies, not to a code they cannot use.
+// There are TWO, because there are two causes and only the operator knows which: the server
+// is stopped (start it, re-scan), or the model is gone from this machine (move the band to
+// one they do have, keeping the code). Naming only the first leaves the second case
+// pressing r forever - which is exactly what the founder hit.
+func TestEnterOnAStoppedLocalBandNamesBothLocalRemedies(t *testing.T) {
 	m := privateTabNoServer(t)
 	m.privCursor = 0
 	var tm tea.Model = m
 	tm, _ = tm.Update(keyMsg2(tea.KeyEnter))
 	st := stripANSI(asModel(tm).status)
-	if !strings.Contains(st, "on this machine") || !strings.Contains(st, "no local server") {
-		t.Errorf("the refusal must name the stopped server, got %q", st)
+	if !strings.Contains(st, "on this machine") {
+		t.Errorf("the refusal must say the band is local, got %q", st)
+	}
+	if !strings.Contains(st, "re-scan") {
+		t.Errorf("the refusal must offer the re-scan, got %q", st)
+	}
+	if !strings.Contains(st, "moves the band") {
+		t.Errorf("the refusal must offer the move for a model that is simply gone, got %q", st)
+	}
+	// And it must never suggest hunting for a code: we hold the hash, not the code, and
+	// the band is local anyway.
+	if strings.Contains(st, "another machine") {
+		t.Errorf("a local band was described as remote: %q", st)
 	}
 }
 
@@ -531,5 +546,71 @@ func TestAnOffAirRowTeachesBothHalves(t *testing.T) {
 	}
 	if !strings.Contains(line, "⏎") || !strings.Contains(line, "a") {
 		t.Errorf("the row must teach both ⏎ (use it here) and a (on air), got %q", line)
+	}
+}
+
+// ── "I'M PRESSING r BUT NOTHING IS HAPPENING" ────────────────────────────────
+//
+// The band card can answer "no local server is serving <model> - start it, then press r",
+// and the card had no r at all. Worse, even where r existed (the PRIVATE tab) it only
+// re-fetched the BAND ROSTER - but the band never changed; what needed re-reading was the
+// LOCAL DETECTION SCAN. A message that names a key must be shown on a screen where that
+// key works, and the key must refresh the thing the message is about.
+
+// r on the BAND CARD must do something.
+func TestRescanWorksOnTheBandCard(t *testing.T) {
+	m := privateTab(t)
+	m.mode = modeBandManage
+	m.bandManageID, m.bandManageDisp, m.bandManageNode = "band_here", "145.225 MHz", "eager-puma-54-grok-4-6"
+	var tm tea.Model = m
+	_, cmd := tm.Update(keyMsg("r"))
+	if cmd == nil {
+		t.Fatal("r on the band card did nothing - the card's own refusal tells the operator to press it")
+	}
+}
+
+// The footer must teach it, or it stays undiscoverable.
+func TestBandCardFooterTeachesRescan(t *testing.T) {
+	m := privateTab(t)
+	m.mode = modeBandManage
+	m.bandManageID = "band_here"
+	foot := stripANSI(m.footer(m.width))
+	if !strings.Contains(foot, "re-scan") {
+		t.Errorf("the band card footer must teach r, got %q", foot)
+	}
+}
+
+// A re-scan must land WITHOUT relocating the operator. detectSharesCmd ends in
+// onSharesDetected, which sets mode = modeShare - firing it from a band screen would
+// teleport them to the share table mid-look.
+func TestARescanDoesNotTeleportToShare(t *testing.T) {
+	m := privateTab(t)
+	m.mode = modeBandManage
+	var tm tea.Model = m
+	tm, _ = tm.Update(privateRescanMsg{found: nil})
+	if got := asModel(tm).mode; got != modeBandManage {
+		t.Errorf("a re-scan moved the operator off the band card to mode %v", got)
+	}
+	// And from the tab.
+	m2 := privateTab(t)
+	var tm2 tea.Model = m2
+	tm2, _ = tm2.Update(privateRescanMsg{found: nil})
+	gm := asModel(tm2)
+	if gm.mode != modeBrowse || gm.tuneTab != tabPrivate {
+		t.Errorf("a re-scan moved the operator off the PRIVATE tab (mode %v tab %v)", gm.mode, gm.tuneTab)
+	}
+}
+
+// An empty re-scan must name the real remedy - start a server - rather than reporting a
+// bland success over a machine that is still serving nothing.
+func TestAnEmptyRescanNamesTheRemedy(t *testing.T) {
+	m := privateTab(t)
+	m.ctrl.SetRows(nil)
+	m.syncShareCache()
+	var tm tea.Model = m
+	tm, _ = tm.Update(privateRescanMsg{found: nil})
+	st := stripANSI(asModel(tm).status)
+	if !strings.Contains(st, "no local model server") {
+		t.Errorf("an empty re-scan must say no server was found, got %q", st)
 	}
 }

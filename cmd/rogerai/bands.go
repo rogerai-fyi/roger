@@ -7,7 +7,8 @@ import (
 	"rogerai.fm/roger/v5/internal/client"
 )
 
-// cmdBands is the owner-facing private-band verb group: list | move | revoke.
+// cmdBands is the owner-facing private-band verb group: list | move | new-code | revoke |
+// forget.
 //
 // THE GAP IT CLOSES: `roger share --private` MINTS a band from the CLI, but nothing could
 // see, move or revoke one afterwards - `roger bands` simply did not exist. An operator who
@@ -31,6 +32,21 @@ func cmdBands(cfg config, args []string) error {
 			return fmt.Errorf("usage: roger bands move <band-id> <model>  (the band keeps its frequency code)")
 		}
 		return bandsMove(cfg, args[1], args[2])
+	case "new-code", "rotate":
+		// A band's code is the one thing that can leak, and the CLI is where a headless box
+		// lives - the machine most likely to have had its code pasted somewhere it should
+		// not have been. Without this the only remedy from a terminal was revoke + re-mint,
+		// which is two steps with a window in between where the operator holds no band at
+		// all, and loses the band's identity if it succeeds.
+		if len(args) < 2 {
+			return fmt.Errorf("usage: roger bands new-code <band-id>  (run `roger bands list` for ids)")
+		}
+		return bandsRotate(cfg, args[1])
+	case "forget":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: roger bands forget <band-id>  (only a REVOKED band can be forgotten)")
+		}
+		return bandsForget(cfg, args[1])
 	case "revoke", "rm":
 		// Never infer WHICH band to burn: a revoke is irreversible and the code dies with
 		// it, so the id is always explicit even when the owner holds exactly one.
@@ -52,11 +68,18 @@ func bandsUsage() {
   roger bands move <band-id> <model>     point a band at another model on THIS machine
                                          - it KEEPS its frequency code, so nobody tuned
                                            in is cut off
+  roger bands new-code <band-id>         mint a FRESH code for the same band - it keeps
+                                         its dial, its model and its slot, but everyone
+                                         on the old code is cut off
   roger bands revoke <band-id>           burn a band's code for good, freeing your slot
+  roger bands forget <band-id>           remove a REVOKED band from your list
 
   a band is minted by putting a model on air privately:  roger share --private
-  the frequency code is shown ONCE at mint and is never stored - if it is lost, revoke
-  the band and mint a new one.`)
+  the frequency code is shown ONCE at mint and is never stored. If it is lost or leaked,
+  "new-code" replaces it without giving up the band - you do NOT have to revoke.
+
+  move vs new-code: MOVE changes which model answers and keeps the code, so nobody
+  notices. NEW-CODE keeps the model and changes the key, so everybody does.`)
 }
 
 func bandsList(cfg config) error {
@@ -80,6 +103,7 @@ func bandsList(cfg config) error {
 		fmt.Printf("  %-22s %-28s %-10s %s\n", b.ID, b.Display, b.Status, on)
 	}
 	fmt.Println("\n  move one to a different model and it keeps its code:  roger bands move <band-id> <model>")
+	fmt.Println("  lost or leaked a code? replace it without losing the band:  roger bands new-code <band-id>")
 	return nil
 }
 
@@ -97,6 +121,30 @@ func bandsMove(cfg config, bandID, model string) error {
 	}
 	fmt.Printf("moved - %s now answers on the same frequency code (node %s)\n", model, nodeID)
 	fmt.Println("it binds when that model next goes on air privately: roger share --private --model " + model)
+	return nil
+}
+
+// bandsRotate mints a fresh secret for an existing band. The code is printed ONCE here for
+// exactly the same reason it is at mint: the broker keeps only its hash, so nothing can
+// ever show it again. The warning leads because the cost is the whole difference from a
+// move - everyone on the old code is cut off the instant this returns.
+func bandsRotate(cfg config, bandID string) error {
+	code, display, err := client.RotateBand(cfg.Broker, bandID)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("new code for %s - the OLD one stopped working just now.\n\n", display)
+	fmt.Printf("    %s\n\n", code)
+	fmt.Println("shown ONCE and never stored. Send it to anyone who needs the band;")
+	fmt.Println("the band itself is unchanged - same dial, same model, same slot.")
+	return nil
+}
+
+func bandsForget(cfg config, bandID string) error {
+	if err := client.ForgetBand(cfg.Broker, bandID); err != nil {
+		return err
+	}
+	fmt.Printf("forgot %s - that dead row is gone from your list for good\n", bandID)
 	return nil
 }
 

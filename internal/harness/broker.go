@@ -69,7 +69,40 @@ func BrokerCompleter(broker, user, model string, confidential bool, maxOut float
 // BrokerCompleterWithTimeout is BrokerCompleter with an explicit fallback duration.
 // A zero timeout intentionally leaves an otherwise deadline-free context unlimited;
 // interactive callers still retain immediate cancellation through that context.
+// BrokerRoute is the ROUTING half of a relayed agent turn, gathered into one value so a
+// new routing choice can be added without growing yet another positional parameter on a
+// constructor that already carries seven.
+//
+// It exists because of Freq. The broker HIDES every private node from routing unless the
+// request carries X-Roger-Freq, and the agent relay never sent one - so an operator who
+// tuned a private band in [1] TUNE IN, switched to [0] AGENT and ran a turn on that model
+// got "no station is serving <model>", having done everything right. The proxy path
+// carried the header from the start and chat was fixed later; this was the third path and
+// the last one still silently unable to reach a private band.
+type BrokerRoute struct {
+	Broker, User, Model string
+	Confidential        bool
+	MaxOut              float64
+	// Freq is the tuned private band's frequency code, or "" for the open market. Send it
+	// ONLY when the turn's model is the one that band serves - see the caller's guard.
+	Freq            string
+	OnCost          CostFunc
+	FallbackTimeout time.Duration
+}
+
 func BrokerCompleterWithTimeout(broker, user, model string, confidential bool, maxOut float64, onCost CostFunc, fallbackTimeout time.Duration) Completer {
+	return BrokerCompleterRoute(BrokerRoute{
+		Broker: broker, User: user, Model: model, Confidential: confidential,
+		MaxOut: maxOut, OnCost: onCost, FallbackTimeout: fallbackTimeout,
+	})
+}
+
+// BrokerCompleterRoute is the full-fidelity constructor: every routing choice, including
+// the private-band frequency.
+func BrokerCompleterRoute(rt BrokerRoute) Completer {
+	broker, user, model := rt.Broker, rt.User, rt.Model
+	confidential, maxOut, onCost := rt.Confidential, rt.MaxOut, rt.OnCost
+	fallbackTimeout := rt.FallbackTimeout
 	// No client-level Timeout: the per-call bound rides on the ctx, so an interactive
 	// caller (the TUI) can extend it mid-call. A ctx that arrives with no deadline gets
 	// the hard default below - non-interactive paths stay bounded exactly as before.
@@ -103,6 +136,12 @@ func BrokerCompleterWithTimeout(broker, user, model string, confidential bool, m
 		// when none was set) so an agent turn is bounded against overpay exactly like
 		// `roger use` and the in-channel chat - the harness is just another consume path.
 		req.Header.Set("X-Roger-Max-Price-Out", fmt.Sprintf("%g", client.EffectiveMaxOut(maxOut)))
+		// PRIVATE BAND: without this the broker will not route to a hidden node at all, so
+		// the turn fails with "no station is serving <model>" on a band the operator is
+		// demonstrably tuned to. Empty = the open market, which is the ordinary case.
+		if rt.Freq != "" {
+			req.Header.Set("X-Roger-Freq", rt.Freq)
+		}
 		resp, err := httpClient.Do(req)
 		if err != nil {
 			// User aborted the turn (esc): a clean cancellation, not a network failure. An

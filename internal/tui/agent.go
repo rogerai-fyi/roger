@@ -630,7 +630,15 @@ func (m model) newAgentRuntime() *agentRuntime {
 		if rt.localChat != "" {
 			return harness.LocalCompleter(rt.localChat, rt.localKey, rt.model)(cctx, messages, tools)
 		}
-		return harness.BrokerCompleterWithTimeout(m.broker, m.user, rt.model, m.confidentialOnly, maxOut, costFn, 0)(cctx, messages, tools)
+		return harness.BrokerCompleterRoute(harness.BrokerRoute{
+			Broker: m.broker, User: m.user, Model: rt.model,
+			Confidential: m.confidentialOnly, MaxOut: maxOut, OnCost: costFn,
+			// The tuned PRIVATE band's code, when this turn's model is the one that band
+			// serves. Without it the broker refuses to route to a hidden node and the turn
+			// dies with "no station is serving <model>" on a band the operator is
+			// demonstrably tuned to.
+			Freq: m.agentFreqFor(rt.model),
+		})(cctx, messages, tools)
 	}
 	confirmer := func(tool string, args map[string]any) bool {
 		// Permission modes: a permissive session auto-approves here (the masthead

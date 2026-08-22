@@ -1230,6 +1230,11 @@ type freqResolvedMsg struct {
 // the event loop (see detectSharesCmd). The Update handler turns it into provider
 // rows + clears the loading flag, so the SHARE table never blocks the UI while the
 // host's open ports are probed.
+// privateRescanMsg carries a detection scan fired from a PRIVATE-band screen. It exists
+// SOLELY so the result does not travel through onSharesDetected, which ends by setting
+// mode = modeShare - a teleport away from the band the operator was looking at.
+type privateRescanMsg struct{ found []detect.Found }
+
 type sharesDetectedMsg struct {
 	found   []detect.Found
 	needKey []string // base URLs present but key-protected (401/403), for the guided prompt
@@ -1684,6 +1689,27 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	case sharesDetectedMsg:
 		return m.onSharesDetected(msg.found, msg.needKey)
+	case privateRescanMsg:
+		// A re-scan fired from a PRIVATE-band screen. It folds the detected rows in and
+		// leaves the operator exactly where they were - unlike onSharesDetected, which
+		// ends on the SHARE table.
+		before := len(m.shareRows)
+		if len(msg.found) > 0 {
+			m.loadShareRows(msg.found)
+		}
+		m.syncShareCache()
+		switch {
+		case len(m.shareRows) > before:
+			m.status = stLive.Render("found ") + stKey.Render(plural(len(m.shareRows)-before, "more model")) +
+				stDim.Render(" on this machine")
+		case len(m.shareRows) == 0:
+			m.status = stEmber.Render("no local model server found - start one (ollama, llama.cpp, vLLM…), then press ") +
+				stKey.Render("r")
+		default:
+			m.status = stDim.Render("re-scanned · ") + stDim.Render(plural(len(m.shareRows), "model")) +
+				stDim.Render(" on this machine")
+		}
+		return m, nil
 	case balanceMsg:
 		m.loggedIn = msg.loggedIn
 		if msg.loggedIn {
@@ -9401,9 +9427,10 @@ func (m model) footer(w int) string {
 		if m.bandManageActive() {
 			left = stKey.Render("⏎") + stDim.Render(" tune in  ·  ") + stKey.Render("m") +
 				stDim.Render(" move  ·  ") + stKey.Render("n") + stDim.Render(" new code  ·  ") +
-				stKey.Render("x") + stDim.Render(" revoke  ·  esc back")
+				stKey.Render("x") + stDim.Render(" revoke  ·  ") + stKey.Render("r") +
+				stDim.Render(" re-scan  ·  esc back")
 			if m.narrow() {
-				left = stDim.Render("⏎ tune · m move · n code · x revoke · esc")
+				left = stDim.Render("⏎ tune · m · n · x · r · esc")
 			}
 		} else {
 			// A revoked band can do exactly one thing, and before `f` existed it could do

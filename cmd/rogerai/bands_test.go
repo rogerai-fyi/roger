@@ -26,6 +26,11 @@ func bandsBroker(t *testing.T, bands string) (*httptest.Server, *[]string) {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/bands":
 			_, _ = w.Write([]byte(bands))
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/rotate"):
+			_, _ = w.Write([]byte(`{"id":"band_1","display":"145.225 MHz · ••••-••••",
+				"code":"145.225 MHz · WXYZ-1234","rotated":true}`))
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/forget"):
+			_, _ = w.Write([]byte(`{"ok":true,"forgotten":true}`))
 		case r.Method == http.MethodDelete:
 			_, _ = w.Write([]byte(`{"ok":true,"revoked":true}`))
 		case r.Method == http.MethodPatch:
@@ -289,4 +294,75 @@ func TestBandsListRendersAnUnboundBand(t *testing.T) {
 	if !strings.Contains(out, "band_x") {
 		t.Errorf("the band is missing from the list:\n%s", out)
 	}
+}
+
+// `roger bands new-code` is the CLI's answer to a leaked or lost code. It matters most
+// here: a headless box is the machine whose code is most likely to have been pasted
+// somewhere it should not have been, and before this the only remedy from a terminal was
+// revoke + re-mint - two steps with a window in between where the operator holds no band.
+func TestBandsNewCodePrintsTheFreshCodeOnce(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	srv, calls := bandsBroker(t, oneBand)
+	cfg := config{Broker: srv.URL, User: "u_gh_1"}
+
+	out := captureStdout(t, func() {
+		if err := cmdBands(cfg, []string{"new-code", "band_1"}); err != nil {
+			t.Fatalf("bands new-code: %v", err)
+		}
+	})
+	if !strings.Contains(out, "WXYZ-1234") {
+		t.Errorf("the new code was not printed - it can never be shown again:\n%s", out)
+	}
+	// The COST is the whole difference from a move, so it has to be stated.
+	if !strings.Contains(out, "OLD one stopped working") {
+		t.Errorf("the output must say the old code is dead:\n%s", out)
+	}
+	if !strings.Contains(out, "never stored") {
+		t.Errorf("the output must say this is the only time it is shown:\n%s", out)
+	}
+	if !hasCall(*calls, "POST /bands/band_1/rotate") {
+		t.Errorf("new-code did not hit the rotate endpoint: %v", *calls)
+	}
+}
+
+// A rotate that returns no code must be an ERROR, not a cheerful success. Reporting
+// success would leave the operator believing their old code was burnt when it was not -
+// the one lie this whole feature exists to prevent.
+func TestBandsNewCodeFailsWhenTheBrokerReturnsNoCode(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"id":"band_1","rotated":true}`)) // 2xx, no code
+	}))
+	t.Cleanup(srv.Close)
+	cfg := config{Broker: srv.URL, User: "u_gh_1"}
+
+	err := cmdBands(cfg, []string{"new-code", "band_1"})
+	if err == nil {
+		t.Fatal("a rotate with no code reported success - the operator would think the old code was burnt")
+	}
+	if !strings.Contains(err.Error(), "old code may still work") {
+		t.Errorf("the error must warn that the old code may still work, got %q", err)
+	}
+}
+
+// forget clears a revoked row. Both new verbs need an explicit id: these act on one band
+// and the CLI must never infer which.
+func TestBandsNewVerbsRequireAnExplicitID(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	cfg := config{Broker: "http://127.0.0.1:0", User: "u_gh_1"}
+	for _, verb := range []string{"new-code", "forget"} {
+		if err := cmdBands(cfg, []string{verb}); err == nil {
+			t.Errorf("bands %s with no id should refuse", verb)
+		}
+	}
+}
+
+// hasCall reports whether the broker stub saw exactly this method+path.
+func hasCall(calls []string, want string) bool {
+	for _, c := range calls {
+		if c == want {
+			return true
+		}
+	}
+	return false
 }

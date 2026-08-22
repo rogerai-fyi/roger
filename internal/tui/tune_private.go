@@ -176,8 +176,7 @@ func (m model) onPrivateTabKey(k tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 		}
 		return m, nil, true
 	case "r":
-		m.status = stDim.Render("refreshing your bands…")
-		return m, m.fetchRemoteRoster(), true
+		return m, m.rescanPrivate(), true
 	case "a", " ", "space":
 		// ON AIR / OFF AIR, right here (founder 2026-08-21: "i want it to be easy to use my
 		// own bands, basically just as simple as we are able to share ... i want to do the
@@ -232,6 +231,36 @@ func (m model) onPrivateTabKey(k tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 	return m, nil, true
 }
 
+// rescanPrivate refreshes BOTH things a private band's row depends on: the band roster
+// (what you own, from the broker) and the LOCAL DETECTION SCAN (which models this machine
+// is serving right now).
+//
+// The second half is the one that was missing, and its absence made the whole message
+// wrong. When a row says "no local server is serving <model> - start it, then press r",
+// the thing that must be re-read is the DETECTION, not the band list: the band never
+// changed, the operator just started a server. Re-fetching only the roster made `r` a key
+// that visibly did nothing.
+//
+// It is NOT detectSharesCmd. That lands in onSharesDetected, which sets mode = modeShare -
+// so firing it from here would teleport the operator to the share table while they were
+// looking at a band. Same result, no relocation.
+func (m model) rescanPrivate() tea.Cmd {
+	m.status = stDim.Render("re-scanning your bands and this machine's model servers…")
+	return tea.Batch(m.fetchRemoteRoster(), privateRescanCmd(m.shareUp, m.shareKey))
+}
+
+// privateRescanCmd runs the SAME local detection detectSharesCmd runs, but reports it as a
+// privateRescanMsg so the handler can fold the rows in WITHOUT moving the operator.
+func privateRescanCmd(extra, key string) tea.Cmd {
+	inner := detectSharesCmd(extra, key)
+	return func() tea.Msg {
+		if msg, ok := inner().(sharesDetectedMsg); ok {
+			return privateRescanMsg{found: msg.found}
+		}
+		return privateRescanMsg{}
+	}
+}
+
 // toggleBandOnAir puts the band's model on or off air without ever changing its
 // visibility. It is the PRIVATE tab's half of "as simple as share".
 func (m model) toggleBandOnAir() (tea.Model, tea.Cmd, bool) {
@@ -247,11 +276,13 @@ func (m model) toggleBandOnAir() (tea.Model, tea.Cmd, bool) {
 	case r.model == "":
 		// We cannot name the model, so we cannot start it. Say which of the two reasons
 		// applies rather than a single vague refusal.
-		what := "that band is on another machine - go on air over there"
 		if r.here {
-			what = "no local server is serving that band's model - start it, then press r"
+			m.status = stDim.Render("nothing on this machine is serving that band's model · ") +
+				stKey.Render("r") + stDim.Render(" re-scan, or ") + stKey.Render("m") +
+				stDim.Render(" moves the band to a model you do have")
+			return m, nil, true
 		}
-		m.status = stDim.Render(what)
+		m.status = stDim.Render("that band is on another machine - put it on air over there")
 		return m, nil, true
 	}
 	res := m.ctrl.ToggleOnAir(r.model)
@@ -302,17 +333,23 @@ func (m model) tuneInPrivateRow(r privRow) (tea.Model, tea.Cmd, bool) {
 	case r.chat != "":
 		return m.openLocalChannel(r), nil, true
 	case r.here:
-		// THIS station, but nothing is serving the model right now. The remedy is to start
-		// the server, and saying "another machine" here (as the first cut did) would send
-		// the operator hunting for a code they already cannot use. If a share row resolved
-		// the model, name it; otherwise name the node, because the model half of a node id
-		// is slugified and is NOT safe to present as a model id.
+		// THIS station, but nothing is serving the model right now. Saying "another
+		// machine" here (as the first cut did) would send the operator hunting for a code
+		// they already cannot use.
+		//
+		// TWO remedies, because there are two causes and only the operator knows which.
+		// The server may be stopped - start it and re-scan. Or the model may simply be
+		// gone from this machine, which is the likelier case for a band minted a while
+		// ago; then no amount of re-scanning helps and the fix is to MOVE the band onto a
+		// model you do have, which keeps the code. Naming only the first leaves someone in
+		// the second case pressing r forever.
 		what := stKey.Render(r.band.NodeID)
 		if r.model != "" {
 			what = stKey.Render(r.model)
 		}
-		m.status = stDim.Render("that band is on this machine, but no local server is serving ") +
-			what + stDim.Render(" right now - start it, then press ") + stKey.Render("r")
+		m.status = stDim.Render("on this machine, but nothing is serving ") + what +
+			stDim.Render(" · ") + stKey.Render("r") + stDim.Render(" re-scan after starting it, or ") +
+			stKey.Render("m") + stDim.Render(" moves the band to a model you do have (keeps the code)")
 		return m, nil, true
 	default:
 		// Another machine. We hold the hash of its code, never the code, so there is

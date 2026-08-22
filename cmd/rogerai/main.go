@@ -2313,7 +2313,7 @@ providers (share your GPU):
   roger share <model>         go on air - FREE by default, no login (auto-detects your model)
   roger login                 link GitHub - only needed to EARN
   roger payout                cash out your earnings (status · onboard · request · history)
-  roger bands                 your private bands: list · move · revoke
+  roger bands                 your private bands: list · move · new-code · revoke
   roger grant create --name my-bots   a free private key for your bots/family
   roger drphil                diagnose why your node isn't earning (auto-fixes config)
   roger appeal --reason "..." contest a strike/ban (self-serve; "appeal status" to track)

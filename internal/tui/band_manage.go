@@ -145,6 +145,12 @@ func (m model) onBandManageKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// already knows the node; if that node is a model on THIS machine the channel is
 		// direct, and if it is not, there is nothing here to tune with but its code.
 		return m.tuneInBand()
+	case "r", "R":
+		// THE KEY THE REFUSAL NAMES. tuneInBand can answer "no local server is serving
+		// <model> - start it, then press r", and this card had no r at all: the operator
+		// did exactly as told and nothing happened. A message that names a key must be
+		// shown on a screen where that key works.
+		return m, m.rescanPrivate()
 	case "x", "X":
 		m.mode = modeBandRevokeConfirm
 		return m, nil

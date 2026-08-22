@@ -195,3 +195,25 @@ func TestTuningAChannelOverALocalPickReleasesTheLocalEndpoint(t *testing.T) {
 			m.agent.localChat, m.agent.localKey)
 	}
 }
+
+// THE FREQ GUARD. While a private band is tuned, m.bands holds ONLY that band's offers, so
+// "the model is in the current band list" is exactly "the model is served by the band we
+// are tuned to". Sending the code for any OTHER model would attach a private-band
+// credential to a request that has nothing to do with it.
+func TestAgentSendsTheFreqOnlyForTheTunedBandsModel(t *testing.T) {
+	m := browseSeed(100)
+	m.tuneFreq = "147.520MHz-8F3K-9M2Q"
+	m.bands = []band{{model: "grok-4.6", online: true, cheapest: &offer{Model: "grok-4.6"}}}
+
+	if got := m.agentFreqFor("grok-4.6"); got != m.tuneFreq {
+		t.Errorf("the tuned band's own model got freq %q, want the code - the turn cannot reach a hidden node without it", got)
+	}
+	if got := m.agentFreqFor("some-other-model"); got != "" {
+		t.Errorf("a model the tuned band does not serve carried the code: %q", got)
+	}
+	// And on the OPEN MARKET nothing carries a code, whatever the model.
+	m.tuneFreq = ""
+	if got := m.agentFreqFor("grok-4.6"); got != "" {
+		t.Errorf("an open-market turn carried a freq: %q", got)
+	}
+}

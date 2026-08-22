@@ -910,6 +910,14 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
               band:</p>
             <pre><span class="c"># on your agent box (anywhere)</span>
 <span class="p">$</span> roger use qwen3-coder-30b --freq 147.520MHz-8F3K-9M2Q</pre>
+            <p>The same box manages the band it minted, which matters most on a headless
+              one - the machine whose code is likeliest to end up somewhere it should
+              not have:</p>
+            <pre><span class="c"># on the inference box</span>
+<span class="p">$</span> roger bands list                    <span class="c"># what you hold, and which model each is on</span>
+<span class="p">$</span> roger bands new-code &lt;band-id&gt;      <span class="c"># fresh key, same band (old code dies now)</span>
+<span class="p">$</span> roger bands move &lt;band-id&gt; &lt;model&gt;  <span class="c"># different model, same code</span>
+<span class="p">$</span> roger bands revoke &lt;band-id&gt;        <span class="c"># burn it, free the slot</span></pre>
             <p>If both boxes are the same account, self-use is <b>$0</b> - the private band
               is just a direct line between two of your own machines, no public signal in
               between. Hand the code to a friend and they can tune in from their own box:
