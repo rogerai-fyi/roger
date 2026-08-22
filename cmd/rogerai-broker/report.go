@@ -658,10 +658,19 @@ func (b *broker) report(w http.ResponseWriter, r *http.Request) {
 	// Per-node CORROBORATED auto-eject: a node is suspended only once enough DISTINCT
 	// reporters (distinct reporter IPs) name it WITHIN the decay window - never on a raw
 	// all-time count, so one source can't stack N reports (H2) and stale reports age out.
-	// csam/quality/spam are evidence, not an auto-ban trigger (csam preserves+queues for
-	// human review; quality/spam downrank via trust, not eject); only "abuse" corroborates
-	// an auto-suspension. The resulting suspension is TIME-BOXED + appealable (banNode tags
-	// it report-origin so nodeBanSweep auto-lifts it). Threshold 0 disables.
+	// csam/quality/spam are evidence, not an auto-ban trigger; only "abuse" corroborates
+	// an auto-suspension. quality/spam downrank via trust rather than ejecting.
+	//
+	// A csam-category report here does NOT preserve or queue anything. This comment used to
+	// say it did - "csam preserves+queues for human review" - which is true of the
+	// MODERATION SCREEN (audio, concierge, relay all call preserveCSAM) and false of this
+	// endpoint, which never touches that path. The claim sat at exactly the point a reader
+	// decides whether csam needs further handling, so it answered "already handled" when
+	// nothing had been. See csamReportRetention above: the whole record of a public csam tip
+	// is one row in rogerai.reports, which is why that row gets the statutory horizon.
+	//
+	// The resulting suspension is TIME-BOXED + appealable (banNode tags it report-origin so
+	// nodeBanSweep auto-lifts it). Threshold 0 disables.
 	if nodeID != "" && cat == "abuse" && b.reportEjectAt > 0 && !b.isBanned(nodeID) {
 		since := int64(0)
 		if b.reportDecayDays > 0 {
