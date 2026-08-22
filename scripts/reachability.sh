@@ -114,10 +114,24 @@ done <<< "$found"
 # Advisory rather than fatal: a stale line breaks nothing today, and this check's own
 # header says a gate that cries wolf gets disabled. Loud enough to fix, quiet enough to
 # ignore during an unrelated push.
+#
+# MATCH THE WHOLE KEY, exactly as the loop above builds it. The first version of this check
+# compared the allowlist line's suffix after the last dot against the findings - and a
+# finding for a method carries its receiver (`cmd/rogerai-broker.memStore.markInflightBatch`),
+# so `|Admit` never matched `|memStore.Admit` and EVERY method entry was reported stale
+# whether it existed or not. It appeared to work because the one entry it was written to
+# catch had genuinely been deleted; it would have flagged that line either way. A check that
+# is right for the wrong reason is the thing this whole script exists to stop.
+found_keys=""
+while IFS='|' read -r loc fn; do
+  [ -z "$fn" ] && continue
+  found_keys="${found_keys}$(dirname "${loc%%:*}").$fn
+"
+done <<< "$found"
 stale=""
 while IFS= read -r line; do
   case "$line" in ''|'#'*|'method '*) continue ;; esac
-  if ! printf '%s\n' "$found" | grep -qF "|${line##*.}"; then
+  if ! printf '%s' "$found_keys" | grep -qxF "$line"; then
     stale="${stale}${line}\n"
   fi
 done < "$ALLOW"
