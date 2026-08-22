@@ -142,6 +142,28 @@ func MoveBand(broker, id, nodeID string) error {
 	return nil
 }
 
+// LabelBand sets a band's human name (PATCH /bands/{id}, owner-signed). An empty label
+// clears it.
+//
+// The broker has accepted a label since bands existed; nothing ever SENT one, so
+// Band.Label was permanently empty and every list fell back to identifying bands by
+// "band_2395187610cc7". A band is a durable identity - it outlives the model it points at -
+// and an identity with no name is one an operator cannot reason about, which is how the
+// founder ended up looking at two rows on one node unable to say which was which.
+func LabelBand(broker, id, label string) error {
+	body, _ := json.Marshal(map[string]string{"label": label})
+	resp, err := signedDo(http.MethodPatch, broker, "/bands/"+id, body)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrBrokerUnreachable, err)
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return bandErr(resp.StatusCode, raw)
+	}
+	return nil
+}
+
 // RotateBand mints a FRESH secret for an existing band (POST /bands/{id}/rotate,
 // owner-signed) and returns the new full code, shown ONCE, plus its masked display.
 //

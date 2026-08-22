@@ -142,6 +142,10 @@ type Hooks struct {
 	// ONCE. The OLD code stops resolving immediately - anyone already tuned in IS cut off,
 	// which is the whole difference from BandMove.
 	BandRotate func(broker, bandID string) (code, display string, err error)
+	// BandLabel sets a band's human name (empty clears it). The broker has accepted a
+	// label since bands existed; nothing ever sent one, so every list identified bands by
+	// their raw id.
+	BandLabel func(broker, bandID, label string) error
 	// BandForget deletes a REVOKED band row for good. It is the only way to clear the dead
 	// history that otherwise accumulates around a live band forever; the broker refuses a
 	// live band, so this can never strand a working code.
@@ -556,6 +560,8 @@ const (
 	modeBandMove          // BASE STATION: pick which local model to MOVE a band to - the code survives (rc.go)
 	modeBandRevokeConfirm // BASE STATION: the explicit y/N confirm before burning a band's code forever (rc.go)
 	modeBandRotateConfirm // BASE STATION: the y/N confirm before replacing a band's code (cuts off everyone tuned in)
+	modeBandConfig        // ONE CARD PER BAND: every setting for a single band, in one place (band_config.go)
+	modeBandLabel         // the small input that names a band (a band's only human-readable handle)
 	modePingWorld         // [z] / `/ping`: the fullscreen Ping World screensaver; any key wakes back to prevMode
 	modeLog               // /log: the captured node + broker log buffer (any key closes)
 	modeVoicePreview      // a VOICE band (tts/stt): a sample-play/preview panel, NOT a chat channel (voice.go)
@@ -1103,6 +1109,21 @@ type model struct {
 	// index that only existed in the other list. See tune_private.go.
 	tuneTab    tuneTab
 	privCursor int
+	// THE BAND CARD (modeBandConfig, band_config.go): which band it is showing, and which
+	// list to return to. cfgReturnSet is load-bearing for the same reason bandCardReturn's
+	// is - modeBrowse is the ZERO value of mode, so "go back to the band browser" would be
+	// indistinguishable from "nothing was set".
+	cfgModel     string
+	cfgReturn    mode
+	cfgReturnSet bool
+	// cfgLabelIn is the small input that names a band. A band's label is its only
+	// human-readable handle: without one the list identifies bands by "band_2395187610cc7".
+	cfgLabelIn textinput.Model
+	// limReturn is where [3] CONFIG goes back to. It is normally the browser; when the
+	// BAND CARD routed here to edit one field, it is the card - otherwise an operator who
+	// pressed `e` on a card would be dropped on a spend-limit table they never opened.
+	limReturn    mode
+	limReturnSet bool
 	// A LOCAL channel: the open CHANNEL runs DIRECT against a server on this machine
 	// (harness.LocalCompleter) instead of through the broker relay. Set by openLocalChannel
 	// when tuning one of your own private bands whose model runs here; cleared by
@@ -1391,7 +1412,13 @@ func newBase(broker, user string, limits *LimitStore) model {
 	fq := textinput.New()
 	fq.Prompt = ""
 	fq.Placeholder = "frequency code"
-	m := model{broker: broker, user: user, cmd: ci, chatIn: ch, agentIn: ag, filterIn: fi, freqIn: fq,
+	// The band NAME input. Bounded to the broker's own label limit so an over-long name is
+	// refused at the keyboard rather than by a 400 after the operator finished typing.
+	bl := textinput.New()
+	bl.Prompt = ""
+	bl.Placeholder = "home gpu"
+	bl.CharLimit = 64
+	m := model{broker: broker, user: user, cmd: ci, chatIn: ch, agentIn: ag, filterIn: fi, freqIn: fq, cfgLabelIn: bl,
 		// Per-surface input history (distinct files; load tolerates a missing/corrupt file).
 		cmdHist:  newInputHistory("history-command"),
 		chatHist: newInputHistory("history-chat"), agentHist: newInputHistory("history-agent"),
@@ -1894,11 +1921,25 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				stDim.Render("- the old one stopped working. Send this to anyone who needs the band.")
 			return m, m.fetchRemoteRoster()
 		}
+		// Land back where the action was STARTED. BASE STATION is the historical home, but
+		// the BAND CARD can start a rotate, a label or a revoke too, and dumping the
+		// operator on a list they never opened is the same silent teleport the one-time
+		// code card had.
 		m.mode = modePrivate
+		if m.cfgModel != "" {
+			m.mode = modeBandConfig
+		}
 		switch {
 		case msg.err != "":
 			m.status = stEmber.Render("! " + msg.err)
 			return m, nil
+		case msg.labeled:
+			name := msg.model
+			if name == "" {
+				m.status = stLive.Render("name cleared")
+			} else {
+				m.status = stLive.Render("named ") + stKey.Render(name)
+			}
 		case msg.forgotten:
 			m.status = stLive.Render("forgotten") +
 				stDim.Render(" - that dead row is gone from your list for good")
@@ -2397,6 +2438,10 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.onBandRevokeConfirmKey(k)
 	case modeBandRotateConfirm:
 		return m.onBandRotateConfirmKey(k)
+	case modeBandConfig:
+		return m.onBandConfigKey(k)
+	case modeBandLabel:
+		return m.onBandLabelKey(k)
 	case modeRemoteSession:
 		return m.onRemoteSessionKey(k)
 	case modeBandDetail:
@@ -2489,6 +2534,13 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		switch k.String() {
+		case "b", "B":
+			// THE BAND CARD: every setting for the band under the cursor, in one place.
+			// The same key on every list that shows a band, so it is learned once.
+			if bd, ok := m.selectedBand(); ok {
+				return m.openBandConfig(bd.model, modeBrowse)
+			}
+			return m, nil
 		case "t", "T":
 			// t = switch halves of the dial: OPEN MARKET ⇄ your own PRIVATE bands. The
 			// founder's ask - a private band was invisible to the operator who minted it,
@@ -3195,6 +3247,9 @@ func (m *model) onBandCardKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 // code: back on the screen they started from. modeShare is not a candidate - a rotate can
 // only be started from BASE STATION or the PRIVATE tab.
 func (m model) rotateReturnMode() mode {
+	if m.cfgModel != "" {
+		return modeBandConfig
+	}
 	if m.tuneTab == tabPrivate {
 		return modeBrowse
 	}
@@ -3422,6 +3477,13 @@ func (m *model) onShareKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.renaming = true
 		m.stationEdit = m.station
 		m.status = stDim.Render("rename station - type a callsign, ") + stKey.Render("enter") + stDim.Render(" save · ") + stKey.Render("esc") + stDim.Render(" cancel")
+		return m, nil
+	case "b", "B":
+		// THE BAND CARD for this row: on air, visibility, band, price and spend caps
+		// together, instead of the four screens they were split across.
+		if m.shareCursor < len(m.shareRows) {
+			return m.openBandConfig(m.shareRows[m.shareCursor].model, modeShare)
+		}
 		return m, nil
 	case "p", "e":
 		// Open the pricing editor for the selected model. A VOICE (tts) row opens the VOICE BOOTH
@@ -4590,8 +4652,20 @@ func (m *model) onLimitsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		switch k.String() {
 		case "esc", "q":
+			// Back to whoever opened this. The BAND CARD routes here for a single field;
+			// dropping the operator on the full spend table afterwards would be a screen
+			// they never asked for.
 			m.mode = modeBrowse
+			if m.limReturnSet {
+				m.mode = m.limReturn
+				m.limReturn, m.limReturnSet = 0, false
+			}
 			return m, nil
+		case "b", "B":
+			// THE BAND CARD: everything about the band under the cursor, in one place.
+			if m.limCursor < len(m.limModels) {
+				return m.openBandConfig(m.limModels[m.limCursor], modeLimits)
+			}
 		case "up", "k":
 			if m.limCursor > 0 {
 				m.limCursor--
@@ -4632,6 +4706,12 @@ func (m *model) onLimitsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		m.commitLimitField()
 		m.editField = -1
+		// A card-initiated edit is DONE when the field is saved: the operator came to
+		// change one number, not to browse the table.
+		if m.limReturnSet {
+			m.mode = m.limReturn
+			m.limReturn, m.limReturnSet = 0, false
+		}
 		return m, nil
 	case "up", "down":
 		// NUDGE THE VALUE (founder 2026-08-21). Up and down did nothing while editing,
@@ -5023,6 +5103,10 @@ func (m model) View() string {
 		b.WriteString(m.bandRevokeConfirmView(w))
 	case modeBandRotateConfirm:
 		b.WriteString(m.bandRotateConfirmView(w))
+	case modeBandConfig:
+		b.WriteString(m.bandConfigView(w))
+	case modeBandLabel:
+		b.WriteString(m.bandLabelView(w))
 	case modeRemoteSession:
 		b.WriteString(m.remoteSessionView(w))
 	case modeFreqEntry:
@@ -9485,6 +9569,31 @@ func (m model) footer(w int) string {
 		left = stDim.Render("y revoke - burns the code forever  ·  n/esc keep it")
 		if m.narrow() {
 			left = stDim.Render("y revoke · n/esc keep")
+		}
+		return modalFooter(m.effWidth(), left, m.accountTag(true), m.status)
+	case modeBandConfig:
+		// Every key the card offers, in the order the sections appear. It is a long line
+		// on purpose: the whole point of the card is that nothing about this band lives
+		// somewhere else, and a footer that hid half the keys would undo that.
+		// The whole point of the card is that nothing about this band lives elsewhere, so
+		// the footer wants every key - but it must still fit. A ladder, widest first.
+		for _, cand := range []string{
+			"⏎ use  ·  a on air  ·  h public/private  ·  p price  ·  n new code  ·  l name  ·  e/t caps  ·  esc",
+			"⏎ use · a on air · h private · p price · n code · l name · e/t caps · esc",
+			"⏎ use · a air · h priv · p price · n code · l name · e/t caps · esc",
+			"⏎ use · a air · h priv · p price · e/t caps · esc",
+			"⏎ · a · h · p · e/t · esc",
+		} {
+			left = stDim.Render(cand)
+			if lipgloss.Width(cand)+lipgloss.Width(m.accountTag(true))+2 <= m.effWidth() {
+				break
+			}
+		}
+		return modalFooter(m.effWidth(), left, m.accountTag(true), m.status)
+	case modeBandLabel:
+		left = stDim.Render("type a name  ·  ⏎ save  ·  esc cancel  ·  an empty name clears it")
+		if m.narrow() {
+			left = stDim.Render("name it · ⏎ save · esc")
 		}
 		return modalFooter(m.effWidth(), left, m.accountTag(true), m.status)
 	case modeBandRotateConfirm:

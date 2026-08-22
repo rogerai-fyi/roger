@@ -199,6 +199,21 @@ func (m model) rotateBand(bandID string) tea.Cmd {
 	}
 }
 
+// labelBand names a band. An empty label clears it, which is why the empty case is not an
+// early return: "" is a legitimate value the operator can ask for.
+func (m model) labelBand(bandID, label string) tea.Cmd {
+	broker, setLabel := m.broker, m.hooks.BandLabel
+	return func() tea.Msg {
+		if setLabel == nil {
+			return bandActionMsg{err: "band management is unavailable in this build"}
+		}
+		if err := setLabel(broker, bandID, label); err != nil {
+			return bandActionMsg{err: err.Error()}
+		}
+		return bandActionMsg{labeled: true, model: label}
+	}
+}
+
 // forgetBand deletes a revoked band row. No confirm: the band is already dead - its code
 // was burnt behind an explicit y/N - so what is being removed is a corpse, not a capability.
 // The broker refuses a live band, so a slip here cannot strand anyone.
@@ -294,6 +309,7 @@ type bandActionMsg struct {
 	// nothing else may retain it.
 	rotated   bool
 	forgotten bool
+	labeled   bool
 	code      string
 	display   string
 	model     string

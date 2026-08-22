@@ -188,6 +188,15 @@ func (m model) onPrivateTabKey(k tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 		// MARKET - the last thing an operator wants from a screen called PRIVATE. Off air
 		// here means off air; the band and its privacy are remembered.
 		return m.toggleBandOnAir()
+	case "b", "B":
+		// THE BAND CARD for this band's model - the same key every other list uses.
+		r, ok := m.privSelected()
+		if !ok || r.model == "" {
+			m.status = stDim.Render("that band's model is not on this machine - nothing to configure here")
+			return m, nil, true
+		}
+		mm, cmd := m.openBandConfig(r.model, modeBrowse)
+		return mm, cmd, true
 	case "n", "N":
 		// n = a NEW CODE for the band under the cursor, in place. The founder's "reset the
 		// key": the band keeps its dial, model, label and slot; only the secret changes.
