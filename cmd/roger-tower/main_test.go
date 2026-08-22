@@ -766,7 +766,21 @@ func privateDSN(t *testing.T, dsn string) string {
 			t.Fatalf("private db: open admin: %v", aerr)
 		}
 		defer admin.Close()
-		// No CREATE DATABASE IF NOT EXISTS in PostgreSQL: create and tolerate "already exists".
+		// DROP FIRST, so every run starts on a clean network.
+		//
+		// This used to only CREATE and tolerate "already exists", which is fine on CI - a
+		// fresh Postgres service per job - and wrong anywhere the database outlives the
+		// run. A Tower's bootstrap is ONE-TIME per network and it is DURABLE by the very
+		// nature of what this test asserts, so the second `go test` against the same
+		// server found an operator already admitted and failed with "bootstrap rejected".
+		//
+		// That is worse than a flake: it makes the release gate pass once and fail
+		// afterwards, so the person running it twice before a push cannot tell a real
+		// break from their own leftovers. Clean-slate semantics per run, matching what
+		// internal/store's private database already does.
+		if _, derr := admin.Exec(`DROP DATABASE IF EXISTS "` + name + `"`); derr != nil {
+			t.Fatalf("private db: drop %s: %v", name, derr)
+		}
 		if _, cerr := admin.Exec(`CREATE DATABASE "` + name + `"`); cerr != nil &&
 			!strings.Contains(cerr.Error(), "already exists") {
 			t.Fatalf("private db: create %s: %v", name, cerr)
