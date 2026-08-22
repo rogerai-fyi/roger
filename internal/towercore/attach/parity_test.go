@@ -1441,3 +1441,61 @@ func TestParityKeyLookupsAreExactStrings(t *testing.T) {
 				"disagree about who is who")
 	})
 }
+
+// MarkAuditProven had never been run against EITHER store from this package - 0.0% in both -
+// while the broker's audit path calls it on every first-answered audit. The property is
+// idempotence with a preserved moment: the FIRST answer is the proof, and a re-stamp would
+// let a node that has since gone silent keep looking freshly capable. Two stores that
+// disagreed here would disagree about which audit was "first" between a test (mem) and
+// production (postgres).
+func TestParityAuditProofStampsOnceAndKeepsTheMoment(t *testing.T) {
+	eachStore(t, func(t *testing.T, s Store, r *Registry, now time.Time) {
+		_, err := r.Admit(goodProof())
+		require.NoError(t, err)
+
+		first, err := s.MarkAuditProven(station, now)
+		require.NoError(t, err)
+		require.True(t, first, "the first answered audit is the proof")
+
+		again, err := s.MarkAuditProven(station, now.Add(time.Hour))
+		require.NoError(t, err)
+		require.False(t, again, "a re-stamp must be a no-op, not a fresh proof")
+
+		at, ok, err := s.ByStation(station)
+		require.NoError(t, err)
+		require.True(t, ok)
+		require.Equal(t, now.UTC(), at.AuditProvenAt.UTC(),
+			"the recorded moment must stay the FIRST answer's, not the latest")
+	})
+}
+
+func TestParityAuditProofForNobodyIsNotAnError(t *testing.T) {
+	// The broker calls this from the audit path with whatever station id the transcript
+	// named; a station that detached between answer and stamp is an ordinary race, not a
+	// failure to page anyone over.
+	eachStore(t, func(t *testing.T, s Store, r *Registry, now time.Time) {
+		first, err := s.MarkAuditProven("st-nobody", now)
+		require.NoError(t, err)
+		require.False(t, first)
+	})
+}
+
+// ByTower is how dispatch and the edge-attach path enumerate a tower's fleet, and the mem
+// half had never run. The property both stores must share: the listing is scoped to the
+// tower asked about, and it includes every state - the CALLER filters, because "what is
+// attached" and "what may take work" are different questions.
+func TestParityByTowerScopesToTheTowerAsked(t *testing.T) {
+	eachStore(t, func(t *testing.T, s Store, r *Registry, now time.Time) {
+		_, err := r.Admit(goodProof())
+		require.NoError(t, err)
+
+		got, err := s.ByTower(tower)
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+		require.Equal(t, station, got[0].StationID)
+
+		other, err := s.ByTower("tw-somebody-else")
+		require.NoError(t, err)
+		require.Empty(t, other, "another tower's fleet must not leak into this listing")
+	})
+}
