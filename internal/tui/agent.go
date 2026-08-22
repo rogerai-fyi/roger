@@ -30,8 +30,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
-	"rogerai.fm/roger/v5/internal/glyphs"
-	"rogerai.fm/roger/v5/internal/harness"
+	"rogerai.fm/roger/v6/internal/glyphs"
+	"rogerai.fm/roger/v6/internal/harness"
 )
 
 // The AGENT runs on the TUNED-IN channel's model - never a stale config/default
@@ -120,7 +120,10 @@ func permAllows(p agentPermMode, tool string) bool {
 	case permAll:
 		return true
 	case permEdits:
-		return tool == "write_file"
+		// "edits" means "I trust it to act": writes AND fetches run unasked, run_shell
+		// still confirms. Without web_fetch here, turning on auto-edits would have made
+		// research MORE chatty than the default, which is backwards.
+		return tool == "write_file" || tool == "web_fetch"
 	}
 	return false
 }
@@ -144,11 +147,11 @@ func parsePermMode(s string) (agentPermMode, bool) {
 func permsHelp(p agentPermMode) string {
 	switch p {
 	case permEdits:
-		return "read/list + write auto · run_shell confirms"
+		return "read/list + write + fetch auto · run_shell confirms"
 	case permAll:
 		return "ALL tools auto-run - nothing asks (/perms confirm restores the gate)"
 	}
-	return "read/list auto · write/run confirm"
+	return "read/list auto · fetch/write/run confirm"
 }
 
 // agentCapGrace is how long past the soft cap a model call keeps running while the
@@ -658,6 +661,20 @@ func (m model) newAgentRuntime() *agentRuntime {
 		root = m.sessionWorkdir
 	}
 	rt.loop = harness.NewLoop(root, persona, completer, confirmer)
+	// WIDEN THE GATE TO web_fetch (founder 2026-08-21, having asked three times why
+	// nothing ever asked). The write and shell gates were correct and simply never came
+	// up: an ordinary question only ever triggers read-only tools, so the operator saw a
+	// confirm mode that never confirmed anything.
+	//
+	// A fetch belongs in the gate on THIS surface. It changes nothing on the machine - so
+	// it is not Mutating, and headless callers keep it automatic - but it reaches OUT to
+	// an arbitrary host, and it pulls UNTRUSTED text back into a conversation that also
+	// holds write_file and run_shell. That is the prompt-injection path, and it is the one
+	// tool an ordinary turn actually reaches for.
+	//
+	// permAllows keeps `roger perms edits` automatic for it, so an operator who finds the
+	// prompt chatty has a one-word way out that still confirms run_shell.
+	rt.loop.NeedsConfirm = func(t harness.Tool) bool { return t.Name == "web_fetch" }
 	rt.callLimit = agentTimeoutFromEnv()
 	// Startup default for the approval mode: ROGERAI_AGENT_PERMS=confirm|edits|all
 	// (unset/invalid = confirm). Session-only from there; /perms toggles live.

@@ -1,11 +1,11 @@
 package harness
 
 import (
-	"sync"
 	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 )
 
 // Message is one entry in the OpenAI-style conversation the loop maintains. Role is
@@ -45,6 +45,20 @@ type ToolCall struct {
 // aborts an in-flight turn, ctx is cancelled and the completer must return promptly
 // (BrokerCompleter passes it to the HTTP request so a hung station call is dropped).
 type Completer func(ctx context.Context, messages []Message, tools []map[string]any) (Message, error)
+
+// ConfirmPolicy decides whether a tool needs the operator's word before it runs. Nil means
+// the default: exactly the mutating tools.
+//
+// It exists because "what a tool DOES" and "what an operator wants to be asked about" are
+// different questions, and only the front-end can answer the second. The TUI widens this to
+// include web_fetch: a fetch changes nothing on the machine, but it reaches OUT to an
+// arbitrary host and pulls UNTRUSTED text back into the conversation, which is the
+// prompt-injection path - and it sits beside write_file and run_shell in that toolset.
+//
+// Putting that in the tool's Mutating flag instead would have gated the fetch for every
+// caller, headless ones included, which is a policy no terminal asked for. The flag stays a
+// statement about the tool; this is a statement about the surface.
+type ConfirmPolicy func(t Tool) bool
 
 // Confirmer is asked to approve a side-effecting (mutating) tool call before it
 // runs - the y/N gate. It returns true to run, false to deny (the loop then feeds a
@@ -116,7 +130,12 @@ type Loop struct {
 	toolByName map[string]Tool
 	complete   Completer
 	confirm    Confirmer
-	messages   []Message // session-only context (system + the live conversation)
+	// NeedsConfirm widens (never narrows) what the loop asks about. Nil = the mutating
+	// tools, which is what every headless caller wants; a front-end with a confirm UI can
+	// add to it. It cannot make a mutating tool auto-run: needsConfirm ORs with Mutating,
+	// so no policy can talk the loop out of gating a write or a shell.
+	NeedsConfirm ConfirmPolicy
+	messages     []Message // session-only context (system + the live conversation)
 	// MaxSteps bounds the tool-call iterations per user turn so a misbehaving model
 	// can't loop forever (and run up the bill). A turn that hits the cap returns the
 	// last assistant text as the final answer.
@@ -179,6 +198,15 @@ const (
 	maxSearchesPerTurn = 3
 	maxFetchesPerTurn  = 8
 )
+
+// needsConfirm reports whether this tool must be approved before it runs. It ORs with
+// Mutating rather than replacing it: a policy can add to the gate, never open it.
+func (l *Loop) needsConfirm(t Tool) bool {
+	if t.Mutating {
+		return true
+	}
+	return l.NeedsConfirm != nil && l.NeedsConfirm(t)
+}
 
 // NewLoop builds an agent loop rooted at root, with the given persona, completer,
 // and confirm gate. The persona seeds the system message; the conversation is
@@ -529,10 +557,11 @@ func (l *Loop) decide(call ToolCall, emit func(Event)) plannedCall {
 	}
 	p := plannedCall{call: call, tool: tool, root: l.Root, args: args}
 
-	// SAFETY MODEL: read-only tools auto-run; mutating tools (write_file, run_shell)
-	// REQUIRE an explicit y/N confirm (default DENY). A denied confirm never runs the
-	// tool - it feeds a clear "user denied" result back so the model can adapt.
-	if tool.Mutating {
+	// SAFETY MODEL: read-only tools auto-run; tools that need the operator's word
+	// (write_file, run_shell, plus whatever the front-end adds) REQUIRE an explicit y/N
+	// confirm (default DENY). A denied confirm never runs the tool - it feeds a clear
+	// "user denied" result back so the model can adapt.
+	if l.needsConfirm(tool) {
 		if approved := l.confirm != nil && l.confirm(name, args); !approved {
 			p.settled, p.isError, p.denied = true, true, true
 			p.result = "user denied this " + name + " call - it was not run"

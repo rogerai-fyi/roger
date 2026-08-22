@@ -219,9 +219,14 @@ func BuiltinTools() []Tool {
 		{
 			Name:        "web_fetch",
 			Description: "Fetch the text body of an http(s) URL and return it. Read-only; no JavaScript, text only.",
-			Mutating:    false,
-			Concurrent:  true,             // a read is independent of its siblings
-			Timeout:     45 * time.Second, // a slow site is normal; a site that never answers is not
+			// Mutating stays FALSE: this tool changes nothing on the machine, and the flag
+			// describes what a tool DOES. Whether it needs the operator's word before it
+			// runs is a FRONT-END policy - see Loop.NeedsConfirm, which the TUI widens to
+			// include this tool. Overloading the flag instead would have gated the fetch
+			// for every headless caller too, which is not what was asked and not correct.
+			Mutating:   false,
+			Concurrent: true,             // a read is independent of its siblings
+			Timeout:    45 * time.Second, // a slow site is normal; a site that never answers is not
 			Params: map[string]any{
 				"type": "object",
 				"properties": map[string]any{

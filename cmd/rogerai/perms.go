@@ -79,11 +79,14 @@ func applyPermsDefault(flagMode, cfgMode string) {
 func permsBlurb(mode string) string {
 	switch mode {
 	case "edits":
-		return "write_file auto-approves; run_shell still asks"
+		return "write_file and web_fetch auto-approve; run_shell still asks"
 	case "all":
-		return "EVERY mutating tool auto-approves - nothing asks"
+		return "EVERY gated tool auto-approves - nothing asks"
 	}
-	return "write_file and run_shell ask y/N (the default)"
+	// web_fetch is gated on the interactive surfaces even though it changes nothing on
+	// this machine: it reaches an arbitrary host and pulls untrusted text back into a
+	// conversation that also holds write_file and run_shell.
+	return "web_fetch, write_file and run_shell ask y/N (the default)"
 }
 
 // cmdPerms is `roger perms [mode]`: bare shows the effective default and its source;

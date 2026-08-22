@@ -72,7 +72,13 @@ Feature: THE DESK roster on the AGENT landing
     And the detailed desk is focused
     Then the first roster row is the DJ row
     And the DJ row carries the red ◉ on-air mark
-    And the DJ row reads "resident · dj.md persona · read/list auto, write/run confirm"
+    # AMENDED 2026-08-21: web_fetch joined the confirm gate on the TUI surface. The
+    # founder asked three times why nothing ever asked, and the answer was that an
+    # ordinary question only ever reaches read-only tools - so a confirm mode confirmed
+    # nothing. A fetch reaches an arbitrary host and pulls untrusted text back into a
+    # conversation that also holds write_file and run_shell, so it is gated HERE while
+    # staying automatic for headless callers (harness ConfirmPolicy).
+    And the DJ row reads "resident · dj.md persona · read/list auto, fetch/write/run confirm"
 
   Scenario: A detected guest row shows name, wire, and status
     Given detected guests "opencode"

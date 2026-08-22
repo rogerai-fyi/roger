@@ -12,11 +12,11 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"rogerai.fm/roger/v5/internal/client"
-	"rogerai.fm/roger/v5/internal/glyphs"
-	"rogerai.fm/roger/v5/internal/operator"
-	"rogerai.fm/roger/v5/internal/pricetier"
-	"rogerai.fm/roger/v5/internal/protocol"
+	"rogerai.fm/roger/v6/internal/client"
+	"rogerai.fm/roger/v6/internal/glyphs"
+	"rogerai.fm/roger/v6/internal/operator"
+	"rogerai.fm/roger/v6/internal/pricetier"
+	"rogerai.fm/roger/v6/internal/protocol"
 )
 
 // operator.go is the TUI glue for Guest Operators Phase 2 (THE DESK): the /operator
@@ -1407,7 +1407,7 @@ func (m model) deskRosterView(w, cursor int, focused bool) string {
 	b.WriteString(m.deskMarquee(w, cur))
 	b.WriteString(truncVisible("    "+stDim.Render(pad("operator", 13)+pad("wire", 11)+"status"), w) + "\n")
 	// The resident DJ row is always first (index 0), with the red on-air mark.
-	b.WriteString(truncVisible(deskGutter(focused && cursor == 0)+stRed.Render(glyphOnAir)+" "+stKey.Render(pad("DJ", 12))+" "+stDim.Render(pad("in the TUI", 10)+" resident · dj.md persona · read/list auto, write/run confirm"), w) + "\n")
+	b.WriteString(truncVisible(deskGutter(focused && cursor == 0)+stRed.Render(glyphOnAir)+" "+stKey.Render(pad("DJ", 12))+" "+stDim.Render(pad("in the TUI", 10)+" resident · dj.md persona · read/list auto, fetch/write/run confirm"), w) + "\n")
 	for i, d := range ds {
 		status := "guest · on PATH · patches into your open channel"
 		if d.Guest.Strategy == operator.StrategyContextOnly {
