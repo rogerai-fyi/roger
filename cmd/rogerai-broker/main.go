@@ -546,6 +546,7 @@ func runServe(ln net.Listener, fee, seed float64, lock time.Duration, stop <-cha
 	go b.reattestSweep(stop)          // drop verified-confidential status that has lapsed its re-attest cadence
 	go b.recountHoldSweep(stop)       // auto-expire recount holds past the review window (operator recourse)
 	go b.nodeBanSweep(stop)           // auto-lift report-origin node suspensions past the review window (reversible bans)
+	go b.reportRetentionSweep(stop)   // bound rogerai.reports: an UNAUTHENTICATED public write endpoint onto durable storage that nothing ever deleted from
 	go b.towerInviteSweep(stop)       // delete expired unredeemed Station invitations (consumed ones answer retries)
 	go b.towerCanarySweep(stop)       // probe each Tower with a data plane; a Tower serving nothing is caught here
 	go b.reversalRetrySweep(stop)     // re-attempt failed Stripe transfer-reversals (silent-money-leak guard)

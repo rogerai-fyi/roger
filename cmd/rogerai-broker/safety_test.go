@@ -265,16 +265,19 @@ func TestReportPersistsAndContract(t *testing.T) {
 	if resp["received"] != true {
 		t.Errorf("want {received:true}, got %v", resp)
 	}
-	if n, _ := db.ReportCountByNode("node1"); n != 1 {
-		t.Errorf("want 1 report for node1, got %d", n)
+	if reps, _ := db.ReportsByNode("node1", 0); len(reps) != 1 {
+		t.Errorf("want 1 report for node1, got %d", len(reps))
 	}
 }
 
-// TestReportRateLimited: bursts past the limiter return 429.
+// TestReportRateLimited: bursts past the limiter return 429. The bucket is the ANON one -
+// /report is an unauthenticated public surface, so it draws on the tighter anon allowance
+// rather than the per-identity relay limiter a signed wallet gets. See
+// TestReportUsesTheAnonLimiterNotTheRelayOne for the arm that pins which of the two.
 func TestReportRateLimited(t *testing.T) {
 	db := store.NewMem()
 	b := testBrokerWithDB(db)
-	b.rl = &rateLimiter{buckets: map[string]*tokenBucket{}, rpm: 60, burst: 2}
+	b.anonRL = &rateLimiter{buckets: map[string]*tokenBucket{}, rpm: 60, burst: 2}
 	got429 := false
 	for i := 0; i < 6; i++ {
 		rec := postReport(b, `{"category":"spam","node_id":"n"}`)

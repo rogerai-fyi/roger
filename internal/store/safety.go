@@ -47,6 +47,14 @@ const (
 	CSAMReported = "reported" // the report has been filed (submitted, with a CyberTipline id)
 )
 
+// ReportCategoryCSAM is the one report category the retention sweep treats differently,
+// named here rather than spelled inline at the two ends that must agree on it: the broker
+// endpoint that writes the row and the purge that decides which horizon the row falls
+// under. A literal "csam" in the DELETE and another in the handler's category set is
+// exactly the kind of pair that drifts, and the direction it drifts in is deleting a
+// child-safety tip on the ordinary housekeeping horizon.
+const ReportCategoryCSAM = "csam"
+
 // Report is one abuse/quality report submitted to POST /report. Reports may be
 // anonymous (the public surface), so no identity is required; the per-node count drives
 // the auto-eject/ban threshold. Category is one of abuse|csam|spam|quality|other.
@@ -187,16 +195,33 @@ func (m *Mem) AddReport(r Report) (int64, error) {
 	return r.ID, nil
 }
 
-func (m *Mem) ReportCountByNode(nodeID string) (int, error) {
+// PurgeReports drops report rows past the horizon for their category. See the Store
+// interface for why there are two horizons and what derives them.
+func (m *Mem) PurgeReports(olderThan, csamOlderThan time.Time) (int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	n := 0
+	cut, csamCut := olderThan.Unix(), csamOlderThan.Unix()
+	kept := m.reports[:0]
+	purged := 0
 	for _, r := range m.reports {
-		if r.NodeID == nodeID {
-			n++
+		horizon := cut
+		if r.Category == ReportCategoryCSAM {
+			horizon = csamCut
 		}
+		if r.CreatedAt <= horizon {
+			purged++
+			continue
+		}
+		kept = append(kept, r)
 	}
-	return n, nil
+	// Zero the tail so the trimmed Reports (each carrying up to 4KB of detail) are actually
+	// released rather than kept alive by the slice's backing array - the whole point of this
+	// call is to stop that text accumulating.
+	for i := len(kept); i < len(m.reports); i++ {
+		m.reports[i] = Report{}
+	}
+	m.reports = kept
+	return purged, nil
 }
 
 // DistinctReporterCountByNode counts DISTINCT non-empty reporter IPs that named a node at

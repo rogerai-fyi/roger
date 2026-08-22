@@ -122,10 +122,39 @@ func (p *Postgres) AddReport(r Report) (int64, error) {
 	return id, err
 }
 
-func (p *Postgres) ReportCountByNode(nodeID string) (int, error) {
-	var n int
-	err := p.db.QueryRow(`SELECT COUNT(*) FROM rogerai.reports WHERE node_id=$1`, nodeID).Scan(&n)
-	return n, err
+// PurgeReports drops report rows past the horizon for their category. See the Store
+// interface for why there are two horizons and what derives them.
+//
+// TWO STATEMENTS RATHER THAN ONE WITH AN OR, and the reason was measured rather than
+// assumed. Written as one predicate -
+// `(category<>'csam' AND created_at<=$1) OR (category='csam' AND created_at<=$2)` - the
+// planner does still reach reports_created, but only via a BitmapOr whose recheck condition
+// collapses to `created_at<=$1 OR created_at<=$2`. That is the UNION of the two ranges, and
+// since the csam horizon is deliberately the wider one, the ordinary sweep would visit
+// every row back to the csam horizon and throw most of them away on the filter. On a
+// 200k-row table with production-shaped horizons that plan costs ~2871 against ~93 + ~89
+// for the split pair, each of which is a plain created_at range scan. Split, then.
+//
+// They are deliberately NOT wrapped in one transaction: each is independently idempotent,
+// and a long DELETE holding a transaction open against the public write path is a worse
+// outcome than a sweep that gets half its work done and finishes the rest on the next
+// tick.
+func (p *Postgres) PurgeReports(olderThan, csamOlderThan time.Time) (int, error) {
+	total := 0
+	res, err := p.db.Exec(`DELETE FROM rogerai.reports
+		WHERE created_at<=$1 AND (category IS NULL OR category<>$2)`, olderThan.Unix(), ReportCategoryCSAM)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	total += int(n)
+	res, err = p.db.Exec(`DELETE FROM rogerai.reports
+		WHERE created_at<=$1 AND category=$2`, csamOlderThan.Unix(), ReportCategoryCSAM)
+	if err != nil {
+		return total, err // report what the first half already removed; the caller only logs it
+	}
+	n, _ = res.RowsAffected()
+	return total + int(n), nil
 }
 
 // DistinctReporterCountByNode counts DISTINCT non-empty reporter IPs naming a node at or

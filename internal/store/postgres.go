@@ -327,6 +327,13 @@ CREATE INDEX IF NOT EXISTS appeals_open ON rogerai.appeals (id DESC) WHERE state
 -- reporter-IP + window index so the distinct-reporter corroboration count (the ban
 -- decision) stays cheap as the report log grows.
 CREATE INDEX IF NOT EXISTS reports_node_ip_ts ON rogerai.reports (node_id, ip, created_at);
+-- Retention seek index. POST /report is unauthenticated by design, so the only thing
+-- bounding this table is the sweep that deletes past the corroboration window (see
+-- PurgeReports / reportRetention), and that sweep's WHERE is a created_at range with no
+-- node_id to lead on - neither index above can answer it. Without this the reaper
+-- sequentially scans exactly the table it exists to keep from growing, which is the
+-- shape of a sweep that quietly stops being run.
+CREATE INDEX IF NOT EXISTS reports_created ON rogerai.reports (created_at);
 -- owner-keyed durable bans (anti-rotation): a node_id is a cheap callsign, so the
 -- enforcement that must survive rotation binds to the OWNER ACCOUNT (owner pubkey).
 -- A banned owner is blocked at register + relay pick + settle for every current and

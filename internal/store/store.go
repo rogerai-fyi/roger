@@ -516,8 +516,27 @@ type Store interface {
 
 	// AddReport persists an abuse/quality report (POST /report). Returns the report id.
 	AddReport(r Report) (int64, error)
-	// ReportCountByNode returns how many reports name a node (drives the ban threshold).
-	ReportCountByNode(nodeID string) (int, error)
+	// PurgeReports deletes report rows past their retention horizon and returns how many
+	// it removed. TWO horizons, because two different things are being kept:
+	//
+	//   olderThan     - ordinary reports (abuse/quality/spam/other). The only thing that
+	//                   ever reads them is the decay-windowed corroboration count, so a row
+	//                   older than that window plus the life of the suspension it caused is
+	//                   read by nothing and is purely storage. The caller derives the
+	//                   horizon from those windows; see reportRetention.
+	//   csamOlderThan - category "csam" reports, which are held far longer and separately.
+	//                   POST /report is the ONLY way a csam-category row is created and it
+	//                   does NOT go through PreserveCSAM, so for those rows this table is
+	//                   the sole copy of a child-safety tip. Sweeping them on a
+	//                   housekeeping horizon would destroy the only record of one. The
+	//                   caller derives this horizon from the 18 USC 2258A(h) preservation
+	//                   period; see csamReportRetention.
+	//
+	// A row is deleted only when its created_at is at or before the horizon for ITS
+	// category, so passing an equal pair sweeps everything uniformly and passing a far
+	// older csamOlderThan preserves the csam rows. Idempotent; safe to run concurrently on
+	// two instances (a DELETE that matches nothing is a no-op).
+	PurgeReports(olderThan, csamOlderThan time.Time) (int, error)
 	// DistinctReporterCountByNode returns how many DISTINCT reporters (distinct non-empty
 	// reporter IP) named a node at or after `since` (unix seconds). This is the
 	// corroboration-and-decay count the auto-eject uses INSTEAD of a raw all-time

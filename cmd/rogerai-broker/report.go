@@ -40,6 +40,156 @@ const defaultReportDecayDays = 30
 // raw report count. Override ROGERAI_NODE_BAN_DAYS (<=0 disables auto-lift).
 const defaultNodeBanDays = 3
 
+// reportRetentionGrace is the margin the report-retention horizon carries OVER the windows
+// that actually bound a reader. It is written into the sum below rather than folded into a
+// single number for the same reason minHoldTTL is: the terms are what move when somebody
+// tunes the policy, and a number would sit still while they moved.
+//
+// A day is generous for what it protects against - the sweep runs on a ticker rather than
+// at the instant of the boundary, two instances may sweep with skewed clocks, and a report
+// posted a second before the cutoff is read by a corroboration count taken a second after
+// it. All of those are seconds-to-hours effects. Being a day generous costs a day of rows
+// on a table that is now bounded; being an hour short deletes a row inside the window the
+// ban decision reads, which changes a suspension.
+const reportRetentionGrace = 24 * time.Hour
+
+// csamPreservationDays is the 18 USC 2258A(h)(1) preservation period: a provider must
+// preserve the contents of a CyberTipline report for 90 days after submitting it. It is
+// the floor under how long a csam-category report row is kept, and it is a bare number
+// here because it is a bare number in the statute.
+const csamPreservationDays = 90
+
+// reportRetention is how long an ORDINARY report row is kept before the sweep drops it, and
+// it is derived from the windows that read it rather than picked.
+//
+// WHAT ACTUALLY READS A REPORT ROW. Exactly one thing: DistinctReporterCountByNode, over a
+// trailing window of reportDecayDays, called from the auto-eject on write and from the
+// appeal's auto-exoneration. Both take that window from NOW, so no reader ever asks for a
+// row older than reportDecayDays. (ReportCountByNode, the all-time COUNT(*) that used to
+// sit beside it, had no caller outside tests and is gone - an all-time counter over a table
+// that is no longer all-time is a wrong answer waiting for someone to trust its name.)
+//
+// SO WHY NOT reportDecayDays EXACTLY. Because the count is not the only thing a report is
+// for. A node ejected at T was ejected on corroboration that may reach back to
+// T-reportDecayDays, and that suspension stands for up to nodeBanDays before nodeBanSweep
+// auto-lifts it. Throughout that time the operator can appeal and an admin can review, and
+// the reports are the only answer to "why was I ejected". Deleting them at
+// reportDecayDays would, for a ban placed on the oldest evidence in the window, delete that
+// evidence while the suspension it caused was still standing.
+//
+// Hence the sum: the window the decision reads, plus the longest that decision can stand,
+// plus the grace. Written as the terms so that tuning ROGERAI_REPORT_DECAY_DAYS or
+// ROGERAI_NODE_BAN_DAYS moves this with them - the failure mode a bare constant has here is
+// that somebody widens the decay window and the reaper silently starts eating the evidence
+// inside it.
+//
+// nodeBanDays<=0 DISABLES auto-lift, so a report-origin suspension then stands until an
+// admin or an appeal clears it, which is unbounded. A negative term would SHRINK the
+// horizon below the decay window, so it is clamped to zero: the operator's recourse in that
+// configuration does not need old rows anyway (the appeal's auto-exoneration reads the same
+// trailing window, and reports ageing out of it is what makes the appeal succeed).
+func (b *broker) reportRetention() time.Duration {
+	decay := time.Duration(b.reportDecayDays) * 24 * time.Hour
+	suspension := time.Duration(b.nodeBanDays) * 24 * time.Hour
+	if suspension < 0 {
+		suspension = 0
+	}
+	return decay + suspension + reportRetentionGrace
+}
+
+// csamReportRetention is the SEPARATE, far longer horizon for category-"csam" report rows,
+// and it exists because of a fact about this table that is easy to miss.
+//
+// A csam-category report is NOT a preserved CSAM incident. preserveCSAM - the 2258A
+// preserve-and-queue path, with encryption at rest, the CyberTipline obligation and the SLA
+// pager - is called from the moderation screen on the audio, concierge and relay paths, and
+// from nowhere else. POST /report never touches it. So when a member of the public reports
+// that a node is serving child sexual abuse material, the entire record of that tip is one
+// row in rogerai.reports, and this function is the only thing standing between it and a
+// housekeeping DELETE. That is a legal question rather than a storage one, so it gets the
+// statutory period rather than the ordinary horizon.
+//
+// IT IS STILL BOUNDED, and deliberately, because the alternative is worse than disk. The
+// category is a free field on an unauthenticated endpoint: "keep csam reports forever" is
+// also "an attacker who sets category:\"csam\" is exempt from retention", which hands back
+// the unbounded table this whole change exists to close. A horizon well past the statutory
+// preservation period keeps a real tip long enough to be found and filed while keeping the
+// flood bounded.
+//
+// Floored at reportRetention() so it can never come out SHORTER than the ordinary horizon,
+// however the decay window is tuned - a csam row must never be the first thing swept.
+//
+// THE REAL FIX IS UPSTREAM AND IS NOT THIS: a csam-category report should land in
+// csam_incidents with a queued CyberTipline obligation, so the founder is paged and the
+// existing drain applies. It is not done here because auto-preserving on an unauthenticated
+// endpoint would let anyone fill the legal queue and ring the SLA pager at will, which is a
+// denial of service against a legal obligation. Wiring it needs an admin-gated promotion
+// step, and that is a decision for the founder, not a housekeeping commit.
+func (b *broker) csamReportRetention() time.Duration {
+	d := time.Duration(csamPreservationDays) * 24 * time.Hour
+	if r := b.reportRetention(); r > d {
+		return r
+	}
+	return d
+}
+
+// reportRetentionSweep bounds rogerai.reports, which nothing has ever deleted from.
+//
+// POST /report is unauthenticated ON PURPOSE - it is the public abuse surface and requiring
+// an account would silence the people most likely to use it - so there is no account here,
+// and therefore none of the things that bound the tables next door: no per-account cap, no
+// concurrency ceiling, no open-attempt limit. The only brake is a per-IP token bucket, and a
+// per-IP bucket is exactly the control a rotating IP pool is built to walk around. Every one
+// of those requests writes a durable row carrying up to 4KB of free text, a BIGSERIAL id and
+// an index entry, and nothing anywhere removed one. That is the whole defect: not a leak
+// with a deadline attached, but a public write endpoint onto permanent storage.
+//
+// It runs on its OWN ticker rather than joining the ten-minute housekeeping tick in
+// towerlink.go, and that is a deliberate departure from the neighbouring reapers. That tick
+// returns immediately unless a Tower subsystem is configured (`b.tower == nil ||
+// b.tower.stationStore == nil`), so retention hung there would silently not run on any
+// deployment without Towers - which is every small one, and a small deployment is not less
+// exposed to an unauthenticated write endpoint. The same argument rules out hanging it off
+// nodeBanSweep, whose loop exits entirely when auto-lift is disabled. A table this one is
+// bounded by must not have its bound gated on an unrelated feature switch.
+//
+// stop is the nil-in-production test seam (a nil channel case never fires, so the loop waits
+// on the ticker exactly as before).
+func (b *broker) reportRetentionSweep(stop <-chan struct{}) {
+	if b.db == nil {
+		return
+	}
+	retention := b.reportRetention()
+	interval := sweepInterval(retention)
+	log.Printf("report-retention: reports older than %s are reaped (csam-category: %s, 18 USC 2258A(h)) - sweep every %s", retention, b.csamReportRetention(), interval)
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-t.C:
+			b.reportRetentionSweepOnce(time.Now())
+		}
+	}
+}
+
+// reportRetentionSweepOnce purges reports past their category's horizon (one sweep
+// iteration). Split out of the loop so the purge is testable without the ticker, exactly as
+// the hold and node-ban sweeps are. `now` is passed in rather than read here so a test can
+// place rows on both sides of a horizon without sleeping.
+func (b *broker) reportRetentionSweepOnce(now time.Time) {
+	retention, csamRetention := b.reportRetention(), b.csamReportRetention()
+	n, err := b.db.PurgeReports(now.Add(-retention), now.Add(-csamRetention))
+	if err != nil {
+		log.Printf("report-retention: sweep failed: %v", err)
+		return
+	}
+	if n > 0 {
+		log.Printf("report-retention: reaped %d report(s) past their retention horizon (%s; csam-category %s)", n, retention, csamRetention)
+	}
+}
+
 // reportBanReasonPrefix marks a ban as report-origin (a temporary, auto-lifting
 // suspension). ExpireNodeBans only auto-clears bans whose reason starts with "report " -
 // an admin/crypto-verified permanent ban never carries this prefix, so it is never
@@ -450,9 +600,24 @@ func (b *broker) report(w http.ResponseWriter, r *http.Request) {
 	if !allow(w, r, http.MethodPost) {
 		return
 	}
-	// Per-IP rate limit (reuse the relay limiter bucket map) to stop report-spam.
+	// Per-IP rate limit, on the ANON bucket rather than the relay one. This route is
+	// unauthenticated by design, which is precisely the class loadAnonRateLimiter's own
+	// comment describes - "the UNAUTHENTICATED public surfaces... intentionally TIGHTER
+	// than the per-identity relay limiter... since the anon surface is the abuse-prone
+	// one" - and /report was nonetheless sharing b.rl, the LOOSER per-identity bucket a
+	// signed wallet gets (120rpm/40 burst against the anon 30/15). A public write endpoint
+	// onto durable storage was the one anonymous surface holding the authenticated
+	// allowance. The key keeps its "report:" prefix so it stays a separate bucket from the
+	// anon relay's, cross-instance included (shared keys are rogerai:rl:anon:<key>).
+	//
+	// It stays PER IP. A global or per-node cap on report WRITES would bound the flood
+	// harder and both are worse than the flood: a global cap is a censorship primitive
+	// (fill the channel and real reports get 429s), and a per-node cap lets a bad node
+	// suppress reports about itself by reporting itself. The right bound on an abuse
+	// channel is what it costs to keep, not who is allowed to speak into it, which is what
+	// reportRetentionSweep now answers.
 	ip := clientIP(r)
-	if ok, retry := b.rl.allow("report:" + ip); !ok {
+	if ok, retry := b.anonRL.allow("report:" + ip); !ok {
 		w.Header().Set("Retry-After", strconv.Itoa(retry))
 		jsonErr(w, http.StatusTooManyRequests, "too many reports - slow down")
 		return

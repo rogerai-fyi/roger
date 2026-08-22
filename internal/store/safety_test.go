@@ -50,15 +50,12 @@ func TestSafetyStoreParity(t *testing.T) {
 			if _, err := db.AddReport(Report{Category: "quality", NodeID: "n2"}); err != nil {
 				t.Fatal(err)
 			}
-			if n, _ := db.ReportCountByNode("n1"); n != 2 {
-				t.Errorf("n1 count = %d, want 2", n)
-			}
-			if n, _ := db.ReportCountByNode("n2"); n != 1 {
-				t.Errorf("n2 count = %d, want 1", n)
-			}
 			reps, _ := db.ReportsByNode("n1", 0)
 			if len(reps) != 2 {
 				t.Errorf("ReportsByNode(n1) = %d, want 2", len(reps))
+			}
+			if r2, _ := db.ReportsByNode("n2", 0); len(r2) != 1 {
+				t.Errorf("ReportsByNode(n2) = %d, want 1", len(r2))
 			}
 
 			// --- ban set ---

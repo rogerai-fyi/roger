@@ -449,8 +449,8 @@ func TestPostgresClosedPoolPropagatesErrors(t *testing.T) {
 		}
 	}
 	{
-		n, err := pg.ReportCountByNode("n")
-		errZeroI(t, "ReportCountByNode", n, err)
+		n, err := pg.PurgeReports(now, now)
+		errZeroI(t, "PurgeReports", n, err)
 	}
 	{
 		n, err := pg.DistinctReporterCountByNode("n", 0)
