@@ -15,10 +15,12 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -660,5 +662,39 @@ func loadConfig(path string) (*tower.Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := refuseStateFileAsConfig(path, b); err != nil {
+		return nil, err
+	}
 	return tower.ParseConfig(b)
+}
+
+// refuseStateFileAsConfig catches the ONE mistake this CLI's two-argument shape invites.
+//
+// `init --dir DIR` writes DIR/tower.json and prints the directory it wrote it to, so the
+// operator's very next command reaches for the file init just made them - and --config
+// wants an entirely different document. What they got for it was the strict decoder's
+// answer, "field tower_id not found in type tower.Config", which names a field they never
+// typed, in a type they have never heard of, and says nothing about the fix.
+//
+// The two arguments are not interchangeable and are not meant to be: --dir is what a Tower
+// KNOWS (its identity, whom it admitted, which Stations attached), --config is what an
+// operator DECIDED (listeners, limits, durability). Keeping them apart is deliberate; the
+// cost is this confusion, so the confusion is answered here by name.
+func refuseStateFileAsConfig(path string, b []byte) error {
+	var probe struct {
+		TowerID string `json:"tower_id"`
+	}
+	// Only a well-formed JSON object carrying tower_id qualifies. A real config is YAML
+	// with apiVersion and kind, and nothing about it decodes into this shape - so this
+	// cannot swallow a genuine configuration error and report the wrong repair.
+	if json.Unmarshal(b, &probe) != nil || probe.TowerID == "" {
+		return nil
+	}
+	return fmt.Errorf("%s is a Tower DATA DIRECTORY state file, not a configuration file.\n"+
+		"It records what this Tower is (its id, its network); a configuration file records "+
+		"what you want it to do (listeners, limits, durability).\n"+
+		"  --dir %s        state: init, invite, admit, attach, stations, route, status\n"+
+		"  --config FILE   settings: doctor, config, and durable storage\n"+
+		"An example configuration ships in packaging/tower/ (tower.standalone.example.yaml, "+
+		"tower.joined.example.yaml).", path, filepath.Dir(path))
 }

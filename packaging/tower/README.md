@@ -68,6 +68,23 @@ plane - see below.
 
 ## Configuration
 
+Two complete, commented examples ship beside this README and are the fastest way to
+start - copy one and edit it:
+
+- **`tower.standalone.example.yaml`** - fully local, no account, free local routing.
+- **`tower.joined.example.yaml`** - joined to the public network, with the hub data plane.
+
+Both are covered by tests that parse them with the real loader and check every key in
+them - **including the commented-out ones** - against the fields the code actually
+declares, so an example cannot quietly rot into advertising a setting that no longer
+exists.
+
+Note that `init --dir DIR` writes `DIR/tower.json`, which is **state**, not configuration:
+it records what this Tower *is*, while a config file records what you want it to *do*.
+Passing it to `--config` is refused by name.
+
+The shape, in brief:
+
 ```yaml
 apiVersion: tower.rogerai.fm/v1alpha1
 kind: Tower

@@ -1,0 +1,50 @@
+# roger-tower, STANDALONE: a relay that is entirely yours.
+#
+# Nothing leaves this machine, no account is involved, and routing is free and locally
+# accounted. This is the mode to start in.
+#
+#   roger-tower init            --dir /var/lib/roger-tower --mode standalone
+#   roger-tower config validate --config /etc/roger-tower/tower.yaml
+#   roger-tower ready           --config /etc/roger-tower/tower.yaml
+#
+# `init` writes tower.json INTO --dir. That file is STATE (this Tower's id, its local
+# network id) and is not this file: passing it to --config fails, on purpose. --dir is
+# where a Tower keeps what it knows; --config is what an operator decides.
+
+apiVersion: tower.rogerai.fm/v1alpha1
+kind: Tower
+mode: standalone
+
+identity:
+  # The data directory from `init --dir`. Private keys live here, owner-only (0600 in a
+  # 0700 directory). Never put key material in this file - a scalar secret ends up in
+  # shell history and backups, so the config refuses one.
+  dir: /var/lib/roger-tower
+
+# Both default to loopback. Nothing here becomes reachable because a field was omitted.
+stationListener:
+  address: 127.0.0.1:7070
+adminListener:
+  address: 127.0.0.1:7071
+
+# ---- everything below is optional -------------------------------------------------
+
+# observability:
+#   logFormat: json                 # default
+#   metricsAddress: 127.0.0.1:9090
+
+# limits:
+#   maxStations: 64
+#   maxInflight: 128
+#   maxAudioInflight: 8
+
+# storage:
+#   # "development" (the default) says plainly that identity, admission state and attached
+#   # Stations MAY BE LOST on restart, and `ready`/`status` repeat it every time.
+#   # "durable" makes `ready` check every dependency the promise rests on and exit non-zero
+#   # when one is missing. It does NOT yet move state into PostgreSQL - see the README.
+#   profile: durable
+#   urlFile: /etc/roger-tower/db-url   # owner-only file, never an inline url:
+
+# Standalone accepts NO joined:, publicAdvertisement: or payout: block. Those are
+# rejected rather than defaulted off, so a later edit cannot quietly flip one on.

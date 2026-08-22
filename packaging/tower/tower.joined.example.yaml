@@ -1,0 +1,71 @@
+# roger-tower, JOINED: a relay that carries other people's traffic on the public network.
+#
+# Joining needs an account, because a joined Tower relays strangers' work and has to stay
+# accountable for it. It holds a link to Roger Core and hosts the sealed data plane.
+#
+#   roger-tower init --dir /var/lib/roger-tower --mode joined
+#   roger-tower login    --dir /var/lib/roger-tower
+#   roger-tower register --dir /var/lib/roger-tower
+#   roger-tower serve    --dir /var/lib/roger-tower --config /etc/roger-tower/tower.yaml
+#
+# A data directory is ONE mode for life. To move between modes, init a second directory:
+# nothing is copied, because an identity, trust root or Station registry must never cross
+# that boundary.
+
+apiVersion: tower.rogerai.fm/v1alpha1
+kind: Tower
+mode: joined
+
+identity:
+  dir: /var/lib/roger-tower
+
+joined:
+  # Required in joined mode. Roger Core is the trust root and the settlement authority.
+  authority: https://broker.rogerai.fyi
+  # Owner-only FILES, never inline scalars. The config rejects an inline enrollment token
+  # by name without echoing its value, so the rejection cannot itself leak the secret.
+  enrollmentTokenFile: /etc/roger-tower/enrollment-token
+  certificateFile: /etc/roger-tower/tower.crt
+
+stationListener:
+  address: 127.0.0.1:7070
+adminListener:
+  address: 127.0.0.1:7071
+
+# The hub is the data plane consumers submit sealed work to and this Tower's own
+# `roger share` nodes poll. Payloads are sealed end to end regardless; TLS here covers the
+# grant metadata and each node's assertion public key - which IS its payment identity and
+# otherwise rides every poll, every 25 seconds, in the clear.
+hub:
+  address: :8444
+  # With tls: true and no tlsCert, the Tower mints and keeps a self-signed certificate.
+  # That is a COMPLETE answer here, not a development shortcut: nodes and consumers verify
+  # this hub by pinning the public key Roger Core tells them to expect, so there is no
+  # domain name to obtain and nothing a certificate authority could add.
+  tls: true
+  # tlsCert: /etc/roger-tower/hub.crt      # implies tls: true
+  # tlsKey:  /etc/roger-tower/hub.key
+  #
+  # allowLegacyBearer keeps accepting the pre-signature bearer token from serving nodes
+  # that have not moved to signed hub polls. It DEFAULTS TO TRUE; set it false once your
+  # nodes are updated. It goes away, with the flag and the bearer path, one release on.
+  # allowLegacyBearer: false
+
+relay:
+  # The host:port CONSUMERS reach this Tower at, advertised to Core over the link. This is
+  # very often NOT the listen address - ":8444" is not dialable by anyone - and without it
+  # Core will not route edge consumers here at all.
+  public: relay.example.net:8444
+
+# ---- everything below is optional -------------------------------------------------
+
+# publicAdvertisement: true         # list this Tower in the public directory
+
+# payout:
+#   wallet: acct_...                # where relay earnings settle
+
+# storage:
+#   profile: durable
+#   urlFile: /etc/roger-tower/db-url
+
+# Joined accepts NO standalone: block: Core is the trust root here, not this Tower.

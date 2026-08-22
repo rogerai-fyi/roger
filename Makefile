@@ -8,12 +8,20 @@ export GOTOOLCHAIN
 #   make beta  VERSION=4.8.0-beta.1
 VERSION ?=
 VERSION_LDFLAGS := $(if $(VERSION),-X main.Version=$(VERSION),)
+# roger-tower carries its own symbol: `var version` in package main, LOWERCASE, where the
+# client has `var Version`. The distinction is load-bearing rather than cosmetic - the Go
+# linker SILENTLY IGNORES -X for a symbol that does not exist, so stamping the tower with
+# VERSION_LDFLAGS above would look correct in the recipe, exit 0, and ship a binary still
+# reporting "dev". Keep this in step with the tower ldflags in .goreleaser.yaml, which is
+# what stamps the binaries an operator actually downloads.
+TOWER_VERSION_LDFLAGS := $(if $(VERSION),-X main.version=$(VERSION),)
 
 build:
 	go build -o bin/rogerai-broker    ./cmd/rogerai-broker
 	go build -ldflags "$(VERSION_LDFLAGS)" -o bin/roger ./cmd/rogerai
 	ln -sf roger bin/rogerai          # back-compat alias: the command is `roger`, `rogerai` still works
 	go build -o bin/tokenizer-sidecar ./cmd/tokenizer-sidecar
+	go build -ldflags "$(TOWER_VERSION_LDFLAGS)" -o bin/roger-tower ./cmd/roger-tower
 
 # beta: a single stamped, trimmed binary for the host platform, named by its semver
 # (e.g. bin/roger-4.8.0-beta.1). Requires VERSION, which must be a semver.
