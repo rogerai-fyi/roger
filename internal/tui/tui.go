@@ -5674,16 +5674,48 @@ func (m model) limitsView(w int) string {
 		// The KEYS are what gets dropped when it does not fit, never the field being
 		// edited or its value - an operator mid-edit needs to see what they are typing
 		// into far more than they need to be re-told that esc cancels.
+		// WIDTH-SAFE CONTENT. The box looked broken open on one side twice, and the cause
+		// is not the border: it is that lipgloss measures ⏎ (U+23CE) and ▏ (U+258F) as one
+		// cell while a terminal is free to render them as two - both are East-Asian-Width
+		// AMBIGUOUS. The border characters are drawn at the width lipgloss computed, the
+		// content row is drawn wider by the terminal, and the box no longer lines up.
+		//
+		// Inside a bordered box the fix is to stop using ambiguous glyphs at all. Outside
+		// one they are harmless (nothing has to line up with them), which is why ⏎ still
+		// rides the footers.
 		lead := stDim.Render("edit " + m.limModels[m.limCursor] + "   " + field + "  ")
-		val := stSelText.Render("▏" + m.editBuf + "▏")
-		plate := lead + val + stDim.Render("   ⏎ save   tab next field   esc cancel")
-		if lipgloss.Width(plate)+6 > w { // +6: the border, its padding, and the indent
-			plate = lead + val + stDim.Render("   ⏎ save   esc cancel")
+		short := stDim.Render(field + "  ")
+		val := stSelText.Render("[" + m.editBuf + "]")
+		// THE FIT LADDER, widest first. What gets dropped is always the least load-bearing
+		// thing left: the keys, then the model name, then the field label. The VALUE never
+		// goes - an operator mid-edit needs to see what they are typing far more than they
+		// need to be re-told that esc cancels, and a clipped number is a number they cannot
+		// trust. The last rung is the value alone, which fits any terminal worth drawing on.
+		const editChrome = 6 // 2 indent + 2 border + 2 padding
+		avail := max(4, w-editChrome)
+		plate := val
+		for _, cand := range []string{
+			lead + val + stDim.Render("   enter save   tab next field   esc cancel"),
+			lead + val + stDim.Render("   enter save   esc cancel"),
+			lead + val,
+			short + val,
+		} {
+			if lipgloss.Width(cand) <= avail {
+				plate = cand
+				break
+			}
 		}
-		if lipgloss.Width(plate)+6 > w {
-			plate = lead + val
-		}
-		b.WriteString("\n  " + stPanel.MaxWidth(max(10, w-2)).Render(plate) + "\n")
+		// AND IT MUST NOT WRAP. This is what actually made the box look broken: the plate
+		// was one cell too wide for the content area, lipgloss WRAPPED it, and the box grew
+		// a second row with "esc / cancel" split across the fold. MaxWidth does not prevent
+		// that - it clips the already-wrapped block.
+		//
+		// The geometry, stated once: 2 indent + 2 border + 2 padding = 6 cells of overhead,
+		// so the content area is w-6. Style.Width() sets the TOTAL width INCLUDING padding,
+		// which is the off-by-two that let the wrap through - it is content+2, never content.
+		plate = truncVisible(plate, avail)
+		inner := lipgloss.Width(plate) + 2 // + the style's horizontal padding
+		b.WriteString("\n  " + stPanel.Width(inner).Render(plate) + "\n")
 	}
 	b.WriteString("\n    " + stDim.Render("↑↓ move   ⏎ edit   tab next field   d clear   esc done") + "\n")
 	// Cross-link the two split "config" surfaces: this screen is what you PAY as a

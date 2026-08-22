@@ -61,6 +61,32 @@ func localModelsCmd() tea.Cmd {
 func (m model) localAgentRows() []agentPickerRow {
 	var out []agentPickerRow
 	seen := map[string]bool{}
+	// THE CONTROLLER FIRST. m.shareRows is what [2] SHARE detected and is what the node is
+	// actually serving right now - it is authoritative, and it is already in memory.
+	//
+	// Deriving local models ONLY from m.localFound (the agent's own background port scan)
+	// meant a model the operator had just put on air in SHARE was invisible to the AGENT
+	// until a separate scan happened to land. The founder hit exactly that: they shared
+	// grok-4.6 privately, chatted with it DIRECT from [1] TUNE IN, switched to [0] AGENT,
+	// and got "no station is serving grok-4.6 (504)" - the agent had relayed to the broker
+	// for a model sitting on the same machine.
+	//
+	// A row with no upstream is skipped: without an endpoint there is nothing to route to,
+	// and offering it would trade a broker 504 for a local one.
+	for _, r := range m.shareRows {
+		if r.model == "" || seen[r.model] || r.upstream == "" {
+			continue
+		}
+		if r.modality == protocol.ModalityTTS || r.modality == protocol.ModalitySTT {
+			continue // a voice model cannot run a tool-use loop
+		}
+		seen[r.model] = true
+		out = append(out, agentPickerRow{
+			model: r.model, local: true, via: "this machine",
+			chat: r.upstream, key: r.upstreamKey, ctx: r.ctx,
+			band: m.sharePrivate[r.model],
+		})
+	}
 	for _, f := range m.localFound {
 		for _, mdl := range f.Models {
 			if mdl == "" || seen[mdl] {
@@ -109,10 +135,25 @@ func (m model) agentPickerCandidates() []agentPickerRow {
 		out = append(out, agentPickerRow{model: mdl, ctx: m.ctxForModel(mdl)})
 	}
 	for _, r := range m.localAgentRows() {
-		if seen[r.model] {
+		if seen[r.model] && !m.preferLocalFor(r.model) {
 			// A model with the same id is already on air through the broker. Keep the band
 			// row: it is the one the operator has been using, and silently re-pointing it at
 			// a local server would change where their turns go without saying so.
+			//
+			// The exception is OUR OWN PRIVATE band (preferLocalFor): its only station is
+			// this machine, so there is no other route to preserve - only a metered round
+			// trip through the broker to reach ourselves.
+			continue
+		}
+		if seen[r.model] {
+			// Replace the band row in place, so the model appears ONCE and as the local
+			// row it will actually use. Two rows for one model would be worse than either.
+			for i := range out {
+				if out[i].model == r.model {
+					out[i] = r
+					break
+				}
+			}
 			continue
 		}
 		out = append(out, r)
@@ -128,16 +169,47 @@ func (m model) ctxForModel(mdl string) int {
 	return 0
 }
 
+// preferLocalFor reports whether the AGENT should reach mdl DIRECTLY even though a broker
+// band of the same name exists.
+//
+// The general rule stays as it was - keep the band row, because a public band may be served
+// by other people's stations and silently re-pointing it would change where turns go. This
+// is the one case where there is no such ambiguity: a model on OUR OWN PRIVATE band has
+// exactly one station, and it is this machine. Relaying to the broker so it can route back
+// here is a round trip to localhost that is metered on the way - and it needs a frequency
+// code the operator may not even hold, which is precisely how it failed.
+func (m model) preferLocalFor(mdl string) bool { return m.sharePrivate[mdl] }
+
 // rowForModel finds the picker row for a model id, so a pick can recover its endpoint.
 func (m model) rowForModel(mdl string) (agentPickerRow, bool) {
+	// The three cases, in order, stated rather than fallen into. Taking whichever row came
+	// first is what made bindAgentEndpoint find a BAND row for a model that lives on this
+	// machine, leave localChat empty, and relay it through the broker.
+	local, hasLocal := agentPickerRow{}, false
+	for _, r := range m.localAgentRows() {
+		if r.model == mdl {
+			local, hasLocal = r, true
+			break
+		}
+	}
+	// 1. OUR OWN PRIVATE band: the only station is this machine, so local always wins.
+	if hasLocal && m.preferLocalFor(mdl) {
+		return local, true
+	}
+	// 2. Whatever the picker is showing (a band row, ordinarily).
 	for _, r := range m.agentPickerRows {
 		if r.model == mdl {
 			return r, true
 		}
 	}
-	for _, r := range m.localAgentRows() {
-		if r.model == mdl {
-			return r, true
+	// 3. A local row is the answer only when NO band carries this model. A public band CAN
+	// be served by other people's stations, so answering with the local row here would
+	// silently re-point the operator's turns at their own box - the exact thing the
+	// keep-the-band-row rule exists to prevent, and it would do it invisibly because this
+	// path runs whether or not the picker was ever opened.
+	if hasLocal {
+		if _, onBand := m.bandForModel(mdl); !onBand {
+			return local, true
 		}
 	}
 	return agentPickerRow{}, false

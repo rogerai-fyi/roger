@@ -217,3 +217,84 @@ func TestAgentSendsTheFreqOnlyForTheTunedBandsModel(t *testing.T) {
 		t.Errorf("an open-market turn carried a freq: %q", got)
 	}
 }
+
+// THE AGENT MUST NOT RELAY A MODEL THAT LIVES ON THIS MACHINE.
+//
+// FOUNDER 2026-08-21: they shared grok-4.6 privately, chatted with it DIRECT from
+// [1] TUNE IN, switched to [0] AGENT, and got "no station is serving grok-4.6 (504)".
+// Two causes stacked:
+//
+//   - localAgentRows() derived local models ONLY from m.localFound (the agent's own
+//     background port scan), so a model [2] SHARE was actively serving was invisible until
+//     a separate scan happened to land.
+//   - rowForModel() searched agentPickerRows FIRST, so a BAND row for the same id won the
+//     lookup, bindAgentEndpoint left localChat empty, and the turn went to the broker.
+func agentWithPrivateLocal(t *testing.T) model {
+	t.Helper()
+	m := browseSeed(100)
+	m.agent = m.newAgentRuntime()
+	m.setShareRows([]shareRow{
+		{model: "grok-4.6", ctx: 32768, upstream: "http://127.0.0.1:11434/v1/chat/completions"},
+	})
+	m.sharePrivate = map[string]bool{"grok-4.6": true}
+	// The same model is ALSO visible as a band (the private band's own offer).
+	m.bands = []band{{model: "grok-4.6", online: true, cheapest: &offer{Model: "grok-4.6", Ctx: 32768}}}
+	return m
+}
+
+func TestAgentSeesModelsTheControllerIsServing(t *testing.T) {
+	m := agentWithPrivateLocal(t)
+	var found bool
+	for _, r := range m.localAgentRows() {
+		if r.model == "grok-4.6" && r.local && r.chat != "" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("a model SHARE is serving right now is invisible to the AGENT until a port scan lands")
+	}
+}
+
+func TestAgentBindsLocalForItsOwnPrivateBand(t *testing.T) {
+	m := agentWithPrivateLocal(t)
+	m.bindAgentEndpoint("grok-4.6")
+	if m.agent.localChat != "http://127.0.0.1:11434/v1/chat/completions" {
+		t.Fatalf("the agent relayed a model on this machine through the broker (localChat=%q)", m.agent.localChat)
+	}
+}
+
+// The picker must show it ONCE, as the local row it will actually use - two rows for one
+// model would be worse than either.
+func TestThePickerShowsOnePreferredLocalRow(t *testing.T) {
+	m := agentWithPrivateLocal(t)
+	n, local := 0, false
+	for _, r := range m.agentPickerCandidates() {
+		if r.model == "grok-4.6" {
+			n++
+			local = r.local
+		}
+	}
+	if n != 1 {
+		t.Fatalf("grok-4.6 appears %d times in the picker, want 1", n)
+	}
+	if !local {
+		t.Error("the picker kept the broker band row for a model on our own private band")
+	}
+}
+
+// NEGATIVE HALF: a PUBLIC band whose model also runs here must KEEP the band row. A public
+// band can be served by other people's stations, so silently re-pointing it would change
+// where the operator's turns go - the rule the preference deliberately does not touch.
+func TestAPublicBandKeepsItsBandRow(t *testing.T) {
+	m := agentWithPrivateLocal(t)
+	m.sharePrivate = map[string]bool{} // same model, but NOT on a private band
+	for _, r := range m.agentPickerCandidates() {
+		if r.model == "grok-4.6" && r.local {
+			t.Fatal("a public band was silently re-pointed at the local server")
+		}
+	}
+	m.bindAgentEndpoint("grok-4.6")
+	if m.agent.localChat != "" {
+		t.Error("a public band bound the local endpoint")
+	}
+}
