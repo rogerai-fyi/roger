@@ -28,8 +28,10 @@ import (
 	"github.com/stretchr/testify/require"
 	"rogerai.fm/roger/v6/internal/station"
 	"rogerai.fm/roger/v6/internal/towercore/dispatch"
+	"rogerai.fm/roger/v6/internal/towercore/envelope"
 	"rogerai.fm/roger/v6/internal/towercore/link"
 	"rogerai.fm/roger/v6/internal/towerhub"
+	"strings"
 )
 
 // sealedWorld stands up the whole path: Core (authorize + ack), a node blind-serving through
@@ -401,4 +403,193 @@ func TestAnUnpinnedHubIsStillReachedOverPlainHTTP(t *testing.T) {
 	require.Empty(t, auth.EndpointTLSSPKI)
 	_, err = w.client.DoSealed(context.Background(), &auth, []byte(`{"prompt":"hi"}`))
 	require.NoError(t, err)
+}
+
+// --- what DoSealed refuses, and why each refusal matters --------------------------
+//
+// These drive the sealed path against a HOSTILE or broken hub rather than the honest world
+// above. fakeAuthorizingCore hands the client a real authorization pointing at whatever hub
+// a test supplies, so each test controls exactly what answers the submit.
+
+func fakeAuthorizingCore(t *testing.T, hubAddr string, sessionKey []byte) *Client {
+	t.Helper()
+	mux := http.NewServeMux()
+	mux.HandleFunc("/tower/edge/authorize", func(rw http.ResponseWriter, r *http.Request) {
+		writeJSON(rw, map[string]any{
+			"attempt_id": "att-1",
+			"grant":      base64.StdEncoding.EncodeToString([]byte("opaque-grant")),
+			"endpoint":   hubAddr, "station_session_key": hex.EncodeToString(sessionKey),
+		})
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	_, key, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	return &Client{Broker: srv.URL, Key: key}
+}
+
+func hubAnswering(t *testing.T, resp map[string]any) string {
+	t.Helper()
+	mux := http.NewServeMux()
+	mux.HandleFunc(towerhub.PathSubmit, func(rw http.ResponseWriter, r *http.Request) {
+		writeJSON(rw, resp)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return srv.Listener.Addr().String()
+}
+
+func sessionKeyPair(t *testing.T) ([]byte, []byte) {
+	t.Helper()
+	pub, priv, err := envelope.NewKey()
+	require.NoError(t, err)
+	return pub, priv
+}
+
+// A node failure is an ANSWER - 502 with the failure text - not an error, and it produces
+// nothing to acknowledge: the serve loop zeroes the receipt on failure, and acking an error
+// body would be signing a claim about an answer that was not one.
+func TestANodeFailureIsAnAnswerWithNothingToAcknowledge(t *testing.T) {
+	sessPub, _ := sessionKeyPair(t)
+	hub := hubAnswering(t, map[string]any{"failure": "upstream refused"})
+	c := fakeAuthorizingCore(t, hub, sessPub)
+
+	auth, err := c.AuthorizeSealed(t.Context(), "m")
+	require.NoError(t, err)
+	res, err := c.DoSealed(t.Context(), &auth, []byte("prompt"))
+	require.NoError(t, err)
+	require.Equal(t, http.StatusBadGateway, res.Status)
+	require.Equal(t, "upstream refused", string(res.Body))
+	// AckSealed on this result is a NO-OP by design - and must not error either, because the
+	// caller acks unconditionally.
+	require.NoError(t, c.AckSealed(t.Context(), &auth, res))
+}
+
+// An answer sealed to the WRONG key is refused, with the tamper named. This is the property
+// the envelope keys exist for: a hub that substituted its own key pair, or corrupted the
+// bytes in transit, must not be able to hand the consumer plaintext it chose.
+func TestAnAnswerSealedToTheWrongKeyIsRefused(t *testing.T) {
+	sessPub, _ := sessionKeyPair(t)
+	wrongPub, _ := sessionKeyPair(t)
+	tampered, err := envelope.SealTo(wrongPub, []byte("attacker-chosen"), "att-1")
+	require.NoError(t, err)
+	raw, err := tampered.Marshal()
+	require.NoError(t, err)
+	hub := hubAnswering(t, map[string]any{
+		"envelope": base64.StdEncoding.EncodeToString(raw),
+		"receipt":  base64.StdEncoding.EncodeToString([]byte("r")),
+	})
+	c := fakeAuthorizingCore(t, hub, sessPub)
+
+	auth, err := c.AuthorizeSealed(t.Context(), "m")
+	require.NoError(t, err)
+	_, err = c.DoSealed(t.Context(), &auth, []byte("prompt"))
+	require.ErrorContains(t, err, "could not open the sealed answer")
+}
+
+func TestAnAnswerThatIsNotAnEnvelopeAtAllIsRefused(t *testing.T) {
+	sessPub, _ := sessionKeyPair(t)
+	hub := hubAnswering(t, map[string]any{
+		"envelope": base64.StdEncoding.EncodeToString([]byte("just bytes")),
+		"receipt":  base64.StdEncoding.EncodeToString([]byte("r")),
+	})
+	c := fakeAuthorizingCore(t, hub, sessPub)
+	auth, err := c.AuthorizeSealed(t.Context(), "m")
+	require.NoError(t, err)
+	_, err = c.DoSealed(t.Context(), &auth, []byte("prompt"))
+	require.ErrorContains(t, err, "not a sealed envelope")
+}
+
+// A hub has no business redirecting a submit: following one would replay the sealed body -
+// and the grant authorizing it - to an address of the hub's choosing.
+//
+// The refusal this asserts comes from the SHARED towerhub client, not from DoSealed's own
+// CheckRedirect - writing this test is how that layering surfaced. DoSealed installs its own
+// refusal into the client it hands towerhub.Reach, and the inner layer's fires first, so the
+// outer one is a second fence that only matters if the inner one is ever removed. The
+// assertion is on the PROPERTY (a redirect is refused, the sealed body is not replayed) and
+// deliberately not on which fence said no.
+func TestARedirectingHubIsRefused(t *testing.T) {
+	sessPub, _ := sessionKeyPair(t)
+	mux := http.NewServeMux()
+	mux.HandleFunc(towerhub.PathSubmit, func(rw http.ResponseWriter, r *http.Request) {
+		http.Redirect(rw, r, "http://127.0.0.1:1/edge/submit", http.StatusTemporaryRedirect)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	c := fakeAuthorizingCore(t, srv.Listener.Addr().String(), sessPub)
+	auth, err := c.AuthorizeSealed(t.Context(), "m")
+	require.NoError(t, err)
+	_, err = c.DoSealed(t.Context(), &auth, []byte("prompt"))
+	require.ErrorContains(t, err, "redirect")
+}
+
+func TestAckSealedNeedsAnAuthorization(t *testing.T) {
+	c := &Client{}
+	require.ErrorContains(t, c.AckSealed(t.Context(), nil, Result{}), "no authorization")
+}
+
+// The two malformed-authorization answers DoSealed's setup depends on: a grant that is not
+// base64, and a session key that is not an X25519 key. Both must refuse at authorize time -
+// discovering either at submit time would be after the prompt was sealed to garbage.
+func TestAMalformedAuthorizationIsRefusedFieldByField(t *testing.T) {
+	cases := map[string]map[string]any{
+		"unreadable grant": {"attempt_id": "a", "grant": "%%%not-b64%%%",
+			"endpoint": "127.0.0.1:1", "station_session_key": strings.Repeat("ab", 32)},
+		"short session key": {"attempt_id": "a",
+			"grant":    base64.StdEncoding.EncodeToString([]byte("g")),
+			"endpoint": "127.0.0.1:1", "station_session_key": "abcd"},
+		"missing endpoint": {"attempt_id": "a",
+			"grant":               base64.StdEncoding.EncodeToString([]byte("g")),
+			"station_session_key": strings.Repeat("ab", 32)},
+	}
+	for name, answer := range cases {
+		t.Run(name, func(t *testing.T) {
+			mux := http.NewServeMux()
+			mux.HandleFunc("/tower/edge/authorize", func(rw http.ResponseWriter, r *http.Request) {
+				writeJSON(rw, answer)
+			})
+			srv := httptest.NewServer(mux)
+			t.Cleanup(srv.Close)
+			_, key, err := ed25519.GenerateKey(rand.Reader)
+			require.NoError(t, err)
+			c := &Client{Broker: srv.URL, Key: key}
+			_, err = c.AuthorizeSealed(t.Context(), "m")
+			require.Error(t, err)
+		})
+	}
+}
+
+// An authorization whose endpoint carries a scheme is refused by towerhub.Reach - the one
+// place that turns Core's (endpoint, pin) into a dialable client. The scheme is derived
+// from the PIN, never from the address: an endpoint that names its own is either drift in
+// the wire format or someone trying to choose plaintext.
+func TestAnEndpointCarryingASchemeIsRefused(t *testing.T) {
+	sessPub, _ := sessionKeyPair(t)
+	c := fakeAuthorizingCore(t, "http://relay.example:8444", sessPub)
+	auth, err := c.AuthorizeSealed(t.Context(), "m")
+	require.NoError(t, err)
+	_, err = c.DoSealed(t.Context(), &auth, []byte("prompt"))
+	require.ErrorContains(t, err, "scheme")
+}
+
+// An ack that cannot be SIGNED is an error, not a silent skip: the consumer's signature is
+// the entire value of the acknowledgement, and a nil key discovered here means the caller
+// wired a read-only client into a flow that promises to corroborate.
+func TestAnAckWithoutAKeyFailsRatherThanLying(t *testing.T) {
+	c := &Client{Broker: "http://127.0.0.1:1"}
+	res := Result{Status: http.StatusOK, Body: []byte("answer"), receipt: "cmVjZWlwdA=="}
+	err := c.AckSealed(t.Context(), &SealedAuthorization{AttemptID: "att-1"}, res)
+	require.Error(t, err)
+}
+
+// The ack rides signedPost, and signedPost refuses an untrusted broker base BEFORE signing
+// anything - the session key that authorize hands back is why the transport must be trusted,
+// and the ack path holds the same line.
+func TestAnAckToAnUntrustedBrokerIsRefused(t *testing.T) {
+	_, key, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	c := &Client{Broker: "http://broker.example.com", Key: key}
+	res := Result{Status: http.StatusOK, Body: []byte("answer"), receipt: "cmVjZWlwdA=="}
+	require.Error(t, c.AckSealed(t.Context(), &SealedAuthorization{AttemptID: "att-1"}, res))
 }

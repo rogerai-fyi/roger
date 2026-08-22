@@ -84,6 +84,13 @@ type Ack struct {
 func SignAck(priv ed25519.PrivateKey, network, attemptID string, response []byte,
 	u Usage, firstByte, completed time.Time) (Ack, error) {
 
+	// A wrong-size key would PANIC inside ed25519.Sign, and this function is called from a
+	// client library: a consumer whose Client was built without a key would crash their whole
+	// process at ack time - after the answer arrived - rather than get an error naming the
+	// mistake. Found by a coverage test that expected an error and got a stack trace.
+	if len(priv) != ed25519.PrivateKeySize {
+		return Ack{}, errors.New("an acknowledgement must be signed by the consumer's key, and there is no usable key")
+	}
 	if attemptID == "" {
 		return Ack{}, errors.New("an acknowledgement names the attempt it is for")
 	}
