@@ -250,3 +250,44 @@ func TestConcurrentToggle(t *testing.T) {
 		t.Fatalf("after StopAll, on air = %d, want 0", c.OnAirCount())
 	}
 }
+
+// ── THE ZOMBIE BAND ──────────────────────────────────────────────────────────
+// Revoking a band deletes it broker-side, but the node stayed REGISTERED PRIVATE with
+// no band behind it: hidden from the market and reachable by nobody. Worse, the private
+// flag survived - so the operator's next `h`, the obvious way to mint a fresh code,
+// computed goPrivate = !true = FALSE and re-registered the model PUBLICLY. The only
+// documented way to rotate a code took the model through the open market.
+func TestBandRevokedClearsThePrivateFlag(t *testing.T) {
+	c := New(Config{Station: "amber-fox", Upstream: "http://127.0.0.1:1/v1"})
+	c.SetRows([]ShareRow{{Model: "grok-4.6", Ctx: 8192}})
+	c.private["grok-4.6"] = true
+
+	if !c.BandRevoked("grok-4.6") {
+		t.Fatal("revoking a band on a flagged model must reconcile it")
+	}
+	if c.private["grok-4.6"] {
+		t.Error("the private flag must be cleared - leaving it set is what makes the next toggle PUBLISH")
+	}
+	if c.sessions["grok-4.6"] != nil {
+		t.Error("the model must be off air: its only route in was just revoked")
+	}
+}
+
+// A band pointing at another machine's model is not ours to reconcile.
+func TestBandRevokedIgnoresAModelWeDoNotHave(t *testing.T) {
+	c := New(Config{Station: "amber-fox", Upstream: "http://127.0.0.1:1/v1"})
+	c.SetRows([]ShareRow{{Model: "grok-4.6", Ctx: 8192}})
+	if c.BandRevoked("some-other-machines-model") {
+		t.Error("a model we do not have must report nothing was reconciled")
+	}
+}
+
+// Nothing to reconcile reports false, so the caller does not claim an action it did not
+// take.
+func TestBandRevokedOnAnIdleModelDoesNothing(t *testing.T) {
+	c := New(Config{Station: "amber-fox", Upstream: "http://127.0.0.1:1/v1"})
+	c.SetRows([]ShareRow{{Model: "grok-4.6", Ctx: 8192}})
+	if c.BandRevoked("grok-4.6") {
+		t.Error("a model that is neither on air nor flagged private needs no reconciliation")
+	}
+}

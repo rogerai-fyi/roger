@@ -180,6 +180,7 @@ func (m model) moveBandTo(bandID, model string) tea.Cmd {
 
 func (m model) revokeBand(bandID string) tea.Cmd {
 	broker, revoke := m.broker, m.hooks.BandRevoke
+	node := m.bandManageNode // captured now: the view moves on before the Cmd runs
 	return func() tea.Msg {
 		if revoke == nil {
 			return bandActionMsg{err: "band management is unavailable in this build"}
@@ -187,7 +188,7 @@ func (m model) revokeBand(bandID string) tea.Cmd {
 		if err := revoke(broker, bandID); err != nil {
 			return bandActionMsg{err: err.Error()}
 		}
-		return bandActionMsg{revoked: true}
+		return bandActionMsg{revoked: true, node: node}
 	}
 }
 
@@ -196,7 +197,11 @@ type bandActionMsg struct {
 	moved   bool
 	revoked bool
 	model   string
-	err     string
+	// node is the band's node id ("<station>-<model>"), carried so a revoke can find
+	// which local model was behind the band and reconcile it. Without it the controller
+	// is left registered private with no band - see BandRevoked.
+	node string
+	err  string
 }
 
 func (m model) bandManageView(w int) string {
@@ -310,4 +315,25 @@ func (m model) acceptBandMove() tea.Cmd {
 			return bandActionMsg{err: "you have several bands - pick one in BASE STATION [p]"}
 		}
 	}
+}
+
+
+// modelForNodeID maps a band's node id back to a model ON THIS MACHINE, or "" when the
+// band points somewhere else.
+//
+// It compares against agent.ShareNodeID for each share row rather than splitting the id
+// on "-": a station name can itself contain hyphens (the founder's is one word, but
+// "eager-puma-54" is the usual shape), so any split is a guess, and a wrong guess here
+// would reconcile - and take off air - the wrong model.
+func (m model) modelForNodeID(node string) string {
+	if node == "" {
+		return ""
+	}
+	station := m.ctrl.Station()
+	for _, r := range m.shareRows {
+		if agent.ShareNodeID(station, r.model, 0) == node {
+			return r.model
+		}
+	}
+	return ""
 }

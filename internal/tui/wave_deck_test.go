@@ -1049,3 +1049,46 @@ func TestBandScreensTeachTheirOwnKeys(t *testing.T) {
 		}
 	}
 }
+
+// ── THE STATION LOG MUST FIT ─────────────────────────────────────────────────
+// It listed every station unconditionally, so a popular band emitted a frame taller
+// than the terminal - and a frame taller than the terminal SCROLLS the alt buffer,
+// stranding the previous frame's top above it. The founder pressed i and esc and
+// collected a stack of ROGER logos and repeated STATION LOG headers, one per press.
+func TestStationLogNeverOverflowsTheTerminal(t *testing.T) {
+	for _, h := range []int{20, 24, 40, 60} {
+		for _, n := range []int{0, 1, 3, 20, 200} {
+			m := browseSeed(100)
+			m.width, m.height = 100, h
+			m.mode = modeBandDetail
+			all := make([]offer, 0, n)
+			for i := 0; i < n; i++ {
+				all = append(all, offer{NodeID: "st", Model: "m", Online: true})
+			}
+			bd := band{model: "m", all: all, stations: n, online: n > 0}
+			if n > 0 {
+				bd.cheapest = &all[0]
+			}
+			m.detailBand = bd
+			if rows := strings.Count(m.View(), "\n") + 1; rows > h {
+				t.Errorf("height %d, %d stations: frame is %d rows - it will scroll the alt buffer", h, n, rows)
+			}
+		}
+	}
+}
+
+// A list cut to fit must SAY it was cut: silently truncated reads as the whole list,
+// and an operator counting stations would be counting wrong.
+func TestTruncatedStationLogSaysSo(t *testing.T) {
+	m := browseSeed(100)
+	m.width, m.height = 100, 24
+	m.mode = modeBandDetail
+	all := make([]offer, 0, 200)
+	for i := 0; i < 200; i++ {
+		all = append(all, offer{NodeID: "st", Model: "m", Online: true})
+	}
+	m.detailBand = band{model: "m", all: all, cheapest: &all[0], stations: 200, online: true}
+	if out := stripANSI(m.View()); !strings.Contains(out, "more station") {
+		t.Error("a truncated list must name what it dropped")
+	}
+}

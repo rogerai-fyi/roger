@@ -1821,7 +1821,22 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = stLive.Render("moved - ") + stKey.Render(msg.model) +
 				stDim.Render(" now answers on the same frequency code")
 		case msg.revoked:
+			// RECONCILE THE NODE. The band is gone broker-side, but this machine was
+			// still registered PRIVATE behind it - hidden from the market and reachable
+			// by nobody, with the SHARE row still reading PRIVATE. And because the
+			// private flag survived, the operator's next `h` would have re-registered the
+			// model PUBLICLY: the only way to rotate a code went through the open market.
+			//
+			// Taking it off air is the honest resolution. The operator revoked the one
+			// way anyone could reach it; quietly publishing a model they deliberately hid
+			// is the outcome that must never happen by accident.
 			m.status = stDim.Render("revoked - that frequency code no longer resolves")
+			if mdl := m.modelForNodeID(msg.node); mdl != "" && m.ctrl.BandRevoked(mdl) {
+				m.syncShareCache()
+				m.status = stDim.Render("revoked - the code no longer resolves, and ") +
+					stKey.Render(mdl) + stDim.Render(" is off air. Press ") + stKey.Render("h") +
+					stDim.Render(" on it in SHARE for a fresh band.")
+			}
 		}
 		return m, m.fetchRemoteRoster()
 	case flowErrMsg:
@@ -5098,8 +5113,30 @@ func (m model) bandDetailView(w int) string {
 	// Stations: online first (bd.all is already online-first from groupBands), each on one
 	// aligned row. The cheapest station (the broker's default route) is marked with the
 	// lit ◉; the rest with a hollow ○ / dim offline dot.
-	for i := range bd.all {
-		o := bd.all[i]
+	// BOUNDED TO THE TERMINAL. This listed every station unconditionally, so a popular
+	// band emitted a frame taller than the screen - and a frame taller than the screen
+	// SCROLLS the alt buffer, leaving the previous frame's top stranded above it. That
+	// is the stack of ROGER logos and repeated STATION LOG lines the founder hit by
+	// pressing i and esc (each press left another header behind).
+	//
+	// The chrome below is the header, the column head, the two footer lines and the
+	// rule; 10 rows is that with a row to spare.
+	// bandDetailChrome is every row this view emits that is NOT a station: the app
+	// header and preset bar, the STATION LOG line and its blank, the column head, the
+	// terms breakdown and its blanks, the legend, and the footer. MEASURED at 17 (a
+	// 24-row terminal fit 14 stations in a 31-row frame before this bound was right),
+	// with one row of slack.
+	const bandDetailChrome = 18
+	shown := bd.all
+	if m.height > 0 {
+		if room := m.height - bandDetailChrome; room > 0 && len(shown) > room {
+			shown = shown[:room]
+		} else if room <= 0 && len(shown) > 1 {
+			shown = shown[:1] // a very short terminal still shows the default route
+		}
+	}
+	for i := range shown {
+		o := shown[i]
 		dot := stDim.Render("○")
 		if o.Online {
 			dot = stRed.Render(glyphOnAir)
@@ -5133,6 +5170,11 @@ func (m model) bandDetailView(w int) string {
 			pad(successCell(o.SuccessRate, o.SuccessSeen), 7) + "  " +
 			stDim.Render(hwLabelOr(o.HW))
 		b.WriteString(row + "\n")
+	}
+	// SAY WHAT WAS DROPPED. A list silently cut at the terminal's height reads as the
+	// whole list, and an operator counting stations would be counting wrong.
+	if n := len(bd.all) - len(shown); n > 0 {
+		b.WriteString("  " + stDim.Render(fmt.Sprintf("… %d more station(s) - widen or resize to see them", n)) + "\n")
 	}
 
 	// Signal-term breakdown: WHY the band scores what it does. Use the strongest online

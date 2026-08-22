@@ -664,3 +664,42 @@ func SchedToProtocol(ws []SchedWindow) []protocol.PriceWindow {
 	}
 	return out
 }
+
+// BandRevoked reconciles a model whose PRIVATE BAND was just revoked at the broker.
+//
+// THE ZOMBIE. Revoking a band deletes it broker-side, but the node stays REGISTERED
+// PRIVATE with no band behind it: hidden from the open market and reachable by nobody,
+// while the SHARE row still reads PRIVATE. Worse is what happens next - `private[model]`
+// is still true, so the operator's first `h` (the obvious way to mint a fresh code)
+// computes goPrivate = !true = FALSE and re-registers the model PUBLICLY. The only
+// documented way to rotate a code took your model through the open market on the way.
+//
+// So a revoke takes the model OFF AIR and clears the flag. Off air, not public: the
+// operator revoked the only way anyone could reach it, and quietly publishing a model
+// they had deliberately hidden is the one outcome that must never happen by accident.
+// From there a single `h` mints a fresh band, which is the rotation they were after.
+//
+// Returns whether anything was actually stopped, so the caller can say so rather than
+// claiming an action it did not take. A band pointing at another machine's model is not
+// ours to reconcile and reports false.
+func (c *Controller) BandRevoked(model string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if _, ok := c.rowFor(model); !ok {
+		return false
+	}
+	wasPrivate := c.private[model]
+	sess := c.sessions[model]
+	if sess == nil && !wasPrivate {
+		return false // not on air and not flagged: nothing to reconcile
+	}
+	if sess != nil {
+		sess.Stop()
+		delete(c.sessions, model)
+		c.releaseLockLocked(model)
+	}
+	// The flag goes LAST and unconditionally: leaving it set is what makes the next
+	// toggle publish.
+	delete(c.private, model)
+	return true
+}
