@@ -162,3 +162,67 @@ func TestRehydrateBans(t *testing.T) {
 		t.Error("rehydrateOwnerBans should load the owner ban into the cache")
 	}
 }
+
+// TestMemStoreNoOpsForTheNewerPrimitives extends TestMemStoreNoOps to the methods added
+// AFTER it was written - the tool-verdict mirror, the batch inflight marks, the edge
+// inflight pair, and the RC bus - all of which measured 0.0% while the older primitives
+// were covered. That gap is the predictable failure mode of a contract test that lists its
+// subjects by hand: each new interface method ships with the contract assumed and never
+// asserted. (An earlier version of this change OVERWROTE this whole file instead of
+// extending it, which would have deleted two unrelated tests; the diff's deletion count is
+// what caught it.)
+func TestMemStoreNoOpsForTheNewerPrimitives(t *testing.T) {
+	m := newMemStore()
+	ctx := context.Background()
+	now := time.Now()
+
+	if err := m.markToolsVerified("n", "m", time.Minute); err != errNoSharedStore {
+		t.Errorf("markToolsVerified = %v", err)
+	}
+	if err := m.clearToolsVerified("n", "m"); err != errNoSharedStore {
+		t.Errorf("clearToolsVerified = %v", err)
+	}
+	if err := m.markInflightBatch("i", nil, now); err != errNoSharedStore {
+		t.Errorf("markInflightBatch = %v", err)
+	}
+	if err := m.markEdgeInflight("i", "n", 1, now); err != errNoSharedStore {
+		t.Errorf("markEdgeInflight = %v", err)
+	}
+	if err := m.markEdgeInflightBatch("i", nil, now); err != errNoSharedStore {
+		t.Errorf("markEdgeInflightBatch = %v", err)
+	}
+	if _, err := m.edgeInflightByNode("i"); err != errNoSharedStore {
+		t.Errorf("edgeInflightByNode = %v", err)
+	}
+	if _, err := m.busClaimJob("j"); err != errNoSharedStore {
+		t.Errorf("busClaimJob = %v", err)
+	}
+	if err := m.busPublishRCIn("s", nil); err != errNoSharedStore {
+		t.Errorf("busPublishRCIn = %v", err)
+	}
+	if err := m.busPublishRCOut("s", nil); err != errNoSharedStore {
+		t.Errorf("busPublishRCOut = %v", err)
+	}
+	if _, cancel, err := m.busSubscribeRCIn(ctx, "s"); err != errNoSharedStore {
+		t.Errorf("busSubscribeRCIn = %v", err)
+	} else {
+		cancel()
+	}
+	if _, cancel, err := m.busSubscribeRCOut(ctx, "s"); err != errNoSharedStore {
+		t.Errorf("busSubscribeRCOut = %v", err)
+	} else {
+		cancel()
+	}
+	if _, err := m.busNextRCSeq("s"); err != errNoSharedStore {
+		t.Errorf("busNextRCSeq = %v", err)
+	}
+	if _, _, err := m.busPopRCIn("s"); err != errNoSharedStore {
+		t.Errorf("busPopRCIn = %v", err)
+	}
+	if _, err := m.allPrivateNodes(); err != errNoSharedStore {
+		t.Errorf("allPrivateNodes = %v", err)
+	}
+	if err := m.dropSharedNode("n"); err != errNoSharedStore {
+		t.Errorf("dropSharedNode = %v", err)
+	}
+}

@@ -259,3 +259,40 @@ func TestATamperedSessionIsRejected(t *testing.T) {
 	_, _, _, _, ok := b.verifySessionFull(val[:len(val)-2] + "xy")
 	require.False(t, ok)
 }
+
+// The remaining refusal doors, each of which measured zero. A device flow's refusals ARE
+// its security model: the poll and the pending-read are what a guesser probes, and the
+// method checks are what keeps a CSRF-able GET from standing in for a signed POST.
+func TestDeviceFlowRefusalDoors(t *testing.T) {
+	b, _ := deviceBroker(t)
+	_, priv, err := ed25519.GenerateKey(nil)
+	require.NoError(t, err)
+
+	t.Run("token: unsigned is nobody", func(t *testing.T) {
+		r := httptest.NewRequest(http.MethodPost, "/auth/device/token", strings.NewReader(`{"device_code":"x"}`))
+		w := httptest.NewRecorder()
+		b.deviceToken(w, r)
+		require.Equal(t, http.StatusUnauthorized, w.Code)
+	})
+	t.Run("token: a signed poll still needs its code", func(t *testing.T) {
+		body := []byte(`{}`)
+		r := httptest.NewRequest(http.MethodPost, "/auth/device/token", strings.NewReader(string(body)))
+		signReq(r, priv, body)
+		w := httptest.NewRecorder()
+		b.deviceToken(w, r)
+		require.Equal(t, http.StatusBadRequest, w.Code)
+		require.Contains(t, w.Body.String(), "device_code required")
+	})
+	t.Run("start: GET is not a login", func(t *testing.T) {
+		r := httptest.NewRequest(http.MethodGet, "/auth/device/start", nil)
+		w := httptest.NewRecorder()
+		b.deviceStart(w, r)
+		require.Equal(t, http.StatusMethodNotAllowed, w.Code)
+	})
+	t.Run("token: GET is not a poll", func(t *testing.T) {
+		r := httptest.NewRequest(http.MethodGet, "/auth/device/token", nil)
+		w := httptest.NewRecorder()
+		b.deviceToken(w, r)
+		require.Equal(t, http.StatusMethodNotAllowed, w.Code)
+	})
+}
