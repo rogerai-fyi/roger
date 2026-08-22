@@ -98,7 +98,10 @@ func TestLimitsSayUnavailableRatherThanEmpty(t *testing.T) {
 	s := New(testCtrl(), Options{})
 	srv := httptest.NewServer(s.Handler())
 	defer srv.Close()
-	resp, _ := http.Get(srv.URL + "/api/limits?t=" + s.Token())
+	resp, err := http.Get(srv.URL + "/api/limits?t=" + s.Token())
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer resp.Body.Close()
 	var out map[string]any
 	_ = json.NewDecoder(resp.Body).Decode(&out)
