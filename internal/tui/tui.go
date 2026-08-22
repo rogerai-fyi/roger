@@ -569,6 +569,7 @@ const (
 	modeBandRotateConfirm // BASE STATION: the y/N confirm before replacing a band's code (cuts off everyone tuned in)
 	modeBandConfig        // ONE CARD PER BAND: every setting for a single band, in one place (band_config.go)
 	modeBandLabel         // the small input that names a band (a band's only human-readable handle)
+	modeBandQuants        // the small input for a band's ACCEPTED QUANTS rule (band_config.go)
 	modePingWorld         // [z] / `/ping`: the fullscreen Ping World screensaver; any key wakes back to prevMode
 	modeLog               // /log: the captured node + broker log buffer (any key closes)
 	modeVoicePreview      // a VOICE band (tts/stt): a sample-play/preview panel, NOT a chat channel (voice.go)
@@ -586,6 +587,30 @@ type Limit struct {
 	MaxIn  float64
 	MaxOut float64
 	MinTPS float64
+	// Quants is the set of compression labels this band may be served at ("Q4_K_M",
+	// "IQ4_XS"). Empty = any, which is the default and what most operators will want.
+	//
+	// It is the STANDING half of the quant choice (MODEL-VARIANTS-DESIGN-2026-08-22). The
+	// dial's Q filter is a VIEW - it narrows what you are looking at and binds nothing -
+	// while this is a RULE: it is enforced at routing like MinTPS, so it also governs the
+	// agent, `roger use`, and every turn nobody is watching.
+	Quants []string
+}
+
+// acceptsQuant reports whether q is allowed under this limit. An empty set accepts
+// everything; an UNSTATED quant is accepted by any set, because a station that said
+// nothing has not said the wrong thing - refusing it would narrow routing on the strength
+// of missing metadata rather than on a station's actual claim.
+func (l Limit) acceptsQuant(q string) bool {
+	if len(l.Quants) == 0 || strings.TrimSpace(q) == "" {
+		return true
+	}
+	for _, want := range l.Quants {
+		if strings.EqualFold(strings.TrimSpace(want), q) {
+			return true
+		}
+	}
+	return false
 }
 
 // LimitStore is the TUI's view of the persisted spend limits: a per-model map, a
@@ -637,7 +662,11 @@ func (s *LimitStore) set(model string, l Limit) {
 // unexplained refusal on some later turn. A zero value clears the cap rather than recording
 // "refuse everything" - the same rule the TUI's own editor follows.
 func (s *LimitStore) Set(model string, l Limit) {
-	if l.MaxOut <= 0 && l.MinTPS <= 0 && l.MaxIn <= 0 {
+	// "Nothing set" now includes the QUANT rule. Without the Quants check this cleared a
+	// quant-only preference the moment it was saved - the operator set a rule, the store
+	// decided the limit was empty, and the rule vanished silently. A limit is unset only
+	// when it says nothing at all.
+	if l.MaxOut <= 0 && l.MinTPS <= 0 && l.MaxIn <= 0 && len(l.Quants) == 0 {
 		s.clear(model)
 		return
 	}
@@ -2512,6 +2541,8 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.onBandConfigKey(k)
 	case modeBandLabel:
 		return m.onBandLabelKey(k)
+	case modeBandQuants:
+		return m.onBandQuantsKey(k)
 	case modeRemoteSession:
 		return m.onRemoteSessionKey(k)
 	case modeBandDetail:
@@ -4455,7 +4486,7 @@ func (m model) liveProxyOpts(o offer, alert *alertBox) client.ProxyOptions {
 		// The tuned row IS a quant, so the stations running a different one are named as
 		// exclusions - otherwise the broker (which groups by model alone) could route this
 		// turn to weights the operator did not choose. See quant_route.go.
-		ExcludeNodes: m.quantExcludes(m.q.b),
+		ExcludeNodes: m.routeExcludes(m.q.b),
 		// ROGERAI_REASONING_RAW is a global session knob: honor it in the TUI booth too, not just
 		// `roger use --raw`, so exporting it disables the reasoning->content fallback everywhere.
 		ReasoningFallbackOff: client.RawReasoningEnv(),
@@ -4917,6 +4948,12 @@ func (m model) effWidth() int {
 // so the boundary is inclusive: width <= 64 reflows.
 func (m model) narrow() bool { return m.width != 0 && m.width <= narrowCols }
 
+// shortTerminal reports a window with no rows to spare for decoration. A frame taller than
+// the terminal scrolls the alt buffer and strands the previous frame's header above it -
+// the stacked-ROGER-logos failure - so on a short window the blank separators and the
+// teaching signposts come out before the content does.
+func (m model) shortTerminal() bool { return m.height > 0 && m.height <= 22 }
+
 // presetKey is one button on the always-visible preset-station bar: a radio
 // preset that lights up when its mode is active and jumps to it when pressed.
 type presetKey struct {
@@ -5187,6 +5224,8 @@ func (m model) View() string {
 		b.WriteString(m.bandConfigView(w))
 	case modeBandLabel:
 		b.WriteString(m.bandLabelView(w))
+	case modeBandQuants:
+		b.WriteString(m.bandQuantsView(w))
 	case modeRemoteSession:
 		b.WriteString(m.remoteSessionView(w))
 	case modeFreqEntry:
@@ -7962,6 +8001,13 @@ func bandCtx(bd band) (ctx int, estimated bool) {
 
 // pad truncates (with an ellipsis) or right-pads s to n display runes.
 func pad(s string, n int) string {
+	// A NON-POSITIVE width is empty, not a panic. Every column width here is derived from
+	// the terminal width, so a window narrow enough to drive one to zero would take
+	// r[:n-1] to r[:-1] and crash the whole app - on the one input an operator can produce
+	// by dragging a window edge. Found by a lock walking bandNameCell down to w=0.
+	if n <= 0 {
+		return ""
+	}
 	r := []rune(s)
 	if len(r) > n {
 		return string(r[:n-1]) + "…"
@@ -9901,6 +9947,12 @@ func (m model) footer(w int) string {
 		left = stDim.Render("type a name  ·  ⏎ save  ·  esc cancel  ·  an empty name clears it")
 		if m.narrow() {
 			left = stDim.Render("name it · ⏎ save · esc")
+		}
+		return modalFooter(m.effWidth(), left, m.accountTag(true), m.status)
+	case modeBandQuants:
+		left = stDim.Render("space-separated  ·  ⏎ save  ·  esc cancel  ·  EMPTY accepts any quant")
+		if m.narrow() {
+			left = stDim.Render("quants · ⏎ save · esc")
 		}
 		return modalFooter(m.effWidth(), left, m.accountTag(true), m.status)
 	case modeBandRotateConfirm:

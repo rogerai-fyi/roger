@@ -213,7 +213,10 @@ func TestLimitsLoadSaveBackCompat(t *testing.T) {
 		t.Fatalf("old config lost fields: %+v", c)
 	}
 	lim, typ := c.resolve("anything")
-	if lim != (Limit{}) || typ != 800 {
+	// AMENDED 2026-08-22: Limit gained a Quants slice, so a struct compare no longer
+	// compiles. unset() states what this always meant and keeps covering the field as the
+	// struct grows, which `!= Limit{}` silently would not.
+	if !lim.unset() || typ != 800 {
 		t.Errorf("old config should resolve to no caps + default 800, got %+v typ=%d", lim, typ)
 	}
 

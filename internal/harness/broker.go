@@ -85,7 +85,13 @@ type BrokerRoute struct {
 	MaxOut              float64
 	// Freq is the tuned private band's frequency code, or "" for the open market. Send it
 	// ONLY when the turn's model is the one that band serves - see the caller's guard.
-	Freq            string
+	Freq string
+	// ExcludeNodes are stations this caller will not accept, sent as X-Roger-Exclude-Nodes.
+	//
+	// It is how the operator's STANDING quant preference reaches an agent turn. The dial's
+	// filter cannot: the agent picks a model and runs while nobody is looking at a browse
+	// list. A rule that governed only the screen you were on would not be a rule.
+	ExcludeNodes    []string
 	OnCost          CostFunc
 	FallbackTimeout time.Duration
 }
@@ -141,6 +147,9 @@ func BrokerCompleterRoute(rt BrokerRoute) Completer {
 		// demonstrably tuned to. Empty = the open market, which is the ordinary case.
 		if rt.Freq != "" {
 			req.Header.Set("X-Roger-Freq", rt.Freq)
+		}
+		if len(rt.ExcludeNodes) > 0 {
+			req.Header.Set("X-Roger-Exclude-Nodes", strings.Join(rt.ExcludeNodes, ","))
 		}
 		resp, err := httpClient.Do(req)
 		if err != nil {

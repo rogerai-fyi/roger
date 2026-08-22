@@ -739,8 +739,11 @@ func TestLimitStoreSetClear(t *testing.T) {
 	var n *LimitStore
 	n.set("x", Limit{MaxOut: 1}) // must not panic
 	n.clear("x")                 // must not panic
-	if n.resolve("x") != (Limit{}) {
-		t.Error("nil store resolve should be the zero limit")
+	// AMENDED 2026-08-22: Limit gained a Quants slice, so a struct compare no longer
+	// compiles. Asserting the FIELDS is what this always meant, and it does not silently
+	// stop covering the new one the way a `!= Limit{}` on a growing struct would.
+	if got := n.resolve("x"); got.MaxIn != 0 || got.MaxOut != 0 || got.MinTPS != 0 || len(got.Quants) != 0 {
+		t.Errorf("nil store resolve should be the zero limit, got %+v", got)
 	}
 }
 

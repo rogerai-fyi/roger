@@ -68,6 +68,17 @@ type Limit struct {
 	MaxIn  float64 `json:"max_in,omitempty"`
 	MaxOut float64 `json:"max_out,omitempty"`
 	MinTPS float64 `json:"min_tps,omitempty"`
+	// Quants is the operator's accepted compression labels for this band (empty = any).
+	// Persisted like the price caps because it is the same kind of statement: what this
+	// operator is willing to be routed to.
+	Quants []string `json:"quants,omitempty"`
+}
+
+// unset reports whether nothing at all is configured. It replaces a `== Limit{}` compare,
+// which stopped compiling once the struct held a slice - and a hand-written check is the
+// honest fix, because equality on a slice field was never going to mean what it read like.
+func (l Limit) unset() bool {
+	return l.MaxIn == 0 && l.MaxOut == 0 && l.MinTPS == 0 && len(l.Quants) == 0
 }
 
 // Limits is the optional, backward-compatible spend-limits section of the config:
@@ -476,7 +487,7 @@ func agentSlugStation(s string) string { return agent.SlugStation(s) }
 func tuiLimits(cfg config) *tui.LimitStore {
 	models := map[string]tui.Limit{}
 	for m, l := range cfg.Limits.Models {
-		models[m] = tui.Limit{MaxIn: l.MaxIn, MaxOut: l.MaxOut, MinTPS: l.MinTPS}
+		models[m] = tui.Limit{MaxIn: l.MaxIn, MaxOut: l.MaxOut, MinTPS: l.MinTPS, Quants: l.Quants}
 	}
 	typ := cfg.Limits.TypicalOutTok
 	if typ <= 0 {
@@ -490,7 +501,7 @@ func tuiLimits(cfg config) *tui.LimitStore {
 			c := loadConfig()
 			c.Limits.Models = map[string]Limit{}
 			for m, l := range tm {
-				c.Limits.Models[m] = Limit{MaxIn: l.MaxIn, MaxOut: l.MaxOut, MinTPS: l.MinTPS}
+				c.Limits.Models[m] = Limit{MaxIn: l.MaxIn, MaxOut: l.MaxOut, MinTPS: l.MinTPS, Quants: l.Quants}
 			}
 			c.Limits.Default = Limit{MaxIn: def.MaxIn, MaxOut: def.MaxOut, MinTPS: def.MinTPS}
 			_ = saveConfig(c)
@@ -2219,7 +2230,7 @@ func printLimits(c config) {
 		typ = 800
 	}
 	fmt.Printf("limits (typical reply ~%d out tokens):\n", typ)
-	if len(c.Limits.Models) == 0 && d == (Limit{}) {
+	if len(c.Limits.Models) == 0 && d.unset() {
 		fmt.Println("  (none set - no caps; `roger config set-limit <model> --max-out P`)")
 		return
 	}

@@ -114,7 +114,10 @@ func (m model) bandConfigView(w int) string {
 		state = stDim.Render("on this machine · off air")
 	}
 	b.WriteString("  " + stSelBar.Render("▌") + " " + stBrand.Render(m.cfgModel) +
-		stDim.Render("   ") + state + "\n\n")
+		stDim.Render("   ") + state + "\n")
+	if !m.shortTerminal() {
+		b.WriteString("\n")
+	}
 
 	// THIS MACHINE - only when we actually serve it. Claiming a provider section for a
 	// band we merely consume would invite an operator to price something they do not own.
@@ -139,7 +142,11 @@ func (m model) bandConfigView(w int) string {
 // cfgSection prints one titled block with its rows, aligned, each naming its key.
 func (m model) cfgSection(b *strings.Builder, w int, title, from string, rows []bandConfigRow) {
 	head := "  " + stKey.Render(title)
-	if !m.narrow() {
+	// The "from [2] SHARE" signpost is the first thing to go on a short terminal. It
+	// teaches the map, which is worth a row when there is one to spare and is not worth
+	// pushing the frame past the window - a frame taller than the terminal scrolls the alt
+	// buffer and strands the previous frame's header (the stacked-logos failure).
+	if !m.narrow() && !m.shortTerminal() {
 		head += stDim.Render("   from " + from)
 	}
 	b.WriteString(truncVisible(head, w) + "\n")
@@ -154,7 +161,9 @@ func (m model) cfgSection(b *strings.Builder, w int, title, from string, rows []
 		}
 		b.WriteString("  " + truncVisible(row, w-2) + "\n")
 	}
-	b.WriteString("\n")
+	if !m.shortTerminal() {
+		b.WriteString("\n")
+	}
 }
 
 // cfgProviderRows is the "what this machine does with it" half.
@@ -190,7 +199,18 @@ func (m model) cfgConsumerRows() []bandConfigRow {
 	return []bandConfigRow{
 		{label: "max $/1M out", value: cfgLimit(lim.MaxOut), key: "e", hint: "cap what a turn may cost"},
 		{label: "min t/s", value: cfgLimit(lim.MinTPS), key: "t", hint: "refuse stations slower than this"},
+		{label: "quants", value: cfgQuants(lim.Quants), key: "Q", hint: "only these weights, everywhere"},
 	}
+}
+
+// cfgQuants renders the accepted-quant rule. "any" is the default and is stated as a WORD:
+// a blank cell here would read as "nothing allowed" on the one row where that would be a
+// catastrophic misreading.
+func cfgQuants(qs []string) string {
+	if len(qs) == 0 {
+		return stDim.Render("any")
+	}
+	return stKey.Render(strings.Join(qs, " "))
 }
 
 func cfgVisibility(private bool) string {
@@ -297,6 +317,20 @@ func (m model) onBandConfigKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.cfgEditLimit(0)
 	case "t", "T":
 		return m.cfgEditLimit(1)
+	case "Q":
+		// UPPERCASE, because lowercase q already closes the card - and because it matches
+		// the dial's Q, which filters by quant. Same letter, same subject, one is a view
+		// and the other is the rule.
+		//
+		// The STANDING quant rule for this band. It lives on the card because the card is
+		// where everything about a band lives - and beside the spend caps because it is
+		// the same kind of statement: what this operator will accept being routed to.
+		m.cfgLabelIn.SetValue(strings.Join(m.limits.resolve(m.cfgModel).Quants, " "))
+		m.cfgLabelIn.CursorEnd()
+		m.cfgLabelIn.Focus()
+		m.mode = modeBandQuants
+		m.status = stDim.Render("accepted quants · space-separated · empty = any")
+		return m, textinput.Blink
 	case "n", "N":
 		bd, ok := m.cfgBand()
 		if !ok {
@@ -453,5 +487,74 @@ func (m model) bandLabelView(w int) string {
 	line("  " + m.cfgLabelIn.View())
 	b.WriteString("\n")
 	line(stDim.Render("⏎ save · esc cancel · an empty name clears it"))
+	return b.String()
+}
+
+// onBandQuantsKey drives the accepted-quants input.
+func (m model) onBandQuantsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch k.String() {
+	case "esc":
+		m.cfgLabelIn.Blur()
+		m.mode = modeBandConfig
+		return m, nil
+	case "enter":
+		qs := parseQuantList(m.cfgLabelIn.Value())
+		m.cfgLabelIn.Blur()
+		m.mode = modeBandConfig
+		lim := m.limits.resolve(m.cfgModel)
+		lim.Quants = qs
+		m.limits.Set(m.cfgModel, lim)
+		if len(qs) == 0 {
+			m.status = stDim.Render("any quant accepted for ") + stKey.Render(m.cfgModel)
+			return m, nil
+		}
+		m.status = stLive.Render("rule set") + stDim.Render(" - ") + stKey.Render(m.cfgModel) +
+			stDim.Render(" will only be served at ") + stKey.Render(strings.Join(qs, " "))
+		return m, nil
+	}
+	var c tea.Cmd
+	m.cfgLabelIn, c = m.cfgLabelIn.Update(k)
+	return m, c
+}
+
+// parseQuantList turns what the operator typed into the rule.
+//
+// Upper-cased and deduped because a quant is a NAME: someone typing "q4_k_m q4_k_m" means
+// one thing once, and it has to match the label a station advertises, which Normalize also
+// upper-cases. Splitting on both spaces and commas is deliberate - people write lists both
+// ways and neither is wrong enough to reject.
+func parseQuantList(s string) []string {
+	fields := strings.FieldsFunc(s, func(r rune) bool {
+		return r == ' ' || r == ',' || r == '\t'
+	})
+	seen := map[string]bool{}
+	out := make([]string, 0, len(fields))
+	for _, f := range fields {
+		f = strings.ToUpper(strings.TrimSpace(f))
+		if f == "" || seen[f] {
+			continue
+		}
+		seen[f] = true
+		out = append(out, f)
+	}
+	return out
+}
+
+// bandQuantsView is the small input for the accepted-quant rule.
+func (m model) bandQuantsView(w int) string {
+	var b strings.Builder
+	line := func(s string) { b.WriteString("  " + truncVisible(s, w-2) + "\n") }
+	b.WriteString("\n" + stHeadRule.Render(strings.Repeat("─", w)) + "\n")
+	line(stKey.Render("ACCEPTED QUANTS") + stDim.Render("   "+m.cfgModel))
+	b.WriteString("\n")
+	line(stDim.Render("only serve this band at these weights - a RULE, not a filter: it binds"))
+	line(stDim.Render("the agent and roger use too, not just what you are looking at."))
+	b.WriteString("\n")
+	line("  " + m.cfgLabelIn.View())
+	b.WriteString("\n")
+	if qs := m.quantsOnAir(); len(qs) > 0 {
+		line(stDim.Render("on the dial now: ") + stKey.Render(strings.Join(qs, " ")))
+	}
+	line(stDim.Render("⏎ save · esc cancel · EMPTY accepts any quant"))
 	return b.String()
 }

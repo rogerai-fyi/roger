@@ -41,3 +41,48 @@ func (m model) quantExcludes(bd band) []string {
 	}
 	return out
 }
+
+// prefExcludes returns the node ids to skip for `model` under the operator's STANDING
+// preference (Limit.Quants) - the [3] CONFIG rule rather than the dial's view.
+//
+// This is what makes the preference a rule at all. The dial filter cannot protect a turn
+// nobody is watching: the agent picks a model and runs, `roger use` proxies for a bot, and
+// neither consults what the browse list happened to be showing. Both go through the same
+// routing options, so naming the disallowed stations here is what binds them.
+func (m model) prefExcludes(model string) []string {
+	lim := m.limits.resolve(model)
+	if len(lim.Quants) == 0 {
+		return nil
+	}
+	var out []string
+	for _, b := range m.bands {
+		if b.model != model || lim.acceptsQuant(b.quant) {
+			continue
+		}
+		for _, o := range b.all {
+			if o.NodeID != "" {
+				out = append(out, o.NodeID)
+			}
+		}
+	}
+	return out
+}
+
+// routeExcludes is every station this caller will not accept for `model`: the tuned row's
+// quant constraint AND the standing preference, together.
+//
+// Both, not either. They answer different questions - "the row I am on" and "what I will
+// ever accept" - and an operator who set a preference and then tuned a row means both
+// things at once. Passing only one would silently drop the other.
+func (m model) routeExcludes(bd band) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, n := range append(m.quantExcludes(bd), m.prefExcludes(bd.model)...) {
+		if n == "" || seen[n] {
+			continue
+		}
+		seen[n] = true
+		out = append(out, n)
+	}
+	return out
+}
