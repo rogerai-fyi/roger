@@ -298,3 +298,262 @@ func TestSubmitToUnknownStationTriggersTheRefreshHook(t *testing.T) {
 		t.Fatal("the unknown-station hook never fired")
 	}
 }
+
+// --- the doors Submit and Complete close ------------------------------------------
+//
+// Every branch here measured zero, and together they are the hub's whole answer to a
+// malformed caller. A consumer talks to Submit unauthenticated by design (the grant is the
+// credential), so these refusals are the ONLY thing between line noise and a queue slot.
+
+func refusalServer(t *testing.T) (*Server, *httptest.Server, *testNode) {
+	t.Helper()
+	id := newTestNode(t)
+	s := NewServer(New(), stubCheck, ServerOptions{TowerID: testTowerID, EpochKey: testHubKey,
+		SubmitTTL: 2 * time.Second, PollTTL: 50 * time.Millisecond})
+	s.RegisterNode("st1", id.auth())
+	mux := http.NewServeMux()
+	mux.HandleFunc(PathSubmit, s.Submit)
+	mux.HandleFunc(PathPoll, s.Poll)
+	mux.HandleFunc(PathComplete, s.Complete)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return s, srv, id
+}
+
+func TestSubmitRefusesMalformedConsumers(t *testing.T) {
+	_, srv, _ := refusalServer(t)
+	post := func(body string) (*http.Response, string) {
+		resp, err := http.Post(srv.URL+PathSubmit, "application/json", strings.NewReader(body))
+		require.NoError(t, err)
+		raw, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		return resp, string(raw)
+	}
+	t.Run("not JSON", func(t *testing.T) {
+		resp, raw := post("{nope")
+		require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+		require.Contains(t, raw, "invalid JSON")
+	})
+	t.Run("grant not base64", func(t *testing.T) {
+		resp, raw := post(`{"grant":"%%%","envelope":"AAAA"}`)
+		require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+		require.Contains(t, raw, "grant is not valid base64")
+	})
+	t.Run("envelope not base64", func(t *testing.T) {
+		resp, raw := post(`{"grant":"AAAA","envelope":"%%%"}`)
+		require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+		require.Contains(t, raw, "envelope is not valid base64")
+	})
+}
+
+// The SAME attempt submitted twice while the first is still in flight is a 409, not a second
+// queue slot: one grant authorizes one ride, and a duplicate that queued would double-serve
+// (and double-bill) the attempt if both got polled.
+//
+// SEQUENCED, NOT RACED. The first version of this test retried the duplicate in an
+// Eventually loop against a background submit - and whichever POST arrived first became the
+// in-flight attempt, so the "duplicate" sometimes queued and blocked out the whole retry
+// budget. The waiter lives until Complete or TTL, so the deterministic order is: submit,
+// PROVE the attempt is in flight by polling the job out, then send the duplicate.
+func TestADuplicateInFlightSubmitConflicts(t *testing.T) {
+	_, srv, id := refusalServer(t)
+	grant := base64.StdEncoding.EncodeToString([]byte("att-dup|st1"))
+	env := base64.StdEncoding.EncodeToString([]byte("sealed"))
+	body := `{"grant":"` + grant + `","envelope":"` + env + `"}`
+
+	firstDone := make(chan struct{})
+	go func() {
+		defer close(firstDone)
+		resp, err := http.Post(srv.URL+PathSubmit, "application/json", strings.NewReader(body))
+		if err == nil {
+			io.Copy(io.Discard, resp.Body)
+			resp.Body.Close()
+		}
+	}()
+
+	// The node pulls the job: from here the attempt is DEFINITELY in flight, and stays so
+	// until it is completed below - polling dequeues the job but the waiter remains.
+	node := id.client(srv.URL, 5*time.Second)
+	var job Job
+	require.Eventually(t, func() bool {
+		j, ok, perr := node.PollJob(t.Context(), "st1")
+		if perr != nil || !ok {
+			return false
+		}
+		job = j
+		return true
+	}, 5*time.Second, 20*time.Millisecond)
+
+	resp, err := http.Post(srv.URL+PathSubmit, "application/json", strings.NewReader(body))
+	require.NoError(t, err)
+	raw, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	require.Equal(t, http.StatusConflict, resp.StatusCode, string(raw))
+	require.Contains(t, string(raw), "already in flight")
+
+	// Complete so the first submit returns and nothing leaks past the test.
+	require.NoError(t, node.CompleteResult(t.Context(), "st1",
+		Result{AttemptID: job.AttemptID, Envelope: []byte("ans"), Receipt: []byte("r")}))
+	<-firstDone
+}
+
+// A grant whose metadata names no attempt is refused by name - the check function is the
+// consumer's credential, and an empty answer from it must not become an empty-keyed queue
+// entry that every later duplicate check would collide with.
+func TestAGrantNamingNothingIsRefused(t *testing.T) {
+	s := NewServer(New(), func([]byte) (string, string, error) { return "", "", nil },
+		ServerOptions{TowerID: testTowerID, EpochKey: testHubKey, SubmitTTL: time.Second})
+	s.RegisterNode("st1", newTestNode(t).auth())
+	srv := httptest.NewServer(http.HandlerFunc(s.Submit))
+	t.Cleanup(srv.Close)
+	resp, err := http.Post(srv.URL, "application/json",
+		strings.NewReader(`{"grant":"AAAA","envelope":"AAAA"}`))
+	require.NoError(t, err)
+	raw, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	require.Contains(t, string(raw), "names no attempt")
+}
+
+func TestCompleteRefusesMalformedNodes(t *testing.T) {
+	_, srv, id := refusalServer(t)
+	t.Run("GET is not a completion", func(t *testing.T) {
+		resp, err := http.Get(srv.URL + PathComplete)
+		require.NoError(t, err)
+		resp.Body.Close()
+		require.Equal(t, http.StatusMethodNotAllowed, resp.StatusCode)
+	})
+	t.Run("garbage JSON, signed, is named", func(t *testing.T) {
+		body := []byte("{not json")
+		target := hubTarget(testTowerID, hubEpochAt(t, srv.URL), PathComplete, url.Values{})
+		resp, raw := do(t, id.signedRequest(t, http.MethodPost, srv.URL, target, body)())
+		require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+		require.Contains(t, string(raw), "invalid JSON")
+	})
+	t.Run("an OVERSIZED body on a GET is refused", func(t *testing.T) {
+		// The first version of this test sent a small body and expected a refusal - wrong on
+		// the contract. A small GET body is read and covered by the signature like any other
+		// bytes; what readGETBody refuses is a body past its 4KB bound, because a poll is a
+		// read and a caller streaming megabytes into one is not polling.
+		big := bytes.Repeat([]byte("x"), maxGETBody+1)
+		target := hubTarget(testTowerID, hubEpochAt(t, srv.URL), PathPoll, url.Values{"station": {"st1"}})
+		resp, raw := do(t, id.signedRequest(t, http.MethodGet, srv.URL, target, big)())
+		require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+		require.Contains(t, string(raw), "carries no body")
+	})
+}
+
+// --- what the node's client refuses from a hub that answers garbage ----------------
+//
+// A hub is somebody else's box. Every decode on the client side is a trust boundary, and
+// every one of these branches measured zero: the client had never once been shown a
+// malformed answer.
+
+func TestTheClientRefusesAHubAnsweringGarbage(t *testing.T) {
+	id := newTestNode(t)
+	cases := []struct {
+		name, path string
+		answer     string
+		call       func(c *Client) error
+		wantErr    string
+	}{
+		{"poll: not JSON", PathPoll, `{nope`,
+			func(c *Client) error { _, _, err := c.PollJob(t.Context(), "st1"); return err },
+			"unreadable poll response"},
+		{"poll: grant not base64", PathPoll, `{"attempt_id":"a","station_id":"st1","grant":"%%%","envelope":"AAAA"}`,
+			func(c *Client) error { _, _, err := c.PollJob(t.Context(), "st1"); return err },
+			"grant is not valid base64"},
+		{"poll: envelope not base64", PathPoll, `{"attempt_id":"a","station_id":"st1","grant":"AAAA","envelope":"%%%"}`,
+			func(c *Client) error { _, _, err := c.PollJob(t.Context(), "st1"); return err },
+			"envelope is not valid base64"},
+		{"submit: not JSON", PathSubmit, `{nope`,
+			func(c *Client) error { _, err := c.SubmitJob(t.Context(), []byte("g"), []byte("e")); return err },
+			"unreadable submit response"},
+		{"submit: envelope not base64", PathSubmit, `{"envelope":"%%%","receipt":"AAAA"}`,
+			func(c *Client) error { _, err := c.SubmitJob(t.Context(), []byte("g"), []byte("e")); return err },
+			"envelope is not valid base64"},
+		{"submit: receipt not base64", PathSubmit, `{"envelope":"AAAA","receipt":"%%%"}`,
+			func(c *Client) error { _, err := c.SubmitJob(t.Context(), []byte("g"), []byte("e")); return err },
+			"receipt is not valid base64"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mux := http.NewServeMux()
+			mux.HandleFunc(tc.path, func(w http.ResponseWriter, r *http.Request) {
+				_, _ = io.WriteString(w, tc.answer)
+			})
+			srv := httptest.NewServer(mux)
+			t.Cleanup(srv.Close)
+			err := tc.call(id.client(srv.URL, 5*time.Second))
+			require.ErrorContains(t, err, tc.wantErr)
+		})
+	}
+}
+
+// A completion the hub accepted but did not courier is ErrNotCarried - the one answer where
+// "accepted" and "your pay is safe" come apart, and the caller must be able to branch on it.
+func TestAnUncourieredCompletionIsNamed(t *testing.T) {
+	id := newTestNode(t)
+	mux := http.NewServeMux()
+	mux.HandleFunc(PathComplete, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusAccepted)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	err := id.client(srv.URL, 5*time.Second).CompleteResult(t.Context(), "st1",
+		Result{AttemptID: "a", Envelope: []byte("e"), Receipt: []byte("r")})
+	require.ErrorIs(t, err, ErrNotCarried)
+}
+
+func TestCompleteRefusesUndecodableFields(t *testing.T) {
+	_, srv, id := refusalServer(t)
+	post := func(body map[string]any) (*http.Response, string) {
+		resp, raw := id.postSigned(t, srv.URL, PathComplete, body)
+		return resp, string(raw)
+	}
+	t.Run("envelope not base64", func(t *testing.T) {
+		resp, raw := post(map[string]any{"attempt_id": "a", "station_id": "st1",
+			"envelope": "%%%", "receipt": "AAAA"})
+		require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+		require.Contains(t, raw, "envelope is not valid base64")
+	})
+	t.Run("receipt not base64", func(t *testing.T) {
+		resp, raw := post(map[string]any{"attempt_id": "a", "station_id": "st1",
+			"envelope": "AAAA", "receipt": "%%%"})
+		require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+		require.Contains(t, raw, "receipt is not valid base64")
+	})
+}
+
+// A hub built WITHOUT its identity key still proves an epoch - with a minted per-process
+// key that every node holding Core's real fingerprint will refuse. That refusal is the
+// correct outcome for a mis-wired hub, and it only works if the mint actually happens.
+func TestAHubWithoutItsIdentityStillSignsItsEpoch(t *testing.T) {
+	s := NewServer(New(), stubCheck, ServerOptions{TowerID: testTowerID})
+	require.NotEmpty(t, s.EpochKeyHash(),
+		"no epoch key was minted: nodes would get an epoch with no proof at all")
+	require.NotEqual(t, testHubKeyHash(), s.EpochKeyHash(),
+		"the minted key must be its own, not the real identity")
+}
+
+// Clearing a station's wanted list deletes the entry rather than storing an empty slice,
+// and an oversized GET body is refused at the wanted door exactly as it is at the poll's.
+func TestWantedListClearsAndBoundsItsDoor(t *testing.T) {
+	s, srv, id := auditServer(t)
+	s.SetWanted("st1", []string{"att-1"})
+	s.SetWanted("st1", nil) // cleared: the entry is deleted, not left empty
+
+	resp, raw := id.getSigned(t, srv.URL, PathAuditWanted, url.Values{"station": {"st1"}})
+	require.Equal(t, http.StatusOK, resp.StatusCode, string(raw))
+	var out struct {
+		Wanted []string `json:"wanted"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &out))
+	require.Empty(t, out.Wanted)
+
+	big := bytes.Repeat([]byte("x"), maxGETBody+1)
+	target := hubTarget(testTowerID, hubEpochAt(t, srv.URL), PathAuditWanted, url.Values{"station": {"st1"}})
+	resp2, raw2 := do(t, id.signedRequest(t, http.MethodGet, srv.URL, target, big)())
+	require.Equal(t, http.StatusBadRequest, resp2.StatusCode)
+	require.Contains(t, string(raw2), "carries no body")
+}
