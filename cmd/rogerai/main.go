@@ -870,6 +870,8 @@ func dispatch(cfg config, args []string) error {
 		return cmdPayout(cfg, args[1:])
 	case "bands", "band":
 		return cmdBands(cfg, args[1:])
+	case "detect", "scan":
+		return cmdDetect(args[1:])
 	case "webui", "web", "console":
 		return cmdWebui(cfg, args[1:])
 	case "grant":

@@ -560,6 +560,13 @@ func (c *Controller) SetPricing(model string, p Pricing) {
 // PricingFor returns the price a model would share at: its edited price, else the saved
 // onboarding price for the default model, else free.
 func (c *Controller) PricingFor(model string) Pricing {
+	// A nil controller is a REAL state, not a programming error: the TUI runs with
+	// m.ctrl == nil before the first share is set up (syncShareCache guards on exactly
+	// this), and the band card reads pricing while rendering. Free is the honest answer
+	// for a station that has no controller to have priced anything.
+	if c == nil {
+		return Pricing{}
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.pricingForLocked(model)

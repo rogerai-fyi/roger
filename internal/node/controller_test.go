@@ -363,3 +363,13 @@ func TestOnAirRefusesAPrivateRowWhenLoggedOut(t *testing.T) {
 		t.Error("a refused start reported itself as on air")
 	}
 }
+
+// A nil controller is the TUI's pre-share state, and the band card reads pricing while
+// rendering. Before the guard this panicked on a mutex lock — the card crashed the app
+// for anyone who opened it before setting up a share.
+func TestPricingForOnNilControllerIsFreeNotAPanic(t *testing.T) {
+	var c *Controller
+	if got := c.PricingFor("anything"); got.In != 0 || got.Out != 0 {
+		t.Fatalf("nil controller should price free, got %+v", got)
+	}
+}

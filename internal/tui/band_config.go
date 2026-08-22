@@ -188,9 +188,36 @@ func (m model) cfgProviderRows(sr shareRow, bd BandRow, banded, private, onAir b
 	}
 	rows = append(rows,
 		bandConfigRow{label: "served by", value: stDim.Render(cfgUpstream(sr))},
+		bandConfigRow{label: "variant", value: cfgVariant(sr)},
 		bandConfigRow{label: "you earn", value: cfgEarn(m.pricingFor(m.cfgModel)), key: "p", hint: "set price + windows"},
 	)
 	return rows
+}
+
+// cfgVariant renders what detection read off this machine for THIS row's model - the
+// compression label, who produced the weights, and the flavor. It is the operator's only
+// view of what the market will see them as, which is why it states its own absence rather
+// than hiding: a missing row cannot tell "this model published no metadata" apart from
+// "detection is broken". Nothing here is ever inferred from the model NAME alone beyond
+// what detect already vouches for - an empty field renders as absent, never as a guess.
+func cfgVariant(sr shareRow) string {
+	parts := []string{}
+	if sr.quant != "" {
+		parts = append(parts, stKey.Render(sr.quant))
+	}
+	if sr.weights != "" {
+		parts = append(parts, stDim.Render("by ")+sr.weights)
+	}
+	if sr.variant != "" {
+		parts = append(parts, sr.variant)
+	}
+	if len(parts) == 0 {
+		if strings.TrimSpace(sr.upstream) == "" {
+			return stDim.Render("—")
+		}
+		return stDim.Render("nothing detected · shares as the plain model id")
+	}
+	return strings.Join(parts, stDim.Render(" · "))
 }
 
 // cfgConsumerRows is the "what you are willing to pay" half - the [3] CONFIG fields.

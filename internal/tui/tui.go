@@ -1314,6 +1314,13 @@ type shareRow struct {
 	ctxEstimated bool   // ctx is the estimated default (no real window detected), not measured
 	upstream     string // the normalized chat-completions URL backing THIS row's model
 	upstreamKey  string // bearer key THIS row's key-protected upstream needs (env/paste), if any
+	// quant / weights / variant are what detection read off THIS machine's runtime and
+	// model file. They ride onto the offer, and the band card shows them back so the
+	// operator can see what the market will see. Detected only — empty means the runtime
+	// and the file said nothing, which is common and renders as absent, never as a guess.
+	quant   string
+	weights string
+	variant string
 }
 
 // ---- messages ----
@@ -3190,7 +3197,11 @@ func (m *model) syncShareCache() {
 	nr := m.ctrl.Rows()
 	rows := make([]shareRow, len(nr))
 	for i, r := range nr {
-		rows[i] = shareRow{model: r.Model, modality: r.Modality, ctx: r.Ctx, ctxEstimated: r.CtxEstimated, upstream: r.Upstream, upstreamKey: r.UpstreamKey}
+		rows[i] = shareRow{
+			model: r.Model, modality: r.Modality, ctx: r.Ctx, ctxEstimated: r.CtxEstimated,
+			upstream: r.Upstream, upstreamKey: r.UpstreamKey,
+			quant: r.Quant, weights: r.Weights, variant: r.Variant,
+		}
 	}
 	m.shareRows = rows
 	m.shares = m.ctrl.Sessions()

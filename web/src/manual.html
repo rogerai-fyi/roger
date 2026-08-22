@@ -353,6 +353,7 @@
                   <tr><td><kbd>F</kbd></td><td>toggle: only bands with a FREE-now station</td></tr>
                   <tr><td><kbd>C</kbd></td><td>toggle: only confidential / verified-lineage bands</td></tr>
                   <tr><td><kbd>O</kbd></td><td>toggle: only bands with a station on air</td></tr>
+                  <tr><td><kbd>Q</kbd></td><td>cycle the <b>quant</b> filter - show only bands at one compression label (<code>Q4_K_M</code>, <code>IQ4_XS</code>, <code>MXFP4</code>&hellip;). Only labels actually on air are offered, so the filter can never empty the band on you</td></tr>
                   <tr><td><kbd>r</kbd> · <code>/search</code></td><td>re-scan the band for stations</td></tr>
                   <tr><td><kbd>m</kbd></td><td>compact "windowshade" mode (collapse the header)</td></tr>
                   <tr><td><kbd>/</kbd> or <kbd>:</kbd></td><td>open the command prompt for a slash command</td></tr>
@@ -383,6 +384,35 @@
                 </tbody>
               </table>
             </div>
+
+            <h3>Two stations, same model name, different weights</h3>
+            <p>Not every <code>qwen3.8-27b</code> on the band is the same file. One station
+              may serve it at <code>Q4_K_M</code>, another at <code>IQ4_XS</code>, a third
+              at <code>BF16</code> &mdash; same name, different compression, and people pick
+              between them on purpose. The dial keeps them as <b>separate rows</b> rather
+              than merging them into one and routing between them as though they were
+              interchangeable.</p>
+            <p>Three things ride with a station when they can be read off its runtime and
+              model file:</p>
+            <div class="man-plate">
+              <div class="man-plate__row"><span class="man-plate__k">quant</span><span class="man-plate__v">the compression label <em>verbatim</em> &mdash; <code>Q4_K_M</code>, <code>IQ4_XS</code>, <code>MXFP4</code>, <code>Q8_0</code>. Never bucketed into "4-bit": <code>Q4_K_M</code> and <code>IQ4_XS</code> are both four-bit and are not the same choice</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">weights</span><span class="man-plate__v">who built them (<code>Unsloth</code>, <code>bartowski</code>) &mdash; the "whose quant" axis</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">variant</span><span class="man-plate__v">what the base was tuned toward (<code>Instruct</code>, <code>Thinking</code>)</span></div>
+            </div>
+            <p>All three are <b>detected, never typed</b>. They come from the runtime's own
+              report and the model file's header - so a station cannot claim a quant it is
+              not serving, and a station whose files say nothing shows <b>nothing</b>. An
+              absent label renders as absent and never as a guess: a plausible label mined
+              from a filename would be indistinguishable from a measured one, and you would
+              have no way to tell which you were reading. A proxy to a hosted API has no
+              local weights to describe, so it shows blank &mdash; correctly.</p>
+            <p>Two ways to act on it. The <kbd>Q</kbd> filter narrows what you are
+              <em>looking at</em>. The band card's <kbd>Q</kbd> sets a <b>standing rule</b> -
+              the quants you will accept being routed to, enforced at routing like your
+              price caps, so it holds during an agent turn when nobody is watching a list.
+              A station that declared no quant is accepted by any rule: it has not said the
+              wrong thing, it has said nothing, and refusing it would narrow your routing on
+              missing metadata rather than on a station's actual claim.</p>
 
             <h3>Headless: <code>roger use</code></h3>
             <p>This is the drop-in for Hermes, your bots, or any tool that speaks OpenAI.
@@ -539,6 +569,26 @@
               once you set a price - a priced node without a login is refused by the broker.
               Any provider counts: GitHub, Apple, or an emailed code.
             </div>
+
+            <h3>What the band sees you as: <code>roger detect</code></h3>
+            <p>Before you go on air, see exactly what will be published about your models -
+              without publishing anything:</p>
+            <pre><span class="p">$</span> roger detect             <span class="c"># every local server, and what was read off each model</span>
+<span class="p">$</span> roger detect -v          <span class="c"># also modality, capabilities, and context window</span></pre>
+            <pre><span class="c">cpu-bots  http://127.0.0.1:8060/v1</span>
+  gpt-oss-20b   MXFP4
+<span class="c">port:8081  http://127.0.0.1:8081/v1</span>
+  qwen3-vl-8b   IQ4_XS &middot; by Unsloth &middot; Instruct
+<span class="c">port:8095  http://127.0.0.1:8095/v1</span>
+  voice         &mdash;</pre>
+            <p>An em dash means the runtime and the file said nothing about that model -
+              common, and not a failure. It shares as the plain model id, which is exactly
+              what earlier versions did for everything. The same three fields appear on the
+              <b>band card</b> (<kbd>b</kbd>) for the model under the cursor, so you can
+              check one station's identity without leaving the app.</p>
+            <p>Nothing here is editable, and that is the point: an operator cannot type a
+              quant they are not serving. See &sect;3 for how the other side of the band
+              filters on it.</p>
 
             <h3>Earn: set a price</h3>
             <p>Set a per-token rate to earn. Prices are in $/1M tokens, input and output,
