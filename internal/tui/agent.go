@@ -3109,6 +3109,27 @@ func failureHint(raw, model string, narrow bool) []string {
 	}
 }
 
+// localFailureHint is failureHint for a DIRECT channel or a local agent row - a turn that
+// never touched the broker.
+//
+// The default remedy ("put one on air with [2], or tune in [1]") is actively wrong here,
+// in the same way it is wrong for a context overflow: there is no station to put on air
+// and no band to tune, because the model is a server on this machine. Sending the operator
+// to the marketplace to fix their own localhost is a dead end dressed as advice.
+func localFailureHint(raw, model string, narrow bool) []string {
+	first := stRed.Render("✕ ") + stEmber.Render(shortFailure(raw, model))
+	if isContextOverflow(strings.ToLower(raw)) {
+		// The one shape whose remedy is the same everywhere: the conversation outgrew the
+		// window, and neither the market nor the local server is broken.
+		return []string{first, remedyFor(raw, narrow)}
+	}
+	if narrow {
+		return []string{first, stDim.Render("    direct · check your model server")}
+	}
+	return []string{first, stDim.Render("    this ran DIRECT on your machine - check the model server, or ") +
+		stKey.Render("/model") + stDim.Render(" to switch")}
+}
+
 // isContextOverflow spots the station saying the CONVERSATION no longer fits the model's
 // context window (Apple's on-device foundation model says "Exceeded model context window
 // size"; llama.cpp / vLLM / OpenAI-compatible servers phrase it as "context length

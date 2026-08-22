@@ -291,3 +291,75 @@ func TestBandRevokedOnAnIdleModelDoesNothing(t *testing.T) {
 		t.Error("a model that is neither on air nor flagged private needs no reconciliation")
 	}
 }
+
+// ON AIR MUST RESUME AT THE ROW'S RECORDED VISIBILITY.
+//
+// ToggleOnAir passed `false` unconditionally, so a model on a PRIVATE band that was taken
+// off air and put back on with the same key came back on the OPEN MARKET - while
+// private[model] stayed true, so every surface went on rendering it as PRIVATE. An
+// operator who hid a model, toggled it off and on, and read their own SHARE row had no way
+// to learn they were now broadcasting to everyone. Same family as the zombie band: a path
+// that silently publishes something the operator deliberately hid.
+func TestOnAirResumesPrivateNotPublic(t *testing.T) {
+	c := newCtrl(t, Config{})
+	c.SetLoggedIn(true)
+
+	if res := c.TogglePrivate("free-1"); !res.NowPrivate {
+		t.Fatalf("precondition: the model did not go private (%+v)", res)
+	}
+	if !c.Private()["free-1"] {
+		t.Fatal("precondition: the private flag was not recorded")
+	}
+
+	// Off, then back on with the SAME key an operator uses in SHARE.
+	if off := c.ToggleOnAir("free-1"); !off.WentOff {
+		t.Fatalf("the model did not go off air (%+v)", off)
+	}
+	back := c.ToggleOnAir("free-1")
+	if back.Err != nil {
+		t.Fatalf("bringing it back on air failed: %v", back.Err)
+	}
+	if !back.NowPrivate {
+		t.Error("a private model came back on air PUBLICLY - the hidden model is now on the open market")
+	}
+	if !c.Private()["free-1"] {
+		t.Error("the private flag was lost across an off/on cycle")
+	}
+}
+
+// NEGATIVE HALF: a model that was never private must still come back PUBLIC, or the fix
+// above could be satisfied by making every start private.
+func TestOnAirResumesPublicForAPublicRow(t *testing.T) {
+	c := newCtrl(t, Config{})
+	c.SetLoggedIn(true)
+
+	if on := c.ToggleOnAir("free-2"); on.Err != nil {
+		t.Fatalf("first start failed: %v", on.Err)
+	}
+	if c.Private()["free-2"] {
+		t.Fatal("a plain share was recorded as private")
+	}
+	c.ToggleOnAir("free-2")
+	back := c.ToggleOnAir("free-2")
+	if back.NowPrivate {
+		t.Error("a public share came back on air PRIVATE - it vanished from the market it was listed on")
+	}
+}
+
+// A private start is login-gated exactly as a priced one is. Refusing is the SAFE failure:
+// starting PUBLIC because we could not start private is the leak this guards.
+func TestOnAirRefusesAPrivateRowWhenLoggedOut(t *testing.T) {
+	c := newCtrl(t, Config{})
+	c.SetLoggedIn(true)
+	c.TogglePrivate("free-1")
+	c.ToggleOnAir("free-1") // off air
+	c.Logout()              // the real clear: SetLoggedIn(false) is a deliberate no-op
+
+	res := c.ToggleOnAir("free-1")
+	if !res.LoginNeeded {
+		t.Fatalf("a private row started while logged out (%+v)", res)
+	}
+	if res.NowPrivate {
+		t.Error("a refused start reported itself as on air")
+	}
+}

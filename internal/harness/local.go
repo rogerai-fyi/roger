@@ -38,13 +38,28 @@ import (
 func LocalCompleter(chatURL, key, model string) Completer {
 	httpClient := &http.Client{} // no client timeout: the per-call bound rides on ctx
 	return func(ctx context.Context, messages []Message, tools []map[string]any) (Message, error) {
-		reqBody, _ := json.Marshal(map[string]any{
-			"model":       model,
-			"messages":    messages,
-			"tools":       tools,
-			"tool_choice": "auto",
-			"max_tokens":  agentMaxTokens,
-		})
+		// A NO-TOOLS TURN SENDS NEITHER FIELD.
+		//
+		// This always sent `tools` + `tool_choice:"auto"`, which is fine for an agent turn
+		// (there are always tools) but malformed for a plain chat turn: `tools: null` with a
+		// tool_choice asking the model to choose among them. Strict upstreams reject it
+		// outright - the TUNE-IN direct channel came back with
+		// {"code":"invalid-argument","error":"Invalid request content: A tool_choice was
+		// specified..."} on the very first "hi", so the founder's own private band could not
+		// hold a conversation.
+		//
+		// Omitting both is also the honest encoding: "I am not offering you any tools" is
+		// the absence of the field, not an empty list plus an instruction about it.
+		body := map[string]any{
+			"model":      model,
+			"messages":   messages,
+			"max_tokens": agentMaxTokens,
+		}
+		if len(tools) > 0 {
+			body["tools"] = tools
+			body["tool_choice"] = "auto"
+		}
+		reqBody, _ := json.Marshal(body)
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, chatURL, bytes.NewReader(reqBody))
 		if err != nil {
 			return Message{}, fmt.Errorf("local model %s: %v", model, err)

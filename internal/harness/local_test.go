@@ -163,3 +163,60 @@ func TestLocalCompleterHonoursCancellation(t *testing.T) {
 		t.Error("a cancelled context must abort the local turn")
 	}
 }
+
+// A NO-TOOLS TURN MUST SEND NEITHER tools NOR tool_choice.
+//
+// LocalCompleter always sent both, which is fine for an agent turn (there are always
+// tools) but malformed for a plain chat turn: `tools: null` with a tool_choice asking the
+// model to choose among them. Strict upstreams reject it outright - the TUNE-IN direct
+// channel came back with {"code":"invalid-argument","error":"Invalid request content: A
+// tool_choice was specified..."} on the very first "hi", so a private band could not hold
+// a conversation at all.
+func TestLocalCompleterOmitsToolChoiceWithNoTools(t *testing.T) {
+	var got map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(raw, &got)
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"hi"}}]}`))
+	}))
+	defer srv.Close()
+
+	if _, err := LocalCompleter(srv.URL, "", "m")(
+		context.Background(), []Message{{Role: "user", Content: "hi"}}, nil); err != nil {
+		t.Fatalf("no-tools turn failed: %v", err)
+	}
+	if _, ok := got["tool_choice"]; ok {
+		t.Error("a no-tools turn sent tool_choice - strict upstreams reject the request outright")
+	}
+	if _, ok := got["tools"]; ok {
+		t.Error("a no-tools turn sent a tools field")
+	}
+	// The turn must still be a real request, not an empty one.
+	if got["model"] != "m" {
+		t.Errorf("the request lost its model: %+v", got)
+	}
+}
+
+// NEGATIVE HALF: a turn WITH tools must still send both, or the agent loop loses tool
+// calling entirely - which the fix above could otherwise cause silently.
+func TestLocalCompleterSendsToolChoiceWithTools(t *testing.T) {
+	var got map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(raw, &got)
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`))
+	}))
+	defer srv.Close()
+
+	tools := []map[string]any{{"type": "function", "function": map[string]any{"name": "read_file"}}}
+	if _, err := LocalCompleter(srv.URL, "", "m")(
+		context.Background(), []Message{{Role: "user", Content: "hi"}}, tools); err != nil {
+		t.Fatalf("tools turn failed: %v", err)
+	}
+	if got["tool_choice"] != "auto" {
+		t.Errorf("an agent turn lost tool_choice: %+v", got)
+	}
+	if _, ok := got["tools"]; !ok {
+		t.Error("an agent turn lost its tools - the loop cannot call anything")
+	}
+}

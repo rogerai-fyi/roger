@@ -1746,7 +1746,14 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.connected != nil {
 			chatModel = m.connected.Model
 		}
-		m.transcript = append(m.transcript, failureHint(string(msg), chatModel, m.narrow())...)
+		// A DIRECT channel gets the local remedy: nothing about this turn went near the
+		// broker, so [2] go on air / [1] tune in would send the operator to fix a
+		// marketplace that was never involved.
+		if m.chatLocalChat != "" {
+			m.transcript = append(m.transcript, localFailureHint(string(msg), chatModel, m.narrow())...)
+		} else {
+			m.transcript = append(m.transcript, failureHint(string(msg), chatModel, m.narrow())...)
+		}
 		m.status = stEmber.Render("! " + shortFailure(string(msg), chatModel))
 		return m, nil
 	case errMsg:
@@ -5953,9 +5960,18 @@ func (m model) header(w int) string {
 	// channel + model + out-price + balance + a tiny live signal.
 	if m.connected != nil && (m.minimized || m.mode == modeChat) {
 		o := m.connected
+		// A DIRECT channel has no meter, so the price field carries the ROUTE instead.
+		// "$0.00/1M" is a price quote, and quoting one for your own hardware asserts a rate
+		// that was never charged - the same rail that keeps a local row unpriced in the
+		// agent picker. This strip was missed when the CHANNEL header got its version, so
+		// the founder's own private band still showed "$0.00/1M" over a free direct line.
+		price := stEmber.Render(dollars(o.PriceOut)+"/1M") + priceTierSuffix(o.PriceTier, o.PriceOut)
+		if m.chatLocalChat != "" {
+			price = stRed.Render(glyphOnAir) + stDim.Render(" direct")
+		}
 		bar := stGold.Render(channelGlyph(o)) + " " + eye + stLive.Render(" on channel ") + stSelText.Render(o.NodeID) +
 			stDim.Render(" · ") + stKey.Render(o.Model) +
-			stDim.Render(" · ") + stEmber.Render(dollars(o.PriceOut)+"/1M") + priceTierSuffix(o.PriceTier, o.PriceOut) +
+			stDim.Render(" · ") + price +
 			stDim.Render(" · ") + m.accountTag(true) +
 			// CONNECTED header: the in-flight count is the live load on the open channel, so
 			// the meter scans with real throughput while the channel is actively serving.
@@ -9464,13 +9480,14 @@ func (m model) footer(w int) string {
 		// carousel - just move, tune, and the two ways out. Teaching the market keys here
 		// is the exact failure BASE STATION had (a footer describing another screen).
 		if m.narrow() {
-			left = stDim.Render("↑↓ · ⏎ tune · n code · f forget · t market")
+			left = stDim.Render("↑↓ · ⏎ use · a air · n code · f forget · t mkt")
 		} else {
 			left = stDim.Render("↑↓ pick · ") + stKey.Render("⏎") +
-				stDim.Render(" tune in · ") + stKey.Render("n") +
+				stDim.Render(" use it · ") + stKey.Render("a") +
+				stDim.Render(" on/off air · ") + stKey.Render("n") +
 				stDim.Render(" new code · ") + stKey.Render("f") +
-				stDim.Render(" forget a revoked one · ") + stKey.Render("t") +
-				stDim.Render(" OPEN MARKET · ~ by code")
+				stDim.Render(" forget · ") + stKey.Render("t") +
+				stDim.Render(" OPEN MARKET")
 		}
 	} else if m.narrow() {
 		discKey := ""

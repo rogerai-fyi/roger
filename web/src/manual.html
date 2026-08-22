@@ -945,6 +945,7 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
               this machine can actually do with it.</p>
             <div class="man-plate">
               <div class="man-plate__row"><span class="man-plate__k">here</span><span class="man-plate__v">the band's model is running on this machine. <kbd>Enter</kbd> opens a <b>direct</b> channel to your own server - no broker, no relay, no meter, and no code needed. Your model was always here; routing the turn out so it could be relayed back was a round trip to reach your own box</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">off air</span><span class="man-plate__v">the model is here and <kbd>Enter</kbd> still works (a direct call to your own server never needed the band), but nobody else can reach it with the code until you press <kbd>a</kbd></span></div>
               <div class="man-plate__row"><span class="man-plate__k">here, server not running</span><span class="man-plate__v">the band belongs to this station but nothing is serving it right now. Start the model server and press <kbd>r</kbd></span></div>
               <div class="man-plate__row"><span class="man-plate__k">another machine</span><span class="man-plate__v">the band is on a different box. Only its code can reach it, and the broker never had the code to give back - tune it with <kbd>~</kbd></span></div>
             </div>
@@ -957,7 +958,8 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
                 <caption>Managing a band - the PRIVATE tab, or BASE STATION <kbd>p</kbd></caption>
                 <thead><tr><th>Key</th><th>What it does</th></tr></thead>
                 <tbody>
-                  <tr><td><kbd>Enter</kbd></td><td>tune in. Direct when the band's model runs here; otherwise it tells you why not</td></tr>
+                  <tr><td><kbd>Enter</kbd></td><td><b>use it</b>. Direct when the band's model runs here - it goes straight to your own server, so it works even while the band is off air. Otherwise it tells you why not</td></tr>
+                  <tr><td><kbd>a</kbd> · <kbd>space</kbd></td><td><b>on air / off air</b>, the same key <b>[2] SHARE</b> uses. Off air means off air: the band and its privacy are remembered, so it comes back hidden rather than on the open market. This is what makes the code reachable by anyone else - it is not needed to use the model yourself</td></tr>
                   <tr><td><kbd>m</kbd></td><td><b>move</b> the band to another model. Keeps the code - nobody tuned in is cut off</td></tr>
                   <tr><td><kbd>n</kbd></td><td><b>new code</b>. Rotates the key in place: same band, same dial, same model, same slot. The old code stops working immediately, so everyone you gave it to is cut off until you send the new one. This is what to press for a leaked or lost code</td></tr>
                   <tr><td><kbd>x</kbd></td><td><b>revoke</b>. Burns the code for good, frees your slot, and removes the band from your list</td></tr>

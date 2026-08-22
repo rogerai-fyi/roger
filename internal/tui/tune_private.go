@@ -5,6 +5,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"rogerai.fm/roger/v5/internal/agent"
+	"rogerai.fm/roger/v5/internal/node"
 )
 
 // THE PRIVATE TAB IN [1] TUNE IN.
@@ -177,6 +178,17 @@ func (m model) onPrivateTabKey(k tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 	case "r":
 		m.status = stDim.Render("refreshing your bands…")
 		return m, m.fetchRemoteRoster(), true
+	case "a", " ", "space":
+		// ON AIR / OFF AIR, right here (founder 2026-08-21: "i want it to be easy to use my
+		// own bands, basically just as simple as we are able to share ... i want to do the
+		// same with the private bands"). SHARE toggles a row with a/space; this is the same
+		// key on the same controller call, so the two screens cannot grow two behaviours.
+		//
+		// It routes through ToggleOnAir, NOT TogglePrivate: TogglePrivate flips VISIBILITY,
+		// so pressing it on a model that is already private would put it on the OPEN
+		// MARKET - the last thing an operator wants from a screen called PRIVATE. Off air
+		// here means off air; the band and its privacy are remembered.
+		return m.toggleBandOnAir()
 	case "n", "N":
 		// n = a NEW CODE for the band under the cursor, in place. The founder's "reset the
 		// key": the band keeps its dial, model, label and slot; only the secret changes.
@@ -216,6 +228,55 @@ func (m model) onPrivateTabKey(k tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 	switch k.String() {
 	case "q", "w", "z", "/", ":", "?", "~", "p", "P", "v", "V", "0", "1", "2", "3", "l", "L":
 		return m, nil, false
+	}
+	return m, nil, true
+}
+
+// toggleBandOnAir puts the band's model on or off air without ever changing its
+// visibility. It is the PRIVATE tab's half of "as simple as share".
+func (m model) toggleBandOnAir() (tea.Model, tea.Cmd, bool) {
+	r, ok := m.privSelected()
+	if !ok {
+		return m, nil, true
+	}
+	switch {
+	case r.band.Status != "active":
+		m.status = stEmber.Render("this band is revoked - there is nothing to put on air. ") +
+			stKey.Render("f") + stEmber.Render(" clears the row")
+		return m, nil, true
+	case r.model == "":
+		// We cannot name the model, so we cannot start it. Say which of the two reasons
+		// applies rather than a single vague refusal.
+		what := "that band is on another machine - go on air over there"
+		if r.here {
+			what = "no local server is serving that band's model - start it, then press r"
+		}
+		m.status = stDim.Render(what)
+		return m, nil, true
+	}
+	res := m.ctrl.ToggleOnAir(r.model)
+	m.syncShareCache()
+	switch {
+	case res.WentOff:
+		m.status = stDim.Render("off air - ") + stKey.Render(r.model) +
+			stDim.Render(" is no longer reachable on ") + stKey.Render(bandDial(r.band)) +
+			stDim.Render(" · press ") + stKey.Render("a") + stDim.Render(" to bring it back")
+	case res.LoginNeeded:
+		m.status = stEmber.Render("log in to put a private band on air - run ") + stKey.Render("/login")
+	case res.AtLimit:
+		m.status = m.onAirLimitMsg()
+	case res.Err != nil:
+		m.status = stEmber.Render("! " + node.ErrReason(res.Err))
+	case res.NowPrivate:
+		m.status = stRed.Render(glyphOnAir+" on air ") + stDim.Render("on ") + stKey.Render(bandDial(r.band)) +
+			stDim.Render(" - hidden, reachable only with its code")
+	default:
+		// It came back on the OPEN MARKET. That should be impossible from this screen -
+		// ToggleOnAir resumes at the row's recorded visibility - so say it loudly rather
+		// than reporting a bland success over a model that just became public.
+		m.status = stEmber.Render("! ") + stKey.Render(r.model) +
+			stEmber.Render(" went on air PUBLICLY - press ") + stKey.Render("h") +
+			stEmber.Render(" in [2] SHARE to hide it again")
 	}
 	return m, nil, true
 }
@@ -324,7 +385,9 @@ func (m model) privateTabView(w int) string {
 	// states the privacy property we actually have (hidden from the market) and does not
 	// claim one we do not (a local turn is direct; a relayed one is not end-to-end
 	// encrypted) - the reachable rows below are the ones that never touch the broker.
-	line(stDim.Render("hidden from the open market · nobody can tune one without its code"))
+	line(stDim.Render("hidden from the open market · ") + stKey.Render("a") +
+		stDim.Render(" on/off air · ") + stKey.Render("⏎") +
+		stDim.Render(" use it here (direct, works even off air)"))
 	b.WriteString("\n")
 
 	if !m.loggedInState() {
@@ -376,12 +439,13 @@ func (m model) privReach(r privRow) string {
 	case r.band.Status != "active":
 		return stDim.Render("revoked · f forgets it")
 	case r.chat != "" && r.onAir:
-		return stLive.Render(glyphOnAir+" here") + stDim.Render(" · direct, nothing metered")
+		return stRed.Render(glyphOnAir) + stLive.Render(" on air") + stDim.Render(" · ⏎ direct")
 	case r.chat != "":
-		// The band is bound to a model this machine serves, but that model is not
-		// currently registered private. The channel still works (it is a direct call to
-		// the local server), so this is a note, not a refusal.
-		return stLive.Render("here") + stDim.Render(" · direct · not on air")
+		// Bound to a model this machine serves, but not registered on the band right now.
+		// The distinction is exact and worth stating: YOU can still use it (⏎ is a direct
+		// call to your own server and never needed the band), but nobody else can reach it
+		// with the code until it is on air.
+		return stDim.Render("off air") + stDim.Render(" · ⏎ direct · ") + stKey.Render("a") + stDim.Render(" on air")
 	case r.here:
 		return stDim.Render("here · its server is not running")
 	default:
@@ -396,9 +460,9 @@ func privReachPlain(r privRow) string {
 	case r.band.Status != "active":
 		return "revoked · f forgets it"
 	case r.chat != "" && r.onAir:
-		return glyphOnAir + " here · direct, nothing metered"
+		return glyphOnAir + " on air · ⏎ direct"
 	case r.chat != "":
-		return "here · direct · not on air"
+		return "off air · ⏎ direct · a on air"
 	case r.here:
 		return "here · its server is not running"
 	default:

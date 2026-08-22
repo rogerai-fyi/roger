@@ -318,8 +318,13 @@ type ToggleResult struct {
 	Priced      bool    // started priced (vs FREE)
 	PriceOut    float64 // for the "$x/1M out" label
 	AtLimit     bool    // blocked: soft on-air cap reached
-	LoginNeeded bool    // blocked: priced share needs login
+	LoginNeeded bool    // blocked: priced OR private share needs login
 	Err         error   // agent.Start failed
+	// NowPrivate reports that the model came back on air on its PRIVATE band. A start
+	// resumes at the row's recorded visibility, so a front-end must be able to say which
+	// one it got - "on air" alone would read as the open market for a model the operator
+	// deliberately hid.
+	NowPrivate bool
 }
 
 // ToggleOnAir flips the on-air state of model: an off-air model starts an in-process
@@ -346,16 +351,33 @@ func (c *Controller) ToggleOnAir(model string) ToggleResult {
 	}
 	p := c.pricingForLocked(model)
 	priced := p.In > 0 || p.Out > 0 || len(p.Windows) > 0
-	if priced && !c.loggedIn {
+	// ON AIR MUST RESUME AT THE ROW'S RECORDED VISIBILITY.
+	//
+	// This passed `false` unconditionally, so a model on a PRIVATE band that was taken off
+	// air and put back on with the same key came back on the OPEN MARKET - while
+	// c.private[model] stayed true, so every surface went on rendering it as PRIVATE. An
+	// operator who hid a model, toggled it off and on, and read their own SHARE row had no
+	// way to learn they were now broadcasting to everyone.
+	//
+	// Same family as the zombie band: a path that silently publishes something the operator
+	// deliberately hid. Going private is a decision the row REMEMBERS, and every start has
+	// to honour it - the only way to leave a private band is to say so explicitly (h), or
+	// to revoke it.
+	goPrivate := c.private[model]
+	// A private start is login-gated exactly as a priced one is (a private band is an
+	// account-scoped resource, and login state re-locks between sessions). Refusing is the
+	// safe failure: starting PUBLIC because we could not start private is the leak.
+	if (priced || goPrivate) && !c.loggedIn {
 		res.LoginNeeded = true
 		return res
 	}
-	sess, err := c.startLocked(row, p, false)
+	sess, err := c.startLocked(row, p, goPrivate)
 	if err != nil {
 		res.Err = err
 		return res
 	}
 	c.sessions[model] = sess
+	res.NowPrivate = goPrivate
 	res.Priced = p.In > 0 || p.Out > 0
 	res.PriceOut = p.Out
 	return res

@@ -267,7 +267,7 @@ func TestDirectChannelHeaderShowsTheRouteNotACost(t *testing.T) {
 func TestPrivateTabFooterTeachesItsOwnKeys(t *testing.T) {
 	m := privateTab(t)
 	foot := stripANSI(m.footer(m.width))
-	for _, want := range []string{"tune in", "new code", "forget", "OPEN MARKET", "~"} {
+	for _, want := range []string{"use it", "on/off air", "new code", "forget", "OPEN MARKET"} {
 		if !strings.Contains(foot, want) {
 			t.Errorf("the PRIVATE footer must teach %q, got %q", want, foot)
 		}
@@ -475,5 +475,61 @@ func TestForgetRefusesALiveBandInTheTUI(t *testing.T) {
 	}
 	if !strings.Contains(stripANSI(asModel(tm).status), "revoke it first") {
 		t.Errorf("the refusal must name the required first step, got %q", stripANSI(asModel(tm).status))
+	}
+}
+
+// ── ON AIR / OFF AIR FROM THE PRIVATE TAB ────────────────────────────────────
+//
+// FOUNDER 2026-08-21: "i want it to be easy to use my own bands, basically just as simple
+// as we are able to share (put the bands on/off air) and use them". a/space is the same key
+// SHARE uses, on the same controller call.
+
+// THE LOAD-BEARING ROUTING CHOICE - a goes through ToggleOnAir, never TogglePrivate,
+// because TogglePrivate flips VISIBILITY and would publish an already-private model to the
+// OPEN MARKET. That guarantee is a CONTROLLER invariant and is locked where it lives:
+// internal/node TestOnAirResumesPrivateNotPublic (plus its public-row negative half). It is
+// deliberately not duplicated here - exercising it through the TUI means a real register,
+// which would make this suite dial a broker.
+//
+// What the TUI owns, and locks below, is the refusals and the row copy.
+
+// A revoked band has nothing to put on air, and the refusal must name the key that clears
+// the row rather than leaving a dead press.
+func TestOnAirRefusedOnARevokedBand(t *testing.T) {
+	m := privateTab(t)
+	m.privCursor = 2 // band_dead
+	var tm tea.Model = m
+	tm, _ = tm.Update(keyMsg("a"))
+	st := stripANSI(asModel(tm).status)
+	if !strings.Contains(st, "revoked") {
+		t.Errorf("the refusal must say the band is revoked, got %q", st)
+	}
+}
+
+// A band on another machine cannot be started from here - the model is not ours to run.
+func TestOnAirRefusedOnARemoteBand(t *testing.T) {
+	m := privateTab(t)
+	m.privCursor = 1 // band_away
+	var tm tea.Model = m
+	tm, _ = tm.Update(keyMsg("a"))
+	st := stripANSI(asModel(tm).status)
+	if !strings.Contains(st, "another machine") {
+		t.Errorf("the refusal must say where the band lives, got %q", st)
+	}
+}
+
+// The row must teach BOTH halves of what the founder asked for: use it here, and put it on
+// air for everyone else. The distinction is exact - ⏎ is a direct call to your own server
+// and works even off air; `a` is what makes the code reachable by anyone else.
+func TestAnOffAirRowTeachesBothHalves(t *testing.T) {
+	m := privateTab(t)
+	m.sharePrivate = map[string]bool{} // served here, but not registered on the band
+	rows := m.privRows()
+	line := stripANSI(m.privRowLine(rows[0], false))
+	if !strings.Contains(line, "off air") {
+		t.Errorf("an off-air band must say so, got %q", line)
+	}
+	if !strings.Contains(line, "⏎") || !strings.Contains(line, "a") {
+		t.Errorf("the row must teach both ⏎ (use it here) and a (on air), got %q", line)
 	}
 }
