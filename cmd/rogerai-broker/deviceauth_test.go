@@ -296,3 +296,53 @@ func TestDeviceFlowRefusalDoors(t *testing.T) {
 		require.Equal(t, http.StatusMethodNotAllowed, w.Code)
 	})
 }
+
+// The signed-in half of the refusal surface: a human with a genuine session still cannot
+// approve garbage, and the pending-read gives a guesser nothing but uniform 404s.
+func TestASignedInHumanStillCannotApproveGarbage(t *testing.T) {
+	b, _ := deviceBroker(t)
+	sess := githubSession(b, "carol", 77)
+
+	t.Run("approve without a code", func(t *testing.T) {
+		body := []byte(`{}`)
+		r := httptest.NewRequest(http.MethodPost, "/auth/device/approve", strings.NewReader(string(body)))
+		r.Header.Set("Origin", testWebOrigin)
+		r.AddCookie(&http.Cookie{Name: sessionCookie, Value: sess})
+		w := httptest.NewRecorder()
+		b.deviceApprove(w, r)
+		require.Equal(t, http.StatusBadRequest, w.Code)
+		require.Contains(t, w.Body.String(), "user_code required")
+	})
+	t.Run("approve a code nobody issued", func(t *testing.T) {
+		code, msg := approveAs(t, b, sess, "AAAA-0000")
+		require.Equal(t, http.StatusBadRequest, code)
+		require.Contains(t, msg, "that code is not valid",
+			"a guessed code must read exactly like an expired one - same status, same words")
+	})
+	t.Run("pending: anonymous is told to sign in", func(t *testing.T) {
+		r := httptest.NewRequest(http.MethodGet, "/auth/device/pending?user_code=AAAA-0000", nil)
+		w := httptest.NewRecorder()
+		b.devicePending(w, r)
+		require.Equal(t, http.StatusUnauthorized, w.Code)
+	})
+	t.Run("pending: signed in, unknown code is a uniform 404", func(t *testing.T) {
+		r := httptest.NewRequest(http.MethodGet, "/auth/device/pending?user_code=AAAA-0000", nil)
+		r.Header.Set("Origin", testWebOrigin)
+		r.AddCookie(&http.Cookie{Name: sessionCookie, Value: sess})
+		w := httptest.NewRecorder()
+		b.devicePending(w, r)
+		require.Equal(t, http.StatusNotFound, w.Code)
+	})
+	t.Run("pending: a real code describes itself to the approver", func(t *testing.T) {
+		_, priv, err := ed25519.GenerateKey(nil)
+		require.NoError(t, err)
+		start := startDevice(t, b, priv)
+		r := httptest.NewRequest(http.MethodGet, "/auth/device/pending?user_code="+start["user_code"].(string), nil)
+		r.Header.Set("Origin", testWebOrigin)
+		r.AddCookie(&http.Cookie{Name: sessionCookie, Value: sess})
+		w := httptest.NewRecorder()
+		b.devicePending(w, r)
+		require.Equal(t, http.StatusOK, w.Code)
+		require.Contains(t, w.Body.String(), start["user_code"].(string))
+	})
+}

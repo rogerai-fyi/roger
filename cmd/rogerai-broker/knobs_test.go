@@ -13,6 +13,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"bytes"
+	"encoding/base64"
 	"rogerai.fm/roger/v6/internal/store"
 )
 
@@ -54,4 +56,31 @@ func TestQuotaRefusalNamesTheBlockingBandOnly(t *testing.T) {
 	owner := store.Owner{Pubkey: "pk-quota-test"}
 	require.Contains(t, b.quotaRefusal(owner, now), "move or revoke",
 		"no bands at all still explains the way out")
+}
+
+// The JWK -> RSA conversion is the root of Sign-in-with-Apple verification: every identity
+// token is checked against a key built here from Apple's published modulus and exponent.
+// The refusals matter more than the success - an exponent of 1 would make every signature
+// "verify", and this parser is the only thing refusing it.
+func TestJWKToRSARefusesDegenerateKeys(t *testing.T) {
+	n := base64.RawURLEncoding.EncodeToString([]byte{0xAF, 0x12, 0x34, 0x56})
+	e := base64.RawURLEncoding.EncodeToString([]byte{0x01, 0x00, 0x01})
+
+	pub, err := rsaPublicKeyFromJWK(n, e)
+	require.NoError(t, err)
+	require.Equal(t, 65537, pub.E)
+
+	_, err = rsaPublicKeyFromJWK("!!!", e)
+	require.Error(t, err, "modulus that is not base64url")
+	_, err = rsaPublicKeyFromJWK(n, "!!!")
+	require.Error(t, err, "exponent that is not base64url")
+	_, err = rsaPublicKeyFromJWK("", e)
+	require.Error(t, err, "empty modulus")
+	_, err = rsaPublicKeyFromJWK(n, "")
+	require.Error(t, err, "empty exponent")
+	_, err = rsaPublicKeyFromJWK(n, base64.RawURLEncoding.EncodeToString([]byte{0x01}))
+	require.Error(t, err, "exponent 1 makes every signature verify; it must be refused here")
+	huge := base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{0xFF}, 16))
+	_, err = rsaPublicKeyFromJWK(n, huge)
+	require.Error(t, err, "an exponent past int64 must be refused, not truncated")
 }
