@@ -1814,7 +1814,7 @@ func FormatUSD(v float64) string {
 // chat is bounded like every other consume path: 0 means "use the default consumer cap"
 // (effectiveMaxOut), a positive value is the user's explicit opt-in to pay up to that.
 func ChatDetailed(broker, user, model, prompt string, confidential bool, maxOut float64) (ChatResult, error) {
-	return ChatTurns(broker, user, model, []ChatTurn{{Role: "user", Content: prompt}}, confidential, maxOut)
+	return ChatTurns(broker, user, model, []ChatTurn{{Role: "user", Content: prompt}}, confidential, maxOut, "")
 }
 
 // ChatTurn is one message in a multi-turn conversation. Role is the OpenAI role
@@ -1833,7 +1833,12 @@ type ChatTurn struct {
 //
 // The turn list must be non-empty and every role known; an empty or malformed list is a
 // caller bug and returns an error rather than a request the broker has to reject.
-func ChatTurns(broker, user, model string, turns []ChatTurn, confidential bool, maxOut float64) (ChatResult, error) {
+// freq is a private band's frequency code, or "" for the open market. It matters: the
+// broker hides every private node from routing unless the request carries
+// X-Roger-Freq, so a CHANNEL opened on a private band used to send turns the broker was
+// guaranteed to refuse - the operator saw "◉ PRIVATE FREQ", typed, and got
+// "no station is serving <model>". The proxy path always carried it; chat never did.
+func ChatTurns(broker, user, model string, turns []ChatTurn, confidential bool, maxOut float64, freq string) (ChatResult, error) {
 	if len(turns) == 0 {
 		return ChatResult{}, errors.New("chat: no messages to send")
 	}
@@ -1876,6 +1881,9 @@ func ChatTurns(broker, user, model string, turns []ChatTurn, confidential bool, 
 		// none was set) so the in-channel chat relay is bounded against overpay exactly like
 		// `roger use` - not only the interactive tune-in confirm.
 		req.Header.Set("X-Roger-Max-Price-Out", fmt.Sprintf("%g", effectiveMaxOut(maxOut)))
+		if freq != "" {
+			req.Header.Set("X-Roger-Freq", freq)
+		}
 		if len(failed) > 0 {
 			req.Header.Set("X-Roger-Exclude-Nodes", joinSet(failed))
 		}

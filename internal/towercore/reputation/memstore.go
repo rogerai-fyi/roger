@@ -52,6 +52,24 @@ func (m *memStore) Tally(towerID string, since time.Time) (Tally, error) {
 	return t, nil
 }
 
+// TallyByStation groups this Tower's window by the Station each outcome named. One pass over
+// the same slice Tally scans, so the two cannot disagree about which events are in the window.
+func (m *memStore) TallyByStation(towerID string, since time.Time) (map[string]Tally, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := map[string]Tally{}
+	for _, e := range m.events {
+		if e.TowerID != towerID || e.At.Before(since) {
+			continue
+		}
+		t := out[e.StationID]
+		t.TowerID = towerID
+		addOutcome(&t, e.Outcome)
+		out[e.StationID] = t
+	}
+	return out, nil
+}
+
 func (m *memStore) FleetTally(since time.Time) (Tally, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -99,5 +117,7 @@ func addOutcome(t *Tally, o Outcome) {
 		t.CanaryFail++
 	case AuditMismatch:
 		t.AuditMismatch++
+	case StationFault:
+		t.StationFault++
 	}
 }

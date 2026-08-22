@@ -1582,9 +1582,15 @@ func (m model) runAgentCommand(line string) (tea.Model, tea.Cmd) {
 		// show the arrow+enter list to re-point the agent.
 		if len(fields) >= 2 {
 			want := strings.ToLower(strings.Join(fields[1:], " "))
-			for _, c := range m.agentModelCandidates() {
-				if strings.ToLower(c) == want {
-					m.pickAgentModel(c)
+			// The PICKER's candidates, not just the broker's. agentModelCandidates lists
+			// bands only, so `/model grok-4.6` answered "no candidate model matches" for a
+			// model the bare `/model` picker listed two lines below - a LOCAL one, on this
+			// machine. That is the single most likely way an operator concludes the local
+			// path does not exist. pickAgentModel already binds a local row correctly
+			// (rowForModel), so this only ever needed the right list to search.
+			for _, c := range m.agentPickerCandidates() {
+				if strings.ToLower(c.model) == want {
+					m.pickAgentModel(c.model)
 					return m, nil
 				}
 			}

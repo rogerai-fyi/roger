@@ -61,9 +61,33 @@ func DefaultPolicy() Policy {
 //
 // Quarantine is checked FIRST and independently of the uncorroborated rate: a Tower failing
 // canaries is not carrying work, full stop, and no amount of otherwise-normal settlement
-// buys that back. An audit mismatch is the same kind of evidence - the Tower or its Station
-// produced a transcript that does not match what was signed - and one is enough to warrant
+// buys that back. An audit mismatch is the same kind of evidence - the Tower forwarded, or
+// stood behind, material that does not match what was signed - and one is enough to warrant
 // taking it off pending a look.
+//
+// # WHAT IS THE TOWER'S, AND WHAT IS NOT
+//
+// Tally.StationFault appears nowhere below, and its absence is the policy rather than an
+// omission. A suspension takes every honest node behind a Tower off the fabric with it, so the
+// evidence that triggers one must be evidence about the TOWER - and on this path the Tower is a
+// sufficient cause of almost everything Core can see, because everything Core can see passed
+// through its hands. So the default is that a finding is the Tower's, and a finding leaves it
+// only on proof the Tower could not have manufactured: material signed by a key the Tower does
+// not hold, contradicting other material signed by that same key.
+//
+// The asymmetry is deliberate and it is the anti-laundering rule. A Tower answers for the
+// excuses it forwards - "that Station did not keep the transcript" is unverifiable and is
+// therefore its own claim to stand behind - while a Station answers for what it signed. If it
+// were the other way around, the cheapest lie a Tower could tell would also be its cheapest
+// escape.
+//
+// CanaryFail in particular stays whole. A canary rides the Tower end to end; a Tower can drop
+// it, delay it past the deadline, substitute the sealed answer, or simply report that nobody is
+// serving the Station - so no canary failure can be moved to a Station without handing a
+// black-holing Tower a way to point at its own victims. What was wrong was never the
+// attribution of a single probe but the AMPLIFICATION: probe budget is spent per Station and
+// the verdict is read per Tower, so a dead Station soaked the sweep and its Tower paid for
+// every failure. That is fixed where it is caused, in the probe rotation, not here.
 func (p Policy) Evaluate(tower, fleet Tally) Verdict {
 	if tower.AuditMismatch > 0 {
 		return Quarantine

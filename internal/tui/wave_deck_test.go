@@ -989,3 +989,63 @@ func TestNudgeDoesNotAccumulateFloatDrift(t *testing.T) {
 		t.Errorf("float drift reached the field: %q", v)
 	}
 }
+
+// ── SECRETS MUST NOT REACH DISK ──────────────────────────────────────────────
+// The palette records every command it runs and persists that history to a file,
+// recalled with ↑. `/freq <code>` carries a band's frequency code - so typing it there
+// wrote the secret to disk and left it one keypress from anyone at that terminal,
+// flatly contradicting the promise that a code is shown once and never stored.
+func TestFrequencyCodesNeverReachCommandHistory(t *testing.T) {
+	const secret = "147.520 MHz 8F3K-9M2Q"
+	for _, cmd := range []string{"/freq " + secret, "/f " + secret, "freq " + secret} {
+		got := scrubSecretArgs(cmd)
+		if strings.Contains(got, "8F3K") || strings.Contains(got, "9M2Q") {
+			t.Errorf("%q kept the secret: %q", cmd, got)
+		}
+		// The VERB survives, so recall still tells you what you ran.
+		if !strings.Contains(strings.ToLower(got), "f") {
+			t.Errorf("%q lost the verb too: %q", cmd, got)
+		}
+	}
+}
+
+// Ordinary commands are untouched: history is useful precisely because it is complete.
+func TestOrdinaryCommandsKeepTheirArguments(t *testing.T) {
+	for _, cmd := range []string{"/model grok-4.6", "/limit gpt-oss-20b 1.00", "/share", "/help"} {
+		if got := scrubSecretArgs(cmd); got != cmd {
+			t.Errorf("%q must be recorded whole, got %q", cmd, got)
+		}
+	}
+}
+
+// ── THE BAND SCREENS HAVE THEIR OWN KEYS ─────────────────────────────────────
+// BASE STATION had no footer case, so it fell through to the BROWSE keys and taught
+// five that do nothing there. A footer describing a different screen is worse than
+// none: it is the one place an operator looks to learn what a screen does.
+func TestBandScreensTeachTheirOwnKeys(t *testing.T) {
+	cases := []struct {
+		mode mode
+		want []string
+		deny []string
+	}{
+		{modePrivate, []string{"manage", "revoke"}, []string{"tune in", "filter", "sort"}},
+		{modeBandMove, []string{"move the band"}, []string{"tune in", "sort"}},
+		{modeBandRevokeConfirm, []string{"revoke", "keep it"}, []string{"tune in", "sort"}},
+	}
+	for _, tc := range cases {
+		m := browseSeed(120)
+		m.width, m.height = 120, 30
+		m.mode = tc.mode
+		f := strings.ToLower(stripANSI(m.footer(120)))
+		for _, w := range tc.want {
+			if !strings.Contains(f, w) {
+				t.Errorf("mode %v must teach %q: %q", tc.mode, w, f)
+			}
+		}
+		for _, d := range tc.deny {
+			if strings.Contains(f, d) {
+				t.Errorf("mode %v must not teach the browse key %q: %q", tc.mode, d, f)
+			}
+		}
+	}
+}

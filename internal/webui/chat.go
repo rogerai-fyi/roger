@@ -79,7 +79,10 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		writeChatErr(w, http.StatusRequestEntityTooLarge, "conversation too long - start a new one")
 		return
 	}
-	res, err := client.ChatTurns(s.opts.Broker, s.opts.User, req.Model, req.Messages, req.Confidential, req.MaxOut)
+	// No freq: the console reaches the open market only. A private band's code is a
+	// secret the browser has never been given, and inventing a path for it here would
+	// mean putting one somewhere it could be read.
+	res, err := client.ChatTurns(s.opts.Broker, s.opts.User, req.Model, req.Messages, req.Confidential, req.MaxOut, "")
 	if err != nil {
 		// Surfaced verbatim, exactly as the TUI does: a missing station, a slow-inference
 		// timeout and the broker's own error body each say a different thing, and

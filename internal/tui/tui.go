@@ -2043,7 +2043,13 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			cmd := strings.TrimSpace(m.cmd.Value())
 			m.cmd.SetValue("")
 			m.mode = modeBrowse
-			m.cmdHist.add(cmd) // record the run command (empties filtered, dups collapsed)
+			// Recorded WITHOUT its secret. `/freq <code>` carries a band's frequency
+			// code, and the palette's history is written to disk (history.go) and
+			// recalled with ↑ - so typing it here put the secret in a file and left it
+			// one keypress from anyone at that terminal, flatly contradicting the
+			// promise that a code is shown once and never stored. The verb is kept so
+			// recall still works; only the secret is dropped.
+			m.cmdHist.add(scrubSecretArgs(cmd))
 			return m.run(cmd)
 		case "esc":
 			m.cmd.SetValue("")
@@ -2185,7 +2191,7 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.recordTurn("user", p, "user", nil, nil)
 			// Carry the user's explicit out-price cap for this model (0 -> the default
 			// consumer cap applies broker-side); keeps the in-channel chat bounded like use.
-			return m, sendChat(m.broker, m.user, m.connected.Model, turn, m.confidentialOnly, m.limits.resolve(m.connected.Model).MaxOut)
+			return m, sendChat(m.broker, m.user, m.connected.Model, turn, m.confidentialOnly, m.limits.resolve(m.connected.Model).MaxOut, m.tuneFreq)
 		}
 		var c tea.Cmd
 		m.chatIn, c = m.chatIn.Update(k)
@@ -9208,6 +9214,48 @@ func (m model) footer(w int) string {
 			}
 		}
 		return modalFooter(m.effWidth(), left, m.accountTag(true), m.status)
+	case modePrivate:
+		// BASE STATION had NO footer case, so it fell through to the browse keys and
+		// taught "enter tune in · i log · f filter · ~ freq · s sort" - five keys that do
+		// nothing here. A footer that describes a different screen is worse than none:
+		// it is the one place an operator looks to learn what a screen can do, and this
+		// one was actively lying. `x` (revoke) and `r` (refresh) were taught nowhere.
+		left = stDim.Render("↑↓ move  ·  ") + stKey.Render("⏎") + stDim.Render(" manage a band  ·  ") +
+			stKey.Render("x") + stDim.Render(" revoke  ·  r refresh  ·  ~ tune a freq  ·  esc back")
+		if m.narrow() {
+			left = stDim.Render("↑↓ · ⏎ manage · x revoke · r · esc")
+		}
+		return modalFooter(m.effWidth(), left, m.accountTag(true), m.status)
+	case modeBandManage:
+		// A REVOKED band cannot be moved, and the card already omits the offer. The
+		// footer has to agree: offering a key the screen will ignore is the same lie in
+		// a different place, and it was caught by the lock that guards the card.
+		if m.bandManageActive() {
+			left = stKey.Render("m") + stDim.Render(" move to another model  ·  ") +
+				stKey.Render("x") + stDim.Render(" revoke  ·  esc back")
+			if m.narrow() {
+				left = stDim.Render("m move · x revoke · esc")
+			}
+		} else {
+			left = stDim.Render("this band is revoked  ·  ") + stKey.Render("esc") + stDim.Render(" back")
+			if m.narrow() {
+				left = stDim.Render("revoked · esc back")
+			}
+		}
+		return modalFooter(m.effWidth(), left, m.accountTag(true), m.status)
+	case modeBandMove:
+		left = stDim.Render("↑↓ pick a model  ·  ") + stKey.Render("⏎") + stDim.Render(" move the band here  ·  esc cancel")
+		if m.narrow() {
+			left = stDim.Render("↑↓ · ⏎ move · esc")
+		}
+		return modalFooter(m.effWidth(), left, m.accountTag(true), m.status)
+	case modeBandRevokeConfirm:
+		// A revoke burns the code forever, so the footer says the default out loud.
+		left = stDim.Render("y revoke - burns the code forever  ·  n/esc keep it")
+		if m.narrow() {
+			left = stDim.Render("y revoke · n/esc keep")
+		}
+		return modalFooter(m.effWidth(), left, m.accountTag(true), m.status)
 	case modeBandDetail:
 		left = stDim.Render("⏎ tune in  ·  esc/← back  ·  r re-scan")
 		if m.narrow() {
@@ -9853,9 +9901,14 @@ func humanLatency(d time.Duration) string {
 	return fmt.Sprintf("%dms", d.Milliseconds())
 }
 
-func sendChat(broker, user, mdl, prompt string, confidential bool, maxOut float64) tea.Cmd {
+// freq carries the tuned PRIVATE band's code, or "" on the open market. Without it the
+// broker hides every private node from routing, so a channel opened on a private band
+// green-lit the turn and then failed with "no station is serving <model>" - the
+// operator had done everything right.
+func sendChat(broker, user, mdl, prompt string, confidential bool, maxOut float64, freq string) tea.Cmd {
 	return func() tea.Msg {
-		r, err := client.ChatDetailed(broker, user, mdl, prompt, confidential, maxOut)
+		r, err := client.ChatTurns(broker, user, mdl,
+			[]client.ChatTurn{{Role: "user", Content: prompt}}, confidential, maxOut, freq)
 		if err != nil {
 			// A chat failure is surfaced INLINE in the transcript (chatErrMsg), not on
 			// the footer status line - that was the silent-no-response bug: the user
@@ -9979,4 +10032,25 @@ func wrapStatus(status string, w int) string {
 		rows[i] = stDim.Render(indent) + r
 	}
 	return strings.Join(rows, "\n")
+}
+
+
+// secretArgCommands are the palette verbs whose ARGUMENT is a secret. The band
+// frequency code is the one that exists today; the set is a list rather than a special
+// case so the next one is a single line and cannot be forgotten.
+var secretArgCommands = map[string]bool{"freq": true, "f": true}
+
+// scrubSecretArgs strips the argument from a command that carries a secret, leaving the
+// verb. History is for "what did I run", and for these the answer is the verb - the
+// argument is a thing the product promised never to store.
+func scrubSecretArgs(cmd string) string {
+	fields := strings.Fields(cmd)
+	if len(fields) < 2 {
+		return cmd
+	}
+	verb := strings.ToLower(strings.TrimPrefix(fields[0], "/"))
+	if !secretArgCommands[verb] {
+		return cmd
+	}
+	return fields[0]
 }

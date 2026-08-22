@@ -49,11 +49,36 @@ const (
 	CanaryFail Outcome = "canary_fail"
 	// AuditMismatch: a sampled transcript did not hash to what both ends signed.
 	AuditMismatch Outcome = "audit_mismatch"
+	// StationFault: a failure Roger Core attributed to ONE Station rather than to the Tower
+	// carrying it.
+	//
+	// # WHY THE ATTRIBUTION IS AN OUTCOME AND NOT THE STATION COLUMN
+	//
+	// Every event below now carries a StationID, and it would be tempting to let that column
+	// do this job: "the outcome names a Station, so it is the Station's fault". That reading
+	// is exactly the laundering hole. Almost every outcome on the edge path concerns some
+	// Station - a canary probes one, a settlement settles one - and if naming a Station were
+	// enough to move the blame, a Tower that black-holed every byte it was handed would have
+	// every one of its failures land on the machines it was starving. So the column answers
+	// WHICH STATION and this outcome answers WHOSE FAULT, and the two are set independently by
+	// the code that holds the evidence.
+	//
+	// It is recorded only where the Station itself produced the proof of its own failure -
+	// material signed by a key the Tower does not hold, or a defect in the Station's own
+	// advertised keys that Core hit before it dialed the Tower at all. Anything a Tower could
+	// have caused, forwarded, or merely claimed stays the Tower's; see Evaluate.
+	//
+	// It deliberately does not distinguish an audit contradiction from an unusable key. Nothing
+	// acts on it yet, and inventing a taxonomy no policy reads is how a ledger accumulates
+	// columns that later readers have to guess the meaning of. The reason is in the log line
+	// beside the write; the ledger holds the fact and the count.
+	StationFault Outcome = "station_fault"
 )
 
 func (o Outcome) valid() bool {
 	switch o {
-	case Corroborated, Uncorroborated, Disputed, CanaryPass, CanaryFail, AuditMismatch:
+	case Corroborated, Uncorroborated, Disputed, CanaryPass, CanaryFail, AuditMismatch,
+		StationFault:
 		return true
 	}
 	return false
@@ -61,7 +86,34 @@ func (o Outcome) valid() bool {
 
 // Event is one recorded outcome.
 type Event struct {
-	TowerID   string
+	TowerID string
+	// StationID is the Station this outcome CONCERNS, when there is exactly one.
+	//
+	// # WHY IT IS STORED RATHER THAN DERIVED
+	//
+	// This tree prefers deriving a value to keeping one, and that preference was right the last
+	// time it came up (a Station id is derived from its assertion key rather than kept in a
+	// registry of every id ever issued). It does not carry here, and the reason is lifetime.
+	// The only place an attempt id resolves to a Station is the DISPATCH record, whose whole
+	// design is to be dropped the moment the attempt's deadline passes - a grant lives about
+	// two minutes and this ledger is read over twenty-four hours. A join that works today only
+	// because nothing is currently wired to call dispatch's reaper is not a property; it is a
+	// bug waiting for the day somebody wires the cleanup job that store was built to have, and
+	// the failure would be silent - every verdict quietly reverting to blaming the Tower.
+	//
+	// It is also not total. The wire-count finding is recorded under a synthetic attempt id
+	// (`<attempt>#wire`) that resolves to no dispatch record at all, and the audit sweep records
+	// against attempts whose dispatch rows are long gone.
+	//
+	// And the objection that killed the id registry does not apply: nothing here becomes
+	// permanent. These rows are reaped at the edge of the window they are judged in, the Station
+	// id they carry is public material the attachment row already holds, and the Tower id beside
+	// it was never questioned.
+	//
+	// EMPTY IS A LEGITIMATE VALUE and checkEvent allows it: some findings genuinely concern no
+	// single Station - a Tower that advertises an unusable data plane fails before any Station
+	// is reached - and forcing a caller to invent one would put a lie in the evidence.
+	StationID string
 	AttemptID string
 	Outcome   Outcome
 	At        time.Time
@@ -79,7 +131,10 @@ type Tally struct {
 	Disputed,
 	CanaryPass,
 	CanaryFail,
-	AuditMismatch int
+	AuditMismatch,
+	// StationFault is counted and deliberately feeds no rate. See Evaluate for why a Tower is
+	// not judged on it, and StationFault (the outcome) for when it is recorded.
+	StationFault int
 }
 
 // Without subtracts another tally from this one, component by component. It exists so a
@@ -97,6 +152,7 @@ func (t Tally) Without(other Tally) Tally {
 		CanaryPass:     t.CanaryPass - other.CanaryPass,
 		CanaryFail:     t.CanaryFail - other.CanaryFail,
 		AuditMismatch:  t.AuditMismatch - other.AuditMismatch,
+		StationFault:   t.StationFault - other.StationFault,
 	}
 }
 
@@ -147,6 +203,16 @@ type Store interface {
 	// FleetTally sums every Tower's outcomes at or after `since`, so "unlike the fleet's" has
 	// a fleet to compare against.
 	FleetTally(since time.Time) (Tally, error)
+	// TallyByStation splits a Tower's window by the Station each outcome concerns, keyed on
+	// station id. The empty key holds the outcomes that name no Station.
+	//
+	// It exists so the per-Station reading is DURABLE and SHARED, which is the whole difference
+	// between it and the broker's in-process canary map: an attempt authorized on one instance
+	// is probed and settled by whichever instance the Tower reached, and a per-process view of a
+	// Station's health is one broker's fraction of the evidence mistaken for the whole. It is
+	// read on a sweep rather than on a request, so a per-Tower grouped scan every few minutes is
+	// the entire cost.
+	TallyByStation(towerID string, since time.Time) (map[string]Tally, error)
 	// Reap drops outcomes older than a cutoff. Reputation is a moving window; evidence that
 	// has aged out of every window anyone asks about is a table that only grows.
 	Reap(before time.Time) (int64, error)
