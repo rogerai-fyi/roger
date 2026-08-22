@@ -66,7 +66,7 @@ func TestStartWebConsoleOpenGating(t *testing.T) {
 	t.Cleanup(func() { openBrowser = origOpen })
 
 	ctrl := tui.NewController("http://broker.invalid", tui.Hooks{})
-	url := startWebConsole(config{}, ctrl, "0")
+	url := startWebConsole(config{}, ctrl, "0", tuiLimits(config{}))
 	if url == "" || !strings.Contains(url, "127.0.0.1") {
 		t.Fatalf("default run should still serve the console, url = %q", url)
 	}
@@ -75,7 +75,7 @@ func TestStartWebConsoleOpenGating(t *testing.T) {
 	}
 
 	on := true
-	url2 := startWebConsole(config{WebuiOpen: &on}, ctrl, "0")
+	url2 := startWebConsole(config{WebuiOpen: &on}, ctrl, "0", tuiLimits(config{}))
 	if len(opened) != 1 || opened[0] != url2 {
 		t.Fatalf("webui_open=true should open the console URL once, opened %v url %q", opened, url2)
 	}

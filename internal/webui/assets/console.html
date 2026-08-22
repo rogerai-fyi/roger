@@ -38,10 +38,11 @@
         </span>
       </div>
       <nav class="tabs" role="tablist" aria-label="Sections">
-        <button class="tab" data-tab="chat" role="tab" aria-selected="false">CHAT</button>
-        <button class="tab" data-tab="share" role="tab" aria-selected="true">SHARE</button>
+        <button class="tab" data-tab="chat" role="tab" aria-selected="true">CHAT</button>
+        <button class="tab" data-tab="share" role="tab" aria-selected="false">SHARE</button>
         <button class="tab" data-tab="account" role="tab" aria-selected="false">ACCOUNT</button>
         <button class="tab" data-tab="browse" role="tab" aria-selected="false">BROWSE</button>
+        <button class="tab" data-tab="settings" role="tab" aria-selected="false">SETTINGS</button>
       </nav>
       <div class="topbar-right">
         <span class="conn" id="conn-status" title="live link">
@@ -64,7 +65,7 @@
            The conversation lives in the PAGE, not on the server. The console is a live
            twin of a node, not a chat host, and a server-side transcript would be one
            more place a private conversation could sit. -->
-      <section class="panel panel--chat" id="panel-chat" role="tabpanel" hidden>
+      <section class="panel panel--chat" id="panel-chat" role="tabpanel">
         <div class="chat">
           <div class="chat-flow" id="chat-flow">
             <div class="chat-empty" id="chat-empty">
@@ -96,7 +97,7 @@
       </section>
 
       <!-- ===================== SHARE ===================== -->
-      <section class="panel" id="panel-share" role="tabpanel">
+      <section class="panel" id="panel-share" role="tabpanel" hidden>
         <div class="panel-head">
           <div class="panel-head-row">
             <h2>SHARE
@@ -224,6 +225,89 @@
         <div class="not-configured" id="account-disabled" hidden>
           The broker is not configured for this node, so account, payout and grant
           features are unavailable.
+        </div>
+      </section>
+
+      <!-- ===================== SETTINGS =====================
+           THE FULLER SURFACE (founder 2026-08-21). Two things lived only in the terminal:
+           the PER-BAND spend caps that actually bound what a turn may cost, and private
+           band management - which did not exist here at all, so a band minted in the
+           browser became unmanageable the moment it existed.
+           The wallet, payouts and grants stay on ACCOUNT; this is the settings that are
+           ABOUT A BAND. -->
+      <section class="panel" id="panel-settings" role="tabpanel" hidden>
+        <div class="panel-head">
+          <div class="panel-head-row">
+            <h2>SETTINGS</h2>
+            <div class="panel-head-actions">
+              <button class="btn" id="btn-settings-refresh">refresh</button>
+            </div>
+          </div>
+          <p class="muted small">
+            The same settings the terminal edits &mdash; one store, two windows.
+          </p>
+        </div>
+
+        <!-- one-time code, shown after a rotate. Same contract as a mint: the broker
+             keeps only the hash, so this is the only moment it exists anywhere. -->
+        <div class="code-card" id="band-code-card" hidden>
+          <div class="code-card-body">
+            <div class="code-card-title">New frequency code &mdash; <b>save this, shown once</b></div>
+            <div class="code-row">
+              <code class="mono code-value" id="band-code-value"></code>
+              <button class="btn small" id="band-code-copy">copy</button>
+            </div>
+            <div class="muted small" id="band-code-note"></div>
+          </div>
+          <button class="x-btn" id="band-code-dismiss" title="dismiss">&times;</button>
+        </div>
+
+        <h3 class="sub-head">Private bands</h3>
+        <p class="muted small">
+          Hidden stations only a frequency code can tune. A code is shown once and never
+          stored &mdash; if one leaks, <b>new code</b> replaces it without giving up the band.
+        </p>
+        <div class="table-wrap">
+          <table class="data-table bands-table">
+            <thead>
+              <tr>
+                <th class="col-model">BAND</th>
+                <th class="col-model">NAME</th>
+                <th class="col-model">ON</th>
+                <th class="col-status">STATUS</th>
+                <th class="col-actions">ACTIONS</th>
+              </tr>
+            </thead>
+            <tbody id="bands-rows">
+              <tr class="empty-row"><td colspan="5">No private bands yet &mdash; hide a model on SHARE to mint one.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3 class="sub-head">Spend limits</h3>
+        <p class="muted small">
+          What you are willing to pay, per band. Blank or 0 means no cap &mdash; never
+          &ldquo;refuse everything&rdquo;.
+        </p>
+        <div class="table-wrap">
+          <table class="data-table limits-table">
+            <thead>
+              <tr>
+                <th class="col-model">BAND</th>
+                <th class="num">MAX $/1M OUT</th>
+                <th class="num">MIN T/S</th>
+                <th class="col-actions">ACTIONS</th>
+              </tr>
+            </thead>
+            <tbody id="limits-rows">
+              <tr class="empty-row"><td colspan="4">No bands yet.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="not-configured" id="settings-disabled" hidden>
+          The broker is not configured for this node, so bands and spend limits are
+          unavailable.
         </div>
       </section>
 

@@ -918,6 +918,13 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
 <span class="p">$</span> roger bands new-code &lt;band-id&gt;      <span class="c"># fresh key, same band (old code dies now)</span>
 <span class="p">$</span> roger bands move &lt;band-id&gt; &lt;model&gt;  <span class="c"># different model, same code</span>
 <span class="p">$</span> roger bands revoke &lt;band-id&gt;        <span class="c"># burn it, free the slot</span></pre>
+            <p>Or run the browser console on its own &mdash; no terminal app, and the
+              surface with room for tables:</p>
+            <pre><span class="p">$</span> roger webui              <span class="c"># serve the console and open it</span>
+<span class="p">$</span> roger webui --no-open    <span class="c"># headless: just print the URL</span></pre>
+            <p>Its <b>SETTINGS</b> tab carries the same private bands and the same per-band
+              spend limits the terminal edits &mdash; one store, two windows &mdash; so a
+              cap set in the browser is the cap the terminal enforces.</p>
             <p>If both boxes are the same account, self-use is <b>$0</b> - the private band
               is just a direct line between two of your own machines, no public signal in
               between. Hand the code to a friend and they can tune in from their own box:

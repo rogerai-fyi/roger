@@ -773,12 +773,16 @@ func run(argv []string, cfg config) error {
 		// change in either front-end shows up in the other.
 		hooks := tuiHooks(cfg)
 		ctrl := tui.NewController(cfg.Broker, hooks)
+		// ONE limit store for BOTH front-ends. Built here rather than at the runTUI call so
+		// the console gets the same pointer - the browser's spend table and [3] CONFIG are
+		// two views of one setting, and two stores would silently diverge.
+		limits := tuiLimits(cfg)
 		if webuiOn {
 			// The console URL rides into the TUI so `w` / /webui open it on demand
 			// (the console itself no longer auto-opens a browser by default).
-			hooks.ConsoleURL = startWebConsoleFn(cfg, ctrl, webuiPort)
+			hooks.ConsoleURL = startWebConsoleFn(cfg, ctrl, webuiPort, limits)
 		}
-		return runTUI(cfg.Broker, cfg.User, tuiLimits(cfg), notice, hooks, ctrl)
+		return runTUI(cfg.Broker, cfg.User, limits, notice, hooks, ctrl)
 	}
 	if rest[0] == "resume" || rest[0] == "continue" {
 		return cmdResumeWithRuntime(cfg, rest[1:], notice, webuiOn, webuiPort)
@@ -855,6 +859,8 @@ func dispatch(cfg config, args []string) error {
 		return cmdPayout(cfg, args[1:])
 	case "bands", "band":
 		return cmdBands(cfg, args[1:])
+	case "webui", "web", "console":
+		return cmdWebui(cfg, args[1:])
 	case "grant":
 		return cmdGrant(cfg, args[1:])
 	case "context":
@@ -2296,6 +2302,7 @@ func usage() {
   roger                       open the app (browse, tune in, chat) + browser console
                               (press w in the app to open the console in your browser;
                                auto-open at launch: roger config set webui-open true)
+  roger webui                 the browser console on its own (no terminal app)
   roger --no-webui            open the app WITHOUT the browser console
   roger --ping                full-screen "Ping World" screensaver (or press z in the app)
   roger search                list models, cheapest first

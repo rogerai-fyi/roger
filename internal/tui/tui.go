@@ -622,6 +622,35 @@ func (s *LimitStore) set(model string, l Limit) {
 	}
 }
 
+// Set is the exported mutator, for a SECOND front-end editing the same store.
+//
+// The browser console shows the same per-band caps [3] CONFIG does, and it must write to
+// THIS store rather than a copy: two stores would let the terminal and the browser disagree
+// about what the operator is willing to pay, and the disagreement would only surface as an
+// unexplained refusal on some later turn. A zero value clears the cap rather than recording
+// "refuse everything" - the same rule the TUI's own editor follows.
+func (s *LimitStore) Set(model string, l Limit) {
+	if l.MaxOut <= 0 && l.MinTPS <= 0 && l.MaxIn <= 0 {
+		s.clear(model)
+		return
+	}
+	s.set(model, l)
+}
+
+// Snapshot returns a COPY of the per-model caps, safe to hand to another front-end to
+// render. A copy rather than the live map: a reader iterating while the TUI writes would
+// otherwise be a data race on the operator's money settings.
+func (s *LimitStore) Snapshot() map[string]Limit {
+	out := map[string]Limit{}
+	if s == nil {
+		return out
+	}
+	for m, l := range s.Models {
+		out[m] = l
+	}
+	return out
+}
+
 func (s *LimitStore) clear(model string) {
 	if s == nil || s.Models == nil {
 		return

@@ -76,8 +76,10 @@ func cmdResumeWithRuntime(cfg config, args []string, notice string, webuiOn bool
 	selected.WorkdirAvailable = statErr == nil && info.IsDir()
 	hooks := tuiHooks(cfg)
 	ctrl := tui.NewController(cfg.Broker, hooks)
+	// One store for both front-ends - see run()'s note.
+	limits := tuiLimits(cfg)
 	if webuiOn {
-		hooks.ConsoleURL = startWebConsoleFn(cfg, ctrl, webuiPort)
+		hooks.ConsoleURL = startWebConsoleFn(cfg, ctrl, webuiPort, limits)
 	}
-	return runResumedTUI(cfg.Broker, cfg.User, tuiLimits(cfg), notice, hooks, ctrl, selected)
+	return runResumedTUI(cfg.Broker, cfg.User, limits, notice, hooks, ctrl, selected)
 }

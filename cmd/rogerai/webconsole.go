@@ -65,8 +65,24 @@ func stripWebuiFlags(args []string, enabled bool, port string) (rest []string, o
 // failure) so the TUI can open it on demand (`w` / /webui). It returns immediately; the
 // server runs in a background goroutine for the life of the process. A bind failure is
 // non-fatal — the terminal front-end carries on.
-func startWebConsole(cfg config, ctrl *node.Controller, port string) string {
-	s := webui.New(ctrl, webui.Options{Broker: cfg.Broker, User: cfg.User, ClientID: gitHubClientID()})
+func startWebConsole(cfg config, ctrl *node.Controller, port string, limits *tui.LimitStore) string {
+	s := webui.New(ctrl, webui.Options{
+		Broker: cfg.Broker, User: cfg.User, ClientID: gitHubClientID(),
+		// THE SAME STORE the TUI edits, not a copy. The console's spend table and
+		// [3] CONFIG are two views of one setting; two stores would let them disagree
+		// about what the operator is willing to pay, and the loser is whichever wrote
+		// first. Nil-safe: a console with no store shows the table as unavailable.
+		ReadLimits: func() map[string]webui.SpendLimit {
+			out := map[string]webui.SpendLimit{}
+			for m, l := range limits.Snapshot() {
+				out[m] = webui.SpendLimit{MaxOut: l.MaxOut, MinTPS: l.MinTPS}
+			}
+			return out
+		},
+		WriteLimit: func(model string, l webui.SpendLimit) {
+			limits.Set(model, tui.Limit{MaxOut: l.MaxOut, MinTPS: l.MinTPS})
+		},
+	})
 	ln, url, err := webConsoleListen(s, "127.0.0.1:"+port)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "web console: could not bind a localhost port:", err)

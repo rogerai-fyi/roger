@@ -41,7 +41,7 @@ type chatResp struct {
 	// for every other endpoint. Without it a chat failure would surface as the bare
 	// HTTP status text and the real cause - "no node offers", a timeout, the broker's
 	// own words - would be dropped exactly where it matters most.
-	Message string `json:"message,omitempty"`
+	Message   string  `json:"message,omitempty"`
 	Provider  string  `json:"provider,omitempty"`
 	Cost      float64 `json:"cost"`
 	TokensIn  int     `json:"tokens_in"`

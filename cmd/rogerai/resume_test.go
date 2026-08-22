@@ -36,7 +36,7 @@ func TestCmdResumeWithRuntimePreservesNoticeAndWebConsole(t *testing.T) {
 	resumeStoreDir = func() string { return dir }
 
 	var webCtrl, tuiCtrl *node.Controller
-	startWebConsoleFn = func(_ config, ctrl *node.Controller, port string) string {
+	startWebConsoleFn = func(_ config, ctrl *node.Controller, port string, _ *tui.LimitStore) string {
 		webCtrl = ctrl
 		require.Equal(t, "5099", port)
 		return "http://127.0.0.1:5099/?t=resume"

@@ -352,7 +352,7 @@ func TestRunNoArgsLaunch(t *testing.T) {
 		}
 		return nil
 	}
-	startWebConsoleFn = func(cfg config, ctrl *node.Controller, port string) string {
+	startWebConsoleFn = func(cfg config, ctrl *node.Controller, port string, _ *tui.LimitStore) string {
 		webCalled = true
 		if port != defaultWebuiPort {
 			t.Errorf("startWebConsoleFn got port %q, want %q", port, defaultWebuiPort)
@@ -379,7 +379,10 @@ func TestRunNoWebui(t *testing.T) {
 		tuiCalled = true
 		return nil
 	}
-	startWebConsoleFn = func(cfg config, ctrl *node.Controller, port string) string { webCalled = true; return "" }
+	startWebConsoleFn = func(cfg config, ctrl *node.Controller, port string, _ *tui.LimitStore) string {
+		webCalled = true
+		return ""
+	}
 	t.Cleanup(func() { runTUI, startWebConsoleFn = origTUI, origWeb })
 
 	if err := run([]string{"--no-webui"}, config{Broker: "https://b", User: "u", Onboarded: true}); err != nil {
@@ -428,7 +431,7 @@ func TestStartWebConsole(t *testing.T) {
 		t.Fatal(err)
 	}
 	os.Stdout = w
-	startWebConsole(cfg, ctrl, "0") // "0" => OS-assigned ephemeral port
+	startWebConsole(cfg, ctrl, "0", tuiLimits(cfg)) // "0" => OS-assigned ephemeral port
 	w.Close()
 	os.Stdout = origStdout
 
@@ -473,7 +476,7 @@ func TestStartWebConsoleListenFailure(t *testing.T) {
 	on := true
 	cfg := config{Broker: "https://b", User: "u", WebuiOpen: &on}
 	ctrl := tui.NewController(cfg.Broker, tuiHooks(cfg))
-	if url := startWebConsole(cfg, ctrl, "0"); url != "" {
+	if url := startWebConsole(cfg, ctrl, "0", tuiLimits(cfg)); url != "" {
 		t.Fatalf("a bind failure should return no URL, got %q", url)
 	}
 	if len(opened) != 0 {
@@ -495,7 +498,7 @@ func TestStartWebConsoleBogusPortRescued(t *testing.T) {
 	on := true
 	cfg := config{Broker: "https://b", User: "u", WebuiOpen: &on}
 	ctrl := tui.NewController(cfg.Broker, tuiHooks(cfg))
-	url := startWebConsole(cfg, ctrl, "99999999")
+	url := startWebConsole(cfg, ctrl, "99999999", tuiLimits(cfg))
 	if url == "" || !strings.Contains(url, "127.0.0.1") {
 		t.Fatalf("a bogus port should be rescued by the OS-picked fallback, got %q", url)
 	}

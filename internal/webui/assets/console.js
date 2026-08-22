@@ -1012,11 +1012,15 @@
   }
 
   /* TABS ------------------------------------------------------------------- */
-  var TABS = ["chat", "share", "account", "browse"];
+  var TABS = ["chat", "share", "account", "browse", "settings"];
 
+  // CHAT IS THE LANDING TAB (founder 2026-08-21: "lets make sure we start the webui on
+  // the chat"). The console used to open on SHARE, which is the provider surface - it
+  // answered "what am I broadcasting?" to someone who had come to talk to a model. An
+  // explicit #hash still wins, so a bookmark to any tab keeps working.
   function tabFromHash() {
     var h = (location.hash || "").replace(/^#/, "").toLowerCase();
-    return TABS.indexOf(h) !== -1 ? h : "share";
+    return TABS.indexOf(h) !== -1 ? h : "chat";
   }
 
   function setTab(name) {
@@ -1029,12 +1033,167 @@
     });
     if (name === "account") loadAccount();
     if (name === "browse") loadBrowse();
+    if (name === "settings") loadSettings();
     if (name === "chat") {
       // Fill the picker from whatever the browse surface last saw, then focus the
       // composer - opening CHAT means you intend to type.
       loadBrowse();
       var i = $("chat-input");
       if (i) i.focus();
+    }
+  }
+
+  /* 8b. SETTINGS: private bands + per-band spend limits ---------------------
+     THE FULLER SURFACE (founder 2026-08-21). Two things lived only in the terminal: the
+     PER-BAND spend caps that actually bound what a turn may cost, and private-band
+     management, which did not exist here at all - a band minted in the browser became
+     unmanageable the moment it existed.
+
+     Both talk to the SAME state the TUI edits (one LimitStore, and the broker for bands),
+     so the two windows can never disagree about the operator's money settings. */
+
+  function loadSettings() {
+    apiGet("/api/bands").then(function (d) {
+      show($("settings-disabled"), d && d.configured === false);
+      renderBands((d && d.bands) || []);
+    }).catch(function (e) { toast(e.message, "err"); });
+    apiGet("/api/limits").then(function (d) {
+      renderLimits((d && d.limits) || []);
+    }).catch(function (e) { toast(e.message, "err"); });
+  }
+
+  function renderBands(rows) {
+    var body = $("bands-rows");
+    if (!body) return;
+    body.innerHTML = "";
+    if (!rows.length) {
+      var er = el("tr", "empty-row");
+      var ec = el("td", null, "No private bands yet \u2014 hide a model on SHARE to mint one.");
+      ec.colSpan = 5; er.appendChild(ec); body.appendChild(er);
+      return;
+    }
+    rows.forEach(function (b) {
+      var tr = el("tr");
+      // The cosmetic DIAL only. Only the hash of the code is stored, so there is nothing
+      // else to show and a placeholder would read as the real thing.
+      tr.appendChild(el("td", "mono", b.display || b.id));
+      tr.appendChild(el("td", null, b.label || "\u2014"));
+      // WHERE it lives. "another machine" and "here, server stopped" have completely
+      // different remedies, so they must not render the same.
+      var where = b.model || (b.here ? b.node_id : "another machine");
+      tr.appendChild(el("td", "mono small", where));
+      var st = el("td");
+      st.appendChild(el("span", b.status === "active" ? "pill live" : "pill", b.status || "\u2014"));
+      tr.appendChild(st);
+
+      var act = el("td", "row-actions");
+      if (b.status === "active") {
+        act.appendChild(bandBtn("name", "name", b.id, "btn small ghost"));
+        act.appendChild(bandBtn("rotate", "new code", b.id, "btn small"));
+        act.appendChild(bandBtn("revoke", "revoke", b.id, "btn small danger"));
+      } else {
+        // A revoked row is history. Before `forget` existed nothing could remove it, so
+        // dead entries piled up around the live band.
+        act.appendChild(bandBtn("forget", "forget", b.id, "btn small ghost"));
+      }
+      act.setAttribute("data-node", b.node_id || "");
+      tr.appendChild(act);
+      body.appendChild(tr);
+    });
+  }
+
+  function bandBtn(act, label, id, cls) {
+    var b = el("button", cls, label);
+    b.setAttribute("data-band-act", act);
+    b.setAttribute("data-band", id);
+    return b;
+  }
+
+  function renderLimits(rows) {
+    var body = $("limits-rows");
+    if (!body) return;
+    body.innerHTML = "";
+    if (!rows.length) {
+      var er = el("tr", "empty-row");
+      var ec = el("td", null, "No bands yet."); ec.colSpan = 4;
+      er.appendChild(ec); body.appendChild(er);
+      return;
+    }
+    rows.forEach(function (r) {
+      var tr = el("tr");
+      var nameCell = el("td", "mono");
+      nameCell.appendChild(document.createTextNode(r.model));
+      if (r.on_air) nameCell.appendChild(el("span", "pill live", "on air"));
+      tr.appendChild(nameCell);
+      tr.appendChild(limitCell(r.model, "max_out", r.max_out));
+      tr.appendChild(limitCell(r.model, "min_tps", r.min_tps));
+      var act = el("td", "row-actions");
+      var save = el("button", "btn small", "save");
+      save.setAttribute("data-limit-save", r.model);
+      act.appendChild(save);
+      tr.appendChild(act);
+      body.appendChild(tr);
+    });
+  }
+
+  // limitCell renders an editable cap. An UNSET cap is an EMPTY box, never 0 - a printed
+  // zero reads as "refuse everything", which is the opposite of no cap.
+  function limitCell(model, field, v) {
+    var td = el("td", "num");
+    var i = el("input", "inp tiny");
+    i.type = "number"; i.min = "0"; i.step = field === "max_out" ? "0.01" : "1";
+    i.placeholder = "no cap";
+    i.value = Number(v) > 0 ? String(v) : "";
+    i.setAttribute("data-limit", model);
+    i.setAttribute("data-field", field);
+    td.appendChild(i);
+    return td;
+  }
+
+  function saveLimit(model) {
+    function val(field) {
+      var i = document.querySelector('[data-limit="' + CSS.escape(model) + '"][data-field="' + field + '"]');
+      var n = i && i.value !== "" ? Number(i.value) : 0;
+      return isFinite(n) && n > 0 ? n : 0;
+    }
+    apiPost("/api/limits", { model: model, max_out: val("max_out"), min_tps: val("min_tps") })
+      .then(function () { toast("saved " + model); loadSettings(); })
+      .catch(function (e) { toast(e.message, "err"); });
+  }
+
+  function bandAction(act, id, node) {
+    if (act === "name") {
+      var name = window.prompt("Name this band (empty clears it)", "");
+      if (name === null) return;
+      apiPost("/api/bands/label", { id: id, label: name })
+        .then(function () { toast("named"); loadSettings(); })
+        .catch(function (e) { toast(e.message, "err"); });
+      return;
+    }
+    if (act === "rotate") {
+      // The cost is the whole difference from a move, so it is the confirm.
+      if (!window.confirm("Mint a new code for this band?\n\nThe current code stops working immediately - everyone you gave it to is cut off until you send them the new one. The band keeps its dial, model and slot.")) return;
+      apiPost("/api/bands/rotate", { id: id }).then(function (d) {
+        // SHOWN ONCE: the broker keeps only the hash, so this is the only moment it
+        // exists anywhere.
+        $("band-code-value").textContent = (d && d.code) || "";
+        $("band-code-note").textContent = "the old code stopped working \u2014 this replaces it";
+        show($("band-code-card"), true);
+        loadSettings();
+      }).catch(function (e) { toast(e.message, "err"); });
+      return;
+    }
+    if (act === "revoke") {
+      if (!window.confirm("Revoke this band?\n\nIts code stops working immediately and can never be revived. Everyone tuned in is cut off. To keep the code and change the model instead, move it.")) return;
+      apiPost("/api/bands/revoke", { id: id, model: node })
+        .then(function () { toast("revoked"); loadSettings(); })
+        .catch(function (e) { toast(e.message, "err"); });
+      return;
+    }
+    if (act === "forget") {
+      apiPost("/api/bands/forget", { id: id })
+        .then(function () { toast("forgotten"); loadSettings(); })
+        .catch(function (e) { toast(e.message, "err"); });
     }
   }
 
@@ -1050,6 +1209,29 @@
       var closeBtn = e.target.closest("[data-close]");
       if (closeBtn) { closeModal(); return; }
     });
+
+    // settings: band actions, limit saves, the one-time code card
+    var bandsRows = $("bands-rows");
+    if (bandsRows) bandsRows.addEventListener("click", function (e) {
+      var btn = e.target.closest("button[data-band-act]");
+      if (!btn) return;
+      var node = btn.parentNode ? btn.parentNode.getAttribute("data-node") : "";
+      bandAction(btn.getAttribute("data-band-act"), btn.getAttribute("data-band"), node || "");
+    });
+    var limitRows = $("limits-rows");
+    if (limitRows) limitRows.addEventListener("click", function (e) {
+      var btn = e.target.closest("button[data-limit-save]");
+      if (btn) saveLimit(btn.getAttribute("data-limit-save"));
+    });
+    var refresh = $("btn-settings-refresh");
+    if (refresh) refresh.addEventListener("click", loadSettings);
+    var bcc = $("band-code-copy");
+    if (bcc) bcc.addEventListener("click", function () {
+      var v = $("band-code-value").textContent || "";
+      if (navigator.clipboard) navigator.clipboard.writeText(v).then(function () { toast("copied"); });
+    });
+    var bcd = $("band-code-dismiss");
+    if (bcd) bcd.addEventListener("click", function () { show($("band-code-card"), false); });
 
     // share table action delegation
     $("share-rows").addEventListener("click", function (e) {

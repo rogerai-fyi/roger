@@ -39,6 +39,14 @@ type Options struct {
 	Broker   string
 	User     string // signed user id (X-Roger-User)
 	ClientID string // GitHub OAuth client id for the device-flow login
+	// ReadLimits / WriteLimit expose the operator's PER-BAND spend caps to the console.
+	// They are wired to the SAME store the TUI's [3] CONFIG edits: two copies would let
+	// the browser and the terminal disagree about what the operator is willing to pay,
+	// and the one that loses is whichever wrote first. Nil = the node cannot edit them
+	// (the console then shows the table as unavailable rather than empty, which would
+	// read as "you have no caps").
+	ReadLimits func() map[string]SpendLimit
+	WriteLimit func(model string, l SpendLimit)
 }
 
 // Server is the node console HTTP server. It is safe for concurrent requests: all live
@@ -106,6 +114,12 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/payout/onboard", s.action(s.handlePayoutOnboard))
 	s.mux.HandleFunc("/api/payout/request", s.action(s.handlePayoutRequest))
 	s.mux.HandleFunc("/api/payout/history", s.auth(s.handlePayoutHistory))
+	// SETTINGS: the fuller surface. Per-band spend caps and private-band management were
+	// TUI-only, so an operator working in the browser could neither see the limits
+	// bounding their spend nor manage a band once it existed.
+	s.mux.HandleFunc("/api/limits", s.auth(s.handleLimits)) // GET reads, POST sets one band
+	s.mux.HandleFunc("/api/bands", s.auth(s.handleBands))
+	s.mux.HandleFunc("/api/bands/", s.action(s.handleBandAction))
 	s.mux.HandleFunc("/api/grants", s.auth(s.handleGrants)) // GET lists, POST creates
 	// Browse (the open-market discover feed).
 	s.mux.HandleFunc("/api/browse", s.auth(s.handleBrowse))
