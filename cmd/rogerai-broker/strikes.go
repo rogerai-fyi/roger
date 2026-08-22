@@ -19,6 +19,17 @@ import (
 // is warned, then BANNED durably so the operator cannot return under a fresh node id /
 // callsign / grant key. The evidence is non-repudiable (the node's own signed claim vs
 // the broker's recount) so the operator can be SHOWN exactly why.
+//
+// A FOURTH SIGNAL ARRIVES FROM THE EDGE (TOWER) PATH and is raised in toweraudit.go
+// rather than here, because its evidence is tower-path objects: flagStationMisreport,
+// store.StrikeStationMisreport. It enters through strikeAccount below rather than
+// strike(), for the one reason that decides who is punished - an edge Station's owner is
+// the canonicalized account key ON ITS ATTACHMENT, and resolving it from a node id
+// instead would either strike nobody (a Station need not carry a node join) or strike
+// whoever that node id belongs to, who is not necessarily the same party. Everything
+// past the account resolution - the hold, the decay window, the corroboration guard, the
+// warn/ban ladder, the evidence blob, the appeal - is the SAME machinery, deliberately:
+// a second policy would have to re-earn every one of those properties.
 
 // defaultStrikeWarnAt / defaultStrikeBanAt are the warn + ban thresholds for the
 // ACCUMULATING signals (empty-output, recount over-report): tolerant of one-off noise.
@@ -156,6 +167,35 @@ func (b *broker) strike(nodeID, kind, idemKey string, zeroDoubt bool, evidence m
 		return
 	}
 	acct, _ := b.ownerOf(nodeID)
+	b.strikeAccount(acct, "node", nodeID, kind, idemKey, zeroDoubt, evidence)
+}
+
+// strikeAccount is strike() with the ACCOUNT already resolved by the caller, and it is the
+// whole of the ladder: the hold, the decay window, the corroboration guard, the warn/ban
+// escalation and the notices all live here, so every signal class gets the same treatment
+// whatever resolved its owner.
+//
+// It exists because there is more than one way to name the party a consequence belongs to,
+// and only one of them is a node id. A node's owner is the binding AccountOfNode holds; an
+// edge Station's owner is the account key written onto its ATTACHMENT at attach time. Those
+// are the same account for a machine that runs both halves, and they are NOT the same
+// question - a Station may carry no node join at all, and a node id resolves to whoever
+// registered it. Passing an id of the wrong kind through the wrong resolver is how a strike
+// lands on the wrong operator, so the resolver is the caller's decision and this function
+// takes only the answer.
+//
+// subjectKind/subject are the identity to print beside the owner in the operational log -
+// "node"/<node id> or "station"/<station id>. They are evidence for a human, never an input
+// to the ladder: nothing below reads them.
+//
+// An empty account records NOTHING. The underlying store already no-ops on one, but that
+// silence would be indistinguishable from a strike that landed, and a caller that could not
+// work out whose fault something was must not get a hold and a ban decision computed against
+// the empty string.
+func (b *broker) strikeAccount(acct, subjectKind, subject, kind, idemKey string, zeroDoubt bool, evidence map[string]any) {
+	if b.db == nil || acct == "" {
+		return
+	}
 	ev, _ := json.Marshal(evidence)
 	if _, err := b.db.OwnerStrike(acct, kind, string(ev), idemKey); err != nil {
 		log.Printf("strike: OwnerStrike(acct=%s kind=%s) failed: %v", acct, kind, err)
@@ -184,8 +224,8 @@ func (b *broker) strike(nodeID, kind, idemKey string, zeroDoubt bool, evidence m
 		windowed, distinctKinds = 1, 1 // fail SOFT: never escalate to a ban on a read error
 	}
 	corroborated := distinctKinds >= b.strikeCorroborateKinds
-	log.Printf("STRIKE owner=%s node=%s kind=%s windowed=%d kinds=%d (warn=%d ban=%d corroborate=%d decayDays=%d zeroDoubt=%v)",
-		acct, nodeID, kind, windowed, distinctKinds, b.strikeWarnAt, b.strikeBanAt, b.strikeCorroborateKinds, b.strikeDecayDays, zeroDoubt)
+	log.Printf("STRIKE owner=%s %s=%s kind=%s windowed=%d kinds=%d (warn=%d ban=%d corroborate=%d decayDays=%d zeroDoubt=%v)",
+		acct, subjectKind, subject, kind, windowed, distinctKinds, b.strikeWarnAt, b.strikeBanAt, b.strikeCorroborateKinds, b.strikeDecayDays, zeroDoubt)
 	switch {
 	case zeroDoubt:
 		// Zero-doubt (impossible-input): arithmetic proof, immediate durable ban.

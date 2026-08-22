@@ -682,6 +682,23 @@ const (
 	// the work is served and never billed - without a strike a broken or hostile node
 	// could do that indefinitely with only a log line.
 	StrikeReceiptUnbound = "receipt-unbound"
+	// StrikeStationMisreport: an edge Station signed two incompatible accounts of ONE
+	// attempt. It is the classic recount-discrepancy offence arriving over the Tower path,
+	// and it is recorded as its own class rather than folded into that one because the
+	// EVIDENCE is a different object - digests and byte lengths under a Station's assertion
+	// key, not a broker re-count of a node's token claim - and an operator reading their own
+	// strikes has to be able to tell which machine and which fabric a finding came from.
+	//
+	// ONE CLASS FOR BOTH EDGE CONTRADICTIONS (a transcript whose digests are not the
+	// receipt's, and a usage claim that is not the length of the bytes the Station signed
+	// for) IS DELIBERATE, and it is the proportionality decision rather than a naming one.
+	// Both readings come out of the same audit of the same wanted row, so splitting them
+	// would let ONE defect in that reading - or one Station that frames its prompts
+	// differently from what it bills - reach the corroborated-ban threshold on its own,
+	// which is precisely what strikeCorroborateKinds exists to prevent. As one class an
+	// edge-only offender is HELD (earnings frozen from the first proven contradiction) and
+	// WARNED, and can be banned only with a second, independent signal class beside it.
+	StrikeStationMisreport = "station-misreport"
 )
 
 // Appeal is one operator-filed self-serve appeal against an anti-abuse action (a node

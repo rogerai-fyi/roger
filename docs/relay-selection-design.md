@@ -1553,6 +1553,92 @@ Still open after round five, and worth naming so the next reader does not have t
   more and `RetireDormant` ends it. What was missing was only the heartbeating-but-unserving
   case, and that is now on the slow clock rather than on a new gallows.
 
+  **~~What was deliberately NOT built.~~ HALF OF IT IS BUILT IN ROUND SEVEN, by founder
+  authorisation.** The paragraph above is right that there is no station-suspension state to
+  reuse and that inventing one needs the founder. What it did not notice is that the CONSEQUENCE
+  for this exact offence already exists and is not a suspension at all. Read it, then read round
+  seven.
+
+  ---
+
+  #### Round seven: the consequence already existed, on the other fabric
+
+  **Closed 2026-08-21 on `release/v5.7.0`, founder-authorised.** Round six's own author named the
+  hole it left: *"Collusion (Station inflates, Tower relays) now results in a recorded
+  `StationFault` and no suspension. That is a real reduction in enforcement, and the honest remedy
+  is a Station-level consequence you'd have to authorise."* It was right to stop there and right
+  about the remedy. It was wrong about one thing, and the correction is the whole of this round:
+  the remedy did not have to be invented.
+
+  **What was already there.** `cmd/rogerai-broker/strikes.go` is an owner-keyed anti-abuse ladder
+  with decay-windowed counting, a corroboration floor, an evidence blob, idempotency, a reversible
+  earnings hold, a warn-then-ban escalation, a transactional notice, a self-serve appeal and an
+  admin forgive. The CLASSIC fabric has always struck an owner for precisely this offence - a node
+  billing for work it did not do - through `flagRecountOver`. The edge path called none of it:
+  there was no `OwnerStrike` anywhere in `toweredge.go` or `toweraudit.go`. So this round wires the
+  edge finding into the existing ladder rather than building a station-suspension state beside it,
+  for the same reason round six preferred the probe budget to an exclusion: a new mechanism would
+  have to re-earn the decay, the evidence and the way back that this one already has.
+
+  **What triggers it, and nothing else does.** Only the `stationFault` arm of a failed transcript
+  audit, which is the two self-incrimination findings from round six's table:
+
+  | trigger | why the Station cannot disown it |
+  |---|---|
+  | a transcript that VERIFIES under the attachment's assertion key and contradicts the digests that same key signed into the receipt | it signed both statements |
+  | a usage claim contradicted by byte lengths that hash to those same signed digests | it signed the claim and it signed the bytes |
+
+  **And the rule from round six holds without a qualifier: every consequence requires material the
+  Tower cannot produce.** Walk what a hostile Tower can do to this handler and every path leads
+  somewhere else. Stay silent - the overdue sweep records an `AuditMismatch` against the TOWER.
+  Forward `available:false` - the excuse stays the Tower's, unverifiable and therefore its own.
+  Forge a transcript - it would need the assertion key, and verification runs against the key on
+  the ATTACHMENT row, never a key from the message. Replay a real transcript from another attempt -
+  the signed attempt id is compared and the submission is a 400 with no finding at all. Corrupt the
+  loose plaintext it supplies - that is the branch round six moved BACK to the Tower, and it is
+  what keeps this from being a laundry. Lie in its own settle body - the four figures this audit
+  compares (`RequestDigest`, `ResponseDigest`, `UsageIn`, `UsageOut`) are read off the receipt
+  after `ParseReceipt` verified it under the attachment key; the only numbers the Tower supplies,
+  `wire_in`/`wire_out`, are read solely by the branch that blames the Tower. A Tower that could
+  reach this trigger would be holding the Station's assertion key, at which point it is not
+  relaying for that Station, it IS that Station.
+
+  **Which account.** `Attachment.Owner` - the canonicalized account key `accountKeyOfPubkey` writes
+  at attach, the same key the Station's earning lots are minted under and the same namespace
+  `store.OwnerStrike` is keyed on. Deliberately NOT resolved through `AccountOfNode`: the node join
+  is optional on an attachment, and where it exists it names whoever registered that node id, which
+  is a second question with a possibly different answer. A Tower operator and a Station owner are
+  different accounts; the tower id is on the evidence blob and nowhere near the account. An owner
+  that cannot be resolved records nothing at all - the ledger row already names the Station, and a
+  strike against a guess is worse than a finding with no consequence.
+
+  **Idempotency: the attempt id.** The offence IS one attempt - one grant, one receipt, one
+  transcript, one contradiction between them - so the key is stable under every re-drive there is:
+  a courier re-forwarding on its fifteen-second spool, a peer instance handed the same submission,
+  an operator's evidence re-read. The Station id is not in the key because it is constant for a
+  given attempt, so adding it could only break the key and never tighten it.
+
+  **Proportion, and the way back, both of which are the existing policy rather than a new one.**
+  One signal class, accumulating, never zero-doubt. That is not a naming choice; it is the
+  containment. A Station that frames its prompts differently from the way it bills them trips the
+  usage arm every time and is a bug, not a fraud - so `strikeCorroborateKinds` holds an edge-only
+  offender at HELD-and-warned (earnings frozen from the first proven contradiction, which is the
+  consequence that was missing) and requires a second, independent signal class before a durable
+  ban. Recovery needed nothing added: the hold auto-expires after `ROGERAI_RECOUNT_HOLD_DAYS`, the
+  strike ages out of the ban window after `ROGERAI_STRIKE_DECAY_DAYS`, `GET /owner/strikes` shows
+  the operator this exact blob, and an admin unhold with `forgive` is a full reinstatement.
+
+  **Still deliberately NOT built, and this half of round six's paragraph stands.** There is no
+  station suspension, nothing touches the tower verdict or `StationFault`'s absence from
+  `Evaluate`, nothing touches placement, and nothing goes near `b.trust` - folding station canary
+  evidence into it would hand a black-holing Tower a lever over the paid-fabric score of every node
+  behind it, which is the reason it was kept out. And the third `StationFault` trigger - a session
+  key `SealTo` refuses - carries NO strike. It is a capability defect rather than a claim: an
+  X25519 point nothing can be sealed to is what an uninitialised buffer looks like, the Station
+  already earns nothing and is already demoted in placement, and an account-level earnings hold
+  would freeze an honest operator's OTHER machines over a startup-ordering bug. The right
+  consequence there is per-attachment, and per-attachment consequences do not exist.
+
 ### 5.7 Round five: option A, and why it needed no certificate authority
 
 **Status: DECIDED and IMPLEMENTED, founder-approved, on `release/v5.7.0`. NOT MANDATORY — see

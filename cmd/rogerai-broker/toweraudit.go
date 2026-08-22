@@ -33,6 +33,7 @@ import (
 	"net/http"
 	"time"
 
+	"rogerai.fm/roger/v5/internal/store"
 	"rogerai.fm/roger/v5/internal/towercore/audit"
 	"rogerai.fm/roger/v5/internal/towercore/dispatch"
 	"rogerai.fm/roger/v5/internal/towercore/envelope"
@@ -313,6 +314,14 @@ func (b *broker) towerAuditTranscript(w http.ResponseWriter, r *http.Request) {
 	// Two branches below take it back: the loose plaintext bytes (which the Tower supplies
 	// unsigned) and the wire count (which is the Tower's own attestation). Each says why.
 	stationFault := true
+	// The PROVEN plaintext lengths, when this audit gets far enough to prove them: the bytes
+	// hashed to the digests the Station signed, so their length is a fact rather than a claim,
+	// and it is the other half of the contradiction the usage branch below finds. Negative
+	// means never established - a transcript whose digests already disagree with the receipt
+	// is refused before any plaintext is looked at, and an evidence blob that printed a zero
+	// there would read as "the Station claimed 40 bytes and sent 0", which is a different and
+	// untrue accusation.
+	provenIn, provenOut := int64(-1), int64(-1)
 	if matches {
 		// The bytes must also hash to the signed digests, or the content Core is about to
 		// screen is not the content that was attested.
@@ -335,6 +344,7 @@ func (b *broker) towerAuditTranscript(w http.ResponseWriter, r *http.Request) {
 			// bytes than it signed for has misreported usage - attributable, because it signed both
 			// the receipt's usage and the transcript's bytes - and is treated as an audit mismatch.
 			matches = false
+			provenIn, provenOut = int64(len(reqBytes)), int64(len(respBytes))
 			result.Reason = fmt.Sprintf("usage misreported: receipt claimed in=%d out=%d, transcript bytes in=%d out=%d",
 				wanted.UsageIn, wanted.UsageOut, len(reqBytes), len(respBytes))
 		} else {
@@ -374,6 +384,15 @@ func (b *broker) towerAuditTranscript(w http.ResponseWriter, r *http.Request) {
 			// prevented.
 			outcome = reputation.StationFault
 			who = "STATION"
+			// AND THE CONSEQUENCE, which until now this branch did not have. Recording a
+			// StationFault and stopping there was an honest half-measure with a hole in it that
+			// the change which introduced it named out loud: collusion (a Station inflates, its
+			// Tower relays) produced a row in a ledger nothing acts on, so the enforcement that
+			// used to exist - wrongly, against the Tower - was removed and nothing replaced it.
+			// This is the founder-authorised replacement, and it is deliberately not a new
+			// mechanism: it is the owner-strike ladder the classic fabric has always used for
+			// exactly this offence, entered at flagStationMisreport.
+			b.flagStationMisreport(wanted, tr, result.Reason, provenIn, provenOut)
 		}
 		log.Printf("audit: attempt %s on tower %s did not match (%s's fault): %s",
 			req.AttemptID, req.TowerID, who, result.Reason)
@@ -420,6 +439,124 @@ func (b *broker) stationAssertionKey(stationID string) ([]byte, bool) {
 		return nil, false
 	}
 	return key, true
+}
+
+// flagStationMisreport records the STRIKE for the one class of edge finding a Station proved
+// against itself, against the account that owns that Station.
+//
+// # WHAT REACHES THIS FUNCTION, EXHAUSTIVELY
+//
+// Only the stationFault arm of a failed transcript audit, which is two findings:
+//
+//   - the transcript VERIFIES under the assertion key recorded at ATTACHMENT, over this
+//     attempt in this network, and its digests are not the ones that same key signed into the
+//     receipt;
+//   - or those digests agree, the carried plaintext hashes to them, and its LENGTH is not the
+//     usage that same receipt claimed.
+//
+// Both are self-incrimination: the Station signed both sides of a contradiction. That is the
+// strongest evidence in this system and it is the same offence - a node billing for work it
+// did not do - that observeRecount has always struck an owner for on the classic fabric.
+//
+// # WHY A HOSTILE TOWER CANNOT REACH EITHER TRIGGER
+//
+// This is the rule the attribution work turned on and it is not weakened by giving the finding
+// teeth: EVERY CONSEQUENCE REQUIRES MATERIAL THE TOWER CANNOT PRODUCE. Walk what a Tower is
+// able to do to this handler:
+//
+//   - Stay silent, drop the transcript, let the want go overdue. sweepAuditOverdue records an
+//     AuditMismatch against the TOWER and never reaches this line.
+//   - Answer `available:false`. That branch returns before the transcript is parsed; the
+//     excuse stays the Tower's, for the reason written there.
+//   - Forge a transcript. It would have to sign as the Station: towerobj.Verify is run against
+//     the key on the ATTACHMENT row, never a key from the message.
+//   - Replay a real transcript from another attempt. AuditTranscript compares the signed
+//     attempt id with this one and returns an error, which is a 400 and no finding at all.
+//   - Corrupt the loose plaintext it supplies. That is the VerifyBytes branch above, which
+//     sets stationFault=false, precisely so this is not a laundry.
+//   - Lie in its own settle body. Nothing the Tower sends at settlement reaches the two
+//     comparisons here: RequestDigest, ResponseDigest, UsageIn and UsageOut on the wanted row
+//     are all read off the receipt AFTER dispatch.ParseReceipt verified it under the
+//     attachment key (towerEdgeSettle), and wire_in/wire_out - the only figures the Tower
+//     does supply - are used solely by the wire-arbitration branch, which blames the Tower.
+//
+// So the trigger is unreachable without the Station's own assertion key, and a Tower that
+// holds one is not relaying for that Station, it IS that Station.
+//
+// # WHICH ACCOUNT, AND WHY NOT THE NODE'S
+//
+// at.Owner, off the attachment - the canonicalized account key accountKeyOfPubkey wrote there
+// at attach, which is the same key the Station's earning lots are minted under and the same
+// namespace store.OwnerStrike keys on. It is deliberately NOT resolved through the node join:
+// Attachment.NodeID is optional, and where it exists it names whoever registered that node,
+// which is a second question. A Tower operator and a Station owner are different accounts and
+// this must not be able to confuse them - the tower id is on the evidence blob and nowhere
+// near the account.
+//
+// An owner that cannot be resolved records NOTHING. The ledger row is already written and
+// names the Station; a strike against a guess would be worse than a finding with no
+// consequence, which is exactly the state this function was written to improve on.
+//
+// # IDEMPOTENCY
+//
+// Keyed on the ATTEMPT id, because the offence IS one attempt: one grant, one receipt, one
+// transcript, one contradiction between them. It is stable under every re-drive there is - the
+// courier re-forwards on a fifteen-second spool, a second broker instance can be handed the
+// same submission, and an operator re-examining the evidence changes nothing about which
+// attempt it was. The Station id is deliberately not in the key: it is constant for a given
+// attempt (findWanted returns the Station the want was filed under), so adding it could only
+// ever break the key, never tighten it. The prefix keeps it out of the way of the classic
+// path's keys, which the store's idem index shares globally.
+//
+// # PROPORTION
+//
+// One class, accumulating, never zero-doubt. A Station that frames its prompts differently
+// from the way it bills them will trip the usage arm every time and is a bug, not a fraud, so
+// it must not be bannable on its own evidence: strikeCorroborateKinds holds an edge-only
+// offender at HELD-and-warned - earnings frozen from the first contradiction, which is the
+// consequence that was missing - and requires a second, independent signal class before a
+// durable ban. Recovery is the machinery that already exists and needs nothing new here: the
+// hold auto-expires after recountHoldDays, the strike ages out of the ban window after
+// strikeDecayDays, GET /owner/strikes shows the operator this evidence blob, and an admin
+// unhold with forgive is a full reinstatement.
+func (b *broker) flagStationMisreport(wanted audit.Wanted, tr dispatch.SignedTranscript, reason string, provenIn, provenOut int64) {
+	ts := b.tower
+	if ts == nil || ts.stations == nil {
+		return
+	}
+	at, found, err := ts.stations.Station(wanted.StationID)
+	if err != nil || !found || at.Owner == "" {
+		log.Printf("audit: station %s contradicted its own receipt on attempt %s but its owner could not be resolved (found=%t err=%v) - the finding stands on the ledger; no strike is recorded against a guess",
+			wanted.StationID, wanted.AttemptID, found, err)
+		return
+	}
+	// WHAT A HUMAN READS WHEN THE OPERATOR APPEALS. Enough to RE-DERIVE the finding rather than
+	// take it on trust: which key signed, which two statements it signed, and where they part.
+	// The assertion key is on it because it is the whole argument - an operator disputing this
+	// is disputing that their own machine signed both of these, and the key is what they would
+	// check that against.
+	evidence := map[string]any{
+		"fabric":                     "edge",
+		"attempt_id":                 wanted.AttemptID,
+		"tower_id":                   wanted.TowerID,
+		"station_id":                 wanted.StationID,
+		"station_assertion_key":      at.AssertionKey,
+		"receipt_request_digest":     wanted.RequestDigest,
+		"receipt_response_digest":    wanted.ResponseDigest,
+		"transcript_request_digest":  tr.RequestDigest,
+		"transcript_response_digest": tr.ResponseDigest,
+		"receipt_usage_in":           wanted.UsageIn,
+		"receipt_usage_out":          wanted.UsageOut,
+		"reason":                     reason,
+		"note":                       "the Station signed two incompatible accounts of one attempt under its own attachment key",
+	}
+	if provenIn >= 0 {
+		// Only where the audit actually got to prove them. See provenIn's declaration.
+		evidence["proven_bytes_in"] = provenIn
+		evidence["proven_bytes_out"] = provenOut
+	}
+	b.strikeAccount(at.Owner, "station", wanted.StationID, store.StrikeStationMisreport,
+		"stationaudit:"+wanted.AttemptID, false, evidence)
 }
 
 // screenAuditedContent is where content moderation runs on Tower-served traffic. It is a seam
