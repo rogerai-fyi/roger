@@ -301,6 +301,24 @@
            and cashes out the same way. Traffic through any one Tower is early, so expect
            that figure to start at zero and follow demand rather than the day you install.</p>
 
+        <!-- Standalone. The page above is entirely about joining the public network, which
+             left the other half of what this binary does undocumented here: a Tower that
+             joins nothing. It is the answer to "can I use this on my own machines" and it
+             was reachable only by running `roger-tower --help`. -->
+        <p class="run__note"><b>Or join nothing at all.</b> A Tower does not have to be part of this network. In
+           <b>standalone</b> mode it needs <b>no account</b> and makes <b>no outbound
+           connection</b>: it mints its own local network and trust root, admits the machines
+           you invite, and routes between them. That is a private relay for your own local
+           models &ndash; a household, a lab, an air-gapped site &ndash; with nothing leaving
+           your machines and nobody to sign up with.</p>
+        <p class="run__note">Standalone routing is <b>free and locally accounted</b>. Every
+           receipt names your local network and claims nothing about RogerAI: there is no
+           credit, no payout and no platform share, and the configuration <b>refuses</b> a
+           payout setting rather than quietly defaulting it off. It is not an open relay
+           either &ndash; only the client you admitted may route through it. The
+           <a href="/manual.html#sTower">runbook</a> has the six commands, and two commented
+           example configurations ship in the repository under <code class="inline">packaging/tower/</code>.</p>
+
         <div class="research-actions">
           <a class="research-button research-button--primary" href="/manual.html#sTower">The Tower runbook</a>
           <a class="research-button" href="/payouts.html">Payouts</a>
