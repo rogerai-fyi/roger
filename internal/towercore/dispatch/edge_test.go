@@ -10,7 +10,10 @@ import (
 	"testing"
 	"time"
 
+	"encoding/hex"
+	"encoding/json"
 	"github.com/stretchr/testify/require"
+	"rogerai.fm/roger/v6/internal/towerobj"
 )
 
 func edgeRegistry(t *testing.T, now time.Time) (*Registry, ed25519.PublicKey) {
@@ -430,4 +433,63 @@ func TestEdgeGrantPinsThePrice(t *testing.T) {
 	bad.PriceOutMicros = -1
 	_, err = r.MintEdge(bad)
 	require.ErrorContains(t, err, "cannot be negative")
+}
+
+// ParseEdgeGrant's field-by-field refusals. MintEdge validates before signing, so none of
+// these corruptions can come from OUR Core - which is exactly why they were all at 0.0%:
+// the only way to produce one is a signer that is not MintEdge, and that is the case the
+// node-side parser exists for. A grant is Core-SIGNED but its fields still cross a trust
+// boundary at every node, and each malformed field must be refused by name rather than
+// parsed as zero - a "0" epoch that came from corruption would collide with a real epoch.
+func TestParseEdgeGrantRefusesEachCorruptFieldByName(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	_, corePriv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	corePub := corePriv.Public().(ed25519.PublicKey)
+
+	good := map[string]string{
+		"attempt_id": "att-1", "nonce": "n-1", "tower_id": "tw-1", "station_id": "st-1",
+		"station_epoch": "3", "model": "m", "modality": "text", "relay_name": "r",
+		"max_in": "1000", "max_out": "1000", "deadline": "1700000600",
+		"consumer_key": hex.EncodeToString(consumerPub()),
+	}
+	signedGrant := func(mutate func(map[string]string)) []byte {
+		obj := map[string]string{}
+		for k, v := range good {
+			obj[k] = v
+		}
+		mutate(obj)
+		body, merr := json.Marshal(obj)
+		require.NoError(t, merr)
+		signed, serr := towerobj.Sign(corePriv, "roger-public", TypeEdgeGrant, Version, body, "core_sig")
+		require.NoError(t, serr)
+		return signed
+	}
+
+	cases := map[string]struct {
+		mutate  func(map[string]string)
+		wantErr string
+	}{
+		"consumer key not hex":     {func(o map[string]string) { o["consumer_key"] = "zz" }, "consumer key is unreadable"},
+		"envelope key not hex":     {func(o map[string]string) { o["consumer_env_key"] = "zz" }, "envelope key is unreadable"},
+		"envelope key wrong size":  {func(o map[string]string) { o["consumer_env_key"] = "abcd" }, "envelope key is unreadable"},
+		"epoch not a number":       {func(o map[string]string) { o["station_epoch"] = "three" }, "epoch is not a number"},
+		"max_in not a number":      {func(o map[string]string) { o["max_in"] = "lots" }, "input ceiling is not a number"},
+		"max_out not a number":     {func(o map[string]string) { o["max_out"] = "lots" }, "output ceiling is not a number"},
+		"tok ceiling not a number": {func(o map[string]string) { o["max_tok_in"] = "x" }, "input token ceiling is not a number"},
+		"tok out not a number":     {func(o map[string]string) { o["max_tok_out"] = "x" }, "output token ceiling is not a number"},
+		"price in not a number":    {func(o map[string]string) { o["price_in_micros"] = "x" }, "input price is not a number"},
+		"price out not a number":   {func(o map[string]string) { o["price_out_micros"] = "x" }, "output price is not a number"},
+		"deadline not a time":      {func(o map[string]string) { o["deadline"] = "soon" }, "deadline is not a time"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, perr := ParseEdgeGrant(signedGrant(tc.mutate), corePub, "roger-public", "st-1", []byte("x"), now)
+			require.ErrorContains(t, perr, tc.wantErr)
+		})
+	}
+
+	// And the uncorrupted control parses, so the refusals above are the mutations' doing.
+	_, perr := ParseEdgeGrant(signedGrant(func(map[string]string) {}), corePub, "roger-public", "st-1", []byte("x"), now)
+	require.NoError(t, perr)
 }

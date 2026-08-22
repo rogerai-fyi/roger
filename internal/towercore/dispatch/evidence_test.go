@@ -404,3 +404,32 @@ func TestSignReceiptRejectsNegativeTokenClaim(t *testing.T) {
 		[]byte("req"), []byte("x"), Usage{In: 1, Out: 1}, Usage{Out: -1})
 	require.ErrorContains(t, err, "negative token usage")
 }
+
+// A receipt whose token-usage fields are not numbers is refused by name. The token claim is
+// OPTIONAL - absent reads as "no claim" - so the dangerous corruption is a PRESENT field
+// that does not parse: treated as zero it would silently drop the station's token bill.
+func TestAReceiptWithUnreadableTokenUsageIsRefused(t *testing.T) {
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	pub := priv.Public().(ed25519.PublicKey)
+
+	for name, field := range map[string]string{
+		"input":  "tok_in",
+		"output": "tok_out",
+	} {
+		t.Run(name, func(t *testing.T) {
+			body, merr := json.Marshal(map[string]string{
+				"network": "roger-public", "type": TypeReceipt, "version": towerobj.FormatInt(Version),
+				"attempt_id": "att-1", "station_id": "st-1",
+				"response_digest": digestOf([]byte("a")),
+				"usage_in":        "1", "usage_out": "2",
+				field: "a-lot",
+			})
+			require.NoError(t, merr)
+			signed, serr := towerobj.Sign(priv, "roger-public", TypeReceipt, Version, body, "station_sig")
+			require.NoError(t, serr)
+			_, perr := ParseReceipt(signed, pub, "roger-public", "att-1", "st-1")
+			require.ErrorContains(t, perr, "token usage is not a number")
+		})
+	}
+}
