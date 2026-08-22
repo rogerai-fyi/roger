@@ -1081,6 +1081,25 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
               over the minimum. RogerAI never stores your
               identity documents; Stripe holds those.</p>
 
+            <div class="man-note">
+              <span class="man-note__tag">if your earnings stop</span>
+              <p>Earnings can be <b>held</b> - accrued, visible, not payable - when the broker
+                catches a node's own signed numbers contradicting each other. The usual cause is
+                a bug rather than fraud: a node that frames prompts one way and bills them
+                another trips it on every request. Either way the first thing to do is ask,
+                because nothing about it is meant to be a mystery.</p>
+              <pre><span class="p">$</span> roger drphil        <span class="c"># why am I not earning? config, reachability, upstream, and any hold or ban with its reason</span>
+<span class="p">$</span> roger appeal --reason "..."   <span class="c"># contest it; `roger appeal status` tracks it</span></pre>
+              <p>A hold is <b>not</b> a ban and does not need an appeal to end: it lifts by
+                itself after <b>7 days</b>, and the strike behind it stops counting toward a ban
+                after <b>30</b>. A ban needs several strikes (<b>5</b> in that window, with a
+                warning at <b>3</b>) <i>and</i> corroboration from more than one kind of signal -
+                so one repeated fault, however often it fires, warns and holds but does not ban
+                on its own. The evidence behind every strike is yours to read: what was signed,
+                by which key, and what it contradicted, so you can find the bug rather than
+                argue about it.</p>
+            </div>
+
             <h3>Cash out from the CLI</h3>
             <p>The whole payout flow is also headless. You must be logged in
               (<code>roger login</code>); Stripe KYC and a proven identity - a GitHub link, an
@@ -1169,6 +1188,8 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
                   <tr><td><code>logout</code></td><td>forget the local account link</td></tr>
                   <tr><td><code>whoami</code></td><td>show your signed identity + the account it is linked to</td></tr>
                   <tr><td><code>onboard</code></td><td>re-run the first-run setup (alias: <code>setup</code>)</td></tr>
+                  <tr><td><code>drphil</code></td><td>diagnose why your node is not earning - config, reachability, upstream, and the broker's own view of your account, including a hold or ban and its reason (aliases: <code>diagnose</code>, <code>doctor</code>)</td></tr>
+                  <tr><td><code>appeal</code></td><td>contest a strike, hold or ban: <code>--reason "..."</code> for the account, <code>--node &lt;id&gt;</code> for one node, <code>appeal status</code> to track it</td></tr>
                   <tr><td><code>config</code></td><td>broker, user, webui-open, palette, spend limits: <code>config get/set broker|user|webui-open|palette</code> · <code>config set-limit &lt;model|default&gt; --max-out P [--max-in P] [--min-tps N]</code> · <code>config clear-limit &lt;model&gt;</code> · <code>config limits</code> (see §8)</td></tr>
                   <tr><td><code>perms</code> <span class="man-note">[confirm|edits|all]</span></td><td>set the persisted default for the AGENT's tool-approval mode (also <code>/perms</code> / <kbd>ctrl+p</kbd> in the app; <code>--yolo</code> / <code>--perms</code> override per run)</td></tr>
                   <tr><td><code>context</code></td><td>export / import a signed conversation capsule to hand a session off between <code>roger</code> and the app: <code>context export</code> · <code>context import &lt;file&gt;</code></td></tr>
