@@ -30,3 +30,4 @@ AuthKey_*.p8
 
 # Local restart handoffs (working notes, not public repo content)
 HANDOFF-*.md
+/roger-station
