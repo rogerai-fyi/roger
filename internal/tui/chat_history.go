@@ -96,13 +96,3 @@ func (m model) chatHistory(model string) []client.ChatTurn {
 	}
 	return picked
 }
-
-// chatMessages is chatHistory in the harness's shape, for the DIRECT (local) channel.
-func (m model) chatMessages(model string) []harness.Message {
-	hist := m.chatHistory(model)
-	out := make([]harness.Message, 0, len(hist)+1)
-	for _, t := range hist {
-		out = append(out, harness.Message{Role: t.Role, Content: t.Content})
-	}
-	return out
-}

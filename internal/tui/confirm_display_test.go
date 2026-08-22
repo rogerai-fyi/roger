@@ -74,3 +74,49 @@ func TestAPendingConfirmLeavesNoStaleTranscriptLine(t *testing.T) {
 		t.Errorf("the gate must show the command it is asking about:\n%s", view)
 	}
 }
+
+// A DIRECT turn's failure must not send the operator to the marketplace. Nothing about it
+// went near the broker, so "put one on air with [2], or tune in [1]" is advice to fix a
+// thing that was never involved.
+func TestALocalFailureNamesTheLocalRemedy(t *testing.T) {
+	lines := localFailureHint("connection refused", "grok-4.6", false)
+	joined := stripANSI(strings.Join(lines, "\n"))
+	if !strings.Contains(joined, "DIRECT") && !strings.Contains(joined, "model server") {
+		t.Errorf("a direct failure must name the local server, got %q", joined)
+	}
+	if strings.Contains(joined, "on air with") {
+		t.Errorf("a direct failure sent the operator to the marketplace: %q", joined)
+	}
+	// A CONTEXT OVERFLOW is the one shape whose remedy is the same everywhere - the
+	// conversation outgrew the window, and neither the market nor the server is broken.
+	over := stripANSI(strings.Join(localFailureHint("maximum context length exceeded", "m", false), "\n"))
+	if !strings.Contains(over, "/clear") {
+		t.Errorf("an overflow must still offer /clear, got %q", over)
+	}
+	// Narrow keeps it short but still local.
+	nar := stripANSI(strings.Join(localFailureHint("connection refused", "m", true), "\n"))
+	if !strings.Contains(nar, "direct") {
+		t.Errorf("the narrow form lost the route: %q", nar)
+	}
+}
+
+// A DENIED tool settles the open row as refused rather than leaving it running forever.
+func TestADeniedToolSettlesItsRow(t *testing.T) {
+	m := privateTab(t)
+	mm := &m
+	mm.agentRuns = []toolRun{{Name: "run_shell", Status: toolRunning}}
+	mm.agentOpenRun = 0
+	mm.markAgentActivityDenied("run_shell")
+	if mm.agentRuns[0].Status == toolRunning {
+		t.Error("a denied tool was left showing as running")
+	}
+	// And with NO open row it records one, so the denial is visible at all.
+	m2 := privateTab(t)
+	m2m := &m2
+	m2m.agentRuns = nil
+	m2m.agentOpenRun = -1
+	m2m.markAgentActivityDenied("write_file")
+	if len(m2m.agentRuns) == 0 {
+		t.Error("a denial with no open row vanished")
+	}
+}

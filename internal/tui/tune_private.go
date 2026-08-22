@@ -77,12 +77,6 @@ type privRow struct {
 	here bool
 }
 
-// reachable reports whether Enter can do anything. A band is reachable when it is live
-// AND its model is served by a local server we know the URL of - the direct route.
-func (r privRow) reachable() bool {
-	return r.band.Status == "active" && r.chat != ""
-}
-
 // privRows builds the PRIVATE tab's list.
 //
 // Every band the account owns is listed, including the ones on other machines and the

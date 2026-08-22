@@ -979,6 +979,13 @@ type model struct {
 	// ~12 ports at 1.5s each, and /model is instant today precisely because it reads only
 	// in-memory state. See localModelsCmd.
 	localFound []detect.Found
+	// localScanning is true while the BACKGROUND scan of this machine's model servers is
+	// in flight. It exists because the scan's absence was indistinguishable from its
+	// result: /model on a freshly-launched app saw only the broker bands, and an operator
+	// who knew they had four local models read that as the app being wrong (founder
+	// 2026-08-22: "i thought something was wrong but after trying 3-4 times my local list
+	// showed up"). Anything that shows a model list has to be able to say "still looking".
+	localScanning bool
 	// Guest Operators (Phase 2, THE DESK): the async desk-scan result, the /operator
 	// picker modal, and the live handoff state. See operator.go.
 	operatorDetections []operator.Detection // detected guest CLIs (registry order)

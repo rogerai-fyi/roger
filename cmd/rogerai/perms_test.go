@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -86,5 +87,43 @@ func TestCmdPermsPersists(t *testing.T) {
 	}
 	if err := cmdPerms(loadConfig(), []string{"junk"}); err == nil {
 		t.Error("bad mode should error")
+	}
+}
+
+// `roger perms` is where an operator reads what will and will not ask before it runs. Its
+// wording is a safety claim, so the modes and their descriptions are asserted rather than
+// left to drift from what the loop actually gates.
+func TestPermsReportsAndPersistsEachMode(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	// The bare read names the effective default and where it came from.
+	out := captureStdout(t, func() {
+		if err := cmdPerms(config{}, nil); err != nil {
+			t.Fatalf("perms: %v", err)
+		}
+	})
+	if !strings.Contains(out, "web_fetch") || !strings.Contains(out, "run_shell") {
+		t.Errorf("the default must name every gated tool:\n%s", out)
+	}
+
+	for _, tc := range []struct{ mode, want string }{
+		{"edits", "run_shell still asks"},
+		{"all", "nothing asks"},
+		{"confirm", "ask y/N"},
+	} {
+		got := captureStdout(t, func() {
+			if err := cmdPerms(config{}, []string{tc.mode}); err != nil {
+				t.Fatalf("perms %s: %v", tc.mode, err)
+			}
+		})
+		if !strings.Contains(got, tc.want) {
+			t.Errorf("perms %s must say %q:\n%s", tc.mode, tc.want, got)
+		}
+	}
+
+	// An unknown mode is refused rather than silently persisted - a typo'd mode that
+	// quietly became "all" would remove every gate without saying so.
+	if err := cmdPerms(config{}, []string{"yolol"}); err == nil {
+		t.Error("an unknown perms mode was accepted")
 	}
 }

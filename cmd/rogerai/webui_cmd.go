@@ -51,7 +51,7 @@ func cmdWebui(cfg config, args []string) error {
 	// auto-open on the saved config. Reuse it whole rather than standing up a second
 	// launcher: a divergence here would mean the console you get from `roger webui`
 	// differs from the one `roger` gives you, in ways nobody would think to test.
-	url := startWebConsole(cfg, ctrl, port, limits)
+	url := webConsoleFor(cfg, ctrl, port, limits)
 	if url == "" {
 		return fmt.Errorf("could not bind a localhost port for the console")
 	}
@@ -60,16 +60,29 @@ func cmdWebui(cfg config, args []string) error {
 		openBrowser(url)
 	}
 	fmt.Println("the console is serving. ctrl-c to stop.")
-
-	// Block until interrupted. Every model this node is sharing keeps running for as long
-	// as the console does, so stopping must be an explicit act rather than the process
-	// falling off the end of main.
-	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
-	<-sig
+	waitForStop()
 	fmt.Println("\nconsole stopped.")
 	return nil
 }
+
+// webConsoleFor / waitForStop are the two seams that make cmdWebui testable, in the same
+// shape as runTUI / startWebConsoleFn in main.go.
+//
+// Without them the command was one unbroken run from "parse flags" to "block on SIGINT",
+// so a test could reach the flag handling and nothing else - and the parts a user actually
+// depends on (it binds, it reports the URL, it refuses cleanly when it cannot) went
+// unexercised. A server that blocks forever is not untestable; it is untestable at the
+// point where it blocks, and that point can be named.
+var (
+	webConsoleFor = startWebConsole
+	waitForStop   = func() {
+		// Every model this node is sharing keeps running for as long as the console does,
+		// so stopping must be an explicit act rather than the process falling off the end.
+		sig := make(chan os.Signal, 1)
+		signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
+		<-sig
+	}
+)
 
 func webuiUsage() {
 	fmt.Println(`roger webui - the browser console, on its own

@@ -201,3 +201,125 @@ func TestTheConsoleLandsOnChat(t *testing.T) {
 		t.Error("the SETTINGS tab is missing from the console shell")
 	}
 }
+
+// bandBroker stands up a broker stub for the console's band endpoints, recording what the
+// console actually sent so a test can prove the proxy carries the right band.
+func bandBroker(t *testing.T) (*httptest.Server, *[]string) {
+	t.Helper()
+	var calls []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls = append(calls, r.Method+" "+r.URL.Path)
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/bands":
+			_, _ = w.Write([]byte(`{"bands":[
+				{"id":"band_here","display":"145.225 MHz · ••••-••••","status":"active","node_id":"amber-fox-m1"},
+				{"id":"band_away","display":"147.520 MHz · ••••-••••","status":"active","node_id":"other-box-llama"},
+				{"id":"band_dead","display":"149.100 MHz · ••••-••••","status":"revoked","node_id":"amber-fox-m2"}]}`))
+		case strings.HasSuffix(r.URL.Path, "/rotate"):
+			_, _ = w.Write([]byte(`{"id":"band_here","display":"145.225 MHz · ••••-••••","code":"145.225 MHz · WXYZ-1234"}`))
+		default:
+			_, _ = w.Write([]byte(`{"ok":true}`))
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv, &calls
+}
+
+// The list JOINS the broker's bands to this machine's models, and the join must not split
+// a node id on "-": a station callsign can contain hyphens, so a split is a guess and a
+// wrong guess labels a band with the wrong model.
+func TestBandsListJoinsToThisMachinesModels(t *testing.T) {
+	up, _ := bandBroker(t)
+	s := New(testCtrl(), Options{Broker: up.URL, User: "u"})
+	srv := httptest.NewServer(s.Handler())
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/api/bands?t=" + s.Token())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var out struct {
+		Bands []bandView `json:"bands"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&out)
+	if len(out.Bands) != 3 {
+		t.Fatalf("want 3 bands, got %d", len(out.Bands))
+	}
+	byID := map[string]bandView{}
+	for _, b := range out.Bands {
+		byID[b.ID] = b
+	}
+	if byID["band_here"].Model != "m1" || !byID["band_here"].Here {
+		t.Errorf("a band on this station did not resolve to its model: %+v", byID["band_here"])
+	}
+	if byID["band_away"].Model != "" || byID["band_away"].Here {
+		t.Errorf("a band on another machine resolved locally: %+v", byID["band_away"])
+	}
+	// And no row carries anything secret - only the masked display the broker persists.
+	for _, b := range out.Bands {
+		if strings.Contains(b.Display, "WXYZ") {
+			t.Errorf("a band row carried a resolvable code: %+v", b)
+		}
+	}
+}
+
+// ROTATE returns the one-time code straight to the browser. It has its own path precisely
+// so a caller logging a band view can never log a secret.
+func TestBandRotateReturnsTheOneTimeCode(t *testing.T) {
+	up, calls := bandBroker(t)
+	s := New(testCtrl(), Options{Broker: up.URL, User: "u"})
+	srv := httptest.NewServer(s.Handler())
+	defer srv.Close()
+
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/api/bands/rotate?t="+s.Token(),
+		strings.NewReader(`{"id":"band_here"}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var out map[string]any
+	_ = json.NewDecoder(resp.Body).Decode(&out)
+	if out["code"] != "145.225 MHz · WXYZ-1234" {
+		t.Errorf("the new code did not reach the browser: %+v", out)
+	}
+	found := false
+	for _, c := range *calls {
+		if strings.HasSuffix(c, "/rotate") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("rotate did not hit the broker's rotate path: %v", *calls)
+	}
+}
+
+// label / revoke / forget each proxy to the broker and report ok. Revoke also reconciles
+// the node: the band is gone broker-side, and a machine left registered private behind it
+// would be hidden from the market and reachable by nobody.
+func TestTheOtherBandActionsProxy(t *testing.T) {
+	for _, act := range []string{"label", "revoke", "forget"} {
+		up, calls := bandBroker(t)
+		s := New(testCtrl(), Options{Broker: up.URL, User: "u"})
+		srv := httptest.NewServer(s.Handler())
+
+		body := `{"id":"band_here","label":"home gpu","model":"amber-fox-m1"}`
+		req, _ := http.NewRequest(http.MethodPost, srv.URL+"/api/bands/"+act+"?t="+s.Token(),
+			strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		srv.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("%s = %d, want 200", act, resp.StatusCode)
+		}
+		if len(*calls) == 0 {
+			t.Errorf("%s never reached the broker", act)
+		}
+	}
+}

@@ -517,6 +517,19 @@ func TestAgentResolutionPrefersOpenChannelOverLast(t *testing.T) {
 
 // TestSlashModelOneCandidateAutoSelects: /model with exactly one candidate auto-selects
 // it (no picker prompt) and re-points the agent.
+// scanSettled marks the BACKGROUND local-model scan as finished.
+//
+// AMENDED 2026-08-22: entering AGENT now fires that scan and records it as in flight, and
+// /model deliberately OPENS the picker while it is running even for a single candidate -
+// the set is known to be incomplete, and silently binding it is what made the founder
+// think /model had done nothing. In production the scan lands in seconds; in a test it
+// never lands at all, so a test asserting the SETTLED behaviour has to say so.
+func scanSettled(m tea.Model) tea.Model {
+	gm := asModel(m)
+	gm.localScanning = false
+	return gm
+}
+
 func TestSlashModelOneCandidateAutoSelects(t *testing.T) {
 	m := browseSeed(100)
 	// Exactly one candidate: a single recent band, no on-air discover bands.
@@ -527,6 +540,7 @@ func TestSlashModelOneCandidateAutoSelects(t *testing.T) {
 	m.lastConnected = nil
 	var am tea.Model = m
 	am, _ = am.Update(keyMsg("0")) // enter AGENT (no model resolved yet)
+	am = scanSettled(am)           // this test is about the SETTLED candidate set
 	am = typeLine(am, "/model")    // bare /model
 	gm := asModel(am)
 	if gm.agentPicker {
@@ -630,6 +644,7 @@ func TestSlashModelPickerChatOnly(t *testing.T) {
 			tm, _ = tm.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 			tm, _ = tm.Update(tc.offers)
 			tm, _ = tm.Update(keyMsg("0")) // enter AGENT (nothing tuned in this session)
+			tm = scanSettled(tm)           // these cases assert the SETTLED candidate set
 			tm = typeLine(tm, "/model")
 			gm := asModel(tm)
 			if gm.agentPicker != tc.wantPicker {

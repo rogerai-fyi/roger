@@ -355,6 +355,7 @@ func (m model) enterAgent() (tea.Model, tea.Cmd) {
 			m.autoTuning = true
 			m.agentIn.Focus()
 			m.status = stDim.Render("AGENT ready · esc exits")
+			m.localScanning = true
 			return m, tea.Batch(textinput.Blink, operatorScanCmd(), localModelsCmd(), autoTuneCmd(m.broker, m.scanned))
 		} else {
 			// A proxy holder exists but no model resolves (a disconnected / oddly-seeded
@@ -389,6 +390,7 @@ func (m model) enterAgent() (tea.Model, tea.Cmd) {
 	}
 	// Async desk scan (Guest Operators): LookPath + bounded version probes off the event
 	// loop, landing as operatorDetectedMsg - the same pattern as onSharesDetected.
+	m.localScanning = true
 	return m, tea.Batch(textinput.Blink, operatorScanCmd(), localModelsCmd())
 }
 
@@ -1669,7 +1671,20 @@ func (m model) openAgentModelPicker() (tea.Model, tea.Cmd) {
 			hintTuneOrShare(m.narrow()))
 		return m, nil
 	case 1:
-		// Exactly one candidate: just use it (obvious - no prompt).
+		// Exactly one candidate: just use it (obvious - no prompt) - UNLESS the background
+		// scan of this machine has not landed yet, in which case the candidate set is known
+		// to be incomplete and "obvious" is exactly what it is not.
+		//
+		// This was the trap the founder hit: /model on a freshly-launched app saw one broker
+		// band, silently bound it and closed, so the command looked like it had done nothing
+		// - and the local models they knew they had appeared only on the third or fourth
+		// try, once the scan happened to finish first.
+		if m.localScanning {
+			m.agentPicker = true
+			m.agentPickerRows = cands
+			m.agentPickerCursor = 0
+			return m, nil
+		}
 		m.pickAgentModel(cands[0].model)
 		return m, nil
 	default:
@@ -2329,7 +2344,15 @@ func (m model) agentView(w int) string {
 	// share tables. Only opens with 2+ candidates (one auto-selects), so it is always a
 	// real choice. NO_COLOR / narrow safe (shared styles + per-line clip).
 	if m.agentPicker {
-		b.WriteString("\n" + truncVisible("  "+stSelText.Render("pick a model")+stDim.Render(" - the agent will run on it"), w) + "\n")
+		head := stSelText.Render("pick a model") + stDim.Render(" - the agent will run on it")
+		if m.localScanning {
+			// SAY THAT THE LIST IS STILL GROWING. Without this the picker looks complete
+			// the moment it opens, so an operator picks from a set that is about to change
+			// under them - or concludes their local models are missing.
+			head = stSelText.Render("pick a model") + stDim.Render(" - ") +
+				stLive.Render("still scanning this machine") + stDim.Render(" for local models…")
+		}
+		b.WriteString("\n" + truncVisible("  "+head, w) + "\n")
 		localHeaded := false
 		for i, r := range m.agentPickerRows {
 			// The local models sit under their own heading, so "runs on my box, costs

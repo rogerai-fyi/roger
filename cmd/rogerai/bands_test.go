@@ -366,3 +366,23 @@ func hasCall(calls []string, want string) bool {
 	}
 	return false
 }
+
+// `roger bands forget` clears a REVOKED row - the only way to remove the dead history that
+// otherwise accumulates around a live band forever.
+func TestBandsForgetClearsARevokedRow(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	srv, calls := bandsBroker(t, oneBand)
+	cfg := config{Broker: srv.URL, User: "u_gh_1"}
+
+	out := captureStdout(t, func() {
+		if err := cmdBands(cfg, []string{"forget", "band_1"}); err != nil {
+			t.Fatalf("bands forget: %v", err)
+		}
+	})
+	if !strings.Contains(out, "forgot") {
+		t.Errorf("forget must report what it removed:\n%s", out)
+	}
+	if !hasCall(*calls, "POST /bands/band_1/forget") {
+		t.Errorf("forget did not hit the forget endpoint: %v", *calls)
+	}
+}

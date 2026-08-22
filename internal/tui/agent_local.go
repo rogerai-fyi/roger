@@ -113,6 +113,7 @@ func (m model) localAgentRows() []agentPickerRow {
 // past the end of a list that just changed under the operator.
 func (m model) onLocalModels(msg localModelsMsg) (tea.Model, tea.Cmd) {
 	m.localFound = msg.found
+	m.localScanning = false
 	if m.agentPicker {
 		m.agentPickerRows = m.agentPickerCandidates()
 		if m.agentPickerCursor >= len(m.agentPickerRows) {

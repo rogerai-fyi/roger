@@ -614,3 +614,43 @@ func TestAnEmptyRescanNamesTheRemedy(t *testing.T) {
 		t.Errorf("an empty re-scan must say no server was found, got %q", st)
 	}
 }
+
+// privReachPlain is the SELECTED row's verdict with styling stripped - the cursor row is
+// reverse-video and one accent governs it, so nested colours would fight the highlight.
+// It must say the same THING as the styled version, or the row changes meaning when you
+// move the cursor onto it.
+func TestTheSelectedRowSaysTheSameThing(t *testing.T) {
+	m := privateTab(t)
+	for i, r := range m.privRows() {
+		styled := stripANSI(m.privReach(r))
+		plain := privReachPlain(r)
+		// Compare the load-bearing word rather than the exact string: the styled form may
+		// carry a glyph the plain one drops.
+		for _, word := range []string{"on air", "off air", "revoked", "another machine", "not running"} {
+			if strings.Contains(styled, word) != strings.Contains(plain, word) {
+				t.Errorf("row %d disagrees about %q: styled=%q plain=%q", i, word, styled, plain)
+			}
+		}
+	}
+	// And the off-air row, which only appears when a model is served but not registered.
+	m.sharePrivate = map[string]bool{}
+	r := m.privRows()[0]
+	if !strings.Contains(privReachPlain(r), "off air") {
+		t.Errorf("the selected off-air row lost its state: %q", privReachPlain(r))
+	}
+}
+
+// A re-scan fired from the PRIVATE tab reports as a privateRescanMsg, NOT a
+// sharesDetectedMsg - the whole reason it exists is that the latter ends on the SHARE
+// table, which would teleport an operator looking at a band.
+func TestTheRescanCommandReportsAsItsOwnMessage(t *testing.T) {
+	cmd := privateRescanCmd("", "")
+	if cmd == nil {
+		t.Fatal("no re-scan command")
+	}
+	switch cmd().(type) {
+	case privateRescanMsg:
+	default:
+		t.Errorf("the re-scan reported as %T - it must not travel through onSharesDetected", cmd())
+	}
+}
