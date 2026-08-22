@@ -831,6 +831,40 @@ func (b *broker) towerInviteSweepOnce(now time.Time) {
 			log.Printf("tower outcomes: reaped %d aged-out outcome(s)", r)
 		}
 	}
+	// THE ATTEMPT TABLE, which is the same story as the invitations above and was still
+	// running. dispatch.Registry.Reap has existed since the package did, saying in its own
+	// comment that "an attempt table that only grows is a memory leak with a deadline
+	// attached" - and nothing in cmd/ or internal/ has ever called it. The store behind it is
+	// rogerai.tower_attempts, so it was never a memory leak: it is a durable table that gains
+	// a row on every single edge authorize and loses one never, for the life of the
+	// deployment. /tower/edge/authorize is rate-limited per account and capped at 32
+	// simultaneously-open attempts, which bounds the RATE and says nothing at all about the
+	// total.
+	//
+	// The horizon is the row's own deadline pushed back by attemptRetention(), and that
+	// margin is the whole of the care here - see attemptRetention for why sweeping at `now`
+	// would be a money bug rather than housekeeping. It is passed IN because the registry
+	// cannot know it; Reap used to invent `now` for itself, which is the likeliest reason
+	// nobody ever felt able to wire it.
+	if b.tower.dispatch != nil {
+		if an, aerr := b.tower.dispatch.Reap(now.Add(-attemptRetention())); aerr != nil {
+			log.Printf("tower attempts: sweep failed: %v", aerr)
+		} else if an > 0 {
+			log.Printf("tower attempts: reaped %d attempt(s) whose settlement window closed more than %s ago", an, attemptRetention())
+		}
+	}
+	// And the acknowledgements beside them, whose reaper was orphaned in exactly the same way
+	// and whose table grows on the same traffic - one row per acknowledged edge attempt, in
+	// rogerai.tower_acks, read only by the settlement of the attempt it names. Swept on the
+	// attempt table's horizon plus the attempt's own life, so an ack can never be dropped out
+	// from under a row that is still answering settlements; see ackRetention.
+	if b.tower.acks != nil {
+		if kn, kerr := b.tower.acks.Reap(now.Add(-ackRetention())); kerr != nil {
+			log.Printf("tower acks: sweep failed: %v", kerr)
+		} else if kn > 0 {
+			log.Printf("tower acks: reaped %d acknowledgement(s) whose attempt is long gone", kn)
+		}
+	}
 	// The funding ledger is DELIBERATELY NOT reaped here. A reputation outcome past its window
 	// is worthless, but an accrual is money owed until it is paid, and a timer that deleted it
 	// on age alone would silently discard debt no payout had discharged - the safe direction for

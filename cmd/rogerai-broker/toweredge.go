@@ -90,6 +90,58 @@ func edgeSettleGrace() time.Duration {
 	return g
 }
 
+// minAttemptRetention is the floor under how long a settled or expired dispatch row is kept
+// past its own deadline. It stands in for the derivation below when a deployment has disabled
+// the hold sweep, where there is no last-moment-money-can-move to derive anything from.
+const minAttemptRetention = 10 * time.Minute
+
+// attemptRetention is how long a dispatch attempt row outlives its OWN deadline before the
+// housekeeping sweep drops it, and it is deliberately not zero.
+//
+// dispatch.Registry.Reap's original comment argued the deadline made dropping safe "because
+// nothing may settle after it anyway". That is true of a FRESH settlement and false of the
+// repair beside it. Both attempt stores answer ErrAlreadySettled (and ErrAlreadyClaimed)
+// BEFORE they answer ErrExpired, and towerEdgeSettle turns the first of those into
+// `alreadySettled`, which exists precisely to re-run the idempotent wallet capture for a
+// settlement that committed the one-use swap and then faulted before the money moved. That
+// repair reads the row. Reaping at the instant of the deadline would delete it out from under
+// the one retry that can still pay two operators for work that was really done - and the
+// courier would get 404 "no such attempt", which towerjoin.SettleEdgeReceipt treats as
+// permanent and abandons, rather than the 403 that says the window closed.
+//
+// It also keeps the 410 the epoch fence exists to send. epochFenceMoved fires off the row,
+// before any deadline gate, and its log line is the only instrument in the tree counting what
+// placement mobility costs. A row swept the moment its deadline passes turns a late courier's
+// "this placement moved" into "no such attempt", which is the wrong sentence and an
+// undercount of the one number §6.3b's rarity claim will be checked against.
+//
+// SO THE ROW IS KEPT UNTIL ITS MONEY CANNOT MOVE, which is when the consumer's pre-auth hold
+// is reclaimed - holdTTL after authorize. The record's deadline is already authorize plus the
+// attempt lifetime plus edgeSettleGrace(), and the settle-window test pins that sum strictly
+// under holdTTL, so one further holdTTL past the deadline is comfortably past the hold. An
+// upper bound rather than the exact subtraction on purpose: being a few minutes generous costs
+// a few minutes of rows on a table that turns over in under ten, and being one second short
+// costs an operator their pay.
+func attemptRetention() time.Duration {
+	if h := holdTTL(); h > minAttemptRetention {
+		return h
+	}
+	return minAttemptRetention
+}
+
+// ackRetention is the same question for the acknowledgement table, answered from the attempt
+// table rather than independently: an acknowledgement is only ever read by the settlement of
+// the attempt it names, so it is dead exactly when that attempt's row is.
+//
+// Written as the sum of the terms rather than as a number, like minHoldTTL, so that changing
+// any of them moves this. An ack recorded at R belongs to an attempt authorized at some A <= R
+// whose row dies at A + towerAttemptLifetime + edgeSettleGrace() + attemptRetention(); since
+// A <= R, reaping acks recorded before that many units ago can never outlive a row that is
+// still answering settlements.
+func ackRetention() time.Duration {
+	return towerAttemptLifetime + edgeSettleGrace() + attemptRetention()
+}
+
 // edgeExecDeadline recovers the instant a dispatch record's WORK had to be finished by, which
 // is not the instant the record carries.
 //

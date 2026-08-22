@@ -352,7 +352,18 @@ func TestSettledAndExpiredAttemptsAreReaped(t *testing.T) {
 	require.Equal(t, 1, r.Pending())
 
 	now = now.Add(2 * time.Minute)
-	require.Equal(t, 1, r.Reap())
+
+	// THE HORIZON IS THE CALLER'S, and a cutoff behind the record's deadline takes nothing.
+	// This is the arm that makes the assertion below mean something: without it a Reap that
+	// deleted the whole table on any cutoff would pass exactly as well.
+	n, err := r.Reap(now.Add(-time.Hour))
+	require.NoError(t, err)
+	require.Zero(t, n, "a cutoff behind the deadline reaps nothing")
+	require.Equal(t, 1, r.Pending(), "and the dead-but-retained attempt is still there")
+
+	n, err = r.Reap(now)
+	require.NoError(t, err)
+	require.Equal(t, 1, n)
 	require.Zero(t, r.Pending())
 
 	// And the reaped attempt is gone rather than resurrectable.
@@ -430,7 +441,9 @@ func TestReapingSparesLiveAttempts(t *testing.T) {
 	fresh, err := r.Issue(target(stPub), []byte(`y`))
 	require.NoError(t, err)
 
-	require.Equal(t, 1, r.Reap())
+	n, err := r.Reap(now)
+	require.NoError(t, err)
+	require.Equal(t, 1, n)
 	require.Equal(t, 1, r.Pending())
 	_, err = r.Claim(fresh.AttemptID, "tw-1")
 	require.NoError(t, err, "the live attempt survived the sweep")

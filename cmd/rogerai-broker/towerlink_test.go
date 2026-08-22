@@ -26,6 +26,7 @@ import (
 	"rogerai.fm/roger/v5/internal/store"
 	"rogerai.fm/roger/v5/internal/towercore/admit"
 	"rogerai.fm/roger/v5/internal/towercore/attach"
+	"rogerai.fm/roger/v5/internal/towercore/dispatch"
 	"rogerai.fm/roger/v5/internal/towercore/inv"
 	"rogerai.fm/roger/v5/internal/towercore/link"
 	towerpolicy "rogerai.fm/roger/v5/internal/towercore/policy"
@@ -746,6 +747,71 @@ func TestExpiredInvitationsAreReapedAndConsumedOnesAreKept(t *testing.T) {
 	_, ok, err = b.tower.stationStore.Authorization("inv-spent")
 	require.NoError(t, err)
 	require.True(t, ok, "a consumed one stays - it is what answers a lost-response retry")
+}
+
+// THE ATTEMPT TABLE IS BOUNDED, AND ONLY PAST THE HORIZON THAT MAKES IT SAFE.
+//
+// dispatch.Registry.Reap shipped with nothing calling it, so rogerai.tower_attempts gained a
+// row on every edge authorize and lost one never. This asserts the wiring AND the margin, in
+// that order of importance: the middle row is the whole point. It is past its own deadline -
+// so a sweep that took "everything expired" would delete it - and it is inside
+// attemptRetention(), where towerEdgeSettle can still finish a settlement that committed the
+// one-use swap and then faulted before the money moved, and where the epoch fence can still
+// answer a late courier 410 instead of 404.
+//
+// Both directions are asserted on purpose. A reaper test that passes because nothing was ever
+// written, or because the horizon made every row ineligible, tests nothing at all.
+func TestTheAttemptTableIsSweptOnlyPastTheSettlementHorizon(t *testing.T) {
+	b, _ := towerTestBroker(t)
+	now := time.Now()
+	attempts := b.tower.dispatch.Store()
+
+	put := func(id string, deadline time.Time) {
+		require.NoError(t, attempts.Put(dispatch.Record{
+			AttemptID: id, JobID: "job-" + id, TowerID: "tw-1", StationID: "st-1",
+			StationEpoch: 1, Model: "m", Modality: "text", Nonce: "n-" + id,
+			Deadline: deadline, Grant: []byte("g"), Request: []byte("r"),
+			AssertionKey: make([]byte, ed25519.PublicKeySize), State: dispatch.StateIssued,
+		}))
+	}
+	// Live: its settlement window has not even closed.
+	put("att-live", now.Add(5*time.Minute))
+	// Dead but RETAINED: past its deadline, inside the retention margin. This one must survive.
+	put("att-retained", now.Add(-time.Minute))
+	// Past the deadline AND past the margin: nothing can be settled or repaired against it.
+	put("att-cold", now.Add(-attemptRetention()-time.Minute))
+
+	b.towerInviteSweepOnce(now)
+
+	for _, kept := range []string{"att-live", "att-retained"} {
+		_, ok, err := attempts.Get(kept)
+		require.NoError(t, err)
+		require.True(t, ok, "%s must survive the sweep - it is inside the settlement horizon", kept)
+	}
+	_, ok, err := attempts.Get("att-cold")
+	require.NoError(t, err)
+	require.False(t, ok, "an attempt past its deadline AND past the retention margin is only storage")
+}
+
+// The acknowledgement table beside it, whose reaper was orphaned the same way. Its rows are
+// stamped by the store at write time rather than by the caller, so the two arms are separated
+// by moving the SWEEP rather than the row: at wall-clock now the ack is far too young to
+// touch, and one hour on it is past ackRetention().
+func TestAcknowledgementsAreSweptOnceTheirAttemptIsLongGone(t *testing.T) {
+	b, _ := towerTestBroker(t)
+	require.NoError(t, b.tower.acks.Put("att-1", dispatch.Ack{
+		AttemptID: "att-1", ResponseDigest: "d", Signed: []byte("s"),
+	}))
+
+	b.towerInviteSweepOnce(time.Now())
+	_, ok, err := b.tower.acks.Get("att-1")
+	require.NoError(t, err)
+	require.True(t, ok, "a fresh acknowledgement belongs to an attempt that can still settle")
+
+	b.towerInviteSweepOnce(time.Now().Add(time.Hour))
+	_, ok, err = b.tower.acks.Get("att-1")
+	require.NoError(t, err)
+	require.False(t, ok, "past ackRetention nothing can read it - it is a row with no attempt")
 }
 
 // Banning an operator must reach the Tower policy's CACHED ban set at once.

@@ -424,16 +424,42 @@ func (r *Registry) Pending() int {
 	return n.Len()
 }
 
-// Reap drops attempts past their deadline, and reports how many went.
+// Reap drops attempts whose deadline is at or before `before`, and reports how many went.
 //
-// An attempt table that only grows is a memory leak with a deadline attached; the deadline
-// is exactly what makes dropping them safe, because nothing may settle after it anyway.
-func (r *Registry) Reap() int {
-	n, err := r.store.Reap(r.cfg.Now())
+// An attempt table that only grows is a memory leak with a deadline attached - and where the
+// store is the durable one it is not memory at all, it is a table on disk that grows for the
+// life of the deployment, one row per edge authorize, forever.
+//
+// THE CUTOFF IS THE CALLER'S, AND IT USED TO BE `now`. That reads as obviously right and is
+// precisely what made this method unsafe to call, which is the likeliest reason nothing ever
+// did. Two things are wrong with it.
+//
+// A Record's Deadline does not mean the same thing on both paths. On the relayed path it is
+// the grant's own deadline. On the EDGE path the broker writes the grant's deadline PLUS its
+// settlement grace ("the grant bounds execution, the record bounds evidence"), so the row is
+// already deliberately outliving the work, and a sweep at `now` is reasoning about a field
+// whose meaning it does not know.
+//
+// And "nothing may settle after the deadline" is true of a FRESH settlement only. ClaimByID
+// and Settle both carry `deadline > now`, so no new work closes past it - but BOTH stores
+// answer ErrAlreadySettled and ErrAlreadyClaimed BEFORE they answer ErrExpired, and that
+// ordering is load-bearing: it is what lets a broker finish a settlement that committed the
+// state swap and then faulted before the money moved. Sweeping at `now` would delete the row
+// out from under the one retry that can still pay an operator for work that was really done,
+// and the caller would see "no such attempt" instead of "too late" - a different sentence,
+// which some couriers act on differently.
+//
+// This package cannot weigh any of that: how long a settled attempt is still worth money is a
+// property of the consumer's funding hold, which lives in the broker and not here. So the
+// horizon arrives as an argument, like every other store cutoff in the tree, and the error is
+// returned rather than swallowed - a reaper whose DELETE fails silently reports a bounded
+// table while the table grows, which is the failure this whole method exists to prevent.
+func (r *Registry) Reap(before time.Time) (int, error) {
+	n, err := r.store.Reap(before)
 	if err != nil {
-		return 0
+		return 0, err
 	}
-	return int(n)
+	return int(n), nil
 }
 
 // SignReceipt is what a STATION produces. It lives here so both sides use one definition of
