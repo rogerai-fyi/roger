@@ -1990,6 +1990,61 @@ func wrapPlain(s string, n int) []string {
 	return out
 }
 
+// wrapCommand soft-wraps a shell command AT WHITESPACE, so a token is never split.
+//
+// wrapPlain cuts at exactly n runes, which turned `... | grep -v testdata | head -40` into
+// "…testda" / "ta | head -40" in the approval block. That is the worst place in the product
+// to break a word: the operator is being asked to approve THAT EXACT COMMAND, and a broken
+// token reads as a different one - `rm -rf /ho` / `me` is a sentence nobody should have to
+// reassemble under time pressure.
+//
+// A single token longer than the width still has to be shown, so it falls back to a hard
+// cut for that token alone: truncating it would hide the very thing being approved.
+func wrapCommand(s string, n int) []string {
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	if n < 1 {
+		return []string{strings.ReplaceAll(s, "\n", " ")}
+	}
+	var out []string
+	for _, line := range strings.Split(s, "\n") {
+		cur := ""
+		flush := func() {
+			if cur != "" {
+				out = append(out, cur)
+				cur = ""
+			}
+		}
+		for _, word := range strings.Fields(line) {
+			switch {
+			case cur == "" && len([]rune(word)) <= n:
+				cur = word
+			case len([]rune(cur))+1+len([]rune(word)) <= n:
+				cur += " " + word
+			case len([]rune(word)) <= n:
+				flush()
+				cur = word
+			default:
+				// One token wider than the line. Break IT rather than drop it.
+				flush()
+				r := []rune(word)
+				for len(r) > n {
+					out = append(out, string(r[:n]))
+					r = r[n:]
+				}
+				cur = string(r)
+			}
+		}
+		flush()
+		if len(strings.Fields(line)) == 0 {
+			out = append(out, "")
+		}
+	}
+	if len(out) == 0 {
+		out = append(out, "")
+	}
+	return out
+}
+
 // clipLine trims a value to a single, bounded line for the transcript.
 func clipLine(s string) string {
 	s = strings.TrimSpace(strings.ReplaceAll(s, "\n", " "))
@@ -2332,7 +2387,7 @@ func (m model) agentView(w int) string {
 			// is never approved blind on a single truncated line. The cmd is also NOT
 			// sandboxed (only the cwd is set), so the approver must see exactly what runs.
 			b.WriteString(truncVisible("  "+stEmber.Render("? ")+stKey.Render("run_shell")+stDim.Render(" (runs in cwd, NOT sandboxed):"), w) + "\n")
-			for _, ln := range wrapPlain(argStr(c.args["cmd"]), w-4) {
+			for _, ln := range wrapCommand(argStr(c.args["cmd"]), w-4) {
 				b.WriteString("    " + stKey.Render(ln) + "\n")
 			}
 		} else {

@@ -2036,11 +2036,18 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// DENY). The loop goroutine is blocked on the confirm's resp channel meanwhile.
 		c := agentConfirm(msg)
 		m.agentPendingConfirm = &c
-		// ONE ask, not four (audit): the modal block below the transcript carries the
-		// full prompt (and the NOT-sandboxed warning) and the footer carries the keys.
-		// The transcript keeps only a dim record of WHAT asked; the resolution line
-		// (approved/denied) completes the story.
-		m.agentLines = append(m.agentLines, "  "+stEmber.Render("? ")+stKey.Render(c.summary()))
+		// NO TRANSCRIPT LINE. This used to append a dim "? <summary>" record, on the theory
+		// that "the resolution line (approved/denied) completes the story". There is no
+		// resolution line: approval settles the tool BOX (markAgentActivityApproved), and
+		// this line was never removed or updated - so every answered confirm left a
+		// permanent "?" in the transcript claiming to still be waiting, and a turn with
+		// three shell calls showed three stale questions plus the live one.
+		//
+		// It also contradicted the design the renderer already implements: while a confirm
+		// is pending the box row for that call is deliberately HIDDEN, because "the
+		// confirmation gate is the sole command surface while approval is pending". This
+		// line was a second surface, and the one that could not settle. The gate shows the
+		// full command while asking; the box shows the call and its outcome afterwards.
 		m.status = ""
 		// BASE STATION: give this confirm a fresh id and let any attached surface answer it.
 		// The id lets the host reject a STALE remote answer (for an already-resolved confirm)
