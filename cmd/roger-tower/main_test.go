@@ -789,3 +789,26 @@ func privateDSN(t *testing.T, dsn string) string {
 	u.Path = "/" + name
 	return u.String()
 }
+
+// Every subcommand refuses a flag it does not define, and the refusal reaches the caller as
+// an error rather than being swallowed. One test, every door: these branches are identical
+// by construction, and each was individually uncovered - which is exactly the kind of gap
+// that invites "handle Parse's error later" on the next subcommand added.
+func TestEverySubcommandRefusesAnUnknownFlag(t *testing.T) {
+	for _, cmd := range []string{
+		"init", "doctor", "ready", "invite", "admit", "attach", "stations", "route",
+		"login", "logout", "register", "probe", "status", "earnings", "serve",
+		"drain", "resume", "revoke",
+	} {
+		t.Run(cmd, func(t *testing.T) {
+			var b bytes.Buffer
+			err := run([]string{cmd, "--no-such-flag"}, &b)
+			require.Error(t, err, "%s accepted a flag it does not define", cmd)
+		})
+	}
+	// The config group parses one level down.
+	for _, sub := range []string{"validate", "print"} {
+		var b bytes.Buffer
+		require.Error(t, run([]string{"config", sub, "--no-such-flag"}, &b))
+	}
+}

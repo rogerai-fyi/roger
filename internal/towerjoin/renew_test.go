@@ -157,6 +157,53 @@ func TestAnUnusableReissueLeavesTheWorkingCertificateAlone(t *testing.T) {
 	require.Equal(t, before, after, "a failed renewal must leave the working credential in place")
 }
 
+// A renewal that cannot be WRITTEN must fail loudly.
+//
+// Everything up to this point can succeed - the challenge, the signature, a perfectly good
+// certificate from Core - and the operation still has nothing to show for it if the bytes
+// never reach the disk. Swallowing that produces the worst version of this failure: a Tower
+// that believes it renewed, keeps serving on the old credential, and stops without warning
+// when the lease it thinks it replaced actually expires.
+func TestARenewalThatCannotBeWrittenIsReported(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores directory permissions, so this cannot be provoked")
+	}
+	t.Setenv("ROGER_CONFIG_DIR", t.TempDir())
+	c, mux := newStubCoreMux(t)
+	mux.HandleFunc("/tower/renew/challenge", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, map[string]any{
+			"nonce": "n", "expires_at": time.Now().Add(time.Minute).Unix(),
+			"signing_input": base64.StdEncoding.EncodeToString([]byte("in")),
+		})
+	})
+	mux.HandleFunc("/tower/renew", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, map[string]any{
+			"tower_id":    "tw-1",
+			"certificate": base64.StdEncoding.EncodeToString(c.issueLeaf(t, 24*time.Hour)),
+			"ca":          base64.StdEncoding.EncodeToString(c.caCert.Raw),
+		})
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	t.Setenv("ROGER_BROKER", srv.URL)
+
+	st := joinedTower(t)
+	require.NoError(t, Register(st, Account{Login: "alice"}))
+
+	// The FILE, not the directory. A directory's write bit governs creating and removing
+	// entries, not modifying one that already exists - and certFile was written by Register
+	// above, so an unwritable directory leaves this rewrite working perfectly. The first
+	// version of this test did exactly that and asserted an error that never came.
+	target := filepath.Join(st.Dir(), certFile)
+	info, err := os.Stat(target)
+	require.NoError(t, err)
+	require.NoError(t, os.Chmod(target, 0o400))
+	t.Cleanup(func() { _ = os.Chmod(target, info.Mode()) })
+
+	_, err = RenewIfDue(st, time.Now().Add(48*time.Hour))
+	require.Error(t, err, "a renewal that could not be stored must not report success")
+}
+
 func TestARefusedRenewalIsReportedRatherThanSwallowed(t *testing.T) {
 	t.Setenv("ROGER_CONFIG_DIR", t.TempDir())
 	_, mux := newStubCoreMux(t)

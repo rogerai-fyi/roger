@@ -24,8 +24,11 @@ import (
 	"testing"
 	"time"
 
+	"crypto/sha256"
 	"github.com/stretchr/testify/require"
 	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v6/internal/towercore/dispatch"
+	"rogerai.fm/roger/v6/internal/towercore/link"
 	"rogerai.fm/roger/v6/internal/towerhub"
 	"rogerai.fm/roger/v6/internal/towerjoin"
 )
@@ -237,4 +240,280 @@ func TestTheHubListenerCapsConcurrentConnections(t *testing.T) {
 			"stops accepting anything at all once it has seen 512 connections")
 	}
 	_ = second.Close()
+}
+
+// --- the settle courier, end to end through runHubInBackground ---------------------
+//
+// The courier is the reason a node behind this hub gets PAID: its receipt has no other ride
+// to Core. runHubInBackground measured 60.5%, and the uncovered mass was exactly this - the
+// spool recovery, the forward, the drop-on-success, and the shutdown drain. The seam that
+// reaches it without minting consumer grants is the spool: a receipt written by a "previous
+// run" (a put before the hub starts) must rejoin the backlog and be delivered.
+
+func TestASpooledReceiptFromAPreviousRunIsDelivered(t *testing.T) {
+	core := newCoreStub(t)
+	core.answerDispatchKey(t)
+	core.answerHubNodes(`{"nodes":[]}`)
+	core.reply["/tower/edge/settle"] = func(w http.ResponseWriter, _ int) bool {
+		_, _ = w.Write([]byte(`{}`))
+		return true
+	}
+	st := servingTower(t)
+
+	// The previous run: a receipt spooled, never forwarded, process gone.
+	spool, err := newSettleSpool(st.Dir())
+	require.NoError(t, err)
+	require.NoError(t, spool.put(pendingSettle{
+		stationID: "st-1", attemptID: "att-crash", receipt: []byte("receipt-bytes"),
+		wireIn: 42, wireOut: 7, deadline: time.Now().Add(time.Hour),
+	}))
+
+	out := &syncBuffer{}
+	stop := make(chan struct{})
+	wait, err := runHubInBackground(st, hubOptions{Addr: "127.0.0.1:0", AllowLegacyBearer: true}, out, stop)
+	require.NoError(t, err)
+
+	// The recovery line appears at start; the retry ticker is 15s, so the delivery this test
+	// observes rides the SHUTDOWN drain - which is itself the property that matters, because
+	// "we are stopping" is precisely when an in-memory queue would have eaten the receipt.
+	close(stop)
+	wait()
+
+	require.Contains(t, out.String(), "recovered spooled settle for att-crash",
+		"the operator must be told a receipt from a previous run rejoined the backlog")
+	require.Equal(t, 1, core.called("/tower/edge/settle"),
+		"the recovered receipt never reached Core - somebody's pay stayed on this disk")
+
+	// Delivered means DROPPED from the spool: a third run must recover nothing.
+	require.Empty(t, spool.load(time.Now()), "a settled receipt must not be re-forwarded forever")
+}
+
+// An expired entry must NOT be revived: Core's settle window has closed, so forwarding it
+// can only 4xx, and reloading it forever would wedge a slot in the backlog for good.
+func TestAnExpiredSpoolEntryIsDiscardedAtLoad(t *testing.T) {
+	st := servingTower(t)
+	spool, err := newSettleSpool(st.Dir())
+	require.NoError(t, err)
+	require.NoError(t, spool.put(pendingSettle{
+		stationID: "st-1", attemptID: "att-old", receipt: []byte("r"),
+		deadline: time.Now().Add(-time.Minute),
+	}))
+	require.Empty(t, spool.load(time.Now()))
+	// And the file itself is gone, not merely skipped - load's contract is that the expired
+	// entry does not come back on the NEXT load either.
+	require.Empty(t, spool.load(time.Now()))
+}
+
+// A receipt Core has judged invalid is dropped from the spool too - the ABANDONED branch.
+// Leaving it spooled would re-present a receipt Core permanently refuses on every restart,
+// filling the courier's log with the same corpse forever.
+func TestAPermanentlyRefusedRecoveredReceiptIsAbandonedAndUnspooled(t *testing.T) {
+	core := newCoreStub(t)
+	core.answerDispatchKey(t)
+	core.answerHubNodes(`{"nodes":[]}`)
+	core.reply["/tower/edge/settle"] = func(w http.ResponseWriter, _ int) bool {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		_, _ = w.Write([]byte(`{"error":{"message":"bad receipt"}}`))
+		return true
+	}
+	st := servingTower(t)
+	spool, err := newSettleSpool(st.Dir())
+	require.NoError(t, err)
+	require.NoError(t, spool.put(pendingSettle{
+		stationID: "st-1", attemptID: "att-bad", receipt: []byte("r"),
+		deadline: time.Now().Add(time.Hour),
+	}))
+
+	out := &syncBuffer{}
+	stop := make(chan struct{})
+	wait, err := runHubInBackground(st, hubOptions{Addr: "127.0.0.1:0", AllowLegacyBearer: true}, out, stop)
+	require.NoError(t, err)
+	close(stop)
+	wait()
+
+	require.Contains(t, out.String(), "ABANDONED")
+	require.Empty(t, spool.load(time.Now()),
+		"a permanently refused receipt must leave the spool, or every restart re-presents it")
+}
+
+// --- the whole ride: submit -> poll -> complete -> settle at Core -------------------
+//
+// This is the one test that walks a receipt the way production does: a consumer's sealed
+// submit lands at the hub, the node polls it out over a SIGNED poll, completes with a
+// receipt, and the courier forwards that receipt to Core tower-signed. Everything before it
+// tested the stations of that ride separately; nothing proved the track connects. It is also
+// the only test that exercises OnComplete as wired - the spool write, the queue handoff -
+// rather than by calling pieces directly.
+func TestACompletedJobsReceiptRidesToCore(t *testing.T) {
+	// Roger Core's grant-signing key - the test holds the private half, so it can mint the
+	// grant a real Core would have minted for this consumer.
+	corePub, corePriv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	registry := dispatch.NewWithStore(dispatch.Config{
+		Network: link.PublicNetwork, Signer: corePriv,
+		Lifetime: time.Minute, Now: time.Now,
+	}, nil)
+
+	// The node's assertion keypair - Core would have recorded the public half at attach.
+	nodePub, nodePriv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+
+	core := newCoreStub(t)
+	core.reply["/tower/dispatch/key"] = func(w http.ResponseWriter, _ int) bool {
+		_ = json.NewEncoder(w).Encode(map[string]any{"dispatch_key": hex.EncodeToString(corePub)})
+		return true
+	}
+	core.answerHubNodes(`{"nodes":[{"station_id":"st-1","assertion_key":"` +
+		hex.EncodeToString(nodePub) + `","state":"active"}]}`)
+	core.reply["/tower/edge/settle"] = func(w http.ResponseWriter, _ int) bool {
+		_, _ = w.Write([]byte(`{}`))
+		return true
+	}
+
+	st := servingTower(t)
+	out := &syncBuffer{}
+	stop := make(chan struct{})
+	wait, err := runHubInBackground(st, hubOptions{Addr: "127.0.0.1:0"}, out, stop)
+	require.NoError(t, err)
+
+	// The hub prints its bound address once the listener is up.
+	var hubAddr string
+	require.Eventually(t, func() bool {
+		for _, line := range strings.Split(out.String(), "\n") {
+			if strings.HasPrefix(line, "hub: serving the data plane on ") {
+				hubAddr = strings.Fields(strings.TrimPrefix(line, "hub: serving the data plane on "))[0]
+				return true
+			}
+		}
+		return false
+	}, 5*time.Second, 10*time.Millisecond, "the hub never said where it is listening")
+
+	// The grant a real Core mints at authorize time: it names THIS tower, so the hub's
+	// tower-binding check passes, and the test's own Station.
+	identity, err := st.IdentityKey()
+	require.NoError(t, err)
+	grant, err := registry.MintEdge(dispatch.EdgeTarget{
+		TowerID: st.TowerID, StationID: "st-1", StationEpoch: 1,
+		Model: "m", Modality: "text", RelayName: "st-1.relay.example",
+		MaxIn: 1000, MaxOut: 1000,
+		AssertionKey: nodePub, ConsumerKey: consumerHubPub(t),
+	})
+	require.NoError(t, err)
+
+	base := "http://" + hubAddr
+	sum := sha256.Sum256(identity.Public().(ed25519.PublicKey))
+	consumer := &towerhub.Client{BaseURL: base, TowerID: st.TowerID,
+		HTTP: &http.Client{Timeout: 30 * time.Second}}
+	node := &towerhub.Client{BaseURL: base, TowerID: st.TowerID,
+		TowerKeyHash: hex.EncodeToString(sum[:]),
+		Sign:         towerhub.SignWith(nodePriv),
+		HTTP:         &http.Client{Timeout: 30 * time.Second}}
+
+	// The consumer submits and BLOCKS until the node answers - production shape.
+	type submitOut struct {
+		res towerhub.Result
+		err error
+	}
+	submitted := make(chan submitOut, 1)
+	go func() {
+		res, serr := consumer.SubmitJob(t.Context(), grant.Signed, []byte("sealed-request"))
+		submitted <- submitOut{res, serr}
+	}()
+
+	// The node polls its queue until the job lands, then completes with its receipt.
+	var job towerhub.Job
+	require.Eventually(t, func() bool {
+		j, ok, perr := node.PollJob(t.Context(), "st-1")
+		if perr != nil || !ok {
+			return false
+		}
+		job = j
+		return true
+	}, 10*time.Second, 50*time.Millisecond, "the submitted job never reached the node's queue")
+	require.Equal(t, []byte("sealed-request"), job.Envelope, "the sealed body must cross the hub intact")
+
+	require.NoError(t, node.CompleteResult(t.Context(), "st-1", towerhub.Result{
+		AttemptID: job.AttemptID, Envelope: []byte("sealed-answer"), Receipt: []byte("the-receipt"),
+	}))
+
+	// The consumer's blocked submit now returns the sealed answer and the receipt.
+	got := <-submitted
+	require.NoError(t, got.err)
+	require.Equal(t, []byte("sealed-answer"), got.res.Envelope)
+
+	// Stopping the hub drains the courier; the receipt must reach Core even though the
+	// process is going down - that is the whole reason the final drain exists.
+	close(stop)
+	wait()
+	require.Equal(t, 1, core.called("/tower/edge/settle"),
+		"the node completed and was never couriered: its pay ended here")
+	var settle struct {
+		StationID string `json:"station_id"`
+		AttemptID string `json:"attempt_id"`
+		Receipt   []byte `json:"receipt"`
+	}
+	require.NoError(t, json.Unmarshal(core.body("/tower/edge/settle"), &settle))
+	require.Equal(t, "st-1", settle.StationID)
+	require.Equal(t, job.AttemptID, settle.AttemptID)
+	require.Equal(t, []byte("the-receipt"), settle.Receipt,
+		"the receipt must reach Core byte-identical: Core verifies it against the station's key")
+
+	// And delivered means unspooled: the next run of this tower recovers nothing.
+	spool, err := newSettleSpool(st.Dir())
+	require.NoError(t, err)
+	require.Empty(t, spool.load(time.Now()), "a settled receipt stayed in the spool")
+}
+
+func consumerHubPub(t *testing.T) ed25519.PublicKey {
+	t.Helper()
+	pub, _, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	return pub
+}
+
+// A receipt whose forward fails TRANSIENTLY at shutdown is abandoned for THIS run - the
+// process is going down and cannot wait - but it must stay in the spool, because "Core was
+// briefly unreachable while we stopped" is exactly the crash-insurance case: the next run
+// recovers and delivers it. Contrast the permanent refusal above, which unspools: retrying
+// a receipt Core has judged invalid re-presents the same corpse forever.
+func TestATransientFailureAtShutdownLeavesTheReceiptSpooledForNextRun(t *testing.T) {
+	core := newCoreStub(t)
+	core.answerDispatchKey(t)
+	core.answerHubNodes(`{"nodes":[]}`)
+	settleAnswers := make(chan int, 4)
+	core.reply["/tower/edge/settle"] = func(w http.ResponseWriter, _ int) bool {
+		w.WriteHeader(<-settleAnswers)
+		_, _ = w.Write([]byte(`{"error":{"message":"briefly down"}}`))
+		return true
+	}
+	st := servingTower(t)
+	spool, err := newSettleSpool(st.Dir())
+	require.NoError(t, err)
+	require.NoError(t, spool.put(pendingSettle{
+		stationID: "st-1", attemptID: "att-flap", receipt: []byte("r"),
+		deadline: time.Now().Add(time.Hour),
+	}))
+
+	// FIRST RUN: Core answers 503; the shutdown drain abandons but must not unspool.
+	settleAnswers <- http.StatusServiceUnavailable
+	out := &syncBuffer{}
+	stop := make(chan struct{})
+	wait, err := runHubInBackground(st, hubOptions{Addr: "127.0.0.1:0"}, out, stop)
+	require.NoError(t, err)
+	close(stop)
+	wait()
+	require.Contains(t, out.String(), "ABANDONED at shutdown")
+	require.Len(t, spool.load(time.Now()), 1,
+		"a transiently failed receipt left the spool: the next run can never deliver it")
+
+	// SECOND RUN: Core is back; the receipt rides.
+	settleAnswers <- http.StatusOK
+	out2 := &syncBuffer{}
+	stop2 := make(chan struct{})
+	wait2, err := runHubInBackground(st, hubOptions{Addr: "127.0.0.1:0"}, out2, stop2)
+	require.NoError(t, err)
+	close(stop2)
+	wait2()
+	require.Contains(t, out2.String(), "recovered spooled settle for att-flap")
+	require.Empty(t, spool.load(time.Now()), "delivered on the second run, so the spool must be empty")
 }

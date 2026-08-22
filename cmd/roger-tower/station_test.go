@@ -249,3 +249,21 @@ func countOf(all []string, want string) int {
 	}
 	return n
 }
+
+// The station subcommand's own dispatch - usage on nothing, usage on help, a named error on
+// a typo. Unglamorous, but this is the door an operator walks through under stress: `station
+// revoke` is the kill switch, and a typo that printed nothing would be read as a hung tool.
+func TestStationDispatchAnswersEveryDoor(t *testing.T) {
+	var b bytes.Buffer
+	require.NoError(t, cmdStation(nil, &b))
+	require.Contains(t, b.String(), "station revoke", "bare `station` must show what exists")
+
+	b.Reset()
+	require.NoError(t, cmdStation([]string{"help"}, &b))
+	require.Contains(t, b.String(), "station revoke")
+
+	err := cmdStation([]string{"revok"}, &b)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), `"revok"`, "the typo must be echoed so the operator sees it")
+	require.Contains(t, err.Error(), "station revoke", "and the usage must ride along")
+}

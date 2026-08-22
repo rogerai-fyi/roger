@@ -840,3 +840,81 @@ func freeAddr(t *testing.T) string {
 	require.NoError(t, ln.Close())
 	return addr
 }
+
+// --- serveJoined's own wiring, in JOINED mode --------------------------------------
+//
+// serveJoined measured 6.1%: only its standalone refusal had ever run. Everything after the
+// mode check - the certificate resolution the pin's whole guarantee rests on, the plaintext
+// warning, the hub failing the serve, the wind-down that keeps a failed serve from hanging -
+// was exercised by nothing. These drive it through the link stub and make the loop fail
+// fast at a chosen point, because the function's job IS the wiring: what got started, what
+// got said, and whether it all came back down.
+
+// The pin line is the operator's half of the TLS guarantee: the certificate resolved HERE is
+// the one the listener presents AND the one whose fingerprint Core publishes. If this test
+// breaks, the two can drift - which is a hub every routed node refuses.
+func TestServeJoinedResolvesTLSAndSaysThePin(t *testing.T) {
+	core := newCoreStub(t)
+	core.answerDispatchKey(t)
+	core.answerHubNodes(`{"nodes":[]}`)
+	core.reply["/tower/session"] = func(w http.ResponseWriter, _ int) bool {
+		w.WriteHeader(http.StatusForbidden)
+		return true
+	}
+
+	st := servingTower(t)
+	out := &syncBuffer{}
+	err := serveJoined(st, out, "203.0.113.9:8444", hubOptions{Addr: "127.0.0.1:0", TLS: true})
+	require.Error(t, err, "the refused link must surface, not hang")
+	require.Contains(t, out.String(), "hub: TLS certificate pin ",
+		"the operator was never told the pin Core will publish for their hub")
+	require.NotContains(t, out.String(), "PLAINTEXT hub",
+		"a TLS hub must not also carry the plaintext warning")
+}
+
+func TestServeJoinedSaysPlaintextAtTheTowerNotOnlyAtTheNode(t *testing.T) {
+	// The node has always printed a plaintext notice; the operator who can fix it runs THIS
+	// process. The warning must name what actually leaks - the assertion key is a payment
+	// identity - because "plaintext" alone reads as "my content", which stays sealed either way.
+	core := newCoreStub(t)
+	core.answerDispatchKey(t)
+	core.answerHubNodes(`{"nodes":[]}`)
+	core.reply["/tower/session"] = func(w http.ResponseWriter, _ int) bool {
+		w.WriteHeader(http.StatusForbidden)
+		return true
+	}
+
+	st := servingTower(t)
+	out := &syncBuffer{}
+	err := serveJoined(st, out, "203.0.113.9:8444", hubOptions{Addr: "127.0.0.1:0"})
+	require.Error(t, err)
+	require.Contains(t, out.String(), "PLAINTEXT hub")
+	require.Contains(t, out.String(), "assertion public key")
+}
+
+func TestServeJoinedFailsWhenTheHubCannot(t *testing.T) {
+	// No dispatch key at the stub, so the hub cannot start - and the serve must FAIL, not
+	// carry on linkless-hubless. The hub was started before the link so a consumer's first
+	// submit has somewhere to land; a serve that shrugged the hub off would advertise a data
+	// plane with nobody behind it.
+	core := newCoreStub(t)
+	st := servingTower(t)
+	out := &syncBuffer{}
+	err := serveJoined(st, out, "203.0.113.9:8444", hubOptions{Addr: "127.0.0.1:0"})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "grant key")
+	require.Zero(t, core.sessionCount(), "the link must not open when the hub already failed")
+}
+
+func TestServeJoinedRefusesUnusableTLSFilesBeforeReachingAnything(t *testing.T) {
+	// An operator's certificate paths are resolved before the listener, before the link, and
+	// before any call to Core - so a typo'd --hub-tls-cert is a one-line failure at the
+	// keyboard, not a half-started serve.
+	core := newCoreStub(t)
+	st := servingTower(t)
+	out := &syncBuffer{}
+	err := serveJoined(st, out, "203.0.113.9:8444",
+		hubOptions{Addr: "127.0.0.1:0", TLSCert: "/no/such/cert.pem", TLSKey: "/no/such/key.pem"})
+	require.Error(t, err)
+	require.Zero(t, core.reached(), "a broken TLS flag must fail before any network call")
+}

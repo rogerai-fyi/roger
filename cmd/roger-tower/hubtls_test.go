@@ -187,3 +187,57 @@ func TestAMintedCertificateNegotiatesTLS13(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint16(tls.VersionTLS13), cfg.MinVersion)
 }
+
+// A minting failure must not leave a half-identity behind. The existence check that decides
+// "reuse or mint" looks at the CERTIFICATE, so the invariant that keeps a broken mint
+// recoverable is: no certificate unless its key was written first. A certificate with no key
+// is what every later run would try to load and fail on, forever; a key with no certificate
+// re-mints harmlessly.
+func TestAFailedMintLeavesNoCertificateBehind(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores permission bits")
+	}
+	dir := t.TempDir()
+	require.NoError(t, os.Chmod(dir, 0o500))
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+
+	err := mintHubCert(filepath.Join(dir, "hub.crt"), filepath.Join(dir, "hub.key"), "tw-1")
+	require.Error(t, err)
+	_, statErr := os.Stat(filepath.Join(dir, "hub.crt"))
+	require.True(t, os.IsNotExist(statErr),
+		"a certificate without its key was left behind: every later run will load it and fail")
+}
+
+func TestHubTLSNeedsBothHalvesOfAnOperatorPair(t *testing.T) {
+	// One flag without the other is an operator mistake, and honouring half of it would mint
+	// a fresh key under a certificate they did not supply - a hub that presents their
+	// certificate and cannot complete a handshake with it.
+	_, err := hubTLS(t.TempDir(), "tw-1", "/some/cert.pem", "")
+	require.ErrorContains(t, err, "both")
+	_, err = hubTLS(t.TempDir(), "tw-1", "", "/some/key.pem")
+	require.ErrorContains(t, err, "both")
+}
+
+func TestAGarbageCertificateOnDiskIsAnErrorNotAServe(t *testing.T) {
+	// The minted path is reused WITHOUT QUESTION - including expired - so the one thing that
+	// must stop the serve is bytes that cannot be a certificate at all. Discovering that at
+	// handshake time would be after the pin was already advertised to Core.
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "hub.crt"), []byte("not pem"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "hub.key"), []byte("not pem"), 0o600))
+	_, err := loadHubTLS(filepath.Join(dir, "hub.crt"), filepath.Join(dir, "hub.key"))
+	require.Error(t, err)
+}
+
+func TestTheMintedIdentityIsStableAcrossServes(t *testing.T) {
+	// The pin Core publishes is derived from this certificate, and every node it routes here
+	// accepts no other. A hub that re-minted on each start would strand its whole fleet on
+	// every restart - so the second resolution must load what the first minted, byte for byte.
+	dir := t.TempDir()
+	first, err := hubTLS(dir, "tw-1", "", "")
+	require.NoError(t, err)
+	require.NotEmpty(t, first.Pin)
+	second, err := hubTLS(dir, "tw-1", "", "")
+	require.NoError(t, err)
+	require.Equal(t, first.Pin, second.Pin, "a restart changed the pin: every routed node is now stranded")
+}
