@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"bytes"
 	"crypto/ed25519"
 	crand "crypto/rand"
 	"github.com/stretchr/testify/require"
@@ -41,6 +42,17 @@ import (
 func liveSealedFabric(t *testing.T, b *broker, srv *httptest.Server, model string) linkTower {
 	t.Helper()
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// A REAL upstream: if the request says stream:true it returns SSE frames, which the
+		// bridge's JSON parser cannot read. The bridge must therefore seal a NON-streaming
+		// body, so this handler must SEE stream:false to answer with parseable JSON. Reading
+		// the body here is what makes the streaming-CRITICAL test real - a stub that ignores
+		// the flag would hide the bug.
+		reqBody, _ := io.ReadAll(r.Body)
+		if bytes.Contains(reqBody, []byte(`"stream":true`)) {
+			w.Header().Set("Content-Type", "text/event-stream")
+			fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"streamed\"}}]}\n\ndata: [DONE]\n\n")
+			return
+		}
 		fmt.Fprint(w, `{"choices":[{"message":{"content":"pong from the edge"}}],"usage":{"prompt_tokens":3,"completion_tokens":5}}`)
 	}))
 	t.Cleanup(upstream.Close)
@@ -406,7 +418,8 @@ func TestBridgedStreamShape(t *testing.T) {
 	require.Equal(t, "text/event-stream", rec.Header().Get("Content-Type"))
 	out := rec.Body.String()
 	require.Contains(t, out, `"delta"`)
-	require.Contains(t, out, "pong from the edge")
+	require.Contains(t, out, "pong from the edge",
+		"the streamed answer must carry the station's REAL content - not empty framing from an unparsed SSE body")
 	require.True(t, strings.HasSuffix(strings.TrimSpace(out), "data: [DONE]"), "the stream must terminate: %q", out)
 	require.NotEmpty(t, rec.Header().Get("X-RogerAI-Cost"))
 	require.NotEmpty(t, rec.Header().Get("X-RogerAI-Relay"), "the receipt names the relay that carried it")

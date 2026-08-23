@@ -230,11 +230,21 @@ func (b *broker) relayViaEdge(w http.ResponseWriter, r *http.Request, model stri
 			exclude[target.TowerID] = true
 			continue
 		}
+		// Re-reserve on a retry: the previous iteration's failure exited inflight and
+		// released the slot, so this attempt must hold its own or it runs uncounted
+		// against the per-account cap.
+		if !slotHeld {
+			if !b.edgeAccountReserve(consumerWallet) {
+				break // at the cap now; stop rather than run an uncounted attempt
+			}
+			slotHeld = true
+		}
 		b.edgeEnterInflight(g.AttemptID, row.NodeID, consumerWallet, g.Deadline)
 		slotHeld = false // the ledger entry owns the slot from here
 
+		unstreamed := unstreamBody(body)
 		answer, outcome := b.driveSealed(g, target, row.Endpoint, row.TLSSPKI, consumerKey, envPriv,
-			sealedDrive{tag: "bridge", body: body, timeout: edgeBridgeTimeout, usageIn: int64(len(body))})
+			sealedDrive{tag: "bridge", body: unstreamed, timeout: edgeBridgeTimeout, usageIn: int64(len(unstreamed))})
 		if len(answer) > 0 {
 			writeBridgedAnswer(w, g, answer, stream)
 			return true
@@ -250,10 +260,11 @@ func (b *broker) relayViaEdge(w http.ResponseWriter, r *http.Request, model stri
 		}
 		b.edgeExitInflight(g.AttemptID)
 		// A "" outcome is Core's own internal error or a by-design non-public-endpoint
-		// skip - NOT the Tower's fault, so it records nothing. A real failure records the
-		// station-attributable kind, so the canary rate - the suspension signal - stays
-		// exactly what the canary alone measured.
-		if outcome == reputation.CanaryFail {
+		// skip - NOT the Tower's fault, so it records nothing. A real drive failure records
+		// station-attributable evidence, exactly as the canary does, and deliberately NOT
+		// a canary count: the suspension signal stays what the canary alone measured, but
+		// the failure is not invisible to the reputation ledger.
+		if outcome == reputation.CanaryFail || outcome == reputation.StationFault {
 			b.recordOutcome(target.TowerID, target.StationID, g.AttemptID, reputation.StationFault)
 		}
 		log.Printf("edge bridge: tower %s failed for %s (attempt %s) - trying the next relay",
@@ -324,6 +335,26 @@ type sealedDrive struct {
 	body    []byte
 	timeout time.Duration
 	usageIn int64
+}
+
+// unstreamBody forces "stream":false and drops stream_options before a body is sealed to
+// a station. The hub is submit/answer, not a byte stream: a station handed "stream":true
+// returns SSE frames, which the JSON parser in writeBridgedAnswer cannot read - so a
+// streaming consumer got an empty answer while the drive "succeeded" and settlement
+// billed the framing bytes. The consumer still gets a stream; it is re-framed from the
+// one JSON body on the way out.
+func unstreamBody(body []byte) []byte {
+	var m map[string]json.RawMessage
+	if json.Unmarshal(body, &m) != nil {
+		return body
+	}
+	m["stream"] = json.RawMessage("false")
+	delete(m, "stream_options")
+	out, err := json.Marshal(m)
+	if err != nil {
+		return body
+	}
+	return out
 }
 
 // driveSealed is the sealed loop the canary proved, shared with the bridge: seal to the

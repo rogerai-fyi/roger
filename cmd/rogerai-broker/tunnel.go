@@ -1435,6 +1435,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	var user string   // the signed identity (pubkey-derived; drives self-use + price-lock)
 	var wallet string // the MONEY key: github-scoped when logged in, else == user
 	var authed bool
+	var sessionAuthed bool // a browser web-session caller (Playbox): no device signature
 	if gok {
 		user = gc.wallet // "g_<id>" grant-scoped wallet (reservedID-protected)
 		wallet = user
@@ -1467,7 +1468,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 					jsonErr(w, http.StatusUnauthorized, "session expired or invalid - sign in again")
 					return
 				}
-				user, wallet, authed = sessionWallet, sessionWallet, true
+				user, wallet, authed, sessionAuthed = sessionWallet, sessionWallet, true, true
 			} else {
 				// No cookie: the caller IS the anonymous identity, full stop. Origin
 				// is spoofable outside a browser, so a legacy X-Roger-User / Bearer id
@@ -1635,7 +1636,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	if ok && t != nil && seededRand(requestID).Intn(2) == 0 {
 		if b.relayViaEdge(w, r, req.Model, req.Stream, body, seededRand(requestID), true, edgeBridgeAuth{
 			wallet: wallet, pubHex: r.Header.Get(protocol.HeaderPubkey), grant: gok,
-			sessionAuthed: !authed, confidentialOnly: confidentialOnly,
+			sessionAuthed: sessionAuthed, confidentialOnly: confidentialOnly,
 			maxPriceOut: maxPriceOut, pinNode: pinNode, excludeNodes: exclude,
 		}) {
 			return
@@ -1650,7 +1651,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		// approved Tower was serving the model, so no live traffic could ride one.
 		if b.relayViaEdge(w, r, req.Model, req.Stream, body, seededRand(requestID), false, edgeBridgeAuth{
 			wallet: wallet, pubHex: r.Header.Get(protocol.HeaderPubkey), grant: gok,
-			sessionAuthed: !authed, confidentialOnly: confidentialOnly,
+			sessionAuthed: sessionAuthed, confidentialOnly: confidentialOnly,
 			maxPriceOut: maxPriceOut, pinNode: pinNode, excludeNodes: exclude,
 		}) {
 			return
