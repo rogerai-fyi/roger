@@ -503,7 +503,9 @@ func tuiLimits(cfg config) *tui.LimitStore {
 			for m, l := range tm {
 				c.Limits.Models[m] = Limit{MaxIn: l.MaxIn, MaxOut: l.MaxOut, MinTPS: l.MinTPS, Quants: l.Quants}
 			}
-			c.Limits.Default = Limit{MaxIn: def.MaxIn, MaxOut: def.MaxOut, MinTPS: def.MinTPS}
+			// Quants carried too: a default rule that survived a save without its quant
+			// list would silently stop binding on the next launch.
+			c.Limits.Default = Limit{MaxIn: def.MaxIn, MaxOut: def.MaxOut, MinTPS: def.MinTPS, Quants: def.Quants}
 			_ = saveConfig(c)
 		},
 	}

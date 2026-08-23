@@ -202,10 +202,14 @@ func (b *broker) enrichOffersForNode(out []offerView, n protocol.NodeRegistratio
 			// synced cross-instance union) surfaces it - verified-not-declared. Absence keeps the key
 			// omitted (undetermined).
 			Capabilities: withVerifiedTools(o.Capabilities, toolsOK[o.Model]),
-			Quant:        o.Quant,
-			Weights:      o.Weights,
-			Variant:      o.Variant,
-			In:           pin, Out: pout, Ctx: o.Ctx, CtxEstimated: o.CtxEstimated, Online: online,
+			// Re-canonicalised at EMISSION as well as at the door. An offer can reach this
+			// map without passing registration (shared-registry mirror, lazy learn, DB
+			// re-hydrate), and these strings are rendered into a terminal and a browser -
+			// the same defence-in-depth the verified "tools" bit gets above.
+			Quant:   protocol.CanonicalQuant(o.Quant),
+			Weights: protocol.CanonicalVariantText(o.Weights),
+			Variant: protocol.CanonicalVariantText(o.Variant),
+			In:      pin, Out: pout, Ctx: o.Ctx, CtxEstimated: o.CtxEstimated, Online: online,
 			Confidential: b.confidential[n.NodeID], FreeNow: free, Scheduled: len(o.Schedule) > 0,
 			TPS:    tps,
 			TTFTMs: ttft, Quality: quality,

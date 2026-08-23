@@ -45,10 +45,18 @@ func (m model) quantExcludes(bd band) []string {
 // prefExcludes returns the node ids to skip for `model` under the operator's STANDING
 // preference (Limit.Quants) - the [3] CONFIG rule rather than the dial's view.
 //
-// This is what makes the preference a rule at all. The dial filter cannot protect a turn
-// nobody is watching: the agent picks a model and runs, `roger use` proxies for a bot, and
-// neither consults what the browse list happened to be showing. Both go through the same
-// routing options, so naming the disallowed stations here is what binds them.
+// This is what makes the preference a rule rather than a view. The dial filter cannot
+// protect a turn nobody is watching: the agent picks a model and runs, and it never
+// consults what the browse list happened to be showing. Every routing path INSIDE the
+// booth - the agent, the live proxy, and the in-channel chat - goes through these options,
+// so naming the disallowed stations here is what binds them.
+//
+// KNOWN GAP: the standalone CLI (`roger use` outside the TUI) does NOT yet apply this.
+// client.ProxyOptions carries ExcludeNodes, but the CLI path builds its options from the
+// persisted limit's price/tps fields only and never resolves the quant rule to station
+// ids - that needs a discover scan the CLI does not currently make. Stated here rather
+// than implied away, because a rule that silently does not bind is worse than one the
+// operator knows the edge of.
 func (m model) prefExcludes(model string) []string {
 	lim := m.limits.resolve(model)
 	if len(lim.Quants) == 0 {
@@ -66,6 +74,29 @@ func (m model) prefExcludes(model string) []string {
 		}
 	}
 	return out
+}
+
+// chatExcludes is routeExcludes for the band the operator is actually CONNECTED to.
+//
+// The in-channel chat has no quote of its own, and m.q holds whatever row was last priced
+// - which can be a different band the operator esc'd out of. Resolving from m.connected
+// keeps the exclusions about the conversation actually happening.
+func (m model) chatExcludes() []string {
+	if m.connected == nil {
+		return nil
+	}
+	// Bands are grouped by (model, quant), so the model alone names SEVERAL rows and the
+	// first one is not necessarily the one this conversation is on. Match the connected
+	// offer's quant too - the test that pinned this connected to the Q4 row and got the
+	// BF16 row's exclusions back when it matched by model alone.
+	for _, b := range m.bands {
+		if b.model == m.connected.Model && b.quant == m.connected.Quant {
+			return m.routeExcludes(b)
+		}
+	}
+	// No band row for it (a direct or private connection): the standing preference is
+	// still a rule, so apply that half rather than nothing.
+	return m.prefExcludes(m.connected.Model)
 }
 
 // routeExcludes is every station this caller will not accept for `model`: the tuned row's

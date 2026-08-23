@@ -67,7 +67,9 @@ var quantNameRe = regexp.MustCompile(`(?i)(^|[-_.])(` +
 	// scheme: "Qwen3-30B-A3B-4bit", "...-8bit-DWQ". DWQ is a distinct RECIPE at the same
 	// width, so it is kept rather than folded into "4bit" - the same reason Q4_K_M and
 	// IQ4_XS stay apart.
-	`[3468]BIT(-DWQ)?|DWQ` +
+	// A bare "DWQ" is NOT accepted: it names a recipe with no width, and a label that
+	// cannot say how many bits is not a label a consumer can choose between.
+	`[3468]BIT(-DWQ)?` +
 	`)($|[-_.])`)
 
 // canonicalQuantCase fixes the ONE family where upper-casing changes the name rather

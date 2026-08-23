@@ -2449,7 +2449,11 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// as exclusions - the broker groups by model alone and would otherwise route
 			// this turn to weights the operator did not choose. Same rule the proxy path
 			// applies in liveProxyOpts; the booth's own chat used to skip it.
-			return m, sendChat(m.broker, m.user, m.connected.Model, turn, m.confidentialOnly, m.limits.resolve(m.connected.Model).MaxOut, m.tuneFreq, hist, m.routeExcludes(m.q.b))
+			//
+			// Derived from the CONNECTED band, not from m.q - the quote is whatever row
+			// was last priced, so an over-limit quote the operator esc'd on another row
+			// would otherwise exclude stations that serve this one perfectly well.
+			return m, sendChat(m.broker, m.user, m.connected.Model, turn, m.confidentialOnly, m.limits.resolve(m.connected.Model).MaxOut, m.tuneFreq, hist, m.chatExcludes())
 		}
 		var c tea.Cmd
 		m.chatIn, c = m.chatIn.Update(k)

@@ -72,10 +72,10 @@ func TestLMStudioAbsentAndUnknownBothYieldNothing(t *testing.T) {
 // how the bare mlx-lm server and the hub both spell it.
 func TestMLXNamesAreRecognisedInNames(t *testing.T) {
 	for in, want := range map[string]string{
-		"Qwen3-30B-A3B-4bit":        "4bit",
+		"Qwen3-30B-A3B-4bit":         "4bit",
 		"Llama-3.2-3B-Instruct-8bit": "8bit",
-		"Qwen3-8B-4bit-DWQ":         "4bit-DWQ",
-		"Qwen3.8-27B-Q4_K_M.gguf":   "Q4_K_M",
+		"Qwen3-8B-4bit-DWQ":          "4bit-DWQ",
+		"Qwen3.8-27B-Q4_K_M.gguf":    "Q4_K_M",
 	} {
 		if got := quantInName(in); got != want {
 			t.Fatalf("quantInName(%q) = %q, want %q", in, got, want)
@@ -129,5 +129,19 @@ func TestLMStudioEnrichmentCarriesVariantsEndToEnd(t *testing.T) {
 	// The context enrichment this function already did must not have regressed.
 	if f.Ctx["qwen3-30b"] != 8192 || f.Ctx["mistral-7b"] != 32768 {
 		t.Fatalf("ctx regressed: %v", f.Ctx)
+	}
+}
+
+// "DWQ" on its own names a recipe, not a width. A quant label a consumer cannot compare
+// by bit count is not a label, so it must not be extracted from a name.
+func TestBareDWQIsNotAQuantLabel(t *testing.T) {
+	for _, name := range []string{"Qwen3-8B-DWQ", "model-dwq", "DWQ"} {
+		if got := quantInName(name); got != "" {
+			t.Errorf("quantInName(%q) = %q, want none - a width-less DWQ is not a choosable quant", name, got)
+		}
+	}
+	// With a width it is still recognised in full.
+	if got := quantInName("Qwen3-8B-4bit-DWQ"); got != "4bit-DWQ" {
+		t.Errorf("quantInName(4bit-DWQ) = %q", got)
 	}
 }

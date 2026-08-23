@@ -229,6 +229,12 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 	// (shared-registry mirror, lazy learn, DB re-hydrate) still cannot leak an unproven "tools".
 	// See features/trust/toolcall_probe.feature ("A node CANNOT earn 'tools' merely by declaring it").
 	for i := range reg.Offers {
+		// Normalize bounds and strips every node-supplied display string (quant, weights,
+		// variant) and canonicalises the billing unit. Its comment always said the broker
+		// calls it on every registered offer; nothing did, so a node could publish a 10 KB
+		// "quant" or one carrying an ANSI escape, and those land on a terminal row and in
+		// a browser table. Harmless only while those fields never reached the wire.
+		reg.Offers[i].Normalize()
 		reg.Offers[i].Capabilities = stripDeclaredTools(reg.Offers[i].Capabilities)
 	}
 	// Price-safety, operator side: a HARD, GLOBAL ceiling on what ANY station may charge -

@@ -416,3 +416,42 @@ func TestPadSurvivesAZeroWidth(t *testing.T) {
 		t.Errorf("pad padding broke: %q", got)
 	}
 }
+
+// The in-channel chat resolves its exclusions from the band the operator is CONNECTED to,
+// never from m.q - the quote is whatever row was last priced, and an over-limit quote the
+// operator esc'd on another band would otherwise exclude stations that serve this one.
+func TestChatExcludesFollowTheConnectedBandNotTheLastQuote(t *testing.T) {
+	m := browseSeed(100)
+	m.bands = groupBands(quantOffers(), nil)
+	m.limits = &LimitStore{Models: map[string]Limit{}}
+
+	var q4, bf16 band
+	for _, b := range m.bands {
+		switch b.quant {
+		case "Q4_K_M":
+			q4 = b
+		case "BF16":
+			bf16 = b
+		}
+	}
+	// Connected to the Q4 row; the stale quote is for the BF16 row.
+	m.connected = &offer{Model: q4.model, NodeID: "a-qwen", Quant: "Q4_K_M"}
+	m.q.b = bf16
+
+	got := strings.Join(m.chatExcludes(), ",")
+	if !strings.Contains(got, "c-qwen") {
+		t.Errorf("the BF16 station must be excluded from a Q4 chat: %v", got)
+	}
+	if strings.Contains(got, "a-qwen") {
+		t.Errorf("the connected station itself was excluded - exclusions came from the stale quote: %v", got)
+	}
+}
+
+// Nothing connected means nothing to exclude, and no panic.
+func TestChatExcludesIsEmptyWhenNotConnected(t *testing.T) {
+	m := browseSeed(100)
+	m.connected = nil
+	if got := m.chatExcludes(); len(got) != 0 {
+		t.Errorf("excluded %v with no connection", got)
+	}
+}

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -148,8 +149,8 @@ func BrokerCompleterRoute(rt BrokerRoute) Completer {
 		if rt.Freq != "" {
 			req.Header.Set("X-Roger-Freq", rt.Freq)
 		}
-		if len(rt.ExcludeNodes) > 0 {
-			req.Header.Set("X-Roger-Exclude-Nodes", strings.Join(rt.ExcludeNodes, ","))
+		if ex := joinExcludes(rt.ExcludeNodes); ex != "" {
+			req.Header.Set("X-Roger-Exclude-Nodes", ex)
 		}
 		resp, err := httpClient.Do(req)
 		if err != nil {
@@ -262,4 +263,20 @@ func bytesTrim(b []byte) []byte {
 		j--
 	}
 	return b[i:j]
+}
+
+// joinExcludes renders the exclusion header the way the client path does: trimmed,
+// de-duplicated, sorted, and absent entirely when there is nothing to say. Two renderings
+// of the same header is how one path comes to send "a,,a " while the other sends "a".
+func joinExcludes(nodes []string) string {
+	seen := make(map[string]bool, len(nodes))
+	out := make([]string, 0, len(nodes))
+	for _, n := range nodes {
+		if n = strings.TrimSpace(n); n != "" && !seen[n] {
+			seen[n] = true
+			out = append(out, n)
+		}
+	}
+	sort.Strings(out)
+	return strings.Join(out, ",")
 }
