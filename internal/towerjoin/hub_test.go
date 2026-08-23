@@ -126,7 +126,11 @@ func TestHubNodesCarryTheKeyTheHubVerifiesPollsAgainst(t *testing.T) {
 	require.Equal(t, "legacy-1", got[0].HubToken)
 	require.Equal(t, "quarantine", got[1].State)
 	// Core scopes the answer to the tower that signed, so the id has to be in the body.
-	require.Equal(t, st.TowerID, core.bodies["/tower/hub/nodes"]["tower_id"])
+	// The ADMISSION id, never st.TowerID. Those are two different identifiers: st.TowerID is
+	// the local identity minted by `init` before this Tower had ever heard of Core, and the
+	// admission id is what Core admitted it as. Core matches the caller on the admission id,
+	// so sending the local one is refused - and this line used to pin the refused value.
+	require.Equal(t, "tw-1", core.bodies["/tower/hub/nodes"]["tower_id"])
 	require.NotEmpty(t, core.pubkeys["/tower/hub/nodes"])
 }
 
@@ -209,7 +213,7 @@ func TestWantedAuditsReadsWhatCoreAsksFor(t *testing.T) {
 	require.Len(t, got, 1)
 	require.Equal(t, "att-1", got[0].AttemptID)
 	require.Equal(t, "st-1", got[0].StationID)
-	require.Equal(t, st.TowerID, core.bodies["/tower/audit/wanted"]["tower_id"])
+	require.Equal(t, "tw-1", core.bodies["/tower/audit/wanted"]["tower_id"], "the admission id, never the local init id")
 }
 
 func TestForwardingATranscriptCarriesEveryPart(t *testing.T) {
@@ -419,4 +423,38 @@ func TestEarningsRejectAnAnswerItCannotRead(t *testing.T) {
 	}
 	_, err := FetchEarnings()
 	require.Error(t, err)
+}
+
+// Every call the hub plane makes to Core names this Tower by the id CORE knows - the
+// admission id. A live v6.0.0 Tower held its link (link.go already used the admission id)
+// while every hub-plane call was refused with "requires the Tower's own signed request",
+// because they sent the local init id instead. Nodes could not be listed, receipts could
+// not be settled, audits could not be answered: a Tower on the network, earning nothing.
+func TestEveryHubPlaneCallNamesTheTowerByItsAdmissionID(t *testing.T) {
+	core := newHubCore(t)
+	st := registeredTower(t)
+
+	_, _ = HubNodes(st)
+	_ = SettleEdgeReceipt(st, "st-1", "at-1", []byte("r"), 1, 1)
+	_, _ = WantedAudits(st)
+	_ = ForwardAuditTranscript(st, "at-1", true, "", "", "", "")
+
+	for _, path := range []string{"/tower/hub/nodes", "/tower/edge/settle", "/tower/audit/wanted", "/tower/audit/transcript"} {
+		body, seen := core.bodies[path]
+		require.True(t, seen, "%s was never called", path)
+		require.Equal(t, "tw-1", body["tower_id"], "%s must name the Tower by its admission id", path)
+		require.NotEqual(t, st.TowerID, body["tower_id"], "%s sent the LOCAL id, which Core refuses", path)
+	}
+}
+
+// Before registration there is no admission id, and the hub plane must say so rather than
+// fall back to the local id and be refused with a message that points at signing.
+func TestHubPlaneCallsRefuseBeforeRegistration(t *testing.T) {
+	core := newHubCore(t)
+	st := joinedTower(t)
+
+	_, err := HubNodes(st)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "register")
+	require.Empty(t, core.seen, "nothing is sent to Core before this Tower is registered")
 }
