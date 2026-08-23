@@ -9,6 +9,8 @@ import (
 	"sync"
 
 	"rogerai.fm/roger/v6/internal/harness"
+	"rogerai.fm/roger/v6/internal/node"
+	"rogerai.fm/roger/v6/internal/protocol"
 )
 
 // agent.go - THE CONSOLE'S AGENT.
@@ -38,6 +40,12 @@ type agentSession struct {
 	mu    sync.Mutex
 	loop  *harness.Loop
 	model string
+	// local records HOW the cached loop reaches its model: straight at a server on this
+	// machine, or relayed through the broker. It is part of the cache key, not decoration -
+	// a model id can exist on both sides of that line (the founder's box serves grok-4.3
+	// locally AND the market lists bands), and reusing a broker loop for a LOCAL pick would
+	// send the turn to exactly the place the pick was made to avoid.
+	local bool
 
 	// spend accumulates THIS TURN's relayed cost. A turn is many calls now - one per
 	// model step, plus any subagent's - so the only honest turn total is their sum.
@@ -82,9 +90,19 @@ func (s *turnSpend) snapshot() (cost float64, in, out, calls int) {
 }
 
 // agentReq is one turn from the browser.
+//
+// Local says the picker's LOCAL group supplied this model: route it straight at the server
+// on this machine, never through the broker. The browser sends the flag rather than the
+// endpoint - the endpoint (and, more to the point, the bearer key it may need) is resolved
+// here from the node's own catalog, so no credential is ever handed to a page.
+//
+// The flag is needed because a model id alone is ambiguous: the same name can be a band on
+// the market and a server on this box, and guessing which one the operator clicked is how a
+// turn silently ends up somewhere they did not choose.
 type agentReq struct {
 	Model   string `json:"model"`
 	Message string `json:"message"`
+	Local   bool   `json:"local"`
 }
 
 // agentEvent is one streamed step, flattened for the browser. It mirrors the TUI's
@@ -100,6 +118,12 @@ type agentEvent struct {
 	Denied  bool   `json:"denied,omitempty"`
 	Agent   string `json:"agent,omitempty"` // a subagent's label, "" for the main turn
 	Step    int    `json:"step,omitempty"`
+	// Hint is the actionable second line of an error event: WHAT TO DO, in a surface where
+	// the raw cause said nothing a user could act on. The TUI pairs every failed turn with
+	// one ("put one on air with [2], or tune in [1]"); the console's moves are different, so
+	// the phrasing is, but the shape is the same and the first line is literally shared code
+	// (harness.ShortFailure).
+	Hint string `json:"hint,omitempty"`
 
 	// Receipt fields, set only on the final "receipt" event: the whole turn's billed
 	// spend, summed over every relayed call including any subagent's. Never one call's
@@ -125,30 +149,101 @@ func readOnlyTools(all []harness.Tool) []harness.Tool {
 	return out
 }
 
-// agentLoop lazily builds the console's loop, bound to the model the browser named.
-func (s *Server) agentLoop(model string) (*harness.Loop, error) {
+// localRow resolves model to a row in THIS node's own catalog that a turn can be sent
+// straight to. It is the console's twin of the TUI's rowForModel/bindAgentEndpoint pair.
+//
+// Two guards, and both are the difference between routing and 504-ing:
+//
+//	an EMPTY UPSTREAM has nothing to send to, so the row is not offerable - taking it
+//	would trade a broker timeout for a local one;
+//	a VOICE model (tts/stt) cannot run a tool-use loop at all, so it is not a chat
+//	band no matter where it is served from.
+//
+// Same two rules the TUI's localAgentRows applies, for the same reason.
+func (s *Server) localRow(model string) (node.ShareRow, bool) {
+	for _, r := range s.ctrl.Rows() {
+		if r.Model != model || r.Upstream == "" {
+			continue
+		}
+		if r.Modality == protocol.ModalityTTS || r.Modality == protocol.ModalitySTT {
+			continue
+		}
+		return r, true
+	}
+	return node.ShareRow{}, false
+}
+
+// agentLoop lazily builds the console's loop, bound to the model the browser named and to
+// the ROUTE the picker chose.
+//
+// LOCAL runs direct (harness.LocalCompleter), exactly as the TUI's agent does for a model
+// on this machine: nothing registers, nothing is metered, no wallet is touched, and the
+// weights never leave the box. It also needs no broker - requiring one here would refuse a
+// conversation with a model sitting on the same disk because a remote service was
+// unreachable.
+//
+// OPEN MARKET relays through the broker, on the SAME completer the TUI uses, so failover,
+// the price cap, billing and the receipts are shared rather than reimplemented.
+func (s *Server) agentLoop(model string, local bool) (*harness.Loop, error) {
 	s.agentSess.mu.Lock()
 	defer s.agentSess.mu.Unlock()
-	if s.opts.Broker == "" {
-		return nil, fmt.Errorf("no broker configured - the agent needs one to reach a band")
-	}
-	if s.agentSess.loop != nil && s.agentSess.model == model {
+	if s.agentSess.loop != nil && s.agentSess.model == model && s.agentSess.local == local {
 		return s.agentSess.loop, nil
+	}
+	var complete harness.Completer
+	if local {
+		row, ok := s.localRow(model)
+		if !ok {
+			// Refuse rather than fall back to the broker. A LOCAL pick that quietly became a
+			// relayed one would spend the operator's money on a route they did not choose,
+			// and would then fail with a market error about a model that is not on the
+			// market - which is the shape of the bug this whole change exists to remove.
+			return nil, fmt.Errorf("%s is not served by any local server right now - re-detect on SHARE, or pick an open-market band", model)
+		}
+		complete = harness.LocalCompleter(row.Upstream, row.UpstreamKey, model)
+	} else {
+		if s.opts.Broker == "" {
+			return nil, fmt.Errorf("no broker configured - the agent needs one to reach a band")
+		}
+		// The cost hook is what makes a turn receipt possible at all: the relay reports each
+		// call's billed cost and token counts, and the turn's total is their sum. A LOCAL
+		// turn has no such hook because it has no cost - and a receipt that printed $0.0000
+		// would be a claim, not an absence.
+		complete = harness.BrokerCompleter(s.opts.Broker, s.opts.User, model, false, 0, s.agentSess.spend.add)
 	}
 	root, err := os.Getwd()
 	if err != nil {
 		return nil, fmt.Errorf("cannot resolve a working directory: %w", err)
 	}
-	// The SAME completer the TUI relays through, so failover, the price cap, billing and
-	// the receipts are shared rather than reimplemented. A second relay path here would
-	// be a second set of bugs and, worse, a second set of receipts.
-	// The cost hook is what makes a turn receipt possible at all: the relay reports each
-	// call's billed cost and token counts, and the turn's total is their sum.
-	complete := harness.BrokerCompleter(s.opts.Broker, s.opts.User, model, false, 0, s.agentSess.spend.add)
 	l := harness.NewLoop(root, harness.LoadPersona(harness.PersonaPath()), complete, nil)
 	l.SetTools(readOnlyTools(l.Tools()))
-	s.agentSess.loop, s.agentSess.model = l, model
+	s.agentSess.loop, s.agentSess.model, s.agentSess.local = l, model, local
 	return l, nil
+}
+
+// agentFailure turns a raw turn error into the two lines the console shows: the concise
+// cause, and what to do about it.
+//
+// The first line is harness.ShortFailure - the SAME mapping the TUI uses, so "the station
+// returned status 504 with no reply" reads as "no station is serving grok-4.3 right now
+// (504)" in both places. The founder saw the raw string in the browser only because that
+// mapping was terminal-only.
+//
+// The second line is the console's own, because the moves are: the TUI can say "[2] go on
+// air", and a browser has tabs. A LOCAL turn gets a different remedy for the same reason
+// the TUI's localFailureHint exists - sending someone to the marketplace to fix their own
+// localhost is a dead end dressed as advice.
+func agentFailure(raw, model string, local bool) (cause, hint string) {
+	cause = harness.ShortFailure(raw, model)
+	switch {
+	case harness.IsContextOverflow(strings.ToLower(raw)):
+		// The band is healthy and answering; the conversation simply outgrew it. Neither
+		// picking another station nor putting one on air changes that.
+		return cause, "the conversation outgrew the window - reload the tab to start a fresh one, or pick a roomier model"
+	case local:
+		return cause, "this ran DIRECT on your machine, not through the broker - check that the model server is still up, or re-detect on SHARE"
+	}
+	return cause, "pick another station in the picker, or put one of your own on air on SHARE - a band can go off air mid-conversation"
 }
 
 // handleAgent runs one agent turn and streams its steps back as newline-delimited JSON.
@@ -170,7 +265,7 @@ func (s *Server) handleAgent(w http.ResponseWriter, r *http.Request) {
 		writeChatErr(w, http.StatusBadRequest, "nothing to send")
 		return
 	}
-	loop, err := s.agentLoop(req.Model)
+	loop, err := s.agentLoop(req.Model, req.Local)
 	if err != nil {
 		writeChatErr(w, http.StatusServiceUnavailable, err.Error())
 		return
@@ -212,7 +307,7 @@ func (s *Server) handleAgent(w http.ResponseWriter, r *http.Request) {
 	// answer and can legitimately differ from anything streamed - a step-capped or
 	// recovered turn ends with text the stream never carried, and dropping it wholesale
 	// would lose those answers. So it goes out only when it actually adds something.
-	var lastText string
+	var lastText, lastErr string
 	out, rerr := loop.Send(r.Context(), req.Message, func(e harness.Event) {
 		ev := flattenEvent(e)
 		// Both kinds carry model prose. A THOUGHT final carries reasoning rather than the
@@ -221,10 +316,26 @@ func (s *Server) handleAgent(w http.ResponseWriter, r *http.Request) {
 		if (ev.Kind == "final" || ev.Kind == "assistant") && strings.TrimSpace(ev.Text) != "" {
 			lastText = strings.TrimSpace(ev.Text)
 		}
+		// A mid-stream failure is the same failure, and gets the same two lines. Mapping
+		// only the terminal error would leave the raw "status 504 with no reply" reachable
+		// by whichever path happened to emit it - which is how it survived here in the
+		// first place.
+		if ev.Kind == "error" && strings.TrimSpace(ev.Text) != "" {
+			ev.Text, ev.Hint = agentFailure(ev.Text, req.Model, req.Local)
+			lastErr = ev.Text
+		}
 		send(ev)
 	})
 	if rerr != nil {
-		send(agentEvent{Kind: "error", Text: rerr.Error()})
+		// THE FAILURE MUST BE SHOWN ONCE. The harness emits the failure as an event AND
+		// loop.Send returns it, so a dead band painted the same red line twice - which
+		// reads as two separate failures. Same reasoning as the duplicate-answer fix
+		// below it: the duplicate was in the transport, not the turn. The terminal send
+		// still earns its place when it says something the stream never carried.
+		cause, hint := agentFailure(rerr.Error(), req.Model, req.Local)
+		if cause != lastErr {
+			send(agentEvent{Kind: "error", Text: cause, Hint: hint})
+		}
 		// The receipt still goes out: a turn that failed part-way still spent what it
 		// spent, and dropping it would understate the bill.
 		send(s.turnReceipt(loop))

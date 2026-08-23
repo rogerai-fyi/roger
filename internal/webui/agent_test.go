@@ -3,11 +3,16 @@ package webui
 import (
 	"bufio"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
+
+	"rogerai.fm/roger/v6/internal/harness"
+	"rogerai.fm/roger/v6/internal/node"
+	"rogerai.fm/roger/v6/internal/protocol"
 )
 
 // agent_test.go - the console's agent turn.
@@ -144,7 +149,7 @@ func TestAgentTurnStreamsItsToolSteps(t *testing.T) {
 // toolset came along.
 func TestConsoleAgentIsReadOnly(t *testing.T) {
 	s := New(testCtrl(), Options{Broker: "http://127.0.0.1:1", User: "u"})
-	l, err := s.agentLoop("m1")
+	l, err := s.agentLoop("m1", false)
 	if err != nil {
 		t.Fatalf("agentLoop: %v", err)
 	}
@@ -347,5 +352,185 @@ func TestTheAnswerIsNotSentTwice(t *testing.T) {
 	// must not have suppressed the answer.
 	if replies == 0 {
 		t.Error("no answer reached the browser at all")
+	}
+}
+
+// ── THE TWO GROUPS, AND WHERE A LOCAL PICK ACTUALLY GOES ─────────────────────
+// Founder 2026-08-22: chatting with grok-4.3 in the console returned "the station
+// returned status 504 with no reply", repeatedly. grok-4.3 is served on THIS machine
+// (127.0.0.1:8645); the console offered it as an open-market band and relayed to a
+// broker that had nobody serving it.
+
+// A LOCAL pick goes STRAIGHT to the server that serves it. Not through the broker, and
+// - the load-bearing half - not through the broker even when there is one configured:
+// a round trip to localhost that is metered on the way is not what "local" means.
+func TestConsoleAgentRoutesALocalPickDirect(t *testing.T) {
+	var hits int
+	var sawKey string
+	local := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		sawKey = r.Header.Get("Authorization")
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"role":"assistant","content":"answered locally"}}]}`)
+	}))
+	defer local.Close()
+	broker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("a LOCAL pick must never reach the broker (%s)", r.URL.Path)
+		w.WriteHeader(http.StatusGatewayTimeout)
+	}))
+	defer broker.Close()
+
+	ctrl := node.New(node.Config{Station: "amber-fox"})
+	ctrl.SetRows([]node.ShareRow{{
+		Model: "grok-4.3", Ctx: 32768,
+		Upstream: local.URL + "/v1/chat/completions", UpstreamKey: "sk-local",
+	}})
+	s := New(ctrl, Options{Broker: broker.URL, User: "u"})
+
+	res, events := agentPost(t, s, `{"model":"grok-4.3","message":"hi","local":true}`)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status %d, want 200 (events: %+v)", res.StatusCode, events)
+	}
+	if hits == 0 {
+		t.Fatal("the local server was never called - the pick was routed somewhere else")
+	}
+	if sawKey != "Bearer sk-local" {
+		t.Errorf("the local server's key must be attached server-side, got %q", sawKey)
+	}
+	var answered bool
+	for _, e := range events {
+		if e.Kind == "final" && strings.Contains(e.Text, "answered locally") {
+			answered = true
+		}
+	}
+	if !answered {
+		t.Errorf("the local turn must produce its answer; got %+v", events)
+	}
+}
+
+// A LOCAL pick with no local server behind it is REFUSED, never quietly relayed. Falling
+// back to the broker would spend the operator's money on a route they did not choose and
+// then fail with a market error about a model that is not on the market - which is the
+// exact confusion this whole change removes.
+func TestConsoleAgentRefusesAnUnroutableLocalPick(t *testing.T) {
+	s := New(testCtrl(), Options{Broker: "http://127.0.0.1:1", User: "u"})
+	res, _ := agentPost(t, s, `{"model":"ghost","message":"hi","local":true}`)
+	if res.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("status %d, want 503", res.StatusCode)
+	}
+}
+
+// The console needs NO BROKER to talk to a model on its own disk. Requiring one would
+// refuse a conversation with a server on this machine because a remote service was down.
+func TestConsoleAgentLocalNeedsNoBroker(t *testing.T) {
+	local := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`)
+	}))
+	defer local.Close()
+	ctrl := node.New(node.Config{Station: "amber-fox"})
+	ctrl.SetRows([]node.ShareRow{{Model: "m1", Upstream: local.URL + "/v1/chat/completions"}})
+	s := New(ctrl, Options{}) // no broker at all
+	if _, err := s.agentLoop("m1", true); err != nil {
+		t.Fatalf("a local turn must not need a broker: %v", err)
+	}
+}
+
+// A VOICE model and an upstream-less row are not offerable as chat: one cannot hold a
+// conversation, the other has nothing to send to. Both would be a 504 dressed as a choice.
+func TestLocalRowSkipsWhatCannotChat(t *testing.T) {
+	ctrl := node.New(node.Config{Station: "amber-fox"})
+	ctrl.SetRows([]node.ShareRow{
+		{Model: "voice", Modality: protocol.ModalityTTS, Upstream: "http://127.0.0.1:8095/v1/chat/completions"},
+		{Model: "whisper-1", Modality: protocol.ModalitySTT, Upstream: "http://127.0.0.1:8896/v1/chat/completions"},
+		{Model: "orphan"}, // detected, but no server carries it
+		{Model: "grok-4.3", Upstream: "http://127.0.0.1:8645/v1/chat/completions"},
+	})
+	s := New(ctrl, Options{})
+	for _, bad := range []string{"voice", "whisper-1", "orphan"} {
+		if _, ok := s.localRow(bad); ok {
+			t.Errorf("%q must not be routable as a chat model", bad)
+		}
+	}
+	if _, ok := s.localRow("grok-4.3"); !ok {
+		t.Error("a chat model with an upstream must be routable")
+	}
+}
+
+// The 504 must stop being a dead end. "the station returned status 504 with no reply"
+// names a number, blames "the station", and leaves nowhere to go; the console now shows
+// the SAME sentence the TUI does, plus the move that unblocks the reader.
+func TestAgentFailureTurnsA504IntoSomethingActionable(t *testing.T) {
+	cause, hint := agentFailure("the station returned status 504 with no reply", "grok-4.3", false)
+	if strings.Contains(cause, "with no reply") {
+		t.Errorf("the raw status string must not survive: %q", cause)
+	}
+	if !strings.Contains(cause, "grok-4.3") {
+		t.Errorf("the cause must name WHICH band has nobody on air: %q", cause)
+	}
+	if !strings.Contains(cause, "(504)") {
+		t.Errorf("the code is the one part of the raw text worth keeping: %q", cause)
+	}
+	if hint == "" || !strings.Contains(hint, "SHARE") {
+		t.Errorf("the hint must name a move the reader can make in this console: %q", hint)
+	}
+	// The SAME mapping the TUI applies - shared code, so the terminal and the browser
+	// cannot come to describe one dead band in two different ways.
+	if want := harness.ShortFailure("the station returned status 504 with no reply", "grok-4.3"); cause != want {
+		t.Errorf("cause = %q, want the shared harness mapping %q", cause, want)
+	}
+}
+
+// A LOCAL failure gets a LOCAL remedy. Sending an operator to the marketplace to fix
+// their own localhost is a dead end dressed as advice - the same reason the TUI has
+// localFailureHint.
+func TestAgentFailureRemedyFollowsTheRoute(t *testing.T) {
+	_, market := agentFailure("the station returned status 504 with no reply", "m1", false)
+	_, local := agentFailure("connection refused", "m1", true)
+	if market == local {
+		t.Fatal("a direct-to-localhost failure and a market failure cannot carry the same remedy")
+	}
+	if !strings.Contains(local, "DIRECT") {
+		t.Errorf("a local failure must say the turn never left the machine: %q", local)
+	}
+	if strings.Contains(local, "put one of your own on air") {
+		t.Errorf("a local failure must not send the operator to the marketplace: %q", local)
+	}
+	// A context overflow is the one shape where BOTH of those remedies are wrong: the
+	// band is healthy and answering, the conversation simply outgrew it.
+	_, over := agentFailure("context length exceeded", "m1", false)
+	if !strings.Contains(over, "outgrew") {
+		t.Errorf("a context overflow must not be reported as nobody being on air: %q", over)
+	}
+}
+
+// A dead band painted the same red line twice: the harness emits the failure as an event
+// and loop.Send returns the same error, and both were sent. Two identical failures read as
+// two separate ones. Same shape as the duplicate-answer fix - the duplication was in the
+// transport, not the turn.
+func TestAFailedTurnReportsItsFailureOnce(t *testing.T) {
+	broker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusGatewayTimeout)
+	}))
+	defer broker.Close()
+	s := New(testCtrl(), Options{Broker: broker.URL, User: "u"})
+	_, events := agentPost(t, s, `{"model":"m1","message":"hi"}`)
+	seen := map[string]int{}
+	for _, e := range events {
+		if e.Kind == "error" {
+			seen[e.Text]++
+		}
+	}
+	for text, n := range seen {
+		if n > 1 {
+			t.Errorf("the failure %q was reported %d times; once is the truth", text, n)
+		}
+	}
+	if len(seen) == 0 {
+		t.Fatalf("a 504 must still be reported at all; got %+v", events)
+	}
+	// ...and it still carries its remedy, whichever path emitted it.
+	for _, e := range events {
+		if e.Kind == "error" && e.Hint == "" {
+			t.Errorf("every reported failure needs its remedy: %+v", e)
+		}
 	}
 }

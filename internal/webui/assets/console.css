@@ -1122,6 +1122,20 @@ body.is-chat .content { padding-bottom: var(--s-6); }
 .chat-send:disabled { background: var(--ink-300); cursor: not-allowed; }
 .chat-foot { margin: 8px 2px 0; font-size: 11px; color: var(--ink-400); }
 
+/* THE BAND DETAIL LINE: what is known about the band you are about to spend a turn on.
+   It wraps rather than scrolls - a long station id must never push the page sideways -
+   and every slot is a label + value pair so an em-dash value reads as "not measured"
+   rather than as a rendering fault. */
+.chat-band {
+  margin: 8px 2px 0;
+  font-size: 11px;
+  color: var(--ink-500);
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.chat-band .band-k { color: var(--ink-400); }
+.chat-band .band-v { color: var(--ink-700); }
+
 /* WORKING. The carrier from the TUI, in the browser: a scrolling wave that says
    "a station is transmitting" without claiming a percentage it cannot know. It
    wears the Wave Spectrum - the same seven tiers, in the same order, as the
@@ -1235,6 +1249,16 @@ body.is-chat .content { padding-bottom: var(--s-6); }
   flex: 1;
 }
 .chat-tool-detail { color: var(--ink-400); flex: none; }
+
+/* THE REMEDY under a failed turn. Dimmer than the error itself: the first line says what
+   happened, this one says what to do, and the reader should be able to find the second
+   without re-reading the first. Never red - it is instruction, not alarm. */
+.chat-err-hint {
+  margin-top: 4px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-400);
+}
 
 /* A harness NOTICE (auto-compaction, and anything else the harness did on the turn's
    behalf): quiet, and never styled as an error - nothing is broken and there is

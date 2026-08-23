@@ -201,10 +201,16 @@ func TestLoadRowsNoPersistDoesNotWrite(t *testing.T) {
 	}
 }
 
-// TestDetectFallsBackToSavedUpstream: with no pasted URL, Detect probes the saved/verified
-// upstream first — so a custom/non-default endpoint (the one the CLI seeds) is found instead
-// of the SHARE tab staying empty after a bare port scan.
-func TestDetectFallsBackToSavedUpstream(t *testing.T) {
+// AMENDED 2026-08-23: Detect no longer returns the saved upstream ALONE, so "the result
+// contains the saved model" is no longer the whole guarantee - it is now one entry in a
+// full-machine scan. What must still hold is that the saved/verified endpoint is SEEDED
+// into that scan as a priority candidate, because a custom/keyed endpoint is on none of
+// the default ports and would otherwise never be probed at all.
+//
+// The scan is stubbed rather than run: the property is "the saved endpoint reaches the
+// scan", and inferring that from whatever happens to be listening on the developer's box
+// would be both slower and weaker.
+func TestDetectSeedsTheSavedUpstreamIntoTheScan(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/models") {
 			_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]any{{"id": "saved-model"}}})
@@ -214,8 +220,24 @@ func TestDetectFallsBackToSavedUpstream(t *testing.T) {
 	}))
 	defer srv.Close()
 
+	var seeded []string
+	restore := detectFull
+	detectFull = func(extra ...string) ([]detect.Found, []string) {
+		seeded = extra
+		// What the real DetectFull does with a priority candidate: probe it, keep it first.
+		f, st := detect.ProbeKey(extra[0], "")
+		if st != detect.Reachable {
+			return nil, nil
+		}
+		return []detect.Found{f}, nil
+	}
+	defer func() { detectFull = restore }()
+
 	c := New(Config{Station: "amber-fox", Upstream: srv.URL}) // the saved upstream
 	found, _ := c.Detect("", "")                              // re-detect with no pasted URL
+	if len(seeded) == 0 || !strings.Contains(seeded[0], srv.URL) {
+		t.Fatalf("the scan was seeded with %v, which does not derive from the saved endpoint %q", seeded, srv.URL)
+	}
 	got := false
 	for _, f := range found {
 		for _, m := range f.Models {
@@ -445,9 +467,16 @@ func TestAllEmptyStillReportsAnUpstream(t *testing.T) {
 	}
 }
 
-// The reason the short-circuit exists must survive the fix: a saved endpoint that DOES
-// serve models still wins without a full scan.
-func TestDetectStillShortCircuitsOnAServingUpstream(t *testing.T) {
+// AMENDED 2026-08-23: this used to lock the SHORT-CIRCUIT - "a saved endpoint that DOES
+// serve models is returned alone, without a full scan". That behaviour was the bug the
+// founder reported: with the saved upstream on :8060 serving exactly one model, the
+// console's SHARE tab showed one model while `roger detect` in the next terminal listed
+// twenty-seven across twelve servers, and re-detect could never get past it.
+//
+// Re-anchored to the guarantee the short-circuit was actually protecting, which survives:
+// a serving saved endpoint is still IN the result, still first (so loadRows binds the
+// station to it), and it no longer costs the rest of the machine to keep it there.
+func TestAServingSavedUpstreamStillLeadsButNoLongerHidesTheFleet(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/models") {
 			_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]any{{"id": "saved-model"}}})
@@ -457,9 +486,130 @@ func TestDetectStillShortCircuitsOnAServingUpstream(t *testing.T) {
 	}))
 	defer srv.Close()
 
+	scanned := false
+	restore := detectFull
+	detectFull = func(extra ...string) ([]detect.Found, []string) {
+		scanned = true
+		f, st := detect.ProbeKey(extra[0], "")
+		out := []detect.Found{}
+		if st == detect.Reachable {
+			out = append(out, f) // the priority candidate leads, as the real scan does
+		}
+		return append(out, detect.Found{
+			Name: "port:8081", BaseURL: "http://127.0.0.1:8081/v1",
+			Chat: "http://127.0.0.1:8081/v1/chat/completions", Models: []string{"qwen3-vl-8b"},
+		}), nil
+	}
+	defer func() { detectFull = restore }()
+
 	c := New(Config{Station: "amber-fox", Upstream: srv.URL})
 	found, _ := c.Detect("", "")
-	if len(found) != 1 || len(found[0].Models) != 1 || found[0].Models[0] != "saved-model" {
-		t.Fatalf("a serving saved upstream should be returned alone; got %+v", found)
+	if !scanned {
+		t.Fatal("a serving saved upstream must no longer short-circuit the machine scan")
+	}
+	if len(found) != 2 {
+		t.Fatalf("found = %+v, want the saved endpoint AND the rest of the machine", found)
+	}
+	if len(found[0].Models) != 1 || found[0].Models[0] != "saved-model" {
+		t.Errorf("the saved endpoint must still lead (loadRows binds the station to it); got %+v", found[0])
+	}
+	if found[1].Models[0] != "qwen3-vl-8b" {
+		t.Errorf("the rest of the fleet must survive; got %+v", found[1])
+	}
+}
+
+// The keyed endpoint is the reason the short-circuit existed: detect.DetectFull takes URLs
+// only (`extra ...string`), so it probes a key-protected endpoint with the ENVIRONMENT's
+// keys and never the one the operator pasted. That endpoint therefore comes back 401 - as
+// a needKey entry, not a server - and its models are lost.
+//
+// So the keyed probe is merged into the scan instead of replacing it: the whole fleet AND
+// the keyed endpoint, de-duplicated by base URL, with the keyed Found taking the slot
+// because it is the only one holding the credential the row needs to go on air.
+func TestDetectMergesTheKeyedEndpointIntoTheFullScan(t *testing.T) {
+	const key = "sk-paste-me"
+	keyed := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer "+key {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/models") {
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]any{{"id": "walled-model"}}})
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer keyed.Close()
+	base := strings.TrimRight(keyed.URL, "/") + "/v1"
+
+	restore := detectFull
+	detectFull = func(extra ...string) ([]detect.Found, []string) {
+		// What the real scan sees WITHOUT the key: the rest of the machine, plus this
+		// endpoint reported as "present but needs a key".
+		return []detect.Found{{
+			Name: "port:8081", BaseURL: "http://127.0.0.1:8081/v1",
+			Chat: "http://127.0.0.1:8081/v1/chat/completions", Models: []string{"qwen3-vl-8b"},
+		}}, []string{base}
+	}
+	defer func() { detectFull = restore }()
+
+	c := New(Config{Station: "amber-fox"})
+	found, needKey := c.Detect(keyed.URL, key)
+
+	var walled *detect.Found
+	fleet := false
+	for i := range found {
+		for _, m := range found[i].Models {
+			if m == "walled-model" {
+				walled = &found[i]
+			}
+			if m == "qwen3-vl-8b" {
+				fleet = true
+			}
+		}
+	}
+	if walled == nil {
+		t.Fatalf("the keyed endpoint's models were lost; got %+v", found)
+	}
+	if !fleet {
+		t.Errorf("merging the keyed endpoint must not cost the rest of the machine; got %+v", found)
+	}
+	if walled.Key != key {
+		t.Errorf("the merged row must carry the key it was opened with, got %q - without it the row cannot go on air", walled.Key)
+	}
+	for _, n := range needKey {
+		if strings.TrimRight(n, "/") == base {
+			t.Errorf("%s was opened with the pasted key; it must not still be reported as needing one", base)
+		}
+	}
+}
+
+// De-duplication is by BASE URL and keeps position: the keyed probe takes the scan's slot
+// for the same endpoint rather than appending a twin. A twin would put the same models in
+// the catalog twice and - worse - let the KEYLESS copy win firstServing, binding the
+// station to an endpoint it has no credential for.
+func TestKeyedMergeReplacesTheScanEntryInPlace(t *testing.T) {
+	base := "http://127.0.0.1:9999/v1"
+	scan := []detect.Found{
+		{Name: "port:9999", BaseURL: base, Chat: base + "/chat/completions", Models: []string{"stale"}},
+		{Name: "port:8081", BaseURL: "http://127.0.0.1:8081/v1", Models: []string{"qwen3-vl-8b"}},
+	}
+	got := mergeKeyed(scan, detect.Found{
+		Name: "configured", BaseURL: base, Chat: base + "/chat/completions",
+		Models: []string{"fresh"}, Key: "sk-1",
+	})
+	if len(got) != 2 {
+		t.Fatalf("merge appended a twin instead of replacing: %+v", got)
+	}
+	if got[0].Models[0] != "fresh" || got[0].Key != "sk-1" {
+		t.Errorf("the keyed probe must take the slot (it is the one with the credential); got %+v", got[0])
+	}
+	if got[1].Models[0] != "qwen3-vl-8b" {
+		t.Errorf("the merge must not disturb the rest of the scan; got %+v", got[1])
+	}
+	// An endpoint the scan missed entirely is appended, not dropped.
+	got = mergeKeyed(scan, detect.Found{BaseURL: "http://127.0.0.1:7777/v1", Models: []string{"new"}})
+	if len(got) != 3 {
+		t.Fatalf("an unscanned endpoint must be appended; got %+v", got)
 	}
 }

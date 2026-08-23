@@ -300,3 +300,129 @@ func TestConsoleShowsWhatItIsHolding(t *testing.T) {
 		t.Error("...and something to fill it")
 	}
 }
+
+// ── THE PICKER: TWO GROUPS, ONLY WHAT IS ONLINE ──────────────────────────────
+// Founder 2026-08-22: "it should use the local models or list them in a category as
+// local, and in another category showing the open market models, and it should only show
+// the ones online, it should maybe show more detail."
+
+// AMENDED 2026-08-23: the comment this replaces claimed "the model list is the bands this
+// node can actually reach, so the picker can never offer something there is no way to send
+// to". That was FALSE - the list was /api/browse verbatim, `online` and all, which is how
+// picking grok-4.3 returned a 504 every time. A comment that is a promise has to be one
+// the code keeps, so the promise is now a test.
+func TestChatPickerOnlyOffersWhatIsOnline(t *testing.T) {
+	js := chatJS(t)
+	if strings.Contains(js, "so the picker can\n  // never offer something there is no way to send to") {
+		t.Error("the false 'can never offer something unreachable' claim must not come back unearned")
+	}
+	// The market half is filtered on the field the feed has carried all along.
+	if !strings.Contains(js, "o.online === true") {
+		t.Error("the market half of the picker must filter on `online` - an off-air band is a 504 with extra steps")
+	}
+	// The local half must be routable AND able to hold a conversation.
+	if !strings.Contains(js, "return r.model && r.upstream && !chatIsVoice(r.modality)") {
+		t.Error("a local row with no upstream (nothing to send to) or a voice modality (cannot chat) must not be offered")
+	}
+	if !strings.Contains(js, `modality === "tts" || modality === "stt"`) {
+		t.Error("voice models must be excluded from a CHAT picker on both sides")
+	}
+}
+
+// Two groups, named for the thing that actually differs about them: where the turn goes.
+func TestChatPickerGroupsLocalAndMarket(t *testing.T) {
+	js := chatJS(t)
+	if !strings.Contains(js, `el("optgroup")`) {
+		t.Error("the picker must use <optgroup> - two flat lists in one dropdown is not two categories")
+	}
+	for _, want := range []string{
+		"LOCAL · this machine · direct, not through the broker",
+		"OPEN MARKET · relayed through the broker",
+	} {
+		if !strings.Contains(js, want) {
+			t.Errorf("the picker needs the group heading %q", want)
+		}
+	}
+	// A LOCAL pick has to be ROUTED locally, or the group is a lie that 504s. The flag
+	// rides the request; the endpoint and its key are resolved server-side (agent.go).
+	if !strings.Contains(js, "local: !!entry.local") {
+		t.Error("the turn must tell the server which group the pick came from")
+	}
+	if strings.Contains(js, "upstream: e.upstream, key:") {
+		t.Error("the page must never carry an upstream KEY - the server resolves it")
+	}
+}
+
+// An empty picker explains itself. Filtering to "only online" can empty the list, and a
+// blank dropdown beside "pick a band first" is an instruction the user cannot follow.
+func TestChatPickerSaysWhyItIsEmpty(t *testing.T) {
+	js := chatJS(t)
+	if !strings.Contains(js, "function chatEmptyReason") {
+		t.Fatal("an empty picker must carry a reason")
+	}
+	i := strings.Index(js, "function chatEmptyReason")
+	block := js[i : i+900]
+	for _, want := range []string{"off air right now", "detection is still running"} {
+		if !strings.Contains(block, want) {
+			t.Errorf("the empty reason must distinguish the cases (%q missing)", want)
+		}
+	}
+}
+
+// THE HONESTY RAIL, in the picker. Absent renders as absent; a printed zero must never
+// read as a measurement. `ttft_ms: 0` means nobody timed the band, not that it answered
+// instantly, and `ctx_estimated` means the window is a default rather than a detection.
+func TestChatPickerNeverPrintsAnUnmeasuredZero(t *testing.T) {
+	js := chatJS(t)
+	i := strings.Index(js, "function chatBandDetail")
+	if i < 0 {
+		t.Fatal("chatBandDetail not found")
+	}
+	block := js[i : i+1600]
+	for _, guarded := range []string{
+		`slot("tok/s", e.tps ? Math.round(e.tps) : "—")`,
+		`slot("ttft", e.ttft ? Math.round(e.ttft) + "ms" : "—")`,
+	} {
+		if !strings.Contains(block, guarded) {
+			t.Errorf("an unmeasured number must render as the absence glyph, not as 0: missing %s", guarded)
+		}
+	}
+	// The estimated-context marker is the same ≈ the SHARE table and `roger detect` use.
+	if !strings.Contains(js, `Math.round(ctx / 1024) + "k" + (estimated ? "≈" : "")`) {
+		t.Error("an ESTIMATED context window must be marked as one, not printed as a detected number")
+	}
+	// A local model has no price, so it must never be given one.
+	if strings.Contains(js, `if (entry.local) {`) {
+		lo := strings.Index(js, "function chatOptionLabel")
+		lb := js[lo : lo+900]
+		local := lb[strings.Index(lb, "if (entry.local) {"):strings.Index(lb, "} else {")]
+		// The FIELDS, not the word: the branch's comment says why there is no price here.
+		if strings.Contains(local, "entry.priceOut") || strings.Contains(local, "entry.free") {
+			t.Error("a LOCAL row must never show a price - there is none, and printing one is a false claim about money")
+		}
+	}
+}
+
+// A failed turn gets a remedy, not just a cause. This is the founder's dead end: "the
+// station returned status 504 with no reply" told them nothing to do.
+func TestChatErrorCarriesItsRemedy(t *testing.T) {
+	js := chatJS(t)
+	if !strings.Contains(js, "function chatAppendError") {
+		t.Fatal("a failed turn must render cause AND remedy")
+	}
+	if !strings.Contains(js, "chatAppendError(e.text, e.hint)") {
+		t.Error("the streamed error event's hint must reach the page")
+	}
+	css, err := os.ReadFile("assets/console.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(css), ".chat-err-hint") {
+		t.Error("the remedy line needs its own style, or it reads as more of the error")
+	}
+	// Design tokens only - the page has to work in both themes.
+	i := strings.Index(string(css), ".chat-err-hint")
+	if strings.Contains(string(css)[i:i+200], "#") {
+		t.Error("no hardcoded colors: the console paints from tokens so both themes work")
+	}
+}

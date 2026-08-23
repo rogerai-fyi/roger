@@ -19,7 +19,20 @@ type Snapshot struct {
 // RowView is one model in the share table: its catalog facts plus live counters when
 // on air. Link is "off" | "connecting" | "on-air" | "reconnecting".
 type RowView struct {
-	Model        string  `json:"model"`
+	Model string `json:"model"`
+	// Modality is what this model DOES: "chat" (the back-compat default, and what an
+	// absent value means), "tts" or "stt". A front-end that offers a chat conversation has
+	// to be able to leave a VOICE model out of the picker: a tts band cannot hold a
+	// conversation, and offering one is an invitation to a turn that can only fail.
+	Modality string `json:"modality,omitempty"`
+	// Upstream is the LOCAL chat-completions URL that actually serves this model, so a
+	// front-end can route a pick straight at it instead of relaying to the broker and back
+	// to this same machine. It is the URL only - the bearer key that endpoint may need
+	// never leaves the node, and the routing that uses it happens server-side.
+	//
+	// Empty means there is nothing to send to, and a row with no upstream must not be
+	// offered as reachable.
+	Upstream     string  `json:"upstream,omitempty"`
 	Ctx          int     `json:"ctx"`
 	CtxEstimated bool    `json:"ctx_estimated"`
 	OnAir        bool    `json:"on_air"`
@@ -76,6 +89,8 @@ func (c *Controller) Snapshot() Snapshot {
 		p := c.pricingForLocked(r.Model)
 		rv := RowView{
 			Model:        r.Model,
+			Modality:     r.Modality,
+			Upstream:     r.Upstream,
 			Ctx:          r.Ctx,
 			CtxEstimated: r.CtxEstimated,
 			Private:      c.private[r.Model],

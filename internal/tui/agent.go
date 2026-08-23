@@ -3266,77 +3266,24 @@ func remedyFor(raw string, narrow bool) string {
 	return hintTuneOrShare(narrow)
 }
 
-// shortFailure maps a raw relay error to a tight, plain first clause. It recognises
-// the common shapes the broker/completer return (a 5xx with no reply, a timeout, an
-// unreachable broker, an empty response, "no station / no node") and collapses each to
-// a short phrase; anything else is passed through (clipped) so we never hide the real
-// cause. model (when known) names the band in the no-station / no-reply / empty-reply
-// shapes so the user sees WHICH model has nobody on air, not a bare status code.
-func shortFailure(raw, model string) string {
-	s := strings.TrimSpace(raw)
-	low := strings.ToLower(s)
-	// A 504 / 503 / 502 with no usable body is, in practice, "no station is serving this
-	// model right now" - the broker had nobody to relay to. Name the model so the bare
-	// code becomes an actionable sentence.
-	switch {
-	// Checked BEFORE the no-station shapes: a context overflow is a healthy station
-	// refusing an oversized conversation, and must never be reported as nobody being on
-	// air. Name the model, because WHICH window was outgrown is the whole point - a small
-	// on-device band (Apple foundation, 8K) fills where a big one would not.
-	case isContextOverflow(low):
-		if model != "" {
-			return "the conversation outgrew " + model + "'s context window"
-		}
-		return "the conversation outgrew this model's context window"
-	case strings.Contains(low, "no station") || strings.Contains(low, "no node") || strings.Contains(low, "not on air") || strings.Contains(low, "no model is tuned in"):
-		return noStationServing(model) + statusSuffix(s)
-	case strings.Contains(low, "no reply") || strings.Contains(low, "within ") && strings.Contains(low, "slow or offline"):
-		return noStationServing(model) + statusSuffix(s)
-	case strings.Contains(low, "with no reply") || strings.Contains(low, "empty response") || strings.Contains(low, "no text"):
-		return noStationServing(model) + statusSuffix(s)
-	case strings.Contains(low, "timeout") || strings.Contains(low, "deadline exceeded") || strings.Contains(low, "timed out"):
-		return "the station timed out" + statusSuffix(s)
-	case strings.Contains(low, "decode() failed") || strings.Contains(low, "failed to process"):
-		// A station-side inference crash (e.g. llama.cpp 'failed to process
-		// speculative batch'): the band exists and usually recovers - say so instead
-		// of implying nobody is on air.
-		return "the station hit an internal error - try again, it usually recovers" + statusSuffix(s)
-	case strings.Contains(low, "could not reach the broker") || strings.Contains(low, "broker unreachable") || strings.Contains(low, "connection refused") || strings.Contains(low, "connection reset"):
-		return "could not reach the broker"
-	}
-	return clipLine(s)
-}
+// shortFailure maps a raw relay error to a tight, plain first clause.
+//
+// MOVED 2026-08-23: the mapping now lives in the harness (harness.ShortFailure), beside the
+// completers that produce these errors, because the BROWSER CONSOLE runs agent turns too and
+// hits the same bands. The founder saw the raw "the station returned status 504 with no
+// reply" in the browser precisely because this judgement was terminal-only. One copy, one
+// answer - two would drift, and the terminal and the browser would explain the same dead
+// band differently.
+//
+// It stays a named function here because the TUI's callers read better for it, and because
+// this is where the model name is known.
+func shortFailure(raw, model string) string { return harness.ShortFailure(raw, model) }
 
-// noStationServing is the no-station phrase, naming the model when we know it: "no
-// station is serving gpt-oss-20b right now" (vs the generic "no station is on air right
-// now" when the model is unknown). It is the human face of a relay 504 with nobody on
-// the other end - the founder's confusing bare-504 dead end.
-func noStationServing(model string) string {
-	if model == "" {
-		return "no station is on air right now"
-	}
-	return "no station is serving " + model + " right now"
-}
-
-// statusSuffix pulls a trailing "(NNN)" out of a raw error that named an HTTP status
-// (e.g. "... status 504 ...") so the short phrase can carry the code: "no station
-// answered (504)". Empty when no 3-digit status is present.
-func statusSuffix(s string) string {
-	low := strings.ToLower(s)
-	i := strings.Index(low, "status ")
-	if i < 0 {
-		return ""
-	}
-	rest := s[i+len("status "):]
-	n := 0
-	for n < len(rest) && n < 3 && rest[n] >= '0' && rest[n] <= '9' {
-		n++
-	}
-	if n == 0 {
-		return ""
-	}
-	return " (" + rest[:n] + ")"
-}
+// statusSuffix pulls a trailing "(NNN)" out of a raw error that named an HTTP status.
+// noStationServing is the "nobody is on air for <model>" phrase. Both are shared with the
+// console via the harness; see shortFailure.
+func statusSuffix(s string) string         { return harness.StatusSuffix(s) }
+func noStationServing(model string) string { return harness.NoStationServing(model) }
 
 // argStr coerces a JSON-decoded tool arg to a string for display (mirrors the
 // harness package's own coercion; nil -> "").

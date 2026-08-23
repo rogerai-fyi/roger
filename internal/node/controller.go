@@ -614,13 +614,36 @@ func (c *Controller) Rename(station string) {
 	}
 }
 
-// Detect runs an async-safe local-LLM scan (used by the re-detect action). It does not
-// mutate the catalog; the caller passes the result to LoadRows.
+// Detect re-scans this machine for OpenAI-compatible servers, so a re-detect from either
+// front-end sees the WHOLE fleet.
+//
+// It used to SHORT-CIRCUIT: if the saved upstream probed reachable and served at least one
+// model, that one server was returned and the machine was never scanned. On a box running
+// twelve local servers that made eleven of them - and twenty-six of twenty-seven models -
+// invisible in the browser console's SHARE tab, because the saved upstream happened to be
+// cpu-bots on :8060, which serves exactly one model. `roger detect` in the same terminal
+// listed all of them, which is the founder's benchmark: re-detect must behave like the TUI
+// share tab.
+//
+// The short-circuit was not arbitrary - it was the only place a KEY reached the saved
+// endpoint. detect.DetectFull takes URLs only (`extra ...string`), so a key-protected
+// custom endpoint is probed with whatever keys the ENVIRONMENT exports and nothing else;
+// the key the operator pasted (or that config saved) never gets tried, and the endpoint
+// comes back as "needs a key" or not at all.
+//
+// So the scan always runs, and the KEYED probe is MERGED into its result rather than
+// replacing it: full fleet AND the keyed endpoint. The merge is by base URL, so the
+// endpoint appears once, and the keyed Found wins that slot because it is the only one
+// holding the credential the row needs to go on air.
+//
+// The keyed probe is skipped when there is no key in hand: DetectFull already seeds the
+// endpoint as a PRIORITY candidate and retries env keys against it, so an unkeyed re-probe
+// would be the same request twice.
 func (c *Controller) Detect(extra, key string) (found []detect.Found, needKey []string) {
 	// A pasted URL+key takes priority; otherwise fall back to the saved/verified upstream
 	// (and its key). A bare DetectFull only scans the default ports + listening sockets, so
 	// without this a saved CUSTOM/keyed endpoint — the one the CLI finds because it seeds it
-	// — would be missed by re-detect, leaving the SHARE tab empty.
+	// — would be missed by re-detect.
 	c.mu.Lock()
 	savedUp, savedKey := c.upstream, c.upstreamKey
 	c.mu.Unlock()
@@ -628,21 +651,48 @@ func (c *Controller) Detect(extra, key string) (found []detect.Found, needKey []
 	if url == "" {
 		url, k = savedUp, savedKey
 	}
-	if url != "" {
-		// Reachable is not enough — it must actually SERVE something. A server that
-		// answers /v1/models with an empty list is reachable and useless, and taking this
-		// short-circuit on one used to hide every other backend on the machine: the SHARE
-		// tab showed "No models detected yet. Try re-detect", and re-detect re-took the
-		// same short-circuit, so the advice could never work. Falling through costs one
-		// scan and cannot lose the saved endpoint, because DetectFull seeds it as a
-		// priority candidate below.
-		if f, st := detect.ProbeKey(url, k); st == detect.Reachable && len(f.Models) > 0 {
-			return []detect.Found{f}, nil
+	// The whole machine, every time - exactly the CLI's DetectFull path, with the (saved or
+	// pasted) endpoint seeded as a priority candidate so it still wins de-dup and keeps its
+	// "configured" name.
+	found, needKey = detectFull(url)
+	if url == "" || k == "" {
+		return found, needKey
+	}
+	f, st := detect.ProbeKey(url, k)
+	if st != detect.Reachable || len(f.Models) == 0 {
+		return found, needKey
+	}
+	return mergeKeyed(found, f), dropNeedKey(needKey, f.BaseURL)
+}
+
+// mergeKeyed folds a keyed probe of one endpoint into a scan result, de-duplicated by base
+// URL. An existing entry for the same base is REPLACED in place - position and all - so the
+// priority-seeded endpoint stays first (loadRows binds the station to the first server that
+// serves models) and so the row inherits the Key that scan pass could not know. An endpoint
+// the scan missed entirely is appended.
+func mergeKeyed(found []detect.Found, f detect.Found) []detect.Found {
+	base := strings.TrimRight(f.BaseURL, "/")
+	for i := range found {
+		if strings.TrimRight(found[i].BaseURL, "/") == base {
+			found[i] = f
+			return found
 		}
 	}
-	// Seed the (saved or pasted) endpoint as a priority candidate so it wins de-dup, then
-	// scan the defaults — exactly the CLI's DetectFull path.
-	return detectFull(url)
+	return append(found, f)
+}
+
+// dropNeedKey removes base from the "present but needs an API key" list. The scan reports a
+// 401 for an endpoint whose key it was never given; once the keyed probe has opened it, it
+// is no longer something to prompt about.
+func dropNeedKey(needKey []string, base string) []string {
+	base = strings.TrimRight(base, "/")
+	out := needKey[:0]
+	for _, n := range needKey {
+		if strings.TrimRight(n, "/") != base {
+			out = append(out, n)
+		}
+	}
+	return out
 }
 
 // detectFull is the machine scan, behind a seam so a test can prove the fall-through

@@ -166,6 +166,11 @@
 
     show($("share-login-warn"), !s.logged_in);
     renderShareRows(s.rows || []);
+    // The chat picker's LOCAL group IS this table, so it is rebuilt from every snapshot.
+    // Detection runs in the background for ~15s after launch, and a picker filled once on
+    // tab-open would show the fleet as it was before that landed - which is how a machine
+    // serving twenty-seven models looks like a machine serving one.
+    chatFillModels();
   }
 
   function renderShareRows(rows) {
@@ -552,25 +557,31 @@
   }
 
   /* 8. BROWSE -------------------------------------------------------------- */
+  // The market feed, held so the chat picker can be rebuilt from it without re-fetching
+  // (the LOCAL half of that picker arrives on the snapshot stream, on its own schedule).
+  var lastOffers = [];
+
   function loadBrowse() {
     var tbody = $("browse-rows");
     apiGet("/api/browse").then(function (offers) {
       tbody.innerHTML = "";
-      offers = Array.isArray(offers) ? offers : [];
-      if (!offers.length) {
+      lastOffers = Array.isArray(offers) ? offers : [];
+      if (!lastOffers.length) {
         var er = el("tr", "empty-row");
         var td = el("td", null, "No models on the market right now."); td.colSpan = 8;
-        er.appendChild(td); tbody.appendChild(er); chatFillModels([]); return;
+        er.appendChild(td); tbody.appendChild(er); chatFillModels(); return;
       }
-      offers.forEach(function (o) { tbody.appendChild(buildBrowseRow(o)); });
-      // One fetch feeds both surfaces: the chat picker offers exactly the bands
-      // BROWSE just listed, so it can never name something there is no way to reach.
-      chatFillModels(offers);
+      lastOffers.forEach(function (o) { tbody.appendChild(buildBrowseRow(o)); });
+      // One fetch feeds both surfaces - but the picker filters harder than the table
+      // does (see chatFillModels): BROWSE is a market listing, and listing a band that
+      // is off air is honest there. Offering it as something to talk to is not.
+      chatFillModels();
     }).catch(function (e) {
-      // The chat picker is fed from this same call, so a failed browse has to reach
-      // it too - otherwise the picker sits blank with no reason given and "pick a
-      // band first" becomes an instruction the user cannot follow.
-      chatFillModels([]);
+      // The market half of the picker is fed from this call, so a failed browse has to
+      // reach it too. The LOCAL half is unaffected and still fills: a broker that is
+      // down is no reason to hide the models running on this very machine.
+      lastOffers = [];
+      chatFillModels();
       tbody.innerHTML = "";
       var er = el("tr", "empty-row");
       var td = el("td", null, e.status === 503 ? "Browse needs a configured broker." : "Could not load the market.");
@@ -641,6 +652,20 @@
     return turn;
   }
 
+  /* A FAILED TURN GETS TWO LINES: what went wrong, and what to do about it.
+     "the station returned status 504 with no reply" was the founder's dead end - it names
+     a number, blames "the station", and leaves nowhere to go. The server now maps it to
+     the same sentence the TUI shows ("no station is serving grok-4.3 right now (504)" -
+     harness.ShortFailure, shared code, so the two surfaces cannot drift) and sends the
+     remedy alongside it. The hint is a separate element rather than more prose: it is the
+     line the reader acts on, and it should be findable without reading the first one. */
+  function chatAppendError(text, hint) {
+    var turn = chatAppend("error", text || "the turn failed", "chat-turn--err");
+    if (hint) turn.appendChild(el("div", "chat-err-hint", hint));
+    chatScroll();
+    return turn;
+  }
+
   /* The per-turn RECEIPT is not shown on an agent turn yet: a turn is now many relayed
      calls (one per model step, plus any subagent's), so a single "what this cost" line
      would have to be a rollup the server does not stream yet. Showing one call's numbers
@@ -667,47 +692,240 @@
     if (!on && i) i.focus();
   }
 
-  // The model list is the bands this node can actually reach, so the picker can
-  // never offer something there is no way to send to. Selection survives a
-  // refresh of the list; if the chosen band goes away, the first one takes over.
-  function chatFillModels(offers) {
+  /* THE PICKER. Two groups, and only what is ONLINE.
+     ─────────────────────────────────────────────────────────────────────────
+     Founder, 2026-08-22: "it should use the local models or list them in a category as
+     local, and in another category showing the open market models, and it should only
+     show the ones online, it should maybe show more detail."
+
+     What was here before was one flat list of every band the broker had ever mentioned,
+     built from /api/browse alone and ignoring the `online` flag the feed carries. The
+     comment above it claimed "the picker can never offer something there is no way to
+     send to", which was simply FALSE - it is how chatting with grok-4.3 returned "the
+     station returned status 504 with no reply" over and over. The claim is gone and the
+     filtering that would have made it true is here instead.
+
+     LOCAL is this machine's own catalog - the same rows the SHARE tab renders, arriving
+     on the snapshot stream. A local pick is routed DIRECT at the server that serves it
+     (the server resolves the endpoint and its key; see agent.go), never relayed through
+     the broker and back to this same box. That is what makes the group offerable at all:
+     a category that 504s is the bug, not the feature.
+
+     OPEN MARKET is the broker's discover feed, filtered to bands that are actually on
+     air right now.
+
+     Both groups drop VOICE models (tts/stt): they cannot hold a conversation, and
+     listing one is an invitation to a turn that can only fail. The TUI's picker draws
+     exactly these two groups under exactly these two rules. */
+  var CHAT_LOCAL = "local:", CHAT_MARKET = "market:";
+
+  function chatIsVoice(modality) { return modality === "tts" || modality === "stt"; }
+
+  // chatLocalRows are this node's own models that a turn can actually be sent to. A row
+  // with no upstream has nothing behind it - offering it would trade a broker 504 for a
+  // local one.
+  function chatLocalRows() {
+    var rows = (lastSnapshot && lastSnapshot.rows) || [];
+    return rows.filter(function (r) {
+      return r.model && r.upstream && !chatIsVoice(r.modality);
+    });
+  }
+
+  // chatMarketOffers are the bands the broker says are ON AIR. `online` is the field, and
+  // it was there all along - nothing else in the feed answers "will this answer me?".
+  function chatMarketOffers() {
+    return (lastOffers || []).filter(function (o) {
+      return o.model && o.online === true && !chatIsVoice(o.modality);
+    });
+  }
+
+  /* ABSENCE RENDERS AS ABSENCE.
+     Every number below is omitted when it was never measured, because a printed zero
+     reads as a measurement: `ttft_ms: 0` means nobody timed it, not that it was instant,
+     and a 0 tok/s band is one nobody has clocked, not a stopped one. Where there is a
+     column to hold it (the detail line under the composer) absence is the em dash the
+     rest of this console uses; where there is not (a one-line <option>) it is left out
+     rather than guessed at. `ctx_estimated` gets the ≈ the SHARE table and `roger detect`
+     already use - a default window, not a detected one. */
+  function chatCtxLabel(ctx, estimated) {
+    if (!ctx) return "";
+    return Math.round(ctx / 1024) + "k" + (estimated ? "≈" : "");
+  }
+
+  function chatOptionLabel(entry) {
+    var bits = [];
+    if (entry.local) {
+      // A local model is deliberately NEVER priced: there is no price, and printing one
+      // would be a false claim about money.
+      if (entry.ctx) bits.push(chatCtxLabel(entry.ctx, entry.ctxEstimated));
+      if (entry.quant) bits.push(entry.quant);
+    } else {
+      bits.push(entry.free ? "FREE" : "$" + entry.priceOut + "/1M out");
+      if (entry.ctx) bits.push(chatCtxLabel(entry.ctx, entry.ctxEstimated));
+      if (entry.tps) bits.push(Math.round(entry.tps) + " tok/s");
+      if (entry.signal) bits.push(signalBars(entry.signal));
+      if (entry.verified) bits.push("◆");
+    }
+    return entry.model + (bits.length ? "  ·  " + bits.join("  ·  ") : "");
+  }
+
+  // chatEntries is the picker's whole content, LOCAL first. Local leads because it is the
+  // route with no broker, no meter and no wallet in it - the TUI puts the market first
+  // because it opens on the marketplace; the console opens on CHAT.
+  function chatEntries() {
+    var out = [];
+    chatLocalRows().forEach(function (r) {
+      out.push({
+        local: true, model: r.model, key: CHAT_LOCAL + r.model,
+        ctx: r.ctx, ctxEstimated: !!r.ctx_estimated,
+        quant: r.quant || "", weights: r.weights || "", variant: r.variant || "",
+        upstream: r.upstream, onAir: !!r.on_air, private: !!r.private
+      });
+    });
+    chatMarketOffers().forEach(function (o) {
+      out.push({
+        local: false, model: o.model, key: CHAT_MARKET + o.model,
+        ctx: o.ctx, ctxEstimated: !!o.ctx_estimated,
+        priceOut: o.price_out, free: !!o.free_now || (Number(o.price_out) || 0) === 0,
+        tps: Number(o.tps) || 0, ttft: Number(o.ttft_ms) || 0,
+        signal: Number(o.signal) || 0, verified: !!o.verified,
+        node: o.node_id || "", region: o.region || "", hw: o.hw || ""
+      });
+    });
+    return out;
+  }
+
+  var chatEntryByKey = {};
+  var chatPickerSig = null;
+
+  // chatSig is the picker's content reduced to a string, so a rebuild can be skipped when
+  // nothing in it changed. The snapshot stream ticks about once a second and the LOCAL
+  // group is built from it; rebuilding the <select> on every tick would collapse the
+  // dropdown under an operator who had it open, roughly forever.
+  function chatSig(entries) {
+    return entries.map(function (e) { return e.key + "|" + chatOptionLabel(e); }).join("\n");
+  }
+
+  // chatFillModels rebuilds the picker from the two sources it already holds. Selection
+  // survives a rebuild; a pick that has gone away falls back to the first entry.
+  function chatFillModels(force) {
     var sel = $("chat-model");
     if (!sel) return;
     var keep = sel.value;
+    var entries = chatEntries();
+    var sig = chatSig(entries);
+    if (!force && sig === chatPickerSig) return;
+    chatPickerSig = sig;
     // Cleared by removing children rather than by innerHTML: the chat block bans every
     // HTML-writing sink outright (chat_test.go), because the one place a reply could
     // slip markup into this console is worth more than the convenience of one
     // assignment. A blanket ban is enforceable; "innerHTML but only for clearing" is
     // not, and the next edit is where it stops being for clearing.
     while (sel.firstChild) sel.removeChild(sel.firstChild);
-    (offers || []).forEach(function (o) {
-      var name = o.model || o.name;
-      if (!name) return;
-      var opt = el("option", null, name + (o.price_out ? "  ·  $" + o.price_out + "/1M" : ""));
-      opt.value = name;
-      sel.appendChild(opt);
+    chatEntryByKey = {};
+    var groups = {};
+    entries.forEach(function (e) {
+      chatEntryByKey[e.key] = e;
+      var label = e.local
+        ? "LOCAL · this machine · direct, not through the broker"
+        : "OPEN MARKET · relayed through the broker";
+      if (!groups[label]) {
+        groups[label] = el("optgroup");
+        groups[label].label = label;
+        sel.appendChild(groups[label]);
+      }
+      var opt = el("option", null, chatOptionLabel(e));
+      opt.value = e.key;
+      groups[label].appendChild(opt);
     });
-    if (!sel.options.length) {
-      var none = el("option", null, "no band on the dial");
+
+    if (!entries.length) {
+      // AN EMPTY PICKER EXPLAINS ITSELF. Filtering to "only what is online" can empty the
+      // list, and a blank dropdown next to "pick a band first" is an instruction the user
+      // cannot follow - which is the whole reason this line exists.
+      var none = el("option", null, chatEmptyReason());
       none.value = "";
       sel.appendChild(none);
       sel.disabled = true;
     } else {
       sel.disabled = false;
     }
-    if (keep) sel.value = keep;
+    if (keep && chatEntryByKey[keep]) sel.value = keep;
     if (!sel.value && sel.options.length) sel.selectedIndex = 0;
+    chatBandDetail();
     chatFoot();
   }
 
+  // chatEmptyReason says WHY the list is empty, which is three different situations that
+  // a single "no band on the dial" used to blur together.
+  function chatEmptyReason() {
+    var offers = (lastOffers || []).length;
+    var rows = (lastSnapshot && (lastSnapshot.rows || []).length) || 0;
+    if (offers) return "every band on the market is off air right now";
+    if (rows) return "nothing to chat with - the market is empty and this machine's models are voice-only or unreachable";
+    // Detection runs in the background for ~15s after launch, so "empty" this early is
+    // very often "not finished". Saying so beats an empty list that reads as a verdict.
+    return "nothing online yet - detection is still running; then re-detect on SHARE or check BROWSE";
+  }
+
+  function chatSelected() {
+    var sel = $("chat-model");
+    return (sel && chatEntryByKey[sel.value]) || null;
+  }
+
+  /* THE DETAIL LINE, under the composer: everything genuinely known about the band you
+     are about to spend a turn on. This is where absence gets room to be shown AS absence
+     - an em dash in a labelled slot, the same reading the SHARE table's variant cell and
+     `roger detect` give it. The <option> above can only carry one line, so it carries the
+     facts that fit and this carries the rest. */
+  function chatBandDetail() {
+    var line = $("chat-band");
+    if (!line) return;
+    while (line.firstChild) line.removeChild(line.firstChild);
+    var e = chatSelected();
+    if (!e) { show(line, false); return; }
+    show(line, true);
+
+    function slot(label, value, cls) {
+      if (line.firstChild) line.appendChild(document.createTextNode("  ·  "));
+      line.appendChild(el("span", "band-k", label + " "));
+      line.appendChild(el("span", cls || "band-v", value));
+    }
+    if (e.local) {
+      slot("route", "direct to " + e.upstream.replace(/^https?:\/\//, "").replace(/\/v1\/chat\/completions$/, ""));
+      slot("ctx", chatCtxLabel(e.ctx, e.ctxEstimated) || "—");
+      var v = [e.quant, e.weights ? "by " + e.weights : "", e.variant].filter(Boolean).join(" · ");
+      slot("build", v || "—");
+      slot("cost", "nothing - not metered");
+      if (e.onAir) slot("also", e.private ? "on air on your private band" : "on air on the open market");
+    } else {
+      slot("price", e.free ? "FREE" : "$" + e.priceOut + "/1M out");
+      slot("ctx", chatCtxLabel(e.ctx, e.ctxEstimated) || "—");
+      // A zero here means UNMEASURED, in both fields. The broker sends 0 for a band no
+      // probe has clocked yet, and printing "0 tok/s" or "0ms" would read as a reading.
+      slot("tok/s", e.tps ? Math.round(e.tps) : "—");
+      slot("ttft", e.ttft ? Math.round(e.ttft) + "ms" : "—");
+      slot("signal", e.signal ? signalBars(e.signal) : "—", e.signal ? "signal " + signalClass(e.signal) : "band-v");
+      slot("station", e.node || "—");
+      slot("region", e.region || "—");
+      slot("hw", e.hw || "—");
+      if (e.verified) slot("lineage", "◆ verified");
+    }
+  }
+
+  // The foot names the ROUTE, because the two routes differ in the things a user cares
+  // about most: one costs money and hides who you are, the other costs nothing and never
+  // leaves the machine. Reading the wrong one would misjudge both the speed and the bill.
   function chatFoot(msg) {
     var f = $("chat-foot");
     if (!f) return;
     if (msg) { f.textContent = msg; return; }
-    var m = $("chat-model");
-    f.textContent = m && m.value
-      ? "relayed through the broker · the station never sees who you are"
-      : "tune in to a band on BROWSE to start a conversation";
+    var e = chatSelected();
+    f.textContent = !e
+      ? "put a model on air on SHARE, or tune in a band on BROWSE, to start a conversation"
+      : e.local
+        ? "runs on this machine · direct, not through the broker · nothing metered"
+        : "relayed through the broker · the station never sees who you are";
   }
 
   function chatSend() {
@@ -715,7 +933,8 @@
     var input = $("chat-input"), sel = $("chat-model");
     var text = chatExpandPastes(input.value || "").trim();
     if (!text) return;
-    if (!sel || !sel.value) { toast("pick a band first", "err"); return; }
+    var picked = chatSelected();
+    if (!sel || !sel.value || !picked) { toast("pick a band first", "err"); return; }
 
     chatAppend("you", text, "chat-turn--you");
     chatTurns.push({ role: "user", content: text });
@@ -726,7 +945,7 @@
     chatSetBusy(true);
     var working = chatWorking();
 
-    chatRunAgent(sel.value, text, working);
+    chatRunAgent(picked, text, working);
   }
 
   /* A fetch that never reached the server rejects with the BROWSER's wording, and every
@@ -755,13 +974,18 @@
 
      Tool calls render as a FOLDED box, the same shape the TUI uses: a turn that touched
      eleven files should read as one row of machinery, not eleven. Click to open. */
-  function chatRunAgent(model, text, working) {
+  function chatRunAgent(entry, text, working) {
+    var model = entry.model;
     var box = null;      // the current machinery box, if any
     var answered = false;
     fetch(withToken("/api/agent"), {
       method: "POST",
       headers: { "X-Roger-Token": TOKEN, "Content-Type": "application/json" },
-      body: JSON.stringify({ model: model, message: text })
+      // `local` says WHICH of the two groups this pick came from. The endpoint is not sent
+      // - the server resolves it (and the bearer key it may need) from the node's own
+      // catalog, so no credential is ever handed to a page. A model id alone would be
+      // ambiguous: the same name can be a market band and a server on this box.
+      body: JSON.stringify({ model: model, message: text, local: !!entry.local })
     }).then(function (res) {
       if (!res.ok || !res.body) {
         return res.text().then(function (t) { throw new Error(chatErrText(t, res)); });
@@ -828,7 +1052,7 @@
           break;
         case "error":
           box = null;
-          chatAppend("error", e.text || "the turn failed", "chat-turn--err");
+          chatAppendError(e.text, e.hint);
           answered = true;
           break;
       }
@@ -1056,7 +1280,7 @@
       if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); chatSend(); }
     });
     if (send) send.addEventListener("click", chatSend);
-    if (model) model.addEventListener("change", function () { chatFoot(); });
+    if (model) model.addEventListener("change", function () { chatBandDetail(); chatFoot(); });
   }
 
   /* TABS ------------------------------------------------------------------- */
@@ -1083,8 +1307,8 @@
     if (name === "browse") loadBrowse();
     if (name === "settings") loadSettings();
     if (name === "chat") {
-      // Fill the picker from whatever the browse surface last saw, then focus the
-      // composer - opening CHAT means you intend to type.
+      // Refresh the market half (the LOCAL half is already live off the snapshot stream),
+      // then focus the composer - opening CHAT means you intend to type.
       loadBrowse();
       var i = $("chat-input");
       if (i) i.focus();
