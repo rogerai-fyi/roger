@@ -241,3 +241,24 @@ func TestTheMintedIdentityIsStableAcrossServes(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, first.Pin, second.Pin, "a restart changed the pin: every routed node is now stranded")
 }
+
+// The failure edges of the hub's TLS material: half a pair is refused by name, an
+// unwritable directory cannot mint, and a minted pair is REUSED rather than re-minted -
+// re-minting on every start would rotate the SPKI pin under every attached node.
+func TestHubTLSEdges(t *testing.T) {
+	_, err := hubTLS(t.TempDir(), "tw-x", "cert-only.pem", "")
+	require.Error(t, err, "half a TLS pair must be refused, not guessed at")
+
+	ro := filepath.Join(t.TempDir(), "ro")
+	require.NoError(t, os.Mkdir(ro, 0o500))
+	_, err = hubTLS(ro, "tw-x", "", "")
+	require.Error(t, err, "an unwritable identity directory cannot mint a certificate")
+
+	dir := t.TempDir()
+	first, err := hubTLS(dir, "tw-x", "", "")
+	require.NoError(t, err)
+	again, err := hubTLS(dir, "tw-x", "", "")
+	require.NoError(t, err)
+	require.Equal(t, first.Pin, again.Pin,
+		"a restart must reuse the minted pair: re-minting rotates the pin under every node")
+}

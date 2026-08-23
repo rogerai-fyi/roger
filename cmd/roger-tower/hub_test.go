@@ -27,6 +27,7 @@ import (
 	"crypto/sha256"
 	"github.com/stretchr/testify/require"
 	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v6/internal/tower"
 	"rogerai.fm/roger/v6/internal/towercore/dispatch"
 	"rogerai.fm/roger/v6/internal/towercore/link"
 	"rogerai.fm/roger/v6/internal/towerhub"
@@ -519,4 +520,30 @@ func TestATransientFailureAtShutdownLeavesTheReceiptSpooledForNextRun(t *testing
 	wait2()
 	require.Contains(t, out2.String(), "recovered spooled settle for att-flap")
 	require.Empty(t, spool.load(time.Now()), "delivered on the second run, so the spool must be empty")
+}
+
+// The hub refuses to serve before registration: there is no admission id yet, and a hub
+// that verified grants against the local init id would refuse every consumer anyway -
+// with an error pointing at signing instead of at the actual repair.
+func TestTheHubRefusesToServeBeforeRegistration(t *testing.T) {
+	pub, _, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	core := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"dispatch_key":"` + hex.EncodeToString(pub) + `"}`))
+	}))
+	t.Cleanup(core.Close)
+	t.Setenv("ROGER_BROKER", core.URL)
+	dir := t.TempDir()
+	_, err = tower.Init(dir, tower.ModeJoined)
+	require.NoError(t, err)
+	st, release, err := openDir(dir)
+	require.NoError(t, err)
+	defer func() { _ = release() }()
+
+	stop := make(chan struct{})
+	defer close(stop)
+	_, err = runHubInBackground(st, hubOptions{Addr: "127.0.0.1:0"}, io.Discard, stop)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "register",
+		"the repair is registration, and the error must say so")
 }
