@@ -53,6 +53,14 @@ func (s *Set) AcceptDelta(channelTowerID string, towerKey ed25519.PublicKey, raw
 	if !ok {
 		return Result{}, resync(errors.New("there is no accepted revision to amend"))
 	}
+	if prior.headOnly {
+		// This instance adopted the head from the durable store and holds none of the
+		// leaves behind it; a delta amends leaves. Checked HERE, under the same lock that
+		// fetched prior - a pre-check outside it raced a concurrent AdoptHead and could
+		// let a correctly chained delta apply its ops onto an empty leaf map. The tower
+		// already knows how to answer a resync: it resends the full snapshot.
+		return Result{}, resync(errors.New("this instance holds the head but not the leaves; resend the full snapshot"))
+	}
 
 	base, err := d.revisionNumber("base_revision")
 	if err != nil {

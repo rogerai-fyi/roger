@@ -198,11 +198,14 @@ func (b *broker) towerSessionOpen(w http.ResponseWriter, r *http.Request) {
 		if herr != nil {
 			log.Printf("tower %s: head store unavailable, asking for a full inventory: %v", tw.ID, herr)
 		}
-		// Presence is not enough: an instance holding an OLDER revision would report Resume
-		// and then refuse the delta that followed. The position has to match on this
-		// instance as well as in the durable record.
+		// Presence is not enough, twice over. An instance holding an OLDER revision would
+		// report Resume and then refuse the delta that followed - so the position has to
+		// match on this instance as well as in the durable record. And a head merely
+		// ADOPTED from the durable store has no leaves behind it, so it must demand the
+		// snapshot too: a head-only "resume" would 409 the very next delta it invited.
 		ourRev, ourHash, holdsChain := ts.inv.Head(tw.ID)
-		inStep := holdsChain && ourRev == hello.HeadRevision && ourHash == hello.HeadHash
+		inStep := holdsChain && ts.inv.HoldsLeaves(tw.ID) &&
+			ourRev == hello.HeadRevision && ourHash == hello.HeadHash
 		acc.NeedFullInventory = out.NeedsFullInventory() || !inStep
 		if out.Suspicious() {
 			// Evidence, not a penalty. One fork is a bug; a pattern of them is an operator
@@ -213,6 +216,19 @@ func (b *broker) towerSessionOpen(w http.ResponseWriter, r *http.Request) {
 			// enforcement already reads.
 			log.Printf("tower %s: inventory chain %s (claimed rev=%d, hash=%.12s) - demanding a full snapshot",
 				tw.ID, out, hello.HeadRevision, hello.HeadHash)
+		}
+		// A Tower claiming NO head has lost its own chain (a wiped data directory) and
+		// restarts from genesis. Both halves of the old chain go with it, in this order,
+		// AFTER the fork evidence above is logged: the local leaves, or a stale local
+		// revision refuses the genesis snapshot as "does not advance"; and the durable
+		// head, or revision 1 records nothing (the store refuses a lower head), revision
+		// 2 adopts the OLD head over the fresh chain, and every other instance refuses
+		// revision 1 outright.
+		if acc.NeedFullInventory && hello.HeadRevision == 0 && hello.HeadHash == "" {
+			ts.inv.Forget(tw.ID)
+			if ferr := ts.heads.Forget(tw.ID); ferr != nil {
+				log.Printf("tower %s: could not reset the durable head for the genesis restart: %v", tw.ID, ferr)
+			}
 		}
 	}
 	writeJSON(w, http.StatusOK, acc)
@@ -317,6 +333,32 @@ func (b *broker) towerInventory(delta bool) http.HandlerFunc {
 			return
 		}
 
+		// The durable head is the chain authority; this instance's inventory memory is a
+		// cache of it. Fast-forward before judging the sequence, or the instance that did
+		// not take the previous push refuses this one as "revision N skips M" and every
+		// refresh gambles on the load balancer.
+		if ts.heads != nil {
+			if h, ok, herr := ts.heads.Head(tw.ID); herr == nil {
+				// A LOCAL chain AHEAD of the durable head is treated as pre-restart: the
+				// durable head only moves backward through the authenticated no-head
+				// relink above, so a local memory that outruns it belongs to the chain
+				// the Tower abandoned. Dropping it here is what lets the genesis restart
+				// reach the instances that never saw the relink.
+				//
+				// One degraded mode is accepted knowingly: if this instance's own last
+				// durable Record FAILED, its verified local chain is also "ahead" and is
+				// dropped, and the next snapshot is taken on the strength of its
+				// signature alone rather than its chain to verified leaves. That failure
+				// is logged at the single recording site, so it is a visible degradation
+				// under a store outage, not a silent one.
+				if lrev, _, lheld := ts.inv.Head(tw.ID); lheld && (!ok || lrev > h.Revision) {
+					ts.inv.Forget(tw.ID)
+				}
+				if ok {
+					ts.inv.AdoptHead(tw.ID, h.Revision, h.Hash)
+				}
+			}
+		}
 		var res inv.Result
 		var err error
 		if delta {
@@ -326,14 +368,9 @@ func (b *broker) towerInventory(delta bool) http.HandlerFunc {
 		}
 		switch {
 		case err == nil:
-			// Nothing else may happen between accepting and recording: an accepted revision
-			// whose head was not written would look like a fork on the next reconnect.
-			if ts.heads != nil {
-				if _, herr := ts.heads.Accept(tw.ID, res.Revision, res.Hash); herr != nil {
-					log.Printf("tower %s: accepted revision %d but could not record the head: %v",
-						tw.ID, res.Revision, herr)
-				}
-			}
+			// The durable head was already recorded INSIDE the accept, by inv's RecordHead
+			// wiring - one site, so the advanced=false divergence signal there means
+			// something. What remains here is the per-instance session view.
 			ts.link.RecordHead(tw.ID, res.Revision, res.Hash)
 			// PUBLISH THE FLEET VIEW, so a broker that is NOT holding this Tower's link can
 			// still route to its Stations. Without it a Tower's capacity is visible only

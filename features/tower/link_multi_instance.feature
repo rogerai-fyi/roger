@@ -44,6 +44,20 @@ Feature: A Tower's link survives Roger Core's own scaling
     Then the heartbeat is accepted from the shared record
     And the Tower remains live
 
+  Scenario: Consecutive inventory refreshes alternate instances
+    Given a registered Tower opens its link session on instance A
+    When it pushes four consecutive inventory revisions alternating between the instances
+    Then every revision is accepted on the first attempt
+    And a delta against an instance holding only the head asks for the full snapshot
+    And reconnecting to that instance quoting the adopted head demands the full snapshot
+
+  Scenario: A Tower that lost its own head restarts from genesis
+    Given a registered Tower opens its link session on instance A
+    And it pushes four consecutive inventory revisions alternating between the instances
+    When it reopens with no head and pushes revision one from genesis
+    Then the genesis snapshot is accepted
+    And the restarted chain continues across both instances
+
   Scenario: A close lands on the instance that never held the session
     Given a registered Tower opens its link session on instance A
     When its deliberate close lands on instance B

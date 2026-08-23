@@ -38,13 +38,14 @@ const (
 )
 
 type lmiState struct {
-	t      *testing.T
-	inst   map[string]*broker
-	srv    map[string]*httptest.Server
-	mirror *link.MemMirror
-	towers map[string]linkTower
-	sess   map[string]string
-	planes map[string]link.RelayPlane
+	t        *testing.T
+	inst     map[string]*broker
+	srv      map[string]*httptest.Server
+	mirror   *link.MemMirror
+	towers   map[string]linkTower
+	sess     map[string]string
+	lastHash string
+	planes   map[string]link.RelayPlane
 }
 
 func (s *lmiState) linkFor() *link.Sessions {
@@ -133,6 +134,135 @@ func (s *lmiState) emptyInventory(name string) []byte {
 		s.t.Fatalf("sign inventory: %v", err)
 	}
 	return signed
+}
+
+// pushRevision pushes one full snapshot at an explicit chain position.
+func (s *lmiState) pushRevision(name, inst string, rev int64, prev string) (string, error) {
+	lt := s.towers[name]
+	now := time.Now()
+	invObj := map[string]any{
+		"network": link.PublicNetwork, "tower_id": lt.id,
+		"revision": towerobj.FormatInt(rev), "prev_hash": prev,
+		"lease_head": "lease-1", "lifecycle_head": "life-1",
+		"issued":  towerobj.FormatInt(now.Unix()),
+		"expires": towerobj.FormatInt(now.Add(30 * time.Minute).Unix()),
+		"leaves":  []any{},
+	}
+	signed, err := towerobj.Sign(lt.priv, link.PublicNetwork, inv.TypeInventory,
+		inv.Version, jsonOf(s.t, invObj), "sig")
+	if err != nil {
+		return "", err
+	}
+	var res struct {
+		Hash string `json:"hash"`
+	}
+	code, raw := lt.call(s.t, s.srv[inst], "/tower/inventory", signed, &res)
+	if code != http.StatusOK {
+		return "", fmt.Errorf("revision %d on %s refused: %d %s", rev, inst, code, raw)
+	}
+	return res.Hash, nil
+}
+
+func (s *lmiState) alternatingRevisions() error {
+	prev := "genesis"
+	for i, inst := range []string{"A", "B", "A", "B"} {
+		hash, err := s.pushRevision("the Tower", inst, int64(i+1), prev)
+		if err != nil {
+			return fmt.Errorf("the load balancer alternated and the chain broke: %w", err)
+		}
+		prev = hash
+	}
+	s.lastHash = prev
+	return nil
+}
+
+func (s *lmiState) deltaAgainstHeadOnlyResyncs() error {
+	// Make B genuinely head-only: revision 5 lands on A alone, so B's next contact
+	// adopts the durable head and holds no leaves behind it. Then a REAL signed delta,
+	// correctly chained to that adopted head - the only problem is the missing leaves -
+	// must be answered with the resync instruction, not applied onto an empty map.
+	hash5, err := s.pushRevision("the Tower", "A", 5, s.lastHash)
+	if err != nil {
+		return err
+	}
+	lt := s.towers["the Tower"]
+	now := time.Now()
+	delta := map[string]any{
+		"network": link.PublicNetwork, "tower_id": lt.id,
+		"base_revision": "5", "revision": "6", "prev_hash": hash5,
+		"issued":  towerobj.FormatInt(now.Unix()),
+		"expires": towerobj.FormatInt(now.Add(30 * time.Minute).Unix()),
+		"ops":     []any{},
+	}
+	signed, err := towerobj.Sign(lt.priv, link.PublicNetwork, inv.TypeDelta,
+		inv.Version, jsonOf(s.t, delta), "sig")
+	if err != nil {
+		return err
+	}
+	var out struct {
+		NeedFull bool `json:"need_full_inventory"`
+	}
+	code, raw := lt.call(s.t, s.srv["B"], "/tower/inventory/delta", signed, &out)
+	if code == http.StatusOK {
+		return fmt.Errorf("a chained delta against a head-only instance must not be silently accepted")
+	}
+	if !out.NeedFull {
+		return fmt.Errorf("the refusal must ask for the full snapshot, got: %d %s", code, raw)
+	}
+	return nil
+}
+
+// After the delta scenario, instance B holds ONLY the adopted head at revision 5. A
+// Tower reconnecting there and quoting exactly that head must be told to resend the full
+// snapshot - a "resume" from an instance with no leaves invites a delta it will 409.
+func (s *lmiState) reconnectHeadOnlyDemandsFull() error {
+	lt := s.towers["the Tower"]
+	r, hash, held := s.inst["B"].tower.inv.Head(lt.id)
+	if !held {
+		return fmt.Errorf("fixture: B holds no head at all")
+	}
+	var acc link.Accepted
+	hello := link.Hello{Network: link.PublicNetwork, Versions: []int{1}, TowerID: lt.id,
+		Capabilities: mandatoryCaps(), HeadRevision: r, HeadHash: hash}
+	code, raw := lt.call(s.t, s.srv["B"], "/tower/session", jsonOf(s.t, hello), &acc)
+	if code != http.StatusOK {
+		return fmt.Errorf("reconnect on B: %d %s", code, raw)
+	}
+	s.sess["the Tower"] = acc.SessionID
+	if !acc.NeedFullInventory {
+		return fmt.Errorf("a head-only instance answered resume; its first delta would be a 409")
+	}
+	return nil
+}
+
+func (s *lmiState) reopensFromGenesis() error {
+	// The Tower lost its own head (a wiped data directory): a fresh session claiming no
+	// head, then revision one from genesis. The durable head says otherwise - and must
+	// not brick this Tower on the instance that adopted it.
+	if err := s.opensOn("the Tower", "A"); err != nil {
+		return err
+	}
+	h1, err := s.pushRevision("the Tower", "A", 1, "genesis")
+	if err != nil {
+		return fmt.Errorf("the cold-start genesis snapshot was refused: %w", err)
+	}
+	s.lastHash = h1
+	return nil
+}
+
+// The push AFTER the genesis restart is where a half-reset bricks: revision 1 records no
+// durable head (the store refuses a lower one), so revision 2 adopts the OLD head over
+// the fresh chain - and every other instance refuses revision 1 outright. Continuing the
+// chain across BOTH instances is what proves the restart is whole.
+func (s *lmiState) restartedChainContinues() error {
+	h2, err := s.pushRevision("the Tower", "B", 2, s.lastHash)
+	if err != nil {
+		return fmt.Errorf("revision 2 after the genesis restart: %w", err)
+	}
+	if _, err := s.pushRevision("the Tower", "A", 3, h2); err != nil {
+		return fmt.Errorf("revision 3 after the genesis restart: %w", err)
+	}
+	return nil
 }
 
 func (s *lmiState) pushesInventoryTo(name, inst string) error {
@@ -250,6 +380,13 @@ func TestLinkMultiInstanceBDD(t *testing.T) {
 			sc.Step(`^instance ([AB]) restarts empty and the Tower's next heartbeat lands on it$`, s.restartsEmptyAndHeartbeat)
 			sc.Step(`^the heartbeat is accepted from the shared record$`, func() error { return nil })
 			sc.Step(`^the Tower remains live$`, func() error { return s.liveOnBoth("the Tower") })
+			sc.Step(`^it pushes four consecutive inventory revisions alternating between the instances$`, s.alternatingRevisions)
+			sc.Step(`^every revision is accepted on the first attempt$`, func() error { return nil })
+			sc.Step(`^a delta against an instance holding only the head asks for the full snapshot$`, s.deltaAgainstHeadOnlyResyncs)
+			sc.Step(`^reconnecting to that instance quoting the adopted head demands the full snapshot$`, s.reconnectHeadOnlyDemandsFull)
+			sc.Step(`^it reopens with no head and pushes revision one from genesis$`, s.reopensFromGenesis)
+			sc.Step(`^the genesis snapshot is accepted$`, func() error { return nil })
+			sc.Step(`^the restarted chain continues across both instances$`, s.restartedChainContinues)
 			sc.Step(`^its deliberate close lands on instance ([AB])$`, func(i string) error { return s.closeOn("the Tower", i) })
 			sc.Step(`^the Tower is live on neither instance$`, func() error {
 				lt := s.towers["the Tower"]

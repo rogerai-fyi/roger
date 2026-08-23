@@ -244,6 +244,11 @@ type state struct {
 	revision int64
 	hash     string
 	expires  time.Time
+	// headOnly marks a head ADOPTED from the durable store by an instance that never held
+	// the leaves behind it. A full snapshot chains against it exactly like a locally
+	// accepted head; a delta cannot - amending leaves this instance does not hold - and is
+	// answered with the resync the tower already knows how to satisfy.
+	headOnly bool
 	// byOffer is keyed on offer ID, which the rejection table guarantees is unique within a
 	// revision. stations is the parallel uniqueness set for Station IDs.
 	byOffer map[string]Leaf
@@ -286,6 +291,57 @@ func New(cfg Config, p Policy) *Set {
 
 // Head reports the accepted revision and hash for a Tower, which is what a reconnect
 // compares against.
+// AdoptHead fast-forwards this instance's view of a Tower's accepted head to the durable
+// record another instance wrote. It moves FORWARD only: the durable store is the chain
+// authority, but an older durable read (a lagging replica, a race with our own accept)
+// must never rewind a head this instance has already verified. Leaves are not adopted -
+// there is nothing to adopt them from - so the state is marked headOnly and a delta
+// against it resyncs.
+//
+// Without this, each instance checked the revision chain against its own memory: the
+// instance that did not take the previous push refused the next one as "revision N skips
+// M", and every inventory refresh gambled on the load balancer. Same family as the link
+// mirror: per-instance memory treated as the truth about a shared fact.
+func (s *Set) AdoptHead(towerID string, revision int64, hash string) {
+	if revision <= 0 || hash == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	prior, have := s.towers[towerID]
+	if !have {
+		// Fast-forward ONLY an existing local chain. Minting a head for a tower this
+		// instance has never chained would refuse a relinking Tower's cold-start
+		// rev-1/genesis snapshot as "does not advance" - bricking its inventory here
+		// until revocation. An instance with no local chain accepts whatever full
+		// snapshot verifies, exactly as it always did.
+		return
+	}
+	if prior.revision >= revision {
+		return
+	}
+	if len(prior.byOffer) > 0 {
+		// The leaves being discarded claimed Station origins; a head-only state holds
+		// none, so the claims must be released or they stay stale until the next full
+		// accept and block those Stations from re-homing.
+		s.releaseOrigins(towerID)
+	}
+	s.towers[towerID] = &state{revision: revision, hash: hash, headOnly: true}
+}
+
+// HoldsLeaves reports whether this instance holds the actual LEAVES behind a Tower's
+// head - false for a head merely adopted from the durable store. Resume decisions must
+// ask this, not Head: a head-only instance that answered "resume" would 409 the very
+// next delta it invited.
+func (s *Set) HoldsLeaves(towerID string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	st, ok := s.towers[towerID]
+	return ok && !st.headOnly
+}
+
+// Head reports this instance's accepted head for a Tower: revision, hash, and whether
+// one is held at all.
 func (s *Set) Head(towerID string) (int64, string, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

@@ -288,8 +288,20 @@ func newTowerSubsystem(b *broker, registryStore admit.Store, custody cert.Custod
 		// Recording the head on every accepted revision is what lets a reconnect cost ~100
 		// bytes instead of a full snapshot.
 		RecordHead: func(towerID string, rev int64, hash string) {
-			if _, err := heads.Accept(towerID, rev, hash); err != nil {
+			advanced, err := heads.Accept(towerID, rev, hash)
+			if err != nil {
 				log.Printf("tower %s: could not record inventory head %d: %v", towerID, rev, err)
+				return
+			}
+			if !advanced {
+				// The durable store refused to move: this instance just installed a
+				// revision the authority does not acknowledge. The next push heals it
+				// through adoption, but a divergence that leaves no trace is how the
+				// next chain bug hides. This is the ONE recording site - a second call
+				// from the handler used to answer advanced=false on every push and
+				// drowned this exact signal.
+				log.Printf("tower %s: revision %d installed locally but the durable head did not advance",
+					towerID, rev)
 			}
 		},
 	}, pol)
