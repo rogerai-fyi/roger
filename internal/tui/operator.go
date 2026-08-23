@@ -245,7 +245,7 @@ func (m model) deskEntryEligible() bool {
 func (m model) runOperatorCommand(args []string) (tea.Model, tea.Cmd) {
 	if len(args) == 0 {
 		if len(m.operatorDetections) == 0 {
-			m.rcNote("no guests at the desk - a guest operator is an agent CLI on your PATH (opencode · hermes · aider)")
+			m.rcNote("no guests at the desk - a guest operator is an agent CLI on your PATH (opencode · hermes · aider · pi)")
 			return m, nil
 		}
 		m.operatorPicker = true

@@ -94,7 +94,37 @@ func Registry() []Guest {
 			InstallHint: "npm install -g @deepseek-ai/dsh",
 			KnownGood:   "0.1.0-rc.7", // the build verified on the dev box, 2026-08-21
 			Strategy:    StrategyScratchConfig,
-			Brand:       plates["dsh"],
+			// GATED 2026-08-23. This entry claimed a working wiring it never had: the
+			// scratch-config branch wrote opencode.json and launched `dsh -m roger/<model>`,
+			// and dsh answers `error: --profile <name> is required`. Picking it at the desk
+			// has always failed instantly.
+			//
+			// dsh does not select a MODEL, it boots a PROFILE - an ordered stack of patch
+			// layers under $DSH_HOME - and its providers name their key through `apiKeyEnv`
+			// rather than carrying it. That is a real recipe someone can write, but it is
+			// not the one-file drop the other guests use, and guessing at it would put the
+			// same broken row back with more confidence. Gated until it is built and proven
+			// end-to-end, because a guest that cannot be wired must say so rather than exec.
+			NeedsSetup: true,
+			SetupNote: "dsh boots a profile, not a model, so RogerAI cannot hand it a band yet. " +
+				"Point dsh at your station yourself: add a provider to $DSH_HOME/settings.yaml with " +
+				"the base URL and model from /endpoint, and an apiKeyEnv naming an env var holding the key.",
+			Brand: plates["dsh"],
+		},
+		{
+			// pi - the Earendil coding agent. A FULL guest: pi resolves providers from a
+			// models.json inside its agent directory, and PI_CODING_AGENT_DIR redirects that
+			// whole directory, so a band is handed over exactly the way opencode's is - one
+			// generated file, nothing of the user's read or written.
+			//
+			// Found because the founder asked why an installed pi was not at the desk. It was
+			// not a detection failure: the registry is the ONE source of who can appear, and
+			// pi had never been in it.
+			Name: "pi", Bin: "pi", Provider: "openai",
+			InstallHint: "npm install -g @earendil-works/pi-coding-agent",
+			KnownGood:   "0.84.2", // proven end-to-end on the dev box, 2026-08-23
+			Strategy:    StrategyScratchConfig,
+			Brand:       plates["pi"],
 		},
 		{
 			Name: "claude", Bin: "claude", Provider: "anthropic",

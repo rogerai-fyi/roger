@@ -35,9 +35,11 @@ Feature: Guest operator detection registry
 
   # ORDER IS A RULE, not a list: FULL guests first (they take a RogerAI band through
   # their own config), context-only last (they run on the operator's vendor account and
-  # get the brief but no credentials). dsh joined the full half on 2026-08-21.
+  # get the brief but no credentials). dsh joined the full half on 2026-08-21; pi on
+  # 2026-08-23, after the founder asked why an installed pi was not at the desk - it had
+  # never been in the registry, which is the ONE source of who can take the mic.
   Scenario: The registry includes both context-only coding guests
-    Then the registry lists exactly "opencode", "hermes", "aider", "dsh", "claude", "codex" in that order
+    Then the registry lists exactly "opencode", "hermes", "aider", "dsh", "pi", "claude", "codex" in that order
     And every entry carries a name, a PATH binary, a provider tag, an install hint, and a known-good version
 
   Scenario: Registry entries carry the empirically-proven wiring strategy

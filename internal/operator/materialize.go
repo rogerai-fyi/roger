@@ -41,6 +41,40 @@ type Launch struct {
 // goldenOpencodeTmpl is the §4-proven custom provider on @ai-sdk/openai-compatible. The
 // apiKey is the literal {env:ROGER_SESSION_KEY} reference (verified supported in the
 // 1.17.11 binary) so the secret never lands on disk.
+// piProviderName is the generated provider's key in models.json AND the value pinned by
+// --provider on the argv. They must agree; naming it once is why they cannot drift.
+const piProviderName = "rogerai"
+
+// piAgentDirEnv redirects pi's whole agent directory (models.json, sessions, themes).
+// pi derives it as `${APP_NAME.toUpperCase()}_CODING_AGENT_DIR`.
+const piAgentDirEnv = "PI_CODING_AGENT_DIR"
+
+// goldenPiTmpl is pi's models.json: one provider, one model, no user layer.
+//
+// Verified end-to-end against pi 0.84.2 on the dev box (2026-08-23): with
+// PI_CODING_AGENT_DIR pointed at a scratch dir holding this file, `pi --list-models`
+// reports the single generated entry and nothing else, and a --print turn against a local
+// OpenAI-compatible server returned its answer.
+//
+// api is "openai-completions" because every band the operator can be handed speaks the
+// OpenAI wire; apiKey is written literally rather than as an env reference because pi's
+// provider schema takes a plain string, and the file is 0600 inside a scratch dir that is
+// removed when the guest exits.
+const goldenPiTmpl = `{
+  "providers": {
+    "` + piProviderName + `": {
+      "name": "RogerAI",
+      "api": "openai-completions",
+      "baseUrl": "%s",
+      "apiKey": "%s",
+      "models": [
+        { "id": "%s", "name": "%s" }
+      ]
+    }
+  }
+}
+`
+
 const goldenOpencodeTmpl = `{
   "$schema": "https://opencode.ai/config.json",
   "provider": {
@@ -112,24 +146,70 @@ func Materialize(g Guest, s Session) (Launch, func() error, error) {
 		}, noop, nil
 
 	case StrategyScratchConfig:
+		// DISPATCH BY NAME, and fail closed on an unknown one. This branch used to write
+		// opencode's config unconditionally, so `dsh` - registered with this same strategy -
+		// was launched as `dsh -m roger/<model>` with OPENCODE_CONFIG set: three things dsh
+		// does not read. It answered `error: --profile <name> is required` and had never
+		// worked. A shared strategy constant is not a shared config format, and the default
+		// below is what makes that impossible to repeat: a guest with no recipe REFUSES,
+		// rather than silently inheriting the recipe of whoever is listed first.
 		dir, err := newScratchDir(s.ScratchRoot)
 		if err != nil {
 			return Launch{}, nil, err
 		}
-		cfg := filepath.Join(dir, "opencode.json")
-		body := fmt.Sprintf(goldenOpencodeTmpl, s.BaseURL, SessionKeyEnv, s.Model, s.Model, s.Model)
-		if err := os.WriteFile(cfg, []byte(body), 0o600); err != nil {
+		switch g.Name {
+		case "opencode":
+			cfg := filepath.Join(dir, "opencode.json")
+			body := fmt.Sprintf(goldenOpencodeTmpl, s.BaseURL, SessionKeyEnv, s.Model, s.Model, s.Model)
+			if err := os.WriteFile(cfg, []byte(body), 0o600); err != nil {
+				_ = os.RemoveAll(dir)
+				return Launch{}, nil, err
+			}
+			return Launch{
+				// The argv -m pin beats EVERY config layer: a user project's own opencode.json
+				// loads AFTER OPENCODE_CONFIG in 1.17.11 and could otherwise silently re-route
+				// the guest (config_opencode.feature precedence hazard).
+				Argv: []string{g.Bin, "-m", "roger/" + s.Model},
+				Env:  []string{"OPENCODE_CONFIG=" + cfg, SessionKeyEnv + "=" + s.SessionKey},
+				Dir:  dir,
+			}, cleanupFn(dir), nil
+
+		case "pi":
+			// pi resolves providers from models.json inside its AGENT DIR, and that whole
+			// directory is redirectable with PI_CODING_AGENT_DIR. Pointing it at a scratch
+			// dir gives the same isolation opencode gets: the user's ~/.pi/agent is neither
+			// read nor written, and the generated catalog is the ONLY provider pi can see,
+			// so there is no user layer left to silently re-route the guest.
+			//
+			// The cost of that isolation, stated because it is real: this run also does not
+			// see the operator's own pi themes, extensions or saved sessions. A guest at the
+			// desk is a fresh session on the band, not a continuation of their pi work.
+			agentDir := filepath.Join(dir, "pi-agent")
+			if err := os.Mkdir(agentDir, 0o700); err != nil {
+				_ = os.RemoveAll(dir)
+				return Launch{}, nil, err
+			}
+			cfg := filepath.Join(agentDir, "models.json")
+			body := fmt.Sprintf(goldenPiTmpl, s.BaseURL, s.SessionKey, s.Model, s.Model)
+			if err := os.WriteFile(cfg, []byte(body), 0o600); err != nil {
+				_ = os.RemoveAll(dir)
+				return Launch{}, nil, err
+			}
+			return Launch{
+				// --provider pins the generated entry by name and --model pins the band's
+				// model, so neither a default provider nor a fuzzy model pattern can pick
+				// something else.
+				Argv: []string{g.Bin, "--provider", piProviderName, "--model", s.Model},
+				Env:  []string{piAgentDirEnv + "=" + agentDir, SessionKeyEnv + "=" + s.SessionKey},
+				Dir:  dir,
+			}, cleanupFn(dir), nil
+
+		default:
 			_ = os.RemoveAll(dir)
-			return Launch{}, nil, err
+			return Launch{}, nil, fmt.Errorf(
+				"operator: %s is registered as %s but has no config recipe - refusing to launch it "+
+					"with another guest's wiring", g.Name, StrategyScratchConfig)
 		}
-		return Launch{
-			// The argv -m pin beats EVERY config layer: a user project's own opencode.json
-			// loads AFTER OPENCODE_CONFIG in 1.17.11 and could otherwise silently re-route
-			// the guest (config_opencode.feature precedence hazard).
-			Argv: []string{g.Bin, "-m", "roger/" + s.Model},
-			Env:  []string{"OPENCODE_CONFIG=" + cfg, SessionKeyEnv + "=" + s.SessionKey},
-			Dir:  dir,
-		}, cleanupFn(dir), nil
 
 	case StrategyScratchHome:
 		dir, err := newScratchDir(s.ScratchRoot)

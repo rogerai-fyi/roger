@@ -79,6 +79,20 @@ Feature: A Tower's approval is visible to the operator and workable for the admi
     Then serve says only this machine can reach the hub and that the public network cannot
     And the link proceeds: loopback is a legitimate test rig, not an error
 
+  Scenario: A LAN hostname advert is the home-lab tier, named as such
+    Given serve is started with --relay-public roggentoo:8444 and the name resolves to a private address
+    Then serve says devices on the local network can reach the hub and the public network cannot
+    And it warns that every dialing device must resolve the name itself, and shows the IP to use instead
+    And a name that does not resolve is refused with that repair, not advertised broken
+
+  Scenario: An unreachable-by-design endpoint is skipped, never failed
+    Given an approved Tower advertises a loopback or private endpoint, by address or by name
+    When Core's canary considers it
+    Then the canary records unreachable-by-design and no failure
+    And repeated skips never suspend the Tower
+    # A home-lab Tower advertising its LAN name is exactly what it says it is; scoring its
+    # canary as failures would suspend the configuration this network explicitly supports.
+
   Scenario: Roger Core never dials a non-public relay endpoint
     Given a Tower advertises a loopback, private-range, or link-local relay endpoint
     When Core's canary or any Core-side dialer selects a Tower to probe

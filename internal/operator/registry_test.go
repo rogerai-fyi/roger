@@ -94,7 +94,12 @@ func TestRegistryMVPSet(t *testing.T) {
 	for _, g := range reg {
 		names = append(names, g.Name)
 	}
-	if want := []string{"opencode", "hermes", "aider", "dsh", "claude", "codex"}; !reflect.DeepEqual(names, want) {
+	// Amended 2026-08-23: `pi` added after the founder asked why an installed pi was not
+	// at the desk. The list is still pinned rather than relaxed - the registry is the ONE
+	// source of who can ever take the mic, so a guest appearing or vanishing must be a
+	// deliberate edit here, not a side effect. The two context-only entries stay LAST,
+	// which is the part of this order that carries meaning.
+	if want := []string{"opencode", "hermes", "aider", "dsh", "pi", "claude", "codex"}; !reflect.DeepEqual(names, want) {
 		t.Fatalf("registry must be the guest set in order %v, got %v", want, names)
 	}
 	for _, g := range reg {

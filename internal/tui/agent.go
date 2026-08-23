@@ -1653,7 +1653,7 @@ func (m model) runAgentCommand(line string) (tea.Model, tea.Cmd) {
 		note("/model switches model · /clear resets · /cwd changes a missing root · /copy yanks the transcript (⌃y) · /mouse toggles wheel/select · /persona shows dj.md · esc exits")
 		note(agentToolsNote(m.agentTools()))
 		note("/remote-control puts this session on your BASE STATION (continue it from any logged-in surface)")
-		note("/operator hands the mic to a guest CLI at the desk (opencode · hermes · aider) on your open channel")
+		note("/operator hands the mic to a guest CLI at the desk (opencode · hermes · aider · pi) on your open channel")
 		return m, nil
 	default:
 		note("unknown: /" + cmd + " · /help for AGENT commands")
