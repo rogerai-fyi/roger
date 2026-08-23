@@ -393,7 +393,10 @@ func TestACompletedJobsReceiptRidesToCore(t *testing.T) {
 	identity, err := st.IdentityKey()
 	require.NoError(t, err)
 	grant, err := registry.MintEdge(dispatch.EdgeTarget{
-		TowerID: st.TowerID, StationID: "st-1", StationEpoch: 1,
+		// The ADMISSION id - what Core writes into every grant it issues. Never st.TowerID,
+		// the local init id Core has never heard of; a hub that verifies grants against that
+		// refuses every consumer, which is exactly what a live v6.0.0 Tower did.
+		TowerID: "tw-1", StationID: "st-1", StationEpoch: 1,
 		Model: "m", Modality: "text", RelayName: "st-1.relay.example",
 		MaxIn: 1000, MaxOut: 1000,
 		AssertionKey: nodePub, ConsumerKey: consumerHubPub(t),
@@ -402,9 +405,9 @@ func TestACompletedJobsReceiptRidesToCore(t *testing.T) {
 
 	base := "http://" + hubAddr
 	sum := sha256.Sum256(identity.Public().(ed25519.PublicKey))
-	consumer := &towerhub.Client{BaseURL: base, TowerID: st.TowerID,
+	consumer := &towerhub.Client{BaseURL: base, TowerID: "tw-1",
 		HTTP: &http.Client{Timeout: 30 * time.Second}}
-	node := &towerhub.Client{BaseURL: base, TowerID: st.TowerID,
+	node := &towerhub.Client{BaseURL: base, TowerID: "tw-1", // nodes sign with the id Core told them at attach
 		TowerKeyHash: hex.EncodeToString(sum[:]),
 		Sign:         towerhub.SignWith(nodePriv),
 		HTTP:         &http.Client{Timeout: 30 * time.Second}}

@@ -510,7 +510,10 @@ func cmdLogin(args []string, out io.Writer) error {
 	if st.Mode != tower.ModeJoined {
 		return fmt.Errorf("this Tower is standalone and needs no account: nothing it does leaves this machine")
 	}
-	login, err := deviceLogin(envOr("ROGERAI_BROKER", "https://broker.rogerai.fm"))
+	// ROGER_BROKER is what register and probe read; ROGERAI_BROKER was this command's own
+	// spelling. Honour both, the shared one first, so one variable points every command at
+	// the same Core - the first person to set one and not the other enrolls with prod.
+	login, err := deviceLogin(envOr("ROGER_BROKER", envOr("ROGERAI_BROKER", "https://broker.rogerai.fm")))
 	if err != nil {
 		return err
 	}

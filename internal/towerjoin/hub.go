@@ -71,7 +71,7 @@ type HubNode struct {
 // them with, over the Tower's signed request (only the named tower's own signature is accepted
 // by Core).
 func HubNodes(st *tower.State) ([]HubNode, error) {
-	towerID, err := coreTowerID(st)
+	towerID, err := CoreTowerID(st)
 	if err != nil {
 		return nil, err
 	}
@@ -101,7 +101,7 @@ var ErrSettlePermanent = errors.New("roger core refused this receipt permanently
 // actually relayed - its own independent count, which settlement uses only as an UPPER bound
 // on the billable bytes (the attestation can lower a bill, never raise one). Zero = unknown.
 func SettleEdgeReceipt(st *tower.State, stationID, attemptID string, receipt []byte, wireIn, wireOut int64) error {
-	towerID, err := coreTowerID(st)
+	towerID, err := CoreTowerID(st)
 	if err != nil {
 		return err
 	}
@@ -136,7 +136,7 @@ type WantedAudit struct {
 // Station's slice of it to the node that can actually answer (poll-only nodes cannot be
 // dialed the way the classic courier dials --station endpoints).
 func WantedAudits(st *tower.State) ([]WantedAudit, error) {
-	towerID, err := coreTowerID(st)
+	towerID, err := CoreTowerID(st)
 	if err != nil {
 		return nil, err
 	}
@@ -156,7 +156,7 @@ func WantedAudits(st *tower.State) ([]WantedAudit, error) {
 // ForwardAuditTranscript forwards a hub node's answered audit to Core, tower-signed - the
 // same shape the classic courier forwards, from the hub plane instead.
 func ForwardAuditTranscript(st *tower.State, attemptID string, available bool, sealedBundle, transcript, request, response string) error {
-	towerID, err := coreTowerID(st)
+	towerID, err := CoreTowerID(st)
 	if err != nil {
 		return err
 	}
@@ -171,12 +171,12 @@ func ForwardAuditTranscript(st *tower.State, attemptID string, available bool, s
 	return towerPost(st, "/tower/audit/transcript", body, nil)
 }
 
-// coreTowerID is the id CORE knows this Tower by - the admission id - which is what every
+// CoreTowerID is the id CORE knows this Tower by - the admission id - which is what every
 // request to Core must carry. It is NOT st.TowerID: that is the local identity `init`
 // minted before this Tower had ever spoken to Core, and Core matches a caller on the
 // admission id, so sending the local one is refused as "not the Tower's own signed
 // request" - a message that sends an operator hunting for a signing bug that is not there.
-func coreTowerID(st *tower.State) (string, error) {
+func CoreTowerID(st *tower.State) (string, error) {
 	adm, ok := LoadAdmission(st.Dir())
 	if !ok || adm.TowerID == "" {
 		return "", errors.New("this Tower is not registered with Roger Core yet - run `roger-tower register` first")

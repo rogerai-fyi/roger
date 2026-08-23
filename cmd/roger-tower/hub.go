@@ -140,6 +140,14 @@ func runHubInBackground(st *tower.State, opt hubOptions, out io.Writer, stop <-c
 	if err != nil {
 		return nil, fmt.Errorf("cannot read this tower's identity key (the hub proves its epoch with it): %w", err)
 	}
+	// The id Core admitted this Tower under. Every grant Core issues names it, and every node
+	// signs its polls with it (Core told them at attach), so the hub must verify against it.
+	// st.TowerID is the local init id Core has never heard of: verifying against that refused
+	// every consumer grant and every node poll on a live v6.0.0 Tower.
+	towerID, err := towerjoin.CoreTowerID(st)
+	if err != nil {
+		return nil, err
+	}
 	// THE SIGNED LATCH, ON DISK. Without it every redeploy re-opened the pre-signature bearer
 	// for nodes that upgraded long ago, because Core never rotates the token - see
 	// towerhub.SignedLatchStore. Best effort with a loud line, exactly like the settle spool
@@ -155,14 +163,14 @@ func runHubInBackground(st *tower.State, opt hubOptions, out io.Writer, stop <-c
 	hub := towerhub.New()
 	server := towerhub.NewServer(hub, func(grant []byte) (string, string, error) {
 		att, station, _, gerr := dispatch.EdgeGrantMeta(grant, coreKey, link.PublicNetwork,
-			st.TowerID, time.Now())
+			towerID, time.Now())
 		return att, station, gerr
 	}, towerhub.ServerOptions{
 		// THIS TOWER'S NAME, SIGNED INTO EVERY REQUEST. Without it a node's signature captured
 		// here was presentable at any other hub process holding the same Station - a second
 		// instance behind one endpoint, or this one after a redeploy inside the skew window.
 		// See internal/towerhub/nodeauth.go.
-		TowerID:           st.TowerID,
+		TowerID:           towerID,
 		AllowLegacyBearer: opt.AllowLegacyBearer,
 		EpochKey:          identity,
 		SignedLatch:       latchStore(latch),

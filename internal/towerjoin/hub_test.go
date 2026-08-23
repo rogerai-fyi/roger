@@ -453,8 +453,15 @@ func TestHubPlaneCallsRefuseBeforeRegistration(t *testing.T) {
 	core := newHubCore(t)
 	st := joinedTower(t)
 
+	// Every hub-plane call, not only the first one somebody thinks of: a single call that
+	// fell back to the local id would be refused by Core with a message about signing.
 	_, err := HubNodes(st)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "register")
+	require.ErrorContains(t, err, "register")
+	err = SettleEdgeReceipt(st, "st-1", "at-1", []byte("r"), 1, 1)
+	require.ErrorContains(t, err, "register")
+	_, err = WantedAudits(st)
+	require.ErrorContains(t, err, "register")
+	err = ForwardAuditTranscript(st, "at-1", true, "", "", "", "")
+	require.ErrorContains(t, err, "register")
 	require.Empty(t, core.seen, "nothing is sent to Core before this Tower is registered")
 }
