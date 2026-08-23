@@ -142,7 +142,7 @@
 
     var lang = v.language
       ? '<span class="voice-lang mono">' + esc(v.language) + '</span>'
-      : '<span class="voice-unit--idle">—</span>';
+      : '<span class="voice-unit--idle">-</span>';
 
     var lat = v.latency > 0
       ? '<b class="mono voice-lat">' + fmtLatency(v.latency) + '</b>'

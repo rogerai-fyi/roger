@@ -1,4 +1,4 @@
-/* Broadcast 009 — capacity-aware routing plate. Scoped under .route-post. */
+/* Broadcast 009 - capacity-aware routing plate. Scoped under .route-post. */
 .route-post .bc-post__wrap { max-width: 900px; }
 .route-post .bc-post__head,
 .route-post .bc-post__body { max-width: 760px; margin-inline: auto; }

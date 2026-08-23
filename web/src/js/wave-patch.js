@@ -2757,13 +2757,13 @@
           : fam.status + " · will attach silent"));
       if (lives && !seated) {
         txt.appendChild(el("span", "ws-menu__lives",
-          "◂ lives here — this is the tier for " + band.label.toLowerCase()));
+          "◂ lives here - this is the tier for " + band.label.toLowerCase()));
       }
       if (seated) {
         var sband = bandOf(fam.id);
         txt.appendChild(el("span", "ws-menu__seated",
           "✓ already in the chain" + (sband ? " · " + sband.label.toLowerCase() : "") +
-          " — click to find it"));
+          " - click to find it"));
       }
       b.appendChild(txt);
       b.title = seated
@@ -3892,7 +3892,7 @@
     chart.appendChild(svg("line", { class: "sn-front__sweep", x1: 0, x2: 0, y1: 4, y2: H - 4 }));
     wrap.appendChild(chart);
     wrap.appendChild(el("span", "sn-front__tracemeta",
-      s.samples.length + " RECORDED SAMPLES · " + fmtN(sc.dataLo) + "—" + fmtN(sc.dataHi) +
+      s.samples.length + " RECORDED SAMPLES · " + fmtN(sc.dataLo) + "-" + fmtN(sc.dataHi) +
       (unitWordOf(r) ? " " + unitWordOf(r) : " · UNIT NOT STATED") + " · LOOPING CRT SWEEP"));
     return wrap;
   }
@@ -5141,14 +5141,14 @@
       var dl = el("dl", "wp-cert");
       [["record", r.node_id + " (scene " + r.scene_id + ")"],
        ["unit", unitWordOf(r) || "not stated in the wire"],
-       ["window", w.lo != null ? w.lo + " … " + w.hi + " · mean " + w.mean : "—"],
+       ["window", w.lo != null ? w.lo + " … " + w.hi + " · mean " + w.mean : "-"],
        ["truth", r.truth],
        ["child said", r.child.prediction + " · margin " + r.child.margin.toFixed(2)],
        ["senior said", r.parent.prediction + " · margin " + r.parent.margin.toFixed(2)],
        ["digest", null],
       ].forEach(function (row) {
         dl.appendChild(el("dt", null, row[0]));
-        if (row[1] == null) dl.appendChild(el("dd", "wp-cert__pending", "— pending export —"));
+        if (row[1] == null) dl.appendChild(el("dd", "wp-cert__pending", "- pending export -"));
         else dl.appendChild(el("dd", null, row[1]));
       });
       det.appendChild(dl);
@@ -6034,7 +6034,7 @@
       "{",
       frame
         ? '  "prompt": "<the exported task frame below, then Input:, then your body>",'
-        : '  "prompt": "<task frame — pending export — followed by the input body>",',
+        : '  "prompt": "<task frame - pending export - followed by the input body>",',
       '  "grammar": "root ::= \\" ' + candidates[1] + '\\"",',
       '  "n_predict": 16,',
       '  "cache_prompt": true',

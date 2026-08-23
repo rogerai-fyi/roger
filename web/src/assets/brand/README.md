@@ -1,4 +1,4 @@
-# The Wave Spectrum mark — shareable exports
+# The Wave Spectrum mark - shareable exports
 
 Four files, one loop: seven Wave tiers as standing waves that all cross at the
 beacon, sweeping Pico → Exa and closing on the Wave Infinite beat.
@@ -11,7 +11,7 @@ still reads.
 
 | file | cut | use |
 |---|---|---|
-| `wave-mark-dark.mp4` | labelled | social posts, iMessage, Slack — dark backgrounds |
+| `wave-mark-dark.mp4` | labelled | social posts, iMessage, Slack - dark backgrounds |
 | `wave-mark-light.mp4` | labelled | the same on light backgrounds |
 | `wave-mark-dark.gif` | labelled | anywhere that will not play video |
 | `wave-mark-light.gif` | labelled | " |
@@ -23,7 +23,7 @@ still reads.
 MP4: 1200×628 (the 1.91:1 social-card ratio), H.264 high@4.0, **yuv420p**, 25 fps,
 `+faststart`. That pixel format and profile are what make it play inline in
 iMessage, X, LinkedIn and Slack rather than showing a download stub.
-GIF: 480×250, 12.5 fps, 64-colour palette, infinite loop, ~1.3 MB — small enough
+GIF: 480×250, 12.5 fps, 64-colour palette, infinite loop, ~1.3 MB - small enough
 to send in a text.
 
 Both are **8.24 s: one complete cycle at double the site's pace**. The loop is
@@ -42,5 +42,5 @@ from the first by ~0.3 k pixels against ~17 k for an ordinary frame step.
 These are **rendered from the animation's own equations**, not screen-recorded:
 `tools/render-wave-mark.mjs` re-runs the standing-wave math from
 `src/js/wave-mark-spectrum.js`, so every frame is exact vector output. If that
-file's constants change, re-run the tool — the header of the script lists the
+file's constants change, re-run the tool - the header of the script lists the
 values that must stay in step.

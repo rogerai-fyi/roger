@@ -1,4 +1,4 @@
-/* Stations page — the operator's roll-up of every station on their account.
+/* Stations page - the operator's roll-up of every station on their account.
    Reuses the account chrome (.panel, .stats, .fine, .cmd); this file only adds the
    per-station row and the small status vocabulary. */
 

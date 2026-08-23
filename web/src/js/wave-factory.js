@@ -2946,7 +2946,7 @@
         increments on a successful clear), so an incident you serviced or left
         broken never enters it. The label used to imply a rate over all
         incidents; it names its own denominator now. */
-     ["FIRST TRY, OF FIXES", G.diag.total ? G.diag.first + "/" + G.diag.total : "—"],
+     ["FIRST TRY, OF FIXES", G.diag.total ? G.diag.first + "/" + G.diag.total : "-"],
      ["LINE STOPPED", String(G.incidents.missed)],
      [G.coins < 0 ? "ON LOAN" : "COINS", String(Math.floor(G.coins))],
     ].forEach(function (p) {

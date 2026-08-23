@@ -1011,7 +1011,7 @@
         if (s.online && s.hwClass) meta.push(esc(s.hwClass));
         var metaHtml = meta.length ? '<span class="qsl-cs__meta mono">' + meta.join(" · ") + '</span>' : "";
         // region "" renders a dim em-dash ("not provided"), never the literal "??".
-        var regHtml = s.region ? esc(s.region) : '<span class="qsl-nodata">—</span>';
+        var regHtml = s.region ? esc(s.region) : '<span class="qsl-nodata">-</span>';
         var row = el("li", "qsl-row",
           '<span class="qsl-cs"><span class="qsl-cs__sign mono">' + dot + ' ' + esc(s.callsign) + marks +
             '<button type="button" class="report-btn" data-report-node="' + esc(s.nodeId || "") +
