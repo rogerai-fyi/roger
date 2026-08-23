@@ -68,7 +68,10 @@ type Config struct {
 	// Freshness is how long a session survives without a heartbeat. It is the ONLY thing
 	// that removes a silently-dead Tower from routing, so it must comfortably exceed the
 	// heartbeat - a single lost frame must not cost an operator their traffic.
-	Freshness   time.Duration
+	Freshness time.Duration
+	// Mirror is the shared view of live sessions across instances. Nil = in-process only,
+	// which is correct for exactly one instance and wrong for two - see mirror.go.
+	Mirror      Mirror
 	MaxPerTower int
 }
 
@@ -285,6 +288,7 @@ func (s *Sessions) Open(h Hello, certTowerID string) (Accepted, error) {
 	s.byID[id] = &session{towerID: h.TowerID, version: version, opened: now, lastSeen: now,
 		relay: RelayPlane{Endpoint: h.RelayEndpoint, TLSSPKI: h.RelayTLSSPKI}}
 	s.byTower[h.TowerID] = id
+	s.mirrorPutLocked(h.TowerID, id)
 
 	need := true
 	if known, ok := s.heads[h.TowerID]; ok {
@@ -314,17 +318,34 @@ func (s *Sessions) Open(h Hello, certTowerID string) (Accepted, error) {
 // of the two is worse than either. Callers that only want the address say `.Endpoint`, which
 // is a visible act rather than an omission.
 func (s *Sessions) RelayPlane(towerID string) (RelayPlane, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	id, ok := s.byTower[towerID]
-	if !ok {
+	s.mu.RLock()
+	var local RelayPlane
+	if id, ok := s.byTower[towerID]; ok {
+		if sess, ok := s.byID[id]; ok {
+			local = sess.relay
+		}
+	}
+	s.mu.RUnlock()
+
+	if s.cfg.Mirror == nil {
+		if local.Endpoint == "" {
+			return RelayPlane{}, false
+		}
+		return local, true
+	}
+	rec, there, err := s.cfg.Mirror.Get(towerID)
+	if local.Endpoint != "" {
+		// Same tombstone rule as Live: an adopted copy of a closed session must not keep
+		// advertising a plane its owner deliberately withdrew.
+		if err == nil && !there {
+			return RelayPlane{}, false
+		}
+		return local, true
+	}
+	if err != nil || !there || rec.Relay.Endpoint == "" || !s.fresh(rec.LastSeen) {
 		return RelayPlane{}, false
 	}
-	sess, ok := s.byID[id]
-	if !ok || sess.relay.Endpoint == "" {
-		return RelayPlane{}, false
-	}
-	return sess.relay, true
+	return rec.Relay, true
 }
 
 // Adopt reports whether a session id may be claimed. It exists so a replayed session id is
@@ -405,49 +426,147 @@ func (s *Sessions) Heartbeat(sessionID, towerID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	sess, ok := s.byID[sessionID]
+	if !ok {
+		// This instance never met the session - the load balancer opened it elsewhere, or
+		// this process restarted. The shared record is the tie-breaker: adopt it ONLY when
+		// the caller quotes the exact session id the opening instance recorded, so a
+		// guessed or stale id buys nothing.
+		sess, ok = s.adoptLocked(sessionID, towerID)
+	}
 	if !ok || sess.towerID != towerID {
 		return ErrNoSession
 	}
 	sess.lastSeen = s.now()
+	s.mirrorPutLocked(towerID, sessionID)
 	return nil
+}
+
+// adoptLocked recreates a session this instance never held, from the shared record. The
+// session id must match exactly: the record was written by a peer only after the Tower's
+// signed request was authenticated there.
+func (s *Sessions) adoptLocked(sessionID, towerID string) (*session, bool) {
+	if s.cfg.Mirror == nil {
+		return nil, false
+	}
+	rec, ok, err := s.cfg.Mirror.Get(towerID)
+	if err != nil || !ok || rec.SessionID != sessionID {
+		return nil, false
+	}
+	if !s.freshLocked(rec.LastSeen) {
+		return nil, false
+	}
+	sess := &session{towerID: towerID, version: rec.Version, opened: rec.LastSeen,
+		lastSeen: s.now(), relay: rec.Relay}
+	if prev, exists := s.byTower[towerID]; exists {
+		delete(s.byID, prev)
+	}
+	s.byID[sessionID] = sess
+	s.byTower[towerID] = sessionID
+	return sess, true
+}
+
+// mirrorPutLocked mirrors a live session, best effort: the mirror failing must not fail
+// the request that just succeeded locally - the fallback cost is reachability through one
+// instance, not correctness.
+func (s *Sessions) mirrorPutLocked(towerID, sessionID string) {
+	if s.cfg.Mirror == nil {
+		return
+	}
+	sess, ok := s.byID[sessionID]
+	if !ok {
+		return
+	}
+	_ = s.cfg.Mirror.Put(towerID, Record{
+		SessionID: sessionID, Version: sess.version, LastSeen: s.now(), Relay: sess.relay,
+	})
+}
+
+func (s *Sessions) freshLocked(seen time.Time) bool {
+	return s.now().Sub(seen) <= s.cfg.Freshness
+}
+
+// fresh is freshLocked for callers holding no lock: the test clock offset is read under
+// the mutex so an unlocked mirror check cannot race the clock seam.
+func (s *Sessions) fresh(seen time.Time) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.freshLocked(seen)
 }
 
 // Close ends a session deliberately. An operator who drains on purpose leaves routing at
 // once rather than waiting out the freshness window.
 func (s *Sessions) Close(sessionID, towerID string) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	sess, ok := s.byID[sessionID]
-	if !ok || sess.towerID != towerID {
-		return // a Tower cannot hang up somebody else's link
+	sess, held := s.byID[sessionID]
+	if held && sess.towerID == towerID {
+		delete(s.byID, sessionID)
+		if s.byTower[towerID] == sessionID {
+			delete(s.byTower, towerID)
+		}
 	}
-	delete(s.byID, sessionID)
-	if s.byTower[sess.towerID] == sessionID {
-		delete(s.byTower, sess.towerID)
+	s.mu.Unlock()
+	if s.cfg.Mirror == nil {
+		return
 	}
+	// The close may land on an instance that never held the session - at two instances,
+	// half of them do. The mirror's compare-and-delete is what makes the close reach
+	// every instance while a superseded session id still buys nothing: it only removes a
+	// row that names EXACTLY this session, which only the authenticated Tower was told.
+	_ = s.cfg.Mirror.Del(towerID, sessionID)
 }
 
 // Live answers the question routing asks on every request. A map read and nothing else:
 // no error, no context, no I/O, by design.
+// Live answers the question routing asks on every request. The LOCAL answer is a map
+// read; the mirror consultation is I/O and deliberately happens OUTSIDE the lock, so
+// dispatch never serializes on database latency behind a session mutex.
 func (s *Sessions) Live(towerID string) bool {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-	id, ok := s.byTower[towerID]
-	if !ok {
-		return false
+	localFresh := false
+	if id, ok := s.byTower[towerID]; ok {
+		if sess, ok := s.byID[id]; ok && s.freshLocked(sess.lastSeen) {
+			localFresh = true
+		}
 	}
-	sess, ok := s.byID[id]
-	return ok && s.now().Sub(sess.lastSeen) <= s.cfg.Freshness
+	s.mu.RUnlock()
+
+	if s.cfg.Mirror == nil {
+		return localFresh
+	}
+	rec, there, err := s.cfg.Mirror.Get(towerID)
+	if localFresh {
+		// A local hit can be an ADOPTED copy of a session the opening instance has since
+		// closed. The mirror's absence is the close's tombstone: gone means closed
+		// everywhere. A mirror ERROR keeps the local answer - an instance answers from
+		// what it can actually see, it does not invent OR discard.
+		return !(err == nil && !there)
+	}
+	// Not held here: the peer instance may hold it. A mirror error answers false - an
+	// instance never invents liveness it cannot verify.
+	return err == nil && there && s.fresh(rec.LastSeen)
 }
 
 // LiveTowers lists every Tower currently eligible to receive work.
 func (s *Sessions) LiveTowers() []string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	out := []string{}
-	for tower, id := range s.byTower {
-		if sess, ok := s.byID[id]; ok && s.now().Sub(sess.lastSeen) <= s.cfg.Freshness {
-			out = append(out, tower)
+	seen := map[string]bool{}
+	var out []string
+	for towerID, id := range s.byTower {
+		if sess, ok := s.byID[id]; ok && s.freshLocked(sess.lastSeen) {
+			seen[towerID] = true
+			out = append(out, towerID)
+		}
+	}
+	// Plus every fresh record a peer instance holds. A mirror error leaves the local set:
+	// what this instance can actually see.
+	if s.cfg.Mirror != nil {
+		if all, err := s.cfg.Mirror.All(); err == nil {
+			for towerID, rec := range all {
+				if !seen[towerID] && s.freshLocked(rec.LastSeen) {
+					out = append(out, towerID)
+				}
+			}
 		}
 	}
 	return out

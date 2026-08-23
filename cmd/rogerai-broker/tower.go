@@ -194,6 +194,10 @@ type linkDeps struct {
 	// NOT holding a Tower's link can still route to it. Nil means in-process, which makes a
 	// Tower's capacity visible only through the one broker it happens to be connected to.
 	routable fleet.Store
+	// mirror is the shared view of live link sessions, so which instance answers a request
+	// is a deployment detail. Nil = in-process, correct for one instance and wrong for two:
+	// a Tower opens its session on one and the other refuses its next inventory push.
+	mirror link.Mirror
 	// events is the durable attempt chain.
 	events attempt.Store
 	// attempts is the durable dispatch store. Nil means in-process, which is correct for one
@@ -277,6 +281,7 @@ func newTowerSubsystem(b *broker, registryStore admit.Store, custody cert.Custod
 		Versions:  []int{towerProtocolMin, towerProtocolMax},
 		Heartbeat: towerHeartbeatInterval,
 		Freshness: towerFreshnessWindow,
+		Mirror:    deps.mirror,
 	})
 	inventory := inv.New(inv.Config{
 		Network: link.PublicNetwork,
@@ -456,6 +461,10 @@ func loadTowerSubsystem(b *broker, db store.Store) (*towerSubsystem, error) {
 	// And the funding ledger. Durable and shared: an attempt accrues on whichever instance the
 	// Tower reached, and a payout is decided by whichever runs the disbursement - the debt and
 	// its repayment must agree across the fleet or one instance pays what another already paid.
+	linkMirror, err := link.NewPGMirror(sqlDB)
+	if err != nil {
+		return fail(err)
+	}
 	earningStore, err := earnings.NewPGStore(sqlDB)
 	if err != nil {
 		return fail(err)
@@ -467,7 +476,7 @@ func loadTowerSubsystem(b *broker, db store.Store) (*towerSubsystem, error) {
 		RootCertPEM: []byte(os.Getenv("ROGERAI_TOWER_CA_CERT_PEM")),
 	}, linkDeps{stations: stationStore, heads: headStore, attempts: attemptStore,
 		routable: routableStore, events: eventStore, acks: ackStore, outcomes: outcomeStore,
-		auditWanted: auditStore, earnings: earningStore})
+		auditWanted: auditStore, earnings: earningStore, mirror: linkMirror})
 	if err != nil {
 		// A misconfigured root is a REFUSAL, not a reason to generate one: issuing under a
 		// root nobody chose is how every certificate on the network becomes unverifiable.
