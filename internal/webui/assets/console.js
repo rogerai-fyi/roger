@@ -729,6 +729,26 @@
     chatRunAgent(sel.value, text, working);
   }
 
+  /* A fetch that never reached the server rejects with the BROWSER's wording, and every
+     browser words it differently and none of them usefully: Firefox says "NetworkError
+     when attempting to fetch resource", Chrome says "Failed to fetch". Neither tells the
+     operator the one thing that is almost always true - this page outlived the `roger
+     webui` process that served it. Left verbatim it reads like the model or the band
+     failed, so the natural next move is to retry a request that cannot succeed.
+
+     A page cannot distinguish "server gone" from "cable unplugged" (the fetch spec
+     deliberately hides that), so this does not claim to know which. It names the likely
+     cause and the check, and keeps the browser's own words so a real network fault is
+     still diagnosable. */
+  function chatFetchErrText(err) {
+    var raw = (err && err.message) || "";
+    var networkish = /networkerror|failed to fetch|load failed|network request failed/i.test(raw);
+    if (!networkish) return raw || "the turn did not go through";
+    return "could not reach the console server - if you left this tab open, the " +
+      "`roger webui` process that served it has probably stopped. Start it again and " +
+      "reload. (" + raw + ")";
+  }
+
   /* THE AGENT TURN. Streams newline-delimited JSON off the POST response - EventSource
      is GET-only, and a turn that spends the operator's money must not be reachable by a
      GET, which is the rule every other write on this console follows.
@@ -763,7 +783,7 @@
     }).catch(function (err) {
       working.remove();
       chatTurns.pop();  // a failed turn leaves history clean, or it is re-sent and re-billed
-      chatAppend("error", (err && err.message) || "the turn did not go through", "chat-turn--err");
+      chatAppend("error", chatFetchErrText(err), "chat-turn--err");
     }).then(function () { chatSetBusy(false); });
 
     function flushLine(line, last) {

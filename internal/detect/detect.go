@@ -405,8 +405,15 @@ func getModels(base, key string) (models []string, ctx map[string]int, status in
 	}
 	// Many OpenAI-compatible servers (vLLM, llama.cpp, LM Studio, TGI) report a
 	// per-model context length on /v1/models under one of these common keys.
+	//
+	// Data is a POINTER so an absent key is distinguishable from an empty list. A 200
+	// alone does not make something an OpenAI server: a web app on a scanned port answers
+	// 200 with an HTML page, the decode quietly yields nothing, and it used to be reported
+	// as a reachable server with zero models. That false positive is not cosmetic - it
+	// took the saved-upstream slot on the founder's machine and left the console's SHARE
+	// tab permanently empty. `{"data":[]}` IS a real server between loads and still counts.
 	var d struct {
-		Data []struct {
+		Data *[]struct {
 			ID         string `json:"id"`
 			MaxLen     int    `json:"max_model_len"`  // vLLM
 			CtxLen     int    `json:"context_length"` // some gateways
@@ -416,8 +423,14 @@ func getModels(base, key string) (models []string, ctx map[string]int, status in
 		} `json:"data"`
 	}
 	_ = json.NewDecoder(resp.Body).Decode(&d)
+	if d.Data == nil {
+		// Answered 200, but not with an OpenAI model listing. Not a server we can share
+		// through, and saying so is the honest answer - "reachable" is about the socket,
+		// "usable" is about the protocol, and only the second one is worth reporting.
+		return nil, nil, statusNotOpenAI
+	}
 	ctx = map[string]int{}
-	for _, m := range d.Data {
+	for _, m := range *d.Data {
 		if m.ID == "" {
 			continue
 		}
@@ -428,6 +441,10 @@ func getModels(base, key string) (models []string, ctx map[string]int, status in
 	}
 	return models, ctx, 200
 }
+
+// statusNotOpenAI marks "answered, but the body was not an OpenAI /v1/models listing".
+// Negative so it can never collide with a real HTTP status code.
+const statusNotOpenAI = -1
 
 // envCandidates derives base URLs from environment variables the user's existing
 // tooling already exports, so a non-default endpoint is found without a scan. Where
