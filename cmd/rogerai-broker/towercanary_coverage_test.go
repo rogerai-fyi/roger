@@ -122,7 +122,7 @@ func TestTheCanaryStillRotatesWhenNothingBehindATowerIsPlaceable(t *testing.T) {
 	tierA, tierB := b.edgeEligible(rows, nil, time.Now())
 	require.Empty(t, tierA)
 	require.Empty(t, tierB, "the premise of this test is gone: something is still eligible")
-	_, _, placeable := b.edgeTargetFor("m", edgePlacementRand())
+	_, _, placeable := b.edgeTargetFor("m", edgePlacementRand(), nil)
 	require.False(t, placeable, "a consumer can still be placed, so this is not the fallback case")
 
 	probed := map[string]int{}
@@ -157,7 +157,7 @@ func TestAFailingCanaryDemotesOnlyItsOwnStation(t *testing.T) {
 
 	// Placement must now avoid the sick one entirely: it is in Tier B and Tier A is not empty.
 	for i := 0; i < 60; i++ {
-		_, row, ok := b.edgeTargetFor("m", edgePlacementRand())
+		_, row, ok := b.edgeTargetFor("m", edgePlacementRand(), nil)
 		require.True(t, ok)
 		require.Equal(t, healthy, row.StationID,
 			"placement %d used %s, whose own edge probes are failing, while %s was healthy",
@@ -168,7 +168,7 @@ func TestAFailingCanaryDemotesOnlyItsOwnStation(t *testing.T) {
 	b.recordEdgeCanary(sick, reputation.CanaryPass)
 	back := false
 	for i := 0; i < 200 && !back; i++ {
-		_, row, ok := b.edgeTargetFor("m", edgePlacementRand())
+		_, row, ok := b.edgeTargetFor("m", edgePlacementRand(), nil)
 		require.True(t, ok)
 		back = row.StationID == sick
 	}

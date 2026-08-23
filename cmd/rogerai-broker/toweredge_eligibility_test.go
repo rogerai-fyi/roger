@@ -63,7 +63,7 @@ func edgeFleet(t *testing.T, n int) (*broker, []string) {
 func placedNodes(b *broker, n int) map[string]int {
 	seen := map[string]int{}
 	for i := 0; i < n; i++ {
-		_, row, ok := b.edgeTargetFor("m", edgePlacementRand())
+		_, row, ok := b.edgeTargetFor("m", edgePlacementRand(), nil)
 		if !ok {
 			seen[""]++
 			continue
@@ -244,7 +244,7 @@ func TestEdgePlacementRefusesARowWithNoJoin(t *testing.T) {
 		Expires: time.Now().Add(time.Hour), Endpoint: "203.0.113.9:8443",
 	}}))
 
-	_, _, ok := b.edgeTargetFor("m", edgePlacementRand())
+	_, _, ok := b.edgeTargetFor("m", edgePlacementRand(), nil)
 	require.False(t, ok, "a row with no node id behind it was handed to a consumer")
 }
 
@@ -263,7 +263,7 @@ func TestEveryEdgePlacementRefusalIsLogged(t *testing.T) {
 
 	// No tower subsystem at all, which is what a broker deployed without one looks like.
 	bare := &broker{}
-	_, _, ok := bare.edgeTargetFor("m", nil)
+	_, _, ok := bare.edgeTargetFor("m", nil, nil)
 	require.False(t, ok)
 	require.Contains(t, logged.String(), "REFUSED",
 		"the earliest refusal on the placement path returns in silence")
@@ -273,7 +273,7 @@ func TestEveryEdgePlacementRefusalIsLogged(t *testing.T) {
 	// own, different thing, so the two are told apart in an aggregator.
 	logged.Reset()
 	b, _ := towerTestBroker(t)
-	_, _, ok = b.edgeTargetFor("nobody-serves-this", nil)
+	_, _, ok = b.edgeTargetFor("nobody-serves-this", nil, nil)
 	require.False(t, ok)
 	require.Contains(t, logged.String(), "no Tower publishes a routable Station for this model")
 }

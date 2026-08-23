@@ -3,7 +3,7 @@
 # consider each other: every real consumer hits /v1/chat/completions, which refused
 # Towers outright, so no live traffic could ever ride one and Towers could not earn.
 # Changes to an approved scenario need re-approval.
-# BUILD STATUS: NOT BUILT.
+# BUILD STATUS: BUILT. The bridge, fan-out coin, tower-to-tower + edge-to-direct fallback shipped with this spec.
 
 Feature: Consumer traffic fans out across both fabrics and falls back
   A consumer asks for a model; which fabric serves it - Core's own share nodes or a

@@ -26,7 +26,6 @@ package main
 // consumer and knows the outcome without waiting for anyone to tell it.
 
 import (
-	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json"
@@ -38,9 +37,7 @@ import (
 	"rogerai.fm/roger/v6/internal/towercore/dispatch"
 	"rogerai.fm/roger/v6/internal/towercore/envelope"
 	"rogerai.fm/roger/v6/internal/towercore/fleet"
-	"rogerai.fm/roger/v6/internal/towercore/link"
 	"rogerai.fm/roger/v6/internal/towercore/reputation"
-	"rogerai.fm/roger/v6/internal/towerhub"
 )
 
 // canaryPrompts are innocuous requests a canary rotates between. The BODY names the grant's
@@ -246,94 +243,11 @@ const neverCanariedAge = 1000 * canaryInterval
 // never happened and nothing is recorded about anybody, because the only thing that went wrong
 // was inside this process.
 func (b *broker) driveSealedCanary(grant dispatch.EdgeGrant, target dispatch.Target, endpoint, endpointPin string, consumerKey ed25519.PrivateKey, envPriv []byte) reputation.Outcome {
-	firstByte := time.Now()
-	sealedReq, err := envelope.SealTo(target.SessionKey, canaryBodyFor(grant.Model), grant.AttemptID)
-	if err != nil {
-		// THE STATION'S, and it is the cleanest attribution in the whole system: sealing happens
-		// before Core has dialed anything, so the Tower has not been given the chance to do
-		// anything wrong yet. What failed is the SESSION KEY the Station itself put on its
-		// attachment - the X25519 half nothing proves possession of, so a Station may advertise
-		// a key that no envelope can be sealed to, and thirty-two zero bytes is admitted today.
-		// This used to record a canary failure against the TOWER, so a squatter's dead
-		// attachment spent its Tower's reputation on every sweep, forever, for the price of one
-		// attach. That is the sentence docs/relay-selection-design.md 5.6 kept repeating - "the
-		// squatter's own Station is the only casualty" - and this is the line that had made it
-		// false.
-		log.Printf("canary: station %s on tower %s advertises a session key nothing can be sealed to: %v",
-			target.StationID, target.TowerID, err)
-		return reputation.StationFault
-	}
-	sealedRaw, err := sealedReq.Marshal()
-	if err != nil {
-		// Core's own encoding of Core's own envelope. Not evidence about the Tower and not
-		// evidence about the Station: an empty outcome records nothing at all.
-		log.Printf("canary: could not encode a probe for tower %s: %v", target.TowerID, err)
-		return ""
-	}
-	// The canary is Roger Core dialing an operator-supplied address. Vetted at the
-	// socket, on the RESOLVED addresses: a Tower advertising loopback, a private range,
-	// or the metadata service must not turn Core's own probe into a request against
-	// Core's host or network (server-side request forgery). A loopback advert is a
-	// legitimate same-machine test rig for its OWN node - it is simply not canaryable,
-	// and the skip is recorded as unreachable-by-design rather than counted as a failure.
-	if verr := endpointNotPublic(context.Background(), endpoint, b.canaryVet); verr != nil {
-		log.Printf("canary: tower %s endpoint %s skipped: %v (unreachable by design, not a failure)",
-			target.TowerID, endpoint, verr)
-		return ""
-	}
-	base, httpc, err := towerhub.ReachVetted(endpoint, endpointPin, b.canaryVet)
-	if err != nil {
-		// An endpoint or pin this process cannot even build a client for is the tower's own
-		// advertisement being malformed. That is a finding about the tower, not a skip: a
-		// consumer routed there would fail in exactly the same way.
-		log.Printf("canary: tower %s advertises an unusable data plane: %v", target.TowerID, err)
-		return reputation.CanaryFail
-	}
-	hc := &towerhub.Client{BaseURL: base, HTTP: httpc}
-	ctx, cancel := context.WithTimeout(context.Background(), canaryTimeout)
-	defer cancel()
-	res, err := hc.SubmitJob(ctx, grant.Signed, sealedRaw)
-	if isDesignSkip(err) {
-		// A dial-time refusal from the vet is the rebinding backstop behind the
-		// pre-screen: unreachable by design, not a failing Tower. ONLY this error skips;
-		// a nil error or any other transport failure falls through to be judged below.
-		log.Printf("canary: tower %s endpoint %s skipped at dial: %v", target.TowerID, endpoint, err)
-		return ""
-	}
-	if err != nil || res.Failure != "" || len(res.Envelope) == 0 || len(res.Receipt) == 0 {
-		return reputation.CanaryFail
-	}
-	parsed, err := envelope.Parse(res.Envelope)
-	if err != nil {
-		return reputation.CanaryFail
-	}
-	answer, err := envelope.OpenWith(envPriv, parsed, grant.AttemptID)
-	if err != nil || len(answer) == 0 {
-		// Unopenable or empty: whatever came back was not sealed to the grant's key over
-		// this attempt - a substitution or a blank, both fails.
-		return reputation.CanaryFail
-	}
-	rec, err := dispatch.ParseReceipt(res.Receipt, target.AssertionKey, link.PublicNetwork,
-		grant.AttemptID, target.StationID)
-	if err != nil || rec.ResponseDigest == "" {
-		return reputation.CanaryFail
-	}
-	// The receipt must be over the BYTES CORE OPENED, not merely valid: a node that signed a
-	// digest of something else has substituted content (audit L4 - one line, real binding).
-	if rec.ResponseDigest != dispatch.DigestOf(answer) {
-		return reputation.CanaryFail
-	}
-	// ACKNOWLEDGE, exactly as a first-party consumer does (audit M2): without this every
-	// canary settles Uncorroborated and an otherwise-idle tower accumulates a 100%
-	// uncorroborated rate out of probes Core itself sent. Core is the consumer here, so the
-	// ack goes straight into its own store.
-	if ts := b.tower; ts != nil && ts.acks != nil {
-		if ack, aerr := dispatch.SignAck(consumerKey, link.PublicNetwork, grant.AttemptID,
-			answer, dispatch.Usage{In: 0, Out: int64(len(answer))}, firstByte, time.Now()); aerr == nil {
-			_ = ts.acks.Put(grant.AttemptID, ack)
-		}
-	}
-	return reputation.CanaryPass
+	// The sealed loop itself is shared with the edge bridge (edgebridge.go): one proven
+	// drive, two callers - the canary judges the outcome, the bridge keeps the answer.
+	_, outcome := b.driveSealed(grant, target, endpoint, endpointPin, consumerKey, envPriv,
+		sealedDrive{tag: "canary", body: canaryBodyFor(grant.Model), timeout: canaryTimeout, usageIn: 0})
+	return outcome
 }
 
 // canaryTargetFor picks a routable Station with a data plane behind a specific Tower.

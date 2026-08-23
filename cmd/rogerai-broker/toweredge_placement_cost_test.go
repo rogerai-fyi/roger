@@ -156,7 +156,7 @@ func TestEdgePlacementCostsAConstantNumberOfQueries(t *testing.T) {
 	attachEdgeStations(t, b, srv, stations)
 
 	q.reset()
-	_, row, ok := b.edgeTargetFor("m", edgePlacementRand())
+	_, row, ok := b.edgeTargetFor("m", edgePlacementRand(), nil)
 	require.True(t, ok)
 	require.NotEmpty(t, row.StationID)
 
@@ -181,7 +181,7 @@ func TestEdgePlacementQueryCountDoesNotGrowWithTheFleet(t *testing.T) {
 		liveEdgeTower(t, b, srv, "tower-op", "203.0.113.9:8443")
 		attachEdgeStations(t, b, srv, stations)
 		q.reset()
-		_, _, ok := b.edgeTargetFor("m", edgePlacementRand())
+		_, _, ok := b.edgeTargetFor("m", edgePlacementRand(), nil)
 		require.True(t, ok)
 		return q.total()
 	}
@@ -201,7 +201,7 @@ func TestEdgePlacementIsLogged(t *testing.T) {
 	var buf bytes.Buffer
 	old := log.Writer()
 	log.SetOutput(&buf)
-	_, row, ok := b.edgeTargetFor("m", edgePlacementRand())
+	_, row, ok := b.edgeTargetFor("m", edgePlacementRand(), nil)
 	log.SetOutput(old)
 	require.True(t, ok)
 
@@ -238,7 +238,7 @@ func TestEdgePlacementRefusalIsLoggedWithItsReason(t *testing.T) {
 	var buf bytes.Buffer
 	old := log.Writer()
 	log.SetOutput(&buf)
-	_, _, ok := b.edgeTargetFor("m", edgePlacementRand())
+	_, _, ok := b.edgeTargetFor("m", edgePlacementRand(), nil)
 	log.SetOutput(old)
 	require.False(t, ok)
 
@@ -252,7 +252,7 @@ func TestEdgePlacementRefusalIsLoggedWithItsReason(t *testing.T) {
 	// And the model that nobody serves at all is a DIFFERENT line, with different counts.
 	buf.Reset()
 	log.SetOutput(&buf)
-	_, _, ok = b.edgeTargetFor("nobody-serves-this", edgePlacementRand())
+	_, _, ok = b.edgeTargetFor("nobody-serves-this", edgePlacementRand(), nil)
 	log.SetOutput(old)
 	require.False(t, ok)
 	require.Contains(t, buf.String(), "candidates=0")

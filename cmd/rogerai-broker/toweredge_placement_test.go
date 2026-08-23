@@ -48,7 +48,7 @@ func TestEdgePlacementSpreadsAcrossEquallyGoodStations(t *testing.T) {
 	// now carrying work, and the next decision has to see that.
 	counts := map[string]int{}
 	for i := 0; i < 200; i++ {
-		_, row, ok := b.edgeTargetFor("m", edgePlacementRand())
+		_, row, ok := b.edgeTargetFor("m", edgePlacementRand(), nil)
 		require.True(t, ok, "placement %d found no station", i)
 		counts[row.StationID]++
 		b.edgeEnterInflight(fmt.Sprintf("at-%d", i), row.NodeID, "u_test", time.Now().Add(time.Hour))
@@ -80,7 +80,7 @@ func TestEdgeDispatchCountsItsOwnInFlightWork(t *testing.T) {
 
 	seen := map[string]int{}
 	for i := 0; i < 9; i++ {
-		_, row, ok := b.edgeTargetFor("m", nil) // deterministic: no sampling to hide behind
+		_, row, ok := b.edgeTargetFor("m", nil, nil) // deterministic: no sampling to hide behind
 		require.True(t, ok)
 		seen[row.StationID]++
 		b.edgeEnterInflight(fmt.Sprintf("at-%d", i), row.NodeID, "u_test", time.Now().Add(time.Hour))

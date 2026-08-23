@@ -362,7 +362,7 @@ func (b *broker) towerEdgeAuthorize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	target, row, ok := b.edgeTargetFor(req.Model, edgePlacementRand())
+	target, row, ok := b.edgeTargetFor(req.Model, edgePlacementRand(), nil)
 	endpoint, endpointPin := row.Endpoint, row.TLSSPKI
 	if !ok {
 		// The same refusal whether the model is unknown, every Station is busy, or no Tower
@@ -540,7 +540,10 @@ func (b *broker) openEdgeAttempt(g dispatch.EdgeGrant, target dispatch.Target) e
 //
 // rng is the placement's randomness. Pass nil for a reproducible top-1 (tests, and the
 // single-candidate case where there is nothing to choose between anyway).
-func (b *broker) edgeTargetFor(model string, rng *rand.Rand) (dispatch.Target, fleet.Station, bool) {
+// exclude names Towers already tried (and failed) within one bridged request, so the
+// tower-to-tower fallback never redials the relay that just dropped the work. Nil for
+// every single-shot caller.
+func (b *broker) edgeTargetFor(model string, rng *rand.Rand, exclude map[string]bool) (dispatch.Target, fleet.Station, bool) {
 	ts := b.tower
 	if ts == nil || ts.routable == nil {
 		// SAID OUT LOUD, like every other refusal on this path. This one used to return in
@@ -621,6 +624,11 @@ func (b *broker) edgeTargetFor(model string, rng *rand.Rand) (dispatch.Target, f
 	mayTakeWork := make(map[string]bool, 4)
 	shortlist := make([]fleet.Station, 0, len(rows))
 	for _, row := range rows {
+		if exclude[row.TowerID] {
+			// Already tried and failed within this bridged request: the tower-to-tower
+			// fallback must never redial the relay that just dropped the work.
+			continue
+		}
 		if row.Endpoint == "" {
 			continue
 		}

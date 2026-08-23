@@ -1627,11 +1627,26 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		pickReq{pref: routePref, promptTokens: promptTokens, rng: seededRand(requestID)})
 	t := b.tunnels[node.NodeID]
 	b.mu.Unlock()
+	// BOTH FABRICS MAY SERVE. When a direct node was picked and the edge also hosts the
+	// model, a request-seeded coin sends half the traffic through the bridge - neither
+	// tier is silently preferred, and Towers earn on models the direct fleet also serves.
+	// SOFT mode: every bridge gate falls back to the direct node already picked, so this
+	// coin can only ever change who serves, never whether the consumer is served.
+	if ok && t != nil && seededRand(requestID).Intn(2) == 0 {
+		if b.relayViaEdge(w, r, req.Model, req.Stream, body, seededRand(requestID), true) {
+			return
+		}
+	}
 	if !ok || t == nil {
-		// NO DIRECT NODE. Tower-served models are reached through the EDGE API (authorize ->
-		// sealed submit to the tower's hub), never through this overflow path - the old
-		// Topology-1 fallback died with the leaf-station generation, and queueing here would
-		// have parked the request against a courier no tower binary runs anymore.
+		// NO DIRECT NODE - but the EDGE fabric may serve this model. The bridge drives the
+		// sealed loop (authorize -> submit to the tower's hub -> open -> ack) as the
+		// consumer's agent, with tower-to-tower fallback inside it; only when the edge has
+		// nothing either does the refusal below stand. This is the line the relay audit
+		// existed to produce: before it, "no node offers" was the answer even when an
+		// approved Tower was serving the model, so no live traffic could ride one.
+		if b.relayViaEdge(w, r, req.Model, req.Stream, body, seededRand(requestID), false) {
+			return
+		}
 		msg := "no node offers " + req.Model
 		if gok {
 			msg = "no node of this grant's owner is serving " + req.Model + " right now"
