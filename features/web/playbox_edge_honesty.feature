@@ -1,5 +1,5 @@
 # Corrections + the framing principle from the models agent's 2026-08-01 answer
-# (rogerai-internal-docs/ANSWER-FROM-MODELS-AGENT-playbox-nano.md):
+# (docs-internal/ANSWER-FROM-MODELS-AGENT-playbox-nano.md):
 #   - Wave models are CONTRACT models: the device prompt is part of the device -
 #     unframed they floor, framed they perform. Model + prompt ship as one unit.
 #   - ESCALATE is the models' strongest measured skill: it renders as a GOOD

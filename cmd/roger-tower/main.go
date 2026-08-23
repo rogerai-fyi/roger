@@ -7,7 +7,7 @@
 //	joined      an untrusted child relay of the public RogerAI network. Roger Core
 //	            stays the admission, routing, settlement and revocation authority.
 //
-// Phase 1 of docs/tower-network-plan.md shipped standalone first; the joined protocol is
+// Phase 1 of the Tower network plan (internal design note) shipped standalone first; the joined protocol is
 // Phase 2. `serve` holds the link - session, heartbeat, clean drain - and, given `--hub`,
 // hosts the SEALED data plane: consumers submit encrypted work, self-attached
 // `roger share --tower` nodes poll for it, and the settle courier carries receipts to Core.

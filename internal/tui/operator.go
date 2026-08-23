@@ -24,7 +24,7 @@ import (
 // return-to-the-desk summary, and the remote-control interlock hooks. Everything pure
 // (registry / detection / config materialization) lives in internal/operator; this file
 // keeps only command, picker, and exec glue. Specs: features/operator/*.feature
-// (founder-approved 2026-07-07); design: rogerai-internal-docs/GUEST-OPERATORS.md.
+// (founder-approved 2026-07-07); design: docs-internal/GUEST-OPERATORS.md.
 
 // --- seams (package vars so the BDD drives the real model with no mocks) -------------
 

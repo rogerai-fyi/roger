@@ -5,7 +5,7 @@ import "strings"
 // rc.go is the wire protocol for /remote-control (BASE STATION, v5.0.0): a live embedded-
 // agent session on a HOST machine, continuable from any other surface logged into the SAME
 // account. The broker is a content-blind relay — it moves RCFrames between the host and the
-// attached viewers and NEVER persists a frame. See rogerai-internal-docs/REMOTE-CONTROL-DESIGN.md.
+// attached viewers and NEVER persists a frame. See docs-internal/REMOTE-CONTROL-DESIGN.md.
 //
 // The link SECRET reuses the private-band frequency-code crypto verbatim (Crockford tail,
 // sha256-at-rest, shown once). NewRCLinkCode wraps NewBandCode with an "RC "-prefixed cosmetic

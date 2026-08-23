@@ -1,7 +1,7 @@
 package tui
 
 // operator_plates_test.go - render pins for the guest-operator BRAND PLATES
-// (rogerai-internal-docs/GUEST-OPERATOR-PLATES.md, "ONE HUE, ONE BEAT", founder-
+// (docs-internal/GUEST-OPERATOR-PLATES.md, "ONE HUE, ONE BEAT", founder-
 // approved 2026-07-06) against the Phase 2 BrandArt seam. Every assertion is
 // self-computing (expected segments are composed with the SAME house styles the
 // renderer uses, the voicebooth TestBadgeRenderSitesNotRed idiom) so no escape

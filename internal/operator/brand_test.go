@@ -1,7 +1,7 @@
 package operator
 
 // brand_test.go - golden pins for the guest-operator BRAND PLATES
-// (rogerai-internal-docs/GUEST-OPERATOR-PLATES.md, founder-approved 2026-07-06,
+// (docs-internal/GUEST-OPERATOR-PLATES.md, founder-approved 2026-07-06,
 // "ONE HUE, ONE BEAT"). The art below is transcribed byte-exact from the doc's
 // code blocks (span boundaries machine-verified against the doc before landing);
 // these tests exist so a stray edit can never corrupt a shipped wordmark: every

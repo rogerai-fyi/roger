@@ -4,7 +4,7 @@
 //
 // It is deliberately NOT the broker. The broker combines relay with identity, policy,
 // money, admin and platform signing; a Tower gets none of that. See
-// docs/tower-network-plan.md and the approved specs under features/tower/.
+// the Tower network plan (internal design note) and the approved specs under features/tower/.
 package tower
 
 import (

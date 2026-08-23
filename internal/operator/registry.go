@@ -3,7 +3,7 @@
 // injectable Env seam, and per-session throwaway config materialization. It has ZERO
 // bubbletea dependencies (the internal/audio precedent) - internal/tui keeps only the
 // command/picker/exec glue. Spec: features/operator/*.feature (founder-approved
-// 2026-07-07); design: rogerai-internal-docs/GUEST-OPERATORS.md.
+// 2026-07-07); design: docs-internal/GUEST-OPERATORS.md.
 package operator
 
 // Wiring strategies (design doc §4, empirically proven per guest). The strategy names are

@@ -2431,7 +2431,7 @@ func (b *broker) recordSelfRelayed(attemptID, stationID, towerID string, p edgeP
 // the safe direction.
 //
 // What none of this catches is the attack that matters most: several DISTINCT verified
-// identities held by one person (unresolved risk E44, docs/tower-network-plan.md). That is an
+// identities held by one person (unresolved risk E44 in the Tower network plan, internal). That is an
 // evidence problem - shared payout destination, funding instrument, device fingerprint - and
 // it belongs to the revenue-share program's linkage review, not to an equality test.
 func (b *broker) sameAccount(pubA, pubB string) (bool, error) {

@@ -1,7 +1,7 @@
 package operator
 
 // brand.go - the guest-operator BRAND PLATES as pure registry DATA
-// (rogerai-internal-docs/GUEST-OPERATOR-PLATES.md, founder-approved 2026-07-06).
+// (docs-internal/GUEST-OPERATOR-PLATES.md, founder-approved 2026-07-06).
 //
 // Policy: "ONE HUE, ONE BEAT." During the PATCHING YOU THROUGH transition ONLY,
 // the guest WORDMARK may carry its single canonical hue; everything else on the

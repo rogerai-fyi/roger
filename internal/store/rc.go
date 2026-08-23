@@ -9,7 +9,7 @@ import (
 // ONLY metadata — id, owner wallet, name, the link-code HASH, the host-token HASH, per-device
 // attach-token HASHES, timestamps, revoked. It NEVER holds a transcript or any frame: the
 // broker is a content-blind relay and the HOST owns the conversation (see
-// rogerai-internal-docs/REMOTE-CONTROL-DESIGN.md, AD-2). Mirrors bandStore/grantStore: its own
+// docs-internal/REMOTE-CONTROL-DESIGN.md, AD-2). Mirrors bandStore/grantStore: its own
 // mutex so RC ops never contend with the wallet/ledger/band locks. All secrets are stored as
 // sha256 hashes only (the code is shown once at enable; the host/attach tokens are bearer
 // secrets shown once), exactly like Band.CodeHash.

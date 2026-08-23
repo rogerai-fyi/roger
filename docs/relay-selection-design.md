@@ -2687,7 +2687,7 @@ dormant check into a load-bearing one. Four findings, in the order they cost mon
    authorize response ever becomes "here are three relays, choose", a consumer who runs a tower
    steers 10% of their own spend to themselves and `sameAccount` is the only thing standing in the
    way. Three distinct verified identities defeat it; that is already logged as unresolved risk
-   E44 in `docs/tower-network-plan.md`. This is the single decision in this section that must be
+   E44 in the Tower network plan (internal design note). This is the single decision in this section that must be
    made before code is written, because it is a shape, not a check.
 2. **The third pair is not compared anywhere: station owner vs tower operator.** An operator who
    owns both collects 70% + 10% = 80% of gross from an arms-length consumer, unflagged. Today they

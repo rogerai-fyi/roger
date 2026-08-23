@@ -86,7 +86,7 @@ func TestNoSourceImportsTheLegacyModulePath(t *testing.T) {
 			return err
 		}
 		if d.IsDir() {
-			// Skip hidden trees (.git, and .claude/worktrees, which holds throwaway agent
+			// Skip hidden trees (.git, and the agent worktree directory under .claude, which holds throwaway
 			// checkouts of this same repo - stale copies there are not our source) plus the
 			// usual generated/vendored directories.
 			if name := d.Name(); name != "." && strings.HasPrefix(name, ".") {

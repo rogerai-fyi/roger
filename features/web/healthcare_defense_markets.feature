@@ -1,4 +1,4 @@
-# Founder-approved 2026-08-01 (brief: rogerai-internal-docs/
+# Founder-approved 2026-08-01 (brief: docs-internal/
 # HEALTHCARE-AND-DEFENSE-USE-CASES-2026-08-01.md): the market set grows from six to
 # eight - healthcare and defense join oil and gas, power generation, manufacturing,
 # aerospace, mining, and water.
