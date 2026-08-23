@@ -25,7 +25,6 @@ import (
 	"net/http"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/protocol"
 	"rogerai.fm/roger/v6/internal/towercore/dispatch"
 	"rogerai.fm/roger/v6/internal/towercore/envelope"
 	"rogerai.fm/roger/v6/internal/towercore/link"
@@ -44,12 +43,28 @@ const edgeBridgeMaxTowers = 2
 // relayViaEdge serves one consumer request through the edge fabric. It reports whether it
 // WROTE A RESPONSE: false means "nothing here for you" and the caller keeps its existing
 // refusal, so this can never change what a consumer sees except by serving them.
+// edgeBridgeAuth is the identity and constraints the RELAY already resolved - passed in,
+// never re-derived from headers. Re-reading X-Roger-Pubkey here (the first cut's
+// CRITICAL bug) trusts an unverified header: on the grant path relay never verifies a
+// signature, so a forged pubkey would bill any victim's wallet. The authoritative values
+// are the only ones this path may spend against.
+type edgeBridgeAuth struct {
+	wallet           string // the money key relay resolved (account wallet or grant wallet)
+	pubHex           string // the VERIFIED consumer pubkey (identityOf checked its signature)
+	grant            bool   // a grant-bearing request: refused - a grant binds specific hardware
+	sessionAuthed    bool   // a browser-session caller (Playbox): no device signature to bind
+	confidentialOnly bool
+	maxPriceOut      float64 // the global out-price ceiling, enforced against the tower band
+	pinNode          string
+	excludeNodes     map[string]bool
+}
+
 // soft is the both-fabrics mode: a direct node stands ready behind this call, so any
 // gate that would refuse (auth, rate, slot, balance) returns false and lets the direct
 // path serve instead of writing an edge-shaped refusal to a consumer the network could
 // have served. Hard mode (edge-only) writes the honest refusal, because there is no one
 // behind it.
-func (b *broker) relayViaEdge(w http.ResponseWriter, r *http.Request, model string, stream bool, body []byte, rng *rand.Rand, soft bool) bool {
+func (b *broker) relayViaEdge(w http.ResponseWriter, r *http.Request, model string, stream bool, body []byte, rng *rand.Rand, soft bool, auth edgeBridgeAuth) bool {
 	ts := b.tower
 	if ts == nil || ts.dispatch == nil {
 		return false
@@ -60,21 +75,33 @@ func (b *broker) relayViaEdge(w http.ResponseWriter, r *http.Request, model stri
 		return false
 	}
 
-	// TOWER INFERENCE REQUIRES A SIGNED-IN ACCOUNT - the same consent gate the edge
-	// authorize endpoint enforces, for the same reason: this path is billed, and the terms
-	// were accepted at sign-in. An anonymous caller is told exactly that, rather than the
-	// misleading "no node offers": the model IS served, just not to the unsigned.
-	pubHex := r.Header.Get(protocol.HeaderPubkey)
-	o, found, oerr := b.db.OwnerByPubkey(pubHex)
-	if pubHex == "" || oerr != nil || !found || o.Anonymized || b.isOwnerBanned(o.Pubkey) {
+	// A GRANT can never ride the edge. A grant is an owner's authorization to serve on
+	// THEIR OWN hardware at their price; bridging it would relay it onto a stranger's
+	// Tower and bill the grant wallet at the Tower's price. Direct-only, always.
+	if auth.grant {
+		return false // let the direct path answer - it is the only one a grant may use
+	}
+	// A browser-session caller (Playbox) has no device signature to bind an edge
+	// acknowledgement to, so it cannot ride the sealed path. Direct-only.
+	if auth.sessionAuthed {
+		return false
+	}
+	// TOWER INFERENCE REQUIRES A SIGNED-IN ACCOUNT - the consent gate, checked against the
+	// VERIFIED pubkey relay resolved, never a header read here. An anonymous caller is
+	// told the truth (the model IS served, just not to the unsigned) rather than the
+	// misleading "no node offers".
+	o, found, oerr := b.db.OwnerByPubkey(auth.pubHex)
+	if auth.pubHex == "" || oerr != nil || !found || o.Anonymized || b.isOwnerBanned(o.Pubkey) {
 		if soft {
 			return false
 		}
 		jsonErr(w, http.StatusForbidden, "tower inference requires a signed-in account that has accepted the terms of service")
 		return true
 	}
+	// The wallet is the one relay resolved - not re-derived. It must match the account the
+	// verified pubkey owns, or the caller is trying to bill an identity it did not prove.
 	consumerWallet, cwok := accountWalletForOwner(o)
-	if !cwok {
+	if !cwok || consumerWallet != auth.wallet {
 		if soft {
 			return false
 		}
@@ -107,8 +134,26 @@ func (b *broker) relayViaEdge(w http.ResponseWriter, r *http.Request, model stri
 		}
 	}()
 
+	// A confidential-only request cannot ride the edge: the sealed hub protects the
+	// PAYLOAD, but a Tower is a third party in the path, and confidential traffic promises
+	// no third party. Direct-only.
+	if auth.confidentialOnly {
+		return false
+	}
+	// The caller's exclusions carry in, and a pinned node forces the direct path (an edge
+	// pin names a station, a different namespace - honour it by declining the bridge).
+	if auth.pinNode != "" {
+		return false
+	}
 	exclude := map[string]bool{}
-	for attempt := 0; attempt < edgeBridgeMaxTowers; attempt++ {
+	for k := range auth.excludeNodes {
+		exclude[k] = true
+	}
+	tries := edgeBridgeMaxTowers
+	if soft {
+		tries = 1 // a direct node is ready; do not spend the full budget on failing towers
+	}
+	for attempt := 0; attempt < tries; attempt++ {
 		target, row, ok := b.edgeTargetFor(model, rng, exclude)
 		if !ok {
 			break
@@ -124,6 +169,13 @@ func (b *broker) relayViaEdge(w http.ResponseWriter, r *http.Request, model stri
 				exclude[row.TowerID] = true
 				continue
 			}
+		}
+		// THE CONSUMER'S OUT-PRICE CEILING, the same global cap the direct path enforces
+		// in pickFor. A Tower whose price exceeds what the caller agreed to pay is excluded
+		// - never silently billed above the cap.
+		if auth.maxPriceOut > 0 && edgeRowPriceOut(row.PriceOut) > auth.maxPriceOut {
+			exclude[row.TowerID] = true
+			continue
 		}
 		// The bridge is the consumer's agent: it holds the ephemeral keys, exactly as the
 		// canary does. The account is billed via the wallet on the hold and the inflight
@@ -197,13 +249,13 @@ func (b *broker) relayViaEdge(w http.ResponseWriter, r *http.Request, model stri
 			}
 		}
 		b.edgeExitInflight(g.AttemptID)
-		if outcome == "" || outcome == reputation.CanaryFail {
-			// The shared drive speaks canary outcomes; organic traffic records the
-			// station-attributable kind so the canary rate - the suspension signal -
-			// stays exactly what the canary alone measured.
-			outcome = reputation.StationFault
+		// A "" outcome is Core's own internal error or a by-design non-public-endpoint
+		// skip - NOT the Tower's fault, so it records nothing. A real failure records the
+		// station-attributable kind, so the canary rate - the suspension signal - stays
+		// exactly what the canary alone measured.
+		if outcome == reputation.CanaryFail {
+			b.recordOutcome(target.TowerID, target.StationID, g.AttemptID, reputation.StationFault)
 		}
-		b.recordOutcome(target.TowerID, target.StationID, g.AttemptID, outcome)
 		log.Printf("edge bridge: tower %s failed for %s (attempt %s) - trying the next relay",
 			target.TowerID, model, g.AttemptID)
 		exclude[target.TowerID] = true
@@ -339,3 +391,8 @@ func (b *broker) driveSealed(grant dispatch.EdgeGrant, target dispatch.Target, e
 	}
 	return answer, reputation.CanaryPass
 }
+
+// edgeRowPriceOut converts a routable row's out-price (micro-USD per 1M tokens) to the
+// credits-per-1M-tokens figure the consumer's X-Roger-Max-Price-Out ceiling is expressed
+// in, so the bridge compares like with like against that cap.
+func edgeRowPriceOut(micros int64) float64 { return float64(micros) / 1e6 }

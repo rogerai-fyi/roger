@@ -311,7 +311,7 @@ func TestBridgeExclusionReachesTheLiveTowerInOneRequest(t *testing.T) {
 		req.Header.Set(protocol.HeaderTS, itoa64(ts))
 		req.Header.Set(protocol.HeaderSig, sig)
 		rec := httptest.NewRecorder()
-		ok := b.relayViaEdge(rec, req, model, false, []byte(body), rngFromSeed(seed), false)
+		ok := b.relayViaEdge(rec, req, model, false, []byte(body), rngFromSeed(seed), false, authFor(t, b, consumer))
 		require.True(t, ok, "seed %d: relayViaEdge must write a response", seed)
 		if rec.Code == http.StatusOK {
 			served++
@@ -334,21 +334,55 @@ func TestBridgeConsentGateHardAndSoft(t *testing.T) {
 	attachStation(t, b, "st-c", tw.id, "consent-op")
 	routableEdge(t, b, tw.id, "st-c", model, "203.0.113.7:8443")
 
-	// Anonymous, hard mode: the honest 403, not "no node offers".
-	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader("{}"))
-	handled := b.relayViaEdge(rec, req, model, false, []byte("{}"), rngFromSeed(1), false)
-	require.True(t, handled)
+
+	// Anonymous - relay resolved no account, so it hands the bridge an empty pubHex.
+	// Hard mode: the honest 403, not "no node offers". Soft: silence, direct serves.
+	anon := edgeBridgeAuth{}
+	rec := httptest.NewRecorder()
+	require.True(t, b.relayViaEdge(rec, req, model, false, []byte("{}"), rngFromSeed(1), false, anon))
 	require.Equal(t, http.StatusForbidden, rec.Code)
 	require.Contains(t, rec.Body.String(), "signed-in account")
-
-	// Anonymous, soft mode: silence - false, nothing written - so the direct pick serves.
 	rec2 := httptest.NewRecorder()
-	require.False(t, b.relayViaEdge(rec2, req, model, false, []byte("{}"), rngFromSeed(1), true))
-	require.Equal(t, 0, rec2.Body.Len(), "soft mode must write nothing on a gate refusal")
+	require.False(t, b.relayViaEdge(rec2, req, model, false, []byte("{}"), rngFromSeed(1), true, anon))
+	require.Zero(t, rec2.Body.Len())
+
+	// A GRANT request never rides the edge - a grant binds an owner's own hardware.
+	require.False(t, b.relayViaEdge(httptest.NewRecorder(), req, model, false, []byte("{}"), rngFromSeed(1), false,
+		edgeBridgeAuth{grant: true, wallet: "g_1", pubHex: "abcd"}))
+
+	// A browser-session caller (Playbox) has no device signature to bind an ack - direct-only.
+	require.False(t, b.relayViaEdge(httptest.NewRecorder(), req, model, false, []byte("{}"), rngFromSeed(1), false,
+		edgeBridgeAuth{sessionAuthed: true}))
 
 	// A model no tower serves: false in both modes, before any gating.
-	require.False(t, b.relayViaEdge(httptest.NewRecorder(), req, "nowhere-model", false, []byte("{}"), rngFromSeed(1), false))
+	require.False(t, b.relayViaEdge(httptest.NewRecorder(), req, "nowhere-model", false, []byte("{}"), rngFromSeed(1), false,
+		edgeBridgeAuth{}))
+}
+
+// THE CRITICAL REGRESSION: the bridge must bill only the wallet relay VERIFIED, never a
+// wallet it could re-derive from an unverified header. A caller whose auth names one
+// account cannot be served if the pubkey in that auth owns a DIFFERENT account - the exact
+// forged-header account-drain the first cut allowed.
+func TestBridgeBillsOnlyTheVerifiedWallet(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	_ = srv
+	const model = "verified-wallet-model"
+	tw := enrolledTower(t, b, "vw-op")
+	attachStation(t, b, "st-vw", tw.id, "vw-op")
+	routableEdge(t, b, tw.id, "st-vw", model, "203.0.113.7:8443")
+
+	victim := signedInConsumer(t, b)
+	victimAuth := authFor(t, b, victim)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader("{}"))
+	// An attacker presents the victim's verified pubkey but a wallet that is not the one
+	// that pubkey owns (as a forged-header relay path would have produced). Refused.
+	forged := edgeBridgeAuth{pubHex: victimAuth.pubHex, wallet: "u_gh_999999"}
+	rec := httptest.NewRecorder()
+	require.True(t, b.relayViaEdge(rec, req, model, false, []byte("{}"), rngFromSeed(1), false, forged))
+	require.Equal(t, http.StatusForbidden, rec.Code,
+		"a wallet that the verified pubkey does not own must never be billed")
 }
 
 // The streamed bridge answer is one well-formed SSE chunk plus [DONE], with the same cost
@@ -366,7 +400,7 @@ func TestBridgedStreamShape(t *testing.T) {
 	req.Header.Set(protocol.HeaderTS, itoa64(ts))
 	req.Header.Set(protocol.HeaderSig, sig)
 	rec := httptest.NewRecorder()
-	require.True(t, b.relayViaEdge(rec, req, model, true, []byte(body), rngFromSeed(3), false))
+	require.True(t, b.relayViaEdge(rec, req, model, true, []byte(body), rngFromSeed(3), false, authFor(t, b, consumer)))
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Equal(t, "text/event-stream", rec.Header().Get("Content-Type"))
@@ -408,11 +442,11 @@ func TestBridgeHonorsRateAndSlotBounds(t *testing.T) {
 	wallet, _ := accountWalletForOwner(o)
 	_, _ = b.rl.allow("edge:" + wallet) // drain the single slot
 	rec := httptest.NewRecorder()
-	require.True(t, b.relayViaEdge(rec, mk(), model, false, []byte(body), rngFromSeed(1), false))
+	require.True(t, b.relayViaEdge(rec, mk(), model, false, []byte(body), rngFromSeed(1), false, authFor(t, b, consumer)))
 	require.Equal(t, http.StatusTooManyRequests, rec.Code)
 	require.NotEmpty(t, rec.Header().Get("Retry-After"))
 	rec2 := httptest.NewRecorder()
-	require.False(t, b.relayViaEdge(rec2, mk(), model, false, []byte(body), rngFromSeed(1), true))
+	require.False(t, b.relayViaEdge(rec2, mk(), model, false, []byte(body), rngFromSeed(1), true, authFor(t, b, consumer)))
 	require.Zero(t, rec2.Body.Len())
 }
 
@@ -469,10 +503,10 @@ func TestBridgeRefusalArms(t *testing.T) {
 		require.Less(t, taken, 10000, "the standing cap must be finite")
 	}
 	rec := httptest.NewRecorder()
-	require.True(t, b.relayViaEdge(rec, mk(model, consumer), model, false, []byte("{}"), rngFromSeed(1), false))
+	require.True(t, b.relayViaEdge(rec, mk(model, consumer), model, false, []byte("{}"), rngFromSeed(1), false, authFor(t, b, consumer)))
 	require.Equal(t, http.StatusTooManyRequests, rec.Code)
 	recS := httptest.NewRecorder()
-	require.False(t, b.relayViaEdge(recS, mk(model, consumer), model, false, []byte("{}"), rngFromSeed(1), true))
+	require.False(t, b.relayViaEdge(recS, mk(model, consumer), model, false, []byte("{}"), rngFromSeed(1), true, authFor(t, b, consumer)))
 	require.Zero(t, recS.Body.Len())
 	for i := 0; i < taken; i++ {
 		b.edgeAccountRelease(wallet)
@@ -489,10 +523,10 @@ func TestBridgeRefusalArms(t *testing.T) {
 		Pubkey: hexOf(poorPub), Login: "poor-arms", Email: "poor@x.test", EmailVerifiedAt: time.Now().Unix(),
 	}))
 	recP := httptest.NewRecorder()
-	require.True(t, b.relayViaEdge(recP, mk(pricedModel, poor), pricedModel, false, []byte("{}"), rngFromSeed(1), false))
+	require.True(t, b.relayViaEdge(recP, mk(pricedModel, poor), pricedModel, false, []byte("{}"), rngFromSeed(1), false, authFor(t, b, poor)))
 	require.Equal(t, http.StatusPaymentRequired, recP.Code)
 	recPS := httptest.NewRecorder()
-	require.False(t, b.relayViaEdge(recPS, mk(pricedModel, poor), pricedModel, false, []byte("{}"), rngFromSeed(1), true))
+	require.False(t, b.relayViaEdge(recPS, mk(pricedModel, poor), pricedModel, false, []byte("{}"), rngFromSeed(1), true, authFor(t, b, poor)))
 	require.Zero(t, recPS.Body.Len())
 
 	// OUT-OF-BAND PRICE: the row is excluded before it becomes money; with no other tower
@@ -502,7 +536,7 @@ func TestBridgeRefusalArms(t *testing.T) {
 	attachStation(t, b, "st-ab", twa.id, "arms-absurd-op")
 	routableEdgePriced(t, b, twa.id, "st-ab", absurdModel, "203.0.113.7:8443", 999999999999, 999999999999)
 	recA := httptest.NewRecorder()
-	require.False(t, b.relayViaEdge(recA, mk(absurdModel, consumer), absurdModel, false, []byte("{}"), rngFromSeed(1), false),
+	require.False(t, b.relayViaEdge(recA, mk(absurdModel, consumer), absurdModel, false, []byte("{}"), rngFromSeed(1), false, authFor(t, b, consumer)),
 		"an out-of-band price is a wrong offer, excluded before minting")
 
 	// UNUSABLE PIN: a malformed advertised TLS pin cannot even build a client - a tower
@@ -524,7 +558,7 @@ func TestBridgeRefusalArms(t *testing.T) {
 	b.lastSeen["n-st-an"] = time.Now()
 	b.mu.Unlock()
 	recN := httptest.NewRecorder()
-	require.False(t, b.relayViaEdge(recN, mk(pinModel, consumer), pinModel, false, []byte("{}"), rngFromSeed(1), false))
+	require.False(t, b.relayViaEdge(recN, mk(pinModel, consumer), pinModel, false, []byte("{}"), rngFromSeed(1), false, authFor(t, b, consumer)))
 }
 
 // With the production vet armed, a tower advertising a loopback endpoint is skipped as
@@ -547,38 +581,80 @@ func TestBridgeSkipsNonPublicEndpointsWhenVetted(t *testing.T) {
 	req.Header.Set(protocol.HeaderTS, itoa64(ts))
 	req.Header.Set(protocol.HeaderSig, sig)
 	rec := httptest.NewRecorder()
-	require.False(t, b.relayViaEdge(rec, req, model, false, []byte(body), rngFromSeed(1), false),
+	require.False(t, b.relayViaEdge(rec, req, model, false, []byte(body), rngFromSeed(1), false, authFor(t, b, consumer)),
 		"a design-skipped endpoint serves nothing and the caller's refusal stands")
 }
 
-// An account with no resolvable wallet (no GitHub, no Apple, no email identity) cannot be
-// billed, so the bridge refuses it exactly like an unsigned caller - and stays silent in
-// soft mode so the direct path can still serve free traffic.
-func TestBridgeRefusesAWalletlessAccount(t *testing.T) {
-	b, srv := towerTestBroker(t)
-	_ = srv
-	const model = "walletless-model"
-	tw := enrolledTower(t, b, "walletless-op")
-	attachStation(t, b, "st-w", tw.id, "walletless-op")
-	routableEdge(t, b, tw.id, "st-w", model, "203.0.113.7:8443")
-
-	pub, priv, err := ed25519.GenerateKey(crand.Reader)
+// authFor builds the edgeBridgeAuth the RELAY would hand the bridge for a signed consumer:
+// the wallet and pubkey it VERIFIED, no grant, no session. Tests use this rather than
+// letting the bridge trust a header - the exact hole the CRITICAL fix closed.
+func authFor(t *testing.T, b *broker, priv ed25519.PrivateKey) edgeBridgeAuth {
+	t.Helper()
+	pubHex := hexOf(priv.Public().(ed25519.PublicKey))
+	o, ok, err := b.db.OwnerByPubkey(pubHex)
 	require.NoError(t, err)
-	require.NoError(t, b.db.BindOwner(store.Owner{Pubkey: hexOf(pub), Login: "walletless"}))
+	require.True(t, ok)
+	wallet, wok := accountWalletForOwner(o)
+	require.True(t, wok)
+	return edgeBridgeAuth{wallet: wallet, pubHex: pubHex}
+}
 
-	body := `{"model":"` + model + `"}`
-	mk := func() *http.Request {
-		req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
-		p, ts, sig := protocol.SignRequest(priv, http.MethodPost, "/v1/chat/completions", []byte(body))
-		req.Header.Set(protocol.HeaderPubkey, p)
-		req.Header.Set(protocol.HeaderTS, itoa64(ts))
-		req.Header.Set(protocol.HeaderSig, sig)
-		return req
+// The pick constraints hold on the bridge exactly as in pickFor: a confidential-only
+// request, a pinned node, and a Tower priced above the caller's ceiling all decline the
+// edge (returning to the direct path) rather than being silently served against the
+// consumer's stated limits.
+func TestBridgeHonorsPickConstraints(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	const model = "constraints-model"
+	// A LIVE fabric priced within band: WITHOUT a guard, each of these requests would be
+	// served (return true, 200). So a surviving guard shows up as an unexpected success -
+	// which is exactly what makes the mutation die.
+	tw := liveSealedFabric(t, b, srv, model)
+	// Re-publish the row with an in-band price so the money path is exercised (the fabric
+	// already approved the tower).
+	ats, _ := b.tower.stations.ByTower(tw.id)
+	require.NotEmpty(t, ats)
+	routableEdgePriced(t, b, tw.id, ats[0].StationID, model, liveEndpointOf(t, b, tw.id), 500000, 500000)
+
+	consumer := signedInConsumer(t, b)
+	base := authFor(t, b, consumer)
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"`+model+`","messages":[{"role":"user","content":"x"}]}`))
+
+	// served reports whether the bridge SERVED (wrote a 200 answer) - not the recorder's
+	// default code, which is 200 even when the bridge declines silently and writes nothing.
+	served := func(a edgeBridgeAuth) bool {
+		rec := httptest.NewRecorder()
+		handled := b.relayViaEdge(rec, req, model, false, []byte(`{"model":"`+model+`","messages":[{"role":"user","content":"x"}]}`), rngFromSeed(1), false, a)
+		return handled && rec.Body.Len() > 0 && rec.Code == http.StatusOK
 	}
-	rec := httptest.NewRecorder()
-	require.True(t, b.relayViaEdge(rec, mk(), model, false, []byte(body), rngFromSeed(1), false))
-	require.Equal(t, http.StatusForbidden, rec.Code)
-	recS := httptest.NewRecorder()
-	require.False(t, b.relayViaEdge(recS, mk(), model, false, []byte(body), rngFromSeed(1), true))
-	require.Zero(t, recS.Body.Len())
+
+	// Baseline: the unconstrained request IS served, so any refusal below is the guard's.
+	require.True(t, served(base), "the baseline must serve, or these assertions prove nothing")
+
+	conf := base
+	conf.confidentialOnly = true
+	require.False(t, served(conf), "confidential must NOT ride a third-party Tower")
+
+	pinned := base
+	pinned.pinNode = "some-direct-node"
+	require.False(t, served(pinned), "a pinned node must not be served by the bridge")
+
+	capped := base
+	capped.maxPriceOut = 0.1 // row is 0.5/1M, over the cap
+	require.False(t, served(capped), "a Tower over the caller's price cap must not be billed")
+
+	// And a cap ABOVE the price still serves - proving the cap is a comparison, not a blanket refusal.
+	okCap := base
+	okCap.maxPriceOut = 10.0
+	require.True(t, served(okCap))
+}
+
+// liveEndpointOf reads the endpoint the live fabric advertised on its routable row, so a
+// re-publish with a price keeps pointing at the running hub.
+func liveEndpointOf(t *testing.T, b *broker, towerID string) string {
+	t.Helper()
+	rows, err := b.tower.routable.ByTower(towerID, time.Now())
+	require.NoError(t, err)
+	require.NotEmpty(t, rows)
+	return rows[0].Endpoint
 }

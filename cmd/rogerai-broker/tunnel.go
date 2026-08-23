@@ -1633,7 +1633,11 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	// SOFT mode: every bridge gate falls back to the direct node already picked, so this
 	// coin can only ever change who serves, never whether the consumer is served.
 	if ok && t != nil && seededRand(requestID).Intn(2) == 0 {
-		if b.relayViaEdge(w, r, req.Model, req.Stream, body, seededRand(requestID), true) {
+		if b.relayViaEdge(w, r, req.Model, req.Stream, body, seededRand(requestID), true, edgeBridgeAuth{
+			wallet: wallet, pubHex: r.Header.Get(protocol.HeaderPubkey), grant: gok,
+			sessionAuthed: !authed, confidentialOnly: confidentialOnly,
+			maxPriceOut: maxPriceOut, pinNode: pinNode, excludeNodes: exclude,
+		}) {
 			return
 		}
 	}
@@ -1644,7 +1648,11 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		// nothing either does the refusal below stand. This is the line the relay audit
 		// existed to produce: before it, "no node offers" was the answer even when an
 		// approved Tower was serving the model, so no live traffic could ride one.
-		if b.relayViaEdge(w, r, req.Model, req.Stream, body, seededRand(requestID), false) {
+		if b.relayViaEdge(w, r, req.Model, req.Stream, body, seededRand(requestID), false, edgeBridgeAuth{
+			wallet: wallet, pubHex: r.Header.Get(protocol.HeaderPubkey), grant: gok,
+			sessionAuthed: !authed, confidentialOnly: confidentialOnly,
+			maxPriceOut: maxPriceOut, pinNode: pinNode, excludeNodes: exclude,
+		}) {
 			return
 		}
 		msg := "no node offers " + req.Model
