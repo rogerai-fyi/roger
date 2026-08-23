@@ -580,6 +580,11 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
 /* ---------- THE install command (the hero object) -------------- */
 .install { margin-top: var(--s-8); display: flex; flex-direction: column; align-items: flex-start; gap: var(--s-3); max-width: 640px; width: 100%; }
 .install .fig { margin-bottom: 2px; }
+/* the noun the command downloads, stated before the command. Secondary ink so
+   the box stays the hero object; the one bolded phrase carries the claim. */
+.install__lead { margin: 0; max-width: 58ch; color: var(--ink-500);
+  font-size: var(--t-sm); line-height: var(--lh-body); }
+.install__lead b { color: var(--ink-900); font-weight: var(--weight-semi); }
 .install__box {
   display: flex; align-items: center; gap: 12px; width: 100%;
   padding: 14px 16px; border-radius: var(--r-xs);

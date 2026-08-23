@@ -798,7 +798,9 @@
 .cta { padding-block: var(--section-y); border-top: 1px solid var(--hairline); }
 .cta__inner { text-align: left; display: flex; flex-direction: column; align-items: flex-start; }
 .cta h2 { font-size: var(--t-h1); letter-spacing: var(--tracking-h1); color: var(--ink-900); font-weight: var(--weight-bold); line-height: var(--lh-snug); }
-.cta p { margin-top: var(--s-3); color: var(--ink-500); font-size: var(--t-lead); }
+.cta p { margin-top: var(--s-3); color: var(--ink-500); font-size: var(--t-lead); max-width: 62ch; }
+/* the install lead names the binary; the one bolded phrase steps up to headline ink. */
+.cta p b { color: var(--ink-900); font-weight: var(--weight-semi); }
 .install__box--lg { margin-top: var(--s-8); padding: 18px 20px; }
 .install__box--lg .install__code { font-size: 1.05rem; }
 @media (max-width: 560px) { .install__box--lg .install__code { font-size: .8125rem; } }

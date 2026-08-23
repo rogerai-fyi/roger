@@ -239,3 +239,83 @@
   .app-feature__media--trio { grid-template-columns: 1fr 1fr; }
   .app-feature__media--trio .app-shot:last-child { grid-column: span 2; max-width: 60%; margin-inline: auto; }
 }
+
+/* ---------- the desktop pair: one rotating figure per section ----
+   §8 (roger, the terminal app) and §9 (roger webui, the browser console) are
+   honourable mentions beside the handheld, so each gets ONE media well rather
+   than the two- and three-plate arrangements above. Four real captures share
+   that well: a CSS-only crossfade, no script and no library.
+
+   Contract:
+     .app-rot__stack  the frame - tiles stacked, the FIRST one in flow so it
+                      sizes the frame exactly (bar height + image aspect)
+     .app-tile        a plate, given its slot by --i (0..3)
+   All eight plates are exported at the same 1200x750, so the frame never
+   resizes between slots. Under prefers-reduced-motion the stack becomes a 2x2
+   COLLAGE with all four plates on at once: same information, standing still. */
+.app-rot > .fig { display: block; margin: 0 0 var(--s-2); }
+.app-rot__stack { position: relative; width: 100%; }
+
+.app-tile {
+  position: absolute; inset: 0; margin: 0; display: flex; flex-direction: column;
+  opacity: 0;
+  animation: app-rot-slot 16s var(--ease-in-out) infinite both;
+  animation-delay: calc(var(--i, 0) * 4s);
+}
+/* the first plate stays in flow and gives the frame its height; the rest lie
+   over it. Every plate is the same shape, so nothing shifts as they swap. */
+.app-tile:first-child { position: relative; }
+
+/* the window tape: the same idiom as the desk-set plate's ::before chrome */
+.app-tile__bar {
+  padding: 4px 10px; font-size: 9px; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--ink-400);
+  background: var(--paper); border: 1px solid var(--hairline); border-bottom: 0;
+  border-top: 2px solid var(--ink-900);
+  border-radius: var(--r-md, 6px) var(--r-md, 6px) 0 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.app-tile img {
+  display: block; width: 100%; height: auto;
+  border: 1px solid var(--hairline); border-top: 0;
+  border-radius: 0 0 var(--r-md, 6px) var(--r-md, 6px);
+  background: var(--paper);
+  box-shadow: 0 10px 30px rgba(21, 20, 15, .08);
+}
+/* These plates are DARK captures (both surfaces ship dark), so the
+   [data-theme="dark"] .app-shot img dimming above must not reach them - that
+   rule calms the light-UI iPhone plates and would crush these. Separate class,
+   deliberately, so nothing here has to out-specify anything there. */
+[data-theme="dark"] .app-tile img { box-shadow: 0 10px 30px rgba(0, 0, 0, .45); }
+[data-theme="dark"] .app-tile__bar { border-top-color: var(--ink-900); }
+
+/* one slot in four: fade up, hold, fade out, then wait its turn out of sight */
+@keyframes app-rot-slot {
+  0%   { opacity: 0; }
+  3%   { opacity: 1; }
+  25%  { opacity: 1; }
+  28%  { opacity: 0; }
+  100% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* No rotation: the four plates become a contact sheet, all on, all still.
+     Both selectors are written at .app-rot__stack depth so they outrank the
+     .app-tile:first-child (0,2,0) in-flow rule above - an equal-specificity
+     override would have lost to it and left one plate absolutely positioned
+     over the grid. */
+  .app-rot__stack { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s-3); }
+  .app-rot__stack .app-tile,
+  .app-rot__stack .app-tile:first-child {
+    position: static; inset: auto; opacity: 1; animation: none;
+  }
+  .app-rot__stack .app-tile img { box-shadow: none; }
+}
+@media (prefers-reduced-motion: reduce) and (max-width: 560px) {
+  /* a 2x2 collage on a phone is four postage stamps; stack it instead */
+  .app-rot__stack { grid-template-columns: 1fr; }
+}
+
+/* the hero's section menu sits directly under the store badge, so it comes in
+   tighter than the standalone rows on the research pages. */
+.app-hero__copy .research-actions--jump { margin-top: var(--s-6); }
