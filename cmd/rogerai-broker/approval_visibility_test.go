@@ -255,3 +255,10 @@ func TestCanaryDialVerdictSkipsOnlyDesignRefusals(t *testing.T) {
 		"an ordinary transport error is a Tower that accepted work and dropped it")
 	require.False(t, isDesignSkip(context.DeadlineExceeded))
 }
+
+// The bind wildcards: unreachable by design on the canary side too, so a Tower that
+// somehow advertised one is skipped, never scored as failing.
+func TestVetRefusesBindWildcards(t *testing.T) {
+	require.ErrorIs(t, vetPublicIP(net.ParseIP("0.0.0.0")), errNotPublic)
+	require.ErrorIs(t, vetPublicIP(net.ParseIP("::")), errNotPublic)
+}

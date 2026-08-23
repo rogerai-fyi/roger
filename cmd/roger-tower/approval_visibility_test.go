@@ -89,6 +89,21 @@ func TestResolveAdvertisedIsHonest(t *testing.T) {
 	require.Contains(t, err.Error(), "does not resolve")
 	require.Contains(t, err.Error(), "IP address")
 
+	// 0.0.0.0 / :: are BIND wildcards, not reachable addresses - the --hub argument
+	// mistaken for --relay-public. Both mean "this machine", so they resolve to the
+	// outbound address exactly like the empty host, with a note that says why.
+	for _, wildcard := range []string{"0.0.0.0:8444", "[::]:8444"} {
+		addr, note, err := resolveAdvertised(wildcard)
+		require.NoError(t, err, wildcard)
+		host, port, serr := net.SplitHostPort(addr)
+		require.NoError(t, serr)
+		require.Equal(t, "8444", port)
+		require.False(t, net.ParseIP(host).IsUnspecified(), "%s must not stay a wildcard", wildcard)
+		require.False(t, net.ParseIP(host).IsLoopback())
+		require.Contains(t, note, "bind wildcard", "the note must name the mistake")
+		require.Contains(t, note, host, "and show the address it chose instead")
+	}
+
 	// Loopback is accepted and named for what it is.
 	addr, note, err = resolveAdvertised("127.0.0.1:8444")
 	require.NoError(t, err)

@@ -508,17 +508,26 @@ func resolveAdvertised(endpoint string) (addr, note string, err error) {
 	if err != nil {
 		return "", "", fmt.Errorf("--relay-public must be a dialable host:port, got %q", endpoint)
 	}
-	if host == "" {
+	parsed := net.ParseIP(host)
+	// An empty host (":8444") or an UNSPECIFIED one ("0.0.0.0", "::") is a BIND wildcard,
+	// not a reachable address - the thing you pass to --hub to listen on every interface,
+	// mistaken for the thing you advertise. You cannot dial 0.0.0.0. Both mean "this
+	// machine", so resolve to the machine's own outbound address and say what happened.
+	if host == "" || (parsed != nil && parsed.IsUnspecified()) {
 		ip, derr := outboundIP()
 		if derr != nil {
-			return "", "", fmt.Errorf("--relay-public %q names no host and this machine's own "+
-				"address could not be determined (%v) - pass the address explicitly", endpoint, derr)
+			return "", "", fmt.Errorf("--relay-public %q is a bind wildcard, not a reachable address, "+
+				"and this machine's own address could not be determined (%v) - pass the address explicitly", endpoint, derr)
 		}
-		return net.JoinHostPort(ip, port),
-			fmt.Sprintf("relay-public had no host: advertising this machine's address, %s", net.JoinHostPort(ip, port)), nil
+		resolved := net.JoinHostPort(ip, port)
+		why := "had no host"
+		if host != "" {
+			why = fmt.Sprintf("was %s, a bind wildcard nothing can dial", host)
+		}
+		return resolved, fmt.Sprintf("relay-public %s: advertising this machine's address, %s", why, resolved), nil
 	}
-	if ip := net.ParseIP(host); ip != nil {
-		return endpoint, classifyAdvertised(host, []net.IP{ip}, false), nil
+	if parsed != nil {
+		return endpoint, classifyAdvertised(host, []net.IP{parsed}, false), nil
 	}
 	// A NAME - "roggentoo", "hub.example.net". Resolve it here, on the operator's own
 	// machine, and say what it points at: a LAN name is a first-class home-lab tier, and
