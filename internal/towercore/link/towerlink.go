@@ -138,6 +138,10 @@ type Accepted struct {
 	// which is the difference between a fleet returning with a hundred bytes each and a
 	// fleet returning with megabytes each at the same instant.
 	NeedFullInventory bool `json:"need_full_inventory"`
+	// State is the Tower's admission state as Core holds it, echoed so the operator's
+	// terminal can say "waiting for approval" or "approved" the moment it is true.
+	// Filled by the handler, which is what knows the registry; empty from an old Core.
+	State string `json:"state,omitempty"`
 }
 
 // Frame is the identity every message on the link must carry.

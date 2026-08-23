@@ -703,6 +703,9 @@ func (b *broker) towerEnroll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The admin hears about the arrival. Failure to notify never fails the enrollment:
+	// the email is for the approver's convenience, the registry row is the truth.
+	b.towerPending.enrolled(owner, res.TowerID)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"tower_id":      res.TowerID,
 		"certificate":   base64.StdEncoding.EncodeToString(res.Certificate.Raw),

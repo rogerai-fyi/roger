@@ -58,6 +58,9 @@ type Session struct {
 	Heartbeat         time.Duration
 	Freshness         time.Duration
 	NeedFullInventory bool
+	// State is the admission state Core reported when this session opened. Heartbeats
+	// refresh it; "" means an old Core that does not say.
+	State string
 }
 
 // Head is the chain position a Tower quotes on reconnect. Carrying it is what turns a
@@ -106,6 +109,7 @@ func OpenSession(st *tower.State, head Head, relay link.RelayPlane) (Session, er
 	return Session{
 		TowerID:           adm.TowerID,
 		SessionID:         acc.SessionID,
+		State:             acc.State,
 		Heartbeat:         time.Duration(acc.HeartbeatSeconds) * time.Second,
 		Freshness:         time.Duration(acc.FreshnessSeconds) * time.Second,
 		NeedFullInventory: acc.NeedFullInventory,
@@ -114,14 +118,22 @@ func OpenSession(st *tower.State, head Head, relay link.RelayPlane) (Session, er
 
 // Heartbeat tells Core we are still here. The frame IS the liveness signal; losing one is
 // survivable because the freshness window is several heartbeats wide.
-func (s Session) SendHeartbeat(st *tower.State) error {
+// SendHeartbeat keeps the session fresh and reports the admission state Core answered
+// with - the field serve watches to announce an approval within one beat.
+func (s Session) SendHeartbeat(st *tower.State) (string, error) {
 	body, err := json.Marshal(link.Frame{
 		Network: link.PublicNetwork, Version: 1, TowerID: s.TowerID, SessionID: s.SessionID,
 	})
 	if err != nil {
-		return err
+		return "", err
 	}
-	return towerPost(st, "/tower/session/heartbeat", body, nil)
+	var out struct {
+		State string `json:"state"`
+	}
+	if err := towerPost(st, "/tower/session/heartbeat", body, &out); err != nil {
+		return "", err
+	}
+	return out.State, nil
 }
 
 // Close drains: Core drops our inventory at once rather than letting it age out over the

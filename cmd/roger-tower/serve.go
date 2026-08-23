@@ -175,6 +175,11 @@ func runLink(st *tower.State, out io.Writer, stop <-chan struct{}, ticker func(t
 		fmt.Fprintln(out, "drained: RogerAI has dropped this Tower's inventory")
 	}()
 
+	// The operator's first question is "am I approved?", and the answer changes without
+	// a restart - so it is printed at link time and announced again the moment a
+	// heartbeat reports a different state.
+	lastState := ""
+	announceState(out, &lastState, sess.State)
 	beat := sess.Heartbeat
 	if beat <= 0 {
 		beat = 60 * time.Second
@@ -208,7 +213,8 @@ func runLink(st *tower.State, out io.Writer, stop <-chan struct{}, ticker func(t
 			}
 			revision, head = next, nextHead
 		case <-beats:
-			if err := sess.SendHeartbeat(st); err == nil {
+			if state, err := sess.SendHeartbeat(st); err == nil {
+				announceState(out, &lastState, state)
 				continue
 			} else if errors.Is(err, towerjoin.ErrUnreachable) {
 				// Transport, not refusal: the freshness window is several heartbeats wide, so
@@ -223,6 +229,7 @@ func runLink(st *tower.State, out io.Writer, stop <-chan struct{}, ticker func(t
 			if err != nil {
 				return err
 			}
+			announceState(out, &lastState, sess.State)
 			if sess.NeedFullInventory {
 				revision, head, err = pushInventory(st, out, revision, head)
 				if err != nil {
@@ -366,8 +373,13 @@ func cmdServe(args []string, out io.Writer) error {
 	// a flag mistake should be reported as a flag mistake, not as whatever the directory
 	// happens to complain about first.
 	if *relayPublic != "" {
-		if _, _, aerr := net.SplitHostPort(*relayPublic); aerr != nil {
-			return fmt.Errorf("--relay-public must be a dialable host:port, got %q", *relayPublic)
+		resolved, note, aerr := resolveAdvertised(*relayPublic)
+		if aerr != nil {
+			return aerr
+		}
+		*relayPublic = resolved
+		if note != "" {
+			fmt.Fprintln(out, note)
 		}
 	}
 	if *cfg == "" && *relayPublic != "" && *hubAddr == "" {
@@ -450,4 +462,78 @@ func fsSet(fs *flag.FlagSet, name string) bool {
 		}
 	})
 	return found
+}
+
+// announceState prints the admission state when it CHANGES, in the operator's language.
+// Quarantine is the state every Tower is admitted into, so it reads as the waiting room
+// it is, not as a fault; approval reads as the green light it is; anything this binary
+// does not recognise is shown verbatim rather than hidden, because an old CLI meeting a
+// new Core should say something true.
+func announceState(out io.Writer, last *string, state string) {
+	if state == "" || state == *last {
+		return
+	}
+	*last = state
+	switch state {
+	case "quarantine":
+		fmt.Fprint(out, "state: QUARANTINE - pending approval by the network admin.\n"+
+			"  Nothing is broken: every new Tower waits here, and approval flips this\n"+
+			"  automatically - this terminal will announce it. Meanwhile the link stays up\n"+
+			"  and `roger-tower status` shows the same answer. Learn more: https://rogerai.fm/tower\n")
+	case "active":
+		fmt.Fprint(out, "state: ACTIVE - approved and ready to carry traffic.\n"+
+			"  Stations can now attach, and every carried job will print here as it settles.\n")
+	case "draining":
+		fmt.Fprint(out, "state: DRAINING - taking no new work; existing jobs finish.\n")
+	case "suspended":
+		fmt.Fprint(out, "state: SUSPENDED - taking no work pending review by the network admin.\n")
+	case "revoked":
+		fmt.Fprint(out, "state: REVOKED - this Tower's credential has been permanently retired.\n")
+	default:
+		fmt.Fprintf(out, "state: %s\n", state)
+	}
+}
+
+// resolveAdvertised turns the operator's --relay-public into the address Core will hand
+// to nodes and consumers, and says anything worth saying about it.
+//
+// An empty host (":8444") means "this machine": it resolves to the machine's own
+// outbound address and PRINTS the choice, because advertising the literal ":8444" made
+// every node dial itself - silent nonsense. A loopback host is accepted and named for
+// what it is: a same-machine test rig the public network cannot reach. Neither is an
+// error; both are the operator's business - said out loud.
+func resolveAdvertised(endpoint string) (addr, note string, err error) {
+	host, port, err := net.SplitHostPort(endpoint)
+	if err != nil {
+		return "", "", fmt.Errorf("--relay-public must be a dialable host:port, got %q", endpoint)
+	}
+	if host == "" {
+		ip, derr := outboundIP()
+		if derr != nil {
+			return "", "", fmt.Errorf("--relay-public %q names no host and this machine's own "+
+				"address could not be determined (%v) - pass the address explicitly", endpoint, derr)
+		}
+		return net.JoinHostPort(ip, port),
+			fmt.Sprintf("relay-public had no host: advertising this machine's address, %s", net.JoinHostPort(ip, port)), nil
+	}
+	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
+		return endpoint, "relay-public is loopback: only THIS machine can reach the hub. " +
+			"Fine for testing; the public network (and Core's canary) cannot reach it.", nil
+	}
+	return endpoint, "", nil
+}
+
+// outboundIP is the address this machine uses to reach the world: a UDP "dial" that
+// sends nothing and asks the kernel which source address it would pick.
+func outboundIP() (string, error) {
+	conn, err := net.Dial("udp", "203.0.113.1:9")
+	if err != nil {
+		return "", err
+	}
+	defer conn.Close()
+	la, ok := conn.LocalAddr().(*net.UDPAddr)
+	if !ok || la.IP.IsUnspecified() {
+		return "", fmt.Errorf("no outbound address")
+	}
+	return la.IP.String(), nil
 }

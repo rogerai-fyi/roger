@@ -231,6 +231,7 @@ func (b *broker) towerSessionOpen(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	acc.State = string(tw.State)
 	writeJSON(w, http.StatusOK, acc)
 }
 
@@ -260,7 +261,10 @@ func (b *broker) towerHeartbeat(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusConflict, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	// The state rides every heartbeat answer, so the operator's terminal can announce an
+	// approval, a suspension, or a drain within one beat instead of waiting for a restart
+	// or a failed push to reveal it.
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "state": string(tw.State)})
 }
 
 // towerSessionClose handles POST /tower/session/close - a drain, so the fleet behind this

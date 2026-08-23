@@ -34,6 +34,7 @@ import (
 	"strings"
 	"time"
 
+	"net"
 	"rogerai.fm/roger/v6/internal/towercore/dispatch"
 	"rogerai.fm/roger/v6/internal/towercore/envelope"
 	"rogerai.fm/roger/v6/internal/towercore/fleet"
@@ -269,7 +270,20 @@ func (b *broker) driveSealedCanary(grant dispatch.EdgeGrant, target dispatch.Tar
 		log.Printf("canary: could not encode a probe for tower %s: %v", target.TowerID, err)
 		return ""
 	}
-	base, httpc, err := towerhub.Reach(endpoint, endpointPin, nil)
+	// The canary is Roger Core dialing an operator-supplied address. Vetted at the
+	// socket, on the RESOLVED addresses: a Tower advertising loopback, a private range,
+	// or the metadata service must not turn Core's own probe into a request against
+	// Core's host or network (server-side request forgery). A loopback advert is a
+	// legitimate same-machine test rig for its OWN node - it is simply not canaryable,
+	// and the skip is recorded as unreachable-by-design rather than counted as a failure.
+	if ip := net.ParseIP(hostOf(endpoint)); ip != nil && b.canaryVet != nil {
+		if verr := b.canaryVet(ip); verr != nil {
+			log.Printf("canary: tower %s endpoint %s skipped: %v (unreachable by design, not a failure)",
+				target.TowerID, endpoint, verr)
+			return ""
+		}
+	}
+	base, httpc, err := towerhub.ReachVetted(endpoint, endpointPin, b.canaryVet)
 	if err != nil {
 		// An endpoint or pin this process cannot even build a client for is the tower's own
 		// advertisement being malformed. That is a finding about the tower, not a skip: a

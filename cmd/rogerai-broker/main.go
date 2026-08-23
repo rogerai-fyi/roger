@@ -214,13 +214,18 @@ type broker struct {
 	// Remote-control (BASE STATION, v5.0.0): the per-session in-memory rendezvous hubs. The
 	// durable roster lives in the store; the hub carries only transient relay state (the
 	// host inbound channel, viewer fan-out, a bounded replay ring). See rc.go.
-	rcMu        sync.Mutex
-	rcHubs      map[string]*rcHub
-	capsules    *capsuleStore // content-blind one-time-code capsule handoff blobs (capsule.go); per-instance, ephemeral
-	bill        billing
-	conn        connect
-	mod         moderation
-	mail        *mailer  // flag-gated (RESEND_API_KEY) transactional email; nil-safe no-op when disabled
+	rcMu         sync.Mutex
+	rcHubs       map[string]*rcHub
+	capsules     *capsuleStore // content-blind one-time-code capsule handoff blobs (capsule.go); per-instance, ephemeral
+	bill         billing
+	conn         connect
+	mod          moderation
+	mail         *mailer               // flag-gated (RESEND_API_KEY) transactional email; nil-safe no-op when disabled
+	towerPending *towerPendingNotifier // admin email on a Tower entering quarantine; nil-safe
+	// canaryVet is the may-Core-dial-this predicate (vetPublicIP in production). A FIELD
+	// so the canary tests - whose hubs rightly live on loopback - can relax it without
+	// production ever shipping a relaxed default.
+	canaryVet   func(ip net.IP) error
 	payoutLocks sync.Map // accountID -> *sync.Mutex: single-flight per account around payout
 	rl          *rateLimiter
 	grantRL     *rateLimiter // per-grant-key bucket (GRANT-KEYS-DESIGN section 3.5)
@@ -690,7 +695,17 @@ func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, loc
 	loadAppleRoot() // StoreKit IAP trust anchor (Apple 3.1.1); /iap/credit is 503 until configured
 	b.conn = loadConnect()
 	b.mod = loadModeration()
+	b.canaryVet = vetPublicIP
 	b.mail = loadMailer()
+	b.towerPending = newTowerPendingNotifier(func(owner, towerID string, suppressed int) {
+		subject, text := towerPendingEmail(owner, towerID, suppressed)
+		for _, to := range b.adminEmails {
+			b.mail.sendEmail(to, subject, "", text)
+		}
+		if len(b.adminEmails) == 0 {
+			log.Printf("tower %s pending approval (owner %s) - set ADMIN_EMAIL to be emailed about these", towerID, owner)
+		}
+	})
 	b.rl = loadRateLimiter()
 	b.grantRL = loadRateLimiter() // independent bucket map keyed by grant id
 	b.anonRL = loadAnonRateLimiter()

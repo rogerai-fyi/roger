@@ -24,7 +24,9 @@ import (
 	"testing"
 	"time"
 
+	"errors"
 	"github.com/stretchr/testify/require"
+	"net"
 )
 
 // selfSignedCert mints the kind of certificate a tower mints for itself: Ed25519, self-signed,
@@ -201,4 +203,73 @@ func TestTheSchemeComesFromThePinAndTheEndpointMayNotCarryOne(t *testing.T) {
 
 	_, err = HubURL("not-an-endpoint", "")
 	require.ErrorContains(t, err, "host:port")
+}
+
+// ReachVetted: the vet rides inside BOTH transports and only when a vet is given.
+func TestReachVettedBranches(t *testing.T) {
+	refuseLoopback := func(ip net.IP) error {
+		if ip.IsLoopback() {
+			return errors.New("loopback refused by the vet")
+		}
+		return nil
+	}
+
+	// Plain HTTP: the guard replaces the dial and refuses on the resolved address.
+	_, hc, err := ReachVetted("localhost:9", "", refuseLoopback)
+	require.NoError(t, err)
+	req, _ := http.NewRequest(http.MethodGet, "http://localhost:9/", nil)
+	_, err = hc.Do(req)
+	require.ErrorContains(t, err, "refusing to dial")
+
+	// A host that does not resolve is the RESOLVER's error, surfaced, not a vet pass.
+	req2, _ := http.NewRequest(http.MethodGet, "http://tower-hub.invalid:9/", nil)
+	_, err = hc.Do(req2)
+	require.Error(t, err)
+
+	// Pinned TLS: the vetted dialer coexists with the pin's transport.
+	pin := strings.Repeat("ab", 32)
+	_, phc, err := ReachVetted("localhost:9", pin, refuseLoopback)
+	require.NoError(t, err)
+	preq, _ := http.NewRequest(http.MethodGet, "https://localhost:9/", nil)
+	_, err = phc.Do(preq)
+	require.ErrorContains(t, err, "refusing to dial", "the vet must hold on the pinned path too")
+
+	// A bad pin still fails as a bad pin - vetting must not mask pin validation.
+	_, _, err = ReachVetted("localhost:9", "zz", refuseLoopback)
+	require.Error(t, err)
+
+	// Nil vet is the unvetted path, byte-for-byte Reach.
+	_, nhc, err := ReachVetted("localhost:9", "", nil)
+	require.NoError(t, err)
+	require.NotNil(t, nhc)
+}
+
+// errSnippet bounds and sanitizes tower-controlled error text: no megabytes, no escapes.
+func TestErrSnippetSanitizesHostileText(t *testing.T) {
+	long := strings.Repeat("a", 5000)
+	require.LessOrEqual(t, len(errSnippet([]byte(long))), 2100)
+	got := errSnippet([]byte("bad\x1b[2Jnews\r\nrow\tok\x00end"))
+	require.NotContains(t, got, "\x1b", "terminal escapes must not survive")
+	require.NotContains(t, got, "\x00")
+	require.Contains(t, got, "news")
+	require.Contains(t, got, "\n", "ordinary newlines survive")
+}
+
+// epochFrom learns nothing from silence, sameness, or a client that cannot sign.
+func TestEpochFromIgnoresWhatItShould(t *testing.T) {
+	c := &Client{}
+	resp := &http.Response{Header: http.Header{}}
+	got, err := c.epochFrom(resp, "e1", "n")
+	require.NoError(t, err)
+	require.Empty(t, got, "no header, nothing to learn")
+
+	resp.Header.Set(HubEpochHeader, "e1")
+	got, err = c.epochFrom(resp, "e1", "n")
+	require.NoError(t, err)
+	require.Empty(t, got, "the epoch already in use is not news")
+
+	resp.Header.Set(HubEpochHeader, "e2")
+	got, err = c.epochFrom(resp, "e1", "n")
+	require.NoError(t, err)
+	require.Empty(t, got, "a consumer signs nothing, so it has no epoch to be wrong about")
 }

@@ -49,6 +49,7 @@ package towerhub
 // same one that distributes the pin.
 
 import (
+	"context"
 	"crypto/sha256"
 	"crypto/subtle"
 	"crypto/tls"
@@ -207,6 +208,59 @@ func PinnedTLSConfig(pin string) (*tls.Config, error) {
 // It returns a COPY: a caller's client is often shared between goroutines (the node's poll
 // workers and its audit loop hold one between them), and installing a transport into it from
 // under them is a data race.
+// ReachVetted is Reach for a caller that must never find itself dialing an internal
+// address - Roger Core's canary above all. The vet runs INSIDE the dialer, on the
+// resolved addresses, so a hostname that re-resolves somewhere private between a check
+// and the connect (DNS rebinding) is refused at the socket rather than screened once and
+// trusted. Nodes keep plain Reach: a node dialing its own machine's loopback hub is the
+// ordinary local test rig, and vetting it away would break exactly the legitimate case.
+func ReachVetted(endpoint, pin string, vet func(net.IP) error) (string, *http.Client, error) {
+	if vet == nil {
+		return Reach(endpoint, pin, nil)
+	}
+	base, out, err := Reach(endpoint, pin, nil)
+	if err != nil {
+		return "", nil, err
+	}
+	tr, _ := out.Transport.(*http.Transport)
+	if tr == nil {
+		tr = http.DefaultTransport.(*http.Transport).Clone()
+		tr.ForceAttemptHTTP2 = false
+	}
+	inner := tr.DialContext
+	if inner == nil {
+		inner = (&net.Dialer{}).DialContext
+	}
+	tr.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
+		host, port, serr := net.SplitHostPort(address)
+		if serr != nil {
+			return nil, serr
+		}
+		ips, rerr := net.DefaultResolver.LookupIP(ctx, "ip", host)
+		if rerr != nil {
+			return nil, rerr
+		}
+		for _, ip := range ips {
+			if verr := vet(ip); verr != nil {
+				return nil, fmt.Errorf("refusing to dial %s: %w", address, verr)
+			}
+		}
+		// Dial the vetted ADDRESS, not the name: re-resolving here would reopen the
+		// window the vet just closed.
+		var lastErr error
+		for _, ip := range ips {
+			c, derr := inner(ctx, network, net.JoinHostPort(ip.String(), port))
+			if derr == nil {
+				return c, nil
+			}
+			lastErr = derr
+		}
+		return nil, lastErr
+	}
+	out.Transport = tr
+	return base, out, nil
+}
+
 func Reach(endpoint, pin string, hc *http.Client) (string, *http.Client, error) {
 	base, err := HubURL(endpoint, pin)
 	if err != nil {

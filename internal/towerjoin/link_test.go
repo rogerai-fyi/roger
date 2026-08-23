@@ -102,7 +102,9 @@ func TestTheClientOpensASessionAndPushesAnInventory(t *testing.T) {
 	require.Contains(t, string(core.inventory), `"tower_id":"tw-1"`)
 	require.Contains(t, string(core.inventory), `"sig":`, "signed by the Tower's identity key")
 
-	require.NoError(t, sess.SendHeartbeat(st))
+	hbState, hbErr := sess.SendHeartbeat(st)
+	require.NoError(t, hbErr)
+	_ = hbState
 	require.NoError(t, sess.Close(st))
 	require.Equal(t, []string{
 		"/tower/session", "/tower/inventory", "/tower/session/heartbeat", "/tower/session/close",
@@ -300,6 +302,7 @@ func TestHeartbeatAndCloseDistinguishTransportFailure(t *testing.T) {
 	require.NoError(t, err)
 
 	core.srv.Close() // Core goes away mid-session
-	require.ErrorIs(t, sess.SendHeartbeat(st), ErrUnreachable)
+	_, hb2 := sess.SendHeartbeat(st)
+	require.ErrorIs(t, hb2, ErrUnreachable)
 	require.ErrorIs(t, sess.Close(st), ErrUnreachable)
 }
