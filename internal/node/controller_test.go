@@ -373,3 +373,76 @@ func TestPricingForOnNilControllerIsFreeNotAPanic(t *testing.T) {
 		t.Fatalf("nil controller should price free, got %+v", got)
 	}
 }
+
+// A saved upstream that is REACHABLE but serves nothing must not short-circuit the scan.
+// This was a dead end in the field: the console's saved upstream answered /v1/models with
+// an empty list, Detect returned only that server, the SHARE tab said "No models detected
+// yet. Try re-detect" - and re-detect took the same short-circuit, so the advice the UI
+// gave could never work while a dozen other backends sat listening on the same machine.
+func TestDetectDoesNotShortCircuitOnAnEmptyUpstream(t *testing.T) {
+	empty := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/models") {
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]any{}})
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer empty.Close()
+
+	c := New(Config{Station: "amber-fox", Upstream: empty.URL})
+	found, _ := c.Detect("", "")
+
+	// It may legitimately find nothing else on the test machine. What it must NOT do is
+	// return the empty server as though it were the answer and stop looking. (The empty
+	// server may still APPEAR in the results - DetectFull reports everything reachable -
+	// it just must not be the whole answer.)
+	if len(found) == 1 && len(found[0].Models) == 0 {
+		t.Fatal("Detect stopped at a reachable-but-empty upstream instead of scanning on")
+	}
+}
+
+// An empty server must not become the station's upstream even when it answers first.
+// Being reachable and being useful are different questions, and only the second one
+// should decide what a station is bound to.
+func TestEmptyServerNeverBecomesTheUpstream(t *testing.T) {
+	c := New(Config{Station: "amber-fox"})
+	c.LoadRows([]detect.Found{
+		{Name: "empty", BaseURL: "http://127.0.0.1:3000/v1", Chat: "http://127.0.0.1:3000/v1/chat/completions"},
+		{Name: "real", BaseURL: "http://127.0.0.1:8081/v1", Chat: "http://127.0.0.1:8081/v1/chat/completions",
+			Models: []string{"qwen3-vl-8b"}},
+	})
+	if got := c.Snapshot().Upstream; !strings.Contains(got, "8081") {
+		t.Fatalf("upstream = %q, want the server that actually serves models (:8081)", got)
+	}
+}
+
+// With nothing serving anywhere, still report where we looked rather than blanking - the
+// operator needs to see which endpoint was tried.
+func TestAllEmptyStillReportsAnUpstream(t *testing.T) {
+	c := New(Config{Station: "amber-fox"})
+	c.LoadRows([]detect.Found{
+		{Name: "empty", BaseURL: "http://127.0.0.1:3000/v1", Chat: "http://127.0.0.1:3000/v1/chat/completions"},
+	})
+	if got := c.Snapshot().Upstream; got == "" {
+		t.Fatal("upstream blanked when every server was empty; it should name the one tried")
+	}
+}
+
+// The reason the short-circuit exists must survive the fix: a saved endpoint that DOES
+// serve models still wins without a full scan.
+func TestDetectStillShortCircuitsOnAServingUpstream(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/models") {
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]any{{"id": "saved-model"}}})
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	c := New(Config{Station: "amber-fox", Upstream: srv.URL})
+	found, _ := c.Detect("", "")
+	if len(found) != 1 || len(found[0].Models) != 1 || found[0].Models[0] != "saved-model" {
+		t.Fatalf("a serving saved upstream should be returned alone; got %+v", found)
+	}
+}

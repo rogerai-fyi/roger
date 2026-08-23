@@ -188,7 +188,7 @@
     if (!tbody.children.length) {
       var er = el("tr", "empty-row");
       var td = el("td", null, "No models detected yet. Try re-detect.");
-      td.colSpan = 7; er.appendChild(td); tbody.appendChild(er);
+      td.colSpan = 8; er.appendChild(td); tbody.appendChild(er);
     }
   }
 
@@ -199,12 +199,13 @@
     var tr = el("tr");
     tr.setAttribute("data-model", model);
     tr.appendChild(el("td", "cell-model"));               // 0 model
-    tr.appendChild(el("td", "status-cell"));              // 1 status
-    tr.appendChild(el("td", "price-cell"));               // 2 price
-    tr.appendChild(el("td", "num served"));               // 3 served
-    tr.appendChild(el("td", "num outtok"));               // 4 out tok
-    tr.appendChild(el("td", "num earnings"));             // 5 earnings
-    tr.appendChild(el("td", "col-actions"));              // 6 actions
+    tr.appendChild(el("td", "variant-cell"));             // 1 variant
+    tr.appendChild(el("td", "status-cell"));              // 2 status
+    tr.appendChild(el("td", "price-cell"));               // 3 price
+    tr.appendChild(el("td", "num served"));               // 4 served
+    tr.appendChild(el("td", "num outtok"));               // 5 out tok
+    tr.appendChild(el("td", "num earnings"));             // 6 earnings
+    tr.appendChild(el("td", "col-actions"));              // 7 actions
     return tr;
   }
 
@@ -220,6 +221,7 @@
     tds[0].innerHTML = "";
     tds[0].appendChild(el("span", "status-dot " + dotCls, dotCh));
     tds[0].appendChild(el("span", "model-name", row.model));
+    tds[0].title = row.model; // the cell can ellipsis a long id; hover still reads it whole
     if (ctx) tds[0].appendChild(el("span", "ctx", " " + ctx + " ctx"));
 
     // --- status label ---
@@ -228,25 +230,48 @@
     else if (connecting) { lblCls = "connecting"; lblTxt = link === "reconnecting" ? "RECONNECTING" : "CONNECTING"; }
     else if (onAir) { lblCls = "on"; lblTxt = "ON-AIR"; }
     else { lblCls = "off"; lblTxt = "OFF-AIR"; }
+    // --- variant: what detection read off this machine ---
+    // An em dash, not a blank. A blank cell cannot tell "this model published no
+    // metadata" apart from "this column failed to render", and only one of those is
+    // something the operator should shrug at.
     tds[1].innerHTML = "";
-    tds[1].appendChild(el("span", "status-label " + lblCls, lblTxt));
+    var vparts = [];
+    if (row.quant) vparts.push(row.quant);
+    if (row.weights) vparts.push("by " + row.weights);
+    if (row.variant) vparts.push(row.variant);
+    var vinner = el("span", "variant-inner");
+    if (vparts.length) {
+      vinner.appendChild(el("span", "variant-q", vparts[0]));
+      if (vparts.length > 1) {
+        vinner.appendChild(el("span", "variant-rest", " " + vparts.slice(1).join(" · ")));
+      }
+      // The cell can ellipsis; the full reading stays reachable on hover.
+      tds[1].title = vparts.join(" · ");
+    } else {
+      vinner.appendChild(el("span", "variant-none", "—"));
+      tds[1].title = "nothing detected — shares as the plain model id";
+    }
+    tds[1].appendChild(vinner);
+
+    tds[2].innerHTML = "";
+    tds[2].appendChild(el("span", "status-label " + lblCls, lblTxt));
 
     // --- price ---
-    tds[2].innerHTML = "";
+    tds[3].innerHTML = "";
     if ((Number(row.price_out) || 0) === 0) {
-      tds[2].appendChild(el("span", "free", "FREE"));
+      tds[3].appendChild(el("span", "free", "FREE"));
     } else {
-      tds[2].appendChild(document.createTextNode("$" + row.price_out + "/1M out"));
+      tds[3].appendChild(document.createTextNode("$" + row.price_out + "/1M out"));
     }
-    if (row.scheduled) tds[2].appendChild(el("span", "sched", " · sched"));
+    if (row.scheduled) tds[3].appendChild(el("span", "sched", " · sched"));
 
     // --- counters ---
-    tds[3].textContent = fmtInt(row.served);
-    tds[4].textContent = fmtInt(row.out_tokens);
-    tds[5].textContent = fmtUSD(row.earnings);
+    tds[4].textContent = fmtInt(row.served);
+    tds[5].textContent = fmtInt(row.out_tokens);
+    tds[6].textContent = fmtUSD(row.earnings);
 
     // --- actions ---
-    tds[6].innerHTML = "";
+    tds[7].innerHTML = "";
     var actions = el("div", "row-actions");
     var onairBtn = el("button", "btn small", onAir ? "Take off air" : "Put on air");
     onairBtn.setAttribute("data-act", "onair");
@@ -260,7 +285,7 @@
     actions.appendChild(onairBtn);
     actions.appendChild(privBtn);
     actions.appendChild(priceBtn);
-    tds[6].appendChild(actions);
+    tds[7].appendChild(actions);
   }
 
   /* 6. SHARE ACTIONS ------------------------------------------------------- */

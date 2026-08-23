@@ -33,6 +33,13 @@ type RowView struct {
 	Earnings     float64 `json:"earnings"`
 	Node         string  `json:"node,omitempty"`
 	BandDisplay  string  `json:"band_display,omitempty"`
+	// Quant / Weights / Variant are what detection read off THIS machine for this model.
+	// They are omitempty because absent is the common case and must stay distinguishable
+	// from a claim: a station whose runtime and file said nothing sends no key at all,
+	// rather than an empty string a renderer could mistake for a measured blank.
+	Quant   string `json:"quant,omitempty"`
+	Weights string `json:"weights,omitempty"`
+	Variant string `json:"variant,omitempty"`
 }
 
 // Totals sum every live band (the ON-AIR panel footer).
@@ -76,6 +83,9 @@ func (c *Controller) Snapshot() Snapshot {
 			PriceIn:      p.In,
 			PriceOut:     p.Out,
 			Scheduled:    len(p.Windows) > 0,
+			Quant:        r.Quant,
+			Weights:      r.Weights,
+			Variant:      r.Variant,
 		}
 		if sess := c.sessions[r.Model]; sess != nil {
 			rv.OnAir = true

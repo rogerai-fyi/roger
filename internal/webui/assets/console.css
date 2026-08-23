@@ -478,6 +478,46 @@ noscript {
 }
 .ctx { color: var(--ink-400); font-size: var(--t-xs); }
 
+/* variant cell: what detection read off this machine. The quant is the part people
+   actually choose on, so it carries the weight; the producer and the finetune trail it
+   quietly. The em-dash case is dimmer still - it is a true statement about the absence
+   of metadata, not a value, and should not compete with rows that have one. */
+/* The model column sizes to the LONGEST id in the fleet - one "grok-4.20-0309-non-
+   reasoning" row makes every other row's cell that wide, and the dead space came out of
+   ACTIONS, whose buttons then wrapped onto three lines and tripled every row's height.
+   Cap it and the whole table fits with one-line rows; the full id stays on hover. */
+.cell-model { max-width: 30ch; }
+.model-name {
+  display: inline-block;
+  max-width: 24ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
+/* Width-capped on purpose. A producer + finetune can run long ("by lmstudio-community ·
+   Instruct"), and letting it size the column pushed ACTIONS - the buttons that actually
+   do something - off the right edge into a horizontal scroll. The quant is the part
+   people choose on, so it is never what gets clipped; the trailing detail ellipses and
+   the full text stays available on hover. */
+.variant-cell { white-space: nowrap; max-width: 14ch; }
+.variant-inner {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+.variant-q {
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  color: var(--ink-700);
+}
+.variant-rest { color: var(--ink-400); font-size: var(--t-xs); }
+.variant-none { color: var(--ink-300, var(--ink-400)); font-size: var(--t-xs); }
+
 /* price cell. */
 .price-cell { color: var(--ink-700); }
 .price-cell .free,

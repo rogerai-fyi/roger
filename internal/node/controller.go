@@ -273,16 +273,36 @@ func (c *Controller) LoadRows(found []detect.Found) { c.loadRows(found, true) }
 // silently rewrite share config — persistence is reserved for an explicit re-detect.
 func (c *Controller) LoadRowsNoPersist(found []detect.Found) { c.loadRows(found, false) }
 
+// firstServing returns the first detected server that lists at least one model, else the
+// first server of any kind, else nil. "Reachable" and "useful" are different questions and
+// only the second one should decide which endpoint a station is bound to.
+func firstServing(found []detect.Found) *detect.Found {
+	for i := range found {
+		if len(found[i].Models) > 0 {
+			return &found[i]
+		}
+	}
+	if len(found) > 0 {
+		return &found[0]
+	}
+	return nil
+}
+
 func (c *Controller) loadRows(found []detect.Found, persist bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if len(found) > 0 {
-		c.upstream = NormalizeUpstream(found[0].Chat)
-		c.upstreamKey = found[0].Key
-		if persist && c.hooks.SaveUpstream != nil && found[0].BaseURL != "" &&
-			(found[0].BaseURL != c.savedUp || found[0].Key != c.savedKey) {
-			c.savedUp, c.savedKey = found[0].BaseURL, found[0].Key
-			c.hooks.SaveUpstream(found[0].BaseURL, found[0].Key)
+	// The station's upstream must be a server that actually SERVES something. found[0] is
+	// whatever answered first - which includes a reachable-but-empty endpoint, and one of
+	// those used to get saved as the upstream and then re-probed on every launch. Prefer
+	// the first server with models; fall back to found[0] only when nothing has any, so a
+	// machine with only empty servers still reports where it looked.
+	if up := firstServing(found); up != nil {
+		c.upstream = NormalizeUpstream(up.Chat)
+		c.upstreamKey = up.Key
+		if persist && c.hooks.SaveUpstream != nil && up.BaseURL != "" &&
+			(up.BaseURL != c.savedUp || up.Key != c.savedKey) {
+			c.savedUp, c.savedKey = up.BaseURL, up.Key
+			c.hooks.SaveUpstream(up.BaseURL, up.Key)
 		}
 	}
 	seen := map[string]bool{}
@@ -609,7 +629,14 @@ func (c *Controller) Detect(extra, key string) (found []detect.Found, needKey []
 		url, k = savedUp, savedKey
 	}
 	if url != "" {
-		if f, st := detect.ProbeKey(url, k); st == detect.Reachable {
+		// Reachable is not enough — it must actually SERVE something. A server that
+		// answers /v1/models with an empty list is reachable and useless, and taking this
+		// short-circuit on one used to hide every other backend on the machine: the SHARE
+		// tab showed "No models detected yet. Try re-detect", and re-detect re-took the
+		// same short-circuit, so the advice could never work. Falling through costs one
+		// scan and cannot lose the saved endpoint, because DetectFull seeds it as a
+		// priority candidate below.
+		if f, st := detect.ProbeKey(url, k); st == detect.Reachable && len(f.Models) > 0 {
 			return []detect.Found{f}, nil
 		}
 	}
