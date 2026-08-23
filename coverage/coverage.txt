@@ -543,7 +543,7 @@ rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:405:			rcSubtree			78.6%
 rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:436:			rcJoin				55.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:466:			rcAuthHost			100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:477:			rcAuthViewer			72.7%
-rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:496:			rcPoll				66.7%
+rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:496:			rcPoll				72.2%
 rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:568:			rcEvents			64.7%
 rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:595:			rcSend				79.3%
 rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:639:			rcStream			71.9%
@@ -1407,7 +1407,7 @@ rogerai.fm/roger/v6/internal/client/login.go:227:			LogoutReturn			60.0%
 rogerai.fm/roger/v6/internal/client/login.go:239:			Logout				85.7%
 rogerai.fm/roger/v6/internal/client/login.go:254:			Whoami				100.0%
 rogerai.fm/roger/v6/internal/client/login.go:277:			startDeviceFlow			92.9%
-rogerai.fm/roger/v6/internal/client/login.go:299:			pollDeviceToken			85.7%
+rogerai.fm/roger/v6/internal/client/login.go:299:			pollDeviceToken			90.5%
 rogerai.fm/roger/v6/internal/client/login.go:341:			postSigned			100.0%
 rogerai.fm/roger/v6/internal/client/login.go:349:			maxInt				100.0%
 rogerai.fm/roger/v6/internal/client/payout.go:49:			payoutErr			100.0%
@@ -1446,7 +1446,7 @@ rogerai.fm/roger/v6/internal/client/rc.go:581:				Done				100.0%
 rogerai.fm/roger/v6/internal/client/rc.go:584:				Run				100.0%
 rogerai.fm/roger/v6/internal/client/rc.go:591:				Stop				100.0%
 rogerai.fm/roger/v6/internal/client/rc.go:602:				Disable				100.0%
-rogerai.fm/roger/v6/internal/client/rc.go:610:				pollLoop			82.8%
+rogerai.fm/roger/v6/internal/client/rc.go:610:				pollLoop			79.3%
 rogerai.fm/roger/v6/internal/client/rc.go:662:				eventPump			100.0%
 rogerai.fm/roger/v6/internal/client/rc.go:684:				postEvents			100.0%
 rogerai.fm/roger/v6/internal/client/say.go:41:				Speak				95.2%
@@ -2793,9 +2793,9 @@ rogerai.fm/roger/v6/internal/towerhub/client.go:355:			httpClient			100.0%
 rogerai.fm/roger/v6/internal/towerhub/client.go:368:			refuseRedirect			100.0%
 rogerai.fm/roger/v6/internal/towerhub/client.go:373:			url				100.0%
 rogerai.fm/roger/v6/internal/towerhub/client.go:383:			authenticate			88.9%
-rogerai.fm/roger/v6/internal/towerhub/client.go:410:			SubmitJob			90.9%
+rogerai.fm/roger/v6/internal/towerhub/client.go:410:			SubmitJob			95.5%
 rogerai.fm/roger/v6/internal/towerhub/client.go:446:			PollJob				100.0%
-rogerai.fm/roger/v6/internal/towerhub/client.go:476:			CompleteResult			100.0%
+rogerai.fm/roger/v6/internal/towerhub/client.go:476:			CompleteResult			90.9%
 rogerai.fm/roger/v6/internal/towerhub/client.go:521:			errSnippet			77.8%
 rogerai.fm/roger/v6/internal/towerhub/client.go:543:			Error				100.0%
 rogerai.fm/roger/v6/internal/towerhub/client.go:549:			AuditWanted			81.8%
@@ -2827,7 +2827,7 @@ rogerai.fm/roger/v6/internal/towerhub/pin.go:86:			ValidPin			100.0%
 rogerai.fm/roger/v6/internal/towerhub/pin.go:116:			HubURL				90.9%
 rogerai.fm/roger/v6/internal/towerhub/pin.go:171:			PinnedTLSConfig			84.6%
 rogerai.fm/roger/v6/internal/towerhub/pin.go:210:			Reach				83.3%
-rogerai.fm/roger/v6/internal/towerhub/serve.go:49:			ServeLoop			77.3%
+rogerai.fm/roger/v6/internal/towerhub/serve.go:49:			ServeLoop			72.7%
 rogerai.fm/roger/v6/internal/towerhub/serve.go:100:			report				100.0%
 rogerai.fm/roger/v6/internal/towerhub/server.go:188:			setKeyIndexLocked		90.9%
 rogerai.fm/roger/v6/internal/towerhub/server.go:292:			NewServer			93.3%
