@@ -42,9 +42,9 @@ rogerai.fm/roger/v6/cmd/roger-tower/serve.go:311:			localOffers			100.0%
 rogerai.fm/roger/v6/cmd/roger-tower/serve.go:343:			cmdServe			88.2%
 rogerai.fm/roger/v6/cmd/roger-tower/serve.go:458:			fsSet				100.0%
 rogerai.fm/roger/v6/cmd/roger-tower/serve.go:473:			announceState			100.0%
-rogerai.fm/roger/v6/cmd/roger-tower/serve.go:506:			resolveAdvertised		93.8%
-rogerai.fm/roger/v6/cmd/roger-tower/serve.go:544:			classifyAdvertised		90.9%
-rogerai.fm/roger/v6/cmd/roger-tower/serve.go:573:			outboundIP			75.0%
+rogerai.fm/roger/v6/cmd/roger-tower/serve.go:506:			resolveAdvertised		95.2%
+rogerai.fm/roger/v6/cmd/roger-tower/serve.go:553:			classifyAdvertised		90.9%
+rogerai.fm/roger/v6/cmd/roger-tower/serve.go:582:			outboundIP			75.0%
 rogerai.fm/roger/v6/cmd/roger-tower/signedlatch.go:63:			newSignedLatch			75.0%
 rogerai.fm/roger/v6/cmd/roger-tower/signedlatch.go:71:			path				100.0%
 rogerai.fm/roger/v6/cmd/roger-tower/signedlatch.go:80:			Load				92.3%
@@ -2360,7 +2360,7 @@ rogerai.fm/roger/v6/internal/towercore/admit/admit.go:188:		NewWithStore			100.0
 rogerai.fm/roger/v6/internal/towercore/admit/admit.go:210:		unavailable			100.0%
 rogerai.fm/roger/v6/internal/towercore/admit/admit.go:218:		IssueToken			92.9%
 rogerai.fm/roger/v6/internal/towercore/admit/admit.go:254:		Enroll				88.0%
-rogerai.fm/roger/v6/internal/towercore/admit/admit.go:310:		AdmitBundle			87.5%
+rogerai.fm/roger/v6/internal/towercore/admit/admit.go:310:		AdmitBundle			75.0%
 rogerai.fm/roger/v6/internal/towercore/admit/admit.go:332:		RecordRenewal			87.5%
 rogerai.fm/roger/v6/internal/towercore/admit/admit.go:361:		Token				100.0%
 rogerai.fm/roger/v6/internal/towercore/admit/admit.go:370:		Get				100.0%
