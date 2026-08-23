@@ -242,6 +242,12 @@ func runHubInBackground(st *tower.State, opt hubOptions, out io.Writer, stop <-c
 			err := towerjoin.SettleEdgeReceipt(st, p.stationID, p.attemptID, p.receipt, p.wireIn, p.wireOut)
 			switch {
 			case err == nil:
+				// The operator's question is "did anything actually ride my tower?", and a
+				// hub that only ever prints failures answers it with silence either way.
+				// One line per carried job, at the moment the money side is real: the
+				// receipt is settled, the 10% is accrued.
+				fmt.Fprintf(out, "carried %s for station %s (%d B in / %d B out) - receipt settled\n",
+					p.attemptID, p.stationID, p.wireIn, p.wireOut)
 				spool.drop(p.attemptID)
 				return true
 			case errors.Is(err, towerjoin.ErrSettlePermanent):

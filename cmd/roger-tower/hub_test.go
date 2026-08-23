@@ -466,6 +466,11 @@ func TestACompletedJobsReceiptRidesToCore(t *testing.T) {
 	spool, err := newSettleSpool(st.Dir())
 	require.NoError(t, err)
 	require.Empty(t, spool.load(time.Now()), "a settled receipt stayed in the spool")
+
+	// And the operator SAW it happen: one line per carried job, or "is anything riding my
+	// tower?" is answered by silence in both directions.
+	require.Contains(t, out.String(), "carried ", "a settled receipt must print the carried-job line")
+	require.Contains(t, out.String(), "receipt settled")
 }
 
 func consumerHubPub(t *testing.T) ed25519.PublicKey {
