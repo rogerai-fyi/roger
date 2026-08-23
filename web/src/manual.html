@@ -385,6 +385,47 @@
               </table>
             </div>
 
+            <h3>The same radio in a browser: <code>roger webui</code></h3>
+            <p>The terminal app is not the only front end. One command serves the
+              <b>local console</b> and opens it - the same station, the same wallet, the
+              same settings, in a browser tab:</p>
+            <pre><span class="p">$</span> roger webui              <span class="c"># serve the console and open it</span>
+<span class="p">$</span> roger webui --no-open    <span class="c"># headless: just print the URL</span>
+<span class="p">$</span> roger webui --port 7777  <span class="c"># pin the port</span></pre>
+            <p>It is not a viewer or a cut-down demo. It is <b>one store, two windows</b>:
+              a spend cap set in the browser is the cap the terminal enforces, a band put on
+              air in either is on air in both, and a price edited in one is the price the
+              other shows. Neither is the "real" one - use whichever suits the moment, or
+              both at once.</p>
+            <div class="man-table-wrap">
+              <table class="man-table">
+                <caption><code>roger webui</code> - the local console, tab by tab</caption>
+                <thead><tr><th>Tab</th><th>What it does</th></tr></thead>
+                <tbody>
+                  <tr><td><b>BROWSE</b></td><td>the live band as a real table - signal, price, tok/s, context, stations per band. The surface with room to sort and compare, which is where a browser genuinely beats an 80-column terminal</td></tr>
+                  <tr><td><b>CHAT</b></td><td>talk to the tuned station, with the <b>agent</b> and its tools available in the conversation - the same harness the terminal agent runs, through the same relay, so failover, spend caps, billing and receipts are shared rather than reimplemented</td></tr>
+                  <tr><td><b>SHARE</b></td><td>your own models: what is on air, at what price, on which band, and what was detected about each (&sect;4)</td></tr>
+                  <tr><td><b>SETTINGS</b></td><td>private bands and per-band spend limits - the same two editors the terminal has, against the same store</td></tr>
+                  <tr><td><b>ACCOUNT</b></td><td>who you are signed in as, your balance, and your earnings</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="man-note">
+              <span class="man-note__tag">by design</span>
+              The console's agent runs <b>read-only tools only</b>. Anything that would change
+              your machine is not on its toolset at all - not gated behind a prompt, not
+              present. A browser tab is a surface you may leave open on a second monitor and
+              walk away from, and a confirm dialog you are not sitting in front of is not a
+              control. Reach for the terminal agent (&sect;2) when you want a job that writes.
+            </div>
+            <div class="man-note">
+              <span class="man-note__tag">not the Playbox</span>
+              This is the console on <b>your</b> machine, serving <b>your</b> station, bound to
+              <code>127.0.0.1</code>. The <a href="/playbox.html">Playbox</a> (&sect;P) is the
+              hosted page on this site: no install, but it is a visitor's view of the public
+              band, not a window onto your own node.
+            </div>
+
             <h3>Two stations, same model name, different weights</h3>
             <p>Not every <code>qwen3.8-27b</code> on the band is the same file. One station
               may serve it at <code>Q4_K_M</code>, another at <code>IQ4_XS</code>, a third

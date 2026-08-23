@@ -30,7 +30,12 @@ import (
 // covers the headless/remote case where opening a browser is impossible or unwanted.
 func cmdWebui(cfg config, args []string) error {
 	port, open := "", true
-	for _, a := range args {
+	// Both spellings of the value flag. Every other roger subcommand goes through the flag
+	// package, where `--port 7777` is the normal form, so accepting only `--port=7777`
+	// made THIS command the odd one and answered the habit with "unknown flag" - which
+	// reads as a broken binary rather than as a syntax the tool happens not to take.
+	for i := 0; i < len(args); i++ {
+		a := args[i]
 		switch {
 		case a == "--no-open" || a == "--print":
 			open = false
@@ -39,6 +44,12 @@ func cmdWebui(cfg config, args []string) error {
 			return nil
 		case strings.HasPrefix(a, "--port="):
 			port = strings.TrimPrefix(a, "--port=")
+		case a == "--port" || a == "-port":
+			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") {
+				return fmt.Errorf("--port needs a port number, e.g. 'roger webui --port 8391'")
+			}
+			i++
+			port = args[i]
 		default:
 			return fmt.Errorf("unknown flag %q; run 'roger webui --help'", a)
 		}
@@ -89,7 +100,8 @@ func webuiUsage() {
 
   roger webui                  serve the console and open it in your browser
   roger webui --no-open        serve it and just print the URL (headless / remote)
-  roger webui --port=8391      pick the port instead of letting the OS choose
+  roger webui --port 8391      pick the port instead of letting the OS choose
+  roger webui --port=8391      (same thing)
 
 The console does everything the terminal app does except take over your terminal:
 chat with tools, share models, manage private bands, set spend limits, wallet and

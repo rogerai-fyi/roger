@@ -803,6 +803,23 @@
 .install__box--lg .install__code { font-size: 1.05rem; }
 @media (max-width: 560px) { .install__box--lg .install__code { font-size: .8125rem; } }
 
+/* ---------- two surfaces (dial / console) ---------------------- */
+/* The CTA is left-aligned and column-flowed, so these inherit that axis rather than
+   centring - a centred block here would read as a separate section instead of as the
+   second half of "install, then pick a window". */
+.surfaces { margin-top: var(--s-8); width: 100%; }
+.surfaces__lead { color: var(--ink-500); font-size: var(--t-sm); max-width: 62ch; }
+.surfaces__grid { margin-top: var(--s-5); display: grid; gap: var(--s-4);
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+.surfaces__card { border: 1px solid var(--hairline); border-radius: var(--r-sm);
+  padding: var(--s-5); background: var(--surface, transparent); }
+.surfaces__h { font-size: var(--t-sm); letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--ink-500); font-weight: var(--weight-bold); }
+.surfaces__cmd { display: inline-block; margin-top: var(--s-2); font-family: var(--font-mono);
+  font-size: 1rem; color: var(--ink-900); }
+.surfaces__card p { margin-top: var(--s-3); color: var(--ink-500); font-size: var(--t-sm);
+  line-height: var(--lh-normal, 1.55); }
+
 /* ===================== LIVE SIGNAL TOWER / MARKET ============== */
 .market { padding-block: var(--section-y2) var(--section-y2); position: relative; }
 .market__head { text-align: left; max-width: 62ch; margin: 0 0 var(--head-gap); }

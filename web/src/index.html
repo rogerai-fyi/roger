@@ -542,6 +542,14 @@
           <dd><span class="mono">vLLM · llama.cpp · Ollama · LM Studio · Osaurus · LiteLLM · any OpenAI-compatible</span></dd>
         </div>
         <div class="spec__row">
+          <dt>Interfaces</dt>
+          <dd>Terminal + browser console <span class="spec__note">one store, two windows</span></dd>
+        </div>
+        <div class="spec__row">
+          <dt>Platforms</dt>
+          <dd><span class="mono">macOS &middot; Linux &middot; Windows</span> <span class="spec__note">Apple Silicon: MLX and GGUF</span></dd>
+        </div>
+        <div class="spec__row">
           <dt>Reach</dt>
           <dd>Only the model port <span class="spec__note">no shell, no files, no context</span></dd>
         </div>
@@ -593,7 +601,7 @@
   <section class="cta">
     <div class="wrap cta__inner" data-reveal>
       <span class="sectionno">§7 / GO</span>
-      <h2>Start with the CLI.</h2>
+      <h2>Start with one command.</h2>
       <p>Install RogerAI to browse models, use one, or share your own.</p>
       <button class="install__box install__box--lg" id="installCmd2" type="button"
               aria-label="Copy install command to clipboard">
@@ -608,6 +616,26 @@
       </button>
       <div class="install__meta">
         <span id="installNoteWin2">On Windows (PowerShell): <code class="inline">irm https://rogerai.fm/install.ps1 | iex</code></span>
+      </div>
+
+      <div class="surfaces" data-reveal data-reveal-delay="60">
+        <p class="surfaces__lead">Then pick your window. Both drive the same station, the
+          same wallet and the same settings &mdash; a limit set in one is the limit the
+          other enforces.</p>
+        <div class="surfaces__grid">
+          <article class="surfaces__card">
+            <h3 class="surfaces__h">The dial</h3>
+            <code class="surfaces__cmd">roger</code>
+            <p>The terminal radio: browse the band, tune a station, chat, run the agent,
+              put your own models on air.</p>
+          </article>
+          <article class="surfaces__card">
+            <h3 class="surfaces__h">The console</h3>
+            <code class="surfaces__cmd">roger webui</code>
+            <p>The same radio in a browser tab, with room for tables &mdash; sort the band,
+              compare stations, and edit prices and caps on a full-width surface.</p>
+          </article>
+        </div>
       </div>
     </div>
   </section>

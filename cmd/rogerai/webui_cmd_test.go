@@ -122,3 +122,45 @@ func TestWebuiPassesThePortThrough(t *testing.T) {
 		t.Errorf("--port reached the listener as %q, want 8391", gotPort)
 	}
 }
+
+// Every other roger subcommand parses with the flag package, where `--port 7777` is the
+// normal spelling. Accepting only `--port=7777` answered the universal habit with
+// "unknown flag", which reads as a broken binary.
+func TestWebuiPortAcceptsBothSpellings(t *testing.T) {
+	for _, args := range [][]string{
+		{"--port", "8391", "--no-open"},
+		{"--port=8391", "--no-open"},
+		{"-port", "8391", "--no-open"},
+	} {
+		var gotPort string
+		prev := webConsoleFor
+		webConsoleFor = func(_ config, _ *node.Controller, port string, _ *tui.LimitStore) string {
+			gotPort = port
+			return "http://127.0.0.1:8391"
+		}
+		prevWait := waitForStop
+		waitForStop = func() {}
+		err := cmdWebui(config{}, args)
+		webConsoleFor, waitForStop = prev, prevWait
+		if err != nil {
+			t.Fatalf("%v: %v", args, err)
+		}
+		if gotPort != "8391" {
+			t.Fatalf("%v gave port %q, want 8391", args, gotPort)
+		}
+	}
+}
+
+// A bare --port must say what it needs. Swallowing the next flag as a "port" would bind
+// somewhere unexpected and report a URL nobody asked for.
+func TestWebuiBarePortIsRefusedWithTheFix(t *testing.T) {
+	for _, args := range [][]string{{"--port"}, {"--port", "--no-open"}} {
+		err := cmdWebui(config{}, args)
+		if err == nil {
+			t.Fatalf("%v was accepted", args)
+		}
+		if !strings.Contains(err.Error(), "--port needs a port number") {
+			t.Fatalf("%v: unhelpful error %q", args, err)
+		}
+	}
+}
