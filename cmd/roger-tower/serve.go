@@ -42,6 +42,7 @@ import (
 // loop cannot invent for itself - a real signal and a real clock - and then gets out of the
 // way; everything that can go wrong is in runLink, where a test can reach it.
 func serveJoined(st *tower.State, out io.Writer, relayPublic string, hub hubOptions) error {
+	hub.Advertised = relayPublic
 	// THE MODE CHECK COMES FIRST, BEFORE ANY LISTENER AND BEFORE ANY DIAL.
 	//
 	// runLink refuses a standalone Tower, and did so correctly - but it runs AFTER the hub, and

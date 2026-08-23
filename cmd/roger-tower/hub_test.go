@@ -381,8 +381,8 @@ func TestACompletedJobsReceiptRidesToCore(t *testing.T) {
 	var hubAddr string
 	require.Eventually(t, func() bool {
 		for _, line := range strings.Split(out.String(), "\n") {
-			if strings.HasPrefix(line, "hub: serving the data plane on ") {
-				hubAddr = strings.Fields(strings.TrimPrefix(line, "hub: serving the data plane on "))[0]
+			if strings.HasPrefix(line, "hub: listening on ") {
+				hubAddr = strings.Fields(strings.TrimPrefix(line, "hub: listening on "))[0]
 				return true
 			}
 		}
@@ -551,4 +551,16 @@ func TestTheHubRefusesToServeBeforeRegistration(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "register",
 		"the repair is registration, and the error must say so")
+}
+
+// The bind address and the advertised address are two halves of one listener, and the
+// serving line must read that way - a founder saw "[::]:8444" beside "192.168.1.69:8444"
+// and reasonably asked which one was right. Both are.
+func TestReachAtNamesTheDialableAddressBesideTheBind(t *testing.T) {
+	if got := reachAt("192.168.1.69:8444"); !strings.Contains(got, "reach you at 192.168.1.69:8444") {
+		t.Fatalf("the serving line must name the dialable address, got %q", got)
+	}
+	if got := reachAt(""); got != "" {
+		t.Fatalf("no advertised address means no cross-reference, got %q", got)
+	}
 }
