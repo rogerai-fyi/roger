@@ -1,8 +1,49 @@
-# v6.1.0 - a Tower you can run at home, and a desk that tells the truth
+# v6.1.0 - relay traffic stops being ceremonial
 
-13 commits since v6.0.1. A minor, not a patch: there are new capabilities here, not only
-fixes. Nothing breaks - no API change, no migration, no configuration change, and the
-module path is unchanged at `rogerai.fm/roger/v6`.
+A minor, not a patch: there are new capabilities here, not only fixes. Nothing breaks -
+no API change, no migration, no configuration change, and the module path is unchanged at
+`rogerai.fm/roger/v6`.
+
+## The edge bridge: consumer traffic finally rides Towers
+
+This is the release's headline, and it closes a gap that made a whole feature decorative.
+
+The direct and edge fabrics were two endpoints that never considered each other. Every
+real consumer called the direct one, and the direct one refused Towers outright - so an
+approved Tower carried canary probes and nothing else, and an operator's 10% relay share
+was ceremonial. A Tower could be enrolled, approved, healthy, and still never earn,
+because no consumer request could reach it.
+
+`/v1/chat/completions` now serves edge-only models through the Tower's sealed hub, and a
+model both fabrics host splits traffic on a request-seeded coin. The consumer's contract
+is unchanged: same endpoint, same shape, same headers.
+
+The Tower still reads nothing. The payload is sealed to the station and the answer sealed
+back to a key only the broker holds - the bridge drives the same authorize / seal / submit
+/ open / verify / acknowledge loop the canary already proved, through one shared code path
+the canary now calls too.
+
+**Two critical defects were caught by audit before this shipped**, and both are worth
+naming because they are the kind that bill real money:
+
+- **The bridge resolved the billing account from a request header.** It re-read
+  `X-Roger-Pubkey`, and relay's grant path never verifies a signature - so a grant-bearing
+  caller with a forged header could have billed any victim's wallet. Fixed at the root:
+  relay passes the identity it has ALREADY verified into the bridge, which never re-derives
+  it, and refuses to serve when the wallet does not match the account the verified key owns.
+- **A streaming request was billed for framing bytes and answered with nothing.** The
+  bridge sealed a `stream:true` body verbatim; a real station replies in SSE frames; the
+  JSON parse on the way out read nothing. The consumer got an empty answer while the drive
+  reported success, so no fallback fired and settlement billed the framing. The bridge now
+  forces `stream:false` before sealing and re-frames the single JSON body into a stream on
+  the way out. The test upstream was a stub that answered JSON to a streaming request,
+  which is what hid it - it now honours `stream:true` with real SSE, so a stub cannot mask
+  this again.
+
+Three classes are now refused rather than mis-served: a **grant** never rides the edge (a
+grant authorizes an owner's own hardware, not a stranger's Tower), a **browser session**
+has no device signature to bind an acknowledgement so it stays direct, and **confidential**
+traffic never crosses a third-party Tower.
 
 ## A home-lab Tower is not a broken one
 
@@ -25,6 +66,10 @@ approval path around it is visible end to end:
   advertising a reachable address are two different questions, and only one of them was
   being answered. A Tower told to listen on `0.0.0.0` no longer publishes it as the place
   to reach it, which nothing on the network can act on.
+- **The serving line names both halves.** "listening on [::]:8444" beside "advertising
+  192.168.1.69:8444" read as a contradiction; they are two halves of one listener. It now
+  says so: the wildcard is what makes the LAN address reachable, and the LAN address is
+  what nodes and consumers dial.
 
 ## Guest operators: pi arrives, dsh stops pretending
 
