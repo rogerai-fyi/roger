@@ -74,6 +74,11 @@ type pendingSettle struct {
 type hubOptions struct {
 	// Addr is the listen address; empty means no hub at all.
 	Addr string
+	// Advertised is the address Core hands to nodes and consumers to DIAL - resolved from
+	// --relay-public. It is here only so the serving line can name both roles at once: the
+	// listener binds every interface ([::]) on purpose, and the "why isn't that my LAN IP"
+	// confusion is answered by printing the dialable address beside it.
+	Advertised string
 	// TLS serves the hub over https. It is implied by TLSCert, and on its own it means "mint
 	// and keep a self-signed certificate" - see hubtls.go for why that is a complete answer
 	// rather than a development shortcut.
@@ -454,7 +459,7 @@ func runHubInBackground(st *tower.State, opt hubOptions, out io.Writer, stop <-c
 				MinVersion:   tls.VersionTLS13,
 				Certificates: []tls.Certificate{*opt.cert},
 			}
-			fmt.Fprintf(out, "hub: serving the data plane on %s (TLS, pinned by fingerprint)\n", ln.Addr())
+			fmt.Fprintf(out, "hub: listening on %s (all interfaces, TLS pinned by fingerprint)%s\n", ln.Addr(), reachAt(opt.Advertised))
 			// EMPTY PATHS ON PURPOSE: ServeTLS uses TLSConfig.Certificates when it is given no
 			// files, and the loaded certificate is the one whose fingerprint Core is already
 			// publishing. Re-reading the files here would let a certificate replaced on disk
@@ -465,7 +470,7 @@ func runHubInBackground(st *tower.State, opt hubOptions, out io.Writer, stop <-c
 			}
 			return
 		}
-		fmt.Fprintf(out, "hub: serving the data plane on %s - PLAINTEXT; pass --hub-tls (or front with TLS) before real traffic\n", ln.Addr())
+		fmt.Fprintf(out, "hub: listening on %s (all interfaces)%s - PLAINTEXT; pass --hub-tls (or front with TLS) before real traffic\n", ln.Addr(), reachAt(opt.Advertised))
 		if serr := httpSrv.Serve(ln); serr != nil && serr != http.ErrServerClosed {
 			fmt.Fprintf(out, "hub: server stopped: %v\n", serr)
 		}
@@ -592,4 +597,15 @@ func latchStore(l *signedLatch) towerhub.SignedLatchStore {
 		return nil
 	}
 	return l
+}
+
+// reachAt names the dialable address beside the bind address, so "listening on [::]:8444"
+// and "reachable at 192.168.1.69:8444" read as one fact rather than a contradiction. The
+// bind wildcard is what MAKES the advertised address reachable; they are the two halves of
+// the same listener, not two competing answers.
+func reachAt(advertised string) string {
+	if advertised == "" {
+		return ""
+	}
+	return fmt.Sprintf("; nodes and consumers reach you at %s", advertised)
 }
