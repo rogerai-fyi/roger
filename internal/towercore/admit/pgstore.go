@@ -371,6 +371,26 @@ func (p *PGStore) TowerByKey(keyHash string) (Tower, bool, error) {
 	return tw, true, nil
 }
 
+func (p *PGStore) AllTowers() ([]Tower, error) {
+	rows, err := p.db.Query(`SELECT ` + towerCols + ` FROM rogerai.tower_admissions`)
+	if err != nil {
+		return nil, wrap("all towers", err)
+	}
+	defer rows.Close()
+	var out []Tower
+	for rows.Next() {
+		tw, err := scanTower(rows)
+		if err != nil {
+			return nil, wrap("all towers", err)
+		}
+		out = append(out, tw)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, wrap("all towers", err)
+	}
+	return out, nil
+}
+
 func (p *PGStore) TowersByOwner(owner string) ([]Tower, error) {
 	rows, err := p.db.Query(
 		`SELECT `+towerCols+` FROM rogerai.tower_admissions WHERE owner=$1 ORDER BY enrolled_at`, owner)

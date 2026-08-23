@@ -86,6 +86,11 @@ type Store interface {
 	// own view.
 	TowersByOwner(owner string) ([]Tower, error)
 
+	// AllTowers lists every Tower, for the admin's approval queue. Ordering is the
+	// REGISTRY's job, not the store's: two stores that sorted differently would reshuffle
+	// the queue depending on the deployment.
+	AllTowers() ([]Tower, error)
+
 	// ReapTokens removes tokens that can no longer be redeemed.
 	ReapTokens(now time.Time) error
 
@@ -225,6 +230,16 @@ func (m *memStore) TowerByKey(keyHash string) (Tower, bool, error) {
 	}
 	tw, ok := m.towers[id]
 	return tw, ok, nil
+}
+
+func (m *memStore) AllTowers() ([]Tower, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]Tower, 0, len(m.towers))
+	for _, tw := range m.towers {
+		out = append(out, tw)
+	}
+	return out, nil
 }
 
 func (m *memStore) TowersByOwner(owner string) ([]Tower, error) {

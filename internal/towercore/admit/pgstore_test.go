@@ -19,6 +19,7 @@ import (
 
 	// The registry itself never opens a connection - the broker hands it a pool - so the
 	// driver is registered here, where the tests do the opening.
+	"fmt"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
@@ -385,4 +386,30 @@ func TestTheTokenCapHoldsUnderConcurrentMinting(t *testing.T) {
 	require.NoError(t, err)
 	require.LessOrEqual(t, len(live), 3, "the database must hold the cap, whoever races")
 	require.LessOrEqual(t, minted, 3, "and no caller may be told it succeeded beyond it")
+}
+
+// The admin queue's read, against the real driver: every Tower regardless of owner, and
+// the rows carry what the approver sees.
+func TestDurableAllTowersListsEveryOwner(t *testing.T) {
+	s := pgStore(t)
+	r := NewWithStore(Config{TokenTTL: time.Hour, LeaseTTL: time.Hour, MaxTowersPerOwner: 5}, s)
+
+	for i, owner := range []string{"acct-all-1", "acct-all-2"} {
+		tok, err := r.IssueToken(owner)
+		require.NoError(t, err)
+		_, err = r.Enroll(tok, fmt.Sprintf("key-all-%d", i))
+		require.NoError(t, err)
+	}
+
+	all, err := s.AllTowers()
+	require.NoError(t, err)
+	owners := map[string]bool{}
+	for _, tw := range all {
+		owners[tw.Owner] = true
+		require.NotEmpty(t, tw.ID)
+		require.NotEmpty(t, tw.State)
+		require.False(t, tw.EnrolledAt.IsZero(), "the queue shows WHEN, so enrolled_at must survive the round trip")
+	}
+	require.True(t, owners["acct-all-1"] && owners["acct-all-2"],
+		"the queue crosses owners; TowersByOwner cannot serve it")
 }

@@ -11,6 +11,7 @@ import (
 
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/json"
 	"github.com/stretchr/testify/require"
 	"rogerai.fm/roger/v6/internal/store"
 	"rogerai.fm/roger/v6/internal/towercore/admit"
@@ -163,4 +164,58 @@ func TestBuildBrokerWiresThePendingNotifier(t *testing.T) {
 
 	b.adminEmails = []string{"a@example.com", "b@example.com"}
 	b.towerPending.enrolled("owner-mail", "tw-mail") // the recipient loop, nil-safe mailer
+}
+
+// /admin/towers is the dashboard's read: every Tower, the waiting ones first, with what
+// the approver needs and nothing they do not.
+func TestAdminTowersListsTheQueue(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	b.adminKey = "admin-secret"
+	op := signedInOperator(t, b, "octocat")
+	older := enrolledTower(t, b, op.login)
+	_, _ = adminTowerPost(t, srv, "/tower/lifecycle", `{"tower_id":"`+older.id+`","state":"active"}`)
+	waiting := enrolledTower(t, b, op.login)
+
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/admin/towers", nil)
+	req.Header.Set("X-Roger-Admin", "admin-secret")
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var out struct {
+		Towers []struct {
+			TowerID  string `json:"tower_id"`
+			Owner    string `json:"owner"`
+			State    string `json:"state"`
+			Enrolled string `json:"enrolled"`
+			LinkLive bool   `json:"link_live"`
+			Endpoint string `json:"endpoint"`
+		} `json:"towers"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.Len(t, out.Towers, 2)
+	require.Equal(t, waiting.id, out.Towers[0].TowerID, "the waiting Tower leads the queue")
+	require.Equal(t, "quarantine", out.Towers[0].State)
+	require.Equal(t, op.login, out.Towers[0].Owner)
+	require.NotEmpty(t, out.Towers[0].Enrolled)
+	require.Equal(t, "active", out.Towers[1].State)
+
+	// And without the credential it does not exist.
+	bare, _ := http.NewRequest(http.MethodGet, srv.URL+"/admin/towers", nil)
+	r2, err := http.DefaultClient.Do(bare)
+	require.NoError(t, err)
+	r2.Body.Close()
+	require.Equal(t, http.StatusForbidden, r2.StatusCode)
+}
+
+// Building the production mux must not panic - a route registered twice (once in main's
+// table, once in registerTowerRoutes) compiles clean and kills the process at startup.
+// This nearly shipped exactly that way.
+func TestTheTowerRouteTableRegistersOnce(t *testing.T) {
+	b, _ := towerTestBroker(t)
+	require.NotPanics(t, func() {
+		mux := http.NewServeMux()
+		b.registerTowerRoutes(mux)
+	})
 }

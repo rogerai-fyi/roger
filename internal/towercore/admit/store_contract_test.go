@@ -90,6 +90,10 @@ func TestMemStoreTowerIndexesAndCAS(t *testing.T) {
 	none, err := s.TowersByOwner("acct-nobody")
 	require.NoError(t, err)
 	require.Empty(t, none)
+
+	all, err := s.AllTowers()
+	require.NoError(t, err)
+	require.Len(t, all, 1, "the admin queue reads every Tower, whoever owns it")
 }
 
 // moveTowerBehindTheCaller simulates another instance changing a Tower between our read
