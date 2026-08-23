@@ -2445,7 +2445,11 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 				return m, sendChatLocal(m.chatLocalChat, m.chatLocalKey, m.connected.Model, turn, msgs)
 			}
-			return m, sendChat(m.broker, m.user, m.connected.Model, turn, m.confidentialOnly, m.limits.resolve(m.connected.Model).MaxOut, m.tuneFreq, hist)
+			// The tuned row IS a quant, so the stations running a different one are named
+			// as exclusions - the broker groups by model alone and would otherwise route
+			// this turn to weights the operator did not choose. Same rule the proxy path
+			// applies in liveProxyOpts; the booth's own chat used to skip it.
+			return m, sendChat(m.broker, m.user, m.connected.Model, turn, m.confidentialOnly, m.limits.resolve(m.connected.Model).MaxOut, m.tuneFreq, hist, m.routeExcludes(m.q.b))
 		}
 		var c tea.Cmd
 		m.chatIn, c = m.chatIn.Update(k)
@@ -10679,10 +10683,10 @@ func sendChatLocal(chatURL, key, mdl, prompt string, history []harness.Message) 
 	}
 }
 
-func sendChat(broker, user, mdl, prompt string, confidential bool, maxOut float64, freq string, history []client.ChatTurn) tea.Cmd {
+func sendChat(broker, user, mdl, prompt string, confidential bool, maxOut float64, freq string, history []client.ChatTurn, exclude []string) tea.Cmd {
 	return func() tea.Msg {
 		turns := append(append([]client.ChatTurn{}, history...), client.ChatTurn{Role: "user", Content: prompt})
-		r, err := client.ChatTurns(broker, user, mdl, turns, confidential, maxOut, freq)
+		r, err := client.ChatTurns(broker, user, mdl, turns, confidential, maxOut, freq, exclude)
 		if err != nil {
 			// A chat failure is surfaced INLINE in the transcript (chatErrMsg), not on
 			// the footer status line - that was the silent-no-response bug: the user

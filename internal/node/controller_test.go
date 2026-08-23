@@ -389,15 +389,32 @@ func TestDetectDoesNotShortCircuitOnAnEmptyUpstream(t *testing.T) {
 	}))
 	defer empty.Close()
 
+	// Stub the machine scan: the property under test is that Detect FALLS THROUGH to it,
+	// which is stronger and more honest than inferring it from whatever happens to be
+	// listening on the developer's box - and it does not port-scan that box to find out.
+	scanned := ""
+	restore := detectFull
+	detectFull = func(extra ...string) ([]detect.Found, []string) {
+		if len(extra) > 0 {
+			scanned = extra[0]
+		}
+		return []detect.Found{{Name: "real", BaseURL: "http://127.0.0.1:8081/v1", Models: []string{"qwen3-vl-8b"}}}, nil
+	}
+	defer func() { detectFull = restore }()
+
 	c := New(Config{Station: "amber-fox", Upstream: empty.URL})
 	found, _ := c.Detect("", "")
 
-	// It may legitimately find nothing else on the test machine. What it must NOT do is
-	// return the empty server as though it were the answer and stop looking. (The empty
-	// server may still APPEAR in the results - DetectFull reports everything reachable -
-	// it just must not be the whole answer.)
-	if len(found) == 1 && len(found[0].Models) == 0 {
+	if scanned == "" {
 		t.Fatal("Detect stopped at a reachable-but-empty upstream instead of scanning on")
+	}
+	// Seeded FROM the saved endpoint (normalised to its chat URL), so it still wins
+	// de-dup rather than being lost by falling through.
+	if !strings.Contains(scanned, empty.URL) {
+		t.Errorf("the scan was seeded with %q, which does not derive from the saved endpoint %q", scanned, empty.URL)
+	}
+	if len(found) != 1 || len(found[0].Models) == 0 {
+		t.Fatalf("found = %v, want the server that actually serves models", found)
 	}
 }
 

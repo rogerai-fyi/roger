@@ -5,6 +5,8 @@ import (
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+
+	"rogerai.fm/roger/v6/internal/protocol"
 )
 
 // ONE CARD PER BAND.
@@ -557,7 +559,10 @@ func parseQuantList(s string) []string {
 	seen := map[string]bool{}
 	out := make([]string, 0, len(fields))
 	for _, f := range fields {
-		f = strings.ToUpper(strings.TrimSpace(f))
+		// The SAME canonicaliser the offer's label goes through. Upper-casing here would
+		// store an MLX rule as "4BIT" while the feed carries "4bit", so a rule the
+		// operator typed exactly as published would match nothing.
+		f = protocol.CanonicalQuant(f)
 		if f == "" || seen[f] {
 			continue
 		}

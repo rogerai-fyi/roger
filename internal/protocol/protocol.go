@@ -20,6 +20,7 @@ import (
 	"crypto/sha512"
 	"encoding/hex"
 	"encoding/json"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -153,7 +154,32 @@ const variantTextMax = 40
 // ship today. A closed set here would be stale by design and would silently erase the
 // exact distinctions this field exists to carry.
 func CanonicalQuant(s string) string {
-	return strings.ToUpper(CanonicalVariantText(s))
+	return canonicalQuantCase(strings.ToUpper(CanonicalVariantText(s)))
+}
+
+// mlxBitRe matches the ONE quant family whose published spelling is lower-case.
+var mlxBitRe = regexp.MustCompile(`^[3468]BIT(-DWQ)?$`)
+
+// canonicalQuantCase fixes the one family where upper-casing changes the name rather than
+// normalising it.
+//
+// llama.cpp publishes upper-case labels ("Q4_K_M"), so upper-casing agrees with them. MLX
+// publishes lower-case ("4bit", "8bit-DWQ"), and "4BIT" is a spelling no publisher uses -
+// it is not what an operator sees in LM Studio or on the hub.
+//
+// This lives in protocol, the layer both detection and the consumer share, because the
+// canonical form has to be the SAME at every hop. It used to live only in detect, so the
+// wire re-upper-cased what detection had carefully lowered: the row displayed a name
+// nobody recognises, and a rule typed as the published spelling could not match it.
+func canonicalQuantCase(s string) string {
+	if !mlxBitRe.MatchString(s) {
+		return s
+	}
+	base, dwq := strings.CutSuffix(s, "-DWQ")
+	if dwq {
+		return strings.ToLower(base) + "-DWQ"
+	}
+	return strings.ToLower(base)
 }
 
 // CanonicalVariantText trims, strips control characters, and bounds a node-supplied

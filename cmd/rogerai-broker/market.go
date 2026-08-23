@@ -31,6 +31,17 @@ type offerView struct {
 	Region string `json:"region"`
 	HW     string `json:"hw"`
 	Model  string `json:"model"`
+	// Quant / Weights / Variant tell two offers of the SAME model id apart, so a consumer
+	// can pick the compression and the build rather than trusting that one "qwen3-8b" is
+	// interchangeable with another. Carried VERBATIM from the offer, never bucketed.
+	//
+	// These have to be on the wire, not just in the protocol struct: the broker groups by
+	// model alone, so without them the consumer's dial split, Q filter and quant exclusions
+	// have nothing to act on and silently no-op against a real broker. omitempty keeps
+	// "the station did not say" distinguishable from "the station said nothing".
+	Quant   string `json:"quant,omitempty"`
+	Weights string `json:"weights,omitempty"`
+	Variant string `json:"variant,omitempty"`
 	// Modality is what the offer DOES: "chat" (the back-compat default), "tts" (speak), or
 	// "stt" (listen). Carried on the public feed so the consumer's client + TUI can tell a
 	// VOICE station apart from a chat station and never (wrongly) offer a voice band as a chat
@@ -191,6 +202,9 @@ func (b *broker) enrichOffersForNode(out []offerView, n protocol.NodeRegistratio
 			// synced cross-instance union) surfaces it - verified-not-declared. Absence keeps the key
 			// omitted (undetermined).
 			Capabilities: withVerifiedTools(o.Capabilities, toolsOK[o.Model]),
+			Quant:        o.Quant,
+			Weights:      o.Weights,
+			Variant:      o.Variant,
 			In:           pin, Out: pout, Ctx: o.Ctx, CtxEstimated: o.CtxEstimated, Online: online,
 			Confidential: b.confidential[n.NodeID], FreeNow: free, Scheduled: len(o.Schedule) > 0,
 			TPS:    tps,

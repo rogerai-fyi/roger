@@ -642,8 +642,14 @@ func (c *Controller) Detect(extra, key string) (found []detect.Found, needKey []
 	}
 	// Seed the (saved or pasted) endpoint as a priority candidate so it wins de-dup, then
 	// scan the defaults — exactly the CLI's DetectFull path.
-	return detect.DetectFull(url)
+	return detectFull(url)
 }
+
+// detectFull is the machine scan, behind a seam so a test can prove the fall-through
+// happened without actually port-scanning the developer's machine. That scan is slow, and
+// on a box already running a local model server it makes the result depend on what
+// happens to be listening.
+var detectFull = detect.DetectFull
 
 // StopAll takes every model off air (clean exit / `/share off`).
 func (c *Controller) StopAll() {

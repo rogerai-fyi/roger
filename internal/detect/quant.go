@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"rogerai.fm/roger/v6/internal/protocol"
 )
 
 // THE QUANT LABEL: what an operator and a consumer both call these weights.
@@ -74,14 +76,10 @@ var quantNameRe = regexp.MustCompile(`(?i)(^|[-_.])(` +
 // lower-case ("4bit", "8bit-DWQ"), and "4BIT" is a spelling no publisher uses - it would
 // not match what an operator sees in LM Studio or on the hub, and two stations serving
 // the same weights would end up on different rows depending on which runtime reported.
-func canonicalQuantCase(s string) string {
-	if !mlxBitRe.MatchString(s) {
-		return s
-	}
-	return strings.ToLower(strings.TrimSuffix(s, "-DWQ")) + strings.Repeat("-DWQ", strings.Count(s, "-DWQ"))
-}
-
-var mlxBitRe = regexp.MustCompile(`^[3468]BIT(-DWQ)?$`)
+// It delegates to protocol, which is the layer detection and the consumer share: the
+// canonical form has to be identical at every hop, and two copies of this rule is how the
+// wire came to disagree with what detection produced.
+func canonicalQuantCase(s string) string { return protocol.CanonicalQuant(s) }
 
 func quantInName(name string) string {
 	base := filepath.Base(strings.TrimSpace(name))
