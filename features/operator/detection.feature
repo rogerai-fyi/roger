@@ -46,7 +46,11 @@ Feature: Guest operator detection registry
     Then the "opencode" entry uses the scratch-config strategy with known-good version "1.17.11"
     And the "hermes" entry uses the scratch-home strategy with known-good version "0.16.0"
     And the "aider" entry uses the env-and-flags strategy with no config file at all
+    And the "pi" entry uses the scratch-config strategy with known-good version "0.84.2"
     And the "codex" entry uses the context-only strategy with known-good version "0.1.0"
+    # dsh shares the scratch-config CONSTANT but has no recipe of its own, which is how it
+    # spent weeks launching with opencode's wiring. It is gated until one is written.
+    And the "dsh" entry is gated behind operator setup
 
   Scenario: The three band-wired guests on PATH are detected in registry order
     Given LookPath resolves "opencode" to "/home/u/.opencode/bin/opencode"

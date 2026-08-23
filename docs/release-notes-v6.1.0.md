@@ -1,6 +1,6 @@
 # v6.1.0 - a Tower you can run at home, and a desk that tells the truth
 
-11 commits since v6.0.1. A minor, not a patch: there are new capabilities here, not only
+13 commits since v6.0.1. A minor, not a patch: there are new capabilities here, not only
 fixes. Nothing breaks - no API change, no migration, no configuration change, and the
 module path is unchanged at `rogerai.fm/roger/v6`.
 
@@ -21,6 +21,10 @@ approval path around it is visible end to end:
 - The **durable head is the chain authority**, not each instance's memory. A Tower's
   identity survives a restart because it is written down, not because one process
   remembers it.
+- **`0.0.0.0` is a bind wildcard, not an address.** Binding every interface and
+  advertising a reachable address are two different questions, and only one of them was
+  being answered. A Tower told to listen on `0.0.0.0` no longer publishes it as the place
+  to reach it, which nothing on the network can act on.
 
 ## Guest operators: pi arrives, dsh stops pretending
 

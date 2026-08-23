@@ -42,9 +42,11 @@ type Guest struct {
 	KnownGood string
 	Strategy  string // one of the Strategy* constants
 	// NeedsSetup marks a guest that is detectable but not launchable without user setup:
-	// picking it prints SetupNote instead of execing. No guest sets it today - the three
-	// wired ones are config-generated and claude needs no configuring at all - but the gate
-	// stays, because a future guest that needs a key of its own must not silently launch.
+	// picking it prints SetupNote instead of execing. `dsh` is the first to set it
+	// (2026-08-23): it boots a PROFILE rather than a model, so no config this package can
+	// generate hands it a band. The gate was written before anything needed it, on the
+	// reasoning that a guest which cannot be wired must not silently launch - which is
+	// exactly what dsh had been doing, with another guest's config, for weeks.
 	NeedsSetup bool
 	SetupNote  string
 

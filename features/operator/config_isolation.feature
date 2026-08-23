@@ -16,6 +16,15 @@
 #     rogerai-operator-* dirs (older than 24h) runs at the next desk scan
 #   - the SESSION KEY NEVER TOUCHES DISK: config files reference it by env-var name only
 #     ({env:ROGER_SESSION_KEY} / ${ROGER_SESSION_KEY}); aider gets it purely via env
+#
+#     ONE STATED EXCEPTION - pi (2026-08-23). pi's provider schema takes apiKey as a
+#     PLAIN STRING; it has no env indirection for a custom provider, and its fixed
+#     well-known-env map covers only its built-in providers. The alternative is
+#     `--api-key <key>` on the argv, which publishes the secret to /proc/*/cmdline for
+#     every process on the box - strictly worse than a 0600 file inside the 0700 scratch
+#     dir that is removed when the guest exits. So pi writes the key, deliberately, and
+#     is excluded from the Outline below rather than quietly failing it. An invariant
+#     with an undocumented exception is worse than one with a stated exception.
 
 Feature: Never touch the user's config — the scratch-dir invariant
   Every byte a handoff writes lands inside one throwaway session scratch dir,
@@ -47,6 +56,14 @@ Feature: Never touch the user's config — the scratch-dir invariant
       | opencode |
       | hermes   |
       | aider    |
+
+  # The exception above, pinned. If pi ever gains an env reference for a custom
+  # provider's key, this scenario should fail and pi should move into the Outline.
+  Scenario: pi is the one guest whose config carries the key, and it is locked down
+    When the pi launch is materialized
+    Then the pi config contains the session key
+    And the session scratch dir has mode 0700
+    And the pi config file has mode 0600
 
   Scenario: The scratch dir is private (0700)
     When the opencode launch is materialized

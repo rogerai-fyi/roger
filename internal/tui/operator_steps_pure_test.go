@@ -831,3 +831,70 @@ func containsStr(list []string, want string) bool {
 	}
 	return false
 }
+
+// piConfigPath locates the generated models.json from the launch env, so the step reads
+// the file the guest will actually load rather than a path the test guessed.
+func (s *opBDD) piConfigPath() (string, error) {
+	const prefix = "PI_CODING_AGENT_DIR="
+	for _, e := range s.launch.Env {
+		if strings.HasPrefix(e, prefix) {
+			return filepath.Join(strings.TrimPrefix(e, prefix), "models.json"), nil
+		}
+	}
+	return "", fmt.Errorf("no PI_CODING_AGENT_DIR in launch env: %v", s.launch.Env)
+}
+
+// piConfigCarriesKey pins the STATED EXCEPTION to the key-never-on-disk invariant. This
+// asserts the opposite of the Outline above on purpose: pi has no env indirection for a
+// custom provider's key, and the alternative (--api-key on the argv) would publish the
+// secret to /proc/*/cmdline. If pi ever gains an env reference, this fails and pi moves
+// into the Outline.
+func (s *opBDD) piConfigCarriesKey() error {
+	path, err := s.piConfigPath()
+	if err != nil {
+		return err
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	if !strings.Contains(string(body), s.sess.SessionKey) {
+		return fmt.Errorf("pi config does not carry the session key - if pi gained an env "+
+			"reference, move pi into the never-on-disk Outline and delete this scenario: %s", path)
+	}
+	return nil
+}
+
+// The exception is only defensible because the file is locked down.
+func (s *opBDD) piConfigMode0600() error {
+	path, err := s.piConfigPath()
+	if err != nil {
+		return err
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if perm := info.Mode().Perm(); perm != 0o600 {
+		return fmt.Errorf("pi config mode = %o, want 0600 - it holds a live session key", perm)
+	}
+	return nil
+}
+
+// entryIsGated asserts a registry entry is detectable but NOT launchable: picking it
+// prints its setup note instead of exec'ing. The note must be present too - a gate that
+// says only "no" leaves the operator with a guest they cannot use and no way forward.
+func (s *opBDD) entryIsGated(name string) error {
+	g, err := registryGuest(name)
+	if err != nil {
+		return err
+	}
+	if !g.NeedsSetup {
+		return fmt.Errorf("%s is not gated: it will exec with whatever wiring the "+
+			"strategy branch happens to give it", name)
+	}
+	if strings.TrimSpace(g.SetupNote) == "" {
+		return fmt.Errorf("%s is gated but carries no setup note", name)
+	}
+	return nil
+}

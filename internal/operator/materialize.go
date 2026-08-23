@@ -1,6 +1,7 @@
 package operator
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -38,9 +39,6 @@ type Launch struct {
 	Dir  string
 }
 
-// goldenOpencodeTmpl is the §4-proven custom provider on @ai-sdk/openai-compatible. The
-// apiKey is the literal {env:ROGER_SESSION_KEY} reference (verified supported in the
-// 1.17.11 binary) so the secret never lands on disk.
 // piProviderName is the generated provider's key in models.json AND the value pinned by
 // --provider on the argv. They must agree; naming it once is why they cannot drift.
 const piProviderName = "rogerai"
@@ -49,32 +47,59 @@ const piProviderName = "rogerai"
 // pi derives it as `${APP_NAME.toUpperCase()}_CODING_AGENT_DIR`.
 const piAgentDirEnv = "PI_CODING_AGENT_DIR"
 
-// goldenPiTmpl is pi's models.json: one provider, one model, no user layer.
+// piModelsConfig is pi's models.json: one provider, one model, no user layer.
 //
 // Verified end-to-end against pi 0.84.2 on the dev box (2026-08-23): with
 // PI_CODING_AGENT_DIR pointed at a scratch dir holding this file, `pi --list-models`
 // reports the single generated entry and nothing else, and a --print turn against a local
 // OpenAI-compatible server returned its answer.
 //
-// api is "openai-completions" because every band the operator can be handed speaks the
-// OpenAI wire; apiKey is written literally rather than as an env reference because pi's
-// provider schema takes a plain string, and the file is 0600 inside a scratch dir that is
-// removed when the guest exits.
-const goldenPiTmpl = `{
-  "providers": {
-    "` + piProviderName + `": {
-      "name": "RogerAI",
-      "api": "openai-completions",
-      "baseUrl": "%s",
-      "apiKey": "%s",
-      "models": [
-        { "id": "%s", "name": "%s" }
-      ]
-    }
-  }
+// This one is MARSHALLED, not interpolated, and that is a deliberate difference from the
+// other three templates. They pass the session key by ENV REFERENCE (`${VAR}`,
+// `{env:VAR}`) so the secret never enters the file; pi's provider schema takes a plain
+// string, so the key is written literally - and a literal is exactly the value that must
+// not be pasted into a hand-built document. Materialize's fail-closed check covers Model
+// and BaseURL but not SessionKey, so a key containing a quote or a backslash would have
+// produced invalid JSON here and nowhere else. encoding/json removes the class rather
+// than adding a fourth thing to remember to validate.
+//
+// api is "openai-completions" because every band an operator can be handed speaks the
+// OpenAI wire. The file is 0600 inside a scratch dir removed when the guest exits.
+type piModelsConfig struct {
+	Providers map[string]piProvider `json:"providers"`
 }
-`
 
+type piProvider struct {
+	Name    string    `json:"name"`
+	API     string    `json:"api"`
+	BaseURL string    `json:"baseUrl"`
+	APIKey  string    `json:"apiKey"`
+	Models  []piModel `json:"models"`
+}
+
+type piModel struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// piConfigJSON builds the catalog for one band. Returns an error rather than a
+// best-effort document: a config that cannot be represented must not be written.
+func piConfigJSON(baseURL, sessionKey, model string) ([]byte, error) {
+	cfg := piModelsConfig{Providers: map[string]piProvider{
+		piProviderName: {
+			Name:    "RogerAI",
+			API:     "openai-completions",
+			BaseURL: baseURL,
+			APIKey:  sessionKey,
+			Models:  []piModel{{ID: model, Name: model}},
+		},
+	}}
+	return json.MarshalIndent(cfg, "", "  ")
+}
+
+// goldenOpencodeTmpl is the §4-proven custom provider on @ai-sdk/openai-compatible. The
+// apiKey is the literal {env:ROGER_SESSION_KEY} reference (verified supported in the
+// 1.17.11 binary) so the secret never lands on disk.
 const goldenOpencodeTmpl = `{
   "$schema": "https://opencode.ai/config.json",
   "provider": {
@@ -190,8 +215,12 @@ func Materialize(g Guest, s Session) (Launch, func() error, error) {
 				return Launch{}, nil, err
 			}
 			cfg := filepath.Join(agentDir, "models.json")
-			body := fmt.Sprintf(goldenPiTmpl, s.BaseURL, s.SessionKey, s.Model, s.Model)
-			if err := os.WriteFile(cfg, []byte(body), 0o600); err != nil {
+			body, err := piConfigJSON(s.BaseURL, s.SessionKey, s.Model)
+			if err != nil {
+				_ = os.RemoveAll(dir)
+				return Launch{}, nil, fmt.Errorf("operator: cannot build pi config: %w", err)
+			}
+			if err := os.WriteFile(cfg, body, 0o600); err != nil {
 				_ = os.RemoveAll(dir)
 				return Launch{}, nil, err
 			}
