@@ -43,10 +43,10 @@ type Found struct {
 	Models  []string       // served model ids from GET /v1/models (+ native discovery)
 	Ctx     map[string]int // per-model context length when the server reports it
 	Key     string         // bearer key the upstream required (discovered from env), if any
-	// Modality is the per-model kind: "chat" (default), "tts", or "stt" — filled by
+	// Modality is the per-model kind: "chat" (default), "tts", or "stt" - filled by
 	// classifyModalities from the served endpoints + an id heuristic. See VOICE-AUDIO-DESIGN.md.
 	Modality map[string]string
-	// Capabilities are the per-model chat sub-capabilities (e.g. ["vision"]) — filled by
+	// Capabilities are the per-model chat sub-capabilities (e.g. ["vision"]) - filled by
 	// classifyCapabilities from the served /v1/models metadata + an id heuristic. See
 	// docs/BROKER-VISION-CAPABILITY.md.
 	Capabilities map[string][]string
@@ -246,7 +246,7 @@ func detectWith(priority []candidate) (found []Found, needKey []string) {
 			continue
 		}
 		seen[base] = true
-		// Harvested env keys are retried (as Bearer) on a 401/403 — but ONLY against
+		// Harvested env keys are retried (as Bearer) on a 401/403 - but ONLY against
 		// candidates we have a reason to trust: a configured / known-default / env-derived
 		// endpoint. A BLIND port-scan hit ("port:N") could be ANY local service, so we never
 		// spray the user's API keys at it; if it 401s we surface it via needKey instead, so
@@ -284,7 +284,7 @@ func detectWith(priority []candidate) (found []Found, needKey []string) {
 			enrichCtx(&f, base)
 			classifyModalities(&f, base)
 			classifyCapabilities(&f, base)
-			// Osaurus shares Jan's :1337, so the port label is ambiguous — re-brand it
+			// Osaurus shares Jan's :1337, so the port label is ambiguous - re-brand it
 			// from the served root banner before the offer goes on air.
 			brandOsaurus(&f)
 			found = append(found, f)
@@ -300,7 +300,7 @@ func detectWith(priority []candidate) (found []Found, needKey []string) {
 			// Before giving up, probe the audio capability: a bare TTS/STT server has no model
 			// list to enumerate, so synthesize ONE offer from what it can DO. endpointExists
 			// treats a 401 as "route present", so a key-protected bare voice server is caught too
-			// WITHOUT spraying a key (no key is sent — consistent with the port-scan policy). A
+			// WITHOUT spraying a key (no key is sent - consistent with the port-scan policy). A
 			// normal chat server never reaches here (its /v1/models is probeOK), so chat is untouched.
 			if kind := probeVoice(base); kind != "" {
 				name := voiceModelName(kind)
@@ -317,7 +317,7 @@ func detectWith(priority []candidate) (found []Found, needKey []string) {
 }
 
 // osaurusBanner is the distinctive body Osaurus's root route returns (GET / on its
-// :1337 default — which it SHARES with Jan — or on a custom port). Matched as a substring
+// :1337 default - which it SHARES with Jan - or on a custom port). Matched as a substring
 // (not the exact bytes) so a trailing newline or the dino-emoji encoding can't cause a miss.
 const osaurusBanner = "Osaurus Server is running"
 
@@ -325,7 +325,7 @@ const osaurusBanner = "Osaurus Server is running"
 // (GET /) and matching osaurusBanner. Osaurus squats Jan's default :1337 port, so the port
 // label alone ("jan") is ambiguous; this disambiguates it before `roger share` labels the
 // offer. Best-effort and short-timeout (the detection probe budget): a non-Osaurus server
-// does not match and keeps its original label. No key is sent — the banner is unauthenticated,
+// does not match and keeps its original label. No key is sent - the banner is unauthenticated,
 // which keeps the probe consistent with the port-scan "never spray a key at it" policy.
 func isOsaurus(base string) bool {
 	root := strings.TrimSuffix(base, "/v1")
@@ -613,7 +613,7 @@ func modalityFromID(id string) string {
 
 // endpointExists reports whether base serves the given OpenAI endpoint: a minimal POST that a
 // present route rejects with a 4xx (bad/empty body) while an ABSENT route 404s. Any non-404
-// (incl. 401) means the route is there. Short-timeout, key-aware — same probe budget as detection.
+// (incl. 401) means the route is there. Short-timeout, key-aware - same probe budget as detection.
 func endpointExists(url, key string) bool {
 	resp, err := authPost(url, key, "application/json", strings.NewReader("{}"))
 	if err != nil {
@@ -623,7 +623,7 @@ func endpointExists(url, key string) bool {
 	return resp.StatusCode != http.StatusNotFound
 }
 
-// audioRouteLive reports whether an audio route is actually IMPLEMENTED and handling POST — a
+// audioRouteLive reports whether an audio route is actually IMPLEMENTED and handling POST - a
 // stricter test than endpointExists (non-404), needed because worker servers STUB the OpenAI audio
 // routes: they answer POST /v1/audio/speech with 501 Not Implemented (or 405), a non-404 that the
 // loose check mistook for a real voice endpoint (7 false positives on the live box: Hermes workers
@@ -639,18 +639,18 @@ func audioRouteLive(url, key string) bool {
 	defer resp.Body.Close()
 	code := resp.StatusCode
 	// Implemented + POST-handling: below 500 (not a server-side stub/5xx), and neither 404
-	// (route absent) nor 405 (route exists but rejects POST — a stub or a GET-only handler).
+	// (route absent) nor 405 (route exists but rejects POST - a stub or a GET-only handler).
 	return code < 500 && code != http.StatusNotFound && code != http.StatusMethodNotAllowed
 }
 
-// probeVoice classifies a BARE voice server — one with no usable GET /v1/models to enumerate
-// (kokoro-fastapi on :8095 404s it; most Whisper servers omit it) — from its capability alone:
+// probeVoice classifies a BARE voice server - one with no usable GET /v1/models to enumerate
+// (kokoro-fastapi on :8095 404s it; most Whisper servers omit it) - from its capability alone:
 // a LIVE POST /v1/audio/speech route => "tts", a LIVE POST /v1/audio/transcriptions route =>
 // "stt", otherwise "" (not a voice server). Uses audioRouteLive (not the loose endpointExists) so a
 // worker that merely STUBS the audio routes (501/405) is not a false positive, while a key-protected
 // real voice server (401) is still caught without a key. CPU vs GPU is irrelevant (endpoint-probed).
 // Speech wins when a bare server answers both (one offer per server; a mixed bare server is a rare
-// edge — we pick a deterministic label rather than emit two phantom ids).
+// edge - we pick a deterministic label rather than emit two phantom ids).
 func probeVoice(base string) string {
 	switch {
 	case audioRouteLive(base+"/audio/speech", ""):
@@ -673,7 +673,7 @@ func voiceModelName(modality string) string {
 }
 
 // classifyModalities fills f.Modality per model. A known voice/stt id wins first; otherwise the
-// server's CAPABILITY decides — a pure speech endpoint => tts, a pure transcription endpoint =>
+// server's CAPABILITY decides - a pure speech endpoint => tts, a pure transcription endpoint =>
 // stt, and everything else (chat, mixed, or unknown) stays chat. Endpoint-probed, so a model on
 // CPU and the same model on GPU classify identically.
 func classifyModalities(f *Found, base string) {
@@ -699,7 +699,7 @@ func classifyModalities(f *Found, base string) {
 	}
 }
 
-// visionMarkers are id substrings that mark a chat model as image-capable — the SAME hint set
+// visionMarkers are id substrings that mark a chat model as image-capable - the SAME hint set
 // the iOS app uses as its fallback, so the broker's guess matches the app's. A hint, not a hard
 // rule (like modalityFromID); the served metadata (visionFromMeta) wins when a server reports it.
 var visionMarkers = []string{
@@ -965,8 +965,8 @@ func enrichLMStudioCtx(f *Found, root string) {
 		// The SAME response already carries the variant axes, and this is the only
 		// enrichment that reaches MLX at all: an Apple-Silicon station running MLX through
 		// LM Studio has no GGUF header to read and no Ollama API to ask, so without this it
-		// published as a bare model id. Both formats report here — GGUF as "Q4_K_M", MLX as
-		// "4bit" — and `publisher` is the same "who built these weights" axis the GGUF
+		// published as a bare model id. Both formats report here - GGUF as "Q4_K_M", MLX as
+		// "4bit" - and `publisher` is the same "who built these weights" axis the GGUF
 		// header carries. The vocabulary itself lives in quant.go, which is where the
 		// hosting-compatibility spec requires all format knowledge to sit.
 		q, w := lmStudioVariants(m)

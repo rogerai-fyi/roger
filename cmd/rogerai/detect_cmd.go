@@ -9,7 +9,7 @@ import (
 )
 
 // detectScan is the seam. The real scan talks to whatever is listening on this machine,
-// which a test must never do — it would pass or fail on the developer's running ollama.
+// which a test must never do - it would pass or fail on the developer's running ollama.
 var detectScan = func() ([]detect.Found, []string) { return detect.DetectFull() }
 
 // cmdDetect prints what this machine's runtimes and model files actually say, WITHOUT
@@ -18,7 +18,7 @@ var detectScan = func() ([]detect.Found, []string) { return detect.DetectFull() 
 // will the market see me as?" should not have to broadcast to find out.
 //
 // Everything printed is measured. A model whose runtime and file said nothing about its
-// compression prints an em dash — never a label guessed from the model id, and never a
+// compression prints an em dash - never a label guessed from the model id, and never a
 // blank that reads as "not scanned".
 func cmdDetect(args []string) error {
 	verbose := false
@@ -71,7 +71,7 @@ func cmdDetect(args []string) error {
 }
 
 // detectLine is the per-model right-hand column: the variant fields, stated as absent
-// when absent. The dash is deliberate — an empty column cannot tell "this model
+// when absent. The dash is deliberate - an empty column cannot tell "this model
 // published no metadata" apart from "this row was never scanned".
 func detectLine(f detect.Found, m string, verbose bool) string {
 	parts := []string{}

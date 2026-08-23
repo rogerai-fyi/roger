@@ -69,7 +69,7 @@ var quantNameRe = regexp.MustCompile(`(?i)(^|[-_.])(` +
 	// IQ4_XS stay apart.
 	// A bare "DWQ" is NOT accepted: it names a recipe with no width, and a label that
 	// cannot say how many bits is not a label a consumer can choose between.
-	`[3468]BIT(-DWQ)?` +
+	`[2-8]BIT(-DWQ)?` +
 	`)($|[-_.])`)
 
 // canonicalQuantCase fixes the ONE family where upper-casing changes the name rather

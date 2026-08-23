@@ -184,8 +184,8 @@ writeFileSync(
       _provenance: {
         source: "wavesim.make(spec) + wavesim.render(channel, modality)",
         // Provenance names WHICH tree, never where it sits on someone's disk: the
-    // snapshot is committed to a public repo, and a home path is not data.
-    hierarchy: "roger-wave/hierarchy",
+        // snapshot is committed to a public repo, and a home path is not data.
+        hierarchy: "roger-wave/hierarchy",
         exported: new Date().toISOString().slice(0, 10),
         reproduce: "deterministic for this seed - re-run the spec to get these bytes back",
         label: "RECORDED - real renderer output, captured. Never present as live.",

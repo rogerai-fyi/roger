@@ -24,6 +24,13 @@ package tui
 // blank": a band with no quant is an ABSENCE of information, and excluding every station
 // that did state one would turn "I do not know what this is" into "I insist on not
 // knowing" - narrowing the operator's routing on the strength of missing metadata.
+//
+// ABSENCE IS ASYMMETRIC HERE, ON PURPOSE. The tuned row means "these exact weights", so a
+// station that did not state its quant is excluded: unknown weights are not the chosen
+// ones. The standing rule (Limit.acceptsQuant) means "any of these I would accept", and
+// an unstated quant passes it: a rule should not silently blacklist every station that
+// omitted a label. Two questions, two answers; TestAbsenceIsReadDifferentlyByRowAndRule
+// pins both so neither drifts to match the other by accident.
 func (m model) quantExcludes(bd band) []string {
 	if bd.quant == "" {
 		return nil
@@ -51,7 +58,11 @@ func (m model) quantExcludes(bd band) []string {
 // booth - the agent, the live proxy, and the in-channel chat - goes through these options,
 // so naming the disallowed stations here is what binds them.
 //
-// KNOWN GAP: the standalone CLI (`roger use` outside the TUI) does NOT yet apply this.
+// KNOWN GAPS. Exclusions are derived from m.bands, i.e. the last /discover scan: a
+// station that registered after that scan, or an agent turn fired before the first one,
+// is not excluded. That is inherent to resolving the rule client-side.
+//
+// And the standalone CLI (`roger use` outside the TUI) does NOT yet apply this.
 // client.ProxyOptions carries ExcludeNodes, but the CLI path builds its options from the
 // persisted limit's price/tps fields only and never resolves the quant rule to station
 // ids - that needs a discover scan the CLI does not currently make. Stated here rather

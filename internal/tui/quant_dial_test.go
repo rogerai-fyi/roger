@@ -455,3 +455,28 @@ func TestChatExcludesIsEmptyWhenNotConnected(t *testing.T) {
 		t.Errorf("excluded %v with no connection", got)
 	}
 }
+
+// The row and the rule read an unstated quant differently, and both readings are right.
+func TestAbsenceIsReadDifferentlyByRowAndRule(t *testing.T) {
+	m := browseSeed(100)
+	m.bands = groupBands(quantOffers(), nil)
+	var q4 band
+	for _, b := range m.bands {
+		if b.quant == "Q4_K_M" {
+			q4 = b
+		}
+	}
+	// The ROW excludes the unstated stations: chosen weights are not unknown weights.
+	if skip := strings.Join(m.quantExcludes(q4), ","); !strings.Contains(skip, "d-qwen") {
+		t.Errorf("a tuned Q4 row must exclude an unstated-quant station: %v", skip)
+	}
+	// The RULE accepts an unstated one: a preference must not blacklist every station
+	// that omitted a label.
+	rule := Limit{Quants: []string{"Q4_K_M"}}
+	if !rule.acceptsQuant("") {
+		t.Error("a standing quant rule must accept a station that stated no quant")
+	}
+	if rule.acceptsQuant("BF16") {
+		t.Error("a standing Q4 rule must still refuse a stated BF16")
+	}
+}

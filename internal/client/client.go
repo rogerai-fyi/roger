@@ -1356,7 +1356,6 @@ func streamRelayBody(w http.ResponseWriter, body io.Reader, reasoningFallbackOn 
 	return meter.cost
 }
 
-// joinSet renders a set as a comma-separated header value.
 // unionSet renders the live failover set plus the caller's standing exclusions as one
 // comma-separated header value, deduped and sorted so the same set always produces the
 // same bytes (a header that reordered per request would defeat any caching or diffing
@@ -1379,14 +1378,6 @@ func unionSet(set map[string]bool, extra []string) string {
 		parts = append(parts, k)
 	}
 	sort.Strings(parts)
-	return strings.Join(parts, ",")
-}
-
-func joinSet(set map[string]bool) string {
-	parts := make([]string, 0, len(set))
-	for k := range set {
-		parts = append(parts, k)
-	}
 	return strings.Join(parts, ",")
 }
 

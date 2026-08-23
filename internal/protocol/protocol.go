@@ -158,7 +158,9 @@ func CanonicalQuant(s string) string {
 }
 
 // mlxBitRe matches the ONE quant family whose published spelling is lower-case.
-var mlxBitRe = regexp.MustCompile(`^[3468]BIT(-DWQ)?$`)
+// [2-8]: LM Studio reports 2bit and 5bit builds as well, and an unlisted width would
+// canonicalise to "2BIT" - the unpublished spelling this rule exists to prevent.
+var mlxBitRe = regexp.MustCompile(`^[2-8]BIT(-DWQ)?$`)
 
 // canonicalQuantCase fixes the one family where upper-casing changes the name rather than
 // normalising it.

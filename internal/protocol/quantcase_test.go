@@ -13,16 +13,19 @@ import "testing"
 func TestCanonicalQuantKeepsThePublishedSpelling(t *testing.T) {
 	for in, want := range map[string]string{
 		// llama.cpp family: upper-casing is the normaliser.
-		"q4_k_m":  "Q4_K_M",
-		"Q4_K_M":  "Q4_K_M",
-		"iq4_xs":  "IQ4_XS",
-		"bf16":    "BF16",
+		"q4_k_m": "Q4_K_M",
+		"Q4_K_M": "Q4_K_M",
+		"iq4_xs": "IQ4_XS",
+		"bf16":   "BF16",
 		// MLX family: lower-case is the published spelling.
 		"4bit":     "4bit",
 		"4BIT":     "4bit",
 		"8bit":     "8bit",
 		"3bit":     "3bit",
 		"6bit":     "6bit",
+		"2bit":     "2bit",
+		"5BIT":     "5bit",
+		"7bit-dwq": "7bit-DWQ",
 		"8bit-dwq": "8bit-DWQ",
 		"8BIT-DWQ": "8bit-DWQ",
 		"dwq":      "DWQ",

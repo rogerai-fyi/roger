@@ -145,3 +145,12 @@ func TestBareDWQIsNotAQuantLabel(t *testing.T) {
 		t.Errorf("quantInName(4bit-DWQ) = %q", got)
 	}
 }
+
+// Every MLX width LM Studio publishes is recognised, not only the four common ones.
+func TestEveryMLXBitWidthIsRecognised(t *testing.T) {
+	for _, w := range []string{"2bit", "3bit", "4bit", "5bit", "6bit", "7bit", "8bit"} {
+		if got := quantInName("Qwen3-8B-" + w); got != w {
+			t.Errorf("quantInName(%s) = %q, want %q", w, got, w)
+		}
+	}
+}
