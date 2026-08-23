@@ -399,6 +399,19 @@
               <div class="man-plate__row"><span class="man-plate__k">weights</span><span class="man-plate__v">who built them (<code>Unsloth</code>, <code>bartowski</code>) &mdash; the "whose quant" axis</span></div>
               <div class="man-plate__row"><span class="man-plate__k">variant</span><span class="man-plate__v">what the base was tuned toward (<code>Instruct</code>, <code>Thinking</code>)</span></div>
             </div>
+            <p>Where they come from depends on what you run, and every source is the
+              runtime's or the file's own report:</p>
+            <div class="man-plate">
+              <div class="man-plate__row"><span class="man-plate__k">Ollama</span><span class="man-plate__v">its own <code>quantization_level</code> and model info</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">llama.cpp</span><span class="man-plate__v">the GGUF header of the file it has loaded (a bounded local read, never a download)</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">LM Studio</span><span class="man-plate__v">its <code>/api/v0/models</code> listing - which covers <b>MLX as well as GGUF</b>, so an Apple-Silicon station publishes <code>4bit &middot; by mlx-community</code> the same way a GGUF one publishes <code>Q4_K_M</code></span></div>
+              <div class="man-plate__row"><span class="man-plate__k">anything else</span><span class="man-plate__v">shares as the plain model id - which is what every station did before this existed, and is not a failure</span></div>
+            </div>
+            <p><b>MLX names its quants by bit width</b> (<code>4bit</code>, <code>8bit</code>,
+              <code>4bit-DWQ</code>) rather than by llama.cpp's K-quant scheme, and both
+              spellings are kept exactly as their publishers write them. <code>DWQ</code> is
+              a different recipe at the same width, so it stays a separate row - the same
+              reason <code>Q4_K_M</code> and <code>IQ4_XS</code> do.</p>
             <p>All three are <b>detected, never typed</b>. They come from the runtime's own
               report and the model file's header - so a station cannot claim a quant it is
               not serving, and a station whose files say nothing shows <b>nothing</b>. An

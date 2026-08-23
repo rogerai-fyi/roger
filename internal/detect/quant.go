@@ -60,8 +60,28 @@ var quantNameRe = regexp.MustCompile(`(?i)(^|[-_.])(` +
 	`IQ[1-4](_[A-Z]+)+|` + // IQ4_XS, IQ2_XXS, IQ3_M
 	`Q[2-8]_K(_[SML])?|` + // Q4_K_M, Q6_K, Q2_K_S
 	`Q[2-8]_[01]|` + // Q4_0, Q5_1, Q8_0
-	`TQ[12]_0|MXFP4(_MOE)?|NVFP4|BF16|FP16|F16|FP32|F32|FP8|AWQ|GPTQ` +
+	`TQ[12]_0|MXFP4(_MOE)?|NVFP4|BF16|FP16|F16|FP32|F32|FP8|AWQ|GPTQ|` +
+	// MLX (Apple Silicon) names its quants by bit width, not by llama.cpp's K-quant
+	// scheme: "Qwen3-30B-A3B-4bit", "...-8bit-DWQ". DWQ is a distinct RECIPE at the same
+	// width, so it is kept rather than folded into "4bit" - the same reason Q4_K_M and
+	// IQ4_XS stay apart.
+	`[3468]BIT(-DWQ)?|DWQ` +
 	`)($|[-_.])`)
+
+// canonicalQuantCase fixes the ONE family where upper-casing changes the name rather
+// than normalising it. llama.cpp's labels are published upper-case ("Q4_K_M"), so
+// upper-casing is a no-op that makes "q4_k_m" agree with them. MLX's are published
+// lower-case ("4bit", "8bit-DWQ"), and "4BIT" is a spelling no publisher uses - it would
+// not match what an operator sees in LM Studio or on the hub, and two stations serving
+// the same weights would end up on different rows depending on which runtime reported.
+func canonicalQuantCase(s string) string {
+	if !mlxBitRe.MatchString(s) {
+		return s
+	}
+	return strings.ToLower(strings.TrimSuffix(s, "-DWQ")) + strings.Repeat("-DWQ", strings.Count(s, "-DWQ"))
+}
+
+var mlxBitRe = regexp.MustCompile(`^[3468]BIT(-DWQ)?$`)
 
 func quantInName(name string) string {
 	base := filepath.Base(strings.TrimSpace(name))
@@ -69,7 +89,7 @@ func quantInName(name string) string {
 	if len(m) < 3 {
 		return ""
 	}
-	return strings.ToUpper(m[2])
+	return canonicalQuantCase(strings.ToUpper(m[2]))
 }
 
 // quantLabel resolves the best available label from every source, most-authoritative
@@ -82,7 +102,7 @@ func quantInName(name string) string {
 // requests.
 func quantLabel(runtime string, meta ggufMeta, path string) string {
 	if s := strings.ToUpper(strings.TrimSpace(runtime)); s != "" && s != "UNKNOWN" {
-		return s
+		return canonicalQuantCase(s)
 	}
 	if s := quantFromFileType(meta.FileType, meta.FileTypeSet); s != "" {
 		return s
@@ -164,4 +184,34 @@ func ggufFileTypeKey(info map[string]json.RawMessage) (uint32, bool) {
 // file, used as the last-resort source for the compression label.
 func headerVariants(meta ggufMeta, path string) (quant, weights, variant string) {
 	return quantLabel("", meta, path), meta.QuantizedBy, meta.Finetune
+}
+
+// LMStudioModel is one entry of LM Studio's /api/v0/models. It carries the variant axes
+// for BOTH formats it serves: GGUF quants ("Q4_K_M") and MLX quants ("4bit"), told apart
+// by CompatibilityType. Publisher is the "who built these weights" axis - the same thing
+// the GGUF header calls general.quantized_by.
+type LMStudioModel struct {
+	ID                string `json:"id"`
+	Quantization      string `json:"quantization"`
+	Publisher         string `json:"publisher"`
+	CompatibilityType string `json:"compatibility_type"`
+	LoadedCtx         int    `json:"loaded_context_length"`
+	MaxCtx            int    `json:"max_context_length"`
+}
+
+// lmStudioVariants reads the quant and the weights producer off one LM Studio entry.
+//
+// Everything returned is REPORTED BY THE SERVER about the file it loaded - nothing is
+// inferred from the model id. An entry that omits a field yields empty, which renders as
+// absent.
+func lmStudioVariants(m LMStudioModel) (quant, weights string) {
+	quant = canonicalQuantCase(strings.ToUpper(strings.TrimSpace(m.Quantization)))
+	if strings.EqualFold(quant, "UNKNOWN") {
+		quant = ""
+	}
+	// A publisher is only a WEIGHTS producer when someone re-published the weights.
+	// "lmstudio-community" and "mlx-community" are exactly that. The field is taken
+	// verbatim either way; deciding which publishers "count" would be an editorial call
+	// this layer has no business making.
+	return quant, strings.TrimSpace(m.Publisher)
 }

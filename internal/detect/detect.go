@@ -954,16 +954,25 @@ func enrichLMStudioCtx(f *Found, root string) {
 		return
 	}
 	var d struct {
-		Data []struct {
-			ID        string `json:"id"`
-			LoadedCtx int    `json:"loaded_context_length"`
-			MaxCtx    int    `json:"max_context_length"`
-		} `json:"data"`
+		Data []LMStudioModel `json:"data"`
 	}
 	_ = json.NewDecoder(resp.Body).Decode(&d)
 	resp.Body.Close()
 	for _, m := range d.Data {
-		if m.ID == "" || f.Ctx[m.ID] > 0 {
+		if m.ID == "" {
+			continue
+		}
+		// The SAME response already carries the variant axes, and this is the only
+		// enrichment that reaches MLX at all: an Apple-Silicon station running MLX through
+		// LM Studio has no GGUF header to read and no Ollama API to ask, so without this it
+		// published as a bare model id. Both formats report here — GGUF as "Q4_K_M", MLX as
+		// "4bit" — and `publisher` is the same "who built these weights" axis the GGUF
+		// header carries. The vocabulary itself lives in quant.go, which is where the
+		// hosting-compatibility spec requires all format knowledge to sit.
+		q, w := lmStudioVariants(m)
+		setVariantField(&f.Quant, m.ID, q)
+		setVariantField(&f.Weights, m.ID, w)
+		if f.Ctx[m.ID] > 0 {
 			continue
 		}
 		if c := firstPositive(m.LoadedCtx, m.MaxCtx); c > 0 {
