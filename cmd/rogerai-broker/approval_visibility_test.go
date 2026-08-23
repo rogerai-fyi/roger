@@ -9,9 +9,12 @@ import (
 	"testing"
 	"time"
 
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"github.com/stretchr/testify/require"
 	"rogerai.fm/roger/v6/internal/store"
 	"rogerai.fm/roger/v6/internal/towercore/admit"
@@ -218,4 +221,44 @@ func TestTheTowerRouteTableRegistersOnce(t *testing.T) {
 		mux := http.NewServeMux()
 		b.registerTowerRoutes(mux)
 	})
+}
+
+// Unreachable-by-design must be recognisable wherever it surfaces - the pre-screen, the
+// resolver path, and the dial-time backstop all wrap one sentinel.
+func TestNotPublicIsOneSentinelEverywhere(t *testing.T) {
+	for _, ip := range []string{"127.0.0.1", "10.0.0.1", "169.254.169.254", "::1"} {
+		require.ErrorIs(t, vetPublicIP(net.ParseIP(ip)), errNotPublic, ip)
+	}
+	require.NoError(t, vetPublicIP(net.ParseIP("93.184.216.34")))
+
+	// A hostname advert: resolved, vetted, and the sentinel survives the wrap.
+	err := endpointNotPublic(context.Background(), "localhost:8444", vetPublicIP)
+	require.ErrorIs(t, err, errNotPublic, "a LAN/loopback NAME is a design skip, not a failure")
+
+	// A literal public address, and the nil-vet test seam, both pass clean.
+	require.NoError(t, endpointNotPublic(context.Background(), "93.184.216.34:8444", vetPublicIP))
+	require.NoError(t, endpointNotPublic(context.Background(), "localhost:8444", nil))
+
+	// Unresolvable is NOT "not public": it may be broken, and broken is the canary's
+	// business to discover and score.
+	require.NoError(t, endpointNotPublic(context.Background(), "no-such-host.invalid:8444", vetPublicIP))
+}
+
+// The dial-time backstop's decision, tested directly: only the vet's own refusal is a
+// design-skip; every other dial failure is a Tower that could not carry the work.
+func TestCanaryDialVerdictSkipsOnlyDesignRefusals(t *testing.T) {
+	require.True(t, isDesignSkip(fmt.Errorf("dial: %w", errNotPublic)),
+		"a vet refusal at dial time is unreachable-by-design")
+	require.False(t, isDesignSkip(nil),
+		"a successful submit must NOT be read as a skip - the bug that scored healthy hubs as skip-fail")
+	require.False(t, isDesignSkip(errors.New("connection refused")),
+		"an ordinary transport error is a Tower that accepted work and dropped it")
+	require.False(t, isDesignSkip(context.DeadlineExceeded))
+}
+
+// The bind wildcards: unreachable by design on the canary side too, so a Tower that
+// somehow advertised one is skipped, never scored as failing.
+func TestVetRefusesBindWildcards(t *testing.T) {
+	require.ErrorIs(t, vetPublicIP(net.ParseIP("0.0.0.0")), errNotPublic)
+	require.ErrorIs(t, vetPublicIP(net.ParseIP("::")), errNotPublic)
 }

@@ -74,6 +74,13 @@ Feature: A Tower's approval is visible to the operator and workable for the admi
     Then the advertised endpoint uses this machine's outbound LAN address
     And serve prints the address it chose so a wrong guess is visible immediately
 
+  Scenario: A bind wildcard is not a reachable advertised address
+    Given serve is started with --relay-public 0.0.0.0:8444
+    Then serve resolves it to this machine's own address, as it does an empty host
+    And it says a bind wildcard is not something a node can dial
+    # 0.0.0.0 is the --hub bind argument mistaken for --relay-public. Advertised verbatim
+    # it would be dialable by nobody, and the tower would sit healthy and carry nothing.
+
   Scenario: A loopback relay endpoint is accepted and named for what it is
     Given serve advertises a loopback relay endpoint
     Then serve says only this machine can reach the hub and that the public network cannot

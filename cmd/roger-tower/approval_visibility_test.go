@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"context"
+	"fmt"
 	"github.com/stretchr/testify/require"
 )
 
@@ -46,11 +48,61 @@ func TestAnnounceStateSpeaksOperator(t *testing.T) {
 }
 
 func TestResolveAdvertisedIsHonest(t *testing.T) {
-	// A real host passes through untouched, silently.
+	// Names resolve through a seam, so these tests touch no DNS.
+	restore := lookupIPFn
+	defer func() { lookupIPFn = restore }()
+	fakeDNS := map[string][]net.IP{
+		"hub.example.net": {net.ParseIP("93.184.216.34")},
+		"roggentoo":       {net.ParseIP("192.168.1.40")},
+		"loopname":        {net.ParseIP("127.0.0.1")},
+	}
+	lookupIPFn = func(_ context.Context, _ string, host string) ([]net.IP, error) {
+		if ips, ok := fakeDNS[host]; ok {
+			return ips, nil
+		}
+		return nil, fmt.Errorf("no such host")
+	}
+
+	// A public name passes through, silently: nothing needs saying.
 	addr, note, err := resolveAdvertised("hub.example.net:8444")
 	require.NoError(t, err)
 	require.Equal(t, "hub.example.net:8444", addr)
 	require.Empty(t, note)
+
+	// A LAN name - the home-lab tier - is named for what it is, with the one trap called
+	// out: the name must resolve on every device that will dial it.
+	addr, note, err = resolveAdvertised("roggentoo:8444")
+	require.NoError(t, err)
+	require.Equal(t, "roggentoo:8444", addr, "the NAME stays advertised; the note shows the IP")
+	require.Contains(t, note, "LOCAL network")
+	require.Contains(t, note, "192.168.1.40")
+	require.Contains(t, note, "hosts file", "the hosts-file trap is the one that bites")
+
+	// A name that points home is the loopback tier, whatever it calls itself.
+	_, note, err = resolveAdvertised("loopname:8444")
+	require.NoError(t, err)
+	require.Contains(t, note, "only THIS machine")
+
+	// A name nothing can resolve is refused with the repair, not advertised broken.
+	_, _, err = resolveAdvertised("no-such-name:8444")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "does not resolve")
+	require.Contains(t, err.Error(), "IP address")
+
+	// 0.0.0.0 / :: are BIND wildcards, not reachable addresses - the --hub argument
+	// mistaken for --relay-public. Both mean "this machine", so they resolve to the
+	// outbound address exactly like the empty host, with a note that says why.
+	for _, wildcard := range []string{"0.0.0.0:8444", "[::]:8444"} {
+		addr, note, err := resolveAdvertised(wildcard)
+		require.NoError(t, err, wildcard)
+		host, port, serr := net.SplitHostPort(addr)
+		require.NoError(t, serr)
+		require.Equal(t, "8444", port)
+		require.False(t, net.ParseIP(host).IsUnspecified(), "%s must not stay a wildcard", wildcard)
+		require.False(t, net.ParseIP(host).IsLoopback())
+		require.Contains(t, note, "bind wildcard", "the note must name the mistake")
+		require.Contains(t, note, host, "and show the address it chose instead")
+	}
 
 	// Loopback is accepted and named for what it is.
 	addr, note, err = resolveAdvertised("127.0.0.1:8444")

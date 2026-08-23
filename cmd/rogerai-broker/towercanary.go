@@ -34,7 +34,7 @@ import (
 	"strings"
 	"time"
 
-	"net"
+	"errors"
 	"rogerai.fm/roger/v6/internal/towercore/dispatch"
 	"rogerai.fm/roger/v6/internal/towercore/envelope"
 	"rogerai.fm/roger/v6/internal/towercore/fleet"
@@ -276,12 +276,10 @@ func (b *broker) driveSealedCanary(grant dispatch.EdgeGrant, target dispatch.Tar
 	// Core's host or network (server-side request forgery). A loopback advert is a
 	// legitimate same-machine test rig for its OWN node - it is simply not canaryable,
 	// and the skip is recorded as unreachable-by-design rather than counted as a failure.
-	if ip := net.ParseIP(hostOf(endpoint)); ip != nil && b.canaryVet != nil {
-		if verr := b.canaryVet(ip); verr != nil {
-			log.Printf("canary: tower %s endpoint %s skipped: %v (unreachable by design, not a failure)",
-				target.TowerID, endpoint, verr)
-			return ""
-		}
+	if verr := endpointNotPublic(context.Background(), endpoint, b.canaryVet); verr != nil {
+		log.Printf("canary: tower %s endpoint %s skipped: %v (unreachable by design, not a failure)",
+			target.TowerID, endpoint, verr)
+		return ""
 	}
 	base, httpc, err := towerhub.ReachVetted(endpoint, endpointPin, b.canaryVet)
 	if err != nil {
@@ -295,6 +293,13 @@ func (b *broker) driveSealedCanary(grant dispatch.EdgeGrant, target dispatch.Tar
 	ctx, cancel := context.WithTimeout(context.Background(), canaryTimeout)
 	defer cancel()
 	res, err := hc.SubmitJob(ctx, grant.Signed, sealedRaw)
+	if isDesignSkip(err) {
+		// A dial-time refusal from the vet is the rebinding backstop behind the
+		// pre-screen: unreachable by design, not a failing Tower. ONLY this error skips;
+		// a nil error or any other transport failure falls through to be judged below.
+		log.Printf("canary: tower %s endpoint %s skipped at dial: %v", target.TowerID, endpoint, err)
+		return ""
+	}
 	if err != nil || res.Failure != "" || len(res.Envelope) == 0 || len(res.Receipt) == 0 {
 		return reputation.CanaryFail
 	}
@@ -571,3 +576,9 @@ func (b *broker) towerCanarySweepOnce() {
 		}
 	}
 }
+
+// isDesignSkip reports whether a hub-submit error is the dial-time vet's own refusal - and
+// ONLY that. A nil error (the submit worked) and every ordinary transport failure return
+// false, so a healthy canary is not skipped and a Tower that dropped the work is not
+// excused. Extracted so this decision is proven without staging a live DNS rebind.
+func isDesignSkip(err error) bool { return errors.Is(err, errNotPublic) }

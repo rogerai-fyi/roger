@@ -18,6 +18,7 @@ package main
 // legacy files an operator still carries, and Core excludes what nothing can serve.
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -507,20 +508,73 @@ func resolveAdvertised(endpoint string) (addr, note string, err error) {
 	if err != nil {
 		return "", "", fmt.Errorf("--relay-public must be a dialable host:port, got %q", endpoint)
 	}
-	if host == "" {
+	parsed := net.ParseIP(host)
+	// An empty host (":8444") or an UNSPECIFIED one ("0.0.0.0", "::") is a BIND wildcard,
+	// not a reachable address - the thing you pass to --hub to listen on every interface,
+	// mistaken for the thing you advertise. You cannot dial 0.0.0.0. Both mean "this
+	// machine", so resolve to the machine's own outbound address and say what happened.
+	if host == "" || (parsed != nil && parsed.IsUnspecified()) {
 		ip, derr := outboundIP()
 		if derr != nil {
-			return "", "", fmt.Errorf("--relay-public %q names no host and this machine's own "+
-				"address could not be determined (%v) - pass the address explicitly", endpoint, derr)
+			return "", "", fmt.Errorf("--relay-public %q is a bind wildcard, not a reachable address, "+
+				"and this machine's own address could not be determined (%v) - pass the address explicitly", endpoint, derr)
 		}
-		return net.JoinHostPort(ip, port),
-			fmt.Sprintf("relay-public had no host: advertising this machine's address, %s", net.JoinHostPort(ip, port)), nil
+		resolved := net.JoinHostPort(ip, port)
+		why := "had no host"
+		if host != "" {
+			why = fmt.Sprintf("was %s, a bind wildcard nothing can dial", host)
+		}
+		return resolved, fmt.Sprintf("relay-public %s: advertising this machine's address, %s", why, resolved), nil
 	}
-	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
-		return endpoint, "relay-public is loopback: only THIS machine can reach the hub. " +
-			"Fine for testing; the public network (and Core's canary) cannot reach it.", nil
+	if parsed != nil {
+		return endpoint, classifyAdvertised(host, []net.IP{parsed}, false), nil
 	}
-	return endpoint, "", nil
+	// A NAME - "roggentoo", "hub.example.net". Resolve it here, on the operator's own
+	// machine, and say what it points at: a LAN name is a first-class home-lab tier, and
+	// the operator deserves to know which tier they just advertised - and that the name
+	// must resolve on every device that will dial it, which an /etc/hosts entry on this
+	// box alone does not give them.
+	rctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	ips, rerr := lookupIPFn(rctx, "ip", host)
+	if rerr != nil || len(ips) == 0 {
+		return "", "", fmt.Errorf("--relay-public names %q, which does not resolve on this machine (%v). "+
+			"Every device dialing the hub must be able to resolve it - use the IP address if unsure", host, rerr)
+	}
+	return endpoint, classifyAdvertised(host, ips, true), nil
+}
+
+// lookupIPFn is the advert's resolver, a seam so tests classify names without DNS.
+var lookupIPFn = net.DefaultResolver.LookupIP
+
+// classifyAdvertised names the tier an advert lands in, in the operator's language:
+// loopback is a same-machine test rig, a private address is the home-lab LAN tier, and a
+// public one says nothing because nothing needs saying.
+func classifyAdvertised(host string, ips []net.IP, named bool) string {
+	loop, private := false, false
+	shown := ips[0].String()
+	for _, ip := range ips {
+		switch {
+		case ip.IsLoopback():
+			loop = true
+		case ip.IsPrivate() || ip.IsLinkLocalUnicast():
+			private = true
+		}
+	}
+	switch {
+	case loop:
+		return "relay-public is loopback: only THIS machine can reach the hub. " +
+			"Fine for testing; the public network (and Core's canary) cannot reach it."
+	case private && named:
+		return fmt.Sprintf("relay-public %q resolves to %s - a LOCAL network address. Devices on "+
+			"your LAN can reach the hub; the public network (and Core's canary) cannot. "+
+			"Note: every device dialing the hub must resolve %q itself - if the name lives only "+
+			"in this machine's hosts file, advertise %s instead.", host, shown, host, shown)
+	case private:
+		return fmt.Sprintf("relay-public %s is a LOCAL network address. Devices on your LAN can "+
+			"reach the hub; the public network (and Core's canary) cannot.", host)
+	}
+	return ""
 }
 
 // outboundIP is the address this machine uses to reach the world: a UDP "dial" that
