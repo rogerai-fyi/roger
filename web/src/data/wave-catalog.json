@@ -1,7 +1,7 @@
 {
  "_provenance": {
   "source": "wavesim.catalog()",
-  "hierarchy": "~/ai/computer-scientist/build/roger-wave/hierarchy",
+  "hierarchy": "roger-wave/hierarchy",
   "exported": "2026-08-13",
   "assets": 17,
   "channels": 95,

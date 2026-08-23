@@ -1,7 +1,7 @@
 {
  "_provenance": {
   "exported": "2026-08-14",
-  "hierarchy": "~/ai/computer-scientist/build/roger-wave/hierarchy",
+  "hierarchy": "roger-wave/hierarchy",
   "suite": "IEB-Signals v1.2",
   "sources": {
    "frames": "out/margin-per-frame.json",

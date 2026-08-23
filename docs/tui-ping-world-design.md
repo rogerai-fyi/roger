@@ -10,7 +10,7 @@ Look law: **~95% monochrome ink + exactly ONE red glint** (the on-air beacon / P
 
 ## 0. Research log — what I looked at and what I drew from
 
-All gathered with `~/ai/hermes-brains/bin/web-fetch` (browser daemon; `--ping` = `{"ok":true}`).
+All gathered with a headed-browser fetch daemon (`--ping` = `{"ok":true}`).
 
 | Source | Mode | What I drew from it |
 |---|---|---|

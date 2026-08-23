@@ -20,7 +20,9 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const DEFAULT_HIERARCHY = resolve(process.env.HOME || "", "ai/computer-scientist/build/roger-wave/hierarchy");
+// No baked-in default: the research tree lives outside this repo, and where it sits is
+// the operator's business. Pass --hierarchy <path> or set WAVE_HIERARCHY.
+const DEFAULT_HIERARCHY = process.env.WAVE_HIERARCHY || "";
 const DEFAULT_OUT = resolve(HERE, "..", "src", "data", "wave-windows.json");
 
 function arg(name, fallback) {
@@ -106,7 +108,8 @@ if (refused > 0) {
 const doc = {
   _provenance: {
     exported: new Date().toISOString().slice(0, 10),
-    hierarchy: hierarchy.replace(process.env.HOME || "~", "~"),
+    // Provenance names WHICH tree, never where it sits on someone's disk.
+    hierarchy: "roger-wave/hierarchy",
     sources: used,
     note: "Raw sample series for the records in wave-measured.json, joined by (scene_id, channel_id) " +
       "from the SAME scene files fleet_sim recomputes evidence from. Every series is verified against " +

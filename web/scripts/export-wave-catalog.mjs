@@ -2,7 +2,7 @@
 // Export the Wave Mesh device catalog from wavesim.py into a COMMITTED static snapshot.
 //
 // WHY A SNAPSHOT AND NOT A BUILD STEP. wavesim.py lives in a different repo
-// (~/ai/computer-scientist/build/roger-wave/hierarchy) and needs a working Python
+// (the wave-mesh research repo, outside this one) and needs a working Python
 // environment. Shelling out to it during `npm run build` would couple this site's build -
 // and CI - to a checkout that is not there. So the catalog is exported deliberately, by a
 // human running this script, and the result is committed. The site build stays hermetic and
@@ -23,10 +23,9 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const DEFAULT_HIERARCHY = resolve(
-  process.env.HOME || "",
-  "ai/computer-scientist/build/roger-wave/hierarchy",
-);
+// No baked-in default: the research tree lives outside this repo, and where it sits is
+// the operator's business. Pass --hierarchy <path> or set WAVE_HIERARCHY.
+const DEFAULT_HIERARCHY = process.env.WAVE_HIERARCHY || "";
 const DEFAULT_OUT = resolve(HERE, "..", "src", "data", "wave-catalog.json");
 
 function arg(name, fallback) {
@@ -86,7 +85,9 @@ const channels = names.reduce((n, k) => n + Object.keys(catalog[k].channels || {
 const doc = {
   _provenance: {
     source: "wavesim.catalog()",
-    hierarchy: hierarchy.replace(process.env.HOME || "~", "~"),
+    // Provenance names WHICH tree, never where it sits on someone's disk: the
+    // snapshot is committed to a public repo, and a home path is not data.
+    hierarchy: "roger-wave/hierarchy",
     exported: new Date().toISOString().slice(0, 10),
     assets: names.length,
     channels,
@@ -182,7 +183,9 @@ writeFileSync(
     {
       _provenance: {
         source: "wavesim.make(spec) + wavesim.render(channel, modality)",
-        hierarchy: hierarchy.replace(process.env.HOME || "~", "~"),
+        // Provenance names WHICH tree, never where it sits on someone's disk: the
+    // snapshot is committed to a public repo, and a home path is not data.
+    hierarchy: "roger-wave/hierarchy",
         exported: new Date().toISOString().slice(0, 10),
         reproduce: "deterministic for this seed - re-run the spec to get these bytes back",
         label: "RECORDED - real renderer output, captured. Never present as live.",
