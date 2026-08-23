@@ -1,4 +1,4 @@
-  90.2%  rogerai.fm/roger/v6/cmd/roger-tower
+  90.0%  rogerai.fm/roger/v6/cmd/roger-tower
   90.3%  rogerai.fm/roger/v6/cmd/rogerai
   90.1%  rogerai.fm/roger/v6/cmd/rogerai-broker
   94.7%  rogerai.fm/roger/v6/cmd/tokenizer-sidecar
@@ -7,7 +7,7 @@
   96.7%  rogerai.fm/roger/v6/internal/brief
   96.9%  rogerai.fm/roger/v6/internal/capsule
  100.0%  rogerai.fm/roger/v6/internal/catalog
-  91.5%  rogerai.fm/roger/v6/internal/client
+  91.7%  rogerai.fm/roger/v6/internal/client
   93.1%  rogerai.fm/roger/v6/internal/clockprobe
   91.2%  rogerai.fm/roger/v6/internal/detect
   90.7%  rogerai.fm/roger/v6/internal/deviceauth
@@ -44,7 +44,7 @@
   92.4%  rogerai.fm/roger/v6/internal/towercore/payauth
   96.2%  rogerai.fm/roger/v6/internal/towercore/policy
   94.7%  rogerai.fm/roger/v6/internal/towercore/reputation
-  90.2%  rogerai.fm/roger/v6/internal/towerhub
+  90.4%  rogerai.fm/roger/v6/internal/towerhub
   90.1%  rogerai.fm/roger/v6/internal/towerjoin
   93.8%  rogerai.fm/roger/v6/internal/towerobj
   90.6%  rogerai.fm/roger/v6/internal/towerstore
