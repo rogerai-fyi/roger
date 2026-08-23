@@ -219,15 +219,26 @@ body.auth {
 /* ---- links: ink, the red glint only on hover. The rule used to set red at REST,
    contradicting this comment, and because .card a outranks .gh it also painted both
    sign-in buttons red with a red underline. :not(.gh) keeps the link treatment off the
-   controls instead of relying on specificity to sort it out. ---- */
-.card a:not(.gh) {
+   controls instead of relying on specificity to sort it out.
+
+   .primary is the SAME bug, found later and in a nastier form. This selector is (0,2,1)
+   and .primary is (0,1,0), so it also won against the button rule and repainted the text
+   `var(--ink-900)` - which is exactly what .primary uses for its BACKGROUND. The device
+   page's "Sign in" anchor rendered as an unreadable blank slab: cream on cream in dark,
+   near-black on near-black in light. It was invisible in BOTH themes, so no toggle
+   revealed it.
+
+   The lesson the earlier fix already wrote down: a control that happens to be an <a> must
+   be excluded by name here, because the link treatment out-specifies every button rule.
+   If a third button class appears, it belongs in this list too. ---- */
+.card a:not(.gh):not(.primary) {
   color: var(--ink-900);
   border-bottom: 1px solid var(--hairline-2);
   transition: color var(--d-1) var(--ease-standard),
                border-color var(--d-1) var(--ease-standard);
 }
-.card a:not(.gh):hover { color: var(--live); border-bottom-color: var(--live); }
-.card a:not(.gh):focus-visible {
+.card a:not(.gh):not(.primary):hover { color: var(--live); border-bottom-color: var(--live); }
+.card a:not(.gh):not(.primary):focus-visible {
   outline: 2px solid var(--live);
   outline-offset: 2px;
   border-radius: var(--r-xs);

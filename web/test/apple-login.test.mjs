@@ -35,8 +35,16 @@ test("login: the sign-in buttons are never painted by the card link rule (the re
   // Regression lock for 7c9fbf1: `.card a` outranked `.gh` and painted both provider
   // buttons red with a red underline. The card link rule must exclude .gh, and nothing
   // may give .gh the --live treatment at rest.
+  //
+  // Amended 2026-08-22: this asserted the literal `.card a:not(.gh) {`, which pinned the
+  // SHAPE of the selector rather than the guarantee. When .primary turned out to have the
+  // same bug (invisible "Sign in" on device.html) the selector became
+  // `.card a:not(.gh):not(.primary)` — strictly better, and this failed anyway. Re-anchored
+  // to what the lock is actually for: whatever else it excludes, the rule excludes .gh.
   const css = read("styles/account-base.css");
-  assert.match(css, /\.card a:not\(\.gh\)\s*\{/, "the card link rule excludes .gh controls");
+  const cardLink = css.match(/^\.card a(?::not\([^)]*\))*\s*\{/m);
+  assert.ok(cardLink, "a `.card a` link rule exists");
+  assert.ok(cardLink[0].includes(":not(.gh)"), "the card link rule excludes .gh controls");
   const restGh = css.match(/^\s*\.gh\s*\{[\s\S]*?\}/m);
   assert.ok(restGh, ".gh rest rule exists");
   assert.doesNotMatch(restGh[0], /--live/, ".gh at rest never uses the live red");
