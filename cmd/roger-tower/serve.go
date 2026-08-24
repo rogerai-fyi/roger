@@ -134,9 +134,9 @@ func serveJoined(st *tower.State, out io.Writer, relayPublic string, hub hubOpti
 // errStandaloneCannotServeJoined is the one refusal both doors give, so the two cannot drift
 // into saying different things about the same rule.
 var errStandaloneCannotServeJoined = errors.New(
-	"this Tower is standalone: it serves its own local network and needs nothing from " +
-		"RogerAI. `serve` here is for a joined Tower - initialize a new data directory " +
-		"with --mode joined to join the public network")
+	"this Tower is standalone: serve its own local network with `roger-tower-local --dir DIR` " +
+		"(a separate, Core-free binary; loopback by default). `serve` here is for a JOINED " +
+		"Tower - initialize a new data directory with --mode joined to join the public network")
 
 func realTicker(d time.Duration) (<-chan time.Time, func()) {
 	t := time.NewTicker(d)

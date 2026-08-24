@@ -172,7 +172,7 @@ func (s *State) Lock() (release func() error, err error) {
 	}
 	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		f.Close()
-		return nil, fmt.Errorf("another Tower process already owns %s", s.dir)
+		return nil, fmt.Errorf("another Tower process already owns %s (stop the running `serve` / `roger-tower-local` to make changes; read-only commands like status/stations/route run fine alongside it)", s.dir)
 	}
 	return func() error {
 		defer f.Close()
