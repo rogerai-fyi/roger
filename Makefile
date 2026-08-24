@@ -22,6 +22,7 @@ build:
 	ln -sf roger bin/rogerai          # back-compat alias: the command is `roger`, `rogerai` still works
 	go build -o bin/tokenizer-sidecar ./cmd/tokenizer-sidecar
 	go build -ldflags "$(TOWER_VERSION_LDFLAGS)" -o bin/roger-tower ./cmd/roger-tower
+	go build -ldflags "$(TOWER_VERSION_LDFLAGS)" -o bin/roger-tower-local ./cmd/roger-tower-local
 
 # beta: a single stamped, trimmed binary for the host platform, named by its semver
 # (e.g. bin/roger-4.8.0-beta.1). Requires VERSION, which must be a semver.

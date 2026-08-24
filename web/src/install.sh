@@ -13,16 +13,19 @@ set -eu
 
 REPO="rogerai-fyi/roger"
 # Which component to install. The default is the `roger` client. Set ROGERAI_COMPONENT=tower
-# to install `roger-tower`, the self-hosted relay:
+# to install `roger-tower` (the self-hosted relay), or =tower-local for `roger-tower-local`
+# (the standalone consumer plane's Core-free serving binary):
 #   curl -fsSL https://rogerai.fm/install.sh | ROGERAI_COMPONENT=tower sh
+#   curl -fsSL https://rogerai.fm/install.sh | ROGERAI_COMPONENT=tower-local sh
 # Everything below - platform detection, release resolution, checksum verification, the
 # fail-closed behaviour on a missing asset - is shared, so the Tower install inherits the
 # same guarantees as the client rather than getting a second, less-tested script.
 COMPONENT="${ROGERAI_COMPONENT:-client}"
 case "$COMPONENT" in
-  client) BIN="roger";       ALIAS="rogerai"; SRC_PKG="./cmd/rogerai" ;;
-  tower)  BIN="roger-tower"; ALIAS="";        SRC_PKG="./cmd/roger-tower" ;;
-  *) printf '%s\n' "unknown ROGERAI_COMPONENT: $COMPONENT (want: client or tower)" >&2; exit 1 ;;
+  client)      BIN="roger";             ALIAS="rogerai"; SRC_PKG="./cmd/rogerai" ;;
+  tower)       BIN="roger-tower";       ALIAS="";        SRC_PKG="./cmd/roger-tower" ;;
+  tower-local) BIN="roger-tower-local"; ALIAS="";        SRC_PKG="./cmd/roger-tower-local" ;;
+  *) printf '%s\n' "unknown ROGERAI_COMPONENT: $COMPONENT (want: client, tower, or tower-local)" >&2; exit 1 ;;
 esac
 INSTALL_DIR="${ROGERAI_INSTALL_DIR:-$HOME/.local/bin}"
 # Override the version with:  ROGERAI_VERSION=v0.2.0 sh install.sh
@@ -75,9 +78,11 @@ esac
 # A Tower is a long-running server process; the standalone MVP targets an ordinary Linux
 # host, container runtime, or Kubernetes. Say so rather than fetching an asset that was
 # deliberately never built.
-if [ "$COMPONENT" = "tower" ] && [ "$OS" != "linux" ]; then
-  die "roger-tower ships for Linux only (a Tower is a server process). Your platform: ${OS}."
-fi
+case "$COMPONENT" in tower|tower-local)
+  if [ "$OS" != "linux" ]; then
+    die "${BIN} ships for Linux only (a Tower is a server process). Your platform: ${OS}."
+  fi ;;
+esac
 
 # ---- detect arch ----------------------------------------------------
 arch="$(uname -m 2>/dev/null || echo unknown)"

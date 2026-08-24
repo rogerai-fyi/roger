@@ -21,6 +21,9 @@ import (
 	"rogerai.fm/roger/v6/internal/tower"
 )
 
+// version is set at build time by the release pipeline (-X main.version=...).
+var version = "dev"
+
 // osExit is a seam so main's failure exit is testable without ending the test process.
 var osExit = os.Exit
 
@@ -107,6 +110,11 @@ func (p *prepared) serve() error {
 }
 
 func run(args []string, out io.Writer) error {
+	// `version` / `--version` reports the build and returns; there is nothing to serve.
+	if len(args) == 1 && (args[0] == "version" || args[0] == "--version") {
+		fmt.Fprintln(out, version)
+		return nil
+	}
 	p, err := prepare(args, out)
 	if err != nil {
 		return err

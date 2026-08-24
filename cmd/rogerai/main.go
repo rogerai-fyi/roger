@@ -1395,6 +1395,16 @@ needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
 	// language / sample_url + default voice/speed) rides the headless offer exactly as it
 	// does the TUI's, explicit flags winning.
 	applyShareVoice(cfg, mdl, &cfgRun)
+
+	// A STANDALONE Tower as the broker: serve its own local network directly. A probe of
+	// /local/poll tells a standalone Tower (which answers) apart from the public broker (which
+	// 404s), so `roger share` pointed at a local Tower Just Works - no registration, no relay
+	// fabric, no on-air lock, no login. The node polls the Tower and serves its stations for
+	// free, and returns here only when the operator stops it.
+	if isLocalTowerBroker(cfgRun.Broker) {
+		return serveLocalTowerShare(cfgRun, os.Stdout)
+	}
+
 	// Single-instance guard: detect (via a per-node-id lockfile) a `roger share`
 	// already on air for THIS node id and bow out, rather than double-registering it
 	// and breaking routing/earnings. A stale lock from a crashed daemon is reclaimed.
