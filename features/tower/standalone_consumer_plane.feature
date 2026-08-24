@@ -13,8 +13,13 @@
 #    (protocol.UserIDFromPubkey), with all failures a byte-identical 401.
 #  - /discover over the Tower's own stations, admitted clients only.
 #  - the bind posture: loopback default, public/all-interfaces refused without an override.
-# NOT yet built: the completion loop (/v1/chat/completions + the local work queue a station
-# polls + persisted receipts), replay defense, the airgap clock seam, and resource limits.
+#  - the completion loop: /v1/chat/completions enqueues, a station polls /local/poll and
+#    returns via /local/complete (only the station that took a job may complete it), the
+#    consumer gets the answer with a free cost header, and a persisted local receipt is
+#    written. An Open Market model this Tower does not host is refused after auth, nothing
+#    dialed. Station requests are authenticated as an attached station.
+# NOT yet built: per-request replay defense (beyond the 5-min signature window), the airgap
+# clock seam, and the resource limits (concurrency + per-client rate) beyond the body caps.
 
 Feature: A standalone Tower serves its own network and no one else's
   The airgap plant: model boxes `roger share` to a local Tower, operators point roger at

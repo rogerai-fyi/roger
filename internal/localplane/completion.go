@@ -1,0 +1,211 @@
+package localplane
+
+import (
+	"context"
+	crand "crypto/rand"
+	"encoding/hex"
+	"encoding/json"
+	"io"
+	"net/http"
+	"time"
+
+	"rogerai.fm/roger/v6/internal/protocol"
+	"rogerai.fm/roger/v6/internal/tower"
+)
+
+// maxPromptBody bounds an authenticated consumer prompt. It is larger than the auth cap (a
+// real prompt is bigger than a signature preamble) but still finite, so one client cannot make
+// the Tower buffer unbounded work. The resource-limit slice adds concurrency and per-client
+// rate on top of this.
+const maxPromptBody = 8 << 20 // 8 MiB
+
+// writeJSON writes a JSON body with the right content type and status, the same way the
+// uniform refusal does - so no handler leaks a text/plain body where a client expects JSON.
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(v)
+}
+
+// randID is a fresh request/job identifier. crypto/rand, so a station cannot guess an id it
+// was not handed and complete someone else's job.
+func randID() string {
+	var b [12]byte
+	_, _ = crand.Read(b[:])
+	return hex.EncodeToString(b[:])
+}
+
+// authStation verifies a station's signed request and maps it to an ATTACHED station by the
+// same canonical rule clients use (protocol.UserIDFromPubkey over its pubkey == the station's
+// recorded key hash). Only an attached station may poll for work or return an answer; every
+// failure is the same uniform refusal, revealing nothing about the fleet.
+func (s *Server) authStation(r *http.Request, body []byte) (tower.Station, bool) {
+	pub := r.Header.Get(protocol.HeaderPubkey)
+	sig := r.Header.Get(protocol.HeaderSig)
+	ts := parseTS(r.Header.Get(protocol.HeaderTS))
+	keyHash, verified := protocol.VerifyRequest(pub, sig, ts, r.Method, r.URL.Path, body)
+	if !verified {
+		return tower.Station{}, false
+	}
+	stations, err := s.st.Stations()
+	if err != nil {
+		return tower.Station{}, false
+	}
+	for _, st := range stations {
+		if st.KeyHash == keyHash {
+			return st, true
+		}
+	}
+	return tower.Station{}, false
+}
+
+// chatRequest is the one field the plane reads from a consumer request: the model. Everything
+// else in the body is opaque and passed to the station verbatim. Notably, the plane reads NO
+// RogerAI account, wallet, X-Roger-Freq band, or grant key from the request - none of it
+// authenticates or routes anything here, and none is echoed back.
+type chatRequest struct {
+	Model string `json:"model"`
+}
+
+// chatCompletions serves one completion by routing it to a LOCAL station and waiting for the
+// station to poll, run it, and return the answer. The Tower dials nobody: the answer arrives
+// because a station connected in. An Open Market model this Tower does not host is refused
+// after authentication, and nothing is dialed - there is no code linked that could.
+func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
+	body := readPrompt(r)
+	clientKeyHash, ok := s.authClient(r, body)
+	if !ok {
+		unauthorized(w)
+		return
+	}
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	var req chatRequest
+	if err := json.Unmarshal(body, &req); err != nil || req.Model == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "a model is required"})
+		return
+	}
+	// The model must be offered by one of THIS Tower's own stations. A model only the Open
+	// Market sells is refused here - named only to the already-authenticated client - and no
+	// outbound connection is attempted, because none can be.
+	offered, err := s.offersModel(req.Model)
+	if err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "unavailable"})
+		return
+	}
+	if !offered {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "model not offered by any local station: " + req.Model})
+		return
+	}
+
+	jobID := randID()
+	j := s.q.submit(jobID, req.Model, body)
+	select {
+	case res := <-j.result:
+		// Record the free, local receipt for the station that actually served it, then relay
+		// the station's answer verbatim with a free cost header - never a billing shape.
+		if _, rerr := s.st.RecordReceipt(clientKeyHash, res.stationID, req.Model); rerr != nil {
+			// The work happened; a receipt-write failure must not swallow the answer. Log-free
+			// here (the package makes no assumptions about a logger); the answer still returns.
+			_ = rerr
+		}
+		w.Header().Set("X-Roger-Cost", "0")
+		w.Header().Set("X-Roger-Local", "1")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(res.answer)
+	case <-r.Context().Done():
+		// The consumer disconnected: abandon the job so it neither leaks nor is later run as
+		// stale work, and write nothing to a socket that is already gone.
+		s.q.abandon(jobID)
+	case <-time.After(s.completionTimeout):
+		s.q.abandon(jobID)
+		writeJSON(w, http.StatusGatewayTimeout, map[string]any{"error": "no local station served this request in time"})
+	}
+}
+
+// offersModel reports whether any attached station serves the model.
+func (s *Server) offersModel(model string) (bool, error) {
+	stations, err := s.st.Stations()
+	if err != nil {
+		return false, err
+	}
+	for _, st := range stations {
+		if serves(st.Models, model) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// localPoll is the station side of the queue: an attached station long-polls for a job it can
+// serve. A job returns 200 with the request to run; no job within the poll window returns 204,
+// and the station polls again. The station connects IN; the Tower never dials it.
+func (s *Server) localPoll(w http.ResponseWriter, r *http.Request) {
+	body := readPrompt(r)
+	station, ok := s.authStation(r, body)
+	if !ok {
+		unauthorized(w)
+		return
+	}
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), s.pollTimeout)
+	defer cancel()
+	j, got := s.q.poll(ctx, station.ID, station.Models)
+	if !got {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"job_id":  j.id,
+		"model":   j.model,
+		"request": json.RawMessage(j.body),
+	})
+}
+
+// completeRequest is a station returning an answer for a job it took.
+type completeRequest struct {
+	JobID  string          `json:"job_id"`
+	Answer json.RawMessage `json:"answer"`
+}
+
+// localComplete delivers a station's answer to the waiting consumer. Only the station that
+// took the job may complete it (the queue enforces that); a completion for an unknown or
+// already-abandoned job is accepted and dropped, so a late station learns nothing.
+func (s *Server) localComplete(w http.ResponseWriter, r *http.Request) {
+	body := readPrompt(r)
+	station, ok := s.authStation(r, body)
+	if !ok {
+		unauthorized(w)
+		return
+	}
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	var req completeRequest
+	if err := json.Unmarshal(body, &req); err != nil || req.JobID == "" || len(req.Answer) == 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "a job_id and answer are required"})
+		return
+	}
+	delivered := s.q.complete(req.JobID, station.ID, req.Answer)
+	writeJSON(w, http.StatusOK, map[string]any{"delivered": delivered})
+}
+
+// readPrompt reads at most the authenticated-prompt cap. The signature is verified over these
+// exact bytes, so a body larger than the cap simply fails to verify rather than being acted on.
+func readPrompt(r *http.Request) []byte {
+	if r.Body == nil {
+		return nil
+	}
+	b, _ := io.ReadAll(io.LimitReader(r.Body, maxPromptBody))
+	return b
+}
