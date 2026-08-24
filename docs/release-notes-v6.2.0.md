@@ -84,4 +84,6 @@ standing quant routing rule, then the input-price money cap (`roger config set-l
 stopped applying, or a money cap vanished. The console's save now merges - it carries every
 field its form does not edit - and the shared limit store is mutex-guarded, closing a
 concurrent-write crash between the two surfaces. Regression tests pin each case, including a
-race test that hammers both surfaces at once.
+race test that hammers both surfaces at once. The console's quant field also now accepts the
+terminal's own space-separated format, so a rule pasted from the terminal (`Q4_K_M IQ4_XS`)
+is read as its labels rather than one that matches nothing.
