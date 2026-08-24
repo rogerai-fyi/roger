@@ -35,6 +35,7 @@ import (
 	"rogerai.fm/roger/v6/internal/towercore/envelope"
 	"rogerai.fm/roger/v6/internal/towercore/fleet"
 	"rogerai.fm/roger/v6/internal/towercore/link"
+	"rogerai.fm/roger/v6/internal/towercore/origin"
 	"rogerai.fm/roger/v6/internal/towercore/reputation"
 	"rogerai.fm/roger/v6/internal/towerhub"
 )
@@ -933,4 +934,34 @@ func drainBalance(t *testing.T, b *broker, priv ed25519.PrivateKey) {
 		_, err = b.db.AddCredits(wallet, -bal)
 		require.NoError(t, err)
 	}
+}
+
+// bridgeFailOrigin fails every origin write, to prove a broken origin tally never breaks a
+// consumer request - the bridge logs and serves anyway.
+type bridgeFailOrigin struct{ origin.Store }
+
+func (bridgeFailOrigin) Record(string, string, string, time.Time) error {
+	return errBridgeOrigin
+}
+
+var errBridgeOrigin = fmt.Errorf("origin down (test)")
+
+func TestBridgeServesEvenWhenOriginRecordFails(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	const model = "origin-fail-model"
+	live := liveSealedFabric(t, b, srv, model)
+	_ = live
+	b.tower.origin = bridgeFailOrigin{b.tower.origin} // origin writes now fail
+
+	consumer := signedInConsumer(t, b)
+	body := `{"model":"` + model + `","messages":[{"role":"user","content":"ping"}]}`
+	served := false
+	for seed := int64(0); seed < 8 && !served; seed++ {
+		req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+		rec := httptest.NewRecorder()
+		if b.relayViaEdge(rec, req, model, false, []byte(body), rngFromSeed(seed), false, authFor(t, b, consumer)) && rec.Code == http.StatusOK {
+			served = true
+		}
+	}
+	require.True(t, served, "a failed origin write must not stop the request being served")
 }

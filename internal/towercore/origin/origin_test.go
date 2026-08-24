@@ -181,3 +181,38 @@ func TestOriginPGSurfacesDBErrors(t *testing.T) {
 	_, err = st.ByTower("tw", time.Time{})
 	require.Error(t, err, "a dead handle fails the read")
 }
+
+// The migration must fix an ALREADY-DEPLOYED database, not just a fresh one. An earlier
+// schema created tower_origin_seen WITH a NOT NULL `at` column; NewPGStore must drop it, or
+// the attempt-id-only INSERT would violate NOT NULL and the tally would stop recording. This
+// stands up the OLD table shape first, then proves the store works over it.
+func TestOriginPGMigratesAwayTheSeenTimestamp(t *testing.T) {
+	dsn := os.Getenv("ROGERAI_TEST_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("no ROGERAI_TEST_DATABASE_URL; the migration path needs a real handle")
+	}
+	if u, err := url.Parse(dsn); err == nil && u.Path != "" && u.Path != "/" {
+		u.Path = "/" + strings.TrimPrefix(u.Path, "/") + "_origin"
+		dsn = u.String()
+	}
+	db, err := sql.Open("pgx", dsn)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	_, _ = db.Exec(`CREATE SCHEMA IF NOT EXISTS rogerai`)
+	// Reproduce the OLD deployed shape: drop the table, recreate it WITH the NOT NULL at.
+	_, err = db.Exec(`DROP TABLE IF EXISTS rogerai.tower_origin_seen`)
+	require.NoError(t, err)
+	_, err = db.Exec(`CREATE TABLE rogerai.tower_origin_seen (attempt_id TEXT PRIMARY KEY, at TIMESTAMPTZ NOT NULL)`)
+	require.NoError(t, err)
+
+	// NewPGStore applies the migration (drops `at`), so the attempt-id-only insert succeeds.
+	st, err := NewPGStore(db)
+	require.NoError(t, err)
+	require.NoError(t, st.Record("tw-mig", "att-mig", "US", time.Now()),
+		"the attempt-id-only insert must succeed after the timestamp column is dropped")
+
+	var cols int
+	require.NoError(t, db.QueryRow(`SELECT count(*) FROM information_schema.columns
+		WHERE table_schema='rogerai' AND table_name='tower_origin_seen' AND column_name='at'`).Scan(&cols))
+	require.Zero(t, cols, "the correlation-vector timestamp column is gone")
+}
