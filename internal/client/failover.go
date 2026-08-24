@@ -411,10 +411,28 @@ func ResolveBand(broker, freq, model string) (offers []Offer, display string, ok
 }
 
 // discover fetches the current offer list from the broker.
+//
+// The public broker serves /discover unsigned, so browsing the open market stays anonymous. A
+// STANDALONE Tower gates discovery on an admitted signature (its stations are not an anonymous
+// surface), answering an unsigned request with 401. So a 401 is retried ONCE with a signed
+// request: the signature is added only when a Tower asks for it, never on the public path, so
+// no browse reveals who is looking except where the Tower already requires an admitted client.
 func discover(broker string) ([]Offer, error) {
 	resp, err := http.Get(broker + "/discover")
 	if err != nil {
 		return nil, err
+	}
+	if resp.StatusCode == http.StatusUnauthorized {
+		resp.Body.Close()
+		req, rerr := http.NewRequest(http.MethodGet, broker+"/discover", nil)
+		if rerr != nil {
+			return nil, rerr
+		}
+		SignRequest(req, nil)
+		resp, err = http.DefaultClient.Do(req)
+		if err != nil {
+			return nil, err
+		}
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {

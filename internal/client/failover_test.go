@@ -453,3 +453,35 @@ func TestRelayRecoveryAlertFires(t *testing.T) {
 		t.Errorf("a transparent failover must fire a recovery alert, got %q", alerted)
 	}
 }
+
+// A standalone Tower gates /discover on an admitted signature and answers an unsigned request
+// with 401. The client must retry ONCE with a signed request, and only then - so browsing the
+// public broker (which serves 200 unsigned) never carries a signature.
+func TestDiscoverRetriesSignedOn401(t *testing.T) {
+	sawUnsigned, sawSigned := false, false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/discover" {
+			http.NotFound(w, r)
+			return
+		}
+		if r.Header.Get("X-Roger-Pubkey") == "" {
+			sawUnsigned = true
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		sawSigned = true
+		w.Write([]byte(`{"offers":[{"node_id":"st-1","model":"llama-8b","modality":"chat","online":true,"free_now":true}]}`))
+	}))
+	defer srv.Close()
+
+	offers, err := discover(srv.URL)
+	if err != nil {
+		t.Fatalf("discover: %v", err)
+	}
+	if !sawUnsigned || !sawSigned {
+		t.Fatalf("expected an unsigned attempt then a signed retry; unsigned=%v signed=%v", sawUnsigned, sawSigned)
+	}
+	if len(offers) != 1 || offers[0].Model != "llama-8b" {
+		t.Fatalf("expected the standalone Tower's one offer, got %+v", offers)
+	}
+}
