@@ -479,7 +479,9 @@ func cmdRoute(args []string, out io.Writer) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	st, release, err := openDirWith(*dir, *cfg)
+	// Read-only: Route computes a receipt and persists nothing locally. A standalone client
+	// is routed WHILE serve holds the lock, so it must not take the exclusive lock.
+	st, release, err := openDirReadOnly(*dir, *cfg)
 	if err != nil {
 		return err
 	}

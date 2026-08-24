@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -842,4 +843,49 @@ func TestReadOnlyCommandsRunWhileServeHoldsTheLock(t *testing.T) {
 	_, err = runCLI(t, "attach", "--dir", dir, "--station", "st-2", "--key", "sk2", "--models", "m")
 	require.Error(t, err, "a writer must still be refused while another process owns the directory")
 	require.Contains(t, err.Error(), "already owns")
+}
+
+// The lock fix must cover EVERY locally-read-only command an operator runs against a
+// Tower that is actively serving, not just `stations`. `drain`, `resume`, `revoke` and
+// `station revoke` only POST to Core (they write nothing locally), and `route` computes a
+// receipt without persisting - yet all took the exclusive lock, so each printed "already
+// owns" against a running Tower. `drain`'s whole purpose is to quiet a SERVING Tower, and
+// `route` is how a standalone client is served WHILE serve runs, so this was a real defect.
+func TestReadOnlyLifecycleCommandsRunWhileServeHoldsTheLock(t *testing.T) {
+	// route: standalone, local, served while serve holds the lock.
+	t.Run("route", func(t *testing.T) {
+		dir := bootstrappedDir(t)
+		_, err := runCLI(t, "attach", "--dir", dir, "--station", "st-1", "--key", "sk1", "--models", "llama-8b")
+		require.NoError(t, err)
+		st, err := tower.Open(dir)
+		require.NoError(t, err)
+		release, err := st.Lock()
+		require.NoError(t, err)
+		defer func() { _ = release() }()
+
+		out, err := runCLI(t, "route", "--dir", dir, "--client", "alice", "--model", "llama-8b")
+		require.NoError(t, err, "a standalone client must be routable while serve holds the lock")
+		require.NotContains(t, out, "already owns")
+		require.Contains(t, out, "served by station st-1")
+	})
+
+	// drain: joined, POST-only to Core, run against a serving Tower.
+	t.Run("drain", func(t *testing.T) {
+		core := newCoreStub(t)
+		dir := joinedRegisteredTower(t)
+		core.reply["/tower/self/lifecycle"] = func(w http.ResponseWriter, _ int) bool {
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "state": "draining"})
+			return true
+		}
+		st, err := tower.Open(dir)
+		require.NoError(t, err)
+		release, err := st.Lock()
+		require.NoError(t, err)
+		defer func() { _ = release() }()
+
+		out, err := runCLI(t, "drain", "--dir", dir)
+		require.NoError(t, err, "drain must reach Core while serve holds the lock - draining a serving Tower is its purpose")
+		require.NotContains(t, out, "already owns")
+		require.Contains(t, core.seen, "/tower/self/lifecycle", "drain must actually reach Core")
+	})
 }

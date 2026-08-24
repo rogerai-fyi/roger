@@ -58,7 +58,10 @@ func cmdStationRevoke(args []string, out io.Writer) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	st, release, err := openDir(*dir)
+	// Read-only locally: this only asks Core (a signed POST); it writes no local state, so
+	// it must run while a serving Tower holds the exclusive lock - draining or retiring a
+	// Tower that has gone wrong is exactly when the relay may be unavailable.
+	st, release, err := openDirReadOnly(*dir, "")
 	if err != nil {
 		return err
 	}
@@ -114,7 +117,10 @@ func cmdRevoke(args []string, out io.Writer) error {
 			"un-revoked, and a replacement enrolls as a NEW Tower with new Stations.\n" +
 			"Re-run with --yes if that is what you mean")
 	}
-	st, release, err := openDir(*dir)
+	// Read-only locally: this only asks Core (a signed POST); it writes no local state, so
+	// it must run while a serving Tower holds the exclusive lock - draining or retiring a
+	// Tower that has gone wrong is exactly when the relay may be unavailable.
+	st, release, err := openDirReadOnly(*dir, "")
 	if err != nil {
 		return err
 	}
@@ -134,7 +140,10 @@ func setOwnState(args []string, out io.Writer, name, state, note string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	st, release, err := openDir(*dir)
+	// Read-only locally: this only asks Core (a signed POST); it writes no local state, so
+	// it must run while a serving Tower holds the exclusive lock - draining or retiring a
+	// Tower that has gone wrong is exactly when the relay may be unavailable.
+	st, release, err := openDirReadOnly(*dir, "")
 	if err != nil {
 		return err
 	}
