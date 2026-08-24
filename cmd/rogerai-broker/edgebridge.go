@@ -191,11 +191,11 @@ func (b *broker) relayViaEdge(w http.ResponseWriter, r *http.Request, model stri
 		// THE CONSUMER'S PRICE CEILINGS, both the same global caps pickFor enforces on the
 		// direct path. A Tower whose in- or out-price exceeds what the caller agreed to pay
 		// is excluded - never silently billed above a stated cap.
-		if auth.maxPriceOut > 0 && edgeRowPriceOut(row.PriceOut) > auth.maxPriceOut {
+		if auth.maxPriceOut > 0 && edgeRowPrice(row.PriceOut) > auth.maxPriceOut {
 			exclude[row.TowerID] = true
 			continue
 		}
-		if auth.maxPriceIn > 0 && edgeRowPriceOut(row.PriceIn) > auth.maxPriceIn {
+		if auth.maxPriceIn > 0 && edgeRowPrice(row.PriceIn) > auth.maxPriceIn {
 			exclude[row.TowerID] = true
 			continue
 		}
@@ -456,7 +456,7 @@ func (b *broker) driveSealed(grant dispatch.EdgeGrant, target dispatch.Target, e
 	return answer, reputation.CanaryPass
 }
 
-// edgeRowPriceOut converts a routable row's out-price (micro-USD per 1M tokens) to the
-// credits-per-1M-tokens figure the consumer's X-Roger-Max-Price-Out ceiling is expressed
-// in, so the bridge compares like with like against that cap.
-func edgeRowPriceOut(micros int64) float64 { return float64(micros) / 1e6 }
+// edgeRowPrice converts a routable row's price (micro-USD per 1M tokens, in OR out) to the
+// credits-per-1M-tokens figure the consumer's X-Roger-Max-Price ceilings are expressed in,
+// so the bridge compares like with like against either cap.
+func edgeRowPrice(micros int64) float64 { return float64(micros) / 1e6 }
