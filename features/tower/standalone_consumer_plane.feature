@@ -3,12 +3,18 @@
 # claim was FALSE: the gate that proves no-egress scans one package only, and the binary
 # that would host the plane links the Core-dialing code. This version makes the claim
 # TRUE by construction. Changes need re-approval.
-# BUILD STATUS: PARTIAL. The multi-client admission + revocation data layer is built and
-# tested (internal/tower: IsAdmitted/AdmittedClients/RevokeClient, Route admits any client) -
-# the "More than one client can be admitted" and "A client can be cut off locally" scenarios.
-# NOT yet built: the Core-free consumer binary and handler package, the structural
-# dependency/egress guarantee, the station-poll loop, signature auth + uniform 401, replay
-# defense, bind posture, and resource limits. Those land in subsequent slices.
+# BUILD STATUS: PARTIAL. Built and tested so far:
+#  - multi-client admission + revocation (internal/tower).
+#  - the Core-free consumer binary (cmd/roger-tower-local) and handler package
+#    (internal/localplane), with the STRUCTURAL GUARANTEE enforced: a dependency-graph test
+#    proves the binary links none of towerjoin/towercore/towerhub, and a source-scan gate
+#    forbids any outbound call in the handler package.
+#  - signature auth mapping to an admitted client by the one canonical rule
+#    (protocol.UserIDFromPubkey), with all failures a byte-identical 401.
+#  - /discover over the Tower's own stations, admitted clients only.
+#  - the bind posture: loopback default, public/all-interfaces refused without an override.
+# NOT yet built: the completion loop (/v1/chat/completions + the local work queue a station
+# polls + persisted receipts), replay defense, the airgap clock seam, and resource limits.
 
 Feature: A standalone Tower serves its own network and no one else's
   The airgap plant: model boxes `roger share` to a local Tower, operators point roger at
