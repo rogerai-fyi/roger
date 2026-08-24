@@ -64,11 +64,10 @@ type Invitation struct {
 	Verifier string `json:"verifier"`
 	// ExpiresAt is UnixNANO. Second granularity silently truncated any window shorter
 	// than a second to "already now", which made short-lived invitations meaningless.
-	ExpiresAt int64  `json:"expires_at"`
-	Budget    int    `json:"budget"`
-	Attempts  int    `json:"attempts"`
-	Consumed  bool   `json:"consumed"`
-	Role      string `json:"role"`
+	ExpiresAt int64 `json:"expires_at"`
+	Budget    int   `json:"budget"`
+	Attempts  int   `json:"attempts"`
+	Consumed  bool  `json:"consumed"`
 	// ClientKeyHash binds the invitation to the client that requested it. A correct
 	// code presented by a DIFFERENT client is refused without consuming the
 	// invitation, so learning a code does not let an attacker burn it.
@@ -87,7 +86,7 @@ func (i Invitation) String() string {
 	case time.Now().UnixNano() > i.ExpiresAt:
 		state = "expired"
 	}
-	return fmt.Sprintf("invitation %s role=%s state=%s attempts=%d/%d", i.ID, i.Role, state, i.Attempts, i.Budget)
+	return fmt.Sprintf("invitation %s state=%s attempts=%d/%d", i.ID, state, i.Attempts, i.Budget)
 }
 
 // Credential is what a consumed invitation issues: a scoped local client credential
@@ -325,6 +324,19 @@ func (s *State) IsAdmitted(clientKeyHash string) bool {
 		return false
 	}
 	return clientAdmitted(bs, clientKeyHash)
+}
+
+// HasAnyAdmittedClient reports whether the network has at least one admitted client, and
+// surfaces a load error separately from an empty set - a distinction readiness needs, since
+// "the store could not be read" and "nobody is admitted" call for different fixes.
+func (s *State) HasAnyAdmittedClient() (bool, error) {
+	bootstrapMu.Lock()
+	defer bootstrapMu.Unlock()
+	bs, err := s.loadBootstrap()
+	if err != nil {
+		return false, err
+	}
+	return len(bs.Clients) > 0 || bs.Operator != nil, nil
 }
 
 // AdmittedClients lists every admitted client credential, the operator included.

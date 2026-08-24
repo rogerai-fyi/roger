@@ -293,10 +293,10 @@ func TestJoinedModeHasNoLocalBootstrap(t *testing.T) {
 func TestInvitationStringReportsEveryState(t *testing.T) {
 	now := time.Now()
 	for want, inv := range map[string]Invitation{
-		"open":     {ID: "a", Role: RoleLocalOperator, Budget: 5, ExpiresAt: now.Add(time.Hour).UnixNano()},
-		"consumed": {ID: "b", Role: RoleLocalOperator, Budget: 5, Consumed: true, ExpiresAt: now.Add(time.Hour).UnixNano()},
-		"locked":   {ID: "c", Role: RoleLocalOperator, Budget: 2, Attempts: 2, ExpiresAt: now.Add(time.Hour).UnixNano()},
-		"expired":  {ID: "d", Role: RoleLocalOperator, Budget: 5, ExpiresAt: now.Add(-time.Hour).UnixNano()},
+		"open":     {ID: "a", Budget: 5, ExpiresAt: now.Add(time.Hour).UnixNano()},
+		"consumed": {ID: "b", Budget: 5, Consumed: true, ExpiresAt: now.Add(time.Hour).UnixNano()},
+		"locked":   {ID: "c", Budget: 2, Attempts: 2, ExpiresAt: now.Add(time.Hour).UnixNano()},
+		"expired":  {ID: "d", Budget: 5, ExpiresAt: now.Add(-time.Hour).UnixNano()},
 	} {
 		require.Contains(t, inv.String(), "state="+want)
 	}
