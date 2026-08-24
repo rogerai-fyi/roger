@@ -104,6 +104,45 @@ func (p *PGStore) RecordPayout(owner, payoutID string, micros int64, at time.Tim
 	return nil
 }
 
+func (p *PGStore) TowerTraffic(towerID string, since time.Time) (TowerTraffic, error) {
+	// Grouped per model, same rows OwedTo reads, filtered by Tower instead of owner. The
+	// self-dealing split mirrors OwedTo: payable micros exclude self-dealing, SelfDealt sums
+	// only self-dealing, and Attempts/usage count every row. LEAST(...) caps like the memory
+	// store's saturating add so an overflowed ledger does not diverge between deployments.
+	out := TowerTraffic{TowerID: towerID}
+	rows, err := p.db.Query(`
+		SELECT model,
+		  COUNT(*),
+		  COUNT(*) FILTER (WHERE corroborated),
+		  COUNT(*) FILTER (WHERE NOT corroborated),
+		  LEAST(COALESCE(SUM(usage_in),0), 9223372036854775807)::bigint,
+		  LEAST(COALESCE(SUM(usage_out),0), 9223372036854775807)::bigint,
+		  LEAST(COALESCE(SUM(micros) FILTER (WHERE NOT self_dealing),0), 9223372036854775807)::bigint,
+		  LEAST(COALESCE(SUM(micros) FILTER (WHERE self_dealing),0), 9223372036854775807)::bigint
+		  FROM rogerai.tower_earnings
+		  WHERE tower_id = $1 AND at >= $2
+		  GROUP BY model ORDER BY model`,
+		towerID, since.UTC())
+	if err != nil {
+		return TowerTraffic{}, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var mt ModelTraffic
+		if serr := rows.Scan(&mt.Model, &mt.Attempts, &mt.Corroborated, &mt.Uncorroborated,
+			&mt.UsageIn, &mt.UsageOut, &mt.Micros, &mt.SelfDealt); serr != nil {
+			return TowerTraffic{}, serr
+		}
+		out.Models = append(out.Models, mt)
+		out.Attempts += mt.Attempts
+		out.UsageIn = satAddMicros(out.UsageIn, mt.UsageIn)
+		out.UsageOut = satAddMicros(out.UsageOut, mt.UsageOut)
+		out.Micros = satAddMicros(out.Micros, mt.Micros)
+		out.SelfDealt = satAddMicros(out.SelfDealt, mt.SelfDealt)
+	}
+	return out, rows.Err()
+}
+
 func (p *PGStore) OwedTo(owner string, since time.Time) (OwedByOwner, error) {
 	// LEAST(SUM, MaxInt64) caps the total the same way the memory store's saturating add does.
 	// SUM over bigint is numeric and can exceed int64; without the cap a huge total would fail to

@@ -754,6 +754,18 @@ func clientIP(r *http.Request) string {
 	return r.RemoteAddr
 }
 
+// clientCountry is the coarse origin of a request: the 2-letter ISO country Cloudflare
+// resolves and sets as CF-IPCountry. It is read ONLY from that one header - never a
+// client-supplied X-Country - so an ordinary consumer request through the edge cannot move
+// the tally by inventing a country. It is not a security control: a caller who reaches the
+// origin DIRECTLY, bypassing Cloudflare, could set CF-IPCountry themselves, and the origin
+// tally is a monitoring aid, not an authorization input, so that is acceptable. Empty when
+// absent (a dev path or a non-CF hop); the origin store records that as "unknown". No IP is
+// read here - the country is all the origin tally ever keeps.
+func clientCountry(r *http.Request) string {
+	return strings.TrimSpace(r.Header.Get("CF-IPCountry"))
+}
+
 // lastUserText returns the most recent user message content (for the precheck).
 func lastUserText(msgs []chatMsg) string {
 	for i := len(msgs) - 1; i >= 0; i-- {

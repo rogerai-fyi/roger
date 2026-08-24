@@ -271,6 +271,14 @@ func (b *broker) relayViaEdge(w http.ResponseWriter, r *http.Request, model stri
 		b.edgeEnterInflight(g.AttemptID, row.NodeID, consumerWallet, g.Deadline)
 		slotHeld = false // the ledger entry owns the slot from here
 
+		// Record where this request came from - coarse country only, for the admin detail
+		// view's demand map. Attributed to the attempt being routed (idempotent), so a retry
+		// does not double-count; a failed drive still counts as demand from that country,
+		// which is exactly the signal an operator watching for an anomaly wants to see.
+		if ts.origin != nil {
+			_ = ts.origin.Record(target.TowerID, g.AttemptID, clientCountry(r), time.Now())
+		}
+
 		unstreamed := unstreamBody(body)
 		driveTimeout := edgeBridgeTimeout
 		if soft {

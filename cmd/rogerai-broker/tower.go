@@ -42,6 +42,7 @@ import (
 	"rogerai.fm/roger/v6/internal/towercore/head"
 	"rogerai.fm/roger/v6/internal/towercore/inv"
 	"rogerai.fm/roger/v6/internal/towercore/link"
+	"rogerai.fm/roger/v6/internal/towercore/origin"
 	"rogerai.fm/roger/v6/internal/towercore/policy"
 	"rogerai.fm/roger/v6/internal/towercore/reputation"
 )
@@ -152,6 +153,9 @@ type towerSubsystem struct {
 	// one durable idempotent row per settled attempt. It records what is OWED; it never moves
 	// money - disbursement is a separate concern behind the payment rails.
 	earnings earnings.Store
+	// origin is the coarse traffic-origin tally (attempts per country) the admin detail view
+	// reads. Country only, from CF-IPCountry, never an address or a consumer identity.
+	origin origin.Store
 	// repPolicy is the threshold set the outcomes are judged against.
 	repPolicy reputation.Policy
 	// auditWanted is the set of settled attempts Core has selected to check the content of.
@@ -220,6 +224,9 @@ type linkDeps struct {
 	// the Tower reached, and a payout is decided by whichever runs the disbursement - the debt
 	// and its repayment must agree across the fleet.
 	earnings earnings.Store
+	// origin is the durable, fleet-wide traffic-origin tally, shared like the others so an
+	// attempt recorded on any instance is visible to the detail view on every instance.
+	origin origin.Store
 }
 
 func newTowerSubsystem(b *broker, registryStore admit.Store, custody cert.Custody, enrollStore enroll.Store, cfg cert.Config, deps linkDeps) (*towerSubsystem, error) {
@@ -344,6 +351,10 @@ func newTowerSubsystem(b *broker, registryStore admit.Store, custody cert.Custod
 	ts.earnings = deps.earnings
 	if ts.earnings == nil {
 		ts.earnings = earnings.NewMemStore()
+	}
+	ts.origin = deps.origin
+	if ts.origin == nil {
+		ts.origin = origin.NewMemStore()
 	}
 	ts.attemptKey = attemptKey
 	ts.envelopeKey = envelopeKey
@@ -481,6 +492,10 @@ func loadTowerSubsystem(b *broker, db store.Store) (*towerSubsystem, error) {
 	if err != nil {
 		return fail(err)
 	}
+	originStore, err := origin.NewPGStore(sqlDB)
+	if err != nil {
+		return fail(err)
+	}
 
 	ts, err := newTowerSubsystem(b, registryStore, custody, enrollDurable, cert.Config{
 		TTL:         towerCertTTL(),
@@ -488,7 +503,7 @@ func loadTowerSubsystem(b *broker, db store.Store) (*towerSubsystem, error) {
 		RootCertPEM: []byte(os.Getenv("ROGERAI_TOWER_CA_CERT_PEM")),
 	}, linkDeps{stations: stationStore, heads: headStore, attempts: attemptStore,
 		routable: routableStore, events: eventStore, acks: ackStore, outcomes: outcomeStore,
-		auditWanted: auditStore, earnings: earningStore, mirror: linkMirror})
+		auditWanted: auditStore, earnings: earningStore, origin: originStore, mirror: linkMirror})
 	if err != nil {
 		// A misconfigured root is a REFUSAL, not a reason to generate one: issuing under a
 		// root nobody chose is how every certificate on the network becomes unverifiable.

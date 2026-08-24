@@ -994,6 +994,7 @@ func (b *broker) registerTowerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/tower/cert/revoke", b.towerCertRevoke)       // admin: revoke a Tower certificate now
 	mux.HandleFunc("/tower/lease/expire", b.towerLeaseExpire)     // admin: take a Tower off the link now
 	mux.HandleFunc("/admin/towers", b.adminTowers)                // admin: the approval queue the dashboard reads
+	mux.HandleFunc("/admin/tower", b.adminTowerDetail)            // admin: one Tower's full detail (identity, quality, traffic, origin, fleet)
 	mux.HandleFunc("/tower/lifecycle", b.towerLifecycle)          // admin: the Tower quarantine gate
 	mux.HandleFunc("/tower/self/lifecycle", b.towerSelfLifecycle) // operator: drain/resume/retire my own
 

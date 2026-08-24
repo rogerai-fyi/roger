@@ -71,6 +71,10 @@
 //	         durable idempotent row per settled attempt, priced on billable usage. It records
 //	         what is OWED and nothing more - disbursement and the wider revenue-share program
 //	         live elsewhere, so a bug here is a wrong number rather than a wrong payment.
+//	origin   the coarse traffic-origin tally for the admin detail view: how many attempts each
+//	         Tower carried from each country, taken only from the CF-IPCountry the edge already
+//	         resolves. Country-only and aggregated per Tower - never an address, never a
+//	         consumer identity - so the view answers "how much from where" but never "who".
 //	comp     the canonical integer money arithmetic the compensated-Tower revenue-share program
 //	         is built on: the rate_ppm wire form, the parts-per-million share (floor), the
 //	         reserve split that conserves every atom, the exposure cap that never inverts, and a

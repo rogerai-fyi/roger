@@ -100,6 +100,35 @@ func (o OwedByOwner) Owed() int64 {
 	return o.Accrued - o.Paid
 }
 
+// ModelTraffic is one Tower's carried work for a single model over a window: the volume, the
+// billable usage, and what it earned. Corroborated and Uncorroborated split the attempts by
+// whether a consumer acknowledgement backed them. SelfDealt is the amount that WOULD have
+// accrued on self-dealing rows (an account routing its own traffic through its own Station) -
+// counted for review, never added to Micros, which is the payable earning only.
+type ModelTraffic struct {
+	Model          string
+	Attempts       int
+	Corroborated   int
+	Uncorroborated int
+	UsageIn        int64
+	UsageOut       int64
+	Micros         int64
+	SelfDealt      int64
+}
+
+// TowerTraffic is a Tower's carried work rolled up per model, plus the totals. Models is
+// sorted by model id so the view is stable. It answers "how much did this Tower carry, on
+// what, and what does it owe" without exposing who any consumer was.
+type TowerTraffic struct {
+	TowerID   string
+	Models    []ModelTraffic
+	Attempts  int
+	UsageIn   int64
+	UsageOut  int64
+	Micros    int64
+	SelfDealt int64
+}
+
 // Store is the funding ledger.
 type Store interface {
 	// Accrue records one attempt's earning. Idempotent on attempt id: an attempt earns once,
@@ -117,6 +146,10 @@ type Store interface {
 	// unrelated accruals and UNDER-REPORTING the true debt. Any code that decides a
 	// disbursement must therefore call this with a zero `since`; the window is for display only.
 	OwedTo(owner string, since time.Time) (OwedByOwner, error)
+	// TowerTraffic rolls one Tower's accruals up per model over a window (a zero `since` is
+	// all-time), for the admin detail view. It reads the same rows OwedTo does, grouped by
+	// model instead of summed by owner, and carries no consumer identity.
+	TowerTraffic(towerID string, since time.Time) (TowerTraffic, error)
 	// Reap drops accruals and payouts older than a cutoff. It is NOT a timer job: an accrual is
 	// money owed until a payout discharges it, so pruning on age alone would discard undischarged
 	// debt. It exists for a future reconciliation pass that deletes only what has been settled;
