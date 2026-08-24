@@ -250,7 +250,7 @@ that replay defense.
 
 A serving node self-attaches to a joined Tower by running `roger share` on the node - the same
 command that puts it on air. There is no separate `roger-station` binary, no invitation/secret
-ceremony, and no `roger share --tower` flag: the node offers itself at its listed price, and Core
+ceremony, and no retired `--tower` flag: the node offers itself at its listed price, and Core
 assigns it to a relay. Its private key never leaves the node. (The retired `roger-station
 init/invite/offer` file ceremony that earlier versions documented here is gone.)
 

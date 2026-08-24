@@ -50,6 +50,16 @@ builds:
     goarch: [amd64, arm64]
     flags: [-trimpath]
     ldflags: ["-s -w -X main.version={{.Version}}"]
+  # roger-tower-local: the STANDALONE consumer plane's Core-free serving binary, run beside
+  # roger-tower on the same Tower host. Same platforms and stamping as roger-tower.
+  - id: roger-tower-local
+    main: ./cmd/roger-tower-local
+    binary: roger-tower-local
+    env: [CGO_ENABLED=0]
+    goos: [linux]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags: ["-s -w -X main.version={{.Version}}"]
 
 # ---- macOS code signing + notarization -----------------------------------------------
 # Signs + notarizes the darwin binaries so the OFFICIAL Homebrew cask route
@@ -96,6 +106,12 @@ archives:
     ids: [roger-tower]
     formats: [binary]
     name_template: "roger-tower-{{ .Os }}-{{ .Arch }}"
+  # roger-tower-local ships as a raw binary too, under a predictable name verified against the
+  # SAME checksums.txt.
+  - id: tower-local
+    ids: [roger-tower-local]
+    formats: [binary]
+    name_template: "roger-tower-local-{{ .Os }}-{{ .Arch }}"
   # A Windows-only zip, ADDITIONALLY, purely so Scoop has an archive to point at.
   # Produces roger-windows-amd64.zip alongside the .exe (both in the release + checksums).
   - id: winzip

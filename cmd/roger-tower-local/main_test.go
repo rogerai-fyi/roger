@@ -7,6 +7,7 @@ package main
 // loopback socket. The dependency-graph guarantee is proven separately in structural_test.go.
 
 import (
+	"bytes"
 	"io"
 	"net/http"
 	"path/filepath"
@@ -121,4 +122,12 @@ func TestMainExitsNonZeroOnSetupError(t *testing.T) {
 	os.Args = []string{"roger-tower-local"} // no --dir
 	main()
 	require.Equal(t, 1, code, "main exits non-zero when setup fails")
+}
+
+func TestVersionCommandPrintsTheBuild(t *testing.T) {
+	for _, arg := range []string{"version", "--version"} {
+		var out bytes.Buffer
+		require.NoError(t, run([]string{arg}, &out))
+		require.Equal(t, version+"\n", out.String())
+	}
 }
