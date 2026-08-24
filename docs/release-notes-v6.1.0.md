@@ -66,6 +66,13 @@ approval path around it is visible end to end:
   advertising a reachable address are two different questions, and only one of them was
   being answered. A Tower told to listen on `0.0.0.0` no longer publishes it as the place
   to reach it, which nothing on the network can act on.
+- **A serving Tower can be operated.** `route`, `drain`, `resume`, `revoke` and station
+  revoke are all locally read-only - route computes a receipt and persists nothing, the
+  rest only post a signed request to Core - yet each took the exclusive data-directory
+  lock and refused with "already owns" against a Tower that was serving. `drain`'s entire
+  purpose is to quiet a serving Tower, and `route` is how a standalone client is served
+  *while* serve runs, so both were unusable exactly when they were needed. Readers no
+  longer take the lock; writers still do.
 - **The serving line names both halves.** "listening on [::]:8444" beside "advertising
   192.168.1.69:8444" read as a contradiction; they are two halves of one listener. It now
   says so: the wildcard is what makes the LAN address reachable, and the LAN address is
