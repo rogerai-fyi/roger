@@ -782,3 +782,33 @@ func TestCORSPreflight(t *testing.T) {
 		}
 	}
 }
+
+// The broker's central auth accepts a NONCE-bound signature too (a roger client signs with a
+// nonce when pointed at a LAN standalone Tower, and harmlessly against a local broker), and
+// still accepts a plain one. Backward-compatible: the nonce path is additive.
+func TestIdentityOfAcceptsNonceBoundSignatures(t *testing.T) {
+	b := &broker{pubOfUser: map[string]string{}}
+	_, priv, _ := ed25519.GenerateKey(nil)
+	body := []byte(`{"model":"m"}`)
+	pubHex := hex.EncodeToString(priv.Public().(ed25519.PublicKey))
+	wantID := protocol.UserIDFromPubkey(pubHex)
+
+	// A nonce-bound signature verifies and yields the same id.
+	nonce := protocol.NewNonce()
+	r := httptest.NewRequest("POST", "/v1/chat/completions", nil)
+	pub, ts, sig := protocol.SignRequestNonce(priv, "POST", "/v1/chat/completions", body, nonce)
+	r.Header.Set(protocol.HeaderPubkey, pub)
+	r.Header.Set(protocol.HeaderTS, strconv.FormatInt(ts, 10))
+	r.Header.Set(protocol.HeaderSig, sig)
+	r.Header.Set(protocol.HeaderNonce, nonce)
+	id, authed, ok := b.identityOf(r, body)
+	if !ok || !authed || id != wantID {
+		t.Fatalf("nonce-bound signed request: id=%q authed=%v ok=%v, want id=%q both true", id, authed, ok, wantID)
+	}
+
+	// The nonce is BOUND: presenting the signature with a different nonce fails.
+	r.Header.Set(protocol.HeaderNonce, protocol.NewNonce())
+	if _, _, ok := b.identityOf(r, body); ok {
+		t.Fatal("a nonce-bound signature must not verify under a different nonce")
+	}
+}

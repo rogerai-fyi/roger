@@ -21,16 +21,19 @@
 #  - resource safety: a per-client token-bucket rate limit (429), a per-client concurrent-
 #    completion cap AND a whole-Tower concurrency bound (429/503), on top of the request-body
 #    caps - so no single client can starve the stations for the others.
+#  - per-request REPLAY DEFENSE: a SIGNED per-request nonce (protocol.SignRequestNonce /
+#    VerifyRequestNonce, X-Roger-Nonce). The nonce is bound into the signature, so a captured
+#    request replayed within the freshness window carries the same nonce and is refused as the
+#    uniform 401 - while two honest same-second requests carry DIFFERENT nonces and both
+#    succeed (the bug a signature-only guard had). The guard reads time only through the Tower's
+#    clock seam. The roger client sends a nonce when pointed at a LAN standalone Tower (private
+#    http); loopback has no wire to eavesdrop so needs none, and the public https broker never
+#    sees one. The broker verifies a nonce-bound signature too (central identityOf) but does not
+#    replay-guard - that is the free-local plane's concern.
 # REMAINING:
-#  - PER-REQUEST REPLAY DEFENSE. A signature is deterministic over (key, ts-seconds, method,
-#    path, body), so a signature-only guard cannot tell a captured replay apart from an honest
-#    same-second duplicate (a /discover poll, or a station re-polling with an empty body) - it
-#    would break legitimate traffic. The correct fix is a SIGNED per-request nonce carried in
-#    the already-signed path/body; it rides in with the roger CLIENT-side integration, since
-#    the client is what mints the nonce. Until then the plane relies on protocol's 5-minute
-#    freshness window (loopback default; a LAN binding should use a trusted network or TLS).
-#  - the roger CLIENT-side integration: `roger share` polling /local/poll and `roger use`
-#    pointed at the Tower (with the nonce above), which lives in cmd/rogerai, not here.
+#  - the roger CLIENT-side SHARE integration: `roger share` polling /local/poll to serve a
+#    standalone Tower's stations (the server side of /local/poll is done; the client does not
+#    yet poll a local Tower). `roger use` / config already work with the nonce above.
 
 Feature: A standalone Tower serves its own network and no one else's
   The airgap plant: model boxes `roger share` to a local Tower, operators point roger at

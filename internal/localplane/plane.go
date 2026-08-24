@@ -47,8 +47,10 @@ type Server struct {
 	st                *tower.State
 	q                 *queue
 	rl                *rateLimiter
+	stationRL         *rateLimiter
 	inflight          semaphore
 	perClient         *clientInflight
+	replay            *replayGuard
 	completionTimeout time.Duration
 	pollTimeout       time.Duration
 }
@@ -59,11 +61,35 @@ func New(st *tower.State) *Server {
 		st:                st,
 		q:                 newQueue(),
 		rl:                newRateLimiter(time.Now, defaultPerClientRate, defaultPerClientBurst),
+		stationRL:         newRateLimiter(time.Now, defaultStationRate, defaultStationBurst),
 		inflight:          newSemaphore(defaultMaxInFlight),
 		perClient:         newClientInflight(defaultMaxInFlightPerClient),
+		replay:            newReplayGuard(time.Now, replayWindow),
 		completionTimeout: defaultCompletionTimeout,
 		pollTimeout:       defaultPollTimeout,
 	}
+}
+
+// verifiedIdentity verifies a request signature the nonce-aware way and returns the derived id
+// plus the nonce that was bound in (empty for a plain V1 request). It is the one place both the
+// client and the station auth paths verify a signature, so the two agree on the rule.
+//
+// A request that carries an X-Roger-Nonce is verified WITH that nonce bound in and becomes
+// eligible for the replay guard; a request without one is verified the plain way and relies on
+// the 5-minute freshness window alone. New roger clients pointed at a local Tower always send a
+// nonce (so the plane gets full replay defense); the plain path stays for the public broker's
+// own callers, which never reach this plane.
+func (s *Server) verifiedIdentity(r *http.Request, body []byte) (id, nonce string, ok bool) {
+	pub := r.Header.Get(protocol.HeaderPubkey)
+	sig := r.Header.Get(protocol.HeaderSig)
+	ts := parseTS(r.Header.Get(protocol.HeaderTS))
+	nonce = r.Header.Get(protocol.HeaderNonce)
+	if nonce != "" {
+		id, ok = protocol.VerifyRequestNonce(pub, sig, ts, r.Method, r.URL.Path, body, nonce)
+	} else {
+		id, ok = protocol.VerifyRequest(pub, sig, ts, r.Method, r.URL.Path, body)
+	}
+	return id, nonce, ok
 }
 
 // authStatus is the outcome of authenticating a client request.
@@ -104,20 +130,32 @@ func unauthorized(w http.ResponseWriter) {
 // and whether the caller is an admitted client. Every failure path returns ok=false with no
 // distinguishing detail; the caller writes the uniform refusal.
 func (s *Server) authClient(r *http.Request, body []byte) (clientKeyHash string, status authStatus) {
-	pub := r.Header.Get(protocol.HeaderPubkey)
-	sig := r.Header.Get(protocol.HeaderSig)
-	ts := parseTS(r.Header.Get(protocol.HeaderTS))
-	userID, verified := protocol.VerifyRequest(pub, sig, ts, r.Method, r.URL.Path, body)
+	userID, nonce, verified := s.verifiedIdentity(r, body)
 	if !verified {
 		return "", authDenied
 	}
 	if !s.st.IsAdmitted(userID) {
 		return "", authDenied
 	}
+	// Replay CHECK first (no record yet): a captured request replayed within the freshness window
+	// carries the same nonce and is refused as the uniform 401 - no oracle. Checking before the
+	// rate limiter means a replay drains no rate bucket. A request with no nonce cannot be
+	// replay-guarded (its signature is not per-request unique), so it relies on the 5-minute
+	// window - the older path new clients skip.
+	if nonce != "" && s.replay.isReplay(userID+":"+nonce) {
+		return "", authDenied
+	}
 	// An admitted client sending too fast is throttled - a distinct, honest 429, since it IS
 	// authenticated and just needs to slow down. Per-client, so one flood never starves another.
 	if !s.rl.allow(userID) {
 		return userID, authRateLimited
+	}
+	// RECORD the nonce only now, on the way to OK: a throttled request records nothing, so the
+	// guard's memory stays bounded by rate x window per admitted key rather than by how fast an
+	// attacker sends. (A 429'd request not recording also means a legitimate byte-identical retry
+	// is not misread as a replay.)
+	if nonce != "" {
+		s.replay.record(userID + ":" + nonce)
 	}
 	return userID, authOK
 }
