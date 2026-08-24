@@ -11,6 +11,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -151,4 +152,23 @@ func TestServeLocalTowerStopsOnContextCancel(t *testing.T) {
 	defer cancel()
 	err := ServeLocalTower(ctx, Config{Broker: quiet.URL, Upstream: "http://127.0.0.1:1"}, priv, io.Discard)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
+}
+
+func TestRunLocalJobWrapsANonJSONUpstreamReply(t *testing.T) {
+	// An upstream that returns plain text (an error page) must not produce an unmarshalable
+	// answer that strands the consumer - the node wraps it as valid JSON.
+	bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, "502 Bad Gateway (not json)")
+	}))
+	defer bad.Close()
+	ans := runLocalJob(&http.Client{Timeout: time.Second}, Config{Upstream: bad.URL}, []byte(`{"model":"m"}`))
+	require.True(t, json.Valid(ans), "the answer the node returns is always valid JSON")
+	require.Contains(t, string(ans), "unreadable")
+}
+
+func TestUnstreamLocalToleratesNullBody(t *testing.T) {
+	require.NotPanics(t, func() {
+		out := unstreamLocal([]byte("null"))
+		require.Equal(t, []byte("null"), out, "a literal null is left untouched, not dereferenced")
+	})
 }

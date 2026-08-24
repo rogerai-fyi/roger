@@ -32,11 +32,21 @@ func ServeLocalTower(ctx context.Context, cfg Config, priv ed25519.PrivateKey, o
 	pollClient := &http.Client{Timeout: 40 * time.Second} // longer than the plane's poll window
 	execClient := &http.Client{Timeout: 10 * time.Minute} // a real prompt is real work
 	fmt.Fprintf(out, "serving the local network's stations at %s (polling for work)\n", cfg.Broker)
+	var lastPollErrLog time.Time
 	for {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 		job, got, err := pollLocalJob(ctx, pollClient, cfg.Broker, priv)
+		if err != nil {
+			// A poll error that keeps recurring - an unattached key (401), a wrong Tower address -
+			// is worth surfacing, but not on every spin. Log the first, then at most once a minute,
+			// so a misconfigured node is visible instead of silently idle.
+			if now := time.Now(); now.Sub(lastPollErrLog) > time.Minute {
+				fmt.Fprintf(out, "still trying to poll %s: %v\n", cfg.Broker, err)
+				lastPollErrLog = now
+			}
+		}
 		if err != nil || !got {
 			// No work (204), a transient error, or a cancelled context: pause briefly and re-poll
 			// rather than hammering. The plane's long-poll already absorbs most of the wait.
@@ -115,7 +125,14 @@ func runLocalJob(c *http.Client, cfg Config, request []byte) []byte {
 	defer resp.Body.Close()
 	ans, _ := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
 	// Never let the node's own upstream key leak back to the consumer if the upstream echoed it.
-	return redactUpstreamKey(ans, cfg.UpstreamKey)
+	ans = redactUpstreamKey(ans, cfg.UpstreamKey)
+	// The answer must be valid JSON: it is completed back as a json.RawMessage, and a non-JSON
+	// upstream reply (a plain-text error page) would fail to marshal and silently strand the
+	// consumer until its 120s timeout. Wrap anything unparseable as a readable local error.
+	if !json.Valid(ans) {
+		return localError("the local model returned an unreadable response")
+	}
+	return ans
 }
 
 // completeLocalJob returns the answer to the Tower for a job the node polled. Best-effort: if
@@ -154,8 +171,8 @@ func signLocal(req *http.Request, body []byte, priv ed25519.PrivateKey) {
 // it cannot parse untouched.
 func unstreamLocal(body []byte) []byte {
 	var m map[string]json.RawMessage
-	if json.Unmarshal(body, &m) != nil {
-		return body
+	if json.Unmarshal(body, &m) != nil || m == nil {
+		return body // not a JSON object (e.g. a literal null) - leave it untouched
 	}
 	m["stream"] = json.RawMessage("false")
 	delete(m, "stream_options")
