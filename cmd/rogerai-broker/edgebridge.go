@@ -36,6 +36,10 @@ import (
 // prompt is real work; still finite, because the fallback behind it is the point.
 const edgeBridgeTimeout = 120 * time.Second
 
+// edgeBridgeSoftTimeout bounds a soft-mode drive: a direct node is already picked and
+// waiting, so a dead Tower must fail fast rather than spend the full budget.
+const edgeBridgeSoftTimeout = 15 * time.Second
+
 // edgeBridgeMaxTowers bounds the tower-to-tower retry: a failing Tower falls back to
 // another, and past that the caller falls back to the direct fabric or refuses honestly.
 const edgeBridgeMaxTowers = 2
@@ -54,9 +58,11 @@ type edgeBridgeAuth struct {
 	grant            bool   // a grant-bearing request: refused - a grant binds specific hardware
 	sessionAuthed    bool   // a browser-session caller (Playbox): no device signature to bind
 	confidentialOnly bool
-	maxPriceOut      float64 // the global out-price ceiling, enforced against the tower band
+	maxPriceIn       float64 // the consumer's in-price ceiling (X-Roger-Max-Price)
+	maxPriceOut      float64 // the consumer's out-price ceiling (X-Roger-Max-Price-Out)
 	pinNode          string
-	excludeNodes     map[string]bool
+	freqBand         bool // a private-band (X-Roger-Freq) tune-in: never diverts to a public Tower
+	freeOrSelf       bool // the direct pick resolved to $0 (grant-free or self-use): never billed on a Tower
 }
 
 // soft is the both-fabrics mode: a direct node stands ready behind this call, so any
@@ -140,15 +146,27 @@ func (b *broker) relayViaEdge(w http.ResponseWriter, r *http.Request, model stri
 	if auth.confidentialOnly {
 		return false
 	}
-	// The caller's exclusions carry in, and a pinned node forces the direct path (an edge
-	// pin names a station, a different namespace - honour it by declining the bridge).
+	// A pinned node names a specific direct station - a different namespace than a Tower -
+	// so honour it by declining the bridge.
 	if auth.pinNode != "" {
 		return false
 	}
-	exclude := map[string]bool{}
-	for k := range auth.excludeNodes {
-		exclude[k] = true
+	// A PRIVATE-BAND tune-in (X-Roger-Freq) is scoped to that band's own stations. Diverting
+	// it to a public Tower would serve it off the wrong fleet AND bill it at the Tower's
+	// price instead of the band's - the exact divert-and-overcharge pickFor's privateAllow
+	// prevents on the direct path. Direct-only.
+	if auth.freqBand {
+		return false
 	}
+	// FREE or SELF-USE traffic ($0: a free grant, or a caller consuming their own node)
+	// must never be diverted to a billed Tower. resolvePricing decided this on the direct
+	// path; the bridge honours it rather than silently charging tower price.
+	if auth.freeOrSelf {
+		return false
+	}
+	// The client's failover exclusions are DIRECT node ids, a different namespace from a
+	// Tower id, so they are not applied here - documented rather than silently mismatched.
+	exclude := map[string]bool{}
 	tries := edgeBridgeMaxTowers
 	if soft {
 		tries = 1 // a direct node is ready; do not spend the full budget on failing towers
@@ -170,10 +188,14 @@ func (b *broker) relayViaEdge(w http.ResponseWriter, r *http.Request, model stri
 				continue
 			}
 		}
-		// THE CONSUMER'S OUT-PRICE CEILING, the same global cap the direct path enforces
-		// in pickFor. A Tower whose price exceeds what the caller agreed to pay is excluded
-		// - never silently billed above the cap.
+		// THE CONSUMER'S PRICE CEILINGS, both the same global caps pickFor enforces on the
+		// direct path. A Tower whose in- or out-price exceeds what the caller agreed to pay
+		// is excluded - never silently billed above a stated cap.
 		if auth.maxPriceOut > 0 && edgeRowPriceOut(row.PriceOut) > auth.maxPriceOut {
+			exclude[row.TowerID] = true
+			continue
+		}
+		if auth.maxPriceIn > 0 && edgeRowPriceOut(row.PriceIn) > auth.maxPriceIn {
 			exclude[row.TowerID] = true
 			continue
 		}
@@ -235,7 +257,14 @@ func (b *broker) relayViaEdge(w http.ResponseWriter, r *http.Request, model stri
 		// against the per-account cap.
 		if !slotHeld {
 			if !b.edgeAccountReserve(consumerWallet) {
-				break // at the cap now; stop rather than run an uncounted attempt
+				// At the cap now. Release this iteration's freshly-placed hold and record so
+				// nothing is pinned until the orphan sweep, then stop.
+				if maxCost > 0 {
+					if _, rerr := b.db.ReleaseHoldFor(consumerWallet, g.AttemptID); rerr != nil {
+						log.Printf("edge bridge: could not release hold at cap for %s: %v", g.AttemptID, rerr)
+					}
+				}
+				break
 			}
 			slotHeld = true
 		}
@@ -243,8 +272,12 @@ func (b *broker) relayViaEdge(w http.ResponseWriter, r *http.Request, model stri
 		slotHeld = false // the ledger entry owns the slot from here
 
 		unstreamed := unstreamBody(body)
+		driveTimeout := edgeBridgeTimeout
+		if soft {
+			driveTimeout = edgeBridgeSoftTimeout // a direct node waits behind this; do not stall on a dead Tower
+		}
 		answer, outcome := b.driveSealed(g, target, row.Endpoint, row.TLSSPKI, consumerKey, envPriv,
-			sealedDrive{tag: "bridge", body: unstreamed, timeout: edgeBridgeTimeout, usageIn: int64(len(unstreamed))})
+			sealedDrive{tag: "bridge", body: unstreamed, timeout: driveTimeout, usageIn: int64(len(unstreamed))})
 		if len(answer) > 0 {
 			writeBridgedAnswer(w, g, answer, stream)
 			return true

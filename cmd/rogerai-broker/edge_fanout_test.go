@@ -24,6 +24,7 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	crand "crypto/rand"
+	"encoding/base64"
 	"github.com/stretchr/testify/require"
 	"math/rand"
 	"rogerai.fm/roger/v6/internal/agent"
@@ -31,8 +32,10 @@ import (
 	"rogerai.fm/roger/v6/internal/store"
 	"rogerai.fm/roger/v6/internal/towercore/admit"
 	"rogerai.fm/roger/v6/internal/towercore/dispatch"
+	"rogerai.fm/roger/v6/internal/towercore/envelope"
 	"rogerai.fm/roger/v6/internal/towercore/fleet"
 	"rogerai.fm/roger/v6/internal/towercore/link"
+	"rogerai.fm/roger/v6/internal/towercore/reputation"
 	"rogerai.fm/roger/v6/internal/towerhub"
 )
 
@@ -670,4 +673,264 @@ func liveEndpointOf(t *testing.T, b *broker, towerID string) string {
 	require.NoError(t, err)
 	require.NotEmpty(t, rows)
 	return rows[0].Endpoint
+}
+
+// The consumer protections pickFor enforces on the direct path hold on the bridge too:
+// a private-band tune-in, the IN-price ceiling, and free/self-use traffic each decline the
+// edge rather than being diverted to a Tower and billed against the caller's stated terms.
+// Driven against a LIVE fabric so, without each guard, the request WOULD be served (200) -
+// which is what makes the mutation die.
+func TestBridgeHonorsBandAndFreeAndInPriceCap(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	const model = "protections-model"
+	tw := liveSealedFabric(t, b, srv, model)
+	ats, _ := b.tower.stations.ByTower(tw.id)
+	require.NotEmpty(t, ats)
+	routableEdgePriced(t, b, tw.id, ats[0].StationID, model, liveEndpointOf(t, b, tw.id), 400000, 400000) // 0.4/1M
+
+	consumer := signedInConsumer(t, b)
+	base := authFor(t, b, consumer)
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"`+model+`","messages":[{"role":"user","content":"x"}]}`))
+	served := func(a edgeBridgeAuth) bool {
+		rec := httptest.NewRecorder()
+		h := b.relayViaEdge(rec, req, model, false, []byte(`{"model":"`+model+`","messages":[{"role":"user","content":"x"}]}`), rngFromSeed(1), false, a)
+		return h && rec.Body.Len() > 0 && rec.Code == http.StatusOK
+	}
+	require.True(t, served(base), "baseline must serve or these prove nothing")
+
+	// A private-band tune-in never diverts to a public Tower.
+	band := base
+	band.freqBand = true
+	require.False(t, served(band), "a private-band request must not ride a public Tower")
+
+	// Free/self-use ($0) is never billed on a Tower.
+	free := base
+	free.freeOrSelf = true
+	require.False(t, served(free), "free/self-use traffic must not be diverted to a billed Tower")
+
+	// The IN-price ceiling below the row's in-price excludes it.
+	capped := base
+	capped.maxPriceIn = 0.1 // row is 0.4/1M in
+	require.False(t, served(capped), "a Tower whose in-price exceeds the cap must not be billed")
+
+	// A cap above the price still serves - the comparison is real, not a blanket refusal.
+	okCap := base
+	okCap.maxPriceIn = 10.0
+	require.True(t, served(okCap))
+}
+
+// A PRICED two-tower fallback: the first (priced) Tower is dead, so its hold is placed
+// and then released at failure, the account slot is re-reserved, and the second (live,
+// priced) Tower serves - exercising the money branches of the retry loop that a free
+// fallback never touches.
+func TestBridgePricedFallbackReleasesAndRetries(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	const model = "priced-fallback-model"
+
+	// Dead priced Tower.
+	dead := enrolledTower(t, b, "pf-dead-op")
+	attachStation(t, b, "st-pfd", dead.id, "pf-dead-op")
+	routableEdgePriced(t, b, dead.id, "st-pfd", model, "127.0.0.1:1", 300000, 300000)
+
+	// Live priced Tower serving the same model.
+	live := liveSealedFabric(t, b, srv, model)
+	ats, _ := b.tower.stations.ByTower(live.id)
+	require.NotEmpty(t, ats)
+	routableEdgePriced(t, b, live.id, ats[0].StationID, model, liveEndpointOf(t, b, live.id), 300000, 300000)
+
+	consumer := signedInConsumer(t, b)
+	before := consumerBalance(t, b, consumer)
+	auth := authFor(t, b, consumer)
+	auth.maxPriceOut = 10
+	auth.maxPriceIn = 10
+
+	body := `{"model":"` + model + `","messages":[{"role":"user","content":"x"}]}`
+	served := 0
+	for i := 0; i < 8 && served == 0; i++ {
+		req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+		rec := httptest.NewRecorder()
+		if b.relayViaEdge(rec, req, model, false, []byte(body), rngFromSeed(int64(i)), false, auth) && rec.Code == http.StatusOK {
+			served++
+		}
+	}
+	require.Equal(t, 1, served, "the priced request must reach the live Tower via fallback")
+	// The dead Tower's hold was released; only the served attempt holds funds (settled
+	// separately). The balance did not silently drain to a dead relay's stranded hold.
+	// Only the SERVED attempt's hold remains (a few credits at the ceiling, refunded at
+	// settle); the DEAD tower's hold was released at failure rather than pinned. A stranded
+	// dead-tower hold would roughly double the reserved amount.
+	require.Greater(t, consumerBalance(t, b, consumer), before-5.0,
+		"a dead Tower's hold must be released at failure, not pinned")
+}
+
+// driveSealed's failure arms, direct: a Station advertising a session key nothing can be
+// sealed to is the Station's fault (found before any dial), and an endpoint nothing
+// answers is a drive failure. Both return no answer, so the caller never serves garbage.
+func TestDriveSealedFailureArms(t *testing.T) {
+	b, _ := towerTestBroker(t)
+	grant := dispatch.EdgeGrant{AttemptID: "at-drive", Model: "m", Signed: []byte("g")}
+
+	// A zero session key: envelope.SealTo cannot seal to it -> StationFault, no answer.
+	badKey := dispatch.Target{TowerID: "tw", StationID: "st", Model: "m", SessionKey: make([]byte, 32)}
+	ans, outcome := b.driveSealed(grant, badKey, "203.0.113.7:8443", "", nil, nil,
+		sealedDrive{tag: "test", body: []byte("{}"), timeout: time.Second})
+	require.Nil(t, ans, "an unsealable station yields no answer")
+	require.Equal(t, reputation.StationFault, outcome)
+
+	// A real key but a dead endpoint: the drive fails at submit -> CanaryFail, no answer.
+	spub, _, err := envelope.NewKey()
+	require.NoError(t, err)
+	deadTarget := dispatch.Target{TowerID: "tw", StationID: "st", Model: "m", SessionKey: spub}
+	ans2, outcome2 := b.driveSealed(grant, deadTarget, "127.0.0.1:1", "", nil, nil,
+		sealedDrive{tag: "test", body: []byte("{}"), timeout: time.Second})
+	require.Nil(t, ans2, "a dead endpoint yields no answer")
+	require.Equal(t, reputation.CanaryFail, outcome2)
+}
+
+// Two dead PRICED towers force the retry loop to run both iterations with holds: each
+// attempt places a hold, the drive fails, the hold is released, the slot re-reserved, and
+// the next tower tried - then the honest 503 with no funds pinned. This deterministically
+// exercises the money branches of the fallback loop.
+func TestBridgePricedRetryExhaustsCleanly(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	_ = srv
+	const model = "priced-retry-model"
+	for _, x := range []struct{ op, st string }{{"pr-a", "st-0aa1"}, {"pr-b", "st-0bb2"}} {
+		tw := enrolledTower(t, b, x.op)
+		attachStation(t, b, x.st, tw.id, x.op)
+		routableEdgePriced(t, b, tw.id, x.st, model, "127.0.0.1:1", 200000, 200000)
+	}
+	consumer := signedInConsumer(t, b)
+	before := consumerBalance(t, b, consumer)
+	auth := authFor(t, b, consumer)
+	auth.maxPriceIn, auth.maxPriceOut = 10, 10
+
+	body := `{"model":"` + model + `","messages":[{"role":"user","content":"x"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	handled := b.relayViaEdge(rec, req, model, false, []byte(body), rngFromSeed(1), false, auth)
+	// Both towers dead: the bridge declines (false), the direct 503 stands.
+	require.False(t, handled, "no tower served, so the caller's refusal stands")
+	require.InDelta(t, before, consumerBalance(t, b, consumer), 0.001,
+		"every failed attempt's hold was released; nothing is pinned")
+}
+
+// fakeHub answers POST /submit with exactly the crafted envelope/receipt bytes, so
+// driveSealed's receipt-integrity arms can be exercised without a live station.
+func fakeHub(t *testing.T, env, receipt []byte) string {
+	t.Helper()
+	mux := http.NewServeMux()
+	mux.HandleFunc("/submit", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"envelope": base64.StdEncoding.EncodeToString(env),
+			"receipt":  base64.StdEncoding.EncodeToString(receipt),
+		})
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return strings.TrimPrefix(srv.URL, "http://")
+}
+
+// A Tower that hands back a tampered or unreadable answer must never be served to the
+// consumer: every receipt-integrity arm returns no answer and a CanaryFail. These are the
+// money path's last defense - the sealed bytes and the node-signed receipt must agree with
+// each other, or the drive fails closed.
+func TestDriveSealedReceiptIntegrityArms(t *testing.T) {
+	b := testBrokerWithDB(store.NewMem())
+	sessionPub, _, err := envelope.NewKey()
+	require.NoError(t, err)
+	envPub, envPriv, err := envelope.NewKey()
+	require.NoError(t, err)
+	askPub, _, err := ed25519.GenerateKey(crand.Reader)
+	require.NoError(t, err)
+	const att = "at-integrity"
+	grant := dispatch.EdgeGrant{AttemptID: att, Model: "m", Signed: []byte("g")}
+	base := dispatch.Target{TowerID: "tw", StationID: "st", Model: "m", SessionKey: sessionPub, AssertionKey: askPub}
+	drive := sealedDrive{tag: "test", body: []byte("{}"), timeout: 2 * time.Second}
+
+	// A well-sealed answer to the RIGHT consumer key, so the failure is purely the receipt.
+	sealed, err := envelope.SealTo(envPub, []byte(`{"choices":[{"message":{"content":"x"}}]}`), att)
+	require.NoError(t, err)
+	sealedRaw, err := sealed.Marshal()
+	require.NoError(t, err)
+	// Sealed to a DIFFERENT key: parses, but OpenWith with envPriv cannot read it.
+	otherPub, _, err := envelope.NewKey()
+	require.NoError(t, err)
+	wrongSeal, err := envelope.SealTo(otherPub, []byte("x"), att)
+	require.NoError(t, err)
+	wrongRaw, err := wrongSeal.Marshal()
+	require.NoError(t, err)
+
+	cases := []struct {
+		name         string
+		env, receipt []byte
+	}{
+		{"unparseable envelope", []byte("not-an-envelope"), []byte("r")},
+		{"sealed to the wrong key", wrongRaw, []byte("r")},
+		{"unreadable receipt", sealedRaw, []byte("garbage-receipt-bytes")},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ep := fakeHub(t, tc.env, tc.receipt)
+			ans, outcome := b.driveSealed(grant, base, ep, "", nil, envPriv, drive)
+			require.Nil(t, ans, "a tampered answer is never served")
+			require.Equal(t, reputation.CanaryFail, outcome)
+		})
+	}
+}
+
+// The SOFT-mode refusals: when a direct node is also being tried (soft=true), a bridge
+// refusal must DECLINE quietly (return false) so the direct path still answers - never
+// write a 403/402 that would clobber the direct response. Two cases the hard-path tests
+// cover as written errors, proven here to fall through instead.
+func TestBridgeSoftRefusalsDeclineQuietly(t *testing.T) {
+	b, srv := towerTestBroker(t)
+	_ = srv
+	const model = "soft-decline-model"
+	tw := enrolledTower(t, b, "sd-op")
+	attachStation(t, b, "st-5dd1", tw.id, "sd-op")
+	routableEdge(t, b, tw.id, "st-5dd1", model, "203.0.113.7:8443")
+
+	consumer := signedInConsumer(t, b)
+	good := authFor(t, b, consumer)
+
+	// Wallet the verified pubkey does not own, in soft mode: decline, do not 403.
+	forged := edgeBridgeAuth{pubHex: good.pubHex, wallet: "u_gh_424242"}
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader("{}"))
+	rec := httptest.NewRecorder()
+	require.False(t, b.relayViaEdge(rec, req, model, false, []byte("{}"), rngFromSeed(1), true, forged),
+		"a soft wallet-mismatch declines so the direct path can answer")
+	require.Zero(t, rec.Body.Len(), "soft decline writes nothing")
+
+	// A broke account in soft mode against a PRICED tower: HoldFor fails -> decline, not 402.
+	const priced = "soft-decline-priced"
+	tw2 := enrolledTower(t, b, "sd2-op")
+	attachStation(t, b, "st-5dd2", tw2.id, "sd2-op")
+	routableEdgePriced(t, b, tw2.id, "st-5dd2", priced, "203.0.113.7:8443", 500000, 500000)
+	broke := signedInConsumer(t, b)
+	drainBalance(t, b, broke)
+	brokeAuth := authFor(t, b, broke)
+	brokeAuth.maxPriceIn, brokeAuth.maxPriceOut = 10, 10
+	req2 := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader("{}"))
+	rec2 := httptest.NewRecorder()
+	require.False(t, b.relayViaEdge(rec2, req2, priced, false, []byte("{}"), rngFromSeed(1), true, brokeAuth),
+		"a soft insufficient-balance declines so the direct path can answer")
+	require.Zero(t, rec2.Body.Len(), "soft decline writes nothing")
+}
+
+// drainBalance debits a consumer's account to zero so the next HoldFor fails - the broke
+// path, without depending on how much a request happens to reserve.
+func drainBalance(t *testing.T, b *broker, priv ed25519.PrivateKey) {
+	t.Helper()
+	o, ok, err := b.db.OwnerByPubkey(hexOf(priv.Public().(ed25519.PublicKey)))
+	require.NoError(t, err)
+	require.True(t, ok)
+	wallet, wok := accountWalletForOwner(o)
+	require.True(t, wok)
+	bal, err := b.db.BalanceOf(wallet, b.seedFunds)
+	require.NoError(t, err)
+	if bal > 0 {
+		_, err = b.db.AddCredits(wallet, -bal)
+		require.NoError(t, err)
+	}
 }

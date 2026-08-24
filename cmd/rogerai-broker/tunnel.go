@@ -1628,17 +1628,22 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		pickReq{pref: routePref, promptTokens: promptTokens, rng: seededRand(requestID)})
 	t := b.tunnels[node.NodeID]
 	b.mu.Unlock()
+	// The pricing plan is resolved HERE, before the fan-out coin, because free/self-use
+	// traffic ($0) must never be diverted to a billed Tower - the coin has to know.
+	edgePricing := b.resolvePricing(gc, gok, user, wallet, node, offer)
+	bridgeAuth := edgeBridgeAuth{
+		wallet: wallet, pubHex: r.Header.Get(protocol.HeaderPubkey), grant: gok,
+		sessionAuthed: sessionAuthed, confidentialOnly: confidentialOnly,
+		maxPriceIn: maxPrice, maxPriceOut: maxPriceOut, pinNode: pinNode,
+		freqBand: len(privateAllow) > 0, freeOrSelf: ok && edgePricing.free,
+	}
 	// BOTH FABRICS MAY SERVE. When a direct node was picked and the edge also hosts the
 	// model, a request-seeded coin sends half the traffic through the bridge - neither
 	// tier is silently preferred, and Towers earn on models the direct fleet also serves.
 	// SOFT mode: every bridge gate falls back to the direct node already picked, so this
 	// coin can only ever change who serves, never whether the consumer is served.
 	if ok && t != nil && seededRand(requestID).Intn(2) == 0 {
-		if b.relayViaEdge(w, r, req.Model, req.Stream, body, seededRand(requestID), true, edgeBridgeAuth{
-			wallet: wallet, pubHex: r.Header.Get(protocol.HeaderPubkey), grant: gok,
-			sessionAuthed: sessionAuthed, confidentialOnly: confidentialOnly,
-			maxPriceOut: maxPriceOut, pinNode: pinNode, excludeNodes: exclude,
-		}) {
+		if b.relayViaEdge(w, r, req.Model, req.Stream, body, seededRand(requestID), true, bridgeAuth) {
 			return
 		}
 	}
@@ -1649,11 +1654,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		// nothing either does the refusal below stand. This is the line the relay audit
 		// existed to produce: before it, "no node offers" was the answer even when an
 		// approved Tower was serving the model, so no live traffic could ride one.
-		if b.relayViaEdge(w, r, req.Model, req.Stream, body, seededRand(requestID), false, edgeBridgeAuth{
-			wallet: wallet, pubHex: r.Header.Get(protocol.HeaderPubkey), grant: gok,
-			sessionAuthed: sessionAuthed, confidentialOnly: confidentialOnly,
-			maxPriceOut: maxPriceOut, pinNode: pinNode, excludeNodes: exclude,
-		}) {
+		if b.relayViaEdge(w, r, req.Model, req.Stream, body, seededRand(requestID), false, bridgeAuth) {
 			return
 		}
 		msg := "no node offers " + req.Model
@@ -1670,7 +1671,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	// = 0/0, owner-sponsored otherwise). Signed self-use: $0 when the caller-owner
 	// owns the picked node. Public: the offer's active market price billed to the
 	// resolved account wallet.
-	pricing := b.resolvePricing(gc, gok, user, wallet, node, offer)
+	pricing := edgePricing
 	payer := pricing.payer
 	grantID := ""
 	if gok {
