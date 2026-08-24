@@ -31,7 +31,11 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 // was not handed and complete someone else's job.
 func randID() string {
 	var b [12]byte
-	_, _ = crand.Read(b[:])
+	if _, err := crand.Read(b[:]); err != nil {
+		// A failed system CSPRNG is not a condition to paper over with predictable ids: a
+		// guessable job id would let a station complete a job it never took. Fail loudly.
+		panic("localplane: crypto/rand unavailable: " + err.Error())
+	}
 	return hex.EncodeToString(b[:])
 }
 
@@ -105,26 +109,48 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	j := s.q.submit(jobID, req.Model, body)
 	select {
 	case res := <-j.result:
-		// Record the free, local receipt for the station that actually served it, then relay
-		// the station's answer verbatim with a free cost header - never a billing shape.
-		if _, rerr := s.st.RecordReceipt(clientKeyHash, res.stationID, req.Model); rerr != nil {
-			// The work happened; a receipt-write failure must not swallow the answer. Log-free
-			// here (the package makes no assumptions about a logger); the answer still returns.
-			_ = rerr
-		}
-		w.Header().Set("X-Roger-Cost", "0")
-		w.Header().Set("X-Roger-Local", "1")
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write(res.answer)
+		s.writeAnswer(w, clientKeyHash, req.Model, res)
 	case <-r.Context().Done():
-		// The consumer disconnected: abandon the job so it neither leaks nor is later run as
-		// stale work, and write nothing to a socket that is already gone.
+		// The consumer disconnected. Abandon so the job neither leaks nor is later run as stale
+		// work; but if a station delivered in the same instant, still record the receipt (the
+		// work happened) - there is just no socket left to write the answer to.
 		s.q.abandon(jobID)
+		if res, ok := drain(j); ok {
+			_, _ = s.st.RecordReceipt(clientKeyHash, res.stationID, req.Model)
+		}
 	case <-time.After(s.completionTimeout):
+		// The buffered result channel means a station can deliver in the same instant the timer
+		// fires; drain first so a just-served answer is returned rather than lost to a 504 while
+		// the station believes it succeeded.
+		if res, ok := drain(j); ok {
+			s.writeAnswer(w, clientKeyHash, req.Model, res)
+			return
+		}
 		s.q.abandon(jobID)
 		writeJSON(w, http.StatusGatewayTimeout, map[string]any{"error": "no local station served this request in time"})
 	}
+}
+
+// drain non-blockingly takes a result a station may have delivered, without waiting.
+func drain(j *job) (jobResult, bool) {
+	select {
+	case res := <-j.result:
+		return res, true
+	default:
+		return jobResult{}, false
+	}
+}
+
+// writeAnswer records the free local receipt for the serving station and relays the answer
+// verbatim with a free cost header - never a billing shape.
+func (s *Server) writeAnswer(w http.ResponseWriter, clientKeyHash, model string, res jobResult) {
+	// The work happened; a receipt-write failure must not swallow the answer.
+	_, _ = s.st.RecordReceipt(clientKeyHash, res.stationID, model)
+	w.Header().Set("X-Roger-Cost", "0")
+	w.Header().Set("X-Roger-Local", "1")
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(res.answer)
 }
 
 // offersModel reports whether any attached station serves the model.
