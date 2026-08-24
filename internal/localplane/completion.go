@@ -119,14 +119,16 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 			_, _ = s.st.RecordReceipt(clientKeyHash, res.stationID, req.Model)
 		}
 	case <-time.After(s.completionTimeout):
-		// The buffered result channel means a station can deliver in the same instant the timer
-		// fires; drain first so a just-served answer is returned rather than lost to a 504 while
-		// the station believes it succeeded.
+		// Abandon FIRST, then drain - the same order as the disconnect branch. complete delivers
+		// under the queue lock, so once abandon has removed the job, any answer a station managed
+		// to deliver is already in the buffer for drain to find; anything later finds the job gone
+		// and reports delivered=false. So a just-served answer is returned rather than lost to a
+		// 504 while the station believes it succeeded, with no racy window either way.
+		s.q.abandon(jobID)
 		if res, ok := drain(j); ok {
 			s.writeAnswer(w, clientKeyHash, req.Model, res)
 			return
 		}
-		s.q.abandon(jobID)
 		writeJSON(w, http.StatusGatewayTimeout, map[string]any{"error": "no local station served this request in time"})
 	}
 }
