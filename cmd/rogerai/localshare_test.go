@@ -42,6 +42,10 @@ func TestIsLocalTowerBrokerDetectsTheTowerByProbe(t *testing.T) {
 		// httptest binds 127.0.0.1; localhost resolves there, so the probe reaches the same Tower.
 		t.Errorf("a Tower at http://localhost must be detected as local")
 	}
+	// Hostnames are case-insensitive (RFC 4343): LOCALHOST is the same loopback host.
+	if !isLocalTowerBroker("http://LOCALHOST:" + lu.Port()) {
+		t.Errorf("a Tower at http://LOCALHOST must be detected as local (case-insensitive)")
+	}
 }
 
 func TestIsLocalTowerBrokerRejectsPublicAndBadTargets(t *testing.T) {

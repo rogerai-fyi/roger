@@ -32,7 +32,7 @@ func isLocalTowerBroker(broker string) bool {
 	// "localhost" is how most people type the loopback host; treat it as loopback so a Tower at
 	// http://localhost:8787 is detected the same as http://127.0.0.1:8787. Any OTHER hostname is
 	// not resolved (that would be a DNS lookup) - point roger at a literal IP for those.
-	if host != "localhost" {
+	if !strings.EqualFold(host, "localhost") {
 		ip := net.ParseIP(host)
 		if ip == nil || (!ip.IsLoopback() && !ip.IsPrivate()) {
 			return false
