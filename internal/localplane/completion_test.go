@@ -255,3 +255,13 @@ func TestCompleteRequiresANonEmptyAnswer(t *testing.T) {
 	srv.Handler().ServeHTTP(rec, signedBody(t, station, http.MethodPost, "/local/complete", []byte(`{"job_id":"x"}`)))
 	require.Equal(t, http.StatusBadRequest, rec.Code, "a completion with no answer is refused, not delivered empty")
 }
+
+func TestDrainTakesABufferedResultOnce(t *testing.T) {
+	j := &job{result: make(chan jobResult, 1)}
+	j.result <- jobResult{answer: []byte("hi"), stationID: "st-x"}
+	res, ok := drain(j)
+	require.True(t, ok)
+	require.Equal(t, "st-x", res.stationID)
+	_, ok2 := drain(j)
+	require.False(t, ok2, "a second drain finds nothing")
+}
