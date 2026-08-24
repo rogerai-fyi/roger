@@ -243,21 +243,28 @@ func TestAttemptsAgainstAnUnknownInvitationAreAlsoBudgeted(t *testing.T) {
 	require.Error(t, err, "the global anonymous-attempt limiter must apply")
 }
 
-// --- singleton operator ----------------------------------------------------
+// --- operator is the first admitted; more clients may follow -----------------
 
-func TestOnlyOneLocalOperatorEverExists(t *testing.T) {
+// The approved standalone spec (features/tower/standalone_consumer_plane.feature) makes a
+// private network multi-client: a second invitation for a DIFFERENT client admits that
+// client too. The OPERATOR role stays the first admitted client, so there is still exactly
+// one admin - what changed is that additional clients are now admissible beside it.
+func TestSecondInvitationAdmitsAnAdditionalClientNotASecondOperator(t *testing.T) {
 	st, _ := newBootstrapStore(t)
 	inv, code, err := st.CreateInvitation(testClientKey, time.Hour, 5)
 	require.NoError(t, err)
 	_, err = st.ConsumeInvitation(inv.ID, code, testClientKey)
 	require.NoError(t, err)
 
-	// A second invitation cannot mint a second operator.
-	inv2, code2, err := st.CreateInvitation(testClientKey, time.Hour, 5)
+	inv2, code2, err := st.CreateInvitation("second-client-key", time.Hour, 5)
 	require.NoError(t, err)
 	_, err = st.ConsumeInvitation(inv2.ID, code2, "second-client-key")
-	require.Error(t, err, "standalone v1 has one and only one local operator")
+	require.NoError(t, err, "a second client IS admitted now (multi-client plane)")
 
+	require.True(t, st.IsAdmitted(testClientKey))
+	require.True(t, st.IsAdmitted("second-client-key"))
+
+	// The operator stays the FIRST admitted client - still exactly one admin.
 	op, err := st.LocalOperator()
 	require.NoError(t, err)
 	require.Equal(t, testClientKey, op.ClientKeyHash)

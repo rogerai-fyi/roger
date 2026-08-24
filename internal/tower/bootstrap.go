@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"time"
 )
@@ -39,9 +40,14 @@ const (
 	bootstrapFile       = "bootstrap.json"
 )
 
-// RoleLocalOperator is the single administrative role a standalone network issues at
-// bootstrap. v1 has exactly one, for its whole life.
-const RoleLocalOperator = "local_operator"
+// RoleLocalOperator is the administrative role, held by the FIRST admitted client - the one
+// that may admit and revoke others. RoleLocalClient is every subsequent admitted client: it
+// may route, but holds no admin authority. The role is assigned at CONSUME time, not minted
+// into the invitation, so an invitation cannot pre-decide who becomes the admin.
+const (
+	RoleLocalOperator = "local_operator"
+	RoleLocalClient   = "local_client"
+)
 
 // errBootstrapRejected is the ONLY error consumption returns. Uniform by design: a
 // distinguishable error is an oracle.
@@ -92,19 +98,6 @@ type Credential struct {
 	RootFingerprint string `json:"root_fingerprint"`
 	Role            string `json:"role"`
 	IssuedAt        int64  `json:"issued_at"`
-}
-
-// bootstrapState is the durable local-admission state. It is written atomically so a
-// crash can never leave both a reusable code and an issued credential.
-type bootstrapState struct {
-	HMACKey       string                 `json:"hmac_key"`
-	Invitations   map[string]*Invitation `json:"invitations"`
-	GlobalAttempt int                    `json:"global_attempts"`
-	// GlobalSince bounds the probe counter to a window. Without it the limiter is not a
-	// limiter but a brick: enough bogus ids and the network can never be bootstrapped.
-	GlobalSince int64               `json:"global_attempts_since,omitempty"`
-	Operator    *Credential         `json:"operator,omitempty"`
-	Stations    map[string]*Station `json:"stations,omitempty"`
 }
 
 // bootstrapMu serialises local-admission transitions within a process. Cross-process
@@ -167,11 +160,12 @@ func (s *State) CreateInvitation(clientKeyHash string, validFor time.Duration, b
 		return Invitation{}, "", err
 	}
 	inv := &Invitation{
-		ID:            id,
-		Verifier:      verifierFor(bs.HMACKey, code),
-		ExpiresAt:     time.Now().Add(validFor).UnixNano(),
-		Budget:        budget,
-		Role:          RoleLocalOperator,
+		ID:        id,
+		Verifier:  verifierFor(bs.HMACKey, code),
+		ExpiresAt: time.Now().Add(validFor).UnixNano(),
+		Budget:    budget,
+		// Role is NOT decided here: an invitation cannot pre-appoint an admin. The role is
+		// assigned at consume time from whether an operator already exists.
 		ClientKeyHash: clientKeyHash,
 	}
 	bs.Invitations[id] = inv
@@ -252,9 +246,25 @@ func (s *State) ConsumeInvitation(id, code, clientKeyHash string) (Credential, e
 	if clientKeyHash == "" || !hmac.Equal([]byte(clientKeyHash), []byte(inv.ClientKeyHash)) {
 		return Credential{}, errBootstrapRejected
 	}
-	// v1 admits exactly one local operator, for the life of the network.
-	if bs.Operator != nil {
+	// A client already admitted cannot be admitted a second time - the uniform rejection,
+	// so a probe cannot tell "already admitted" apart from any other refusal.
+	if clientAdmitted(bs, clientKeyHash) {
 		return Credential{}, errBootstrapRejected
+	}
+	// Once the operator has been RETIRED (revoked), the network admits no new client until it
+	// is re-initialized - otherwise an outstanding invitation would become a silent path to
+	// re-appoint an admin. The one nil-operator case that still admits is a FRESH network,
+	// one that has never bootstrapped; Bootstrapped tells the two apart (an empty Clients map
+	// does not persist, so it cannot).
+	if bs.Operator == nil && bs.Bootstrapped {
+		return Credential{}, errBootstrapRejected
+	}
+
+	// Role is decided HERE, not by the invitation: the first admitted client is the operator
+	// (the admin), every subsequent one a plain local client with no admin authority.
+	role := RoleLocalClient
+	if bs.Operator == nil {
+		role = RoleLocalOperator
 	}
 
 	fp, err := s.rootFingerprint()
@@ -265,17 +275,120 @@ func (s *State) ConsumeInvitation(id, code, clientKeyHash string) (Credential, e
 		ClientKeyHash:   clientKeyHash,
 		NetworkID:       s.LocalNetworkID,
 		RootFingerprint: fp,
-		Role:            inv.Role,
+		Role:            role,
 		IssuedAt:        time.Now().Unix(),
 	}
-	// One atomic write marks the invitation consumed AND installs the operator, so a
-	// crash cannot leave a reusable code beside an issued credential.
+	// One atomic write marks the invitation consumed AND admits the client, so a crash
+	// cannot leave a reusable code beside an issued credential. The FIRST admitted client is
+	// also recorded as the operator (the admin role); every client, operator included, lives
+	// in the Clients set that admission and routing check.
 	inv.Consumed = true
-	bs.Operator = &cred
+	if bs.Clients == nil {
+		bs.Clients = map[string]*Credential{}
+		// Migrate a pre-multi-client operator into the set on first multi-client write, so the
+		// map is the single source of truth from here and no client lives only in Operator.
+		if bs.Operator != nil {
+			bs.Clients[bs.Operator.ClientKeyHash] = bs.Operator
+		}
+	}
+	bs.Clients[clientKeyHash] = &cred
+	bs.Bootstrapped = true // never cleared: marks that this network has admitted a client
+	if bs.Operator == nil {
+		bs.Operator = &cred
+	}
 	if err := s.saveBootstrap(bs); err != nil {
 		return Credential{}, errBootstrapRejected
 	}
 	return cred, nil
+}
+
+// clientAdmitted reports whether a client-key hash is in the admitted set. It counts the
+// operator as an implicit member so a pre-multi-client snapshot (Operator set, Clients nil)
+// still recognizes its one admitted client without a migration write.
+func clientAdmitted(bs *Snapshot, clientKeyHash string) bool {
+	if clientKeyHash == "" {
+		return false
+	}
+	if _, ok := bs.Clients[clientKeyHash]; ok {
+		return true
+	}
+	return bs.Operator != nil && hmac.Equal([]byte(bs.Operator.ClientKeyHash), []byte(clientKeyHash))
+}
+
+// IsAdmitted reports whether a client-key hash may use this standalone network. It is the
+// one admission question the consumer plane's authentication asks.
+func (s *State) IsAdmitted(clientKeyHash string) bool {
+	bootstrapMu.Lock()
+	defer bootstrapMu.Unlock()
+	bs, err := s.loadBootstrap()
+	if err != nil {
+		return false
+	}
+	return clientAdmitted(bs, clientKeyHash)
+}
+
+// AdmittedClients lists every admitted client credential, the operator included.
+func (s *State) AdmittedClients() []Credential {
+	bootstrapMu.Lock()
+	defer bootstrapMu.Unlock()
+	bs, err := s.loadBootstrap()
+	if err != nil {
+		return nil
+	}
+	out := make([]Credential, 0, len(bs.Clients)+1)
+	seen := map[string]bool{}
+	for _, c := range bs.Clients {
+		out = append(out, *c)
+		seen[c.ClientKeyHash] = true
+	}
+	// A pre-multi-client snapshot records its one client only as Operator.
+	if bs.Operator != nil && !seen[bs.Operator.ClientKeyHash] {
+		out = append(out, *bs.Operator)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ClientKeyHash < out[j].ClientKeyHash })
+	return out
+}
+
+// RevokeClient cuts off one admitted client and only that client. The client's invitation
+// stays consumed (a revoke is not a re-admit path), so it cannot be replayed to get back in.
+// Revoking an unknown client is a harmless no-op. Revoking the operator clears the operator
+// role too; a network with no operator can still serve its remaining clients, but admits no
+// new one until re-initialized - the deliberate cost of retiring the admin credential.
+func (s *State) RevokeClient(clientKeyHash string) error {
+	if s.Mode != ModeStandalone {
+		return ErrNotStandalone
+	}
+	bootstrapMu.Lock()
+	defer bootstrapMu.Unlock()
+	bs, err := s.loadBootstrap()
+	if err != nil {
+		return err
+	}
+	_, inClients := bs.Clients[clientKeyHash]
+	isOperator := bs.Operator != nil && hmac.Equal([]byte(bs.Operator.ClientKeyHash), []byte(clientKeyHash))
+	if !inClients && !isOperator {
+		return nil // never admitted: nothing to revoke
+	}
+	// A network that has something to revoke was bootstrapped. Assert it durably: a LEGACY
+	// snapshot (Clients nil, Bootstrapped false) revoked down to nothing would otherwise look
+	// fresh, and an outstanding invitation could then silently re-appoint an operator.
+	bs.Bootstrapped = true
+	delete(bs.Clients, clientKeyHash)
+	if isOperator {
+		// Retiring the operator's credential leaves the network with no admin (and admits no
+		// new client until re-init), but its remaining clients keep serving.
+		bs.Operator = nil
+	}
+	// Kill any OPEN invitation still bound to this key: a revoke that left an unused code
+	// alive would be a re-admit path (the revoked client consumes it and walks back in). A
+	// consumed invitation is already dead and is left as-is. Marking Consumed both closes the
+	// code and records that this identity's admission was deliberately ended.
+	for _, inv := range bs.Invitations {
+		if !inv.Consumed && hmac.Equal([]byte(inv.ClientKeyHash), []byte(clientKeyHash)) {
+			inv.Consumed = true
+		}
+	}
+	return s.saveBootstrap(bs)
 }
 
 // LocalOperator returns the network's single local operator credential.

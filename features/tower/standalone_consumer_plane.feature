@@ -3,7 +3,12 @@
 # claim was FALSE: the gate that proves no-egress scans one package only, and the binary
 # that would host the plane links the Core-dialing code. This version makes the claim
 # TRUE by construction. Changes need re-approval.
-# BUILD STATUS: NOT BUILT.
+# BUILD STATUS: PARTIAL. The multi-client admission + revocation data layer is built and
+# tested (internal/tower: IsAdmitted/AdmittedClients/RevokeClient, Route admits any client) -
+# the "More than one client can be admitted" and "A client can be cut off locally" scenarios.
+# NOT yet built: the Core-free consumer binary and handler package, the structural
+# dependency/egress guarantee, the station-poll loop, signature auth + uniform 401, replay
+# defense, bind posture, and resource limits. Those land in subsequent slices.
 
 Feature: A standalone Tower serves its own network and no one else's
   The airgap plant: model boxes `roger share` to a local Tower, operators point roger at
