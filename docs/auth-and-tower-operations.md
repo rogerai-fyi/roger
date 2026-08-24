@@ -242,48 +242,17 @@ that replay defense.
 
 > **Retired:** the old `roger-station` binary and the `roger-tower station invite --assertion-key
 > … --session-key …` / `roger-station offer … → offers/` file ceremony below are gone. A
-> standalone station attaches with `roger-tower attach --key <its tower client id>` as above; the
-> joined-Tower station flow is driven from `roger-tower station` subcommands.
+> standalone station attaches with `roger-tower attach --key <its tower client id>` as above; a
+> joined station self-attaches by running `roger share` on the serving node (Core assigns the
+> Tower), and `roger-tower station revoke` is the operator's kill switch.
 
-## Attaching a Station
+## Attaching a Station (joined Towers)
 
-Three machines, three steps, and the key never moves.
-
-**On the Station** — `roger-station` is a separate binary for exactly this reason; running it
-on the Tower would put a Station's private keys on the relay.
-
-```
-roger-station init --dir /var/lib/roger-station
-# prints: station id, assertion key, session key
-```
-
-**On your workstation, signed in** (`roger-tower login`):
-
-```
-roger-tower station invite --dir DIR --assertion-key HEX --session-key HEX [--station-id ID]
-# prints an invitation id and a ONE-TIME secret, and the exact attach command
-```
-
-**On the Tower**, redeeming as the Tower:
-
-```
-roger-tower station attach --dir DIR --invitation ID --secret S \
-    --assertion-key HEX --session-key HEX --station-id ID
-```
-
-The two calls are signed by different keys deliberately. `invite` is your **account** —
-authorizing a machine to serve under it is an account decision, and the account is what a
-suspension acts on. `attach` is the **Tower** — Core takes the Station's origin from whoever
-signed, so a relay cannot attach a Station behind somebody else's.
-
-Then, back on the Station, publish an offer and copy it across:
-
-```
-roger-station offer --dir DIR --tower TOWER-ID --model NAME \
-    --price-in N --price-out N --earn-in N --earn-out N --capacity N \
-    --out offer.json
-# copy offer.json into the Tower's `offers` directory
-```
+A serving node self-attaches to a joined Tower by running `roger share` on the node - the same
+command that puts it on air. There is no separate `roger-station` binary, no invitation/secret
+ceremony, and no `roger share --tower` flag: the node offers itself at its listed price, and Core
+assigns it to a relay. Its private key never leaves the node. (The retired `roger-station
+init/invite/offer` file ceremony that earlier versions documented here is gone.)
 
 `roger-tower status` reports what **Core** believes: state, whether the link is live, and
 which Stations are routable. That is the only trustworthy answer — the Tower's own files
