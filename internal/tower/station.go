@@ -110,8 +110,9 @@ func (s *State) Stations() ([]Station, error) {
 
 // Route selects an attached Station offering the model and records a local receipt.
 //
-// The caller must be the admitted local client: a standalone Tower is not an open relay,
-// so an unknown client is refused before any Station is considered.
+// The caller must be AN admitted local client - any of them, not only the operator: a
+// standalone Tower is not an open relay, so an unknown client is refused before any Station
+// is considered.
 func (s *State) Route(clientKeyHash, model string) (LocalReceipt, error) {
 	if s.Mode != ModeStandalone {
 		return LocalReceipt{}, ErrNotStandalone
@@ -123,7 +124,7 @@ func (s *State) Route(clientKeyHash, model string) (LocalReceipt, error) {
 	if err != nil {
 		return LocalReceipt{}, err
 	}
-	if bs.Operator == nil || !hmac.Equal([]byte(bs.Operator.ClientKeyHash), []byte(clientKeyHash)) {
+	if !clientAdmitted(bs, clientKeyHash) {
 		return LocalReceipt{}, errors.New("only this network's admitted local client may route requests")
 	}
 

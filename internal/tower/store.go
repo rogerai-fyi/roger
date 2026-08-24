@@ -39,7 +39,21 @@ type Snapshot struct {
 	GlobalAttempt int                    `json:"global_attempts"`
 	GlobalSince   int64                  `json:"global_attempts_since,omitempty"`
 	Operator      *Credential            `json:"operator,omitempty"`
-	Stations      map[string]*Station    `json:"stations,omitempty"`
+	// Clients is the set of admitted local clients, keyed by client-key hash. The FIRST
+	// admitted client is also recorded as Operator (the admin role), and stays in Clients;
+	// every subsequent invitation admits an additional independent client. Revocation removes
+	// one entry here and cuts off only that client. A pre-multi-client snapshot has a nil
+	// Clients and a set Operator; admission treats the operator as an implicit member until a
+	// write populates the map, so an old network keeps working with nobody re-admitting.
+	Clients map[string]*Credential `json:"clients,omitempty"`
+	// Bootstrapped records that this network HAS admitted at least one client. It is set on
+	// the first admission and never cleared, so a network whose operator was later revoked
+	// (Operator nil, Clients possibly empty) is distinguishable from a fresh one that never
+	// bootstrapped - the first admits nobody new, the second admits its first client as
+	// operator. It exists because `clients` is omitempty: an empty map does not persist, so
+	// the map alone cannot carry "was bootstrapped".
+	Bootstrapped bool                `json:"bootstrapped,omitempty"`
+	Stations     map[string]*Station `json:"stations,omitempty"`
 }
 
 // NewSnapshot mints the state a fresh Tower starts from, including its verifier secret.

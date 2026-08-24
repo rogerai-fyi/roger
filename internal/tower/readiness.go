@@ -109,15 +109,19 @@ func Ready(c *Config) Readiness {
 			"restore the identity volume from backup; receipts already issued cannot be verified without it")
 	}
 
-	// Admission history. A durable Tower with no operator has nobody who can attach a
-	// Station or route a request, so serving would be theatre.
+	// Admission history. A durable Tower with NO admitted client at all has nobody who can
+	// route a request, so serving would be theatre. Any admitted client counts, not only the
+	// operator: since a private network can now admit several clients and later retire its
+	// operator, an operator-less network with clients still serves them (it simply cannot
+	// admit or revoke anyone until re-initialized). It is the empty admission set, not the
+	// missing operator, that makes serving pointless.
 	if c.RequireOperator {
 		st, err := Open(dir)
 		if err != nil {
 			r.fail(DepOperator, "the Tower state file is unreadable",
 				"restore the identity volume from backup, or initialize a new data directory if this network is being rebuilt")
-		} else if _, err := st.LocalOperator(); err != nil {
-			r.fail(DepOperator, "this network has no local operator",
+		} else if len(st.AdmittedClients()) == 0 {
+			r.fail(DepOperator, "this network has admitted no local client",
 				"run `roger-tower invite --dir "+dir+" --client <key hash>` and redeem it with `roger-tower admit`")
 		}
 	}
