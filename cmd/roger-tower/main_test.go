@@ -812,3 +812,34 @@ func TestEverySubcommandRefusesAnUnknownFlag(t *testing.T) {
 		require.Error(t, run([]string{"config", sub, "--no-such-flag"}, &b))
 	}
 }
+
+// A running `serve` holds the data directory's EXCLUSIVE lock for its whole lifetime. That
+// lock exists to keep two WRITERS (two servers, or a server and an attach) from corrupting
+// one identity's session and registry - it must not also lock out an operator who only
+// wants to READ what is attached. Before the fix, `stations` went through the same
+// exclusive-lock open path as `attach`, so `roger-tower stations` printed "another Tower
+// process already owns ..." the instant a Tower was actually serving - exactly when an
+// operator most wants to look.
+func TestReadOnlyCommandsRunWhileServeHoldsTheLock(t *testing.T) {
+	dir := bootstrappedDir(t)
+	_, err := runCLI(t, "attach", "--dir", dir, "--station", "st-1", "--key", "sk1", "--models", "llama-8b")
+	require.NoError(t, err)
+
+	// Simulate a running serve: hold the exclusive data-directory lock for the rest of the test.
+	st, err := tower.Open(dir)
+	require.NoError(t, err)
+	release, err := st.Lock()
+	require.NoError(t, err, "precondition: the lock is free before serve takes it")
+	defer func() { _ = release() }()
+
+	// READ-ONLY: stations must succeed and show the attachment, not the lock error.
+	out, err := runCLI(t, "stations", "--dir", dir)
+	require.NoError(t, err, "a read-only command must not be blocked by serve's lock")
+	require.NotContains(t, out, "already owns")
+	require.Contains(t, out, "st-1")
+
+	// WRITER: attach must STILL fail-fast while the lock is held - the guarantee the lock exists for.
+	_, err = runCLI(t, "attach", "--dir", dir, "--station", "st-2", "--key", "sk2", "--models", "m")
+	require.Error(t, err, "a writer must still be refused while another process owns the directory")
+	require.Contains(t, err.Error(), "already owns")
+}

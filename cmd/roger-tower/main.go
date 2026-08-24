@@ -445,7 +445,10 @@ func cmdStations(args []string, out io.Writer) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	st, release, err := openDirWith(*dir, *cfg)
+	// Read-only: a running `serve` holds the exclusive lock, and listing stations must not
+	// be blocked by it. openDirReadOnly opens without the lock; the snapshot's atomic writes
+	// make the unlocked read consistent.
+	st, release, err := openDirReadOnly(*dir, *cfg)
 	if err != nil {
 		return err
 	}
@@ -613,6 +616,22 @@ func openDir(dir string) (*tower.State, func() error, error) { return openDirWit
 // It fails CLOSED: if the config asks for a database and the database cannot be opened, the
 // command stops. Falling back to the file store is what caused the problem in the first place.
 func openDirWith(dir, configPath string) (*tower.State, func() error, error) {
+	return openDirMode(dir, configPath, true)
+}
+
+// openDirReadOnly opens a data directory for a command that only READS state, WITHOUT
+// taking the exclusive lock. The lock exists to stop two writers from corrupting one
+// identity's session and registry; a reader threatens neither, and taking the exclusive
+// lock would lock a read-only command out of a directory a `serve` is actively holding -
+// exactly when the operator most wants to look. Reads are safe unlocked: the snapshot
+// store writes via a temp-file rename (store.go), so a concurrent read sees the whole old
+// file or the whole new one, never a torn one.
+func openDirReadOnly(dir, configPath string) (*tower.State, func() error, error) {
+	return openDirMode(dir, configPath, false)
+}
+
+// openDirMode is the shared open path; lock decides whether it takes exclusive ownership.
+func openDirMode(dir, configPath string, lock bool) (*tower.State, func() error, error) {
 	if dir == "" {
 		return nil, nil, fmt.Errorf("--dir is required")
 	}
@@ -620,9 +639,12 @@ func openDirWith(dir, configPath string) (*tower.State, func() error, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	release, err := st.Lock()
-	if err != nil {
-		return nil, nil, err
+	release := func() error { return nil }
+	if lock {
+		release, err = st.Lock()
+		if err != nil {
+			return nil, nil, err
+		}
 	}
 	if configPath == "" {
 		return st, release, nil
