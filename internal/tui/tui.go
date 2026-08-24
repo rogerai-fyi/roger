@@ -463,6 +463,8 @@ func (s *LimitStore) resolve(model string) Limit {
 	if s == nil {
 		return Limit{}
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if l, ok := s.Models[model]; ok {
 		return l
 	}
@@ -480,6 +482,15 @@ func (s *LimitStore) set(model string, l Limit) {
 	if s == nil {
 		return
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.setLocked(model, l)
+}
+
+// setLocked writes one cap; the caller must hold mu. Splitting the map mutation out of the
+// locking lets Set and Update do a check-then-write under a SINGLE lock without re-entering
+// (a sync.Mutex is not reentrant - set() calling itself through the lock would deadlock).
+func (s *LimitStore) setLocked(model string, l Limit) {
 	if s.Models == nil {
 		s.Models = map[string]Limit{}
 	}
@@ -497,15 +508,47 @@ func (s *LimitStore) set(model string, l Limit) {
 // unexplained refusal on some later turn. A zero value clears the cap rather than recording
 // "refuse everything" - the same rule the TUI's own editor follows.
 func (s *LimitStore) Set(model string, l Limit) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	// "Nothing set" now includes the QUANT rule. Without the Quants check this cleared a
 	// quant-only preference the moment it was saved - the operator set a rule, the store
 	// decided the limit was empty, and the rule vanished silently. A limit is unset only
 	// when it says nothing at all.
-	if l.MaxOut <= 0 && l.MinTPS <= 0 && l.MaxIn <= 0 && len(l.Quants) == 0 {
-		s.clear(model)
+	if limitIsUnset(l) {
+		s.clearLocked(model)
 		return
 	}
-	s.set(model, l)
+	s.setLocked(model, l)
+}
+
+// Update applies f to the model's CURRENT stored cap and writes the result, as one atomic
+// read-modify-write under the lock. The browser console's save needs exactly this: it edits
+// the two fields its price form can see (MaxOut, MinTPS) and must carry every OTHER field -
+// MaxIn, the quant rule, anything Limit gains later - from what is stored. Reading with
+// Snapshot and writing with Set as two calls would let a concurrent TUI edit land between
+// them and be lost; f runs while the lock is held so it cannot. f starts from the model's
+// own stored cap (zero value if unset), NOT Default - a console edit pins this one band.
+func (s *LimitStore) Update(model string, f func(cur Limit) Limit) {
+	if s == nil || f == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	next := f(s.Models[model])
+	if limitIsUnset(next) {
+		s.clearLocked(model)
+		return
+	}
+	s.setLocked(model, next)
+}
+
+// limitIsUnset reports whether a cap says nothing at all - every knob at/below zero and no
+// quant rule - in which case storing it would clear the entry rather than record a cap.
+func limitIsUnset(l Limit) bool {
+	return l.MaxOut <= 0 && l.MinTPS <= 0 && l.MaxIn <= 0 && len(l.Quants) == 0
 }
 
 // Snapshot returns a COPY of the per-model caps, safe to hand to another front-end to
@@ -516,6 +559,8 @@ func (s *LimitStore) Snapshot() map[string]Limit {
 	if s == nil {
 		return out
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	for m, l := range s.Models {
 		out[m] = l
 	}
@@ -523,7 +568,17 @@ func (s *LimitStore) Snapshot() map[string]Limit {
 }
 
 func (s *LimitStore) clear(model string) {
-	if s == nil || s.Models == nil {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.clearLocked(model)
+}
+
+// clearLocked deletes one cap; the caller must hold mu (see setLocked).
+func (s *LimitStore) clearLocked(model string) {
+	if s.Models == nil {
 		return
 	}
 	delete(s.Models, model)

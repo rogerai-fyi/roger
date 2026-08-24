@@ -10,6 +10,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -39,7 +40,16 @@ type Limit struct {
 // Default for unpinned bands, the typical reply size for est-cost, and a Save
 // callback so the host (cmd/rogerai) owns persistence. nil-safe: an empty store
 // means no caps. Resolve picks per-model else Default.
+//
+// ONE STORE, TWO GOROUTINES. The TUI's update loop and the browser console's HTTP
+// handlers write these caps through the SAME instance (that is the point - the two
+// surfaces must agree on what the operator will pay). Without mu that is a concurrent
+// map access on money settings, which for two writers is a hard Go crash, not a subtle
+// drift. mu guards every read and write of Models; use Update for a read-modify-write
+// that must be atomic against a concurrent edit. mu is the zero value, so the keyed
+// struct literals that build a store elsewhere need no change.
 type LimitStore struct {
+	mu         sync.Mutex
 	Models     map[string]Limit
 	Default    Limit
 	TypicalOut int
