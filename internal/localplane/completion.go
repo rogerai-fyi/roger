@@ -76,10 +76,12 @@ func (s *Server) authStation(r *http.Request, body []byte) (tower.Station, bool)
 	if !s.stationRL.allow(found.ID) {
 		return tower.Station{}, false
 	}
-	// RECORD only now: a station re-polls with a fresh nonce each time, so genuine polling is
-	// never mistaken for a replay, and recording after the rate gate keeps memory bounded.
-	if nonce != "" {
-		s.replay.record(nonceKey)
+	// RECORD only now, atomically (used() checks-and-records under one lock): two polls racing
+	// with the same nonce cannot both pass. A station re-polls with a fresh nonce each time, so
+	// genuine polling is never mistaken for a replay, and recording after the rate gate keeps
+	// memory bounded.
+	if nonce != "" && s.replay.used(nonceKey) {
+		return tower.Station{}, false
 	}
 	return found, true
 }

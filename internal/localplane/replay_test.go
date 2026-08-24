@@ -1,6 +1,7 @@
 package localplane
 
 import (
+	"sync"
 	"testing"
 	"time"
 
@@ -69,4 +70,27 @@ func TestReplayGuardCheckDoesNotRecord(t *testing.T) {
 	require.False(t, g.isReplay("k"), "a bare check never records, so a second check is still not a replay")
 	g.record("k")
 	require.True(t, g.isReplay("k"), "after record it is a replay")
+}
+
+// used() must be atomic: many goroutines racing with the SAME nonce - exactly one may proceed
+// (false), every other is a replay (true). This is what closes the check/record TOCTOU.
+func TestReplayGuardUsedIsAtomicUnderRace(t *testing.T) {
+	g := newReplayGuard(time.Now, replayWindow)
+	const n = 64
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	proceeded := 0
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if !g.used("same-nonce") {
+				mu.Lock()
+				proceeded++
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+	require.Equal(t, 1, proceeded, "exactly one racing use of a nonce may proceed; the rest are replays")
 }
