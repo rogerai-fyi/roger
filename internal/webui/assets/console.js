@@ -612,8 +612,16 @@
     sig.appendChild(bars);
     tr.appendChild(sig);
     // tps / ttft / ctx / region
-    tr.appendChild(el("td", "num", o.tps != null ? Math.round(o.tps) : "—"));
-    tr.appendChild(el("td", "num", o.ttft_ms != null ? Math.round(o.ttft_ms) + "ms" : "—"));
+    //
+    // ZERO IS NOT A MEASUREMENT. The wire contract says so in as many words - Offer.TTFTMs
+    // is "probe-measured TTFT (ms; 0 = unmeasured)" and CheapTPS likewise - so a station
+    // the prober has not reached yet arrives with tps 0 and ttft_ms 0. Rendering those as
+    // "0" and "0ms" told the operator this station was measured and is infinitely fast,
+    // which is the opposite of the truth and exactly backwards for choosing between
+    // stations. The dial has always got this right (tpsCell renders "- t/s"); this table
+    // did not. A null check alone does not catch it: 0 is not null.
+    tr.appendChild(el("td", "num", o.tps > 0 ? Math.round(o.tps) : "—"));
+    tr.appendChild(el("td", "num", o.ttft_ms > 0 ? Math.round(o.ttft_ms) + "ms" : "—"));
     tr.appendChild(el("td", "num", o.ctx ? Math.round(o.ctx / 1024) + "k" : "—"));
     tr.appendChild(el("td", null, o.region || "—"));
     return tr;
@@ -1387,7 +1395,7 @@
     body.innerHTML = "";
     if (!rows.length) {
       var er = el("tr", "empty-row");
-      var ec = el("td", null, "No bands yet."); ec.colSpan = 4;
+      var ec = el("td", null, "No bands yet."); ec.colSpan = 5;
       er.appendChild(ec); body.appendChild(er);
       return;
     }
@@ -1399,6 +1407,7 @@
       tr.appendChild(nameCell);
       tr.appendChild(limitCell(r.model, "max_out", r.max_out));
       tr.appendChild(limitCell(r.model, "min_tps", r.min_tps));
+      tr.appendChild(quantCell(r.model, r.quants));
       var act = el("td", "row-actions");
       var save = el("button", "btn small", "save");
       save.setAttribute("data-limit-save", r.model);
@@ -1422,13 +1431,39 @@
     return td;
   }
 
+  // quantCell edits the STANDING QUANT RULE - the compression labels this band may be
+  // routed to. Empty means "any", which is not the same as "none": a band with no rule
+  // accepts every quant, and a station that declared none is accepted by any rule.
+  //
+  // This column exists because the field did not used to be here, and its absence was not
+  // cosmetic: the save posted only the two numbers, so editing a price cap in the browser
+  // silently destroyed a rule set on the terminal's band card.
+  function quantCell(model, quants) {
+    var td = el("td");
+    var i = el("input", "inp");
+    i.type = "text";
+    i.placeholder = "any";
+    i.value = (quants || []).join(", ");
+    i.setAttribute("data-limit", model);
+    i.setAttribute("data-field", "quants");
+    i.title = "comma-separated, e.g. Q4_K_M, IQ4_XS, 4bit - empty means any";
+    td.appendChild(i);
+    return td;
+  }
+
   function saveLimit(model) {
     function val(field) {
       var i = document.querySelector('[data-limit="' + CSS.escape(model) + '"][data-field="' + field + '"]');
       var n = i && i.value !== "" ? Number(i.value) : 0;
       return isFinite(n) && n > 0 ? n : 0;
     }
-    apiPost("/api/limits", { model: model, max_out: val("max_out"), min_tps: val("min_tps") })
+    // The quant field is ALWAYS sent from this form, because this form can see it. A
+    // surface that cannot edit the rule must omit the key entirely so the server leaves
+    // it alone; that is what the pointer on the wire is for.
+    var qi = document.querySelector('[data-limit="' + CSS.escape(model) + '"][data-field="quants"]');
+    var quants = (qi ? qi.value : "").split(",").map(function (x) { return x.trim(); })
+      .filter(function (x) { return x !== ""; });
+    apiPost("/api/limits", { model: model, max_out: val("max_out"), min_tps: val("min_tps"), quants: quants })
       .then(function () { toast("saved " + model); loadSettings(); })
       .catch(function (e) { toast(e.message, "err"); });
   }

@@ -162,10 +162,15 @@
           <!-- balance / spend -->
           <div class="card" id="card-balance">
             <div class="card-title">Balance</div>
-            <div class="big-figure mono" id="acct-balance">$0.00</div>
+            <!-- A DASH, NOT A ZERO. This is the pre-fetch placeholder, and $0.00 is a
+                 claim: it reads as "you have no money" when the truth is "not loaded
+                 yet". On a balance that is the one number never to invent - the real
+                 figure arrived a moment later and read $120.96. Same rail the rest of
+                 this console follows: absent renders as absent. -->
+            <div class="big-figure mono" id="acct-balance">&mdash;</div>
             <div class="meter-line">
               <div class="meter"><div class="meter-fill" id="acct-spend-fill"></div></div>
-              <div class="muted small" id="acct-spend-text">$0.00 of $0.00 this month</div>
+              <div class="muted small" id="acct-spend-text">this month &mdash;</div>
             </div>
             <div class="card-actions">
               <input class="inp small" id="topup-amount" type="number" min="1" step="1" placeholder="USD" inputmode="decimal">
@@ -298,6 +303,7 @@
                 <th class="col-model">BAND</th>
                 <th class="num">MAX $/1M OUT</th>
                 <th class="num">MIN T/S</th>
+                <th class="col-quant">QUANT RULE</th>
                 <th class="col-actions">ACTIONS</th>
               </tr>
             </thead>
