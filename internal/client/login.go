@@ -10,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"rogerai.fm/roger/v6/internal/protocol"
 	"time"
 )
 
@@ -256,11 +258,15 @@ func Whoami() error {
 		fmt.Printf("logged in as @%s (github id %d)\n", a.GitHubLogin, a.GitHubID)
 		fmt.Printf("  wallet:  your account wallet (one wallet: CLI + web)\n")
 		fmt.Printf("  pubkey:  %s\n", UserPubHex())
+		fmt.Printf("  tower client id: %s\n", protocol.UserIDFromPubkey(UserPubHex()))
+		fmt.Printf("    (give this to a standalone Tower operator: `roger-tower invite --client <id>`)\n")
 		return nil
 	}
 	fmt.Println("anonymous - not logged in")
 	fmt.Println("  free models and grant keys work; run `roger login` to use your wallet + earn")
 	fmt.Printf("  pubkey:  %s\n", UserPubHex())
+	fmt.Printf("  tower client id: %s\n", protocol.UserIDFromPubkey(UserPubHex()))
+	fmt.Printf("    (give this to a standalone Tower operator: `roger-tower invite --client <id>`)\n")
 	return nil
 }
 
