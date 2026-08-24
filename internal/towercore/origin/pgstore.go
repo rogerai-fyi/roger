@@ -14,18 +14,25 @@ import (
 // it:
 //
 //   - tower_origin_seen holds ONLY the attempt id, for idempotency - a retried open counts
-//     once. It knows nothing about country or Tower.
+//     once. It knows nothing about country or Tower, and carries NO timestamp: a shared
+//     insert time would itself be a join key back to the country event, so it is not stored.
 //   - tower_origin_events holds the country and Tower under a surrogate id, with NO attempt
 //     id. It is what ByTower counts.
 //
 // A country therefore cannot be traced back to an attempt, and thus not to a wallet, inside
-// the store - the view can answer "how much from where" and the schema itself cannot answer
-// "who".
+// the store - not by id and not by timestamp - so the view can answer "how much from where"
+// and the schema itself cannot answer "who".
 const schema = `
 CREATE TABLE IF NOT EXISTS rogerai.tower_origin_seen (
-    attempt_id TEXT PRIMARY KEY,
-    at         TIMESTAMPTZ NOT NULL
+    attempt_id TEXT PRIMARY KEY
 );
+-- MIGRATION: an earlier schema stored an insert timestamp on tower_origin_seen. It was a
+-- correlation vector (a shared microsecond insert time re-links an attempt to its country
+-- event), and it is never read, so drop it. This runs on every startup and is idempotent: on
+-- a fresh deployment the column was never created and this is a no-op; on an existing one it
+-- both sheds the stored timestamps AND lets the attempt-id-only INSERT below succeed, which
+-- the old NOT NULL column would otherwise reject.
+ALTER TABLE rogerai.tower_origin_seen DROP COLUMN IF EXISTS at;
 CREATE TABLE IF NOT EXISTS rogerai.tower_origin_events (
     id       BIGSERIAL PRIMARY KEY,
     tower_id TEXT        NOT NULL,
@@ -59,9 +66,9 @@ func (p *PGStore) Record(towerID, attemptID, country string, at time.Time) error
 	// crash between them can only UNDER-count (a claimed attempt with no event), never
 	// double-count, and never leave a country row joinable to the claimed id.
 	res, err := p.db.Exec(`
-		INSERT INTO rogerai.tower_origin_seen (attempt_id, at)
-		VALUES ($1, $2) ON CONFLICT (attempt_id) DO NOTHING`,
-		attemptID, at.UTC())
+		INSERT INTO rogerai.tower_origin_seen (attempt_id)
+		VALUES ($1) ON CONFLICT (attempt_id) DO NOTHING`,
+		attemptID)
 	if err != nil {
 		return err
 	}

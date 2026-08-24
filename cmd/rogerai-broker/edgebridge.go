@@ -276,7 +276,12 @@ func (b *broker) relayViaEdge(w http.ResponseWriter, r *http.Request, model stri
 		// does not double-count; a failed drive still counts as demand from that country,
 		// which is exactly the signal an operator watching for an anomaly wants to see.
 		if ts.origin != nil {
-			_ = ts.origin.Record(target.TowerID, g.AttemptID, clientCountry(r), time.Now())
+			if oerr := ts.origin.Record(target.TowerID, g.AttemptID, clientCountry(r), time.Now()); oerr != nil {
+				// Not fatal to the request, but not silent either: a dropped origin write
+				// under-counts demand without a trace, which the tally exists to avoid.
+				log.Printf("edge bridge: could not record traffic origin for tower %s attempt %s: %v",
+					target.TowerID, g.AttemptID, oerr)
+			}
 		}
 
 		unstreamed := unstreamBody(body)
