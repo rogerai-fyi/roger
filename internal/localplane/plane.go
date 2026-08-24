@@ -150,12 +150,14 @@ func (s *Server) authClient(r *http.Request, body []byte) (clientKeyHash string,
 	if !s.rl.allow(userID) {
 		return userID, authRateLimited
 	}
-	// RECORD the nonce only now, on the way to OK: a throttled request records nothing, so the
-	// guard's memory stays bounded by rate x window per admitted key rather than by how fast an
-	// attacker sends. (A 429'd request not recording also means a legitimate byte-identical retry
-	// is not misread as a replay.)
-	if nonce != "" {
-		s.replay.record(userID + ":" + nonce)
+	// RECORD the nonce only now, on the way to OK, and ATOMICALLY: used() checks-and-records
+	// under one lock, so two requests racing with the SAME nonce cannot both slip past the
+	// earlier (non-atomic) isReplay check - the first records and proceeds, the second's used()
+	// sees it and is denied. Recording only after the rate gate keeps memory bounded by
+	// rate x window per admitted key (a throttled request records nothing), and also means a
+	// legitimate byte-identical retry of a 429'd request is not misread as a replay.
+	if nonce != "" && s.replay.used(userID+":"+nonce) {
+		return "", authDenied
 	}
 	return userID, authOK
 }

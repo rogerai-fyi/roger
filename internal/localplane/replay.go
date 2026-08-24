@@ -60,13 +60,20 @@ func (g *replayGuard) record(nonceKey string) {
 	g.seen[nonceKey] = now.Add(g.ttl)
 }
 
-// used is the atomic check-and-record, kept for the unit tests. The handlers use seen + record
-// separately so the record can sit after the rate limiter.
+// used is the ATOMIC check-and-record: it reports whether the nonce was already recorded and,
+// if not, records it - all under ONE lock hold, so two goroutines racing with the same nonce
+// cannot both see it absent. Exactly one gets false (proceed); every other gets true (replay).
+// This is the final gate after the rate limiter; the handlers use isReplay first, before the
+// rate gate, as a lock-cheap fast reject of an already-known replay.
 func (g *replayGuard) used(nonceKey string) bool {
-	if g.isReplay(nonceKey) {
+	now := g.now()
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.pruneLocked(now)
+	if exp, ok := g.seen[nonceKey]; ok && now.Before(exp) {
 		return true
 	}
-	g.record(nonceKey)
+	g.seen[nonceKey] = now.Add(g.ttl)
 	return false
 }
 
