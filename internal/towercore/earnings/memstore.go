@@ -1,6 +1,7 @@
 package earnings
 
 import (
+	"sort"
 	"sync"
 	"time"
 )
@@ -56,6 +57,51 @@ func (m *memStore) RecordPayout(owner, payoutID string, micros int64, at time.Ti
 	}
 	m.payouts[payoutID] = payoutRow{owner: owner, micros: micros, at: at}
 	return nil
+}
+
+func (m *memStore) TowerTraffic(towerID string, since time.Time) (TowerTraffic, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := TowerTraffic{TowerID: towerID}
+	all := since.IsZero()
+	byModel := map[string]*ModelTraffic{}
+	for _, a := range m.accruals {
+		if a.TowerID != towerID || !(all || !a.At.Before(since)) {
+			continue
+		}
+		mt := byModel[a.Model]
+		if mt == nil {
+			mt = &ModelTraffic{Model: a.Model}
+			byModel[a.Model] = mt
+		}
+		mt.Attempts++
+		mt.UsageIn = satAddMicros(mt.UsageIn, a.UsageIn)
+		mt.UsageOut = satAddMicros(mt.UsageOut, a.UsageOut)
+		if a.Corroborated {
+			mt.Corroborated++
+		} else {
+			mt.Uncorroborated++
+		}
+		out.Attempts++
+		out.UsageIn = satAddMicros(out.UsageIn, a.UsageIn)
+		out.UsageOut = satAddMicros(out.UsageOut, a.UsageOut)
+		if a.SelfDealing {
+			mt.SelfDealt = satAddMicros(mt.SelfDealt, a.Micros)
+			out.SelfDealt = satAddMicros(out.SelfDealt, a.Micros)
+			continue // recorded as evidence, never owed
+		}
+		mt.Micros = satAddMicros(mt.Micros, a.Micros)
+		out.Micros = satAddMicros(out.Micros, a.Micros)
+	}
+	models := make([]string, 0, len(byModel))
+	for k := range byModel {
+		models = append(models, k)
+	}
+	sort.Strings(models)
+	for _, k := range models {
+		out.Models = append(out.Models, *byModel[k])
+	}
+	return out, nil
 }
 
 func (m *memStore) OwedTo(owner string, since time.Time) (OwedByOwner, error) {
