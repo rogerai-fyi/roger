@@ -22,7 +22,8 @@ func TestConsumerHandlerMakesNoOutboundCall(t *testing.T) {
 		"net.Dial", "net.DialTimeout", "net.Listen", "net.ListenPacket",
 		"http.Get", "http.Post", "http.Head", "http.NewRequest", "http.Client{",
 		"http.DefaultClient", "http.ListenAndServe",
-		"net.LookupHost", "net.LookupIP", "net.LookupAddr", "net.LookupCNAME", "net.Resolver",
+		"net.LookupHost", "net.LookupIP", "net.LookupAddr", "net.LookupCNAME", "net.LookupPort",
+		"net.LookupSRV", "net.LookupTXT", "net.Resolver",
 		"exec.Command", "exec.CommandContext",
 	}
 	files, err := filepath.Glob("*.go")

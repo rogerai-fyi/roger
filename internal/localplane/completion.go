@@ -77,9 +77,9 @@ type chatRequest struct {
 // after authentication, and nothing is dialed - there is no code linked that could.
 func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	body := readPrompt(r)
-	clientKeyHash, ok := s.authClient(r, body)
-	if !ok {
-		unauthorized(w)
+	clientKeyHash, status := s.authClient(r, body)
+	if status != authOK {
+		writeAuthFailure(w, status)
 		return
 	}
 	if r.Method != http.MethodPost {
@@ -87,6 +87,21 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
+	// Per-CLIENT fairness first: no single admitted client may hold more than its share of
+	// concurrent completions, so one client cannot accumulate every global slot (each held for
+	// up to the completion timeout) and starve the stations for the others.
+	if !s.perClient.acquire(clientKeyHash) {
+		writeJSON(w, http.StatusTooManyRequests, map[string]any{"error": "too many concurrent requests for this client"})
+		return
+	}
+	defer s.perClient.release(clientKeyHash)
+	// Whole-Tower bound: cap total concurrent completions so a burst cannot exhaust the box. A
+	// request that cannot get a slot is refused, not queued behind an unbounded backlog.
+	if !s.inflight.tryAcquire() {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "the Tower is busy; retry shortly"})
+		return
+	}
+	defer s.inflight.release()
 	var req chatRequest
 	if err := json.Unmarshal(body, &req); err != nil || req.Model == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "a model is required"})

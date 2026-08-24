@@ -3,6 +3,7 @@ package localplane
 import (
 	"fmt"
 	"net"
+	"strconv"
 )
 
 // DefaultBind is where the consumer plane listens when the operator names no address:
@@ -37,7 +38,9 @@ func ResolveBind(addr string, allowPublic bool) (bind, note string, err error) {
 	if serr != nil {
 		return "", "", fmt.Errorf("--bind %q is not a valid host:port", addr)
 	}
-	if _, perr := net.LookupPort("tcp", port); perr != nil {
+	// A numeric range check, not a service-name resolver: the handler package must contain no name
+	// resolution at all (see the source-scan gate), and a port is a number, not a service name.
+	if n, perr := strconv.Atoi(port); perr != nil || n < 1 || n > 65535 {
 		return "", "", fmt.Errorf("--bind %q has an invalid port", addr)
 	}
 	ip := net.ParseIP(host)
