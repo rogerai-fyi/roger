@@ -50,7 +50,8 @@ usage:
   roger-tower logout --dir DIR
   roger-tower probe    --model NAME [--broker URL]   (drive the edge path as a consumer)
   roger-tower register --dir DIR      (joined mode only; requires login)
-  roger-tower serve  --dir DIR [--hub :8444 --relay-public HOST:PORT]  (holds the link; hosts the sealed data plane)
+  roger-tower serve  --dir DIR [--hub :8444 --relay-public HOST:PORT]  (JOINED: holds the link; hosts the sealed data plane)
+  roger-tower-local  --dir DIR [--bind HOST:PORT]                     (STANDALONE: serve your local network's consumer plane - a separate Core-free binary)
   roger-tower station revoke   (joined mode; the kill switch for a station under this tower)
   roger-tower drain  --dir DIR        (stop taking new work; keep the link)
   roger-tower resume --dir DIR        (take work again)
