@@ -202,6 +202,49 @@ The `--core-key` is pinned out of band on purpose. A Station only ever talks to 
 which is exactly the party a forged grant would come from — so fetching the key over that
 channel would prove nothing.
 
+## Standalone Towers: serving your own private network
+
+A **standalone** Tower is a self-governed local network with its own trust root. It never
+touches the public RogerAI network - no discovery, no settlement, no advertisement, by linkage
+and not by a setting - and it serves its own clients for free. The consumer plane runs from a
+separate, Core-free binary (`roger-tower-local`) whose whole dependency graph links nothing that
+can reach Roger Core; a test enforces that.
+
+The whole loop, on the plant's private network:
+
+```
+# 1. On the Tower host: create the network and admit clients + stations.
+roger-tower init  --dir /var/lib/roger-tower --mode standalone
+#    A consumer runs `roger account` on their machine and reads its "tower client id" (a u_...
+#    value) to you. Invite and admit that id:
+roger-tower invite --dir /var/lib/roger-tower --client <u_consumer-id>
+roger-tower admit  --dir /var/lib/roger-tower --client <u_consumer-id> --id <ID> --code <CODE>
+#    A serving node (running `roger account` too) gives you ITS tower client id; attach it as a
+#    station for the models it will serve:
+roger-tower attach --dir /var/lib/roger-tower --station st-1 --key <u_node-id> --models llama-3.1-8b
+
+# 2. Start the consumer plane (loopback by default; a LAN address needs --bind and is reachable
+#    from the local network - a public/all-interfaces bind is refused without --allow-public):
+roger-tower-local --dir /var/lib/roger-tower            # or: --bind 192.168.1.10:8787
+
+# 3. The serving node points roger at its local model and serves the Tower's stations by POLLING
+#    it (the Tower dials nobody). The consumer points roger at the Tower and uses it normally:
+roger config set broker http://192.168.1.10:8787        # both node and consumer
+```
+
+Everything a served request produces is a free, persisted **local receipt** - client, station,
+model - and answers carry a free cost header, never a billing shape. Read-only commands
+(`status`, `stations`, `route`) run while the plane is serving; to admit a new client or station,
+stop the plane first. On a LAN address, roger binds a per-request nonce into its signatures so
+the Tower can refuse a replayed request; over loopback there is no wire to capture on, so none is
+needed. Point roger at the Tower by its literal `192.168.x`/`10.x`/`172.16-31.x` address to get
+that replay defense.
+
+> **Retired:** the old `roger-station` binary and the `roger-tower station invite --assertion-key
+> … --session-key …` / `roger-station offer … → offers/` file ceremony below are gone. A
+> standalone station attaches with `roger-tower attach --key <its tower client id>` as above; the
+> joined-Tower station flow is driven from `roger-tower station` subcommands.
+
 ## Attaching a Station
 
 Three machines, three steps, and the key never moves.
