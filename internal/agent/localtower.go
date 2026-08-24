@@ -38,10 +38,11 @@ func ServeLocalTower(ctx context.Context, cfg Config, priv ed25519.PrivateKey, o
 			return ctx.Err()
 		}
 		job, got, err := pollLocalJob(ctx, pollClient, cfg.Broker, priv)
-		if err != nil {
+		if err != nil && ctx.Err() == nil {
 			// A poll error that keeps recurring - an unattached key (401), a wrong Tower address -
 			// is worth surfacing, but not on every spin. Log the first, then at most once a minute,
-			// so a misconfigured node is visible instead of silently idle.
+			// so a misconfigured node is visible instead of silently idle. A cancelled context is
+			// not an error worth a line: it is the operator stopping the node, so it is skipped.
 			if now := time.Now(); now.Sub(lastPollErrLog) > time.Minute {
 				fmt.Fprintf(out, "still trying to poll %s: %v\n", cfg.Broker, err)
 				lastPollErrLog = now
