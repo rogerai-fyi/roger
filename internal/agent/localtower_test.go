@@ -15,6 +15,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"strconv"
 	"testing"
 	"time"
@@ -200,6 +201,9 @@ func TestIDFromPrivFollowsTheCanonicalRule(t *testing.T) {
 }
 
 func TestNodeIDIsStableAndCanonical(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("XDG_CONFIG_HOME steers os.UserConfigDir only on Linux; elsewhere this would touch the real node.key")
+	}
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir()) // isolate the node key file from the real config dir
 	id1 := NodeID()
 	require.Equal(t, "u_", id1[:2], "the node id is a tower client id")
