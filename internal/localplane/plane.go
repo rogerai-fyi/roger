@@ -41,11 +41,14 @@ const (
 )
 
 // Server is the standalone consumer plane over one Tower's local state. It is safe for
-// concurrent use: tower.State serialises its own admission and routing, and the work queue is
-// internally locked.
+// concurrent use: tower.State serialises its own admission and routing, and the work queue,
+// replay guard, and rate limiter are internally locked.
 type Server struct {
 	st                *tower.State
 	q                 *queue
+	rl                *rateLimiter
+	inflight          semaphore
+	perClient         *clientInflight
 	completionTimeout time.Duration
 	pollTimeout       time.Duration
 }
@@ -55,10 +58,22 @@ func New(st *tower.State) *Server {
 	return &Server{
 		st:                st,
 		q:                 newQueue(),
+		rl:                newRateLimiter(time.Now, defaultPerClientRate, defaultPerClientBurst),
+		inflight:          newSemaphore(defaultMaxInFlight),
+		perClient:         newClientInflight(defaultMaxInFlightPerClient),
 		completionTimeout: defaultCompletionTimeout,
 		pollTimeout:       defaultPollTimeout,
 	}
 }
+
+// authStatus is the outcome of authenticating a client request.
+type authStatus int
+
+const (
+	authOK          authStatus = iota // an admitted client, fresh signature, within rate
+	authDenied                        // bad signature, unadmitted, revoked, OR a replay: uniform 401
+	authRateLimited                   // an admitted client sending too fast: 429
+)
 
 // Handler returns the consumer-plane routes. The binary mounts this on a listener it owns;
 // this package never listens or dials. The /local/* routes are the station side of the work
@@ -88,18 +103,33 @@ func unauthorized(w http.ResponseWriter) {
 // a signature can actually be checked against the admitted set. It returns the client key hash
 // and whether the caller is an admitted client. Every failure path returns ok=false with no
 // distinguishing detail; the caller writes the uniform refusal.
-func (s *Server) authClient(r *http.Request, body []byte) (clientKeyHash string, ok bool) {
+func (s *Server) authClient(r *http.Request, body []byte) (clientKeyHash string, status authStatus) {
 	pub := r.Header.Get(protocol.HeaderPubkey)
 	sig := r.Header.Get(protocol.HeaderSig)
 	ts := parseTS(r.Header.Get(protocol.HeaderTS))
 	userID, verified := protocol.VerifyRequest(pub, sig, ts, r.Method, r.URL.Path, body)
 	if !verified {
-		return "", false
+		return "", authDenied
 	}
 	if !s.st.IsAdmitted(userID) {
-		return "", false
+		return "", authDenied
 	}
-	return userID, true
+	// An admitted client sending too fast is throttled - a distinct, honest 429, since it IS
+	// authenticated and just needs to slow down. Per-client, so one flood never starves another.
+	if !s.rl.allow(userID) {
+		return userID, authRateLimited
+	}
+	return userID, authOK
+}
+
+// writeAuthFailure writes the response for a non-OK auth status: the uniform 401 for a denial
+// (including a replay), or a 429 for an admitted-but-throttled client.
+func writeAuthFailure(w http.ResponseWriter, status authStatus) {
+	if status == authRateLimited {
+		writeJSON(w, http.StatusTooManyRequests, map[string]any{"error": "rate limit exceeded - slow down"})
+		return
+	}
+	unauthorized(w)
 }
 
 // readBody reads at most the auth cap and returns the bytes, so the signature is verified over
@@ -134,8 +164,8 @@ func (s *Server) discover(w http.ResponseWriter, r *http.Request) {
 	// Authenticate FIRST, before the method check: an unauthenticated prober must not be able
 	// to tell a real route from a 404 by getting a 405, so every unauthenticated request -
 	// whatever its method - gets the same 401 as any other auth failure.
-	if _, ok := s.authClient(r, readBody(r)); !ok {
-		unauthorized(w)
+	if _, st := s.authClient(r, readBody(r)); st != authOK {
+		writeAuthFailure(w, st)
 		return
 	}
 	if r.Method != http.MethodGet {

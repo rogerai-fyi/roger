@@ -18,8 +18,19 @@
 #    consumer gets the answer with a free cost header, and a persisted local receipt is
 #    written. An Open Market model this Tower does not host is refused after auth, nothing
 #    dialed. Station requests are authenticated as an attached station.
-# NOT yet built: per-request replay defense (beyond the 5-min signature window), the airgap
-# clock seam, and the resource limits (concurrency + per-client rate) beyond the body caps.
+#  - resource safety: a per-client token-bucket rate limit (429), a per-client concurrent-
+#    completion cap AND a whole-Tower concurrency bound (429/503), on top of the request-body
+#    caps - so no single client can starve the stations for the others.
+# REMAINING:
+#  - PER-REQUEST REPLAY DEFENSE. A signature is deterministic over (key, ts-seconds, method,
+#    path, body), so a signature-only guard cannot tell a captured replay apart from an honest
+#    same-second duplicate (a /discover poll, or a station re-polling with an empty body) - it
+#    would break legitimate traffic. The correct fix is a SIGNED per-request nonce carried in
+#    the already-signed path/body; it rides in with the roger CLIENT-side integration, since
+#    the client is what mints the nonce. Until then the plane relies on protocol's 5-minute
+#    freshness window (loopback default; a LAN binding should use a trusted network or TLS).
+#  - the roger CLIENT-side integration: `roger share` polling /local/poll and `roger use`
+#    pointed at the Tower (with the nonce above), which lives in cmd/rogerai, not here.
 
 Feature: A standalone Tower serves its own network and no one else's
   The airgap plant: model boxes `roger share` to a local Tower, operators point roger at
