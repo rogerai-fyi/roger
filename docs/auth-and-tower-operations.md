@@ -213,29 +213,36 @@ can reach Roger Core; a test enforces that.
 The whole loop, on the plant's private network:
 
 ```
-# 1. On the Tower host: create the network and admit clients + stations.
+# 1. On the Tower host: create the network.
 roger-tower init  --dir /var/lib/roger-tower --mode standalone
-#    A consumer runs `roger account` on their machine and reads its "tower client id" (a u_...
-#    value) to you. Invite and admit that id:
+
+# 2. Collect the two kinds of tower client id you will admit. Both come from `roger account`, which
+#    prints two ids from two DIFFERENT keys:
+#    - A CONSUMER reads you its "tower client id" (u_...), its user key.
+#    - A SERVING NODE reads you its "node id" (u_...), its node key - a different key. (A running
+#      node also prints this id and the exact attach command on start.)
+
+# 3. Admit them - WITH THE PLANE STOPPED. invite/admit/attach take the data-directory lock, and a
+#    running `roger-tower-local` holds it, so admission is an offline step done before serving (and
+#    to add a client or station later, stop the plane, admit, restart):
 roger-tower invite --dir /var/lib/roger-tower --client <u_consumer-id>
 roger-tower admit  --dir /var/lib/roger-tower --client <u_consumer-id> --id <ID> --code <CODE>
-#    A serving node (running `roger account` too) gives you ITS tower client id; attach it as a
-#    station for the models it will serve:
 roger-tower attach --dir /var/lib/roger-tower --station st-1 --key <u_node-id> --models llama-3.1-8b
 
-# 2. Start the consumer plane (loopback by default; a LAN address needs --bind and is reachable
+# 4. Start the consumer plane (loopback by default; a LAN address needs --bind and is reachable
 #    from the local network - a public/all-interfaces bind is refused without --allow-public):
 roger-tower-local --dir /var/lib/roger-tower            # or: --bind 192.168.1.10:8787
 
-# 3. The serving node points roger at its local model and serves the Tower's stations by POLLING
+# 5. The serving node points roger at its local model and serves the Tower's stations by POLLING
 #    it (the Tower dials nobody). The consumer points roger at the Tower and uses it normally:
 roger config set broker http://192.168.1.10:8787        # both node and consumer
 ```
 
 Everything a served request produces is a free, persisted **local receipt** - client, station,
 model - and answers carry a free cost header, never a billing shape. Read-only commands
-(`status`, `stations`, `route`) run while the plane is serving; to admit a new client or station,
-stop the plane first. On a LAN address, roger binds a per-request nonce into its signatures so
+(`status`, `stations`, `route`) run while the plane is serving; admission (`invite`/`admit`/
+`attach`) does not - it takes the directory lock the serving plane holds, so stop the plane to
+admit a new client or station, then restart it. On a LAN address, roger binds a per-request nonce into its signatures so
 the Tower can refuse a replayed request; over loopback there is no wire to capture on, so none is
 needed. Point roger at the Tower by its literal `192.168.x`/`10.x`/`172.16-31.x` address to get
 that replay defense.

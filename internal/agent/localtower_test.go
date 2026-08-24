@@ -172,3 +172,37 @@ func TestUnstreamLocalToleratesNullBody(t *testing.T) {
 		require.Equal(t, []byte("null"), out, "a literal null is left untouched, not dereferenced")
 	})
 }
+
+func TestServeLocalTowerAnnouncesItsNodeIDForAttach(t *testing.T) {
+	// The operator needs the node's tower client id to run `roger-tower attach --key <id>`, and
+	// the node is the only place that key hash is derivable from - so serving MUST print it, with
+	// the exact command that consumes it. Without this the documented attach flow cannot be followed.
+	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+	nodeID := protocol.UserIDFromPubkey(hexOf(pub))
+	quiet := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer quiet.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	var out bytes.Buffer
+	_ = ServeLocalTower(ctx, Config{Broker: quiet.URL, Upstream: "http://127.0.0.1:1"}, priv, &out)
+	s := out.String()
+	require.Contains(t, s, nodeID, "the node prints its own tower client id so the operator can attach it")
+	require.Contains(t, s, "roger-tower attach", "and prints the exact command that consumes it")
+}
+
+func TestIDFromPrivFollowsTheCanonicalRule(t *testing.T) {
+	// The id a node advertises must be the SAME string the Tower admits - both go through
+	// protocol.UserIDFromPubkey over the hex pubkey, or a correctly-attached node is refused.
+	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+	require.Equal(t, protocol.UserIDFromPubkey(hexOf(pub)), idFromPriv(priv))
+}
+
+func TestNodeIDIsStableAndCanonical(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir()) // isolate the node key file from the real config dir
+	id1 := NodeID()
+	require.Equal(t, "u_", id1[:2], "the node id is a tower client id")
+	require.Equal(t, id1, NodeID(), "it is stable across calls - the same persisted node key")
+	require.Equal(t, idFromPriv(NodeKey()), id1, "and it is exactly what a share will sign with")
+}

@@ -2049,8 +2049,20 @@ func parseMonthlyCap(s string) (float64, error) {
 // `account login` / `account logout` manage the GitHub link. Old top-level
 // login/logout/whoami stay as hidden aliases.
 func cmdAccount(cfg config, args []string) error {
+	// whoami prints the consumer's user-key identity, then the serving-node id (a DIFFERENT key):
+	// a standalone Tower admits the first with `invite --client`, attaches the second with
+	// `attach --key`. Surfacing the node id here means it is learnable offline, before the plane is
+	// up - the operator does not have to start serving just to read it.
+	whoami := func() error {
+		if err := client.Whoami(); err != nil {
+			return err
+		}
+		fmt.Printf("  node id: %s\n", agent.NodeID())
+		fmt.Printf("    (serving a standalone Tower? its operator attaches this node: `roger-tower attach --key <node id>`)\n")
+		return nil
+	}
 	if len(args) == 0 {
-		return client.Whoami()
+		return whoami()
 	}
 	switch args[0] {
 	case "login":
@@ -2058,7 +2070,7 @@ func cmdAccount(cfg config, args []string) error {
 	case "logout":
 		return client.Logout()
 	case "whoami", "show":
-		return client.Whoami()
+		return whoami()
 	default:
 		return fmt.Errorf("usage: roger account [login|logout]")
 	}

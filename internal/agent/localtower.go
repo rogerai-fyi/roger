@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/ed25519"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -28,9 +29,27 @@ import (
 //
 // It loops until the context is cancelled. Poll and per-job errors are transient - the node
 // simply re-polls - because a standalone plant should keep serving across a Tower blip.
+// idFromPriv is the one canonical rule mapping a signing key to its tower client id, so the id a
+// node prints, the id `roger account` shows, and the id the Tower admits are the same string.
+func idFromPriv(priv ed25519.PrivateKey) string {
+	return protocol.UserIDFromPubkey(hex.EncodeToString(priv.Public().(ed25519.PublicKey)))
+}
+
+// NodeID is this machine's standalone-Tower station identity: the tower client id derived from the
+// node key (a DIFFERENT key from the consumer's user key). The operator attaches this node with
+// `roger-tower attach --key <NodeID>`. Calling it mints the node key if none exists yet, exactly as
+// serving would - so the id it returns is stable and is the one a share will authenticate with.
+func NodeID() string { return idFromPriv(NodeKey()) }
+
 func ServeLocalTower(ctx context.Context, cfg Config, priv ed25519.PrivateKey, out io.Writer) error {
 	pollClient := &http.Client{Timeout: 40 * time.Second} // longer than the plane's poll window
 	execClient := &http.Client{Timeout: 10 * time.Minute} // a real prompt is real work
+	// The node's own tower client id is derivable ONLY from its node key - so print it, with the
+	// exact command that consumes it. An operator cannot attach a station whose key hash they
+	// cannot see. (`roger account` shows it too, so the id is learnable before the plane is up.)
+	nodeID := idFromPriv(priv)
+	fmt.Fprintf(out, "this node's id: %s\n", nodeID)
+	fmt.Fprintf(out, "  the Tower operator attaches it with: roger-tower attach --station <name> --key %s --models <models>\n", nodeID)
 	fmt.Fprintf(out, "serving the local network's stations at %s (polling for work)\n", cfg.Broker)
 	var lastPollErrLog time.Time
 	for {
