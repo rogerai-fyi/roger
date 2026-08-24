@@ -90,8 +90,8 @@ Feature: A standalone Tower serves its own network and no one else's
     Given the network needs several operators and agents
     When each consumes its own one-time invitation
     Then each is an independent admitted client with its own key
-    # Today ConsumeInvitation admits exactly ONE permanent operator. The plane needs a
-    # client set, or this whole feature has a single non-revocable user.
+    # ConsumeInvitation admits into a client set (the first admitted client is the operator);
+    # each subsequent invitation admits an additional independent, revocable client.
 
   Scenario: A client can be cut off locally, and only that client
     Given an admitted client the operator no longer trusts

@@ -120,7 +120,12 @@ func Ready(c *Config) Readiness {
 		if err != nil {
 			r.fail(DepOperator, "the Tower state file is unreadable",
 				"restore the identity volume from backup, or initialize a new data directory if this network is being rebuilt")
-		} else if len(st.AdmittedClients()) == 0 {
+		} else if any, aerr := st.HasAnyAdmittedClient(); aerr != nil {
+			// A READ failure is not an empty admission set - reporting "admitted nobody" for a
+			// corrupt or unreadable store would send the operator down the wrong fix path.
+			r.fail(DepOperator, "the local admission state could not be read",
+				"restore the identity volume from backup; a standalone network cannot verify its clients without it")
+		} else if !any {
 			r.fail(DepOperator, "this network has admitted no local client",
 				"run `roger-tower invite --dir "+dir+" --client <key hash>` and redeem it with `roger-tower admit`")
 		}
