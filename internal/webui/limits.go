@@ -24,6 +24,13 @@ import (
 type SpendLimit struct {
 	MaxOut float64 `json:"max_out"`
 	MinTPS float64 `json:"min_tps"`
+	// Quants is the standing quant rule - the compression labels this band may be routed
+	// to. It is a POINTER on purpose: nil means "this request did not edit the rule" and
+	// an empty slice means "clear it". Without that distinction the console's price form,
+	// which knows nothing about quants, silently destroyed a rule the terminal had set -
+	// and a routing rule that stops applying without saying so sends traffic somewhere the
+	// operator had ruled out.
+	Quants *[]string `json:"quants,omitempty"`
 }
 
 // limitRow is one row of the console's spend table.
@@ -31,6 +38,9 @@ type limitRow struct {
 	Model  string  `json:"model"`
 	MaxOut float64 `json:"max_out"`
 	MinTPS float64 `json:"min_tps"`
+	// Quants is the standing quant rule, shown so the browser can display and edit what
+	// the terminal's band card set rather than being blind to it.
+	Quants []string `json:"quants,omitempty"`
 	// OnAir marks a model this machine is serving. It is here so the table can say which
 	// rows are yours-to-provide vs yours-to-consume, the distinction that made the TUI's
 	// version confusing enough to be worth a signpost.
@@ -55,7 +65,11 @@ func (s *Server) handleLimits(w http.ResponseWriter, r *http.Request) {
 	out := make([]limitRow, 0, len(set))
 	for mdl, l := range set {
 		seen[mdl] = true
-		out = append(out, limitRow{Model: mdl, MaxOut: l.MaxOut, MinTPS: l.MinTPS})
+		q := []string(nil)
+		if l.Quants != nil {
+			q = *l.Quants
+		}
+		out = append(out, limitRow{Model: mdl, MaxOut: l.MaxOut, MinTPS: l.MinTPS, Quants: q})
 	}
 	for _, rv := range s.ctrl.Snapshot().Rows {
 		if seen[rv.Model] {
@@ -84,6 +98,8 @@ func (s *Server) setLimit(w http.ResponseWriter, r *http.Request) {
 		Model  string  `json:"model"`
 		MaxOut float64 `json:"max_out"`
 		MinTPS float64 `json:"min_tps"`
+		// Absent (nil) = leave the standing quant rule alone. Present-but-empty = clear it.
+		Quants *[]string `json:"quants"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid JSON body", http.StatusBadRequest)
@@ -98,6 +114,6 @@ func (s *Server) setLimit(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "a cap cannot be negative - use 0 for no cap", http.StatusBadRequest)
 		return
 	}
-	s.opts.WriteLimit(model, SpendLimit{MaxOut: req.MaxOut, MinTPS: req.MinTPS})
+	s.opts.WriteLimit(model, SpendLimit{MaxOut: req.MaxOut, MinTPS: req.MinTPS, Quants: req.Quants})
 	writeJSON(w, map[string]any{"ok": true})
 }
