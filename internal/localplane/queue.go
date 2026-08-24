@@ -103,18 +103,20 @@ func (q *queue) poll(ctx context.Context, stationID string, models []string) (*j
 // buffered value to be garbage-collected with the job.
 func (q *queue) complete(id, stationID string, answer []byte) bool {
 	q.mu.Lock()
+	defer q.mu.Unlock()
 	j, ok := q.inflight[id]
 	// Only the station that took the job may complete it: a forged completion from another
 	// station (guessing an id) changes nothing.
-	if ok && j.takenBy == stationID {
-		delete(q.inflight, id)
-	} else {
-		ok = false
-	}
-	q.mu.Unlock()
-	if !ok {
+	if !ok || j.takenBy != stationID {
 		return false
 	}
+	delete(q.inflight, id)
+	// Deliver UNDER the lock: the result channel is buffered to depth 1 and a job completes
+	// once, so this never blocks, and holding the lock makes "removed from in-flight" and
+	// "answer is in the channel" one atomic step. That is what lets a consumer's abandon-
+	// then-drain be correct: after abandon returns, either the answer was already delivered
+	// (drain finds it) or a later complete finds the job gone and reports delivered=false -
+	// there is no gap in which an answer is both reported delivered and lost.
 	j.result <- jobResult{answer: answer, stationID: stationID}
 	return true
 }
