@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"rogerai.fm/roger/v6/internal/agent"
 	"strings"
 	"testing"
@@ -33,6 +34,13 @@ func TestIsLocalTowerBrokerDetectsTheTowerByProbe(t *testing.T) {
 	}
 	if isLocalTowerBroker(broker.URL) {
 		t.Errorf("a broker (404s /local/poll) must NOT be detected as local")
+	}
+
+	// "localhost" is treated as loopback: a Tower at http://localhost:PORT is detected too.
+	lu, _ := url.Parse(tower.URL)
+	if !isLocalTowerBroker("http://localhost:" + lu.Port()) {
+		// httptest binds 127.0.0.1; localhost resolves there, so the probe reaches the same Tower.
+		t.Errorf("a Tower at http://localhost must be detected as local")
 	}
 }
 
