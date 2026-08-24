@@ -1148,7 +1148,20 @@ func (b *broker) identityOf(r *http.Request, body []byte) (id string, authed, ok
 		if err != nil {
 			return "", false, false
 		}
-		uid, vok := protocol.VerifyRequest(pub, sig, ts, r.Method, r.URL.Path, body)
+		// A request MAY carry an X-Roger-Nonce (a per-request nonce bound into the signature).
+		// The broker verifies it the nonce-aware way when present - so a client that signs with
+		// a nonce (as it does when pointed at a standalone Tower, and harmlessly against a local
+		// broker) authenticates here too - and the plain way otherwise. The broker does not
+		// itself replay-guard on the nonce; that is the standalone plane's concern, where the
+		// free local setting makes the 5-minute window too loose. Backward-compatible: a request
+		// with no nonce verifies exactly as before.
+		var uid string
+		var vok bool
+		if nonce := r.Header.Get(protocol.HeaderNonce); nonce != "" {
+			uid, vok = protocol.VerifyRequestNonce(pub, sig, ts, r.Method, r.URL.Path, body, nonce)
+		} else {
+			uid, vok = protocol.VerifyRequest(pub, sig, ts, r.Method, r.URL.Path, body)
+		}
 		if !vok {
 			return "", false, false
 		}

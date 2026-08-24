@@ -40,7 +40,9 @@ func ResolveBind(addr string, allowPublic bool) (bind, note string, err error) {
 	}
 	// A numeric range check, not a service-name resolver: the handler package must contain no name
 	// resolution at all (see the source-scan gate), and a port is a number, not a service name.
-	if n, perr := strconv.Atoi(port); perr != nil || n < 1 || n > 65535 {
+	// 0 is allowed - it asks the OS for an ephemeral port, which the tests (and a dynamic bind)
+	// rely on; only a value outside 0..65535 or a non-number is refused.
+	if n, perr := strconv.Atoi(port); perr != nil || n < 0 || n > 65535 {
 		return "", "", fmt.Errorf("--bind %q has an invalid port", addr)
 	}
 	ip := net.ParseIP(host)

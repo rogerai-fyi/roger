@@ -131,3 +131,12 @@ func (c *clientInflight) release(client string) {
 	}
 	c.count[client]--
 }
+
+// Station-side rate. A station LONG-POLLS - it blocks up to the poll timeout, then re-polls -
+// so its legitimate request rate is low; these bounds are far above that and exist only to cap
+// a flood (a station whose key was compromised, replaying or hammering) so the replay guard's
+// nonce set stays bounded by rate x window rather than by an attacker's willingness to send.
+const (
+	defaultStationRate  = 20.0
+	defaultStationBurst = 40.0
+)

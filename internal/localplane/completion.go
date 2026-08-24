@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"time"
 
-	"rogerai.fm/roger/v6/internal/protocol"
 	"rogerai.fm/roger/v6/internal/tower"
 )
 
@@ -44,10 +43,7 @@ func randID() string {
 // recorded key hash). Only an attached station may poll for work or return an answer; every
 // failure is the same uniform refusal, revealing nothing about the fleet.
 func (s *Server) authStation(r *http.Request, body []byte) (tower.Station, bool) {
-	pub := r.Header.Get(protocol.HeaderPubkey)
-	sig := r.Header.Get(protocol.HeaderSig)
-	ts := parseTS(r.Header.Get(protocol.HeaderTS))
-	keyHash, verified := protocol.VerifyRequest(pub, sig, ts, r.Method, r.URL.Path, body)
+	keyHash, nonce, verified := s.verifiedIdentity(r, body)
 	if !verified {
 		return tower.Station{}, false
 	}
@@ -55,12 +51,37 @@ func (s *Server) authStation(r *http.Request, body []byte) (tower.Station, bool)
 	if err != nil {
 		return tower.Station{}, false
 	}
+	var found tower.Station
+	ok := false
 	for _, st := range stations {
 		if st.KeyHash == keyHash {
-			return st, true
+			found, ok = st, true
+			break
 		}
 	}
-	return tower.Station{}, false
+	if !ok {
+		return tower.Station{}, false
+	}
+	// Replay CHECK first, closing the LAN prompt-theft: a captured /local/poll replayed within
+	// the window carries the same nonce and is refused, so an eavesdropper cannot resend it to be
+	// handed a pending consumer prompt. Checked before the rate limit so a replay spends no rate.
+	// Namespaced from the client keyspace so a station and a client never collide on a nonce.
+	nonceKey := "station:" + keyHash + ":" + nonce
+	if nonce != "" && s.replay.isReplay(nonceKey) {
+		return tower.Station{}, false
+	}
+	// Then bound the station's request rate, so a station whose key was compromised cannot flood
+	// the replay guard's nonce set. The cap is far above a long-poller's legitimate cadence, so
+	// it never bites normal serving.
+	if !s.stationRL.allow(found.ID) {
+		return tower.Station{}, false
+	}
+	// RECORD only now: a station re-polls with a fresh nonce each time, so genuine polling is
+	// never mistaken for a replay, and recording after the rate gate keeps memory bounded.
+	if nonce != "" {
+		s.replay.record(nonceKey)
+	}
+	return found, true
 }
 
 // chatRequest is the one field the plane reads from a consumer request: the model. Everything

@@ -89,7 +89,9 @@ func prepare(args []string, out io.Writer) (*prepared, error) {
 	fmt.Fprintf(out, "point a client at it with: roger config set broker http://%s\n", ln.Addr())
 
 	return &prepared{
-		srv:     &http.Server{Handler: localplane.New(st).Handler(), ReadHeaderTimeout: 10 * time.Second},
+		// MaxHeaderBytes well below the 1 MiB default: the plane's signing headers are small, and a
+		// tight cap stops an unauthenticated caller from making the Tower buffer a large header.
+		srv:     &http.Server{Handler: localplane.New(st).Handler(), ReadHeaderTimeout: 10 * time.Second, MaxHeaderBytes: 64 << 10},
 		ln:      ln,
 		release: release,
 	}, nil
