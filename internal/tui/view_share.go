@@ -280,7 +280,7 @@ func (m model) shareView(w int) string {
 		b.WriteString("  " + head + "   " + slotCell + "\n")
 	} else {
 		b.WriteString("  " + head +
-			stDim.Render(fmt.Sprintf("   your GPU as a station   %s detected   ", plural(len(m.shareRows), "model"))) +
+			stDim.Render(fmt.Sprintf("   your local model as a station   %s detected   ", plural(len(m.shareRows), "model"))) +
 			slotCell + "\n")
 	}
 
