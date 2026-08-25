@@ -526,7 +526,7 @@ rogerai.fm/roger/v6/cmd/rogerai-broker/probe.go:321:			probeEvidenceRecentLocked
 rogerai.fm/roger/v6/cmd/rogerai-broker/probe.go:337:			proberLoop			100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/probe.go:358:			jitterWindow			100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/probe.go:374:			probeOnce			97.6%
-rogerai.fm/roger/v6/cmd/rogerai-broker/probe.go:548:			probeNode			89.1%
+rogerai.fm/roger/v6/cmd/rogerai-broker/probe.go:548:			probeNode			87.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/probe.go:662:			failed				100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/probe.go:680:			evalCanary			100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/probe.go:746:			canaryWrongFamily		100.0%
@@ -799,7 +799,7 @@ rogerai.fm/roger/v6/cmd/rogerai-broker/toolcall.go:225:			recordToolProbe			100.
 rogerai.fm/roger/v6/cmd/rogerai-broker/toolcall.go:283:			syncToolsVerified		87.5%
 rogerai.fm/roger/v6/cmd/rogerai-broker/toolcall.go:300:			toolsVerifiedForLocked		100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/toolcall.go:311:			authoritativeFor		100.0%
-rogerai.fm/roger/v6/cmd/rogerai-broker/toolcall.go:327:			probeToolCall			89.5%
+rogerai.fm/roger/v6/cmd/rogerai-broker/toolcall.go:327:			probeToolCall			92.1%
 rogerai.fm/roger/v6/cmd/rogerai-broker/toolcall.go:387:			applyToolVerdict		100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/tower.go:74:			towerModelAllowed		100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/tower.go:80:			towerModalityAllowed		100.0%
