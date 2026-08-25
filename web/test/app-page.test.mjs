@@ -98,3 +98,25 @@ test("each numbered section carries a dial-rule divider with its own needle posi
   const rules = [...app.matchAll(/class="app-dialrule"[^>]*style="--dial-pos:\s*\d+%"/g)];
   assert.ok(rules.length >= 7, `one dial rule per numbered section (got ${rules.length})`);
 });
+
+// §10 INSTALL - the page describes the terminal (§8) and the browser console (§9) but must
+// also tell you how to GET the roger binary, in the copy-button component the rest of the
+// site uses, positioned before the closing App Store CTA (its last image).
+test("app.html ships the roger install command in a copy box, before the closing CTA", () => {
+  // the install__box copy component (site.js wires copy-to-clipboard for every .install__box)
+  const box = app.match(/<button class="install__box"[\s\S]*?<\/button>/);
+  assert.ok(box, "the install command sits in an install__box copy button");
+  assert.match(box[0], /curl -fsSL https:\/\/rogerai\.fm\/install\.sh \| sh/,
+    "the one-line installer is the canonical rogerai.fm/install.sh");
+  assert.match(box[0], /<code class="install__code">/, "the code is in install__code so site.js copies it");
+
+  // the Windows path and a raw-binary fallback, same as the homepage
+  assert.match(app, /install\.ps1 \| iex/, "the Windows PowerShell installer is offered");
+  assert.match(app, /github\.com\/rogerai-fyi\/roger\/releases/, "a download-a-binary fallback is offered");
+
+  // position: the install section must come BEFORE the closing CTA (the last image)
+  const iInstall = app.indexOf('class="section app-install"');
+  const iCta = app.indexOf('class="section app-cta"');
+  assert.ok(iInstall > 0 && iCta > 0, "both the install and CTA sections exist");
+  assert.ok(iInstall < iCta, "install instructions come before the closing App Store CTA");
+});
