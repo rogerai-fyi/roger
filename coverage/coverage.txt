@@ -526,7 +526,7 @@ rogerai.fm/roger/v6/cmd/rogerai-broker/probe.go:321:			probeEvidenceRecentLocked
 rogerai.fm/roger/v6/cmd/rogerai-broker/probe.go:337:			proberLoop			100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/probe.go:358:			jitterWindow			100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/probe.go:374:			probeOnce			97.6%
-rogerai.fm/roger/v6/cmd/rogerai-broker/probe.go:548:			probeNode			87.0%
+rogerai.fm/roger/v6/cmd/rogerai-broker/probe.go:548:			probeNode			89.1%
 rogerai.fm/roger/v6/cmd/rogerai-broker/probe.go:662:			failed				100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/probe.go:680:			evalCanary			100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/probe.go:746:			canaryWrongFamily		100.0%
@@ -570,7 +570,7 @@ rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:405:			rcSubtree			78.6%
 rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:436:			rcJoin				55.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:466:			rcAuthHost			100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:477:			rcAuthViewer			72.7%
-rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:496:			rcPoll				66.7%
+rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:496:			rcPoll				72.2%
 rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:568:			rcEvents			64.7%
 rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:595:			rcSend				79.3%
 rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:639:			rcStream			71.9%
@@ -2455,7 +2455,7 @@ rogerai.fm/roger/v6/internal/towercore/admit/admit.go:188:		NewWithStore			100.0
 rogerai.fm/roger/v6/internal/towercore/admit/admit.go:210:		unavailable			100.0%
 rogerai.fm/roger/v6/internal/towercore/admit/admit.go:218:		IssueToken			92.9%
 rogerai.fm/roger/v6/internal/towercore/admit/admit.go:254:		Enroll				88.0%
-rogerai.fm/roger/v6/internal/towercore/admit/admit.go:310:		AdmitBundle			87.5%
+rogerai.fm/roger/v6/internal/towercore/admit/admit.go:310:		AdmitBundle			75.0%
 rogerai.fm/roger/v6/internal/towercore/admit/admit.go:332:		RecordRenewal			87.5%
 rogerai.fm/roger/v6/internal/towercore/admit/admit.go:361:		Token				100.0%
 rogerai.fm/roger/v6/internal/towercore/admit/admit.go:370:		Get				100.0%
@@ -2931,7 +2931,7 @@ rogerai.fm/roger/v6/internal/towerhub/client.go:355:			httpClient			100.0%
 rogerai.fm/roger/v6/internal/towerhub/client.go:368:			refuseRedirect			100.0%
 rogerai.fm/roger/v6/internal/towerhub/client.go:373:			url				100.0%
 rogerai.fm/roger/v6/internal/towerhub/client.go:383:			authenticate			88.9%
-rogerai.fm/roger/v6/internal/towerhub/client.go:410:			SubmitJob			95.5%
+rogerai.fm/roger/v6/internal/towerhub/client.go:410:			SubmitJob			90.9%
 rogerai.fm/roger/v6/internal/towerhub/client.go:446:			PollJob				100.0%
 rogerai.fm/roger/v6/internal/towerhub/client.go:476:			CompleteResult			90.9%
 rogerai.fm/roger/v6/internal/towerhub/client.go:521:			errSnippet			100.0%
