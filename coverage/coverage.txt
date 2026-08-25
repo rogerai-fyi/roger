@@ -2455,7 +2455,7 @@ rogerai.fm/roger/v6/internal/towercore/admit/admit.go:188:		NewWithStore			100.0
 rogerai.fm/roger/v6/internal/towercore/admit/admit.go:210:		unavailable			100.0%
 rogerai.fm/roger/v6/internal/towercore/admit/admit.go:218:		IssueToken			92.9%
 rogerai.fm/roger/v6/internal/towercore/admit/admit.go:254:		Enroll				88.0%
-rogerai.fm/roger/v6/internal/towercore/admit/admit.go:310:		AdmitBundle			75.0%
+rogerai.fm/roger/v6/internal/towercore/admit/admit.go:310:		AdmitBundle			87.5%
 rogerai.fm/roger/v6/internal/towercore/admit/admit.go:332:		RecordRenewal			87.5%
 rogerai.fm/roger/v6/internal/towercore/admit/admit.go:361:		Token				100.0%
 rogerai.fm/roger/v6/internal/towercore/admit/admit.go:370:		Get				100.0%
@@ -2931,7 +2931,7 @@ rogerai.fm/roger/v6/internal/towerhub/client.go:355:			httpClient			100.0%
 rogerai.fm/roger/v6/internal/towerhub/client.go:368:			refuseRedirect			100.0%
 rogerai.fm/roger/v6/internal/towerhub/client.go:373:			url				100.0%
 rogerai.fm/roger/v6/internal/towerhub/client.go:383:			authenticate			88.9%
-rogerai.fm/roger/v6/internal/towerhub/client.go:410:			SubmitJob			90.9%
+rogerai.fm/roger/v6/internal/towerhub/client.go:410:			SubmitJob			95.5%
 rogerai.fm/roger/v6/internal/towerhub/client.go:446:			PollJob				100.0%
 rogerai.fm/roger/v6/internal/towerhub/client.go:476:			CompleteResult			90.9%
 rogerai.fm/roger/v6/internal/towerhub/client.go:521:			errSnippet			100.0%
