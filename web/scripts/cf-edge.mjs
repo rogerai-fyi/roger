@@ -96,14 +96,20 @@ export function headerRule(headers, opts = {}) {
   };
 }
 
-// Certificate issuance and renewal fetch http://<host>/.well-known/acme-challenge/<token>.
-// A redirect that matches that path hands the certificate authority a 301 instead of the
-// token, so the hostname never gets a certificate. That is not theoretical: it is exactly
-// why www.rogerai.fm sat at DomainCertPendingValidation while the apex, which has no
-// redirect, validated immediately. Every redirect below must carry this exclusion, and it
-// matters at renewal just as much as at first issuance.
-const ACME_EXCLUSION =
-  'not starts_with(http.request.uri.path, "/.well-known/acme-challenge/")';
+// A redirect that swallows a /.well-known/ resource breaks the thing that resource exists for,
+// silently. Two of ours are load-bearing and fail the SAME way - a 301 where a fetcher expects
+// a body, from a fetcher that does not follow the 301:
+//   - /.well-known/acme-challenge/<token>: certificate issuance AND renewal. A 301 here hands
+//     the CA a redirect instead of the token, so the host never gets a cert - exactly why
+//     www.rogerai.fm sat at DomainCertPendingValidation while the apex (no redirect) validated.
+//   - /.well-known/apple-app-site-association: the iOS app's Associated Domains. Apple fetches
+//     it WITHOUT following redirects; a 301 drops the association, so a legacy rogerai.fyi
+//     universal link (the Base Station /r.html* device link) stops opening the app.
+// Excluding the whole directory covers both, plus any well-known file added later (Android
+// assetlinks, security.txt, ...), and matches the migration spec's "both associated-domain
+// files are served directly". Every redirect below carries it, at renewal as much as issuance.
+const WELL_KNOWN_EXCLUSION =
+  'not starts_with(http.request.uri.path, "/.well-known/")';
 
 export function redirectRule(opts = {}) {
   const zone = opts.zone || ZONE;
@@ -116,7 +122,7 @@ export function redirectRule(opts = {}) {
         preserve_query_string: true,
       },
     },
-    expression: `(http.host eq "www.${zone}" and ${ACME_EXCLUSION})`,
+    expression: `(http.host eq "www.${zone}" and ${WELL_KNOWN_EXCLUSION})`,
     description: DESC_REDIRECT,
     enabled: true,
   };
@@ -136,7 +142,7 @@ export function legacyRedirectRule(opts = {}) {
         preserve_query_string: true,
       },
     },
-    expression: `(http.host in {"${legacy}" "www.${legacy}"} and ${ACME_EXCLUSION})`,
+    expression: `(http.host in {"${legacy}" "www.${legacy}"} and ${WELL_KNOWN_EXCLUSION})`,
     description: DESC_LEGACY,
     enabled: true,
   };
@@ -177,7 +183,7 @@ export function vanityImportRule(opts = {}) {
     // the repository still serves them perfectly well.
     // The ACME exclusion is redundant against an exact-path test and carried anyway: "every
     // redirect carries this" is only a guarantee if it holds without a case-by-case argument.
-    expression: `(http.host eq "${zone}" and http.request.uri.path in {"/roger" "/roger/v5" "/roger/v6"} and ${ACME_EXCLUSION})`,
+    expression: `(http.host eq "${zone}" and http.request.uri.path in {"/roger" "/roger/v5" "/roger/v6"} and ${WELL_KNOWN_EXCLUSION})`,
     description: DESC_VANITY,
     enabled: true,
   };
