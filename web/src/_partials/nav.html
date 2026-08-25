@@ -116,9 +116,21 @@
       <!-- App is a destination of a different KIND - a store listing, not a section of
            this site - so it gets its own band between two dividers rather than sitting
            in the sections group. It reuses .nav__sections so the burger drawer styles it
-           as a full-width row like every other link (the dividers are hidden there). -->
+           as a full-width row like every other link (the dividers are hidden there).
+
+           It is one destination worn three ways: the store page (App), the terminal
+           (TUI -> app.html#cli) and the browser console (WebUI -> app.html#webui). The word
+           wears the carrier-sweep gradient and CYCLES App -> TUI -> WebUI on the beat of
+           that gradient (site.js listens to its animationiteration), the href following the
+           visible word so a click always lands on the surface being shown. Progressive +
+           accessible: with JS off, reduced motion, or no background-clip:text it stays a
+           plain "App" link to /app.html (which holds all three sections), and the STABLE
+           aria-label - not the moving word - is the accessible name. class stays exactly
+           "nav__link" so the burger drawer + nav.test regex still see a plain nav row. -->
       <div class="nav__sections nav__sections--app">
-        <a class="nav__link" href="/app.html" {{appcurrent}}>App</a>
+        <a class="nav__link" href="/app.html" data-app-cycle
+           aria-label="The RogerAI app, on every surface: iOS and Mac, the terminal (TUI), and the browser (WebUI)"
+           {{appcurrent}}><span class="carrier nav__app-word" data-app-word>App</span></a>
       </div>
       <span class="nav__divider" aria-hidden="true"></span>
 {{/if}}

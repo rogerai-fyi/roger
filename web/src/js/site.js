@@ -341,4 +341,62 @@
       if (!entry.group.contains(e.relatedTarget)) setOpen(entry, false);
     });
   });
+
+  // ---- the cycling App word: App -> TUI -> WebUI, on the beat of the carrier gradient ---
+  // One nav destination worn three ways. The visible word swaps every SWAP_EVERY loops of
+  // the carrier-sweep animation (so it is literally paced by the gradient, not a lone
+  // timer), and the link's href follows the visible word so a click always lands on the
+  // surface being shown. Progressive enhancement: the markup ships a plain "App" -> /app.html
+  // link, so JS-off / reduced-motion / no-background-clip all keep a working link to the page
+  // that holds all three sections. We PAUSE while the item is hovered or focused, so the word
+  // a user is about to click cannot change under them.
+  (function () {
+    var link = document.querySelector("[data-app-cycle]");
+    var word = link && link.querySelector("[data-app-word]");
+    if (!link || !word) return;
+
+    // If the carrier animation is not actually running (reduced motion, or a browser without
+    // background-clip:text where .carrier disables it), there are no iteration events to ride,
+    // so we simply never cycle - the plain "App" link stands. That is the intended fallback.
+    var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)");
+    if (reduce && reduce.matches) return;
+
+    var STOPS = [
+      { w: "App",   h: "/app.html" },
+      { w: "TUI",   h: "/app.html#cli" },
+      { w: "WebUI", h: "/app.html#webui" }
+    ];
+    var SWAP_EVERY = 2;          // gradient loops (3.2s each) between word changes
+    var i = 0, loops = 0, paused = false;
+
+    var pause = function () { paused = true; };
+    var resume = function () { paused = false; };
+    link.addEventListener("mouseenter", pause);
+    link.addEventListener("mouseleave", resume);
+    link.addEventListener("focusin", pause);
+    link.addEventListener("focusout", resume);
+
+    function advance() {
+      i = (i + 1) % STOPS.length;
+      var next = STOPS[i];
+      word.classList.add("is-out");                 // lift + fade the outgoing word
+      window.setTimeout(function () {
+        word.textContent = next.w;
+        link.setAttribute("href", next.h);
+        word.classList.remove("is-out");
+        word.classList.add("is-in");                // place the incoming word low, no transition
+        // force a reflow so removing is-in on the next frame animates up into rest
+        void word.offsetWidth;
+        word.classList.remove("is-in");
+      }, 260);
+    }
+
+    // The carrier-sweep fires animationiteration once per loop. Count loops and swap every
+    // SWAP_EVERY, unless paused. addEventListener on the WORD (which carries .carrier).
+    word.addEventListener("animationiteration", function () {
+      if (paused) return;
+      loops += 1;
+      if (loops >= SWAP_EVERY) { loops = 0; advance(); }
+    });
+  })();
 })();

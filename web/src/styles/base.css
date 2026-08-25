@@ -926,6 +926,35 @@ li > a:not([class]):focus-visible,
   .carrier { background: none; color: inherit; animation: none; }
 }
 
+/* THE CYCLING APP WORD (nav): App -> TUI -> WebUI, each wearing the carrier sweep.
+   site.js swaps the text + the link's href on the beat of the gradient. The span is
+   inline-block and width-reserved to the widest word so the bar never reflows as the
+   word changes, and centred so the three sit on the same axis. The swap is a quick
+   fade-and-lift: `is-out` lifts the outgoing word up and out, then the incoming word
+   starts one notch low (`is-in`, no transition) and rises into place. Font-variant
+   caps keep TUI/WebUI from shouting next to the lowercase nav. */
+.nav__app-word {
+  display: inline-block;
+  min-width: 5ch;            /* the nav is monospace, so 5ch == "WebUI" exactly: the box is
+                                reserved for the widest word and App/TUI centre in it, so the
+                                bar never reflows as the word changes. */
+  text-align: center;
+  font-variant-caps: normal;
+  transition: opacity .26s var(--ease-out-quint, ease), transform .26s var(--ease-out-quint, ease);
+  will-change: opacity, transform;
+}
+.nav__app-word.is-out { opacity: 0; transform: translateY(-0.38em); }
+/* the incoming word is placed low and invisible with NO transition, so removing the
+   class on the next frame animates it up into rest rather than snapping. */
+.nav__app-word.is-in  { opacity: 0; transform: translateY(0.38em); transition: none; }
+@media (prefers-reduced-motion: reduce) {
+  /* the carrier is already frozen here (so site.js never cycles); make doubly sure the
+     word itself never animates either. */
+  .nav__app-word, .nav__app-word.is-out, .nav__app-word.is-in {
+    transition: none; transform: none; opacity: 1;
+  }
+}
+
 /* THE WAVE SPECTRUM PALETTE, site-wide. The founder's own chart, light and
    dark. It lived in three stylesheets that each redeclared it; the wave mark
    is a brand component that can appear on any page, so the tokens belong
