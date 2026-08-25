@@ -429,29 +429,33 @@
        base.css and site.js wires copy-to-clipboard for every .install__box, so
        no page-specific JS is needed. -->
   <section class="section app-install">
-    <div class="wrap app-install__inner" data-reveal>
-      <span class="sectionno">§10 / INSTALL · roger</span>
-      <h2>Get <code class="inline">roger</code> on your machine.</h2>
-      <p class="install__lead">One binary for macOS, Linux and Windows. It finds the models
-        already on your machine, puts them on air if you want, and tunes you into everyone
-        else&rsquo;s - the terminal (§8) and the browser console (§9) are the same
-        <code class="inline">roger</code>.</p>
-      <button class="install__box" id="installCmdApp" type="button"
-              aria-label="Copy install command to clipboard">
-        <span class="install__prompt" aria-hidden="true">$</span>
-        <code class="install__code">curl -fsSL https://rogerai.fm/install.sh | sh</code>
-        <span class="install__copy" aria-hidden="true">
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="9" y="9" width="11" height="11" rx="2"></rect>
-            <path d="M5 15V5a2 2 0 0 1 2-2h10"></path>
-          </svg>
-        </span>
-      </button>
-      <div class="install__meta">
-        <span>On Windows (PowerShell): <code class="inline">irm https://rogerai.fm/install.ps1 | iex</code></span>
-      </div>
-      <div class="install__meta">
-        <a class="install__alt" href="https://github.com/rogerai-fyi/roger/releases">or download a binary &rarr;</a>
+    <div class="wrap">
+      <!-- the dial reaches the end of the band: §1 at 8% ... §9 at 92% ... §10 at the edge. -->
+      <div class="app-dialrule" aria-hidden="true" style="--dial-pos:100%"></div>
+      <div class="app-install__inner" data-reveal>
+        <span class="sectionno">§10 / INSTALL · roger</span>
+        <h2>Get <code class="inline">roger</code> on your machine.</h2>
+        <p class="install__lead">One binary for macOS, Linux and Windows. It finds the models
+          already on your machine, puts them on air if you want, and tunes you into everyone
+          else&rsquo;s - the terminal (§8) and the browser console (§9) are the same
+          <code class="inline">roger</code>.</p>
+        <button class="install__box" id="installCmdApp" type="button"
+                aria-label="Copy install command to clipboard">
+          <span class="install__prompt" aria-hidden="true">$</span>
+          <code class="install__code">curl -fsSL https://rogerai.fm/install.sh | sh</code>
+          <span class="install__copy" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="9" y="9" width="11" height="11" rx="2"></rect>
+              <path d="M5 15V5a2 2 0 0 1 2-2h10"></path>
+            </svg>
+          </span>
+        </button>
+        <div class="install__meta">
+          <span data-alt-note>On Windows (PowerShell): <code class="inline">irm https://rogerai.fm/install.ps1 | iex</code></span>
+        </div>
+        <div class="install__meta">
+          <a class="install__alt" href="https://github.com/rogerai-fyi/roger/releases">or download a binary &rarr;</a>
+        </div>
       </div>
     </div>
   </section>

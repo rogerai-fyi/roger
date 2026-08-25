@@ -181,8 +181,8 @@ export function vanityImportRule(opts = {}) {
     // that path, so `go install rogerai.fm/roger/v5/...` must keep resolving for everyone
     // who has not moved yet; dropping it here would break their builds at the edge while
     // the repository still serves them perfectly well.
-    // The ACME exclusion is redundant against an exact-path test and carried anyway: "every
-    // redirect carries this" is only a guarantee if it holds without a case-by-case argument.
+    // The well-known exclusion is redundant against an exact-path test and carried anyway:
+    // "every redirect carries this" is a guarantee only if it holds without a case-by-case argument.
     expression: `(http.host eq "${zone}" and http.request.uri.path in {"/roger" "/roger/v5" "/roger/v6"} and ${WELL_KNOWN_EXCLUSION})`,
     description: DESC_VANITY,
     enabled: true,

@@ -236,14 +236,13 @@
     if (note) {
       note.textContent = "Windows (PowerShell) · no account needed to browse";
     }
-    var noteWin = document.getElementById("installNoteWin");
-    if (noteWin) {
-      noteWin.innerHTML = 'On macOS / Linux: <code class="inline">curl -fsSL https://rogerai.fm/install.sh | sh</code>';
-    }
-    var noteWin2 = document.getElementById("installNoteWin2");
-    if (noteWin2) {
-      noteWin2.innerHTML = 'On macOS / Linux: <code class="inline">curl -fsSL https://rogerai.fm/install.sh | sh</code>';
-    }
+    // Every "on Windows" alt-note flips to point macOS / Linux users at the curl one-liner.
+    // Class-based, NOT an id list: a new install box (e.g. app.html §10) joins simply by
+    // marking its note data-alt-note, so this can never silently skip one - the exact id-list
+    // trap the comment above warns about.
+    Array.prototype.forEach.call(document.querySelectorAll("[data-alt-note]"), function (n) {
+      n.innerHTML = 'On macOS / Linux: <code class="inline">curl -fsSL https://rogerai.fm/install.sh | sh</code>';
+    });
   }
 
   /* ---- earnings sparkline ---------------------------------------- */

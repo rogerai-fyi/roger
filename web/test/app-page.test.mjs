@@ -95,8 +95,19 @@ test("the closing CTA mounts the brandlocked art, theme-swapped via CSS (light +
 });
 
 test("each numbered section carries a dial-rule divider with its own needle position", () => {
-  const rules = [...app.matchAll(/class="app-dialrule"[^>]*style="--dial-pos:\s*\d+%"/g)];
-  assert.ok(rules.length >= 7, `one dial rule per numbered section (got ${rules.length})`);
+  const numbered = [...app.matchAll(/class="sectionno">§\d+/g)];
+  const rules = [...app.matchAll(/class="app-dialrule"[^>]*style="--dial-pos:\s*(\d+)%"/g)];
+  assert.ok(numbered.length >= 9, `the page keeps its numbered sections (got ${numbered.length})`);
+  // ONE rule per numbered section - exact, not ">= 7": a new numbered section (the §10
+  // install outro) that forgot its needle used to pass silently against the old floor.
+  assert.equal(rules.length, numbered.length,
+    `one dial-rule per numbered section: ${numbered.length} sections, ${rules.length} rules`);
+  // and the needles sweep strictly left-to-right, ending at the edge of the band.
+  const pos = rules.map((m) => parseInt(m[1], 10));
+  for (let i = 1; i < pos.length; i++) {
+    assert.ok(pos[i] > pos[i - 1], `needle ${i} at ${pos[i]}% must sit right of ${pos[i - 1]}%`);
+  }
+  assert.equal(pos[pos.length - 1], 100, "the last needle reaches the end of the band (100%)");
 });
 
 // §10 INSTALL - the page describes the terminal (§8) and the browser console (§9) but must
