@@ -125,6 +125,13 @@ test("app.html ships the roger install command in a copy box, before the closing
   assert.match(app, /install\.ps1 \| iex/, "the Windows PowerShell installer is offered");
   assert.match(app, /github\.com\/rogerai-fyi\/roger\/releases/, "a download-a-binary fallback is offered");
 
+  // The "On Windows" note MUST carry data-alt-note, or site.js's class-based flip skips it
+  // and a Windows visitor sees the PowerShell command twice with no macOS/Linux fallback.
+  const winNote = app.match(/<span[^>]*>On Windows \(PowerShell\):/);
+  assert.ok(winNote, "the install section has an On Windows note");
+  assert.match(winNote[0], /data-alt-note/,
+    "the On Windows note carries data-alt-note so site.js flips it to the macOS/Linux one-liner");
+
   // position: the install section must come BEFORE the closing CTA (the last image)
   const iInstall = app.indexOf('class="section app-install"');
   const iCta = app.indexOf('class="section app-cta"');
