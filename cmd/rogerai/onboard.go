@@ -117,11 +117,11 @@ func runWizard(cfg config, opts wizardOpts) (config, bool, error) {
 	intent := "consume"
 	if err := huh.NewSelect[string]().
 		Title("Welcome to RogerAI - a two-way radio for Local Models.").
-		Description("Are you here to use models, or to share your GPU?\nEither way, your first login drops a $1 starter credit in your wallet.").
+		Description("Are you here to use models, or to share your own?\nEither way, your first login drops a $1 starter credit in your wallet.").
 		Options(
 			huh.NewOption("Just use models (open the app)", "consume"),
-			huh.NewOption("Share my GPU - QuickStart, FREE, no login", "free"),
-			huh.NewOption("Share my GPU - earn (set prices + log in)", "earn"),
+			huh.NewOption("Share my local model - QuickStart, FREE, no login", "free"),
+			huh.NewOption("Share my local model - earn (set prices + log in)", "earn"),
 		).Value(&intent).Run(); err != nil {
 		return cfg, false, err
 	}
