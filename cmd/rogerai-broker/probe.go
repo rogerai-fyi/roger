@@ -562,6 +562,12 @@ func (b *broker) probeOnce() {
 				if offerModality(o.Modality) != protocol.ModalityChat {
 					continue
 				}
+				// Throttled for a model that already holds the bit (toolProbeEvery): the
+				// verdict is near-static, and firing one canary per model per round made
+				// probe cost scale with how many models an operator shares.
+				if !b.toolProbeDue(t.node.NodeID, o.Model, time.Now()) {
+					continue
+				}
 				b.probeToolCall(t.node, o.Model, auth)
 			}
 		}()

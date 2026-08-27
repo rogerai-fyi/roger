@@ -162,6 +162,11 @@ type broker struct {
 	// a peer reads the cross-instance union via toolsMerged. It is the emission source only
 	// single-instance. See probe.go / toolcall.go and features/trust/toolcall_probe.feature.
 	toolsOK map[string]bool
+	// toolProbeAt is when the tool-call canary last RAN for a (node,model), used to throttle
+	// RE-verification of a model that already holds the bit. It is deliberately separate from
+	// the verdict itself: the verdict says what we believe, this says when we last checked.
+	// Guarded by metricsMu. Keyed by toolKey(node, model).
+	toolProbeAt map[string]time.Time
 	// toolsMerged is the cross-instance UNION of verified (node,model) tool-call bits, refreshed
 	// from the shared store on the sync loop (syncToolsVerified) - the EMISSION source in
 	// multi-instance mode. Keeping it a merged snapshot (not the raw shared read) keeps the hot

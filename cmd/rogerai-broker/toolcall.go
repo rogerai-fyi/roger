@@ -71,6 +71,45 @@ const toolsVerifiedTTL = 45 * time.Minute
 // under toolsVerifiedTTL, so the field never lapses between refreshes).
 const toolsRefreshEvery = 15 * time.Minute
 
+// toolProbeEvery throttles RE-verification of a model that ALREADY holds the tools bit.
+//
+// The tool canary used to ride the liveness round exactly, firing once per chat model every
+// round - so probe cost scaled with how many models an operator shared (measured: 200
+// unbilled requests/day for one model, 500 for four). But tool-calling is a near-static
+// property of a model plus its runtime: it changes when the operator changes their setup,
+// not minute to minute. Re-asserting it as often as liveness bought nothing.
+//
+// The number is bounded by toolsVerifiedTTL (45m): a verified model ages out of the union as
+// UNDETERMINED unless a passing canary re-marks it in that window. At 20m, with rounds landing
+// on the 15m ceiling, re-verification lands about every 30m - a 15m margin under the TTL, and
+// a busy node that probeOnce skips entirely is covered separately by the served-traffic
+// refresh (toolsRefreshEvery).
+//
+// A model that has NOT earned the bit is deliberately NOT throttled: it is probed every round
+// so it earns "tools" as promptly as it always did. Only re-proving a settled verdict slows.
+const toolProbeEvery = 20 * time.Minute
+
+// toolProbeDue reports whether the tool-call canary should run for this (node,model) now, and
+// stamps the attempt when it says yes.
+func (b *broker) toolProbeDue(nodeID, model string, now time.Time) bool {
+	key := toolKey(nodeID, model)
+	b.metricsMu.Lock()
+	defer b.metricsMu.Unlock()
+	if b.toolProbeAt == nil {
+		b.toolProbeAt = map[string]time.Time{}
+	}
+	// Never earned the bit: probe at the full cadence so it can earn it.
+	if !b.toolsOK[key] {
+		b.toolProbeAt[key] = now
+		return true
+	}
+	if last, ok := b.toolProbeAt[key]; ok && now.Sub(last) < toolProbeEvery {
+		return false
+	}
+	b.toolProbeAt[key] = now
+	return true
+}
+
 // toolKey is the (node, model) verdict key for b.toolsOK. The verified bit is per-MODEL, not
 // per-node: a node offering two models earns "tools" only for the model(s) that passed.
 func toolKey(node, model string) string { return node + "\x00" + model }
