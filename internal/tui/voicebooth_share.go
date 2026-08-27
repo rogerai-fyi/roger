@@ -457,7 +457,7 @@ func (m model) applyBoothPreview(msg boothPreviewMsg) model {
 	m.vbErr = ""
 	switch {
 	case msg.played:
-		m.status = stLive.Render(glyphs.Fold("♪")+" played a local preview") + stDim.Render(" · free (your GPU)")
+		m.status = stLive.Render(glyphs.Fold("♪")+" played a local preview") + stDim.Render(" · free (ran on this machine)")
 	case msg.path != "":
 		m.status = stDim.Render("no audio player found - preview saved to ") + stKey.Render(msg.path)
 	default:

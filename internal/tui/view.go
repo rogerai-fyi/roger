@@ -254,7 +254,7 @@ type paletteCmd struct{ name, desc, key string }
 var paletteCmds = []paletteCmd{
 	{"/search", "re-scan the band for stations", "r"},
 	{"/connect", "tune in to the selected station", "⏎"},
-	{"/share", "put your GPU on air (earn or free)", "2"},
+	{"/share", "put a local model on air (earn or free)", "2"},
 	{"/limits", "your per-model spend caps", "3"},
 	{"/login", "link GitHub (needed to earn)", "L"},
 	{"/balance", "wallet balance", ""},
@@ -922,7 +922,7 @@ func (m model) helpView() string {
 	// factor so the raw "signal 82 = supply 15 · speed 14 · …" breakdown is interpretable.
 	glossary := [][2]string{
 		{"band", "a model (e.g. gpt-oss-20b) - one band groups every station serving it"},
-		{"station", "a provider: someone's GPU serving that model"},
+		{"station", "a provider: someone's machine serving that model"},
 		{"on air", "serving right now (a station is live + taking requests)"},
 		{"confidential", "hardware-private (TEE): route only to attested secure nodes"},
 		{"frequency code", "a private-band key - tune onto a hidden band instead of the open market"},

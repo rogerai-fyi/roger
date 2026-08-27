@@ -2379,7 +2379,7 @@ func usage() {
   roger remote                your private remote sessions: list · attach <code> · off · link
   roger resume [session-id]   resume a saved local AGENT session  (alias: continue)
 
-providers (share your GPU):
+providers (share a local model):
   roger share <model>         go on air - FREE by default, no login (auto-detects your model)
   roger login                 link GitHub - only needed to EARN
   roger payout                cash out your earnings (status · onboard · request · history)
