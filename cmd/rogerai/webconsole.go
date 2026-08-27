@@ -65,6 +65,27 @@ func stripWebuiFlags(args []string, enabled bool, port string) (rest []string, o
 // failure) so the TUI can open it on demand (`w` / /webui). It returns immediately; the
 // server runs in a background goroutine for the life of the process. A bind failure is
 // non-fatal — the terminal front-end carries on.
+// writeLimit is the console's save, and it MERGES rather than replaces.
+//
+// limits.Set stores the whole struct, so building a fresh tui.Limit from the two numbers
+// the browser's price form knows about silently dropped every other field. When Limit
+// gained Quants (the standing quant rule, set on the band card with Q) that is exactly
+// what happened: editing a price cap in the browser threw away a routing rule set in the
+// terminal, with nothing failing and nothing warning.
+//
+// A nil Quants means "this request did not touch the rule" and the stored one is kept; a
+// non-nil one - including an empty slice - is an instruction and is honoured. Any field
+// added to Limit in future must be carried here too, or it acquires the same bug.
+func writeLimit(limits *tui.LimitStore) func(string, webui.SpendLimit) {
+	return func(model string, l webui.SpendLimit) {
+		next := tui.Limit{MaxOut: l.MaxOut, MinTPS: l.MinTPS, Quants: limits.Snapshot()[model].Quants}
+		if l.Quants != nil {
+			next.Quants = append([]string(nil), *l.Quants...)
+		}
+		limits.Set(model, next)
+	}
+}
+
 func startWebConsole(cfg config, ctrl *node.Controller, port string, limits *tui.LimitStore) string {
 	s := webui.New(ctrl, webui.Options{
 		Broker: cfg.Broker, User: cfg.User, ClientID: gitHubClientID(),
@@ -75,13 +96,12 @@ func startWebConsole(cfg config, ctrl *node.Controller, port string, limits *tui
 		ReadLimits: func() map[string]webui.SpendLimit {
 			out := map[string]webui.SpendLimit{}
 			for m, l := range limits.Snapshot() {
-				out[m] = webui.SpendLimit{MaxOut: l.MaxOut, MinTPS: l.MinTPS}
+				q := append([]string(nil), l.Quants...)
+				out[m] = webui.SpendLimit{MaxOut: l.MaxOut, MinTPS: l.MinTPS, Quants: &q}
 			}
 			return out
 		},
-		WriteLimit: func(model string, l webui.SpendLimit) {
-			limits.Set(model, tui.Limit{MaxOut: l.MaxOut, MinTPS: l.MinTPS})
-		},
+		WriteLimit: writeLimit(limits),
 	})
 	ln, url, err := webConsoleListen(s, "127.0.0.1:"+port)
 	if err != nil {
