@@ -18,6 +18,7 @@ package onair
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -25,6 +26,15 @@ import (
 	"sync"
 	"time"
 )
+
+// ErrHeld reports that a LIVE process already holds this node id's lock.
+//
+// It exists so a caller can tell "somebody else is already broadcasting this" apart from
+// "the start failed". Auto-start needs that distinction: a second `roger` on the same
+// machine finding its models already on air is the system working, and reporting it as a
+// failure would teach the operator to ignore real errors. Match with errors.Is - never by
+// string, because the message carries the holder's pid and the lock path.
+var ErrHeld = errors.New("node id already on air in another process")
 
 // Info is the on-disk lock content: who is broadcasting this node id.
 type Info struct {
@@ -72,7 +82,7 @@ func Acquire(nodeID, station, model string) (release func(), err error) {
 			if where == "" {
 				where = "this machine"
 			}
-			return nil, fmt.Errorf("already on air: %q is broadcasting (pid %d) - one `roger share` per machine. Stop that session first, or if nothing is actually running, delete the stale lock:\n  %s", where, prev.PID, path)
+			return nil, fmt.Errorf("%w: %q is broadcasting (pid %d) - one broadcaster per node id. Stop that session first, or if nothing is actually running, delete the stale lock:\n  %s", ErrHeld, where, prev.PID, path)
 		}
 		// stale (dead PID) or ours: fall through and take it over.
 	}

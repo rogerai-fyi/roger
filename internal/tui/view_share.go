@@ -327,8 +327,22 @@ func (m model) shareView(w int) string {
 		b.WriteString("  " + stDim.Render(fmt.Sprintf("  %-14s  %-8s  %s", "MODEL", "STATUS", "PRICE")) + "\n")
 	default:
 		b.WriteString("  " + stDim.Render(fmt.Sprintf("  %-24s  %-9s  %-12s  %-9s  %-10s  %s",
-			"MODEL", "STATUS", "PRICE", "SERVED", "OUT TOK", "EARNINGS")) + "\n")
+			"MODEL", "STATUS", "PRICE", "SERVED", "OUT TOK", "AT LIST")) + "\n")
 	}
+
+	// WHY "AT LIST" AND NOT "EARNINGS".
+	//
+	// Session.Earnings() is a NODE-LOCAL tally: the node prices the work it just did with
+	// its own price card and adds the owner share. It is not the ledger, and it cannot be -
+	// the node does not learn what the broker decided to charge.
+	//
+	// The gap is not hypothetical. Consuming your OWN node is $0 by design ("signed
+	// self-use: consuming your OWN node is $0, automatically (metering only)"), so a rig
+	// serving its owner's traffic accrues a number here while the broker mints nothing. On
+	// the founder's machine this read $0.27 against a ledger of $0.00 payable, $0.00 held.
+	//
+	// Both numbers were right; only the WORD was wrong. This column is what the served work
+	// is worth at list price. Money lives on the broker, and `roger payout` is what reads it.
 
 	// Table width for the reverse-video bar (the highlight spans the whole row).
 	tableW := w - 4
@@ -357,10 +371,7 @@ func (m model) shareView(w int) string {
 			}
 		}
 		in, out := m.sharePrice(row, live)
-		priceTxt := "FREE"
-		if in > 0 || out > 0 {
-			priceTxt = dollars(out) + "/1M out"
-		}
+		priceTxt := sharePriceText(in, out)
 		// A time-of-use schedule is flagged with a clock so the table shows it at a
 		// glance (the per-window detail lives in the editor).
 		if !on && m.hasSchedule(row) {
@@ -474,12 +485,52 @@ func (m model) shareView(w int) string {
 			stKey.Render("h") + stDim.Render(" hide on a private band · ") +
 			stKey.Render("n") + stDim.Render(" rename station · ") + ph + "\n")
 	}
+	// What AT LIST means, said once and near the number rather than left to be inferred.
+	// It shows only when the column is populated - a rig with nothing on air does not need
+	// a lesson about settlement.
+	if m.anyLiveShare() {
+		note := stDim.Render("AT LIST is this work priced at your card - not settled money. " +
+			"Serving your OWN traffic is $0. Real earnings: ") + stKey.Render("roger payout")
+		b.WriteString("  " + truncVisible(note, w-4) + "\n")
+	}
 	// Cash-out hint for an earning provider (KYC / payable), under the affordance line.
 	// Width-safe + NO_COLOR-safe; empty when there's nothing actionable.
 	if hint := m.payoutHint(); hint != "" {
 		b.WriteString("  " + truncVisible(hint, w-4) + "\n")
 	}
 	return b.String()
+}
+
+// sharePriceText renders a chat row's price cell showing BOTH BILLED AXES.
+//
+// Cost() is (prompt x PriceIn + completion x PriceOut) / 1e6, so both terms are real
+// money. This cell used to print only the output price, and on a row priced 0.20 in /
+// 0.01 out that hid the term producing almost the entire bill: the operator read
+// "$0.01/1M out" beside a figure two columns over and had no way to reconcile them,
+// because the number driving it was not on screen.
+//
+// An unpriced input axis is still omitted - there is nothing to say about an axis that
+// bills nothing, and saying "$0.00 in" would read as a rate rather than an absence.
+func sharePriceText(in, out float64) string {
+	switch {
+	case in <= 0 && out <= 0:
+		return "FREE"
+	case in > 0:
+		return dollars(in) + " in · " + dollars(out) + " out"
+	default:
+		return dollars(out) + "/1M out"
+	}
+}
+
+// anyLiveShare reports whether any row is actually on air, so the settlement note is
+// shown beside a populated AT LIST column rather than an empty one.
+func (m model) anyLiveShare() bool {
+	for _, r := range m.shareRows {
+		if m.shares[r.model] != nil {
+			return true
+		}
+	}
+	return false
 }
 
 // shareModalityTag is the tiny mono modality tag for a SHARE voice row (♪ tts / ▽ stt, fold-safe:
