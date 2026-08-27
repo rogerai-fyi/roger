@@ -73,3 +73,17 @@ broker traffic are unchanged, so the Open Market's V1 signing contract is untouc
 `roger-tower-local` builds for Linux amd64/arm64 and ships in the release archives and
 through `install.sh` (`ROGERAI_COMPONENT=tower-local`), alongside the existing `roger` and
 `roger-tower` binaries.
+
+## Also in this release: a browser save can no longer destroy a spend setting
+
+The browser console and the terminal edit the same spend limits. A save from the console
+rebuilt each limit from only the fields its price form can see, so saving an output-price cap
+in the browser silently wiped the *other* settings the terminal owned on that band - first a
+standing quant routing rule, then the input-price money cap (`roger config set-limit
+--max-in`). Nothing failed and nothing warned; a routing rule set in the terminal simply
+stopped applying, or a money cap vanished. The console's save now merges - it carries every
+field its form does not edit - and the shared limit store is mutex-guarded, closing a
+concurrent-write crash between the two surfaces. Regression tests pin each case, including a
+race test that hammers both surfaces at once. The console's quant field also now accepts the
+terminal's own space-separated format, so a rule pasted from the terminal (`Q4_K_M IQ4_XS`)
+is read as its labels rather than one that matches nothing.

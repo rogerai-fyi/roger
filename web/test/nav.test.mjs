@@ -479,3 +479,36 @@ test("model and GPU keep their separate meanings", () => {
     }
   }
 });
+
+// The cycling App word: one nav destination worn three ways (App / TUI / WebUI), the word
+// wearing the carrier gradient and swapping on the beat of it (site.js). This locks the
+// PROGRESSIVE-ENHANCEMENT contract and the three anchors, so a refactor cannot quietly turn
+// it into a JS-only link or point a surface at a section that does not exist.
+test("the App item degrades to a real /app.html link and cycles App/TUI/WebUI", () => {
+  const bar = topbar(readDist("index.html"));
+
+  // Base markup (what ships, what runs with JS off): a plain nav__link to /app.html whose
+  // visible word is "App", carrying the cycle hook and the carrier gradient on the word.
+  const app = bar.match(/<a class="nav__link"[^>]*data-app-cycle[^>]*>[\s\S]*?<\/a>/);
+  assert.ok(app, "the App link ships the data-app-cycle hook");
+  const a = app[0];
+  assert.match(a, /href="\/app\.html"/, "base href is /app.html (the no-JS fallback)");
+  assert.match(a, /<span class="carrier nav__app-word" data-app-word>App<\/span>/,
+    "the visible word is a carrier-gradient span defaulting to App");
+  assert.match(a, /aria-label="[^"]*TUI[^"]*WebUI[^"]*"/,
+    "a STABLE aria-label is the accessible name, so the moving word is not announced");
+
+  // The three surfaces and their anchors live in site.js, and each anchor must resolve.
+  const site = readSrc("js/site.js");
+  const stops = site.match(/STOPS\s*=\s*\[([\s\S]*?)\]/);
+  assert.ok(stops, "site.js declares the App/TUI/WebUI stops");
+  for (const [w, h] of [["App", "/app.html"], ["TUI", "/app.html#cli"], ["WebUI", "/app.html#webui"]]) {
+    assert.ok(stops[1].includes(`"${w}"`) && stops[1].includes(`"${h}"`),
+      `the ${w} stop points at ${h}`);
+  }
+
+  // The deep-link anchors must actually exist on app.html, or a click scrolls nowhere.
+  const appPage = readDist("app.html");
+  assert.match(appPage, /id="cli"/, "app.html has the TUI section (#cli)");
+  assert.match(appPage, /id="webui"/, "app.html has the WebUI section (#webui)");
+});

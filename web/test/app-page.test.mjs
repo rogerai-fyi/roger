@@ -95,6 +95,46 @@ test("the closing CTA mounts the brandlocked art, theme-swapped via CSS (light +
 });
 
 test("each numbered section carries a dial-rule divider with its own needle position", () => {
-  const rules = [...app.matchAll(/class="app-dialrule"[^>]*style="--dial-pos:\s*\d+%"/g)];
-  assert.ok(rules.length >= 7, `one dial rule per numbered section (got ${rules.length})`);
+  const numbered = [...app.matchAll(/class="sectionno">§\d+/g)];
+  const rules = [...app.matchAll(/class="app-dialrule"[^>]*style="--dial-pos:\s*(\d+)%"/g)];
+  assert.ok(numbered.length >= 9, `the page keeps its numbered sections (got ${numbered.length})`);
+  // ONE rule per numbered section - exact, not ">= 7": a new numbered section (the §10
+  // install outro) that forgot its needle used to pass silently against the old floor.
+  assert.equal(rules.length, numbered.length,
+    `one dial-rule per numbered section: ${numbered.length} sections, ${rules.length} rules`);
+  // and the needles sweep strictly left-to-right, ending at the edge of the band.
+  const pos = rules.map((m) => parseInt(m[1], 10));
+  for (let i = 1; i < pos.length; i++) {
+    assert.ok(pos[i] > pos[i - 1], `needle ${i} at ${pos[i]}% must sit right of ${pos[i - 1]}%`);
+  }
+  assert.equal(pos[pos.length - 1], 100, "the last needle reaches the end of the band (100%)");
+});
+
+// §10 INSTALL - the page describes the terminal (§8) and the browser console (§9) but must
+// also tell you how to GET the roger binary, in the copy-button component the rest of the
+// site uses, positioned before the closing App Store CTA (its last image).
+test("app.html ships the roger install command in a copy box, before the closing CTA", () => {
+  // the install__box copy component (site.js wires copy-to-clipboard for every .install__box)
+  const box = app.match(/<button class="install__box"[\s\S]*?<\/button>/);
+  assert.ok(box, "the install command sits in an install__box copy button");
+  assert.match(box[0], /curl -fsSL https:\/\/rogerai\.fm\/install\.sh \| sh/,
+    "the one-line installer is the canonical rogerai.fm/install.sh");
+  assert.match(box[0], /<code class="install__code">/, "the code is in install__code so site.js copies it");
+
+  // the Windows path and a raw-binary fallback, same as the homepage
+  assert.match(app, /install\.ps1 \| iex/, "the Windows PowerShell installer is offered");
+  assert.match(app, /github\.com\/rogerai-fyi\/roger\/releases/, "a download-a-binary fallback is offered");
+
+  // The "On Windows" note MUST carry data-alt-note, or site.js's class-based flip skips it
+  // and a Windows visitor sees the PowerShell command twice with no macOS/Linux fallback.
+  const winNote = app.match(/<span[^>]*>On Windows \(PowerShell\):/);
+  assert.ok(winNote, "the install section has an On Windows note");
+  assert.match(winNote[0], /data-alt-note/,
+    "the On Windows note carries data-alt-note so site.js flips it to the macOS/Linux one-liner");
+
+  // position: the install section must come BEFORE the closing CTA (the last image)
+  const iInstall = app.indexOf('class="section app-install"');
+  const iCta = app.indexOf('class="section app-cta"');
+  assert.ok(iInstall > 0 && iCta > 0, "both the install and CTA sections exist");
+  assert.ok(iInstall < iCta, "install instructions come before the closing App Store CTA");
 });

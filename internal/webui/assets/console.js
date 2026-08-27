@@ -1446,7 +1446,7 @@
     i.value = (quants || []).join(", ");
     i.setAttribute("data-limit", model);
     i.setAttribute("data-field", "quants");
-    i.title = "comma-separated, e.g. Q4_K_M, IQ4_XS, 4bit - empty means any";
+    i.title = "space- or comma-separated, e.g. Q4_K_M IQ4_XS 4bit - empty means any";
     td.appendChild(i);
     return td;
   }
@@ -1461,7 +1461,10 @@
     // surface that cannot edit the rule must omit the key entirely so the server leaves
     // it alone; that is what the pointer on the wire is for.
     var qi = document.querySelector('[data-limit="' + CSS.escape(model) + '"][data-field="quants"]');
-    var quants = (qi ? qi.value : "").split(",").map(function (x) { return x.trim(); })
+    // Split on spaces OR commas: the terminal's own band editor joins quant labels with a
+    // space (band_config.go), so an operator pasting "Q4_K_M IQ4_XS" from there would
+    // otherwise become one bogus label that matches no station, silently.
+    var quants = (qi ? qi.value : "").split(/[\s,]+/).map(function (x) { return x.trim(); })
       .filter(function (x) { return x !== ""; });
     apiPost("/api/limits", { model: model, max_out: val("max_out"), min_tps: val("min_tps"), quants: quants })
       .then(function () { toast("saved " + model); loadSettings(); })

@@ -1720,7 +1720,9 @@ func (m *model) enterLimits() {
 	seen := map[string]bool{}
 	var models []string
 	if m.limits != nil {
-		for mdl := range m.limits.Models {
+		// Snapshot, not a direct range over Models: the browser console writes the same
+		// store from its HTTP goroutine, and iterating the live map here would race it.
+		for mdl := range m.limits.Snapshot() {
 			if !seen[mdl] {
 				seen[mdl] = true
 				models = append(models, mdl)

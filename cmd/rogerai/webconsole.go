@@ -67,22 +67,29 @@ func stripWebuiFlags(args []string, enabled bool, port string) (rest []string, o
 // non-fatal — the terminal front-end carries on.
 // writeLimit is the console's save, and it MERGES rather than replaces.
 //
-// limits.Set stores the whole struct, so building a fresh tui.Limit from the two numbers
-// the browser's price form knows about silently dropped every other field. When Limit
-// gained Quants (the standing quant rule, set on the band card with Q) that is exactly
-// what happened: editing a price cap in the browser threw away a routing rule set in the
-// terminal, with nothing failing and nothing warning.
+// Storing a whole struct built from just the fields the browser's price form knows about
+// silently dropped every other field. It cost a routing rule first (Limit gained Quants,
+// the standing quant rule set on the band card with Q) and would cost a money cap next
+// (MaxIn, the input-price ceiling set with `roger config set-limit --max-in`): editing an
+// output price in the browser threw the other away, with nothing failing and nothing warned.
 //
-// A nil Quants means "this request did not touch the rule" and the stored one is kept; a
-// non-nil one - including an empty slice - is an instruction and is honoured. Any field
-// added to Limit in future must be carried here too, or it acquires the same bug.
+// The merge is now field-general instead of a hand-maintained carry list: Update starts from
+// the model's STORED cap and this closure overwrites ONLY the two fields the form actually
+// edits (MaxOut, MinTPS), so MaxIn, the quant rule, and anything Limit gains later survive by
+// default. Quants is the one field the form CAN edit, over the wire as a pointer: nil means
+// "this save did not touch the rule" (keep the stored one), a non-nil value - empty slice
+// included - is an explicit instruction. The whole read-modify-write runs under the store's
+// lock, so a concurrent TUI edit cannot slip in between the read and the write.
 func writeLimit(limits *tui.LimitStore) func(string, webui.SpendLimit) {
 	return func(model string, l webui.SpendLimit) {
-		next := tui.Limit{MaxOut: l.MaxOut, MinTPS: l.MinTPS, Quants: limits.Snapshot()[model].Quants}
-		if l.Quants != nil {
-			next.Quants = append([]string(nil), *l.Quants...)
-		}
-		limits.Set(model, next)
+		limits.Update(model, func(cur tui.Limit) tui.Limit {
+			cur.MaxOut = l.MaxOut
+			cur.MinTPS = l.MinTPS
+			if l.Quants != nil {
+				cur.Quants = append([]string(nil), *l.Quants...)
+			}
+			return cur
+		})
 	}
 }
 

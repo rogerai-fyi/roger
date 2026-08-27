@@ -24,21 +24,22 @@ import * as edge from "../scripts/cf-edge.mjs";
 const CANON = "rogerai.fm";
 const LEGACY = "rogerai.fyi";
 
-// A redirect must never swallow the ACME HTTP-01 challenge path. This is not hypothetical:
-// the www->apex rule 301'd /.well-known/acme-challenge/... on www.rogerai.fm, so the
+// A redirect must never swallow anything under /.well-known/. This is not hypothetical: the
+// www->apex rule once 301'd /.well-known/acme-challenge/... on www.rogerai.fm, so the
 // certificate authority could never read the token there and www sat unissued (DigitalOcean
 // reported DomainCertPendingValidation for hours) while the apex, which has no redirect,
-// validated first try. Any redirect we own has the same failure mode at every renewal.
-const ACME_EXCLUSION =
-  'not starts_with(http.request.uri.path, "/.well-known/acme-challenge/")';
+// validated first try. The apple-app-site-association file next to it fails the same way for
+// iOS universal links. Any redirect we own has both failure modes at every renewal.
+const WELL_KNOWN_EXCLUSION =
+  'not starts_with(http.request.uri.path, "/.well-known/")';
 
-// Split `(<host test> and <acme guard>)` into its parts so the host assertions below stay as
-// strict as they were before the guard existed.
+// Split `(<host test> and <well-known guard>)` into its parts so the host assertions below
+// stay as strict as they were before the guard existed.
 function parts(expression) {
   const m = /^\((.*)\)$/.exec(expression.trim());
   assert.ok(m, `expression must be parenthesised, got: ${expression}`);
   const inner = m[1];
-  const i = inner.indexOf(" and " + ACME_EXCLUSION);
+  const i = inner.indexOf(" and " + WELL_KNOWN_EXCLUSION);
   return { host: i === -1 ? inner : inner.slice(0, i), guarded: i !== -1 };
 }
 
@@ -60,6 +61,16 @@ function singleHost(expression) {
   const m = /^http\.host eq "([^"]+)"$/.exec(parts(expression).host.trim());
   assert.ok(m, `expression must be an exact single-host test, got: ${expression}`);
   return m[1];
+}
+
+// Behavioural, not string-shaped: read every `not starts_with(path, "PREFIX")` guard out of
+// a rule expression and answer whether samplePath is EXCLUDED (some guard prefix matches it),
+// i.e. the redirect would leave that path alone and let the origin serve it directly.
+function guardExcludes(expression, samplePath) {
+  const prefixes = [
+    ...expression.matchAll(/not starts_with\(http\.request\.uri\.path, "([^"]+)"\)/g),
+  ].map((m) => m[1]);
+  return prefixes.some((prefix) => samplePath.startsWith(prefix));
 }
 
 test("canonical-site header rules match only the .fm apex and www", () => {
@@ -185,6 +196,32 @@ test("no redirect we own may swallow the ACME challenge path", () => {
       `the ${name} redirect must exclude /.well-known/acme-challenge/, or the certificate ` +
         `authority gets a 301 instead of the token and the hostname never gets a certificate`,
     );
+    assert.equal(
+      guardExcludes(rule.expression, "/.well-known/acme-challenge/tok123"),
+      true,
+      `${name} must let the ACME challenge path through untouched`,
+    );
+  }
+});
+
+// The same failure mode as ACME, one directory over: Apple fetches
+// /.well-known/apple-app-site-association WITHOUT following redirects to validate the iOS
+// app's Associated Domains. A 301 there drops the association, so a legacy rogerai.fyi
+// universal link (the Base Station /r.html* device link) stops opening the app. The
+// migration spec requires "both associated-domain files are served directly", so the legacy
+// redirect must leave the whole /.well-known/ directory - not just acme-challenge - alone.
+test("no redirect we own may swallow the iOS app-site-association (or anything under /.well-known/)", () => {
+  for (const [name, rule] of Object.entries(allRedirectRules())) {
+    for (const path of [
+      "/.well-known/apple-app-site-association",
+      "/.well-known/acme-challenge/tok",
+    ]) {
+      assert.equal(
+        guardExcludes(rule.expression, path),
+        true,
+        `the ${name} redirect must serve ${path} directly, never 301 it`,
+      );
+    }
   }
 });
 

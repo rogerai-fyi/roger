@@ -194,6 +194,15 @@
 }
 .app-spec__row dd { margin: 0; font-size: var(--t-sm); color: var(--ink-700); line-height: var(--lh-body); }
 
+/* ---------- §10 install (the desktop binary) --------------------- */
+/* Centred like the CTA it precedes; the install__box / lead / meta components are
+   themselves styled site-wide in base.css, so this only handles the block layout. */
+.app-install__inner { display: flex; flex-direction: column; align-items: center; text-align: center; }
+.app-install__inner h2 { margin: 0; }
+.app-install__inner .install__lead { max-width: 54ch; margin-top: var(--s-4); }
+.app-install__inner .install__box { margin-top: var(--s-8); }
+.app-install__inner .install__meta { margin-top: var(--s-3); }
+
 /* ---------- closing CTA ------------------------------------------ */
 /* the conversion moment echoes the hero: static texture + the red underline */
 .app-cta { background-image: var(--app-static); background-repeat: repeat; }
