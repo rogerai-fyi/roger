@@ -135,7 +135,8 @@ type Session struct {
 	servedReqs    atomic.Int64
 	servedToks    atomic.Int64
 	earningsMicro atomic.Int64 // owner-share in millionths of a credit (avoid float races)
-	probeReqs     atomic.Int64 // served requests that were UNBILLED broker probes
+	probeReqs     atomic.Int64 // UNBILLED broker probes served (kept out of servedReqs)
+	probeToks     atomic.Int64 // completion tokens spent on those probes
 	stop          chan struct{}
 	rereg         *reregistrar // shared self-healing re-register coordinator
 	link          atomic.Int32 // LinkState: is the BROKER actually acknowledging us?
@@ -393,20 +394,33 @@ func (s *Session) Stop() {
 // record folds a served job's receipt into the session counters (called by the
 // in-process poll loop after it serves a job).
 func (s *Session) record(rec protocol.UsageReceipt, feeRate float64, unbilled bool) {
-	s.servedReqs.Add(1)
-	s.servedToks.Add(int64(rec.CompletionTokens))
+	// A PROBE IS NOT TRAFFIC. It is the broker checking this node is alive, and it is
+	// kept out of SERVED, OUT TOK and value alike - on a quiet rig it dwarfs the real
+	// numbers (2,738 served / 48,001 tokens on the founder's station was almost entirely
+	// canary), so leaving it in the headline counters answers "how busy am I?" with a
+	// measurement of our own health checks.
+	//
+	// It is COUNTED, not discarded: ProbeServed/ProbeTokens keep it available for anyone
+	// asking whether we probe too hard, which is a real question with a real answer.
 	if unbilled {
 		s.probeReqs.Add(1)
-		return // the work happened; the value did not
+		s.probeToks.Add(int64(rec.CompletionTokens))
+		return
 	}
+	s.servedReqs.Add(1)
+	s.servedToks.Add(int64(rec.CompletionTokens))
 	// owner-share = cost * (1 - fee); cost is the node-priced receipt cost.
 	owner := rec.Cost() * (1 - feeRate)
 	s.earningsMicro.Add(int64(owner*1e6 + 0.5))
 }
 
-// ProbeServed returns how many of the served requests were unbilled broker probes, so a
-// surface can say why SERVED is large while the value beside it is not.
-func (s *Session) ProbeServed() int64 { return s.probeReqs.Load() }
+// ProbeStats returns the unbilled broker-probe traffic this session absorbed: requests
+// and completion tokens. Deliberately SEPARATE from Served() rather than folded into it -
+// an operator asking "how busy am I?" means real work, and an operator asking "are we
+// probing too hard?" needs this number unmixed with it.
+func (s *Session) ProbeStats() (reqs, tokens int64) {
+	return s.probeReqs.Load(), s.probeToks.Load()
+}
 
 // Start registers the node and launches its outbound poll loops, returning a
 // Session for live stats + Stop (the TUI's in-process /share). It does NOT block.

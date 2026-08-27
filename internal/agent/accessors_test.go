@@ -131,7 +131,7 @@ func TestTEEUnavailableOnTestHost(t *testing.T) {
 // ("User=\"probe\" marks it unbilled"). It must count as work and NOT as value:
 // on a quiet rig the probe is most of the traffic, so folding it into the money-shaped
 // number priced work that can never be billed at any price.
-func TestProbeJobsCountAsWorkButNotValue(t *testing.T) {
+func TestProbeJobsStayOutOfTheOperatorsNumbers(t *testing.T) {
 	s := &Session{}
 	rec := protocol.UsageReceipt{
 		RequestID: "r1", PromptTokens: 700, CompletionTokens: 18,
@@ -139,17 +139,17 @@ func TestProbeJobsCountAsWorkButNotValue(t *testing.T) {
 	}
 	s.record(rec, 0.30, true) // a probe
 
-	if got, _ := s.Served(); got != 1 {
-		t.Errorf("served = %d, want 1 - the machine really did the work", got)
-	}
-	if _, toks := s.Served(); toks != 18 {
-		t.Errorf("tokens = %d, want 18", toks)
+	// A probe is our own health check, not traffic: it must not inflate the numbers an
+	// operator reads as "how busy am I".
+	if reqs, toks := s.Served(); reqs != 0 || toks != 0 {
+		t.Errorf("served = %d reqs / %d toks, want 0/0 - a probe is not traffic", reqs, toks)
 	}
 	if got := s.Earnings(); got != 0 {
 		t.Errorf("value = %v, want 0 - the broker never bills a probe", got)
 	}
-	if got := s.ProbeServed(); got != 1 {
-		t.Errorf("probe count = %d, want 1 - a surface must be able to explain the gap", got)
+	// But it IS counted, so "are we probing too hard?" has an answer.
+	if r, tk := s.ProbeStats(); r != 1 || tk != 18 {
+		t.Errorf("probe stats = %d reqs / %d toks, want 1/18", r, tk)
 	}
 }
 
@@ -166,7 +166,10 @@ func TestBilledJobsStillAccrueValue(t *testing.T) {
 	if got := s.Earnings(); got < 0.139 || got > 0.141 {
 		t.Errorf("value = %v, want ~0.14 (owner share of $0.20)", got)
 	}
-	if s.ProbeServed() != 0 {
+	if r, _ := s.ProbeStats(); r != 0 {
 		t.Error("a billed job was counted as a probe")
+	}
+	if reqs, _ := s.Served(); reqs != 1 {
+		t.Errorf("a billed job must count as served, got %d", reqs)
 	}
 }
