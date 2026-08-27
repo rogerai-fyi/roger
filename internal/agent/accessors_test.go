@@ -38,7 +38,7 @@ func TestSessionAccessors(t *testing.T) {
 	// record folds a served receipt into the counters: +1 req, +completion tokens, and
 	// owner-share = cost*(1-fee).
 	rec := protocol.UsageReceipt{PromptTokens: 100, CompletionTokens: 50, PriceIn: 1_000_000, PriceOut: 2_000_000}
-	s.record(rec, 0.30)
+	s.record(rec, 0.30, false)
 	reqs, toks := s.Served()
 	if reqs != 1 || toks != 50 {
 		t.Errorf("Served = %d reqs / %d toks, want 1/50", reqs, toks)
@@ -48,7 +48,7 @@ func TestSessionAccessors(t *testing.T) {
 		t.Errorf("Earnings = %v, want %v (cost*(1-fee))", got, wantEarn)
 	}
 	// A second record accumulates.
-	s.record(rec, 0.30)
+	s.record(rec, 0.30, false)
 	if reqs, _ := s.Served(); reqs != 2 {
 		t.Errorf("Served after 2 records = %d reqs, want 2", reqs)
 	}
@@ -124,5 +124,49 @@ func TestTEEUnavailableOnTestHost(t *testing.T) {
 	var rd [64]byte
 	if _, err := generateQuote(rd); err == nil {
 		t.Error("generateQuote should fail with no TEE device present")
+	}
+}
+
+// A broker PROBE is served like any job, but the broker bills nothing for it
+// ("User=\"probe\" marks it unbilled"). It must count as work and NOT as value:
+// on a quiet rig the probe is most of the traffic, so folding it into the money-shaped
+// number priced work that can never be billed at any price.
+func TestProbeJobsCountAsWorkButNotValue(t *testing.T) {
+	s := &Session{}
+	rec := protocol.UsageReceipt{
+		RequestID: "r1", PromptTokens: 700, CompletionTokens: 18,
+		PriceIn: 0.20, PriceOut: 0.01,
+	}
+	s.record(rec, 0.30, true) // a probe
+
+	if got, _ := s.Served(); got != 1 {
+		t.Errorf("served = %d, want 1 - the machine really did the work", got)
+	}
+	if _, toks := s.Served(); toks != 18 {
+		t.Errorf("tokens = %d, want 18", toks)
+	}
+	if got := s.Earnings(); got != 0 {
+		t.Errorf("value = %v, want 0 - the broker never bills a probe", got)
+	}
+	if got := s.ProbeServed(); got != 1 {
+		t.Errorf("probe count = %d, want 1 - a surface must be able to explain the gap", got)
+	}
+}
+
+// And a real job still accrues, or the exclusion has eaten the feature.
+func TestBilledJobsStillAccrueValue(t *testing.T) {
+	s := &Session{}
+	rec := protocol.UsageReceipt{
+		RequestID: "r2", PromptTokens: 1_000_000, CompletionTokens: 0,
+		PriceIn: 0.20, PriceOut: 0.01,
+	}
+	s.record(rec, 0.30, false)
+
+	// 1M prompt x $0.20/1M = $0.20 gross; owner keeps 70%
+	if got := s.Earnings(); got < 0.139 || got > 0.141 {
+		t.Errorf("value = %v, want ~0.14 (owner share of $0.20)", got)
+	}
+	if s.ProbeServed() != 0 {
+		t.Error("a billed job was counted as a probe")
 	}
 }

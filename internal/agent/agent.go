@@ -135,6 +135,7 @@ type Session struct {
 	servedReqs    atomic.Int64
 	servedToks    atomic.Int64
 	earningsMicro atomic.Int64 // owner-share in millionths of a credit (avoid float races)
+	probeReqs     atomic.Int64 // served requests that were UNBILLED broker probes
 	stop          chan struct{}
 	rereg         *reregistrar // shared self-healing re-register coordinator
 	link          atomic.Int32 // LinkState: is the BROKER actually acknowledging us?
@@ -391,13 +392,21 @@ func (s *Session) Stop() {
 
 // record folds a served job's receipt into the session counters (called by the
 // in-process poll loop after it serves a job).
-func (s *Session) record(rec protocol.UsageReceipt, feeRate float64) {
+func (s *Session) record(rec protocol.UsageReceipt, feeRate float64, unbilled bool) {
 	s.servedReqs.Add(1)
 	s.servedToks.Add(int64(rec.CompletionTokens))
+	if unbilled {
+		s.probeReqs.Add(1)
+		return // the work happened; the value did not
+	}
 	// owner-share = cost * (1 - fee); cost is the node-priced receipt cost.
 	owner := rec.Cost() * (1 - feeRate)
 	s.earningsMicro.Add(int64(owner*1e6 + 0.5))
 }
+
+// ProbeServed returns how many of the served requests were unbilled broker probes, so a
+// surface can say why SERVED is large while the value beside it is not.
+func (s *Session) ProbeServed() int64 { return s.probeReqs.Load() }
 
 // Start registers the node and launches its outbound poll loops, returning a
 // Session for live stats + Stop (the TUI's in-process /share). It does NOT block.
@@ -516,11 +525,11 @@ func pollLoop(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey, se
 		resp.Body.Close()
 		if isStream(job.Body) {
 			rec := serveStream(cfg, offer, priv, token, job)
-			recordIf(sess, rec)
+			recordIf(sess, job, rec)
 		} else {
 			res := serve(cfg, offer, priv, up, job)
 			postResult(poll, cfg, token, res)
-			recordIf(sess, res.Receipt)
+			recordIf(sess, job, res.Receipt)
 		}
 	}
 }
@@ -535,11 +544,28 @@ func brokerForgot(status int) bool {
 		status == http.StatusForbidden
 }
 
+// ProbeUser is the User the broker stamps on an active-probe (canary) job. The probe
+// measures liveness, TTFT and clean tok/s every 30s per model, backing off to 15m while
+// idle, and the broker bills NOTHING for it: "User=\"probe\" marks it unbilled;
+// settleRequest/earnings are never touched on this path".
+const ProbeUser = "probe"
+
 // recordIf folds a served receipt into the session counters (no-op without a session).
-func recordIf(sess *Session, rec protocol.UsageReceipt) {
-	if sess != nil && rec.RequestID != "" {
-		sess.record(rec, shareFeeRate)
+//
+// PROBE JOBS COUNT AS WORK, NOT AS VALUE. The node serves a canary exactly like a real
+// job, so it used to fold into every counter including the value tally - and on a quiet
+// rig the probe IS most of the traffic: a founder's station read 2,738 served and 48,001
+// output tokens, which is 17.5 tokens a request, the shape of a canary's tiny max_tokens
+// rather than of a conversation. The value column was therefore pricing work the broker
+// can never bill, at any price.
+//
+// Served/tokens still count it, because the machine really did the work and an operator
+// watching throughput should see it. Only the money-shaped number excludes it.
+func recordIf(sess *Session, job protocol.Job, rec protocol.UsageReceipt) {
+	if sess == nil || rec.RequestID == "" {
+		return
 	}
+	sess.record(rec, shareFeeRate, job.User == ProbeUser)
 }
 
 // heartbeatUntil heartbeats every 10s until stop is closed. The live BridgeToken
