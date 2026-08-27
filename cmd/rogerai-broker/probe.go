@@ -203,6 +203,13 @@ type probeState struct {
 	nextDue      time.Time
 	backoff      int
 	lastMeasured time.Time
+	// lastProbe is when a real probe round last FIRED at this node, as opposed to
+	// lastMeasured, which real traffic also stamps. The two diverge on a busy node -
+	// exactly the case that needs a bound: markMeasured defers the next probe, and
+	// without a "how long since we actually probed" reading, a node under constant
+	// traffic could defer forever and never refresh its tool-call verdict (which only
+	// a probe round asserts - real traffic never does).
+	lastProbe time.Time
 }
 
 // probeSched returns the per-node schedule map, lazily initialised. Caller holds
@@ -215,9 +222,9 @@ func (b *broker) probeSchedLocked() map[string]*probeState {
 }
 
 // markMeasured records that a node's performance was just established for FREE by a
-// real served request (the relay/stream settle path): reset its backoff to the floor
-// and push the next probe out by one floor interval, so an actively-used node is
-// barely probed. Also stamps lastMeasured so the signal reads it as freshly verified.
+// real served request (the relay/stream settle path): keep its backoff level and push
+// the next probe out, so an actively-used node really is barely probed (see the body -
+// this line used to describe a reset that did the opposite). Also stamps lastMeasured so the signal reads it as freshly verified.
 // Cheap + concurrency-safe; a no-op when the probe is disabled.
 func (b *broker) markMeasured(nodeID string) {
 	if !b.probe.enabled() {
@@ -238,11 +245,32 @@ func (b *broker) markMeasured(nodeID string) {
 		st = &probeState{}
 		sched[nodeID] = st
 	}
-	st.backoff = 0
 	st.lastMeasured = now
-	// We just measured it for free; the next probe is unnecessary until at least a
-	// floor interval of silence, and is extended further as traffic keeps arriving.
-	if due := now.Add(b.probe.interval); due.After(st.nextDue) {
+	// REAL TRAFFIC DEFERS THE NEXT PROBE. IT DOES NOT PULL IT IN.
+	//
+	// This used to `st.backoff = 0` here, which is the opposite of what the line above it
+	// promised ("an actively-used node is barely probed"): zeroing the level drops the node
+	// back to the 30s floor, so we probed hardest exactly where we already had the most
+	// real evidence. Measured on the shipped arithmetic, a node with one shared model cost
+	// 200 unbilled requests/day idle and 1,212 when used every 10 minutes - an operator
+	// paying GPU time for being useful. It is flat at ~200 now, whatever the traffic.
+	//
+	// A served request is the best measurement available: the node did real work and the
+	// reading is stamped on the line above. So push the next probe out by the CURRENT
+	// interval instead of resetting the level.
+	//
+	// Liveness does not ride on this. A dead node leaves via the markSeen heartbeat at
+	// nodeTTL (45s), twenty times tighter than the probe ceiling and entirely separate.
+	due := now.Add(b.probe.backoffInterval(st.backoff))
+	// ...but never defer past one ceiling since the last REAL probe. The tool-call verdict
+	// refreshes only inside a probe round, so an unbounded defer would let a popular node
+	// keep a verdict nothing re-asserts.
+	if !st.lastProbe.IsZero() {
+		if cap := st.lastProbe.Add(b.probe.ceiling); due.After(cap) {
+			due = cap
+		}
+	}
+	if due.After(st.nextDue) {
 		st.nextDue = due
 	}
 	// A continuously-busy node (inflight>0 every probe tick) is SKIPPED by probeOnce, so its
@@ -498,6 +526,7 @@ func (b *broker) probeOnce() {
 			st = &probeState{}
 			sched[t.node.NodeID] = st
 		}
+		st.lastProbe = now
 		st.nextDue = now.Add(b.probe.backoffInterval(st.backoff))
 		if st.backoff < 64 { // cap the level (backoffInterval already clamps to ceiling)
 			st.backoff++

@@ -258,23 +258,40 @@ func (s *tcState) idleBacksOff() error {
 	return nil
 }
 
-func (s *tcState) trafficResetsBackoff() error {
-	// Seed a backed-off schedule, then prove real traffic (markMeasured) and demand
-	// (demandProbeSoonLocked) reset it to the floor - the same reset the liveness probe uses.
+func (s *tcState) trafficAndDemandShareTheSchedule() error {
+	// The point of this scenario is that the tool canary rides ONE schedule with the
+	// liveness probe rather than running its own faster loop. So both inputs to that
+	// schedule must move the SHARED state - though they move it in opposite directions,
+	// which is the whole cadence design:
+	//
+	//   real traffic  -> DEFERS the next probe (it already measured the node for free)
+	//   demand        -> PULLS IT IN (someone wants to route and the reading is stale)
+	//
+	// Real traffic used to reset the backoff to the floor here, which meant the busiest
+	// nodes were probed hardest; see probe_cadence_measure_test.go for what that cost.
 	s.b.metricsMu.Lock()
-	s.b.probeSched[s.node] = &probeState{backoff: 5, nextDue: s.now.Add(time.Hour)}
+	s.b.probeSched[s.node] = &probeState{backoff: 5, lastProbe: s.now}
 	s.b.metricsMu.Unlock()
+
 	s.b.markMeasured(s.node)
+
 	s.b.metricsMu.Lock()
-	got := s.b.probeSched[s.node].backoff
+	st := s.b.probeSched[s.node]
+	lvl, due := st.backoff, st.nextDue
 	s.b.metricsMu.Unlock()
-	if got != 0 {
-		return fmt.Errorf("real traffic did not reset the shared backoff: got %d", got)
+	if lvl != 5 {
+		return fmt.Errorf("real traffic changed the shared backoff level: got %d, want it kept at 5", lvl)
 	}
+	if !due.After(s.now) {
+		return fmt.Errorf("real traffic did not defer the shared next-due: %s", due.Sub(s.now))
+	}
+
+	// Demand still resets the same shared state, so a consumer waiting on a stale reading
+	// is not made to wait out a backoff.
 	s.b.metricsMu.Lock()
 	s.b.probeSched[s.node].backoff = 5
 	s.b.demandProbeSoonLocked(s.node, s.now)
-	got = s.b.probeSched[s.node].backoff
+	got := s.b.probeSched[s.node].backoff
 	s.b.metricsMu.Unlock()
 	if got != 0 {
 		return fmt.Errorf("demand-probing did not reset the shared backoff: got %d", got)
@@ -649,7 +666,7 @@ func TestTrustToolCallProbeBDD(t *testing.T) {
 
 			sc.Step(`^the tool-call canary is dispatched on the same probe round as the liveness canary$`, st.sameRoundAsLiveness)
 			sc.Step(`^an idle model's tool-call re-probe backs off floor->ceiling like the performance probe$`, st.idleBacksOff)
-			sc.Step(`^real served traffic and demand-probing reset that backoff the same way$`, st.trafficResetsBackoff)
+			sc.Step(`^real served traffic defers that shared backoff and demand-probing resets it$`, st.trafficAndDemandShareTheSchedule)
 
 			sc.Step(`^the canary job is marked unbilled and its result is discarded$`, st.canaryUnbilledDiscarded)
 			sc.Step(`^no wallet is touched and no receipt is settled$`, st.noWalletNoReceipt)

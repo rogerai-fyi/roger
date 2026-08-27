@@ -153,25 +153,36 @@ func TestProbeOnceSkipsBackedOffNode(t *testing.T) {
 	}
 }
 
-// TestMarkMeasuredResetsBackoff: a real served request (markMeasured) resets the probe
-// backoff to the floor, pushes the next probe out, and stamps lastMeasured so the node
-// reads as freshly verified.
-func TestMarkMeasuredResetsBackoff(t *testing.T) {
+// TestMarkMeasuredDefersTheNextProbe: a real served request is a FREE measurement, so it
+// pushes the next probe further out and keeps the backoff level - it does not pull probing
+// back to the floor.
+//
+// This test asserted the opposite until the cadence was measured. `markMeasured` reset the
+// level to 0, which contradicted the comment directly above it ("an actively-used node is
+// barely probed") and meant the broker probed hardest exactly where it already had the most
+// real evidence: on the shipped arithmetic a node with one shared model cost 200 unbilled
+// requests/day idle but 1,212 when used every 10 minutes. Operators paid GPU time for being
+// useful. See probe_cadence_measure_test.go for the measurement.
+func TestMarkMeasuredDefersTheNextProbe(t *testing.T) {
 	b := adaptiveBroker(30*time.Second, 15*time.Minute)
 	id := "served"
 	now := time.Now()
-	b.probeSched[id] = &probeState{nextDue: now, backoff: 6} // deeply backed off
+	b.probeSched[id] = &probeState{nextDue: now, backoff: 4, lastProbe: now}
 
 	b.markMeasured(id)
 
 	b.metricsMu.Lock()
 	st := b.probeSched[id]
 	b.metricsMu.Unlock()
-	if st.backoff != 0 {
-		t.Errorf("backoff after real traffic = %d, want 0 (reset)", st.backoff)
+
+	if st.backoff != 4 {
+		t.Errorf("backoff after real traffic = %d, want it KEPT at 4 - a served request is "+
+			"evidence the node is healthy, not a reason to probe it harder", st.backoff)
 	}
-	if st.nextDue.Before(now.Add(20 * time.Second)) {
-		t.Errorf("next-due not extended past ~floor after real traffic: +%s", st.nextDue.Sub(now))
+	// backoffInterval(4) is 30s doubled four times = 8m.
+	if got := st.nextDue.Sub(now); got < 7*time.Minute {
+		t.Errorf("next probe only deferred by %s; real traffic should push it out by the "+
+			"current interval (~8m), not pull it back to the 30s floor", got)
 	}
 	if st.lastMeasured.IsZero() {
 		t.Error("lastMeasured not stamped on a real measurement")
@@ -182,6 +193,29 @@ func TestMarkMeasuredResetsBackoff(t *testing.T) {
 	b.metricsMu.Unlock()
 	if conf != 1.0 {
 		t.Errorf("freshly-measured confidence = %.2f, want 1.0", conf)
+	}
+}
+
+// The deferral is BOUNDED. The tool-call verdict refreshes only inside a probe round -
+// real traffic never asserts it - so a node under constant traffic must not be able to
+// defer its way out of probing entirely.
+func TestTrafficCannotDeferProbingPastTheCeiling(t *testing.T) {
+	b := adaptiveBroker(30*time.Second, 15*time.Minute)
+	id := "busy"
+	now := time.Now()
+	// Last real probe was 14 minutes ago; the node is deeply backed off.
+	b.probeSched[id] = &probeState{backoff: 20, lastProbe: now.Add(-14 * time.Minute)}
+
+	b.markMeasured(id)
+
+	b.metricsMu.Lock()
+	st := b.probeSched[id]
+	b.metricsMu.Unlock()
+
+	if got := st.nextDue.Sub(now); got > time.Minute+time.Second {
+		t.Errorf("next probe deferred by %s past a 14-minute-old probe; the cap is one "+
+			"ceiling since the last real probe, so a popular node keeps a tool-call "+
+			"verdict nothing re-asserts", got)
 	}
 }
 

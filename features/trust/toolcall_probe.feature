@@ -112,7 +112,7 @@ Feature: A model earns the verified "tools" capability only when the broker's to
   Scenario: The tool-call canary rides the existing adaptive probe cadence (FOUNDER FLAG T1)
     Then the tool-call canary is dispatched on the same probe round as the liveness canary
     And an idle model's tool-call re-probe backs off floor->ceiling like the performance probe
-    And real served traffic and demand-probing reset that backoff the same way
+    And real served traffic defers that shared backoff and demand-probing resets it
 
   Scenario: The tool-call canary is unbilled and negligible-cost (FOUNDER FLAG T2)
     When the broker sends its tool-call canary to the model
