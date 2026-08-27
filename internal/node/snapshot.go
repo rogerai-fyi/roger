@@ -46,6 +46,15 @@ type RowView struct {
 	Earnings     float64 `json:"earnings"`
 	Node         string  `json:"node,omitempty"`
 	BandDisplay  string  `json:"band_display,omitempty"`
+	// Probes / ProbeTokens are the broker's own canary traffic, carried SEPARATELY from
+	// Served/OutTokens rather than folded into them. The broker probes a station to keep
+	// its reachability and speed figures honest, and that work is unbilled - so counting
+	// it as served traffic inflates the one number an operator uses to judge whether
+	// sharing is worth it, and does it by a lot: on this machine 2,738 of the requests a
+	// station reported were probes. They are still REPORTED, because an operator who sees
+	// their rig busy deserves to know what it is busy with.
+	Probes      int64 `json:"probes,omitempty"`
+	ProbeTokens int64 `json:"probe_tokens,omitempty"`
 	// Quant / Weights / Variant are what detection read off THIS machine for this model.
 	// They are omitempty because absent is the common case and must stay distinguishable
 	// from a claim: a station whose runtime and file said nothing sends no key at all,
@@ -60,6 +69,9 @@ type Totals struct {
 	Requests  int64   `json:"requests"`
 	OutTokens int64   `json:"out_tokens"`
 	Earnings  float64 `json:"earnings"`
+	// Probes is unbilled canary traffic, summed apart from Requests for the same reason
+	// the per-row field is.
+	Probes int64 `json:"probes,omitempty"`
 }
 
 func linkLabel(s agent.LinkState) string {
@@ -110,6 +122,8 @@ func (c *Controller) Snapshot() Snapshot {
 			reqs, toks := sess.Served()
 			rv.Served, rv.OutTokens = reqs, toks
 			rv.Earnings = sess.Earnings()
+			rv.Probes, rv.ProbeTokens = sess.ProbeStats()
+			snap.Totals.Probes += rv.Probes
 			rv.Node = sess.Node()
 			_, _, rv.BandDisplay = sess.Band()
 			snap.Totals.Requests += reqs

@@ -127,6 +127,13 @@ type SharePrice struct {
 	PriceIn  float64       `json:"price_in,omitempty"`
 	PriceOut float64       `json:"price_out,omitempty"`
 	Windows  []SchedWindow `json:"windows,omitempty"`
+	// AutoStart is the per-model "put this back on air when roger launches" decision,
+	// and it is a POINTER because absent and false are different answers. Sharing a
+	// model arms it by default, so the only thing that can distinguish "never decided"
+	// (arm it) from "decided no" (leave it alone) is the field's presence. A plain bool
+	// would read a disarmed model as undecided on the next launch and re-arm it, which
+	// is precisely the surprise the opt-out default has to avoid.
+	AutoStart *bool `json:"auto_start,omitempty"`
 }
 
 // ShareVoice is a per-model on-air voice identity persisted in config.json
@@ -565,7 +572,28 @@ func tuiHooks(cfg config) tui.Hooks {
 			if c.Prices == nil {
 				c.Prices = map[string]SharePrice{}
 			}
-			c.Prices[model] = SharePrice{PriceIn: p.In, PriceOut: p.Out, Windows: toCfgWindows(p.Windows)}
+			// MERGE, do not replace. share_prices is one store with two writers: this
+			// editor owns the price and schedule, and the auto-start toggle owns
+			// auto_start. Rebuilding the struct from the fields this path knows about
+			// would silently drop the other writer's - the same data loss the console's
+			// quant rule hit, where a browser price edit erased a rule set in the
+			// terminal with nothing failing and nothing warning.
+			sp := c.Prices[model]
+			sp.PriceIn, sp.PriceOut, sp.Windows = p.In, p.Out, toCfgWindows(p.Windows)
+			c.Prices[model] = sp
+			_ = saveConfig(c)
+		},
+		// Persist the per-model auto-start decision beside its price (share_prices), so
+		// the models an operator chose come back on air at the next launch. Merges for
+		// the same reason SavePrice does.
+		SaveAutoStart: func(model string, on bool) {
+			c := loadConfig()
+			if c.Prices == nil {
+				c.Prices = map[string]SharePrice{}
+			}
+			sp := c.Prices[model]
+			sp.AutoStart = &on
+			c.Prices[model] = sp
 			_ = saveConfig(c)
 		},
 		// Persist a newly verified / pasted local endpoint + any key it needed, so a
@@ -660,6 +688,15 @@ func tuiHooks(cfg config) tui.Hooks {
 		h.SavedPrices = map[string]tui.Pricing{}
 		for mdl, p := range cfg.Prices {
 			h.SavedPrices[mdl] = tui.Pricing{In: p.PriceIn, Out: p.PriceOut, Windows: toTUIWindows(p.Windows)}
+			// Only a model with an EXPLICIT decision on disk gets seeded; an absent
+			// auto_start stays absent in the controller, which is what keeps the
+			// opt-out default honest across restarts.
+			if p.AutoStart != nil {
+				if h.SavedAutoStart == nil {
+					h.SavedAutoStart = map[string]bool{}
+				}
+				h.SavedAutoStart[mdl] = *p.AutoStart
+			}
 		}
 	}
 	// Seed each model's saved voice identity (share_voices) so the on-air offer carries

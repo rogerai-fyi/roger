@@ -489,7 +489,7 @@ func (m model) shareView(w int) string {
 	// It shows only when the column is populated - a rig with nothing on air does not need
 	// a lesson about settlement.
 	if m.anyLiveShare() {
-		note := stDim.Render("AT LIST is this work priced at your card - not settled money. " +
+		note := stDim.Render("AT LIST is this work priced at your card - not settled money. "+
 			"Serving your OWN traffic is $0. Real earnings: ") + stKey.Render("roger payout")
 		b.WriteString("  " + truncVisible(note, w-4) + "\n")
 	}

@@ -12,6 +12,7 @@
 package node
 
 import (
+	"errors"
 	"sort"
 	"strings"
 	"sync"
@@ -133,7 +134,9 @@ var startAgent = agent.Start
 type Hooks struct {
 	SaveUpstream func(upstream, key string)
 	SavePrice    func(model string, p Pricing)
-	SaveStation  func(station string)
+	// SaveAutoStart persists the per-model auto-start decision. Nil-safe like the rest.
+	SaveAutoStart func(model string, on bool)
+	SaveStation   func(station string)
 }
 
 // Config seeds a Controller with the immutable-ish node identity + defaults the host
@@ -150,7 +153,10 @@ type Config struct {
 	UpstreamKey string                 // bearer key the saved upstream needs, if any
 	Prices      map[string]Pricing     // saved per-model pricing from a previous session
 	Voices      map[string]VoiceConfig // saved per-model voice identity (config.json share_voices)
-	Hooks       Hooks
+	// AutoStart seeds the per-model "put this back on air at launch" decision. Present =
+	// the operator has decided; absent = they have not, and the opt-out default applies.
+	AutoStart map[string]bool
+	Hooks     Hooks
 }
 
 // Controller is the single, concurrency-safe owner of a node's live share state.
@@ -171,6 +177,11 @@ type Controller struct {
 	private  map[string]bool
 	prices   map[string]Pricing
 	voices   map[string]VoiceConfig // per-model voice identity (config-seeded and/or BOOTH-set)
+	// autostart is TRI-STATE by presence: absent = the operator has never said, true/false
+	// = they have. Absence matters because the default is opt-OUT - putting a model on air
+	// marks it for next launch - and that default must not silently re-arm a model the
+	// operator deliberately turned off and then toggled on for one session.
+	autostart map[string]bool
 	// locks holds each live session's ON-AIR lock release (keyed by model, like
 	// sessions). The lock is the cross-process one-broadcaster-per-node-id guard
 	// shared with the headless CLI (internal/onair; the eager-puma-54-voice
@@ -202,6 +213,7 @@ func New(cfg Config) *Controller {
 		private:     map[string]bool{},
 		prices:      map[string]Pricing{},
 		voices:      map[string]VoiceConfig{},
+		autostart:   map[string]bool{},
 		locks:       map[string]func(){},
 		// Seed the saved/verified upstream so the first scan probes it first and a saved
 		// keyed upstream is reused without re-prompting. savedUp/Key mirror what is already
@@ -219,7 +231,47 @@ func New(cfg Config) *Controller {
 	for k, v := range cfg.Voices {
 		c.voices[k] = v
 	}
+	for k, v := range cfg.AutoStart {
+		c.autostart[k] = v
+	}
 	return c
+}
+
+// AutoStartFor reports whether this model is armed to go on air at launch, and whether
+// the operator has ever said either way. `set` is what makes the opt-out default safe:
+// an unset model is armed by its FIRST successful share, but one the operator explicitly
+// disarmed stays off even if they toggle it on for a single session.
+func (c *Controller) AutoStartFor(model string) (on, set bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	on, set = c.autostart[model]
+	return on, set
+}
+
+// SetAutoStart records an EXPLICIT decision and persists it.
+func (c *Controller) SetAutoStart(model string, on bool) {
+	c.mu.Lock()
+	c.autostart[model] = on
+	hook := c.hooks.SaveAutoStart
+	c.mu.Unlock()
+	if hook != nil {
+		hook(model, on)
+	}
+}
+
+// AutoStartModels lists the models armed for launch, in a STABLE order so a rig that hits
+// the on-air cap starts the same subset every time rather than a different one per boot.
+func (c *Controller) AutoStartModels() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var out []string
+	for m, on := range c.autostart {
+		if on {
+			out = append(out, m)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // SetLoggedIn records that a front-end observed the operator as logged in. It is
@@ -355,12 +407,38 @@ type ToggleResult struct {
 	// one it got - "on air" alone would read as the open market for a model the operator
 	// deliberately hid.
 	NowPrivate bool
+	// AutoStartArmed reports that THIS start also armed the model for the next launch
+	// (the opt-out default firing on a model the operator had never decided about). It is
+	// surfaced so the arming is visible the moment it happens - a rig that quietly starts
+	// broadcasting on every boot because of a toggle weeks ago is exactly the surprise
+	// this flag exists to prevent.
+	AutoStartArmed bool
 }
 
 // ToggleOnAir flips the on-air state of model: an off-air model starts an in-process
 // agent.Session against its upstream at the saved/free price; an on-air model stops.
 // Ports the TUI's toggleShareAt (login-gate, soft max-on-air cap, node-id derivation).
+// ToggleOnAir starts or stops a model, and fires the auto-start save OUTSIDE the lock.
+//
+// The save has to happen out here. ToggleOnAir holds c.mu for its whole body via a
+// deferred Unlock registered first, so any defer added later in that body runs BEFORE the
+// unlock, not after - a save hook that reached back into the controller (to read pricing,
+// say) would deadlock against a lock it cannot see it is already holding. res.AutoStartArmed
+// already carries the one bit this needs, so the wrapper reads it and calls out cleanly.
 func (c *Controller) ToggleOnAir(model string) ToggleResult {
+	res := c.toggleOnAir(model)
+	if res.AutoStartArmed {
+		c.mu.Lock()
+		hook := c.hooks.SaveAutoStart
+		c.mu.Unlock()
+		if hook != nil {
+			hook(model, true)
+		}
+	}
+	return res
+}
+
+func (c *Controller) toggleOnAir(model string) ToggleResult {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	res := ToggleResult{Model: model}
@@ -407,9 +485,20 @@ func (c *Controller) ToggleOnAir(model string) ToggleResult {
 		return res
 	}
 	c.sessions[model] = sess
+	// OPT-OUT DEFAULT: sharing a model arms it for the next launch, unless the operator
+	// has already said otherwise. Only an UNSET model is armed - one they explicitly
+	// disarmed stays disarmed, so toggling it on for a single session does not silently
+	// re-arm it. The hook runs after the lock is dropped, like every other save here.
+	// The persist itself happens in the ToggleOnAir wrapper, once the lock is dropped.
+	armed := false
+	if _, set := c.autostart[model]; !set {
+		c.autostart[model] = true
+		armed = true
+	}
 	res.NowPrivate = goPrivate
 	res.Priced = p.In > 0 || p.Out > 0
 	res.PriceOut = p.Out
+	res.AutoStartArmed = armed
 	return res
 }
 
@@ -825,4 +914,67 @@ func (c *Controller) BandRevoked(model string) bool {
 	// toggle publish.
 	delete(c.private, model)
 	return true
+}
+
+// IsOnAir reports whether THIS process is currently broadcasting model. It says nothing
+// about other processes - that is the on-air lock's job.
+func (c *Controller) IsOnAir(model string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.sessions[model] != nil
+}
+
+// AutoStartReport is what one launch of the armed models actually did. Every model lands
+// in exactly one bucket, because an operator who armed six models and sees four on air
+// must be able to learn WHY the other two are not - silence there reads as a bug.
+type AutoStartReport struct {
+	Started    []string         // now on air
+	Held       []string         // another live process already broadcasts this node id
+	AtLimit    []string         // the soft on-air cap was reached first
+	NeedsLogin []string         // priced or private, and nobody is signed in
+	Failed     map[string]error // anything else, with the reason
+}
+
+// Any reports whether the launch had anything to say at all.
+func (r AutoStartReport) Any() bool {
+	return len(r.Started)+len(r.Held)+len(r.AtLimit)+len(r.NeedsLogin)+len(r.Failed) > 0
+}
+
+// AutoStartAll puts every armed model on air, in the stable order AutoStartModels gives.
+//
+// It reuses ToggleOnAir rather than a second start path, so auto-start cannot drift from
+// what the operator gets by pressing the key: same cap, same login gate, same visibility
+// resume, same on-air lock.
+//
+// THE LOCK IS WHY MULTIPLE INSTANCES ARE SAFE. onair.Acquire is keyed on the node id, so a
+// second `roger` starting with the same models finds the first one's live PID and bows
+// out per model - and that is the system working, not a failure, which is why Held is its
+// own bucket rather than an error. A lock left by a crashed process is reclaimed once its
+// PID is gone, so a hard kill does not strand a model off air.
+func (c *Controller) AutoStartAll() AutoStartReport {
+	rep := AutoStartReport{Failed: map[string]error{}}
+	for _, m := range c.AutoStartModels() {
+		if c.IsOnAir(m) {
+			continue // already broadcasting in THIS process
+		}
+		res := c.ToggleOnAir(m)
+		switch {
+		case res.WentOff:
+			// ToggleOnAir is a toggle: if a race put it on air between the check above and
+			// the call, we have just turned it off. Put it back and leave it alone.
+			c.ToggleOnAir(m)
+			rep.Started = append(rep.Started, m)
+		case res.AtLimit:
+			rep.AtLimit = append(rep.AtLimit, m)
+		case res.LoginNeeded:
+			rep.NeedsLogin = append(rep.NeedsLogin, m)
+		case res.Err != nil && errors.Is(res.Err, onair.ErrHeld):
+			rep.Held = append(rep.Held, m)
+		case res.Err != nil:
+			rep.Failed[m] = res.Err
+		default:
+			rep.Started = append(rep.Started, m)
+		}
+	}
+	return rep
 }

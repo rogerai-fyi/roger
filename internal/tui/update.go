@@ -981,6 +981,9 @@ func (m model) onSharesDetected(found []detect.Found, needKey []string) (tea.Mod
 		return m, nil
 	}
 	m.loadShareRows(found)
+	// The catalog exists now, so the armed models can finally be resolved to rows. Once
+	// per launch - a later re-scan must not re-start a model the operator took off air.
+	m.runAutoStart()
 	// `/share <model>` shortcut: flip that exact model on air, then show the table.
 	if m.sharePending != "" {
 		want := m.sharePending
@@ -1000,6 +1003,11 @@ func (m model) onSharesDetected(found []detect.Found, needKey []string) (tea.Mod
 		m.status = stEmber.Render("! the local server reported no models - check it serves /v1/models")
 	} else {
 		m.status = stDim.Render("provider table - ↑↓ select, enter/a toggle ON-AIR, esc done")
+	}
+	// What auto-start did outranks the generic hint: it is the only account of why the rig
+	// is (or is not) broadcasting, and it is gone from the screen after the next keypress.
+	if as := m.autoStartStatus(); as != "" {
+		m.status = as
 	}
 	return m, nil
 }

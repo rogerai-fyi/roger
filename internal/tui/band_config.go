@@ -178,6 +178,7 @@ func (m model) cfgProviderRows(sr shareRow, bd BandRow, banded, private, onAir b
 	}
 	rows := []bandConfigRow{
 		{label: "on air", value: air, key: "a", hint: "toggle"},
+		{label: "at launch", value: m.cfgAutoStart(), key: "s", hint: "auto-start this model"},
 		{label: "visibility", value: cfgVisibility(private), key: "h", hint: cfgVisibilityHint(private)},
 	}
 	if banded {
@@ -330,6 +331,12 @@ func (m model) onBandConfigKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m.cfgToggleOnAir()
+	case "s", "S":
+		if !served {
+			m.status = stDim.Render("this machine does not serve " + m.cfgModel + " - nothing to auto-start")
+			return m, nil
+		}
+		return m.cfgToggleAutoStart()
 	case "h", "H":
 		if !served {
 			m.status = stDim.Render("only a model on THIS machine can be hidden onto a private band")
@@ -422,6 +429,44 @@ func (m model) cfgToggleOnAir() (tea.Model, tea.Cmd) {
 		mm.toggleShareAt(i) // the SAME call [2] SHARE makes - one behaviour, two doors
 		m = *mm
 		return m, nil
+	}
+	return m, nil
+}
+
+// cfgAutoStart renders the launch decision, and it has THREE states to render, not two.
+//
+// Auto-start is opt-out: putting a model on air arms it unless the operator has said
+// otherwise. That default is only safe while "never decided" stays distinguishable from
+// "decided no" - so an undecided model renders as absent (the same rule the rest of the
+// card follows) rather than as "off". Printing "off" here would be a claim the operator
+// never made, and the next share would contradict it by arming the model anyway.
+func (m model) cfgAutoStart() string {
+	if m.ctrl == nil {
+		return stDim.Render("-")
+	}
+	on, set := m.ctrl.AutoStartFor(m.cfgModel)
+	switch {
+	case set && on:
+		return stLive.Render("on") + stDim.Render(" · goes on air when roger starts")
+	case set:
+		return stDim.Render("off") + stDim.Render(" · stays off until you say so")
+	default:
+		return stDim.Render("-") + stDim.Render(" · arms itself when you put it on air")
+	}
+}
+
+func (m model) cfgToggleAutoStart() (tea.Model, tea.Cmd) {
+	if m.ctrl == nil {
+		return m, nil
+	}
+	on, _ := m.ctrl.AutoStartFor(m.cfgModel)
+	// Either way this records an EXPLICIT decision, which is the point of pressing the
+	// key: from here on the model is no longer subject to the opt-out default.
+	m.ctrl.SetAutoStart(m.cfgModel, !on)
+	if !on {
+		m.status = stLive.Render(m.cfgModel) + stDim.Render(" will go on air when roger starts")
+	} else {
+		m.status = stDim.Render(m.cfgModel + " will no longer auto-start")
 	}
 	return m, nil
 }

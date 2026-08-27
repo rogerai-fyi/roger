@@ -104,6 +104,13 @@ type Hooks struct {
 	// SavedPrices seeds the editor with prices the user set in a previous session, so
 	// the provider table shows them and on-air uses them (nil = none).
 	SavedPrices map[string]Pricing
+	// SaveAutoStart persists the per-model "go on air at launch" decision (nil =
+	// in-session only). The host owns the config write, as with every other save here.
+	SaveAutoStart func(model string, on bool)
+	// SavedAutoStart seeds those decisions from config. Only models the operator has
+	// EXPLICITLY decided about appear: an absent model is undecided, not disarmed, and
+	// the two lead to opposite behaviour the first time it is shared.
+	SavedAutoStart map[string]bool
 	// SavedVoices seeds each model's on-air voice identity (dj name / default voice /
 	// speed / language / sample clip URL) from the host's config.json share_voices block,
 	// so a saved identity - including the BOOTH-less sample_url - arms the offer without
@@ -948,8 +955,12 @@ type model struct {
 	shares      map[string]*agent.Session // model -> live in-process session (on air) [cache]
 	shareRows   []shareRow                // the provider table rows (detected models) [cache]
 	shareCursor int                       // selected row in the provider table
-	shareUp     string                    // the local upstream chat URL backing the shares
-	shareKey    string                    // bearer key the headline upstream needs (env/paste), if any
+	// autoStarted guards the once-per-launch auto-start pass, and autoStartRep keeps what
+	// it did so the status line can name every model that did NOT go on air.
+	autoStarted  bool
+	autoStartRep node.AutoStartReport
+	shareUp      string // the local upstream chat URL backing the shares
+	shareKey     string // bearer key the headline upstream needs (env/paste), if any
 	// shareSavedUp/Key track what was last PERSISTED via Hooks.SaveUpstream (the /v1
 	// base + key), so a re-detection that lands the same endpoint doesn't rewrite config.
 	shareSavedUp  string
@@ -1119,10 +1130,12 @@ func NewController(broker string, hooks Hooks) *node.Controller {
 		UpstreamKey: hooks.ShareUpstreamKey,
 		Prices:      hooks.SavedPrices,
 		Voices:      hooks.SavedVoices,
+		AutoStart:   hooks.SavedAutoStart,
 		Hooks: node.Hooks{
-			SaveUpstream: hooks.SaveUpstream,
-			SavePrice:    hooks.SavePrice,
-			SaveStation:  hooks.SaveStation,
+			SaveUpstream:  hooks.SaveUpstream,
+			SavePrice:     hooks.SavePrice,
+			SaveStation:   hooks.SaveStation,
+			SaveAutoStart: hooks.SaveAutoStart,
 		},
 	})
 }
