@@ -173,3 +173,50 @@ func TestBilledJobsStillAccrueValue(t *testing.T) {
 		t.Errorf("a billed job must count as served, got %d", reqs)
 	}
 }
+
+// THE TEST SEAM MUST NOT LIE.
+//
+// RecordProbeForTest exists so other packages' tests can build a session that has answered
+// broker canaries. That is only worth anything if it lands in the same place the REAL probe
+// path lands - otherwise the TUI's "canary work is reported beside your numbers" test is
+// proving something about a fiction, and the surface could be wrong in production while the
+// test stays green.
+//
+// So this pins the seam against `record` itself: same probe tally, and the same absence from
+// every operator-facing figure.
+func TestTheProbeTestSeamMatchesTheRealProbePath(t *testing.T) {
+	viaSeam := &Session{}
+	viaSeam.RecordProbeForTest(17)
+
+	viaRecord := &Session{}
+	viaRecord.record(protocol.UsageReceipt{RequestID: "p1", CompletionTokens: 17}, shareFeeRate, true)
+
+	sr, st := viaSeam.ProbeStats()
+	rr, rt := viaRecord.ProbeStats()
+	if sr != rr || st != rt {
+		t.Fatalf("the seam records %d/%d but a real probe records %d/%d - the seam is a "+
+			"fiction and every test built on it proves nothing", sr, st, rr, rt)
+	}
+
+	// And neither touches the operator's numbers.
+	for name, s := range map[string]*Session{"seam": viaSeam, "real": viaRecord} {
+		if reqs, toks := s.Served(); reqs != 0 || toks != 0 {
+			t.Errorf("%s: probe leaked into SERVED/OUT TOK (%d/%d)", name, reqs, toks)
+		}
+		if s.Earnings() != 0 {
+			t.Errorf("%s: probe accrued value (%v)", name, s.Earnings())
+		}
+	}
+}
+
+// The seam accumulates rather than overwrites - a rig answers many canaries over a session,
+// and a surface reporting only the last one would understate the work by orders of magnitude.
+func TestTheProbeTestSeamAccumulates(t *testing.T) {
+	s := &Session{}
+	for i := 0; i < 5; i++ {
+		s.RecordProbeForTest(17)
+	}
+	if reqs, toks := s.ProbeStats(); reqs != 5 || toks != 85 {
+		t.Fatalf("probe stats = %d/%d, want 5/85", reqs, toks)
+	}
+}
