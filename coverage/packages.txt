@@ -1,7 +1,7 @@
   90.9%  rogerai.fm/roger/v6/cmd/roger-tower
   95.3%  rogerai.fm/roger/v6/cmd/roger-tower-local
   90.1%  rogerai.fm/roger/v6/cmd/rogerai
-  90.2%  rogerai.fm/roger/v6/cmd/rogerai-broker
+  90.3%  rogerai.fm/roger/v6/cmd/rogerai-broker
   94.7%  rogerai.fm/roger/v6/cmd/tokenizer-sidecar
   90.1%  rogerai.fm/roger/v6/internal/agent
   90.3%  rogerai.fm/roger/v6/internal/audio
@@ -30,7 +30,7 @@
   98.1%  rogerai.fm/roger/v6/internal/tokenizer
   90.5%  rogerai.fm/roger/v6/internal/tower
   90.5%  rogerai.fm/roger/v6/internal/towercore/admit
-  90.9%  rogerai.fm/roger/v6/internal/towercore/attach
+  90.7%  rogerai.fm/roger/v6/internal/towercore/attach
   90.4%  rogerai.fm/roger/v6/internal/towercore/attempt
   93.8%  rogerai.fm/roger/v6/internal/towercore/audit
   91.1%  rogerai.fm/roger/v6/internal/towercore/cert
