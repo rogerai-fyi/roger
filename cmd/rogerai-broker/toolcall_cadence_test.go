@@ -51,7 +51,10 @@ func TestAVerifiedModelIsReProvedOnItsOwnSlowerCadence(t *testing.T) {
 // under that, WITH room for rounds landing on the 15m ceiling rather than exactly on time.
 func TestTheThrottleStaysUnderTheVerifiedTTL(t *testing.T) {
 	// Worst case: the throttle expires just after a round, so the next chance is one full
-	// ceiling later.
+	// ceiling later. A TRANSIENT canary on that attempt does not add another ceiling on top,
+	// because the transient path pulls the node's next probe in rather than only clearing
+	// the throttle stamp - without that the bound was 20+15+15 = 50m, PAST the 45m TTL, and
+	// a healthy model would flap to UNDETERMINED off a single timeout.
 	worst := toolProbeEvery + 15*time.Minute
 	if worst >= toolsVerifiedTTL {
 		t.Fatalf("re-verification can take up to %s but the verified bit ages out at %s - "+
@@ -126,5 +129,31 @@ func TestADefinitiveVerdictHoldsTheThrottleWindow(t *testing.T) {
 
 	if b.toolProbeDue("n1", "m1", now.Add(5*time.Minute)) {
 		t.Error("a settled verdict was re-proven after 5m; the throttle is 20m")
+	}
+}
+
+// A transient canary must not merely free the throttle - it must bring the retry FORWARD.
+// The next probe round can be a full ceiling away, so clearing the stamp alone left the
+// worst case at 50m against a 45m TTL.
+func TestATransientCanaryPullsTheNextProbeForward(t *testing.T) {
+	b := adaptiveBroker(30*time.Second, 15*time.Minute)
+	now := time.Now()
+
+	b.metricsMu.Lock()
+	b.toolsOK = map[string]bool{toolKey("n1", "m1"): true}
+	// Deeply backed off: without a pull-in the next round is a ceiling away.
+	b.probeSched["n1"] = &probeState{backoff: 20, nextDue: now.Add(15 * time.Minute), lastProbe: now}
+	b.metricsMu.Unlock()
+
+	b.toolProbeDue("n1", "m1", now)
+	b.recordToolProbe("n1", "m1", false, true /*transient*/, true)
+
+	b.metricsMu.Lock()
+	due := b.probeSched["n1"].nextDue
+	b.metricsMu.Unlock()
+	if due.After(now.Add(time.Second)) {
+		t.Errorf("after a transient the next probe is still %s out; the retry has to come "+
+			"forward or a verified model can age past toolsVerifiedTTL having learned nothing",
+			due.Sub(now))
 	}
 }

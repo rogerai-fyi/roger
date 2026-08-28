@@ -5,6 +5,7 @@ package tui
 import (
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"rogerai.fm/roger/v6/internal/detect"
@@ -232,5 +233,72 @@ func TestAnEmptyLaunchScanDoesNotSpendTheAutoStartAttempt(t *testing.T) {
 	if !m.ctrl.IsOnAir("m1") {
 		t.Fatal("the armed model never came on air: the empty first scan consumed the " +
 			"once-per-launch attempt, so the scan that actually found it was refused")
+	}
+}
+
+// THE MODEL SERVER OFTEN STARTS AFTER ROGER.
+//
+// One scan at t=0 finds nothing on exactly the rig this feature exists for. runAutoStart
+// correctly declines to spend its one attempt on an empty catalog - but without a retry the
+// armed models then sit there until the operator opens SHARE by hand, which is the very
+// behaviour the launch detect was added to remove. The audit caught this after the first
+// fix: the gap had simply moved.
+func TestAnEmptyLaunchScanSchedulesARetry(t *testing.T) {
+	old := autoStartRetryEvery
+	autoStartRetryEvery = time.Millisecond
+	t.Cleanup(func() { autoStartRetryEvery = old })
+
+	srv := fakeBroker(t)
+	m := NewWithHooks(srv.URL, "tester", nil, Hooks{
+		SavedAutoStart: map[string]bool{"m1": true},
+	})
+
+	got, cmd := m.Update(autoStartDetectedMsg{found: nil})
+	after := got.(model)
+
+	if cmd == nil {
+		t.Fatal("a launch scan that found nothing scheduled no retry: the armed models wait " +
+			"for the operator to open SHARE, which is not 'by themselves'")
+	}
+	if _, ok := cmd().(autoStartRetryMsg); !ok {
+		t.Fatal("the scheduled command is not an auto-start retry")
+	}
+	if after.autoStartTries != 1 {
+		t.Errorf("retry counter = %d, want 1", after.autoStartTries)
+	}
+}
+
+// Bounded. A rig whose model server is simply not running must not scan its own ports for
+// the life of the session - every attempt is a real port scan.
+func TestTheLaunchRetryGivesUp(t *testing.T) {
+	srv := fakeBroker(t)
+	m := NewWithHooks(srv.URL, "tester", nil, Hooks{
+		SavedAutoStart: map[string]bool{"m1": true},
+	})
+	m.autoStartTries = autoStartMaxTries
+
+	_, cmd := m.Update(autoStartDetectedMsg{found: nil})
+	if cmd != nil {
+		t.Error("the launch retry never stops; a rig with no model server would scan its " +
+			"own ports forever")
+	}
+}
+
+// Once the models ARE found, the retry stops - the work is done.
+func TestTheLaunchRetryStopsOnceTheModelsArrive(t *testing.T) {
+	srv := fakeBroker(t)
+	m := NewWithHooks(srv.URL, "tester", nil, Hooks{
+		SavedAutoStart: map[string]bool{"m1": true},
+	})
+	m.setShareRows(freeRows(2))
+
+	got, cmd := m.Update(autoStartDetectedMsg{found: nil})
+	after := got.(model)
+
+	if !after.ctrl.IsOnAir("m1") {
+		t.Fatal("the model did not come on air once the catalog was populated")
+	}
+	if cmd != nil {
+		t.Error("the retry kept running after auto-start had done its job")
 	}
 }

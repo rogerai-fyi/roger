@@ -272,6 +272,12 @@ func (b *broker) recordToolProbe(nodeID, model string, ok, transient, authoritat
 		// the stamp restores recordToolProbe's contract: transient means retry next round.
 		b.metricsMu.Lock()
 		delete(b.toolProbeAt, toolKey(nodeID, model))
+		// Dropping the stamp alone is not enough. The next probe ROUND can be a full ceiling
+		// away, so the worst case became 20m (throttle) + 15m (round) + 15m (round after the
+		// transient) = 50m, past the 45m toolsVerifiedTTL - a healthy model flapping to
+		// UNDETERMINED off a single timeout. Pulling the node's next probe in bounds the
+		// retry to the next tick, which is what "transient -> retry next round" has to mean.
+		b.demandProbeSoonLocked(nodeID, time.Now())
 		b.metricsMu.Unlock()
 		return
 	}

@@ -45,6 +45,11 @@ type autoStartDetectedMsg struct {
 	found []detect.Found
 }
 
+// autoStartRetryMsg re-arms the launch detect. roger routinely starts before the local
+// model server does, and one scan at t=0 finds nothing on exactly the rigs the feature
+// exists for.
+type autoStartRetryMsg struct{}
+
 type sharesDetectedMsg struct {
 	found   []detect.Found
 	needKey []string // base URLs present but key-protected (401/403), for the guided prompt

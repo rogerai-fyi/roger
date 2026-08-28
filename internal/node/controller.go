@@ -937,10 +937,10 @@ func (c *Controller) IsOnAir(model string) bool {
 // in exactly one bucket, because an operator who armed six models and sees four on air
 // must be able to learn WHY the other two are not - silence there reads as a bug.
 type AutoStartReport struct {
-	Started []string
+	Started []string // now on air
 	// NotServed are armed models this machine has no row for - typically a launch that beat
 	// the local model server up. Not a failure and not a success: nothing was attempted.
-	NotServed  []string         // now on air
+	NotServed  []string
 	Held       []string         // another live process already broadcasts this node id
 	AtLimit    []string         // the soft on-air cap was reached first
 	NeedsLogin []string         // priced or private, and nobody is signed in

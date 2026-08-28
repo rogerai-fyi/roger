@@ -360,6 +360,16 @@ func detectSharesCmd(extra, key string) tea.Cmd {
 // armed models came back on air the moment you opened the SHARE table and not one moment
 // before, which is precisely not what "they come back by themselves" means. The mechanism
 // was built and had no ignition.
+// autoStartRetryEvery / autoStartMaxTries bound the launch retry: nine attempts twenty
+// seconds apart covers the three minutes an ollama or vLLM start typically needs, and then
+// stops. Each attempt is a port scan, so this is deliberately finite rather than a poll that
+// runs for the life of the session.
+// autoStartRetryEvery is a var, not a const, so tests can drive the retry without waiting
+// out a real twenty-second timer.
+var autoStartRetryEvery = 20 * time.Second
+
+const autoStartMaxTries = 9
+
 func autoStartDetectCmd(extra, key string) tea.Cmd {
 	inner := detectSharesCmd(extra, key)
 	return func() tea.Msg {
@@ -1029,10 +1039,11 @@ type model struct {
 	shareCursor int                       // selected row in the provider table
 	// autoStarted guards the once-per-launch auto-start pass, and autoStartRep keeps what
 	// it did so the status line can name every model that did NOT go on air.
-	autoStarted  bool
-	autoStartRep node.AutoStartReport
-	shareUp      string // the local upstream chat URL backing the shares
-	shareKey     string // bearer key the headline upstream needs (env/paste), if any
+	autoStarted    bool
+	autoStartTries int
+	autoStartRep   node.AutoStartReport
+	shareUp        string // the local upstream chat URL backing the shares
+	shareKey       string // bearer key the headline upstream needs (env/paste), if any
 	// shareSavedUp/Key track what was last PERSISTED via Hooks.SaveUpstream (the /v1
 	// base + key), so a re-detection that lands the same endpoint doesn't rewrite config.
 	shareSavedUp  string
@@ -1565,6 +1576,8 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// return value is copied (don't lean on Go's return arg-eval order).
 		cmd := m.runAutoTune()
 		return m, cmd
+	case autoStartRetryMsg:
+		return m, autoStartDetectCmd(m.shareUp, m.shareKey)
 	case autoStartDetectedMsg:
 		// The LAUNCH pass. It folds the detected rows in and puts the armed models on air
 		// WITHOUT changing mode - the operator did not ask to be here and must be left
@@ -1576,6 +1589,16 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.runAutoStart()
 		if as := m.autoStartStatus(); as != "" {
 			m.status = as
+		}
+		// THE MODEL SERVER OFTEN STARTS AFTER ROGER. A single scan at launch finds nothing
+		// on exactly the rig this feature exists for, and runAutoStart deliberately does not
+		// spend its one attempt on an empty catalog - so without a retry the armed models sit
+		// there until the operator opens SHARE by hand, which is precisely the behaviour the
+		// launch detect was added to remove. Bounded: a rig whose server is simply not
+		// running must not scan its own ports forever.
+		if !m.autoStarted && m.autoStartTries < autoStartMaxTries {
+			m.autoStartTries++
+			return m, tea.Tick(autoStartRetryEvery, func(time.Time) tea.Msg { return autoStartRetryMsg{} })
 		}
 		return m, nil
 	case sharesDetectedMsg:
