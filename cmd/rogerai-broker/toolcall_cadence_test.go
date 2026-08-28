@@ -82,3 +82,49 @@ func TestToolThrottleCutsCostForAMultiModelNode(t *testing.T) {
 			models, before, after, 100*(1-float64(after)/float64(before)))
 	}
 }
+
+// A TRANSIENT NON-VERDICT MUST NOT CONSUME THE RE-VERIFICATION WINDOW.
+//
+// toolProbeDue stamps the attempt BEFORE the canary's outcome is known, so two rounds cannot
+// probe the same model at once. That is right, but it means a 429 or a timeout would push the
+// retry out by the full toolProbeEvery even though nothing was learned - and a verified model
+// whose canary keeps timing out could age past toolsVerifiedTTL and flap to UNDETERMINED
+// while perfectly healthy. recordToolProbe's contract is "transient -> retry next round", and
+// the throttle has to honour it.
+func TestATransientCanaryDoesNotBurnTheThrottleWindow(t *testing.T) {
+	b := adaptiveBroker(30*time.Second, 15*time.Minute)
+	now := time.Now()
+
+	b.metricsMu.Lock()
+	b.toolsOK = map[string]bool{toolKey("n1", "m1"): true}
+	b.metricsMu.Unlock()
+
+	if !b.toolProbeDue("n1", "m1", now) {
+		t.Fatal("the first probe should run")
+	}
+	// The canary neither passed nor failed - no answer at all.
+	b.recordToolProbe("n1", "m1", false, true /*transient*/, true)
+
+	if !b.toolProbeDue("n1", "m1", now.Add(time.Second)) {
+		t.Fatal("a transient non-verdict consumed the 20m throttle window: a healthy model " +
+			"whose canary times out would stop being re-proven and could age out of the " +
+			"verified union while nothing was ever actually learned about it")
+	}
+}
+
+// A DEFINITIVE verdict does consume it - that is the whole point of the throttle.
+func TestADefinitiveVerdictHoldsTheThrottleWindow(t *testing.T) {
+	b := adaptiveBroker(30*time.Second, 15*time.Minute)
+	now := time.Now()
+
+	b.metricsMu.Lock()
+	b.toolsOK = map[string]bool{toolKey("n1", "m1"): true}
+	b.metricsMu.Unlock()
+
+	b.toolProbeDue("n1", "m1", now)
+	b.recordToolProbe("n1", "m1", true, false, true) // a clean pass
+
+	if b.toolProbeDue("n1", "m1", now.Add(5*time.Minute)) {
+		t.Error("a settled verdict was re-proven after 5m; the throttle is 20m")
+	}
+}

@@ -991,6 +991,14 @@ func (m model) onSharesDetected(found []detect.Found, needKey []string) (tea.Mod
 		for i, r := range m.shareRows {
 			if r.model == want {
 				m.shareCursor = i
+				// AUTO-START MAY HAVE BEATEN US TO IT. toggleShareAt is a TOGGLE, so on a
+				// session whose first detect comes from `/share <armed-model>`, auto-start
+				// puts the model on air and this would immediately turn it back off - the
+				// explicit request ending off air, which is the opposite of what was asked.
+				// Selecting the row is enough when it is already broadcasting.
+				if m.ctrl != nil && m.ctrl.IsOnAir(want) {
+					break
+				}
 				mm := &m
 				mm.toggleShareAt(i)
 				m = *mm

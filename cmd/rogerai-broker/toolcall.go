@@ -263,7 +263,17 @@ func stripDeclaredTools(in []string) []string {
 // which is the emission source ONLY in single-instance mode.
 func (b *broker) recordToolProbe(nodeID, model string, ok, transient, authoritative bool) {
 	if transient {
-		return // a non-verdict is not evidence: never clears, never sets
+		// A non-verdict is not evidence: it never clears and never sets the bit. It must
+		// also not CONSUME the re-verification window. toolProbeDue stamps the attempt
+		// before the canary's outcome is known (so two rounds cannot probe the same model
+		// at once), so a 429 or a timeout would otherwise push the retry out by the full
+		// toolProbeEvery - and a verified model whose canary keeps timing out could age
+		// past toolsVerifiedTTL and flap to UNDETERMINED while perfectly healthy. Dropping
+		// the stamp restores recordToolProbe's contract: transient means retry next round.
+		b.metricsMu.Lock()
+		delete(b.toolProbeAt, toolKey(nodeID, model))
+		b.metricsMu.Unlock()
+		return
 	}
 	key := toolKey(nodeID, model)
 	changed := false

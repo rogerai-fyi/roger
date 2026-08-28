@@ -584,8 +584,12 @@ const ProbeUser = "probe"
 // rather than of a conversation. The value column was therefore pricing work the broker
 // can never bill, at any price.
 //
-// Served/tokens still count it, because the machine really did the work and an operator
-// watching throughput should see it. Only the money-shaped number excludes it.
+// A probe is excluded from ALL THREE operator-facing figures - served, output tokens and
+// value - not just the money-shaped one. An intermediate design kept it in served/tokens on
+// the reasoning that the machine really did the work, but that leaves the headline number an
+// operator uses to judge whether sharing is worth it inflated by work nobody paid for: on
+// one real station, 2,738 of the requests it reported. The work is not discarded - it is
+// tallied by ProbeStats and reported BESIDE those figures by both front ends.
 func recordIf(sess *Session, job protocol.Job, rec protocol.UsageReceipt) {
 	if sess == nil || rec.RequestID == "" {
 		return

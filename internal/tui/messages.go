@@ -36,6 +36,15 @@ type freqResolvedMsg struct {
 // mode = modeShare - a teleport away from the band the operator was looking at.
 type privateRescanMsg struct{ found []detect.Found }
 
+// autoStartDetectedMsg carries the LAUNCH detect - the one nobody asked for.
+//
+// It is deliberately NOT a sharesDetectedMsg: that handler ends on the SHARE table, which
+// is right when the operator pressed a key to get there and wrong when they did not. A rig
+// putting its models back on air at startup must leave the operator wherever they were.
+type autoStartDetectedMsg struct {
+	found []detect.Found
+}
+
 type sharesDetectedMsg struct {
 	found   []detect.Found
 	needKey []string // base URLs present but key-protected (401/403), for the guided prompt

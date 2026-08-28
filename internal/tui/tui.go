@@ -353,6 +353,23 @@ func detectSharesCmd(extra, key string) tea.Cmd {
 	}
 }
 
+// autoStartDetectCmd is the launch-time scan that makes auto-start actually fire.
+//
+// Auto-start can only start a model whose row has been detected, and detection previously
+// ran ONLY on an operator action - opening SHARE, typing /share, a wizard re-scan. So the
+// armed models came back on air the moment you opened the SHARE table and not one moment
+// before, which is precisely not what "they come back by themselves" means. The mechanism
+// was built and had no ignition.
+func autoStartDetectCmd(extra, key string) tea.Cmd {
+	inner := detectSharesCmd(extra, key)
+	return func() tea.Msg {
+		if sd, ok := inner().(sharesDetectedMsg); ok {
+			return autoStartDetectedMsg{found: sd.found}
+		}
+		return autoStartDetectedMsg{}
+	}
+}
+
 type offer struct {
 	NodeID string `json:"node_id"`
 	Region string `json:"region"`
@@ -1288,7 +1305,13 @@ func newBase(broker, user string, limits *LimitStore) model {
 
 func (m model) Init() tea.Cmd {
 	// Seed the first tick chain at gen 0 (Init's model copy is discarded, so do NOT kick).
-	return tea.Batch(fetchOffers(m.broker), fetchBalance(m.broker, m.user), tick(m.tickGen))
+	cmds := []tea.Cmd{fetchOffers(m.broker), fetchBalance(m.broker, m.user), tick(m.tickGen)}
+	// AUTO-START'S IGNITION. Only when models are actually armed: a launch scan probes the
+	// host's open ports, so a rig that has never shared anything must not pay for it.
+	if m.autoStartArmedAtLaunch() {
+		cmds = append(cmds, autoStartDetectCmd(m.shareUp, m.shareKey))
+	}
+	return tea.Batch(cmds...)
 }
 
 func (m model) syncComposerGeometry() model {
@@ -1542,6 +1565,19 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// return value is copied (don't lean on Go's return arg-eval order).
 		cmd := m.runAutoTune()
 		return m, cmd
+	case autoStartDetectedMsg:
+		// The LAUNCH pass. It folds the detected rows in and puts the armed models on air
+		// WITHOUT changing mode - the operator did not ask to be here and must be left
+		// wherever they were. Only the status line speaks, and only if there is something
+		// to say.
+		if len(msg.found) > 0 {
+			m.loadShareRows(msg.found)
+		}
+		m.runAutoStart()
+		if as := m.autoStartStatus(); as != "" {
+			m.status = as
+		}
+		return m, nil
 	case sharesDetectedMsg:
 		return m.onSharesDetected(msg.found, msg.needKey)
 	case privateRescanMsg:

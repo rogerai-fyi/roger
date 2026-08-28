@@ -20,6 +20,13 @@ import (
 	"rogerai.fm/roger/v6/internal/node"
 )
 
+// autoStartArmedAtLaunch reports whether Init has any reason to kick the launch detect.
+// Extracted so the ignition itself is assertable: the mechanism being correct says nothing
+// about whether anything calls it, which is exactly how the missing trigger survived.
+func (m model) autoStartArmedAtLaunch() bool {
+	return m.ctrl != nil && len(m.ctrl.AutoStartModels()) > 0
+}
+
 // runAutoStart fires once per launch, the first time the provider catalog is populated -
 // auto-start cannot start a model whose row has not been detected yet.
 func (m *model) runAutoStart() {
