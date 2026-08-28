@@ -64,10 +64,16 @@ On one real station that was 2,738 of the requests it reported, against 48,001 o
 to judge whether sharing is worth it was inflated by work nobody paid for.
 
 Probes are now tallied separately and kept out of every operator-facing figure. They are
-hidden, not discarded: a rig that looks busy can still say what it is busy with, and the
-split travels in the node snapshot as `probes` / `probe_tokens`, so the terminal and the
-browser console cannot disagree about what the same machine did. A station with no canary
-traffic reports no probe fields at all, rather than zeros that would read as measurements.
+hidden, not discarded - both the terminal and the browser console report the work beside
+your numbers rather than inside them:
+
+```
+plus 2738 broker checks (48001 tok) - reachability + speed, unbilled and not counted above
+```
+
+A station nobody has checked says nothing at all, rather than printing a zero that would
+read as a measurement. The split travels in the node snapshot as `probes` / `probe_tokens`,
+so the two surfaces cannot disagree about what the same machine did.
 
 The broker's own figures were never affected. Receipts are written only on settlement, and a
 probe never settles - `roger payout` and the account pages have always been right. This
@@ -119,8 +125,9 @@ charged - and serving your own traffic is free by design. So a rig serving its o
 a number there while the ledger stayed at zero, which is exactly what happened on a real
 machine: `$0.27` on screen, `$0.00` payable and `$0.00` held.
 
-The column is now headed AT LIST, and says what it is beside the number rather than in
-documentation:
+The column is now headed AT LIST in the terminal AND in the browser console - which had
+gone on saying EARNINGS while reading the same field - and says what it is beside the number
+rather than in documentation:
 
 ```
 AT LIST is this work priced at your card - not settled money.
