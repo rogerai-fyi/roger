@@ -537,8 +537,6 @@ func sharePriceText(in, out float64) string {
 	}
 }
 
-// anyLiveShare reports whether any row is actually on air, so the settlement note is
-// shown beside a populated AT LIST column rather than an empty one.
 // probeTotals sums the unbilled broker-canary work across every live band. Separate from
 // Served() by construction (agent.Session keeps two tallies), so this can never accidentally
 // re-add probes to the operator's numbers - it can only report them beside those numbers.
@@ -553,6 +551,8 @@ func (m model) probeTotals() (reqs, tokens int64) {
 	return reqs, tokens
 }
 
+// anyLiveShare reports whether any row is actually on air, so the settlement note is
+// shown beside a populated AT LIST column rather than an empty one.
 func (m model) anyLiveShare() bool {
 	for _, r := range m.shareRows {
 		if m.shares[r.model] != nil {

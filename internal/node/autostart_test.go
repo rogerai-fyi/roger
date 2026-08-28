@@ -224,3 +224,46 @@ func TestTheAutoStartSaveHookRunsOutsideTheLock(t *testing.T) {
 			"c.mu, so a hook that reads the controller can never return")
 	}
 }
+
+// NEVER CLAIM ON AIR FOR A MODEL THAT IS NOT THERE.
+//
+// toggleOnAir returned a BARE ZERO result when the machine has no row for the model - no
+// error, no flag - and AutoStartAll's default branch read "no error" as "started". So a
+// launch that beat the local model server up reported ON AIR for every armed model while
+// nothing was broadcasting. That is the precise drift the report exists to prevent, and it
+// is the ordinary boot ordering, not an edge case.
+func TestAnArmedModelThisMachineDoesNotServeIsNotReportedOnAir(t *testing.T) {
+	c := newCtrl(t, Config{})
+	c.SetAutoStart("ghost", true) // never detected: no row for it
+
+	rep := c.AutoStartAll()
+
+	for _, m := range rep.Started {
+		if m == "ghost" {
+			t.Fatal("auto-start reported ON AIR for a model this machine has no row for")
+		}
+	}
+	if len(rep.NotServed) != 1 || rep.NotServed[0] != "ghost" {
+		t.Fatalf("not-served = %v, want [ghost] - an undetected model must be NAMED, not "+
+			"silently dropped and not called a failure", rep.NotServed)
+	}
+	if len(rep.Failed) != 0 {
+		t.Errorf("a model that simply is not here yet is not a failure: %v", rep.Failed)
+	}
+}
+
+// Started is the one bucket an operator reads as "you are broadcasting", so it is confirmed
+// against the live session rather than inferred from a result that carried no error.
+func TestStartedIsVerifiedAgainstTheLiveSession(t *testing.T) {
+	c := newCtrl(t, Config{})
+	c.SetAutoStart("free-1", true)
+
+	rep := c.AutoStartAll()
+
+	if len(rep.Started) != 1 || rep.Started[0] != "free-1" {
+		t.Fatalf("started = %v, want [free-1]", rep.Started)
+	}
+	if !c.IsOnAir("free-1") {
+		t.Fatal("a model in Started is not actually on air")
+	}
+}

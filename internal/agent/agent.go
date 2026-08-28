@@ -414,10 +414,6 @@ func (s *Session) record(rec protocol.UsageReceipt, feeRate float64, unbilled bo
 	s.earningsMicro.Add(int64(owner*1e6 + 0.5))
 }
 
-// ProbeStats returns the unbilled broker-probe traffic this session absorbed: requests
-// and completion tokens. Deliberately SEPARATE from Served() rather than folded into it -
-// an operator asking "how busy am I?" means real work, and an operator asking "are we
-// probing too hard?" needs this number unmixed with it.
 // RecordProbeForTest records one unbilled broker canary against this session. Test-only
 // seam, following the house convention (FailForTest, SetChildReceiptsForTest): production
 // records probes through recordIf, off the job's User field, and nothing else may add to
@@ -429,6 +425,10 @@ func (s *Session) RecordProbeForTest(completionTokens int64) {
 	s.probeToks.Add(completionTokens)
 }
 
+// ProbeStats returns the unbilled broker-probe traffic this session absorbed: requests
+// and completion tokens. Deliberately SEPARATE from Served() rather than folded into it -
+// an operator asking "how busy am I?" means real work, and an operator asking "are we
+// probing too hard?" needs this number unmixed with it.
 func (s *Session) ProbeStats() (reqs, tokens int64) {
 	return s.probeReqs.Load(), s.probeToks.Load()
 }

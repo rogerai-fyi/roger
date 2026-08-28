@@ -33,10 +33,19 @@ func (m *model) runAutoStart() {
 	if m.autoStarted || m.ctrl == nil {
 		return
 	}
-	m.autoStarted = true
 	if len(m.ctrl.AutoStartModels()) == 0 {
+		m.autoStarted = true
 		return
 	}
+	// A LAUNCH THAT DETECTED NOTHING GAVE AUTO-START NO CHANCE, so it must not spend the
+	// once-per-launch guard. roger routinely starts before the local model server does; if
+	// the empty first scan counted as the attempt, the re-scan that finally finds the models
+	// would be refused and the rig would stay dark for the whole session - while the status
+	// line had already claimed ON AIR.
+	if len(m.ctrl.Rows()) == 0 {
+		return
+	}
+	m.autoStarted = true
 	m.autoStartRep = m.ctrl.AutoStartAll()
 	m.syncShareCache()
 }
@@ -59,6 +68,11 @@ func (m model) autoStartStatus() string {
 	if len(r.Held) > 0 {
 		parts = append(parts, stDim.Render("already on air in another roger: ")+
 			stKey.Render(strings.Join(r.Held, " ")))
+	}
+	// Not a failure and not a success: this machine simply has no such model right now.
+	if len(r.NotServed) > 0 {
+		parts = append(parts, stDim.Render("not found on this machine: ")+
+			stKey.Render(strings.Join(r.NotServed, " ")))
 	}
 	if len(r.NeedsLogin) > 0 {
 		parts = append(parts, stEmber.Render("needs login: ")+stKey.Render(strings.Join(r.NeedsLogin, " ")))

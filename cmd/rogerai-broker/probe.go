@@ -431,7 +431,8 @@ func (b *broker) probeOnce() {
 		// Adaptive schedule: a node is only probed when its personal next-due has
 		// arrived. A freshly-seen node has no state yet => due immediately (floor); an
 		// idle node backs off (nextDue pushed out each round it is probed) toward the
-		// ceiling; real traffic / demand reset it (markMeasured / demandProbeSoonLocked).
+		// ceiling. Real traffic DEFERS the next probe (markMeasured - it just measured the
+		// node for free); demand PULLS IT IN (demandProbeSoonLocked).
 		st := sched[n.NodeID]
 		if st == nil {
 			st = &probeState{} // first sight: due now (zero nextDue), backoff 0
@@ -518,7 +519,8 @@ func (b *broker) probeOnce() {
 	// its earlier next-due and is picked up on a following round). Each probe round a
 	// node sits through without real traffic doubles its personal interval up to the
 	// ceiling, so a persistently-idle node collapses toward the ~15m cap. markMeasured
-	// (real traffic) and demandProbeSoonLocked (browse/route) reset this.
+	// (real traffic) DEFERS the next probe instead of resetting the level, and
+	// demandProbeSoonLocked (browse/route) resets it.
 	b.metricsMu.Lock()
 	for _, t := range targets {
 		st := sched[t.node.NodeID]

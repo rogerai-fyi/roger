@@ -413,12 +413,16 @@ type ToggleResult struct {
 	// broadcasting on every boot because of a toggle weeks ago is exactly the surprise
 	// this flag exists to prevent.
 	AutoStartArmed bool
+	// NotServed reports that this machine has no row for the model at all - detection has
+	// not found it (yet), so there was nothing to put on air. Distinct from an error: it is
+	// the ordinary state of a rig whose model server has not started.
+	NotServed bool
 }
 
 // ToggleOnAir flips the on-air state of model: an off-air model starts an in-process
 // agent.Session against its upstream at the saved/free price; an on-air model stops.
 // Ports the TUI's toggleShareAt (login-gate, soft max-on-air cap, node-id derivation).
-// ToggleOnAir starts or stops a model, and fires the auto-start save OUTSIDE the lock.
+// It also fires the auto-start save OUTSIDE the lock.
 //
 // The save has to happen out here. ToggleOnAir holds c.mu for its whole body via a
 // deferred Unlock registered first, so any defer added later in that body runs BEFORE the
@@ -444,6 +448,11 @@ func (c *Controller) toggleOnAir(model string) ToggleResult {
 	res := ToggleResult{Model: model}
 	row, ok := c.rowFor(model)
 	if !ok {
+		// NOT A SUCCESS, AND IT USED TO LOOK LIKE ONE. A bare zero result carries no Err
+		// and no flag, so every caller that branched on "no error" read this as "started".
+		// AutoStartAll did exactly that and printed ON AIR for a model that does not exist
+		// on this machine.
+		res.NotServed = true
 		return res
 	}
 	if sess := c.sessions[model]; sess != nil {
@@ -928,7 +937,10 @@ func (c *Controller) IsOnAir(model string) bool {
 // in exactly one bucket, because an operator who armed six models and sees four on air
 // must be able to learn WHY the other two are not - silence there reads as a bug.
 type AutoStartReport struct {
-	Started    []string         // now on air
+	Started []string
+	// NotServed are armed models this machine has no row for - typically a launch that beat
+	// the local model server up. Not a failure and not a success: nothing was attempted.
+	NotServed  []string         // now on air
 	Held       []string         // another live process already broadcasts this node id
 	AtLimit    []string         // the soft on-air cap was reached first
 	NeedsLogin []string         // priced or private, and nobody is signed in
@@ -937,7 +949,7 @@ type AutoStartReport struct {
 
 // Any reports whether the launch had anything to say at all.
 func (r AutoStartReport) Any() bool {
-	return len(r.Started)+len(r.Held)+len(r.AtLimit)+len(r.NeedsLogin)+len(r.Failed) > 0
+	return len(r.Started)+len(r.Held)+len(r.AtLimit)+len(r.NeedsLogin)+len(r.NotServed)+len(r.Failed) > 0
 }
 
 // AutoStartAll puts every armed model on air, in the stable order AutoStartModels gives.
@@ -961,9 +973,16 @@ func (c *Controller) AutoStartAll() AutoStartReport {
 		switch {
 		case res.WentOff:
 			// ToggleOnAir is a toggle: if a race put it on air between the check above and
-			// the call, we have just turned it off. Put it back and leave it alone.
+			// the call, we have just turned it off. Put it back - and CHECK, rather than
+			// assuming the second toggle worked.
 			c.ToggleOnAir(m)
-			rep.Started = append(rep.Started, m)
+			if c.IsOnAir(m) {
+				rep.Started = append(rep.Started, m)
+			} else {
+				rep.Failed[m] = errors.New("raced off air and could not be restarted")
+			}
+		case res.NotServed:
+			rep.NotServed = append(rep.NotServed, m)
 		case res.AtLimit:
 			rep.AtLimit = append(rep.AtLimit, m)
 		case res.LoginNeeded:
@@ -973,7 +992,14 @@ func (c *Controller) AutoStartAll() AutoStartReport {
 		case res.Err != nil:
 			rep.Failed[m] = res.Err
 		default:
-			rep.Started = append(rep.Started, m)
+			// Believe the machine, not the absence of an error. Started is the one bucket an
+			// operator reads as "you are broadcasting", so it is confirmed against the live
+			// session rather than inferred from a result that said nothing.
+			if c.IsOnAir(m) {
+				rep.Started = append(rep.Started, m)
+			} else {
+				rep.Failed[m] = errors.New("reported no error but is not on air")
+			}
 		}
 	}
 	return rep

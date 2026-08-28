@@ -206,3 +206,31 @@ func yieldsAutoStartDetect(cmd tea.Cmd) bool {
 	}
 	return false
 }
+
+// ROGER USUALLY STARTS BEFORE THE MODEL SERVER DOES.
+//
+// The launch detect then finds nothing, and if that empty pass counted as the one
+// auto-start attempt, the re-scan that finally finds the models would be refused and the
+// rig would sit dark for the whole session - having already announced ON AIR. The guard is
+// only spent once there was actually a catalog to work with.
+func TestAnEmptyLaunchScanDoesNotSpendTheAutoStartAttempt(t *testing.T) {
+	srv := fakeBroker(t)
+	m := NewWithHooks(srv.URL, "tester", nil, Hooks{
+		SavedAutoStart: map[string]bool{"m1": true},
+	})
+
+	// Launch: nothing detected yet.
+	m.runAutoStart()
+	if m.autoStartStatus() != "" {
+		t.Errorf("a launch that detected nothing still reported something: %q", stripANSI(m.autoStartStatus()))
+	}
+
+	// The model server comes up and a re-scan finds it.
+	m.setShareRows(freeRows(2))
+	m.runAutoStart()
+
+	if !m.ctrl.IsOnAir("m1") {
+		t.Fatal("the armed model never came on air: the empty first scan consumed the " +
+			"once-per-launch attempt, so the scan that actually found it was refused")
+	}
+}
