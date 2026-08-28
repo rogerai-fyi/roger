@@ -95,3 +95,63 @@ func TestNoSettlementNoteWhenNothingIsOnAir(t *testing.T) {
 		t.Error("the settlement note shows with nothing on air")
 	}
 }
+
+// HIDDEN IS NOT DISCARDED.
+//
+// Keeping broker canaries out of SERVED / OUT TOK / AT LIST is right - they are unbilled
+// work nobody asked for. But removing them WITHOUT SAYING SO trades one confusion for
+// another: a rig visibly busy while reporting almost nothing served, and no way to learn
+// where the work went. The numbers stay clean; the account of them appears beside.
+func TestTheShareViewSaysWhatTheUnbilledWorkWas(t *testing.T) {
+	srv := fakeBroker(t)
+	m := NewWithHooks(srv.URL, "tester", nil, Hooks{})
+	m.setShareRows(freeRows(2))
+	m.width, m.height = 140, 30
+
+	sess := &agent.Session{}
+	for i := 0; i < 3; i++ {
+		sess.RecordProbeForTest(17)
+	}
+	m.shares = map[string]*agent.Session{m.shareRows[0].model: sess}
+
+	v := stripANSI(m.shareView(140))
+	if !strings.Contains(v, "3 broker checks") {
+		t.Errorf("the canary work is invisible: a busy rig reporting nothing served has no "+
+			"way to explain itself.\n%s", v)
+	}
+	if !strings.Contains(v, "unbilled") {
+		t.Error("the line does not say the work was unbilled, which is the point of separating it")
+	}
+}
+
+// A station nobody has probed says NOTHING about probes. A printed zero reads as a
+// measurement, which is the rail the rest of this file exists to hold.
+func TestNoProbeLineWhenNothingHasBeenProbed(t *testing.T) {
+	srv := fakeBroker(t)
+	m := NewWithHooks(srv.URL, "tester", nil, Hooks{})
+	m.setShareRows(freeRows(2))
+	m.width, m.height = 140, 30
+	m.shares = map[string]*agent.Session{m.shareRows[0].model: {}}
+
+	if strings.Contains(stripANSI(m.shareView(140)), "broker checks") {
+		t.Error("an unprobed station still reported broker checks")
+	}
+}
+
+// The probe line must never re-add probes to the operator's own figures - the two tallies
+// are separate in agent.Session precisely so this cannot happen by accident.
+func TestProbesAreReportedBesideTheNumbersNotInsideThem(t *testing.T) {
+	sess := &agent.Session{}
+	sess.RecordProbeForTest(17)
+	sess.RecordProbeForTest(17)
+
+	if reqs, toks := sess.Served(); reqs != 0 || toks != 0 {
+		t.Fatalf("probes leaked into SERVED/OUT TOK: %d reqs, %d tok", reqs, toks)
+	}
+	if sess.Earnings() != 0 {
+		t.Fatalf("probes accrued value: %v", sess.Earnings())
+	}
+	if pr, pt := sess.ProbeStats(); pr != 2 || pt != 34 {
+		t.Fatalf("probe tally = %d/%d, want 2/34", pr, pt)
+	}
+}

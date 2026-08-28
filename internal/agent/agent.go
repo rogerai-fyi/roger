@@ -418,6 +418,17 @@ func (s *Session) record(rec protocol.UsageReceipt, feeRate float64, unbilled bo
 // and completion tokens. Deliberately SEPARATE from Served() rather than folded into it -
 // an operator asking "how busy am I?" means real work, and an operator asking "are we
 // probing too hard?" needs this number unmixed with it.
+// RecordProbeForTest records one unbilled broker canary against this session. Test-only
+// seam, following the house convention (FailForTest, SetChildReceiptsForTest): production
+// records probes through recordIf, off the job's User field, and nothing else may add to
+// these counters. It exists so tests in OTHER packages - the TUI's, which has to prove the
+// share view reports canary work beside the operator's numbers rather than inside them -
+// can build a session that has answered probes without standing up a broker.
+func (s *Session) RecordProbeForTest(completionTokens int64) {
+	s.probeReqs.Add(1)
+	s.probeToks.Add(completionTokens)
+}
+
 func (s *Session) ProbeStats() (reqs, tokens int64) {
 	return s.probeReqs.Load(), s.probeToks.Load()
 }

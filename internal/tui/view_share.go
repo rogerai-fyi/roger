@@ -493,6 +493,21 @@ func (m model) shareView(w int) string {
 			"Serving your OWN traffic is $0. Real earnings: ") + stKey.Render("roger payout")
 		b.WriteString("  " + truncVisible(note, w-4) + "\n")
 	}
+	// WHAT THE RIG IS BUSY WITH, when the answer is "not your traffic".
+	//
+	// Broker canaries are kept out of SERVED / OUT TOK / AT LIST above, which is right - they
+	// are unbilled work nobody asked you for. But removing them from the table without saying
+	// so anywhere replaces one confusion with another: an operator who watched a busy rig
+	// report almost nothing served would have no way to learn where the work went. Hidden is
+	// not the same as discarded, and this is the line that makes that true.
+	//
+	// It appears only when there ARE probes: a station nobody has checked says nothing, rather
+	// than printing a zero that would read as a measurement.
+	if preqs, ptoks := m.probeTotals(); preqs > 0 {
+		pn := stDim.Render(fmt.Sprintf("plus %d broker checks (%d tok) - reachability + speed, unbilled and not counted above",
+			preqs, ptoks))
+		b.WriteString("  " + truncVisible(pn, w-4) + "\n")
+	}
 	// Cash-out hint for an earning provider (KYC / payable), under the affordance line.
 	// Width-safe + NO_COLOR-safe; empty when there's nothing actionable.
 	if hint := m.payoutHint(); hint != "" {
@@ -524,6 +539,20 @@ func sharePriceText(in, out float64) string {
 
 // anyLiveShare reports whether any row is actually on air, so the settlement note is
 // shown beside a populated AT LIST column rather than an empty one.
+// probeTotals sums the unbilled broker-canary work across every live band. Separate from
+// Served() by construction (agent.Session keeps two tallies), so this can never accidentally
+// re-add probes to the operator's numbers - it can only report them beside those numbers.
+func (m model) probeTotals() (reqs, tokens int64) {
+	for _, r := range m.shareRows {
+		if sess := m.shares[r.model]; sess != nil {
+			pr, pt := sess.ProbeStats()
+			reqs += pr
+			tokens += pt
+		}
+	}
+	return reqs, tokens
+}
+
 func (m model) anyLiveShare() bool {
 	for _, r := range m.shareRows {
 		if m.shares[r.model] != nil {

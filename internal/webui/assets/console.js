@@ -160,9 +160,18 @@
     totals.appendChild(document.createTextNode(" · "));
     totals.appendChild(el("span", null, fmtInt(t.out_tokens) + " out tok"));
     totals.appendChild(document.createTextNode(" · "));
-    totals.appendChild(el("span", null, fmtUSD(t.earnings)));
+    totals.appendChild(el("span", null, fmtUSD(t.earnings) + " at list"));
     totals.appendChild(document.createTextNode(" · "));
     totals.appendChild(el("span", "muted", "settles on the broker"));
+    // A PROBE IS NOT TRAFFIC, and the console has to say so in the same words the terminal
+    // uses. The requests/tokens above exclude the broker's canaries; reporting them beside
+    // rather than not at all is what keeps a busy rig explicable. Shown only when there are
+    // any - a printed zero would read as a measurement.
+    if (t.probes > 0) {
+      totals.appendChild(document.createTextNode(" · "));
+      totals.appendChild(el("span", "muted",
+        "plus " + fmtInt(t.probes) + " unbilled broker checks"));
+    }
 
     show($("share-login-warn"), !s.logged_in);
     renderShareRows(s.rows || []);
