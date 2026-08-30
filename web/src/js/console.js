@@ -358,7 +358,7 @@
       if (!rows.length) { show("mdEmpty"); return; }
       rows.forEach(function (m) { if (list) list.appendChild(modelCard(m)); });
       var ceil = $("mdCeil");
-      if (ceil) { ceil.textContent = "Public ceiling: $" + priceStr(CEIL.in) + " in / $" + priceStr(CEIL.out) + " out per 1M tokens. Need to charge more? Share on a private band instead."; show("mdCeil"); }
+      if (ceil) { ceil.textContent = "Price ceiling: $" + priceStr(CEIL.in) + " in / $" + priceStr(CEIL.out) + " out per 1M tokens. It applies to every band, public or private - a private band hides a station from the market, it is not a price bypass."; show("mdCeil"); }
       show("mdList");
     }).catch(function () {
       hide("mdLoading"); show("mdError");

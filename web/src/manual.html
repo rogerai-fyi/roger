@@ -1185,8 +1185,8 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
               Stripe is the payments provider and the licensed money transmitter - RogerAI
               never takes custody of your funds outside Stripe.</p>
             <pre><span class="p">$</span> roger balance                 <span class="c"># your wallet balance in $</span>
-<span class="p">$</span> roger balance --topup 25      <span class="c"># add $25 (opens Stripe Checkout)</span>
-<span class="p">$</span> roger balance --topup         <span class="c"># bare --topup defaults to $10</span></pre>
+<span class="p">$</span> roger topup 25                <span class="c"># add $25 (opens Stripe Checkout)</span>
+<span class="p">$</span> roger topup                   <span class="c"># bare topup defaults to $10</span></pre>
             <p>Spend is debited live, per token, against the wallet balance. A conditional
               debit on the broker side means a wallet can never go negative. The web
               dashboard mirrors the same numbers.</p>
@@ -1203,7 +1203,7 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
             <div class="man-plate">
               <div class="man-plate__row"><span class="man-plate__k">default ceiling</span><span class="man-plate__v">if you set no <code>--max-out</code>, the client still caps every connect at <code>$10 / 1M</code> out - this floor applies <b>even with <code>--yes</code></b>, so an unattended bot can never silently bind to an absurd price</span></div>
               <div class="man-plate__row"><span class="man-plate__k">type-the-price</span><span class="man-plate__v">to accept a station above <code>$20 / 1M</code> out you must <b>type the price back</b>, not just press <kbd>y</kbd> - a deliberate speed bump on genuinely expensive bands</span></div>
-              <div class="man-plate__row"><span class="man-plate__k">operator ceiling</span><span class="man-plate__v">the broker refuses to list a public node priced above <code>$100 / 1M</code> out or <code>$50 / 1M</code> in (base price <i>and</i> every scheduled window) - only a typo or a deterrent price trips it; if an operator truly wants an unreachable price they share <code>--private</code> instead (§5)</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">operator ceiling</span><span class="man-plate__v">the broker refuses to list a public node priced above <code>$100 / 1M</code> out or <code>$50 / 1M</code> in (base price <i>and</i> every scheduled window) - only a typo or a deterrent price trips it. The ceiling binds <i>every</i> band - public, private and confidential - so <code>--private</code> is not a way around it: it hides a station from the market, it does not raise the cap</span></div>
             </div>
             <p>No price-hike, ever: your ceiling is not a one-time check at connect - your
               max out-price rides <b>every</b> request as the
@@ -1375,7 +1375,8 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
                   <tr><td><code>roger</code></td><td>open the interactive app (browse, tune in, chat); first run shows the onboarding wizard</td></tr>
                   <tr><td><code>search</code></td><td>list models, cheapest first (aliases: <code>discover</code>, <code>models</code>)</td></tr>
                   <tr><td><code>use &lt;model&gt;</code></td><td>open a local OpenAI endpoint for your bots (aliases: <code>connect</code>, <code>tune</code>). Flags: <code>--max-out $</code> (headline cap, skip stations above this $/1M out) · <code>--yes</code> (skip the connect confirm) · <code>--advanced</code> reveals <code>--port</code> (0 = auto-pick) · <code>--max-in</code> · <code>--min-tps</code> · <code>--confidential</code> · <code>--raw</code> (keep raw model output; skip the reasoning-as-answer fallback)</td></tr>
-                  <tr><td><code>balance</code></td><td>wallet balance ($). <code>balance --topup [usd]</code> (or <code>balance topup [usd]</code>) opens checkout; bare top-up is $10</td></tr>
+                  <tr><td><code>balance</code></td><td>wallet balance ($). Topping up is <code>topup [usd]</code>; <code>balance --topup [usd]</code> and <code>balance topup [usd]</code> are retained aliases</td></tr>
+                  <tr><td><code>topup [usd]</code></td><td>add funds (opens Stripe Checkout); bare <code>topup</code> is $10</td></tr>
                   <tr><td><code>topup [usd]</code></td><td>add funds, opening checkout (default $10)</td></tr>
                   <tr><td><code>share</code></td><td>go on air - FREE by default, no login (auto-detects your model). Flags: <code>--model</code> · <code>--price-in</code> / <code>--price-out</code> ($/1M to earn; needs login) · <code>--free-window HH:MM-HH:MM</code> · <code>--schedule &lt;json&gt;</code> (time-of-use) · <code>--advanced</code> reveals <code>--node</code> · <code>--region</code> · <code>--parallel</code> · <code>--upstream</code> / <code>--upstream-key</code> · <code>--ctx</code> · <code>--confidential</code> (real TEE hardware required). With no local server it runs a guided "no model found" fallback</td></tr>
                   <tr><td><code>limits</code></td><td>print your per-model spend limits (mirrors the in-app <code>/limits</code>; edit with <code>config set-limit</code>)</td></tr>
@@ -1541,7 +1542,7 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
 
             <h3>"balance empty" / not logged in</h3>
             <p>Browsing is free; spending on paid stations needs a funded wallet. Run
-              <code>roger login</code>, then <code>roger balance --topup</code>. Free
+              <code>roger login</code>, then <code>roger topup</code>. Free
               stations and your own grant keys cost nothing.</p>
 
             <h3>"address in use"</h3>

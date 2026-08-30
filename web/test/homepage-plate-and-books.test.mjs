@@ -122,5 +122,16 @@ test("books: the section is honest about who wrote them", () => {
   // this section.
   assert.match(books, /written by (a )?machine|machine-written|written by machines/i,
     "it says the books were written by machines");
-  assert.match(books, /verif|review/i, "and that a human stands behind them");
+  assert.match(books, /review/i, "and that the press reviews them");
+});
+
+test("books: the page attributes verification the way the cover does", () => {
+  // The blurb said "verified by a human" while the cover shipped beside it reads
+  // "verified by Roger AI". Two attributions of the same fact, side by side, one of
+  // them ours to invent. Read the byline off the cover and require the page to match.
+  const svg = readFileSync(path.join(DIST, "assets", "books", LIVE_BOOKS[0].cover), "utf8");
+  const byline = svg.match(/>verified by ([^<]+)</)?.[1]?.trim();
+  assert.ok(byline, "the cover carries a verified-by byline");
+  assert.ok(section("books").replace(/\s+/g, " ").includes(`verified by ${byline}`),
+    `the blurb must attribute verification to "${byline}", as the cover does`);
 });
