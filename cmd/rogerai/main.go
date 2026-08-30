@@ -1749,13 +1749,40 @@ var (
 )
 
 func cmdTopup(cfg config, args []string) error {
-	usd := 10.0
-	if len(args) > 0 {
-		if f, err := strconv.ParseFloat(args[0], 64); err == nil {
-			usd = f
-		}
+	usd, err := parseTopupAmount(args)
+	if err != nil {
+		return err
 	}
 	return client.Topup(cfg.Broker, cfg.User, usd, tui.OpenURL)
+}
+
+// defaultTopupUSD is what a bare `roger topup` adds. Documented on the pricing page
+// and in the manual, so it lives in one place rather than in each caller.
+const defaultTopupUSD = 10.0
+
+// parseTopupAmount reads the dollar amount for a top-up. It is the ONE reader for both
+// spellings of the verb - the documented `roger topup <amt>` and the retained
+// `balance --topup <amt>` aliases - which previously disagreed: the alias stripped a
+// leading "$" and the documented form did not, so `roger topup $25` failed ParseFloat
+// and silently charged the $10 default instead.
+//
+// On a money path an unreadable amount is an ERROR, never a different charge. A typo
+// that quietly bills a number the operator did not type is worse than a refusal, and it
+// is the kind of thing nobody notices until the receipt.
+func parseTopupAmount(args []string) (float64, error) {
+	if len(args) == 0 {
+		return defaultTopupUSD, nil
+	}
+	raw := strings.TrimSpace(args[0])
+	amt := strings.TrimSpace(strings.TrimPrefix(raw, "$"))
+	usd, err := strconv.ParseFloat(amt, 64)
+	if err != nil {
+		return 0, fmt.Errorf("top-up amount %q is not a number - try `roger topup 25`", raw)
+	}
+	if usd <= 0 {
+		return 0, fmt.Errorf("top-up amount must be more than $0 - got %q", raw)
+	}
+	return usd, nil
 }
 
 // cmdPayout is the provider money-OUT verb group: cash out earnings from the
@@ -2004,7 +2031,8 @@ func cmdBalance(cfg config, args []string) error {
 // `balance` (C7 hidden aliases): `balance topup [usd]`, `balance --topup`, and
 // `balance --topup <usd>` / `--topup=<usd>`. Returns the dollar amount (defaulting to
 // $10) and true when one matched, else (_, false). The documented form is the
-// top-level `roger topup <amt>`.
+// top-level `roger topup <amt>`, and the amount is read by the SAME parser, so the
+// two spellings cannot disagree about what "$25" means the way they used to.
 func balanceTopupAlias(args []string) (float64, bool) {
 	usd := 10.0
 	for i := 0; i < len(args); i++ {
@@ -2012,14 +2040,14 @@ func balanceTopupAlias(args []string) (float64, bool) {
 		switch {
 		case a == "topup" || a == "--topup" || a == "-topup":
 			if i+1 < len(args) {
-				if f, e := strconv.ParseFloat(strings.TrimPrefix(args[i+1], "$"), 64); e == nil && f > 0 {
+				if f, e := parseTopupAmount(args[i+1:]); e == nil {
 					usd = f
 				}
 			}
 			return usd, true
 		case strings.HasPrefix(a, "--topup=") || strings.HasPrefix(a, "-topup="):
 			v := a[strings.IndexByte(a, '=')+1:]
-			if f, e := strconv.ParseFloat(strings.TrimPrefix(v, "$"), 64); e == nil && f > 0 {
+			if f, e := parseTopupAmount([]string{v}); e == nil {
 				usd = f
 			}
 			return usd, true
