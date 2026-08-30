@@ -85,30 +85,39 @@ func TestValidateEditorWindowCeilingCopyMatches(t *testing.T) {
 // stripped first: the manual's version of the sentence read "they share
 // <code>--private</code> instead", which no raw substring match would have found.
 func offersEscape(line string) string {
+	// Both forms: stripping markup is what finds the manual's version, and keeping the
+	// raw line is what stops a stray "<" in code (a comparison, a generic) from
+	// swallowing the copy that follows it.
+	raw := strings.ToLower(line)
 	plain := strings.ToLower(stripMarkup(line))
 	for _, escape := range escapePhrases {
-		if strings.Contains(plain, escape) {
+		if strings.Contains(raw, escape) || strings.Contains(plain, escape) {
 			return escape
 		}
 	}
 	return ""
 }
 
+// stripMarkup drops HTML tags. A "<" only opens a tag when a name or a slash follows
+// it, so `if price < ceiling` keeps its tail instead of losing it to a phantom tag.
 func stripMarkup(s string) string {
 	var b strings.Builder
-	depth := 0
-	for _, r := range s {
-		switch {
-		case r == '<':
-			depth++
-		case r == '>' && depth > 0:
-			depth--
+	runes := []rune(s)
+	for i := 0; i < len(runes); i++ {
+		if runes[i] == '<' && i+1 < len(runes) && (runes[i+1] == '/' || isASCIILetter(runes[i+1])) {
+			for i < len(runes) && runes[i] != '>' {
+				i++
+			}
 			b.WriteRune(' ')
-		case depth == 0:
-			b.WriteRune(r)
+			continue
 		}
+		b.WriteRune(runes[i])
 	}
 	return strings.Join(strings.Fields(b.String()), " ")
+}
+
+func isASCIILetter(r rune) bool {
+	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z')
 }
 
 func assertNoEscape(t *testing.T, msg string) {
@@ -126,6 +135,8 @@ func TestCeilingSweepCatchesTheStringsThatShipped(t *testing.T) {
 		`m.vbErr = fmt.Sprintf("price $%s/1k chars is over the $%.0f/1M public ceiling - lower it, or share PRIVATE", trimFloat(perK), editorMaxPriceIn)`,
 		`ceil.textContent = "Public ceiling: $" + priceStr(CEIL.in) + " in / $" + priceStr(CEIL.out) + " out per 1M tokens. Need to charge more? Share on a private band instead.";`,
 		`<span class="man-plate__k">operator ceiling</span><span class="man-plate__v">the broker refuses to list a public node priced above <code>$100 / 1M</code> out - only a typo trips it; if an operator truly wants an unreachable price they share <code>--private</code> instead (§5)</span>`,
+		// a comparison before the copy must not blind the stripper
+		`if price < ceiling { return "over the ceiling - lower it, or share PRIVATE" }`,
 	} {
 		if offersEscape(shipped) == "" {
 			t.Errorf("the sweep would not have caught this line:\n  %s", shipped)
@@ -153,8 +164,10 @@ func TestNoSurfaceOffersPrivateAsACeilingEscape(t *testing.T) {
 			}
 			return nil
 		}
+		// Prose surfaces count: a person reads a feature file and a README the same way
+		// they read a banner, and the wrong sentence in either is the wrong sentence.
 		switch filepath.Ext(d.Name()) {
-		case ".go", ".js", ".html":
+		case ".go", ".js", ".html", ".md", ".feature", ".txt":
 		default:
 			return nil
 		}
