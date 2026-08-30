@@ -41,7 +41,8 @@ const bound = (v) => `${String(v).replace(/\./g, "\\.")}\\b(?![\\d.])`;
 // dollar prints plain ("$1"), anything else with cents and separators ("$999,999.99"),
 // so a floor that became 2.50 or 1000 is compared against what a corrected surface would
 // actually say rather than against String(v).
-const money = (v) => (Number.isInteger(v) ? String(v) : v.toLocaleString("en-US", { minimumFractionDigits: 2 }));
+const money = (v) =>
+  v.toLocaleString("en-US", { minimumFractionDigits: Number.isInteger(v) ? 0 : 2 });
 
 test("topup bounds: the billing input allows exactly the range the broker allows", () => {
   const input = read("billing.html").match(/<input id="topupCustom"[^>]*>/)?.[0];
@@ -95,13 +96,22 @@ test("topup bounds: every user-facing minimum is the current minimum", () => {
   }
 
   // The prose surfaces print it too, and pinning only the scripts is the same
-  // one-end-pinned asymmetry this test was added to close. "minimum $N" and
-  // "$N</b> minimum" are the two shapes the pages use; the payout minimum writes the
-  // number BEFORE the word and so never collides.
+  // one-end-pinned asymmetry this test was added to close.
+  //
+  // Anchored to the TOP-UP context, not to the bare word "minimum". These pages also
+  // carry the $25 PAYOUT minimum, and both write it in shapes this would otherwise
+  // match - "$25 minimum" is only saved from the second alternative by the absence of a
+  // </b>, which is a coincidence of styling rather than a rule, and bolding it the way
+  // pricing.html bolds the floor would have tripped this on correct copy.
+  const TOPUP_NEAR = 140;
   for (const page of ["pricing.html", "manual.html"]) {
     const html = src(page);
-    const found = [...html.matchAll(/minimum[^<$]{0,12}\$([\d,.]+)|\$([\d,.]+)<\/b>\s*minimum/g)]
-      .map((m) => (m[1] || m[2]).replace(/[.,]$/, ""));
+    const found = [];
+    for (const m of html.matchAll(/minimum[^<$]{0,12}\$([\d,.]+)|\$([\d,.]+)<\/b>\s*minimum/g)) {
+      const window = html.slice(Math.max(0, m.index - TOPUP_NEAR), m.index + TOPUP_NEAR);
+      if (!/top-?up/i.test(window)) continue; // the payout minimum is a different number
+      found.push((m[1] || m[2]).replace(/[.,]$/, ""));
+    }
     assert.ok(found.length > 0, `${page} states the top-up minimum`);
     for (const shown of found) {
       assert.equal(shown, floor, `${page} tells the reader $${shown} while the floor is $${floor}`);
