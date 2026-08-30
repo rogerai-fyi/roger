@@ -2313,16 +2313,18 @@ func (m *model) syncWinBuf() {
 	}
 }
 
-// Public price ceilings the editor enforces INLINE (at edit time, where the typo
+// GLOBAL price ceilings the editor enforces INLINE (at edit time, where the typo
 // happens) so a bad price is caught at the cause, not only far away at broker
-// register. These MIRROR the broker's hard public ceilings (cmd/rogerai-broker
-// pricesafety.go: ROGERAI_MAX_PRICE_OUT default $100/1M, ROGERAI_MAX_PRICE_IN
-// default $50/1M), which remain the marketplace invariant no matter which client
-// registered the node. Kept as plain constants here to avoid the TUI importing the
-// broker; the broker is still the source of truth that actually rejects.
+// register. They bind EVERY band - public, private and confidential alike - because
+// registerPriceCeiling runs unconditionally on the register path; --private hides a
+// station from the market, it does not raise the cap. These MIRROR the broker's own
+// ceilings (cmd/rogerai-broker pricesafety.go: ROGERAI_MAX_PRICE_OUT default $100/1M,
+// ROGERAI_MAX_PRICE_IN default $50/1M), which remain the marketplace invariant no
+// matter which client registered the node. Kept as plain constants here to avoid the
+// TUI importing the broker; the broker is still the source of truth that rejects.
 const (
-	editorMaxPriceOut = 100.0 // $/1M out public ceiling
-	editorMaxPriceIn  = 50.0  // $/1M in public ceiling
+	editorMaxPriceOut = 100.0 // $/1M out, every band
+	editorMaxPriceIn  = 50.0  // $/1M in, every band
 )
 
 // validHHMM reports whether s is a well-formed "HH:MM" 24h time (00:00..23:59). A
@@ -2361,10 +2363,10 @@ func (m *model) validateEditor() (in, out float64, errMsg string) {
 		return 0, 0, "prices cannot be negative"
 	}
 	if out > editorMaxPriceOut {
-		return 0, 0, fmt.Sprintf("output price $%.2f/1M is over the $%.0f/1M public ceiling - lower it, or share PRIVATE", out, editorMaxPriceOut)
+		return 0, 0, fmt.Sprintf("output price $%.2f/1M is over the $%.0f/1M ceiling - lower it (the ceiling applies to every band, public or private)", out, editorMaxPriceOut)
 	}
 	if in > editorMaxPriceIn {
-		return 0, 0, fmt.Sprintf("input price $%.2f/1M is over the $%.0f/1M public ceiling - lower it, or share PRIVATE", in, editorMaxPriceIn)
+		return 0, 0, fmt.Sprintf("input price $%.2f/1M is over the $%.0f/1M ceiling - lower it (the ceiling applies to every band, public or private)", in, editorMaxPriceIn)
 	}
 	for i, w := range m.edWindows {
 		if !validHHMM(w.Start) || !validHHMM(w.End) {
@@ -2377,10 +2379,10 @@ func (m *model) validateEditor() (in, out float64, errMsg string) {
 			return 0, 0, fmt.Sprintf("window %d prices cannot be negative", i+1)
 		}
 		if w.Out > editorMaxPriceOut {
-			return 0, 0, fmt.Sprintf("window %d output $%.2f/1M is over the $%.0f/1M public ceiling", i+1, w.Out, editorMaxPriceOut)
+			return 0, 0, fmt.Sprintf("window %d output $%.2f/1M is over the $%.0f/1M ceiling - lower it (the ceiling applies to every band, public or private)", i+1, w.Out, editorMaxPriceOut)
 		}
 		if w.In > editorMaxPriceIn {
-			return 0, 0, fmt.Sprintf("window %d input $%.2f/1M is over the $%.0f/1M public ceiling", i+1, w.In, editorMaxPriceIn)
+			return 0, 0, fmt.Sprintf("window %d input $%.2f/1M is over the $%.0f/1M ceiling - lower it (the ceiling applies to every band, public or private)", i+1, w.In, editorMaxPriceIn)
 		}
 	}
 	return in, out, ""

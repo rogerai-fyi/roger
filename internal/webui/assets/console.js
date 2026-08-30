@@ -540,7 +540,7 @@
   }
   function topup() {
     var usd = parseFloat($("topup-amount").value);
-    if (!usd || usd <= 0) { toast("Enter an amount.", "warn"); return; }
+    if (!usd || usd < 1) { toast("Top-up minimum is $1.", "warn"); return; }
     apiPost("/api/account/topup", { usd: usd }).then(function (r) {
       if (r && r.url) { window.open(r.url, "_blank", "noopener"); toast("Opening checkout…", "ok"); }
       else toast((r && r.message) || "Top-up requested.", "ok");

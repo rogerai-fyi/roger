@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<!-- PRICING: the money, as RULES.
+     The site had prices in exactly two places - a live row on the dial and one line of
+     the homepage spec sheet - so a first-time reader could not learn that free stations
+     exist, that there is no subscription, or what an operator keeps. This page answers
+     that without ever quoting a number a station controls.
+     The doctrine is the same one homepage-data-honesty.test.mjs enforces: the RULES are
+     ours and stable, so they are printed; the PRICES are the operators' and change by the
+     hour, so they are pointed at. No model is named anywhere on this page - a model name
+     only ever appears next to a rate, and that belongs on /models.html.
+     Every figure traces to a committed source: the 70/30 split to tos.html, the ceilings
+     and the wallet rules to manual.html §6, the payout policy to manual.html §7, the
+     70/10/20 relay settlement to broadcasts-run-a-tower.html.
+     Registered in build.mjs CSS_BUNDLES. Contract: test/pricing-faq-llms.test.mjs. -->
+<html lang="en">
+<head>
+  <!-- include: head.html title="Pricing - RogerAI" desc="RogerAI has no price list: operators set their own per-token rates and many stations broadcast free. What is fixed is the rules - no subscription, a wallet debited per token, a 70/30 split in the operator's favor, a $25 minimum payout after a 120-day hold." theme=external og=post ogtype=website ogtitle="RogerAI pricing - the rules, not a price list" ogdesc="Per token, in and out, at a price the operator sets. No subscription, no seat, no minimum. Operators keep 70%. Free stations are normal, not a trial." ogurl="https://rogerai.fm/pricing.html" ogimage="https://rogerai.fm/og-home.png" -->
+</head>
+<body data-onair="idle">
+  <div class="rail" aria-hidden="true">
+    <span class="rail__head">RogerAI &middot; Pricing</span>
+    <span class="rail__rev">Rev. 2026.08 &middot; ON AIR</span>
+  </div>
+
+  <!-- include: nav.html variant=marketing home=/ anchors=/ scrolled=1 pricingcurrent='aria-current="page"' -->
+
+  <main id="top">
+    <section class="research-hero">
+      <div class="wrap">
+        <span class="hero__eyebrow">
+          <span class="onair" aria-hidden="true">((<span class="onair__dot">&bull;</span>))</span>
+          <span class="hero__callsign">ROGERAI</span>
+          <span class="hero__sep" aria-hidden="true">&middot;</span>
+          pricing
+        </span>
+        <h1>There is no price list. There are rules.</h1>
+        <p class="research-hero__lead">
+          Every station on this network is somebody's machine, and the person who owns it
+          sets what it charges. Plenty of them charge nothing. Rates here are set by the
+          operator, never by us, so the number you pay is not ours to publish - it is live on
+          the dial and it moves. What does not move is the
+          part below: how you are billed, what you can be billed, and what an operator keeps.
+        </p>
+        <div class="research-actions">
+          <a class="research-button research-button--primary" href="/models.html">Live prices on the dial <span aria-hidden="true">&rarr;</span></a>
+          <a class="research-button" href="/faq.html">Questions</a>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="paths">
+      <div class="wrap">
+        <div class="section__head section__head--left">
+          <span class="sectionno">&sect;1 / THE THREE WAYS IN</span>
+          <h2>Two of these never touch a wallet.</h2>
+          <p>Most people reading a pricing page assume the free thing is a trial. Here it is
+             just a station whose operator set the rate to zero, and it behaves exactly like
+             a paid one.</p>
+        </div>
+
+        <div class="paths">
+          <article>
+            <span class="paths__cost paths__cost--none">costs nothing</span>
+            <h3>A free station</h3>
+            <p>Bands broadcast at zero all the time - people who put a machine up because they
+               like the idea, and machines idling between paid work. You need
+               <b>no account</b> to browse the dial or to open a free endpoint. Install, tune
+               in, point your tool at it.</p>
+            <a class="tlink" href="/models.html">See what is free right now &rarr;</a>
+          </article>
+          <article>
+            <span class="paths__cost">per token</span>
+            <h3>A paid station</h3>
+            <p>You log in once, so there is a wallet to debit, and pay per token - input and
+               output priced separately, in dollars per million, at the rate that station
+               published. The balance ticks down as the answer streams.</p>
+            <a class="tlink" href="#pay">What you can be charged &darr;</a>
+          </article>
+          <article>
+            <span class="paths__cost paths__cost--none">costs nothing</span>
+            <h3>Your own tower</h3>
+            <p>A Tower is a program, and one running standalone needs nothing from us: your
+               machines serve your people on your network, with no account, no metering and
+               no settlement. Useful when the traffic is not allowed to leave the building.</p>
+            <a class="tlink" href="/tower.html">How a Tower works &rarr;</a>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="pay">
+      <div class="wrap">
+        <div class="section__head section__head--left">
+          <span class="sectionno">&sect;2 / WHAT YOU PAY</span>
+          <h2>Per token, from a wallet, at a price the operator set.</h2>
+          <p>The whole billing model in one plate. None of these are introductory and none of
+             them change when you spend more.</p>
+        </div>
+
+        <dl class="pplate">
+          <div>
+            <dt>Unit</dt>
+            <dd>Per <b>token</b>, input and output priced separately, quoted in dollars per
+                million. Voices are billed by the character.</dd>
+          </div>
+          <div>
+            <dt>Who sets it</dt>
+            <dd>The <b>operator</b>, per model, and they can vary it by time of day. We do not
+                set, subsidize, or floor it. The current number for any band is on the
+                <a href="/models.html">dial</a>.</dd>
+          </div>
+          <div>
+            <dt>Subscription</dt>
+            <dd><b>None.</b> No plan, no seat, no monthly minimum, no annual commitment, and
+                nothing to cancel. If you stop sending requests you stop spending.</dd>
+          </div>
+          <div>
+            <dt>Wallet</dt>
+            <dd>Debited live as tokens settle. The debit is conditional on the broker side, so
+                a wallet <b>cannot go negative</b> - there is no bill at the end of the month
+                and no overage to argue about.</dd>
+          </div>
+          <div>
+            <dt>To start</dt>
+            <dd>A <b>$1 starter credit</b> lands on your wallet the first time you log in, one
+                time per account, so you can try a paid station before you ever add money. It
+                is a launch seed and it is capped, so it lasts while it lasts.</dd>
+          </div>
+          <div>
+            <dt>Top-ups</dt>
+            <dd>Through Stripe Checkout, in whatever amount you choose above the
+                <b>$1</b> minimum: <code>roger topup 25</code>. Stripe is the payments
+                provider and holds every card detail; we never see one.</dd>
+          </div>
+          <div>
+            <dt>An unusable answer</dt>
+            <dd>Costs <b>nothing</b>. A request that returns nothing usable is voided: the
+                pre-authorized hold is released, you pay zero, the operator earns zero and
+                takes a strike. A model that cannot actually answer never appears on your bill.</dd>
+          </div>
+          <div>
+            <dt>The token count</dt>
+            <dd>Is the <b>broker's own re-count</b>, not the station's claim, and settlement
+                takes the smaller of the two. Padding the count is not a thing a station can
+                profitably do.</dd>
+          </div>
+        </dl>
+      </div>
+    </section>
+
+    <section class="section" id="safety">
+      <div class="wrap">
+        <div class="section__head section__head--left">
+          <span class="sectionno">&sect;3 / PRICE SAFETY</span>
+          <h2>An open market needs a guard rail on the expensive side.</h2>
+          <p>Anyone can list a station, which means anyone can list an absurd one. Four rules
+             stand between a typo - yours or theirs - and your balance.</p>
+        </div>
+
+        <div class="guards">
+          <article>
+            <h3>A ceiling you did not have to set</h3>
+            <p>Set no limit and the client still caps every connection at <b>$10 / 1M</b> out.
+               That floor holds even under <code>--yes</code>, so an unattended bot can never
+               quietly bind itself to an expensive band.</p>
+          </article>
+          <article>
+            <h3>Type the price back</h3>
+            <p>To accept a station above <b>$20 / 1M</b> out you have to type the number, not
+               press y. A deliberate speed bump on the genuinely costly end of the dial.</p>
+          </article>
+          <article>
+            <h3>A listing ceiling</h3>
+            <p>The broker refuses to register a station above <b>$100 / 1M</b> out or
+               <b>$50 / 1M</b> in, base rate and every scheduled window. It binds
+               <b>every band, public or private</b>: a private band hides a station from the
+               market, it is not a way around the ceiling.</p>
+          </article>
+          <article>
+            <h3>No price hike, ever</h3>
+            <p>Your ceiling is not a one-time check at connect. It rides <b>every request</b>
+               as a header, so a station cannot raise its rate under you mid-session. If a
+               band drifts past your limit you get routed elsewhere, not overcharged.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="earn">
+      <div class="wrap">
+        <div class="section__head section__head--left">
+          <span class="sectionno">&sect;4 / WHAT YOU EARN</span>
+          <h2>You keep 70 percent, and you set the number it is 70 percent of.</h2>
+          <p>The other side of the same market. Nothing here is negotiated, tiered, or
+             different for a large operator.</p>
+        </div>
+
+        <dl class="pplate">
+          <div>
+            <dt>Your share</dt>
+            <dd><b>70%</b> of every token you serve. The 30% platform fee covers routing,
+                metering, settlement, fraud and chargeback exposure, and the payout rails.</dd>
+          </div>
+          <div>
+            <dt>Through a Tower</dt>
+            <dd>When a relay carries the work, the settlement is <b>70 / 10 / 20</b>: the
+                serving node, the Tower operator, then the platform.
+                <a href="/broadcasts-run-a-tower.html">How that path works</a>.</dd>
+          </div>
+          <div>
+            <dt>You control</dt>
+            <dd>Input rate, output rate, free hours, time-of-use windows, concurrency, and
+                which models you carry. Setting a rate of zero is a normal thing to do and
+                costs you nothing.</dd>
+          </div>
+          <div>
+            <dt>Minimum payout</dt>
+            <dd><b>$25.</b> Below that the transfer and reporting overhead is worth more than
+                the transfer.</dd>
+          </div>
+          <div>
+            <dt>Schedule</dt>
+            <dd>You request it; payable balances are released on a monthly batch.</dd>
+          </div>
+          <div>
+            <dt>Identity</dt>
+            <dd>Stripe Connect onboarding has to be complete before any payout leaves. Stripe
+                holds the identity documents - <b>we never store them</b>. Earnings still
+                accrue before you onboard; they are simply not transferable yet.</dd>
+          </div>
+        </dl>
+
+        <div class="lifecycle">
+          <article><b>Accrued</b><span>A served request credits your share the moment it settles.</span></article>
+          <article><b>Held</b><span>For 120 days, which covers the late-chargeback tail. There is no separate reserve on top of it.</span></article>
+          <article><b>Payable</b><span>Hold cleared, no open dispute, Connect onboarding done.</span></article>
+          <article><b>Paid</b><span>You request a payout and Stripe transfers it to your bank.</span></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="free">
+      <div class="wrap">
+        <div class="section__head section__head--left">
+          <span class="sectionno">&sect;5 / WHAT IS NOT BILLED</span>
+          <h2>The list of things nobody is charging you for.</h2>
+        </div>
+        <ul class="freelist">
+          <li><b>Reading the dial.</b> The whole live directory, every station and every price, with no account.</li>
+          <li><b>The software.</b> The CLI, the terminal app, the iOS and Mac app, and the source. There is no paid edition.</li>
+          <li><b>Serving for free.</b> Running a station at a rate of zero costs nothing and is not rate-limited into uselessness.</li>
+          <li><b>A standalone Tower.</b> Your own relay, your own machines, your own network, with no account and nothing reported anywhere.</li>
+          <li><b>A private band.</b> Handing your own people a key to your own station. <a href="/manual.html#s5">How grants work</a>.</li>
+          <li><b>An answer that did not work.</b> Voided, not discounted.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="section research-closing" id="ask">
+      <div class="wrap">
+        <div class="section__head">
+          <span class="sectionno">&sect;6 / STILL UNSURE</span>
+          <h2>The questions people actually write in with.</h2>
+          <p>Whether an operator can read your prompts, what happens when a station drops
+             mid-answer, and whether you need to open a port. All answered plainly, with a
+             line into the manual where the full version lives.</p>
+        </div>
+        <div class="research-actions">
+          <a class="research-button research-button--primary" href="/faq.html">Read the FAQ <span aria-hidden="true">&rarr;</span></a>
+          <a class="research-button" href="/manual.html#s6">The manual on money</a>
+          <a class="research-button" data-lets-talk aria-expanded="false"
+             href="mailto:labs@rogerai.fm?subject=Pricing%20question">Let&rsquo;s talk</a>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- include: footer.html anchors=/ -->
+  <script src="js/lets-talk.js" defer></script>
+  <script src="js/site.js" defer></script>
+  <script src="js/session.js" defer></script>
+  <script src="js/promo.js" defer></script>
+</body>
+</html>

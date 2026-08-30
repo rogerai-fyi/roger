@@ -509,60 +509,79 @@
   </section>
 
   <!-- ===================== SPECIFICATIONS ===================== -->
-  <section class="section" id="spec">
+  <!-- Was eleven full-width rows - most of a screen to say eleven short things. It is the
+       nameplate riveted to the back of the set now: an etched label, four rivets, and the
+       whole instrument in two dense rows. Nothing was cut to get there;
+       test/homepage-plate-and-books.test.mjs counts the eleven and checks their values, so
+       a "shorter" plate that quietly dropped a row fails rather than ships. -->
+  <section class="section section--plate" id="spec">
     <div class="wrap">
-      <div class="section__head section__head--left" data-reveal>
-        <span class="sectionno">§5 / SPECIFICATIONS</span>
-        <h2>Read the spec sheet.</h2>
-        <p>The whole instrument, on one plate. No surprises behind the dial.</p>
+      <div class="plate" data-reveal>
+        <!-- The etched label IS the section heading: collapsing the standing
+             head into the plate is what bought the space, but a section with no
+             heading leaves a hole in the document outline, so it stays an h2 and
+             is styled down rather than replaced by a span. -->
+        <h2 class="plate__etch">
+          <span class="sectionno">§5 / SPECIFICATIONS</span>
+          <span class="plate__sub">the whole instrument, one plate</span>
+        </h2>
+        <dl class="plate__grid" aria-label="RogerAI specifications">
+          <div><dt>Protocol</dt><dd>OpenAI-compatible <i>drop-in</i></dd></div>
+          <div><dt>Transport</dt><dd>Outbound long-poll <i>no inbound ports</i></dd></div>
+          <div><dt>Endpoint</dt><dd><span class="mono">127.0.0.1</span> <i>local, key-scoped</i></dd></div>
+          <div><dt>Pricing</dt><dd>Per token <i>operator-set, from free, $/1M</i></dd></div>
+          <div><dt>Settlement</dt><dd>Wallet balance <i>debited live</i></dd></div>
+          <div><dt>Lineage</dt><dd>ed25519 co-signed <span class="cs">&#9670;</span> <i>weights, shard, token</i></dd></div>
+          <div><dt>Split</dt><dd><span class="mono">70 / 30</span> <i>operator's favor</i></dd></div>
+          <div><dt>Interfaces</dt><dd>Terminal + browser <i>one store, two windows</i></dd></div>
+          <div><dt>Reach</dt><dd>Only the model port <i>no shell, no files, no context</i></dd></div>
+          <div><dt>Platforms</dt><dd><span class="mono">macOS &middot; Linux &middot; Windows</span> <i>Apple Silicon: MLX and GGUF</i></dd></div>
+          <div><dt>Backends</dt><dd><span class="mono">vLLM &middot; llama.cpp &middot; Ollama &middot; LM Studio &middot; Osaurus &middot; LiteLLM &middot; any OpenAI-compatible</span></dd></div>
+        </dl>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== THE INDUSTRIAL SERIES ===================== -->
+  <!-- The o'ailly books. Edge Impulse leans on "we wrote the book" and so can we, with the
+       difference that ours are free to read and say on the cover who wrote them.
+       HONESTY RULE, same as the reserved App Store slot: only a title a stranger can open
+       today may appear here. The third title in the series is still a draft and is
+       deliberately absent - the test fails if it shows up before it is published.
+       Covers are the press's own artwork, shipped local rather than hotlinked. -->
+  <section class="section band" id="books">
+    <div class="wrap shelf">
+      <div class="shelf__copy" data-reveal>
+        <span class="sectionno">§6 / THE INDUSTRIAL SERIES</span>
+        <h2>We wrote the book on this. Then we wrote the next one.</h2>
+        <p>Two field books for people who own machines: what a small local model can
+           honestly do on a plant floor, and the physics of running one on hardware you
+           already paid for. Written by machines, put through the press's three-pass
+           review, verified by Roger AI, and free to read in full.</p>
+        <p class="shelf__colophon">
+          <img class="shelf__mark" src="assets/books/oailly.svg" width="640" height="220"
+               alt="o'ailly press wordmark: books by AI, for AI, human readable" loading="lazy" />
+          <span>Published by <a href="https://oailly.com/" target="_blank" rel="noopener noreferrer">o&rsquo;ailly press</a>,
+                a machine-first imprint. The whole catalogue ships with its review trail attached.</span>
+        </p>
       </div>
 
-      <dl class="spec" data-reveal data-reveal-delay="60" aria-label="RogerAI specifications">
-        <div class="spec__row">
-          <dt>Protocol</dt>
-          <dd>OpenAI-compatible <span class="spec__note">drop-in</span></dd>
-        </div>
-        <div class="spec__row">
-          <dt>Transport</dt>
-          <dd>Outbound long-poll <span class="spec__note">no inbound ports</span></dd>
-        </div>
-        <div class="spec__row">
-          <dt>Endpoint</dt>
-          <dd><span class="mono">127.0.0.1</span> <span class="spec__note">local · key-scoped</span></dd>
-        </div>
-        <div class="spec__row">
-          <dt>Pricing</dt>
-          <dd>Per token <span class="spec__note">operator-set, from free, $/1M</span></dd>
-        </div>
-        <div class="spec__row">
-          <dt>Settlement</dt>
-          <dd>Wallet balance <span class="spec__note">debited live, per token</span></dd>
-        </div>
-        <div class="spec__row">
-          <dt>Lineage</dt>
-          <dd>ed25519 co-signed <span class="cs">&#9670;</span> <span class="spec__note">weights · shard · token</span></dd>
-        </div>
-        <div class="spec__row">
-          <dt>Split</dt>
-          <dd><span class="mono">70 / 30</span> <span class="spec__note">in the operator's favor</span></dd>
-        </div>
-        <div class="spec__row">
-          <dt>Backends</dt>
-          <dd><span class="mono">vLLM · llama.cpp · Ollama · LM Studio · Osaurus · LiteLLM · any OpenAI-compatible</span></dd>
-        </div>
-        <div class="spec__row">
-          <dt>Interfaces</dt>
-          <dd>Terminal + browser console <span class="spec__note">one store, two windows</span></dd>
-        </div>
-        <div class="spec__row">
-          <dt>Platforms</dt>
-          <dd><span class="mono">macOS &middot; Linux &middot; Windows</span> <span class="spec__note">Apple Silicon: MLX and GGUF</span></dd>
-        </div>
-        <div class="spec__row">
-          <dt>Reach</dt>
-          <dd>Only the model port <span class="spec__note">no shell, no files, no context</span></dd>
-        </div>
-      </dl>
+      <div class="shelf__stack" data-reveal data-reveal-delay="100">
+        <a class="shelf__book" href="https://oailly.com/read/rogerai-labs--local-llms-for-manufacturing/"
+           target="_blank" rel="noopener noreferrer">
+          <img class="shelf__cover" src="assets/books/cover-manufacturing.svg" width="600" height="780"
+               alt="Cover of Local LLMs for Manufacturing, o'ailly Industrial Series number 1, with a line-drawn beetle"
+               loading="lazy" />
+          <span class="shelf__no"><b>N&ordm; 1</b> Local LLMs for Manufacturing<em>read it free &rarr;</em></span>
+        </a>
+        <a class="shelf__book" href="https://oailly.com/read/rogerai-labs--inference-on-the-edge/"
+           target="_blank" rel="noopener noreferrer">
+          <img class="shelf__cover" src="assets/books/cover-inference.svg" width="600" height="780"
+               alt="Cover of Inference on the Edge, o'ailly Industrial Series number 2, with a line-drawn dragonfly"
+               loading="lazy" />
+          <span class="shelf__no"><b>N&ordm; 2</b> Inference on the Edge<em>read it free &rarr;</em></span>
+        </a>
+      </div>
     </div>
   </section>
 
@@ -570,10 +589,11 @@
   <section class="section band" id="monetize">
     <div class="wrap monetize">
       <div class="monetize__copy" data-reveal>
-        <span class="sectionno">§6 / MONETIZE</span>
+        <span class="sectionno">§7 / MONETIZE</span>
         <h2>Put your spare local models to work.</h2>
         <p>Set a rate. Keep 70% of every token you serve. Or run open for free, plenty of
-          stations broadcast for the love of the band.</p>
+          stations broadcast for the love of the band. The
+          <a href="/pricing.html#earn">payout policy</a> is short and printed in full.</p>
         <ul class="checks">
           <li><span class="tick">+</span> Per-input and per-output pricing, per model</li>
           <li><span class="tick">+</span> Time-of-use windows and usage caps you control</li>
@@ -609,7 +629,7 @@
   <!-- ===================== CTA STRIP ===================== -->
   <section class="cta">
     <div class="wrap cta__inner" data-reveal>
-      <span class="sectionno">§7 / GO</span>
+      <span class="sectionno">§8 / GO</span>
       <h2>Start with one command.</h2>
       <p>You are installing <code class="inline">roger</code>: one binary, <b>a local
         harness for local models</b>. It finds the models already on your machine, puts

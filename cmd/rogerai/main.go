@@ -1749,11 +1749,9 @@ var (
 )
 
 func cmdTopup(cfg config, args []string) error {
-	usd := 10.0
-	if len(args) > 0 {
-		if f, err := strconv.ParseFloat(args[0], 64); err == nil {
-			usd = f
-		}
+	usd, err := client.ParseTopupAmount(args)
+	if err != nil {
+		return err
 	}
 	return client.Topup(cfg.Broker, cfg.User, usd, tui.OpenURL)
 }
@@ -1994,7 +1992,10 @@ func payoutHistory(cfg config) error {
 func cmdBalance(cfg config, args []string) error {
 	// Hidden aliases, parsed by hand so they do NOT appear in `balance -h`:
 	//   roger balance topup [usd]   /   roger balance --topup[=usd]
-	if usd, ok := balanceTopupAlias(args); ok {
+	if usd, ok, err := balanceTopupAlias(args); ok {
+		if err != nil {
+			return err
+		}
 		return client.Topup(cfg.Broker, cfg.User, usd, tui.OpenURL)
 	}
 	return client.Balance(cfg.Broker, cfg.User)
@@ -2003,29 +2004,26 @@ func cmdBalance(cfg config, args []string) error {
 // balanceTopupAlias recognizes the retired-but-still-working topup spellings under
 // `balance` (C7 hidden aliases): `balance topup [usd]`, `balance --topup`, and
 // `balance --topup <usd>` / `--topup=<usd>`. Returns the dollar amount (defaulting to
-// $10) and true when one matched, else (_, false). The documented form is the
-// top-level `roger topup <amt>`.
-func balanceTopupAlias(args []string) (float64, bool) {
-	usd := 10.0
+// $10), true when one matched, and any refusal. The documented form is the top-level
+// `roger topup <amt>`, and the amount is read by the SAME parser (client.ParseTopupAmount),
+// so the two spellings cannot disagree about what "$25" means the way they used to - nor
+// can one of them quietly charge the default on an amount the other refuses.
+func balanceTopupAlias(args []string) (usd float64, matched bool, err error) {
+	usd = client.DefaultTopupUSD
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		switch {
 		case a == "topup" || a == "--topup" || a == "-topup":
 			if i+1 < len(args) {
-				if f, e := strconv.ParseFloat(strings.TrimPrefix(args[i+1], "$"), 64); e == nil && f > 0 {
-					usd = f
-				}
+				usd, err = client.ParseTopupAmount(args[i+1:])
 			}
-			return usd, true
+			return usd, true, err
 		case strings.HasPrefix(a, "--topup=") || strings.HasPrefix(a, "-topup="):
-			v := a[strings.IndexByte(a, '=')+1:]
-			if f, e := strconv.ParseFloat(strings.TrimPrefix(v, "$"), 64); e == nil && f > 0 {
-				usd = f
-			}
-			return usd, true
+			usd, err = client.ParseTopupAmount([]string{a[strings.IndexByte(a, '=')+1:]})
+			return usd, true, err
 		}
 	}
-	return 0, false
+	return 0, false, nil
 }
 
 // cmdLimit is the per-account MONTHLY SPEND CAP verb (a budget limit, modeled on

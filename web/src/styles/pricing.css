@@ -1,0 +1,71 @@
+/* =====================================================================
+   PRICING - the plates only.
+   The page reuses the notebook shell (research.css) for its hero, sections
+   and closing, exactly as company.html and careers.html do. What is left
+   here is the one thing those pages do not have: long key/value plates of
+   RULES, and the three-up "what this costs" cards above them.
+   Nothing here paints a number. Every figure on the page is a policy that
+   is committed elsewhere (tos.html, manual.html §6/§7); live prices belong
+   on the dial, so this file has no live-data state to style.
+   ===================================================================== */
+
+/* the three ways in: free, paid, your own. Same divider-by-gap trick as
+   .deployment-grid, so the rules never have to be re-derived per breakpoint. */
+.paths {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px; background: var(--hairline);
+  border-block: 2px solid var(--ink-900);
+}
+.paths article { display: flex; flex-direction: column; gap: var(--s-3); padding: var(--s-6); background: var(--paper); }
+.paths h3 { margin: 0; color: var(--ink-900); font-size: var(--t-h3); }
+.paths p { margin: 0; color: var(--ink-500); line-height: var(--lh-body); }
+.paths__cost {
+  align-self: flex-start; font-family: var(--font-mono); font-size: var(--t-micro);
+  letter-spacing: .08em; text-transform: uppercase; color: var(--live);
+  border: 1px solid var(--live); padding: 3px 7px;
+}
+.paths__cost--none { color: var(--ink-500); border-color: var(--hairline-2); }
+.paths a { margin-top: auto; padding-top: var(--s-4); font-size: var(--t-sm); }
+
+/* the rule plates. A row is a rule and its consequence, never a price. */
+.pplate { margin: 0; border-top: 2px solid var(--ink-900); }
+.pplate > div {
+  display: grid; grid-template-columns: minmax(150px, 210px) 1fr;
+  gap: var(--s-5); padding-block: var(--s-4);
+  border-bottom: 1px solid var(--hairline);
+}
+.pplate dt {
+  color: var(--ink-400); font-family: var(--font-mono); font-size: var(--t-micro);
+  letter-spacing: .08em; text-transform: uppercase; padding-top: 2px;
+}
+.pplate dd { margin: 0; color: var(--ink-700); line-height: var(--lh-body); }
+.pplate dd b { color: var(--ink-900); }
+.pplate dd code {
+  font-family: var(--font-mono); font-size: .9em; color: var(--ink-900);
+  background: var(--paper-2); border: 1px solid var(--hairline); padding: 1px 5px;
+}
+
+/* the four price-safety guards, two across */
+.guards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-5); }
+.guards article { border: 1px solid var(--hairline); border-top: 2px solid var(--ink-900); padding: var(--s-5); }
+.guards h3 { margin: 0 0 var(--s-3); color: var(--ink-900); font-size: var(--t-sm); font-family: var(--font-mono); letter-spacing: .06em; text-transform: uppercase; }
+.guards p { margin: 0; color: var(--ink-500); line-height: var(--lh-body); }
+
+/* the earnings lifecycle, as a row of stages rather than a diagram */
+.lifecycle { margin-top: var(--s-8); display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; background: var(--hairline); border-block: 2px solid var(--ink-900); }
+.lifecycle article { padding: var(--s-5); background: var(--paper); }
+.lifecycle b { display: block; font-family: var(--font-mono); font-size: var(--t-micro); letter-spacing: .1em; text-transform: uppercase; color: var(--live); }
+.lifecycle span { display: block; margin-top: var(--s-3); color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body); }
+
+/* the free list: things that never reach a wallet */
+.freelist { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--hairline); }
+.freelist li { padding-block: var(--s-4); border-bottom: 1px solid var(--hairline); color: var(--ink-700); }
+.freelist li b { color: var(--ink-900); }
+
+@media (max-width: 900px) {
+  .paths, .lifecycle { grid-template-columns: 1fr; }
+  .guards { grid-template-columns: 1fr; }
+}
+@media (max-width: 620px) {
+  .pplate > div { grid-template-columns: 1fr; gap: var(--s-2); }
+}

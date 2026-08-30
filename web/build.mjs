@@ -51,6 +51,8 @@ const CSS_BUNDLES = {
   "research-industry.html": [...CSS_MARKETING, "research.css"], // plant placement + standards, split out of the hub
   "careers.html":   [...CSS_MARKETING, "research.css", "careers.css"], // hiring surface; reuses the notebook shell
   "company.html":   [...CSS_MARKETING, "research.css"],
+  "pricing.html":   [...CSS_MARKETING, "research.css", "pricing.css"], // reuses the notebook shell; pricing.css is only the plates
+  "faq.html":       [...CSS_MARKETING, "research.css", "faq.css"],     // ditto; faq.css is only the disclosure list
   "research-models.html": [...CSS_MARKETING, "research.css"], // the model catalogue, split out of the hub
   "research-wave-family.html": [...CSS_MARKETING, "research.css", "wave-family.css"], // the Wave ladder field guide, split out so research.html keeps its byte budget
   "voices.html":    [...CSS_MARKETING, "voices.css"],
@@ -215,6 +217,81 @@ function writeSitemap(indexablePages) {
   return idx.length;
 }
 
+// ---- llms.txt: the site index, for the crawlers that read prose ------------------------------
+//
+// Same doctrine as the sitemap: DERIVED from the built output, never hand-listed. A page's line
+// carries its own <title> and its own meta description, so a page can no more drift out of
+// llms.txt than it can drift out of the sitemap. Convention: llmstxt.org (H1, blockquote, then
+// linked sections).
+const stripComments = (s) => s.replace(/<!--[\s\S]*?-->/g, "");
+const stripTags = (s) => s.replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
+// &amp; is decoded LAST: doing it first turns a literal "&amp;lt;" into "<" instead
+// of "&lt;". Numeric refs are handled generically so a page whose title uses &#8217;
+// or &sect; does not leak the raw entity into llms.txt (a test asserts none do).
+const NAMED = { lt: "<", gt: ">", quot: '"', apos: "'", rsquo: "'", lsquo: "'",
+  rdquo: '"', ldquo: '"', middot: "-", nbsp: " ", hellip: "...", sect: "\u00a7",
+  ordm: "\u00ba", bull: "\u2022", darr: "\u2193", rarr: "\u2192" };
+const decode = (s) => s
+  .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+  .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d)))
+  .replace(/&([a-z]+);/gi, (m, name) => NAMED[name] ?? NAMED[name.toLowerCase()] ?? m)
+  .replace(/&amp;/g, "&");
+
+// "The Tower - RogerAI" / "RogerAI - the operating manual" -> the distinctive half.
+function llmsTitle(html, page) {
+  // Match inside the comment-free document: head.html's own doc comment documents a
+  // `title =` argument, and a naive scan swallowed the whole comment as the title.
+  const raw = decode(stripTags(stripComments(html).match(/<title>([\s\S]*?)<\/title>/)?.[1] || page));
+  if (page === "index.html") return raw;   // the homepage IS the brand; do not strip it
+  const parts = raw.split(/\s+[-\u00b7|]\s+/).filter((p) => p && !/^RogerAI$/i.test(p));
+  return (parts.join(" - ") || raw).trim();
+}
+
+function llmsDescription(html, page) {
+  // The quote character is captured and back-referenced: an apostrophe inside a
+  // double-quoted description used to end the match early and truncate the line.
+  const doc = stripComments(html);
+  const meta = doc.match(/<meta[^>]+name=["']description["'][^>]+content=(["'])([\s\S]*?)\1/i)?.[2]
+    || doc.match(/<meta[^>]+property=["']og:description["'][^>]+content=(["'])([\s\S]*?)\1/i)?.[2];
+  if (!meta) throw new Error(`${page} has no meta description, so it cannot be listed in llms.txt`);
+  return decode(stripTags(meta));
+}
+
+// Three groups, so a reader (or a crawler) sees the shape of the site rather than 30 flat lines.
+const llmsGroup = (page) =>
+  /^broadcasts-/.test(page) ? "Broadcasts (field guides and build notes)"
+  : /^research/.test(page) ? "Research"
+  : "Pages";
+const LLMS_GROUPS = ["Pages", "Research", "Broadcasts (field guides and build notes)"];
+
+function writeLlms(indexablePages, htmlByPage) {
+  const lines = [
+    "# RogerAI",
+    "",
+    "> An OpenAI-compatible network for local models: put a model running on your own GPU on",
+    "> the air and get paid per token, or tune in to someone else's. One CLI does both sides.",
+    "",
+    "RogerAI is an American AI research and infrastructure company. It publishes the Wave model",
+    "family for constrained hardware, and runs a marketplace where independently owned machines",
+    "serve those and other open models over one OpenAI-compatible endpoint. Prices are set by the",
+    "operators, not by us, so any figure on this site that looks like a rate is live data read from",
+    "the market at https://rogerai.fm/models.html rather than a published price list.",
+    "",
+  ];
+  for (const group of LLMS_GROUPS) {
+    const pages = indexablePages.filter((p) => llmsGroup(p) === group).sort();
+    if (!pages.length) continue;
+    lines.push(`## ${group}`, "");
+    for (const page of pages) {
+      const html = htmlByPage.get(page);
+      lines.push(`- [${llmsTitle(html, page)}](${canonicalURL(page)}): ${llmsDescription(html, page)}`);
+    }
+    lines.push("");
+  }
+  writeFileSync(join(DIST, "llms.txt"), lines.join("\n"));
+  return indexablePages.length;
+}
+
 function build() {
   rmSync(DIST, { recursive: true, force: true });
   mkdirSync(DIST, { recursive: true });
@@ -222,6 +299,7 @@ function build() {
   // pages: top-level *.html in src/
   const pages = readdirSync(SRC).filter((f) => f.endsWith(".html"));
   const indexable = [];
+  const htmlByPage = new Map();
   for (const page of pages) {
     const raw = readFileSync(join(SRC, page), "utf8");
     let out = resolveIncludes(raw, 0);
@@ -231,13 +309,15 @@ function build() {
     if (/<!--\s*include:/.test(out)) throw new Error(`unresolved include in ${page}`);
     if (/<!--\s*css-bundle\s*-->/.test(out)) throw new Error(`unresolved css-bundle in ${page}`);
     writeFileSync(join(DIST, page), out);
+    htmlByPage.set(page, out);
     if (!isNoindex(out)) indexable.push(page);   // sitemap tracks the ACTUAL robots directive
   }
 
   copyAssets(SRC);
   const n = writeSitemap(indexable);
+  const l = writeLlms(indexable, htmlByPage);
 
-  console.log(`built ${pages.length} page(s) + sitemap.xml (${n} urls) -> ${relative(ROOT, DIST)}/`);
+  console.log(`built ${pages.length} page(s) + sitemap.xml (${n} urls) + llms.txt (${l} entries) -> ${relative(ROOT, DIST)}/`);
 }
 
 build();

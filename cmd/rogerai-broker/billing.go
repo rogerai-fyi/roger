@@ -8,12 +8,15 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
 	"strconv"
 	"strings"
 	"time"
+
+	"rogerai.fm/roger/v6/internal/client"
 )
 
 // billing is the Stripe wallet top-up (prepaid credits). SDK-free: raw Stripe API
@@ -116,9 +119,19 @@ func (b *broker) checkout(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		USD float64 `json:"usd"`
 	}
-	_ = json.Unmarshal(body, &req)
-	if req.USD < 1 {
-		req.USD = 10
+	// Substituting an amount is never the right answer on a money path. This used to
+	// discard the Unmarshal error and rewrite anything under a dollar to $10, so a
+	// request for $0.50 - or a body that did not parse at all - opened a $10 checkout
+	// and told nobody. It is the enforcement point, so it refuses instead, against the
+	// same floor every client reads (client.MinTopupUSD).
+	if err := json.Unmarshal(body, &req); err != nil {
+		jsonErr(w, http.StatusBadRequest, "malformed request body")
+		return
+	}
+	if math.IsNaN(req.USD) || math.IsInf(req.USD, 0) || req.USD < client.MinTopupUSD {
+		jsonErr(w, http.StatusBadRequest,
+			fmt.Sprintf("top-up minimum is $%.0f", client.MinTopupUSD))
+		return
 	}
 	credits := req.USD / b.bill.creditUSD
 

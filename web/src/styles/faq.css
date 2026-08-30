@@ -1,0 +1,40 @@
+/* =====================================================================
+   FAQ - a plain read, not an accordion.
+   Every answer stays in the document and on the screen: this page exists
+   partly so an answer engine can quote it, and partly so a reader can use
+   the browser's own find. A disclosure widget would hide both.
+   The visible questions and the FAQPage JSON-LD are locked to each other
+   by test/pricing-faq-llms.test.mjs, so an edit to one that skips the
+   other fails the build.
+   ===================================================================== */
+
+.faq__group { border-top: 2px solid var(--ink-900); }
+.faq__group + .faq__group { margin-top: var(--s-10); }
+
+.faq__item { padding-block: var(--s-6); border-bottom: 1px solid var(--hairline); }
+.faq__q {
+  margin: 0 0 var(--s-3); color: var(--ink-900);
+  font-size: var(--t-h3); line-height: 1.25; text-wrap: balance;
+}
+.faq__a { max-width: 68ch; }
+.faq__a p { margin: 0 0 var(--s-3); color: var(--ink-500); line-height: var(--lh-body); }
+.faq__a p:last-child { margin-bottom: 0; }
+.faq__a b { color: var(--ink-700); }
+.faq__a code {
+  font-family: var(--font-mono); font-size: .9em; color: var(--ink-900);
+  background: var(--paper-2); border: 1px solid var(--hairline); padding: 1px 5px;
+}
+
+/* the read-on line under an answer: where the manual says it in full */
+.faq__more {
+  display: block; margin-top: var(--s-3);
+  font-family: var(--font-mono); font-size: var(--t-micro);
+  letter-spacing: .06em; text-transform: uppercase;
+}
+
+/* the index at the top of the page: every question, one screen */
+.faq__index { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-3) var(--s-8); margin: 0; padding: 0; list-style: none; }
+.faq__index a { color: var(--ink-700); font-size: var(--t-sm); }
+.faq__index a:hover { color: var(--live); }
+
+@media (max-width: 720px) { .faq__index { grid-template-columns: 1fr; } }
