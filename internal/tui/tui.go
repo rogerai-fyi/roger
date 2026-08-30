@@ -1992,6 +1992,11 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			nm, cmd := m.dequeueAgentPrompts()
 			if nm.agentBusy {
 				nm.status = stDim.Render("sent the queued message")
+			} else if len(nm.agentQueued) > 0 {
+				// The dequeue gave up because the previous goroutine still owns the loop.
+				// Saying "ready" here is the opposite of what happened: nothing was sent,
+				// and the operator's prompt is still waiting.
+				nm.status = stDim.Render(plural(len(nm.agentQueued), "queued msg") + " · the previous turn is still unwinding")
 			} else {
 				nm.status = stDim.Render("AGENT ready - ask it to do something")
 			}

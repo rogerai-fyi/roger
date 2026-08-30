@@ -1027,6 +1027,66 @@ func (s *turnLifecycleBDD) promptStillQueued() error {
 }
 
 // ---------------------------------------------------------------------------
+// Starting clean, and saying true things while waiting
+// ---------------------------------------------------------------------------
+
+const abandonedMark = "a stopped turn's leftover line"
+
+func (s *turnLifecycleBDD) forceStoppedLeftTail() error {
+	s.rt.events <- harness.Event{Kind: harness.EventAssistant, Text: abandonedMark}
+	return nil
+}
+
+func (s *turnLifecycleBDD) theNextTurnStarts() error {
+	s.m.agentBusy = true
+	s.m.startAgentTurn("a fresh ask")()
+	s.drain(200)
+	return nil
+}
+
+func (s *turnLifecycleBDD) abandonedStepsNeverRendered() error {
+	if strings.Contains(s.transcript(), abandonedMark) {
+		return fmt.Errorf("a stopped turn's buffered tail was rendered as the NEXT turn's "+
+			"own output:\n%s", s.transcript())
+	}
+	return nil
+}
+
+func (s *turnLifecycleBDD) statusSaysUnwinding() error {
+	if !strings.Contains(stripANSI(s.m.status), "still unwinding") {
+		return fmt.Errorf("the status should say the previous turn is still unwinding, got %q",
+			stripANSI(s.m.status))
+	}
+	return nil
+}
+
+func (s *turnLifecycleBDD) noEscCancelOffered() error {
+	if strings.Contains(stripANSI(s.m.status), "esc cancels") {
+		return fmt.Errorf("esc LEAVES AGENT in this window rather than cancelling, so offering "+
+			"it as a cancel sends the operator out of the mode they are waiting in: %q",
+			stripANSI(s.m.status))
+	}
+	return nil
+}
+
+func (s *turnLifecycleBDD) thatTurnsDoneIsHandled() error {
+	done := make(chan struct{})
+	s.rt.turnDone = done
+	close(done)
+	nm, _ := s.m.Update(agentDoneMsg{turn: done})
+	s.m = asModel(nm)
+	return nil
+}
+
+func (s *turnLifecycleBDD) statusNotReady() error {
+	if strings.Contains(stripANSI(s.m.status), "AGENT ready") {
+		return fmt.Errorf("nothing was sent and the prompt is still queued, so reporting the "+
+			"agent ready is the opposite of what happened: %q", stripANSI(s.m.status))
+	}
+	return nil
+}
+
+// ---------------------------------------------------------------------------
 // The confirm channel
 // ---------------------------------------------------------------------------
 
@@ -1231,6 +1291,13 @@ func TestAgentTurnLifecycleFeature(t *testing.T) {
 			sc.Step(`^the queue is drained$`, st.queueIsDrained)
 			sc.Step(`^a re-check is armed rather than the prompt being abandoned$`, st.recheckArmed)
 			sc.Step(`^the prompt is still queued$`, st.promptStillQueued)
+			sc.Step(`^a force-stopped turn left its tail in the buffer$`, st.forceStoppedLeftTail)
+			sc.Step(`^the next turn starts$`, st.theNextTurnStarts)
+			sc.Step(`^the abandoned turn's steps never reach the transcript$`, st.abandonedStepsNeverRendered)
+			sc.Step(`^the status says the previous turn is still unwinding$`, st.statusSaysUnwinding)
+			sc.Step(`^it does not offer esc as a way to cancel$`, st.noEscCancelOffered)
+			sc.Step(`^that turn's done is handled$`, st.thatTurnsDoneIsHandled)
+			sc.Step(`^the status does not claim the agent is ready$`, st.statusNotReady)
 			sc.Step(`^a turn calls a mutating tool$`, st.turnCallsMutatingTool)
 			sc.Step(`^the loop requests confirmation$`, st.loopRequestsConfirmation)
 			sc.Step(`^the y/N prompt reaches the UI$`, st.confirmReachesUI)

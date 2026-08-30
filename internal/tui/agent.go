@@ -733,19 +733,15 @@ func (m model) newAgentRuntime() *agentRuntime {
 		select {
 		case rt.confirmReq <- c: // surfaced to the UI as agentConfirmMsg
 		case <-turnAbort():
-			return false
+			return false // never shown, so nothing to withdraw
 		}
-		select {
-		case <-turnAbort():
-			return false
-		default:
-		}
-		select {
-		case ok := <-c.resp: // the user's y/N
-			return ok
-		case <-turnAbort():
-			return false
-		}
+		// ONCE IT IS ON SCREEN, IT IS THEIRS TO ANSWER. Racing the abort against the
+		// ANSWER here withdrew a gate the operator was already looking at: the modal stayed
+		// up swallowing keys, and when they finally pressed y nothing was listening - the
+		// approval went into a buffered channel nobody would read, and the turn was told
+		// the tool had been denied. Cancellation is decided above, before the gate is
+		// offered; past that point the decision belongs to the person seeing it.
+		return <-c.resp // the user's y/N
 	}
 	persona := harness.LoadPersona(harness.PersonaPath())
 	m.agentFullPersona = persona // kept so a band change can swap between full and compact
@@ -1288,7 +1284,14 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.agentTurnLive() && !instantAgentCommand(p) {
 			m.agentQueued = append(m.agentQueued, queuedPrompt{text: p})
 			m.agentLines = append(m.agentLines, stDim.Render("⏳ STANDBY · ")+stDim.Render(clipLine(p)))
-			m.status = stDim.Render(plural(len(m.agentQueued), "queued msg") + " · sends when the turn finishes · esc cancels")
+			// "esc cancels" is only true while a turn is visibly running. In the force-stop
+			// window agentBusy is already false, so esc LEAVES AGENT instead - telling the
+			// operator it cancels there sends them out of the mode they are waiting in.
+			if m.agentBusy {
+				m.status = stDim.Render(plural(len(m.agentQueued), "queued msg") + " · sends when the turn finishes · esc cancels")
+			} else {
+				m.status = stDim.Render(plural(len(m.agentQueued), "queued msg") + " · the previous turn is still unwinding")
+			}
 			// Only in the force-stop window. There agentBusy is already false, so the
 			// goroutine's exit produces no UI event of its own and something has to come
 			// back for this. While a turn is visibly running, its own agentDoneMsg drains
@@ -1374,6 +1377,13 @@ func (m model) submitAgentPrompt(q queuedPrompt) (model, tea.Cmd) {
 		//
 		// Re-checking on a short beat closes it without restructuring the handoff: the
 		// goroutine exits within milliseconds, so this fires once and drains.
+		//
+		// SAY WHY IT IS WAITING. This branch set no status at all, so a prompt parked here
+		// left whatever was on the deck before - usually "AGENT ready", which is precisely
+		// wrong: nothing was sent and the operator is waiting on a goroutine they cannot
+		// see. It is also the force-stop window, where agentBusy is false and esc LEAVES
+		// AGENT rather than cancelling, so the busy line's "esc cancels" must not appear.
+		m.status = stDim.Render(plural(len(m.agentQueued), "queued msg") + " · the previous turn is still unwinding")
 		return m, agentDrainSoon()
 	}
 	// No model tuned in: don't fire a doomed turn (the "no station on air" spam). Echo the
@@ -1851,6 +1861,18 @@ func (m model) startAgentTurn(prompt string) tea.Cmd {
 	// THIS turn's end signal, published on the UI goroutine before the drain Cmd that
 	// reads it is issued (startAgentTurn is always batched with waitAgentEvent), so the
 	// drain can never capture the previous turn's already-closed done.
+	// START CLEAN. events is never closed or re-created now, so anything an abandoned turn
+	// left buffered would be read by THIS turn's drain and rendered as its own answer -
+	// including a stale EventFinal, which writes a session footer for a turn that was
+	// stopped. Every path that reaches here has already established that no turn goroutine
+	// is running (that is what the running guard is for), so there is no writer to race.
+	for draining := true; draining; {
+		select {
+		case <-rt.events:
+		default:
+			draining = false
+		}
+	}
 	done := make(chan struct{})
 	rt.turnDone = done
 	rt.turnCtx.Store(ctx)

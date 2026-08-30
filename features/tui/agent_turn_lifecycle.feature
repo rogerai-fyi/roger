@@ -191,6 +191,23 @@ Feature: Agent turn lifecycle is safe across turns
     When I type "/clear" and press enter
     Then it parks on STANDBY
 
+  Scenario: A new turn starts on an empty channel
+    Given a force-stopped turn left its tail in the buffer
+    When the next turn starts
+    Then the abandoned turn's steps never reach the transcript
+
+  Scenario: The STANDBY line does not offer esc as a cancel where esc leaves
+    Given a force-stopped turn's goroutine is still alive
+    When I submit a new prompt
+    Then the status says the previous turn is still unwinding
+    And it does not offer esc as a way to cancel
+
+  Scenario: A queue that could not drain is not reported as ready
+    Given a force-stopped turn's goroutine is still alive
+    And a prompt is parked on STANDBY
+    When that turn's done is handled
+    Then the status does not claim the agent is ready
+
   Scenario: A tool that ignores cancellation cannot crash the next turn
     Given a force-stopped turn whose tool runs past its context cancellation
     When the next turn has already started
