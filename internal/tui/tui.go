@@ -1960,20 +1960,21 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.turn != nil && m.agentDoneHandled == msg.turn {
 			return m, nil
 		}
-		m.agentDoneHandled = msg.turn
-		// A STALE DONE STILL RETIRES ITS OWN TURN. agentDrainRetryMsg can start the next
-		// turn before this message lands: clearing the busy state then would report the
-		// session idle while a turn runs, so that part is skipped. But the finished turn's
-		// delegation receipt is still owed, and leaving agentDelegates set would roll its
-		// children into the NEXT turn's receipt line and live strip.
-		stale := m.agent != nil && msg.turn != nil && m.agent.turnDone != msg.turn
-		if stale {
-			if line := m.delegationReceiptLine(); line != "" {
-				m.agentLines = append(m.agentLines, line)
-			}
-			m.agentDelegates = nil
+		// A STALE DONE IS DROPPED WHOLE. agentDrainRetryMsg can start the next turn before
+		// this message lands, and then every piece of this handler belongs to somebody
+		// else: clearing the busy state would report the session idle under a running
+		// turn, and agentDelegates now holds the LIVE turn's children - so emitting a
+		// receipt from them would print a premature one and wipe a running turn's strip.
+		// The superseded turn's own receipt is lost, which is the smaller harm of the two
+		// and the only one that is not visibly wrong.
+		//
+		// agentDoneHandled is deliberately NOT stamped here. It is a single slot, so
+		// recording a late stale turn would erase the record of the newer one already
+		// handled, and a duplicate of THAT would then re-run everything.
+		if m.agent != nil && msg.turn != nil && m.agent.turnDone != msg.turn {
 			return m, nil
 		}
+		m.agentDoneHandled = msg.turn
 		m.agentBusy = false
 		m.agentCanceling = false
 		m.agentTurnState = poseWaiting // turn finished: the corner Ping stands by
