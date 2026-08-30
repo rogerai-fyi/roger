@@ -104,7 +104,17 @@
                Micro 7.5B -> 4.5 GB (41%), Giga 31B -> 18.6 GB (57%),
                Tera 100B -> 60 GB (69.5%), Peta 175B -> 105 GB (75.5%),
                Exa 284B -> 170 GB (80.8%). On four decades the closest neighbours
-               (Peta/Exa) sit 46px apart on the 860px track - one row, no stagger.
+               (Peta/Exa) sit 46px apart on the 860px track.
+               CORRECTED 2026-08-30: that 46px is the spacing of the DOTS, and the
+               conclusion drawn from it - "one row, no stagger" - did not hold, because
+               a .wf-node LABEL is 58px wide. 58 > 46, so the labels overlapped even
+               though the markers cleared: Peta/Exa by 12.4px and Tera/Peta by 6.4px,
+               measured at both desktop and mobile (the track is its 860px min-width at
+               both, so this was never a mobile-only fault). .wf-node--up existed to
+               drop the middle of three exactly here and had been left applied to
+               nothing, so the rule was dead and the collision live. Peta wears it
+               again. rail-label-collision.test.mjs now measures the arithmetic so a
+               future re-spacing cannot quietly re-break it.
                FOUNDER 2026-08-17 (round 2): the last tick was "1 TB". It is now the
                infinity symbol - 100 GB is the last decade any tier needs, and the end of
                the rail is where the numbers stop rather than another size to read against.
@@ -123,7 +133,7 @@
               <span class="wf-node" style="--at:41%"><i></i><b>Micro</b></span>
               <span class="wf-node" style="--at:57%"><i></i><b>Giga</b></span>
               <span class="wf-node" style="--at:69.5%"><i></i><b>Tera</b></span>
-              <span class="wf-node" style="--at:75.5%"><i></i><b>Peta</b></span>
+              <span class="wf-node wf-node--up" style="--at:75.5%"><i></i><b>Peta</b></span>
               <span class="wf-node" style="--at:80.8%"><i></i><b>Exa</b></span>
 
               <!-- WAVE INFINITE, on the rail on the founder's own instruction

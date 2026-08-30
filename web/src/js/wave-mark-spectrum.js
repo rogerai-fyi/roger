@@ -113,6 +113,36 @@
   ring.setAttribute("cx", CX); ring.setAttribute("cy", CY); ring.setAttribute("r", 14);
   svg.insertBefore(ring, node || null);
 
+  /* THE PLATE GAP IS A VISUAL QUANTITY, NOT A GEOMETRIC ONE (founder 2026-08-30:
+     "on mobile it's a bit bunched up, the text goes over the box, and the red dot
+     goes over the word roger").
+
+     The on-air dot's offset and the nameplate's padding were the fixed user-unit
+     constant PAD, tuned at the scale this mark renders on a desktop - ~518 CSS px
+     for a 360-unit viewBox, so PAD read as a comfortable ~13 CSS px. A phone
+     renders the same mark at ~350 px (0.97 px/unit) and those same units collapse
+     to ~8.7 CSS px. Everything shrinks together, so the proportions stay honest and
+     nothing overlaps in a desktop engine at a narrow viewport - but the margin for
+     error goes with it, and on a device whose mono metrics run a shade wider than
+     ours the dot touches the R and the tier name reaches the plate's edge.
+
+     So below NARROW the gap is held at the CSS size it has at full width instead of
+     scaling away with the art. Above NARROW padUnits() returns PAD unchanged, which
+     is what keeps this MOBILE-ONLY: the desktop drawing is byte-for-byte what it
+     was. Never tighter than PAD in either direction. */
+  var PAD = 9;        // the authored gap, in user units
+  var replate = false; // set on resize: the plate is sized once per tier name, so a
+                       // width change would otherwise keep a stale plate until the
+                       // ladder happened to move on to the next tier.
+  var NARROW = 640;   // px of viewport at or below which the mark is cramped
+  var REF_W = 518;    // the CSS width this mark renders at on a desktop layout
+  function padUnits() {
+    if (window.innerWidth > NARROW) return PAD;
+    var w = svg.getBoundingClientRect().width;
+    if (!w) return PAD;
+    return Math.max(PAD, PAD * (REF_W / w));
+  }
+
   /* THE STATION PLATE (founder: "lets include RogerAI.fm and Wave in the
      animation or around it"). Two pieces of type, both earning their place:
      the callsign rides the top of the plate like a station ident, with an
@@ -170,10 +200,20 @@
     var w = 0;
     try { w = ident.getComputedTextLength(); } catch (e) { w = 78; }
     if (!w) w = 78;
-    onair.setAttribute("cx", (CX - w / 2 - 9).toFixed(1));
+    onair.setAttribute("cx", (CX - w / 2 - padUnits()).toFixed(1));
   }
   placeOnAir();
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(placeOnAir);
+  /* A rotation crosses NARROW in one move, and both the dot and the plate are
+     positioned from a width measured once. Re-derive them on resize, coalesced onto
+     a frame so a drag-resize does not measure on every event. */
+  var reflow = 0;
+  window.addEventListener("resize", function () {
+    if (reflow) return;
+    reflow = window.requestAnimationFrame(function () {
+      reflow = 0; replate = true; placeOnAir();
+    });
+  });
   }   /* nameplate + callsign, non-slim only */
 
   function pathFor(t, charge, u) {
@@ -232,13 +272,15 @@
         lead.id ? "var(--tier-" + lead.id + ")" : "var(--ink-900)");
       var showing = !slim && best > 0.55;
       var op = showing ? ((best - 0.55) / 0.45) : 0;
-      if (tag && showing && tag.textContent !== "WAVE " + lead.name) {
+      if (tag && showing && (replate || tag.textContent !== "WAVE " + lead.name)) {
+        replate = false;
         tag.textContent = "WAVE " + lead.name;
         var w = 0;
         try { w = tag.getComputedTextLength(); } catch (e) { w = 96; }
         if (!w) w = 96;
-        plate.setAttribute("x", (CX - w / 2 - 9).toFixed(1));
-        plate.setAttribute("width", (w + 18).toFixed(1));
+        var pad = padUnits();
+        plate.setAttribute("x", (CX - w / 2 - pad).toFixed(1));
+        plate.setAttribute("width", (w + pad * 2).toFixed(1));
         plate.setAttribute("y", (CY + 44 - 14).toFixed(1));
       }
       if (tag) {
