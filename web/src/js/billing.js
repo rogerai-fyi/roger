@@ -24,6 +24,23 @@
   }
   function get(path) { return api(path); }
 
+  // apiReason is api() for a call whose FAILURE text matters. It resolves
+  // {error: "<broker message>"} on a refusal instead of null, so the caller can show
+  // the reason. Deliberately separate: api() resolves null on failure and five call
+  // sites read that null as "not signed in / did not work", so widening it turned a
+  // 401 into a truthy value and stopped the /login redirect from firing.
+  function apiReason(path, opts) {
+    opts = opts || {};
+    opts.credentials = "include";
+    return fetch(BROKER + path, opts).then(function (r) {
+      if (r.ok) return r.json();
+      return r.json().then(function (j) {
+        var msg = j && j.error && j.error.message;
+        return { error: msg || "request failed" };
+      }).catch(function () { return { error: "request failed" }; });
+    }).catch(function () { return { error: "could not reach the broker" }; });
+  }
+
   function text(id, v) { var el = document.getElementById(id); if (el) el.textContent = v; }
   function show(id) { var el = document.getElementById(id); if (el) el.hidden = false; }
   function hide(id) { var el = document.getElementById(id); if (el) el.hidden = true; }
@@ -353,11 +370,22 @@
       function reflect() {
         var usd = chosenUsd();
         var valEl = document.getElementById("topupValue");
-        if (isFinite(usd) && usd >= 1) {
-          usd = Math.round(usd * 100) / 100;
+        // Show what was typed, never a rounded version of it: the click handler refuses
+        // a sub-cent amount, so a button reading "Add $10.01" for a typed 10.005 would
+        // promise exactly the substitution the refusal exists to prevent.
+        if (isFinite(usd) && usd >= 1 && Math.abs(usd * 100 - Math.round(usd * 100)) <= 1e-6) {
           if (btn) btn.textContent = "Add " + cr(usd);
           if (valEl) {
             valEl.textContent = "Adds " + cr(usd) + " to your wallet balance.";
+            valEl.hidden = false;
+          }
+        } else if (isFinite(usd) && usd >= 1) {
+          // cr() rounds to two places, so labelling this branch with it prints the very
+          // substituted figure the refusal exists to prevent (a typed 10.005 read
+          // "Add $10.00"). The button says nothing about an amount it will not send.
+          if (btn) btn.textContent = "Add money";
+          if (valEl) {
+            valEl.textContent = "Whole cents only.";
             valEl.hidden = false;
           }
         } else {
@@ -402,17 +430,22 @@
       on("topup", "click", function () {
         var usd = chosenUsd();
         if (!isFinite(usd) || usd < 1) { text("topupMsg", " enter an amount of $1 or more"); return; }
-        usd = Math.round(usd * 100) / 100;
+        // Refuse a sub-cent amount rather than round it into a different charge - the
+        // same rule the CLI, the TUI and the broker apply. Rounding here is how the
+        // person ends up paying a number they did not type.
+        if (Math.abs(usd * 100 - Math.round(usd * 100)) > 1e-6) {
+          text("topupMsg", " amount must be a whole number of cents"); return;
+        }
         if (btn) btn.disabled = true;
         text("topupMsg", " redirecting to Stripe...");
-        api("/billing/checkout", {
+        apiReason("/billing/checkout", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ usd: usd })
         }).then(function (r) {
           if (r && r.url) { window.location = r.url; return; }
           if (btn) btn.disabled = false;
-          text("topupMsg", " could not start checkout");
+          text("topupMsg", " " + ((r && r.error) || "could not start checkout"));
         }).catch(function () {
           if (btn) btn.disabled = false;
           text("topupMsg", " could not start checkout");

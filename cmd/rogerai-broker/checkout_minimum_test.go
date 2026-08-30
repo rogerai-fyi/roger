@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"crypto/ed25519"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -84,7 +85,37 @@ func TestCheckoutRefusesAnUnreadableBody(t *testing.T) {
 func TestCheckoutRefusalNamesTheMinimum(t *testing.T) {
 	b, priv := newCheckoutBroker(t)
 	w := postCheckout(t, b, priv, `{"usd":0.5}`)
-	if !bytes.Contains(w.Body.Bytes(), []byte("1")) {
-		t.Errorf("refusal does not name the $%.0f minimum: %s", client.MinTopupUSD, w.Body.String())
+	want := fmt.Sprintf("top-up minimum is $%.0f", client.MinTopupUSD)
+	if !bytes.Contains(w.Body.Bytes(), []byte(want)) {
+		t.Errorf("refusal = %s, want it to say %q", w.Body.String(), want)
+	}
+}
+
+// A fraction of a cent cannot be charged, so an amount like $1.999 has to become some
+// other number on the way to Stripe. The enforcement point refuses it rather than
+// choosing that number on the caller's behalf.
+func TestCheckoutRefusesASubCentAmount(t *testing.T) {
+	b, priv := newCheckoutBroker(t)
+	for _, body := range []string{`{"usd":1.999}`, `{"usd":1.333}`, `{"usd":10.005}`} {
+		w := postCheckout(t, b, priv, body)
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("checkout %s = %d, want 400 (a sub-cent amount is refused, not truncated)", body, w.Code)
+		}
+	}
+}
+
+// Nothing bounded the amount from above, so a request large enough to overflow int64 on
+// the way to integer cents reached Stripe as a NEGATIVE unit_amount. The ceiling is
+// Stripe's own line-item maximum, refused here with a message rather than there with a 502.
+func TestCheckoutRefusesAnAmountAboveTheMaximum(t *testing.T) {
+	b, priv := newCheckoutBroker(t)
+	for _, body := range []string{
+		`{"usd":1000000}`,
+		`{"usd":1e18}`,
+	} {
+		w := postCheckout(t, b, priv, body)
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("checkout %s = %d, want 400 (above the maximum is refused here, not at Stripe)", body, w.Code)
+		}
 	}
 }

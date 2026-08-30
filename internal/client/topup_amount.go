@@ -20,6 +20,28 @@ const DefaultTopupUSD = 10.0
 // and the broker refuses rather than substitutes.
 const MinTopupUSD = 1.0
 
+// MaxTopupUSD is the largest top-up any surface will start a checkout for. It exists
+// because the floor hardening left the other end open: nothing bounded the amount, so a
+// request for 1e18 cleared the minimum and the whole-cent rule, overflowed int64 on the
+// way to integer cents, and reached Stripe as a NEGATIVE unit_amount. The number is
+// Stripe's own maximum for a line item, so this refuses locally what Stripe would refuse
+// remotely, with a message that says why.
+const MaxTopupUSD = 999999.99
+
+// WholeCents reports whether an amount is an exact number of cents. A fraction of a cent
+// cannot be charged, so an amount like $1.999 has to become some other number before it
+// reaches Stripe - and silently choosing that number for the person is the substitution
+// this whole path exists to stop. It is refused instead, on the client and again at the
+// broker.
+//
+// The comparison rounds first because binary floats cannot hold most decimal cents
+// exactly: 1.15*100 is 114.99999999999999, and a bare integer check would refuse a price
+// a person can obviously type.
+func WholeCents(usd float64) bool {
+	cents := usd * 100
+	return math.Abs(cents-math.Round(cents)) < 1e-6
+}
+
 // ParseTopupAmount reads the dollar amount for a top-up on the CLI and TUI surfaces.
 //
 // It is the ONE reader for those. There used to be three,
@@ -50,6 +72,12 @@ func ParseTopupAmount(args []string) (float64, error) {
 	}
 	if usd < MinTopupUSD {
 		return 0, fmt.Errorf("top-up minimum is $%.0f - got %q", MinTopupUSD, raw)
+	}
+	if usd > MaxTopupUSD {
+		return 0, fmt.Errorf("top-up maximum is $%.2f - got %q", MaxTopupUSD, raw)
+	}
+	if !WholeCents(usd) {
+		return 0, fmt.Errorf("top-up amount %q is finer than a cent - try $%.2f", raw, usd)
 	}
 	return usd, nil
 }

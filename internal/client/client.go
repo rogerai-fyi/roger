@@ -314,6 +314,30 @@ func SetMonthlyLimit(broker, user string, cap float64) (MonthlyCapInfo, error) {
 	return out, nil
 }
 
+// brokerRefusal turns a non-2xx checkout response into the broker's OWN reason. Both
+// top-up entry points used to special-case 503 and let everything else fall through to
+// "no checkout URL returned", so when the broker started refusing a below-minimum amount
+// the operator was told only that nothing came back. It matters most for clients already
+// in the field, whose own error text cannot be updated - the broker's message is the only
+// place the reason exists. Returns nil when the response is not a refusal.
+func brokerRefusal(resp *http.Response) error {
+	if resp.StatusCode < 400 {
+		return nil
+	}
+	if resp.StatusCode == http.StatusServiceUnavailable {
+		return fmt.Errorf("billing isn't configured on this broker yet")
+	}
+	var e struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if json.NewDecoder(io.LimitReader(resp.Body, 1<<16)).Decode(&e) == nil && e.Error.Message != "" {
+		return fmt.Errorf("%s", e.Error.Message)
+	}
+	return fmt.Errorf("top-up refused (HTTP %d)", resp.StatusCode)
+}
+
 // Topup asks the broker for a Stripe Checkout URL to buy `usd` of credits and opens
 // it in the browser. `open` is the guarded default-browser launcher (tui.OpenURL),
 // which self-gates on an interactive TTY - so on a headless / piped box it is a no-op
@@ -329,8 +353,8 @@ func Topup(broker, user string, usd float64, open func(string)) error {
 		return err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusServiceUnavailable {
-		return fmt.Errorf("billing isn't configured on this broker yet")
+	if err := brokerRefusal(resp); err != nil {
+		return err
 	}
 	var d struct {
 		URL     string  `json:"url"`
@@ -364,8 +388,8 @@ func TopupURL(broker, user string, usd float64) (string, error) {
 		return "", err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusServiceUnavailable {
-		return "", fmt.Errorf("billing isn't configured on this broker yet")
+	if err := brokerRefusal(resp); err != nil {
+		return "", err
 	}
 	var d struct {
 		URL string `json:"url"`
