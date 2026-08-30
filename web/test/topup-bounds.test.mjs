@@ -29,10 +29,12 @@ const goConst = (name) => {
   return Number(m[1]);
 };
 
-// A bound as a regex fragment: every dot escaped (an unescaped one is a wildcard, so a
-// floor of 1.5 would match "125"), and a trailing guard so `usd > 999999.99` does not
-// also accept a guard written `usd > 999999.9999`.
-const bound = (v) => `${String(v).replace(/\./g, "\\.")}(?![\\d.])`;
+// A bound as a regex fragment. Three things, and the third was learned the hard way:
+// every dot escaped (an unescaped one is a wildcard, so a floor of 1.5 would match
+// "125"); a trailing digit/dot guard so `usd > 999999.99` is not satisfied by a guard
+// written `usd > 999999.9999`; and the word boundary KEPT, because dropping it for the
+// lookahead let `usd < 1e6` and `usd < 1_000` satisfy a pin that reads as `usd < 1`.
+const bound = (v) => `${String(v).replace(/\./g, "\\.")}\\b(?![\\d.])`;
 
 // The same number as a person reads it, which is how the surfaces print it.
 const money = (v) => v.toLocaleString("en-US", { minimumFractionDigits: 2 });
@@ -74,6 +76,25 @@ test("topup bounds: the local console guards the same three things", () => {
 // the hint under it, and the console toast all print the maximum as a literal, and a
 // changed constant would leave them promising the old number. Every place a surface
 // states the cap to a person has to state the current one.
+test("topup bounds: every user-facing minimum is the current minimum", () => {
+  // The maximum was pinned and the minimum was not, so the same hole stayed open at the
+  // other end: three surfaces print "$1" as a literal and would have gone on promising
+  // it. Go writes the floor as a whole dollar, and so do the surfaces.
+  const floor = String(goConst("MinTopupUSD")).replace(/\.0$/, "");
+  const surfaces = {
+    "js/billing.js": src("js/billing.js"),
+    "webui console.js": readFileSync(path.join(REPO, "internal", "webui", "assets", "console.js"), "utf8"),
+  };
+  for (const [name, js] of Object.entries(surfaces)) {
+    const stated = [...js.matchAll(/an amount of \$([\d,.]+) or more|[Tt]op-up minimum is \$([\d,.]+)/g)]
+      .map((m) => (m[1] || m[2]).replace(/\.$/, ""));
+    assert.ok(stated.length > 0, `${name} states the minimum to a person`);
+    for (const shown of stated) {
+      assert.equal(shown, floor, `${name} tells the reader $${shown} while the floor is $${floor}`);
+    }
+  }
+});
+
 test("topup bounds: every user-facing maximum is the current maximum", () => {
   const cap = money(goConst("MaxTopupUSD")); // "999,999.99"
   const surfaces = {
@@ -99,4 +120,6 @@ test("topup bounds: the button label branches on the same ceiling", () => {
     "the accept branch uses the real ceiling");
   assert.match(reflect, new RegExp(`usd > ${bound(goConst("MaxTopupUSD"))}`),
     "and so does the over-the-cap branch");
+  const floors = reflect.match(new RegExp(`usd >= ${bound(goConst("MinTopupUSD"))}`, "g")) || [];
+  assert.equal(floors.length, 2, "both label branches gate on the real floor");
 });
