@@ -92,8 +92,6 @@ func requireLive() bool {
 
 func stripeSecretKey() string { return os.Getenv("STRIPE_SECRET_KEY") }
 
-// checkout handles POST /billing/checkout {"usd": 10}: creates a Stripe Checkout
-// session for the caller to buy credits and returns the {url, credits}.
 // stripeUnitAmount converts a dollar amount to the integer cents Stripe is charged.
 // It ROUNDS: int(usd*100) truncates, and 1.15*100 is 114.99999999999999 in binary
 // floating point, so truncation quietly billed a cent less than the person typed on
@@ -102,6 +100,8 @@ func stripeSecretKey() string { return os.Getenv("STRIPE_SECRET_KEY") }
 // float representation error, never a real fraction.
 func stripeUnitAmount(usd float64) int { return int(math.Round(usd * 100)) }
 
+// checkout handles POST /billing/checkout {"usd": 10}: creates a Stripe Checkout
+// session for the caller to buy credits and returns the {url, credits}.
 func (b *broker) checkout(w http.ResponseWriter, r *http.Request) {
 	if corsCredsPreflight(w, r) {
 		return

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strconv"
 	"testing"
@@ -50,19 +52,35 @@ func TestEveryAcceptedAmountChargesExactly(t *testing.T) {
 	}
 }
 
-// The credits recorded in the session metadata must describe the same money that is
-// charged, not a separately derived float.
-func TestMetadataCreditsMatchTheCharge(t *testing.T) {
+// The two tests above exercise the helper. This one exercises the HANDLER, against a
+// stand-in Stripe, and asserts the form field that is actually sent - because a test that
+// only calls stripeUnitAmount stays green if the handler goes back to int(usd*100), which
+// is precisely the regression it is supposed to prevent.
+func TestCheckoutSendsStripeTheTypedAmount(t *testing.T) {
+	var got url.Values
+	stripe := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		got = r.PostForm
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"url":"https://checkout.stripe.test/s/1"}`))
+	}))
+	defer stripe.Close()
+	old := stripeAPIBase
+	stripeAPIBase = stripe.URL
+	defer func() { stripeAPIBase = old }()
+
 	b, priv := newCheckoutBroker(t)
-	_ = priv
 	b.bill.creditUSD = 1
-	form := url.Values{}
-	cents := stripeUnitAmount(1.15)
-	form.Set("unit_amount", strconv.Itoa(cents))
-	if want := 115; cents != want {
-		t.Fatalf("unit_amount = %d, want %d", cents, want)
+	w := postCheckout(t, b, priv, `{"usd":1.15}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("checkout = %d, want 200: %s", w.Code, w.Body.String())
 	}
-	if credits := float64(cents) / 100 / b.bill.creditUSD; credits != 1.15 {
-		t.Errorf("credits = %v, want 1.15 (derived from the charge)", credits)
+	if v := got.Get("line_items[0][price_data][unit_amount]"); v != "115" {
+		t.Errorf("Stripe was charged %q cents for a $1.15 top-up, want \"115\"", v)
+	}
+	credits, err := strconv.ParseFloat(got.Get("metadata[credits]"), 64)
+	if err != nil || credits != 1.15 {
+		t.Errorf("metadata[credits] = %q (err %v), want 1.15 - the credits must describe the charge",
+			got.Get("metadata[credits]"), err)
 	}
 }
