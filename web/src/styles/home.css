@@ -541,37 +541,6 @@
 }
 
 /* ---------- specifications plate ------------------------------- */
-/* The trust block: a printed spec sheet. Mono keys left, values right,
-   a hairline between every row, tabular numbers. No cards, no shadows. */
-.spec {
-  margin: 0; max-width: 820px;
-  border-top: 1px solid var(--ink-900); border-bottom: 1px solid var(--ink-900);
-}
-.spec__row {
-  display: grid; grid-template-columns: minmax(120px, 0.32fr) 1fr;
-  gap: var(--s-4) var(--s-8); align-items: baseline;
-  padding: var(--s-4) 0; border-bottom: 1px solid var(--hairline);
-}
-.spec__row:last-child { border-bottom: 0; }
-.spec dt {
-  font-family: var(--font-mono); font-size: var(--t-xs);
-  letter-spacing: var(--tracking-label); text-transform: uppercase;
-  color: var(--ink-400); font-weight: var(--weight-medium);
-}
-.spec dd {
-  margin: 0; color: var(--ink-900); font-size: var(--t-body);
-  font-weight: var(--weight-medium); font-variant-numeric: tabular-nums;
-  display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px;
-}
-.spec dd .mono { color: var(--ink-900); }
-.spec__note {
-  font-family: var(--font-mono); font-size: var(--t-xs); color: var(--ink-400);
-  font-weight: var(--weight-regular); letter-spacing: 0;
-}
-@media (max-width: 560px) {
-  .spec__row { grid-template-columns: 1fr; gap: 4px; padding: var(--s-3) 0; }
-}
-
 /* ---------- operating notes (numbered list on hairlines) -------- */
 .opnotes { display: block; }
 .opnote {
@@ -1175,7 +1144,9 @@ html.js .mkt-quiet--nojs { display: none; }
     radial-gradient(circle at calc(100% - 11px) calc(100% - 11px), var(--hairline-2) 1.6px, transparent 2.2px),
     var(--paper-2);
 }
+/* an h2 for the outline, sized like the label it replaced */
 .plate__etch {
+  margin: 0; font-size: inherit; font-weight: inherit; line-height: inherit;
   display: flex; flex-wrap: wrap; align-items: baseline;
   gap: var(--s-2) var(--s-4); padding: 0 var(--s-2) var(--s-3);
 }

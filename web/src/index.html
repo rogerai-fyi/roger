@@ -517,10 +517,14 @@
   <section class="section section--plate" id="spec">
     <div class="wrap">
       <div class="plate" data-reveal>
-        <div class="plate__etch">
+        <!-- The etched label IS the section heading: collapsing the standing
+             head into the plate is what bought the space, but a section with no
+             heading leaves a hole in the document outline, so it stays an h2 and
+             is styled down rather than replaced by a span. -->
+        <h2 class="plate__etch">
           <span class="sectionno">§5 / SPECIFICATIONS</span>
           <span class="plate__sub">the whole instrument, one plate</span>
-        </div>
+        </h2>
         <dl class="plate__grid" aria-label="RogerAI specifications">
           <div><dt>Protocol</dt><dd>OpenAI-compatible <i>drop-in</i></dd></div>
           <div><dt>Transport</dt><dd>Outbound long-poll <i>no inbound ports</i></dd></div>

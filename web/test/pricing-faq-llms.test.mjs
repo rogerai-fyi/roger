@@ -9,7 +9,7 @@
 import { test, before } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -61,6 +61,21 @@ test("pricing: it never quotes a price a station could change under it", () => {
   // and it must send the reader to the live source instead
   assert.match(html, /href="\/models\.html"/, "it points at the dial");
   assert.match(compact(html), /set by (?:the )?operators?/i, "it says who sets the number");
+});
+
+test("pricing: the listing ceiling is not sold as something a private band escapes", () => {
+  // cmd/rogerai-broker/pricesafety.go registerPriceCeiling: the ceiling is GLOBAL and
+  // its own comment warns that copy must not offer --private as the way around it.
+  const html = compact(read("pricing.html"));
+  assert.match(html, /every band, public or private/i, "it says the ceiling binds both");
+  assert.doesNotMatch(html, /that is what a private band is for/i,
+    "private is presented as a price bypass");
+});
+
+test("pricing: it advertises the documented command, not a retired alias", () => {
+  const html = read("pricing.html");
+  assert.match(html, /roger topup 25/, "the documented top-level form");
+  assert.doesNotMatch(html, /balance --topup/, "the retired hidden alias");
 });
 
 test("pricing: the free path is stated before the paid one", () => {
@@ -178,8 +193,13 @@ test("llms: every entry carries the page's own description, not a placeholder", 
   }
 });
 
-test("llms: robots.txt points crawlers at it", () => {
-  assert.match(src("robots.txt"), /llms\.txt/i);
+test("llms: robots.txt names it at the path it is actually served from", () => {
+  // A robots.txt comment steers no crawler - there is no Llms: directive to emit -
+  // so this only asserts the two agree on the address, and that the address exists.
+  const url = src("robots.txt").match(/#\s*llms\.txt:\s*(\S+)/i)?.[1];
+  assert.ok(url, "robots.txt records the llms.txt address");
+  assert.equal(url, "https://rogerai.fm/llms.txt");
+  assert.ok(existsSync(path.join(DIST, "llms.txt")), "and the file is served there");
 });
 
 /* ===================================================================
