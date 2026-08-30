@@ -118,8 +118,19 @@ test("topup bounds: every user-facing minimum is the current minimum", () => {
   );
   assert.ok(payoutMin !== "undefined", "the payout minimum is declared in internal/store/ledger.go");
 
-  let topupMentions = 0;
-  for (const page of readdirSync(path.join(WEB, "src")).filter((f) => f.endsWith(".html"))) {
+  // Per-page counts, not a global tally: a global one stays green if a mention MOVES
+  // between pages, so pricing.html could lose its only statement while the manual gained
+  // one. A page not listed must state it zero times, which is what makes a new page
+  // stating the floor fail rather than pass unnoticed.
+  const EXPECTED = { "pricing.html": 1, "manual.html": 3 };
+  // _partials included: a minimum stated in a partial appears on every built page and
+  // would be checked on none.
+  const pages = [
+    ...readdirSync(path.join(WEB, "src")).filter((f) => f.endsWith(".html")),
+    ...readdirSync(path.join(WEB, "src", "_partials")).filter((f) => f.endsWith(".html")).map((f) => `_partials/${f}`),
+  ];
+  const seen = {};
+  for (const page of pages) {
     const html = src(page);
     for (const m of html.matchAll(/minimum[^<$]{0,12}\$([\d,.]+)|\$([\d,.]+)<\/b>\s*minimum/g)) {
       const window = html.slice(Math.max(0, m.index - TOPUP_NEAR), m.index + TOPUP_NEAR);
@@ -128,18 +139,28 @@ test("topup bounds: every user-facing minimum is the current minimum", () => {
       // the policy is written 25, and those are the same minimum.
       const amount = Number(shown.replace(/,/g, ""));
       if (/top-?up/i.test(window)) {
-        topupMentions++;
-        assert.equal(amount, Number(floor.replace(/,/g, "")),
+        seen[page] = (seen[page] || 0) + 1;
+        // The top-up floor stays an EXACT string match: money() already produces the
+        // form the surfaces print, and comparing numerically would quietly accept
+        // "$1.00" where every surface says "$1".
+        assert.equal(shown, floor,
           `${page} tells the reader the top-up minimum is $${shown}, but the floor is $${floor}`);
       } else if (/payout|payable|cash ?out|earnings/i.test(window)) {
         assert.equal(amount, Number(payoutMin),
           `${page} states a payout minimum of $${shown}, but the policy is $${payoutMin}`);
       } else {
-        assert.fail(`${page} states a "$${shown}" minimum in neither a top-up nor a payout context - classify it`);
+        assert.fail(
+          `${page} states a "$${shown}" minimum in neither a top-up nor a payout context. ` +
+            "Classify it: if it is one of those, widen the context words here; if it is a " +
+            "third kind of minimum, this test's scope needs saying out loud.",
+        );
       }
     }
   }
-  assert.ok(topupMentions >= 4, `the pages state the top-up minimum ${topupMentions} times, expected at least 4`);
+  for (const page of pages) {
+    assert.equal(seen[page] || 0, EXPECTED[page] || 0,
+      `${page} states the top-up minimum ${seen[page] || 0} times, expected ${EXPECTED[page] || 0} - if the copy changed on purpose, update the map here`);
+  }
 });
 
 // Scoping the guard pins to their handlers left the LABELS unpinned: the button copy,
