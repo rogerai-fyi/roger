@@ -373,10 +373,16 @@
         // Show what was typed, never a rounded version of it: the click handler refuses
         // a sub-cent amount, so a button reading "Add $10.01" for a typed 10.005 would
         // promise exactly the substitution the refusal exists to prevent.
-        if (isFinite(usd) && usd >= 1 && Math.abs(usd * 100 - Math.round(usd * 100)) <= 1e-6) {
+        if (isFinite(usd) && usd >= 1 && usd <= 999999.99 && Math.abs(usd * 100 - Math.round(usd * 100)) <= 1e-6) {
           if (btn) btn.textContent = "Add " + cr(usd);
           if (valEl) {
             valEl.textContent = "Adds " + cr(usd) + " to your wallet balance.";
+            valEl.hidden = false;
+          }
+        } else if (isFinite(usd) && usd > 999999.99) {
+          if (btn) btn.textContent = "Add money";
+          if (valEl) {
+            valEl.textContent = "The maximum top-up is $999,999.99.";
             valEl.hidden = false;
           }
         } else if (isFinite(usd) && usd >= 1) {
@@ -430,6 +436,9 @@
       on("topup", "click", function () {
         var usd = chosenUsd();
         if (!isFinite(usd) || usd < 1) { text("topupMsg", " enter an amount of $1 or more"); return; }
+        // Both ends, not just the floor: without this a typed 1000000 rendered
+        // "Add $1,000,000.00" and only failed after a broker round-trip.
+        if (usd > 999999.99) { text("topupMsg", " the maximum top-up is $999,999.99"); return; }
         // Refuse a sub-cent amount rather than round it into a different charge - the
         // same rule the CLI, the TUI and the broker apply. Rounding here is how the
         // person ends up paying a number they did not type.

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -17,7 +18,24 @@ import (
 //
 // Nothing asserted the amount actually sent to Stripe, which is why a cent could go
 // missing for as long as it did. This does.
-func topupCents(usd float64) int { return stripeUnitAmount(usd) }
+func topupCents(t *testing.T, usd float64) int {
+	t.Helper()
+	cents, err := stripeUnitAmount(usd)
+	if err != nil {
+		t.Fatalf("stripeUnitAmount(%v) errored: %v", usd, err)
+	}
+	return cents
+}
+
+// Out of range is a refusal, not a nearby number. A clamp here would be the same silent
+// substitution the whole path refuses, just moved one function down.
+func TestStripeUnitAmountRefusesOutOfRange(t *testing.T) {
+	for _, usd := range []float64{0.5, 0, -1, 1e18, math.NaN(), math.Inf(1)} {
+		if cents, err := stripeUnitAmount(usd); err == nil {
+			t.Errorf("stripeUnitAmount(%v) = %d with no error, want a refusal", usd, cents)
+		}
+	}
+}
 
 func TestStripeIsChargedTheAmountThatWasTyped(t *testing.T) {
 	for _, c := range []struct {
@@ -32,7 +50,7 @@ func TestStripeIsChargedTheAmountThatWasTyped(t *testing.T) {
 		{25, 2500},
 		{999.99, 99999},
 	} {
-		if got := topupCents(c.usd); got != c.want {
+		if got := topupCents(t, c.usd); got != c.want {
 			t.Errorf("a $%.2f top-up charges %d cents, want %d", c.usd, got, c.want)
 		}
 	}
@@ -46,7 +64,7 @@ func TestEveryAcceptedAmountChargesExactly(t *testing.T) {
 		if !client.WholeCents(usd) {
 			t.Fatalf("$%.2f is not recognized as whole cents", usd)
 		}
-		if got := topupCents(usd); got != cents {
+		if got := topupCents(t, usd); got != cents {
 			t.Fatalf("a $%.2f top-up charges %d cents, want %d", usd, got, cents)
 		}
 	}
