@@ -95,6 +95,20 @@ test("books: the covers are real local assets with real alt text", () => {
   }
 });
 
+test("books: a cover carries its illustration, it does not link to one", () => {
+  // These SVGs are loaded through <img src>, which runs them in secure static mode:
+  // an external reference is never fetched, so the press's sibling comfyui/*.png
+  // href rendered an empty frame where the insect should be. Nothing in a rendered
+  // page catches that, because no test renders an SVG - so the rule is structural.
+  for (const b of LIVE_BOOKS) {
+    const svg = readFileSync(path.join(DIST, "assets", "books", b.cover), "utf8");
+    const refs = [...svg.matchAll(/(?:xlink:)?href="([^"]+)"/g)].map((m) => m[1]);
+    for (const ref of refs) {
+      assert.ok(/^data:/.test(ref), `${b.cover} references ${ref.slice(0, 40)} instead of inlining it`);
+    }
+  }
+});
+
 test("books: the nudge to the press is a real link, not just a mention", () => {
   const books = section("books");
   assert.match(books, /href="https:\/\/oailly\.com\/?"/, "oailly.com itself is linked");

@@ -193,6 +193,12 @@ test("llms: every entry carries the page's own description, not a placeholder", 
   }
 });
 
+test("llms: no HTML entity survives into the plain-text index", () => {
+  const txt = read("llms.txt");
+  assert.doesNotMatch(txt, /&[a-z]+;|&#\d+;|&#x[0-9a-f]+;/i,
+    "a title or description leaked a raw entity into llms.txt");
+});
+
 test("llms: robots.txt names it at the path it is actually served from", () => {
   // A robots.txt comment steers no crawler - there is no Llms: directive to emit -
   // so this only asserts the two agree on the address, and that the address exists.

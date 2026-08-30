@@ -225,10 +225,17 @@ function writeSitemap(indexablePages) {
 // linked sections).
 const stripComments = (s) => s.replace(/<!--[\s\S]*?-->/g, "");
 const stripTags = (s) => s.replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
+// &amp; is decoded LAST: doing it first turns a literal "&amp;lt;" into "<" instead
+// of "&lt;". Numeric refs are handled generically so a page whose title uses &#8217;
+// or &sect; does not leak the raw entity into llms.txt (a test asserts none do).
+const NAMED = { lt: "<", gt: ">", quot: '"', apos: "'", rsquo: "'", lsquo: "'",
+  rdquo: '"', ldquo: '"', middot: "-", nbsp: " ", hellip: "...", sect: "\u00a7",
+  ordm: "\u00ba", bull: "\u2022", darr: "\u2193", rarr: "\u2192" };
 const decode = (s) => s
-  .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
-  .replace(/&quot;/g, '"').replace(/&#39;|&rsquo;/g, "'").replace(/&middot;/g, "-")
-  .replace(/&nbsp;/g, " ").replace(/&hellip;/g, "...");
+  .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+  .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d)))
+  .replace(/&([a-z]+);/gi, (m, name) => NAMED[name] ?? NAMED[name.toLowerCase()] ?? m)
+  .replace(/&amp;/g, "&");
 
 // "The Tower - RogerAI" / "RogerAI - the operating manual" -> the distinctive half.
 function llmsTitle(html, page) {

@@ -1248,7 +1248,8 @@ html.js .mkt-quiet--nojs { display: none; }
 }
 .shelf__mark { width: 132px; height: auto; border: 1px solid var(--hairline-2);
   border-radius: var(--r-sm); flex: none; }
-.shelf__colophon p { margin: 0; font-size: var(--t-sm); }
+.shelf__colophon span { font-size: var(--t-sm); }
+.shelf__colophon { margin: 0; }
 
 @media (prefers-reduced-motion: reduce) {
   .shelf__cover,
