@@ -199,7 +199,7 @@ func (m model) onRemoteInbound(in protocol.RCInbound) (tea.Model, tea.Cmd) {
 		if m.agent == nil {
 			m.agent = m.newAgentRuntime()
 		}
-		if m.agentBusy || m.agent.running.Load() {
+		if m.agentTurnLive() {
 			// FIFO, drained when the turn ends. Tagged remote: at drain it is ALWAYS
 			// submitted as a chat turn, never slash-dispatched - a remote "/operator"
 			// (or /clear) must not control the host through the busy queue (ruling 7;

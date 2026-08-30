@@ -228,7 +228,7 @@ func (m model) deskEntryEligible() bool {
 	} else if m.proxyHolder != nil {
 		return false // a holder with no resolved model - not a fresh landing
 	}
-	if strings.TrimSpace(m.agentIn.Value()) != "" || m.agentBusy || (m.agent != nil && m.agent.running.Load()) {
+	if strings.TrimSpace(m.agentIn.Value()) != "" || m.agentTurnLive() {
 		return false
 	}
 	if len(m.agentLines) != m.agentLandingLines {
@@ -733,7 +733,7 @@ func (m model) startOperatorHandoff(d operator.Detection, fromPicker bool) (tea.
 	}
 	// The DJ's in-flight turn owns the completer and the terminal; a queued prompt
 	// would drain into a new turn against a suspended TUI - both block the handoff.
-	if m.agentBusy || (m.agent != nil && m.agent.running.Load()) {
+	if m.agentTurnLive() {
 		m.rcNote("the DJ is mid-turn - let it finish (esc cancels), then hand off")
 		return m, nil
 	}
@@ -850,7 +850,7 @@ func (m model) onOperatorExec() (tea.Model, tea.Cmd) {
 	// Every abort below rcEmitDJBack()s: the staging guard answered remote turns with
 	// "guest has the mic", so an abort must correct the record or the remote surface is
 	// stranded on a guest that never took the mic (iteration-1 finding #4).
-	if m.mode != modeAgent || m.agentBusy || (m.agent != nil && m.agent.running.Load()) || len(m.agentQueued) > 0 {
+	if m.mode != modeAgent || m.agentTurnLive() || len(m.agentQueued) > 0 {
 		m.operatorHandoff = nil
 		switch {
 		case m.mode != modeAgent:
@@ -1363,7 +1363,7 @@ func (m model) deskRosterBlock(w int) string {
 	if strings.TrimSpace(m.agentIn.Value()) != "" {
 		return "" // authored input owns the vertical budget; decorative landing chrome yields
 	}
-	if len(m.agentLines) != m.agentLandingLines || m.agentBusy || (m.agent != nil && m.agent.running.Load()) {
+	if len(m.agentLines) != m.agentLandingLines || m.agentTurnLive() {
 		return "" // any line beyond the entry chrome = the conversation started
 	}
 	if m.operatorPicker || m.agentPicker || m.agentPendingConfirm != nil || m.operatorPlate != nil || m.operatorHandoff != nil {

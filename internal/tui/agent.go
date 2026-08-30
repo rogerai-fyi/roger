@@ -11,9 +11,12 @@ package tui
 // mid-loop), so it runs in a goroutine and talks to the single-threaded Bubble Tea
 // model over channels. The loop emits Events onto `events`; a recurring tea.Cmd
 // (waitAgentEvent) drains them into the model as agentEventMsg. A mutating tool's
-// Confirmer sends an agentConfirm onto `confirmReq` and BLOCKS on `confirmResp`; the
-// TUI shows a y/N and writes the answer back, so the loop never runs a side-effecting
-// tool without an on-screen approval.
+// Confirmer sends an agentConfirm onto `confirmReq` and BLOCKS on that confirm's OWN
+// `resp` channel; the TUI shows a y/N and writes the answer back, so the loop never runs
+// a side-effecting tool without an on-screen approval. (It used to say the answer came
+// back on a shared `confirmResp` field. It never did - the field was allocated and never
+// touched, so the description outlived the design by describing something that was not
+// there.)
 
 import (
 	"context"
@@ -56,11 +59,35 @@ type agentRuntime struct {
 	// events carries streamed steps of the in-flight turn (assistant text, tool calls,
 	// results, the final answer, errors). Buffered so the loop goroutine never blocks
 	// on a slow UI frame.
+	//
+	// IT IS ALLOCATED ONCE AND NEVER CLOSED OR REASSIGNED (founder crash 2026-08-30,
+	// "panic: send on closed channel"). It used to be closed by the turn goroutine to
+	// signal end-of-turn and re-armed by the drain, which made two failures possible:
+	// a turn started between the goroutine's running.Store(false) and its close() sent
+	// on a channel about to close, and the drain's reassignment was an unsynchronised
+	// write racing three readers. A channel nobody closes cannot be sent on after close,
+	// and a field nobody reassigns cannot be read stale - so both are gone structurally
+	// rather than by timing. End-of-turn now travels on turnDone.
 	events chan harness.Event
-	// confirmReq carries a pending mutating-tool confirm to the UI; confirmResp carries
-	// the user's y/N answer back to the (blocked) loop goroutine.
-	confirmReq  chan agentConfirm
-	confirmResp chan bool
+	// turnDone is closed by a turn's goroutine when it returns, and is what the drain
+	// reports agentDoneMsg from. One per turn: it is replaced (on the UI goroutine, in
+	// startAgentTurn, before the drain Cmd that reads it is issued) rather than reused,
+	// because a closed channel stays closed and the next turn needs a fresh signal.
+	turnDone chan struct{}
+	// turnCtx holds the LIVE turn's context so the two closures built once per runtime -
+	// the cost side-channel and the confirmer - can tell whether the turn they are
+	// serving has been cancelled. The emit closure captures its ctx directly (it is
+	// created per turn); these two cannot, because newAgentRuntime builds them before any
+	// turn exists. Without it an abandoned goroutine (force-stop, or a tool that ignores
+	// ctx) blocks forever on a send nobody will receive, and a goroutine that never
+	// returns means `running` never clears - which now also means the operator can never
+	// run /clear or /model again. atomic.Value because it is written on the UI goroutine
+	// and read on the turn's.
+	turnCtx atomic.Value // context.Context
+	// confirmReq carries a pending mutating-tool confirm to the UI. The answer comes back
+	// on the agentConfirm's own resp channel, one per confirm, so two gates can never be
+	// answered out of order.
+	confirmReq chan agentConfirm
 	// cancel aborts the in-flight turn (esc): it cancels the context threaded into the
 	// harness loop's model call, so a hung/slow station call is dropped at once, no
 	// further steps fire (no more billing), and input is handed back. nil between turns.
@@ -586,16 +613,32 @@ func (m model) newAgentRuntime() *agentRuntime {
 	// [0]" reuses the model you just had); "" only when truly nothing is/was tuned in.
 	mdl := m.resolveAgentModel()
 	rt := &agentRuntime{
-		model:       mdl,
-		events:      make(chan harness.Event, 32),
-		confirmReq:  make(chan agentConfirm),
-		confirmResp: make(chan bool),
+		model:      mdl,
+		events:     make(chan harness.Event, 32),
+		confirmReq: make(chan agentConfirm),
 	}
 	// Cost + the broker's BILLED token counts are surfaced through the events channel as a
 	// single sentinel ("<credits> <in> <out>") so the lone drain Cmd stays the only reader
 	// (no second goroutine racing the model). waitAgentEvent parses the triple back out.
+	// turnDone reports the live turn's cancellation channel, or nil before the first turn
+	// (a nil channel blocks forever in a select, which is exactly the old behaviour and
+	// the right one when there is no turn to abandon).
+	turnAbort := func() <-chan struct{} {
+		if c, ok := rt.turnCtx.Load().(context.Context); ok && c != nil {
+			return c.Done()
+		}
+		return nil
+	}
 	costFn := func(credits float64, in, out int, tps float64) {
-		rt.events <- harness.Event{Kind: eventCost, Text: fmt.Sprintf("%g %d %d %g", credits, in, out, tps)}
+		// GIVE UP IF THE TURN WAS CANCELLED. events is never closed, so this can no longer
+		// panic - but a force-stopped turn whose relay still reports a cost would otherwise
+		// block here forever if nobody is draining, wedging the goroutine and the runtime
+		// with it. A live turn still blocks, which is the backpressure that keeps its
+		// stream ordered.
+		select {
+		case rt.events <- harness.Event{Kind: eventCost, Text: fmt.Sprintf("%g %d %d %g", credits, in, out, tps)}:
+		case <-turnAbort():
+		}
 	}
 	// The completer reads rt.model LIVE (not a captured value) so re-tuning a channel
 	// after the runtime is built takes effect on the next turn without a rebuild.
@@ -657,8 +700,22 @@ func (m model) newAgentRuntime() *agentRuntime {
 			return true
 		}
 		c := agentConfirm{tool: tool, args: args, resp: make(chan bool, 1)}
-		rt.confirmReq <- c // surfaced to the UI as agentConfirmMsg
-		return <-c.resp    // blocks until the user answers y/N
+		// A CANCELLED TURN MUST NOT RAISE A GATE, and must not hang waiting to. confirmReq
+		// is unbuffered, so a force-stopped turn whose tool ignores ctx and then reaches a
+		// mutating tool would park here forever asking permission for work the operator
+		// already stopped. Refusing is the safe answer: the turn is over, so the tool must
+		// not run.
+		select {
+		case rt.confirmReq <- c: // surfaced to the UI as agentConfirmMsg
+		case <-turnAbort():
+			return false
+		}
+		select {
+		case ok := <-c.resp: // the user's y/N
+			return ok
+		case <-turnAbort():
+			return false
+		}
 	}
 	persona := harness.LoadPersona(harness.PersonaPath())
 	m.agentFullPersona = persona // kept so a band change can swap between full and compact
@@ -1191,11 +1248,21 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if !strings.HasPrefix(p, "/") {
 			m.rcEmitLocalTurn(p)
 		}
-		if m.agentBusy && !instantAgentCommand(p) {
+		// THE GATE IS BOTH FLAGS (2026-08-30). agentBusy is the UI's; rt.running is the
+		// goroutine's, and a force-stop splits them deliberately - freeing the prompt while
+		// the goroutine unwinds is the whole point of it. Reading agentBusy alone let a
+		// loop-mutating command through in that window: a typed "/clear" ran loop.Reset()
+		// on the UI goroutine while the abandoned turn was still inside Send, mutating
+		// l.messages and l.spill underneath it. Waiting on BOTH is the rule submitAgentPrompt
+		// and dequeueAgentPrompts already follow, so this makes the three agree.
+		if m.agentTurnLive() && !instantAgentCommand(p) {
 			m.agentQueued = append(m.agentQueued, queuedPrompt{text: p})
 			m.agentLines = append(m.agentLines, stDim.Render("⏳ STANDBY · ")+stDim.Render(clipLine(p)))
 			m.status = stDim.Render(plural(len(m.agentQueued), "queued msg") + " · sends when the turn finishes · esc cancels")
-			return m, nil
+			// When agentBusy is ALREADY false (the force-stop case) the goroutine's exit
+			// produces no UI event of its own, so arm the same re-check submitAgentPrompt
+			// uses. Without it a command parked here waits for whatever ticks next.
+			return m, agentDrainSoon()
 		}
 		if strings.HasPrefix(p, "/") {
 			return m.runAgentCommand(p)
@@ -1707,6 +1774,16 @@ func (m model) openAgentModelPicker() (tea.Model, tea.Cmd) {
 	}
 }
 
+// agentTurnLive reports whether a turn's goroutine is still on the shared loop - either
+// the UI knows it is busy, or (after a force-stop, which frees the prompt while the
+// goroutine unwinds) rt.running still says so. Anything that touches shared loop state
+// has to wait for BOTH: agentBusy alone let a typed "/clear" reset the conversation from
+// the UI goroutine while an abandoned turn was still inside Send. The expression was
+// repeated at six call sites, one of them missing the nil guard, so it is named once.
+func (m model) agentTurnLive() bool {
+	return m.agentBusy || (m.agent != nil && m.agent.running.Load())
+}
+
 // startAgentTurn runs one user turn through the harness loop in a background
 // goroutine, streaming each step onto the runtime's events channel and closing it
 // when the turn ends. The returned Cmd does not itself read the channel - the
@@ -1722,16 +1799,33 @@ func (m model) startAgentTurn(prompt string) tea.Cmd {
 	// next prompt processed before the goroutine even starts still sees running==true and
 	// queues rather than racing the shared loop.
 	rt.running.Store(true)
+	// THIS turn's end signal, published on the UI goroutine before the drain Cmd that
+	// reads it is issued (startAgentTurn is always batched with waitAgentEvent), so the
+	// drain can never capture the previous turn's already-closed done.
+	done := make(chan struct{})
+	rt.turnDone = done
+	rt.turnCtx.Store(ctx)
 	return func() tea.Msg {
 		go func() {
 			_, _ = rt.loop.Send(ctx, prompt, func(e harness.Event) {
-				rt.events <- e
+				// A CANCELLED TURN MUST NOT WEDGE ON A FULL BUFFER. events is never closed,
+				// so an abandoned goroutine (force-stop, or a tool that ignores ctx) can no
+				// longer panic - but it could block forever on a 32-deep buffer nobody is
+				// draining, holding the shared loop and `running` with it, and that would
+				// deadlock every later turn. A live turn still blocks, which is the
+				// backpressure that keeps its stream in order; a cancelled one drops.
+				select {
+				case rt.events <- e:
+				case <-ctx.Done():
+				}
 			})
 			cancel() // release the context's resources on any exit path
-			// Clear running BEFORE closing events so that by the time the drain observes the
-			// close (agentDoneMsg) and tries to dequeue, the next turn can start cleanly.
+			// Order is deliberate and load-bearing: the done signal is published BEFORE the
+			// guard is dropped, so the window the crash needed - running false while this
+			// turn can still emit - does not exist. agentDrainRetryMsg starts a turn on
+			// `running` alone, and by the time it can observe false, this turn is finished.
+			close(done)
 			rt.running.Store(false)
-			close(rt.events)
 		}()
 		return nil
 	}
@@ -1746,26 +1840,40 @@ func (m model) waitAgentEvent() tea.Cmd {
 	if rt == nil {
 		return nil
 	}
+	// Captured here, on the UI goroutine, so this Cmd reports the end of the turn that
+	// was live when it was issued - never a later turn's, and never a stale closed one.
+	done := rt.turnDone
 	return func() tea.Msg {
+		// A TURN'S TAIL RENDERS BEFORE ITS DONE. done is closed once Send has returned,
+		// so its last events are already sitting in the buffer; a bare select would pick
+		// randomly between a ready event and a ready done and drop the end of the answer.
+		// Draining what is buffered first makes the order deterministic.
+		select {
+		case e := <-rt.events:
+			return agentEventFor(e)
+		default:
+		}
 		select {
 		case c := <-rt.confirmReq:
 			return agentConfirmMsg(c)
-		case e, ok := <-rt.events:
-			if !ok {
-				// Channel closed: the turn is done. Re-arm it for the next turn so the
-				// runtime is reusable across turns within the session.
-				rt.events = make(chan harness.Event, 32)
-				return agentDoneMsg{}
-			}
-			if e.Kind == eventCost {
-				var c, tps float64
-				var in, out int
-				fmt.Sscanf(e.Text, "%g %d %d %g", &c, &in, &out, &tps)
-				return agentCostMsg{cost: c, tokensIn: in, tokensOut: out, tps: tps}
-			}
-			return agentEventMsg(e)
+		case e := <-rt.events:
+			return agentEventFor(e)
+		case <-done:
+			return agentDoneMsg{}
 		}
 	}
+}
+
+// agentEventFor turns one streamed harness event into the message the UI renders,
+// splitting the private cost sentinel back out of its packed text form.
+func agentEventFor(e harness.Event) tea.Msg {
+	if e.Kind == eventCost {
+		var c, tps float64
+		var in, out int
+		fmt.Sscanf(e.Text, "%g %d %d %g", &c, &in, &out, &tps)
+		return agentCostMsg{cost: c, tokensIn: in, tokensOut: out, tps: tps}
+	}
+	return agentEventMsg(e)
 }
 
 // onAgentEvent renders one streamed loop step into the transcript and re-arms the
@@ -1900,7 +2008,12 @@ func (m model) onAgentEvent(e agentEventMsg) (tea.Model, tea.Cmd) {
 		// never silent, because a session that quietly dropped material the model had
 		// read is exactly the kind of thing an operator should be told about.
 		m.agentLines = append(m.agentLines, stDim.Render("  ⋮ ")+stDim.Render(e.Text))
-		return m, nil
+		// FALL THROUGH to the tail's re-arm. This used to `return m, nil`, which stopped
+		// the single drain dead: a notice is emitted MID-TURN and the turn keeps going
+		// (harness auto-compaction, the "nothing to compact" dead-end, the recited-prompt
+		// trim), so the rest of that turn was never read, agentDoneMsg never arrived and
+		// the turn hung with agentBusy stuck on. Identical in kind to the cost-tick freeze
+		// recorded at tui.go:1932; this was the same mistake one case further down.
 	case harness.EventError:
 		// A failed turn is a dead end unless we say what to do next. Replace the bare
 		// "status NNN / no reply" with a tight two-liner: the short cause (naming the
