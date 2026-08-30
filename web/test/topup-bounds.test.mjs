@@ -22,7 +22,9 @@ before(() => execFileSync("node", ["build.mjs"], { cwd: WEB }));
 // are the same bound and different strings.
 const goConst = (name) => {
   const go = readFileSync(path.join(REPO, "internal", "client", "topup_amount.go"), "utf8");
-  const m = go.match(new RegExp(`const ${name} = ([0-9.]+)`));
+  // Tolerates a grouped `const ( ... )` declaration, so moving the constants together
+  // does not fail this with a misleading "is not declared".
+  const m = go.match(new RegExp(`(?:const\\s+)?${name}\\s*=\\s*([0-9.]+)`));
   assert.ok(m, `${name} is declared in internal/client/topup_amount.go`);
   return Number(m[1]);
 };
@@ -37,17 +39,26 @@ test("topup bounds: the billing input allows exactly the range the broker allows
   assert.match(input, /step="0\.01"/, "the input accepts the cents the broker accepts");
 });
 
-test("topup bounds: the billing script guards both ends and whole cents", () => {
+test("topup bounds: the billing click handler guards both ends and whole cents", () => {
+  // Scoped to the CLICK HANDLER, not the file. Two things bit earlier versions of this
+  // test: a bare includes() is satisfied by a comment naming the number, and the same
+  // comparison also appears in reflect(), which only paints a label - so a file-wide
+  // match stayed green with the guard that actually stops the request deleted.
   const js = src("js/billing.js");
-  assert.ok(js.includes(String(goConst("MaxTopupUSD"))), "the script knows the same ceiling");
-  assert.match(js, /whole number of cents|Whole cents only/i, "and refuses a sub-cent amount");
+  const handler = js.match(/on\("topup", "click", function \(\) \{[\s\S]*?\n      \}\);/)?.[0];
+  assert.ok(handler, "the top-up click handler is there");
+  const max = String(goConst("MaxTopupUSD")).replace(".", "\\.");
+  assert.match(handler, new RegExp(`usd < ${goConst("MinTopupUSD")}\\b`), "the floor is a guard");
+  assert.match(handler, new RegExp(`usd > ${max}`), "the ceiling is a guard");
+  assert.match(handler, /Math\.round\(usd \* 100\)\) > 1e-6/, "and a sub-cent amount is refused");
+  assert.doesNotMatch(handler, /Math\.round\(usd \* 100\) \/ 100/, "and none of them is rounded away");
 });
 
 test("topup bounds: the local console guards the same three things", () => {
   const js = readFileSync(path.join(REPO, "internal", "webui", "assets", "console.js"), "utf8");
   const topup = js.match(/function topup\(\)[\s\S]*?\n  \}/)?.[0] || "";
   assert.ok(topup, "the console has a topup handler");
-  assert.match(topup, /minimum is \$1/i, "floor");
-  assert.ok(topup.includes(String(goConst("MaxTopupUSD"))), "ceiling");
-  assert.match(topup, /Whole cents only/i, "whole cents");
+  assert.match(topup, new RegExp(`usd < ${goConst("MinTopupUSD")}\\b`), "floor");
+  assert.match(topup, new RegExp(`usd > ${String(goConst("MaxTopupUSD")).replace(".", "\\.")}`), "ceiling");
+  assert.match(topup, /Math\.round\(usd \* 100\)\) > 1e-6/, "whole cents");
 });

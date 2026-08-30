@@ -108,7 +108,7 @@ func stripeUnitAmount(usd float64) (int, error) {
 		return 0, fmt.Errorf("amount is not a real number")
 	}
 	if usd < client.MinTopupUSD || usd > client.MaxTopupUSD {
-		return 0, fmt.Errorf("amount $%v is outside $%.0f-$%.2f", usd, client.MinTopupUSD, client.MaxTopupUSD)
+		return 0, fmt.Errorf("amount $%.2f is outside $%.0f-$%.2f", usd, client.MinTopupUSD, client.MaxTopupUSD)
 	}
 	return int(math.Round(usd * 100)), nil
 }
