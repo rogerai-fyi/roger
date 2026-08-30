@@ -349,15 +349,25 @@ func TestLoginFlowStubbed(t *testing.T) {
 	}
 }
 
-// TestTopupValidation covers handleTopup's usd<=0 rejection.
+// TestTopupValidation covers handleTopup's amount rejections. All three bounds are the
+// shared ones (client.MinTopupUSD / MaxTopupUSD / WholeCents), so this surface refuses
+// exactly what the CLI and the broker refuse rather than leaving it to a round-trip.
 func TestTopupValidation(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	s := New(node.New(node.Config{}), Options{Broker: fakeBrokerAll(t), User: "u"})
-	resp := webDo(t, s, http.MethodPost, "/api/account/topup", `{"usd":0}`)
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Errorf("topup usd=0 = %d, want 400", resp.StatusCode)
+	for _, body := range []string{
+		`{"usd":0}`,       // below the floor
+		`{"usd":0.5}`,     // below the floor
+		`{"usd":1000000}`, // above the ceiling
+		`{"usd":1e18}`,    // above the ceiling, and overflows on the way to cents
+		`{"usd":1.999}`,   // finer than a cent
+	} {
+		resp := webDo(t, s, http.MethodPost, "/api/account/topup", body)
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("topup %s = %d, want 400", body, resp.StatusCode)
+		}
+		resp.Body.Close()
 	}
-	resp.Body.Close()
 }
 
 // TestListenFreePortScansUp covers listenFreePort's scan-upward path: with a port

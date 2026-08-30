@@ -95,9 +95,11 @@ func TestParseTopupAmountAlwaysReturnsAFiniteChargeableAmount(t *testing.T) {
 		if math.IsNaN(usd) || math.IsInf(usd, 0) || usd <= 0 {
 			t.Errorf("ParseTopupAmount(%q) accepted an uncharg[e]able amount: %v", arg, usd)
 		}
-		// Whatever is accepted must also survive the conversion to integer cents.
-		if cents := usd * 100; cents > float64(1<<62) {
-			t.Errorf("ParseTopupAmount(%q) accepted %v, which overflows when converted to cents", arg, usd)
+		// Whatever is accepted must also survive the conversion to integer cents. The
+		// bound is the cap, not the int64 edge: an amount below the overflow point but
+		// above the cap is still wrong, and comparing against the edge would never fire.
+		if cents := usd * 100; cents > MaxTopupUSD*100 {
+			t.Errorf("ParseTopupAmount(%q) accepted %v, above the $%.2f cap", arg, usd, MaxTopupUSD)
 		}
 	}
 }

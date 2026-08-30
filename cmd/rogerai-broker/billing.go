@@ -98,7 +98,19 @@ func stripeSecretKey() string { return os.Getenv("STRIPE_SECRET_KEY") }
 // 4583 of the 99901 whole-cent amounts between $1 and $1000. Callers must have already
 // refused anything finer than a cent (client.WholeCents), so rounding here only undoes
 // float representation error, never a real fraction.
-func stripeUnitAmount(usd float64) int { return int(math.Round(usd * 100)) }
+// It also CLAMPS to the shared bounds rather than trusting its caller. Every current
+// caller range-checks first, but "safe because of what the caller did" is how the
+// overflow got here, and a helper that silently returns a negative charge is not one to
+// leave lying around for the next caller.
+func stripeUnitAmount(usd float64) int {
+	if math.IsNaN(usd) || usd < client.MinTopupUSD {
+		return int(math.Round(client.MinTopupUSD * 100))
+	}
+	if usd > client.MaxTopupUSD {
+		return int(math.Round(client.MaxTopupUSD * 100))
+	}
+	return int(math.Round(usd * 100))
+}
 
 // checkout handles POST /billing/checkout {"usd": 10}: creates a Stripe Checkout
 // session for the caller to buy credits and returns the {url, credits}.
