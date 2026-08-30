@@ -42,7 +42,32 @@ func IsContextOverflow(raw string) bool {
 		strings.Contains(low, "context_length_exceeded") ||
 		strings.Contains(low, "maximum context") ||
 		strings.Contains(low, "too many tokens") ||
-		strings.Contains(low, "kv cache")
+		strings.Contains(low, "kv cache") ||
+		IsRequestTooLarge(low)
+}
+
+// IsRequestTooLarge spots THE SAME WALL MEASURED IN BYTES.
+//
+// A station can refuse an oversized conversation at the HTTP layer instead of the
+// tokenizer, and then it never says "context" at all - llama.cpp/Ollama answer 413 with
+// "Maximum request body size 1048576 exceeded, actual body size 1050714", and a proxy in
+// front says "Request Entity Too Large" or "Payload Too Large". None of those match the
+// spellings above, so the turn used to stop dead and ask the operator to "retry the turn
+// or fix the error" - advice that cannot work, because retrying sends the same oversized
+// body again and there is nothing for a human to fix.
+//
+// The cause is identical to a token overflow (the conversation no longer fits) and so is
+// the remedy: drop the raw tool output and send it again. Compaction frees bytes exactly
+// as it frees tokens.
+//
+// Deliberately narrow. It matches the SIZE-OF-REQUEST shapes only, never a bare "413",
+// which could appear in a model's own answer or in a tool result being relayed back.
+func IsRequestTooLarge(raw string) bool {
+	low := strings.ToLower(raw)
+	return strings.Contains(low, "request body size") ||
+		strings.Contains(low, "payload too large") ||
+		strings.Contains(low, "entity too large") ||
+		strings.Contains(low, "body size exceeded")
 }
 
 // prunedMarker is what a dropped tool result leaves behind. It names the tool and the

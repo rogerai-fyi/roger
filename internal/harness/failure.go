@@ -34,6 +34,14 @@ func ShortFailure(raw, model string) string {
 	// refusing an oversized conversation, and must never be reported as nobody being on
 	// air. Name the model, because WHICH window was outgrown is the whole point - a small
 	// on-device band (Apple foundation, 8K) fills where a big one would not.
+	// Checked before the general overflow branch so the wording stays TRUE: this station
+	// refused on request SIZE, and calling that "the context window" would send an operator
+	// looking at the wrong number (the model's window is fine; the server's body cap is not).
+	case IsRequestTooLarge(low):
+		if model != "" {
+			return "the conversation outgrew what " + model + "'s station accepts in one request"
+		}
+		return "the conversation outgrew what this station accepts in one request"
 	case IsContextOverflow(low):
 		if model != "" {
 			return "the conversation outgrew " + model + "'s context window"
