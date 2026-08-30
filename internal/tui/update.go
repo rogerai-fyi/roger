@@ -1600,11 +1600,13 @@ func (m model) doTopup(args []string) (tea.Model, tea.Cmd) {
 		m.status = stDim.Render("top-up unavailable in this build - run `roger balance --topup`")
 		return m, nil
 	}
-	usd := 10.0
-	if len(args) > 0 {
-		if f, err := strconv.ParseFloat(args[0], 64); err == nil && f > 0 {
-			usd = f
-		}
+	// The amount is read by the SAME parser the CLI uses (client.ParseTopupAmount).
+	// This was a third private copy, with the original bug: `/topup $25` failed
+	// ParseFloat and silently opened checkout for $10.
+	usd, err := client.ParseTopupAmount(args)
+	if err != nil {
+		m.status = stDim.Render(err.Error())
+		return m, nil
 	}
 	broker, user, topup := m.broker, m.user, m.hooks.TopupURL
 	m.status = stDim.Render("opening checkout…")

@@ -1,76 +1,64 @@
 package main
 
-import "testing"
+import (
+	"testing"
 
-// `roger topup <amt>` is now the documented spelling - pricing.html and the manual both
-// teach it - and it silently charged the wrong amount. cmdTopup parsed args[0] bare, so
-// `roger topup $25` failed ParseFloat and fell through to the $10 default without saying
-// anything, while the retired `balance --topup $25` alias stripped the dollar sign and
-// got it right. The two spellings of the same verb disagreed, and the one being promoted
-// was the wrong one.
+	"rogerai.fm/roger/v6/internal/client"
+)
+
+// The retained `balance --topup` aliases must read an amount exactly the way the
+// documented `roger topup <amt>` does, and must refuse exactly what it refuses. They
+// used to be the ones that got "$25" right while the documented verb silently charged
+// $10; after that was fixed the risk ran the other way, with the alias swallowing the
+// parser's error and charging the default on an amount the documented verb rejects.
 //
-// On a money path, "I could not read that amount" is an error, never a different charge.
-// Both paths go through one parser now so they cannot drift apart again.
-func TestParseTopupAmount(t *testing.T) {
-	for _, c := range []struct {
-		name    string
-		args    []string
-		want    float64
-		wantErr bool
-	}{
-		{"no argument takes the documented default", nil, 10, false},
-		{"empty argument list", []string{}, 10, false},
-		{"a plain amount", []string{"25"}, 25, false},
-		{"a dollar sign is tolerated", []string{"$25"}, 25, false},
-		{"cents survive", []string{"12.50"}, 12.5, false},
-		{"surrounding space", []string{" 25 "}, 25, false},
-
-		// The whole point: none of these may quietly become $10.
-		{"a typo is refused, not rounded to the default", []string{"twentyfive"}, 0, true},
-		{"a stray flag is refused", []string{"--yes"}, 0, true},
-		{"zero is refused", []string{"0"}, 0, true},
-		{"a negative is refused", []string{"-5"}, 0, true},
-		{"a lone dollar sign is refused", []string{"$"}, 0, true},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			got, err := parseTopupAmount(c.args)
-			if c.wantErr {
-				if err == nil {
-					t.Fatalf("parseTopupAmount(%q) = $%v, want an error rather than a charge", c.args, got)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("parseTopupAmount(%q) errored: %v", c.args, err)
-			}
-			if got != c.want {
-				t.Errorf("parseTopupAmount(%q) = $%v, want $%v", c.args, got, c.want)
-			}
-		})
-	}
-}
-
-// The hidden `balance --topup` aliases must read an amount exactly the way the documented
-// verb does. They were the ones that got it right; the risk now runs the other way.
+// Both now read through client.ParseTopupAmount, so this asserts the agreement rather
+// than re-testing the parser (internal/client/topup_amount_test.go owns that).
 func TestBalanceTopupAliasAgreesWithTheDocumentedVerb(t *testing.T) {
-	for _, amount := range []string{"25", "$25", "12.50"} {
-		want, err := parseTopupAmount([]string{amount})
+	for _, amount := range []string{"25", "$25", "12.50", " 40 "} {
+		want, err := client.ParseTopupAmount([]string{amount})
 		if err != nil {
-			t.Fatalf("parseTopupAmount(%q) errored: %v", amount, err)
+			t.Fatalf("ParseTopupAmount(%q) errored: %v", amount, err)
 		}
 		for _, args := range [][]string{
 			{"topup", amount},
 			{"--topup", amount},
 			{"--topup=" + amount},
 		} {
-			got, ok := balanceTopupAlias(args)
-			if !ok {
+			got, matched, err := balanceTopupAlias(args)
+			if !matched {
 				t.Errorf("balanceTopupAlias(%q) did not recognize a top-up", args)
+				continue
+			}
+			if err != nil {
+				t.Errorf("balanceTopupAlias(%q) refused an amount the documented verb accepts: %v", args, err)
 				continue
 			}
 			if got != want {
 				t.Errorf("balanceTopupAlias(%q) = $%v, but `roger topup %s` = $%v", args, got, amount, want)
 			}
+		}
+	}
+}
+
+// A refusal has to travel. The alias matched, so `balance topup bogus` is unambiguously
+// a top-up request - and an unreadable amount on that path must stop the command, not
+// open checkout for the default.
+func TestBalanceTopupAliasPropagatesARefusal(t *testing.T) {
+	for _, args := range [][]string{
+		{"topup", "bogus"},
+		{"--topup", "twentyfive"},
+		{"--topup=0"},
+		{"topup", "-5"},
+		{"--topup=NaN"},
+	} {
+		_, matched, err := balanceTopupAlias(args)
+		if !matched {
+			t.Errorf("balanceTopupAlias(%q) did not recognize a top-up", args)
+			continue
+		}
+		if err == nil {
+			t.Errorf("balanceTopupAlias(%q) accepted an unreadable amount instead of refusing it", args)
 		}
 	}
 }

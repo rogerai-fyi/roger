@@ -338,21 +338,34 @@ func TestBalanceTopupAlias(t *testing.T) {
 		args    []string
 		wantUSD float64
 		wantOK  bool
+		wantErr bool
 	}{
-		{nil, 0, false},                        // bare balance -> show, no topup
-		{[]string{"topup"}, 10, true},          // positional, default $10
-		{[]string{"topup", "25"}, 25, true},    // positional + amount
-		{[]string{"topup", "$25"}, 25, true},   // $ prefix tolerated
-		{[]string{"--topup"}, 10, true},        // flag, default $10
-		{[]string{"--topup", "40"}, 40, true},  // flag + amount
-		{[]string{"--topup=15"}, 15, true},     // flag=value
-		{[]string{"--topup=$15"}, 15, true},    // flag=$value
-		{[]string{"topup", "bogus"}, 10, true}, // bad amount -> default $10
+		{nil, 0, false, false},                       // bare balance -> show, no topup
+		{[]string{"topup"}, 10, true, false},         // positional, default $10
+		{[]string{"topup", "25"}, 25, true, false},   // positional + amount
+		{[]string{"topup", "$25"}, 25, true, false},  // $ prefix tolerated
+		{[]string{"--topup"}, 10, true, false},       // flag, default $10
+		{[]string{"--topup", "40"}, 40, true, false}, // flag + amount
+		{[]string{"--topup=15"}, 15, true, false},    // flag=value
+		{[]string{"--topup=$15"}, 15, true, false},   // flag=$value
+		// AMENDED 2026-08-30: this case used to expect ($10, true) - a bad amount
+		// silently became the default charge. That was the bug, not the contract: on a
+		// money path an unreadable amount is refused, and the refusal now travels back
+		// to cmdBalance. TestBalanceTopupAliasPropagatesARefusal covers the family.
+		{[]string{"topup", "bogus"}, 0, true, true}, // bad amount -> refused, not charged
 	}
 	for _, c := range cases {
-		gotUSD, gotOK := balanceTopupAlias(c.args)
-		if gotOK != c.wantOK || (gotOK && gotUSD != c.wantUSD) {
-			t.Errorf("balanceTopupAlias(%v) = ($%.0f, %v), want ($%.0f, %v)", c.args, gotUSD, gotOK, c.wantUSD, c.wantOK)
+		gotUSD, gotOK, gotErr := balanceTopupAlias(c.args)
+		if gotOK != c.wantOK {
+			t.Errorf("balanceTopupAlias(%v) matched = %v, want %v", c.args, gotOK, c.wantOK)
+			continue
+		}
+		if (gotErr != nil) != c.wantErr {
+			t.Errorf("balanceTopupAlias(%v) err = %v, want error: %v", c.args, gotErr, c.wantErr)
+			continue
+		}
+		if gotOK && gotErr == nil && gotUSD != c.wantUSD {
+			t.Errorf("balanceTopupAlias(%v) = $%.2f, want $%.2f", c.args, gotUSD, c.wantUSD)
 		}
 	}
 }

@@ -1749,40 +1749,11 @@ var (
 )
 
 func cmdTopup(cfg config, args []string) error {
-	usd, err := parseTopupAmount(args)
+	usd, err := client.ParseTopupAmount(args)
 	if err != nil {
 		return err
 	}
 	return client.Topup(cfg.Broker, cfg.User, usd, tui.OpenURL)
-}
-
-// defaultTopupUSD is what a bare `roger topup` adds. Documented on the pricing page
-// and in the manual, so it lives in one place rather than in each caller.
-const defaultTopupUSD = 10.0
-
-// parseTopupAmount reads the dollar amount for a top-up. It is the ONE reader for both
-// spellings of the verb - the documented `roger topup <amt>` and the retained
-// `balance --topup <amt>` aliases - which previously disagreed: the alias stripped a
-// leading "$" and the documented form did not, so `roger topup $25` failed ParseFloat
-// and silently charged the $10 default instead.
-//
-// On a money path an unreadable amount is an ERROR, never a different charge. A typo
-// that quietly bills a number the operator did not type is worse than a refusal, and it
-// is the kind of thing nobody notices until the receipt.
-func parseTopupAmount(args []string) (float64, error) {
-	if len(args) == 0 {
-		return defaultTopupUSD, nil
-	}
-	raw := strings.TrimSpace(args[0])
-	amt := strings.TrimSpace(strings.TrimPrefix(raw, "$"))
-	usd, err := strconv.ParseFloat(amt, 64)
-	if err != nil {
-		return 0, fmt.Errorf("top-up amount %q is not a number - try `roger topup 25`", raw)
-	}
-	if usd <= 0 {
-		return 0, fmt.Errorf("top-up amount must be more than $0 - got %q", raw)
-	}
-	return usd, nil
 }
 
 // cmdPayout is the provider money-OUT verb group: cash out earnings from the
@@ -2021,7 +1992,10 @@ func payoutHistory(cfg config) error {
 func cmdBalance(cfg config, args []string) error {
 	// Hidden aliases, parsed by hand so they do NOT appear in `balance -h`:
 	//   roger balance topup [usd]   /   roger balance --topup[=usd]
-	if usd, ok := balanceTopupAlias(args); ok {
+	if usd, ok, err := balanceTopupAlias(args); ok {
+		if err != nil {
+			return err
+		}
 		return client.Topup(cfg.Broker, cfg.User, usd, tui.OpenURL)
 	}
 	return client.Balance(cfg.Broker, cfg.User)
@@ -2030,30 +2004,26 @@ func cmdBalance(cfg config, args []string) error {
 // balanceTopupAlias recognizes the retired-but-still-working topup spellings under
 // `balance` (C7 hidden aliases): `balance topup [usd]`, `balance --topup`, and
 // `balance --topup <usd>` / `--topup=<usd>`. Returns the dollar amount (defaulting to
-// $10) and true when one matched, else (_, false). The documented form is the
-// top-level `roger topup <amt>`, and the amount is read by the SAME parser, so the
-// two spellings cannot disagree about what "$25" means the way they used to.
-func balanceTopupAlias(args []string) (float64, bool) {
-	usd := 10.0
+// $10), true when one matched, and any refusal. The documented form is the top-level
+// `roger topup <amt>`, and the amount is read by the SAME parser (client.ParseTopupAmount),
+// so the two spellings cannot disagree about what "$25" means the way they used to - nor
+// can one of them quietly charge the default on an amount the other refuses.
+func balanceTopupAlias(args []string) (usd float64, matched bool, err error) {
+	usd = client.DefaultTopupUSD
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		switch {
 		case a == "topup" || a == "--topup" || a == "-topup":
 			if i+1 < len(args) {
-				if f, e := parseTopupAmount(args[i+1:]); e == nil {
-					usd = f
-				}
+				usd, err = client.ParseTopupAmount(args[i+1:])
 			}
-			return usd, true
+			return usd, true, err
 		case strings.HasPrefix(a, "--topup=") || strings.HasPrefix(a, "-topup="):
-			v := a[strings.IndexByte(a, '=')+1:]
-			if f, e := parseTopupAmount([]string{v}); e == nil {
-				usd = f
-			}
-			return usd, true
+			usd, err = client.ParseTopupAmount([]string{a[strings.IndexByte(a, '=')+1:]})
+			return usd, true, err
 		}
 	}
-	return 0, false
+	return 0, false, nil
 }
 
 // cmdLimit is the per-account MONTHLY SPEND CAP verb (a budget limit, modeled on
