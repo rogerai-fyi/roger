@@ -380,7 +380,10 @@
             valEl.hidden = false;
           }
         } else if (isFinite(usd) && usd >= 1) {
-          if (btn) btn.textContent = "Add " + cr(usd);
+          // cr() rounds to two places, so labelling this branch with it prints the very
+          // substituted figure the refusal exists to prevent (a typed 10.005 read
+          // "Add $10.00"). The button says nothing about an amount it will not send.
+          if (btn) btn.textContent = "Add money";
           if (valEl) {
             valEl.textContent = "Whole cents only.";
             valEl.hidden = false;

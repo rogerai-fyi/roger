@@ -120,6 +120,10 @@ func (s *Server) handleTopup(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("top-up minimum is $%.0f", client.MinTopupUSD), http.StatusBadRequest)
 		return
 	}
+	if req.USD > client.MaxTopupUSD {
+		http.Error(w, fmt.Sprintf("top-up maximum is $%.2f", client.MaxTopupUSD), http.StatusBadRequest)
+		return
+	}
 	if !client.WholeCents(req.USD) {
 		http.Error(w, "top-up amount must be a whole number of cents", http.StatusBadRequest)
 		return

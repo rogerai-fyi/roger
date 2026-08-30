@@ -145,6 +145,13 @@ func (b *broker) checkout(w http.ResponseWriter, r *http.Request) {
 			fmt.Sprintf("top-up minimum is $%.0f", client.MinTopupUSD))
 		return
 	}
+	// Unbounded, an amount large enough to overflow int64 on the way to cents reached
+	// Stripe as a negative unit_amount. The ceiling is Stripe's own line-item maximum.
+	if req.USD > client.MaxTopupUSD {
+		jsonErr(w, http.StatusBadRequest,
+			fmt.Sprintf("top-up maximum is $%.2f", client.MaxTopupUSD))
+		return
+	}
 	// A fraction of a cent cannot be charged, and silently rounding one into a
 	// different charge is the substitution this whole path is about. Refuse it.
 	if !client.WholeCents(req.USD) {

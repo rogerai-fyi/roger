@@ -50,6 +50,11 @@ func TestParseTopupAmount(t *testing.T) {
 		{"a third of a dollar is refused", []string{"1.333"}, 0, true},
 		{"whole cents are fine", []string{"1.99"}, 1.99, false},
 		{"a round dollar is fine", []string{"25"}, 25, false},
+		// Unbounded, an amount large enough to overflow int64 when converted to cents
+		// reached Stripe as a NEGATIVE unit_amount. Stripe's own maximum is the ceiling.
+		{"the maximum itself is accepted", []string{"999999.99"}, MaxTopupUSD, false},
+		{"above the maximum is refused", []string{"1000000"}, 0, true},
+		{"an absurd amount is refused", []string{"1e18"}, 0, true},
 		{"an empty argument is refused", []string{""}, 0, true},
 
 		// ParseFloat accepts these, and both walk past a `usd <= 0` guard: NaN compares
@@ -82,13 +87,17 @@ func TestParseTopupAmount(t *testing.T) {
 // Whatever the parser returns must survive the marshal Topup performs. This is the
 // property the NaN/Inf cases above exist to protect, stated directly.
 func TestParseTopupAmountAlwaysReturnsAFiniteChargeableAmount(t *testing.T) {
-	for _, arg := range []string{"25", "$25", "0.01", "1e6", "NaN", "Inf", "-Inf", "bogus", "0", "-1"} {
+	for _, arg := range []string{"25", "$25", "0.01", "1e6", "1e18", "NaN", "Inf", "-Inf", "bogus", "0", "-1"} {
 		usd, err := ParseTopupAmount([]string{arg})
 		if err != nil {
 			continue // refused, which is always an acceptable outcome
 		}
 		if math.IsNaN(usd) || math.IsInf(usd, 0) || usd <= 0 {
 			t.Errorf("ParseTopupAmount(%q) accepted an uncharg[e]able amount: %v", arg, usd)
+		}
+		// Whatever is accepted must also survive the conversion to integer cents.
+		if cents := usd * 100; cents > float64(1<<62) {
+			t.Errorf("ParseTopupAmount(%q) accepted %v, which overflows when converted to cents", arg, usd)
 		}
 	}
 }

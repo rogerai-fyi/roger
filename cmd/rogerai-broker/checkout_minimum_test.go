@@ -103,3 +103,19 @@ func TestCheckoutRefusesASubCentAmount(t *testing.T) {
 		}
 	}
 }
+
+// Nothing bounded the amount from above, so a request large enough to overflow int64 on
+// the way to integer cents reached Stripe as a NEGATIVE unit_amount. The ceiling is
+// Stripe's own line-item maximum, refused here with a message rather than there with a 502.
+func TestCheckoutRefusesAnAmountAboveTheMaximum(t *testing.T) {
+	b, priv := newCheckoutBroker(t)
+	for _, body := range []string{
+		`{"usd":1000000}`,
+		`{"usd":1e18}`,
+	} {
+		w := postCheckout(t, b, priv, body)
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("checkout %s = %d, want 400 (above the maximum is refused here, not at Stripe)", body, w.Code)
+		}
+	}
+}
