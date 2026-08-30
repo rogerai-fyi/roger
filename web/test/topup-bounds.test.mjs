@@ -148,6 +148,8 @@ test("topup bounds: every user-facing minimum is the current minimum", () => {
   //    ogtitle, caption and label carry reader-facing text and were discarded. The
   //    denylist below scans an attribute it does not recognize instead of skipping it,
   //    so being wrong means a spurious failure rather than a silent pass.
+  //  - The gap budget counted indentation, so a wrapped line hid a match. Whitespace
+  //    collapses before matching.
   //  - Hoisted values were spliced in where the tag stood, so an attribute BETWEEN a
   //    number and the word broke the adjacency it was meant to preserve. They go to the
   //    end of the text now, each carrying its own context words with it, and the tag
@@ -164,7 +166,12 @@ test("topup bounds: every user-facing minimum is the current minimum", () => {
     const body = h
       .replace(/<!--[\s\S]*?-->/g, takeAttrs)
       .replace(/<\/?[a-zA-Z][^<>]*>/g, takeAttrs)
-      .replace(/&nbsp;/g, " ");
+      .replace(/&nbsp;/g, " ")
+      // Collapse whitespace last, so the gap between "minimum" and its number is
+      // measured in WORDS rather than in source formatting. Without this the budget was
+      // still styling-dependent: the same sentence pinned on one page and silently
+      // skipped on another purely because one of them wrapped and got indented.
+      .replace(/\s+/g, " ");
     return `${body}\n${hoisted.join("\n")}`;
   };
   for (const page of pages) {
