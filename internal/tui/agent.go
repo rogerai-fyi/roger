@@ -636,6 +636,11 @@ func (m model) newAgentRuntime() *agentRuntime {
 		// with it. A live turn still blocks, which is the backpressure that keeps its
 		// stream ordered.
 		select {
+		case <-turnAbort():
+			return // cancelled: decided BEFORE the send is offered, never by a coin flip
+		default:
+		}
+		select {
 		case rt.events <- harness.Event{Kind: eventCost, Text: fmt.Sprintf("%g %d %d %g", credits, in, out, tps)}:
 		case <-turnAbort():
 		}
@@ -705,10 +710,24 @@ func (m model) newAgentRuntime() *agentRuntime {
 		// mutating tool would park here forever asking permission for work the operator
 		// already stopped. Refusing is the safe answer: the turn is over, so the tool must
 		// not run.
+		// The drain is still parked on confirmReq after a force-stop, so the send is READY
+		// and so is the abort - and select would pick between them at random, popping a
+		// modal gate for a stopped turn about half the time (and then answering it false,
+		// leaving a gate on screen nobody can resolve). Decide cancellation first.
+		select {
+		case <-turnAbort():
+			return false
+		default:
+		}
 		select {
 		case rt.confirmReq <- c: // surfaced to the UI as agentConfirmMsg
 		case <-turnAbort():
 			return false
+		}
+		select {
+		case <-turnAbort():
+			return false
+		default:
 		}
 		select {
 		case ok := <-c.resp: // the user's y/N
@@ -1534,6 +1553,13 @@ func instantAgentCommand(line string) bool {
 	switch f[0] {
 	case "/perms", "/permissions", "/yolo", "/webui", "/console", "/web", "/mouse":
 		return true
+	// READ-ONLY, so they need not wait for a turn's goroutine. The gate now also parks on
+	// rt.running, which after a force-stop can stay set for as long as an abandoned tool
+	// takes to notice - and making the operator wait that out just to read /help, or to
+	// yank the transcript they are looking at, would be a worse experience than the race
+	// the gate exists to close. Neither touches the shared loop.
+	case "/help", "/h", "/commands", "/copy", "/y":
+		return true
 	}
 	return false
 }
@@ -1814,6 +1840,15 @@ func (m model) startAgentTurn(prompt string) tea.Cmd {
 				// draining, holding the shared loop and `running` with it, and that would
 				// deadlock every later turn. A live turn still blocks, which is the
 				// backpressure that keeps its stream in order; a cancelled one drops.
+				// Cancellation is decided FIRST, not raced against a send that also has
+				// room: otherwise an abandoned turn's steps still render into the next
+				// turn's transcript roughly half the time, which is how a stopped turn's
+				// tool calls and final answer got attributed to a later one.
+				select {
+				case <-ctx.Done():
+					return
+				default:
+				}
 				select {
 				case rt.events <- e:
 				case <-ctx.Done():

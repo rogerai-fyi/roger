@@ -91,9 +91,10 @@ abandoned turn was still reading and writing it. No crash, and nothing you would
 the time - just two threads editing one conversation.
 
 `/clear` and its neighbours now wait for the turn's goroutine to actually be gone, the
-same rule the rest of the queue already followed. Commands that touch nothing shared -
-`/perms`, `/webui`, `/console`, `/mouse` - still run instantly, so the force-stop window
-does not become a dead zone.
+same rule the rest of the queue already followed. Commands that touch nothing shared
+still run instantly - `/perms`, `/webui`, `/console`, `/mouse`, and now `/help` and
+`/copy` too - so the force-stop window does not become a dead zone while an abandoned
+tool takes its time noticing.
 
 ## The website: two figures that were quietly wrong
 

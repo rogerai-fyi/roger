@@ -42,17 +42,21 @@ test("the rail's geometry is read, not assumed", () => {
 });
 
 test("no two tier labels share a row while overlapping", () => {
+  // EVERY pair that shares a row, not just sorted neighbours: staggering the middle of
+  // three tightly packed nodes leaves the outer two alone on the top row, and if THOSE
+  // two are closer than a label they still collide. Checking neighbours only would call
+  // that arrangement clean.
   const bad = [];
-  for (let i = 1; i < nodes.length; i++) {
-    const prev = nodes[i - 1], cur = nodes[i];
-    const gap = cur.x - prev.x;
-    if (gap >= labelW) continue;                       // far enough apart to share a row
-    if (prev.staggered !== cur.staggered) continue;    // they are on DIFFERENT rows
-    // Both staggered is not a pass: two dropped neighbours collide with each other on
-    // the lower row exactly as they would have on the upper one.
-    bad.push(`${prev.name}/${cur.name} are ${gap.toFixed(1)}px apart but a label is ` +
-             `${labelW}px wide, and they share a row - they overlap by ` +
-             `${(labelW - gap).toFixed(1)}px`);
+  for (let i = 0; i < nodes.length; i++) {
+    for (let j = i + 1; j < nodes.length; j++) {
+      const a = nodes[i], b = nodes[j];
+      if (a.staggered !== b.staggered) continue;   // different rows, cannot collide
+      const gap = Math.abs(b.x - a.x);
+      if (gap >= labelW) continue;                 // far enough apart to share a row
+      bad.push(`${a.name}/${b.name} are ${gap.toFixed(1)}px apart but a label is ` +
+               `${labelW}px wide, and they share a row - they overlap by ` +
+               `${(labelW - gap).toFixed(1)}px`);
+    }
   }
   assert.deepEqual(bad, [], bad.join("; "));
 });

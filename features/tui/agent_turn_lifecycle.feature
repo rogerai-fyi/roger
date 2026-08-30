@@ -249,8 +249,12 @@ Feature: Agent turn lifecycle is safe across turns
     Then the y/N prompt reaches the UI
     And answering it resumes the turn
 
+  # Stranding means the drain PARKS with a gate outstanding and never reports anything
+  # again - not that it prefers one ready message over the other. Reporting the confirm
+  # first is correct: the gate is shown, answering it re-arms the drain, and the turn's
+  # done is still there to be read.
   Scenario: A confirm pending at turn end does not strand the drain
     Given a confirm is outstanding
     When the turn's goroutine exits
-    Then the drain reports agentDoneMsg
-    And the UI does not wait forever
+    Then the drain returns promptly rather than parking
+    And the turn still reaches agentDoneMsg

@@ -1036,6 +1036,18 @@ func (s *turnLifecycleBDD) answeringResumes() error {
 func (s *turnLifecycleBDD) confirmOutstanding() error {
 	s.enter(brokerReplying(s.t, "x"))
 	s.m.agentBusy = true
+	// ACTUALLY PARK A CONFIRM. Setting agentBusy alone left the drain with only `done`
+	// ready, so the scenario never exercised the case it names - the drain having a
+	// pending gate AND a finished turn to choose between. With a real sender parked, the
+	// drain must still report done rather than sitting on the confirm forever.
+	go func() {
+		s.rt.confirmReq <- agentConfirm{
+			tool: "write_file",
+			args: map[string]any{"path": "x"},
+			resp: make(chan bool, 1),
+		}
+	}()
+	time.Sleep(50 * time.Millisecond) // let it park on the send
 	return nil
 }
 
@@ -1046,21 +1058,24 @@ func (s *turnLifecycleBDD) goroutineExits() error {
 	return nil
 }
 
-func (s *turnLifecycleBDD) uiDoesNotWaitForever() error {
-	var wg sync.WaitGroup
-	wg.Add(1)
+func (s *turnLifecycleBDD) drainReturnsPromptly() error {
+	// The failure this guards against is a PARKED drain: a gate outstanding and nothing
+	// ever reported again, so agentBusy never clears and the session looks hung. Which of
+	// the two ready messages it picks is not the point.
 	got := make(chan tea.Msg, 1)
-	go func() { defer wg.Done(); got <- s.m.waitAgentEvent()() }()
+	go func() { got <- s.m.waitAgentEvent()() }()
 	select {
-	case m := <-got:
-		if _, ok := m.(agentDoneMsg); !ok {
-			return fmt.Errorf("expected agentDoneMsg with a confirm outstanding, got %T", m)
+	case msg := <-got:
+		out, _ := s.m.Update(msg)
+		s.m = asModel(out)
+		if _, ok := msg.(agentDoneMsg); ok {
+			s.doneCount++
 		}
+		return nil
 	case <-time.After(5 * time.Second):
-		return fmt.Errorf("the drain stranded with a confirm outstanding")
+		return fmt.Errorf("the drain parked with a confirm outstanding: nothing is reported " +
+			"again, so the turn never clears and the session looks hung")
 	}
-	wg.Wait()
-	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -1174,7 +1189,7 @@ func TestAgentTurnLifecycleFeature(t *testing.T) {
 			sc.Step(`^answering it resumes the turn$`, st.answeringResumes)
 			sc.Step(`^a confirm is outstanding$`, st.confirmOutstanding)
 			sc.Step(`^the turn's goroutine exits$`, st.goroutineExits)
-			sc.Step(`^the UI does not wait forever$`, st.uiDoesNotWaitForever)
+			sc.Step(`^the drain returns promptly rather than parking$`, st.drainReturnsPromptly)
 		},
 		Options: &godog.Options{
 			Format:   "pretty",
