@@ -7,7 +7,7 @@
 import { test, before } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -104,27 +104,42 @@ test("topup bounds: every user-facing minimum is the current minimum", () => {
   // </b>, which is a coincidence of styling rather than a rule, and bolding it the way
   // pricing.html bolds the floor would have tripped this on correct copy.
   //
-  // The count is pinned, not just the values. A context filter that skips what it does
-  // not recognize checks nothing about what it skipped: a floor stated further than
-  // TOPUP_NEAR from the words "top-up" would be dropped silently, which is the same
-  // shape as every other hole in this file's history. If a page gains or loses a
-  // mention, this fails and someone looks.
+  // EVERY page, and every occurrence CLASSIFIED rather than filtered. A filter that
+  // skips what it does not recognize checks nothing about what it skipped, and a
+  // per-page count only catches a mention disappearing - a new one stated far from the
+  // words "top-up" still slid past. So each occurrence must be either a top-up minimum,
+  // which has to equal the floor, or the payout minimum, which is a different policy
+  // number this test does not own. Anything in neither context fails by name, because an
+  // unclassifiable dollar minimum in the docs is the thing worth looking at.
   const TOPUP_NEAR = 140;
-  const EXPECTED = { "pricing.html": 1, "manual.html": 3 };
-  for (const [page, want] of Object.entries(EXPECTED)) {
+  const payoutMin = String(
+    readFileSync(path.join(REPO, "internal", "store", "ledger.go"), "utf8")
+      .match(/MinPayout:\s*([0-9.]+)/)?.[1],
+  );
+  assert.ok(payoutMin !== "undefined", "the payout minimum is declared in internal/store/ledger.go");
+
+  let topupMentions = 0;
+  for (const page of readdirSync(path.join(WEB, "src")).filter((f) => f.endsWith(".html"))) {
     const html = src(page);
-    const found = [];
     for (const m of html.matchAll(/minimum[^<$]{0,12}\$([\d,.]+)|\$([\d,.]+)<\/b>\s*minimum/g)) {
       const window = html.slice(Math.max(0, m.index - TOPUP_NEAR), m.index + TOPUP_NEAR);
-      if (!/top-?up/i.test(window)) continue; // the payout minimum is a different number
-      found.push((m[1] || m[2]).replace(/[.,]$/, ""));
-    }
-    assert.equal(found.length, want,
-      `${page} states the top-up minimum ${found.length} times, expected ${want} - if the copy changed on purpose, update the count here`);
-    for (const shown of found) {
-      assert.equal(shown, floor, `${page} tells the reader $${shown} while the floor is $${floor}`);
+      const shown = (m[1] || m[2]).replace(/[.,]$/, "");
+      // Compared as NUMBERS: the payouts page renders "$25.00" from a live figure while
+      // the policy is written 25, and those are the same minimum.
+      const amount = Number(shown.replace(/,/g, ""));
+      if (/top-?up/i.test(window)) {
+        topupMentions++;
+        assert.equal(amount, Number(floor.replace(/,/g, "")),
+          `${page} tells the reader the top-up minimum is $${shown}, but the floor is $${floor}`);
+      } else if (/payout|payable|cash ?out|earnings/i.test(window)) {
+        assert.equal(amount, Number(payoutMin),
+          `${page} states a payout minimum of $${shown}, but the policy is $${payoutMin}`);
+      } else {
+        assert.fail(`${page} states a "$${shown}" minimum in neither a top-up nor a payout context - classify it`);
+      }
     }
   }
+  assert.ok(topupMentions >= 4, `the pages state the top-up minimum ${topupMentions} times, expected at least 4`);
 });
 
 // Scoping the guard pins to their handlers left the LABELS unpinned: the button copy,
