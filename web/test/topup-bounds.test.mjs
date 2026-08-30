@@ -103,8 +103,15 @@ test("topup bounds: every user-facing minimum is the current minimum", () => {
   // match - "$25 minimum" is only saved from the second alternative by the absence of a
   // </b>, which is a coincidence of styling rather than a rule, and bolding it the way
   // pricing.html bolds the floor would have tripped this on correct copy.
+  //
+  // The count is pinned, not just the values. A context filter that skips what it does
+  // not recognize checks nothing about what it skipped: a floor stated further than
+  // TOPUP_NEAR from the words "top-up" would be dropped silently, which is the same
+  // shape as every other hole in this file's history. If a page gains or loses a
+  // mention, this fails and someone looks.
   const TOPUP_NEAR = 140;
-  for (const page of ["pricing.html", "manual.html"]) {
+  const EXPECTED = { "pricing.html": 1, "manual.html": 3 };
+  for (const [page, want] of Object.entries(EXPECTED)) {
     const html = src(page);
     const found = [];
     for (const m of html.matchAll(/minimum[^<$]{0,12}\$([\d,.]+)|\$([\d,.]+)<\/b>\s*minimum/g)) {
@@ -112,7 +119,8 @@ test("topup bounds: every user-facing minimum is the current minimum", () => {
       if (!/top-?up/i.test(window)) continue; // the payout minimum is a different number
       found.push((m[1] || m[2]).replace(/[.,]$/, ""));
     }
-    assert.ok(found.length > 0, `${page} states the top-up minimum`);
+    assert.equal(found.length, want,
+      `${page} states the top-up minimum ${found.length} times, expected ${want} - if the copy changed on purpose, update the count here`);
     for (const shown of found) {
       assert.equal(shown, floor, `${page} tells the reader $${shown} while the floor is $${floor}`);
     }
