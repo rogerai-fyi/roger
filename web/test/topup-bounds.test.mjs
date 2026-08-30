@@ -31,13 +31,17 @@ const goConst = (name) => {
 
 // A bound as a regex fragment. Three things, and the third was learned the hard way:
 // every dot escaped (an unescaped one is a wildcard, so a floor of 1.5 would match
-// "125"); a trailing digit/dot guard so `usd > 999999.99` is not satisfied by a guard
-// written `usd > 999999.9999`; and the word boundary KEPT, because dropping it for the
-// lookahead let `usd < 1e6` and `usd < 1_000` satisfy a pin that reads as `usd < 1`.
+// "125"); the word boundary KEPT, because dropping it for the lookahead let `usd < 1e6`
+// and `usd < 1_000` satisfy a pin that reads as `usd < 1`; and the lookahead on top of
+// it for the case \b cannot see - a decimal, where `usd < 1.5` sits at a boundary after
+// the 1 and would otherwise satisfy a pin of 1.
 const bound = (v) => `${String(v).replace(/\./g, "\\.")}\\b(?![\\d.])`;
 
-// The same number as a person reads it, which is how the surfaces print it.
-const money = (v) => v.toLocaleString("en-US", { minimumFractionDigits: 2 });
+// The same number as a person reads it, which is how the surfaces print it. A whole
+// dollar prints plain ("$1"), anything else with cents and separators ("$999,999.99"),
+// so a floor that became 2.50 or 1000 is compared against what a corrected surface would
+// actually say rather than against String(v).
+const money = (v) => (Number.isInteger(v) ? String(v) : v.toLocaleString("en-US", { minimumFractionDigits: 2 }));
 
 test("topup bounds: the billing input allows exactly the range the broker allows", () => {
   const input = read("billing.html").match(/<input id="topupCustom"[^>]*>/)?.[0];
@@ -72,29 +76,43 @@ test("topup bounds: the local console guards the same three things", () => {
   assert.match(topup, /Math\.round\(usd \* 100\)\) > 1e-6/, "whole cents");
 });
 
-// Scoping the guard pins to their handlers left the LABELS unpinned: the button copy,
-// the hint under it, and the console toast all print the maximum as a literal, and a
-// changed constant would leave them promising the old number. Every place a surface
-// states the cap to a person has to state the current one.
 test("topup bounds: every user-facing minimum is the current minimum", () => {
   // The maximum was pinned and the minimum was not, so the same hole stayed open at the
   // other end: three surfaces print "$1" as a literal and would have gone on promising
   // it. Go writes the floor as a whole dollar, and so do the surfaces.
-  const floor = String(goConst("MinTopupUSD")).replace(/\.0$/, "");
+  const floor = money(goConst("MinTopupUSD")); // "1"
   const surfaces = {
     "js/billing.js": src("js/billing.js"),
     "webui console.js": readFileSync(path.join(REPO, "internal", "webui", "assets", "console.js"), "utf8"),
   };
   for (const [name, js] of Object.entries(surfaces)) {
     const stated = [...js.matchAll(/an amount of \$([\d,.]+) or more|[Tt]op-up minimum is \$([\d,.]+)/g)]
-      .map((m) => (m[1] || m[2]).replace(/\.$/, ""));
+      .map((m) => (m[1] || m[2]).replace(/[.,]$/, ""));
     assert.ok(stated.length > 0, `${name} states the minimum to a person`);
     for (const shown of stated) {
       assert.equal(shown, floor, `${name} tells the reader $${shown} while the floor is $${floor}`);
     }
   }
+
+  // The prose surfaces print it too, and pinning only the scripts is the same
+  // one-end-pinned asymmetry this test was added to close. "minimum $N" and
+  // "$N</b> minimum" are the two shapes the pages use; the payout minimum writes the
+  // number BEFORE the word and so never collides.
+  for (const page of ["pricing.html", "manual.html"]) {
+    const html = src(page);
+    const found = [...html.matchAll(/minimum[^<$]{0,12}\$([\d,.]+)|\$([\d,.]+)<\/b>\s*minimum/g)]
+      .map((m) => (m[1] || m[2]).replace(/[.,]$/, ""));
+    assert.ok(found.length > 0, `${page} states the top-up minimum`);
+    for (const shown of found) {
+      assert.equal(shown, floor, `${page} tells the reader $${shown} while the floor is $${floor}`);
+    }
+  }
 });
 
+// Scoping the guard pins to their handlers left the LABELS unpinned: the button copy,
+// the hint under it, and the console toast all print the maximum as a literal, and a
+// changed constant would leave them promising the old number. Every place a surface
+// states the cap to a person has to state the current one.
 test("topup bounds: every user-facing maximum is the current maximum", () => {
   const cap = money(goConst("MaxTopupUSD")); // "999,999.99"
   const surfaces = {
