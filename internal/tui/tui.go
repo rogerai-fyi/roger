@@ -2313,16 +2313,18 @@ func (m *model) syncWinBuf() {
 	}
 }
 
-// Public price ceilings the editor enforces INLINE (at edit time, where the typo
+// GLOBAL price ceilings the editor enforces INLINE (at edit time, where the typo
 // happens) so a bad price is caught at the cause, not only far away at broker
-// register. These MIRROR the broker's hard public ceilings (cmd/rogerai-broker
-// pricesafety.go: ROGERAI_MAX_PRICE_OUT default $100/1M, ROGERAI_MAX_PRICE_IN
-// default $50/1M), which remain the marketplace invariant no matter which client
-// registered the node. Kept as plain constants here to avoid the TUI importing the
-// broker; the broker is still the source of truth that actually rejects.
+// register. They bind EVERY band - public, private and confidential alike - because
+// registerPriceCeiling runs unconditionally on the register path; --private hides a
+// station from the market, it does not raise the cap. These MIRROR the broker's own
+// ceilings (cmd/rogerai-broker pricesafety.go: ROGERAI_MAX_PRICE_OUT default $100/1M,
+// ROGERAI_MAX_PRICE_IN default $50/1M), which remain the marketplace invariant no
+// matter which client registered the node. Kept as plain constants here to avoid the
+// TUI importing the broker; the broker is still the source of truth that rejects.
 const (
-	editorMaxPriceOut = 100.0 // $/1M out public ceiling
-	editorMaxPriceIn  = 50.0  // $/1M in public ceiling
+	editorMaxPriceOut = 100.0 // $/1M out, every band
+	editorMaxPriceIn  = 50.0  // $/1M in, every band
 )
 
 // validHHMM reports whether s is a well-formed "HH:MM" 24h time (00:00..23:59). A

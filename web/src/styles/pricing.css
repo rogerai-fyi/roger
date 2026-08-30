@@ -52,7 +52,7 @@
 .guards p { margin: 0; color: var(--ink-500); line-height: var(--lh-body); }
 
 /* the earnings lifecycle, as a row of stages rather than a diagram */
-.lifecycle { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; background: var(--hairline); border-block: 2px solid var(--ink-900); }
+.lifecycle { margin-top: var(--s-8); display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; background: var(--hairline); border-block: 2px solid var(--ink-900); }
 .lifecycle article { padding: var(--s-5); background: var(--paper); }
 .lifecycle b { display: block; font-family: var(--font-mono); font-size: var(--t-micro); letter-spacing: .1em; text-transform: uppercase; color: var(--live); }
 .lifecycle span { display: block; margin-top: var(--s-3); color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body); }

@@ -29,7 +29,7 @@ var escapePhrases = []string{
 	"share private",
 	"share on a private band instead",
 	"use --private",
-	"go private",
+	"go private instead",
 	"they share --private",
 	"private band instead",
 }
@@ -137,6 +137,8 @@ func TestCeilingSweepCatchesTheStringsThatShipped(t *testing.T) {
 		`<span class="man-plate__k">operator ceiling</span><span class="man-plate__v">the broker refuses to list a public node priced above <code>$100 / 1M</code> out - only a typo trips it; if an operator truly wants an unreachable price they share <code>--private</code> instead (§5)</span>`,
 		// a comparison before the copy must not blind the stripper
 		`if price < ceiling { return "over the ceiling - lower it, or share PRIVATE" }`,
+		// and the same sentence wrapped, the way a paragraph of prose carries it
+		`<p>A price over the ceiling is refused. Share on a private band instead.</p>`,
 	} {
 		if offersEscape(shipped) == "" {
 			t.Errorf("the sweep would not have caught this line:\n  %s", shipped)
@@ -174,25 +176,46 @@ func TestNoSurfaceOffersPrivateAsACeilingEscape(t *testing.T) {
 		if strings.HasSuffix(d.Name(), "_test.go") {
 			return nil // the specs quote the forbidden phrasings on purpose
 		}
-		body, err := os.ReadFile(p) //nolint:gosec // walking our own tree
+		src, err := os.ReadFile(p) //nolint:gosec // walking our own tree
 		if err != nil {
 			return nil
 		}
 		rel, _ := filepath.Rel(root, p)
-		for i, line := range strings.Split(string(body), "\n") {
+		// Prose wraps. Scanning one line at a time cannot see "over the ceiling -"
+		// on one line and "share on a private band instead" on the next, which is
+		// exactly the shape a paragraph in the manual takes. Comment-only lines drop
+		// out first (a comment explaining the rule has to name what it forbids), then
+		// what remains is read through a three-line sliding window.
+		type numbered struct {
+			n    int
+			text string
+		}
+		var body []numbered
+		for i, line := range strings.Split(string(src), "\n") {
 			trimmed := strings.TrimSpace(line)
-			// Comments explaining the rule necessarily name the thing they forbid.
 			if strings.HasPrefix(trimmed, "//") || strings.HasPrefix(trimmed, "#") ||
 				strings.HasPrefix(trimmed, "*") || strings.HasPrefix(trimmed, "<!--") {
 				continue
 			}
-			if !strings.Contains(strings.ToLower(line), "ceiling") {
+			body = append(body, numbered{i + 1, line})
+		}
+		for j := range body {
+			end := j + 3
+			if end > len(body) {
+				end = len(body)
+			}
+			parts := make([]string, 0, end-j)
+			for _, nl := range body[j:end] {
+				parts = append(parts, nl.text)
+			}
+			window := strings.Join(parts, " ")
+			if !strings.Contains(strings.ToLower(window), "ceiling") {
 				continue
 			}
 			checked++
-			if escape := offersEscape(line); escape != "" {
+			if escape := offersEscape(window); escape != "" {
 				t.Errorf("%s:%d offers %q as a price-ceiling escape:\n  %s",
-					rel, i+1, escape, trimmed)
+					rel, body[j].n, escape, strings.TrimSpace(window))
 			}
 		}
 		return nil
