@@ -527,7 +527,7 @@ rogerai.fm/roger/v6/cmd/rogerai-broker/probe.go:349:			probeEvidenceRecentLocked
 rogerai.fm/roger/v6/cmd/rogerai-broker/probe.go:365:			proberLoop			100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/probe.go:386:			jitterWindow			100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/probe.go:402:			probeOnce			96.5%
-rogerai.fm/roger/v6/cmd/rogerai-broker/probe.go:585:			probeNode			89.1%
+rogerai.fm/roger/v6/cmd/rogerai-broker/probe.go:585:			probeNode			87.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/probe.go:699:			failed				100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/probe.go:717:			evalCanary			100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/probe.go:783:			canaryWrongFamily		100.0%
@@ -571,7 +571,7 @@ rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:405:			rcSubtree			78.6%
 rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:436:			rcJoin				55.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:466:			rcAuthHost			100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:477:			rcAuthViewer			72.7%
-rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:496:			rcPoll				66.7%
+rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:496:			rcPoll				72.2%
 rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:568:			rcEvents			64.7%
 rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:595:			rcSend				79.3%
 rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:639:			rcStream			71.9%
@@ -3083,7 +3083,7 @@ rogerai.fm/roger/v6/internal/tui/agent.go:549:				agentFindingBandBeat		100.0%
 rogerai.fm/roger/v6/internal/tui/agent.go:557:				pickAgentModel			100.0%
 rogerai.fm/roger/v6/internal/tui/agent.go:584:				bindAgentEndpoint		80.0%
 rogerai.fm/roger/v6/internal/tui/agent.go:599:				applyToolBudget			88.9%
-rogerai.fm/roger/v6/internal/tui/agent.go:622:				newAgentRuntime			78.6%
+rogerai.fm/roger/v6/internal/tui/agent.go:622:				newAgentRuntime			80.4%
 rogerai.fm/roger/v6/internal/tui/agent.go:784:				bandForModel			100.0%
 rogerai.fm/roger/v6/internal/tui/agent.go:796:				modelBadgeTail			81.8%
 rogerai.fm/roger/v6/internal/tui/agent.go:816:				deskRowCount			100.0%
