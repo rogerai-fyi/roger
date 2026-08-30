@@ -132,9 +132,9 @@ test("topup bounds: every user-facing minimum is the current minimum", () => {
   const seen = {};
   for (const page of pages) {
     const html = src(page);
-    for (const m of html.matchAll(/minimum[^<$]{0,12}\$([\d,.]+)|\$([\d,.]+)<\/b>\s*minimum/g)) {
+    for (const m of html.matchAll(/minimum[^<$]{0,12}\$(\d(?:[\d,]*\d)?(?:\.\d+)?|\.\d+)|\$(\d(?:[\d,]*\d)?(?:\.\d+)?|\.\d+)(?:<\/[a-z]+>)?\s*minimum/gi)) {
       const window = html.slice(Math.max(0, m.index - TOPUP_NEAR), m.index + TOPUP_NEAR);
-      const shown = (m[1] || m[2]).replace(/[.,]$/, "");
+      const shown = m[1] || m[2]; // the capture ends in a digit, so nothing to strip
       // Compared as NUMBERS: the payouts page renders "$25.00" from a live figure while
       // the policy is written 25, and those are the same minimum.
       const amount = Number(shown.replace(/,/g, ""));
@@ -156,6 +156,12 @@ test("topup bounds: every user-facing minimum is the current minimum", () => {
         );
       }
     }
+  }
+  // Iterate the MAP as well as the pages: a page listed here and then deleted would
+  // otherwise have its pin evaporate silently, which is the same skip-and-say-nothing
+  // shape as everything else this file has had to grow out of.
+  for (const page of Object.keys(EXPECTED)) {
+    assert.ok(pages.includes(page), `${page} is gone - the top-up minimum it carried needs a new home`);
   }
   for (const page of pages) {
     assert.equal(seen[page] || 0, EXPECTED[page] || 0,
