@@ -357,7 +357,7 @@
                   <tr><td><kbd>r</kbd> · <code>/search</code></td><td>re-scan the band for stations</td></tr>
                   <tr><td><kbd>m</kbd></td><td>compact "windowshade" mode (collapse the header)</td></tr>
                   <tr><td><kbd>/</kbd> or <kbd>:</kbd></td><td>open the command prompt for a slash command</td></tr>
-                  <tr><td><code>/limits</code> · <code>/balance</code> · <code>/topup [usd]</code></td><td>spend maxes · wallet balance ($) · add funds</td></tr>
+                  <tr><td><code>/limits</code> · <code>/balance</code> · <code>/topup [usd]</code></td><td>spend maxes · wallet balance ($) · add funds (minimum $1)</td></tr>
                   <tr><td><code>/share [off|&lt;model&gt;]</code></td><td>open SHARE; <code>off</code> stops all, <code>&lt;model&gt;</code> flips one on air</td></tr>
                   <tr><td><code>/grant [create &lt;name&gt;]</code></td><td>private free keys for your bots/family</td></tr>
                   <tr><td><code>/confidential</code> · <code>/config</code> · <code>/help</code></td><td>TEE-only toggle · broker/identity · help</td></tr>
@@ -1376,7 +1376,7 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
                   <tr><td><code>search</code></td><td>list models, cheapest first (aliases: <code>discover</code>, <code>models</code>)</td></tr>
                   <tr><td><code>use &lt;model&gt;</code></td><td>open a local OpenAI endpoint for your bots (aliases: <code>connect</code>, <code>tune</code>). Flags: <code>--max-out $</code> (headline cap, skip stations above this $/1M out) · <code>--yes</code> (skip the connect confirm) · <code>--advanced</code> reveals <code>--port</code> (0 = auto-pick) · <code>--max-in</code> · <code>--min-tps</code> · <code>--confidential</code> · <code>--raw</code> (keep raw model output; skip the reasoning-as-answer fallback)</td></tr>
                   <tr><td><code>balance</code></td><td>wallet balance ($). Topping up is <code>topup [usd]</code>; <code>balance --topup [usd]</code> and <code>balance topup [usd]</code> are retained aliases</td></tr>
-                  <tr><td><code>topup [usd]</code></td><td>add funds (opens Stripe Checkout); bare <code>topup</code> is $10</td></tr>
+                  <tr><td><code>topup [usd]</code></td><td>add funds (opens Stripe Checkout); bare <code>topup</code> is $10, minimum $1, whole cents only</td></tr>
                   <tr><td><code>share</code></td><td>go on air - FREE by default, no login (auto-detects your model). Flags: <code>--model</code> · <code>--price-in</code> / <code>--price-out</code> ($/1M to earn; needs login) · <code>--free-window HH:MM-HH:MM</code> · <code>--schedule &lt;json&gt;</code> (time-of-use) · <code>--advanced</code> reveals <code>--node</code> · <code>--region</code> · <code>--parallel</code> · <code>--upstream</code> / <code>--upstream-key</code> · <code>--ctx</code> · <code>--confidential</code> (real TEE hardware required). With no local server it runs a guided "no model found" fallback</td></tr>
                   <tr><td><code>limits</code></td><td>print your per-model spend limits (mirrors the in-app <code>/limits</code>; edit with <code>config set-limit</code>)</td></tr>
                   <tr><td><code>grant</code></td><td>private access keys for your bots/family: <code>create --name &lt;n&gt;</code> · <code>list</code> · <code>show</code> · <code>revoke</code> (aliases <code>new</code> / <code>ls</code> / <code>rm</code>)</td></tr>

@@ -128,9 +128,19 @@ func (b *broker) checkout(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusBadRequest, "malformed request body")
 		return
 	}
+	// The NaN/Inf arm is defense in depth and currently unreachable: encoding/json
+	// cannot decode either into a float64, so such a body fails the Unmarshal above.
+	// It stays because the guard is cheap and the failure it prevents (a non-finite
+	// amount reaching the Stripe form) is not.
 	if math.IsNaN(req.USD) || math.IsInf(req.USD, 0) || req.USD < client.MinTopupUSD {
 		jsonErr(w, http.StatusBadRequest,
 			fmt.Sprintf("top-up minimum is $%.0f", client.MinTopupUSD))
+		return
+	}
+	// Stripe is charged int(req.USD*100) below, which truncates, while credits are
+	// granted on the untouched float. Refuse the mismatch rather than pick a side.
+	if !client.WholeCents(req.USD) {
+		jsonErr(w, http.StatusBadRequest, "top-up amount must be a whole number of cents")
 		return
 	}
 	credits := req.USD / b.bill.creditUSD
