@@ -20,11 +20,11 @@ const DefaultTopupUSD = 10.0
 // and the broker refuses rather than substitutes.
 const MinTopupUSD = 1.0
 
-// WholeCents reports whether an amount is an exact number of cents. Stripe is charged
-// int(usd*100), which TRUNCATES, while credits are granted on the untouched float - so
-// $1.999 took $1.99 and credited 1.999. Neither figure is wrong to want; picking one
-// silently is the problem. An amount finer than a cent is refused instead, on the client
-// and again at the broker.
+// WholeCents reports whether an amount is an exact number of cents. A fraction of a cent
+// cannot be charged, so an amount like $1.999 has to become some other number before it
+// reaches Stripe - and silently choosing that number for the person is the substitution
+// this whole path exists to stop. It is refused instead, on the client and again at the
+// broker.
 //
 // The comparison rounds first because binary floats cannot hold most decimal cents
 // exactly: 1.15*100 is 114.99999999999999, and a bare integer check would refuse a price

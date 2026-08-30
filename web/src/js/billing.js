@@ -19,7 +19,14 @@
     opts = opts || {};
     opts.credentials = "include";
     return fetch(BROKER + path, opts).then(function (r) {
-      return r.ok ? r.json() : null;
+      if (r.ok) return r.json();
+      // A refusal carries a reason. Discarding the body left every failure looking
+      // identical ("could not start checkout"), including a top-up the broker refused
+      // for a reason the person could act on.
+      return r.json().then(function (j) {
+        var msg = j && j.error && j.error.message;
+        return msg ? { error: msg } : null;
+      }).catch(function () { return null; });
     }).catch(function () { return null; });
   }
   function get(path) { return api(path); }
@@ -402,7 +409,12 @@
       on("topup", "click", function () {
         var usd = chosenUsd();
         if (!isFinite(usd) || usd < 1) { text("topupMsg", " enter an amount of $1 or more"); return; }
-        usd = Math.round(usd * 100) / 100;
+        // Refuse a sub-cent amount rather than round it into a different charge - the
+        // same rule the CLI, the TUI and the broker apply. Rounding here is how the
+        // person ends up paying a number they did not type.
+        if (Math.abs(usd * 100 - Math.round(usd * 100)) > 1e-6) {
+          text("topupMsg", " amount must be a whole number of cents"); return;
+        }
         if (btn) btn.disabled = true;
         text("topupMsg", " redirecting to Stripe...");
         api("/billing/checkout", {
@@ -412,7 +424,7 @@
         }).then(function (r) {
           if (r && r.url) { window.location = r.url; return; }
           if (btn) btn.disabled = false;
-          text("topupMsg", " could not start checkout");
+          text("topupMsg", " " + ((r && r.error) || "could not start checkout"));
         }).catch(function () {
           if (btn) btn.disabled = false;
           text("topupMsg", " could not start checkout");

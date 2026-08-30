@@ -94,6 +94,14 @@ func stripeSecretKey() string { return os.Getenv("STRIPE_SECRET_KEY") }
 
 // checkout handles POST /billing/checkout {"usd": 10}: creates a Stripe Checkout
 // session for the caller to buy credits and returns the {url, credits}.
+// stripeUnitAmount converts a dollar amount to the integer cents Stripe is charged.
+// It ROUNDS: int(usd*100) truncates, and 1.15*100 is 114.99999999999999 in binary
+// floating point, so truncation quietly billed a cent less than the person typed on
+// 4583 of the 99901 whole-cent amounts between $1 and $1000. Callers must have already
+// refused anything finer than a cent (client.WholeCents), so rounding here only undoes
+// float representation error, never a real fraction.
+func stripeUnitAmount(usd float64) int { return int(math.Round(usd * 100)) }
+
 func (b *broker) checkout(w http.ResponseWriter, r *http.Request) {
 	if corsCredsPreflight(w, r) {
 		return
@@ -137,13 +145,18 @@ func (b *broker) checkout(w http.ResponseWriter, r *http.Request) {
 			fmt.Sprintf("top-up minimum is $%.0f", client.MinTopupUSD))
 		return
 	}
-	// Stripe is charged int(req.USD*100) below, which truncates, while credits are
-	// granted on the untouched float. Refuse the mismatch rather than pick a side.
+	// A fraction of a cent cannot be charged, and silently rounding one into a
+	// different charge is the substitution this whole path is about. Refuse it.
 	if !client.WholeCents(req.USD) {
 		jsonErr(w, http.StatusBadRequest, "top-up amount must be a whole number of cents")
 		return
 	}
-	credits := req.USD / b.bill.creditUSD
+	// The cents Stripe is actually charged, and the ONLY figure the rest of this
+	// handler derives money from. int(usd*100) truncates, and binary floats put most
+	// decimal cents just below their integer - 1.15*100 is 114.99999999999999 - so a
+	// $1.15 top-up used to charge $1.14.
+	cents := stripeUnitAmount(req.USD)
+	credits := (float64(cents) / 100) / b.bill.creditUSD
 
 	form := url.Values{}
 	form.Set("mode", "payment")
@@ -152,7 +165,7 @@ func (b *broker) checkout(w http.ResponseWriter, r *http.Request) {
 	form.Set("client_reference_id", user)
 	form.Set("line_items[0][quantity]", "1")
 	form.Set("line_items[0][price_data][currency]", "usd")
-	form.Set("line_items[0][price_data][unit_amount]", strconv.Itoa(int(req.USD*100)))
+	form.Set("line_items[0][price_data][unit_amount]", strconv.Itoa(cents))
 	form.Set("line_items[0][price_data][product_data][name]", "RogerAI wallet top-up")
 	form.Set("metadata[user]", user)
 	form.Set("metadata[credits]", strconv.FormatFloat(credits, 'f', 4, 64))

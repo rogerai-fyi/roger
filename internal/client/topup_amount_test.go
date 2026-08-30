@@ -43,9 +43,9 @@ func TestParseTopupAmount(t *testing.T) {
 		{"below the minimum is refused", []string{"0.50"}, 0, true},
 		{"a cent is refused", []string{"0.01"}, 0, true},
 		{"the minimum itself is accepted", []string{"1"}, 1, false},
-		// Stripe is charged int(usd*100) while credits are granted on the untouched
-		// float, so $1.999 billed $1.99 and credited 1.999. Substituting a charge is
-		// what this whole chain is about, so a sub-cent amount is refused instead.
+		// A fraction of a cent cannot be charged, so $1.999 has to become some other
+		// number before it reaches Stripe. Choosing that number for the person is the
+		// substitution this whole chain is about, so it is refused instead.
 		{"a sub-cent amount is refused", []string{"1.999"}, 0, true},
 		{"a third of a dollar is refused", []string{"1.333"}, 0, true},
 		{"whole cents are fine", []string{"1.99"}, 1.99, false},

@@ -91,9 +91,9 @@ func TestCheckoutRefusalNamesTheMinimum(t *testing.T) {
 	}
 }
 
-// Stripe is charged int(usd*100). An amount finer than a cent used to bill the truncated
-// figure while crediting the untruncated one, so $1.999 took $1.99 and granted 1.999
-// credits. The enforcement point refuses it rather than picking one of the two.
+// A fraction of a cent cannot be charged, so an amount like $1.999 has to become some
+// other number on the way to Stripe. The enforcement point refuses it rather than
+// choosing that number on the caller's behalf.
 func TestCheckoutRefusesASubCentAmount(t *testing.T) {
 	b, priv := newCheckoutBroker(t)
 	for _, body := range []string{`{"usd":1.999}`, `{"usd":1.333}`, `{"usd":10.005}`} {
