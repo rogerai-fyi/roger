@@ -2361,10 +2361,10 @@ func (m *model) validateEditor() (in, out float64, errMsg string) {
 		return 0, 0, "prices cannot be negative"
 	}
 	if out > editorMaxPriceOut {
-		return 0, 0, fmt.Sprintf("output price $%.2f/1M is over the $%.0f/1M public ceiling - lower it, or share PRIVATE", out, editorMaxPriceOut)
+		return 0, 0, fmt.Sprintf("output price $%.2f/1M is over the $%.0f/1M ceiling - lower it (the ceiling applies to every band, public or private)", out, editorMaxPriceOut)
 	}
 	if in > editorMaxPriceIn {
-		return 0, 0, fmt.Sprintf("input price $%.2f/1M is over the $%.0f/1M public ceiling - lower it, or share PRIVATE", in, editorMaxPriceIn)
+		return 0, 0, fmt.Sprintf("input price $%.2f/1M is over the $%.0f/1M ceiling - lower it (the ceiling applies to every band, public or private)", in, editorMaxPriceIn)
 	}
 	for i, w := range m.edWindows {
 		if !validHHMM(w.Start) || !validHHMM(w.End) {

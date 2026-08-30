@@ -677,7 +677,7 @@ func (m *model) commitVoiceBooth() bool {
 	// stored PriceIn is perK*1000. The public ceiling (editorMaxPriceIn) is a per-1M figure.
 	perM := perK * 1000
 	if perM > editorMaxPriceIn {
-		m.vbErr = fmt.Sprintf("price $%s/1k chars is over the $%.0f/1M public ceiling - lower it, or share PRIVATE", trimFloat(perK), editorMaxPriceIn)
+		m.vbErr = fmt.Sprintf("price $%s/1k chars is over the $%.0f/1M ceiling - lower it (the ceiling applies to every band, public or private)", trimFloat(perK), editorMaxPriceIn)
 		return false
 	}
 	m.vbErr = ""

@@ -1243,13 +1243,12 @@ html.js .mkt-quiet--nojs { display: none; }
 
 .shelf__colophon {
   display: flex; align-items: center; gap: var(--s-5);
-  margin-top: var(--s-6); padding-top: var(--s-5);
+  margin: var(--s-6) 0 0; padding-top: var(--s-5);
   border-top: 1px solid var(--hairline);
 }
 .shelf__mark { width: 132px; height: auto; border: 1px solid var(--hairline-2);
   border-radius: var(--r-sm); flex: none; }
 .shelf__colophon span { font-size: var(--t-sm); }
-.shelf__colophon { margin: 0; }
 
 @media (prefers-reduced-motion: reduce) {
   .shelf__cover,
