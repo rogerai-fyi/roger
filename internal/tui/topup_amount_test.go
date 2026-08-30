@@ -65,6 +65,12 @@ func TestTUITopupRefusesAnUnreadableAmountInsteadOfCharging(t *testing.T) {
 		}
 		if strings.TrimSpace(nm.status) == "" {
 			t.Errorf("/topup %q refused silently - the operator is told nothing", args)
+			continue
+		}
+		// It must READ as a refusal. stDim is the hint style ("opening checkout…"); a
+		// money-path refusal wearing it is indistinguishable from progress.
+		if !strings.Contains(nm.status, "!") {
+			t.Errorf("/topup %q refused in the hint style, not the error style: %q", args, nm.status)
 		}
 	}
 }

@@ -1,6 +1,7 @@
 package webui
 
 import (
+	"fmt"
 	"net/http"
 
 	"rogerai.fm/roger/v6/internal/client"
@@ -113,8 +114,10 @@ func (s *Server) handleTopup(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		USD float64 `json:"usd"`
 	}
-	if !decode(r, &req) || req.USD <= 0 {
-		http.Error(w, "usd must be > 0", http.StatusBadRequest)
+	// Same floor the CLI, the TUI and the broker read. It used to be "> 0" here while
+	// the broker silently rewrote anything under a dollar to $10.
+	if !decode(r, &req) || req.USD < client.MinTopupUSD {
+		http.Error(w, fmt.Sprintf("top-up minimum is $%.0f", client.MinTopupUSD), http.StatusBadRequest)
 		return
 	}
 	url, err := client.TopupURL(s.opts.Broker, s.opts.User, req.USD)

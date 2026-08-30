@@ -12,9 +12,17 @@ import (
 // so it lives in one place rather than in each caller.
 const DefaultTopupUSD = 10.0
 
-// ParseTopupAmount reads the dollar amount for a top-up.
+// MinTopupUSD is the smallest top-up the broker will open a checkout for. It lives here,
+// beside the parser, because it was previously three different numbers on four surfaces:
+// the CLI and the web console each refused only <= $0, while the broker - the actual
+// enforcement point - silently REWROTE anything under a dollar to $10. So `roger topup
+// 0.50` charged $10 and nothing said otherwise. Every surface reads this constant now,
+// and the broker refuses rather than substitutes.
+const MinTopupUSD = 1.0
+
+// ParseTopupAmount reads the dollar amount for a top-up on the CLI and TUI surfaces.
 //
-// It is the ONE reader for every surface that starts a checkout. There used to be three,
+// It is the ONE reader for those. There used to be three,
 // and they disagreed: the documented `roger topup $25` parsed the argument bare, failed,
 // and silently charged the $10 default, while the retained `balance --topup $25` alias
 // stripped the dollar sign and charged $25. The TUI carried a third copy of the same bug.
@@ -40,8 +48,8 @@ func ParseTopupAmount(args []string) (float64, error) {
 	if math.IsNaN(usd) || math.IsInf(usd, 0) {
 		return 0, fmt.Errorf("top-up amount %q is not a real amount", raw)
 	}
-	if usd <= 0 {
-		return 0, fmt.Errorf("top-up amount must be more than $0 - got %q", raw)
+	if usd < MinTopupUSD {
+		return 0, fmt.Errorf("top-up minimum is $%.0f - got %q", MinTopupUSD, raw)
 	}
 	return usd, nil
 }

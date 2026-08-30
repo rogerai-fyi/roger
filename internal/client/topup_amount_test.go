@@ -38,6 +38,11 @@ func TestParseTopupAmount(t *testing.T) {
 		{"zero is refused", []string{"0"}, 0, true},
 		{"a negative is refused", []string{"-5"}, 0, true},
 		{"a lone dollar sign is refused", []string{"$"}, 0, true},
+		// The broker will not open a checkout under a dollar. It used to REWRITE such a
+		// request to $10 instead of refusing it, so $0.50 charged $10.
+		{"below the minimum is refused", []string{"0.50"}, 0, true},
+		{"a cent is refused", []string{"0.01"}, 0, true},
+		{"the minimum itself is accepted", []string{"1"}, 1, false},
 		{"an empty argument is refused", []string{""}, 0, true},
 
 		// ParseFloat accepts these, and both walk past a `usd <= 0` guard: NaN compares

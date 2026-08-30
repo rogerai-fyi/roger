@@ -1605,7 +1605,10 @@ func (m model) doTopup(args []string) (tea.Model, tea.Cmd) {
 	// ParseFloat and silently opened checkout for $10.
 	usd, err := client.ParseTopupAmount(args)
 	if err != nil {
-		m.status = stDim.Render(err.Error())
+		// stEmber + "! ", the same shape every other flow failure takes (flowErrMsg).
+		// stDim is the hint style used for "opening checkout…" a line below, and a
+		// refusal on a money path must not read as ambient chatter.
+		m.status = stEmber.Render("! " + err.Error())
 		return m, nil
 	}
 	broker, user, topup := m.broker, m.user, m.hooks.TopupURL

@@ -1186,7 +1186,7 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
               never takes custody of your funds outside Stripe.</p>
             <pre><span class="p">$</span> roger balance                 <span class="c"># your wallet balance in $</span>
 <span class="p">$</span> roger topup 25                <span class="c"># add $25 (opens Stripe Checkout)</span>
-<span class="p">$</span> roger topup                   <span class="c"># bare topup defaults to $10</span></pre>
+<span class="p">$</span> roger topup                   <span class="c"># bare topup defaults to $10 (minimum $1)</span></pre>
             <p>Spend is debited live, per token, against the wallet balance. A conditional
               debit on the broker side means a wallet can never go negative. The web
               dashboard mirrors the same numbers.</p>
