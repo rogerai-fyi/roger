@@ -99,10 +99,14 @@ test("topup bounds: every user-facing minimum is the current minimum", () => {
   // one-end-pinned asymmetry this test was added to close.
   //
   // Anchored to the TOP-UP context, not to the bare word "minimum". These pages also
-  // carry the $25 PAYOUT minimum, and both write it in shapes this would otherwise
-  // match - "$25 minimum" is only saved from the second alternative by the absence of a
-  // </b>, which is a coincidence of styling rather than a rule, and bolding it the way
-  // pricing.html bolds the floor would have tripped this on correct copy.
+  // carry the $25 PAYOUT minimum in the same shapes, and it is the CLASSIFICATION that
+  // keeps the two apart - not styling. Earlier versions leaned on styling by accident
+  // (a "$25 minimum" escaped one alternative for want of a </b>), which meant correct
+  // copy could trip the test just by being bolded differently.
+  //
+  // Markup is stripped before matching for the same reason. Enumerating the tags a
+  // number might wear - </b>, </strong>, an opening tag, two closing tags - is a list
+  // that is always one shape short, and every shape it misses is a silent skip.
   //
   // EVERY page, and every occurrence CLASSIFIED rather than filtered. A filter that
   // skips what it does not recognize checks nothing about what it skipped, and a
@@ -130,9 +134,42 @@ test("topup bounds: every user-facing minimum is the current minimum", () => {
     ...readdirSync(path.join(WEB, "src", "_partials")).filter((f) => f.endsWith(".html")).map((f) => `_partials/${f}`),
   ];
   const seen = {};
+  // Strip markup, but KEEP the prose that lives inside it. A meta description, an alt
+  // text and this site's include directives all carry sentences a person reads, and a
+  // stripper that throws the whole tag away throws those away too - which is how an
+  // earlier version of this moved the silent skip from </b> to content= and dropped the
+  // payout pin on pricing.html's own description.
+  //
+  // Three things this got wrong before, each the same mistake one level down:
+  //
+  //  - [^>]* let a bare "<" in an inline script (i<n.length) run to the next ">"
+  //    anywhere in the file, swallowing 178 characters of head.html. [^<>] cannot.
+  //  - An ALLOW-list of prose attributes was the "list always one shape short" again:
+  //    ogtitle, caption and label carry reader-facing text and were discarded. The
+  //    denylist below scans an attribute it does not recognize instead of skipping it,
+  //    so being wrong means a spurious failure rather than a silent pass.
+  //  - Hoisted values were spliced in where the tag stood, so an attribute BETWEEN a
+  //    number and the word broke the adjacency it was meant to preserve. They go to the
+  //    end of the text now, each carrying its own context words with it, and the tag
+  //    leaves behind a single space.
+  const NON_PROSE = /^(?:class|id|href|src|srcset|style|type|rel|role|name|property|width|height|viewbox|d|fill|stroke|stroke-width|stroke-linecap|stroke-linejoin|xmlns|xmlns:xlink|xlink:href|lang|charset|hidden|defer|async|for|value|min|max|step|inputmode|maxlength|crossorigin|color|media|preload|loading|target|method|action|data-.*|aria-(?!label$).*)$/i;
+  const stripTags = (h) => {
+    const hoisted = [];
+    const takeAttrs = (tag) => {
+      for (const m of tag.matchAll(/([\w:-]+)\s*=\s*("[^"]*"|'[^']*')/g)) {
+        if (!NON_PROSE.test(m[1])) hoisted.push(m[2].slice(1, -1));
+      }
+      return " ";
+    };
+    const body = h
+      .replace(/<!--[\s\S]*?-->/g, takeAttrs)
+      .replace(/<\/?[a-zA-Z][^<>]*>/g, takeAttrs)
+      .replace(/&nbsp;/g, " ");
+    return `${body}\n${hoisted.join("\n")}`;
+  };
   for (const page of pages) {
-    const html = src(page);
-    for (const m of html.matchAll(/minimum[^<$]{0,12}\$(\d(?:[\d,]*\d)?(?:\.\d+)?|\.\d+)|\$(\d(?:[\d,]*\d)?(?:\.\d+)?|\.\d+)(?:<\/[a-z]+>)?\s*minimum/gi)) {
+    const html = stripTags(src(page));
+    for (const m of html.matchAll(/minimum[^$]{0,12}\$(\d(?:[\d,]*\d)?(?:\.\d+)?|\.\d+)|\$(\d(?:[\d,]*\d)?(?:\.\d+)?|\.\d+)\s*minimum/gi)) {
       const window = html.slice(Math.max(0, m.index - TOPUP_NEAR), m.index + TOPUP_NEAR);
       const shown = m[1] || m[2]; // the capture ends in a digit, so nothing to strip
       // Compared as NUMBERS: the payouts page renders "$25.00" from a live figure while
