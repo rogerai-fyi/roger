@@ -1152,3 +1152,144 @@ html.js .mkt-quiet--nojs { display: none; }
 .band-tag { font-family: var(--font-mono); font-size: 0.625rem; letter-spacing: 0.08em;
   padding: 1px 4px; border: 1px solid var(--hairline-2); border-radius: var(--r-xs); color: var(--ink-500); }
 .band-tag--deal { color: var(--live); border-color: var(--live); }
+
+/* =====================================================================
+   §5 THE DATA PLATE
+   Eleven specifications used to run down the page as eleven full-width
+   rows - most of a screen to say eleven short things. This is the
+   nameplate riveted to the back of the set instead: an etched label, four
+   rivets in the corners, and every value in a dense auto-fitting grid.
+   Same eleven facts (test/homepage-plate-and-books.test.mjs counts them),
+   about a fifth of the height.
+   ===================================================================== */
+.section--plate { padding-block: var(--s-8); }
+
+.plate {
+  border: 1px solid var(--ink-900);
+  padding: var(--s-4) var(--s-5) var(--s-4);
+  /* the four rivets are the background, not four extra elements */
+  background:
+    radial-gradient(circle at 11px 11px, var(--hairline-2) 1.6px, transparent 2.2px),
+    radial-gradient(circle at calc(100% - 11px) 11px, var(--hairline-2) 1.6px, transparent 2.2px),
+    radial-gradient(circle at 11px calc(100% - 11px), var(--hairline-2) 1.6px, transparent 2.2px),
+    radial-gradient(circle at calc(100% - 11px) calc(100% - 11px), var(--hairline-2) 1.6px, transparent 2.2px),
+    var(--paper-2);
+}
+.plate__etch {
+  display: flex; flex-wrap: wrap; align-items: baseline;
+  gap: var(--s-2) var(--s-4); padding: 0 var(--s-2) var(--s-3);
+}
+.plate__sub {
+  font-family: var(--font-mono); font-size: var(--t-micro); color: var(--ink-400);
+  letter-spacing: var(--tracking-label); text-transform: uppercase;
+}
+/* A wrapping RUN of cells, not a fixed grid. Eleven specifications differ wildly
+   in width - "Split: 70/30" against the whole backend list - and a grid sized to
+   the widest one wastes most of its area on the narrowest, which is what made the
+   original section a screen tall. Letting each cell size to its own content and
+   wrap packs the same eleven facts into three lines. The dividers are borders on
+   the cells so a short last line is simply more plate, never a grey block. */
+.plate__grid {
+  margin: 0; display: flex; flex-wrap: wrap;
+  background: var(--paper); border: 1px solid var(--hairline);
+}
+.plate__grid > div {
+  /* grow so each wrapped line justifies to the plate edge - a ragged right on a
+     nameplate reads as a bug, not a texture */
+  flex: 1 0 auto;
+  display: flex; align-items: baseline; gap: 7px;
+  padding: 5px 12px 6px; white-space: nowrap;
+  border-right: 1px solid var(--hairline); border-bottom: 1px solid var(--hairline);
+}
+.plate__grid dt {
+  font-family: var(--font-mono); font-size: 9.5px; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--ink-400); font-weight: var(--weight-medium);
+}
+.plate__grid dd {
+  margin: 0; color: var(--ink-900); font-size: 12.5px; line-height: 1.4;
+  font-weight: var(--weight-medium);
+}
+.plate__grid dd .mono { font-size: 11.5px; }
+/* the note that used to sit on its own line now trails the value, quieter */
+.plate__grid dd i {
+  font-style: normal; font-family: var(--font-mono); font-size: 10px;
+  font-weight: var(--weight-regular); color: var(--ink-400);
+}
+/* the backend list is the one cell that is a list; it takes whatever is left */
+.plate__grid > div:last-child { flex: 1 1 auto; border-right: 0; }
+
+/* Narrow screens: one cell per line. flex-basis:auto sizes a nowrap cell to its
+   max-content and min-width:auto refuses to shrink it, so below the wrap point the
+   long cells used to run straight off the plate. A full-width row each keeps every
+   value on the plate and still costs one line apiece. */
+@media (max-width: 720px) {
+  .plate__grid > div {
+    flex: 1 1 100%; min-width: 0; white-space: normal; flex-wrap: wrap;
+    border-right: 0;
+  }
+}
+
+
+
+/* =====================================================================
+   §6 THE INDUSTRIAL SERIES
+   A shelf, not a storefront: two covers stood at a slight angle beside
+   three lines and the press colophon. Deliberately small - it is a nod to
+   the books and to o'ailly, not a catalogue.
+   ===================================================================== */
+.shelf {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--s-12); align-items: center;
+}
+.shelf__copy { max-width: 48ch; }
+.shelf__copy h2 { margin: var(--s-3) 0 var(--s-4); }
+.shelf__copy p { color: var(--ink-500); }
+
+.shelf__stack { display: flex; gap: var(--s-6); }
+.shelf__book { display: block; text-decoration: none; }
+.shelf__cover {
+  display: block; width: 178px; height: auto;
+  border: 1px solid var(--hairline-2);
+  box-shadow: 0 12px 26px -16px rgba(0, 0, 0, 0.6);
+  transform: rotate(-1.4deg);
+  transition: transform var(--d-2), box-shadow var(--d-2);
+}
+.shelf__book + .shelf__book .shelf__cover { transform: rotate(1.6deg); }
+.shelf__book:hover .shelf__cover,
+.shelf__book:focus-visible .shelf__cover {
+  transform: translateY(-5px) rotate(0deg);
+  box-shadow: 0 18px 32px -16px rgba(0, 0, 0, 0.66);
+}
+.shelf__book:focus-visible { outline: none; }
+.shelf__book:focus-visible .shelf__cover { outline: 2px solid var(--live); outline-offset: 3px; }
+.shelf__no {
+  display: block; max-width: 178px; margin-top: var(--s-3);
+  font-family: var(--font-mono); font-size: var(--t-micro); color: var(--ink-700);
+  line-height: 1.5; letter-spacing: var(--tracking-label); text-transform: uppercase;
+}
+.shelf__no b { color: var(--ink-400); font-weight: var(--weight-medium); }
+.shelf__no em { display: block; margin-top: 3px; font-style: normal; color: var(--live); }
+
+.shelf__colophon {
+  display: flex; align-items: center; gap: var(--s-5);
+  margin-top: var(--s-6); padding-top: var(--s-5);
+  border-top: 1px solid var(--hairline);
+}
+.shelf__mark { width: 132px; height: auto; border: 1px solid var(--hairline-2);
+  border-radius: var(--r-sm); flex: none; }
+.shelf__colophon p { margin: 0; font-size: var(--t-sm); }
+
+@media (prefers-reduced-motion: reduce) {
+  .shelf__cover,
+  .shelf__book:hover .shelf__cover,
+  .shelf__book:focus-visible .shelf__cover { transform: none; transition: none; }
+}
+@media (max-width: 560px) {
+  /* the stamp and its line stop fitting side by side long before the covers do */
+  .shelf__colophon { flex-direction: column; align-items: flex-start; gap: var(--s-3); }
+}
+@media (max-width: 900px) {
+  .shelf { grid-template-columns: 1fr; gap: var(--s-8); }
+  .shelf__cover { width: 136px; }
+  .shelf__no { max-width: 136px; }
+}

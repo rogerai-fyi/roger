@@ -65,8 +65,9 @@ test("Company and Labs appear before technical detail and monetization", () => {
     "§3 / COMPANY",
     "§4 / THE TUNE",
     "§5 / SPECIFICATIONS",
-    "§6 / MONETIZE",
-    "§7 / GO",
+    "§6 / THE INDUSTRIAL SERIES",
+    "§7 / MONETIZE",
+    "§8 / GO",
   ]) assert.match(home, new RegExp(marker.replace("/", "\\/")));
   const main = home.match(/<main\b[\s\S]*?<\/main>/)?.[0] || "";
   for (const id of ["demo", "market", "company", "what", "spec", "monetize"]) {

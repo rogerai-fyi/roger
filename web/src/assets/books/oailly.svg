@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 220" width="640" height="220">
+  <!-- O'AILLY wordmark master - dark ground. Rules: never boxed, never caps, never red, never serif. -->
+  <rect width="640" height="220" rx="16" fill="#0E1116"/>
+  <text x="70" y="132" font-family="Archivo, Inter, 'Segoe UI', system-ui, sans-serif"
+        font-size="96" font-weight="800" letter-spacing="-2" fill="#E8EAED">o'<tspan fill="#4FD6C3">ai</tspan>lly</text>
+  <!-- insertion caret under the 'ai' ligature -->
+  <path d="M 168 172 L 192 148 L 216 172" fill="none" stroke="#4FD6C3" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="70" y="196" font-family="'JetBrains Mono','IBM Plex Mono',monospace" font-size="15"
+        letter-spacing="2" fill="#8A919C">BOOKS BY AI, FOR AI (HUMAN READABLE)</text>
+</svg>
