@@ -29,6 +29,14 @@ const goConst = (name) => {
   return Number(m[1]);
 };
 
+// A bound as a regex fragment: every dot escaped (an unescaped one is a wildcard, so a
+// floor of 1.5 would match "125"), and a trailing guard so `usd > 999999.99` does not
+// also accept a guard written `usd > 999999.9999`.
+const bound = (v) => `${String(v).replace(/\./g, "\\.")}(?![\\d.])`;
+
+// The same number as a person reads it, which is how the surfaces print it.
+const money = (v) => v.toLocaleString("en-US", { minimumFractionDigits: 2 });
+
 test("topup bounds: the billing input allows exactly the range the broker allows", () => {
   const input = read("billing.html").match(/<input id="topupCustom"[^>]*>/)?.[0];
   assert.ok(input, "the custom-amount input is there");
@@ -47,9 +55,8 @@ test("topup bounds: the billing click handler guards both ends and whole cents",
   const js = src("js/billing.js");
   const handler = js.match(/on\("topup", "click", function \(\) \{[\s\S]*?\n      \}\);/)?.[0];
   assert.ok(handler, "the top-up click handler is there");
-  const max = String(goConst("MaxTopupUSD")).replace(".", "\\.");
-  assert.match(handler, new RegExp(`usd < ${goConst("MinTopupUSD")}\\b`), "the floor is a guard");
-  assert.match(handler, new RegExp(`usd > ${max}`), "the ceiling is a guard");
+  assert.match(handler, new RegExp(`usd < ${bound(goConst("MinTopupUSD"))}`), "the floor is a guard");
+  assert.match(handler, new RegExp(`usd > ${bound(goConst("MaxTopupUSD"))}`), "the ceiling is a guard");
   assert.match(handler, /Math\.round\(usd \* 100\)\) > 1e-6/, "and a sub-cent amount is refused");
   assert.doesNotMatch(handler, /Math\.round\(usd \* 100\) \/ 100/, "and none of them is rounded away");
 });
@@ -58,7 +65,38 @@ test("topup bounds: the local console guards the same three things", () => {
   const js = readFileSync(path.join(REPO, "internal", "webui", "assets", "console.js"), "utf8");
   const topup = js.match(/function topup\(\)[\s\S]*?\n  \}/)?.[0] || "";
   assert.ok(topup, "the console has a topup handler");
-  assert.match(topup, new RegExp(`usd < ${goConst("MinTopupUSD")}\\b`), "floor");
-  assert.match(topup, new RegExp(`usd > ${String(goConst("MaxTopupUSD")).replace(".", "\\.")}`), "ceiling");
+  assert.match(topup, new RegExp(`usd < ${bound(goConst("MinTopupUSD"))}`), "floor");
+  assert.match(topup, new RegExp(`usd > ${bound(goConst("MaxTopupUSD"))}`), "ceiling");
   assert.match(topup, /Math\.round\(usd \* 100\)\) > 1e-6/, "whole cents");
+});
+
+// Scoping the guard pins to their handlers left the LABELS unpinned: the button copy,
+// the hint under it, and the console toast all print the maximum as a literal, and a
+// changed constant would leave them promising the old number. Every place a surface
+// states the cap to a person has to state the current one.
+test("topup bounds: every user-facing maximum is the current maximum", () => {
+  const cap = money(goConst("MaxTopupUSD")); // "999,999.99"
+  const surfaces = {
+    "js/billing.js": src("js/billing.js"),
+    "webui console.js": readFileSync(path.join(REPO, "internal", "webui", "assets", "console.js"), "utf8"),
+  };
+  for (const [name, js] of Object.entries(surfaces)) {
+    const stated = [...js.matchAll(/maximum top-up is \$([\d,.]+)|Top-up maximum is \$([\d,.]+)/gi)]
+      .map((m) => (m[1] || m[2]).replace(/\.$/, ""));
+    assert.ok(stated.length > 0, `${name} states the maximum to a person`);
+    for (const shown of stated) {
+      assert.equal(shown, cap, `${name} tells the reader $${shown} while the cap is $${cap}`);
+    }
+  }
+});
+
+// reflect() paints the button and does not stop anything, but it decides which of the
+// three labels the reader sees, so its ceiling has to be the real one too.
+test("topup bounds: the button label branches on the same ceiling", () => {
+  const reflect = src("js/billing.js").match(/function reflect\(\)[\s\S]*?\n      \}/)?.[0];
+  assert.ok(reflect, "reflect() is there");
+  assert.match(reflect, new RegExp(`usd <= ${bound(goConst("MaxTopupUSD"))}`),
+    "the accept branch uses the real ceiling");
+  assert.match(reflect, new RegExp(`usd > ${bound(goConst("MaxTopupUSD"))}`),
+    "and so does the over-the-cap branch");
 });
