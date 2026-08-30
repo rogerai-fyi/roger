@@ -44,7 +44,7 @@ import (
 // version is the broker's reported version (also in ServiceInfo + logs). Keep a
 // truthful source-build fallback; release builders may override it with
 // -ldflags "-X main.version=<tag>".
-var version = "6.3.2"
+var version = "6.3.3"
 
 // openapiSpec is the served API contract (see openapi.yaml). Single source of
 // truth for the broker's HTTP surface.

@@ -35,7 +35,7 @@
         </p>
         <div class="man-cover__meta">
           <span>Set: <b>roger</b></span>
-          <span>Version: <b data-cli-version>v6.3.2</b></span>
+          <span>Version: <b data-cli-version>v6.3.3</b></span>
           <span>Broker: <b>broker.rogerai.fm</b></span>
           <span>Protocol: <b>OpenAI-compatible</b></span>
         </div>
@@ -1352,7 +1352,7 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
           <section class="man-sec" id="s9">
             <span class="man-sec__no">§9 · Command reference</span>
             <h2>Every command, every key</h2>
-            <p>The full surface as of <b data-cli-version>v6.3.2</b>: the top-level CLI
+            <p>The full surface as of <b data-cli-version>v6.3.3</b>: the top-level CLI
               commands with their key flags, then the in-app keys and slash commands grouped
               by context. Commands with flag surfaces document <code>--help</code>; advanced
               flags hide behind <code>--advanced</code>. Run <code>roger</code> with no
@@ -1655,6 +1655,7 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
               Newest first. The set self-updates - <code>roger upgrade</code> pulls the
               latest, <code>roger upgrade --check</code> just reports.</p>
             <div class="man-plate">
+              <div class="man-plate__row"><span class="man-plate__k">v6.3.3</span><span class="man-plate__v">A confirm you can see is always yours to answer, even if the turn behind it was stopped. A new turn starts on a clean slate rather than inheriting a stopped turn&rsquo;s last lines, and while one is unwinding the deck says so instead of claiming to be ready.</span></div>
               <div class="man-plate__row"><span class="man-plate__k">v6.3.2</span><span class="man-plate__v">A queued prompt no longer takes the session down when the turn ahead of it finishes, and a turn no longer stops mid-answer on a quiet <code>&#8942;</code> notice. A stopped turn really stops, and <code>/clear</code> waits for it instead of resetting the conversation underneath it.</span></div>
               <div class="man-plate__row"><span class="man-plate__k">v6.3.1</span><span class="man-plate__v">A station that refuses an oversized conversation on request SIZE rather than token count is now recognised as what it is: the agent compacts and retries by itself, instead of stopping with advice that could not work.</span></div>
               <div class="man-plate__row"><span class="man-plate__k">v6.3.0</span><span class="man-plate__v">The models you share come back on air by themselves when <code>roger</code> starts - <b>s</b> on the band card opts one out. The broker's own canary traffic no longer counts as work you served, and a node that is actually used is no longer probed harder than an idle one. <b>EARNINGS</b> is now <b>AT LIST</b>: it was never settled money.</span></div>
