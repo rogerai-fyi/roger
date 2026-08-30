@@ -541,6 +541,8 @@
   function topup() {
     var usd = parseFloat($("topup-amount").value);
     if (!usd || usd < 1) { toast("Top-up minimum is $1.", "warn"); return; }
+    if (usd > 999999.99) { toast("Top-up maximum is $999,999.99.", "warn"); return; }
+    if (Math.abs(usd * 100 - Math.round(usd * 100)) > 1e-6) { toast("Whole cents only.", "warn"); return; }
     apiPost("/api/account/topup", { usd: usd }).then(function (r) {
       if (r && r.url) { window.open(r.url, "_blank", "noopener"); toast("Opening checkout…", "ok"); }
       else toast((r && r.message) || "Top-up requested.", "ok");

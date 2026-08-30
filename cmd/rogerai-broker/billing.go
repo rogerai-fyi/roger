@@ -98,18 +98,19 @@ func stripeSecretKey() string { return os.Getenv("STRIPE_SECRET_KEY") }
 // 4583 of the 99901 whole-cent amounts between $1 and $1000. Callers must have already
 // refused anything finer than a cent (client.WholeCents), so rounding here only undoes
 // float representation error, never a real fraction.
-// It also CLAMPS to the shared bounds rather than trusting its caller. Every current
-// caller range-checks first, but "safe because of what the caller did" is how the
-// overflow got here, and a helper that silently returns a negative charge is not one to
-// leave lying around for the next caller.
-func stripeUnitAmount(usd float64) int {
-	if math.IsNaN(usd) || usd < client.MinTopupUSD {
-		return int(math.Round(client.MinTopupUSD * 100))
+// It REFUSES out-of-range input rather than clamping it. An earlier version of this
+// helper clamped, which is the same silent substitution the rest of this path exists to
+// stop - a caller that forgot to range-check would have got a plausible wrong charge
+// instead of a loud failure. Every current caller checks first, so the error is
+// unreachable today; that is the point of it being an error rather than a guess.
+func stripeUnitAmount(usd float64) (int, error) {
+	if math.IsNaN(usd) || math.IsInf(usd, 0) {
+		return 0, fmt.Errorf("amount is not a real number")
 	}
-	if usd > client.MaxTopupUSD {
-		return int(math.Round(client.MaxTopupUSD * 100))
+	if usd < client.MinTopupUSD || usd > client.MaxTopupUSD {
+		return 0, fmt.Errorf("amount $%v is outside $%.0f-$%.2f", usd, client.MinTopupUSD, client.MaxTopupUSD)
 	}
-	return int(math.Round(usd * 100))
+	return int(math.Round(usd * 100)), nil
 }
 
 // checkout handles POST /billing/checkout {"usd": 10}: creates a Stripe Checkout
@@ -174,7 +175,11 @@ func (b *broker) checkout(w http.ResponseWriter, r *http.Request) {
 	// handler derives money from. int(usd*100) truncates, and binary floats put most
 	// decimal cents just below their integer - 1.15*100 is 114.99999999999999 - so a
 	// $1.15 top-up used to charge $1.14.
-	cents := stripeUnitAmount(req.USD)
+	cents, err := stripeUnitAmount(req.USD)
+	if err != nil {
+		jsonErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	credits := (float64(cents) / 100) / b.bill.creditUSD
 
 	form := url.Values{}
