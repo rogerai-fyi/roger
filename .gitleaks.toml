@@ -37,4 +37,17 @@ regexes = [
   '''roger-local''',
   # Docs: a historical placeholder example bearer token in the manual.
   '''sk-roger-\.\.\.''',
+  # AUDITED 2026-08-29. Test fixture in internal/stationattach/stationattach_test.go
+  # (b76818c52e, since deleted): `const inviteSecret = "test-invite-secret"`, documented in
+  # the file as "the plaintext an operator would hand a Station", used so the secret check
+  # is exercised on every path rather than bypassed. Not a credential - it never existed
+  # outside the test.
+  '''test-invite-secret''',
+  # AUDITED 2026-08-29. NOT a secret at all: a URL PATH in
+  # internal/edgeclient/edgeclient_test.go (9ee8fe7684),
+  # `w.client.Do(ctx, auth, "v1/no/leading/slash", ...)` - a test asserting the client
+  # accepts a path with no leading slash. The generic-api-key rule fires on a string
+  # literal following a variable named `auth`. Nothing to rotate; the shape will recur,
+  # so tighten the rule rather than grow this list if it does.
+  '''v1/no/leading/slash''',
 ]
