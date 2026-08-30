@@ -1956,11 +1956,6 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.agentBusy = false
-		// A gate cannot outlive the turn that raised it: without this a confirm that was
-		// shown and then answered by the confirmer's own cancellation path would leave a
-		// modal on screen with nothing behind it.
-		m.agentPendingConfirm = nil
-		m.rcConfirmID = ""
 		m.agentCanceling = false
 		m.agentTurnState = poseWaiting // turn finished: the corner Ping stands by
 		// THE DELEGATION RECEIPT. The live strip showed the children while they worked;

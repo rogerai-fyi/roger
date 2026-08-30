@@ -1281,10 +1281,14 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.agentQueued = append(m.agentQueued, queuedPrompt{text: p})
 			m.agentLines = append(m.agentLines, stDim.Render("⏳ STANDBY · ")+stDim.Render(clipLine(p)))
 			m.status = stDim.Render(plural(len(m.agentQueued), "queued msg") + " · sends when the turn finishes · esc cancels")
-			// When agentBusy is ALREADY false (the force-stop case) the goroutine's exit
-			// produces no UI event of its own, so arm the same re-check submitAgentPrompt
-			// uses. Without it a command parked here waits for whatever ticks next.
-			return m, agentDrainSoon()
+			// Only in the force-stop window. There agentBusy is already false, so the
+			// goroutine's exit produces no UI event of its own and something has to come
+			// back for this. While a turn is visibly running, its own agentDoneMsg drains
+			// the queue and a beat here would fire into a handler that no-ops.
+			if !m.agentBusy {
+				return m, agentDrainSoon()
+			}
+			return m, nil
 		}
 		if strings.HasPrefix(p, "/") {
 			return m.runAgentCommand(p)
@@ -1467,6 +1471,14 @@ func (m model) dequeueAgentPrompts() (model, tea.Cmd) {
 	var cmds []tea.Cmd
 	for len(m.agentQueued) > 0 {
 		if m.agent != nil && m.agent.running.Load() {
+			// SIGNALLED, NOT RETURNED. The turn closes its done channel BEFORE it clears
+			// the guard (that ordering is what removes the window the crash needed), so
+			// agentDoneMsg legitimately arrives while running is still true. Breaking with
+			// no re-check armed hands the queue to nobody: no tick looks at agentQueued,
+			// and the done that would have drained it has already been spent. That is the
+			// STANDBY deadlock agentDrainSoon exists to prevent, and the loop condition
+			// guarantees there is something parked to come back for.
+			cmds = append(cmds, agentDrainSoon())
 			break
 		}
 		next := m.agentQueued[0]

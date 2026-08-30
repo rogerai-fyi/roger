@@ -992,6 +992,40 @@ func (s *turnLifecycleBDD) neverTouchesLoop() error {
 	return nil
 }
 
+func (s *turnLifecycleBDD) signalledButNotReturned() error {
+	// Exactly the state the new ordering creates: the goroutine has closed its done
+	// channel and has NOT yet cleared the guard.
+	done := make(chan struct{})
+	s.rt.turnDone = done
+	close(done)
+	s.rt.running.Store(true)
+	return nil
+}
+
+func (s *turnLifecycleBDD) queueIsDrained() error {
+	nm, cmd := s.m.dequeueAgentPrompts()
+	s.m = asModel(nm)
+	s.lastCmd = cmd
+	return nil
+}
+
+func (s *turnLifecycleBDD) recheckArmed() error {
+	if s.lastCmd == nil {
+		return fmt.Errorf("the dequeue gave up with the goroutine still running and armed " +
+			"nothing: the done that would have drained this queue is already spent and no " +
+			"tick looks at agentQueued, so the parked prompt waits forever")
+	}
+	return nil
+}
+
+func (s *turnLifecycleBDD) promptStillQueued() error {
+	if len(s.m.agentQueued) == 0 {
+		return fmt.Errorf("the parked prompt must not be started while the goroutine still " +
+			"owns the shared loop")
+	}
+	return nil
+}
+
 // ---------------------------------------------------------------------------
 // The confirm channel
 // ---------------------------------------------------------------------------
@@ -1193,6 +1227,10 @@ func TestAgentTurnLifecycleFeature(t *testing.T) {
 			sc.Step(`^it runs immediately$`, st.runsImmediately)
 			sc.Step(`^it never touches the shared loop$`, st.neverTouchesLoop)
 
+			sc.Step(`^the turn has signalled done but its goroutine has not returned$`, st.signalledButNotReturned)
+			sc.Step(`^the queue is drained$`, st.queueIsDrained)
+			sc.Step(`^a re-check is armed rather than the prompt being abandoned$`, st.recheckArmed)
+			sc.Step(`^the prompt is still queued$`, st.promptStillQueued)
 			sc.Step(`^a turn calls a mutating tool$`, st.turnCallsMutatingTool)
 			sc.Step(`^the loop requests confirmation$`, st.loopRequestsConfirmation)
 			sc.Step(`^the y/N prompt reaches the UI$`, st.confirmReachesUI)

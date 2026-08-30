@@ -219,6 +219,18 @@ Feature: Agent turn lifecycle is safe across turns
     Then the prompt runs
     And the queue does not sit forever
 
+  # THE WINDOW THE ORDERING OPENS. close(done) precedes the guard clearing - that is what
+  # removes the instant a turn can look finished while it can still emit - so agentDoneMsg
+  # legitimately arrives while rt.running is still true. The dequeue must hand the queue
+  # to something before it gives up, because the done that would have drained it has
+  # already been spent and no tick looks at the queue.
+  Scenario: A done that arrives before the guard clears still comes back for the queue
+    Given a prompt is parked on STANDBY
+    And the turn has signalled done but its goroutine has not returned
+    When the queue is drained
+    Then a re-check is armed rather than the prompt being abandoned
+    And the prompt is still queued
+
   Scenario: The drain-retry stops early while a goroutine is still alive
     Given a force-stopped turn's goroutine is still alive
     When the retry beat lands
