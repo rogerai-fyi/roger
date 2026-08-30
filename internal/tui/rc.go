@@ -205,6 +205,13 @@ func (m model) onRemoteInbound(in protocol.RCInbound) (tea.Model, tea.Cmd) {
 			// (or /clear) must not control the host through the busy queue (ruling 7;
 			// iteration-1 finding #1), exactly matching the idle path directly below.
 			m.agentQueued = append(m.agentQueued, queuedPrompt{text: in.Text, remote: true})
+			// COME BACK FOR IT. Mirrors the local path: in the force-stop window agentBusy
+			// is already false, so the goroutine's exit raises no UI event of its own and
+			// the done that would have drained this queue may already be spent. Without a
+			// re-check a remote prompt injected there sits on STANDBY forever.
+			if !m.agentBusy {
+				return m, tea.Batch(rearm, agentDrainSoon())
+			}
 			return m, rearm
 		}
 		nm, cmd := m.submitAgentPrompt(queuedPrompt{text: in.Text, remote: true})

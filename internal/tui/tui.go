@@ -945,6 +945,11 @@ type model struct {
 	// is kicked, and the prompt is sent the moment a band lands (drained by runAutoTune).
 	agentPending      []queuedPrompt
 	agentLandingLines int // transcript length that still counts as the AGENT landing (entry chrome only)
+	// agentDoneHandled is the turn whose agentDoneMsg has already been acted on. A drain
+	// re-armed after that turn's done channel is closed reports it again at once (the
+	// channel is never re-created), and acting twice would append the turn's delegation
+	// receipt a second time and re-fetch the balance.
+	agentDoneHandled chan struct{}
 	// `ask ›` slash-command autocomplete (agent.go: agentCommands / agentSlashStrip /
 	// the tab case in onAgentKey). agentTabPrefix is the typed prefix a live Tab
 	// completion cycle is stepping ("" = no cycle); agentTabIdx is the current pick
@@ -1949,10 +1954,24 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		nm, cmd := m.dequeueAgentPrompts()
 		return nm, cmd
 	case agentDoneMsg:
-		// IGNORE A STALE DONE. agentDrainRetryMsg can start the next turn before this
-		// message lands, and clearing the busy state then would tell the operator the
-		// session is idle while a turn is running.
-		if m.agent != nil && msg.turn != nil && m.agent.turnDone != msg.turn {
+		// ONCE PER TURN. events is never re-created now, so a drain re-armed after a turn's
+		// done is already closed reports it again immediately - and a second pass would
+		// append that turn's delegation receipt twice and re-fetch the balance.
+		if msg.turn != nil && m.agentDoneHandled == msg.turn {
+			return m, nil
+		}
+		m.agentDoneHandled = msg.turn
+		// A STALE DONE STILL RETIRES ITS OWN TURN. agentDrainRetryMsg can start the next
+		// turn before this message lands: clearing the busy state then would report the
+		// session idle while a turn runs, so that part is skipped. But the finished turn's
+		// delegation receipt is still owed, and leaving agentDelegates set would roll its
+		// children into the NEXT turn's receipt line and live strip.
+		stale := m.agent != nil && msg.turn != nil && m.agent.turnDone != msg.turn
+		if stale {
+			if line := m.delegationReceiptLine(); line != "" {
+				m.agentLines = append(m.agentLines, line)
+			}
+			m.agentDelegates = nil
 			return m, nil
 		}
 		m.agentBusy = false

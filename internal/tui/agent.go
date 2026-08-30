@@ -74,6 +74,14 @@ type agentRuntime struct {
 	// startAgentTurn, before the drain Cmd that reads it is issued) rather than reused,
 	// because a closed channel stays closed and the next turn needs a fresh signal.
 	turnDone chan struct{}
+	// turnGen numbers the turns. A drain Cmd captures the generation it was issued for
+	// and retires if it wakes to find a newer one, which keeps the ONE-READER invariant
+	// the file header asserts. It used to be structural: the drain terminated when the
+	// events channel was closed. events is never closed now, so an old drain would
+	// otherwise wake on a LATER turn's event, deliver it out of order alongside the live
+	// drain, and re-arm into a second chain. Written on the UI goroutine, read on the
+	// Cmd's, so it is atomic.
+	turnGen atomic.Uint64
 	// turnCtx holds the LIVE turn's context so the two closures built once per runtime -
 	// the cost side-channel and the confirmer - can tell whether the turn they are
 	// serving has been cancelled. The emit closure captures its ctx directly (it is
@@ -1846,6 +1854,7 @@ func (m model) startAgentTurn(prompt string) tea.Cmd {
 	done := make(chan struct{})
 	rt.turnDone = done
 	rt.turnCtx.Store(ctx)
+	rt.turnGen.Add(1)
 	return func() tea.Msg {
 		go func() {
 			_, _ = rt.loop.Send(ctx, prompt, func(e harness.Event) {
@@ -1893,7 +1902,14 @@ func (m model) waitAgentEvent() tea.Cmd {
 	// Captured here, on the UI goroutine, so this Cmd reports the end of the turn that
 	// was live when it was issued - never a later turn's, and never a stale closed one.
 	done := rt.turnDone
+	gen := rt.turnGen.Load()
 	return func() tea.Msg {
+		// RETIRE IF A NEWER TURN HAS STARTED. Without this an old chain and the live one
+		// both read rt.events, delivering a turn's steps out of order and reporting its
+		// done twice.
+		if rt.turnGen.Load() != gen {
+			return agentDoneMsg{turn: done}
+		}
 		// A TURN'S TAIL RENDERS BEFORE ITS DONE. done is closed once Send has returned,
 		// so its last events are already sitting in the buffer; a bare select would pick
 		// randomly between a ready event and a ready done and drop the end of the answer.
