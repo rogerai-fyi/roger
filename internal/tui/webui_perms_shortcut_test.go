@@ -131,7 +131,11 @@ func TestAgentCtrlPAtConfirmGate(t *testing.T) {
 // the model picker (the unknown-command default) instead of running now. Guards the two
 // parallel lists against drift (review finding).
 func TestInstantCommandsAreRealCommands(t *testing.T) {
-	for _, tok := range []string{"/perms", "/permissions", "/yolo", "/webui", "/console", "/web"} {
+	for _, tok := range []string{
+		"/perms", "/permissions", "/yolo", "/webui", "/console", "/web", "/mouse",
+		// READ-ONLY additions: they skip the turn gate, so they must dispatch for real.
+		"/help", "/h", "/commands", "/copy", "/y",
+	} {
 		if !instantAgentCommand(tok) {
 			t.Fatalf("%s should classify as instant", tok)
 		}

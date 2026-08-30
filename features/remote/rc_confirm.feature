@@ -1,9 +1,15 @@
 # Executable spec for the tool-CONFIRM fan-in on a remote-control session (BASE STATION,
-# v5.0.0). The embedded agent's mutating-tool y/N gate (harness Confirmer → the TUI
-# confirmReq/confirmResp channels, agent.go:49-50,279) is fanned out: a pending confirm is a
-# confirm_req frame with a confirm_id; the local keypress AND remote confirm messages race
-# into confirmResp; FIRST answer wins; a confirm_done frame names who answered and closes it
+# v5.0.0). The embedded agent's mutating-tool y/N gate (harness Confirmer -> the TUI's
+# confirmReq channel) is fanned out: a pending confirm is a confirm_req frame with a
+# confirm_id; the local keypress AND remote confirm messages race into THAT CONFIRM'S OWN
+# resp channel, carried on the agentConfirm itself so two gates can never be answered out
+# of order; FIRST answer wins; a confirm_done frame names who answered and closes it
 # everywhere. Ground truth: internal/tui/agent.go + rcbridge (Increment 3).
+#
+# CORRECTED 2026-08-30: this described the answer coming back on a shared `confirmResp`
+# channel on the runtime. It never did - that field was allocated and never read or
+# written, and has been deleted. The line citations went with it: they had drifted anyway,
+# and a spec that names line numbers goes stale on the next edit above them.
 #
 # INVARIANTS:
 #   F1 a mutating tool emits a confirm_req to every surface, and nothing runs until answered.

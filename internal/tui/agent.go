@@ -272,7 +272,10 @@ type (
 	agentConfirmMsg agentConfirm
 	// agentDoneMsg marks the turn finished (the events channel closed), re-enabling input
 	// and auto-sending the next queued prompt (if any).
-	agentDoneMsg struct{}
+	// It carries the turn it belongs to: agentDrainRetryMsg starts the next turn on
+	// rt.running alone, so turn N's done can arrive AFTER turn N+1 is already live, and
+	// acting on it would clear the busy state under a running turn.
+	agentDoneMsg struct{ turn chan struct{} }
 	// agentCostMsg adds one model-call's BILLED result - cost + the broker's billed
 	// prompt/completion token counts - to the running AGENT session totals (the cost
 	// side-channel; see newAgentRuntime.costFn and waitAgentEvent).
@@ -1894,7 +1897,18 @@ func (m model) waitAgentEvent() tea.Cmd {
 		case e := <-rt.events:
 			return agentEventFor(e)
 		case <-done:
-			return agentDoneMsg{}
+			// DRAIN BEFORE REPORTING DONE. Both arms can be ready at once - the turn can
+			// buffer its last event and close done in the gap between the fast path above
+			// and this select parking - and select would then pick between them at random.
+			// Losing that toss strands the event in a channel that is NEVER re-created, so
+			// the next turn renders it as its own. The old single-channel form could not do
+			// this: a close was only ever observed after the buffer had emptied.
+			select {
+			case e := <-rt.events:
+				return agentEventFor(e)
+			default:
+			}
+			return agentDoneMsg{turn: done}
 		}
 	}
 }

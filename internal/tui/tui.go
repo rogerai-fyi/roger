@@ -1949,7 +1949,18 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		nm, cmd := m.dequeueAgentPrompts()
 		return nm, cmd
 	case agentDoneMsg:
+		// IGNORE A STALE DONE. agentDrainRetryMsg can start the next turn before this
+		// message lands, and clearing the busy state then would tell the operator the
+		// session is idle while a turn is running.
+		if m.agent != nil && msg.turn != nil && m.agent.turnDone != msg.turn {
+			return m, nil
+		}
 		m.agentBusy = false
+		// A gate cannot outlive the turn that raised it: without this a confirm that was
+		// shown and then answered by the confirmer's own cancellation path would leave a
+		// modal on screen with nothing behind it.
+		m.agentPendingConfirm = nil
+		m.rcConfirmID = ""
 		m.agentCanceling = false
 		m.agentTurnState = poseWaiting // turn finished: the corner Ping stands by
 		// THE DELEGATION RECEIPT. The live strip showed the children while they worked;
