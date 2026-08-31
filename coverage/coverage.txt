@@ -801,7 +801,7 @@ rogerai.fm/roger/v6/cmd/rogerai-broker/toolcall.go:264:			recordToolProbe			100.
 rogerai.fm/roger/v6/cmd/rogerai-broker/toolcall.go:338:			syncToolsVerified		87.5%
 rogerai.fm/roger/v6/cmd/rogerai-broker/toolcall.go:355:			toolsVerifiedForLocked		100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/toolcall.go:366:			authoritativeFor		100.0%
-rogerai.fm/roger/v6/cmd/rogerai-broker/toolcall.go:382:			probeToolCall			89.5%
+rogerai.fm/roger/v6/cmd/rogerai-broker/toolcall.go:382:			probeToolCall			92.1%
 rogerai.fm/roger/v6/cmd/rogerai-broker/toolcall.go:442:			applyToolVerdict		100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/tower.go:74:			towerModelAllowed		100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/tower.go:80:			towerModalityAllowed		100.0%
@@ -1169,7 +1169,7 @@ rogerai.fm/roger/v6/cmd/rogerai/remote.go:47:				rcLinkURL			100.0%
 rogerai.fm/roger/v6/cmd/rogerai/remote.go:56:				cmdRemote			100.0%
 rogerai.fm/roger/v6/cmd/rogerai/remote.go:86:				remoteList			100.0%
 rogerai.fm/roger/v6/cmd/rogerai/remote.go:112:				remoteAttach			100.0%
-rogerai.fm/roger/v6/cmd/rogerai/remote.go:186:				remoteInputLoop			100.0%
+rogerai.fm/roger/v6/cmd/rogerai/remote.go:186:				remoteInputLoop			93.8%
 rogerai.fm/roger/v6/cmd/rogerai/remote.go:215:				remoteOff			100.0%
 rogerai.fm/roger/v6/cmd/rogerai/remote.go:229:				remoteLinkCode			100.0%
 rogerai.fm/roger/v6/cmd/rogerai/remote.go:240:				remoteLinkHelp			100.0%
@@ -1252,8 +1252,8 @@ rogerai.fm/roger/v6/internal/agent/attest_sevsnp.go:21:			teeAvailable			60.0%
 rogerai.fm/roger/v6/internal/agent/attest_sevsnp.go:34:			generateQuote			37.5%
 rogerai.fm/roger/v6/internal/agent/localtower.go:20:			idFromPriv			100.0%
 rogerai.fm/roger/v6/internal/agent/localtower.go:28:			NodeID				100.0%
-rogerai.fm/roger/v6/internal/agent/localtower.go:44:			ServeLocalTower			81.0%
-rogerai.fm/roger/v6/internal/agent/localtower.go:95:			pollLocalJob			83.3%
+rogerai.fm/roger/v6/internal/agent/localtower.go:44:			ServeLocalTower			76.2%
+rogerai.fm/roger/v6/internal/agent/localtower.go:95:			pollLocalJob			88.9%
 rogerai.fm/roger/v6/internal/agent/localtower.go:125:			runLocalJob			85.0%
 rogerai.fm/roger/v6/internal/agent/localtower.go:160:			completeLocalJob		80.0%
 rogerai.fm/roger/v6/internal/agent/localtower.go:180:			signLocal			100.0%
@@ -1457,7 +1457,7 @@ rogerai.fm/roger/v6/internal/client/login.go:229:			LogoutReturn			60.0%
 rogerai.fm/roger/v6/internal/client/login.go:241:			Logout				85.7%
 rogerai.fm/roger/v6/internal/client/login.go:256:			Whoami				100.0%
 rogerai.fm/roger/v6/internal/client/login.go:283:			startDeviceFlow			92.9%
-rogerai.fm/roger/v6/internal/client/login.go:305:			pollDeviceToken			85.7%
+rogerai.fm/roger/v6/internal/client/login.go:305:			pollDeviceToken			90.5%
 rogerai.fm/roger/v6/internal/client/login.go:347:			postSigned			100.0%
 rogerai.fm/roger/v6/internal/client/login.go:355:			maxInt				100.0%
 rogerai.fm/roger/v6/internal/client/payout.go:49:			payoutErr			100.0%
@@ -3652,7 +3652,7 @@ rogerai.fm/roger/v6/internal/tui/tui.go:4148:				atOnAirLimit			100.0%
 rogerai.fm/roger/v6/internal/tui/tui.go:4152:				hasSchedule			100.0%
 rogerai.fm/roger/v6/internal/tui/tui.go:4160:				pilotLamp			100.0%
 rogerai.fm/roger/v6/internal/tui/tui.go:4179:				marquee				91.7%
-rogerai.fm/roger/v6/internal/tui/tui.go:4200:				editorLivePreview		92.0%
+rogerai.fm/roger/v6/internal/tui/tui.go:4200:				editorLivePreview		96.0%
 rogerai.fm/roger/v6/internal/tui/tui.go:4249:				maskKey				100.0%
 rogerai.fm/roger/v6/internal/tui/tui.go:4265:				modalFooter			100.0%
 rogerai.fm/roger/v6/internal/tui/tui.go:4283:				footer				89.9%
