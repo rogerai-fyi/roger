@@ -93,6 +93,18 @@ func (l *Loop) askTool() Tool {
 // added - which is exactly how the toolset-width guard broke when ask_operator arrived.
 var rootOnlyTools = []string{"delegate", "ask_operator"}
 
+// isRootOnly reports whether a tool is in that set. newSubagent filters with THIS rather
+// than naming the tools again, so a future root-only tool cannot leak into subagents by
+// being added to the list but not to the filter.
+func isRootOnly(name string) bool {
+	for _, n := range rootOnlyTools {
+		if n == name {
+			return true
+		}
+	}
+	return false
+}
+
 // SetAsker attaches the operator channel. A front end with a person on it calls this; one
 // without leaves it unset, and ask_operator then refuses rather than hanging on a question
 // nobody will see.

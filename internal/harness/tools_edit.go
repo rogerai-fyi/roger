@@ -308,30 +308,65 @@ func globMatch(pat, rel string) bool {
 		}
 		return false
 	}
-	// Split on '**' and require the pieces to appear in order.
+	// Split on '**' and require the pieces to appear in order, ON SEGMENT BOUNDARIES.
+	// Substring anchoring was an over-match: 'cmd/**' matched internal/cmdx/f.go and
+	// mycmd/f.go, because "cmd" appeared INSIDE a segment. Failing open in a search tool
+	// means returning files nobody asked about, which quietly poisons whatever the agent
+	// does with the list.
 	parts := strings.Split(pat, "**")
-	rest := rel
+	segs := strings.Split(rel, "/")
+	pos := 0 // the next unconsumed path segment
 	for i, part := range parts {
 		part = strings.Trim(part, "/")
 		if part == "" {
 			continue
 		}
-		if i == len(parts)-1 {
-			// The tail must match the end of the path, segment-wise.
-			segs := strings.Split(rest, "/")
-			for j := range segs {
-				cand := strings.Join(segs[j:], "/")
-				if ok, _ := filepath.Match(part, cand); ok {
-					return true
+		want := strings.Split(part, "/")
+		if i == 0 {
+			// A leading piece is anchored at the START of the path, whole segments only.
+			if len(want) > len(segs)-pos {
+				return false
+			}
+			for k, w := range want {
+				if ok, _ := filepath.Match(w, segs[pos+k]); !ok {
+					return false
 				}
 			}
+			pos += len(want)
+			continue
+		}
+		if i == len(parts)-1 {
+			// A trailing piece is anchored at the END, whole segments only.
+			if len(want) > len(segs)-pos {
+				return false
+			}
+			tail := segs[len(segs)-len(want):]
+			for k, w := range want {
+				if ok, _ := filepath.Match(w, tail[k]); !ok {
+					return false
+				}
+			}
+			return true
+		}
+		// A middle piece may start at any segment boundary at or after pos.
+		found := false
+		for j := pos; j+len(want) <= len(segs); j++ {
+			ok := true
+			for k, w := range want {
+				if m, _ := filepath.Match(w, segs[j+k]); !m {
+					ok = false
+					break
+				}
+			}
+			if ok {
+				pos = j + len(want)
+				found = true
+				break
+			}
+		}
+		if !found {
 			return false
 		}
-		idx := strings.Index(rest, part)
-		if idx < 0 {
-			return false
-		}
-		rest = rest[idx+len(part):]
 	}
 	return true
 }

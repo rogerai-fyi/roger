@@ -195,7 +195,7 @@ func (l *Loop) newSubagent(root string) *Loop {
 		// subagent runs where the operator cannot see it, so a child that stopped to ask
 		// would block the parent's turn on a question nobody was ever shown. A child that
 		// needs a decision must report back and let the parent ask.
-		if t.Mutating || t.Name == "delegate" || t.Name == "ask_operator" {
+		if t.Mutating || isRootOnly(t.Name) {
 			continue
 		}
 		tools = append(tools, t)
