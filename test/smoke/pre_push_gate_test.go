@@ -30,20 +30,24 @@ import (
 // GIT_DIR points at the other checkout: `git log HEAD` then answers for main while the push
 // is on a branch, so the tests would silently examine the wrong history and still pass.
 func cleanEnv() []string {
+	// PREFIX, not a list of names. An explicit denylist rots: git also exports
+	// GIT_OBJECT_DIRECTORY, GIT_ALTERNATE_OBJECT_DIRECTORIES, GIT_CEILING_DIRECTORIES,
+	// GIT_NAMESPACE and GIT_CONFIG_*, and adds more over time. GIT_EXEC_PATH is kept
+	// because it tells git where its own subcommands live and says nothing about which
+	// repository to act on.
 	var out []string
 	for _, kv := range os.Environ() {
-		switch {
-		case strings.HasPrefix(kv, "GIT_DIR="),
-			strings.HasPrefix(kv, "GIT_WORK_TREE="),
-			strings.HasPrefix(kv, "GIT_INDEX_FILE="),
-			strings.HasPrefix(kv, "GIT_PREFIX="),
-			strings.HasPrefix(kv, "GIT_COMMON_DIR="):
+		if strings.HasPrefix(kv, "GIT_") && !strings.HasPrefix(kv, "GIT_EXEC_PATH=") {
 			continue
 		}
 		out = append(out, kv)
 	}
 	return out
 }
+
+// cleanGitEnv is the same scrub, exported within the package for the other smoke tests
+// that shell out to git and can also run under the gate.
+func cleanGitEnv() []string { return cleanEnv() }
 
 // gitClean runs git with that environment scrubbed.
 func gitClean(t *testing.T, args ...string) ([]byte, error) {
@@ -77,9 +81,18 @@ func stubPath(t *testing.T) string {
 	if err != nil {
 		t.Skip("no git on PATH")
 	}
+	// `worktree add` is skipped; `worktree remove` deletes the directory the hook made and
+	// then reports failure, so the hook's own `|| rm -rf "$wt"` fallback still runs and no
+	// empty temp directory is left behind. Swallowing remove silently stranded one per run.
+	// `worktree add` is skipped (that is the expensive checkout), and `worktree remove`
+	// deletes the directory the hook created, so nothing is stranded in /tmp. Reporting
+	// success for both keeps the hook on its normal path; swallowing remove WITHOUT
+	// deleting is what left an empty temp dir behind on every run.
 	gitStub := "#!/bin/sh\n" +
-		"# pass through, except the throwaway-worktree checkout (see the test's comment)\n" +
-		"if [ \"$1\" = \"worktree\" ]; then exit 0; fi\n" +
+		"if [ \"$1\" = \"worktree\" ]; then\n" +
+		"  [ \"$2\" = \"remove\" ] && rm -rf \"$3\" 2>/dev/null\n" +
+		"  exit 0\n" +
+		"fi\n" +
 		"exec " + real + " \"$@\"\n"
 	if err := os.WriteFile(filepath.Join(dir, "git"), []byte(gitStub), 0o755); err != nil {
 		t.Fatal(err)

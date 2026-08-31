@@ -54,7 +54,13 @@ var allowedUsers = regexp.MustCompile(`/home/(?:user|alice|bob|carol|operator|ex
 
 func TestTrackedFilesCarryNoInternalWorkingContext(t *testing.T) {
 	root := repoRoot(t)
-	out, err := exec.Command("git", "-C", root, "ls-files", "-z").Output()
+	// -C is not enough: an inherited GIT_DIR overrides it, and this test RUNS under the
+	// pre-push gate. From a worktree that enumerated main's index while reading files from
+	// the worktree, so everything added since main's tip was never scanned and the gate
+	// passed on a file set it had not looked at. Scrub the environment git hands its hooks.
+	lsFiles := exec.Command("git", "-C", root, "ls-files", "-z")
+	lsFiles.Env = cleanGitEnv()
+	out, err := lsFiles.Output()
 	if err != nil {
 		t.Skipf("not a git checkout: %v", err)
 	}
