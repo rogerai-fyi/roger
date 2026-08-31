@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<!-- Broadcast 011: the unit economics of serving a million tokens, three ways.
+     EVERY printed figure is computed from inputs carried on the row itself
+     (data-watts/data-rate or data-hourly, data-tps, data-util), and
+     test/broadcast-economics.test.mjs recomputes all of them against the formula and
+     fails if the page and the arithmetic disagree. Comparison prices are read from
+     OpenRouter's public /api/v1/models on 2026-08-31 and carry their full model ids so a
+     reader can check them; rental prices are Vast.ai's live board the same day.
+     Registered in build.mjs CSS_BUNDLES. -->
+<html lang="en">
+<head>
+  <!-- include: head.html title="What a million tokens costs on your own GPU" desc="The unit economics of serving open models three ways: on a card you already own, on a rented spot GPU, or bought from an aggregator. Break-even prices per million output tokens at full and half duty, compared against live OpenRouter rates." theme=external og=post ogtype=article ogtitle="What a million tokens costs on your own GPU" ogdesc="A 4090 you already own breaks even at $0.09 per million output tokens. A rented spot card lands between $0.05 and $0.40. The aggregators charge $0.13 to $0.46. Here is the arithmetic, with every input on the page." ogurl="https://rogerai.fm/broadcasts-what-a-million-tokens-costs.html" ogimage="https://rogerai.fm/og-home.png" -->
+</head>
+<body data-onair="idle">
+
+  <div class="rail" aria-hidden="true">
+    <span class="rail__head">RogerAI &middot; Field Guide</span>
+    <span class="rail__rev"><!-- include: orange3d.html id=rail --> Rev. 2026.08 &middot; ((&bull;))</span>
+  </div>
+
+  <!-- include: nav.html variant=marketing home=/ anchors=/ scrolled=1 -->
+
+  <main id="top">
+  <article class="bc-post ec-post">
+    <div class="wrap bc-post__wrap">
+
+      <a class="bc-post__back mono" href="/broadcasts.html">&larr; all broadcasts</a>
+
+      <header class="bc-post__head" data-reveal>
+        <span class="hero__eyebrow">
+          <span class="onair" aria-hidden="true">((<span class="onair__dot">&bull;</span>))</span>
+          <span class="hero__callsign">BROADCAST 011 &middot; FIELD GUIDE</span>
+          <span class="hero__sep" aria-hidden="true">&middot;</span>
+          <time datetime="2026-08-31">AUGUST 2026</time>
+        </span>
+        <h1 class="bc-post__title">What a million tokens costs on your own GPU</h1>
+        <p class="bc-post__dek">
+          There are three ways to get a million tokens out of an open model: buy them from
+          an aggregator, rent a card and serve them, or serve them on a card you already
+          own. They are not close. Here is the arithmetic, with every input printed beside
+          the answer.
+        </p>
+      </header>
+
+      <div class="bc-post__body">
+
+        <!-- ---------- QUICK ANSWER ---------- -->
+        <section class="bc-answer" data-reveal>
+          <span class="bc-answer__tag mono">Quick answer</span>
+          <p class="bc-answer__lede">A million output tokens from a 27B-class open model
+            costs you about <b>$0.09</b> in electricity on an RTX 4090 you already own,
+            <b>$0.20</b> on a rented spot A5000, and <b>$0.28 to $0.45</b> to buy from an
+            aggregator. Own the card and you are three to five times under the market.</p>
+          <dl class="ec-answer-grid">
+            <div><dt>Own it</dt><dd>$0.09 &ndash; $0.13 <span>/1M&nbsp;out</span></dd></div>
+            <div><dt>Rent it (spot)</dt><dd>$0.05 &ndash; $0.20 <span>/1M&nbsp;out</span></dd></div>
+            <div><dt>Buy it</dt><dd>$0.13 &ndash; $0.46 <span>/1M&nbsp;out</span></dd></div>
+          </dl>
+          <p class="ec-answer-foot mono">at full duty &middot; halve the duty, double the
+            cost &middot; every figure below is computed from inputs on the page</p>
+        </section>
+
+        <!-- ---------- §1 THE FORMULA ---------- -->
+        <section class="bc-sec" data-reveal>
+          <span class="bc-sec__no mono">&sect;1 &middot; THE FORMULA</span>
+          <h2>One line, and three numbers you control.</h2>
+          <p>Serving is a rate business. A card costs money by the hour whether or not a
+             request is in flight, and it produces tokens only while one is. So the price
+             a station has to charge to cover itself is the hour&rsquo;s cost divided by
+             the tokens that hour actually produced - adjusted for the platform fee,
+             because an operator keeps <b>70%</b> of what a request is charged and the
+             remaining 30% pays for routing, metering, settlement and the payout rails.</p>
+
+          <figure class="ec-formula" data-reveal>
+            <div class="ec-formula__eq mono" data-share="0.70">
+              <span class="ec-formula__lhs">break-even $/1M</span>
+              <span class="ec-formula__op">=</span>
+              <span class="ec-formula__frac">
+                <span class="ec-formula__num">cost per hour &divide; 0.70</span>
+                <span class="ec-formula__den">tok/s &times; 3600 &times; duty &divide; 1,000,000</span>
+              </span>
+            </div>
+            <figcaption>Three inputs. What the hour costs, how fast the card generates,
+              and what fraction of the hour it spends generating.</figcaption>
+          </figure>
+
+          <p>The third input is the one people skip, and it dominates everything.
+             <em>Duty</em> is the share of the hour actually spent producing tokens  - 
+             a card that is busy half the time serves half the tokens for the same rent,
+             so its break-even price doubles. Every table here gives full duty and half
+             duty side by side for exactly that reason.</p>
+          <p><b>The number that moves the answer most is throughput.</b> The figures below
+             assume a dedicated card batching concurrent requests: 120 tok/s aggregate for
+             an 8B, 200 for a 20B mixture-of-experts, 150 for a 27B dense model at 4-bit.
+             Those are achievable and they are assumptions, not measurements of your
+             machine. Halve them and every price here doubles, which is why the last
+             section is about nothing else.</p>
+        </section>
+
+        <!-- ---------- §2 OWN IT ---------- -->
+        <section class="bc-sec" data-reveal>
+          <span class="bc-sec__no mono">&sect;2 &middot; THE CARD YOU ALREADY BOUGHT</span>
+          <h2>The purchase price is gone. Only the power bill counts.</h2>
+          <p>A card you own has no hourly rental. What it has is a marginal draw: the extra
+             watts it pulls while generating, over what it was already pulling sitting
+             idle. At the US average of about <b>$0.15/kWh</b>, that is a remarkably small
+             number, and it is the whole reason a home station can undercut a data centre.</p>
+
+          <div class="ec-tablewrap">
+            <table class="ec-table" data-share="0.70">
+              <caption class="mono">Break-even, $ per 1M output tokens &middot; electricity at $0.15/kWh</caption>
+              <thead>
+                <tr><th>Card</th><th>Draw</th><th>tok/s</th><th>Per hour</th><th>100% duty</th><th>50% duty</th></tr>
+              </thead>
+              <tbody>
+                <tr data-cost data-watts="380" data-rate="0.15" data-tps="250" data-util="1" data-price="0.09">
+                  <td>RTX 4090</td><td class="mono">380 W</td><td class="mono">250</td>
+                  <td class="mono">$0.057</td><td class="mono ec-win">$0.09</td><td class="mono">&ndash;</td>
+                </tr>
+                <tr data-cost data-watts="380" data-rate="0.15" data-tps="250" data-util="0.5" data-price="0.18">
+                  <td class="ec-cont">RTX 4090</td><td class="mono">380 W</td><td class="mono">250</td>
+                  <td class="mono">$0.057</td><td class="mono">&ndash;</td><td class="mono ec-win">$0.18</td>
+                </tr>
+                <tr data-cost data-watts="320" data-rate="0.15" data-tps="150" data-util="1" data-price="0.13">
+                  <td>RTX 3090</td><td class="mono">320 W</td><td class="mono">150</td>
+                  <td class="mono">$0.048</td><td class="mono ec-win">$0.13</td><td class="mono">&ndash;</td>
+                </tr>
+                <tr data-cost data-watts="320" data-rate="0.15" data-tps="150" data-util="0.5" data-price="0.25">
+                  <td class="ec-cont">RTX 3090</td><td class="mono">320 W</td><td class="mono">150</td>
+                  <td class="mono">$0.048</td><td class="mono">&ndash;</td><td class="mono">$0.25</td>
+                </tr>
+                <tr data-cost data-watts="90" data-rate="0.15" data-tps="60" data-util="1" data-price="0.09">
+                  <td>Mac Studio, M-series</td><td class="mono">90 W</td><td class="mono">60</td>
+                  <td class="mono">$0.014</td><td class="mono ec-win">$0.09</td><td class="mono">&ndash;</td>
+                </tr>
+                <tr data-cost data-watts="90" data-rate="0.15" data-tps="60" data-util="0.5" data-price="0.18">
+                  <td class="ec-cont">Mac Studio, M-series</td><td class="mono">90 W</td><td class="mono">60</td>
+                  <td class="mono">$0.014</td><td class="mono">&ndash;</td><td class="mono ec-win">$0.18</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>The Mac is the quiet surprise. Sixty tokens a second is not a fast card, but
+             ninety watts is not a fast card&rsquo;s power bill either, and break-even is a
+             ratio. Apple silicon is a first-class station on this network for arithmetic
+             reasons, not sentimental ones.</p>
+        </section>
+
+        <!-- ---------- §3 RENT IT ---------- -->
+        <section class="bc-sec" data-reveal>
+          <span class="bc-sec__no mono">&sect;3 &middot; THE CARD YOU RENT</span>
+          <h2>Spot pricing changes the answer completely.</h2>
+          <p>You do not have to own a card to run a station. The GPU rental market prices
+             interruptible capacity at roughly half its on-demand rate, and interruption is
+             not the problem here that it is for training: a station that vanishes is a
+             station the router stops sending work to, and the next request goes elsewhere.
+             Prices below are Vast.ai&rsquo;s live board on <time datetime="2026-08-31">31
+             August 2026</time>.</p>
+
+          <div class="ec-tablewrap">
+            <table class="ec-table" data-share="0.70">
+              <caption class="mono">Break-even, $ per 1M output tokens &middot; Vast.ai rates, 2026-08-31</caption>
+              <thead>
+                <tr><th>Card</th><th>Tier</th><th>tok/s</th><th>Per hour</th><th>100% duty</th><th>50% duty</th></tr>
+              </thead>
+              <tbody>
+                <tr data-cost data-hourly="0.015" data-tps="120" data-util="1" data-price="0.05">
+                  <td>RTX 3060 12GB</td><td>interruptible</td><td class="mono">120</td>
+                  <td class="mono">$0.015</td><td class="mono ec-win">$0.05</td><td class="mono">&ndash;</td>
+                </tr>
+                <tr data-cost data-hourly="0.015" data-tps="120" data-util="0.5" data-price="0.10">
+                  <td class="ec-cont">RTX 3060 12GB</td><td>interruptible</td><td class="mono">120</td>
+                  <td class="mono">$0.015</td><td class="mono">&ndash;</td><td class="mono ec-win">$0.10</td>
+                </tr>
+                <tr data-cost data-hourly="0.025" data-tps="200" data-util="1" data-price="0.05">
+                  <td>RTX A4000 16GB</td><td>interruptible</td><td class="mono">200</td>
+                  <td class="mono">$0.025</td><td class="mono ec-win">$0.05</td><td class="mono">&ndash;</td>
+                </tr>
+                <tr data-cost data-hourly="0.025" data-tps="200" data-util="0.5" data-price="0.10">
+                  <td class="ec-cont">RTX A4000 16GB</td><td>interruptible</td><td class="mono">200</td>
+                  <td class="mono">$0.025</td><td class="mono">&ndash;</td><td class="mono ec-win">$0.10</td>
+                </tr>
+                <tr data-cost data-hourly="0.075" data-tps="150" data-util="1" data-price="0.20">
+                  <td>RTX A5000 24GB</td><td>interruptible</td><td class="mono">150</td>
+                  <td class="mono">$0.075</td><td class="mono">$0.20</td><td class="mono">&ndash;</td>
+                </tr>
+                <tr data-cost data-hourly="0.075" data-tps="150" data-util="0.5" data-price="0.40">
+                  <td class="ec-cont">RTX A5000 24GB</td><td>interruptible</td><td class="mono">150</td>
+                  <td class="mono">$0.075</td><td class="mono">&ndash;</td><td class="mono">$0.40</td>
+                </tr>
+                <tr data-cost data-hourly="0.23" data-tps="150" data-util="1" data-price="0.61">
+                  <td>RTX A5000 24GB</td><td>on-demand</td><td class="mono">150</td>
+                  <td class="mono">$0.230</td><td class="mono ec-lose">$0.61</td><td class="mono">&ndash;</td>
+                </tr>
+                <tr data-cost data-hourly="0.23" data-tps="150" data-util="0.5" data-price="1.22">
+                  <td class="ec-cont">RTX A5000 24GB</td><td>on-demand</td><td class="mono">150</td>
+                  <td class="mono">$0.230</td><td class="mono">&ndash;</td><td class="mono ec-lose">$1.22</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>Two things fall out of that table. On-demand rental is a losing trade at any
+             duty cycle you will actually hit - you are paying a data centre&rsquo;s
+             margin and then selling under it. Interruptible is a different business
+             entirely, and on the smaller cards it is genuinely cheap.</p>
+        </section>
+
+        <!-- ---------- §4 VS THE MARKET ---------- -->
+        <section class="bc-sec" data-reveal>
+          <span class="bc-sec__no mono">&sect;4 &middot; AGAINST THE MARKET</span>
+          <h2>What the aggregators charge for the same weights.</h2>
+          <p>These are the models themselves, not a proxy for them: the same open weights
+             anyone can download, priced by an aggregator that rents data-centre capacity
+             and marks it up. Read from OpenRouter&rsquo;s public model API on
+             <time datetime="2026-08-31">31 August 2026</time>, output tokens.</p>
+
+          <div class="ec-tablewrap">
+            <table class="ec-table ec-table--market">
+              <caption class="mono">OpenRouter list prices, $ per 1M output tokens, 2026-08-31</caption>
+              <thead><tr><th>Model</th><th>Class</th><th>Output</th></tr></thead>
+              <tbody>
+                <tr data-market="openai/gpt-oss-20b" data-market-price="0.13">
+                  <td class="mono">openai/gpt-oss-20b</td><td>20B MoE</td><td class="mono">$0.13</td></tr>
+                <tr data-market="qwen/qwen3-30b-a3b-instruct" data-market-price="0.193">
+                  <td class="mono">qwen/qwen3-30b-a3b-instruct</td><td>30B MoE</td><td class="mono">$0.193</td></tr>
+                <tr data-market="qwen/qwen3-32b" data-market-price="0.28">
+                  <td class="mono">qwen/qwen3-32b</td><td>32B dense</td><td class="mono">$0.28</td></tr>
+                <tr data-market="qwen/qwen3-vl-32b-instruct" data-market-price="0.416">
+                  <td class="mono">qwen/qwen3-vl-32b-instruct</td><td>32B vision</td><td class="mono">$0.416</td></tr>
+                <tr data-market="google/gemma-3-27b-it" data-market-price="0.45">
+                  <td class="mono">google/gemma-3-27b-it</td><td>27B dense</td><td class="mono">$0.45</td></tr>
+                <tr data-market="qwen/qwen3-vl-8b-instruct" data-market-price="0.455">
+                  <td class="mono">qwen/qwen3-vl-8b-instruct</td><td>8B vision</td><td class="mono">$0.455</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <figure class="ec-figure" data-reveal>
+            <svg class="ec-chart" viewBox="0 0 720 300" role="img"
+                 aria-labelledby="ec-chart-title ec-chart-desc">
+              <title id="ec-chart-title">A million output tokens from a 27B-class open model, six ways</title>
+              <desc id="ec-chart-desc">Horizontal bars comparing the cost of one million
+                output tokens at half duty. Owning an RTX 4090 costs 18 cents and owning a
+                3090 costs 25 cents. Buying qwen3-32b from an aggregator costs 28 cents and
+                gemma-3-27b costs 45 cents. Renting a spot A5000 costs 40 cents, and
+                renting the same card on demand costs 1 dollar 22.</desc>
+              <g class="ec-chart__grid">
+                <line x1="210" y1="16" x2="210" y2="268"/>
+                <line x1="290" y1="16" x2="290" y2="268"/>
+                <line x1="370" y1="16" x2="370" y2="268"/>
+                <line x1="450" y1="16" x2="450" y2="268"/>
+                <line x1="530" y1="16" x2="530" y2="268"/>
+                <line x1="610" y1="16" x2="610" y2="268"/>
+              </g>
+              <g class="ec-chart__row">
+                <text class="ec-chart__lbl" x="200" y="36">own a 4090</text>
+                <rect class="ec-chart__bar ec-chart__bar--own" x="210" y="24" width="59" height="18"/>
+                <text class="ec-chart__val" x="277" y="36">$0.18</text>
+              </g>
+              <g class="ec-chart__row">
+                <text class="ec-chart__lbl" x="200" y="78">own a 3090</text>
+                <rect class="ec-chart__bar ec-chart__bar--own" x="210" y="66" width="82" height="18"/>
+                <text class="ec-chart__val" x="300" y="78">$0.25</text>
+              </g>
+              <g class="ec-chart__row">
+                <text class="ec-chart__lbl" x="200" y="120">buy qwen3-32b</text>
+                <rect class="ec-chart__bar ec-chart__bar--buy" x="210" y="108" width="92" height="18"/>
+                <text class="ec-chart__val" x="310" y="120">$0.28</text>
+              </g>
+              <g class="ec-chart__row">
+                <text class="ec-chart__lbl" x="200" y="162">rent A5000, spot</text>
+                <rect class="ec-chart__bar ec-chart__bar--rent" x="210" y="150" width="131" height="18"/>
+                <text class="ec-chart__val" x="349" y="162">$0.40</text>
+              </g>
+              <g class="ec-chart__row">
+                <text class="ec-chart__lbl" x="200" y="204">buy gemma-3-27b</text>
+                <rect class="ec-chart__bar ec-chart__bar--buy" x="210" y="192" width="148" height="18"/>
+                <text class="ec-chart__val" x="366" y="204">$0.45</text>
+              </g>
+              <g class="ec-chart__row">
+                <text class="ec-chart__lbl" x="200" y="246">rent A5000, on-demand</text>
+                <rect class="ec-chart__bar ec-chart__bar--bad" x="210" y="234" width="401" height="18"/>
+                <text class="ec-chart__val" x="619" y="246">$1.22</text>
+              </g>
+              <text class="ec-chart__axis" x="210" y="286">$0</text>
+              <text class="ec-chart__axis" x="370" y="286">$0.50</text>
+              <text class="ec-chart__axis" x="530" y="286">$1.00</text>
+            </svg>
+            <figcaption>FIG. 1 - one million output tokens, 27B class, at half duty.
+              Owning the card is the cheapest row on the chart, and it is not close.</figcaption>
+          </figure>
+
+          <p>At half duty an owned 4090 lands at <b>$0.18</b> against gemma-3-27b&rsquo;s
+             <b>$0.45</b>: two and a half times cheaper, for the same weights, on hardware
+             that is otherwise sitting idle. A 3090 at <b>$0.25</b> still undercuts every
+             dense model in that table. And at full duty the owned cards fall to
+             <b>$0.09</b> and <b>$0.13</b>, which is under every single price the market
+             lists for a model of that size.</p>
+        </section>
+
+        <!-- ---------- §5 RENTING CAN PAY ---------- -->
+        <section class="bc-sec" data-reveal>
+          <span class="bc-sec__no mono">&sect;5 &middot; RENTING CAN PAY</span>
+          <h2>There is real margin in spot capacity, if you make the card faster.</h2>
+          <p>Owning is cheapest, but renting is not automatically a loss. Take the smaller
+             cards, price under the aggregator, and the arithmetic works: an 8B vision
+             model on an interruptible 3060 breaks even at <b>$0.10</b> per million at
+             half duty, while the market charges <b>$0.455</b> for the same class. Charge
+             $0.35 - comfortably under - and you keep $0.245 against a $0.10
+             cost.</p>
+
+          <div class="ec-tablewrap">
+            <table class="ec-table ec-table--margin">
+              <caption class="mono">Interruptible rental, priced under the market &middot; what you keep after the 30% fee</caption>
+              <thead>
+                <tr><th>Band</th><th>Duty</th><th>Break-even</th><th>You charge</th><th>You keep</th><th>Margin</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>8B vision on a 3060</td><td class="mono">50%</td><td class="mono">$0.10</td>
+                  <td class="mono">$0.35</td><td class="mono">$0.245</td><td class="mono ec-win">2.5&times;</td></tr>
+                <tr><td>8B vision on a 3060</td><td class="mono">100%</td><td class="mono">$0.05</td>
+                  <td class="mono">$0.35</td><td class="mono">$0.245</td><td class="mono ec-win">4.9&times;</td></tr>
+                <tr><td>27B dense on an A5000</td><td class="mono">50%</td><td class="mono">$0.40</td>
+                  <td class="mono">$0.35</td><td class="mono">$0.245</td><td class="mono ec-lose">0.6&times;</td></tr>
+                <tr><td class="ec-cont">27B dense, throughput doubled</td><td class="mono">50%</td><td class="mono">$0.20</td>
+                  <td class="mono">$0.35</td><td class="mono">$0.245</td><td class="mono ec-win">1.2&times;</td></tr>
+                <tr><td>27B dense on an A5000</td><td class="mono">100%</td><td class="mono">$0.20</td>
+                  <td class="mono">$0.35</td><td class="mono">$0.245</td><td class="mono ec-win">1.2&times;</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>Look at the third and fourth rows. The same card, the same rent, the same
+             price to the buyer - and the difference between losing money and making
+             it is <em>throughput alone</em>. That is the whole game on rented hardware:
+             you are paying by the hour and selling by the token, so every token per second
+             you win is margin you keep.</p>
+        </section>
+
+        <!-- ---------- §6 THE LEVER ---------- -->
+        <section class="bc-sec" data-reveal>
+          <span class="bc-sec__no mono">&sect;6 &middot; THE LEVER</span>
+          <h2>Optimisation is not a hobby here. It is the margin.</h2>
+          <p>Every number on this page divides by tokens per second, which means anything
+             that makes the card generate faster cuts your break-even by the same
+             proportion. A card that goes from 150 to 300 tok/s does not get 5% better; its
+             cost per token halves.</p>
+          <ul class="ec-levers">
+            <li><b>Batch, do not queue.</b> Serving one request at a time leaves most of a
+              modern GPU idle. A server that batches concurrent requests can multiply
+              aggregate throughput several times over with no change to the weights, and it
+              is the single largest lever on this list.</li>
+            <li><b>Quantise deliberately.</b> Four-bit weights move a 27B model into 24GB
+              and cut the memory traffic that dominates generation. The question is never
+              &ldquo;is it lossless&rdquo; but &ldquo;is the loss visible on the work you
+              actually serve&rdquo;.</li>
+            <li><b>Speculative decoding.</b> A small draft model proposing tokens for a
+              large one to check can pay for itself handsomely on predictable text, and not
+              at all on hard text. It is worth measuring rather than assuming.</li>
+            <li><b>Mind the KV cache.</b> Long contexts spend memory bandwidth on attention
+              rather than on generating, so a station that advertises a huge window and
+              serves long prompts is quietly slower than its own benchmark.</li>
+            <li><b>Pick the right model for the card.</b> A model that spills out of VRAM
+              is not a slower station, it is a different order of magnitude.</li>
+          </ul>
+          <p>We wrote a book about exactly this  - 
+            <a href="https://oailly.com/read/rogerai-labs--inference-on-the-edge/" target="_blank" rel="noopener noreferrer">Inference
+            on the Edge</a>, quantization, speculation and the physics of local models,
+            free to read. The concurrency numbers behind the batching point are in
+            <a href="/broadcasts-one-gpu-many-users.html">How many people can one GPU
+            serve?</a></p>
+        </section>
+
+        <!-- ---------- §7 THE ASYMMETRY ---------- -->
+        <section class="bc-sec" data-reveal>
+          <span class="bc-sec__no mono">&sect;7 &middot; THE ASYMMETRY</span>
+          <h2>Dense models come home. Sparse ones stay in the data centre.</h2>
+          <p>One row in the market table does not fit the pattern:
+             <span class="mono">gpt-oss-20b</span> at $0.13, cheaper than models a third of
+             its size. It is a mixture-of-experts with roughly 3.6B parameters active per
+             token, so a data centre can serve it at enormous batch sizes for very little
+             memory traffic. That is a scale advantage, and scale is the one thing a home
+             station does not have.</p>
+          <p>The mirror image is the dense models. A 27B dense model reads all 27B
+             parameters for every token, which is memory bandwidth, which is exactly what a
+             single big card in somebody&rsquo;s house is good at and what a shared
+             data-centre GPU is expensive at. That is why an owned 4090 undercuts
+             gemma-3-27b by two and a half times and cannot touch gpt-oss-20b.</p>
+          <p><b>So choose your band deliberately.</b> If you are putting a card on the air
+             to earn, dense models and vision models are where a home station wins. Leave
+             the sparse mixtures to the people with a thousand of them.</p>
+        </section>
+
+        <!-- ---------- §8 CHECK IT ---------- -->
+        <section class="bc-sec" data-reveal>
+          <span class="bc-sec__no mono">&sect;8 &middot; CHECK IT</span>
+          <h2>Run the numbers against your own card.</h2>
+          <p>None of this is worth taking on faith, and none of it is meant to be. The
+             formula in &sect;1 needs three inputs you can measure in an afternoon: what
+             your card draws at the wall while generating, what your utility charges, and
+             what your server actually produces under load rather than in a single-stream
+             benchmark.</p>
+          <p>The calculator on the <a href="/pricing.html#calc">pricing page</a> does the
+             arithmetic for you from your own numbers, on both sides: what a card would
+             earn, and what you are paying today re-priced against the live band. Every
+             rule it uses is printed on that page.</p>
+        </section>
+
+        <!-- ---------- FAQ ---------- -->
+        <section class="bc-sec" data-reveal>
+          <span class="bc-sec__no mono">&sect;9 &middot; QUESTIONS</span>
+          <h2>The ones people ask first.</h2>
+          <dl class="bc-faq">
+            <dt><b>Does this count the price of the card?</b></dt>
+            <dd>No, and deliberately. These are marginal costs: what one more million tokens costs on hardware whose purchase is already a sunk decision. If you are choosing whether to buy a GPU in order to serve, the rental columns are the honest comparison, because that is the business you would be entering.</dd>
+            <dt><b>Why is the platform's 30% in the formula?</b></dt>
+            <dd>Because an operator keeps 70% of what a request is charged, so covering a $0.07 hour needs $0.10 of charges, not $0.07. Leaving the fee out would understate every break-even price on this page by about 43%.</dd>
+            <dt><b>Is 150 tokens a second realistic for a 27B model?</b></dt>
+            <dd>As an aggregate across concurrent requests on a dedicated 24GB card at 4-bit, yes. As a single-stream number, no - single-stream on that hardware is more like 35 to 45. The distinction matters enormously, because a station serves several people at once and it is the aggregate that pays the rent.</dd>
+            <dt><b>What happens to my numbers if my electricity is expensive?</b></dt>
+            <dd>They scale linearly. At $0.30/kWh rather than $0.15, every owned-hardware figure here doubles: a 4090 goes from $0.09 to $0.18 at full duty. Even doubled, it still sits under most of the market table.</dd>
+            <dt><b>Does an interrupted spot instance break anything?</b></dt>
+            <dd>Not for the network. A station that disappears stops being routed to, and requests go to another station serving the same model. Interruptible capacity is a reasonable way to run a station precisely because the system already assumes machines come and go.</dd>
+            <dt><b>Where do the comparison prices come from?</b></dt>
+            <dd>OpenRouter's public model API, read on 31 August 2026, output-token list prices, with the full model ids printed so they can be checked. Rental prices are Vast.ai's live board the same day. Both move; the arithmetic does not.</dd>
+          </dl>
+        </section>
+
+        <div class="man-note man-note--live">
+          <span class="man-note__tag mono">ON AIR</span>
+          <p>If the card is already yours and already on, the cheapest million tokens on
+             this page is the one you serve yourself. <code>roger share</code> finds the
+             server you are already running and puts it on the band - free by default, no
+             account needed, and a schedule if you only want to lend it while you sleep.</p>
+        </div>
+
+      </div>
+    </div>
+  </article>
+  </main>
+
+  <!-- include: footer.html anchors=/ -->
+
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"Does this count the price of the card?","acceptedAnswer":{"@type":"Answer","text":"No, and deliberately. These are marginal costs: what one more million tokens costs on hardware whose purchase is already a sunk decision. If you are choosing whether to buy a GPU in order to serve, the rental columns are the honest comparison, because that is the business you would be entering."}},{"@type":"Question","name":"Why is the platform's 30% in the formula?","acceptedAnswer":{"@type":"Answer","text":"Because an operator keeps 70% of what a request is charged, so covering a $0.07 hour needs $0.10 of charges, not $0.07. Leaving the fee out would understate every break-even price by about 43%."}},{"@type":"Question","name":"Is 150 tokens a second realistic for a 27B model?","acceptedAnswer":{"@type":"Answer","text":"As an aggregate across concurrent requests on a dedicated 24GB card at 4-bit, yes. As a single-stream number, no - single-stream on that hardware is more like 35 to 45 tokens a second. The distinction matters, because a station serves several people at once and it is the aggregate that pays the rent."}},{"@type":"Question","name":"What happens if my electricity is expensive?","acceptedAnswer":{"@type":"Answer","text":"The owned-hardware figures scale linearly with the tariff. At $0.30 per kWh rather than $0.15, an RTX 4090 goes from $0.09 to $0.18 per million output tokens at full duty, which still sits under most aggregator prices for a model of that size."}},{"@type":"Question","name":"Does an interrupted spot instance break anything?","acceptedAnswer":{"@type":"Answer","text":"Not for the network. A station that disappears stops being routed to, and requests go to another station serving the same model. Interruptible rental is a reasonable way to run a station precisely because the system already assumes machines come and go."}},{"@type":"Question","name":"How much does it cost to serve a million tokens on your own GPU?","acceptedAnswer":{"@type":"Answer","text":"About $0.09 in electricity on an RTX 4090 at full duty and $0.18 at half duty, assuming 250 aggregate tokens per second and $0.15 per kWh, and counting the 30% platform fee. An RTX 3090 costs $0.13 and $0.25, and a 90W Mac Studio costs $0.09 and $0.18. Aggregators list the same open models between $0.13 and $0.46 per million output tokens."}}]}</script>
+
+  <script src="js/lets-talk.js" defer></script>
+  <script src="js/site.js" defer></script>
+  <script src="js/session.js" defer></script>
+  <script src="js/promo.js" defer></script>
+</body>
+</html>
