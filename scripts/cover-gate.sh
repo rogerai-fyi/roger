@@ -61,31 +61,26 @@ if [ -z "${ROGERAI_TEST_DATABASE_URL:-}" ]; then
     # "connection refused" from a dozen unrelated packages, which reads exactly like a
     # real regression. Several sessions push to this repo at once; the gate that decides
     # whether code may leave has to be safe to run twice.
-    PG_CT="rogerai-covergate-pg-$$"
+    # The name carries the PID NAMESPACE as well as the pid, because a pid only means
+    # anything inside one: two gates in separate containers sharing a docker socket would
+    # otherwise read each other's pids as dead and delete a live run's database. The
+    # namespace inode is that identity; a platform without /proc/self/ns falls back to a
+    # constant, which is no worse than having no token at all.
+    PG_NS="$(readlink /proc/self/ns/pid 2>/dev/null | tr -cd '0-9')"
+    [ -n "$PG_NS" ] || PG_NS=0
+    PG_CT="rogerai-covergate-pg-${PG_NS}-$$"
     # Reclaim ORPHANS, never a live sibling. The EXIT trap misses SIGKILL and power loss,
     # and removing the fixed name used to be the only thing that swept those up - so the
     # per-run rename would have leaked a container and a port forever.
     #
-    # The discriminator is the OWNING PROCESS, not age. The name carries the pid that
-    # started it, so a container whose pid is gone is an orphan by definition - no clock,
-    # no threshold, and no dependence on `--filter until=`, which podman supports and
-    # docker does not (it is prune-only there, so an age sweep silently reclaimed nothing
-    # on a CI runner). A recycled pid only means we skip a sweep, which is safe.
-    # stderr is NOT swallowed: silencing it is what hid the previous version of this sweep
-    # doing nothing at all.
-    "$RUNTIME" ps -a --filter "name=^rogerai-covergate-pg-" --format "{{.Names}}" \
+    # scripts/sweep-orphans.sh decides, this only
+    # acts on what it names. The decision is a separate script because it shipped broken
+    # once in a way no string-matching test could see, and it is unit-tested there.
+    # stderr is NOT swallowed: silencing it is what hid an earlier sweep doing nothing.
+    "$RUNTIME" ps -a --filter "name=^rogerai-covergate-pg-" --format "{{.Names}} {{.State}}" \
+      | PG_NS="$PG_NS" "$(dirname "$0")/sweep-orphans.sh" \
       | while IFS= read -r ct; do
           [ -n "$ct" ] || continue
-          owner="${ct##*-}"
-          case "$owner" in (*[!0-9]*|"") continue ;; esac
-          # Liveness must be OWNER-AGNOSTIC. `kill -0` returns EPERM for a process owned
-          # by another user, which reads as "dead" - so a live sibling run belonging to a
-          # different user was classified as an orphan and its database deleted, which is
-          # precisely the failure this whole sweep exists to prevent. /proc answers for
-          # any owner on Linux; `ps -p` covers the platforms without it.
-          if [ -d "/proc/$owner" ] || ps -p "$owner" >/dev/null 2>&1; then
-            continue   # its run is still going
-          fi
           "$RUNTIME" rm -f "$ct" >/dev/null 2>&1 || true
         done
     echo "[cover] starting throwaway Postgres ($RUNTIME) for the store money path…" >&2

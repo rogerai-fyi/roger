@@ -103,6 +103,10 @@
   function loadBandRate() {
     var note = $("cnHereNote"), field = $("cnHere");
     if (!note || !field) return;
+    // A reader can type a rate while this fetch is outstanding. Every write below is
+    // skipped once they have, because the alternative is erasing what they typed - and
+    // on the failure paths the write is a no-op anyway, since the field ships empty.
+    var mine = function () { return field.dataset && field.dataset.touched === "1"; };
     fetch(BROKER + "/market", { credentials: "omit" })
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (d) {
@@ -124,7 +128,7 @@
           }
         }
         if (!sawOut && rows.length) {
-          field.value = "";
+          if (!mine()) field.value = "";
           note.textContent = "this broker does not report an out-price - put in a rate yourself";
           recalc();
           return;
@@ -136,7 +140,17 @@
           // a price anyone reads.
           var hi = parseFloat(field.max);
           var shown = isFinite(hi) ? Math.min(best.price, hi) : best.price;
-          field.value = shown < 0.01 ? shown.toFixed(6) : shown.toFixed(2);
+          // A rate that ROUNDS to zero is not a rate: writing "0.000000" would pass the
+          // non-empty guard and re-print the full-price saving this whole path exists to
+          // avoid. Below what the field can express, say so instead.
+          var text = shown < 0.01 ? shown.toPrecision(3) : shown.toFixed(2);
+          if (parseFloat(text) === 0) {
+            note.textContent = "cheapest paid band is below a hundredth of a cent - " +
+              "put in a rate yourself";
+            recalc();
+            return;
+          }
+          if (!mine()) field.value = text;
           // NAMES the band it came from, and says PAID. Free bands are excluded from the
           // rate on purpose - a zero would price the comparison at nothing - so calling
           // this "the cheapest on air" was untrue whenever a free band existed, which on
@@ -146,10 +160,10 @@
           note.textContent = "cheapest PAID band on air: " + (best.model || "unknown") +
             (free ? " · " + free + " more are free" : "");
         } else if (free) {
-          field.value = "0";
+          if (!mine()) field.value = "0";
           note.textContent = "every band on air is free right now";
         } else {
-          field.value = "";
+          if (!mine()) field.value = "";
           note.textContent = "the band is quiet - put in a rate yourself";
         }
         recalc();
@@ -157,7 +171,7 @@
       .catch(function () {
         // No invented rate, and no silent zero either. The reader's own number is the
         // only honest fallback, so the field is emptied and asks for one.
-        field.value = "";
+        if (!mine()) field.value = "";
         note.textContent = "could not read the market - put in a rate yourself";
         recalc();
       });
@@ -170,6 +184,12 @@
       var el = $(ids[i]);
       if (!el) continue;
       any = true;
+      if (ids[i] === "cnHere") {
+        el.addEventListener("input", function (e) {
+          // Their number from here on; loadBandRate stops writing to it.
+          if (e.target.dataset) e.target.dataset.touched = "1";
+        });
+      }
       el.addEventListener("input", recalc);
     }
     if (!any) return; // not the pricing page

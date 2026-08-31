@@ -30,7 +30,10 @@ import (
 func codeLines(s string) string {
 	var b strings.Builder
 	for _, line := range strings.Split(s, "\n") {
+		// BLANKED, not dropped: removing the line shifted every index after it, so the
+		// "cover-gate.sh:%d" in a failure pointed dozens of lines away from the problem.
 		if strings.HasPrefix(strings.TrimSpace(line), "#") {
+			b.WriteString("\n")
 			continue
 		}
 		b.WriteString(line)
@@ -81,35 +84,25 @@ func TestCoverGateDoesNotBindAFixedHostPort(t *testing.T) {
 // SIGKILL and power loss - so the gate has to reclaim its own stale siblings, and only
 // those.
 //
-// The first version of this test asserted the STRING "until=2h" was present, which passed
-// whether or not the sweep worked: `--filter until=` is a podman feature and a
-// docker-prune-only one, so on a CI runner the sweep errored into /dev/null and reclaimed
-// nothing while this test stayed green. It asserts the discriminator instead.
-func TestCoverGateReclaimsItsOwnOrphans(t *testing.T) {
-	s := gateScript(t)
-	code := codeLines(s)
-	if !strings.Contains(code, "name=^rogerai-covergate-pg-") {
-		t.Error("the gate never looks for orphaned containers, so a killed run leaks one forever")
+// WHICH ones is decided by scripts/sweep-orphans.sh and tested for real in
+// sweep_orphans_test.go, by feeding it lines and checking what it names. That split
+// exists because this test used to assert strings about the sweep's internals - "until=2h"
+// was present, `ps -p` was present - and those assertions passed while the sweep did
+// nothing at all, and once while the liveness guard had been deleted outright. What is
+// left here is the only part a string check is right for: that the gate delegates rather
+// than deciding inline again.
+func TestCoverGateDelegatesTheSweep(t *testing.T) {
+	code := codeLines(gateScript(t))
+	if !strings.Contains(code, "sweep-orphans.sh") {
+		t.Error("the gate does not use the tested sweep, so its decision is untested again")
 	}
-	// Liveness must be owner-agnostic. `kill -0` alone returns EPERM for another user's
-	// process, which reads as "dead", so a live sibling belonging to a different user was
-	// classified as an orphan and force-removed - the very failure this file exists to
-	// prevent, reintroduced by the fix for it.
-	if !strings.Contains(code, "/proc/$owner") && !strings.Contains(code, "ps -p") {
-		t.Error("the sweep has no owner-agnostic liveness check, so another user's live run " +
-			"reads as an orphan")
+	if !strings.Contains(code, "PG_NS=") {
+		t.Error("the gate does not pass its PID namespace to the sweep, which then cannot " +
+			"tell another namespace's live run from an orphan")
 	}
 	if strings.Contains(code, "kill -0") {
-		t.Error("the sweep uses kill -0, which cannot see a process owned by another user")
-	}
-	for i, line := range strings.Split(code, "\n") {
-		if strings.Contains(line, "until=") {
-			t.Errorf("cover-gate.sh:%d filters by age with `until=`, which docker's ps does "+
-				"not support - it would silently reclaim nothing there", i+1)
-		}
-		if strings.Contains(line, "xargs") {
-			t.Errorf("cover-gate.sh:%d pipes to xargs, whose -r is GNU-only", i+1)
-		}
+		t.Error("the gate decides liveness inline with kill -0, which cannot see another " +
+			"user's process")
 	}
 }
 

@@ -191,8 +191,10 @@ test("calculator: the printed example is what the printed inputs actually produc
   const today = val("cnVolume") * val("cnPrice");
   const cnFormula = s.match(/id="cnFormula"[^>]*>([\s\S]*?)<\/p>/)?.[1].replace(/\s+/g, " ") || "";
   assert.ok(cnFormula.includes(today.toFixed(2)), `the consumer example should show ${today.toFixed(2)}`);
-  assert.doesNotMatch(cnFormula, /\$0\.00 here/,
-    "the shipped example must not price the band at zero when no rate is known");
+  // Any "= $X here" clause would mean the markup shipped a band rate, and the build has
+  // none. Forbidding only the zero spelling let a fabricated non-zero one through.
+  assert.doesNotMatch(cnFormula, /=\s*\$[\d.,]+\s*here/,
+    "the shipped example must not price the band at all when no rate is known");
 });
 
 // Inserting the calculator gave the page two §5 headings, which nothing caught - the
