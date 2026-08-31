@@ -417,7 +417,7 @@ func TestRemoteInputLoopConfirmGate(t *testing.T) {
 	defer cancel()
 	loopDone := make(chan struct{})
 	go func() {
-		remoteInputLoop(ctx, srv.URL, "rcs_i", "at_i", stdin, gate)
+		remoteInputLoop(ctx, srv.URL, "rcs_i", "at_i", stdin, gate, &askGate{})
 		close(loopDone)
 	}()
 
@@ -578,7 +578,7 @@ func TestRemoteInputLoopCtxDone(t *testing.T) {
 	cancel()
 	done := make(chan struct{})
 	go func() {
-		remoteInputLoop(ctx, "http://127.0.0.1:0", "s", "a", stdin, &confirmGate{})
+		remoteInputLoop(ctx, "http://127.0.0.1:0", "s", "a", stdin, &confirmGate{}, &askGate{})
 		close(done)
 	}()
 	select {

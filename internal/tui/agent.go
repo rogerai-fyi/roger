@@ -163,7 +163,12 @@ func permAllows(p agentPermMode, tool string) bool {
 		// "edits" means "I trust it to act": writes AND fetches run unasked, run_shell
 		// still confirms. Without web_fetch here, turning on auto-edits would have made
 		// research MORE chatty than the default, which is backwards.
-		return tool == "write_file" || tool == "web_fetch"
+		//
+		// edit_file belongs here beside write_file, and its absence was the same
+		// backwardness: auto-edits gated the SURGICAL tool while waving through the
+		// whole-file overwrite, on the mode whose whole promise is that edits do not ask -
+		// and the persona now tells the model to prefer edit_file.
+		return tool == "write_file" || tool == "edit_file" || tool == "web_fetch"
 	}
 	return false
 }
@@ -187,11 +192,11 @@ func parsePermMode(s string) (agentPermMode, bool) {
 func permsHelp(p agentPermMode) string {
 	switch p {
 	case permEdits:
-		return "read/list + write + fetch auto · run_shell confirms"
+		return "read/list/search + write/edit + fetch auto · run_shell confirms"
 	case permAll:
 		return "ALL tools auto-run - nothing asks (/perms confirm restores the gate)"
 	}
-	return "read/list auto · fetch/write/run confirm"
+	return "read/list/search auto · fetch/write/edit/run confirm"
 }
 
 // agentCapGrace is how long past the soft cap a model call keeps running while the
@@ -281,6 +286,15 @@ func (c agentConfirm) summary() string {
 		return "run_shell: " + argStr(c.args["cmd"])
 	case "write_file":
 		return "write_file: " + argStr(c.args["path"]) + fmt.Sprintf(" (%d bytes)", len(argStr(c.args["content"])))
+	case "edit_file":
+		// NAME THE TARGET. Without a case here the modal read a bare "edit_file", so the
+		// operator approved a file mutation without being told WHICH file - while
+		// write_file, the less surgical tool, showed its path all along.
+		sum := "edit_file: " + argStr(c.args["path"])
+		if old := argStr(c.args["old_string"]); old != "" {
+			sum += "  " + clipLine(old) + " -> " + clipLine(argStr(c.args["new_string"]))
+		}
+		return sum
 	default:
 		return c.tool
 	}
@@ -953,14 +967,20 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// A digit picks an offered option, but ONLY while the composer is empty - otherwise
 		// typing "2 files" would answer the question with "b" on its first keystroke.
 		if len(a.options) > 0 && strings.TrimSpace(m.agentIn.Value()) == "" {
-			if n := int(k.String()[0]) - '1'; len(k.String()) == 1 && n >= 0 && n < len(a.options) {
-				m.agentPendingAsk = nil
-				m.rcAskID = ""
-				a.resp <- a.options[n]
-				m.rcEmitAskDone(a.options[n], "local")
-				m.agentLines = append(m.agentLines, stDim.Render("  ⋮ ")+stSelText.Render(a.options[n]))
-				m.agentIn.SetValue("")
-				return m, m.waitAgentEvent()
+			// Length FIRST. The index used to run in the if-init, before the guard that was
+			// supposed to protect it, so a key whose String() is empty panicked on [0].
+			key := k.String()
+			if n := 0; len(key) == 1 {
+				n = int(key[0]) - '1'
+				if n >= 0 && n < len(a.options) {
+					m.agentPendingAsk = nil
+					m.rcAskID = ""
+					a.resp <- a.options[n]
+					m.rcEmitAskDone(a.options[n], "local")
+					m.agentLines = append(m.agentLines, stDim.Render("  ⋮ ")+stSelText.Render(a.options[n]))
+					m.agentIn.SetValue("")
+					return m, m.waitAgentEvent()
+				}
 			}
 		}
 		// Everything else types into the composer.

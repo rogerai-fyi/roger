@@ -424,6 +424,17 @@ func ToolArgSummary(tool string, args map[string]any) string {
 		return clipLine(argStr(args["cmd"]))
 	case "write_file", "read_file":
 		return argStr(args["path"])
+	case "edit_file":
+		return argStr(args["path"])
+	case "grep":
+		if g := argStr(args["glob"]); g != "" {
+			return clipLine(argStr(args["pattern"])) + " in " + g
+		}
+		return clipLine(argStr(args["pattern"]))
+	case "glob":
+		return clipLine(argStr(args["pattern"]))
+	case "ask_operator":
+		return clipLine(argStr(args["question"]))
 	case "list_dir":
 		if p := argStr(args["path"]); p != "" {
 			return p

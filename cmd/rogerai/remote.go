@@ -25,7 +25,44 @@ type confirmGate struct {
 }
 
 func (g *confirmGate) set(id string) { g.mu.Lock(); g.pending, g.id = true, id; g.mu.Unlock() }
-func (g *confirmGate) clear()        { g.mu.Lock(); g.pending = false; g.mu.Unlock() }
+
+// askGate is the same idea for a QUESTION: while one is pending, the NEXT line typed is
+// the answer rather than a new turn. Sending it as a turn would queue the answer behind the
+// very turn that is blocked waiting for it, and the host would hold the question forever.
+// It keeps the offered options so a digit sends the OPTION, not the digit - the agent asked
+// in words and has to be answered in them.
+type askGate struct {
+	mu      sync.Mutex
+	pending bool
+	id      string
+	options []string
+}
+
+func (g *askGate) set(id string, opts []string) {
+	g.mu.Lock()
+	g.pending, g.id, g.options = true, id, opts
+	g.mu.Unlock()
+}
+func (g *askGate) clear() { g.mu.Lock(); g.pending = false; g.mu.Unlock() }
+
+// take resolves a typed line into an answer, if a question is pending. A bare digit within
+// range picks that option; anything else is sent verbatim.
+func (g *askGate) take(text string) (bool, string, string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if !g.pending {
+		return false, "", ""
+	}
+	ans := text
+	if len(text) == 1 && text[0] >= '1' && text[0] <= '9' {
+		if n := int(text[0] - '1'); n < len(g.options) {
+			ans = g.options[n]
+		}
+	}
+	g.pending = false
+	return true, ans, g.id
+}
+func (g *confirmGate) clear() { g.mu.Lock(); g.pending = false; g.mu.Unlock() }
 func (g *confirmGate) take() (bool, string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -125,12 +162,13 @@ func remoteAttach(cfg config, code string) error {
 	// A background reader lets you type turns while the stream prints. The confirm gate
 	// ensures a bare y/n is only sent as a confirm ANSWER while the host is actually asking.
 	gate := &confirmGate{}
+	asks := &askGate{}
 	// os.Stdin is captured HERE, once, and passed in: the loop is fire-and-forget (a
 	// terminal read cannot be canceled portably, so it cannot be joined), and a loop
 	// re-reading the GLOBAL os.Stdin from that leaked goroutine races anyone who
 	// swaps the global later (`go test -race` caught it against the test harness's
 	// stdin restore).
-	go remoteInputLoop(ctx, cfg.Broker, att.SessionID, att.AttachToken, os.Stdin, gate)
+	go remoteInputLoop(ctx, cfg.Broker, att.SessionID, att.AttachToken, os.Stdin, gate, asks)
 
 	err = client.StreamRC(ctx, cfg.Broker, att.SessionID, att.AttachToken, 0, func(f protocol.RCFrame) {
 		switch f.Kind {
@@ -147,6 +185,24 @@ func remoteAttach(cfg config, code string) error {
 		case protocol.RCKindConfirmReq:
 			gate.set(f.ConfirmID)
 			fmt.Printf("  ? %s — type 'y' to approve or 'n' to deny (runs on the host)\n", f.Tool)
+		case protocol.RCKindAskReq:
+			asks.set(f.AskID, f.Options)
+			fmt.Printf("  ? %s\n", f.Text)
+			for i, opt := range f.Options {
+				fmt.Printf("      %d · %s\n", i+1, opt)
+			}
+			fmt.Printf("    type an answer and press enter (answers on the host)\n")
+		case protocol.RCKindAskDone:
+			asks.clear()
+			ans := f.Answer
+			if strings.TrimSpace(ans) == "" {
+				ans = "(not answered)"
+			}
+			who := f.Origin
+			if who == "" {
+				who = "the host"
+			}
+			fmt.Printf("  ✓ %s from %s\n", ans, who)
 		case protocol.RCKindConfirmDone:
 			gate.clear()
 			v := "denied"
@@ -183,7 +239,7 @@ func remoteAttach(cfg config, code string) error {
 // never the global, see remoteAttach) and sends each as a turn. A bare y/n/yes/no is sent as a
 // CONFIRM answer ONLY while the host is actually awaiting one (the gate) — carrying the confirm
 // id so a stale answer can never resolve a different tool; otherwise it is an ordinary turn.
-func remoteInputLoop(ctx context.Context, broker, sid, attach string, stdin io.Reader, gate *confirmGate) {
+func remoteInputLoop(ctx context.Context, broker, sid, attach string, stdin io.Reader, gate *confirmGate, asks *askGate) {
 	buf := make([]byte, 4096)
 	for {
 		select {
@@ -200,11 +256,18 @@ func remoteInputLoop(ctx context.Context, broker, sid, attach string, stdin io.R
 			continue
 		}
 		in := protocol.RCInbound{Kind: protocol.RCInTurn, Text: text}
-		switch strings.ToLower(text) {
-		case "y", "yes", "n", "no":
-			if pending, id := gate.take(); pending {
-				approve := strings.HasPrefix(strings.ToLower(text), "y")
-				in = protocol.RCInbound{Kind: protocol.RCInConfirm, Approve: approve, ConfirmID: id}
+		// A PENDING QUESTION TAKES THE LINE, whatever it says - unlike a confirm, whose
+		// y/n is only an answer when one is actually pending, an answer can be any words
+		// at all, so there is nothing to pattern-match on.
+		if pending, ans, id := asks.take(text); pending {
+			in = protocol.RCInbound{Kind: protocol.RCInAsk, Answer: ans, AskID: id}
+		} else {
+			switch strings.ToLower(text) {
+			case "y", "yes", "n", "no":
+				if pending, id := gate.take(); pending {
+					approve := strings.HasPrefix(strings.ToLower(text), "y")
+					in = protocol.RCInbound{Kind: protocol.RCInConfirm, Approve: approve, ConfirmID: id}
+				}
 			}
 		}
 		_ = client.SendRC(broker, sid, attach, in)

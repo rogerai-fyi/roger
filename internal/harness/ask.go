@@ -19,7 +19,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 )
 
 // Asker puts a question to the operator and blocks until it is answered. A front end
@@ -87,11 +86,6 @@ func (l *Loop) askTool() Tool {
 		},
 	}
 }
-
-// askTimeoutGuard is unused by design and named here only to record the decision: a
-// question does NOT time out. Every other tool has a Timeout because a machine that stops
-// responding must not hold the turn forever; a person reading a question is not that.
-var _ = time.Second
 
 // rootOnlyTools are the tools registered on the ROOT loop rather than in BuiltinTools(),
 // and stripped from every subagent. Named here so a test can say "the builtins plus the

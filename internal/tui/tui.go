@@ -1028,7 +1028,16 @@ type model struct {
 	// DIFFERENT question than the one it was shown.
 	rcAskID          string
 	rsPendingConfirm bool
-	rsConfirmID      string
+	// The viewer's side of a pending QUESTION: rsPendingAsk gates the composer as an
+	// answer rather than a new turn, and rsAskID is echoed back so a late reply can never
+	// resolve a question other than the one it was shown.
+	rsPendingAsk bool
+	rsAskID      string
+	// The offered choices, kept so a digit sends the OPTION rather than the digit: the
+	// agent asked in words and must be answered in them, or "2" arrives where "beta" was
+	// meant and the model has to guess which list it indexes.
+	rsAskOptions []string
+	rsConfirmID  string
 	// [L] confirmable login/logout panel (modeLogin). The panel never acts on arrival -
 	// only y (logout) / enter (start login) inside it does - so arrow-nav can land on it
 	// without surprises. loginReturn is the mode to restore when the panel is dismissed.
@@ -4400,6 +4409,18 @@ func (m model) footer(w int) string {
 				left = stDim.Render("y run · n/esc deny")
 			}
 		default:
+			// A QUESTION OWNS THE KEYS, so the footer must say what they do. Without this
+			// it read "enter queue · esc cancel (2x force)" while the prompt body two lines
+			// above said "type an answer and press enter · esc skips" - two different
+			// instructions for the same keypress, on screen at once.
+			if a := m.agentPendingAsk; a != nil {
+				hint := "enter answer  ·  esc skip"
+				if len(a.options) > 0 {
+					hint = "1-9 pick  ·  enter answer  ·  esc skip"
+				}
+				left = stDim.Render(hint+"  ·  ") + stKey.Render("⌃y") + stDim.Render(" copy  ·  ⌃c quit")
+				break
+			}
 			if m.agentBusy {
 				left = stDim.Render("enter queue  ·  esc cancel (2× force)  ·  ") + stKey.Render("⌃y") + stDim.Render(" copy  ·  ⌃c quit")
 				break

@@ -139,10 +139,17 @@ type agentEvent struct {
 }
 
 // readOnlyTools is the console's toolset: everything that runs without a confirm.
+//
+// ask_operator is dropped despite being non-mutating. It is not a read - it BLOCKS on a
+// person answering, and this surface has no way to put a question on screen or send an
+// answer back. Left in, every call failed with "nobody is watching this session" while the
+// persona told the model to reach for it, which is worse than not having it: the model
+// spends a step discovering the tool is a lie. It goes for the same reason a subagent does
+// not get one.
 func readOnlyTools(all []harness.Tool) []harness.Tool {
 	out := make([]harness.Tool, 0, len(all))
 	for _, t := range all {
-		if !t.Mutating {
+		if !t.Mutating && t.Name != "ask_operator" {
 			out = append(out, t)
 		}
 	}

@@ -31,7 +31,8 @@ import (
 // searching a repository means to search them; walking them buries the real hits.
 var skipDirs = map[string]bool{
 	".git": true, "node_modules": true, "vendor": true,
-	".venv": true, "__pycache__": true, "dist": true,
+	spillDirName: true, // the agent's OWN spilled tool output: searching it returns its own echo
+	".venv":      true, "__pycache__": true, "dist": true,
 }
 
 // looksBinary reports whether b is not text. A NUL byte in the first block is the same
@@ -357,7 +358,11 @@ func readRange(body string, offset, limit *int) (string, error) {
 	if offset == nil && limit == nil {
 		out := clip(body)
 		if len(out) < len(body) {
-			shown := strings.Count(out, "\n")
+			// Count the newlines in the BODY that survived, not in the marker clip() appends
+			// - and stop at the last whole line, so continuing does not skip the remainder of
+			// one cut in half.
+			kept := strings.TrimSuffix(out, "\n... (truncated)")
+			shown := strings.Count(kept, "\n")
 			out += fmt.Sprintf("\n(showing the first %d lines; read again with offset %d to continue)",
 				shown, shown+1)
 		}
@@ -378,12 +383,25 @@ func readRange(body string, offset, limit *int) (string, error) {
 	if end > len(lines) {
 		end = len(lines)
 	}
-	win := lines[off-1 : end]
-	head := fmt.Sprintf("(lines %d-%d of %d)\n", off, end, len(lines))
-	out := clip(head + strings.Join(win, "\n") + "\n")
-	// Only claim there is more when there actually is.
-	if end < len(lines) {
-		out += fmt.Sprintf("\n(read again with offset %d to continue)", end+1)
+	// CLIP FIRST, THEN DESCRIBE WHAT SURVIVED. Describing the requested range and then
+	// clipping told the model it had lines it did not get, and pointed it past them - so a
+	// generous limit silently dropped the middle of a file and the continuation offset
+	// skipped it for good.
+	rangeBody := strings.Join(lines[off-1:end], "\n") + "\n"
+	kept := clip(rangeBody)
+	delivered := end
+	if len(kept) < len(rangeBody) {
+		// Count only whole lines that survived, and never the one cut mid-way: continuing
+		// from a partial line would lose its remainder.
+		if cut := strings.LastIndexByte(strings.TrimSuffix(kept, "\n... (truncated)"), '\n'); cut >= 0 {
+			whole := strings.Count(kept[:cut+1], "\n")
+			kept = kept[:cut+1] + "... (truncated)"
+			delivered = off - 1 + whole
+		}
+	}
+	out := fmt.Sprintf("(lines %d-%d of %d)\n", off, delivered, len(lines)) + kept
+	if delivered < len(lines) {
+		out += fmt.Sprintf("\n(read again with offset %d to continue)", delivered+1)
 	}
 	return out, nil
 }

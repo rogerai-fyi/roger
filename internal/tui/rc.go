@@ -786,6 +786,31 @@ func (m model) onRemoteFrame(msg remoteFrameMsg) (tea.Model, tea.Cmd) {
 		m.rsPendingConfirm = true
 		m.rsConfirmID = f.ConfirmID
 		m.rsLines = append(m.rsLines, "  "+stEmber.Render("? "+f.Tool)+stDim.Render("  [y] approve · [n] deny (runs on the host)"))
+	case protocol.RCKindAskReq:
+		// RENDER IT, or the viewer watches the stream go dead while the host sits blocked
+		// on a question it cannot see. The id gates the answer the same way a confirm's
+		// does, so a late reply cannot resolve a different question.
+		m.rsPendingAsk = true
+		m.rsAskID = f.AskID
+		m.rsAskOptions = f.Options
+		m.rsLines = append(m.rsLines, "  "+stEmber.Render("? ")+stSelText.Render(f.Text))
+		for i, opt := range f.Options {
+			m.rsLines = append(m.rsLines, "    "+stKey.Render(fmt.Sprintf("%d", i+1))+stDim.Render(" · ")+opt)
+		}
+		m.rsLines = append(m.rsLines, "  "+stDim.Render("type an answer and press enter (answers on the host)"))
+	case protocol.RCKindAskDone:
+		m.rsPendingAsk = false
+		m.rsAskID = ""
+		m.rsAskOptions = nil
+		who := f.Origin
+		if who == "" {
+			who = "the host"
+		}
+		ans := f.Answer
+		if strings.TrimSpace(ans) == "" {
+			ans = "(not answered)"
+		}
+		m.rsLines = append(m.rsLines, "  "+stDim.Render("✓ "+ans+" from "+who))
 	case protocol.RCKindConfirmDone:
 		m.rsPendingConfirm = false
 		v := "denied"
@@ -837,7 +862,8 @@ func (m model) remoteSessionView(w int) string {
 	return b.String()
 }
 
-// onRemoteSessionKey drives the viewer: ⏎ sends a turn, y/n answer a pending confirm, esc back.
+// onRemoteSessionKey drives the viewer: ⏎ sends a turn (or answers a pending question),
+// 1-9 pick an offered option, y/n answer a pending confirm, esc back.
 func (m model) onRemoteSessionKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch k.String() {
 	case "esc":
@@ -854,7 +880,24 @@ func (m model) onRemoteSessionKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.rsIn.SetValue("")
+		// A PENDING QUESTION TAKES THE LINE. Sending it as a new turn instead would queue
+		// an answer behind the very turn that is blocked waiting for it, and the host would
+		// sit there forever holding a question this surface had already answered.
+		if m.rsPendingAsk {
+			id := m.rsAskID
+			m.rsPendingAsk, m.rsAskID, m.rsAskOptions = false, "", nil
+			return m, m.sendRemoteTurn(protocol.RCInbound{Kind: protocol.RCInAsk, Answer: text, AskID: id})
+		}
 		return m, m.sendRemoteTurn(protocol.RCInbound{Kind: protocol.RCInTurn, Text: text})
+	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
+		// A digit picks an offered option while a question is pending AND the composer is
+		// empty - otherwise "2 files" would answer on its first keystroke.
+		if n := int(k.String()[0] - '1'); m.rsPendingAsk && strings.TrimSpace(m.rsIn.Value()) == "" &&
+			n >= 0 && n < len(m.rsAskOptions) {
+			ans, id := m.rsAskOptions[n], m.rsAskID
+			m.rsPendingAsk, m.rsAskID, m.rsAskOptions = false, "", nil
+			return m, m.sendRemoteTurn(protocol.RCInbound{Kind: protocol.RCInAsk, Answer: ans, AskID: id})
+		}
 	case "y", "Y", "n", "N":
 		// y/n answers a confirm ONLY while one is actually pending (a real flag set by the
 		// last confirm_req frame, cleared by confirm_done); otherwise the letter is typed into
