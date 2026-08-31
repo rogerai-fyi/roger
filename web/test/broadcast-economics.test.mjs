@@ -198,3 +198,22 @@ test("economics: the chart bars are drawn to the axis printed under them", () =>
       `a $${value} bar is ${width}px wide, but the axis makes that ${(value * ppd).toFixed(1)}px`);
   }
 });
+
+// The broadcast carries FAQPage markup, and markup that promises questions the page does
+// not show is exactly what Google's visible-content guidance forbids. faq.html has been
+// locked to its rendered headings since it shipped; this applies the same lock here, where
+// the two lists had already drifted to 5 declared against 4 visible - and not the same four.
+test("economics: the FAQ markup and the rendered questions are the same list", () => {
+  const html = read(PAGE);
+  const visible = [...html.matchAll(/<dt><b>([\s\S]*?)<\/b><\/dt>/g)]
+    .map((m) => m[1].replace(/<[^>]+>/g, "").replace(/&#39;|&rsquo;/g, "'").replace(/\s+/g, " ").trim());
+  assert.ok(visible.length >= 4, `the piece renders its questions (found ${visible.length})`);
+
+  const block = [...html.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)]
+    .map((m) => m[1]).find((b) => /"FAQPage"/.test(b));
+  assert.ok(block, "an ld+json block carrying the FAQPage");
+  const declared = JSON.parse(block).mainEntity.map((q) => q.name.replace(/\s+/g, " ").trim());
+
+  assert.deepEqual([...declared].sort(), [...visible].sort(),
+    "the FAQ markup promises questions the page does not show (or hides ones it does)");
+});
