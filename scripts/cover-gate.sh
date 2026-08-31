@@ -44,11 +44,23 @@ if [ -z "${ROGERAI_TEST_DATABASE_URL:-}" ]; then
   command -v podman >/dev/null 2>&1 && RUNTIME=podman
   [ -z "$RUNTIME" ] && command -v docker >/dev/null 2>&1 && RUNTIME=docker
   if [ -n "$RUNTIME" ]; then
-    PG_CT="rogerai-covergate-pg"
-    "$RUNTIME" rm -f "$PG_CT" >/dev/null 2>&1
+    # PER RUN, both the name and the port. This used to be a fixed name that the script
+    # force-removed before starting its own - so a second gate starting while a first was
+    # running DELETED the first run's database, and the victim's suite failed with
+    # "connection refused" from a dozen unrelated packages, which reads exactly like a
+    # real regression. Several sessions push to this repo at once; the gate that decides
+    # whether code may leave has to be safe to run twice.
+    PG_CT="rogerai-covergate-pg-$$"
     echo "[cover] starting throwaway Postgres ($RUNTIME) for the store money path…" >&2
+    # The host port is chosen by the runtime and read back, rather than pinned: a fixed
+    # one either fails the second run or, worse, points it at the first run's data.
     if "$RUNTIME" run -d --name "$PG_CT" -e POSTGRES_PASSWORD=test -e POSTGRES_DB=roger_test \
-        -p 5466:5432 docker.io/library/postgres:16 >/dev/null 2>&1; then
+        -p 127.0.0.1::5432 docker.io/library/postgres:16 >/dev/null 2>&1; then
+      PG_PORT="$("$RUNTIME" port "$PG_CT" 5432/tcp 2>/dev/null | head -1 | sed 's/.*://')"
+      if [ -z "$PG_PORT" ]; then
+        echo "[cover] ERROR: could not read the test Postgres host port" >&2
+        exit 1
+      fi
       # pg_isready can flip true while the postgres entrypoint is still creating
       # POSTGRES_DB on its temporary bootstrap server, so polling it then firing a
       # one-shot CREATE SCHEMA races (and used to swallow the failure, leaving the
@@ -67,7 +79,7 @@ if [ -z "${ROGERAI_TEST_DATABASE_URL:-}" ]; then
         echo "[cover] ERROR: test Postgres never became ready / could not create the rogerai schema" >&2
         exit 1
       fi
-      export ROGERAI_TEST_DATABASE_URL="postgres://postgres:test@localhost:5466/roger_test?sslmode=disable"
+      export ROGERAI_TEST_DATABASE_URL="postgres://postgres:test@127.0.0.1:$PG_PORT/roger_test?sslmode=disable"
     else
       echo "[cover] WARNING: could not start a test Postgres; postgres.go will count as uncovered" >&2
       PG_CT=""
