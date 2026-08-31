@@ -58,8 +58,15 @@ while read -r _lref lsha _rref rsha; do
 	# ACCUMULATE across refs - one push can carry several, and any ref needing a gate
 	# means the whole push needs it. No early break: breaking on the first .go would
 	# discard the web signal from the refs not yet examined.
-	if printf '%s\n' "$changed" | grep -q '\.go$'; then any_go=1; fi
-	if printf '%s\n' "$changed" | grep -q '^web/'; then any_web=1; fi
+	# NOT `printf ... | grep -q`. grep -q EXITS AT THE FIRST MATCH, closing the pipe and
+	# SIGPIPEing the writer; under `set -o pipefail` that makes the pipeline 141, and `if`
+	# reads 141 as "no match". So a push whose file list was long enough to still be
+	# streaming when grep bailed decided there were NO .go files and SKIPPED the coverage
+	# gate - a gate that fails OPEN, which is the exact inversion of the rule stated at the
+	# top of this file, and silent: the gate just never appears in the output.
+	# case/esac is the same test in the shell: no pipe, no second process, no SIGPIPE.
+	case "$changed" in *.go|*.go$'\n'*) any_go=1 ;; esac
+	case "$changed" in web/*|*$'\n'web/*) any_web=1 ;; esac
 	push_shas="${push_shas:-} $lsha"
 done
 
