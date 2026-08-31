@@ -48,6 +48,16 @@ while read -r _lref lsha _rref rsha; do
 	# to saw_ref=0, which would fail closed and run the full Postgres gate to remove a
 	# branch.
 	case "$lsha" in *[!0]*) : ;; *) saw_delete=1; continue ;; esac
+	# ALREADY ON THE REMOTE -> nothing to gate. A TAG points at a commit that went through
+	# this gate on its way to the branch it sits on; re-running the full 15-minute coverage
+	# gate to move a POINTER re-proves nothing, and killed with a timeout it blocks a
+	# release the code of which already passed. Same rule the global audit hook applies,
+	# for the same reason. A genuinely new commit still gates below.
+	if [ -n "$(git for-each-ref --contains "$lsha" --count=1 --format='%(refname)' refs/remotes/ 2>/dev/null)" ]; then
+		echo "[pre-push] ${_rref#refs/} -> ${lsha%"${lsha#?????????}"} is already on the remote; no gate to re-run." >&2
+		saw_published=1
+		continue
+	fi
 	saw_ref=1
 	case "$rsha" in
 		*[!0]*) range="$rsha..$lsha" ;;                          # normal update: remote..local
@@ -73,6 +83,11 @@ done
 # Deletes only: nothing is being added, so nothing needs proving.
 if [ "$saw_ref" = "0" ] && [ "$saw_delete" = "1" ]; then
 	echo "[pre-push] branch delete only -> no gates" >&2
+	exit 0
+fi
+# Every ref already published (a release tag on a gated commit): nothing new to prove.
+if [ "$saw_ref" = "0" ] && [ "${saw_published:-0}" = "1" ]; then
+	echo "[pre-push] everything in this push is already on the remote -> no gates" >&2
 	exit 0
 fi
 [ "$saw_ref" = "0" ] && unknown=1                               # read nothing -> run everything
