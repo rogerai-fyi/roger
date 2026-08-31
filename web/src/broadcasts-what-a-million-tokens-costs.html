@@ -239,6 +239,7 @@
 
           <figure class="ec-figure" data-reveal>
             <svg class="ec-chart" viewBox="0 0 720 300" role="img"
+                 data-x0="210" data-px-per-dollar="320"
                  aria-labelledby="ec-chart-title ec-chart-desc">
               <title id="ec-chart-title">A million output tokens from a 27B-class open model, six ways</title>
               <desc id="ec-chart-desc">Horizontal bars comparing the cost of one million
@@ -256,33 +257,33 @@
               </g>
               <g class="ec-chart__row">
                 <text class="ec-chart__lbl" x="200" y="36">own a 4090</text>
-                <rect class="ec-chart__bar ec-chart__bar--own" x="210" y="24" width="59" height="18"/>
-                <text class="ec-chart__val" x="277" y="36">$0.18</text>
+                <rect class="ec-chart__bar ec-chart__bar--own" data-value="0.18" x="210" y="24" width="58" height="18"/>
+                <text class="ec-chart__val" x="276" y="36">$0.18</text>
               </g>
               <g class="ec-chart__row">
                 <text class="ec-chart__lbl" x="200" y="78">own a 3090</text>
-                <rect class="ec-chart__bar ec-chart__bar--own" x="210" y="66" width="82" height="18"/>
-                <text class="ec-chart__val" x="300" y="78">$0.25</text>
+                <rect class="ec-chart__bar ec-chart__bar--own" data-value="0.25" x="210" y="66" width="80" height="18"/>
+                <text class="ec-chart__val" x="298" y="78">$0.25</text>
               </g>
               <g class="ec-chart__row">
                 <text class="ec-chart__lbl" x="200" y="120">buy qwen3-32b</text>
-                <rect class="ec-chart__bar ec-chart__bar--buy" x="210" y="108" width="92" height="18"/>
-                <text class="ec-chart__val" x="310" y="120">$0.28</text>
+                <rect class="ec-chart__bar ec-chart__bar--buy" data-value="0.28" x="210" y="108" width="90" height="18"/>
+                <text class="ec-chart__val" x="308" y="120">$0.28</text>
               </g>
               <g class="ec-chart__row">
                 <text class="ec-chart__lbl" x="200" y="162">rent A5000, spot</text>
-                <rect class="ec-chart__bar ec-chart__bar--rent" x="210" y="150" width="131" height="18"/>
-                <text class="ec-chart__val" x="349" y="162">$0.40</text>
+                <rect class="ec-chart__bar ec-chart__bar--rent" data-value="0.4" x="210" y="150" width="128" height="18"/>
+                <text class="ec-chart__val" x="346" y="162">$0.40</text>
               </g>
               <g class="ec-chart__row">
                 <text class="ec-chart__lbl" x="200" y="204">buy gemma-3-27b</text>
-                <rect class="ec-chart__bar ec-chart__bar--buy" x="210" y="192" width="148" height="18"/>
-                <text class="ec-chart__val" x="366" y="204">$0.45</text>
+                <rect class="ec-chart__bar ec-chart__bar--buy" data-value="0.45" x="210" y="192" width="144" height="18"/>
+                <text class="ec-chart__val" x="362" y="204">$0.45</text>
               </g>
               <g class="ec-chart__row">
                 <text class="ec-chart__lbl" x="200" y="246">rent A5000, on-demand</text>
-                <rect class="ec-chart__bar ec-chart__bar--bad" x="210" y="234" width="401" height="18"/>
-                <text class="ec-chart__val" x="619" y="246">$1.22</text>
+                <rect class="ec-chart__bar ec-chart__bar--bad" data-value="1.22" x="210" y="234" width="390" height="18"/>
+                <text class="ec-chart__val" x="608" y="246">$1.22</text>
               </g>
               <text class="ec-chart__axis" x="210" y="286">$0</text>
               <text class="ec-chart__axis" x="370" y="286">$0.50</text>
@@ -308,26 +309,31 @@
              cards, price under the aggregator, and the arithmetic works: an 8B vision
              model on an interruptible 3060 breaks even at <b>$0.10</b> per million at
              half duty, while the market charges <b>$0.455</b> for the same class. Charge
-             $0.35 - comfortably under - and you keep $0.245 against a $0.10
-             cost.</p>
+             $0.35 - comfortably under - and you are taking three and a half times
+             what you need to cover the hour.</p>
 
           <div class="ec-tablewrap">
             <table class="ec-table ec-table--margin">
-              <caption class="mono">Interruptible rental, priced under the market &middot; what you keep after the 30% fee</caption>
+              <caption class="mono">Interruptible rental, priced under the market &middot; cover = what you charge over what you must charge</caption>
               <thead>
-                <tr><th>Band</th><th>Duty</th><th>Break-even</th><th>You charge</th><th>You keep</th><th>Margin</th></tr>
+                <tr><th>Band</th><th>Duty</th><th>Break-even</th><th>You charge</th><th>You keep</th><th>Cover</th></tr>
               </thead>
               <tbody>
-                <tr><td>8B vision on a 3060</td><td class="mono">50%</td><td class="mono">$0.10</td>
-                  <td class="mono">$0.35</td><td class="mono">$0.245</td><td class="mono ec-win">2.5&times;</td></tr>
-                <tr><td>8B vision on a 3060</td><td class="mono">100%</td><td class="mono">$0.05</td>
-                  <td class="mono">$0.35</td><td class="mono">$0.245</td><td class="mono ec-win">4.9&times;</td></tr>
-                <tr><td>27B dense on an A5000</td><td class="mono">50%</td><td class="mono">$0.40</td>
-                  <td class="mono">$0.35</td><td class="mono">$0.245</td><td class="mono ec-lose">0.6&times;</td></tr>
-                <tr><td class="ec-cont">27B dense, throughput doubled</td><td class="mono">50%</td><td class="mono">$0.20</td>
-                  <td class="mono">$0.35</td><td class="mono">$0.245</td><td class="mono ec-win">1.2&times;</td></tr>
-                <tr><td>27B dense on an A5000</td><td class="mono">100%</td><td class="mono">$0.20</td>
-                  <td class="mono">$0.35</td><td class="mono">$0.245</td><td class="mono ec-win">1.2&times;</td></tr>
+                <tr data-be="0.10" data-charge="0.35" data-margin="3.50">
+                  <td>8B vision on a 3060</td><td class="mono">50%</td><td class="mono">$0.10</td>
+                  <td class="mono">$0.35</td><td class="mono">$0.245</td><td class="mono ec-win">3.50&times;</td></tr>
+                <tr data-be="0.05" data-charge="0.35" data-margin="7.00">
+                  <td>8B vision on a 3060</td><td class="mono">100%</td><td class="mono">$0.05</td>
+                  <td class="mono">$0.35</td><td class="mono">$0.245</td><td class="mono ec-win">7.00&times;</td></tr>
+                <tr data-be="0.40" data-charge="0.35" data-margin="0.88">
+                  <td>27B dense on an A5000</td><td class="mono">50%</td><td class="mono">$0.40</td>
+                  <td class="mono">$0.35</td><td class="mono">$0.245</td><td class="mono ec-lose">0.88&times;</td></tr>
+                <tr data-be="0.20" data-charge="0.35" data-margin="1.75">
+                  <td class="ec-cont">27B dense, throughput doubled</td><td class="mono">50%</td><td class="mono">$0.20</td>
+                  <td class="mono">$0.35</td><td class="mono">$0.245</td><td class="mono ec-win">1.75&times;</td></tr>
+                <tr data-be="0.20" data-charge="0.35" data-margin="1.75">
+                  <td>27B dense on an A5000</td><td class="mono">100%</td><td class="mono">$0.20</td>
+                  <td class="mono">$0.35</td><td class="mono">$0.245</td><td class="mono ec-win">1.75&times;</td></tr>
               </tbody>
             </table>
           </div>
