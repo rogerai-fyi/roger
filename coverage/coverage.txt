@@ -527,7 +527,7 @@ rogerai.fm/roger/v6/cmd/rogerai-broker/probe.go:349:			probeEvidenceRecentLocked
 rogerai.fm/roger/v6/cmd/rogerai-broker/probe.go:365:			proberLoop			100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/probe.go:386:			jitterWindow			100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/probe.go:402:			probeOnce			96.5%
-rogerai.fm/roger/v6/cmd/rogerai-broker/probe.go:585:			probeNode			89.1%
+rogerai.fm/roger/v6/cmd/rogerai-broker/probe.go:585:			probeNode			87.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/probe.go:699:			failed				100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/probe.go:717:			evalCanary			100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/probe.go:783:			canaryWrongFamily		100.0%
@@ -3565,7 +3565,7 @@ rogerai.fm/roger/v6/internal/tui/tui.go:1271:				newBase				85.7%
 rogerai.fm/roger/v6/internal/tui/tui.go:1338:				Init				100.0%
 rogerai.fm/roger/v6/internal/tui/tui.go:1349:				syncComposerGeometry		100.0%
 rogerai.fm/roger/v6/internal/tui/tui.go:1361:				setTextareaGeometry		92.3%
-rogerai.fm/roger/v6/internal/tui/tui.go:1380:				update				84.0%
+rogerai.fm/roger/v6/internal/tui/tui.go:1380:				update				83.7%
 rogerai.fm/roger/v6/internal/tui/tui.go:2070:				idleDiscoveryEnabled		100.0%
 rogerai.fm/roger/v6/internal/tui/tui.go:2074:				textareaCanMoveUp		100.0%
 rogerai.fm/roger/v6/internal/tui/tui.go:2079:				textareaCanMoveDown		100.0%
@@ -3669,7 +3669,7 @@ rogerai.fm/roger/v6/internal/tui/tui.go:4188:				atOnAirLimit			100.0%
 rogerai.fm/roger/v6/internal/tui/tui.go:4192:				hasSchedule			100.0%
 rogerai.fm/roger/v6/internal/tui/tui.go:4200:				pilotLamp			100.0%
 rogerai.fm/roger/v6/internal/tui/tui.go:4219:				marquee				91.7%
-rogerai.fm/roger/v6/internal/tui/tui.go:4240:				editorLivePreview		96.0%
+rogerai.fm/roger/v6/internal/tui/tui.go:4240:				editorLivePreview		92.0%
 rogerai.fm/roger/v6/internal/tui/tui.go:4289:				maskKey				100.0%
 rogerai.fm/roger/v6/internal/tui/tui.go:4305:				modalFooter			100.0%
 rogerai.fm/roger/v6/internal/tui/tui.go:4323:				footer				90.3%
