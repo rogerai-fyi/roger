@@ -4,7 +4,7 @@ rogerai.fm/roger/v6/cmd/roger-tower-local/main.go:104:			serve				80.0%
 rogerai.fm/roger/v6/cmd/roger-tower-local/main.go:112:			run				85.7%
 rogerai.fm/roger/v6/cmd/roger-tower/earnings.go:23:			cmdEarnings			96.3%
 rogerai.fm/roger/v6/cmd/roger-tower/hub.go:112:				tlsWanted			100.0%
-rogerai.fm/roger/v6/cmd/roger-tower/hub.go:118:				runHubInBackground		73.1%
+rogerai.fm/roger/v6/cmd/roger-tower/hub.go:118:				runHubInBackground		71.9%
 rogerai.fm/roger/v6/cmd/roger-tower/hub.go:505:				registerHubNodes		100.0%
 rogerai.fm/roger/v6/cmd/roger-tower/hub.go:555:				limitConns			100.0%
 rogerai.fm/roger/v6/cmd/roger-tower/hub.go:564:				Accept				100.0%
@@ -3083,7 +3083,7 @@ rogerai.fm/roger/v6/internal/tui/agent.go:549:				agentFindingBandBeat		100.0%
 rogerai.fm/roger/v6/internal/tui/agent.go:557:				pickAgentModel			100.0%
 rogerai.fm/roger/v6/internal/tui/agent.go:584:				bindAgentEndpoint		80.0%
 rogerai.fm/roger/v6/internal/tui/agent.go:599:				applyToolBudget			88.9%
-rogerai.fm/roger/v6/internal/tui/agent.go:622:				newAgentRuntime			80.4%
+rogerai.fm/roger/v6/internal/tui/agent.go:622:				newAgentRuntime			78.6%
 rogerai.fm/roger/v6/internal/tui/agent.go:784:				bandForModel			100.0%
 rogerai.fm/roger/v6/internal/tui/agent.go:796:				modelBadgeTail			81.8%
 rogerai.fm/roger/v6/internal/tui/agent.go:816:				deskRowCount			100.0%
