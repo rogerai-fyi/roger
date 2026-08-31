@@ -63,10 +63,14 @@ func (s *askBDD) ask(ctx context.Context, q string, opts []string) {
 		}
 		args["options"] = o
 	}
+	// CAPTURE THE CHANNELS, do not reach through s: the Before hook resets the shared
+	// world for the next scenario, and a goroutine still parked on an unanswered question
+	// would then read fields that no longer belong to its scenario.
+	ansCh, errCh := s.answer, s.askErr
 	go func() {
 		a, err := tool.Run(ctx, ".", args)
-		s.answer <- a
-		s.askErr <- err
+		ansCh <- a
+		errCh <- err
 	}()
 }
 
@@ -337,6 +341,25 @@ func (s *askBDD) questionForEndedTurn() error {
 	if err := s.agentAsksMidTurn(); err != nil {
 		return err
 	}
+	// END THE TURN FOR REAL before injecting its done. Production closes done only after
+	// Send has returned, so the done handler never runs beside a live goroutine - a
+	// hand-made done while the real turn is still inside Send manufactures a race that
+	// exists only in this harness. Cancel, answer the pending ask so the tool returns, and
+	// wait for the goroutine to leave.
+	if s.rt.cancel != nil {
+		s.rt.cancel()
+	}
+	if a := s.m.agentPendingAsk; a != nil {
+		// The tool is blocked on this resp; production's done handler does the same unblock.
+		select {
+		case a.resp <- "":
+		default:
+		}
+	}
+	deadline := time.Now().Add(15 * time.Second)
+	for s.rt.running.Load() && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
 	done := make(chan struct{})
 	s.rt.turnDone = done
 	close(done)
@@ -509,6 +532,26 @@ func TestAskOperatorFeature(t *testing.T) {
 		ScenarioInitializer: func(sc *godog.ScenarioContext) {
 			sc.Before(func(c context.Context, _ *godog.Scenario) (context.Context, error) {
 				*st = askBDD{t: t}
+				return c, nil
+			})
+			// Settle before the world resets: a scenario that deliberately leaves a question
+			// unanswered ("nothing answers it automatically") leaves its ask goroutine parked
+			// on the resp channel, and the buffered captured channels let it exit once fed.
+			sc.After(func(c context.Context, _ *godog.Scenario, _ error) (context.Context, error) {
+				if a := st.m.agentPendingAsk; a != nil {
+					select {
+					case a.resp <- "":
+					default:
+					}
+					st.m.agentPendingAsk = nil
+				}
+				if st.rt != nil && st.rt.cancel != nil {
+					st.rt.cancel()
+					deadline := time.Now().Add(15 * time.Second)
+					for st.rt.running.Load() && time.Now().Before(deadline) {
+						time.Sleep(time.Millisecond)
+					}
+				}
 				return c, nil
 			})
 			sc.Step(`^I have entered AGENT mode with a band tuned in$`, st.enteredAgent)
