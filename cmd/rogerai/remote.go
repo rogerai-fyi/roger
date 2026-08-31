@@ -185,24 +185,8 @@ func remoteAttach(cfg config, code string) error {
 		case protocol.RCKindConfirmReq:
 			gate.set(f.ConfirmID)
 			fmt.Printf("  ? %s — type 'y' to approve or 'n' to deny (runs on the host)\n", f.Tool)
-		case protocol.RCKindAskReq:
-			asks.set(f.AskID, f.Options)
-			fmt.Printf("  ? %s\n", f.Text)
-			for i, opt := range f.Options {
-				fmt.Printf("      %d · %s\n", i+1, opt)
-			}
-			fmt.Printf("    type an answer and press enter (answers on the host)\n")
-		case protocol.RCKindAskDone:
-			asks.clear()
-			ans := f.Answer
-			if strings.TrimSpace(ans) == "" {
-				ans = "(not answered)"
-			}
-			who := f.Origin
-			if who == "" {
-				who = "the host"
-			}
-			fmt.Printf("  ✓ %s from %s\n", ans, who)
+		case protocol.RCKindAskReq, protocol.RCKindAskDone:
+			fmt.Print(renderAskFrame(f, asks))
 		case protocol.RCKindConfirmDone:
 			gate.clear()
 			v := "denied"
@@ -272,6 +256,37 @@ func remoteInputLoop(ctx context.Context, broker, sid, attach string, stdin io.R
 		}
 		_ = client.SendRC(broker, sid, attach, in)
 	}
+}
+
+// renderAskFrame turns a question frame into what the viewer prints, and moves the ask
+// gate with it. It is a function returning a STRING rather than a run of fmt.Printf inside
+// the stream callback, because a rendering nobody can call is a rendering nobody can test -
+// and the stream callback needs a live broker to reach at all.
+func renderAskFrame(f protocol.RCFrame, asks *askGate) string {
+	var b strings.Builder
+	switch f.Kind {
+	case protocol.RCKindAskReq:
+		asks.set(f.AskID, f.Options)
+		fmt.Fprintf(&b, "  ? %s\n", f.Text)
+		for i, opt := range f.Options {
+			fmt.Fprintf(&b, "      %d · %s\n", i+1, opt)
+		}
+		b.WriteString("    type an answer and press enter (answers on the host)\n")
+	case protocol.RCKindAskDone:
+		asks.clear()
+		// An unanswered question is reported as such rather than as an empty line: the
+		// operator should be able to tell "they said nothing" from "nothing happened".
+		ans := f.Answer
+		if strings.TrimSpace(ans) == "" {
+			ans = "(not answered)"
+		}
+		who := f.Origin
+		if who == "" {
+			who = "the host"
+		}
+		fmt.Fprintf(&b, "  ✓ %s from %s\n", ans, who)
+	}
+	return b.String()
 }
 
 // remoteOff ends one session (id given) or every session (no id).
