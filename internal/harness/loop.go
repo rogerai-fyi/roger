@@ -130,6 +130,9 @@ type Loop struct {
 	toolByName map[string]Tool
 	complete   Completer
 	confirm    Confirmer
+	// ask is how ask_operator reaches the person. nil when nobody is watching (headless
+	// runs, and every subagent), and the tool then says so instead of inventing an answer.
+	ask Asker
 	// NeedsConfirm widens (never narrows) what the loop asks about. Nil = the mutating
 	// tools, which is what every headless caller wants; a front-end with a confirm UI can
 	// add to it. It cannot make a mutating tool auto-run: needsConfirm ORs with Mutating,
@@ -233,6 +236,11 @@ func NewLoop(root, persona string, complete Completer, confirm Confirmer) *Loop 
 	// remember to check (subagent.go).
 	l.tools = append(l.tools, l.delegateTool())
 	l.toolByName["delegate"] = l.tools[len(l.tools)-1]
+	// ask_operator is registered on the ROOT loop only, for the same reason delegate is: a
+	// subagent has no operator of its own, and a child that could stop to ask a question
+	// would block a turn the operator cannot see. newSubagent filters it out with the rest.
+	l.tools = append(l.tools, l.askTool())
+	l.toolByName["ask_operator"] = l.tools[len(l.tools)-1]
 	if persona != "" {
 		l.messages = append(l.messages, Message{Role: "system", Content: persona})
 	}

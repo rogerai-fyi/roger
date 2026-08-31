@@ -950,6 +950,9 @@ type model struct {
 	// channel is never re-created), and acting twice would append the turn's delegation
 	// receipt a second time and re-fetch the balance.
 	agentDoneHandled chan struct{}
+	// agentPendingAsk is the question currently on screen, if any. Like a pending confirm
+	// it owns the keys while it is up, and like one it cannot outlive its turn.
+	agentPendingAsk *agentAsk
 	// `ask ›` slash-command autocomplete (agent.go: agentCommands / agentSlashStrip /
 	// the tab case in onAgentKey). agentTabPrefix is the typed prefix a live Tab
 	// completion cycle is stepping ("" = no cycle); agentTabIdx is the current pick
@@ -1019,7 +1022,11 @@ type model struct {
 	// confirm id; a remote answer must carry the matching id (a stale answer for a resolved
 	// confirm can never resolve a NEW one). On the VIEWER, rsPendingConfirm gates y/n as a
 	// confirm answer (a real flag, not a string-match) and rsConfirmID is echoed back.
-	rcConfirmID      string
+	rcConfirmID string
+	// rcAskID is the HOST's current pending QUESTION id, for exactly the reason
+	// rcConfirmID exists: a delayed answer from a remote surface must never resolve a
+	// DIFFERENT question than the one it was shown.
+	rcAskID          string
 	rsPendingConfirm bool
 	rsConfirmID      string
 	// [L] confirmable login/logout panel (modeLogin). The panel never acts on arrival -
@@ -1953,6 +1960,17 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		nm, cmd := m.dequeueAgentPrompts()
 		return nm, cmd
+	case agentAskMsg:
+		// Deliberately no drain re-arm, matching agentConfirmMsg: answering re-arms, so
+		// exactly one reader is ever live.
+		a := agentAsk(msg)
+		m.agentPendingAsk = &a
+		m.agentLines = append(m.agentLines, stDim.Render("  ⋮ ")+stEmber.Render("? ")+stSelText.Render(a.question))
+		m.status = stDim.Render("the agent is asking - answer and press enter")
+		// A fresh id per question, so a late answer for an earlier one cannot resolve this.
+		m.rcAskID = protocol.NewRequestID()
+		m.rcEmitAskReq(&a, m.rcAskID)
+		return m, nil
 	case agentDoneMsg:
 		// ONCE PER TURN. events is never re-created now, so a drain re-armed after a turn's
 		// done is already closed reports it again immediately - and a second pass would
@@ -1975,6 +1993,19 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.agentDoneHandled = msg.turn
+		// A QUESTION CANNOT OUTLIVE ITS TURN. Left standing it would own the keys with
+		// nothing behind it to receive an answer - the ghost-modal shape the confirm gate
+		// was repaired for. Unblock whoever is waiting, then clear it.
+		if a := m.agentPendingAsk; a != nil {
+			select {
+			case a.resp <- "":
+			default:
+			}
+			m.agentPendingAsk = nil
+			m.rcAskID = ""
+			m.rcEmitAskDone("", "local")
+			m.agentLines = append(m.agentLines, stDim.Render("  ⋮ the question went unanswered - the turn ended"))
+		}
 		m.agentBusy = false
 		m.agentCanceling = false
 		m.agentTurnState = poseWaiting // turn finished: the corner Ping stands by

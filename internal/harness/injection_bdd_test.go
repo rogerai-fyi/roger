@@ -372,7 +372,11 @@ func (s *injectState) schemaUnchanged() error {
 	// step exists for is unchanged and is what the loop below actually checks - retrieved
 	// content cannot ADD a tool mid-turn - so the count follows the real turn-start
 	// toolset instead of being pinned to the builtin list.
-	want := len(BuiltinTools()) + 1
+	//
+	// It follows rootOnlyTools rather than a literal: this assertion broke when
+	// ask_operator was registered beside delegate, which is a false alarm about a real
+	// guard, and the fastest way to teach someone to edit the number without reading it.
+	want := len(BuiltinTools()) + len(rootOnlyTools)
 	if got := len(s.loop.Tools()); got != want {
 		return fmt.Errorf("the turn's toolset is %d tools, want the %d advertised at turn start", got, want)
 	}

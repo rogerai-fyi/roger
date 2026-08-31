@@ -190,7 +190,12 @@ func (l *Loop) newSubagent(root string) *Loop {
 	var tools []Tool
 	for _, t := range l.tools {
 		// Read-only only, and never the delegate tool itself: depth is capped at one.
-		if t.Mutating || t.Name == "delegate" {
+		//
+		// ask_operator goes too, and not because it writes anything - it does not. A
+		// subagent runs where the operator cannot see it, so a child that stopped to ask
+		// would block the parent's turn on a question nobody was ever shown. A child that
+		// needs a decision must report back and let the parent ask.
+		if t.Mutating || t.Name == "delegate" || t.Name == "ask_operator" {
 			continue
 		}
 		tools = append(tools, t)

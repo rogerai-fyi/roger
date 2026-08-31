@@ -159,6 +159,7 @@ func (m model) onRemoteHostEnd() (tea.Model, tea.Cmd) {
 	}
 	m.rcBridge = nil
 	m.rcConfirmID = ""
+	m.rcAskID = ""
 	m.rcNote("remote control ended — this session is off the air (revoked or disconnected)")
 	return m, nil
 }
@@ -216,6 +217,19 @@ func (m model) onRemoteInbound(in protocol.RCInbound) (tea.Model, tea.Cmd) {
 		}
 		nm, cmd := m.submitAgentPrompt(queuedPrompt{text: in.Text, remote: true})
 		return nm, tea.Batch(cmd, rearm)
+	case protocol.RCInAsk:
+		// A remote answer resolves the pending question only if it is answering THAT
+		// question. An id that does not match is a late answer for one already resolved,
+		// and applying it would answer the CURRENT question with the previous one's reply.
+		if a := m.agentPendingAsk; a != nil && (in.AskID == "" || in.AskID == m.rcAskID) {
+			m.agentPendingAsk = nil
+			m.rcAskID = ""
+			a.resp <- in.Answer
+			m.agentLines = append(m.agentLines, stDim.Render("  ⋮ ")+stSelText.Render(in.Answer)+stDim.Render(" ("+in.Origin+")"))
+			m.rcEmitAskDone(in.Answer, in.Origin)
+			return m, m.waitAgentEvent()
+		}
+		return m, nil
 	case protocol.RCInConfirm:
 		// Answer the pending confirm through its own resp channel (mirrors onAgentKey). The
 		// answer MUST carry the id of the confirm it was shown for: a stale answer (for an
@@ -288,6 +302,24 @@ func (m model) rcEmitConfirmReq(c *agentConfirm, id string) {
 	}
 	args, _ := json.Marshal(c.args)
 	m.rcEmit(protocol.RCFrame{Kind: protocol.RCKindConfirmReq, Tool: c.tool, Args: string(args), ConfirmID: id})
+}
+
+// rcEmitAskReq mirrors a pending QUESTION to viewers so any surface can answer it, and
+// rcEmitAskDone closes it everywhere once one of them has. Same shape as the confirm pair
+// above and for the same reason: a question the host is blocked on should be visible and
+// answerable from whichever surface the operator happens to be looking at.
+func (m model) rcEmitAskReq(a *agentAsk, id string) {
+	if m.rcBridge == nil || a == nil {
+		return
+	}
+	m.rcEmit(protocol.RCFrame{Kind: protocol.RCKindAskReq, Text: a.question, Options: a.options, AskID: id})
+}
+
+func (m model) rcEmitAskDone(answer, origin string) {
+	if m.rcBridge == nil {
+		return
+	}
+	m.rcEmit(protocol.RCFrame{Kind: protocol.RCKindAskDone, Answer: answer, Origin: origin})
 }
 
 // rcEmitCleared tells viewers the host reset the session (so a queued-then-dropped local turn
