@@ -25,8 +25,45 @@ import (
 	"testing"
 )
 
-// stubPath builds a PATH whose `make` and `go` only announce themselves, so the hook can
-// be driven to its decision without running a coverage gate or a compile.
+// cleanEnv drops the git variables git exports to a hook. These tests can THEMSELVES run
+// inside the gate (the coverage run is part of the push they are gating), and an inherited
+// GIT_DIR points at the other checkout: `git log HEAD` then answers for main while the push
+// is on a branch, so the tests would silently examine the wrong history and still pass.
+func cleanEnv() []string {
+	var out []string
+	for _, kv := range os.Environ() {
+		switch {
+		case strings.HasPrefix(kv, "GIT_DIR="),
+			strings.HasPrefix(kv, "GIT_WORK_TREE="),
+			strings.HasPrefix(kv, "GIT_INDEX_FILE="),
+			strings.HasPrefix(kv, "GIT_PREFIX="),
+			strings.HasPrefix(kv, "GIT_COMMON_DIR="):
+			continue
+		}
+		out = append(out, kv)
+	}
+	return out
+}
+
+// gitClean runs git with that environment scrubbed.
+func gitClean(t *testing.T, args ...string) ([]byte, error) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Env = cleanEnv()
+	return cmd.Output()
+}
+
+// stubPath builds a PATH whose `make` and `go` only announce themselves, and whose `git`
+// passes everything through to the real one EXCEPT `worktree`.
+//
+// The hook checks out each pushed sha into a throwaway worktree to prove the COMMIT builds
+// - correct for a push, ruinous for a test: a real `git worktree add` copies the whole tree
+// and takes a lock on the shared .git. This repo routinely has a dozen live worktrees and
+// several sessions working at once, so that lock is contended, and losing the race makes
+// the hook exit before it ever prints which gate it chose - failing this test for a reason
+// that has nothing to do with what it is testing.
+//
+// Everything the classification depends on (git diff, git merge-base) stays real.
 func stubPath(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -36,13 +73,24 @@ func stubPath(t *testing.T) string {
 			t.Fatal(err)
 		}
 	}
+	real, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("no git on PATH")
+	}
+	gitStub := "#!/bin/sh\n" +
+		"# pass through, except the throwaway-worktree checkout (see the test's comment)\n" +
+		"if [ \"$1\" = \"worktree\" ]; then exit 0; fi\n" +
+		"exec " + real + " \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "git"), []byte(gitStub), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	return dir + string(os.PathListSeparator) + os.Getenv("PATH")
 }
 
 // runHook feeds the hook one push line for range base..head and returns everything it said.
 func runHook(t *testing.T, base, head string) string {
 	t.Helper()
-	root, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
+	root, err := gitClean(t, "rev-parse", "--show-toplevel")
 	if err != nil {
 		t.Skip("not a git checkout")
 	}
@@ -54,7 +102,7 @@ func runHook(t *testing.T, base, head string) string {
 	cmd := exec.Command("bash", hook, "origin", "git@example.invalid:x/y.git")
 	cmd.Dir = repo
 	cmd.Stdin = strings.NewReader("refs/heads/probe " + head + " refs/heads/main " + base + "\n")
-	cmd.Env = append(os.Environ(), "PATH="+stubPath(t))
+	cmd.Env = append(cleanEnv(), "PATH="+stubPath(t))
 	out, _ := cmd.CombinedOutput() // a non-zero exit is itself a reportable outcome below
 	return string(out)
 }
@@ -63,12 +111,12 @@ func runHook(t *testing.T, base, head string) string {
 // exercises the hook against genuine ranges rather than invented ones.
 func commitTouching(t *testing.T, want func(files []string) bool) (base, head string) {
 	t.Helper()
-	out, err := exec.Command("git", "log", "--format=%H", "-n", "400", "HEAD").Output()
+	out, err := gitClean(t, "log", "--format=%H", "-n", "400", "HEAD")
 	if err != nil {
 		t.Skip("no history")
 	}
 	for _, sha := range strings.Fields(string(out)) {
-		files, err := exec.Command("git", "diff", "--name-only", sha+"^", sha).Output()
+		files, err := gitClean(t, "diff", "--name-only", sha+"^", sha)
 		if err != nil {
 			continue
 		}
@@ -154,7 +202,7 @@ echo "go=$any_go web=$any_web"`
 // test breaks if someone reintroduces a pipeline there rather than testing a stale copy.
 func classifierFromHook(t *testing.T) string {
 	t.Helper()
-	root, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
+	root, err := gitClean(t, "rev-parse", "--show-toplevel")
 	if err != nil {
 		t.Skip("not a git checkout")
 	}
