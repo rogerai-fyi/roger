@@ -105,7 +105,11 @@ test("calculator: the live rate is read, never baked in", () => {
   assert.match(js, /best\.price > hi/, "a rate above the field's range is refused, not clamped");
   assert.match(js, /best\.price < 0\.005/, "and one too small to express is refused too");
   assert.doesNotMatch(js, /Math\.min\(best\.price/, "the live rate is not clamped");
-  assert.doesNotMatch(js, /field\.value = String\(best/, "and is not rendered in exponent form");
+  // Nor ROUNDED. toFixed(2) turned 0.0149 into 0.01 - the same "a rate the market did not
+  // report" failure, one line after the guards against it. The field takes step="any" so
+  // the real number fits, and the <0.005 guard keeps String() clear of exponent form.
+  assert.doesNotMatch(js, /best\.price\.toFixed/, "the live rate is written verbatim");
+  assert.match(js, /field\.value = String\(best\.price\)/, "exactly as the market reported it");
 
   // An unknown rate must not be treated as a free one. When the market cannot be read the
   // field is emptied, and an empty field stops the comparison rather than printing a

@@ -51,10 +51,20 @@ func TestSweepOrphansDecides(t *testing.T) {
 		// Somebody else's container, named so that stripping our prefix would be a no-op
 		// and leave a namespace and pid that both look like ours. Only the prefix guard
 		// keeps it, which is the point: another project's container is not ours to remove.
-		"42-999999\n"
+		"42-999999\n" +
+		// LEGACY names, from before the namespace segment and before the per-run rename.
+		// Neither can match a namespace, so without an explicit path they were never
+		// reclaimed - and a RUNNING legacy orphan holds its published port and memory.
+		"rogerai-covergate-pg\n" + // the old fixed name, owned by no current run -> reclaim
+		"rogerai-covergate-pg-999999\n" + // the old "<pid>" form, owner gone      -> reclaim
+		"rogerai-covergate-pg-1\n" // the old "<pid>" form, owner ALIVE            -> keep
 
 	got := runSweep(t, "42", input)
-	want := []string{"rogerai-covergate-pg-42-999999"}
+	want := []string{
+		"rogerai-covergate-pg-42-999999",
+		"rogerai-covergate-pg",
+		"rogerai-covergate-pg-999999",
+	}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Errorf("sweep reclaimed %v, want %v", got, want)
 	}

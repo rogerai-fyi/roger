@@ -128,38 +128,44 @@
           }
         }
         if (!sawOut && rows.length) {
-          if (!mine()) field.value = "";
-          note.textContent = "this broker does not report an out-price - put in a rate yourself";
+          if (!mine()) {
+            field.value = "";
+            note.textContent = "this broker does not report an out-price - put in a rate yourself";
+          }
           recalc();
           return;
         }
         if (best) {
-          // Clamped and formatted to the field's OWN bounds: num() clamps to max on the
-          // way in, so an un-clamped display showed a rate the arithmetic did not use.
-          // String() also renders a very small rate in exponent form (6e-7), which is not
-          // a price anyone reads.
           // NOT clamped to the field's max. That bound is there for a reader typing a
           // number; clamping LIVE data to it displayed and computed a rate the market did
           // not report, understating the band and overstating the saving. A rate outside
           // what the field can express is handed back to the reader instead.
           var hi = parseFloat(field.max);
           if (isFinite(hi) && best.price > hi) {
-            note.textContent = "cheapest paid band (" + (best.model || "unknown") +
-              ") is above this field's range - put in a rate yourself";
+            if (!mine()) {
+              note.textContent = "cheapest paid band (" + (best.model || "unknown") +
+                ") is above this field's range - put in a rate yourself";
+            }
             recalc();
             return;
           }
-          // A rate too small for the field is also handed back. The earlier guard tested
-          // parseFloat(text) === 0, which is unreachable - toPrecision never parses back
-          // to zero - so 6e-7 was written as "6.00e-7", passed the non-empty check, and
-          // printed a near-full-price saving.
+          // A rate too small to write plainly is also handed back. This is what keeps the
+          // assignment below safe to do verbatim: String() only reaches exponent form
+          // below 1e-6, and nothing under half a cent gets this far.
           if (best.price < 0.005) {
-            note.textContent = "cheapest paid band (" + (best.model || "unknown") +
-              ") is below half a cent per 1M - put in a rate yourself";
+            if (!mine()) {
+              note.textContent = "cheapest paid band (" + (best.model || "unknown") +
+                ") is below half a cent per 1M - put in a rate yourself";
+            }
             recalc();
             return;
           }
-          if (!mine()) field.value = best.price.toFixed(2);
+          // VERBATIM. toFixed(2) rounded live data to two places - 0.0149 became 0.01,
+          // understating the band and overstating the saving - which is the same
+          // "display a rate the market did not report" failure the guards above exist to
+          // stop, committed one line after them. The field takes step="any" precisely so
+          // the real number fits.
+          if (!mine()) field.value = String(best.price);
           // NAMES the band it came from, and says PAID. Free bands are excluded from the
           // rate on purpose - a zero would price the comparison at nothing - so calling
           // this "the cheapest on air" was untrue whenever a free band existed, which on
@@ -174,19 +180,25 @@
               (free ? " · " + free + " more are free" : "");
           }
         } else if (free) {
-          if (!mine()) field.value = "0";
-          note.textContent = "every band on air is free right now";
+          if (!mine()) {
+            field.value = "0";
+            note.textContent = "every band on air is free right now";
+          }
         } else {
-          if (!mine()) field.value = "";
-          note.textContent = "the band is quiet - put in a rate yourself";
+          if (!mine()) {
+            field.value = "";
+            note.textContent = "the band is quiet - put in a rate yourself";
+          }
         }
         recalc();
       })
       .catch(function () {
         // No invented rate, and no silent zero either. The reader's own number is the
         // only honest fallback, so the field is emptied and asks for one.
-        if (!mine()) field.value = "";
-        note.textContent = "could not read the market - put in a rate yourself";
+        if (!mine()) {
+          field.value = "";
+          note.textContent = "could not read the market - put in a rate yourself";
+        }
         recalc();
       });
   }

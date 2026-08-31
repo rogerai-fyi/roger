@@ -134,7 +134,10 @@ func TestCoverGateOnlyRemovesContainersItMayRemove(t *testing.T) {
 	// Two removals are legitimate: our own $PG_CT, and the sweep of containers whose
 	// owning process is gone. Anything else can take a live run's database, which is the
 	// failure this whole file exists to prevent.
-	for i, line := range strings.Split(s, "\n") {
+	// codeLines, so a comment mentioning both `rm -f` and RUNTIME cannot trip this - and
+	// so the reported line number is the script's own, since codeLines blanks rather than
+	// drops. This was the only line-indexed check and it was reading the raw script.
+	for i, line := range strings.Split(codeLines(s), "\n") {
 		if !strings.Contains(line, `rm -f`) || !strings.Contains(line, "RUNTIME") {
 			continue
 		}

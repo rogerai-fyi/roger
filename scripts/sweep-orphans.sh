@@ -23,22 +23,34 @@
 # sibling's database in that window. Which is the exact failure this whole sweep exists to
 # prevent, arrived at from a third direction.
 #
-# The cost of dropping it is stated rather than hidden: a STOPPED container whose pid has
-# since been recycled is never reclaimed and leaks. It holds no port once stopped, so the
-# cost is metadata, and that is the right side of this trade - leaking a stopped container
-# is recoverable, deleting a running run's database is not.
+# The cost of dropping it is stated rather than hidden: a container whose pid has since
+# been recycled is never reclaimed and leaks. A stopped one costs only metadata; a running
+# one holds its published port and its memory until somebody removes it by hand. That is
+# still the right side of this trade - a leak is recoverable, deleting a running run's
+# database is not - but it is a leak, not a rounding error.
 set -uo pipefail
 
-PREFIX="rogerai-covergate-pg-"
+BASE="rogerai-covergate-pg"
+PREFIX="$BASE-"
 NS="${PG_NS:-0}"
 
 while IFS= read -r ct; do
   ct="${ct%%[[:space:]]*}"                       # tolerate extra columns
   [ -n "$ct" ] || continue
-  case "$ct" in "$PREFIX"*) ;; (*) continue ;; esac
-  rest="${ct#"$PREFIX"}"
-  ns="${rest%-*}"
-  owner="${rest##*-}"
+  case "$ct" in "$BASE") ;; "$PREFIX"*) ;; (*) continue ;; esac
+  rest="${ct#"$BASE"}"   # "" for the old fixed name, else "-<...>"
+  rest="${rest#-}"
+  # LEGACY NAMES, from before this scheme, are reclaimed on the pid alone. The fixed
+  # "rogerai-covergate-pg" has no suffix and belongs to no current run at all; the
+  # "<pid>" form predates the namespace segment. Neither can ever match a namespace, so
+  # without this they were never reclaimed - and a RUNNING legacy orphan holds its
+  # published port and its memory, which is a good deal worse than the stopped-container
+  # metadata this file's trade-off is written around.
+  if [ -z "$rest" ]; then echo "$ct"; continue; fi   # the old fixed name
+  case "$rest" in
+    *-*) ns="${rest%-*}"; owner="${rest##*-}" ;;
+    *)   ns="$NS";        owner="$rest" ;;           # the old "<pid>" form
+  esac
   case "$owner" in (*[!0-9]*|"") continue ;; esac
   [ "$ns" = "$NS" ] || continue
   if [ -d "/proc/$owner" ] || ps -p "$owner" >/dev/null 2>&1; then continue; fi
