@@ -1,0 +1,134 @@
+// Broadcast 011 is an argument made entirely of arithmetic, published on a site whose
+// rule is that a printed number has to be one somebody can check. So the numbers are not
+// prose here: every cost row carries the inputs it was computed from, and this test
+// recomputes each one and compares it to what the page prints.
+//
+// That is the only way an article like this stays true. Copy drifts, a card gets swapped,
+// a rate is updated, and a table that was right in August quietly stops being right - with
+// nothing failing, because nothing was ever checking the sums.
+import { test, before } from "node:test";
+import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
+
+const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
+const PAGE = "broadcasts-what-a-million-tokens-costs.html";
+const read = (p) => readFileSync(path.join(WEB, "dist", p), "utf8");
+const src = (p) => readFileSync(path.join(WEB, "src", p), "utf8");
+
+before(() => execFileSync("node", ["build.mjs"], { cwd: WEB }));
+
+/* ---- it exists and is wired like every other broadcast ---------------- */
+
+test("economics: the broadcast builds, is indexable, and is in the sitemap", () => {
+  assert.doesNotMatch(read(PAGE), /name=["']robots["'][^>]*noindex/i);
+  assert.match(read("sitemap.xml"), new RegExp(`<loc>https://rogerai\\.fm/${PAGE}</loc>`));
+});
+
+test("economics: the transmission log carries it, newest first", () => {
+  const log = read("broadcasts.html");
+  assert.match(log, new RegExp(`href="/${PAGE}"`), "the index links it");
+  const first = log.indexOf(`href="/${PAGE}"`);
+  const prev = log.indexOf('href="/broadcasts-run-a-tower.html"');
+  assert.ok(first > 0 && prev > 0 && first < prev, "it sits above the previous broadcast");
+});
+
+/* ---- THE ARITHMETIC ---------------------------------------------------- */
+
+// The operator's share, declared once on the page and read from there rather than
+// hardcoded here: if the split ever changes, the page and this test move together.
+const share = () => {
+  const s = Number(read(PAGE).match(/data-share="([0-9.]+)"/)?.[1]);
+  assert.ok(s > 0 && s < 1, "the page declares the operator's share");
+  return s;
+};
+
+// A row is either an OWNED card (watts + electricity rate) or a RENTED one (an hourly
+// price). Both reduce to a cost per hour.
+const rows = () =>
+  [...read(PAGE).matchAll(/<tr[^>]*data-cost[^>]*>/g)].map((m) => {
+    const attr = (n) => {
+      const v = m[0].match(new RegExp(`data-${n}="([0-9.]+)"`))?.[1];
+      return v === undefined ? undefined : Number(v);
+    };
+    return {
+      tag: m[0],
+      watts: attr("watts"), rate: attr("rate"), hourly: attr("hourly"),
+      tps: attr("tps"), util: attr("util"), price: attr("price"),
+    };
+  });
+
+test("economics: every printed cost is the formula applied to its own inputs", () => {
+  const S = share();
+  const all = rows();
+  assert.ok(all.length >= 9, `the cost rows carry their inputs (found ${all.length})`);
+
+  for (const r of all) {
+    const costHr = r.hourly !== undefined ? r.hourly : (r.watts / 1000) * r.rate;
+    assert.ok(Number.isFinite(costHr), `a row states either an hourly price or watts + a rate: ${r.tag}`);
+    assert.ok(r.tps > 0 && r.util > 0 && r.price > 0, `a row states throughput, duty and a price: ${r.tag}`);
+
+    // break-even $/1M = (cost per hour / the operator's share) / millions of tokens served
+    const expected = (costHr / S) / ((r.tps * 3600 * r.util) / 1e6);
+    assert.ok(Math.abs(expected - r.price) < 0.005,
+      `printed $${r.price}/1M, but ${r.tps} tok/s at ${r.util * 100}% duty on $${costHr.toFixed(4)}/hr works out to $${expected.toFixed(3)}/1M`);
+  }
+});
+
+test("economics: the printed price also appears as text in its own row", () => {
+  // Guards the other half: the attribute could be right while the visible cell is stale.
+  const page = read(PAGE);
+  for (const m of page.matchAll(/<tr[^>]*data-price="([0-9.]+)"[^>]*>([\s\S]*?)<\/tr>/g)) {
+    const shown = Number(m[1]).toFixed(2);
+    assert.ok(m[2].includes(shown),
+      `a row computes $${shown} but does not print it: ${m[2].replace(/\s+/g, " ").slice(0, 90)}`);
+  }
+});
+
+/* ---- the comparison, and where it came from ---------------------------- */
+
+test("economics: every aggregator price is attributed and dated", () => {
+  const page = read(PAGE);
+  const quoted = [...page.matchAll(/data-market="([^"]+)" data-market-price="([0-9.]+)"/g)];
+  assert.ok(quoted.length >= 4, `it quotes real comparison prices (found ${quoted.length})`);
+  for (const [, model] of quoted) {
+    assert.match(model, /\//, `"${model}" is a full model id, so a reader can check it`);
+  }
+  assert.match(page, /openrouter/i, "it says whose prices these are");
+  assert.match(page, /2026-08-31|31 August 2026|August 2026/, "and when they were read");
+});
+
+test("economics: the assumption doing the work is stated, not buried", () => {
+  // Throughput moves every number on the page. An article that prints break-even figures
+  // without saying what tok/s they assume is not showing its working, it is decorating.
+  const page = read(PAGE).replace(/\s+/g, " ");
+  assert.match(page, /tok\/s/, "throughput is named");
+  assert.match(page, /assum|depends on|the number that moves/i, "and flagged as the assumption");
+  assert.match(page, /30%|70%/, "and the platform's share is stated where the money is");
+});
+
+/* ---- the shape the site expects --------------------------------------- */
+
+test("economics: it carries a quick answer and FAQ structured data", () => {
+  const page = read(PAGE);
+  assert.match(page, /"@type"\s*:\s*"FAQPage"/, "FAQPage JSON-LD");
+  assert.match(page, /class="bc-answer"/, "a quick answer block leads the piece");
+});
+
+test("economics: the chart is described for a reader who cannot see it", () => {
+  const fig = read(PAGE).match(/<svg[^>]*class="[^"]*ec-chart[^"]*"[\s\S]*?<\/svg>/)?.[0];
+  assert.ok(fig, "the comparison chart is inline SVG");
+  assert.match(fig, /role="img"/, "it is announced as an image");
+  // a <title> may carry an id (aria-labelledby points at it), so do not require a bare tag
+  assert.match(fig, /<title[\s>]|aria-label="[^"]{40,}"/, "with a name for what it shows");
+  const long = fig.match(/<desc[^>]*>([\s\S]*?)<\/desc>/)?.[1] ?? fig.match(/aria-label="([^"]*)"/)?.[1] ?? "";
+  assert.ok(long.replace(/\s+/g, " ").trim().length >= 120,
+    "and prose that actually reads out the comparison, not just a label");
+});
+
+test("economics: it is registered for its own stylesheet", () => {
+  assert.match(src("../build.mjs"), new RegExp(`"${PAGE}"`), "the page has a CSS bundle");
+  assert.match(read(PAGE), /styles\/broadcast-economics\.css/, "and links it");
+});

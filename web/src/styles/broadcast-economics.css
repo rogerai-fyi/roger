@@ -1,0 +1,163 @@
+/* Broadcast 011 - the unit-economics plate. Scoped under .ec-post so nothing here
+   can leak into the other broadcasts, which share broadcasts.css untouched.
+   The piece is a ledger: mono figures, tabular numerals, hairline rules, and exactly
+   one red - spent on the row that wins the comparison. */
+
+.ec-post .bc-post__wrap { max-width: 900px; }
+.ec-post .bc-post__head,
+.ec-post .bc-post__body { max-width: 760px; margin-inline: auto; }
+
+/* ---- the quick answer ------------------------------------------------- */
+
+.bc-answer {
+  margin: var(--s-8) 0 0;
+  padding: var(--s-5) var(--s-6) var(--s-4);
+  background: var(--paper-2);
+  border: 1px solid var(--hairline-2);
+  border-radius: var(--r-md);
+}
+.bc-answer__tag {
+  display: inline-block; margin-bottom: var(--s-3);
+  font-size: var(--t-micro); letter-spacing: var(--tracking-label);
+  text-transform: uppercase; color: var(--live);
+}
+.bc-answer__lede {
+  margin: 0; font-size: var(--t-lead); line-height: 1.5; color: var(--ink-900);
+}
+.bc-answer__lede b { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+.ec-answer-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr);
+  gap: 1px; margin: var(--s-5) 0 0;
+  background: var(--hairline-2);
+  border: 1px solid var(--hairline-2); border-radius: 4px; overflow: hidden;
+}
+.ec-answer-grid > div { padding: var(--s-3) var(--s-4); background: var(--white); }
+.ec-answer-grid dt {
+  font-size: var(--t-micro); letter-spacing: var(--tracking-label);
+  text-transform: uppercase; color: var(--ink-400);
+}
+.ec-answer-grid dd {
+  margin: 6px 0 0; font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums slashed-zero;
+  font-size: var(--t-h3); color: var(--ink-900);
+}
+/* the unit label wraps as one piece, never leaving "out" stranded on its own line */
+.ec-answer-grid dd span { font-size: var(--t-xs); color: var(--ink-400); white-space: nowrap; }
+.ec-answer-foot {
+  margin: var(--s-3) 0 0; font-size: var(--t-micro);
+  letter-spacing: .04em; color: var(--ink-400);
+}
+
+/* ---- the formula ------------------------------------------------------ */
+
+.ec-formula {
+  margin: var(--s-6) 0 0; padding: var(--s-5) var(--s-4) var(--s-4);
+  border: 1px solid var(--hairline-2); border-radius: var(--r-md);
+  background: var(--white);
+}
+.ec-formula__eq {
+  display: flex; align-items: center; justify-content: center;
+  flex-wrap: wrap; gap: var(--s-3);
+  font-size: var(--t-sm); color: var(--ink-900);
+}
+.ec-formula__lhs { color: var(--live); font-weight: var(--weight-semi); }
+.ec-formula__op { color: var(--ink-400); }
+.ec-formula__frac { display: inline-flex; flex-direction: column; text-align: center; }
+.ec-formula__num { padding-bottom: 5px; }
+.ec-formula__den { padding-top: 5px; border-top: 1px solid var(--ink-900); }
+.ec-formula figcaption {
+  margin: var(--s-4) 0 0; text-align: center;
+  font-size: var(--t-xs); line-height: 1.5; color: var(--ink-500);
+}
+
+/* ---- the ledger tables ------------------------------------------------ */
+
+.ec-tablewrap { margin: var(--s-6) 0 0; overflow-x: auto; }
+
+.ec-table {
+  width: 100%; min-width: 560px; border-collapse: collapse;
+  font-size: var(--t-sm);
+}
+.ec-table caption {
+  caption-side: top; text-align: left; padding-bottom: var(--s-3);
+  font-size: var(--t-micro); letter-spacing: var(--tracking-label);
+  text-transform: uppercase; color: var(--ink-400);
+}
+.ec-table th {
+  text-align: left; padding: 0 var(--s-3) var(--s-2) 0;
+  border-bottom: 1px solid var(--ink-900);
+  font-size: var(--t-micro); letter-spacing: var(--tracking-label);
+  text-transform: uppercase; font-weight: var(--weight-semi); color: var(--ink-700);
+  white-space: nowrap;
+}
+.ec-table td {
+  padding: 9px var(--s-3) 9px 0;
+  border-bottom: 1px solid var(--hairline);
+  color: var(--ink-700); vertical-align: baseline;
+}
+.ec-table td.mono { font-variant-numeric: tabular-nums slashed-zero; white-space: nowrap; }
+.ec-table tbody tr:hover td { background: var(--paper-2); }
+/* a continued row: same card, the other duty cycle. The label is dimmed so the eye
+   reads the pair as one machine rather than two. */
+.ec-table .ec-cont { color: var(--ink-400); }
+.ec-win  { color: var(--live); font-weight: var(--weight-semi); }
+/* not "crossed out" - a figure that does not clear its own cost. Muted, not struck. */
+.ec-lose { color: var(--ink-400); }
+.ec-lose::after { content: " \2717"; font-size: .85em; }
+
+.ec-table--market td:first-child,
+.ec-table--market td.mono { font-variant-numeric: tabular-nums slashed-zero; }
+.ec-table--market { min-width: 460px; }
+.ec-table--margin { min-width: 620px; }
+
+/* ---- the chart -------------------------------------------------------- */
+
+.ec-figure { margin: var(--s-8) 0 0; }
+.ec-chart {
+  display: block; width: 100%; height: auto;
+  background: var(--white);
+  border: 1px solid var(--hairline-2); border-radius: var(--r-md);
+  padding: var(--s-2) 0;
+}
+.ec-chart__grid line { stroke: var(--hairline); stroke-width: 1; }
+.ec-chart__lbl {
+  fill: var(--ink-700); font-family: var(--font-ui);
+  font-size: 12px; text-anchor: end;
+}
+.ec-chart__val {
+  fill: var(--ink-900); font-family: var(--font-mono);
+  font-size: 12px; font-variant-numeric: tabular-nums;
+}
+.ec-chart__axis {
+  fill: var(--ink-400); font-family: var(--font-mono);
+  font-size: 10px; text-anchor: middle;
+}
+.ec-chart__bar { rx: 2; }
+.ec-chart__bar--own  { fill: var(--live); }
+.ec-chart__bar--buy  { fill: var(--ink-500); }
+.ec-chart__bar--rent { fill: var(--ink-300); }
+.ec-chart__bar--bad  { fill: var(--paper-3); stroke: var(--hairline-2); stroke-width: 1; }
+.ec-figure figcaption {
+  margin: var(--s-3) 2px 0; font-size: var(--t-xs);
+  line-height: 1.5; color: var(--ink-400);
+}
+
+/* ---- the levers ------------------------------------------------------- */
+
+.ec-levers { margin: var(--s-5) 0 0; padding: 0; list-style: none; }
+.ec-levers li {
+  position: relative; padding: 0 0 var(--s-4) var(--s-6);
+  line-height: var(--lh-body); color: var(--ink-700);
+}
+.ec-levers li::before {
+  content: "\2192"; position: absolute; left: 0; top: 0;
+  color: var(--live); font-family: var(--font-mono);
+}
+.ec-levers li:last-child { padding-bottom: 0; }
+.ec-levers b { color: var(--ink-900); }
+
+@media (max-width: 640px) {
+  .ec-answer-grid { grid-template-columns: 1fr; }
+  .ec-formula__eq { font-size: var(--t-xs); }
+}
