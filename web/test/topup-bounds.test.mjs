@@ -79,14 +79,14 @@ test("topup bounds: the local console guards the same three things", () => {
 
 // classifyMinimum decides whether a "$N minimum" in a page is the TOP-UP floor or the
 // PAYOUT minimum, by which context word sits nearer the match. It is a named function so
-// it can be exercised directly: inside the page sweep it decides nothing today (no
+// the fixtures below can call it: inside the page sweep it decides nothing today (no
 // current page has both words in range), and logic that never runs is logic nobody
 // checked.
 //
 // "none" is a real answer and must stay reachable. An earlier version compared the two
 // distances directly, and Infinity <= Infinity made every unclassifiable minimum a
 // top-up - which quietly deleted the whole point of the third branch.
-export function classifyMinimum(window, anchor) {
+function classifyMinimum(window, anchor) {
   const nearest = (re) => {
     let best = Infinity;
     for (const hit of window.matchAll(re)) {
@@ -173,7 +173,7 @@ const stripTags = (h) => {
 // it (the stripper, the window, the anchor) exercised only by real pages, which never
 // reach their edges: the nearest match on the site sits 239 characters in, so the
 // clamped window and the nearest-wins decision had never run at all.
-export function findMinimums(rawHtml) {
+function findMinimums(rawHtml) {
   const html = stripTags(rawHtml);
   const out = [];
   for (const m of html.matchAll(/minimum[^$]{0,12}\$(\d(?:[\d,]*\d)?(?:\.\d+)?|\.\d+)|\$(\d(?:[\d,]*\d)?(?:\.\d+)?|\.\d+)\s*minimum/gi)) {
@@ -195,7 +195,10 @@ test("topup bounds: the scan survives a clamped window, a wrapped attribute and 
 
   // Prose carried in a WRAPPED attribute, which a body-only whitespace collapse left
   // broken across its own indentation.
-  const wrapped = '<p aria-label="the top-up\n     minimum is $9\n     per account">x</p>';
+  // The wrap sits INSIDE the gap between the word and the number, which is the only
+  // place it can break the match - a newline before "minimum" would be matched either
+  // way, so the earlier fixture pinned nothing.
+  const wrapped = '<p aria-label="the top-up minimum\n                    is $9 per account">x</p>';
   assert.deepEqual(findMinimums(wrapped), [{ shown: "9", kind: "topup" }]);
 
   // And a minimum with neither context word stays unclassifiable rather than defaulting
