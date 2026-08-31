@@ -38,38 +38,45 @@ func runSweep(t *testing.T, ns, stdin string) []string {
 func TestSweepOrphansDecides(t *testing.T) {
 	// pid 1 is alive and owned by root, so it also covers the EPERM case that made
 	// `kill -0` classify another user's live run as an orphan.
+	//
+	// Each fixture is chosen so exactly ONE rule decides it: remove that rule and this
+	// list changes. A fixture decided by two rules tests neither.
 	const input = "" +
-		"rogerai-covergate-pg-42-1 running\n" + // ours, owner alive          -> keep
-		"rogerai-covergate-pg-42-999999 running\n" + // ours, owner gone      -> reclaim
-		"rogerai-covergate-pg-99-999999 running\n" + // another PID namespace, and a pid
-		//                                              dead HERE: only the namespace check
-		//                                              keeps it                -> keep
-		"rogerai-covergate-pg-42-1 created\n" + // not running, owner ALIVE: only the state
-		//                                          check reclaims it            -> reclaim
-		"rogerai-covergate-pg-42-777777 exited\n" + // not running            -> reclaim
-		"rogerai-covergate-pg-42-notapid running\n" + // unparsable owner     -> keep
-		"some-other-container running\n" + // not ours at all                  -> keep
+		"rogerai-covergate-pg-42-1\n" + // ours, owner alive                  -> keep
+		"rogerai-covergate-pg-42-999999\n" + // ours, owner gone              -> reclaim
+		"rogerai-covergate-pg-99-999999\n" + // another PID namespace, and a pid dead
+		//                                       HERE: only the namespace check keeps it
+		"rogerai-covergate-pg-42-notapid\n" + // unparsable owner             -> keep
+		"some-other-container\n" + // not ours at all                         -> keep
 		// Somebody else's container, named so that stripping our prefix would be a no-op
 		// and leave a namespace and pid that both look like ours. Only the prefix guard
 		// keeps it, which is the point: another project's container is not ours to remove.
-		"42-999999 running\n"
+		"42-999999\n"
 
 	got := runSweep(t, "42", input)
-	// Each fixture is chosen so exactly ONE rule decides it: remove that rule and this
-	// list changes. A fixture decided by two rules tests neither.
-	want := []string{
-		"rogerai-covergate-pg-42-999999",
-		"rogerai-covergate-pg-42-1",
-		"rogerai-covergate-pg-42-777777",
-	}
+	want := []string{"rogerai-covergate-pg-42-999999"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Errorf("sweep reclaimed %v, want %v", got, want)
 	}
 }
 
+// The window that made an earlier version dangerous. `run -d` reports "created" between
+// create and start, and a rule that reclaimed anything not running was tested BEFORE the
+// liveness check - so a concurrently starting gate would have deleted a live sibling's
+// database in that window. State is not consulted at all now, and this pins that: a
+// container whose owner is alive is never taken, whatever it is doing.
+func TestSweepOrphansNeverTakesAContainerMidStartup(t *testing.T) {
+	for _, extra := range []string{"", " created", " running", " exited"} {
+		line := "rogerai-covergate-pg-42-1" + extra + "\n"
+		if got := runSweep(t, "42", line); len(got) != 0 {
+			t.Errorf("sweep would remove %q, whose owner is alive", got)
+		}
+	}
+}
+
 // The failure that actually shipped: with the fields unsplit, every line was skipped.
 func TestSweepOrphansIsNotSilentlyInert(t *testing.T) {
-	got := runSweep(t, "42", "rogerai-covergate-pg-42-999999 running\n")
+	got := runSweep(t, "42", "rogerai-covergate-pg-42-999999\n")
 	if len(got) == 0 {
 		t.Error("the sweep reclaimed nothing at all from an obvious orphan - it is inert")
 	}

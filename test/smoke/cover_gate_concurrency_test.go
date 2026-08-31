@@ -104,6 +104,14 @@ func TestCoverGateDelegatesTheSweep(t *testing.T) {
 		t.Error("the gate decides liveness inline with kill -0, which cannot see another " +
 			"user's process")
 	}
+	// The sweep must not be handed a container's STATE. A rule keyed on it reclaimed
+	// anything not running, ahead of the liveness check, and `run -d` reports "created"
+	// between create and start - so a concurrently starting gate deleted a live sibling's
+	// database in that window. Not passing state is what makes that rule unwritable.
+	if strings.Contains(code, "{{.State}}") {
+		t.Error("the gate passes container state to the sweep, which is how a rule that " +
+			"short-circuits the liveness check gets written again")
+	}
 }
 
 // Two gates in one worktree used to write one another's coverage profile, so the loser
@@ -137,6 +145,6 @@ func TestCoverGateOnlyRemovesContainersItMayRemove(t *testing.T) {
 				"an orphan of a dead run: %s", i+1, strings.TrimSpace(line))
 		}
 	}
-	// That the allowed sweep really does discriminate by owning process is asserted from
-	// the other side, in TestCoverGateReclaimsItsOwnOrphans.
+	// That the allowed sweep really does discriminate correctly is asserted from the other
+	// side, in sweep_orphans_test.go (TestSweepOrphansNeverTakesALiveRun and friends).
 }

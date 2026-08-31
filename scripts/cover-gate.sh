@@ -77,7 +77,7 @@ if [ -z "${ROGERAI_TEST_DATABASE_URL:-}" ]; then
     # acts on what it names. The decision is a separate script because it shipped broken
     # once in a way no string-matching test could see, and it is unit-tested there.
     # stderr is NOT swallowed: silencing it is what hid an earlier sweep doing nothing.
-    "$RUNTIME" ps -a --filter "name=^rogerai-covergate-pg-" --format "{{.Names}} {{.State}}" \
+    "$RUNTIME" ps -a --filter "name=^rogerai-covergate-pg-" --format "{{.Names}}" \
       | PG_NS="$PG_NS" "$(dirname "$0")/sweep-orphans.sh" \
       | while IFS= read -r ct; do
           [ -n "$ct" ] || continue

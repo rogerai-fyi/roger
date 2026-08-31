@@ -138,27 +138,41 @@
           // way in, so an un-clamped display showed a rate the arithmetic did not use.
           // String() also renders a very small rate in exponent form (6e-7), which is not
           // a price anyone reads.
+          // NOT clamped to the field's max. That bound is there for a reader typing a
+          // number; clamping LIVE data to it displayed and computed a rate the market did
+          // not report, understating the band and overstating the saving. A rate outside
+          // what the field can express is handed back to the reader instead.
           var hi = parseFloat(field.max);
-          var shown = isFinite(hi) ? Math.min(best.price, hi) : best.price;
-          // A rate that ROUNDS to zero is not a rate: writing "0.000000" would pass the
-          // non-empty guard and re-print the full-price saving this whole path exists to
-          // avoid. Below what the field can express, say so instead.
-          var text = shown < 0.01 ? shown.toPrecision(3) : shown.toFixed(2);
-          if (parseFloat(text) === 0) {
-            note.textContent = "cheapest paid band is below a hundredth of a cent - " +
-              "put in a rate yourself";
+          if (isFinite(hi) && best.price > hi) {
+            note.textContent = "cheapest paid band (" + (best.model || "unknown") +
+              ") is above this field's range - put in a rate yourself";
             recalc();
             return;
           }
-          if (!mine()) field.value = text;
+          // A rate too small for the field is also handed back. The earlier guard tested
+          // parseFloat(text) === 0, which is unreachable - toPrecision never parses back
+          // to zero - so 6e-7 was written as "6.00e-7", passed the non-empty check, and
+          // printed a near-full-price saving.
+          if (best.price < 0.005) {
+            note.textContent = "cheapest paid band (" + (best.model || "unknown") +
+              ") is below half a cent per 1M - put in a rate yourself";
+            recalc();
+            return;
+          }
+          if (!mine()) field.value = best.price.toFixed(2);
           // NAMES the band it came from, and says PAID. Free bands are excluded from the
           // rate on purpose - a zero would price the comparison at nothing - so calling
           // this "the cheapest on air" was untrue whenever a free band existed, which on
           // this market is most of the time. And it is one model's price against the
           // reader's own, likely different, model: saying which one is what lets them
           // judge that rather than take the number on trust.
-          note.textContent = "cheapest PAID band on air: " + (best.model || "unknown") +
-            (free ? " · " + free + " more are free" : "");
+          // The note describes what is IN the field, so it is skipped for the same reason
+          // the write is: after the reader types their own rate it would be describing a
+          // value the field no longer holds.
+          if (!mine()) {
+            note.textContent = "cheapest PAID band on air: " + (best.model || "unknown") +
+              (free ? " · " + free + " more are free" : "");
+          }
         } else if (free) {
           if (!mine()) field.value = "0";
           note.textContent = "every band on air is free right now";

@@ -100,7 +100,11 @@ test("calculator: the live rate is read, never baked in", () => {
   assert.match(js, /best\.model/, "and names which band it came from");
   // The fetched rate is shown within the field's own declared bounds, since num() clamps
   // to them on the way in - otherwise the page displays a rate the sum does not use.
-  assert.match(js, /field\.max/, "the fetched rate respects the field's maximum");
+  // Live data is never CLAMPED to a reader-input bound: doing so displayed and computed
+  // a rate the market did not report. Out of range in either direction is handed back.
+  assert.match(js, /best\.price > hi/, "a rate above the field's range is refused, not clamped");
+  assert.match(js, /best\.price < 0\.005/, "and one too small to express is refused too");
+  assert.doesNotMatch(js, /Math\.min\(best\.price/, "the live rate is not clamped");
   assert.doesNotMatch(js, /field\.value = String\(best/, "and is not rendered in exponent form");
 
   // An unknown rate must not be treated as a free one. When the market cannot be read the
