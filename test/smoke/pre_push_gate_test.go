@@ -73,6 +73,15 @@ func stubPath(t *testing.T) string {
 			t.Fatal(err)
 		}
 	}
+	// A healthy keepalive by default. The hook refuses to start the long gate on an ssh
+	// connection that would idle out, and these tests push to a fake ssh remote - so
+	// without this they would exercise that refusal instead of the classification they are
+	// about. runHookWithSSH overwrites this stub for the cases that DO test the refusal.
+	sshDefault := "#!/bin/sh\necho \"serveraliveinterval 30\"\necho \"serveralivecountmax 120\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "ssh"), []byte(sshDefault), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
 	real, err := exec.LookPath("git")
 	if err != nil {
 		t.Skip("no git on PATH")
@@ -237,4 +246,75 @@ func classifierFromHook(t *testing.T) string {
 			"back to `printf | grep -q`, that is the fail-open bug returning", len(lines))
 	}
 	return strings.Join(lines, "\n")
+}
+
+// The gate opens the SSH connection before it runs, then holds it idle for fifteen minutes
+// or more. If the far end drops it, every gate reports success and the push does not land -
+// the failure shape that cost most of 2026-08-30. The hook checks for that BEFORE spending
+// the time, so these pin when it fires and, just as importantly, when it does not.
+//
+// Hermetic: `ssh` is stubbed to report whatever keepalive the case wants, so the test does
+// not depend on the machine's ~/.ssh/config and is the same in CI.
+func TestPrePushRefusesToRunTheGateOnAConnectionThatWillDie(t *testing.T) {
+	base, head := commitTouching(t, func(f []string) bool { return hasGo(f) })
+	for _, tc := range []struct {
+		name        string
+		remote      string
+		interval    string
+		countMax    string
+		wantStop    bool
+		wantGateRun bool
+	}{
+		{"ssh remote with no keepalive stops before the gate", "git@github.com:o/r.git", "0", "3", true, false},
+		// A keepalive that is ON but too SHORT is still fatal: 30s x 3 gives 90 seconds of
+		// tolerance against a gate that runs for fifteen minutes or more. The check is about
+		// the budget, not about the setting being present.
+		{"a keepalive too short for the gate still stops", "git@github.com:o/r.git", "30", "3", true, false},
+		{"a keepalive that covers the gate proceeds", "git@github.com:o/r.git", "30", "120", false, true},
+		{"https remote is unaffected", "https://github.com/o/r.git", "0", "3", false, true},
+		{"ssh:// URL form is recognised", "ssh://git@github.com/o/r.git", "0", "3", true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out := runHookWithSSH(t, base, head, tc.remote, tc.interval, tc.countMax)
+			stopped := strings.Contains(out, "STOPPING BEFORE THE GATE")
+			ranGate := strings.Contains(out, "STUB make cover-gate")
+			if stopped != tc.wantStop {
+				t.Errorf("stop-before-gate = %v, want %v\n%s", stopped, tc.wantStop, out)
+			}
+			if ranGate != tc.wantGateRun {
+				t.Errorf("coverage gate ran = %v, want %v\n%s", ranGate, tc.wantGateRun, out)
+			}
+			if tc.wantStop && !strings.Contains(out, "ServerAliveInterval") {
+				t.Errorf("refusing without naming the fix is a dead end:\n%s", out)
+			}
+		})
+	}
+}
+
+// runHookWithSSH runs the hook with `ssh -G` stubbed to a chosen keepalive interval.
+func runHookWithSSH(t *testing.T, base, head, remoteURL, interval, countMax string) string {
+	t.Helper()
+	root, err := gitClean(t, "rev-parse", "--show-toplevel")
+	if err != nil {
+		t.Skip("not a git checkout")
+	}
+	repo := strings.TrimSpace(string(root))
+	hook := filepath.Join(repo, "scripts", "hooks", "pre-push")
+	if _, err := os.Stat(hook); err != nil {
+		t.Skipf("tracked hook not present: %v", err)
+	}
+	path := stubPath(t)
+	dir := strings.SplitN(path, string(os.PathListSeparator), 2)[0]
+	sshStub := "#!/bin/sh\n" +
+		"echo \"serveraliveinterval " + interval + "\"\n" +
+		"echo \"serveralivecountmax " + countMax + "\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "ssh"), []byte(sshStub), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("bash", hook, "origin", remoteURL)
+	cmd.Dir = repo
+	cmd.Stdin = strings.NewReader("refs/heads/probe " + head + " refs/heads/main " + base + "\n")
+	cmd.Env = append(cleanEnv(), "PATH="+path)
+	out, _ := cmd.CombinedOutput()
+	return string(out)
 }
