@@ -94,6 +94,16 @@ func stubPath(t *testing.T) string {
 	// add` would slip past a positional check and take the shared lock this stub exists to
 	// avoid, the moment the hook grows a -C or -c prefix.
 	gitStub := "#!/bin/sh\n" +
+		"# The classification tests drive the hook with commits from real history, which are\n" +
+		"# by now all PUBLISHED - and the hook rightly skips its gates for a published\n" +
+		"# commit. Reporting none as published keeps these tests about classification; the\n" +
+		"# skip has its own test that uses the real git.\n" +
+		"# GATE_TEST_REAL_PUBLISHED=1 lets the published-skip test see the truth while\n" +
+		"# keeping make/go/worktree stubbed - a regression there must never reach a real\n" +
+		"# gate or take the shared .git lock from inside a test.\n" +
+		"if [ \"${GATE_TEST_REAL_PUBLISHED:-0}\" != 1 ]; then\n" +
+		"  case \"$*\" in *for-each-ref*--contains*) exit 0 ;; esac\n" +
+		"fi\n" +
 		"seen_worktree=0; remove_target=\n" +
 		"for a in \"$@\"; do\n" +
 		"  if [ \"$seen_worktree\" = 2 ]; then remove_target=\"$a\"; break; fi\n" +
@@ -317,4 +327,43 @@ func runHookWithSSH(t *testing.T, base, head, remoteURL, interval, countMax stri
 	cmd.Env = append(cleanEnv(), "PATH="+path)
 	out, _ := cmd.CombinedOutput()
 	return string(out)
+}
+
+// A TAG points at a commit that went through this gate on its way to the branch it sits
+// on. Re-running the full coverage gate to move a POINTER re-proves nothing - and at
+// fifteen minutes it turned tagging a release into the slowest step of shipping one, or a
+// blocked one when a timeout killed it mid-gate. v6.4.0 hit exactly that.
+func TestPrePushSkipsTheGateForAnAlreadyPublishedCommit(t *testing.T) {
+	// origin/main's tip is by definition already on the remote.
+	sha, err := gitClean(t, "rev-parse", "origin/main")
+	if err != nil {
+		t.Skip("no origin/main")
+	}
+	published := strings.TrimSpace(string(sha))
+	// Real git throughout: the classification harness stubs the published check away
+	// (see gitStub), and this test IS that check. Only make/go/ssh are stubbed, and the
+	// gate lines they would print are exactly what must NOT appear.
+	root, err := gitClean(t, "rev-parse", "--show-toplevel")
+	if err != nil {
+		t.Skip("not a git checkout")
+	}
+	repo := strings.TrimSpace(string(root))
+	hook := filepath.Join(repo, "scripts", "hooks", "pre-push")
+	cmd := exec.Command("bash", hook, "origin", "git@example.invalid:x/y.git")
+	cmd.Dir = repo
+	cmd.Stdin = strings.NewReader("refs/tags/vprobe " + published + " refs/tags/vprobe 0000000000000000000000000000000000000000\n")
+	// Everything stays stubbed EXCEPT the published check: a regression here must fail on
+	// an assertion, never by running a real fifteen-minute gate or taking the shared .git
+	// lock from inside a test.
+	cmd.Env = append(cleanEnv(), "PATH="+stubPath(t), "GATE_TEST_REAL_PUBLISHED=1")
+	outB, _ := cmd.CombinedOutput()
+	out := string(outB)
+	if !strings.Contains(out, "already on the remote") {
+		t.Errorf("a ref pointing at a published commit must skip the gate:\n%s", out)
+	}
+	for _, gate := range []string{"FULL coverage gate", "fast gate", "web gate"} {
+		if strings.Contains(out, gate) {
+			t.Errorf("the %s ran for a commit that is already on the remote:\n%s", gate, out)
+		}
+	}
 }
