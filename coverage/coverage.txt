@@ -4,7 +4,7 @@ rogerai.fm/roger/v6/cmd/roger-tower-local/main.go:104:			serve				80.0%
 rogerai.fm/roger/v6/cmd/roger-tower-local/main.go:112:			run				85.7%
 rogerai.fm/roger/v6/cmd/roger-tower/earnings.go:23:			cmdEarnings			96.3%
 rogerai.fm/roger/v6/cmd/roger-tower/hub.go:112:				tlsWanted			100.0%
-rogerai.fm/roger/v6/cmd/roger-tower/hub.go:118:				runHubInBackground		71.9%
+rogerai.fm/roger/v6/cmd/roger-tower/hub.go:118:				runHubInBackground		73.1%
 rogerai.fm/roger/v6/cmd/roger-tower/hub.go:505:				registerHubNodes		100.0%
 rogerai.fm/roger/v6/cmd/roger-tower/hub.go:555:				limitConns			100.0%
 rogerai.fm/roger/v6/cmd/roger-tower/hub.go:564:				Accept				100.0%
@@ -801,7 +801,7 @@ rogerai.fm/roger/v6/cmd/rogerai-broker/toolcall.go:264:			recordToolProbe			100.
 rogerai.fm/roger/v6/cmd/rogerai-broker/toolcall.go:338:			syncToolsVerified		87.5%
 rogerai.fm/roger/v6/cmd/rogerai-broker/toolcall.go:355:			toolsVerifiedForLocked		100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/toolcall.go:366:			authoritativeFor		100.0%
-rogerai.fm/roger/v6/cmd/rogerai-broker/toolcall.go:382:			probeToolCall			92.1%
+rogerai.fm/roger/v6/cmd/rogerai-broker/toolcall.go:382:			probeToolCall			89.5%
 rogerai.fm/roger/v6/cmd/rogerai-broker/toolcall.go:442:			applyToolVerdict		100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/tower.go:74:			towerModelAllowed		100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/tower.go:80:			towerModalityAllowed		100.0%
@@ -1169,7 +1169,7 @@ rogerai.fm/roger/v6/cmd/rogerai/remote.go:47:				rcLinkURL			100.0%
 rogerai.fm/roger/v6/cmd/rogerai/remote.go:56:				cmdRemote			100.0%
 rogerai.fm/roger/v6/cmd/rogerai/remote.go:86:				remoteList			100.0%
 rogerai.fm/roger/v6/cmd/rogerai/remote.go:112:				remoteAttach			100.0%
-rogerai.fm/roger/v6/cmd/rogerai/remote.go:186:				remoteInputLoop			93.8%
+rogerai.fm/roger/v6/cmd/rogerai/remote.go:186:				remoteInputLoop			100.0%
 rogerai.fm/roger/v6/cmd/rogerai/remote.go:215:				remoteOff			100.0%
 rogerai.fm/roger/v6/cmd/rogerai/remote.go:229:				remoteLinkCode			100.0%
 rogerai.fm/roger/v6/cmd/rogerai/remote.go:240:				remoteLinkHelp			100.0%
@@ -1252,8 +1252,8 @@ rogerai.fm/roger/v6/internal/agent/attest_sevsnp.go:21:			teeAvailable			60.0%
 rogerai.fm/roger/v6/internal/agent/attest_sevsnp.go:34:			generateQuote			37.5%
 rogerai.fm/roger/v6/internal/agent/localtower.go:20:			idFromPriv			100.0%
 rogerai.fm/roger/v6/internal/agent/localtower.go:28:			NodeID				100.0%
-rogerai.fm/roger/v6/internal/agent/localtower.go:44:			ServeLocalTower			76.2%
-rogerai.fm/roger/v6/internal/agent/localtower.go:95:			pollLocalJob			88.9%
+rogerai.fm/roger/v6/internal/agent/localtower.go:44:			ServeLocalTower			81.0%
+rogerai.fm/roger/v6/internal/agent/localtower.go:95:			pollLocalJob			83.3%
 rogerai.fm/roger/v6/internal/agent/localtower.go:125:			runLocalJob			85.0%
 rogerai.fm/roger/v6/internal/agent/localtower.go:160:			completeLocalJob		80.0%
 rogerai.fm/roger/v6/internal/agent/localtower.go:180:			signLocal			100.0%
