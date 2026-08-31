@@ -126,6 +126,14 @@
       if (theirs === null) theirs = isTheirs();
       return theirs;
     };
+    // say() ALWAYS writes. Gating the note on mine() the way the field write is gated
+    // left the hint frozen at "reading the live market..." for anyone who had typed a
+    // rate - including on a reload, where the browser restores what they typed. The note
+    // states a fact about the MARKET, which is true whatever the field holds; the nudge
+    // is the only part that describes the field, so it is the only part that is gated.
+    var say = function (fact, nudge) {
+      note.textContent = fact + (!mine() && nudge ? " - " + nudge : "");
+    };
     fetch(BROKER + "/market", { credentials: "omit" })
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (d) {
@@ -147,10 +155,8 @@
           }
         }
         if (!sawOut && rows.length) {
-          if (!mine()) {
-            field.value = "";
-            note.textContent = "this broker does not report an out-price - put in a rate yourself";
-          }
+          if (!mine()) field.value = "";
+          say("this broker does not report an out-price", "put in a rate yourself");
           recalc();
           return;
         }
@@ -161,10 +167,8 @@
           // what the field can express is handed back to the reader instead.
           var hi = parseFloat(field.max);
           if (isFinite(hi) && best.price > hi) {
-            if (!mine()) {
-              note.textContent = "cheapest paid band (" + (best.model || "unknown") +
-                ") is above this field's range - put in a rate yourself";
-            }
+            say("cheapest paid band (" + (best.model || "unknown") +
+              ") is above this field's range", "put in a rate yourself");
             recalc();
             return;
           }
@@ -172,10 +176,8 @@
           // assignment below safe to do verbatim: String() only reaches exponent form
           // below 1e-6, and nothing under half a cent gets this far.
           if (best.price < 0.005) {
-            if (!mine()) {
-              note.textContent = "cheapest paid band (" + (best.model || "unknown") +
-                ") is below half a cent per 1M - put in a rate yourself";
-            }
+            say("cheapest paid band (" + (best.model || "unknown") +
+              ") is below half a cent per 1M", "put in a rate yourself");
             recalc();
             return;
           }
@@ -191,33 +193,22 @@
           // this market is most of the time. And it is one model's price against the
           // reader's own, likely different, model: saying which one is what lets them
           // judge that rather than take the number on trust.
-          // The note describes what is IN the field, so it is skipped for the same reason
-          // the write is: after the reader types their own rate it would be describing a
-          // value the field no longer holds.
-          if (!mine()) {
-            note.textContent = "cheapest PAID band on air: " + (best.model || "unknown") +
-              (free ? " · " + free + " more are free" : "");
-          }
+          say("cheapest PAID band on air: " + (best.model || "unknown") +
+            (free ? " · " + free + " more are free" : ""));
         } else if (free) {
-          if (!mine()) {
-            field.value = "0";
-            note.textContent = "every band on air is free right now";
-          }
+          if (!mine()) field.value = "0";
+          say("every band on air is free right now");
         } else {
-          if (!mine()) {
-            field.value = "";
-            note.textContent = "the band is quiet - put in a rate yourself";
-          }
+          if (!mine()) field.value = "";
+          say("the band is quiet", "put in a rate yourself");
         }
         recalc();
       })
       .catch(function () {
         // No invented rate, and no silent zero either. The reader's own number is the
         // only honest fallback, so the field is emptied and asks for one.
-        if (!mine()) {
-          field.value = "";
-          note.textContent = "could not read the market - put in a rate yourself";
-        }
+        if (!mine()) field.value = "";
+        say("could not read the market", "put in a rate yourself");
         recalc();
       });
   }

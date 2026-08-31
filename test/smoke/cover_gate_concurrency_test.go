@@ -95,8 +95,11 @@ func TestCoverGateDoesNotBindAFixedHostPort(t *testing.T) {
 // than deciding inline again.
 func TestCoverGateDelegatesTheSweep(t *testing.T) {
 	code := codeLines(gateScript(t))
-	if !strings.Contains(code, "sweep-orphans.sh") {
-		t.Error("the gate does not use the tested sweep, so its decision is untested again")
+	// PIPED INTO, not merely mentioned: a gate that named the sweep in a comment or an
+	// unused variable would have satisfied a bare substring check while deciding inline.
+	if !regexp.MustCompile(`ps -a[^\n]*\\\n\s*\|\s*PG_NS="\$PG_NS" "\$SCRIPT_DIR/sweep-orphans\.sh"`).MatchString(code) {
+		t.Error("the gate does not pipe its container list into the tested sweep, so its " +
+			"decision is untested again")
 	}
 	if !strings.Contains(code, "PG_NS=") {
 		t.Error("the gate does not pass its PID namespace to the sweep, which then cannot " +

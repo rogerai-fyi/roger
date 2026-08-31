@@ -114,6 +114,16 @@ test("calculator: the live rate is read, never baked in", () => {
   // the value we just put there, calls the field theirs, and silently skips every note
   // that follows - which left the reader looking at "reading the live market..." forever.
   assert.match(js, /theirs === null/, "ownership is captured once, not re-derived");
+  // The hint is written on EVERY path. Gating it the way the field write is gated froze
+  // it at "reading the live market..." for anyone who had typed a rate, including across
+  // a reload where the browser restores what they typed. It states a market fact, which
+  // is true whatever the field holds; only the nudge describes the field.
+  assert.equal((js.match(/note\.textContent/g) || []).length, 1,
+    "exactly one place writes the hint");
+  // The ASSIGNMENT must be unconditional: counting the writers does not catch a mine()
+  // guard being put back around the one that is left, which is exactly the regression.
+  assert.match(js, /var say = function \(fact, nudge\) \{\s*note\.textContent = fact \+/,
+    "the hint is written unconditionally; only the nudge is gated");
 
   // An unknown rate must not be treated as a free one. When the market cannot be read the
   // field is emptied, and an empty field stops the comparison rather than printing a
