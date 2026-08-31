@@ -311,17 +311,22 @@
             </div>
             <div class="calc__field">
               <label for="cnHere">Rate on the band, $ per 1M out</label>
-              <input type="number" id="cnHere" value="0" min="0" max="100" step="0.01" inputmode="decimal" />
+              <!-- SHIPS EMPTY, deliberately. This one field is live data, not a reader
+                   input, and the build has no honest value for it - a plausible default
+                   here would be exactly the invented rate the page forbids. Until the
+                   market is read (or the reader types one), the sum below says so. -->
+              <input type="number" id="cnHere" value="" min="0" max="100" step="0.01"
+                     inputmode="decimal" placeholder="set a rate" />
               <span class="calc__hint" id="cnHereNote">reading the live market&hellip;</span>
             </div>
 
             <output class="calc__out" id="cnOut" for="cnPrice cnVolume cnHere" aria-live="polite">
-              <span class="calc__big" id="cnDelta">-$12.00</span>
+              <span class="calc__big" id="cnDelta">set a rate</span>
               <span class="calc__unit">a month, difference</span>
             </output>
             <p class="calc__formula" data-calc-formula id="cnFormula">
               20M &times; $0.60 / 1M = $12.00 today &middot;
-              at $0.00 / 1M = $0.00 here
+              put a band rate in to compare
             </p>
             <p class="calc__fine">The band rate is the cheapest <b>paid</b> band's output
                price when the page loaded, named above so you can see which model it came
@@ -336,7 +341,9 @@
              they stay as the worked example above: 300 tok/s at $0.30 for eight hours a
              day, a quarter of it busy, is about $13.61 a month of operator share. Small,
              and real - per-token earnings scale with tokens actually served, not with the
-             card. The rules the sums use are all printed on this page.</p>
+             card. The second sum needs a live band rate and cannot have one without
+             JavaScript, so it stays unanswered rather than guessing. The rules both sums
+             use are all printed on this page.</p>
         </noscript>
       </div>
     </section>

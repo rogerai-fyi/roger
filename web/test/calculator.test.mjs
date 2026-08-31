@@ -141,9 +141,19 @@ test("calculator: with no JavaScript it is honest rather than blank", () => {
   const numbers = [...s.matchAll(/<input[^>]*type="number"[^>]*>/g)].map((m) => m[0]);
   assert.ok(numbers.length >= 4, `the inputs are real form controls (found ${numbers.length})`);
   for (const input of numbers) {
-    assert.match(input, /value="[^"]+"/, "each input ships a default");
     assert.match(input, /id="[^"]+"/, "each input has an id for its label");
+    // Every READER input ships a default so the page is never an empty box. The band
+    // rate is the exception and must ship EMPTY: it is live data, and a plausible
+    // default there is the invented rate this page forbids.
+    if (/id="cnHere"/.test(input)) {
+      assert.match(input, /value=""/, "the live band rate ships empty, not guessed");
+      assert.match(input, /placeholder="[^"]+"/, "and says what it wants instead");
+      continue;
+    }
+    assert.match(input, /value="[^"]+"/, "each reader input ships a default");
   }
+  // And the shipped answer for it is the ask, not a number computed against zero.
+  assert.match(s, />set a rate</, "the unanswered state ships in the markup");
 });
 
 // The worked example that ships in the markup is what a no-JS reader sees and what a
@@ -168,15 +178,14 @@ test("calculator: the printed example is what the printed inputs actually produc
   assert.ok(formula.includes(share.toFixed(2)), `the share should be ${share.toFixed(2)}`);
   assert.ok(s.includes(">$" + share.toFixed(2) + "<"), "and the big number agrees with the formula");
 
-  // The consumer example too.
+  // The consumer example shows the half it CAN know - what the reader pays today - and
+  // asks for the other half. Shipping a difference would mean shipping a band rate, and
+  // the build does not have one.
   const today = val("cnVolume") * val("cnPrice");
   const cnFormula = s.match(/id="cnFormula"[^>]*>([\s\S]*?)<\/p>/)?.[1].replace(/\s+/g, " ") || "";
   assert.ok(cnFormula.includes(today.toFixed(2)), `the consumer example should show ${today.toFixed(2)}`);
-  const band = val("cnVolume") * val("cnHere");
-  const delta = today - band;
-  const sign = delta > 0 ? "-" : delta < 0 ? "+" : "";
-  assert.ok(s.includes(">" + sign + "$" + Math.abs(delta).toFixed(2) + "<"),
-    `the consumer big number should be ${sign}$${Math.abs(delta).toFixed(2)}`);
+  assert.doesNotMatch(cnFormula, /\$0\.00 here/,
+    "the shipped example must not price the band at zero when no rate is known");
 });
 
 // Inserting the calculator gave the page two §5 headings, which nothing caught - the

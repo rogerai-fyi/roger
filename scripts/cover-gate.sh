@@ -71,12 +71,21 @@ if [ -z "${ROGERAI_TEST_DATABASE_URL:-}" ]; then
     # no threshold, and no dependence on `--filter until=`, which podman supports and
     # docker does not (it is prune-only there, so an age sweep silently reclaimed nothing
     # on a CI runner). A recycled pid only means we skip a sweep, which is safe.
-    "$RUNTIME" ps -a --filter "name=^rogerai-covergate-pg-" --format "{{.Names}}" 2>/dev/null \
+    # stderr is NOT swallowed: silencing it is what hid the previous version of this sweep
+    # doing nothing at all.
+    "$RUNTIME" ps -a --filter "name=^rogerai-covergate-pg-" --format "{{.Names}}" \
       | while IFS= read -r ct; do
           [ -n "$ct" ] || continue
           owner="${ct##*-}"
           case "$owner" in (*[!0-9]*|"") continue ;; esac
-          kill -0 "$owner" 2>/dev/null && continue   # its run is still going
+          # Liveness must be OWNER-AGNOSTIC. `kill -0` returns EPERM for a process owned
+          # by another user, which reads as "dead" - so a live sibling run belonging to a
+          # different user was classified as an orphan and its database deleted, which is
+          # precisely the failure this whole sweep exists to prevent. /proc answers for
+          # any owner on Linux; `ps -p` covers the platforms without it.
+          if [ -d "/proc/$owner" ] || ps -p "$owner" >/dev/null 2>&1; then
+            continue   # its run is still going
+          fi
           "$RUNTIME" rm -f "$ct" >/dev/null 2>&1 || true
         done
     echo "[cover] starting throwaway Postgres ($RUNTIME) for the store money path…" >&2

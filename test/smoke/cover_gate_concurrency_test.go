@@ -24,6 +24,21 @@ import (
 //
 // The gate is the thing that decides whether code is allowed out. It has to be safe to
 // run twice at once.
+// codeLines is the script with comment-only lines dropped. Every check here is about
+// what the script DOES, and a comment explaining why something is avoided necessarily
+// names it - which has now tripped three separate assertions in this file.
+func codeLines(s string) string {
+	var b strings.Builder
+	for _, line := range strings.Split(s, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "#") {
+			continue
+		}
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
 func gateScript(t *testing.T) string {
 	t.Helper()
 	b, err := os.ReadFile(filepath.Join("..", "..", "scripts", "cover-gate.sh"))
@@ -75,15 +90,18 @@ func TestCoverGateReclaimsItsOwnOrphans(t *testing.T) {
 	if !strings.Contains(s, "name=^rogerai-covergate-pg-") {
 		t.Error("the gate never looks for orphaned containers, so a killed run leaks one forever")
 	}
-	if !strings.Contains(s, "kill -0") {
-		t.Error("the sweep does not check whether the owning run is still alive, so it is " +
-			"either unsafe or relying on a clock")
+	// Liveness must be owner-agnostic. `kill -0` alone returns EPERM for another user's
+	// process, which reads as "dead", so a live sibling belonging to a different user was
+	// classified as an orphan and force-removed - the very failure this file exists to
+	// prevent, reintroduced by the fix for it.
+	if !strings.Contains(s, "/proc/$owner") && !strings.Contains(s, "ps -p") {
+		t.Error("the sweep has no owner-agnostic liveness check, so another user's live run " +
+			"reads as an orphan")
 	}
-	// Code only: a comment explaining why `until=` is avoided necessarily names it.
-	for i, line := range strings.Split(s, "\n") {
-		if strings.HasPrefix(strings.TrimSpace(line), "#") {
-			continue
-		}
+	if strings.Contains(codeLines(s), "kill -0") {
+		t.Error("the sweep uses kill -0, which cannot see a process owned by another user")
+	}
+	for i, line := range strings.Split(codeLines(s), "\n") {
 		if strings.Contains(line, "until=") {
 			t.Errorf("cover-gate.sh:%d filters by age with `until=`, which docker's ps does "+
 				"not support - it would silently reclaim nothing there", i+1)
@@ -111,20 +129,20 @@ func TestCoverGateOnlyRemovesContainersItMayRemove(t *testing.T) {
 	// A CONTAINER removal is what matters here; `rm -f` on a temp file is not this
 	// test's business, and an earlier version of it flagged exactly that.
 	//
-	// Two removals are legitimate: our own $PG_CT, and the age-bounded sweep of orphaned
-	// siblings. Anything else can take a live run's database, which is the failure this
-	// whole file exists to prevent.
+	// Two removals are legitimate: our own $PG_CT, and the sweep of containers whose
+	// owning process is gone. Anything else can take a live run's database, which is the
+	// failure this whole file exists to prevent.
 	for i, line := range strings.Split(s, "\n") {
 		if !strings.Contains(line, `rm -f`) || !strings.Contains(line, "RUNTIME") {
 			continue
 		}
 		ownContainer := strings.Contains(line, `"$PG_CT"`)
-		orphanSweep := strings.Contains(line, `"$ct"`) // the sweep's loop variable
+		orphanSweep := strings.Contains(line, `rm -f "$ct"`) // the sweep's own removal
 		if !ownContainer && !orphanSweep {
 			t.Errorf("cover-gate.sh:%d removes a container that is neither its own nor a "+
-				"orphan of a dead run: %s", i+1, strings.TrimSpace(line))
+				"an orphan of a dead run: %s", i+1, strings.TrimSpace(line))
 		}
 	}
-	// And the sweep that is allowed must actually be bounded, which the orphan test
-	// asserts from the other side.
+	// That the allowed sweep really does discriminate by owning process is asserted from
+	// the other side, in TestCoverGateReclaimsItsOwnOrphans.
 }
