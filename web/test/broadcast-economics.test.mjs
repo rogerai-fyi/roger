@@ -132,3 +132,64 @@ test("economics: it is registered for its own stylesheet", () => {
   assert.match(src("../build.mjs"), new RegExp(`"${PAGE}"`), "the page has a CSS bundle");
   assert.match(read(PAGE), /styles\/broadcast-economics\.css/, "and links it");
 });
+
+/* ---- the two tables the first pass left unpinned ------------------------ */
+
+// The margin table was prose-checked and wrong: it divided what an operator KEEPS (already
+// net of the fee) by a break-even price that already embeds the fee, so every multiple came
+// out 0.7x of the truth. The honest ratio is what you charge over what you must charge.
+test("economics: the margin table is the same arithmetic, not a second opinion", () => {
+  const page = read(PAGE);
+  const rows = [...page.matchAll(/<tr[^>]*data-margin[^>]*>/g)].map((m) => ({
+    tag: m[0],
+    be: Number(m[0].match(/data-be="([0-9.]+)"/)?.[1]),
+    charge: Number(m[0].match(/data-charge="([0-9.]+)"/)?.[1]),
+    shown: Number(m[0].match(/data-margin="([0-9.]+)"/)?.[1]),
+  }));
+  assert.ok(rows.length >= 4, `the margin rows carry their inputs (found ${rows.length})`);
+  for (const r of rows) {
+    assert.ok(r.be > 0 && r.charge > 0 && r.shown > 0, `a margin row states both prices: ${r.tag}`);
+    const expected = r.charge / r.be;
+    assert.ok(Math.abs(expected - r.shown) < 0.05,
+      `printed ${r.shown}x, but charging $${r.charge} against a $${r.be} break-even is ${expected.toFixed(2)}x`);
+  }
+});
+
+test("economics: every margin row's break-even is one the cost tables computed", () => {
+  // A margin row may not invent a break-even: it has to be a price the pinned rows produced.
+  const priced = new Set(rows().map((r) => r.price.toFixed(2)));
+  for (const m of read(PAGE).matchAll(/data-be="([0-9.]+)"/g)) {
+    const be = Number(m[1]).toFixed(2);
+    assert.ok(priced.has(be), `$${be}/1M is quoted as a break-even that no cost row computes`);
+  }
+});
+
+// FIG.1 is a bar chart drawn by hand, which means the bars can silently stop agreeing with
+// the axis printed underneath them. The scale is declared on the SVG and every bar is
+// measured against it.
+test("economics: the chart bars are drawn to the axis printed under them", () => {
+  const fig = read(PAGE).match(/<svg[^>]*class="[^"]*ec-chart[^"]*"[\s\S]*?<\/svg>/)?.[0];
+  const x0 = Number(fig.match(/data-x0="([0-9.]+)"/)?.[1]);
+  const ppd = Number(fig.match(/data-px-per-dollar="([0-9.]+)"/)?.[1]);
+  assert.ok(x0 > 0 && ppd > 0, "the chart declares its origin and its scale");
+
+  // the declared scale has to be the one the axis labels are actually placed on
+  const ticks = [...fig.matchAll(/<text class="ec-chart__axis" x="([0-9.]+)"[^>]*>\$([0-9.]+)<\/text>/g)];
+  assert.ok(ticks.length >= 3, `the axis is labelled (found ${ticks.length} ticks)`);
+  for (const [, x, v] of ticks) {
+    assert.ok(Math.abs(Number(x) - (x0 + Number(v) * ppd)) < 0.5,
+      `the $${v} tick sits at x=${x}, but the declared scale puts it at ${x0 + Number(v) * ppd}`);
+  }
+
+  const bars = [...fig.matchAll(/<rect[^>]*class="[^"]*ec-chart__bar[^"]*"[^>]*>/g)];
+  assert.ok(bars.length >= 5, `the bars carry the value they draw (found ${bars.length})`);
+  for (const [tag] of bars) {
+    const value = Number(tag.match(/data-value="([0-9.]+)"/)?.[1]);
+    const width = Number(tag.match(/\bwidth="([0-9.]+)"/)?.[1]);
+    const x = Number(tag.match(/\bx="([0-9.]+)"/)?.[1]);
+    assert.ok(value > 0, `a bar states its value: ${tag}`);
+    assert.equal(x, x0, `every bar starts at the axis origin: ${tag}`);
+    assert.ok(Math.abs(width - value * ppd) <= 0.5,
+      `a $${value} bar is ${width}px wide, but the axis makes that ${(value * ppd).toFixed(1)}px`);
+  }
+});
