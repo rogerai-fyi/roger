@@ -151,16 +151,21 @@ var shellTimeout = 60 * time.Second
 // through the fetch.go guard (read-only, text only).
 func BuiltinTools() []Tool {
 	tools := []Tool{
+		editTool(), grepTool(), globTool(),
 		{
-			Name:        "read_file",
-			Description: "Read a UTF-8 text file in the working directory and return its contents. Read-only.",
-			Mutating:    false,
-			Concurrent:  true,             // a read is independent of its siblings
-			Timeout:     10 * time.Second, // a local file read that takes 10s is a mount that is gone
+			Name: "read_file",
+			Description: "Read a UTF-8 text file in the working directory and return its contents. " +
+				"Read-only. For a file too large to return whole, pass offset (1-based line) and " +
+				"limit (number of lines) to page through it.",
+			Mutating:   false,
+			Concurrent: true,             // a read is independent of its siblings
+			Timeout:    10 * time.Second, // a local file read that takes 10s is a mount that is gone
 			Params: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"path": map[string]any{"type": "string", "description": "Path to the file, relative to the working directory."},
+					"path":   map[string]any{"type": "string", "description": "Path to the file, relative to the working directory."},
+					"offset": map[string]any{"type": "integer", "description": "Optional 1-based line to start at."},
+					"limit":  map[string]any{"type": "integer", "description": "Optional number of lines to return from offset."},
 				},
 				"required": []any{"path"},
 			},
@@ -173,7 +178,20 @@ func BuiltinTools() []Tool {
 				if err != nil {
 					return "", err
 				}
-				return clip(string(b)), nil
+				// ABSENT is not the same as ZERO. offset is 1-based and limit counts lines, so
+				// 0 is a nonsense VALUE for either - but a JSON number that is simply missing
+				// also decodes to 0. Reading the key's presence keeps "no range given" (read
+				// it whole) distinct from "offset: 0" (which is a mistake worth reporting).
+				var off, lim *int
+				if _, ok := args["offset"]; ok {
+					v := intArg(args["offset"])
+					off = &v
+				}
+				if _, ok := args["limit"]; ok {
+					v := intArg(args["limit"])
+					lim = &v
+				}
+				return readRange(string(b), off, lim)
 			},
 		},
 		{
@@ -406,6 +424,17 @@ func ToolArgSummary(tool string, args map[string]any) string {
 		return clipLine(argStr(args["cmd"]))
 	case "write_file", "read_file":
 		return argStr(args["path"])
+	case "edit_file":
+		return argStr(args["path"])
+	case "grep":
+		if g := argStr(args["glob"]); g != "" {
+			return clipLine(argStr(args["pattern"])) + " in " + g
+		}
+		return clipLine(argStr(args["pattern"]))
+	case "glob":
+		return clipLine(argStr(args["pattern"]))
+	case "ask_operator":
+		return clipLine(argStr(args["question"]))
 	case "list_dir":
 		if p := argStr(args["path"]); p != "" {
 			return p

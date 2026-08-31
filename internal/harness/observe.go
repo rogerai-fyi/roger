@@ -84,6 +84,17 @@ func (l *Loop) noteObserved(tool string, args map[string]any) {
 	if p == "" {
 		return
 	}
+	// A PARTIAL READ IS NOT AN OBSERVATION OF THE FILE. read_file gained offset/limit so a
+	// long file could be paged through; recording a windowed read as a full observation
+	// would let read_file(path, offset:1, limit:1) license a write_file that replaces
+	// everything the model never saw - which is precisely the blind overwrite
+	// GuardWriteNeedsRead exists to stop. Only a whole-file read counts.
+	if _, windowed := args["offset"]; windowed {
+		return
+	}
+	if _, windowed := args["limit"]; windowed {
+		return
+	}
 	l.observed.record(p, versionOf(filepath.Join(l.Root, p)))
 }
 
@@ -126,10 +137,26 @@ func (l *Loop) GuardWriteNeedsRead(name string, args map[string]any, _ Conversat
 // noteWritten records the post-write version, so a second write in the same turn is not
 // refused for a change the agent itself made.
 func (l *Loop) noteWritten(tool string, args map[string]any) {
-	if tool != "write_file" {
+	// edit_file counts. It changes the file on disk exactly as write_file does, so leaving
+	// the observation stale after one made the NEXT write_file to that path fail with
+	// "changed on disk since you read it" - blaming the operator for the agent's own edit,
+	// and sending it to re-read a file it had just correctly changed.
+	if tool != "write_file" && tool != "edit_file" {
 		return
 	}
-	if p := argStr(args["path"]); p != "" {
-		l.observed.record(p, versionOf(filepath.Join(l.Root, p)))
+	p := argStr(args["path"])
+	if p == "" {
+		return
 	}
+	// An edit REFRESHES an observation; it never MINTS one. edit_file does not require a
+	// prior read (its exact-match old_string is its own evidence), so recording a fresh
+	// observation for a never-read file would let grep -> edit_file -> write_file walk
+	// around GuardWriteNeedsRead and blind-overwrite a file the model has never seen -
+	// with no confirm at all under auto-edits.
+	if tool == "edit_file" {
+		if _, seen := l.observed.lookup(p); !seen {
+			return
+		}
+	}
+	l.observed.record(p, versionOf(filepath.Join(l.Root, p)))
 }

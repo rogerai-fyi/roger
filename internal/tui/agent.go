@@ -92,6 +92,11 @@ type agentRuntime struct {
 	// run /clear or /model again. atomic.Value because it is written on the UI goroutine
 	// and read on the turn's.
 	turnCtx atomic.Value // context.Context
+	// askReq carries a pending ask_operator QUESTION to the UI. Separate from confirmReq
+	// on purpose: a confirm is a permission that a permissive session auto-approves, and a
+	// question is not - routing them together would let /perms all answer on the
+	// operator's behalf, which is the one thing this must never do.
+	askReq chan agentAsk
 	// confirmReq carries a pending mutating-tool confirm to the UI. The answer comes back
 	// on the agentConfirm's own resp channel, one per confirm, so two gates can never be
 	// answered out of order.
@@ -158,7 +163,12 @@ func permAllows(p agentPermMode, tool string) bool {
 		// "edits" means "I trust it to act": writes AND fetches run unasked, run_shell
 		// still confirms. Without web_fetch here, turning on auto-edits would have made
 		// research MORE chatty than the default, which is backwards.
-		return tool == "write_file" || tool == "web_fetch"
+		//
+		// edit_file belongs here beside write_file, and its absence was the same
+		// backwardness: auto-edits gated the SURGICAL tool while waving through the
+		// whole-file overwrite, on the mode whose whole promise is that edits do not ask -
+		// and the persona now tells the model to prefer edit_file.
+		return tool == "write_file" || tool == "edit_file" || tool == "web_fetch"
 	}
 	return false
 }
@@ -182,11 +192,11 @@ func parsePermMode(s string) (agentPermMode, bool) {
 func permsHelp(p agentPermMode) string {
 	switch p {
 	case permEdits:
-		return "read/list + write + fetch auto · run_shell confirms"
+		return "read/list/search + write/edit + fetch auto · run_shell confirms"
 	case permAll:
 		return "ALL tools auto-run - nothing asks (/perms confirm restores the gate)"
 	}
-	return "read/list auto · fetch/write/run confirm"
+	return "read/list/search auto · fetch/write/edit/run confirm"
 }
 
 // agentCapGrace is how long past the soft cap a model call keeps running while the
@@ -252,6 +262,15 @@ func (rt *agentRuntime) grantMoreTime() time.Duration {
 	return rt.callLimit
 }
 
+// agentAsk is one pending QUESTION from the agent, surfaced to the operator and answered
+// in their own words. resp is per-question, like a confirm's, so two questions can never be
+// answered out of order.
+type agentAsk struct {
+	question string
+	options  []string
+	resp     chan string
+}
+
 // agentConfirm is one pending confirm for a side-effecting tool, surfaced as a y/N
 // prompt. resp is the channel the loop goroutine blocks on for the answer.
 type agentConfirm struct {
@@ -267,6 +286,15 @@ func (c agentConfirm) summary() string {
 		return "run_shell: " + argStr(c.args["cmd"])
 	case "write_file":
 		return "write_file: " + argStr(c.args["path"]) + fmt.Sprintf(" (%d bytes)", len(argStr(c.args["content"])))
+	case "edit_file":
+		// NAME THE TARGET. Without a case here the modal read a bare "edit_file", so the
+		// operator approved a file mutation without being told WHICH file - while
+		// write_file, the less surgical tool, showed its path all along.
+		sum := "edit_file: " + argStr(c.args["path"])
+		if old := argStr(c.args["old_string"]); old != "" {
+			sum += "  " + clipLine(old) + " -> " + clipLine(argStr(c.args["new_string"]))
+		}
+		return sum
 	default:
 		return c.tool
 	}
@@ -278,6 +306,10 @@ type (
 	agentEventMsg harness.Event
 	// agentConfirmMsg pauses the turn for a y/N on a mutating tool.
 	agentConfirmMsg agentConfirm
+
+	// agentAskMsg carries a question to the UI. Like agentConfirmMsg it deliberately does
+	// NOT re-arm the drain: answering does, so exactly one reader stays live.
+	agentAskMsg agentAsk
 	// agentDoneMsg marks the turn finished (the events channel closed), re-enabling input
 	// and auto-sending the next queued prompt (if any).
 	// It carries the turn it belongs to: agentDrainRetryMsg starts the next turn on
@@ -627,6 +659,7 @@ func (m model) newAgentRuntime() *agentRuntime {
 		model:      mdl,
 		events:     make(chan harness.Event, 32),
 		confirmReq: make(chan agentConfirm),
+		askReq:     make(chan agentAsk),
 	}
 	// Cost + the broker's BILLED token counts are surfaced through the events channel as a
 	// single sentinel ("<credits> <in> <out>") so the lone drain Cmd stays the only reader
@@ -743,6 +776,31 @@ func (m model) newAgentRuntime() *agentRuntime {
 		// offered; past that point the decision belongs to the person seeing it.
 		return <-c.resp // the user's y/N
 	}
+	// THE QUESTION CHANNEL. Same shape as the confirmer above and the same two rules,
+	// which were learned the hard way on the confirm gate: cancellation is settled BEFORE
+	// the question is offered, so a stopped turn never puts one on screen; and once it IS
+	// on screen it is the operator's to answer, never withdrawn behind their back.
+	//
+	// Note what is NOT here: any consultation of rt.perms. A permission mode says "run
+	// without asking me", which is a sentence about side effects. Answering a question on
+	// the operator's behalf would be a different thing entirely.
+	asker := func(ctx context.Context, question string, options []string) (string, error) {
+		a := agentAsk{question: question, options: options, resp: make(chan string, 1)}
+		select {
+		case <-ctx.Done():
+			return "", fmt.Errorf("the turn was stopped before the question could be asked")
+		default:
+		}
+		select {
+		case rt.askReq <- a: // surfaced to the UI as agentAskMsg
+		case <-ctx.Done():
+			return "", fmt.Errorf("the turn was stopped before the question could be asked")
+		}
+		// No ctx arm on the ANSWER: the question is on screen now, and taking it away
+		// while someone is reading it is how a confirm ended up answered into a channel
+		// nobody was listening to.
+		return <-a.resp, nil
+	}
 	persona := harness.LoadPersona(harness.PersonaPath())
 	m.agentFullPersona = persona // kept so a band change can swap between full and compact
 	root := agentRoot()
@@ -750,6 +808,7 @@ func (m model) newAgentRuntime() *agentRuntime {
 		root = m.sessionWorkdir
 	}
 	rt.loop = harness.NewLoop(root, persona, completer, confirmer)
+	rt.loop.SetAsker(asker)
 	// WIDEN THE GATE TO web_fetch (founder 2026-08-21, having asked three times why
 	// nothing ever asked). The write and shell gates were correct and simply never came
 	// up: an ordinary question only ever triggers read-only tools, so the operator saw a
@@ -876,6 +935,59 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	// A pending confirm modal: answer the y/N gate for the side-effecting tool.
+	// A QUESTION OWNS THE KEYS WHILE IT IS UP, and it is answered in words rather than
+	// with y/N. Numbered options are a shortcut, never the only way out: the operator can
+	// always type something the agent did not think to offer.
+	if a := m.agentPendingAsk; a != nil {
+		switch k.String() {
+		case "esc":
+			// Declining to answer is an answer. The agent is told plainly rather than left
+			// waiting, and the turn carries on.
+			m.agentPendingAsk = nil
+			m.rcAskID = "" // resolved locally; a late remote answer is now stale
+			a.resp <- ""
+			m.rcEmitAskDone("", "local")
+			m.agentLines = append(m.agentLines, stDim.Render("  ⋮ (not answered)"))
+			m.agentIn.SetValue("")
+			return m, m.waitAgentEvent()
+		case "enter":
+			ans := strings.TrimSpace(m.agentIn.Value())
+			if ans == "" {
+				m.status = stDim.Render("type an answer, or esc to skip the question")
+				return m, nil
+			}
+			m.agentPendingAsk = nil
+			m.rcAskID = ""
+			a.resp <- ans
+			m.rcEmitAskDone(ans, "local")
+			m.agentLines = append(m.agentLines, stDim.Render("  ⋮ ")+stSelText.Render(ans))
+			m.agentIn.SetValue("")
+			return m, m.waitAgentEvent()
+		}
+		// A digit picks an offered option, but ONLY while the composer is empty - otherwise
+		// typing "2 files" would answer the question with "b" on its first keystroke.
+		if len(a.options) > 0 && strings.TrimSpace(m.agentIn.Value()) == "" {
+			// Length FIRST. The index used to run in the if-init, before the guard that was
+			// supposed to protect it, so a key whose String() is empty panicked on [0].
+			key := k.String()
+			if n := 0; len(key) == 1 {
+				n = int(key[0]) - '1'
+				if n >= 0 && n < len(a.options) {
+					m.agentPendingAsk = nil
+					m.rcAskID = ""
+					a.resp <- a.options[n]
+					m.rcEmitAskDone(a.options[n], "local")
+					m.agentLines = append(m.agentLines, stDim.Render("  ⋮ ")+stSelText.Render(a.options[n]))
+					m.agentIn.SetValue("")
+					return m, m.waitAgentEvent()
+				}
+			}
+		}
+		// Everything else types into the composer.
+		var cmd tea.Cmd
+		m.agentIn, cmd = m.agentIn.Update(k)
+		return m, cmd
+	}
 	if c := m.agentPendingConfirm; c != nil {
 		switch k.String() {
 		case "y", "Y":
@@ -1944,6 +2056,8 @@ func (m model) waitAgentEvent() tea.Cmd {
 		select {
 		case c := <-rt.confirmReq:
 			return agentConfirmMsg(c)
+		case a := <-rt.askReq:
+			return agentAskMsg(a)
 		case e := <-rt.events:
 			return agentEventFor(e)
 		case <-done:
@@ -2615,6 +2729,23 @@ func (m model) agentView(w int) string {
 	}
 	// A pending mutating-tool confirm: an obvious y/N gate (default DENY). The footer is
 	// rendered by View(); agentView only draws the prompt body.
+	// THE QUESTION, rendered where a confirm would be: it owns the screen for the same
+	// reason, and the operator should never have to hunt for what is blocking the turn.
+	if a := m.agentPendingAsk; a != nil {
+		b.WriteString("\n" + truncVisible("  "+lampStyle(roleLive).Bold(true).Render("● THE AGENT IS ASKING"), w) + "\n")
+		for _, ln := range wrapCommand(a.question, w-4) {
+			b.WriteString(truncVisible("  "+stSelText.Render(ln), w) + "\n")
+		}
+		for i, opt := range a.options {
+			b.WriteString(truncVisible("    "+stKey.Render(fmt.Sprintf("%d", i+1))+stDim.Render(" · ")+opt, w) + "\n")
+		}
+		hint := "type an answer and press enter"
+		if len(a.options) > 0 {
+			hint = "press a number, or type an answer and press enter"
+		}
+		b.WriteString(truncVisible("  "+stDim.Render(hint+" · esc skips"), w) + "\n")
+		return b.String()
+	}
 	if c := m.agentPendingConfirm; c != nil {
 		prompt := "run this side-effecting tool? "
 		if m.narrow() {

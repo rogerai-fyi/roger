@@ -413,11 +413,12 @@ func TestRemoteInputLoopConfirmGate(t *testing.T) {
 	w := swapStdin(t)
 	stdin := os.Stdin // captured on the test goroutine, ordered with the swap + restore
 	gate := &confirmGate{}
+	asks := &askGate{}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	loopDone := make(chan struct{})
 	go func() {
-		remoteInputLoop(ctx, srv.URL, "rcs_i", "at_i", stdin, gate)
+		remoteInputLoop(ctx, srv.URL, "rcs_i", "at_i", stdin, gate, asks)
 		close(loopDone)
 	}()
 
@@ -447,6 +448,17 @@ func TestRemoteInputLoopConfirmGate(t *testing.T) {
 	gate.set("cf10")
 	fmt.Fprint(w, "N\n") // pending: a confirm DENY carrying cf10
 	waitSent(4)
+	// A pending QUESTION takes the whole line, whatever it says - unlike a confirm, whose
+	// y/n is only an answer while one is pending. Sent as a turn instead, the answer would
+	// queue behind the very turn that is blocked waiting for it.
+	asks.set("ask_1", []string{"alpha", "beta"})
+	fmt.Fprint(w, "2\n") // a digit picks the OPTION, not the digit
+	waitSent(5)
+	asks.set("ask_2", nil)
+	fmt.Fprint(w, "in my own words\n") // free text passes through verbatim
+	waitSent(6)
+	fmt.Fprint(w, "back to a turn\n") // gate consumed: an ordinary turn again
+	waitSent(7)
 	_ = w.Close() // EOF: the loop must return
 	select {
 	case <-loopDone:
@@ -461,13 +473,17 @@ func TestRemoteInputLoopConfirmGate(t *testing.T) {
 		{Kind: protocol.RCInConfirm, Approve: true, ConfirmID: "cf9"},
 		{Kind: protocol.RCInTurn, Text: "no"},
 		{Kind: protocol.RCInConfirm, Approve: false, ConfirmID: "cf10"},
+		{Kind: protocol.RCInAsk, Answer: "beta", AskID: "ask_1"},
+		{Kind: protocol.RCInAsk, Answer: "in my own words", AskID: "ask_2"},
+		{Kind: protocol.RCInTurn, Text: "back to a turn"},
 	}
 	if len(sent) != len(want) {
 		t.Fatalf("sent %d messages, want %d: %+v", len(sent), len(want), sent)
 	}
 	for i := range want {
 		if sent[i].Kind != want[i].Kind || sent[i].Text != want[i].Text ||
-			sent[i].Approve != want[i].Approve || sent[i].ConfirmID != want[i].ConfirmID {
+			sent[i].Approve != want[i].Approve || sent[i].ConfirmID != want[i].ConfirmID ||
+			sent[i].Answer != want[i].Answer || sent[i].AskID != want[i].AskID {
 			t.Errorf("sent[%d] = %+v, want %+v", i, sent[i], want[i])
 		}
 	}
@@ -578,7 +594,7 @@ func TestRemoteInputLoopCtxDone(t *testing.T) {
 	cancel()
 	done := make(chan struct{})
 	go func() {
-		remoteInputLoop(ctx, "http://127.0.0.1:0", "s", "a", stdin, &confirmGate{})
+		remoteInputLoop(ctx, "http://127.0.0.1:0", "s", "a", stdin, &confirmGate{}, &askGate{})
 		close(done)
 	}()
 	select {

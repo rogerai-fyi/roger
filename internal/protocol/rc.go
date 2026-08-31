@@ -23,6 +23,8 @@ const (
 	RCKindError       = "error"        // an error surfaced on the host (Text)
 	RCKindConfirmReq  = "confirm_req"  // a mutating tool awaits y/N (ConfirmID/Tool/Args set)
 	RCKindConfirmDone = "confirm_done" // a confirm was answered (ConfirmID/Approve/Origin set)
+	RCKindAskReq      = "ask_req"      // the agent is asking the operator a question (AskID/Text/Options set)
+	RCKindAskDone     = "ask_done"     // a question was answered (AskID/Answer/Origin set)
 	RCKindStatus      = "status"       // host online/offline transition (HostUp set)
 	RCKindBackfill    = "backfill"     // a transcript-snapshot frame addressed to ONE viewer
 	RCKindEnded       = "ended"        // the session was disabled/revoked; terminal
@@ -32,6 +34,7 @@ const (
 const (
 	RCInTurn      = "turn"      // inject a user turn (Text)
 	RCInConfirm   = "confirm"   // answer a pending confirm (ConfirmID/Approve)
+	RCInAsk       = "ask"       // answer a pending question (AskID/Answer)
 	RCInInterrupt = "interrupt" // cancel the in-flight turn
 	RCInBackfill  = "backfill"  // ask the host for a transcript snapshot for Viewer
 )
@@ -67,8 +70,14 @@ type RCFrame struct {
 	// v1 (founder ruling 2): the model conveys the station, and the private-band frequency
 	// code (client ProxyOptions.Freq) is a hash-at-rest SECRET that must NEVER appear on
 	// any frame field (features/operator/rc_enrichment.feature pins this).
-	Model string  `json:"model,omitempty"` // status: the tuned band's public model identity (already public via /discover)
-	Spend float64 `json:"spend,omitempty"` // status: the HOST's own session spend in dollars (the desk summary's figure)
+	// A QUESTION the agent put to the operator. Additive and omitempty, so a viewer that
+	// predates ask_operator renders the frame it does not know as nothing rather than
+	// breaking - the same wire-evolution rule the operator names above follow.
+	AskID   string   `json:"ask_id,omitempty"`  // ask_req / ask_done correlation
+	Options []string `json:"options,omitempty"` // ask_req: the offered choices, if any
+	Answer  string   `json:"answer,omitempty"`  // ask_done: what was answered
+	Model   string   `json:"model,omitempty"`   // status: the tuned band's public model identity (already public via /discover)
+	Spend   float64  `json:"spend,omitempty"`   // status: the HOST's own session spend in dollars (the desk summary's figure)
 }
 
 // RCInbound is what a remote surface (or the broker itself, for backfill) sends TO the host.
@@ -77,6 +86,8 @@ type RCInbound struct {
 	Text      string `json:"text,omitempty"`       // turn text
 	ConfirmID string `json:"confirm_id,omitempty"` // confirm correlation
 	Approve   bool   `json:"approve,omitempty"`    // confirm answer
+	AskID     string `json:"ask_id,omitempty"`     // question correlation
+	Answer    string `json:"answer,omitempty"`     // the answer to a question
 	Origin    string `json:"origin"`               // device label of the sender (for the echoed user frame)
 	Viewer    string `json:"viewer,omitempty"`     // backfill: who asked (host addresses the reply)
 	TS        int64  `json:"ts"`
