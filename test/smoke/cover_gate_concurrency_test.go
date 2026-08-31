@@ -24,7 +24,8 @@ import (
 //
 // The gate is the thing that decides whether code is allowed out. It has to be safe to
 // run twice at once.
-// codeLines is the script with comment-only lines dropped. Every check here is about
+
+// codeLines is the script with comment-only lines blanked. Every check here is about
 // what the script DOES, and a comment explaining why something is avoided necessarily
 // names it - which has now tripped three separate assertions in this file.
 func codeLines(s string) string {
@@ -42,6 +43,7 @@ func codeLines(s string) string {
 	return b.String()
 }
 
+// gateScript reads scripts/cover-gate.sh, the thing every assertion here is about.
 func gateScript(t *testing.T) string {
 	t.Helper()
 	b, err := os.ReadFile(filepath.Join("..", "..", "scripts", "cover-gate.sh"))
@@ -108,6 +110,19 @@ func TestCoverGateDelegatesTheSweep(t *testing.T) {
 	// anything not running, ahead of the liveness check, and `run -d` reports "created"
 	// between create and start - so a concurrently starting gate deleted a live sibling's
 	// database in that window. Not passing state is what makes that rule unwritable.
+	// The ps filter is an anchored regex. With a trailing dash it can never match the bare
+	// legacy name, which made the sweep's reclamation of that name dead code in production
+	// while its unit test - fed on stdin - passed.
+	if strings.Contains(code, `name=^rogerai-covergate-pg-`) {
+		t.Error("the gate's ps filter carries a trailing dash, so the bare legacy container " +
+			"name can never reach the sweep")
+	}
+	// And it must resolve the sweep from its own location, not the caller's: invoked by
+	// bare name through PATH, dirname "$0" is ".".
+	if strings.Contains(code, `dirname "$0"`) {
+		t.Error("the gate locates the sweep relative to $0, which is \".\" when it is " +
+			"invoked through PATH")
+	}
 	if strings.Contains(code, "{{.State}}") {
 		t.Error("the gate passes container state to the sweep, which is how a rule that " +
 			"short-circuits the liveness check gets written again")

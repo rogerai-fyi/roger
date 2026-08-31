@@ -106,7 +106,16 @@
     // A reader can type a rate while this fetch is outstanding. Every write below is
     // skipped once they have, because the alternative is erasing what they typed - and
     // on the failure paths the write is a no-op anyway, since the field ships empty.
-    var mine = function () { return field.dataset && field.dataset.touched === "1"; };
+    //
+    // Two ways to know it is theirs. The flag covers typing after the listeners are
+    // attached; a NON-EMPTY field covers typing before them, which the flag alone missed
+    // because this file is deferred and init() waits for DOMContentLoaded. The field
+    // ships empty and nothing else writes it before the fetch resolves, so anything in it
+    // came from the reader.
+    var mine = function () {
+      if (field.dataset && field.dataset.touched === "1") return true;
+      return field.value.trim() !== "";
+    };
     fetch(BROKER + "/market", { credentials: "omit" })
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (d) {

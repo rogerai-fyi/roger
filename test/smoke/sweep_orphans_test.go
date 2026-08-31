@@ -1,8 +1,10 @@
 package smoke
 
 import (
+	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -17,6 +19,22 @@ import (
 // skipped, and the sweep silently did nothing at all. Which is why the decision is its own
 // script now, reading stdin and printing names - so it can be exercised for real, without
 // a container runtime.
+// deadPID is a pid that cannot be running: one past the kernel's maximum. The fixtures
+// used "+dead+", which pid_max (4194304 here) makes perfectly allocatable - a machine that
+// happened to have it live would have flipped the expectations and flaked the test.
+func deadPID(t *testing.T) string {
+	t.Helper()
+	b, err := os.ReadFile("/proc/sys/kernel/pid_max")
+	if err != nil {
+		return "4194305" // no /proc: the Linux default ceiling plus one
+	}
+	max, err := strconv.Atoi(strings.TrimSpace(string(b)))
+	if err != nil {
+		return "4194305"
+	}
+	return strconv.Itoa(max + 1)
+}
+
 func runSweep(t *testing.T, ns, stdin string) []string {
 	t.Helper()
 	cmd := exec.Command("bash", filepath.Join("..", "..", "scripts", "sweep-orphans.sh"))
@@ -41,29 +59,30 @@ func TestSweepOrphansDecides(t *testing.T) {
 	//
 	// Each fixture is chosen so exactly ONE rule decides it: remove that rule and this
 	// list changes. A fixture decided by two rules tests neither.
-	const input = "" +
+	dead := deadPID(t)
+	input := "" +
 		"rogerai-covergate-pg-42-1\n" + // ours, owner alive                  -> keep
-		"rogerai-covergate-pg-42-999999\n" + // ours, owner gone              -> reclaim
-		"rogerai-covergate-pg-99-999999\n" + // another PID namespace, and a pid dead
+		"rogerai-covergate-pg-42-" + dead + "\n" + // ours, owner gone              -> reclaim
+		"rogerai-covergate-pg-99-" + dead + "\n" + // another PID namespace, and a pid dead
 		//                                       HERE: only the namespace check keeps it
 		"rogerai-covergate-pg-42-notapid\n" + // unparsable owner             -> keep
 		"some-other-container\n" + // not ours at all                         -> keep
 		// Somebody else's container, named so that stripping our prefix would be a no-op
 		// and leave a namespace and pid that both look like ours. Only the prefix guard
 		// keeps it, which is the point: another project's container is not ours to remove.
-		"42-999999\n" +
+		"42-" + dead + "\n" +
 		// LEGACY names, from before the namespace segment and before the per-run rename.
 		// Neither can match a namespace, so without an explicit path they were never
 		// reclaimed - and a RUNNING legacy orphan holds its published port and memory.
 		"rogerai-covergate-pg\n" + // the old fixed name, owned by no current run -> reclaim
-		"rogerai-covergate-pg-999999\n" + // the old "<pid>" form, owner gone      -> reclaim
+		"rogerai-covergate-pg-" + dead + "\n" + // the old "<pid>" form, owner gone      -> reclaim
 		"rogerai-covergate-pg-1\n" // the old "<pid>" form, owner ALIVE            -> keep
 
 	got := runSweep(t, "42", input)
 	want := []string{
-		"rogerai-covergate-pg-42-999999",
+		"rogerai-covergate-pg-42-" + dead + "",
 		"rogerai-covergate-pg",
-		"rogerai-covergate-pg-999999",
+		"rogerai-covergate-pg-" + dead + "",
 	}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Errorf("sweep reclaimed %v, want %v", got, want)
@@ -86,7 +105,8 @@ func TestSweepOrphansNeverTakesAContainerMidStartup(t *testing.T) {
 
 // The failure that actually shipped: with the fields unsplit, every line was skipped.
 func TestSweepOrphansIsNotSilentlyInert(t *testing.T) {
-	got := runSweep(t, "42", "rogerai-covergate-pg-42-999999\n")
+	dead := deadPID(t)
+	got := runSweep(t, "42", "rogerai-covergate-pg-42-"+dead+"\n")
 	if len(got) == 0 {
 		t.Error("the sweep reclaimed nothing at all from an obvious orphan - it is inert")
 	}
@@ -94,10 +114,11 @@ func TestSweepOrphansIsNotSilentlyInert(t *testing.T) {
 
 // Never a live sibling, whatever the reason it looks unfamiliar.
 func TestSweepOrphansNeverTakesALiveRun(t *testing.T) {
+	dead := deadPID(t)
 	for _, line := range []string{
-		"rogerai-covergate-pg-42-1 running\n",      // alive, other user
-		"rogerai-covergate-pg-99-1 running\n",      // alive, other namespace
-		"rogerai-covergate-pg-99-999999 running\n", // other namespace, pid dead here
+		"rogerai-covergate-pg-42-1 running\n",            // alive, other user
+		"rogerai-covergate-pg-99-1 running\n",            // alive, other namespace
+		"rogerai-covergate-pg-99-" + dead + " running\n", // other namespace, pid dead here
 	} {
 		if got := runSweep(t, "42", line); len(got) != 0 {
 			t.Errorf("sweep would remove %q, which may be a live run", got)
