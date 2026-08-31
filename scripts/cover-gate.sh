@@ -18,7 +18,12 @@ set -uo pipefail
 # COVER_GATE_SKIP=1; CI has no bypass.
 GREEN_BAR=90
 MIN_TOTAL="${1:-$GREEN_BAR}"
-PROFILE="${COVER_PROFILE:-cover.out}"
+# PER RUN, for the same reason the container is: two gates in one worktree used to write
+# one another's coverage profile, so the loser measured a suite it did not run. The
+# familiar cover.out is still produced at the end (it is what a person opens afterwards),
+# but nothing reads it while a run is in flight.
+COVER_KEEP="${COVER_PROFILE:-cover.out}"
+PROFILE="$(mktemp -t rogerai-cover.XXXXXX)"
 # Derived, never hardcoded: a stale literal here does not fail loudly, it makes the
 # per-package extraction below match nothing, so every package silently skips its floor
 # and only the module total is enforced. Ask the toolchain instead.
@@ -38,7 +43,13 @@ floor_for() { echo "$GREEN_BAR"; }
 # Self-contained: works on a dev box (podman) and on CI runners (docker).
 PG_CT=""
 RUNTIME=""
-cleanup_pg() { [ -n "$PG_CT" ] && "$RUNTIME" rm -f "$PG_CT" >/dev/null 2>&1; return 0; }
+cleanup_pg() {
+  [ -n "$PG_CT" ] && "$RUNTIME" rm -f "$PG_CT" >/dev/null 2>&1
+  # Hand the profile back under its usual name, then drop the per-run copy.
+  [ -s "$PROFILE" ] && cp -f "$PROFILE" "$COVER_KEEP" >/dev/null 2>&1
+  rm -f "$PROFILE" >/dev/null 2>&1
+  return 0
+}
 trap cleanup_pg EXIT
 if [ -z "${ROGERAI_TEST_DATABASE_URL:-}" ]; then
   command -v podman >/dev/null 2>&1 && RUNTIME=podman
@@ -51,6 +62,12 @@ if [ -z "${ROGERAI_TEST_DATABASE_URL:-}" ]; then
     # real regression. Several sessions push to this repo at once; the gate that decides
     # whether code may leave has to be safe to run twice.
     PG_CT="rogerai-covergate-pg-$$"
+    # Reclaim ORPHANS, never a live sibling. The EXIT trap misses SIGKILL and power loss,
+    # and removing the fixed name used to be the only thing that swept those up - so the
+    # per-run rename would have leaked a container and a port forever. `until=2h` is the
+    # discriminator: a gate run that has been going for two hours is not running.
+    "$RUNTIME" ps -aq --filter "name=^rogerai-covergate-pg-" --filter "until=2h" 2>/dev/null \
+      | xargs -r "$RUNTIME" rm -f >/dev/null 2>&1 || true
     echo "[cover] starting throwaway Postgres ($RUNTIME) for the store money path…" >&2
     # The host port is chosen by the runtime and read back, rather than pinned: a fixed
     # one either fails the second run or, worse, points it at the first run's data.

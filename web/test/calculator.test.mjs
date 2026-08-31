@@ -79,9 +79,30 @@ test("calculator: the live rate is read, never baked in", () => {
   assert.match(js, /quiet|unavailable|free/i, "it has a stated empty state");
   assert.doesNotMatch(js, /DEFAULT_MARKET_RATE|fallbackRate|assumedRate/i,
     "no invented market rate");
+
+  // min_price is the cheapest INPUT price (cmd/rogerai-broker/market.go). Every figure on
+  // this page is an OUT price, so reading min_price multiplied an output volume by an
+  // input rate and overstated the saving. The field it reads must be the out one, and
+  // there must be no fallback to the input one - that would be the bug wearing a
+  // fallback.
+  const market = go("cmd", "rogerai-broker", "market.go");
+  assert.match(market, /MinOut\s+float64\s+`json:"min_out"`/, "the broker serializes an out-price");
+  assert.match(market, /MinPrice[\s\S]{0,120}cheapest active input price/i,
+    "and min_price is still documented as the INPUT price this must not use");
+  assert.match(js, /min_out/, "the calculator reads the out-price");
+  assert.doesNotMatch(js.replace(/\/\/[^\n]*/g, ""), /min_price/,
+    "and never the input price, not even as a fallback");
 });
 
 /* ---- the arithmetic is shown, and the uncertainty is named ---------- */
+
+test("calculator: the inputs are clamped to the bounds the markup declares", () => {
+  // The markup declares a 24-hour day and a 100% ceiling; without clamping, the
+  // arithmetic ignored both and a typed 500% printed a number nobody could earn.
+  const js = calc();
+  assert.match(js, /el\.min/, "the floor each input declares is honored");
+  assert.match(js, /el\.max/, "and so is the ceiling");
+});
 
 test("calculator: it shows its working", () => {
   const s = section();

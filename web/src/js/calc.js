@@ -24,11 +24,18 @@
   var BROKER = "https://broker.rogerai.fm";
 
   function $(id) { return document.getElementById(id); }
+  // Clamped to the input's OWN min/max. Without this the markup declared a 24-hour day
+  // and a 100% ceiling that the arithmetic then ignored, so a typed 500% utilisation
+  // computed happily and printed a number nobody could earn.
   function num(id) {
     var el = $(id);
     if (!el) return 0;
     var v = parseFloat(el.value);
-    return isFinite(v) && v >= 0 ? v : 0;
+    if (!isFinite(v)) return 0;
+    var lo = parseFloat(el.min), hi = parseFloat(el.max);
+    if (isFinite(lo) && v < lo) v = lo;
+    if (isFinite(hi) && v > hi) v = hi;
+    return v >= 0 ? v : 0;
   }
   // usd defers to the site's one money renderer when it is loaded, so a figure here
   // reads the same as a figure anywhere else on the site.
@@ -83,12 +90,22 @@
     fetch(BROKER + "/market", { credentials: "omit" })
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (d) {
+        // min_out, NEVER min_price: min_price is the cheapest INPUT price (market.go),
+        // and every figure on this page is an OUT price. Reading the wrong one multiplied
+        // an output volume by an input rate and overstated the saving. A broker too old
+        // to send min_out simply leaves the field to the reader - falling back to
+        // min_price would be the original bug wearing a fallback.
         var rows = (d && d.market) || [];
-        var priced = [], free = 0;
+        var priced = [], free = 0, sawOut = false;
         for (var i = 0; i < rows.length; i++) {
-          var p = rows[i].min_price;
+          var p = rows[i].min_out;
           if (typeof p !== "number") continue;
+          sawOut = true;
           if (p > 0) priced.push(p); else free++;
+        }
+        if (!sawOut && rows.length) {
+          note.textContent = "this broker does not report an out-price - put in a rate yourself";
+          return;
         }
         if (priced.length) {
           var cheapest = Math.min.apply(null, priced);

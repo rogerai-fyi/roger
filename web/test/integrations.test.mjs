@@ -88,6 +88,8 @@ const guests = () => {
       name: h[1],
       bin: h[2],
       strategy: block.match(/Strategy:\s*(\w+)/)?.[1] || "",
+      knownGood: block.match(/KnownGood:\s*"([^"]+)"/)?.[1] || "",
+      install: block.match(/InstallHint:\s*"([^"]+)"/)?.[1] || "",
       needsSetup: /NeedsSetup:\s*true/.test(block),
     };
   });
@@ -103,6 +105,23 @@ test("integrations: every guest the CLI can wire is on the page", () => {
   const listed = [...page.matchAll(/data-guest="([^"]+)"/g)].map((m) => m[1]);
   assert.deepEqual([...listed].sort(), found.map((g) => g.name).sort(),
     "the page's guest list and internal/operator/registry.go have drifted apart");
+});
+
+// The page says the desk list is test-checked. That was true of the NAMES and of nothing
+// else: the version each guest was proven at, and the command that installs it, were
+// hand-copied. A stale install line sends someone to a package that is not there.
+test("integrations: each guest's proven version and install command are the registry's", () => {
+  const page = read("integrations.html");
+  for (const g of guests()) {
+    const row = page.match(new RegExp(`data-guest="${g.name}"[\\s\\S]*?</article>`))?.[0] || "";
+    assert.ok(row, `${g.name} has a row`);
+    assert.ok(g.knownGood && row.includes(g.knownGood),
+      `${g.name}'s row must show the proven version ${g.knownGood}`);
+    // The install hint may carry characters the page escapes, so compare the text form.
+    const shown = row.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
+    assert.ok(g.install && shown.includes(g.install),
+      `${g.name}'s row must show the registry's install command: ${g.install}`);
+  }
 });
 
 test("integrations: a context-only guest is not sold as running on the band", () => {

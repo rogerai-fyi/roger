@@ -298,16 +298,22 @@ type marketView struct {
 	// if it can be ROUTED to any provider that reports vision. ["vision"] if any provider does,
 	// omitted otherwise (the app name-guesses for a model with no declared vision provider).
 	Capabilities []string `json:"capabilities,omitempty"`
-	Providers    int      `json:"providers"`    // online nodes offering this model
-	InFlight     int      `json:"in_flight"`    // active requests across those nodes
-	MinPrice     float64  `json:"min_price"`    // cheapest active input price (credits/1M)
-	PriceTier    int      `json:"price_tier"`   // 0..4 neutral $-tier for the model's BEST (cheapest) active out-price (0 = FREE/unknown); mirrors the cheapest offer's /discover tier
-	BestTPS      float64  `json:"best_tps"`     // fastest measured output tok/s
-	BestTTFTMs   float64  `json:"ttft_ms"`      // best (lowest) probe-measured TTFT across providers (ms; 0 = unmeasured)
-	Quality      float64  `json:"quality"`      // mean broker-measured trust/quality across providers (0..1)
-	SuccessRate  float64  `json:"success_rate"` // mean time-decayed success across providers (0..1)
-	Verified     bool     `json:"verified"`     // at least one provider has a recent PASSED canary
-	Signal       int      `json:"signal"`       // 0..100 demand/quality signal
+	Providers    int      `json:"providers"` // online nodes offering this model
+	InFlight     int      `json:"in_flight"` // active requests across those nodes
+	MinPrice     float64  `json:"min_price"` // cheapest active input price (credits/1M)
+	// MinOut is the cheapest active OUT-price (credits/1M), the number every surface on the
+	// website actually quotes. It was computed here for the price tier and never serialized,
+	// so a consumer of this feed could only reach the INPUT price - and the pricing
+	// calculator multiplied an output volume by it, understating the band. Additive, so an
+	// older reader is unaffected.
+	MinOut      float64 `json:"min_out"`      // cheapest active output price (credits/1M)
+	PriceTier   int     `json:"price_tier"`   // 0..4 neutral $-tier for the model's BEST (cheapest) active out-price (0 = FREE/unknown); mirrors the cheapest offer's /discover tier
+	BestTPS     float64 `json:"best_tps"`     // fastest measured output tok/s
+	BestTTFTMs  float64 `json:"ttft_ms"`      // best (lowest) probe-measured TTFT across providers (ms; 0 = unmeasured)
+	Quality     float64 `json:"quality"`      // mean broker-measured trust/quality across providers (0..1)
+	SuccessRate float64 `json:"success_rate"` // mean time-decayed success across providers (0..1)
+	Verified    bool    `json:"verified"`     // at least one provider has a recent PASSED canary
+	Signal      int     `json:"signal"`       // 0..100 demand/quality signal
 	// Terms is the per-factor breakdown (supply/speed/latency/verified/success/trust
 	// + congestion discount) so the website can explain the meter.
 	Terms signalTerms `json:"terms"`
@@ -511,7 +517,7 @@ func (b *broker) computeMarket() any {
 		out = append(out, marketView{
 			Model: model, Modality: a.modality, Capabilities: marketCapabilities(model, a.capsUnion, a.capsSeen),
 			Providers: a.providers, InFlight: a.inflight,
-			MinPrice: a.minPrice, PriceTier: tier, BestTPS: a.bestTPS, BestTTFTMs: round6(a.bestTTFT),
+			MinPrice: a.minPrice, MinOut: a.minOut, PriceTier: tier, BestTPS: a.bestTPS, BestTTFTMs: round6(a.bestTTFT),
 			Quality:     round6(quality),
 			SuccessRate: round6(successRate),
 			Verified:    a.anyVerified,

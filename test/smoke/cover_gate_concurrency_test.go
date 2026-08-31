@@ -62,21 +62,50 @@ func TestCoverGateDoesNotBindAFixedHostPort(t *testing.T) {
 	}
 }
 
-func TestCoverGateDoesNotRemoveAContainerItDidNotCreate(t *testing.T) {
+// The per-run rename removed the only thing that swept up orphans - the EXIT trap misses
+// SIGKILL and power loss - so the gate has to reclaim its own stale siblings, and only
+// those. Age is the discriminator: a run going for two hours is not running.
+func TestCoverGateReclaimsItsOwnOrphans(t *testing.T) {
 	s := gateScript(t)
-	// Every removal must target $PG_CT and nothing else. Together with the per-run name
-	// above, that means the gate can only ever remove the container it started itself.
+	if !strings.Contains(s, "name=^rogerai-covergate-pg-") {
+		t.Error("the gate never sweeps up orphaned containers, so a killed run leaks one forever")
+	}
+	if !strings.Contains(s, "until=") {
+		t.Error("the orphan sweep is not bounded by age, so it can remove a live sibling")
+	}
+}
+
+// Two gates in one worktree used to write one another's coverage profile, so the loser
+// measured a suite it did not run.
+func TestCoverGateProfileIsPerRun(t *testing.T) {
+	s := gateScript(t)
+	if regexp.MustCompile(`PROFILE="\$\{COVER_PROFILE:-[^}]*\}"`).MatchString(s) {
+		t.Error("the coverage profile defaults to a fixed shared path, so two runs collide")
+	}
+	if !strings.Contains(s, "mktemp") {
+		t.Error("the coverage profile is not per-run")
+	}
+}
+
+func TestCoverGateOnlyRemovesContainersItMayRemove(t *testing.T) {
+	s := gateScript(t)
+	// A CONTAINER removal is what matters here; `rm -f` on a temp file is not this
+	// test's business, and an earlier version of it flagged exactly that.
 	//
-	// Source ORDER is deliberately not what is checked: the cleanup function is defined
-	// before the container is started but only runs on EXIT, and an earlier version of
-	// this test flagged that correct code.
+	// Two removals are legitimate: our own $PG_CT, and the age-bounded sweep of orphaned
+	// siblings. Anything else can take a live run's database, which is the failure this
+	// whole file exists to prevent.
 	for i, line := range strings.Split(s, "\n") {
-		if !strings.Contains(line, "rm -f") {
+		if !strings.Contains(line, `rm -f`) || !strings.Contains(line, "RUNTIME") {
 			continue
 		}
-		if !strings.Contains(line, `"$PG_CT"`) {
-			t.Errorf("cover-gate.sh:%d force-removes something other than its own container: %s",
-				i+1, strings.TrimSpace(line))
+		ownContainer := strings.Contains(line, `"$PG_CT"`)
+		agedSweep := strings.Contains(line, "xargs")
+		if !ownContainer && !agedSweep {
+			t.Errorf("cover-gate.sh:%d removes a container that is neither its own nor a "+
+				"stale orphan: %s", i+1, strings.TrimSpace(line))
 		}
 	}
+	// And the sweep that is allowed must actually be bounded, which the orphan test
+	// asserts from the other side.
 }
