@@ -416,8 +416,7 @@ func (s *askBDD) asksTwice() error {
 	s.m = asModel(out)
 	<-s.answer
 	s.ask(context.Background(), "which shall it be?", nil)
-	s.pump()
-	return nil
+	return s.pumpUntilAsk()
 }
 
 func (s *askBDD) repeatGuardApplies() error {
