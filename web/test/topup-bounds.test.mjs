@@ -157,14 +157,17 @@ const MINIMUM_RE = new RegExp(
 //    end of the text now, each carrying its own context words with it, and the tag
 //    leaves behind a single space.
 const NON_PROSE = /^(?:class|id|href|src|srcset|style|type|rel|role|name|property|width|height|viewbox|d|fill|stroke|stroke-width|stroke-linecap|stroke-linejoin|xmlns|xmlns:xlink|xlink:href|lang|charset|hidden|defer|async|for|value|min|max|step|inputmode|maxlength|crossorigin|color|media|preload|loading|target|method|action|data-.*|aria-(?!label$).*)$/i;
-const stripTags = (h) => {
+const stripTags = (h, { collapseAttrs = true } = {}) => {
   const hoisted = [];
   const takeAttrs = (tag) => {
     for (const m of tag.matchAll(/([\w:-]+)\s*=\s*("[^"]*"|'[^']*')/g)) {
       // Collapsed on the way in, for the reason the body is collapsed: a wrapped
       // attribute would otherwise keep the indentation-hides-a-match hole in the one
       // path that did not have it.
-      if (!NON_PROSE.test(m[1])) hoisted.push(m[2].slice(1, -1).replace(/\s+/g, " "));
+      if (!NON_PROSE.test(m[1])) {
+        const value = m[2].slice(1, -1);
+        hoisted.push(collapseAttrs ? value.replace(/\s+/g, " ") : value);
+      }
     }
     return " ";
   };
@@ -184,8 +187,8 @@ const stripTags = (h) => {
 // it (the stripper, the window, the anchor) exercised only by real pages, which never
 // reach their edges: the nearest match on the site sits 239 characters in, so the
 // clamped window and the nearest-wins decision had never run at all.
-function findMinimums(rawHtml) {
-  const html = stripTags(rawHtml);
+function findMinimums(rawHtml, opts) {
+  const html = stripTags(rawHtml, opts);
   const out = [];
   for (const m of html.matchAll(MINIMUM_RE)) {
     const start = Math.max(0, m.index - TOPUP_NEAR);
@@ -212,13 +215,16 @@ test("topup bounds: the scan survives a clamped window, a wrapped attribute and 
   // exceed the [^$]{0,12} budget: it is the WIDTH that disarms the match when the
   // collapse is missing, and a 20-space run buried in a literal is the kind of
   // load-bearing invisible thing a reformat deletes without anyone noticing.
-  // Derived from the SAME constant the scan uses, and asserted to exceed it: a narrowed
-  // indent would still pass while testing nothing, which is the failure this whole file
-  // keeps meeting.
+  // The indent is derived from the SAME constant the scan uses, so it is over budget by
+  // construction rather than by an assertion that could only fail if this line were
+  // edited. What is asserted instead is the property that matters: run the same fixture
+  // with the collapse switched OFF and it must find nothing. A fixture that passes
+  // either way is the failure this whole file keeps meeting, so it proves its own teeth.
   const GAP = " ".repeat(GAP_BUDGET + 8);
-  assert.ok(GAP.length > GAP_BUDGET, "the fixture's indent must exceed the gap budget to prove anything");
   const wrapped = `<p aria-label="the top-up minimum\n${GAP}is $9 per account">x</p>`;
   assert.deepEqual(findMinimums(wrapped), [{ shown: "9", kind: "topup" }]);
+  assert.deepEqual(findMinimums(wrapped, { collapseAttrs: false }), [],
+    "without the collapse this fixture must find nothing - otherwise it pins nothing");
 
   // And a minimum with neither context word stays unclassifiable rather than defaulting
   // to one - the branch Infinity <= Infinity had quietly made unreachable.
