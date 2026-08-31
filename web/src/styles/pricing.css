@@ -69,3 +69,53 @@
 @media (max-width: 620px) {
   .pplate > div { grid-template-columns: 1fr; gap: var(--s-2); }
 }
+
+/* =====================================================================
+   THE CALCULATOR
+   Two cards, each a short stack of labelled inputs over one big number and
+   the arithmetic that produced it. The working is shown because the whole
+   argument against the competitor's version is that theirs has none.
+   ===================================================================== */
+.calc { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-8); }
+.calc__card { border-top: 2px solid var(--ink-900); padding-top: var(--s-5); display: flex; flex-direction: column; }
+.calc__head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s-3); }
+.calc__head h3 { margin: 0; color: var(--ink-900); font-size: var(--t-h3); }
+.calc__tag {
+  font-family: var(--font-mono); font-size: var(--t-micro);
+  letter-spacing: var(--tracking-label); text-transform: uppercase;
+  color: var(--ink-400); border: 1px solid var(--hairline-2); padding: 2px 6px;
+}
+.calc__lead { margin: var(--s-4) 0 var(--s-5); color: var(--ink-500); line-height: var(--lh-body); }
+
+.calc__field {
+  display: grid; grid-template-columns: 1fr auto; gap: var(--s-3) var(--s-4);
+  align-items: center; padding-block: var(--s-3); border-bottom: 1px solid var(--hairline);
+}
+.calc__field label { color: var(--ink-700); font-size: var(--t-sm); line-height: 1.4; }
+.calc__field input {
+  width: 8ch; padding: 5px 8px; text-align: right;
+  font-family: var(--font-mono); font-size: var(--t-sm); font-variant-numeric: tabular-nums;
+  color: var(--ink-900); background: var(--paper); border: 1px solid var(--hairline-2);
+}
+.calc__field input:focus-visible { outline: 2px solid var(--live); outline-offset: 1px; }
+.calc__hint {
+  grid-column: 1 / -1; margin-top: -2px;
+  font-family: var(--font-mono); font-size: var(--t-micro); color: var(--ink-400);
+}
+
+.calc__out { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s-3); margin-top: var(--s-5); }
+.calc__big {
+  font-family: var(--font-mono); font-size: 1.9rem; letter-spacing: -0.02em;
+  color: var(--ink-900); font-variant-numeric: tabular-nums;
+}
+.calc__unit { color: var(--ink-500); font-size: var(--t-sm); }
+
+.calc__formula {
+  margin: var(--s-4) 0 0; padding: var(--s-3) var(--s-4);
+  background: var(--paper-2); border: 1px solid var(--hairline);
+  font-family: var(--font-mono); font-size: var(--t-xs); line-height: 1.7;
+  color: var(--ink-500); overflow-x: auto;
+}
+.calc__fine { margin: var(--s-4) 0 0; color: var(--ink-400); font-size: var(--t-xs); line-height: var(--lh-body); }
+
+@media (max-width: 820px) { .calc { grid-template-columns: 1fr; gap: var(--s-10); } }
