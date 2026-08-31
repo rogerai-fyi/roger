@@ -197,8 +197,18 @@ test("topup bounds: the scan survives a clamped window, a wrapped attribute and 
   // broken across its own indentation.
   // The wrap sits INSIDE the gap between the word and the number, which is the only
   // place it can break the match - a newline before "minimum" would be matched either
-  // way, so the earlier fixture pinned nothing.
-  const wrapped = '<p aria-label="the top-up minimum\n                    is $9 per account">x</p>';
+  // way, so the earlier fixture pinned nothing. The indent is built explicitly and must
+  // exceed the [^$]{0,12} budget: it is the WIDTH that disarms the match when the
+  // collapse is missing, and a 20-space run buried in a literal is the kind of
+  // load-bearing invisible thing a reformat deletes without anyone noticing.
+  // The budget is read off the scan's own regex rather than written twice, and the
+  // fixture asserts it is armed: a narrowed indent would still PASS, quietly testing
+  // nothing, which is the failure this whole file keeps meeting.
+  const budget = Number(/\[\^\$\]\{0,(\d+)\}/.exec(findMinimums.toString())?.[1]);
+  assert.ok(budget > 0, "the scan's gap budget is readable");
+  const GAP = " ".repeat(budget + 8);
+  assert.ok(GAP.length > budget, "the fixture's indent must exceed the gap budget to prove anything");
+  const wrapped = `<p aria-label="the top-up minimum\n${GAP}is $9 per account">x</p>`;
   assert.deepEqual(findMinimums(wrapped), [{ shown: "9", kind: "topup" }]);
 
   // And a minimum with neither context word stays unclassifiable rather than defaulting
