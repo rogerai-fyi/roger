@@ -322,7 +322,9 @@
 
             <output class="calc__out" id="cnOut" for="cnPrice cnVolume cnHere" aria-live="polite">
               <span class="calc__big" id="cnDelta">set a rate</span>
-              <span class="calc__unit">a month, difference</span>
+              <!-- The unit is hidden while the answer is a prompt, so the live region
+                   does not announce "set a rate a month, difference". -->
+              <span class="calc__unit" id="cnUnit" hidden>a month, difference</span>
             </output>
             <p class="calc__formula" data-calc-formula id="cnFormula">
               20M &times; $0.60 / 1M = $12.00 today &middot;

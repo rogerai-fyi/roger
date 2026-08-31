@@ -75,6 +75,8 @@
     var field = $("cnHere");
     if (field && field.value.trim() === "") {
       if ($("cnDelta")) $("cnDelta").textContent = "set a rate";
+      if ($("cnUnit")) $("cnUnit").hidden = true; // else the live region reads
+                                                 // "set a rate a month, difference"
       if ($("cnFormula")) {
         $("cnFormula").textContent =
           millions(volume) + " x " + usd(mine) + " / 1M = " + usd(today) +
@@ -87,6 +89,7 @@
     if ($("cnDelta")) {
       $("cnDelta").textContent = (delta > 0 ? "-" : delta < 0 ? "+" : "") + usd(Math.abs(delta));
     }
+    if ($("cnUnit")) $("cnUnit").hidden = false;
     if ($("cnFormula")) {
       $("cnFormula").textContent =
         millions(volume) + " x " + usd(mine) + " / 1M = " + usd(today) + " today · " +
@@ -127,7 +130,13 @@
           return;
         }
         if (best) {
-          field.value = String(best.price);
+          // Clamped and formatted to the field's OWN bounds: num() clamps to max on the
+          // way in, so an un-clamped display showed a rate the arithmetic did not use.
+          // String() also renders a very small rate in exponent form (6e-7), which is not
+          // a price anyone reads.
+          var hi = parseFloat(field.max);
+          var shown = isFinite(hi) ? Math.min(best.price, hi) : best.price;
+          field.value = shown < 0.01 ? shown.toFixed(6) : shown.toFixed(2);
           // NAMES the band it came from, and says PAID. Free bands are excluded from the
           // rate on purpose - a zero would price the comparison at nothing - so calling
           // this "the cheapest on air" was untrue whenever a free band existed, which on

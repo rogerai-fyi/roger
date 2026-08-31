@@ -98,6 +98,10 @@ test("calculator: the live rate is read, never baked in", () => {
   // were on air and the price belonged to some other model.
   assert.match(js, /PAID band on air/, "the note says the rate is a PAID band's");
   assert.match(js, /best\.model/, "and names which band it came from");
+  // The fetched rate is shown within the field's own declared bounds, since num() clamps
+  // to them on the way in - otherwise the page displays a rate the sum does not use.
+  assert.match(js, /field\.max/, "the fetched rate respects the field's maximum");
+  assert.doesNotMatch(js, /field\.value = String\(best/, "and is not rendered in exponent form");
 
   // An unknown rate must not be treated as a free one. When the market cannot be read the
   // field is emptied, and an empty field stops the comparison rather than printing a
@@ -154,6 +158,9 @@ test("calculator: with no JavaScript it is honest rather than blank", () => {
   }
   // And the shipped answer for it is the ask, not a number computed against zero.
   assert.match(s, />set a rate</, "the unanswered state ships in the markup");
+  // The unit is hidden alongside it, or a live region announces "set a rate a month,
+  // difference" as one sentence.
+  assert.match(s, /id="cnUnit"[^>]*hidden/, "the unit is hidden while the answer is a prompt");
 });
 
 // The worked example that ships in the markup is what a no-JS reader sees and what a

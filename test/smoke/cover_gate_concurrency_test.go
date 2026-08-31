@@ -87,21 +87,22 @@ func TestCoverGateDoesNotBindAFixedHostPort(t *testing.T) {
 // nothing while this test stayed green. It asserts the discriminator instead.
 func TestCoverGateReclaimsItsOwnOrphans(t *testing.T) {
 	s := gateScript(t)
-	if !strings.Contains(s, "name=^rogerai-covergate-pg-") {
+	code := codeLines(s)
+	if !strings.Contains(code, "name=^rogerai-covergate-pg-") {
 		t.Error("the gate never looks for orphaned containers, so a killed run leaks one forever")
 	}
 	// Liveness must be owner-agnostic. `kill -0` alone returns EPERM for another user's
 	// process, which reads as "dead", so a live sibling belonging to a different user was
 	// classified as an orphan and force-removed - the very failure this file exists to
 	// prevent, reintroduced by the fix for it.
-	if !strings.Contains(s, "/proc/$owner") && !strings.Contains(s, "ps -p") {
+	if !strings.Contains(code, "/proc/$owner") && !strings.Contains(code, "ps -p") {
 		t.Error("the sweep has no owner-agnostic liveness check, so another user's live run " +
 			"reads as an orphan")
 	}
-	if strings.Contains(codeLines(s), "kill -0") {
+	if strings.Contains(code, "kill -0") {
 		t.Error("the sweep uses kill -0, which cannot see a process owned by another user")
 	}
-	for i, line := range strings.Split(codeLines(s), "\n") {
+	for i, line := range strings.Split(code, "\n") {
 		if strings.Contains(line, "until=") {
 			t.Errorf("cover-gate.sh:%d filters by age with `until=`, which docker's ps does "+
 				"not support - it would silently reclaim nothing there", i+1)
@@ -139,7 +140,7 @@ func TestCoverGateOnlyRemovesContainersItMayRemove(t *testing.T) {
 		ownContainer := strings.Contains(line, `"$PG_CT"`)
 		orphanSweep := strings.Contains(line, `rm -f "$ct"`) // the sweep's own removal
 		if !ownContainer && !orphanSweep {
-			t.Errorf("cover-gate.sh:%d removes a container that is neither its own nor a "+
+			t.Errorf("cover-gate.sh:%d removes a container that is neither its own nor "+
 				"an orphan of a dead run: %s", i+1, strings.TrimSpace(line))
 		}
 	}
