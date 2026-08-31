@@ -108,7 +108,9 @@
 
 .ec-table--market td:first-child,
 .ec-table--market td.mono { font-variant-numeric: tabular-nums slashed-zero; }
-.ec-table--market { min-width: 460px; }
+.ec-table--market { min-width: 520px; }
+.ec-table--spread { min-width: 680px; }
+.ec-table--owned  { min-width: 560px; }
 .ec-table--margin { min-width: 620px; }
 
 /* ---- the chart -------------------------------------------------------- */
@@ -134,10 +136,8 @@
   font-size: 10px; text-anchor: middle;
 }
 .ec-chart__bar { rx: 2; }
-.ec-chart__bar--own  { fill: var(--live); }
-.ec-chart__bar--buy  { fill: var(--ink-500); }
-.ec-chart__bar--rent { fill: var(--ink-300); }
-.ec-chart__bar--bad  { fill: var(--paper-3); stroke: var(--hairline-2); stroke-width: 1; }
+.ec-chart__bar--charge { fill: var(--live-tint); stroke: var(--live); stroke-width: 1; }
+.ec-chart__bar--cost   { fill: var(--ink-900); rx: 1; }
 .ec-figure figcaption {
   margin: var(--s-3) 2px 0; font-size: var(--t-xs);
   line-height: 1.5; color: var(--ink-400);
@@ -156,6 +156,31 @@
 }
 .ec-levers li:last-child { padding-bottom: 0; }
 .ec-levers b { color: var(--ink-900); }
+
+/* ---- the four steps --------------------------------------------------- */
+
+.ec-steps { margin: var(--s-5) 0 0; padding: 0; list-style: none; counter-reset: step; }
+.ec-steps li {
+  position: relative; padding: 0 0 var(--s-4) var(--s-8);
+  line-height: var(--lh-body); color: var(--ink-700);
+  counter-increment: step;
+}
+.ec-steps li::before {
+  content: counter(step); position: absolute; left: 0; top: 1px;
+  width: 20px; height: 20px; border-radius: 50%;
+  display: grid; place-items: center;
+  background: var(--live); color: var(--white);
+  font-family: var(--font-mono); font-size: var(--t-micro);
+  font-variant-numeric: tabular-nums;
+}
+.ec-steps li:last-child { padding-bottom: 0; }
+.ec-steps b { color: var(--ink-900); }
+.ec-steps code {
+  display: inline-block; margin-top: 4px;
+  font-family: var(--font-mono); font-size: var(--t-xs);
+  background: var(--paper-2); border: 1px solid var(--hairline);
+  border-radius: 3px; padding: 2px 6px;
+}
 
 @media (max-width: 640px) {
   .ec-answer-grid { grid-template-columns: 1fr; }

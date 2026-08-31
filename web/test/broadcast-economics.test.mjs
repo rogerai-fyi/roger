@@ -40,8 +40,13 @@ test("economics: the transmission log carries it, newest first", () => {
 // The operator's share, declared once on the page and read from there rather than
 // hardcoded here: if the split ever changes, the page and this test move together.
 const share = () => {
-  const s = Number(read(PAGE).match(/data-share="([0-9.]+)"/)?.[1]);
-  assert.ok(s > 0 && s < 1, "the page declares the operator's share");
+  // more than one table states the share now, so they all have to agree - a page that
+  // grossed one table up at 70% and another at some other number would still look fine.
+  const all = [...read(PAGE).matchAll(/data-share="([0-9.]+)"/g)].map((m) => Number(m[1]));
+  assert.ok(all.length >= 1, "the page declares the operator's share");
+  assert.equal(new Set(all).size, 1, `the tables disagree about the operator's share: ${all.join(", ")}`);
+  const s = all[0];
+  assert.ok(s > 0 && s < 1, "and it is a share, not a percentage or a multiple");
   return s;
 };
 
