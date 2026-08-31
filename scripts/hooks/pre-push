@@ -117,6 +117,44 @@ fi
 
 if [ "$any_go" = "1" ]; then
 	echo "[pre-push] .go in range -> FULL coverage gate (bypass: COVER_GATE_SKIP=1 git push)" >&2
+	# ---- THE CONNECTION HAS TO SURVIVE THE GATE ---------------------------------
+	# git opened the SSH connection to the remote BEFORE calling this hook, and the full gate
+	# below runs for fifteen minutes or more with no traffic on that socket. If the far end
+	# drops it as idle, the pack write lands on a dead connection: the gate passes, the audit
+	# passes, and the push SIGPIPEs (141) without landing. That is the worst failure shape
+	# there is - everything says success and nothing shipped - and it cost most of a day on
+	# 2026-08-30 before the cause was found.
+	#
+	# Checked HERE, one second in, rather than discovered twenty minutes later. Only for ssh
+	# remotes (an https push re-authenticates per request and does not hold a socket), and only
+	# on the long path, because the fast gate finishes well inside any idle timeout.
+	# TCPKeepAlive does not cover this: the OS waits ~2h before its first probe.
+	remote_url="${2:-}"
+	case "$remote_url" in
+		*ssh://*|*@*:*)
+			if command -v ssh >/dev/null 2>&1; then
+				ssh_host="$(printf '%s' "$remote_url" | sed -n 's|^ssh://[^@]*@\([^/:]*\).*|\1|p; s|^[^@]*@\([^:]*\):.*|\1|p' | head -1)"
+				if [ -n "$ssh_host" ]; then
+					iv="$(ssh -G "$ssh_host" 2>/dev/null | sed -n 's/^serveraliveinterval //p' | head -1)"
+					cm="$(ssh -G "$ssh_host" 2>/dev/null | sed -n 's/^serveralivecountmax //p' | head -1)"
+					budget=$(( ${iv:-0} * ${cm:-3} ))
+					if [ "${iv:-0}" -eq 0 ] 2>/dev/null || [ "$budget" -lt 1500 ]; then
+						echo "[pre-push] STOPPING BEFORE THE GATE: ssh to $ssh_host would idle out." >&2
+						echo "[pre-push] The gate takes ~15-25 min with no traffic on the connection git" >&2
+						echo "[pre-push] already opened, so the push would SIGPIPE afterwards and NOT land," >&2
+						echo "[pre-push] with every gate reporting success. Add to ~/.ssh/config:" >&2
+						echo "" >&2
+						echo "    Host $ssh_host" >&2
+						echo "        ServerAliveInterval 30" >&2
+						echo "        ServerAliveCountMax 120" >&2
+						echo "" >&2
+						echo "[pre-push] Then push again. (make verify-gate checks this and the rest.)" >&2
+						exit 1
+					fi
+				fi
+			fi
+			;;
+	esac
 	make cover-gate
 else
 	echo "[pre-push] no .go in range -> fast gate" >&2

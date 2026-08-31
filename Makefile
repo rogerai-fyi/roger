@@ -151,6 +151,16 @@ hooks:
 	mkdir -p "$$HOOKS"; \
 	install -m 0755 scripts/hooks/pre-push "$$HOOKS/pre-push"; \
 	echo "[hooks] installed $$HOOKS/pre-push from scripts/hooks/pre-push"
+	@# Installing the hook is not the same as the gate being ARMED: a global core.hooksPath
+	@# overrides .git/hooks, so the chain has to be checked rather than assumed.
+	@$(MAKE) --no-print-directory verify-gate
+
+# verify-gate: prove the pre-push chain would actually run. Read-only and quick - the heavy
+# gates are stubbed, because what is under test is whether they are REACHED. See the header
+# of scripts/verify-push-gate.sh for the two ways this has silently gone missing before.
+.PHONY: verify-gate
+verify-gate:
+	@./scripts/verify-push-gate.sh
 
 # web-gate: what a push that touches web/ must clear.
 #
