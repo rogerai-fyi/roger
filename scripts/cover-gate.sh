@@ -80,14 +80,16 @@ if [ -z "${ROGERAI_TEST_DATABASE_URL:-}" ]; then
     # acts on what it names. The decision is a separate script because it shipped broken
     # once in a way no string-matching test could see, and it is unit-tested there.
     # stderr is NOT swallowed: silencing it is what hid an earlier sweep doing nothing.
-    # No trailing dash: the filter is an anchored regex, and with one it could never
-    # match the bare legacy name "rogerai-covergate-pg" - which made the sweep's
-    # reclamation of it dead code in production while the unit test, fed on stdin, passed.
-    "$RUNTIME" ps -a --filter "name=^rogerai-covergate-pg" --format "{{.Names}}" \
+    # The trailing dash is deliberate: it keeps the bare legacy name out of the sweep
+    # entirely. That name carries no owner, eight sibling worktrees still use it, and
+    # nothing can tell a live one from an orphan - so it must not even be offered.
+    "$RUNTIME" ps -a --filter "name=^rogerai-covergate-pg-" --format "{{.Names}}" \
       | PG_NS="$PG_NS" "$SCRIPT_DIR/sweep-orphans.sh" \
       | while IFS= read -r ct; do
           [ -n "$ct" ] || continue
-          "$RUNTIME" rm -f "$ct" >/dev/null 2>&1 || true
+          # </dev/null: without it the removal inherits the loop's stdin - the sweep's
+          # own output - and a runtime that read stdin would eat the remaining names.
+          "$RUNTIME" rm -f "$ct" </dev/null >/dev/null 2>&1 || true
         done
     echo "[cover] starting throwaway Postgres ($RUNTIME) for the store money path…" >&2
     # The host port is chosen by the runtime and read back, rather than pinned: a fixed

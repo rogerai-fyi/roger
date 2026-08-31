@@ -40,13 +40,16 @@ while IFS= read -r ct; do
   case "$ct" in "$BASE") ;; "$PREFIX"*) ;; (*) continue ;; esac
   rest="${ct#"$BASE"}"   # "" for the old fixed name, else "-<...>"
   rest="${rest#-}"
-  # LEGACY NAMES, from before this scheme, are reclaimed on the pid alone. The fixed
-  # "rogerai-covergate-pg" has no suffix and belongs to no current run at all; the
-  # "<pid>" form predates the namespace segment. Neither can ever match a namespace, so
-  # without this they were never reclaimed - and a RUNNING legacy orphan holds its
-  # published port and its memory, which is a good deal worse than the stopped-container
-  # metadata this file's trade-off is written around.
-  if [ -z "$rest" ]; then echo "$ct"; continue; fi   # the old fixed name
+  # The bare legacy name "rogerai-covergate-pg" is NEVER reclaimed. It carries no owner,
+  # so nothing here can tell a live run's from an orphan - and it is not hypothetical:
+  # eight sibling worktrees on this machine are still running the older gate that uses
+  # exactly that name, so removing it would delete a running run's database. That is the
+  # failure this whole file exists to prevent, and a leaked container is the cheaper side
+  # of the trade. It leaks until somebody removes it by hand.
+  #
+  # The "<pid>" legacy form DOES carry an owner, so it is reclaimed on the pid like any
+  # other; it simply predates the namespace segment.
+  if [ -z "$rest" ]; then continue; fi
   case "$rest" in
     *-*) ns="${rest%-*}"; owner="${rest##*-}" ;;
     *)   ns="$NS";        owner="$rest" ;;           # the old "<pid>" form

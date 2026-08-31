@@ -72,17 +72,17 @@ func TestSweepOrphansDecides(t *testing.T) {
 		// keeps it, which is the point: another project's container is not ours to remove.
 		"42-" + dead + "\n" +
 		// LEGACY names, from before the namespace segment and before the per-run rename.
-		// Neither can match a namespace, so without an explicit path they were never
-		// reclaimed - and a RUNNING legacy orphan holds its published port and memory.
-		"rogerai-covergate-pg\n" + // the old fixed name, owned by no current run -> reclaim
+		// The "<pid>" form can never match a namespace, so without an explicit path it was
+		// never reclaimed - and a RUNNING orphan holds its published port and memory. The
+		// BARE name is different: it carries no owner at all, so it is never taken.
+		"rogerai-covergate-pg\n" + // the old fixed name, no owner to check       -> keep
 		"rogerai-covergate-pg-" + dead + "\n" + // the old "<pid>" form, owner gone      -> reclaim
 		"rogerai-covergate-pg-1\n" // the old "<pid>" form, owner ALIVE            -> keep
 
 	got := runSweep(t, "42", input)
 	want := []string{
-		"rogerai-covergate-pg-42-" + dead + "",
-		"rogerai-covergate-pg",
-		"rogerai-covergate-pg-" + dead + "",
+		"rogerai-covergate-pg-42-" + dead,
+		"rogerai-covergate-pg-" + dead,
 	}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Errorf("sweep reclaimed %v, want %v", got, want)
@@ -109,6 +109,15 @@ func TestSweepOrphansIsNotSilentlyInert(t *testing.T) {
 	got := runSweep(t, "42", "rogerai-covergate-pg-42-"+dead+"\n")
 	if len(got) == 0 {
 		t.Error("the sweep reclaimed nothing at all from an obvious orphan - it is inert")
+	}
+}
+
+// The bare legacy name carries no owner, so nothing can tell a live run's container from
+// an orphan - and eight sibling worktrees on this machine still run the older gate that
+// uses exactly that name. Removing it would delete a running run's database.
+func TestSweepOrphansNeverTakesTheOwnerlessLegacyName(t *testing.T) {
+	if got := runSweep(t, "42", "rogerai-covergate-pg\n"); len(got) != 0 {
+		t.Errorf("sweep would remove %q, which may be a live sibling's database", got)
 	}
 }
 

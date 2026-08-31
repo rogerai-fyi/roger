@@ -110,6 +110,10 @@ test("calculator: the live rate is read, never baked in", () => {
   // the real number fits, and the <0.005 guard keeps String() clear of exponent form.
   assert.doesNotMatch(js, /best\.price\.toFixed/, "the live rate is written verbatim");
   assert.match(js, /field\.value = String\(best\.price\)/, "exactly as the market reported it");
+  // Ownership is decided ONCE, before anything is written. Re-asking after the write sees
+  // the value we just put there, calls the field theirs, and silently skips every note
+  // that follows - which left the reader looking at "reading the live market..." forever.
+  assert.match(js, /theirs === null/, "ownership is captured once, not re-derived");
 
   // An unknown rate must not be treated as a free one. When the market cannot be read the
   // field is emptied, and an empty field stops the comparison rather than printing a

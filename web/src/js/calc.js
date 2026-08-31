@@ -112,9 +112,19 @@
     // because this file is deferred and init() waits for DOMContentLoaded. The field
     // ships empty and nothing else writes it before the fetch resolves, so anything in it
     // came from the reader.
-    var mine = function () {
+    var isTheirs = function () {
       if (field.dataset && field.dataset.touched === "1") return true;
       return field.value.trim() !== "";
+    };
+    // Captured ONCE, before anything is written. Asking again after the write would see
+    // the value we just put there and call it theirs - which is exactly what happened:
+    // the field write flipped the check one line ahead of the note, and the "cheapest
+    // PAID band on air" hint became dead code while the reader stared at "reading the
+    // live market...".
+    var theirs = null;
+    var mine = function () {
+      if (theirs === null) theirs = isTheirs();
+      return theirs;
     };
     fetch(BROKER + "/market", { credentials: "omit" })
       .then(function (r) { return r.ok ? r.json() : null; })

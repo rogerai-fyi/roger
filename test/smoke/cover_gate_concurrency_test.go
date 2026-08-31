@@ -110,12 +110,13 @@ func TestCoverGateDelegatesTheSweep(t *testing.T) {
 	// anything not running, ahead of the liveness check, and `run -d` reports "created"
 	// between create and start - so a concurrently starting gate deleted a live sibling's
 	// database in that window. Not passing state is what makes that rule unwritable.
-	// The ps filter is an anchored regex. With a trailing dash it can never match the bare
-	// legacy name, which made the sweep's reclamation of that name dead code in production
-	// while its unit test - fed on stdin - passed.
-	if strings.Contains(code, `name=^rogerai-covergate-pg-`) {
-		t.Error("the gate's ps filter carries a trailing dash, so the bare legacy container " +
-			"name can never reach the sweep")
+	// The trailing dash is REQUIRED. The filter is an anchored regex, and without the dash
+	// it also lists the bare legacy name - which carries no owner, is still in use by
+	// sibling worktrees running the older gate, and so must never be offered to the sweep
+	// at all.
+	if !strings.Contains(code, `name=^rogerai-covergate-pg-`) {
+		t.Error("the gate's ps filter would list the ownerless legacy container name, which " +
+			"nothing can tell from a live sibling's")
 	}
 	// And it must resolve the sweep from its own location, not the caller's: invoked by
 	// bare name through PATH, dirname "$0" is ".".
