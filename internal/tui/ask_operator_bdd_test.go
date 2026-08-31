@@ -87,12 +87,24 @@ func (s *askBDD) pump() tea.Msg {
 
 func (s *askBDD) enteredAgent() error { s.enter(); return nil }
 
+// pumpUntilAsk drains until the QUESTION is the thing that arrived. The live turn's own
+// events race the ask onto the drain, so a single pump can legitimately deliver an
+// assistant event first - under CI load that lost race made these scenarios flake.
+func (s *askBDD) pumpUntilAsk() error {
+	for i := 0; i < 50; i++ {
+		if s.m.agentPendingAsk != nil {
+			return nil
+		}
+		s.pump()
+	}
+	return fmt.Errorf("the question never arrived at the drain")
+}
+
 func (s *askBDD) agentAsksMidTurn() error {
 	s.m.agentBusy = true
 	s.m.startAgentTurn("go")()
 	s.ask(context.Background(), "which shall it be?", nil)
-	s.pump()
-	return nil
+	return s.pumpUntilAsk()
 }
 
 func (s *askBDD) questionShown() error {
@@ -137,8 +149,7 @@ func (s *askBDD) asksWithThreeOptions() error {
 	s.m.agentBusy = true
 	s.m.startAgentTurn("go")()
 	s.ask(context.Background(), "pick one", []string{"alpha", "beta", "gamma"})
-	s.pump()
-	return nil
+	return s.pumpUntilAsk()
 }
 
 func (s *askBDD) allThreeShown() error {
@@ -252,8 +263,7 @@ func (s *askBDD) agentAsksAQuestion() error {
 	s.m.agentBusy = true
 	s.m.startAgentTurn("go")()
 	s.ask(context.Background(), "still my call?", nil)
-	s.pump()
-	return nil
+	return s.pumpUntilAsk()
 }
 
 func (s *askBDD) stillShownToMe() error { return s.questionShown() }
@@ -464,9 +474,8 @@ func (s *askBDD) answeredAndSecondOpen() error {
 	<-s.answer
 	// Second question, still open.
 	s.ask(context.Background(), "and now this one?", nil)
-	s.pump()
-	if s.m.agentPendingAsk == nil {
-		return fmt.Errorf("the second question is not open")
+	if err := s.pumpUntilAsk(); err != nil {
+		return fmt.Errorf("the second question is not open: %v", err)
 	}
 	return nil
 }
