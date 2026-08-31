@@ -53,6 +53,7 @@ const CSS_BUNDLES = {
   "company.html":   [...CSS_MARKETING, "research.css"],
   "pricing.html":   [...CSS_MARKETING, "research.css", "pricing.css"], // reuses the notebook shell; pricing.css is only the plates
   "faq.html":       [...CSS_MARKETING, "research.css", "faq.css"],     // ditto; faq.css is only the disclosure list
+  "integrations.html": [...CSS_MARKETING, "research.css", "integrations.css"], // ditto; the tables and guest plates
   "research-models.html": [...CSS_MARKETING, "research.css"], // the model catalogue, split out of the hub
   "research-wave-family.html": [...CSS_MARKETING, "research.css", "wave-family.css"], // the Wave ladder field guide, split out so research.html keeps its byte budget
   "voices.html":    [...CSS_MARKETING, "voices.css"],

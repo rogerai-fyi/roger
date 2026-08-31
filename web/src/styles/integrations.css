@@ -1,0 +1,72 @@
+/* =====================================================================
+   INTEGRATIONS - the two tables and the guest plates.
+   Reuses the notebook shell (research.css) for hero, sections and closing.
+   What is here is what those do not have: a dense compatibility table, the
+   guest cards, and the two-endpoint pair.
+   ===================================================================== */
+
+.intg { border-collapse: collapse; width: 100%; min-width: 560px; }
+.intg th, .intg td {
+  text-align: left; padding: 9px 14px; vertical-align: top;
+  border-bottom: 1px solid var(--hairline);
+}
+.intg th {
+  font-family: var(--font-mono); font-size: var(--t-micro);
+  letter-spacing: var(--tracking-label); text-transform: uppercase;
+  color: var(--ink-400); font-weight: var(--weight-medium);
+  border-bottom: 1px solid var(--hairline-2); background: var(--paper-2);
+}
+.intg tbody tr:last-child td { border-bottom: 0; }
+.intg td:first-child { color: var(--ink-900); font-weight: var(--weight-medium); }
+.intg td.mono { font-family: var(--font-mono); font-size: var(--t-sm); color: var(--ink-700);
+  font-variant-numeric: tabular-nums; white-space: nowrap; }
+.intg td:last-child { color: var(--ink-500); font-size: var(--t-sm); }
+
+.intg__note { margin-top: var(--s-5); max-width: 66ch; color: var(--ink-500); font-size: var(--t-sm); }
+
+/* the desk: one plate per guest, dividers drawn by the grid gap */
+/* Dividers are BORDERS on the cells, not a 1px gap showing the container through:
+   seven guests never divide evenly into an auto-fit column count, and a gap-drawn grid
+   paints the leftover slot as a grey block (the same bug the homepage plate had). */
+.guests {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
+  gap: 0; background: var(--paper);
+  border-block: 2px solid var(--ink-900);
+}
+.guests article {
+  display: flex; flex-direction: column; gap: var(--s-3); padding: var(--s-5);
+  border-right: 1px solid var(--hairline); border-bottom: 1px solid var(--hairline);
+}
+.guests h3 {
+  margin: 0; color: var(--ink-900); font-family: var(--font-mono);
+  font-size: var(--t-body); letter-spacing: -0.01em;
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s-3);
+}
+.guests__tag {
+  font-family: var(--font-mono); font-size: var(--t-micro);
+  letter-spacing: var(--tracking-label); text-transform: uppercase;
+  color: var(--live); border: 1px solid var(--live); padding: 1px 5px;
+}
+.guests__wire { margin: 0; color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body); }
+.guests__meta { margin: 0; color: var(--ink-400); font-size: var(--t-micro); }
+.guests__install {
+  margin-top: auto; padding: 7px 10px; overflow-x: auto;
+  font-family: var(--font-mono); font-size: var(--t-xs); color: var(--ink-700);
+  background: var(--paper-2); border: 1px solid var(--hairline);
+}
+
+/* the two endpoints, side by side */
+.ways { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-8); }
+.ways article { border-top: 2px solid var(--ink-900); padding-top: var(--s-5); }
+.ways h3 { margin: 0 0 var(--s-3); color: var(--ink-900); font-size: var(--t-h3); }
+.ways p { margin: 0 0 var(--s-4); color: var(--ink-500); line-height: var(--lh-body); }
+.ways__code {
+  margin: 0; padding: var(--s-4); overflow-x: auto;
+  background: var(--paper-2); border: 1px solid var(--hairline);
+  font-size: var(--t-sm); line-height: 1.7;
+}
+.ways__code code { font-family: var(--font-mono); color: var(--ink-900); }
+
+@media (max-width: 760px) { .ways { grid-template-columns: 1fr; gap: var(--s-6); } }
+
+.ways__fine { margin-top: var(--s-3); color: var(--ink-400); font-size: var(--t-micro); }
