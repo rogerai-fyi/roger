@@ -1,6 +1,6 @@
   90.9%  rogerai.fm/roger/v6/cmd/roger-tower
   95.3%  rogerai.fm/roger/v6/cmd/roger-tower-local
-  90.0%  rogerai.fm/roger/v6/cmd/rogerai
+  90.1%  rogerai.fm/roger/v6/cmd/rogerai
   90.3%  rogerai.fm/roger/v6/cmd/rogerai-broker
   94.7%  rogerai.fm/roger/v6/cmd/tokenizer-sidecar
   90.1%  rogerai.fm/roger/v6/internal/agent
@@ -15,7 +15,7 @@
   92.3%  rogerai.fm/roger/v6/internal/edgeclient
   97.3%  rogerai.fm/roger/v6/internal/emailauth
  100.0%  rogerai.fm/roger/v6/internal/glyphs
-  93.6%  rogerai.fm/roger/v6/internal/harness
+  91.0%  rogerai.fm/roger/v6/internal/harness
   96.0%  rogerai.fm/roger/v6/internal/keypurpose
   93.8%  rogerai.fm/roger/v6/internal/localplane
   96.2%  rogerai.fm/roger/v6/internal/node
@@ -51,6 +51,6 @@
   90.6%  rogerai.fm/roger/v6/internal/towerjoin
   93.8%  rogerai.fm/roger/v6/internal/towerobj
   90.6%  rogerai.fm/roger/v6/internal/towerstore
-  90.3%  rogerai.fm/roger/v6/internal/tui
+  90.0%  rogerai.fm/roger/v6/internal/tui
   98.9%  rogerai.fm/roger/v6/internal/update
   90.9%  rogerai.fm/roger/v6/internal/webui
