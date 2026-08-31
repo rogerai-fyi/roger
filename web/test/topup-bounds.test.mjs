@@ -77,6 +77,160 @@ test("topup bounds: the local console guards the same three things", () => {
   assert.match(topup, /Math\.round\(usd \* 100\)\) > 1e-6/, "whole cents");
 });
 
+// classifyMinimum decides whether a "$N minimum" in a page is the TOP-UP floor or the
+// PAYOUT minimum, by which context word sits nearer the match. It is a named function so
+// the fixtures below can call it: inside the page sweep it decides nothing today (no
+// current page has both words in range), and logic that never runs is logic nobody
+// checked.
+//
+// "none" is a real answer and must stay reachable. An earlier version compared the two
+// distances directly, and Infinity <= Infinity made every unclassifiable minimum a
+// top-up - which quietly deleted the whole point of the third branch.
+function classifyMinimum(window, anchor) {
+  const nearest = (re) => {
+    let best = Infinity;
+    for (const hit of window.matchAll(re)) {
+      // Measure to the NEAR EDGE of the word, so a longer word before the match is not
+      // penalized for its own length ("earnings" would lose to "top-up" on that alone).
+      const edge = hit.index < anchor ? hit.index + hit[0].length : hit.index;
+      best = Math.min(best, Math.abs(edge - anchor));
+    }
+    return best;
+  };
+  const toTopup = nearest(/top-?up/gi);
+  const toPayout = nearest(/payout|payable|cash ?out|earnings/gi);
+  if (!Number.isFinite(toTopup) && !Number.isFinite(toPayout)) return "none";
+  // Ties go to top-up, which is what first-match-wins did before this.
+  return Number.isFinite(toTopup) && toTopup <= toPayout ? "topup" : "payout";
+}
+
+test("topup bounds: the classifier decides by nearest context, and admits when it cannot", () => {
+  const at = (text) => [text, text.indexOf("$")];
+  const cases = [
+    ["neither word in range", "a $9 minimum applies here", "none"],
+    ["payout beside it", "earnings: a $25 minimum payout applies", "payout"],
+    ["top-up beside it", "a top-up: $1 minimum per account", "topup"],
+    ["nearest wins over first-tested", `earnings: a $25 minimum payout applies. ${"x".repeat(70)} see the top-up page`, "payout"],
+    ["nearest wins the other way", `top-up: $1 minimum. ${"x".repeat(70)} earnings and payouts elsewhere`, "topup"],
+    // A REAL tie: equal near-edge distances on both sides. The earlier fixture said
+    // "tie" and was not one - top-up simply sat closer - so mutating <= to < deleted
+    // the documented rule and nothing noticed.
+    ["a tie goes to top-up", "top-up wallet is $1 minimum payout", "topup"],
+  ];
+  for (const [name, text, want] of cases) {
+    const [w, i] = at(text);
+    assert.equal(classifyMinimum(w, i), want, name);
+  }
+});
+
+const TOPUP_NEAR = 140;
+
+// How far the word "minimum" and its number may sit apart. Named because the fixture
+// below has to exceed it to prove anything, and reading it back out of the regex's own
+// source text made a refactor of the pattern fail in the fixture rather than at its
+// cause.
+const GAP_BUDGET = 12;
+const AMOUNT = String.raw`\d(?:[\d,]*\d)?(?:\.\d+)?|\.\d+`;
+const MINIMUM_RE = new RegExp(
+  `minimum[^$]{0,${GAP_BUDGET}}\\$(${AMOUNT})|\\$(${AMOUNT})\\s*minimum`,
+  "gi",
+);
+
+// Strip markup, but KEEP the prose that lives inside it. A meta description, an alt
+// text and this site's include directives all carry sentences a person reads, and a
+// stripper that throws the whole tag away throws those away too - which is how an
+// earlier version of this moved the silent skip from </b> to content= and dropped the
+// payout pin on pricing.html's own description.
+//
+// Three things this got wrong before, each the same mistake one level down:
+//
+//  - [^>]* let a bare "<" in an inline script (i<n.length) run to the next ">"
+//    anywhere in the file, swallowing 178 characters of head.html. [^<>] cannot.
+//  - An ALLOW-list of prose attributes was the "list always one shape short" again:
+//    ogtitle, caption and label carry reader-facing text and were discarded. The
+//    denylist below scans an attribute it does not recognize instead of skipping it,
+//    so being wrong means a spurious failure rather than a silent pass.
+//  - The gap budget counted indentation, so a wrapped line hid a match. Whitespace
+//    collapses before matching.
+//  - Hoisted values were spliced in where the tag stood, so an attribute BETWEEN a
+//    number and the word broke the adjacency it was meant to preserve. They go to the
+//    end of the text now, each carrying its own context words with it, and the tag
+//    leaves behind a single space.
+const NON_PROSE = /^(?:class|id|href|src|srcset|style|type|rel|role|name|property|width|height|viewbox|d|fill|stroke|stroke-width|stroke-linecap|stroke-linejoin|xmlns|xmlns:xlink|xlink:href|lang|charset|hidden|defer|async|for|value|min|max|step|inputmode|maxlength|crossorigin|color|media|preload|loading|target|method|action|data-.*|aria-(?!label$).*)$/i;
+const stripTags = (h, { collapseAttrs = true } = {}) => {
+  const hoisted = [];
+  const takeAttrs = (tag) => {
+    for (const m of tag.matchAll(/([\w:-]+)\s*=\s*("[^"]*"|'[^']*')/g)) {
+      // Collapsed on the way in, for the reason the body is collapsed: a wrapped
+      // attribute would otherwise keep the indentation-hides-a-match hole in the one
+      // path that did not have it.
+      if (!NON_PROSE.test(m[1])) {
+        const value = m[2].slice(1, -1);
+        hoisted.push(collapseAttrs ? value.replace(/\s+/g, " ") : value);
+      }
+    }
+    return " ";
+  };
+  const body = h
+    .replace(/<!--[\s\S]*?-->/g, takeAttrs)
+    .replace(/<\/?[a-zA-Z][^<>]*>/g, takeAttrs)
+    .replace(/&nbsp;/g, " ")
+    // Collapse whitespace last, so the gap between "minimum" and its number is
+    // measured in WORDS rather than in source formatting. Without this the budget was
+    // still styling-dependent: the same sentence pinned on one page and silently
+    // skipped on another purely because one of them wrapped and got indented.
+    .replace(/\s+/g, " ");
+  return `${body}\n${hoisted.join("\n")}`;
+};
+// findMinimums is the whole scan - strip, match, classify - so the page sweep and the
+// fixtures run the SAME code. Testing classifyMinimum on its own left everything around
+// it (the stripper, the window, the anchor) exercised only by real pages, which never
+// reach their edges: the nearest match on the site sits 239 characters in, so the
+// clamped window and the nearest-wins decision had never run at all.
+function findMinimums(rawHtml, opts) {
+  const html = stripTags(rawHtml, opts);
+  const out = [];
+  for (const m of html.matchAll(MINIMUM_RE)) {
+    const start = Math.max(0, m.index - TOPUP_NEAR);
+    out.push({
+      shown: m[1] || m[2],
+      kind: classifyMinimum(html.slice(start, m.index + TOPUP_NEAR), m.index - start),
+    });
+  }
+  return out;
+}
+
+test("topup bounds: the scan survives a clamped window, a wrapped attribute and neither word", () => {
+  // A match inside the first TOPUP_NEAR characters, so the window is clamped at 0 and
+  // the match is NOT in the middle of it. Anchoring on a fixed offset called this one a
+  // top-up. No real page reaches this case today.
+  const clamped = `<p>earnings: a $25 minimum payout applies. ${"x".repeat(70)} see the top-up page</p>`;
+  assert.deepEqual(findMinimums(clamped), [{ shown: "25", kind: "payout" }]);
+
+  // Prose carried in a WRAPPED attribute, which a body-only whitespace collapse left
+  // broken across its own indentation.
+  // The wrap sits INSIDE the gap between the word and the number, which is the only
+  // place it can break the match - a newline before "minimum" would be matched either
+  // way, so the earlier fixture pinned nothing. The indent is built explicitly and must
+  // exceed the [^$]{0,12} budget: it is the WIDTH that disarms the match when the
+  // collapse is missing, and a 20-space run buried in a literal is the kind of
+  // load-bearing invisible thing a reformat deletes without anyone noticing.
+  // The indent is derived from the SAME constant the scan uses, so it is over budget by
+  // construction rather than by an assertion that could only fail if this line were
+  // edited. What is asserted instead is the property that matters: run the same fixture
+  // with the collapse switched OFF and it must find nothing. A fixture that passes
+  // either way is the failure this whole file keeps meeting, so it proves its own teeth.
+  const GAP = " ".repeat(GAP_BUDGET + 8);
+  const wrapped = `<p aria-label="the top-up minimum\n${GAP}is $9 per account">x</p>`;
+  assert.deepEqual(findMinimums(wrapped), [{ shown: "9", kind: "topup" }]);
+  assert.deepEqual(findMinimums(wrapped, { collapseAttrs: false }), [],
+    "without the collapse this fixture must find nothing - otherwise it pins nothing");
+
+  // And a minimum with neither context word stays unclassifiable rather than defaulting
+  // to one - the branch Infinity <= Infinity had quietly made unreachable.
+  assert.deepEqual(findMinimums("<p>a $9 minimum applies</p>"), [{ shown: "9", kind: "none" }]);
+});
+
 test("topup bounds: every user-facing minimum is the current minimum", () => {
   // The maximum was pinned and the minimum was not, so the same hole stayed open at the
   // other end: three surfaces print "$1" as a literal and would have gone on promising
@@ -99,10 +253,14 @@ test("topup bounds: every user-facing minimum is the current minimum", () => {
   // one-end-pinned asymmetry this test was added to close.
   //
   // Anchored to the TOP-UP context, not to the bare word "minimum". These pages also
-  // carry the $25 PAYOUT minimum, and both write it in shapes this would otherwise
-  // match - "$25 minimum" is only saved from the second alternative by the absence of a
-  // </b>, which is a coincidence of styling rather than a rule, and bolding it the way
-  // pricing.html bolds the floor would have tripped this on correct copy.
+  // carry the $25 PAYOUT minimum in the same shapes, and it is the CLASSIFICATION that
+  // keeps the two apart - not styling. Earlier versions leaned on styling by accident
+  // (a "$25 minimum" escaped one alternative for want of a </b>), which meant correct
+  // copy could trip the test just by being bolded differently.
+  //
+  // Markup is stripped before matching for the same reason. Enumerating the tags a
+  // number might wear - </b>, </strong>, an opening tag, two closing tags - is a list
+  // that is always one shape short, and every shape it misses is a silent skip.
   //
   // EVERY page, and every occurrence CLASSIFIED rather than filtered. A filter that
   // skips what it does not recognize checks nothing about what it skipped, and a
@@ -111,7 +269,6 @@ test("topup bounds: every user-facing minimum is the current minimum", () => {
   // which has to equal the floor, or the payout minimum, which is a different policy
   // number this test does not own. Anything in neither context fails by name, because an
   // unclassifiable dollar minimum in the docs is the thing worth looking at.
-  const TOPUP_NEAR = 140;
   const payoutMin = String(
     readFileSync(path.join(REPO, "internal", "store", "ledger.go"), "utf8")
       .match(/MinPayout:\s*([0-9.]+)/)?.[1],
@@ -131,21 +288,18 @@ test("topup bounds: every user-facing minimum is the current minimum", () => {
   ];
   const seen = {};
   for (const page of pages) {
-    const html = src(page);
-    for (const m of html.matchAll(/minimum[^<$]{0,12}\$([\d,.]+)|\$([\d,.]+)<\/b>\s*minimum/g)) {
-      const window = html.slice(Math.max(0, m.index - TOPUP_NEAR), m.index + TOPUP_NEAR);
-      const shown = (m[1] || m[2]).replace(/[.,]$/, "");
-      // Compared as NUMBERS: the payouts page renders "$25.00" from a live figure while
-      // the policy is written 25, and those are the same minimum.
+    for (const { shown, kind } of findMinimums(src(page))) {
+      // Compared as NUMBERS on the payout side: the payouts page renders "$25.00" from
+      // a live figure while the policy is written 25, and those are the same minimum.
       const amount = Number(shown.replace(/,/g, ""));
-      if (/top-?up/i.test(window)) {
+      if (kind === "topup") {
         seen[page] = (seen[page] || 0) + 1;
         // The top-up floor stays an EXACT string match: money() already produces the
         // form the surfaces print, and comparing numerically would quietly accept
         // "$1.00" where every surface says "$1".
         assert.equal(shown, floor,
           `${page} tells the reader the top-up minimum is $${shown}, but the floor is $${floor}`);
-      } else if (/payout|payable|cash ?out|earnings/i.test(window)) {
+      } else if (kind === "payout") {
         assert.equal(amount, Number(payoutMin),
           `${page} states a payout minimum of $${shown}, but the policy is $${payoutMin}`);
       } else {
@@ -156,6 +310,13 @@ test("topup bounds: every user-facing minimum is the current minimum", () => {
         );
       }
     }
+  }
+
+  // Iterate the MAP as well as the pages: a page listed here and then deleted would
+  // otherwise have its pin evaporate silently, which is the same skip-and-say-nothing
+  // shape as everything else this file has had to grow out of.
+  for (const page of Object.keys(EXPECTED)) {
+    assert.ok(pages.includes(page), `${page} is gone - the top-up minimum it carried needs a new home`);
   }
   for (const page of pages) {
     assert.equal(seen[page] || 0, EXPECTED[page] || 0,
