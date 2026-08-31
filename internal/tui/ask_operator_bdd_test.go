@@ -454,8 +454,15 @@ func (s *askBDD) mirroredToIt() error {
 
 func (s *askBDD) eitherResolvesOnce() error {
 	// Answer from the REMOTE side, and require it to reach the agent exactly once.
-	nm, _ := s.m.onRemoteInbound(protocol.RCInbound{Kind: protocol.RCInAsk, AskID: s.askID, Answer: "from the phone", Origin: "phone"})
+	nm, cmd := s.m.onRemoteInbound(protocol.RCInbound{Kind: protocol.RCInAsk, AskID: s.askID, Answer: "from the phone", Origin: "phone"})
 	s.m = asModel(nm)
+	// THE REMOTE DRAIN MUST RE-ARM. This handler IS the remote-inbound drain: a nil Cmd
+	// here left the host deaf to every later remote turn, confirm and backfill - answering
+	// one question from a phone cost the phone its connection.
+	if cmd == nil {
+		return fmt.Errorf("answering from a remote surface returned no Cmd: the remote " +
+			"inbound drain is not re-armed and the host hears nothing further")
+	}
 	select {
 	case got := <-s.answer:
 		if got != "from the phone" {
@@ -504,8 +511,11 @@ func (s *askBDD) answeredAndSecondOpen() error {
 }
 
 func (s *askBDD) lateAnswerArrives() error {
-	nm, _ := s.m.onRemoteInbound(protocol.RCInbound{Kind: protocol.RCInAsk, AskID: s.firstID, Answer: "stale", Origin: "phone"})
+	nm, cmd := s.m.onRemoteInbound(protocol.RCInbound{Kind: protocol.RCInAsk, AskID: s.firstID, Answer: "stale", Origin: "phone"})
 	s.m = asModel(nm)
+	if cmd == nil {
+		return fmt.Errorf("even a DROPPED stale answer must re-arm the remote drain")
+	}
 	return nil
 }
 

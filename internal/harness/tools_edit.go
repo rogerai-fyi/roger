@@ -398,8 +398,14 @@ func readRange(body string, offset, limit *int) (string, error) {
 			// one cut in half.
 			kept := strings.TrimSuffix(out, "\n... (truncated)")
 			shown := strings.Count(kept, "\n")
-			out += fmt.Sprintf("\n(showing the first %d lines; read again with offset %d to continue)",
-				shown, shown+1)
+			if shown == 0 {
+				// The FIRST line alone exceeds the cap. "showing the first 0 lines; read
+				// again with offset 1" is an instruction to repeat this exact call forever.
+				out += "\n(line 1 is larger than the output cap; read a smaller file, or a different one)"
+			} else {
+				out += fmt.Sprintf("\n(showing the first %d lines; read again with offset %d to continue)",
+					shown, shown+1)
+			}
 		}
 		return out, nil
 	}
@@ -432,6 +438,12 @@ func readRange(body string, offset, limit *int) (string, error) {
 			whole := strings.Count(kept[:cut+1], "\n")
 			kept = kept[:cut+1] + "... (truncated)"
 			delivered = off - 1 + whole
+		} else {
+			// NOT ONE whole line survived - a single line larger than the cap. Say so, and
+			// do not advance past it: delivered=end here would claim the whole line arrived
+			// and point the continuation beyond its unread remainder.
+			delivered = off - 1
+			kept += fmt.Sprintf("\n(line %d is larger than the output cap and was cut short)", off)
 		}
 	}
 	out := fmt.Sprintf("(lines %d-%d of %d)\n", off, delivered, len(lines)) + kept

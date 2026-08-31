@@ -144,7 +144,19 @@ func (l *Loop) noteWritten(tool string, args map[string]any) {
 	if tool != "write_file" && tool != "edit_file" {
 		return
 	}
-	if p := argStr(args["path"]); p != "" {
-		l.observed.record(p, versionOf(filepath.Join(l.Root, p)))
+	p := argStr(args["path"])
+	if p == "" {
+		return
 	}
+	// An edit REFRESHES an observation; it never MINTS one. edit_file does not require a
+	// prior read (its exact-match old_string is its own evidence), so recording a fresh
+	// observation for a never-read file would let grep -> edit_file -> write_file walk
+	// around GuardWriteNeedsRead and blind-overwrite a file the model has never seen -
+	// with no confirm at all under auto-edits.
+	if tool == "edit_file" {
+		if _, seen := l.observed.lookup(p); !seen {
+			return
+		}
+	}
+	l.observed.record(p, versionOf(filepath.Join(l.Root, p)))
 }

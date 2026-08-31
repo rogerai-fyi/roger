@@ -65,3 +65,22 @@ func TestAWindowedReadDoesNotLicenseAWholeFileWrite(t *testing.T) {
 		t.Fatalf("a full read must still license a write: %s", msg)
 	}
 }
+
+// An edit REFRESHES an observation; it never MINTS one. edit_file needs no prior read (the
+// exact-match old_string is its own evidence), so recording an observation for a never-read
+// file would let grep -> edit_file -> write_file walk around this guard and blind-overwrite
+// a file the model has never seen - with no confirm at all under auto-edits.
+func TestAnEditOfAnUnreadFileDoesNotLicenseAWholeFileWrite(t *testing.T) {
+	root := t.TempDir()
+	writeTemp(t, root, "f.txt", "alpha\nbeta\n")
+	l := NewLoop(root, "", nil, nil)
+
+	// The agent edited without ever reading (it found the spot with grep).
+	writeTemp(t, root, "f.txt", "alpha\ndelta\n")
+	l.noteWritten("edit_file", map[string]any{"path": "f.txt"})
+
+	if msg := l.GuardWriteNeedsRead("write_file", map[string]any{"path": "f.txt"}, ConversationView{}); msg == "" {
+		t.Fatal("an edit of a never-read file minted an observation, so write_file could " +
+			"replace content the model has never seen")
+	}
+}

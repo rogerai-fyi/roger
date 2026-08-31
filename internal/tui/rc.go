@@ -221,15 +221,23 @@ func (m model) onRemoteInbound(in protocol.RCInbound) (tea.Model, tea.Cmd) {
 		// A remote answer resolves the pending question only if it is answering THAT
 		// question. An id that does not match is a late answer for one already resolved,
 		// and applying it would answer the CURRENT question with the previous one's reply.
-		if a := m.agentPendingAsk; a != nil && (in.AskID == "" || in.AskID == m.rcAskID) {
+		// The id must MATCH, not merely be absent. No sender predates the AskID field -
+		// ask_req and RCInAsk shipped together - so accepting an empty id would only ever
+		// serve a client that dropped it, and it would let a stale or forged answer with no
+		// id resolve whatever question happens to be up.
+		if a := m.agentPendingAsk; a != nil && in.AskID == m.rcAskID {
 			m.agentPendingAsk = nil
 			m.rcAskID = ""
 			a.resp <- in.Answer
 			m.agentLines = append(m.agentLines, stDim.Render("  ⋮ ")+stSelText.Render(in.Answer)+stDim.Render(" ("+in.Origin+")"))
 			m.rcEmitAskDone(in.Answer, in.Origin)
-			return m, m.waitAgentEvent()
+			// BOTH drains re-arm. Every arm of this switch returns rearm, because this IS
+			// the remote-inbound drain: returning without it left the host deaf to every
+			// later remote turn, confirm and backfill for the session - answering one
+			// question from a phone cost the phone its connection.
+			return m, tea.Batch(m.waitAgentEvent(), rearm)
 		}
-		return m, nil
+		return m, rearm
 	case protocol.RCInConfirm:
 		// Answer the pending confirm through its own resp channel (mirrors onAgentKey). The
 		// answer MUST carry the id of the confirm it was shown for: a stale answer (for an
