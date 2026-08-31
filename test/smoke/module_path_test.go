@@ -235,7 +235,11 @@ func TestNoBuildScriptPinsTheLegacyModulePath(t *testing.T) {
 func TestModulePathMajorMatchesLatestReleaseTag(t *testing.T) {
 	root := repoRoot(t)
 
-	out, err := exec.Command("git", "-C", root, "tag", "--sort=-v:refname").Output()
+	// Same scrub as the rest of this package: -C does not override an inherited GIT_DIR,
+	// and these tests run under the pre-push gate, where git exports one.
+	tagCmd := exec.Command("git", "-C", root, "tag", "--sort=-v:refname")
+	tagCmd.Env = cleanEnv()
+	out, err := tagCmd.Output()
 	if err != nil {
 		t.Skipf("git tags unavailable: %v", err)
 	}

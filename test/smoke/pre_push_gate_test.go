@@ -45,10 +45,6 @@ func cleanEnv() []string {
 	return out
 }
 
-// cleanGitEnv is the same scrub, exported within the package for the other smoke tests
-// that shell out to git and can also run under the gate.
-func cleanGitEnv() []string { return cleanEnv() }
-
 // gitClean runs git with that environment scrubbed.
 func gitClean(t *testing.T, args ...string) ([]byte, error) {
 	t.Helper()
@@ -81,16 +77,22 @@ func stubPath(t *testing.T) string {
 	if err != nil {
 		t.Skip("no git on PATH")
 	}
-	// `worktree add` is skipped; `worktree remove` deletes the directory the hook made and
-	// then reports failure, so the hook's own `|| rm -rf "$wt"` fallback still runs and no
-	// empty temp directory is left behind. Swallowing remove silently stranded one per run.
 	// `worktree add` is skipped (that is the expensive checkout), and `worktree remove`
 	// deletes the directory the hook created, so nothing is stranded in /tmp. Reporting
 	// success for both keeps the hook on its normal path; swallowing remove WITHOUT
 	// deleting is what left an empty temp dir behind on every run.
+	// Scan ALL arguments for the subcommand rather than testing $1: `git -C <dir> worktree
+	// add` would slip past a positional check and take the shared lock this stub exists to
+	// avoid, the moment the hook grows a -C or -c prefix.
 	gitStub := "#!/bin/sh\n" +
-		"if [ \"$1\" = \"worktree\" ]; then\n" +
-		"  [ \"$2\" = \"remove\" ] && rm -rf \"$3\" 2>/dev/null\n" +
+		"seen_worktree=0; remove_target=\n" +
+		"for a in \"$@\"; do\n" +
+		"  if [ \"$seen_worktree\" = 2 ]; then remove_target=\"$a\"; break; fi\n" +
+		"  if [ \"$seen_worktree\" = 1 ] && [ \"$a\" = remove ]; then seen_worktree=2; continue; fi\n" +
+		"  if [ \"$a\" = worktree ]; then seen_worktree=1; fi\n" +
+		"done\n" +
+		"if [ \"$seen_worktree\" != 0 ]; then\n" +
+		"  [ -n \"$remove_target\" ] && rm -rf \"$remove_target\" 2>/dev/null\n" +
 		"  exit 0\n" +
 		"fi\n" +
 		"exec " + real + " \"$@\"\n"

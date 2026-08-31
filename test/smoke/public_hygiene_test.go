@@ -59,7 +59,7 @@ func TestTrackedFilesCarryNoInternalWorkingContext(t *testing.T) {
 	// the worktree, so everything added since main's tip was never scanned and the gate
 	// passed on a file set it had not looked at. Scrub the environment git hands its hooks.
 	lsFiles := exec.Command("git", "-C", root, "ls-files", "-z")
-	lsFiles.Env = cleanGitEnv()
+	lsFiles.Env = cleanEnv()
 	out, err := lsFiles.Output()
 	if err != nil {
 		t.Skipf("not a git checkout: %v", err)
