@@ -64,14 +64,33 @@ func TestCoverGateDoesNotBindAFixedHostPort(t *testing.T) {
 
 // The per-run rename removed the only thing that swept up orphans - the EXIT trap misses
 // SIGKILL and power loss - so the gate has to reclaim its own stale siblings, and only
-// those. Age is the discriminator: a run going for two hours is not running.
+// those.
+//
+// The first version of this test asserted the STRING "until=2h" was present, which passed
+// whether or not the sweep worked: `--filter until=` is a podman feature and a
+// docker-prune-only one, so on a CI runner the sweep errored into /dev/null and reclaimed
+// nothing while this test stayed green. It asserts the discriminator instead.
 func TestCoverGateReclaimsItsOwnOrphans(t *testing.T) {
 	s := gateScript(t)
 	if !strings.Contains(s, "name=^rogerai-covergate-pg-") {
-		t.Error("the gate never sweeps up orphaned containers, so a killed run leaks one forever")
+		t.Error("the gate never looks for orphaned containers, so a killed run leaks one forever")
 	}
-	if !strings.Contains(s, "until=") {
-		t.Error("the orphan sweep is not bounded by age, so it can remove a live sibling")
+	if !strings.Contains(s, "kill -0") {
+		t.Error("the sweep does not check whether the owning run is still alive, so it is " +
+			"either unsafe or relying on a clock")
+	}
+	// Code only: a comment explaining why `until=` is avoided necessarily names it.
+	for i, line := range strings.Split(s, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "#") {
+			continue
+		}
+		if strings.Contains(line, "until=") {
+			t.Errorf("cover-gate.sh:%d filters by age with `until=`, which docker's ps does "+
+				"not support - it would silently reclaim nothing there", i+1)
+		}
+		if strings.Contains(line, "xargs") {
+			t.Errorf("cover-gate.sh:%d pipes to xargs, whose -r is GNU-only", i+1)
+		}
 	}
 }
 
@@ -100,10 +119,10 @@ func TestCoverGateOnlyRemovesContainersItMayRemove(t *testing.T) {
 			continue
 		}
 		ownContainer := strings.Contains(line, `"$PG_CT"`)
-		agedSweep := strings.Contains(line, "xargs")
-		if !ownContainer && !agedSweep {
+		orphanSweep := strings.Contains(line, `"$ct"`) // the sweep's loop variable
+		if !ownContainer && !orphanSweep {
 			t.Errorf("cover-gate.sh:%d removes a container that is neither its own nor a "+
-				"stale orphan: %s", i+1, strings.TrimSpace(line))
+				"orphan of a dead run: %s", i+1, strings.TrimSpace(line))
 		}
 	}
 	// And the sweep that is allowed must actually be bounded, which the orphan test

@@ -69,6 +69,19 @@
   function consumer() {
     var mine = num("cnPrice"), volume = num("cnVolume"), here = num("cnHere");
     var today = volume * mine;
+    // An UNKNOWN band rate is not a zero one. Leaving the field blank when the market
+    // could not be read, and then computing against it as if it were free, printed a
+    // full-price "saving" the reader has no reason to believe.
+    var field = $("cnHere");
+    if (field && field.value.trim() === "") {
+      if ($("cnDelta")) $("cnDelta").textContent = "set a rate";
+      if ($("cnFormula")) {
+        $("cnFormula").textContent =
+          millions(volume) + " x " + usd(mine) + " / 1M = " + usd(today) +
+          " today · put a band rate in to compare";
+      }
+      return;
+    }
     var band = volume * here;
     var delta = today - band;
     if ($("cnDelta")) {
@@ -96,32 +109,48 @@
         // to send min_out simply leaves the field to the reader - falling back to
         // min_price would be the original bug wearing a fallback.
         var rows = (d && d.market) || [];
-        var priced = [], free = 0, sawOut = false;
+        var best = null, free = 0, sawOut = false;
         for (var i = 0; i < rows.length; i++) {
           var p = rows[i].min_out;
           if (typeof p !== "number") continue;
           sawOut = true;
-          if (p > 0) priced.push(p); else free++;
+          if (p > 0) {
+            if (!best || p < best.price) best = { price: p, model: rows[i].model };
+          } else {
+            free++;
+          }
         }
         if (!sawOut && rows.length) {
+          field.value = "";
           note.textContent = "this broker does not report an out-price - put in a rate yourself";
+          recalc();
           return;
         }
-        if (priced.length) {
-          var cheapest = Math.min.apply(null, priced);
-          field.value = String(cheapest);
-          note.textContent = "cheapest on air right now";
+        if (best) {
+          field.value = String(best.price);
+          // NAMES the band it came from, and says PAID. Free bands are excluded from the
+          // rate on purpose - a zero would price the comparison at nothing - so calling
+          // this "the cheapest on air" was untrue whenever a free band existed, which on
+          // this market is most of the time. And it is one model's price against the
+          // reader's own, likely different, model: saying which one is what lets them
+          // judge that rather than take the number on trust.
+          note.textContent = "cheapest PAID band on air: " + (best.model || "unknown") +
+            (free ? " · " + free + " more are free" : "");
         } else if (free) {
           field.value = "0";
           note.textContent = "every band on air is free right now";
         } else {
+          field.value = "";
           note.textContent = "the band is quiet - put in a rate yourself";
         }
         recalc();
       })
       .catch(function () {
-        // No invented rate. The reader's own number is the only honest fallback.
+        // No invented rate, and no silent zero either. The reader's own number is the
+        // only honest fallback, so the field is emptied and asks for one.
+        field.value = "";
         note.textContent = "could not read the market - put in a rate yourself";
+        recalc();
       });
   }
 

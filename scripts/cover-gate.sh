@@ -64,10 +64,21 @@ if [ -z "${ROGERAI_TEST_DATABASE_URL:-}" ]; then
     PG_CT="rogerai-covergate-pg-$$"
     # Reclaim ORPHANS, never a live sibling. The EXIT trap misses SIGKILL and power loss,
     # and removing the fixed name used to be the only thing that swept those up - so the
-    # per-run rename would have leaked a container and a port forever. `until=2h` is the
-    # discriminator: a gate run that has been going for two hours is not running.
-    "$RUNTIME" ps -aq --filter "name=^rogerai-covergate-pg-" --filter "until=2h" 2>/dev/null \
-      | xargs -r "$RUNTIME" rm -f >/dev/null 2>&1 || true
+    # per-run rename would have leaked a container and a port forever.
+    #
+    # The discriminator is the OWNING PROCESS, not age. The name carries the pid that
+    # started it, so a container whose pid is gone is an orphan by definition - no clock,
+    # no threshold, and no dependence on `--filter until=`, which podman supports and
+    # docker does not (it is prune-only there, so an age sweep silently reclaimed nothing
+    # on a CI runner). A recycled pid only means we skip a sweep, which is safe.
+    "$RUNTIME" ps -a --filter "name=^rogerai-covergate-pg-" --format "{{.Names}}" 2>/dev/null \
+      | while IFS= read -r ct; do
+          [ -n "$ct" ] || continue
+          owner="${ct##*-}"
+          case "$owner" in (*[!0-9]*|"") continue ;; esac
+          kill -0 "$owner" 2>/dev/null && continue   # its run is still going
+          "$RUNTIME" rm -f "$ct" >/dev/null 2>&1 || true
+        done
     echo "[cover] starting throwaway Postgres ($RUNTIME) for the store money path…" >&2
     # The host port is chosen by the runtime and read back, rather than pinned: a fixed
     # one either fails the second run or, worse, points it at the first run's data.

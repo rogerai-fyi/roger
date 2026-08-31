@@ -92,6 +92,18 @@ test("calculator: the live rate is read, never baked in", () => {
   assert.match(js, /min_out/, "the calculator reads the out-price");
   assert.doesNotMatch(js.replace(/\/\/[^\n]*/g, ""), /min_price/,
     "and never the input price, not even as a fallback");
+
+  // The rate is one model's, and free bands are excluded from it. Both were true before
+  // and neither was said, so the note called it "the cheapest on air" while free bands
+  // were on air and the price belonged to some other model.
+  assert.match(js, /PAID band on air/, "the note says the rate is a PAID band's");
+  assert.match(js, /best\.model/, "and names which band it came from");
+
+  // An unknown rate must not be treated as a free one. When the market cannot be read the
+  // field is emptied, and an empty field stops the comparison rather than printing a
+  // full-price "saving" against an implied zero.
+  assert.match(js, /set a rate/, "an empty band rate asks for one instead of computing");
+  assert.match(js, /value\.trim\(\) === ""/, "and the empty case is detected explicitly");
 });
 
 /* ---- the arithmetic is shown, and the uncertainty is named ---------- */
