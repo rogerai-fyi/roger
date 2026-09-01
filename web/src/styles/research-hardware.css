@@ -234,3 +234,12 @@
 @media (max-width: 560px) {
   .hw-card__meta dt { flex-basis: 74px; }
 }
+
+/* the rent-one note under the board grid: the boards are all "own one" until this says
+   otherwise, and this is the page a reader is on when they ask what to run it on. */
+.hw-rent { margin-top: var(--s-8); }
+.hw-rent code {
+  font-family: var(--font-mono); font-size: var(--t-xs);
+  background: var(--paper-2); border: 1px solid var(--hairline);
+  border-radius: 3px; padding: 1px 5px; white-space: nowrap;
+}

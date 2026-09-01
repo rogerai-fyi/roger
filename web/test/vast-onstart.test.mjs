@@ -20,7 +20,9 @@ before(() => execFileSync("node", ["build.mjs"], { cwd: WEB }));
 
 const SCRIPT = "vast-onstart.sh";
 const manualSection = () => {
-  const m = read("manual.html").match(/<h3>On rented hardware[\s\S]*?(?=<h3>)/);
+  // the heading may carry attributes (it has an id now, so other pages can link to it),
+  // and so may the NEXT h3 that bounds the section
+  const m = read("manual.html").match(/<h3[^>]*>On rented hardware[\s\S]*?(?=<h3[\s>])/);
   assert.ok(m, "the manual carries the rented-hardware section");
   return m[0];
 };
@@ -71,4 +73,26 @@ test("vast: free is the documented default, because a rented box holds no secret
   assert.match(script, /PRICE_OUT="\$\{ROGER_PRICE_OUT:-0\}"/, "free unless a price is given");
   assert.match(manualSection().replace(/<[^>]+>/g, " "), /free by default/i,
     "and the manual leads with that");
+});
+
+test("vast: the pages that need the how-to land ON it, not at the top of the manual", () => {
+  // The manual is ~1,700 lines. A link to /manual.html leaves the reader scrolling for the
+  // one section they were sent to find, which is how documented things stay unfindable.
+  assert.match(read("manual.html"), /<h3[^>]*id="rented"/,
+    "the rented-hardware section is anchored");
+  for (const page of ["broadcasts-what-a-million-tokens-costs.html", "research-hardware.html"]) {
+    assert.match(read(page), /manual\.html#rented/,
+      `${page} links to the section rather than the manual's top`);
+  }
+});
+
+test("vast: the hardware page tells a reader the boards can be rented", () => {
+  // Every machine on that page reads as "own one" unless something says otherwise, and it
+  // is the page somebody is on when they ask what to run this on.
+  const page = read("research-hardware.html");
+  assert.match(page, /vast-onstart\.sh/, "the hardware page carries the one-paste bootstrap");
+  assert.match(page, /rogerai\.fm\/vast-onstart\.sh/, "as a URL a reader can actually use");
+  const note = page.match(/<div class="man-note hw-rent">[\s\S]*?<\/div>/)?.[0] ?? "";
+  assert.match(note.replace(/<[^>]+>/g, " "), /free by\s+default/i,
+    "and says it is free by default, since the box is not yours");
 });
