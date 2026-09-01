@@ -1,0 +1,35 @@
+# WHY ROGERAI - the page that answers "why pay a routing fee at all?".
+#
+# Founder directive 2026-09-01: the site needs one place that properly explains what the
+# network's routing buys - the anonymization story told HONESTLY (identity unlinking is
+# not content privacy), the benefits over going direct or through an aggregator, and the
+# self-hosting story (towers, private relays). The comparison must stay checkable: no
+# competitor numbers we cannot source, no claim the architecture does not enforce.
+
+Feature: The why page sells the routing honestly
+  As a consumer deciding between RogerAI, an aggregator, and going direct
+  I want the trade told straight, including what the fee does NOT buy
+  So that whoever stays was convinced by true things.
+
+  Scenario: The page exists and is reachable
+    When the site builds
+    Then why.html is in the sitemap
+    And the pricing page links to it where the fee is explained
+
+  Scenario: Anonymization is claimed exactly as far as the architecture enforces it
+    When the why page renders
+    Then it says the upstream sees one account and cannot tell consumers apart
+    And it says plainly that prompt content still reaches the model's operator
+    And it never uses the words "anonymous" or "private" about prompt content on curated bands
+
+  Scenario: The comparison names real differences, not adjectives
+    When the why page renders
+    Then every comparison row is a capability the code enforces or a fact a reader can check
+    And human-station supply is presented apart from curated supply
+    And the page says what the routing fee pays for in concrete terms
+
+  Scenario: Self-hosting is a first-class exit, not a footnote
+    When the why page renders
+    Then it explains running your own tower on a private network for free
+    And it links the tower quickstart
+    # the honest sales move: the reader who can leave and stays is the one who trusts you
