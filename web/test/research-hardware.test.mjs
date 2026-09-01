@@ -114,11 +114,28 @@ test("hardware: the page never claims a shipped deployment anywhere", () => {
   }
 });
 
-test("hardware: the page says plainly that the targets are targets", () => {
-  const page = compact(read(PAGE)).toLowerCase();
-  assert.match(page, /target|intended|not yet|no checkpoint|prototype/,
-    "the page states that the mapping is intent rather than a shipped result");
+test("hardware: every card SHOWS the stage it declares, not just carries it", () => {
+  // This replaces a weaker test that only looked for the word "target" somewhere on the
+  // page - satisfied by the boilerplate "Target tier" label in every card, so it would have
+  // passed on a page that had quietly stopped saying anything was unbuilt.
+  //
+  // It matters more now that the standing "no Wave checkpoint has been released" note is
+  // gone (founder call, 2026-08-31): the per-card stage IS the honesty on this page, and a
+  // stage locked in an attribute but missing from the rendered card would be invisible to
+  // the reader while still passing the catalogue lock.
+  const page = read(PAGE);
+  const cards = [...page.matchAll(/<article[^>]*class="[^"]*hw-card[^"]*"[\s\S]*?<\/article>/g)].map((m) => m[0]);
+  assert.ok(cards.length >= 6, `board cards found (${cards.length})`);
+  for (const card of cards) {
+    const declared = card.match(/data-stage="([^"]+)"/)?.[1];
+    assert.ok(declared, "a board card declares a stage");
+    const shown = compact(card).replace(/&middot;/g, "·");
+    const want = declared.replace(/&middot;/g, "·");
+    assert.ok(shown.includes(want),
+      `a card declares the stage "${want}" but never shows it: ${shown.slice(0, 80)}`);
+  }
 });
+
 
 test("hardware: the one downloadable artifact is the only thing shown as available now", () => {
   const page = read(PAGE);

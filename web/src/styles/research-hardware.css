@@ -161,27 +161,6 @@
   .hw-card--wide .hw-card__meta { max-width: 460px; }
 }
 
-/* ---- §3 what is true today -------------------------------------------- */
-
-.hw-today {
-  display: grid; gap: var(--s-5); margin-top: var(--s-8);
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-}
-.hw-today__item {
-  padding: var(--s-5);
-  background: var(--white);
-  border: 1px solid var(--hairline-2); border-radius: var(--r-md);
-  border-left: 2px solid var(--live);
-}
-.hw-today__tag {
-  display: block; margin-bottom: var(--s-3);
-  font-size: var(--t-micro); letter-spacing: var(--tracking-label);
-  text-transform: uppercase; color: var(--live);
-}
-.hw-today__item h3 { margin: 0 0 var(--s-3); font-size: var(--t-h3); color: var(--ink-900); }
-.hw-today__item p { margin: 0 0 var(--s-4); line-height: var(--lh-body); color: var(--ink-700); }
-.hw-today__link { font-size: var(--t-xs); }
-
 /* ---- the licence notice under the grid -------------------------------- */
 
 /* What the credits SECTION used to carry that the per-picture ribbons do not: CC BY asks
@@ -192,7 +171,7 @@
   font-size: var(--t-xs); line-height: 1.6; color: var(--ink-400);
 }
 
-/* ---- §4 the experiments ------------------------------------------------ */
+/* ---- §3 the experiments ------------------------------------------------ */
 
 /* Two columns, not auto-fit: there are four runs, and auto-fit lands three across at this
    width and leaves the fourth alone on its own row - the same orphan the board grid had. */
