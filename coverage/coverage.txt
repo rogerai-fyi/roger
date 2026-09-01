@@ -4,7 +4,7 @@ rogerai.fm/roger/v6/cmd/roger-tower-local/main.go:104:			serve				80.0%
 rogerai.fm/roger/v6/cmd/roger-tower-local/main.go:112:			run				85.7%
 rogerai.fm/roger/v6/cmd/roger-tower/earnings.go:23:			cmdEarnings			96.3%
 rogerai.fm/roger/v6/cmd/roger-tower/hub.go:112:				tlsWanted			100.0%
-rogerai.fm/roger/v6/cmd/roger-tower/hub.go:118:				runHubInBackground		73.1%
+rogerai.fm/roger/v6/cmd/roger-tower/hub.go:118:				runHubInBackground		71.9%
 rogerai.fm/roger/v6/cmd/roger-tower/hub.go:505:				registerHubNodes		100.0%
 rogerai.fm/roger/v6/cmd/roger-tower/hub.go:555:				limitConns			100.0%
 rogerai.fm/roger/v6/cmd/roger-tower/hub.go:564:				Accept				100.0%
@@ -531,7 +531,7 @@ rogerai.fm/roger/v6/cmd/rogerai-broker/probe.go:349:			probeEvidenceRecentLocked
 rogerai.fm/roger/v6/cmd/rogerai-broker/probe.go:365:			proberLoop			100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/probe.go:386:			jitterWindow			100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/probe.go:402:			probeOnce			96.5%
-rogerai.fm/roger/v6/cmd/rogerai-broker/probe.go:585:			probeNode			89.1%
+rogerai.fm/roger/v6/cmd/rogerai-broker/probe.go:585:			probeNode			87.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/probe.go:699:			failed				100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/probe.go:717:			evalCanary			100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/probe.go:783:			canaryWrongFamily		100.0%
@@ -2492,7 +2492,7 @@ rogerai.fm/roger/v6/internal/towercore/admit/admit.go:188:		NewWithStore			100.0
 rogerai.fm/roger/v6/internal/towercore/admit/admit.go:210:		unavailable			100.0%
 rogerai.fm/roger/v6/internal/towercore/admit/admit.go:218:		IssueToken			92.9%
 rogerai.fm/roger/v6/internal/towercore/admit/admit.go:254:		Enroll				88.0%
-rogerai.fm/roger/v6/internal/towercore/admit/admit.go:310:		AdmitBundle			87.5%
+rogerai.fm/roger/v6/internal/towercore/admit/admit.go:310:		AdmitBundle			75.0%
 rogerai.fm/roger/v6/internal/towercore/admit/admit.go:332:		RecordRenewal			87.5%
 rogerai.fm/roger/v6/internal/towercore/admit/admit.go:361:		Token				100.0%
 rogerai.fm/roger/v6/internal/towercore/admit/admit.go:370:		Get				100.0%
@@ -2970,7 +2970,7 @@ rogerai.fm/roger/v6/internal/towerhub/client.go:373:			url				100.0%
 rogerai.fm/roger/v6/internal/towerhub/client.go:383:			authenticate			88.9%
 rogerai.fm/roger/v6/internal/towerhub/client.go:410:			SubmitJob			90.9%
 rogerai.fm/roger/v6/internal/towerhub/client.go:446:			PollJob				100.0%
-rogerai.fm/roger/v6/internal/towerhub/client.go:476:			CompleteResult			100.0%
+rogerai.fm/roger/v6/internal/towerhub/client.go:476:			CompleteResult			90.9%
 rogerai.fm/roger/v6/internal/towerhub/client.go:521:			errSnippet			100.0%
 rogerai.fm/roger/v6/internal/towerhub/client.go:543:			Error				100.0%
 rogerai.fm/roger/v6/internal/towerhub/client.go:549:			AuditWanted			81.8%
@@ -3003,7 +3003,7 @@ rogerai.fm/roger/v6/internal/towerhub/pin.go:117:			HubURL				90.9%
 rogerai.fm/roger/v6/internal/towerhub/pin.go:172:			PinnedTLSConfig			84.6%
 rogerai.fm/roger/v6/internal/towerhub/pin.go:217:			ReachVetted			71.0%
 rogerai.fm/roger/v6/internal/towerhub/pin.go:264:			Reach				94.4%
-rogerai.fm/roger/v6/internal/towerhub/serve.go:49:			ServeLoop			77.3%
+rogerai.fm/roger/v6/internal/towerhub/serve.go:49:			ServeLoop			72.7%
 rogerai.fm/roger/v6/internal/towerhub/serve.go:100:			report				100.0%
 rogerai.fm/roger/v6/internal/towerhub/server.go:188:			setKeyIndexLocked		90.9%
 rogerai.fm/roger/v6/internal/towerhub/server.go:292:			NewServer			93.3%
@@ -3574,7 +3574,7 @@ rogerai.fm/roger/v6/internal/tui/tui.go:1307:				newBase				85.7%
 rogerai.fm/roger/v6/internal/tui/tui.go:1374:				Init				100.0%
 rogerai.fm/roger/v6/internal/tui/tui.go:1385:				syncComposerGeometry		100.0%
 rogerai.fm/roger/v6/internal/tui/tui.go:1397:				setTextareaGeometry		92.3%
-rogerai.fm/roger/v6/internal/tui/tui.go:1416:				update				84.1%
+rogerai.fm/roger/v6/internal/tui/tui.go:1416:				update				84.4%
 rogerai.fm/roger/v6/internal/tui/tui.go:2119:				idleDiscoveryEnabled		100.0%
 rogerai.fm/roger/v6/internal/tui/tui.go:2123:				textareaCanMoveUp		100.0%
 rogerai.fm/roger/v6/internal/tui/tui.go:2128:				textareaCanMoveDown		100.0%
@@ -4000,4 +4000,4 @@ rogerai.fm/roger/v6/internal/webui/server.go:154:			localhostOnly			100.0%
 rogerai.fm/roger/v6/internal/webui/server.go:171:			Listen				75.0%
 rogerai.fm/roger/v6/internal/webui/server.go:181:			listenFreePort			80.0%
 rogerai.fm/roger/v6/internal/webui/server.go:205:			newToken			100.0%
-total:									(statements)			91.0%
+total:									(statements)			90.9%
