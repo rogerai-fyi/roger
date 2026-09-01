@@ -320,7 +320,7 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 		prevKind, prevKnown = prev.Curated, true
 	}
 	b.mu.Unlock()
-	if !prevKnown {
+	if !prevKnown && b.db != nil {
 		if rows, err := b.db.AllNodes(); err == nil {
 			for _, n := range rows {
 				if n.NodeID == reg.NodeID {
