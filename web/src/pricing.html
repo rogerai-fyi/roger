@@ -14,7 +14,7 @@
      Registered in build.mjs CSS_BUNDLES. Contract: test/pricing-faq-llms.test.mjs. -->
 <html lang="en">
 <head>
-  <!-- include: head.html title="Pricing - RogerAI" desc="RogerAI has no price list: operators set their own per-token rates and many stations broadcast free. What is fixed is the rules - no subscription, a wallet debited per token, a 90/10 split in the operator's favor, a $25 minimum payout after a 120-day hold." theme=external og=post ogtype=website ogtitle="RogerAI pricing - the rules, not a price list" ogdesc="Per token, in and out, at a price the operator sets. No subscription, no seat, no minimum. Operators keep 90%. Free stations are normal, not a trial." ogurl="https://rogerai.fm/pricing.html" ogimage="https://rogerai.fm/og-home.png" -->
+  <!-- include: head.html title="Pricing - RogerAI" desc="RogerAI has no price list: operators set their own per-token rates and many stations broadcast free. What is fixed is the rules - no subscription, a wallet debited per token, a 90/10 split in the operator's favor, a $25 minimum payout after a 30-day hold." theme=external og=post ogtype=website ogtitle="RogerAI pricing - the rules, not a price list" ogdesc="Per token, in and out, at a price the operator sets. No subscription, no seat, no minimum. Operators keep 90%. Free stations are normal, not a trial." ogurl="https://rogerai.fm/pricing.html" ogimage="https://rogerai.fm/og-home.png" -->
 </head>
 <body data-onair="idle">
   <div class="rail" aria-hidden="true">
@@ -261,7 +261,7 @@
 
         <div class="lifecycle">
           <article><b>Accrued</b><span>A served request credits your share the moment it settles.</span></article>
-          <article><b>Held</b><span>For 120 days, which covers the late-chargeback tail. There is no separate reserve on top of it.</span></article>
+          <article><b>Held</b><span>The principal for 30 days; a 10% reserve slice stays back until day 90 to cover the late-chargeback tail.</span></article>
           <article><b>Payable</b><span>Hold cleared, no open dispute, Connect onboarding done.</span></article>
           <article><b>Paid</b><span>You request a payout and Stripe transfers it to your bank.</span></article>
         </div>

@@ -441,7 +441,7 @@ func TestCmdShareEarnDisclosureAndPriceWarn(t *testing.T) {
 	out := captureStdout(t, func() {
 		runShareAsync(t, cfg, []string{"m1", "--upstream", "http://127.0.0.1:1234/v1", "--price-out", "100"})
 	})
-	if !strings.Contains(out, "earning: payouts are 120-day hold") {
+	if !strings.Contains(out, "earning: payouts are a 30-day hold") {
 		t.Errorf("a priced (earning) share should pre-disclose the payout policy once; got:\n%s", out)
 	}
 	if !strings.Contains(out, "double-check it's not a typo") {

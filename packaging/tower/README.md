@@ -171,7 +171,7 @@ clean drain, renewal), the sealed hub data plane, self-attaching `roger share` n
 signed receipts, one-use settlement, and compensation: every settled request pays the serving
 node 90% of its own listed price, **your Tower 5%**, the platform 5%. Relay earnings are
 ordinary earnings — `roger-tower earnings` reads them, and they cash out on the same rail as
-serving (120-day hold, $25 minimum, Stripe Connect onboarding).
+serving (30-day hold with a 10% reserve to day 90, $25 minimum, Stripe Connect onboarding).
 
 **Not built:** the wider revenue-share *program* around those earnings (eligibility tiers,
 maturity, payout authority, program-level clawback). Traffic is also early — the figure your

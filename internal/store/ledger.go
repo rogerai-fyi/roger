@@ -71,6 +71,9 @@ type EarningLot struct {
 	State            string  `json:"state"`
 	ReleaseAt        int64   `json:"release_at"`         // unix: gross-minus-reserve becomes payable
 	ReserveReleaseAt int64   `json:"reserve_release_at"` // unix: reserve becomes payable
+	// ReserveReleased marks that the reserve_release audit row for this lot was
+	// emitted (once, when the tail cleared) - bookkeeping for the ledger, not money.
+	ReserveReleased bool `json:"reserve_released,omitempty"`
 	CreatedAt        int64   `json:"created_at"`
 	PayoutID         int64   `json:"payout_id,omitempty"` // the payout that paid this lot (0 = none); rollback key
 	// SelfRelayed records that the two earnings this request minted - the serving Station's
@@ -202,28 +205,31 @@ type ChargebackResult struct {
 type PayoutPolicy struct {
 	HoldDays  int     // days an earning is held before its non-reserve part is payable
 	Reserve   float64 // fraction (0..1) of each earning kept back as a rolling reserve
-	MinPayout float64 // minimum payable credits before a payout can be requested
-	Schedule  string  // "monthly" | "weekly" - informational (batched, manual request)
+	// ReserveDays is the reserve TAIL: days from earning until the reserve slice
+	// becomes payable. Clamped to at least HoldDays (a reserve releasing before the
+	// lot it belongs to would be meaningless).
+	ReserveDays int
+	MinPayout   float64 // minimum payable credits before a payout can be requested
+	Schedule    string  // "monthly" | "weekly" - informational (batched, manual request)
 }
 
 // LoadPayoutPolicy reads the policy from env with founder-approved defaults
-// (payout policy OPTION A): a 120-day hold, NO separate rolling reserve (0), a $25
-// minimum, monthly batched manual requests.
+// (payout policy OPTION B, ruled 2026-09-01, superseding Option A's 120-day hold):
+// a 30-DAY HOLD, a 10% ROLLING RESERVE ON A 90-DAY TAIL, a $25 minimum, monthly
+// batched manual requests.
 //
-// HOLD = 120 days (P0-3b): the hold is the FIRST line of defense against the
-// chargeback/dispute tail - while an earning is still held/payable, a dispute claws it
-// from un-paid earnings (the cheap, common case) instead of needing a Stripe transfer
-// reversal against the operator's connected account after the money already left. Card
-// disputes can land up to ~120 days after the charge, so a 90-day hold left a ~30-day
-// window where a paid-out lot could still be disputed (the "post-payout dispute loss").
-// Raising the default to 120 days makes step-3 (claw from held) the common case and
-// step-4 (transfer reversal) rare, per ACCOUNT-PAYOUTS-DESIGN 6.4. We chose the longer
-// hold over re-enabling a rolling reserve because it is the simpler correct lever (one
-// knob, no per-lot reserve accounting) and Option A already chose a hold-not-reserve
-// posture; set ROGERAI_PAYOUT_RESERVE to re-enable a reserve slice if a shorter hold is
-// ever wanted. Override the hold via ROGERAI_PAYOUT_HOLD_DAYS.
+// WHY (the researched basis lives in the curated-review doc): most card disputes land
+// inside 30-60 days, while the network dispute window runs 120 days from the TOP-UP
+// and stretches to 540 on some reason codes - so Option A's blanket 120-day hold never
+// covered the true tail anyway and made operators wait a quarter for money that was
+// rarely at risk. Option B releases the PRINCIPAL (90% of each lot) at day 30 and
+// keeps the 10% reserve slice back until day 90, covering the realistic dispute tail;
+// past that, the clawback + transfer-reversal machinery remains the last line of
+// defense exactly as before. Overrides: ROGERAI_PAYOUT_HOLD_DAYS,
+// ROGERAI_PAYOUT_RESERVE (fraction), ROGERAI_PAYOUT_RESERVE_DAYS (the tail),
+// ROGERAI_PAYOUT_MIN.
 func LoadPayoutPolicy() PayoutPolicy {
-	p := PayoutPolicy{HoldDays: 120, Reserve: 0, MinPayout: 25, Schedule: "monthly"}
+	p := PayoutPolicy{HoldDays: 30, Reserve: 0.10, ReserveDays: 90, MinPayout: 25, Schedule: "monthly"}
 	if v := os.Getenv("ROGERAI_PAYOUT_HOLD_DAYS"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
 			p.HoldDays = n
@@ -232,6 +238,11 @@ func LoadPayoutPolicy() PayoutPolicy {
 	if v := os.Getenv("ROGERAI_PAYOUT_RESERVE"); v != "" {
 		if f, err := strconv.ParseFloat(v, 64); err == nil && f >= 0 && f < 1 {
 			p.Reserve = f
+		}
+	}
+	if v := os.Getenv("ROGERAI_PAYOUT_RESERVE_DAYS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			p.ReserveDays = n
 		}
 	}
 	if v := os.Getenv("ROGERAI_PAYOUT_MIN"); v != "" {
@@ -245,12 +256,19 @@ func LoadPayoutPolicy() PayoutPolicy {
 	return p
 }
 
-// holdDuration converts the policy hold to a duration. Per the founder policy (Option A)
-// the default reserve is 0, so the whole earning releases at HoldDays. If a reserve
-// fraction IS configured, that slice releases at the SAME point as the rest of the lot
-// (addLotLocked sets ReserveReleaseAt == ReleaseAt) - there is no separate reserve tail
-// today. (A later tail would need its own reserveDuration plus payout support; see
-// promoteLocked / RequestPayout.)
+// holdDuration converts the policy hold to a duration: when the PRINCIPAL of a lot
+// promotes to payable.
 func (p PayoutPolicy) holdDuration() time.Duration {
 	return time.Duration(p.HoldDays) * 24 * time.Hour
+}
+
+// reserveDuration is the reserve TAIL: when the reserve slice of a lot becomes
+// payable. Never earlier than the hold itself - a reserve is a slice kept back PAST
+// the release, and a tail shorter than the hold would invert that into nonsense.
+func (p PayoutPolicy) reserveDuration() time.Duration {
+	d := time.Duration(p.ReserveDays) * 24 * time.Hour
+	if h := p.holdDuration(); d < h {
+		return h
+	}
+	return d
 }

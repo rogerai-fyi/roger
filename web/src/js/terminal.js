@@ -30,7 +30,7 @@
                 editor (vs the live median) + a free overnight schedule, go ON AIR,
                 the broker canary verify, then a live request log + earnings/slots.
      payouts  - GET PAID: the on-air earnings hint -> `roger payout status` (KYC +
-                payable vs held + the 120-day/$25/monthly policy) -> `roger payout
+                payable vs held + the 30-day-hold/$25/monthly policy) -> `roger payout
                 request` -> sent to the bank via Stripe Connect.
 
    Engine: each demo compiles to a flat list of "frames" (a screen of lines +
@@ -614,7 +614,7 @@
     // `payouts` - MONETIZE: the money-OUT story. The on-air earnings hint -> `roger
     // payout status` (KYC + payable vs held + policy) -> `roger payout request` -> sent
     // to the bank via Stripe Connect. Completes the arc: borrow -> automate -> lend ->
-    // get paid. (Grounds: cmd/rogerai payoutStatus output; 120-day hold · $25 · monthly.)
+    // get paid. (Grounds: cmd/rogerai payoutStatus output; 30-day hold + reserve tail · $25 · monthly.)
     payouts: {
       label: "payouts", title: "roger - payouts",
       build: function () {
@@ -642,10 +642,10 @@
             head("  PAYOUT"),
             dim("    KYC        ") + ok("active") + dim("  (Stripe Connect complete)"),
             dim("    payable    ") + money("$42.18") + dim("   (ready to cash out)"),
-            dim("    held       ") + money("$18.40") + dim("   (inside the 120-day hold)"),
+            dim("    held       ") + money("$18.40") + dim("   (inside the 30-day hold)"),
             dim("    paid out   ") + money("$306.50") + dim("   (lifetime)"),
             dim("    next due   ") + head("2026-07-15") + dim("   (held earnings become payable)"),
-            dim("    policy     120-day hold · $25 min · monthly")
+            dim("    policy     30-day hold · 10% reserved to day 90 · $25 min · monthly")
           ], END_HOLD);
           // `roger payout request`: send the payable balance to the bank.
           c.type([], "roger payout request", AFTER_TYPE);
@@ -656,7 +656,7 @@
           c.show([
             PROMPT + head("roger payout request"), "",
             ok("  ◉ PAYOUT SENT") + dim("  ") + money("$42.18") + dim(" → your bank · arrives in ~2 days"), "",
-            dim("  held earnings roll to payable on a 120-day basis · paid monthly."), "",
+            dim("  held earnings roll to payable on a 30-day basis · paid monthly."), "",
             dim("  ▸ borrow · automate · lend · get paid. ") + live("roger that.")
           ], END_HOLD);
         });

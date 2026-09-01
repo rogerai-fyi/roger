@@ -35,7 +35,7 @@
         </p>
         <div class="man-cover__meta">
           <span>Set: <b>roger</b></span>
-          <span>Version: <b data-cli-version>v6.7.0</b></span>
+          <span>Version: <b data-cli-version>v6.8.0</b></span>
           <span>Broker: <b>broker.rogerai.fm</b></span>
           <span>Protocol: <b>OpenAI-compatible</b></span>
         </div>
@@ -756,7 +756,7 @@
               A node lists its own per-token price, your Tower carries the sealed work, and
               settlement splits every request <b>90% to the node, 5% to you, 5% to the
               platform</b>. Your relay share is a real earning on the <b>same payout rail a
-              serving node uses</b> - same 120-day hold, same $25 minimum, same Stripe Connect
+              serving node uses</b> - same 30-day hold and reserve tail, same $25 minimum, same Stripe Connect
               onboarding, same <a href="/payouts.html">Payouts</a> page and cash-out button
               (§7). It is shown separately there as <b>relaying</b> rather than serving, which
               is provenance only: the money is identical.
@@ -1292,7 +1292,7 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
             <span class="man-fig">FIG. 3 - EARNINGS LIFECYCLE</span>
             <pre>serve request  &rarr;  credits your 90% share
       &darr;
-   [HELD]      held through the 120-day window (covers the chargeback tail)
+   [HELD]      principal held 30 days; a 10% reserve slice rides to day 90
       &darr;
   [PAYABLE]    hold cleared, no open dispute, Stripe KYC complete
       &darr;
@@ -1300,16 +1300,17 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
 
             <h3>The policy</h3>
             <div class="man-plate">
-              <div class="man-plate__row"><span class="man-plate__k">Minimum hold</span><span class="man-plate__v">120 days from a request's settlement before earnings become payable - the hold itself covers the late-chargeback tail, so no separate reserve is withheld</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">Minimum hold</span><span class="man-plate__v">30 days from a request's settlement before the principal (90%) becomes payable; a 10% reserve slice stays back until day 90, covering the late-chargeback tail (the 2026-09-01 ruling - was a blanket 120 days)</span></div>
               <div class="man-plate__row"><span class="man-plate__k">Minimum payout</span><span class="man-plate__v">$25 - below this, transfer and reporting overhead is not worth it</span></div>
               <div class="man-plate__row"><span class="man-plate__k">Schedule</span><span class="man-plate__v">you request; payable balances are released on a monthly batch</span></div>
               <div class="man-plate__row"><span class="man-plate__k">KYC gate</span><span class="man-plate__v">Stripe Connect onboarding (transfers capability active) before any payout</span></div>
             </div>
-            <p>One line: a 120-day hold, a $25 minimum, monthly batched payouts, and
-              mandatory Connect KYC before any payout. There is no separate reserve - the
-              120-day hold is the protection. Earnings still accrue (to held) for an
-              un-onboarded operator, so supply is not discouraged - they are just not
-              transferable until KYC clears.</p>
+            <p>One line: a 30-day hold on the principal, a 10% reserve slice riding to
+              day 90, a $25 minimum, monthly batched payouts, and mandatory Connect KYC
+              before any payout. The reserve is the protection for the dispute tail; the
+              principal no longer waits a quarter for risk that rarely materializes.
+              Earnings still accrue (to held) for an un-onboarded operator, so supply is
+              not discouraged - they are just not transferable until KYC clears.</p>
 
             <h3>Connect onboarding</h3>
             <p>Payouts use Stripe Connect Express: Stripe hosts the KYC and onboarding UI
@@ -1390,7 +1391,7 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
           <section class="man-sec" id="s9">
             <span class="man-sec__no">§9 · Command reference</span>
             <h2>Every command, every key</h2>
-            <p>The full surface as of <b data-cli-version>v6.7.0</b>: the top-level CLI
+            <p>The full surface as of <b data-cli-version>v6.8.0</b>: the top-level CLI
               commands with their key flags, then the in-app keys and slash commands grouped
               by context. Commands with flag surfaces document <code>--help</code>; advanced
               flags hide behind <code>--advanced</code>. Run <code>roger</code> with no
@@ -1693,6 +1694,7 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
               Newest first. The set self-updates - <code>roger upgrade</code> pulls the
               latest, <code>roger upgrade --check</code> just reports.</p>
             <div class="man-plate">
+              <div class="man-plate__row"><span class="man-plate__k">v6.8.0</span><span class="man-plate__v">Payouts get four times faster: the hold drops from a blanket 120 days to <b>30 days on the principal</b>, with a <b>10% reserve slice riding to day 90</b> to cover the late-chargeback tail. Sized against researched dispute data (most disputes land inside 30-60 days); a payout pays the principal and the reserve follows on its own tail, never stranded, never early.</span></div>
               <div class="man-plate__row"><span class="man-plate__k">v6.7.0</span><span class="man-plate__v">Curated operators earn: the settlement becomes <b>your list back whole, plus half the routing fee</b> (the network keeps the other half). Stated as a share of the fee pool - never a percent of the posted price - so a curated station cannot be underwater at any markup. The reason to bring your own provider contracts to the dial.</span></div>
               <div class="man-plate__row"><span class="man-plate__k">v6.6.0</span><span class="man-plate__v">The ten-percent ruling: one 10% platform fee across the whole network. Operators now keep <b>90%</b> of every token (was 70%), curated bands post the provider's list + 10% (was +30%), and a relayed request splits 90/5/5 (station/tower/platform). Sized against the researched routing-fee market; every money spec, page and calculator moved together.</span></div>
               <div class="man-plate__row"><span class="man-plate__k">v6.5.1</span><span class="man-plate__v">Short terminals stay clean: no frame ever outgrows the window again (the stacked-logo ghosting from the station log and band card is gone, with a geometry audit pinning every screen), the spend-limits table scrolls instead of overflowing, and the tune-in footer finally teaches <code>b</code> (band card).</span></div>

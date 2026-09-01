@@ -509,10 +509,13 @@ func (p *Postgres) AddOperatorLot(node, accountID, requestID string, gross float
 func (p *Postgres) addLotForAccount(tx *sql.Tx, node, acct, requestID string, ownerShare float64, selfRelayed bool, now time.Time) error {
 	reserve := ownerShare * p.policy.Reserve
 	rel := now.Add(p.policy.holdDuration()).Unix()
+	// Option B: the reserve slice rides its own TAIL (clamped by the policy to never
+	// precede the lot's release).
+	rrel := now.Add(p.policy.reserveDuration()).Unix()
 	if _, err := tx.Exec(`INSERT INTO rogerai.earning_lots
 		(node,account_id,request_id,gross,reserve,state,release_at,reserve_release_at,created_at,self_relayed)
-		VALUES($1,$2,$3,$4,$5,'held',$6,$6,$7,$8)`,
-		node, acct, requestID, ownerShare, reserve, rel, now.Unix(), selfRelayed); err != nil {
+		VALUES($1,$2,$3,$4,$5,'held',$6,$7,$8,$9)`,
+		node, acct, requestID, ownerShare, reserve, rel, rrel, now.Unix(), selfRelayed); err != nil {
 		return err
 	}
 	if err := appendLedger(tx, acct, "operator", KindEarn, ownerShare, "earn:"+requestID, StatePending, requestID, now.Unix()); err != nil {
@@ -1777,6 +1780,9 @@ func (p *Postgres) EarningSplitOfNode(node string, now time.Time) (EarningSplit,
 	return p.splitQuery("node", node, now)
 }
 
+// SetPayoutPolicy replaces the store's payout policy (the Mem twin's doc applies).
+func (p *Postgres) SetPayoutPolicy(pol PayoutPolicy) { p.policy = pol }
+
 func (p *Postgres) RequestPayout(accountID string, now time.Time, minPayout float64) (Payout, bool, string, error) {
 	if err := p.promoteLots(now); err != nil {
 		return Payout{}, false, "", err
@@ -1808,8 +1814,28 @@ func (p *Postgres) RequestPayout(accountID string, now time.Time, minPayout floa
 		VALUES($1,$2,'',$3,$4) RETURNING id`, accountID, amount, PayoutPending, n).Scan(&pid); err != nil {
 		return Payout{}, false, "", err
 	}
-	if _, err := tx.Exec(`UPDATE rogerai.earning_lots SET state='paid', payout_id=$2
-		WHERE account_id=$1 AND state='payable'`, accountID, pid); err != nil {
+	// PRINCIPAL/REMNANT SPLIT (Option B), one atomic statement: lots whose reserve
+	// tail has not cleared leave a remnant lot behind (gross=reserve, same request id,
+	// same tail - still the operator's money, still clawable) and are paid at
+	// principal only (gross shrunk to what actually moved); everything else pays
+	// whole. Data-modifying CTEs all see the statement's starting snapshot, so the
+	// final UPDATE cannot touch the remnants it just created.
+	if _, err := tx.Exec(`WITH tailed AS (
+			SELECT id, node, account_id, request_id, reserve, release_at, reserve_release_at, created_at, self_relayed
+			FROM rogerai.earning_lots
+			WHERE account_id=$1 AND state='payable' AND reserve>0 AND reserve_release_at>$3
+		), remnants AS (
+			INSERT INTO rogerai.earning_lots
+				(node,account_id,request_id,gross,reserve,state,release_at,reserve_release_at,created_at,self_relayed)
+			SELECT node,account_id,request_id,reserve,reserve,'payable',release_at,reserve_release_at,created_at,self_relayed
+			FROM tailed
+		), shrink AS (
+			UPDATE rogerai.earning_lots SET gross=gross-reserve, reserve=0, state='paid', payout_id=$2
+			WHERE id IN (SELECT id FROM tailed)
+		)
+		UPDATE rogerai.earning_lots SET state='paid', payout_id=$2
+		WHERE account_id=$1 AND state='payable' AND id NOT IN (SELECT id FROM tailed)`,
+		accountID, pid, n); err != nil {
 		return Payout{}, false, "", err
 	}
 	if err := appendLedger(tx, accountID, "operator", KindPayout, -amount, "payout:"+strconv.FormatInt(pid, 10), StatePosted, "", n); err != nil {

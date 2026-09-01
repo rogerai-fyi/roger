@@ -587,6 +587,9 @@ type Store interface {
 	// accrue evidence-bound strikes and, at a threshold, durably ban the owner so a
 	// banned operator cannot return under a fresh node id / callsign / grant key.
 
+	// SetPayoutPolicy replaces the payout policy (hold, reserve, tail, minimum) -
+	// the seam the payout specs use to pin the mechanism at a stated policy.
+	SetPayoutPolicy(p PayoutPolicy)
 	// OwnerStrike appends ONE evidence-bound strike to an owner account and returns the
 	// owner's resulting TOTAL strike count. `kind` is the violation class
 	// (impossible-input | empty-output | recount-discrepancy); `evidenceJSON` is the
@@ -1019,14 +1022,14 @@ func (m *Mem) AddOperatorLot(node, accountID, requestID string, gross float64, n
 func (m *Mem) addLotForAccountLocked(node, acct, requestID string, ownerShare float64, selfRelayed bool, now time.Time) {
 	reserve := ownerShare * m.policy.Reserve
 	rel := now.Add(m.policy.holdDuration())
+	// The reserve slice rides its own TAIL (Option B): payable only at reserveDuration,
+	// which the policy clamps to never precede the lot's own release.
+	rrel := now.Add(m.policy.reserveDuration())
 	m.lotID++
 	m.lots = append(m.lots, EarningLot{
 		ID: m.lotID, Node: node, AccountID: acct, RequestID: requestID,
 		Gross: ownerShare, Reserve: reserve, State: LotHeld,
-		// ReserveReleaseAt is set EQUAL to ReleaseAt: the reserve (if any) releases together
-		// with the lot, not on a later tail. promoteLocked + RequestPayout rely on this
-		// coupling; a separate tail is unimplemented (see holdDuration / promoteLocked).
-		ReleaseAt: rel.Unix(), ReserveReleaseAt: rel.Unix(), CreatedAt: now.Unix(),
+		ReleaseAt: rel.Unix(), ReserveReleaseAt: rrel.Unix(), CreatedAt: now.Unix(),
 		SelfRelayed: selfRelayed,
 	})
 	m.appendLedgerLocked(acct, "operator", KindEarn, ownerShare, "earn:"+requestID, StatePending, requestID, now.Unix())
@@ -1881,18 +1884,15 @@ func (m *Mem) promoteLocked(now time.Time) {
 			if payable > 0 {
 				m.appendLedgerLocked(l.AccountID, "operator", KindHoldRelease, 0, "promote:"+l.RequestID, StatePosted, l.RequestID, now.Unix())
 			}
-			// The reserve currently releases TOGETHER with the lot: addLotLocked sets
-			// ReserveReleaseAt == ReleaseAt, so by the time a lot promotes its reserve is due
-			// too. Emit the reserve_release audit row HERE, at the single promotion - not
-			// behind a separate now>=ReserveReleaseAt gate. A promoted lot is never revisited
-			// by this sweep (the LotHeld guard above), so a later reserve time would silently
-			// drop this row; keeping it coupled to promotion means it is always recorded. A
-			// real reserve TAIL (ReserveReleaseAt > ReleaseAt) is NOT implemented and would
-			// also require RequestPayout to pay the reserve separately instead of marking the
-			// lot fully paid - build both together if that policy is ever wanted.
-			if l.Reserve > 0 {
-				m.appendLedgerLocked(l.AccountID, "operator", KindReserveRelease, l.Reserve, "reserve_rel:"+l.RequestID, StatePosted, l.RequestID, now.Unix())
-			}
+		}
+		// The reserve_release audit row is emitted when the TAIL clears, once per lot
+		// (the ReserveReleased flag), whichever sweep observes it first - a payable lot
+		// IS revisited here, so a tail later than the release is recorded reliably.
+		// Under Option A's coupled timestamps this fires at promotion, exactly as the
+		// old inline emission did.
+		if l.State == LotPayable && l.Reserve > 0 && !l.ReserveReleased && now.Unix() >= l.ReserveReleaseAt {
+			l.ReserveReleased = true
+			m.appendLedgerLocked(l.AccountID, "operator", KindReserveRelease, l.Reserve, "reserve_rel:"+l.RequestID, StatePosted, l.RequestID, now.Unix())
 		}
 	}
 }
@@ -1945,6 +1945,14 @@ func (m *Mem) EarningSplitOfNode(node string, now time.Time) (EarningSplit, erro
 // created by the caller AFTER this returns (for the returned amount), then settled
 // via SettlePayout or rolled back via FailPayout - so a transfer can never be issued
 // without a matching recorded debit, nor for a different amount than was debited.
+// SetPayoutPolicy replaces the store's payout policy - a test/scenario seam so specs
+// can pin the mechanism at a STATED policy independent of the compiled defaults.
+func (m *Mem) SetPayoutPolicy(p PayoutPolicy) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.policy = p
+}
+
 func (m *Mem) RequestPayout(accountID string, now time.Time, min float64) (Payout, bool, string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -1971,8 +1979,26 @@ func (m *Mem) RequestPayout(accountID string, now time.Time, min float64) (Payou
 	m.payoutID++
 	pid := m.payoutID
 	for _, i := range idx {
-		m.lots[i].State = LotPaid
-		m.lots[i].PayoutID = pid
+		l := &m.lots[i]
+		if l.Reserve > 0 && now.Unix() < l.ReserveReleaseAt {
+			// PRINCIPAL/REMNANT SPLIT (Option B): the payout pays gross-minus-reserve
+			// and the unreleased reserve stays behind as a remnant lot - still the
+			// operator's money, still on its original tail, still clawable by request
+			// id. The paid lot's Gross shrinks to what was actually paid so the Paid
+			// column never counts money that has not moved.
+			m.lotID++
+			m.lots = append(m.lots, EarningLot{
+				ID: m.lotID, Node: l.Node, AccountID: l.AccountID, RequestID: l.RequestID,
+				Gross: l.Reserve, Reserve: l.Reserve, State: LotPayable,
+				ReleaseAt: l.ReleaseAt, ReserveReleaseAt: l.ReserveReleaseAt,
+				CreatedAt: l.CreatedAt, SelfRelayed: l.SelfRelayed,
+			})
+			l = &m.lots[i] // the append may have moved the backing array
+			l.Gross -= l.Reserve
+			l.Reserve = 0
+		}
+		l.State = LotPaid
+		l.PayoutID = pid
 	}
 	p := Payout{
 		ID: pid, AccountID: accountID, Amount: amount,

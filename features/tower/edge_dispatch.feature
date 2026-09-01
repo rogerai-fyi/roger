@@ -19,7 +19,8 @@
 # Built: COMPENSATION, end to end. A settled attempt mints a real earning lot for the Tower
 # operator (5% of gross) and the serving node's owner (90%) on the SAME ledger a direct
 # node's serving share uses - so a relay share holds, releases, and cashes out through the
-# ordinary /payouts/request rail (Stripe Connect transfer, 120-day hold, $25 minimum, KYC
+# ordinary /payouts/request rail (Stripe Connect transfer, the policy hold (30 days since
+# the 2026-09-01 ruling; 120 at first writing), $25 minimum, KYC
 # gate), with clawback on dispute. internal/towercore/earnings additionally records a
 # read-only per-attempt accrual (/tower/earnings/owed) as substrate for the wider program.
 # Not built: the compensated-Tower revenue-share PROGRAM around it (eligibility, funded-work

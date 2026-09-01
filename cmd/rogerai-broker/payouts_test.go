@@ -515,11 +515,12 @@ func TestPayoutStubOKWithoutRequireLive(t *testing.T) {
 func TestPayoutPolicyDefaults(t *testing.T) {
 	t.Setenv("ROGERAI_PAYOUT_HOLD_DAYS", "")
 	t.Setenv("ROGERAI_PAYOUT_RESERVE", "")
+	t.Setenv("ROGERAI_PAYOUT_RESERVE_DAYS", "")
 	t.Setenv("ROGERAI_PAYOUT_MIN", "")
 	t.Setenv("ROGERAI_PAYOUT_SCHEDULE", "")
 	c := loadConnect()
-	if c.policy.HoldDays != 120 {
-		t.Errorf("HoldDays = %d, want 120", c.policy.HoldDays)
+	if c.policy.HoldDays != 30 {
+		t.Errorf("HoldDays = %d, want 30 (Option B, ruled 2026-09-01)", c.policy.HoldDays)
 	}
 	if c.policy.MinPayout != 25 {
 		t.Errorf("MinPayout = %v, want 25", c.policy.MinPayout)
@@ -527,8 +528,8 @@ func TestPayoutPolicyDefaults(t *testing.T) {
 	if c.policy.Schedule != "monthly" {
 		t.Errorf("Schedule = %q, want monthly", c.policy.Schedule)
 	}
-	if c.policy.Reserve != 0 {
-		t.Errorf("Reserve = %v, want 0 (Option A: no separate reserve)", c.policy.Reserve)
+	if c.policy.Reserve != 0.10 || c.policy.ReserveDays != 90 {
+		t.Errorf("reserve = %v on a %d-day tail, want 10%% on 90 days (Option B)", c.policy.Reserve, c.policy.ReserveDays)
 	}
 }
 

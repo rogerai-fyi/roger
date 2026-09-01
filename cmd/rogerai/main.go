@@ -42,7 +42,7 @@ import (
 //
 // The default below is the fallback for a plain `go build`. Keep it in sync with
 // releases. Use semver, optionally with a prerelease suffix (e.g. 4.8.0-beta.1).
-var Version = "6.7.0"
+var Version = "6.8.0"
 
 // The production broker is the default - `rogerai` works out of the box, no config.
 // Override per-session with ROGER_BROKER=... or persist with `roger config set broker`.
@@ -1159,7 +1159,7 @@ func cmdShare(cfg config, args []string) error {
   --advanced          reveal: --node --region --parallel --upstream --modality --ctx --confidential --free-window --schedule --curated --upstream-price-in/out
 
 Earning needs a GitHub-linked owner: run ` + "`roger login`" + ` first. Free sharing
-needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
+needs no login. When you earn, payouts are a 30-day hold (10% reserved to day 90), $25 min, monthly.
 `)
 	}
 	fs.Parse(rest)
@@ -1183,10 +1183,10 @@ needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
 	if (*priceIn > 0 || *priceOut > 0) && client.LinkedLogin() == "" {
 		return fmt.Errorf("earning needs a GitHub-linked owner - run `roger login` to earn (free sharing needs no login)")
 	}
-	// Pre-disclose the payout policy ONCE, at the point a price is set, so the 120-day
+	// Pre-disclose the payout policy ONCE, at the point a price is set, so the 30-day
 	// hold / $25 min / monthly cadence is never a surprise at cash-out time (F3).
 	if *priceIn > 0 || *priceOut > 0 {
-		fmt.Println("earning: payouts are 120-day hold, $25 min, monthly (`roger payout status` for details).")
+		fmt.Println("earning: payouts are a 30-day hold (10% reserved to day 90), $25 min, monthly (`roger payout status` for details).")
 	}
 	// Record which pricing/schedule flags the user EXPLICITLY passed. The single source
 	// of truth for a station's per-model price is cfg.Prices (what the TUI editor saves):
@@ -1787,7 +1787,7 @@ func cmdTopup(cfg config, args []string) error {
 // terminal. Every call is Ed25519-signed (the same identity the rest of the client
 // uses), so a headless `roger share` provider can withdraw + see KYC status without
 // a browser session. Requires a GitHub-linked account (run `roger login`); the
-// broker enforces the unchanged policy (120-day hold, $25 min, monthly, Connect-KYC).
+// broker enforces the policy (30-day hold + 10% reserve to day 90, $25 min, monthly, Connect-KYC).
 // Amounts are shown in dollars (1 credit == $1).
 //
 //	roger payout            -> status (default)
@@ -1835,7 +1835,7 @@ func payoutUsage() {
   roger payout request      request a payout of your payable balance
   roger payout history      past payouts and their states
 
-  Policy: 120-day hold, $25 minimum, monthly. Requires GitHub login + Connect KYC.`)
+  Policy: 30-day hold (10% reserved to day 90), $25 minimum, monthly. Requires GitHub login + Connect KYC.`)
 }
 
 // payoutPolicyLine is the single one-liner describing the unchanged policy, reused by

@@ -324,8 +324,12 @@ func TestChargebackNoOverClawWithFee(t *testing.T) {
 // promotion, the FULL gross (incl. reserve) becomes payable, and a payout pays it all (the
 // reserve is never stranded). A separate later reserve tail is intentionally not supported.
 func TestReserveReleasesWithLot(t *testing.T) {
-	t.Setenv("ROGERAI_PAYOUT_HOLD_DAYS", "0")  // release immediately
-	t.Setenv("ROGERAI_PAYOUT_RESERVE", "0.10") // 10% reserve slice
+	// The COUPLED case (tail == hold): with Option B a tail is the default, so this
+	// regression pins that a zero tail still releases the reserve with the lot and
+	// never strands it (the pre-tail behavior, kept reachable by configuration).
+	t.Setenv("ROGERAI_PAYOUT_HOLD_DAYS", "0")    // release immediately
+	t.Setenv("ROGERAI_PAYOUT_RESERVE", "0.10")   // 10% reserve slice
+	t.Setenv("ROGERAI_PAYOUT_RESERVE_DAYS", "0") // tail coupled to the hold
 	m := NewMem()
 	fundReal(m, "alice", 100) // real credits so the operator earns (P0-1)
 	_ = m.BindNode("n", "pk1")

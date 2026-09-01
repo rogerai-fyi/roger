@@ -101,19 +101,21 @@ func TestHoldPromotionAt90d(t *testing.T) {
 // are a 120-day hold with NO separate reserve. An earning must therefore land fully
 // in held (nothing reserved), and at +120d the whole gross becomes payable - no stuck
 // reserved bucket, no withholding past the hold.
-func TestOptionADefaultNoReserve(t *testing.T) {
-	// Exercise the shipped defaults: clear any ROGERAI_PAYOUT_* the developer's shell
-	// may export so the test is hermetic (an empty value falls through to the default).
+func TestOptionBDefaults(t *testing.T) {
+	// Exercise the shipped defaults (Option B, founder ruling 2026-09-01): clear any
+	// ROGERAI_PAYOUT_* the developer's shell may export so the test is hermetic (an
+	// empty value falls through to the default).
 	t.Setenv("ROGERAI_PAYOUT_RESERVE", "")
 	t.Setenv("ROGERAI_PAYOUT_HOLD_DAYS", "")
+	t.Setenv("ROGERAI_PAYOUT_RESERVE_DAYS", "")
 	t.Setenv("ROGERAI_PAYOUT_MIN", "")
 	t.Setenv("ROGERAI_PAYOUT_SCHEDULE", "")
 	p := LoadPayoutPolicy()
-	if p.Reserve != 0 {
-		t.Fatalf("default Reserve = %v, want 0 (Option A: no separate reserve)", p.Reserve)
+	if p.Reserve != 0.10 || p.ReserveDays != 90 {
+		t.Fatalf("default reserve = %v on a %d-day tail, want 10%% on 90 days (Option B)", p.Reserve, p.ReserveDays)
 	}
-	if p.HoldDays != 120 || p.MinPayout != 25 || p.Schedule != "monthly" {
-		t.Fatalf("default policy = %+v, want hold 120 / min 25 / monthly", p)
+	if p.HoldDays != 30 || p.MinPayout != 25 || p.Schedule != "monthly" {
+		t.Fatalf("default policy = %+v, want hold 30 / min 25 / monthly", p)
 	}
 	m := NewMem()
 	m.policy = p
@@ -126,15 +128,20 @@ func TestOptionADefaultNoReserve(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now()
-	// day 0: the whole 10 is held, nothing reserved.
+	// day 0: 9 held as principal, 1 reserved on the tail.
 	s, _ := m.EarningSplitOf("acct1", now)
-	if !approx(s.Held, 10) || s.Reserved != 0 || s.Payable != 0 {
-		t.Errorf("day 0 split = held %v reserved %v payable %v, want 10/0/0", s.Held, s.Reserved, s.Payable)
+	if !approx(s.Held, 9) || !approx(s.Reserved, 1) || s.Payable != 0 {
+		t.Errorf("day 0 split = held %v reserved %v payable %v, want 9/1/0", s.Held, s.Reserved, s.Payable)
 	}
-	// day 121: the full 10 is payable, nothing stuck in reserved.
-	s2, _ := m.EarningSplitOf("acct1", now.Add(121*24*time.Hour))
-	if s2.Held != 0 || s2.Reserved != 0 || !approx(s2.Payable, 10) {
-		t.Errorf("day 121 split = held %v reserved %v payable %v, want 0/0/10", s2.Held, s2.Reserved, s2.Payable)
+	// day 31: the principal is payable, the reserve still rides its tail.
+	s2, _ := m.EarningSplitOf("acct1", now.Add(31*24*time.Hour))
+	if s2.Held != 0 || !approx(s2.Reserved, 1) || !approx(s2.Payable, 9) {
+		t.Errorf("day 31 split = held %v reserved %v payable %v, want 0/1/9", s2.Held, s2.Reserved, s2.Payable)
+	}
+	// day 91: the full 10 is payable, nothing stuck in reserved.
+	s3, _ := m.EarningSplitOf("acct1", now.Add(91*24*time.Hour))
+	if s3.Held != 0 || s3.Reserved != 0 || !approx(s3.Payable, 10) {
+		t.Errorf("day 91 split = held %v reserved %v payable %v, want 0/0/10", s3.Held, s3.Reserved, s3.Payable)
 	}
 }
 

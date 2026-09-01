@@ -104,6 +104,11 @@ type kvState struct {
 func (s *kvState) reset() {
 	s.mem = store.NewMem()
 	s.mem.SetSeedLimit(1_000_000) // neutral by default; scenario 24 narrows it to 2
+	// These scenarios pin claw ORDERING and settle arithmetic at the stated 30% fee
+	// with whole-lot numbers; the Option B reserve slice (a payout-policy concern,
+	// pinned in payouts.feature) would split every asserted 70 into 63+7 here and
+	// obscure the vulnerability being pinned. Stated policy: the old no-reserve one.
+	s.mem.SetPayoutPolicy(store.PayoutPolicy{HoldDays: 120, Reserve: 0, ReserveDays: 120, MinPayout: 25, Schedule: "monthly"})
 	_, priv, _ := ed25519.GenerateKey(nil)
 	s.b = buildBroker(s.mem, priv, 0.30, 100, time.Hour)
 	s.b.db = s.mem

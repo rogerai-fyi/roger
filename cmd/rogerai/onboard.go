@@ -197,7 +197,7 @@ func finishShare(cfg config, earn bool, opts wizardOpts) (config, bool, error) {
 		// pre-disclose the payout terms (F3 / #2) - BEFORE collecting a price - so the
 		// login requirement is never a surprise 403 after they've set everything up.
 		fmt.Println("earning needs a linked GitHub: you'll run `roger login` once before going on air.")
-		fmt.Println("payouts when you earn: 120-day hold, $25 min, monthly (`roger payout status` for details).")
+		fmt.Println("payouts when you earn: 30-day hold (10% reserved to day 90), $25 min, monthly (`roger payout status` for details).")
 		// Collect a price (default the platform suggestion). Login is a separate
 		// explicit step we point the user at - we never block here.
 		in, out := "0.20", "0.30"

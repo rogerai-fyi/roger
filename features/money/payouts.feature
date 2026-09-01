@@ -12,8 +12,19 @@
 #   - RequestPayout debits ONLY payable lots, records a PENDING payout, and returns
 #     the EXACT debited amount. The broker then creates the Stripe transfer for that
 #     amount and either SettlePayout (money moved) or FailPayout (transfer failed).
-#   - Policy defaults (Option A): hold=120 days, reserve=0, min payout=$25,
-#     schedule=monthly.
+#   - Policy defaults (Option B, founder ruling 2026-09-01, superseding Option A):
+#     hold=30 days, reserve=10% on a 90-DAY TAIL, min payout=$25, schedule=monthly.
+#     Researched basis (curated-review doc): most card disputes land inside 30-60
+#     days while the network window runs 120d from the TOP-UP (to 540d on some
+#     codes), so a blanket 120-day hold bought little over 30 days + a tail - the
+#     principal releases at day 30, and the 10% reserve slice covers the dispute
+#     tail until day 90. A payout PAYS THE PRINCIPAL and leaves an unreleased
+#     reserve behind as a remnant lot that pays after its tail; no hold length
+#     covers the 540-day worst case, so the last line of defense stays the
+#     clawback + transfer-reversal machinery, unchanged.
+#     The Background below states the OLD policy explicitly: those scenarios pin
+#     the hold/promote MECHANISM at a stated rate (it is policy-agnostic); the
+#     ruled defaults have their own pins in section 0.
 
 Feature: Operator payouts move only cleared, payable earnings and never strand money
 
@@ -21,9 +32,66 @@ Feature: Operator payouts move only cleared, payable earnings and never strand m
     Given a fresh money store
     And the platform fee rate is 30%
     And the payout policy is hold 120 days, reserve 0, minimum 25.00, schedule monthly
+    # a stated working policy for the mechanism scenarios, NOT the default - see section 0
 
   # ===========================================================================
-  # 1. THE 120-DAY HOLD WINDOW (held -> payable).
+  # 0. THE RULED POLICY (Option B, 2026-09-01): 30-day hold, 10% reserve, 90-day tail.
+  # ===========================================================================
+
+  Scenario: The unconfigured policy is the ruled one
+    Then the unconfigured payout policy defaults are hold 30 days, a 10% reserve on a 90-day tail, and a 25.00 minimum
+
+  Scenario: The principal promotes at 30 days while the reserve stays back on its tail
+    Given the payout policy is hold 30 days, reserve 10% with a 90-day tail, minimum 25.00
+    And node "n1" is owned by account "op1"
+    And operator "op1" earned a lot of 100.00 through the policy 31 days ago on node "n1"
+    When the earnings split for "op1" is read now
+    Then the payable balance is 90.00
+    And the reserved balance is 10.00
+    And the held balance is 0.00
+
+  Scenario: The reserve joins the payable balance when its tail clears
+    Given the payout policy is hold 30 days, reserve 10% with a 90-day tail, minimum 25.00
+    And node "n1" is owned by account "op1"
+    And operator "op1" earned a lot of 100.00 through the policy 91 days ago on node "n1"
+    When the earnings split for "op1" is read now
+    Then the payable balance is 100.00
+    And the reserved balance is 0.00
+
+  Scenario: A payout pays the principal and leaves the unreleased reserve behind
+    Given the payout policy is hold 30 days, reserve 10% with a 90-day tail, minimum 25.00
+    And node "n1" is owned by account "op1"
+    And operator "op1" earned a lot of 400.00 through the policy 31 days ago on node "n1"
+    When operator "op1" requests a payout
+    Then the payout succeeds
+    And the payout amount is 360.00
+    When the earnings split for "op1" is read now
+    Then the reserved balance is 40.00
+    And the payable balance is 0.00
+    And the next release is 59 days from now
+    # the remnant reserve is still the operator's money, on its original 90-day tail
+
+  Scenario: The left-behind reserve is not payable early even above the minimum
+    Given the payout policy is hold 30 days, reserve 10% with a 90-day tail, minimum 25.00
+    And node "n1" is owned by account "op1"
+    And operator "op1" earned a lot of 400.00 through the policy 31 days ago on node "n1"
+    When operator "op1" requests a payout
+    Then the payout amount is 360.00
+    When operator "op1" requests a payout
+    Then the payout is refused for being below the minimum
+    # the 40.00 remnant is above the 25.00 minimum but inside its tail: reserved, not payable
+
+  Scenario: A lot whose tail already cleared pays out whole in one payout
+    Given the payout policy is hold 30 days, reserve 10% with a 90-day tail, minimum 25.00
+    And node "n1" is owned by account "op1"
+    And operator "op1" earned a lot of 100.00 through the policy 100 days ago on node "n1"
+    When operator "op1" requests a payout
+    Then the payout succeeds
+    And the payout amount is 100.00
+
+  # ===========================================================================
+  # 1. THE 120-DAY HOLD WINDOW (held -> payable) - the mechanism, at the stated
+  #    Background policy.
   # ===========================================================================
 
   Scenario: A freshly earned lot is held and not yet payable

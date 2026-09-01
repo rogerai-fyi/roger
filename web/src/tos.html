@@ -189,10 +189,12 @@
         that request's earning. Merely enrolling a Tower earns nothing - only relaying paid,
         verified, funded traffic does.</p>
       <p><b>Earnings lifecycle.</b> An earning moves through <b>accrued &rarr; held &rarr;
-        payable &rarr; paid</b>. Each earning is <b>held for 120 days</b> from the request's
+        payable &rarr; paid</b>. Each earning's principal (90%) is <b>held for 30 days</b> from the request's
         settlement before it becomes payable. <b>Why the hold exists:</b> a consumer card charge
-        can be disputed or reversed for up to roughly 120 days after it is made, and the platform
-        is liable for that reversal (section 9). Holding earnings for 120 days means a reversed
+        can be disputed or reversed for up to roughly 120 days after it is made (longer on some
+        reason codes), and the platform is liable for that reversal (section 9). A <b>10%
+        reserve slice of each earning stays held until day 90</b>, covering the realistic
+        dispute tail; holding that slice means a reversed
         charge can almost always be clawed back from a still-held earning <b>before the money has
         left Stripe</b>, rather than chased from an operator after payout. We do not withhold a
         separate rolling reserve; the hold is the reserve.</p>

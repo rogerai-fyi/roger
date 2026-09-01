@@ -124,12 +124,64 @@ func (s *poState) reset() {
 func (s *poState) freshStore() error   { s.reset(); return nil }
 func (s *poState) feePct(string) error { return nil }
 
-func (s *poState) policyBackground(_, _, minimum string) error {
+func (s *poState) policyBackground(hold, reserve, minimum string) error {
 	m, err := feParseFloat(minimum)
 	if err != nil {
 		return err
 	}
+	h, _ := strconv.Atoi(hold)
+	r, _ := feParseFloat(reserve)
 	s.minPayout = m
+	// Pin the STORE to the stated policy, so the mechanism scenarios stay exact
+	// whatever the compiled defaults become (they became Option B on 2026-09-01).
+	s.db.SetPayoutPolicy(store.PayoutPolicy{HoldDays: h, Reserve: r, ReserveDays: h, MinPayout: m, Schedule: "monthly"})
+	return nil
+}
+
+// policyWithTail pins the ruled Option B shape: hold + a reserve stated in percent on
+// its own tail.
+func (s *poState) policyWithTail(hold, reservePct, tailDays, minimum string) error {
+	m, err := feParseFloat(minimum)
+	if err != nil {
+		return err
+	}
+	h, _ := strconv.Atoi(hold)
+	rp, _ := strconv.Atoi(reservePct)
+	td, _ := strconv.Atoi(tailDays)
+	s.minPayout = m
+	s.db.SetPayoutPolicy(store.PayoutPolicy{HoldDays: h, Reserve: float64(rp) / 100, ReserveDays: td, MinPayout: m, Schedule: "monthly"})
+	return nil
+}
+
+// earnedThroughPolicyAgo mints a lot THROUGH the policy (AddOperatorLot with a
+// backdated now), so ReleaseAt and the reserve tail are the policy's own arithmetic -
+// the point of the Option B scenarios.
+func (s *poState) earnedThroughPolicyAgo(op, amount, days, node string) error {
+	a, err := feParseFloat(amount)
+	if err != nil {
+		return err
+	}
+	d, _ := strconv.Atoi(days)
+	then := time.Now().Add(-time.Duration(d) * 24 * time.Hour)
+	return s.db.AddOperatorLot(node, op, fmt.Sprintf("req-pol-%s-%s", op, days), a, then)
+}
+
+// unconfiguredDefaults pins the COMPILED Option B defaults, with the env overrides
+// cleared for the read.
+func (s *poState) unconfiguredDefaults(hold, reservePct, tail, minimum string) error {
+	for _, k := range []string{"ROGERAI_PAYOUT_HOLD_DAYS", "ROGERAI_PAYOUT_RESERVE", "ROGERAI_PAYOUT_RESERVE_DAYS", "ROGERAI_PAYOUT_MIN"} {
+		old := os.Getenv(k)
+		os.Unsetenv(k)
+		defer os.Setenv(k, old)
+	}
+	p := store.LoadPayoutPolicy()
+	h, _ := strconv.Atoi(hold)
+	rp, _ := strconv.Atoi(reservePct)
+	td, _ := strconv.Atoi(tail)
+	m, _ := feParseFloat(minimum)
+	if p.HoldDays != h || p.Reserve != float64(rp)/100 || p.ReserveDays != td || p.MinPayout != m {
+		return fmt.Errorf("unconfigured policy = %+v, want hold %d / reserve %d%% / tail %d / min %.2f (the 2026-09-01 ruling)", p, h, rp, td, m)
+	}
 	return nil
 }
 
@@ -1179,6 +1231,11 @@ func TestPayoutsBDD(t *testing.T) {
 			sc.Step(`^a fresh money store$`, st.freshStore)
 			sc.Step(`^the platform fee rate is (\d+)%$`, st.feePct)
 			sc.Step(`^the payout policy is hold (\d+) days, reserve ([\d.]+), minimum ([\d.]+), schedule monthly$`, st.policyBackground)
+			sc.Step(`^the payout policy is hold (\d+) days, reserve (\d+)% with a (\d+)-day tail, minimum ([\d.]+)$`, st.policyWithTail)
+			sc.Step(`^operator "([^"]*)" earned a lot of ([\d.]+) through the policy (\d+) days ago on node "([^"]*)"$`, func(op, amt, days, node string) error {
+				return st.earnedThroughPolicyAgo(op, amt, days, node)
+			})
+			sc.Step(`^the unconfigured payout policy defaults are hold (\d+) days, a (\d+)% reserve on a (\d+)-day tail, and a ([\d.]+) minimum$`, st.unconfiguredDefaults)
 			sc.Step(`^node "([^"]*)" is owned by account "([^"]*)"$`, st.nodeOwned)
 
 			// section 1

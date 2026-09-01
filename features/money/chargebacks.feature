@@ -157,7 +157,7 @@ Feature: A chargeback claws the operator's share of the disputed money and nothi
   #    ALREADY-PAID lot is reversed via Stripe.
   # ===========================================================================
 
-  Scenario: A held lot (inside the 120-day window) is clawed in place with no Stripe action
+  Scenario: A held lot (inside the hold window) is clawed in place with no Stripe action
     Given wallet "alice" has 1000.00 in real credits
     And node "n1" is owned by account "op1"
     And alice has a settled request "r1" of cost 100.00 on node "n1" with owner share 70.00

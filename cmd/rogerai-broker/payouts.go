@@ -112,7 +112,7 @@ func (c connect) stripeForm(method, path string, form url.Values, out any) (int,
 //  2. a signed CLI request (Ed25519, the SAME request-signing the rest of the client
 //     uses) whose pubkey is bound to a non-anonymized, identity-verified owner.
 //
-// Both paths converge on the owner record, so every downstream gate (KYC / 120-day hold
+// Both paths converge on the owner record, so every downstream gate (KYC / the payout hold
 // / $25 min / debit-first transfer rail / dispute clawback) is identical no matter how
 // the caller authenticated or which provider they signed up with. This is purely AUTH
 // resolution - it changes no policy. A signed-but-UNBOUND keypair, or a session with no

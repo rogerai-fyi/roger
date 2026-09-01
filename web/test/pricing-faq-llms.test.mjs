@@ -36,7 +36,7 @@ test("pricing: it prints the money RULES, every one of which is committed elsewh
   // the split, as stated in tos.html and the manual
   assert.match(html, /90 ?(?:\/|&#x2F;) ?10|keep 90%/i, "the 90/10 split");
   // payout policy, as stated in manual.html §7
-  assert.match(html, /120[- ]day/i, "the 120-day hold");
+  assert.match(html, /30[- ]day/i, "the 30-day hold (ruling 2026-09-01)");
   assert.match(html, /\$25/, "the $25 minimum payout");
   assert.match(html, /Stripe Connect/, "the KYC gate");
   // wallet side, as stated in manual.html §6
@@ -135,7 +135,7 @@ test("faq: the answers that cost money or trust match the committed policy", () 
   const html = compact(read("faq.html"));
   assert.match(html, /90%/, "the operator's share");
   assert.match(html, /\$25/, "the payout minimum");
-  assert.match(html, /120[- ]day/i, "the hold");
+  assert.match(html, /30[- ]day/i, "the hold");
   assert.match(html, /no inbound port|no port|outbound/i, "no port forwarding");
   assert.match(html, /OpenAI-compatible/i, "the drop-in claim");
   assert.match(html, /Stripe/, "who holds the card details");
