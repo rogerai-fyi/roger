@@ -125,7 +125,7 @@ func (m model) bandDetailView(w int) string {
 	// up under a fixed grid. callsign · region · marks · $in·out · t/s · ttft · ok · hw.
 	hdr := fmt.Sprintf("  %-14s  %-5s  %-3s  %-13s  %-7s  %-7s  %-7s  %s",
 		"callsign", "rgn", "", "$/M in·out", "t/s", "ttft", "ok", "hw")
-	b.WriteString("  " + stDim.Render(hdr) + "\n")
+	b.WriteString(truncVisible("  "+stDim.Render(hdr), m.effWidth()) + "\n")
 
 	// Stations: online first (bd.all is already online-first from groupBands), each on one
 	// aligned row. The cheapest station (the broker's default route) is marked with the
@@ -186,7 +186,9 @@ func (m model) bandDetailView(w int) string {
 			stDim.Render(pad(fmtTtft(o.TTFTMs), 7)) + "  " +
 			pad(successCell(o.SuccessRate, o.SuccessSeen), 7) + "  " +
 			stDim.Render(hwLabelOr(o.HW))
-		b.WriteString(row + "\n")
+		// The grid is ~75 cells; on a narrower terminal a wrapped row shifts every row
+		// after it (the stacked-logo mechanics), so the tail columns truncate instead.
+		b.WriteString(truncVisible(row, m.effWidth()) + "\n")
 	}
 	// SAY WHAT WAS DROPPED. A list silently cut at the terminal's height reads as the
 	// whole list, and an operator counting stations would be counting wrong.

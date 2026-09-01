@@ -188,7 +188,25 @@ func (m model) limitsBody(w int) string {
 	if len(m.limModels) == 0 {
 		b.WriteString(stDim.Render("    (none yet - press a / set one in `roger config set-limit`)") + "\n")
 	}
-	for i, mdl := range m.limModels {
+	// VIRTUALIZE like the dial: only the rows that fit the terminal render, the window
+	// follows limCursor, and "more" hints say what scrolled off. The full table was 34
+	// rows on a 24-row terminal - the same alt-buffer scroll that stacks the logos.
+	// Chrome (wallet panel, headings, edit plate, keys, signpost, footer) measured at
+	// 22 by the full-mode audit (the narrow reflow wraps one wallet line).
+	limRows := len(m.limModels)
+	if m.height > 0 {
+		if room := m.height - 22; room > 0 && limRows > room {
+			limRows = room
+		} else if room <= 0 {
+			limRows = 3
+		}
+	}
+	limTop, limEnd := windowFor(0, m.limCursor, limRows, len(m.limModels))
+	if limTop > 0 {
+		b.WriteString("    " + stDim.Render(fmt.Sprintf("↑ %d more above", limTop)) + "\n")
+	}
+	for i := limTop; i < limEnd; i++ {
+		mdl := m.limModels[i]
 		cur := " "
 		nameStyle := lipgloss.NewStyle().Foreground(cInk)
 		if i == m.limCursor && !m.limOnBudget {
@@ -223,6 +241,9 @@ func (m model) limitsBody(w int) string {
 				cur, nameStyle.Render(pad(mdl, 18)), stEmber.Render(pad(maxOut, 13)), stDim.Render(mtps))
 		}
 		b.WriteString(truncVisible(row, w) + "\n")
+	}
+	if n := len(m.limModels) - limEnd; n > 0 {
+		b.WriteString("    " + stDim.Render(fmt.Sprintf("↓ %d more below", n)) + "\n")
 	}
 	if m.editField >= 0 && m.limCursor < len(m.limModels) {
 		field := "max $/1M out"

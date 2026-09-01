@@ -2965,7 +2965,7 @@ func trimZero(v float64) string {
 
 // narrowCols is the width below which the TUI reflows to a single, slimmer column
 // (drops the band table's signal/flags columns, two-line footer).
-const narrowCols = 64
+const narrowCols = 72
 
 // effWidth returns the width to DRAW at. Width 0 is the unsized initial frame
 // (before the first WindowSizeMsg) - balloon to 88 so the first paint isn't a
@@ -2983,8 +2983,10 @@ func (m model) effWidth() int {
 }
 
 // narrow reports whether to use the single-column reflow (real width is small).
-// At exactly narrowCols (64) the wide band grid (~67 cols) would still overflow,
-// so the boundary is inclusive: width <= 64 reflows.
+// The boundary tracks the MEASURED wide band grid (~69-72 cols with the signal scale
+// + flags columns; the full-mode audit pins it): at any width at or below it the wide
+// grid would wrap, and a wrapped row shifts every later row - which is how the
+// stacked-logo ghosting starts. Inclusive: width <= narrowCols reflows.
 func (m model) narrow() bool { return m.width != 0 && m.width <= narrowCols }
 
 // cyclePreset steps the preset bank one button in dir (+1 next / -1 previous),
@@ -3516,10 +3518,13 @@ func (m model) browseRows() int {
 	if h <= 0 {
 		h = 30 // unsized first frame: a sensible default window
 	}
-	// Fixed chrome above/below the list: preset bar (~2) + header (~1) + section tab
-	// (1) + column header (1) + filter line when open (1) + prompt (1) + footer
-	// (2-3) + the two "more" hint lines + the position line. Compact trims the header.
-	chrome := 12
+	// Fixed chrome above/below the list: preset bar + spacer + header, section tab,
+	// tuning-dial strip, column header, legend, ambient status, prompt, footer block,
+	// the two "more" hint lines and the position line. MEASURED at 19 by the full-mode
+	// geometry audit (full_audit_test.go) - the hand-counted 12 was 7 rows short, and
+	// every short terminal paid for it with the stacked-logo ghosting the founder hit
+	// from the tune-in list. Compact drops the expanded chrome.
+	chrome := 19
 	if m.compact {
 		chrome = 9
 	}
@@ -4382,6 +4387,9 @@ func modalFooter(w int, left, right, status string) string {
 	if status != "" {
 		st = "\n" + wrapStatus(status, w)
 	}
+	// A left half wider than the terminal wraps and shifts every later row (the same
+	// ghosting mechanics as a too-tall frame), so it is truncated, never wrapped.
+	left = truncVisible(left, w)
 	gap := w - lipgloss.Width(left) - lipgloss.Width(right)
 	if gap < 1 {
 		return rule + "\n" + left + st // drop the right half; keys are what matter here
@@ -4698,7 +4706,7 @@ func (m model) footer(w int) string {
 	} else if m.connected != nil {
 		// Connected: lead with the channel + disconnect hints (load-bearing here); the
 		// filter/sort keys still ride along but the toggles drop to keep the line tight.
-		left = stDim.Render("↑↓ pick · enter tune in · i log · d disconnect · tab channel · s sort")
+		left = stDim.Render("↑↓ pick · enter tune in · i log · b card · d disconnect · tab channel · s sort")
 	} else if m.tuneFreq != "" {
 		// On a PRIVATE FREQ: the load-bearing key is esc (back to OPEN MARKET). Teach it
 		// up front so leaving the hidden channel is always discoverable.
@@ -4708,10 +4716,20 @@ func (m model) footer(w int) string {
 		// to enter a private band's frequency code. `v voices` (the DJ BOOTH drill-in) rides
 		// here ONLY when a voice band is actually on air, so a pure-LLM screen never teaches a
 		// voice key. The trailing "s" (share) is terse so it all fits the 80-col grid.
+		// Three width tiers: the full sentence, a tight one that still teaches every
+		// key (b card included - the founder could not find the band card without it),
+		// and narrow's terse strip. A truncated footer taught "←/→ s", which is worse
+		// than a shorter word.
 		if m.voiceBandsOnAir() > 0 {
-			left = stDim.Render("↑↓ pick · enter tune in · i log · f filter · t private · v voices · s sort")
+			left = stDim.Render("↑↓ pick · enter tune in · i log · b card · f filter · v voices · s sort · ←/→ section")
+			if m.width > 0 && m.width < 96 {
+				left = stDim.Render("↑↓ · ⏎ tune · i log · b card · f filter · v voices · s sort · ←/→ section")
+			}
 		} else {
-			left = stDim.Render("↑↓ pick · enter tune in · i log · f filter · t private · s sort · ←/→ section")
+			left = stDim.Render("↑↓ pick · enter tune in · i log · b card · f filter · t private · s sort · ←/→ section")
+			if m.width > 0 && m.width < 96 {
+				left = stDim.Render("↑↓ · ⏎ tune · i log · b card · f filter · t private · s sort · ←/→ section")
+			}
 		}
 	}
 	confMode := ""

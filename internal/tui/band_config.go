@@ -96,6 +96,15 @@ func (m model) cfgBand() (BandRow, bool) {
 func (m model) cfgOnAir() bool { return m.shares[m.cfgModel] != nil }
 
 // bandConfigView renders the card.
+// cfgShort is the band card's own density switch. The card is ~26 rows at full
+// density with every section present (curated included), so the generic
+// shortTerminal() bound (<=22) still let a 24-row terminal overflow - and a frame
+// taller than the terminal scrolls the alt buffer and strands the previous frame's
+// header (the stacked-logo artifact the founder hit pressing b). Measured by the
+// full-mode geometry audit: below 29 rows the card sheds its section blanks and the
+// signpost, and every section still renders.
+func (m model) cfgShort() bool { return m.height > 0 && m.height < 29 }
+
 func (m model) bandConfigView(w int) string {
 	var b strings.Builder
 	line := func(s string) { b.WriteString("  " + truncVisible(s, w-2) + "\n") }
@@ -117,7 +126,7 @@ func (m model) bandConfigView(w int) string {
 	}
 	b.WriteString("  " + stSelBar.Render("▌") + " " + stBrand.Render(m.cfgModel) +
 		stDim.Render("   ") + state + "\n")
-	if !m.shortTerminal() {
+	if !m.cfgShort() {
 		b.WriteString("\n")
 	}
 
@@ -155,7 +164,7 @@ func (m model) cfgSection(b *strings.Builder, w int, title, from string, rows []
 	// teaches the map, which is worth a row when there is one to spare and is not worth
 	// pushing the frame past the window - a frame taller than the terminal scrolls the alt
 	// buffer and strands the previous frame's header (the stacked-logos failure).
-	if !m.narrow() && !m.shortTerminal() {
+	if !m.narrow() && !m.cfgShort() {
 		head += stDim.Render("   from " + from)
 	}
 	b.WriteString(truncVisible(head, w) + "\n")
@@ -170,7 +179,7 @@ func (m model) cfgSection(b *strings.Builder, w int, title, from string, rows []
 		}
 		b.WriteString("  " + truncVisible(row, w-2) + "\n")
 	}
-	if !m.shortTerminal() {
+	if !m.cfgShort() {
 		b.WriteString("\n")
 	}
 }

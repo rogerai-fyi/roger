@@ -485,10 +485,10 @@ func (m model) shareView(w int) string {
 		if !m.loggedInState() {
 			ph = stDim.Render("log in to earn (") + stKey.Render("/login") + stDim.Render(")")
 		}
-		b.WriteString("\n  " + stDim.Render("free by default · ") +
-			stKey.Render("enter") + stDim.Render("/") + stKey.Render("a") + stDim.Render(" toggles on/off air · ") +
-			stKey.Render("h") + stDim.Render(" hide on a private band · ") +
-			stKey.Render("n") + stDim.Render(" rename station · ") + ph + "\n")
+		b.WriteString("\n  " + truncVisible(stDim.Render("free by default · ")+
+			stKey.Render("enter")+stDim.Render("/")+stKey.Render("a")+stDim.Render(" toggles on/off air · ")+
+			stKey.Render("h")+stDim.Render(" hide on a private band · ")+
+			stKey.Render("n")+stDim.Render(" rename station · ")+ph, w-2) + "\n")
 	}
 	// What AT LIST means, said once and near the number rather than left to be inferred.
 	// It shows only when the column is populated - a rig with nothing on air does not need
