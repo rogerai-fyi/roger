@@ -1947,6 +1947,7 @@ func (m *Mem) EarningSplitOfNode(node string, now time.Time) (EarningSplit, erro
 // without a matching recorded debit, nor for a different amount than was debited.
 // SetPayoutPolicy replaces the store's payout policy - a test/scenario seam so specs
 // can pin the mechanism at a STATED policy independent of the compiled defaults.
+// (Deliberately placed before RequestPayout, whose own doc follows below.)
 func (m *Mem) SetPayoutPolicy(p PayoutPolicy) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -1980,7 +1981,7 @@ func (m *Mem) RequestPayout(accountID string, now time.Time, min float64) (Payou
 	pid := m.payoutID
 	for _, i := range idx {
 		l := &m.lots[i]
-		if l.Reserve > 0 && now.Unix() < l.ReserveReleaseAt {
+		if l.Reserve > 0 && l.Gross > l.Reserve && now.Unix() < l.ReserveReleaseAt {
 			// PRINCIPAL/REMNANT SPLIT (Option B): the payout pays gross-minus-reserve
 			// and the unreleased reserve stays behind as a remnant lot - still the
 			// operator's money, still on its original tail, still clawable by request
@@ -2499,13 +2500,13 @@ func (m *Mem) recoverLineageLocked(id, consumerKind, consumerRefPrefix, wallet, 
 			case LotPaid:
 				// Already paid out: reverse the (proportional) operator share via Stripe (6.4
 				// step 4) + a payout_reversed ledger row.
-				m.appendLedgerLocked(l.AccountID, "operator", KindPayoutReversed, -clawGross, "reverse:"+id+":"+l.RequestID, StatePosted, id, now.Unix())
+				m.appendLedgerLocked(l.AccountID, "operator", KindPayoutReversed, -clawGross, "reverse:"+id+":"+l.RequestID+"#"+strconv.FormatInt(l.ID, 10), StatePosted, id, now.Unix())
 				res.Reversals = append(res.Reversals, Reversal{
 					DisputeID: id, LotID: l.ID, AccountID: l.AccountID,
 					TransferID: transferOf(l.PayoutID), Amount: clawGross,
 				})
 			default: // held / payable: claw in place, no Stripe action.
-				m.appendLedgerLocked(l.AccountID, "operator", KindAdjustment, -clawGross, "claw:"+id+":"+l.RequestID, StatePosted, id, now.Unix())
+				m.appendLedgerLocked(l.AccountID, "operator", KindAdjustment, -clawGross, "claw:"+id+":"+l.RequestID+"#"+strconv.FormatInt(l.ID, 10), StatePosted, id, now.Unix())
 				res.Clawed += clawGross
 			}
 			recovered += clawGross

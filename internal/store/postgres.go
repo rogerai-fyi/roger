@@ -1693,6 +1693,19 @@ func (p *Postgres) promoteLots(now time.Time) error {
 		AND account_id NOT IN (SELECT account_id FROM rogerai.account_recount_holds)`, now.Unix()); err != nil {
 		return err
 	}
+	// The reserve_release audit row, the Mem twin's counterpart: once per
+	// (account, request) when a payable reserve's tail has cleared - the unique
+	// idem_key + ON CONFLICT DO NOTHING is the once-only, so the sweep can run on
+	// every read without double-writing. Dormant while Reserve was 0; Option B's 10%
+	// default makes it every earning's row.
+	if _, err := tx.Exec(`INSERT INTO rogerai.ledger(holder,side,kind,amount,idem_key,state,ref,ts)
+		SELECT account_id, 'operator', 'reserve_release', reserve,
+		       'reserve_rel:'||account_id||':'||request_id, 'posted', request_id, $1
+		FROM rogerai.earning_lots
+		WHERE state='payable' AND reserve>0 AND reserve_release_at<=$1
+		ON CONFLICT (idem_key) DO NOTHING`, now.Unix()); err != nil {
+		return err
+	}
 	return tx.Commit()
 }
 
@@ -1823,7 +1836,7 @@ func (p *Postgres) RequestPayout(accountID string, now time.Time, minPayout floa
 	if _, err := tx.Exec(`WITH tailed AS (
 			SELECT id, node, account_id, request_id, reserve, release_at, reserve_release_at, created_at, self_relayed
 			FROM rogerai.earning_lots
-			WHERE account_id=$1 AND state='payable' AND reserve>0 AND reserve_release_at>$3
+			WHERE account_id=$1 AND state='payable' AND reserve>0 AND gross>reserve AND reserve_release_at>$3
 		), remnants AS (
 			INSERT INTO rogerai.earning_lots
 				(node,account_id,request_id,gross,reserve,state,release_at,reserve_release_at,created_at,self_relayed)

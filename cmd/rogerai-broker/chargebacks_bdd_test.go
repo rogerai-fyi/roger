@@ -497,7 +497,9 @@ func (s *cbState) operators() []string {
 }
 
 // clawRowsForReq returns the claw/reverse ledger rows that name requestID (idem key
-// "claw:<dispute>:<req>" / "reverse:<dispute>:<req>"), across every known operator.
+// "claw:<dispute>:<req>#<lotID>" / "reverse:<dispute>:<req>#<lotID>" - the lot id keeps
+// the key unique when a reserve remnant shares its parent's request), across every
+// known operator.
 func (s *cbState) clawRowsForReq(reqID string) ([]store.LedgerRow, error) {
 	var out []store.LedgerRow
 	for _, op := range s.operators() {
@@ -506,7 +508,7 @@ func (s *cbState) clawRowsForReq(reqID string) ([]store.LedgerRow, error) {
 			return nil, err
 		}
 		for _, r := range rows {
-			if strings.HasSuffix(r.IdemKey, ":"+reqID) {
+			if strings.HasSuffix(r.IdemKey, ":"+reqID) || strings.Contains(r.IdemKey, ":"+reqID+"#") {
 				out = append(out, r)
 			}
 		}
@@ -527,7 +529,12 @@ func (s *cbState) clawedReqsForDispute(dispute string) (map[string]bool, error) 
 				continue
 			}
 			if i := strings.LastIndex(r.IdemKey, ":"); i >= 0 {
-				set[r.IdemKey[i+1:]] = true
+				req := r.IdemKey[i+1:]
+				// the key's tail is "<req>#<lotID>"; the request is what the set holds
+				if j := strings.LastIndex(req, "#"); j >= 0 {
+					req = req[:j]
+				}
+				set[req] = true
 			}
 		}
 	}
@@ -941,7 +948,7 @@ func (s *cbState) lotClawedInPlaceFor(reqID, v string) error {
 		return err
 	}
 	for _, row := range rows {
-		if strings.HasSuffix(row.IdemKey, ":"+reqID) {
+		if (strings.HasSuffix(row.IdemKey, ":"+reqID) || strings.Contains(row.IdemKey, ":"+reqID+"#")) {
 			return feApprox(-row.Amount, want)
 		}
 	}

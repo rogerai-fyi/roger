@@ -97,7 +97,7 @@ func TestHoldPromotionAt90d(t *testing.T) {
 	}
 }
 
-// TestOptionADefaultNoReserve: the founder-approved Option A defaults (no env set)
+// TestOptionBDefaults: the founder-approved Option B defaults (ruled 2026-09-01; no env set)
 // are a 120-day hold with NO separate reserve. An earning must therefore land fully
 // in held (nothing reserved), and at +120d the whole gross becomes payable - no stuck
 // reserved bucket, no withholding past the hold.

@@ -530,7 +530,8 @@ paths:
 
         Auth: a logged-in web session cookie OR a signed CLI request (the `signedUser`
         scheme) whose pubkey is bound to a GitHub owner. The policy + transfer-safe rail
-        are identical on both paths (120-day hold, $25 min, monthly, debit-first/rollback).
+        are identical on both paths (30-day hold with a 10% reserve to day 90, $25 min,
+        monthly, debit-first/rollback).
       responses:
         "200":
           description: Payout created

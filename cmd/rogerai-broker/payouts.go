@@ -255,12 +255,14 @@ func (b *broker) connectStatus(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	out := map[string]any{
-		"status":     status,
-		"can_payout": status == "active",
-		"connect_id": o.ConnectID,
-		"min_payout": b.conn.policy.MinPayout,
-		"hold_days":  b.conn.policy.HoldDays,
-		"schedule":   b.conn.policy.Schedule,
+		"status":       status,
+		"can_payout":   status == "active",
+		"connect_id":   o.ConnectID,
+		"min_payout":   b.conn.policy.MinPayout,
+		"hold_days":    b.conn.policy.HoldDays,
+		"reserve":      b.conn.policy.Reserve,
+		"reserve_days": b.conn.policy.ReserveDays,
+		"schedule":     b.conn.policy.Schedule,
 	}
 	// The earnings split (payable / held / paid + next release) keyed by the owner
 	// pubkey (the account id), so `roger payout status` shows payable-vs-held +

@@ -20,13 +20,15 @@ import (
 // PayoutStatus is the Connect/KYC state + the earnings split for `payout status`.
 // Credits are dollars (1 credit == $1), surfaced to the user as dollars.
 type PayoutStatus struct {
-	Status    string  `json:"status"`     // none | onboarding | active | restricted
-	CanPayout bool    `json:"can_payout"` // transfers capability is active (KYC done)
-	ConnectID string  `json:"connect_id"`
-	MinPayout float64 `json:"min_payout"`
-	HoldDays  int     `json:"hold_days"`
-	Schedule  string  `json:"schedule"` // "monthly" | "weekly"
-	Earnings  struct {
+	Status      string  `json:"status"`     // none | onboarding | active | restricted
+	CanPayout   bool    `json:"can_payout"` // transfers capability is active (KYC done)
+	ConnectID   string  `json:"connect_id"`
+	MinPayout   float64 `json:"min_payout"`
+	HoldDays    int     `json:"hold_days"`
+	Reserve     float64 `json:"reserve"`      // fraction of each earning riding the reserve tail
+	ReserveDays int     `json:"reserve_days"` // days until the reserve slice is payable
+	Schedule    string  `json:"schedule"`     // "monthly" | "weekly"
+	Earnings    struct {
 		Held        float64 `json:"held"`         // not yet releasable (inside the hold)
 		Reserved    float64 `json:"reserved"`     // reserve portion not yet released
 		Payable     float64 `json:"payable"`      // releasable now, not yet paid

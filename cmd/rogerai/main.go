@@ -1843,7 +1843,7 @@ func payoutUsage() {
 func payoutPolicyLine(st client.PayoutStatus) string {
 	hold := st.HoldDays
 	if hold == 0 {
-		hold = 120
+		hold = 30
 	}
 	min := st.MinPayout
 	if min == 0 {
@@ -1853,7 +1853,15 @@ func payoutPolicyLine(st client.PayoutStatus) string {
 	if sched == "" {
 		sched = "monthly"
 	}
-	return fmt.Sprintf("policy     %d-day hold · $%s min · %s", hold, trimAmt(min), sched)
+	rsv := ""
+	if st.Reserve > 0 {
+		days := st.ReserveDays
+		if days == 0 {
+			days = 90
+		}
+		rsv = fmt.Sprintf(" · %.0f%%%% reserved to day %d", st.Reserve*100, days)
+	}
+	return fmt.Sprintf("policy     %d-day hold"+rsv+" · $%s min · %s", hold, trimAmt(min), sched)
 }
 
 // trimAmt formats a dollar amount without trailing zeros (25 -> "25", 25.5 -> "25.50").
