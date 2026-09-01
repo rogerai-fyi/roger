@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-// scripts/vast-onstart.sh is what an operator pastes into Vast.ai's ONSTART box to turn a
+// web/src/vast-onstart.sh (served at rogerai.fm/vast-onstart.sh) is what an operator pastes into Vast.ai's ONSTART box to turn a
 // rented GPU into a station. It runs unattended on somebody else's machine with no TTY, so
 // the failure modes that matter are the quiet ones:
 //
@@ -23,11 +23,27 @@ import (
 // ROGER_DRY_RUN=1 makes the script resolve everything, print the plan, and touch nothing,
 // which is how all of that is exercised without a GPU.
 
+// envWithoutRoger is os.Environ() with every ROGER_* setting stripped. (The package
+// already has a cleanEnv, which strips GIT_* for the push-gate tests - a different job.) The script is steered
+// ENTIRELY by those variables, so inheriting the developer's shell would let an ambient
+// ROGER_PRICE_OUT or ROGER_MODEL decide what these tests observe - the "free by default"
+// assertions would pass or fail depending on whose machine ran them.
+func envWithoutRoger() []string {
+	var out []string
+	for _, kv := range os.Environ() {
+		if strings.HasPrefix(kv, "ROGER_") {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return out
+}
+
 func runOnstart(t *testing.T, env map[string]string) (string, int) {
 	t.Helper()
 	home := t.TempDir()
 	cmd := exec.Command("bash", filepath.Join("..", "..", "web", "src", "vast-onstart.sh"))
-	cmd.Env = append(os.Environ(),
+	cmd.Env = append(envWithoutRoger(),
 		"ROGER_DRY_RUN=1",
 		"HOME="+home,
 		"XDG_CONFIG_HOME="+filepath.Join(home, ".config"),
@@ -70,7 +86,7 @@ func TestVastOnstartEarnsWhenTheBoxHasAnOwner(t *testing.T) {
 		t.Fatal(err)
 	}
 	cmd := exec.Command("bash", filepath.Join("..", "..", "web", "src", "vast-onstart.sh"))
-	cmd.Env = append(os.Environ(), "ROGER_DRY_RUN=1", "HOME="+home,
+	cmd.Env = append(envWithoutRoger(), "ROGER_DRY_RUN=1", "HOME="+home,
 		"XDG_CONFIG_HOME="+filepath.Join(home, ".config"), "ROGER_PRICE_OUT=0.30")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
