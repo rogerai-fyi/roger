@@ -454,6 +454,40 @@
     setState("use", "data");
   }
 
+  // ---- recent requests: the consumer's private routing history ----
+  // One credentialed read of GET /usage. A curated row names the provider it was routed
+  // through and the SPLIT - the upstream pass-through (owner_share) vs the routing fee
+  // (cost - owner_share) - so the 30% is never a hidden margin. A human row shows the
+  // band and the cost; per-station operator economics are not the consumer's surface.
+  function renderRecent() {
+    fetch(BROKER + "/usage", { credentials: "include" }).then(function (r) {
+      return r.ok ? r.json() : null;
+    }).then(function (d) {
+      var rows = (d && d.recent) || [];
+      if (!rows.length) return;
+      var body = $("useRecentRows");
+      if (!body) return;
+      body.innerHTML = "";
+      rows.slice(0, 50).forEach(function (e) {
+        var tr = document.createElement("tr");
+        tr.appendChild(cell(e.model || "-", "mx-model"));
+        var routing;
+        if (e.curated_provider) {
+          var fee = Math.max(0, (+e.cost || 0) - (+e.owner_share || 0));
+          routing = "\u00bb " + e.curated_provider + " curated \u00b7 " +
+            cr(+e.owner_share || 0) + " upstream + " + cr(fee) + " routing";
+        } else {
+          routing = "station " + String(e.node || "").slice(0, 10);
+        }
+        tr.appendChild(cell(routing, "mx-model"));
+        tr.appendChild(cell(cfmt((+e.prompt_tokens || 0) + (+e.completion_tokens || 0)), "num"));
+        tr.appendChild(cell(cr(+e.cost || 0), "num mx-money"));
+        body.appendChild(tr);
+      });
+      show("useRecentWrap");
+    }).catch(function () { /* the aggregate view stands alone */ });
+  }
+
   // ---- fetch the time-series feed for a range ----
   // resolves to { ok:true, data } | { ok:false, auth:bool }.
   function fetchSeries(days) {
@@ -499,7 +533,7 @@
       var roles = applyRoles(d);
       var daily = d.daily || [];
       if (roles.isProvider) renderProvider(daily);
-      if (roles.isConsumer) renderUsage(daily);
+      if (roles.isConsumer) { renderUsage(daily); renderRecent(); }
     });
   }
 

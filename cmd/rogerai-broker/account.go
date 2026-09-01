@@ -215,6 +215,22 @@ func (b *broker) usage(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusUnauthorized, "not logged in")
 		return
 	}
+	b.usageFor(w, r, user)
+}
+
+// usageRow is one settled request as the consumer's history shows it: the ledger entry
+// plus the curated designation, so the web page can name the routing honestly
+// (features/curated/curated_web.feature) without guessing from prices. The provider is
+// joined from the durable node registry at read time - the kind-flip register guard
+// makes that join stable for a node id's lifetime.
+type usageRow struct {
+	store.Entry
+	CuratedProvider string `json:"curated_provider,omitempty"`
+}
+
+// usageFor renders GET /usage for an authenticated user (split out so the shape is
+// testable without a web session).
+func (b *broker) usageFor(w http.ResponseWriter, r *http.Request, user string) {
 	spend, _ := b.db.SpendOf(user)
 	recent, _ := b.db.RecentByUser(user, 1000)
 	group := r.URL.Query().Get("group")
@@ -227,14 +243,28 @@ func (b *broker) usage(w http.ResponseWriter, r *http.Request) {
 	if len(recent) > tableLimit {
 		recent = recent[:tableLimit]
 	}
-	if recent == nil {
-		recent = []store.Entry{}
+	rows := make([]usageRow, 0, len(recent))
+	var curatedOf map[string]string
+	for _, e := range recent {
+		row := usageRow{Entry: e}
+		if curatedOf == nil {
+			curatedOf = map[string]string{}
+			if all, err := b.db.AllNodes(); err == nil {
+				for _, n := range all {
+					if n.Reg.Curated {
+						curatedOf[n.NodeID] = n.Reg.CuratedProvider
+					}
+				}
+			}
+		}
+		row.CuratedProvider = curatedOf[e.Node]
+		rows = append(rows, row)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"spend":   round6(spend),
 		"group":   group,
 		"buckets": buckets,
-		"recent":  recent,
+		"recent":  rows,
 	})
 }
 

@@ -269,6 +269,7 @@
       return {
         model: m.model || m.band || "unknown",
         providers: providers,
+        curated: +m.curated_providers || 0,
         live: live,
         seen: false,            // real history-only row?
         lastSeen: 0,
@@ -305,7 +306,10 @@
       });
       var online = o.online !== false;
       b.total++;
-      if (online) b.live++;
+      // Curated proxies are counted APART: b.live is the page's human-supply claim
+      // (features/curated/curated_web.feature - "human-station counts never include
+      // them"). Prices/perf still aggregate over every station: the posted price is real.
+      if (online) { if (o.curated) b.curatedLive = (b.curatedLive || 0) + 1; else b.live++; }
       var pin = (o.price_in != null ? +o.price_in : null);
       var pout = (o.price_out != null ? +o.price_out : null);
       if (pin != null && !isNaN(pin) && pin < b.minIn) b.minIn = pin;
@@ -337,6 +341,8 @@
       b.stations.push({
         callsign: callsign(o.node_id),
         nodeId: o.node_id,
+        curated: !!o.curated,
+        curatedProvider: o.curated_provider || "",
         region: coarseRegion(o.region),
         online: online,
         priceIn: pin, priceOut: pout, priceTier: (+o.price_tier || 0),
@@ -364,7 +370,8 @@
         return (c.signal || 0) - (a.signal || 0);
       });
       return {
-        model: b.model, providers: b.live, live: b.live > 0, seen: false, lastSeen: 0,
+        model: b.model, providers: b.live, curated: b.curatedLive || 0,
+        live: (b.live + (b.curatedLive || 0)) > 0, seen: false, lastSeen: 0,
         signal: b.signal,
         terms: b.terms || normTerms(null),
         priceIn: b.minIn === Infinity ? null : b.minIn,
@@ -387,6 +394,7 @@
       var d = dByModel[b.model];
       if (d) {
         b.stations = d.stations;
+        b.curated = d.curated != null ? d.curated : b.curated;
         b.priceIn = b.priceIn != null ? b.priceIn : d.priceIn;
         b.priceOut = d.priceOut;
         // verified = serving-probe pass; confidential = TEE tier. Distinct flags.
@@ -509,7 +517,8 @@
       if (parts.length) perf = '<span class="band-perf mono">' + parts.join(' · ') + '</span>';
     }
     var prov = b.live
-      ? '<span class="band-prov">' + b.providers + ' station' + (b.providers === 1 ? '' : 's') + ' on air</span>'
+      ? '<span class="band-prov">' + b.providers + ' station' + (b.providers === 1 ? '' : 's') + ' on air' +
+        (b.curated ? ' <span class="band-curated" title="curated: commercial-API proxy stations, counted apart from human stations">&raquo; ' + b.curated + ' curated</span>' : '') + '</span>'
       : (b.seen
           ? '<span class="band-prov band-prov--idle">offline - last seen ' + fmtAgo(b.lastSeen) + '</span>'
           : '<span class="band-prov band-prov--idle">idle - no station on air</span>');
@@ -972,7 +981,7 @@
     document.getElementById("qslBand").textContent = b.model;
     var subN = b.providers;
     document.getElementById("qslSub").textContent = b.live
-      ? "- " + subN + " station" + (subN === 1 ? "" : "s") + " on air"
+      ? "- " + subN + " station" + (subN === 1 ? "" : "s") + " on air" + (b.curated ? " (+" + b.curated + " curated)" : "")
       : (b.seen ? "- offline (last seen " + fmtAgo(b.lastSeen) + ")" : "- no station on air (idle model)");
     document.getElementById("qslSigGlyph").innerHTML = towerBars(b.signal, b.live);
     document.getElementById("qslSigNum").textContent = "SIGNAL " + (b.live ? b.signal : "--") + "/100";
@@ -986,8 +995,13 @@
         (b.seen ? "this model is offline right now - no stations on air"
                 : "no live station detail for this model right now") + '</li>';
     } else {
-      stations.forEach(function (s) {
+      // Curated proxies render under their OWN heading, never interleaved with human
+      // stations (features/curated/curated_web.feature: "listed under their own heading").
+      var humans = stations.filter(function (s) { return !s.curated; });
+      var proxies = stations.filter(function (s) { return s.curated; });
+      var renderStationRow = function (s) {
         var marks = "";
+        if (s.curated) marks += ' <span class="qsl-mark" title="curated: a proxy of the named commercial API, not a person\'s hardware">&raquo; ' + esc(s.curatedProvider || "curated") + '</span>';
         if (s.online && s.verified) marks += ' <span class="qsl-mark qsl-mark--ver" title="verified serving: passed the broker live serving probe">✓</span>';
         if (s.confidential) marks += ' <span class="cs" title="TEE-verified confidential (real hardware attestation)">◆</span>';
         if (s.free) marks += ' <span class="band-tag band-tag--free">FREE</span>';
@@ -1024,7 +1038,13 @@
           '<span class="mono">' + ttft + '</span>' +
           '<span class="mono">' + ok + '</span>');
         log.appendChild(row);
-      });
+      };
+      humans.forEach(renderStationRow);
+      if (proxies.length) {
+        log.appendChild(el("li", "qsl-row qsl-row--heading mono",
+          '&raquo; curated - commercial-API proxies, counted apart from the ' + humans.length + ' human station' + (humans.length === 1 ? '' : 's')));
+        proxies.forEach(renderStationRow);
+      }
     }
 
     // verification line: SERVING-PROBE pass (distinct) + TEE-confidential tier

@@ -71,6 +71,7 @@
     ];
     if (st.confidential) badges.push('<span class="badge">CONFIDENTIAL</span>');
     if (st.private) badges.push('<span class="badge">PRIVATE BAND</span>');
+    if (st.curated) badges.push('<span class="badge">&raquo; CURATED &middot; ' + esc(st.curated_provider || "") + '</span>');
 
     return (
       '<article class="st-row">' +
@@ -81,7 +82,12 @@
       (st.hw ? " &middot; " + esc(st.hw) : "") +
       "</p>" +
       (offers ? "<ul>" + offers + "</ul>" : '<p class="fine">No offers published.</p>') +
-      '<p class="fine">Earned ' + (st.earnings_unavailable ? "unavailable" : money(st.earnings)) + " &middot; " + (st.recent_served || 0) + " recent requests" +
+      // A curated station's credits are upstream PASS-THROUGH - the reimbursement of
+      // the provider's list price - never income. The copy must not present it as
+      // earnings (features/curated/curated_web.feature).
+      '<p class="fine">' + (st.curated
+        ? 'Upstream pass-through ' + (st.earnings_unavailable ? "unavailable" : money(st.earnings)) + ' (reimbursement of the provider list price, not income)'
+        : 'Earned ' + (st.earnings_unavailable ? "unavailable" : money(st.earnings))) + " &middot; " + (st.recent_served || 0) + " recent requests" +
       ' &middot; <span class="' + chain.cls + '">' + chain.text + "</span></p>" +
       "</article>"
     );
