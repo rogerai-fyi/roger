@@ -318,11 +318,11 @@ func TestChargebackNoOverClawWithFee(t *testing.T) {
 	}
 }
 
-// TestReserveReleasesWithLot pins the Option-A reserve behavior so the half-wired
-// "reserve tail" can't silently regress: with a reserve fraction configured, the reserve
-// releases TOGETHER with the lot at HoldDays - the reserve_release audit row is emitted at
-// promotion, the FULL gross (incl. reserve) becomes payable, and a payout pays it all (the
-// reserve is never stranded). A separate later reserve tail is intentionally not supported.
+// TestReserveReleasesWithLot pins the COUPLED-tail edge of Option B: with the tail
+// configured equal to the hold (ROGERAI_PAYOUT_RESERVE_DAYS=0, clamped up to the hold),
+// the reserve releases TOGETHER with the lot - release row at promotion, full gross
+// payable, a payout pays it all, nothing stranded. The pre-tail behavior, kept
+// reachable by configuration and pinned so the tail machinery cannot break it.
 func TestReserveReleasesWithLot(t *testing.T) {
 	// The COUPLED case (tail == hold): with Option B a tail is the default, so this
 	// regression pins that a zero tail still releases the reserve with the lot and

@@ -507,7 +507,8 @@ func TestPayoutStubOKWithoutRequireLive(t *testing.T) {
 	}
 }
 
-// TestPayoutPolicyDefaults asserts loadConnect adopts the Option B policy defaults (2026-09-01)
+// TestPayoutPolicyDefaults asserts loadConnect adopts the Option B defaults (ruled
+// 2026-09-01): a 30-day hold, a 10% reserve on a 90-day tail, $25 minimum, monthly.
 // when no ROGERAI_PAYOUT_* env is set: a 120-day hold (P0-3b: covers the chargeback
 // tail so a post-payout dispute is rare), $25 minimum, monthly schedule, and a ZERO
 // reserve (no separate rolling-reserve bucket). This is the broker-side guard that the

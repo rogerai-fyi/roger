@@ -1847,7 +1847,8 @@ func (p *Postgres) RequestPayout(accountID string, now time.Time, minPayout floa
 			WHERE id IN (SELECT id FROM tailed)
 		)
 		UPDATE rogerai.earning_lots SET state='paid', payout_id=$2
-		WHERE account_id=$1 AND state='payable' AND id NOT IN (SELECT id FROM tailed)`,
+		WHERE account_id=$1 AND state='payable' AND id NOT IN (SELECT id FROM tailed)
+		  AND gross-reserve + CASE WHEN reserve_release_at<=$3 THEN reserve ELSE 0 END > 0`,
 		accountID, pid, n); err != nil {
 		return Payout{}, false, "", err
 	}

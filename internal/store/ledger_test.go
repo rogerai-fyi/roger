@@ -97,7 +97,9 @@ func TestHoldPromotionAt90d(t *testing.T) {
 	}
 }
 
-// TestOptionBDefaults: the founder-approved Option B defaults (ruled 2026-09-01; no env set)
+// TestOptionBDefaults: the founder-approved Option B defaults (ruled 2026-09-01; no
+// env set): 30-day hold, 10% reserve on a 90-day tail, $25 minimum - and the split's
+// day-0/31/91 shape that follows from them.
 // are a 120-day hold with NO separate reserve. An earning must therefore land fully
 // in held (nothing reserved), and at +120d the whole gross becomes payable - no stuck
 // reserved bucket, no withholding past the hold.
