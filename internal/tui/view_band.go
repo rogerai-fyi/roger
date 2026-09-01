@@ -815,10 +815,10 @@ func (b band) withoutCurated() band {
 				nb.minOut = o.PriceOut
 				nb.cheapest = &nb.all[len(nb.all)-1]
 			}
-			// minIn is its OWN minimum, exactly as groupBands tracks it: taking the
-			// cheapest-by-OUT offer's in-price showed a wrong in-price whenever the two
-			// minima lived on different stations.
-			if nb.minIn == 0 || (o.PriceIn > 0 && o.PriceIn < nb.minIn) {
+			// minIn is its OWN minimum, seeded from the FIRST surviving station exactly
+			// as groupBands seeds it - treating 0 as "unset" lost a FREE station's
+			// 0 in-price to a later paid one (audit round 5).
+			if nb.stations == 1 || o.PriceIn < nb.minIn {
 				nb.minIn = o.PriceIn
 			}
 			if o.PriceOut > nb.maxOut {

@@ -34,6 +34,10 @@ type Set struct {
 	// from the window rather than proven by a probe (R5). Vision marks a multimodal band.
 	AgentReady string
 	Vision     string
+	// Curated marks a commercial-API proxy station (the double guillemet reads as
+	// "passes onward"). Single-cell in the Unicode set; the ASCII fallback keeps the
+	// same read.
+	Curated string
 }
 
 var unicodeSet = Set{
@@ -48,6 +52,7 @@ var unicodeSet = Set{
 	BoxH:       "─",
 	AgentReady: "⌁",
 	Vision:     "◪",
+	Curated:    "»",
 }
 
 var asciiSet = Set{
@@ -62,6 +67,7 @@ var asciiSet = Set{
 	BoxH:       "-",
 	AgentReady: "%",
 	Vision:     "[v]",
+	Curated:    ">>",
 }
 
 // Current returns the resolved glyph set for this process (Unicode unless ASCII()).

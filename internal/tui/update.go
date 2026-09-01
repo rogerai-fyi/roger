@@ -1930,7 +1930,9 @@ func (m *model) onLimitsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "b", "B":
 			// THE BAND CARD: everything about the band under the cursor, in one place.
-			if m.limCursor < len(m.limModels) {
+			// Not from the budget row - the cursor is not on a band there, and acting on
+			// limCursor would open a card the operator is not looking at (audit round 5).
+			if !m.limOnBudget && m.limCursor < len(m.limModels) {
 				return m.openBandConfig(m.limModels[m.limCursor], modeLimits)
 			}
 		case "up", "k":
@@ -1949,7 +1951,9 @@ func (m *model) onLimitsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.limCursor++
 			}
 		case "d":
-			if m.limCursor < len(m.limModels) {
+			// Same rule as b: from the budget row, d must not clear the limits of the
+			// un-highlighted band still under limCursor.
+			if !m.limOnBudget && m.limCursor < len(m.limModels) {
 				m.limits.clear(m.limModels[m.limCursor])
 				m.enterLimits()
 			}

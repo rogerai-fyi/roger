@@ -49,3 +49,20 @@ func TestMixedBandQualityIsTheMeanOverAllServingNodes(t *testing.T) {
 		t.Fatalf("providers=%d curated=%d, want 1/2 counted apart", got.Providers, got.CuratedProviders)
 	}
 }
+
+func TestPagerCountsCuratedSupplyAsOnAir(t *testing.T) {
+	// Pre-push audit round 5: liveModelProviders (the 0-provider pager's source) counted
+	// only human Providers, so a model served SOLELY by a live curated station read as
+	// off-air - a false "0 providers / requests will fail" page held open over supply
+	// that serves requests fine, and a real curated-supply outage invisible.
+	b, _, _, _ := newBandBroker(t)
+	b.nodes["conly"] = protocol.NodeRegistration{
+		NodeID: "conly", Curated: true, CuratedProvider: "openrouter",
+		Offers: []protocol.ModelOffer{{Model: "curated-only", Ctx: 8192}},
+	}
+	b.lastSeen["conly"] = time.Now()
+	live := b.liveModelProviders()
+	if live["curated-only"] == 0 {
+		t.Fatal("a model served solely by a live curated station reads off-air to the pager")
+	}
+}
