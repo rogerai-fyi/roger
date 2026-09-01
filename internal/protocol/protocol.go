@@ -78,6 +78,14 @@ type ModelOffer struct {
 	// receipt: a guess is never displayed as a measured fact.
 	CtxEstimated bool          `json:"ctx_estimated,omitempty"`
 	Schedule     []PriceWindow `json:"schedule,omitempty"`
+	// UpstreamIn/UpstreamOut are the DECLARED commercial list prices behind a CURATED
+	// station's offer (credits per 1M units, same units as PriceIn/Out). Only meaningful
+	// when the registration's Curated flag is set; the broker DERIVES the posted price
+	// from these (list x the curated markup) and settles the operator this list portion
+	// back as pass-through - see cmd/rogerai-broker curated pricing. Signed with the rest
+	// of the registration (regSigningBytes excludes only Sig and the display fields).
+	UpstreamIn  float64 `json:"upstream_in,omitempty"`
+	UpstreamOut float64 `json:"upstream_out,omitempty"`
 	// Voice metadata (optional; set only for voice offers) — surfaced by GET /voices for the app
 	// picker (BROKER-VOICE-API.md). Passive display labels ONLY; a node address is never here.
 	Name      string `json:"name,omitempty"`
@@ -496,7 +504,10 @@ type UsageReceipt struct {
 	CompletionTokens int     `json:"completion_tokens"`
 	PriceIn          float64 `json:"price_in"`
 	PriceOut         float64 `json:"price_out"`
-	TS               int64   `json:"ts"`
+	// Curated marks a receipt settled through a curated (commercial-API proxy) station,
+	// so ledgers and money sweeps can total curated flow apart from human supply.
+	Curated bool  `json:"curated,omitempty"`
+	TS      int64 `json:"ts"`
 	PrevHash         string  `json:"prev_hash"`
 	// Lineage proof slot - P0 carries the upstream-reported counts; P1 fills
 	// LineageMethod ("toploc"/"logprob") + LineageProof (opaque bytes).

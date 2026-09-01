@@ -353,6 +353,31 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 		// The provider IS the region: a proxy has no geography of its own, and leaving a
 		// place-name here would count commercial POPs into the human-supply story.
 		reg.Region = strings.ToLower(strings.TrimSpace(reg.CuratedProvider))
+		// PRICING IS A FORMULA, NOT A FIELD (curated_pricing.go). Each offer declares the
+		// upstream's list price; the posted price is DERIVED, list x curatedMarkup, and
+		// three shapes are refused because each is a settlement lie waiting to happen:
+		//   - a supplied posted price BELOW the declared list is underwater on every token;
+		//   - a supplied posted price that is not the derivation would break "the markup is
+		//     one broker-owned constant" (so any explicit price must simply be the list);
+		//   - a time-of-use schedule has no meaning over a flat commercial list price and
+		//     would let a window undercut the pass-through.
+		for i := range reg.Offers {
+			o := &reg.Offers[i]
+			if len(o.Schedule) > 0 {
+				jsonErr(w, http.StatusBadRequest, "a curated offer cannot carry a time-of-use schedule: the upstream's list price does not change by the hour, and a window below it would settle underwater")
+				return
+			}
+			if o.UpstreamIn < 0 || o.UpstreamOut < 0 {
+				jsonErr(w, http.StatusBadRequest, "curated upstream prices cannot be negative")
+				return
+			}
+			if (o.PriceIn != 0 && o.PriceIn < o.UpstreamIn) || (o.PriceOut != 0 && o.PriceOut < o.UpstreamOut) {
+				jsonErr(w, http.StatusBadRequest, fmt.Sprintf("curated offer %q posts a price below its declared upstream list (in %.4f<%.4f or out %.4f<%.4f): underwater on every token, refused", o.Model, o.PriceIn, o.UpstreamIn, o.PriceOut, o.UpstreamOut))
+				return
+			}
+			o.PriceIn = curatedPosted(o.UpstreamIn)
+			o.PriceOut = curatedPosted(o.UpstreamOut)
+		}
 	}
 	b.mu.Lock()
 	if prev, ok := b.nodes[reg.NodeID]; ok && prev.Curated != reg.Curated {

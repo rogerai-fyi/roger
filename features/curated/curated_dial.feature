@@ -41,3 +41,16 @@ Feature: Curated stations are badged, filterable, and counted apart
     Given the operator hid curated supply
     When the agent auto-tunes a band
     Then it never binds a curated-only band
+
+  Scenario: Declared upstream prices are visible on the row's detail
+    Then the band card shows the upstream list price and the routing fee separately
+    # the consumer sees exactly what the 30% buys; nothing is folded into a mystery number
+
+  Scenario: The consumer's history shows the routing, privately
+    Given a consumer with curated requests in their history
+    Then their usage history names the band, the provider and the split
+    And no other account can see any of it
+
+  Scenario: The curated operator's earnings page shows pass-through, not profit
+    Then a curated operator's earnings view labels upstream pass-through distinctly
+    And never presents reimbursement as income

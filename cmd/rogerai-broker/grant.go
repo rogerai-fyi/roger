@@ -256,6 +256,15 @@ func (b *broker) settleRequest(payer, node string, held, cost float64, rec proto
 	// is the primary gate; this closes the in-flight race so a banned owner can't earn on
 	// a request already in progress.
 	ownerShare := cost * (1 - b.feeRate)
+	// CURATED settles by its own rule (curated_pricing.go): the operator is reimbursed
+	// the upstream list portion - cost/markup, exactly - and the broker keeps the routing
+	// fee the markup collected. The standard split here would strand a curated operator
+	// 9% underwater on every token. The receipt is marked so ledgers and money sweeps can
+	// total curated flow apart from human supply.
+	if b.nodeCurated(node) {
+		ownerShare = curatedOwnerShare(cost)
+		rec.Curated = true
+	}
 	if b.nodeOwnerBanned(node) {
 		log.Printf("settle: node=%s owner BANNED - billing consumer but minting NO earning", node)
 		ownerShare = 0
