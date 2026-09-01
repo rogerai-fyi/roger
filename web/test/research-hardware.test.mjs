@@ -114,11 +114,28 @@ test("hardware: the page never claims a shipped deployment anywhere", () => {
   }
 });
 
-test("hardware: the page says plainly that the targets are targets", () => {
-  const page = compact(read(PAGE)).toLowerCase();
-  assert.match(page, /target|intended|not yet|no checkpoint|prototype/,
-    "the page states that the mapping is intent rather than a shipped result");
+test("hardware: every card SHOWS the stage it declares, not just carries it", () => {
+  // This replaces a weaker test that only looked for the word "target" somewhere on the
+  // page - satisfied by the boilerplate "Target tier" label in every card, so it would have
+  // passed on a page that had quietly stopped saying anything was unbuilt.
+  //
+  // It matters more now that the standing "no Wave checkpoint has been released" note is
+  // gone (founder call, 2026-08-31): the per-card stage IS the honesty on this page, and a
+  // stage locked in an attribute but missing from the rendered card would be invisible to
+  // the reader while still passing the catalogue lock.
+  const page = read(PAGE);
+  const cards = [...page.matchAll(/<article[^>]*class="[^"]*hw-card[^"]*"[\s\S]*?<\/article>/g)].map((m) => m[0]);
+  assert.ok(cards.length >= 6, `board cards found (${cards.length})`);
+  for (const card of cards) {
+    const declared = card.match(/data-stage="([^"]+)"/)?.[1];
+    assert.ok(declared, "a board card declares a stage");
+    const shown = compact(card).replace(/&middot;/g, "·");
+    const want = declared.replace(/&middot;/g, "·");
+    assert.ok(shown.includes(want),
+      `a card declares the stage "${want}" but never shows it: ${shown.slice(0, 80)}`);
+  }
 });
+
 
 test("hardware: the one downloadable artifact is the only thing shown as available now", () => {
   const page = read(PAGE);
@@ -176,6 +193,22 @@ test("hardware: the ladder diagram is described and does not move for a reader w
     "the animation yields to prefers-reduced-motion");
 });
 
+test("hardware: the band scrolls on a narrow screen instead of shrinking to nothing", () => {
+  // The ladder is ~1180 user units wide. Scaled into a phone it renders its labels at about
+  // four pixels - not a small illustration, an unreadable one. It scrolls instead, and only
+  // the band scrolls: overflow on the <figure> would carry the caption off with it.
+  const page = read(PAGE);
+  const css = src("styles/research-hardware.css");
+  assert.match(page, /<div class="hw-figure__scroll">[\s\S]*?<svg[^>]*hw-ladder/,
+    "the band sits in its own scroll container");
+  assert.match(css, /\.hw-figure__scroll\s*\{[^}]*overflow-x:\s*auto/,
+    "that container scrolls horizontally");
+  assert.match(css, /\.hw-ladder\s*\{[^}]*min-width:\s*\d+px/,
+    "and the band keeps a legible minimum width rather than scaling down");
+  assert.doesNotMatch(css, /\.hw-figure\s*\{[^}]*overflow-x/,
+    "the figure itself must not scroll, or the caption leaves with the band");
+});
+
 /* ---- the credits list, and a picture that is not what it says ---------- */
 
 test("hardware: the page indicates that the photographs were altered", () => {
@@ -185,20 +218,58 @@ test("hardware: the page indicates that the photographs were altered", () => {
   const page = compact(read(PAGE));
   assert.match(page, /resized, cropped and colour-graded/i,
     "the page says the photographs were altered, as CC BY asks");
-  assert.match(page, /Blackwell has no freely licensed photograph/i,
-    "and admits which cards are illustrated with a different generation");
+  // (the generation sentence went with the caption wording - see the note above the
+  //  alt-text guard below. CC BY's change-indication is what this test still enforces.)
 });
 
-test("hardware: a photograph of a different generation says so on the picture", () => {
-  // Two cards name the RTX PRO 6000 Blackwell, which has no freely licensed photograph
-  // yet, and are illustrated with the previous Ada generation. That gap is exactly the
-  // kind a marketing page closes silently, so the picture has to admit it.
+// The "Ada pictured" caption guard was REMOVED here on 2026-08-31, deliberately.
+// Founder call: the page targets the current RTX PRO 6000 Blackwell (Workstation and Max-Q),
+// and captioning the photographs with the older generation's name read as though we were
+// recommending the old card. What replaces it is not nothing: the credit still links to the
+// Commons source file, whose own title names the generation, so the provenance is one click
+// away rather than asserted on our page. The test below keeps that link mandatory.
+test("hardware: a photograph never asserts a model it cannot support", () => {
+  // Alt text describes what is visibly there - a professional workstation card - rather than
+  // naming a SKU the photograph cannot prove. Naming one in alt text is how a stock picture
+  // quietly becomes a product claim.
   const page = read(PAGE);
-  for (const m of page.matchAll(/<article[^>]*class="[^"]*hw-card[^"]*"[\s\S]*?<\/article>/g)) {
-    const card = m[0];
-    if (!/Blackwell/.test(card)) continue;
-    const fig = card.match(/<figure[\s\S]*?<\/figure>/)?.[0] ?? "";
-    assert.match(fig, /Ada pictured/,
-      "a card naming Blackwell must say on the picture that an Ada-generation card is shown");
+  for (const m of page.matchAll(/<img[^>]*assets\/hardware\/(rtx6000|rtx6000x4)\.webp[^>]*>/g)) {
+    const alt = m[0].match(/alt="([^"]*)"/)?.[1] ?? "";
+    assert.doesNotMatch(alt, /\bAda\b|\bBlackwell\b|RTX\s*(PRO\s*)?6000/i,
+      `alt text names a specific card the photograph cannot prove: "${alt}"`);
+    assert.ok(alt.trim().length >= 15, "but it still describes the picture");
   }
 });
+
+test("hardware: the bench figures are the ones the broadcast actually published", () => {
+  // This is the only MEASURED result on the page, so it is the one most worth pinning: the
+  // rig, the model and both throughput numbers have to be findable in the write-up that
+  // produced them. A figure that drifts from its own source is worse than no figure.
+  const card = read(PAGE).match(/<article[^>]*data-exp="concurrency"[\s\S]*?<\/article>/)?.[0];
+  assert.ok(card, "the concurrency run has a card");
+  const attr = (n) => card.match(new RegExp(`data-${n}="([^"]+)"`))?.[1];
+  const source = compact(read("broadcasts-one-gpu-many-users.html")).replace(/&times;/g, "x");
+  const shown = compact(card); // what a reader sees, with every attribute stripped away
+
+  const rig = attr("rig"), model = attr("model");
+  assert.ok(rig && model, "the card names the rig and the model it was measured on");
+  assert.ok(source.replace(/\s/g, "").includes(rig.replace(/\s/g, "")),
+    `the bench rig "${rig}" is not the one the broadcast reports`);
+  assert.ok(source.includes(model), `the model "${model}" is not the one the broadcast reports`);
+
+  for (const k of ["single", "batched", "users"]) {
+    const v = attr(k);
+    assert.ok(v && /^\d+$/.test(v), `${k} is a number`);
+    assert.ok(source.includes(v), `the figure ${v} (${k}) appears nowhere in the broadcast`);
+    // against the VISIBLE text, not the markup: card.includes(v) is satisfied by the
+    // data-* attribute the figure came from, so it would pass with the cell blanked out.
+    assert.ok(shown.includes(v), `the figure ${v} (${k}) is declared but never shown to a reader`);
+  }
+  assert.ok(Number(attr("batched")) > Number(attr("single")),
+    "the whole point is that aggregate throughput rises under load");
+});
+
+// The stops are controls now. That used to be asserted by grepping hardware.js for
+// role="button" and friends, which proves the file CONTAINS the strings and nothing about
+// what happens when somebody presses Enter. It moved to test/hardware-stops.test.mjs, which
+// runs the script against a mini-DOM and checks the behaviour instead.

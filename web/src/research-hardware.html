@@ -54,6 +54,7 @@
         </div>
 
         <figure class="hw-figure">
+          <div class="hw-figure__scroll">
           <svg class="hw-ladder" viewBox="0 96 1180 200" role="img"
                aria-labelledby="hw-ladder-title hw-ladder-desc">
             <title id="hw-ladder-title">The Wave spectrum across eight classes of hardware</title>
@@ -147,6 +148,8 @@
             <text class="hw-ladder__foot" x="46"  y="272">sensor</text>
             <text class="hw-ladder__foot hw-ladder__foot--end" x="1140" y="272">frontier datacenter</text>
           </svg>
+          </div>
+          <p class="hw-figure__swipe mono" aria-hidden="true">swipe the band &rarr;</p>
           <figcaption class="fig">FIG. 1 - the spectrum is a hardware ladder before it is a
             model ladder. Hover a board below to find its stop.</figcaption>
         </figure>
@@ -323,12 +326,12 @@
                    data-stage="Architecture and data design" data-today="station" data-stop="tera">
             <figure class="hw-card__shot">
               <img src="assets/hardware/rtx6000.webp" width="1000" height="750" loading="lazy"
-                   alt="A single professional NVIDIA RTX 6000 graphics card lying flat under studio light, its circular blower fan and brushed hub facing the camera.">
-              <figcaption class="hw-credit">RTX 6000 Ada pictured &middot; Photo <a href="https://commons.wikimedia.org/wiki/File:4%C3%97_NVIDIA_RTX%E2%84%A2_6000_der_Ada-Generation_(%E6%9E%81%E5%AE%A2%E6%B9%BEGeekerwan)_03.png" target="_blank" rel="noopener noreferrer">Geekerwan</a> &middot; CC BY 3.0</figcaption>
+                   alt="A professional NVIDIA workstation graphics card in side profile, its black shroud and gold-ringed blower fan lit against a dark background.">
+              <figcaption class="hw-credit">Photo <a href="https://commons.wikimedia.org/wiki/File:4%C3%97_NVIDIA_RTX%E2%84%A2_6000_der_Ada-Generation_(%E6%9E%81%E5%AE%A2%E6%B9%BEGeekerwan)_02.png" target="_blank" rel="noopener noreferrer">Geekerwan</a> &middot; CC BY 3.0</figcaption>
             </figure>
             <div class="hw-card__body">
               <h3>RTX PRO 6000 Blackwell</h3>
-              <p class="hw-card__spec mono">96 GB GDDR7 &middot; ~600 W &middot; one slot</p>
+              <p class="hw-card__spec mono">96 GB GDDR7 &middot; 600 W Workstation / 300 W Max-Q</p>
               <p>The largest model that still fits on one card. 96 GB holds an 80&ndash;120B
                  model at 4-bit without splitting it across devices, which is the line Wave
                  Tera is drawn at: cross-site reasoning that correlates faults and trends
@@ -345,12 +348,12 @@
                    data-stage="Pruning plan" data-today="station" data-stop="peta">
             <figure class="hw-card__shot">
               <img src="assets/hardware/rtx6000x4.webp" width="1000" height="750" loading="lazy"
-                   alt="Four professional NVIDIA RTX 6000 cards installed side by side in a workstation, with liquid-cooling tubing looping over the CPU block beside them.">
-              <figcaption class="hw-credit">RTX 6000 Ada pictured &middot; Photo <a href="https://commons.wikimedia.org/wiki/File:4%C3%97_NVIDIA_RTX%E2%84%A2_6000_der_Ada-Generation_(%E6%9E%81%E5%AE%A2%E6%B9%BEGeekerwan)_01.png" target="_blank" rel="noopener noreferrer">Geekerwan</a> &middot; CC BY 3.0</figcaption>
+                   alt="Four professional NVIDIA workstation graphics cards installed side by side in a chassis, with liquid-cooling tubing looping over the CPU block beside them.">
+              <figcaption class="hw-credit">Photo <a href="https://commons.wikimedia.org/wiki/File:4%C3%97_NVIDIA_RTX%E2%84%A2_6000_der_Ada-Generation_(%E6%9E%81%E5%AE%A2%E6%B9%BEGeekerwan)_01.png" target="_blank" rel="noopener noreferrer">Geekerwan</a> &middot; CC BY 3.0</figcaption>
             </figure>
             <div class="hw-card__body">
-              <h3>Four of them, in one box</h3>
-              <p class="hw-card__spec mono">384 GB across 4 cards &middot; ~2.4 kW</p>
+              <h3>Four of them, in one chassis</h3>
+              <p class="hw-card__spec mono">384 GB across 4 cards &middot; ~2.4 kW, or ~1.2 kW Max-Q</p>
               <p>Past one card, memory stops being the wall and interconnect starts. Four
                  cards in a chassis carry a 150&ndash;200B model - the Wave Peta band, which
                  is specified to be pruned and distilled down from the frontier flagship
@@ -389,60 +392,16 @@
         </div>
         <p class="hw-photonote">Photographs are Creative Commons, credited on each picture
            and linked to their source; all were resized, cropped and colour-graded for this
-           page. The RTX PRO 6000 Blackwell has no freely licensed photograph yet, so the two
-           cards naming it show the previous Ada generation of the same card, marked as such.
-           Board names and marks belong to their owners and identify the hardware; no
+           page. Board names and marks belong to their owners and identify the hardware; no
            endorsement is implied.</p>
       </div>
     </section>
 
-    <!-- ---------- §3 WHAT IS TRUE TODAY ---------- -->
-    <section class="section" id="today">
-      <div class="wrap">
-        <div class="section__head section__head--left">
-          <span class="sectionno">&sect;3 / TODAY</span>
-          <h2>What you can actually fetch and run this afternoon.</h2>
-          <p>Everything above is a target. Two things on this page are not.</p>
-        </div>
-
-        <div class="hw-today">
-          <article class="hw-today__item">
-            <span class="hw-today__tag mono">ONE ARTIFACT</span>
-            <h3>DeepSeek-V4-Flash MTP, in GGUF</h3>
-            <p>284B total, 13B active, multi-token prediction, quantised and published by us.
-               It is the only set of weights on this site you can download right now, and the
-               rack at the top of the ladder is where it lands. The build story, including what did
-               not work, is in
-               <a href="/broadcasts-deepseek-mtp-gguf.html">the broadcast</a>.</p>
-            <a class="hw-today__link mono" href="https://huggingface.co/rogerai-fyi/DeepSeek-V4-Flash-MTP-GGUF" target="_blank" rel="noopener noreferrer">huggingface.co/rogerai-fyi &rarr;</a>
-          </article>
-
-          <article class="hw-today__item">
-            <span class="hw-today__tag mono">ONE COMMAND</span>
-            <h3>Any of these boxes can be a station now</h3>
-            <p>None of that waits on a Wave checkpoint. If a machine on this page can serve an
-               OpenAI-compatible endpoint - the Pi 5 and everything to its right can -
-               <code>roger share</code> finds that server and puts it on the band. Outbound
-               only, so there is nothing to open on a plant network.</p>
-            <a class="hw-today__link mono" href="/integrations.html">what it detects &rarr;</a>
-          </article>
-        </div>
-
-        <div class="man-note">
-          <span class="man-note__tag mono">STATUS</span>
-          <p>No Wave checkpoint has been released, and no Roger Edge artifact exists. The
-             tiers on this page are specifications with hardware attached, and each card
-             carries the stage it is genuinely at. When that changes, the catalogue changes
-             first and this page follows it - a test fails if it does not.</p>
-        </div>
-      </div>
-    </section>
-
-    <!-- ---------- §4 EXPERIMENTS ---------- -->
+    <!-- ---------- §3 EXPERIMENTS ---------- -->
     <section class="section band" id="experiments">
       <div class="wrap">
         <div class="section__head section__head--left">
-          <span class="sectionno">&sect;4 / EXPERIMENTS</span>
+          <span class="sectionno">&sect;3 / EXPERIMENTS</span>
           <h2>The ladder is a result, not a plan.</h2>
           <p>Every stop above was placed by trying to break it: pushing a frontier model
              down onto hardware that should not hold it, and pushing a tiny one up until it
@@ -471,14 +430,25 @@
             <p class="hw-exp__stage mono">Field note &middot; <a href="/broadcasts-deepseek-mtp-gguf.html">the whole build, including what failed</a></p>
           </article>
 
-          <article class="hw-exp" data-exp="concurrency">
+          <article class="hw-exp" data-exp="concurrency"
+                   data-rig="4x RTX PRO 4500" data-model="gpt-oss-120b"
+                   data-single="160" data-batched="310" data-users="8">
             <span class="hw-exp__tag mono">MEASURED</span>
             <h3>How many people does one card actually serve?</h3>
             <p>A stop on this ladder is only real if the box serves more than one person at
-               a time, so throughput is measured in aggregate under concurrency rather than
-               single-stream. That number decides both which tier fits a box and whether
-               serving on it pays for its own electricity.</p>
-            <p class="hw-exp__stage mono">Published &middot; <a href="/broadcasts-one-gpu-many-users.html">concurrency</a> and <a href="/broadcasts-what-a-million-tokens-costs.html">what it costs</a></p>
+               a time, so throughput is measured in aggregate under load rather than
+               single-stream. This is the one machine on this page we measure on rather than
+               specify against - our own bench:</p>
+            <table class="hw-bench">
+              <caption class="mono">4&times; RTX PRO 4500 &middot; gpt-oss-120b &middot; users swept 1 &rarr; 8</caption>
+              <tbody>
+                <tr><th>Aggregate</th><td class="mono">~160 tok/s</td><td class="mono">&rarr;</td><td class="mono hw-bench__win">~310 tok/s</td></tr>
+                <tr><th>Per user</th><td class="mono">~171 tok/s</td><td class="mono">&rarr;</td><td class="mono">more than halved</td></tr>
+              </tbody>
+            </table>
+            <p>Nearly double the work out of the same hardware, and the reason the
+               single-stream number quoted everywhere badly understates a box.</p>
+            <p class="hw-exp__stage mono">Published &middot; <a href="/broadcasts-one-gpu-many-users.html">the sweep</a> and <a href="/broadcasts-what-a-million-tokens-costs.html">what it costs to serve</a></p>
           </article>
 
           <article class="hw-exp" data-exp="pico" data-stage="Certifying the waypoint &middot; 300M retrain next">

@@ -597,3 +597,11 @@ html.js .scope__modes { display: inline-flex; border: 1px solid var(--hairline-2
   margin-top: var(--s-4); color: var(--ink-500);
   font-size: var(--t-sm); line-height: var(--lh-body);
 }
+
+/* §2 states four principles about evidence; this is the line that hands over the evidence
+   itself, so it reads as a pointer rather than a fifth principle. */
+.research-prose__see {
+  margin-top: var(--s-5) !important; padding-top: var(--s-4);
+  border-top: 1px solid var(--hairline);
+  font-size: var(--t-sm); color: var(--ink-500);
+}
