@@ -756,6 +756,14 @@ func (m model) filterLine(matched, total int) string {
 	if m.fOn {
 		toggles = append(toggles, stRed.Render("on-air"))
 	}
+	if m.fNoCurated {
+		toggles = append(toggles, stEmber.Render("curated hidden"))
+	} else if n := m.curatedBandCount(); n > 0 {
+		// SAY HOW MANY are proxied commercial supply while they are shown, so the dial's
+		// human story is countable at a glance and the U toggle is discoverable next to
+		// the number it would act on.
+		toggles = append(toggles, stDim.Render(fmt.Sprintf("%s%d curated · U hides", glyphCurated, n)))
+	}
 	if m.fQuant != "" {
 		// Named, not a bare "quant" lamp: WHICH one is the whole content of this filter,
 		// and an operator who cannot see it cannot tell a narrowed dial from an empty one.

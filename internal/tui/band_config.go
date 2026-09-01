@@ -133,6 +133,13 @@ func (m model) bandConfigView(w int) string {
 	if onMarket || !served || lim.MaxOut > 0 || lim.MinTPS > 0 {
 		m.cfgSection(&b, w, "WHAT YOU PAY", "[3] CONFIG", m.cfgConsumerRows())
 	}
+	// CURATED - the price, taken apart. The posted number folds the upstream's list and
+	// our routing fee together; a consumer deciding whether the 30% is worth it needs the
+	// two side by side, not a mystery total (curated_pricing.feature: "the consumer sees
+	// exactly what the 30% buys").
+	if rows := m.cfgCuratedRows(); len(rows) > 0 {
+		m.cfgSection(&b, w, "CURATED", "", rows)
+	}
 	if !served {
 		line(stDim.Render("this machine does not serve "+m.cfgModel+" - put a model on air in ") +
 			stKey.Render("[2]") + stDim.Render(" SHARE"))
@@ -634,4 +641,28 @@ func (m model) bandQuantsView(w int) string {
 	}
 	line(stDim.Render("⏎ save · esc cancel · EMPTY accepts any quant"))
 	return b.String()
+}
+
+// cfgCuratedRows renders one row per curated station on the card's band: the provider,
+// the DECLARED upstream list price, and the routing fee (posted minus list) - the split
+// the posted number hides.
+func (m model) cfgCuratedRows() []bandConfigRow {
+	bd, ok := m.bandForModel(m.cfgModel)
+	if !ok || bd.curated == 0 {
+		return nil
+	}
+	var rows []bandConfigRow
+	for _, o := range bd.all {
+		if !o.Curated {
+			continue
+		}
+		// TWO rows, not one: the single-line form clipped at the card's value column and
+		// the routing fee - the half the consumer is deciding about - was what got cut.
+		rows = append(rows,
+			bandConfigRow{label: glyphCurated + o.CuratedProvider,
+				value: "upstream ↑" + money(o.UpstreamIn) + " ↓" + money(o.UpstreamOut) + " /1M"},
+			bandConfigRow{label: "",
+				value: "routing fee ↑" + money(o.PriceIn-o.UpstreamIn) + " ↓" + money(o.PriceOut-o.UpstreamOut) + " /1M"})
+	}
+	return rows
 }

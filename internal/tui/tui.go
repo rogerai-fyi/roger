@@ -295,7 +295,16 @@ func (m model) ambientStatus() string {
 	if m.mode == modeBrowse || m.mode == modeCommand {
 		// LLM (chat) bands + their stations only — voice bands live in THE DJ BOOTH, so folding
 		// them into the top-level "N bands · M stations" would over-count what the list shows.
-		return fmt.Sprintf("%s · %s on air", plural(m.llmBands(), "band"), plural(m.llmStationsOnAir(), "station"))
+		line := fmt.Sprintf("%s · %s on air", plural(m.llmBands(), "band"), plural(m.llmStationsOnAir(), "station"))
+		// The curated count rides the PERSISTENT summary, not the filter strip: the strip
+		// only renders while a filter is active, and a count that appears only once you
+		// have filtered is a count that cannot help you decide to.
+		if m.fNoCurated {
+			line += " · curated hidden (U shows)"
+		} else if n := m.curatedBandCount(); n > 0 {
+			line += fmt.Sprintf(" · %s%d curated (U hides)", glyphCurated, n)
+		}
+		return line
 	}
 	return ""
 }
@@ -403,17 +412,24 @@ type offer struct {
 	// offer of the SAME model (MODEL-VARIANTS-DESIGN-2026-08-22). Decode-only, like
 	// Capabilities: the browser never fabricates one, so an ABSENT value claims nothing -
 	// it is not a quant, and it is never rendered as though the station stated one.
-	Quant        string  `json:"quant,omitempty"`
-	Weights      string  `json:"weights,omitempty"`
-	Variant      string  `json:"variant,omitempty"`
-	Online       bool    `json:"online"`
-	Confidential bool    `json:"confidential"`
-	FreeNow      bool    `json:"free_now"`
-	TPS          float64 `json:"tps"`
-	TTFTMs       float64 `json:"ttft_ms"`      // probe-measured time-to-first-token (ms; 0 = unmeasured)
-	SuccessRate  float64 `json:"success"`      // 0..1 time-decayed success evidence
-	SuccessSeen  bool    `json:"success_seen"` // SuccessRate is REAL (not the no-evidence fallback)
-	Verified     bool    `json:"verified"`     // recent PASSED serving canary (distinct from confidential ◆)
+	Quant   string `json:"quant,omitempty"`
+	Weights string `json:"weights,omitempty"`
+	Variant string `json:"variant,omitempty"`
+	// Curated marks a station that PROXIES a commercial upstream API rather than serving
+	// a person's hardware; CuratedProvider names it and UpstreamIn/Out carry the declared
+	// list price, so the band card can show the list and the routing fee separately.
+	Curated         bool    `json:"curated,omitempty"`
+	CuratedProvider string  `json:"curated_provider,omitempty"`
+	UpstreamIn      float64 `json:"upstream_in,omitempty"`
+	UpstreamOut     float64 `json:"upstream_out,omitempty"`
+	Online          bool    `json:"online"`
+	Confidential    bool    `json:"confidential"`
+	FreeNow         bool    `json:"free_now"`
+	TPS             float64 `json:"tps"`
+	TTFTMs          float64 `json:"ttft_ms"`      // probe-measured time-to-first-token (ms; 0 = unmeasured)
+	SuccessRate     float64 `json:"success"`      // 0..1 time-decayed success evidence
+	SuccessSeen     bool    `json:"success_seen"` // SuccessRate is REAL (not the no-evidence fallback)
+	Verified        bool    `json:"verified"`     // recent PASSED serving canary (distinct from confidential ◆)
 	// Signal is the broker's 0..100 channel-health score (online + quality + tps +
 	// reliability). It carries even when TPS==0, so a freshly-on-air band meters at
 	// its baseline strength instead of a blank tps-driven bar.
@@ -826,8 +842,12 @@ type model struct {
 	filterApplied    string          // the applied name substring (kept after enter; lowercased compare)
 	sortMode         int             // band sort cycle (see sort* consts) - mirrors the /bands web page
 	fFree            bool            // toggle: only bands with a FREE-now station
-	fConf            bool            // toggle: only confidential / verified (lineage) bands
-	fOn              bool            // toggle: only bands with a station on air
+	// fNoCurated hides curated (commercial-API proxy) supply from the dial. Founder
+	// ruling: curated is SHOWN by default, badged; this is the one-keypress opt-out, and
+	// while it is on nothing may silently route to what the operator hid.
+	fNoCurated bool
+	fConf      bool // toggle: only confidential / verified (lineage) bands
+	fOn        bool // toggle: only bands with a station on air
 	// fQuant narrows the dial to ONE compression label (Q cycles it). Empty = every band.
 	// It is a VIEW, not a rule: it changes what you are looking at and binds nothing. The
 	// standing rule that binds an unattended turn is the [3] CONFIG preference.
@@ -3396,6 +3416,15 @@ func (m model) visibleBands() []band {
 		if m.fQuant != "" && !strings.EqualFold(b.quant, m.fQuant) {
 			continue
 		}
+		if m.fNoCurated && b.curated > 0 {
+			// Hiding curated is a SUPPLY subtraction, not a band deletion: a band that
+			// also has human stations stays, re-counted without its proxies; a
+			// curated-only band has nothing left and goes.
+			if b.stations-b.curated <= 0 {
+				continue
+			}
+			b = b.withoutCurated()
+		}
 		if m.fFree && !b.free {
 			continue
 		}
@@ -3439,7 +3468,7 @@ func (m model) visibleBands() []band {
 // filtersActive reports whether any name filter or quick toggle is narrowing the
 // list (used to show the "filter: ... (n/total)" line + the clear hint).
 func (m model) filtersActive() bool {
-	return strings.TrimSpace(m.filterApplied) != "" || m.fFree || m.fConf || m.fOn || m.fQuant != ""
+	return strings.TrimSpace(m.filterApplied) != "" || m.fFree || m.fConf || m.fOn || m.fQuant != "" || m.fNoCurated
 }
 
 // cycleQuantFilter advances the quant filter: off -> each quant on air -> off. Cycling
@@ -3649,6 +3678,17 @@ func (m *model) mergeStickyBand(bands []band) []band {
 //     out-price. Model name is the final deterministic tie-break.
 //
 // Only ONLINE, non-voice (a brain is a chat band) candidates are considered.
+// curatedBandCount is the dial's count of bands carrying any curated station.
+func (m model) curatedBandCount() int {
+	n := 0
+	for _, b := range m.bands {
+		if b.curated > 0 {
+			n++
+		}
+	}
+	return n
+}
+
 func pickAutoBand(bands []band, loggedIn bool) *band {
 	var cands []band
 	for _, b := range bands {

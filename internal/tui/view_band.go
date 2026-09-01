@@ -61,9 +61,15 @@ type band struct {
 	online   bool    // any station on air
 	free     bool    // any station FREE now
 	lineage  int     // count of confidential/lineage stations
-	verified bool    // any ONLINE station passed the broker's serving probe (✓, distinct from ◆)
-	vision   bool    // any station DECLARED the "vision" capability (◪; never inferred)
-	tools    bool    // any station carries the broker-VERIFIED "tools" capability (agent-ready ⌁,
+	// curated counts the commercial-API proxy stations on this band, and
+	// curatedProvider names the first one's upstream for the row badge. Kept as a COUNT
+	// beside stations (never folded in silently) so "hide curated" can subtract supply
+	// without deleting a band that also has human service.
+	curated         int
+	curatedProvider string
+	verified        bool // any ONLINE station passed the broker's serving probe (✓, distinct from ◆)
+	vision          bool // any station DECLARED the "vision" capability (◪; never inferred)
+	tools           bool // any station carries the broker-VERIFIED "tools" capability (agent-ready ⌁,
 	// no tilde). Unlike vision it is verified-not-declared: the broker only emits "tools" on an
 	// offer after its tool-call canary passed, so a node can never fake it. Absence => inferred
 	// (⌁~), never a false "no tools". See features/trust/toolcall_probe.feature.
@@ -361,6 +367,12 @@ func bandBadge(bd band, limits *LimitStore, connected bool) string {
 	if bd.vision {
 		parts = append(parts, stKey.Render(visionGlyph()))
 	}
+	// The CURATED mark: »provider (e.g. »openrouter), the new badge for proxied
+	// commercial supply. The provider IS the content - a bare mark would say "not a
+	// person" without saying who is actually serving.
+	if bd.curated > 0 {
+		parts = append(parts, stDim.Render(glyphCurated+bd.curatedProvider))
+	}
 	if bd.free {
 		parts = append(parts, stLive.Render("FREE"))
 	}
@@ -438,6 +450,12 @@ func groupBands(offers []offer, limits *LimitStore) []band {
 		}
 		oc := o
 		b.all = append(b.all, oc)
+		if o.Curated {
+			b.curated++
+			if b.curatedProvider == "" {
+				b.curatedProvider = o.CuratedProvider
+			}
+		}
 		if o.Confidential {
 			b.lineage++
 		}
@@ -765,3 +783,38 @@ func signalAmp(inFlight int, tps float64) int {
 // its tallest bars (a strong carrier) tip into the one accent red at the peak. The
 // glyph ramp is ▁▂▃▄▅▆▇█ (indices 0..7); ▇/█ (>= 6) read as "peaking".
 const signalPeak = 6
+
+// withoutCurated returns this band re-counted as if its curated stations were not there:
+// the supply subtraction the U (hide curated) toggle applies. The band keeps its identity;
+// only proxy service and its numbers leave. Prices are re-derived from the surviving
+// stations so a curated cheapest can never headline a band the operator asked to see
+// without proxies.
+func (b band) withoutCurated() band {
+	nb := b
+	nb.curated, nb.curatedProvider = 0, ""
+	nb.stations, nb.online, nb.free = 0, false, false
+	nb.minIn, nb.minOut, nb.maxOut, nb.cheapest = 0, 0, 0, nil
+	nb.all = nil
+	for i := range b.all {
+		o := b.all[i]
+		if o.Curated {
+			continue
+		}
+		nb.all = append(nb.all, o)
+		if o.Online {
+			nb.stations++
+			nb.online = true
+			if o.FreeNow || (o.PriceIn == 0 && o.PriceOut == 0) {
+				nb.free = true
+			}
+			if nb.cheapest == nil || o.PriceOut < nb.minOut {
+				nb.minOut, nb.minIn = o.PriceOut, o.PriceIn
+				nb.cheapest = &nb.all[len(nb.all)-1]
+			}
+			if o.PriceOut > nb.maxOut {
+				nb.maxOut = o.PriceOut
+			}
+		}
+	}
+	return nb
+}

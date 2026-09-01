@@ -556,6 +556,16 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.fOn = !m.fOn
 			m.clampBrowse()
 			return m, nil
+		case "U":
+			// HIDE CURATED: one keypress, joining the F/C/O family. U for Upstream - the
+			// mark it hides is »provider, proxied commercial supply. Shown by default
+			// (founder ruling); while hidden, nothing may silently route to a proxy.
+			m.fNoCurated = !m.fNoCurated
+			m.clampBrowse()
+			// The ambient footer is a tick-time snapshot; refresh it NOW or the count line
+			// still advertises the supply the operator just hid, until the next tick.
+			m.status = m.ambientStatus()
+			return m, nil
 		case "Q":
 			// CYCLE the quant filter: off -> each quant on the dial -> off. It joins the
 			// F/C/O family deliberately - one keypress, no input box - because splitting
@@ -2077,7 +2087,9 @@ func (m *model) runAutoTune() tea.Cmd {
 		m.refreshAgentModel()
 		return m.drainPendingPrompts()
 	}
-	pick := pickAutoBand(m.bands, m.loggedInState())
+	// The FILTERED view, not raw bands: an operator who hid curated (or narrowed the dial
+	// any other way) must never be silently bound to a band they asked not to see.
+	pick := pickAutoBand(m.visibleBands(), m.loggedInState())
 	// R1 money-safety: bind the band's genuinely-FREE station (FreeNow / zero-priced), NEVER
 	// pick.cheapest - the min-PRICE station across ALL stations, which can be a PAID station
 	// even when the band is flagged free (a FreeNow promo beside a cheaper paid one). If no
