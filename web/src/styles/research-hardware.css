@@ -1,14 +1,27 @@
 /* Hardware page. Sits on top of research.css (the notebook shell) and adds three things:
-   the spectrum illustration, the board grid, and the credits list.
+   the eight-stop spectrum, the board grid, and the experiment cards.
    The photographs are the only third-party imagery on this site, so they are framed
-   deliberately - a hairline plate and a fixed 4:3 well - to keep seven very different
-   source backgrounds reading as one set. */
+   deliberately - a hairline plate and a fixed 4:3 well - to keep ten very different source
+   backgrounds reading as one set, and each credits its author on the picture itself. */
 
 /* ---- §1 the spectrum -------------------------------------------------- */
 
 .hw-figure { margin: var(--s-8) 0 0; }
+/* Only the band scrolls. Putting overflow on the <figure> would carry the caption off to
+   the right with it, so the reader would scroll the band and lose the sentence explaining it. */
+.hw-figure__scroll { overflow-x: auto; }
+/* the hint only means anything while the band is actually wider than the screen */
+.hw-figure__swipe { display: none; }
+@media (max-width: 860px) {
+  .hw-figure__swipe {
+    display: block; margin: var(--s-2) 0 0;
+    font-size: var(--t-micro); letter-spacing: .08em;
+    text-transform: uppercase; color: var(--ink-400);
+  }
+}
 .hw-ladder {
-  display: block; width: 100%; height: auto;
+  /* below this the labels stop being legible, so the band scrolls instead of shrinking */
+  display: block; width: 100%; min-width: 780px; height: auto;
   background: var(--white);
   border: 1px solid var(--hairline-2); border-radius: var(--r-md);
   padding: var(--s-4) 0;
@@ -121,7 +134,7 @@
 
 
 /* The top of the ladder gets the full row rather than sitting alone at the end of a
-   three-up grid: seven cards in a three-column grid leaves an orphan, and the orphan
+   three-up grid: ten cards in a three-column grid leaves an orphan, and the orphan
    happening to be the largest machine reads as a layout accident instead of a finish. */
 @media (min-width: 900px) {
   .hw-card--wide { grid-column: 1 / -1; flex-direction: row; }

@@ -176,6 +176,22 @@ test("hardware: the ladder diagram is described and does not move for a reader w
     "the animation yields to prefers-reduced-motion");
 });
 
+test("hardware: the band scrolls on a narrow screen instead of shrinking to nothing", () => {
+  // The ladder is ~1180 user units wide. Scaled into a phone it renders its labels at about
+  // four pixels - not a small illustration, an unreadable one. It scrolls instead, and only
+  // the band scrolls: overflow on the <figure> would carry the caption off with it.
+  const page = read(PAGE);
+  const css = src("styles/research-hardware.css");
+  assert.match(page, /<div class="hw-figure__scroll">[\s\S]*?<svg[^>]*hw-ladder/,
+    "the band sits in its own scroll container");
+  assert.match(css, /\.hw-figure__scroll\s*\{[^}]*overflow-x:\s*auto/,
+    "that container scrolls horizontally");
+  assert.match(css, /\.hw-ladder\s*\{[^}]*min-width:\s*\d+px/,
+    "and the band keeps a legible minimum width rather than scaling down");
+  assert.doesNotMatch(css, /\.hw-figure\s*\{[^}]*overflow-x/,
+    "the figure itself must not scroll, or the caption leaves with the band");
+});
+
 /* ---- the credits list, and a picture that is not what it says ---------- */
 
 test("hardware: the page indicates that the photographs were altered", () => {
