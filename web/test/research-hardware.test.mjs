@@ -273,3 +273,35 @@ test("hardware: the bench figures are the ones the broadcast actually published"
 // role="button" and friends, which proves the file CONTAINS the strings and nothing about
 // what happens when somebody presses Enter. It moved to test/hardware-stops.test.mjs, which
 // runs the script against a mini-DOM and checks the behaviour instead.
+
+test("hardware: the spectrum's headline claims are true of the stops it draws", () => {
+  // "One band, eight stops, five orders of magnitude" is three checkable assertions sitting
+  // in a heading, and two of them were WRONG for a while: the ladder grew from five stops to
+  // eight and the copy underneath still said five, and "a thousandfold" (right at five
+  // stops) had become a hundred-thousandfold. Prose about data drifts the moment the data
+  // moves, so the data is on the page and the prose is checked against it.
+  const page = read(PAGE);
+  const stops = [...page.matchAll(/<g class="hw-stop"[^>]*data-params="([0-9.e+]+)"[^>]*data-watts="([0-9.]+)"/g)]
+    .map((m) => ({ params: Number(m[1]), watts: Number(m[2]) }));
+  assert.ok(stops.length >= 5, `the stops carry their own numbers (found ${stops.length})`);
+
+  // every stop drawn must be one of these - no stop without a value behind it
+  const drawn = [...page.matchAll(/<g class="hw-stop"/g)].length;
+  assert.equal(stops.length, drawn, "every stop states its parameters and watts");
+
+  const heading = page.match(/<h2>One band, ([a-z]+) stops, ([a-z]+) orders of magnitude\.<\/h2>/);
+  assert.ok(heading, "the heading still has the shape this test reads");
+
+  const words = { five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12 };
+  assert.equal(words[heading[1]], drawn,
+    `the heading says ${heading[1]} stops but the band draws ${drawn}`);
+
+  const span = (k) => Math.log10(Math.max(...stops.map((s) => s[k])) / Math.min(...stops.map((s) => s[k])));
+  const claimed = words[heading[2]];
+  assert.ok(Number.isFinite(claimed), `"${heading[2]} orders" is a number this test knows`);
+  // the claim is the FLOOR of the true span: five orders is honest at 5.45, overclaiming is not
+  for (const k of ["params", "watts"]) {
+    assert.ok(Math.floor(span(k) + 1e-9) >= claimed,
+      `the heading claims ${claimed} orders of magnitude but ${k} spans only ${span(k).toFixed(2)}`);
+  }
+});

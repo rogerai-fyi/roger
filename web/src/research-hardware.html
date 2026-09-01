@@ -47,9 +47,9 @@
       <div class="wrap">
         <div class="section__head section__head--left">
           <span class="sectionno">&sect;1 / THE SPECTRUM</span>
-          <h2>One band, five stops, five orders of magnitude.</h2>
-          <p>Left to right is roughly a thousandfold in parameters and a thousandfold in
-             watts. Each stop is a class of machine first and a model second: the tier was
+          <h2>One band, eight stops, five orders of magnitude.</h2>
+          <p>Left to right is a hundred-thousandfold in watts - a tenth of a watt to ten
+             kilowatts - and rather more than that in parameters. Each stop is a class of machine first and a model second: the tier was
              specified to fit the box, which is why the boxes are named here at all.</p>
         </div>
 
@@ -83,56 +83,56 @@
               </g>
             </g>
 
-            <g class="hw-stop" data-stop="edge">
+            <g class="hw-stop" data-stop="edge" data-params="1e6" data-watts="0.1">
               <circle class="hw-stop__dot" cx="66" cy="176" r="4.0"/>
               <text class="hw-stop__tier" x="66" y="132">Roger Edge</text>
               <text class="hw-stop__size" x="66" y="150">~1&ndash;10M</text>
               <text class="hw-stop__box"  x="66" y="206">ESP32 class</text>
               <text class="hw-stop__watt" x="66" y="224">~0.1 W</text>
             </g>
-            <g class="hw-stop" data-stop="pico">
+            <g class="hw-stop" data-stop="pico" data-params="2.5e8" data-watts="5">
               <circle class="hw-stop__dot" cx="216" cy="176" r="5.0"/>
               <text class="hw-stop__tier" x="216" y="132">Wave Pico</text>
               <text class="hw-stop__size" x="216" y="150">250&ndash;300M</text>
               <text class="hw-stop__box"  x="216" y="206">Raspberry Pi</text>
               <text class="hw-stop__watt" x="216" y="224">~5 W</text>
             </g>
-            <g class="hw-stop" data-stop="nano">
+            <g class="hw-stop" data-stop="nano" data-params="8e8" data-watts="15">
               <circle class="hw-stop__dot" cx="366" cy="176" r="6.5"/>
               <text class="hw-stop__tier" x="366" y="132">Wave Nano</text>
               <text class="hw-stop__size" x="366" y="150">0.8&ndash;1.5B</text>
               <text class="hw-stop__box"  x="366" y="206">Jetson gateway</text>
               <text class="hw-stop__watt" x="366" y="224">~15 W</text>
             </g>
-            <g class="hw-stop" data-stop="micro">
+            <g class="hw-stop" data-stop="micro" data-params="7e9" data-watts="90">
               <circle class="hw-stop__dot" cx="516" cy="176" r="8.0"/>
               <text class="hw-stop__tier" x="516" y="132">Wave Micro</text>
               <text class="hw-stop__size" x="516" y="150">7&ndash;8B</text>
               <text class="hw-stop__box"  x="516" y="206">on-site server</text>
               <text class="hw-stop__watt" x="516" y="224">~90 W</text>
             </g>
-            <g class="hw-stop" data-stop="giga">
+            <g class="hw-stop" data-stop="giga" data-params="2.7e10" data-watts="240">
               <circle class="hw-stop__dot" cx="666" cy="176" r="10.0"/>
               <text class="hw-stop__tier" x="666" y="132">Wave Giga</text>
               <text class="hw-stop__size" x="666" y="150">27&ndash;35B</text>
               <text class="hw-stop__box"  x="666" y="206">plant datacenter</text>
               <text class="hw-stop__watt" x="666" y="224">~240 W</text>
             </g>
-            <g class="hw-stop" data-stop="tera">
+            <g class="hw-stop" data-stop="tera" data-params="8e10" data-watts="600">
               <circle class="hw-stop__dot" cx="816" cy="176" r="12.0"/>
               <text class="hw-stop__tier" x="816" y="132">Wave Tera</text>
               <text class="hw-stop__size" x="816" y="150">80&ndash;120B</text>
               <text class="hw-stop__box"  x="816" y="206">1&times; RTX 6000</text>
               <text class="hw-stop__watt" x="816" y="224">~600 W</text>
             </g>
-            <g class="hw-stop" data-stop="peta">
+            <g class="hw-stop" data-stop="peta" data-params="1.5e11" data-watts="2400">
               <circle class="hw-stop__dot" cx="966" cy="176" r="14.5"/>
               <text class="hw-stop__tier" x="966" y="132">Wave Peta</text>
               <text class="hw-stop__size" x="966" y="150">150&ndash;200B</text>
               <text class="hw-stop__box"  x="966" y="206">4&times; RTX 6000</text>
               <text class="hw-stop__watt" x="966" y="224">~2.4 kW</text>
             </g>
-            <g class="hw-stop" data-stop="exa">
+            <g class="hw-stop" data-stop="exa" data-params="2.8e11" data-watts="10000">
               <circle class="hw-stop__dot" cx="1114" cy="176" r="18.0"/>
               <text class="hw-stop__tier" x="1114" y="132">Wave Exa</text>
               <text class="hw-stop__size" x="1114" y="150">&gt;280B</text>
@@ -465,8 +465,9 @@
         <div class="man-note">
           <span class="man-note__tag mono">HOW WE PUBLISH</span>
           <p>Measurements name the hardware, the artifact, the runtime and the settings, and
-             negative results stay up: the 2 tok/s mystery above is on the site because it
-             was wrong for four different reasons before it was right. Everything lands in
+             negative results stay up: the 2 tok/s mystery above is on the site because the
+             answer was not where anyone looked first, and the file that finally worked
+             turned out to be one we already had. Everything lands in
              <a href="/broadcasts.html">Open Air Waves</a> as it happens.</p>
         </div>
       </div>
