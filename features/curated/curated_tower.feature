@@ -12,17 +12,20 @@ Feature: A tower serves curated providers on both of its planes
   I want my tower to serve that provider to my users and, marked up, to the public band
   So that curated supply is as decentralized as the towers themselves.
 
+  @joined
   Scenario: A joined tower registers a curated station
     Given a tower joined to the Core with an upstream key configured
     When it registers the upstream's models
     Then they appear as curated stations under the tower's identity
     And the curated pricing rule applies to them
 
+  @standalone
   Scenario: The tower operator's key never leaves the tower
     When a curated request relays through the tower
     Then the upstream key is read only on the tower
     And it never appears on the wire, in a receipt, or at the Core
 
+  @standalone
   Scenario: A standalone tower serves a curated upstream to its own network
     Given a standalone tower with an upstream key
     When a local client requests that model
@@ -30,18 +33,21 @@ Feature: A tower serves curated providers on both of its planes
     And the answer is marked local-and-curated
     And no request or receipt leaves the network
 
+  @standalone
   Scenario: The standalone plane never bills for curated
     Given a standalone tower serving a curated upstream
     Then every curated answer on the local plane is free
     # the Core-free guarantee is structural; a markup with no broker would be a toll
     # collected by nobody for nothing
 
+  @failover
   Scenario: A tower's curated station fails over like any station
     Given a band with a tower-curated station and a human station
     When the tower's upstream refuses a request
     Then the standard empty-output strike applies
     And the retry follows the normal failover rule
 
+  @failover
   Scenario: Failover treats curated as one more station on the band
     Given a band with a human station and a curated station
     When the human station fails mid-request

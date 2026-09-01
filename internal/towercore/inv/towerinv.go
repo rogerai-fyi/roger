@@ -218,7 +218,9 @@ type Leaf struct {
 
 	// Offer is the canonical Station-signed object, and OfferHash binds that exact object.
 	Offer     []byte
-	OfferHash string
+	OfferHash string // CuratedProvider names the commercial upstream this Station proxies ("" = a human
+	// Station). Set only when the leaf's declared curated pricing verified at admission.
+	CuratedProvider string
 }
 
 // Exclusion records a leaf that was dropped and why, so an operator can see which of their

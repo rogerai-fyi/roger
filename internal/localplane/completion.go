@@ -185,9 +185,15 @@ func drain(j *job) (jobResult, bool) {
 // verbatim with a free cost header - never a billing shape.
 func (s *Server) writeAnswer(w http.ResponseWriter, clientKeyHash, model string, res jobResult) {
 	// The work happened; a receipt-write failure must not swallow the answer.
-	_, _ = s.st.RecordReceipt(clientKeyHash, res.stationID, model)
+	rec, recErr := s.st.RecordReceipt(clientKeyHash, res.stationID, model)
 	w.Header().Set("X-Roger-Cost", "0")
 	w.Header().Set("X-Roger-Local", "1")
+	// A curated station's answer says so - "marked local-and-curated"
+	// (curated_tower.feature). The receipt already carries the label from the attach
+	// registry; on a receipt-write failure the mark degrades with it rather than lying.
+	if recErr == nil && rec.Curated {
+		w.Header().Set("X-Roger-Curated", rec.CuratedProvider)
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(res.answer)

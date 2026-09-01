@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"sort"
 	"time"
+
+	"rogerai.fm/roger/v6/internal/protocol"
 )
 
 // The local Station registry. In standalone v1 a Tower routes ONLY to Stations it
@@ -23,6 +25,13 @@ type Station struct {
 	Models     []string `json:"models"`
 	NetworkID  string   `json:"network_id"`
 	AttachedAt int64    `json:"attached_at"`
+	// Curated marks a Station that PROXIES a commercial upstream API rather than serving
+	// local hardware; CuratedProvider names it. The label is honesty, not billing: the
+	// standalone plane stays free either way (a markup with no broker would be a toll
+	// collected by nobody), but discovery and receipts must never blur a proxy into the
+	// local network. Mirrors the public broker's curated identity rule.
+	Curated         bool   `json:"curated,omitempty"`
+	CuratedProvider string `json:"curated_provider,omitempty"`
 }
 
 // LocalReceipt records one locally routed request. It is NOT a RogerAI settlement
@@ -37,11 +46,20 @@ type LocalReceipt struct {
 	RootFingerprint string `json:"root_fingerprint"`
 	Cost            int    `json:"cost"`
 	At              int64  `json:"at"`
+	// Curated labels an answer that a proxy Station served from the named commercial
+	// upstream - honest routing on the receipt, with Cost still always 0: the standalone
+	// plane never bills, curated or not.
+	Curated         bool   `json:"curated,omitempty"`
+	CuratedProvider string `json:"curated_provider,omitempty"`
 }
 
 // String renders the receipt for a human. The wording is part of the contract: it names
 // the local network and claims nothing about RogerAI.
 func (r LocalReceipt) String() string {
+	if r.Curated {
+		return fmt.Sprintf("request %s served by station %s (model %s, curated via %s) on local network %s - free, locally accounted",
+			r.RequestID, r.StationID, r.Model, r.CuratedProvider, r.NetworkID)
+	}
 	return fmt.Sprintf("request %s served by station %s (model %s) on local network %s - free, locally accounted",
 		r.RequestID, r.StationID, r.Model, r.NetworkID)
 }
@@ -49,6 +67,21 @@ func (r LocalReceipt) String() string {
 // AttachStation admits a local Station. It requires an admitted operator first: a
 // network with no operator has nobody with the authority to attach anything.
 func (s *State) AttachStation(id, keyHash string, models []string) (Station, error) {
+	return s.attachStation(id, keyHash, models, "")
+}
+
+// AttachCuratedStation admits a Station that proxies the named commercial provider. The
+// provider name renders in discovery and receipts, so it gets the same display sanitation
+// the public broker applies at its register door (trim, strip control chars, bound).
+func (s *State) AttachCuratedStation(id, keyHash string, models []string, provider string) (Station, error) {
+	provider = protocol.CanonicalVariantText(provider)
+	if provider == "" {
+		return Station{}, errors.New("a curated Station needs a provider name: an unnamed proxy is the exact ambiguity the label exists to remove")
+	}
+	return s.attachStation(id, keyHash, models, provider)
+}
+
+func (s *State) attachStation(id, keyHash string, models []string, curatedProvider string) (Station, error) {
 	if s.Mode != ModeStandalone {
 		return Station{}, ErrNotStandalone
 	}
@@ -73,13 +106,21 @@ func (s *State) AttachStation(id, keyHash string, models []string) (Station, err
 	if prev, ok := bs.Stations[id]; ok && !hmac.Equal([]byte(prev.KeyHash), []byte(keyHash)) {
 		return Station{}, errors.New("that Station id is already attached under a different key")
 	}
+	// The broker's kind-flip guard, mirrored: an id that attached as a human Station
+	// cannot re-attach as a curated proxy (or the reverse) even under the same key -
+	// that is a new thing wearing an earned identity, so it must arrive as a new one.
+	if prev, ok := bs.Stations[id]; ok && prev.Curated != (curatedProvider != "") {
+		return Station{}, errors.New("that Station id is already attached as the other kind (human vs curated): retire it and attach a new id")
+	}
 
 	st := &Station{
-		ID:         id,
-		KeyHash:    keyHash,
-		Models:     append([]string(nil), models...),
-		NetworkID:  s.LocalNetworkID,
-		AttachedAt: time.Now().Unix(),
+		ID:              id,
+		KeyHash:         keyHash,
+		Models:          append([]string(nil), models...),
+		NetworkID:       s.LocalNetworkID,
+		AttachedAt:      time.Now().Unix(),
+		Curated:         curatedProvider != "",
+		CuratedProvider: curatedProvider,
 	}
 	bs.Stations[id] = st
 	if err := s.saveBootstrap(bs); err != nil {
@@ -158,7 +199,9 @@ func (s *State) Route(clientKeyHash, model string) (LocalReceipt, error) {
 		Model:           model,
 		NetworkID:       s.LocalNetworkID,
 		RootFingerprint: fp,
-		Cost:            0, // free and locally accounted in v1
+		Cost:            0, // free and locally accounted in v1 - curated included
 		At:              time.Now().Unix(),
+		Curated:         chosen.Curated,
+		CuratedProvider: chosen.CuratedProvider,
 	}, nil
 }
