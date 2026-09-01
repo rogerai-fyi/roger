@@ -934,6 +934,24 @@ func (m model) doShare(args []string) (tea.Model, tea.Cmd) {
 	// keystroke for seconds on a busy host (120+ open ports to probe); now the user
 	// sees the scanning indicator at once and the sharesDetectedMsg lands the rows.
 	m.mode = modeShare
+	// RE-ENTRY KEEPS THE TABLE. The rows from the last scan live in the shared controller
+	// and are still perfectly good to look at; only their freshness is in question. So a
+	// return visit renders them at once and re-detects BEHIND them, folding changes in
+	// when the result lands - the loud full-screen scan is only honest on the first open,
+	// when there is genuinely nothing to show.
+	if len(m.shareRows) > 0 {
+		m.shareLoading = false
+		m.shareRefreshing = true
+		m.setupOnEmpty = false // rows exist; an empty re-detect must not yank to the wizard
+		m.shareRescan = false
+		m.setupHint = ""
+		m.sharePending = ""
+		if len(args) > 0 {
+			m.sharePending = args[0]
+		}
+		m.status = stDim.Render("refreshing local models…")
+		return m, detectSharesCmd(m.shareUp, m.shareKey)
+	}
 	m.shareLoading = true
 	m.setupOnEmpty = true // the initial open: an empty scan drops into the guided wizard
 	m.shareRescan = false
@@ -953,7 +971,19 @@ func (m model) doShare(args []string) (tea.Model, tea.Cmd) {
 // (setupOnEmpty=false) stays on the table with a clear note rather than yanking the
 // user into the wizard mid-list.
 func (m model) onSharesDetected(found []detect.Found, needKey []string) (tea.Model, tea.Cmd) {
+	// Was this a LOUD scan (the pose on screen) or a QUIET refresh behind a live table?
+	// The fold differs: a quiet result must not move the operator anywhere, must not
+	// reset their cursor, and an empty one must not erase rows that were on screen.
+	quiet := m.shareRefreshing && !m.shareLoading
 	m.shareLoading = false
+	m.shareRefreshing = false
+	if quiet && len(found) == 0 {
+		// Nothing answered THIS probe. The rows on screen are the last good scan, and
+		// blanking them over a transient miss would be exactly the abrupt clear this
+		// path exists to avoid. Say it quietly; r re-scans loudly if the operator cares.
+		m.status = stDim.Render("re-scan found nothing new - keeping the last scan (r re-scans)")
+		return m, nil
+	}
 	if len(found) == 0 {
 		if m.setupOnEmpty {
 			// GUIDED FALLBACK: nothing usable detected -> the in-TUI setup wizard (pick a
@@ -980,7 +1010,22 @@ func (m model) onSharesDetected(found []detect.Found, needKey []string) (tea.Mod
 		m.status = stEmber.Render("! still nothing on the defaults / your open ports - press r to re-scan, or start a local LLM")
 		return m, nil
 	}
+	// KEEP THE OPERATOR'S PLACE. The catalog rebuild can insert or drop rows above the
+	// cursor; re-finding the model it sat on is what makes a refresh feel like a diff
+	// rather than a reset.
+	curModel := ""
+	if m.shareCursor >= 0 && m.shareCursor < len(m.shareRows) {
+		curModel = m.shareRows[m.shareCursor].model
+	}
 	m.loadShareRows(found)
+	if curModel != "" {
+		for i, r := range m.shareRows {
+			if r.model == curModel {
+				m.shareCursor = i
+				break
+			}
+		}
+	}
 	// The catalog exists now, so the armed models can finally be resolved to rows. Once
 	// per launch - a later re-scan must not re-start a model the operator took off air.
 	m.runAutoStart()
@@ -1006,7 +1051,13 @@ func (m model) onSharesDetected(found []detect.Found, needKey []string) (tea.Mod
 			}
 		}
 	}
-	m.mode = modeShare
+	// A LOUD scan lands on the table - that is what the operator sat waiting for. A
+	// QUIET one changes nothing about where they are: they may have hopped to another
+	// screen while it ran, and a background result that teleports them back is a bug
+	// wearing a feature's clothes.
+	if !quiet {
+		m.mode = modeShare
+	}
 	if len(m.shareRows) == 0 {
 		m.status = stEmber.Render("! the local server reported no models - check it serves /v1/models")
 	} else {
@@ -1236,7 +1287,14 @@ func (m *model) onShareKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// loop (a busy host's port scan must never freeze the table). An empty result
 		// keeps us on the table with a note (setupOnEmpty stays false) rather than yanking
 		// into the wizard mid-list.
-		m.shareLoading = true
+		// The rows on screen STAY on screen while the re-scan runs - the same no-abrupt-
+		// clear rule as re-entry. The loud pose only when there is nothing to keep.
+		if len(m.shareRows) > 0 {
+			m.shareLoading = false
+			m.shareRefreshing = true
+		} else {
+			m.shareLoading = true
+		}
 		m.setupOnEmpty = false
 		m.shareRescan = true
 		m.setupHint = ""

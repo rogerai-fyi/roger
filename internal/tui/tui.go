@@ -758,9 +758,15 @@ type model struct {
 	// one account-wide money control sat read-only in the middle of the editor.
 	limOnBudget   bool
 	limEditBudget bool
-	monthlySpend  float64 // month-to-date captured spend ($)
-	status        string
-	alert         *alertBox
+	// shareRefreshing: a background re-detect is in flight BEHIND a table that stays on
+	// screen. Distinct from shareLoading, which replaces the whole view with the scanning
+	// pose - honest on the first open when there is nothing to show, and exactly wrong on
+	// re-entry (founder 2026-09-01: "it's again cleared and i have to wait ... can't we
+	// just do it in the background and modify the list based on the diff").
+	shareRefreshing bool
+	monthlySpend    float64 // month-to-date captured spend ($)
+	status          string
+	alert           *alertBox
 	// pricing UX state
 	limits *LimitStore
 	bands  []band // offers grouped by model (the band list, 3.1)

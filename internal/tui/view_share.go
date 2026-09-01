@@ -295,6 +295,11 @@ func (m model) shareView(w int) string {
 	} else {
 		ln := "  " + stDim.Render("station ") + stKey.Render(m.station) +
 			stDim.Render(" · ") + stKey.Render("n") + stDim.Render(" rename")
+		if m.shareRefreshing {
+			// The quiet counterpart of the full-screen scan: the table stays, and this
+			// whisper is the only sign a re-detect is running behind it.
+			ln += stDim.Render(" · refreshing…")
+		}
 		b.WriteString(truncVisible(ln, w-2) + "\n")
 	}
 
