@@ -358,7 +358,7 @@ func issuedEdgeGrantPriced(t *testing.T, b *broker, attemptID, towerID, stationI
 }
 
 // THE OPTION C MONEY TEST: a token-priced attempt settles at tokens x the price PINNED IN THE
-// GRANT, splitting 70% to the serving node's owner, 10% of gross to the tower operator, 20%
+// GRANT, splitting 90% to the serving node's owner, 5% of gross to the tower operator, 5%
 // to the platform - through the same wallet as everything else. The byte tariff is OFF, so a
 // charge can only have come from the pinned token price.
 func TestTokenPricedSettlementPaysAtThePinnedPrice(t *testing.T) {

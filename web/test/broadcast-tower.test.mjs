@@ -45,7 +45,7 @@ test("the split is stated with the base it is measured against", () => {
   const c = copy();
   assert.match(c, /90%/, "the node's share");
   assert.match(c, /5%/, "the tower operator's share");
-  assert.match(c, /(the platform simply takes less|platform)/i, "the platform's share is named");
+  assert.match(c, /5% to the platform/i, "the platform's 5% is stated where the money is");
   // The base is the whole point: 10% of the NODE's own price, not of a house rate.
   assert.match(c, /(own listed price|node's own listed price|its own listed price)/i,
     "the article says what the percentage is a percentage OF");

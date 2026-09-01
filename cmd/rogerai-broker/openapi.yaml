@@ -635,7 +635,7 @@ paths:
         The caller's per-model serve breakdown over a trailing UTC window: for each
         model+node the caller's node(s) served, the request + token counts, a
         free-vs-paid split (free = a request with no owner earnings: a free model, a
-        self-use serve, or a free window), and the owner's earnings (the 70% net
+        self-use serve, or a free window), and the owner's earnings (the 90% net
         share). Plus summed `totals` and the echoed `period_days`. Receipt-derived
         (the source of truth), so it never drifts from the earnings it rolls up.
 
@@ -1184,7 +1184,7 @@ components:
         paid_requests: { type: integer, description: requests with a positive owner share }
         free_tokens: { type: integer, description: prompt+completion tokens on free requests }
         paid_tokens: { type: integer, description: prompt+completion tokens on paid requests }
-        earnings_usd: { type: number, description: the owner's 70% net share (credits; $ at credit_usd=1) }
+        earnings_usd: { type: number, description: the owner's 90% net share (credits; $ at credit_usd=1) }
     ProviderTotals:
       type: object
       description: Summed totals across the ProviderModelMetric rows.

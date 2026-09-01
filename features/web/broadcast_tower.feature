@@ -8,8 +8,9 @@
 # GROUND TRUTH. Every load-bearing claim traces to a committed spec, and the article may
 # not get ahead of any of them:
 #
-#   features/tower/operator_revenue_share.feature - the split is 70 to the serving node,
-#     10 to the tower operator, 20 to the platform, measured against the NODE'S OWN listed
+#   features/tower/operator_revenue_share.feature - the split is 90 to the serving node,
+#     5 to the tower operator, 5 to the platform (rates amended by the 2026-09-01 fee
+#     ruling; 70/10/20 at first airing), measured against the NODE'S OWN listed
 #     price (gross), on Core's own recount rather than the node's claim.
 #
 #   features/tower/edge_dispatch.feature - the consumer authorizes at Core and seals the
@@ -46,9 +47,9 @@ Feature: The field guide that turns the Tower into something a person can run
     And it links to the concept page and to the operator runbook
 
   Scenario: The split is stated with the base it is measured against
-    Then the article states 70% to the node, 10% to the tower operator, 20% to the platform
+    Then the article states 90% to the node, 5% to the tower operator, 5% to the platform
     And it says the percentage is taken against the serving node's own listed price
-    And it never describes the 10% as a rate the platform sets
+    And it never describes the 5% as a rate the platform sets
 
   Scenario: Earning copy stays conditional on demand
     Then the article says plainly that traffic through any one Tower is early

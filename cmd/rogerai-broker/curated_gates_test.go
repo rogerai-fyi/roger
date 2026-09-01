@@ -18,7 +18,7 @@ import (
 
 func TestCuratedDerivedPriceCannotEscapeTheCeiling(t *testing.T) {
 	b, userPriv, nodePriv, nodePub := newBandBroker(t)
-	// A declared list whose DERIVED posted price (list x 1.30) lands over the hard global
+	// A declared list whose DERIVED posted price (list x the markup) lands over the hard global
 	// ceiling. Pre-reorder, the ceiling ran on the pre-derivation zeros and this sailed
 	// through; the ceiling is a consumer-burn safety and no flag may exempt it.
 	over := maxPriceOutCeiling()/curatedMarkup + 1

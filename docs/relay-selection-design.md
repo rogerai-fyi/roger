@@ -386,8 +386,9 @@ unproven, near one — otherwise the optimizer degrades the service it is meant 
    recreates exactly that failure with a geographic shape: the one relay in a city absorbs
    every request in it.
 
-3. **Our own brokers being in the pool is a conflict of interest.** We keep 20% on a relayed
-   request and 30% on one we carry ourselves. Any ranking that puts our relays ahead of an
+3. **Our own brokers being in the pool is a conflict of interest.** We keep 5% on a relayed
+   request and 10% on one we carry ourselves (rates per the 2026-09-01 ruling; 20%/30% when
+   this was written). Any ranking that puts our relays ahead of an
    operator's must be justified by a measured signal, not by tie-breaking, and the rule
    should be written down before the money depends on it.
 
