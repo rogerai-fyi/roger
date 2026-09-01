@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<!-- The hardware page: the board a reader already owns, and the tier it is a target for.
+     This page is deliberately the most constrained on the site. It puts photographs of real,
+     recognisable equipment beside RogerAI's own model tiers, which is precisely the shape of
+     page that drifts into implying a shipped product - so:
+       - every tier and every stage string here is COPIED from research-models.html and
+         locked to it by test/research-hardware.test.mjs, which fails if the two drift;
+       - the words that would imply a deployment ("deployed", "in production", "running
+         Wave") are banned inside the board cards by that same test;
+       - the ONLY thing presented as available today is the one artifact that actually is:
+         rogerai-fyi/DeepSeek-V4-Flash-MTP-GGUF, plus `roger share`, which ships.
+     Photographs are other people's work under Creative Commons; the author, licence and
+     source page travel with each one and are listed again in §5.
+     Registered in build.mjs CSS_BUNDLES. -->
+<html lang="en">
+<head>
+  <!-- include: head.html title="Hardware - what runs where, from an ESP32 to a DGX Spark" desc="The Wave family and Roger Edge mapped onto real boards: ESP32, Arduino, Raspberry Pi Pico and Pi 5, Jetson, Mac Studio and DGX Spark. Which tier each board is a target for, what stage that tier is at, and what you can actually run today." theme=external og=post ogtype=website ogtitle="RogerAI hardware - the board you own, and what it is meant to carry" ogdesc="From a sensor microcontroller to a desktop datacenter: the model tier each class of board is a target for, with the honest stage of each one." ogurl="https://rogerai.fm/research-hardware.html" ogimage="https://rogerai.fm/og-research.png" -->
+</head>
+<body data-onair="idle">
+  <div class="rail" aria-hidden="true">
+    <span class="rail__head">RogerAI &middot; Hardware</span>
+    <span class="rail__rev">Rev. 2026.08 &middot; LABS</span>
+  </div>
+
+  <!-- include: nav.html variant=marketing home=/ anchors=/ scrolled=1 -->
+
+  <main id="top">
+    <section class="research-hero">
+      <div class="wrap">
+        <a class="wf-back mono" href="/research.html">&larr; RogerAI Labs</a>
+        <span class="hero__eyebrow">
+          <span class="onair" aria-hidden="true">((<span class="onair__dot">&bull;</span>))</span>
+          <span class="hero__callsign">HARDWARE</span>
+        </span>
+        <h1>The board you already have,<br>and what it is meant to carry.</h1>
+        <p class="research-hero__lead">
+          The Wave family is sized to hardware, not to benchmarks: a tier exists because a
+          class of machine exists to run it. This is that mapping, from a sensor
+          microcontroller to a desktop datacenter - with each tier&rsquo;s real stage
+          printed beside it, because most of them are not built yet.
+        </p>
+      </div>
+    </section>
+
+    <!-- ---------- §1 THE SPECTRUM ---------- -->
+    <section class="section" id="ladder">
+      <div class="wrap">
+        <div class="section__head section__head--left">
+          <span class="sectionno">&sect;1 / THE SPECTRUM</span>
+          <h2>One band, five stops, five orders of magnitude.</h2>
+          <p>Left to right is roughly a thousandfold in parameters and a thousandfold in
+             watts. Each stop is a class of machine first and a model second: the tier was
+             specified to fit the box, which is why the boxes are named here at all.</p>
+        </div>
+
+        <figure class="hw-figure">
+          <svg class="hw-ladder" viewBox="0 96 900 192" role="img"
+               aria-labelledby="hw-ladder-title hw-ladder-desc">
+            <title id="hw-ladder-title">The Wave spectrum across five classes of hardware</title>
+            <desc id="hw-ladder-desc">A horizontal band with five stops. At the far left,
+              Roger Edge on ESP32-class microcontrollers, a few million parameters and about
+              a tenth of a watt. Then Wave Pico at 250 to 300 million on a Raspberry Pi with
+              no GPU. Then Wave Nano at 0.8 to 1.5 billion on a Jetson-class gateway. Then
+              Wave Micro at 7 to 8 billion on an on-site server such as a Mac Studio. At the
+              far right, Wave Giga at 27 to 35 billion on a plant datacenter box such as a
+              DGX Spark. A tuning needle sweeps across the band from left to right.</desc>
+
+            <g class="hw-ladder__axis">
+              <line x1="60" y1="176" x2="850" y2="176"/>
+              <g class="hw-ladder__ticks">
+                <line x1="80"  y1="168" x2="80"  y2="184"/>
+                <line x1="272" y1="168" x2="272" y2="184"/>
+                <line x1="464" y1="168" x2="464" y2="184"/>
+                <line x1="656" y1="168" x2="656" y2="184"/>
+                <line x1="838" y1="168" x2="838" y2="184"/>
+              </g>
+            </g>
+
+            <g class="hw-stop" data-stop="edge">
+              <circle class="hw-stop__dot" cx="80" cy="176" r="5"/>
+              <text class="hw-stop__tier" x="80" y="132">Roger Edge</text>
+              <text class="hw-stop__size" x="80" y="150">~1&ndash;10M</text>
+              <text class="hw-stop__box"  x="80" y="206">ESP32 class</text>
+              <text class="hw-stop__watt" x="80" y="224">~0.1 W</text>
+            </g>
+            <g class="hw-stop" data-stop="pico">
+              <circle class="hw-stop__dot" cx="272" cy="176" r="7"/>
+              <text class="hw-stop__tier" x="272" y="132">Wave Pico</text>
+              <text class="hw-stop__size" x="272" y="150">250&ndash;300M</text>
+              <text class="hw-stop__box"  x="272" y="206">Raspberry Pi</text>
+              <text class="hw-stop__watt" x="272" y="224">~5 W</text>
+            </g>
+            <g class="hw-stop" data-stop="nano">
+              <circle class="hw-stop__dot" cx="464" cy="176" r="9"/>
+              <text class="hw-stop__tier" x="464" y="132">Wave Nano</text>
+              <text class="hw-stop__size" x="464" y="150">0.8&ndash;1.5B</text>
+              <text class="hw-stop__box"  x="464" y="206">Jetson gateway</text>
+              <text class="hw-stop__watt" x="464" y="224">~15 W</text>
+            </g>
+            <g class="hw-stop" data-stop="micro">
+              <circle class="hw-stop__dot" cx="656" cy="176" r="12"/>
+              <text class="hw-stop__tier" x="656" y="132">Wave Micro</text>
+              <text class="hw-stop__size" x="656" y="150">7&ndash;8B</text>
+              <text class="hw-stop__box"  x="656" y="206">on-site server</text>
+              <text class="hw-stop__watt" x="656" y="224">~90 W</text>
+            </g>
+            <g class="hw-stop" data-stop="giga">
+              <circle class="hw-stop__dot" cx="838" cy="176" r="16"/>
+              <text class="hw-stop__tier" x="838" y="132">Wave Giga</text>
+              <text class="hw-stop__size" x="838" y="150">27&ndash;35B</text>
+              <text class="hw-stop__box"  x="838" y="206">plant datacenter</text>
+              <text class="hw-stop__watt" x="838" y="224">~240 W</text>
+            </g>
+
+            <g class="hw-needle" aria-hidden="true">
+              <line class="hw-needle__line" x1="0" y1="112" x2="0" y2="240"/>
+              <polygon class="hw-needle__head" points="-5,106 5,106 0,116"/>
+            </g>
+
+            <text class="hw-ladder__foot" x="60"  y="272">sensor</text>
+            <text class="hw-ladder__foot hw-ladder__foot--end" x="850" y="272">datacenter</text>
+          </svg>
+          <figcaption class="fig">FIG. 1 - the spectrum is a hardware ladder before it is a
+            model ladder. Hover a board below to find its stop.</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <!-- ---------- §2 THE BOARDS ---------- -->
+    <section class="section band" id="boards">
+      <div class="wrap">
+        <div class="section__head section__head--left">
+          <span class="sectionno">&sect;2 / THE BOARDS</span>
+          <h2>Seven machines, and the tier each one is a target for.</h2>
+          <p>Every card names the tier the board is specified against and that tier&rsquo;s
+             stage, copied from
+             <a href="/research-models.html">the model catalogue</a> and checked against it
+             by a test. Read the stage before the tier: most of these are not built yet, and
+             a card that says otherwise is a bug.</p>
+        </div>
+
+        <div class="hw-grid">
+
+          <article class="hw-card" data-board="esp32" data-tier="Roger Edge"
+                   data-stage="Prototype, actively testing" data-today="sensor" data-stop="edge">
+            <figure class="hw-card__shot">
+              <img src="assets/hardware/esp32.webp" width="1000" height="750" loading="lazy"
+                   alt="Close macro of an ESP32-DOWD module soldered to a dark circuit board, surrounded by passive components.">
+              <figcaption class="hw-credit">Photo <a href="https://commons.wikimedia.org/wiki/File:ESP32_on_Lolin32_Lite_clone_board_cropped.jpg" target="_blank" rel="noopener noreferrer">Ubahnverleih</a> &middot; CC0</figcaption>
+            </figure>
+            <div class="hw-card__body">
+              <h3>ESP32</h3>
+              <p class="hw-card__spec mono">240 MHz &middot; 520 KB SRAM &middot; no MMU</p>
+              <p>The sensor itself. Wi-Fi and Bluetooth on the die, a few hundred kilobytes to
+                 work in, and a power budget measured in tenths of a watt. This is the class
+                 Roger Edge is specified against: a fixed-label classifier and the layer
+                 around it, down where the signal is.</p>
+              <dl class="hw-card__meta">
+                <div><dt>Target tier</dt><dd>Roger Edge</dd></div>
+                <div><dt>Stage</dt><dd class="hw-stage">Prototype, actively testing</dd></div>
+                <div><dt>A station?</dt><dd>No - too small to serve an API</dd></div>
+              </dl>
+            </div>
+          </article>
+
+          <article class="hw-card" data-board="arduino" data-tier="Roger Edge"
+                   data-stage="Prototype, actively testing" data-today="sensor" data-stop="edge">
+            <figure class="hw-card__shot">
+              <img src="assets/hardware/arduino.webp" width="1000" height="750" loading="lazy"
+                   alt="An Arduino Uno board seen from above, its blue PCB carrying the USB-B socket, barrel jack and header strips.">
+              <figcaption class="hw-credit">Photo <a href="https://commons.wikimedia.org/wiki/File:Arduino_Uno_board.jpg" target="_blank" rel="noopener noreferrer">JrawX</a> &middot; CC0</figcaption>
+              
+            </figure>
+            <div class="hw-card__body">
+              <h3>Arduino Uno</h3>
+              <p class="hw-card__spec mono">16 MHz &middot; 2 KB SRAM &middot; 32 KB flash</p>
+              <p>Below even the edge tier for a model, and included honestly for that reason:
+                 an Uno is the sensor and actuator side of a fleet, not a place a classifier
+                 lives. It matters here because it is what the gateway above it talks to.</p>
+              <dl class="hw-card__meta">
+                <div><dt>Target tier</dt><dd>Roger Edge <span class="hw-note">(host side only)</span></dd></div>
+                <div><dt>Stage</dt><dd class="hw-stage">Prototype, actively testing</dd></div>
+                <div><dt>A station?</dt><dd>No - sensor and actuator side</dd></div>
+              </dl>
+            </div>
+          </article>
+
+          <article class="hw-card" data-board="pico" data-tier="Roger Edge"
+                   data-stage="Prototype, actively testing" data-today="sensor" data-stop="edge">
+            <figure class="hw-card__shot">
+              <img src="assets/hardware/pico.webp" width="1000" height="750" loading="lazy"
+                   alt="A Raspberry Pi Pico board at an oblique angle, its green PCB showing the RP2040 chip and castellated edge pads.">
+              <figcaption class="hw-credit">Photo <a href="https://commons.wikimedia.org/wiki/File:Raspberry_Pi_Pico_oblique.jpg" target="_blank" rel="noopener noreferrer">Phiarc</a> &middot; CC BY-SA 4.0</figcaption>
+            </figure>
+            <div class="hw-card__body">
+              <h3>Raspberry Pi Pico</h3>
+              <p class="hw-card__spec mono">RP2040 &middot; 133 MHz &middot; 264 KB SRAM</p>
+              <p>A microcontroller wearing the Raspberry Pi name, which confuses the ladder
+                 more than any other board: it belongs at the Roger Edge stop, not with the
+                 Pi 5. Two cores, no operating system, and the same fixed-label job.</p>
+              <dl class="hw-card__meta">
+                <div><dt>Target tier</dt><dd>Roger Edge</dd></div>
+                <div><dt>Stage</dt><dd class="hw-stage">Prototype, actively testing</dd></div>
+                <div><dt>A station?</dt><dd>No - no OS, no server</dd></div>
+              </dl>
+            </div>
+          </article>
+
+          <article class="hw-card" data-board="pi5" data-tier="Wave Pico"
+                   data-stage="Certifying the waypoint &middot; 300M retrain next" data-today="station" data-stop="pico">
+            <figure class="hw-card__shot">
+              <img src="assets/hardware/pi5.webp" width="1000" height="750" loading="lazy"
+                   alt="A Raspberry Pi 5 board from above, showing its dual HDMI sockets, USB ports and the Raspberry Pi logo silkscreen.">
+              <figcaption class="hw-credit">Photo <a href="https://commons.wikimedia.org/wiki/File:Raspberry_Pi_5.jpg" target="_blank" rel="noopener noreferrer">SimonWaldherr</a> &middot; CC BY 4.0</figcaption>
+            </figure>
+            <div class="hw-card__body">
+              <h3>Raspberry Pi 5</h3>
+              <p class="hw-card__spec mono">4&ndash;16 GB &middot; no GPU &middot; ~5 W</p>
+              <p>The first stop with a real operating system, and the machine Wave Pico is
+                 specified against by name: a few hundred million parameters, no accelerator,
+                 and a target near 50 ms. The smallest box on this page that can hold a
+                 conversation rather than a label.</p>
+              <dl class="hw-card__meta">
+                <div><dt>Target tier</dt><dd>Wave Pico</dd></div>
+                <div><dt>Stage</dt><dd class="hw-stage">Certifying the waypoint &middot; 300M retrain next</dd></div>
+                <div><dt>A station?</dt><dd>Yes - small models today</dd></div>
+              </dl>
+            </div>
+          </article>
+
+          <article class="hw-card" data-board="jetson" data-tier="Wave Nano"
+                   data-stage="Scratch build queued behind Pico" data-today="station" data-stop="nano">
+            <figure class="hw-card__shot">
+              <img src="assets/hardware/jetson.webp" width="1000" height="750" loading="lazy"
+                   alt="An NVIDIA Jetson development kit carrier board with a large black finned heatsink over the module and USB ports along one edge.">
+              <figcaption class="hw-credit">Photo <a href="https://commons.wikimedia.org/wiki/File:Nvidia_Jetson_Nano_2_Development_Kit.jpeg" target="_blank" rel="noopener noreferrer">Ubahnverleih</a> &middot; CC0</figcaption>
+            </figure>
+            <div class="hw-card__body">
+              <h3>NVIDIA Jetson</h3>
+              <p class="hw-card__spec mono">8&ndash;64 GB unified &middot; CUDA &middot; 15&ndash;60 W</p>
+              <p>The fleet gateway: the first box with real accelerated inference and a
+                 thermal envelope that still fits a cabinet. Wave Nano is specified here -
+                 the tier that rolls up many children, resolves their conflicts and routes by
+                 discovery.</p>
+              <dl class="hw-card__meta">
+                <div><dt>Target tier</dt><dd>Wave Nano</dd></div>
+                <div><dt>Stage</dt><dd class="hw-stage">Scratch build queued behind Pico</dd></div>
+                <div><dt>A station?</dt><dd>Yes - a good one</dd></div>
+              </dl>
+            </div>
+          </article>
+
+          <article class="hw-card" data-board="macstudio" data-tier="Wave Micro"
+                   data-stage="Scratch pipeline standing up" data-today="station" data-stop="micro">
+            <figure class="hw-card__shot">
+              <img src="assets/hardware/macstudio.webp" width="1000" height="750" loading="lazy"
+                   alt="An Apple Mac Studio photographed from the front, a compact square aluminium box with a slot vent along its base.">
+              <figcaption class="hw-credit">Photo <a href="https://commons.wikimedia.org/wiki/File:Mac_Studio_(2022)_front.jpg" target="_blank" rel="noopener noreferrer">Yasu</a> &middot; CC BY-SA 3.0</figcaption>
+            </figure>
+            <div class="hw-card__body">
+              <h3>Mac Studio</h3>
+              <p class="hw-card__spec mono">32&ndash;512 GB unified &middot; ~90 W under load</p>
+              <p>The site brain, and the best power-per-token box on this page: unified memory
+                 large enough for a 7&ndash;8B model with room to spare, at a draw a desk can
+                 ignore. Wave Micro is specified against this class of on-site server.</p>
+              <dl class="hw-card__meta">
+                <div><dt>Target tier</dt><dd>Wave Micro</dd></div>
+                <div><dt>Stage</dt><dd class="hw-stage">Scratch pipeline standing up</dd></div>
+                <div><dt>A station?</dt><dd>Yes - see <a href="/broadcasts-what-a-million-tokens-costs.html">the arithmetic</a></dd></div>
+              </dl>
+            </div>
+          </article>
+
+          <article class="hw-card hw-card--wide" data-board="dgxspark" data-tier="Wave Giga"
+                   data-stage="Base selection" data-today="station" data-stop="giga">
+            <figure class="hw-card__shot">
+              <img src="assets/hardware/dgxspark.webp" width="1000" height="750" loading="lazy"
+                   alt="An NVIDIA DGX Spark on a desk, a small gold-coloured box with a dense metal-foam lattice across its front panel.">
+              <figcaption class="hw-credit">Photo <a href="https://commons.wikimedia.org/wiki/File:Nvidia_DGX_Spark_oblique_view_dllu.jpg" target="_blank" rel="noopener noreferrer">Daniel Lu</a> &middot; CC BY-SA 4.0</figcaption>
+            </figure>
+            <div class="hw-card__body">
+              <h3>NVIDIA DGX Spark</h3>
+              <p class="hw-card__spec mono">128 GB coherent &middot; ~240 W &middot; desk-side</p>
+              <p>A plant datacenter that fits under a desk. Enough coherent memory to hold a
+                 27&ndash;35B model without splitting it, which is the whole reason the Wave
+                 Giga tier is drawn where it is - full-plant reasoning on one box, inside the
+                 fence.</p>
+              <dl class="hw-card__meta">
+                <div><dt>Target tier</dt><dd>Wave Giga</dd></div>
+                <div><dt>Stage</dt><dd class="hw-stage">Base selection</dd></div>
+                <div><dt>A station?</dt><dd>Yes - the largest here</dd></div>
+              </dl>
+            </div>
+          </article>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------- §3 WHAT IS TRUE TODAY ---------- -->
+    <section class="section" id="today">
+      <div class="wrap">
+        <div class="section__head section__head--left">
+          <span class="sectionno">&sect;3 / TODAY</span>
+          <h2>What you can actually fetch and run this afternoon.</h2>
+          <p>Everything above is a target. Two things on this page are not.</p>
+        </div>
+
+        <div class="hw-today">
+          <article class="hw-today__item">
+            <span class="hw-today__tag mono">ONE ARTIFACT</span>
+            <h3>DeepSeek-V4-Flash MTP, in GGUF</h3>
+            <p>284B total, 13B active, multi-token prediction, quantised and published by us.
+               It is the only set of weights on this site you can download right now, and it
+               wants the largest machine here or bigger. The build story, including what did
+               not work, is in
+               <a href="/broadcasts-deepseek-mtp-gguf.html">the broadcast</a>.</p>
+            <a class="hw-today__link mono" href="https://huggingface.co/rogerai-fyi/DeepSeek-V4-Flash-MTP-GGUF" target="_blank" rel="noopener noreferrer">huggingface.co/rogerai-fyi &rarr;</a>
+          </article>
+
+          <article class="hw-today__item">
+            <span class="hw-today__tag mono">ONE COMMAND</span>
+            <h3>Any of these boxes can be a station now</h3>
+            <p>None of that waits on a Wave checkpoint. If a machine on this page can serve an
+               OpenAI-compatible endpoint - the Pi 5 and everything to its right can -
+               <code>roger share</code> finds that server and puts it on the band. Outbound
+               only, so there is nothing to open on a plant network.</p>
+            <a class="hw-today__link mono" href="/integrations.html">what it detects &rarr;</a>
+          </article>
+        </div>
+
+        <div class="man-note">
+          <span class="man-note__tag mono">STATUS</span>
+          <p>No Wave checkpoint has been released, and no Roger Edge artifact exists. The
+             tiers on this page are specifications with hardware attached, and each card
+             carries the stage it is genuinely at. When that changes, the catalogue changes
+             first and this page follows it - a test fails if it does not.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------- §4 CREDITS ---------- -->
+    <section class="section band" id="credits">
+      <div class="wrap">
+        <div class="section__head section__head--left">
+          <span class="sectionno">&sect;4 / CREDITS</span>
+          <h2>The photographs are other people&rsquo;s work.</h2>
+          <p>Every board here was photographed by somebody who then licensed it for reuse.
+             The licence each one carries is listed with it, and the link goes to the source
+             file rather than to a copy of it.</p>
+        </div>
+        <ul class="hw-credits">
+          <li><b>ESP32</b> - <a href="https://commons.wikimedia.org/wiki/File:ESP32_on_Lolin32_Lite_clone_board_cropped.jpg" target="_blank" rel="noopener noreferrer">Ubahnverleih</a>, CC0, via Wikimedia Commons</li>
+          <li><b>Arduino Uno</b> - <a href="https://commons.wikimedia.org/wiki/File:Arduino_Uno_board.jpg" target="_blank" rel="noopener noreferrer">JrawX</a>, CC0, via Wikimedia Commons</li>
+          <li><b>Raspberry Pi Pico</b> - <a href="https://commons.wikimedia.org/wiki/File:Raspberry_Pi_Pico_oblique.jpg" target="_blank" rel="noopener noreferrer">Phiarc</a>, CC BY-SA 4.0, via Wikimedia Commons</li>
+          <li><b>Raspberry Pi 5</b> - <a href="https://commons.wikimedia.org/wiki/File:Raspberry_Pi_5.jpg" target="_blank" rel="noopener noreferrer">SimonWaldherr</a>, CC BY 4.0, via Wikimedia Commons</li>
+          <li><b>NVIDIA Jetson dev kit</b> - <a href="https://commons.wikimedia.org/wiki/File:Nvidia_Jetson_Nano_2_Development_Kit.jpeg" target="_blank" rel="noopener noreferrer">Ubahnverleih</a>, CC0, via Wikimedia Commons</li>
+          <li><b>Mac Studio</b> - <a href="https://commons.wikimedia.org/wiki/File:Mac_Studio_(2022)_front.jpg" target="_blank" rel="noopener noreferrer">Yasu</a>, CC BY-SA 3.0, via Wikimedia Commons</li>
+          <li><b>NVIDIA DGX Spark</b> - <a href="https://commons.wikimedia.org/wiki/File:Nvidia_DGX_Spark_oblique_view_dllu.jpg" target="_blank" rel="noopener noreferrer">Daniel Lu</a>, CC BY-SA 4.0, via Wikimedia Commons</li>
+        </ul>
+        <p class="hw-credits__note">Photographs were resized, cropped and colour-graded for
+           this page. Board names and marks belong to their owners and are used to identify
+           the hardware; no endorsement is implied.</p>
+      </div>
+    </section>
+  </main>
+
+  <!-- include: footer.html anchors=/ -->
+
+  <script src="js/lets-talk.js" defer></script>
+  <script src="js/site.js" defer></script>
+  <script src="js/session.js" defer></script>
+  <script src="js/hardware.js" defer></script>
+</body>
+</html>

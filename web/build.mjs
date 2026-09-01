@@ -49,6 +49,7 @@ const CSS_BUNDLES = {
   "tower.html":     [...CSS_MARKETING, "research.css", "tower.css"], // the broker, publicly
   "research.html":  [...CSS_MARKETING, "research.css"],
   "research-industry.html": [...CSS_MARKETING, "research.css"], // plant placement + standards, split out of the hub
+  "research-hardware.html": [...CSS_MARKETING, "research.css", "research-hardware.css"], // the board -> tier map, the only page carrying third-party photography
   "careers.html":   [...CSS_MARKETING, "research.css", "careers.css"], // hiring surface; reuses the notebook shell
   "company.html":   [...CSS_MARKETING, "research.css"],
   "pricing.html":   [...CSS_MARKETING, "research.css", "pricing.css"], // reuses the notebook shell; pricing.css is only the plates

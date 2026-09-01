@@ -98,43 +98,43 @@
         <div class="guests">
           <article data-guest="opencode">
             <h3>opencode</h3>
-            <p class="guests__wire">Wired with a throwaway config, and the model pinned on the command line so a project's own config cannot re-route it.</p>
+            <p class="guests__wire">Throwaway config; the model pinned on the command line, so a project&rsquo;s own config cannot re-route it.</p>
             <p class="guests__meta"><span class="mono">proven at 1.17.11</span></p>
             <code class="guests__install">curl -fsSL https://opencode.ai/install | bash</code>
           </article>
           <article data-guest="hermes">
             <h3>hermes</h3>
-            <p class="guests__wire">Wired with a throwaway home directory, so its config, sessions and checkpoints all land inside the session and vanish with it.</p>
+            <p class="guests__wire">Throwaway home directory: config, sessions and checkpoints land inside the session and vanish with it.</p>
             <p class="guests__meta"><span class="mono">proven at 0.16.0</span></p>
             <code class="guests__install">pip install hermes-agent</code>
           </article>
           <article data-guest="aider">
             <h3>aider</h3>
-            <p class="guests__wire">Wired with environment variables and flags only. No files are generated at all.</p>
+            <p class="guests__wire">Environment and flags only. No files written.</p>
             <p class="guests__meta"><span class="mono">proven at 0.86.2</span></p>
             <code class="guests__install">uv tool install aider-chat</code>
           </article>
           <article data-guest="pi">
             <h3>pi</h3>
-            <p class="guests__wire">Wired with a throwaway config, like opencode.</p>
+            <p class="guests__wire">Throwaway config, like opencode.</p>
             <p class="guests__meta"><span class="mono">proven at 0.84.2</span></p>
             <code class="guests__install">npm install -g @earendil-works/pi-coding-agent</code>
           </article>
           <article data-guest="dsh">
             <h3>dsh <span class="guests__tag">needs setup</span></h3>
-            <p class="guests__wire">Detected, but not launchable as it stands: dsh boots a profile rather than a model, so there is no config we can generate that hands it a band. Point it at your station yourself and the desk will say how.</p>
+            <p class="guests__wire">Boots a profile rather than a model, so no config we generate can hand it a band. Point it at your station and the desk says how.</p>
             <p class="guests__meta"><span class="mono">seen at 0.1.0-rc.7</span></p>
             <code class="guests__install">npm install -g @deepseek-ai/dsh</code>
           </article>
           <article data-guest="claude">
             <h3>claude <span class="guests__tag">context only</span></h3>
-            <p class="guests__wire">Runs on its own account and its own billing. RogerAI hands over the context and nothing else - no endpoint, no key, no model - so it behaves exactly as your own install does, and nothing here is metered.</p>
+            <p class="guests__wire">Runs on its own account and billing. Only the context is handed across - no endpoint, no key, no model - so nothing here is metered.</p>
             <p class="guests__meta"><span class="mono">seen at 2.1.220</span></p>
             <code class="guests__install">npm install -g @anthropic-ai/claude-code</code>
           </article>
           <article data-guest="codex">
             <h3>codex <span class="guests__tag">context only</span></h3>
-            <p class="guests__wire">Same as claude: your own account, your own billing, and only the context is handed across.</p>
+            <p class="guests__wire">Your own account and billing; only the context is handed across.</p>
             <p class="guests__meta"><span class="mono">seen at 0.1.0</span></p>
             <code class="guests__install">npm install -g @openai/codex</code>
           </article>
@@ -196,6 +196,7 @@ OPENAI_API_KEY=&lt;grant key&gt;</code></pre>
           <a class="research-button research-button--primary" data-lets-talk aria-expanded="false"
              href="mailto:labs@rogerai.fm?subject=Integration%20request">Let&rsquo;s talk</a>
           <a class="research-button" href="https://github.com/rogerai-fyi/roger">Source</a>
+          <a class="research-button" href="/research-hardware.html">Hardware</a>
           <a class="research-button" href="/faq.html">FAQ</a>
         </div>
       </div>

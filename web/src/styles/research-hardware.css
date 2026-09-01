@@ -1,0 +1,180 @@
+/* Hardware page. Sits on top of research.css (the notebook shell) and adds three things:
+   the spectrum illustration, the board grid, and the credits list.
+   The photographs are the only third-party imagery on this site, so they are framed
+   deliberately - a hairline plate and a fixed 4:3 well - to keep seven very different
+   source backgrounds reading as one set. */
+
+/* ---- §1 the spectrum -------------------------------------------------- */
+
+.hw-figure { margin: var(--s-8) 0 0; }
+.hw-ladder {
+  display: block; width: 100%; height: auto;
+  background: var(--white);
+  border: 1px solid var(--hairline-2); border-radius: var(--r-md);
+  padding: var(--s-4) 0;
+  overflow: visible;
+}
+.hw-ladder__axis line { stroke: var(--hairline-2); stroke-width: 1; }
+.hw-ladder__ticks line { stroke: var(--ink-300); }
+.hw-ladder__foot {
+  fill: var(--ink-400); font-family: var(--font-mono);
+  font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
+}
+.hw-ladder__foot--end { text-anchor: end; }
+
+.hw-stop text { text-anchor: middle; }
+.hw-stop__tier {
+  fill: var(--ink-900); font-family: var(--font-ui);
+  font-size: 14px; font-weight: var(--weight-semi);
+}
+.hw-stop__size {
+  fill: var(--live); font-family: var(--font-mono);
+  font-size: 12px; font-variant-numeric: tabular-nums;
+}
+.hw-stop__box  { fill: var(--ink-700); font-family: var(--font-ui); font-size: 12px; }
+.hw-stop__watt { fill: var(--ink-400); font-family: var(--font-mono); font-size: 11px; }
+.hw-stop__dot {
+  fill: var(--paper); stroke: var(--ink-900); stroke-width: 2;
+  transition: fill .25s var(--ease-out-quint), stroke .25s var(--ease-out-quint);
+}
+/* the stop the reader is pointing at, from JS or from the sweep passing it */
+.hw-stop.is-lit .hw-stop__dot { fill: var(--live); stroke: var(--live); }
+.hw-stop.is-lit .hw-stop__tier { fill: var(--live); }
+
+/* the tuning needle: the site's own dial metaphor, sweeping the band once it is seen */
+.hw-needle { opacity: 0; }
+.hw-needle__line { stroke: var(--live); stroke-width: 1; opacity: .55; }
+.hw-needle__head { fill: var(--live); }
+.hw-ladder.is-sweeping .hw-needle {
+  opacity: 1;
+  animation: hw-sweep 4.2s var(--ease-in-out) 1 forwards;
+}
+@keyframes hw-sweep {
+  0%   { transform: translateX(60px);  opacity: 0; }
+  8%   { opacity: 1; }
+  92%  { opacity: 1; }
+  100% { transform: translateX(850px); opacity: 0; }
+}
+
+/* ---- §2 the board grid ------------------------------------------------ */
+
+.hw-grid {
+  display: grid; gap: var(--s-5);
+  grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+  margin-top: var(--s-8);
+}
+.hw-card {
+  display: flex; flex-direction: column;
+  background: var(--white);
+  border: 1px solid var(--hairline-2); border-radius: var(--r-md);
+  overflow: hidden;
+  transition: border-color .2s var(--ease-out-quint), transform .2s var(--ease-out-quint);
+}
+.hw-card:hover, .hw-card:focus-within {
+  border-color: var(--ink-300); transform: translateY(-2px);
+}
+.hw-card__shot { margin: 0; position: relative; }
+.hw-card__shot img {
+  display: block; width: 100%; height: auto; aspect-ratio: 4 / 3;
+  object-fit: cover; background: var(--paper-2);
+}
+/* the credit rides ON the photograph: it belongs to the picture, not to the card */
+.hw-credit {
+  position: absolute; right: 0; bottom: 0;
+  padding: 3px 7px;
+  background: rgba(21, 20, 15, .62); color: #fff;
+  font-family: var(--font-mono); font-size: 9px; letter-spacing: .03em;
+  border-top-left-radius: 4px;
+}
+.hw-credit a { color: #fff; text-decoration: underline; text-underline-offset: 2px; }
+.hw-credit a:hover { color: var(--paper-3); }
+
+.hw-card__body { padding: var(--s-4) var(--s-4) var(--s-5); }
+.hw-card__body h3 {
+  margin: 0; font-size: var(--t-h3); letter-spacing: var(--tracking-h3); color: var(--ink-900);
+}
+.hw-card__spec {
+  margin: 5px 0 var(--s-3); font-size: var(--t-xs); color: var(--ink-400);
+  font-variant-numeric: tabular-nums;
+}
+.hw-card__body > p { margin: 0 0 var(--s-4); line-height: var(--lh-body); color: var(--ink-700); }
+
+.hw-card__meta {
+  margin: 0; padding-top: var(--s-3); border-top: 1px solid var(--hairline);
+  display: grid; gap: 7px;
+}
+.hw-card__meta > div { display: flex; gap: var(--s-3); align-items: baseline; }
+.hw-card__meta dt {
+  flex: 0 0 84px;
+  font-size: var(--t-micro); letter-spacing: var(--tracking-label);
+  text-transform: uppercase; color: var(--ink-400);
+}
+.hw-card__meta dd {
+  margin: 0; font-size: var(--t-sm); color: var(--ink-900);
+}
+/* the stage is the fact the page exists to keep honest, so it reads as a state, not prose */
+.hw-stage {
+  font-family: var(--font-mono); font-size: var(--t-xs) !important;
+  color: var(--ink-500) !important;
+}
+.hw-note { color: var(--ink-400); font-size: var(--t-xs); }
+
+
+/* The top of the ladder gets the full row rather than sitting alone at the end of a
+   three-up grid: seven cards in a three-column grid leaves an orphan, and the orphan
+   happening to be the largest machine reads as a layout accident instead of a finish. */
+@media (min-width: 900px) {
+  .hw-card--wide { grid-column: 1 / -1; flex-direction: row; }
+  .hw-card--wide .hw-card__shot { flex: 0 0 42%; }
+  .hw-card--wide .hw-card__shot img { height: 100%; aspect-ratio: auto; }
+  .hw-card--wide .hw-card__body { flex: 1; display: flex; flex-direction: column; justify-content: center; }
+  .hw-card--wide .hw-card__meta { max-width: 460px; }
+}
+
+/* ---- §3 what is true today -------------------------------------------- */
+
+.hw-today {
+  display: grid; gap: var(--s-5); margin-top: var(--s-8);
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+.hw-today__item {
+  padding: var(--s-5);
+  background: var(--white);
+  border: 1px solid var(--hairline-2); border-radius: var(--r-md);
+  border-left: 2px solid var(--live);
+}
+.hw-today__tag {
+  display: block; margin-bottom: var(--s-3);
+  font-size: var(--t-micro); letter-spacing: var(--tracking-label);
+  text-transform: uppercase; color: var(--live);
+}
+.hw-today__item h3 { margin: 0 0 var(--s-3); font-size: var(--t-h3); color: var(--ink-900); }
+.hw-today__item p { margin: 0 0 var(--s-4); line-height: var(--lh-body); color: var(--ink-700); }
+.hw-today__link { font-size: var(--t-xs); }
+
+/* ---- §4 credits -------------------------------------------------------- */
+
+.hw-credits { margin: var(--s-6) 0 0; padding: 0; list-style: none; }
+.hw-credits li {
+  padding: 9px 0; border-bottom: 1px solid var(--hairline);
+  font-size: var(--t-sm); color: var(--ink-500);
+}
+.hw-credits li b { color: var(--ink-900); font-weight: var(--weight-semi); }
+.hw-credits__note {
+  margin: var(--s-4) 0 0; font-size: var(--t-xs);
+  line-height: 1.55; color: var(--ink-400); max-width: 62ch;
+}
+
+/* ---- motion ------------------------------------------------------------ */
+
+@media (prefers-reduced-motion: reduce) {
+  /* the sweep is decoration; the stops carry every fact it points at. Park the needle
+     out of the way rather than freezing it mid-band, and drop the card lift. */
+  .hw-ladder.is-sweeping .hw-needle { animation: none; opacity: 0; }
+  .hw-card, .hw-stop__dot { transition: none; }
+  .hw-card:hover, .hw-card:focus-within { transform: none; }
+}
+
+@media (max-width: 560px) {
+  .hw-card__meta dt { flex-basis: 74px; }
+}

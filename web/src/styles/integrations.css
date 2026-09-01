@@ -28,8 +28,13 @@
 /* Dividers are BORDERS on the cells, not a 1px gap showing the container through:
    seven guests never divide evenly into an auto-fit column count, and a gap-drawn grid
    paints the leftover slot as a grey block (the same bug the homepage plate had). */
+/* The desk was a three-up card grid, which gave seven short entries the vertical weight
+   of a feature section and left a ragged last row. It reads as what it is - a register,
+   the same shape as the detected-servers table above it - so each guest is now ONE ROW:
+   name, how it is wired, the version it was proven at, and the line that installs it.
+   The <article> per guest stays: the tests read each guest from its own element. */
 .guests {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
+  display: grid; grid-template-columns: 1fr;
   gap: 0; background: var(--paper);
   border-block: 2px solid var(--ink-900);
 }
@@ -53,6 +58,21 @@
   margin-top: auto; padding: 7px 10px; overflow-x: auto;
   font-family: var(--font-mono); font-size: var(--t-xs); color: var(--ink-700);
   background: var(--paper-2); border: 1px solid var(--hairline);
+}
+
+/* The row layout has to come AFTER the base rules above: ".guests article" sets
+   display:flex at the same specificity, so an earlier grid silently lost to it. */
+@media (min-width: 780px) {
+  .guests > article {
+    display: grid; align-items: baseline;
+    grid-template-columns: 116px minmax(0, 1fr) 100px minmax(0, 310px);
+    gap: var(--s-4); padding: var(--s-4) var(--s-5);
+  }
+  .guests > article > h3 { margin: 0; }
+  .guests > article > .guests__wire,
+  .guests > article > .guests__meta { margin: 0; }
+  .guests > article > .guests__meta { text-align: right; white-space: nowrap; }
+  .guests > article > .guests__install { margin-top: 0; }
 }
 
 /* the two endpoints, side by side */
