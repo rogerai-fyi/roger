@@ -474,14 +474,25 @@
             <p class="hw-exp__stage mono">Field note &middot; <a href="/broadcasts-deepseek-mtp-gguf.html">the whole build, including what failed</a></p>
           </article>
 
-          <article class="hw-exp" data-exp="concurrency">
+          <article class="hw-exp" data-exp="concurrency"
+                   data-rig="4x RTX PRO 4500" data-model="gpt-oss-120b"
+                   data-single="160" data-batched="310" data-users="8">
             <span class="hw-exp__tag mono">MEASURED</span>
             <h3>How many people does one card actually serve?</h3>
             <p>A stop on this ladder is only real if the box serves more than one person at
-               a time, so throughput is measured in aggregate under concurrency rather than
-               single-stream. That number decides both which tier fits a box and whether
-               serving on it pays for its own electricity.</p>
-            <p class="hw-exp__stage mono">Published &middot; <a href="/broadcasts-one-gpu-many-users.html">concurrency</a> and <a href="/broadcasts-what-a-million-tokens-costs.html">what it costs</a></p>
+               a time, so throughput is measured in aggregate under load rather than
+               single-stream. This is the one machine on this page we measure on rather than
+               specify against - our own bench:</p>
+            <table class="hw-bench">
+              <caption class="mono">4&times; RTX PRO 4500 &middot; gpt-oss-120b &middot; users swept 1 &rarr; 8</caption>
+              <tbody>
+                <tr><th>Aggregate</th><td class="mono">~160 tok/s</td><td class="mono">&rarr;</td><td class="mono hw-bench__win">~310 tok/s</td></tr>
+                <tr><th>Per user</th><td class="mono">~171 tok/s</td><td class="mono">&rarr;</td><td class="mono">more than halved</td></tr>
+              </tbody>
+            </table>
+            <p>Nearly double the work out of the same hardware, and the reason the
+               single-stream number quoted everywhere badly understates a box.</p>
+            <p class="hw-exp__stage mono">Published &middot; <a href="/broadcasts-one-gpu-many-users.html">the sweep</a> and <a href="/broadcasts-what-a-million-tokens-costs.html">what it costs to serve</a></p>
           </article>
 
           <article class="hw-exp" data-exp="pico" data-stage="Certifying the waypoint &middot; 300M retrain next">

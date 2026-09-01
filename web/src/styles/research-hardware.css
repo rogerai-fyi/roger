@@ -201,6 +201,23 @@
   letter-spacing: var(--tracking-h3); color: var(--ink-900);
 }
 .hw-exp p { margin: 0; line-height: var(--lh-body); color: var(--ink-700); }
+
+/* the bench: the one set of numbers on this page that were measured rather than specified */
+.hw-bench { width: 100%; margin: var(--s-4) 0; border-collapse: collapse; font-size: var(--t-sm); }
+.hw-bench caption {
+  caption-side: top; text-align: left; padding-bottom: var(--s-2);
+  font-size: var(--t-micro); letter-spacing: .06em; color: var(--ink-400);
+}
+.hw-bench th {
+  text-align: left; padding: 6px var(--s-3) 6px 0; font-weight: var(--weight-medium);
+  color: var(--ink-500); border-bottom: 1px solid var(--hairline); white-space: nowrap;
+}
+.hw-bench td {
+  padding: 6px var(--s-3) 6px 0; border-bottom: 1px solid var(--hairline);
+  color: var(--ink-700); font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.hw-bench__win { color: var(--live); font-weight: var(--weight-semi); }
+
 /* the stage line is the honest part: what gate this run is actually at right now */
 .hw-exp__stage {
   margin-top: var(--s-4) !important; padding-top: var(--s-3);

@@ -218,3 +218,31 @@ test("hardware: a photograph of a different generation says so on the picture", 
       "a card naming Blackwell must say on the picture that an Ada-generation card is shown");
   }
 });
+
+test("hardware: the bench figures are the ones the broadcast actually published", () => {
+  // This is the only MEASURED result on the page, so it is the one most worth pinning: the
+  // rig, the model and both throughput numbers have to be findable in the write-up that
+  // produced them. A figure that drifts from its own source is worse than no figure.
+  const card = read(PAGE).match(/<article[^>]*data-exp="concurrency"[\s\S]*?<\/article>/)?.[0];
+  assert.ok(card, "the concurrency run has a card");
+  const attr = (n) => card.match(new RegExp(`data-${n}="([^"]+)"`))?.[1];
+  const source = compact(read("broadcasts-one-gpu-many-users.html")).replace(/&times;/g, "x");
+  const shown = compact(card); // what a reader sees, with every attribute stripped away
+
+  const rig = attr("rig"), model = attr("model");
+  assert.ok(rig && model, "the card names the rig and the model it was measured on");
+  assert.ok(source.replace(/\s/g, "").includes(rig.replace(/\s/g, "")),
+    `the bench rig "${rig}" is not the one the broadcast reports`);
+  assert.ok(source.includes(model), `the model "${model}" is not the one the broadcast reports`);
+
+  for (const k of ["single", "batched", "users"]) {
+    const v = attr(k);
+    assert.ok(v && /^\d+$/.test(v), `${k} is a number`);
+    assert.ok(source.includes(v), `the figure ${v} (${k}) appears nowhere in the broadcast`);
+    // against the VISIBLE text, not the markup: card.includes(v) is satisfied by the
+    // data-* attribute the figure came from, so it would pass with the cell blanked out.
+    assert.ok(shown.includes(v), `the figure ${v} (${k}) is declared but never shown to a reader`);
+  }
+  assert.ok(Number(attr("batched")) > Number(attr("single")),
+    "the whole point is that aggregate throughput rises under load");
+});
