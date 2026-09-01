@@ -998,11 +998,11 @@ func TestTowerStatusShowsWhatCoreActuallyBelieves(t *testing.T) {
 	require.Equal(t, "roger-1", got.Routable[0].Model)
 
 	// The status must be honest in BOTH directions: the sealed hub carries work and every
-	// settled request pays the operator 10% through the ordinary payout rail, so claiming
+	// settled request pays the operator 5% through the ordinary payout rail, so claiming
 	// otherwise would understate what they earn - while the note explains a $0 line as thin
 	// TRAFFIC rather than letting the flag imply the pay does not exist.
 	require.True(t, got.Carries, "the sealed hub carries work now")
-	require.True(t, got.Compensated, "every settled request pays the operator 10% of gross")
+	require.True(t, got.Compensated, "every settled request pays the operator 5% of gross")
 	require.Contains(t, got.Note, "sealed hub")
 	require.Contains(t, got.Note, "5% of gross")
 	require.Contains(t, got.Note, "Volume is early",

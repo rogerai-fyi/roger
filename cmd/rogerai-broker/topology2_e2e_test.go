@@ -5,12 +5,12 @@ package main
 //	a `roger share` node (agent.ServeTower: self-attach at ITS OWN price, blind-serve)
 //	a tower hub (mounted exactly as roger-tower mounts it: real grant check, settle courier)
 //	a consumer (authorize at Core, seal to the node, submit to the TOWER, open the answer)
-//	Roger Core (this broker: authorize, hold, settle, 70/10/20 into real wallets)
+//	Roger Core (this broker: authorize, hold, settle, 90/5/5 into real wallets)
 //
 // The broker never touches the payload; the tower carries only ciphertext; and at the end the
 // node's owner holds 90% of its listed price, the tower operator 5%, with the consumer
 // debited exactly tokens x price. This is the founder's sentence - "providers set their own
-// per-token prices, the tower relays, 70/10/20" - as one passing test.
+// per-token prices, the tower relays, 90/5/5" - as one passing test.
 
 import (
 	"context"

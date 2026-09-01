@@ -109,7 +109,7 @@
                     data-be="0.31" data-charge="0.35" data-margin="1.13">
                   <td>RTX A5000 &middot; 27B dense</td><td class="mono">$0.075</td><td class="mono">150</td>
                   <td class="mono">50%</td><td class="mono">$0.31</td><td class="mono">$0.35</td>
-                  <td class="mono ec-lose">0.88&times;</td></tr>
+                  <td class="mono">1.13&times;</td></tr>
                 <tr data-cost data-hourly="0.075" data-tps="300" data-util="0.5" data-price="0.15"
                     data-be="0.15" data-charge="0.35" data-margin="2.33">
                   <td class="ec-cont">RTX A5000 &middot; 27B dense, <b>tuned</b></td><td class="mono">$0.075</td><td class="mono">300</td>
@@ -139,9 +139,7 @@
                 to cover; the pale showing past the dark is the margin. An 8B on a 3060
                 charges 35 cents against an 8 cent break-even, 4.4 times cover. A tuned 27B
                 on an A5000 charges 35 against 20, 1.75 times. A 20B mixture on an A4000
-                charges 11 against 10, barely 1.1 times. The same 27B untuned costs 40 cents
-                to cover against the same 35 cent price, so its dark bar runs past the pale
-                one and the trade is underwater.</desc>
+                charges 11 against 10, barely 1.1 times. The untuned 27B needs 31 cents to cover against the same 35 cent price, so its dark bar nearly reaches the pale one - a sliver of margin, one price cut from a loss.</desc>
               <g class="ec-chart__grid">
                 <line x1="310" y1="14" x2="310" y2="176"/>
                 <line x1="410" y1="14" x2="410" y2="176"/>
@@ -151,26 +149,26 @@
               <g class="ec-chart__row">
                 <text class="ec-chart__lbl" x="200" y="36">8B vision &middot; 3060</text>
                 <rect class="ec-chart__bar ec-chart__bar--charge" data-value="0.35" x="210" y="24" width="350" height="18"/>
-                <rect class="ec-chart__bar ec-chart__bar--cost" data-value="0.10" x="210" y="28" width="100" height="10"/>
+                <rect class="ec-chart__bar ec-chart__bar--cost" data-value="0.08" x="210" y="28" width="80" height="10"/>
                 <text class="ec-chart__val" x="568" y="36">4.38&times;</text>
               </g>
               <g class="ec-chart__row">
                 <text class="ec-chart__lbl" x="200" y="78">27B dense &middot; A5000, tuned</text>
                 <rect class="ec-chart__bar ec-chart__bar--charge" data-value="0.35" x="210" y="66" width="350" height="18"/>
-                <rect class="ec-chart__bar ec-chart__bar--cost" data-value="0.20" x="210" y="70" width="200" height="10"/>
-                <text class="ec-chart__val" x="568" y="78">1.75&times;</text>
+                <rect class="ec-chart__bar ec-chart__bar--cost" data-value="0.16" x="210" y="70" width="160" height="10"/>
+                <text class="ec-chart__val" x="568" y="78">2.19&times;</text>
               </g>
               <g class="ec-chart__row">
                 <text class="ec-chart__lbl" x="200" y="120">20B MoE &middot; A4000</text>
                 <rect class="ec-chart__bar ec-chart__bar--charge" data-value="0.11" x="210" y="108" width="110" height="18"/>
-                <rect class="ec-chart__bar ec-chart__bar--cost" data-value="0.10" x="210" y="112" width="100" height="10"/>
-                <text class="ec-chart__val" x="328" y="120">1.10&times;</text>
+                <rect class="ec-chart__bar ec-chart__bar--cost" data-value="0.08" x="210" y="112" width="80" height="10"/>
+                <text class="ec-chart__val" x="328" y="120">1.38&times;</text>
               </g>
               <g class="ec-chart__row">
                 <text class="ec-chart__lbl" x="200" y="162">27B dense &middot; A5000, untuned</text>
                 <rect class="ec-chart__bar ec-chart__bar--charge" data-value="0.35" x="210" y="150" width="350" height="18"/>
-                <rect class="ec-chart__bar ec-chart__bar--cost" data-value="0.40" x="210" y="154" width="400" height="10"/>
-                <text class="ec-chart__val" x="618" y="162">0.88&times;</text>
+                <rect class="ec-chart__bar ec-chart__bar--cost" data-value="0.31" x="210" y="154" width="310" height="10"/>
+                <text class="ec-chart__val" x="528" y="162">1.13&times;</text>
               </g>
               <text class="ec-chart__axis" x="210" y="196">$0</text>
               <text class="ec-chart__axis" x="290" y="196">$0.08</text>
@@ -180,8 +178,9 @@
             </svg>
             <figcaption>FIG. 1 - per million output tokens. Pale bar: what you charge.
               Dark bar: what you must charge to cover the hour. The pale showing past the
-              dark is yours. On the bottom row the dark bar runs past the pale one, which is
-              what a losing trade looks like.</figcaption>
+              dark is yours. On the bottom row the dark bar nearly reaches the pale one:
+              untuned, the same card keeps a sliver, and one price cut away from a loss -
+              throughput is the whole trade.</figcaption>
           </figure>
 
           <p>Two rows are worth staring at. The <b>last</b> one is on-demand rental: you are
@@ -362,7 +361,7 @@
 
   <!-- include: footer.html anchors=/ -->
 
-  <script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"How much can you make renting a GPU and serving models?","acceptedAnswer":{"@type":"Answer","text":"An interruptible RTX 3060 rents for about $0.015 an hour. Serving an 8B model at 120 aggregate tokens a second, busy half the time, a million output tokens breaks even at $0.10 including the 10% platform fee. The market rate for that class is $0.455, so charging $0.35 leaves 3.5 times cover. Doubling throughput halves the break-even."}},{"@type":"Question","name":"Is renting a GPU to serve on RogerAI actually allowed?","acceptedAnswer":{"@type":"Answer","text":"Yes. A station is a machine running a model; nothing cares whose data centre it sits in or whether the hour was rented. Price it, serve it, and you keep the same 90% of every request."}},{"@type":"Question","name":"Why is the platform's 10% inside the break-even?","acceptedAnswer":{"@type":"Answer","text":"Because an operator keeps 90% of what a request is charged, so covering a $0.07 hour needs $0.10 of charges, not $0.07. Leaving the fee out puts every break-even 10% too low."}},{"@type":"Question","name":"Is 150 tokens a second realistic for a 27B model?","acceptedAnswer":{"@type":"Answer","text":"As an aggregate across concurrent requests on a dedicated 24GB card at 4-bit, yes. Single-stream on that hardware is more like 35 to 45 tokens a second. A station serves several people at once, and it is the aggregate that pays the rent."}},{"@type":"Question","name":"Does an interrupted spot instance break anything?","acceptedAnswer":{"@type":"Answer","text":"No. A station that disappears stops being routed to, and requests go to another station serving the same model. The network already assumes machines come and go, which is why interruptible rental is a reasonable thing to build on."}},{"@type":"Question","name":"What if nobody sends me work?","acceptedAnswer":{"@type":"Answer","text":"Then duty falls and the trade falls with it, which is why duty is a column here rather than a footnote. On rented hardware the rent runs whether or not requests do, so start on an hourly instance you can drop, measure your real duty, and size the commitment to it."}}]}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"How much can you make renting a GPU and serving models?","acceptedAnswer":{"@type":"Answer","text":"An interruptible RTX 3060 rents for about $0.015 an hour. Serving an 8B model at 120 aggregate tokens a second, busy half the time, a million output tokens breaks even at $0.08 including the 10% platform fee. The market rate for that class is $0.455, so charging $0.35 leaves 4.4 times cover. Doubling throughput halves the break-even."}},{"@type":"Question","name":"Is renting a GPU to serve on RogerAI actually allowed?","acceptedAnswer":{"@type":"Answer","text":"Yes. A station is a machine running a model; nothing cares whose data centre it sits in or whether the hour was rented. Price it, serve it, and you keep the same 90% of every request."}},{"@type":"Question","name":"Why is the platform's 10% inside the break-even?","acceptedAnswer":{"@type":"Answer","text":"Because an operator keeps 90% of what a request is charged, so covering a $0.07 hour needs $0.08 of charges, not $0.07. Leaving the fee out puts every break-even 11% too low."}},{"@type":"Question","name":"Is 150 tokens a second realistic for a 27B model?","acceptedAnswer":{"@type":"Answer","text":"As an aggregate across concurrent requests on a dedicated 24GB card at 4-bit, yes. Single-stream on that hardware is more like 35 to 45 tokens a second. A station serves several people at once, and it is the aggregate that pays the rent."}},{"@type":"Question","name":"Does an interrupted spot instance break anything?","acceptedAnswer":{"@type":"Answer","text":"No. A station that disappears stops being routed to, and requests go to another station serving the same model. The network already assumes machines come and go, which is why interruptible rental is a reasonable thing to build on."}},{"@type":"Question","name":"What if nobody sends me work?","acceptedAnswer":{"@type":"Answer","text":"Then duty falls and the trade falls with it, which is why duty is a column here rather than a footnote. On rented hardware the rent runs whether or not requests do, so start on an hourly instance you can drop, measure your real duty, and size the commitment to it."}}]}</script>
 
   <script src="js/lets-talk.js" defer></script>
   <script src="js/site.js" defer></script>

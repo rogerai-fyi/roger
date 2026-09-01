@@ -289,7 +289,7 @@
           c.show(base.concat(steps, [""], endpointPlate("@nightowl")), END_HOLD);
 
           // The channel is the product: ONE stable endpoint, live-metered. Traffic rides
-          // it, the wallet debits per token and the receipt is co-signed 70/30 with the
+          // it, the wallet debits per token and the receipt is co-signed 90/10 with the
           // operator. Compact head = the endpoint itself, so the plate never leaves view.
           var openHead = [
             ok("  ◉ CHANNEL OPEN") + "  " + head(BAND) + dim(" via ") + head("@nightowl") + "   " + gold("◆ verified"),
@@ -581,11 +581,11 @@
           /* A "+$" line in an operator's own log reads as what the operator
              KEEPS, so these are net of the operator share, not gross. They were
              gross - which meant the share got applied a second time by the
-             summary screen below. tok x 0.30/1M x 0.70 for each. */
+             summary screen below. tok x 0.30/1M x 0.90 for each. */
           var reqs = [
-            ok("◉ ") + head(pad("@ssh-bot", 13)) + dim(pad("318 tok", 10)) + money("+$0.000067"),
-            ok("◉ ") + head(pad("@cursor-ide", 13)) + dim(pad("742 tok", 10)) + money("+$0.000156"),
-            ok("◉ ") + head(pad("@nightly-ci", 13)) + dim(pad("1.2k tok", 10)) + money("+$0.000252")
+            ok("◉ ") + head(pad("@ssh-bot", 13)) + dim(pad("318 tok", 10)) + money("+$0.000086"),
+            ok("◉ ") + head(pad("@cursor-ide", 13)) + dim(pad("742 tok", 10)) + money("+$0.000200"),
+            ok("◉ ") + head(pad("@nightly-ci", 13)) + dim(pad("1.2k tok", 10)) + money("+$0.000324")
           ];
           function liveLog(n) {
             var rows = [onairHead, RULE, dim("  ┌ live · incoming ") + dim(new Array(38).join("─"))];
@@ -631,7 +631,7 @@
           for (var i = 0; i < bal.length; i++) {
             c.show([earnHead, RULE,
               ok("  ◉ ON AIR") + dim("  @you ◆ · ") + head(BAND) + dim(" · 1/4 slots"), "",
-              dim("  served today  ") + head(reqK[i] + " req") + dim("   ·   ") + money("$" + bal[i]) + dim(" balance · 70% keep"),
+              dim("  served today  ") + head(reqK[i] + " req") + dim("   ·   ") + money("$" + bal[i]) + dim(" balance · 90% keep"),
               dim("  ▸ ") + money("$" + bal[i] + " payable") + dim("  ·  run ") + span("t-sel", " roger payout ")
             ], i < bal.length - 1 ? STEP : STAGE);
           }

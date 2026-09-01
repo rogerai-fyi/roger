@@ -52,7 +52,7 @@
     "tune in / share / earn",
     // --- the originals ---
     "now playing: your local model",
-    "70/30 split, live",
+    "90/10 split, live",
     "signed receipts only",
     "two-way radio for local models",
     "taking requests",

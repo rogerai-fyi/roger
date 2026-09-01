@@ -25,9 +25,9 @@ func curDialSeed(w int) model {
 		// a human station and a curated station on ONE band, plus a curated-only band
 		{NodeID: "human-node", Region: "home", Model: "gpt-oss-20b", Online: true, TPS: 40},
 		{NodeID: "proxy-node", Region: "openrouter", Model: "gpt-oss-20b", Online: true, TPS: 90,
-			Curated: true, CuratedProvider: "openrouter", PriceIn: 1.30, PriceOut: 2.60, UpstreamIn: 1.0, UpstreamOut: 2.0},
+			Curated: true, CuratedProvider: "openrouter", PriceIn: 1.10, PriceOut: 2.20, UpstreamIn: 1.0, UpstreamOut: 2.0},
 		{NodeID: "proxy-only", Region: "conifer", Model: "deepseek-v4", Online: true, TPS: 80,
-			Curated: true, CuratedProvider: "conifer", PriceIn: 0.13, PriceOut: 0.26, UpstreamIn: 0.1, UpstreamOut: 0.2},
+			Curated: true, CuratedProvider: "conifer", PriceIn: 0.11, PriceOut: 0.22, UpstreamIn: 0.1, UpstreamOut: 0.2},
 	})
 	m, _ = m.Update(balanceMsg{balance: 42.17, loggedIn: true})
 	m, _ = m.Update(tickMsg{})
@@ -155,7 +155,7 @@ func (s *curDialBDD) bandCardShowsSplit() error {
 	v := s.view()
 	if !strings.Contains(v, "upstream") || !strings.Contains(v, "routing") {
 		return fmt.Errorf("the band card must show the upstream list price and the routing "+
-			"fee separately - the consumer sees what the 30%% buys:\n%s", v)
+			"fee separately - the consumer sees what the routing fee buys:\n%s", v)
 	}
 	return nil
 }

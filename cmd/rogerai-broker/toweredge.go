@@ -2375,7 +2375,7 @@ func (b *broker) captureEdgeCharge(towerID, stationID, stationOwner string, part
 // # WHAT IT IS
 //
 // One account serving through its own relay is paid twice for one request - 90% as the Station
-// and 10% as the Tower, 80% of what an arms-length consumer paid. The two existing checks are
+// and 5% as the Tower, 95% of what an arms-length consumer paid. The two existing checks are
 // both consumer-versus-someone; neither of them can see this, because the consumer here is a
 // stranger who did nothing wrong and got what they paid for.
 //
@@ -2676,7 +2676,8 @@ func envMicros(name string) int64 {
 }
 
 // edgeTowerRateDefault is the Tower operator's share of GROSS on a relayed attempt - the
-// founder-set 10% (2026-08-13, overriding the earlier "share of net platform revenue" basis).
+// founder-set 5% since 2026-09-01 (10% from 2026-08-13, which overrode the earlier
+// "share of net platform revenue" basis).
 // Overridable by config; the cut comes out of the PLATFORM's margin (its fee drops from 10%
 // to 5% at the default), never the serving Station's 90% share. Capped at feeRate in
 // edgeShares so the platform's residual can never go negative.
