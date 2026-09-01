@@ -24,11 +24,12 @@
 
 .intg__note { margin-top: var(--s-5); max-width: 66ch; color: var(--ink-500); font-size: var(--t-sm); }
 
-/* the desk: one plate per guest, dividers drawn by the grid gap */
-/* Dividers are BORDERS on the cells, not a 1px gap showing the container through:
-   seven guests never divide evenly into an auto-fit column count, and a gap-drawn grid
-   paints the leftover slot as a grey block (the same bug the homepage plate had). */
-/* The desk was a three-up card grid, which gave seven short entries the vertical weight
+/* The desk: one row per guest, dividers drawn as BORDERS on the cells rather than as a
+   1px gap showing the container through - a gap-drawn grid paints any leftover slot as a
+   grey block (the same bug the homepage plate had). That leftover slot is also why this
+   is no longer an auto-fit grid: seven guests never divided evenly into one.
+
+   The desk was a three-up card grid, which gave seven short entries the vertical weight
    of a feature section and left a ragged last row. It reads as what it is - a register,
    the same shape as the detected-servers table above it - so each guest is now ONE ROW:
    name, how it is wired, the version it was proven at, and the line that installs it.
