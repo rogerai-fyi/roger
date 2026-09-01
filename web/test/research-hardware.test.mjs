@@ -70,10 +70,14 @@ test("hardware: a board never shows a rosier status than the catalogue does", ()
   // The stage string is copied from research-models.html, so the two pages cannot drift
   // into telling a reader different things about the same tier.
   const catalogue = compact(src("research-models.html")).replace(/&middot;/g, "·");
-  for (const c of cards()) {
-    const stage = c.stage.replace(/&middot;/g, "·");
+  // every data-stage on the page, not just the board cards: the experiments section states
+  // gates too, and an unchecked stage there is the same lie in a different box.
+  const stages = [...read(PAGE).matchAll(/data-stage="([^"]+)"/g)].map((m) => m[1]);
+  assert.ok(stages.length >= 8, `stages are declared (found ${stages.length})`);
+  for (const raw of stages) {
+    const stage = raw.replace(/&middot;/g, "·");
     assert.ok(catalogue.includes(stage),
-      `"${c.tier}" is shown as "${stage}", which appears nowhere in the model catalogue`);
+      `"${stage}" is shown on the page but appears nowhere in the model catalogue`);
   }
 });
 
@@ -170,4 +174,31 @@ test("hardware: the ladder diagram is described and does not move for a reader w
   assert.ok(compact(desc).length >= 120, "and prose a screen reader can use instead of the picture");
   assert.match(src("styles/research-hardware.css"), /prefers-reduced-motion/,
     "the animation yields to prefers-reduced-motion");
+});
+
+/* ---- the credits list, and a picture that is not what it says ---------- */
+
+test("hardware: the page indicates that the photographs were altered", () => {
+  // The credits SECTION is gone - every picture carries its own author, licence and source.
+  // What a list is still needed for is the CC BY requirement to say changes were made, and
+  // the Blackwell/Ada substitution. Both live in one notice under the grid.
+  const page = compact(read(PAGE));
+  assert.match(page, /resized, cropped and colour-graded/i,
+    "the page says the photographs were altered, as CC BY asks");
+  assert.match(page, /Blackwell has no freely licensed photograph/i,
+    "and admits which cards are illustrated with a different generation");
+});
+
+test("hardware: a photograph of a different generation says so on the picture", () => {
+  // Two cards name the RTX PRO 6000 Blackwell, which has no freely licensed photograph
+  // yet, and are illustrated with the previous Ada generation. That gap is exactly the
+  // kind a marketing page closes silently, so the picture has to admit it.
+  const page = read(PAGE);
+  for (const m of page.matchAll(/<article[^>]*class="[^"]*hw-card[^"]*"[\s\S]*?<\/article>/g)) {
+    const card = m[0];
+    if (!/Blackwell/.test(card)) continue;
+    const fig = card.match(/<figure[\s\S]*?<\/figure>/)?.[0] ?? "";
+    assert.match(fig, /Ada pictured/,
+      "a card naming Blackwell must say on the picture that an Ada-generation card is shown");
+  }
 });

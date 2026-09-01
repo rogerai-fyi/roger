@@ -54,62 +54,89 @@
         </div>
 
         <figure class="hw-figure">
-          <svg class="hw-ladder" viewBox="0 96 900 192" role="img"
+          <svg class="hw-ladder" viewBox="0 96 1180 200" role="img"
                aria-labelledby="hw-ladder-title hw-ladder-desc">
-            <title id="hw-ladder-title">The Wave spectrum across five classes of hardware</title>
-            <desc id="hw-ladder-desc">A horizontal band with five stops. At the far left,
-              Roger Edge on ESP32-class microcontrollers, a few million parameters and about
-              a tenth of a watt. Then Wave Pico at 250 to 300 million on a Raspberry Pi with
-              no GPU. Then Wave Nano at 0.8 to 1.5 billion on a Jetson-class gateway. Then
-              Wave Micro at 7 to 8 billion on an on-site server such as a Mac Studio. At the
-              far right, Wave Giga at 27 to 35 billion on a plant datacenter box such as a
-              DGX Spark. A tuning needle sweeps across the band from left to right.</desc>
+            <title id="hw-ladder-title">The Wave spectrum across eight classes of hardware</title>
+            <desc id="hw-ladder-desc">A horizontal band with eight stops, each a class of
+              machine and the model tier specified against it. From the left: Roger Edge, a
+              few million parameters on an ESP32-class microcontroller at about a tenth of a
+              watt. Wave Pico, 250 to 300 million on a Raspberry Pi with no GPU. Wave Nano,
+              0.8 to 1.5 billion on a Jetson-class gateway. Wave Micro, 7 to 8 billion on an
+              on-site server. Wave Giga, 27 to 35 billion on a plant datacenter box. Wave
+              Tera, 80 to 120 billion on a single RTX 6000-class card. Wave Peta, 150 to 200
+              billion across four such cards at around 2.4 kilowatts. And Wave Exa, over 280
+              billion, on a multi-node rack drawing ten kilowatts or more. A tuning needle
+              sweeps across the band from left to right.</desc>
 
             <g class="hw-ladder__axis">
-              <line x1="60" y1="176" x2="850" y2="176"/>
+              <line x1="46" y1="176" x2="1140" y2="176"/>
               <g class="hw-ladder__ticks">
-                <line x1="80"  y1="168" x2="80"  y2="184"/>
-                <line x1="272" y1="168" x2="272" y2="184"/>
-                <line x1="464" y1="168" x2="464" y2="184"/>
-                <line x1="656" y1="168" x2="656" y2="184"/>
-                <line x1="838" y1="168" x2="838" y2="184"/>
+                <line x1="66" y1="168" x2="66" y2="184"/>
+                <line x1="216" y1="168" x2="216" y2="184"/>
+                <line x1="366" y1="168" x2="366" y2="184"/>
+                <line x1="516" y1="168" x2="516" y2="184"/>
+                <line x1="666" y1="168" x2="666" y2="184"/>
+                <line x1="816" y1="168" x2="816" y2="184"/>
+                <line x1="966" y1="168" x2="966" y2="184"/>
+                <line x1="1114" y1="168" x2="1114" y2="184"/>
               </g>
             </g>
 
             <g class="hw-stop" data-stop="edge">
-              <circle class="hw-stop__dot" cx="80" cy="176" r="5"/>
-              <text class="hw-stop__tier" x="80" y="132">Roger Edge</text>
-              <text class="hw-stop__size" x="80" y="150">~1&ndash;10M</text>
-              <text class="hw-stop__box"  x="80" y="206">ESP32 class</text>
-              <text class="hw-stop__watt" x="80" y="224">~0.1 W</text>
+              <circle class="hw-stop__dot" cx="66" cy="176" r="4.0"/>
+              <text class="hw-stop__tier" x="66" y="132">Roger Edge</text>
+              <text class="hw-stop__size" x="66" y="150">~1&ndash;10M</text>
+              <text class="hw-stop__box"  x="66" y="206">ESP32 class</text>
+              <text class="hw-stop__watt" x="66" y="224">~0.1 W</text>
             </g>
             <g class="hw-stop" data-stop="pico">
-              <circle class="hw-stop__dot" cx="272" cy="176" r="7"/>
-              <text class="hw-stop__tier" x="272" y="132">Wave Pico</text>
-              <text class="hw-stop__size" x="272" y="150">250&ndash;300M</text>
-              <text class="hw-stop__box"  x="272" y="206">Raspberry Pi</text>
-              <text class="hw-stop__watt" x="272" y="224">~5 W</text>
+              <circle class="hw-stop__dot" cx="216" cy="176" r="5.0"/>
+              <text class="hw-stop__tier" x="216" y="132">Wave Pico</text>
+              <text class="hw-stop__size" x="216" y="150">250&ndash;300M</text>
+              <text class="hw-stop__box"  x="216" y="206">Raspberry Pi</text>
+              <text class="hw-stop__watt" x="216" y="224">~5 W</text>
             </g>
             <g class="hw-stop" data-stop="nano">
-              <circle class="hw-stop__dot" cx="464" cy="176" r="9"/>
-              <text class="hw-stop__tier" x="464" y="132">Wave Nano</text>
-              <text class="hw-stop__size" x="464" y="150">0.8&ndash;1.5B</text>
-              <text class="hw-stop__box"  x="464" y="206">Jetson gateway</text>
-              <text class="hw-stop__watt" x="464" y="224">~15 W</text>
+              <circle class="hw-stop__dot" cx="366" cy="176" r="6.5"/>
+              <text class="hw-stop__tier" x="366" y="132">Wave Nano</text>
+              <text class="hw-stop__size" x="366" y="150">0.8&ndash;1.5B</text>
+              <text class="hw-stop__box"  x="366" y="206">Jetson gateway</text>
+              <text class="hw-stop__watt" x="366" y="224">~15 W</text>
             </g>
             <g class="hw-stop" data-stop="micro">
-              <circle class="hw-stop__dot" cx="656" cy="176" r="12"/>
-              <text class="hw-stop__tier" x="656" y="132">Wave Micro</text>
-              <text class="hw-stop__size" x="656" y="150">7&ndash;8B</text>
-              <text class="hw-stop__box"  x="656" y="206">on-site server</text>
-              <text class="hw-stop__watt" x="656" y="224">~90 W</text>
+              <circle class="hw-stop__dot" cx="516" cy="176" r="8.0"/>
+              <text class="hw-stop__tier" x="516" y="132">Wave Micro</text>
+              <text class="hw-stop__size" x="516" y="150">7&ndash;8B</text>
+              <text class="hw-stop__box"  x="516" y="206">on-site server</text>
+              <text class="hw-stop__watt" x="516" y="224">~90 W</text>
             </g>
             <g class="hw-stop" data-stop="giga">
-              <circle class="hw-stop__dot" cx="838" cy="176" r="16"/>
-              <text class="hw-stop__tier" x="838" y="132">Wave Giga</text>
-              <text class="hw-stop__size" x="838" y="150">27&ndash;35B</text>
-              <text class="hw-stop__box"  x="838" y="206">plant datacenter</text>
-              <text class="hw-stop__watt" x="838" y="224">~240 W</text>
+              <circle class="hw-stop__dot" cx="666" cy="176" r="10.0"/>
+              <text class="hw-stop__tier" x="666" y="132">Wave Giga</text>
+              <text class="hw-stop__size" x="666" y="150">27&ndash;35B</text>
+              <text class="hw-stop__box"  x="666" y="206">plant datacenter</text>
+              <text class="hw-stop__watt" x="666" y="224">~240 W</text>
+            </g>
+            <g class="hw-stop" data-stop="tera">
+              <circle class="hw-stop__dot" cx="816" cy="176" r="12.0"/>
+              <text class="hw-stop__tier" x="816" y="132">Wave Tera</text>
+              <text class="hw-stop__size" x="816" y="150">80&ndash;120B</text>
+              <text class="hw-stop__box"  x="816" y="206">1&times; RTX 6000</text>
+              <text class="hw-stop__watt" x="816" y="224">~600 W</text>
+            </g>
+            <g class="hw-stop" data-stop="peta">
+              <circle class="hw-stop__dot" cx="966" cy="176" r="14.5"/>
+              <text class="hw-stop__tier" x="966" y="132">Wave Peta</text>
+              <text class="hw-stop__size" x="966" y="150">150&ndash;200B</text>
+              <text class="hw-stop__box"  x="966" y="206">4&times; RTX 6000</text>
+              <text class="hw-stop__watt" x="966" y="224">~2.4 kW</text>
+            </g>
+            <g class="hw-stop" data-stop="exa">
+              <circle class="hw-stop__dot" cx="1114" cy="176" r="18.0"/>
+              <text class="hw-stop__tier" x="1114" y="132">Wave Exa</text>
+              <text class="hw-stop__size" x="1114" y="150">&gt;280B</text>
+              <text class="hw-stop__box"  x="1114" y="206">rack, multi-node</text>
+              <text class="hw-stop__watt" x="1114" y="224">10 kW+</text>
             </g>
 
             <g class="hw-needle" aria-hidden="true">
@@ -117,8 +144,8 @@
               <polygon class="hw-needle__head" points="-5,106 5,106 0,116"/>
             </g>
 
-            <text class="hw-ladder__foot" x="60"  y="272">sensor</text>
-            <text class="hw-ladder__foot hw-ladder__foot--end" x="850" y="272">datacenter</text>
+            <text class="hw-ladder__foot" x="46"  y="272">sensor</text>
+            <text class="hw-ladder__foot hw-ladder__foot--end" x="1140" y="272">frontier datacenter</text>
           </svg>
           <figcaption class="fig">FIG. 1 - the spectrum is a hardware ladder before it is a
             model ladder. Hover a board below to find its stop.</figcaption>
@@ -131,7 +158,7 @@
       <div class="wrap">
         <div class="section__head section__head--left">
           <span class="sectionno">&sect;2 / THE BOARDS</span>
-          <h2>Seven machines, and the tier each one is a target for.</h2>
+          <h2>Ten machines, and the tier each one is a target for.</h2>
           <p>Every card names the tier the board is specified against and that tier&rsquo;s
              stage, copied from
              <a href="/research-models.html">the model catalogue</a> and checked against it
@@ -270,7 +297,7 @@
             </div>
           </article>
 
-          <article class="hw-card hw-card--wide" data-board="dgxspark" data-tier="Wave Giga"
+          <article class="hw-card" data-board="dgxspark" data-tier="Wave Giga"
                    data-stage="Base selection" data-today="station" data-stop="giga">
             <figure class="hw-card__shot">
               <img src="assets/hardware/dgxspark.webp" width="1000" height="750" loading="lazy"
@@ -292,7 +319,80 @@
             </div>
           </article>
 
+          <article class="hw-card" data-board="rtx6000" data-tier="Wave Tera"
+                   data-stage="Architecture and data design" data-today="station" data-stop="tera">
+            <figure class="hw-card__shot">
+              <img src="assets/hardware/rtx6000.webp" width="1000" height="750" loading="lazy"
+                   alt="A single professional NVIDIA RTX 6000 graphics card lying flat under studio light, its circular blower fan and brushed hub facing the camera.">
+              <figcaption class="hw-credit">RTX 6000 Ada pictured &middot; Photo <a href="https://commons.wikimedia.org/wiki/File:4%C3%97_NVIDIA_RTX%E2%84%A2_6000_der_Ada-Generation_(%E6%9E%81%E5%AE%A2%E6%B9%BEGeekerwan)_03.png" target="_blank" rel="noopener noreferrer">Geekerwan</a> &middot; CC BY 3.0</figcaption>
+            </figure>
+            <div class="hw-card__body">
+              <h3>RTX PRO 6000 Blackwell</h3>
+              <p class="hw-card__spec mono">96 GB GDDR7 &middot; ~600 W &middot; one slot</p>
+              <p>The largest model that still fits on one card. 96 GB holds an 80&ndash;120B
+                 model at 4-bit without splitting it across devices, which is the line Wave
+                 Tera is drawn at: cross-site reasoning that correlates faults and trends
+                 across many plants, on a single machine an enterprise already racks.</p>
+              <dl class="hw-card__meta">
+                <div><dt>Target tier</dt><dd>Wave Tera</dd></div>
+                <div><dt>Stage</dt><dd class="hw-stage">Architecture and data design</dd></div>
+                <div><dt>A station?</dt><dd>Yes - a large one</dd></div>
+              </dl>
+            </div>
+          </article>
+
+          <article class="hw-card" data-board="rtx6000x4" data-tier="Wave Peta"
+                   data-stage="Pruning plan" data-today="station" data-stop="peta">
+            <figure class="hw-card__shot">
+              <img src="assets/hardware/rtx6000x4.webp" width="1000" height="750" loading="lazy"
+                   alt="Four professional NVIDIA RTX 6000 cards installed side by side in a workstation, with liquid-cooling tubing looping over the CPU block beside them.">
+              <figcaption class="hw-credit">RTX 6000 Ada pictured &middot; Photo <a href="https://commons.wikimedia.org/wiki/File:4%C3%97_NVIDIA_RTX%E2%84%A2_6000_der_Ada-Generation_(%E6%9E%81%E5%AE%A2%E6%B9%BEGeekerwan)_01.png" target="_blank" rel="noopener noreferrer">Geekerwan</a> &middot; CC BY 3.0</figcaption>
+            </figure>
+            <div class="hw-card__body">
+              <h3>Four of them, in one box</h3>
+              <p class="hw-card__spec mono">384 GB across 4 cards &middot; ~2.4 kW</p>
+              <p>Past one card, memory stops being the wall and interconnect starts. Four
+                 cards in a chassis carry a 150&ndash;200B model - the Wave Peta band, which
+                 is specified to be pruned and distilled down from the frontier flagship
+                 rather than trained from nothing.</p>
+              <dl class="hw-card__meta">
+                <div><dt>Target tier</dt><dd>Wave Peta</dd></div>
+                <div><dt>Stage</dt><dd class="hw-stage">Pruning plan</dd></div>
+                <div><dt>A station?</dt><dd>Yes - one node, four cards</dd></div>
+              </dl>
+            </div>
+          </article>
+
+          <article class="hw-card hw-card--wide" data-board="datacenter" data-tier="Wave Exa"
+                   data-stage="The family teacher" data-today="station" data-stop="exa">
+            <figure class="hw-card__shot">
+              <img src="assets/hardware/datacenter.webp" width="1000" height="750" loading="lazy"
+                   alt="An aisle between two rows of white perforated server cabinets in a data centre, lit from a run of ceiling strip lights down the centre.">
+              <figcaption class="hw-credit">Photo <a href="https://commons.wikimedia.org/wiki/File:Racks_Amravati_Data_Center.jpg" target="_blank" rel="noopener noreferrer">PiDatacenters</a> &middot; CC BY-SA 4.0</figcaption>
+            </figure>
+            <div class="hw-card__body">
+              <h3>A rack, and more than one node</h3>
+              <p class="hw-card__spec mono">multi-node &middot; 10 kW+ &middot; frontier class</p>
+              <p>The top of the ladder, and the only stop on this page where the weights we
+                 actually publish will fit: <b>DeepSeek-V4-Flash MTP</b> is 284B total with
+                 13B active per token, which is the Wave Exa class - the teacher the rest of
+                 the family learns from, and the one row here you can download today rather
+                 than wait for.</p>
+              <dl class="hw-card__meta">
+                <div><dt>Target tier</dt><dd>Wave Exa</dd></div>
+                <div><dt>Stage</dt><dd class="hw-stage">The family teacher</dd></div>
+                <div><dt>Download</dt><dd><a href="https://huggingface.co/rogerai-fyi/DeepSeek-V4-Flash-MTP-GGUF" target="_blank" rel="noopener noreferrer">the GGUF build &rarr;</a></dd></div>
+              </dl>
+            </div>
+          </article>
+
         </div>
+        <p class="hw-photonote">Photographs are Creative Commons, credited on each picture
+           and linked to their source; all were resized, cropped and colour-graded for this
+           page. The RTX PRO 6000 Blackwell has no freely licensed photograph yet, so the two
+           cards naming it show the previous Ada generation of the same card, marked as such.
+           Board names and marks belong to their owners and identify the hardware; no
+           endorsement is implied.</p>
       </div>
     </section>
 
@@ -310,8 +410,8 @@
             <span class="hw-today__tag mono">ONE ARTIFACT</span>
             <h3>DeepSeek-V4-Flash MTP, in GGUF</h3>
             <p>284B total, 13B active, multi-token prediction, quantised and published by us.
-               It is the only set of weights on this site you can download right now, and it
-               wants the largest machine here or bigger. The build story, including what did
+               It is the only set of weights on this site you can download right now, and the
+               rack at the top of the ladder is where it lands. The build story, including what did
                not work, is in
                <a href="/broadcasts-deepseek-mtp-gguf.html">the broadcast</a>.</p>
             <a class="hw-today__link mono" href="https://huggingface.co/rogerai-fyi/DeepSeek-V4-Flash-MTP-GGUF" target="_blank" rel="noopener noreferrer">huggingface.co/rogerai-fyi &rarr;</a>
@@ -338,30 +438,70 @@
       </div>
     </section>
 
-    <!-- ---------- §4 CREDITS ---------- -->
-    <section class="section band" id="credits">
+    <!-- ---------- §4 EXPERIMENTS ---------- -->
+    <section class="section band" id="experiments">
       <div class="wrap">
         <div class="section__head section__head--left">
-          <span class="sectionno">&sect;4 / CREDITS</span>
-          <h2>The photographs are other people&rsquo;s work.</h2>
-          <p>Every board here was photographed by somebody who then licensed it for reuse.
-             The licence each one carries is listed with it, and the link goes to the source
-             file rather than to a copy of it.</p>
+          <span class="sectionno">&sect;4 / EXPERIMENTS</span>
+          <h2>The ladder is a result, not a plan.</h2>
+          <p>Every stop above was placed by trying to break it: pushing a frontier model
+             down onto hardware that should not hold it, and pushing a tiny one up until it
+             is useful. These are the runs that decide where the lines actually fall, with
+             the stage each is at and what has come out so far.</p>
         </div>
-        <ul class="hw-credits">
-          <li><b>ESP32</b> - <a href="https://commons.wikimedia.org/wiki/File:ESP32_on_Lolin32_Lite_clone_board_cropped.jpg" target="_blank" rel="noopener noreferrer">Ubahnverleih</a>, CC0, via Wikimedia Commons</li>
-          <li><b>Arduino Uno</b> - <a href="https://commons.wikimedia.org/wiki/File:Arduino_Uno_board.jpg" target="_blank" rel="noopener noreferrer">JrawX</a>, CC0, via Wikimedia Commons</li>
-          <li><b>Raspberry Pi Pico</b> - <a href="https://commons.wikimedia.org/wiki/File:Raspberry_Pi_Pico_oblique.jpg" target="_blank" rel="noopener noreferrer">Phiarc</a>, CC BY-SA 4.0, via Wikimedia Commons</li>
-          <li><b>Raspberry Pi 5</b> - <a href="https://commons.wikimedia.org/wiki/File:Raspberry_Pi_5.jpg" target="_blank" rel="noopener noreferrer">SimonWaldherr</a>, CC BY 4.0, via Wikimedia Commons</li>
-          <li><b>NVIDIA Jetson dev kit</b> - <a href="https://commons.wikimedia.org/wiki/File:Nvidia_Jetson_Nano_2_Development_Kit.jpeg" target="_blank" rel="noopener noreferrer">Ubahnverleih</a>, CC0, via Wikimedia Commons</li>
-          <li><b>Mac Studio</b> - <a href="https://commons.wikimedia.org/wiki/File:Mac_Studio_(2022)_front.jpg" target="_blank" rel="noopener noreferrer">Yasu</a>, CC BY-SA 3.0, via Wikimedia Commons</li>
-          <li><b>NVIDIA DGX Spark</b> - <a href="https://commons.wikimedia.org/wiki/File:Nvidia_DGX_Spark_oblique_view_dllu.jpg" target="_blank" rel="noopener noreferrer">Daniel Lu</a>, CC BY-SA 4.0, via Wikimedia Commons</li>
-        </ul>
-        <p class="hw-credits__note">Photographs were resized, cropped and colour-graded for
-           this page. Board names and marks belong to their owners and are used to identify
-           the hardware; no endorsement is implied.</p>
+
+        <div class="hw-exps">
+          <article class="hw-exp" data-exp="kimi" data-stage="Current gate &middot; 16K saliency calibration">
+            <span class="hw-exp__tag mono">FROM THE TOP</span>
+            <h3>Can 2.8 trillion parameters fit on one workstation?</h3>
+            <p>Kimi-K3 is 2.8T total with 104B active per token. The run tests whether
+               pruning, low-precision execution and conversion together can put a
+               frontier-scale model on a single high-memory box - which, if it works, moves
+               the right-hand end of this ladder several stops to the left.</p>
+            <p class="hw-exp__stage mono">Current gate &middot; 16K saliency calibration</p>
+          </article>
+
+          <article class="hw-exp" data-exp="mtp" data-stage="Field note">
+            <span class="hw-exp__tag mono">SHIPPED</span>
+            <h3>Why did a 284B model decode at 2 tokens a second?</h3>
+            <p>The DeepSeek-V4-Flash work started as a hardware-fit question and turned into
+               a runtime one: expert precision mattered more than any flag, and the format
+               was missing multi-token prediction entirely, so we built MTP into the
+               converter. The result is the one artifact on this page you can download.</p>
+            <p class="hw-exp__stage mono">Field note &middot; <a href="/broadcasts-deepseek-mtp-gguf.html">the whole build, including what failed</a></p>
+          </article>
+
+          <article class="hw-exp" data-exp="concurrency">
+            <span class="hw-exp__tag mono">MEASURED</span>
+            <h3>How many people does one card actually serve?</h3>
+            <p>A stop on this ladder is only real if the box serves more than one person at
+               a time, so throughput is measured in aggregate under concurrency rather than
+               single-stream. That number decides both which tier fits a box and whether
+               serving on it pays for its own electricity.</p>
+            <p class="hw-exp__stage mono">Published &middot; <a href="/broadcasts-one-gpu-many-users.html">concurrency</a> and <a href="/broadcasts-what-a-million-tokens-costs.html">what it costs</a></p>
+          </article>
+
+          <article class="hw-exp" data-exp="pico" data-stage="Certifying the waypoint &middot; 300M retrain next">
+            <span class="hw-exp__tag mono">FROM THE BOTTOM</span>
+            <h3>How small can a model get and still be worth asking?</h3>
+            <p>The other direction. Wave Pico targets 250&ndash;300M on a Raspberry Pi with
+               no accelerator and a response near 50 ms - small enough to sit where the
+               network stops, large enough to answer rather than classify. The waypoint is
+               trained; the retrain at full size is the next gate.</p>
+            <p class="hw-exp__stage mono">Certifying the waypoint &middot; 300M retrain next</p>
+          </article>
+        </div>
+
+        <div class="man-note">
+          <span class="man-note__tag mono">HOW WE PUBLISH</span>
+          <p>Measurements name the hardware, the artifact, the runtime and the settings, and
+             negative results stay up: the 2 tok/s mystery above is on the site because it
+             was wrong for four different reasons before it was right. Everything lands in
+             <a href="/broadcasts.html">Open Air Waves</a> as it happens.</p>
+        </div>
       </div>
     </section>
+
   </main>
 
   <!-- include: footer.html anchors=/ -->

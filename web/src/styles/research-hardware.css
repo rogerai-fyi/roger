@@ -50,10 +50,10 @@
   animation: hw-sweep 4.2s var(--ease-in-out) 1 forwards;
 }
 @keyframes hw-sweep {
-  0%   { transform: translateX(60px);  opacity: 0; }
+  0%   { transform: translateX(46px);   opacity: 0; }
   8%   { opacity: 1; }
   92%  { opacity: 1; }
-  100% { transform: translateX(850px); opacity: 0; }
+  100% { transform: translateX(1140px); opacity: 0; }
 }
 
 /* ---- §2 the board grid ------------------------------------------------ */
@@ -152,17 +152,47 @@
 .hw-today__item p { margin: 0 0 var(--s-4); line-height: var(--lh-body); color: var(--ink-700); }
 .hw-today__link { font-size: var(--t-xs); }
 
-/* ---- §4 credits -------------------------------------------------------- */
+/* ---- the licence notice under the grid -------------------------------- */
 
-.hw-credits { margin: var(--s-6) 0 0; padding: 0; list-style: none; }
-.hw-credits li {
-  padding: 9px 0; border-bottom: 1px solid var(--hairline);
-  font-size: var(--t-sm); color: var(--ink-500);
+/* What the credits SECTION used to carry that the per-picture ribbons do not: CC BY asks
+   that changes be indicated, and the Blackwell/Ada substitution has to be admitted
+   somewhere a reader will see it. One line under the pictures it applies to. */
+.hw-photonote {
+  margin: var(--s-5) 0 0; max-width: 74ch;
+  font-size: var(--t-xs); line-height: 1.6; color: var(--ink-400);
 }
-.hw-credits li b { color: var(--ink-900); font-weight: var(--weight-semi); }
-.hw-credits__note {
-  margin: var(--s-4) 0 0; font-size: var(--t-xs);
-  line-height: 1.55; color: var(--ink-400); max-width: 62ch;
+
+/* ---- §4 the experiments ------------------------------------------------ */
+
+/* Two columns, not auto-fit: there are four runs, and auto-fit lands three across at this
+   width and leaves the fourth alone on its own row - the same orphan the board grid had. */
+.hw-exps {
+  display: grid; gap: var(--s-5); margin-top: var(--s-8);
+  grid-template-columns: 1fr;
+}
+@media (min-width: 760px) {
+  .hw-exps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+.hw-exp {
+  padding: var(--s-5);
+  background: var(--white);
+  border: 1px solid var(--hairline-2); border-radius: var(--r-md);
+}
+.hw-exp__tag {
+  display: block; margin-bottom: var(--s-3);
+  font-size: var(--t-micro); letter-spacing: var(--tracking-label);
+  text-transform: uppercase; color: var(--live);
+}
+.hw-exp h3 {
+  margin: 0 0 var(--s-3); font-size: var(--t-h3);
+  letter-spacing: var(--tracking-h3); color: var(--ink-900);
+}
+.hw-exp p { margin: 0; line-height: var(--lh-body); color: var(--ink-700); }
+/* the stage line is the honest part: what gate this run is actually at right now */
+.hw-exp__stage {
+  margin-top: var(--s-4) !important; padding-top: var(--s-3);
+  border-top: 1px solid var(--hairline);
+  font-size: var(--t-xs) !important; color: var(--ink-500) !important;
 }
 
 /* ---- motion ------------------------------------------------------------ */
