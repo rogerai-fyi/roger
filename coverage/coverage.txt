@@ -1461,7 +1461,7 @@ rogerai.fm/roger/v6/internal/client/login.go:229:			LogoutReturn			60.0%
 rogerai.fm/roger/v6/internal/client/login.go:241:			Logout				85.7%
 rogerai.fm/roger/v6/internal/client/login.go:256:			Whoami				100.0%
 rogerai.fm/roger/v6/internal/client/login.go:283:			startDeviceFlow			92.9%
-rogerai.fm/roger/v6/internal/client/login.go:305:			pollDeviceToken			90.5%
+rogerai.fm/roger/v6/internal/client/login.go:305:			pollDeviceToken			85.7%
 rogerai.fm/roger/v6/internal/client/login.go:347:			postSigned			100.0%
 rogerai.fm/roger/v6/internal/client/login.go:355:			maxInt				100.0%
 rogerai.fm/roger/v6/internal/client/payout.go:49:			payoutErr			100.0%
