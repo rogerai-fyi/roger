@@ -2305,7 +2305,8 @@ func (b *broker) captureEdgeCharge(towerID, stationID, stationOwner string, part
 	// and the tower's relay cut comes out of the MARKUP the routing fee collected - at the
 	// defaults, markup pool 23.08% of cost against a 10% tower cut, so the pool covers it
 	// and the pass-through is never invaded. The platform keeps the remainder.
-	if b.nodeCurated(stationID) {
+	stationCurated := b.nodeCurated(stationID)
+	if stationCurated {
 		stationShare = curatedOwnerShare(cost)
 		if stationShare+towerShare > cost {
 			// A future tower-rate change must shrink the TOWER's cut, never the
@@ -2353,7 +2354,9 @@ func (b *broker) captureEdgeCharge(towerID, stationID, stationOwner string, part
 	r := protocol.UsageReceipt{
 		RequestID: attemptID, Model: model,
 		PromptTokens: int(inUnits), CompletionTokens: int(outUnits), TS: now.Unix(),
-		Curated: b.nodeCurated(stationID),
+		// The SAME verdict the split used, taken once - a second live read could differ
+		// mid-flight and stamp a receipt that contradicts its own settlement.
+		Curated: stationCurated,
 	}
 	// The Tower lot is tagged with a "tower:" node prefix so the earnings surface can tell a
 	// Tower-RELAY share apart from a node-SERVING share for the same operator (the dashboard shows

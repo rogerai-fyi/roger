@@ -812,8 +812,14 @@ func (b band) withoutCurated() band {
 				nb.free = true
 			}
 			if nb.cheapest == nil || o.PriceOut < nb.minOut {
-				nb.minOut, nb.minIn = o.PriceOut, o.PriceIn
+				nb.minOut = o.PriceOut
 				nb.cheapest = &nb.all[len(nb.all)-1]
+			}
+			// minIn is its OWN minimum, exactly as groupBands tracks it: taking the
+			// cheapest-by-OUT offer's in-price showed a wrong in-price whenever the two
+			// minima lived on different stations.
+			if nb.minIn == 0 || (o.PriceIn > 0 && o.PriceIn < nb.minIn) {
+				nb.minIn = o.PriceIn
 			}
 			if o.PriceOut > nb.maxOut {
 				nb.maxOut = o.PriceOut

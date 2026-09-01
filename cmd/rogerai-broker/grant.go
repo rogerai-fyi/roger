@@ -269,7 +269,11 @@ func (b *broker) settleRequest(payer, node string, held, cost float64, rec proto
 	// fee the markup collected. The standard split here would strand a curated operator
 	// 9% underwater on every token. The receipt is marked so ledgers and money sweeps can
 	// total curated flow apart from human supply.
-	if b.nodeCurated(node) {
+	// The STAMPED receipt outranks the live registry: a registration evicted mid-flight
+	// (TTL, restart) would otherwise settle a curated receipt at the standard split - the
+	// 9% underwater bug wearing an eviction. The live read remains the fallback for the
+	// unsigned paths that stamped just above.
+	if rec.Curated || b.nodeCurated(node) {
 		ownerShare = curatedOwnerShare(cost)
 	}
 	if b.nodeOwnerBanned(node) {
