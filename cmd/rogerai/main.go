@@ -1048,6 +1048,25 @@ func shareModelArg(args []string) (model string, rest []string) {
 	return "", args
 }
 
+// validateCuratedShare enforces the curated flag contract CLI-side, before any probe or
+// register: a curated station fronts a NAMED commercial endpoint, so --curated without an
+// explicit --upstream would aim the "curated" label at whatever local model auto-detect
+// finds - the exact misrepresentation the flag exists to prevent. Zero upstream prices
+// stay legal (a free upstream posts free); negative ones are nonsense the broker would
+// refuse anyway, caught here with a usable sentence.
+func validateCuratedShare(curated, upstream string, upIn, upOut float64) error {
+	if curated == "" {
+		return nil
+	}
+	if upstream == "" {
+		return fmt.Errorf("--curated %s needs an explicit --upstream: a curated station fronts that provider's endpoint, not an auto-detected local model", curated)
+	}
+	if upIn < 0 || upOut < 0 {
+		return fmt.Errorf("--upstream-price-in/out cannot be negative")
+	}
+	return nil
+}
+
 func cmdShare(cfg config, args []string) error {
 	// Defaults inherit the saved onboarding share config (model + price) when set,
 	// so `roger share` after the wizard Just Works with the choices already made.
@@ -1120,7 +1139,7 @@ func cmdShare(cfg config, args []string) error {
 	// the network. It is the local, advisory minimum-hardware preflight (see preflight.go);
 	// it reports and exits, and it gates nothing - a share below the bar still runs.
 	check := fs.Bool("check", false, "check this machine against the suggested minimum hardware and exit. Local only - nothing is sent, and nothing is blocked either way")
-	curated := fs.String("curated", "", "declare this station a CURATED proxy for the named commercial provider (e.g. openrouter). Requires --upstream + --upstream-price-in/out; the broker posts your declared list price + its routing markup and settles the list back to you as pass-through")
+	curated := fs.String("curated", "", "declare this station a CURATED proxy for the named commercial provider (e.g. openrouter). Requires an explicit --upstream (the commercial endpoint); declare its list via --upstream-price-in/out (zero = a free upstream). The broker posts list + its routing markup and settles the list back to you as pass-through")
 	upIn := fs.Float64("upstream-price-in", 0, "curated: the upstream's list $/1M input the broker derives the posted price from")
 	upOut := fs.Float64("upstream-price-out", 0, "curated: the upstream's list $/1M output")
 	advanced := fs.Bool("advanced", false, "show advanced flags (--node --region --parallel --upstream --modality --ctx --confidential --free-window --schedule --curated --upstream-price-in --upstream-price-out)")
@@ -1149,6 +1168,9 @@ needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
 	// should not have their upstream probed, or a login demanded, to find out.
 	if *check {
 		return runSharePreflight(os.Stdout, sharePreflight())
+	}
+	if err := validateCuratedShare(strings.TrimSpace(*curated), strings.TrimSpace(*upstream), *upIn, *upOut); err != nil {
+		return err
 	}
 	if *advanced {
 		fmt.Println("advanced flags: --node --region --parallel --upstream --upstream-key --modality --ctx --confidential --free-window --schedule")

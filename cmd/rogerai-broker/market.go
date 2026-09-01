@@ -525,8 +525,12 @@ func (b *broker) computeMarket() any {
 			successRate = a.successSum / float64(a.successSeen)
 		}
 		quality := 1.0 // optimistic until measured
-		if a.providers > 0 {
-			quality = a.qualitySum / float64(a.providers)
+		// The mean runs over EVERY node that contributed to qualitySum - curated
+		// included. Dividing by the human-only providers count published Quality ~3.0
+		// on a 0..1 field for a 1-human+2-curated band and inflated the signal's
+		// trust term (pre-push audit; pinned by curated_market_quality_test.go).
+		if n := a.providers + a.curated; n > 0 {
+			quality = a.qualitySum / float64(n)
 		}
 		terms := computeSignal(signalInput{
 			providers: a.providers, inflight: a.inflight, bestTPS: a.bestTPS, ttftMs: a.bestTTFT,

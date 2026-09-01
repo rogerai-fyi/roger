@@ -305,6 +305,13 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 				jsonErr(w, http.StatusBadRequest, fmt.Sprintf("curated offer %q posts a price below its declared upstream list (in %.4f<%.4f or out %.4f<%.4f): underwater on every token, refused", o.Model, o.PriceIn, o.UpstreamIn, o.PriceOut, o.UpstreamOut))
 				return
 			}
+			// An ABOVE-list explicit price used to be silently overwritten by the
+			// derivation, hiding the operator's mistaken belief that they set their own
+			// posted price. Any explicit price that is not the list itself is refused.
+			if (o.PriceIn != 0 && o.PriceIn != o.UpstreamIn) || (o.PriceOut != 0 && o.PriceOut != o.UpstreamOut) {
+				jsonErr(w, http.StatusBadRequest, fmt.Sprintf("curated offer %q supplies its own posted price: the broker derives the posted price from the declared upstream list - leave price-in/out zero (or set them to the list itself)", o.Model))
+				return
+			}
 			o.PriceIn = curatedPosted(o.UpstreamIn)
 			o.PriceOut = curatedPosted(o.UpstreamOut)
 		}

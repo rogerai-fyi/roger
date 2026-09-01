@@ -62,3 +62,28 @@ func TestCuratedShareIsAnEarningNodeToTheLoginGate(t *testing.T) {
 		t.Fatal("an anonymous curated share with a priced upstream registered as an earning node")
 	}
 }
+
+func TestCuratedExplicitPriceMustEqualTheDerivation(t *testing.T) {
+	// The posted price of a curated offer is DERIVED (list x the one broker-owned markup
+	// constant). Below-list was already refused as underwater; an ABOVE-list explicit
+	// price was silently overwritten, which hides an operator's mistaken belief that
+	// they set their own posted price. Any explicit price that is not the list is refused.
+	b, userPriv, nodePriv, nodePub := newBandBroker(t)
+	reg := protocol.NodeRegistration{
+		NodeID: "curc3", PubKey: nodePub, BridgeToken: "tok", TS: time.Now().Unix(),
+		Curated: true, CuratedProvider: "openrouter",
+		Offers: []protocol.ModelOffer{{Model: "m", Ctx: 8192, UpstreamIn: 1, UpstreamOut: 2, PriceOut: 4}},
+	}
+	reg.SignRegistration(nodePriv)
+	body, _ := json.Marshal(reg)
+	r := httptest.NewRequest(http.MethodPost, "/nodes/register", bytes.NewReader(body))
+	signReq(r, userPriv, body)
+	w := httptest.NewRecorder()
+	b.register(w, r)
+	if w.Code == http.StatusOK {
+		t.Fatal("an explicit curated price above the list registered (silently overwritten)")
+	}
+	if !strings.Contains(w.Body.String(), "derive") {
+		t.Fatalf("the rejection should say the price is derived, got: %s", w.Body.String())
+	}
+}
