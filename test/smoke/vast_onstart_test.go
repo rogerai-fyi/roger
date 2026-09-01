@@ -1,10 +1,12 @@
 package smoke
 
 import (
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -40,10 +42,23 @@ func envWithoutRoger() []string {
 	return out
 }
 
-// stubGPU puts an nvidia-smi on PATH that reports one card. Without it these tests pass or
-// fail on whether the HOST has a GPU: this box has four, the coverage runner has none, so the
-// dry-run cases were green here and red there. The script's GPU check is deliberate and
-// fires in dry run too - so a test that exercises anything else has to fix the answer.
+// freePort asks the kernel for a port, then releases it: close enough for "nothing is
+// listening here", and it cannot collide with whatever this machine happens to run.
+func freePort(t *testing.T) int {
+	t.Helper()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := l.Addr().(*net.TCPAddr).Port
+	_ = l.Close()
+	return p
+}
+
+// stubGPU puts an nvidia-smi on PATH that reports one card, or none. Without it these tests
+// pass or fail on whether the HOST has a GPU: this box has four, the coverage runner has
+// none, so the dry-run cases were green here and red there. The script's GPU check is
+// deliberate and fires in dry run too, so a test about anything else has to fix the answer.
 func stubGPU(t *testing.T, ok bool) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -195,8 +210,12 @@ func TestVastOnstartRefusesAGpulessBoxItWouldHaveToServeOn(t *testing.T) {
 	// check, which is what the first version of this test actually measured.
 	home := t.TempDir()
 	cmd := exec.Command("bash", filepath.Join("..", "..", "web", "src", "vast-onstart.sh"))
+	// A port nothing is on. The script skips the GPU check when something already serves
+	// the upstream - correct behaviour, but it would silently turn this test into a no-op
+	// on a machine running anything on the default 8000.
 	cmd.Env = append(envWithoutRoger(), "ROGER_DRY_RUN=1", "HOME="+home,
 		"XDG_CONFIG_HOME="+filepath.Join(home, ".config"),
+		"ROGER_PORT="+strconv.Itoa(freePort(t)),
 		"PATH="+stubGPU(t, false))
 	out, err := cmd.CombinedOutput()
 	// NOT a substring search: the STATUS line already says "nvidia-smi not found", so a
@@ -239,5 +258,44 @@ func TestVastOnstartSaysWhenNoTokenIsSet(t *testing.T) {
 	low := strings.ToLower(out)
 	if !strings.Contains(low, "gated") && !strings.Contains(low, "no hugging") {
 		t.Errorf("with no token set, the plan should mention gated models:\n%s", out)
+	}
+}
+
+func TestVastOnstartDoesNotExportTheTokenProcessWide(t *testing.T) {
+	// The credential is for the model server and nothing else. `export` would also hand it
+	// to the `exec roger share` this script ends with, which has no use for it - and the
+	// comment there once claimed the opposite, which is the wrong thing to be wrong about.
+	// It is scoped to the one command via env(1); this fails if it goes back to an export.
+	src, err := os.ReadFile(filepath.Join("..", "..", "web", "src", "vast-onstart.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if regexp.MustCompile(`export\s+HF_TOKEN|export\s+HUGGING_FACE_HUB_TOKEN`).Match(src) {
+		t.Error("the HuggingFace token must not be exported process-wide, only scoped to the server")
+	}
+	if !regexp.MustCompile(`env \$\{HF_TOKEN_IN:\+`).Match(src) {
+		t.Error("expected the token to be scoped onto the server command with env(1)")
+	}
+}
+
+func TestVastOnstartDropsTheTokenBeforeHandingOverToTheClient(t *testing.T) {
+	// Scoping the vLLM launch was only half of it: a token the OPERATOR exported in the
+	// instance environment - which is how Vast expects you to pass one - would still be
+	// inherited by the `exec roger share` at the end. The client never needs it.
+	src, err := os.ReadFile(filepath.Join("..", "..", "web", "src", "vast-onstart.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(src)
+	unset := regexp.MustCompile(`(?m)^unset .*HF_TOKEN.*HUGGING_FACE_HUB_TOKEN.*$`).FindStringIndex(body)
+	if unset == nil {
+		t.Fatal("the token variables must be unset before the client is exec'd")
+	}
+	execAt := regexp.MustCompile(`(?m)^exec roger `).FindStringIndex(body)
+	if execAt == nil {
+		t.Fatal("expected the script to exec the client")
+	}
+	if unset[0] > execAt[0] {
+		t.Error("the unset must come BEFORE the exec, or it never runs")
 	}
 }
