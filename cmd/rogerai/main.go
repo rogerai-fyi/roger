@@ -1120,7 +1120,10 @@ func cmdShare(cfg config, args []string) error {
 	// the network. It is the local, advisory minimum-hardware preflight (see preflight.go);
 	// it reports and exits, and it gates nothing - a share below the bar still runs.
 	check := fs.Bool("check", false, "check this machine against the suggested minimum hardware and exit. Local only - nothing is sent, and nothing is blocked either way")
-	advanced := fs.Bool("advanced", false, "show advanced flags (--node --region --parallel --upstream --modality --ctx --confidential --free-window --schedule)")
+	curated := fs.String("curated", "", "declare this station a CURATED proxy for the named commercial provider (e.g. openrouter). Requires --upstream + --upstream-price-in/out; the broker posts your declared list price + its routing markup and settles the list back to you as pass-through")
+	upIn := fs.Float64("upstream-price-in", 0, "curated: the upstream's list $/1M input the broker derives the posted price from")
+	upOut := fs.Float64("upstream-price-out", 0, "curated: the upstream's list $/1M output")
+	advanced := fs.Bool("advanced", false, "show advanced flags (--node --region --parallel --upstream --modality --ctx --confidential --free-window --schedule --curated --upstream-price-in --upstream-price-out)")
 	fs.Usage = func() {
 		fmt.Print(`roger share - go on air as a provider (auto-detects your local model)
 
@@ -1424,6 +1427,8 @@ needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
 		Capabilities: foundCapabilities,
 		PriceIn:      *priceIn, PriceOut: *priceOut, Ctx: ctxLen, CtxEstimated: ctxEstimated, Parallel: *parallel,
 		Confidential: *confidential, Private: *private, Schedule: sched,
+		Curated: strings.TrimSpace(*curated) != "", CuratedProvider: strings.TrimSpace(*curated),
+		UpstreamPriceIn: *upIn, UpstreamPriceOut: *upOut,
 		// A tts share's DEFAULT voice/speed (a single id or a blend string) rides the offer so the
 		// node injects it when a request omits `voice`. Only meaningful for tts (harmless otherwise).
 		Voice: *voice, Speed: *voiceSpeed,

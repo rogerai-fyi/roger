@@ -41,3 +41,9 @@ Feature: A tower serves curated providers on both of its planes
     When the tower's upstream refuses a request
     Then the standard empty-output strike applies
     And the retry follows the normal failover rule
+
+  Scenario: Failover treats curated as one more station on the band
+    Given a band with a human station and a curated station
+    When the human station fails mid-request
+    Then the retry may land on the curated station
+    And the receipt names which station served

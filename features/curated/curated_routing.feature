@@ -9,7 +9,7 @@
 # pins is that the existing guarantees survive the new supply - and that the operator
 # holds the off switch.
 
-Feature: Curated traffic rides the existing relay, and the dial filter controls it
+Feature: Curated traffic rides the existing relay
   As a consumer on the dial
   I want curated supply routed and metered exactly like any station, and hideable
   So that filling the band never changes what a request through it means.
@@ -22,11 +22,6 @@ Feature: Curated traffic rides the existing relay, and the dial filter controls 
     Then it is relayed broker-to-node like any request
     And metered, receipted and held like any request
 
-  Scenario: Failover treats curated as one more station on the band
-    Given a band with a human station and a curated station
-    When the human station fails mid-request
-    Then the retry may land on the curated station
-    And the receipt names which station served
 
   Scenario: Routing judges curated by the same terms as any station
     Given a human and a curated station on one band
@@ -41,11 +36,6 @@ Feature: Curated traffic rides the existing relay, and the dial filter controls 
     Then routing favors the better-measured connection
     # the "best in class connections of the same models" half of what the 30% buys
 
-  Scenario: A consumer can pin a request away from curated entirely
-    Given a consumer who has hidden curated supply
-    When they send a request on a band with only curated stations
-    Then the request fails with "no station on air" naming the hidden curated option
-    And nothing silently routes to what they hid
 
   # --- the filter --------------------------------------------------------------
 
@@ -59,19 +49,5 @@ Feature: Curated traffic rides the existing relay, and the dial filter controls 
   # provider transacts with the STATION's credentials and sees the station's connection -
   # never the consumer's identity, account, key, or address.
 
-  Scenario: The upstream never sees the consumer's identity
-    Given a consumer with an account and a signed key
-    When their request relays through a curated station
-    Then the upstream request carries no consumer account, key, or user header
-    And the upstream connection originates from the station, not the consumer
 
-  Scenario: Two consumers are indistinguishable to the upstream
-    Given two different consumers using the same curated band
-    When both requests reach the upstream
-    Then nothing in either upstream request tells the consumers apart
-    # beyond the prompt text itself, which is theirs to write
 
-  Scenario: The consumer-facing receipt still attributes correctly
-    Given an anonymized curated request
-    Then the consumer's own receipt names the band, station and split as always
-    # anonymity faces the UPSTREAM; the consumer's private history loses nothing

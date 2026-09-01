@@ -41,6 +41,16 @@ const shareFeeRate = 0.30
 // its pricing/schedule, and operational knobs (poll concurrency, confidential
 // attestation, bridge token).
 type Config struct {
+	// Curated declares this node a PROXY for a commercial upstream API rather than a
+	// person's hardware; CuratedProvider names it, and UpstreamPriceIn/Out declare the
+	// upstream's list ($/1M) the broker derives the posted price from (list x markup) and
+	// settles back as pass-through. All refused broker-side unless coherent - see the
+	// curated block in /nodes/register.
+	Curated          bool
+	CuratedProvider  string
+	UpstreamPriceIn  float64
+	UpstreamPriceOut float64
+
 	Broker, Upstream, UpstreamKey string
 	NodeID, Region, HW, Model     string
 	// Station is the owner's persisted broadcast CALLSIGN (e.g. `brave-otter-37`) — the SAME one
@@ -450,12 +460,14 @@ func Start(cfg Config) (*Session, error) {
 		Quant: cfg.Quant, Weights: cfg.Weights, Variant: cfg.Variant,
 		PriceIn: cfg.PriceIn, PriceOut: cfg.PriceOut,
 		Ctx: cfg.Ctx, CtxEstimated: cfg.CtxEstimated, Schedule: cfg.Schedule,
+		UpstreamIn: cfg.UpstreamPriceIn, UpstreamOut: cfg.UpstreamPriceOut,
 		Name: cfg.Name, Language: cfg.Language, SampleURL: cfg.SampleURL, LatencyMS: cfg.LatencyMS,
 		Voice: cfg.Voice, Speed: cfg.Speed}
 	reg := protocol.NodeRegistration{
 		NodeID: cfg.NodeID, PubKey: pubHex, BridgeToken: token,
 		Region: cfg.Region, HW: cfg.HW, Offers: []protocol.ModelOffer{offer},
 		Confidential: cfg.Confidential, Private: cfg.Private,
+		Curated: cfg.Curated, CuratedProvider: cfg.CuratedProvider,
 		// Carry the AUTHORITATIVE station (the same callsign NodeID is derived from) so the broker
 		// can namespace this node's public voices as @<station>/<slug> without parsing the id.
 		Station: cfg.Station,

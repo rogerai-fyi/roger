@@ -43,3 +43,9 @@ Feature: Curated stations are badged, filterable, and counted apart
     # the consumer sees exactly what the 30% buys; nothing is folded into a mystery number
 
 
+
+  Scenario: A consumer can pin a request away from curated entirely
+    Given a consumer who has hidden curated supply
+    When they send a request on a band with only curated stations
+    Then the request fails with "no station on air" naming the hidden curated option
+    And nothing silently routes to what they hid
