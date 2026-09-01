@@ -251,3 +251,8 @@ test("hardware: the bench figures are the ones the broadcast actually published"
   assert.ok(Number(attr("batched")) > Number(attr("single")),
     "the whole point is that aggregate throughput rises under load");
 });
+
+// The stops are controls now. That used to be asserted by grepping hardware.js for
+// role="button" and friends, which proves the file CONTAINS the strings and nothing about
+// what happens when somebody presses Enter. It moved to test/hardware-stops.test.mjs, which
+// runs the script against a mini-DOM and checks the behaviour instead.

@@ -69,6 +69,23 @@
   100% { transform: translateX(1140px); opacity: 0; }
 }
 
+
+/* a stop that has a card behind it is a control, and has to look and focus like one */
+.hw-stop.is-linked { cursor: pointer; }
+.hw-stop.is-linked:hover .hw-stop__dot,
+.hw-stop.is-linked:focus-visible .hw-stop__dot { fill: var(--live); stroke: var(--live); }
+.hw-stop.is-linked:hover .hw-stop__tier { fill: var(--live); }
+.hw-stop.is-linked:focus { outline: none; }
+.hw-stop.is-linked:focus-visible {
+  outline: 2px solid var(--live); outline-offset: 3px; border-radius: 3px;
+}
+
+/* where the reader was sent, marked just long enough to find it after the scroll */
+.hw-card.is-found { border-color: var(--live); }
+@media (prefers-reduced-motion: no-preference) {
+  .hw-card.is-found { transition: border-color .25s var(--ease-out-quint); }
+}
+
 /* ---- §2 the board grid ------------------------------------------------ */
 
 .hw-grid {
