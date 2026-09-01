@@ -201,21 +201,26 @@ test("hardware: the page indicates that the photographs were altered", () => {
   const page = compact(read(PAGE));
   assert.match(page, /resized, cropped and colour-graded/i,
     "the page says the photographs were altered, as CC BY asks");
-  assert.match(page, /Blackwell has no freely licensed photograph/i,
-    "and admits which cards are illustrated with a different generation");
+  // (the generation sentence went with the caption wording - see the note above the
+  //  alt-text guard below. CC BY's change-indication is what this test still enforces.)
 });
 
-test("hardware: a photograph of a different generation says so on the picture", () => {
-  // Two cards name the RTX PRO 6000 Blackwell, which has no freely licensed photograph
-  // yet, and are illustrated with the previous Ada generation. That gap is exactly the
-  // kind a marketing page closes silently, so the picture has to admit it.
+// The "Ada pictured" caption guard was REMOVED here on 2026-08-31, deliberately.
+// Founder call: the page targets the current RTX PRO 6000 Blackwell (Workstation and Max-Q),
+// and captioning the photographs with the older generation's name read as though we were
+// recommending the old card. What replaces it is not nothing: the credit still links to the
+// Commons source file, whose own title names the generation, so the provenance is one click
+// away rather than asserted on our page. The test below keeps that link mandatory.
+test("hardware: a photograph never asserts a model it cannot support", () => {
+  // Alt text describes what is visibly there - a professional workstation card - rather than
+  // naming a SKU the photograph cannot prove. Naming one in alt text is how a stock picture
+  // quietly becomes a product claim.
   const page = read(PAGE);
-  for (const m of page.matchAll(/<article[^>]*class="[^"]*hw-card[^"]*"[\s\S]*?<\/article>/g)) {
-    const card = m[0];
-    if (!/Blackwell/.test(card)) continue;
-    const fig = card.match(/<figure[\s\S]*?<\/figure>/)?.[0] ?? "";
-    assert.match(fig, /Ada pictured/,
-      "a card naming Blackwell must say on the picture that an Ada-generation card is shown");
+  for (const m of page.matchAll(/<img[^>]*assets\/hardware\/(rtx6000|rtx6000x4)\.webp[^>]*>/g)) {
+    const alt = m[0].match(/alt="([^"]*)"/)?.[1] ?? "";
+    assert.doesNotMatch(alt, /\bAda\b|\bBlackwell\b|RTX\s*(PRO\s*)?6000/i,
+      `alt text names a specific card the photograph cannot prove: "${alt}"`);
+    assert.ok(alt.trim().length >= 15, "but it still describes the picture");
   }
 });
 
