@@ -38,7 +38,12 @@ type stationView struct {
 	HW           string         `json:"hw,omitempty"`
 	Confidential bool           `json:"confidential"`
 	Private      bool           `json:"private"`
-	Offers       []stationOffer `json:"offers"`
+	// Curated labels a commercial-API proxy station; the web dashboard renders it apart
+	// and presents its "earnings" as upstream pass-through, never as income
+	// (features/curated/curated_web.feature).
+	Curated         bool           `json:"curated,omitempty"`
+	CuratedProvider string         `json:"curated_provider,omitempty"`
+	Offers          []stationOffer `json:"offers"`
 	Earnings     float64        `json:"earnings"`
 	// EarningsUnavailable is set when the ledger could not be read. A money dashboard
 	// must never render a fabricated 0 that an operator would read as "I earned nothing".
@@ -121,6 +126,7 @@ func (b *broker) stationView(id string, rec store.NodeRecord) stationView {
 	}
 	if registered {
 		v.Region, v.HW, v.Private = reg.Region, reg.HW, reg.Private
+		v.Curated, v.CuratedProvider = reg.Curated, reg.CuratedProvider
 		v.Offers = publicOffers(reg.Offers)
 	}
 	// The durable record carries registered-at and the confidential grant, which the
@@ -131,6 +137,7 @@ func (b *broker) stationView(id string, rec store.NodeRecord) stationView {
 		if !registered {
 			v.Offers = publicOffers(rec.Reg.Offers)
 			v.Region, v.HW, v.Private = rec.Reg.Region, rec.Reg.HW, rec.Reg.Private
+			v.Curated, v.CuratedProvider = rec.Reg.Curated, rec.Reg.CuratedProvider
 		}
 	}
 

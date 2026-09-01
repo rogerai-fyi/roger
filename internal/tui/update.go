@@ -556,6 +556,16 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.fOn = !m.fOn
 			m.clampBrowse()
 			return m, nil
+		case "U":
+			// HIDE CURATED: one keypress, joining the F/C/O family. U for Upstream - the
+			// mark it hides is »provider, proxied commercial supply. Shown by default
+			// (founder ruling); while hidden, nothing may silently route to a proxy.
+			m.fNoCurated = !m.fNoCurated
+			m.clampBrowse()
+			// The ambient footer is a tick-time snapshot; refresh it NOW or the count line
+			// still advertises the supply the operator just hid, until the next tick.
+			m.status = m.ambientStatus()
+			return m, nil
 		case "Q":
 			// CYCLE the quant filter: off -> each quant on the dial -> off. It joins the
 			// F/C/O family deliberately - one keypress, no input box - because splitting
@@ -934,6 +944,24 @@ func (m model) doShare(args []string) (tea.Model, tea.Cmd) {
 	// keystroke for seconds on a busy host (120+ open ports to probe); now the user
 	// sees the scanning indicator at once and the sharesDetectedMsg lands the rows.
 	m.mode = modeShare
+	// RE-ENTRY KEEPS THE TABLE. The rows from the last scan live in the shared controller
+	// and are still perfectly good to look at; only their freshness is in question. So a
+	// return visit renders them at once and re-detects BEHIND them, folding changes in
+	// when the result lands - the loud full-screen scan is only honest on the first open,
+	// when there is genuinely nothing to show.
+	if len(m.shareRows) > 0 {
+		m.shareLoading = false
+		m.shareRefreshing = true
+		m.setupOnEmpty = false // rows exist; an empty re-detect must not yank to the wizard
+		m.shareRescan = false
+		m.setupHint = ""
+		m.sharePending = ""
+		if len(args) > 0 {
+			m.sharePending = args[0]
+		}
+		m.status = stDim.Render("refreshing local models…")
+		return m, detectSharesCmd(m.shareUp, m.shareKey)
+	}
 	m.shareLoading = true
 	m.setupOnEmpty = true // the initial open: an empty scan drops into the guided wizard
 	m.shareRescan = false
@@ -953,7 +981,21 @@ func (m model) doShare(args []string) (tea.Model, tea.Cmd) {
 // (setupOnEmpty=false) stays on the table with a clear note rather than yanking the
 // user into the wizard mid-list.
 func (m model) onSharesDetected(found []detect.Found, needKey []string) (tea.Model, tea.Cmd) {
+	// Was this a LOUD scan (the pose on screen) or a QUIET refresh behind a live table?
+	// The fold differs: a quiet result must not move the operator anywhere, must not
+	// reset their cursor, and an empty one must not erase rows that were on screen.
+	quiet := m.shareRefreshing && !m.shareLoading
 	m.shareLoading = false
+	m.shareRefreshing = false
+	if quiet && len(found) == 0 {
+		// Nothing answered THIS probe. The rows on screen are the last good scan, and
+		// blanking them over a transient miss would be exactly the abrupt clear this
+		// path exists to avoid. Say it quietly; r probes again behind these same rows
+		// (with rows on screen every re-scan is the quiet kind - no loud pose exists to
+		// advertise, so the hint must not promise one).
+		m.status = stDim.Render("re-scan found nothing new - keeping the last scan (r tries again)")
+		return m, nil
+	}
 	if len(found) == 0 {
 		if m.setupOnEmpty {
 			// GUIDED FALLBACK: nothing usable detected -> the in-TUI setup wizard (pick a
@@ -980,7 +1022,22 @@ func (m model) onSharesDetected(found []detect.Found, needKey []string) (tea.Mod
 		m.status = stEmber.Render("! still nothing on the defaults / your open ports - press r to re-scan, or start a local LLM")
 		return m, nil
 	}
+	// KEEP THE OPERATOR'S PLACE. The catalog rebuild can insert or drop rows above the
+	// cursor; re-finding the model it sat on is what makes a refresh feel like a diff
+	// rather than a reset.
+	curModel := ""
+	if m.shareCursor >= 0 && m.shareCursor < len(m.shareRows) {
+		curModel = m.shareRows[m.shareCursor].model
+	}
 	m.loadShareRows(found)
+	if curModel != "" {
+		for i, r := range m.shareRows {
+			if r.model == curModel {
+				m.shareCursor = i
+				break
+			}
+		}
+	}
 	// The catalog exists now, so the armed models can finally be resolved to rows. Once
 	// per launch - a later re-scan must not re-start a model the operator took off air.
 	m.runAutoStart()
@@ -1006,7 +1063,13 @@ func (m model) onSharesDetected(found []detect.Found, needKey []string) (tea.Mod
 			}
 		}
 	}
-	m.mode = modeShare
+	// A LOUD scan lands on the table - that is what the operator sat waiting for. A
+	// QUIET one changes nothing about where they are: they may have hopped to another
+	// screen while it ran, and a background result that teleports them back is a bug
+	// wearing a feature's clothes.
+	if !quiet {
+		m.mode = modeShare
+	}
 	if len(m.shareRows) == 0 {
 		m.status = stEmber.Render("! the local server reported no models - check it serves /v1/models")
 	} else {
@@ -1236,7 +1299,14 @@ func (m *model) onShareKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// loop (a busy host's port scan must never freeze the table). An empty result
 		// keeps us on the table with a note (setupOnEmpty stays false) rather than yanking
 		// into the wizard mid-list.
-		m.shareLoading = true
+		// The rows on screen STAY on screen while the re-scan runs - the same no-abrupt-
+		// clear rule as re-entry. The loud pose only when there is nothing to keep.
+		if len(m.shareRows) > 0 {
+			m.shareLoading = false
+			m.shareRefreshing = true
+		} else {
+			m.shareLoading = true
+		}
 		m.setupOnEmpty = false
 		m.shareRescan = true
 		m.setupHint = ""
@@ -1758,9 +1828,86 @@ func (m *model) enterLimits() {
 	m.mode = modeLimits
 }
 
+// onBudgetRow reports whether the spend-limits cursor sits on the wallet's monthly-budget
+// row; editingBudget, whether that row's editor is open. Named accessors because the BDD
+// suite drives the screen exactly as an operator does and asserts THESE, not internals.
+func (m model) onBudgetRow() bool   { return m.limOnBudget }
+func (m model) editingBudget() bool { return m.limEditBudget }
+
+// parseBudgetInput reads the budget editor's draft: the CLI's clearing spellings
+// (0/off/none/unlimited, and an emptied field) clear the cap; otherwise a dollar amount,
+// with a stray leading $ tolerated because people type what the row shows.
+func parseBudgetInput(s string) (float64, error) {
+	raw := strings.TrimSpace(s)
+	t := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(raw, "$")))
+	// Only a value that SAYS clear, clears. A bare "$" stripped to nothing here and fell
+	// into the clearing arm - so a slip of the finger removed a money protection. Emptied
+	// entirely is deliberate (the operator deleted the number); "$" alone is not an amount
+	// and is refused like any other non-number.
+	if raw == "$" {
+		return 0, fmt.Errorf("%q is not a dollar amount - a number like 25, or 0/off for no cap", s)
+	}
+	switch t {
+	case "", "0", "off", "none", "unlimited":
+		return 0, nil
+	}
+	v, err := strconv.ParseFloat(t, 64)
+	if err != nil || v < 0 {
+		return 0, fmt.Errorf("%q is not a dollar amount - a number like 25, or 0/off for no cap", s)
+	}
+	return v, nil
+}
+
+// budgetSavedMsg carries the broker's reply to a monthly-cap change (or its refusal).
+type budgetSavedMsg struct {
+	cap, spend float64
+	err        error
+}
+
+// commitBudgetEdit validates the draft IN PLACE - a value that is not money never reaches
+// the broker - then saves asynchronously. The row updates from the broker's reply rather
+// than optimistically: this is a MONEY control, and showing a cap the broker has not
+// accepted would be showing protection that does not exist.
+func (m *model) commitBudgetEdit() (tea.Model, tea.Cmd) {
+	cap, err := parseBudgetInput(m.editBuf)
+	if err != nil {
+		m.status = stEmber.Render(err.Error())
+		return m, nil // stay editing: the draft is theirs to fix
+	}
+	m.limEditBudget = false
+	broker, user := m.broker, m.user
+	return m, func() tea.Msg {
+		info, err := client.SetMonthlyLimit(broker, user, cap)
+		if err != nil {
+			return budgetSavedMsg{err: err}
+		}
+		return budgetSavedMsg{cap: info.Cap, spend: info.Spend}
+	}
+}
+
 // onLimitsKey drives the per-model limits view (3.4): up/down move, enter edits
 // (Tab between out-price and min-tps), d clears, esc done.
 func (m *model) onLimitsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// THE BUDGET EDITOR takes the keys while it is open. Kept apart from the band-field
+	// editor below: it commits to the BROKER (an account setting), not to the local store.
+	if m.limEditBudget {
+		switch k.String() {
+		case "esc":
+			m.limEditBudget = false
+			return m, nil
+		case "enter":
+			return m.commitBudgetEdit()
+		case "backspace":
+			if len(m.editBuf) > 0 {
+				m.editBuf = m.editBuf[:len(m.editBuf)-1]
+			}
+			return m, nil
+		}
+		if r := k.Runes; len(r) == 1 {
+			m.editBuf += string(r)
+		}
+		return m, nil
+	}
 	editing := m.editField >= 0
 	if !editing {
 		// Preset bank jumps (only when NOT editing a numeric field, so a typed digit in
@@ -1783,23 +1930,48 @@ func (m *model) onLimitsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "b", "B":
 			// THE BAND CARD: everything about the band under the cursor, in one place.
-			if m.limCursor < len(m.limModels) {
+			// Not from the budget row - the cursor is not on a band there, and acting on
+			// limCursor would open a card the operator is not looking at (audit round 5).
+			if !m.limOnBudget && m.limCursor < len(m.limModels) {
 				return m.openBandConfig(m.limModels[m.limCursor], modeLimits)
 			}
 		case "up", "k":
 			if m.limCursor > 0 {
 				m.limCursor--
+			} else if m.loggedInState() {
+				// Up off the top of the table lands on the wallet's monthly-budget row -
+				// the same "the thing you are looking at is the thing you edit" rule as
+				// every band row. Logged out there is nothing to edit up there.
+				m.limOnBudget = true
 			}
 		case "down", "j":
-			if m.limCursor < len(m.limModels)-1 {
+			if m.limOnBudget {
+				m.limOnBudget = false
+			} else if m.limCursor < len(m.limModels)-1 {
 				m.limCursor++
 			}
 		case "d":
-			if m.limCursor < len(m.limModels) {
+			// Same rule as b: from the budget row, d must not clear the limits of the
+			// un-highlighted band still under limCursor.
+			if !m.limOnBudget && m.limCursor < len(m.limModels) {
 				m.limits.clear(m.limModels[m.limCursor])
 				m.enterLimits()
 			}
 		case "enter":
+			if m.limOnBudget {
+				if !m.loggedInState() {
+					m.status = stDim.Render("log in to set a monthly spend limit")
+					return m, nil
+				}
+				m.limEditBudget = true
+				// Prefilled with the CURRENT cap, so changing $25 to $30 is an edit
+				// rather than a retype; empty when no cap is set.
+				m.editBuf = ""
+				if m.monthlyCap > 0 {
+					m.editBuf = trimZero(m.monthlyCap)
+				}
+				return m, nil
+			}
 			if m.limCursor < len(m.limModels) {
 				lim := m.limits.resolve(m.limModels[m.limCursor])
 				m.editField = 0
@@ -1921,7 +2093,9 @@ func (m *model) runAutoTune() tea.Cmd {
 		m.refreshAgentModel()
 		return m.drainPendingPrompts()
 	}
-	pick := pickAutoBand(m.bands, m.loggedInState())
+	// The FILTERED view, not raw bands: an operator who hid curated (or narrowed the dial
+	// any other way) must never be silently bound to a band they asked not to see.
+	pick := pickAutoBand(m.visibleBands(), m.loggedInState())
 	// R1 money-safety: bind the band's genuinely-FREE station (FreeNow / zero-priced), NEVER
 	// pick.cheapest - the min-PRICE station across ALL stations, which can be a PAID station
 	// even when the band is flagged free (a FreeNow promo beside a cheaper paid one). If no

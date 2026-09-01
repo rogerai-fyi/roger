@@ -229,6 +229,12 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 	// (shared-registry mirror, lazy learn, DB re-hydrate) still cannot leak an unproven "tools".
 	// See features/trust/toolcall_probe.feature ("A node CANNOT earn 'tools' merely by declaring it").
 	for i := range reg.Offers {
+		// A HUMAN node has no upstream list: zero any supplied values, or arbitrary
+		// upstream_* numbers ride a human registration straight onto the public feed and
+		// dress it in curated pricing it does not have.
+		if !reg.Curated {
+			reg.Offers[i].UpstreamIn, reg.Offers[i].UpstreamOut = 0, 0
+		}
 		// Normalize bounds and strips every node-supplied display string (quant, weights,
 		// variant) and canonicalises the billing unit. Its comment always said the broker
 		// calls it on every registered offer; nothing did, so a node could publish a 10 KB
@@ -248,6 +254,104 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 	// and does NOT suggest --private as an escape (the ceiling is global; --private only hides
 	// a station from the public market, it is not a price bypass). (Pinned by
 	// TestRegisterCeilingGlobalAllBands + features/pricing/price_ceiling.feature.)
+	// CURATED validation and DERIVATION, before every money gate below - the audit's
+	// critical: this block used to run AFTER offersPriced/ceiling/floor, so a curated
+	// share arriving with PriceIn/Out=0 (the CLI default) read as a FREE node to the
+	// login-to-monetize and owner-ban gates - an anonymous earning node, and a banned
+	// owner's way back in as a proxy - and the DERIVED posted price (list x markup) was
+	// never ceiling-checked, so a list above the hard global ceiling sailed through.
+	// Deriving here means every gate below judges the real posted numbers. The flag is signed (regSigningBytes
+	// covers it), so it arrives exactly as the node's key authored it - what is checked
+	// here is COHERENCE, and each rule is a refusal because every one of them is a lie
+	// waiting to be displayed:
+	//   - curated with no provider name is an unnamed proxy, the exact ambiguity the flag
+	//     exists to remove;
+	//   - curated + a TEE claim is impossible - the request LEAVES for a commercial API,
+	//     and no enclave claim survives that hop;
+	//   - a node id that registered as a HUMAN station cannot re-register as a proxy (or
+	//     the reverse): that is a new thing wearing an earned callsign, so it must arrive
+	//     as a new identity.
+	// The provider name is a node-supplied DISPLAY string: it rides /discover and
+	// /market, becomes the Region below, and renders raw in every TUI band badge - the
+	// same terminal surface quant/weights/variant get the CanonicalVariantText treatment
+	// for. Same treatment here (trim, strip control chars, bound), and a HUMAN
+	// registration carries none at all: curated=false means no gate ever judged the
+	// name, so letting it ride would dress a local station in a commercial badge.
+	if reg.Curated {
+		reg.CuratedProvider = protocol.CanonicalVariantText(reg.CuratedProvider)
+	} else {
+		reg.CuratedProvider = ""
+	}
+	if reg.Curated {
+		if strings.TrimSpace(reg.CuratedProvider) == "" {
+			jsonErr(w, http.StatusBadRequest, "curated registration requires curated_provider: name the upstream this station proxies")
+			return
+		}
+		if reg.Confidential || reg.Attestation != "" {
+			jsonErr(w, http.StatusBadRequest, "a curated station cannot claim confidential: the request leaves for a commercial API and no enclave claim survives that hop")
+			return
+		}
+		// The provider IS the region: a proxy has no geography of its own, and leaving a
+		// place-name here would count commercial POPs into the human-supply story.
+		reg.Region = strings.ToLower(strings.TrimSpace(reg.CuratedProvider))
+		// PRICING IS A FORMULA, NOT A FIELD (curated_pricing.go). Each offer declares the
+		// upstream's list price; the posted price is DERIVED, list x curatedMarkup, and
+		// three shapes are refused because each is a settlement lie waiting to happen:
+		//   - a supplied posted price BELOW the declared list is underwater on every token;
+		//   - a supplied posted price that is not the derivation would break "the markup is
+		//     one broker-owned constant" (so any explicit price must simply be the list);
+		//   - a time-of-use schedule has no meaning over a flat commercial list price and
+		//     would let a window undercut the pass-through.
+		for i := range reg.Offers {
+			o := &reg.Offers[i]
+			if len(o.Schedule) > 0 {
+				jsonErr(w, http.StatusBadRequest, "a curated offer cannot carry a time-of-use schedule: the upstream's list price does not change by the hour, and a window below it would settle underwater")
+				return
+			}
+			if o.UpstreamIn < 0 || o.UpstreamOut < 0 {
+				jsonErr(w, http.StatusBadRequest, "curated upstream prices cannot be negative")
+				return
+			}
+			if (o.PriceIn != 0 && o.PriceIn < o.UpstreamIn) || (o.PriceOut != 0 && o.PriceOut < o.UpstreamOut) {
+				jsonErr(w, http.StatusBadRequest, fmt.Sprintf("curated offer %q posts a price below its declared upstream list (in %.4f<%.4f or out %.4f<%.4f): underwater on every token, refused", o.Model, o.PriceIn, o.UpstreamIn, o.PriceOut, o.UpstreamOut))
+				return
+			}
+			// An ABOVE-list explicit price used to be silently overwritten by the
+			// derivation, hiding the operator's mistaken belief that they set their own
+			// posted price. Any explicit price that is not the list itself is refused.
+			if (o.PriceIn != 0 && o.PriceIn != o.UpstreamIn) || (o.PriceOut != 0 && o.PriceOut != o.UpstreamOut) {
+				jsonErr(w, http.StatusBadRequest, fmt.Sprintf("curated offer %q supplies its own posted price: the broker derives the posted price from the declared upstream list - leave price-in/out zero (or set them to the list itself)", o.Model))
+				return
+			}
+			o.PriceIn = curatedPosted(o.UpstreamIn)
+			o.PriceOut = curatedPosted(o.UpstreamOut)
+		}
+	}
+	// The kind-flip guard reads BOTH registries: the live map, and the DURABLE record
+	// that survives TTL eviction, a restart, and the window before a peer instance's
+	// mirror sync - the three doors the in-memory check alone left open for an earned
+	// callsign to change kind through (audit finding). AllNodes is a register-time read,
+	// not a hot path.
+	prevKind, prevKnown := false, false
+	b.mu.Lock()
+	if prev, ok := b.nodes[reg.NodeID]; ok {
+		prevKind, prevKnown = prev.Curated, true
+	}
+	b.mu.Unlock()
+	if !prevKnown && b.db != nil {
+		if rows, err := b.db.AllNodes(); err == nil {
+			for _, n := range rows {
+				if n.NodeID == reg.NodeID {
+					prevKind, prevKnown = n.Reg.Curated, true
+					break
+				}
+			}
+		}
+	}
+	if prevKnown && prevKind != reg.Curated {
+		jsonErr(w, http.StatusConflict, "this node id is registered as a different kind of station; a human callsign cannot become a curated proxy (or the reverse) - register the proxy under its own identity")
+		return
+	}
 	if msg := registerPriceCeiling(reg.Offers); msg != "" {
 		jsonErr(w, http.StatusBadRequest, msg)
 		return
@@ -1887,6 +1991,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 				log.Printf("VOID no-output user=%s node=%s status=%d claimIn=%d claimOut=%d - $0, hold refunded",
 					user, node.NodeID, res.Status, rec.PromptTokens, rec.CompletionTokens)
 				if b.db != nil {
+					rec.Curated = b.nodeCurated(rec.NodeID) // stamped BEFORE the broker signs, so the signature covers it
 					rec.SignBroker(b.priv)
 					_, _ = b.db.Settle(payer, node.NodeID, 0, 0, rec) // $0 metering receipt for lineage
 				}
@@ -1907,6 +2012,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			rec.BrokerPromptTokens, rec.BrokerCompletionTokens = billedPrompt, billedCompletion
 			// SignBroker is called AFTER the broker counts are assigned so the broker
 			// counter-signature covers them (the node-sig excludes them via signingBytes).
+			rec.Curated = b.nodeCurated(rec.NodeID) // stamped BEFORE the broker signs, so the signature covers it
 			rec.SignBroker(b.priv)
 			cost := clampSettleCost(rec.CostWith2(billedPrompt, billedCompletion), maxCost)
 			newBal, ferr := b.settleRequest(payer, node.NodeID, maxCost, cost, rec, grantID, pricing.free)
@@ -2287,6 +2393,7 @@ func (b *broker) relayStream(w http.ResponseWriter, t *nodeTunnel, node protocol
 					log.Printf("VOID no-output (stream) user=%s node=%s status=%d claimIn=%d claimOut=%d - $0, hold refunded",
 						user, node.NodeID, res.Status, rec.PromptTokens, rec.CompletionTokens)
 					if b.db != nil {
+						rec.Curated = b.nodeCurated(rec.NodeID) // stamped BEFORE the broker signs, so the signature covers it
 						rec.SignBroker(b.priv)
 						_, _ = b.db.Settle(user, node.NodeID, 0, 0, rec) // $0 metering receipt
 					}
@@ -2299,6 +2406,7 @@ func (b *broker) relayStream(w http.ResponseWriter, t *nodeTunnel, node protocol
 				billedCompletion := b.settleRecount(node.NodeID, rec.RequestID, recountModel(rec, model), completion, rec.CompletionTokens)
 				rec.BrokerPromptTokens, rec.BrokerCompletionTokens = billedPrompt, billedCompletion
 				// SignBroker AFTER the broker counts are assigned (covers them).
+				rec.Curated = b.nodeCurated(rec.NodeID) // stamped BEFORE the broker signs, so the signature covers it
 				rec.SignBroker(b.priv)
 				cost := clampSettleCost(rec.CostWith2(billedPrompt, billedCompletion), maxCost)
 				if _, ferr := b.settleRequest(user, node.NodeID, maxCost, cost, rec, grantID, pricing.free); ferr != nil {

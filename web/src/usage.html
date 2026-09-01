@@ -154,6 +154,17 @@
       <p class="mx-state" id="useLoading">Loading your usage...</p>
       <p class="mx-state" id="useEmpty" hidden>No usage in this range. Tune in with <code>roger use &lt;model&gt;</code>.</p>
       <p class="mx-state" id="useError" hidden>Could not load your usage. Try again shortly.</p>
+
+      <!-- Recent requests: the private routing history. Curated rows name the provider
+           and the split (upstream pass-through vs routing fee); only your own account
+           can read this - the read is credentialed. -->
+      <div class="mx-tablewrap" id="useRecentWrap" hidden>
+        <h3>Recent requests</h3>
+        <table class="mx-table">
+          <thead><tr><th>Band</th><th>Routing</th><th class="num">Tokens</th><th class="num">Cost</th></tr></thead>
+          <tbody id="useRecentRows"></tbody>
+        </table>
+      </div>
     </section>
 
     <p class="mx-state" id="allLoading">Loading metrics...</p>

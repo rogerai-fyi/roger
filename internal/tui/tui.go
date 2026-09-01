@@ -295,7 +295,16 @@ func (m model) ambientStatus() string {
 	if m.mode == modeBrowse || m.mode == modeCommand {
 		// LLM (chat) bands + their stations only — voice bands live in THE DJ BOOTH, so folding
 		// them into the top-level "N bands · M stations" would over-count what the list shows.
-		return fmt.Sprintf("%s · %s on air", plural(m.llmBands(), "band"), plural(m.llmStationsOnAir(), "station"))
+		line := fmt.Sprintf("%s · %s on air", plural(m.llmBands(), "band"), plural(m.llmStationsOnAir(), "station"))
+		// The curated count rides the PERSISTENT summary, not the filter strip: the strip
+		// only renders while a filter is active, and a count that appears only once you
+		// have filtered is a count that cannot help you decide to.
+		if m.fNoCurated {
+			line += " · curated hidden (U shows)"
+		} else if n := m.curatedBandCount(); n > 0 {
+			line += fmt.Sprintf(" · %s%d curated (U hides)", glyphCurated, n)
+		}
+		return line
 	}
 	return ""
 }
@@ -403,17 +412,24 @@ type offer struct {
 	// offer of the SAME model (MODEL-VARIANTS-DESIGN-2026-08-22). Decode-only, like
 	// Capabilities: the browser never fabricates one, so an ABSENT value claims nothing -
 	// it is not a quant, and it is never rendered as though the station stated one.
-	Quant        string  `json:"quant,omitempty"`
-	Weights      string  `json:"weights,omitempty"`
-	Variant      string  `json:"variant,omitempty"`
-	Online       bool    `json:"online"`
-	Confidential bool    `json:"confidential"`
-	FreeNow      bool    `json:"free_now"`
-	TPS          float64 `json:"tps"`
-	TTFTMs       float64 `json:"ttft_ms"`      // probe-measured time-to-first-token (ms; 0 = unmeasured)
-	SuccessRate  float64 `json:"success"`      // 0..1 time-decayed success evidence
-	SuccessSeen  bool    `json:"success_seen"` // SuccessRate is REAL (not the no-evidence fallback)
-	Verified     bool    `json:"verified"`     // recent PASSED serving canary (distinct from confidential ◆)
+	Quant   string `json:"quant,omitempty"`
+	Weights string `json:"weights,omitempty"`
+	Variant string `json:"variant,omitempty"`
+	// Curated marks a station that PROXIES a commercial upstream API rather than serving
+	// a person's hardware; CuratedProvider names it and UpstreamIn/Out carry the declared
+	// list price, so the band card can show the list and the routing fee separately.
+	Curated         bool    `json:"curated,omitempty"`
+	CuratedProvider string  `json:"curated_provider,omitempty"`
+	UpstreamIn      float64 `json:"upstream_in,omitempty"`
+	UpstreamOut     float64 `json:"upstream_out,omitempty"`
+	Online          bool    `json:"online"`
+	Confidential    bool    `json:"confidential"`
+	FreeNow         bool    `json:"free_now"`
+	TPS             float64 `json:"tps"`
+	TTFTMs          float64 `json:"ttft_ms"`      // probe-measured time-to-first-token (ms; 0 = unmeasured)
+	SuccessRate     float64 `json:"success"`      // 0..1 time-decayed success evidence
+	SuccessSeen     bool    `json:"success_seen"` // SuccessRate is REAL (not the no-evidence fallback)
+	Verified        bool    `json:"verified"`     // recent PASSED serving canary (distinct from confidential ◆)
 	// Signal is the broker's 0..100 channel-health score (online + quality + tps +
 	// reliability). It carries even when TPS==0, so a freshly-on-air band meters at
 	// its baseline strength instead of a blank tps-driven bar.
@@ -751,9 +767,22 @@ type model struct {
 	balance          float64
 	haveBal          bool
 	monthlyCap       float64 // per-account monthly spend cap ($); 0 = unlimited
-	monthlySpend     float64 // month-to-date captured spend ($)
-	status           string
-	alert            *alertBox
+	// The budget row's editor state on the spend-limits screen. limOnBudget: the cursor
+	// has moved up off the band table onto the wallet's monthly-budget row. limEditBudget:
+	// that row is being edited (editBuf holds the draft). Founder 2026-09-01: "is there a
+	// way to modify the monthly budget from the tui? i don't see how" - there was not; the
+	// one account-wide money control sat read-only in the middle of the editor.
+	limOnBudget   bool
+	limEditBudget bool
+	// shareRefreshing: a background re-detect is in flight BEHIND a table that stays on
+	// screen. Distinct from shareLoading, which replaces the whole view with the scanning
+	// pose - honest on the first open when there is nothing to show, and exactly wrong on
+	// re-entry (founder 2026-09-01: "it's again cleared and i have to wait ... can't we
+	// just do it in the background and modify the list based on the diff").
+	shareRefreshing bool
+	monthlySpend    float64 // month-to-date captured spend ($)
+	status          string
+	alert           *alertBox
 	// pricing UX state
 	limits *LimitStore
 	bands  []band // offers grouped by model (the band list, 3.1)
@@ -813,11 +842,18 @@ type model struct {
 	filterApplied    string          // the applied name substring (kept after enter; lowercased compare)
 	sortMode         int             // band sort cycle (see sort* consts) - mirrors the /bands web page
 	fFree            bool            // toggle: only bands with a FREE-now station
-	fConf            bool            // toggle: only confidential / verified (lineage) bands
-	fOn              bool            // toggle: only bands with a station on air
+	// fNoCurated hides curated (commercial-API proxy) supply from the dial. Founder
+	// ruling: curated is SHOWN by default, badged; this is the one-keypress opt-out, and
+	// while it is on nothing may silently route to what the operator hid.
+	fNoCurated bool
+	fConf      bool // toggle: only confidential / verified (lineage) bands
+	fOn        bool // toggle: only bands with a station on air
 	// fQuant narrows the dial to ONE compression label (Q cycles it). Empty = every band.
-	// It is a VIEW, not a rule: it changes what you are looking at and binds nothing. The
-	// standing rule that binds an unattended turn is the [3] CONFIG preference.
+	// Since the curated work, every dial filter (this one, F/C/O, and U) also bounds what
+	// an unattended auto-tune may BIND: pickAutoBand reads visibleBands, because a turn
+	// silently bound to a band the operator asked not to see is the same bug whichever
+	// filter hid it. The standing [3] CONFIG preference remains the durable rule; a
+	// filter is session-scoped.
 	fQuant     string
 	browseTop  int    // first visible row index in the virtualized window
 	loadedOnce bool   // a /discover scan has come back at least once (drives the initial ((•)) scanning pose)
@@ -1980,6 +2016,19 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.rcAskID = protocol.NewRequestID()
 		m.rcEmitAskReq(&a, m.rcAskID)
 		return m, nil
+	case budgetSavedMsg:
+		if msg.err != nil {
+			// The old cap stays on screen: it is still what the broker enforces.
+			m.status = stEmber.Render("monthly limit not saved: " + msg.err.Error())
+			return m, nil
+		}
+		m.monthlyCap, m.monthlySpend = msg.cap, msg.spend
+		if msg.cap > 0 {
+			m.status = stDim.Render("monthly spend limit set: " + dollars(msg.cap))
+		} else {
+			m.status = stDim.Render("monthly spend limit cleared - no cap")
+		}
+		return m, nil
 	case agentDoneMsg:
 		// ONCE PER TURN. events is never re-created now, so a drain re-armed after a turn's
 		// done is already closed reports it again immediately - and a second pass would
@@ -2916,7 +2965,7 @@ func trimZero(v float64) string {
 
 // narrowCols is the width below which the TUI reflows to a single, slimmer column
 // (drops the band table's signal/flags columns, two-line footer).
-const narrowCols = 64
+const narrowCols = 72
 
 // effWidth returns the width to DRAW at. Width 0 is the unsized initial frame
 // (before the first WindowSizeMsg) - balloon to 88 so the first paint isn't a
@@ -2934,8 +2983,10 @@ func (m model) effWidth() int {
 }
 
 // narrow reports whether to use the single-column reflow (real width is small).
-// At exactly narrowCols (64) the wide band grid (~67 cols) would still overflow,
-// so the boundary is inclusive: width <= 64 reflows.
+// The boundary tracks the MEASURED wide band grid (~69-72 cols with the signal scale
+// + flags columns; the full-mode audit pins it): at any width at or below it the wide
+// grid would wrap, and a wrapped row shifts every later row - which is how the
+// stacked-logo ghosting starts. Inclusive: width <= narrowCols reflows.
 func (m model) narrow() bool { return m.width != 0 && m.width <= narrowCols }
 
 // cyclePreset steps the preset bank one button in dir (+1 next / -1 previous),
@@ -3370,6 +3421,15 @@ func (m model) visibleBands() []band {
 		if m.fQuant != "" && !strings.EqualFold(b.quant, m.fQuant) {
 			continue
 		}
+		if m.fNoCurated && b.curated > 0 {
+			// Hiding curated is a SUPPLY subtraction, not a band deletion: a band that
+			// also has human stations stays, re-counted without its proxies; a
+			// curated-only band has nothing left and goes.
+			if b.stations-b.curated <= 0 {
+				continue
+			}
+			b = b.withoutCurated()
+		}
 		if m.fFree && !b.free {
 			continue
 		}
@@ -3413,7 +3473,7 @@ func (m model) visibleBands() []band {
 // filtersActive reports whether any name filter or quick toggle is narrowing the
 // list (used to show the "filter: ... (n/total)" line + the clear hint).
 func (m model) filtersActive() bool {
-	return strings.TrimSpace(m.filterApplied) != "" || m.fFree || m.fConf || m.fOn || m.fQuant != ""
+	return strings.TrimSpace(m.filterApplied) != "" || m.fFree || m.fConf || m.fOn || m.fQuant != "" || m.fNoCurated
 }
 
 // cycleQuantFilter advances the quant filter: off -> each quant on air -> off. Cycling
@@ -3458,10 +3518,13 @@ func (m model) browseRows() int {
 	if h <= 0 {
 		h = 30 // unsized first frame: a sensible default window
 	}
-	// Fixed chrome above/below the list: preset bar (~2) + header (~1) + section tab
-	// (1) + column header (1) + filter line when open (1) + prompt (1) + footer
-	// (2-3) + the two "more" hint lines + the position line. Compact trims the header.
-	chrome := 12
+	// Fixed chrome above/below the list: preset bar + spacer + header, section tab,
+	// tuning-dial strip, column header, legend, ambient status, prompt, footer block,
+	// the two "more" hint lines and the position line. MEASURED at 19 by the full-mode
+	// geometry audit (full_audit_test.go) - the hand-counted 12 was 7 rows short, and
+	// every short terminal paid for it with the stacked-logo ghosting the founder hit
+	// from the tune-in list. Compact drops the expanded chrome.
+	chrome := 19
 	if m.compact {
 		chrome = 9
 	}
@@ -3623,6 +3686,17 @@ func (m *model) mergeStickyBand(bands []band) []band {
 //     out-price. Model name is the final deterministic tie-break.
 //
 // Only ONLINE, non-voice (a brain is a chat band) candidates are considered.
+// curatedBandCount is the dial's count of bands carrying any curated station.
+func (m model) curatedBandCount() int {
+	n := 0
+	for _, b := range m.bands {
+		if b.curated > 0 {
+			n++
+		}
+	}
+	return n
+}
+
 func pickAutoBand(bands []band, loggedIn bool) *band {
 	var cands []band
 	for _, b := range bands {
@@ -4313,6 +4387,9 @@ func modalFooter(w int, left, right, status string) string {
 	if status != "" {
 		st = "\n" + wrapStatus(status, w)
 	}
+	// A left half wider than the terminal wraps and shifts every later row (the same
+	// ghosting mechanics as a too-tall frame), so it is truncated, never wrapped.
+	left = truncVisible(left, w)
 	gap := w - lipgloss.Width(left) - lipgloss.Width(right)
 	if gap < 1 {
 		return rule + "\n" + left + st // drop the right half; keys are what matter here
@@ -4629,7 +4706,7 @@ func (m model) footer(w int) string {
 	} else if m.connected != nil {
 		// Connected: lead with the channel + disconnect hints (load-bearing here); the
 		// filter/sort keys still ride along but the toggles drop to keep the line tight.
-		left = stDim.Render("↑↓ pick · enter tune in · i log · d disconnect · tab channel · s sort")
+		left = stDim.Render("↑↓ pick · enter tune in · i log · b card · d disconnect · tab channel · s sort")
 	} else if m.tuneFreq != "" {
 		// On a PRIVATE FREQ: the load-bearing key is esc (back to OPEN MARKET). Teach it
 		// up front so leaving the hidden channel is always discoverable.
@@ -4639,10 +4716,20 @@ func (m model) footer(w int) string {
 		// to enter a private band's frequency code. `v voices` (the DJ BOOTH drill-in) rides
 		// here ONLY when a voice band is actually on air, so a pure-LLM screen never teaches a
 		// voice key. The trailing "s" (share) is terse so it all fits the 80-col grid.
+		// Three width tiers: the full sentence, a tight one that still teaches every
+		// key (b card included - the founder could not find the band card without it),
+		// and narrow's terse strip. A truncated footer taught "←/→ s", which is worse
+		// than a shorter word.
 		if m.voiceBandsOnAir() > 0 {
-			left = stDim.Render("↑↓ pick · enter tune in · i log · f filter · t private · v voices · s sort")
+			left = stDim.Render("↑↓ pick · enter tune in · i log · b card · f filter · v voices · s sort · ←/→ section")
+			if m.width > 0 && m.width < 96 {
+				left = stDim.Render("↑↓ · ⏎ tune · i log · b card · f filter · v voices · s sort · ←/→ section")
+			}
 		} else {
-			left = stDim.Render("↑↓ pick · enter tune in · i log · f filter · t private · s sort · ←/→ section")
+			left = stDim.Render("↑↓ pick · enter tune in · i log · b card · f filter · t private · s sort · ←/→ section")
+			if m.width > 0 && m.width < 96 {
+				left = stDim.Render("↑↓ · ⏎ tune · i log · b card · f filter · t private · s sort · ←/→ section")
+			}
 		}
 	}
 	confMode := ""

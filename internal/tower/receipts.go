@@ -44,9 +44,19 @@ func (s *State) RecordReceipt(clientKeyHash, stationID, model string) (LocalRece
 		Model:           model,
 		NetworkID:       s.LocalNetworkID,
 		RootFingerprint: fp,
-		Cost:            0, // free and locally accounted, always
+		Cost:            0, // free and locally accounted, always - curated included
 		At:              time.Now().Unix(),
 	}
+	// The receipt names curated routing honestly, from the attach registry (the one
+	// place the label lives). A lookup failure degrades to an unlabeled receipt rather
+	// than swallowing the answer's record.
+	bootstrapMu.Lock()
+	if bs, err := s.loadBootstrap(); err == nil {
+		if st, ok := bs.Stations[stationID]; ok && st.Curated {
+			rec.Curated, rec.CuratedProvider = true, st.CuratedProvider
+		}
+	}
+	bootstrapMu.Unlock()
 	line, err := json.Marshal(rec)
 	if err != nil {
 		return LocalReceipt{}, err

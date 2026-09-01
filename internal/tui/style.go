@@ -104,7 +104,14 @@ var (
 // regression for mac/linux/Windows-Terminal), or an ASCII fallback on a legacy
 // Windows console / under ROGERAI_ASCII=1 / NO_UNICODE. See internal/glyphs.
 var (
-	glyphOnAir   = glyphs.Current().OnAir
+	glyphOnAir = glyphs.Current().OnAir
+	// glyphCurated is the NEW mark for a curated (commercial-API proxy) station - founder
+	// ruling 2026-09-01: its own badge, reusing none of ◆ / ⌁ / ◪ / ✓. The double
+	// guillemet reads as "passes onward": the station relays a distant commercial signal
+	// rather than transmitting its own. Single-cell, unambiguous East-Asian width, so it
+	// can never re-open the bordered-box misalignment the edit plate documents. Routed
+	// through glyphs.Current() like every sibling so the ASCII/NO_UNICODE fallback holds.
+	glyphCurated = glyphs.Current().Curated
 	glyphOffAir  = glyphs.Current().OffAir
 	glyphConf    = glyphs.Current().Verify  // TEE-verified confidential ONLY
 	glyphLineage = glyphs.Current().Lineage // signed-lineage / verified-operator (identity, not confidential)

@@ -78,6 +78,14 @@ type ModelOffer struct {
 	// receipt: a guess is never displayed as a measured fact.
 	CtxEstimated bool          `json:"ctx_estimated,omitempty"`
 	Schedule     []PriceWindow `json:"schedule,omitempty"`
+	// UpstreamIn/UpstreamOut are the DECLARED commercial list prices behind a CURATED
+	// station's offer (credits per 1M units, same units as PriceIn/Out). Only meaningful
+	// when the registration's Curated flag is set; the broker DERIVES the posted price
+	// from these (list x the curated markup) and settles the operator this list portion
+	// back as pass-through - see cmd/rogerai-broker curated pricing. Signed with the rest
+	// of the registration (regSigningBytes excludes only Sig and the display fields).
+	UpstreamIn  float64 `json:"upstream_in,omitempty"`
+	UpstreamOut float64 `json:"upstream_out,omitempty"`
 	// Voice metadata (optional; set only for voice offers) — surfaced by GET /voices for the app
 	// picker (BROKER-VOICE-API.md). Passive display labels ONLY; a node address is never here.
 	Name      string `json:"name,omitempty"`
@@ -392,6 +400,16 @@ type NodeRegistration struct {
 	// only for an OWNER-BOUND registration. Empty for a node that predates this field or an
 	// anonymous share (no public voice, so no namespace needed). See VOICE-AUDIO-DESIGN.md.
 	Station string `json:"station,omitempty"`
+	// CURATED marks this station as a PROXY for a commercial upstream API rather than a
+	// person's hardware (founder direction 2026-09-01: fill the dial with clearly-labeled
+	// curated supply, routed and receipted like any station). CuratedProvider names the
+	// upstream ("openrouter", "conifer", "deepseek", ...) and is REQUIRED when Curated is
+	// set: an unnamed proxy is exactly the ambiguity the flag exists to remove. Both ride
+	// regSigningBytes like every other field (only Sig is excluded; omitempty keeps old
+	// nodes' signatures byte-identical), so the claim can neither be forged onto a human
+	// station nor stripped off a proxy in flight.
+	Curated         bool   `json:"curated,omitempty"`
+	CuratedProvider string `json:"curated_provider,omitempty"`
 	// TS (unix seconds) + Sig prove possession of PubKey's private key and bound the
 	// registration to a moment (the broker rejects stale ones to stop replay). Sig is
 	// hex(ed25519 sign over regSigningBytes), verified against PubKey on register.
@@ -486,8 +504,11 @@ type UsageReceipt struct {
 	CompletionTokens int     `json:"completion_tokens"`
 	PriceIn          float64 `json:"price_in"`
 	PriceOut         float64 `json:"price_out"`
-	TS               int64   `json:"ts"`
-	PrevHash         string  `json:"prev_hash"`
+	// Curated marks a receipt settled through a curated (commercial-API proxy) station,
+	// so ledgers and money sweeps can total curated flow apart from human supply.
+	Curated  bool   `json:"curated,omitempty"`
+	TS       int64  `json:"ts"`
+	PrevHash string `json:"prev_hash"`
 	// Lineage proof slot - P0 carries the upstream-reported counts; P1 fills
 	// LineageMethod ("toploc"/"logprob") + LineageProof (opaque bytes).
 	LineageMethod string `json:"lineage_method,omitempty"`
@@ -546,6 +567,11 @@ func (r UsageReceipt) nodeSigningBytes() []byte {
 	c.GrantID = ""
 	c.BrokerPromptTokens = 0
 	c.BrokerCompletionTokens = 0
+	// Curated is BROKER-set (the node's registration says it; the broker stamps the
+	// receipt), so like GrantID it is zeroed here: the node signed before the stamp, and
+	// including it would break VerifyNode on every curated receipt. brokerSigningBytes
+	// keeps it, so the co-signed receipt still proves the designation.
+	c.Curated = false
 	c.SigVersion = 0 // broker-set, and absent when the node signs
 	c.NodeSig = ""
 	c.BrokerSig = ""

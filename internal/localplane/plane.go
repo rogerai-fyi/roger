@@ -195,6 +195,11 @@ type localOffer struct {
 	Online   bool    `json:"online"`
 	FreeNow  bool    `json:"free_now"`
 	Local    bool    `json:"local"`
+	// Curated labels a proxy of a commercial upstream, exactly as the public feed does
+	// (curated_identity.feature): roger renders these rows on the same dial, and a proxy
+	// must never read as local hardware. Free either way - the label is honesty, not price.
+	Curated         bool   `json:"curated,omitempty"`
+	CuratedProvider string `json:"curated_provider,omitempty"`
 }
 
 // discover answers GET /discover with THIS Tower's own attached stations and nothing else -
@@ -224,6 +229,7 @@ func (s *Server) discover(w http.ResponseWriter, r *http.Request) {
 			offers = append(offers, localOffer{
 				NodeID: st.ID, Model: m, Modality: "chat",
 				PriceIn: 0, PriceOut: 0, Online: true, FreeNow: true, Local: true,
+				Curated: st.Curated, CuratedProvider: st.CuratedProvider,
 			})
 		}
 	}

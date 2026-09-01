@@ -235,6 +235,18 @@ func (m model) View() string {
 		if n := strings.Count(out, "\n") + 1; n < m.height {
 			out += strings.Repeat("\n", m.height-n)
 		}
+		// THE BACKSTOP: never hand the renderer a frame taller than the terminal. An
+		// oversized frame scrolls the alt buffer, and when the next (shorter) frame
+		// paints, the stranded rows above it survive as ghosts - the stacked ROGER
+		// logos and repeated STATION LOG lines the founder has now hit twice. Every
+		// mode is supposed to fit its own budget (full_audit_test.go pins the ones
+		// that drifted); this guarantees that even a mode that slips keeps a clean
+		// screen. The BOTTOM rows survive (the renderer's own bias): that is where the
+		// input line, the status and the way out live - a clipped brand row is
+		// cosmetic, a clipped ask box is a trap.
+		if lines := strings.Split(out, "\n"); len(lines) > m.height {
+			out = strings.Join(lines[len(lines)-m.height:], "\n")
+		}
 	}
 	// A live smart-mode selection paints reverse-video over its cells (restyle
 	// only - the frame's text is untouched).
@@ -755,6 +767,14 @@ func (m model) filterLine(matched, total int) string {
 	}
 	if m.fOn {
 		toggles = append(toggles, stRed.Render("on-air"))
+	}
+	if m.fNoCurated {
+		toggles = append(toggles, stEmber.Render("curated hidden"))
+	} else if n := m.curatedBandCount(); n > 0 {
+		// SAY HOW MANY are proxied commercial supply while they are shown, so the dial's
+		// human story is countable at a glance and the U toggle is discoverable next to
+		// the number it would act on.
+		toggles = append(toggles, stDim.Render(fmt.Sprintf("%s%d curated · U hides", glyphCurated, n)))
 	}
 	if m.fQuant != "" {
 		// Named, not a bare "quant" lamp: WHICH one is the whole content of this filter,

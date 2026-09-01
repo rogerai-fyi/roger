@@ -96,6 +96,15 @@ func (m model) cfgBand() (BandRow, bool) {
 func (m model) cfgOnAir() bool { return m.shares[m.cfgModel] != nil }
 
 // bandConfigView renders the card.
+// cfgShort is the band card's own density switch. The card is ~26 rows at full
+// density with every section present (curated included), so the generic
+// shortTerminal() bound (<=22) still let a 24-row terminal overflow - and a frame
+// taller than the terminal scrolls the alt buffer and strands the previous frame's
+// header (the stacked-logo artifact the founder hit pressing b). Measured by the
+// full-mode geometry audit: below 29 rows the card sheds its section blanks and the
+// signpost, and every section still renders.
+func (m model) cfgShort() bool { return m.height > 0 && m.height < 29 }
+
 func (m model) bandConfigView(w int) string {
 	var b strings.Builder
 	line := func(s string) { b.WriteString("  " + truncVisible(s, w-2) + "\n") }
@@ -117,7 +126,7 @@ func (m model) bandConfigView(w int) string {
 	}
 	b.WriteString("  " + stSelBar.Render("▌") + " " + stBrand.Render(m.cfgModel) +
 		stDim.Render("   ") + state + "\n")
-	if !m.shortTerminal() {
+	if !m.cfgShort() {
 		b.WriteString("\n")
 	}
 
@@ -132,6 +141,13 @@ func (m model) bandConfigView(w int) string {
 	_, onMarket := m.bandForModel(m.cfgModel)
 	if onMarket || !served || lim.MaxOut > 0 || lim.MinTPS > 0 {
 		m.cfgSection(&b, w, "WHAT YOU PAY", "[3] CONFIG", m.cfgConsumerRows())
+	}
+	// CURATED - the price, taken apart. The posted number folds the upstream's list and
+	// our routing fee together; a consumer deciding whether the 30% is worth it needs the
+	// two side by side, not a mystery total (curated_pricing.feature: "the consumer sees
+	// exactly what the 30% buys").
+	if rows := m.cfgCuratedRows(); len(rows) > 0 {
+		m.cfgSection(&b, w, "CURATED", "", rows)
 	}
 	if !served {
 		line(stDim.Render("this machine does not serve "+m.cfgModel+" - put a model on air in ") +
@@ -148,7 +164,7 @@ func (m model) cfgSection(b *strings.Builder, w int, title, from string, rows []
 	// teaches the map, which is worth a row when there is one to spare and is not worth
 	// pushing the frame past the window - a frame taller than the terminal scrolls the alt
 	// buffer and strands the previous frame's header (the stacked-logos failure).
-	if !m.narrow() && !m.shortTerminal() {
+	if !m.narrow() && !m.cfgShort() {
 		head += stDim.Render("   from " + from)
 	}
 	b.WriteString(truncVisible(head, w) + "\n")
@@ -163,7 +179,7 @@ func (m model) cfgSection(b *strings.Builder, w int, title, from string, rows []
 		}
 		b.WriteString("  " + truncVisible(row, w-2) + "\n")
 	}
-	if !m.shortTerminal() {
+	if !m.cfgShort() {
 		b.WriteString("\n")
 	}
 }
@@ -634,4 +650,28 @@ func (m model) bandQuantsView(w int) string {
 	}
 	line(stDim.Render("⏎ save · esc cancel · EMPTY accepts any quant"))
 	return b.String()
+}
+
+// cfgCuratedRows renders one row per curated station on the card's band: the provider,
+// the DECLARED upstream list price, and the routing fee (posted minus list) - the split
+// the posted number hides.
+func (m model) cfgCuratedRows() []bandConfigRow {
+	bd, ok := m.bandForModel(m.cfgModel)
+	if !ok || bd.curated == 0 {
+		return nil
+	}
+	var rows []bandConfigRow
+	for _, o := range bd.all {
+		if !o.Curated {
+			continue
+		}
+		// TWO rows, not one: the single-line form clipped at the card's value column and
+		// the routing fee - the half the consumer is deciding about - was what got cut.
+		rows = append(rows,
+			bandConfigRow{label: glyphCurated + o.CuratedProvider,
+				value: "upstream ↑" + money(o.UpstreamIn) + " ↓" + money(o.UpstreamOut) + " /1M"},
+			bandConfigRow{label: "",
+				value: "routing fee ↑" + money(o.PriceIn-o.UpstreamIn) + " ↓" + money(o.PriceOut-o.UpstreamOut) + " /1M"})
+	}
+	return rows
 }

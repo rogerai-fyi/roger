@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"rogerai.fm/roger/v6/internal/protocol"
 	"rogerai.fm/roger/v6/internal/towerobj"
 )
 
@@ -20,7 +21,7 @@ import (
 var leafMembers = []string{
 	"network", "tower_id", "station_id", "offer_id", "model", "modality",
 	"price_in", "price_out", "earn_in", "earn_out", "capacity", "capabilities",
-	"expires", offerSigMbr,
+	"expires", "curated_provider", offerSigMbr,
 }
 
 type identity struct {
@@ -178,6 +179,31 @@ func (s *Set) admitLeaf(channelTowerID string, lo map[string]any) (Leaf, string)
 		return Leaf{}, "the Station-earning rate is above the matching consumer rate"
 	}
 
+	// CURATED (features/curated/curated_tower.feature, the @joined half): an optional
+	// curated_provider member declares this Station a labeled proxy of a commercial
+	// upstream. The upstream KEY has no member here at all - it stays on the Tower - and
+	// the money rule is the network-wide curated one: the earn rates ARE the upstream's
+	// list (pass-through), and the posted price is EXACTLY list + the 30% routing fee.
+	// Ceiling division, so on integer price units the fee is never under-collected; any
+	// other posted price - above (a hidden margin) or below (underwater settlement) - is
+	// refused at the door.
+	curatedProvider := ""
+	if _, present := lo["curated_provider"]; present {
+		curatedProvider, err = o.str("curated_provider")
+		if err != nil {
+			return Leaf{}, err.Error()
+		}
+		curatedProvider = protocol.CanonicalVariantText(curatedProvider)
+		if curatedProvider == "" {
+			return Leaf{}, "curated_provider is empty: an unnamed proxy is the exact ambiguity the label exists to remove"
+		}
+		derive := func(list int64) int64 { return (list*13 + 9) / 10 }
+		if rates["price_in"] != derive(rates["earn_in"]) || rates["price_out"] != derive(rates["earn_out"]) {
+			return Leaf{}, fmt.Sprintf("a curated offer's posted price is derived: list + the routing fee (want %d/%d from earn %d/%d, got %d/%d)",
+				derive(rates["earn_in"]), derive(rates["earn_out"]), rates["earn_in"], rates["earn_out"], rates["price_in"], rates["price_out"])
+		}
+	}
+
 	capacity, err := o.integer("capacity")
 	if err != nil {
 		return Leaf{}, err.Error()
@@ -208,20 +234,21 @@ func (s *Set) admitLeaf(channelTowerID string, lo map[string]any) (Leaf, string)
 	}
 
 	return Leaf{
-		TowerID:      towerID,
-		StationID:    ident.stationID,
-		OfferID:      ident.offerID,
-		Model:        model,
-		Modality:     modality,
-		PriceIn:      rates["price_in"],
-		PriceOut:     rates["price_out"],
-		EarnIn:       rates["earn_in"],
-		EarnOut:      rates["earn_out"],
-		Capacity:     capacity,
-		Capabilities: caps,
-		Expires:      expires,
-		Offer:        canon,
-		OfferHash:    hash,
+		TowerID:         towerID,
+		StationID:       ident.stationID,
+		OfferID:         ident.offerID,
+		Model:           model,
+		Modality:        modality,
+		PriceIn:         rates["price_in"],
+		PriceOut:        rates["price_out"],
+		EarnIn:          rates["earn_in"],
+		EarnOut:         rates["earn_out"],
+		Capacity:        capacity,
+		Capabilities:    caps,
+		Expires:         expires,
+		Offer:           canon,
+		OfferHash:       hash,
+		CuratedProvider: curatedProvider,
 	}, ""
 }
 

@@ -245,9 +245,17 @@ func (b *broker) settleRequest(payer, node string, held, cost float64, rec proto
 	if grantID != "" {
 		_ = b.db.AddGrantUsage(grantID, int64(rec.PromptTokens+rec.CompletionTokens), now)
 	}
+	// The designation is stamped by the relay paths BEFORE the broker signature (mutating
+	// a signed receipt here made every stored curated receipt read as tampered - the
+	// audit's finding); for the unsigned paths that reach settle directly, stamp it now,
+	// and never touch a receipt that already carries a broker signature.
+	if rec.BrokerSig == "" {
+		rec.Curated = b.nodeCurated(node)
+	}
 	if free {
 		// Metering only: record the receipt (Settle at cost 0, ownerShare 0 writes no
-		// earning lot and a $0 spend row) so the owner still sees usage.
+		// earning lot and a $0 spend row) so the owner still sees usage - and the curated
+		// mark rides the $0 row too, or free curated flow vanishes from the sweeps.
 		return b.db.Settle(payer, node, 0, 0, rec)
 	}
 	// Settle-time owner-ban backstop (anti-rotation): if the node's owner was banned
@@ -256,6 +264,18 @@ func (b *broker) settleRequest(payer, node string, held, cost float64, rec proto
 	// is the primary gate; this closes the in-flight race so a banned owner can't earn on
 	// a request already in progress.
 	ownerShare := cost * (1 - b.feeRate)
+	// CURATED settles by its own rule (curated_pricing.go): the operator is reimbursed
+	// the upstream list portion - cost/markup, exactly - and the broker keeps the routing
+	// fee the markup collected. The standard split here would strand a curated operator
+	// 9% underwater on every token. The receipt is marked so ledgers and money sweeps can
+	// total curated flow apart from human supply.
+	// The STAMPED receipt outranks the live registry: a registration evicted mid-flight
+	// (TTL, restart) would otherwise settle a curated receipt at the standard split - the
+	// 9% underwater bug wearing an eviction. The live read remains the fallback for the
+	// unsigned paths that stamped just above.
+	if rec.Curated || b.nodeCurated(node) {
+		ownerShare = curatedOwnerShare(cost)
+	}
 	if b.nodeOwnerBanned(node) {
 		log.Printf("settle: node=%s owner BANNED - billing consumer but minting NO earning", node)
 		ownerShare = 0

@@ -42,7 +42,7 @@ import (
 //
 // The default below is the fallback for a plain `go build`. Keep it in sync with
 // releases. Use semver, optionally with a prerelease suffix (e.g. 4.8.0-beta.1).
-var Version = "6.4.0"
+var Version = "6.5.1"
 
 // The production broker is the default - `rogerai` works out of the box, no config.
 // Override per-session with ROGER_BROKER=... or persist with `roger config set broker`.
@@ -1048,6 +1048,25 @@ func shareModelArg(args []string) (model string, rest []string) {
 	return "", args
 }
 
+// validateCuratedShare enforces the curated flag contract CLI-side, before any probe or
+// register: a curated station fronts a NAMED commercial endpoint, so --curated without an
+// explicit --upstream would aim the "curated" label at whatever local model auto-detect
+// finds - the exact misrepresentation the flag exists to prevent. Zero upstream prices
+// stay legal (a free upstream posts free); negative ones are nonsense the broker would
+// refuse anyway, caught here with a usable sentence.
+func validateCuratedShare(curated, upstream string, upIn, upOut float64) error {
+	if curated == "" {
+		return nil
+	}
+	if upstream == "" {
+		return fmt.Errorf("--curated %s needs an explicit --upstream: a curated station fronts that provider's endpoint, not an auto-detected local model", curated)
+	}
+	if upIn < 0 || upOut < 0 {
+		return fmt.Errorf("--upstream-price-in/out cannot be negative")
+	}
+	return nil
+}
+
 func cmdShare(cfg config, args []string) error {
 	// Defaults inherit the saved onboarding share config (model + price) when set,
 	// so `roger share` after the wizard Just Works with the choices already made.
@@ -1120,7 +1139,10 @@ func cmdShare(cfg config, args []string) error {
 	// the network. It is the local, advisory minimum-hardware preflight (see preflight.go);
 	// it reports and exits, and it gates nothing - a share below the bar still runs.
 	check := fs.Bool("check", false, "check this machine against the suggested minimum hardware and exit. Local only - nothing is sent, and nothing is blocked either way")
-	advanced := fs.Bool("advanced", false, "show advanced flags (--node --region --parallel --upstream --modality --ctx --confidential --free-window --schedule)")
+	curated := fs.String("curated", "", "declare this station a CURATED proxy for the named commercial provider (e.g. openrouter). Requires an explicit --upstream (the commercial endpoint); declare its list via --upstream-price-in/out (zero = a free upstream). The broker posts list + its routing markup and settles the list back to you as pass-through")
+	upIn := fs.Float64("upstream-price-in", 0, "curated: the upstream's list $/1M input the broker derives the posted price from")
+	upOut := fs.Float64("upstream-price-out", 0, "curated: the upstream's list $/1M output")
+	advanced := fs.Bool("advanced", false, "show advanced flags (--node --region --parallel --upstream --modality --ctx --confidential --free-window --schedule --curated --upstream-price-in --upstream-price-out)")
 	fs.Usage = func() {
 		fmt.Print(`roger share - go on air as a provider (auto-detects your local model)
 
@@ -1134,7 +1156,7 @@ func cmdShare(cfg config, args []string) error {
   --price-out <P>     $/1M output tokens to earn (default 0 = free, no login)
   --private           hidden band, frequency-code only (needs ` + "`roger login`" + `)
   --check             hardware preflight: report and exit (never blocks a share)
-  --advanced          reveal: --node --region --parallel --upstream --modality --ctx --confidential --free-window --schedule
+  --advanced          reveal: --node --region --parallel --upstream --modality --ctx --confidential --free-window --schedule --curated --upstream-price-in/out
 
 Earning needs a GitHub-linked owner: run ` + "`roger login`" + ` first. Free sharing
 needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
@@ -1147,8 +1169,11 @@ needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
 	if *check {
 		return runSharePreflight(os.Stdout, sharePreflight())
 	}
+	if err := validateCuratedShare(strings.TrimSpace(*curated), strings.TrimSpace(*upstream), *upIn, *upOut); err != nil {
+		return err
+	}
 	if *advanced {
-		fmt.Println("advanced flags: --node --region --parallel --upstream --upstream-key --modality --ctx --confidential --free-window --schedule")
+		fmt.Println("advanced flags: --node --region --parallel --upstream --upstream-key --modality --ctx --confidential --free-window --schedule --curated --upstream-price-in --upstream-price-out")
 	}
 	// EARN login-gate, UP FRONT (mirrors the --private pre-check below): a priced share
 	// 401s at the broker if the owner is not GitHub-linked. Fail FAST here - before any
@@ -1424,6 +1449,8 @@ needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
 		Capabilities: foundCapabilities,
 		PriceIn:      *priceIn, PriceOut: *priceOut, Ctx: ctxLen, CtxEstimated: ctxEstimated, Parallel: *parallel,
 		Confidential: *confidential, Private: *private, Schedule: sched,
+		Curated: strings.TrimSpace(*curated) != "", CuratedProvider: strings.TrimSpace(*curated),
+		UpstreamPriceIn: *upIn, UpstreamPriceOut: *upOut,
 		// A tts share's DEFAULT voice/speed (a single id or a blend string) rides the offer so the
 		// node injects it when a request omits `voice`. Only meaningful for tts (harmless otherwise).
 		Voice: *voice, Speed: *voiceSpeed,

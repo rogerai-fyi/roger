@@ -2300,6 +2300,20 @@ func (b *broker) captureEdgeCharge(towerID, stationID, stationOwner string, part
 	}
 	wallet := parties.consumerWallet
 	stationShare, towerShare := b.edgeShares(cost)
+	// A CURATED station relayed through a tower still settles pass-through first: the
+	// operator is reimbursed the upstream list portion (cost/markup, curated_pricing.go),
+	// and the tower's relay cut comes out of the MARKUP the routing fee collected - at the
+	// defaults, markup pool 23.08% of cost against a 10% tower cut, so the pool covers it
+	// and the pass-through is never invaded. The platform keeps the remainder.
+	stationCurated := b.nodeCurated(stationID)
+	if stationCurated {
+		stationShare = curatedOwnerShare(cost)
+		if stationShare+towerShare > cost {
+			// A future tower-rate change must shrink the TOWER's cut, never the
+			// reimbursement: shorting the pass-through is the underwater bug again.
+			towerShare = cost - stationShare
+		}
+	}
 	towerAcct := parties.towerAcct
 	if !parties.towerPaid {
 		log.Printf("edge settle: attempt %s - Tower %s operator has no resolvable wallet account; Tower earns nothing",
@@ -2340,6 +2354,9 @@ func (b *broker) captureEdgeCharge(towerID, stationID, stationOwner string, part
 	r := protocol.UsageReceipt{
 		RequestID: attemptID, Model: model,
 		PromptTokens: int(inUnits), CompletionTokens: int(outUnits), TS: now.Unix(),
+		// The SAME verdict the split used, taken once - a second live read could differ
+		// mid-flight and stamp a receipt that contradicts its own settlement.
+		Curated: stationCurated,
 	}
 	// The Tower lot is tagged with a "tower:" node prefix so the earnings surface can tell a
 	// Tower-RELAY share apart from a node-SERVING share for the same operator (the dashboard shows

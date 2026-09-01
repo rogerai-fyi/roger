@@ -123,7 +123,13 @@ cover-html: cover
 
 # cover-gate: THE GATE - no zero-coverage package + per-package floors + total floor.
 # Run by CI and the repo-local pre-push hook. Bypass a local push with COVER_GATE_SKIP=1.
+# The web dist is rebuilt FIRST: the smoke suite's version-sync test reads
+# web/dist/manual.html, and dist is a gitignored per-worktree artifact - a version bump
+# made in another worktree left this one's dist stale, and the same failure cost two full
+# gate round-trips on two releases running before anyone noticed the pattern.
 cover-gate:
+	@echo "[cover-gate] rebuilding web dist (version-sync reads it)"
+	@cd web && node build.mjs >/dev/null
 	@scripts/cover-gate.sh
 
 # cover-gate-fast: the FAST gate for DOC/WEB-ONLY pushes (no .go changed). Coverage cannot

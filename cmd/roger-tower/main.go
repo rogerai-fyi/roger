@@ -416,6 +416,7 @@ func cmdAttach(args []string, out io.Writer) error {
 	station := fs.String("station", "", "Station id")
 	key := fs.String("key", "", "hash of the Station's public key")
 	models := fs.String("models", "", "comma-separated models this Station serves")
+	curated := fs.String("curated", "", "attach as a CURATED proxy of the named commercial provider (e.g. openrouter): the label rides discovery and receipts so a proxy never reads as local hardware; the local plane stays free either way")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -430,12 +431,24 @@ func cmdAttach(args []string, out io.Writer) error {
 			list = append(list, m)
 		}
 	}
-	s, err := st.AttachStation(*station, *key, list)
-	if err != nil {
-		return err
+	var s tower.Station
+	var err2 error
+	// Any non-empty --curated value routes to the curated attach, whitespace included:
+	// AttachCuratedStation sanitizes and refuses an empty provider, which is the right
+	// answer for a blank flag - silently attaching as HUMAN would be the mislabel.
+	if *curated != "" {
+		s, err2 = st.AttachCuratedStation(*station, *key, list, *curated)
+	} else {
+		s, err2 = st.AttachStation(*station, *key, list)
+	}
+	if err2 != nil {
+		return err2
 	}
 	fmt.Fprintf(out, "attached station %s on local network %s\n", s.ID, s.NetworkID)
 	fmt.Fprintf(out, "models: %s\n", strings.Join(s.Models, ", "))
+	if s.Curated {
+		fmt.Fprintf(out, "curated via %s - a labeled pass-through; the local plane stays free\n", s.CuratedProvider)
+	}
 	return nil
 }
 
@@ -463,8 +476,12 @@ func cmdStations(args []string, out io.Writer) error {
 		return nil
 	}
 	for _, s := range list {
-		fmt.Fprintf(out, "%s  models=%s  attached=%s\n",
-			s.ID, strings.Join(s.Models, ","), time.Unix(s.AttachedAt, 0).Format(time.RFC3339))
+		label := ""
+		if s.Curated {
+			label = "  curated via " + s.CuratedProvider
+		}
+		fmt.Fprintf(out, "%s  models=%s  attached=%s%s\n",
+			s.ID, strings.Join(s.Models, ","), time.Unix(s.AttachedAt, 0).Format(time.RFC3339), label)
 	}
 	return nil
 }

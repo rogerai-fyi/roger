@@ -261,8 +261,13 @@ func (b *broker) liveModelProviders() map[string]int {
 		return out
 	}
 	for _, v := range views {
-		if v.Providers > 0 {
-			out[v.Model] = v.Providers
+		// Curated stations SERVE REQUESTS: a model whose only live supply is a curated
+		// proxy is on air, and paging "0 providers / requests will fail" over it is a
+		// false alarm that also hides a real curated-supply outage. The market view
+		// counts the two apart (an honesty rule for the dial); the pager's question is
+		// "will a request fail?", so here they add up.
+		if n := v.Providers + v.CuratedProviders; n > 0 {
+			out[v.Model] = n
 		}
 	}
 	return out

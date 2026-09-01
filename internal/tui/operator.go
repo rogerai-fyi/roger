@@ -690,7 +690,7 @@ func (m model) startOperatorHandoff(d operator.Detection, fromPicker bool) (tea.
 	// block the very case it exists for - local work, no useful band, hand it to a guest
 	// that runs on its own account.
 	if !bandlessGuest(d.Guest) && (m.proxyHolder == nil || !m.proxyHolder.Connected()) {
-		pick := pickAutoBand(m.bands, m.loggedInState())
+		pick := pickAutoBand(m.visibleBands(), m.loggedInState())
 		// R1 money-safety: a SILENT handoff auto-tune may only bind a genuinely-FREE station
 		// (FreeNow / zero-priced), never pick.cheapest - the min-PRICE station across ALL of
 		// the band's stations, which can be PAID even in a band flagged free. No free station

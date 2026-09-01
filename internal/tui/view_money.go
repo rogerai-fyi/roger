@@ -71,15 +71,38 @@ type payoutSnapshot struct {
 // default). Edited from the CLI (`roger limit --monthly $X`), shown here.
 func monthlyBudgetLine(m model) string {
 	label := stDim.Render("    monthly budget   ")
+	// The cursor reaches this row (up off the top of the band table), exactly as it
+	// reaches every band row: the thing you are looking at is the thing you edit.
+	if m.mode == modeLimits && m.limOnBudget {
+		label = stSelBar.Render("  ▌ ") + stSelText.Render("monthly budget") + " "
+	}
+	// MID-EDIT: the row becomes the editor, same value-first fit discipline as the band
+	// plate - the draft never drops, the keys go first.
+	if m.mode == modeLimits && m.limEditBudget {
+		line := label + stSelText.Render("["+m.editBuf+"]")
+		if m.width == 0 || m.width >= 72 {
+			line += stDim.Render("   enter save   esc cancel   (0/off = no cap)")
+		}
+		return line
+	}
 	if !m.loggedInState() {
 		return label + stDim.Render("log in to set a monthly spend limit")
 	}
+	// The EDIT AFFORDANCE survives every width. The old tail (`set: roger limit
+	// --monthly $X`) was dropped under 92 columns to stop the row wrapping - so on an
+	// ordinary 80-column terminal the one account-wide money control showed "no cap"
+	// with no way to discover how to set one (founder screenshot, 2026-09-01). A limit
+	// you cannot find out how to set is a limit that does not exist. The short form
+	// fits beside everything else at 80 columns; only the long CLI reminder stays
+	// width-gated.
+	hint := stDim.Render("   ·   ↑ edit")
+	if m.mode == modeLimits && m.limOnBudget {
+		hint = stDim.Render("   ·   enter edit")
+	}
 	if m.monthlyCap <= 0 {
-		line := label + stLive.Render("no cap") + stDim.Render("   ·   used "+dollars(m.monthlySpend)+" this month")
-		// The how-to tail is the first thing to go: it is a CLI reminder, not state, and
-		// it was pushing this row past an ordinary 80-column terminal.
-		if m.width == 0 || m.width >= 92 {
-			line += stDim.Render("   ·   set: roger limit --monthly $X")
+		line := label + stLive.Render("no cap") + stDim.Render("   ·   used "+dollars(m.monthlySpend)+" this month") + hint
+		if m.width == 0 || m.width >= 104 {
+			line += stDim.Render("   ·   or: roger limit --monthly $X")
 		}
 		return line
 	}
@@ -99,7 +122,11 @@ func monthlyBudgetLine(m model) string {
 	if !m.narrow() {
 		bar = "   " + tintBar(meterBar(m.monthlySpend/m.monthlyCap, budgetBarWidth), fillStyle)
 	}
-	return label + used + stDim.Render(" this month") + bar + tail
+	line := label + used + stDim.Render(" this month") + bar + tail
+	if m.narrow() {
+		return line // the bar already dropped; the affordance is the row above's job at this width
+	}
+	return line + hint
 }
 
 // walletPanel groups the money-facing readout into ONE dedicated block on the spend-limits
@@ -143,8 +170,9 @@ func (m model) limitsBody(w int) string {
 	}
 	b.WriteString("\n" + head + "\n\n")
 	// The dedicated WALLET panel: balance + running session totals + the monthly-budget bar
-	// (a per-account spend cap, enforced server-side at every paid path). Read-only here; set
-	// the cap with `roger limit --monthly $X`.
+	// (a per-account spend cap, enforced server-side at every paid path). The budget row is
+	// EDITABLE here - up off the top of the table reaches it, enter edits - because this
+	// screen is the spend-limits editor and the account-wide cap is a spend limit.
 	b.WriteString(m.walletPanel() + "\n\n")
 	// A DENSE TABLE on a slim terminal. The full grid is 76 cells and simply did not fit
 	// a minimized or narrow window, which is where an operator most often IS when they
@@ -160,10 +188,28 @@ func (m model) limitsBody(w int) string {
 	if len(m.limModels) == 0 {
 		b.WriteString(stDim.Render("    (none yet - press a / set one in `roger config set-limit`)") + "\n")
 	}
-	for i, mdl := range m.limModels {
+	// VIRTUALIZE like the dial: only the rows that fit the terminal render, the window
+	// follows limCursor, and "more" hints say what scrolled off. The full table was 34
+	// rows on a 24-row terminal - the same alt-buffer scroll that stacks the logos.
+	// Chrome (wallet panel, headings, edit plate, keys, signpost, footer) measured at
+	// 22 by the full-mode audit (the narrow reflow wraps one wallet line).
+	limRows := len(m.limModels)
+	if m.height > 0 {
+		if room := m.height - 22; room > 0 && limRows > room {
+			limRows = room
+		} else if room <= 0 {
+			limRows = 3
+		}
+	}
+	limTop, limEnd := windowFor(0, m.limCursor, limRows, len(m.limModels))
+	if limTop > 0 {
+		b.WriteString("    " + stDim.Render(fmt.Sprintf("↑ %d more above", limTop)) + "\n")
+	}
+	for i := limTop; i < limEnd; i++ {
+		mdl := m.limModels[i]
 		cur := " "
 		nameStyle := lipgloss.NewStyle().Foreground(cInk)
-		if i == m.limCursor {
+		if i == m.limCursor && !m.limOnBudget {
 			cur = stSelBar.Render("▌")
 			nameStyle = stSelText
 		}
@@ -195,6 +241,9 @@ func (m model) limitsBody(w int) string {
 				cur, nameStyle.Render(pad(mdl, 18)), stEmber.Render(pad(maxOut, 13)), stDim.Render(mtps))
 		}
 		b.WriteString(truncVisible(row, w) + "\n")
+	}
+	if n := len(m.limModels) - limEnd; n > 0 {
+		b.WriteString("    " + stDim.Render(fmt.Sprintf("↓ %d more below", n)) + "\n")
 	}
 	if m.editField >= 0 && m.limCursor < len(m.limModels) {
 		field := "max $/1M out"
