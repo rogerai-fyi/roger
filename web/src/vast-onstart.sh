@@ -130,8 +130,10 @@ fi
 # serving the port, whatever it runs on is its own business.
 if [ "$GPU_OK" != 1 ] && [ "${ROGER_SKIP_GPU_CHECK:-0}" != "1" ]; then
   if ! curl -fsS --max-time 3 "$UPSTREAM/models" >/dev/null 2>&1; then
+    WOULD="refusing to start"
+    [ "$DRY" = "1" ] && WOULD="would not proceed"
     cat >&2 <<MSG
-[roger] no GPU visible on this box: $GPU_DESC
+[roger] $WOULD: no GPU visible on this box: $GPU_DESC
 
   vLLM would find this out too, after downloading the weights and several billed
   minutes of an instance that cannot serve. Stopping first instead.

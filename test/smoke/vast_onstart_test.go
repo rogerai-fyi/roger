@@ -40,6 +40,23 @@ func envWithoutRoger() []string {
 	return out
 }
 
+// stubGPU puts an nvidia-smi on PATH that reports one card. Without it these tests pass or
+// fail on whether the HOST has a GPU: this box has four, the coverage runner has none, so the
+// dry-run cases were green here and red there. The script's GPU check is deliberate and
+// fires in dry run too - so a test that exercises anything else has to fix the answer.
+func stubGPU(t *testing.T, ok bool) string {
+	t.Helper()
+	dir := t.TempDir()
+	body := "#!/bin/sh\nexit 1\n"
+	if ok {
+		body = "#!/bin/sh\necho 'NVIDIA Test Card'\n"
+	}
+	if err := os.WriteFile(filepath.Join(dir, "nvidia-smi"), []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return dir + string(os.PathListSeparator) + os.Getenv("PATH")
+}
+
 func runOnstart(t *testing.T, env map[string]string) (string, int) {
 	t.Helper()
 	home := t.TempDir()
@@ -48,6 +65,7 @@ func runOnstart(t *testing.T, env map[string]string) (string, int) {
 		"ROGER_DRY_RUN=1",
 		"HOME="+home,
 		"XDG_CONFIG_HOME="+filepath.Join(home, ".config"),
+		"PATH="+stubGPU(t, true),
 	)
 	for k, v := range env {
 		cmd.Env = append(cmd.Env, k+"="+v)
@@ -88,7 +106,8 @@ func TestVastOnstartEarnsWhenTheBoxHasAnOwner(t *testing.T) {
 	}
 	cmd := exec.Command("bash", filepath.Join("..", "..", "web", "src", "vast-onstart.sh"))
 	cmd.Env = append(envWithoutRoger(), "ROGER_DRY_RUN=1", "HOME="+home,
-		"XDG_CONFIG_HOME="+filepath.Join(home, ".config"), "ROGER_PRICE_OUT=0.30")
+		"XDG_CONFIG_HOME="+filepath.Join(home, ".config"), "ROGER_PRICE_OUT=0.30",
+		"PATH="+stubGPU(t, true))
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("a signed-in box must be allowed to earn: %v\n%s", err, out)
@@ -175,14 +194,10 @@ func TestVastOnstartRefusesAGpulessBoxItWouldHaveToServeOn(t *testing.T) {
 	// would only prove the script needs coreutils - it died on awk before reaching the
 	// check, which is what the first version of this test actually measured.
 	home := t.TempDir()
-	stub := t.TempDir()
-	if err := os.WriteFile(filepath.Join(stub, "nvidia-smi"), []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
 	cmd := exec.Command("bash", filepath.Join("..", "..", "web", "src", "vast-onstart.sh"))
 	cmd.Env = append(envWithoutRoger(), "ROGER_DRY_RUN=1", "HOME="+home,
 		"XDG_CONFIG_HOME="+filepath.Join(home, ".config"),
-		"PATH="+stub+string(os.PathListSeparator)+os.Getenv("PATH"))
+		"PATH="+stubGPU(t, false))
 	out, err := cmd.CombinedOutput()
 	// NOT a substring search: the STATUS line already says "nvidia-smi not found", so a
 	// script with the refusal deleted still prints that and would pass. Assert the refusal
@@ -194,7 +209,8 @@ func TestVastOnstartRefusesAGpulessBoxItWouldHaveToServeOn(t *testing.T) {
 	if code == 0 {
 		t.Fatalf("a box with no usable GPU must not proceed to download weights:\n%s", out)
 	}
-	if !strings.Contains(string(out), "no GPU visible on this box") {
+	if !strings.Contains(string(out), "no GPU visible on this box") &&
+		!strings.Contains(string(out), "would not proceed: no GPU visible") {
 		t.Errorf("the stop must explain itself:\n%s", out)
 	}
 	if !strings.Contains(string(out), "ROGER_SKIP_GPU_CHECK") {
