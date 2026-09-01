@@ -392,6 +392,16 @@ type NodeRegistration struct {
 	// only for an OWNER-BOUND registration. Empty for a node that predates this field or an
 	// anonymous share (no public voice, so no namespace needed). See VOICE-AUDIO-DESIGN.md.
 	Station string `json:"station,omitempty"`
+	// CURATED marks this station as a PROXY for a commercial upstream API rather than a
+	// person's hardware (founder direction 2026-09-01: fill the dial with clearly-labeled
+	// curated supply, routed and receipted like any station). CuratedProvider names the
+	// upstream ("openrouter", "conifer", "deepseek", ...) and is REQUIRED when Curated is
+	// set: an unnamed proxy is exactly the ambiguity the flag exists to remove. Both ride
+	// regSigningBytes like every other field (only Sig is excluded; omitempty keeps old
+	// nodes' signatures byte-identical), so the claim can neither be forged onto a human
+	// station nor stripped off a proxy in flight.
+	Curated         bool   `json:"curated,omitempty"`
+	CuratedProvider string `json:"curated_provider,omitempty"`
 	// TS (unix seconds) + Sig prove possession of PubKey's private key and bound the
 	// registration to a moment (the broker rejects stale ones to stop replay). Sig is
 	// hex(ed25519 sign over regSigningBytes), verified against PubKey on register.

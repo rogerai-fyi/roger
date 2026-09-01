@@ -52,8 +52,14 @@ type offerView struct {
 	// text-only or undetermined. omitempty: the app treats "vision"->show photo button, absent->
 	// name-heuristic (it handles all three of vision/[]/absent identically for non-vision models).
 	Capabilities []string `json:"capabilities,omitempty"`
-	In           float64  `json:"price_in"`  // active (time-of-use) price right now
-	Out          float64  `json:"price_out"` // active price right now
+	// Curated marks a station that PROXIES a commercial upstream API rather than serving
+	// a person's hardware; CuratedProvider names it. Carried on the public feed so every
+	// surface can badge and filter it - a curated station indistinguishable from a human
+	// one on the wire would make the dial's human story unverifiable.
+	Curated         bool    `json:"curated,omitempty"`
+	CuratedProvider string  `json:"curated_provider,omitempty"`
+	In              float64 `json:"price_in"`  // active (time-of-use) price right now
+	Out             float64 `json:"price_out"` // active price right now
 	// PriceTier is the neutral buyer-facing $-tier: 0 = FREE/unknown, 1..4 = $..$$$$,
 	// graded vs the same-model external reference (preferred) or the live per-model
 	// median. Computed server-side (assignPriceTiers) so every surface renders alike.
@@ -196,6 +202,7 @@ func (b *broker) enrichOffersForNode(out []offerView, n protocol.NodeRegistratio
 		pin, pout, free, _ := o.ActivePrice(now)
 		out = append(out, offerView{
 			NodeID: n.NodeID, Region: n.Region, HW: n.HW, Model: o.Model, Modality: offerModality(o.Modality),
+			Curated: n.Curated, CuratedProvider: n.CuratedProvider,
 			// canonicalized at read, never raw wire. The VERIFIED "tools" bit is unioned in from the
 			// probe verdict (toolsOK snapshot of toolsVerifiedForLocked): a node-declared "tools" was
 			// stripped at registration, so only a passing canary (this instance's own verdict, or the
@@ -298,9 +305,13 @@ type marketView struct {
 	// if it can be ROUTED to any provider that reports vision. ["vision"] if any provider does,
 	// omitted otherwise (the app name-guesses for a model with no declared vision provider).
 	Capabilities []string `json:"capabilities,omitempty"`
-	Providers    int      `json:"providers"` // online nodes offering this model
-	InFlight     int      `json:"in_flight"` // active requests across those nodes
-	MinPrice     float64  `json:"min_price"` // cheapest active input price (credits/1M)
+	Providers    int      `json:"providers"` // online HUMAN nodes offering this model
+	// CuratedProviders counts the proxied commercial-API stations on this band,
+	// separately and additively (omitempty: bands with none are byte-identical to
+	// before, so nothing that parses /market today changes).
+	CuratedProviders int     `json:"curated_providers,omitempty"`
+	InFlight         int     `json:"in_flight"` // active requests across those nodes
+	MinPrice         float64 `json:"min_price"` // cheapest active input price (credits/1M)
 	// MinOut is the cheapest active OUT-price (credits/1M), the number every surface on the
 	// website actually quotes. It was computed here for the price tier and never serialized,
 	// so a consumer of this feed could only reach the INPUT price - and the pricing
@@ -380,6 +391,7 @@ func (b *broker) computeMarket() any {
 	type acc struct {
 		modality      string // canonical modality of this model's offers (offerModality; first seen sets it)
 		providers     int
+		curated       int
 		inflight      int
 		minPrice      float64
 		havePrice     bool
@@ -454,7 +466,15 @@ func (b *broker) computeMarket() any {
 					a.capsUnion[c] = true
 				}
 			}
-			a.providers++
+			// Curated supply is counted APART, never inside providers: "providers" is the
+			// market's human-supply claim, and letting proxies inflate it would make the
+			// dial's own story unverifiable (the exact dishonesty the curated flag exists
+			// to prevent).
+			if n.Curated {
+				a.curated++
+			} else {
+				a.providers++
+			}
 			a.inflight += inflight
 			in, out, _, _ := o.ActivePrice(now)
 			if !a.havePrice || in < a.minPrice {
@@ -516,7 +536,7 @@ func (b *broker) computeMarket() any {
 		tier := priceTier(a.minOut, ref, a.outPrices)
 		out = append(out, marketView{
 			Model: model, Modality: a.modality, Capabilities: marketCapabilities(model, a.capsUnion, a.capsSeen),
-			Providers: a.providers, InFlight: a.inflight,
+			Providers: a.providers, CuratedProviders: a.curated, InFlight: a.inflight,
 			MinPrice: a.minPrice, MinOut: a.minOut, PriceTier: tier, BestTPS: a.bestTPS, BestTTFTMs: round6(a.bestTTFT),
 			Quality:     round6(quality),
 			SuccessRate: round6(successRate),

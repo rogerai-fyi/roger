@@ -330,6 +330,37 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 	// nonce binding, and allowlisted launch measurement ALL verify. verifyRegistration
 	// returns an error ONLY when ROGERAI_TEE_REQUIRE is set and a claimed quote fails -
 	// then we reject the registration rather than silently downgrade it to standard.
+	// CURATED validation, before anything is stored. The flag is signed (regSigningBytes
+	// covers it), so it arrives exactly as the node's key authored it - what is checked
+	// here is COHERENCE, and each rule is a refusal because every one of them is a lie
+	// waiting to be displayed:
+	//   - curated with no provider name is an unnamed proxy, the exact ambiguity the flag
+	//     exists to remove;
+	//   - curated + a TEE claim is impossible - the request LEAVES for a commercial API,
+	//     and no enclave claim survives that hop;
+	//   - a node id that registered as a HUMAN station cannot re-register as a proxy (or
+	//     the reverse): that is a new thing wearing an earned callsign, so it must arrive
+	//     as a new identity.
+	if reg.Curated {
+		if strings.TrimSpace(reg.CuratedProvider) == "" {
+			jsonErr(w, http.StatusBadRequest, "curated registration requires curated_provider: name the upstream this station proxies")
+			return
+		}
+		if reg.Confidential || reg.Attestation != "" {
+			jsonErr(w, http.StatusBadRequest, "a curated station cannot claim confidential: the request leaves for a commercial API and no enclave claim survives that hop")
+			return
+		}
+		// The provider IS the region: a proxy has no geography of its own, and leaving a
+		// place-name here would count commercial POPs into the human-supply story.
+		reg.Region = strings.ToLower(strings.TrimSpace(reg.CuratedProvider))
+	}
+	b.mu.Lock()
+	if prev, ok := b.nodes[reg.NodeID]; ok && prev.Curated != reg.Curated {
+		b.mu.Unlock()
+		jsonErr(w, http.StatusConflict, "this node id is registered as a different kind of station; a human callsign cannot become a curated proxy (or the reverse) - register the proxy under its own identity")
+		return
+	}
+	b.mu.Unlock()
 	confidential, attErr := b.attest.verifyRegistration(r.Context(), reg)
 	if attErr != nil {
 		jsonErr(w, http.StatusForbidden, attErr.Error())
