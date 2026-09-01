@@ -527,7 +527,7 @@ rogerai.fm/roger/v6/cmd/rogerai-broker/probe.go:349:			probeEvidenceRecentLocked
 rogerai.fm/roger/v6/cmd/rogerai-broker/probe.go:365:			proberLoop			100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/probe.go:386:			jitterWindow			100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/probe.go:402:			probeOnce			96.5%
-rogerai.fm/roger/v6/cmd/rogerai-broker/probe.go:585:			probeNode			87.0%
+rogerai.fm/roger/v6/cmd/rogerai-broker/probe.go:585:			probeNode			89.1%
 rogerai.fm/roger/v6/cmd/rogerai-broker/probe.go:699:			failed				100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/probe.go:717:			evalCanary			100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/probe.go:783:			canaryWrongFamily		100.0%
@@ -748,7 +748,7 @@ rogerai.fm/roger/v6/cmd/rogerai-broker/sharedstore.go:1444:		counterIncr			90.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/sharedstore.go:1459:		setIfAbsent			90.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/sharedstore.go:1520:		busPublishJob			90.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/sharedstore.go:1542:		busClaimJob			70.0%
-rogerai.fm/roger/v6/cmd/rogerai-broker/sharedstore.go:1563:		busSubscribe			97.2%
+rogerai.fm/roger/v6/cmd/rogerai-broker/sharedstore.go:1563:		busSubscribe			94.4%
 rogerai.fm/roger/v6/cmd/rogerai-broker/sharedstore.go:1627:		busSubscribeJobs		100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/sharedstore.go:1631:		busPublishResult		88.9%
 rogerai.fm/roger/v6/cmd/rogerai-broker/sharedstore.go:1645:		busSubscribeResult		100.0%
@@ -1461,7 +1461,7 @@ rogerai.fm/roger/v6/internal/client/login.go:229:			LogoutReturn			60.0%
 rogerai.fm/roger/v6/internal/client/login.go:241:			Logout				85.7%
 rogerai.fm/roger/v6/internal/client/login.go:256:			Whoami				100.0%
 rogerai.fm/roger/v6/internal/client/login.go:283:			startDeviceFlow			92.9%
-rogerai.fm/roger/v6/internal/client/login.go:305:			pollDeviceToken			85.7%
+rogerai.fm/roger/v6/internal/client/login.go:305:			pollDeviceToken			90.5%
 rogerai.fm/roger/v6/internal/client/login.go:347:			postSigned			100.0%
 rogerai.fm/roger/v6/internal/client/login.go:355:			maxInt				100.0%
 rogerai.fm/roger/v6/internal/client/payout.go:49:			payoutErr			100.0%
