@@ -13,9 +13,6 @@ package main
 // underwater on every token, invisibly, forever (and worse at any higher fee). Curated settlement is therefore its own rule, defined
 // beside its markup so the two can never drift apart.
 
-// curatedMarkup is the multiplier from a curated station's DECLARED upstream list price
-// to its POSTED price. Broker-owned: changing it here re-derives every curated posted
-// price at the next registration refresh, and re-scales every settlement split with it.
 // defaultFeeRate is the platform's take on a HUMAN station's settled cost (the operator
 // keeps 1-defaultFeeRate). One number with curatedMarkup below: the founder's 2026-09-01
 // ruling is ONE 10% fee across both planes ("10% approved ... 90/5/5"), sized against the
@@ -25,6 +22,9 @@ package main
 // ten-percent default".
 const defaultFeeRate = 0.10
 
+// curatedMarkup is the multiplier from a curated station's DECLARED upstream list price
+// to its POSTED price. Broker-owned: changing it here re-derives every curated posted
+// price at the next registration refresh, and re-scales every settlement split with it.
 const curatedMarkup = 1.10
 
 // curatedPosted derives the consumer-facing price from a declared upstream list price.

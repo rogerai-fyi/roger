@@ -9,7 +9,7 @@ serve models. There are two ways to run one, and the difference matters:
 | Talks to RogerAI | Never | Yes |
 | Account needed | **No, none, ever** | Yes |
 | Who it serves | You and your machines | Other people's traffic |
-| Earns | Nothing (it is your own traffic) | 10% of gross on every request it carries |
+| Earns | Nothing (it is your own traffic) | 5% of gross on every request it carries |
 | Status | Available now | Available now |
 
 Standalone needs no account because nothing leaves your machine. Joined needs one
@@ -169,7 +169,7 @@ the code into one the kernel enforces.
 **Joined mode is built.** Admission, short-lived certificates, the link (session, heartbeat,
 clean drain, renewal), the sealed hub data plane, self-attaching `roger share` nodes,
 signed receipts, one-use settlement, and compensation: every settled request pays the serving
-node 70% of its own listed price, **your Tower 10%**, the platform 20%. Relay earnings are
+node 90% of its own listed price, **your Tower 5%**, the platform 5%. Relay earnings are
 ordinary earnings — `roger-tower earnings` reads them, and they cash out on the same rail as
 serving (120-day hold, $25 minimum, Stripe Connect onboarding).
 

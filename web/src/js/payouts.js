@@ -125,7 +125,7 @@
 
   // ---- where the money came from: per-model rows, each annotated with its node and
   // request count, sorted by earnings. Driven by /metrics/provider (the owner's served
-  // traffic, with the 70% earnings share already computed). ----
+  // traffic, with the 90% earnings share already computed). ----
   function renderBreakdown(models) {
     var rows = (models || []).filter(function (m) { return (m.earnings_usd || 0) > 0; });
     if (!rows.length) { show("breakdownEmpty"); return; }

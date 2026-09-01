@@ -266,7 +266,7 @@ type Store interface {
 	// ProviderMetrics returns the per-(model,node) breakdown of what the account's
 	// node(s) SERVED over the trailing [since,until) unix window: requests, tokens
 	// in/out, a free-vs-paid split (free = no owner earnings on the request), and the
-	// owner's earnings (the 70% net share). accountID is the owner pubkey; only nodes
+	// owner's earnings (the 90% net share). accountID is the owner pubkey; only nodes
 	// bound to that account are counted. Receipt-derived (no drift from earnings).
 	ProviderMetrics(accountID string, since, until int64) ([]ProviderModelMetric, error)
 	// UsageMetrics returns the per-model breakdown of what the wallet CONSUMED over the
@@ -315,7 +315,7 @@ type Store interface {
 	EarningRollups(accountID string) (byModel, byNode []EarningRollup, err error)
 	// SelfRelayedRollup is EarningRollups' by-NODE half restricted to the account's
 	// SELF-RELAYED lots: the ones whose request paid this same account on both sides of the
-	// split, its Station's 70% and its Tower's 10% (see EarningLot.SelfRelayed).
+	// split, its Station's 90% and its Tower's 5% (see EarningLot.SelfRelayed).
 	//
 	// It exists so the fact is ANSWERABLE rather than merely stored. Divided by the byNode
 	// rollup above it gives, per node, the fraction of that node's earnings that came from

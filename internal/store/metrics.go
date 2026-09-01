@@ -8,7 +8,7 @@ import "sort"
 // per request: a $0 request (free model / self-use / a free window) is "free", any
 // request with a non-zero charge is "paid".
 //
-// Provider side keys off owner_share (the owner's 70% net share already stored per
+// Provider side keys off owner_share (the owner's 90% net share already stored per
 // receipt) and the node->account binding; consumer side keys off cost. The numbers
 // are receipt-derived so they never drift from the ledger/earnings they roll up.
 
@@ -23,7 +23,7 @@ type ProviderModelMetric struct {
 	PaidRequests int64   `json:"paid_requests"`
 	FreeTokens   int64   `json:"free_tokens"`
 	PaidTokens   int64   `json:"paid_tokens"`
-	EarningsUSD  float64 `json:"earnings_usd"` // owner's 70% share, in credits ($ at credit_usd=1)
+	EarningsUSD  float64 `json:"earnings_usd"` // owner's 90% share, in credits ($ at credit_usd=1)
 }
 
 // UsageModelMetric is one model row of what an account consumed.

@@ -223,7 +223,7 @@ CREATE INDEX IF NOT EXISTS rc_attach_session ON rogerai.rc_attach_tokens (sessio
 -- exact lots back to 'payable'. Additive.
 ALTER TABLE rogerai.earning_lots ADD COLUMN IF NOT EXISTS payout_id BIGINT;
 -- self_relayed marks a lot whose request paid ONE account on both sides of the edge split
--- (the Station's 70% and its relay Tower's 10%). EVIDENCE ONLY - no query in the money
+-- (the Station's 90% and its relay Tower's 5%). EVIDENCE ONLY - no query in the money
 -- lifecycle reads it, and the default is the honest one for every lot minted before the
 -- column existed: not known to be self-relayed. Additive, backfill-free by construction.
 ALTER TABLE rogerai.earning_lots ADD COLUMN IF NOT EXISTS self_relayed BOOLEAN NOT NULL DEFAULT FALSE;

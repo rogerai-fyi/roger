@@ -2491,7 +2491,7 @@ tower that is not the one the grant named. So M3's money change is: delete the s
 and rely on the per-attempt one. One gate, no schema, no new column.
 
 **But it is doing a second job nobody named, and removing it exposes that.** It is currently the
-only reason `at.Owner` — the payee of the 70% — is read from an attachment known to still be
+only reason `at.Owner` — the payee of the station share (90% since the 2026-09-01 fee ruling; 70% when this was written) — is read from an attachment known to still be
 behind the settling tower. Without it, the station owner is read from whatever the attachment says
 at settle time. That is still correct (the station's owner is the station's owner) and it should
 be stated rather than discovered.
@@ -2690,7 +2690,7 @@ dormant check into a load-bearing one. Four findings, in the order they cost mon
    E44 in the Tower network plan (internal design note). This is the single decision in this section that must be
    made before code is written, because it is a shape, not a check.
 2. **The third pair is not compared anywhere: station owner vs tower operator.** An operator who
-   owns both collects 70% + 10% = 80% of gross from an arms-length consumer, unflagged. Today they
+   owns both collects 90% + 5% = 95% of gross (rates per the 2026-09-01 ruling) from an arms-length consumer, unflagged. Today they
    cannot arrange it. Under locality-aware relay selection they can, and **often should** — the
    nearest relay to a node is frequently on the node's own network, which is exactly the outcome
    the milestone exists to produce. The recommendation is therefore not to block it: **record the
@@ -2767,7 +2767,7 @@ That is still an evidence problem, not an equality test, and item 1 below remain
 **Item 2, the station-owner-versus-tower-operator pair, is now RECORDED and still not enforced.**
 `earning_lots` gained one additive column, `self_relayed BOOLEAN NOT NULL DEFAULT FALSE`, stamped
 on **both** of an attempt's lots (the concentration being recorded is 80% of one request landing
-in one account, and the Station's 70% is most of it). `store.SelfRelayedRollup(accountID)` is the
+in one account, and the Station's 90% share is most of it). `store.SelfRelayedRollup(accountID)` is the
 read side: the per-node gross of an account's self-relayed, non-clawed lots, in the same shape and
 the same order as `EarningRollups`' by-node half, so "what fraction of this node's earnings were
 self-relayed" is one division rather than a second schema. Parity-tested on mem and Postgres.

@@ -74,7 +74,7 @@ type EarningLot struct {
 	CreatedAt        int64   `json:"created_at"`
 	PayoutID         int64   `json:"payout_id,omitempty"` // the payout that paid this lot (0 = none); rollback key
 	// SelfRelayed records that the two earnings this request minted - the serving Station's
-	// 70% and the relaying Tower's 10% - were determined at settle time to belong to ONE
+	// 90% and the relaying Tower's 5% - were determined at settle time to belong to ONE
 	// account. It is EVIDENCE, not enforcement: nothing here withholds, scales or refuses the
 	// lot, and no read path treats a flagged lot differently from any other.
 	//

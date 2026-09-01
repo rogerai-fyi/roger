@@ -393,7 +393,7 @@ observation and stronger than trusting either alone**.
 ## 9. Compensation
 
 **Operators are paid on the ordinary rail.** A settled edge attempt mints real earning lots -
-70% of gross to the serving node's owner, 10% to the Tower operator - on the same ledger a
+90% of gross to the serving node's owner, 5% to the Tower operator (the 2026-09-01 fee ruling; was 70/10) - on the same ledger a
 direct node's serving share uses. They hold, release, and cash out through `/payouts/request`
 like any other earning: Stripe Connect transfer, 120-day hold, $25 minimum, KYC gate, and
 clawback on dispute. The Payouts page shows relaying and serving apart (provenance only).

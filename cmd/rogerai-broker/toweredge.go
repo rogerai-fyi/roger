@@ -2269,7 +2269,7 @@ func (b *broker) edgeConsumerWallet(consumerKey []byte) (string, bool, error) {
 // revenue" basis - see operator_revenue_share.feature):
 //
 //	station owner : 1 - feeRate            -> 90% at the default 10% fee (unchanged)
-//	tower operator: edgeTowerRate()        -> 10% of GROSS, the relay cut
+//	tower operator: edgeTowerRate()        -> 5% of GROSS, the relay cut
 //	platform      : feeRate - towerRate    -> 5%, i.e. the platform ABSORBS the tower's
 //	                                          cut out of its own margin, so a Station is
 //	                                          never paid less because its traffic was relayed.
@@ -2516,8 +2516,8 @@ func (b *broker) sameAccount(pubA, pubB string) (bool, error) {
 // who gets paid.
 //
 // The three parties are the CONSUMER (who is charged), the STATION OWNER (who earns 90% of the
-// node's own listed price) and the TOWER OPERATOR (who earns 10% for carrying it). The platform
-// keeps the remaining 20% and is not a party that can be self-dealt with.
+// node's own listed price) and the TOWER OPERATOR (who earns 5% for carrying it). The platform
+// keeps the remaining 5% and is not a party that can be self-dealt with.
 type edgeParties struct {
 	// consumerWallet is the account wallet the hold was placed against and the capture is
 	// billed to; billable is false for a key bound to no billable account (an ephemeral

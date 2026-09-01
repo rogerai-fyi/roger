@@ -33,8 +33,9 @@ import (
 
 // shareFeeRate is the platform take used only to ESTIMATE the session's live
 // earnings panel (the broker is the source of truth at settle). Matches the
-// broker default; override with ROGERAI_FEE for an accurate local readout.
-const shareFeeRate = 0.30
+// broker's defaultFeeRate - the 10% ruling of 2026-09-01 - and must move with it;
+// a drift here quietly misquotes an operator's own earnings on their own screen.
+const shareFeeRate = 0.10
 
 // Config is everything `roger share` needs to become a provider: the broker to
 // register with, the local upstream to serve against, the single model offer and

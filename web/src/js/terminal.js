@@ -309,7 +309,7 @@
                131 tok / $0.000039 - a cost computed at ~0.30 $/M, a rate this
                demo never shows, against a token count ten times too small for
                the wallet movement beside it. */
-            dim("  ◆ receipt co-signed · ") + money("1,500 tok · $0.00033") + dim(" · 70% to @nightowl")
+            dim("  ◆ receipt co-signed · ") + money("1,500 tok · $0.00041") + dim(" · 90% to @nightowl")
           ]), STAGE);
           // failover: ONE stable endpoint - a station drops mid-stream, roger re-routes
           // under the hood, no retry in your code (internal/client/failover.go).
@@ -409,7 +409,7 @@
               dim(" · ") + head("Cline") + dim(" · ") + head("Continue") + dim(" · your own bots"), "",
             dim("  every one of them takes the same three: base URL, key, model."),
             dim("  keep ") + head("roger use") + dim(" running - it IS the proxy."), "",
-            dim("  ◆ metered + co-signed per request · 70% to the operator. ") + live("roger that.")
+            dim("  ◆ metered + co-signed per request · 90% to the operator. ") + live("roger that.")
           ]), END_HOLD);
         });
       }
@@ -579,8 +579,8 @@
 
           // --- live requests stream in (left-border log, grows row by row) ---
           /* A "+$" line in an operator's own log reads as what the operator
-             KEEPS, so these are net of the 70% share, not gross. They were
-             gross - which meant the 70% got applied a second time by the
+             KEEPS, so these are net of the operator share, not gross. They were
+             gross - which meant the share got applied a second time by the
              summary screen below. tok x 0.30/1M x 0.70 for each. */
           var reqs = [
             ok("◉ ") + head(pad("@ssh-bot", 13)) + dim(pad("318 tok", 10)) + money("+$0.000067"),
@@ -598,12 +598,12 @@
 
           // --- earnings + on-air slots + the payout hint (segue to PAYOUTS) ---
           c.show([onairHead, RULE,
-            /* 362 req x 753 tok avg is 0.27M tokens - it cannot yield $3.78.
-               $3.78 net at 0.30 $/M and a 70% share needs 18.0M tokens out,
+            /* 362 req x 753 tok avg is 0.27M tokens - it cannot yield $4.86.
+               $4.86 net at 0.30 $/M and a 90% share needs 18.0M tokens out,
                which at this log's average request is ~23.9k requests, and sits
                inside the operator panel's own 10M-30M/day band. The money was
                right; the request count was two orders of magnitude short. */
-            dim("  served today  ") + head("23.9k req") + dim("   ·   earned ") + money("+$3.78") + dim("  (70% keep)"),
+            dim("  served today  ") + head("23.9k req") + dim("   ·   earned ") + money("+$4.86") + dim("  (90% keep)"),
             dim("  balance       ") + money("$42.18 payable") + dim("   ·   ON AIR ") + head("1/4 slots"), "",
             dim("  ▸ your local model is paying rent. cash out with ") + span("t-sel", " [$] PAYOUT ")
           ], END_HOLD);
@@ -624,9 +624,9 @@
           /* The ladder used to step 280 -> 320 -> 360 req while the balance
              jumped +$2.62 then +$1.16 - two different per-request rates, both
              ~400x what 40 requests can earn. One rate now: 6,000 req per step
-             at 753 tok avg, 0.30 $/M, 70% keep = +$0.95 a step, landing on the
+             at 753 tok avg, 0.30 $/M, 90% keep = +$1.22 a step, landing on the
              same $42.18 the share tape shows. */
-          var bal = ["40.28", "41.23", "42.18"];
+          var bal = ["39.74", "40.96", "42.18"];
           var reqK = ["11.9k", "17.9k", "23.9k"];
           for (var i = 0; i < bal.length; i++) {
             c.show([earnHead, RULE,

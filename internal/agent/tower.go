@@ -18,7 +18,7 @@ package agent
 //	   the tower's hub, ServeSealed each job (open the sealed request, verify the grant,
 //	   serve the local model, sign the TOKEN receipt, seal the answer to the consumer), and
 //	   return it. The tower carries only ciphertext; settlement pays this node 90% of its
-//	   listed price, the tower 10%, the platform 20%.
+//	   listed price, the tower 5%, the platform 5%.
 //
 // # WHAT THE OPERATOR SEES
 //

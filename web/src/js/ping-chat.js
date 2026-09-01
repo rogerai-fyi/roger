@@ -138,7 +138,7 @@
     "your call-sign, your channel",
     "patching you through to a GPU",
     "the band fills, the price falls",
-    "lend your rig, keep 70%",
+    "lend your rig, keep 90%",
     "see you on the band",
     "the dial is live, the band is real",
     "every watt earns its keep",
