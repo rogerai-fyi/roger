@@ -450,7 +450,11 @@ func groupBands(offers []offer, limits *LimitStore) []band {
 		}
 		oc := o
 		b.all = append(b.all, oc)
-		if o.Curated {
+		// ONLINE curated only: b.stations counts online stations, and the hide toggle
+		// subtracts curated FROM stations - counting an offline proxy here made
+		// stations-curated go negative-or-zero and hid (or refused) a band whose human
+		// station was live. An offline proxy is not supply on either side of the split.
+		if o.Curated && o.Online {
 			b.curated++
 			if b.curatedProvider == "" {
 				b.curatedProvider = o.CuratedProvider

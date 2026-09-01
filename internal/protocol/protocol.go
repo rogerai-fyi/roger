@@ -506,9 +506,9 @@ type UsageReceipt struct {
 	PriceOut         float64 `json:"price_out"`
 	// Curated marks a receipt settled through a curated (commercial-API proxy) station,
 	// so ledgers and money sweeps can total curated flow apart from human supply.
-	Curated bool  `json:"curated,omitempty"`
-	TS      int64 `json:"ts"`
-	PrevHash         string  `json:"prev_hash"`
+	Curated  bool   `json:"curated,omitempty"`
+	TS       int64  `json:"ts"`
+	PrevHash string `json:"prev_hash"`
 	// Lineage proof slot - P0 carries the upstream-reported counts; P1 fills
 	// LineageMethod ("toploc"/"logprob") + LineageProof (opaque bytes).
 	LineageMethod string `json:"lineage_method,omitempty"`
@@ -567,6 +567,11 @@ func (r UsageReceipt) nodeSigningBytes() []byte {
 	c.GrantID = ""
 	c.BrokerPromptTokens = 0
 	c.BrokerCompletionTokens = 0
+	// Curated is BROKER-set (the node's registration says it; the broker stamps the
+	// receipt), so like GrantID it is zeroed here: the node signed before the stamp, and
+	// including it would break VerifyNode on every curated receipt. brokerSigningBytes
+	// keeps it, so the co-signed receipt still proves the designation.
+	c.Curated = false
 	c.SigVersion = 0 // broker-set, and absent when the node signs
 	c.NodeSig = ""
 	c.BrokerSig = ""

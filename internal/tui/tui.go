@@ -849,8 +849,11 @@ type model struct {
 	fConf      bool // toggle: only confidential / verified (lineage) bands
 	fOn        bool // toggle: only bands with a station on air
 	// fQuant narrows the dial to ONE compression label (Q cycles it). Empty = every band.
-	// It is a VIEW, not a rule: it changes what you are looking at and binds nothing. The
-	// standing rule that binds an unattended turn is the [3] CONFIG preference.
+	// Since the curated work, every dial filter (this one, F/C/O, and U) also bounds what
+	// an unattended auto-tune may BIND: pickAutoBand reads visibleBands, because a turn
+	// silently bound to a band the operator asked not to see is the same bug whichever
+	// filter hid it. The standing [3] CONFIG preference remains the durable rule; a
+	// filter is session-scoped.
 	fQuant     string
 	browseTop  int    // first visible row index in the virtualized window
 	loadedOnce bool   // a /discover scan has come back at least once (drives the initial ((•)) scanning pose)
