@@ -35,7 +35,11 @@ test("vast: the script the manual points at is actually published", () => {
 
 test("vast: every knob the manual advertises is one the script reads", () => {
   const script = src(SCRIPT);
-  const advertised = [...manualSection().matchAll(/<code>(ROGER_[A-Z_]+)<\/code>/g)].map((m) => m[1]);
+  // The name may be written on its own (<code>ROGER_MODEL</code>) or with a value
+  // (<code>ROGER_DRY_RUN=1</code>). The first version of this regex demanded </code>
+  // immediately after the name, so every knob documented in the second style - including
+  // the two switches - was silently exempt from the check this test exists to make.
+  const advertised = [...manualSection().matchAll(/<code>(ROGER_[A-Z_]+)(?:=[^<]*)?<\/code>/g)].map((m) => m[1]);
   assert.ok(advertised.length >= 6, `the manual names the knobs (found ${advertised.length})`);
   for (const v of new Set(advertised)) {
     assert.ok(script.includes("${" + v + ":-") || script.includes("$" + v),

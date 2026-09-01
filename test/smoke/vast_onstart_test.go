@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -39,6 +40,23 @@ func envWithoutRoger() []string {
 	return out
 }
 
+// stubGPU puts an nvidia-smi on PATH that reports one card. Without it these tests pass or
+// fail on whether the HOST has a GPU: this box has four, the coverage runner has none, so the
+// dry-run cases were green here and red there. The script's GPU check is deliberate and
+// fires in dry run too - so a test that exercises anything else has to fix the answer.
+func stubGPU(t *testing.T, ok bool) string {
+	t.Helper()
+	dir := t.TempDir()
+	body := "#!/bin/sh\nexit 1\n"
+	if ok {
+		body = "#!/bin/sh\necho 'NVIDIA Test Card'\n"
+	}
+	if err := os.WriteFile(filepath.Join(dir, "nvidia-smi"), []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return dir + string(os.PathListSeparator) + os.Getenv("PATH")
+}
+
 func runOnstart(t *testing.T, env map[string]string) (string, int) {
 	t.Helper()
 	home := t.TempDir()
@@ -47,6 +65,7 @@ func runOnstart(t *testing.T, env map[string]string) (string, int) {
 		"ROGER_DRY_RUN=1",
 		"HOME="+home,
 		"XDG_CONFIG_HOME="+filepath.Join(home, ".config"),
+		"PATH="+stubGPU(t, true),
 	)
 	for k, v := range env {
 		cmd.Env = append(cmd.Env, k+"="+v)
@@ -87,7 +106,8 @@ func TestVastOnstartEarnsWhenTheBoxHasAnOwner(t *testing.T) {
 	}
 	cmd := exec.Command("bash", filepath.Join("..", "..", "web", "src", "vast-onstart.sh"))
 	cmd.Env = append(envWithoutRoger(), "ROGER_DRY_RUN=1", "HOME="+home,
-		"XDG_CONFIG_HOME="+filepath.Join(home, ".config"), "ROGER_PRICE_OUT=0.30")
+		"XDG_CONFIG_HOME="+filepath.Join(home, ".config"), "ROGER_PRICE_OUT=0.30",
+		"PATH="+stubGPU(t, true))
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("a signed-in box must be allowed to earn: %v\n%s", err, out)
@@ -147,5 +167,77 @@ func TestVastOnstartDryRunStartsNothing(t *testing.T) {
 	}
 	if !strings.Contains(strings.ToLower(out), "dry run") {
 		t.Errorf("dry run should say that is what it is:\n%s", out)
+	}
+}
+
+// Two ways this script can waste somebody's money without being wrong about anything:
+// starting a multi-gigabyte download on a box with no usable GPU, and starting one for a
+// gated model with no HuggingFace credential. Both end in an opaque failure minutes later,
+// on an instance that has been billing the whole time. Both are cheap to catch first.
+//
+// And the credential itself must never reach a log: this script runs on rented hardware and
+// its output is the instance console.
+
+func TestVastOnstartChecksForAGPUBeforeDownloadingAnything(t *testing.T) {
+	// NOT a substring search for "gpu": the plan already contains
+	// --gpu-memory-utilization, so that passes on a script with no check at all. It has to
+	// be the script's own reported field.
+	out, _ := runOnstart(t, nil)
+	if !regexp.MustCompile(`(?m)^\[roger\] gpu\s+\S`).MatchString(out) {
+		t.Errorf("the plan should report what it found for a GPU as its own line:\n%s", out)
+	}
+}
+
+func TestVastOnstartRefusesAGpulessBoxItWouldHaveToServeOn(t *testing.T) {
+	// The realistic case, and the common one on Vast: the container was started without the
+	// GPU attached, so nvidia-smi is installed but reports nothing. Emptying PATH instead
+	// would only prove the script needs coreutils - it died on awk before reaching the
+	// check, which is what the first version of this test actually measured.
+	home := t.TempDir()
+	cmd := exec.Command("bash", filepath.Join("..", "..", "web", "src", "vast-onstart.sh"))
+	cmd.Env = append(envWithoutRoger(), "ROGER_DRY_RUN=1", "HOME="+home,
+		"XDG_CONFIG_HOME="+filepath.Join(home, ".config"),
+		"PATH="+stubGPU(t, false))
+	out, err := cmd.CombinedOutput()
+	// NOT a substring search: the STATUS line already says "nvidia-smi not found", so a
+	// script with the refusal deleted still prints that and would pass. Assert the refusal
+	// itself - a non-zero exit and the message that explains the stop.
+	code := 0
+	if ee, ok := err.(*exec.ExitError); ok {
+		code = ee.ExitCode()
+	}
+	if code == 0 {
+		t.Fatalf("a box with no usable GPU must not proceed to download weights:\n%s", out)
+	}
+	if !strings.Contains(string(out), "no GPU visible on this box") &&
+		!strings.Contains(string(out), "would not proceed: no GPU visible") {
+		t.Errorf("the stop must explain itself:\n%s", out)
+	}
+	if !strings.Contains(string(out), "ROGER_SKIP_GPU_CHECK") {
+		t.Errorf("and offer the override for a box that really can serve:\n%s", out)
+	}
+}
+
+func TestVastOnstartAcceptsAHuggingFaceTokenAndNeverPrintsIt(t *testing.T) {
+	const secret = "hf_thisMustNeverAppearInAnyLog"
+	out, code := runOnstart(t, map[string]string{"ROGER_HF_TOKEN": secret})
+	if code != 0 {
+		t.Fatalf("a token should not break the run:\n%s", out)
+	}
+	if strings.Contains(out, secret) {
+		t.Fatalf("the HuggingFace token was printed to the console:\n%s", out)
+	}
+	// but the operator still needs to know it was picked up
+	if !strings.Contains(strings.ToLower(out), "hugging") && !strings.Contains(out, "HF token") {
+		t.Errorf("it should say a token was accepted, without showing it:\n%s", out)
+	}
+}
+
+func TestVastOnstartSaysWhenNoTokenIsSet(t *testing.T) {
+	// Silence here reads as "a token is not needed", which is wrong for a gated model.
+	out, _ := runOnstart(t, map[string]string{"ROGER_MODEL": "meta-llama/Llama-3.1-8B-Instruct"})
+	low := strings.ToLower(out)
+	if !strings.Contains(low, "gated") && !strings.Contains(low, "no hugging") {
+		t.Errorf("with no token set, the plan should mention gated models:\n%s", out)
 	}
 }

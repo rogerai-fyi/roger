@@ -16,8 +16,8 @@
 //   {{#unless variant=marketing}} ... {{/unless}}
 // Unknown {{name}} resolve to "" so stray markers never ship literally.
 
-import { readFileSync, writeFileSync, readdirSync, mkdirSync, rmSync, statSync, copyFileSync } from "node:fs";
-import { join, dirname, relative } from "node:path";
+import { readFileSync, writeFileSync, readdirSync, mkdirSync, rmSync, statSync, copyFileSync, renameSync, existsSync } from "node:fs";
+import { join, dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 
@@ -165,7 +165,7 @@ function copyAssets(dir) {
     if (!rel.includes("/") && ent.name.endsWith(".html")) continue;
     const dest = join(DIST, rel);
     mkdirSync(dirname(dest), { recursive: true });
-    copyFileSync(abs, dest);
+    copyOut(abs, dest);
   }
 }
 
@@ -214,7 +214,7 @@ function writeSitemap(indexablePages) {
   const urls = idx
     .map((p) => `  <url><loc>${canonicalURL(p)}</loc><lastmod>${statSync(join(SRC, p)).mtime.toISOString().slice(0, 10)}</lastmod></url>`)
     .join("\n");
-  writeFileSync(
+  writeOut(
     join(DIST, "sitemap.xml"),
     `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls}\n</urlset>\n`,
   );
@@ -292,12 +292,80 @@ function writeLlms(indexablePages, htmlByPage) {
     }
     lines.push("");
   }
-  writeFileSync(join(DIST, "llms.txt"), lines.join("\n"));
+  writeOut(join(DIST, "llms.txt"), lines.join("\n"));
   return indexablePages.length;
 }
 
+
+// ---------------------------------------------------------------------------
+// dist/ is written IN PLACE, not deleted and recreated.
+//
+// `rmSync(DIST)` at the top of a build meant that anything reading dist/ at that moment saw
+// correct paths vanish. That is not theoretical: it failed a push on 2026-09-01 with
+// "ENOENT: dist/research-wave-family.html" because the gate's own suite was reading the
+// directory a foreground build had just emptied. CLAUDE.md says several sessions run against
+// this repo at once, so a build that cannot be run twice safely is a trap.
+//
+// Instead: every output is written to a temp name and renamed over its destination, which is
+// atomic on one filesystem, so a reader gets the old complete file or the new one and never a
+// missing or half-written one. Whatever the build did NOT write is pruned at the end, so
+// stale output still cannot outlive its source.
+const written = new Set();
+const TMP_RE = /\.tmp\.\d+$/;          // `<name>.tmp.<pid>`, written by writeOut/copyOut
+const ORPHAN_TMP_MS = 60 * 60 * 1000;   // older than this and nobody is coming back for it
+
+function track(dest) {
+  written.add(resolve(dest));
+  return dest;
+}
+
+// Atomic per file: write beside the target, then rename onto it. The pid keeps two concurrent
+// builds from sharing a temp name.
+function writeOut(dest, data) {
+  mkdirSync(dirname(dest), { recursive: true });
+  const tmp = `${dest}.tmp.${process.pid}`;
+  writeFileSync(tmp, data);
+  renameSync(tmp, dest);
+  return track(dest);
+}
+
+function copyOut(src, dest) {
+  mkdirSync(dirname(dest), { recursive: true });
+  const tmp = `${dest}.tmp.${process.pid}`;
+  copyFileSync(src, tmp);
+  renameSync(tmp, dest);
+  return track(dest);
+}
+
+// Remove anything under dist/ this build did not produce - a page deleted from src/ must stop
+// being served. Scoped to DIST and nothing above it.
+function pruneStale(dir) {
+  if (!existsSync(dir)) return;
+  let names;
+  try { names = readdirSync(dir); } catch { return; }   // a concurrent build removed it
+  for (const name of names) {
+    const abs = join(dir, name);
+    // Everything below races a concurrent build by construction: between this readdir and
+    // the stat, another process may have renamed its temp file into place or finished. A
+    // path that has already gone is not stale output, so ENOENT is the expected case and
+    // never a reason to fail a build.
+    let st;
+    try { st = statSync(abs); } catch { continue; }
+    if (st.isDirectory()) {
+      pruneStale(abs);
+      continue;   // empty directories are left alone: removing one a concurrent build is
+                  // still filling makes ITS next write fail, and an empty dir harms nothing
+    }
+    if (TMP_RE.test(name)) {
+      if (Date.now() - st.mtimeMs > ORPHAN_TMP_MS) { try { rmSync(abs, { force: true }); } catch {} }
+      continue;
+    }
+    if (!written.has(resolve(abs))) { try { rmSync(abs, { force: true }); } catch {} }
+  }
+}
+
 function build() {
-  rmSync(DIST, { recursive: true, force: true });
+  written.clear();
   mkdirSync(DIST, { recursive: true });
 
   // pages: top-level *.html in src/
@@ -312,7 +380,7 @@ function build() {
     out = cacheBust(out);               // content-version js/css urls so the CDN can't serve stale
     if (/<!--\s*include:/.test(out)) throw new Error(`unresolved include in ${page}`);
     if (/<!--\s*css-bundle\s*-->/.test(out)) throw new Error(`unresolved css-bundle in ${page}`);
-    writeFileSync(join(DIST, page), out);
+    writeOut(join(DIST, page), out);
     htmlByPage.set(page, out);
     if (!isNoindex(out)) indexable.push(page);   // sitemap tracks the ACTUAL robots directive
   }
@@ -320,6 +388,10 @@ function build() {
   copyAssets(SRC);
   const n = writeSitemap(indexable);
   const l = writeLlms(indexable, htmlByPage);
+
+  // last, so a page removed from src/ stops being served - the one thing the old
+  // delete-everything-first build got for free.
+  pruneStale(DIST);
 
   console.log(`built ${pages.length} page(s) + sitemap.xml (${n} urls) + llms.txt (${l} entries) -> ${relative(ROOT, DIST)}/`);
 }

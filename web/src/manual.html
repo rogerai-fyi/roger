@@ -675,8 +675,17 @@
               <code>ROGER_MODEL</code> (default <code>Qwen/Qwen3-8B</code>),
               <code>ROGER_PORT</code>, <code>ROGER_PRICE_IN</code> /
               <code>ROGER_PRICE_OUT</code>, <code>ROGER_NODE</code>,
-              <code>ROGER_MAX_LEN</code>, <code>ROGER_GPU_UTIL</code>. Add
+              <code>ROGER_MAX_LEN</code>, <code>ROGER_GPU_UTIL</code>, and
+              <code>ROGER_HF_TOKEN</code> for gated weights. Add
               <code>ROGER_DRY_RUN=1</code> to print the plan and touch nothing.</p>
+            <p>Before it downloads anything it reports the GPUs it can actually see, and
+              stops if there are none - the common case being a container started without
+              the GPU attached, which vLLM would otherwise discover several gigabytes and
+              several billed minutes later. Override with
+              <code>ROGER_SKIP_GPU_CHECK=1</code> if you are serving on something it cannot
+              see. A HuggingFace token, if you set one, is passed to the server and never
+              printed: the output of this script is a console on a machine somebody else
+              administers.</p>
             <pre><span class="p">$</span> ROGER_MODEL=Qwen/Qwen3-8B ROGER_PRICE_OUT=0.30 \
     curl -fsSL https://rogerai.fm/vast-onstart.sh | bash</pre>
             <p><b>It is free by default, on purpose.</b> A free share needs no account, which
