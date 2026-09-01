@@ -17,7 +17,7 @@ package agent
 //	   exactly the party a forged grant would come from), and runs ServeLoop workers: poll
 //	   the tower's hub, ServeSealed each job (open the sealed request, verify the grant,
 //	   serve the local model, sign the TOKEN receipt, seal the answer to the consumer), and
-//	   return it. The tower carries only ciphertext; settlement pays this node 70% of its
+//	   return it. The tower carries only ciphertext; settlement pays this node 90% of its
 //	   listed price, the tower 10%, the platform 20%.
 //
 // # WHAT THE OPERATOR SEES

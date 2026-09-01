@@ -37,7 +37,7 @@ func metricsDays(r *http.Request) int {
 
 // metricsProvider handles GET /metrics/provider?days=30: the caller's PROVIDER
 // per-model breakdown - for each (model, node) the caller's node(s) served, the
-// request + token counts, a free-vs-paid split, and the owner's earnings (the 70%
+// request + token counts, a free-vs-paid split, and the owner's earnings (the 90%
 // net share), plus summed totals and the period. Account-scoped (the owner pubkey),
 // so it accepts a web session OR a signed CLI request (see payoutOwner). An owner
 // with no operator account / no served traffic gets empty rows + zero totals, plus an

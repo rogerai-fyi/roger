@@ -174,8 +174,8 @@ test("the download surface prints only numbers the specs pin", () => {
   const c = copy();
   // The split is founder-set and fixed in features/tower/edge_dispatch.feature.
   assert.match(c, /90%/, "the serving node's share");
-  assert.match(c, /10%/, "the tower operator's share");
-  assert.match(c, /20%/, "the platform's remainder");
+  assert.match(c, /5%/, "the tower operator's share");
+  assert.match(c, /5%/, "the platform's remainder");
   // Policy numbers are env-tunable per deployment. Printing them here is how a page starts
   // lying quietly, so the page links the payouts surface instead.
   assert.doesNotMatch(c, /120[- ]day|\$25 minimum|minimum payout/i,

@@ -803,8 +803,8 @@ func (b *broker) towerStatus(w http.ResponseWriter, r *http.Request) {
 		// changed is a status line that lies.
 		entry["note"] = fmt.Sprintf("This tower's data plane is the sealed hub: shared nodes "+
 			"self-attach and serve encrypted work at their own listed "+
-			"per-token price. Every settled request pays you 10%% of gross (the node 70%%, the "+
-			"platform 20%%), as an ordinary earning: %d-day hold, $%g minimum, cashed out "+
+			"per-token price. Every settled request pays you 5%% of gross (the node 90%%, the "+
+			"platform 5%%), as an ordinary earning: %d-day hold, $%g minimum, cashed out "+
 			"from the Payouts page like a serving node's. Volume is early - the figure is $0 "+
 			"until consumers route work through your hub.",
 			b.conn.policy.HoldDays, b.conn.policy.MinPayout)

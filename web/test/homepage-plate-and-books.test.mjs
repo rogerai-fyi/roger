@@ -43,7 +43,7 @@ test("spec plate: every specification survived the compression", () => {
 test("spec plate: the values are still the committed ones", () => {
   const spec = section("spec").replace(/\s+/g, " ");
   assert.match(spec, /OpenAI-compatible/);
-  assert.match(spec, /70 \/ 30/, "the split");
+  assert.match(spec, /90 \/ 10/, "the split");
   assert.match(spec, /127\.0\.0\.1/, "the local endpoint");
   assert.match(spec, /no shell, no files, no context/, "the reach limit");
 });

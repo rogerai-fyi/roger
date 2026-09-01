@@ -2374,7 +2374,7 @@ func (b *broker) captureEdgeCharge(towerID, stationID, stationOwner string, part
 //
 // # WHAT IT IS
 //
-// One account serving through its own relay is paid twice for one request - 70% as the Station
+// One account serving through its own relay is paid twice for one request - 90% as the Station
 // and 10% as the Tower, 80% of what an arms-length consumer paid. The two existing checks are
 // both consumer-versus-someone; neither of them can see this, because the consumer here is a
 // stranger who did nothing wrong and got what they paid for.
@@ -2515,7 +2515,7 @@ func (b *broker) sameAccount(pubA, pubB string) (bool, error) {
 // the money path so that no wallet write is preceded by a store read whose failure would change
 // who gets paid.
 //
-// The three parties are the CONSUMER (who is charged), the STATION OWNER (who earns 70% of the
+// The three parties are the CONSUMER (who is charged), the STATION OWNER (who earns 90% of the
 // node's own listed price) and the TOWER OPERATOR (who earns 10% for carrying it). The platform
 // keeps the remaining 20% and is not a party that can be self-dealt with.
 type edgeParties struct {
@@ -2606,7 +2606,7 @@ func (b *broker) resolveEdgeParties(towerID, stationOwner string, consumerKey []
 		}
 	}
 	// THE THIRD PAIR, which nothing compared until now: the Station's owner against the Tower's
-	// operator. One account on both sides of the split collects 70% + 10% = 80% of a request an
+	// operator. One account on both sides of the split collects 90% + 5% = 95% of a request an
 	// arms-length consumer paid for in full. It is not refused and not withheld - see
 	// recordSelfRelayed for why - but it is no longer invisible.
 	if stationOwner != "" && p.towerPaid {
@@ -2677,7 +2677,7 @@ func envMicros(name string) int64 {
 
 // edgeTowerRateDefault is the Tower operator's share of GROSS on a relayed attempt - the
 // founder-set 10% (2026-08-13, overriding the earlier "share of net platform revenue" basis).
-// Overridable by config; the cut comes out of the PLATFORM's margin (its fee drops from 30%
+// Overridable by config; the cut comes out of the PLATFORM's margin (its fee drops from 10%
 // to 5% at the default), never the serving Station's 90% share. Capped at feeRate in
 // edgeShares so the platform's residual can never go negative.
 const edgeTowerRateDefault = 0.05 // 90/5/5 since the 2026-09-01 fee ruling (was 70/10/20)

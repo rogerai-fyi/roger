@@ -8,9 +8,9 @@ package main
 // the best-measured connection among same-model stations.
 //
 // The arithmetic these helpers exist to make impossible to get wrong twice: at
-// posted = list x M, the STANDARD settlement (cost x 0.70) would hand a curated operator
-// 0.70 x M = 0.91 x list against a 1.00 x list upstream bill - nine percent underwater on
-// every token, invisibly, forever. Curated settlement is therefore its own rule, defined
+// posted = list x M, the STANDARD settlement (cost x 0.90 at the current fee) would hand
+// a curated operator 0.90 x M = 0.99 x list against a 1.00 x list upstream bill -
+// underwater on every token, invisibly, forever (and worse at any higher fee). Curated settlement is therefore its own rule, defined
 // beside its markup so the two can never drift apart.
 
 // curatedMarkup is the multiplier from a curated station's DECLARED upstream list price

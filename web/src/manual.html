@@ -646,7 +646,7 @@
 
             <h3>Earn: set a price</h3>
             <p>Set a per-token rate to earn. Prices are in $/1M tokens, input and output,
-              and you keep <b>70%</b> of every token you serve (70/30 in the operator's
+              and you keep <b>90%</b> of every token you serve (90/10 in the operator's
               favor). Earning needs an account: <code>roger login</code>, then
               share. The CLI never talks to a provider itself - it prints a code, you
               approve it on rogerai.fm, and you pick GitHub, Apple or an emailed code
@@ -745,7 +745,7 @@
             <div class="man-note man-note--live">
               <span class="man-note__tag">earning: live</span>
               A node lists its own per-token price, your Tower carries the sealed work, and
-              settlement splits every request <b>70% to the node, 10% to you, 20% to the
+              settlement splits every request <b>90% to the node, 5% to you, 5% to the
               platform</b>. Your relay share is a real earning on the <b>same payout rail a
               serving node uses</b> - same 120-day hold, same $25 minimum, same Stripe Connect
               onboarding, same <a href="/payouts.html">Payouts</a> page and cash-out button
@@ -908,7 +908,7 @@
               the side, on air only when a real one is.</p>
             <p>Metering follows the shape of the signal: a <b>tts</b> band is billed
               <b>by the character</b> you speak, an <b>stt</b> band <b>by the byte</b> you
-              send - both off the same wallet, per the same 70/30 split, with the same
+              send - both off the same wallet, per the same 90/10 split, with the same
               broker re-count you can trust. Prices are in $ / 1k chars (speak) or
               $ / 1M bytes (listen).</p>
 
@@ -1276,12 +1276,12 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
             <h2>From served token to your bank</h2>
             <p class="man-lead">Operator earnings follow a lifecycle:
               <b>accrued &rarr; held &rarr; payable &rarr; paid</b>. A served request credits
-              your share (70% of the cost). That credit is escrowed - <b>held</b> - long
+              your share (90% of the cost). That credit is escrowed - <b>held</b> - long
               enough to cover the chargeback and fraud-review window, then becomes
               <b>payable</b>, and you take it out through Stripe Connect.</p>
 
             <span class="man-fig">FIG. 3 - EARNINGS LIFECYCLE</span>
-            <pre>serve request  &rarr;  credits your 70% share
+            <pre>serve request  &rarr;  credits your 90% share
       &darr;
    [HELD]      held through the 120-day window (covers the chargeback tail)
       &darr;

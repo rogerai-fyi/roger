@@ -1479,7 +1479,7 @@ needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
 	defer releaseLock()
 	// TOWER SERVING (Option C, Topology 2): the same share, with the serving fabric pointed
 	// at a tower's hub. Self-attach at the listed price; Core assigns the tower; settlement
-	// pays this node 70% of ITS OWN price, the tower 10%, the platform 20%.
+	// pays this node 90% of ITS OWN price, the tower 5%, the platform 5%.
 	if !*private {
 		// Start (not Run) so we can confirm the broker actually ACCEPTED us (the heartbeat
 		// ACK) and print a SINGLE truthful "on air" line, instead of several sequential
