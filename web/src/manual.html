@@ -661,6 +661,35 @@
               fat-finger trips it). If you genuinely want an unreachable price, that is what a
               private band is for (§5).</p>
 
+            <h3>On rented hardware: one paste into Vast.ai</h3>
+            <p>Nothing about a station requires the machine to be yours. Rent a GPU by the
+              hour, serve an open model on it, and put that on the band - the arithmetic for
+              whether it pays is in
+              <a href="/broadcasts-what-a-million-tokens-costs.html">what a million tokens
+              costs</a>. This is the bootstrap: paste it into the instance&rsquo;s
+              <b>ONSTART</b> box on a vLLM image and it installs <code>roger</code>, brings
+              the model up on a loopback port, waits for the weights to actually load, and
+              hands that endpoint to <code>share</code>.</p>
+            <pre><span class="p">$</span> curl -fsSL https://rogerai.fm/vast-onstart.sh | bash</pre>
+            <p>Every knob is an environment variable, so the same paste covers every case:
+              <code>ROGER_MODEL</code> (default <code>Qwen/Qwen3-8B</code>),
+              <code>ROGER_PORT</code>, <code>ROGER_PRICE_IN</code> /
+              <code>ROGER_PRICE_OUT</code>, <code>ROGER_NODE</code>,
+              <code>ROGER_MAX_LEN</code>, <code>ROGER_GPU_UTIL</code>. Add
+              <code>ROGER_DRY_RUN=1</code> to print the plan and touch nothing.</p>
+            <pre><span class="p">$</span> ROGER_MODEL=Qwen/Qwen3-8B ROGER_PRICE_OUT=0.30 \
+    curl -fsSL https://rogerai.fm/vast-onstart.sh | bash</pre>
+            <p><b>It is free by default, on purpose.</b> A free share needs no account, which
+              means no secret of yours has to sit on a machine you do not own. To earn, run
+              <code>roger login</code> once in the instance shell first: it prints a code you
+              approve in a browser on <em>your</em> machine, so the rented box never holds a
+              provider token - only the local signing key it generates for itself.</p>
+            <p>If you set a price on a box with no signed-in owner, the script <b>stops</b>
+              and tells you to log in. It will not quietly go on air for free instead: you
+              asked to earn, and the instance bills by the hour either way. The share also
+              runs in the foreground, so when it stops the instance stops with it rather
+              than billing for a box that is no longer serving.</p>
+
             <h3>Self-healing: stays on air across broker restarts</h3>
             <p>A share is durable. The broker persists its node registry, so a broker
               restart or redeploy no longer drops a running provider - it re-hydrates the

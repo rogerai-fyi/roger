@@ -312,7 +312,15 @@
             <li><b>Price it under the market.</b>
               <code>roger share --price-in 0.18 --price-out 0.30</code>. You keep 70% of
               every request; the router does the rest.</li>
+
           </ol>
+          <p>On a rented box those four steps are one paste into the instance&rsquo;s ONSTART
+             box - <code>curl -fsSL https://rogerai.fm/vast-onstart.sh | bash</code> - which
+             installs the client, brings the model up, waits for the weights to load and goes
+             on air. It is free by default, so no secret of yours sits on a machine you do not
+             own, and it refuses to price a share on a box you have not signed into rather
+             than quietly serving for nothing. The knobs are in
+             <a href="/manual.html">the manual</a>.</p>
           <p>An interrupted spot instance breaks nothing: a station that disappears stops
              being routed to, and the request goes to another one serving the same model.
              The network already assumes machines come and go, which is exactly why
