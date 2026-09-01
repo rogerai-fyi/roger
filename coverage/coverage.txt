@@ -4,7 +4,7 @@ rogerai.fm/roger/v6/cmd/roger-tower-local/main.go:104:			serve				80.0%
 rogerai.fm/roger/v6/cmd/roger-tower-local/main.go:112:			run				85.7%
 rogerai.fm/roger/v6/cmd/roger-tower/earnings.go:23:			cmdEarnings			96.3%
 rogerai.fm/roger/v6/cmd/roger-tower/hub.go:112:				tlsWanted			100.0%
-rogerai.fm/roger/v6/cmd/roger-tower/hub.go:118:				runHubInBackground		71.9%
+rogerai.fm/roger/v6/cmd/roger-tower/hub.go:118:				runHubInBackground		73.1%
 rogerai.fm/roger/v6/cmd/roger-tower/hub.go:505:				registerHubNodes		100.0%
 rogerai.fm/roger/v6/cmd/roger-tower/hub.go:555:				limitConns			100.0%
 rogerai.fm/roger/v6/cmd/roger-tower/hub.go:564:				Accept				100.0%
@@ -2485,7 +2485,7 @@ rogerai.fm/roger/v6/internal/towercore/admit/admit.go:188:		NewWithStore			100.0
 rogerai.fm/roger/v6/internal/towercore/admit/admit.go:210:		unavailable			100.0%
 rogerai.fm/roger/v6/internal/towercore/admit/admit.go:218:		IssueToken			92.9%
 rogerai.fm/roger/v6/internal/towercore/admit/admit.go:254:		Enroll				88.0%
-rogerai.fm/roger/v6/internal/towercore/admit/admit.go:310:		AdmitBundle			75.0%
+rogerai.fm/roger/v6/internal/towercore/admit/admit.go:310:		AdmitBundle			87.5%
 rogerai.fm/roger/v6/internal/towercore/admit/admit.go:332:		RecordRenewal			87.5%
 rogerai.fm/roger/v6/internal/towercore/admit/admit.go:361:		Token				100.0%
 rogerai.fm/roger/v6/internal/towercore/admit/admit.go:370:		Get				100.0%
@@ -3565,7 +3565,7 @@ rogerai.fm/roger/v6/internal/tui/tui.go:1271:				newBase				85.7%
 rogerai.fm/roger/v6/internal/tui/tui.go:1338:				Init				100.0%
 rogerai.fm/roger/v6/internal/tui/tui.go:1349:				syncComposerGeometry		100.0%
 rogerai.fm/roger/v6/internal/tui/tui.go:1361:				setTextareaGeometry		92.3%
-rogerai.fm/roger/v6/internal/tui/tui.go:1380:				update				83.7%
+rogerai.fm/roger/v6/internal/tui/tui.go:1380:				update				84.0%
 rogerai.fm/roger/v6/internal/tui/tui.go:2070:				idleDiscoveryEnabled		100.0%
 rogerai.fm/roger/v6/internal/tui/tui.go:2074:				textareaCanMoveUp		100.0%
 rogerai.fm/roger/v6/internal/tui/tui.go:2079:				textareaCanMoveDown		100.0%
