@@ -2,15 +2,20 @@
 # re-approval; they are not a diff to be reviewed.
 #
 # RATE-BASIS AMENDMENT - founder approved 2026-08-17, superseding the 2026-08-03 basis.
+# RATE AMENDMENT - founder approved 2026-09-01 ("10% approved ... tower shape 90/5/5"):
+# one 10% platform fee across both planes; the Tower share becomes 5% of gross, still met
+# from the platform's own margin (its fee drops from 10% to 5%), and the serving Station
+# keeps its full 90%.
 #
-# The share is 10% of GROSS externally funded revenue (the metered cost the consumer actually
-# paid for), taken from the PLATFORM'S OWN MARGIN - its fee drops from 30% to 20% - with the
-# serving Station keeping its full 70%. The original basis was "10% of net platform revenue"
-# (10% of the platform's fee, ~3% of gross); the scenarios below have been amended to the
-# gross basis and this file is again the single description of the program.
+# The share is 5% of GROSS externally funded revenue (the metered cost the consumer actually
+# paid for), taken from the PLATFORM'S OWN MARGIN - its fee drops from 10% to 5% - with the
+# serving Station keeping its full 90%. The original basis was "10% of net platform revenue"
+# (10% of the platform's fee, ~3% of gross); the scenarios below were first amended to the
+# gross basis (2026-08-17) and then to the 5% rate (2026-09-01); this file remains the
+# single description of the program.
 #
 # WHAT THE CHANGE COSTS, stated rather than discovered: processor fees no longer reduce the
-# operator's base. They are met out of the platform's 20%, so on a settlement whose fees
+# operator's base. They are met out of the platform's 5%, so on a settlement whose fees
 # exceed that margin the platform loses money and the operator is still paid. That is the
 # deliberate trade - an operator can compute their earnings from the price the consumer saw,
 # without modelling our cost of collection, and a fee dispute can never reach into money
@@ -32,7 +37,7 @@
 # Changing the status without changing the code fails.
 #
 # Scope: the compensated-Tower program — an opt-in tier in which a joined Tower operator
-# earns a founder-set revenue share (initially 10%) of the externally funded GROSS revenue on
+# earns a founder-set revenue share (5% since 2026-09-01; initially 10%) of the externally funded GROSS revenue on
 # token sales actually settled through that Tower. Covers eligibility, attribution, funds
 # verification, accrual, payout, clawback, self-dealing, and forfeiture on enforcement.
 #
@@ -48,8 +53,8 @@ Feature: A compensated Tower earns a revenue share only on verified, attributed,
   no Tower statement can create, move, or inflate money.
 
   Background:
-    Given the public network revenue-share policy names a share rate of 10 percent of externally funded gross revenue, met from the platform's own margin
-    And that rate is represented as the integer value 100000 parts per million
+    Given the public network revenue-share policy names a share rate of 5 percent of externally funded gross revenue, met from the platform's own margin
+    And that rate is represented as the integer value 50000 parts per million
     And the exact TowerCompensationPolicyV1 is signed by its purpose-specific key and listed in the independently accepted trust document's CompensationPolicyDirectorySetV1
     And an operator owns an active joined Tower
 
@@ -182,7 +187,8 @@ Feature: A compensated Tower earns a revenue share only on verified, attributed,
       | member | result |
       | {"rate_ppm":"0"} | valid zero-rate policy after founder authorization |
       | {"rate_ppm":"1"} | valid lower positive boundary |
-      | {"rate_ppm":"100000"} | valid initial ten-percent policy |
+      | {"rate_ppm":"50000"} | valid current five-percent policy |
+      | {"rate_ppm":"100000"} | valid ten-percent policy (the pre-2026-09-01 rate) |
       | {"rate_ppm":"1000000"} | valid upper boundary of one hundred percent |
       | {"rate_ppm":"-1"} | rejected |
       | {"rate_ppm":"1000001"} | rejected |

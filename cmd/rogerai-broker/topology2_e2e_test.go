@@ -8,7 +8,7 @@ package main
 //	Roger Core (this broker: authorize, hold, settle, 70/10/20 into real wallets)
 //
 // The broker never touches the payload; the tower carries only ciphertext; and at the end the
-// node's owner holds 70% of its listed price, the tower operator 10%, with the consumer
+// node's owner holds 90% of its listed price, the tower operator 5%, with the consumer
 // debited exactly tokens x price. This is the founder's sentence - "providers set their own
 // per-token prices, the tower relays, 70/10/20" - as one passing test.
 
@@ -58,7 +58,7 @@ func TestFullProductLoopANodeEarnsThroughATower(t *testing.T) {
 	t.Setenv("ROGERAI_PAYOUT_HOLD_DAYS", "0")
 	t.Setenv("ROGERAI_PAYOUT_RESERVE", "0")
 	b, srv := towerTestBroker(t)
-	b.feeRate = 0.30
+	b.feeRate = 0.10
 
 	// THE MODEL: an OpenAI-compatible upstream reporting big token usage (the response body is
 	// padded past the token count, since tokens<=bytes is a hard clamp).
@@ -189,13 +189,13 @@ func TestFullProductLoopANodeEarnsThroughATower(t *testing.T) {
 	}
 
 	// THE MONEY: the courier settles, and the split lands - 500k tokens x $0.30/1M = 0.15
-	// credits: node owner 0.105 (70%), tower operator 0.015 (10%), consumer debited 0.15.
+	// credits: node owner 0.135 (90%), tower operator 0.0075 (5%), consumer debited 0.15.
 	require.Eventually(t, func() bool {
 		s, _ := b.db.EarningSplitOf(nodeAcct, time.Now().Add(time.Hour))
-		return s.Payable > 0.104 && s.Payable < 0.106
-	}, 10*time.Second, 100*time.Millisecond, "the node owner banks 70%% of their listed price")
+		return s.Payable > 0.134 && s.Payable < 0.136
+	}, 10*time.Second, 100*time.Millisecond, "the node owner banks 90%% of their listed price")
 	sTw, _ := b.db.EarningSplitOf(towerAcct, time.Now().Add(time.Hour))
-	require.InDelta(t, 0.015, sTw.Payable, 1e-9, "the tower operator banks 10%% of gross")
+	require.InDelta(t, 0.0075, sTw.Payable, 1e-9, "the tower operator banks 5%% of gross")
 	// And the consumer paid EXACTLY tokens x price - the hold's excess was released, not kept.
 	balAfter, err := b.db.BalanceOf(consWallet, 0)
 	require.NoError(t, err)
@@ -224,7 +224,7 @@ func TestTopology2NodeDownTheConsumerIsMadeWhole(t *testing.T) {
 	t.Setenv("ROGERAI_TOWER_EDGE_PRICE_IN", "0")
 	t.Setenv("ROGERAI_TOWER_EDGE_PRICE_OUT", "0")
 	b, srv := towerTestBroker(t)
-	b.feeRate = 0.30
+	b.feeRate = 0.10
 
 	// A real hub with NO registered node: the station self-attached, then its loop died.
 	hubLn, err := net.Listen("tcp", "127.0.0.1:0")

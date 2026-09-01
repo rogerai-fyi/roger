@@ -457,7 +457,7 @@
   // ---- recent requests: the consumer's private routing history ----
   // One credentialed read of GET /usage. A curated row names the provider it was routed
   // through and the SPLIT - the upstream pass-through (owner_share) vs the routing fee
-  // (cost - owner_share) - so the 30% is never a hidden margin. A human row shows the
+  // (cost - owner_share) - so the routing fee is never a hidden margin. A human row shows the
   // band and the cost; per-station operator economics are not the consumer's surface.
   function renderRecent() {
     fetch(BROKER + "/usage", { credentials: "include" }).then(function (r) {

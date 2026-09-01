@@ -288,12 +288,28 @@ func TestFeeSplitsBDD(t *testing.T) {
 		ScenarioInitializer: func(sc *godog.ScenarioContext) {
 			st := &feeSplitState{}
 			sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
-				*st = feeSplitState{feeRate: 0.30} // default platform fee rate
+				*st = feeSplitState{feeRate: defaultFeeRate} // the compiled default (10% since 2026-09-01)
 				return ctx, nil
 			})
 			sc.Step(`^a fresh ledger-backed store$`, st.freshStore)
 			sc.Step(`^the starter seed grant is ([\d.]+) credits$`, st.starterSeed)
 			sc.Step(`^the platform fee rate is (\d+)%$`, st.feePct)
+			sc.Step(`^a broker started with no fee configuration$`, func() error {
+				st.feeRate = defaultFeeRate // exactly what flag.Float64("fee", defaultFeeRate, ...) compiles in
+				return nil
+			})
+			sc.Step(`^its platform fee rate is (\d+)%$`, func(pct int) error {
+				if math.Abs(st.feeRate-float64(pct)/100) > 1e-9 {
+					return fmt.Errorf("default fee rate = %.4f, want %d%%", st.feeRate, pct)
+				}
+				return nil
+			})
+			sc.Step(`^the serving operator keeps (\d+)% of a settled cost$`, func(pct int) error {
+				if math.Abs((1-st.feeRate)-float64(pct)/100) > 1e-9 {
+					return fmt.Errorf("owner share = %.4f of cost, want %d%%", 1-st.feeRate, pct)
+				}
+				return nil
+			})
 			sc.Step(`^a request costs ([\d.]+) credits$`, st.requestCosts)
 			sc.Step(`^the owner share is ([\d.]+)$`, st.ownerShareIs)
 			sc.Step(`^the platform take is ([\d.]+)$`, st.platformTakeIs)

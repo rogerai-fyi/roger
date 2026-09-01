@@ -1,6 +1,7 @@
 # ANONYMIZATION: the checkable half of what the routing fee buys.
 #
-# Founder, 2026-09-01: the 30% pays for "the anonymization and routing of our broker and
+# Founder, 2026-09-01: the routing fee (10% since the same-day fee ruling) pays for
+# "the anonymization and routing of our broker and
 # tower network". Anonymization is a property, not an adjective: the upstream provider
 # transacts with the STATION's credentials over the STATION's connection, and nothing that
 # reaches it can say who the consumer is. These run against the real node-agent serving

@@ -5,7 +5,7 @@
      Registered in build.mjs CSS_BUNDLES; listed atop broadcasts.html. -->
 <html lang="en">
 <head>
-  <!-- include: head.html title="How to share your GPU for AI and earn" desc="Set up an idle GPU as a private AI node that can earn, with one command. What roger share does, how pricing and 70% Stripe payouts work, whether it's safe, and free vs. earn - the provider's field guide." theme=external og=post ogtype=article ogtitle="How to share your GPU for AI and earn" ogdesc="Set up an idle GPU as an AI node that can earn, with one command. Pricing, 70% payouts, safety, and free vs. earn - the provider's guide." ogurl="https://rogerai.fm/broadcasts-share-gpu-earn.html" ogimage="https://rogerai.fm/assets/broadcasts/share-hero.png" -->
+  <!-- include: head.html title="How to share your GPU for AI and earn" desc="Set up an idle GPU as a private AI node that can earn, with one command. What roger share does, how pricing and 90% Stripe payouts work, whether it's safe, and free vs. earn - the provider's field guide." theme=external og=post ogtype=article ogtitle="How to share your GPU for AI and earn" ogdesc="Set up an idle GPU as an AI node that can earn, with one command. Pricing, 90% payouts, safety, and free vs. earn - the provider's guide." ogurl="https://rogerai.fm/broadcasts-share-gpu-earn.html" ogimage="https://rogerai.fm/assets/broadcasts/share-hero.png" -->
 </head>
 <body data-onair="idle">
 
@@ -46,7 +46,7 @@
       <blockquote class="mono" style="margin:2rem 0;padding:1rem 1.25rem;border-left:3px solid #E0231C;background:rgba(224,35,28,.05);border-radius:0 6px 6px 0;line-height:1.6;" data-reveal>
         <b>Quick answer.</b> Run <code>roger share</code> and your machine's local model goes on the
         air as an AI node. It's free with no login by default; set a price (dollars per million
-        tokens) to earn instead - you keep <b>70%</b>, paid out through Stripe. The connection is
+        tokens) to earn instead - you keep <b>90%</b>, paid out through Stripe. The connection is
         outbound-only, and every prompt is moderated before it ever reaches you.
       </blockquote>
 
@@ -118,7 +118,7 @@
               <text x="578" y="109" class="d-no">3 &#183; YOU EARN</text>
               <text x="578" y="140" class="d-h">serve + sign</text>
               <text x="578" y="162" class="d-b">the receipt, keep</text>
-              <text x="578" y="180" class="d-b"><tspan class="d-live" style="font-weight:700">70%</tspan> - Stripe payout</text>
+              <text x="578" y="180" class="d-b"><tspan class="d-live" style="font-weight:700">90%</tspan> - Stripe payout</text>
               <text x="24" y="234" class="d-b" style="opacity:.6">Outbound only: no inbound ports, no shell, no files. The bridge exposes just your model's port.</text>
             </svg>
             <figcaption class="fig mono">FIG. 2 - One command on air, screened by the band, paid on a signed receipt.</figcaption>
@@ -132,7 +132,7 @@
             You set two prices - <b>input</b> and <b>output</b>, in dollars per million tokens
             (<code>--price-in</code>, <code>--price-out</code>). The default is <b>0/0</b>, which is
             free. The earn wizard suggests <b>$0.20 in / $0.30 out</b> per million to start. You keep
-            <b>70%</b> of what your node bills; the rest is the platform's cut. Price against live
+            <b>90%</b> of what your node bills; the rest is the platform's cut. Price against live
             rates for your model on the <a href="/models.html">model directory</a> so you stay
             competitive - and <code>roger onboard --earn</code> walks you through pricing and login.
           </p>
@@ -195,9 +195,9 @@
             <dt><b>Do I need a GPU to share?</b></dt>
             <dd>You need a machine running a local OpenAI-compatible model server (Ollama, LM Studio, llama.cpp, vLLM, and others). A GPU is what makes it fast and worth sharing; the model server is the actual requirement.</dd>
             <dt><b>Is sharing my GPU free, or do I earn?</b></dt>
-            <dd>Your choice. The default is free and needs no login. Set a price (dollars per million tokens, input and output) to earn instead - you keep 70%.</dd>
+            <dd>Your choice. The default is free and needs no login. Set a price (dollars per million tokens, input and output) to earn instead - you keep 90%.</dd>
             <dt><b>How much can I earn sharing my GPU?</b></dt>
-            <dd>You set the price, so it depends on your rate, how in-demand your model is, and your uptime. The earn wizard suggests $0.20 in / $0.30 out per million tokens to start, and you keep 70% of what your node bills.</dd>
+            <dd>You set the price, so it depends on your rate, how in-demand your model is, and your uptime. The earn wizard suggests $0.20 in / $0.30 out per million tokens to start, and you keep 90% of what your node bills.</dd>
             <dt><b>Is it safe to let strangers use my GPU?</b></dt>
             <dd>Yes. The connection is outbound-only - no inbound ports, no shell, no file access - and exposes only your model's port. Every prompt is moderated by the broker before it reaches you, your API key never leaves your machine, and your callsign is anonymous.</dd>
             <dt><b>When do I get paid?</b></dt>
@@ -222,7 +222,7 @@
 
   <!-- include: footer.html anchors=/ -->
 
-  <script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"Do I need a GPU to share?","acceptedAnswer":{"@type":"Answer","text":"You need a machine running a local OpenAI-compatible model server (Ollama, LM Studio, llama.cpp, vLLM, and others). A GPU is what makes it fast and worth sharing; the model server is the actual requirement."}},{"@type":"Question","name":"Is sharing my GPU free, or do I earn?","acceptedAnswer":{"@type":"Answer","text":"Your choice. The default is free and needs no login. Set a price (dollars per million tokens, input and output) to earn instead - you keep 70%."}},{"@type":"Question","name":"How much can I earn sharing my GPU?","acceptedAnswer":{"@type":"Answer","text":"You set the price, so it depends on your rate, how in-demand your model is, and your uptime. The earn wizard suggests $0.20 in / $0.30 out per million tokens to start, and you keep 70% of what your node bills."}},{"@type":"Question","name":"Is it safe to let strangers use my GPU?","acceptedAnswer":{"@type":"Answer","text":"Yes. The connection is outbound-only - no inbound ports, no shell, no file access - and exposes only your model's port. Every prompt is moderated by the broker before it reaches you, your API key never leaves your machine, and your callsign is anonymous."}},{"@type":"Question","name":"When do I get paid?","acceptedAnswer":{"@type":"Answer","text":"Payouts run on Stripe Connect with a $25 minimum, a 120-day hold, and monthly release. Earning requires a one-time roger login, approved on rogerai.fm with GitHub, Apple, or an emailed code, plus Stripe identity verification; earnings accrue in the meantime."}},{"@type":"Question","name":"Can I stop sharing anytime?","acceptedAnswer":{"@type":"Answer","text":"Yes - just stop roger share. If you restart, your node comes back under the same anonymous callsign, and shares survive broker restarts automatically."}}]}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"Do I need a GPU to share?","acceptedAnswer":{"@type":"Answer","text":"You need a machine running a local OpenAI-compatible model server (Ollama, LM Studio, llama.cpp, vLLM, and others). A GPU is what makes it fast and worth sharing; the model server is the actual requirement."}},{"@type":"Question","name":"Is sharing my GPU free, or do I earn?","acceptedAnswer":{"@type":"Answer","text":"Your choice. The default is free and needs no login. Set a price (dollars per million tokens, input and output) to earn instead - you keep 90%."}},{"@type":"Question","name":"How much can I earn sharing my GPU?","acceptedAnswer":{"@type":"Answer","text":"You set the price, so it depends on your rate, how in-demand your model is, and your uptime. The earn wizard suggests $0.20 in / $0.30 out per million tokens to start, and you keep 90% of what your node bills."}},{"@type":"Question","name":"Is it safe to let strangers use my GPU?","acceptedAnswer":{"@type":"Answer","text":"Yes. The connection is outbound-only - no inbound ports, no shell, no file access - and exposes only your model's port. Every prompt is moderated by the broker before it reaches you, your API key never leaves your machine, and your callsign is anonymous."}},{"@type":"Question","name":"When do I get paid?","acceptedAnswer":{"@type":"Answer","text":"Payouts run on Stripe Connect with a $25 minimum, a 120-day hold, and monthly release. Earning requires a one-time roger login, approved on rogerai.fm with GitHub, Apple, or an emailed code, plus Stripe identity verification; earnings accrue in the meantime."}},{"@type":"Question","name":"Can I stop sharing anytime?","acceptedAnswer":{"@type":"Answer","text":"Yes - just stop roger share. If you restart, your node comes back under the same anonymous callsign, and shares survive broker restarts automatically."}}]}</script>
 
   <script src="js/lets-talk.js" defer></script>
   <script src="js/site.js" defer></script>

@@ -49,9 +49,19 @@ test("calculator: both sides are there - what you would earn, and what you pay n
 
 /* ---- rule 2: our constants come from the Go that enforces them ------ */
 
+
+// The broker's default fee: either a literal in the flag declaration, or (since the
+// 2026-09-01 ten-percent ruling) the named constant defaultFeeRate beside the curated
+// markup - one number, still read from the Go that enforces it.
+function brokerFee() {
+  const flagDecl = go("cmd", "rogerai-broker", "main.go").match(/flag\.Float64\("fee",\s*([0-9.]+|[A-Za-z_]\w*)/)?.[1];
+  if (!flagDecl) return undefined;
+  if (/^[0-9.]+$/.test(flagDecl)) return flagDecl;
+  return go("cmd", "rogerai-broker", "curated_pricing.go").match(new RegExp(`const ${flagDecl} = ([0-9.]+)`))?.[1];
+}
 test("calculator: the platform fee is the broker's own, not a number typed twice", () => {
   // cmd/rogerai-broker/main.go declares the take rate the broker actually applies.
-  const fee = go("cmd", "rogerai-broker", "main.go").match(/flag\.Float64\("fee",\s*([0-9.]+)/)?.[1];
+  const fee = brokerFee();
   assert.ok(fee, "the broker declares its fee rate");
   const share = 1 - Number(fee);
   assert.ok(calc().includes(String(share)), `calc.js uses the operator share ${share} derived from the broker's fee`);
@@ -192,7 +202,7 @@ test("calculator: with no JavaScript it is honest rather than blank", () => {
 test("calculator: the printed example is what the printed inputs actually produce", () => {
   const s = section();
   const val = (id) => Number(s.match(new RegExp(`id="${id}"[^>]*value="([^"]+)"`))?.[1]);
-  const fee = Number(go("cmd", "rogerai-broker", "main.go").match(/flag\.Float64\("fee",\s*([0-9.]+)/)?.[1]);
+  const fee = Number(brokerFee());
   const days = Number(calc().match(/var DAYS = (\d+)/)?.[1]);
   assert.ok(days > 0, "calc.js declares the month length it uses");
 

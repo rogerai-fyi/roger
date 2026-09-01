@@ -34,7 +34,7 @@ test("pricing: the page builds, is indexable, and is in the sitemap", () => {
 test("pricing: it prints the money RULES, every one of which is committed elsewhere", () => {
   const html = compact(read("pricing.html"));
   // the split, as stated in tos.html and the manual
-  assert.match(html, /70 ?(?:\/|&#x2F;) ?30|keep 70%/i, "the 70/30 split");
+  assert.match(html, /90 ?(?:\/|&#x2F;) ?10|keep 90%/i, "the 90/10 split");
   // payout policy, as stated in manual.html §7
   assert.match(html, /120[- ]day/i, "the 120-day hold");
   assert.match(html, /\$25/, "the $25 minimum payout");
@@ -133,7 +133,7 @@ test("faq: every visible question is in the structured data, and vice versa", ()
 
 test("faq: the answers that cost money or trust match the committed policy", () => {
   const html = compact(read("faq.html"));
-  assert.match(html, /70%/, "the operator's share");
+  assert.match(html, /90%/, "the operator's share");
   assert.match(html, /\$25/, "the payout minimum");
   assert.match(html, /120[- ]day/i, "the hold");
   assert.match(html, /no inbound port|no port|outbound/i, "no port forwarding");
@@ -221,4 +221,15 @@ test("wiring: both pages are reachable from the shared footer", () => {
 test("wiring: pricing is in the nav, and the FAQ is reachable from pricing", () => {
   assert.match(src("_partials/nav.html"), /href="\/pricing\.html"/, "nav links pricing");
   assert.match(read("pricing.html"), /href="\/faq\.html"/, "pricing links the FAQ");
+});
+
+test("pricing: reselling contracts is a first-class path, told straight (pricing_monetization.feature)", () => {
+  const html = read("pricing.html");
+  assert.match(html, /resell/i, "the resale path is named");
+  assert.match(html, /curated station/i, "as the curated path");
+  assert.match(html, /list, whole|reimbursed[^<]*list/i, "the pass-through rule: the list, whole");
+  assert.match(html, /list \+ 10%/i, "the consumer's price: list plus the routing fee");
+  assert.match(html, /anonymized routing/i, "the fee is tied to what it buys");
+  assert.match(html, /href="\/why\.html"/, "and the why page carries the full argument");
+  assert.doesNotMatch(html, /70 ?\/ ?10 ?\/ ?20|\b70 \/ 10 \/ 20\b/, "no 70\/10\/20-era split survives");
 });

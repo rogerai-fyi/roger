@@ -196,11 +196,11 @@ func (s *curPriceState) brokerRetains(amount string) error {
 	return nil
 }
 
-func (s *curPriceState) aCuratedRequest() error { return s.settledCuratedRequest(1.30) }
+func (s *curPriceState) aCuratedRequest() error { return s.settledCuratedRequest(1.10) }
 
 func (s *curPriceState) consumerPaysPosted() error {
-	if !near(s.balBefore-s.balAfter, 1.30) {
-		return fmt.Errorf("consumer paid %.4f, want the posted 1.30 exactly", s.balBefore-s.balAfter)
+	if !near(s.balBefore-s.balAfter, 1.10) {
+		return fmt.Errorf("consumer paid %.4f, want the posted 1.10 exactly", s.balBefore-s.balAfter)
 	}
 	return nil
 }
@@ -225,12 +225,12 @@ func (s *curPriceState) seedSpender() error {
 	if _, err := s.b.db.BalanceOf(s.payer, 2.00); err != nil {
 		return err
 	}
-	if ok, err := s.b.db.Hold(s.payer, 1.30); err != nil || !ok {
+	if ok, err := s.b.db.Hold(s.payer, 1.10); err != nil || !ok {
 		return fmt.Errorf("hold failed: ok=%v err=%v", ok, err)
 	}
 	s.rec = protocol.UsageReceipt{RequestID: "req_seed_1", NodeID: "curp1", User: s.payer,
 		Model: "deepseek-v4", PromptTokens: 10, CompletionTokens: 10, TS: time.Now().Unix()}
-	if _, err := s.b.settleRequest(s.payer, "curp1", 1.30, 1.30, s.rec, "", false); err != nil {
+	if _, err := s.b.settleRequest(s.payer, "curp1", 1.10, 1.10, s.rec, "", false); err != nil {
 		return err
 	}
 	return nil
@@ -251,7 +251,7 @@ func (s *curPriceState) noEarningMinted() error {
 }
 
 func (s *curPriceState) ledgerCarriesCurated() error {
-	if err := s.settledCuratedRequest(1.30); err != nil {
+	if err := s.settledCuratedRequest(1.10); err != nil {
 		return err
 	}
 	// Observed where it LANDS: the settlement math is the designation's effect, and only
@@ -259,7 +259,7 @@ func (s *curPriceState) ledgerCarriesCurated() error {
 	// prove nothing - settleRequest takes it by value).
 	if !near(s.earned, 1.00) {
 		return fmt.Errorf("the ledgered settlement does not carry the curated rule: operator "+
-			"earned %.4f from a 1.30 request, want the 1.00 pass-through", s.earned)
+			"earned %.4f from a 1.10 request, want the 1.00 pass-through", s.earned)
 	}
 	return nil
 }

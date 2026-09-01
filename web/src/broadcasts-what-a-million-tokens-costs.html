@@ -9,7 +9,7 @@
      Registered in build.mjs CSS_BUNDLES. -->
 <html lang="en">
 <head>
-  <!-- include: head.html title="What a million tokens costs, and what you can sell it for" desc="Rent an interruptible GPU for a cent and a half an hour, serve an open model on it, and sell a million tokens for three and a half times what the hour cost. The spread, the arithmetic behind it, and the one number that decides whether it works." theme=external og=post ogtype=article ogtitle="What a million tokens costs, and what you can sell it for" ogdesc="A spot RTX 3060 costs $0.015/hr. At half duty that is a $0.10 break-even per million output tokens, against a market charging $0.455. The whole trade, with every input printed beside the answer." ogurl="https://rogerai.fm/broadcasts-what-a-million-tokens-costs.html" ogimage="https://rogerai.fm/og-home.png" -->
+  <!-- include: head.html title="What a million tokens costs, and what you can sell it for" desc="Rent an interruptible GPU for a cent and a half an hour, serve an open model on it, and sell a million tokens for four times what the hour cost. The spread, the arithmetic behind it, and the one number that decides whether it works." theme=external og=post ogtype=article ogtitle="What a million tokens costs, and what you can sell it for" ogdesc="A spot RTX 3060 costs $0.015/hr. At half duty that is a $0.08 break-even per million output tokens, against a market charging $0.455. The whole trade, with every input printed beside the answer." ogurl="https://rogerai.fm/broadcasts-what-a-million-tokens-costs.html" ogimage="https://rogerai.fm/og-home.png" -->
 </head>
 <body data-onair="idle">
 
@@ -48,13 +48,13 @@
           <span class="bc-answer__tag mono">The trade</span>
           <p class="bc-answer__lede">Rent an interruptible RTX 3060 for <b>$0.015/hr</b>.
             Serve an 8B model on it. Busy half the time, a million output tokens costs you
-            <b>$0.10</b> to cover, and the going rate for that model is <b>$0.455</b>.
-            Charge $0.35, stay well under the market, and you are taking <b>3.5&times;</b>
+            <b>$0.08</b> to cover, and the going rate for that model is <b>$0.455</b>.
+            Charge $0.35, stay well under the market, and you are taking <b>4.4&times;</b>
             what the hour cost you.</p>
           <dl class="ec-answer-grid">
-            <div><dt>Your break-even</dt><dd>$0.10 <span>/1M&nbsp;out</span></dd></div>
+            <div><dt>Your break-even</dt><dd>$0.08 <span>/1M&nbsp;out</span></dd></div>
             <div><dt>You charge</dt><dd>$0.35 <span>/1M&nbsp;out</span></dd></div>
-            <div><dt>Cover</dt><dd class="ec-win">3.50&times;</dd></div>
+            <div><dt>Cover</dt><dd class="ec-win">4.38&times;</dd></div>
           </dl>
           <p class="ec-answer-foot mono">rates read 2026-08-31 &middot; every figure below is
             computed from inputs printed on the page</p>
@@ -67,15 +67,15 @@
           <p>A rented card costs the same whether or not a request is in flight, and it
              produces tokens only while one is. So the price you must charge to cover
              yourself is the hour's rent divided by the tokens that hour actually produced,
-             grossed up for the platform fee: you keep <b>70%</b> of what a request is
-             charged, so covering a $0.07 hour needs $0.10 of charges.</p>
+             grossed up for the platform fee: you keep <b>90%</b> of what a request is
+             charged, so covering a $0.07 hour needs $0.08 of charges.</p>
 
           <figure class="ec-formula" data-reveal>
             <div class="ec-formula__eq mono">
               <span class="ec-formula__lhs">break-even $/1M</span>
               <span class="ec-formula__op">=</span>
               <span class="ec-formula__frac">
-                <span class="ec-formula__num">rent per hour &divide; 0.70</span>
+                <span class="ec-formula__num">rent per hour &divide; 0.90</span>
                 <span class="ec-formula__den">tok/s &times; 3600 &times; duty &divide; 1,000,000</span>
               </span>
             </div>
@@ -88,43 +88,43 @@
              <time datetime="2026-08-31">31 August 2026</time>.</p>
 
           <div class="ec-tablewrap">
-            <table class="ec-table ec-table--spread" data-share="0.70">
+            <table class="ec-table ec-table--spread" data-share="0.90">
               <caption class="mono">The whole trade &middot; cover = what you charge over what you must charge</caption>
               <thead>
                 <tr><th>Card and band</th><th>Rent/hr</th><th>tok/s</th><th>Duty</th>
                     <th>Break-even</th><th>You charge</th><th>Cover</th></tr>
               </thead>
               <tbody>
-                <tr data-cost data-hourly="0.015" data-tps="120" data-util="0.5" data-price="0.10"
-                    data-be="0.10" data-charge="0.35" data-margin="3.50">
+                <tr data-cost data-hourly="0.015" data-tps="120" data-util="0.5" data-price="0.08"
+                    data-be="0.08" data-charge="0.35" data-margin="4.38">
                   <td>RTX 3060 &middot; 8B vision</td><td class="mono">$0.015</td><td class="mono">120</td>
-                  <td class="mono">50%</td><td class="mono">$0.10</td><td class="mono">$0.35</td>
-                  <td class="mono ec-win">3.50&times;</td></tr>
-                <tr data-cost data-hourly="0.015" data-tps="120" data-util="1" data-price="0.05"
-                    data-be="0.05" data-charge="0.35" data-margin="7.00">
+                  <td class="mono">50%</td><td class="mono">$0.08</td><td class="mono">$0.35</td>
+                  <td class="mono ec-win">4.38&times;</td></tr>
+                <tr data-cost data-hourly="0.015" data-tps="120" data-util="1" data-price="0.04"
+                    data-be="0.04" data-charge="0.35" data-margin="8.75">
                   <td class="ec-cont">RTX 3060 &middot; 8B vision</td><td class="mono">$0.015</td><td class="mono">120</td>
-                  <td class="mono">100%</td><td class="mono">$0.05</td><td class="mono">$0.35</td>
-                  <td class="mono ec-win">7.00&times;</td></tr>
-                <tr data-cost data-hourly="0.075" data-tps="150" data-util="0.5" data-price="0.40"
-                    data-be="0.40" data-charge="0.35" data-margin="0.88">
+                  <td class="mono">100%</td><td class="mono">$0.04</td><td class="mono">$0.35</td>
+                  <td class="mono ec-win">8.75&times;</td></tr>
+                <tr data-cost data-hourly="0.075" data-tps="150" data-util="0.5" data-price="0.31"
+                    data-be="0.31" data-charge="0.35" data-margin="1.13">
                   <td>RTX A5000 &middot; 27B dense</td><td class="mono">$0.075</td><td class="mono">150</td>
-                  <td class="mono">50%</td><td class="mono">$0.40</td><td class="mono">$0.35</td>
+                  <td class="mono">50%</td><td class="mono">$0.31</td><td class="mono">$0.35</td>
                   <td class="mono ec-lose">0.88&times;</td></tr>
-                <tr data-cost data-hourly="0.075" data-tps="300" data-util="0.5" data-price="0.20"
-                    data-be="0.20" data-charge="0.35" data-margin="1.75">
+                <tr data-cost data-hourly="0.075" data-tps="300" data-util="0.5" data-price="0.15"
+                    data-be="0.15" data-charge="0.35" data-margin="2.33">
                   <td class="ec-cont">RTX A5000 &middot; 27B dense, <b>tuned</b></td><td class="mono">$0.075</td><td class="mono">300</td>
-                  <td class="mono">50%</td><td class="mono">$0.20</td><td class="mono">$0.35</td>
-                  <td class="mono ec-win">1.75&times;</td></tr>
-                <tr data-cost data-hourly="0.025" data-tps="200" data-util="0.5" data-price="0.10"
-                    data-be="0.10" data-charge="0.11" data-margin="1.10">
+                  <td class="mono">50%</td><td class="mono">$0.15</td><td class="mono">$0.35</td>
+                  <td class="mono ec-win">2.33&times;</td></tr>
+                <tr data-cost data-hourly="0.025" data-tps="200" data-util="0.5" data-price="0.08"
+                    data-be="0.08" data-charge="0.11" data-margin="1.38">
                   <td>RTX A4000 &middot; 20B MoE</td><td class="mono">$0.025</td><td class="mono">200</td>
-                  <td class="mono">50%</td><td class="mono">$0.10</td><td class="mono">$0.11</td>
-                  <td class="mono">1.10&times;</td></tr>
-                <tr data-cost data-hourly="0.23" data-tps="150" data-util="0.5" data-price="1.22"
-                    data-be="1.22" data-charge="0.35" data-margin="0.29">
+                  <td class="mono">50%</td><td class="mono">$0.08</td><td class="mono">$0.11</td>
+                  <td class="mono">1.38&times;</td></tr>
+                <tr data-cost data-hourly="0.23" data-tps="150" data-util="0.5" data-price="0.95"
+                    data-be="0.95" data-charge="0.35" data-margin="0.37">
                   <td>A5000 <b>on-demand</b> &middot; 27B dense</td><td class="mono">$0.230</td><td class="mono">150</td>
-                  <td class="mono">50%</td><td class="mono">$1.22</td><td class="mono">$0.35</td>
-                  <td class="mono ec-lose">0.29&times;</td></tr>
+                  <td class="mono">50%</td><td class="mono">$0.95</td><td class="mono">$0.375</td>
+                  <td class="mono ec-lose">0.377&times;</td></tr>
               </tbody>
             </table>
           </div>
@@ -137,7 +137,7 @@
               <desc id="ec-chart-desc">Four bars. Each pale bar is the price charged for a
                 million output tokens, and the dark bar inside it is what that million costs
                 to cover; the pale showing past the dark is the margin. An 8B on a 3060
-                charges 35 cents against a 10 cent break-even, 3.5 times cover. A tuned 27B
+                charges 35 cents against an 8 cent break-even, 4.4 times cover. A tuned 27B
                 on an A5000 charges 35 against 20, 1.75 times. A 20B mixture on an A4000
                 charges 11 against 10, barely 1.1 times. The same 27B untuned costs 40 cents
                 to cover against the same 35 cent price, so its dark bar runs past the pale
@@ -152,7 +152,7 @@
                 <text class="ec-chart__lbl" x="200" y="36">8B vision &middot; 3060</text>
                 <rect class="ec-chart__bar ec-chart__bar--charge" data-value="0.35" x="210" y="24" width="350" height="18"/>
                 <rect class="ec-chart__bar ec-chart__bar--cost" data-value="0.10" x="210" y="28" width="100" height="10"/>
-                <text class="ec-chart__val" x="568" y="36">3.50&times;</text>
+                <text class="ec-chart__val" x="568" y="36">4.38&times;</text>
               </g>
               <g class="ec-chart__row">
                 <text class="ec-chart__lbl" x="200" y="78">27B dense &middot; A5000, tuned</text>
@@ -173,7 +173,7 @@
                 <text class="ec-chart__val" x="618" y="162">0.88&times;</text>
               </g>
               <text class="ec-chart__axis" x="210" y="196">$0</text>
-              <text class="ec-chart__axis" x="310" y="196">$0.10</text>
+              <text class="ec-chart__axis" x="290" y="196">$0.08</text>
               <text class="ec-chart__axis" x="410" y="196">$0.20</text>
               <text class="ec-chart__axis" x="510" y="196">$0.30</text>
               <text class="ec-chart__axis" x="610" y="196">$0.40</text>
@@ -236,7 +236,7 @@
               <tbody>
                 <tr data-market="qwen/qwen3-vl-8b-instruct" data-market-price="0.455">
                   <td class="mono">qwen/qwen3-vl-8b-instruct</td><td>8B vision</td>
-                  <td class="mono">$0.455</td><td class="ec-win">yes, 3.5&times;</td></tr>
+                  <td class="mono">$0.455</td><td class="ec-win">yes, 4.4&times;</td></tr>
                 <tr data-market="google/gemma-3-27b-it" data-market-price="0.45">
                   <td class="mono">google/gemma-3-27b-it</td><td>27B dense</td>
                   <td class="mono">$0.45</td><td class="ec-win">yes, if tuned</td></tr>
@@ -269,22 +269,22 @@
              $0.15/kWh that is not a small edge, it is a different order of magnitude:</p>
 
           <div class="ec-tablewrap">
-            <table class="ec-table ec-table--owned" data-share="0.70">
+            <table class="ec-table ec-table--owned" data-share="0.90">
               <caption class="mono">Owned hardware &middot; the break-even is electricity</caption>
               <thead><tr><th>Card</th><th>Draw</th><th>tok/s</th><th>Duty</th><th>Break-even</th><th>Cover at $0.35</th></tr></thead>
               <tbody>
-                <tr data-cost data-watts="380" data-rate="0.15" data-tps="250" data-util="0.5" data-price="0.18"
-                    data-be="0.18" data-charge="0.35" data-margin="1.94">
+                <tr data-cost data-watts="380" data-rate="0.15" data-tps="250" data-util="0.5" data-price="0.14"
+                    data-be="0.14" data-charge="0.35" data-margin="2.50">
                   <td>RTX 4090</td><td class="mono">380 W</td><td class="mono">250</td>
-                  <td class="mono">50%</td><td class="mono">$0.18</td><td class="mono ec-win">1.94&times;</td></tr>
-                <tr data-cost data-watts="380" data-rate="0.15" data-tps="250" data-util="1" data-price="0.09"
-                    data-be="0.09" data-charge="0.35" data-margin="3.89">
+                  <td class="mono">50%</td><td class="mono">$0.14</td><td class="mono ec-win">2.50&times;</td></tr>
+                <tr data-cost data-watts="380" data-rate="0.15" data-tps="250" data-util="1" data-price="0.07"
+                    data-be="0.07" data-charge="0.35" data-margin="5.00">
                   <td class="ec-cont">RTX 4090</td><td class="mono">380 W</td><td class="mono">250</td>
-                  <td class="mono">100%</td><td class="mono">$0.09</td><td class="mono ec-win">3.89&times;</td></tr>
-                <tr data-cost data-watts="90" data-rate="0.15" data-tps="60" data-util="0.5" data-price="0.18"
-                    data-be="0.18" data-charge="0.35" data-margin="1.94">
+                  <td class="mono">100%</td><td class="mono">$0.07</td><td class="mono ec-win">5.00&times;</td></tr>
+                <tr data-cost data-watts="90" data-rate="0.15" data-tps="60" data-util="0.5" data-price="0.14"
+                    data-be="0.14" data-charge="0.35" data-margin="2.50">
                   <td>Mac Studio, M-series</td><td class="mono">90 W</td><td class="mono">60</td>
-                  <td class="mono">50%</td><td class="mono">$0.18</td><td class="mono ec-win">1.94&times;</td></tr>
+                  <td class="mono">50%</td><td class="mono">$0.14</td><td class="mono ec-win">2.50&times;</td></tr>
               </tbody>
             </table>
           </div>
@@ -310,7 +310,7 @@
               already running. The connection is outbound only, so there are no ports to
               open on a rented box.</li>
             <li><b>Price it under the market.</b>
-              <code>roger share --price-in 0.18 --price-out 0.30</code>. You keep 70% of
+              <code>roger share --price-in 0.18 --price-out 0.30</code>. You keep 90% of
               every request; the router does the rest.</li>
 
           </ol>
@@ -333,11 +333,11 @@
           <h2>The ones people ask first.</h2>
           <dl class="bc-faq">
             <dt><b>How much can you make renting a GPU and serving models?</b></dt>
-            <dd>An interruptible RTX 3060 rents for about $0.015 an hour. Serving an 8B model at 120 aggregate tokens a second, busy half the time, a million output tokens breaks even at $0.10 including the 30% platform fee. The market rate for that class is $0.455, so charging $0.35 leaves 3.5 times cover. Double the throughput and the break-even halves.</dd>
+            <dd>An interruptible RTX 3060 rents for about $0.015 an hour. Serving an 8B model at 120 aggregate tokens a second, busy half the time, a million output tokens breaks even at $0.08 including the 10% platform fee. The market rate for that class is $0.455, so charging $0.35 leaves 4.4 times cover. Double the throughput and the break-even halves.</dd>
             <dt><b>Is renting a GPU to serve on RogerAI actually allowed?</b></dt>
-            <dd>Yes. A station is a machine running a model; nothing cares whose data centre it sits in or whether the hour was rented. Price it, serve it, keep the same 70%.</dd>
-            <dt><b>Why is the platform's 30% inside the break-even?</b></dt>
-            <dd>Because you keep 70% of what a request is charged, so covering a $0.07 hour needs $0.10 of charges, not $0.07. Leaving the fee out puts every break-even here 30% too low.</dd>
+            <dd>Yes. A station is a machine running a model; nothing cares whose data centre it sits in or whether the hour was rented. Price it, serve it, keep the same 90%.</dd>
+            <dt><b>Why is the platform's 10% inside the break-even?</b></dt>
+            <dd>Because you keep 90% of what a request is charged, so covering a $0.07 hour needs $0.08 of charges, not $0.07. Leaving the fee out puts every break-even here 11% too low.</dd>
             <dt><b>Is 150 tokens a second realistic for a 27B model?</b></dt>
             <dd>As an aggregate across concurrent requests on a dedicated 24GB card at 4-bit, yes. Single-stream on that hardware is more like 35 to 45. The distinction is the whole article: a station serves several people at once, and it is the aggregate that pays the rent.</dd>
             <dt><b>Does an interrupted spot instance break anything?</b></dt>
@@ -362,7 +362,7 @@
 
   <!-- include: footer.html anchors=/ -->
 
-  <script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"How much can you make renting a GPU and serving models?","acceptedAnswer":{"@type":"Answer","text":"An interruptible RTX 3060 rents for about $0.015 an hour. Serving an 8B model at 120 aggregate tokens a second, busy half the time, a million output tokens breaks even at $0.10 including the 30% platform fee. The market rate for that class is $0.455, so charging $0.35 leaves 3.5 times cover. Doubling throughput halves the break-even."}},{"@type":"Question","name":"Is renting a GPU to serve on RogerAI actually allowed?","acceptedAnswer":{"@type":"Answer","text":"Yes. A station is a machine running a model; nothing cares whose data centre it sits in or whether the hour was rented. Price it, serve it, and you keep the same 70% of every request."}},{"@type":"Question","name":"Why is the platform's 30% inside the break-even?","acceptedAnswer":{"@type":"Answer","text":"Because an operator keeps 70% of what a request is charged, so covering a $0.07 hour needs $0.10 of charges, not $0.07. Leaving the fee out puts every break-even 30% too low."}},{"@type":"Question","name":"Is 150 tokens a second realistic for a 27B model?","acceptedAnswer":{"@type":"Answer","text":"As an aggregate across concurrent requests on a dedicated 24GB card at 4-bit, yes. Single-stream on that hardware is more like 35 to 45 tokens a second. A station serves several people at once, and it is the aggregate that pays the rent."}},{"@type":"Question","name":"Does an interrupted spot instance break anything?","acceptedAnswer":{"@type":"Answer","text":"No. A station that disappears stops being routed to, and requests go to another station serving the same model. The network already assumes machines come and go, which is why interruptible rental is a reasonable thing to build on."}},{"@type":"Question","name":"What if nobody sends me work?","acceptedAnswer":{"@type":"Answer","text":"Then duty falls and the trade falls with it, which is why duty is a column here rather than a footnote. On rented hardware the rent runs whether or not requests do, so start on an hourly instance you can drop, measure your real duty, and size the commitment to it."}}]}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"How much can you make renting a GPU and serving models?","acceptedAnswer":{"@type":"Answer","text":"An interruptible RTX 3060 rents for about $0.015 an hour. Serving an 8B model at 120 aggregate tokens a second, busy half the time, a million output tokens breaks even at $0.10 including the 10% platform fee. The market rate for that class is $0.455, so charging $0.35 leaves 3.5 times cover. Doubling throughput halves the break-even."}},{"@type":"Question","name":"Is renting a GPU to serve on RogerAI actually allowed?","acceptedAnswer":{"@type":"Answer","text":"Yes. A station is a machine running a model; nothing cares whose data centre it sits in or whether the hour was rented. Price it, serve it, and you keep the same 90% of every request."}},{"@type":"Question","name":"Why is the platform's 10% inside the break-even?","acceptedAnswer":{"@type":"Answer","text":"Because an operator keeps 90% of what a request is charged, so covering a $0.07 hour needs $0.10 of charges, not $0.07. Leaving the fee out puts every break-even 10% too low."}},{"@type":"Question","name":"Is 150 tokens a second realistic for a 27B model?","acceptedAnswer":{"@type":"Answer","text":"As an aggregate across concurrent requests on a dedicated 24GB card at 4-bit, yes. Single-stream on that hardware is more like 35 to 45 tokens a second. A station serves several people at once, and it is the aggregate that pays the rent."}},{"@type":"Question","name":"Does an interrupted spot instance break anything?","acceptedAnswer":{"@type":"Answer","text":"No. A station that disappears stops being routed to, and requests go to another station serving the same model. The network already assumes machines come and go, which is why interruptible rental is a reasonable thing to build on."}},{"@type":"Question","name":"What if nobody sends me work?","acceptedAnswer":{"@type":"Answer","text":"Then duty falls and the trade falls with it, which is why duty is a column here rather than a footnote. On rented hardware the rent runs whether or not requests do, so start on an hourly instance you can drop, measure your real duty, and size the commitment to it."}}]}</script>
 
   <script src="js/lets-talk.js" defer></script>
   <script src="js/site.js" defer></script>

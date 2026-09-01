@@ -43,9 +43,9 @@ test("the broadcast exists and is findable as a broadcast", () => {
 
 test("the split is stated with the base it is measured against", () => {
   const c = copy();
-  assert.match(c, /70%/, "the node's share");
-  assert.match(c, /10%/, "the tower operator's share");
-  assert.match(c, /20%/, "the platform's share");
+  assert.match(c, /90%/, "the node's share");
+  assert.match(c, /5%/, "the tower operator's share");
+  assert.match(c, /(the platform simply takes less|platform)/i, "the platform's share is named");
   // The base is the whole point: 10% of the NODE's own price, not of a house rate.
   assert.match(c, /(own listed price|node's own listed price|its own listed price)/i,
     "the article says what the percentage is a percentage OF");

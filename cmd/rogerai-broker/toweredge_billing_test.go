@@ -24,7 +24,7 @@ func TestEdgeBillingPaysStationOwnerAndTowerOperator(t *testing.T) {
 	t.Setenv("ROGERAI_PAYOUT_HOLD_DAYS", "0")
 	t.Setenv("ROGERAI_PAYOUT_RESERVE", "0")
 	b, srv := towerTestBroker(t)
-	b.feeRate = 0.30 // 30% platform fee; the Tower's 10% comes out of that margin
+	b.feeRate = 0.10 // the 10% platform fee (ruling 2026-09-01); the Tower's 5% comes out of that margin
 
 	// The Tower operator (one account) and the Station owner (a DIFFERENT account), so the split
 	// is observably to two wallets.
@@ -62,12 +62,12 @@ func TestEdgeBillingPaysStationOwnerAndTowerOperator(t *testing.T) {
 	require.Equal(t, http.StatusOK, code, out)
 
 	now := time.Now()
-	// Station owner earns cost*(1-fee) = 50*0.7 = 35.
+	// Station owner earns cost*(1-fee) = 50*0.9 = 45.
 	sSt, _ := b.db.EarningSplitOf(stationOwner, now)
-	require.InDelta(t, 35, sSt.Payable, 0.001, "station owner earns its 70%")
-	// Tower operator earns 10% of GROSS = 50*0.10 = 5 (platform absorbs it; its 30% fee -> 20%).
+	require.InDelta(t, 45, sSt.Payable, 0.001, "station owner earns its 90%")
+	// Tower operator earns 5% of GROSS = 50*0.05 = 2.5 (platform absorbs it; its 10% fee -> 5%).
 	sTw, _ := b.db.EarningSplitOf(towerAcct, now)
-	require.InDelta(t, 5, sTw.Payable, 0.001, "tower operator earns 10% of gross")
+	require.InDelta(t, 2.5, sTw.Payable, 0.001, "tower operator earns 5% of gross")
 	// Consumer charged exactly the 50 (held 1000, refunded 950).
 	bal, _ := b.db.PeekBalance(consumerWallet)
 	require.InDelta(t, 100000-50, bal, 0.001, "consumer billed only the actual cost")
@@ -87,7 +87,7 @@ func TestEdgeBillingIsDormantWhenUnpriced(t *testing.T) {
 	t.Setenv("ROGERAI_TOWER_EDGE_PRICE_IN", "0")
 	t.Setenv("ROGERAI_TOWER_EDGE_PRICE_OUT", "0")
 	b, srv := towerTestBroker(t)
-	b.feeRate = 0.30
+	b.feeRate = 0.10
 	op := signedInOperator(t, b, "tower-op")
 	towerAcct := ownerPubkeyOf(t, b, op.login)
 	tw := enrolledTower(t, b, op.login)
@@ -119,7 +119,7 @@ func TestSettleCompletesBillingAfterAStrandedDispatchSettle(t *testing.T) {
 	t.Setenv("ROGERAI_PAYOUT_HOLD_DAYS", "0")
 	t.Setenv("ROGERAI_PAYOUT_RESERVE", "0")
 	b, srv := towerTestBroker(t)
-	b.feeRate = 0.30
+	b.feeRate = 0.10
 	op := signedInOperator(t, b, "tower-op")
 	towerAcct := ownerPubkeyOf(t, b, op.login)
 	tw := enrolledTower(t, b, op.login)
@@ -158,9 +158,9 @@ func TestSettleCompletesBillingAfterAStrandedDispatchSettle(t *testing.T) {
 	require.Equal(t, http.StatusConflict, code, "an already-settled attempt still 409s, but completes billing first")
 
 	sSt, _ := b.db.EarningSplitOf(stationOwner, time.Now())
-	require.InDelta(t, 35, sSt.Payable, 0.001, "station paid on the completion")
+	require.InDelta(t, 45, sSt.Payable, 0.001, "station paid on the completion")
 	sTw, _ := b.db.EarningSplitOf(towerAcct, time.Now())
-	require.InDelta(t, 5, sTw.Payable, 0.001, "tower paid 10% of gross on the completion")
+	require.InDelta(t, 2.5, sTw.Payable, 0.001, "tower paid 5% of gross on the completion")
 	bal, _ := b.db.PeekBalance(consumerWallet)
 	require.InDelta(t, 100000-50, bal, 0.001, "consumer charged the actual cost")
 
@@ -168,7 +168,7 @@ func TestSettleCompletesBillingAfterAStrandedDispatchSettle(t *testing.T) {
 	code, _ = tw.call(t, srv, "/tower/edge/settle", body, &out)
 	require.Equal(t, http.StatusConflict, code)
 	sSt, _ = b.db.EarningSplitOf(stationOwner, time.Now())
-	require.InDelta(t, 35, sSt.Payable, 0.001, "no double-pay on a second retry")
+	require.InDelta(t, 45, sSt.Payable, 0.001, "no double-pay on a second retry")
 	bal, _ = b.db.PeekBalance(consumerWallet)
 	require.InDelta(t, 100000-50, bal, 0.001, "no double-charge on a second retry")
 }
@@ -297,7 +297,7 @@ func TestTowerRelayEarningsAreTaggedForTheDashboard(t *testing.T) {
 	t.Setenv("ROGERAI_PAYOUT_HOLD_DAYS", "0")
 	t.Setenv("ROGERAI_PAYOUT_RESERVE", "0")
 	b, srv := towerTestBroker(t)
-	b.feeRate = 0.30
+	b.feeRate = 0.10
 	op := signedInOperator(t, b, "tower-op")
 	towerAcct := ownerPubkeyOf(t, b, op.login)
 	tw := enrolledTower(t, b, op.login)
@@ -367,7 +367,7 @@ func TestTokenPricedSettlementPaysAtThePinnedPrice(t *testing.T) {
 	t.Setenv("ROGERAI_PAYOUT_HOLD_DAYS", "0")
 	t.Setenv("ROGERAI_PAYOUT_RESERVE", "0")
 	b, srv := towerTestBroker(t)
-	b.feeRate = 0.30
+	b.feeRate = 0.10
 	op := signedInOperator(t, b, "tower-op")
 	towerAcct := ownerPubkeyOf(t, b, op.login)
 	tw := enrolledTower(t, b, op.login)
@@ -402,11 +402,11 @@ func TestTokenPricedSettlementPaysAtThePinnedPrice(t *testing.T) {
 	require.Equal(t, http.StatusOK, code, out)
 
 	now := time.Now()
-	// cost = 1.0 credit: node owner 70% = 0.70, tower 10% of gross = 0.10.
+	// cost = 1.0 credit: node owner 90% = 0.90, tower 5% of gross = 0.05.
 	sSt, _ := b.db.EarningSplitOf(stationOwner, now)
-	require.InDelta(t, 0.70, sSt.Payable, 1e-9, "the serving owner earns 70% of the token-priced cost")
+	require.InDelta(t, 0.90, sSt.Payable, 1e-9, "the serving owner earns 90% of the token-priced cost")
 	sTw, _ := b.db.EarningSplitOf(towerAcct, now)
-	require.InDelta(t, 0.10, sTw.Payable, 1e-9, "the tower operator earns 10% of gross")
+	require.InDelta(t, 0.05, sTw.Payable, 1e-9, "the tower operator earns 5% of gross")
 	bal, _ := b.db.PeekBalance(consumerWallet)
 	require.InDelta(t, 1000-1.0, bal, 1e-9, "the consumer paid exactly tokens x the pinned price (hold remainder refunded)")
 }
@@ -420,7 +420,7 @@ func TestTokenPricedGrantWithNoTokenClaimFallsBackToBytes(t *testing.T) {
 	t.Setenv("ROGERAI_PAYOUT_HOLD_DAYS", "0")
 	t.Setenv("ROGERAI_PAYOUT_RESERVE", "0")
 	b, srv := towerTestBroker(t)
-	b.feeRate = 0.30
+	b.feeRate = 0.10
 	op := signedInOperator(t, b, "tower-op")
 	tw := enrolledTower(t, b, op.login)
 	stPub, _, err := ed25519.GenerateKey(rand.Reader)

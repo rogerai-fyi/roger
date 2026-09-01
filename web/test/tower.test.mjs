@@ -173,7 +173,7 @@ test("the page offers the Tower it describes", () => {
 test("the download surface prints only numbers the specs pin", () => {
   const c = copy();
   // The split is founder-set and fixed in features/tower/edge_dispatch.feature.
-  assert.match(c, /70%/, "the serving node's share");
+  assert.match(c, /90%/, "the serving node's share");
   assert.match(c, /10%/, "the tower operator's share");
   assert.match(c, /20%/, "the platform's remainder");
   // Policy numbers are env-tunable per deployment. Printing them here is how a page starts

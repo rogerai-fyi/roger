@@ -16,7 +16,9 @@
 #     X-RogerAI-Balance header + the money JSON fields (balance/spend/earnings/...), NOT the cost
 #     header. The wallet + ledger always settle at FULL precision regardless of display.
 #
-# Default fee rate 30%. 1 credit = $1.
+# Default fee rate 10% (founder ruling 2026-09-01: one 10% fee across both planes;
+# was 30% from launch until then). 1 credit = $1. Scenarios that state another rate
+# are exercising the MECHANISM at that rate, not describing the default.
 # EXECUTABLE: cmd/rogerai-broker/fee_splits_bdd_test.go drives the real
 # Cost / round6 / fmtCostHeader / Settle. This spec was corrected (cost-display section) after
 # wiring it to godog exposed it still documented the removed round6-collapses-to-$0 behavior.
@@ -51,7 +53,15 @@ Feature: Fee split math always sums back to cost, with the exact cost shown to t
       | 25% | 2.50       | 1.875       | 0.625       |
       | 25% | 123.456789 | 92.59259175 | 30.86419725 |
 
-    Examples: fee 30% (the default)
+    Examples: fee 10% (the default, founder ruling 2026-09-01)
+      | fee | cost       | share       | platform    |
+      | 10% | 0.00       | 0.00        | 0.00        |
+      | 10% | 0.00045    | 0.000405    | 0.000045    |
+      | 10% | 1.00       | 0.90        | 0.10        |
+      | 10% | 2.50       | 2.25        | 0.25        |
+      | 10% | 123.456789 | 111.1111101 | 12.3456789  |
+
+    Examples: fee 30% (the launch-era default, kept as a mechanism check)
       | fee | cost       | share       | platform    |
       | 30% | 0.00       | 0.00        | 0.00        |
       | 30% | 0.00045    | 0.000315    | 0.000135    |
@@ -159,3 +169,12 @@ Feature: Fee split math always sums back to cost, with the exact cost shown to t
     Then each request displays a cost of 0.00000034
     And alice's balance falls by 0.34 in total
     And the aggregate charge is real and each line item now shows its true cost
+
+  # --- the default itself is a promise ------------------------------------------
+
+  Scenario: An unconfigured broker takes exactly the ten-percent default
+    Given a broker started with no fee configuration
+    Then its platform fee rate is 10%
+    And the serving operator keeps 90% of a settled cost
+    # the number the pricing page, the calculator, and the operator pitch all quote -
+    # pinned so no refactor can quietly change what "default" means (ruling 2026-09-01)

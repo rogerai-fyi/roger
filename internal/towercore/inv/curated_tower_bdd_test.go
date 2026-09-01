@@ -31,9 +31,9 @@ func (s *curJoinedState) towerJoined() error {
 func (s *curJoinedState) registersUpstreamModels() error {
 	leaf := s.h.offer(stationA, "offer-cur", offerSpec{pre: func(m map[string]any) {
 		m["curated_provider"] = "openrouter"
-		// Pass-through: earn IS the upstream list; posted = list + the 30% routing fee.
+		// Pass-through: earn IS the upstream list; posted = list + the 10% routing fee.
 		m["earn_in"], m["earn_out"] = "1000", "1600"
-		m["price_in"], m["price_out"] = "1300", "2080"
+		m["price_in"], m["price_out"] = "1100", "1760"
 	}})
 	res, err := s.h.set.AcceptFull(towerA, s.h.towerPub(), s.h.inventory(invSpec{revision: 7, leaves: []map[string]any{leaf}}))
 	if err != nil {
@@ -56,7 +56,7 @@ func (s *curJoinedState) appearCuratedUnderTower() error {
 
 func (s *curJoinedState) pricingRuleApplies() error {
 	rt := s.h.set.Routable(towerA)
-	if len(rt) != 1 || rt[0].PriceIn != 1300 || rt[0].PriceOut != 2080 || rt[0].EarnIn != 1000 || rt[0].EarnOut != 1600 {
+	if len(rt) != 1 || rt[0].PriceIn != 1100 || rt[0].PriceOut != 1760 || rt[0].EarnIn != 1000 || rt[0].EarnOut != 1600 {
 		return fmt.Errorf("the admitted leaf does not carry list + fee / pass-through: %+v", rt)
 	}
 	// And a curated leaf whose posted price is NOT the derivation is refused at the door
@@ -65,7 +65,7 @@ func (s *curJoinedState) pricingRuleApplies() error {
 	bad := s.h.offer(stationA, "offer-bad", offerSpec{pre: func(m map[string]any) {
 		m["curated_provider"] = "openrouter"
 		m["earn_in"], m["earn_out"] = "1000", "1600"
-		m["price_in"], m["price_out"] = "1400", "2080" // above the derivation: a hidden margin
+		m["price_in"], m["price_out"] = "1200", "1760" // above the derivation: a hidden margin
 	}})
 	res, err := s.h.set.AcceptFull(towerA, s.h.towerPub(), s.h.inventory(invSpec{revision: 7, leaves: []map[string]any{bad}}))
 	if err != nil {

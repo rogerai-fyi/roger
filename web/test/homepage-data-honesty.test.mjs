@@ -52,7 +52,7 @@ test("the earnings forecast is visibly illustrative and reproducible", () => {
   assert.match(compact(panel), /rate[^<]*<\/span><b[^>]*>\$0\.30 \/ 1M out/i);
   assert.match(compact(panel), /volume[^<]*<\/span><b[^>]*>10M - 30M out \/ day/i);
   assert.match(compact(panel), /uptime[^<]*<\/span><b[^>]*>50%/i);
-  assert.match(compact(panel), /your share[^<]*<\/span><b[^>]*>70%/i);
+  assert.match(compact(panel), /your share[^<]*<\/span><b[^>]*>90%/i);
   assert.match(compact(panel), /\$1\.05 - \$3\.15/i);
   assert.match(compact(panel), /rate × volume × uptime × share/i);
   assert.match(compact(panel), /not guaranteed/i);

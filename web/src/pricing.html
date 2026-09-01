@@ -8,13 +8,13 @@
      ours and stable, so they are printed; the PRICES are the operators' and change by the
      hour, so they are pointed at. No model is named anywhere on this page - a model name
      only ever appears next to a rate, and that belongs on /models.html.
-     Every figure traces to a committed source: the 70/30 split to tos.html, the ceilings
+     Every figure traces to a committed source: the 90/10 split to tos.html, the ceilings
      and the wallet rules to manual.html §6, the payout policy to manual.html §7, the
-     70/10/20 relay settlement to broadcasts-run-a-tower.html.
+     90/5/5 relay settlement to broadcasts-run-a-tower.html.
      Registered in build.mjs CSS_BUNDLES. Contract: test/pricing-faq-llms.test.mjs. -->
 <html lang="en">
 <head>
-  <!-- include: head.html title="Pricing - RogerAI" desc="RogerAI has no price list: operators set their own per-token rates and many stations broadcast free. What is fixed is the rules - no subscription, a wallet debited per token, a 70/30 split in the operator's favor, a $25 minimum payout after a 120-day hold." theme=external og=post ogtype=website ogtitle="RogerAI pricing - the rules, not a price list" ogdesc="Per token, in and out, at a price the operator sets. No subscription, no seat, no minimum. Operators keep 70%. Free stations are normal, not a trial." ogurl="https://rogerai.fm/pricing.html" ogimage="https://rogerai.fm/og-home.png" -->
+  <!-- include: head.html title="Pricing - RogerAI" desc="RogerAI has no price list: operators set their own per-token rates and many stations broadcast free. What is fixed is the rules - no subscription, a wallet debited per token, a 90/10 split in the operator's favor, a $25 minimum payout after a 120-day hold." theme=external og=post ogtype=website ogtitle="RogerAI pricing - the rules, not a price list" ogdesc="Per token, in and out, at a price the operator sets. No subscription, no seat, no minimum. Operators keep 90%. Free stations are normal, not a trial." ogurl="https://rogerai.fm/pricing.html" ogimage="https://rogerai.fm/og-home.png" -->
 </head>
 <body data-onair="idle">
   <div class="rail" aria-hidden="true">
@@ -51,11 +51,11 @@
     <section class="section" id="paths">
       <div class="wrap">
         <div class="section__head section__head--left">
-          <span class="sectionno">&sect;1 / THE THREE WAYS IN</span>
+          <span class="sectionno">&sect;1 / THE FOUR WAYS IN</span>
           <h2>Two of these never touch a wallet.</h2>
           <p>Most people reading a pricing page assume the free thing is a trial. Here it is
              just a station whose operator set the rate to zero, and it behaves exactly like
-             a paid one.</p>
+             a paid one. And a station does not have to be a GPU: it can be a contract.</p>
         </div>
 
         <div class="paths">
@@ -75,6 +75,15 @@
                output priced separately, in dollars per million, at the rate that station
                published. The balance ticks down as the answer streams.</p>
             <a class="tlink" href="#pay">What you can be charged &darr;</a>
+          </article>
+          <article>
+            <span class="paths__cost">list + 10%</span>
+            <h3>A curated station</h3>
+            <p>Run by a person like every other station - one who resells <b>their own
+               provider contracts</b> or committed API capacity instead of a GPU. The band
+               wears the <b>&raquo;</b> mark, the posted price is the provider's list plus
+               the 10% routing fee, and your receipt shows the two side by side.</p>
+            <a class="tlink" href="/why.html">Why route through us at all &rarr;</a>
           </article>
           <article>
             <span class="paths__cost paths__cost--none">costs nothing</span>
@@ -190,20 +199,39 @@
       <div class="wrap">
         <div class="section__head section__head--left">
           <span class="sectionno">&sect;4 / WHAT YOU EARN</span>
-          <h2>You keep 70 percent, and you set the number it is 70 percent of.</h2>
-          <p>The other side of the same market. Nothing here is negotiated, tiered, or
-             different for a large operator.</p>
+          <h2>You keep 90 percent, and you set the number it is 90 percent of.</h2>
+          <p>The other side of the same market, and there are two ways to be on it: serve a
+             model from your own hardware, or resell capacity you already pay a provider
+             for. Nothing in either is negotiated, tiered, or different for a large
+             operator.</p>
         </div>
 
         <dl class="pplate">
           <div>
-            <dt>Your share</dt>
-            <dd><b>70%</b> of every token you serve. The 30% platform fee covers routing,
-                metering, settlement, fraud and chargeback exposure, and the payout rails. <a href="/why.html">What the routing buys, told straight.</a></dd>
+            <dt>Your GPU</dt>
+            <dd><b>90%</b> of every token you serve, at a price you set. The 10% platform
+                fee is the whole of our take.</dd>
+          </div>
+          <div>
+            <dt>Your contracts</dt>
+            <dd>Attach a <b>curated station</b> in front of a provider account you hold and
+                declare its list price. Consumers pay <b>list + 10%</b>; you are reimbursed
+                the <b>list, whole</b> - pass-through, never a margin and never a loss - and
+                the 10% is the network's routing fee, paid by the consumer on top. One flag:
+                <code>roger share --curated</code>.</dd>
+          </div>
+          <div>
+            <dt>What the 10% is</dt>
+            <dd>The same fee on both paths, and it is the product: consumers reach every
+                upstream through <b>anonymized routing</b> (a provider sees a station, never
+                a person), get a signed receipt for every request, failover across stations
+                mid-request, a hard price cap that rides each call, and one wallet over
+                humans and providers alike. <a href="/why.html">What the routing buys, told
+                straight.</a></dd>
           </div>
           <div>
             <dt>Through a Tower</dt>
-            <dd>When a relay carries the work, the settlement is <b>70 / 10 / 20</b>: the
+            <dd>When a relay carries the work, the settlement is <b>90 / 5 / 5</b>: the
                 serving node, the Tower operator, then the platform.
                 <a href="/broadcasts-run-a-tower.html">How that path works</a>.</dd>
           </div>
@@ -282,14 +310,14 @@
             </div>
 
             <output class="calc__out" id="opOut" for="opRate opTps opHours opBusy" aria-live="polite">
-              <span class="calc__big" id="opShare">$13.61</span>
+              <span class="calc__big" id="opShare">$17.50</span>
               <span class="calc__unit">a month, your share</span>
             </output>
             <p class="calc__formula" data-calc-formula id="opFormula">
               300 tok/s &times; 8 h &times; 25% &times; 30 days = 64.8M tokens &middot;
-              &times; $0.30 / 1M = $19.44 gross &middot; your 70% = $13.61
+              &times; $0.30 / 1M = $19.44 gross &middot; your 90% = $17.50
             </p>
-            <p class="calc__fine">Thirty-day month. The platform keeps 30%; you keep the
+            <p class="calc__fine">Thirty-day month. The platform keeps 10%; you keep the
                rest. A station nobody tunes to earns nothing, however fast the card.</p>
           </article>
 

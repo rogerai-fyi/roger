@@ -34,7 +34,7 @@ Feature: Curated traffic rides the existing relay
     Given two curated stations serving the same model via different providers
     When their measured speed and health differ
     Then routing favors the better-measured connection
-    # the "best in class connections of the same models" half of what the 30% buys
+    # the "best in class connections of the same models" half of what the routing fee buys
 
 
   # --- the filter --------------------------------------------------------------
@@ -43,7 +43,7 @@ Feature: Curated traffic rides the existing relay
 
 
 
-  # --- anonymization: the other half of what the 30% buys -----------------------
+  # --- anonymization: the other half of what the routing fee buys ----------------
   # Founder, 2026-09-01: the fee is "for the anonymization and routing of our broker and
   # tower network". Anonymization is a checkable property, not adjective: the upstream
   # provider transacts with the STATION's credentials and sees the station's connection -

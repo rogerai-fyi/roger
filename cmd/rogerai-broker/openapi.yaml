@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: RogerAI Broker API
-  version: 6.5.1
+  version: 6.6.0
   description: |
     The RogerAI broker - the only public component of the RogerAI marketplace.
     It is an OpenAI-compatible relay plus a registry, wallet, and metering layer
@@ -985,7 +985,7 @@ components:
       type: object
       required: [version]
       properties:
-        version: { type: string, example: 6.5.1 }
+        version: { type: string, example: 6.6.0 }
         commit: { type: string, pattern: '^[0-9a-f]{40}$', description: Exact deployed source revision when available }
 
     ServiceInfo:

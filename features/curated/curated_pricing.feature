@@ -1,16 +1,18 @@
 # CURATED pricing: the upstream's price, plus the routing fee, with nobody underwater.
 #
-# Founder, 2026-09-01: "raise the posted prices by 30% to say this is processing from our
-# brokers in order to provide better automatic routing and receipt and history usage and
-# tracking capabilities."
+# Founder, 2026-09-01 (original): "raise the posted prices by 30%". Amended by founder
+# ruling later the same day, after the market research (fee survey in the curated-review
+# doc): ONE 10% FEE ACROSS BOTH PLANES - the curated markup drops to 10%, and the human
+# platform fee drops to 10% with it (tower relay 90/5/5). The mechanism is unchanged;
+# only the constant moved.
 #
-# THE TRAP THIS FILE EXISTS TO PIN. Under the standard settlement a node earns ~70% of
-# the posted price. A curated node pays the upstream's full list price for every token it
-# relays - so at posted = 1.30 x list, the standard split hands it 0.91 x list against a
-# 1.00 x list bill: NINE PERCENT UNDERWATER ON EVERY TOKEN, forever, invisibly. Curated
-# settlement is therefore its own rule: the operator's share is the DECLARED upstream
-# cost, passed through; the markup is the broker's routing fee. That is also exactly what
-# the founder's sentence says the 30% is for.
+# THE TRAP THIS FILE EXISTS TO PIN. Under the standard settlement a node earns the
+# owner share (90% at the current fee) of the posted price. A curated node pays the
+# upstream's full list price for every token it relays - so at posted = 1.10 x list,
+# the standard split hands it 0.99 x list against a 1.00 x list bill: UNDERWATER ON
+# EVERY TOKEN, forever, invisibly (and worse at any higher fee). Curated settlement is
+# therefore its own rule: the operator's share is the DECLARED upstream cost, passed
+# through; the markup is the broker's routing fee.
 
 Feature: Curated prices derive from the upstream and settle without loss
   As the network operator
@@ -24,7 +26,7 @@ Feature: Curated prices derive from the upstream and settle without loss
 
   Scenario: The posted price is the declared upstream price plus the routing markup
     Given declared upstream prices of $1.00 in and $2.00 out per 1M
-    Then the posted prices are $1.30 in and $2.60 out
+    Then the posted prices are $1.10 in and $2.20 out
 
   Scenario: The markup is one broker-owned constant
     Then the curated markup is defined in exactly one place
@@ -44,9 +46,9 @@ Feature: Curated prices derive from the upstream and settle without loss
   # --- settlement --------------------------------------------------------------
 
   Scenario: Settlement passes the upstream cost through and keeps the markup
-    Given a curated request that cost $1.30 at the posted price
+    Given a curated request that cost $1.10 at the posted price
     Then the curated operator is credited $1.00
-    And the broker retains $0.30
+    And the broker retains $0.10
 
   Scenario: The consumer pays exactly the posted price
     Given a curated request

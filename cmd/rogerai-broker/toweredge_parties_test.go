@@ -12,7 +12,7 @@ package main
 // with "sometimes strand an operator".
 //
 // GAP 2 - nothing anywhere compared the STATION OWNER against the TOWER OPERATOR, so one
-// account serving through its own relay collected 70% + 10% = 80% of an arms-length consumer's
+// account serving through its own relay collected 90% + 5% = 95% of an arms-length consumer's
 // spend, unrecorded. It is not blocked (under per-request relay selection it is often the
 // CORRECT placement - see docs/relay-selection-design.md section 6.7); it is recorded.
 //
@@ -117,8 +117,8 @@ type partiesRig struct {
 	consumerWallet string
 }
 
-// newPartiesRig stands up one attempt worth 1.0 credit: 0.70 to the Station owner, 0.10 to the
-// Tower operator, 0.20 to the platform. stationLogin and towerLogin may name the SAME account
+// newPartiesRig stands up one attempt worth 1.0 credit: 0.90 to the Station owner, 0.05 to the
+// Tower operator, 0.05 to the platform. stationLogin and towerLogin may name the SAME account
 // (the gap-2 shape); consumerLogin is "" for an arms-length consumer, or an existing login to
 // make the consumer that account on a second device key (the gap-1 shape).
 func newPartiesRig(t *testing.T, stationLogin, towerLogin, consumerLogin string) *partiesRig {
@@ -129,7 +129,7 @@ func newPartiesRig(t *testing.T, stationLogin, towerLogin, consumerLogin string)
 	t.Setenv("ROGERAI_PAYOUT_RESERVE", "0")
 	db := newBlindStore()
 	b, srv := towerTestBrokerOn(t, db)
-	b.feeRate = 0.30
+	b.feeRate = 0.10
 
 	signedInOperator(t, b, towerLogin)
 	if stationLogin != towerLogin {
@@ -185,7 +185,7 @@ func (r *partiesRig) balance(t *testing.T) float64 {
 // GAP 1, THE WHOLE OF IT. The consumer IS the Station's owner on a second device key, and the
 // store cannot read the Station owner's row at settle time. That is the exact input that used
 // to pay: `sameAccount` returned false on the error, false meant "not self-dealing", and the
-// self-dealer collected 70% of their own spend.
+// self-dealer collected 90% of their own spend.
 //
 // The requirement is that the settlement decides NOTHING. Not paid, not withheld - refused,
 // with the attempt left in a state a retry can still settle correctly, because withholding on
@@ -221,8 +221,8 @@ func TestTheRefusalIsRetryableRatherThanPermanent(t *testing.T) {
 }
 
 // THE OTHER HALF OF THE RULING: refusing must not strand honest money. The same attempt, once
-// the store is back, settles on the courier's next pass - the Station's 70% withheld because
-// it really was self-dealt, the arms-length Tower's 10% paid in full.
+// the store is back, settles on the courier's next pass - the Station's 90% withheld because
+// it really was self-dealt, the arms-length Tower's 5% paid in full.
 func TestTheRetryAfterTheStoreRecoversSettlesCorrectly(t *testing.T) {
 	r := newPartiesRig(t, "station-op", "tower-op", "station-op")
 	r.db.blindTo(r.stationOwner)
@@ -233,7 +233,7 @@ func TestTheRetryAfterTheStoreRecoversSettlesCorrectly(t *testing.T) {
 	code, body = r.settle(t)
 	require.Equal(t, http.StatusOK, code, body)
 	require.Zero(t, r.payable(t, r.stationOwner), "the self-dealt share is withheld once we can actually tell")
-	require.InDelta(t, 0.10, r.payable(t, r.towerAcct), 1e-6,
+	require.InDelta(t, 0.05, r.payable(t, r.towerAcct), 1e-6,
 		"the arms-length Tower is paid in full - a refusal defers money, it does not destroy it")
 }
 
@@ -241,7 +241,7 @@ func (r *partiesRig) heal(t *testing.T) { t.Helper(); r.db.heal() }
 
 // A STORE ERROR ON THE TOWER'S SIDE IS THE SAME RULING. Here the unreadable row is the Tower
 // operator's, so the question that cannot be answered is "is this relay's owner the consumer".
-// The old code answered it "no" and paid the 10%; a relay operator who could provoke that
+// The old code answered it "no" and paid the 5%; a relay operator who could provoke that
 // error would be paid for carrying their own traffic. Nothing may be paid on the guess.
 func TestAnUnreadableTowerOperatorRowAlsoRefusesRatherThanPaying(t *testing.T) {
 	r := newPartiesRig(t, "station-op", "tower-op", "")
@@ -258,8 +258,8 @@ func TestArmsLengthTrafficStillSettlesAndPaysBothShares(t *testing.T) {
 	r := newPartiesRig(t, "station-op", "tower-op", "")
 	code, body := r.settle(t)
 	require.Equal(t, http.StatusOK, code, body)
-	require.InDelta(t, 0.70, r.payable(t, r.stationOwner), 1e-6)
-	require.InDelta(t, 0.10, r.payable(t, r.towerAcct), 1e-6)
+	require.InDelta(t, 0.90, r.payable(t, r.stationOwner), 1e-6)
+	require.InDelta(t, 0.05, r.payable(t, r.towerAcct), 1e-6)
 }
 
 // A VERIFIED EMAIL IS AN ACCOUNT LINKAGE, and sameAccount did not know it while accountOwnerOf
@@ -308,10 +308,10 @@ func TestOneAccountOnBothSidesOfTheSplitIsPaidAndRecorded(t *testing.T) {
 
 	code, body := r.settle(t)
 	require.Equal(t, http.StatusOK, code, body)
-	// NOT ENFORCEMENT: the full 80% is paid. A test that asserted a withholding here would be
+	// NOT ENFORCEMENT: the full 95% is paid. A test that asserted a withholding here would be
 	// pinning a policy nobody has decided, on traffic that is usually honest.
-	require.InDelta(t, 0.80, r.payable(t, r.stationOwner), 1e-6,
-		"self-relaying is not blocked - 70% for serving plus 10% for carrying")
+	require.InDelta(t, 0.95, r.payable(t, r.stationOwner), 1e-6,
+		"self-relaying is not blocked - 90% for serving plus 5% for carrying")
 
 	// EVIDENCE: both lots say so, and the read side can answer "how much of this account's
 	// earnings came from traffic it both served and carried" without a self-join that could
@@ -322,8 +322,8 @@ func TestOneAccountOnBothSidesOfTheSplitIsPaidAndRecorded(t *testing.T) {
 	for _, e := range rollup {
 		byNode[e.Key] = e.Amount
 	}
-	require.InDelta(t, 0.70, byNode["st-1"], 1e-6, "the serving lot is flagged")
-	require.InDelta(t, 0.10, byNode[towerNode(r.tw.id)], 1e-6, "the relay lot is flagged")
+	require.InDelta(t, 0.90, byNode["st-1"], 1e-6, "the serving lot is flagged")
+	require.InDelta(t, 0.05, byNode[towerNode(r.tw.id)], 1e-6, "the relay lot is flagged")
 }
 
 // THE CONTROL FOR GAP 2: two different accounts, nothing flagged. Without this the evidence

@@ -19,7 +19,7 @@
 (function () {
   "use strict";
 
-  var OPERATOR_SHARE = 0.7; // 1 - the broker's 0.30 take rate
+  var OPERATOR_SHARE = 0.9; // 1 - the broker's 0.10 take rate (the 2026-09-01 fee ruling)
   var DAYS = 30;            // a thirty-day month, stated on the page
   var BROKER = "https://broker.rogerai.fm";
 

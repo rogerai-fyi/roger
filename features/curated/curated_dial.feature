@@ -40,7 +40,7 @@ Feature: Curated stations are badged, filterable, and counted apart
 
   Scenario: Declared upstream prices are visible on the row's detail
     Then the band card shows the upstream list price and the routing fee separately
-    # the consumer sees exactly what the 30% buys; nothing is folded into a mystery number
+    # the consumer sees exactly what the routing fee buys; nothing is folded into a mystery number
 
 
 

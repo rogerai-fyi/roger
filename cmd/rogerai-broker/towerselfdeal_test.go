@@ -27,7 +27,7 @@ func settleSelfDealt(t *testing.T, consumerIsTowerOp, consumerIsStationOwner boo
 	t.Setenv("ROGERAI_PAYOUT_HOLD_DAYS", "0")
 	t.Setenv("ROGERAI_PAYOUT_RESERVE", "0")
 	b, srv := towerTestBroker(t)
-	b.feeRate = 0.30
+	b.feeRate = 0.10
 
 	op := signedInOperator(t, b, "tower-op")
 	towerAcct := ownerPubkeyOf(t, b, op.login)
@@ -97,8 +97,8 @@ func rebindConsumerTo(t *testing.T, b *broker, cpub []byte, login string) string
 // An unrelated consumer: both operators earn normally. The control case.
 func TestArmsLengthTrafficEarnsBothShares(t *testing.T) {
 	towerPayable, stationPayable := settleSelfDealt(t, false, false)
-	require.InDelta(t, 0.10, towerPayable, 1e-6, "the tower earns 10% of gross")
-	require.InDelta(t, 0.70, stationPayable, 1e-6, "the station owner earns 70%")
+	require.InDelta(t, 0.05, towerPayable, 1e-6, "the tower earns 5% of gross")
+	require.InDelta(t, 0.90, stationPayable, 1e-6, "the station owner earns 90%")
 }
 
 // THE TOWER OPERATOR RELAYING THEIR OWN TRAFFIC earns nothing - the case that was not
@@ -106,7 +106,7 @@ func TestArmsLengthTrafficEarnsBothShares(t *testing.T) {
 func TestATowerRelayingItsOwnersTrafficEarnsNothing(t *testing.T) {
 	towerPayable, stationPayable := settleSelfDealt(t, true, false)
 	require.Zero(t, towerPayable, "relaying your own spend is not earning")
-	require.InDelta(t, 0.70, stationPayable, 1e-6, "the arms-length station is still paid")
+	require.InDelta(t, 0.90, stationPayable, 1e-6, "the arms-length station is still paid")
 }
 
 // THE STATION OWNER SERVING THEIR OWN TRAFFIC earns nothing on the money ledger, not just a
@@ -114,5 +114,5 @@ func TestATowerRelayingItsOwnersTrafficEarnsNothing(t *testing.T) {
 func TestAStationServingItsOwnersTrafficEarnsNothing(t *testing.T) {
 	towerPayable, stationPayable := settleSelfDealt(t, false, true)
 	require.Zero(t, stationPayable, "serving your own spend is not earning")
-	require.InDelta(t, 0.10, towerPayable, 1e-6, "the arms-length tower is still paid")
+	require.InDelta(t, 0.05, towerPayable, 1e-6, "the arms-length tower is still paid")
 }

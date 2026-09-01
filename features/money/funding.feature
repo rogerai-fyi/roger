@@ -15,7 +15,8 @@
 #   SetSeedLimit(N) caps DISTINCT seeded wallets at N (atomic with the grant); SeedStatus
 #     reports seeded / limit / remaining (remaining = -1 when unlimited).
 #
-# Default starter seed grant 100.00 credits. Default fee 30%.
+# Default starter seed grant 100.00 credits. Default fee 10% (ruling 2026-09-01;
+# scenarios stating 30% exercise the mechanism at that rate).
 Feature: Seed and real credit accounting - free starter credits never mint earnings
 
   Background:

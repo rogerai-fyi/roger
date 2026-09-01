@@ -17,7 +17,10 @@
 #     owner share by the REAL (non-seed) funded fraction: ownerShare * (cost-seedUsed)/cost
 #   ownerShare is computed by the caller as cost * (1 - feeRate); platform take = cost - ownerShare.
 #
-# 1 credit = $1. Default fee rate 30% -> owner keeps 70%, platform keeps 30%.
+# 1 credit = $1. Default fee rate 10% -> owner keeps 90%, platform keeps 10%
+# (founder ruling 2026-09-01; the Background below states 30% as a WORKING RATE so the
+# long-standing arithmetic columns stay exact - the mechanism is rate-agnostic and the
+# default itself is pinned in fee_splits.feature).
 Feature: Settle debits the consumer, mints only real-funded earnings, and conserves money
 
   Background:
@@ -82,6 +85,7 @@ Feature: Settle debits the consumer, mints only real-funded earnings, and conser
     Examples:
       | fee  | cost  | share |
       | 0%   | 5.00  | 5.00  |
+      | 10%  | 5.00  | 4.50  |
       | 25%  | 5.00  | 3.75  |
       | 30%  | 5.00  | 3.50  |
       | 50%  | 5.00  | 2.50  |

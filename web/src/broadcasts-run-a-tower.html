@@ -13,7 +13,7 @@
          never about the broker in front of it. -->
 <html lang="en">
 <head>
-  <!-- include: head.html title="Run a RogerAI Tower and earn as a relay operator" desc="The Tower is a program you can run. What a Tower does, why the work crossing it stays sealed, what the 70/10/20 settlement pays a relay operator, how to run one as a private relay network for your own local models, and the exact commands to bring one up on Linux." theme=external og=post ogtype=article ogtitle="Run a RogerAI Tower and earn as a relay operator" ogdesc="A Tower carries sealed work between the people asking and the machines answering. It runs no model, is never handed a key to the traffic, and earns 10% of every request it carries - or runs standalone as your own private relay network." ogurl="https://rogerai.fm/broadcasts-run-a-tower.html" ogimage="https://rogerai.fm/assets/broadcasts/tower-hero.png" -->
+  <!-- include: head.html title="Run a RogerAI Tower and earn as a relay operator" desc="The Tower is a program you can run. What a Tower does, why the work crossing it stays sealed, what the 90/5/5 settlement pays a relay operator, how to run one as a private relay network for your own local models, and the exact commands to bring one up on Linux." theme=external og=post ogtype=article ogtitle="Run a RogerAI Tower and earn as a relay operator" ogdesc="A Tower carries sealed work between the people asking and the machines answering. It runs no model, is never handed a key to the traffic, and earns 5% of every request it carries - or runs standalone as your own private relay network." ogurl="https://rogerai.fm/broadcasts-run-a-tower.html" ogimage="https://rogerai.fm/assets/broadcasts/tower-hero.png" -->
 </head>
 <body data-onair="idle">
 
@@ -74,13 +74,17 @@
         <b>sealed</b> work to its hub; providers' nodes poll that hub, serve the work, and seal the
         answer back. The Tower is on that path twice and is handed a key to it neither time.
         Every settled request
-        splits <b>70% to the serving node, 10% to you, 20% to the platform</b> - your 10% lands on
+        splits <b>90% to the serving node, 5% to you, 5% to the platform</b> - your 5% lands on
         the same Stripe payout rail as any other earning. Or initialize the same binary
         <b>standalone</b> and it becomes a private relay network for your own local models -
         its own trust root, loopback by default, no RogerAI lookup, no telemetry, and no
         earning either. Install it with
         <code>curl -fsSL https://rogerai.fm/install.sh | ROGERAI_COMPONENT=tower sh</code>.
       </blockquote>
+      <p class="mono" style="font-size:.85rem;opacity:.75" data-reveal><b>Updated September 2026:</b>
+        the split above improved to 90/5/5 when the platform fee dropped to 10% across the
+        network (it was 70/10/20 when this broadcast first aired). Stations and Towers both
+        earn from the same requests as before; the platform simply takes less.</p>
 
       <div class="bc-post__body">
 
@@ -112,9 +116,9 @@
             that carries sealed parcels and gets paid per parcel.
           </p>
           <ul class="bc-dial">
-            <li><b>Station</b> - someone's GPU, running a model, answering. Earns 70%.</li>
-            <li><b>Tower</b> - the relay carrying sealed work between them. Earns 10%.</li>
-            <li><b>Core</b> - authorizes the spend up front and settles the receipt afterwards. Keeps 20%.</li>
+            <li><b>Station</b> - someone's GPU, running a model, answering. Earns 90%.</li>
+            <li><b>Tower</b> - the relay carrying sealed work between them. Earns 5%.</li>
+            <li><b>Core</b> - authorizes the spend up front and settles the receipt afterwards. Keeps 5%.</li>
           </ul>
         </section>
 
@@ -199,12 +203,12 @@
             <i>of</i> is the thing worth being precise about: it is the serving node's <b>own listed
             price</b> for the tokens it actually served, as recounted and resolved by Core - not a
             rate we set, and not a rate the node can inflate at settlement. The same request pays
-            the node 70% and leaves the platform 20%.
+            the node 90% and leaves the platform 5%.
           </p>
 
           <figure class="bc-figure bc-figure--chart" data-reveal>
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 190" role="img" style="width:100%;height:auto"
-                 aria-label="Bar showing how one settled request divides: 70 percent to the serving node, 10 percent to the tower operator, 20 percent to the platform, all measured against the node's own listed price.">
+                 aria-label="Bar showing how one settled request divides: 90 percent to the serving node, 5 percent to the tower operator, 5 percent to the platform, all measured against the node's own listed price.">
               <style>
                 .s-stroke{stroke:currentColor;fill:none;opacity:.32}
                 .s-node{fill:currentColor;opacity:.22}.s-tower{fill:#E0231C}.s-plat{fill:currentColor;opacity:.10}
@@ -216,18 +220,18 @@
               <text x="24" y="30" class="s-cap">FIG. 3 - ONE SETTLED REQUEST</text>
               <line x1="24" y1="44" x2="796" y2="44" class="s-stroke"/>
 
-              <rect x="30" y="72" width="533" height="46" class="s-node"/>
-              <rect x="563" y="72" width="76"  height="46" class="s-tower"/>
-              <rect x="639" y="72" width="152" height="46" class="s-plat"/>
+              <rect x="30" y="72" width="685" height="46" class="s-node"/>
+              <rect x="715" y="72" width="38"  height="46" class="s-tower"/>
+              <rect x="753" y="72" width="38" height="46" class="s-plat"/>
               <rect x="30" y="72" width="761" height="46" class="s-stroke"/>
 
-              <text x="46"  y="101" class="s-h">70%  the node that served it</text>
-              <text x="575" y="101" class="s-h" style="fill:#fff">10%</text>
-              <text x="655" y="101" class="s-h">20%</text>
+              <text x="46"  y="101" class="s-h">90%  the node that served it</text>
+              <text x="716" y="101" class="s-h" style="fill:#fff;font-size:12px">5%</text>
+              <text x="756" y="101" class="s-h" style="font-size:12px">5%</text>
 
               <text x="46"  y="142" class="s-b">its own listed price, on Core's recount</text>
-              <text x="563" y="142" class="s-b" style="fill:#E0231C;font-weight:700">your Tower</text>
-              <text x="655" y="142" class="s-b">platform</text>
+              <text x="622" y="142" class="s-b" style="fill:#E0231C;font-weight:700">your Tower &rarr;</text>
+              <text x="742" y="142" class="s-b">platform</text>
               <text x="24"  y="172" class="s-b" style="opacity:.6">Measured against the node's price, not a house rate. A request that returns nothing usable settles at zero for everyone.</text>
             </svg>
             <figcaption class="fig mono">FIG. 3 - The relay's cut, and what it is a cut of.</figcaption>

@@ -44,7 +44,7 @@ import (
 // version is the broker's reported version (also in ServiceInfo + logs). Keep a
 // truthful source-build fallback; release builders may override it with
 // -ldflags "-X main.version=<tag>".
-var version = "6.5.1"
+var version = "6.6.0"
 
 // openapiSpec is the served API contract (see openapi.yaml). Single source of
 // truth for the broker's HTTP surface.
@@ -475,7 +475,7 @@ type priceQuote struct {
 
 func main() {
 	addr := flag.String("addr", "127.0.0.1:7070", "listen address")
-	fee := flag.Float64("fee", 0.30, "platform take rate")
+	fee := flag.Float64("fee", defaultFeeRate, "platform take rate")
 	seed := flag.Float64("seed-credits", 100.0, "starting credits per new user (until Stripe)")
 	lock := flag.Duration("price-lock", 24*time.Hour, "how long a quoted price is honored per user+node+model")
 	flag.Parse()

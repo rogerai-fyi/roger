@@ -17,7 +17,7 @@
 # audit, never money; the audit attributes an impossible count to the Tower), and a
 # REPUTATION ledger that suspends on repeated canary failures or an audit mismatch.
 # Built: COMPENSATION, end to end. A settled attempt mints a real earning lot for the Tower
-# operator (10% of gross) and the serving node's owner (70%) on the SAME ledger a direct
+# operator (5% of gross) and the serving node's owner (90%) on the SAME ledger a direct
 # node's serving share uses - so a relay share holds, releases, and cashes out through the
 # ordinary /payouts/request rail (Stripe Connect transfer, 120-day hold, $25 minimum, KYC
 # gate), with clawback on dispute. internal/towercore/earnings additionally records a
@@ -229,11 +229,11 @@ Feature: A Tower carries the data plane and Roger Core keeps the control plane
   # consumer end), which is what lets it price at the Station's OWN token rate exactly as a
   # direct request - the blind, client-driven path is a later phase.
   #
-  # MONEY MODEL (founder decision, 2026-08-13, overriding operator_revenue_share.feature's
-  # "share of net platform revenue" basis): a relayed request is priced at the Station's
+  # MONEY MODEL (founder decision 2026-08-13; rates amended by the 2026-09-01 fee ruling,
+  # "10% approved ... 90/5/5"): a relayed request is priced at the Station's
   # per-token rate (Core re-counts tokens, min(claim, recount)), and gross splits three ways
-  # of the metered cost - Station 70%, Tower 10%, Platform 20%. The tower's 10% comes out of
-  # the platform's margin (its 30% fee drops to 20%), so a Station is paid no less because
+  # of the metered cost - Station 90%, Tower 5%, Platform 5%. The tower's 5% comes out of
+  # the platform's margin (its 10% fee drops to 5%), so a Station is paid no less because
   # its traffic was relayed. Billed to the consumer's ACCOUNT wallet, the same balance a
   # direct request draws.
 
@@ -245,15 +245,15 @@ Feature: A Tower carries the data plane and Roger Core keeps the control plane
     Then Roger Core authorizes an edge attempt bound to that consumer and holds the ceiling on the account wallet
     And the request is carried to the Station and a signed receipt returns
     And the consumer's account wallet is charged at the Station's token rate for the recounted usage
-    And the serving Station's owner earns 70 percent of the metered cost
-    And the relaying Tower's operator earns 10 percent of the metered cost
-    And the platform keeps the remaining 20 percent
+    And the serving Station's owner earns 90 percent of the metered cost
+    And the relaying Tower's operator earns 5 percent of the metered cost
+    And the platform keeps the remaining 5 percent
     And the answer is returned with its real cost, not marked free
 
   Scenario: The serving Station is paid no less because its traffic was relayed
     Given the same request served directly versus through a Tower
-    Then the Station owner earns the same 70 percent either way
-    And the Tower's 10 percent is taken from the platform's share, never the Station's
+    Then the Station owner earns the same 90 percent either way
+    And the Tower's 5 percent is taken from the platform's share, never the Station's
 
   Scenario: A failed overflow attempt charges the consumer nothing
     Given a signed-in funded consumer and edge pricing on

@@ -143,9 +143,9 @@ func (m model) bandConfigView(w int) string {
 		m.cfgSection(&b, w, "WHAT YOU PAY", "[3] CONFIG", m.cfgConsumerRows())
 	}
 	// CURATED - the price, taken apart. The posted number folds the upstream's list and
-	// our routing fee together; a consumer deciding whether the 30% is worth it needs the
+	// our routing fee together; a consumer deciding whether the routing fee is worth it needs the
 	// two side by side, not a mystery total (curated_pricing.feature: "the consumer sees
-	// exactly what the 30% buys").
+	// exactly what the routing fee buys").
 	if rows := m.cfgCuratedRows(); len(rows) > 0 {
 		m.cfgSection(&b, w, "CURATED", "", rows)
 	}

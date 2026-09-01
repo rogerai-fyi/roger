@@ -29,7 +29,7 @@ func TestATowerOperatorCashesOutTheirRelayShare(t *testing.T) {
 	t.Setenv("ROGERAI_PAYOUT_RESERVE", "0")
 	t.Setenv("ROGERAI_PAYOUT_MIN", "25") // the REAL default minimum, not a convenient one
 	b, srv := towerTestBroker(t)
-	b.feeRate = 0.30
+	b.feeRate = 0.10
 	b.conn = loadConnect()
 	b.bill.creditUSD = 1
 
@@ -45,20 +45,21 @@ func TestATowerOperatorCashesOutTheirRelayShare(t *testing.T) {
 	}))
 	stationPriv := attachStation(t, b, "st-1", tw.id, stationOwner)
 
-	// A relayed request big enough to clear the real $25 minimum on the tower's 10%:
-	// 60,000 output tokens at $5,000/1M = 300 credits gross -> station 210, tower 30.
+	// A relayed request big enough to clear the real $25 minimum on the tower's 5%:
+	// 120,000 output tokens at $5,000/1M = 600 credits gross -> station 540, tower 30
+	// (at the old 10% rate 60k tokens sufficed; the halved share needs double the volume).
 	cpub := issuedEdgeGrantPriced(t, b, "att-cash", tw.id, "st-1", 0, 5_000_000_000)
 	consumerWallet := bindEdgeConsumer(t, b, cpub)
 	_, err = b.db.AddCredits(consumerWallet, 1000)
 	require.NoError(t, err)
-	held, err := b.db.HoldFor(consumerWallet, "att-cash", 400)
+	held, err := b.db.HoldFor(consumerWallet, "att-cash", 700)
 	require.NoError(t, err)
 	require.True(t, held)
 
 	body, err := json.Marshal(map[string]any{
 		"tower_id": tw.id, "station_id": "st-1", "attempt_id": "att-cash",
-		"receipt": signedReceiptTok(t, stationPriv, "att-cash", "st-1", make([]byte, 60_000),
-			dispatch.Usage{In: 0, Out: 60_000}, dispatch.Usage{In: 0, Out: 60_000}),
+		"receipt": signedReceiptTok(t, stationPriv, "att-cash", "st-1", make([]byte, 120_000),
+			dispatch.Usage{In: 0, Out: 120_000}, dispatch.Usage{In: 0, Out: 120_000}),
 	})
 	require.NoError(t, err)
 	var settled map[string]any
@@ -68,7 +69,7 @@ func TestATowerOperatorCashesOutTheirRelayShare(t *testing.T) {
 	// The relay share is a real PAYABLE lot on the shared ledger - not a separate balance.
 	split, err := b.db.EarningSplitOf(towerAcct, time.Now())
 	require.NoError(t, err)
-	require.InDelta(t, 30.0, split.Payable, 1e-6, "the tower operator's 10% is payable")
+	require.InDelta(t, 30.0, split.Payable, 1e-6, "the tower operator's 5% is payable")
 
 	// And the dashboard tells relaying apart from serving for the same account.
 	_, byNode, err := b.db.EarningRollups(towerAcct)

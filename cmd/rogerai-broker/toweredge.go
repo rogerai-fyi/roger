@@ -2268,9 +2268,9 @@ func (b *broker) edgeConsumerWallet(consumerKey []byte) (string, bool, error) {
 // GROSS (the founder-set model, 2026-08-13, overriding the earlier "share of net platform
 // revenue" basis - see operator_revenue_share.feature):
 //
-//	station owner : 1 - feeRate            -> 70% at the default 30% fee (unchanged)
+//	station owner : 1 - feeRate            -> 90% at the default 10% fee (unchanged)
 //	tower operator: edgeTowerRate()        -> 10% of GROSS, the relay cut
-//	platform      : feeRate - towerRate    -> 20%, i.e. the platform ABSORBS the tower's
+//	platform      : feeRate - towerRate    -> 5%, i.e. the platform ABSORBS the tower's
 //	                                          cut out of its own margin, so a Station is
 //	                                          never paid less because its traffic was relayed.
 //
@@ -2678,9 +2678,9 @@ func envMicros(name string) int64 {
 // edgeTowerRateDefault is the Tower operator's share of GROSS on a relayed attempt - the
 // founder-set 10% (2026-08-13, overriding the earlier "share of net platform revenue" basis).
 // Overridable by config; the cut comes out of the PLATFORM's margin (its fee drops from 30%
-// to 20% at the default), never the serving Station's 70% share. Capped at feeRate in
+// to 5% at the default), never the serving Station's 90% share. Capped at feeRate in
 // edgeShares so the platform's residual can never go negative.
-const edgeTowerRateDefault = 0.10
+const edgeTowerRateDefault = 0.05 // 90/5/5 since the 2026-09-01 fee ruling (was 70/10/20)
 
 // Edge prices are expressed as CREDITS PER MILLION BYTES (1 credit = $1), mirroring the direct
 // path's $/1M tokens so the two surfaces read alike. Billing is ON by default at these rates; an
@@ -2738,7 +2738,7 @@ func edgePricingOn() bool {
 		edgeRatePerMB("ROGERAI_TOWER_EDGE_PRICE_OUT", defaultEdgePricePerMBOut) > 0
 }
 
-// edgeTowerRate is the Tower's fraction of GROSS, defaulting to 10% and clamped to [0,1] here
+// edgeTowerRate is the Tower's fraction of GROSS, defaulting to 5% and clamped to [0,1] here
 // (edgeShares further caps it at feeRate); a bad value falls back to the default rather than
 // paying an absurd share.
 func edgeTowerRate() float64 {

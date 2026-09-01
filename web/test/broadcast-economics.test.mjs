@@ -111,7 +111,7 @@ test("economics: the assumption doing the work is stated, not buried", () => {
   const page = read(PAGE).replace(/\s+/g, " ");
   assert.match(page, /tok\/s/, "throughput is named");
   assert.match(page, /assum|depends on|the number that moves/i, "and flagged as the assumption");
-  assert.match(page, /30%|70%/, "and the platform's share is stated where the money is");
+  assert.match(page, /10%|90%/, "and the platform's share is stated where the money is");
 });
 
 /* ---- the shape the site expects --------------------------------------- */
