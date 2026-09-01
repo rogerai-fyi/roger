@@ -203,5 +203,11 @@ say "model is up after ${waited}s"
 # ---- 4. on air ---------------------------------------------------------
 # exec, so the share IS the container's foreground process: when it stops, the
 # instance stops, and Vast stops billing for a box that is no longer serving.
+# The credential belongs to the model server, which already has it. If the OPERATOR set one
+# in the instance environment - Vast lets you, and it is the natural way to do it - it would
+# otherwise be inherited by the client below, which has no use for it. Scoping the launch was
+# only half the job.
+unset HF_TOKEN HUGGING_FACE_HUB_TOKEN ROGER_HF_TOKEN
+
 say "going on air"
 exec roger "${SHARE_ARGS[@]}"
