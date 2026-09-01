@@ -45,7 +45,7 @@ type Config struct {
 	// Curated declares this node a PROXY for a commercial upstream API rather than a
 	// person's hardware; CuratedProvider names it, and UpstreamPriceIn/Out declare the
 	// upstream's list ($/1M) the broker derives the posted price from (list x markup) and
-	// settles back as pass-through. All refused broker-side unless coherent - see the
+	// settles back as the list plus half the routing fee. All refused broker-side unless coherent - see the
 	// curated block in /nodes/register.
 	Curated          bool
 	CuratedProvider  string

@@ -227,7 +227,8 @@ test("pricing: reselling contracts is a first-class path, told straight (pricing
   const html = read("pricing.html");
   assert.match(html, /resell/i, "the resale path is named");
   assert.match(html, /curated station/i, "as the curated path");
-  assert.match(html, /list, whole|reimbursed[^<]*list/i, "the pass-through rule: the list, whole");
+  assert.match(html, /list back whole/i, "the reimbursement rule: the list back whole");
+  assert.match(html, /half the routing fee/i, "plus the operator's half of the fee (the 50\/50 ruling)");
   assert.match(html, /list \+ 10%/i, "the consumer's price: list plus the routing fee");
   assert.match(html, /anonymized routing/i, "the fee is tied to what it buys");
   assert.match(html, /href="\/why\.html"/, "and the why page carries the full argument");

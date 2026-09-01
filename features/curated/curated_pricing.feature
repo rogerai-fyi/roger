@@ -6,6 +6,15 @@
 # platform fee drops to 10% with it (tower relay 90/5/5). The mechanism is unchanged;
 # only the constant moved.
 #
+# SECOND AMENDMENT, same day ("approved, do the 50/50 split of the fee pool for
+# curators"): a curated operator is no longer a pure reimbursement - they keep their
+# declared list PLUS HALF THE ROUTING FEE, and the network keeps the other half. The
+# incentive that makes a stranger bring their provider contracts to the dial. Stated as
+# a SHARE OF THE FEE POOL, never a percent of the posted price, so the operator is
+# >= list by construction at ANY markup - a percent-of-posted (e.g. 95%) goes back
+# underwater the moment the markup moves (0.95 x 1.04 < 1), the exact bug class the
+# pass-through rule was born to kill.
+#
 # THE TRAP THIS FILE EXISTS TO PIN. Under the standard settlement a node earns the
 # owner share (90% at the current fee) of the posted price. A curated node pays the
 # upstream's full list price for every token it relays - so at posted = 1.10 x list,
@@ -45,10 +54,16 @@ Feature: Curated prices derive from the upstream and settle without loss
 
   # --- settlement --------------------------------------------------------------
 
-  Scenario: Settlement passes the upstream cost through and keeps the markup
+  Scenario: Settlement reimburses the list and splits the fee pool half-and-half
     Given a curated request that cost $1.10 at the posted price
-    Then the curated operator is credited $1.00
-    And the broker retains $0.10
+    Then the curated operator is credited $1.05
+    And the broker retains $0.05
+    # list ($1.00) back whole, plus half the $0.10 routing fee; the network keeps the rest
+
+  Scenario: A curated operator is never underwater at any markup
+    Then the curated operator share is the list plus a non-negative share of the fee pool
+    # structural, not numeric: share-of-pool >= 0 means operator >= list whatever the
+    # markup constant becomes - the guarantee a percent-of-posted split cannot make
 
   Scenario: The consumer pays exactly the posted price
     Given a curated request

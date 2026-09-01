@@ -14,7 +14,8 @@ Feature: The pricing page accommodates every way of sharing and monetizing
   Scenario: Reselling API contracts is a first-class path
     When the pricing page renders
     Then it names the curated path: resell your own provider contracts as a labeled proxy
-    And it states the pass-through rule: the operator is reimbursed their declared list, whole
+    And it states the settlement rule: the operator gets their declared list back whole, plus half the routing fee
+    # amended with the 50/50 fee-pool ruling (founder, 2026-09-01) - was pure pass-through
     And it states that the consumer pays list plus the 10% routing fee
 
   Scenario: The fee is explained, not just stated

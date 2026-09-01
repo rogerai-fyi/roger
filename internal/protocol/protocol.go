@@ -82,7 +82,7 @@ type ModelOffer struct {
 	// station's offer (credits per 1M units, same units as PriceIn/Out). Only meaningful
 	// when the registration's Curated flag is set; the broker DERIVES the posted price
 	// from these (list x the curated markup) and settles the operator this list portion
-	// back as pass-through - see cmd/rogerai-broker curated pricing. Signed with the rest
+	// back as the list plus half the routing fee - see cmd/rogerai-broker curated pricing. Signed with the rest
 	// of the registration (regSigningBytes excludes only Sig and the display fields).
 	UpstreamIn  float64 `json:"upstream_in,omitempty"`
 	UpstreamOut float64 `json:"upstream_out,omitempty"`

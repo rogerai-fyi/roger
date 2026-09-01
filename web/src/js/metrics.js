@@ -473,9 +473,12 @@
         tr.appendChild(cell(e.model || "-", "mx-model"));
         var routing;
         if (e.curated_provider) {
-          var fee = Math.max(0, (+e.cost || 0) - (+e.owner_share || 0));
+          // list + fee is the CONSUMER's split of the posted price; the server derives
+          // the list (owner_share stopped equaling it when operators gained half the fee).
+          var list = +e.curated_list || 0;
+          var fee = Math.max(0, (+e.cost || 0) - list);
           routing = "\u00bb " + e.curated_provider + " curated \u00b7 " +
-            cr(+e.owner_share || 0) + " upstream + " + cr(fee) + " routing";
+            cr(list) + " upstream + " + cr(fee) + " routing";
         } else {
           routing = "station " + String(e.node || "").slice(0, 10);
         }

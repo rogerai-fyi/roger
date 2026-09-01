@@ -48,8 +48,8 @@ test("the usage history names the band, the provider and the split", () => {
 
   const js = read("js/metrics.js");
   assert.match(js, /curated_provider/, "a curated row names its provider");
-  assert.match(js, /upstream \+ /, "and shows the split: pass-through plus fee");
-  assert.match(js, /cost \|\| 0\) - \(\+e\.owner_share/, "the fee is the difference, never a second charge");
+  assert.match(js, /upstream \+ /, "and shows the split: list plus fee");
+  assert.match(js, /curated_list/, "the list comes from the server, which knows the markup");
 });
 
 test("the history read is credentialed - no other account can see it", () => {
@@ -60,11 +60,12 @@ test("the history read is credentialed - no other account can see it", () => {
 
 // --- Scenario: the operator's earnings page shows pass-through, not profit ------
 
-test("a curated operator's station shows pass-through, never income", () => {
+test("a curated operator's station keeps reimbursement and income apart", () => {
   const js = read("js/stations.js");
   assert.match(js, /CURATED/, "the curated badge exists");
-  assert.match(js, /Upstream pass-through/, "the money line is named pass-through");
-  assert.match(js, /not income/, "and says outright that it is not income");
+  assert.match(js, /list reimbursed/, "the reimbursement is named as reimbursement");
+  assert.match(js, /half of the routing fee/, "and the fee share is named as the income half");
+  assert.match(js, /never income/, "the comment keeps the line: the reimbursement is never income");
   // The human branch still says Earned - the distinction is the point.
   assert.match(js, /'Earned ' \+/, "human earnings keep their own label");
 });

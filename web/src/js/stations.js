@@ -82,11 +82,12 @@
       (st.hw ? " &middot; " + esc(st.hw) : "") +
       "</p>" +
       (offers ? "<ul>" + offers + "</ul>" : '<p class="fine">No offers published.</p>') +
-      // A curated station's credits are upstream PASS-THROUGH - the reimbursement of
-      // the provider's list price - never income. The copy must not present it as
-      // earnings (features/curated/curated_web.feature).
+      // A curated station's credits are TWO things and the copy keeps them apart
+      // (features/curated/curated_web.feature, amended by the 50/50 ruling): the
+      // reimbursement of the provider's list price - never income - plus the
+      // operator's half of the routing fee, which is.
       '<p class="fine">' + (st.curated
-        ? 'Upstream pass-through ' + (st.earnings_unavailable ? "unavailable" : money(st.earnings)) + ' (reimbursement of the provider list price, not income)'
+        ? 'Curated credits ' + (st.earnings_unavailable ? "unavailable" : money(st.earnings)) + ' (your provider list reimbursed + your half of the routing fee)'
         : 'Earned ' + (st.earnings_unavailable ? "unavailable" : money(st.earnings))) + " &middot; " + (st.recent_served || 0) + " recent requests" +
       ' &middot; <span class="' + chain.cls + '">' + chain.text + "</span></p>" +
       "</article>"

@@ -226,6 +226,11 @@ func (b *broker) usage(w http.ResponseWriter, r *http.Request) {
 type usageRow struct {
 	store.Entry
 	CuratedProvider string `json:"curated_provider,omitempty"`
+	// CuratedList is the upstream list component of a curated row's cost (cost/markup),
+	// derived server-side so the page can show "list + routing fee" without knowing the
+	// markup constant. Since the 50/50 ruling the operator's share is list + half the
+	// fee, so owner_share no longer equals the list and cannot label the split.
+	CuratedList float64 `json:"curated_list,omitempty"`
 }
 
 // usageFor renders GET /usage for an authenticated user (split out so the shape is
@@ -258,6 +263,9 @@ func (b *broker) usageFor(w http.ResponseWriter, r *http.Request, user string) {
 			}
 		}
 		row.CuratedProvider = curatedOf[e.Node]
+		if row.CuratedProvider != "" {
+			row.CuratedList = round6(e.Cost / curatedMarkup)
+		}
 		rows = append(rows, row)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{

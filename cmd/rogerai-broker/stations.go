@@ -39,7 +39,8 @@ type stationView struct {
 	Confidential bool           `json:"confidential"`
 	Private      bool           `json:"private"`
 	// Curated labels a commercial-API proxy station; the web dashboard renders it apart
-	// and presents its "earnings" as upstream pass-through, never as income
+	// and keeps the reimbursement and the fee share apart (the reimbursement half is
+	// never income; the operator's half of the routing fee is)
 	// (features/curated/curated_web.feature).
 	Curated         bool           `json:"curated,omitempty"`
 	CuratedProvider string         `json:"curated_provider,omitempty"`

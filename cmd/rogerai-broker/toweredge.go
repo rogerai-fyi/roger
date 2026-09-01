@@ -2300,17 +2300,21 @@ func (b *broker) captureEdgeCharge(towerID, stationID, stationOwner string, part
 	}
 	wallet := parties.consumerWallet
 	stationShare, towerShare := b.edgeShares(cost)
-	// A CURATED station relayed through a tower still settles pass-through first: the
-	// operator is reimbursed the upstream list portion (cost/markup, curated_pricing.go),
-	// and the tower's relay cut comes out of the MARKUP the routing fee collected - at the
-	// defaults, markup pool 23.08% of cost against a 10% tower cut, so the pool covers it
-	// and the pass-through is never invaded. The platform keeps the remainder.
+	// A CURATED station relayed through a tower still settles the curated rule first:
+	// the operator gets the list back plus half the fee pool (curated_pricing.go), and
+	// the tower is paid from the NETWORK's remaining half at the same one-half ratio the
+	// human path gives it - so the operator's share is never invaded and the platform's
+	// remainder is never negative, at any markup or tower rate.
 	stationCurated := b.nodeCurated(stationID)
 	if stationCurated {
 		stationShare = curatedOwnerShare(cost)
+		// The tower is paid from the NETWORK's remainder of the fee pool, at the same
+		// one-half ratio the human path gives it (its 5 of the platform's 10) - so the
+		// platform's curated share can never go negative, and no tower-rate change can
+		// reach into the operator's reimbursement + fee share (shorting those is the
+		// underwater bug again).
+		towerShare = 0.5 * (cost - stationShare)
 		if stationShare+towerShare > cost {
-			// A future tower-rate change must shrink the TOWER's cut, never the
-			// reimbursement: shorting the pass-through is the underwater bug again.
 			towerShare = cost - stationShare
 		}
 	}

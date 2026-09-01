@@ -113,9 +113,12 @@ func (s *curPriceState) markupOnePlace() error {
 	if !near(curatedPosted(1.0), curatedMarkup) {
 		return fmt.Errorf("curatedPosted does not derive from curatedMarkup")
 	}
-	if !near(curatedOwnerShare(curatedPosted(7.77)), 7.77) {
-		return fmt.Errorf("the settlement split does not invert the posted derivation: an " +
-			"operator would not be made exactly whole")
+	// The settlement recovers the list from the posted price and adds the operator's
+	// half of the pool: on a list of 7.77 that is 7.77 + 0.5*(posted-7.77). The list
+	// component still inverts the derivation exactly - the reimbursement can never drift.
+	if want := 7.77 + curatedFeeShare*(curatedPosted(7.77)-7.77); !near(curatedOwnerShare(curatedPosted(7.77)), want) {
+		return fmt.Errorf("the settlement split does not agree with the posted derivation: an "+
+			"operator would not get the list plus their half of the pool (want %.6f)", want)
 	}
 	return nil
 }
@@ -257,9 +260,9 @@ func (s *curPriceState) ledgerCarriesCurated() error {
 	// Observed where it LANDS: the settlement math is the designation's effect, and only
 	// the curated rule produces this exact split (a caller-side copy of the receipt would
 	// prove nothing - settleRequest takes it by value).
-	if !near(s.earned, 1.00) {
+	if !near(s.earned, 1.05) {
 		return fmt.Errorf("the ledgered settlement does not carry the curated rule: operator "+
-			"earned %.4f from a 1.10 request, want the 1.00 pass-through", s.earned)
+			"earned %.4f from a 1.10 request, want 1.05 - the list plus half the fee pool", s.earned)
 	}
 	return nil
 }
@@ -280,6 +283,21 @@ func TestCuratedPricingFeature(t *testing.T) {
 			sc.Step(`^the posted prices are (\$[0-9.]+) in and (\$[0-9.]+) out$`, st.postedAre)
 			sc.Step(`^the posted prices are \$0$`, st.postedAreZero)
 			sc.Step(`^the curated markup is defined in exactly one place$`, st.markupOnePlace)
+			sc.Step(`^the curated operator share is the list plus a non-negative share of the fee pool$`, func() error {
+				// Structural, checked against the COMPILED constants: whatever the
+				// markup, share-of-pool in [0,1] keeps list <= operator <= cost.
+				if curatedFeeShare < 0 || curatedFeeShare > 1 {
+					return fmt.Errorf("curatedFeeShare = %v is not a share of the pool", curatedFeeShare)
+				}
+				for _, cost := range []float64{0.0001, 1.10, 7.77, 1234.5} {
+					list := cost / curatedMarkup
+					got := curatedOwnerShare(cost)
+					if got < list-1e-12 || got > cost+1e-12 {
+						return fmt.Errorf("cost %v: operator share %v escapes [list %v, cost %v]", cost, got, list, cost)
+					}
+				}
+				return nil
+			})
 			sc.Step(`^changing it re-derives every curated posted price$`, st.changingItRederives)
 			sc.Step(`^the row still carries the curated mark$`, st.rowStillCurated)
 			sc.Step(`^a curated node posts prices under its declared upstream list$`, st.postsUnderList)

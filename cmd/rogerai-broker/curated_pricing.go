@@ -3,7 +3,7 @@ package main
 // curated_pricing.go - THE ONE PLACE the curated money rules live.
 //
 // Founder ruling 2026-09-01: curated operators are paid exactly what their upstream
-// charges (pass-through); the consumer pays that plus a routing markup, which is the
+// charges, plus half the routing fee (the 50/50 ruling); the consumer pays list + markup, and the
 // broker's fee for anonymization, routing across the broker/tower network, and picking
 // the best-measured connection among same-model stations.
 //
@@ -32,12 +32,23 @@ const curatedMarkup = 1.10
 // and no money moves).
 func curatedPosted(list float64) float64 { return list * curatedMarkup }
 
-// curatedOwnerShare is the pass-through: the portion of a curated request's cost that
-// reimburses the operator's upstream bill. cost/M returns exactly the declared list
-// price's share, whatever the token counts were, so the operator is made whole and
-// nothing more - reimbursement, not income. The broker retains cost - cost/M: the
-// routing fee the posted markup collected.
-func curatedOwnerShare(cost float64) float64 { return cost / curatedMarkup }
+// curatedFeeShare is the fraction of the ROUTING FEE POOL (cost minus the reimbursed
+// list) a curated operator keeps on top of their reimbursement - the founder's 50/50
+// ruling (2026-09-01, "do the 50/50 split of the fee pool for curators"): the incentive
+// that makes a stranger bring their provider contracts to the dial. Deliberately a share
+// OF THE POOL and never a percent of the posted price: pool-share >= 0 keeps the
+// operator >= list at ANY markup, while a percent-of-posted (a 95% split, say) drowns
+// them again the moment the markup constant moves (0.95 x 1.04 < 1.00).
+const curatedFeeShare = 0.50
+
+// curatedOwnerShare is the curated settlement: reimburse the operator's upstream bill
+// (cost/M recovers exactly the declared list's share, whatever the token counts were),
+// then add their half of the routing fee the posted markup collected. The broker retains
+// the other half. At the 1.10 markup: a $1.10 request credits $1.05 and retains $0.05.
+func curatedOwnerShare(cost float64) float64 {
+	list := cost / curatedMarkup
+	return list + curatedFeeShare*(cost-list)
+}
 
 // nodeCurated reports whether the named node registered as a curated station.
 func (b *broker) nodeCurated(node string) bool {

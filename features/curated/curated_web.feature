@@ -18,6 +18,10 @@ Feature: Curated is honest on every web surface
     Then their usage history names the band, the provider and the split
     And no other account can see any of it
 
-  Scenario: The curated operator's earnings page shows pass-through, not profit
-    Then a curated operator's earnings view labels upstream pass-through distinctly
-    And never presents reimbursement as income
+  # Amended by the 50/50 fee-pool ruling (founder, 2026-09-01): a curated operator now
+  # earns half the routing fee on top of their reimbursement, so the page's job shifts
+  # from "never call it income" to "never blur the two": the provider-bill reimbursement
+  # and the fee share are shown apart, and the reimbursement alone is never dressed as profit.
+  Scenario: The curated operator's earnings page keeps reimbursement and income apart
+    Then a curated operator's earnings view names the list reimbursement and the fee share as two things
+    And the reimbursement alone is never presented as income
