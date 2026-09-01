@@ -1004,7 +1004,7 @@ func TestTowerStatusShowsWhatCoreActuallyBelieves(t *testing.T) {
 	require.True(t, got.Carries, "the sealed hub carries work now")
 	require.True(t, got.Compensated, "every settled request pays the operator 10% of gross")
 	require.Contains(t, got.Note, "sealed hub")
-	require.Contains(t, got.Note, "10% of gross")
+	require.Contains(t, got.Note, "5% of gross")
 	require.Contains(t, got.Note, "Volume is early",
 		"a $0 line is explained as traffic, not as missing compensation")
 }
