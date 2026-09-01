@@ -19,7 +19,9 @@
 #   ROGER_NODE        station callsign          (default: auto)
 #   ROGER_MAX_LEN     vLLM --max-model-len      (default 8192)
 #   ROGER_GPU_UTIL    vLLM memory fraction      (default 0.90)
+#   ROGER_HF_TOKEN    HuggingFace token for GATED models (never logged)
 #   ROGER_WAIT_SECS   how long to wait for load (default 900)
+#   ROGER_SKIP_GPU_CHECK=1  serve anyway on a box with no visible NVIDIA GPU
 #   ROGER_DRY_RUN=1   print the plan and do nothing
 #
 # EARNING needs a signed-in owner. `roger login` is a DEVICE FLOW: it
@@ -39,6 +41,9 @@ NODE="${ROGER_NODE:-}"
 MAX_LEN="${ROGER_MAX_LEN:-8192}"
 GPU_UTIL="${ROGER_GPU_UTIL:-0.90}"
 WAIT_SECS="${ROGER_WAIT_SECS:-900}"
+# HF_TOKEN is the name the HuggingFace libraries already read, so accept either and let an
+# existing environment win nothing over an explicit setting.
+HF_TOKEN_IN="${ROGER_HF_TOKEN:-${HF_TOKEN:-}}"
 DRY="${ROGER_DRY_RUN:-0}"
 
 CONF_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/rogerai"
@@ -62,8 +67,34 @@ if priced; then
 fi
 [ -n "$NODE" ] && SHARE_ARGS+=(--node "$NODE")
 
+# What the box actually has, BEFORE anything is downloaded. vLLM will discover a missing
+# GPU too - several gigabytes and several billed minutes later, with a stack trace.
+GPU_DESC="none visible (nvidia-smi not found)"
+GPU_OK=0
+if command -v nvidia-smi >/dev/null 2>&1; then
+  if GPU_LIST="$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null)" && [ -n "$GPU_LIST" ]; then
+    # `paste -sd', '` CYCLES the two delimiters rather than using both, which produced
+    # "A,B C,D". Count them instead - a rented box is usually N of one card, and "4x <name>"
+    # is what an operator actually wants to read.
+    GPU_N="$(printf '%s\n' "$GPU_LIST" | grep -c .)"
+    GPU_DESC="$(printf '%s\n' "$GPU_LIST" | sort -u | sed "s/^/  /" | paste -sd';' - | sed 's/^  //; s/;  */; /g')"
+    GPU_DESC="${GPU_N}x ${GPU_DESC}"
+    GPU_OK=1
+  else
+    GPU_DESC="nvidia-smi present but reports no GPU"
+  fi
+fi
+
 say "model    $MODEL"
 say "upstream $UPSTREAM"
+say "gpu      $GPU_DESC"
+# The VALUE is never printed - this script's stdout is the instance console on a machine
+# somebody else administers, and a token in a log is a leaked token.
+if [ -n "$HF_TOKEN_IN" ]; then
+  say "hf token set (Hugging Face; value not shown)"
+else
+  say "hf token none - fine for open weights, but a GATED model will 401 on download"
+fi
 if priced; then
   say "pricing  in=\$$PRICE_IN out=\$$PRICE_OUT per 1M tokens"
 else
@@ -95,6 +126,26 @@ MSG
   exit 2
 fi
 
+# Only a problem if WE are the ones about to start a server. If something is already
+# serving the port, whatever it runs on is its own business.
+if [ "$GPU_OK" != 1 ] && [ "${ROGER_SKIP_GPU_CHECK:-0}" != "1" ]; then
+  if ! curl -fsS --max-time 3 "$UPSTREAM/models" >/dev/null 2>&1; then
+    cat >&2 <<MSG
+[roger] no GPU visible on this box: $GPU_DESC
+
+  vLLM would find this out too, after downloading the weights and several billed
+  minutes of an instance that cannot serve. Stopping first instead.
+
+  If the instance does have a GPU, the container probably was not started with it
+  attached. If you meant to serve on something else - a non-NVIDIA accelerator, or a
+  server you will start yourself - re-run with:
+
+      ROGER_SKIP_GPU_CHECK=1
+MSG
+    exit 3
+  fi
+fi
+
 if [ "$DRY" = "1" ]; then
   say "dry run: nothing will be installed, downloaded or served."
   say "would serve : vllm serve $MODEL --host 127.0.0.1 --port $PORT --max-model-len $MAX_LEN --gpu-memory-utilization $GPU_UTIL"
@@ -118,6 +169,8 @@ if curl -fsS --max-time 3 "$UPSTREAM/models" >/dev/null 2>&1; then
   say "something already serves $UPSTREAM - using it"
 elif command -v vllm >/dev/null 2>&1; then
   say "starting vllm on 127.0.0.1:$PORT (log: $LOG)"
+  # exported for the child only, and never echoed
+  [ -n "$HF_TOKEN_IN" ] && export HF_TOKEN="$HF_TOKEN_IN" HUGGING_FACE_HUB_TOKEN="$HF_TOKEN_IN"
   nohup vllm serve "$MODEL" \
     --host 127.0.0.1 --port "$PORT" \
     --max-model-len "$MAX_LEN" \
