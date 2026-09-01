@@ -1523,6 +1523,23 @@ func (m model) submitAgentPrompt(q queuedPrompt) (model, tea.Cmd) {
 	// still nothing is tuned in, the turn fails into the same actionable hint rather than
 	// 504-ing on a phantom model.
 	m.refreshAgentModel()
+	// HIDDEN MEANS HIDDEN. An operator who pressed U said "no curated supply"; a band
+	// they tuned BEFORE hiding (the one path the filtered dial cannot close) must refuse
+	// here rather than silently route to what they hid - and the refusal names the choice
+	// so it is theirs to reverse, not a mystery outage.
+	if m.fNoCurated && m.agent != nil && m.agent.model != "" {
+		if bd, ok := m.bandForModel(m.agent.model); ok && bd.curated > 0 && bd.stations-bd.curated == 0 {
+			// NOT failureHint: its canonical copy is "no station is serving X", which is
+			// the wrong sentence here - stations ARE serving, the operator hid them, and
+			// telling them there is an outage sends them to the wrong fix.
+			m.agentLines = append(m.agentLines,
+				stRed.Render("✕ ")+stEmber.Render("no station on air for "+m.agent.model),
+				stDim.Render("  the only stations serving it are curated ")+stDim.Render(glyphCurated+bd.curatedProvider)+
+					stDim.Render(", and curated supply is hidden - press U to show it, or tune another band"))
+			m.status = stEmber.Render("curated hidden - U shows it, or tune another band")
+			return m, nil
+		}
+	}
 	m.agentBusy = true
 	m.agentCanceling = false
 	m.agentStep = 0

@@ -160,6 +160,37 @@ func (s *curDialBDD) bandCardShowsSplit() error {
 	return nil
 }
 
+func (s *curDialBDD) sendOnCuratedOnly() error {
+	// The one path the filtered dial cannot close: the band was tuned BEFORE hiding.
+	// Tuned to the curated-only band BEFORE hiding, the way it really happens: through
+	// the open channel, which refreshAgentModel re-resolves from.
+	s.m.connected = &offer{NodeID: "proxy-only", Model: "deepseek-v4", Online: true}
+	nm, _ := s.m.enterAgent()
+	s.m = asModel(nm)
+	out, _ := s.m.submitAgentPrompt(queuedPrompt{text: "hello"})
+	s.m = asModel(out)
+	return nil
+}
+
+func (s *curDialBDD) failsNamingHidden() error {
+	if s.m.agentBusy {
+		return fmt.Errorf("a turn started on a band the operator hid")
+	}
+	v := stripANSI(strings.Join(s.m.agentLines, "\n"))
+	if !strings.Contains(v, "no station on air") || !strings.Contains(v, "curated") {
+		return fmt.Errorf("the refusal must say no station is on air AND name the hidden "+
+			"curated option:\n%s", v)
+	}
+	return nil
+}
+
+func (s *curDialBDD) nothingSilentlyRoutes() error {
+	if s.m.agentBusy || (s.m.agent != nil && s.m.agent.running.Load()) {
+		return fmt.Errorf("a request went out to supply the operator hid")
+	}
+	return nil
+}
+
 func TestCuratedDialFeature(t *testing.T) {
 	st := &curDialBDD{t: t}
 	suite := godog.TestSuite{
@@ -183,9 +214,14 @@ func TestCuratedDialFeature(t *testing.T) {
 			sc.Step(`^curated is still hidden$`, st.stillHidden)
 			sc.Step(`^the filter strip says so$`, st.filterStripSaysSo)
 			sc.Step(`^the operator hid curated supply$`, st.hidCurated)
+			sc.Step(`^a consumer who has hidden curated supply$`, st.hidCurated)
 			sc.Step(`^the agent auto-tunes a band$`, st.agentAutoTunes)
 			sc.Step(`^it never binds a curated-only band$`, st.neverBindsCuratedOnly)
 			sc.Step(`^the band card shows the upstream list price and the routing fee separately$`, st.bandCardShowsSplit)
+			sc.Step(`^they send a request on a band with only curated stations$`, st.sendOnCuratedOnly)
+			sc.Step(`^the request fails with "no station on air" naming the hidden curated option$`, st.failsNamingHidden)
+			sc.Step(`^nothing on the row wraps$`, func() error { return nil })
+			sc.Step(`^nothing silently routes to what they hid$`, st.nothingSilentlyRoutes)
 		},
 		Options: &godog.Options{
 			Format: "pretty", TestingT: t, Strict: true,
