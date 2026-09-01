@@ -1156,7 +1156,7 @@ func cmdShare(cfg config, args []string) error {
   --price-out <P>     $/1M output tokens to earn (default 0 = free, no login)
   --private           hidden band, frequency-code only (needs ` + "`roger login`" + `)
   --check             hardware preflight: report and exit (never blocks a share)
-  --advanced          reveal: --node --region --parallel --upstream --modality --ctx --confidential --free-window --schedule
+  --advanced          reveal: --node --region --parallel --upstream --modality --ctx --confidential --free-window --schedule --curated --upstream-price-in/out
 
 Earning needs a GitHub-linked owner: run ` + "`roger login`" + ` first. Free sharing
 needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
@@ -1173,7 +1173,7 @@ needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
 		return err
 	}
 	if *advanced {
-		fmt.Println("advanced flags: --node --region --parallel --upstream --upstream-key --modality --ctx --confidential --free-window --schedule")
+		fmt.Println("advanced flags: --node --region --parallel --upstream --upstream-key --modality --ctx --confidential --free-window --schedule --curated --upstream-price-in --upstream-price-out")
 	}
 	// EARN login-gate, UP FRONT (mirrors the --private pre-check below): a priced share
 	// 401s at the broker if the owner is not GitHub-linked. Fail FAST here - before any

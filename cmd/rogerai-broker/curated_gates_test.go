@@ -87,3 +87,61 @@ func TestCuratedExplicitPriceMustEqualTheDerivation(t *testing.T) {
 		t.Fatalf("the rejection should say the price is derived, got: %s", w.Body.String())
 	}
 }
+
+func TestHumanRegistrationCannotCarryACuratedProviderName(t *testing.T) {
+	// CuratedProvider is a display string the dial renders and /discover publishes. A
+	// HUMAN registration carrying one would dress a local station in a commercial badge
+	// (curated=false so no gate saw it) - zeroed at the door, like human upstream_* prices.
+	b, userPriv, nodePriv, nodePub := newBandBroker(t)
+	reg := protocol.NodeRegistration{
+		NodeID: "hum1", PubKey: nodePub, BridgeToken: "tok", TS: time.Now().Unix(),
+		CuratedProvider: "openrouter", // curated=false
+		Offers:          []protocol.ModelOffer{{Model: "m", Ctx: 8192}},
+	}
+	reg.SignRegistration(nodePriv)
+	body, _ := json.Marshal(reg)
+	r := httptest.NewRequest(http.MethodPost, "/nodes/register", bytes.NewReader(body))
+	signReq(r, userPriv, body)
+	w := httptest.NewRecorder()
+	b.register(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("human register = %d: %s", w.Code, w.Body.String())
+	}
+	b.mu.Lock()
+	got := b.nodes["hum1"].CuratedProvider
+	b.mu.Unlock()
+	if got != "" {
+		t.Fatalf("a human registration published curated_provider %q", got)
+	}
+}
+
+func TestCuratedProviderNameIsBoundedAndControlStripped(t *testing.T) {
+	// The provider name rides /discover, /market, becomes the Region, and renders raw in
+	// every TUI band badge - the same terminal surface quant/weights/variant are
+	// sanitized for. An ANSI escape or a 300-char name must not survive the door.
+	b, userPriv, nodePriv, nodePub := newBandBroker(t)
+	reg := protocol.NodeRegistration{
+		NodeID: "curc4", PubKey: nodePub, BridgeToken: "tok", TS: time.Now().Unix(),
+		Curated: true, CuratedProvider: "open\x1b[2Jrouter" + strings.Repeat("x", 300),
+		Offers: []protocol.ModelOffer{{Model: "m", Ctx: 8192}},
+	}
+	reg.SignRegistration(nodePriv)
+	body, _ := json.Marshal(reg)
+	r := httptest.NewRequest(http.MethodPost, "/nodes/register", bytes.NewReader(body))
+	signReq(r, userPriv, body)
+	w := httptest.NewRecorder()
+	b.register(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("curated register = %d: %s", w.Code, w.Body.String())
+	}
+	b.mu.Lock()
+	got := b.nodes["curc4"].CuratedProvider
+	region := b.nodes["curc4"].Region
+	b.mu.Unlock()
+	if strings.ContainsRune(got, 0x1b) || strings.ContainsRune(region, 0x1b) {
+		t.Fatalf("an ANSI escape survived: provider %q region %q", got, region)
+	}
+	if len(got) > 40 || len(region) > 40 {
+		t.Fatalf("unbounded display string: provider %d bytes, region %d bytes", len(got), len(region))
+	}
+}

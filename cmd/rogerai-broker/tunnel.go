@@ -271,6 +271,17 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 	//   - a node id that registered as a HUMAN station cannot re-register as a proxy (or
 	//     the reverse): that is a new thing wearing an earned callsign, so it must arrive
 	//     as a new identity.
+	// The provider name is a node-supplied DISPLAY string: it rides /discover and
+	// /market, becomes the Region below, and renders raw in every TUI band badge - the
+	// same terminal surface quant/weights/variant get the CanonicalVariantText treatment
+	// for. Same treatment here (trim, strip control chars, bound), and a HUMAN
+	// registration carries none at all: curated=false means no gate ever judged the
+	// name, so letting it ride would dress a local station in a commercial badge.
+	if reg.Curated {
+		reg.CuratedProvider = protocol.CanonicalVariantText(reg.CuratedProvider)
+	} else {
+		reg.CuratedProvider = ""
+	}
 	if reg.Curated {
 		if strings.TrimSpace(reg.CuratedProvider) == "" {
 			jsonErr(w, http.StatusBadRequest, "curated registration requires curated_provider: name the upstream this station proxies")

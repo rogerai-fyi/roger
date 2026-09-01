@@ -990,8 +990,10 @@ func (m model) onSharesDetected(found []detect.Found, needKey []string) (tea.Mod
 	if quiet && len(found) == 0 {
 		// Nothing answered THIS probe. The rows on screen are the last good scan, and
 		// blanking them over a transient miss would be exactly the abrupt clear this
-		// path exists to avoid. Say it quietly; r re-scans loudly if the operator cares.
-		m.status = stDim.Render("re-scan found nothing new - keeping the last scan (r re-scans)")
+		// path exists to avoid. Say it quietly; r probes again behind these same rows
+		// (with rows on screen every re-scan is the quiet kind - no loud pose exists to
+		// advertise, so the hint must not promise one).
+		m.status = stDim.Render("re-scan found nothing new - keeping the last scan (r tries again)")
 		return m, nil
 	}
 	if len(found) == 0 {
