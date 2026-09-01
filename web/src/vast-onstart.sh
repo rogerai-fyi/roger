@@ -171,9 +171,11 @@ if curl -fsS --max-time 3 "$UPSTREAM/models" >/dev/null 2>&1; then
   say "something already serves $UPSTREAM - using it"
 elif command -v vllm >/dev/null 2>&1; then
   say "starting vllm on 127.0.0.1:$PORT (log: $LOG)"
-  # exported for the child only, and never echoed
-  [ -n "$HF_TOKEN_IN" ] && export HF_TOKEN="$HF_TOKEN_IN" HUGGING_FACE_HUB_TOKEN="$HF_TOKEN_IN"
-  nohup vllm serve "$MODEL" \
+  # Scoped to THIS command, not exported: an export would also be inherited by the
+  # `exec roger share` at the end of this script, which has no use for the credential.
+  # Never echoed either - the value appears in no log line.
+  nohup env ${HF_TOKEN_IN:+HF_TOKEN="$HF_TOKEN_IN" HUGGING_FACE_HUB_TOKEN="$HF_TOKEN_IN"} \
+    vllm serve "$MODEL" \
     --host 127.0.0.1 --port "$PORT" \
     --max-model-len "$MAX_LEN" \
     --gpu-memory-utilization "$GPU_UTIL" >>"$LOG" 2>&1 &
