@@ -751,9 +751,16 @@ type model struct {
 	balance          float64
 	haveBal          bool
 	monthlyCap       float64 // per-account monthly spend cap ($); 0 = unlimited
-	monthlySpend     float64 // month-to-date captured spend ($)
-	status           string
-	alert            *alertBox
+	// The budget row's editor state on the spend-limits screen. limOnBudget: the cursor
+	// has moved up off the band table onto the wallet's monthly-budget row. limEditBudget:
+	// that row is being edited (editBuf holds the draft). Founder 2026-09-01: "is there a
+	// way to modify the monthly budget from the tui? i don't see how" - there was not; the
+	// one account-wide money control sat read-only in the middle of the editor.
+	limOnBudget   bool
+	limEditBudget bool
+	monthlySpend  float64 // month-to-date captured spend ($)
+	status        string
+	alert         *alertBox
 	// pricing UX state
 	limits *LimitStore
 	bands  []band // offers grouped by model (the band list, 3.1)
@@ -1979,6 +1986,19 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// A fresh id per question, so a late answer for an earlier one cannot resolve this.
 		m.rcAskID = protocol.NewRequestID()
 		m.rcEmitAskReq(&a, m.rcAskID)
+		return m, nil
+	case budgetSavedMsg:
+		if msg.err != nil {
+			// The old cap stays on screen: it is still what the broker enforces.
+			m.status = stEmber.Render("monthly limit not saved: " + msg.err.Error())
+			return m, nil
+		}
+		m.monthlyCap, m.monthlySpend = msg.cap, msg.spend
+		if msg.cap > 0 {
+			m.status = stDim.Render("monthly spend limit set: " + dollars(msg.cap))
+		} else {
+			m.status = stDim.Render("monthly spend limit cleared - no cap")
+		}
 		return m, nil
 	case agentDoneMsg:
 		// ONCE PER TURN. events is never re-created now, so a drain re-armed after a turn's

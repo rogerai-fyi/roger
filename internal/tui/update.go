@@ -1758,9 +1758,86 @@ func (m *model) enterLimits() {
 	m.mode = modeLimits
 }
 
+// onBudgetRow reports whether the spend-limits cursor sits on the wallet's monthly-budget
+// row; editingBudget, whether that row's editor is open. Named accessors because the BDD
+// suite drives the screen exactly as an operator does and asserts THESE, not internals.
+func (m model) onBudgetRow() bool   { return m.limOnBudget }
+func (m model) editingBudget() bool { return m.limEditBudget }
+
+// parseBudgetInput reads the budget editor's draft: the CLI's clearing spellings
+// (0/off/none/unlimited, and an emptied field) clear the cap; otherwise a dollar amount,
+// with a stray leading $ tolerated because people type what the row shows.
+func parseBudgetInput(s string) (float64, error) {
+	raw := strings.TrimSpace(s)
+	t := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(raw, "$")))
+	// Only a value that SAYS clear, clears. A bare "$" stripped to nothing here and fell
+	// into the clearing arm - so a slip of the finger removed a money protection. Emptied
+	// entirely is deliberate (the operator deleted the number); "$" alone is not an amount
+	// and is refused like any other non-number.
+	if raw == "$" {
+		return 0, fmt.Errorf("%q is not a dollar amount - a number like 25, or 0/off for no cap", s)
+	}
+	switch t {
+	case "", "0", "off", "none", "unlimited":
+		return 0, nil
+	}
+	v, err := strconv.ParseFloat(t, 64)
+	if err != nil || v < 0 {
+		return 0, fmt.Errorf("%q is not a dollar amount - a number like 25, or 0/off for no cap", s)
+	}
+	return v, nil
+}
+
+// budgetSavedMsg carries the broker's reply to a monthly-cap change (or its refusal).
+type budgetSavedMsg struct {
+	cap, spend float64
+	err        error
+}
+
+// commitBudgetEdit validates the draft IN PLACE - a value that is not money never reaches
+// the broker - then saves asynchronously. The row updates from the broker's reply rather
+// than optimistically: this is a MONEY control, and showing a cap the broker has not
+// accepted would be showing protection that does not exist.
+func (m *model) commitBudgetEdit() (tea.Model, tea.Cmd) {
+	cap, err := parseBudgetInput(m.editBuf)
+	if err != nil {
+		m.status = stEmber.Render(err.Error())
+		return m, nil // stay editing: the draft is theirs to fix
+	}
+	m.limEditBudget = false
+	broker, user := m.broker, m.user
+	return m, func() tea.Msg {
+		info, err := client.SetMonthlyLimit(broker, user, cap)
+		if err != nil {
+			return budgetSavedMsg{err: err}
+		}
+		return budgetSavedMsg{cap: info.Cap, spend: info.Spend}
+	}
+}
+
 // onLimitsKey drives the per-model limits view (3.4): up/down move, enter edits
 // (Tab between out-price and min-tps), d clears, esc done.
 func (m *model) onLimitsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// THE BUDGET EDITOR takes the keys while it is open. Kept apart from the band-field
+	// editor below: it commits to the BROKER (an account setting), not to the local store.
+	if m.limEditBudget {
+		switch k.String() {
+		case "esc":
+			m.limEditBudget = false
+			return m, nil
+		case "enter":
+			return m.commitBudgetEdit()
+		case "backspace":
+			if len(m.editBuf) > 0 {
+				m.editBuf = m.editBuf[:len(m.editBuf)-1]
+			}
+			return m, nil
+		}
+		if r := k.Runes; len(r) == 1 {
+			m.editBuf += string(r)
+		}
+		return m, nil
+	}
 	editing := m.editField >= 0
 	if !editing {
 		// Preset bank jumps (only when NOT editing a numeric field, so a typed digit in
@@ -1789,9 +1866,16 @@ func (m *model) onLimitsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "up", "k":
 			if m.limCursor > 0 {
 				m.limCursor--
+			} else if m.loggedInState() {
+				// Up off the top of the table lands on the wallet's monthly-budget row -
+				// the same "the thing you are looking at is the thing you edit" rule as
+				// every band row. Logged out there is nothing to edit up there.
+				m.limOnBudget = true
 			}
 		case "down", "j":
-			if m.limCursor < len(m.limModels)-1 {
+			if m.limOnBudget {
+				m.limOnBudget = false
+			} else if m.limCursor < len(m.limModels)-1 {
 				m.limCursor++
 			}
 		case "d":
@@ -1800,6 +1884,20 @@ func (m *model) onLimitsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.enterLimits()
 			}
 		case "enter":
+			if m.limOnBudget {
+				if !m.loggedInState() {
+					m.status = stDim.Render("log in to set a monthly spend limit")
+					return m, nil
+				}
+				m.limEditBudget = true
+				// Prefilled with the CURRENT cap, so changing $25 to $30 is an edit
+				// rather than a retype; empty when no cap is set.
+				m.editBuf = ""
+				if m.monthlyCap > 0 {
+					m.editBuf = trimZero(m.monthlyCap)
+				}
+				return m, nil
+			}
 			if m.limCursor < len(m.limModels) {
 				lim := m.limits.resolve(m.limModels[m.limCursor])
 				m.editField = 0
