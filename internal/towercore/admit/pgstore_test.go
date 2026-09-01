@@ -222,13 +222,19 @@ func TestDurableExpiredTokensAreReaped(t *testing.T) {
 
 func TestDurableLeaseRenewalAndExpiry(t *testing.T) {
 	s := pgStore(t)
-	r := NewWithStore(Config{LeaseTTL: 50 * time.Millisecond}, s)
+	// The TTL has to outlast the round trips BELOW it, not just the sleep. IssueToken and
+	// Enroll are each a Postgres round trip, and under the full coverage gate - where this
+	// package alone takes ~30s against a shared throwaway server - a 50ms lease had already
+	// lapsed by the time Renew was called, so the first Renew failed and the run went red
+	// on a push that had not touched this code. The assertions are unchanged; only the
+	// clock they race is survivable now.
+	r := NewWithStore(Config{LeaseTTL: 2 * time.Second}, s)
 	tok, _ := r.IssueToken("acct-1")
 	tw, err := r.Enroll(tok, "keyhash-A")
 	require.NoError(t, err)
 
 	require.NoError(t, r.Renew(tw.ID))
-	time.Sleep(80 * time.Millisecond)
+	time.Sleep(2500 * time.Millisecond)
 
 	require.False(t, r.MayTakeWork(tw.ID), "a lapsed lease takes no new work")
 	require.Error(t, r.Renew(tw.ID), "a lapsed lease is re-admitted, not renewed")

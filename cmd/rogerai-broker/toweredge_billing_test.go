@@ -135,6 +135,11 @@ func TestSettleCompletesBillingAfterAStrandedDispatchSettle(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, ok)
 
+	// `now` below is the moment the CRASH is simulated, and it is used for exactly that.
+	// The earning-split reads further down use time.Now() instead: the lot's ReleaseAt is
+	// stamped inside the settle handler, i.e. after this `now`, so with a zero payout hold a
+	// single second boundary between the two would leave the lot Held and the split would
+	// read 0 instead of 35 - a red gate on a push that never touched this code.
 	// Simulate a crash AFTER the dispatch settle but BEFORE billing: pre-claim + settle the
 	// dispatch attempt so the endpoint sees ErrAlreadySettled.
 	now := time.Now()
@@ -152,9 +157,9 @@ func TestSettleCompletesBillingAfterAStrandedDispatchSettle(t *testing.T) {
 	code, _ := tw.call(t, srv, "/tower/edge/settle", body, &out)
 	require.Equal(t, http.StatusConflict, code, "an already-settled attempt still 409s, but completes billing first")
 
-	sSt, _ := b.db.EarningSplitOf(stationOwner, now)
+	sSt, _ := b.db.EarningSplitOf(stationOwner, time.Now())
 	require.InDelta(t, 35, sSt.Payable, 0.001, "station paid on the completion")
-	sTw, _ := b.db.EarningSplitOf(towerAcct, now)
+	sTw, _ := b.db.EarningSplitOf(towerAcct, time.Now())
 	require.InDelta(t, 5, sTw.Payable, 0.001, "tower paid 10% of gross on the completion")
 	bal, _ := b.db.PeekBalance(consumerWallet)
 	require.InDelta(t, 100000-50, bal, 0.001, "consumer charged the actual cost")
@@ -162,7 +167,7 @@ func TestSettleCompletesBillingAfterAStrandedDispatchSettle(t *testing.T) {
 	// And a SECOND retry is a clean idempotent no-op (no double-charge / double-pay).
 	code, _ = tw.call(t, srv, "/tower/edge/settle", body, &out)
 	require.Equal(t, http.StatusConflict, code)
-	sSt, _ = b.db.EarningSplitOf(stationOwner, now)
+	sSt, _ = b.db.EarningSplitOf(stationOwner, time.Now())
 	require.InDelta(t, 35, sSt.Payable, 0.001, "no double-pay on a second retry")
 	bal, _ = b.db.PeekBalance(consumerWallet)
 	require.InDelta(t, 100000-50, bal, 0.001, "no double-charge on a second retry")
