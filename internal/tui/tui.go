@@ -4636,7 +4636,12 @@ func (m model) footer(w int) string {
 		}
 		return modalFooter(m.effWidth(), left, m.accountTag(true), m.status)
 	case modeBandQuants:
-		left = stDim.Render("space-separated  ·  ⏎ save  ·  esc cancel  ·  EMPTY accepts any quant")
+		// One legend per screen: the picker's keys by default, the typed flow's only
+		// when the free-text input is actually up (the audit caught them coexisting).
+		left = stDim.Render("space toggle  ·  ⏎ save  ·  t type one  ·  esc cancel  ·  none checked = any")
+		if m.quantTyping {
+			left = stDim.Render("space-separated  ·  ⏎ save  ·  esc cancel  ·  EMPTY accepts any quant")
+		}
 		if m.narrow() {
 			left = stDim.Render("quants · ⏎ save · esc")
 		}

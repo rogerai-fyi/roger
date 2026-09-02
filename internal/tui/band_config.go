@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 
@@ -379,9 +380,9 @@ func (m model) onBandConfigKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// where everything about a band lives - and beside the spend caps because it is
 		// the same kind of statement: what this operator will accept being routed to.
 		rule := m.limits.resolve(m.cfgModel).Quants
-		// The picker's rows: the rule in force first-class (checked), then every
-		// other quant the dial knows. A rule can name a quant the dial has lost,
-		// so the union, not just the air.
+		// The picker's rows: the sorted union of the rule in force (each checked)
+		// and every quant the dial knows. A rule can name a quant the dial has
+		// lost, so the union, not just the air.
 		seen := map[string]bool{}
 		m.quantOpts = m.quantOpts[:0]
 		for _, q := range append(append([]string{}, rule...), m.quantsOnAir()...) {
@@ -404,6 +405,9 @@ func (m model) onBandConfigKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = modeBandQuants
 		if m.quantTyping {
 			// nothing to pick from - straight to the input, exactly the old flow.
+			// The input is SHARED with the band-label editor: it must wear a quant
+			// placeholder here, not the label's "home gpu" (founder screenshot).
+			m.cfgLabelIn.Placeholder = "Q4_K_M MXFP4 …"
 			m.cfgLabelIn.SetValue(strings.Join(rule, " "))
 			m.cfgLabelIn.CursorEnd()
 			m.cfgLabelIn.Focus()
@@ -427,6 +431,7 @@ func (m model) onBandConfigKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.bandManageID, m.bandManageDisp = bd.ID, bd.Display
+		m.cfgLabelIn.Placeholder = "home gpu" // reclaim from the quants editor (shared input)
 		m.cfgLabelIn.SetValue(bd.Label)
 		m.cfgLabelIn.CursorEnd()
 		m.cfgLabelIn.Focus()
@@ -637,6 +642,7 @@ func (m model) onBandQuantsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// the escape hatch: a quant the dial has never seen is typed, seeded
 			// with whatever is checked so t never loses a selection.
 			m.quantTyping = true
+			m.cfgLabelIn.Placeholder = "Q4_K_M MXFP4 …"
 			m.cfgLabelIn.SetValue(strings.Join(m.checkedQuants(), " "))
 			m.cfgLabelIn.CursorEnd()
 			m.cfgLabelIn.Focus()
@@ -735,9 +741,13 @@ func (m model) bandQuantsView(w int) string {
 		return b.String()
 	}
 	// THE PICKER (founder respec 2026-09-02): check what you accept, type nothing.
-	dial := map[string]bool{}
-	for _, q := range m.quantsOnAir() {
-		dial[q] = true
+	// Each dial row carries how many bands broadcast at that quant, so the choice
+	// is made with the supply in view rather than from memory.
+	dial := map[string]int{}
+	for _, bd := range m.bands {
+		if !bd.isVoice() && bd.quant != "" {
+			dial[bd.quant]++
+		}
 	}
 	for i, q := range m.quantOpts {
 		cur := "  "
@@ -748,9 +758,11 @@ func (m model) bandQuantsView(w int) string {
 		if m.quantSel[i] {
 			box = stLive.Render("[✓]")
 		}
-		tag := ""
-		if !dial[q] {
-			tag = stDim.Render("   (in your rule - not on the dial now)")
+		tag := stDim.Render("   (in your rule - not on the dial now)")
+		if n := dial[q]; n > 0 {
+			// the whole dial's count, said so - the rule is per-model but supply
+			// at a quant is a market-wide fact (the audit's cross-model catch).
+			tag = stDim.Render(fmt.Sprintf("   %d on the dial (any model)", n))
 		}
 		line(cur + box + " " + stKey.Render(q) + tag)
 	}

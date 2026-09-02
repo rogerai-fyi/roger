@@ -378,6 +378,14 @@ func TestQuantPickerListsDialAndRule(t *testing.T) {
 			t.Errorf("picker misses %q:\n%s", want, view)
 		}
 	}
+	// dial rows say how much supply broadcasts at that quant; rule-only rows say
+	// they are not on the dial - the choice is made with the numbers in view.
+	if !strings.Contains(view, "1 on the dial (any model)") {
+		t.Errorf("dial rows must carry their band count:\n%s", view)
+	}
+	if !strings.Contains(view, "not on the dial now") {
+		t.Errorf("the rule-only row (BF16) must say it is off the dial:\n%s", view)
+	}
 	// move down one row and toggle it on; the saved rule is the checked set.
 	down, _ := gm.onBandQuantsKey(keyMsg2(tea.KeyDown))
 	tog, _ := asModel(down).onBandQuantsKey(keyMsg(" "))
@@ -525,5 +533,57 @@ func TestAbsenceIsReadDifferentlyByRowAndRule(t *testing.T) {
 	}
 	if rule.acceptsQuant("BF16") {
 		t.Error("a standing Q4 rule must still refuse a stated BF16")
+	}
+}
+
+// The quants input must not wear the band-label's clothes: cfgLabelIn is shared, and
+// its "home gpu" placeholder leaked into the ACCEPTED QUANTS editor (founder
+// screenshot, 2026-09-02) - a label suggestion where a quant list belongs.
+func TestQuantInputWearsItsOwnPlaceholder(t *testing.T) {
+	m := privateTab(t)
+	m.limits = &LimitStore{Models: map[string]Limit{}}
+	mm, _ := m.openBandConfig("grok-4.6", modeBrowse)
+	opened, _ := asModel(mm).onBandConfigKey(keyMsg("Q"))
+	gm := asModel(opened)
+	tm, _ := gm.onBandQuantsKey(keyMsg("t"))
+	tv := asModel(tm)
+	if !tv.quantTyping {
+		// no quants on the dial in this seed opens the input directly
+		tv = gm
+	}
+	if tv.cfgLabelIn.Placeholder == "home gpu" {
+		t.Fatalf("the quants input wears the band-label placeholder %q", tv.cfgLabelIn.Placeholder)
+	}
+	if !strings.Contains(tv.cfgLabelIn.Placeholder, "Q4_K_M") {
+		t.Errorf("the placeholder should show what a quant list looks like, got %q", tv.cfgLabelIn.Placeholder)
+	}
+	// and the label editor RECLAIMS its own suggestion after the quants editor
+	// changed it (the shared-input round trip, both directions pinned).
+	lab := cardKeys(t)
+	lab.cfgLabelIn.Placeholder = "Q4_K_M MXFP4 …" // as the quants editor leaves it
+	out, _ := lab.onBandConfigKey(keyMsg("l"))
+	if got := asModel(out).cfgLabelIn.Placeholder; got != "home gpu" {
+		t.Errorf("the label editor did not reclaim its placeholder, got %q", got)
+	}
+}
+
+// One key legend per screen (the audit's catch): the footer teaches the picker's
+// keys while the picker is up, and the typed flow's only when the input is.
+func TestQuantFooterMatchesTheFlow(t *testing.T) {
+	m := privateTab(t)
+	m.limits = &LimitStore{Models: map[string]Limit{}}
+	m.bands = []band{{model: "grok-4.6", online: true, quant: "Q4_K_M",
+		cheapest: &offer{Model: "grok-4.6"}}}
+	mm, _ := m.openBandConfig("grok-4.6", modeBrowse)
+	opened, _ := asModel(mm).onBandConfigKey(keyMsg("Q"))
+	gm := asModel(opened)
+	pick := stripANSI(gm.footer(120))
+	if !strings.Contains(pick, "space toggle") || strings.Contains(pick, "space-separated") {
+		t.Errorf("picker footer teaches the wrong keys: %q", pick)
+	}
+	tm, _ := gm.onBandQuantsKey(keyMsg("t"))
+	typed := stripANSI(asModel(tm).footer(120))
+	if !strings.Contains(typed, "space-separated") {
+		t.Errorf("typed-flow footer lost its legend: %q", typed)
 	}
 }
