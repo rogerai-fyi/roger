@@ -248,7 +248,8 @@ test("the App link resolves: /app.html is the live App Store launch page", () =>
   // the app SHIPPED 2026-07-09: the page is indexed now (in the sitemap), no placeholder leftovers
   assert.doesNotMatch(app, /name="robots" content="noindex"/, "launch page is indexed");
   assert.doesNotMatch(app, /tuning up/i, "no 'tuning up' placeholder copy survives");
-  assert.match(app, /apps\.apple\.com\/us\/app\/rogerai-fyi\/id6785743752/, "links the real listing");
+  // canonical slug moved with the app rename to RogerAI.fm (listing v1.2, 2026-09)
+  assert.match(app, /apps\.apple\.com\/us\/app\/rogerai-fm\/id6785743752/, "links the real listing");
   assert.doesNotMatch(app, /<!--\s*include:|<!--\s*css-bundle\s*-->/, "all partial/css includes resolved");
 });
 
@@ -511,4 +512,19 @@ test("the App item degrades to a real /app.html link and cycles App/TUI/WebUI", 
   const appPage = readDist("app.html");
   assert.match(appPage, /id="cli"/, "app.html has the TUI section (#cli)");
   assert.match(appPage, /id="webui"/, "app.html has the WebUI section (#webui)");
+});
+
+// REGRESSION 2026-09-02: the open-group chevron rule used the DESCENDANT form, so it
+// also rotated the Playbox decks sub-chevron inside the open panel - the arrow read
+// "^" while its own panel was closed, and toggling it changed nothing visibly. The
+// group rule must bind to its direct-child button only; the sub-chevron answers to
+// its own aria-expanded alone.
+test("the decks sub-chevron flips on its own state, not the parent menu's", () => {
+  const css = readFileSync(path.join(WEB, "src/styles/base.css"), "utf8");
+  assert.match(css, /\.nav__group\.is-open > \.nav__more svg \{ transform: rotate\(180deg\); \}/,
+    "the open-group rotation is scoped to the direct-child chevron");
+  assert.doesNotMatch(css, /\.nav__group\.is-open \.nav__more(?!-| \{ color)[^\n]*svg/,
+    "no descendant-form rotation survives to leak onto the sub-chevron");
+  assert.match(css, /\.nav__more--sub\[aria-expanded="true"\] svg \{ transform: rotate\(180deg\); \}/,
+    "the sub-chevron still flips on its own aria-expanded");
 });

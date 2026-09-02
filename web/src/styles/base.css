@@ -808,8 +808,13 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
 }
 .nav__more:hover, .nav__more:focus-visible { color: var(--ink-900); background: var(--hover-bg); }
 .nav__more svg { transition: transform var(--d-2, .18s) var(--ease-standard, ease); }
-.nav__group.is-open .nav__more { color: var(--live); }
-.nav__group.is-open .nav__more svg { transform: rotate(180deg); }
+/* DIRECT CHILD ONLY: the descendant form also matched .nav__more--sub inside
+   the open panel, so the Playbox decks chevron sat pre-rotated ("^") while its
+   own panel was closed and its true-state rule below produced no visible change
+   (founder catch, 2026-09-02). The sub chevron answers to its own
+   aria-expanded, nothing else. */
+.nav__group.is-open > .nav__more { color: var(--live); }
+.nav__group.is-open > .nav__more svg { transform: rotate(180deg); }
 
 .nav__panel {
   position: absolute; top: calc(100% + 10px); left: 50%; transform: translateX(-50%);
