@@ -1152,6 +1152,13 @@ type model struct {
 	// cfgLabelIn is the small input that names a band. A band's label is its only
 	// human-readable handle: without one the list identifies bands by "band_2395187610cc7".
 	cfgLabelIn textinput.Model
+	// The ACCEPTED QUANTS editor opens as a PICKER over the quants the dial already
+	// knows plus the rule in force (founder respec 2026-09-02: "am I supposed to
+	// type the name of the quant?"). quantTyping is the free-text fallback behind t.
+	quantOpts   []string
+	quantSel    map[int]bool
+	quantCur    int
+	quantTyping bool
 	// limReturn is where [3] CONFIG goes back to. It is normally the browser; when the
 	// BAND CARD routed here to edit one field, it is the card - otherwise an operator who
 	// pressed `e` on a card would be dropped on a spend-limit table they never opened.
@@ -1426,6 +1433,11 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// A resize reflows the rows a drag was anchored to - cancel, never copy a
 		// partial selection (the smart-mode cancellation contract).
 		m.smartSel = smartSelState{}
+		// AND CLEAR. Once the buffer has ever scrolled (an oversized frame, a resize
+		// race) the renderer's screen model is offset from reality and every later
+		// diff-paint interleaves old rows with new - the twice-painted header the
+		// founder screenshotted. A full clear on every resize resyncs from blank.
+		return m, tea.ClearScreen
 	case tea.MouseMsg:
 		// Smart mouse mode first: while capture is on, a left-drag over the
 		// transcript is an application-owned selection (smartselect.go). Unhandled

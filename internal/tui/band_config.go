@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"sort"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -377,12 +378,40 @@ func (m model) onBandConfigKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// The STANDING quant rule for this band. It lives on the card because the card is
 		// where everything about a band lives - and beside the spend caps because it is
 		// the same kind of statement: what this operator will accept being routed to.
-		m.cfgLabelIn.SetValue(strings.Join(m.limits.resolve(m.cfgModel).Quants, " "))
-		m.cfgLabelIn.CursorEnd()
-		m.cfgLabelIn.Focus()
+		rule := m.limits.resolve(m.cfgModel).Quants
+		// The picker's rows: the rule in force first-class (checked), then every
+		// other quant the dial knows. A rule can name a quant the dial has lost,
+		// so the union, not just the air.
+		seen := map[string]bool{}
+		m.quantOpts = m.quantOpts[:0]
+		for _, q := range append(append([]string{}, rule...), m.quantsOnAir()...) {
+			if q == "" || seen[q] {
+				continue
+			}
+			seen[q] = true
+			m.quantOpts = append(m.quantOpts, q)
+		}
+		sort.Strings(m.quantOpts)
+		m.quantSel = map[int]bool{}
+		for i, q := range m.quantOpts {
+			for _, r := range rule {
+				if r == q {
+					m.quantSel[i] = true
+				}
+			}
+		}
+		m.quantCur, m.quantTyping = 0, len(m.quantOpts) == 0
 		m.mode = modeBandQuants
-		m.status = stDim.Render("accepted quants · space-separated · empty = any")
-		return m, textinput.Blink
+		if m.quantTyping {
+			// nothing to pick from - straight to the input, exactly the old flow.
+			m.cfgLabelIn.SetValue(strings.Join(rule, " "))
+			m.cfgLabelIn.CursorEnd()
+			m.cfgLabelIn.Focus()
+			m.status = stDim.Render("accepted quants · space-separated · empty = any")
+			return m, textinput.Blink
+		}
+		m.status = stDim.Render("accepted quants · space toggles · none checked = any")
+		return m, nil
 	case "n", "N":
 		bd, ok := m.cfgBand()
 		if !ok {
@@ -580,8 +609,44 @@ func (m model) bandLabelView(w int) string {
 	return b.String()
 }
 
-// onBandQuantsKey drives the accepted-quants input.
+// onBandQuantsKey drives the accepted-quants editor: the picker by default, the
+// free-text input behind t (or from the start when the dial knows no quant).
 func (m model) onBandQuantsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if !m.quantTyping {
+		switch k.String() {
+		case "esc":
+			m.mode = modeBandConfig
+			return m, nil
+		case "up", "k":
+			if m.quantCur > 0 {
+				m.quantCur--
+			}
+			return m, nil
+		case "down", "j":
+			if m.quantCur < len(m.quantOpts)-1 {
+				m.quantCur++
+			}
+			return m, nil
+		case " ":
+			if m.quantSel == nil {
+				m.quantSel = map[int]bool{}
+			}
+			m.quantSel[m.quantCur] = !m.quantSel[m.quantCur]
+			return m, nil
+		case "t":
+			// the escape hatch: a quant the dial has never seen is typed, seeded
+			// with whatever is checked so t never loses a selection.
+			m.quantTyping = true
+			m.cfgLabelIn.SetValue(strings.Join(m.checkedQuants(), " "))
+			m.cfgLabelIn.CursorEnd()
+			m.cfgLabelIn.Focus()
+			m.status = stDim.Render("accepted quants · space-separated · empty = any")
+			return m, textinput.Blink
+		case "enter":
+			return m.saveQuantRule(m.checkedQuants())
+		}
+		return m, nil
+	}
 	switch k.String() {
 	case "esc":
 		m.cfgLabelIn.Blur()
@@ -590,21 +655,38 @@ func (m model) onBandQuantsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		qs := parseQuantList(m.cfgLabelIn.Value())
 		m.cfgLabelIn.Blur()
-		m.mode = modeBandConfig
-		lim := m.limits.resolve(m.cfgModel)
-		lim.Quants = qs
-		m.limits.Set(m.cfgModel, lim)
-		if len(qs) == 0 {
-			m.status = stDim.Render("any quant accepted for ") + stKey.Render(m.cfgModel)
-			return m, nil
-		}
-		m.status = stLive.Render("rule set") + stDim.Render(" - ") + stKey.Render(m.cfgModel) +
-			stDim.Render(" will only be served at ") + stKey.Render(strings.Join(qs, " "))
-		return m, nil
+		return m.saveQuantRule(qs)
 	}
 	var c tea.Cmd
 	m.cfgLabelIn, c = m.cfgLabelIn.Update(k)
 	return m, c
+}
+
+// checkedQuants is the picker's selection, in row order.
+func (m model) checkedQuants() []string {
+	var qs []string
+	for i, q := range m.quantOpts {
+		if m.quantSel[i] {
+			qs = append(qs, q)
+		}
+	}
+	return qs
+}
+
+// saveQuantRule writes the rule and lands back on the card - one saver for both
+// the picker and the typed path, so the status copy can never drift apart.
+func (m model) saveQuantRule(qs []string) (tea.Model, tea.Cmd) {
+	m.mode = modeBandConfig
+	lim := m.limits.resolve(m.cfgModel)
+	lim.Quants = qs
+	m.limits.Set(m.cfgModel, lim)
+	if len(qs) == 0 {
+		m.status = stDim.Render("any quant accepted for ") + stKey.Render(m.cfgModel)
+		return m, nil
+	}
+	m.status = stLive.Render("rule set") + stDim.Render(" - ") + stKey.Render(m.cfgModel) +
+		stDim.Render(" will only be served at ") + stKey.Render(strings.Join(qs, " "))
+	return m, nil
 }
 
 // parseQuantList turns what the operator typed into the rule.
@@ -643,12 +725,37 @@ func (m model) bandQuantsView(w int) string {
 	line(stDim.Render("only serve this band at these weights - a RULE, not a filter: it binds"))
 	line(stDim.Render("the agent and roger use too, not just what you are looking at."))
 	b.WriteString("\n")
-	line("  " + m.cfgLabelIn.View())
-	b.WriteString("\n")
-	if qs := m.quantsOnAir(); len(qs) > 0 {
-		line(stDim.Render("on the dial now: ") + stKey.Render(strings.Join(qs, " ")))
+	if m.quantTyping {
+		line("  " + m.cfgLabelIn.View())
+		b.WriteString("\n")
+		if qs := m.quantsOnAir(); len(qs) > 0 {
+			line(stDim.Render("on the dial now: ") + stKey.Render(strings.Join(qs, " ")))
+		}
+		line(stDim.Render("⏎ save · esc cancel · EMPTY accepts any quant"))
+		return b.String()
 	}
-	line(stDim.Render("⏎ save · esc cancel · EMPTY accepts any quant"))
+	// THE PICKER (founder respec 2026-09-02): check what you accept, type nothing.
+	dial := map[string]bool{}
+	for _, q := range m.quantsOnAir() {
+		dial[q] = true
+	}
+	for i, q := range m.quantOpts {
+		cur := "  "
+		if i == m.quantCur {
+			cur = stSelBar.Render("▌") + " "
+		}
+		box := stDim.Render("[ ]")
+		if m.quantSel[i] {
+			box = stLive.Render("[✓]")
+		}
+		tag := ""
+		if !dial[q] {
+			tag = stDim.Render("   (in your rule - not on the dial now)")
+		}
+		line(cur + box + " " + stKey.Render(q) + tag)
+	}
+	b.WriteString("\n")
+	line(stDim.Render("↑↓ move · space toggle · t type one instead · ⏎ save · esc cancel · none checked = any quant"))
 	return b.String()
 }
 

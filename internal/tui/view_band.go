@@ -116,7 +116,9 @@ func (m model) bandDetailView(w int) string {
 		curTag = stDim.Render(" · ") + stDim.Render(glyphCurated+bd.curatedProvider)
 	}
 	b.WriteString("  " + truncVisible(stSelBar.Render("▌")+" "+stBrand.Render("STATION LOG")+
-		stDim.Render("   ")+stKey.Render(bd.model)+stDim.Render(" · ")+on+ctxTag+curTag, w-2) + "\n\n")
+		stDim.Render("   ")+stKey.Render(bd.model)+stDim.Render(" · ")+on+ctxTag+curTag, w-2) + "\n")
+	// One line of purpose (founder, 2026-09-02: "what am I actually seeing?").
+	b.WriteString("  " + truncVisible(stDim.Render("every station carrying this band, with its real numbers - ◉ marks the route the switchboard dials first"), w-2) + "\n\n")
 
 	if len(bd.all) == 0 {
 		empty := "no station detail for this band right now - r to re-scan, esc to go back"
@@ -149,7 +151,7 @@ func (m model) bandDetailView(w int) string {
 	// terms breakdown and its blanks, the legend, and the footer. MEASURED at 17 (a
 	// 24-row terminal fit 14 stations in a 31-row frame before this bound was right),
 	// with one row of slack.
-	const bandDetailChrome = 18
+	const bandDetailChrome = 19 // +1 for the purpose line (2026-09-02)
 	shown := bd.all
 	if m.height > 0 {
 		if room := m.height - bandDetailChrome; room > 0 && len(shown) > room {

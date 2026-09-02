@@ -1,6 +1,12 @@
 package tui
 
-import "testing"
+import (
+	"fmt"
+	"strings"
+	"testing"
+
+	tea "github.com/charmbracelet/bubbletea"
+)
 
 // TestOffersTransientEmptyKeepsList pins the band-list flicker fix: a single empty /discover
 // (a rescan that load-balanced onto a still-syncing broker instance) must NOT blank a populated
@@ -50,5 +56,34 @@ func TestOffersFirstLoadEmptyAccepts(t *testing.T) {
 	}
 	if len(om.offers) != 0 {
 		t.Error("first-load empty should be accepted (genuinely no stations)")
+	}
+}
+
+// GHOSTS, ROOT CAUSE (founder screenshot #3, 2026-09-02: the header + account line
+// visible TWICE with different on-air counts). Once the alt buffer has ever scrolled
+// (an oversized frame, a resize race), the renderer's model of the screen is offset
+// from reality and every later diff-paint lands rows off - old and new frames
+// interleave. A resize is exactly the desync moment, so every WindowSizeMsg must
+// answer with tea.ClearScreen: the renderer repaints the whole screen from a known
+// blank and the ghosts die.
+func TestResizeClearsTheScreen(t *testing.T) {
+	m := browseSeed(80)
+	_, cmd := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	if cmd == nil {
+		t.Fatal("a resize returned no command - the renderer keeps its stale screen model")
+	}
+	if got := fmt.Sprintf("%T", cmd()); !strings.Contains(got, "clearScreenMsg") {
+		t.Fatalf("a resize must answer tea.ClearScreen, got %s", got)
+	}
+}
+
+// The station log says what it is. The founder opened it with i and asked "what am
+// I actually seeing" - the view now carries one dim line of purpose under its head.
+func TestStationLogSaysWhatItIs(t *testing.T) {
+	m := browseSeed(100)
+	m.detailBand = m.bands[0]
+	view := stripANSI(m.bandDetailView(100))
+	if !strings.Contains(view, "every station carrying this band") {
+		t.Fatalf("the station log does not say what it is:\n%s", view)
 	}
 }

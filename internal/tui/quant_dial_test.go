@@ -287,7 +287,11 @@ func TestAQuantOnlyRuleSurvivesBeingSaved(t *testing.T) {
 }
 
 // THE INPUT that sets the rule: Q opens it seeded with the current rule, enter saves,
-// esc discards, and an EMPTY value clears the rule rather than meaning "allow nothing".
+// esc discards, and an EMPTY selection clears the rule rather than meaning "allow
+// nothing". RESPEC 2026-09-02 (founder: "am I supposed to type the name of the
+// quant? make it simpler"): the editor opens as a PICKER over the quants the dial
+// already knows plus the rule in force - space toggles, nothing is typed. The
+// free-text input survives behind t for a quant the dial has never seen.
 func TestTheQuantRuleInput(t *testing.T) {
 	base := func() model {
 		m := privateTab(t)
@@ -298,19 +302,21 @@ func TestTheQuantRuleInput(t *testing.T) {
 		return asModel(mm)
 	}
 
-	// Q opens it, SEEDED with the rule in force - so it edits rather than silently
-	// replacing what is already there.
+	// Q opens the PICKER, seeded with the rule in force already checked.
 	opened, _ := base().onBandConfigKey(keyMsg("Q"))
 	gm := asModel(opened)
 	if gm.mode != modeBandQuants {
-		t.Fatalf("Q did not open the rule input (mode %v)", gm.mode)
+		t.Fatalf("Q did not open the rule editor (mode %v)", gm.mode)
 	}
-	if gm.cfgLabelIn.Value() != "Q4_K_M" {
-		t.Errorf("the input was not seeded with the current rule: %q", gm.cfgLabelIn.Value())
+	if gm.quantTyping {
+		t.Fatal("with quants on the dial the editor must open as the picker, not the input")
 	}
 	view := stripANSI(gm.bandQuantsView(100))
+	if !strings.Contains(view, "[✓] Q4_K_M") {
+		t.Errorf("the rule in force is not shown checked:\n%s", view)
+	}
 	if !strings.Contains(view, "RULE") || !strings.Contains(view, "any quant") {
-		t.Errorf("the input must say it is a rule and what empty means:\n%s", view)
+		t.Errorf("the picker must say it is a rule and what none-checked means:\n%s", view)
 	}
 
 	// esc discards.
@@ -323,35 +329,76 @@ func TestTheQuantRuleInput(t *testing.T) {
 		t.Error("esc changed the rule")
 	}
 
-	// enter saves what was typed.
-	gm.cfgLabelIn.SetValue("iq4_xs bf16")
-	saved, _ := gm.onBandQuantsKey(keyMsg2(tea.KeyEnter))
-	sm := asModel(saved)
-	if got := strings.Join(sm.limits.resolve("grok-4.6").Quants, " "); got != "IQ4_XS BF16" {
-		t.Errorf("the saved rule is %q, want IQ4_XS BF16", got)
-	}
-
-	// EMPTY clears the rule - it means "any", never "none".
-	sm.mode = modeBandQuants
-	sm.cfgLabelIn.SetValue("")
-	cleared, _ := sm.onBandQuantsKey(keyMsg2(tea.KeyEnter))
+	// space unchecks the only row; enter saves; NONE CHECKED clears the rule -
+	// it means "any", never "none".
+	tog, _ := gm.onBandQuantsKey(keyMsg(" "))
+	cleared, _ := asModel(tog).onBandQuantsKey(keyMsg2(tea.KeyEnter))
 	cm := asModel(cleared)
 	if len(cm.limits.resolve("grok-4.6").Quants) != 0 {
-		t.Errorf("an empty value did not clear the rule: %+v", cm.limits.resolve("grok-4.6"))
+		t.Errorf("an empty selection did not clear the rule: %+v", cm.limits.resolve("grok-4.6"))
 	}
 	if !strings.Contains(stripANSI(cm.status), "any quant") {
 		t.Errorf("clearing must say every quant is accepted now, got %q", stripANSI(cm.status))
 	}
+
+	// t drops to the free-text input for a quant the dial has never seen, seeded
+	// with what is checked; enter saves what was typed, canonicalised.
+	typedMode, _ := base().onBandConfigKey(keyMsg("Q"))
+	tm, _ := asModel(typedMode).onBandQuantsKey(keyMsg("t"))
+	gm2 := asModel(tm)
+	if !gm2.quantTyping {
+		t.Fatal("t did not open the free-text input")
+	}
+	if gm2.cfgLabelIn.Value() != "Q4_K_M" {
+		t.Errorf("the input was not seeded with the checked selection: %q", gm2.cfgLabelIn.Value())
+	}
+	gm2.cfgLabelIn.SetValue("iq4_xs bf16")
+	saved, _ := gm2.onBandQuantsKey(keyMsg2(tea.KeyEnter))
+	sm := asModel(saved)
+	if got := strings.Join(sm.limits.resolve("grok-4.6").Quants, " "); got != "IQ4_XS BF16" {
+		t.Errorf("the saved rule is %q, want IQ4_XS BF16", got)
+	}
 }
 
-// Typing into the input edits it rather than being swallowed.
+// The picker lists the union: every quant on the dial plus the rule's own entries
+// (a rule can name a quant the dial has right now lost), and ↑↓ + space toggle by row.
+func TestQuantPickerListsDialAndRule(t *testing.T) {
+	m := privateTab(t)
+	m.limits = &LimitStore{Models: map[string]Limit{"grok-4.6": {Quants: []string{"BF16"}}}}
+	m.bands = []band{
+		{model: "grok-4.6", online: true, quant: "MXFP4", cheapest: &offer{Model: "grok-4.6"}},
+		{model: "other", online: true, quant: "IQ4_XS", cheapest: &offer{Model: "other"}},
+	}
+	mm, _ := m.openBandConfig("grok-4.6", modeBrowse)
+	opened, _ := asModel(mm).onBandConfigKey(keyMsg("Q"))
+	gm := asModel(opened)
+	view := stripANSI(gm.bandQuantsView(100))
+	for _, want := range []string{"[✓] BF16", "[ ] IQ4_XS", "[ ] MXFP4"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("picker misses %q:\n%s", want, view)
+		}
+	}
+	// move down one row and toggle it on; the saved rule is the checked set.
+	down, _ := gm.onBandQuantsKey(keyMsg2(tea.KeyDown))
+	tog, _ := asModel(down).onBandQuantsKey(keyMsg(" "))
+	saved, _ := asModel(tog).onBandQuantsKey(keyMsg2(tea.KeyEnter))
+	got := strings.Join(asModel(saved).limits.resolve("grok-4.6").Quants, " ")
+	if len(got) == 0 || !strings.Contains(got, "BF16") {
+		t.Errorf("the checked set did not save (got %q)", got)
+	}
+	if !strings.Contains(got, "IQ4_XS") && !strings.Contains(got, "MXFP4") {
+		t.Errorf("the toggled row did not join the rule (got %q)", got)
+	}
+}
+
+// Typing into the input (behind t) edits it rather than being swallowed.
 func TestTheQuantRuleInputAcceptsTyping(t *testing.T) {
 	m := privateTab(t)
 	m.limits = &LimitStore{Models: map[string]Limit{}}
 	mm, _ := m.openBandConfig("grok-4.6", modeBrowse)
 	opened, _ := asModel(mm).onBandConfigKey(keyMsg("Q"))
-	gm := asModel(opened)
-	typed, _ := gm.onBandQuantsKey(keyMsg("x"))
+	tm, _ := asModel(opened).onBandQuantsKey(keyMsg("t"))
+	typed, _ := asModel(tm).onBandQuantsKey(keyMsg("x"))
 	if asModel(typed).cfgLabelIn.Value() == "" {
 		t.Error("a keystroke did not reach the input")
 	}
