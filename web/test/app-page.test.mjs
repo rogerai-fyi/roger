@@ -21,6 +21,13 @@ const app = read("app.html");
 
 const APP_STORE_URL = "https://apps.apple.com/us/app/rogerai-fm/id6785743752";
 
+test("no old-slug store URL survives anywhere on the page - captions included", () => {
+  // audit 2026-09-02: hrefs moved to the renamed slug but a visible caption didn't.
+  // the caption form has no /id suffix - match the slug path itself (the bare
+  // string "rogerai-fyi" stays legitimate as the GitHub org elsewhere on the page)
+  assert.doesNotMatch(app, /apps\.apple\.com\/us\/app\/rogerai-fyi/, "the retired slug is gone");
+});
+
 test("app.html links the real App Store listing, opener severed", () => {
   const links = [...app.matchAll(/<a\b[^>]*href="([^"]*apps\.apple\.com[^"]*)"[^>]*>/g)];
   assert.ok(links.length >= 2, "at least hero + closing CTA link to the store");

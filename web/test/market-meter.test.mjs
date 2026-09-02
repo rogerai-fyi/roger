@@ -282,3 +282,18 @@ test("pickSixStable repaints the same six rows while the dial holds still", () =
   const names = R.pickSixStable(without, 12345).map((c) => c.model);
   assert.ok(names.includes("cur") && names.includes("free"), "seats survive a set change");
 });
+
+test("seat stability survives signal jitter that does not change the anchors", () => {
+  // audit follow-up 2026-09-02: index picks over a signal-ordered pool re-dealt
+  // seats when two pool bands crossed; the pool is name-ordered now.
+  const base = [
+    band("h1", 0.9), band("h2", 0.85), band("h3", 0.8), band("h4", 0.75),
+    band("h5", 0.7), band("h6", 0.65), band("h7", 0.6),
+    band("cur", 0.4, { curated: 1 }), band("free", 0.35, { price: 0 }),
+  ];
+  const jittered = base.map((c) =>
+    c.model === "h4" ? { ...c, signal: 0.62 } : c.model === "h6" ? { ...c, signal: 0.74 } : c);
+  const a = R.pickSixStable(base, 999).map((c) => c.model).sort();
+  const b = R.pickSixStable(jittered, 999).map((c) => c.model).sort();
+  assert.deepEqual(b, a, "the same live set seats the same bands through signal churn");
+});

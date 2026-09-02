@@ -126,7 +126,9 @@
     var live = bySignal.filter(function (c) { return c.live; });
     var idle = bySignal.filter(function (c) { return !c.live; });
     var picked = live.slice(0, 3);
-    var pool = live.slice(3);
+    // the pool is name-ordered before any index pick: signal jitter between
+    // polls must not re-deal the seats (only the anchors track signal).
+    var pool = live.slice(3).sort(function (a, b) { return a.model < b.model ? -1 : a.model > b.model ? 1 : 0; });
     function seat(want) {
       if (picked.some(want) || !pool.some(want)) return;
       var cands = pool.filter(want);
