@@ -95,3 +95,10 @@ test("the rendered row keeps the curated count apart, marked", () => {
   assert.match(bj, /provBits\.push\('<span class="band-curated"/,
     "the models dial keeps its counted-apart span");
 });
+
+test("the QSL detail subline never prints a zero human count for a curated-only band", () => {
+  // audit 2026-09-02: the row hid the zero but the detail card said "0 stations on air".
+  const js = read("js/bands.js");
+  assert.match(js, /if \(b\.providers > 0\) subBits\.push/, "the human count renders only when > 0");
+  assert.doesNotMatch(js, /"- " \+ subN \+ " station"/, "the unconditional count form is gone");
+});

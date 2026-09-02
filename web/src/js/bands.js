@@ -984,9 +984,11 @@
 
     detailEl.hidden = false;
     document.getElementById("qslBand").textContent = b.model;
-    var subN = b.providers;
+    var subBits = [];
+    if (b.providers > 0) subBits.push(b.providers + " station" + (b.providers === 1 ? "" : "s") + " on air");
+    if (b.curated) subBits.push(b.curated + " curated");
     document.getElementById("qslSub").textContent = b.live
-      ? "- " + subN + " station" + (subN === 1 ? "" : "s") + " on air" + (b.curated ? " (+" + b.curated + " curated)" : "")
+      ? "- " + subBits.join(" + ")
       : (b.seen ? "- offline (last seen " + fmtAgo(b.lastSeen) + ")" : "- no station on air (idle model)");
     document.getElementById("qslSigGlyph").innerHTML = towerBars(b.signal, b.live);
     document.getElementById("qslSigNum").textContent = "SIGNAL " + (b.live ? b.signal : "--") + "/100";

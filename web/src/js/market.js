@@ -120,8 +120,11 @@
      `rand` is injectable for deterministic tests. */
   function pickSix(channels, rand) {
     rand = rand || Math.random;
-    var live = channels.filter(function (c) { return c.live; });
-    var idle = channels.filter(function (c) { return !c.live; });
+    // sort here, not in the caller: the top-3 anchors are a promise of this
+    // function, and both feed paths (/market rows, /discover aggregate) call it.
+    var bySignal = channels.slice().sort(function (a, b) { return (b.signal || 0) - (a.signal || 0); });
+    var live = bySignal.filter(function (c) { return c.live; });
+    var idle = bySignal.filter(function (c) { return !c.live; });
     var picked = live.slice(0, 3);
     var pool = live.slice(3);
     function seat(want) {
@@ -140,11 +143,35 @@
     return picked.sort(function (a, b) { return (b.signal || 0) - (a.signal || 0); });
   }
 
+  /* Stable seats across polls (audit 2026-09-02): an unseeded pick reshuffled
+     seats 4-6 on every 30s repaint. Derive the rand from a per-page-load seed
+     XOR a hash of the live model set: the same dial state repaints the same
+     six rows all session; a band joining or dropping (or a fresh visit)
+     reshuffles. Pure + exported, so the stability is testable. */
+  function hash32(s) {
+    var h = 2166136261;
+    for (var i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+    return h | 0;
+  }
+  function mulberry32(a) {
+    return function () {
+      a |= 0; a = (a + 0x6D2B79F5) | 0;
+      var t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  function pickSixStable(channels, seed) {
+    var key = channels.filter(function (c) { return c.live; })
+      .map(function (c) { return c.model; }).sort().join("|");
+    return pickSix(channels, mulberry32(hash32(key) ^ (seed | 0)));
+  }
+
   // Node test seam (mirrors dashboard.js): in a non-DOM runtime, export the pure
   // bits and skip all DOM/fetch below. The browser path runs exactly as before.
   if (typeof document === "undefined") {
     if (typeof module !== "undefined" && module.exports) {
-      module.exports = { meterReadout: meterReadout, fmtPrice: fmtPrice, decideRender: decideRender, parseRetryAfter: parseRetryAfter, HOLD_MAX: HOLD_MAX, pickSix: pickSix };
+      module.exports = { meterReadout: meterReadout, fmtPrice: fmtPrice, decideRender: decideRender, parseRetryAfter: parseRetryAfter, HOLD_MAX: HOLD_MAX, pickSix: pickSix, pickSixStable: pickSixStable };
     }
     return;
   }
@@ -176,6 +203,7 @@
   var pollTimer = null;
   var rafId = null;
   var rendered = [];               // [{model, providers, tps, price, quality, signal, verified, live}]
+  var loadSeed = (Math.random() * 0x7fffffff) | 0;   // one shuffle per visit, stable across polls
   var shimmer = 0;
   var visible = false;
   var inflight = false;
@@ -465,7 +493,7 @@
   }
 
   function paint(channels, animate) {
-    rendered = pickSix(channels);
+    rendered = pickSixStable(channels, loadSeed);
     listEl.classList.remove("is-stale");
     if (rendered.some(function (c) { return c && c.live; })) lastLiveReadAt = Date.now();
     listEl.innerHTML = "";

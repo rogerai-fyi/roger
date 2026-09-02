@@ -249,3 +249,36 @@ test("pickSix stays honest when the dial is thin: idles fill, nothing invents", 
   assert.deepEqual(picked.filter((c) => c.live).map((c) => c.model), ["h1", "h2"]);
   assert.equal(R.pickSix([], zero).length, 0, "an empty dial paints nothing");
 });
+
+test("pickSix anchors the top signals even when the caller forgot to sort", () => {
+  // audit 2026-09-02: the anchors were an undocumented precondition on pre-sorted
+  // input; pickSix sorts internally now, so feed it shuffled.
+  const channels = [
+    band("h4", 0.75), band("free", 0.35, { price: 0 }), band("h1", 0.9),
+    band("cur", 0.4, { curated: 1 }), band("h3", 0.8), band("h5", 0.7),
+    band("h2", 0.85), band("h6", 0.65),
+  ];
+  const names = R.pickSix(channels, zero).map((c) => c.model);
+  for (const anchor of ["h1", "h2", "h3"]) {
+    assert.ok(names.includes(anchor), `top-signal anchor ${anchor} survives unsorted input`);
+  }
+  assert.ok(names.includes("cur") && names.includes("free"), "seats still guaranteed");
+});
+
+test("pickSixStable repaints the same six rows while the dial holds still", () => {
+  // audit 2026-09-02 (major): an unseeded pick reshuffled seats on every 30s poll.
+  const channels = [
+    band("h1", 0.9), band("h2", 0.85), band("h3", 0.8), band("h4", 0.75),
+    band("h5", 0.7), band("h6", 0.65), band("h7", 0.6),
+    band("cur", 0.4, { curated: 1 }), band("free", 0.35, { price: 0 }),
+  ];
+  const first = R.pickSixStable(channels, 12345).map((c) => c.model);
+  for (let i = 0; i < 5; i++) {
+    assert.deepEqual(R.pickSixStable(channels, 12345).map((c) => c.model), first,
+      "the same dial state paints the same rows on every poll");
+  }
+  // a band dropping off the air is allowed to reshuffle - but still seats the kinds
+  const without = channels.filter((c) => c.model !== "h7");
+  const names = R.pickSixStable(without, 12345).map((c) => c.model);
+  assert.ok(names.includes("cur") && names.includes("free"), "seats survive a set change");
+});

@@ -22,19 +22,19 @@ Feature: The why page sells the routing honestly
     And why.html survives as a pointer to it
 
   Scenario: Anonymization is claimed exactly as far as the architecture enforces it
-    When the why page renders
+    When the pricing page's why section renders
     Then it says the upstream sees one account and cannot tell consumers apart
     And it says plainly that prompt content still reaches the model's operator
     And it never uses the words "anonymous" or "private" about prompt content on curated bands
 
   Scenario: The comparison names real differences, not adjectives
-    When the why page renders
+    When the pricing page's why section renders
     Then every comparison row is a capability the code enforces or a fact a reader can check
     And human-station supply is presented apart from curated supply
     And the page says what the routing fee pays for in concrete terms
 
   Scenario: Self-hosting is a first-class exit, not a footnote
-    When the why page renders
+    When the pricing page's why section renders
     Then it explains running your own tower on a private network for free
     And it links the tower quickstart
     # the honest sales move: the reader who can leave and stays is the one who trusts you
