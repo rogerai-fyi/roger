@@ -196,3 +196,56 @@ test("held data is styled as stale and stops live signal motion", () => {
   assert.match(hold, /last read/i);
   assert.doesNotMatch(hold, /startShimmer\(\)/);
 });
+
+/* ---- pickSix: the six painted rows are a shop window, not a leaderboard ----
+   Founder, 2026-09-02: with 8 human + 7 curated bands live, the homepage showed
+   six near-identical human rows - curated and free supply never surfaced. The
+   picker anchors the top three signals, then guarantees a curated and a free
+   band a seat when any is live, fills at random, and re-sorts by signal. */
+
+const band = (model, signal, opts = {}) =>
+  Object.assign({ model, signal, price: 0.2, curated: 0, live: true }, opts);
+
+// rand is injectable; 0 = always take the first candidate, deterministic.
+const zero = () => 0;
+
+test("pickSix seats a curated and a free band that top-6-by-signal would drop", () => {
+  const channels = [
+    band("h1", 0.9), band("h2", 0.85), band("h3", 0.8), band("h4", 0.75),
+    band("h5", 0.7), band("h6", 0.65),
+    band("cur", 0.4, { curated: 1, providers: 0 }),
+    band("free", 0.35, { price: 0 }),
+  ];
+  const picked = R.pickSix(channels, zero);
+  assert.equal(picked.length, 6);
+  const names = picked.map((c) => c.model);
+  assert.ok(names.includes("cur"), "a live curated band gets a seat");
+  assert.ok(names.includes("free"), "a live free band gets a seat");
+  for (const anchor of ["h1", "h2", "h3"]) {
+    assert.ok(names.includes(anchor), `top-signal anchor ${anchor} stays`);
+  }
+  const sigs = picked.map((c) => c.signal);
+  assert.deepEqual(sigs, [...sigs].sort((a, b) => b - a), "rows still read high-to-low");
+});
+
+test("pickSix never duplicates a seat already covered by the anchors", () => {
+  const channels = [
+    band("cur", 0.9, { curated: 1 }), band("free", 0.85, { price: 0 }),
+    band("h3", 0.8), band("h4", 0.75), band("h5", 0.7),
+    band("h6", 0.65), band("h7", 0.6),
+  ];
+  const picked = R.pickSix(channels, zero);
+  assert.equal(picked.length, 6);
+  assert.equal(new Set(picked.map((c) => c.model)).size, 6, "six distinct bands");
+});
+
+test("pickSix stays honest when the dial is thin: idles fill, nothing invents", () => {
+  const channels = [
+    band("h1", 0.9), band("h2", 0.8),
+    band("off1", 0, { live: false }), band("off2", 0, { live: false }),
+  ];
+  const picked = R.pickSix(channels, zero);
+  assert.equal(picked.length, 4, "never pads beyond what exists");
+  assert.deepEqual(picked.filter((c) => c.live).map((c) => c.model), ["h1", "h2"]);
+  assert.equal(R.pickSix([], zero).length, 0, "an empty dial paints nothing");
+});

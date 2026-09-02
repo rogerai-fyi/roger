@@ -258,7 +258,10 @@
   function fromMarket(rows) {
     return rows.map(function (m) {
       var providers = +m.providers || 0;
-      var live = providers > 0;
+      // counted APART but ON AIR: a curated-only band answers requests (same rule
+      // as the /discover path below, which already got this right).
+      var curated = +m.curated_providers || 0;
+      var live = providers + curated > 0;
       var sig = m.signal != null ? Math.max(0, Math.min(100, +m.signal)) : 0;
       // success_rate is REAL evidence only when the broker says so (success_seen). With
       // no field, treat as unseen so the UI shows "no data" rather than inventing 100%.
@@ -269,7 +272,7 @@
       return {
         model: m.model || m.band || "unknown",
         providers: providers,
-        curated: +m.curated_providers || 0,
+        curated: curated,
         live: live,
         seen: false,            // real history-only row?
         lastSeen: 0,
@@ -516,9 +519,11 @@
       parts.push(b.successSeen ? 'ok ' + fmtPct(b.success) : 'ok no data');
       if (parts.length) perf = '<span class="band-perf mono">' + parts.join(' · ') + '</span>';
     }
+    var provBits = [];
+    if (b.providers > 0) provBits.push(b.providers + ' station' + (b.providers === 1 ? '' : 's') + ' on air');
+    if (b.curated) provBits.push('<span class="band-curated" title="curated: commercial-API proxy stations, counted apart from human stations">&raquo; ' + b.curated + ' curated</span>');
     var prov = b.live
-      ? '<span class="band-prov">' + b.providers + ' station' + (b.providers === 1 ? '' : 's') + ' on air' +
-        (b.curated ? ' <span class="band-curated" title="curated: commercial-API proxy stations, counted apart from human stations">&raquo; ' + b.curated + ' curated</span>' : '') + '</span>'
+      ? '<span class="band-prov">' + provBits.join(' ') + '</span>'
       : (b.seen
           ? '<span class="band-prov band-prov--idle">offline - last seen ' + fmtAgo(b.lastSeen) + '</span>'
           : '<span class="band-prov band-prov--idle">idle - no station on air</span>');

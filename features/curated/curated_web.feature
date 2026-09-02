@@ -25,3 +25,22 @@ Feature: Curated is honest on every web surface
   Scenario: The curated operator's earnings page keeps reimbursement and income apart
     Then a curated operator's earnings view names the list reimbursement and the fee share as two things
     And the reimbursement alone is never presented as income
+
+  # REGRESSION 2026-09-02: /market rows carry curated-only bands as providers:0 +
+  # curated_providers:N. The homepage ticker and the models page's /market path
+  # counted only providers, so the site said "8 bands on air" while the TUI's
+  # dial showed 15 - every curated band silently invisible on the web.
+  Scenario: A curated-only band is on air on the website, counted apart
+    Given a /market row with zero human providers and one curated provider
+    When the homepage market ticker and the models dial render it
+    Then the band counts as on air on both
+    And the row shows the curated count apart, marked, never added to the human count
+
+  # Founder, 2026-09-02: with 8 human + 7 curated bands live the homepage painted
+  # six near-identical human rows. The panel is a shop window, not a leaderboard.
+  Scenario: The homepage band panel shows the dial's diversity
+    Given more live bands than the six painted rows
+    When the panel picks its rows
+    Then the three strongest signals anchor the list
+    And a live curated band and a live free band are each guaranteed a seat
+    And the picked rows still render in signal order

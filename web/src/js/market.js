@@ -111,11 +111,40 @@
     return isFinite(secs) && secs > 0 ? secs * 1000 : 0;
   }
 
+  /* ---------- the six painted rows: a shop window, not a leaderboard ------
+     Strict top-6-by-signal made the homepage look like six near-identical human
+     bands: curated and free supply (real, on air, lower signal) never surfaced.
+     Anchor on the top three signals, then guarantee a seat to a curated band and
+     a free band when any is live (picked at random among candidates), fill the
+     rest at random, and re-sort by signal so the meter still reads high-to-low.
+     `rand` is injectable for deterministic tests. */
+  function pickSix(channels, rand) {
+    rand = rand || Math.random;
+    var live = channels.filter(function (c) { return c.live; });
+    var idle = channels.filter(function (c) { return !c.live; });
+    var picked = live.slice(0, 3);
+    var pool = live.slice(3);
+    function seat(want) {
+      if (picked.some(want) || !pool.some(want)) return;
+      var cands = pool.filter(want);
+      var c = cands[Math.floor(rand() * cands.length) % cands.length];
+      picked.push(c);
+      pool.splice(pool.indexOf(c), 1);
+    }
+    seat(function (c) { return (c.curated || 0) > 0; });
+    seat(function (c) { return !(c.price > 0); });
+    while (picked.length < 6 && pool.length) {
+      picked.push(pool.splice(Math.floor(rand() * pool.length) % pool.length, 1)[0]);
+    }
+    while (picked.length < 6 && idle.length) picked.push(idle.shift());
+    return picked.sort(function (a, b) { return (b.signal || 0) - (a.signal || 0); });
+  }
+
   // Node test seam (mirrors dashboard.js): in a non-DOM runtime, export the pure
   // bits and skip all DOM/fetch below. The browser path runs exactly as before.
   if (typeof document === "undefined") {
     if (typeof module !== "undefined" && module.exports) {
-      module.exports = { meterReadout: meterReadout, fmtPrice: fmtPrice, decideRender: decideRender, parseRetryAfter: parseRetryAfter, HOLD_MAX: HOLD_MAX };
+      module.exports = { meterReadout: meterReadout, fmtPrice: fmtPrice, decideRender: decideRender, parseRetryAfter: parseRetryAfter, HOLD_MAX: HOLD_MAX, pickSix: pickSix };
     }
     return;
   }
@@ -230,7 +259,7 @@
       });
       m.providers++;
       var on = o.online !== false;
-      if (on) m.online++;
+      if (on) { m.online++; if (o.curated) m.curatedOnline = (m.curatedOnline || 0) + 1; }
       var tps = +o.tps || 0;
       if (tps > 0) { m.tpsSum += tps; m.tpsN++; }
       var po = (o.price_out != null ? +o.price_out : +o.price_in);
@@ -250,11 +279,13 @@
     return Object.keys(byModel).map(function (k) {
       var m = byModel[k];
       var online = m.online || 0;
+      var curated = m.curatedOnline || 0;
       var tps = m.tpsN ? m.tpsSum / m.tpsN : 0;
       var price = m.minPriceOut === Infinity ? 0 : m.minPriceOut;
       return {
         model: m.model,
-        providers: online,
+        providers: online - curated,
+        curated: curated,
         total: m.providers,
         tps: tps,
         price: price,
@@ -281,7 +312,12 @@
   function fromMarket(rows) {
     return rows.map(function (m) {
       var providers = +m.providers || 0;
-      var live = providers > 0;
+      // curated proxies count toward "on air" (a request would succeed) but stay
+      // COUNTED APART in the row - the 2026-09-02 regression: /market rows carry
+      // curated-only bands as providers:0 + curated_providers:N, and the ticker
+      // said "8 bands on air" while the TUI showed 15.
+      var curated = +m.curated_providers || 0;
+      var live = providers + curated > 0;
       var sig = m.signal != null ? Math.max(0, Math.min(1, (+m.signal) / 100)) : 0;
       var q = m.quality != null ? Math.max(0, Math.min(1, +m.quality > 1 ? (+m.quality) / 100 : +m.quality)) : 0;
       if (!q && m.success_rate != null) q = Math.max(0, Math.min(1, +m.success_rate > 1 ? (+m.success_rate) / 100 : +m.success_rate));
@@ -289,12 +325,12 @@
       var price = m.min_price != null ? +m.min_price : (m.price_out != null ? +m.price_out : 0);
       return {
         model: m.model || m.band || "unknown",
-        providers: providers, total: providers, tps: tps, price: price,
+        providers: providers, curated: curated, total: providers + curated, tps: tps, price: price,
         priceTier: (+m.price_tier || 0),
         // broker signal is authoritative; the local computeSignal is only used if the
         // broker somehow omitted it (older broker), never to OVERRIDE it.
-        signal: live ? (m.signal != null ? sig : computeSignal(providers, tps || 30)) : 0,
-        quality: live ? (q || computeQuality(providers, tps || 30)) : 0,
+        signal: live ? (m.signal != null ? sig : computeSignal(providers + curated, tps || 30)) : 0,
+        quality: live ? (q || computeQuality(providers + curated, tps || 30)) : 0,
         ttft: +m.ttft_ms || 0,
         success: m.success_rate != null ? Math.max(0, Math.min(1, +m.success_rate)) : null,
         verified: !!(m.confidential || m.verified),
@@ -365,8 +401,11 @@
       ? '<span class="mkt-dot mkt-dot--on" aria-hidden="true">●</span>'
       : '<span class="mkt-dot mkt-dot--off" aria-hidden="true">○</span>';
     var cs = c.verified ? ' <span class="cs" title="lineage-verified">◆</span>' : "";
+    var provBits = [];
+    if (c.providers > 0) provBits.push(c.providers + ' on air');
+    if (c.curated) provBits.push('<span title="curated: commercial-API proxy stations, counted apart from human stations">&raquo; ' + c.curated + ' curated</span>');
     var prov = c.live
-      ? '<span class="mkt-prov">' + c.providers + ' on air</span>'
+      ? '<span class="mkt-prov">' + provBits.join(' &middot; ') + '</span>'
       : '<span class="mkt-prov mkt-prov--idle">idle</span>';
 
     // speed line: measured tok/s + probe TTFT (the explainable latency number).
@@ -426,7 +465,7 @@
   }
 
   function paint(channels, animate) {
-    rendered = channels.slice(0, 6);
+    rendered = pickSix(channels);
     listEl.classList.remove("is-stale");
     if (rendered.some(function (c) { return c && c.live; })) lastLiveReadAt = Date.now();
     listEl.innerHTML = "";

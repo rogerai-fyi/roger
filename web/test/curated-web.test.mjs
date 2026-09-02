@@ -69,3 +69,29 @@ test("a curated operator's station keeps reimbursement and income apart", () => 
   // The human branch still says Earned - the distinction is the point.
   assert.match(js, /'Earned ' \+/, "human earnings keep their own label");
 });
+
+// --- Scenario: a curated-only band is on air on the website, counted apart ------
+// REGRESSION 2026-09-02: both /market readers computed live from providers alone,
+// so the homepage said "8 bands on air" while the TUI dial showed 15.
+
+test("both /market readers count curated bands as on air", () => {
+  for (const f of ["js/market.js", "js/bands.js"]) {
+    const js = read(f);
+    assert.match(js, /var curated = \+m\.curated_providers \|\| 0;/,
+      `${f} reads curated_providers`);
+    assert.match(js, /var live = providers \+ curated > 0;/,
+      `${f} includes curated supply in the on-air decision`);
+  }
+});
+
+test("the rendered row keeps the curated count apart, marked", () => {
+  const mk = read("js/market.js");
+  assert.match(mk, /provBits\.push\('<span title="curated: commercial-API proxy stations, counted apart/,
+    "the homepage row carries the counted-apart curated span");
+  assert.match(mk, /&raquo; ' \+ c\.curated \+ ' curated/, "wearing the » mark");
+  assert.doesNotMatch(mk, /providers \+ curated \+ ' on air'/,
+    "and the human on-air number is never inflated by curated supply");
+  const bj = read("js/bands.js");
+  assert.match(bj, /provBits\.push\('<span class="band-curated"/,
+    "the models dial keeps its counted-apart span");
+});
