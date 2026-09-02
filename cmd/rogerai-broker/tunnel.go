@@ -1814,7 +1814,15 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			holdIn, holdOut = 0, 0
 		}
 	}
-	maxCost := estimateMaxCost(body, holdIn, holdOut, offer.Ctx)
+	// An ESTIMATED window must not size the hold: the display sentinel (~333k for
+	// "not detected") would grow the pre-auth ~10x and trip budgets/402s on bands
+	// whose real window nobody measured. Estimated caps at the old conservative
+	// bound; a DETECTED window is real and binds as before. (Pre-push audit catch.)
+	holdCtx := offer.Ctx
+	if offer.CtxEstimated && holdCtx > 32768 {
+		holdCtx = 32768
+	}
+	maxCost := estimateMaxCost(body, holdIn, holdOut, holdCtx)
 	if pricing.free {
 		maxCost = 0
 	}

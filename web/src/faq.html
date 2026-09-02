@@ -169,6 +169,22 @@
       },
       {
         "@type": "Question",
+        "name": "Can I resell my provider contract as a station?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Yes. Attach a curated station in front of a provider account you hold and declare its list price - one flag, roger share --curated. Consumers pay the list plus a 10% routing fee; you are reimbursed the list in full and keep half the fee, so you can never be underwater at any markup. The band wears the curated mark and every receipt shows the split. Verification is one canary at sign-up plus a minimal weekly recheck, billed to your upstream - typically under a cent a month per band."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Does a model provider know who I am?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "No. A provider serving your request sees a station making calls - not your account, your card, or your IP; stations dial outbound only and never learn where you are. Said plainly: unlinking is not content privacy - the words still reach whoever runs the model. For content that must not leave machines you trust, use a confidential station or run your own Tower."
+        }
+      },
+      {
+        "@type": "Question",
         "name": "Do you keep my prompts?",
         "acceptedAnswer": {
           "@type": "Answer",
@@ -212,7 +228,7 @@
           <span class="hero__sep" aria-hidden="true">&middot;</span>
           questions
         </span>
-        <h1>Twenty-one questions, answered the way we would answer them out loud.</h1>
+        <h1>Twenty-three questions, answered the way we would answer them out loud.</h1>
         <p class="research-hero__lead">
           All of this is in the manual somewhere, which is the problem: nobody reads a manual
           to find out whether a stranger can see their files. Short answers here, and a line
@@ -462,6 +478,19 @@
           </div>
         </div>
       </div>
+        <div class="faq__item">
+            <h3 class="faq__q">Can I resell my provider contract as a station?</h3>
+            <div class="faq__a">
+              <p>Yes. Attach a curated station in front of a provider account you hold and
+                 declare its list price - one flag, <code>roger share --curated</code>.
+                 Consumers pay the list plus a 10% routing fee; you are reimbursed the list
+                 in full and keep half the fee, so you can never be underwater at any
+                 markup. The band wears the curated mark and every receipt shows the split.
+                 Verification is one canary at sign-up plus a minimal weekly recheck, billed to
+                 your upstream - typically under a cent a month per band.</p>
+              <a class="faq__more tlink" href="/pricing.html#paths">Pricing &middot; the four ways in &rarr;</a>
+            </div>
+        </div>
     </section>
 
     <section class="section" id="privacy">
@@ -486,6 +515,18 @@
           </div>
 
           <div class="faq__item">
+            <h3 class="faq__q">Does a model provider know who I am?</h3>
+            <div class="faq__a">
+              <p>No. A provider serving your request sees a station making calls - not your
+                 account, your card, or your IP; stations dial outbound only and never
+                 learn where you are. Said plainly: unlinking is not content privacy - the
+                 words still reach whoever runs the model. For content that must not leave
+                 machines you trust, use a confidential station or run your own Tower.</p>
+              <a class="faq__more tlink" href="/why.html">Why route through us &middot; the whole argument &rarr;</a>
+            </div>
+        </div>
+
+        <div class="faq__item">
             <h3 class="faq__q">Do you keep my prompts?</h3>
             <div class="faq__a">
               <p>No. For a settled request we persist token counts, cost and hashes in the signed

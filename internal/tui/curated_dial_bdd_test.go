@@ -51,10 +51,32 @@ func (s *curDialBDD) rowCarriesMark() error {
 	if !strings.Contains(v, glyphCurated) {
 		return fmt.Errorf("no curated mark on the dial:\n%s", v)
 	}
-	if !strings.Contains(v, "openrouter") && !strings.Contains(v, "conifer") {
-		return fmt.Errorf("the provider name is not shown beside the mark:\n%s", v)
+	// Founder respec 2026-09-01: the ROW wears the bare mark; the vendor word on
+	// every row made the dial shout its providers. WHO serves lives in the detail.
+	if strings.Contains(v, "openrouter") || strings.Contains(v, "conifer") {
+		return fmt.Errorf("a provider name leaked onto the dial row - it belongs in the station log:\n%s", v)
 	}
 	return nil
+}
+
+func (s *curDialBDD) logNamesProvider() error {
+	// The station log (i) is the detail surface that says who actually serves.
+	m := s.m
+	vis := m.visibleBands()
+	for _, bd := range vis {
+		if bd.curated > 0 {
+			m.detailBand = bd
+			m.mode = modeBandDetail
+			s.m = m
+			v := s.view()
+			if !strings.Contains(v, "openrouter") && !strings.Contains(v, "conifer") {
+				return fmt.Errorf("the station log does not name the provider:\n%s", v)
+			}
+			s.m.mode = modeBrowse
+			return nil
+		}
+	}
+	return fmt.Errorf("no curated band on the dial to inspect")
 }
 
 func (s *curDialBDD) visuallyDistinct() error {
@@ -201,7 +223,8 @@ func TestCuratedDialFeature(t *testing.T) {
 			})
 			sc.Step(`^a curated station serving "([^"]*)" via "([^"]*)"$`, st.curatedServing)
 			sc.Step(`^the band browser lists it$`, st.browserLists)
-			sc.Step(`^the row carries a curated mark and the provider name$`, st.rowCarriesMark)
+			sc.Step(`^the row carries the bare curated mark and no provider name$`, st.rowCarriesMark)
+			sc.Step(`^the station log names the provider behind the mark$`, st.logNamesProvider)
 			sc.Step(`^it is visually distinct from every human-station badge$`, st.visuallyDistinct)
 			sc.Step(`^the band browser renders with curated stations present$`, st.curatedPresent)
 			sc.Step(`^the curated rows appear with their mark$`, st.rowsAppearMarked)

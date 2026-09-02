@@ -56,3 +56,31 @@ test("self-hosting is a first-class exit", () => {
   assert.match(page(), /href="\/broadcasts-run-a-tower\.html"/, "and the quickstart is linked");
   assert.match(c, /free/i, "and it says the local plane is free");
 });
+
+// --- features/web/network_story.feature locks -----------------------------------
+
+test("the why page is reachable from the homepage, the nav, and the footer", () => {
+  for (const page of ["index.html"]) {
+    assert.match(read(page), /href="\/why\.html"/, `${page} links why`);
+  }
+  // nav + footer are partials baked into every marketing page; models.html carries both
+  const m = read("models.html");
+  assert.ok((m.match(/href="\/why\.html"/g) || []).length >= 2, "nav and footer both carry why");
+});
+
+test("the homepage tells the story (network_story.feature)", () => {
+  const home = read("index.html");
+  assert.match(home, /sees a station -?\s*(never|not) you/i, "the unlinking line");
+  assert.match(home, /Two kinds of transmitter/i, "both earn paths framed as one verb");
+  assert.match(home, /curated station/i, "the resale path is named");
+  assert.match(home, /5%<\/b> of everything you patch|keep <b>5%<\/b>/i, "the tower relay earn");
+  assert.match(home, /standalone/i, "the free standalone exit");
+  assert.match(home, /cheaper direct|go direct/i, "the honest concession");
+  assert.match(home, /§10 \/ YOU COULD GO DIRECT/, "the comparison tease section");
+});
+
+test("the FAQ answers resale and provider-anonymity (network_story.feature)", () => {
+  const faq = read("faq.html");
+  assert.match(faq, /Can I resell my provider contract as a station\?/, "the resale question");
+  assert.match(faq, /Does a model provider know who I am\?/, "the anonymity question");
+});

@@ -109,8 +109,14 @@ func (m model) bandDetailView(w int) string {
 	// Clamped: the header and the empty state both ran off a narrow or minimized
 	// terminal (the compact audit). The empty state also drops to its keys on a slim
 	// width - the two keys ARE the message there, the sentence around them is not.
+	// The DETAIL is where the curated vendor is named in full (founder respec
+	// 2026-09-01: the dial row wears the bare » mark; who actually serves says so here).
+	curTag := ""
+	if bd.curated > 0 && bd.curatedProvider != "" {
+		curTag = stDim.Render(" · ") + stDim.Render(glyphCurated+bd.curatedProvider)
+	}
 	b.WriteString("  " + truncVisible(stSelBar.Render("▌")+" "+stBrand.Render("STATION LOG")+
-		stDim.Render("   ")+stKey.Render(bd.model)+stDim.Render(" · ")+on+ctxTag, w-2) + "\n\n")
+		stDim.Render("   ")+stKey.Render(bd.model)+stDim.Render(" · ")+on+ctxTag+curTag, w-2) + "\n\n")
 
 	if len(bd.all) == 0 {
 		empty := "no station detail for this band right now - r to re-scan, esc to go back"
@@ -369,11 +375,12 @@ func bandBadge(bd band, limits *LimitStore, connected bool) string {
 	if bd.vision {
 		parts = append(parts, stKey.Render(visionGlyph()))
 	}
-	// The CURATED mark: »provider (e.g. »openrouter), the new badge for proxied
-	// commercial supply. The provider IS the content - a bare mark would say "not a
-	// person" without saying who is actually serving.
+	// The CURATED mark: the bare glyph on the ROW (founder respec 2026-09-01 - the
+	// provider word made every curated row shout its vendor); WHO is actually serving
+	// lives one keypress away, in the station log (i) and the band card (b), where
+	// there is room to say »openrouter in full.
 	if bd.curated > 0 {
-		parts = append(parts, stDim.Render(glyphCurated+bd.curatedProvider))
+		parts = append(parts, stDim.Render(glyphCurated))
 	}
 	if bd.free {
 		parts = append(parts, stLive.Render("FREE"))

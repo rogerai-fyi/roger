@@ -42,7 +42,7 @@ import (
 //
 // The default below is the fallback for a plain `go build`. Keep it in sync with
 // releases. Use semver, optionally with a prerelease suffix (e.g. 4.8.0-beta.1).
-var Version = "6.8.0"
+var Version = "6.9.0"
 
 // The production broker is the default - `rogerai` works out of the box, no config.
 // Override per-session with ROGER_BROKER=... or persist with `roger config set broker`.
@@ -1139,7 +1139,7 @@ func cmdShare(cfg config, args []string) error {
 	// the network. It is the local, advisory minimum-hardware preflight (see preflight.go);
 	// it reports and exits, and it gates nothing - a share below the bar still runs.
 	check := fs.Bool("check", false, "check this machine against the suggested minimum hardware and exit. Local only - nothing is sent, and nothing is blocked either way")
-	curated := fs.String("curated", "", "declare this station a CURATED proxy for the named commercial provider (e.g. openrouter). Requires an explicit --upstream (the commercial endpoint); declare its list via --upstream-price-in/out (zero = a free upstream). The broker posts list + its routing markup and settles back your list plus half the routing fee")
+	curated := fs.String("curated", "", "declare this station a CURATED proxy for the named commercial provider (e.g. openrouter). Requires an explicit --upstream (the commercial endpoint); declare its list via --upstream-price-in/out (zero = a free upstream). The broker posts list + its routing markup and settles back your list plus half the routing fee. Verification: one canary at registration earns the check mark, then a minimal weekly recheck - billed to your upstream, typically under a cent a month per band")
 	upIn := fs.Float64("upstream-price-in", 0, "curated: the upstream's list $/1M input the broker derives the posted price from")
 	upOut := fs.Float64("upstream-price-out", 0, "curated: the upstream's list $/1M output")
 	advanced := fs.Bool("advanced", false, "show advanced flags (--node --region --parallel --upstream --modality --ctx --confidential --free-window --schedule --curated --upstream-price-in --upstream-price-out)")

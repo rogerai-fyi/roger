@@ -85,6 +85,17 @@ func nextCanary(round uint64) canaryFingerprint {
 const (
 	defaultProbeInterval = 30 * time.Second // ROGERAI_PROBE_INTERVAL default - the adaptive backoff FLOOR
 	defaultProbeCeiling  = 15 * time.Minute // ROGERAI_PROBE_CEILING default - the idle backoff CAP
+	// defaultProbeCuratedEvery is the CURATED slow lane: a curated station fronts a
+	// METERED commercial API, so every canary is billed to the operator's upstream and
+	// pays them nothing. The founder's ruling (2026-09-01, watching the first live
+	// house stations burn a dollar a day on the adaptive lane): "it should just probe
+	// once ... and something minimal to prove it's what it says". So: ONE full canary
+	// at first sight - that is what earns the ✓ - then a minimal WEEKLY recheck, and
+	// nothing in between; a dead key surfaces on the first real request via the
+	// ordinary failover + strike machinery anyway. The tools canary rides the same
+	// gate (it only fires for nodes selected as probe targets), so no verification
+	// path can out-spend this lane (features/curated/curated_probes.feature).
+	defaultProbeCuratedEvery = 7 * 24 * time.Hour // ROGERAI_PROBE_CURATED_INTERVAL (seconds; 0 = first probe only, never again)
 	defaultProbePerOwner = 4                // ROGERAI_PROBE_PER_OWNER default
 	// canaryMaxTokens is the per-probe completion budget. Sized so a reasoning model
 	// can emit its reasoning channel AND still land a short answer; a small budget
@@ -101,6 +112,8 @@ type probeConfig struct {
 	ceiling  time.Duration
 	perOwner int    // max nodes of a single owner probed per round (0 = no cap)
 	round    uint64 // monotonic round counter (rotates the canary + the per-owner sample)
+	// curatedEvery is the curated slow lane's fixed cadence (see defaultProbeCuratedEvery).
+	curatedEvery time.Duration
 }
 
 // loadProbe reads the active-probe config. ON by default (30s floor -> 15m ceiling);
@@ -127,7 +140,13 @@ func loadProbe() probeConfig {
 			perOwner = n
 		}
 	}
-	c := probeConfig{interval: interval, ceiling: ceiling, perOwner: perOwner}
+	curatedEvery := defaultProbeCuratedEvery
+	if v := os.Getenv("ROGERAI_PROBE_CURATED_INTERVAL"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			curatedEvery = time.Duration(n) * time.Second // 0 = curated probes OFF
+		}
+	}
+	c := probeConfig{interval: interval, ceiling: ceiling, perOwner: perOwner, curatedEvery: curatedEvery}
 	if c.enabled() {
 		log.Printf("active probe: ENABLED (adaptive %s floor -> %s ceiling, doubling while idle; canary + TTFT + clean tok/s, unbilled; per-owner cap %d/round)", c.interval, c.ceiling, c.perOwner)
 	} else {
@@ -137,6 +156,23 @@ func loadProbe() probeConfig {
 }
 
 func (c probeConfig) enabled() bool { return c.interval > 0 }
+
+// curatedHold reports whether the curated slow lane HOLDS a station back from
+// probing right now. The lane engages only after a PASSED probe (verified=true):
+// a transient first-canary failure (timeout, 429) stays on the adaptive lane and
+// retries normally, instead of stranding an unverified station for a week - or
+// forever with the recheck disabled. Once verified, the next canary is the weekly
+// recheck and nothing can pull it in early. Pure so the spec exercises the real
+// decision (curated_probes.feature).
+func (c probeConfig) curatedHold(st *probeState, verified bool, now time.Time) bool {
+	if !st.curated || st.lastProbe.IsZero() || !verified {
+		return false
+	}
+	if c.curatedEvery <= 0 {
+		return true // first (passed) probe was the only one, ever
+	}
+	return now.Before(st.lastProbe.Add(c.curatedEvery))
+}
 
 // measurementStale reports whether a node's last measurement (probe or real traffic)
 // is old enough to count as "not recently verified": older than the ceiling, the
@@ -201,6 +237,10 @@ func (c probeConfig) backoffInterval(lvl int) time.Duration {
 // node at the floor once and re-backs-off, which is the correct cold-start behaviour.
 type probeState struct {
 	nextDue      time.Time
+	// curated mirrors the node's registration kind into the schedule (stamped each
+	// round under b.mu), so the metricsMu-held demand hook can respect the slow lane
+	// without touching b.mu (lock order is b.mu -> metricsMu; never the reverse).
+	curated bool
 	backoff      int
 	lastMeasured time.Time
 	// lastProbe is when a real probe round last FIRED at this node, as opposed to
@@ -313,6 +353,22 @@ func (b *broker) demandProbeSoonLocked(nodeID string, now time.Time) {
 		st = &probeState{}
 		sched[nodeID] = st
 	}
+	// The CURATED slow lane holds under demand: a browse spike refreshing a bedroom
+	// GPU's reading is the feature; the same spike canarying a metered commercial API
+	// is the operator's cash. A curated station is never pulled in before its cadence
+	// (and with the lane disabled, never at all) - the reading it has is the reading
+	// the market shows (features/curated/curated_probes.feature).
+	if tq := b.trust[nodeID]; b.probe.curatedHold(st, tq.probed && tq.probeOK, now) {
+		// A verified curated station is never pulled in by demand: with the recheck
+		// disabled there is nothing to pull toward, and with it enabled the next
+		// canary is never before the cadence point - clamped UP as well as down.
+		if b.probe.curatedEvery > 0 {
+			if earliest := st.lastProbe.Add(b.probe.curatedEvery); st.nextDue.Before(earliest) {
+				st.nextDue = earliest
+			}
+		}
+		return
+	}
 	st.backoff = 0
 	if st.nextDue.IsZero() || st.nextDue.After(now) {
 		st.nextDue = now // eligible on the next round (floor resolution)
@@ -418,6 +474,11 @@ func (b *broker) probeOnce() {
 	}
 	now := time.Now()
 	var cands []cand
+	// Curated stations held by the slow lane still re-assert their earned shared
+	// tools marks (static capability, zero canaries); collected under the locks,
+	// flushed after (network I/O).
+	type refreshPair struct{ node, model string }
+	var curatedToolRefresh []refreshPair
 	b.mu.Lock()
 	b.metricsMu.Lock()
 	sched := b.probeSchedLocked()
@@ -437,6 +498,35 @@ func (b *broker) probeOnce() {
 		if st == nil {
 			st = &probeState{} // first sight: due now (zero nextDue), backoff 0
 			sched[n.NodeID] = st
+		}
+		st.curated = n.Curated // stamped under b.mu; read by the metricsMu-held demand hook
+		// THE CURATED SLOW LANE: a canary against a metered commercial API is the
+		// operator's cash. First sight is ALWAYS probed - that is what earns the ✓ -
+		// then, once a probe has PASSED, only the weekly recheck (never the 30s..15m
+		// adaptive lane; interval 0 = never again). A FAILED first canary keeps the
+		// adaptive retry so a transient timeout cannot strand a station unverified
+		// for a week. NOTE the schedule is per-process memory: each broker instance
+		// runs its own first-sight canary after a deploy - a few extra canaries per
+		// deploy, accepted and covered by the disclosed estimate.
+		tq := b.trust[n.NodeID]
+		if b.probe.curatedHold(st, tq.probed && tq.probeOK, now) {
+			// The verified-tools bit must not lapse while the serving canary sleeps:
+			// a curated capability is static per registration (the upstream model
+			// does not lose tools), so re-assert the shared mark on the cheap
+			// throttle - zero canaries, zero upstream cost.
+			if canRefresh := b.shared != nil && now.Sub(b.lastToolMark[n.NodeID]) > toolsRefreshEvery; canRefresh {
+				pfx := n.NodeID + "\x00"
+				for k := range b.toolsOK {
+					if strings.HasPrefix(k, pfx) {
+						curatedToolRefresh = append(curatedToolRefresh, refreshPair{n.NodeID, strings.TrimPrefix(k, pfx)})
+					}
+				}
+				if b.lastToolMark == nil {
+					b.lastToolMark = map[string]time.Time{}
+				}
+				b.lastToolMark[n.NodeID] = now
+			}
+			continue
 		}
 		if !st.nextDue.IsZero() && st.nextDue.After(now) {
 			continue // backed off: not due yet this round
@@ -465,6 +555,10 @@ func (b *broker) probeOnce() {
 	}
 	b.metricsMu.Unlock()
 	b.mu.Unlock()
+
+	for _, r := range curatedToolRefresh {
+		_ = b.shared.markToolsVerified(r.node, r.model, toolsVerifiedTTL)
+	}
 
 	// Resolve each candidate's owner via the cached binding OUTSIDE metricsMu/mu: a
 	// per-candidate AccountOfNode under the global locks serialized the whole probe round on

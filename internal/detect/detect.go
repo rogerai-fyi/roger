@@ -579,7 +579,12 @@ func mergeOllamaNative(f *Found, base string) {
 // DefaultCtx is the last-resort context length used ONLY when no upstream reports
 // a real per-model window. A node that falls back to this advertises CtxEstimated
 // so the UI can render it as an estimate (~32k, dim) rather than a detected value.
-const DefaultCtx = 32768
+// DefaultCtx is the LAST-RESORT window when detection finds nothing. 333333 on
+// purpose (founder respec 2026-09-01): the old 32768 rendered as "~33k", a number
+// plausible enough to be believed; ~333k is visibly a sentinel - a reader who knows
+// models knows no window is 333k, and the ~ estimated mark plus this value together
+// say "not detected" instead of quietly lying near the truth.
+const DefaultCtx = 333333
 
 // ResolveCtx returns the real per-model context window for model, and whether it
 // is the estimated DefaultCtx fallback (estimated=true) versus a value actually

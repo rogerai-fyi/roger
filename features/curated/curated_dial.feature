@@ -13,7 +13,11 @@ Feature: Curated stations are badged, filterable, and counted apart
   Scenario: The dial badges a curated band
     Given a curated station serving "deepseek-v4" via "openrouter"
     When the band browser lists it
-    Then the row carries a curated mark and the provider name
+    Then the row carries the bare curated mark and no provider name
+    And the station log names the provider behind the mark
+    # founder respec 2026-09-01: "remove the word openrouter in favor of a glyph...
+    # keep the actual name in the detail area" - the row says NOT A PERSON; the
+    # detail surfaces (i / b) say who actually serves
     And it is visually distinct from every human-station badge
 
 

@@ -27,7 +27,9 @@ before(() => execFileSync("node", ["build.mjs"], { cwd: WEB }));
 
 const SPECS = [
   "Protocol", "Transport", "Endpoint", "Pricing", "Settlement", "Lineage",
-  "Split", "Backends", "Interfaces", "Platforms", "Reach",
+  "Split",
+  "Curated",
+  "Relay split", "Backends", "Interfaces", "Platforms", "Reach",
 ];
 
 test("spec plate: every specification survived the compression", () => {
