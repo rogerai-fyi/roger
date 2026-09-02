@@ -230,6 +230,17 @@ func (m model) View() string {
 			}
 		}
 	}
+	// THE WIDTH BACKSTOP, same doctrine as the height one below: a single over-wide
+	// line WRAPS in the terminal, the frame grows a row the renderer did not count,
+	// the buffer scrolls, and the ghosting returns until the next resize resyncs it.
+	// Every line is bounded to the terminal's width before any row accounting.
+	if m.width > 0 {
+		lines := strings.Split(out, "\n")
+		for i, ln := range lines {
+			lines[i] = truncVisible(ln, m.width) // returns ln untouched when it fits
+		}
+		out = strings.Join(lines, "\n")
+	}
 	if m.height > 0 {
 		out = strings.TrimRight(out, "\n")
 		if n := strings.Count(out, "\n") + 1; n < m.height {

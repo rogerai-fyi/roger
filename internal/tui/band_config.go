@@ -384,7 +384,7 @@ func (m model) onBandConfigKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// and every quant the dial knows. A rule can name a quant the dial has
 		// lost, so the union, not just the air.
 		seen := map[string]bool{}
-		m.quantOpts = m.quantOpts[:0]
+		m.quantOpts = nil // fresh storage: [:0] reuse aliases the prior copy on a value receiver
 		for _, q := range append(append([]string{}, rule...), m.quantsOnAir()...) {
 			if q == "" || seen[q] {
 				continue

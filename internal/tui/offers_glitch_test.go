@@ -2,6 +2,8 @@ package tui
 
 import (
 	"fmt"
+
+	"github.com/charmbracelet/lipgloss"
 	"strings"
 	"testing"
 
@@ -85,5 +87,18 @@ func TestStationLogSaysWhatItIs(t *testing.T) {
 	view := stripANSI(m.bandDetailView(100))
 	if !strings.Contains(view, "every station carrying this band") {
 		t.Fatalf("the station log does not say what it is:\n%s", view)
+	}
+}
+
+// The width backstop: no frame line may exceed the terminal - a wrapped line grows
+// a row the renderer did not count, the buffer scrolls, and the ghosts return.
+func TestNoFrameLineExceedsTheTerminalWidth(t *testing.T) {
+	m := browseSeed(60)
+	m.height = 30
+	m.status = strings.Repeat("a very long status line · ", 20)
+	for i, ln := range strings.Split(m.View(), "\n") {
+		if w := lipgloss.Width(ln); w > 60 {
+			t.Fatalf("frame line %d is %d cells on a 60-cell terminal:\n%q", i, w, ln)
+		}
 	}
 }
