@@ -716,3 +716,22 @@ test("the radar sweep pivots on the scope centre", () => {
     assert.equal(Number(beam[2]), cy, "the beam starts at the centre");
   }
 });
+
+// ---- research-hardware serves right-sized images (founder report, 2026-09-02) --
+// The cards render ~470px wide but shipped 1000px files to every screen; with the
+// origin's 10-second cache-control the page re-downloaded ~712K of webp on nearly
+// every visit. Each shot now carries a 500w variant and both srcset URLs get the
+// build's content hash, so the CDN cache rule can hold them for a year.
+
+test("every hardware card shot is responsive and content-versioned", () => {
+  const html = readFileSync(path.join(DIST, "research-hardware.html"), "utf8");
+  const imgs = [...html.matchAll(/<img src="assets\/hardware\/[^"]+"[^>]*>/g)].map((m) => m[0]);
+  assert.equal(imgs.length, 10, "the ten card shots");
+  for (const img of imgs) {
+    assert.match(img, /srcset="assets\/hardware\/[a-z0-9]+-500\.webp\?v=[0-9a-f]{8} 500w, assets\/hardware\/[a-z0-9]+\.webp\?v=[0-9a-f]{8} 1000w"/,
+      `both srcset entries versioned: ${img.slice(0, 80)}`);
+    assert.match(img, /sizes="/, "the browser is told the render width");
+    assert.match(img, /loading="lazy"/, "below-fold stays lazy");
+    assert.match(img, /decoding="async"/, "decode off the main thread");
+  }
+});

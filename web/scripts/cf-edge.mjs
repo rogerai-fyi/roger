@@ -206,6 +206,29 @@ export async function canonicalSiteReady(host, fetchImpl = fetch) {
   }
 }
 
+// The origin (App Platform static hosting) serves every asset with
+// `cache-control: public,max-age=10,s-maxage=86400` - browsers re-fetch EVERYTHING
+// after ten seconds, and a cold edge POP pulls each file from the origin. That is
+// what made asset-heavy pages (research-hardware's ten card shots) feel slow.
+// build.mjs stamps every local js/styles/assets URL with a content hash (?v=<hash>),
+// so a referenced asset URL is immutable: this rule gives exactly those URLs a long
+// browser TTL and a real edge TTL. Un-versioned direct fetches keep the origin's
+// 10-second freshness, and HTML is untouched - a deploy still shows up immediately.
+export function cacheRule(opts = {}) {
+  const zone = opts.zone || ZONE;
+  return {
+    description: "RogerAI versioned-asset cache (repo: web/scripts/cf-edge.mjs)",
+    enabled: true,
+    expression: `(http.host in {"${zone}" "www.${zone}"} and http.request.uri.query contains "v=" and http.request.uri.path.extension in {"js" "css" "webp" "png" "jpg" "jpeg" "gif" "svg" "ico" "avif" "woff2" "mp4" "webm" "vtt"})`,
+    action: "set_cache_settings",
+    action_parameters: {
+      cache: true,
+      edge_ttl: { mode: "override_origin", default: 2592000 },
+      browser_ttl: { mode: "override_origin", default: 31536000 },
+    },
+  };
+}
+
 // ---- Cloudflare API helpers ---------------------------------------------------------------
 async function cf(method, urlPath, body) {
   const token = process.env.CF_API_TOKEN || process.env.CLOUDFLARE_API_TOKEN;
@@ -396,6 +419,8 @@ if (!apply) {
   console.log(JSON.stringify({ rules: [hRule] }, null, 2));
   console.log("\n# http_request_dynamic_redirect / entrypoint  (appended to your existing rules)");
   console.log(JSON.stringify({ rules: [rRule, vanityImportRule()] }, null, 2));
+  console.log("\n# http_request_cache_settings / entrypoint  (appended to your existing rules)");
+  console.log(JSON.stringify({ rules: [cacheRule()] }, null, 2));
   console.log("\nRe-run with --apply (and CF_API_TOKEN set) to write them.");
   process.exit(0);
 }
@@ -408,6 +433,8 @@ const b = await upsert(zid, "http_request_dynamic_redirect", rRule);
 console.log(`redirect rule: applied (${b.kept} other rule(s) preserved, ${b.total} total)`);
 const v = await upsert(zid, "http_request_dynamic_redirect", vanityImportRule());
 console.log(`vanity rule:  applied (${v.kept} other rule(s) preserved, ${v.total} total)`);
+const cc = await upsert(zid, "http_request_cache_settings", cacheRule());
+console.log(`cache rule:   applied (${cc.kept} other rule(s) preserved, ${cc.total} total)`);
 console.log("\nDone. Verify:  curl -sSI https://rogerai.fm/ | grep -iE 'content-security|strict-transport|x-frame'");
 console.log("              curl -sSI https://www.rogerai.fm/ | grep -i location");
 }

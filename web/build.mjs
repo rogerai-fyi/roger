@@ -185,8 +185,14 @@ function assetHash(rel) {
   return h;
 }
 function cacheBust(html) {
-  return html.replace(/((?:src|href|poster)=")((?:js|styles|assets)\/[^"?]+\.(?:js|css|mp4|vtt|gif|png|webp|svg|jpe?g|avif))"/g,
+  html = html.replace(/((?:src|href|poster)=")((?:js|styles|assets)\/[^"?]+\.(?:js|css|mp4|vtt|gif|png|webp|svg|jpe?g|avif))"/g,
     (_, pre, rel) => `${pre}${rel}?v=${assetHash(rel)}"`);
+  // srcset carries several URLs with width descriptors; version each local one, so
+  // responsive variants get the same immutable-URL treatment as plain src.
+  return html.replace(/(srcset=")([^"]+)"/g, (_, pre, list) => pre + list.split(",").map((entry) => {
+    const m = entry.trim().match(/^((?:js|styles|assets)\/[^\s?]+)(\s+\S+)?$/);
+    return m ? `${m[1]}?v=${assetHash(m[1])}${m[2] || ""}` : entry.trim();
+  }).join(", ") + '"');
 }
 
 // ---- SEO: one canonical per page + a build-time sitemap ------------------------------------

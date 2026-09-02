@@ -305,3 +305,25 @@ test("the vanity drift check accepts only the exact host and path, with the go-g
   assert.match(vanityRedirectDrift(200, "", "/roger/v5", "rogerai.fm") || "", /drift/);
   assert.match(vanityRedirectDrift(301, "not a url", "/roger/v5", "rogerai.fm") || "", /drift/);
 });
+
+// ---- the versioned-asset cache rule (added 2026-09-02) -------------------------
+// The origin serves max-age=10 on everything; only URLs build.mjs stamped with a
+// content hash may be long-cached, or a deploy could serve stale assets for a year.
+
+test("cache rule: only versioned asset URLs, host-scoped, both TTLs overridden", () => {
+  const r = edge.cacheRule();
+  assert.equal(r.action, "set_cache_settings");
+  assert.match(r.expression, /http\.host in \{"rogerai\.fm" "www\.rogerai\.fm"\}/, "exact host test");
+  assert.match(r.expression, /http\.request\.uri\.query contains "v="/, "versioned URLs only");
+  assert.match(r.expression, /http\.request\.uri\.path\.extension in \{/, "assets only, never HTML");
+  assert.doesNotMatch(r.expression, /"html?"/, "an HTML page must never be long-cached");
+  assert.equal(r.action_parameters.cache, true);
+  assert.equal(r.action_parameters.browser_ttl.mode, "override_origin");
+  assert.ok(r.action_parameters.browser_ttl.default >= 86400, "browsers keep immutable assets");
+  assert.equal(r.action_parameters.edge_ttl.mode, "override_origin");
+  assert.ok(r.action_parameters.edge_ttl.default >= 86400, "the edge actually caches");
+});
+
+test("cache rule: the description is stable so upsert replaces, never stacks", () => {
+  assert.equal(edge.cacheRule().description, edge.cacheRule({ zone: "rogerai.fm" }).description);
+});
