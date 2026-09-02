@@ -730,7 +730,17 @@ test("every hardware card shot is responsive and content-versioned", () => {
   for (const img of imgs) {
     assert.match(img, /srcset="assets\/hardware\/[a-z0-9]+-500\.webp\?v=[0-9a-f]{8} 500w, assets\/hardware\/[a-z0-9]+\.webp\?v=[0-9a-f]{8} 1000w"/,
       `both srcset entries versioned: ${img.slice(0, 80)}`);
-    assert.match(img, /sizes="/, "the browser is told the render width");
+    // the breakpoints are the GRID's numbers, not decoration: 1 column to 666px
+    // (minmax(290)+gap+gutter makes 2 columns only from 667px), ~45vw to the
+    // wrap's max, then the resting card width - the audit measured a 2x
+    // underestimate from eyeballed values, upscaling 500w files on 2-col views.
+    if (img.includes("datacenter")) {
+      assert.match(img, /sizes="\(max-width: 666px\) 90vw, \(max-width: 899px\) 45vw, \(max-width: 1119px\) 38vw, 407px"/,
+        "the wide card's sizes follow its 42%-of-row shot");
+    } else {
+      assert.match(img, /sizes="\(max-width: 666px\) 90vw, \(max-width: 1010px\) 45vw, 311px"/,
+        "sizes follows the measured grid breakpoints");
+    }
     assert.match(img, /loading="lazy"/, "below-fold stays lazy");
     assert.match(img, /decoding="async"/, "decode off the main thread");
   }
