@@ -2972,7 +2972,7 @@ rogerai.fm/roger/v6/internal/towerhub/client.go:355:			httpClient			100.0%
 rogerai.fm/roger/v6/internal/towerhub/client.go:368:			refuseRedirect			100.0%
 rogerai.fm/roger/v6/internal/towerhub/client.go:373:			url				100.0%
 rogerai.fm/roger/v6/internal/towerhub/client.go:383:			authenticate			88.9%
-rogerai.fm/roger/v6/internal/towerhub/client.go:410:			SubmitJob			95.5%
+rogerai.fm/roger/v6/internal/towerhub/client.go:410:			SubmitJob			90.9%
 rogerai.fm/roger/v6/internal/towerhub/client.go:446:			PollJob				100.0%
 rogerai.fm/roger/v6/internal/towerhub/client.go:476:			CompleteResult			90.9%
 rogerai.fm/roger/v6/internal/towerhub/client.go:521:			errSnippet			100.0%
