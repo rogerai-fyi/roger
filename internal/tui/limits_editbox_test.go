@@ -46,12 +46,18 @@ func TestEditBoxIsOneRowAndSquareAtEveryWidth(t *testing.T) {
 				w, len(box), strings.Join(box, "\n"))
 			continue
 		}
-		// The top line carries the 2-space indent; the other two do not.
-		top := lipgloss.Width(box[0]) - 2
-		for i, ln := range box[1:] {
+		// EVERY line carries the same 2-space indent and the same width. The old
+		// assertion blessed a skewed box ("the top line carries the indent; the other
+		// two do not") - that skew IS the misaligned border the founder screenshotted
+		// (2026-09-02): the "\n  " prefix indents only the first line of the render.
+		top := lipgloss.Width(box[0])
+		for i, ln := range box {
+			if !strings.HasPrefix(ln, "  ") {
+				t.Errorf("w=%d: box line %d lost the 2-space indent:\n%s", w, i, strings.Join(box, "\n"))
+			}
 			if got := lipgloss.Width(ln); got != top {
 				t.Errorf("w=%d: box line %d is %d wide, top border is %d - the box is skewed:\n%s",
-					w, i+1, got, top, strings.Join(box, "\n"))
+					w, i, got, top, strings.Join(box, "\n"))
 			}
 		}
 		if lipgloss.Width(box[0]) > w {

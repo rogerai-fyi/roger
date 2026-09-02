@@ -298,7 +298,11 @@ func (m model) limitsBody(w int) string {
 		// which is the off-by-two that let the wrap through - it is content+2, never content.
 		plate = truncVisible(plate, avail)
 		inner := lipgloss.Width(plate) + 2 // + the style's horizontal padding
-		b.WriteString("\n  " + stPanel.Width(inner).Render(plate) + "\n")
+		// INDENT EVERY LINE. "\n  " + a three-line render indents only the top border,
+		// so the box sat two cells askew from its own content row - the misaligned
+		// border the founder screenshotted (2026-09-02).
+		box := stPanel.Width(inner).Render(plate)
+		b.WriteString("\n  " + strings.ReplaceAll(box, "\n", "\n  ") + "\n")
 	}
 	keys := "↑↓ move   ⏎ edit   tab next field   d clear   esc done"
 	if w < 60 {
