@@ -33,7 +33,7 @@
 
   // The live App Store listing (RogerAI.fyi, shipped 2026-07-09) - canonical form, kept in
   // lockstep with the /app.html links.
-  var APP_STORE_URL = "https://apps.apple.com/us/app/rogerai-fyi/id6785743752";
+  var APP_STORE_URL = "https://apps.apple.com/us/app/rogerai-fm/id6785743752";
   // pure: the argument tuple for a safe new-tab open - opener severed so the store tab can't touch us.
   function openArgs(url) { return [url, "_blank", "noopener,noreferrer"]; }
 

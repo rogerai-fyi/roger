@@ -87,7 +87,8 @@ test("app structured data uses the company brand and preserves the store legacy 
   const blocks = [...app.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)].map((m) => JSON.parse(m[1]));
   const product = blocks.find((b) => b["@type"] === "SoftwareApplication" && b.downloadUrl);
   assert.equal(product?.name, "RogerAI");
-  assert.equal(product?.alternateName, "RogerAI.fyi");
+  // the store renamed to "RogerAI.fm App" (v1.2); the legacy name rides along
+  assert.deepEqual(product?.alternateName, ["RogerAI.fm App", "RogerAI.fyi"]);
   assert.equal(product?.url, "https://rogerai.fm/app.html");
 });
 

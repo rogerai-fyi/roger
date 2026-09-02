@@ -34,12 +34,12 @@
   // Representative band readouts to sweep through (marketing data; the real,
   // live dial is on /models.html). model, stations, signal, rate $/1M, t/s.
   var BANDS = [
-    { m: "qwen3.8-27b",        stn: 9, sig: 91, rate: "$0.19", tps: 68, idle: false },
-    { m: "muse-glimmer-30b",   stn: 7, sig: 84, rate: "$0.24", tps: 59, idle: false },
-    { m: "qwen3-coder-30b",    stn: 6, sig: 79, rate: "$0.22", tps: 61, idle: false },
-    { m: "gpt-oss-120b",       stn: 3, sig: 68, rate: "$0.55", tps: 66, idle: false },
-    { m: "gemma3-27b",         stn: 5, sig: 62, rate: "$0.27", tps: 57, idle: false },
-    { m: "kimi-k2.6",          stn: 2, sig: 55, rate: "$0.94", tps: 31, idle: false },
+    { m: "gpt-oss-20b",        stn: 7, sig: 89, rate: "$0.00", tps: 31, idle: false },
+    { m: "deepseek-v4-flash",  stn: 5, sig: 82, rate: "$0.20", tps: 28, idle: false },
+    { m: "qwen3.8-27b",        stn: 6, sig: 78, rate: "$0.19", tps: 62, idle: false },
+    { m: "\u00bbclaude-haiku-4.5", stn: 2, sig: 71, rate: "$5.50", tps: 34, idle: false },
+    { m: "grok-4.6",           stn: 3, sig: 63, rate: "$0.01", tps: 25, idle: false },
+    { m: "\u00bbkimi-k3",       stn: 2, sig: 57, rate: "$16.50", tps: 26, idle: false },
     { m: "mistral-large",      stn: 0, sig: 0,  rate: "-",     tps: 0,  idle: true  }
   ];
 

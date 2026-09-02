@@ -1,4 +1,9 @@
-# WHY ROGERAI - the page that answers "why pay a routing fee at all?".
+# WHY ROGERAI - the argument that answers "why pay a routing fee at all?".
+#
+# MERGE RESPEC (founder, 2026-09-02): the why is no longer its own page - "it should
+# just be wrapped into the pricing page, probably on the top to quickly show the
+# value". The argument now opens pricing.html (§0, anchor #why); why.html survives as
+# a pointer stub so old links land. The scenarios below read against pricing.
 #
 # Founder directive 2026-09-01: the site needs one place that properly explains what the
 # network's routing buys - the anonymization story told HONESTLY (identity unlinking is
@@ -11,10 +16,10 @@ Feature: The why page sells the routing honestly
   I want the trade told straight, including what the fee does NOT buy
   So that whoever stays was convinced by true things.
 
-  Scenario: The page exists and is reachable
+  Scenario: The argument opens the pricing page
     When the site builds
-    Then why.html is in the sitemap
-    And the pricing page links to it where the fee is explained
+    Then the pricing page opens with what the fee buys, before any number
+    And why.html survives as a pointer to it
 
   Scenario: Anonymization is claimed exactly as far as the architecture enforces it
     When the why page renders

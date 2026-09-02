@@ -235,7 +235,8 @@ test("calculator: the printed example is what the printed inputs actually produc
 test("calculator: the pricing page's sections are numbered once each, in order", () => {
   const nums = [...read("pricing.html").matchAll(/&sect;(\d+) \/ [A-Z]/g)].map((m) => Number(m[1]));
   assert.ok(nums.length >= 6, `the page is numbered (${nums.length} sections)`);
-  assert.deepEqual(nums, nums.map((_, i) => i + 1), "sections run 1..n with no repeat and no gap");
+  // §0 is the merged why argument (2026-09-02): the value opens the page before any number.
+  assert.deepEqual(nums, nums.map((_, i) => i), "sections run 0..n with no repeat and no gap");
 });
 
 test("calculator: every input is labelled", () => {

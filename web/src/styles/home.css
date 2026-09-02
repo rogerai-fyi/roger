@@ -1264,3 +1264,22 @@ html.js .mkt-quiet--nojs { display: none; }
   .shelf__cover { width: 136px; }
   .shelf__no { max-width: 136px; }
 }
+
+/* ==== §8 PRIVACY-FIRST AIRWAVES - six pictogram cards (operator+tower+exit) ==== */
+.pcards {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px; background: var(--hairline); border-block: 2px solid var(--ink-900);
+}
+.pcards article {
+  display: flex; flex-direction: column; gap: var(--s-3);
+  padding: var(--s-6); background: var(--paper);
+}
+.pcards h3 { margin: 0; color: var(--ink-900); font-size: var(--t-base); }
+.pcards p { margin: 0; color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body); }
+.pc-ic {
+  width: 44px; height: 44px; fill: none; stroke: var(--ink-900);
+  stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round;
+}
+.pc-ic .pc-red { stroke: var(--live); }
+.pc-ic .pc-fill { fill: var(--live); stroke: none; }
+@media (max-width: 820px) { .pcards { grid-template-columns: 1fr; } }

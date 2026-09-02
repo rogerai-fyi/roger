@@ -1,20 +1,10 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <!-- include: head.html title="Why route through Roger - RogerAI" desc="What the RogerAI routing fee actually buys: identity unlinking in front of commercial APIs, co-signed receipts, mid-request failover across human and curated stations, per-request price caps, and a self-hosted exit you can take any time. Told straight, including what it does not buy." theme=external og=post ogtype=website ogtitle="Why route through Roger" ogdesc="One dial over human GPUs and curated commercial APIs: identity unlinking, verifiable receipts, failover, spend caps, and a free self-hosted Tower when you would rather run your own." ogurl="https://rogerai.fm/why.html" ogimage="https://rogerai.fm/og-home.png" -->
-  <style>
-    .why-table{width:100%;border-collapse:collapse;font-size:.95rem}
-    .why-table th,.why-table td{text-align:left;padding:10px 14px;border-bottom:1px solid var(--hairline,rgba(128,128,128,.25));vertical-align:top}
-    .why-table th{font-family:var(--mono,ui-monospace,monospace);font-size:.72rem;letter-spacing:.12em;text-transform:uppercase;opacity:.7}
-    .why-table td:first-child{white-space:nowrap;font-weight:600}
-    .why-tablewrap{overflow-x:auto;margin:18px 0}
-    .why-not{border-left:3px solid currentColor;padding:2px 0 2px 16px;margin:18px 0;opacity:.92}
-    .why-k{font-family:var(--mono,ui-monospace,monospace);font-size:.72rem;letter-spacing:.14em;text-transform:uppercase;opacity:.65;display:block;margin-bottom:4px}
-  </style>
+  <!-- include: head.html title="Why route through Roger - RogerAI" desc="The why moved in with the money: what the routing fee buys, the honest comparison, and how your identity stays off the waves - now at the top of the pricing page." theme=external robots=noindex -->
 </head>
 <body>
   <!-- include: nav.html variant=marketing home=/ anchors=/ scrolled=1 -->
-
   <main id="top">
     <section class="research-hero">
       <div class="wrap">
@@ -22,176 +12,18 @@
           <span class="onair" aria-hidden="true">((<span class="onair__dot">&bull;</span>))</span>
           <span class="hero__callsign">ROGERAI</span>
           <span class="hero__sep" aria-hidden="true">&middot;</span>
-          why route through us
+          moved
         </span>
-        <h1>You could go direct. Here is what you would be giving up.</h1>
-        <p class="research-hero__lead">
-          Every commercial AI provider will happily sell you tokens without us in the middle,
-          and an aggregator will front a hundred of them for a few percent. So the 10% routing fee
-          on a curated band deserves a straight answer: what does it buy, what does it not buy,
-          and when should you skip us entirely. This page is that answer, including the last part.
-        </p>
+        <h1>The why moved in with the money.</h1>
+        <p class="research-hero__lead">What the routing fee buys, the comparison, and how
+          your identity stays off the waves now open the pricing page - value first, then
+          the rules and the rates it justifies.</p>
         <div class="research-actions">
-          <a class="research-button research-button--primary" href="/models.html">The live dial <span aria-hidden="true">&rarr;</span></a>
-          <a class="research-button" href="/pricing.html">Pricing</a>
-        </div>
-      </div>
-    </section>
-
-    <section class="section" id="unlinking">
-      <div class="wrap">
-        <div class="section__head section__head--left">
-          <span class="sectionno">&sect;1 / IDENTITY UNLINKING</span>
-          <h2>The provider sees a station. It never sees you.</h2>
-        </div>
-        <p>
-          When you use a commercial API directly, the provider holds the whole picture: your
-          account, your card, your IP, your request times, and every prompt, joined together
-          under one customer record. When you tune a curated band here, the request leaves for
-          that provider from a station's own account. The provider sees one caller making many
-          requests. It cannot tell our consumers apart, cannot join your requests into a
-          profile, and never learns a name, wallet, or billing identity - none of that is on
-          the wire. There are no tracking headers added in transit; what the station forwards
-          is your request body and nothing about who you are.
-        </p>
-        <div class="why-not">
-          <span class="why-k">what this does not buy</span>
-          <p>
-            Your <b>prompt content</b> still reaches whoever operates the model - that is what
-            answering it means. Identity unlinking means the provider cannot tie the words to
-            you; it does not mean the words are private. If the content itself must not leave
-            machines you trust, use a <a href="/confidential.html">confidential station</a>
-            (hardware-attested) or <a href="#yourown">run your own Tower</a> and keep the
-            whole loop on your own network. We would rather tell you this here than have you
-            find it out later.
-          </p>
-        </div>
-      </div>
-    </section>
-
-    <section class="section" id="routing">
-      <div class="wrap">
-        <div class="section__head section__head--left">
-          <span class="sectionno">&sect;2 / THE ROUTING</span>
-          <h2>One dial, and the request always lands somewhere.</h2>
-        </div>
-        <p>
-          The band you tune is not one machine. It is every station serving that model - people's
-          GPUs and curated commercial relays, counted and labeled apart - under one endpoint that
-          does not change. The broker picks by measured capacity and health, retries a failed
-          station on the next one mid-request, and holds every request to the price cap you set:
-          your maximum rides each call, so nobody can raise a rate under you. When a home GPU
-          serves you for less, you pay less; when it drops off the air at 2am, the answer still
-          arrives. You never manage a provider account, an API key per vendor, or a failover
-          config. One wallet, one key, per-token billing, spend limits and a monthly budget you
-          set yourself.
-        </p>
-        <p>
-          And every answer comes with a receipt the station signed and the broker counter-signed,
-          naming who served it, what it cost, and how the price was derived. On a curated band
-          your history shows the split itself: the provider's list price and the routing fee,
-          side by side. A bill you can verify is rarer than it should be.
-        </p>
-      </div>
-    </section>
-
-    <section class="section" id="compare">
-      <div class="wrap">
-        <div class="section__head section__head--left">
-          <span class="sectionno">&sect;3 / THE COMPARISON</span>
-          <h2>Against going direct, and against an aggregator.</h2>
-        </div>
-        <p>
-          Aggregators are good at what they do: one endpoint, many commercial APIs, a small fee.
-          If that is the whole job, they are the cheaper tool and you should use one. Here is
-          what is different about this network, row by row, each one checkable.
-        </p>
-        <div class="why-tablewrap">
-          <table class="why-table">
-            <tr><th>what</th><th>direct to a provider</th><th>an aggregator</th><th>RogerAI</th></tr>
-            <tr>
-              <td>Supply</td>
-              <td>That provider's models</td>
-              <td>Commercial APIs</td>
-              <td>People's GPUs on the air, plus curated commercial relays, labeled apart</td>
-            </tr>
-            <tr>
-              <td>Who they see</td>
-              <td>You, fully: account, card, prompts, joined</td>
-              <td>The aggregator sees you; providers see the aggregator</td>
-              <td>The provider sees a station; nobody on the wire can join your requests to you</td>
-            </tr>
-            <tr>
-              <td>Receipts</td>
-              <td>A monthly invoice</td>
-              <td>A usage log</td>
-              <td>Per-request receipts, station-signed and broker-counter-signed, split shown</td>
-            </tr>
-            <tr>
-              <td>Failover</td>
-              <td>Yours to build</td>
-              <td>Across that vendor's integrations</td>
-              <td>Across kinds: a human station can catch a curated miss, and the reverse</td>
-            </tr>
-            <tr>
-              <td>Price protection</td>
-              <td>Trust the invoice</td>
-              <td>Trust the invoice</td>
-              <td>Your max price rides every request; over-cap stations are simply not picked</td>
-            </tr>
-            <tr>
-              <td>Self-hosted exit</td>
-              <td>None</td>
-              <td>Some are open source to self-host</td>
-              <td>A standalone Tower runs the whole plane on your network, free, no account</td>
-            </tr>
-            <tr>
-              <td>Commitment</td>
-              <td>An account per vendor</td>
-              <td>An account and credits</td>
-              <td>A wallet you top up when you feel like it; free stations need no login at all</td>
-            </tr>
-          </table>
-        </div>
-        <p>
-          The honest close of that table: if you send high, steady volume to one model from one
-          provider and none of the rows above matter to you, go direct - it is the cheapest
-          possible path and we will say so out loud. The routing fee is for everyone whose
-          requests are worth unlinking, whose bills are worth verifying, and whose uptime is
-          worth more than one vendor's status page.
-        </p>
-      </div>
-    </section>
-
-    <section class="section" id="yourown">
-      <div class="wrap">
-        <div class="section__head section__head--left">
-          <span class="sectionno">&sect;4 / YOUR OWN TOWER</span>
-          <h2>The exit is part of the product.</h2>
-        </div>
-        <p>
-          A <a href="/tower.html">standalone Tower</a> is the same routing,
-          on your hardware, for your people, for free. It admits your own stations, serves your
-          own network, issues local receipts, and never bills anyone - there is no account and
-          nothing that phones home; the isolation is enforced in code, not promised in copy.
-          Point it at your local models, or attach a curated relay with your own provider key
-          and give your whole office one clean endpoint in front of a commercial API. Private
-          bands on the public network sit between the two: hidden from the market, reachable
-          only by a frequency code you hold.
-        </p>
-        <p>
-          We build it this way on purpose. A network you can leave without asking permission is
-          the only kind worth trusting with your traffic, and the reader who could self-host and
-          chose not to is the customer we actually want.
-        </p>
-        <div class="research-actions">
-          <a class="research-button research-button--primary" href="/broadcasts-run-a-tower.html">Run a Tower <span aria-hidden="true">&rarr;</span></a>
-          <a class="research-button" href="/private.html">Private bands</a>
+          <a class="research-button research-button--primary" href="/pricing.html#why">Why route through us <span aria-hidden="true">&rarr;</span></a>
         </div>
       </div>
     </section>
   </main>
-
   <!-- include: footer.html anchors=/ -->
 </body>
 </html>

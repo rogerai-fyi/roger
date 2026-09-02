@@ -43,22 +43,137 @@
         </p>
         <div class="research-actions">
           <a class="research-button research-button--primary" href="/models.html">Live prices on the dial <span aria-hidden="true">&rarr;</span></a>
-          <a class="research-button" href="/faq.html">Questions</a>
+          <a class="research-button" href="#paths">Six ways in <span aria-hidden="true">&darr;</span></a>
+          <a class="research-button" href="#earn">Earning <span aria-hidden="true">&darr;</span></a>
         </div>
+      </div>
+    </section>
+
+    <section class="section" id="why">
+      <div class="wrap">
+        <div class="section__head section__head--left">
+          <span class="sectionno">&sect;0 / WHAT THE FEE BUYS</span>
+          <h2>The waves carry your words. Never your name.</h2>
+        </div>
+
+        <!-- THE RELAY WIRE. The whole argument, drawn instead of written: two payloads
+             leave your set - the job (the one red) and your identity (grey chips). The
+             relay drops the identity; a callsign and the job are all that reach the
+             machine that answers. Pure CSS/SVG, no JS, tokens only, so it holds in both
+             themes and under the CSP. prefers-reduced-motion gets the honest end-state.
+             Contract: test/why-rogerai.test.mjs. -->
+        <figure class="rwire" role="img" aria-label="Diagram: a request leaves you carrying the job and your identity. The relay drops the identity - name, card, IP - and only a station callsign with the job reaches the machine that answers.">
+          <svg viewBox="0 0 958 190" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <line class="rwire__line" x1="100" y1="100" x2="840" y2="100" />
+            <!-- YOU -->
+            <circle cx="72" cy="100" r="24" class="rwire__ring" />
+            <text x="72" y="105" text-anchor="middle" class="rwire__nodelabel">YOU</text>
+            <!-- RELAY -->
+            <path class="rwire__tower" d="M470 64 L456 118 M470 64 L484 118 M460 104 L480 104 M463 90 L477 90" />
+            <circle cx="470" cy="58" r="4" class="rwire__beacon" />
+            <text x="470" y="140" text-anchor="middle" class="rwire__nodelabel">RELAY</text>
+            <text x="470" y="160" text-anchor="middle" class="rwire__micro">your identity ends here</text>
+            <!-- STATION -->
+            <rect x="844" y="78" width="44" height="44" class="rwire__ring" />
+            <text x="866" y="140" text-anchor="middle" class="rwire__nodelabel">STATION</text>
+            <text x="866" y="160" text-anchor="middle" class="rwire__micro">a callsign + the job</text>
+            <!-- the identity chips: travel with the job, dropped at the relay -->
+            <g class="rwire__id">
+              <rect x="96" y="52" width="46" height="20" rx="3" class="rwire__chip" />
+              <text x="119" y="66" text-anchor="middle" class="rwire__chiptext">NAME</text>
+              <rect x="146" y="52" width="46" height="20" rx="3" class="rwire__chip" />
+              <text x="169" y="66" text-anchor="middle" class="rwire__chiptext">CARD</text>
+              <rect x="196" y="52" width="32" height="20" rx="3" class="rwire__chip" />
+              <text x="212" y="66" text-anchor="middle" class="rwire__chiptext">IP</text>
+            </g>
+            <!-- the job: the one red, and the only thing that goes the distance -->
+            <g class="rwire__job">
+              <circle cx="100" cy="100" r="11" class="rwire__jobglow" />
+              <circle cx="100" cy="100" r="5" class="rwire__jobdot" />
+            </g>
+          </svg>
+        </figure>
+
+        <ul class="whyrows">
+          <li><span class="whyrows__k">SEEN</span>
+            <span>The upstream sees a station, never a person. Not your name, not your
+              card, not your IP.</span></li>
+          <li><span class="whyrows__k">CROWD</span>
+            <span>One callsign, many callers. The upstream cannot tell our consumers
+              apart.</span></li>
+          <li><span class="whyrows__k">OUTBOUND</span>
+            <span>Every hop dials out. No open ports, nothing to scan, nothing ever
+              knocks on your door.</span></li>
+          <li><span class="whyrows__k">TRAINED</span>
+            <span>We run the wires, not the weights. Your traffic trains nothing of
+              ours.</span></li>
+          <li><span class="whyrows__k">PROOF</span>
+            <span>A counter-signed receipt on every request, the split printed on
+              it.</span></li>
+          <li><span class="whyrows__k">CEILING</span>
+            <span>Your maximum price rides every request. A band above it is never
+              dialed.</span></li>
+          <li><span class="whyrows__k">TLS</span>
+            <span>Every leg of the wire is encrypted - your set to the switchboard, the
+              switchboard to the station. Nothing rides in the clear.</span></li>
+          <li><span class="whyrows__k">BOOKS</span>
+            <span>Your wallet sits on an append-only ledger that re-derives to the cent.
+              Every debit names the request it paid for.</span></li>
+          <li><span class="whyrows__k">ROUTED</span>
+            <span>The switchboard tunes for you: picks the band, strikes the flaky,
+              retunes around a dropout.</span></li>
+          <li><span class="whyrows__k">VERIFIED</span>
+            <span>The &#10003; is earned, not typed. A band answers a canary before it
+              wears the mark.</span></li>
+          <li><span class="whyrows__k">SUPPLY</span>
+            <span>Real people&rsquo;s machines. Commercial relays wear the &raquo; mark,
+              never blurred together.</span></li>
+          <li><span class="whyrows__k">ONE URL</span>
+            <span>OpenAI-compatible, one endpoint. Point your existing tools at it;
+              nothing else changes.</span></li>
+          <li><span class="whyrows__k">NO SEAT</span>
+            <span>No subscription, no seat, no minimum. The balance moves only while an
+              answer streams.</span></li>
+          <li><span class="whyrows__k">EXIT</span>
+            <span>The router is a program. Run your own Tower, free,
+              forever.</span></li>
+        </ul>
+
+        <p class="whyfine">The limit, plainly: the words themselves still reach the machine
+          that answers. When even that is too much, use a
+          <a href="/confidential.html">confidential station</a> or
+          <a href="/tower.html">your own Tower</a>. And if you push steady volume to one
+          vendor, going direct is cheaper. We&rsquo;d rather you know.</p>
       </div>
     </section>
 
     <section class="section" id="paths">
       <div class="wrap">
         <div class="section__head section__head--left">
-          <span class="sectionno">&sect;1 / THE FOUR WAYS IN</span>
-          <h2>Two of these never touch a wallet.</h2>
-          <p>Most people reading a pricing page assume the free thing is a trial. Here it is
-             just a station whose operator set the rate to zero, and it behaves exactly like
-             a paid one. And a station does not have to be a GPU: it can be a contract.</p>
+          <span class="sectionno">&sect;1 / THE SIX WAYS IN</span>
+          <h2>Six ways in. Four cost nothing.</h2>
+          <p>Free here is never a trial: it just means the operator set the rate to zero,
+             and the band behaves exactly like a paid one. And a station does not have to
+             be a GPU. It can be a contract.</p>
         </div>
 
         <div class="paths">
+          <article>
+            <span class="paths__cost paths__cost--none">costs nothing</span>
+            <h3>Your own station</h3>
+            <p>Run <code>roger share</code> and your machine is on the air - free by
+               default, no login. Tune into it from your laptop anywhere; nothing is
+               metered, and there is nobody to pay.</p>
+            <a class="tlink" href="/broadcasts-share-gpu-earn.html">One command puts it up &rarr;</a>
+          </article>
+          <article>
+            <span class="paths__cost paths__cost--none">costs nothing</span>
+            <h3>A friend&rsquo;s station</h3>
+            <p>Someone you trust runs the same command and reads you the callsign. Their
+               spare GPU answers you the way it answers them, at whatever rate they set -
+               zero, between friends.</p>
+            <a class="tlink" href="/manual.html#quickstart">How to tune in &rarr;</a>
+          </article>
           <article>
             <span class="paths__cost paths__cost--none">costs nothing</span>
             <h3>A free station</h3>
@@ -83,7 +198,7 @@
                provider contracts</b> or committed API capacity instead of a GPU. The band
                wears the <b>&raquo;</b> mark, the posted price is the provider's list plus
                the 10% routing fee, and your receipt shows the two side by side.</p>
-            <a class="tlink" href="/why.html">Why route through us at all &rarr;</a>
+            <a class="tlink" href="#why">What the fee buys &rarr;</a>
           </article>
           <article>
             <span class="paths__cost paths__cost--none">costs nothing</span>
@@ -199,7 +314,7 @@
       <div class="wrap">
         <div class="section__head section__head--left">
           <span class="sectionno">&sect;4 / WHAT YOU EARN</span>
-          <h2>You keep 90 percent, and you set the number it is 90 percent of.</h2>
+          <h2>You set the price. You keep 90 percent.</h2>
           <p>The other side of the same market, and there are two ways to be on it: serve a
              model from your own hardware, or resell capacity you already pay a provider
              for. Nothing in either is negotiated, tiered, or different for a large
@@ -223,12 +338,11 @@
           </div>
           <div>
             <dt>What the 10% is</dt>
-            <dd>The same fee on both paths, and it is the product: consumers reach every
-                upstream through <b>anonymized routing</b> (a provider sees a station, never
-                a person), get a signed receipt for every request, failover across stations
-                mid-request, a hard price cap that rides each call, and one wallet over
-                humans and providers alike. <a href="/why.html">What the routing buys, told
-                straight.</a></dd>
+            <dd>The same fee on both paths, and the fee is the product. It routes every
+                request so the upstream sees <b>a station, never a person</b>, signs a
+                receipt for each one, fails over mid-request when a machine drops, holds
+                your price cap on every call, and keeps one wallet across people and
+                providers alike. <a href="#why">The whole trade, above.</a></dd>
           </div>
           <div>
             <dt>Through a Tower</dt>

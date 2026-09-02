@@ -11,9 +11,10 @@ Feature: Every landing surface tells the network's real story
   I want the differentiators and both earn paths where I actually land
   So that the site's argument does not live on a page nothing links to.
 
-  Scenario: The why page is reachable from everywhere
+  Scenario: The why argument is one click from the homepage
     When the site builds
-    Then the homepage, the nav, and the footer all link why.html
+    Then the homepage links the pricing page's why anchor
+    # merge respec 2026-09-02: the argument lives at the top of pricing, not on its own page
 
   Scenario: The homepage tells the unlinking, the two earn paths, and the tower
     When the homepage renders

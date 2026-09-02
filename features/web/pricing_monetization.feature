@@ -20,8 +20,18 @@ Feature: The pricing page accommodates every way of sharing and monetizing
 
   Scenario: The fee is explained, not just stated
     When the pricing page renders
-    Then the 10% is tied to what it buys: anonymized routing, receipts, failover, settlement
-    And it links the why page for the full argument
+    # respec 2026-09-02: the why argument merged INTO this page (§0, anchor #why),
+    # drawn as the relay wire + claim rows; the fee line reads "a station, never a
+    # person" rather than the older "anonymized routing" phrasing.
+    Then the 10% is tied to what it buys: the upstream sees a station, never a person
+    And the page opens with the merged why argument before any number
+
+  Scenario: The ways in are counted honestly
+    # founder 2026-09-02: no wallet riddle - say it straight, and the personal
+    # paths (your own station, a friend's station) are first-class free ways in.
+    When the pricing page renders
+    Then the grid names six ways in, four costing nothing
+    And your own station and a friend's station are among the free four
 
   Scenario: The tower split matches the ruling everywhere on the page
     When the pricing page renders

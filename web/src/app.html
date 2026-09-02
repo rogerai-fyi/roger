@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <!-- include: head.html title="The App - RogerAI for iPhone, iPad & Mac" desc="RogerAI is live on the App Store - a two-way radio for AI on iPhone, iPad and Apple-silicon Macs. Tune into open models on real GPUs, talk hands-free, run agent tools that ask first, and pay only for the tokens you use. Free; start anonymous." theme=external og=post ogtype=website ogtitle="RogerAI for iPhone, iPad & Mac - the band, in your pocket" ogdesc="Live on the App Store: tune into open models on real GPUs, talk hands-free, run agent tools that ask first, and pay only for the tokens you use. Free; start anonymous." ogurl="https://rogerai.fm/app.html" ogimage="https://rogerai.fm/assets/app/og-app.png" -->
+  <!-- include: head.html title="The App - RogerAI for iPhone, iPad & Mac" desc="RogerAI is live on the App Store - a two-way radio for AI on iPhone, iPad and Apple-silicon Macs. Tune into open models on real GPUs, talk hands-free, run agent tools that ask first, share your own on-device models and earn, and pay only for the tokens you use. Free; start anonymous." theme=external og=post ogtype=website ogtitle="RogerAI for iPhone, iPad & Mac - the band, in your pocket" ogdesc="Live on the App Store: tune into open models on real GPUs, talk hands-free, run agent tools that ask first, and pay only for the tokens you use. Free; start anonymous." ogurl="https://rogerai.fm/app.html" ogimage="https://rogerai.fm/assets/app/og-app.png" -->
 </head>
 <body data-onair="live">
 
@@ -39,16 +39,18 @@
           RogerAI for iPhone, iPad and Mac is <b>live</b> - a two-way radio for AI.
           Tune into open models running on real GPUs, talk instead of type, and pay
           only for the tokens you use. <b>Start anonymous</b>: no account needed for
-          on-device and free stations.
+          on-device and free stations. And since v1.2 the handheld transmits too:
+          <b>put your own device on the air</b> - share the models on it, free or at
+          a rate that earns.
         </p>
 
         <div class="app-hero__cta" data-reveal data-reveal-delay="180">
-          <a class="app-badge" href="https://apps.apple.com/us/app/rogerai-fyi/id6785743752"
+          <a class="app-badge" href="https://apps.apple.com/us/app/rogerai-fm/id6785743752"
              target="_blank" rel="noopener noreferrer">
             <img src="assets/app/appstore-badge.svg" alt="Download RogerAI on the App Store"
                  width="180" height="60" />
           </a>
-          <span class="app-hero__meta mono">FREE · iOS 17+ · iPHONE, iPAD &amp; APPLE-SILICON MACS · 19&nbsp;MB</span>
+          <span class="app-hero__meta mono">FREE · iOS 17+ · iPHONE, iPAD &amp; APPLE-SILICON MACS · 39&nbsp;MB</span>
         </div>
 
         <!-- The page's own section menu. Same row every other top-level page uses
@@ -125,12 +127,41 @@
     </div>
   </section>
 
-  <!-- ============================ §2 THE BAND ============================ -->
+  <!-- ============================ §2 ON AIR (v1.2) ============================
+       The 1.2 headline: the handheld is a TRANSMITTER now. Facts from the live
+       App Store listing (What's New, v1.2, 2026-08-27) - keep this plate in step
+       with the listing when the app ships a new version. Plate style (no
+       screenshot yet; add a FIG when a real capture of the On Air screen lands
+       in assets/app/). -->
+  <section class="section app-spec" id="onair">
+    <div class="wrap">
+      <div class="app-dialrule" aria-hidden="true" style="--dial-pos:14%"></div>
+      <div class="section__head section__head--left" data-reveal>
+        <span class="sectionno">§2 / ON AIR · NEW IN 1.2</span>
+        <h2>Your device is a transmitter now.</h2>
+      </div>
+      <p data-reveal>Sharing is no longer a desktop privilege. Put a model on the band
+        straight from your Mac, iPhone, or iPad - a local server you already run, the
+        on-device model, or one you download in the app - free, or at a rate that
+        earns. Same 90% split as any other station.</p>
+      <dl class="app-spec__plate mono" data-reveal data-reveal-delay="80">
+        <div class="app-spec__row"><dt>share from</dt><dd>Ollama · LM Studio · Osaurus · llama.cpp · Apple&nbsp;Intelligence &middot; or an MLX model downloaded in-app</dd></div>
+        <div class="app-spec__row"><dt>on iPhone &amp; iPad</dt><dd>compact MLX models download, run, and share - fully private</dd></div>
+        <div class="app-spec__row"><dt>on the Mac</dt><dd>multiple models on air at once, earning and free tiers side by side</dd></div>
+        <div class="app-spec__row"><dt>private bands</dt><dd>share on a hidden frequency only people with your code can tune into</dd></div>
+        <div class="app-spec__row"><dt>on air screen</dt><dd>a live broadcast view, with a Dim mode to keep serving cool and quiet</dd></div>
+        <div class="app-spec__row"><dt>offline</dt><dd>a downloaded model tunes locally with no signal at all</dd></div>
+        <div class="app-spec__row"><dt>the phone first</dt><dd>sharing pauses itself when the battery runs low or the device runs hot</dd></div>
+      </dl>
+    </div>
+  </section>
+
+  <!-- ============================ §3 THE BAND ============================ -->
   <section class="section app-feature app-feature--flip" id="band">
     <div class="wrap app-feature__grid">
       <div class="app-dialrule" aria-hidden="true" style="--dial-pos:19%"></div>
       <div class="app-feature__copy" data-reveal>
-        <span class="sectionno">§2 / THE BAND · THE MARKET</span>
+        <span class="sectionno">§3 / THE BAND · THE MARKET</span>
         <h2>Pick your station by the numbers.</h2>
         <p>
           The Band is a <b>live marketplace</b> of stations with real prices and real
@@ -157,12 +188,12 @@
     </div>
   </section>
 
-  <!-- ============================ §3 TUNE THE DIAL ============================ -->
+  <!-- ============================ §4 TUNE THE DIAL ============================ -->
   <section class="section app-feature" id="routing">
     <div class="wrap app-feature__grid">
       <div class="app-dialrule" aria-hidden="true" style="--dial-pos:29%"></div>
       <div class="app-feature__copy" data-reveal>
-        <span class="sectionno">§3 / ROUTING · YOUR MARGINS</span>
+        <span class="sectionno">§4 / ROUTING · YOUR MARGINS</span>
         <h2>Tune the dial. Roger obeys.</h2>
         <p>
           Set a max price per million, a minimum speed in tokens per second, or flip
@@ -192,12 +223,12 @@
     </div>
   </section>
 
-  <!-- ============================ §4 THE OPERATOR ============================ -->
+  <!-- ============================ §5 THE OPERATOR ============================ -->
   <section class="section app-feature app-feature--flip" id="operator">
     <div class="wrap app-feature__grid">
       <div class="app-dialrule" aria-hidden="true" style="--dial-pos:40%"></div>
       <div class="app-feature__copy" data-reveal>
-        <span class="sectionno">§4 / THE OPERATOR · AGENT TOOLS</span>
+        <span class="sectionno">§5 / THE OPERATOR · AGENT TOOLS</span>
         <h2>An agent, when you want one.</h2>
         <p>
           Turn on agent tools and the chat can take <b>real actions</b>: open an app or
@@ -232,12 +263,12 @@
     </div>
   </section>
 
-  <!-- ============================ §5 CONNECT ============================ -->
+  <!-- ============================ §6 CONNECT ============================ -->
   <section class="section app-feature" id="connect">
     <div class="wrap app-feature__grid">
       <div class="app-dialrule" aria-hidden="true" style="--dial-pos:50%"></div>
       <div class="app-feature__copy" data-reveal>
-        <span class="sectionno">§5 / CONNECT · USE IT ANYWHERE</span>
+        <span class="sectionno">§6 / CONNECT · USE IT ANYWHERE</span>
         <h2>Your endpoint works everywhere.</h2>
         <p>
           Mint a key and paste RogerAI into <b>any OpenAI-compatible app</b> - a chat
@@ -263,12 +294,12 @@
     </div>
   </section>
 
-  <!-- ============================ §6 THE DESK SET ============================ -->
+  <!-- ============================ §7 THE DESK SET ============================ -->
   <section class="section app-desk" id="mac">
     <div class="wrap">
       <div class="app-dialrule" aria-hidden="true" style="--dial-pos:60%"></div>
       <div class="section__head section__head--left" data-reveal>
-        <span class="sectionno">§6 / THE DESK SET · MACOS</span>
+        <span class="sectionno">§7 / THE DESK SET · MACOS</span>
         <h2>Native on the Mac.</h2>
         <p>
           The same app, built for Apple silicon - not a wrapped website. Sidebar,
@@ -287,18 +318,18 @@
     </div>
   </section>
 
-  <!-- ============================ §7 SPEC SHEET ============================ -->
+  <!-- ============================ §8 SPEC SHEET ============================ -->
   <section class="section app-spec" id="spec-sheet">
     <div class="wrap">
       <div class="app-dialrule" aria-hidden="true" style="--dial-pos:71%"></div>
       <div class="section__head section__head--left" data-reveal>
-        <span class="sectionno">§7 / THE SPEC SHEET</span>
+        <span class="sectionno">§8 / THE SPEC SHEET</span>
         <h2>Read the plate.</h2>
       </div>
       <dl class="app-spec__plate mono" data-reveal data-reveal-delay="80">
         <div class="app-spec__row"><dt>price</dt><dd>free download · pay per token · optional monthly cap, so it never surprises you</dd></div>
         <div class="app-spec__row"><dt>requires</dt><dd>iOS 17+ · iPadOS 17+ · macOS on Apple silicon</dd></div>
-        <div class="app-spec__row"><dt>size</dt><dd>19 MB on the wire</dd></div>
+        <div class="app-spec__row"><dt>size</dt><dd>39 MB on the wire</dd></div>
         <div class="app-spec__row"><dt>account</dt><dd>none to start - on-device and free stations are anonymous</dd></div>
         <div class="app-spec__row"><dt>privacy</dt><dd>on-device replies never leave the phone · confidential ◆ routes TEE-attested only</dd></div>
         <div class="app-spec__row"><dt>callsign</dt><dd>broadcasting live from Orange County, California</dd></div>
@@ -306,11 +337,11 @@
     </div>
   </section>
 
-  <!-- ==================== §8 THE TERMINAL APP (roger) ====================
+  <!-- ==================== §9 THE TERMINAL APP (roger) ====================
        The desktop pair, deliberately SMALLER than the handheld's six plates:
        one section each, one rotating figure each. They are an honourable
        mention on the app page, not a second product pitch - the manual (§1,
-       §9) is where the terminal app is documented.
+       §10) is where the terminal app is documented.
        Every plate is a REAL capture of the shipped binary (2026-08-23). The
        account line in the terminal header carries the operator's e-mail; it is
        redacted in the exported plate, not cropped away, so the header still
@@ -319,7 +350,7 @@
     <div class="wrap app-feature__grid">
       <div class="app-dialrule" aria-hidden="true" style="--dial-pos:81%"></div>
       <div class="app-feature__copy" data-reveal>
-        <span class="sectionno">§8 / THE TERMINAL APP · roger</span>
+        <span class="sectionno">§9 / THE TERMINAL APP · roger</span>
         <h2>The whole band, in a terminal.</h2>
         <p>
           <code class="inline">roger</code> is the dial: one binary, <b>a local harness
@@ -368,12 +399,12 @@
     </div>
   </section>
 
-  <!-- ==================== §9 THE BROWSER CONSOLE (roger webui) ==================== -->
+  <!-- ==================== §10 THE BROWSER CONSOLE (roger webui) ==================== -->
   <section class="section app-feature app-feature--flip" id="webui">
     <div class="wrap app-feature__grid">
       <div class="app-dialrule" aria-hidden="true" style="--dial-pos:92%"></div>
       <div class="app-feature__copy" data-reveal>
-        <span class="sectionno">§9 / THE BROWSER CONSOLE · roger webui</span>
+        <span class="sectionno">§10 / THE BROWSER CONSOLE · roger webui</span>
         <h2>Same station, wider window.</h2>
         <p>
           <code class="inline">roger webui</code> opens the same radio in a browser tab:
@@ -422,7 +453,7 @@
     </div>
   </section>
 
-  <!-- ==================== §10 INSTALL (the roger binary) ====================
+  <!-- ==================== §11 INSTALL (the roger binary) ====================
        §8 and §9 show the terminal and the browser console but never how to GET
        roger; this is that step, right before the mobile CTA. Same install__box
        copy-button the homepage uses - the component is styled site-wide in
@@ -433,11 +464,11 @@
       <!-- the dial reaches the end of the band: §1 at 8% ... §9 at 92% ... §10 at the edge. -->
       <div class="app-dialrule" aria-hidden="true" style="--dial-pos:100%"></div>
       <div class="app-install__inner" data-reveal>
-        <span class="sectionno">§10 / INSTALL · roger</span>
+        <span class="sectionno">§11 / INSTALL · roger</span>
         <h2>Get <code class="inline">roger</code> on your machine.</h2>
         <p class="install__lead">One binary for macOS, Linux and Windows. It finds the models
           already on your machine, puts them on air if you want, and tunes you into everyone
-          else&rsquo;s - the terminal (§8) and the browser console (§9) are the same
+          else&rsquo;s - the terminal (§9) and the browser console (§10) are the same
           <code class="inline">roger</code>.</p>
         <button class="install__box" id="installCmdApp" type="button"
                 aria-label="Copy install command to clipboard">
@@ -471,7 +502,7 @@
       <span class="onair" aria-hidden="true">((<span class="onair__dot">•</span>))</span>
       <h2 class="app-cta__title">Pick up the <span class="app-hero__op">handheld</span>.</h2>
       <p class="app-cta__sub">Free on the App Store. The band is open.</p>
-      <a class="app-badge app-badge--lg" href="https://apps.apple.com/us/app/rogerai-fyi/id6785743752"
+      <a class="app-badge app-badge--lg" href="https://apps.apple.com/us/app/rogerai-fm/id6785743752"
          target="_blank" rel="noopener noreferrer">
         <img src="assets/app/appstore-badge.svg" alt="Download RogerAI on the App Store"
              width="200" height="67" loading="lazy" />
@@ -486,7 +517,7 @@
        executable script, so the strict CSP allows it without a hash - same as the
        site-wide Organization block in head.html). No aggregateRating: the listing
        has no ratings yet and we never fabricate. -->
-  <script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"RogerAI","alternateName":"RogerAI.fyi","url":"https://rogerai.fm/app.html","downloadUrl":"https://apps.apple.com/us/app/rogerai-fyi/id6785743752","installUrl":"https://apps.apple.com/us/app/rogerai-fyi/id6785743752","operatingSystem":"iOS 17.0+, iPadOS 17.0+, macOS (Apple silicon)","applicationCategory":"UtilitiesApplication","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"datePublished":"2026-07-09","publisher":{"@id":"https://rogerai.fm/#org"},"description":"A two-way radio for AI: tune into open models running on real GPUs, talk hands-free, run agent tools that ask first, and pay only for the tokens you use. Start anonymous - no account needed for on-device and free stations."}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"RogerAI","alternateName":["RogerAI.fm App","RogerAI.fyi"],"url":"https://rogerai.fm/app.html","downloadUrl":"https://apps.apple.com/us/app/rogerai-fm/id6785743752","installUrl":"https://apps.apple.com/us/app/rogerai-fm/id6785743752","operatingSystem":"iOS 17.0+, iPadOS 17.0+, macOS (Apple silicon)","applicationCategory":"UtilitiesApplication","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"datePublished":"2026-07-09","publisher":{"@id":"https://rogerai.fm/#org"},"description":"A two-way radio for AI: tune into open models running on real GPUs, talk hands-free, run agent tools that ask first, and pay only for the tokens you use. Since v1.2 you can share the models on your own device - free or at a rate that earns. Start anonymous - no account needed for on-device and free stations."}</script>
 
   <!-- ============================ FOOTER ============================ -->
   <!-- include: footer.html anchors=/ -->

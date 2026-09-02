@@ -39,8 +39,10 @@ test("the hard-coded tuner is a dated historical interface sample, never a live 
   /* AMENDED 2026-08-18: the sample's model list was refreshed to models people
      actually run now, so the date it was authored moved with it. The guarantee
      is the date itself - a dated, explicitly not-live sample cannot be mistaken
-     for the live dial - not any particular month. */
-  assert.match(compact(teaser), /authored August 2026/i);
+     for the live dial - not any particular month.
+     AMENDED 2026-09-02: refreshed again from a live /discover read (gpt-oss-20b
+     locked free, the DeepSeek band, two curated bands wearing the \u00bb mark). */
+  assert.match(compact(teaser), /authored September 2026/i);
   assert.match(compact(teaser), /not live/i);
   assert.match(teaser, /href="\/models\.html"/);
 });

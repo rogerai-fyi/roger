@@ -31,16 +31,16 @@
       </span>
 
       <h1 class="hero__title">
-        <span class="carrier">One endpoint.</span><br />A dial full of <span class="hero__op">real machines</span>.<br /><span class="hero__fast">Tuned in under 30 seconds.</span>
+        <span class="carrier">Tune in</span> to the world&rsquo;s<br /><span class="hero__op">spare Local Models</span>.<br /><span class="hero__fast">In under 30 seconds.</span>
       </h1>
 
       <p class="hero__sub">
-        RogerAI does two things. Our open model research targets the hardware you
+        RogerAI does two things. Our open model research targets the <a href="/research-hardware.html">hardware</a> you
         already own. Our network runs one OpenAI-compatible local endpoint on top of
-        community and private hardware, plus honestly labeled relays of the commercial
-        APIs. It handles discovery, routing, failover, metering, and signed receipts,
-        operators keep control of their machines, and every upstream sees a station -
-        never you. <a href="/why.html">Read the receipts &rarr;</a>
+        community and private hardware. It handles discovery, routing, failover,
+        metering, and signed receipts, operators keep control of their machines, and
+        every upstream sees a station - never you.
+        <a href="/pricing.html#why">Read the receipts &rarr;</a>
       </p>
 
       <!-- NEW hero order: headline -> subhead -> Ping (always-on concierge) ->
@@ -181,13 +181,13 @@
          href="/models.html" aria-label="Browse the models on the live dial">
         <span class="fig teaser__fig" aria-hidden="true">FIG. 2 - THE BAND · AT A GLANCE</span>
         <p class="teaser__bridge">
-          Historical interface sample · authored August 2026 · not live.
+          Historical interface sample · authored September 2026 · not live.
           <span>Browse the current band on the dial:</span>
         </p>
-        <div class="teaser__face" style="--lock:1;--sig:0.91">
+        <div class="teaser__face" style="--lock:1;--sig:0.89">
           <div class="teaser__top">
-            <span class="teaser__locked mono" id="teaserLocked">LOCKED · <b>qwen3.8-27b</b></span>
-            <span class="teaser__sig mono" id="teaserSig">SIGNAL <b>91</b>/100</span>
+            <span class="teaser__locked mono" id="teaserLocked">LOCKED · <b>gpt-oss-20b</b></span>
+            <span class="teaser__sig mono" id="teaserSig">SIGNAL <b>89</b>/100</span>
           </div>
 
           <!-- the dial face: a short frequency strip (SVG, JS-hydrated) under a
@@ -204,20 +204,20 @@
 
           <!-- the band list it sweeps (compact). The locked row tracks the strip. -->
           <ul class="teaser__list" id="teaserList" aria-hidden="true">
-            <li class="teaser__band is-locked"><span class="teaser__bm">qwen3.8-27b</span><span class="teaser__bd">9 stn &middot; sig 91</span></li>
-            <li class="teaser__band"><span class="teaser__bm">muse-glimmer-30b</span><span class="teaser__bd">7 stn &middot; sig 84</span></li>
-            <li class="teaser__band"><span class="teaser__bm">qwen3-coder-30b</span><span class="teaser__bd">6 stn &middot; sig 79</span></li>
-            <li class="teaser__band"><span class="teaser__bm">gpt-oss-120b</span><span class="teaser__bd">3 stn &middot; sig 68</span></li>
-            <li class="teaser__band"><span class="teaser__bm">gemma3-27b</span><span class="teaser__bd">5 stn &middot; sig 62</span></li>
-            <li class="teaser__band"><span class="teaser__bm">kimi-k2.6</span><span class="teaser__bd">2 stn &middot; sig 55</span></li>
+            <li class="teaser__band is-locked"><span class="teaser__bm">gpt-oss-20b</span><span class="teaser__bd">7 stn &middot; sig 89</span></li>
+            <li class="teaser__band"><span class="teaser__bm">deepseek-v4-flash</span><span class="teaser__bd">5 stn &middot; sig 82</span></li>
+            <li class="teaser__band"><span class="teaser__bm">qwen3.8-27b</span><span class="teaser__bd">6 stn &middot; sig 78</span></li>
+            <li class="teaser__band"><span class="teaser__bm">&raquo;claude-haiku-4.5</span><span class="teaser__bd">2 stn &middot; sig 71</span></li>
+            <li class="teaser__band"><span class="teaser__bm">grok-4.6</span><span class="teaser__bd">3 stn &middot; sig 63</span></li>
+            <li class="teaser__band"><span class="teaser__bm">&raquo;kimi-k3</span><span class="teaser__bd">2 stn &middot; sig 57</span></li>
             <li class="teaser__band teaser__band--idle"><span class="teaser__bm">mistral-large</span><span class="teaser__bd">idle</span></li>
           </ul>
 
           <div class="teaser__foot">
             <span class="teaser__chip mono" id="teaserChip">
-              <span class="meter__k">RATE</span><b>$0.19 /1M</b>
-              <span class="meter__k">SPEED</span><b>68 t/s</b>
-              <span class="meter__k">STN</span><b>9</b>
+              <span class="meter__k">RATE</span><b>$0.00 /1M</b>
+              <span class="meter__k">SPEED</span><b>31 t/s</b>
+              <span class="meter__k">STN</span><b>7</b>
             </span>
             <span class="teaser__open mono" aria-hidden="true">browse the models &rarr;</span>
           </div>
@@ -597,11 +597,11 @@
         <h2>Two kinds of transmitter. One dial.</h2>
         <p><b>Your GPU.</b> Set a rate and keep 90% of every token you serve - or run open
           for free, plenty of stations broadcast for the love of the band.</p>
-        <p><b>Your contracts.</b> Already paying a commercial provider? Relay it as a
-          <b>curated station</b>: consumers pay list plus 10%, you are reimbursed the list
-          in full and keep half the fee. The &raquo; mark and the signed receipt keep it
-          honest. Same wallet, same receipts, same monthly payout - the
-          <a href="/pricing.html#earn">policy</a> is short and printed in full.</p>
+        <p><b>Your contracts.</b> Already paying for API capacity? Put the contract on
+          the air as a <b>curated station</b>. Consumers pay the list price plus 10%; you
+          get your bill back in full, plus half the fee. The &raquo; mark tells everyone
+          what it is, and the receipt shows the split. Same wallet, same payout as a GPU -
+          the <a href="/pricing.html#earn">policy</a> is short and printed in full.</p>
         <ul class="checks">
           <li><span class="tick">+</span> Per-input and per-output pricing, per model</li>
           <li><span class="tick">+</span> Time-of-use windows and usage caps you control</li>
@@ -634,57 +634,88 @@
     </div>
   </section>
 
-  <!-- ===================== THE OPERATOR (identity unlinking) ===================== -->
+  <!-- ===================== PRIVACY-FIRST AIRWAVES =====================
+       §8-§10 merged (founder, 2026-09-02): operator unlinking, the Tower, and the
+       go-direct concession as six pictogram cards - claims, not paragraphs. The
+       icons are native SVG in the site system (mono stroke + the one red), so
+       they hold in both themes under the strict CSP. -->
   <section class="section band" id="operator">
     <div class="wrap">
       <div class="section__head section__head--left" data-reveal>
-        <span class="sectionno">§8 / THE OPERATOR</span>
+        <span class="sectionno">§8 / PRIVACY-FIRST AIRWAVES</span>
         <h2>The provider hears a station. Never you.</h2>
       </div>
-      <p data-reveal>A provider serving your request sees a station callsign and a job -
-        not your account, not your card, not your IP. Stations dial outbound only and
-        never learn where you are. Said plainly: unlinking is not content privacy - the
-        words still reach whoever runs the model. For content that must not leave
-        machines you trust, there is the <a href="/confidential.html">confidential
-        tier</a> and <a href="/tower.html">your own Tower</a>.
-        <a href="/why.html">How the unlinking works &rarr;</a></p>
-    </div>
-  </section>
-
-  <!-- ===================== THE TOWER (decentralization + exit) ===================== -->
-  <section class="section band" id="towerhome">
-    <div class="wrap">
-      <div class="section__head section__head--left" data-reveal>
-        <span class="sectionno">§9 / THE TOWER</span>
-        <h2>The relay itself is a program.</h2>
+      <div class="pcards" data-reveal>
+        <article>
+          <svg class="pc-ic" viewBox="0 0 48 48" aria-hidden="true">
+            <rect x="7" y="12" width="34" height="24" rx="2"/>
+            <circle cx="17" cy="22" r="4"/>
+            <path d="M12 32c1.5-3.5 8.5-3.5 10 0"/>
+            <path d="M27 20h10M27 25h10M27 30h6"/>
+            <path class="pc-red" d="M5 40 L43 8"/>
+          </svg>
+          <h3>A callsign, not a name</h3>
+          <p>Whoever answers hears a callsign and a job. Not your name, not your card,
+             not your IP.</p>
+        </article>
+        <article>
+          <svg class="pc-ic" viewBox="0 0 48 48" aria-hidden="true">
+            <path d="M8 24 L24 10 L40 24"/>
+            <path d="M12 22v16h24V22"/>
+            <path d="M22 38v-8h4v8"/>
+            <path class="pc-red" d="M24 18v-8M21 13l3-3 3 3" fill="none"/>
+          </svg>
+          <h3>Nothing ever knocks</h3>
+          <p>Stations dial out. No open port, no inbound path, no door to knock on.</p>
+        </article>
+        <article>
+          <svg class="pc-ic" viewBox="0 0 48 48" aria-hidden="true">
+            <path d="M6 30c4-2 6-8 10-8s5 6 9 6 5-8 9-8 4 6 8 6"/>
+            <path d="M10 38h28"/>
+            <circle class="pc-red pc-fill" cx="40" cy="12" r="3"/>
+          </svg>
+          <h3>The honest limit</h3>
+          <p>Your words still reach the machine that answers. Too much? A
+             <a href="/confidential.html">confidential station</a> or
+             <a href="/tower.html">your own Tower</a>.</p>
+        </article>
+        <article>
+          <svg class="pc-ic" viewBox="0 0 48 48" aria-hidden="true">
+            <path d="M24 8 L16 40 M24 8 L32 40 M19 28h10 M21 20h6"/>
+            <path d="M10 40h28"/>
+            <circle class="pc-red pc-fill" cx="24" cy="6" r="2.5"/>
+          </svg>
+          <h3>Carry, don&rsquo;t compute</h3>
+          <p>No GPU? A Tower relays sealed work and keeps <b>5%</b> of everything it
+             carries. <a href="/tower.html">Raise a Tower &rarr;</a></p>
+        </article>
+        <article>
+          <svg class="pc-ic" viewBox="0 0 48 48" aria-hidden="true">
+            <path d="M28 8h-16v32h16"/>
+            <path d="M20 24h20M35 19l5 5-5 5"/>
+            <circle class="pc-red pc-fill" cx="25" cy="24" r="2"/>
+          </svg>
+          <h3>The exit is built in</h3>
+          <p>Run it <b>standalone</b>: your own private network, free, and it never
+             phones home. A network you can leave has to earn your staying.</p>
+        </article>
+        <article>
+          <svg class="pc-ic" viewBox="0 0 48 48" aria-hidden="true">
+            <path d="M8 16h20a8 8 0 0 1 0 16H8"/>
+            <path d="M8 24h32M35 19l5 5-5 5"/>
+          </svg>
+          <h3>Sometimes, go direct</h3>
+          <p>Steady volume to one vendor is cheaper direct - do it. What you&rsquo;d
+             leave behind sits <a href="/pricing.html#why">next to the prices &rarr;</a></p>
+        </article>
       </div>
-      <p data-reveal>Run one on the public band and keep <b>5%</b> of everything you patch
-        through - no GPU required. Or run one <b>standalone</b>: your own private network,
-        your models, your keys, free, and it never phones home - by structure, not by
-        setting. A network you can leave is a network that has to stay worth staying on.
-        <a href="/tower.html">Raise a Tower &rarr;</a></p>
-    </div>
-  </section>
-
-  <!-- ===================== THE COMPARISON TEASE ===================== -->
-  <section class="section band" id="direct">
-    <div class="wrap">
-      <div class="section__head section__head--left" data-reveal>
-        <span class="sectionno">§10 / YOU COULD GO DIRECT</span>
-        <h2>And sometimes you should.</h2>
-      </div>
-      <p data-reveal>Aggregators charge about 5% over the commercial APIs, and steady
-        volume to one vendor is cheaper direct - we will say so out loud. What they do
-        not carry: humans on the dial, an upstream that cannot see you, a signed receipt
-        per request, or a version of the router you can take home.
-        <a href="/why.html">The honest comparison &rarr;</a></p>
     </div>
   </section>
 
   <!-- ===================== CTA STRIP ===================== -->
   <section class="cta">
     <div class="wrap cta__inner" data-reveal>
-      <span class="sectionno">§11 / GO</span>
+      <span class="sectionno">§9 / GO</span>
       <h2>Start with one command.</h2>
       <p>You are installing <code class="inline">roger</code>: one binary, <b>a local
         harness for local models</b>. It finds the models already on your machine, puts

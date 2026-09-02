@@ -230,7 +230,19 @@ test("pricing: reselling contracts is a first-class path, told straight (pricing
   assert.match(html, /list back whole/i, "the reimbursement rule: the list back whole");
   assert.match(html, /half the routing fee/i, "plus the operator's half of the fee (the 50\/50 ruling)");
   assert.match(html, /list \+ 10%/i, "the consumer's price: list plus the routing fee");
-  assert.match(html, /anonymized routing/i, "the fee is tied to what it buys");
-  assert.match(html, /href="\/why\.html"/, "and the why page carries the full argument");
+  assert.match(html, /a station, never a person/i, "the fee is tied to what it buys");
+  assert.match(html, /id="why"/, "and the page opens with the merged why argument");
   assert.doesNotMatch(html, /70 ?\/ ?10 ?\/ ?20|\b70 \/ 10 \/ 20\b/, "no 70\/10\/20-era split survives");
+});
+
+test("pricing: six ways in, counted straight (pricing_monetization.feature)", () => {
+  const html = read("pricing.html");
+  assert.match(html, /Six ways in\. Four cost nothing\./, "the count is said straight, no riddle");
+  assert.match(html, /Your own station/, "your own station is a first-class way in");
+  assert.match(html, /A friend&rsquo;s station|A friend’s station/, "so is a friend's");
+  const grid = html.match(/<div class="paths">[\s\S]*?<\/div>\s*<\/div>\s*<\/section>/)?.[0] || "";
+  const free = (grid.match(/paths__cost--none/g) || []).length;
+  const chips = (grid.match(/paths__cost[ "]/g) || []).length;
+  assert.equal(free, 4, `exactly four paths cost nothing (got ${free})`);
+  assert.equal(chips, 6, `six paths in the grid (got ${chips})`);
 });

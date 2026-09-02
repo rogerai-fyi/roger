@@ -19,7 +19,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..", "src");
 const read = (p) => readFileSync(join(root, p), "utf8");
 const app = read("app.html");
 
-const APP_STORE_URL = "https://apps.apple.com/us/app/rogerai-fyi/id6785743752";
+const APP_STORE_URL = "https://apps.apple.com/us/app/rogerai-fm/id6785743752";
 
 test("app.html links the real App Store listing, opener severed", () => {
   const links = [...app.matchAll(/<a\b[^>]*href="([^"]*apps\.apple\.com[^"]*)"[^>]*>/g)];
