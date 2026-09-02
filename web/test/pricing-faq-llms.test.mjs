@@ -235,9 +235,10 @@ test("pricing: reselling contracts is a first-class path, told straight (pricing
   assert.doesNotMatch(html, /70 ?\/ ?10 ?\/ ?20|\b70 \/ 10 \/ 20\b/, "no 70\/10\/20-era split survives");
 });
 
-test("pricing: six ways in, counted straight (pricing_monetization.feature)", () => {
+test("pricing: the ways in are counted straight (pricing_monetization.feature)", () => {
   const html = read("pricing.html");
-  assert.match(html, /Six ways in\. Four cost nothing\./, "the count is said straight, no riddle");
+  // founder 2026-09-02: no arithmetic in the headline; the chips carry the count
+  assert.match(html, /Every way onto the band\./, "the ways-in headline");
   assert.match(html, /Your own station/, "your own station is a first-class way in");
   assert.match(html, /A friend&rsquo;s station|A friend’s station/, "so is a friend's");
   const grid = html.match(/<div class="paths">[\s\S]*?<\/div>\s*<\/div>\s*<\/section>/)?.[0] || "";

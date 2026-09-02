@@ -30,7 +30,8 @@ Feature: The pricing page accommodates every way of sharing and monetizing
     # founder 2026-09-02: no wallet riddle - say it straight, and the personal
     # paths (your own station, a friend's station) are first-class free ways in.
     When the pricing page renders
-    Then the grid names six ways in, four costing nothing
+    # founder 2026-09-02: the headline stopped counting; the chips still must
+    Then the grid holds six paths and exactly four wear the costs-nothing chip
     And your own station and a friend's station are among the free four
 
   Scenario: The tower split matches the ruling everywhere on the page
