@@ -1,7 +1,7 @@
 import { test, before } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -189,4 +189,35 @@ test("a link inside a sentence looks like a link, on every page", () => {
     assert.ok(rule.includes(`${sel} > a,`) || rule.includes(`${sel} > a:hover`),
       `${sel} is an all-links row and must be excluded from the prose hairline`);
   }
+});
+
+// ---- the legal entity (founder ruling 2026-09-02) ------------------------------
+// The operating entity is RogerAI, Inc., a Delaware corporation. It is named in the
+// four customary places, the predecessor never survives anywhere, and the privacy
+// page is a real, indexed URL (the App Store listing points at it).
+
+test("the entity is named in the ToS, privacy, footer, company page, and structured data", () => {
+  assert.match(read("tos.html"), /RogerAI,&nbsp;Inc\., a Delaware corporation/,
+    "the contracting clause names the entity");
+  assert.match(read("privacy.html"), /RogerAI,&nbsp;Inc\., a Delaware corporation/,
+    "the privacy page says who 'we' is");
+  assert.match(read("models.html"), /&copy; 2026 RogerAI,&nbsp;Inc\., a Delaware corporation/,
+    "the footer legal line rides every page");
+  assert.match(read("company.html"), /operated by <b>RogerAI,&nbsp;Inc\., a Delaware corporation<\/b>/,
+    "the company page names it directly");
+  assert.match(read("index.html"), /"legalName":"RogerAI, Inc\."/,
+    "the Organization structured data carries legalName");
+});
+
+test("the predecessor entity survives nowhere", () => {
+  for (const page of readdirSync(DIST).filter((f) => f.endsWith(".html"))) {
+    assert.doesNotMatch(read(page), /Adbox/, `${page} still names the sole proprietorship`);
+  }
+});
+
+test("the privacy policy is a real, indexed URL for the App Store listing", () => {
+  const p = read("privacy.html");
+  assert.doesNotMatch(p, /name="robots" content="noindex"/, "the policy is indexed");
+  assert.match(p, /<meta name="description"/, "and describable");
+  assert.match(read("sitemap.xml"), /privacy\.html/, "and in the sitemap");
 });

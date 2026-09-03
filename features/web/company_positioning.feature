@@ -110,3 +110,12 @@ Feature: RogerAI presents a clear company, product, and research story
       Then the page does not name a customer RogerAI does not have
     And the page claims a released Wave checkpoint only when its real artifact is linked
     And the page does not describe an optimization of an upstream model as RogerAI pretraining
+
+  # Founder ruling 2026-09-02: the operating entity is RogerAI, Inc., a Delaware
+  # corporation (succeeding the sole proprietorship). Named in the four customary
+  # places; the privacy page is a real indexed URL for the App Store listing.
+  Scenario: The legal entity is named where people look for it
+    When the site builds
+    Then the Terms' contracting clause, the privacy page, the footer, and the company page all name RogerAI, Inc., a Delaware corporation
+    And the Organization structured data carries the legalName
+    And the predecessor entity survives on no page
