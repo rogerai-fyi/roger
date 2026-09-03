@@ -806,7 +806,7 @@ rogerai.fm/roger/v6/cmd/rogerai-broker/toolcall.go:264:			recordToolProbe			100.
 rogerai.fm/roger/v6/cmd/rogerai-broker/toolcall.go:338:			syncToolsVerified		87.5%
 rogerai.fm/roger/v6/cmd/rogerai-broker/toolcall.go:355:			toolsVerifiedForLocked		100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/toolcall.go:366:			authoritativeFor		100.0%
-rogerai.fm/roger/v6/cmd/rogerai-broker/toolcall.go:382:			probeToolCall			89.5%
+rogerai.fm/roger/v6/cmd/rogerai-broker/toolcall.go:382:			probeToolCall			92.1%
 rogerai.fm/roger/v6/cmd/rogerai-broker/toolcall.go:442:			applyToolVerdict		100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/tower.go:74:			towerModelAllowed		100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/tower.go:80:			towerModalityAllowed		100.0%
@@ -1098,7 +1098,7 @@ rogerai.fm/roger/v6/cmd/rogerai/main.go:715:				toCfgWindows			100.0%
 rogerai.fm/roger/v6/cmd/rogerai/main.go:726:				toTUIWindows			100.0%
 rogerai.fm/roger/v6/cmd/rogerai/main.go:741:				toProtocolWindows		100.0%
 rogerai.fm/roger/v6/cmd/rogerai/main.go:764:				main				33.3%
-rogerai.fm/roger/v6/cmd/rogerai/main.go:786:				run				86.2%
+rogerai.fm/roger/v6/cmd/rogerai/main.go:786:				run				93.1%
 rogerai.fm/roger/v6/cmd/rogerai/main.go:870:				dispatch			73.8%
 rogerai.fm/roger/v6/cmd/rogerai/main.go:974:				cmdSupport			100.0%
 rogerai.fm/roger/v6/cmd/rogerai/main.go:982:				cmdUse				96.7%
@@ -2496,7 +2496,7 @@ rogerai.fm/roger/v6/internal/towercore/admit/admit.go:188:		NewWithStore			100.0
 rogerai.fm/roger/v6/internal/towercore/admit/admit.go:210:		unavailable			100.0%
 rogerai.fm/roger/v6/internal/towercore/admit/admit.go:218:		IssueToken			92.9%
 rogerai.fm/roger/v6/internal/towercore/admit/admit.go:254:		Enroll				88.0%
-rogerai.fm/roger/v6/internal/towercore/admit/admit.go:310:		AdmitBundle			75.0%
+rogerai.fm/roger/v6/internal/towercore/admit/admit.go:310:		AdmitBundle			87.5%
 rogerai.fm/roger/v6/internal/towercore/admit/admit.go:332:		RecordRenewal			87.5%
 rogerai.fm/roger/v6/internal/towercore/admit/admit.go:361:		Token				100.0%
 rogerai.fm/roger/v6/internal/towercore/admit/admit.go:370:		Get				100.0%
@@ -2583,7 +2583,7 @@ rogerai.fm/roger/v6/internal/towercore/attach/pgstore.go:192:		pgwrap				100.0%
 rogerai.fm/roger/v6/internal/towercore/attach/pgstore.go:196:		PutAuthorization		100.0%
 rogerai.fm/roger/v6/internal/towercore/attach/pgstore.go:269:		PutAuthorizationCapped		72.2%
 rogerai.fm/roger/v6/internal/towercore/attach/pgstore.go:311:		Authorization			100.0%
-rogerai.fm/roger/v6/internal/towercore/attach/pgstore.go:336:		Admit				77.8%
+rogerai.fm/roger/v6/internal/towercore/attach/pgstore.go:336:		Admit				81.5%
 rogerai.fm/roger/v6/internal/towercore/attach/pgstore.go:438:		scanAttachment			100.0%
 rogerai.fm/roger/v6/internal/towercore/attach/pgstore.go:453:		ByStation			100.0%
 rogerai.fm/roger/v6/internal/towercore/attach/pgstore.go:472:		ByStations			80.0%
@@ -2609,7 +2609,7 @@ rogerai.fm/roger/v6/internal/towercore/attach/stationattach.go:518:	New				100.0
 rogerai.fm/roger/v6/internal/towercore/attach/stationattach.go:527:	Admit				83.3%
 rogerai.fm/roger/v6/internal/towercore/attach/stationattach.go:638:	replay				100.0%
 rogerai.fm/roger/v6/internal/towercore/attach/stationattach.go:665:	validate			100.0%
-rogerai.fm/roger/v6/internal/towercore/attach/stationattach.go:725:	checkBindings			84.2%
+rogerai.fm/roger/v6/internal/towercore/attach/stationattach.go:725:	checkBindings			89.5%
 rogerai.fm/roger/v6/internal/towercore/attach/stationattach.go:848:	Station				100.0%
 rogerai.fm/roger/v6/internal/towercore/attach/stationattach.go:860:	ByTower				0.0%
 rogerai.fm/roger/v6/internal/towercore/attach/stationattach.go:866:	MarkAuditProven			0.0%
@@ -3109,7 +3109,7 @@ rogerai.fm/roger/v6/internal/tui/agent.go:581:				agentFindingBandBeat		100.0%
 rogerai.fm/roger/v6/internal/tui/agent.go:589:				pickAgentModel			100.0%
 rogerai.fm/roger/v6/internal/tui/agent.go:616:				bindAgentEndpoint		80.0%
 rogerai.fm/roger/v6/internal/tui/agent.go:631:				applyToolBudget			88.9%
-rogerai.fm/roger/v6/internal/tui/agent.go:654:				newAgentRuntime			82.8%
+rogerai.fm/roger/v6/internal/tui/agent.go:654:				newAgentRuntime			81.2%
 rogerai.fm/roger/v6/internal/tui/agent.go:843:				bandForModel			100.0%
 rogerai.fm/roger/v6/internal/tui/agent.go:855:				modelBadgeTail			81.8%
 rogerai.fm/roger/v6/internal/tui/agent.go:875:				deskRowCount			100.0%
@@ -3580,7 +3580,7 @@ rogerai.fm/roger/v6/internal/tui/tui.go:1314:				newBase				85.7%
 rogerai.fm/roger/v6/internal/tui/tui.go:1381:				Init				100.0%
 rogerai.fm/roger/v6/internal/tui/tui.go:1392:				syncComposerGeometry		100.0%
 rogerai.fm/roger/v6/internal/tui/tui.go:1404:				setTextareaGeometry		92.3%
-rogerai.fm/roger/v6/internal/tui/tui.go:1423:				update				83.8%
+rogerai.fm/roger/v6/internal/tui/tui.go:1423:				update				84.1%
 rogerai.fm/roger/v6/internal/tui/tui.go:2131:				idleDiscoveryEnabled		100.0%
 rogerai.fm/roger/v6/internal/tui/tui.go:2135:				textareaCanMoveUp		100.0%
 rogerai.fm/roger/v6/internal/tui/tui.go:2140:				textareaCanMoveDown		100.0%
