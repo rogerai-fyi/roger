@@ -201,8 +201,12 @@ test("the entity is named in the ToS, privacy, footer, company page, and structu
     "the contracting clause names the entity");
   assert.match(read("privacy.html"), /RogerAI,&nbsp;Inc\., a Delaware corporation/,
     "the privacy page says who 'we' is");
-  assert.match(read("models.html"), /&copy; 2026 RogerAI,&nbsp;Inc\., a Delaware corporation/,
-    "the footer legal line rides every page");
+  for (const page of readdirSync(DIST).filter((f) => f.endsWith(".html"))) {
+    const html = read(page);
+    if (!html.includes("footer__group")) continue; // pages without the site footer
+    assert.match(html, /&copy; 2026 RogerAI,&nbsp;Inc\., a Delaware corporation/,
+      `the footer legal line rides ${page}`);
+  }
   assert.match(read("company.html"), /operated by <b>RogerAI,&nbsp;Inc\., a Delaware corporation<\/b>/,
     "the company page names it directly");
   assert.match(read("index.html"), /"legalName":"RogerAI, Inc\."/,
@@ -218,6 +222,8 @@ test("the predecessor entity survives nowhere", () => {
 test("the privacy policy is a real, indexed URL for the App Store listing", () => {
   const p = read("privacy.html");
   assert.doesNotMatch(p, /name="robots" content="noindex"/, "the policy is indexed");
-  assert.match(p, /<meta name="description"/, "and describable");
+  const desc = p.match(/<meta name="description" content="([^"]+)"/)?.[1] || "";
+  assert.ok(desc.length >= 100 && desc.length <= 160,
+    `the description fits the 100-160 budget (got ${desc.length})`);
   assert.match(read("sitemap.xml"), /privacy\.html/, "and in the sitemap");
 });
