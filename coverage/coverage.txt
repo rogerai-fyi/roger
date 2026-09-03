@@ -806,7 +806,7 @@ rogerai.fm/roger/v6/cmd/rogerai-broker/toolcall.go:264:			recordToolProbe			100.
 rogerai.fm/roger/v6/cmd/rogerai-broker/toolcall.go:338:			syncToolsVerified		87.5%
 rogerai.fm/roger/v6/cmd/rogerai-broker/toolcall.go:355:			toolsVerifiedForLocked		100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/toolcall.go:366:			authoritativeFor		100.0%
-rogerai.fm/roger/v6/cmd/rogerai-broker/toolcall.go:382:			probeToolCall			92.1%
+rogerai.fm/roger/v6/cmd/rogerai-broker/toolcall.go:382:			probeToolCall			89.5%
 rogerai.fm/roger/v6/cmd/rogerai-broker/toolcall.go:442:			applyToolVerdict		100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/tower.go:74:			towerModelAllowed		100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/tower.go:80:			towerModalityAllowed		100.0%
@@ -1467,7 +1467,7 @@ rogerai.fm/roger/v6/internal/client/login.go:229:			LogoutReturn			60.0%
 rogerai.fm/roger/v6/internal/client/login.go:241:			Logout				85.7%
 rogerai.fm/roger/v6/internal/client/login.go:256:			Whoami				100.0%
 rogerai.fm/roger/v6/internal/client/login.go:283:			startDeviceFlow			92.9%
-rogerai.fm/roger/v6/internal/client/login.go:305:			pollDeviceToken			90.5%
+rogerai.fm/roger/v6/internal/client/login.go:305:			pollDeviceToken			85.7%
 rogerai.fm/roger/v6/internal/client/login.go:347:			postSigned			100.0%
 rogerai.fm/roger/v6/internal/client/login.go:355:			maxInt				100.0%
 rogerai.fm/roger/v6/internal/client/payout.go:51:			payoutErr			100.0%
@@ -3109,7 +3109,7 @@ rogerai.fm/roger/v6/internal/tui/agent.go:581:				agentFindingBandBeat		100.0%
 rogerai.fm/roger/v6/internal/tui/agent.go:589:				pickAgentModel			100.0%
 rogerai.fm/roger/v6/internal/tui/agent.go:616:				bindAgentEndpoint		80.0%
 rogerai.fm/roger/v6/internal/tui/agent.go:631:				applyToolBudget			88.9%
-rogerai.fm/roger/v6/internal/tui/agent.go:654:				newAgentRuntime			81.2%
+rogerai.fm/roger/v6/internal/tui/agent.go:654:				newAgentRuntime			82.8%
 rogerai.fm/roger/v6/internal/tui/agent.go:843:				bandForModel			100.0%
 rogerai.fm/roger/v6/internal/tui/agent.go:855:				modelBadgeTail			81.8%
 rogerai.fm/roger/v6/internal/tui/agent.go:875:				deskRowCount			100.0%
@@ -3580,7 +3580,7 @@ rogerai.fm/roger/v6/internal/tui/tui.go:1314:				newBase				85.7%
 rogerai.fm/roger/v6/internal/tui/tui.go:1381:				Init				100.0%
 rogerai.fm/roger/v6/internal/tui/tui.go:1392:				syncComposerGeometry		100.0%
 rogerai.fm/roger/v6/internal/tui/tui.go:1404:				setTextareaGeometry		92.3%
-rogerai.fm/roger/v6/internal/tui/tui.go:1423:				update				84.1%
+rogerai.fm/roger/v6/internal/tui/tui.go:1423:				update				83.8%
 rogerai.fm/roger/v6/internal/tui/tui.go:2131:				idleDiscoveryEnabled		100.0%
 rogerai.fm/roger/v6/internal/tui/tui.go:2135:				textareaCanMoveUp		100.0%
 rogerai.fm/roger/v6/internal/tui/tui.go:2140:				textareaCanMoveDown		100.0%
