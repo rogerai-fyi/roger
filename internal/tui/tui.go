@@ -1159,6 +1159,14 @@ type model struct {
 	quantSel    map[int]bool
 	quantCur    int
 	quantTyping bool
+	// chatUnstuck/agentUnstuck: the transcript stick-to-bottom STATE. The old logic
+	// inferred it from AtBottom() before each SetContent, which breaks the moment a
+	// resize re-wraps the content (the stale offset no longer means bottom) - and
+	// sending from a scrolled position left the reply off-screen (founder report,
+	// 2026-09-04). Zero value = stuck, the right default. Manual scrolling flips it;
+	// reaching the bottom again (or sending) re-sticks.
+	chatUnstuck  bool
+	agentUnstuck bool
 	// limReturn is where [3] CONFIG goes back to. It is normally the browser; when the
 	// BAND CARD routed here to edit one field, it is the card - otherwise an operator who
 	// pressed `e` on a card would be dropped on a spend-limit table they never opened.
@@ -1453,8 +1461,10 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch m.mode {
 		case modeChat:
 			m.chatVP, _ = m.chatVP.Update(msg)
+			m.chatUnstuck = !m.chatVP.AtBottom()
 		case modeAgent:
 			m.agentVP, _ = m.agentVP.Update(msg)
+			m.agentUnstuck = !m.agentVP.AtBottom()
 		}
 		return m, nil
 	case smartCopyResultMsg:
@@ -4079,7 +4089,7 @@ func (m model) agentTranscriptRows(cornerRows, promptRows int) int {
 func (m model) refreshScroll() model {
 	w := m.effWidth()
 
-	chatBottom := m.chatVP.AtBottom()
+
 	// Settle a freshly-arrived reply block in (dim -> full ink) over a couple of ticks; frozen
 	// under quiet/compact (reduced motion). msgInFrame==0 means nothing pending.
 	chatLines := m.transcript
@@ -4090,16 +4100,16 @@ func (m model) refreshScroll() model {
 	m.chatVP.Width = w
 	m.chatVP.Height = clampRows(lineRows(chatContent), m.chatTranscriptRows())
 	m.chatVP.SetContent(chatContent)
-	if chatBottom {
+	if !m.chatUnstuck {
 		m.chatVP.GotoBottom()
 	}
 
-	agentBottom := m.agentVP.AtBottom()
+
 	agentContent := transcriptContent(m.displayAgentLines(w), w)
 	m.agentVP.Width = w
 	m.agentVP.Height = clampRows(lineRows(agentContent), m.agentTranscriptRows(m.agentCornerRows(), m.agentPromptRowCount(w)))
 	m.agentVP.SetContent(agentContent)
-	if agentBottom {
+	if !m.agentUnstuck {
 		m.agentVP.GotoBottom()
 	}
 

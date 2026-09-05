@@ -1082,27 +1082,35 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch k.String() {
 		case "up", "k":
 			m.agentVP.ScrollUp(1)
+			m.agentUnstuck = !m.agentVP.AtBottom()
 			return m, nil
 		case "down", "j":
 			m.agentVP.ScrollDown(1)
+			m.agentUnstuck = !m.agentVP.AtBottom()
 			return m, nil
 		case "pgup":
 			m.agentVP.PageUp()
+			m.agentUnstuck = !m.agentVP.AtBottom()
 			return m, nil
 		case "pgdown":
 			m.agentVP.PageDown()
+			m.agentUnstuck = !m.agentVP.AtBottom()
 			return m, nil
 		case "ctrl+u":
 			m.agentVP.HalfPageUp()
+			m.agentUnstuck = !m.agentVP.AtBottom()
 			return m, nil
 		case "ctrl+d":
 			m.agentVP.HalfPageDown()
+			m.agentUnstuck = !m.agentVP.AtBottom()
 			return m, nil
 		case "home":
 			m.agentVP.GotoTop()
+			m.agentUnstuck = true
 			return m, nil
 		case "end":
 			m.agentVP.GotoBottom()
+			m.agentUnstuck = false
 			return m, nil
 		case "d":
 			// Expand / collapse the tool OUTPUT previews across the whole transcript
@@ -1201,15 +1209,19 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Scroll the transcript - works even while a turn streams, so a long answer or
 		// tool dump can be read back without losing the live turn.
 		m.agentVP.PageUp()
+		m.agentUnstuck = !m.agentVP.AtBottom()
 		return m, nil
 	case "pgdown":
 		m.agentVP.PageDown()
+		m.agentUnstuck = !m.agentVP.AtBottom()
 		return m, nil
 	case "ctrl+u":
 		m.agentVP.HalfPageUp()
+		m.agentUnstuck = !m.agentVP.AtBottom()
 		return m, nil
 	case "ctrl+d":
 		m.agentVP.HalfPageDown()
+		m.agentUnstuck = !m.agentVP.AtBottom()
 		return m, nil
 	case "up":
 		// The INPUT owns the keyboard here (transcript focus is intercepted above):
@@ -1247,6 +1259,7 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "end":
 		// Jump back to the live tail (advertised by the scrolled marker).
 		m.agentVP.GotoBottom()
+		m.agentUnstuck = false
 		return m, nil
 	case "ctrl+p":
 		// The PERMS key (founder respec 2026-07-14): cycle the tool-approval mode
@@ -1541,6 +1554,7 @@ func (m model) submitAgentPrompt(q queuedPrompt) (model, tea.Cmd) {
 		}
 	}
 	m.agentBusy = true
+	m.agentUnstuck = false // sending re-sticks: your turn belongs on screen
 	m.agentCanceling = false
 	m.agentStep = 0
 	m.agentMaxSteps = m.agent.loop.MaxSteps
@@ -1576,6 +1590,7 @@ func (m model) startParkedTurn(q queuedPrompt) (model, tea.Cmd) {
 	}
 	m.refreshAgentModel()
 	m.agentBusy = true
+	m.agentUnstuck = false // sending re-sticks: your turn belongs on screen
 	m.agentCanceling = false
 	m.agentStep = 0
 	m.agentMaxSteps = m.agent.loop.MaxSteps

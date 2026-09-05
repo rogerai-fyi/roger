@@ -283,3 +283,38 @@ func TestAgentTypingAndHistoryStillWork(t *testing.T) {
 		t.Fatalf("Up should recall the agent history, got %q", got)
 	}
 }
+
+// SENDING RE-STICKS (founder report 2026-09-04: "something is off with the scrolling
+// after many question and answer blocks"). Once wheel/PgUp had unstuck the view, a
+// submitted message and its reply landed OFF-SCREEN - the transcript sat mid-history
+// and the session felt frozen. Sending is an explicit "I'm at the conversation's
+// front" gesture: it must jump to the bottom, every time.
+func TestChatSendResticksToBottom(t *testing.T) {
+	m := tallChat(t, 60)
+	for i := 0; i < 10; i++ {
+		m, _ = m.Update(keyPgUp())
+	}
+	for _, r := range "hello there" {
+		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m, _ = m.Update(keyMsg2(tea.KeyEnter))
+	v := asModel(m).View()
+	if !strings.Contains(v, "hello there") {
+		t.Fatalf("the just-sent message must be visible - sending re-sticks to the bottom:\n%s", v)
+	}
+}
+
+// STICK SURVIVES A RE-WRAP. The old stick logic read AtBottom() against the PREVIOUS
+// wrap; a resize re-wraps the transcript, the stale offset no longer means "bottom",
+// and the view silently un-stuck. The stick is a STATE, not an inferred offset.
+func TestChatStickSurvivesResize(t *testing.T) {
+	m := tallChat(t, 60)
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 46, Height: 30}) // narrower: every row re-wraps
+	mm := asModel(m)
+	mm.transcript = append(mm.transcript, "FRESH-AFTER-RESIZE")
+	m = mm
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 46, Height: 30})
+	if !strings.Contains(asModel(m).View(), "FRESH-AFTER-RESIZE") {
+		t.Fatal("a resize while stuck at the bottom must stay stuck through the re-wrap")
+	}
+}

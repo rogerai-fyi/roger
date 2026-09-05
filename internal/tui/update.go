@@ -166,15 +166,19 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.enterAgent()
 		case "pgup":
 			m.chatVP.PageUp()
+			m.chatUnstuck = !m.chatVP.AtBottom()
 			return m, nil
 		case "pgdown":
 			m.chatVP.PageDown()
+			m.chatUnstuck = !m.chatVP.AtBottom()
 			return m, nil
 		case "ctrl+u":
 			m.chatVP.HalfPageUp()
+			m.chatUnstuck = !m.chatVP.AtBottom()
 			return m, nil
 		case "ctrl+d":
 			m.chatVP.HalfPageDown()
+			m.chatUnstuck = !m.chatVP.AtBottom()
 			return m, nil
 		case "up":
 			if textareaCanMoveUp(m.chatIn) {
@@ -189,6 +193,7 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.chatIn.CursorEnd()
 			} else {
 				m.chatVP.ScrollUp(1)
+				m.chatUnstuck = !m.chatVP.AtBottom()
 			}
 			return m, nil
 		case "down":
@@ -202,10 +207,12 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.chatIn.CursorEnd()
 			} else {
 				m.chatVP.ScrollDown(1)
+				m.chatUnstuck = !m.chatVP.AtBottom()
 			}
 			return m, nil
 		case "end":
 			m.chatVP.GotoBottom()
+			m.chatUnstuck = false
 			return m, nil
 		case "ctrl+p":
 			// The PERMS key (founder respec 2026-07-14) - but tool approvals live in
@@ -257,6 +264,7 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.sysPrompt != "" {
 				turn = m.sysPrompt + "\n\n" + p
 			}
+			m.chatUnstuck = false // sending re-sticks: your turn belongs on screen
 			m.transcript = append(m.transcript, chatUserBlock(p))
 			// Pre-flight: if no station for this band is on air right now, say so in the
 			// transcript immediately instead of firing a request the broker will bounce
