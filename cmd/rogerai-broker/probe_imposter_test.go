@@ -89,3 +89,43 @@ func TestMismatchKeepsProvenLive(t *testing.T) {
 		t.Fatal("a clean pass must clear the withheld mark")
 	}
 }
+
+// An imposter that ALSO answers a wrong-family token keeps its strike - two
+// independent wrongness signals are a bad node, not an honest alias.
+func TestImposterPlusWrongFamilyStillStrikes(t *testing.T) {
+	b, _, _, _ := newBandBroker(t)
+	var other string
+	for _, f := range canaryFingerprints {
+		if f.expect != canaryFingerprints[0].expect && len(f.expect) >= 4 {
+			other = f.expect
+			break
+		}
+	}
+	if other == "" {
+		t.Skip("no distinctive second canary token")
+	}
+	body := []byte(`{"model":"wave-pico-293m","choices":[{"message":{"content":"` + other + `"}}],"usage":{"completion_tokens":3}}`)
+	res := protocol.JobResult{Status: 200, Body: body, Receipt: protocol.UsageReceipt{CompletionTokens: 3}}
+	outcome, _, _, _ := b.evalCanary(res, 50*time.Millisecond, canaryFingerprints[0], "Qwen3.8-27B")
+	if outcome != probeWrong {
+		t.Fatalf("imposter+wrong-family got %v, want probeWrong (the strike it always earned)", outcome)
+	}
+}
+
+// The paid spine withholds the verified BOOST on a mismatch - ranked as
+// never-positively-proven (0.7), never as failing.
+func TestSpineWithholdsVerifiedBoostOnMismatch(t *testing.T) {
+	clean := reliabilityFactor(true, true, 0, false, 1, true, 1)
+	mis := reliabilityFactor(true, true, 0, true, 1, true, 1)
+	unproven := reliabilityFactor(false, false, 0, false, 1, true, 1)
+	if !(mis < clean) {
+		t.Fatalf("mismatch kept the verified boost: clean=%v mismatch=%v", clean, mis)
+	}
+	if mis != unproven {
+		t.Fatalf("mismatch should rank as never-proven: mismatch=%v unproven=%v", mis, unproven)
+	}
+	failing := reliabilityFactor(true, false, 2, false, 1, true, 1)
+	if !(mis > failing) {
+		t.Fatalf("mismatch must never rank as failing: mismatch=%v failing=%v", mis, failing)
+	}
+}

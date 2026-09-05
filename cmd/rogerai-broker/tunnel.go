@@ -2782,7 +2782,7 @@ func (b *broker) pickFor(model string, confidentialOnly bool, minTPS, maxPriceIn
 		// Tier A is empty. probeFails>=2 is the raised bar (was 3-strikes) but graded, not
 		// a hard zero, inside the reliability spine.
 		tierA := tq.probeFails < 2 && (!sseen || sr >= 0.55)
-		rel := reliabilityFactor(tq.probed, tq.probeOK, tq.probeFails, sr, sseen, tq.score())
+		rel := reliabilityFactor(tq.probed, tq.probeOK, tq.probeFails, tq.modelMismatch, sr, sseen, tq.score())
 		fit := speedFit(tps, tq.ttftMs, req.promptTokens, w.speedMul)
 		// UCB radius is GATED to canary-passed nodes (spec 1.1e): we explore honest-
 		// capable nodes, never unproven-flaky ones.

@@ -23,9 +23,9 @@ func twoNodeBroker(now time.Time, aPrice, bPrice float64) *broker {
 // TestReliabilitySpineGraded: a single probe miss costs ~40% (verifiedFactor 0.6),
 // NOT 100% - the smoothness fix. Two misses tank it hard but never to zero.
 func TestReliabilitySpineGraded(t *testing.T) {
-	full := reliabilityFactor(true, true, 0, 0, false, 1.0)
-	oneMiss := reliabilityFactor(true, false, 1, 0, false, 1.0)
-	twoMiss := reliabilityFactor(true, false, 2, 0, false, 1.0)
+	full := reliabilityFactor(true, true, 0, false, 0, false, 1.0)
+	oneMiss := reliabilityFactor(true, false, 1, false, 0, false, 1.0)
+	twoMiss := reliabilityFactor(true, false, 2, false, 0, false, 1.0)
 	if oneMiss <= 0 {
 		t.Fatal("one probe miss must not zero the node")
 	}

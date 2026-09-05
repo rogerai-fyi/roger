@@ -10,12 +10,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"rogerai.fm/roger/v6/internal/protocol"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/cucumber/godog"
+	"rogerai.fm/roger/v6/internal/protocol"
 )
 
 type curProbeState struct {

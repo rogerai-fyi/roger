@@ -962,11 +962,17 @@ func (b *broker) evalCanary(res protocol.JobResult, elapsed time.Duration, fp ca
 	// still echo the fingerprint token. The response's own model field is the
 	// upstream's confession - a clearly unrelated name withholds the verification
 	// mark (probeMismatch: alive, never a strike - see the outcome's doc).
+	low := strings.ToLower(text)
 	if rm := responseModel(res.Body); imposterModel(bandModel, rm) {
+		// A confessed mismatch that ALSO asserts a wrong-family answer keeps the
+		// probeWrong STRIKE it always earned - two independent wrongness signals
+		// are a bad node, not an honest alias.
+		if canaryWrongFamily(low, fp) {
+			return probeWrong, tps, false, completed
+		}
 		log.Printf("probe: band %q answered as %q - verification withheld (imposter or alias)", bandModel, rm)
 		return probeMismatch, tps, false, completed
 	}
-	low := strings.ToLower(text)
 	if strings.Contains(low, fp.expect) {
 		return probePass, tps, true, completed // strong positive signal
 	}

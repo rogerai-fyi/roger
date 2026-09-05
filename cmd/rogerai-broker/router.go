@@ -91,8 +91,14 @@ func (p pref) weights() prefWeights {
 // It is a PICK-LOCAL graded mapping of probe + organic evidence; it does not change
 // verifiedServing()'s global meaning. A single transient probe miss costs ~40%
 // (verifiedFactor 0.6), not 100% - the smoothness fix.
-func reliabilityFactor(probed, probeOK bool, probeFails int, success float64, sseen bool, trust float64) float64 {
+func reliabilityFactor(probed, probeOK bool, probeFails int, mismatch bool, success float64, sseen bool, trust float64) float64 {
 	ver := verifiedFactorOf(probed, probeOK, probeFails)
+	if mismatch && ver > 0.7 {
+		// A confessed model mismatch withholds the verified BOOST in the paid
+		// spine too: the node ranks as never-positively-proven (0.7), never as
+		// failing - the alias-band guarantee is no strike, not full credit.
+		ver = 0.7
+	}
 	// successFactor: floored at 0.5 so a node is never zeroed on success evidence;
 	// reuses the channel's organic-or-verified success reading.
 	verifiedOK := probed && probeOK && probeFails == 0
