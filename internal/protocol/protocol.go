@@ -512,12 +512,12 @@ type UsageReceipt struct {
 	PriceOut         float64 `json:"price_out"`
 	// Curated marks a receipt settled through a curated (commercial-API proxy) station,
 	// so ledgers and money sweeps can total curated flow apart from human supply.
-	Curated  bool   `json:"curated,omitempty"`
+	Curated bool `json:"curated,omitempty"`
 	// CuratedAtCost is BROKER-set beside Curated: an at-cost settlement must survive a
 	// registration eviction on the receipt itself, or it settles 5% short of its list.
-	CuratedAtCost bool `json:"curated_at_cost,omitempty"`
-	TS       int64  `json:"ts"`
-	PrevHash string `json:"prev_hash"`
+	CuratedAtCost bool   `json:"curated_at_cost,omitempty"`
+	TS            int64  `json:"ts"`
+	PrevHash      string `json:"prev_hash"`
 	// Lineage proof slot - P0 carries the upstream-reported counts; P1 fills
 	// LineageMethod ("toploc"/"logprob") + LineageProof (opaque bytes).
 	LineageMethod string `json:"lineage_method,omitempty"`

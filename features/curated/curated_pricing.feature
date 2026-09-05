@@ -100,12 +100,14 @@ Feature: Curated prices derive from the upstream and settle without loss
 
   Scenario: An at-cost settlement is pure pass-through
     Given an at-cost curated station
-    And declared upstream prices of $1.00 in and $1.00 out per 1M
+    And declared upstream prices of $1.00 in and $2.00 out per 1M
     When a curated request that cost $1.00 at the posted price
     Then the curated operator is credited $1.00
     And the broker retains $0.00
 
   Scenario: At cost is never below cost
+    # pins that the flag does NOT bypass the underwater guard: a refactor that ran
+    # the at-cost derivation before the below-list check would accept this quietly
     Given an at-cost curated station
     When a curated node posts prices under its declared upstream list
     Then the registration is rejected naming the underwater price
