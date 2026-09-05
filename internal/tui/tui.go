@@ -4100,6 +4100,11 @@ func (m model) refreshScroll() model {
 	m.chatVP.Width = w
 	m.chatVP.Height = clampRows(lineRows(chatContent), m.chatTranscriptRows())
 	m.chatVP.SetContent(chatContent)
+	if m.chatVP.AtBottom() {
+		// the whole transcript fits, or the user scrolled back down: re-stick, so
+		// later growth follows again (the audit's shrink-to-fit catch)
+		m.chatUnstuck = false
+	}
 	if !m.chatUnstuck {
 		m.chatVP.GotoBottom()
 	}
@@ -4108,6 +4113,9 @@ func (m model) refreshScroll() model {
 	m.agentVP.Width = w
 	m.agentVP.Height = clampRows(lineRows(agentContent), m.agentTranscriptRows(m.agentCornerRows(), m.agentPromptRowCount(w)))
 	m.agentVP.SetContent(agentContent)
+	if m.agentVP.AtBottom() {
+		m.agentUnstuck = false
+	}
 	if !m.agentUnstuck {
 		m.agentVP.GotoBottom()
 	}

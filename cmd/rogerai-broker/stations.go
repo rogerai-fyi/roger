@@ -30,14 +30,14 @@ type stationOffer struct {
 
 // stationView is one station as its owner sees it.
 type stationView struct {
-	NodeID       string         `json:"node_id"`
-	OnAir        bool           `json:"on_air"`
-	RegisteredAt int64          `json:"registered_at,omitempty"`
-	LastSeen     int64          `json:"last_seen,omitempty"`
-	Region       string         `json:"region,omitempty"`
-	HW           string         `json:"hw,omitempty"`
-	Confidential bool           `json:"confidential"`
-	Private      bool           `json:"private"`
+	NodeID       string `json:"node_id"`
+	OnAir        bool   `json:"on_air"`
+	RegisteredAt int64  `json:"registered_at,omitempty"`
+	LastSeen     int64  `json:"last_seen,omitempty"`
+	Region       string `json:"region,omitempty"`
+	HW           string `json:"hw,omitempty"`
+	Confidential bool   `json:"confidential"`
+	Private      bool   `json:"private"`
 	// Curated labels a commercial-API proxy station; the web dashboard renders it apart
 	// and keeps the reimbursement and the fee share apart (the reimbursement half is
 	// never income; the operator's half of the routing fee is)
@@ -45,7 +45,7 @@ type stationView struct {
 	Curated         bool           `json:"curated,omitempty"`
 	CuratedProvider string         `json:"curated_provider,omitempty"`
 	Offers          []stationOffer `json:"offers"`
-	Earnings     float64        `json:"earnings"`
+	Earnings        float64        `json:"earnings"`
 	// EarningsUnavailable is set when the ledger could not be read. A money dashboard
 	// must never render a fabricated 0 that an operator would read as "I earned nothing".
 	EarningsUnavailable bool `json:"earnings_unavailable,omitempty"`

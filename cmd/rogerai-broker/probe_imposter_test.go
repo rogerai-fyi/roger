@@ -33,6 +33,11 @@ func TestImposterModelDetection(t *testing.T) {
 		{"qwen3.8-27b", "qwen3.8-4b", true},
 		{"gpt-oss-120b", "gpt-oss-20b", true},
 		{"wave-pico-293m", "wave-giga-9b", true},
+		// placeholder echoes carry no identity (old llama.cpp shims, generic
+		// served-model aliases) - never a confession, never a withheld mark
+		{"qwen3.8-27b", "gpt-3.5-turbo", false},
+		{"deepseek-v4-flash", "default", false},
+		{"gpt-oss-120b", "local-model", false},
 		// known accepted limit: pure-word family variants are indistinguishable from
 		// honest fine-tunes by name alone; the mark is withheld-not-struck anyway
 		{"claude-opus-4.8", "claude-haiku-4.5", false},

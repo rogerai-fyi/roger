@@ -73,9 +73,9 @@ type EarningLot struct {
 	ReserveReleaseAt int64   `json:"reserve_release_at"` // unix: reserve becomes payable
 	// ReserveReleased marks that the reserve_release audit row for this lot was
 	// emitted (once, when the tail cleared) - bookkeeping for the ledger, not money.
-	ReserveReleased bool `json:"reserve_released,omitempty"`
-	CreatedAt        int64   `json:"created_at"`
-	PayoutID         int64   `json:"payout_id,omitempty"` // the payout that paid this lot (0 = none); rollback key
+	ReserveReleased bool  `json:"reserve_released,omitempty"`
+	CreatedAt       int64 `json:"created_at"`
+	PayoutID        int64 `json:"payout_id,omitempty"` // the payout that paid this lot (0 = none); rollback key
 	// SelfRelayed records that the two earnings this request minted - the serving Station's
 	// 90% and the relaying Tower's 5% - were determined at settle time to belong to ONE
 	// account. It is EVIDENCE, not enforcement: nothing here withholds, scales or refuses the
@@ -203,8 +203,8 @@ type ChargebackResult struct {
 
 // PayoutPolicy holds the founder-approved, env-configurable payout knobs.
 type PayoutPolicy struct {
-	HoldDays  int     // days an earning is held before its non-reserve part is payable
-	Reserve   float64 // fraction (0..1) of each earning kept back as a rolling reserve
+	HoldDays int     // days an earning is held before its non-reserve part is payable
+	Reserve  float64 // fraction (0..1) of each earning kept back as a rolling reserve
 	// ReserveDays is the reserve TAIL: days from earning until the reserve slice
 	// becomes payable. Clamped to at least HoldDays (a reserve releasing before the
 	// lot it belongs to would be meaningless).

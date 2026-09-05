@@ -848,6 +848,13 @@ func imposterModel(band, resp string) bool {
 	if bn == "" || rn == "" {
 		return false
 	}
+	// Placeholder echoes are not a confession: an old llama.cpp shim answers as
+	// "gpt-3.5-turbo" whatever it runs, and generic served-model aliases carry no
+	// identity at all. An honest operator behind one must not lose the mark.
+	switch rn {
+	case "gpt35turbo", "gpt4", "model", "default", "local", "localmodel", "chat", "assistant":
+		return false
+	}
 	if strings.Contains(bn, rn) || strings.Contains(rn, bn) {
 		return false
 	}
