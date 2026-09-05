@@ -410,6 +410,12 @@ type NodeRegistration struct {
 	// station nor stripped off a proxy in flight.
 	Curated         bool   `json:"curated,omitempty"`
 	CuratedProvider string `json:"curated_provider,omitempty"`
+	// CuratedAtCost opts a curated registration OUT of the routing markup (founder,
+	// 2026-09-04): the posted price IS the declared list and settlement is pure
+	// pass-through - no fee is collected and nobody earns. The same spirit as a
+	// human station broadcasting at zero, with the upstream bill still recovered.
+	// Default (false) keeps list x curatedMarkup.
+	CuratedAtCost bool `json:"curated_at_cost,omitempty"`
 	// TS (unix seconds) + Sig prove possession of PubKey's private key and bound the
 	// registration to a moment (the broker rejects stale ones to stop replay). Sig is
 	// hex(ed25519 sign over regSigningBytes), verified against PubKey on register.
@@ -507,6 +513,9 @@ type UsageReceipt struct {
 	// Curated marks a receipt settled through a curated (commercial-API proxy) station,
 	// so ledgers and money sweeps can total curated flow apart from human supply.
 	Curated  bool   `json:"curated,omitempty"`
+	// CuratedAtCost is BROKER-set beside Curated: an at-cost settlement must survive a
+	// registration eviction on the receipt itself, or it settles 5% short of its list.
+	CuratedAtCost bool `json:"curated_at_cost,omitempty"`
 	TS       int64  `json:"ts"`
 	PrevHash string `json:"prev_hash"`
 	// Lineage proof slot - P0 carries the upstream-reported counts; P1 fills
@@ -572,6 +581,7 @@ func (r UsageReceipt) nodeSigningBytes() []byte {
 	// including it would break VerifyNode on every curated receipt. brokerSigningBytes
 	// keeps it, so the co-signed receipt still proves the designation.
 	c.Curated = false
+	c.CuratedAtCost = false
 	c.SigVersion = 0 // broker-set, and absent when the node signs
 	c.NodeSig = ""
 	c.BrokerSig = ""

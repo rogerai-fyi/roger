@@ -250,7 +250,7 @@ func (b *broker) settleRequest(payer, node string, held, cost float64, rec proto
 	// audit's finding); for the unsigned paths that reach settle directly, stamp it now,
 	// and never touch a receipt that already carries a broker signature.
 	if rec.BrokerSig == "" {
-		rec.Curated = b.nodeCurated(node)
+		rec.Curated, rec.CuratedAtCost = b.nodeCurated(node), b.nodeCuratedAtCost(node)
 	}
 	if free {
 		// Metering only: record the receipt (Settle at cost 0, ownerShare 0 writes no
@@ -274,7 +274,7 @@ func (b *broker) settleRequest(payer, node string, held, cost float64, rec proto
 	// 9% underwater bug wearing an eviction. The live read remains the fallback for the
 	// unsigned paths that stamped just above.
 	if rec.Curated || b.nodeCurated(node) {
-		ownerShare = curatedOwnerShare(cost)
+		ownerShare = curatedOwnerShare(cost, rec.CuratedAtCost || b.nodeCuratedAtCost(node))
 	}
 	if b.nodeOwnerBanned(node) {
 		log.Printf("settle: node=%s owner BANNED - billing consumer but minting NO earning", node)

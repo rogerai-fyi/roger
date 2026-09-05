@@ -511,7 +511,7 @@ func (b *broker) audioRelayCore(w http.ResponseWriter, r *http.Request, spec aud
 		}
 		b.checkChain(node.NodeID, requestID, rec)
 		rec.PriceIn, rec.GrantID = pin, grantID
-		rec.Curated = b.nodeCurated(rec.NodeID) // stamped BEFORE the broker signs, so the signature covers it
+		rec.Curated, rec.CuratedAtCost = b.nodeCurated(rec.NodeID), b.nodeCuratedAtCost(rec.NodeID) // stamped BEFORE the broker signs, so the signature covers it
 		rec.SignBroker(b.priv)
 
 		// settle charges the request (or records a $0 metering receipt on the free path)

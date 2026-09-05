@@ -31,6 +31,7 @@ type curPriceState struct {
 	regCode int
 	regBody string
 
+	atCost              bool
 	payer               string
 	rec                 protocol.UsageReceipt
 	balBefore, balAfter float64
@@ -40,6 +41,7 @@ type curPriceState struct {
 func (s *curPriceState) reset() {
 	s.b, s.userPriv, s.nodePriv, s.nodePubHex = newBandBroker(s.t)
 	s.regCode, s.regBody = 0, ""
+	s.atCost = false
 	s.payer, s.rec = "wlt_cur", protocol.UsageReceipt{}
 	s.balBefore, s.balAfter, s.earned = 0, 0, 0
 }
@@ -48,6 +50,7 @@ func (s *curPriceState) register(offers []protocol.ModelOffer, curated bool, pro
 	reg := protocol.NodeRegistration{
 		NodeID: "curp1", PubKey: s.nodePubHex, BridgeToken: "tok", TS: time.Now().Unix(),
 		Offers: offers, Curated: curated, CuratedProvider: provider,
+		CuratedAtCost: s.atCost,
 	}
 	reg.SignRegistration(s.nodePriv)
 	body, _ := json.Marshal(reg)
@@ -110,13 +113,13 @@ func (s *curPriceState) markupOnePlace() error {
 	// The constant is the formula: every derivation and the settlement split read
 	// curatedMarkup, so this pins that the helpers agree with each other - if a second
 	// copy of the number appears, one of these two goes wrong first.
-	if !near(curatedPosted(1.0), curatedMarkup) {
+	if !near(curatedPosted(1.0, false), curatedMarkup) {
 		return fmt.Errorf("curatedPosted does not derive from curatedMarkup")
 	}
 	// The settlement recovers the list from the posted price and adds the operator's
 	// half of the pool: on a list of 7.77 that is 7.77 + 0.5*(posted-7.77). The list
 	// component still inverts the derivation exactly - the reimbursement can never drift.
-	if want := 7.77 + curatedFeeShare*(curatedPosted(7.77)-7.77); !near(curatedOwnerShare(curatedPosted(7.77)), want) {
+	if want := 7.77 + curatedFeeShare*(curatedPosted(7.77, false)-7.77); !near(curatedOwnerShare(curatedPosted(7.77, false), false), want) {
 		return fmt.Errorf("the settlement split does not agree with the posted derivation: an "+
 			"operator would not get the list plus their half of the pool (want %.6f)", want)
 	}
@@ -278,6 +281,7 @@ func TestCuratedPricingFeature(t *testing.T) {
 				return c, nil
 			})
 			sc.Step(`^a curated station declaring upstream list prices in and out$`, st.declaringStation)
+			sc.Step(`^an at-cost curated station$`, func() error { st.atCost = true; return nil })
 			sc.Step(`^declared upstream prices of (\$[0-9.]+) in and (\$[0-9.]+) out per 1M$`, st.declared)
 			sc.Step(`^declared upstream prices of \$0 in and \$0 out$`, func() error { return s0(st) })
 			sc.Step(`^the posted prices are (\$[0-9.]+) in and (\$[0-9.]+) out$`, st.postedAre)
@@ -291,7 +295,7 @@ func TestCuratedPricingFeature(t *testing.T) {
 				}
 				for _, cost := range []float64{0.0001, 1.10, 7.77, 1234.5} {
 					list := cost / curatedMarkup
-					got := curatedOwnerShare(cost)
+					got := curatedOwnerShare(cost, false)
 					if got < list-1e-12 || got > cost+1e-12 {
 						return fmt.Errorf("cost %v: operator share %v escapes [list %v, cost %v]", cost, got, list, cost)
 					}

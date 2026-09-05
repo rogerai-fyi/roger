@@ -2307,7 +2307,10 @@ func (b *broker) captureEdgeCharge(towerID, stationID, stationOwner string, part
 	// remainder is never negative, at any markup or tower rate.
 	stationCurated := b.nodeCurated(stationID)
 	if stationCurated {
-		stationShare = curatedOwnerShare(cost)
+		// at cost the fee pool is empty: the station recovers the whole cost and the
+		// tower's half-of-remainder is zero - carrying at-cost traffic is a gift,
+		// exactly like carrying a free human band.
+		stationShare = curatedOwnerShare(cost, b.nodeCuratedAtCost(stationID))
 		// The tower is paid from the NETWORK's remainder of the fee pool, at the same
 		// one-half ratio the human path gives it (its 5 of the platform's 10) - so the
 		// platform's curated share can never go negative, and no tower-rate change can

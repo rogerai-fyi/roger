@@ -1054,8 +1054,11 @@ func shareModelArg(args []string) (model string, rest []string) {
 // finds - the exact misrepresentation the flag exists to prevent. Zero upstream prices
 // stay legal (a free upstream posts free); negative ones are nonsense the broker would
 // refuse anyway, caught here with a usable sentence.
-func validateCuratedShare(curated, upstream string, upIn, upOut float64) error {
+func validateCuratedShare(curated, upstream string, upIn, upOut float64, atCost bool) error {
 	if curated == "" {
+		if atCost {
+			return fmt.Errorf("--at-cost is a curated pricing choice: it needs --curated <provider>")
+		}
 		return nil
 	}
 	if upstream == "" {
@@ -1139,6 +1142,7 @@ func cmdShare(cfg config, args []string) error {
 	// the network. It is the local, advisory minimum-hardware preflight (see preflight.go);
 	// it reports and exits, and it gates nothing - a share below the bar still runs.
 	check := fs.Bool("check", false, "check this machine against the suggested minimum hardware and exit. Local only - nothing is sent, and nothing is blocked either way")
+	atCost := fs.Bool("at-cost", false, "curated only: post at the declared upstream list EXACTLY - no routing markup, and settlement is pure pass-through (you are reimbursed the whole cost, nobody earns). The house's own curated bands run this way")
 	curated := fs.String("curated", "", "declare this station a CURATED proxy for the named commercial provider (e.g. openrouter). Requires an explicit --upstream (the commercial endpoint); declare its list via --upstream-price-in/out (zero = a free upstream). The broker posts list + its routing markup and settles back your list plus half the routing fee. Verification: one canary at registration earns the check mark, then a minimal weekly recheck - billed to your upstream, typically under a cent a month per band")
 	upIn := fs.Float64("upstream-price-in", 0, "curated: the upstream's list $/1M input the broker derives the posted price from")
 	upOut := fs.Float64("upstream-price-out", 0, "curated: the upstream's list $/1M output")
@@ -1169,7 +1173,7 @@ needs no login. When you earn, payouts are a 30-day hold (10% reserved to day 90
 	if *check {
 		return runSharePreflight(os.Stdout, sharePreflight())
 	}
-	if err := validateCuratedShare(strings.TrimSpace(*curated), strings.TrimSpace(*upstream), *upIn, *upOut); err != nil {
+	if err := validateCuratedShare(strings.TrimSpace(*curated), strings.TrimSpace(*upstream), *upIn, *upOut, *atCost); err != nil {
 		return err
 	}
 	if *advanced {
@@ -1450,6 +1454,7 @@ needs no login. When you earn, payouts are a 30-day hold (10% reserved to day 90
 		PriceIn:      *priceIn, PriceOut: *priceOut, Ctx: ctxLen, CtxEstimated: ctxEstimated, Parallel: *parallel,
 		Confidential: *confidential, Private: *private, Schedule: sched,
 		Curated: strings.TrimSpace(*curated) != "", CuratedProvider: strings.TrimSpace(*curated),
+		CuratedAtCost:   *atCost,
 		UpstreamPriceIn: *upIn, UpstreamPriceOut: *upOut,
 		// A tts share's DEFAULT voice/speed (a single id or a blend string) rides the offer so the
 		// node injects it when a request omits `voice`. Only meaningful for tts (harmless otherwise).

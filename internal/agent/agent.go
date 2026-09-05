@@ -49,6 +49,7 @@ type Config struct {
 	// curated block in /nodes/register.
 	Curated          bool
 	CuratedProvider  string
+	CuratedAtCost    bool // post at the declared list exactly - no markup, pure pass-through
 	UpstreamPriceIn  float64
 	UpstreamPriceOut float64
 
@@ -468,7 +469,7 @@ func Start(cfg Config) (*Session, error) {
 		NodeID: cfg.NodeID, PubKey: pubHex, BridgeToken: token,
 		Region: cfg.Region, HW: cfg.HW, Offers: []protocol.ModelOffer{offer},
 		Confidential: cfg.Confidential, Private: cfg.Private,
-		Curated: cfg.Curated, CuratedProvider: cfg.CuratedProvider,
+		Curated: cfg.Curated, CuratedProvider: cfg.CuratedProvider, CuratedAtCost: cfg.CuratedAtCost,
 		// Carry the AUTHORITATIVE station (the same callsign NodeID is derived from) so the broker
 		// can namespace this node's public voices as @<station>/<slug> without parsing the id.
 		Station: cfg.Station,

@@ -250,21 +250,28 @@ func (b *broker) usageFor(w http.ResponseWriter, r *http.Request, user string) {
 	}
 	rows := make([]usageRow, 0, len(recent))
 	var curatedOf map[string]string
+	var curatedAtCost map[string]bool
 	for _, e := range recent {
 		row := usageRow{Entry: e}
 		if curatedOf == nil {
 			curatedOf = map[string]string{}
+			curatedAtCost = map[string]bool{}
 			if all, err := b.db.AllNodes(); err == nil {
 				for _, n := range all {
 					if n.Reg.Curated {
 						curatedOf[n.NodeID] = n.Reg.CuratedProvider
+						curatedAtCost[n.NodeID] = n.Reg.CuratedAtCost
 					}
 				}
 			}
 		}
 		row.CuratedProvider = curatedOf[e.Node]
 		if row.CuratedProvider != "" {
-			row.CuratedList = round6(e.Cost / curatedMarkup)
+			if curatedAtCost[e.Node] {
+				row.CuratedList = round6(e.Cost) // at cost: the cost IS the list
+			} else {
+				row.CuratedList = round6(e.Cost / curatedMarkup)
+			}
 		}
 		rows = append(rows, row)
 	}

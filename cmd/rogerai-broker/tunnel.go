@@ -323,8 +323,8 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 				jsonErr(w, http.StatusBadRequest, fmt.Sprintf("curated offer %q supplies its own posted price: the broker derives the posted price from the declared upstream list - leave price-in/out zero (or set them to the list itself)", o.Model))
 				return
 			}
-			o.PriceIn = curatedPosted(o.UpstreamIn)
-			o.PriceOut = curatedPosted(o.UpstreamOut)
+			o.PriceIn = curatedPosted(o.UpstreamIn, reg.CuratedAtCost)
+			o.PriceOut = curatedPosted(o.UpstreamOut, reg.CuratedAtCost)
 		}
 	}
 	// The kind-flip guard reads BOTH registries: the live map, and the DURABLE record
@@ -1999,7 +1999,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 				log.Printf("VOID no-output user=%s node=%s status=%d claimIn=%d claimOut=%d - $0, hold refunded",
 					user, node.NodeID, res.Status, rec.PromptTokens, rec.CompletionTokens)
 				if b.db != nil {
-					rec.Curated = b.nodeCurated(rec.NodeID) // stamped BEFORE the broker signs, so the signature covers it
+					rec.Curated, rec.CuratedAtCost = b.nodeCurated(rec.NodeID), b.nodeCuratedAtCost(rec.NodeID) // stamped BEFORE the broker signs, so the signature covers it
 					rec.SignBroker(b.priv)
 					_, _ = b.db.Settle(payer, node.NodeID, 0, 0, rec) // $0 metering receipt for lineage
 				}
@@ -2020,7 +2020,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			rec.BrokerPromptTokens, rec.BrokerCompletionTokens = billedPrompt, billedCompletion
 			// SignBroker is called AFTER the broker counts are assigned so the broker
 			// counter-signature covers them (the node-sig excludes them via signingBytes).
-			rec.Curated = b.nodeCurated(rec.NodeID) // stamped BEFORE the broker signs, so the signature covers it
+			rec.Curated, rec.CuratedAtCost = b.nodeCurated(rec.NodeID), b.nodeCuratedAtCost(rec.NodeID) // stamped BEFORE the broker signs, so the signature covers it
 			rec.SignBroker(b.priv)
 			cost := clampSettleCost(rec.CostWith2(billedPrompt, billedCompletion), maxCost)
 			newBal, ferr := b.settleRequest(payer, node.NodeID, maxCost, cost, rec, grantID, pricing.free)
@@ -2401,7 +2401,7 @@ func (b *broker) relayStream(w http.ResponseWriter, t *nodeTunnel, node protocol
 					log.Printf("VOID no-output (stream) user=%s node=%s status=%d claimIn=%d claimOut=%d - $0, hold refunded",
 						user, node.NodeID, res.Status, rec.PromptTokens, rec.CompletionTokens)
 					if b.db != nil {
-						rec.Curated = b.nodeCurated(rec.NodeID) // stamped BEFORE the broker signs, so the signature covers it
+						rec.Curated, rec.CuratedAtCost = b.nodeCurated(rec.NodeID), b.nodeCuratedAtCost(rec.NodeID) // stamped BEFORE the broker signs, so the signature covers it
 						rec.SignBroker(b.priv)
 						_, _ = b.db.Settle(user, node.NodeID, 0, 0, rec) // $0 metering receipt
 					}
@@ -2414,7 +2414,7 @@ func (b *broker) relayStream(w http.ResponseWriter, t *nodeTunnel, node protocol
 				billedCompletion := b.settleRecount(node.NodeID, rec.RequestID, recountModel(rec, model), completion, rec.CompletionTokens)
 				rec.BrokerPromptTokens, rec.BrokerCompletionTokens = billedPrompt, billedCompletion
 				// SignBroker AFTER the broker counts are assigned (covers them).
-				rec.Curated = b.nodeCurated(rec.NodeID) // stamped BEFORE the broker signs, so the signature covers it
+				rec.Curated, rec.CuratedAtCost = b.nodeCurated(rec.NodeID), b.nodeCuratedAtCost(rec.NodeID) // stamped BEFORE the broker signs, so the signature covers it
 				rec.SignBroker(b.priv)
 				cost := clampSettleCost(rec.CostWith2(billedPrompt, billedCompletion), maxCost)
 				if _, ferr := b.settleRequest(user, node.NodeID, maxCost, cost, rec, grantID, pricing.free); ferr != nil {

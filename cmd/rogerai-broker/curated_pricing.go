@@ -29,8 +29,14 @@ const curatedMarkup = 1.10
 
 // curatedPosted derives the consumer-facing price from a declared upstream list price.
 // Zero stays zero: a free upstream is posted free (the markup is a fee on money moved,
-// and no money moves).
-func curatedPosted(list float64) float64 { return list * curatedMarkup }
+// and no money moves). An AT-COST registration (founder, 2026-09-04: "let's just pass
+// through the cost") posts the list itself - no markup, and with it no fee pool.
+func curatedPosted(list float64, atCost bool) float64 {
+	if atCost {
+		return list
+	}
+	return list * curatedMarkup
+}
 
 // curatedFeeShare is the fraction of the ROUTING FEE POOL (cost minus the reimbursed
 // list) a curated operator keeps on top of their reimbursement - the founder's 50/50
@@ -45,7 +51,12 @@ const curatedFeeShare = 0.50
 // (cost/M recovers exactly the declared list's share, whatever the token counts were),
 // then add their half of the routing fee the posted markup collected. The broker retains
 // the other half. At the 1.10 markup: a $1.10 request credits $1.05 and retains $0.05.
-func curatedOwnerShare(cost float64) float64 {
+// At cost the settlement is the whole cost back: cost/markup on an at-cost band would
+// re-derive a list 9% BELOW the real one - the underwater bug wearing a discount.
+func curatedOwnerShare(cost float64, atCost bool) float64 {
+	if atCost {
+		return cost
+	}
 	list := cost / curatedMarkup
 	return list + curatedFeeShare*(cost-list)
 }
@@ -56,4 +67,14 @@ func (b *broker) nodeCurated(node string) bool {
 	defer b.mu.Unlock()
 	reg, ok := b.nodes[node]
 	return ok && reg.Curated
+}
+
+// nodeCuratedAtCost reports whether the named node's curated registration opted out of
+// the routing markup. Live-registry read, same caveat as nodeCurated: the STAMPED
+// receipt outranks it at settlement (eviction survives on the receipt, not here).
+func (b *broker) nodeCuratedAtCost(node string) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	reg, ok := b.nodes[node]
+	return ok && reg.Curated && reg.CuratedAtCost
 }

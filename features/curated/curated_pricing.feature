@@ -83,3 +83,29 @@ Feature: Curated prices derive from the upstream and settle without loss
   # --- receipts and history ----------------------------------------------------
 
 
+
+  # THIRD AMENDMENT (founder, 2026-09-04): "for the ones we are sharing let's not
+  # upcharge, let's just pass through the cost". A curated station may register AT
+  # COST: the posted price IS the declared list, and settlement is pure pass-through
+  # - the operator is reimbursed the whole cost, no routing fee is collected, nobody
+  # earns. The same spirit as a human station broadcasting at zero, with the
+  # upstream bill still recovered. The default registration keeps list + 10%; at
+  # cost is an explicit flag, and the house's own curated bands run with it.
+
+  Scenario: An at-cost curated station posts exactly its declared list
+    Given an at-cost curated station
+    And declared upstream prices of $1.00 in and $2.00 out per 1M
+    Then the posted prices are $1.00 in and $2.00 out
+    And the row still carries the curated mark
+
+  Scenario: An at-cost settlement is pure pass-through
+    Given an at-cost curated station
+    And declared upstream prices of $1.00 in and $1.00 out per 1M
+    When a curated request that cost $1.00 at the posted price
+    Then the curated operator is credited $1.00
+    And the broker retains $0.00
+
+  Scenario: At cost is never below cost
+    Given an at-cost curated station
+    When a curated node posts prices under its declared upstream list
+    Then the registration is rejected naming the underwater price

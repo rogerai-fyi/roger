@@ -948,7 +948,7 @@ func (s *cbState) lotClawedInPlaceFor(reqID, v string) error {
 		return err
 	}
 	for _, row := range rows {
-		if (strings.HasSuffix(row.IdemKey, ":"+reqID) || strings.Contains(row.IdemKey, ":"+reqID+"#")) {
+		if strings.HasSuffix(row.IdemKey, ":"+reqID) || strings.Contains(row.IdemKey, ":"+reqID+"#") {
 			return feApprox(-row.Amount, want)
 		}
 	}

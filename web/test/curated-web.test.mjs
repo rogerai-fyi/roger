@@ -102,3 +102,11 @@ test("the QSL detail subline never prints a zero human count for a curated-only 
   assert.match(js, /if \(b\.providers > 0\) subBits\.push/, "the human count renders only when > 0");
   assert.doesNotMatch(js, /"- " \+ subN \+ " station"/, "the unconditional count form is gone");
 });
+
+test("the at-cost house bands are disclosed where curated pricing is stated", () => {
+  // founder amendment 2026-09-04: house curated bands post at list, no fee.
+  assert.match(read("pricing.html"), /house bands skip the fee - straight pass-through/,
+    "pricing says the house does not upcharge itself");
+  assert.match(read("models.html"), /up to 10% \(the house&rsquo;s own bands run at cost\)|up to 10% \(the house's own bands run at cost\)/,
+    "the dial legend carries the honest range");
+});
