@@ -2897,7 +2897,8 @@ func (m model) disconnect() (tea.Model, tea.Cmd) {
 	// band's name, which is the same class of bug bindAgentEndpoint's clear exists to stop.
 	m.chatLocalChat, m.chatLocalKey = "", ""
 	m.transcript = nil
-	m.lastReply = "" // leaving the channel: don't let ctrl+y / /copy yank a prior channel's reply
+	m.chatUnstuck = false // a fresh transcript starts stuck
+	m.lastReply = ""      // leaving the channel: don't let ctrl+y / /copy yank a prior channel's reply
 	m.sessCost = 0
 	m.sessTokensIn, m.sessTokensOut = 0, 0 // a new channel starts fresh: zero the running ↑↓ totals
 	m.sysPrompt = ""
@@ -4089,7 +4090,6 @@ func (m model) agentTranscriptRows(cornerRows, promptRows int) int {
 func (m model) refreshScroll() model {
 	w := m.effWidth()
 
-
 	// Settle a freshly-arrived reply block in (dim -> full ink) over a couple of ticks; frozen
 	// under quiet/compact (reduced motion). msgInFrame==0 means nothing pending.
 	chatLines := m.transcript
@@ -4103,7 +4103,6 @@ func (m model) refreshScroll() model {
 	if !m.chatUnstuck {
 		m.chatVP.GotoBottom()
 	}
-
 
 	agentContent := transcriptContent(m.displayAgentLines(w), w)
 	m.agentVP.Width = w

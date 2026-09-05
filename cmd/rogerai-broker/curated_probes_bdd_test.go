@@ -131,8 +131,17 @@ func (s *curProbeState) canaryReadsModel() error {
 }
 
 func (s *curProbeState) probeFailsImposter() error {
-	if !s.imposterOutcome.failed() {
-		return fmt.Errorf("an imposter response earned outcome %v - the band would keep its check mark", s.imposterOutcome)
+	if s.imposterOutcome != probeMismatch {
+		return fmt.Errorf("an imposter response earned outcome %v, want probeMismatch", s.imposterOutcome)
+	}
+	// withheld: drive the outcome through the REAL recordProbe and read the mark
+	s.b.recordProbe("imposter-node", s.imposterOutcome, 100, 10, false, true)
+	if s.b.trust["imposter-node"].verifiedServing() {
+		return fmt.Errorf("an imposter response still earned verified-serving")
+	}
+	// not struck: no failure streak, so no quarantine pressure
+	if s.b.trust["imposter-node"].probeFails != 0 {
+		return fmt.Errorf("the imposter was STRUCK (fails=%d) - honest alias bands would quarantine", s.b.trust["imposter-node"].probeFails)
 	}
 	return nil
 }
@@ -168,7 +177,7 @@ func TestCuratedProbesFeature(t *testing.T) {
 			// field confesses different weights than the band advertises.
 			sc.Step(`^a station advertising one band whose upstream answers as an unrelated model$`, st.imposterUpstream)
 			sc.Step(`^the canary reads the response's model field$`, st.canaryReadsModel)
-			sc.Step(`^the probe records a failure, never a verification$`, st.probeFailsImposter)
+			sc.Step(`^the verification mark is withheld and no failure is struck$`, st.probeFailsImposter)
 			sc.Step(`^a response model that is a naming variant of the band still verifies$`, st.variantStillVerifies)
 		},
 		Options: &godog.Options{

@@ -1787,6 +1787,7 @@ func (m model) runAgentCommand(line string) (tea.Model, tea.Cmd) {
 		m.sessionTitle = ""
 		m.sessionCreated = time.Time{}
 		m.agentLines = nil
+		m.agentUnstuck = false // a fresh session starts stuck
 		m.agentCost = 0
 		m.agentTokensIn = 0 // a fresh session zeroes the running ↑↓ token totals too
 		m.agentTokensOut = 0

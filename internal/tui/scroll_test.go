@@ -304,17 +304,26 @@ func TestChatSendResticksToBottom(t *testing.T) {
 	}
 }
 
-// STICK SURVIVES A RE-WRAP. The old stick logic read AtBottom() against the PREVIOUS
-// wrap; a resize re-wraps the transcript, the stale offset no longer means "bottom",
-// and the view silently un-stuck. The stick is a STATE, not an inferred offset.
-func TestChatStickSurvivesResize(t *testing.T) {
+// /CLEAR RE-STICKS. A scrolled-then-cleared transcript must not stay unstuck: the
+// empty view has exactly one honest position, and the next reply belongs on screen.
+func TestChatClearResticks(t *testing.T) {
 	m := tallChat(t, 60)
-	m, _ = m.Update(tea.WindowSizeMsg{Width: 46, Height: 30}) // narrower: every row re-wraps
+	for i := 0; i < 10; i++ {
+		m, _ = m.Update(keyPgUp())
+	}
 	mm := asModel(m)
-	mm.transcript = append(mm.transcript, "FRESH-AFTER-RESIZE")
+	if !mm.chatUnstuck {
+		t.Fatal("paging up should unstick")
+	}
+	for _, r := range "/clear" {
+		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m, _ = m.Update(keyMsg2(tea.KeyEnter))
+	mm = asModel(m)
+	mm.transcript = append(mm.transcript, "FRESH-AFTER-CLEAR")
 	m = mm
-	m, _ = m.Update(tea.WindowSizeMsg{Width: 46, Height: 30})
-	if !strings.Contains(asModel(m).View(), "FRESH-AFTER-RESIZE") {
-		t.Fatal("a resize while stuck at the bottom must stay stuck through the re-wrap")
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 100, Height: 24})
+	if !strings.Contains(asModel(m).View(), "FRESH-AFTER-CLEAR") {
+		t.Fatal("a cleared transcript must be stuck to its bottom again")
 	}
 }

@@ -375,6 +375,7 @@ func (m model) openLocalChannel(r privRow) model {
 	m.connected = &offer{NodeID: node, Model: r.model, Online: true}
 	m.chatLocalChat, m.chatLocalKey = r.chat, r.key
 	m.transcript = nil
+	m.chatUnstuck = false // a fresh transcript starts stuck
 	m.sessCost = 0
 	m.sessTokensIn, m.sessTokensOut = 0, 0
 	m.lastReply = ""

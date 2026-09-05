@@ -46,8 +46,11 @@ func TestEvalCanaryFailsAnImposter(t *testing.T) {
 		`"usage":{"completion_tokens":3}}`)
 	res := protocol.JobResult{Status: 200, Body: body, Receipt: protocol.UsageReceipt{CompletionTokens: 3}}
 	outcome, _, _, _ := b.evalCanary(res, 50*time.Millisecond, fp, "Qwen3.8-27B")
-	if outcome != probeWrong {
-		t.Fatalf("an imposter response earned outcome %v, want probeWrong", outcome)
+	if outcome != probeMismatch {
+		t.Fatalf("an imposter response earned outcome %v, want probeMismatch", outcome)
+	}
+	if outcome.failed() {
+		t.Fatal("a mismatch must not be a strike - honest alias bands would quarantine")
 	}
 	// the same body under its own band verifies
 	outcome, _, _, _ = b.evalCanary(res, 50*time.Millisecond, fp, "wave-pico-293m")

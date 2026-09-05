@@ -788,26 +788,17 @@ const (
 	probeAlive                     // responded with content; fingerprint inconclusive
 	probePass                      // responded AND the expected fingerprint was found
 	probeWrong                     // responded but a clearly WRONG-family answer: failure
+	// probeMismatch: the response's self-declared model names a clearly unrelated
+	// model. The check mark is withheld - the incident this exists for was an
+	// imposter WEARING the mark - but it is NOT a failure: honest ALIAS bands
+	// (a proxy band like the shim's "local" forwarding its backend's body
+	// verbatim) confess their backend's name on every answer, and striking or
+	// quarantining them for honesty would be the false-positive bug.
+	probeMismatch
 )
 
 func (o probeOutcome) failed() bool { return o == probeDead || o == probeWrong }
 
-// evalCanary classifies a probe result and computes a clean tok/s sample. It returns
-// the outcome, the tok/s (measured whenever the node responded, regardless of the
-// fingerprint), whether the exact fingerprint matched (a strong positive signal), and
-// whether the canary ran to COMPLETION (the node reported counted output tokens).
-//
-//   - non-2xx / empty content => probeDead (real failure).
-//   - expected token present anywhere in the visible content => probePass.
-//   - a DIFFERENT canary's answer present while ours is absent => probeWrong
-//     (clearly wrong-family: the node is answering, but with the wrong fact).
-//   - responded with content but neither => probeAlive (alive, fingerprint
-//     inconclusive). This is the reasoning-model case: NOT a failure.
-//
-// `completed` is CompletionTokens>0 — a passed canary that actually PRODUCED a counted
-// answer (not just a 2xx reasoning channel that stalled). It is the SAME reading the tok/s
-// measurement uses; recordProbe threads it into trustState.probeCompleted so the concierge
-// gate can require completion, not merely liveness. A dead/empty result never completed.
 // imposterModel reports whether a response's self-declared model names a CLEARLY
 // UNRELATED model to the probed band. Normalization is generous on purpose - naming
 // variants are honest and everywhere (provider/ prefixes, :tags, case, punctuation,
@@ -849,6 +840,22 @@ func responseModel(body []byte) string {
 	return r.Model
 }
 
+// evalCanary classifies a probe result and computes a clean tok/s sample. It returns
+// the outcome, the tok/s (measured whenever the node responded, regardless of the
+// fingerprint), whether the exact fingerprint matched (a strong positive signal), and
+// whether the canary ran to COMPLETION (the node reported counted output tokens).
+//
+//   - non-2xx / empty content => probeDead (real failure).
+//   - expected token present anywhere in the visible content => probePass.
+//   - a DIFFERENT canary's answer present while ours is absent => probeWrong
+//     (clearly wrong-family: the node is answering, but with the wrong fact).
+//   - responded with content but neither => probeAlive (alive, fingerprint
+//     inconclusive). This is the reasoning-model case: NOT a failure.
+//
+// `completed` is CompletionTokens>0 — a passed canary that actually PRODUCED a counted
+// answer (not just a 2xx reasoning channel that stalled). It is the SAME reading the tok/s
+// measurement uses; recordProbe threads it into trustState.probeCompleted so the concierge
+// gate can require completion, not merely liveness. A dead/empty result never completed.
 func (b *broker) evalCanary(res protocol.JobResult, elapsed time.Duration, fp canaryFingerprint, bandModel string) (outcome probeOutcome, tps float64, matched, completed bool) {
 	if res.Status < 200 || res.Status >= 300 {
 		return probeDead, 0, false, false
@@ -892,8 +899,9 @@ func (b *broker) evalCanary(res protocol.JobResult, elapsed time.Duration, fp ca
 	// WHO answered outranks WHAT it said: an upstream serving different weights can
 	// still echo the fingerprint token. The response's own model field is the
 	// upstream's confession - a clearly unrelated name fails the probe outright.
-	if imposterModel(bandModel, responseModel(res.Body)) {
-		return probeWrong, tps, false, completed
+	if rm := responseModel(res.Body); imposterModel(bandModel, rm) {
+		log.Printf("probe: band %q answered as %q - verification withheld (imposter or alias)", bandModel, rm)
+		return probeMismatch, tps, false, completed
 	}
 	low := strings.ToLower(text)
 	if strings.Contains(low, fp.expect) {
@@ -998,6 +1006,7 @@ func (b *broker) recordProbe(nodeID string, outcome probeOutcome, ttftMs, tps fl
 	tq.probed = true
 	tq.probeOK = alive
 	tq.probeCompleted = alive && completed // last passed canary produced counted output
+	tq.modelMismatch = outcome == probeMismatch
 	if alive {
 		tq.probeFails = 0
 		if ttftMs > 0 {

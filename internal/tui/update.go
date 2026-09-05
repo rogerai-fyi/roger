@@ -714,6 +714,7 @@ func (m model) runSession(line string) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "clear":
 		m.transcript = nil
+		m.chatUnstuck = false            // /clear re-sticks: the empty view has one honest position
 		m.lastReply = ""                 // cleared transcript -> nothing left to copy
 		m.msgInFrom, m.msgInFrame = 0, 0 // drop any pending message-in reveal
 		m.sessCost = 0

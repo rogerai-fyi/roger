@@ -40,9 +40,12 @@ Feature: Curated stations are verified on a slow lane the operator can afford
   # check mark because it only judged liveness and the fingerprint, never WHO
   # answered. The response's own model field is the upstream's confession; when it
   # names a clearly unrelated model, the probe must fail, not verify.
-  Scenario: A canary refuses to verify an imposter
+  Scenario: A canary refuses to verify an imposter, without striking it
     Given a station advertising one band whose upstream answers as an unrelated model
     When the canary reads the response's model field
-    Then the probe records a failure, never a verification
+    Then the verification mark is withheld and no failure is struck
+    # withheld, not struck: an honest ALIAS band (a proxy like "local" forwarding its
+    # backend's body verbatim) confesses its backend's name on every answer - striking
+    # or quarantining it for honesty would be the false-positive bug
     And a response model that is a naming variant of the band still verifies
     # variants are common and honest: provider/model prefixes, :tags, case, punctuation

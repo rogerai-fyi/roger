@@ -312,6 +312,7 @@ type trustState struct {
 	probes         int
 	probeFails     int  // consecutive probe failures (streak); reset on success
 	probeOK        bool // last probe passed the canary fingerprint (RESPONDED/alive)
+	modelMismatch  bool // last probe's response named a clearly unrelated model (verification withheld, no strike)
 	probed         bool // has at least one probe completed
 	probeCompleted bool // a passed canary ran to COMPLETION (returned counted output tokens).
 	// probeOK marks a node that RESPONDED (2xx with content/reasoning) — it is ALIVE, but a
@@ -349,7 +350,10 @@ func (b *broker) trustScore(nodeID string) float64 {
 // call this - it reads the raw probe fields (reliabilityFactor/verifiedFactorOf) - so a paying
 // caller's routing/failover is unchanged; only the free display/discovery signal downgrades.
 func (t trustState) verifiedServing() bool {
-	return t.probed && t.probeOK && t.probeFails == 0 && t.probeCompleted
+	// modelMismatch withholds the mark without a strike: the response confessed a
+	// clearly unrelated model (an imposter - or an honest alias band, which never
+	// deserved a model-identity mark in the first place). Live catch 2026-09-04.
+	return t.probed && t.probeOK && t.probeFails == 0 && t.probeCompleted && !t.modelMismatch
 }
 
 func (t trustState) score() float64 {
