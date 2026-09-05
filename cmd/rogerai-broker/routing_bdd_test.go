@@ -47,6 +47,8 @@ type routeState struct {
 	pin                          string
 	exclude, allow, privateAllow map[string]bool
 
+	struck bool // did maybeFlagEmptyOutput record a strike (ctx-gate steps)
+
 	// last full-registry pick outcome
 	found  bool
 	picked string
@@ -349,6 +351,44 @@ func (s *routeState) relayNoStation() error {
 	return nil
 }
 
+// --- declared-window gate steps (features/routing/eligibility.feature) ----------
+
+func (s *routeState) seedCtxNode(estimated bool) error {
+	s.b.nodes["ctx1"] = protocol.NodeRegistration{NodeID: "ctx1", TS: time.Now().Unix(),
+		Offers: []protocol.ModelOffer{{Model: "mctx", Ctx: 8192, CtxEstimated: estimated}}}
+	s.b.lastSeen["ctx1"] = time.Now()
+	return nil
+}
+func (s *routeState) declaredSmallWindow() error  { return s.seedCtxNode(false) }
+func (s *routeState) estimatedSmallWindow() error { return s.seedCtxNode(true) }
+func (s *routeState) pickOversized() error {
+	_, _, s.found = s.b.pickFor("mctx", false, 0, 0, 0, "", nil, nil, nil, pickReq{promptTokens: 13073})
+	return nil
+}
+func (s *routeState) oversizedNotPicked() error {
+	if s.found {
+		return fmt.Errorf("a request larger than the declared window was dispatched into the guaranteed refusal")
+	}
+	return nil
+}
+func (s *routeState) oversizedPicked() error {
+	if !s.found {
+		return fmt.Errorf("an ESTIMATED window gated the pick - estimates are display guesses")
+	}
+	return nil
+}
+func (s *routeState) voidOversized() error {
+	s.struck = s.b.maybeFlagEmptyOutput("ctx1",
+		protocol.UsageReceipt{RequestID: "req_ov", NodeID: "ctx1", Model: "mctx"}, 400, 13073*4)
+	return nil
+}
+func (s *routeState) noStrikeRecorded() error {
+	if s.struck {
+		return fmt.Errorf("the honest operator was struck for the request's size")
+	}
+	return nil
+}
+
 func TestRoutingEligibilityBDD(t *testing.T) {
 	suite := godog.TestSuite{
 		ScenarioInitializer: func(sc *godog.ScenarioContext) {
@@ -398,6 +438,15 @@ func TestRoutingEligibilityBDD(t *testing.T) {
 			sc.Step(`^the price range min/max is derived from the paid offer only$`, st.rangeFromPaidOnly)
 			sc.Step(`^pickFor returns found=false$`, st.pickForFalse)
 			sc.Step(`^the relay answers "no station serving" rather than dispatching into a failure$`, st.relayNoStation)
+			// --- the declared-window gate (live catch 2026-09-05) -----------------
+			sc.Step(`^a band whose only offer declares a context window smaller than the request$`, st.declaredSmallWindow)
+			sc.Step(`^an offer whose context window is an estimate, smaller than the request$`, st.estimatedSmallWindow)
+			sc.Step(`^the router picks for that request$`, st.pickOversized)
+			sc.Step(`^the offer is ineligible and nothing is dispatched into the guaranteed refusal$`, st.oversizedNotPicked)
+			sc.Step(`^the offer remains eligible$`, st.oversizedPicked)
+			sc.Step(`^a request the broker measured larger than the node's declared window$`, st.declaredSmallWindow)
+			sc.Step(`^the upstream refuses it and the relay voids$`, st.voidOversized)
+			sc.Step(`^no empty-output strike is recorded against the operator$`, st.noStrikeRecorded)
 		},
 		Options: &godog.Options{
 			Format:   "pretty",

@@ -1,0 +1,57 @@
+package main
+
+// ctx_gate_test.go - features/routing/eligibility.feature, the declared-window gate
+// (live catch 2026-09-05: an honest 8192-window operator was struck to a HOLD by a
+// 13k-token request the broker dispatched into a guaranteed refusal).
+
+import (
+	"testing"
+	"time"
+
+	"rogerai.fm/roger/v6/internal/protocol"
+)
+
+func ctxGateBroker(t *testing.T, ctx int, estimated bool) *broker {
+	t.Helper()
+	b, _, _, _ := newBandBroker(t)
+	b.nodes["n1"] = protocol.NodeRegistration{NodeID: "n1", TS: time.Now().Unix(),
+		Offers: []protocol.ModelOffer{{Model: "m1", Ctx: ctx, CtxEstimated: estimated}}}
+	b.lastSeen["n1"] = time.Now()
+	return b
+}
+
+func TestDeclaredCtxGatesOversizedRequests(t *testing.T) {
+	b := ctxGateBroker(t, 8192, false)
+	if _, _, ok := b.pickFor("m1", false, 0, 0, 0, "", nil, nil, nil, pickReq{promptTokens: 13073}); ok {
+		t.Fatal("a 13k request was dispatched into a declared 8192 window - a guaranteed refusal")
+	}
+	if _, _, ok := b.pickFor("m1", false, 0, 0, 0, "", nil, nil, nil, pickReq{promptTokens: 4000}); !ok {
+		t.Fatal("a fitting request must still pick the band")
+	}
+}
+
+func TestEstimatedCtxNeverGates(t *testing.T) {
+	b := ctxGateBroker(t, 8192, true)
+	if _, _, ok := b.pickFor("m1", false, 0, 0, 0, "", nil, nil, nil, pickReq{promptTokens: 13073}); !ok {
+		t.Fatal("an ESTIMATED window must not gate - it is a display guess")
+	}
+}
+
+func TestOversizedFailureNeverStrikesTheOperator(t *testing.T) {
+	b := ctxGateBroker(t, 8192, false)
+	rec := protocol.UsageReceipt{RequestID: "req_over", NodeID: "n1", Model: "m1"}
+	// ~13k tokens of body: the void classifier must recognize the oversize and skip
+	// the strike; a fitting body must still strike.
+	if !b.oversizedForNode("n1", "m1", 13073*4) {
+		t.Fatal("a 13k-token body against a declared 8192 window must classify as oversized")
+	}
+	if b.oversizedForNode("n1", "m1", 4000*4) {
+		t.Fatal("a fitting body must not classify as oversized")
+	}
+	if b.maybeFlagEmptyOutput("n1", rec, 400, 13073*4) {
+		t.Fatal("an oversized refusal struck the operator")
+	}
+	if !b.maybeFlagEmptyOutput("n1", rec, 400, 4000*4) {
+		t.Fatal("a fitting-request void must still strike")
+	}
+}

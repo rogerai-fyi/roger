@@ -145,3 +145,26 @@ Feature: Routing eligibility — the hard filters before scoring
     When a request routes for "gpt-oss-20b"
     Then pickFor returns found=false
     And the relay answers "no station serving" rather than dispatching into a failure
+
+  # LIVE CATCH (founder audit, 2026-09-05): a fresh consumer sent a ~13k-token request
+  # to a band honestly advertising an 8192 window (llama-server ctx/slots). The broker
+  # dispatched it anyway, the upstream refused with "exceeds the available context",
+  # the relay voided - and every retry STRUCK the honest operator for empty-output
+  # until their earnings were held. The broker measured the request before picking; a
+  # request larger than a DECLARED window is a guaranteed refusal, never a candidate.
+  Scenario: An offer's declared window gates a request the broker measured larger
+    Given a band whose only offer declares a context window smaller than the request
+    When the router picks for that request
+    Then the offer is ineligible and nothing is dispatched into the guaranteed refusal
+
+  Scenario: An estimated window never gates
+    Given an offer whose context window is an estimate, smaller than the request
+    When the router picks for that request
+    Then the offer remains eligible
+    # estimates are display guesses; gating on them would hide real capacity
+
+  Scenario: An oversized request's failure never strikes the operator
+    Given a request the broker measured larger than the node's declared window
+    When the upstream refuses it and the relay voids
+    Then no empty-output strike is recorded against the operator
+    # the operator told the truth; the failure belongs to the request's size

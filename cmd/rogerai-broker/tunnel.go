@@ -1995,7 +1995,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			// metering receipt is still recorded so the request is auditable.
 			producedOutput := producedUsableOutput(res.Status, completion, rec.CompletionTokens)
 			if !producedOutput {
-				b.flagEmptyOutput(node.NodeID, rec, res.Status)
+				b.maybeFlagEmptyOutput(node.NodeID, rec, res.Status, len(job.Body))
 				log.Printf("VOID no-output user=%s node=%s status=%d claimIn=%d claimOut=%d - $0, hold refunded",
 					user, node.NodeID, res.Status, rec.PromptTokens, rec.CompletionTokens)
 				if b.db != nil {
@@ -2397,7 +2397,7 @@ func (b *broker) relayStream(w http.ResponseWriter, t *nodeTunnel, node protocol
 					producedOutput = res.Status < 400 && rec.CompletionTokens > 0
 				}
 				if !producedOutput {
-					b.flagEmptyOutput(node.NodeID, rec, res.Status)
+					b.maybeFlagEmptyOutput(node.NodeID, rec, res.Status, len(job.Body))
 					log.Printf("VOID no-output (stream) user=%s node=%s status=%d claimIn=%d claimOut=%d - $0, hold refunded",
 						user, node.NodeID, res.Status, rec.PromptTokens, rec.CompletionTokens)
 					if b.db != nil {
@@ -2803,6 +2803,15 @@ func (b *broker) pickFor(model string, confidentialOnly bool, minTPS, maxPriceIn
 				continue
 			}
 			if maxPriceOut > 0 && out > maxPriceOut {
+				continue
+			}
+			// THE DECLARED-WINDOW GATE (live catch 2026-09-05): a request the broker
+			// has already measured larger than an offer's DECLARED context is a
+			// guaranteed upstream refusal - dispatching it voids the relay and, worse,
+			// STRUCK the honest operator for empty-output until their earnings were
+			// held. Estimated windows never gate: they are display guesses, and gating
+			// on them would hide real capacity.
+			if req.promptTokens > 0 && o.Ctx > 0 && !o.CtxEstimated && req.promptTokens > o.Ctx {
 				continue
 			}
 			// Running min/max of the eligible OUTPUT price - the user's effective range

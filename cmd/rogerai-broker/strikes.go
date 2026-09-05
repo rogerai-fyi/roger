@@ -369,6 +369,40 @@ func (b *broker) flagImpossibleInput(nodeID, requestID string, claimed, bodyLen 
 // flagEmptyOutput is the no-usable-output signal: the node billed input but produced no
 // usable completion (errored, empty, or claimed-without-text). Accumulates toward the
 // warn/ban thresholds (tolerant of one-off noise).
+// oversizedForNode reports whether a request body of bodyLen bytes plainly exceeds
+// the node's DECLARED context window for the model (bytes/4 under-estimates tokens,
+// so a true here is definitive). The pick-time gate makes this near-unreachable;
+// it survives as the belt for the race where a registration's window shrank
+// mid-flight - the operator told the truth, the failure belongs to the request.
+func (b *broker) oversizedForNode(nodeID, model string, bodyLen int) bool {
+	b.mu.Lock()
+	reg, ok := b.nodes[nodeID]
+	b.mu.Unlock()
+	if !ok {
+		return false
+	}
+	for _, o := range reg.Offers {
+		if o.Model != model {
+			continue
+		}
+		return o.Ctx > 0 && !o.CtxEstimated && bodyLen/4 > o.Ctx
+	}
+	return false
+}
+
+// maybeFlagEmptyOutput is flagEmptyOutput behind the oversize guard: an upstream
+// refusing a request bigger than its declared window is not the operator's failure.
+// Returns whether a strike was recorded.
+func (b *broker) maybeFlagEmptyOutput(nodeID string, rec protocol.UsageReceipt, status, bodyLen int) bool {
+	if b.oversizedForNode(nodeID, rec.Model, bodyLen) {
+		log.Printf("VOID oversized request node=%s model=%s body=%dB - no strike (the operator's declared window is smaller than the request)",
+			nodeID, rec.Model, bodyLen)
+		return false
+	}
+	b.flagEmptyOutput(nodeID, rec, status)
+	return true
+}
+
 func (b *broker) flagEmptyOutput(nodeID string, rec protocol.UsageReceipt, status int) {
 	b.strike(nodeID, store.StrikeEmptyOutput, "empty:"+rec.RequestID, false, map[string]any{
 		"request_id":         rec.RequestID,
