@@ -234,7 +234,7 @@ func TestEvalCanary(t *testing.T) {
 	fp := canaryFingerprint{prompt: "Reply with only the single word: BANANA", expect: "banana"}
 	eval := func(body string, status int) (probeOutcome, float64, bool, bool) {
 		res := protocol.JobResult{Status: status, Body: json.RawMessage(body), Receipt: protocol.UsageReceipt{CompletionTokens: 1}}
-		return b.evalCanary(res, 50*time.Millisecond, fp)
+		return b.evalCanary(res, 50*time.Millisecond, fp, "")
 	}
 
 	// Clean fingerprint extraction => probePass (a strong positive), matched=true.
@@ -280,7 +280,7 @@ func TestEvalCanary(t *testing.T) {
 	stallRes := protocol.JobResult{Status: 200,
 		Body:    json.RawMessage(`{"choices":[{"message":{"content":"","reasoning":"still thinking"}}]}`),
 		Receipt: protocol.UsageReceipt{CompletionTokens: 0}}
-	if o, _, _, c := b.evalCanary(stallRes, 50*time.Millisecond, fp); o.failed() || c {
+	if o, _, _, c := b.evalCanary(stallRes, 50*time.Millisecond, fp, ""); o.failed() || c {
 		t.Errorf("stall-only reasoning reply: outcome=%v completed=%v, want ALIVE + completed=false", o, c)
 	}
 }
@@ -296,7 +296,7 @@ func TestEvalCanaryReasoningModel(t *testing.T) {
 	fp := canaryFingerprint{prompt: "Reply with only the single word: BANANA", expect: "banana"}
 	eval := func(body string) (probeOutcome, float64, bool, bool) {
 		res := protocol.JobResult{Status: 200, Body: json.RawMessage(body), Receipt: protocol.UsageReceipt{CompletionTokens: 200}}
-		return b.evalCanary(res, 1*time.Second, fp)
+		return b.evalCanary(res, 1*time.Second, fp, "")
 	}
 
 	// Reasoning preamble that later DOES emit the answer => probePass, and it reported

@@ -171,7 +171,7 @@ func (s *ffState) recordCanary(node string, completionTokens int) {
 		body = []byte(`{"choices":[{"message":{"content":"","reasoning":"thinking about it, still going"}}]}`)
 	}
 	res := protocol.JobResult{Status: 200, Body: body, Receipt: protocol.UsageReceipt{CompletionTokens: completionTokens}}
-	outcome, tps, matched, completed := s.b.evalCanary(res, 50*time.Millisecond, fp)
+	outcome, tps, matched, completed := s.b.evalCanary(res, 50*time.Millisecond, fp, "")
 	s.b.recordProbe(node, outcome, 100, tps, matched, completed)
 }
 

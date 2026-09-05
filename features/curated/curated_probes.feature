@@ -33,3 +33,16 @@ Feature: Curated stations are verified on a slow lane the operator can afford
   Scenario: The probe overhead is disclosed where a curated operator signs up
     Then the curated share help says one sign-up canary plus a weekly recheck is billed to the upstream
     # "make it known that so much will be used to validate the connection over a period"
+
+  # LIVE CATCH (founder screenshots, 2026-09-04): a station advertised the band
+  # "Qwen3.8-27B" while its upstream actually served wave-pico-293m - the server
+  # answered any model id with its loaded weights, and the canary handed the band a
+  # check mark because it only judged liveness and the fingerprint, never WHO
+  # answered. The response's own model field is the upstream's confession; when it
+  # names a clearly unrelated model, the probe must fail, not verify.
+  Scenario: A canary refuses to verify an imposter
+    Given a station advertising one band whose upstream answers as an unrelated model
+    When the canary reads the response's model field
+    Then the probe records a failure, never a verification
+    And a response model that is a naming variant of the band still verifies
+    # variants are common and honest: provider/model prefixes, :tags, case, punctuation

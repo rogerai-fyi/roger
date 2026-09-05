@@ -740,7 +740,7 @@ func (b *broker) probeNode(node protocol.NodeRegistration, model string, fp cana
 				return
 			}
 			elapsed := time.Since(start)
-			outcome, tps, matched, completed := b.evalCanary(res, elapsed, fp)
+			outcome, tps, matched, completed := b.evalCanary(res, elapsed, fp, model)
 			b.recordProbe(node.NodeID, outcome, float64(elapsed.Milliseconds()), tps, matched, completed)
 		case <-time.After(30 * time.Second):
 			b.recordProbe(node.NodeID, probeDead, 0, 0, false, false)
@@ -767,7 +767,7 @@ func (b *broker) probeNode(node protocol.NodeRegistration, model string, fp cana
 	select {
 	case res := <-resCh:
 		elapsed := time.Since(start)
-		outcome, tps, matched, completed := b.evalCanary(res, elapsed, fp)
+		outcome, tps, matched, completed := b.evalCanary(res, elapsed, fp, model)
 		b.recordProbe(node.NodeID, outcome, float64(elapsed.Milliseconds()), tps, matched, completed)
 	case <-time.After(30 * time.Second):
 		b.recordProbe(node.NodeID, probeDead, 0, 0, false, false)
@@ -808,7 +808,48 @@ func (o probeOutcome) failed() bool { return o == probeDead || o == probeWrong }
 // answer (not just a 2xx reasoning channel that stalled). It is the SAME reading the tok/s
 // measurement uses; recordProbe threads it into trustState.probeCompleted so the concierge
 // gate can require completion, not merely liveness. A dead/empty result never completed.
-func (b *broker) evalCanary(res protocol.JobResult, elapsed time.Duration, fp canaryFingerprint) (outcome probeOutcome, tps float64, matched, completed bool) {
+// imposterModel reports whether a response's self-declared model names a CLEARLY
+// UNRELATED model to the probed band. Normalization is generous on purpose - naming
+// variants are honest and everywhere (provider/ prefixes, :tags, case, punctuation,
+// quant suffixes) - so only a pair with no containment either way after normalizing
+// is an imposter. An empty response model says nothing (many servers omit it).
+// Live catch 2026-09-04: a band advertising Qwen3.8-27B whose upstream answered as
+// wave-pico-293m wore the check mark; the response model field was the confession
+// the canary never read.
+func imposterModel(band, resp string) bool {
+	norm := func(s string) string {
+		s = strings.ToLower(strings.TrimSpace(s))
+		if i := strings.LastIndex(s, "/"); i >= 0 {
+			s = s[i+1:]
+		}
+		if i := strings.Index(s, ":"); i >= 0 {
+			s = s[:i]
+		}
+		var b strings.Builder
+		for _, r := range s {
+			if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+				b.WriteRune(r)
+			}
+		}
+		return b.String()
+	}
+	bn, rn := norm(band), norm(resp)
+	if bn == "" || rn == "" {
+		return false
+	}
+	return !strings.Contains(bn, rn) && !strings.Contains(rn, bn)
+}
+
+// responseModel extracts the completion's self-declared model id, if any.
+func responseModel(body []byte) string {
+	var r struct {
+		Model string `json:"model"`
+	}
+	_ = json.Unmarshal(body, &r)
+	return r.Model
+}
+
+func (b *broker) evalCanary(res protocol.JobResult, elapsed time.Duration, fp canaryFingerprint, bandModel string) (outcome probeOutcome, tps float64, matched, completed bool) {
 	if res.Status < 200 || res.Status >= 300 {
 		return probeDead, 0, false, false
 	}
@@ -847,6 +888,12 @@ func (b *broker) evalCanary(res protocol.JobResult, elapsed time.Duration, fp ca
 			}
 			tps = float64(claimed) / s
 		}
+	}
+	// WHO answered outranks WHAT it said: an upstream serving different weights can
+	// still echo the fingerprint token. The response's own model field is the
+	// upstream's confession - a clearly unrelated name fails the probe outright.
+	if imposterModel(bandModel, responseModel(res.Body)) {
+		return probeWrong, tps, false, completed
 	}
 	low := strings.ToLower(text)
 	if strings.Contains(low, fp.expect) {

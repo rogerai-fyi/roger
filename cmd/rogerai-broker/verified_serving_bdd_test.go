@@ -185,7 +185,7 @@ func (s *vsState) returnsFingerprintFailure() error {
 	body := json.RawMessage(`{"choices":[{"message":{"content":"penguin"}}]}`)
 	res := protocol.JobResult{Status: 200, Body: body, Receipt: protocol.UsageReceipt{CompletionTokens: 1}}
 	var completed bool
-	s.outcome, _, _, completed = s.b.evalCanary(res, 50*time.Millisecond, s.fp)
+	s.outcome, _, _, completed = s.b.evalCanary(res, 50*time.Millisecond, s.fp, "")
 	s.b.recordProbe(s.node, s.outcome, 0, 0, false, completed) // wrong-family => failed => probeCompleted stays false
 	return nil
 }

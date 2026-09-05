@@ -268,7 +268,7 @@ func TestTheProbeSpeedBandIsBoundedByTheAnswerItActuallyGot(t *testing.T) {
 	res := protocol.JobResult{Status: 200,
 		Body:    []byte(`{"choices":[{"message":{"content":"paris"}}]}`),
 		Receipt: rec}
-	_, tps, _, completed := b.evalCanary(res, time.Second, canaryFingerprint{expect: "paris"})
+	_, tps, _, completed := b.evalCanary(res, time.Second, canaryFingerprint{expect: "paris"}, "")
 	require.True(t, completed)
 	require.LessOrEqual(t, tps, float64(len("paris")),
 		"a canary answering one five-letter word claimed 10000 output tokens and moved the "+
