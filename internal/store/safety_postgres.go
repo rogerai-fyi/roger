@@ -430,6 +430,12 @@ func (p *Postgres) ForgiveOwner(accountID string) (int, error) {
 	return int(n), nil
 }
 
+func (p *Postgres) AccountRecountHeld(accountID string) (bool, error) {
+	var held bool
+	err := p.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM rogerai.account_recount_holds WHERE account_id=$1)`, accountID).Scan(&held)
+	return held, err
+}
+
 func (p *Postgres) SetAccountRecountHold(accountID string, held bool) error {
 	if accountID == "" {
 		return nil

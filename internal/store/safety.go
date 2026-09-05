@@ -392,6 +392,13 @@ func (m *Mem) BannedOwners() (map[string]string, error) {
 	return out, nil
 }
 
+func (m *Mem) AccountRecountHeld(accountID string) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	_, held := m.accountHold[accountID]
+	return held, nil
+}
+
 func (m *Mem) SetAccountRecountHold(accountID string, held bool) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

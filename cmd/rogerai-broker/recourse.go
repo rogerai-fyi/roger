@@ -150,6 +150,7 @@ func (b *broker) ownerStrikes(w http.ResponseWriter, r *http.Request) {
 		strikes = []store.Strike{}
 	}
 	banned, reason, _ := b.db.IsOwnerBanned(acct)
+	held, _ := b.db.AccountRecountHeld(acct)
 	// Surface each owned node's ban status + reason (3.3.1): a banned operator must be able
 	// to SEE why, not just silently fall out of routing. banned_nodes was previously
 	// invisible to owners. node_bans maps node_id -> reason for every owned node currently
@@ -178,6 +179,7 @@ func (b *broker) ownerStrikes(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"strikes":     strikes,
 		"count":       len(strikes),
+		"held":        held,
 		"banned":      banned,
 		"ban_reason":  reason,
 		"node_bans":   nodeBans,

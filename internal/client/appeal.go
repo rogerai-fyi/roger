@@ -23,8 +23,12 @@ type Strike struct {
 // StrikesStatus is the GET /owner/strikes view: the caller's own strikes + the durable
 // owner-ban status + each owned node's ban reason + the appeal hint.
 type StrikesStatus struct {
-	Strikes    []Strike          `json:"strikes"`
-	Count      int               `json:"count"`
+	Strikes []Strike `json:"strikes"`
+	Count   int      `json:"count"`
+	// Held: the owner-level earnings freeze (accumulated strikes pending review).
+	// Distinct from Banned - held earnings resume when strikes decay or review
+	// clears them; the operator should SEE this state, not infer it (2026-09-05).
+	Held       bool              `json:"held"`
 	Banned     bool              `json:"banned"`
 	BanReason  string            `json:"ban_reason"`
 	NodeBans   map[string]string `json:"node_bans"`

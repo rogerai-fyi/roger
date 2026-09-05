@@ -284,3 +284,36 @@ func TestAdminSurfaceClosedWithoutKey(t *testing.T) {
 		t.Errorf("admin op with no key configured = %d, want 403 (closed by default)", w.Code)
 	}
 }
+
+// The HELD state rides /owner/strikes (2026-09-05): drphil must be able to SAY
+// "earnings held" instead of the operator learning it from a database query. The
+// non-empty response path previously omitted the field entirely.
+func TestOwnerStrikesReportsTheHold(t *testing.T) {
+	b, db, priv := newRecourseBroker(t)
+	pubHex := hex.EncodeToString(priv.Public().(ed25519.PublicKey))
+	_, _ = db.OwnerStrike(pubHex, store.StrikeEmptyOutput, `{"axis":"output"}`, "h1")
+	if err := db.SetAccountRecountHold(pubHex, true); err != nil {
+		t.Fatal(err)
+	}
+	w := httptest.NewRecorder()
+	b.ownerStrikes(w, signedReq(http.MethodGet, "/owner/strikes", nil, priv))
+	var resp struct {
+		Held  bool `json:"held"`
+		Count int  `json:"count"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if !resp.Held || resp.Count != 1 {
+		t.Fatalf("held=%v count=%d, want held=true count=1: %s", resp.Held, resp.Count, w.Body.String())
+	}
+	// clearing the hold clears the field
+	_ = db.SetAccountRecountHold(pubHex, false)
+	w = httptest.NewRecorder()
+	b.ownerStrikes(w, signedReq(http.MethodGet, "/owner/strikes", nil, priv))
+	resp.Held = true
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp.Held {
+		t.Fatalf("cleared hold still reads held: %s", w.Body.String())
+	}
+}

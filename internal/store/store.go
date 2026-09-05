@@ -615,6 +615,10 @@ type Store interface {
 	// promoting held->payable (the owner-level twin of SetNodeRecountHold, surviving
 	// node-id rotation). Idempotent.
 	SetAccountRecountHold(accountID string, held bool) error
+	// AccountRecountHeld reports whether the owner-level earnings hold is currently
+	// set - the read side /owner/strikes surfaces so drphil can say "earnings are
+	// HELD" instead of the operator learning it from a database query (2026-09-05).
+	AccountRecountHeld(accountID string) (bool, error)
 	// ForgiveOwner is the ADMIN-reviewed recourse primitive (OPERATOR RECOURSE): it
 	// reverses ALL durable anti-abuse state against an owner account after a human
 	// review clears them - it deletes the owner's strikes, lifts the durable owner ban,

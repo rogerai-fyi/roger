@@ -168,3 +168,19 @@ func TestAppealStoreParity(t *testing.T) {
 		})
 	}
 }
+
+// AccountRecountHeld is the read side of the owner earnings freeze (2026-09-05).
+func TestAccountRecountHeldRoundTrip(t *testing.T) {
+	m := NewMem()
+	if held, _ := m.AccountRecountHeld("acct1"); held {
+		t.Fatal("a fresh account reads held")
+	}
+	_ = m.SetAccountRecountHold("acct1", true)
+	if held, _ := m.AccountRecountHeld("acct1"); !held {
+		t.Fatal("set hold not visible to the read side")
+	}
+	_ = m.SetAccountRecountHold("acct1", false)
+	if held, _ := m.AccountRecountHeld("acct1"); held {
+		t.Fatal("cleared hold still reads held")
+	}
+}

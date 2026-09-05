@@ -155,6 +155,9 @@ func cmdDrPhil(cfg config, args []string) error {
 		case st.Banned:
 			statusline("fail", "your account is BANNED: "+orDash(st.BanReason))
 			redFlags = append(redFlags, "your account is banned - file an appeal: roger appeal --reason \"<why this is a mistake>\"")
+		case st.Held:
+			statusline("fail", fmt.Sprintf("your earnings are HELD pending review (%d strike(s) on record)", st.Count))
+			redFlags = append(redFlags, `earnings held - strikes decay on their own, or appeal: roger appeal --reason "<why this is a mistake>"`)
 		case st.Count > 0:
 			statusline("warn", fmt.Sprintf("you have %d strike(s) on record (earnings may be held pending review)", st.Count))
 		default:

@@ -1,10 +1,11 @@
 package main
 
 import (
+	"rogerai.fm/roger/v6/internal/ctxsig"
+
 	"encoding/json"
 	"log"
 	"os"
-	"rogerai.fm/roger/v6/internal/harness"
 	"strconv"
 	"time"
 
@@ -385,6 +386,25 @@ func approxPromptTokens(body []byte) int {
 // gate makes this near-unreachable; it survives as the belt for the race where a
 // registration's window shrank mid-flight - the operator told the truth, the
 // failure belongs to the request.
+// plausiblyOverflows: could this request genuinely exceed the node's declared
+// window, allowing for the estimate's ~2x under-count? Requires a DECLARED window
+// - with no basis for comparison the confession earns nothing.
+func (b *broker) plausiblyOverflows(nodeID, model string, approxTokens int) bool {
+	b.mu.Lock()
+	reg, ok := b.nodes[nodeID]
+	b.mu.Unlock()
+	if !ok {
+		return false
+	}
+	for _, o := range reg.Offers {
+		if o.Model != model {
+			continue
+		}
+		return o.Ctx > 0 && !o.CtxEstimated && approxTokens*2 > o.Ctx
+	}
+	return false
+}
+
 func (b *broker) oversizedForNode(nodeID, model string, approxTokens int) bool {
 	b.mu.Lock()
 	reg, ok := b.nodes[nodeID]
@@ -408,8 +428,13 @@ func (b *broker) oversizedForNode(nodeID, model string, approxTokens int) bool {
 // "exceeds the available context" is definitive evidence the chars/4 estimate
 // cannot under-count away (code/CJK prompts measure low - the audit's catch).
 func (b *broker) maybeFlagEmptyOutput(nodeID string, rec protocol.UsageReceipt, status, approxTokens int, upstreamErr string) bool {
-	if upstreamErr != "" && harness.IsContextOverflow(upstreamErr) {
-		log.Printf("VOID context-overflow (upstream said so) node=%s model=%s - no strike", nodeID, rec.Model)
+	// The confession is only trusted when the request PLAUSIBLY overflows: the
+	// chars/4 estimate under-counts by at most ~2x (code/CJK), so a request whose
+	// doubled estimate still fits the declared window cannot be a real overflow -
+	// a node echoing "kv cache" on every error must not become unstrikeable
+	// (the audit's gaming catch).
+	if upstreamErr != "" && ctxsig.IsOverflow(upstreamErr) && b.plausiblyOverflows(nodeID, rec.Model, approxTokens) {
+		log.Printf("VOID context-overflow (upstream said so) node=%s model=%s ~%d tokens - no strike", nodeID, rec.Model, approxTokens)
 		return false
 	}
 	if b.oversizedForNode(nodeID, rec.Model, approxTokens) {
