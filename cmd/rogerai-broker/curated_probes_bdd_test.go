@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"rogerai.fm/roger/v6/internal/protocol"
 	"strings"
 	"testing"
 	"time"
@@ -20,6 +21,10 @@ import (
 type curProbeState struct {
 	t *testing.T
 	b *broker
+
+	imposterBand    string
+	imposterResp    protocol.JobResult
+	imposterOutcome probeOutcome
 }
 
 func (s *curProbeState) reset() {
@@ -110,6 +115,39 @@ func (s *curProbeState) helpDisclosesOverhead() error {
 	return nil
 }
 
+// --- imposter steps: WHO answered outranks what it said -------------------------
+
+func (s *curProbeState) imposterUpstream() error {
+	s.imposterBand = "Qwen3.8-27B"
+	s.imposterResp = protocol.JobResult{Status: 200,
+		Body:    []byte(`{"model":"wave-pico-293m","choices":[{"message":{"content":"` + canaryFingerprints[0].expect + `"}}]}`),
+		Receipt: protocol.UsageReceipt{CompletionTokens: 3}}
+	return nil
+}
+
+func (s *curProbeState) canaryReadsModel() error {
+	s.imposterOutcome, _, _, _ = s.b.evalCanary(s.imposterResp, 50*time.Millisecond, canaryFingerprints[0], s.imposterBand)
+	return nil
+}
+
+func (s *curProbeState) probeFailsImposter() error {
+	if !s.imposterOutcome.failed() {
+		return fmt.Errorf("an imposter response earned outcome %v - the band would keep its check mark", s.imposterOutcome)
+	}
+	return nil
+}
+
+func (s *curProbeState) variantStillVerifies() error {
+	// the SAME response under naming variants of its own model must verify
+	for _, band := range []string{"wave-pico-293m", "WAVE-PICO-293M", "rogerai/wave-pico-293m", "wave-pico-293m:latest"} {
+		o, _, _, _ := s.b.evalCanary(s.imposterResp, 50*time.Millisecond, canaryFingerprints[0], band)
+		if o != probePass {
+			return fmt.Errorf("honest naming variant %q got outcome %v, want pass", band, o)
+		}
+	}
+	return nil
+}
+
 func TestCuratedProbesFeature(t *testing.T) {
 	st := &curProbeState{t: t}
 	suite := godog.TestSuite{
@@ -125,6 +163,13 @@ func TestCuratedProbesFeature(t *testing.T) {
 			sc.Step(`^consumers browse the market repeatedly$`, st.browsedRepeatedly)
 			sc.Step(`^no earlier probe becomes due for the curated station$`, st.noEarlierProbeDue)
 			sc.Step(`^the curated share help says one sign-up canary plus a weekly recheck is billed to the upstream$`, st.helpDisclosesOverhead)
+			// --- the imposter scenario (live catch 2026-09-04) --------------------
+			// The steps drive the REAL evalCanary against a response whose model
+			// field confesses different weights than the band advertises.
+			sc.Step(`^a station advertising one band whose upstream answers as an unrelated model$`, st.imposterUpstream)
+			sc.Step(`^the canary reads the response's model field$`, st.canaryReadsModel)
+			sc.Step(`^the probe records a failure, never a verification$`, st.probeFailsImposter)
+			sc.Step(`^a response model that is a naming variant of the band still verifies$`, st.variantStillVerifies)
 		},
 		Options: &godog.Options{
 			Format: "pretty", TestingT: t, Strict: true,
