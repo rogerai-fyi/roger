@@ -96,7 +96,7 @@ const (
 	// gate (it only fires for nodes selected as probe targets), so no verification
 	// path can out-spend this lane (features/curated/curated_probes.feature).
 	defaultProbeCuratedEvery = 7 * 24 * time.Hour // ROGERAI_PROBE_CURATED_INTERVAL (seconds; 0 = first probe only, never again)
-	defaultProbePerOwner = 4                // ROGERAI_PROBE_PER_OWNER default
+	defaultProbePerOwner     = 4                  // ROGERAI_PROBE_PER_OWNER default
 	// canaryMaxTokens is the per-probe completion budget. Sized so a reasoning model
 	// can emit its reasoning channel AND still land a short answer; a small budget
 	// false-failed reasoning flagships that spent it all on reasoning tokens.
@@ -236,11 +236,11 @@ func (c probeConfig) backoffInterval(lvl int) time.Duration {
 // it schedules around. Reset-on-restart is fine: a fresh broker just re-probes every
 // node at the floor once and re-backs-off, which is the correct cold-start behaviour.
 type probeState struct {
-	nextDue      time.Time
+	nextDue time.Time
 	// curated mirrors the node's registration kind into the schedule (stamped each
 	// round under b.mu), so the metricsMu-held demand hook can respect the slow lane
 	// without touching b.mu (lock order is b.mu -> metricsMu; never the reverse).
-	curated bool
+	curated      bool
 	backoff      int
 	lastMeasured time.Time
 	// lastProbe is when a real probe round last FIRED at this node, as opposed to
@@ -808,6 +808,26 @@ func (o probeOutcome) failed() bool { return o == probeDead || o == probeWrong }
 // wave-pico-293m wore the check mark; the response model field was the confession
 // the canary never read.
 func imposterModel(band, resp string) bool {
+	// Parameter-size tokens first: "qwen3.8-27b" vs "qwen3.8-4b" share a stem but
+	// are DIFFERENT WEIGHTS - when both names state a size and the sizes are
+	// disjoint, it is an imposter no matter how much prefix they share. Extracted
+	// from the raw names (tokenized on punctuation) because normalization below
+	// merges digit runs. Known accepted limit: same-family pure-word variants
+	// ("-opus" vs "-haiku", "-coder" vs "-instruct") are indistinguishable from
+	// honest fine-tune variants by name alone and stay blessed - the stakes are a
+	// withheld display mark, never a strike.
+	if bs, rs := sizeTokens(band), sizeTokens(resp); len(bs) > 0 && len(rs) > 0 {
+		overlap := false
+		for t := range bs {
+			if rs[t] {
+				overlap = true
+				break
+			}
+		}
+		if !overlap {
+			return true
+		}
+	}
 	norm := func(s string) string {
 		s = strings.ToLower(strings.TrimSpace(s))
 		if i := strings.LastIndex(s, "/"); i >= 0 {
@@ -846,6 +866,31 @@ func imposterModel(band, resp string) bool {
 		return false
 	}
 	return true
+}
+
+// sizeTokens collects a model name's parameter-size tokens ("27b", "70b", "293m"),
+// lowercased, tokenizing on everything that is not a letter or digit.
+func sizeTokens(name string) map[string]bool {
+	out := map[string]bool{}
+	for _, tok := range strings.FieldsFunc(strings.ToLower(name), func(r rune) bool {
+		return !(r >= 'a' && r <= 'z') && !(r >= '0' && r <= '9')
+	}) {
+		if len(tok) < 2 || (tok[len(tok)-1] != 'b' && tok[len(tok)-1] != 'm') {
+			continue
+		}
+		digits := tok[:len(tok)-1]
+		ok := true
+		for _, r := range digits {
+			if r < '0' || r > '9' {
+				ok = false
+				break
+			}
+		}
+		if ok {
+			out[tok] = true
+		}
+	}
+	return out
 }
 
 // responseModel extracts the completion's self-declared model id, if any.

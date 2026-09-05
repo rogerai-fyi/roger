@@ -41,6 +41,7 @@ func NewResumedWithHooksController(
 		}
 	}
 	m.agentLines = restoredAgentLines(m, item.Messages)
+	m.agentUnstuck = false // a resumed transcript starts stuck, like /clear and a new session
 	if !item.WorkdirAvailable {
 		m.agentLines = append(m.agentLines,
 			stDim.Render("· tools are unavailable because the saved working directory no longer exists: ")+stKey.Render(item.Workdir))

@@ -13,8 +13,8 @@ func TestHideCuratedKeepsAFreeHumanInPrice(t *testing.T) {
 	b := band{
 		model: "m", online: true, stations: 3, curated: 1, curatedProvider: "openrouter",
 		all: []offer{
-			{Model: "m", Online: true, PriceIn: 0, PriceOut: 0},          // FREE human
-			{Model: "m", Online: true, PriceIn: 5, PriceOut: 5},          // paid human
+			{Model: "m", Online: true, PriceIn: 0, PriceOut: 0}, // FREE human
+			{Model: "m", Online: true, PriceIn: 5, PriceOut: 5}, // paid human
 			{Model: "m", Online: true, Curated: true, PriceIn: 1.3, PriceOut: 1.3},
 		},
 	}

@@ -29,6 +29,13 @@ func TestImposterModelDetection(t *testing.T) {
 		// suffix-only variants share the stem: same family, never imposters
 		{"qwen3.8-27b-coder", "qwen3.8-27b-instruct", false},
 		{"llama-3.3-70b-instruct", "llama-3.3-70b-versatile", false},
+		// DIFFERENT WEIGHTS are different models, whatever the shared stem
+		{"qwen3.8-27b", "qwen3.8-4b", true},
+		{"gpt-oss-120b", "gpt-oss-20b", true},
+		{"wave-pico-293m", "wave-giga-9b", true},
+		// known accepted limit: pure-word family variants are indistinguishable from
+		// honest fine-tunes by name alone; the mark is withheld-not-struck anyway
+		{"claude-opus-4.8", "claude-haiku-4.5", false},
 		// an empty response model says nothing - many servers omit it
 		{"qwen3.8-27b", "", false},
 		// clearly unrelated pairs fail
