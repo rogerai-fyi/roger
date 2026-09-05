@@ -427,19 +427,21 @@ func (b *broker) oversizedForNode(nodeID, model string, approxTokens int) bool {
 // upstreamErr carries the node's error text into the guard: a server SAYING
 // "exceeds the available context" is definitive evidence the chars/4 estimate
 // cannot under-count away (code/CJK prompts measure low - the audit's catch).
-func (b *broker) maybeFlagEmptyOutput(nodeID string, rec protocol.UsageReceipt, status, approxTokens int, upstreamErr string) bool {
+// model comes from the CALLER's picked offer, never rec.Model - the node-stamped
+// field is empty on a transport-failure receipt and the guard would no-op.
+func (b *broker) maybeFlagEmptyOutput(nodeID, model string, rec protocol.UsageReceipt, status, approxTokens int, upstreamErr string) bool {
 	// The confession is only trusted when the request PLAUSIBLY overflows: the
 	// chars/4 estimate under-counts by at most ~2x (code/CJK), so a request whose
 	// doubled estimate still fits the declared window cannot be a real overflow -
 	// a node echoing "kv cache" on every error must not become unstrikeable
 	// (the audit's gaming catch).
-	if upstreamErr != "" && ctxsig.IsOverflow(upstreamErr) && b.plausiblyOverflows(nodeID, rec.Model, approxTokens) {
-		log.Printf("VOID context-overflow (upstream said so) node=%s model=%s ~%d tokens - no strike", nodeID, rec.Model, approxTokens)
+	if upstreamErr != "" && ctxsig.IsOverflow(upstreamErr) && b.plausiblyOverflows(nodeID, model, approxTokens) {
+		log.Printf("VOID context-overflow (upstream said so) node=%s model=%s ~%d tokens - no strike", nodeID, model, approxTokens)
 		return false
 	}
-	if b.oversizedForNode(nodeID, rec.Model, approxTokens) {
+	if b.oversizedForNode(nodeID, model, approxTokens) {
 		log.Printf("VOID oversized request node=%s model=%s ~%d tokens - no strike (the operator's declared window is smaller than the request)",
-			nodeID, rec.Model, approxTokens)
+			nodeID, model, approxTokens)
 		return false
 	}
 	b.flagEmptyOutput(nodeID, rec, status)

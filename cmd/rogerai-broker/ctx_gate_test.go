@@ -47,21 +47,21 @@ func TestOversizedFailureNeverStrikesTheOperator(t *testing.T) {
 	if b.oversizedForNode("n1", "m1", 4000) {
 		t.Fatal("a fitting request must not classify as oversized")
 	}
-	if b.maybeFlagEmptyOutput("n1", rec, 400, 13073, "") {
+	if b.maybeFlagEmptyOutput("n1", "m1", rec, 400, 13073, "") {
 		t.Fatal("an oversized refusal struck the operator")
 	}
-	if !b.maybeFlagEmptyOutput("n1", rec, 400, 4000, "") {
+	if !b.maybeFlagEmptyOutput("n1", "m1", rec, 400, 4000, "") {
 		t.Fatal("a fitting-request void must still strike")
 	}
 	// the upstream's confession covers the chars/4 under-count (code/CJK): a 5000-
 	// estimate against an 8192 window plausibly overflows (x2 slack), no strike.
-	if b.maybeFlagEmptyOutput("n1", rec, 400, 5000,
+	if b.maybeFlagEmptyOutput("n1", "m1", rec, 400, 5000,
 		`{"error":{"message":"request (9000 tokens) exceeds the available context size (8192 tokens)"}}`) {
 		t.Fatal("the upstream said context-overflow and the operator was struck anyway")
 	}
 	// but the confession is NOT a skeleton key: a tiny request echoing overflow
 	// vocabulary still strikes - a node cannot chant "kv cache" into unstrikeability.
-	if !b.maybeFlagEmptyOutput("n1", rec, 400, 100,
+	if !b.maybeFlagEmptyOutput("n1", "m1", rec, 400, 100,
 		`{"error":{"message":"kv cache exhausted"}}`) {
 		t.Fatal("a tiny request's overflow-flavored error suppressed the strike - the gaming vector")
 	}

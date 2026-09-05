@@ -1770,11 +1770,11 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		// band. The re-pick runs only on this failure path - the happy path pays
 		// nothing.
 		if promptTokens > 0 {
-			if _, bigOffer, bigOK := b.pickFor(req.Model, confidentialOnly, minTPS, maxPrice, maxPriceOut, pinNode, exclude, allow, privateAllow,
+			if _, _, bigOK := b.pickFor(req.Model, confidentialOnly, minTPS, maxPrice, maxPriceOut, pinNode, exclude, allow, privateAllow,
 				pickReq{pref: routePref, rng: seededRand(requestID)}); bigOK {
 				jsonErr(w, http.StatusBadRequest, fmt.Sprintf(
 					"request exceeds the context window: ~%d prompt tokens, but the largest window on %s right now is %d - reduce the prompt and retry",
-					promptTokens, req.Model, bigOffer.Ctx))
+					promptTokens, req.Model, b.maxDeclaredCtx(req.Model)))
 				return
 			}
 		}
@@ -2012,7 +2012,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			// metering receipt is still recorded so the request is auditable.
 			producedOutput := producedUsableOutput(res.Status, completion, rec.CompletionTokens)
 			if !producedOutput {
-				b.maybeFlagEmptyOutput(node.NodeID, rec, res.Status, approxPromptTokens(job.Body), string(res.Body))
+				b.maybeFlagEmptyOutput(node.NodeID, offer.Model, rec, res.Status, approxPromptTokens(job.Body), string(res.Body))
 				log.Printf("VOID no-output user=%s node=%s status=%d claimIn=%d claimOut=%d - $0, hold refunded",
 					user, node.NodeID, res.Status, rec.PromptTokens, rec.CompletionTokens)
 				if b.db != nil {
@@ -2414,7 +2414,7 @@ func (b *broker) relayStream(w http.ResponseWriter, t *nodeTunnel, node protocol
 					producedOutput = res.Status < 400 && rec.CompletionTokens > 0
 				}
 				if !producedOutput {
-					b.maybeFlagEmptyOutput(node.NodeID, rec, res.Status, approxPromptTokens(job.Body), string(res.Body))
+					b.maybeFlagEmptyOutput(node.NodeID, offer.Model, rec, res.Status, approxPromptTokens(job.Body), string(res.Body))
 					log.Printf("VOID no-output (stream) user=%s node=%s status=%d claimIn=%d claimOut=%d - $0, hold refunded",
 						user, node.NodeID, res.Status, rec.PromptTokens, rec.CompletionTokens)
 					if b.db != nil {

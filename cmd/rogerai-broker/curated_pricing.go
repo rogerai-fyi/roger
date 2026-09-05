@@ -61,6 +61,23 @@ func curatedOwnerShare(cost float64, atCost bool) float64 {
 	return list + curatedFeeShare*(cost-list)
 }
 
+// maxDeclaredCtx is the widest DECLARED (non-estimated) context window any live
+// registration offers for the model - the number the ctx-overflow refusal reports.
+// Failure-path only; a scan under the lock is fine there.
+func (b *broker) maxDeclaredCtx(model string) int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	max := 0
+	for _, reg := range b.nodes {
+		for _, o := range reg.Offers {
+			if o.Model == model && !o.CtxEstimated && o.Ctx > max {
+				max = o.Ctx
+			}
+		}
+	}
+	return max
+}
+
 // nodeCurated reports whether the named node registered as a curated station.
 func (b *broker) nodeCurated(node string) bool {
 	b.mu.Lock()
