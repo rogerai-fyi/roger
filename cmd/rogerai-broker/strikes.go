@@ -369,12 +369,22 @@ func (b *broker) flagImpossibleInput(nodeID, requestID string, claimed, bodyLen 
 // flagEmptyOutput is the no-usable-output signal: the node billed input but produced no
 // usable completion (errored, empty, or claimed-without-text). Accumulates toward the
 // warn/ban thresholds (tolerant of one-off noise).
-// oversizedForNode reports whether a request body of bodyLen bytes plainly exceeds
-// the node's DECLARED context window for the model (bytes/4 under-estimates tokens,
-// so a true here is definitive). The pick-time gate makes this near-unreachable;
-// it survives as the belt for the race where a registration's window shrank
-// mid-flight - the operator told the truth, the failure belongs to the request.
-func (b *broker) oversizedForNode(nodeID, model string, bodyLen int) bool {
+// approxPromptTokens is THE request-size measure the declared-window gate and the
+// oversize strike-guard share, so the two can never disagree at a boundary: the
+// TEXT content only (promptText - image_url parts and JSON overhead excluded, the
+// audit's vision catch: a base64 photo is millions of body bytes and near-zero
+// prompt tokens), at ~chars/4. Approximate on purpose; both consumers treat it as
+// a coarse gate, never a billing number.
+func approxPromptTokens(body []byte) int {
+	return len(promptText(body))/4 + 1
+}
+
+// oversizedForNode reports whether a request of approxTokens (approxPromptTokens)
+// plainly exceeds the node's DECLARED context window for the model. The pick-time
+// gate makes this near-unreachable; it survives as the belt for the race where a
+// registration's window shrank mid-flight - the operator told the truth, the
+// failure belongs to the request.
+func (b *broker) oversizedForNode(nodeID, model string, approxTokens int) bool {
 	b.mu.Lock()
 	reg, ok := b.nodes[nodeID]
 	b.mu.Unlock()
@@ -385,7 +395,7 @@ func (b *broker) oversizedForNode(nodeID, model string, bodyLen int) bool {
 		if o.Model != model {
 			continue
 		}
-		return o.Ctx > 0 && !o.CtxEstimated && bodyLen/4 > o.Ctx
+		return o.Ctx > 0 && !o.CtxEstimated && approxTokens > o.Ctx
 	}
 	return false
 }
@@ -393,10 +403,10 @@ func (b *broker) oversizedForNode(nodeID, model string, bodyLen int) bool {
 // maybeFlagEmptyOutput is flagEmptyOutput behind the oversize guard: an upstream
 // refusing a request bigger than its declared window is not the operator's failure.
 // Returns whether a strike was recorded.
-func (b *broker) maybeFlagEmptyOutput(nodeID string, rec protocol.UsageReceipt, status, bodyLen int) bool {
-	if b.oversizedForNode(nodeID, rec.Model, bodyLen) {
-		log.Printf("VOID oversized request node=%s model=%s body=%dB - no strike (the operator's declared window is smaller than the request)",
-			nodeID, rec.Model, bodyLen)
+func (b *broker) maybeFlagEmptyOutput(nodeID string, rec protocol.UsageReceipt, status, approxTokens int) bool {
+	if b.oversizedForNode(nodeID, rec.Model, approxTokens) {
+		log.Printf("VOID oversized request node=%s model=%s ~%d tokens - no strike (the operator's declared window is smaller than the request)",
+			nodeID, rec.Model, approxTokens)
 		return false
 	}
 	b.flagEmptyOutput(nodeID, rec, status)

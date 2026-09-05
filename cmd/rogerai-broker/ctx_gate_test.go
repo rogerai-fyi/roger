@@ -5,6 +5,7 @@ package main
 // 13k-token request the broker dispatched into a guaranteed refusal).
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -40,18 +41,29 @@ func TestEstimatedCtxNeverGates(t *testing.T) {
 func TestOversizedFailureNeverStrikesTheOperator(t *testing.T) {
 	b := ctxGateBroker(t, 8192, false)
 	rec := protocol.UsageReceipt{RequestID: "req_over", NodeID: "n1", Model: "m1"}
-	// ~13k tokens of body: the void classifier must recognize the oversize and skip
-	// the strike; a fitting body must still strike.
-	if !b.oversizedForNode("n1", "m1", 13073*4) {
-		t.Fatal("a 13k-token body against a declared 8192 window must classify as oversized")
+	if !b.oversizedForNode("n1", "m1", 13073) {
+		t.Fatal("a 13k-token request against a declared 8192 window must classify as oversized")
 	}
-	if b.oversizedForNode("n1", "m1", 4000*4) {
-		t.Fatal("a fitting body must not classify as oversized")
+	if b.oversizedForNode("n1", "m1", 4000) {
+		t.Fatal("a fitting request must not classify as oversized")
 	}
-	if b.maybeFlagEmptyOutput("n1", rec, 400, 13073*4) {
+	if b.maybeFlagEmptyOutput("n1", rec, 400, 13073) {
 		t.Fatal("an oversized refusal struck the operator")
 	}
-	if !b.maybeFlagEmptyOutput("n1", rec, 400, 4000*4) {
+	if !b.maybeFlagEmptyOutput("n1", rec, 400, 4000) {
 		t.Fatal("a fitting-request void must still strike")
+	}
+}
+
+// The measure is TEXT tokens, never body bytes: a photo request carries megabytes of
+// base64 that are near-zero prompt tokens - it must neither be gated off vision bands
+// nor suppress a real strike (the audit's vision catch).
+func TestImageBodiesMeasureAsTheirText(t *testing.T) {
+	img := strings.Repeat("A", 200_000) // ~200KB of base64
+	body := []byte(`{"model":"m1","messages":[{"role":"user","content":[` +
+		`{"type":"text","text":"what is in this photo?"},` +
+		`{"type":"image_url","image_url":{"url":"data:image/png;base64,` + img + `"}}]}]}`)
+	if got := approxPromptTokens(body); got > 64 {
+		t.Fatalf("a photo request measured %d tokens - the image bytes leaked into the gate", got)
 	}
 }

@@ -1693,7 +1693,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	// request-size-aware (a long prompt evicts weak hardware). totalReqs feeds the UCB
 	// exploration radius. None of these touch the hard filters.
 	routePref := parsePref(r.Header.Get("X-Roger-Pref"))
-	promptTokens := len(body)/4 + 1 // ~chars/4 tokens; over-estimates from JSON (safe)
+	promptTokens := approxPromptTokens(body)
 	b.totalReqs.Add(1)
 	// Consumer out-price cap. Defense in depth: even if the client omits the header (a
 	// hand-rolled API caller, not the first-party CLI/TUI which always injects it), the
@@ -1995,7 +1995,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			// metering receipt is still recorded so the request is auditable.
 			producedOutput := producedUsableOutput(res.Status, completion, rec.CompletionTokens)
 			if !producedOutput {
-				b.maybeFlagEmptyOutput(node.NodeID, rec, res.Status, len(job.Body))
+				b.maybeFlagEmptyOutput(node.NodeID, rec, res.Status, approxPromptTokens(job.Body))
 				log.Printf("VOID no-output user=%s node=%s status=%d claimIn=%d claimOut=%d - $0, hold refunded",
 					user, node.NodeID, res.Status, rec.PromptTokens, rec.CompletionTokens)
 				if b.db != nil {
@@ -2397,7 +2397,7 @@ func (b *broker) relayStream(w http.ResponseWriter, t *nodeTunnel, node protocol
 					producedOutput = res.Status < 400 && rec.CompletionTokens > 0
 				}
 				if !producedOutput {
-					b.maybeFlagEmptyOutput(node.NodeID, rec, res.Status, len(job.Body))
+					b.maybeFlagEmptyOutput(node.NodeID, rec, res.Status, approxPromptTokens(job.Body))
 					log.Printf("VOID no-output (stream) user=%s node=%s status=%d claimIn=%d claimOut=%d - $0, hold refunded",
 						user, node.NodeID, res.Status, rec.PromptTokens, rec.CompletionTokens)
 					if b.db != nil {

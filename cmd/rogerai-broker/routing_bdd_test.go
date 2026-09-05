@@ -379,7 +379,7 @@ func (s *routeState) oversizedPicked() error {
 }
 func (s *routeState) voidOversized() error {
 	s.struck = s.b.maybeFlagEmptyOutput("ctx1",
-		protocol.UsageReceipt{RequestID: "req_ov", NodeID: "ctx1", Model: "mctx"}, 400, 13073*4)
+		protocol.UsageReceipt{RequestID: "req_ov", NodeID: "ctx1", Model: "mctx"}, 400, 13073)
 	return nil
 }
 func (s *routeState) noStrikeRecorded() error {
