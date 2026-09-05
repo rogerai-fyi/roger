@@ -1761,6 +1761,23 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		if b.relayViaEdge(w, r, req.Model, req.Stream, body, seededRand(requestID), false, bridgeAuth) {
 			return
 		}
+		// CTX-GATED, NOT MISSING (the audit's compaction catch): if a re-pick with
+		// the size constraint lifted finds a station, the band is healthy and the
+		// REQUEST is too large - and the client's auto-compaction keys on
+		// context-overflow wording (harness.IsContextOverflow), which a generic
+		// no-station reply never carries. Answer 400 in that vocabulary so a
+		// consumer session compacts and retries instead of stalling on a "missing"
+		// band. The re-pick runs only on this failure path - the happy path pays
+		// nothing.
+		if promptTokens > 0 {
+			if _, bigOffer, bigOK := b.pickFor(req.Model, confidentialOnly, minTPS, maxPrice, maxPriceOut, pinNode, exclude, allow, privateAllow,
+				pickReq{pref: routePref, rng: seededRand(requestID)}); bigOK {
+				jsonErr(w, http.StatusBadRequest, fmt.Sprintf(
+					"request exceeds the context window: ~%d prompt tokens, but the largest window on %s right now is %d - reduce the prompt and retry",
+					promptTokens, req.Model, bigOffer.Ctx))
+				return
+			}
+		}
 		msg := "no node offers " + req.Model
 		if gok {
 			msg = "no node of this grant's owner is serving " + req.Model + " right now"
@@ -1995,7 +2012,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			// metering receipt is still recorded so the request is auditable.
 			producedOutput := producedUsableOutput(res.Status, completion, rec.CompletionTokens)
 			if !producedOutput {
-				b.maybeFlagEmptyOutput(node.NodeID, rec, res.Status, approxPromptTokens(job.Body))
+				b.maybeFlagEmptyOutput(node.NodeID, rec, res.Status, approxPromptTokens(job.Body), string(res.Body))
 				log.Printf("VOID no-output user=%s node=%s status=%d claimIn=%d claimOut=%d - $0, hold refunded",
 					user, node.NodeID, res.Status, rec.PromptTokens, rec.CompletionTokens)
 				if b.db != nil {
@@ -2397,7 +2414,7 @@ func (b *broker) relayStream(w http.ResponseWriter, t *nodeTunnel, node protocol
 					producedOutput = res.Status < 400 && rec.CompletionTokens > 0
 				}
 				if !producedOutput {
-					b.maybeFlagEmptyOutput(node.NodeID, rec, res.Status, approxPromptTokens(job.Body))
+					b.maybeFlagEmptyOutput(node.NodeID, rec, res.Status, approxPromptTokens(job.Body), string(res.Body))
 					log.Printf("VOID no-output (stream) user=%s node=%s status=%d claimIn=%d claimOut=%d - $0, hold refunded",
 						user, node.NodeID, res.Status, rec.PromptTokens, rec.CompletionTokens)
 					if b.db != nil {
@@ -2810,7 +2827,10 @@ func (b *broker) pickFor(model string, confidentialOnly bool, minTPS, maxPriceIn
 			// guaranteed upstream refusal - dispatching it voids the relay and, worse,
 			// STRUCK the honest operator for empty-output until their earnings were
 			// held. Estimated windows never gate: they are display guesses, and gating
-			// on them would hide real capacity.
+			// on them would hide real capacity. max_tokens deliberately does not gate
+			// either: servers clamp generation to the remaining window (llama.cpp caps
+			// n_predict), while clients habitually send large defaults - gating on the
+			// sum would refuse fitting requests wholesale. The PROMPT is the hard wall.
 			if req.promptTokens > 0 && o.Ctx > 0 && !o.CtxEstimated && req.promptTokens > o.Ctx {
 				continue
 			}

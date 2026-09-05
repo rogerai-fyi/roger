@@ -47,11 +47,17 @@ func TestOversizedFailureNeverStrikesTheOperator(t *testing.T) {
 	if b.oversizedForNode("n1", "m1", 4000) {
 		t.Fatal("a fitting request must not classify as oversized")
 	}
-	if b.maybeFlagEmptyOutput("n1", rec, 400, 13073) {
+	if b.maybeFlagEmptyOutput("n1", rec, 400, 13073, "") {
 		t.Fatal("an oversized refusal struck the operator")
 	}
-	if !b.maybeFlagEmptyOutput("n1", rec, 400, 4000) {
+	if !b.maybeFlagEmptyOutput("n1", rec, 400, 4000, "") {
 		t.Fatal("a fitting-request void must still strike")
+	}
+	// the upstream's own confession is definitive even when chars/4 under-counts
+	// (code/CJK prompts): "exceeds the available context" suppresses the strike.
+	if b.maybeFlagEmptyOutput("n1", rec, 400, 4000,
+		`{"error":{"message":"request (9000 tokens) exceeds the available context size (8192 tokens)"}}`) {
+		t.Fatal("the upstream said context-overflow and the operator was struck anyway")
 	}
 }
 

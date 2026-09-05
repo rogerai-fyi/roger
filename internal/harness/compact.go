@@ -39,6 +39,10 @@ func IsContextOverflow(raw string) bool {
 	low := strings.ToLower(raw)
 	return strings.Contains(low, "context window") ||
 		strings.Contains(low, "context length") ||
+		// llama-server's exact wording: "request (N tokens) exceeds the available
+		// context size (M tokens)" - neither "window" nor "length" (found live
+		// 2026-09-05, when a real overflow failed to trigger auto-compaction).
+		strings.Contains(low, "context size") ||
 		strings.Contains(low, "context_length_exceeded") ||
 		strings.Contains(low, "maximum context") ||
 		strings.Contains(low, "too many tokens") ||

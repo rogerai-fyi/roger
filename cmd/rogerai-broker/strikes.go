@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"os"
+	"rogerai.fm/roger/v6/internal/harness"
 	"strconv"
 	"time"
 
@@ -403,7 +404,14 @@ func (b *broker) oversizedForNode(nodeID, model string, approxTokens int) bool {
 // maybeFlagEmptyOutput is flagEmptyOutput behind the oversize guard: an upstream
 // refusing a request bigger than its declared window is not the operator's failure.
 // Returns whether a strike was recorded.
-func (b *broker) maybeFlagEmptyOutput(nodeID string, rec protocol.UsageReceipt, status, approxTokens int) bool {
+// upstreamErr carries the node's error text into the guard: a server SAYING
+// "exceeds the available context" is definitive evidence the chars/4 estimate
+// cannot under-count away (code/CJK prompts measure low - the audit's catch).
+func (b *broker) maybeFlagEmptyOutput(nodeID string, rec protocol.UsageReceipt, status, approxTokens int, upstreamErr string) bool {
+	if upstreamErr != "" && harness.IsContextOverflow(upstreamErr) {
+		log.Printf("VOID context-overflow (upstream said so) node=%s model=%s - no strike", nodeID, rec.Model)
+		return false
+	}
 	if b.oversizedForNode(nodeID, rec.Model, approxTokens) {
 		log.Printf("VOID oversized request node=%s model=%s ~%d tokens - no strike (the operator's declared window is smaller than the request)",
 			nodeID, rec.Model, approxTokens)
