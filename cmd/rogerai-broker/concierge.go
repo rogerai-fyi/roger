@@ -571,9 +571,11 @@ func (b *broker) conciergeProvenLiveLocked(nodeID string, now time.Time) bool {
 	}
 	b.metricsMu.Lock()
 	defer b.metricsMu.Unlock()
-	// Hard liveness evidence: a passed canary (verifiedServing) OR a quality-validated real
-	// relay (successCount>0). Without either, the node has only heartbeated - not proven-live.
-	if !b.trust[nodeID].verifiedServing() && b.successCount[nodeID] == 0 {
+	// Hard liveness evidence: a completed canary (provenLive - NOT verifiedServing:
+	// a model-identity mismatch withholds the display mark but is not a liveness
+	// question, and an honest alias band must stay pickable) OR a quality-validated
+	// real relay (successCount>0). Without either, the node has only heartbeated.
+	if !b.trust[nodeID].provenLive() && b.successCount[nodeID] == 0 {
 		return false
 	}
 	st := b.probeSched[nodeID]

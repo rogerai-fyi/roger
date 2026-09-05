@@ -349,11 +349,21 @@ func (b *broker) trustScore(nodeID string) float64 {
 // and its no-traffic success evidence eases 0.9 -> 0.6 there. The paid pickFor spine does NOT
 // call this - it reads the raw probe fields (reliabilityFactor/verifiedFactorOf) - so a paying
 // caller's routing/failover is unchanged; only the free display/discovery signal downgrades.
+// provenLive answers the LIVENESS question alone: did a canary run to completion
+// here recently, with no failure streak? It deliberately ignores modelMismatch -
+// an honest alias band that confesses its backend's name is every bit as alive,
+// and the concierge pick must not skip it (the audit's withheld-not-struck catch).
+func (t trustState) provenLive() bool {
+	return t.probed && t.probeOK && t.probeFails == 0 && t.probeCompleted
+}
+
 func (t trustState) verifiedServing() bool {
-	// modelMismatch withholds the mark without a strike: the response confessed a
-	// clearly unrelated model (an imposter - or an honest alias band, which never
-	// deserved a model-identity mark in the first place). Live catch 2026-09-04.
-	return t.probed && t.probeOK && t.probeFails == 0 && t.probeCompleted && !t.modelMismatch
+	// modelMismatch withholds the DISPLAY mark without a strike: the response
+	// confessed a clearly unrelated model (an imposter - or an honest alias band,
+	// which never deserved a model-identity mark in the first place). Liveness,
+	// routing, and the concierge pick read provenLive; only the mark reads this.
+	// Live catch 2026-09-04.
+	return t.provenLive() && !t.modelMismatch
 }
 
 func (t trustState) score() float64 {

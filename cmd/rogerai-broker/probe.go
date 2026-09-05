@@ -828,7 +828,24 @@ func imposterModel(band, resp string) bool {
 	if bn == "" || rn == "" {
 		return false
 	}
-	return !strings.Contains(bn, rn) && !strings.Contains(rn, bn)
+	if strings.Contains(bn, rn) || strings.Contains(rn, bn) {
+		return false
+	}
+	// Suffix-only variants ("...-coder" vs "...-instruct") contain neither way but
+	// share the model's whole stem: a long common prefix is the same family, not an
+	// imposter. Threshold: most of the shorter name, and never a trivial prefix.
+	short := len(bn)
+	if len(rn) < short {
+		short = len(rn)
+	}
+	common := 0
+	for common < short && bn[common] == rn[common] {
+		common++
+	}
+	if common >= 6 && common*2 >= short {
+		return false
+	}
+	return true
 }
 
 // responseModel extracts the completion's self-declared model id, if any.
@@ -898,7 +915,8 @@ func (b *broker) evalCanary(res protocol.JobResult, elapsed time.Duration, fp ca
 	}
 	// WHO answered outranks WHAT it said: an upstream serving different weights can
 	// still echo the fingerprint token. The response's own model field is the
-	// upstream's confession - a clearly unrelated name fails the probe outright.
+	// upstream's confession - a clearly unrelated name withholds the verification
+	// mark (probeMismatch: alive, never a strike - see the outcome's doc).
 	if rm := responseModel(res.Body); imposterModel(bandModel, rm) {
 		log.Printf("probe: band %q answered as %q - verification withheld (imposter or alias)", bandModel, rm)
 		return probeMismatch, tps, false, completed
@@ -1036,7 +1054,9 @@ func (b *broker) recordProbe(nodeID string, outcome probeOutcome, ttftMs, tps fl
 		if tps > 0 {
 			b.updateTPS(nodeID, tps) // fold the clean sample into the speed band
 		}
-		if matched {
+		if outcome == probeMismatch {
+			log.Printf("probe node=%s ALIVE ttft=%.0fms tps=%.1f (model mismatch: verification withheld, no strike)", nodeID, ttftMs, tps)
+		} else if matched {
 			log.Printf("probe node=%s OK ttft=%.0fms tps=%.1f (fingerprint matched)", nodeID, ttftMs, tps)
 		} else {
 			// Responded with content but the fingerprint was inconclusive (e.g. a
