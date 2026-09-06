@@ -367,9 +367,6 @@ func (b *broker) flagImpossibleInput(nodeID, requestID string, claimed, bodyLen 
 	})
 }
 
-// flagEmptyOutput is the no-usable-output signal: the node billed input but produced no
-// usable completion (errored, empty, or claimed-without-text). Accumulates toward the
-// warn/ban thresholds (tolerant of one-off noise).
 // approxPromptTokens is THE request-size measure the declared-window gate and the
 // oversize strike-guard share, so the two can never disagree at a boundary: the
 // TEXT content only (promptText - image_url parts and JSON overhead excluded, the
@@ -410,6 +407,11 @@ func (b *broker) plausiblyOverflows(nodeID, model string, approxTokens int) bool
 	return false
 }
 
+// oversizedForNode reports whether a request of approxTokens plainly exceeds the
+// node's DECLARED context window for the model. The pick-time gate makes this
+// near-unreachable; it survives as the belt for the race where a registration's
+// window shrank mid-flight - the operator told the truth, the failure belongs to
+// the request.
 func (b *broker) oversizedForNode(nodeID, model string, approxTokens int) bool {
 	b.mu.Lock()
 	reg, ok := b.nodes[nodeID]
@@ -453,6 +455,9 @@ func (b *broker) maybeFlagEmptyOutput(nodeID, model string, rec protocol.UsageRe
 	return true
 }
 
+// flagEmptyOutput is the no-usable-output signal: the node billed input but produced no
+// usable completion (errored, empty, or claimed-without-text). Accumulates toward the
+// warn/ban thresholds (tolerant of one-off noise).
 func (b *broker) flagEmptyOutput(nodeID string, rec protocol.UsageReceipt, status int) {
 	b.strike(nodeID, store.StrikeEmptyOutput, "empty:"+rec.RequestID, false, map[string]any{
 		"request_id":         rec.RequestID,

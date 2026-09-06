@@ -24,7 +24,7 @@ func TestContextOverflowIsRecognizedInEverySpelling(t *testing.T) {
 		// llama-server verbatim (live 2026-09-05: a real overflow this table missed)
 		"request (13073 tokens) exceeds the available context size (8192 tokens), try increasing it",
 		// and the broker's own pick-time refusal speaks the same vocabulary
-		"request exceeds the context window: ~13073 prompt tokens, but the largest window on gpt-oss-20b right now is 8192",
+		"request exceeds the context window: ~13073 prompt tokens, but the widest window advertised on gpt-oss-20b right now is 8192",
 	} {
 		if !IsContextOverflow(s) {
 			t.Errorf("must recognize %q as an overflow - a spelling we miss is a turn we fail to save", s)

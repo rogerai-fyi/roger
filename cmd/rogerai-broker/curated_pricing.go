@@ -1,5 +1,7 @@
 package main
 
+import "time"
+
 // curated_pricing.go - THE ONE PLACE the curated money rules live.
 //
 // Founder ruling 2026-09-01: curated operators are paid exactly what their upstream
@@ -71,7 +73,13 @@ func curatedOwnerShare(cost float64, atCost bool) float64 {
 // locked section, and self-locking here would deadlock it.
 func (b *broker) maxDeclaredCtxLocked(model string) int {
 	max := 0
-	for _, reg := range b.nodes {
+	now := time.Now()
+	for id, reg := range b.nodes {
+		// liveness: b.nodes retains expired registrations; a window quoted from an
+		// offline node would advise a capacity nobody is serving (audit).
+		if now.Sub(b.lastSeen[id]) >= nodeTTL {
+			continue
+		}
 		for _, o := range reg.Offers {
 			if o.Model == model && !o.CtxEstimated && o.Ctx > max {
 				max = o.Ctx

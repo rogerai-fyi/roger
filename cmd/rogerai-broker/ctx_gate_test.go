@@ -79,3 +79,18 @@ func TestImageBodiesMeasureAsTheirText(t *testing.T) {
 		t.Fatalf("a photo request measured %d tokens - the image bytes leaked into the gate", got)
 	}
 }
+
+// The advisory number is live capacity only: an expired registration's window is
+// not on the dial and must not be quoted (audit).
+func TestMaxDeclaredCtxIgnoresStaleRegistrations(t *testing.T) {
+	b := ctxGateBroker(t, 8192, false)
+	b.nodes["stale"] = protocol.NodeRegistration{NodeID: "stale", TS: time.Now().Unix(),
+		Offers: []protocol.ModelOffer{{Model: "m1", Ctx: 131072}}}
+	b.lastSeen["stale"] = time.Now().Add(-10 * time.Minute) // past nodeTTL
+	b.mu.Lock()
+	got := b.maxDeclaredCtxLocked("m1")
+	b.mu.Unlock()
+	if got != 8192 {
+		t.Fatalf("quoted %d - an offline node's window leaked into the advisory", got)
+	}
+}
