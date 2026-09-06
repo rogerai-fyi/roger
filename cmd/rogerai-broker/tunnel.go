@@ -1769,12 +1769,21 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		// consumer session compacts and retries instead of stalling on a "missing"
 		// band. The re-pick runs only on this failure path - the happy path pays
 		// nothing.
-		if promptTokens > 0 {
-			if _, _, bigOK := b.pickFor(req.Model, confidentialOnly, minTPS, maxPrice, maxPriceOut, pinNode, exclude, allow, privateAllow,
-				pickReq{pref: routePref, rng: seededRand(requestID)}); bigOK {
+		// Only when the PICK itself found nothing (!ok): the ok-but-tunnel-gone case
+		// has a station that fits, and answering it "exceeds the context window"
+		// would be a lie to a fitting request (audit). pickFor iterates the registry
+		// maps and expects the caller's b.mu - the re-pick takes it (audit: the
+		// unlocked call was a concurrent-map fatal waiting for a busy register).
+		if !ok && promptTokens > 0 {
+			b.mu.Lock()
+			_, _, bigOK := b.pickFor(req.Model, confidentialOnly, minTPS, maxPrice, maxPriceOut, pinNode, exclude, allow, privateAllow,
+				pickReq{pref: routePref, rng: seededRand(requestID)})
+			maxCtx := b.maxDeclaredCtxLocked(req.Model)
+			b.mu.Unlock()
+			if bigOK {
 				jsonErr(w, http.StatusBadRequest, fmt.Sprintf(
 					"request exceeds the context window: ~%d prompt tokens, but the widest window advertised on %s right now is %d - reduce the prompt and retry",
-					promptTokens, req.Model, b.maxDeclaredCtx(req.Model)))
+					promptTokens, req.Model, maxCtx))
 				return
 			}
 		}

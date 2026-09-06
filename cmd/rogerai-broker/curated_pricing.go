@@ -66,10 +66,10 @@ func curatedOwnerShare(cost float64, atCost bool) float64 {
 // reports. Deliberately the market-wide advertised fact (what the dial shows), not
 // a per-caller routable guarantee: threading the caller's private/pin/exclude
 // filters into an advisory string is not worth the coupling, and the wording says
-// "advertised" for exactly that reason. Failure-path only; a scan under the lock.
-func (b *broker) maxDeclaredCtx(model string) int {
-	b.mu.Lock()
-	defer b.mu.Unlock()
+// "advertised" for exactly that reason. Failure-path only. CALLER HOLDS b.mu (the
+// Locked suffix is the contract): its one call site sits inside the re-pick's
+// locked section, and self-locking here would deadlock it.
+func (b *broker) maxDeclaredCtxLocked(model string) int {
 	max := 0
 	for _, reg := range b.nodes {
 		for _, o := range reg.Offers {
