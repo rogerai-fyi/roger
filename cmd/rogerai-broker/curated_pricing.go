@@ -62,8 +62,11 @@ func curatedOwnerShare(cost float64, atCost bool) float64 {
 }
 
 // maxDeclaredCtx is the widest DECLARED (non-estimated) context window any live
-// registration offers for the model - the number the ctx-overflow refusal reports.
-// Failure-path only; a scan under the lock is fine there.
+// registration ADVERTISES for the model - the number the ctx-overflow refusal
+// reports. Deliberately the market-wide advertised fact (what the dial shows), not
+// a per-caller routable guarantee: threading the caller's private/pin/exclude
+// filters into an advisory string is not worth the coupling, and the wording says
+// "advertised" for exactly that reason. Failure-path only; a scan under the lock.
 func (b *broker) maxDeclaredCtx(model string) int {
 	b.mu.Lock()
 	defer b.mu.Unlock()

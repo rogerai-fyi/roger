@@ -1,10 +1,10 @@
 package harness
 
 import (
-	"rogerai.fm/roger/v6/internal/ctxsig"
-
 	"fmt"
 	"strings"
+
+	"rogerai.fm/roger/v6/internal/ctxsig"
 )
 
 // compact.go - AUTOMATIC COMPACTION on a context-window overflow.

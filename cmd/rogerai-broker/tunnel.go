@@ -1773,7 +1773,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			if _, _, bigOK := b.pickFor(req.Model, confidentialOnly, minTPS, maxPrice, maxPriceOut, pinNode, exclude, allow, privateAllow,
 				pickReq{pref: routePref, rng: seededRand(requestID)}); bigOK {
 				jsonErr(w, http.StatusBadRequest, fmt.Sprintf(
-					"request exceeds the context window: ~%d prompt tokens, but the largest window on %s right now is %d - reduce the prompt and retry",
+					"request exceeds the context window: ~%d prompt tokens, but the widest window advertised on %s right now is %d - reduce the prompt and retry",
 					promptTokens, req.Model, b.maxDeclaredCtx(req.Model)))
 				return
 			}

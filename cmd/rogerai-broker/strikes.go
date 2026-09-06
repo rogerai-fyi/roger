@@ -1,14 +1,13 @@
 package main
 
 import (
-	"rogerai.fm/roger/v6/internal/ctxsig"
-
 	"encoding/json"
 	"log"
 	"os"
 	"strconv"
 	"time"
 
+	"rogerai.fm/roger/v6/internal/ctxsig"
 	"rogerai.fm/roger/v6/internal/protocol"
 	"rogerai.fm/roger/v6/internal/store"
 )
@@ -378,7 +377,13 @@ func (b *broker) flagImpossibleInput(nodeID, requestID string, claimed, bodyLen 
 // prompt tokens), at ~chars/4. Approximate on purpose; both consumers treat it as
 // a coarse gate, never a billing number.
 func approxPromptTokens(body []byte) int {
-	return len(promptText(body))/4 + 1
+	if t := promptText(body); t != "" {
+		return len(t)/4 + 1
+	}
+	// promptText parses chat-shaped bodies; a legacy completions {"prompt": ...} or
+	// any other shape yielded 1 and starved speedFit of its size signal (audit).
+	// Those shapes carry no base64 image parts, so raw length is safe for them.
+	return len(body)/4 + 1
 }
 
 // oversizedForNode reports whether a request of approxTokens (approxPromptTokens)

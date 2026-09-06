@@ -17,7 +17,7 @@ func TestOverflowRecognizedInEverySpelling(t *testing.T) {
 		// llama-server verbatim (live 2026-09-05: a real overflow the list missed)
 		"request (13073 tokens) exceeds the available context size (8192 tokens), try increasing it",
 		// the broker's own pick-time refusal speaks the same vocabulary
-		"request exceeds the context window: ~13073 prompt tokens, but the largest window on gpt-oss-20b right now is 8192",
+		"request exceeds the context window: ~13073 prompt tokens, but the widest window advertised on gpt-oss-20b right now is 8192",
 		// the byte-measured wall
 		"Maximum request body size 1048576 exceeded, actual body size 1050714",
 		"413 Payload Too Large",
