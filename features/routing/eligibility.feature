@@ -22,6 +22,10 @@
 #     - offer.Model != model                        (wrong model)
 #     - maxPriceIn  > 0 AND in  > maxPriceIn         (over the caller's input price cap)
 #     - maxPriceOut > 0 AND out > maxPriceOut        (over the caller's output price cap)
+#     - promptTokens > offer.Ctx AND ctx DECLARED    (the declared-window gate, 2026-09-05:
+#                                                    a measured-oversized request is a
+#                                                    guaranteed refusal; estimated windows
+#                                                    never gate, max_tokens never gates)
 #   A node with NO surviving offer contributes no candidate. Zero candidates => not found.
 #
 # Enforced by: cmd/rogerai-broker/router_test.go (+ multiinstance_test.go for peer load).
