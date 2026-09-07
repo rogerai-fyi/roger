@@ -10,8 +10,7 @@
 #     lastSeen (a node past nodeTTL is dropped from routing/discovery); ownerOnAirCount(owner)
 #     enforces the per-owner on-air cap (anti-spam: one operator can't flood the dial).
 #
-# Enforced by: internal/node/controller_test.go + the broker register/heartbeat tests. (Doc
-# spec; convertible to an executable godog suite like relay/auth once a broker+node harness exists.)
+# Enforced by: cmd/rogerai-broker/on_air_bdd_test.go (godog, strict) + internal/node/controller_test.go.
 
 Feature: Sharing — going on air
 

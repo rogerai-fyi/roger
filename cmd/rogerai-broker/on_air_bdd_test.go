@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -267,6 +268,23 @@ func (s *onAirState) operatorAtPerOwnerCap() error {
 	return nil
 }
 
+func (s *onAirState) ownerOnExemptList() error {
+	if err := s.operatorAtPerOwnerCap(); err != nil { // at the cap of 1 already
+		return err
+	}
+	s.b.stationLimitExempt = map[string]bool{strings.ToLower(hex.EncodeToString(s.userPriv.Public().(ed25519.PublicKey))): true}
+	return nil
+}
+
+func (s *onAirState) bringsNodePastCap() error { return s.bringsAnotherModelOnAir() }
+
+func (s *onAirState) registrationAdmitted() error {
+	if s.regCode != http.StatusOK {
+		return fmt.Errorf("exempt registration = %d (%q), want 200 past the cap", s.regCode, s.regMsg)
+	}
+	return nil
+}
+
 func (s *onAirState) bringsAnotherModelOnAir() error {
 	s.regCode, s.regMsg = registerWith(s.t, s.b, "n2", s.nodePriv, s.nodePubHex, s.userPriv, true,
 		protocol.ModelOffer{Model: "m2", Ctx: 8192, PriceOut: 5}, false, false)
@@ -383,6 +401,13 @@ func TestOnAirBDD(t *testing.T) {
 			sc.Step(`^an operator already at the per-owner on-air cap across their nodes$`, st.operatorAtPerOwnerCap)
 			sc.Step(`^they bring another model on air$`, st.bringsAnotherModelOnAir)
 			sc.Step(`^the broker's ownerOnAirCount blocks it \(one operator can't monopolize the dial\)$`, st.ownerOnAirCountBlocks)
+			// the house exemption (founder ruling 2026-09-06)
+			sc.Step(`^an owner account on the station-limit exempt list$`, st.ownerOnExemptList)
+			sc.Step(`^they bring a node on air past the cap$`, st.bringsNodePastCap)
+			sc.Step(`^the registration is admitted$`, st.registrationAdmitted)
+			sc.Step(`^an owner account NOT on the exempt list, at the cap$`, st.operatorAtPerOwnerCap)
+			sc.Step(`^they bring another node on air$`, st.bringsAnotherModelOnAir)
+			sc.Step(`^the registration is refused with the station-limit message$`, st.ownerOnAirCountBlocks)
 			// scenario 6
 			sc.Step(`^a node registers offering "([^"]*)" at in \$0\.20/1M, out \$0\.30/1M$`, st.registersPricedOffer)
 			sc.Step(`^the broker records the node \+ its priced offer$`, st.brokerRecordsPricedOffer)
