@@ -15,7 +15,8 @@
 #     --private does NOT lift it (only hides the station from the public market).
 #
 # Enforced by: features/pricing/price_ceiling.feature + features/security/band_code_secrecy.feature
-#   (both executable) + cmd/rogerai-broker/band_test.go + internal/protocol/band_test.go. (Doc spec.)
+#   (both executable) + cmd/rogerai-broker/band_test.go + internal/protocol/band_test.go,
+#   and RUN AS GODOG (strict) by cmd/rogerai-broker/bands_bdd_test.go - new scenarios need steps there.
 
 Feature: Private bands — hidden frequency codes
 

@@ -8,7 +8,8 @@
 #   internal/protocol/auth.go VerifyRequest/UserIDFromPubkey). See also features/money/holds.feature
 #   + settle.feature for the money math this path drives.
 #
-# Enforced by: the broker relay tests + the money/* suites. (Doc spec; convertible to godog.)
+# Enforced by: cmd/rogerai-broker/relay_spend_bdd_test.go (godog, strict - new scenarios need
+# steps there) + the broker relay tests + the money/* suites.
 
 Feature: Relay spend path
 

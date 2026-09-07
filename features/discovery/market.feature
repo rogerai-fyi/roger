@@ -13,7 +13,8 @@
 #   so the /market row carries the SAME $-reading the cheapest provider's offer shows on
 #   /discover (single source of truth; the homepage marketplace teaser renders it).
 #
-# Enforced by: cmd/rogerai-broker market/discover tests. (Doc spec; convertible to godog.)
+# Enforced by: cmd/rogerai-broker/discovery_market_bdd_test.go (godog, strict - new scenarios
+# need steps there) + the market/discover unit tests.
 
 Feature: Discovery — the public marketplace
 
