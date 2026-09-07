@@ -3,6 +3,7 @@ package tui
 import (
 	"encoding/json"
 	"fmt"
+	tea "github.com/charmbracelet/bubbletea"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -190,5 +191,37 @@ func TestOnAirPanelNarrowSafe(t *testing.T) {
 		if vis := utf8.RuneCountInString(stripANSI(mm.compactOnAirLine(w))); vis > w {
 			t.Errorf("width %d: compact line overflows (%d cols)", w, vis)
 		}
+	}
+}
+
+// THE HEADER IS PROTECTED (founder screenshot, 2026-09-06): the ON AIR panel grows
+// one row per shared band, but browseRows budgeted a fixed 4 for it - five shared
+// bands overflowed the frame by ~7 rows and the height backstop (which keeps the
+// BOTTOM on purpose) ate the preset bar, the brand, and the account header. The
+// budget must measure the real panel, so the LIST shrinks and the top survives.
+func TestBrowseHeaderSurvivesManySharedBands(t *testing.T) {
+	srv := okBroker(t)
+	defer srv.Close()
+	mm := New(srv.URL, "tester")
+	startShares(t, &mm, srv.URL, 5)
+	waitBadge(t, &mm, "ON AIR")
+	for i := 0; i < 25; i++ {
+		mm.bands = append(mm.bands, band{model: fmt.Sprintf("band-%02d", i), online: true})
+	}
+	mm.mode = modeBrowse
+	var m tea.Model = mm
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 110, Height: 40})
+	v := stripANSI(asModel(m).View())
+	if rows := strings.Count(strings.TrimRight(v, "\n"), "\n") + 1; rows > 40 {
+		t.Fatalf("frame is %d rows on a 40-row terminal", rows)
+	}
+	if !strings.Contains(v, "R O G E R") {
+		t.Fatal("the brand row was clipped - the panel's real height is not in the budget")
+	}
+	if !strings.Contains(v, "TUNE IN") {
+		t.Fatal("the preset bar was clipped")
+	}
+	if !strings.Contains(v, "ON AIR") {
+		t.Fatal("the panel itself must still render")
 	}
 }

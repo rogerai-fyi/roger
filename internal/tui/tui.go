@@ -3554,11 +3554,25 @@ func (m model) browseRows() int {
 	if m.filterMode || m.filtersActive() {
 		chrome++
 	}
+	// The under-list panels are MEASURED, not guessed (founder screenshot 2026-09-06:
+	// the ON AIR panel grows one row per shared band; a fixed 4 with five bands
+	// overflowed the frame and the height backstop ate the brand + header). The
+	// budget renders what View() will render and counts its rows, so the LIST is
+	// what shrinks and the top chrome always survives. Compact drops each panel to
+	// its single status line (+ the blank before it).
 	if m.connected != nil {
-		chrome += 4 // the endpoint panel rides under the list
+		if m.compact {
+			chrome += 2
+		} else {
+			chrome += lineRows(m.endpointPanel(m.effWidth())) + 1
+		}
 	}
 	if m.onAir && m.share != nil {
-		chrome += 4 // the ON AIR panel too
+		if m.compact {
+			chrome += 2
+		} else {
+			chrome += lineRows(m.onAirPanel(m.effWidth())) + 1
+		}
 	}
 	rows := h - chrome
 	if rows < 3 {
