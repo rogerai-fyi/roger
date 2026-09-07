@@ -54,3 +54,18 @@ Feature: Sharing — going on air
     Given an operator shares FREE (no login)
     Then they can go on air and serve traffic
     But to EARN they must link a GitHub account (the payout path)
+
+  # Founder ruling 2026-09-06: the HOUSE's own supply is exempt from the per-owner
+  # cap. The cap is anti-abuse - one stranger must not flood the dial - and the
+  # platform's own curated bands are the platform, not a stranger. Exemption is an
+  # explicit per-account allowlist (ROGERAI_STATION_LIMIT_EXEMPT, comma-separated
+  # owner pubkeys), never a global raise: everyone else keeps the backstop.
+  Scenario: An exempt account registers past the per-owner cap
+    Given an owner account on the station-limit exempt list
+    When they bring a node on air past the cap
+    Then the registration is admitted
+
+  Scenario: The exemption is an allowlist, not a loophole
+    Given an owner account NOT on the exempt list, at the cap
+    When they bring another node on air
+    Then the registration is refused with the station-limit message

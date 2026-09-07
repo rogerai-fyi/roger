@@ -38,6 +38,20 @@ var nodeTTL = 45 * time.Second
 // Override with ROGERAI_MAX_NODES_PER_OWNER (0 disables the cap).
 const defaultMaxNodesPerOwner = 20
 
+// parseStationLimitExempt reads the comma-separated owner pubkeys exempt from the
+// per-owner cap (founder ruling 2026-09-06): the cap is anti-abuse, and the
+// platform's own house supply is the platform, not a stranger. An explicit
+// allowlist, never a global raise - everyone else keeps the backstop.
+func parseStationLimitExempt(v string) map[string]bool {
+	out := map[string]bool{}
+	for _, p := range strings.Split(v, ",") {
+		if p = strings.ToLower(strings.TrimSpace(p)); p != "" {
+			out[p] = true
+		}
+	}
+	return out
+}
+
 // maxNodesPerOwnerLimit reads the per-owner on-air cap from the environment, falling
 // back to the default. A negative value is ignored (keeps the default); 0 disables it.
 func maxNodesPerOwnerLimit() int {
@@ -531,7 +545,7 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if regOwner.Pubkey != "" && b.maxNodesPerOwner > 0 {
+	if regOwner.Pubkey != "" && b.maxNodesPerOwner > 0 && !b.stationLimitExempt[strings.ToLower(regOwner.Pubkey)] {
 		if b.ownerOnAirCount(regOwner.Pubkey, reg.NodeID) >= b.maxNodesPerOwner {
 			b.mu.Unlock()
 			jsonErr(w, http.StatusTooManyRequests, fmt.Sprintf(

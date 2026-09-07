@@ -464,6 +464,9 @@ type broker struct {
 	// an existing node never counts as a new one. 0 disables the cap. Env
 	// ROGERAI_MAX_NODES_PER_OWNER (default 20).
 	maxNodesPerOwner int
+	// stationLimitExempt: owner pubkeys (lowercase hex) whose registrations skip
+	// the per-owner cap - the house allowlist (ROGERAI_STATION_LIMIT_EXEMPT).
+	stationLimitExempt map[string]bool
 }
 
 // priceQuote pins the price a user first saw for a (node, model) so an owner's
@@ -660,6 +663,7 @@ func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, loc
 		reportDecayDays:        reportDecayDays(),
 		nodeBanDays:            nodeBanDays(),
 		maxNodesPerOwner:       maxNodesPerOwnerLimit(),
+		stationLimitExempt:     parseStationLimitExempt(os.Getenv("ROGERAI_STATION_LIMIT_EXEMPT")),
 		freeRegByIP:            map[string][]time.Time{},
 		freeRegPerIP:           freeRegPerIPLimit(),
 		freeRegWindow:          freeRegWindowDur(),

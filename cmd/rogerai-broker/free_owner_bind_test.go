@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -151,3 +152,27 @@ func contains(ss []string, want string) bool {
 }
 
 func containsSub(s, sub string) bool { return bytes.Contains([]byte(s), []byte(sub)) }
+
+// The house exemption (founder ruling 2026-09-06): the per-owner cap is anti-abuse,
+// and the platform's own supply is the platform - an explicit allowlist account
+// registers past the cap while everyone else keeps the backstop.
+func TestStationLimitExemptAccountPassesTheCap(t *testing.T) {
+	b, userPriv, nodePriv, nodePubHex := newBandBroker(t)
+	b.maxNodesPerOwner = 2
+	b.stationLimitExempt = map[string]bool{strings.ToLower(ownerPubFor(t, userPriv)): true}
+	for _, id := range []string{"e1", "e2", "e3", "e4"} {
+		if code, msg := registerFreeOwned(t, b, id, nodePriv, nodePubHex, userPriv, "203.0.113.9"); code != http.StatusOK {
+			t.Fatalf("exempt node %s = %d (%q), want 200 past the cap", id, code, msg)
+		}
+	}
+}
+
+func TestStationLimitExemptListParses(t *testing.T) {
+	got := parseStationLimitExempt(" AbC123 ,def456,, ")
+	if !got["abc123"] || !got["def456"] || len(got) != 2 {
+		t.Fatalf("parse = %v, want lowercase {abc123,def456}", got)
+	}
+	if parseStationLimitExempt("") != nil && len(parseStationLimitExempt("")) != 0 {
+		t.Fatal("empty env must yield an empty set")
+	}
+}
