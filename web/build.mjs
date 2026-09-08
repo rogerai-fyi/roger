@@ -71,6 +71,7 @@ const CSS_BUNDLES = {
   "broadcasts-how-rogerai-routes-models.html": [...CSS_MARKETING, "broadcasts.css", "broadcast-routing.css"], // broadcast 009 · capacity-aware smart routing
   "broadcasts-run-a-tower.html": [...CSS_MARKETING, "broadcasts.css"], // broadcast 010 · field guide (run a Tower / relay operator)
   "broadcasts-what-a-million-tokens-costs.html": [...CSS_MARKETING, "broadcasts.css", "broadcast-economics.css"], // broadcast 011 · unit economics (break-even per 1M tokens)
+  "broadcasts-llm-on-iphone.html": [...CSS_MARKETING, "broadcasts.css"], // broadcast 012 · SEO field guide (LLM on iPhone / v1.2 transmitter)
   "bands.html":     [...CSS_MARKETING],                  // redirect shell: shared chrome only
   "app.html":       [...CSS_MARKETING, "app.css"],       // the App Store launch page (shipped 2026-07-09)
   "404.html":       [...CSS_MARKETING, "notfound.css"],

@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<!-- Field-guide broadcast 012 (the handheld transmitter). SEO/AEO format: Quick Answer +
+     question-H2s + FAQ schema + internal links to /app.html, /models.html, /pricing.html.
+     Every claim is grounded in the shipped iOS v1.2 App Store listing (2026-08-27) and the
+     app.html §2 ON AIR plate. Assets: three real App Store composites (roger-ios repo,
+     appstore-comp 6.9 set) converted to webp + a 1200x630 OG crop of the on-air card.
+     Registered in build.mjs CSS_BUNDLES; listed atop broadcasts.html. -->
+<html lang="en">
+<head>
+  <!-- include: head.html title="Run an LLM on your iPhone - and put it on the air" desc="The RogerAI app downloads a compact MLX model onto your iPhone, runs it fully on-device, and can put it on the air as a real station - free, or earning, or on a private band only your people can tune. What works on a phone, what needs the Mac, and what it costs: nothing." theme=external og=post ogtype=article ogtitle="Run an LLM on your iPhone - and put it on the air" ogdesc="Download a compact MLX model in the app, run it fully on-device, then share it as a real station: free, earning, or on a hidden private band. The phone is a transmitter now." ogurl="https://rogerai.fm/broadcasts-llm-on-iphone.html" ogimage="https://rogerai.fm/assets/broadcasts/phone-og.png" -->
+</head>
+<body data-onair="idle">
+  <div class="rail" aria-hidden="true">
+    <span class="rail__head">RogerAI · Field Guide</span>
+    <span class="rail__rev"><!-- include: orange3d.html id=rail --> Rev. 2026.09 · ((•))</span>
+  </div>
+  <!-- include: nav.html variant=marketing home=/ anchors=/ scrolled=1 -->
+  <main id="top">
+  <article class="bc-post">
+    <div class="wrap bc-post__wrap">
+      <a class="bc-post__back mono" href="/broadcasts.html">&larr; all broadcasts</a>
+      <header class="bc-post__head" data-reveal>
+        <span class="hero__eyebrow">
+          <span class="onair" aria-hidden="true">((<span class="onair__dot">&bull;</span>))</span>
+          <span class="hero__callsign">BROADCAST 012 &middot; FIELD GUIDE</span>
+          <span class="hero__sep" aria-hidden="true">&middot;</span>
+          <time datetime="2026-09-08">SEPTEMBER 2026</time>
+        </span>
+        <h1 class="bc-post__title">Run an LLM on your iPhone - and put it on the air</h1>
+        <p class="bc-post__dek">
+          The phone in your pocket can download a language model, answer with the radio off,
+          and - since v1.2 - broadcast that model to the people you choose. Here is what a
+          handheld can honestly do, and how to do it.
+        </p>
+      </header>
+
+      <figure class="bc-figure" style="margin:2rem 0;padding:16px;background:#F3F1EA;border:1px solid rgba(21,20,15,.12);border-radius:12px;" data-reveal>
+        <img src="assets/broadcasts/phone-hero.webp" width="880" height="1912" style="display:block;width:100%;max-width:440px;margin:0 auto;height:auto;border-radius:6px;"
+             alt="The RogerAI iPhone app's onboarding card: a hand at a vintage radio set beneath broadcast towers, captioned Home GPUs, on air - some stations run right on this device." loading="lazy" />
+        <figcaption class="fig mono" style="margin-top:.6rem;">FIG. 1 - PUT YOUR DEVICE ON THE AIR</figcaption>
+      </figure>
+
+      <blockquote class="mono" style="margin:2rem 0;padding:1rem 1.25rem;border-left:3px solid #E0231C;background:rgba(224,35,28,.05);border-radius:0 6px 6px 0;line-height:1.6;" data-reveal>
+        <b>Quick answer.</b> Yes - the free <a href="/app.html">RogerAI app</a> downloads a
+        compact MLX model onto an iPhone or iPad and runs it fully on-device, no account and
+        no signal needed. Since v1.2 the same phone can <b>share</b> that model on the RogerAI
+        band: to everyone, to a hidden private frequency only people with your code can tune,
+        or at a price that earns - from any device, phone included.
+      </blockquote>
+
+      <div class="bc-post__body">
+
+        <section class="bc-sec" data-reveal>
+          <span class="bc-sec__no">&sect;1 &middot; On-device</span>
+          <h2>Can an iPhone really run a language model?</h2>
+          <p>
+            A modern iPhone runs compact models well. The app's model manager downloads an
+            <b>MLX</b> model - Apple-silicon-native weights, a few gigabytes - and from then
+            on it answers on the phone itself. Airplane mode works. Your words never leave
+            the device, which is not a policy claim but a topology one: there is no server
+            in the sentence.
+          </p>
+          <p>
+            Apple&nbsp;Intelligence's on-device model rides alongside as a free built-in
+            station, and the same app tunes the wider <a href="/models.html">band</a> of
+            community machines when you want a bigger brain than a pocket carries.
+          </p>
+        </section>
+
+        <section class="bc-sec" data-reveal>
+          <span class="bc-sec__no">&sect;2 &middot; The transmitter</span>
+          <h2>How do I put my phone's model on the air?</h2>
+          <p>
+            One switch. The share screen takes any model the device can serve - a downloaded
+            MLX model on iPhone or iPad, or on a Mac whatever your local servers already run
+            (Ollama, LM Studio, Osaurus, llama.cpp) - and registers it as a real station on
+            the band, with a callsign and a live <b>On Air</b> screen. On a phone, serving
+            runs while the app is open: iOS cannot run the model with the screen locked, so
+            the app keeps the screen awake on air, and a Dim mode darkens it for a phone
+            left quietly on a shelf.
+          </p>
+          <p>
+            The phone comes first, always: sharing pauses itself when the battery runs low or
+            the device runs hot, and resumes when things settle. Stations dial out - nothing
+            ever opens a port on your network or knocks on your door.
+          </p>
+        </section>
+
+        <section class="bc-sec" data-reveal>
+          <span class="bc-sec__no">&sect;3 &middot; The hidden frequency</span>
+          <h2>What is a private band?</h2>
+          <p>
+            A station you broadcast on a <b>hidden frequency</b>: it never appears on the
+            public dial, and only people holding your invite code can tune it. It is the
+            family-and-friends shape of the network - your old laptop's model serving your
+            own phone from home, or a workroom sharing one machine - with the same receipts
+            and the same outbound-only privacy as everything else on the band. Going private
+            takes the same one-time login as earning; free public sharing needs none.
+          </p>
+          <figure class="bc-figure" style="margin:1.5rem 0;padding:16px;background:#F3F1EA;border:1px solid rgba(21,20,15,.12);border-radius:12px;">
+            <img src="assets/broadcasts/phone-private.webp" width="880" height="1912" style="display:block;width:100%;max-width:440px;margin:0 auto;height:auto;border-radius:6px;"
+                 alt="The app's serving dial on a hidden frequency: a model on air at 147.520 MHz with a lock, its callsign and per-million price beneath the tuning rings." loading="lazy" />
+            <figcaption class="fig mono" style="margin-top:.6rem;">FIG. 2 - A HIDDEN FREQUENCY, OWNER-ONLY</figcaption>
+          </figure>
+        </section>
+
+        <section class="bc-sec" data-reveal>
+          <span class="bc-sec__no">&sect;4 &middot; The desk set</span>
+          <h2>What can a Mac do that a phone can't?</h2>
+          <p>
+            Scale. A Mac runs <b>multiple models on air at once</b>, mixes earning and free
+            tiers side by side, and fronts the local servers you already keep running. The
+            money works the same from any device: set dollars per million tokens on the
+            share screen's price stepper - phone included - and
+            <a href="/pricing.html">keep 90%</a> of what your station earns. The practical
+            difference is uptime: a phone serves while the app is open, the Mac is the one
+            you leave on air around the clock.
+          </p>
+        </section>
+
+        <section class="bc-sec" data-reveal>
+          <span class="bc-sec__no">&sect;5 &middot; Routing, on your terms</span>
+          <h2>How do I keep control when I tune the wider band?</h2>
+          <p>
+            The Tune sheet carries three dials: a <b>max price</b> per million tokens that
+            rides every request, a <b>minimum speed</b> floor, and a <b>Confidential</b>
+            toggle that routes only to stations passing real TEE hardware attestation - nodes
+            whose operators cannot read your payload. Everything else on the open band still
+            sees only a station making calls: not your name, not your card, not your IP.
+          </p>
+          <figure class="bc-figure" style="margin:1.5rem 0;padding:16px;background:#F3F1EA;border:1px solid rgba(21,20,15,.12);border-radius:12px;">
+            <img src="assets/broadcasts/phone-confidential.webp" width="880" height="1912" style="display:block;width:100%;max-width:440px;margin:0 auto;height:auto;border-radius:6px;"
+                 alt="The app's Tune sheet: a Confidential TEE-attested-only toggle, a max price per million field, and a minimum speed field." loading="lazy" />
+            <figcaption class="fig mono" style="margin-top:.6rem;">FIG. 3 - CONFIDENTIAL, CAPPED, FAST</figcaption>
+          </figure>
+        </section>
+
+        <section class="bc-sec" data-reveal>
+          <span class="bc-sec__no">&sect;6 &middot; The bill</span>
+          <h2>What does it cost?</h2>
+          <p>
+            The app is free - 39&nbsp;MB, universal for iPhone, iPad, and Apple-silicon Macs.
+            On-device models and free stations need <b>no account at all</b>: install, tune
+            in, talk. Paid stations bill per token at the operator's posted rate from a
+            prepaid wallet with a $1 starter credit; there is no subscription anywhere in
+            the system.
+          </p>
+          <p class="mono" style="margin-top:1.25rem;">
+            <a href="https://apps.apple.com/us/app/rogerai-fm/id6785743752" target="_blank" rel="noopener noreferrer"><b>Download RogerAI on the App&nbsp;Store &rarr;</b></a><br />
+            Terminal person? <code>curl -fsSL https://rogerai.fm/install.sh | sh</code>
+          </p>
+        </section>
+
+        <section class="bc-sec" data-reveal>
+          <span class="bc-sec__no">&sect;7 &middot; FAQ</span>
+          <h2>Questions people actually ask</h2>
+          <dl class="bc-faq">
+            <dt><b>Which iPhones can run a local LLM?</b></dt>
+            <dd>The app requires iOS 17 or newer. Compact MLX models run comfortably on recent iPhones and iPads; the model manager only offers weights that fit your device, and Apple Intelligence's on-device model is available as a built-in free station besides.</dd>
+            <dt><b>Does a local model on my phone send anything to a server?</b></dt>
+            <dd>No. A downloaded model answers on the device - it works in airplane mode. Only tuning a remote station on the band sends your words to the machine that answers them, and even then the upstream sees a station's callsign, never your identity.</dd>
+            <dt><b>Can I share from an iPhone, or only from a Mac?</b></dt>
+            <dd>Both, since v1.2. An iPhone or iPad shares a downloaded MLX model; a Mac additionally fronts local servers like Ollama, LM Studio, Osaurus, and llama.cpp, and can run several models on air at once.</dd>
+            <dt><b>Will sharing cook my battery?</b></dt>
+            <dd>The phone comes first: sharing pauses itself when the battery runs low or the device runs hot, and resumes when things settle. Serving needs the app open with the screen awake (iOS cannot run the model with the screen locked), so the On Air screen has a Dim mode built for a phone left quietly on a shelf.</dd>
+            <dt><b>Who can tune into my private band?</b></dt>
+            <dd>Only people with your invite code. A private band broadcasts on a hidden frequency that never appears on the public dial; everyone else cannot even see it exists.</dd>
+            <dt><b>Can I earn money sharing from the app?</b></dt>
+            <dd>Yes, from any device - the share screen's price stepper sets a per-million-token rate right on the phone, and you keep 90%, settled like any station on the band. Setting a price (or going private) takes a one-time login so earnings have somewhere to accrue; the broker caps the top price and says so if yours is over.</dd>
+            <dt><b>Do I need an account to use it?</b></dt>
+            <dd>Not for on-device models, free stations, or free public sharing - the app starts anonymous. An account enters the picture when you spend from a wallet on paid stations, set a price to earn, or broadcast a private band.</dd>
+          </dl>
+        </section>
+
+      </div>
+    </div>
+  </article>
+  </main>
+
+  <!-- include: footer.html anchors=/ -->
+
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"Which iPhones can run a local LLM?","acceptedAnswer":{"@type":"Answer","text":"The app requires iOS 17 or newer. Compact MLX models run comfortably on recent iPhones and iPads; the model manager only offers weights that fit your device, and Apple Intelligence's on-device model is available as a built-in free station besides."}},{"@type":"Question","name":"Does a local model on my phone send anything to a server?","acceptedAnswer":{"@type":"Answer","text":"No. A downloaded model answers on the device - it works in airplane mode. Only tuning a remote station on the band sends your words to the machine that answers them, and even then the upstream sees a station's callsign, never your identity."}},{"@type":"Question","name":"Can I share from an iPhone, or only from a Mac?","acceptedAnswer":{"@type":"Answer","text":"Both, since v1.2. An iPhone or iPad shares a downloaded MLX model; a Mac additionally fronts local servers like Ollama, LM Studio, Osaurus, and llama.cpp, and can run several models on air at once."}},{"@type":"Question","name":"Will sharing cook my battery?","acceptedAnswer":{"@type":"Answer","text":"The phone comes first: sharing pauses itself when the battery runs low or the device runs hot, and resumes when things settle. Serving needs the app open with the screen awake (iOS cannot run the model with the screen locked), so the On Air screen has a Dim mode built for a phone left quietly on a shelf."}},{"@type":"Question","name":"Who can tune into my private band?","acceptedAnswer":{"@type":"Answer","text":"Only people with your invite code. A private band broadcasts on a hidden frequency that never appears on the public dial; everyone else cannot even see it exists."}},{"@type":"Question","name":"Can I earn money sharing from the app?","acceptedAnswer":{"@type":"Answer","text":"Yes, from any device - the share screen's price stepper sets a per-million-token rate right on the phone, and you keep 90%, settled like any station on the band. Setting a price (or going private) takes a one-time login so earnings have somewhere to accrue; the broker caps the top price and says so if yours is over."}},{"@type":"Question","name":"Do I need an account to use it?","acceptedAnswer":{"@type":"Answer","text":"Not for on-device models, free stations, or free public sharing - the app starts anonymous. An account enters the picture when you spend from a wallet on paid stations, set a price to earn, or broadcast a private band."}}]}</script>
+
+  <script src="js/lets-talk.js" defer></script>
+  <script src="js/site.js" defer></script>
+  <script src="js/session.js" defer></script>
+  <script src="js/promo.js" defer></script>
+</body>
+</html>
