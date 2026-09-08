@@ -97,8 +97,21 @@ test("iphone: earning is any-device, never sold as Mac-only", () => {
 test("iphone: the login gate and the screen-awake constraint are stated", () => {
   const html = read(PAGE);
   assert.match(html, /one-time login/, "earn/private need a login, said plainly");
+  assert.match(html, /GitHub-linked|GitHub linked/, "the gate is a GitHub-linked account, not any login");
   assert.match(html, /screen locked/i, "iOS cannot serve with the screen locked - stated");
   assert.match(html, /broadcast a private band|going private/i, "private bands named in the account answer");
+});
+
+// Round-2/3 audit nits, pinned: the app's maxOnAir=4 applies on iPhone and Mac alike
+// (ShareService.swift:93; the CLI's own default is 5 and configurable, so the page
+// never equates the two), and Low Power Mode blocks phone sharing (:64).
+test("iphone: multi-model on air is any-device (four), and Low Power Mode is named", () => {
+  const html = read(PAGE);
+  assert.match(html, /Any device shares up to four/i, "the four-station cap is any-device");
+  assert.doesNotMatch(html, /Mac runs <b>multiple models on air at once<\/b>/, "the Mac-only multi-model claim is gone");
+  assert.doesNotMatch(html, /same cap as the CLI/i, "the app's cap is never equated with the CLI's (which is 5, configurable)");
+  assert.match(html, /Low Power Mode/, "Low Power Mode blocking is stated");
+  assert.doesNotMatch(read("app.html"), /<dt>on the Mac<\/dt><dd>multiple models/, "app.html no longer frames multi-model as Mac-only");
 });
 
 test("iphone: no em dashes in the copy", () => {
