@@ -17,9 +17,11 @@ import (
 //
 // LAYOUT (all under ONE namespace no other subsystem writes; pinned by the feature):
 //
-//	rogerai:alert:<key>          STRING "1"     SETNX + dedupTTL   the onset page is taken
-//	rogerai:alert:flap:<key>     STRING <count> PEXPIRE flapWindow onsets inside the window
-//	rogerai:alert:stable:<key>   STRING "1"     SETNX + flapQuiet  the summary is taken
+//	rogerai:alert:<key>          STRING "1"     SETNX + alertClaimTTL  the onset page is taken
+//	                                            (a lease: PEXPIRE'd each tick by a firing instance)
+//	rogerai:alert:repage:<key>   STRING "1"     SETNX + dedupTTL/2     the daily re-page is taken
+//	rogerai:alert:flap:<key>     STRING <count> PEXPIRE flapWindow     onsets inside the window
+//	rogerai:alert:stable:<key>   STRING "1"     SETNX + flapQuiet      the summary is taken
 const alertKeyPrefix = keyPrefix + "alert:"
 
 // alertFlapScript is a fixed-window counter (INCR, arm the expiry on first use, return the
@@ -52,7 +54,9 @@ func (b *broker) alertSharedFail(v *valkeyStore, op string, err error) {
 // under the dedup TTL. No shared store, or an unreachable one, means yes (fallback). A key
 // whose CLEAR could not reach the store (a pending clear) is still claimed by a stale
 // onset, so a refused SETNX on it is retried once after the DEL it owes: a failed clear
-// must never silence the next real onset for the rest of the TTL.
+// must never silence the next real onset for the rest of the TTL. Trade-off, accepted: that
+// DEL can steal a peer's legitimate fresh claim on the same key (a duplicate page, never a
+// lost one).
 func (b *broker) sharedOnset(key string) bool {
 	v := b.alertValkey()
 	if v == nil {
@@ -77,7 +81,7 @@ func (b *broker) sharedOnset(key string) bool {
 func (b *broker) setNXOnset(v *valkeyStore, key string) (bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
 	defer cancel()
-	set, err := v.rdb.SetNX(ctx, alertKeyPrefix+key, "1", b.dedupTTL()).Result()
+	set, err := v.rdb.SetNX(ctx, alertKeyPrefix+key, "1", alertClaimTTL).Result()
 	if err == nil {
 		v.setUp(true)
 	}
@@ -174,17 +178,63 @@ func (b *broker) sharedFlapReset(key string) { b.sharedDel("flap:"+key, "alertFl
 // sharedStableOnce reports whether THIS instance sends the "stabilized" summary for key:
 // SETNX for the quiet window, so two instances that both watched it go quiet send one.
 func (b *broker) sharedStableOnce(key string, quiet time.Duration) bool {
+	return b.sharedClaimOnce("stable:"+key, quiet, "alertStable")
+}
+
+// sharedRepage reports whether THIS instance sends the daily re-page of a condition that
+// has stayed fired for dedupTTL. Every instance whose mirror is firing reaches its own
+// 24h mark within about a checker interval of the others; half the TTL is ample to make
+// that one page, and it leaves no exact-expiry race with the next day's mark.
+func (b *broker) sharedRepage(key string) bool {
+	return b.sharedClaimOnce("repage:"+key, b.dedupTTL()/2, "alertRepage")
+}
+
+// sharedClaimOnce is the shared SETNX-with-TTL claim under the alert namespace: true when
+// this instance took it, and true (fail-open, per-process fallback) without a reachable
+// shared store.
+func (b *broker) sharedClaimOnce(sub string, ttl time.Duration, op string) bool {
 	v := b.alertValkey()
 	if v == nil {
 		return true
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
 	defer cancel()
-	set, err := v.rdb.SetNX(ctx, alertKeyPrefix+"stable:"+key, "1", quiet).Result()
+	set, err := v.rdb.SetNX(ctx, alertKeyPrefix+sub, "1", ttl).Result()
 	if err != nil {
-		b.alertSharedFail(v, "alertStable", err)
+		b.alertSharedFail(v, op, err)
 		return true
 	}
 	v.setUp(true)
 	return set
+}
+
+// heartbeatClaims renews the lease on the onset claim of every condition THIS instance's
+// mirror says is firing (one pipelined round trip per checker tick). A claim nobody renews
+// - its owner restarted - expires after alertClaimTTL instead of silencing the next real
+// onset. PEXPIRE on a key that is already gone is a no-op.
+func (b *broker) heartbeatClaims() {
+	v := b.alertValkey()
+	if v == nil {
+		return
+	}
+	b.alertMu.Lock()
+	keys := make([]string, 0, len(b.alertFiring))
+	for k := range b.alertFiring {
+		keys = append(keys, alertKeyPrefix+k)
+	}
+	b.alertMu.Unlock()
+	if len(keys) == 0 {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	pipe := v.rdb.Pipeline()
+	for _, k := range keys {
+		pipe.PExpire(ctx, k, alertClaimTTL)
+	}
+	if _, err := pipe.Exec(ctx); err != nil {
+		b.alertSharedFail(v, "alertHeartbeat", err)
+		return
+	}
+	v.setUp(true)
 }

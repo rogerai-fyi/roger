@@ -663,11 +663,12 @@ func runServe(ln net.Listener, fee, seed float64, lock time.Duration, stop <-cha
 		defer cancel()
 		log.Printf("shutdown: draining in-flight relays (grace %s) so no consumer hold is orphaned", shutdownGrace)
 		_ = srv.Shutdown(ctx)
-		// Screen what fits in the budget first (a late CSAM verdict may still page), then flush
-		// queued email (sign-in codes first, then alerts) within its own budget; whatever does
-		// not make it is counted dropped{shutdown}, never silently lost.
+		// Screen what fits in the budget first (a late CSAM verdict may still page), settle the
+		// alert layer (in-flight onsets, then the still-open digest window is flushed at once),
+		// then flush queued email (sign-in codes first, then alerts) within its own budget;
+		// whatever does not make it is counted dropped{shutdown}, never silently lost.
 		b.scr.shutdown(screenerDrainBudget)
-		b.waitAlertsInflight(2 * sharedOpTimeout)
+		b.shutdownAlerts(2 * sharedOpTimeout)
 		b.mail.drain(emailDrainBudget)
 		close(drained)
 	}()

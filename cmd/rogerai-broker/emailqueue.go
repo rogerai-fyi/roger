@@ -135,7 +135,10 @@ func (m *mailer) enqueue(lane emailLane, to, subject, html, text string) {
 	job := &emailJob{lane: lane, to: to, subject: subject, html: html, text: text}
 	q.mu.Lock()
 	if q.stopping {
+		// A page raised after the drain began (a late onset goroutine) is counted AND named:
+		// never silently gone.
 		q.dropLocked(job, "shutdown")
+		log.Printf("email: DROPPED (shutdown, lane=%s) enqueued after the drain began to=%s subj=%q", job.lane, maskAddr(job.to), job.subject)
 		q.mu.Unlock()
 		return
 	}

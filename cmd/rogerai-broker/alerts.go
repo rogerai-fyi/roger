@@ -23,13 +23,17 @@ import (
 // again while it stays fired; it re-fires only after it CLEARS and re-onsets. The onset is
 // claimed in the SHARED store (alertstore.go: SETNX rogerai:alert:<key> with a TTL) so two
 // instances page once, with the per-process map (alertFiring) as the fallback and the
-// local mirror; both expire after dedupTTL so a stuck condition is re-paged daily. Milestone
-// alerts (first live top-up, first ban/dispute/report) use a constant key and are never
-// cleared, so they fire exactly once per onset claim.
+// local mirror. The shared claim is a short LEASE (alertClaimTTL) that only an instance
+// whose mirror says firing keeps alive each checker tick, so a claim orphaned by a restart
+// expires within minutes; a model seen on air for the first time by a process also releases
+// any claim a previous process left. A condition that stays fired for dedupTTL is re-paged
+// once a day (a local timer, claimed once across instances via a separate repage key).
+// Milestone alerts (first live top-up, first ban/dispute/report, first preserved CSAM
+// incident) use a constant key, are never cleared and never re-paged: once per process.
 //
 // DELIVERY (features/ops/alert_delivery.feature): alerts raised inside one coalescing
 // window become ONE digest email per recipient, sent on the mailer's ALERT lane behind any
-// transactional mail (emailqueue.go paces + retries it). The CSAM SLA alert bypasses both:
+// transactional mail (emailqueue.go paces + retries it). Every CSAM alert bypasses both:
 // its own email, at once, on the priority lane. A deploy is not an outage: no noproviders
 // page during the startup grace, and a model must be absent for debounceTicks consecutive
 // ticks. A key that onsets flapCount times inside flapWindow is muted after one "flapping"
@@ -59,9 +63,23 @@ const defaultCSAMSLAHours = 24
 // larger than accumulated float rounding across a wallet's ledger rows.
 const driftEpsilon = 1e-4
 
-// alertKeyCSAM is the one condition that is never coalesced, delayed or graced: a legal
-// filing obligation (18 USC 2258A) past its SLA.
-const alertKeyCSAM = "csam_sla"
+// alertClaimTTL is the shared onset claim's lease: a few checker intervals, refreshed each
+// tick by any instance whose local mirror says the condition is firing (heartbeatClaims).
+// An orphan (its owner restarted, the model recovered while nobody was looking) therefore
+// expires within minutes instead of silencing the next real onset for a day.
+const alertClaimTTL = 3 * alertCheckInterval
+
+// alertMilestoneKeys are once-per-process-lifetime pages ("first ..."): they are never
+// cleared and never re-paged after dedupTTL - a second "first ban" is a lie.
+var alertMilestoneKeys = map[string]bool{
+	"first_ban": true, "first_dispute": true, "first_report": true, "first_live_topup": true,
+	"csam:first-report": true,
+}
+
+// alertUrgent reports whether key rides the priority lane at once, never coalesced: every
+// CSAM alert (the SLA breach AND the first preserved incident), keyed on the prefix so a new
+// csam:* condition cannot quietly land behind a digest window.
+func alertUrgent(key string) bool { return strings.HasPrefix(key, "csam") }
 
 // alertConfig holds the delivery knobs (ROGERAI_ALERT_*). The zero value is the plainest
 // behavior (page at once, no grace, first-tick, no flap muting) so a hand-built broker in a
@@ -204,7 +222,8 @@ func (b *broker) adminAlert(key, subjectTail, heading string, rows [][2]string, 
 	now := b.alertClock()
 	b.alertMu.Lock()
 	b.alertInitLocked()
-	if b.alertFiring[key] && now.Sub(b.alertFiredAt[key]) < b.dedupTTL() {
+	repage := b.alertFiring[key]
+	if repage && (alertMilestoneKeys[key] || now.Sub(b.alertFiredAt[key]) < b.dedupTTL()) {
 		b.alertMu.Unlock()
 		return // already firing on this onset - dedup, do not re-page
 	}
@@ -219,14 +238,19 @@ func (b *broker) adminAlert(key, subjectTail, heading string, rows [][2]string, 
 	b.alertInflight.Add(1)
 	go func() {
 		defer b.alertInflight.Add(-1)
-		b.alertOnset(key, subjectTail, heading, rows, body, now)
+		b.alertOnset(key, subjectTail, heading, rows, body, now, repage)
 	}()
 }
 
-// alertOnset is the off-request half of adminAlert: claim the onset across instances,
-// apply flap suppression, then send at once or coalesce into the open digest window.
-func (b *broker) alertOnset(key, subjectTail, heading string, rows [][2]string, body string, now time.Time) {
-	if !b.sharedOnset(key) {
+// alertOnset is the off-request half of adminAlert: claim the onset across instances (or,
+// for a condition fired longer than dedupTTL, the daily re-page), apply flap suppression,
+// then send at once or coalesce into the open digest window.
+func (b *broker) alertOnset(key, subjectTail, heading string, rows [][2]string, body string, now time.Time, repage bool) {
+	claimed := b.sharedOnset
+	if repage {
+		claimed = b.sharedRepage
+	}
+	if !claimed(key) {
 		b.alertDeduped.Add(1)
 		log.Printf("alert: DEDUPED %q (a peer instance already paged this onset)", key)
 		return
@@ -240,8 +264,8 @@ func (b *broker) alertOnset(key, subjectTail, heading string, rows [][2]string, 
 	log.Printf("alert: FIRED %q -> %d recipient(s): %s", key, len(b.adminEmails), subjectTail)
 
 	cond := alertCondition{key: key, tail: subjectTail + suffix, heading: heading, rows: rows, body: body}
-	if key == alertKeyCSAM || b.alertCfg.coalesce <= 0 {
-		b.sendAlertDigest([]alertCondition{cond}, key == alertKeyCSAM)
+	if urgent := alertUrgent(key); urgent || b.alertCfg.coalesce <= 0 {
+		b.sendAlertDigest([]alertCondition{cond}, urgent)
 		return
 	}
 	b.alertMu.Lock()
@@ -256,6 +280,10 @@ func (b *broker) alertOnset(key, subjectTail, heading string, rows [][2]string, 
 	window := b.alertCfg.coalesce
 	go func() {
 		<-b.alertTimer(window)
+		// Tracked from the moment it flushes: shutdown waits for a flush in progress
+		// (shutdownAlerts flushes the still-open window itself, synchronously).
+		b.alertInflight.Add(1)
+		defer b.alertInflight.Add(-1)
 		b.flushAlerts()
 	}()
 }
@@ -274,13 +302,23 @@ func (b *broker) flushAlerts() {
 	}
 }
 
-// waitAlertsInflight blocks (bounded) until every onset goroutine has finished, so a page
-// raised right before shutdown still reaches the mail queue before it drains.
+// waitAlertsInflight blocks (bounded) until every onset goroutine (and any flush in
+// progress) has finished, so a page raised right before shutdown still reaches the mail
+// queue before it drains.
 func (b *broker) waitAlertsInflight(timeout time.Duration) {
 	deadline := time.Now().Add(timeout)
 	for b.alertInflight.Load() > 0 && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
+}
+
+// shutdownAlerts is the stop-signal sequence for the alert layer, run BEFORE the mailer
+// drains: wait for the in-flight onsets, then flush the still-open coalescing window at
+// once rather than waiting out the rest of it. Whatever the mailer cannot then deliver
+// inside its drain budget is counted dropped{shutdown} and logged - never silently gone.
+func (b *broker) shutdownAlerts(timeout time.Duration) {
+	b.waitAlertsInflight(timeout)
+	b.flushAlerts()
 }
 
 // sendAlertDigest renders one email per recipient for the given conditions (a single
@@ -492,6 +530,7 @@ func (b *broker) alertCheckOnce(now time.Time) {
 	b.checkCSAMSLAAlert(now)
 	b.checkFlapStabilized(now)
 	b.retryPendingClears()
+	b.heartbeatClaims()
 	b.checkCoolingAlerts(now)
 }
 
@@ -529,29 +568,34 @@ func (b *broker) checkHealthAlerts() {
 // drop-to-zero transition is detectable even though a 0-provider model no longer appears in
 // the market view. A deploy is not an outage: nothing pages inside the startup grace, and a
 // model must be absent for debounceTicks consecutive ticks (one heartbeat gap is not a gap
-// in supply). Health and CSAM alerts are exempt from both.
+// in supply). Health and CSAM alerts are exempt from both. A model this process sees on
+// air for the FIRST time (grace included) releases any shared claim a previous process
+// left on it: the old process may have paged the drop and died before the recovery, and
+// nobody else would ever DEL that claim.
 func (b *broker) checkProviderGapAlerts() {
 	now := b.alertClock()
 	nowOnAir := b.liveModelProviders() // model -> provider count (every entry >= 1)
 
 	b.alertMu.Lock()
 	b.alertInitLocked()
+	var fresh []string
 	for model := range nowOnAir {
+		if !b.alertOnAirSeen[model] {
+			fresh = append(fresh, model)
+		}
 		b.alertOnAirSeen[model] = true
 	}
-	if grace := b.alertCfg.grace; grace > 0 && now.Sub(b.startTime) < grace {
-		b.alertMu.Unlock()
-		b.alertGraceOnce.Do(func() {
-			log.Printf("alerts: in startup grace (%s window after boot) - noproviders paging suppressed while stations re-register", shortDuration(grace))
-		})
-		return
-	}
+	grace := b.alertCfg.grace
+	inGrace := grace > 0 && now.Sub(b.startTime) < grace
 	need := b.alertCfg.debounceTicks
 	if need < 1 {
 		need = 1
 	}
 	var restored, dropped []string
 	for model := range b.alertOnAirSeen {
+		if inGrace {
+			break
+		}
 		if _, ok := nowOnAir[model]; ok {
 			b.alertAbsent[model] = 0
 			restored = append(restored, model)
@@ -563,8 +607,19 @@ func (b *broker) checkProviderGapAlerts() {
 		}
 	}
 	b.alertMu.Unlock()
+	sort.Strings(fresh)
 	sort.Strings(restored)
 	sort.Strings(dropped) // a stable first condition in the digest subject
+
+	for _, model := range fresh {
+		b.sharedDel("noproviders:"+model, "alertRelease") // best effort; the lease is the backstop
+	}
+	if inGrace {
+		b.alertGraceOnce.Do(func() {
+			log.Printf("alerts: in startup grace (%s window after boot) - noproviders paging suppressed while stations re-register", shortDuration(grace))
+		})
+		return
+	}
 
 	// Clear first (a model back on air), then fire the drops. adminAlert/alertClear take
 	// alertMu themselves, so this runs outside the lock above.

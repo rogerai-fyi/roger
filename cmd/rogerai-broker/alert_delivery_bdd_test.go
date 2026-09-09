@@ -1084,14 +1084,16 @@ func (s *adState) csamSentImmediatelyOwnEmail() error {
 }
 
 func (s *adState) othersBecomeOneDigest(n int) error {
+	pre := s.prov.count() // the immediate CSAM pages already sent
 	s.runFor(10 * time.Second)
 	posts := s.prov.snapshot()
-	if len(posts) != 2*len(s.recipients) {
-		return fmt.Errorf("%d POSTs total, want %d (CSAM x3 + digest x3)", len(posts), 2*len(s.recipients))
+	if len(posts) != pre+len(s.recipients) {
+		return fmt.Errorf("%d POSTs total, want %d (%d immediate + digest x%d)", len(posts), pre+len(s.recipients), pre, len(s.recipients))
 	}
-	last := posts[len(posts)-1]
-	if !strings.HasPrefix(last.subject, fmt.Sprintf("%s%d conditions:", alertSubjectPrefix, n)) {
-		return fmt.Errorf("digest subject = %q, want %d conditions", last.subject, n)
+	for _, p := range posts[pre:] {
+		if !strings.HasPrefix(p.subject, fmt.Sprintf("%s%d conditions:", alertSubjectPrefix, n)) {
+			return fmt.Errorf("digest subject = %q, want %d conditions", p.subject, n)
+		}
 	}
 	return nil
 }
@@ -1978,6 +1980,253 @@ func (s *adState) flapTableNoLongerHolds(key string) error {
 	return nil
 }
 
+// ---- 11. regressions (claude-audit on the merged branch) ------------------------------
+
+// pass moves BOTH clocks: the fake clock the broker/mailer read and miniredis's TTL clock,
+// so a lease that nobody refreshes really does expire.
+func (s *adState) pass(d time.Duration) {
+	s.clock.advance(d)
+	s.mr.FastForward(d)
+}
+
+func (s *adState) conditionsFireInsideWindow(n int) error {
+	s.digestKeys = sixModels[:n]
+	s.markBefore = s.prov.count()
+	s.dropModels(s.primary(), s.digestKeys)
+	s.settle() // the onset goroutines land in the digest window; the clock does NOT move
+	return nil
+}
+
+// stopSignalLater is the production shutdown sequence (main.go) on a broker whose digest
+// window is still open: the alert layer is quiesced, then the mailer drains.
+func (s *adState) stopSignalLater(laterSecs, budgetSecs int) error {
+	b := s.primary()
+	s.runFor(time.Duration(laterSecs) * time.Second)
+	budget := time.Duration(budgetSecs) * time.Second
+	s.drainDone = make(chan struct{})
+	go func() {
+		b.shutdownAlerts(2 * sharedOpTimeout)
+		b.mail.drain(budget)
+		close(s.drainDone)
+	}()
+	s.runFor(budget)
+	select {
+	case <-s.drainDone:
+	case <-time.After(5 * time.Second):
+		return fmt.Errorf("drain did not return within its budget")
+	}
+	return nil
+}
+
+func (s *adState) conditionsReachProviderOrCountedShutdown(n int) error {
+	posts := s.prov.snapshot()[s.markBefore:]
+	per := map[string]int{}
+	for _, p := range posts {
+		if strings.HasPrefix(p.subject, fmt.Sprintf("%s%d conditions:", alertSubjectPrefix, n)) {
+			per[p.to]++
+		}
+	}
+	delivered := true
+	for _, r := range s.recipients {
+		if per[r] != 1 {
+			delivered = false
+		}
+	}
+	if delivered {
+		return nil
+	}
+	st := s.mailer().emailStats()
+	dropped := st["email_dropped"].(map[string]int64)["shutdown"]
+	if dropped > 0 && s.logs.lines("shutdown") > 0 {
+		return nil
+	}
+	return fmt.Errorf("%d conditions raised before shutdown vanished silently: digests per recipient=%v dropped{shutdown}=%d shutdown log lines=%d",
+		n, per, dropped, s.logs.lines("shutdown"))
+}
+
+func (s *adState) everyEmailAccounted() error {
+	st := s.mailer().emailStats()
+	queued, sent := st["email_queued"].(int64), st["email_sent"].(int64)
+	var dropped int64
+	for _, v := range st["email_dropped"].(map[string]int64) {
+		dropped += v
+	}
+	if queued != sent+dropped {
+		return fmt.Errorf("email_queued %d != email_sent %d + email_dropped %d", queued, sent, dropped)
+	}
+	return nil
+}
+
+// instanceRestarts replaces the primary with a FRESH process on the same shared store: no
+// local mirror, booted right now (so its startup grace is running).
+func (s *adState) instanceRestarts() error {
+	s.a = s.newBroker()
+	s.a.startTime = s.clock.Now()
+	return nil
+}
+
+func (s *adState) modelReturnsDuringGrace() error {
+	b := s.primary()
+	onAir(b, "n1", "m")
+	s.clock.advance(30 * time.Second)
+	s.tick(b)
+	s.settle()
+	if s.logs.lines("alerts: in startup grace") == 0 {
+		return fmt.Errorf("the restarted instance was not in its startup grace")
+	}
+	return nil
+}
+
+// modelDropsAfterGraceAndDebounce: miniredis's clock is deliberately NOT advanced here, so
+// it is the release on restore - not a lease expiry - that must un-silence the onset.
+func (s *adState) modelDropsAfterGraceAndDebounce() error {
+	b := s.primary()
+	s.markBefore = s.prov.count()
+	offAir(b, "n1")
+	s.clock.advance(b.alertCfg.grace)
+	for i := 0; i < b.alertCfg.debounceTicks; i++ {
+		s.tick(b)
+	}
+	s.runFor(10 * time.Second)
+	return nil
+}
+
+func (s *adState) ticksPassMinuteApart(n int) error {
+	b := s.primary()
+	for i := 0; i < n; i++ {
+		s.pass(time.Minute)
+		s.tick(b)
+		s.settle()
+	}
+	return nil
+}
+
+func (s *adState) storeNoLongerHolds(key string) error {
+	if full := alertKeyPrefix + key; s.mr.Exists(full) {
+		return fmt.Errorf("%s still exists (TTL %s) though no instance is firing it", full, s.mr.TTL(full))
+	}
+	return nil
+}
+
+func (s *adState) hoursPassStillAbsentBoth(h int) error {
+	s.markBefore = s.prov.count()
+	s.pass(time.Duration(h) * time.Hour)
+	s.tick(s.a)
+	s.settle()
+	s.tick(s.b)
+	s.runFor(10 * time.Second)
+	return nil
+}
+
+// raiseMilestone fires a milestone through its REAL caller.
+func (s *adState) raiseMilestone(key string) error {
+	b := s.primary()
+	switch key {
+	case "first_ban":
+		b.alertFirstBan("account", "acct_x", "3 corroborated abuse reports")
+	case "first_dispute":
+		b.alertFirstDispute("dp_1", 10)
+	case "first_report":
+		b.alertFirstReport("abuse", "n1")
+	case "first_live_topup":
+		b.alertFirstLiveTopup("u_x", 10, 20)
+	case "csam:first-report":
+		b.preserveCSAM("u_x", "203.0.113.9", "csam", []byte("x"))
+	default:
+		return fmt.Errorf("unknown milestone %q", key)
+	}
+	return nil
+}
+
+func (s *adState) milestoneFired(key string) error {
+	if err := s.raiseMilestone(key); err != nil {
+		return err
+	}
+	s.runFor(10 * time.Second)
+	if got := s.prov.count(); got != len(s.recipients) {
+		return fmt.Errorf("%d POSTs after the milestone, want %d", got, len(s.recipients))
+	}
+	s.alertSubj = key
+	return nil
+}
+
+func (s *adState) hoursPassMilestoneAgain(h int) error {
+	s.markBefore = s.prov.count()
+	s.pass(time.Duration(h) * time.Hour)
+	if err := s.raiseMilestone(s.alertSubj); err != nil {
+		return err
+	}
+	s.runFor(10 * time.Second)
+	return nil
+}
+
+func (s *adState) noFurtherEmail() error {
+	if got := s.prov.snapshot()[s.markBefore:]; len(got) != 0 {
+		return fmt.Errorf("%d further POST(s), want 0; first subject %q", len(got), got[0].subject)
+	}
+	return nil
+}
+
+// bothCSAMAlongsideNoproviders: the SLA breach and a fresh preserved incident land in the
+// same checker moment as six supply gaps.
+func (s *adState) bothCSAMAlongsideNoproviders(n int) error {
+	b := s.primary()
+	mem := b.db.(*store.Mem)
+	if _, err := mem.PreserveCSAM(store.CSAMIncident{Pseudonym: "u_x", Category: "csam", ReportState: store.CSAMQueued}); err != nil {
+		return err
+	}
+	s.digestKeys = sixModels[:n]
+	for i, m := range s.digestKeys {
+		onAir(b, fmt.Sprintf("n%d", i), m)
+	}
+	s.tick(b)
+	for i := range s.digestKeys {
+		offAir(b, fmt.Sprintf("n%d", i))
+	}
+	s.clock.advance(25 * time.Hour)
+	for i := 0; i < b.alertCfg.debounceTicks-1; i++ {
+		s.tick(b)
+	}
+	b.preserveCSAM("u_y", "203.0.113.9", "csam", []byte("x")) // csam:first-report
+	s.tick(b)                                                 // csam_sla + the six gaps
+	s.settle()
+	return nil
+}
+
+func (s *adState) eachCSAMImmediateOwnEmail() error {
+	// Right now: every CSAM page is either already POSTed or waiting ONLY on the pacer in
+	// the transactional lane; nothing sits in the alert lane (the gaps are in the window).
+	m := s.mailer()
+	if queued := m.queuedSubjects(laneAlert); len(queued) != 0 {
+		return fmt.Errorf("alert lane holds %v before the window elapsed; a CSAM page must not ride it", queued)
+	}
+	if n := s.prov.count() + len(m.queuedSubjects(laneTransactional)); n != 2*len(s.recipients) {
+		return fmt.Errorf("%d CSAM pages sent+queued on the priority lane, want %d", n, 2*len(s.recipients))
+	}
+	// Step only through pacing (4/s), never past the coalescing window.
+	s.runUntil(s.clock.Now().Add(2 * time.Second))
+	posts := s.prov.snapshot()
+	if len(posts) != 2*len(s.recipients) {
+		return fmt.Errorf("%d POSTs before the window elapsed, want %d (two CSAM pages per recipient)", len(posts), 2*len(s.recipients))
+	}
+	subjects := map[string]map[string]bool{}
+	for _, p := range posts {
+		if !strings.Contains(strings.ToUpper(p.subject), "CSAM") || strings.Contains(p.subject, "conditions:") {
+			return fmt.Errorf("pre-window POST subject = %q, want a standalone CSAM page", p.subject)
+		}
+		if subjects[p.to] == nil {
+			subjects[p.to] = map[string]bool{}
+		}
+		subjects[p.to][p.subject] = true
+	}
+	for _, r := range s.recipients {
+		if len(subjects[r]) != 2 {
+			return fmt.Errorf("recipient %s got CSAM subjects %v, want both the SLA page and the preserved-incident page", r, subjects[r])
+		}
+	}
+	return nil
+}
+
 // ---- suite -----------------------------------------------------------------------------
 
 func TestAlertDeliveryFeature(t *testing.T) {
@@ -2150,6 +2399,26 @@ func TestAlertDeliveryFeature(t *testing.T) {
 			sc.Step(`^"([^"]*)" fires once and clears$`, s.firesOnceAndClears)
 			sc.Step(`^the flap window elapses and the checker runs$`, s.flapWindowElapsesChecker)
 			sc.Step(`^the flap table no longer holds "([^"]*)"$`, s.flapTableNoLongerHolds)
+
+			// 11. regressions (claude-audit on the merged branch)
+			sc.Step(`^(\d+) "noproviders:<model>" conditions fire inside the coalescing window$`, s.conditionsFireInsideWindow)
+			sc.Step(`^the broker receives a stop signal (\d+) seconds? later with a (\d+) second drain budget$`, s.stopSignalLater)
+			sc.Step(`^all (\d+) conditions reach the provider as one digest per recipient, or are counted dropped\{shutdown\} with a log line$`, s.conditionsReachProviderOrCountedShutdown)
+			sc.Step(`^every queued email is accounted for: email_queued equals email_sent plus email_dropped$`, s.everyEmailAccounted)
+			sc.Step(`^the instance restarts$`, s.instanceRestarts)
+			sc.Step(`^the model returns on air during the startup grace$`, s.modelReturnsDuringGrace)
+			sc.Step(`^the model drops again after the grace and the debounce$`, s.modelDropsAfterGraceAndDebounce)
+			sc.Step(`^it pages exactly once$`, s.pagesAgain)
+			sc.Step(`^(\d+) checker ticks pass a minute apart with the model still absent$`, s.ticksPassMinuteApart)
+			sc.Step(`^the store still holds rogerai:alert:(\S+) with a TTL$`, s.storeHoldsKeyWithTTL)
+			sc.Step(`^(\d+) minutes of checker ticks pass on the restarted instance$`, s.ticksPassMinuteApart)
+			sc.Step(`^the store no longer holds rogerai:alert:(\S+)$`, s.storeNoLongerHolds)
+			sc.Step(`^(\d+) hours pass with the model still absent on both instances$`, s.hoursPassStillAbsentBoth)
+			sc.Step(`^the "([^"]*)" milestone fired$`, s.milestoneFired)
+			sc.Step(`^(\d+) hours pass and the same milestone is raised again$`, s.hoursPassMilestoneAgain)
+			sc.Step(`^no further email is sent$`, s.noFurtherEmail)
+			sc.Step(`^a "csam_sla" alert and a "csam:first-report" alert fire alongside (\d+) noproviders alerts$`, s.bothCSAMAlongsideNoproviders)
+			sc.Step(`^each CSAM alert is sent immediately as its own email on the priority lane$`, s.eachCSAMImmediateOwnEmail)
 		},
 		Options: &godog.Options{
 			Format: "pretty", Paths: []string{"../../features/ops/alert_delivery.feature"},

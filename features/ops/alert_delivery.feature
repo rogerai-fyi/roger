@@ -350,3 +350,69 @@ Feature: Alert and transactional email delivery is paced, prioritized, retried, 
     Given "noproviders:m" fires once and clears
     When the flap window elapses and the checker runs
     Then the flap table no longer holds "noproviders:m"
+
+  # ===========================================================================
+  # 11. REGRESSIONS - the claude-audit on the merged branch (2026-09-08), each pinned
+  # ===========================================================================
+  # A. The coalescing flush ran on an untracked goroutine: onsets raised inside the window
+  #    right before SIGTERM were lost silently (no send, no dropped{shutdown}, no log line).
+  # B. The shared 24h onset claim was DEL'd only when the LOCAL mirror was firing. After a
+  #    restart during which the model recovered inside the startup grace, no instance ever
+  #    cleared the claim, so the next real drop within 24h was DEDUPED on every instance (a
+  #    regression vs per-process dedup). Now: a model seen on air for the first time by a
+  #    process releases any claim a previous process left, and the claim is a short lease
+  #    (a few checker intervals) that only a firing instance keeps alive, so an orphan
+  #    expires within minutes. The daily re-page of a stuck condition is a local timer plus
+  #    a separate cross-instance claim (rogerai:alert:repage:<key>).
+  # C. first_* milestone keys re-paged after the 24h TTL with a "first" subject.
+  # D. csam:first-report rode the coalesced alert lane behind transactional mail; only
+  #    csam_sla bypassed coalescing.
+
+  Scenario: onsets raised inside the coalescing window before shutdown are flushed, not lost
+    Given the coalescing window is 5 seconds
+    When 3 "noproviders:<model>" conditions fire inside the coalescing window
+    And the broker receives a stop signal 1 second later with a 3 second drain budget
+    Then all 3 conditions reach the provider as one digest per recipient, or are counted dropped{shutdown} with a log line
+    And every queued email is accounted for: email_queued equals email_sent plus email_dropped
+
+  Scenario: a claim orphaned by a restart does not silence the next real onset
+    Given "noproviders:m" fired and the key exists
+    When the instance restarts
+    And the model returns on air during the startup grace
+    And the model drops again after the grace and the debounce
+    Then it pages exactly once
+
+  Scenario: a firing instance keeps its shared claim alive across checker ticks
+    Given "noproviders:m" fired and the key exists
+    When 10 checker ticks pass a minute apart with the model still absent
+    Then the store still holds rogerai:alert:noproviders:m with a TTL
+
+  Scenario: a claim no instance is firing expires within minutes
+    Given "noproviders:m" fired and the key exists
+    When the instance restarts
+    And 5 minutes of checker ticks pass on the restarted instance
+    Then the store no longer holds rogerai:alert:noproviders:m
+
+  Scenario: the daily re-page of a stuck condition is claimed once across instances
+    Given two broker instances share the store
+    And both detect "noproviders:m" in the same minute
+    When 25 hours pass with the model still absent on both instances
+    Then it pages once more (TTL 24h elapsed)
+
+  Scenario Outline: a milestone never re-pages as "first"
+    Given the "<milestone>" milestone fired
+    When 25 hours pass and the same milestone is raised again
+    Then no further email is sent
+
+    Examples:
+      | milestone         |
+      | first_ban         |
+      | first_dispute     |
+      | first_report      |
+      | first_live_topup  |
+      | csam:first-report |
+
+  Scenario: every csam-prefixed alert bypasses coalescing
+    When a "csam_sla" alert and a "csam:first-report" alert fire alongside 6 noproviders alerts
+    Then each CSAM alert is sent immediately as its own email on the priority lane
+    And the 6 others become one digest
