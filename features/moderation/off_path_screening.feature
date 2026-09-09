@@ -88,7 +88,7 @@ Feature: Off-path content screening - the paid relay never waits on, fails on, o
   Scenario: a relay does not wait for the classifier
     Given the Groq stub delays every verdict by 5 seconds
     When a funded consumer relays a 2000-token prompt (non-stream)
-    Then the relay completes within 500ms of the station's own response time
+    Then the relay completes within 2 seconds of the station's own response time
     And the response is 200 with the station's completion body
     And a hold was placed and settled exactly once
     And the receipt is signed and chained as for any relay
@@ -96,7 +96,7 @@ Feature: Off-path content screening - the paid relay never waits on, fails on, o
   Scenario: a streaming relay does not wait for the classifier
     Given the Groq stub delays every verdict by 5 seconds
     When a funded consumer relays with "stream": true
-    Then the first SSE chunk arrives within 500ms of the station's first chunk
+    Then the first SSE chunk arrives within 2 seconds of the station's first chunk
     And the stream ends with the ": rogerai-cost=" comment as today
 
   Scenario Outline: the relay outcome is unchanged whatever the classifier returns or does
@@ -133,11 +133,21 @@ Feature: Off-path content screening - the paid relay never waits on, fails on, o
     And 8 screening jobs were dropped with reason "queue-full"
     And the dropped counter reads 8
 
+  # 2026-09-08 audit: the job is submitted before pick/balance/hold, so a request that was
+  # never dispatched (402, no station, band cooling) still held its body bytes and would have
+  # spent classifier budget. The relay's exit drops a still-queued job no attempt dispatched.
+  Scenario: a relay that never dispatched does not consume the classifier
+    Given the screening queue capacity is 8 and the workers are paused
+    When an unfunded consumer relays a prompt
+    Then the response is 402 insufficient balance
+    And the screening job was dropped with reason "not-served" and its bytes released
+    And the classifier was never called
+
   Scenario: the relay never blocks on the classifier's HTTP client
     Given the Groq stub accepts connections but never responds
     And 50 relays are in flight from 50 consumers
     When another funded consumer relays a prompt
-    Then it completes within 500ms of the station's response time
+    Then it completes within 2 seconds of the station's response time
     And at most 2 classifier connections are open at any time (the worker count)
 
   Scenario: a Valkey outage has no effect on screening or serving

@@ -255,16 +255,23 @@ func (b *broker) alertOnset(key, subjectTail, heading string, rows [][2]string, 
 		log.Printf("alert: DEDUPED %q (a peer instance already paged this onset)", key)
 		return
 	}
-	suffix, muted := b.flapOnset(key, now)
-	if muted {
-		b.alertMuted.Add(1)
-		log.Printf("alert: MUTED (flapping) %s", key)
-		return
+	// An urgent (csam-prefixed) key never enters flap accounting: csam_sla clears when the
+	// queue drains and re-fires on the next breach, and a legal-obligation page must not be
+	// muted for 30 minutes because it happened three times in an hour.
+	urgent := alertUrgent(key)
+	var suffix string
+	if !urgent {
+		var muted bool
+		if suffix, muted = b.flapOnset(key, now); muted {
+			b.alertMuted.Add(1)
+			log.Printf("alert: MUTED (flapping) %s", key)
+			return
+		}
 	}
 	log.Printf("alert: FIRED %q -> %d recipient(s): %s", key, len(b.adminEmails), subjectTail)
 
 	cond := alertCondition{key: key, tail: subjectTail + suffix, heading: heading, rows: rows, body: body}
-	if urgent := alertUrgent(key); urgent || b.alertCfg.coalesce <= 0 {
+	if urgent || b.alertCfg.coalesce <= 0 {
 		b.sendAlertDigest([]alertCondition{cond}, urgent)
 		return
 	}

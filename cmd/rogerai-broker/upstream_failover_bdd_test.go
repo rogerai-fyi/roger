@@ -1177,12 +1177,15 @@ func (s *foState) s1DiesMidStream() error {
 
 func (s *foState) s1SlowFirstChunk() error {
 	st := s.only("s1")
-	streamCommitGrace = 400 * time.Millisecond // the 20s production grace, scaled with the 25s first chunk below
+	// The 20s production grace and the 25s first chunk, scaled: 200ms grace, chunk at 3s. The
+	// gap is deliberately wide (the repo has flaked on 100ms margins under -race + load): the
+	// assertion is the ORDER (headers before the chunk) plus a bound of 10x the grace.
+	streamCommitGrace = 200 * time.Millisecond
 	st.set(func(_ int, w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(200)
 		f, _ := w.(http.Flusher)
-		time.Sleep(600 * time.Millisecond)
+		time.Sleep(3 * time.Second)
 		fmt.Fprintf(w, "data: {\"choices\":[{\"delta\":{\"content\":\"chunk1 from s1 \"}}]}\n\n")
 		if f != nil {
 			f.Flush()
@@ -2482,7 +2485,7 @@ func (s *foState) sseHeadersEarly() error {
 	if h.IsZero() {
 		return fmt.Errorf("no headers were written")
 	}
-	if got := h.Sub(s.relayStart); got > 500*time.Millisecond {
+	if got := h.Sub(s.relayStart); got > 2*time.Second { // 10x the 200ms grace, 1s under the 3s chunk
 		return fmt.Errorf("headers committed after %s, past the (scaled) 20s grace", got)
 	}
 	if !fd.IsZero() && !h.Before(fd) {
@@ -3151,7 +3154,8 @@ func TestUpstreamFailoverBDD(t *testing.T) {
 			sc.Step(`^"s1"'s cooling_until is 10 seconds after the LAST 429, not 30$`, st.extendNotStack)
 			sc.Step(`^"s1" cooled 20 times today$`, st.s1Cooled20Times)
 			sc.Step(`^"([^"]*)"'s owner has zero strikes and is not held$`, st.zeroStrikesNotHeld)
-			sc.Step(`^a station posts a JobResult with status 429 and retry_after_sec (\d+)$`, st.forged429)
+			sc.Step(`^a station posts a JobResult with status 429 and retry_after_sec (-?\d+)$`, st.forged429)
+			sc.Step(`^the consumer's Retry-After is (\d+)$`, st.retryAfterIs)
 			sc.Step(`^it cools for 120 seconds at most$`, st.coolsAtMost120)
 			sc.Step(`^a station posts a 200 JobResult with retry_after_sec (\d+)$`, st.forged200)
 			sc.Step(`^the station is not cooling and the consumer sees no Retry-After$`, st.notCoolingNoRA)

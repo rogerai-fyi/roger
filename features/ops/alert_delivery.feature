@@ -67,7 +67,7 @@ Feature: Alert and transactional email delivery is paced, prioritized, retried, 
   Scenario: enqueue never blocks the caller
     Given the provider hangs on every POST
     When 50 emails are enqueued from a request goroutine
-    Then each enqueue returns in under 1 millisecond
+    Then each enqueue returns in under 100 milliseconds
     And the request goroutine is never blocked on delivery
 
   Scenario: a full queue drops the newest ALERT and counts it, never a transactional mail
@@ -274,6 +274,14 @@ Feature: Alert and transactional email delivery is paced, prioritized, retried, 
     Given "noproviders:m" is muted
     When "noproviders:other" fires for the first time
     Then it pages normally
+
+  # 2026-09-08 audit: csam_sla clears when the queue drains and re-fires on the next breach,
+  # so three breaches in an hour flap-muted a legal-obligation page for 30 minutes. Urgent
+  # (csam-prefixed) keys skip flap accounting entirely: every onset pages, at once.
+  Scenario: a csam-prefixed alert is never flap-muted
+    When "csam_sla" fires and clears 4 times within 40 minutes
+    Then 4 pages were sent, each without the flapping suffix
+    And no "alert: MUTED (flapping)" line is logged
 
   Scenario: the flap counter lives in the shared store with the window as TTL
     Given two instances

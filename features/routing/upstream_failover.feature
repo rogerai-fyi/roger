@@ -471,6 +471,22 @@ Feature: A station that says no is routed around, cooled, and reported with a Re
     When a funded consumer relays
     Then the response body is exactly "s2"'s completion
 
+  # 2026-09-08 audit: time.Duration(sec)*time.Second overflows above ~9.2e9 seconds, so an
+  # absurd retry_after_sec went NEGATIVE - the cap check was skipped, the station got no
+  # cooldown at all, and the consumer was handed a negative Retry-After. The seconds value is
+  # clamped to the cap BEFORE the multiply; negative/garbage means the default; the header is
+  # floored at 1.
+  Scenario Outline: an overflowing retry_after_sec still cools for the cap and never emits a negative Retry-After
+    Given a station posts a JobResult with status 429 and retry_after_sec <value>
+    Then "s1" cools for <seconds> seconds
+    And the consumer's Retry-After is <seconds>
+
+    Examples:
+      | value               | seconds |
+      | 10000000000         | 120     |
+      | 9223372036854775807 | 120     |
+      | -15                 | 15      |
+
   # ===========================================================================
   # 10. REGRESSION - Sep 7 replayed twice
   # ===========================================================================

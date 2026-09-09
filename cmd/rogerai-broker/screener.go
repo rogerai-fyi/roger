@@ -110,7 +110,11 @@ func (j *screenJob) served() {
 	j.done = true
 	cat := j.pendingFlag
 	j.pendingFlag = ""
+	node := j.node
 	j.mu.Unlock()
+	if node == "" {
+		j.scr.dropUnserved(j) // no attempt was dispatched (402, no station, band cooling)
+	}
 	if cat == "" {
 		return
 	}
@@ -563,8 +567,30 @@ func (s *screener) drop(job *screenJob, reason string) {
 	s.dropLocked(job, reason)
 }
 
+// dropUnserved removes a job whose relay exited without dispatching any attempt, if it is
+// still queued: nothing was served, so there is nothing to screen, and its bytes and a
+// classifier call are given back. A job a worker already took finishes as usual.
+func (s *screener) dropUnserved(job *screenJob) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, q := range s.q {
+		if q == job {
+			s.q = append(s.q[:i], s.q[i+1:]...)
+			s.qBytes -= job.size()
+			s.dropLocked(job, "not-served")
+			return
+		}
+	}
+}
+
 func (s *screener) dropLocked(job *screenJob, reason string) {
 	s.dropped[reason]++
+	if reason == "not-served" {
+		// Not a screening-capacity loss (the relay served nothing), so it stays out of the
+		// drop-rate window: a burst of 402s must not page "high drop rate".
+		log.Printf("MODERATION DROPPED (not-served) request=%s pseudonym=%s model=%s - the relay dispatched no attempt, nothing to screen", job.id, job.pseudonym, job.model)
+		return
+	}
 	s.winTotal++
 	s.winDropped[reason]++
 	age := s.now().Sub(job.enqueued).Round(time.Millisecond)

@@ -2023,7 +2023,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			// Diagnosability (#2): log the node that produced no result within the window so
 			// "is the broker getting a clean response from that model?" is answerable
 			// straight from the logs.
-			log.Printf("relay TIMEOUT user=%s node=%s model=%s - no result in %s (node slow/unresponsive); 504, failing over",
+			log.Printf("relay TIMEOUT user=%s node=%s model=%s - no result in %s (node slow/unresponsive); 504 - the client may fail over via X-Roger-Exclude-Nodes",
 				user, node.NodeID, req.Model, nonStreamRelayWait)
 			jsonErr(w, http.StatusGatewayTimeout, "node timed out (use stream:true for slow models)")
 			return
@@ -2367,6 +2367,10 @@ func (b *broker) streamIdle() time.Duration {
 // serving station's chunks - or, when every station failed, a real 429/503 with a
 // Retry-After instead of a 200 wrapping an error event. After the commit the writer is a
 // plain pass-through (mid-stream failures end the stream as before).
+// lazySSEPreCap bounds the pre-commit buffer (a station's non-data bytes before its first
+// data frame): at the cap the headers are committed and the bytes flushed.
+const lazySSEPreCap = 64 << 10
+
 type lazySSE struct {
 	w         http.ResponseWriter
 	flusher   http.Flusher
@@ -2395,8 +2399,11 @@ func (l *lazySSE) Write(p []byte) (int, error) {
 		return l.w.Write(p)
 	}
 	l.pre.Write(p)
-	if b := l.pre.Bytes(); bytes.HasPrefix(b, []byte("data:")) || bytes.Contains(b, []byte("\ndata:")) {
-		l.commitLocked() // the first content frame: the stream is this station's now
+	// Commit on the first content frame (the stream is this station's now), or when the
+	// buffer hits its cap: a station piping 64 KiB of comments/keepalives is streaming, and
+	// holding more back would buffer without bound.
+	if b := l.pre.Bytes(); bytes.HasPrefix(b, []byte("data:")) || bytes.Contains(b, []byte("\ndata:")) || l.pre.Len() >= lazySSEPreCap {
+		l.commitLocked()
 	}
 	return len(p), nil
 }

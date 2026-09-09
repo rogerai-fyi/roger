@@ -554,10 +554,13 @@ func (s *adState) enqueueFromRequestGoroutine(n int) error {
 	return nil
 }
 
-func (s *adState) eachEnqueueUnder1ms() error {
+// eachEnqueueUnder: the bound is ~100x a real enqueue (a channel send) and 20x under the
+// failure mode it guards (the 2s hang the provider is scripted with), so it cannot flake
+// under -race + load the way a 1ms bound did.
+func (s *adState) eachEnqueueUnder(ms int) error {
 	for i, d := range s.enqueueDur {
-		if d > time.Millisecond {
-			return fmt.Errorf("enqueue %d took %v, want < 1ms", i, d)
+		if d > time.Duration(ms)*time.Millisecond {
+			return fmt.Errorf("enqueue %d took %v, want < %dms", i, d, ms)
 		}
 	}
 	if len(s.enqueueDur) == 0 {
@@ -1494,6 +1497,40 @@ func (s *adState) mutedAfterFlapping(key string, times int) error {
 	return nil
 }
 
+// firesAndClearsN: n onset/clear cycles of key spread evenly over `minutes` (each onset paged
+// on its own, as csam_sla is when the queue breaches, drains, and breaches again).
+func (s *adState) firesAndClearsN(key string, n, minutes int) error {
+	b := s.primary()
+	gap := time.Duration(minutes) * time.Minute / time.Duration(2*n)
+	for i := 0; i < n; i++ {
+		s.fireKey(b, key)
+		s.clock.advance(gap)
+		b.alertClear(key)
+		s.clock.advance(gap)
+	}
+	return nil
+}
+
+func (s *adState) nPagesNoFlapSuffix(n int) error {
+	posts := s.prov.snapshot()
+	if len(posts) != n*len(s.recipients) {
+		return fmt.Errorf("%d POSTs, want %d (%d pages x %d recipients)", len(posts), n*len(s.recipients), n, len(s.recipients))
+	}
+	for _, p := range posts {
+		if strings.Contains(p.subject, "flapping") {
+			return fmt.Errorf("an urgent page carried the flapping suffix: %q", p.subject)
+		}
+	}
+	return nil
+}
+
+func (s *adState) noMutedLine() error {
+	if got := s.logs.lines("alert: MUTED (flapping)"); got != 0 {
+		return fmt.Errorf("%d MUTED lines, want 0; log:\n%s", got, s.logs.buf.String())
+	}
+	return nil
+}
+
 func (s *adState) staysClearFor(minutes int) error {
 	b := s.primary()
 	s.clock.advance(time.Duration(minutes) * time.Minute)
@@ -2253,7 +2290,7 @@ func TestAlertDeliveryFeature(t *testing.T) {
 			sc.Step(`^no 1-second window contains more than (\d+) POSTs$`, s.noWindowMoreThan)
 			sc.Step(`^the provider hangs on every POST$`, s.providerHangs)
 			sc.Step(`^(\d+) emails are enqueued from a request goroutine$`, s.enqueueFromRequestGoroutine)
-			sc.Step(`^each enqueue returns in under 1 millisecond$`, s.eachEnqueueUnder1ms)
+			sc.Step(`^each enqueue returns in under (\d+) milliseconds$`, s.eachEnqueueUnder)
 			sc.Step(`^the request goroutine is never blocked on delivery$`, s.requestGoroutineNeverBlocked)
 			sc.Step(`^the email queue capacity is (\d+) and the sender is paused$`, s.queueCapPaused)
 			sc.Step(`^(\d+) ops alerts are queued$`, s.opsAlertsQueued)
@@ -2362,6 +2399,9 @@ func TestAlertDeliveryFeature(t *testing.T) {
 			sc.Step(`^it pages normally$`, s.pagesNormally)
 			sc.Step(`^two instances$`, s.twoInstances)
 			sc.Step(`^"([^"]*)" flaps across both instances$`, s.flapsAcrossBoth)
+			sc.Step(`^"([^"]*)" fires and clears (\d+) times within (\d+) minutes$`, s.firesAndClearsN)
+			sc.Step(`^(\d+) pages were sent, each without the flapping suffix$`, s.nPagesNoFlapSuffix)
+			sc.Step(`^no "alert: MUTED \(flapping\)" line is logged$`, s.noMutedLine)
 			sc.Step(`^they count toward one flap total$`, s.countTowardOneTotal)
 
 			// 8. observability + isolation

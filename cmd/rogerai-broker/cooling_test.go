@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -47,4 +49,31 @@ func TestBandAllow(t *testing.T) {
 			require.Equal(t, tc.want, got)
 		})
 	}
+}
+
+// TestLazySSEPreCommitCap: the pre-commit buffer is bounded. A station that streams 64 KiB of
+// non-data bytes (comments, keepalives) before its first data frame gets its headers committed
+// and the bytes flushed at the cap instead of buffering without limit; below the cap nothing
+// is on the wire yet (so a no-output failure can still fail over).
+func TestLazySSEPreCommitCap(t *testing.T) {
+	rec := httptest.NewRecorder()
+	lw := &lazySSE{w: rec, flusher: rec}
+	lw.begin("n1")
+	chunk := bytes.Repeat([]byte(": keepalive\n"), 1024) // 12 KiB, no data: frame
+	written := 0
+	for written+len(chunk) < lazySSEPreCap {
+		_, err := lw.Write(chunk)
+		require.NoError(t, err)
+		written += len(chunk)
+		require.False(t, lw.isCommitted(), "committed at %d bytes, under the %d cap", written, lazySSEPreCap)
+		require.Equal(t, 0, rec.Body.Len())
+	}
+	_, err := lw.Write(chunk) // crosses the cap
+	require.NoError(t, err)
+	written += len(chunk)
+	require.True(t, lw.isCommitted())
+	require.Equal(t, "text/event-stream", rec.Header().Get("Content-Type"))
+	require.Equal(t, "n1", rec.Header().Get("X-RogerAI-Provider"))
+	require.True(t, rec.Flushed)
+	require.Equal(t, written, rec.Body.Len(), "the buffered bytes were flushed, none retained")
 }

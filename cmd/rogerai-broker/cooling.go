@@ -214,13 +214,20 @@ func bandAllow(allow, privateAllow map[string]bool) map[string]bool {
 
 // cooldownFor normalizes a station-reported retry_after_sec into this broker's cooldown:
 // absent/garbage (<= 0) -> the default, anything above the cap -> the cap (a forged value
-// cannot bench a station for long).
+// cannot bench a station for long). The SECONDS are clamped before the multiply:
+// time.Duration(sec)*time.Second overflows past ~9.2e9 and went negative, which skipped the
+// cap, cooled nothing, and put a negative Retry-After on the wire.
 func (b *broker) cooldownFor(retryAfterSec int) time.Duration {
+	maxD := cooldownMax()
 	d := cooldownDefault()
-	if retryAfterSec > 0 {
+	switch {
+	case retryAfterSec <= 0:
+	case retryAfterSec >= int(maxD/time.Second):
+		d = maxD
+	default:
 		d = time.Duration(retryAfterSec) * time.Second
 	}
-	if maxD := cooldownMax(); d > maxD {
+	if d > maxD {
 		d = maxD
 	}
 	return d
@@ -369,7 +376,7 @@ func (b *broker) refuseBandCooling(w http.ResponseWriter, model string, confiden
 // retryAfterHint is the Retry-After the consumer sees on a final upstream 429/503: the
 // station-reported value (capped like the cooldown), else the default cooldown.
 func (b *broker) retryAfterHint(res protocol.JobResult) int {
-	return int(b.cooldownFor(res.RetryAfterSec) / time.Second)
+	return max(1, int(b.cooldownFor(res.RetryAfterSec)/time.Second)) // never 0 or negative on the wire
 }
 
 // setRetryAfter stamps Retry-After on a consumer response whose final answer is a 429/503.
