@@ -29,6 +29,13 @@ type instStats struct {
 	// against Valkey). The request failed cleanly and the pre-auth hold was refunded; a
 	// non-zero, growing value is the signal that the bus itself is unhealthy.
 	busDispatchErr atomic.Int64
+
+	// Upstream failover / cooldown (features/routing/upstream_failover.feature): relays
+	// re-dispatched to a sibling after a no-output failure, stations cooled by an upstream
+	// 429, and consumer requests refused fast with the band-cooling 503.
+	relayFailovers   atomic.Int64
+	stationCooldowns atomic.Int64
+	bandCooling503   atomic.Int64
 }
 
 // snapshot returns the counters as a plain map for the admin overview JSON. Read-only.

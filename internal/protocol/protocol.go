@@ -20,6 +20,7 @@ import (
 	"crypto/sha512"
 	"encoding/hex"
 	"encoding/json"
+	"net/http"
 	"regexp"
 	"sort"
 	"strconv"
@@ -751,6 +752,38 @@ type JobResult struct {
 	Status  int          `json:"status"`
 	Body    []byte       `json:"body"`
 	Receipt UsageReceipt `json:"receipt"`
+	// RetryAfterSec is the upstream's Retry-After, normalized to whole seconds, captured by
+	// the station ONLY on a 429/503 (0 = none/unknown: the broker applies its default). It
+	// drives the station's learned cooldown and the Retry-After the consumer sees
+	// (features/routing/upstream_failover.feature). Omitted on the wire when 0, so an old
+	// station's result decodes exactly as before.
+	RetryAfterSec int `json:"retry_after_sec,omitempty"`
+}
+
+// RetryAfterSeconds normalizes an HTTP Retry-After header value (RFC 9110 §10.2.3): a
+// delta-seconds integer is returned as-is, an HTTP-date becomes the whole seconds from now
+// (rounded up), and anything else - absent, garbage, negative, a date already past - is 0,
+// which every consumer reads as "no hint: use the default".
+func RetryAfterSeconds(v string, now time.Time) int {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return 0
+	}
+	if n, err := strconv.Atoi(v); err == nil {
+		if n < 0 {
+			return 0
+		}
+		return n
+	}
+	t, err := http.ParseTime(v)
+	if err != nil {
+		return 0
+	}
+	d := t.Sub(now)
+	if d <= 0 {
+		return 0
+	}
+	return int((d + time.Second - 1) / time.Second)
 }
 
 // NewRequestID returns a short random hex id.

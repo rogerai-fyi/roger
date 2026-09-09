@@ -179,6 +179,7 @@ func (b *broker) alertCheckOnce(now time.Time) {
 	b.checkHealthAlerts()
 	b.checkProviderGapAlerts()
 	b.checkCSAMSLAAlert(now)
+	b.checkCoolingAlerts(now)
 }
 
 // checkHealthAlerts pages when the durable store (Postgres) or the optional shared state

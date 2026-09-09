@@ -133,6 +133,12 @@ type Store interface {
 	// row still exists. A second call - or a call after the sweep already reclaimed it - is
 	// a no-op (no double-refund). This is the relay's deferred release for a HoldFor hold.
 	ReleaseHoldFor(user, requestID string) (newBalance float64, err error)
+	// RekeyHold moves a TRACKED reservation from one request id to another without touching
+	// the wallet or the ledger: the relay's upstream FAILOVER re-dispatches under a new
+	// attempt id (each attempt's receipt is its own row) while the consumer's ONE pre-auth
+	// hold must follow the attempt that finally settles (Finalize claims the hold by the
+	// receipt's request id). A missing row (already captured/released/swept) is a no-op.
+	RekeyHold(user, fromRequestID, toRequestID string) error
 	// ReleaseStaleHolds reclaims every pending hold whose placed_at is at or before
 	// olderThan (the deploy-orphan backstop sweep): an instance SIGKILLed mid-relay never
 	// runs its deferred release, stranding the consumer's pre-auth hold. The sweep returns
@@ -1380,6 +1386,20 @@ func (m *Mem) ReleaseHoldFor(user, requestID string) (float64, error) {
 	m.wallet[user] += ph.amount
 	m.appendLedgerLocked(user, "consumer", KindHoldRelease, ph.amount, "", StatePosted, requestID, 0)
 	return m.wallet[user], nil
+}
+
+// RekeyHold moves the tracked reservation to the failover attempt's id (no wallet/ledger
+// change; a missing row is a no-op). See the Store interface.
+func (m *Mem) RekeyHold(user, from, to string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	ph, ok := m.pendingHolds[from]
+	if !ok || ph.user != user || from == to {
+		return nil
+	}
+	delete(m.pendingHolds, from)
+	m.pendingHolds[to] = ph
+	return nil
 }
 
 // ReleaseStaleHolds reclaims every pending hold placed at or before olderThan, returning

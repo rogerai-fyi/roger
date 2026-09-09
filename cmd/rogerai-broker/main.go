@@ -467,6 +467,29 @@ type broker struct {
 	// stationLimitExempt: owner pubkeys (lowercase hex) whose registrations skip
 	// the per-owner cap - the house allowlist (ROGERAI_STATION_LIMIT_EXEMPT).
 	stationLimitExempt map[string]bool
+
+	// nowFn is the clock seam for time-windowed routing state (station cooldowns, the
+	// cooling alert window): nil in production (time.Now); a scenario drives it forward
+	// instead of sleeping. See broker.now.
+	nowFn func() time.Time
+
+	// Station COOLDOWN (cooling.go; features/routing/upstream_failover.feature) - routing
+	// state, never trust: cooling is node -> expiry (this instance's own 429s + the merged
+	// shared set), coolModel the band it was cooling on, coolEvents the last hour's
+	// cooldowns for the founder alert. All guarded by metricsMu (pickFor reads cooling on
+	// the hot path). coolFallbackOnce logs a shared-store failure exactly once.
+	cooling          map[string]time.Time
+	coolModel        map[string]string
+	coolEvents       map[string][]coolEvent
+	coolFallbackOnce sync.Once
+}
+
+// now is the broker's clock for cooldown/alert windows (nowFn when set, else time.Now).
+func (b *broker) now() time.Time {
+	if b.nowFn != nil {
+		return b.nowFn()
+	}
+	return time.Now()
 }
 
 // priceQuote pins the price a user first saw for a (node, model) so an owner's
@@ -651,8 +674,9 @@ func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, loc
 		edgeInflight: map[string]edgeAttemptLoad{}, edgeLoad: map[string]int{},
 		edgeOpenByAccount: map[string]int{},
 		successCount:      map[string]int{}, concurrentTPS: map[string]float64{},
-		toolsOK:      map[string]bool{},
-		toolsMerged:  map[string]bool{},
+		toolsOK:     map[string]bool{},
+		toolsMerged: map[string]bool{},
+		cooling:     map[string]time.Time{}, coolModel: map[string]string{}, coolEvents: map[string][]coolEvent{},
 		lastToolMark: map[string]time.Time{},
 		probeSched:   map[string]*probeState{},
 		lastPersist:  map[string]time.Time{},

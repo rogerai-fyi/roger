@@ -339,6 +339,16 @@ type sharedStore interface {
 	// keeping each node in EXACTLY ONE namespace and upholding private/public isolation.
 	dropSharedNode(id string) error
 
+	// --- station COOLDOWN (features/routing/upstream_failover.feature), routing state only ---
+	//
+	// markCooling records that a station is cooling until `until` (an upstream 429), as
+	// rogerai:cool:<node> with TTL = ttl, so every instance's pick skips it. A non-nil err
+	// (incl. errNoSharedStore) means the caller keeps its per-instance cooldown only.
+	markCooling(node string, until time.Time, ttl time.Duration) error
+	// cooling returns every station currently cooling (node -> until) across instances;
+	// merged into the in-memory map on the sync loop. A non-nil err = unavailable this round.
+	cooling() (map[string]time.Time, error)
+
 	// Close releases any resources (connections). Safe to call on a nil-ish store.
 	Close() error
 }
@@ -455,6 +465,8 @@ func (m *memStore) putPrivateNode(string, []byte, time.Duration) error { return 
 func (m *memStore) getPrivateNode(string) ([]byte, bool, error)        { return nil, false, errNoSharedStore }
 func (m *memStore) allPrivateNodes() (map[string][]byte, error)        { return nil, errNoSharedStore }
 func (m *memStore) dropSharedNode(string) error                        { return errNoSharedStore }
+func (m *memStore) markCooling(string, time.Time, time.Duration) error { return errNoSharedStore }
+func (m *memStore) cooling() (map[string]time.Time, error)             { return nil, errNoSharedStore }
 
 // errNoSharedStore signals "no shared backend; use the in-memory path". It is a
 // sentinel, not a failure - call sites treat ANY non-nil error the same way (fall
@@ -1036,6 +1048,80 @@ func (v *valkeyStore) allPrivateNodes() (map[string][]byte, error) {
 // dropSharedNode removes a node from BOTH the public (reg/regset) and private (preg/pregset)
 // shared registries in one pipeline. Called by register before re-publishing so a private<->
 // public flip never leaves a stale mirror in the other namespace.
+// coolKey / coolSetKey: the per-station cooldown value (TTL = the cooldown) and the prefixed
+// index cooling() enumerates through (no un-prefixed SCAN over a shared keyspace).
+func coolKey(node string) string { return keyPrefix + "cool:" + node }
+
+const coolSetKey = keyPrefix + "coolset"
+
+func (v *valkeyStore) markCooling(node string, until time.Time, ttl time.Duration) error {
+	if v == nil || v.rdb == nil {
+		return errNoSharedStore
+	}
+	if ttl <= 0 {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	pipe := v.rdb.Pipeline()
+	pipe.Set(ctx, coolKey(node), until.Unix(), ttl)
+	pipe.SAdd(ctx, coolSetKey, node)
+	pipe.PExpire(ctx, coolSetKey, 2*ttl+time.Minute) // the index outlives its members; stale ids are dropped on read
+	if _, err := pipe.Exec(ctx); err != nil {
+		v.noteErr("markCooling", err)
+		return err
+	}
+	v.setUp(true)
+	return nil
+}
+
+func (v *valkeyStore) cooling() (map[string]time.Time, error) {
+	if v == nil || v.rdb == nil {
+		return nil, errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	ids, err := v.rdb.SMembers(ctx, coolSetKey).Result()
+	if err != nil {
+		v.noteErr("cooling", err)
+		return nil, err
+	}
+	out := make(map[string]time.Time, len(ids))
+	if len(ids) == 0 {
+		v.setUp(true)
+		return out, nil
+	}
+	pipe := v.rdb.Pipeline()
+	cmds := make([]*redis.StringCmd, len(ids))
+	for i, id := range ids {
+		cmds[i] = pipe.Get(ctx, coolKey(id))
+	}
+	if _, err := pipe.Exec(ctx); err != nil && err != redis.Nil {
+		v.noteErr("cooling", err)
+		return nil, err
+	}
+	var stale []any
+	for i, id := range ids {
+		raw, err := cmds[i].Result()
+		if err == redis.Nil {
+			stale = append(stale, id) // cooldown lapsed since the index listing
+			continue
+		}
+		if err != nil {
+			v.noteErr("cooling", err)
+			return nil, err
+		}
+		if sec, perr := strconv.ParseInt(raw, 10, 64); perr == nil {
+			out[id] = time.Unix(sec, 0)
+		}
+	}
+	if len(stale) > 0 {
+		_ = v.rdb.SRem(ctx, coolSetKey, stale...).Err() // best-effort index hygiene
+	}
+	v.setUp(true)
+	return out, nil
+}
+
 func (v *valkeyStore) dropSharedNode(id string) error {
 	if v == nil || v.rdb == nil {
 		return errNoSharedStore

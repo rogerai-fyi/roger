@@ -430,6 +430,9 @@ type offer struct {
 	SuccessRate     float64 `json:"success"`      // 0..1 time-decayed success evidence
 	SuccessSeen     bool    `json:"success_seen"` // SuccessRate is REAL (not the no-evidence fallback)
 	Verified        bool    `json:"verified"`     // recent PASSED serving canary (distinct from confidential ◆)
+	// CoolingUntil (unix seconds) is set while the station is in an upstream rate-limit
+	// cooldown: still ON AIR, just not routed to until it passes. The row marks it.
+	CoolingUntil int64 `json:"cooling_until,omitempty"`
 	// Signal is the broker's 0..100 channel-health score (online + quality + tps +
 	// reliability). It carries even when TPS==0, so a freshly-on-air band meters at
 	// its baseline strength instead of a blank tps-driven bar.
