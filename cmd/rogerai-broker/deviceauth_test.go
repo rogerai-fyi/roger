@@ -256,7 +256,22 @@ func TestFiveFieldSessionCarriesTheSub(t *testing.T) {
 func TestATamperedSessionIsRejected(t *testing.T) {
 	b, _ := deviceBroker(t)
 	val := b.signSessionFull("alice", 1234, "u_gh_1234", "", time.Now().Add(time.Hour).Unix())
-	_, _, _, _, ok := b.verifySessionFull(val[:len(val)-2] + "xy")
+	// Tamper a character in the MIDDLE of the signature, never its tail. A 32-byte HMAC
+	// encodes to 43 RawURLEncoding characters whose LAST one carries only 4 significant
+	// bits, and Go's non-strict decoder ignores the spare ones - so overwriting the tail
+	// can decode back to the SAME bytes and the "tampered" cookie verifies. That is a real
+	// flake (~1 run in 1024; it went red in CI on 2026-09-09), not a security hole: the
+	// production verifier rejects every signature that actually differs. A middle
+	// character is fully significant, and the assertion below proves the edit landed.
+	i := strings.LastIndex(val, ".") + 10
+	require.Less(t, i, len(val), "the signature is shorter than expected")
+	repl := byte('A')
+	if val[i] == repl {
+		repl = 'B'
+	}
+	tampered := val[:i] + string(repl) + val[i+1:]
+	require.NotEqual(t, val, tampered, "the tamper must actually change the cookie")
+	_, _, _, _, ok := b.verifySessionFull(tampered)
 	require.False(t, ok)
 }
 
