@@ -424,25 +424,64 @@ func (m moderation) screen(text string) modResult {
 	if m.provider == "groq" {
 		return m.screenGroq(text)
 	}
-	body, _ := json.Marshal(map[string]string{"input": text})
-	resp, err := m.client.Post(m.url, "application/json", bytes.NewReader(body))
-	if err != nil {
-		if m.require {
-			return modResult{status: http.StatusServiceUnavailable, msg: "content screening unavailable"}
-		}
-		log.Printf("MODERATION: screen unreachable (%v), failing open (require=false)", err)
-		return modResult{}
+	res, cerr := m.urlCall(context.Background(), text)
+	if cerr != nil {
+		return m.urlFailMode(cerr) // INFRA OUTAGE (no verdict at all) -> the require posture, unchanged
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
+	return res
+}
+
+// urlNoVerdict is the outage class of a 200 whose body carries no recognizable verdict.
+const urlNoVerdict = "no parseable verdict"
+
+// urlFailMode is the SYNCHRONOUS gate's posture for a URL-backend outage: 503 (fail-closed)
+// under require=1, else fail OPEN with a loud line. Messages and log lines are the ones the
+// in-line gate has always emitted; only the off-path screener bypasses this (it retries).
+func (m moderation) urlFailMode(cerr *classifierErr) modResult {
+	switch {
+	case cerr.status != 0:
 		if m.require {
 			return modResult{status: http.StatusServiceUnavailable, msg: "content screening error"}
 		}
 		// Fail-open path: log every skipped incident so it is recorded for review
 		// (matches the groq backend's fail-open log). Policy is unchanged - REQUIRE
 		// still controls open vs closed; this only guarantees the log.
-		log.Printf("MODERATION: screen returned HTTP %d, failing open (require=false)", resp.StatusCode)
-		return modResult{}
+		log.Printf("MODERATION: screen returned HTTP %d, failing open (require=false)", cerr.status)
+	case cerr.what == urlNoVerdict:
+		if m.require {
+			return modResult{status: http.StatusServiceUnavailable, msg: "content screening unavailable"}
+		}
+		log.Printf("MODERATION: screen returned a 200 with no parseable verdict, failing open (require=false)")
+	default:
+		if m.require {
+			return modResult{status: http.StatusServiceUnavailable, msg: "content screening unavailable"}
+		}
+		log.Printf("MODERATION: screen unreachable (%v), failing open (require=false)", cerr.err)
+	}
+	return modResult{}
+}
+
+// urlCall issues ONE classification call to the MODERATION_URL adapter and returns the
+// decision, or a classifierErr on an INFRA OUTAGE (transport error, non-200, or a 200 with
+// no parseable verdict - NO verdict at all). Split from screen() the way groqCall is, so the
+// off-path screener sees the outage class (status + Retry-After) and backs off / retries /
+// pages exactly as it does for Groq - instead of inheriting the synchronous gate's
+// require=false fail-open, which counted an adapter outage as "screened" (audit finding).
+func (m moderation) urlCall(ctx context.Context, text string) (modResult, *classifierErr) {
+	body, _ := json.Marshal(map[string]string{"input": text})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, m.url, bytes.NewReader(body))
+	if err != nil {
+		return modResult{}, &classifierErr{what: "build request", err: err}
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := m.client.Do(req)
+	if err != nil {
+		return modResult{}, &classifierErr{what: "transport", err: err}
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return modResult{}, &classifierErr{what: fmt.Sprintf("status %d %s", resp.StatusCode, http.StatusText(resp.StatusCode)), status: resp.StatusCode,
+			retryAfter: parseRetryAfter(strings.TrimSpace(resp.Header.Get("Retry-After")), time.Now())}
 	}
 	// Accept the OpenAI Moderation shape {"results":[{"flagged":bool,"categories":{...}}]}
 	// and a simpler adapter shape {"flagged":bool} (e.g. a Llama Guard wrapper). The
@@ -458,16 +497,12 @@ func (m moderation) screen(text string) modResult {
 	}
 	// A 200 MUST carry a recognizable verdict (a top-level "flagged" OR a "results" array).
 	// An empty / HTML / error-JSON body (a proxy truncation, adapter outage, or API-shape
-	// drift) decodes to neither and is screen-UNAVAILABLE, NOT an implicit ALLOW: apply the
-	// require posture, mirroring the non-200 branch and screenGroq's empty-verdict fail-closed
-	// (audit #8 - the URL backend used to pass such a body straight through, sending an
-	// unscreened prompt on to the provider even under require=1).
+	// drift) decodes to neither and is screen-UNAVAILABLE, NOT an implicit ALLOW (audit #8 -
+	// the URL backend used to pass such a body straight through, sending an unscreened
+	// prompt on to the provider even under require=1). The gate applies its require posture
+	// (urlFailMode); the off-path screener retries it.
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil || (out.Flagged == nil && out.Results == nil) {
-		if m.require {
-			return modResult{status: http.StatusServiceUnavailable, msg: "content screening unavailable"}
-		}
-		log.Printf("MODERATION: screen returned a 200 with no parseable verdict, failing open (require=false)")
-		return modResult{}
+		return modResult{}, &classifierErr{what: urlNoVerdict, err: err}
 	}
 	flagged := out.Flagged != nil && *out.Flagged
 	cats := out.Categories
@@ -494,11 +529,11 @@ func (m moderation) screen(text string) modResult {
 			log.Printf("MODERATION: blocked (categories: %s)", hit)
 		}
 		if csam, cat := m.isCSAM(matched); csam {
-			return modResult{status: http.StatusUnavailableForLegalReasons, msg: "request blocked by the content policy", csam: true, category: cat}
+			return modResult{status: http.StatusUnavailableForLegalReasons, msg: "request blocked by the content policy", csam: true, category: cat}, nil
 		}
-		return modResult{status: http.StatusUnavailableForLegalReasons, msg: "request blocked by the content policy", category: strings.Join(matched, ",")}
+		return modResult{status: http.StatusUnavailableForLegalReasons, msg: "request blocked by the content policy", category: strings.Join(matched, ",")}, nil
 	}
-	return modResult{}
+	return modResult{}, nil
 }
 
 // screenGroq screens text with the Groq-hosted safeguard model over Groq's OpenAI-compatible
@@ -567,18 +602,16 @@ func (m moderation) classify(ctx context.Context, text string) (modResult, *clas
 	return modResult{}, nil
 }
 
-// classifyOffPath is the off-path screener's entry: the groq policy above, or - on the URL
-// adapter backend - the existing screen() with an "unavailable" (503) outcome reported as a
-// retryable classifierErr instead of a verdict.
+// classifyOffPath is the off-path screener's entry: the groq policy above, or the URL
+// adapter call. Both report an outage as a retryable classifierErr (never the synchronous
+// gate's require posture), so the worker's backoff / stale-drop / moderation_down logic is
+// identical on either backend. The screener enables itself only when configured() holds and
+// never queues empty text, so neither of screen()'s short-circuits applies here.
 func (m moderation) classifyOffPath(ctx context.Context, text string) (modResult, *classifierErr) {
 	if m.provider == "groq" {
 		return m.classify(ctx, text)
 	}
-	res := m.screen(text)
-	if res.status == http.StatusServiceUnavailable {
-		return modResult{}, &classifierErr{what: "screen unavailable: " + res.msg, status: res.status}
-	}
-	return res, nil
+	return m.urlCall(ctx, text)
 }
 
 // configured reports whether a classifier backend is fully configured (a provider AND its

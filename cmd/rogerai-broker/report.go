@@ -190,12 +190,12 @@ func moderationFlagRetention() time.Duration {
 // place rows on both sides of a horizon without sleeping.
 func (b *broker) reportRetentionSweepOnce(now time.Time) {
 	retention, csamRetention := b.reportRetention(), b.csamReportRetention()
-	n, err := b.db.PurgeReports(now.Add(-retention), now.Add(-csamRetention))
-	if err != nil {
+	// A reports purge failure is logged and does NOT skip the flag purge below: each horizon
+	// is enforced on its own (audit finding - the early return silently disabled flag
+	// retention whenever the reports purge errored).
+	if n, err := b.db.PurgeReports(now.Add(-retention), now.Add(-csamRetention)); err != nil {
 		log.Printf("report-retention: sweep failed: %v", err)
-		return
-	}
-	if n > 0 {
+	} else if n > 0 {
 		log.Printf("report-retention: reaped %d report(s) past their retention horizon (%s; csam-category %s)", n, retention, csamRetention)
 	}
 	// Off-path moderation flags ride the same sweep: a review record with its own horizon

@@ -69,7 +69,11 @@ const (
 
 // screenJob is one relay awaiting an after-the-fact verdict. body is the FULL request body
 // (a CSAM verdict preserves all of it, not just the window); window is the bounded text
-// actually sent to the classifier. node is filled in once the relay has picked a station.
+// actually sent to the classifier. node is named by the relay per dispatched attempt, so
+// after a failover it is the station that served (not the first pick); done marks the relay
+// finished. A block-net verdict that lands BEFORE the relay finishes waits on the job
+// (pendingFlag) and is recorded by the relay's served() - the worker and the relay run
+// concurrently by design, and the classifier can beat a failover.
 type screenJob struct {
 	id, pseudonym, ip, model string
 	body                     []byte
@@ -77,9 +81,12 @@ type screenJob struct {
 	enqueued                 time.Time
 	attempts                 int
 	last429                  bool
+	scr                      *screener
 
-	mu   sync.Mutex
-	node string
+	mu          sync.Mutex
+	node        string
+	done        bool
+	pendingFlag string
 }
 
 func (j *screenJob) setNode(node string) {
@@ -89,6 +96,29 @@ func (j *screenJob) setNode(node string) {
 	j.mu.Lock()
 	j.node = node
 	j.mu.Unlock()
+}
+
+// served marks the relay finished: the last station named is the one that served. A
+// block-net verdict that arrived first is recorded now, off the response path (its own
+// goroutine, tracked so shutdown and tests can wait for it); the relay never waits on the
+// classifier.
+func (j *screenJob) served() {
+	if j == nil {
+		return
+	}
+	j.mu.Lock()
+	j.done = true
+	cat := j.pendingFlag
+	j.pendingFlag = ""
+	j.mu.Unlock()
+	if cat == "" {
+		return
+	}
+	j.scr.flagWG.Add(1)
+	go func() {
+		defer j.scr.flagWG.Done()
+		j.scr.recordFlag(j, cat)
+	}()
 }
 
 func (j *screenJob) station() string { j.mu.Lock(); defer j.mu.Unlock(); return j.node }
@@ -134,6 +164,7 @@ type screener struct {
 	stopOnce    sync.Once
 	summaryOnce sync.Once
 	workerWG    sync.WaitGroup
+	flagWG      sync.WaitGroup // flags being recorded by a relay's served() (verdict beat the relay)
 
 	mu      sync.Mutex
 	cond    *sync.Cond
@@ -217,7 +248,7 @@ func (s *screener) submit(requestID, user, ip, model string, body []byte, text s
 		return nil
 	}
 	job := &screenJob{id: requestID, pseudonym: s.b.pseudonym(user, "relay"), ip: ip, model: model,
-		body: body, window: screenWindow(text, s.cfg.window), enqueued: s.now()}
+		body: body, window: screenWindow(text, s.cfg.window), enqueued: s.now(), scr: s}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	reason := ""
@@ -470,8 +501,22 @@ func (s *screener) noteSuccess(job *screenJob, res modResult) {
 		// QUEUE the CyberTipline report, page the founder. The relay was already served.
 		s.b.preserveCSAM(job.pseudonym, job.ip, res.category, job.body)
 	case res.status == http.StatusUnavailableForLegalReasons:
-		s.recordFlag(job, res.category)
+		s.flagWhenServed(job, res.category)
 	}
+}
+
+// flagWhenServed records a block-net verdict against the station that served: now, if the
+// relay has finished; otherwise it is parked on the job and the relay's served() records it
+// (the station is not known until the settling attempt).
+func (s *screener) flagWhenServed(job *screenJob, category string) {
+	job.mu.Lock()
+	if !job.done {
+		job.pendingFlag = category
+		job.mu.Unlock()
+		return
+	}
+	job.mu.Unlock()
+	s.recordFlag(job, category)
 }
 
 // recordFlag RECORDS a block-net verdict against the consumer pseudonym (never enforced) and
@@ -610,6 +655,7 @@ func (s *screener) shutdown(budget time.Duration) {
 	s.mu.Unlock()
 	s.stopOnce.Do(func() { close(s.stop); s.cancel() }) // wakes sleeping workers, aborts in-flight calls
 	s.workerWG.Wait()                                   // prompt: every wait and call is interruptible
+	s.flagWG.Wait()                                     // a flag a finished relay is recording lands before exit
 	s.mu.Lock()
 	rest := s.q
 	s.q, s.qBytes = nil, 0

@@ -108,6 +108,7 @@ type stubStep struct {
 	closeConn  bool
 	never      bool
 	empty      bool
+	rawBody    string // a 200 with exactly this body (an unparseable adapter answer)
 }
 
 type groqStub struct {
@@ -121,6 +122,7 @@ type groqStub struct {
 	maxInflight int
 	clock       *opsClock
 	srv         *httptest.Server
+	urlShape    bool // answer as a MODERATION_URL adapter ({"flagged":bool}) instead of Groq chat/completions
 }
 
 func newGroqStub(clock *opsClock) *groqStub {
@@ -189,9 +191,27 @@ func (g *groqStub) handle(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(st.status)
 		return
 	}
+	if st.rawBody != "" {
+		_, _ = w.Write([]byte(st.rawBody))
+		return
+	}
 	content := st.verdict
 	if st.empty {
 		content = ""
+	}
+	g.mu.Lock()
+	urlShape := g.urlShape
+	g.mu.Unlock()
+	if urlShape {
+		// The URL adapter contract: {"flagged":bool[,"categories":{...}]}. "safe" -> not flagged;
+		// "unsafe Sn" -> flagged with that category.
+		if strings.HasPrefix(content, "unsafe ") {
+			cat := strings.TrimSpace(strings.TrimPrefix(content, "unsafe "))
+			_, _ = w.Write([]byte(`{"flagged":true,"categories":{` + strconv.Quote(cat) + `:true}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"flagged":false}`))
+		return
 	}
 	_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":` + strconv.Quote(content) + `}}]}`))
 }
@@ -278,6 +298,7 @@ type opsState struct {
 	modeUnset bool
 	modeErr   error
 	noBackend bool
+	provider  string // "" = groq (the default stub shape); "url" = the MODERATION_URL adapter
 	require   bool
 	cfg       screenerConfig
 	paused    bool
@@ -285,7 +306,10 @@ type opsState struct {
 	built     bool
 
 	nodePriv ed25519.PrivateKey
-	tun      *nodeTunnel
+	tun      *nodeTunnel   // station n1's tunnel
+	tuns     []*nodeTunnel // every station's tunnel (closed on teardown)
+	twoSt    bool          // stand up a second station n2, demoted so n1 is always picked first
+	n1Status atomic.Int32  // when non-zero, station n1 answers every job with this status (no output)
 	stMu     sync.Mutex
 	stTimes  map[string]time.Duration
 	stFirst  map[string]time.Time
@@ -310,7 +334,9 @@ func (s *opsState) reset() {
 	s.mem = store.NewMem()
 	s.b, s.scr = nil, nil
 	s.mode, s.modeUnset, s.modeErr = "", false, nil
-	s.noBackend, s.require = false, false
+	s.noBackend, s.require, s.provider = false, false, ""
+	s.twoSt = false
+	s.n1Status.Store(0)
 	s.cfg = defaultScreenerConfig()
 	s.paused, s.multi, s.built = false, false, false
 	s.stTimes = map[string]time.Duration{}
@@ -336,17 +362,21 @@ func (s *opsState) closeAll() {
 		s.stub.srv.Close()
 		s.stub = nil
 	}
-	if s.tun != nil {
-		close(s.tun.jobs)
-		s.tun = nil
+	for _, t := range s.tuns {
+		close(t.jobs)
 	}
+	s.tun, s.tuns = nil, nil
 }
 
 func (s *opsState) moderationFor(mode string) moderation {
 	m := moderation{mode: mode, require: s.require, client: &http.Client{Timeout: 12 * time.Second},
 		csamCats: loadCSAMCategories("")}
 	if !s.noBackend && s.stub != nil {
-		m.provider, m.groqKey, m.groqURL, m.groqModel = "groq", "test-key", s.stub.srv.URL, "x"
+		if s.provider == "url" {
+			m.provider, m.url = "url", s.stub.srv.URL
+		} else {
+			m.provider, m.groqKey, m.groqURL, m.groqModel = "groq", "test-key", s.stub.srv.URL, "x"
+		}
 	}
 	return m
 }
@@ -380,19 +410,16 @@ func (s *opsState) build() {
 	}
 	s.b = b
 
-	nodePub, nodePriv, _ := ed25519.GenerateKey(nil)
-	s.nodePriv = nodePriv
-	b.nodes["n1"] = protocol.NodeRegistration{
-		NodeID: "n1", PubKey: hex.EncodeToString(nodePub), BridgeToken: "tok",
-		Offers: []protocol.ModelOffer{{Model: opsModel, PriceIn: 1.0, PriceOut: 1.0, Ctx: 1 << 20}},
+	s.tun, s.nodePriv = s.standUpStation(b, "n1", "op1")
+	if s.twoSt {
+		s.standUpStation(b, "n2", "op2")
+		// Pick order: n2 is demoted to Tier B (a measured success average under the 0.55
+		// gate), so the FIRST pick is always n1 and the failover plan's re-pick lands on n2 -
+		// the same landOn device the upstream_failover suite uses.
+		b.metricsMu.Lock()
+		b.success["n2"] = 0.3
+		b.metricsMu.Unlock()
 	}
-	b.lastSeen["n1"] = time.Now()
-	s.tun = &nodeTunnel{jobs: make(chan protocol.Job, 64), waiters: map[string]chan protocol.JobResult{}, token: "tok"}
-	b.tunnels["n1"] = s.tun
-	if err := s.mem.BindNode("n1", "op1"); err != nil {
-		s.t.Fatal(err)
-	}
-	go s.station(s.tun, b, nodePriv)
 
 	scr := newScreener(b, s.cfg)
 	clock := s.clock // captured: the previous scenario's summary loop may still be unwinding when reset() swaps s.clock
@@ -407,9 +434,30 @@ func (s *opsState) build() {
 	}
 }
 
+// standUpStation registers one on-air station (a real tunnel + a node keypair bound to an
+// operator account) and starts its fake serving loop.
+func (s *opsState) standUpStation(b *broker, id, operator string) (*nodeTunnel, ed25519.PrivateKey) {
+	nodePub, nodePriv, _ := ed25519.GenerateKey(nil)
+	b.nodes[id] = protocol.NodeRegistration{
+		NodeID: id, PubKey: hex.EncodeToString(nodePub), BridgeToken: "tok-" + id,
+		Offers: []protocol.ModelOffer{{Model: opsModel, PriceIn: 1.0, PriceOut: 1.0, Ctx: 1 << 20}},
+	}
+	b.lastSeen[id] = time.Now()
+	tun := &nodeTunnel{jobs: make(chan protocol.Job, 64), waiters: map[string]chan protocol.JobResult{}, token: "tok-" + id}
+	b.tunnels[id] = tun
+	if err := s.mem.BindNode(id, operator); err != nil {
+		s.t.Fatal(err)
+	}
+	s.tuns = append(s.tuns, tun)
+	go s.station(id, tun, b, nodePriv)
+	return tun, nodePriv
+}
+
 // station is the fake on-air node: it answers every dispatched job (stream or not) over the
-// real tunnel / /agent/stream path with a node-signed receipt (12 in / 40 out tokens).
-func (s *opsState) station(tun *nodeTunnel, b *broker, nodePriv ed25519.PrivateKey) {
+// real tunnel / /agent/stream path with a node-signed receipt (12 in / 40 out tokens). Station
+// n1 can be scripted (n1Status) to answer every job with a no-output status such as 429, the
+// way a throttled upstream does, so the relay fails over to n2.
+func (s *opsState) station(id string, tun *nodeTunnel, b *broker, nodePriv ed25519.PrivateKey) {
 	for job := range tun.jobs {
 		go func(job protocol.Job) {
 			start := time.Now()
@@ -417,6 +465,18 @@ func (s *opsState) station(tun *nodeTunnel, b *broker, nodePriv ed25519.PrivateK
 				Stream bool `json:"stream"`
 			}
 			_ = json.Unmarshal(job.Body, &req)
+			if st := s.n1Status.Load(); id == "n1" && st != 0 {
+				rec := protocol.UsageReceipt{RequestID: job.ID, NodeID: id, Model: opsModel, PriceIn: 1.0, PriceOut: 1.0, TS: time.Now().Unix()}
+				rec.SignNode(nodePriv)
+				res := protocol.JobResult{ID: job.ID, Status: int(st), Body: []byte(`{"error":"upstream throttled"}`), Receipt: rec}
+				tun.mu.Lock()
+				ch := tun.waiters[job.ID]
+				tun.mu.Unlock()
+				if ch != nil {
+					ch <- res
+				}
+				return
+			}
 			if req.Stream {
 				s.stMu.Lock()
 				s.stFirst[job.ID] = time.Now()
@@ -424,12 +484,12 @@ func (s *opsState) station(tun *nodeTunnel, b *broker, nodePriv ed25519.PrivateK
 				chunks := "data: {\"choices\":[{\"delta\":{\"content\":\"a genuine\"}}]}\n\n" +
 					"data: {\"choices\":[{\"delta\":{\"content\":\" answer for the consumer\"}}]}\n\n" +
 					"data: [DONE]\n\n"
-				r := httptest.NewRequest(http.MethodPost, "/agent/stream?node=n1&job="+job.ID, strings.NewReader(chunks))
-				r.Header.Set("Authorization", "Bearer tok")
+				r := httptest.NewRequest(http.MethodPost, "/agent/stream?node="+id+"&job="+job.ID, strings.NewReader(chunks))
+				r.Header.Set("Authorization", "Bearer "+tun.token)
 				b.agentStream(httptest.NewRecorder(), r)
 			}
 			rec := protocol.UsageReceipt{
-				RequestID: job.ID, NodeID: "n1", Model: opsModel,
+				RequestID: job.ID, NodeID: id, Model: opsModel,
 				PromptTokens: 12, CompletionTokens: 40, PriceIn: 1.0, PriceOut: 1.0, TS: time.Now().Unix(),
 			}
 			rec.SignNode(nodePriv)
@@ -560,6 +620,7 @@ func (s *opsState) drain() error {
 		s.settle()
 		snap := s.scr.snapshot()
 		if snap.QueueDepth == 0 && snap.InFlight == 0 && snap.IdleWorkers == snap.Workers {
+			s.scr.flagWG.Wait() // a flag whose verdict beat the relay is recorded by the relay's exit
 			return nil
 		}
 		s.clock.advance(250 * time.Millisecond)
@@ -1490,7 +1551,10 @@ func (s *opsState) stubStatusForMinutes(code, min int) error {
 	for i := 0; i < 10; i++ {
 		s.relayPrompt(1, fmt.Sprintf("outage prompt %d", i))
 	}
-	s.advance(time.Duration(min)*time.Minute + time.Minute)
+	// The sustained-outage check runs on the summary tick (checkDown), so the page lands at
+	// the first tick at/after `min` minutes of failure: advance through that tick, whatever
+	// the clock read at onset (a job screened before the outage moves it off the tick grid).
+	s.advance(time.Duration(min)*time.Minute + screenerSummaryEvery)
 	return nil
 }
 func (s *opsState) downFiredOnce() error {
@@ -1719,6 +1783,95 @@ func (s *opsState) flagRetentionIs(days int) error {
 	return nil
 }
 
+// --- regressions (claude-audit on the merged branch) -------------------------------------------
+
+// purgeFailStore is the real store with ONE failing method: PurgeReports (finding B - a
+// reports purge error must not skip the moderation-flag purge riding the same sweep).
+type purgeFailStore struct{ store.Store }
+
+func (purgeFailStore) PurgeReports(_, _ time.Time) (int, error) {
+	return 0, fmtErr("injected: reports purge failed")
+}
+
+func (s *opsState) reportsPurgeFails() error {
+	s.build()
+	s.b.db = purgeFailStore{Store: s.mem}
+	return nil
+}
+func (s *opsState) sweepFailedLineLogged() error {
+	if !strings.Contains(s.logs.String(), "report-retention: sweep failed") {
+		return fmtErr("no 'report-retention: sweep failed' line:\n%s", s.logs.String())
+	}
+	return nil
+}
+
+// Finding A: the URL adapter backend.
+func (s *opsState) providerURL() error {
+	s.provider = "url"
+	s.stub.mu.Lock()
+	s.stub.urlShape = true
+	s.stub.mu.Unlock()
+	return nil
+}
+func (s *opsState) adapterStatusThenOK(code int) error {
+	s.stub.set(stubStep{status: code}, stubStep{verdict: "safe"})
+	return nil
+}
+func (s *opsState) adapterScriptedThenOK(what string) error {
+	var first stubStep
+	switch what {
+	case "return 503":
+		first = stubStep{status: 503}
+	case "return a 200 with an unparseable body":
+		first = stubStep{rawBody: "<html>adapter proxy error</html>"}
+	case "close the connection without a response":
+		first = stubStep{closeConn: true}
+	default:
+		return fmtErr("unknown adapter script %q", what)
+	}
+	s.stub.set(first, stubStep{verdict: "safe"})
+	return nil
+}
+func (s *opsState) screenedSecondAttempt() error {
+	if s.stub.count() != 2 || s.scr.snapshot().Screened != 1 {
+		return fmtErr("want 2 attempts and 1 screened, got calls=%d %+v", s.stub.count(), s.scr.snapshot())
+	}
+	return nil
+}
+func (s *opsState) noFailingOpenLine() error {
+	if strings.Contains(s.logs.String(), "failing open") {
+		return fmtErr("the URL-backend outage was failed open in async mode:\n%s", s.logs.String())
+	}
+	return nil
+}
+
+// Finding C: the flag names the station that served after a failover.
+func (s *opsState) secondStation() error { s.twoSt = true; return nil }
+func (s *opsState) n1Answers(code int) error {
+	s.n1Status.Store(int32(code))
+	return nil
+}
+func (s *opsState) failedOver(from, to string) error {
+	logs := s.logs.String()
+	for _, line := range strings.Split(logs, "\n") {
+		// Contains, not HasPrefix: under the full package run another suite leaves a log prefix set.
+		if strings.Contains(line, "FAILOVER request=") && strings.Contains(line, " from="+from+" ") && strings.Contains(line, " to="+to) {
+			return nil
+		}
+	}
+	return fmtErr("no FAILOVER line from %s to %s:\n%s", from, to, logs)
+}
+func (s *opsState) flagNamesNode(node string) error {
+	fl := s.flags(s.last)
+	if len(fl) != 1 {
+		return fmtErr("want exactly one flag for %s, got %+v", s.pseudonymOf(s.last), fl)
+	}
+	if fl[0].Node != node {
+		return fmtErr("flag names node %q, want the station that served (%q):\n%s", fl[0].Node, node, s.logs.String())
+	}
+	return nil
+}
+
 // --- suite --------------------------------------------------------------------------------------
 
 func TestOffPathScreeningBDD(t *testing.T) {
@@ -1888,6 +2041,20 @@ func TestOffPathScreeningBDD(t *testing.T) {
 			sc.Step(`^the report retention sweep runs$`, st.retentionSweepRuns)
 			sc.Step(`^the (\d+)-day-old flag is gone and the (\d+)-day-old flag remains$`, st.oldGoneNewStays)
 			sc.Step(`^the moderation flag retention is (\d+) days$`, st.flagRetentionIs)
+			// regressions (claude-audit on the merged branch)
+			sc.Step(`^the reports purge fails with a store error$`, st.reportsPurgeFails)
+			sc.Step(`^a "report-retention: sweep failed" line is logged$`, st.sweepFailedLineLogged)
+			sc.Step(`^MODERATION_PROVIDER is "url" with an httptest adapter$`, st.providerURL)
+			sc.Step(`^the adapter returns (\d+) on the first call and 200 \{"flagged": false\} afterwards$`, st.adapterStatusThenOK)
+			sc.Step(`^the adapter is scripted to "([^"]*)" on the first call and 200 \{"flagged": false\} afterwards$`, st.adapterScriptedThenOK)
+			sc.Step(`^the job was screened on the second attempt$`, st.screenedSecondAttempt)
+			sc.Step(`^no "failing open" line was logged \(the outage was retried, not skipped\)$`, st.noFailingOpenLine)
+			sc.Step(`^the adapter returns (\d+) for every call for (\d+) minutes$`, st.stubStatusForMinutes)
+			sc.Step(`^the adapter returns 429 with "Retry-After: (\d+)" on the first call and 200 \{"flagged": false\} afterwards$`, st.stub429RetryAfter)
+			sc.Step(`^a second on-air station "n2" serving the same model, picked only after "n1"$`, st.secondStation)
+			sc.Step(`^station "n1" answers every job (\d+)$`, st.n1Answers)
+			sc.Step(`^the relay failed over from "([^"]*)" to "([^"]*)"$`, st.failedOver)
+			sc.Step(`^the moderation_flags row for the consumer's relay pseudonym names node "([^"]*)"$`, st.flagNamesNode)
 		},
 		Options: &godog.Options{
 			Format:   "pretty",
