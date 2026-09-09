@@ -456,6 +456,26 @@ type broker struct {
 	alertFiring    map[string]bool
 	alertOnAirSeen map[string]bool
 	csamSLAHours   int
+	// Alert DELIVERY (alerts.go / alertstore.go / features/ops/alert_delivery.feature):
+	// the knobs, the clock seam (nil = real time), the onset claim time (dedup TTL), the
+	// per-model consecutive-absent tick count (debounce), the coalescing buffer + its armed
+	// flag, the per-key flap state, and the read-only counters /admin/live shows. The maps
+	// and buffer are guarded by alertMu; the Onces log their line once per process.
+	alertCfg          alertConfig
+	alertNow          func() time.Time
+	alertAfter        func(time.Duration) <-chan time.Time
+	alertFiredAt      map[string]time.Time
+	alertAbsent       map[string]int
+	alertPending      []alertCondition
+	alertFlushArmed   bool
+	alertFlap         map[string]*flapState
+	alertClearPending map[string]bool // keys whose shared DEL failed; retried each tick
+	alertInflight     atomic.Int64    // onset goroutines still running (shutdown waits)
+	alertCoalesced    atomic.Int64
+	alertDeduped      atomic.Int64
+	alertMuted        atomic.Int64
+	alertFallbackOnce sync.Once
+	alertGraceOnce    sync.Once
 
 	// maxNodesPerOwner is the HARD server backstop: the max number of SIMULTANEOUSLY
 	// on-air nodes a single owner account may have live (within nodeTTL) across all of
@@ -618,6 +638,10 @@ func runServe(ln net.Listener, fee, seed float64, lock time.Duration, stop <-cha
 		defer cancel()
 		log.Printf("shutdown: draining in-flight relays (grace %s) so no consumer hold is orphaned", shutdownGrace)
 		_ = srv.Shutdown(ctx)
+		// Then flush queued email (sign-in codes first, then alerts) within its own budget;
+		// whatever does not make it is counted dropped{shutdown}, never silently lost.
+		b.waitAlertsInflight(2 * sharedOpTimeout)
+		b.mail.drain(emailDrainBudget)
 		close(drained)
 	}()
 	if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -680,6 +704,7 @@ func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, loc
 		alertFiring:    map[string]bool{},
 		alertOnAirSeen: map[string]bool{},
 		csamSLAHours:   csamSLAHoursEnv(),
+		alertCfg:       loadAlertConfig(),
 		// Admin surface is gated on the STABLE broker secret (BROKER_PRIVATE_KEY hex). An
 		// ephemeral/unset key leaves adminKey empty => the key path is CLOSED.
 		adminKey: validAdminKey(os.Getenv("BROKER_PRIVATE_KEY")),

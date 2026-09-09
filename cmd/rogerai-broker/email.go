@@ -15,8 +15,9 @@ import (
 // email.go is the FLAG-GATED transactional email layer. It is INERT until a provider
 // API key is set - exactly like ROGERAI_REDIS_URL: with no key the mailer is a no-op
 // everywhere, ZERO behavior change, and it NEVER blocks or fails the caller. Sends are
-// ALWAYS async (fired in a goroutine with their own timeout) so the request path never
-// waits on an email; failures are logged, never propagated.
+// ALWAYS async: they are queued on the paced two-lane sender (emailqueue.go), which
+// retries and drops on its own goroutine, so the request path never waits on an email;
+// failures are logged, never propagated.
 //
 // The broker is SDK-free by design (raw HTTP + stdlib), so this talks to the provider
 // REST API directly the same way payouts.go/billing.go talk to Stripe.
@@ -56,6 +57,17 @@ type mailer struct {
 	httpDo   func(*http.Request) (*http.Response, error)
 	timeout  time.Duration
 
+	// Delivery queue (emailqueue.go). rate = POSTs/second per instance and queueCap = the
+	// bounded depth (zero => the defaults); retries = retries per email after the first
+	// attempt (zero => none; loadMailer sets the default). now/after are the clock seam for
+	// pacing + backoff (nil => real time). q is the sender state.
+	rate     int
+	queueCap int
+	retries  int
+	now      func() time.Time
+	after    func(time.Duration) <-chan time.Time
+	q        emailQueue
+
 	// debugLogged ensures the "disabled, skipping" debug line is logged ONCE, not on
 	// every attempted send (the no-op path is otherwise silent).
 	debugLogged sync.Once
@@ -75,6 +87,9 @@ func loadMailer() *mailer {
 	m := &mailer{
 		timeout:  15 * time.Second,
 		sentCaps: map[string]bool{},
+		rate:     envInt("ROGERAI_EMAIL_RATE", defaultEmailRate),
+		queueCap: envInt("ROGERAI_EMAIL_QUEUE", defaultEmailQueue),
+		retries:  envInt("ROGERAI_EMAIL_RETRIES", defaultEmailRetries),
 	}
 	if k := os.Getenv("ZEPTOMAIL_API_KEY"); k != "" {
 		m.apiKey = k
@@ -107,11 +122,22 @@ func splitFrom(s string) (name, addr string) {
 // the whole layer is inert.
 func (m *mailer) enabled() bool { return m != nil && m.apiKey != "" }
 
-// sendEmail fires a transactional email ASYNCHRONOUSLY. It is a no-op (logged once)
-// when the mailer is disabled, and skips silently when the recipient is empty. It
-// NEVER blocks the caller and NEVER returns an error: the request goes out in its own
-// goroutine with its own timeout, and any failure is logged, not propagated.
+// sendEmail queues a TRANSACTIONAL email (sign-in code, receipt, cap/warn/ban/payout
+// notice) on the priority lane of the paced sender (emailqueue.go). It is a no-op (logged
+// once) when the mailer is disabled, and skips silently when the recipient is empty. It
+// NEVER blocks the caller and NEVER returns an error: delivery, retries and drops all
+// happen on the sender goroutine and are logged, not propagated.
 func (m *mailer) sendEmail(to, subject, htmlBody, textBody string) {
+	m.send(laneTransactional, to, subject, htmlBody, textBody)
+}
+
+// sendAlertEmail queues an OPS ALERT on the alert lane: sent after any transactional mail,
+// so an alert burst can delay alerts but never a login. Same no-op / non-blocking contract.
+func (m *mailer) sendAlertEmail(to, subject, htmlBody, textBody string) {
+	m.send(laneAlert, to, subject, htmlBody, textBody)
+}
+
+func (m *mailer) send(lane emailLane, to, subject, htmlBody, textBody string) {
 	if !m.enabled() {
 		if m != nil {
 			m.debugLogged.Do(func() {
@@ -123,13 +149,14 @@ func (m *mailer) sendEmail(to, subject, htmlBody, textBody string) {
 	if to == "" {
 		return // no recipient on file - nothing to send
 	}
-	go m.deliver(to, subject, htmlBody, textBody)
+	m.enqueue(lane, to, subject, htmlBody, textBody)
 }
 
-// deliver performs the actual POST to the configured provider. Runs in its own
-// goroutine; all errors
-// are logged and swallowed so a send failure can never fail the triggering operation.
-func (m *mailer) deliver(to, subject, htmlBody, textBody string) {
+// deliver performs ONE POST to the configured provider and reports the outcome to the sender
+// (emailqueue.go decides retry vs drop): the HTTP status, the provider's Retry-After hint,
+// and a transport/build error. Runs only on the sender goroutine; every failure is logged
+// here so the log keeps the same "email: <provider> error <status>" shape it always had.
+func (m *mailer) deliver(to, subject, htmlBody, textBody string) (status int, retryAfter time.Duration, err error) {
 	// The two providers disagree on BOTH the field names and the shape of the address
 	// fields, so the payload is built per provider rather than translated.
 	var payload map[string]any
@@ -158,7 +185,7 @@ func (m *mailer) deliver(to, subject, htmlBody, textBody string) {
 	body, err := json.Marshal(payload)
 	if err != nil {
 		log.Printf("email: marshal failed (to=%s subj=%q): %v", maskAddr(to), subject, err)
-		return
+		return 0, 0, errEmailPermanent
 	}
 
 	timeout := m.timeout
@@ -168,7 +195,7 @@ func (m *mailer) deliver(to, subject, htmlBody, textBody string) {
 	req, err := http.NewRequest(http.MethodPost, m.endpoint, bytes.NewReader(body))
 	if err != nil {
 		log.Printf("email: build request failed (to=%s): %v", maskAddr(to), err)
-		return
+		return 0, 0, errEmailPermanent
 	}
 	// ZeptoMail uses its own scheme, NOT Bearer. The key issued by Zoho already begins
 	// with "Zoho-enczapikey " in some places in their console; tolerate both so a
@@ -192,7 +219,7 @@ func (m *mailer) deliver(to, subject, htmlBody, textBody string) {
 	resp, err := do(req)
 	if err != nil {
 		log.Printf("email: send failed (to=%s subj=%q): %v", maskAddr(to), subject, err)
-		return
+		return 0, 0, err
 	}
 	rb, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
 	resp.Body.Close()
@@ -201,9 +228,10 @@ func (m *mailer) deliver(to, subject, htmlBody, textBody string) {
 		// would put in the log the very thing masking just took out.
 		log.Printf("email: %s error %d (to=%s subj=%q): %s",
 			m.provider, resp.StatusCode, maskAddr(to), subject, truncate(string(rb), 200))
-		return
+		return resp.StatusCode, parseRetryAfter(resp.Header.Get("Retry-After"), m.clock()), nil
 	}
 	log.Printf("email: sent %q to %s", subject, maskAddr(to))
+	return resp.StatusCode, 0, nil
 }
 
 // truncate bounds an untrusted provider response before it reaches a log line.
