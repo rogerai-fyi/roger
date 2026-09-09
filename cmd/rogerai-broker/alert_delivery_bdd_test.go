@@ -136,6 +136,7 @@ type providerPost struct {
 	text    string
 	status  int
 	key     string // the email's idempotency key: every ATTEMPT of one email repeats it
+	raw     string // set only when the body did not parse: the error, path and body prefix
 }
 
 type scriptedResp struct {
@@ -176,7 +177,10 @@ func (p *emailProvider) handle(w http.ResponseWriter, r *http.Request) {
 		HTML    string   `json:"html"`
 		Text    string   `json:"text"`
 	}
-	_ = json.Unmarshal(raw, &payload)
+	// The error is KEPT: a body this recorder cannot parse still becomes a post, and a post
+	// with no recipient and no subject is indistinguishable from a real email in a count.
+	// CI saw six of them; without the raw body there is no way to say what sent them.
+	unmarshalErr := json.Unmarshal(raw, &payload)
 
 	key := r.Header.Get("Idempotency-Key")
 	p.mu.Lock()
@@ -222,8 +226,17 @@ func (p *emailProvider) handle(w http.ResponseWriter, r *http.Request) {
 	if lose {
 		resp = scriptedResp{status: 200, closeConn: true}
 	}
+	rawNote := ""
+	if to == "" || unmarshalErr != nil {
+		body := string(raw)
+		if len(body) > 200 {
+			body = body[:200] + "…"
+		}
+		rawNote = fmt.Sprintf("unparsed(err=%v, path=%s, ct=%q, body=%s)",
+			unmarshalErr, r.URL.Path, r.Header.Get("Content-Type"), body)
+	}
 	p.posts = append(p.posts, providerPost{at: now, to: to, subject: payload.Subject,
-		html: payload.HTML, text: payload.Text, status: resp.status, key: key})
+		html: payload.HTML, text: payload.Text, status: resp.status, key: key, raw: rawNote})
 	p.mu.Unlock()
 
 	if resp.closeConn {
@@ -482,7 +495,11 @@ func (s *adState) settle() {
 func (s *adState) postDigest() string {
 	per := map[string]int{}
 	for _, p := range s.prov.attemptSnapshot() {
-		per[p.to+" | "+p.subject+" | "+strconv.Itoa(p.status)]++
+		line := p.to + " | " + p.subject + " | " + strconv.Itoa(p.status)
+		if p.raw != "" {
+			line += " | " + p.raw
+		}
+		per[line]++
 	}
 	keys := make([]string, 0, len(per))
 	for k := range per {
