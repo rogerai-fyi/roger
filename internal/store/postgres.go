@@ -293,6 +293,20 @@ CREATE INDEX IF NOT EXISTS csam_state ON rogerai.csam_incidents (report_state, i
 ALTER TABLE rogerai.csam_incidents ADD COLUMN IF NOT EXISTS report_id TEXT;
 ALTER TABLE rogerai.csam_incidents ADD COLUMN IF NOT EXISTS reported_at BIGINT;
 ALTER TABLE rogerai.csam_incidents ADD COLUMN IF NOT EXISTS reported_by TEXT;
+-- off-path moderation flags: a block-net verdict (S1/S3/S5/S6) reached AFTER the relay was
+-- served. A review record, never an enforcement. sealed_window is the broker-encrypted
+-- screened text (ciphertext, like csam_incidents.content); pseudonym is the opaque relay
+-- pseudonym. Indexed on the repeat-flag lookup (pseudonym, newest first).
+CREATE TABLE IF NOT EXISTS rogerai.moderation_flags (
+    id            BIGSERIAL PRIMARY KEY,
+    pseudonym     TEXT NOT NULL,
+    request_id    TEXT,
+    model         TEXT,
+    node          TEXT,
+    category      TEXT NOT NULL,
+    sealed_window BYTEA,
+    created_at    BIGINT NOT NULL);
+CREATE INDEX IF NOT EXISTS moderation_flags_pseud ON rogerai.moderation_flags (pseudonym, id DESC);
 -- abuse/quality reports (POST /report; may be anonymous). The per-node count drives
 -- the auto-eject ban threshold. ip is the reporter (abuse-of-reporting forensics).
 CREATE TABLE IF NOT EXISTS rogerai.reports (

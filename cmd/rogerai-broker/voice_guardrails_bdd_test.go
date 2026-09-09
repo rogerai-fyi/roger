@@ -33,13 +33,14 @@ type guardState struct {
 	code      int
 	spend     float64
 	nodeFired bool
+	mode      string // moderation mode for the flagged-speech scenario (the spec makes it explicit)
 }
 
 func (s *guardState) reset(t *testing.T) {
 	s.t = t
 	s.b, s.mem = nil, nil
 	s.maxChars, s.inflight = 10000, 8
-	s.code, s.spend, s.nodeFired = 0, 0, false
+	s.code, s.spend, s.nodeFired, s.mode = 0, 0, false, ""
 }
 
 // build wires a broker with the configured guardrails, an on-air tts node "dj-1" and stt
@@ -172,10 +173,11 @@ func (s *guardState) requestSpeechFlagged(n int) error {
 		_, _ = w.Write([]byte(`{"flagged":true,"categories":{"S5":true}}`))
 	}))
 	s.t.Cleanup(srv.Close)
-	s.b.mod = moderation{provider: "url", url: srv.URL, client: srv.Client()}
+	s.b.mod = moderation{provider: "url", url: srv.URL, client: srv.Client(), mode: s.mode}
 	s.speak(n)
 	return nil
 }
+func (s *guardState) modeIs(mode string) error { s.mode = mode; return nil }
 func (s *guardState) transcribeArrives() error { s.transcribe(); return nil }
 func (s *guardState) nTranscriptionsInFlight(n int) error {
 	// n concurrent transcriptions = n occupied slots.
@@ -280,6 +282,7 @@ func TestVoiceGuardrailsFeature(t *testing.T) {
 			sc.Step(`^a consumer requests speech for (\d+) characters$`, s.requestSpeech)
 			sc.Step(`^a consumer requests speech for (\d+) multibyte characters$`, s.requestSpeechMB)
 			sc.Step(`^a consumer requests speech for (\d+) flagged characters$`, s.requestSpeechFlagged)
+			sc.Step(`^the moderation mode is "([^"]*)"$`, s.modeIs)
 			sc.Step(`^the request is dispatched and billed for (\d+) characters$`, s.dispatchedBilled)
 			sc.Step(`^the request is dispatched \(bytes never inflate the count\)$`, s.dispatched)
 			sc.Step(`^the request is not refused for length$`, s.notRefusedForLength)

@@ -267,6 +267,11 @@ func (b *broker) preserveCSAM(pseudonym, ip, category string, content []byte) {
 		return
 	}
 	log.Printf("CSAM: incident #%d PRESERVED + report QUEUED (category=%s pseudonym=%s ip=%s) - CyberTipline report owed (18 USC 2258A)", id, category, pseudonym, ip)
+	// Page the founder on the FIRST preserved incident of this process lifetime (onset dedup;
+	// the CSAM SLA checker pages again if the queue ages past the filing window).
+	b.adminAlert("csam:first-report", "CSAM incident preserved - CyberTipline report owed", "CSAM incident preserved",
+		[][2]string{{"Incident", "#" + strconv.FormatInt(id, 10)}, {"Category", category}, {"Pseudonym", pseudonym}},
+		"A child-exploitation hit was preserved and a CyberTipline report is queued (18 USC 2258A). Drain via GET/POST /admin/csam.")
 }
 
 // warnCSAMBacklog logs a loud WARNING at boot (and is safe to call periodically) when the

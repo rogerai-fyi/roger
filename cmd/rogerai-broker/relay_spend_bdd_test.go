@@ -37,6 +37,7 @@ type spState struct {
 	unsigned  bool   // omit the request signature
 	noStation bool   // request a model NO node offers
 	flagMod   bool   // configure a flagging moderation backend
+	syncMode  bool   // ROGERAI_MODERATION_MODE=sync: the legacy in-line gate (the async default never 451s a relay)
 	xUser     string // an X-Roger-User header value (a victim id), if any
 	model     string // requested model
 
@@ -57,7 +58,7 @@ type spState struct {
 }
 
 func (s *spState) reset() {
-	s.unsigned, s.noStation, s.flagMod = false, false, false
+	s.unsigned, s.noStation, s.flagMod, s.syncMode = false, false, false, false
 	s.xUser, s.model = "", "m"
 	s.code, s.spend, s.earn, s.hdrRcpt = 0, 0, 0, ""
 	s.balBefore, s.balAfter, s.victimBal = 0, 0, 0
@@ -74,6 +75,9 @@ func (s *spState) run() error {
 		}))
 		defer flag.Close()
 		b.mod = moderation{provider: "url", url: flag.URL, client: flag.Client()}
+		if s.syncMode {
+			b.mod.mode = modeSync
+		}
 	}
 
 	nodePub, nodePriv, _ := ed25519.GenerateKey(nil)
@@ -261,7 +265,11 @@ func (s *spState) holdReleasedNoSpend() error {
 // --- scenario 6: moderation gates before any node is paid --------------------
 
 func (s *spState) moderationFlagged() error { s.flagMod = true; return nil }
-func (s *spState) relayRuns() error         { return s.run() }
+func (s *spState) modeIs(mode string) error {
+	s.syncMode = mode == modeSync
+	return nil
+}
+func (s *spState) relayRuns() error { return s.run() }
 
 func (s *spState) rejectedBeforeDispatchNoCharge() error {
 	if s.code != http.StatusUnavailableForLegalReasons {
@@ -308,6 +316,7 @@ func TestRelaySpendBDD(t *testing.T) {
 			sc.Step(`^the hold is released and no spend is recorded \(you pay only for served tokens\)$`, st.holdReleasedNoSpend)
 
 			sc.Step(`^moderation is required and a prompt is flagged$`, st.moderationFlagged)
+			sc.Step(`^the moderation mode is "([^"]*)"$`, st.modeIs)
 			sc.Step(`^the relay runs$`, st.relayRuns)
 			sc.Step(`^it is rejected before dispatch \(no hold settles, no node serves, no charge\)$`, st.rejectedBeforeDispatchNoCharge)
 		},

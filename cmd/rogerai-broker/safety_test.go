@@ -209,7 +209,7 @@ func TestRelayCSAMPreservesNonCSAMDoesNot(t *testing.T) {
 			defer modSrv.Close()
 			db := store.NewMem()
 			b := testBrokerWithDB(db)
-			b.mod = moderation{provider: "url", url: modSrv.URL, client: modSrv.Client(), csamCats: loadCSAMCategories("")}
+			b.mod = moderation{provider: "url", url: modSrv.URL, client: modSrv.Client(), csamCats: loadCSAMCategories(""), mode: modeSync}
 
 			// Sign a request so identityOf passes the spend gate up to the screen.
 			_, priv, _ := ed25519.GenerateKey(nil)

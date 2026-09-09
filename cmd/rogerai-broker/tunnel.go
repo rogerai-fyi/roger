@@ -1658,22 +1658,39 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Mandatory pre-dispatch content screen: an illegal prompt is blocked HERE,
-	// before it reaches any provider. Off by default in dev; required + fail-closed
-	// for launch (see moderation.go). Grants do NOT bypass it (owner's legal
-	// exposure on shared access). Covers streaming too (this is before the branch).
-	if res := b.mod.screen(promptText(body)); !res.allow() {
-		log.Printf("moderation reject model=%s status=%d: %s", req.Model, res.status, res.msg)
-		// CSAM (child-exploitation) hit: do NOT discard. PRESERVE the offending request
-		// (access-controlled, retention-limited) and QUEUE a CyberTipline report
-		// obligation (18 USC 2258A). Non-CSAM unsafe content is the existing
-		// reject-and-discard. The pseudonym keeps the preserved record un-reversible to
-		// the real user while still distinguishing repeat offenders.
-		if res.csam {
-			b.preserveCSAM(b.pseudonym(user, "relay"), clientIP(r), res.category, body)
+	// Request id is minted up front: it seeds the routing PRNG (deterministic
+	// power-of-two-choices spread per request) and keys the relayed job AND the off-path
+	// screening job, so an after-the-fact flag can name the request.
+	requestID := protocol.NewRequestID()
+
+	// Content screen. Grants do NOT bypass it (owner's legal exposure on shared access);
+	// it covers streaming too (this is before the branch). WHERE the verdict is applied is
+	// ROGERAI_MODERATION_MODE (features/moderation/off_path_screening.feature):
+	//   - async (default): hand the text to the off-path screener and continue to
+	//     pick/hold/dispatch immediately. The relay never waits on, fails on, or slows for
+	//     the classifier; a CSAM verdict still preserves + queues + pages after the fact
+	//     and a block-net verdict is recorded against the pseudonym, never enforced.
+	//   - sync: the legacy in-line gate - an illegal prompt is blocked HERE, before it
+	//     reaches any provider (451 flagged / 503 fail-closed; see moderation.go).
+	//   - off: nothing is screened (submit is a no-op).
+	promptStr := promptText(body)
+	var screening *screenJob
+	if b.mod.mode == modeSync {
+		if res := b.mod.screen(promptStr); !res.allow() {
+			log.Printf("moderation reject model=%s status=%d: %s", req.Model, res.status, res.msg)
+			// CSAM (child-exploitation) hit: do NOT discard. PRESERVE the offending request
+			// (access-controlled, retention-limited) and QUEUE a CyberTipline report
+			// obligation (18 USC 2258A). Non-CSAM unsafe content is the existing
+			// reject-and-discard. The pseudonym keeps the preserved record un-reversible to
+			// the real user while still distinguishing repeat offenders.
+			if res.csam {
+				b.preserveCSAM(b.pseudonym(user, "relay"), clientIP(r), res.category, body)
+			}
+			jsonErr(w, res.status, res.msg)
+			return
 		}
-		jsonErr(w, res.status, res.msg)
-		return
+	} else {
+		screening = b.scr.submit(requestID, user, clientIP(r), req.Model, body, promptStr)
 	}
 
 	confidentialOnly := r.Header.Get("X-Roger-Confidential") != ""
@@ -1736,16 +1753,17 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	// Request id is minted up front so the routing PRNG can be seeded from it
-	// deterministically (the same id keys the relayed job below). Power-of-two-choices
-	// spread is reproducible per request; a fixed pin / single candidate / cheap profile
-	// still resolves to the deterministic best.
-	requestID := protocol.NewRequestID()
+	// The routing PRNG is seeded from the request id minted above, so the power-of-two-
+	// choices spread is reproducible per request; a fixed pin / single candidate / cheap
+	// profile still resolves to the deterministic best.
 	b.mu.Lock()
 	node, offer, ok := b.pickFor(req.Model, confidentialOnly, minTPS, maxPrice, maxPriceOut, pinNode, exclude, allow, privateAllow,
 		pickReq{pref: routePref, promptTokens: promptTokens, rng: seededRand(requestID)})
 	t := b.tunnels[node.NodeID]
 	b.mu.Unlock()
+	if ok {
+		screening.setNode(node.NodeID) // the after-the-fact flag names the station (nil-safe)
+	}
 	// The pricing plan is resolved HERE, before the fan-out coin, because free/self-use
 	// traffic ($0) must never be diverted to a billed Tower - the coin has to know.
 	edgePricing := b.resolvePricing(gc, gok, user, wallet, node, offer)

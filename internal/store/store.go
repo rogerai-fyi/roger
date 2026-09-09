@@ -514,6 +514,17 @@ type Store interface {
 	// still on file (the retention job's read; evidence outlives the report per 2258A(h)).
 	CSAMContentRetained(id int64) (bool, error)
 
+	// AddModerationFlag RECORDS a block-net verdict (S1/S3/S5/S6) the off-path screener
+	// reached AFTER the relay was served (features/moderation/off_path_screening.feature):
+	// the consumer pseudonym, request id, model, station, category, the broker-SEALED
+	// screened window (ciphertext, never plaintext) and a timestamp. Nothing is enforced
+	// from it; it is the founder's review record. Returns the new flag id.
+	AddModerationFlag(f ModerationFlag) (int64, error)
+	// ModerationFlagsByPseudonym lists one pseudonym's flags created at or after `since`
+	// (unix seconds; 0 = all), newest first, at most `limit` (<=0 = 100) - the repeat-flag
+	// alert count and the admin lookup.
+	ModerationFlagsByPseudonym(pseudonym string, since int64, limit int) ([]ModerationFlag, error)
+
 	// AddReport persists an abuse/quality report (POST /report). Returns the report id.
 	AddReport(r Report) (int64, error)
 	// PurgeReports deletes report rows past their retention horizon and returns how many
@@ -864,6 +875,8 @@ type Mem struct {
 	bannedAt map[string]int64  // node id -> unix when the ban was placed (report-ban auto-expiry)
 	appeals  []Appeal          // owner-filed self-serve appeals (admin review queue)
 	appealID int64             // monotonic appeal id
+	flags    []ModerationFlag  // off-path screener block-net records (sealed window)
+	flagID   int64             // monotonic flag id
 
 	// owner-keyed durable anti-abuse (anti-rotation): strikes carry provable evidence
 	// bound to the OWNER ACCOUNT (owner pubkey), bannedOwners is the durable owner ban

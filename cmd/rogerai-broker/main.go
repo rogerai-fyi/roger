@@ -225,6 +225,7 @@ type broker struct {
 	bill         billing
 	conn         connect
 	mod          moderation
+	scr          *screener             // off-path content screening (async mode); nil-safe no-op
 	mail         *mailer               // flag-gated (RESEND_API_KEY) transactional email; nil-safe no-op when disabled
 	towerPending *towerPendingNotifier // admin email on a Tower entering quarantine; nil-safe
 	// canaryVet is the may-Core-dial-this predicate (vetPublicIP in production). A FIELD
@@ -567,6 +568,7 @@ func runServe(ln net.Listener, fee, seed float64, lock time.Duration, stop <-cha
 	go b.refPriceSync(stop)           // refresh same-model external reference prices for the buyer-facing $-tier
 	go b.releaseStaleHoldsSweep(stop) // reclaim relay pre-auth holds stranded by a SIGKILLed redeploy (deploy-orphan backstop)
 	go b.alertCheckerLoop(stop)       // page the founder (ADMIN_EMAIL) on state-derived ops conditions (0-providers, db/valkey down, CSAM SLA); no-op when ADMIN_EMAIL is unset
+	b.scr.start(b.scr.cfg.workers)    // off-path content screening workers (async mode only; a no-op in sync/off)
 
 	log.Printf("rogerai-broker %s: addr=%s fee=%.0f%% (node-dials-out long-poll tunnel)", version, ln.Addr(), fee*100)
 
@@ -618,6 +620,7 @@ func runServe(ln net.Listener, fee, seed float64, lock time.Duration, stop <-cha
 		defer cancel()
 		log.Printf("shutdown: draining in-flight relays (grace %s) so no consumer hold is orphaned", shutdownGrace)
 		_ = srv.Shutdown(ctx)
+		b.scr.shutdown(screenerDrainBudget) // screen what fits in the budget, count the rest as dropped
 		close(drained)
 	}()
 	if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -704,6 +707,7 @@ func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, loc
 	loadAppleRoot() // StoreKit IAP trust anchor (Apple 3.1.1); /iap/credit is 503 until configured
 	b.conn = loadConnect()
 	b.mod = loadModeration()
+	b.scr = newScreener(b, loadScreenerConfig()) // off-path relay screening (async mode); workers start in runServe
 	b.canaryVet = vetPublicIP
 	b.mail = loadMailer()
 	b.towerPending = newTowerPendingNotifier(func(owner, towerID string, suppressed int) {
@@ -898,6 +902,7 @@ func (b *broker) routes() *http.ServeMux {
 	mux.HandleFunc("/capsule/resolve", b.capsuleResolve)                                              // code-authed: fetch the blob ONCE (uniform-404, delete-on-read)
 	mux.HandleFunc("/admin/csam", b.adminCSAMQueue)                                                   // admin-authed: the CyberTipline drain queue (metadata only) + backlog stats
 	mux.HandleFunc("/admin/csam/submit", b.adminCSAMSubmit)                                           // admin-authed: mark an incident submitted with its CyberTipline report id
+	mux.HandleFunc("/admin/moderation", b.adminModeration)                                            // admin-authed: off-path screening counters + queue state (+ ?pseudonym= flag lookup)
 	mux.HandleFunc("/admin/live", b.adminLive)                                                        // admin-authed: LIVE in-memory ops (health, marketplace, dispatch, seed/fee/stripe) the private roger-admin portal merges with its own Postgres rollups
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) }) // cheap liveness: the process is up
 	mux.HandleFunc("/ready", b.ready)                                                                 // real readiness: DB + shared store reachable (503 if not)

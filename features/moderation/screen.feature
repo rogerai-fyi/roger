@@ -41,6 +41,7 @@ Feature: Moderation — the mandatory pre-dispatch content screen
 
   Scenario: A flagged prompt is rejected before any node sees it
     Given a moderation backend that returns "unsafe S1"
+    And the moderation mode is "sync"
     When a relay request is screened
     Then the screen returns 451 (flagged)
     And no node is ever dispatched the prompt
@@ -55,11 +56,13 @@ Feature: Moderation — the mandatory pre-dispatch content screen
   # --- posture: launch (fail-closed) -----------------------------------------
   Scenario: require=true with no backend fails CLOSED
     Given ROGERAI_REQUIRE_MODERATION=1 and no moderation backend configured
+    And the moderation mode is "sync"
     When a relay request is screened
     Then the screen returns 503 (fail-closed), never served unscreened
 
   Scenario: require=true with an unreachable backend fails CLOSED
     Given ROGERAI_REQUIRE_MODERATION=1 and a backend URL that times out / errors
+    And the moderation mode is "sync"
     When a relay request is screened
     Then the screen returns 503, never falling open to "allow"
 
@@ -78,6 +81,7 @@ Feature: Moderation — the mandatory pre-dispatch content screen
   # --- CSAM: preserve + report (NOT silently discard) ------------------------
   Scenario: A CSAM-category hit is preserved and queued for a CyberTipline report
     Given a backend that returns "unsafe" with a category in csamCats
+    And the moderation mode is "sync"
     When a relay request is screened
     Then modResult.csam is true with the matched category
     And the incident is PRESERVED and QUEUED for a CyberTipline report (18 USC 2258A)
@@ -85,6 +89,7 @@ Feature: Moderation — the mandatory pre-dispatch content screen
 
   Scenario: A non-CSAM unsafe hit is rejected but NOT queued as CSAM
     Given a backend that returns "unsafe S1" (not a csamCats category)
+    And the moderation mode is "sync"
     When a relay request is screened
     Then modResult.csam is false
     And the request is rejected (451) without opening a CSAM incident
