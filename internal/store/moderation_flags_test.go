@@ -12,7 +12,7 @@ import (
 // newest-first, honors `since` (the once-per-day repeat-flag window) and `limit`, and the
 // sealed window round-trips byte-for-byte (it is ciphertext; the store never inspects it).
 func TestModerationFlagsParity(t *testing.T) {
-	now := time.Unix(1_800_000_000, 0).Unix()
+	now := time.Now().Unix() // real now: the zero-CreatedAt row below is stamped with it
 	for name, db := range parityStores(t) {
 		t.Run(name, func(t *testing.T) {
 			mk := func(pseud, cat string, at int64) ModerationFlag {
@@ -65,6 +65,19 @@ func TestModerationFlagsParity(t *testing.T) {
 			none, err := db.ModerationFlagsByPseudonym("nobody", 0, 10)
 			if err != nil || len(none) != 0 {
 				t.Fatalf("unknown pseudonym: %v %v", none, err)
+			}
+
+			// Retention: rows at or before the horizon go, newer ones stay; idempotent.
+			n, err := db.PurgeModerationFlags(time.Unix(now-3600, 0))
+			if err != nil || n != 1 {
+				t.Fatalf("PurgeModerationFlags = %d, %v; want 1 (the S1 row at exactly the horizon)", n, err)
+			}
+			left, _ := db.ModerationFlagsByPseudonym("p1", 0, 10)
+			if len(left) != 1 || left[0].Category != "S5" {
+				t.Fatalf("after purge p1 = %+v, want only S5", left)
+			}
+			if n, err := db.PurgeModerationFlags(time.Unix(now-3600, 0)); err != nil || n != 0 {
+				t.Fatalf("second purge = %d, %v; want 0", n, err)
 			}
 		})
 	}

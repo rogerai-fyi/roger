@@ -553,6 +553,24 @@ func (m *Mem) AddModerationFlag(f ModerationFlag) (int64, error) {
 	return f.ID, nil
 }
 
+func (m *Mem) PurgeModerationFlags(olderThan time.Time) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cut := olderThan.Unix()
+	kept := m.flags[:0]
+	for _, f := range m.flags {
+		if f.CreatedAt > cut {
+			kept = append(kept, f)
+		}
+	}
+	purged := len(m.flags) - len(kept)
+	for i := len(kept); i < len(m.flags); i++ {
+		m.flags[i] = ModerationFlag{} // release the sealed windows, not just the slice headers
+	}
+	m.flags = kept
+	return purged, nil
+}
+
 func (m *Mem) ModerationFlagsByPseudonym(pseudonym string, since int64, limit int) ([]ModerationFlag, error) {
 	if limit <= 0 {
 		limit = 100

@@ -105,14 +105,16 @@ type screenerSnapshot struct {
 	Classifier429   int64            `json:"classifier_429"`
 	ClassifierError int64            `json:"classifier_error"`
 	QueueDepth      int              `json:"queue_depth"`
-	QueueBytes      int64            `json:"queue_bytes"`      // bytes retained (full bodies + windows)
-	QueueTextBytes  int64            `json:"queue_text_bytes"` // bytes of screened text awaiting the classifier
+	QueueBytes      int64            `json:"queue_bytes"` // bytes retained (full bodies + windows) - the memory bound
 	OldestAgeSecs   int64            `json:"oldest_age_secs"`
 	LagMaxSecs      float64          `json:"lag_max_secs"`
 	InFlight        int              `json:"in_flight"`
 	Workers         int              `json:"workers"`
 	IdleWorkers     int              `json:"idle_workers"`
 	BackingOff      int              `json:"backing_off"` // workers asleep in a 429/error/budget wait
+	// Flags is the ?pseudonym= lookup on GET /admin/moderation (metadata only; the sealed
+	// window is never serialized). Empty otherwise.
+	Flags []store.ModerationFlag `json:"flags,omitempty"`
 }
 
 type screener struct {
@@ -133,13 +135,12 @@ type screener struct {
 	summaryOnce sync.Once
 	workerWG    sync.WaitGroup
 
-	mu         sync.Mutex
-	cond       *sync.Cond
-	q          []*screenJob
-	qBytes     int64 // retained bytes (bodies + windows) - the memory bound
-	qTextBytes int64 // screened-text bytes queued
-	closed     bool  // no more accepts; workers finish the queue then exit
-	stopped    bool  // workers exit now
+	mu      sync.Mutex
+	cond    *sync.Cond
+	q       []*screenJob
+	qBytes  int64 // retained bytes (bodies + windows) - the memory bound
+	closed  bool  // no more accepts; workers finish the queue then exit
+	stopped bool  // workers exit now
 
 	workers, idle, inflight, backingOff int
 	holdUntil                           time.Time // global 429/error hold-off
@@ -234,7 +235,6 @@ func (s *screener) submit(requestID, user, ip, model string, body []byte, text s
 	}
 	s.q = append(s.q, job)
 	s.qBytes += job.size()
-	s.qTextBytes += int64(len(job.window))
 	s.queued++
 	s.cond.Signal()
 	return job
@@ -290,7 +290,6 @@ func (s *screener) pop() *screenJob {
 	s.q[0] = nil
 	s.q = s.q[1:]
 	s.qBytes -= job.size()
-	s.qTextBytes -= int64(len(job.window))
 	return job
 }
 
@@ -348,9 +347,10 @@ func (s *screener) nap(d time.Duration) bool {
 	return ok
 }
 
-// budgetWait reserves the job's estimated classifier tokens (chars/4) against the per-minute
-// budget, or returns how long to defer until the next minute window. A job larger than the
-// whole budget still runs when the window is empty (defer, never starve).
+// budgetWait reserves the job's estimated classifier tokens - (policy prompt + window) chars/4,
+// since the policy rides on every call - against the per-minute budget, or returns how long to
+// defer until the next minute window. A job larger than the whole budget still runs when the
+// window is empty (defer, never starve).
 func (s *screener) budgetWait(job *screenJob) time.Duration {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -358,7 +358,7 @@ func (s *screener) budgetWait(job *screenJob) time.Duration {
 	if s.budgetStart.IsZero() || now.Sub(s.budgetStart) >= time.Minute {
 		s.budgetStart, s.budgetUsed = now, 0
 	}
-	est := len(job.window)/4 + 1
+	est := (len(moderationPolicy)+len(job.window))/4 + 1
 	if s.budgetUsed > 0 && s.budgetUsed+est > s.cfg.tpm {
 		return s.budgetStart.Add(time.Minute).Sub(now)
 	}
@@ -612,7 +612,7 @@ func (s *screener) shutdown(budget time.Duration) {
 	s.workerWG.Wait()                                   // prompt: every wait and call is interruptible
 	s.mu.Lock()
 	rest := s.q
-	s.q, s.qBytes, s.qTextBytes = nil, 0, 0
+	s.q, s.qBytes = nil, 0
 	for _, j := range rest {
 		s.dropLocked(j, "shutdown")
 	}
@@ -631,7 +631,7 @@ func (s *screener) snapshot() screenerSnapshot {
 	defer s.mu.Unlock()
 	out := screenerSnapshot{Mode: s.mode, Queued: s.queued, Screened: s.screened, Flagged: s.flagged, CSAM: s.csam,
 		Dropped: map[string]int64{}, Classifier429: s.c429, ClassifierError: s.cerr,
-		QueueDepth: len(s.q), QueueBytes: s.qBytes, QueueTextBytes: s.qTextBytes, LagMaxSecs: s.lagMax.Seconds(),
+		QueueDepth: len(s.q), QueueBytes: s.qBytes, LagMaxSecs: s.lagMax.Seconds(),
 		InFlight: s.inflight, Workers: s.workers, IdleWorkers: s.idle, BackingOff: s.backingOff}
 	for k, v := range s.dropped {
 		out.Dropped[k] = v
@@ -642,10 +642,10 @@ func (s *screener) snapshot() screenerSnapshot {
 	return out
 }
 
-// adminModeration handles GET /admin/moderation (admin-authed via the shared requireAdmin
-// gate): the screener's counters + queue state, plus ?pseudonym= to list one consumer's
-// flags (metadata only; the sealed window is never serialized). A request carrying no
-// credential at all is answered 401 before the gate (the spec's unauthenticated case).
+// adminModeration handles GET /admin/moderation (admin-authed via the SAME requireAdmin gate
+// as every other admin route - 403 to anything that is not the founder): the screener's
+// counters + queue state, plus ?pseudonym= to list one consumer's flags (metadata only; the
+// sealed window is never serialized).
 func (b *broker) adminModeration(w http.ResponseWriter, r *http.Request) {
 	if corsCredsPreflight(w, r) {
 		return
@@ -654,29 +654,17 @@ func (b *broker) adminModeration(w http.ResponseWriter, r *http.Request) {
 	if !allow(w, r, http.MethodGet) {
 		return
 	}
-	if r.Header.Get("X-Roger-Admin") == "" {
-		if _, err := r.Cookie(sessionCookie); err != nil {
-			jsonErr(w, http.StatusUnauthorized, "admin auth required")
-			return
-		}
-	}
 	if b.requireAdmin(w, r) {
 		return
 	}
 	snap := b.scr.snapshot()
-	out := map[string]any{
-		"mode": snap.Mode, "queued": snap.Queued, "screened": snap.Screened, "flagged": snap.Flagged, "csam": snap.CSAM,
-		"dropped": snap.Dropped, "classifier_429": snap.Classifier429, "classifier_error": snap.ClassifierError,
-		"queue_depth": snap.QueueDepth, "queue_bytes": snap.QueueBytes, "queue_text_bytes": snap.QueueTextBytes, "oldest_age_secs": snap.OldestAgeSecs,
-		"lag_max_secs": snap.LagMaxSecs, "in_flight": snap.InFlight, "workers": snap.Workers,
-	}
 	if p := r.URL.Query().Get("pseudonym"); p != "" {
 		flags, err := b.db.ModerationFlagsByPseudonym(p, 0, 100)
 		if err != nil {
 			jsonErr(w, http.StatusInternalServerError, "store error")
 			return
 		}
-		out["flags"] = flags
+		snap.Flags = flags
 	}
-	writeJSON(w, http.StatusOK, out)
+	writeJSON(w, http.StatusOK, snap)
 }

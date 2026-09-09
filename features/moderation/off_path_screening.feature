@@ -257,7 +257,7 @@ Feature: Off-path content screening - the paid relay never waits on, fails on, o
     When a funded consumer relays three 600 KiB prompts
     Then all three relays complete with 200
     And the third screening job was dropped with reason "queue-bytes"
-    And the queue holds at most 1 MiB of screened windows
+    And the queue never holds more than the 1 MiB budget plus one request body
 
   Scenario: the per-instance classifier token budget defers, then drops, never blocks
     Given the classifier budget is 10000 tokens per minute
@@ -321,7 +321,7 @@ Feature: Off-path content screening - the paid relay never waits on, fails on, o
 
   Scenario: the admin endpoint is admin-gated like the other admin routes
     When an unauthenticated client calls GET /admin/moderation
-    Then the response is 401
+    Then the response is 403 (the shared requireAdmin gate, as /admin/csam answers)
 
   Scenario: a periodic log summary replaces per-request noise
     Given screening ran for 5 minutes
@@ -375,3 +375,17 @@ Feature: Off-path content screening - the paid relay never waits on, fails on, o
     And no relay was served with a "FAIL-OPEN" line
     And every job was screened (after backoff) or dropped as "stale" and counted
     And the relay pipeline's p99 latency equals the no-moderation baseline within 5%
+
+  # ===========================================================================
+  # 8. RETENTION - a flag is a review record with a horizon, not a permanent file
+  # ===========================================================================
+
+  Scenario: moderation flags past the retention horizon are reaped by the report retention sweep
+    Given ROGERAI_MODERATION_FLAG_RETENTION_DAYS is "90"
+    And a moderation_flags row 91 days old and one 89 days old for the same pseudonym
+    When the report retention sweep runs
+    Then the 91-day-old flag is gone and the 89-day-old flag remains
+
+  Scenario: the flag retention horizon defaults to 90 days
+    Given ROGERAI_MODERATION_FLAG_RETENTION_DAYS is unset
+    Then the moderation flag retention is 90 days

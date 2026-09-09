@@ -462,6 +462,15 @@ func (p *Postgres) AddModerationFlag(f ModerationFlag) (int64, error) {
 	return id, err
 }
 
+func (p *Postgres) PurgeModerationFlags(olderThan time.Time) (int, error) {
+	res, err := p.db.Exec(`DELETE FROM rogerai.moderation_flags WHERE created_at<=$1`, olderThan.Unix())
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return int(n), nil
+}
+
 func (p *Postgres) ModerationFlagsByPseudonym(pseudonym string, since int64, limit int) ([]ModerationFlag, error) {
 	if limit <= 0 {
 		limit = 100

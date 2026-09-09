@@ -524,6 +524,10 @@ type Store interface {
 	// (unix seconds; 0 = all), newest first, at most `limit` (<=0 = 100) - the repeat-flag
 	// alert count and the admin lookup.
 	ModerationFlagsByPseudonym(pseudonym string, since int64, limit int) ([]ModerationFlag, error)
+	// PurgeModerationFlags deletes flags created at or before olderThan (the review record's
+	// retention horizon; the report retention sweep runs it) and returns how many it removed.
+	// Idempotent.
+	PurgeModerationFlags(olderThan time.Time) (int, error)
 
 	// AddReport persists an abuse/quality report (POST /report). Returns the report id.
 	AddReport(r Report) (int64, error)

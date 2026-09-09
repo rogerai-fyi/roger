@@ -174,6 +174,16 @@ func (b *broker) reportRetentionSweep(stop <-chan struct{}) {
 	}
 }
 
+// moderationFlagRetention is how long an off-path moderation flag (a review record, never
+// an enforcement) is kept: ROGERAI_MODERATION_FLAG_RETENTION_DAYS, default 90.
+func moderationFlagRetention() time.Duration {
+	days := envInt("ROGERAI_MODERATION_FLAG_RETENTION_DAYS", 90)
+	if days <= 0 {
+		days = 90
+	}
+	return time.Duration(days) * 24 * time.Hour
+}
+
 // reportRetentionSweepOnce purges reports past their category's horizon (one sweep
 // iteration). Split out of the loop so the purge is testable without the ticker, exactly as
 // the hold and node-ban sweeps are. `now` is passed in rather than read here so a test can
@@ -187,6 +197,14 @@ func (b *broker) reportRetentionSweepOnce(now time.Time) {
 	}
 	if n > 0 {
 		log.Printf("report-retention: reaped %d report(s) past their retention horizon (%s; csam-category %s)", n, retention, csamRetention)
+	}
+	// Off-path moderation flags ride the same sweep: a review record with its own horizon
+	// (ROGERAI_MODERATION_FLAG_RETENTION_DAYS), never a permanent file.
+	flagRetention := moderationFlagRetention()
+	if fn, ferr := b.db.PurgeModerationFlags(now.Add(-flagRetention)); ferr != nil {
+		log.Printf("report-retention: moderation flag sweep failed: %v", ferr)
+	} else if fn > 0 {
+		log.Printf("report-retention: reaped %d moderation flag(s) older than %s", fn, flagRetention)
 	}
 }
 

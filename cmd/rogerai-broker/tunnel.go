@@ -1690,6 +1690,9 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else {
+		// NOTE for test authors: a broker built without a screener (b.scr == nil, e.g.
+		// relayBroker) or with a zero moderation (mode "") takes this branch and screens
+		// NOTHING; a test that expects the in-line 451/503 must set mode: modeSync.
 		screening = b.scr.submit(requestID, user, clientIP(r), req.Model, body, promptStr)
 	}
 
