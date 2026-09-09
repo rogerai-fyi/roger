@@ -25,12 +25,13 @@ import (
 )
 
 type curFailState struct {
-	t          *testing.T
-	b          *broker
-	userPriv   ed25519.PrivateKey
-	nodePriv   ed25519.PrivateKey
-	nodePubHex string
-	failedNode string
+	t             *testing.T
+	b             *broker
+	userPriv      ed25519.PrivateKey
+	nodePriv      ed25519.PrivateKey
+	nodePubHex    string
+	failedNode    string
+	strikesBefore int
 }
 
 func (s *curFailState) reset() {
@@ -74,11 +75,37 @@ func (s *curFailState) bandWithBoth() error {
 }
 
 func (s *curFailState) upstreamRefuses() error {
-	// The relay's no-usable-output signal, exactly as the serve path raises it when a
-	// station returns an error/empty body - here the curated station's upstream 502s.
+	// The relay's no-usable-output signal through the SAME gate the void path uses
+	// (maybeFlagEmptyOutput), exactly as the serve path raises it when a station returns an
+	// error/empty body - here the curated station's upstream 502s.
 	rec := protocol.UsageReceipt{RequestID: "req-fail-1", NodeID: "c1", Model: "gpt-oss-20b", PromptTokens: 10}
-	s.b.flagEmptyOutput("c1", rec, http.StatusBadGateway)
+	s.b.maybeFlagEmptyOutput("c1", "gpt-oss-20b", rec, http.StatusBadGateway, 10, "")
 	s.failedNode = "c1"
+	return nil
+}
+
+func (s *curFailState) upstreamThrottles() error {
+	// The same gate, a 429: the provider behind the curated station is throttling.
+	acct, _ := s.b.ownerOf("c1")
+	rows, err := s.b.db.StrikesByOwner(acct, 10)
+	if err != nil {
+		return err
+	}
+	s.strikesBefore = len(rows)
+	rec := protocol.UsageReceipt{RequestID: "req-fail-2", NodeID: "c1", Model: "gpt-oss-20b", PromptTokens: 10}
+	s.b.maybeFlagEmptyOutput("c1", "gpt-oss-20b", rec, http.StatusTooManyRequests, 10, "")
+	return nil
+}
+
+func (s *curFailState) noAdditionalStrike() error {
+	acct, _ := s.b.ownerOf("c1")
+	rows, err := s.b.db.StrikesByOwner(acct, 10)
+	if err != nil {
+		return err
+	}
+	if len(rows) != s.strikesBefore {
+		return fmt.Errorf("an upstream 429 added a strike (%d -> %d)", s.strikesBefore, len(rows))
+	}
 	return nil
 }
 
@@ -146,9 +173,11 @@ func TestCuratedTowerFailoverFeature(t *testing.T) {
 				return c, nil
 			})
 			sc.Step(`^a band with a tower-curated station and a human station$`, st.bandWithBoth)
-			sc.Step(`^the tower's upstream refuses a request$`, st.upstreamRefuses)
+			sc.Step(`^the tower's upstream refuses a request with a 5xx$`, st.upstreamRefuses)
 			sc.Step(`^the standard empty-output strike applies$`, st.standardStrikeApplies)
 			sc.Step(`^the retry follows the normal failover rule$`, st.retryFollowsNormalRule)
+			sc.Step(`^the tower's upstream throttles a request with a 429$`, st.upstreamThrottles)
+			sc.Step(`^no additional strike is recorded \(an upstream throttle is not operator misconduct\)$`, st.noAdditionalStrike)
 			sc.Step(`^a band with a human station and a curated station$`, st.bandWithBoth)
 			sc.Step(`^the human station fails mid-request$`, st.humanFailsMidRequest)
 			sc.Step(`^the retry may land on the curated station$`, st.retryMayLandCurated)

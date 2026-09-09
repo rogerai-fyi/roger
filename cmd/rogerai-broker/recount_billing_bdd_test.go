@@ -468,7 +468,7 @@ func (s *rcState) requestSettles() error {
 		s.voided = false
 	} else {
 		s.voided = true
-		s.b.flagEmptyOutput(s.node, rec, s.status)
+		s.b.maybeFlagEmptyOutput(s.node, s.model, rec, s.status, 0, "")       // the relay's gate (a 429 never strikes)
 		if _, err := s.b.db.Settle(s.wallet, s.node, 0, 0, rec); err != nil { // $0 metering receipt
 			return err
 		}

@@ -32,7 +32,7 @@ import (
 //     unfrozen - while an actually-abusive one is kept held because each fresh
 //     discrepancy refreshes the hold's timestamp above the expiry cutoff.
 //
-// REVIEW FLOW: discrepancy -> hold + strike (earnings frozen) -> operator sees it via
+// REVIEW FLOW: discrepancy -> strike (earnings frozen at the warn threshold) -> operator sees it via
 // GET /owner/strikes and contests it -> admin reviews the evidence -> if exonerated,
 // POST /admin/unhold {account_id, forgive:true} clears the hold + forgives strikes +
 // lifts any ban, and the next promote sweep releases the held lots; if no review
@@ -172,21 +172,84 @@ func (b *broker) ownerStrikes(w http.ResponseWriter, r *http.Request) {
 	if appeals == nil {
 		appeals = []store.Appeal{}
 	}
+	// Upstream throttles (a 429 from the provider behind a station) are voided for the
+	// consumer and recorded on the $0 receipt, NEVER as a strike - so they are counted
+	// apart here, or an operator throttled all day would see a clean strike list and no
+	// explanation for the voids.
+	throttled := 0
+	if nodes, err := b.db.NodesOfAccount(acct); err == nil {
+		throttled = b.throttledSince(nodes, time.Now().Add(-24*time.Hour).Unix())
+	}
 	appealNote := "You are in good standing - nothing to appeal."
 	if banned || len(nodeBans) > 0 || len(strikes) > 0 {
 		appealNote = "If you believe this is a mistake, file a self-serve appeal: `roger appeal --reason \"...\"` (or POST /owner/appeal). An admin reviews the evidence above; clear false positives can auto-clear."
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"strikes":     strikes,
-		"count":       len(strikes),
-		"held":        held,
-		"banned":      banned,
-		"ban_reason":  reason,
-		"node_bans":   nodeBans,
-		"appeals":     appeals,
-		"warn_at":     b.strikeWarnAt,
-		"ban_at":      b.strikeBanAt,
-		"appeal_note": appealNote,
+		"strikes":       strikes,
+		"count":         len(strikes),
+		"held":          held,
+		"banned":        banned,
+		"ban_reason":    reason,
+		"node_bans":     nodeBans,
+		"appeals":       appeals,
+		"warn_at":       b.strikeWarnAt,
+		"ban_at":        b.strikeBanAt,
+		"appeal_note":   appealNote,
+		"throttled_24h": throttled,
+		"throttle_note": throttleNote,
+	})
+}
+
+// throttleNote is the operator-facing explanation beside throttled_24h.
+const throttleNote = "Upstream throttles (HTTP 429 from the provider behind your station) are voided for the consumer and are not strikes: they never count toward a hold or a ban."
+
+// throttledSince sums the upstream-throttled void count over nodes since the unix time.
+func (b *broker) throttledSince(nodes []string, since int64) int {
+	total := 0
+	for _, n := range nodes {
+		c, _ := b.db.ThrottledCount(n, since)
+		total += c
+	}
+	return total
+}
+
+// adminNode handles GET /admin/node/{id} (admin-authed): the per-node posture the founder
+// needs when a station's voids spike - STRIKES (operator evidence accrued on its owner
+// account inside the last 24h) and THROTTLES (upstream 429 voids on this node in the last
+// 24h) as DISTINCT counters, plus the owner's hold + ban state. The Sep 7 incident read as
+// 66 strikes when it was 66 throttles; this view cannot conflate them.
+func (b *broker) adminNode(w http.ResponseWriter, r *http.Request) {
+	if corsCredsPreflight(w, r) {
+		return
+	}
+	if !allow(w, r, http.MethodGet) {
+		return
+	}
+	corsCreds(w, r)
+	if b.requireAdmin(w, r) {
+		return
+	}
+	nodeID := strings.TrimPrefix(r.URL.Path, "/admin/node/")
+	if nodeID == "" || strings.Contains(nodeID, "/") {
+		jsonErr(w, http.StatusBadRequest, "node id required: /admin/node/{id}")
+		return
+	}
+	since := time.Now().Add(-24 * time.Hour).Unix()
+	acct, owned := b.ownerOf(nodeID)
+	strikes, _, _ := b.db.OwnerStrikeStats(acct, since)
+	held, _ := b.db.AccountRecountHeld(acct)
+	banned, reason, _ := b.db.IsOwnerBanned(acct)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"node":       nodeID,
+		"account":    acct,
+		"owned":      owned,
+		"strikes":    strikes,
+		"throttled":  b.throttledSince([]string{nodeID}, since),
+		"held":       held,
+		"banned":     banned,
+		"ban_reason": reason,
+		"window":     "24h",
+		"note":       throttleNote,
 	})
 }
 

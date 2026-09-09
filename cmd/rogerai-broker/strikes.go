@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"log"
+	"net/http"
 	"os"
 	"strconv"
 	"time"
@@ -128,8 +129,8 @@ func (b *broker) strikeUnboundReceipt(nodeID, wantRequestID string, rec protocol
 
 // checkChain records the node's receipt-chain continuity.
 //
-// DETECT-AND-RECORD, and deliberately NOT a strike. A strike freezes the owner's
-// earning lots and escalates toward a ban - that is enforcement, and enforcement on
+// DETECT-AND-RECORD, and deliberately NOT a strike. A strike counts toward freezing the
+// owner's earning lots and escalates toward a ban - that is enforcement, and enforcement on
 // chain continuity is wrong today for two reasons: the node-side chain does not yet
 // survive a restart, so an honest node that restarts would be punished; and the
 // broker has only just begun recording heads, so every existing node's first receipt
@@ -156,10 +157,10 @@ func (b *broker) checkChain(nodeID, requestID string, rec protocol.UsageReceipt)
 	}
 }
 
-// strike records ONE evidence-bound strike against the node's owner account, holds the
-// owner's earning lots from promotion (survives node rotation), and escalates: at the
-// warn threshold it logs a warning the dashboard surfaces; at the ban threshold (or
-// immediately for a zero-doubt signal) it durably BANS the owner and refreshes the
+// strike records ONE evidence-bound strike against the node's owner account and
+// escalates: at the warn threshold it holds the owner's earning lots from promotion
+// (survives node rotation) and logs a warning the dashboard surfaces; at the ban
+// threshold (or immediately for a zero-doubt signal) it durably BANS the owner and refreshes the
 // in-memory owner-ban cache so pick/settle reject every current+future node under that
 // owner. idemKey makes a retried request non-double-striking. zeroDoubt forces an
 // immediate ban on the first strike (used for the impossible-input arithmetic proof).
@@ -202,12 +203,17 @@ func (b *broker) strikeAccount(acct, subjectKind, subject, kind, idemKey string,
 		log.Printf("strike: OwnerStrike(acct=%s kind=%s) failed: %v", acct, kind, err)
 		return
 	}
-	// Hold ALL of the owner's earning lots from auto-promotion pending review (the
+	// hold freezes ALL of the owner's earning lots from auto-promotion pending review (the
 	// owner-level twin of the node recount hold; survives a node-id rotation). This is the
 	// conservative, REVERSIBLE freeze (auto-expires via recountHoldSweep, cleared by admin
-	// unhold) - distinct from the durable ban below, which we gate far more tightly.
-	if err := b.db.SetAccountRecountHold(acct, true); err != nil {
-		log.Printf("strike: SetAccountRecountHold(%s) failed: %v", acct, err)
+	// unhold) - distinct from the durable ban below, which we gate far more tightly. It
+	// engages at the WARN threshold (or at once on a zero-doubt proof), not on the first
+	// strike: one honest 5xx is evidence, not a payout freeze, and a station with one error
+	// a day must not be held forever by each strike re-arming the hold's expiry.
+	hold := func() {
+		if err := b.db.SetAccountRecountHold(acct, true); err != nil {
+			log.Printf("strike: SetAccountRecountHold(%s) failed: %v", acct, err)
+		}
 	}
 	// Ban decision inputs. zeroDoubt (the impossible-input arithmetic proof) bans on the
 	// first strike, bypassing decay + corroboration. For the ACCUMULATING signals we count
@@ -229,11 +235,13 @@ func (b *broker) strikeAccount(acct, subjectKind, subject, kind, idemKey string,
 		acct, subjectKind, subject, kind, windowed, distinctKinds, b.strikeWarnAt, b.strikeBanAt, b.strikeCorroborateKinds, b.strikeDecayDays, zeroDoubt)
 	switch {
 	case zeroDoubt:
-		// Zero-doubt (impossible-input): arithmetic proof, immediate durable ban.
+		// Zero-doubt (impossible-input): arithmetic proof, immediate hold + durable ban.
+		hold()
 		b.banOwner(acct, kind, string(ev))
 		b.emailAccountBanned(b.emailOf(acct), kind, string(ev))
 	case windowed >= b.strikeBanAt && corroborated:
 		// Accumulating ban: enough RECENT strikes AND corroborated across signal classes.
+		hold()
 		b.banOwner(acct, kind, string(ev))
 		// Flag-gated transactional notice (async, best-effort): tell the owner the
 		// account was suspended, with the evidence that tripped it. No-op when
@@ -241,16 +249,20 @@ func (b *broker) strikeAccount(acct, subjectKind, subject, kind, idemKey string,
 		b.emailAccountBanned(b.emailOf(acct), kind, string(ev))
 	case windowed >= b.strikeBanAt && !corroborated:
 		// At the count threshold but only ONE signal class: do NOT ban (corroboration
-		// guard). The earnings are still held above pending review; a second distinct
-		// signal class - or admin review - is required to escalate to a durable ban.
+		// guard). The earnings are held pending review; a second distinct signal class -
+		// or admin review - is required to escalate to a durable ban.
+		hold()
 		log.Printf("STRIKE owner=%s kind=%s windowed=%d/%d but only %d/%d distinct signal class(es) - HELD (earnings frozen) but NOT banned (corroboration guard); needs a second signal class or admin review",
 			acct, kind, windowed, b.strikeBanAt, distinctKinds, b.strikeCorroborateKinds)
 		b.emailAccountWarning(b.emailOf(acct), kind, string(ev), windowed, b.strikeBanAt)
 	case windowed >= b.strikeWarnAt:
-		log.Printf("STRIKE WARNING owner=%s kind=%s windowed=%d/%d - more violations across another signal class will ban this account",
+		hold()
+		log.Printf("STRIKE WARNING owner=%s kind=%s windowed=%d/%d - earnings held; more violations across another signal class will ban this account",
 			acct, kind, windowed, b.strikeBanAt)
 		// Flag-gated transactional warning (async, best-effort). No-op when disabled.
 		b.emailAccountWarning(b.emailOf(acct), kind, string(ev), windowed, b.strikeBanAt)
+	default:
+		log.Printf("STRIKE recorded (%d/%d to warn, %d/%d to ban) - payouts not held", windowed, b.strikeWarnAt, windowed, b.strikeBanAt)
 	}
 }
 
@@ -428,15 +440,21 @@ func (b *broker) oversizedForNode(nodeID, model string, approxTokens int) bool {
 	return false
 }
 
-// maybeFlagEmptyOutput is flagEmptyOutput behind the oversize guard: an upstream
-// refusing a request bigger than its declared window is not the operator's failure.
-// Returns whether a strike was recorded.
+// maybeFlagEmptyOutput is flagEmptyOutput behind three escapes that are NOT the operator's
+// failure: an upstream refusing a request bigger than its declared window, a server
+// confessing a context overflow, and an upstream HTTP 429 (the provider behind the station
+// throttling - a capacity signal, voided for the consumer but never fraud evidence; see
+// features/safety/upstream_throttle_not_a_strike.feature). Returns whether a strike was
+// recorded.
 // upstreamErr carries the node's error text into the guard: a server SAYING
 // "exceeds the available context" is definitive evidence the chars/4 estimate
 // cannot under-count away (code/CJK prompts measure low - the audit's catch).
 // model comes from the CALLER's picked offer, never rec.Model - the node-stamped
 // field is empty on a transport-failure receipt and the guard would no-op.
 func (b *broker) maybeFlagEmptyOutput(nodeID, model string, rec protocol.UsageReceipt, status, approxTokens int, upstreamErr string) bool {
+	if status == http.StatusTooManyRequests {
+		return false // an upstream throttle is not operator misconduct (the void path logs THROTTLED)
+	}
 	// The confession is only trusted when the request PLAUSIBLY overflows: the
 	// chars/4 estimate under-counts by at most ~2x (code/CJK), so a request whose
 	// doubled estimate still fits the declared window cannot be a real overflow -
