@@ -100,6 +100,10 @@ type offerView struct {
 	InFlight int     `json:"in_flight"`
 	Capacity int     `json:"capacity"`
 	Radius   float64 `json:"radius"`
+	// CoolingUntil (unix seconds) is set while the station is in an upstream-429 cooldown:
+	// still ON AIR (online is unchanged), just not routed to until this passes. The dial
+	// marks it; omitted when the station is not cooling.
+	CoolingUntil int64 `json:"cooling_until,omitempty"`
 }
 
 // enrichOffersForNode builds the fully-enriched offerView list for ONE node, with
@@ -184,6 +188,10 @@ func (b *broker) enrichOffersForNode(out []offerView, n protocol.NodeRegistratio
 	if tq.probed && tq.probeOK {
 		radius = ucbRadius(prefBalanced.weights().c, b.totalReqs.Load(), tq.recounts, tq.probes, b.successCount[n.NodeID])
 	}
+	coolingUntil := int64(0)
+	if until, ok := b.coolingUntilLocked(n.NodeID, b.now()); ok {
+		coolingUntil = until.Unix()
+	}
 	if probeOnBrowse && live && b.probe.enabled() && staleness < 1.0 {
 		b.demandProbeSoonLocked(n.NodeID, now) // probe even a probe-dead node so it can recover
 	}
@@ -230,6 +238,7 @@ func (b *broker) enrichOffersForNode(out []offerView, n protocol.NodeRegistratio
 			Signal:   terms.Total,
 			Terms:    terms,
 			InFlight: inflight, Capacity: capacity, Radius: round6(radius),
+			CoolingUntil: coolingUntil,
 		})
 	}
 	return out

@@ -183,6 +183,7 @@ func (b *broker) adminLive(w http.ResponseWriter, r *http.Request) {
 		"now":              now.Unix(),
 		"health":           health,
 		"infra":            b.infra(),
+		"routing":          b.routingLive(),
 		"marketplace_live": b.liveMarket(now),
 		"seed_funded":      seeded,
 		"seed_limit":       seedLimit,

@@ -149,7 +149,6 @@ type streamBill struct {
 	// owner's mid-engagement price hike would not be held back on the streaming path.
 	consumer string
 	model    string
-	pricing  pricingPlan
 	grantID  string
 }
 

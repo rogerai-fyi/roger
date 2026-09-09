@@ -1246,6 +1246,16 @@ func (p *Postgres) ReleaseHoldFor(user, requestID string) (float64, error) {
 	return bal, tx.Commit()
 }
 
+// RekeyHold moves the tracked reservation row to the failover attempt's id (no wallet/ledger
+// change; a missing row is a no-op). See the Store interface.
+func (p *Postgres) RekeyHold(user, from, to string) error {
+	if from == to {
+		return nil
+	}
+	_, err := p.db.Exec(`UPDATE rogerai.pending_holds SET request_id=$3 WHERE request_id=$1 AND usr=$2`, from, user, to)
+	return err
+}
+
 // ReleaseStaleHolds reclaims every pending hold placed at or before olderThan, crediting the
 // EXACT held amount back (the deploy-orphan backstop sweep). The atomic DELETE ... RETURNING
 // makes it single-actor across instances: two brokers racing each claim disjoint rows, so

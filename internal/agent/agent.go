@@ -755,8 +755,18 @@ func serveStream(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey,
 		LineageMethod: "p0-upstream-usage-stream",
 	}
 	chainSign(cfg.NodeID, &rec, priv)
-	postResult(client, cfg, token, protocol.JobResult{ID: job.ID, Status: resp.StatusCode, Receipt: rec})
+	postResult(client, cfg, token, protocol.JobResult{ID: job.ID, Status: resp.StatusCode, Receipt: rec, RetryAfterSec: retryAfterOf(resp)})
 	return rec
+}
+
+// retryAfterOf captures the upstream's Retry-After for the broker's learned cooldown - ONLY on
+// a 429/503 (the statuses the header is defined for); a 200's stray Retry-After is ignored.
+// Normalized to whole seconds by protocol.RetryAfterSeconds (0 = none: the broker's default).
+func retryAfterOf(resp *http.Response) int {
+	if resp.StatusCode != http.StatusTooManyRequests && resp.StatusCode != http.StatusServiceUnavailable {
+		return 0
+	}
+	return protocol.RetryAfterSeconds(resp.Header.Get("Retry-After"), time.Now())
 }
 
 // withUsageOption sets stream_options.include_usage so the upstream emits a final
@@ -882,7 +892,7 @@ func serve(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey, up *h
 		LineageMethod: "p0-upstream-usage",
 	}
 	chainSign(cfg.NodeID, &rec, priv)
-	return protocol.JobResult{ID: job.ID, Status: resp.StatusCode, Body: respBody, Receipt: rec}
+	return protocol.JobResult{ID: job.ID, Status: resp.StatusCode, Body: respBody, Receipt: rec, RetryAfterSec: retryAfterOf(resp)}
 }
 
 // The canonical upstream paths the node relays to its LOCAL backend - the ONLY endpoints the

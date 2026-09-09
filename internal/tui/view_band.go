@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"rogerai.fm/roger/v6/internal/glyphs"
 	"rogerai.fm/roger/v6/internal/pricetier"
@@ -193,7 +194,7 @@ func (m model) bandDetailView(w int) string {
 			stDim.Render(pad(tpsTxt, 7)) + "  " +
 			stDim.Render(pad(fmtTtft(o.TTFTMs), 7)) + "  " +
 			pad(successCell(o.SuccessRate, o.SuccessSeen), 7) + "  " +
-			stDim.Render(hwLabelOr(o.HW))
+			stDim.Render(hwLabelOr(o.HW)) + coolingCell(o, time.Now())
 		// The grid is ~75 cells; on a narrower terminal a wrapped row shifts every row
 		// after it (the stacked-logo mechanics), so the tail columns truncate instead.
 		b.WriteString(truncVisible(row, m.effWidth()) + "\n")
@@ -226,6 +227,20 @@ func (m model) bandDetailView(w int) string {
 	b.WriteString("\n")
 	b.WriteString("       " + stLive.Render("enter · tune in") + "     " + stDim.Render("esc / ← · back") + "     " + stDim.Render("r · re-scan") + "\n")
 	return b.String()
+}
+
+// coolingCell marks a station in an upstream rate-limit COOLDOWN: still on air (the dot stays
+// lit; the band is never dark because of it), just not routed to for the seconds shown.
+// Empty when the station is not cooling.
+func coolingCell(o offer, now time.Time) string {
+	if o.CoolingUntil == 0 || !o.Online {
+		return ""
+	}
+	secs := o.CoolingUntil - now.Unix()
+	if secs <= 0 {
+		return ""
+	}
+	return "  " + stEmber.Render(fmt.Sprintf("cooling %ds", secs))
 }
 
 // hwLabelOr renders a station's privacy-bucketed hw class, or a dim "-" when unknown.

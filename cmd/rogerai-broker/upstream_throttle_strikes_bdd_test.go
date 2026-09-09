@@ -117,6 +117,18 @@ type utState struct {
 	// captured transactional mail
 	mailMu sync.Mutex
 	mails  []string
+
+	// the broker's clock: advanced past the station cooldown between relays, since a
+	// station that answered 429 is cooling (features/routing/upstream_failover.feature)
+	// and these scenarios describe throttled requests spread over a day, not one window
+	clockMu     sync.Mutex
+	clockOffset time.Duration
+}
+
+func (s *utState) now() time.Time {
+	s.clockMu.Lock()
+	defer s.clockMu.Unlock()
+	return time.Now().Add(s.clockOffset)
 }
 
 func utNonce() string {
@@ -141,6 +153,8 @@ func (s *utState) reset() error {
 		s.pg, s.db = nil, s.mem
 	}
 	s.b = relayBroker(s.db)
+	s.clockOffset = 0
+	s.b.nowFn = s.now
 	s.b.rl = &rateLimiter{buckets: map[string]*tokenBucket{}} // rpm 0 = unlimited (the replay fires 228 relays)
 	s.b.strikeWarnAt, s.b.strikeBanAt = defaultStrikeWarnAt, defaultStrikeBanAt
 	s.b.strikeCorroborateKinds, s.b.strikeDecayDays = defaultStrikeCorroborateKinds, defaultStrikeDecayDays
@@ -406,6 +420,9 @@ func (s *utState) relay(body []byte) {
 	w := httptest.NewRecorder()
 	s.b.relay(w, r)
 	s.lastCode, s.lastBody = w.Code, w.Body.Bytes()
+	s.clockMu.Lock()
+	s.clockOffset += cooldownDefault() + time.Second // the next relay lands after any cooldown this one caused
+	s.clockMu.Unlock()
 }
 
 func (s *utState) lastReqID() string {
@@ -909,8 +926,12 @@ func (s *utState) logSays(want string) error {
 }
 
 func (s *utState) streamCarriesError() error {
-	if s.lastCode != 200 {
-		return fmt.Errorf("stream status %d, want 200 (SSE headers)", s.lastCode)
+	// The upstream error reaches the consumer and the stream ends. Since
+	// features/routing/upstream_failover.feature ("SSE headers are not committed before the
+	// first upstream verdict") the no-content stream is answered with the upstream's real
+	// status + body (a 429 here) instead of a 200 wrapping the error.
+	if s.lastCode != http.StatusTooManyRequests {
+		return fmt.Errorf("stream status %d, want the upstream 429", s.lastCode)
 	}
 	if !bytes.Contains(s.lastBody, []byte("rate limit exceeded")) {
 		return fmt.Errorf("the stream did not carry the upstream error: %q", s.lastBody)
