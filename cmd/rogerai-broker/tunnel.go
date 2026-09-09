@@ -1699,6 +1699,9 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		// NOTHING; a test that expects the in-line 451/503 must set mode: modeSync.
 		screening = b.scr.submit(requestID, user, clientIP(r), req.Model, body, promptStr)
 	}
+	// On exit the job knows the station that served (the last attempt named below); a verdict
+	// that beat the relay is recorded then, off the response path. Nil-safe.
+	defer screening.served()
 
 	confidentialOnly := r.Header.Get("X-Roger-Confidential") != ""
 	// Private band tune-in: X-Roger-Freq carries the frequency code. Resolve it with
@@ -1768,9 +1771,6 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		pickReq{pref: routePref, promptTokens: promptTokens, rng: seededRand(requestID)})
 	t := b.tunnels[node.NodeID]
 	b.mu.Unlock()
-	if ok {
-		screening.setNode(node.NodeID) // the after-the-fact flag names the station (nil-safe)
-	}
 	// The pricing plan is resolved HERE, before the fan-out coin, because free/self-use
 	// traffic ($0) must never be diverted to a billed Tower - the coin has to know.
 	edgePricing := b.resolvePricing(gc, gok, user, wallet, node, offer)
@@ -1975,7 +1975,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	plan = trimPlan(plan, maxCost)
 
 	if req.Stream {
-		b.relayStream(w, plan, streamBill{user: payer, consumer: user, model: req.Model, grantID: grantID}, requestID, body, maxCost)
+		b.relayStream(w, plan, streamBill{user: payer, consumer: user, model: req.Model, grantID: grantID, screening: screening}, requestID, body, maxCost)
 		return
 	}
 
@@ -1993,6 +1993,9 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	for i := 0; i < len(plan); i++ {
 		c := plan[i]
 		node, offer, t, pricing = c.node, c.offer, c.t, c.pricing
+		// The after-the-fact flag names the station this attempt dispatches to - set per
+		// attempt, so after a failover it is the station that served, not the first pick.
+		screening.setNode(node.NodeID) // nil-safe
 		jobID := attemptID(requestID, i+1)
 		// The provider never sees the real user identity - only a pseudonym that is
 		// stable per (user, node) so the owner can count repeat customers but cannot
@@ -2511,6 +2514,7 @@ func (b *broker) relayStream(w http.ResponseWriter, plan []attemptCand, bill str
 func (b *broker) streamAttempt(lw *lazySSE, c attemptCand, bill streamBill, jobID string, body []byte, maxCost float64, settled *bool) (protocol.JobResult, bool) {
 	user, consumer, model, grantID := bill.user, bill.consumer, bill.model, bill.grantID
 	node, offer, t, pricing := c.node, c.offer, c.t, c.pricing
+	bill.screening.setNode(node.NodeID) // the after-the-fact flag names the station this attempt dispatches to (nil-safe)
 	job := protocol.Job{ID: jobID, User: b.pseudonym(consumer, node.NodeID), Body: body}
 	resCh, unreg := t.await(jobID)
 	defer unreg()

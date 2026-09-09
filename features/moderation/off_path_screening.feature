@@ -194,6 +194,28 @@ Feature: Off-path content screening - the paid relay never waits on, fails on, o
       | S5   |
       | S6   |
 
+  # REGRESSION (claude-audit, merged branch): the relay named the FIRST pick on the screening job
+  # before dispatch, so after an upstream failover the flag blamed a station that never saw the
+  # prompt. The flag must name the station that actually served (the settling attempt).
+  Scenario: a flag after a failover names the station that served
+    Given a second on-air station "n2" serving the same model, picked only after "n1"
+    And station "n1" answers every job 429
+    And the Groq stub returns "unsafe S1"
+    When a funded consumer relays a prompt
+    And the screening queue drains
+    Then the response is 200 with the station's completion body
+    And the relay failed over from "n1" to "n2"
+    And the moderation_flags row for the consumer's relay pseudonym names node "n2"
+
+  Scenario: a flag after a streaming failover names the station that served
+    Given a second on-air station "n2" serving the same model, picked only after "n1"
+    And station "n1" answers every job 429
+    And the Groq stub returns "unsafe S1"
+    When a funded consumer relays with "stream": true
+    And the screening queue drains
+    Then the relay failed over from "n1" to "n2"
+    And the moderation_flags row for the consumer's relay pseudonym names node "n2"
+
   Scenario Outline: a pass-log category is logged only (unchanged)
     Given the Groq stub returns "unsafe <code>"
     When a funded consumer relays a prompt
@@ -307,6 +329,45 @@ Feature: Off-path content screening - the paid relay never waits on, fails on, o
     Then the job was screened on the third attempt
     And the classifier-error counter reads 2
 
+  # REGRESSION (claude-audit, merged branch): on the URL adapter backend the worker called the
+  # synchronous screen(), which under require=false FAILS OPEN on a transport error / non-200 /
+  # unparseable body - so the worker counted an outage as "screened": no backoff, no stale drop,
+  # no moderation_down page. Every URL-backend outage must be a retryable classifier error,
+  # handled by the same worker logic as a Groq outage.
+  Scenario: a URL-backend outage is retried, counted, and paged like a Groq outage
+    Given MODERATION_PROVIDER is "url" with an httptest adapter
+    And the adapter returns 500 on the first call and 200 {"flagged": false} afterwards
+    When a funded consumer relays a prompt
+    And the screening queue drains
+    Then the job was screened on the second attempt
+    And the classifier-error counter reads 1
+    And no "failing open" line was logged (the outage was retried, not skipped)
+    When the adapter returns 500 for every call for 15 minutes
+    Then the founder alert "moderation_down" fired exactly once with the error class and the drop count
+
+  Scenario Outline: every URL-backend outage class is a retryable classifier error, never a silent pass
+    Given MODERATION_PROVIDER is "url" with an httptest adapter
+    And the adapter is scripted to "<outage>" on the first call and 200 {"flagged": false} afterwards
+    When a funded consumer relays a prompt
+    And the screening queue drains
+    Then the job was screened on the second attempt
+    And the classifier-error counter reads 1
+
+    Examples:
+      | outage                                  |
+      | return 503                              |
+      | return a 200 with an unparseable body   |
+      | close the connection without a response |
+
+  Scenario: a URL-backend 429 honors Retry-After and counts as a 429, not an error
+    Given MODERATION_PROVIDER is "url" with an httptest adapter
+    And the adapter returns 429 with "Retry-After: 2" on the first call and 200 {"flagged": false} afterwards
+    When a funded consumer relays a prompt
+    And the screening queue drains
+    Then the classifier was called exactly 2 times, at least 2 seconds apart
+    And the classifier-429 counter reads 1
+    And the classifier-error counter reads 0
+
   Scenario: worker concurrency is capped so a slow classifier cannot fan out connections
     Given the Groq stub delays every verdict by 3 seconds
     And the worker count is 2
@@ -390,6 +451,16 @@ Feature: Off-path content screening - the paid relay never waits on, fails on, o
     And a moderation_flags row 91 days old and one 89 days old for the same pseudonym
     When the report retention sweep runs
     Then the 91-day-old flag is gone and the 89-day-old flag remains
+
+  # REGRESSION (claude-audit, merged branch): a PurgeReports error returned early and silently
+  # disabled flag retention. The reports failure is logged and the flags purge still runs.
+  Scenario: a reports purge error does not skip the flags purge
+    Given ROGERAI_MODERATION_FLAG_RETENTION_DAYS is "90"
+    And a moderation_flags row 91 days old and one 89 days old for the same pseudonym
+    And the reports purge fails with a store error
+    When the report retention sweep runs
+    Then the 91-day-old flag is gone and the 89-day-old flag remains
+    And a "report-retention: sweep failed" line is logged
 
   Scenario: the flag retention horizon defaults to 90 days
     Given ROGERAI_MODERATION_FLAG_RETENTION_DAYS is unset
