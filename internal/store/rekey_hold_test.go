@@ -36,12 +36,14 @@ func TestRekeyHoldParity(t *testing.T) {
 			require.NoError(t, err)
 			require.InDelta(t, 9.5, bal, 1e-9)
 
-			// A missing source row, a wrong payer, or from==to are no-ops (no error, no move).
-			require.NoError(t, db.RekeyHold("w", "absent", "x"))
+			// A missing source row (swept/captured already) or a wrong payer REFUSES the move
+			// (ErrNoPendingHold: the relay must not fail over onto a reservation that is gone);
+			// from==to is a no-op.
+			require.ErrorIs(t, db.RekeyHold("w", "absent", "x"), ErrNoPendingHold)
 			ok, err = db.HoldFor("w", "req3", 1)
 			require.NoError(t, err)
 			require.True(t, ok)
-			require.NoError(t, db.RekeyHold("someone-else", "req3", "stolen"))
+			require.ErrorIs(t, db.RekeyHold("someone-else", "req3", "stolen"), ErrNoPendingHold)
 			require.NoError(t, db.RekeyHold("w", "req3", "req3"))
 			bal, err = db.ReleaseHoldFor("w", "req3")
 			require.NoError(t, err)

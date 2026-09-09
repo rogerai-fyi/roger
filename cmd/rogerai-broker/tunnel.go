@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"math/rand"
 	"net"
 	"net/http"
@@ -1862,15 +1863,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		for k := range exclude {
 			tried[k] = true
 		}
-		failAllow := allow
-		if len(privateAllow) > 0 {
-			failAllow = map[string]bool{}
-			for id := range privateAllow {
-				if allow == nil || allow[id] {
-					failAllow[id] = true
-				}
-			}
-		}
+		failAllow := bandAllow(allow, privateAllow)
 		for len(plan) < relayAttempts() {
 			b.mu.Lock()
 			n, o, ok := b.pickFor(req.Model, confidentialOnly, minTPS, maxPrice, maxPriceOut, "", tried, failAllow, privateAllow,
@@ -1927,8 +1920,11 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		held := false
-		if ceiling := planCeiling(plan); ceiling > maxCost {
-			if st, _ := b.monthlyCapCheck(w, payer, ceiling, now); st == 0 {
+		// The ceiling is only ATTEMPTED under the cap (monthlyCapFits: no notice headers, no
+		// cap email - a refused ceiling is not a refused request; the first pick was just
+		// checked above and proceeds).
+		if ceiling := planCeiling(plan); ceiling > maxCost && b.monthlyCapFits(payer, ceiling, now) {
+			{
 				ok, herr := b.db.HoldFor(payer, requestID, ceiling) // tracked: the deploy-orphan sweep reclaims it if this relay is SIGKILLed mid-flight
 				if herr != nil {
 					jsonErr(w, http.StatusInternalServerError, "wallet error")
@@ -2094,7 +2090,10 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		// counter-signature covers them (the node-sig excludes them via signingBytes).
 		rec.Curated, rec.CuratedAtCost = b.nodeCurated(rec.NodeID), b.nodeCuratedAtCost(rec.NodeID) // stamped BEFORE the broker signs, so the signature covers it
 		rec.SignBroker(b.priv)
-		cost := clampSettleCost(rec.CostWith2(billedPrompt, billedCompletion), maxCost)
+		// The clamp is the SERVING station's own ceiling (never the plan ceiling: a cheap
+		// station that over-claims must not bill up to a pricier sibling's reservation);
+		// the held amount still goes to settleRequest so Finalize returns the rest.
+		cost := clampSettleCost(rec.CostWith2(billedPrompt, billedCompletion), math.Min(maxCost, c.maxCost))
 		newBal, ferr := b.settleRequest(payer, node.NodeID, maxCost, cost, rec, grantID, pricing.free)
 		if ferr != nil {
 			// Settle failed - leave settled=false so the deferred ReleaseHold
@@ -2708,7 +2707,8 @@ func (b *broker) streamAttempt(lw *lazySSE, c attemptCand, bill streamBill, jobI
 			// SignBroker AFTER the broker counts are assigned (covers them).
 			rec.Curated, rec.CuratedAtCost = b.nodeCurated(rec.NodeID), b.nodeCuratedAtCost(rec.NodeID) // stamped BEFORE the broker signs, so the signature covers it
 			rec.SignBroker(b.priv)
-			cost := clampSettleCost(rec.CostWith2(billedPrompt, billedCompletion), maxCost)
+			// The serving station's own ceiling clamps the bill (see the relay path).
+			cost := clampSettleCost(rec.CostWith2(billedPrompt, billedCompletion), math.Min(maxCost, c.maxCost))
 			if _, ferr := b.settleRequest(user, node.NodeID, maxCost, cost, rec, grantID, pricing.free); ferr != nil {
 				// settle failed - leave settled=false so the deferred ReleaseHold refunds
 				log.Printf("stream settle FAILED user=%s node=%s: %v - releasing hold", user, node.NodeID, ferr)

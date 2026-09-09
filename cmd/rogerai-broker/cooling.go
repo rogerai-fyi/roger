@@ -56,11 +56,15 @@ func cooldownMax() time.Duration {
 var relayMinAttemptBudget = 10 * time.Second
 
 // streamCommitGrace bounds how long a streaming relay withholds its 200/SSE headers waiting
-// for the first upstream verdict. Cloudflare aborts a proxied request that has produced no
-// bytes for ~100s, so a slow first token must not starve the connection: after the grace the
+// for the first upstream verdict. It MUST stay below the installed CLI's relay-transport
+// ResponseHeaderTimeout (internal/client/client.go proxyResponseHeaderTimeout, 30s - every
+// guest operator and `roger use` stream goes through it) or a slow first token (a long
+// prefill on consumer GPUs) would die at the local proxy waiting for headers the broker is
+// deliberately holding back; Cloudflare's ~100s no-bytes cap sits further out. An upstream
+// 429 arrives in well under a second, so 20s loses no failover coverage. After the grace the
 // headers go out and failover for that stream is over (the first content chunk commits them
-// earlier in the normal case).
-var streamCommitGrace = 60 * time.Second
+// earlier in the normal case). Pinned by TestStreamCommitGraceBeatsProxyHeaderTimeout.
+var streamCommitGrace = 20 * time.Second
 
 // Cooling alert: a station cumulatively cooling for more than coolingAlertThreshold within
 // coolingAlertWindow (with the cooldowns themselves as the demand evidence: each one was a
@@ -167,17 +171,43 @@ func trimPlan(plan []attemptCand, held float64) []attemptCand {
 // nextAttempt returns the index of the next candidate to try after attempt i failed with
 // status, or -1 when the request must be answered as it stands: the failure is not routable,
 // the plan is exhausted, too little of the deadline remains, or every remaining candidate
-// started cooling since the plan was made.
+// started cooling - or left the broker - since the plan was made (a station that went off
+// air during attempt 1 still has its tunnel in the plan; dispatching into it would only burn
+// the deadline on a channel nobody drains).
 func (b *broker) nextAttempt(plan []attemptCand, i, status int, deadline time.Time) int {
 	if !failoverable(status) || (!deadline.IsZero() && time.Until(deadline) < relayMinAttemptBudget) {
 		return -1
 	}
 	for j := i + 1; j < len(plan); j++ {
-		if _, cooling := b.coolingUntil(plan[j].node.NodeID); !cooling {
+		c := plan[j]
+		if _, cooling := b.coolingUntil(c.node.NodeID); cooling {
+			continue
+		}
+		b.mu.Lock()
+		live := b.tunnels[c.node.NodeID] == c.t
+		b.mu.Unlock()
+		if live {
 			return j
 		}
 	}
 	return -1
+}
+
+// bandAllow is the allow-list a FAILOVER re-pick runs under: the request's own allow-list
+// (a grant's owner nodes; nil = everyone) unless the request rode a private band, in which
+// case the band's admission set (intersected with the allow-list) - a band request never
+// leaves the band.
+func bandAllow(allow, privateAllow map[string]bool) map[string]bool {
+	if len(privateAllow) == 0 {
+		return allow
+	}
+	out := make(map[string]bool, len(privateAllow))
+	for id := range privateAllow {
+		if allow == nil || allow[id] {
+			out[id] = true
+		}
+	}
+	return out
 }
 
 // --- cooldown state (guarded by metricsMu) --------------------------------------------------
@@ -221,7 +251,7 @@ func (b *broker) coolStation(node, model string, retryAfterSec int) time.Time {
 	b.metricsMu.Unlock()
 	b.stats.stationCooldowns.Add(1)
 	if b.shared != nil {
-		if err := b.shared.markCooling(node, until, until.Sub(now)); err != nil && err != errNoSharedStore {
+		if err := b.shared.markCooling(node, model, until, until.Sub(now)); err != nil && err != errNoSharedStore {
 			b.coolFallbackOnce.Do(func() {
 				log.Printf("cooldown: shared store unavailable (%v) - per-instance cooldown only until it returns", err)
 			})
@@ -275,9 +305,12 @@ func (b *broker) syncCooling() {
 	if b.cooling == nil {
 		b.cooling, b.coolModel, b.coolEvents = map[string]time.Time{}, map[string]string{}, map[string][]coolEvent{}
 	}
-	for node, until := range shared {
-		if now.Before(until) && until.After(b.cooling[node]) {
-			b.cooling[node] = until
+	for node, sc := range shared {
+		if now.Before(sc.until) && sc.until.After(b.cooling[node]) {
+			b.cooling[node] = sc.until
+			if sc.model != "" {
+				b.coolModel[node] = sc.model
+			}
 		}
 	}
 	b.metricsMu.Unlock()

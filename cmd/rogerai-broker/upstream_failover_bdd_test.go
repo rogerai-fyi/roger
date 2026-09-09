@@ -89,11 +89,15 @@ type recWriter struct {
 	mu        sync.Mutex
 	statuses  []int
 	firstData time.Time
+	headerAt  time.Time
 }
 
 func (r *recWriter) WriteHeader(c int) {
 	r.mu.Lock()
 	r.statuses = append(r.statuses, c)
+	if r.headerAt.IsZero() {
+		r.headerAt = time.Now()
+	}
 	r.mu.Unlock()
 	r.ResponseRecorder.WriteHeader(c)
 }
@@ -180,7 +184,10 @@ type foState struct {
 	countsBefore map[string]int
 
 	// saved knobs
-	savedWait time.Duration
+	savedWait   time.Duration
+	savedBudget time.Duration
+	savedGrace  time.Duration
+	balAfter    float64 // balance snapshot after a relay (replay assertions)
 }
 
 var foRetryAfterNum = regexp.MustCompile(`^\d+$`)
@@ -280,7 +287,7 @@ func (s *foState) reset() error {
 	s.mails = nil
 	s.snapHolds, s.snapReceipts, s.snapUpstream = 0, 0, 0
 	s.non200RA, s.ordered, s.probeBefore = nil, false, 0
-	s.savedWait = nonStreamRelayWait
+	s.savedWait, s.savedBudget, s.savedGrace = nonStreamRelayWait, relayMinAttemptBudget, streamCommitGrace
 	return nil
 }
 
@@ -331,7 +338,7 @@ func (s *foState) teardown() {
 		s.pg = nil
 	}
 	if s.savedWait > 0 {
-		nonStreamRelayWait = s.savedWait
+		nonStreamRelayWait, relayMinAttemptBudget, streamCommitGrace = s.savedWait, s.savedBudget, s.savedGrace
 	}
 	_ = os.Unsetenv("ROGERAI_RELAY_FAILOVER")
 }
@@ -600,6 +607,9 @@ func (st *fstation) postedResults() []map[string]any {
 
 // --- consumer plumbing -------------------------------------------------------
 
+// utRealCompletionBody is the byte-exact completion utRealCompletion serves.
+const utRealCompletionBody = `{"choices":[{"message":{"role":"assistant","content":"The answer is 4."}}],"usage":{"prompt_tokens":5000,"completion_tokens":20}}`
+
 func (s *foState) fund(amount float64) error {
 	if _, err := s.db.AddCredits(s.wallet, amount); err != nil {
 		return err
@@ -803,10 +813,18 @@ func (s *foState) voidReasonOf(name string) (string, string, error) {
 	return vr, es[0].RequestID, nil
 }
 
+// holdRows counts the consumer's ledger: holds, releases, CHARGES (non-zero spend rows) and
+// the $0 metering rows a voided attempt writes (voidRows) - reported apart so a scenario can
+// pin both "charged once" and "every failed attempt left its $0 receipt row".
 func (s *foState) holdRows() (holds, releases, spends int, holdAmt float64, err error) {
+	holds, releases, spends, _, holdAmt, err = s.ledgerRows()
+	return
+}
+
+func (s *foState) ledgerRows() (holds, releases, spends, voidRows int, holdAmt float64, err error) {
 	rows, err := s.db.LedgerOf(s.wallet, []string{store.KindHold, store.KindHoldRelease, store.KindSpend}, 5000)
 	if err != nil {
-		return 0, 0, 0, 0, err
+		return 0, 0, 0, 0, 0, err
 	}
 	for _, r := range rows {
 		switch r.Kind {
@@ -816,8 +834,10 @@ func (s *foState) holdRows() (holds, releases, spends int, holdAmt float64, err 
 		case store.KindHoldRelease:
 			releases++
 		case store.KindSpend:
-			if r.Amount != 0 { // a voided attempt's $0 metering row is not a charge
+			if r.Amount != 0 {
 				spends++
+			} else {
+				voidRows++
 			}
 		}
 	}
@@ -950,9 +970,21 @@ func (s *foState) s1StatusBody(status, body string) error {
 
 func (s *foState) fourAll429() error {
 	for _, n := range []string{"s1", "s2", "s3", "s4"} {
-		s.standUp(n, stationOpts{priceIn: 1, priceOut: 1}).script429("")
+		st := s.standUp(n, stationOpts{priceIn: 1, priceOut: 1})
+		st.scriptStatus(429, `{"error":{"message":"rate limit exceeded at `+st.id+`"}}`, nil)
 	}
 	return nil
+}
+
+// lastAttemptStation reads the station the final attempt went to from the FAILOVER log lines.
+func (s *foState) lastAttemptStation() string {
+	last := ""
+	for _, line := range strings.Split(s.logs.String(), "\n") {
+		if i := strings.Index(line, " to="); strings.Contains(line, "FAILOVER request=") && i >= 0 {
+			last = strings.TrimSpace(line[i+4:])
+		}
+	}
+	return last
 }
 
 func (s *foState) twoBoth500() error {
@@ -971,6 +1003,7 @@ func (s *foState) s1Holds85s() error {
 		return err
 	}
 	nonStreamRelayWait = 2 * time.Second
+	relayMinAttemptBudget = nonStreamRelayWait / 9 // the production 10s-of-90s ratio
 	hold := 1900 * time.Millisecond
 	s.st("s1").set(func(_ int, w http.ResponseWriter, _ *http.Request) {
 		time.Sleep(hold)
@@ -989,6 +1022,69 @@ func (s *foState) threeS1_429() error {
 	return nil
 }
 
+// s2GoesOffAir: while s1 is serving the first attempt, s2 leaves the broker (its tunnel and
+// registration are gone by the time the failover looks for it).
+func (s *foState) s2GoesOffAir() error {
+	s1, s2 := s.st("s1"), s.st("s2")
+	s1.set(func(_ int, w http.ResponseWriter, _ *http.Request) {
+		s.b.mu.Lock()
+		delete(s.b.tunnels, s2.id)
+		delete(s.b.nodes, s2.id)
+		s.b.mu.Unlock()
+		w.WriteHeader(429)
+		_, _ = w.Write([]byte(utDefaultBody(429)))
+	})
+	return nil
+}
+
+func (s *foState) privateBandSingle() error {
+	s.standUp("s1", stationOpts{priceIn: 1, priceOut: 1}).script429("")
+	s.standUp("s3", stationOpts{priceIn: 1, priceOut: 1}).scriptReal()
+	s.b.private[s.st("s1").id] = true
+	code := "147.520 MHz · ABCD-" + strings.ToUpper(s.nonce[:4])
+	s.freq = code
+	return s.db.CreateBand(store.Band{ID: "band_" + s.nonce, CodeHash: protocol.BandCodeHash(code), CodeDisplay: "147.520 MHz · ••••-••••",
+		Owner: s.st("s1").acct, NodeID: s.st("s1").id, CreatedAt: time.Now().Unix()})
+}
+
+func (s *foState) s1PriceyS2Overclaims() error {
+	s.standUp("s1", stationOpts{priceIn: 2, priceOut: 2}).script429("")
+	// s2 claims a million completion tokens for a 4-word answer (the L1 recount stub counts
+	// a million too, so nothing clamps the claim but the hold ceiling).
+	s.standUp("s2", stationOpts{priceIn: 1, priceOut: 1}).scriptStatus(200,
+		`{"choices":[{"message":{"role":"assistant","content":"The answer is 4."}}],"usage":{"prompt_tokens":5000,"completion_tokens":1000000}}`, nil)
+	return nil
+}
+
+func (s *foState) sweepReclaimsHold() error {
+	st := s.st("s1")
+	st.set(func(_ int, w http.ResponseWriter, _ *http.Request) {
+		// The deploy-orphan backstop reclaims every pending hold (as if this relay's hold had
+		// aged past the TTL while s1 was serving).
+		if _, err := s.db.ReleaseStaleHolds(time.Now().Add(time.Hour)); err != nil {
+			panic(err)
+		}
+		w.WriteHeader(429)
+		_, _ = w.Write([]byte(utDefaultBody(429)))
+	})
+	return nil
+}
+
+func (s *foState) s1ServesS2Pricier() error {
+	s.standUp("s1", stationOpts{priceIn: 1, priceOut: 1}).scriptReal()
+	s.standUp("s2", stationOpts{priceIn: 2, priceOut: 2}).scriptReal()
+	return nil
+}
+
+func (s *foState) monthlyCapFitsS1() error {
+	if err := s.ensureFunded(); err != nil {
+		return err
+	}
+	c1 := estimateMaxCost(s.body(false), 1, 1, 32768)
+	c2 := estimateMaxCost(s.body(false), 2, 2, 32768)
+	return s.db.SetMonthlyCap(s.wallet, (c1+c2)/2)
+}
+
 func (s *foState) cheapS1PriceyS2() error {
 	s.standUp("s1", stationOpts{priceIn: 0.5, priceOut: 0.5}).script429("")
 	s.standUp("s2", stationOpts{priceIn: 5, priceOut: 5}).scriptReal()
@@ -1004,19 +1100,6 @@ func (s *foState) confidentialTrio() error {
 	s.b.confidential[s.st("s1").id] = true
 	s.b.confidential[s.st("s2").id] = true
 	return nil
-}
-
-func (s *foState) privateBand() error {
-	for _, n := range []string{"s1", "s2", "s3"} {
-		s.standUp(n, stationOpts{priceIn: 1, priceOut: 1}).scriptReal()
-	}
-	s.st("s1").script429("")
-	s.b.private[s.st("s1").id] = true
-	s.b.private[s.st("s2").id] = true
-	code := "147.520 MHz · ABCD-" + strings.ToUpper(s.nonce[:4])
-	s.freq = code
-	return s.db.CreateBand(store.Band{ID: "band_" + s.nonce, CodeHash: protocol.BandCodeHash(code), CodeDisplay: "147.520 MHz · ••••-••••",
-		Owner: s.st("s1").acct, NodeID: s.st("s1").id, CreatedAt: time.Now().Unix()})
 }
 
 func (s *foState) failoverKnob(v string) error { return os.Setenv("ROGERAI_RELAY_FAILOVER", v) }
@@ -1089,6 +1172,24 @@ func (s *foState) s1DiesMidStream() error {
 	}
 	s.st("s1").scriptStream(2, true)
 	s.st("s2").scriptStream(3, false)
+	return nil
+}
+
+func (s *foState) s1SlowFirstChunk() error {
+	st := s.only("s1")
+	streamCommitGrace = 400 * time.Millisecond // the 20s production grace, scaled with the 25s first chunk below
+	st.set(func(_ int, w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(200)
+		f, _ := w.(http.Flusher)
+		time.Sleep(600 * time.Millisecond)
+		fmt.Fprintf(w, "data: {\"choices\":[{\"delta\":{\"content\":\"chunk1 from s1 \"}}]}\n\n")
+		if f != nil {
+			f.Flush()
+		}
+		fmt.Fprint(w, "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":5000,\"completion_tokens\":20}}\n\n")
+		fmt.Fprint(w, "data: [DONE]\n\n")
+	})
 	return nil
 }
 
@@ -1197,6 +1298,9 @@ func (s *foState) s1_429ThreeTimes() error {
 	st := s.only("s1")
 	st.set(func(n int, w http.ResponseWriter, _ *http.Request) {
 		time.Sleep(time.Duration(n) * 250 * time.Millisecond)
+		if n > 1 {
+			s.advance(2 * time.Second) // the 2nd and 3rd 429 land 2s and 4s after the first
+		}
 		w.Header().Set("Retry-After", "10")
 		w.WriteHeader(429)
 		_, _ = w.Write([]byte(utDefaultBody(429)))
@@ -1297,6 +1401,10 @@ func (s *foState) s1_20_s2_5() error {
 
 func (s *foState) onlyS1Cooling() error {
 	s.only("s1").scriptReal()
+	// The gap checker has seen the band on air (alertOnAirSeen) before it cools, so a
+	// cooling-induced drop would be detectable - and must not happen.
+	s.b.adminEmails = []string{"founder@example.com"}
+	s.b.alertCheckOnce(s.now())
 	return s.cool("s1", 30)
 }
 
@@ -1315,8 +1423,14 @@ func (s *foState) all429LastRA(n string) error {
 	if err := s.twoSamePrice(); err != nil {
 		return err
 	}
-	s.st("s1").script429(n)
-	s.st("s2").script429(n)
+	for _, name := range []string{"s1", "s2"} {
+		st := s.st(name)
+		hdr := map[string]string{}
+		if n != "" {
+			hdr["Retry-After"] = n
+		}
+		st.scriptStatus(429, `{"error":{"message":"rate limit exceeded at `+st.id+`"}}`, hdr) // distinct bodies: the LAST one must win
+	}
 	return nil
 }
 
@@ -1737,8 +1851,42 @@ func (s *foState) replayResult() error {
 	if len(res) == 0 {
 		return fmt.Errorf("s2 posted no result to replay")
 	}
+	bal, err := s.balance()
+	if err != nil {
+		return err
+	}
+	s.balAfter = bal
+	// The bus redelivery: the waiter is gone, so the copy is dropped at the door.
 	wire, _ := json.Marshal(res[len(res)-1])
 	s.deliverRaw(st, wire)
+	// And the settlement itself replayed: Finalize the same attempt receipt again through the
+	// store (a peer instance settling the duplicate) - idempotent by request id.
+	es, err := s.entriesOf("s2")
+	if err != nil {
+		return err
+	}
+	if len(es) != 1 {
+		return fmt.Errorf("%d s2 receipts", len(es))
+	}
+	rec, _, err := s.storedReceipt(es[0].RequestID)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Finalize(s.wallet, st.id, 1, es[0].Cost, es[0].Cost*0.7, rec)
+	return err
+}
+
+func (s *foState) oneSpendRowBalanceUnchanged() error {
+	if err := s.oneSpendRow(); err != nil {
+		return err
+	}
+	bal, err := s.balance()
+	if err != nil {
+		return err
+	}
+	if err := feApprox(bal, s.balAfter); err != nil {
+		return fmt.Errorf("balance moved on the replay: %.6f -> %.6f", s.balAfter, bal)
+	}
 	return nil
 }
 
@@ -2023,8 +2171,12 @@ func (s *foState) is200From(name string) error {
 	if s.lastCode != 200 {
 		return fmt.Errorf("status %d, want 200 (%s)", s.lastCode, s.lastBody)
 	}
-	if !bytes.Contains(s.lastBody, []byte("The answer is 4.")) && !bytes.Contains(s.lastBody, []byte("from "+name)) {
-		return fmt.Errorf("body is not %s's completion: %s", name, s.lastBody)
+	if bytes.HasPrefix(bytes.TrimSpace(s.lastBody), []byte("data:")) {
+		if !bytes.Contains(s.lastBody, []byte("from "+name)) {
+			return fmt.Errorf("stream is not %s's: %s", name, s.lastBody)
+		}
+	} else if !bytes.Equal(bytes.TrimSpace(s.lastBody), []byte(utRealCompletionBody)) {
+		return fmt.Errorf("body is not exactly %s's completion: %s", name, s.lastBody)
 	}
 	if p := s.lastHdr.Get("X-RogerAI-Provider"); p != s.st(name).id {
 		return fmt.Errorf("X-RogerAI-Provider=%q, want %s", p, s.st(name).id)
@@ -2072,7 +2224,14 @@ func (s *foState) chargedOnceS2() error {
 	if err := feApprox(bal, s.start-es[0].Cost); err != nil {
 		return fmt.Errorf("balance %.6f, want start %.6f - cost %.6f", bal, s.start, es[0].Cost)
 	}
-	return s.oneSpendRow()
+	_, _, spends, voidRows, _, err := s.ledgerRows()
+	if err != nil {
+		return err
+	}
+	if spends != 1 || voidRows != 1 {
+		return fmt.Errorf("charges=%d $0 metering rows=%d, want 1 charge (s2) and 1 void row (s1)", spends, voidRows)
+	}
+	return nil
 }
 
 func (s *foState) s1VoidReason(reason string) error {
@@ -2134,6 +2293,9 @@ func (s *foState) is429LastBodyRA() error {
 	}
 	if s.lastHdr.Get("Retry-After") == "" {
 		return fmt.Errorf("no Retry-After on the final 429")
+	}
+	if last := s.lastAttemptStation(); last != "" && !bytes.Contains(s.lastBody, []byte(last)) {
+		return fmt.Errorf("body %s is not the LAST station's (%s)", s.lastBody, last)
 	}
 	return nil
 }
@@ -2197,6 +2359,15 @@ func (s *foState) firstFailureVoided() error {
 	if s.lastCode != 500 && s.lastCode != 504 {
 		return fmt.Errorf("status %d, want the 500/504 first-failure outcome", s.lastCode)
 	}
+	if s.lastCode == 500 {
+		vr, _, err := s.voidReasonOf("s1")
+		if err != nil {
+			return err
+		}
+		if vr != "upstream-error" {
+			return fmt.Errorf("s1 void_reason=%q, want upstream-error", vr)
+		}
+	}
 	return s.chargedZero()
 }
 
@@ -2211,9 +2382,6 @@ func (s *foState) failoverTo(to string) error {
 }
 
 func (s *foState) failoverToNever(to, never string) error {
-	if s.freq != "" {
-		return s.bandFailover(to, never)
-	}
 	if to == "f2" {
 		return s.anonFailover(to, never)
 	}
@@ -2247,25 +2415,85 @@ func (s *foState) is429WithRA() error {
 	return nil
 }
 
-func (s *foState) bandFailover(to, never string) error {
-	// A private band is ONE station in this codebase (Band.NodeID; resolveFreqAllow admits
-	// exactly that node), so the freq-routed relay cannot leave the band: it must not reach
-	// the public s3, and with s1 the band's only station it answers 429 + Retry-After.
-	if err := s.receivedNothing(never); err != nil {
-		return err
-	}
-	if s.st("s1").upstreamCount() != 1 {
-		return fmt.Errorf("s1 received %d, want 1", s.st("s1").upstreamCount())
-	}
+func (s *foState) is429RANothing(name string) error {
 	if err := s.is429WithRA(); err != nil {
 		return err
 	}
-	// The routing filter itself, for a hypothetical two-station band: admitting {s1,s2}
-	// and excluding the failed s1 yields s2, never the public s3.
-	allow := map[string]bool{s.st("s1").id: true, s.st(to).id: true}
-	n, ok := s.pickOK("", map[string]bool{s.st("s1").id: true}, allow, s.b)
-	if !ok || n.NodeID != s.st(to).id {
-		return fmt.Errorf("band re-pick = %s ok=%v, want %s", n.NodeID, ok, s.st(to).id)
+	return s.receivedNothing(name)
+}
+
+func (s *foState) chargedAtMostS2Ceiling() error {
+	if s.lastCode != 200 {
+		return fmt.Errorf("status %d (%s)", s.lastCode, s.lastBody)
+	}
+	es, err := s.entriesOf("s2")
+	if err != nil {
+		return err
+	}
+	if len(es) != 1 || es[0].Cost <= 0 {
+		return fmt.Errorf("s2 receipts %+v, want one settled charge", es)
+	}
+	own := estimateMaxCost(s.body(false), 1, 1, 32768)
+	if es[0].Cost > own+1e-12 {
+		return fmt.Errorf("charged %.6f > s2's own ceiling %.6f (the plan ceiling at 2.00/2.00 is %.6f)", es[0].Cost, own, estimateMaxCost(s.body(false), 2, 2, 32768))
+	}
+	bal, err := s.balance()
+	if err != nil {
+		return err
+	}
+	return feApprox(bal, s.start-es[0].Cost)
+}
+
+func (s *foState) chargedZeroNoHoldRemains() error {
+	if err := s.chargedZero(); err != nil {
+		return err
+	}
+	holds, releases, _, _, err := s.holdRows()
+	if err != nil {
+		return err
+	}
+	if holds != 1 || releases != 1 {
+		return fmt.Errorf("holds=%d releases=%d, want 1/1 (the sweep released once; the relay must not refund again)", holds, releases)
+	}
+	return nil
+}
+
+func (s *foState) servedNoCapNotice() error {
+	if err := s.is200From("s1"); err != nil {
+		return err
+	}
+	if n := s.lastHdr.Get("X-RogerAI-Monthly-Notice"); strings.Contains(n, "limit reached") {
+		return fmt.Errorf("served response carries %q", n)
+	}
+	s.mailMu.Lock()
+	defer s.mailMu.Unlock()
+	for _, m := range s.mails {
+		if strings.Contains(strings.ToLower(m), "monthly") {
+			return fmt.Errorf("a cap email went out for a request that was served: %s", m)
+		}
+	}
+	return nil
+}
+
+func (s *foState) sseHeadersEarly() error {
+	s.lastRec.mu.Lock()
+	h, fd := s.lastRec.headerAt, s.lastRec.firstData
+	s.lastRec.mu.Unlock()
+	if h.IsZero() {
+		return fmt.Errorf("no headers were written")
+	}
+	if got := h.Sub(s.relayStart); got > 500*time.Millisecond {
+		return fmt.Errorf("headers committed after %s, past the (scaled) 20s grace", got)
+	}
+	if !fd.IsZero() && !h.Before(fd) {
+		return fmt.Errorf("headers were only committed by the first chunk (%s), not by the grace", fd.Sub(s.relayStart))
+	}
+	return nil
+}
+
+func (s *foState) streamCompletesS1() error {
+	if s.lastCode != 200 || !bytes.Contains(s.lastBody, []byte("chunk1 from s1")) {
+		return fmt.Errorf("stream %d %s", s.lastCode, s.lastBody)
 	}
 	return nil
 }
@@ -2482,7 +2710,32 @@ func (s *foState) streamEndsAsToday() error {
 	if s.lastCode != 200 || !bytes.Contains(s.lastBody, []byte("chunk2 from s1")) {
 		return fmt.Errorf("partial stream not delivered: %d %s", s.lastCode, s.lastBody)
 	}
-	return nil
+	// Today's mid-stream rule: the station's receipt is SETTLED (not voided - the consumer
+	// got output), at the tokens the station could claim before the connection died (no
+	// usage chunk arrived, so its claim is 0 and the bill is $0); the hold is captured and
+	// returned once; the sibling is never touched.
+	es, err := s.entriesOf("s1")
+	if err != nil {
+		return err
+	}
+	if len(es) != 1 {
+		return fmt.Errorf("s1 receipts %+v, want exactly one", es)
+	}
+	_, keys, err := s.storedReceipt(es[0].RequestID)
+	if err != nil {
+		return err
+	}
+	if vr, ok := keys["void_reason"]; ok {
+		return fmt.Errorf("the partial stream was VOIDED (%v); today's rule settles it", vr)
+	}
+	holds, releases, _, _, err := s.holdRows()
+	if err != nil {
+		return err
+	}
+	if holds != 1 || releases != 1 {
+		return fmt.Errorf("holds=%d releases=%d, want 1/1", holds, releases)
+	}
+	return s.receivedNothing("s2")
 }
 
 func (s *foState) single200() error {
@@ -2611,8 +2864,10 @@ func (s *foState) extendNotStack() error {
 	if err != nil {
 		return err
 	}
-	if ra > 10 || ra < 9 {
-		return fmt.Errorf("cooling Retry-After %d after three 429s, want 10 (not 30)", ra)
+	// 10s after the LAST 429 (at +4s) is 10 from now; stacked would read ~30, "after the
+	// FIRST" would read 6.
+	if ra != 10 {
+		return fmt.Errorf("cooling Retry-After %d after three 429s, want exactly 10", ra)
 	}
 	return nil
 }
@@ -2714,10 +2969,20 @@ func (s *foState) marketOnAirCooling() error {
 func (s *foState) noProvidersAlert() error {
 	key := "noproviders:" + s.model
 	s.b.alertMu.Lock()
-	firing := s.b.alertFiring[key]
+	firing, seen := s.b.alertFiring[key], s.b.alertOnAirSeen[s.model]
 	s.b.alertMu.Unlock()
+	if !seen {
+		return fmt.Errorf("the checker never saw %s on air - the scenario proves nothing", s.model)
+	}
 	if firing {
 		return fmt.Errorf("%q fired for a cooling-only band", key)
+	}
+	s.mailMu.Lock()
+	defer s.mailMu.Unlock()
+	for _, m := range s.mails {
+		if strings.Contains(m, "0 providers") {
+			return fmt.Errorf("a 0-providers page went out: %s", m)
+		}
 	}
 	return nil
 }
@@ -2807,8 +3072,10 @@ func TestUpstreamFailoverBDD(t *testing.T) {
 			sc.Step(`^"s1" \(confidential\) 429s, "s2" is confidential, "s3" is not$`, st.confidentialTrio)
 			sc.Step(`^a confidential-only relay is made$`, st.confidentialRelay)
 			sc.Step(`^the failover goes to "([^"]*)"$`, st.failoverTo)
-			sc.Step(`^"s1" and "s2" are on private band B and "s3" is public; "s1" 429s$`, st.privateBand)
+			sc.Step(`^"s2" goes off air while "s1" is serving the first attempt$`, st.s2GoesOffAir)
+			sc.Step(`^"s1" is the only station on private band B and 429s, and a public "s3" serves "m"$`, st.privateBandSingle)
 			sc.Step(`^a band-B relay is made$`, st.bandRelay)
+			sc.Step(`^the response is 429 with Retry-After and "([^"]*)" received nothing$`, st.is429RANothing)
 			sc.Step(`^ROGERAI_RELAY_FAILOVER is "([^"]*)"$`, st.failoverKnob)
 			sc.Step(`^"s1" 429s and "s2" is healthy$`, st.s1_429_s2Healthy)
 			sc.Step(`^a funded consumer relays and lands on "([^"]*)"$`, st.relayLandsOn)
@@ -2828,6 +3095,14 @@ func TestUpstreamFailoverBDD(t *testing.T) {
 			sc.Step(`^"s3" has a settled receipt$`, st.s3Settled)
 			sc.Step(`^all three share the consumer's request id lineage \(attempt 1, 2, 3\)$`, st.lineage123)
 			sc.Step(`^"s1" 429s and "s2" serves$`, st.s1_429_s2Serves)
+			sc.Step(`^"s1" at 2\.00/2\.00 429s and "s2" at 1\.00/1\.00 serves but over-claims its tokens$`, st.s1PriceyS2Overclaims)
+			sc.Step(`^the consumer is charged at most "s2"'s own max cost, not the plan ceiling$`, st.chargedAtMostS2Ceiling)
+			sc.Step(`^the backstop sweep reclaims the consumer's hold while "s1" is serving the first attempt$`, st.sweepReclaimsHold)
+			sc.Step(`^the response is 429 with Retry-After and "s2"'s upstream received nothing$`, func() error { return st.is429RANothing("s2") })
+			sc.Step(`^the consumer was charged 0 and no hold row remains$`, st.chargedZeroNoHoldRemains)
+			sc.Step(`^"s1" at 1\.00/1\.00 serves and "s2" at 2\.00/2\.00 serves$`, st.s1ServesS2Pricier)
+			sc.Step(`^the consumer's monthly cap fits "s1"'s max cost but not "s2"'s$`, st.monthlyCapFitsS1)
+			sc.Step(`^the response is 200 from "s1" with no "monthly limit reached" notice and no cap email$`, st.servedNoCapNotice)
 			sc.Step(`^"([^"]*)"'s owner has no earn row and no strike$`, st.ownerNoEarnNoStrike)
 			sc.Step(`^"([^"]*)"'s owner has one pending earn row$`, st.ownerOneEarn)
 			sc.Step(`^a grant with a daily token cap and "s1" 429s, "s2" serves$`, st.grantWithCap)
@@ -2845,6 +3120,9 @@ func TestUpstreamFailoverBDD(t *testing.T) {
 			sc.Step(`^a funded consumer relays with "stream": true$`, func() error { st.landOn("s1"); return st.fundedStream() })
 			sc.Step(`^the stream ends as today \(partial output, settled per today's mid-stream rule\)$`, st.streamEndsAsToday)
 			sc.Step(`^the consumer receives a single 200 response \(no 429 leaked before the failover\)$`, st.single200)
+			sc.Step(`^"s1" streams its first chunk after 25 seconds$`, st.s1SlowFirstChunk)
+			sc.Step(`^the SSE headers were committed within 20 seconds, before the local proxy's 30 second header timeout$`, st.sseHeadersEarly)
+			sc.Step(`^the stream completes with "s1"'s chunks$`, st.streamCompletesS1)
 			sc.Step(`^"s1" and "s2" both 429 with Retry-After (\d+)$`, st.both429RetryAfter)
 			sc.Step(`^the response is 429 \(not a 200 with an error event\) with Retry-After (\d+)$`, st.stream429RA)
 
@@ -2939,7 +3217,7 @@ func TestUpstreamFailoverBDD(t *testing.T) {
 			sc.Step(`^(\d+) probe rounds run$`, st.probeRounds)
 			sc.Step(`^"s1" is excluded by the probe dead streak and its owner has zero earnings and zero strikes$`, st.quarantined)
 			sc.Step(`^the same request is replayed on the bus \(multi-instance duplicate result\)$`, st.replayResult)
-			sc.Step(`^exactly one spend row exists for the request$`, st.oneSpendRow)
+			sc.Step(`^exactly one spend row exists for the request$`, st.oneSpendRowBalanceUnchanged)
 			sc.Step(`^"s1" 429s with a body naming "s1" and "s2" serves$`, st.s1_429NamingItself)
 			sc.Step(`^the response body is exactly "s2"'s completion$`, st.bodyExactlyS2)
 
