@@ -15,7 +15,7 @@
 # input and returns nothing usable - a fraud / quality signal about the operator. An upstream
 # HTTP 429 is a capacity signal about the provider behind the station. It is voided for the
 # consumer exactly as today, it is recorded for audit, it feeds ROUTING (cooldown, see
-# features/routing/upstream_backpressure.feature), and it is NEVER a strike, never a hold, never
+# features/routing/upstream_failover.feature), and it is NEVER a strike, never a hold, never
 # a ban input, and never a success in the health average either.
 #
 # PRECEDENT: features/security/known_vulnerabilities.feature "An all-reasoning reply is real
@@ -210,16 +210,15 @@ Feature: An upstream HTTP 429 voids the request for the consumer but never strik
     And the shared-store in-flight mirror agrees
 
   # ===========================================================================
-  # 4. DECISION POINT - when does a strike freeze payouts? (founder ruling needed)
+  # 4. RULED 2026-09-08 (founder): the payout hold engages at the warn threshold, not on the
+  #    first strike ("strike 1-2 are evidence only; payouts freeze at 3; impossible-input still
+  #    bans instantly"). Applies to every strike kind, since strikeAccount is the shared ladder.
   # ===========================================================================
-  # Today (strikes.go:117) EVERY strike of EVERY kind calls SetAccountRecountHold(acct, true)
-  # before any threshold is consulted: one honest 503 freezes an operator's entire payout queue
-  # for up to ROGERAI_RECOUNT_HOLD_DAYS (7), and each fresh strike re-inserts the hold with a new
-  # created_at, so a station with one error a day is held forever. The 429 carve-out above fixes
-  # the Sep 7 incident on its own. The scenarios in this Rule propose the payout freeze move to
-  # the WARN threshold (windowed >= strikeWarnAt, default 3) so a single accident is evidence,
-  # not a freeze. If the founder prefers today's freeze-on-first-strike, DELETE this Rule and the
-  # rest of the spec stands.
+  # Before this rule EVERY strike of EVERY kind called SetAccountRecountHold(acct, true) before
+  # any threshold was consulted: one honest 503 froze an operator's entire payout queue for up to
+  # ROGERAI_RECOUNT_HOLD_DAYS (7), and each fresh strike re-inserted the hold with a new
+  # created_at, so a station with one error a day was held forever. The 429 carve-out above fixes
+  # the Sep 7 incident on its own; this Rule makes a single accident evidence, not a freeze.
 
   Rule: The payout hold engages at the warn threshold, not on the first strike
 

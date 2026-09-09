@@ -36,8 +36,13 @@
 #      classifier-429 / classifier-error / lag) are exposed on an admin-gated endpoint and summarized
 #      in the log; a sustained classifier outage or drop rate pages the founder ONCE (onset dedup).
 #
-# SUPERSEDES (needs the founder's explicit re-approval - these approved scenarios pin the OLD
-# synchronous gate and will be retired, not weakened in place):
+# SUPERSEDES (founder re-approved 2026-09-08 together with this spec: async is the production
+# default, and the scenarios below are kept executable under ROGERAI_MODERATION_MODE=sync by one
+# added Given line each, so the legacy gate stays pinned and revertible rather than deleted).
+# RELEASE NOTE: on deploy, prod (mode unset, require=1) moves from pre-dispatch blocking to
+# record-after-the-fact for S1/S3/S5/S6 and CSAM; set ROGERAI_MODERATION_MODE=sync to hold the
+# old posture. The founder acknowledged that the head+tail window does not screen the middle of
+# a very long prompt and that the prompt reaches the station before any verdict.
 #   - features/relay/spend.feature "Moderation gates the spend path before any node is paid"
 #   - features/voice/relay_guardrails.feature "the moderation screen still runs on capped-size
 #     input first" (the 451-before-hold clause; the size cap itself survives)
