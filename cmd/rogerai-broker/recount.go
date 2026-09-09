@@ -489,6 +489,20 @@ func producedUsableOutput(status int, completion string, claimedCompletion int) 
 	return claimedCompletion > 0 // usage backstop: the model reported generated tokens
 }
 
+// voidReasonFor names why producedUsableOutput said no, for the receipt's void_reason: a
+// 429 is the provider throttling (never a strike), any other error status is an upstream
+// error, and a 2xx that carried nothing usable is a genuine empty output.
+func voidReasonFor(status int) string {
+	switch {
+	case status == http.StatusTooManyRequests:
+		return protocol.VoidUpstreamThrottled
+	case status >= 400:
+		return protocol.VoidUpstreamError
+	default:
+		return protocol.VoidEmptyOutput
+	}
+}
+
 // recountModel is the model id to tokenize under: prefer the receipt's claimed
 // model (the canonical tokenizer key), fall back to the request model.
 func recountModel(rec protocol.UsageReceipt, reqModel string) string {

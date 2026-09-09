@@ -888,6 +888,7 @@ func (b *broker) routes() *http.ServeMux {
 	mux.HandleFunc("/owner/appeal", b.ownerAppeal)                                                    // owner-authed: file a self-serve appeal (GET = the caller's appeals/status)
 	mux.HandleFunc("/admin/unhold", b.adminUnhold)                                                    // admin-authed (broker-key): clear a recount hold + forgive strikes after review
 	mux.HandleFunc("/admin/unban-node", b.adminUnbanNode)                                             // admin-authed: lift a node ban (the node recovery path)
+	mux.HandleFunc("/admin/node/", b.adminNode)                                                       // admin-authed: per-node strikes vs upstream throttles (24h), hold + ban state
 	mux.HandleFunc("/admin/appeals", b.adminAppeals)                                                  // admin-authed: the open self-serve appeal review queue
 	mux.HandleFunc("/rc/enable", b.rcEnable)                                                          // host: create a remote-control session (BASE STATION)
 	mux.HandleFunc("/rc/sessions", b.rcSessions)                                                      // owner: the remote-control roster (metadata only)

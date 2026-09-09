@@ -635,6 +635,11 @@ type Store interface {
 	// Terminal "ban:*" marker strikes are excluded (they are an audit record of the ban,
 	// not an independent signal). `since`<=0 counts all strikes.
 	OwnerStrikeStats(accountID string, since int64) (windowed, distinctKinds int, err error)
+	// ThrottledCount is the number of a node's receipts the broker voided as
+	// upstream-throttled (an HTTP 429 from the provider behind the station) with a receipt
+	// ts at or after `since` (unix seconds). A throttle is recorded on the $0 receipt, never
+	// as a strike, so this is how the operator's and the admin's views count them apart.
+	ThrottledCount(node string, since int64) (int, error)
 
 	// --- self-serve appeals (ban hardening 3.3) ----------------------------
 	//
@@ -873,6 +878,10 @@ type Mem struct {
 	strikeID     int64             // monotonic strike id
 	bannedOwners map[string]string // owner pubkey -> ban reason (durable, anti-rotation)
 	accountHold  map[string]int64  // owner pubkey -> unix when all-lots hold was placed (auto-expires)
+	// receipts retains the broker-signed receipt per request id - the in-memory twin of the
+	// Postgres receipts.receipt column, so a void's audit fields (void_reason, upstream_status)
+	// survive on this store too and ThrottledCount / ReceiptOf can read them back.
+	receipts map[string]protocol.UsageReceipt
 
 	// pendingReversals are the durable Stripe Transfer Reversal intents still owed on
 	// disputed already-paid lots, keyed on "reverse:<dispute>:<lot>". The background
@@ -919,6 +928,7 @@ func NewMem() *Mem {
 		chainHead:        map[string]string{},
 		chainBreaks:      map[string]int64{},
 		chainSeen:        map[string]int64{},
+		receipts:         map[string]protocol.UsageReceipt{},
 	}
 }
 
@@ -1054,6 +1064,22 @@ func (m *Mem) SeedLotsForTest(lots []EarningLot) {
 		if l.ID > m.lotID {
 			m.lotID = l.ID
 		}
+	}
+}
+
+// SeedStrikesForTest APPENDS raw owner-strike rows. A deliberate test seam (like
+// SeedLotsForTest) for staging strikes with a created_at the time.Now()-stamped OwnerStrike
+// path cannot produce (the decay-window scenarios need strikes dated outside the window).
+// Never called in production.
+func (m *Mem) SeedStrikesForTest(rows []Strike) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, r := range rows {
+		m.strikeID++
+		if r.ID == 0 {
+			r.ID = m.strikeID
+		}
+		m.strikes = append(m.strikes, r)
 	}
 }
 
@@ -1207,6 +1233,9 @@ func (m *Mem) PeekBalance(wallet string) (float64, error) {
 // only ever <= the claim on each axis (we never inflate a claim), so this can only
 // lower a count, never raise it.
 func billedTokens(rec protocol.UsageReceipt) (promptTok, completionTok int) {
+	if rec.VoidReason == protocol.VoidUpstreamThrottled {
+		return 0, 0 // the provider refused the request: nothing was consumed upstream, whatever the station claims
+	}
 	promptTok = rec.PromptTokens
 	if rec.BrokerPromptTokens > 0 && rec.BrokerPromptTokens < promptTok {
 		promptTok = rec.BrokerPromptTokens
@@ -1270,7 +1299,38 @@ func (m *Mem) Settle(user, node string, cost, ownerShare float64, rec protocol.U
 	m.appendLedgerLocked(user, "consumer", KindSpend, -cost, "spend:"+rec.RequestID, StatePosted, rec.RequestID, rec.TS)
 	m.appendAdjustLocked(user, rec, cost)
 	m.addLotLocked(node, rec.RequestID, earnShare, time.Now())
+	m.retainReceiptLocked(rec)
 	return m.wallet[user], nil
+}
+
+// retainReceiptLocked keeps the settled receipt by request id (the in-memory twin of the
+// Postgres receipts.receipt column). Caller holds m.mu.
+func (m *Mem) retainReceiptLocked(rec protocol.UsageReceipt) {
+	if rec.RequestID != "" {
+		m.receipts[rec.RequestID] = rec
+	}
+}
+
+// ReceiptOf returns the receipt retained for a request id (the in-memory read of what
+// Postgres keeps in receipts.receipt).
+func (m *Mem) ReceiptOf(requestID string) (protocol.UsageReceipt, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	rec, ok := m.receipts[requestID]
+	return rec, ok
+}
+
+// ThrottledCount counts a node's receipts voided as upstream-throttled at or after since.
+func (m *Mem) ThrottledCount(node string, since int64) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	n := 0
+	for _, rec := range m.receipts {
+		if rec.NodeID == node && rec.VoidReason == protocol.VoidUpstreamThrottled && rec.TS >= since {
+			n++
+		}
+	}
+	return n, nil
 }
 
 func (m *Mem) Hold(user string, amount float64) (bool, error) {
@@ -1370,6 +1430,7 @@ func (m *Mem) Finalize(user, node string, held, cost, ownerShare float64, rec pr
 	m.appendLedgerLocked(user, "consumer", KindSpend, -cost, "spend:"+rec.RequestID, StatePosted, rec.RequestID, rec.TS)
 	m.appendAdjustLocked(user, rec, cost)
 	m.addLotLocked(node, rec.RequestID, earnShare, time.Now())
+	m.retainReceiptLocked(rec)
 	return m.wallet[user], nil
 }
 
@@ -1436,6 +1497,7 @@ func (m *Mem) SettleEdge(user, stationNode, stationAcct, towerNode, towerAcct st
 	if towerAcct != "" && towerEarn > 0 {
 		m.addLotForAccountLocked(towerNode, towerAcct, rec.RequestID, towerEarn, selfRelayed, time.Now())
 	}
+	m.retainReceiptLocked(rec)
 	return m.wallet[user], nil
 }
 

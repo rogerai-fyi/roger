@@ -3,6 +3,8 @@ package store
 import (
 	"database/sql"
 	"time"
+
+	"rogerai.fm/roger/v6/internal/protocol"
 )
 
 // Postgres safety storage (safety.go): csam_incidents, reports, banned_nodes. Mirrors
@@ -297,6 +299,15 @@ func (p *Postgres) OwnerStrikeStats(accountID string, since int64) (windowed, di
 	err = p.db.QueryRow(`SELECT COUNT(*), COUNT(DISTINCT kind) FROM rogerai.owner_strikes
 		WHERE account_id=$1 AND created_at>=$2 AND kind NOT LIKE 'ban:%'`, accountID, since).Scan(&windowed, &distinctKinds)
 	return windowed, distinctKinds, err
+}
+
+// ThrottledCount counts a node's receipts voided as upstream-throttled at or after since
+// (the void reason lives on the stored receipt JSON, not in a strike row).
+func (p *Postgres) ThrottledCount(node string, since int64) (int, error) {
+	var n int
+	err := p.db.QueryRow(`SELECT COUNT(*) FROM rogerai.receipts
+		WHERE node=$1 AND ts>=$2 AND receipt->>'void_reason'=$3`, node, since, protocol.VoidUpstreamThrottled).Scan(&n)
+	return n, err
 }
 
 // AddAppeal records one owner-filed appeal (state "open"). Owner-scoped by account_id.

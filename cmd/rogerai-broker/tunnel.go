@@ -1986,7 +1986,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 
 	select {
 	case res := <-resCh:
-		b.exitInflight(node.NodeID, res.Status < 500)
+		b.exitInflightStatus(node.NodeID, res.Status)
 		rec := res.Receipt
 		// A valid signature does not prove the receipt is FOR this job. Settlement
 		// claims the hold keyed on rec.RequestID, so an unbound receipt would clear the
@@ -2035,14 +2035,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			// metering receipt is still recorded so the request is auditable.
 			producedOutput := producedUsableOutput(res.Status, completion, rec.CompletionTokens)
 			if !producedOutput {
-				b.maybeFlagEmptyOutput(node.NodeID, offer.Model, rec, res.Status, approxPromptTokens(job.Body), string(res.Body))
-				log.Printf("VOID no-output user=%s node=%s status=%d claimIn=%d claimOut=%d - $0, hold refunded",
-					user, node.NodeID, res.Status, rec.PromptTokens, rec.CompletionTokens)
-				if b.db != nil {
-					rec.Curated, rec.CuratedAtCost = b.nodeCurated(rec.NodeID), b.nodeCuratedAtCost(rec.NodeID) // stamped BEFORE the broker signs, so the signature covers it
-					rec.SignBroker(b.priv)
-					_, _ = b.db.Settle(payer, node.NodeID, 0, 0, rec) // $0 metering receipt for lineage
-				}
+				b.settleVoid(payer, user, node.NodeID, offer.Model, &rec, res, approxPromptTokens(job.Body), "")
 				w.Header().Set("X-RogerAI-Cost", "0")
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(res.Status)
@@ -2384,7 +2377,7 @@ func (b *broker) relayStream(w http.ResponseWriter, t *nodeTunnel, node protocol
 			b.exitInflight(node.NodeID, false)
 			return
 		case res := <-resCh:
-			b.exitInflight(node.NodeID, res.Status < 500)
+			b.exitInflightStatus(node.NodeID, res.Status)
 			rec := res.Receipt
 			// Same binding gate as the non-stream relay: a signature-valid receipt that
 			// names another (or no) request would settle against the wrong hold row.
@@ -2437,14 +2430,7 @@ func (b *broker) relayStream(w http.ResponseWriter, t *nodeTunnel, node protocol
 					producedOutput = res.Status < 400 && rec.CompletionTokens > 0
 				}
 				if !producedOutput {
-					b.maybeFlagEmptyOutput(node.NodeID, offer.Model, rec, res.Status, approxPromptTokens(job.Body), string(res.Body))
-					log.Printf("VOID no-output (stream) user=%s node=%s status=%d claimIn=%d claimOut=%d - $0, hold refunded",
-						user, node.NodeID, res.Status, rec.PromptTokens, rec.CompletionTokens)
-					if b.db != nil {
-						rec.Curated, rec.CuratedAtCost = b.nodeCurated(rec.NodeID), b.nodeCuratedAtCost(rec.NodeID) // stamped BEFORE the broker signs, so the signature covers it
-						rec.SignBroker(b.priv)
-						_, _ = b.db.Settle(user, node.NodeID, 0, 0, rec) // $0 metering receipt
-					}
+					b.settleVoid(user, user, node.NodeID, offer.Model, &rec, res, approxPromptTokens(job.Body), " (stream)")
 					return // settled stays false -> deferred ReleaseHold refunds the hold
 				}
 				// P0-2 (symmetric): bill min(nodeClaim, brokerRecount) on BOTH axes. The
@@ -2506,6 +2492,31 @@ func (b *broker) relayStream(w http.ResponseWriter, t *nodeTunnel, node protocol
 			return // the receipt arrived and settled; leave the idle loop
 		}
 	}
+}
+
+// settleVoid is the ONE $0 path both relay shapes take when a request produced no usable
+// output (producedUsableOutput said no): it names WHY on the receipt (void_reason +
+// upstream_status, broker-stamped BEFORE SignBroker so the co-signature covers them),
+// records the $0 metering receipt for lineage, and raises the empty-output strike where -
+// and only where - it is evidence about the OPERATOR. An upstream HTTP 429 is the provider
+// behind the station throttling: voided and refunded exactly like any other void, kept on
+// the receipt for audit, and NEVER a strike (features/safety/upstream_throttle_not_a_strike).
+// The caller keeps settled=false so its deferred ReleaseHold refunds the hold in full.
+func (b *broker) settleVoid(payer, user, nodeID, model string, rec *protocol.UsageReceipt, res protocol.JobResult, approxTokens int, label string) {
+	rec.VoidReason, rec.UpstreamStatus = voidReasonFor(res.Status), res.Status
+	if rec.VoidReason == protocol.VoidUpstreamThrottled {
+		log.Printf("THROTTLED upstream-429 user=%s node=%s - $0, hold refunded, not a strike", user, nodeID)
+	} else {
+		b.maybeFlagEmptyOutput(nodeID, model, *rec, res.Status, approxTokens, string(res.Body))
+		log.Printf("VOID no-output%s user=%s node=%s status=%d claimIn=%d claimOut=%d - $0, hold refunded",
+			label, user, nodeID, res.Status, rec.PromptTokens, rec.CompletionTokens)
+	}
+	if b.db == nil {
+		return
+	}
+	rec.Curated, rec.CuratedAtCost = b.nodeCurated(rec.NodeID), b.nodeCuratedAtCost(rec.NodeID) // stamped BEFORE the broker signs, so the signature covers it
+	rec.SignBroker(b.priv)
+	_, _ = b.db.Settle(payer, nodeID, 0, 0, *rec) // $0 metering receipt for lineage
 }
 
 // estimateMaxCost is the upper-bound credits a request could cost - used to place a
@@ -2933,6 +2944,24 @@ func (b *broker) enterInflight(node string) {
 	b.inflight[node]++
 	b.metricsMu.Unlock()
 	b.writeThroughInflight(node)
+}
+
+// exitInflightStatus is exitInflight graded by the upstream status the station forwarded:
+// a 5xx is a failure, anything else a success - EXCEPT an HTTP 429, which is the provider
+// behind the station saying "slow down". That is a capacity signal, not a verdict on the
+// station, so it leaves the success average untouched in BOTH directions (exactly as
+// recordToolProbe treats a transient) while still returning the in-flight slot.
+func (b *broker) exitInflightStatus(node string, status int) {
+	if status == http.StatusTooManyRequests {
+		b.metricsMu.Lock()
+		if b.inflight[node] > 0 {
+			b.inflight[node]--
+		}
+		b.metricsMu.Unlock()
+		b.writeThroughInflight(node)
+		return
+	}
+	b.exitInflight(node, status < 500)
 }
 
 func (b *broker) exitInflight(node string, ok bool) {

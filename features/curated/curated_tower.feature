@@ -42,10 +42,16 @@ Feature: A tower serves curated providers on both of its planes
 
   @failover
   Scenario: A tower's curated station fails over like any station
+    # A curated station gets no exemption from the strike ladder - and no extra exposure to it.
+    # A REFUSAL that is a 5xx is the standard empty-output signal; a REFUSAL that is an
+    # upstream 429 is the commercial provider throttling, which is never a strike for any
+    # station (features/safety/upstream_throttle_not_a_strike.feature).
     Given a band with a tower-curated station and a human station
-    When the tower's upstream refuses a request
+    When the tower's upstream refuses a request with a 5xx
     Then the standard empty-output strike applies
     And the retry follows the normal failover rule
+    When the tower's upstream throttles a request with a 429
+    Then no additional strike is recorded (an upstream throttle is not operator misconduct)
 
   @failover
   Scenario: Failover treats curated as one more station on the band

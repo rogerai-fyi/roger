@@ -216,7 +216,11 @@ Feature: The broker re-counts tokens and bills the lesser of claim and re-count 
       And the operator earns 0.000000 credits
       And the empty-output strike is flagged against owner "op1"
 
-    Scenario: A node erroring with status >= 400 is voided regardless of claimed input
+    Scenario: A node erroring with status >= 400 is voided regardless of claimed input, and the empty-output strike is flagged except an upstream 429
+      # The VOID clause is universal (any status >= 400 charges $0 and refunds the hold). The
+      # STRIKE clause carves out exactly one status: an upstream HTTP 429 is the provider behind
+      # the station throttling, a capacity signal, never operator evidence - see
+      # features/safety/upstream_throttle_not_a_strike.feature. This 503 still strikes.
       Given a served request on model "m" at price_in 1.00 per 1M
       And the node returns status 503
       And the node claims 5000 prompt tokens
