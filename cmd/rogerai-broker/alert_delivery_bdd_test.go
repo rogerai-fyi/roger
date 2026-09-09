@@ -287,17 +287,18 @@ type adState struct {
 	mailers []*mailer
 	closers []func()
 
-	recipients []string
-	hangRel    chan struct{}
-	enqueueDur []time.Duration
-	tickDur    time.Duration
-	relayDur   time.Duration
-	relayCode  int
-	live       map[string]any
-	drainDone  chan struct{}
-	markBefore int // provider count before a "When" so a "Then" can look at the delta
-	alertSubj  string
-	digestKeys []string
+	recipients  []string
+	hangRel     chan struct{}
+	enqueueDur  []time.Duration
+	tickDur     time.Duration
+	relayDur    time.Duration
+	relayCode   int
+	live        map[string]any
+	drainDone   chan struct{}
+	markBefore  int // provider count before a "When" so a "Then" can look at the delta
+	alertSubj   string
+	digestKeys  []string
+	settleStuck bool
 }
 
 func (s *adState) reset(t *testing.T) {
@@ -318,6 +319,7 @@ func (s *adState) reset(t *testing.T) {
 	s.markBefore = 0
 	s.alertSubj = ""
 	s.digestKeys = nil
+	s.settleStuck = false
 }
 
 func (s *adState) teardown() {
@@ -386,24 +388,46 @@ func (s *adState) quiescent() bool {
 		}
 	}
 	for _, b := range []*broker{s.a, s.b} {
-		if b != nil && b.alertInflight.Load() > 0 {
+		if b == nil {
+			continue
+		}
+		if b.alertInflight.Load() > 0 {
+			return false
+		}
+		// A coalescing window whose timer has ALREADY fired (no waiter left on the clock)
+		// but whose flush has not run yet - armed is cleared inside flushAlerts - is work
+		// in flight, not quiescence. Without this, settle() could return between the timer
+		// firing and the digest reaching the mail queue, and an exact-count assertion would
+		// read the provider one page early.
+		if s.clock.pendingCount() == 0 && flushArmed(b) {
 			return false
 		}
 	}
 	return true
 }
 
+// flushArmed reports whether a digest window is open on b.
+func flushArmed(b *broker) bool {
+	b.alertMu.Lock()
+	defer b.alertMu.Unlock()
+	return b.alertFlushArmed
+}
+
 // settle waits (real time, bounded) until the system is quiescent and stays so for a few
 // polls, so a step that just woke a goroutine does not race its consequence.
 func (s *adState) settle() {
-	deadline := time.Now().Add(5 * time.Second)
+	// Generous in wall time and demanding in stability: a loaded CI runner may take tens of
+	// milliseconds to schedule a goroutine, and abandoning the wait early is what turns an
+	// exact-count assertion into a mystery failure. The deadline is only ever reached when
+	// something is genuinely stuck, and then it is recorded so the assertion says so.
+	deadline := time.Now().Add(30 * time.Second)
 	stable := 0
 	lastPosts, lastWaiters := s.prov.count(), s.clock.pendingCount()
 	for time.Now().Before(deadline) {
 		posts, waiters := s.prov.count(), s.clock.pendingCount()
 		if s.quiescent() && posts == lastPosts && waiters == lastWaiters {
 			stable++
-			if stable >= 4 {
+			if stable >= 6 {
 				return
 			}
 		} else {
@@ -412,7 +436,17 @@ func (s *adState) settle() {
 		lastPosts, lastWaiters = posts, waiters
 		time.Sleep(2 * time.Millisecond)
 	}
-	s.t.Logf("settle: system did not go quiescent within 5s (posts=%d waiters=%d)", s.prov.count(), s.clock.pendingCount())
+	s.settleStuck = true
+	s.t.Logf("settle: system did not go quiescent within 30s (posts=%d waiters=%d)", s.prov.count(), s.clock.pendingCount())
+}
+
+// stuckNote is appended to a count assertion so a CI failure says whether the system was
+// still working when the count was read.
+func (s *adState) stuckNote() string {
+	if s.settleStuck {
+		return " [settle timed out: the system was still working when this was read]"
+	}
+	return ""
 }
 
 // runUntil steps the fake clock through every pending timer up to target, settling after
@@ -1443,7 +1477,9 @@ func (s *adState) flapThreeTimes(key string, minutes int) error {
 
 func (s *adState) threePagesSent() error {
 	if got := s.prov.count(); got != 3*len(s.recipients) {
-		return fmt.Errorf("%d POSTs, want %d (three pages x recipients)", got, 3*len(s.recipients))
+		return fmt.Errorf("%d POSTs, want %d (three pages x recipients): %d FIRED, %d MUTED, %d shared-store fallbacks%s",
+			got, 3*len(s.recipients), s.logs.lines("alert: FIRED"), s.logs.lines("alert: MUTED"),
+			s.logs.lines("alert: shared store unreachable"), s.stuckNote())
 	}
 	return nil
 }
@@ -1491,7 +1527,9 @@ func (s *adState) mutedAfterFlapping(key string, times int) error {
 		s.clock.advance(time.Minute)
 	}
 	if got := s.prov.count(); got != 3*len(s.recipients) {
-		return fmt.Errorf("%d POSTs after %d flaps, want %d (pages stop at the third onset)", got, times, 3*len(s.recipients))
+		return fmt.Errorf("%d POSTs after %d flaps, want %d (pages stop at the third onset): %d FIRED, %d MUTED, %d shared-store fallbacks%s",
+			got, times, 3*len(s.recipients), s.logs.lines("alert: FIRED"), s.logs.lines("alert: MUTED"),
+			s.logs.lines("alert: shared store unreachable"), s.stuckNote())
 	}
 	s.markBefore = s.prov.count()
 	return nil
@@ -2264,6 +2302,31 @@ func (s *adState) eachCSAMImmediateOwnEmail() error {
 	return nil
 }
 
+// firesOnceStep is the "<key> onsets once" Given: one onset, paged or not, fully settled.
+func (s *adState) firesOnceStep(key string) error {
+	s.fireKey(s.primary(), key)
+	return nil
+}
+
+// flapsNMoreTimes clears and re-fires key n more times, as a bouncing station does.
+func (s *adState) flapsNMoreTimes(key string, n int) error {
+	b := s.primary()
+	for i := 0; i < n; i++ {
+		s.clock.advance(time.Minute)
+		b.alertClear(key)
+		s.clock.advance(time.Minute)
+		s.fireKey(b, key)
+	}
+	return nil
+}
+
+// noSharedStore drops the shared layer entirely (a single-instance deploy), so every
+// cross-instance decision falls back to this process.
+func (s *adState) noSharedStore() error {
+	s.primary().shared = nil
+	return nil
+}
+
 // ---- suite -----------------------------------------------------------------------------
 
 func TestAlertDeliveryFeature(t *testing.T) {
@@ -2437,6 +2500,9 @@ func TestAlertDeliveryFeature(t *testing.T) {
 			sc.Step(`^the check returns in under 50 milliseconds$`, s.checkUnder50ms)
 			sc.Step(`^the page is still sent once the store answers$`, s.pageStillSent)
 			sc.Step(`^"([^"]*)" fires once and clears$`, s.firesOnceAndClears)
+			sc.Step(`^"([^"]*)" onsets once$`, s.firesOnceStep)
+			sc.Step(`^"([^"]*)" flaps (\d+) more times$`, s.flapsNMoreTimes)
+			sc.Step(`^the broker has no shared store$`, s.noSharedStore)
 			sc.Step(`^the flap window elapses and the checker runs$`, s.flapWindowElapsesChecker)
 			sc.Step(`^the flap table no longer holds "([^"]*)"$`, s.flapTableNoLongerHolds)
 

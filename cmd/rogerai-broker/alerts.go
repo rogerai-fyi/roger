@@ -118,12 +118,10 @@ type alertCondition struct {
 // whether it is muted, when it last cleared (the quiet clock), and the local fixed window
 // used only when the shared counter is unavailable.
 type flapState struct {
-	onsets    int
-	muted     bool
+	onsets    int  // onsets counted in this window (shared total, or this process's own)
+	muted     bool // the flapping page went out; further onsets are silent until quiet
 	lastOnset time.Time
 	clearedAt time.Time
-	localN    int
-	localFrom time.Time
 }
 
 // alertClock / alertTimer are the clock seam for grace, debounce, flap windows and the
@@ -380,7 +378,9 @@ func (b *broker) flapOnset(key string, now time.Time) (suffix string, muted bool
 	if cfg.flapCount <= 0 {
 		return "", false
 	}
-	n, err := b.sharedFlapIncr(key, cfg.flapWindow)
+	// 0 when the shared counter is unreachable (or unconfigured): the local count carries.
+	// sharedFlapIncr has already logged the fallback.
+	n, _ := b.sharedFlapIncr(key, cfg.flapWindow)
 	b.alertMu.Lock()
 	defer b.alertMu.Unlock()
 	fs := b.alertFlap[key]
@@ -388,23 +388,25 @@ func (b *broker) flapOnset(key string, now time.Time) (suffix string, muted bool
 		fs = &flapState{}
 		b.alertFlap[key] = fs
 	}
-	if err != nil {
-		if fs.localFrom.IsZero() || now.Sub(fs.localFrom) >= cfg.flapWindow {
-			fs.localFrom, fs.localN = now, 0
-		}
-		fs.localN++
-		n = fs.localN
+	// A whole window with no onset in it has rolled: a key that blips once a day is not
+	// flapping, so counting starts over. A MUTED key is left alone - only a quiet spell
+	// lifts a mute (checkFlapStabilized), and it sends the summary when it does.
+	if !fs.muted && !fs.lastOnset.IsZero() && now.Sub(fs.lastOnset) >= cfg.flapWindow {
+		fs.onsets = 0
 	}
-	fs.onsets = max(n, fs.onsets+1) // the shared count, or keep counting if its window rolled
-	fs.lastOnset = now
-	fs.clearedAt = time.Time{}
+	// THE COUNT NEVER GOES BACKWARDS ON THIS INSTANCE: the shared total when the store
+	// answered (so a peer's onsets count too), else one more than this process has already
+	// seen. Restarting the count on a failed round trip is what bought a flapping key three
+	// fresh pages - CI caught it as a fourth page (features/ops/alert_delivery.feature).
+	count := max(n, fs.onsets+1)
+	fs.onsets, fs.lastOnset, fs.clearedAt = count, now, time.Time{}
 	switch {
 	case fs.muted:
 		return "", true
-	case n == cfg.flapCount:
+	case count == cfg.flapCount:
 		fs.muted = true
 		return fmt.Sprintf(" (flapping - further onsets muted until %s quiet)", shortDuration(cfg.flapQuiet)), false
-	case n > cfg.flapCount:
+	case count > cfg.flapCount:
 		fs.muted = true // a peer sent the flapping page; this instance just joins the mute
 		return "", true
 	}

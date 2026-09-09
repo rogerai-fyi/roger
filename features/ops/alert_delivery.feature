@@ -359,6 +359,24 @@ Feature: Alert and transactional email delivery is paced, prioritized, retried, 
     When the flap window elapses and the checker runs
     Then the flap table no longer holds "noproviders:m"
 
+  # CI (PR #105) saw 4 pages where the approved behavior is 3: a shared-store blip on one
+  # onset sent that onset down the per-process fallback, which STARTED A FRESH COUNT, so the
+  # shared counter had to climb to 3 all over again. The count a key has already reached on
+  # this instance must never go backwards because a round trip failed.
+  Scenario: a shared-store blip mid-flap does not restart the flap count
+    Given the shared store fails every command
+    And "noproviders:m" onsets once
+    And the shared store recovers
+    When "noproviders:m" flaps 6 more times
+    Then three pages were sent
+    And the third page's subject ends with "(flapping - further onsets muted until 30m quiet)"
+
+  Scenario: the flap count is per-process monotone when there is no shared store at all
+    Given the broker has no shared store
+    When "noproviders:m" fires, clears, fires, clears, and fires again within 40 minutes
+    Then three pages were sent
+    And the third page's subject ends with "(flapping - further onsets muted until 30m quiet)"
+
   # ===========================================================================
   # 11. REGRESSIONS - the claude-audit on the merged branch (2026-09-08), each pinned
   # ===========================================================================
