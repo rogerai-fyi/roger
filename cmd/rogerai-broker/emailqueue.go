@@ -292,7 +292,8 @@ func emailBackoff(attempt int, retryAfter time.Duration) time.Duration {
 	return min(d, emailRetryAfterCap)
 }
 
-// parseRetryAfter reads a Retry-After header as delta-seconds or an HTTP-date.
+// parseRetryAfter reads a Retry-After header as delta-seconds or an HTTP-date (shared by the
+// email sender and the moderation classifier client); 0 when absent or unparseable.
 func parseRetryAfter(v string, now time.Time) time.Duration {
 	if v == "" {
 		return 0

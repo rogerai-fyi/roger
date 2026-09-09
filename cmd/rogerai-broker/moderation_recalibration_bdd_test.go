@@ -120,6 +120,8 @@ func (s *recalState) requireHTTPStatus(code int) error {
 	return nil
 }
 
+func (s *recalState) modeIs(mode string) error { s.m.mode = mode; return nil }
+
 func (s *recalState) requireEmptyVerdict() error {
 	s.require = true
 	s.emptyOut = true
@@ -258,6 +260,7 @@ func TestModerationRecalibrationBDD(t *testing.T) {
 			sc.Step(`^ROGERAI_REQUIRE_MODERATION=1 and the Groq classifier is unreachable$`, st.requireUnreachable)
 			sc.Step(`^ROGERAI_REQUIRE_MODERATION=1 and the Groq classifier returns HTTP (\d+)$`, st.requireHTTPStatus)
 			sc.Step(`^ROGERAI_REQUIRE_MODERATION=1 and the Groq classifier returns an empty verdict$`, st.requireEmptyVerdict)
+			sc.Step(`^the moderation mode is "([^"]*)"$`, st.modeIs)
 			// When
 			sc.Step(`^a relay prompt is screened$`, st.promptScreened)
 			sc.Step(`^the aider agent relay body is screened$`, st.aiderBodyScreened)

@@ -347,3 +347,9 @@ func (l *lockedBuffer) String() string {
 	defer l.mu.Unlock()
 	return l.buf.String()
 }
+
+func (l *lockedBuffer) Reset() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.buf.Reset()
+}

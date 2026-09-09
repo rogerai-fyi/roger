@@ -57,6 +57,7 @@ Feature: Voice relay guardrails - TTS input cap and audio in-flight bound
 
   Scenario: the moderation screen still runs on capped-size input first
     Given ROGERAI_TTS_MAX_CHARS is 10000
+    And the moderation mode is "sync"
     When a consumer requests speech for 9000 flagged characters
     Then the response is 451 (screen), still before any hold
 

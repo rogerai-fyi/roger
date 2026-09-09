@@ -210,12 +210,14 @@ Feature: Moderation lean-pass recalibration - keep the CSAM/harm net, stop false
 
   Scenario: a transport error fails OPEN under require=1 with a loud log
     Given ROGERAI_REQUIRE_MODERATION=1 and the Groq classifier is unreachable
+    And the moderation mode is "sync"
     When a relay prompt is screened
     Then the screen allows (status 0)
     And a loud "MODERATION FAIL-OPEN" incident line is logged
 
   Scenario: a non-200 from the classifier fails OPEN under require=1 with a loud log
     Given ROGERAI_REQUIRE_MODERATION=1 and the Groq classifier returns HTTP 500
+    And the moderation mode is "sync"
     When a relay prompt is screened
     Then the screen allows (status 0)
     And a loud "MODERATION FAIL-OPEN" incident line is logged
@@ -227,12 +229,14 @@ Feature: Moderation lean-pass recalibration - keep the CSAM/harm net, stop false
   # asks the founder to confirm whether 429 should instead fail closed / back off + alert.
   Scenario: a 429 rate-limit currently fails OPEN (founder decision point - see merge-block)
     Given ROGERAI_REQUIRE_MODERATION=1 and the Groq classifier returns HTTP 429
+    And the moderation mode is "sync"
     When a relay prompt is screened
     Then the screen allows (status 0)
     And a loud "MODERATION FAIL-OPEN" incident line is logged
 
   Scenario: an empty verdict (no message content) fails OPEN under require=1 with a loud log
     Given ROGERAI_REQUIRE_MODERATION=1 and the Groq classifier returns an empty verdict
+    And the moderation mode is "sync"
     When a relay prompt is screened
     Then the screen allows (status 0)
     And a loud "MODERATION FAIL-OPEN" incident line is logged

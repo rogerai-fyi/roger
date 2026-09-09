@@ -460,3 +460,45 @@ func (p *Postgres) SetAccountRecountHold(accountID string, held bool) error {
 	_, err := p.db.Exec(`DELETE FROM rogerai.account_recount_holds WHERE account_id=$1`, accountID)
 	return err
 }
+
+func (p *Postgres) AddModerationFlag(f ModerationFlag) (int64, error) {
+	if f.CreatedAt == 0 {
+		f.CreatedAt = time.Now().Unix()
+	}
+	var id int64
+	err := p.db.QueryRow(`INSERT INTO rogerai.moderation_flags
+		(pseudonym,request_id,model,node,category,sealed_window,created_at)
+		VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
+		f.Pseudonym, nullStr(f.RequestID), nullStr(f.Model), nullStr(f.Node), f.Category, f.Window, f.CreatedAt).Scan(&id)
+	return id, err
+}
+
+func (p *Postgres) PurgeModerationFlags(olderThan time.Time) (int, error) {
+	res, err := p.db.Exec(`DELETE FROM rogerai.moderation_flags WHERE created_at<=$1`, olderThan.Unix())
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return int(n), nil
+}
+
+func (p *Postgres) ModerationFlagsByPseudonym(pseudonym string, since int64, limit int) ([]ModerationFlag, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	rows, err := p.db.Query(`SELECT id,pseudonym,COALESCE(request_id,''),COALESCE(model,''),COALESCE(node,''),category,sealed_window,created_at
+		FROM rogerai.moderation_flags WHERE pseudonym=$1 AND created_at>=$2 ORDER BY id DESC LIMIT $3`, pseudonym, since, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ModerationFlag
+	for rows.Next() {
+		var f ModerationFlag
+		if err := rows.Scan(&f.ID, &f.Pseudonym, &f.RequestID, &f.Model, &f.Node, &f.Category, &f.Window, &f.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, f)
+	}
+	return out, rows.Err()
+}

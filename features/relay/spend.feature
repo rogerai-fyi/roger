@@ -40,5 +40,6 @@ Feature: Relay spend path
 
   Scenario: Moderation gates the spend path before any node is paid
     Given moderation is required and a prompt is flagged
+    And the moderation mode is "sync"
     When the relay runs
     Then it is rejected before dispatch (no hold settles, no node serves, no charge)
