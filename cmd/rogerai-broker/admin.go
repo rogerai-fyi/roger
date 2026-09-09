@@ -189,5 +189,7 @@ func (b *broker) adminLive(w http.ResponseWriter, r *http.Request) {
 		"seed_remaining":   seedRemaining,
 		"fee_rate":         b.feeRate,
 		"stripe_mode":      b.stripeMode(),
+		"email":            b.mail.emailStats(), // the paced send queue: counters + depth per lane
+		"alerts":           b.alertStats(),      // coalesced / deduped / muted onsets
 	})
 }

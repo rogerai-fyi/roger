@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -19,11 +20,20 @@ import (
 // triggering operation.
 //
 // DEDUP: an alert fires ONCE on a condition's ONSET (a clear->fire transition) and never
-// again while it stays fired; it re-fires only after it CLEARS and re-onsets. State lives
-// in memory (alertFiring), so it resets on restart - acceptable for an ops page (a still-true
-// condition simply re-pages once after a redeploy). Milestone alerts (first live top-up,
-// first ban/dispute/report) use a constant key and are never cleared, so they fire exactly
-// once per process lifetime.
+// again while it stays fired; it re-fires only after it CLEARS and re-onsets. The onset is
+// claimed in the SHARED store (alertstore.go: SETNX rogerai:alert:<key> with a TTL) so two
+// instances page once, with the per-process map (alertFiring) as the fallback and the
+// local mirror; both expire after dedupTTL so a stuck condition is re-paged daily. Milestone
+// alerts (first live top-up, first ban/dispute/report) use a constant key and are never
+// cleared, so they fire exactly once per onset claim.
+//
+// DELIVERY (features/ops/alert_delivery.feature): alerts raised inside one coalescing
+// window become ONE digest email per recipient, sent on the mailer's ALERT lane behind any
+// transactional mail (emailqueue.go paces + retries it). The CSAM SLA alert bypasses both:
+// its own email, at once, on the priority lane. A deploy is not an outage: no noproviders
+// page during the startup grace, and a model must be absent for debounceTicks consecutive
+// ticks. A key that onsets flapCount times inside flapWindow is muted after one "flapping"
+// page until it has stayed clear for flapQuiet, then summarized once.
 //
 // The alert email reuses the branded transactional shell (emailtemplates.go) with a clear
 // "[RogerAI ALERT] ..." subject, the key facts as a receipt, and a CTA to the control panel.
@@ -48,6 +58,105 @@ const defaultCSAMSLAHours = 24
 // treated as float noise, not a real money invariant break. Real drift is materially
 // larger than accumulated float rounding across a wallet's ledger rows.
 const driftEpsilon = 1e-4
+
+// alertKeyCSAM is the one condition that is never coalesced, delayed or graced: a legal
+// filing obligation (18 USC 2258A) past its SLA.
+const alertKeyCSAM = "csam_sla"
+
+// alertConfig holds the delivery knobs (ROGERAI_ALERT_*). The zero value is the plainest
+// behavior (page at once, no grace, first-tick, no flap muting) so a hand-built broker in a
+// unit test keeps the raw onset semantics; loadAlertConfig applies the production defaults.
+type alertConfig struct {
+	coalesce      time.Duration // digest window; <=0 = each alert is its own email at once
+	grace         time.Duration // no noproviders page this long after boot; <=0 = none
+	debounceTicks int           // consecutive absent ticks before noproviders pages; <=1 = first
+	flapCount     int           // onsets inside flapWindow that mute a key; <=0 = off
+	flapWindow    time.Duration
+	flapQuiet     time.Duration // clear this long lifts a mute (with one summary)
+	dedupTTL      time.Duration // onset claim TTL (shared + local); <=0 = 24h
+}
+
+// loadAlertConfig reads the ROGERAI_ALERT_* knobs with the spec's defaults.
+func loadAlertConfig() alertConfig {
+	return alertConfig{
+		coalesce:      envDuration("ROGERAI_ALERT_COALESCE", 5*time.Second),
+		grace:         envDuration("ROGERAI_ALERT_GRACE", 120*time.Second),
+		debounceTicks: envInt("ROGERAI_ALERT_DEBOUNCE_TICKS", 2),
+		flapCount:     envInt("ROGERAI_ALERT_FLAP_COUNT", 3),
+		flapWindow:    envDuration("ROGERAI_ALERT_FLAP_WINDOW", time.Hour),
+		flapQuiet:     envDuration("ROGERAI_ALERT_FLAP_QUIET", 30*time.Minute),
+		dedupTTL:      envDuration("ROGERAI_ALERT_DEDUP_TTL", 24*time.Hour),
+	}
+}
+
+// alertCondition is one fired condition awaiting (or inside) a digest.
+type alertCondition struct {
+	key, tail, heading string
+	rows               [][2]string
+	body               string
+}
+
+// flapState is a key's per-process flap bookkeeping: onsets seen (mirrors the shared count),
+// whether it is muted, when it last cleared (the quiet clock), and the local fixed window
+// used only when the shared counter is unavailable.
+type flapState struct {
+	onsets    int
+	muted     bool
+	clearedAt time.Time
+	localN    int
+	localFrom time.Time
+}
+
+// alertClock / alertTimer are the clock seam for grace, debounce, flap windows and the
+// coalescing timer (nil = real time), mirroring the mailer's.
+func (b *broker) alertClock() time.Time {
+	if b.alertNow != nil {
+		return b.alertNow()
+	}
+	return time.Now()
+}
+
+func (b *broker) alertTimer(d time.Duration) <-chan time.Time {
+	if b.alertAfter != nil {
+		return b.alertAfter(d)
+	}
+	return time.After(d)
+}
+
+func (b *broker) dedupTTL() time.Duration {
+	if b.alertCfg.dedupTTL > 0 {
+		return b.alertCfg.dedupTTL
+	}
+	return 24 * time.Hour
+}
+
+// alertInitLocked lazily creates the alert maps (hand-built brokers leave them nil).
+func (b *broker) alertInitLocked() {
+	if b.alertFiring == nil {
+		b.alertFiring = map[string]bool{}
+	}
+	if b.alertFiredAt == nil {
+		b.alertFiredAt = map[string]time.Time{}
+	}
+	if b.alertAbsent == nil {
+		b.alertAbsent = map[string]int{}
+	}
+	if b.alertFlap == nil {
+		b.alertFlap = map[string]*flapState{}
+	}
+	if b.alertOnAirSeen == nil {
+		b.alertOnAirSeen = map[string]bool{}
+	}
+}
+
+// alertStats is the /admin/live block for the alert layer.
+func (b *broker) alertStats() map[string]any {
+	return map[string]any{
+		"alerts_coalesced": b.alertCoalesced.Load(),
+		"alerts_deduped":   b.alertDeduped.Load(),
+		"alerts_muted":     b.alertMuted.Load(),
+	}
+}
 
 // parseAdminEmails splits ADMIN_EMAIL into a trimmed recipient list, dropping blanks. An
 // unset/blank/comma-only value yields nil, which turns alerting entirely OFF (fail-safe).
@@ -76,9 +185,11 @@ func csamSLAHoursEnv() int {
 func (b *broker) alertingOn() bool { return len(b.adminEmails) > 0 }
 
 // adminAlert fires ONE founder ops alert for `key` on the CLEAR->FIRE transition only
-// (onset dedup), delivering to EVERY ADMIN_EMAIL recipient. It is a no-op when alerting is
-// off (no recipients) or the condition is already firing. It never blocks and never errors:
-// the underlying mailer is async and swallows failures.
+// (onset dedup, claimed across instances), delivering to EVERY ADMIN_EMAIL recipient via
+// the paced alert lane, coalesced with any other alert raised inside the same window. It is
+// a no-op when alerting is off (no recipients), the condition is already firing, a peer
+// instance already paged this onset, or the key is muted for flapping. It never blocks and
+// never errors: the mailer queue is async and failure-swallowing.
 //
 //	key        - the dedup key for this condition instance (e.g. "noproviders:<model>")
 //	subjectTail- appended to the "[RogerAI ALERT] " subject prefix
@@ -89,47 +200,215 @@ func (b *broker) adminAlert(key, subjectTail, heading string, rows [][2]string, 
 	if !b.alertingOn() {
 		return // fail-safe: ADMIN_EMAIL unset => alerting entirely OFF
 	}
+	now := b.alertClock()
 	b.alertMu.Lock()
-	if b.alertFiring == nil {
-		b.alertFiring = map[string]bool{}
-	}
-	if b.alertFiring[key] {
+	b.alertInitLocked()
+	if b.alertFiring[key] && now.Sub(b.alertFiredAt[key]) < b.dedupTTL() {
 		b.alertMu.Unlock()
 		return // already firing on this onset - dedup, do not re-page
 	}
 	b.alertFiring[key] = true
+	b.alertFiredAt[key] = now
 	b.alertMu.Unlock()
 
-	subj := alertSubjectPrefix + subjectTail
+	if !b.sharedOnset(key) {
+		b.alertDeduped.Add(1)
+		log.Printf("alert: DEDUPED %q (a peer instance already paged this onset)", key)
+		return
+	}
+	suffix, muted := b.flapOnset(key, now)
+	if muted {
+		b.alertMuted.Add(1)
+		log.Printf("alert: MUTED (flapping) %s", key)
+		return
+	}
+	log.Printf("alert: FIRED %q -> %d recipient(s): %s", key, len(b.adminEmails), subjectTail)
+
+	cond := alertCondition{key: key, tail: subjectTail + suffix, heading: heading, rows: rows, body: body}
+	if key == alertKeyCSAM || b.alertCfg.coalesce <= 0 {
+		b.sendAlertDigest([]alertCondition{cond}, key == alertKeyCSAM)
+		return
+	}
+	b.alertMu.Lock()
+	b.alertPending = append(b.alertPending, cond)
+	if b.alertFlushArmed {
+		b.alertCoalesced.Add(1)
+		b.alertMu.Unlock()
+		return
+	}
+	b.alertFlushArmed = true
+	b.alertMu.Unlock()
+	window := b.alertCfg.coalesce
+	go func() {
+		<-b.alertTimer(window)
+		b.flushAlerts()
+	}()
+}
+
+// flushAlerts sends everything the coalescing window collected as ONE digest.
+func (b *broker) flushAlerts() {
+	b.alertMu.Lock()
+	conds := b.alertPending
+	b.alertPending = nil
+	b.alertFlushArmed = false
+	b.alertMu.Unlock()
+	if len(conds) > 0 {
+		b.sendAlertDigest(conds, false)
+	}
+}
+
+// sendAlertDigest renders one email per recipient for the given conditions (a single
+// condition keeps the classic subject; several get "N conditions: <first> (+N-1 more)" and
+// a body listing each condition's facts). urgent rides the transactional lane.
+func (b *broker) sendAlertDigest(conds []alertCondition, urgent bool) {
+	n := len(conds)
+	subj := alertSubjectPrefix + conds[0].tail
+	heading := conds[0].heading
+	if n > 1 {
+		subj = alertSubjectPrefix + fmt.Sprintf("%d conditions: %s (+%d more)", n, conds[0].tail, n-1)
+		heading = fmt.Sprintf("%d conditions fired together", n)
+	}
+	var htmlB, textB strings.Builder
+	for i, c := range conds {
+		if n > 1 {
+			htmlB.WriteString(`<p style="margin:0 0 6px;font-weight:bold;">` + esc(c.heading) + `</p>`)
+			textB.WriteString(strings.ToUpper(c.heading) + "\n")
+		}
+		htmlB.WriteString(receipt("", c.rows) + p(esc(c.body)))
+		textB.WriteString(alertText(c.rows, c.body))
+		if i < n-1 {
+			textB.WriteString("\n\n")
+		}
+	}
 	d := emailDoc{
 		kicker:    "Ops alert",
 		heading:   heading,
-		preheader: subjectTail,
-		bodyHTML:  receipt("", rows) + p(esc(body)),
-		bodyText:  alertText(rows, body),
+		preheader: conds[0].tail,
+		bodyHTML:  htmlB.String(),
+		bodyText:  textB.String(),
 		ctaLabel:  "Open control",
 		ctaHref:   alertControlURL,
 	}
 	htmlBody, textBody := renderHTML(d), renderText(d)
-	// Deliver to every recipient. Each send is async + failure-swallowing (email.go), so a
-	// slow/broken recipient can never block or fail the alert path.
+	// Deliver to every recipient through the paced queue: a slow/broken provider can never
+	// block or fail the alert path, and a burst can never exceed the provider cap.
 	for _, to := range b.adminEmails {
-		b.mail.sendEmail(to, subj, htmlBody, textBody)
+		if urgent {
+			b.mail.sendEmail(to, subj, htmlBody, textBody)
+		} else {
+			b.mail.sendAlertEmail(to, subj, htmlBody, textBody)
+		}
 	}
-	log.Printf("alert: FIRED %q -> %d recipient(s): %s", key, len(b.adminEmails), subjectTail)
 }
 
-// alertClear marks a condition resolved so a later re-onset re-fires. A no-op when alerting
-// is off or the condition was not firing.
+// flapOnset counts one onset of key inside the flap window (shared counter, per-process
+// window as fallback) and decides: page normally, page once more with the "flapping"
+// suffix (the flapCount-th onset), or mute. The mute lifts only via checkFlapStabilized.
+func (b *broker) flapOnset(key string, now time.Time) (suffix string, muted bool) {
+	cfg := b.alertCfg
+	if cfg.flapCount <= 0 {
+		return "", false
+	}
+	n, err := b.sharedFlapIncr(key, cfg.flapWindow)
+	b.alertMu.Lock()
+	defer b.alertMu.Unlock()
+	fs := b.alertFlap[key]
+	if fs == nil {
+		fs = &flapState{}
+		b.alertFlap[key] = fs
+	}
+	if err != nil {
+		if fs.localFrom.IsZero() || now.Sub(fs.localFrom) >= cfg.flapWindow {
+			fs.localFrom, fs.localN = now, 0
+		}
+		fs.localN++
+		n = fs.localN
+	}
+	fs.onsets = max(n, fs.onsets+1) // the shared count, or keep counting if its window rolled
+	fs.clearedAt = time.Time{}
+	switch {
+	case fs.muted:
+		return "", true
+	case n == cfg.flapCount:
+		fs.muted = true
+		return fmt.Sprintf(" (flapping - further onsets muted until %s quiet)", shortDuration(cfg.flapQuiet)), false
+	case n > cfg.flapCount:
+		fs.muted = true // a peer sent the flapping page; this instance just joins the mute
+		return "", true
+	}
+	return "", false
+}
+
+// checkFlapStabilized lifts the mute of every key that has stayed clear for flapQuiet and
+// sends ONE "stabilized after N onsets" summary per recipient (claimed across instances).
+func (b *broker) checkFlapStabilized(now time.Time) {
+	quiet := b.alertCfg.flapQuiet
+	if quiet <= 0 {
+		return
+	}
+	type done struct {
+		key    string
+		onsets int
+	}
+	var lifted []done
+	b.alertMu.Lock()
+	for key, fs := range b.alertFlap {
+		if fs.muted && !b.alertFiring[key] && !fs.clearedAt.IsZero() && now.Sub(fs.clearedAt) >= quiet {
+			lifted = append(lifted, done{key, fs.onsets})
+			delete(b.alertFlap, key)
+		}
+	}
+	b.alertMu.Unlock()
+	for _, l := range lifted {
+		b.sharedFlapReset(l.key)
+		if !b.sharedStableOnce(l.key, quiet) {
+			continue
+		}
+		log.Printf("alert: STABILIZED %s after %d onsets (quiet %s) - mute lifted", l.key, l.onsets, shortDuration(quiet))
+		b.sendAlertDigest([]alertCondition{{
+			key:     l.key,
+			tail:    fmt.Sprintf("%s stabilized after %d onsets", l.key, l.onsets),
+			heading: "A flapping condition has stabilized",
+			rows: [][2]string{
+				{"Condition", l.key},
+				{"Onsets", strconv.Itoa(l.onsets)},
+				{"Quiet for", shortDuration(quiet)},
+			},
+			body: "The condition bounced repeatedly (muted after the flapping page) and has now stayed clear for the quiet window. The mute is lifted; its next onset pages normally.",
+		}}, false)
+	}
+}
+
+// shortDuration renders 30m0s as "30m" and 1h0m0s as "1h" (a subject line, not a stopwatch).
+func shortDuration(d time.Duration) string {
+	s := d.String()
+	if strings.HasSuffix(s, "m0s") {
+		s = strings.TrimSuffix(s, "0s")
+	}
+	if strings.HasSuffix(s, "h0m") {
+		s = strings.TrimSuffix(s, "0m")
+	}
+	return s
+}
+
+// alertClear marks a condition resolved so a later re-onset re-fires: the local mirror
+// and the shared onset key are both dropped. A no-op when alerting is off or the condition
+// was not firing.
 func (b *broker) alertClear(key string) {
 	if !b.alertingOn() {
 		return
 	}
+	now := b.alertClock()
 	b.alertMu.Lock()
 	was := b.alertFiring[key]
 	delete(b.alertFiring, key)
+	delete(b.alertFiredAt, key)
+	if fs := b.alertFlap[key]; fs != nil && fs.muted {
+		fs.clearedAt = now
+	}
 	b.alertMu.Unlock()
 	if was {
+		b.sharedClear(key)
 		log.Printf("alert: CLEARED %q", key)
 	}
 }
@@ -179,6 +458,7 @@ func (b *broker) alertCheckOnce(now time.Time) {
 	b.checkHealthAlerts()
 	b.checkProviderGapAlerts()
 	b.checkCSAMSLAAlert(now)
+	b.checkFlapStabilized(now)
 }
 
 // checkHealthAlerts pages when the durable store (Postgres) or the optional shared state
@@ -213,26 +493,44 @@ func (b *broker) checkHealthAlerts() {
 // checkProviderGapAlerts pages when a model that WAS on air drops to 0 providers (a supply
 // gap), and clears when supply returns. It tracks every model ever seen on air so the
 // drop-to-zero transition is detectable even though a 0-provider model no longer appears in
-// the market view.
+// the market view. A deploy is not an outage: nothing pages inside the startup grace, and a
+// model must be absent for debounceTicks consecutive ticks (one heartbeat gap is not a gap
+// in supply). Health and CSAM alerts are exempt from both.
 func (b *broker) checkProviderGapAlerts() {
+	now := b.alertClock()
 	nowOnAir := b.liveModelProviders() // model -> provider count (every entry >= 1)
 
 	b.alertMu.Lock()
-	if b.alertOnAirSeen == nil {
-		b.alertOnAirSeen = map[string]bool{}
-	}
+	b.alertInitLocked()
 	for model := range nowOnAir {
 		b.alertOnAirSeen[model] = true
+	}
+	if grace := b.alertCfg.grace; grace > 0 && now.Sub(b.startTime) < grace {
+		b.alertMu.Unlock()
+		b.alertGraceOnce.Do(func() {
+			log.Printf("alerts: in startup grace (%s window after boot) - noproviders paging suppressed while stations re-register", shortDuration(grace))
+		})
+		return
+	}
+	need := b.alertCfg.debounceTicks
+	if need < 1 {
+		need = 1
 	}
 	var restored, dropped []string
 	for model := range b.alertOnAirSeen {
 		if _, ok := nowOnAir[model]; ok {
+			b.alertAbsent[model] = 0
 			restored = append(restored, model)
-		} else {
+			continue
+		}
+		b.alertAbsent[model]++
+		if b.alertAbsent[model] >= need {
 			dropped = append(dropped, model)
 		}
 	}
 	b.alertMu.Unlock()
+	sort.Strings(restored)
+	sort.Strings(dropped) // a stable first condition in the digest subject
 
 	// Clear first (a model back on air), then fire the drops. adminAlert/alertClear take
 	// alertMu themselves, so this runs outside the lock above.
