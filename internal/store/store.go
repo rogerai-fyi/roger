@@ -5,6 +5,7 @@
 package store
 
 import (
+	"errors"
 	"sort"
 	"strconv"
 	"strings"
@@ -137,7 +138,10 @@ type Store interface {
 	// the wallet or the ledger: the relay's upstream FAILOVER re-dispatches under a new
 	// attempt id (each attempt's receipt is its own row) while the consumer's ONE pre-auth
 	// hold must follow the attempt that finally settles (Finalize claims the hold by the
-	// receipt's request id). A missing row (already captured/released/swept) is a no-op.
+	// receipt's request id). A row that is gone (already captured, released, or reclaimed
+	// by the backstop sweep) or not this payer's returns ErrNoPendingHold, so the relay
+	// answers with the failure it has instead of failing over onto a reservation that no
+	// longer exists (which would refund it twice: the sweep's credit and Finalize's).
 	RekeyHold(user, fromRequestID, toRequestID string) error
 	// ReleaseStaleHolds reclaims every pending hold whose placed_at is at or before
 	// olderThan (the deploy-orphan backstop sweep): an instance SIGKILLed mid-relay never
@@ -1405,14 +1409,21 @@ func (m *Mem) ReleaseHoldFor(user, requestID string) (float64, error) {
 	return m.wallet[user], nil
 }
 
+// ErrNoPendingHold: RekeyHold found no tracked reservation under the source id for this
+// payer (captured, released, or swept already).
+var ErrNoPendingHold = errors.New("no pending hold to rekey")
+
 // RekeyHold moves the tracked reservation to the failover attempt's id (no wallet/ledger
-// change; a missing row is a no-op). See the Store interface.
+// change). See the Store interface.
 func (m *Mem) RekeyHold(user, from, to string) error {
+	if from == to {
+		return nil
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	ph, ok := m.pendingHolds[from]
-	if !ok || ph.user != user || from == to {
-		return nil
+	if !ok || ph.user != user {
+		return ErrNoPendingHold
 	}
 	delete(m.pendingHolds, from)
 	m.pendingHolds[to] = ph

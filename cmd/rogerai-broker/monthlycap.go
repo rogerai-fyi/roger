@@ -86,6 +86,17 @@ func (b *broker) monthlyCapCheck(w http.ResponseWriter, holder string, maxCost f
 	return 0, ""
 }
 
+// monthlyCapFits reports whether a worst-case amount fits under the holder's monthly cap
+// WITHOUT the notice headers or the cap email: the relay uses it to decide whether to size
+// its hold for a pricier failover candidate - a refused ceiling is not a refused request.
+func (b *broker) monthlyCapFits(holder string, amount float64, now time.Time) bool {
+	cap, _ := b.db.MonthlyCapOf(holder)
+	if cap <= 0 {
+		return true
+	}
+	return b.monthSpend(holder, now)+amount <= cap
+}
+
 // setCapHeaders writes the monthly-budget notice headers. They are always safe to send
 // (no secrets) and let the CLI/TUI print "you've used $X of your $Y monthly limit"
 // inline. Omitted entirely when the cap is unlimited (no budget to report).

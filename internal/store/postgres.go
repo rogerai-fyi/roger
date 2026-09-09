@@ -1252,8 +1252,14 @@ func (p *Postgres) RekeyHold(user, from, to string) error {
 	if from == to {
 		return nil
 	}
-	_, err := p.db.Exec(`UPDATE rogerai.pending_holds SET request_id=$3 WHERE request_id=$1 AND usr=$2`, from, user, to)
-	return err
+	res, err := p.db.Exec(`UPDATE rogerai.pending_holds SET request_id=$3 WHERE request_id=$1 AND usr=$2`, from, user, to)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNoPendingHold
+	}
+	return nil
 }
 
 // ReleaseStaleHolds reclaims every pending hold placed at or before olderThan, crediting the

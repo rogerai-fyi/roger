@@ -161,10 +161,16 @@ Feature: A station that says no is routed around, cooled, and reported with a Re
     When a confidential-only relay is made
     Then the failover goes to "s2"
 
-  Scenario: a private band only fails over within the band
-    Given "s1" and "s2" are on private band B and "s3" is public; "s1" 429s
+  Scenario: a station that left during the first attempt is skipped
+    Given stations "s1", "s2", "s3" serve "m" and "s1" 429s
+    And "s2" goes off air while "s1" is serving the first attempt
+    When a funded consumer relays
+    Then the failover goes to "s3", never "s2"
+
+  Scenario: a private band request never leaves the band
+    Given "s1" is the only station on private band B and 429s, and a public "s3" serves "m"
     When a band-B relay is made
-    Then the failover goes to "s2", never "s3"
+    Then the response is 429 with Retry-After and "s3" received nothing
 
   Scenario: the failover is disabled by the knob and behaves exactly as today
     Given ROGERAI_RELAY_FAILOVER is "0"
@@ -196,6 +202,24 @@ Feature: A station that says no is routed around, cooled, and reported with a Re
     Then "s1" and "s2" each have a voided receipt chained to their prev_hash
     And "s3" has a settled receipt
     And all three share the consumer's request id lineage (attempt 1, 2, 3)
+
+  Scenario: a serving station cannot bill beyond its own ceiling after a failover
+    Given "s1" at 2.00/2.00 429s and "s2" at 1.00/1.00 serves but over-claims its tokens
+    When a funded consumer relays
+    Then the consumer is charged at most "s2"'s own max cost, not the plan ceiling
+
+  Scenario: a hold reclaimed mid-plan stops the failover
+    Given "s1" 429s and "s2" serves
+    And the backstop sweep reclaims the consumer's hold while "s1" is serving the first attempt
+    When a funded consumer relays
+    Then the response is 429 with Retry-After and "s2" received nothing
+    And the consumer was charged 0 and no hold row remains
+
+  Scenario: a monthly cap that fits only the first pick leaves no limit-reached notice on the served response
+    Given "s1" at 1.00/1.00 serves and "s2" at 2.00/2.00 serves
+    And the consumer's monthly cap fits "s1"'s max cost but not "s2"'s
+    When a funded consumer relays
+    Then the response is 200 from "s1" with no "monthly limit reached" notice and no cap email
 
   Scenario: the operator of a failed-over station earns nothing and is not struck for a 429
     Given "s1" 429s and "s2" serves
@@ -234,6 +258,12 @@ Feature: A station that says no is routed around, cooled, and reported with a Re
     Given "s1" 429s and "s2" serves
     When a funded consumer relays with "stream": true
     Then the consumer receives a single 200 response (no 429 leaked before the failover)
+
+  Scenario: a slow first token still gets its SSE headers before the client's header timeout
+    Given "s1" streams its first chunk after 25 seconds
+    When a funded consumer relays with "stream": true
+    Then the SSE headers were committed within 20 seconds, before the local proxy's 30 second header timeout
+    And the stream completes with "s1"'s chunks
 
   Scenario: a streaming request with every station failing returns the last error with Retry-After
     Given "s1" and "s2" both 429 with Retry-After 9
