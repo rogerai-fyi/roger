@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -381,6 +382,11 @@ func (s *adState) newBroker() *broker {
 func (s *adState) quiescent() bool {
 	for _, m := range s.mailers {
 		if !m.idle() {
+			return false
+		}
+	}
+	for _, b := range []*broker{s.a, s.b} {
+		if b != nil && b.alertInflight.Load() > 0 {
 			return false
 		}
 	}
@@ -1127,6 +1133,7 @@ func (s *adState) bothDetect(key string) error {
 	}
 	for i := 0; i < s.a.alertCfg.debounceTicks; i++ {
 		s.tick(s.a)
+		s.settle() // A's onset goroutines claim their keys before B's tick (real ticks are minutes apart in phase)
 		s.tick(s.b)
 	}
 	s.runFor(10 * time.Second)
@@ -1768,6 +1775,7 @@ func (s *adState) rigFlapFixture(n int) error {
 func (s *adState) checkerRunsBothAfterDebounce() error {
 	for i := 0; i < s.a.alertCfg.debounceTicks; i++ {
 		s.tick(s.a)
+		s.settle() // A's tick completes (its onsets claim the keys) before B's, as unsynchronized tickers do
 		s.tick(s.b)
 	}
 	s.runFor(10 * time.Second)
@@ -1804,6 +1812,168 @@ func (s *adState) eachRecipientOneDigestNaming(n int) error {
 				return fmt.Errorf("digest to %s does not name %s", p.to, m)
 			}
 		}
+	}
+	return nil
+}
+
+// ---- 10. regressions (76642e33 review) ---------------------------------------------
+
+func (s *adState) storeFailsEveryCommand() error {
+	s.mr.SetError("ERR injected fault")
+	return nil
+}
+
+func (s *adState) storeRecovers() error {
+	s.mr.SetError("")
+	return nil
+}
+
+func (s *adState) clearPendingKeyStillExists() error {
+	if !s.mr.Exists(alertKeyPrefix + "noproviders:m") {
+		return fmt.Errorf("the shared key vanished although the DEL was failed")
+	}
+	if got := s.logs.lines("alert: CLEARED"); got != 1 {
+		return fmt.Errorf("%d CLEARED lines, want 1 (the local clear still happens)", got)
+	}
+	if got := s.logs.lines(`pending retry`); got != 1 {
+		return fmt.Errorf("%d 'pending retry' lines, want 1; log:\n%s", got, s.logs.buf.String())
+	}
+	return nil
+}
+
+func (s *adState) reOnsetBeforeRetry() error {
+	s.markBefore = s.prov.count()
+	s.fireKey(s.primary(), "noproviders:m")
+	return nil
+}
+
+func (s *adState) keyClaimedAgainNoPending() error {
+	if err := s.storeHoldsKeyWithTTL("noproviders:m"); err != nil {
+		return err
+	}
+	return s.noClearPending()
+}
+
+func (s *adState) noClearPending() error {
+	if got := s.logs.lines(`pending clear of "noproviders:m" resolved`); got != 1 {
+		return fmt.Errorf("%d 'pending clear resolved' lines, want 1; log:\n%s", got, s.logs.buf.String())
+	}
+	return nil
+}
+
+func (s *adState) retriesKnob(n int) error {
+	s.mailer().retries = n
+	return nil
+}
+
+func (s *adState) eventuallyDroppedAfter(n int) error {
+	s.runFor(6 * time.Hour)
+	if got := s.prov.count(); got != n+1 {
+		return fmt.Errorf("provider received %d POSTs, want %d (1 + %d retries)", got, n+1, n)
+	}
+	if got := s.logs.lines(fmt.Sprintf("email: DROPPED after %d retries", n)); got != 1 {
+		return fmt.Errorf("%d DROPPED lines, want 1", got)
+	}
+	return nil
+}
+
+func (s *adState) senderStillAlive() error {
+	s.prov.mu.Lock()
+	s.prov.def = scriptedResp{status: 200}
+	s.prov.mu.Unlock()
+	before := s.prov.count()
+	s.mailer().sendAlertEmail("ops1@example.com", "[RogerAI ALERT] after the storm", "<p>x</p>", "x")
+	s.runFor(10 * time.Second)
+	if got := s.prov.count(); got != before+1 {
+		return fmt.Errorf("the sender did not deliver after the drop (posts %d -> %d): it is dead", before, got)
+	}
+	return nil
+}
+
+// storeHangs points the broker's shared store at a listener that accepts and never answers,
+// so every command runs into the client's own timeout instead of an error.
+func (s *adState) storeHangs() error {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return err
+	}
+	stop := make(chan struct{})
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				<-stop
+				_ = c.Close()
+			}()
+		}
+	}()
+	s.closers = append(s.closers, func() { close(stop); _ = ln.Close() })
+	vs, _ := newValkeyStore("redis://" + ln.Addr().String()) // the ping times out; the store is still usable
+	if vs == nil {
+		return fmt.Errorf("could not build a store on the black hole")
+	}
+	s.closers = append(s.closers, func() { _ = vs.Close() })
+	s.primary().shared = vs
+	return nil
+}
+
+func (s *adState) billingDriftFires() error {
+	b := s.primary()
+	st := time.Now()
+	b.checkDriftAlert("u_gh_1", 10.0, 7.5)
+	s.tickDur = time.Since(st)
+	return nil
+}
+
+func (s *adState) checkUnder50ms() error {
+	if s.tickDur > 50*time.Millisecond {
+		return fmt.Errorf("the drift check took %v with the shared store hanging, want < 50ms", s.tickDur)
+	}
+	return nil
+}
+
+func (s *adState) pageStillSent() error {
+	// The onset is finishing on its own goroutine against a store that only answers by
+	// timing out (real time), so poll: step the fake clock, look, repeat.
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) && s.prov.count() < len(s.recipients) {
+		s.runFor(10 * time.Second)
+		time.Sleep(20 * time.Millisecond)
+	}
+	posts := s.prov.snapshot()
+	if len(posts) != len(s.recipients) {
+		return fmt.Errorf("%d POSTs after the store answered, want %d", len(posts), len(s.recipients))
+	}
+	if !strings.Contains(posts[0].subject, "u_gh_1") {
+		return fmt.Errorf("subject = %q, want the drift alert", posts[0].subject)
+	}
+	return nil
+}
+
+func (s *adState) firesOnceAndClears(key string) error {
+	b := s.primary()
+	s.fireKey(b, key)
+	b.alertClear(key)
+	return nil
+}
+
+func (s *adState) flapWindowElapsesChecker() error {
+	b := s.primary()
+	s.clock.advance(b.alertCfg.flapWindow + time.Minute)
+	s.tick(b)
+	s.runFor(10 * time.Second)
+	return nil
+}
+
+func (s *adState) flapTableNoLongerHolds(key string) error {
+	b := s.primary()
+	b.alertMu.Lock()
+	defer b.alertMu.Unlock()
+	if _, ok := b.alertFlap[key]; ok {
+		return fmt.Errorf("alertFlap still holds %q after the window (%d entries)", key, len(b.alertFlap))
 	}
 	return nil
 }
@@ -1962,6 +2132,24 @@ func TestAlertDeliveryFeature(t *testing.T) {
 			sc.Step(`^the provider received exactly (\d+) POSTs, all 200$`, s.exactlyNPostsAll200)
 			sc.Step(`^zero "resend error 429" lines were logged$`, s.zero429Lines)
 			sc.Step(`^each recipient received one digest naming all (\d+) models$`, s.eachRecipientOneDigestNaming)
+
+			// 10. regressions
+			sc.Step(`^the shared store fails every command$`, s.storeFailsEveryCommand)
+			sc.Step(`^the shared store recovers$`, s.storeRecovers)
+			sc.Step(`^the clear is pending and the key still exists$`, s.clearPendingKeyStillExists)
+			sc.Step(`^the condition re-onsets before the checker retries the clear$`, s.reOnsetBeforeRetry)
+			sc.Step(`^the key is claimed again and no clear is pending$`, s.keyClaimedAgainNoPending)
+			sc.Step(`^no clear is pending$`, s.noClearPending)
+			sc.Step(`^the email retries knob is (\d+)$`, s.retriesKnob)
+			sc.Step(`^the email is eventually dropped after (\d+) retries$`, s.eventuallyDroppedAfter)
+			sc.Step(`^the sender is still alive$`, s.senderStillAlive)
+			sc.Step(`^the shared store hangs on every command$`, s.storeHangs)
+			sc.Step(`^the /billing drift check fires an alert$`, s.billingDriftFires)
+			sc.Step(`^the check returns in under 50 milliseconds$`, s.checkUnder50ms)
+			sc.Step(`^the page is still sent once the store answers$`, s.pageStillSent)
+			sc.Step(`^"([^"]*)" fires once and clears$`, s.firesOnceAndClears)
+			sc.Step(`^the flap window elapses and the checker runs$`, s.flapWindowElapsesChecker)
+			sc.Step(`^the flap table no longer holds "([^"]*)"$`, s.flapTableNoLongerHolds)
 		},
 		Options: &godog.Options{
 			Format: "pretty", Paths: []string{"../../features/ops/alert_delivery.feature"},

@@ -469,6 +469,8 @@ type broker struct {
 	alertPending      []alertCondition
 	alertFlushArmed   bool
 	alertFlap         map[string]*flapState
+	alertClearPending map[string]bool // keys whose shared DEL failed; retried each tick
+	alertInflight     atomic.Int64    // onset goroutines still running (shutdown waits)
 	alertCoalesced    atomic.Int64
 	alertDeduped      atomic.Int64
 	alertMuted        atomic.Int64
@@ -638,6 +640,7 @@ func runServe(ln net.Listener, fee, seed float64, lock time.Duration, stop <-cha
 		_ = srv.Shutdown(ctx)
 		// Then flush queued email (sign-in codes first, then alerts) within its own budget;
 		// whatever does not make it is counted dropped{shutdown}, never silently lost.
+		b.waitAlertsInflight(2 * sharedOpTimeout)
 		b.mail.drain(emailDrainBudget)
 		close(drained)
 	}()

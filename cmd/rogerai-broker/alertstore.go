@@ -49,40 +49,104 @@ func (b *broker) alertSharedFail(v *valkeyStore, op string, err error) {
 }
 
 // sharedOnset reports whether THIS instance owns the page for key's current onset: SETNX
-// under the dedup TTL. No shared store, or an unreachable one, means yes (fallback).
+// under the dedup TTL. No shared store, or an unreachable one, means yes (fallback). A key
+// whose CLEAR could not reach the store (a pending clear) is still claimed by a stale
+// onset, so a refused SETNX on it is retried once after the DEL it owes: a failed clear
+// must never silence the next real onset for the rest of the TTL.
 func (b *broker) sharedOnset(key string) bool {
 	v := b.alertValkey()
 	if v == nil {
 		return true
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
-	defer cancel()
-	set, err := v.rdb.SetNX(ctx, alertKeyPrefix+key, "1", b.dedupTTL()).Result()
+	set, err := b.setNXOnset(v, key)
+	if err == nil && !set && b.clearPending(key) {
+		if b.sharedDel(key, "alertOnset") {
+			set, err = b.setNXOnset(v, key)
+		}
+	}
 	if err != nil {
 		b.alertSharedFail(v, "alertOnset", err)
 		return true
 	}
-	v.setUp(true)
+	if set {
+		b.resolveClear(key)
+	}
 	return set
 }
 
-// sharedClear deletes the onset key so the next onset pages again (CLEARED).
-func (b *broker) sharedClear(key string) {
-	b.sharedDel(key, "alertClear")
+func (b *broker) setNXOnset(v *valkeyStore, key string) (bool, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	set, err := v.rdb.SetNX(ctx, alertKeyPrefix+key, "1", b.dedupTTL()).Result()
+	if err == nil {
+		v.setUp(true)
+	}
+	return set, err
 }
 
-func (b *broker) sharedDel(key, op string) {
+// sharedClear deletes the onset key so the next onset pages again (CLEARED). A failed DEL
+// is remembered and retried (retryPendingClears / sharedOnset) instead of leaving the key
+// claimed until its TTL.
+func (b *broker) sharedClear(key string) {
+	if b.alertValkey() == nil || b.sharedDel(key, "alertClear") {
+		return
+	}
+	b.alertMu.Lock()
+	if b.alertClearPending == nil {
+		b.alertClearPending = map[string]bool{}
+	}
+	b.alertClearPending[key] = true
+	b.alertMu.Unlock()
+	log.Printf("alert: shared clear of %q failed - pending retry", key)
+}
+
+// clearPending reports whether key owes the store a DEL.
+func (b *broker) clearPending(key string) bool {
+	b.alertMu.Lock()
+	defer b.alertMu.Unlock()
+	return b.alertClearPending[key]
+}
+
+// resolveClear forgets a pending clear once the key has been deleted or re-claimed.
+func (b *broker) resolveClear(key string) {
+	b.alertMu.Lock()
+	was := b.alertClearPending[key]
+	delete(b.alertClearPending, key)
+	b.alertMu.Unlock()
+	if was {
+		log.Printf("alert: pending clear of %q resolved", key)
+	}
+}
+
+// retryPendingClears re-issues the DEL every pending clear owes (once per checker tick).
+func (b *broker) retryPendingClears() {
+	b.alertMu.Lock()
+	keys := make([]string, 0, len(b.alertClearPending))
+	for k := range b.alertClearPending {
+		keys = append(keys, k)
+	}
+	b.alertMu.Unlock()
+	for _, k := range keys {
+		if b.sharedDel(k, "alertClearRetry") {
+			b.resolveClear(k)
+		}
+	}
+}
+
+// sharedDel deletes one key under the alert namespace, reporting success.
+func (b *broker) sharedDel(key, op string) bool {
 	v := b.alertValkey()
 	if v == nil {
-		return
+		return true
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
 	defer cancel()
 	if err := v.rdb.Del(ctx, alertKeyPrefix+key).Err(); err != nil {
 		b.alertSharedFail(v, op, err)
-		return
+		return false
 	}
 	v.setUp(true)
+	return true
 }
 
 // sharedFlapIncr counts one onset of key inside the flap window and returns the total so

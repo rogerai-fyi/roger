@@ -102,6 +102,7 @@ type alertCondition struct {
 type flapState struct {
 	onsets    int
 	muted     bool
+	lastOnset time.Time
 	clearedAt time.Time
 	localN    int
 	localFrom time.Time
@@ -211,6 +212,20 @@ func (b *broker) adminAlert(key, subjectTail, heading string, rows [][2]string, 
 	b.alertFiredAt[key] = now
 	b.alertMu.Unlock()
 
+	// Everything past the local mark talks to the shared store (two bounded round trips)
+	// and the mailer; it runs on its own goroutine so an onset raised from a request path
+	// (/billing drift, /report, a webhook, a strike) never adds to that request's latency.
+	// alertInflight lets shutdown (and the tests' quiescence check) wait for it.
+	b.alertInflight.Add(1)
+	go func() {
+		defer b.alertInflight.Add(-1)
+		b.alertOnset(key, subjectTail, heading, rows, body, now)
+	}()
+}
+
+// alertOnset is the off-request half of adminAlert: claim the onset across instances,
+// apply flap suppression, then send at once or coalesce into the open digest window.
+func (b *broker) alertOnset(key, subjectTail, heading string, rows [][2]string, body string, now time.Time) {
 	if !b.sharedOnset(key) {
 		b.alertDeduped.Add(1)
 		log.Printf("alert: DEDUPED %q (a peer instance already paged this onset)", key)
@@ -245,7 +260,8 @@ func (b *broker) adminAlert(key, subjectTail, heading string, rows [][2]string, 
 	}()
 }
 
-// flushAlerts sends everything the coalescing window collected as ONE digest.
+// flushAlerts sends everything the coalescing window collected as ONE digest, ordered by
+// key so the subject's "first" condition does not depend on which onset goroutine won.
 func (b *broker) flushAlerts() {
 	b.alertMu.Lock()
 	conds := b.alertPending
@@ -253,7 +269,17 @@ func (b *broker) flushAlerts() {
 	b.alertFlushArmed = false
 	b.alertMu.Unlock()
 	if len(conds) > 0 {
+		sort.SliceStable(conds, func(i, j int) bool { return conds[i].key < conds[j].key })
 		b.sendAlertDigest(conds, false)
+	}
+}
+
+// waitAlertsInflight blocks (bounded) until every onset goroutine has finished, so a page
+// raised right before shutdown still reaches the mail queue before it drains.
+func (b *broker) waitAlertsInflight(timeout time.Duration) {
+	deadline := time.Now().Add(timeout)
+	for b.alertInflight.Load() > 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
@@ -325,6 +351,7 @@ func (b *broker) flapOnset(key string, now time.Time) (suffix string, muted bool
 		n = fs.localN
 	}
 	fs.onsets = max(n, fs.onsets+1) // the shared count, or keep counting if its window rolled
+	fs.lastOnset = now
 	fs.clearedAt = time.Time{}
 	switch {
 	case fs.muted:
@@ -341,8 +368,10 @@ func (b *broker) flapOnset(key string, now time.Time) (suffix string, muted bool
 
 // checkFlapStabilized lifts the mute of every key that has stayed clear for flapQuiet and
 // sends ONE "stabilized after N onsets" summary per recipient (claimed across instances).
+// It also forgets never-muted keys whose last onset is older than the flap window, so the
+// table cannot grow with every model that ever blipped.
 func (b *broker) checkFlapStabilized(now time.Time) {
-	quiet := b.alertCfg.flapQuiet
+	quiet, window := b.alertCfg.flapQuiet, b.alertCfg.flapWindow
 	if quiet <= 0 {
 		return
 	}
@@ -353,8 +382,11 @@ func (b *broker) checkFlapStabilized(now time.Time) {
 	var lifted []done
 	b.alertMu.Lock()
 	for key, fs := range b.alertFlap {
-		if fs.muted && !b.alertFiring[key] && !fs.clearedAt.IsZero() && now.Sub(fs.clearedAt) >= quiet {
+		switch {
+		case fs.muted && !b.alertFiring[key] && !fs.clearedAt.IsZero() && now.Sub(fs.clearedAt) >= quiet:
 			lifted = append(lifted, done{key, fs.onsets})
+			delete(b.alertFlap, key)
+		case !fs.muted && window > 0 && now.Sub(fs.lastOnset) >= window:
 			delete(b.alertFlap, key)
 		}
 	}
@@ -459,6 +491,7 @@ func (b *broker) alertCheckOnce(now time.Time) {
 	b.checkProviderGapAlerts()
 	b.checkCSAMSLAAlert(now)
 	b.checkFlapStabilized(now)
+	b.retryPendingClears()
 }
 
 // checkHealthAlerts pages when the durable store (Postgres) or the optional shared state

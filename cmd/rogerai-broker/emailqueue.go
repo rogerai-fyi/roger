@@ -278,20 +278,18 @@ func (m *mailer) settle(job *emailJob, status int, retryAfter time.Duration, err
 }
 
 // emailBackoff is the delay before retry number `attempt` (1-based): the provider's
-// Retry-After when it gave one (capped), else 1s, 2s, 4s, ... plus up to 25% jitter so two
-// instances do not retry in lockstep.
+// Retry-After when it gave one, else 1s, 2s, 4s, ... plus up to 25% jitter so two instances
+// do not retry in lockstep. Both are capped at emailRetryAfterCap, and the doubling stops
+// at 256s: an absurd retries knob must never overflow the shift (attempt 35 would turn the
+// base negative and panic rand on the sender goroutine, taking the broker down).
 func emailBackoff(attempt int, retryAfter time.Duration) time.Duration {
-	if retryAfter > 0 {
-		if retryAfter > emailRetryAfterCap {
-			return emailRetryAfterCap
-		}
-		return retryAfter
+	d := retryAfter
+	if d <= 0 {
+		shift := min(max(attempt, 1)-1, 8)
+		base := time.Second << shift
+		d = base + time.Duration(rand.Int63n(int64(base/4)))
 	}
-	if attempt < 1 {
-		attempt = 1
-	}
-	base := time.Second << uint(attempt-1)
-	return base + time.Duration(rand.Int63n(int64(base/4)))
+	return min(d, emailRetryAfterCap)
 }
 
 // parseRetryAfter reads a Retry-After header as delta-seconds or an HTTP-date.

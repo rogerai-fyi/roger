@@ -309,3 +309,44 @@ Feature: Alert and transactional email delivery is paced, prioritized, retried, 
     Then the provider received exactly 3 POSTs, all 200
     And zero "resend error 429" lines were logged
     And each recipient received one digest naming all 6 models
+
+  # ===========================================================================
+  # 10. REGRESSIONS - the 76642e33 review (each a bug the reviewer found, pinned)
+  # ===========================================================================
+
+  Scenario: a failed DEL on clear does not silence the next real onset
+    Given "noproviders:m" fired and the key exists
+    And the shared store fails every command
+    When the model returns on air and the checker clears it
+    Then the clear is pending and the key still exists
+    When the shared store recovers
+    And the condition re-onsets before the checker retries the clear
+    Then it pages again
+    And the key is claimed again and no clear is pending
+
+  Scenario: a pending clear is retried on the next checker tick
+    Given "noproviders:m" fired and the key exists
+    And the shared store fails every command
+    When the model returns on air and the checker clears it
+    And the shared store recovers
+    And the checker runs
+    Then the key is deleted
+    And no clear is pending
+
+  Scenario: an absurd ROGERAI_EMAIL_RETRIES does not panic the sender
+    Given the email retries knob is 40
+    And the provider returns 500 forever
+    When an alert is sent
+    Then the email is eventually dropped after 40 retries
+    And the sender is still alive
+
+  Scenario: an alert onset never blocks its caller while the shared store hangs
+    Given the shared store hangs on every command
+    When the /billing drift check fires an alert
+    Then the check returns in under 50 milliseconds
+    And the page is still sent once the store answers
+
+  Scenario: a never-muted key is forgotten after the flap window
+    Given "noproviders:m" fires once and clears
+    When the flap window elapses and the checker runs
+    Then the flap table no longer holds "noproviders:m"
