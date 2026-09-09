@@ -1585,9 +1585,11 @@ func (s *adState) mutedAfterFlapping(key string, times int) error {
 		s.clock.advance(time.Minute)
 	}
 	if got := s.prov.count(); got != 3*len(s.recipients) {
-		return fmt.Errorf("%d POSTs after %d flaps, want %d (pages stop at the third onset): %d FIRED, %d MUTED, %d shared-store fallbacks%s",
-			got, times, 3*len(s.recipients), s.logs.lines("alert: FIRED"), s.logs.lines("alert: MUTED"),
-			s.logs.lines("alert: shared store unreachable"), s.stuckNote())
+		// postDigest names every (recipient, subject, status) it saw: when this count is
+		// wrong the question is always WHICH emails are extra or missing, and a bare number
+		// costs a whole CI round to answer.
+		return fmt.Errorf("%d emails after %d flaps, want %d (pages stop at the third onset): %s%s",
+			got, times, 3*len(s.recipients), s.postDigest(), s.stuckNote())
 	}
 	s.markBefore = s.prov.count()
 	return nil
