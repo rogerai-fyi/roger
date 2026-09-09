@@ -35,6 +35,7 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/cucumber/godog"
+	"github.com/stretchr/testify/require"
 	"rogerai.fm/roger/v6/internal/protocol"
 	"rogerai.fm/roger/v6/internal/store"
 )
@@ -160,6 +161,7 @@ type emailProvider struct {
 	capPerSec int           // >0: 429 when more than capPerSec POSTs landed in the last second
 	first429  int           // >0: 429 the first N POSTs
 	served    int
+	strays    []string        // requests on a non-email path (another suite reusing our port)
 	loseFirst map[string]bool // non-nil: hang up on the FIRST attempt of each email
 }
 
@@ -170,6 +172,23 @@ func newEmailProvider(clock *fakeClock) *emailProvider {
 }
 
 func (p *emailProvider) handle(w http.ResponseWriter, r *http.Request) {
+	// ONLY the mailer's endpoint is an email. The mailer posts to this server's root
+	// (email.go m.endpoint = srv.URL), so anything on another path is not ours.
+	//
+	// This is not hypothetical tidiness. Every suite in this package runs in ONE process,
+	// and the OS reuses the port of a closed httptest server quickly, so a client that
+	// outlives its own server keeps talking to whatever binds that port next. CI caught
+	// exactly that: this recorder received another suite's "GET /v1/models" (the reference
+	// price sync) and "POST /v1/audio/speech" three times each, and counted all six as
+	// emails - 12 where 6 were right. A stray is answered 404 and tallied, never recorded,
+	// so a count assertion can never again be moved by traffic that is not email.
+	if r.URL.Path != "/" {
+		p.mu.Lock()
+		p.strays = append(p.strays, r.Method+" "+r.URL.Path)
+		p.mu.Unlock()
+		http.NotFound(w, r)
+		return
+	}
 	raw, _ := io.ReadAll(r.Body)
 	var payload struct {
 		To      []string `json:"to"`
@@ -270,6 +289,30 @@ func (p *emailProvider) attemptSnapshot() []providerPost {
 	out := make([]providerPost, len(p.posts))
 	copy(out, p.posts)
 	return out
+}
+
+// strayNote reports non-email traffic this server absorbed, so a future port collision is
+// visible in the failure instead of silently changing a count.
+func (p *emailProvider) strayNote() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if len(p.strays) == 0 {
+		return ""
+	}
+	per := map[string]int{}
+	for _, s := range p.strays {
+		per[s]++
+	}
+	keys := make([]string, 0, len(per))
+	for k := range per {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		parts = append(parts, fmt.Sprintf("%dx %s", per[k], k))
+	}
+	return "IGNORED non-email traffic on this port: " + strings.Join(parts, ", ")
 }
 
 func (p *emailProvider) attempts() int {
@@ -507,6 +550,9 @@ func (s *adState) postDigest() string {
 	}
 	sort.Strings(keys)
 	var b strings.Builder
+	if st := s.prov.strayNote(); st != "" {
+		fmt.Fprintf(&b, "%s; ", st)
+	}
 	fmt.Fprintf(&b, "%d FIRED, %d MUTED, %d DEDUPED, %d fallbacks, %d sender retries; POSTs:",
 		s.logs.lines("alert: FIRED"), s.logs.lines("alert: MUTED"), s.logs.lines("alert: DEDUPED"),
 		s.logs.lines("alert: shared store unreachable"), s.logs.lines("email: retrying"))
@@ -2713,4 +2759,45 @@ func (m *mailer) queuedSubjects(lane emailLane) []string {
 		out = append(out, j.subject)
 	}
 	return out
+}
+
+// TestEmailProviderIgnoresNonEmailTraffic pins the fix for a CI failure that cost several
+// rounds to attribute: the alert suite's recorder counted ANY request as an email, so when
+// another suite in this one test binary kept a client alive past its own httptest server and
+// the OS handed this provider that port, its "GET /v1/models" and "POST /v1/audio/speech"
+// were counted as six extra emails ("12 POSTs, want 6"). The alert layer was correct every
+// time. Only traffic on the mailer's endpoint (the server root) is email; everything else is
+// answered 404, tallied, and reported - never counted.
+func TestEmailProviderIgnoresNonEmailTraffic(t *testing.T) {
+	p := newEmailProvider(newFakeClock())
+	defer p.srv.Close()
+
+	body := `{"from":"a@b.c","to":["ops@example.com"],"subject":"real","html":"h","text":"t"}`
+	req, err := http.NewRequest(http.MethodPost, p.srv.URL, strings.NewReader(body))
+	require.NoError(t, err)
+	req.Header.Set("Idempotency-Key", "key-1")
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	resp.Body.Close()
+	require.Equal(t, 200, resp.StatusCode)
+
+	for _, stray := range []struct{ method, path string }{
+		{http.MethodGet, "/v1/models"},            // the reference-price sync
+		{http.MethodPost, "/v1/audio/speech"},     // an audio station stub
+		{http.MethodPost, "/v1/chat/completions"}, // a relay stub
+	} {
+		r, err := http.NewRequest(stray.method, p.srv.URL+stray.path, strings.NewReader("{}"))
+		require.NoError(t, err)
+		got, err := http.DefaultClient.Do(r)
+		require.NoError(t, err)
+		got.Body.Close()
+		require.Equal(t, http.StatusNotFound, got.StatusCode, "%s %s must not be served as email", stray.method, stray.path)
+	}
+
+	require.Equal(t, 1, p.count(), "only the email on the mailer's endpoint counts")
+	require.Equal(t, 1, p.attempts(), "a stray must not even count as a transport attempt")
+	note := p.strayNote()
+	require.Contains(t, note, "/v1/models")
+	require.Contains(t, note, "/v1/audio/speech")
+	require.Contains(t, note, "IGNORED non-email traffic")
 }
