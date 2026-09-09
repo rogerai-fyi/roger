@@ -371,6 +371,20 @@ Feature: Alert and transactional email delivery is paced, prioritized, retried, 
     Then three pages were sent
     And the third page's subject ends with "(flapping - further onsets muted until 30m quiet)"
 
+  # CI (PR #105, one commit later) then failed "the shared store being unreachable falls back
+  # to the per-process map" with 12 POSTs where 6 were expected. The alert layer had fired
+  # exactly twice - once per instance, as designed - but the mailer had RETRIED deliveries
+  # whose responses never came back, and every attempt was being counted as if it were a
+  # page. A retry must be ONE email to the recipient, the founder's inbox included: each
+  # email carries an idempotency key that every attempt of it reuses, so a provider that
+  # honours the key delivers one copy, and a page count can be taken by key.
+  Scenario: a delivery retried after a lost response is ONE email, not two
+    Given the provider loses the response to every first attempt
+    When "noproviders:m" fires on both instances
+    Then the provider saw more attempts than emails
+    And every attempt carried its email's idempotency key
+    And each recipient receives exactly ONE email
+
   Scenario: the flap count is per-process monotone when there is no shared store at all
     Given the broker has no shared store
     When "noproviders:m" fires, clears, fires, clears, and fires again within 40 minutes

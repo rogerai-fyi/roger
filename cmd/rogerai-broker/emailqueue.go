@@ -1,6 +1,8 @@
 package main
 
 import (
+	crand "crypto/rand"
+	"encoding/hex"
 	"errors"
 	"log"
 	"math/rand"
@@ -69,11 +71,27 @@ const (
 var errEmailPermanent = errors.New("permanent email failure")
 
 // emailJob is one queued email. attempts counts POSTs already made; notBefore gates a retry.
+// id is the email's IDEMPOTENCY KEY: minted once at enqueue and repeated on every attempt,
+// so a provider that honours it (Resend does) delivers ONE copy even when a lost response
+// makes us retry. Without it a retry is a second copy in the recipient's inbox - and, for an
+// ops page, indistinguishable from a second alert.
 type emailJob struct {
 	lane                    emailLane
+	id                      string
 	to, subject, html, text string
 	attempts                int
 	notBefore               time.Time
+}
+
+// newEmailID mints an idempotency key. crypto/rand so two instances retrying the same
+// condition never collide on one (they are separate emails and must stay separate).
+func newEmailID() string {
+	var b [16]byte
+	if _, err := crand.Read(b[:]); err != nil {
+		// Never fail a send over the key: a unique-enough fallback still beats no key.
+		return strconv.FormatInt(time.Now().UnixNano(), 16)
+	}
+	return hex.EncodeToString(b[:])
 }
 
 // emailQueue is the sender state embedded in mailer (kept separate so email.go stays the
@@ -132,7 +150,7 @@ func (m *mailer) effCap() int {
 func (m *mailer) enqueue(lane emailLane, to, subject, html, text string) {
 	q := &m.q
 	q.startOnce.Do(m.startSender)
-	job := &emailJob{lane: lane, to: to, subject: subject, html: html, text: text}
+	job := &emailJob{lane: lane, id: newEmailID(), to: to, subject: subject, html: html, text: text}
 	q.mu.Lock()
 	if q.stopping {
 		// A page raised after the drain began (a late onset goroutine) is counted AND named:
@@ -247,7 +265,7 @@ func (m *mailer) senderLoop() {
 		q.sentAt = append(q.sentAt, now)
 		q.mu.Unlock()
 
-		status, retryAfter, err := m.deliver(job.to, job.subject, job.html, job.text)
+		status, retryAfter, err := m.deliver(job)
 		m.settle(job, status, retryAfter, err)
 	}
 }

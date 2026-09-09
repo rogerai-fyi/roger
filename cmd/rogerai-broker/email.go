@@ -156,7 +156,8 @@ func (m *mailer) send(lane emailLane, to, subject, htmlBody, textBody string) {
 // (emailqueue.go decides retry vs drop): the HTTP status, the provider's Retry-After hint,
 // and a transport/build error. Runs only on the sender goroutine; every failure is logged
 // here so the log keeps the same "email: <provider> error <status>" shape it always had.
-func (m *mailer) deliver(to, subject, htmlBody, textBody string) (status int, retryAfter time.Duration, err error) {
+func (m *mailer) deliver(j *emailJob) (status int, retryAfter time.Duration, err error) {
+	to, subject, htmlBody, textBody := j.to, j.subject, j.html, j.text
 	// The two providers disagree on BOTH the field names and the shape of the address
 	// fields, so the payload is built per provider rather than translated.
 	var payload map[string]any
@@ -211,6 +212,11 @@ func (m *mailer) deliver(to, subject, htmlBody, textBody string) (status int, re
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Content-Type", "application/json")
+	// One key per email, repeated by every retry: the provider collapses our re-sends
+	// instead of putting a second copy of the same page in the recipient's inbox.
+	if j.id != "" {
+		req.Header.Set("Idempotency-Key", j.id)
+	}
 
 	do := m.httpDo
 	if do == nil {

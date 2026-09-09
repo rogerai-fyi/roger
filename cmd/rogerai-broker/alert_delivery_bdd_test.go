@@ -135,6 +135,7 @@ type providerPost struct {
 	html    string
 	text    string
 	status  int
+	key     string // the email's idempotency key: every ATTEMPT of one email repeats it
 }
 
 type scriptedResp struct {
@@ -158,6 +159,7 @@ type emailProvider struct {
 	capPerSec int           // >0: 429 when more than capPerSec POSTs landed in the last second
 	first429  int           // >0: 429 the first N POSTs
 	served    int
+	loseFirst map[string]bool // non-nil: hang up on the FIRST attempt of each email
 }
 
 func newEmailProvider(clock *fakeClock) *emailProvider {
@@ -176,8 +178,17 @@ func (p *emailProvider) handle(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = json.Unmarshal(raw, &payload)
 
+	key := r.Header.Get("Idempotency-Key")
 	p.mu.Lock()
 	hang := p.hang
+	// A lost response: the server HAS processed the POST (it is recorded below) but the
+	// client never learns that, so the sender retries - the exact shape that made CI count
+	// one page twice.
+	lose := false
+	if p.loseFirst != nil && !p.loseFirst[key] {
+		p.loseFirst[key] = true
+		lose = true
+	}
 	p.mu.Unlock()
 	if hang != nil {
 		<-hang
@@ -208,8 +219,11 @@ func (p *emailProvider) handle(w http.ResponseWriter, r *http.Request) {
 	if len(payload.To) > 0 {
 		to = payload.To[0]
 	}
+	if lose {
+		resp = scriptedResp{status: 200, closeConn: true}
+	}
 	p.posts = append(p.posts, providerPost{at: now, to: to, subject: payload.Subject,
-		html: payload.HTML, text: payload.Text, status: resp.status})
+		html: payload.HTML, text: payload.Text, status: resp.status, key: key})
 	p.mu.Unlock()
 
 	if resp.closeConn {
@@ -235,7 +249,9 @@ func (p *emailProvider) handle(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (p *emailProvider) snapshot() []providerPost {
+// attemptSnapshot is every HTTP POST the provider received, retries included. Only the
+// TRANSPORT scenarios (pacing windows, backoff gaps, "1 + 3 retries") assert on it.
+func (p *emailProvider) attemptSnapshot() []providerPost {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	out := make([]providerPost, len(p.posts))
@@ -243,11 +259,31 @@ func (p *emailProvider) snapshot() []providerPost {
 	return out
 }
 
-func (p *emailProvider) count() int {
+func (p *emailProvider) attempts() int {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return len(p.posts)
 }
+
+// snapshot is the PAGE view: one entry per email, keyed by the idempotency key every
+// attempt of that email repeats, so a delivery the sender had to retry counts once - what
+// the recipient sees. Two genuinely separate pages carry two keys and are never collapsed,
+// so every count assertion keeps its teeth. An attempt with no key (a mailer that predates
+// the key, or a hand-built one) is always its own page.
+func (p *emailProvider) snapshot() []providerPost {
+	seen := map[string]bool{}
+	var out []providerPost
+	for _, post := range p.attemptSnapshot() {
+		if post.key != "" && seen[post.key] {
+			continue
+		}
+		seen[post.key] = true
+		out = append(out, post)
+	}
+	return out
+}
+
+func (p *emailProvider) count() int { return len(p.snapshot()) }
 
 // ---- log capture ---------------------------------------------------------------
 
@@ -422,9 +458,9 @@ func (s *adState) settle() {
 	// something is genuinely stuck, and then it is recorded so the assertion says so.
 	deadline := time.Now().Add(30 * time.Second)
 	stable := 0
-	lastPosts, lastWaiters := s.prov.count(), s.clock.pendingCount()
+	lastPosts, lastWaiters := s.prov.attempts(), s.clock.pendingCount()
 	for time.Now().Before(deadline) {
-		posts, waiters := s.prov.count(), s.clock.pendingCount()
+		posts, waiters := s.prov.attempts(), s.clock.pendingCount()
 		if s.quiescent() && posts == lastPosts && waiters == lastWaiters {
 			stable++
 			if stable >= 6 {
@@ -437,7 +473,30 @@ func (s *adState) settle() {
 		time.Sleep(2 * time.Millisecond)
 	}
 	s.settleStuck = true
-	s.t.Logf("settle: system did not go quiescent within 30s (posts=%d waiters=%d)", s.prov.count(), s.clock.pendingCount())
+	s.t.Logf("settle: system did not go quiescent within 30s (attempts=%d waiters=%d)", s.prov.attempts(), s.clock.pendingCount())
+}
+
+// postDigest summarizes what the provider actually received - how many POSTs per
+// (recipient, subject) pair, plus the FIRED/MUTED/DEDUPED/retry tallies - so a count
+// assertion that fails on a runner says WHAT doubled or vanished, not just by how much.
+func (s *adState) postDigest() string {
+	per := map[string]int{}
+	for _, p := range s.prov.attemptSnapshot() {
+		per[p.to+" | "+p.subject+" | "+strconv.Itoa(p.status)]++
+	}
+	keys := make([]string, 0, len(per))
+	for k := range per {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	fmt.Fprintf(&b, "%d FIRED, %d MUTED, %d DEDUPED, %d fallbacks, %d sender retries; POSTs:",
+		s.logs.lines("alert: FIRED"), s.logs.lines("alert: MUTED"), s.logs.lines("alert: DEDUPED"),
+		s.logs.lines("alert: shared store unreachable"), s.logs.lines("email: retrying"))
+	for _, k := range keys {
+		fmt.Fprintf(&b, "\n    %dx %s", per[k], k)
+	}
+	return b.String()
 }
 
 // stuckNote is appended to a count assertion so a CI failure says whether the system was
@@ -554,7 +613,7 @@ func (s *adState) providerReceivesAll(n int) error {
 }
 
 func (s *adState) noWindowMoreThan(n int) error {
-	if got := windowMax(s.postTimes(s.prov.snapshot())); got > n {
+	if got := windowMax(s.postTimes(s.prov.attemptSnapshot())); got > n {
 		return fmt.Errorf("a 1-second window contained %d POSTs, want <= %d", got, n)
 	}
 	return nil
@@ -831,7 +890,7 @@ func (s *adState) anAlertIsSent() error {
 }
 
 func (s *adState) postsAtLeastSecondsApart(n, secs int) error {
-	posts := s.prov.snapshot()
+	posts := s.prov.attemptSnapshot()
 	if len(posts) != n {
 		return fmt.Errorf("provider received %d POSTs, want %d", len(posts), n)
 	}
@@ -842,7 +901,7 @@ func (s *adState) postsAtLeastSecondsApart(n, secs int) error {
 }
 
 func (s *adState) alertWasDelivered() error {
-	for _, p := range s.prov.snapshot() {
+	for _, p := range s.prov.attemptSnapshot() {
 		if p.status == 200 && p.subject == s.alertSubj {
 			return nil
 		}
@@ -866,7 +925,7 @@ func (s *adState) provider429NoRetryAfterThrice() error {
 }
 
 func (s *adState) gapsAbout124() error {
-	posts := s.prov.snapshot()
+	posts := s.prov.attemptSnapshot()
 	if len(posts) != 4 {
 		return fmt.Errorf("provider received %d POSTs, want 4", len(posts))
 	}
@@ -881,7 +940,7 @@ func (s *adState) gapsAbout124() error {
 }
 
 func (s *adState) deliveredOnNthPost(n int) error {
-	posts := s.prov.snapshot()
+	posts := s.prov.attemptSnapshot()
 	if len(posts) != n {
 		return fmt.Errorf("provider received %d POSTs, want %d", len(posts), n)
 	}
@@ -904,7 +963,7 @@ func (s *adState) provider500Forever() error {
 }
 
 func (s *adState) providerReceivedPosts(n int) error {
-	if got := s.prov.count(); got != n {
+	if got := s.prov.attempts(); got != n {
 		return fmt.Errorf("provider received %d POSTs, want %d", got, n)
 	}
 	return nil
@@ -956,15 +1015,9 @@ func (s *adState) alertsAreSent(n int) error {
 }
 
 func (s *adState) noWindowMoreThanIncludingRetries(n int) error {
-	posts := s.prov.snapshot()
-	ok := 0
-	for _, p := range posts {
-		if p.status == 200 {
-			ok++
-		}
-	}
-	if ok != 20 {
-		return fmt.Errorf("%d POSTs succeeded, want all 20 alerts delivered", ok)
+	// Pages, not attempts: a retried alert is still one alert delivered.
+	if got := s.prov.count(); got != 20 {
+		return fmt.Errorf("%d alerts delivered, want all 20: %s", got, s.postDigest())
 	}
 	return s.noWindowMoreThan(n)
 }
@@ -1265,6 +1318,10 @@ func (s *adState) sharedStoreUnreachable() error {
 }
 
 func (s *adState) firesOnBothInstances(key string) error {
+	s.primary()
+	if s.b == nil {
+		s.b = s.newBroker()
+	}
 	for _, b := range []*broker{s.a, s.b} {
 		b.adminAlert(key, "model m has 0 providers", "Model m dropped to 0 providers", nil, "body")
 	}
@@ -1274,7 +1331,8 @@ func (s *adState) firesOnBothInstances(key string) error {
 
 func (s *adState) eachInstancePagesOnceLogsFallbackOnce() error {
 	if got := s.prov.count(); got != 2*len(s.recipients) {
-		return fmt.Errorf("%d POSTs, want %d (each instance pages once)", got, 2*len(s.recipients))
+		return fmt.Errorf("%d POSTs, want %d (each instance pages once): %s%s",
+			got, 2*len(s.recipients), s.postDigest(), s.stuckNote())
 	}
 	if got := s.logs.lines("alert: shared store unreachable"); got != 2 {
 		return fmt.Errorf("%d fallback lines, want exactly 1 per instance (2); log:\n%s", got, s.logs.buf.String())
@@ -1860,9 +1918,12 @@ func (s *adState) checkerRunsBothAfterDebounce() error {
 }
 
 func (s *adState) exactlyNPostsAll200(n int) error {
-	posts := s.prov.snapshot()
+	posts := s.prov.attemptSnapshot() // attempts: the incident was about POSTs hitting the cap
 	if len(posts) != n {
-		return fmt.Errorf("provider received %d POSTs, want exactly %d", len(posts), n)
+		return fmt.Errorf("provider received %d POSTs, want exactly %d: %s", len(posts), n, s.postDigest())
+	}
+	if r := s.retriesTaken(); r != 0 {
+		return fmt.Errorf("%d sender retries: under the cap nothing should have needed one", r)
 	}
 	for _, p := range posts {
 		if p.status != 200 {
@@ -1945,7 +2006,7 @@ func (s *adState) retriesKnob(n int) error {
 
 func (s *adState) eventuallyDroppedAfter(n int) error {
 	s.runFor(6 * time.Hour)
-	if got := s.prov.count(); got != n+1 {
+	if got := s.prov.attempts(); got != n+1 {
 		return fmt.Errorf("provider received %d POSTs, want %d (1 + %d retries)", got, n+1, n)
 	}
 	if got := s.logs.lines(fmt.Sprintf("email: DROPPED after %d retries", n)); got != 1 {
@@ -2275,8 +2336,9 @@ func (s *adState) eachCSAMImmediateOwnEmail() error {
 	if queued := m.queuedSubjects(laneAlert); len(queued) != 0 {
 		return fmt.Errorf("alert lane holds %v before the window elapsed; a CSAM page must not ride it", queued)
 	}
-	if n := s.prov.count() + len(m.queuedSubjects(laneTransactional)); n != 2*len(s.recipients) {
-		return fmt.Errorf("%d CSAM pages sent+queued on the priority lane, want %d", n, 2*len(s.recipients))
+	if n := s.pagesAndQueued(laneTransactional); n != 2*len(s.recipients) {
+		return fmt.Errorf("%d CSAM pages sent+queued on the priority lane, want %d: %s",
+			n, 2*len(s.recipients), s.postDigest())
 	}
 	// Step only through pacing (4/s), never past the coalescing window.
 	s.runUntil(s.clock.Now().Add(2 * time.Second))
@@ -2324,6 +2386,49 @@ func (s *adState) flapsNMoreTimes(key string, n int) error {
 // cross-instance decision falls back to this process.
 func (s *adState) noSharedStore() error {
 	s.primary().shared = nil
+	return nil
+}
+
+// retriesTaken is the number of extra delivery attempts the senders made.
+func (s *adState) retriesTaken() int64 {
+	var n int64
+	for _, m := range s.mailers {
+		n += m.emailStats()["email_retries"].(int64)
+	}
+	return n
+}
+
+func (s *adState) providerLosesFirstResponse() error {
+	s.prov.mu.Lock()
+	s.prov.loseFirst = map[string]bool{}
+	s.prov.mu.Unlock()
+	return nil
+}
+
+func (s *adState) moreAttemptsThanEmails() error {
+	if s.prov.attempts() <= s.prov.count() {
+		return fmt.Errorf("fixture: %d attempts vs %d emails - no delivery was retried, so this scenario proves nothing",
+			s.prov.attempts(), s.prov.count())
+	}
+	if r := s.retriesTaken(); r == 0 {
+		return fmt.Errorf("the sender recorded no retries although the provider saw repeats")
+	}
+	return nil
+}
+
+func (s *adState) everyAttemptCarriesItsKey() error {
+	byKey := map[string]string{}
+	for _, p := range s.prov.attemptSnapshot() {
+		if p.key == "" {
+			return fmt.Errorf("an attempt (to=%s subj=%q) carried no idempotency key: a retry is indistinguishable from a second page",
+				p.to, p.subject)
+		}
+		id := p.to + "|" + p.subject
+		if prev, ok := byKey[p.key]; ok && prev != id {
+			return fmt.Errorf("idempotency key %q was reused across two different emails (%s vs %s)", p.key, prev, id)
+		}
+		byKey[p.key] = id
+	}
 	return nil
 }
 
@@ -2503,6 +2608,9 @@ func TestAlertDeliveryFeature(t *testing.T) {
 			sc.Step(`^"([^"]*)" onsets once$`, s.firesOnceStep)
 			sc.Step(`^"([^"]*)" flaps (\d+) more times$`, s.flapsNMoreTimes)
 			sc.Step(`^the broker has no shared store$`, s.noSharedStore)
+			sc.Step(`^the provider loses the response to every first attempt$`, s.providerLosesFirstResponse)
+			sc.Step(`^the provider saw more attempts than emails$`, s.moreAttemptsThanEmails)
+			sc.Step(`^every attempt carried its email's idempotency key$`, s.everyAttemptCarriesItsKey)
 			sc.Step(`^the flap window elapses and the checker runs$`, s.flapWindowElapsesChecker)
 			sc.Step(`^the flap table no longer holds "([^"]*)"$`, s.flapTableNoLongerHolds)
 
@@ -2541,6 +2649,37 @@ func setPaused(m *mailer, v bool) {
 	m.q.mu.Lock()
 	m.q.paused = v
 	m.q.mu.Unlock()
+}
+
+// pagesAndQueued counts DISTINCT emails: those the provider has already received (by the
+// idempotency key each attempt repeats) plus those still queued or awaiting a retry on the
+// given lane (by the same id). An email being retried sits in BOTH places, so counting ids
+// rather than adding two tallies keeps it one email.
+func (s *adState) pagesAndQueued(lane emailLane) int {
+	ids := map[string]bool{}
+	for _, p := range s.prov.snapshot() {
+		ids[p.key] = true
+	}
+	for _, m := range s.mailers {
+		for _, id := range m.queuedIDs(lane) {
+			ids[id] = true
+		}
+	}
+	return len(ids)
+}
+
+// queuedIDs lists the idempotency keys still queued (fresh + retrying) on a lane.
+func (m *mailer) queuedIDs(lane emailLane) []string {
+	m.q.mu.Lock()
+	defer m.q.mu.Unlock()
+	var out []string
+	for _, j := range m.q.lanes[lane] {
+		out = append(out, j.id)
+	}
+	for _, j := range m.q.retrying[lane] {
+		out = append(out, j.id)
+	}
+	return out
 }
 
 // queuedSubjects lists the subjects still queued (fresh + retrying) on a lane.
