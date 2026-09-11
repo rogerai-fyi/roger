@@ -1134,14 +1134,28 @@ html.js .mkt-quiet--nojs { display: none; }
 }
 
 /* overlaid on the screen's opposite corner, not a block below it - the
-   screen now runs edge to edge, so anything "under" it would too. */
+   screen now runs edge to edge, so anything "under" it would too. It is
+   positioned against .reel-band (bottom:12px), not .reel__screen, and
+   .reel-band's own height is just whatever .reel__screen currently is - when
+   reel--fx has that collapsed to 6px (off, or mid power-on/off), 12px from
+   THAT bottom edge floats the ~28px-tall control up over whatever precedes
+   the band in the document, still fully clickable there. (Confirmed live,
+   2026-09-11: floating over hero copy at rest and after every scroll-out.)
+   Fix is to only show it once the set is actually confirmed on - reel--fx
+   without is-on covers every collapsed/transitional state at once, so
+   there's no state left where the band is too short to hold it. Plain
+   fallback paths (reduced motion / no IntersectionObserver / JS-off) never
+   gain reel--fx at all and keep the control visible always, matching how
+   they never collapse the screen either. */
 .reel__mute {
   position: absolute; right: var(--gutter); bottom: 12px; z-index: 1;
   display: inline-flex; align-items: center; gap: 6px;
   padding: 5px 10px; border: 1px solid rgba(255,255,255,.35); background: rgba(5,5,5,.66);
   color: rgba(255,255,255,.8); font-family: var(--font-mono); font-size: var(--t-xs);
-  cursor: pointer; transition: color var(--d-2), border-color var(--d-2);
+  cursor: pointer; opacity: 1; pointer-events: auto;
+  transition: color var(--d-2), border-color var(--d-2), opacity var(--d-2);
 }
+.reel--fx:not(.is-on) .reel__mute { opacity: 0; pointer-events: none; }
 .reel__mute:hover, .reel__mute:focus-visible { color: #fff; border-color: #fff; }
 .reel__mute .reel__icon--sound { display: none; }
 .reel__mute.is-unmuted .reel__icon--muted { display: none; }
