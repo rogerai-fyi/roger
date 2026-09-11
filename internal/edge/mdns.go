@@ -225,12 +225,16 @@ func buildResponse(service, instance, host string, port uint16, txt []string, ip
 // malformed LAN packet gets to choose how much work we do.
 func decodeName(msg []byte, off int) (string, int, error) {
 	var (
-		labels  []string
-		hops    int
-		next    = -1
-		total   = 0
-		cursor  = off
-		minJump = len(msg)
+		labels []string
+		hops   int
+		next   = -1
+		total  = 0
+		cursor = off
+		// A pointer must land STRICTLY before where the name started, and strictly
+		// before every pointer already taken. That is what DNS compression actually
+		// means (a back-reference to a name already written), and enforcing it is what
+		// makes a crafted pointer chain finite.
+		minJump = off
 	)
 	for {
 		if cursor < 0 || cursor >= len(msg) {

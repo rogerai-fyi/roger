@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -169,29 +168,12 @@ type Responder struct {
 
 	mu sync.Mutex
 	ad Advert
-	// answered counts responses sent, so a test can prove an advertisement happened.
-	answered int
 }
 
 // NewResponder builds the advertising half. host is the mDNS host label (a node's id is
 // used, so the label is as unique as the identity it names).
 func NewResponder(tp Transport, service string, ad Advert, ips []net.IP) *Responder {
 	return &Responder{tp: tp, service: service, host: ad.NodeID, ips: ips, ad: ad}
-}
-
-// SetAdvert replaces what the responder answers with (capabilities change; identity
-// does not).
-func (r *Responder) SetAdvert(ad Advert) {
-	r.mu.Lock()
-	r.ad = ad
-	r.mu.Unlock()
-}
-
-// Answered is how many responses this responder has sent.
-func (r *Responder) Answered() int {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.answered
 }
 
 // Packet renders the advertisement exactly as it goes on the wire. Exported so the
@@ -232,9 +214,6 @@ func (r *Responder) Serve(ctx context.Context) error {
 		if err := r.tp.Send(pkt); err != nil {
 			continue
 		}
-		r.mu.Lock()
-		r.answered++
-		r.mu.Unlock()
 	}
 }
 
@@ -401,9 +380,4 @@ func advertsFrom(m *message, service string, from net.Addr) []Advert {
 		out = append(out, ad)
 	}
 	return out
-}
-
-// hostPort is net.JoinHostPort for an IP and an int, in one place.
-func hostPort(ip net.IP, port int) string {
-	return net.JoinHostPort(ip.String(), strconv.Itoa(port))
 }
