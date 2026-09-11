@@ -31,10 +31,12 @@ test("homepage masthead joins the company identity to the product promise", () =
   const hero = home.match(/<section class="hero">[\s\S]*?<\/section>/)?.[0] || "";
   assert.match(hero, /American AI research \+ infrastructure/i);
   assert.match(compact(hero), /one OpenAI-compatible local endpoint/i);
-  // rewritten 2026-09-11: "our labs focuses on enabling open models..." - the
-  // same claim (RogerAI's research side is about OPEN models), reworded away
-  // from the literal "open model research" string this used to require.
-  assert.match(hero, /open models?/i);
+  // rewritten 2026-09-11 (features/web/homepage_company_research_branding.feature
+  // updated to match): "our labs focus on enabling open models..." - the same
+  // claim (RogerAI's research side is about OPEN models), reworded away from
+  // the literal "open model research" string this used to require. Pinned to
+  // the actual claim, not just the near-universal word "open" or "models".
+  assert.match(hero, /enabling open models/i);
   assert.match(hero, /routing/i);
   assert.match(hero, /failover/i);
   assert.match(hero, /metering/i);

@@ -10,7 +10,7 @@ Feature: The homepage presents RogerAI as a research and infrastructure company
       Given a visitor opens the RogerAI homepage
       Then the eyebrow identifies RogerAI as American AI research and infrastructure
       And the headline still promises one local OpenAI-compatible endpoint
-      And the supporting copy names open model research and inference infrastructure
+      And the supporting copy names open models and private inference infrastructure
       And routing, failover, metering, signed receipts, and operator control remain visible
       And the install command remains in the first viewport on a typical desktop
 

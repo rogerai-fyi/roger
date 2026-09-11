@@ -1155,10 +1155,20 @@ html.js .mkt-quiet--nojs { display: none; }
   display: inline-flex; align-items: center; gap: 6px;
   padding: 5px 10px; border: 1px solid rgba(255,255,255,.35); background: rgba(5,5,5,.66);
   color: rgba(255,255,255,.8); font-family: var(--font-mono); font-size: var(--t-xs);
-  cursor: pointer; opacity: 1; pointer-events: auto;
-  transition: color var(--d-2), border-color var(--d-2), opacity var(--d-2);
+  cursor: pointer; opacity: 1; visibility: visible; pointer-events: auto;
+  transition: color var(--d-2), border-color var(--d-2), opacity var(--d-2),
+    visibility 0s linear 0s;
 }
-.reel--fx:not(.is-on) .reel__mute { opacity: 0; pointer-events: none; }
+/* opacity:0 + pointer-events:none hides it from the mouse but leaves it
+   focusable and in the tab order - a keyboard user could land on a
+   perfectly invisible control. visibility:hidden removes it from the tab
+   order too, delayed so it only takes effect once the fade-out (above) has
+   actually finished, not the instant this class lands. */
+.reel--fx:not(.is-on) .reel__mute {
+  opacity: 0; visibility: hidden; pointer-events: none;
+  transition: color var(--d-2), border-color var(--d-2), opacity var(--d-2),
+    visibility 0s linear var(--d-2);
+}
 .reel__mute:hover, .reel__mute:focus-visible { color: #fff; border-color: #fff; }
 .reel__mute .reel__icon--sound { display: none; }
 .reel__mute.is-unmuted .reel__icon--muted { display: none; }
