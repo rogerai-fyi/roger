@@ -19,8 +19,9 @@
   display: flex; flex-direction: column; align-items: flex-start; text-align: left;
   padding-top: clamp(56px, 11vh, 104px); padding-bottom: var(--s-16);
 }
-/* the hero is now one left-bound column: eyebrow -> title -> subhead -> Ping ->
-   FIG.1 command -> FIG.2 teaser, all in the document grid. */
+/* the hero is a left-bound document: .hero__grid (eyebrow/title/subhead/Labs
+   proof beside FIG.1 install + Ping once there's room, single column below
+   it) then FIG.2, the Roger Edge story reel. */
 .hero__inner { padding-bottom: var(--s-16); }
 .hero__title {
   font-size: var(--t-display); line-height: var(--lh-tight);

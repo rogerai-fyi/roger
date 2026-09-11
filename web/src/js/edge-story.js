@@ -84,11 +84,15 @@
 
   /* ---- CRT power-on/off: the screen's HEIGHT is the whole effect ---- */
   // Progressive enhancement: without this class the screen just keeps its
-  // CSS aspect-ratio height, so JS-off / no-IntersectionObserver / reduced-
-  // motion visitors get a plain, always-full-height looping video, never a
-  // set stuck "off". --reel-full-h is measured from the rendered width (the
-  // aspect ratio survives even once height stops being CSS-derived);
-  // --reel-collapsed-h is fixed in CSS, just tall enough to read as a line.
+  // CSS aspect-ratio height, so no-IntersectionObserver / reduced-motion
+  // visitors (JS still runs for them, see the REDUCED/else branches below)
+  // get a plain, always-full-height looping video, never a set stuck "off".
+  // True JS-off visitors get neither: the <source> tags carry no `src` in
+  // the raw HTML (only JS ever sets one, for the lazy-load), so the <video>
+  // has nothing playable and just shows its static `poster` frame.
+  // --reel-full-h is measured from the rendered width (the aspect ratio
+  // survives even once height stops being CSS-derived); --reel-collapsed-h
+  // is fixed in CSS, just tall enough to read as a line.
   var CAN_FX = "IntersectionObserver" in window && !REDUCED;
   if (CAN_FX) {
     reel.classList.add("reel--fx");
@@ -171,17 +175,19 @@
 
   if (REDUCED) {
     // no CRT flourish: just load + play once visible, pause once it is not.
+    setScreenA11y(false);
     if ("IntersectionObserver" in window) {
       var ioR = new IntersectionObserver(function (entries) {
         entries.forEach(function (e) {
-          if (e.isIntersecting) { ensureLoaded(); playCurrent(); }
-          else video.pause();
+          if (e.isIntersecting) { ensureLoaded(); playCurrent(); setScreenA11y(true); }
+          else { video.pause(); setScreenA11y(false); }
         });
       }, { threshold: 0.2 });
       ioR.observe(reel);
     } else {
       ensureLoaded();
       playCurrent();
+      setScreenA11y(true);
     }
   } else if (CAN_FX) {
     // Fire as the reel is APPROACHING each edge, not once it's already well
