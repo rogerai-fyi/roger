@@ -232,19 +232,76 @@
       </div>
     </section>
 
-    <!-- Roger Edge is a SECOND LINE, not an eighth Wave tier. It is deliberately NOT a
-         third group inside #models: a reader who scans one list comes away thinking
-         everything in it is the same kind of thing, and the one mistake this section
-         exists to prevent is "Roger Edge is the small Wave". So it gets its own banded
-         section, its own list rule, and a status chip in the accent - because the fact a
-         reader must not miss is that nothing is trained. Everything else here is written
-         as INTENT: there is no artifact, no library and no standard, and nothing on this
-         page may read as though there were. -->
+    <!-- Roger Edge is REPOSITIONED (founder ruling, 2026-09-11): it is no longer just the
+         microcontroller line, it is the whole edge layer - discovery, enrollment, a fleet
+         view, and device control, with the microcontroller classifier line as ONE product
+         living inside it. This section is deliberately NOT a third group inside #models: a
+         reader who scans one list comes away thinking everything in it is the same kind of
+         thing, and the mistake this section exists to prevent is still "Roger Edge is the
+         small Wave". So it keeps its own banded section, its own list rule, and a status
+         chip in the accent.
+         Everything about the LAYER itself (LAN discovery, a device class for a member that
+         does not host a model, a fleet topology view, the `roger edge` CLI) is UNBUILT
+         today - Verified NOT built: no mDNS anywhere in the Go tree, no non-model device
+         class, no topology view, no `roger edge` CLI, no microcontroller firmware, no
+         on-device classifier artifact - so it is written entirely in the design register
+         ("designed to", "the design adds", "planned") and never as something a reader can
+         go and get. What the design is BUILT FROM is real and named as such: Towers already
+         enroll real machines with certificates, admission and a signed inventory, and a
+         station already dials out to a relay with no port forwarding.
+         The microcontroller line below keeps every honesty guarantee it already carried -
+         PROTOTYPE, no artifact exists, no install path, no SDK of ours - unchanged, because
+         it is one product inside the layer, not the layer itself. -->
     <section class="section band section--edge" id="roger-edge">
       <div class="wrap">
         <div class="model-group-head">
           <div>
-            <span class="research-kicker">DESIGNED BY ROGERAI &middot; A SEPARATE LINE</span>
+            <span class="research-kicker">DESIGNED BY ROGERAI &middot; THE EDGE LAYER</span>
+            <h3>Roger Edge</h3>
+          </div>
+          <p>Your devices, one fleet, one contract &middot; design, not shipped</p>
+        </div>
+
+        <div class="device-contract">
+          <p><b>The layer, not the chip.</b> Roger Edge is designed to be the whole edge
+             layer: your own devices, discovered and enrolled into one fleet, from an ESP32
+             to a Jetson to a Mac. Whatever runs roger is a node on your Edge.</p>
+          <p><b>Capability-typed, not model-typed.</b> A device does not have to host a
+             model to belong. A sensor, an actuator, a camera, or a relay board is designed
+             to join with the capabilities it declares - sense, actuate, classify, serve -
+             which is what makes a fleet out of a set of boxes rather than a market.</p>
+          <p><b>Intelligence at the edge, not just containers.</b> Moving a container onto a
+             board is a solved problem already. The harder, more useful one is moving the
+             decision onto the board, and brokering upward only what needs more model.
+             Roger Edge detects; Wave reasons.</p>
+          <p><b>One protocol, not two.</b> The classifier board and the GPU host are
+             designed to speak the same contract and enroll the same way, so a fleet cannot
+             split into two systems that quietly drift apart from each other in the
+             field.</p>
+        </div>
+
+        <p class="model-roadmap"><b>Reach, without a VPN.</b> A device on the Edge is
+           designed to dial out to a relay, the way a <a href="/tower.html">Tower</a> and a
+           <code>roger share</code> station already do, so there is no port forwarding and
+           no VPN to run; the design adds a LAN-direct path for whenever both ends already
+           share a network.</p>
+
+        <p class="model-roadmap"><b>The surfaces.</b> A <code>roger edge</code> CLI
+           section, an Edge screen in the TUI drawing a live topology of your fleet, and the
+           same view in the web console are the planned surfaces, with Apple platforms to
+           follow. None of the three is built yet.</p>
+
+        <p class="model-roadmap"><b>Where it actually stands.</b> A
+           <a href="/tower.html">Tower</a> already enrolls real machines with certificates,
+           admission and a signed inventory, and a station already dials out to serve a
+           model with no port forwarding - the pieces this design is built from are real.
+           Not real yet: discovering roger instances on a LAN, a device class for a member
+           that does not host a model, a fleet topology view, and the
+           <code>roger edge</code> CLI itself.</p>
+
+        <div class="model-group-head">
+          <div>
+            <span class="research-kicker">DESIGNED BY ROGERAI &middot; ONE PRODUCT ON THE LAYER</span>
             <h3>The microcontroller line</h3>
           </div>
           <p>Task models, not language models &middot; not a Wave tier &middot; experimental</p>
