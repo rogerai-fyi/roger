@@ -140,9 +140,15 @@ func (k Kind) MayDeclare(c Capability) bool {
 // generated for itself. The private half never leaves the node, so an id is a claim
 // only the key holder can make good on: two nodes cannot share an id without sharing a
 // key. sha256 of the raw key, hex, prefixed so an id is recognisable in a log line.
+//
+// Truncated to 24 bytes (192 bits) for ONE reason: an id is also the mDNS service
+// INSTANCE label, and a DNS label is at most 63 bytes. "n_" plus 48 hex characters is
+// 50, which fits with room to spare, and 192 bits is far past any collision anyone can
+// mount - the property the spec asks for is that two nodes cannot share an id without
+// sharing a key, and a 192-bit digest gives that.
 func NodeID(pub ed25519.PublicKey) string {
 	sum := sha256.Sum256(pub)
-	return "n_" + hex.EncodeToString(sum[:])
+	return "n_" + hex.EncodeToString(sum[:24])
 }
 
 // MaxNameLen bounds an owner-chosen name. A name is typed into a command line and drawn

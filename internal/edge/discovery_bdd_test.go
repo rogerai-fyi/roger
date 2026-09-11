@@ -17,18 +17,14 @@ package edge_test
 
 import (
 	"context"
-	"crypto/ecdsa"
 	"crypto/ed25519"
-	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
-	"encoding/json"
 	"fmt"
 	"math/big"
 	"net"
-	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strconv"
@@ -126,6 +122,7 @@ type peerRig struct {
 	id      string
 	account string
 
+	leaf   *x509.Certificate
 	ts     *httptest.Server
 	srv    *edge.Server
 	ip     net.IP
@@ -290,7 +287,7 @@ func (s *discState) customCert(id string, pub ed25519.PublicKey, priv ed25519.Pr
 // describe, and an mDNS responder on the bus.
 func (s *discState) newPeer(name, account string, declared []string, leaf *x509.Certificate, priv ed25519.PrivateKey, id string) *peerRig {
 	s.t.Helper()
-	p := &peerRig{name: name, account: account, id: id, priv: priv}
+	p := &peerRig{name: name, account: account, id: id, priv: priv, leaf: leaf}
 	crt := tls.Certificate{Certificate: [][]byte{leaf.Raw}, PrivateKey: priv}
 	p.srv = edge.NewServer(edge.Describe{
 		NodeID: id, Account: account, Kind: "host", Caps: declared,
@@ -332,7 +329,8 @@ func (s *discState) advertise(p *peerRig) {
 func (s *discState) startAlpha() {
 	cfg := edge.ConfigFromEnv(func(k string) string { return s.env[k] })
 	cfg.Window = 700 * time.Millisecond
-	cfg.Interval = time.Hour // passes are driven explicitly by RunOnce
+	cfg.Interval = time.Hour
+	cfg.ManualPasses = true // every pass in this suite is an explicit RunOnce
 	if s.flood > 0 {
 		cfg.Ceiling = 8
 		cfg.Window = 2 * time.Second
@@ -1036,8 +1034,8 @@ func (s *discState) aDarkNode(name string) error {
 
 func (s *discState) advertisesAgainMatchingCert(name string) error {
 	old := s.peers[name]
-	// The same key and the same certificate: a node coming back, not a new one.
-	leaf := s.certFor(s.ca, old.id, old.pub)
+	// The same key and the SAME certificate: a node coming back, not a new one.
+	leaf := old.leaf
 	p := s.newPeer(name, "acct-1", []string{"sense"}, leaf, old.priv, old.id)
 	p.pub = old.pub
 	// Its pin is the certificate the owner already accepted.
@@ -1557,7 +1555,3 @@ func TestDiscoveryFeature(t *testing.T) {
 		t.Fatal("the LAN discovery scenarios failed")
 	}
 }
-
-var _ = json.Marshal
-var _ = ecdsa.PublicKey{}
-var _ = elliptic.P256

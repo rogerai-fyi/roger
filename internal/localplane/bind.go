@@ -87,3 +87,11 @@ func mustCIDRs(cidrs ...string) []*net.IPNet {
 	}
 	return out
 }
+
+// IsPrivateAddr reports whether ip is one of the addresses this plane may bind without
+// an override: loopback, RFC1918, or an IPv6 ULA. Link-local 169.254/16 is NOT one of
+// them, deliberately (see privateBindCIDRs).
+//
+// Exported so Roger Edge's LAN discovery binds and advertises on exactly the same set.
+// The rule belongs in one place: a second copy is a second thing to forget to update.
+func IsPrivateAddr(ip net.IP) bool { return ip != nil && isPrivateBind(ip) }

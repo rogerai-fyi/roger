@@ -427,3 +427,127 @@ func (f *Fleet) AuthorizeInvoke(g store.Grant, nodeID string, need Capability) e
 	}
 	return nil
 }
+
+// Observation is what a VERIFIED dial learned about a node: its own account of itself,
+// over its own certificate, plus where it was reached and the certificate it served.
+type Observation struct {
+	Name        string // used only when the node is new to this Edge
+	Kind        string
+	Caps        []Capability
+	Addr        string
+	Fingerprint string
+}
+
+// Observe records a verified sighting. It is the ONLY way discovery writes to the
+// fleet, and it happens strictly after VerifyPeer has passed - an advertisement on its
+// own never reaches this function.
+//
+// A node already on the Edge is UPDATED, never re-added: the id is the key, so its
+// name, its history and its place in the fleet survive going dark and coming back, and
+// no duplicate row is created. Its other transports (a relay path) are kept, with the
+// LAN entry refreshed and sorted back to the front.
+func (f *Fleet) Observe(id string, obs Observation) (store.EdgeNode, error) {
+	now := f.now().Unix()
+	cur, ok, err := f.db.EdgeNodeByID(f.account, id)
+	if err != nil {
+		return store.EdgeNode{}, err
+	}
+	if !ok {
+		n := store.EdgeNode{ID: id, Name: obs.Name, Kind: obs.Kind, Pin: obs.Fingerprint}
+		if n.Kind == "" {
+			n.Kind = string(Host)
+		}
+		for _, c := range obs.Caps {
+			n.Caps = append(n.Caps, store.EdgeCap{Name: string(c), State: string(initialState(c))})
+		}
+		n.Transports = []store.EdgeTransport{{Kind: "lan", Addr: obs.Addr, Fingerprint: obs.Fingerprint}}
+		n.Presence = string(PresenceVerified)
+		n.LastSeen = now
+		return f.Enroll(n)
+	}
+	err = f.mutate(id, func(n *store.EdgeNode) error {
+		// The capabilities of record are the ones the certificate-backed describe
+		// reported, not the ones the advertisement claimed. A state already earned
+		// (a passed probe, an owner's actuate confirmation) is carried across.
+		prev := map[string]store.EdgeCap{}
+		for _, c := range n.Caps {
+			prev[c.Name] = c
+		}
+		var next []store.EdgeCap
+		for _, c := range obs.Caps {
+			if old, ok := prev[string(c)]; ok {
+				next = append(next, old)
+				continue
+			}
+			next = append(next, store.EdgeCap{Name: string(c), State: string(initialState(c))})
+		}
+		n.Caps = next
+		n.Presence = string(PresenceVerified)
+		n.LastSeen = now
+		if n.Pin == "" {
+			n.Pin = obs.Fingerprint
+		}
+		lan := false
+		for i, t := range n.Transports {
+			if t.Kind == "lan" {
+				n.Transports[i].Addr = obs.Addr
+				n.Transports[i].Fingerprint = obs.Fingerprint
+				lan = true
+				break
+			}
+		}
+		if !lan {
+			n.Transports = append(n.Transports,
+				store.EdgeTransport{Kind: "lan", Addr: obs.Addr, Fingerprint: obs.Fingerprint})
+		}
+		if cur.Presence != string(PresenceVerified) {
+			n.History = append(n.History, store.EdgeEvent{At: now, What: "seen", Detail: obs.Addr})
+		}
+		return nil
+	})
+	if err != nil {
+		return store.EdgeNode{}, err
+	}
+	got, _, err := f.db.EdgeNodeByID(f.account, id)
+	return got, err
+}
+
+// Sweep marks every node not heard from within window as DARK, and KEEPS it. A fleet
+// that silently drops members hides the problem it exists to show: a dark box with a
+// last-seen time is information, an absent box is a lie by omission.
+//
+// It returns how many nodes went dark on this pass.
+func (f *Fleet) Sweep(window time.Duration) (int, error) {
+	list, err := f.db.EdgeNodesOfAccount(f.account)
+	if err != nil {
+		return 0, err
+	}
+	cutoff := f.now().Add(-window).Unix()
+	darkened := 0
+	for _, n := range list {
+		if n.Presence != string(PresenceVerified) || n.LastSeen == 0 || n.LastSeen > cutoff {
+			continue
+		}
+		if err := f.mutate(n.ID, func(m *store.EdgeNode) error {
+			m.Presence = string(PresenceDark)
+			m.History = append(m.History, store.EdgeEvent{
+				At: f.now().Unix(), What: "dark", Detail: "last seen " + time.Unix(m.LastSeen, 0).UTC().Format(time.RFC3339)})
+			return nil
+		}); err != nil {
+			return darkened, err
+		}
+		darkened++
+	}
+	return darkened, nil
+}
+
+// LANAddr is the address a node was last reached at on the LAN, or "" if it has no LAN
+// transport.
+func LANAddr(n store.EdgeNode) string {
+	for _, t := range n.Transports {
+		if t.Kind == "lan" {
+			return t.Addr
+		}
+	}
+	return ""
+}
