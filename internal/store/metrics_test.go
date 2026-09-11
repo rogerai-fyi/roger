@@ -120,7 +120,7 @@ func freshPostgres(t *testing.T, dsn string) *Postgres {
 		rogerai.recount_holds, rogerai.reports, rogerai.appeals, rogerai.csam_incidents, rogerai.moderation_flags,
 		rogerai.banned_nodes, rogerai.banned_owners, rogerai.owner_strikes,
 		rogerai.checkout_charges, rogerai.offer_overrides, rogerai.private_bands,
-		rogerai.pending_holds
+		rogerai.pending_holds, rogerai.edge_nodes
 		RESTART IDENTITY CASCADE`); err != nil {
 		t.Fatalf("truncate tables: %v", err)
 	}

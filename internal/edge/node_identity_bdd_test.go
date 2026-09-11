@@ -42,6 +42,7 @@ type nodeIDState struct {
 	nameErr    error
 	enrollErr  error
 	verifyHow  string
+	declared   string
 	renamedID  string
 	historyPre []store.EdgeEvent
 	grant      store.Grant
@@ -54,7 +55,7 @@ func (s *nodeIDState) reset() {
 	s.acc = map[string]*edge.Fleet{}
 	s.priv, s.pub, s.nodeID, s.account = nil, nil, "", ""
 	s.nameErr, s.enrollErr = nil, nil
-	s.verifyHow, s.renamedID = "", ""
+	s.verifyHow, s.renamedID, s.declared = "", "", ""
 	s.historyPre, s.stationPre, s.receiptPre = nil, nil, nil
 	s.grant = store.Grant{}
 }
@@ -362,12 +363,12 @@ func (s *nodeIDState) aNodeDeclaring(cap string) error {
 	if err != nil {
 		return err
 	}
-	s.nodeID = n.ID
+	s.nodeID, s.declared = n.ID, cap
 	return nil
 }
 
 func (s *nodeIDState) theFleetVerifiesIt() error {
-	how, err := s.fleet(s.account).VerificationMethod(s.nodeID)
+	how, err := s.fleet(s.account).VerificationMethod(s.nodeID, edge.Capability(s.declared))
 	s.verifyHow = how
 	return err
 }

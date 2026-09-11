@@ -190,6 +190,34 @@ type Store interface {
 	// simply re-registers on its next heartbeat. Used by the stale-node prune sweep.
 	DeleteNode(nodeID string) error
 
+	// --- Roger Edge fleet (features/edge/node_identity.feature) -------------
+	//
+	// The account-scoped node record. Separate from the Station registry above on
+	// purpose: a node does not have to host a model to belong, and a Station's
+	// registration must stay byte-identical whether or not an Edge record exists.
+
+	// EnrollEdgeNode adds a node to an account's Edge. It refuses two ways, both of
+	// which are the spec rather than a convenience: a node already enrolled to a
+	// DIFFERENT account returns *EdgeEnrolledElsewhere (one node, one Edge), and a
+	// name already held by another node in the SAME account returns ErrEdgeNameTaken
+	// (names are per-account, so the same name elsewhere is not a conflict).
+	// Re-enrolling a node this account already holds replaces the record.
+	EnrollEdgeNode(n EdgeNode) (EdgeNode, error)
+	// UpdateEdgeNode replaces an existing record, ACCOUNT-SCOPED: an account can only
+	// ever write its own node. ErrEdgeNoSuchNode when this account holds no such node;
+	// ErrEdgeNameTaken when the new name collides inside the account.
+	UpdateEdgeNode(n EdgeNode) error
+	// EdgeNodeByID returns one of this account's nodes, ok=false if it holds none with
+	// that id - including when ANOTHER account does, which is how "no surface of
+	// account B can list it, describe it, or address it" holds.
+	EdgeNodeByID(account, id string) (EdgeNode, bool, error)
+	// EdgeNodesOfAccount lists an account's enrolled nodes, ordered by name then id.
+	EdgeNodesOfAccount(account string) ([]EdgeNode, error)
+	// ForgetEdgeNode removes the record AND its pin, and nothing else: receipts,
+	// ledger rows and the Station registry are money/supply state, not fleet state.
+	// ok=false if this account holds no such node.
+	ForgetEdgeNode(account, id string) (bool, error)
+
 	// --- owner-authored price/schedule overrides (web console pricing) -------
 	//
 	// An OfferOverride is the EFFECTIVE PUBLISHED price/schedule an OWNER set from the
@@ -879,6 +907,7 @@ type Mem struct {
 	nodeAcct     map[string]string        // node id -> owner pubkey (TOFU)
 	charges      map[string]charge        // stripe payment_intent/charge id -> checkout mapping
 	gs           *grantStore              // grant keys + per-grant usage rollups
+	es           *edgeStore               // Roger Edge fleet: the account-scoped node records
 	bs           *bandStore               // private bands ("frequency codes": private discovery)
 	rc           *rcStore                 // remote-control session roster (BASE STATION; metadata only)
 	nodes        map[string]NodeRecord    // persisted node registry (re-hydrated on restart)
@@ -948,7 +977,7 @@ func NewMem() *Mem {
 		idem: map[string]bool{}, disputes: map[string]bool{}, settled: map[string]bool{}, recountHold: map[string]int64{}, nodeAcct: map[string]string{},
 		pendingHolds: map[string]pendingHold{},
 		refunds:      map[string]bool{}, recoveredOnCharge: map[string]float64{},
-		charges: map[string]charge{}, gs: newGrantStore(), bs: newBandStore(), rc: newRCStore(), nodes: map[string]NodeRecord{},
+		charges: map[string]charge{}, gs: newGrantStore(), bs: newBandStore(), rc: newRCStore(), es: newEdgeStore(), nodes: map[string]NodeRecord{},
 		overrides: map[string]OfferOverride{},
 		banned:    map[string]string{}, bannedAt: map[string]int64{}, bannedOwners: map[string]string{}, accountHold: map[string]int64{},
 		pendingReversals: map[string]PendingReversal{},

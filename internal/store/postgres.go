@@ -421,7 +421,25 @@ CREATE TABLE IF NOT EXISTS rogerai.pending_holds (
     usr        TEXT NOT NULL,
     amount     DOUBLE PRECISION NOT NULL,
     placed_at  BIGINT NOT NULL);
-CREATE INDEX IF NOT EXISTS pending_holds_placed_at ON rogerai.pending_holds (placed_at);`
+CREATE INDEX IF NOT EXISTS pending_holds_placed_at ON rogerai.pending_holds (placed_at);
+-- Roger Edge fleet (features/edge/node_identity.feature): the account-scoped node
+-- record. Deliberately NOT rogerai.nodes - that table is the Station/market registry
+-- and its semantics stay untouched, so a Station keeps registering, offering and
+-- receipting byte-identically whether or not it also has an Edge record. The record
+-- travels as JSONB; the three things the DATABASE must enforce are lifted into
+-- columns and indexes, because a rule enforced only in Go is a rule that does not
+-- hold when two brokers write at once:
+--   PRIMARY KEY (account,node_id) - one record per node per Edge
+--   edge_nodes_one_edge  UNIQUE (node_id)        - a node belongs to exactly one Edge
+--   edge_nodes_name      UNIQUE (account,name)   - a name is unique WITHIN an account
+CREATE TABLE IF NOT EXISTS rogerai.edge_nodes (
+    account TEXT NOT NULL,
+    node_id TEXT NOT NULL,
+    name    TEXT NOT NULL,
+    rec     JSONB NOT NULL,
+    PRIMARY KEY (account, node_id));
+CREATE UNIQUE INDEX IF NOT EXISTS edge_nodes_one_edge ON rogerai.edge_nodes (node_id);
+CREATE UNIQUE INDEX IF NOT EXISTS edge_nodes_name ON rogerai.edge_nodes (account, name);`
 
 // poolLimits reads the connection-pool bounds from the environment. The production
 // cluster is a small shared managed Postgres (~22 usable backends across every app on
