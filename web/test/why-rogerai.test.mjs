@@ -88,7 +88,10 @@ test("the why argument is one click from the homepage, and the old page is unlin
 
 test("the homepage tells the story (network_story.feature)", () => {
   const home = read("index.html");
-  assert.match(home, /sees a station -?\s*(never|not) you/i, "the unlinking line");
+  // the unlinking line moved from the hero subhead to the PRIVACY-FIRST
+  // AIRWAVES section's own headline (2026-09-11) - still the same claim,
+  // now the section's own h2 instead of a subhead clause.
+  assert.match(home, /hears a station\.?\s*(never|not) you/i, "the unlinking line");
   assert.match(home, /Two kinds of transmitter/i, "both earn paths framed as one verb");
   assert.match(home, /curated station/i, "the resale path is named");
   assert.match(home, /keeps <b>5%<\/b> of everything it\s+carries/i, "the tower relay earn");

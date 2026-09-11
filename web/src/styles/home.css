@@ -850,8 +850,11 @@
   .radar__blip { animation: none; opacity: .8; transform: none; }
 }
 
+/* left-bound like everything else on this page (.term above it uses the
+   same margin:0 convention) - centering this with margin:0 auto is what
+   left it visibly inset from the heading and the terminal box above it. */
 .market__panel {
-  max-width: 880px; margin: 0 auto; background: var(--paper);
+  max-width: 880px; margin: 0; background: var(--paper);
   border: 1px solid var(--hairline); border-top: 2px solid var(--ink-900);
   box-shadow: none; overflow: hidden;
 }
