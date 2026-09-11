@@ -209,6 +209,11 @@
     // on (so it isn't dead weight for someone reading without scrolling),
     // but a visitor who scrolls first gets the scroll-triggered version and
     // the fallback is cancelled outright, never firing on top of it later.
+    // `scroll` alone MISSES a real gesture that doesn't move scrollY - scrolling
+    // up while already at the top, a rubber-band swipe that snaps back, a wheel
+    // tick too small to register. Those still fire `wheel`/`keydown`/`touchstart`
+    // even though the page never actually moved, so listen for all of them; the
+    // `settled` guard means only the first of any type does anything.
     var settled = false;
     function beginObserving() {
       if (settled) return;
@@ -217,7 +222,9 @@
       io.observe(reel);
     }
     var autoStartTimer = setTimeout(beginObserving, 5000);
-    window.addEventListener("scroll", beginObserving, { once: true, passive: true });
+    ["scroll", "wheel", "touchstart", "keydown"].forEach(function (type) {
+      window.addEventListener(type, beginObserving, { once: true, passive: true });
+    });
   } else {
     ensureLoaded();
     playCurrent();
