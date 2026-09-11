@@ -534,7 +534,7 @@ rogerai.fm/roger/v6/cmd/rogerai-broker/probe.go:405:			probeEvidenceRecentLocked
 rogerai.fm/roger/v6/cmd/rogerai-broker/probe.go:421:			proberLoop			100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/probe.go:442:			jitterWindow			100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/probe.go:458:			probeOnce			87.1%
-rogerai.fm/roger/v6/cmd/rogerai-broker/probe.go:679:			probeNode			87.0%
+rogerai.fm/roger/v6/cmd/rogerai-broker/probe.go:679:			probeNode			89.1%
 rogerai.fm/roger/v6/cmd/rogerai-broker/probe.go:800:			failed				100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/probe.go:810:			imposterModel			97.1%
 rogerai.fm/roger/v6/cmd/rogerai-broker/probe.go:880:			sizeTokens			85.7%
@@ -581,7 +581,7 @@ rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:405:			rcSubtree			78.6%
 rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:436:			rcJoin				55.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:466:			rcAuthHost			100.0%
 rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:477:			rcAuthViewer			72.7%
-rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:496:			rcPoll				72.2%
+rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:496:			rcPoll				66.7%
 rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:568:			rcEvents			64.7%
 rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:595:			rcSend				79.3%
 rogerai.fm/roger/v6/cmd/rogerai-broker/rc.go:639:			rcStream			71.9%
@@ -2511,7 +2511,7 @@ rogerai.fm/roger/v6/internal/towercore/admit/admit.go:188:		NewWithStore			100.0
 rogerai.fm/roger/v6/internal/towercore/admit/admit.go:210:		unavailable			100.0%
 rogerai.fm/roger/v6/internal/towercore/admit/admit.go:218:		IssueToken			92.9%
 rogerai.fm/roger/v6/internal/towercore/admit/admit.go:254:		Enroll				88.0%
-rogerai.fm/roger/v6/internal/towercore/admit/admit.go:310:		AdmitBundle			87.5%
+rogerai.fm/roger/v6/internal/towercore/admit/admit.go:310:		AdmitBundle			75.0%
 rogerai.fm/roger/v6/internal/towercore/admit/admit.go:332:		RecordRenewal			87.5%
 rogerai.fm/roger/v6/internal/towercore/admit/admit.go:361:		Token				100.0%
 rogerai.fm/roger/v6/internal/towercore/admit/admit.go:370:		Get				100.0%
@@ -3595,7 +3595,7 @@ rogerai.fm/roger/v6/internal/tui/tui.go:1322:				newBase				85.7%
 rogerai.fm/roger/v6/internal/tui/tui.go:1389:				Init				100.0%
 rogerai.fm/roger/v6/internal/tui/tui.go:1400:				syncComposerGeometry		100.0%
 rogerai.fm/roger/v6/internal/tui/tui.go:1412:				setTextareaGeometry		92.3%
-rogerai.fm/roger/v6/internal/tui/tui.go:1431:				update				83.9%
+rogerai.fm/roger/v6/internal/tui/tui.go:1431:				update				83.6%
 rogerai.fm/roger/v6/internal/tui/tui.go:2141:				idleDiscoveryEnabled		100.0%
 rogerai.fm/roger/v6/internal/tui/tui.go:2145:				textareaCanMoveUp		100.0%
 rogerai.fm/roger/v6/internal/tui/tui.go:2150:				textareaCanMoveDown		100.0%
