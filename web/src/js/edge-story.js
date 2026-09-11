@@ -51,8 +51,10 @@
   function setStory(key) {
     current = key;
     var s = STORIES[key];
-    sources[0].src = s.webm;
-    sources[1].src = s.mp4;
+    // index 0 is the mp4 <source> (listed first in the markup - see its
+    // comment for why: H.264 hardware-decodes far more reliably than VP9).
+    sources[0].src = s.mp4;
+    sources[1].src = s.webm;
     video.setAttribute("poster", s.poster);
     if (tagEl) tagEl.textContent = s.tag;
     video.load();
@@ -137,11 +139,18 @@
     state = "poweringOff";
   }
 
+  // set once the FIRST power-on animation completes (below) - ioExit only
+  // starts watching once the set is confirmed fully on, never at the same
+  // instant as ioEnter, so a position already close to ioExit's shrunk top
+  // line can't fire a conflicting powerOff() a tick after powerOn() starts.
+  var exitObserving = false;
+
   reel.addEventListener("animationend", function (e) {
     if (e.animationName === "reelPowerOn" && state === "poweringOn") {
       reel.classList.remove("is-powering-on");
       reel.classList.add("is-on");
       state = "on";
+      if (!exitObserving && CAN_FX) { exitObserving = true; ioExit.observe(reel); }
     } else if (e.animationName === "reelPowerOff" && state === "poweringOff") {
       reel.classList.remove("is-powering-off", "is-on");
       video.pause(); // freeze on the collapsed line, not mid-picture
@@ -190,21 +199,35 @@
       setScreenA11y(true);
     }
   } else if (CAN_FX) {
-    // Fire as the reel is APPROACHING each edge, not once it's already well
-    // past it. rootMargin is not direction-aware, so the two edges need
-    // OPPOSITE signs to both mean "sooner": a positive bottom margin grows
-    // the box downward, so entering from below counts as intersecting while
-    // still under the fold - powerOn() starts before it's actually visible.
-    // A negative top margin shrinks the box upward from the real top edge,
-    // so leaving through the top (the common case: scrolling on down the
-    // page) counts as NOT intersecting while the reel still has real
-    // clearance left - powerOff() starts well before it's actually gone.
-    var io = new IntersectionObserver(function (entries) {
-      entries.forEach(function (e) { e.isIntersecting ? powerOn() : powerOff(); });
-    }, { threshold: 0, rootMargin: "-45% 0px 20% 0px" });
+    // TWO observers, not one, each with exactly one job - a single shared
+    // rootMargin can't satisfy both "turn on reliably" and "turn off with
+    // room to see the animation finish" at once (tried that; see the
+    // history below), because they need opposite-sized top margins.
+    //
+    // ioEnter: powerOn() only, on the TRUE top edge (no shrink). This is
+    // what has to be trustworthy the instant observation starts (right
+    // after the visitor's first scroll/wheel/key gesture) - a shrunk top
+    // here previously meant a single ordinary scroll (even a Page Down)
+    // could carry the reel's position past the shrunk boundary before that
+    // first read ever happened, and it stayed stuck "off" from then on
+    // (only scrolling back up would have fixed it). The +20% bottom margin
+    // still makes entering from below fire before it's actually visible.
+    var ioEnter = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) { if (e.isIntersecting) powerOn(); });
+    }, { threshold: 0, rootMargin: "0px 0px 20% 0px" });
+    // ioExit: powerOff() only, against a top edge shrunk by a LOT (-40%).
+    // This one only ever runs after the set is already on, so the risky
+    // first-read case above does not apply to it - it can be as eager as
+    // the close animation needs. It fires while a solid chunk of the reel
+    // is still on screen, leaving room to actually see the collapse play
+    // out before the reel scrolls past the top, instead of catching only
+    // its last sliver (or none of it).
+    var ioExit = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) { if (!e.isIntersecting) powerOff(); });
+    }, { threshold: 0, rootMargin: "-40% 0px 0px 0px" });
     // Stay collapsed on load, even if the reel is already geometrically in
     // view (a tall viewport, a mid-page anchor link) - observing only
-    // starts on the first real scroll OR a 5s fallback timer, WHICHEVER
+    // starts on the first real scroll OR a 2.5s fallback timer, WHICHEVER
     // FIRST: a visitor who never touches the page still sees the set come
     // on (so it isn't dead weight for someone reading without scrolling),
     // but a visitor who scrolls first gets the scroll-triggered version and
@@ -219,9 +242,9 @@
       if (settled) return;
       settled = true;
       clearTimeout(autoStartTimer);
-      io.observe(reel);
+      ioEnter.observe(reel); // ioExit starts once the first power-on completes, above
     }
-    var autoStartTimer = setTimeout(beginObserving, 5000);
+    var autoStartTimer = setTimeout(beginObserving, 2500);
     ["scroll", "wheel", "touchstart", "keydown"].forEach(function (type) {
       window.addEventListener(type, beginObserving, { once: true, passive: true });
     });
