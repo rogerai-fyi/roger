@@ -40,12 +40,16 @@ test("homepage puts Wave Labs proof before the install action without adding a h
     const tag = hero.match(new RegExp(`<[^>]*class="[^"]*${marker.replace('class="', "")}[^"]*"[^>]*>`))?.[0] || "";
     assert.doesNotMatch(tag, /\bdata-reveal\b/, `${marker} is not opacity-hidden before JS`);
   }
+  // install precedes the concierge in SOURCE order (both now sit inside
+  // .hero__tools, install first) rather than via flex `order` - a stronger
+  // guarantee than the old mechanism, since no media query can reorder
+  // plain document flow, so this holds at every viewport by construction.
+  const installIdx = hero.indexOf('class="install"');
+  const pingIdx = hero.indexOf('class="hero__ping"');
+  assert.ok(installIdx > 0 && installIdx < pingIdx, "install precedes the concierge in source order");
   const css = read("styles/home.css");
-  const beforeNarrowOverrides = css.split("@media (max-width: 640px)")[0];
-  assert.match(beforeNarrowOverrides, /\.install\s*\{[^}]*order:\s*1/i,
-    "all viewports promote install ahead of the concierge");
-  assert.match(beforeNarrowOverrides, /\.hero__ping\s*\{[^}]*order:\s*2/i,
-    "all viewports keep the concierge after conversion");
+  assert.doesNotMatch(css, /\.install\s*\{[^}]*order:\s*\d/i, "install ordering is source order, not flex order");
+  assert.doesNotMatch(css, /\.hero__ping\s*\{[^}]*order:\s*\d/i, "concierge ordering is source order, not flex order");
   assert.match(css, /@media\s*\(min-width:\s*641px\)\s*and\s*\(max-height:\s*800px\)[\s\S]*\.hero__inner\s*\{[^}]*padding-top/i,
     "short desktop viewports compact hero spacing around the first action");
 });

@@ -287,14 +287,15 @@ test("the industrial market set is consistent wherever it is named", () => {
                    /aerospace/i, /mining/i, /water/i, /healthcare/i, /defense/i];
   const industry = read("research-industry.html");
   const grid = industry.match(/<div class="deployment-grid">[\s\S]*?<\/div>/)[0];
-  const cards = [...grid.matchAll(/<article><b>([^<]+)<\/b>/g)].map((m) => m[1]);
+  // one <b> title per <article>, whatever else (a representative photo) leads it.
+  const cards = [...grid.matchAll(/<article>[\s\S]*?<b>([^<]+)<\/b>/g)].map((m) => m[1]);
   assert.equal(cards.length, MARKETS.length, `one card per market, found ${cards.length}`);
   for (const m of MARKETS) {
     assert.ok(cards.some((c) => m.test(c)), `the grid names ${m}`);
     assert.match(visible(read("research.html")), m, `the hub names ${m} too`);
   }
   // Every card must say what the work IS, not just name the sector.
-  for (const card of grid.matchAll(/<article><b>[^<]+<\/b><p>([\s\S]*?)<\/p>/g)) {
+  for (const card of grid.matchAll(/<article>[\s\S]*?<b>[^<]+<\/b><p>([\s\S]*?)<\/p>/g)) {
     assert.ok(visible(card[1]).length > 40, "each market names a concrete workload");
   }
   // The stated count and the actual count cannot disagree.

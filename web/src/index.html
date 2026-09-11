@@ -23,6 +23,15 @@
   <section class="hero">
     <div class="wrap hero__inner">
 
+      <!-- Two columns above FIG.2, so the reel can sit higher on the page:
+           .hero__copy carries the narrative (who we are, why it matters,
+           the Labs proof), .hero__tools carries the two things a visitor
+           actually DOES (FIG.1 the install command, the Ping concierge).
+           Same information as the old single stacked column, just laid out
+           side by side once there's room (hero-grid.css breakpoint); narrow
+           viewports still get the original top-to-bottom stack. -->
+      <div class="hero__grid">
+      <div class="hero__copy">
       <span class="hero__eyebrow">
         <span class="onair" aria-hidden="true">((<span class="onair__dot">•</span>))</span>
         <span class="hero__callsign">ROGERAI</span>
@@ -31,32 +40,19 @@
       </span>
 
       <h1 class="hero__title">
-        <span class="carrier">Tune in</span> to the world&rsquo;s<br /><span class="hero__op">spare Local Models</span>.<br /><span class="hero__fast">In under 30 seconds.</span>
+        <span class="carrier">Tune in</span> to the world&rsquo;s<br /><span class="hero__op"><span class="carrier">decentralized</span> Models</span>.<br /><span class="hero__fast">In under 30 seconds.</span>
       </h1>
 
       <p class="hero__sub">
-        RogerAI does two things. Our open model research targets the <a href="/research-hardware.html">hardware</a> you
-        already own. Our network runs one OpenAI-compatible local endpoint on top of
-        community and private hardware. It handles discovery, routing, failover,
-        metering, and signed receipts, operators keep control of their machines, and
-        every upstream sees a station - never you.
-        <a href="/pricing.html#why">Read the receipts &rarr;</a>
+        RogerAI is an inference network for the edge, that means you and your homelab, that
+        means factories and their fleet, and more. Our open model research targets the
+        whole spectrum of <a href="/pricing.html#why">hardware</a>. Our network runs one
+        OpenAI-compatible local endpoint only you have access to, in a privatized relay
+        on top of community and private hardware. It handles discovery, routing,
+        failover, metering, and signed receipts, and every upstream sees a station - never you.
+        Get Control, <a href="/pricing.html#why">Read the receipts &rarr;</a>
       </p>
 
-      <!-- NEW hero order: headline -> subhead -> Ping (always-on concierge) ->
-           FIG.1 the install command (command-as-hero) -> FIG.2 the small,
-           left-aligned band teaser (representative models, gently animated, links
-           to the live dial on /models.html) -> FIG.3 the demo replay -> FIG.4 the
-           operator panel. The signal path moved to /tower.html, which is now the
-           page that explains routing, metering and receipts. Keep this contiguous: the
-           numbers are the only cross-reference a reader has. -->
-
-      <!-- Ping, the operator persona: standing by / on air, driven by live state.
-           The mascot is ALWAYS on, with a scrolling LED banner to its right (idle
-           it rolls flavor phrases; on a reply it scrolls the reply, like a station's
-           now-playing display). Clicking the mascot OR the banner opens a small
-           record-player chat (Ping concierge) for typing. Sits right after the
-           subhead, before the command. teaser.js drives #pingTag / [data-onair]. -->
       <!-- SPECTRUM (2026-08-14): this plate is Wave PICO's - the edge tier and the
            only one with a trained artifact today. (It read "Wave Micro" here until
            the ladder was renamed; the plate itself was already correct.)
@@ -72,6 +68,47 @@
         <b>WAVE PICO</b>
         <span>EDGE CLASS · WAYPOINT TRAINED</span>
       </a>
+      </div>
+
+      <!-- FIG.1 the install command (command-as-hero), then Ping (always-on
+           concierge) right under it. Ping's mascot is ALWAYS on, with a
+           scrolling LED banner to its right (idle it rolls flavor phrases;
+           on a reply it scrolls the reply, like a station's now-playing
+           display). Clicking the mascot OR the banner opens a small
+           record-player chat (Ping concierge) for typing.
+           edge-story.js drives #pingTag / [data-onair]. -->
+      <div class="hero__tools">
+      <!-- FIG.1 - THE hero object: the install command (command-as-hero). -->
+      <div class="install">
+        <span class="fig" aria-hidden="true">FIG. 1 - TUNE IN</span>
+        <!-- What the command actually downloads. The page used to hand a stranger
+             a curl line with no noun attached to it: "tune in to local models" says
+             what happens, never what the binary IS. One line, stated plainly, and
+             the same claim the closing section makes so the two read as one. -->
+        <p class="install__lead">
+          <code class="inline">roger</code> is one binary: <b>a local harness for local
+          models</b>. It finds the models already on your machine and tunes you into
+          everyone else&rsquo;s.
+        </p>
+        <button class="install__box" id="installCmd" type="button"
+                aria-label="Copy install command to clipboard">
+          <span class="install__prompt" aria-hidden="true">$</span>
+          <code class="install__code">curl -fsSL https://rogerai.fm/install.sh | sh</code>
+          <span class="install__copy" id="installCopy" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="9" y="9" width="11" height="11" rx="2"></rect>
+              <path d="M5 15V5a2 2 0 0 1 2-2h10"></path>
+            </svg>
+          </span>
+        </button>
+        <div class="install__meta">
+          <span id="installNote">macOS · Linux - no account needed to browse</span>
+          <a class="install__alt" href="https://github.com/rogerai-fyi/roger/releases">or download a binary &rarr;</a>
+        </div>
+        <div class="install__meta">
+          <span id="installNoteWin" data-alt-note>On Windows (PowerShell): <code class="inline">irm https://rogerai.fm/install.ps1 | iex</code></span>
+        </div>
+      </div>
 
       <span class="hero__ping" id="pingDock">
         <button class="hero__ping-trigger" id="pingTrigger" type="button"
@@ -138,92 +175,59 @@
           </form>
         </div>
       </span>
+      </div><!-- /hero__tools -->
+      </div><!-- /hero__grid -->
 
-      <!-- FIG.1 - THE hero object: the install command (command-as-hero). -->
-      <div class="install">
-        <span class="fig" aria-hidden="true">FIG. 1 - TUNE IN</span>
-        <!-- What the command actually downloads. The page used to hand a stranger
-             a curl line with no noun attached to it: "tune in to local models" says
-             what happens, never what the binary IS. One line, stated plainly, and
-             the same claim the closing section makes so the two read as one. -->
-        <p class="install__lead">
-          <code class="inline">roger</code> is one binary: <b>a local harness for local
-          models</b>. It finds the models already on your machine and tunes you into
-          everyone else&rsquo;s.
+      <!-- FIG.2 - the Roger Edge story reel. Two ~65s brand films (Story A / Story
+           B), muted + playing back to back forever; edge-story.js swaps the
+           <source> on `ended` and randomizes which story opens on each page load
+           so a repeat visit doesn't always start on the same half. The power-on/
+           off (the picture unfolding from / collapsing to a bright center line,
+           an old CRT set) is keyed to scroll via IntersectionObserver: it plays
+           once when the reel enters the viewport and once when it leaves, either
+           direction. Lazy: no video bytes fetch until the reel nears the
+           viewport. edge-story.js also owns #pingTag / [data-onair], inherited
+           from the FIG.2 this replaced. -->
+      <figure class="reel" id="edgeReel" data-reveal data-reveal-delay="240">
+        <span class="fig" aria-hidden="true">FIG. 2 - ROGER EDGE &middot; ON THE AIR</span>
+        <p class="reel__bridge">
+          <a href="/research-models.html#roger-edge">More on the Edge line &rarr;</a>
         </p>
-        <button class="install__box" id="installCmd" type="button"
-                aria-label="Copy install command to clipboard">
-          <span class="install__prompt" aria-hidden="true">$</span>
-          <code class="install__code">curl -fsSL https://rogerai.fm/install.sh | sh</code>
-          <span class="install__copy" id="installCopy" aria-hidden="true">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="9" y="9" width="11" height="11" rx="2"></rect>
-              <path d="M5 15V5a2 2 0 0 1 2-2h10"></path>
-            </svg>
-          </span>
-        </button>
-        <div class="install__meta">
-          <span id="installNote">macOS · Linux - no account needed to browse</span>
-          <a class="install__alt" href="https://github.com/rogerai-fyi/roger/releases">or download a binary →</a>
-        </div>
-        <div class="install__meta">
-          <span id="installNoteWin" data-alt-note>On Windows (PowerShell): <code class="inline">irm https://rogerai.fm/install.ps1 | iex</code></span>
-        </div>
+      </figure>
+
+    </div>
+
+    <!-- EXPERIMENT: the screen itself breaks all the way out to the full
+         content width (spine to viewport edge) - a plain sibling of .wrap,
+         not a 100vw/-50vw bleed. That trick overshoots on this page because
+         body is inset by the fixed spine rather than centered on the raw
+         viewport (see .dialwrap in models.css, which hit the same bug and
+         fixed it the same way: don't fight the offset, just don't nest
+         inside a max-width container at all). -->
+    <div class="reel-band" id="edgeBand">
+      <div class="reel__screen" id="edgeScreen" role="button" tabindex="0"
+           aria-pressed="true" aria-label="Turn the Roger Edge set off">
+        <video class="reel__video" id="edgeVideo" muted playsinline preload="none"
+               poster="assets/edge/poster-a.webp"
+               aria-label="Roger Edge brand film, Story A and Story B, looping">
+          <source type="video/webm">
+          <source type="video/mp4">
+        </video>
+        <span class="reel__tag mono" id="edgeTag" aria-hidden="true">STORY A</span>
       </div>
-
-      <!-- FIG.2 - the band teaser. A COMPACT fake-dial tuner: a short frequency
-           strip auto-sweeps + re-locks band to band, proving "browse a band ->
-           tune in". Historical sample data, gently animated, no mouse interaction.
-           Smaller + LEFT-ALIGNED with the command above (same left edge / max
-           width). The whole figure links to /models.html, where the full
-           INTERACTIVE dial (real data) lives. teaser.js owns #pingTag / [data-onair]. -->
-      <a class="teaser" id="teaser" data-reveal data-reveal-delay="240"
-         href="/models.html" aria-label="Browse the models on the live dial">
-        <span class="fig teaser__fig" aria-hidden="true">FIG. 2 - THE BAND · AT A GLANCE</span>
-        <p class="teaser__bridge">
-          Historical interface sample · authored September 2026 · not live.
-          <span>Browse the current band on the dial:</span>
-        </p>
-        <div class="teaser__face" style="--lock:1;--sig:0.89">
-          <div class="teaser__top">
-            <span class="teaser__locked mono" id="teaserLocked">LOCKED · <b>gpt-oss-20b</b></span>
-            <span class="teaser__sig mono" id="teaserSig">SIGNAL <b>89</b>/100</span>
-          </div>
-
-          <!-- the dial face: a short frequency strip (SVG, JS-hydrated) under a
-               fixed center needle + glass. Pre-filled for JS-off / reduced-motion. -->
-          <div class="teaser__dial">
-            <div class="teaser__svgwrap">
-              <svg id="teaserSvg" class="teaser__svg" viewBox="0 0 640 78" preserveAspectRatio="none" aria-hidden="true">
-                <g id="teaserStrip" class="teaser__stripg" transform="translate(320,0)"></g>
-              </svg>
-              <span class="teaser__glass" aria-hidden="true"></span>
-              <span class="teaser__needle" aria-hidden="true"></span>
-            </div>
-          </div>
-
-          <!-- the band list it sweeps (compact). The locked row tracks the strip. -->
-          <ul class="teaser__list" id="teaserList" aria-hidden="true">
-            <li class="teaser__band is-locked"><span class="teaser__bm">gpt-oss-20b</span><span class="teaser__bd">7 stn &middot; sig 89</span></li>
-            <li class="teaser__band"><span class="teaser__bm">deepseek-v4-flash</span><span class="teaser__bd">5 stn &middot; sig 82</span></li>
-            <li class="teaser__band"><span class="teaser__bm">qwen3.8-27b</span><span class="teaser__bd">6 stn &middot; sig 78</span></li>
-            <li class="teaser__band"><span class="teaser__bm">&raquo;claude-haiku-4.5</span><span class="teaser__bd">2 stn &middot; sig 71</span></li>
-            <li class="teaser__band"><span class="teaser__bm">grok-4.6</span><span class="teaser__bd">3 stn &middot; sig 63</span></li>
-            <li class="teaser__band"><span class="teaser__bm">&raquo;kimi-k3</span><span class="teaser__bd">2 stn &middot; sig 57</span></li>
-            <li class="teaser__band teaser__band--idle"><span class="teaser__bm">mistral-large</span><span class="teaser__bd">idle</span></li>
-          </ul>
-
-          <div class="teaser__foot">
-            <span class="teaser__chip mono" id="teaserChip">
-              <span class="meter__k">RATE</span><b>$0.00 /1M</b>
-              <span class="meter__k">SPEED</span><b>31 t/s</b>
-              <span class="meter__k">STN</span><b>7</b>
-            </span>
-            <span class="teaser__open mono" aria-hidden="true">browse the models &rarr;</span>
-          </div>
-        </div>
-      </a>
-
+      <!-- a DOM sibling of .reel__screen, not a child - .reel__screen already
+           has role="button" for the power toggle, and a real <button> nested
+           inside it would fire both handlers on every click (event bubbling).
+           Positioned as an overlay on the screen's corner via CSS instead. -->
+      <button class="reel__mute" id="edgeMute" type="button" aria-pressed="false" aria-label="Turn the film's sound on">
+        <svg class="reel__icon--muted" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M4 9v6h4l5 5V4L8 9H4z"></path><line x1="17" y1="4" x2="23" y2="20"></line><line x1="23" y1="4" x2="17" y2="20"></line>
+        </svg>
+        <svg class="reel__icon--sound" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M4 9v6h4l5 5V4L8 9H4z"></path><path d="M16.5 8.5a5 5 0 0 1 0 7"></path><path d="M19 6a9 9 0 0 1 0 12"></path>
+        </svg>
+        <span id="edgeMuteLabel">sound off</span>
+      </button>
     </div>
   </section>
 
@@ -762,7 +766,7 @@
   <!-- include: footer.html anchors="" -->
 
   <script src="js/radiomap.js" defer></script>
-  <script src="js/teaser.js" defer></script>
+  <script src="js/edge-story.js" defer></script>
   <script src="js/terminal.js" defer></script>
   <script src="js/fmt.js" defer></script><!-- canonical $ renderer; before market.js (meter REPLY) -->
   <script src="js/market.js" defer></script>

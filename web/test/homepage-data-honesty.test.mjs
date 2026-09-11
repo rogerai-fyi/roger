@@ -32,20 +32,15 @@ test("without JavaScript the market is an honest unloaded state, not fake activi
   assert.doesNotMatch(section, /debited live/i);
 });
 
-test("the hard-coded tuner is a dated historical interface sample, never a live read", () => {
-  const hero = home().match(/<section class="hero">[\s\S]*?<\/section>/)?.[0] || "";
-  const teaser = hero.match(/<a class="teaser"[\s\S]*?<\/a>/)?.[0] || "";
-  assert.match(compact(teaser), /historical interface sample/i);
-  /* AMENDED 2026-08-18: the sample's model list was refreshed to models people
-     actually run now, so the date it was authored moved with it. The guarantee
-     is the date itself - a dated, explicitly not-live sample cannot be mistaken
-     for the live dial - not any particular month.
-     AMENDED 2026-09-02: refreshed again from a live /discover read (gpt-oss-20b
-     locked free, the DeepSeek band, two curated bands wearing the \u00bb mark). */
-  assert.match(compact(teaser), /authored September 2026/i);
-  assert.match(compact(teaser), /not live/i);
-  assert.match(teaser, /href="\/models\.html"/);
-});
+/* RETIRED 2026-09-10: FIG.2's dated fake-dial tuner (the "historical interface
+   sample ... not live" widget this test locked in) was replaced by the Roger
+   Edge story reel - a looping brand film, no station counts/signal/price data
+   at all. The Gherkin scenario this implemented ("Historical examples identify
+   their provenance", features/web/homepage_company_research_branding.feature)
+   is conditional on a historical model/measurement being shown, and none is
+   shown here anymore, so the scenario holds vacuously. Nothing replaces this
+   test: if a future homepage surface shows historical model/measurement data
+   again, it needs a new test asserting the same provenance labeling. */
 
 test("the earnings forecast is visibly illustrative and reproducible", () => {
   const panel = home().match(/<aside class="earn"[\s\S]*?<\/aside>/)?.[0] || "";

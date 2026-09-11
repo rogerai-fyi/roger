@@ -23,7 +23,7 @@
       (first open only).
 
    Status ownership: #pingTag is the SINGLE status label, owned by
-   teaser.js on the homepage (it writes "on air"). This file NEVER touches
+   edge-story.js on the homepage (it writes "on air"). This file NEVER touches
    #pingTag and the banner carries NO status words - only flavor +
    responses. The popup header shows just "PING / CONCIERGE" with a small
    live dot (no "ON AIR" text), so there is exactly one status anywhere.
@@ -45,7 +45,7 @@
   /* ---------------------------------------------------------------
      1) ALWAYS-ON MASCOT - flavor banner + gentle drift (shared rAF)
      FLAVOR phrases only: NO status words ("ON AIR"/"STAND BY") - the
-     single status lives on #pingTag (owned by teaser.js).
+     single status lives on #pingTag (owned by edge-story.js).
      --------------------------------------------------------------- */
   var PHRASES = [
     // lead phrase (kept first; the rest are shuffled below)
